@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
@@ -17,6 +17,7 @@ import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
 import { StockBadge, stockVariantForSingle } from '../../_shared/StockBadge';
@@ -29,6 +30,8 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+import { CardCode } from '@/components/domain/CardCode';
+import { WishlistBlock } from './WishlistBlock';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -122,6 +125,10 @@ interface FactSpec {
   note?: string;
   /** La celda de dinero ocupa la fila completa cuando queda sola (§21.8b-3). */
   fullRow?: boolean;
+  /** §MIV.5 — id del rótulo de la celda (lo cita `labelledBy`). */
+  labelId?: string;
+  /** §MIV.5 — la celda es un grupo nombrado por estos nodos visibles (rótulo, cifra, IVA). */
+  labelledBy?: string;
 }
 
 // La celda `Fact` ya NO se declara aquí: vive en `_shared/Fact.tsx` (misma marcación, cero cambio
@@ -150,6 +157,8 @@ function FactGrid({ facts }: { facts: FactSpec[] }) {
             key={f.key}
             label={f.label}
             note={f.note}
+            labelId={f.labelId}
+            labelledBy={f.labelledBy}
             className={cn(
               f.fullRow && 'sm:col-span-2',
               !f.fullRow && !opensRow && 'sm:border-l sm:pl-7',
@@ -198,6 +207,7 @@ function Detail({
   const tcat = useTranslations('catalog');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
+  const tWishlist = useTranslations('wishlist');
   const locale = useLocale() as AppLocale;
   const primary = groups[0];
 
@@ -218,7 +228,23 @@ function Detail({
   // §21.8a — el basis que manda es el del MISMO grupo cuyo precio ocupa el bloque (hoy
   // `listings[0]`, la publicación más barata, la del «desde»). Nunca se mezcla el precio de un
   // grupo con el mercado de otro. Empate ⇒ el backend ya emitió "market"; el front no re-evalúa.
-  const showMarketValue = primary?.priceBasis === 'market';
+  //
+  // ⭐ §MIV.2 (v1.90⟨miv⟩, NORMATIVA): la cifra del bloque es `referenceDisplayCents` —el mercado CON
+  // IVA que calcula el servidor—, y el bloque existe ⇔ `priceBasis === 'market'` ∧ esa cifra es un
+  // entero > 0. ⛔ Nunca se cae al neto (`referenceValue`): sin la cifra con IVA no hay bloque, ni
+  // «—», ni rótulo de IVA suelto. ⛔ Ninguna cuenta aquí: la cifra se pinta tal cual llega.
+  const marketDisplayCents =
+    primary?.priceBasis === 'market' &&
+    Number.isInteger(primary.referenceDisplayCents) &&
+    (primary.referenceDisplayCents ?? 0) > 0
+      ? primary.referenceDisplayCents
+      : undefined;
+  const showMarketValue = marketDisplayCents !== undefined;
+  // §MIV.5: ids para el nombre accesible de la celda («Valor de mercado MX$1,160.00 IVA 16 % incluido»).
+  const marketIds = useId();
+  const marketLabelId = `${marketIds}-label`;
+  const marketFigureId = `${marketIds}-figure`;
+  const marketIvaId = `${marketIds}-iva`;
 
   const facts: FactSpec[] = primary
     ? [
@@ -251,13 +277,26 @@ function Detail({
               {
                 key: 'marketValue',
                 label: tcat('marketValue'),
+                // DESIGN_SYSTEM §MIV.2: cifra → rótulo de IVA (dentro del `node`) → fecha (`note`).
                 note: captured,
+                labelId: marketLabelId,
+                labelledBy: `${marketLabelId} ${marketFigureId} ${marketIvaId}`,
                 node: (
-                  <span className="tabular text-3xl font-medium leading-none text-text">
-                    {primary.referenceValue.referenceMxnCents != null
-                      ? formatMoneyCents(primary.referenceValue.referenceMxnCents, locale)
-                      : '—'}
-                  </span>
+                  <>
+                    <span id={marketFigureId} className="tabular text-3xl font-medium leading-none text-text">
+                      {formatMoneyCents(marketDisplayCents, locale)}
+                    </span>
+                    {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
+                        `showRate={false}`; ⛔ el del PRECIO sigue «IVA 16 % incluido». `ivaIncluded`
+                        literal: el servidor arma esta cifra siempre con el IVA completo (§MIV.1). La tasa
+                        ya no se muestra aquí, así que `ivaRatePct` deja de pasarse. */}
+                    <IvaLabel
+                      id={marketIvaId}
+                      ivaIncluded
+                      showRate={false}
+                      className="mt-2 block text-[11px] leading-none whitespace-nowrap"
+                    />
+                  </>
                 ),
               },
             ]
@@ -311,13 +350,18 @@ function Detail({
             {card.name}
           </h1>
           <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {card.setName} · #{card.number} · {card.rarity}
+            {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`.
+                La línea va en versalitas; el código NO (`normal-case`): §37.3b, «mayúsculas tal
+                como llegan» — la sigla es la impresa en la carta, no la decide el CSS. */}
+            {card.setName} · <CardCode code={card.setPtcgoCode} number={card.number} className="normal-case" /> ·{' '}
+            {card.rarity}
           </p>
 
           {primary && (
             <>
               {/* §21.8: la retícula se arma sobre la lista de hechos VISIBLES. El bloque «Valor de
-                  mercado» entra si y solo si `priceBasis === 'market'`; con floor/override/bounty/
+                  mercado» entra si y solo si `priceBasis === 'market'` (y, desde §MIV, trae su cifra con IVA
+                  `referenceDisplayCents`); con floor/override/bounty/
                   pending NO se renderiza (ni en cero, ni tachado, ni atenuado, ni «—»). La UI
                   OBEDECE `priceBasis`: está PROHIBIDO inferirlo comparando `referenceValue` contra
                   `displayPriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies
@@ -349,6 +393,11 @@ function Detail({
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
           <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
+          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL).
+              ⛔ Ni «agotado» ni «vuelve pronto»: no lo sabemos. */}
+          {groups.length === 0 && (
+            <p className="mt-4 text-[15px] text-muted">{tWishlist('card.notHere')}</p>
+          )}
           <div className="mt-4 border-t border-border">
             {groups.map((g) => {
               // Piezas físicas del grupo, cheapest-first, y el slab representativo para el cert.
@@ -387,6 +436,16 @@ function Detail({
               );
             })}
           </div>
+
+          {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Solo con el dial
+              encendido (`wishlistEnabled`, campo aditivo de la ficha, §WSH.4); ⛔ el sellado no lo lleva (823). */}
+          {detail.wishlistEnabled === true && (
+            <WishlistBlock
+              cardId={card.id}
+              availableFinishes={card.availableFinishes}
+              preferredFinish={groups[0]?.finish}
+            />
+          )}
         </div>
       </div>
 

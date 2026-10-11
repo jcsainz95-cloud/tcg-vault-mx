@@ -5,7 +5,7 @@ import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -83,6 +83,7 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
       ? { status: 'pending' }
       : { status: 'priced', referenceMxnCents: opts.referenceMxnCents };
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -167,7 +168,7 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
 
 describe('checkout — orders.salePriceOf (auth + guest comparten el cuerpo)', () => {
   const build = (pricing: PricingService) =>
-    new OrdersService({} as never, pricing, {} as never, {} as never, {} as never);
+    new OrdersService({} as never, pricing, ivaDialsStub() as never, {} as never, {} as never);
 
   it('sellOverride pisa la regla: la línea cobra el override (paridad exacta con storefront)', async () => {
     const svc = build(buildPricing({ referenceMxnCents: 10000, override: overrideRow(9900) }));
@@ -209,7 +210,7 @@ describe('publicación — inventory.bulkPublish (precio server-side SEC-A1)', (
       inventoryBatch: { findUnique: jest.fn(async () => null), create: jest.fn() },
     } as unknown as PrismaService;
     const pricing = buildPricing(opts);
-    const svc = new InventoryService(prisma, pricing, {} as SettingsService);
+    const svc = new InventoryService(prisma, pricing, ivaDialsStub() as unknown as SettingsService);
     return { svc, pricing };
   }
 

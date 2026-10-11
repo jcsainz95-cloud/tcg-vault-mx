@@ -148,6 +148,96 @@ H="$(hecho "${TMP}/sucio.json")"
 [ "${H}" = "1|true|blocking=true" ] && ok "sin --report-only y un hallazgo bloqueante: exit 1 y blocking=true (mismo hecho, otro exit)" \
   || bad "sin --report-only se esperaba 1|true|blocking=true y salió ${H}."
 
+# ---------------------------------------------------------------------------
+# 5-ter) ALCANCE POR ORIGEN (DEVOPS_NOTES §75). El primer dast-release bloqueante
+#    (run 36969283231) salió rojo por un 10020 cuyo único caso era el iframe de
+#    js.stripe.com. El filtro `--scope-origin` NO puede esconder un 10020 en
+#    NUESTRO origen: se decide por instancia, lo de terceros se lista, y un
+#    alcance que no casa con nada es ROJO. Cada caso, con su fixture.
+# ---------------------------------------------------------------------------
+SCOPE=(--scope-origin http://localhost:3010 --scope-origin http://localhost:3011/api/v1)
+zap10020() {  # zap10020 <fichero> <uri>... -> un 10020 con esas instancias + un WARN propio
+  local f="$1"; shift; local insts="" u
+  for u in "$@"; do insts="${insts}${insts:+,}{\"uri\":\"${u}\"}"; done
+  cat > "$f" <<J
+{"@version":"guarda","site":[
+ {"@name":"http://localhost:3010","alerts":[
+  {"pluginid":"10037","alert":"X-Powered-By","riskcode":"1","count":"1","instances":[{"uri":"http://localhost:3010/es"}]}]},
+ {"@name":"mixto","alerts":[
+  {"pluginid":"10020","alert":"Missing Anti-clickjacking Header","riskcode":"2","count":"$#","instances":[${insts}]}]}]}
+J
+}
+rc_scope() { GITHUB_ACTIONS='' "${GATE[@]}" --zap-json "$1" "${@:2}" >/dev/null 2>&1; echo $?; }
+
+zap10020 "${TMP}/s-tercero.json" "https://js.stripe.com/v3/m-outer-3437aaddcdf6922d623e172c2d6f9278.html"
+zap10020 "${TMP}/s-propio.json"  "http://localhost:3010/es"
+zap10020 "${TMP}/s-mixto.json"   "https://js.stripe.com/v3/m-outer-x.html" "http://localhost:3010/es/catalogo"
+zap10020 "${TMP}/s-puerto.json"  "http://localhost:8080/"
+
+R="$(rc_scope "${TMP}/s-tercero.json" "${SCOPE[@]}")"
+[ "$R" = 0 ] && ok "10020 SOLO en js.stripe.com con alcance propio: VERDE (tercero, se lista fuera de alcance)" \
+             || bad "10020 de tercero (js.stripe.com) sigue bloqueando con --scope-origin (rc=$R)."
+R="$(rc_scope "${TMP}/s-tercero.json")"
+[ "$R" != 0 ] && ok "el MISMO informe sin --scope-origin sigue ROJO (el filtro solo actúa si se declara alcance)" \
+              || bad "sin --scope-origin el 10020 de tercero salió verde: alguien filtró por defecto."
+R="$(rc_scope "${TMP}/s-propio.json" "${SCOPE[@]}")"
+[ "$R" != 0 ] && ok "10020 en localhost:3010 (NUESTRO origen) con alcance propio: ROJO" \
+              || bad "UN 10020 EN NUESTRO ORIGEN PASÓ EN VERDE con --scope-origin. El filtro esconde hallazgos reales."
+R="$(rc_scope "${TMP}/s-mixto.json" "${SCOPE[@]}")"
+[ "$R" != 0 ] && ok "10020 con una instancia de Stripe (primera) y otra NUESTRA: ROJO (se decide por instancia)" \
+              || bad "un 10020 mixto pasó en verde: lo de terceros tapó lo nuestro."
+R="$(rc_scope "${TMP}/s-puerto.json" "${SCOPE[@]}")"
+[ "$R" = 0 ] && ok "otro puerto del mismo host (localhost:8080) cuenta como TERCERO (origen = esquema+host+puerto)" \
+             || bad "localhost:8080 se trató como propio: el origen no compara el puerto (rc=$R)."
+R="$(rc_scope "${TMP}/s-tercero.json" --scope-origin http://no-casa:9)"
+[ "$R" != 0 ] && ok "alcance que no casa con NINGUNA instancia: ROJO (no hay verde vacío)" \
+              || bad "con un --scope-origin que no casa con nada el candado dio VERDE."
+R="$(rc_scope "${TMP}/sucio.json" --scope-origin http://ejemplo)"
+[ "$R" != 0 ] && ok "el SQLi de manual en el origen declarado sigue ROJO con --scope-origin" \
+              || bad "con --scope-origin el SQLi de manual pasó en verde."
+# ---------------------------------------------------------------------------
+# 5-quater) SUB-ALERTAS (`alertRef`, DEVOPS_NOTES §96 · CL-1). Con la CSP en
+#    enforce, 10055 está en FAIL pero tres sub-alertas son deliberadas (§14.3) y
+#    van a WARN por clave `10055-<n>`. La clave específica NO puede aflojar las
+#    demás: script-src unsafe-inline (10055-5) sigue ROJO, y una alerta sin
+#    `alertRef` se juzga por la regla.
+# ---------------------------------------------------------------------------
+zapref() {  # zapref <fichero> <pluginid> <alertRef|""> -> una alerta en localhost:3010
+  local ref=""; [ -n "$3" ] && ref=",\"alertRef\":\"$3\""
+  cat > "$1" <<J
+{"@version":"guarda","site":[{"@name":"http://localhost:3010","alerts":[
+ {"pluginid":"$2"${ref},"alert":"x","riskcode":"2","count":"1","instances":[{"uri":"http://localhost:3010/es"}]}]}]}
+J
+}
+if awk -F'\t' '$1=="10055"{print $2}' security/zap/baseline.conf | grep -qx FAIL; then
+  for sub in 10055-3 10055-4 10055-6; do
+    zapref "${TMP}/r-${sub}.json" 10055 "${sub}"
+    R="$(rc_scope "${TMP}/r-${sub}.json" "${SCOPE[@]}")"
+    [ "$R" = 0 ] && ok "${sub} (deliberada en §14.3) con 10055 en FAIL: VERDE (WARN por su clave)" \
+                 || bad "${sub} bloquea con la CSP en enforce: el DAST de release saldría rojo por un hallazgo aceptado (rc=$R)."
+  done
+  zapref "${TMP}/r-10055-5.json" 10055 10055-5
+  R="$(rc_scope "${TMP}/r-10055-5.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10055-5 (script-src unsafe-inline) sigue ROJO: la clave específica no afloja a sus hermanas" \
+                || bad "10055-5 pasó en verde: las sub-claves aflojaron la regla entera."
+  zapref "${TMP}/r-10055-sin.json" 10055 ""
+  R="$(rc_scope "${TMP}/r-10055-sin.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10055 SIN alertRef se juzga por la regla (FAIL): sin dato no se afloja" \
+                || bad "10055 sin alertRef pasó en verde."
+  zapref "${TMP}/r-10038-3.json" 10038 10038-3
+  R="$(rc_scope "${TMP}/r-10038-3.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10038-3 (CSP solo Report-Only) es ROJO con la CSP en enforce" \
+                || bad "10038-3 pasó en verde: una vuelta a Report-Only no la vería el DAST."
+else
+  note "10055 no está en FAIL (CSP en report-only): las sub-alertas no aplican."
+fi
+
+if grep -q -- '--scope-origin' security/scripts/dast-ephemeral.sh; then
+  ok "dast-ephemeral.sh pasa --scope-origin al candado (los orígenes de sus blancos)"
+else
+  bad "dast-ephemeral.sh no declara alcance: un tercero (js.stripe.com) volvería a bloquear el release."
+fi
+
 # --- 6. nadie vuelve a colgar el DAST de un staging inexistente --------------
 CULPABLES=""
 while IFS= read -r f; do

@@ -12,6 +12,7 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  Role,
   SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
@@ -20,8 +21,14 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
+import {
+  saleQueueKeyOf,
+  sealedSaleQueueKeyOf,
+  serializeSaleQueueKey,
+} from '../pricing/sale-queue-key';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -30,11 +37,16 @@ import {
   computeAportacionCostCents,
   firstPresentAmount,
   hasManualPrice,
+  IvaDials,
+  manualSaleOf,
   PriceBasis,
+  saleDisplayCentsOf,
+  SEALED_SALE_PRICE_INCLUDE,
+  SealedPriceOrigin,
   sealedPriceBasisOf,
 } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
-import { PendingReason, PricingCurve } from '../../common/pricing-curve';
+import { PendingReason, PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -52,7 +64,54 @@ import { toCardDTO } from '../catalog/catalog.service';
 // v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
+import { sealedProductPiecesOf } from './sealed-product-pieces';
+import { assertSealedPriceWriters, SealedPriceWriteLine } from './sealed-price.policy';
+
+/** 💰 v1.83 (§M11-SP.4): la línea de un alta (single / lote / «encontrada») tal como la ve la regla. */
+function sealedPriceLineOf(l: {
+  productType: string;
+  listPriceCents?: number | null;
+  sealedProductId?: string | null;
+  manualMarketMxnCents?: number | null;
+}): SealedPriceWriteLine {
+  return {
+    productType: l.productType,
+    listPriceCents: l.listPriceCents,
+    sealedProductId: l.sealedProductId,
+    manualMarketMxnCents: l.manualMarketMxnCents,
+  };
+}
+
+/**
+ * 💰 v1.83 / v1.83.1 (§M11-SP.1, §M11-SP.12.4) — el precio de venta de una fila S-2 del listado (sellado de plataforma
+ * `in_stock | listed`): `L` y `P` de la MISMA derivación que la cola, el peldaño y el `P` del dueño del producto.
+ */
+interface SealedRowSalePrice {
+  resolvedSalePriceCents: number | null;
+  resolvedDisplayPriceCents: number | null;
+  priceBasis: PriceBasis;
+  sealedPriceOrigin: SealedPriceOrigin;
+  sealedProductDisplayPriceCents: number | null;
+}
+
+/** `P` del dueño del producto de una pieza (`null` = no hay o no está ligada). Proyección admin, ⛔ no decide nada. */
+function sealedProductDisplayPriceOf(item: { sealedProduct: { ownerDisplayPriceCents: number | null } | null }): number | null {
+  return item.sealedProduct?.ownerDisplayPriceCents ?? null;
+}
 import { AuditService } from '../audit/audit.service';
+import { PriceSyncJobService } from '../../jobs/price-sync.service';
+import {
+  activeWithdrawalsOf,
+  customerDrawersOf,
+  lockCustomerVaultGate,
+  VAULT_VERB_TX_OPTIONS,
+} from '../vault/vault-placement.rules';
+import {
+  assertMoveDestination,
+  assertOperable,
+  GuardedItem,
+  inActiveWithdrawalError,
+} from './item-location.rules';
 
 /** `P-84` · clase **E** (§4.37): los tres ejes de enum de `GET /admin/inventory/items`, DERIVADOS
  * del schema — ni una lista escrita a mano. */
@@ -172,8 +231,25 @@ export const PUBLISH_ALL_FAILURES_CAP = 200;
  */
 export const PENDING_PUBLISH_CHUNK_SIZE = PUBLISH_ALL_CHUNK_SIZE;
 
-/** Qué le falta a una pieza para estar a la venta (§11 `PendingPublishRowDTO.missing`). */
+/**
+ * Qué le falta a una pieza para estar a la venta (§11 `PendingPublishRowDTO.missing`).
+ * ⭐ Errata SU-1 (§M1-SU, SU.2): `'location'` se CONSERVA en el tipo, dormido — el servidor no lo emite mientras
+ * rija la fila de HECHOS «La ubicación (cajón) NO es requisito para publicar, por ahora».
+ */
 export type PendingPublishMissing = 'location' | 'price';
+
+/** ⭐ SU-1 (SU.3): el pronóstico de `previewPublication` — lo que `reevaluateForPublication` haría, sin escribir. */
+export type PublishPreviewOutcome =
+  | 'would_publish'
+  | 'already_listed'
+  | 'price_pending'
+  | 'not_publishable'
+  | 'not_found';
+
+export interface PublishPreviewResult {
+  inventoryItemId: string;
+  outcome: PublishPreviewOutcome;
+}
 
 /**
  * v1.51.19 (§4.39m.8) — llave de emparejamiento **variante ↔ pieza** para el disparador (c). Incluye
@@ -238,6 +314,11 @@ function variantPublishMatches(
  * ⚠️ **`cardProductId` aquí es el `Int` de TCGplayer** (el de `InventoryItem`/`PendingPriceEntry`),
  * **no** el uuid `String` de `PriceReference.cardProductId`. Son dos identificadores distintos con el
  * mismo nombre en este repo (ver `VariantPublishRef`).
+ *
+ * ⭐ Techlead D-1 (sobre `8a10153e`): la SERIALIZACIÓN es la única del repo para esta clave
+ * (`serializeSaleQueueKey`, `modules/pricing/sale-queue-key.ts`) — la misma con la que el barrido VQ de
+ * `price-sync` casa filas. Antes aquí era un `|`.join con `''` y allí un `JSON.stringify`: dos formas
+ * de escribir la misma clave. Se enumeran los seis componentes a la vista (R3 lo vigila).
  */
 function pendingQueueKey(k: {
   cardId: string;
@@ -247,14 +328,14 @@ function pendingQueueKey(k: {
   cardProductId?: number | null;
   sealedProductId?: string | null;
 }): string {
-  return [
-    k.cardId,
-    k.productType,
-    k.gradeKey,
-    k.finish,
-    k.cardProductId ?? '',
-    k.sealedProductId ?? '',
-  ].join('|');
+  return serializeSaleQueueKey({
+    cardId: k.cardId,
+    productType: k.productType,
+    gradeKey: k.gradeKey,
+    finish: k.finish,
+    cardProductId: k.cardProductId,
+    sealedProductId: k.sealedProductId,
+  });
 }
 
 /**
@@ -268,7 +349,21 @@ export interface PendingPublishState {
   /** Llave de la cola de M2 con la que se busca la entrada `open`. Solo con `'price'`. */
   pendingQueueKey?: string;
   resolvedSalePriceCents: number | null;
+  /**
+   * 💰 v1.83.1 (`API_CONTRACT §M11-SP.12.4`) — `P` de la pieza: `saleDisplayCentsOf` sobre la MISMA derivación que
+   * `resolvedSalePriceCents` (con precio del dueño, SU `P` tal cual). `null` ⇔ `resolvedSalePriceCents` `null`.
+   */
+  resolvedDisplayPriceCents: number | null;
+  /** 💰 v1.83 (§M11-SP.1): de qué peldaño salió el precio — SOLO sellado (`undefined` en raw/graded). */
+  sealedPriceOrigin?: SealedPriceOrigin;
   priceBasis: PriceBasis | null;
+  /**
+   * ⭐ v1.80.8.7 (S-1, API_CONTRACT §M1 `M1-SFP` punto 2) — **por qué HOY no se publica por precio**: el
+   * veredicto de la MISMA derivación pura que decide `missing` (⛔ no la fila `PendingPriceEntry` abierta, que
+   * puede no existir o traer el motivo con que nació). `null` sin `'price'` en `missing`, y `null` con
+   * `'price'` ⇔ gradeada sin identidad de slab (sin variante no hay motivo de mercado — regla del contrato).
+   */
+  pendingReason: PendingReason | null;
 }
 
 /**
@@ -279,13 +374,25 @@ export interface PendingPublishState {
 interface PublishPricingCtx {
   /** v2.0 (P-48, §4.36.2): la CURVA izada UNA vez por request/corrida (BE-25). */
   curve: PricingCurve;
+  /** v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada junto a la curva. */
+  premiumFloorPolicy: PremiumFloorPolicy;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+  /**
+   * 💰 v1.83.1 (§M11-SP.12.3): los diales de IVA, izados UNA vez con el resto del contexto: el `L` equivalente del
+   * precio del dueño y el `P` de las proyecciones admin salen de ellos (⛔ jamás leídos por pieza).
+   */
+  ivaDials: IvaDials;
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
 }
 
-/** Pieza publicable (fila InventoryItem + su carta), como la consumen los pipelines de publish. */
-type PublishableItem = Prisma.InventoryItemGetPayload<{ include: { card: true } }>;
+/**
+ * Pieza publicable (fila InventoryItem + su carta + 💰 v1.83 el precio del dueño de su producto), como la consumen
+ * los pipelines de publish. `sealedProduct` en el `include` es OBLIGATORIO (SP-3): una lectura que lo olvide no
+ * produce un `PublishableItem` y no compila al llegar a la derivación.
+ */
+const PUBLISHABLE_INCLUDE = { card: true, ...SEALED_SALE_PRICE_INCLUDE } as const;
+type PublishableItem = Prisma.InventoryItemGetPayload<{ include: typeof PUBLISHABLE_INCLUDE }>;
 
 /**
  * Resultado de la resolución de precio de publicación de UNA pieza:
@@ -333,6 +440,13 @@ type PublishPriceDerivation =
       ok: true;
       salePriceCents: number;
       priceSource: 'manual' | 'derived';
+      /**
+       * 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño (sellado con precio de producto) o `null`; `salePriceCents` es
+       * entonces su `L` equivalente. Las proyecciones de `P` lo pasan a `saleDisplayCentsOf`.
+       */
+      fixedDisplayCents: number | null;
+      /** 💰 v1.83 (§M11-SP.1): solo sellado — de qué peldaño salió. */
+      sealedOrigin?: SealedPriceOrigin;
       /**
        * §11 `PendingPublishRowDTO.priceBasis` — **QUÉ determinó el monto**, con el MISMO enum que
        * usan ficha, catálogo y compra. La cola lo enseña para que el operador vea de dónde salió el
@@ -384,6 +498,74 @@ type PublishPriceDerivation =
  * conjunto de status de origen permitido; hoy solo describe el error `PRICE_PENDING` por-línea.
  */
 const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+
+/**
+ * ⭐ v1.80.8.7 (API_CONTRACT §M1 `M1-SFP` punto 1, ARCHITECTURE §4.36.5 (c-quater), criterio 255; cierra
+ * `D-SFP-1`) — lo que la bitácora del `PATCH /admin/inventory/items/:id` registra de una pieza: las DOS
+ * claves siempre, aunque solo cambie una (quien lea la fila no reconstruye la otra).
+ */
+export interface ItemAuditState {
+  status: InventoryStatus;
+  listPriceCents: number | null;
+}
+
+/** Quién hizo el `PATCH` (el `actor` que `updateItem` recibe del controlador). */
+type ItemAuditActor = { id: string; role: Role } | undefined;
+
+/**
+ * ⭐ v1.80.8.7 — **EL ÚNICO cuerpo del `before/after` de `inventory.item_updated`** (SFP-6: un segundo literal
+ * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` cambian (valor
+ * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4).
+ * `fields` = claves del cuerpo saneado, en orden alfabético.
+ */
+export function itemUpdatedAudit(
+  read: ItemAuditState,
+  written: ItemAuditState,
+  fields: string[],
+): { action: string; before: ItemAuditState; after: ItemAuditState & { fields: string[] } } | null {
+  if (read.status === written.status && read.listPriceCents === written.listPriceCents) return null;
+  return {
+    action: 'inventory.item_updated',
+    before: { status: read.status, listPriceCents: read.listPriceCents },
+    after: { status: written.status, listPriceCents: written.listPriceCents, fields: [...fields].sort() },
+  };
+}
+
+/**
+ * ⭐ v1.80.8.7 — escribe la fila de `itemUpdatedAudit` **con el handle `tx` de la escritura** que audita: si el
+ * `INSERT` falla, la `$transaction` se revierte y el cambio NO se confirma (SFP-3). La llaman los dos caminos
+ * de `updateItem` (no publicante, tras `guardedItemUpdate`; publicante, dentro de `claimListed`). ⛔ Ni en el
+ * controlador ni después del `commit`: un precio sin su bitácora es lo que el criterio 255 prohíbe.
+ */
+async function writeItemUpdatedAudit(
+  tx: Prisma.TransactionClient,
+  actor: ItemAuditActor,
+  id: string,
+  read: ItemAuditState,
+  written: ItemAuditState,
+  fields: string[],
+): Promise<void> {
+  const diff = itemUpdatedAudit(read, written, fields);
+  if (diff == null) return;
+  await tx.auditLog.create({
+    data: {
+      actorUserId: actor?.id ?? null,
+      actorRole: actor?.role ?? null,
+      action: diff.action,
+      entityType: 'InventoryItem',
+      entityId: id,
+      before: diff.before as unknown as Prisma.InputJsonValue,
+      after: diff.after as unknown as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/** Claves del cuerpo saneado del `PATCH` que viajan (las `undefined` no son parte del cuerpo). */
+function patchKeys(patch: object): string[] {
+  return Object.entries(patch)
+    .filter(([, v]) => v !== undefined)
+    .map(([k]) => k);
+}
 
 /**
  * [v1.20 §4.20e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
@@ -455,7 +637,11 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   { header: 'Costo MXN', key: 'costMxn', width: 12 },
   { header: 'Precio mercado MXN', key: 'marketMxn', width: 18 },
   { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
-  { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
+  // 💰 v1.83.2 (API_CONTRACT §M11-SP.13.4, Q-4): la 17 se rotula por su ESCALA (`L`, antes de IVA) y la 18 lleva lo
+  // que TECLEÓ el dueño para el producto (`P`, con IVA), exacto. Las dos salen de `manualSaleOf` (un solo camino);
+  // ⛔ el export no lee diales ni deriva una escala desde la otra (§M1: STORED, sin derivar).
+  { header: 'Precio venta antes de IVA MXN', key: 'sellMxn', width: 18 },
+  { header: 'Precio del producto con IVA MXN', key: 'productDisplayMxn', width: 22 },
 ];
 
 /**
@@ -568,6 +754,11 @@ export class InventoryService {
     // @Optional() — el módulo lo provee (AuditModule es @Global); los tests unitarios que construyen
     // el servicio con 3 args lo dejan `undefined` (el precio manual se ejercita sin auditor en unit).
     @Optional() private readonly audit?: AuditService,
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 1): el barrido VQ al final de `publishAll` — el MISMO cuerpo que el final del
+    // `price-sync` completo (`PricingModule` lo exporta; este módulo ya lo importa). @Optional() por los tests
+    // unitarios que construyen el servicio con 3 args: sin él, `publishAll` registra `logger.error` (falla-seguro)
+    // en vez de saltarse el barrido en silencio — y VQ-10 (integración, DI real) mide que en la app SÍ barre.
+    @Optional() private readonly priceSync?: PriceSyncJobService,
   ) {}
 
   /**
@@ -575,7 +766,9 @@ export class InventoryService {
    * especie: costo = referencia del día × pct (default 70). Si no hay referencia
    * → 422 PRICE_PENDING + cola de precio pendiente (nunca se descarta).
    */
-  async createItem(dto: CreateItemDto, actorUserId: string) {
+  async createItem(dto: CreateItemDto, actorUserId: string, actorRole?: Role) {
+    // 💰 v1.83 (§M11-SP.4): validación del DTO → ESTA regla → guardas de hoy. Antes de leer o escribir nada.
+    assertSealedPriceWriters([sealedPriceLineOf(dto)], { role: actorRole });
     const r = await this.resolveCreation(dto, actorUserId);
 
     // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
@@ -591,18 +784,9 @@ export class InventoryService {
     // UNA sola entrada por `(item / sealedProductId / clave de mercado)`. Sellado legacy sin mapping
     // (sin `tcgplayerProductId`) mantiene el comportamiento seguro: cae a `'sealed'`, sin duplicar.
     if (r.sealedNeedsEscalate) {
-      // P-79(d): la clave la da `sealedPendingGradeKeyOf` — UNA sola para los tres caminos de alta.
-      const pendingGradeKey = this.sealedPendingGradeKeyOf(r);
-      await this.pricing.escalatePending(
-        r.card.id,
-        dto.productType,
-        pendingGradeKey,
-        'inventory',
-        undefined,
-        'normal',
-        null,
-        r.sealedProductId,
-      );
+      // P-79(d) + motivo: clave y razón las decide `escalateSealedAltaIfPriceless` (UNA para los tres
+      // caminos de alta); solo escala si el precio no resuelve, y con `reason='no_market'`.
+      await this.escalateSealedAltaIfPriceless(r, dto.productType);
     }
 
     const folio = await this.prisma.nextFolio();
@@ -628,7 +812,46 @@ export class InventoryService {
       }
       return created;
     });
-    return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents: r.acquisitionCostCents };
+    // ⭐ SU.8 (API_CONTRACT §M1-SU, ARCHITECTURE §4.65 (h)) — el alta es el disparador que antes era el `move`.
+    // Después del commit, best-effort (`publishCreated`). El `status` del `201` es el RESULTANTE: `listed` solo si el
+    // cuerpo publicó; en cualquier otro caso (sin precio, guarda, fallo capturado) el de la fila creada (`in_stock`).
+    const pub = await this.publishCreated([item.id], 'alta', [item.folio]);
+    const published = pub.some((p) => p.inventoryItemId === item.id && p.outcome === 'published');
+    return {
+      id: item.id,
+      folio: item.folio,
+      status: published ? InventoryStatus.listed : item.status,
+      acquisitionCostCents: r.acquisitionCostCents,
+    };
+  }
+
+  /**
+   * ⭐ SU.8 (API_CONTRACT §M1-SU, SU.8.2) — **el alta dispara la publicación**, con el MISMO cuerpo
+   * (`reevaluateForPublication`): ids y nada más, ⛔ sin copia del pipeline ni precio/`status` del llamador.
+   *
+   * Lo llaman `createItem`, `batchCreate` y `adjustFound` **después del commit** y **solo en el procesamiento
+   * fresco** (nunca en el replay idempotente ni en la rama P2002: re-publicaría lo que el operador retiró entre la
+   * primera petición y el replay).
+   *
+   * **Best-effort, y más estricto que el `move`** (`tryAutoPublish` no captura): el alta suelta no tiene clave de
+   * idempotencia, así que un `500` después del commit invitaría a reintentar ⇒ pieza duplicada. Un fallo aquí se
+   * registra (con los folios) y devuelve `[]`: la pieza queda `in_stock`, visible en `pending-publish` o en M1.
+   */
+  private async publishCreated(
+    ids: string[],
+    trigger: 'alta' | 'alta_lote' | 'encontrada',
+    folios: readonly string[] = [],
+  ): Promise<PublishReevaluationResult[]> {
+    if (ids.length === 0) return [];
+    try {
+      return await this.reevaluateForPublication(ids);
+    } catch (e) {
+      this.logger.warn(
+        `publish trigger (${trigger}): no se pudo reevaluar ${ids.length} pieza(s) recién creada(s) ` +
+          `[${folios.join(', ')}]; quedan in_stock (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return [];
+    }
   }
 
   /**
@@ -640,7 +863,7 @@ export class InventoryService {
    */
   private async resolveCreation(
     dtoIn: CreateItemDto | BatchInventoryItemInput,
-    actorUserId?: string,
+    _actorUserId?: string,
   ): Promise<{
     card: Card;
     finish: Finish;
@@ -650,6 +873,8 @@ export class InventoryService {
     sealedNeedsEscalate: boolean;
     sealedMapping: SealedItemMapping;
     sealedProductId: string | null;
+    // 💰 v1.83 (§M11-SP.4): `P` del dueño del producto al alta (`null` = no hay). Con él el sellado NO escala.
+    sealedProductOwnerDisplayPriceCents: number | null;
     // v1.39: subtipo RESUELTO (derivado del SealedProduct cuando se usa sealedProductId; si no, el del
     // DTO). buildItemData recibe la línea ORIGINAL, así que la identidad derivada viaja por aquí.
     sealedSubtype: SealedSubtype | null;
@@ -661,7 +886,7 @@ export class InventoryService {
     // el backend DERIVA server-side la identidad (cardId ancla del set + mapeo + imagen/nombre/subtipo)
     // DESDE el `SealedProduct` persistido — el cliente NO manda identidad ni montos. La pieza nace con
     // identidad CORRECTA («ETB …», no la Tropius). Inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND.
-    const { dto, sealedProductId } = await this.deriveFromSealedProduct(dtoIn);
+    const { dto, sealedProductId, sealedProductOwnerDisplayPriceCents } = await this.deriveFromSealedProduct(dtoIn);
 
     // v1.39: `cardId` es OPCIONAL en el DTO (se deriva con `sealedProductId`). Requerido para
     // raw/graded y sealed sin `sealedProductId`; ausente donde se requiere → 422 VALIDATION_ERROR.
@@ -759,6 +984,9 @@ export class InventoryService {
           finish,
           null,
           sealedProductId,
+          // Motivo: aquí NO hay referencia de mercado (raw/graded: `getReference` pending; sellado: ni
+          // mercado ni override manual). Sin él la fila nacía `reason=null` («sin motivo» en M2).
+          'no_market',
         );
         throw BusinessException.validation(
           'PRICE_PENDING',
@@ -779,6 +1007,7 @@ export class InventoryService {
       sealedNeedsEscalate,
       sealedMapping,
       sealedProductId,
+      sealedProductOwnerDisplayPriceCents,
       sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
       sealedManualOverride,
     };
@@ -818,6 +1047,75 @@ export class InventoryService {
   }
 
   /**
+   * ⚠️ MONEY (cola de precio pendiente, VENTA) — **la escalada del ALTA de un sellado sin
+   * `listPriceCents`, con su MOTIVO.** Los tres caminos de alta (single, lote y ajuste «encontrada»)
+   * pasan por aquí; ninguno escribe la cola por su cuenta.
+   *
+   * ### El defecto que cierra (lo veía el dueño: «SIN MOTIVO» en la cola de Venta)
+   * Los tres caminos escalaban con `reason = null` —el default de `escalatePending`—, que la pantalla y
+   * los `counts` leen como «fila anterior a M-41» (`unknown`). Y escalaban **siempre** que faltara
+   * `listPriceCents`, aunque el sellado tuviera mercado: herencia de la regla v1.1 («sellado = precio
+   * SIEMPRE manual») que v1.23 retiró. El contrato del alta (§M1 `POST /admin/inventory/items`) dice
+   * hoy: «si se omite, el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
+   * **sin mercado ni override queda PRICE_PENDING**». Una entrada abierta para un sellado que SÍ
+   * resuelve no tiene motivo verdadero que ponerle (`PendingPriceReason = no_market | premium_at_floor`,
+   * y el guardarraíl es solo de raw/graded). (Hasta v1.80.8.3 además nadie la cerraba; desde VQ-6 la
+   * publicación del sellado derivado sí cierra su fila.)
+   *
+   * ### La regla
+   * Se escala **solo** si el precio del sellado NO resuelve, y entonces el motivo es `no_market`:
+   *  - el alta trae un override manual de mercado validado (`sealedManualOverride`) ⇒ resuelve ⇒ no escala;
+   *  - sin mapeo (`tcgplayerProductId == null`) ⇒ la publicación no tiene clave de mercado que leer
+   *    (`sealedMarketGradeKeyForItem` ⇒ `null`) ⇒ escala `no_market`;
+   *  - mapeado ⇒ la MISMA puerta que la publicación (`gateSealedMarketCents` sobre la referencia de
+   *    `sealed:tcg:<id>`, con el dial `sealedPriceSource`): `null` ⇒ escala `no_market`; si no, no escala.
+   * Escalar es solo un AVISO: no mueve ningún precio (el precio se resuelve en lectura). Si el mercado
+   * desaparece después, la publicación vuelve a escalar con su propio motivo.
+   */
+  private async escalateSealedAltaIfPriceless(
+    r: {
+      card: { id: string };
+      gradeKey: string;
+      sealedMapping: SealedItemMapping;
+      sealedProductId: string | null;
+      sealedManualOverride: SealedManualOverride | null;
+      sealedProductOwnerDisplayPriceCents?: number | null;
+    },
+    productType: ProductType,
+  ): Promise<void> {
+    if (r.sealedManualOverride != null) return;
+    // 💰 v1.83 (§M11-SP.4): «sin precio, el sellado entra con el precio del producto si existe» — el peldaño 1
+    // (`manualSaleOf`, H-1: `> 0`) resuelve ⇒ no hay aviso que abrir.
+    if (manualSaleOf({ productType, listPriceCents: null, sealedProduct: { ownerDisplayPriceCents: r.sealedProductOwnerDisplayPriceCents ?? null } }) != null) {
+      return;
+    }
+    const productId = r.sealedMapping.tcgplayerProductId;
+    if (productId != null) {
+      const { sourceOn } = await this.pricing.loadSealedSpreads();
+      const ref = await this.pricing.getReference(
+        r.card.id,
+        'sealed',
+        sealedMarketGradeKey(productId),
+        'normal',
+      );
+      if (this.pricing.gateSealedMarketCents(ref, sourceOn) != null) return;
+    }
+    // P-79(d): la clave la da `sealedPendingGradeKeyOf` — UNA sola para los tres caminos de alta, la
+    // misma que lee la publicación. Acabado `normal`: el sellado no tiene acabado (paridad publish).
+    await this.pricing.escalatePending(
+      r.card.id,
+      productType,
+      this.sealedPendingGradeKeyOf(r),
+      'inventory',
+      undefined,
+      'normal',
+      null,
+      r.sealedProductId,
+      'no_market',
+    );
+  }
+
+  /**
    * v1.39-sealed-product-module (M-39, P-38, §4.34d) — DERIVA la identidad del sellado desde el
    * `SealedProduct` persistido cuando la línea trae `sealedProductId` (solo `productType='sealed'`).
    * Devuelve una línea NORMALIZADA (cardId ancla del set + mapeo + imagen/nombre/subtipo del producto)
@@ -827,9 +1125,14 @@ export class InventoryService {
    */
   private async deriveFromSealedProduct(
     dto: CreateItemDto | BatchInventoryItemInput,
-  ): Promise<{ dto: CreateItemDto | BatchInventoryItemInput; sealedProductId: string | null }> {
+  ): Promise<{
+    dto: CreateItemDto | BatchInventoryItemInput;
+    sealedProductId: string | null;
+    /** 💰 v1.83: el `P` del dueño del producto (`null` = no hay) — la pieza nace con ese precio, sin escalar. */
+    sealedProductOwnerDisplayPriceCents: number | null;
+  }> {
     if (dto.productType !== 'sealed' || !dto.sealedProductId) {
-      return { dto, sealedProductId: null };
+      return { dto, sealedProductId: null, sealedProductOwnerDisplayPriceCents: null };
     }
     const sp = await this.prisma.sealedProduct.findUnique({ where: { id: dto.sealedProductId } });
     if (!sp || !sp.active) {
@@ -852,7 +1155,7 @@ export class InventoryService {
       sealedImageUrl: sp.imageUrl ?? undefined,
       sealedProductName: sp.name,
     } as CreateItemDto | BatchInventoryItemInput;
-    return { dto: normalized, sealedProductId: sp.id };
+    return { dto: normalized, sealedProductId: sp.id, sealedProductOwnerDisplayPriceCents: sp.ownerDisplayPriceCents };
   }
 
   /** Ancla representativa del set = menor (numberPrefix, numberSort). El sellado se ancla a ella SOLO
@@ -1136,12 +1439,16 @@ export class InventoryService {
   async batchCreate(
     req: BatchCreateInventoryRequest,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<BatchCreateInventoryResponse> {
     // Fast-path replay: si el batchKey YA está persistido (committed) con su resultado, repetirlo
     // sin re-crear. Las filas no committeadas de una corrida concurrente en vuelo NO son visibles
     // aquí (READ COMMITTED), así que este check nunca ve un claim a medias.
     const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
     if (existing) return this.replayBatch(req.batchKey, existing);
+    // 💰 v1.83 (§M11-SP.4): el LOTE ENTERO se rechaza (nada creado, ni el claim del batchKey) si una sola línea
+    // trae precio de sellado ligado, o precio/mercado a mano de sellado sin ser el dueño. ⛔ No es un error por línea.
+    assertSealedPriceWriters(req.items.map(sealedPriceLineOf), { role: actorRole });
 
     // [SEC-N2 / BE-34] Atomicidad + idempotencia. TODO el lote (claim del InventoryBatch + N
     // InventoryItem + movimientos + resultado) corre en UNA transacción:
@@ -1185,16 +1492,7 @@ export class InventoryService {
               // publicación. Aquí iba `r.gradeKey` —el literal `'sealed'`, que es la clave del override
               // MANUAL— así que el precio que el operador fijaba en M2 quedaba ilegible para el publish
               // y la pieza volvía a la cola en bucle. Ver `sealedPendingGradeKeyOf`.
-              await this.pricing.escalatePending(
-                r.card.id,
-                line.productType,
-                this.sealedPendingGradeKeyOf(r),
-                'inventory',
-                undefined,
-                r.finish,
-                null,
-                r.sealedProductId,
-              );
+              await this.escalateSealedAltaIfPriceless(r, line.productType);
             }
             const folios = await this.prisma.nextFolios(qty);
             const inventoryItemIds: string[] = [];
@@ -1256,6 +1554,19 @@ export class InventoryService {
         });
         return { summary, results };
       });
+      // ⭐ SU.8 — tras el commit, UNA llamada con todos los ids de las líneas `ok:true` (el cuerpo trocea y carga los
+      // diales una vez). Solo aquí, en el procesamiento fresco: el fast-path de replay y la rama P2002 no llegan.
+      // `publishCreated` no lanza, así que nunca cae en el `catch` de abajo. `resultJson` ya quedó guardado sin
+      // `status` por pieza (SU.8.3): la respuesta del lote no cambia de forma.
+      const createdIds: string[] = [];
+      const createdFolios: string[] = [];
+      for (const line of results) {
+        if (line.ok) {
+          createdIds.push(...line.inventoryItemIds);
+          createdFolios.push(...line.folios);
+        }
+      }
+      await this.publishCreated(createdIds, 'alta_lote', createdFolios);
       return { batchKey: req.batchKey, idempotentReplay: false, summary, results };
     } catch (e) {
       // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
@@ -1302,7 +1613,11 @@ export class InventoryService {
    *  - Pago mínimo de BE-25: iza la curva (`PricingService.loadPricingCurve()`) UNA vez y usa
    *    `getReferencesBatch` (1 lote de referencias) — sin N+1 de settings ni de referencias.
    */
-  async bulkPublish(req: BulkPublishRequest, actorUserId: string): Promise<BulkPublishResponse> {
+  async bulkPublish(
+    req: BulkPublishRequest,
+    actorUserId: string,
+    actorRole?: Role,
+  ): Promise<BulkPublishResponse> {
     // Idempotencia opcional del lote (si trae batchKey) — replay devuelve lo guardado.
     if (req.batchKey) {
       const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
@@ -1315,9 +1630,20 @@ export class InventoryService {
     const ids = req.items.map((i) => i.inventoryItemId);
     const items = await this.prisma.inventoryItem.findMany({
       where: { id: { in: ids } },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     const byId = new Map(items.map((i) => [i.id, i]));
+    // 💰 v1.83 (§M11-SP.4): una línea con precio sobre sellado LIGADO ⇒ `422` del LOTE ENTERO; sobre sellado sin
+    // producto, solo el dueño. Antes del reprecio, de la publicación y del registro del lote: nada escrito.
+    assertSealedPriceWriters(
+      req.items.flatMap((line) => {
+        const it = byId.get(line.inventoryItemId);
+        return it
+          ? [{ productType: it.productType, listPriceCents: line.listPriceCents, sealedProductId: it.sealedProductId, itemId: it.id }]
+          : [];
+      }),
+      { role: actorRole },
+    );
 
     // v1.26 (P-7 ⑤, §4.24e): REPRECIO FRESCO on-demand ANTES de resolver el precio. Solo para las
     // líneas RAW cuyo precio se DERIVARÍA (sin override de línea ni de item) — así el fetch fresco no
@@ -1335,7 +1661,8 @@ export class InventoryService {
             item != null &&
             item.productType === 'raw' &&
             !hasManualPrice(line) &&
-            !hasManualPrice(item),
+            // v1.83 (§M11-SP.1): de la PIEZA, el predicado único (raw ⇒ solo `listPriceCents`).
+            manualSaleOf(item!) == null,
         )
         .map(({ item }) => item!);
       const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
@@ -1428,13 +1755,17 @@ export class InventoryService {
    */
   private async loadPublishPricingCtx(
     items: PublishableItem[],
-    base?: Pick<PublishPricingCtx, 'curve' | 'sealed'>,
+    base?: Pick<PublishPricingCtx, 'curve' | 'sealed' | 'premiumFloorPolicy' | 'ivaDials'>,
   ): Promise<PublishPricingCtx> {
     const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
+    const premiumFloorPolicy = base?.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
+    // 💰 v1.83.1: los diales, una lectura por contexto (o los del llamador).
+    const ivaDials = base?.ivaDials ?? (await this.settings.getIvaDials());
     const derivable = items
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ la pieza deriva precio y necesita su referencia en el lote.
-      .filter((i) => !hasManualPrice(i))
+      // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null` (sellado: producto o pieza).
+      .filter((i) => manualSaleOf(i) == null)
       .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
         if (i.productType === 'sealed') {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
@@ -1449,7 +1780,7 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { curve, sealed, refs, variantOverrides };
+    return { curve, premiumFloorPolicy, sealed, ivaDials, refs, variantOverrides };
   }
 
   /**
@@ -1527,9 +1858,9 @@ export class InventoryService {
       // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
       // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se
       // cierra SOLA aquí, sin intervención manual.
-      // ⚠️ **El alcance del cierre NO se ensancha en este refactor**: solo raw/graded con precio
-      // DERIVADO, igual que antes. Un precio manual no dice nada sobre el mercado de la variante
-      // (cerrar por él apagaría un aviso que sigue siendo cierto), y el sellado nunca cerró aquí.
+      // Solo con precio DERIVADO: un precio manual no dice nada sobre el mercado de la variante
+      // (cerrar por él apagaría un aviso que sigue siendo cierto). v1.80.8.4 (VQ-6): el sellado
+      // derivado TAMBIÉN cierra aquí (antes nunca cerraba).
       if (derived.pendingKey != null && derived.priceSource === 'derived') {
         await this.pricing.settlePendingForVariant(null, derived.pendingKey, 'inventory');
       }
@@ -1552,6 +1883,9 @@ export class InventoryService {
               'normal',
               null,
               k.sealedProductId ?? null,
+              // Motivo: el sellado solo cae aquí sin override y sin mercado (`computeSealedSalePrice`
+              // ⇒ pending). Sin él la fila nacía `reason=null` («sin motivo» en M2).
+              derived.pendingReason ?? 'no_market',
             )
           : // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR
             // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
@@ -1588,17 +1922,60 @@ export class InventoryService {
     // H-1 (E5-bis): precedencia línea → pieza con «presente ⇔ > 0». Con `??` un `0` en la LÍNEA
     // cortocircuitaba y enmascaraba el override de la pieza; con `firstPresentAmount` cae al
     // siguiente peldaño, que es lo que dice §4.36.6.
-    const manual = firstPresentAmount(lineListPriceCents, item.listPriceCents);
-    if (manual != null) {
-      // Un `listPriceCents` por pieza/línea es el override manual de M1 (§4.36.6).
-      return { ok: true, salePriceCents: manual, priceSource: 'manual', priceBasis: 'override', pendingKey: null };
+    // 💰 v1.83 (§M11-SP.4): una línea con precio sobre sellado LIGADO ya no llega aquí (`422
+    // SEALED_PRICE_IS_PER_PRODUCT` antes de todo); la de sellado sin producto solo la manda el dueño.
+    const line = firstPresentAmount(lineListPriceCents);
+    if (line != null) {
+      // Un `listPriceCents` por línea es el override manual de M1 (§4.36.6).
+      return {
+        ok: true,
+        salePriceCents: line,
+        priceSource: 'manual',
+        priceBasis: 'override',
+        fixedDisplayCents: null,
+        ...(item.productType === 'sealed' ? { sealedOrigin: 'piece' as const } : {}),
+        pendingKey: null,
+      };
+    }
+    // 💰 v1.83 (§M11-SP.1): EL predicado único de «precio a mano» (sellado: producto > pieza; raw/graded: pieza).
+    // Sellado: producto > pieza (si hay precio del producto, `manualSaleOf` NO devuelve la pieza).
+    const manual = manualSaleOf(item);
+    if (manual?.origin === 'piece') {
+      // Un `listPriceCents` por pieza es el override manual de M1 (§4.36.6); en sellado, el peldaño 2 (legado).
+      return {
+        ok: true,
+        salePriceCents: manual.listCents,
+        priceSource: 'manual',
+        priceBasis: 'override',
+        fixedDisplayCents: null,
+        ...(item.productType === 'sealed' ? { sealedOrigin: 'piece' as const } : {}),
+        pendingKey: null,
+      };
     }
     if (item.productType === 'sealed') {
-      // v1.23-sealed-sales (§4.23d): el sellado deriva por override/mercado×spread (resolver ÚNICO
-      // H-1, mismo cuerpo que catálogo/Compra/grid). Sin override>0 y sin mercado → PRICE_PENDING.
+      // v1.23-sealed-sales (§4.23d) + 💰 v1.83: el sellado decide TODO en el resolvedor ÚNICO (precio del
+      // producto > pieza > mercado×spread > PRICE_PENDING), mismo cuerpo que catálogo/Compra/grid.
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
-      const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed, ctx.ivaDials);
+      if (sale.origin === 'product' || sale.origin === 'piece') {
+        // Precio a mano del dueño por producto (la pieza ya retornó arriba): manual, `override`, sin clave de cola
+        // (un precio manual no dice nada del mercado; la cola del producto la cierra el `PUT` del dueño).
+        return {
+          ok: true,
+          salePriceCents: sale.salePriceCents as number,
+          priceSource: 'manual',
+          priceBasis: 'override',
+          fixedDisplayCents: sale.fixedDisplayCents,
+          sealedOrigin: sale.origin,
+          pendingKey: null,
+        };
+      }
+      // v1.80.8.4 (VQ-6): UNA sola clave para escalar y para cerrar — la salida simétrica del sellado
+      // tiene que casar exactamente con la entrada que abrió esta misma derivación. Techlead D-1: la
+      // clave sale de la derivación COMPARTIDA con el barrido VQ (`sale-queue-key.ts`), no se arma aquí.
+      // (Sellado no mapeado ⇒ gradeKey estructural `'sealed'`, §4.40.4d / §4.19d.)
+      const sealedKey: PendingVariantKey = sealedSaleQueueKeyOf(item, this.pricing);
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
         // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
@@ -1607,27 +1984,23 @@ export class InventoryService {
         return {
           ok: false,
           message: 'No resolvable sale price for sealed (no override and no market); not published',
-          pendingKey: {
-            cardId: item.cardId,
-            productType: 'sealed',
-            // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y
-            // devuelve siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí
-            // va literal, no derivado de la fila, porque estamos DENTRO del
-            // `if (productType === 'sealed')`.
-            gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
-            finish: 'normal',
-            sealedProductId: item.sealedProductId,
-          },
+          pendingKey: sealedKey,
           pendingReason: null,
         };
       }
-      // `pendingKey: null` ⇒ el sellado NO cierra la cola por esta vía (conducta preexistente).
+      // ⭐ v1.80.8.4 (VQ-6, ARCHITECTURE §4.36.5 c-bis punto 4): el sellado que RESUELVE con precio
+      // derivado (override de variante o mercado×spread) devuelve su clave para que
+      // `resolvePublishSalePrice` CIERRE su fila. Antes era `pendingKey: null` y la fila `no_market` del
+      // sellado solo la cerraba el override manual. El precio manual por pieza retorna arriba con
+      // `pendingKey: null` ⇒ no cierra (igual que raw/graded).
       return {
         ok: true,
         salePriceCents: sale.salePriceCents,
         priceSource: 'derived',
         priceBasis: sealedPriceBasisOf(sale),
-        pendingKey: null,
+        fixedDisplayCents: null,
+        sealedOrigin: sale.origin,
+        pendingKey: sealedKey,
       };
     }
     // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE
@@ -1640,8 +2013,10 @@ export class InventoryService {
     // un precio, es saber QUÉ SLAB ES. La reparación es capturar empresa+grado por
     // `PATCH /admin/inventory/items/:id` (§4.40.5b); entra al censo §4.40.8.
     // Antes esta pieza se publicaba al precio de un `graded:PSA:10`, el grado más caro.
-    const gradeKey = this.pricing.tryGradeKeyFor(item);
-    if (gradeKey == null) {
+    // Techlead D-1: la clave de COLA de la pieza sale de la derivación compartida con el barrido VQ
+    // (`saleQueueKeyOf`); su `gradeKey` es el `tryGradeKeyFor` de siempre. `null` ⇔ graded sin slab.
+    const queueKey = saleQueueKeyOf(item, this.pricing);
+    if (queueKey == null) {
       return {
         ok: false,
         message:
@@ -1652,6 +2027,7 @@ export class InventoryService {
         pendingReason: null,
       };
     }
+    const gradeKey = queueKey.gradeKey;
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
@@ -1665,6 +2041,7 @@ export class InventoryService {
       rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
       controls: ctx.variantOverrides.get(key) ?? null,
       curve: ctx.curve,
+      premiumFloorPolicy: ctx.premiumFloorPolicy,
     });
     const pendingReason = sale.pendingReason;
     if (pendingReason != null || sale.priceCents == null) {
@@ -1674,14 +2051,8 @@ export class InventoryService {
           pendingReason === 'premium_at_floor'
             ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
             : 'No resolvable sale price (no market reference); not published',
-        pendingKey: {
-          cardId: item.cardId,
-          productType: item.productType,
-          gradeKey,
-          finish: item.finish,
-          // R3: la identidad REAL de la pieza entra a la llave de la cola.
-          cardProductId: item.cardProductId,
-        },
+        // R3: la identidad REAL de la pieza (`cardProductId`) entra a la llave de la cola.
+        pendingKey: queueKey,
         pendingReason,
       };
     }
@@ -1690,15 +2061,10 @@ export class InventoryService {
       salePriceCents: sale.priceCents,
       priceSource: 'derived',
       priceBasis: sale.basis,
-      pendingKey: {
-        cardId: item.cardId,
-        productType: item.productType,
-        gradeKey,
-        finish: item.finish,
-        // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
-        // resolver una variante apagaría el aviso de otra.
-        cardProductId: item.cardProductId,
-      },
+      fixedDisplayCents: null,
+      // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
+      // resolver una variante apagaría el aviso de otra.
+      pendingKey: queueKey,
     };
   }
 
@@ -1719,19 +2085,29 @@ export class InventoryService {
    */
   private pendingPublishStateOf(item: PublishableItem, ctx: PublishPricingCtx): PendingPublishState {
     const missing: PendingPublishMissing[] = [];
-    // ⚠️ La ubicación va PRIMERA porque es la que el operador puede arreglar sin depender de nadie:
-    // es un dato de captura, no un dato de mercado.
-    if (item.locationId == null) missing.push('location');
+    // ⭐⭐ Errata SU-1 (API_CONTRACT §M1-SU, SU.1/SU.2; ARCHITECTURE §4.65; HECHOS «La ubicación (cajón) NO es
+    // requisito para publicar, por ahora», 2026-10-07): `locationId` NO entra en la decisión ⇒ el servidor no emite
+    // `'location'` (`missing ⊆ ['price']`). Revertir = devolver aquí
+    // `if (item.locationId == null) missing.push('location');` (primero) y el corte de `reevaluateOne`.
     const derived = this.derivePublishSalePrice(item, null, ctx);
     if (derived.ok) {
       return {
         missing,
         resolvedSalePriceCents: derived.salePriceCents,
+        // 💰 v1.83.1 (§M11-SP.12.4): `P` por EL camino único (con precio del dueño, el suyo tal cual).
+        resolvedDisplayPriceCents: saleDisplayCentsOf(
+          { listPriceCents: derived.salePriceCents, fixedDisplayCents: derived.fixedDisplayCents },
+          ctx.ivaDials,
+        ),
+        ...(derived.sealedOrigin ? { sealedPriceOrigin: derived.sealedOrigin } : {}),
         priceBasis: derived.priceBasis,
+        pendingReason: null,
       };
     }
     missing.push('price');
     return {
+      resolvedDisplayPriceCents: null,
+      ...(item.productType === 'sealed' ? { sealedPriceOrigin: 'pending' as const } : {}),
       missing,
       // La llave viaja para que el deep-link se empareje con la entrada REAL de la cola de M2, sin
       // recalcular la derivación ni inventar una llave en el sitio.
@@ -1744,6 +2120,10 @@ export class InventoryService {
       // `pending` NO es «no sé»: es el veredicto explícito de que la variante no tiene precio
       // publicable. El storefront ya lo trata así (§N.5) y la cola dice lo mismo, no otra cosa.
       priceBasis: 'pending',
+      // ⭐ v1.80.8.7 (S-1): el MISMO motivo con que `resolvePublishSalePrice` escalaría esta pieza
+      // (`derived.pendingReason ?? 'no_market'`, también para el sellado) — una sola respuesta para la cola y
+      // para M2. Sin variante (gradeada sin slab, `pendingKey == null`) no se escala ⇒ `null`.
+      pendingReason: derived.pendingKey == null ? null : (derived.pendingReason ?? 'no_market'),
     };
   }
 
@@ -1759,7 +2139,8 @@ export class InventoryService {
    * pagada podía quedarse quieta para siempre sin que nada lo señalara.*
    *
    * Predicado (§4.39m.1): `ownerType='platform' ∧ status='in_stock' ∧ (locationId IS NULL ∨ precio NO
-   * resoluble)`.
+   * resoluble)`. ⭐ **Errata SU-1 (§M1-SU):** desde 2026-10-07 es `platform ∧ in_stock ∧ precio NO resoluble` —
+   * la ubicación no entra (ver `pendingPublishStateOf`).
    *
    * ### ⚠️ Por qué esto barre y no pagina en SQL, dicho sin adornos
    * *«Precio no resoluble»* **no es expresable en SQL**: depende de la curva vigente, de las
@@ -1773,13 +2154,13 @@ export class InventoryService {
    * cuando hay 900 sería peor que no tener cola. Señalado al arquitecto como punto de escala.
    *
    * `missing` dice **QUÉ le falta**; con `'price'` viaja el `pendingPriceEntryId` para el deep-link a
-   * la cola de M2. **La pieza sin ubicación sale SEÑALADA, no bloqueada** (m.3): la conversión no
-   * exige ubicación a propósito — *bloquearla atoraría el pago al vendedor, y el pago no puede
-   * depender de que ya sepamos en qué caja va la carta*.
+   * la cola de M2. La conversión no exige ubicación a propósito (m.3) — *bloquearla atoraría el pago al
+   * vendedor*; y desde SU-1 (§M1-SU) **tampoco la exige publicar**: una pieza sin cajón con precio se publica.
    */
   async pendingPublish(q: {
     missing?: PendingPublishMissing;
     acquisitionType?: AcquisitionType;
+    productType?: ProductType;
     setId?: string;
     page: number;
     pageSize: number;
@@ -1788,11 +2169,16 @@ export class InventoryService {
       ownerType: 'platform',
       status: 'in_stock',
       ...(q.acquisitionType ? { acquisitionType: q.acquisitionType } : {}),
+      // M11 (§M1) — eje ADITIVO `productType`: empuja el filtro a la BD (predicado SQL sobre la
+      // columna, como `acquisitionType`). Ausente ⇒ cola entera; `sealed` ⇒ solo sellado. Sin esto
+      // la cola de M11 (que pide `productType=sealed`) devolvía TODO y una carta suelta se colaba.
+      ...(q.productType ? { productType: q.productType } : {}),
       ...(q.setId ? { card: { setId: q.setId } } : {}),
-      // Cuando se filtra por `missing=location` el predicado SÍ es SQL: se empuja a la BD para no
-      // barrer de más. `missing=price` no puede empujarse — ver el bloque de arriba.
-      ...(q.missing === 'location' ? { locationId: null } : {}),
     };
+    // ⭐ Errata SU-1 (§M1-SU, SU.2): `?missing=location` sigue siendo VÁLIDO (clase L, sin `400`) pero el servidor ya
+    // no emite ese valor ⇒ ninguna fila puede casar: `200 { data: [], total: 0 }` sin barrer el inventario.
+    // `missing=price` no puede empujarse a SQL — ver el bloque de arriba.
+    if (q.missing === 'location') return { data: [], page: q.page, pageSize: q.pageSize, total: 0 };
     const selectedIds = (
       await this.prisma.inventoryItem.findMany({
         where,
@@ -1804,7 +2190,10 @@ export class InventoryService {
     ).map((r) => r.id);
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
     // Del barrido solo sobreviven **id + estado**: es lo que mantiene la memoria acotada aunque el
     // superconjunto sea grande. Las filas completas se leen después, y SOLO las de la página.
     const pending: { id: string; state: PendingPublishState }[] = [];
@@ -1812,10 +2201,10 @@ export class InventoryService {
       const chunkIds = selectedIds.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         const state = this.pendingPublishStateOf(item, ctx);
         // `missing: []` ⇒ NO entra: no le falta nada, así que la auto-publicación la sacará (o ya la
@@ -1833,13 +2222,18 @@ export class InventoryService {
       where: { id: { in: slice.map((r) => r.id) } },
       // `set` SOLO aquí: `toCardDTO` lo necesita y el barrido no. Traerlo en el barrido sería pagar
       // el join por todo el inventario para pintar una página.
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     // El `pendingPriceEntryId` se resuelve SOLO para la página devuelta: es un deep-link de UI, y
     // consultarlo para toda la cola sería trabajo que nadie va a mirar.
     const openPendingByKey = await this.openPendingEntriesFor(rows);
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((r) => r.cardId));
+    // 💰 v1.83.1 (A-1): la MISMA agregación que la hoja, una consulta por página.
+    const piecesByProduct = await sealedProductPiecesOf(
+      this.prisma,
+      rows.filter((r) => r.productType === 'sealed' && r.sealedProductId != null).map((r) => r.sealedProductId as string),
+    );
     const data = rows.map((item) => {
       const state = byId.get(item.id) as PendingPublishState;
       const entryId = state.pendingQueueKey
@@ -1852,10 +2246,39 @@ export class InventoryService {
         productType: item.productType,
         finish: item.finish,
         cardProductId: item.cardProductId,
+        // v1.69.1 (P-79c, §M1) — NOMBRE del sellado (snapshot por-pieza M-37, columna
+        // `InventoryItem.sealedProductName`; ya viene en `rows`, sin join nuevo). Passthrough directo
+        // como en `toHoldingDTO` (:529): `null` en raw/graded y en sellado legado sin nombre. El front
+        // discrimina por `productType` y, sin nombre resoluble, pinta «sellado sin identificar» — ⛔
+        // NUNCA `card.name` (el ancla es el defecto reportado). Display-only, money-safe.
+        sealedProductName: item.sealedProductName,
+        // M11 (§2.C, hallazgo C) — subtipo del sellado (Bundle/Box/ETB…) para la cola de M11. ADITIVO,
+        // display-only (alcance D10 «solo visibilidad», no toca dinero). Passthrough directo de
+        // `InventoryItem.sealedSubtype`, presente SOLO para `productType='sealed'` (ausente en raw/graded:
+        // una carta suelta no tiene subtipo de sellado) — mismo patrón condicional que el resto del DTO.
+        ...(item.productType === 'sealed' && item.sealedSubtype
+          ? { sealedSubtype: item.sealedSubtype }
+          : {}),
+        // 💰 v1.83.1 (§M11-SP.12.7, A-1): identidad del producto (toda fila sellada) y su conteo (si está ligada).
+        ...(item.productType === 'sealed'
+          ? {
+              sealedProductId: item.sealedProductId,
+              ...(item.sealedProductId != null
+                ? { sealedProductPieces: piecesByProduct.get(item.sealedProductId) }
+                : {}),
+              // 💰 v1.83 (§M11-SP.1/12.4): de qué peldaño sale el precio y el `P` del dueño del producto (`null` = no hay).
+              sealedPriceOrigin: state.sealedPriceOrigin ?? 'pending',
+              sealedProductDisplayPriceCents: sealedProductDisplayPriceOf(item),
+            }
+          : {}),
         locationId: item.locationId,
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,
+        // 💰 v1.83.1 (§M11-SP.12.4): `P` de la pieza, mismas condiciones de presencia que `resolvedSalePriceCents`.
+        resolvedDisplayPriceCents: state.resolvedDisplayPriceCents,
         priceBasis: state.priceBasis,
+        // ⭐ v1.80.8.7 (S-1): siempre presente (`null` incluido).
+        pendingReason: state.pendingReason,
         pendingPriceEntryId: entryId,
         missing: state.missing,
         acquisitionType: item.acquisitionType,
@@ -1867,6 +2290,22 @@ export class InventoryService {
   }
 
   /**
+   * 💰 v1.80.8.9 (`M2-VQ9` punto 1) — el barrido VQ al final de `publish-all`. ⛔ No copia el cuerpo: llama a
+   * `PriceSyncJobService.sweepUnreasonedSaleQueue('publish-all')`, el mismo que corre al final de un `price-sync`
+   * completo. Falla-seguro: un error ⇒ `logger.error` y la respuesta del lote no cambia.
+   */
+  private async sweepSaleQueueAfterPublishAll(): Promise<void> {
+    try {
+      if (!this.priceSync) throw new Error('PriceSyncJobService no inyectado');
+      await this.priceSync.sweepUnreasonedSaleQueue('publish-all');
+    } catch (e) {
+      this.logger.error(
+        `publish-all · barrido VQ falló (las piezas YA se publicaron; la cola queda como estaba): ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Entradas `open` de la cola de precio pendiente para las variantes de estas piezas, EN LOTE
    * (`Map<pendingQueueKey, entryId>`). Es una LECTURA: no escala nada — quien escala es el intento
    * de publicación, y ésa es justamente la diferencia que la fase 8 vino a marcar.
@@ -1875,7 +2314,13 @@ export class InventoryService {
     const map = new Map<string, string>();
     if (items.length === 0) return map;
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open', cardId: { in: [...new Set(items.map((i) => i.cardId))] } },
+      // 💰 v1.80.8.9 (`M2-VQ9` punto 3): el deep-link de M1 es de VENTA ⇒ solo `context='inventory'`. Sin esto, con
+      // una fila de COMPRA y una de VENTA en la misma clave ganaba la más antigua aunque fuera la de COMPRA (VQ-14).
+      where: {
+        status: 'open',
+        context: 'inventory',
+        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
+      },
       select: {
         id: true,
         cardId: true,
@@ -1910,24 +2355,84 @@ export class InventoryService {
    * MISMO UPDATE (updateMany + count). Cierra el TOCTOU: si entre lectura y escritura la pieza salió
    * de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE y NO se
    * re-abre a un segundo comprador (anti double-sell). Persiste el override manual POR LÍNEA si vino.
+   *
+   * `fields` (solo el `PATCH` publicante): los demás campos del body viajan en ESTE MISMO `UPDATE`
+   * condicionado — todo o nada (INV-SP-8, `#M1-patch-price-guard`). Si el CAS pierde, no se escribe
+   * ninguno (M-1 del gate de QA sobre `b8a3e4ce`: antes iban en un `update` por `id` previo y el
+   * precio quedaba escrito sobre la pieza que un checkout acababa de reservar).
    */
-  private async claimListed(item: PublishableItem, lineListPriceCents?: number): Promise<void> {
-    const claimed = await this.prisma.inventoryItem.updateMany({
+  private async claimListed(
+    item: PublishableItem,
+    lineListPriceCents?: number,
+    fields: Prisma.InventoryItemUpdateManyMutationInput = {},
+    audited?: {
+      /** La `$transaction` del `PATCH`: el CAS y su bitácora se confirman juntos o no se confirman. */
+      tx: Prisma.TransactionClient;
+      actor: ItemAuditActor;
+      /** Lo LEÍDO por el `PATCH` (el «antes» exacto: su precio entra al CAS). */
+      read: ItemAuditState;
+      /** El precio que este `UPDATE` deja escrito. */
+      writtenListPriceCents: number | null;
+      /** Claves del cuerpo saneado. */
+      fields: string[];
+    },
+  ): Promise<void> {
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1) — SOLO el `PATCH` publicante pasa `audited`: el CAS va dentro de su tx y
+    // condiciona ADEMÁS al `listPriceCents` leído (dos re-precios simultáneos ⇒ uno pierde con `409`, en vez
+    // de dos filas con el mismo «antes»). Los caminos de lote (`bulk-publish`, `publish-all`, reevaluación)
+    // no cambian: ni tx propia, ni precio en el CAS, ni esta bitácora (no son la captura del criterio 255).
+    const db = audited?.tx ?? this.prisma;
+    const claimed = await db.inventoryItem.updateMany({
       where: {
         id: item.id,
         ownerType: 'platform',
-        status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
+        // 💰 v1.80.8.8 (`M1-SFP` punto 1, SFP-10): el `PATCH` auditado condiciona el `status` LEÍDO exacto, no el
+        // conjunto. Con el conjunto, un lote que publica `in_stock → listed` sin tocar el precio entre la lectura y
+        // este CAS dejaba una fila `before.status:'in_stock'` falsa (lo sustituido era `listed`) ⇒ ahora `count 0` y
+        // la relectura de abajo da `409 CONFLICT`. Los lotes (sin `audited`) siguen con el conjunto.
+        ...(audited
+          ? { status: audited.read.status, listPriceCents: audited.read.listPriceCents }
+          : { status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] } }),
       },
       data: {
+        ...fields,
         status: 'listed',
         ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
       },
     });
     if (claimed.count !== 1) {
+      if (audited) {
+        // Relee en la MISMA tx: si sigue siendo de plataforma y publicable, lo que cambió es el precio o el
+        // `status` dentro del conjunto (un lote la publicó, v1.80.8.8) ⇒ `409 CONFLICT` («la pieza cambió
+        // mientras la editabas»). Si no, manda el status RELEÍDO (el
+        // verdadero), no el leído antes del CAS.
+        const now = await audited.tx.inventoryItem.findUnique({
+          where: { id: item.id },
+          select: { status: true, ownerType: true },
+        });
+        if (now && now.ownerType === 'platform' && PUBLISHABLE_ORIGIN_STATUSES.includes(now.status)) {
+          throw BusinessException.conflict('CONFLICT', 'Item changed while operating on it; reload and retry');
+        }
+        throw BusinessException.validation(
+          'ITEM_NOT_PUBLISHABLE',
+          'item can no longer be published (concurrent status transition)',
+          { status: now?.status ?? item.status },
+        );
+      }
       throw BusinessException.validation(
         'ITEM_NOT_PUBLISHABLE',
         'item can no longer be published (concurrent status transition)',
         { status: item.status },
+      );
+    }
+    if (audited) {
+      await writeItemUpdatedAudit(
+        audited.tx,
+        audited.actor,
+        item.id,
+        audited.read,
+        { status: 'listed', listPriceCents: audited.writtenListPriceCents },
+        audited.fields,
       );
     }
   }
@@ -2009,7 +2514,10 @@ export class InventoryService {
     // Curva/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
     // (memoria acotada; sigue sin N+1 por pieza).
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
 
     const summary = {
       selected: selectedIds.length,
@@ -2029,9 +2537,9 @@ export class InventoryService {
       const chunkIds = selectedIds.slice(i, i + PUBLISH_ALL_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         try {
           // v2.1.1 (§4.36.5b-bis) — la rama `listed` YA NO ES CORTO-CIRCUITO: se RE-RESUELVE.
@@ -2079,6 +2587,12 @@ export class InventoryService {
         }
       }
     }
+
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 1): barrido VQ entero (rama `null` + rama `premium_at_floor`) DESPUÉS del bucle
+    // —las filas que el bucle reclasificó ya llevan motivo y el barrido no las ve— y ANTES de armar la respuesta.
+    // En toda ejecución real, con o sin filtro (el predicado del barrido es global). ⛔ El replay por `batchKey`
+    // devolvió arriba lo guardado y no llega aquí. Falla-seguro: las piezas ya se publicaron; la cola es higiene.
+    await this.sweepSaleQueueAfterPublishAll();
 
     const response: PublishAllResponse = {
       ...(req.batchKey ? { batchKey: req.batchKey } : {}),
@@ -2252,15 +2766,69 @@ export class InventoryService {
     const [rows, total] = await Promise.all([
       this.prisma.inventoryItem.findMany({
         where,
-        include: { card: true, location: true },
+        include: { ...PUBLISHABLE_INCLUDE, location: true },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.inventoryItem.count({ where }),
     ]);
-    const data = await this.attachSealedMarketRefs(rows);
+    const salePrices = await this.sealedSalePricesOf(rows);
+    // 💰 v1.83.1 (§M11-SP.12.7, A-1): conteo del producto con la MISMA agregación que la hoja — un `groupBy` por
+    // página sobre los ids distintos de las filas S-2 ligadas (las que llevan `sealedProductPieces`).
+    const pieces = await sealedProductPiecesOf(
+      this.prisma,
+      rows.filter((r) => salePrices.has(r.id) && r.sealedProductId != null).map((r) => r.sealedProductId as string),
+    );
+    const data = (await this.attachSealedMarketRefs(rows)).map((r) => {
+      // ⛔ La relación `sealedProduct` (el precio del dueño, para la derivación) NO viaja como objeto: se proyecta
+      // en `sealedProductDisplayPriceCents` solo en las filas S-2. Y `sealedProductId` es identidad del SELLADO:
+      // presente en toda fila sellada, ausente en raw/graded (§M11-SP.12.7).
+      const { sealedProduct: _sp, sealedProductId, ...row } = r;
+      const base = r.productType === 'sealed' ? { ...row, sealedProductId } : row;
+      const price = salePrices.get(r.id);
+      if (!price) return base;
+      const piecesOf = sealedProductId != null ? pieces.get(sealedProductId) : undefined;
+      return { ...base, ...price, ...(piecesOf ? { sealedProductPieces: piecesOf } : {}) };
+    });
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * ⭐ v1.80.8.7 (S-2, API_CONTRACT §M1 `M1-SFP` punto 3) — **el precio de venta que el sellado de plataforma
+   * tiene HOY**, para el listado de M1 (el editor de `DESIGN_SYSTEM §39.2 (a)`).
+   *
+   * - Solo `productType='sealed' ∧ ownerType='platform' ∧ status ∈ {in_stock, listed}`; en toda otra fila las
+   *   claves **no viajan** (⛔ raw/graded: P-PRE-1 «sin hacerlo más visible»; ⛔ `reserved`/vendida: su precio es
+   *   el de la línea del pedido).
+   * - Cálculo: `derivePublishSalePrice(item, null, ctx)` — el cuerpo de la cola `pending-publish`, ⛔ ninguna
+   *   otra fórmula — con `loadPublishPricingCtx` **una vez por página** (ninguna consulta si no hay elegibles).
+   *   `ok:true` ⇒ `{ salePriceCents, priceBasis }` (con `listPriceCents` presente: ese monto y `'override'`);
+   *   `ok:false` ⇒ `{ null, 'pending' }`.
+   * - ⛔ No escribe: la derivación es pura (sin escalada ni cierre de la cola de M2).
+   */
+  private async sealedSalePricesOf(rows: PublishableItem[]): Promise<Map<string, SealedRowSalePrice>> {
+    const out = new Map<string, SealedRowSalePrice>();
+    const eligible = rows.filter(
+      (r) =>
+        r.productType === 'sealed' &&
+        r.ownerType === 'platform' &&
+        (r.status === 'in_stock' || r.status === 'listed'),
+    );
+    if (eligible.length === 0) return out;
+    const ctx = await this.loadPublishPricingCtx(eligible);
+    for (const item of eligible) {
+      // 💰 v1.83.1: el MISMO cuerpo que la cola (`pendingPublishStateOf` ⇒ `derivePublishSalePrice`): `L`, `P`, origen.
+      const st = this.pendingPublishStateOf(item, ctx);
+      out.set(item.id, {
+        resolvedSalePriceCents: st.resolvedSalePriceCents,
+        resolvedDisplayPriceCents: st.resolvedDisplayPriceCents,
+        priceBasis: st.priceBasis ?? 'pending',
+        sealedPriceOrigin: st.sealedPriceOrigin ?? 'pending',
+        sealedProductDisplayPriceCents: sealedProductDisplayPriceOf(item),
+      });
+    }
+    return out;
   }
 
   /**
@@ -2329,8 +2897,15 @@ export class InventoryService {
     return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
-  async updateItem(id: string, dto: UpdateItemDto) {
+  async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
+    // 💰 v1.83 (§M11-SP.4): `listPriceCents` sobre sellado LIGADO ⇒ `422` (también el dueño: su precio es del
+    // producto); sobre sellado sin producto, solo el dueño (`403`). Raw/graded sin cambio (P-PRE-1). Antes de
+    // toda guarda y escritura del `PATCH`: ningún campo se escribe.
+    assertSealedPriceWriters(
+      [{ productType: current.productType, listPriceCents: dto.listPriceCents, sealedProductId: current.sealedProductId, itemId: id }],
+      actor,
+    );
     // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
     // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
     // el estado RESULTANTE del PATCH: si la carta resultante es graded y queda `listed`, el
@@ -2383,10 +2958,53 @@ export class InventoryService {
     // la resolución, como el override por línea del `bulk-publish`.
     const publishing = resultingStatus === 'listed' && current.status !== 'listed';
     if (!publishing) {
-      // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
-      return toAdminInventoryItemRow(
-        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
-      );
+      // 🔒 v1.80.7.2 — REGLA DE FUSIÓN SEC-SHIP-A1 (API_CONTRACT §M1 `#M1-merge-rule`), camino NO publicante:
+      // la estructura de `envio-preparar` (una transacción, bitácora `inventory.item_updated` con `before/after`
+      // cuando cambia `status`) re-cableada al cuerpo único de guardas del hotfix (`item-location.rules.ts`):
+      // `readGuardedItem` → UNA llamada `assertOperable(item, 'status' | 'price')` (mismo allowlist de plataforma
+      // `in_stock | listed`: un `422 ITEM_NOT_ADJUSTABLE`, `details` únicos) → `guardedItemUpdate`
+      // (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) con TODO el `PATCH`.
+      //  - `status` (v1.80.3 §M4-SHIP.17.1 (2), D-SHIP-6, INV-SP-7): `lost|damaged|picking|in_custody → in_stock`
+      //    ya no existe; `in_stock → in_stock` NO escribe `status` (PS-42b: un `status` igual al leído reescrito
+      //    sin guarda devolvía a `in_stock` una pieza que un checkout acababa de reservar).
+      //  - `listPriceCents` (v1.80.2.3 `#M1-patch-price-guard`, INV-SP-8): el precio de venta SOLO se escribe
+      //    sobre plataforma `in_stock | listed`; cliente en cualquier estado, `reserved`, vendida o terminal ⇒
+      //    `422`, y NINGÚN campo del mismo `PATCH` se escribe (todo o nada).
+      //  - Cuerpo SOLO de identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) ⇒ como hoy,
+      //    sin guarda (v1.80.2.3 p.2: es la vía de reparación de identidad, también sobre piezas de cliente).
+      // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` y re-preciar son visibilidad/valor, no un hecho físico
+      // (ARCHITECTURE §4.57 (o)).
+      // ⭐ v1.80.8.7 (`M1-SFP` punto 1, criterio 255; tacha «el precio solo no gana bitácora» de v1.80.2.3 p.4):
+      // todo cambio de `status` O de `listPriceCents` deja UNA fila `inventory.item_updated` con
+      // `before/after {status, listPriceCents}` y el actor, en ESTA tx (`writeItemUpdatedAudit`), y el precio
+      // leído entra al CAS (`guardedItemUpdate(..., { listPriceCents })`): el «antes» es exacto o `409`.
+      // La fila `inventory.update` del controlador se queda (rastro de «se llamó al verbo», sin diff).
+      const guardedVerb: 'status' | 'price' | null =
+        patch.status !== undefined ? 'status' : patch.listPriceCents !== undefined ? 'price' : null;
+      if (guardedVerb === null) {
+        // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+        return toAdminInventoryItemRow(
+          await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
+        );
+      }
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const item = await this.readGuardedItem(tx, id);
+        assertOperable(item, guardedVerb);
+        const { status: nextStatus, ...fields } = patch;
+        const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
+        // Lo LEÍDO se fija ANTES de escribir (es el «antes» de la bitácora y la condición del CAS).
+        const read: ItemAuditState = { status: item.status, listPriceCents: item.listPriceCents };
+        const written: ItemAuditState = {
+          status: statusChanges ? nextStatus : read.status,
+          listPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : read.listPriceCents,
+        };
+        const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields, {
+          listPriceCents: read.listPriceCents,
+        });
+        await writeItemUpdatedAudit(tx, actor, id, read, written, patchKeys(patch));
+        return row;
+      }, VAULT_VERB_TX_OPTIONS);
+      return toAdminInventoryItemRow(updated);
     }
     // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
     // gradeada que gana su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle
@@ -2396,7 +3014,7 @@ export class InventoryService {
     // trabaja sobre columnas del modelo, y la proyección de M1 es una lista blanca de presentación.
     const raw = await this.prisma.inventoryItem.findUnique({
       where: { id },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     if (!raw) throw BusinessException.notFound();
     const resulting: PublishableItem = { ...raw, ...fields };
@@ -2411,11 +3029,24 @@ export class InventoryService {
         ...(resolved.pendingPriceEntryId ? { pendingPriceEntryId: resolved.pendingPriceEntryId } : {}),
       });
     }
-    // Los campos no-status primero; el `listed` lo pone `claimListed` con su guarda atómica.
-    if (Object.keys(fields).length > 0) {
-      await this.prisma.inventoryItem.update({ where: { id }, data: fields });
-    }
-    await this.claimListed(resulting, patch.listPriceCents);
+    // 🔒 Campos y `listed` en UNA sola escritura condicionada (`claimListed`): si un checkout reservó la
+    // pieza entre la lectura de arriba y aquí, el CAS no casa ⇒ `422 ITEM_NOT_PUBLISHABLE` y NADA
+    // escrito (INV-SP-8, todo o nada). ⛔ No volver a un `update` por `id` previo: ese orden escribía el
+    // precio y LUEGO perdía el CAS (M-1 de QA; candado `inventory-patch-publish-race.e2e-spec.ts`).
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1): el CAS y su bitácora `inventory.item_updated` van en UNA `$transaction`
+    // (si la fila de bitácora falla, no se publica); el precio leído entra al CAS (cambió ⇒ `409 CONFLICT`).
+    // `resolvePublishSalePrice` sigue ANTES y fuera de ella, sin cambio.
+    await this.prisma.$transaction(
+      (tx) =>
+        this.claimListed(resulting, patch.listPriceCents, fields, {
+          tx,
+          actor,
+          read: { status: raw.status, listPriceCents: raw.listPriceCents },
+          writtenListPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : raw.listPriceCents,
+          fields: patchKeys(patch),
+        }),
+      VAULT_VERB_TX_OPTIONS,
+    );
     return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
   }
 
@@ -2445,7 +3076,7 @@ export class InventoryService {
     // para llamar a su propia puerta (§4.39m.5)—: llama al cuerpo directamente.
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: itemId },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     if (!item) return;
     const ctx = await this.loadPublishPricingCtx([item]);
@@ -2476,21 +3107,81 @@ export class InventoryService {
     const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
     if (ids.length === 0) return [];
     const out: PublishReevaluationResult[] = [];
-    const curve = await this.pricing.loadPricingCurve();
-    const sealed = await this.pricing.loadSealedSpreads();
+    const { curve, premiumFloorPolicy, sealed, ivaDials } = await this.loadPublishRunDials();
     for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
       const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
       });
       const found = new Set(items.map((it) => it.id));
       for (const missingId of chunkIds.filter((x) => !found.has(x))) {
         out.push({ inventoryItemId: missingId, outcome: 'not_found', missing: [] });
       }
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         out.push(await this.reevaluateOne(item, ctx));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Los diales de UNA corrida de publicación por id, leídos una vez: curva, política de VENTA (v1.80.8.5 `M2-PF`),
+   * spreads del sellado y diales de IVA (💰 v1.83.1). Compartido por `reevaluateForPublication` y su pronóstico
+   * `previewPublication` (SU-1) para que los dos lean exactamente lo mismo.
+   */
+  private async loadPublishRunDials() {
+    const curve = await this.pricing.loadPricingCurve();
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
+    const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials();
+    return { curve, premiumFloorPolicy, sealed, ivaDials };
+  }
+
+  /**
+   * ⭐ Errata SU-1 (API_CONTRACT §M1-SU, SU.3) — **el PRONÓSTICO de `reevaluateForPublication`, sin escribir.**
+   *
+   * Lo usa el modo por defecto (sin `--apply`) de `scripts/reevaluate-unlocated.ts`: contar qué haría el barrido
+   * del rezago antes de que alguien lo corra contra producción. ⛔ **No escribe NADA**: ni `claimListed`, ni
+   * escalada/cierre de la cola de M2 (usa `pendingPublishStateOf` ⇒ `derivePublishSalePrice`, el mismo cuerpo
+   * de LECTURA que la cola `pending-publish`). Mismo orden de decisión que `reevaluateOne` (listed → guardas →
+   * precio), así que el pronóstico y el `--apply` solo difieren si el mundo cambia entre las dos corridas (un
+   * checkout que reserva, un precio que se mueve) — y por eso el `--apply` cuenta por su propio `outcome`.
+   */
+  async previewPublication(inventoryItemIds: string[]): Promise<PublishPreviewResult[]> {
+    const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
+    if (ids.length === 0) return [];
+    const out: PublishPreviewResult[] = [];
+    // Los MISMOS diales que el `--apply` (`reevaluateForPublication`): el pronóstico no puede leer otra política.
+    const { curve, premiumFloorPolicy, sealed, ivaDials } = await this.loadPublishRunDials();
+    for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
+      const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: PUBLISHABLE_INCLUDE,
+      });
+      const found = new Set(items.map((it) => it.id));
+      for (const missingId of chunkIds.filter((x) => !found.has(x))) {
+        out.push({ inventoryItemId: missingId, outcome: 'not_found' });
+      }
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
+      for (const item of items) {
+        if (item.status === 'listed') {
+          out.push({ inventoryItemId: item.id, outcome: 'already_listed' });
+          continue;
+        }
+        try {
+          this.assertPublishableGuards(item);
+        } catch {
+          out.push({ inventoryItemId: item.id, outcome: 'not_publishable' });
+          continue;
+        }
+        const state = this.pendingPublishStateOf(item, ctx);
+        out.push({
+          inventoryItemId: item.id,
+          outcome: state.missing.includes('price') ? 'price_pending' : 'would_publish',
+        });
       }
     }
     return out;
@@ -2602,10 +3293,9 @@ export class InventoryService {
       return { inventoryItemId: id, outcome: 'already_listed', missing: [] };
     }
     const state = this.pendingPublishStateOf(item, ctx);
-    if (item.locationId == null) {
-      // Sin ubicación no se publica **y no se escala nada**: el hueco es de captura, no de mercado.
-      return { inventoryItemId: id, outcome: 'missing_location', missing: state.missing };
-    }
+    // ⭐⭐ Errata SU-1 (§M1-SU, SU.1): aquí había un corte «sin ubicación ⇒ `missing_location`, no se publica ni se
+    // escala». Ya no: una pieza sin cajón cuyo precio resuelve se publica; sin precio escala a M2 como cualquiera.
+    // El resultado `missing_location` queda en el tipo, dormido (SU.2).
     try {
       this.assertPublishableGuards(item);
     } catch (e) {
@@ -2643,49 +3333,148 @@ export class InventoryService {
     return { inventoryItemId: id, outcome: 'published', missing: [] };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/move` — con GUARDAS de estado y de zona (`item-location.rules.ts`).
+   *
+   * Una sola transacción: lectura, guardas, `update` condicionado al estado LEÍDO y `InventoryMovement`
+   * (antes eran dos sentencias sueltas: un fallo entre ambas dejaba un movimiento sin mudanza). La
+   * pieza de cliente toma la **puerta del cliente** (`lockCustomerVaultGate`, la misma del `confirm`)
+   * antes de calcular sus cajones: así el `move` y una colocación del mismo cliente no deciden sobre
+   * una lectura que el otro está cambiando.
+   *
+   * Devuelve la fila de back-office **más** `location: { id, label, zone }` (aditivo) para que la UI
+   * pinte la ubicación nueva sin otra consulta.
+   */
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromLocationId: item.locationId,
-        toLocationId: dto.toLocationId,
-        fromStatus: item.status,
-        toStatus: item.status,
-        reason: MovementReason.move,
-        actorUserId,
-        note: dto.note,
-      },
-    });
-    const moved = await this.prisma.inventoryItem.update({
-      where: { id },
-      data: { locationId: dto.toLocationId },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      const kind = assertOperable(item, 'move');
+      if (kind === 'customer') {
+        await lockCustomerVaultGate(tx, item.ownerUserId!);
+        await this.assertNotInActiveWithdrawal(tx, id);
+      }
+      const loc = await tx.vaultLocation.findUnique({ where: { id: dto.toLocationId } });
+      const drawers =
+        kind === 'customer'
+          ? ((await customerDrawersOf(tx, [item.ownerUserId!])).get(item.ownerUserId!) ?? [])
+          : [];
+      assertMoveDestination(kind, loc, drawers);
+      await this.guardedItemUpdate(tx, item, { locationId: dto.toLocationId });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromLocationId: item.locationId,
+          toLocationId: dto.toLocationId,
+          fromStatus: item.status,
+          toStatus: item.status,
+          reason: MovementReason.move,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+    }, VAULT_VERB_TX_OPTIONS);
     // ⚠️ v1.51 (fase 8, §4.39m.2) — **DISPARADOR (b): al fijar/mover ubicación.** Éste es el momento
-    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del update
+    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del commit
     // (la ubicación es el hecho; publicar es la consecuencia) y es best-effort — ver `tryAutoPublish`.
     await this.tryAutoPublish(id, 'move');
     // S49-R4: proyectado. Se relee para que el `status` refleje una publicación que acaba de ocurrir.
-    return toAdminInventoryItemRow(
-      (await this.prisma.inventoryItem.findUnique({ where: { id } })) ?? moved,
-    );
+    const after = await this.prisma.inventoryItem.findUnique({
+      where: { id },
+      include: { location: true },
+    });
+    if (!after) throw BusinessException.notFound();
+    return {
+      ...toAdminInventoryItemRow(after),
+      location: after.location
+        ? { id: after.location.id, label: after.location.label, zone: after.location.zone }
+        : null,
+    };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/mark` — perdida/dañada, con la guarda de estado de
+   * `item-location.rules.ts` (⛔ nunca `reserved`/`picking`: pedido vivo o cobrado). Misma
+   * transacción y misma escritura condicionada que `moveItem`.
+   * 🔒 v1.80.3 §M4-SHIP.17.1 (1) (D-SHIP-5): **solo plataforma `in_stock | listed`**. La rama de
+   * cliente (custodia liquidada fuera de retiro, y su consulta de retiro activo) se retiró: marcar
+   * `lost` la carta de un cliente fuera de un caso la sacaba de «Por reponer» sin abrir deuda. La
+   * incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso.
+   */
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
     const status: InventoryStatus = dto.mark === 'lost' ? 'lost' : 'damaged';
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromStatus: item.status,
-        toStatus: status,
-        reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
-        actorUserId,
-        note: dto.note,
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      assertOperable(item, 'mark');
+      const row = await this.guardedItemUpdate(tx, item, { status });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromStatus: item.status,
+          toStatus: status,
+          reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+      return row;
     });
     // S49-R4: proyectado.
-    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
+    return toAdminInventoryItemRow(updated);
+  }
+
+  /**
+   * Lee lo que las guardas de `move`/`mark` y del `PATCH` no publicante (`status`/`price`, regla de fusión
+   * `#M1-merge-rule`) necesitan (404 si no existe).
+   */
+  private async readGuardedItem(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null }> {
+    const item = await tx.inventoryItem.findUnique({ where: { id } });
+    if (!item) throw BusinessException.notFound();
+    return item;
+  }
+
+  /** Una pieza de cliente en un retiro ya cobrado se opera desde el envío, no desde M1. */
+  private async assertNotInActiveWithdrawal(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    if ((await activeWithdrawalsOf(tx, [id])).has(id)) throw inActiveWithdrawalError();
+  }
+
+  /**
+   * Escritura CONDICIONADA al estado y dueño LEÍDOS (TOCTOU): si un checkout, un settle o un
+   * contracargo cambió la pieza entre la lectura y aquí, el `update` no encuentra la fila (`P2025`)
+   * y se responde `409 CONFLICT` — la transacción se revierte entera, sin movimiento ni campo escrito.
+   * Lo usan `move`, `mark` y el `PATCH` no publicante (`#M1-merge-rule`); el publicante usa `claimListed`.
+   */
+  private async guardedItemUpdate(
+    tx: Prisma.TransactionClient,
+    item: GuardedItem & { id: string },
+    data: Prisma.InventoryItemUncheckedUpdateInput,
+    /**
+     * ⭐ v1.80.8.7 (`M1-SFP` punto 1) — SOLO el `PATCH`: condiciona además al `listPriceCents` LEÍDO (`null`
+     * incluido), para que el «antes» de su bitácora sea exacto. ⛔ `move`/`mark` no lo pasan (sin cambio).
+     */
+    expected?: { listPriceCents: number | null },
+  ) {
+    try {
+      // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`/`updateItem`
+      // proyectan con `toAdminInventoryItemRow` antes de responder.
+      return await tx.inventoryItem.update({
+        where: {
+          id: item.id,
+          status: item.status,
+          ownerType: item.ownerType,
+          ownerUserId: item.ownerUserId,
+          ...(expected ? { listPriceCents: expected.listPriceCents } : {}),
+        },
+        data,
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.conflict('CONFLICT', 'Item changed while operating on it; reload and retry');
+      }
+      throw e;
+    }
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
@@ -2707,6 +3496,7 @@ export class InventoryService {
   async adjust(
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<InventoryAdjustmentResponse> {
     // v1.20.1 — `batchKey` SOLO es válido con `encontrada` (contrato §M1): los otros motivos
     // operan un id concreto y su replay cae en 422 ITEM_NOT_ADJUSTABLE (idempotencia natural).
@@ -2716,7 +3506,7 @@ export class InventoryService {
         "`batchKey` is only valid with reason 'encontrada'",
       );
     }
-    if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId);
+    if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId, actorRole);
     return this.adjustExisting(dto, actorUserId);
   }
 
@@ -2734,6 +3524,7 @@ export class InventoryService {
   private async adjustFound(
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<InventoryAdjustmentResponse> {
     if (!dto.item) {
       throw BusinessException.badRequest(
@@ -2741,6 +3532,12 @@ export class InventoryService {
         "reason 'encontrada' requires `item`",
       );
     }
+    // 💰 v1.83 (§M11-SP.4): la línea «encontrada» es un escritor de `listPriceCents` más. (Su DTO no declara
+    // `sealedProductId` ni `manualMarketMxnCents`, así que hoy solo puede darse «sellado sin producto»; la regla
+    // es la misma función que en el alta para que el día que los declare no haga falta acordarse.)
+    // v1.83.2 (§M11-SP.13.8, Q-6): NORMADO — «encontrada» no liga a producto (ligar es del alta); la fila «ligado ⇒
+    // 422» es n/a y esta llamada SE QUEDA (canario en SP-9 de la integración).
+    assertSealedPriceWriters([sealedPriceLineOf(dto.item)], { role: actorRole });
     if (dto.batchKey) {
       const existing = await this.prisma.inventoryBatch.findUnique({
         where: { id: dto.batchKey },
@@ -2764,16 +3561,7 @@ export class InventoryService {
       // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
       // ⚠️ P-79(d) · MONEY: misma corrección que el alta por lote — la clave es la de MERCADO, no el
       // literal `'sealed'` del override manual. Ver `sealedPendingGradeKeyOf`.
-      await this.pricing.escalatePending(
-        r.card.id,
-        line.productType,
-        this.sealedPendingGradeKeyOf(r),
-        'inventory',
-        undefined,
-        r.finish,
-        null,
-        r.sealedProductId,
-      );
+      await this.escalateSealedAltaIfPriceless(r, line.productType);
     }
     const folios = await this.prisma.nextFolios(qty);
     try {
@@ -2841,6 +3629,9 @@ export class InventoryService {
         }
         return out;
       });
+      // ⭐ SU.8 — tras el commit, los ids de ESTA respuesta (fresca: el replay y la rama P2002 no llegan aquí).
+      // `toStatus: 'in_stock'` se queda: describe la fila `InventoryAdjustment`, no el estado vivo (SU.8.3).
+      await this.publishCreated(response.inventoryItemIds, 'encontrada', response.folios);
       return response;
     } catch (e) {
       // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
@@ -3149,8 +3940,13 @@ export class InventoryService {
    *  - «Precio mercado» = `PriceReference` de la variante del item (mercado del día, MXN al FX vivo).
    *  - «Precio compra»  = override de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, M-30);
    *     NO recomputa la regla del cotizador por rareza (eso sería inventar). Vacío si no hay override.
-   *  - «Precio venta»   = precio manual POR PIEZA (`listPriceCents`) ó, en su defecto, el override de
-   *     VENTA de la variante (`sellOverrideCents`). NO deriva mercado×markup. Vacío si ninguno.
+   *  - «Precio venta antes de IVA» (col 17, escala `L`) = precio manual POR PIEZA (`listPriceCents`) ó, en su
+   *     defecto, el override de VENTA de la variante (`sellOverrideCents`, también escala `L`: el checkout lo
+   *     trata como `listPriceCents` y deriva `P` de él). NO deriva mercado×markup. Vacío si ninguno, y VACÍO
+   *     cuando manda el precio del producto (v1.83.2, §M11-SP.13.4), aunque la pieza tenga legado sombreado.
+   *  - «Precio del producto con IVA» (col 18, escala `P`) = `SealedProduct.ownerDisplayPriceCents` tal cual lo
+   *     tecleó el dueño, solo cuando `manualSaleOf(...).origin = 'product'`. Vacío en otro caso.
+   * ⛔ Cero lecturas de diales: ninguna columna se deriva.
    */
   async exportInventoryXlsx(filters: {
     setId?: string;
@@ -3176,33 +3972,43 @@ export class InventoryService {
 
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } }, location: true },
+      include: { card: { include: { set: true } }, location: true, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: [{ card: { setId: 'asc' } }, { folio: 'asc' }],
     });
 
     // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    // v1.53 (§4.40.4b, MONEY): `null` = pieza `graded` sin identidad de slab ⇒ NO entra al lote de
-    // referencias y sus columnas de dinero salen vacías. Se calcula UNA vez, alineado por índice con
-    // `items` (antes se recalculaba dos veces por fila).
-    const gradeKeys = items.map((it) => this.exportGradeKey(it));
-    const refReqs = items.flatMap((it, i) => {
-      const gk = gradeKeys[i];
-      return gk == null
-        ? []
-        : [{ cardId: it.cardId, productType: it.productType, finish: it.finish, gradeKey: gk }];
-    });
+    // ⭐ v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`; MONEY) — el
+    // export es un LECTOR DE PATRIMONIO y valúa por la MISMA puerta que los otros seis (holdings,
+    // holdingDetail, custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue):
+    //  - `valuationKeyFor` decide QUÉ fila: sellado mapeado ⇒ `sealed:tcg:<id>` bajo acabado `normal`
+    //    (la fila de mercado del producto vive ahí, sea cual sea el `finish` de la pieza); sellado SIN
+    //    mapeo ⇒ `null` — ⛔ jamás la fila de COLA `'sealed'`, que puede ser el precio de OTRA caja
+    //    anclada a la misma `Card`; graduada sin identidad de slab ⇒ `null` (v1.53 §4.40.4b).
+    //  - `valuationCentsOf` decide CUÁNTO: el gate del dial (`tcgcsv` solo con el dial encendido,
+    //    `manual` sobrevive, `<= 0` ⇒ nada), el mismo que `/vault/sealed`.
+    // `null` ⇒ la pieza NO entra al lote y sus columnas de mercado/compra salen VACÍAS, que es la verdad.
+    // Antes (`exportGradeKey`, retirado) el sellado sin mapeo salía con la fila legada de otra caja, el
+    // mapeado se buscaba con el `finish` de la pieza y el dial no se aplicaba (ARCHITECTURE §4.50.6 D-SK-4).
+    // Se calcula UNA vez, alineado por índice con `items`.
+    const keys = items.map((it) => this.pricing.valuationKeyFor(it));
+    const refReqs = keys.flatMap((k) => (k ? [k] : []));
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
+    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear (D-4: `sealedSourceOnFor`,
+    // el mismo cuerpo que los otros seis lectores; por debajo es `loadSealedSpreads()` una vez).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
-    // Overrides M-30 (compra/venta) EN LOTE por (cardId, productType, gradeKey, finish).
+    // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
+    // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
+    // `productType:'sealed'` (`variant-controls.service.ts:123` acota el write a raw/graded).
     const cardIds = [...new Set(items.map((it) => it.cardId))];
     const overrides = cardIds.length
       ? await this.prisma.variantPriceOverride.findMany({ where: { cardId: { in: cardIds } } })
       : [];
     const ovByKey = new Map<string, VariantPriceOverride>();
     for (const o of overrides) {
-      ovByKey.set(`${o.cardId}|${o.productType}|${o.gradeKey}|${o.finish}`, o);
+      ovByKey.set(variantKey(o), o);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -3227,17 +4033,26 @@ export class InventoryService {
       const it = items[idx];
       // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
       // que es la verdad. Antes salían con el valor de un PSA 10.
-      const gk = gradeKeys[idx];
-      const refKey = gk == null ? null : `${it.cardId}|${it.productType}|${gk}|${it.finish}`;
+      // v1.80.2.2 (SK-5): la llave es la de VALUACIÓN (sellado ⇒ bajo `normal`) y el monto pasa por el
+      // gate de `valuationCentsOf` (dial); la COLUMNA `finish` de abajo sigue siendo la de la pieza.
+      const k = keys[idx];
+      const refKey = k == null ? null : variantKey(k);
       const market = refKey == null ? undefined : refs.get(refKey);
       const ov = refKey == null ? undefined : ovByKey.get(refKey);
-      const marketCents =
-        market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
+      const marketCents = this.pricing.valuationCentsOf(it, market, sourceOn);
       const buyCents = ov?.buyOverrideCents ?? null;
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
       // «presente ⇔ > 0».
-      const sellCents = firstPresentAmount(it.listPriceCents, ov?.sellOverrideCents);
+      // 💰 v1.83.2 (§M11-SP.13.4): el predicado único decide la COLUMNA, no una conversión. Producto ⇒ su `P`
+      // en la 18 y la 17 vacía (el legado sombreado no se cobra, no se exporta); si no ⇒ pieza > override de
+      // variante en la 17 (escala `L`) y la 18 vacía.
+      const manual = manualSaleOf(it);
+      const sellCents =
+        manual?.origin === 'product'
+          ? null
+          : firstPresentAmount(manual?.origin === 'piece' ? manual.listCents : null, ov?.sellOverrideCents);
+      const productDisplayCents = manual?.origin === 'product' ? manual.displayCents : null;
       sheet.addRow({
         folio: it.folio,
         card: it.card?.name ?? '',
@@ -3256,28 +4071,13 @@ export class InventoryService {
         marketMxn: this.centsToMxn(marketCents),
         buyMxn: this.centsToMxn(buyCents),
         sellMxn: this.centsToMxn(sellCents),
+        productDisplayMxn: this.centsToMxn(productDisplayCents),
       });
     }
 
     // exceljs devuelve un ArrayBuffer-like; normalizamos a Buffer para res.send.
     const out = await workbook.xlsx.writeBuffer();
     return Buffer.from(out as ArrayBuffer);
-  }
-
-  /** gradeKey del item para casar `PriceReference`/`VariantPriceOverride` (sellado → clave de mercado). */
-  private exportGradeKey(it: {
-    productType: ProductType;
-    rawCondition: string | null;
-    gradingCompany: string | null;
-    gradeValue: string | null;
-    tcgplayerProductId: number | null;
-  }): string | null {
-    if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
-      return sealedMarketGradeKey(it.tcgplayerProductId);
-    }
-    // v1.53 (§4.40.4b, MONEY) — EXPORT = lectura pura: sin identidad de slab no hay clave y las
-    // columnas de mercado/compra/venta salen vacías. Antes salían con el valor de un PSA 10.
-    return tryBuildGradeKey(it);
   }
 
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */

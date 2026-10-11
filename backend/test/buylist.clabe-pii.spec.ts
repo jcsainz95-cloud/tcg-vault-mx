@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -18,6 +19,12 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
  */
 const CLABE_A = '012345678901234567';
 const CLABE_B = '111122223333444455';
+// ⭐ Robustez PII (deuda M11, MISMA clase que PR #43 en getUser/getKyc) — un texto cifrado con la
+// forma correcta (`v1:iv:tag:ct`, tag de 16 bytes) pero que NINGUNA clave de este proceso autentica:
+// emula «clave rotada / clave efímera de un proceso anterior / fila corrupta». `decrypt` LANZA sobre
+// esto, y hoy ese throw sube sin capturar hasta el filtro global ⇒ 500 en el DETALLE de la solicitud.
+const UNDECRYPTABLE_CLABE =
+  'v1:' + Buffer.alloc(12).toString('base64') + ':' + Buffer.alloc(16).toString('base64') + ':' + Buffer.from('garbage').toString('base64');
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -89,22 +96,23 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
 
   it('CLABE propia (mismo HMAC almacenado) → OK y snapshot CIFRADO', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const users = usersStubM61();
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), users as unknown as UsersService, pii);
     const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
     // Snapshot persistido cifrado, no en claro.
     const snap = prisma.sellRequest.create.mock.calls[0][0].data.clabeSnapshotEnc;
     expect(snap).not.toContain(CLABE_A);
     expect(pii.decrypt(snap)).toBe(CLABE_A);
-    // Se guardó el blind index, no la CLABE en claro.
-    const upsertCreate = prisma.kycProfile.upsert.mock.calls[0][0].create;
-    expect(upsertCreate.clabeHmac).toBe(pii.clabeBlindIndex(CLABE_A));
-    expect(upsertCreate.clabeEnc).not.toContain(CLABE_A);
+    // 🔒 v1.80.3 (`C-CLABE-1`): la CLABE la escribe `users.setClabe` (bajo candado, con su índice ciego); el `upsert`
+    // de aquí ya no la lleva. Misma CLABE ⇒ `setClabe` no escribe nada (lo mide `users.kyc-cycle.spec.ts`).
+    expect(prisma.kycProfile.upsert.mock.calls[0][0].create).not.toHaveProperty('clabeEnc');
+    expect(users.setClabe).toHaveBeenCalledWith(expect.anything(), 'u', CLABE_A, expect.objectContaining({ id: 'u' }));
   });
 
   it('CLABE de tercero (HMAC distinto) → CLABE_NOT_OWN_NAME', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), (usersStubM61() as unknown as UsersService), pii);
     await expect(
       svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_B, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_NOT_OWN_NAME' });
@@ -112,9 +120,12 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
 
   it('sin KYC previa: primera CLABE se acepta y fija el blind index', async () => {
     const { prisma } = buildPrisma(null);
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const users = usersStubM61();
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), users as unknown as UsersService, pii);
     const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
+    // La primera CLABE por buylist también pasa por el único escritor (PS-46).
+    expect(users.setClabe).toHaveBeenCalledWith(expect.anything(), 'u', CLABE_A, expect.objectContaining({ id: 'u' }));
   });
 });
 
@@ -126,7 +137,7 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
       },
       kycProfile: { findUnique: jest.fn() },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
     expect(res).toEqual({ sellRequestId: 'sr', clabe: CLABE_A });
   });
@@ -138,7 +149,7 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue({ clabeEnc: pii.encrypt(CLABE_B) }) },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
     expect(res.clabe).toBe(CLABE_B);
   });
@@ -159,10 +170,40 @@ describe('BuylistService.adminGet — nunca CLABE en claro', () => {
     };
     // v1.51.20 · BL-29: la proyección admin deriva `offerIssueDeadlineAt` y `offerReissueAlert` de
     // DOS diales, así que necesita un `SettingsService` aunque este spec solo mire la CLABE.
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), (usersStubM61() as unknown as UsersService), pii);
     const res: any = await svc.adminGet('sr');
     expect(res.clabeMasked).toBe('**************4567');
     expect(res.clabeSnapshotEnc).toBeUndefined();
     expect(JSON.stringify(res)).not.toContain(CLABE_A);
+    // Camino feliz: el snapshot descifra ⇒ NO gana el flag de degradación.
+    expect(res.piiUnavailable).toBeUndefined();
+  });
+
+  // ⭐ Robustez PII (deuda M11, MISMA clase que PR #43 en getUser/getKyc, en la vista que aquel commit
+  // no tocó): un `clabeSnapshotEnc` INDESCIFRABLE (clave rotada / fila corrupta) NO debe tumbar el
+  // detalle con un 500. Debe DEGRADAR SOLO su casilla (`clabeMasked: undefined` + `piiUnavailable: true`,
+  // ambos ADITIVOS y solo en el estado degradado) y servir el resto del detalle intacto (200).
+  it('snapshot INDESCIFRABLE → degrada la CLABE (clabeMasked undefined + piiUnavailable), NO 500', async () => {
+    const prisma: any = {
+      sellRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'sr',
+          userId: 'u',
+          status: 'recibida',
+          clabeSnapshotEnc: UNDECRYPTABLE_CLABE,
+          items: [],
+        }),
+      },
+    };
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), (usersStubM61() as unknown as UsersService), pii);
+    // ANTES del arreglo esto RECHAZA (decryptOptional lanza ⇒ 500). Debe RESOLVER degradado.
+    const res: any = await svc.adminGet('sr');
+    expect(res.clabeMasked).toBeUndefined();
+    expect(res.piiUnavailable).toBe(true);
+    // El resto del detalle viaja intacto y el ciphertext nunca se filtra.
+    expect(res.id).toBe('sr');
+    expect(res.status).toBe('recibida');
+    expect(res.clabeSnapshotEnc).toBeUndefined();
+    expect(JSON.stringify(res)).not.toContain(UNDECRYPTABLE_CLABE);
   });
 });

@@ -188,10 +188,12 @@ describe('E2E — contraseña temporal OBLIGATORIA y POST /auth/change-password 
   });
 
   it('el operador (staff) recorre el mismo ciclo: reset → temporal → 403 en /admin/* → cambio → 200', async () => {
-    const email = `op_${randomUUID().slice(0, 8)}@e2e.local`;
+    // v1.80.9 (§M6-U.6): el staff se da de alta con NOMBRE DE USUARIO (con correo ⇒ 422). Solo cambia el fixture:
+    // el identificador viaja en la misma llave `email` del login. Las aserciones del ciclo no cambian.
+    const email = `op_${randomUUID().slice(0, 8)}`;
     const created = await h.api('POST', '/admin/users', {
       token: adminToken,
-      json: { email, name: 'Op Temp', role: 'vault_operator' }, // sin password ⇒ autogenerada + flag
+      json: { username: email, name: 'Op Temp', role: 'vault_operator' }, // sin password ⇒ autogenerada + flag
     });
     expect(created.status).toBe(201);
     const temp: string = created.body.tempPassword;

@@ -1,6 +1,7 @@
 import { Finish } from '@prisma/client';
 import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
+import { supportContact } from '../mail/support-contact';
 import {
   cardLineRows,
   ctaRows,
@@ -41,15 +42,9 @@ import {
 
 type Locale = 'es' | 'en';
 
-// P-21 (rebrand): overridable por env sin redeploy (mismo patrón que `disputes.constants.ts`).
-// Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y, al final, al default de
-// código. P-21 MIGRACIÓN CERRADA (ago-2026): ese default es ya el buzón VIVO `soporte@tcghunt.mx`
-// (el histórico `@tcgvaultmx.com` está muerto: el vendedor escribiría a nadie). P-21 cierre:
-// `envOr` (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
-const SUPPORT_EMAIL = envOr(
-  process.env.SUPPORT_EMAIL,
-  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'),
-);
+// v1.82 · PNL-1 (`D-PNL-2`): el buzón de soporte sale del ÚNICO resolutor, `supportContact()`
+// (`../mail/support-contact.ts`: `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → soporte@tcghunt.mx`). Antes
+// vivía aquí una cascada local fijada al importar; ⛔ no vuelve (candado DSC-8).
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
 const BRAND = 'TCG HUNT';
 
@@ -174,8 +169,8 @@ export function sellItemRejectedTemplate(
   // §31.2 — versalita **en la cadena**: `text-transform` no existe en Outlook.
   const optionsLabel = en ? 'YOUR OPTIONS' : 'TUS OPCIONES';
   const returnOption = en
-    ? `Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${SUPPORT_EMAIL} to coordinate it.`
-    : `Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${SUPPORT_EMAIL} para coordinarla.`;
+    ? `Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${supportContact()} to coordinate it.`
+    : `Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${supportContact()} para coordinarla.`;
   const abandonOption = en
     ? `Abandonment: if we don't hear from you by ${abandonDate}, the card will be considered abandoned.`
     : `Abandono: si no recibimos respuesta antes del ${abandonDate}, la carta se considerará abandonada.`;
@@ -240,6 +235,162 @@ export function sellItemRejectedTemplate(
       title,
       // §31.6a — 40–90 caracteres, y es **la frase que ya abre el cuerpo**: la del hecho. ⛔ No se
       // redacta un preheader nuevo para este correo (§31.0: no se escribe copy que no exista).
+      preheader: intro,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    text,
+  };
+}
+
+/** Una carta del correo 29 (minimización §4.18c: nombre, set, número y acabado — nada más). */
+export interface SellItemsRejectedCard {
+  cardName: string;
+  setName: string;
+  cardNumber: string;
+  finish: Finish;
+}
+
+export interface SellItemsRejectedParams {
+  folio: string;
+  cards: SellItemsRejectedCard[];
+  reason: string;
+  /** El ancla de los plazos (`SellRequestItem.rejectedAt`, la MISMA en todas las cartas del lote). */
+  rejectedAt: Date;
+  /** `rejectDeadlines(rejectedAt)` — la plantilla ⛔ no suma días: los recibe. */
+  returnDeadlineAt: Date;
+  abandonDeadlineAt: Date;
+  /** `true` ⇒ con este lote ya no quedó ninguna carta viva y la solicitud se cerró sola (§PNL.4 paso 6). */
+  requestClosed: boolean;
+}
+
+const MAIL_DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Días ENTEROS entre el rechazo y un plazo. ⚠️ ML-24 (DESIGN_SYSTEM §60.13): el «7» y el «30» que lee el
+ * vendedor **salen de las fechas que calcula el servidor**, no de un literal — si el plazo cambia, el número
+ * escrito cambia con él (un literal mentiría al lado de la fecha correcta).
+ */
+function daysBetween(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / MAIL_DAY_MS);
+}
+
+/**
+ * **CORREO 29 — CARTAS NO ACEPTADAS** (v1.82 · PNL-4; DESIGN_SYSTEM §60.6; `API_CONTRACT §PNL.4` paso 8). El
+ * **único** correo que sale de `POST /admin/buylist/:id/reject-items`: dice **cuáles** cartas, **el motivo**,
+ * los dos plazos con sus días («7» y «30» junto a las fechas), que el envío de regreso lo paga el vendedor, y
+ * un cierre distinto si la solicitud quedó cerrada.
+ *
+ * Familia VENTA, mismo esqueleto que el 4 (en plural): saludo, eyebrow con folio, titular serif 22px, lista
+ * de cartas con la celda de importe **vacía**, caja `TUS OPCIONES`, letra chica. **Sin CTA** (la acción es
+ * escribir a soporte, que va en el cuerpo: `supportContact()`), ⛔ sin dinero, ⛔ sin nombre del operador.
+ * El correo 4 (`sellItemRejectedTemplate`) **sigue** para `PATCH …/decision {reject}` (§PNL.4).
+ */
+export function sellItemsRejectedTemplate(
+  params: SellItemsRejectedParams,
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const n = params.cards.length;
+  const one = n === 1;
+  const returnDays = daysBetween(params.rejectedAt, params.returnDeadlineAt);
+  const abandonDays = daysBetween(params.rejectedAt, params.abandonDeadlineAt);
+  const returnDate = formatDate(params.returnDeadlineAt, l);
+  const abandonDate = formatDate(params.abandonDeadlineAt, l);
+  const support = supportContact();
+
+  const subject = en
+    ? one
+      ? 'A card in your sell request was not accepted'
+      : `${n} cards in your sell request were not accepted`
+    : one
+      ? 'Una carta de tu solicitud de venta no fue aceptada'
+      : `${n} cartas de tu solicitud de venta no fueron aceptadas`;
+  const eyebrow = en
+    ? one
+      ? 'CARD NOT ACCEPTED'
+      : 'CARDS NOT ACCEPTED'
+    : one
+      ? 'CARTA NO ACEPTADA'
+      : 'CARTAS NO ACEPTADAS';
+  const eyebrowText = `${eyebrow} · ${params.folio}`;
+  const title = en
+    ? one
+      ? "We didn't accept a card"
+      : `We didn't accept ${n} cards`
+    : one
+      ? 'No aceptamos una carta'
+      : `No aceptamos ${n} cartas`;
+  const intro = en
+    ? `When we checked your package we didn't accept ${one ? 'this card' : 'these cards'} from your sell request:`
+    : `Al revisar tu paquete no aceptamos ${one ? 'esta carta' : 'estas cartas'} de tu solicitud de venta:`;
+  const reasonProse = en ? `Reason: ${params.reason}` : `Motivo: ${params.reason}`;
+  const optionsLabel = en ? 'YOUR OPTIONS' : 'TUS OPCIONES';
+  const returnOption = en
+    ? `Return: you have ${returnDays} days, until ${returnDate}, to ask us to send ${one ? 'it' : 'them'} back. Return shipping is at your cost; write to ${support} to arrange it.`
+    : `Devolución: tienes ${returnDays} días, hasta el ${returnDate}, para pedir que te ${one ? 'la' : 'las'} regresemos. El envío de regreso corre por tu cuenta; escribe a ${support} para coordinarlo.`;
+  const abandonOption = en
+    ? `Abandonment: if you don't write to us, after ${abandonDays} days, on ${abandonDate}, ${one ? 'the card' : 'the cards'} will be considered abandoned.`
+    : `Abandono: si no nos escribes, a los ${abandonDays} días, el ${abandonDate}, ${one ? 'la carta se considerará abandonada' : 'las cartas se considerarán abandonadas'}.`;
+  const closing = params.requestClosed
+    ? en
+      ? "As we didn't accept any card, your request is closed and there is no payment."
+      : 'Como no aceptamos ninguna carta, tu solicitud queda cerrada y no hay pago.'
+    : en
+      ? 'The other cards in your request are still under review; this email doesn\'t change them.'
+      : 'Las demás cartas de tu solicitud siguen en revisión; este correo no las cambia.';
+  const finishOf = (c: SellItemsRejectedCard) => FINISH_LABELS[c.finish] ?? c.finish;
+
+  const cardBlocks = params.cards.flatMap((c, i) => [
+    ...(i > 0 ? [spacerRow(16)] : []),
+    // §31.6c — la línea de carta de siempre con la celda de importe VACÍA: ⛔ jamás `MX$ 0.00`.
+    cardLineRows({ title: c.cardName, meta: `${c.setName} · #${c.cardNumber} · ${finishOf(c)}` }),
+  ]);
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(16),
+    ...cardBlocks,
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(reasonProse),
+    spacerRow(32),
+    termsBoxRows(optionsLabel, [returnOption, abandonOption]),
+    spacerRow(32),
+    smallPrintRow(closing),
+  ];
+  const cardLinesText = params.cards
+    .map((c) => `- ${c.cardName} · ${c.setName} · #${c.cardNumber} (${en ? 'Finish' : 'Acabado'}: ${finishOf(c)})`)
+    .join('\n');
+  // §31.12 — el texto plano dice LO MISMO: eyebrow con folio, lista, motivo, las dos opciones, cierre.
+  const text =
+    `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n` +
+    `${eyebrowText}\n\n` +
+    `${title}\n\n` +
+    `${intro}\n` +
+    `${cardLinesText}\n\n` +
+    `${reasonProse}\n\n` +
+    `${optionsLabel}\n` +
+    `- ${returnOption}\n` +
+    `- ${abandonOption}\n\n` +
+    `${closing}\n\n` +
+    `${BRAND}`;
+
+  return {
+    to: '', // lo fija el llamador
+    subject,
+    html: mailShell({
+      locale: l,
+      title,
       preheader: intro,
       blocks,
       footerWhy: sellRequestFooterWhy(en),
@@ -1067,6 +1218,84 @@ export function sellRequestNotPursuedTemplate(
       `${en ? 'Hi' : 'Hola'} ${name}:\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${body3}\n` +
       (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
       `\n${BRAND}`,
+  };
+}
+
+/**
+ * 💰 rev BSD-1 · **BSD-M1 — «Decidimos no continuar con esta venta»** (API_CONTRACT §BSD.8.1, DESIGN_SYSTEM §BSD-UX.1).
+ *
+ * El MISMO correo para los dos caminos que cierran una `aceptada` sin culpa: el cierre automático a los N días naturales
+ * sin guía (regla 8 del barrido) y «Declinar» del operador (`POST …/decline-accepted`). Al vendedor no le corresponde saber
+ * cuál fue (mismo criterio que el correo 4 entre la regla 7 y `decline`).
+ *
+ * Esqueleto del correo 6 (§31.3): eyebrow con folio · titular 22px · saludo · tres párrafos · CTA TINTA al portal · URL de
+ * respaldo · letra chica. Pie VENTA y `audience` por defecto (`customer`: lleva el aviso de privacidad).
+ *
+ * ⛔ **Prohibido** (§BSD.8.1 y BX3, candado BSD-B21): guía, paquetería, número, plazo, días, demora, el motivo interno, montos,
+ * dirección, teléfono, CLABE. Por eso la plantilla **no recibe** ninguno de esos datos: su firma es `{ folio, portalUrl }`.
+ * «Por favor, no nos envíes tus cartas» es una INSTRUCCIÓN (el vendedor aceptó y puede tener una guía en la mano), no una
+ * afirmación sobre una guía.
+ * Uno por solicitud: lo garantiza la transición terminal `count === 1` de quien lo manda (⛔ sin sello propio).
+ */
+export function sellRequestNotContinuedTemplate(
+  params: { folio: string; portalUrl?: string },
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const n = (name ?? '').trim();
+  const greeting = en ? (n ? `Hi ${n},` : 'Hi,') : n ? `Hola ${n}:` : 'Hola:';
+  const subject = en ? "We won't be continuing with your sell request" : 'No continuaremos con tu solicitud de venta';
+  const eyebrow = en ? 'REQUEST CLOSED' : 'SOLICITUD CERRADA';
+  const title = en ? "We've decided not to continue with this sale" : 'Decidimos no continuar con esta venta';
+  const p1 = en
+    ? `After an additional review, we've decided not to continue with the sale process for your request ${params.folio}.`
+    : `Tras una revisión adicional, decidimos no continuar con el proceso de venta de tu solicitud ${params.folio}.`;
+  const p2First = en ? 'The request is closed and no card was purchased.' : 'La solicitud queda cerrada y no se compró ninguna carta.';
+  const p2 = en ? `${p2First} Please don't send us your cards.` : `${p2First} Por favor, no nos envíes tus cartas.`;
+  const p3 = en
+    ? "Thank you for considering us. If you'd like to sell in the future, you can get a new quote whenever you like."
+    : 'Gracias por considerarnos. Si más adelante quieres vender, puedes cotizar de nuevo cuando quieras.';
+  const cta = en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD';
+  const small = en
+    ? `If you had already sent them, write to us at ${supportContact()}.`
+    : `Si ya las habías enviado, escríbenos a ${supportContact()}.`;
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(greeting),
+    spacerRow(16),
+    proseRow(p1),
+    spacerRow(16),
+    proseRow(p2),
+    spacerRow(16),
+    proseRow(p3),
+    spacerRow(32),
+    // §41.4 — TINTA: el rótulo nombra el destino (el portal), no «cotizar de nuevo».
+    ...(params.portalUrl ? [ctaRows(params.portalUrl, cta, 'ink'), spacerRow(16), monoRow(params.portalUrl)] : []),
+    spacerRow(16),
+    smallPrintRow(small),
+  ];
+
+  return {
+    to: '',
+    subject,
+    html: mailShell({
+      locale: l,
+      title,
+      // §31.6a — el preheader es la primera frase de `p2` (§BSD-UX.1).
+      preheader: p2First,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    // §31.12 — el texto plano dice LO MISMO, en el orden de §BSD-UX.1.
+    text:
+      `${greeting}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${p1}\n\n${p2}\n\n${p3}\n` +
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${small}\n\n${BRAND}`,
   };
 }
 

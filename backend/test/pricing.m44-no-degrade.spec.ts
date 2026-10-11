@@ -439,7 +439,9 @@ describe('SEC-M43-4 — el borde de DINERO valida su entrada (`API_CONTRACT` v1.
       ['graded', 'graded:PSA:1'],
       ['graded', 'graded:CGC:9.5'], // CGC/BGS usan medios grados; el enum del schema tiene CGC.
       ['raw', 'raw:NM'],
-      ['sealed', 'sealed'],
+      // v1.70 (P-83, §M2-SK SK-3): `['sealed', 'sealed']` SALE de esta lista a propósito. Sigue siendo
+      // una clave CANÓNICA (la cola la usa), pero como override de MERCADO ya no «pasa»: responde
+      // `422 SEALED_MARKET_KEY_REQUIRED` (test/pricing.sealed-market-key-required.spec.ts).
       ['sealed', 'sealed:tcg:123456'],
     ];
     for (const [productType, gradeKey] of validas) {

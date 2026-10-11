@@ -33,7 +33,7 @@ const card: CardDTO = {
   supertype: 'Pokémon',
   subtypes: ['Stage 2'],
   setId: 'base1',
-  setName: 'Base Set',
+  setName: 'Base Set', setPtcgoCode: null,
   imageSmallUrl: 'https://img.example/s.png',
   imageLargeUrl: 'https://img.example/l.png',
   availableFinishes: ['normal'],
@@ -80,6 +80,8 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     // v2.0 (P-48): el mercado fijó el precio ⇒ la ficha SÍ muestra «Valor de mercado» (§21.8a).
     priceBasis: 'market',
     referenceValue: refValue,
+    // §MIV.2 (v1.90⟨miv⟩): el mercado CON IVA que manda el servidor (128,000 neto ⇒ 148,480).
+    referenceDisplayCents: 148480,
     currency: 'MXN',
     ...over,
   };
@@ -330,9 +332,12 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    expect(screen.getByText('MX$1,280.00')).toBeInTheDocument();
+    // §MIV.2: la cifra es la CON IVA (`referenceDisplayCents`), no el neto MX$1,280.00.
+    expect(screen.getByText('MX$1,484.80')).toBeInTheDocument();
+    expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    // §MIV.6: el explicador con mercado se reescribió (ya no dice «con la que valuamos las cartas»).
     expect(
-      screen.getByText(/El valor de mercado es la referencia del día con la que valuamos las cartas/),
+      screen.getByText(/El valor de mercado es la referencia del día y se muestra con IVA incluido/),
     ).toBeInTheDocument();
   });
 
@@ -349,6 +354,7 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(screen.queryByText('Valor de mercado')).toBeNull();
     // Nada lo sustituye: ni «—» donde estaba el bloque, ni la cifra de referencia por otra vía.
     expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    expect(screen.queryByText('MX$1,484.80')).toBeNull(); // §MIV: tampoco la cifra con IVA
     // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
     expect(
       screen.getByText('El precio de venta es el precio publicado de esta carta.'),
@@ -394,5 +400,36 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(c[0].className).toContain('sm:col-span-2');
     expect(c[1].className).not.toContain('sm:border-l');
     expect(c[2].className).toContain('sm:border-l');
+  });
+});
+
+/** v1.80 (P-71, §37.3b-c): la línea del set de la ficha, «Set · TWM 130 · rareza». */
+describe('CardDetailView · P-71 código corto del set en la línea del set', () => {
+  it('con código: «Twilight Masquerade · TWM 130 · Rare Holo», y el código NO va en versalitas (tal como llega)', async () => {
+    const { listings, units } = twoVariants();
+    const withCode = { ...card, setName: 'Twilight Masquerade', setPtcgoCode: 'TWM', number: '130' };
+    vi.spyOn(api, 'getCardDetail').mockResolvedValue({
+      card: withCode,
+      listings: listings.map((l) => ({ ...l, card: withCode })),
+      units: units.map((u) => ({ ...u, card: withCode })),
+    });
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const code = await screen.findByTestId('card-code');
+    expect(code.textContent).toBe('TWM 130');
+    expect(code.parentElement?.textContent).toBe('Twilight Masquerade · TWM 130 · Rare Holo');
+    // §37.3b «mayúsculas tal como llegan»: la línea sí va en versalitas (`uppercase`, es su voz de
+    // siempre), pero el código se exceptúa (`normal-case`) — la sigla impresa no la decide el CSS.
+    expect(code.parentElement).toHaveClass('uppercase');
+    expect(code).toHaveClass('normal-case');
+    expect(code).not.toHaveClass('uppercase');
+  });
+
+  it('sin código: «Base Set · #4 · Rare Holo», sin «—» ni «null»', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const code = await screen.findByTestId('card-code');
+    expect(code.parentElement?.textContent).toBe('Base Set · #4 · Rare Holo');
+    expect(code.parentElement?.textContent).not.toMatch(/—|null|undefined/);
   });
 });

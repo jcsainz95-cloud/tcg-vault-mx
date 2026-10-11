@@ -19,6 +19,7 @@ const CARD = {
   subtypes: [],
   setId: 's',
   setName: 'Darkness Ablaze',
+  setPtcgoCode: null,
   imageSmallUrl: '',
   imageLargeUrl: '',
   availableFinishes: ['holofoil' as const],

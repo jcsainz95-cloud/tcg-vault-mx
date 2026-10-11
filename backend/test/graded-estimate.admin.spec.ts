@@ -10,6 +10,7 @@ import { AuditService } from '../src/modules/audit/audit.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 
 /**
  * v1.44-graded-estimate — DIALES M2 del gancho + diagnóstico de curaduría
@@ -186,6 +187,9 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
         return { count: doomed.length };
       }),
     },
+    // H-PERF-1: getReferencesBatch/getPricedRawFinishesBatch (vía listCards/fetchSellable) podan el
+    // histórico con $queryRaw; el emulador aplica el mismo filtro sobre `refs`.
+    $queryRaw: makeRefsRawQuery(refs),
     variantPriceOverride: { findMany: jest.fn(async () => []) },
     inventoryItem: { findMany: jest.fn(async (args: any) => items.filter((i) => matchWhere(i, args.where))) },
     card: {

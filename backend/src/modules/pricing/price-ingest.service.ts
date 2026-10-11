@@ -20,7 +20,8 @@ import {
   VariantPublishRef,
 } from '../inventory/inventory-publish.port';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
-import { hasManualPrice } from '../../common/money';
+import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
+import { saleQueueKeyOf } from './sale-queue-key';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
@@ -446,9 +447,25 @@ export class PriceIngestService {
 
   /**
    * ¿Hubo ingesta de MERCADO reciente? (catch-up al boot, auditoría 2026-08-17).
-   * "Reciente" = existe ≥1 `PriceReference` NO-manual con `capturedDate` de hoy o ayer (UTC).
+   * "Reciente" = el barrido de mercado CONFIRMÓ ≥1 fila (no-manual) hoy o ayer (UTC).
    * Los overrides manuales del admin NO cuentan: un admin poniendo un precio a mano no
    * significa que el ingest masivo haya corrido.
+   *
+   * ⚠️ **P-53 §4.3 (arreglo de ALTO-2): se mide contra la EVIDENCIA (`evidenceDate ?? capturedDate`).**
+   * Con el escritor DIARIO write-on-change (§2), un barrido que CONFIRMA precios SIN cambios NO escribe
+   * ninguna fila con `capturedDate` de hoy — solo avanza `evidenceDate` de la fila vigente. Si esta
+   * pregunta siguiera mirando SOLO `capturedDate`, un día sin cambios devolvería `false` y el catch-up
+   * del boot **re-dispararía el barrido creyendo que nunca corrió** (trabajo inútil que puede quemar la
+   * cuota del proveedor de PAGA). La pregunta correcta es «¿el barrido CONFIRMÓ algo?», que es
+   * `evidenceDate`. Ahora el escritor diario SÍ puebla `evidenceDate` (§2), así que el barrido normal la
+   * contesta `true`.
+   *
+   * **Fallback a `capturedDate` mientras `evidenceDate` sea `null`** (primer boot tras deploy con filas
+   * LEGADAS): las filas pre-P-53 tienen `evidenceDate = null` pero su `capturedDate` es reciente (el
+   * barrido viejo reescribía a diario). Sin el fallback, el primer boot vería todo `evidenceDate = null`
+   * ⇒ `false` ⇒ re-dispararía el barrido una vez de más. Con el `OR` de abajo, una fila legada con
+   * `capturedDate >= ayer` cuenta como reciente ⇒ NO se re-dispara. (Las filas manuales se excluyen por
+   * `isManualOverride:false`; una legada de `capturedDate` viejo no cuenta, que es lo correcto.)
    */
   async hasRecentIngest(): Promise<boolean> {
     const since = new Date();
@@ -459,7 +476,15 @@ export class PriceIngestService {
       // fila de ESTIMADO no la contesta. Sin el predicado, una corrida del ingest de fase 2 (que
       // escribe `graded_estimate` sobre cartas raw publicadas) haría creer al catch-up del boot que el
       // mercado ya se ingirió y **saltaría el barrido** — un fail-open operativo por la puerta de atrás.
-      where: { capturedDate: { gte: since }, isManualOverride: false, ...MONEY_REF_WHERE },
+      where: {
+        isManualOverride: false,
+        ...MONEY_REF_WHERE,
+        // EVIDENCIA reciente (escritor P-53) O, para filas legadas sin evidencia, captura reciente.
+        OR: [
+          { evidenceDate: { gte: since } },
+          { evidenceDate: null, capturedDate: { gte: since } },
+        ],
+      },
       select: { id: true },
     });
     return row !== null;
@@ -964,11 +989,14 @@ export class PriceIngestService {
           productType: 'raw',
           card: { setId: set.id },
         },
-        include: { card: true },
+        // 💰 v1.83 (§M11-SP.1, SP-3): el predicado único exige el precio del producto en el tipo.
+        include: { card: true, ...SEALED_SALE_PRICE_INCLUDE },
       });
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();
+      // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez como la curva.
+      const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
       // v1.53 (§4.40.4b, MONEY) — `price-ingest` es camino de LECTURA/valuación ⇒ clave TOLERANTE.
       // Hoy el `where` de arriba ya acota a `productType:'raw'` (nunca hay `null`), pero se pide con
       // la tolerante a propósito: si mañana el barrido se ensancha a graduadas, una pieza sin
@@ -986,7 +1014,8 @@ export class PriceIngestService {
         // H-1 (E5-bis): `<= 0` es AUSENTE, así que esa pieza SÍ deriva de la curva y SÍ tiene que
         // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
         // hueco de D5, recién abierto por este bucle.
-        if (hasManualPrice(item)) continue;
+        // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(item) != null`.
+        if (manualSaleOf(item) != null) continue;
         // v1.53 (§4.40.4b): sin clave no hay variante que reconciliar — se omite (no se abre ni se
         // cierra cola con una clave inventada).
         const gradeKey = this.pricing.tryGradeKeyFor(item);
@@ -1001,14 +1030,17 @@ export class PriceIngestService {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: overrides.get(key) ?? null,
           curve,
+          premiumFloorPolicy,
         });
         // §4.36.5c: el MISMO seam abre y cierra. `reason != null` ⇒ entra a la cola; `null` ⇒ se cierra
         // la entrada abierta de esa clave si el mercado volvió a resolver.
-        await this.pricing.settlePendingForVariant(
-          decision.pendingReason,
-          { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
-          'inventory',
-        );
+        // 💰 v1.80.8.9 (`M2-VQ9` punto 2): la fila que se abre/cierra lleva la clave de cola ENTERA
+        // (`saleQueueKeyOf`, con `cardProductId`), la misma que la publicación y el barrido. Con la de cuatro
+        // componentes una promo cerraba/abría la fila del set base (fantasma) y nunca la suya (VQ-12). ⛔ La lectura
+        // de referencia (`refs` por `key`, arriba) no cambia: mismo precio; cambia QUÉ fila.
+        const queueKey = saleQueueKeyOf(item, this.pricing);
+        if (queueKey == null) continue;
+        await this.pricing.settlePendingForVariant(decision.pendingReason, queueKey, 'inventory');
         if (decision.pendingReason != null) opened++;
         else closed++;
       }

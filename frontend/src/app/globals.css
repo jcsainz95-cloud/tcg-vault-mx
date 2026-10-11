@@ -183,3 +183,14 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/*
+ * §37.1b (P-61): la `SellCartBar` de Vender es `fixed` de 64 px en `≥ lg`. El `pb-24` de la
+ * grilla protege las tejas, pero el pie legal del layout queda DESPUÉS de la vista y la barra lo
+ * taparía al final del scroll. Solo mientras la barra existe, el documento reserva su alto.
+ */
+@media (min-width: 1024px) {
+  body:has([data-sell-cart-bar]) {
+    padding-bottom: 64px;
+  }
+}

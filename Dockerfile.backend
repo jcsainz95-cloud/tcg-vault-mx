@@ -114,6 +114,11 @@ COPY --chown=nestjs:nodejs security/secretos-publicados.sha256 ./security/secret
 # confundirlos hizo que el entrypoint exigiera `STAGING_*` aquí dentro, abortara, y
 # el contenedor muriera sin llegar a `node` (run 34531002011).
 COPY --chown=nestjs:nodejs security/secretos-exigidos-contenedor.txt ./security/secretos-exigidos-contenedor.txt
+# CATÁLOGO DE CP (M-64): ⛔ la imagen NO lleva `scripts/geo` y el CMD NO lo corre. Hasta v1.80.12.4 el arranque
+# cargaba el catálogo (`import-sepomex.ts boot`) y en Railway, sin manifiesto, la imagen no arrancaba. Desde
+# v1.80.12.5 (API_CONTRACT §M4-SHIP.19.25.4, decisión del dueño HECHOS.md:57) el catálogo AYUDA, no bloquea: con la
+# tabla vacía la tienda vende con colonias escritas. Se carga con `scripts/geo/import-sepomex.sh import --file F`, a
+# mano y fuera del arranque. Candado G-BOOT: scripts/check-boot-no-geo.sh. DEVOPS_NOTES §81.
 # GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
 # Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
 # Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)

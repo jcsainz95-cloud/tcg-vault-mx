@@ -1,5 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
+import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -49,7 +51,7 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       },
     };
     service = new AdminService(
-      prisma as unknown as PrismaService,
+      withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
@@ -69,7 +71,20 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       // ⭐ D56 (§M10-IVA.8): la SÉPTIMA cifra. Uno de los dos envíos tiene costo `0` ⇒ el contador
       // lo SEÑALA. ⛔ No afirma que costara cero: afirma que hay que revisarlo.
       shippingCostMissingCount: 1,
+      // 💰 D2f (§19.11): sin ajustes ni seguro ⇒ 0 (aditivas; `shippingCostCents` no cambia).
+      shippingAdjustmentsCents: 0,
+      shippingInsuranceCents: 0,
+      // ⭐ v1.80/v1.80.2 (§M4-SHIP, PS-40): lo DEVUELTO en el periodo (libro por `submittedAt`, SPEI `paid` por `paidAt`).
+      // Sin filas ⇒ 0, y el resto de las cifras NO cambia (neutralidad, `admin.pnl-iva-neutral.spec.ts`).
+      refundsCents: 0,
+      refundedFeesCents: 0,
+      compensationsCents: 0,
       profitCents: 100000 + 35000 - 30000 - 5600 - 9000,
+      // 💰 §BSD.16 (BSD-1.2): los cuatro del buylist, al final; sin solicitudes ni guías de entrada ⇒ 0.
+      buylistShippingFeeRetainedCents: 0,
+      buylistGuideCostCents: 0,
+      buylistGuideMarginCents: 0,
+      buylistGuideCostMissingCount: 0,
     });
     // No debe existir la clave vieja.
     expect(p).not.toHaveProperty('shippingCents');
@@ -85,13 +100,14 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
     expect(withoutCost.profitCents - withCost.profitCents).toBe(9000);
   });
 
-  it('exportCsv(pnl) mirrors the new 7-column shape', async () => {
+  it('exportCsv(pnl) mirrors the object shape (v1.80: + refundsCents, refundedFeesCents, compensationsCents antes de profitCents)', async () => {
     const csv = await service.exportCsv('pnl');
     const [header, row] = csv.trim().split('\n');
     expect(header).toBe(
       'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,profitCents',
+        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount',
     );
-    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,${100000 + 35000 - 30000 - 5600 - 9000}`);
+    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,0,0,0,0,0,${100000 + 35000 - 30000 - 5600 - 9000},0,0,0,0`);
   });
 });

@@ -3,7 +3,8 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CreateItemDto, UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.2 (M-12) — Gradeadas por certificado (API_CONTRACT §M1, ARCHITECTURE §3.2):
@@ -14,6 +15,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 function buildPricing() {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -36,7 +38,7 @@ function buildPricing() {
     getVariantOverridesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
 }
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 function buildPrisma() {
   const created: any[] = [];
@@ -126,6 +128,10 @@ function buildUpdatePrisma(item: any) {
       // reflejarlo: un `update` plano ya no es el camino de publicación.
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1): el PATCH publicante escribe su bitácora `inventory.item_updated` dentro
+    // de la tx de `claimListed`; el doble tiene que poder recibirla (la forma la fija
+    // `inventory.sealed-final-price.spec.ts`).
+    auditLog: { create: jest.fn(async ({ data }: any) => data) },
   };
   return prisma;
 }
@@ -214,9 +220,22 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
       certNumber: 'PSA-99999999',
     } as UpdateItemDto);
     expect(res.status).toBe('listed');
-    // El certNumber del MISMO dto se persiste y la publicación es atómica.
-    expect(prisma.inventoryItem.update).toHaveBeenCalled();
-    expect(prisma.inventoryItem.updateMany).toHaveBeenCalled();
+    // El certNumber del MISMO dto se persiste EN LA MISMA escritura condicionada que publica (INV-SP-8,
+    // todo o nada; M-1 de QA sobre `b8a3e4ce`): ⛔ ningún `update` por `id` previo al CAS.
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1) — forma nueva del CAS publicante del `PATCH`: condiciona ADEMÁS al
+    // `listPriceCents` LEÍDO (el «antes» de su bitácora es exacto o `409`). 💰 v1.80.8.8 (SFP-10): y el `status`
+    // LEÍDO exacto, no el conjunto `{in_stock, listed}`.
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'inv-10',
+        ownerType: 'platform',
+        status: gradedInStock.status,
+        listPriceCents: gradedInStock.listPriceCents,
+      },
+      data: { certNumber: 'PSA-99999999', status: 'listed' },
+    });
   });
 
   it('PATCH a una gradeada NO publicada (in_stock) sin cert → OK (la invariante solo aplica al publicar)', async () => {

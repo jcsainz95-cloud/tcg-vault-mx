@@ -195,6 +195,21 @@ psql_as_postgres() {
 # en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
+# --- Envíos: la pila E2E corre con el DOBLE de Skydropx (§19.19.15 D0') -------
+# FIJO, no `:-`: este arnés es el que QA usa para la E2E, y un entorno con las
+# credenciales de producción (como el contenedor de Claude, HECHOS.md:48) no puede
+# convertirlo en un cliente real. La llave de gasto y las credenciales se QUITAN del
+# entorno heredado: con `fake` + llave girada el backend ni arranca (PS-98).
+# Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
+export SHIPPING_PROVIDER_ADAPTER=fake
+unset SKYDROPX_ALLOW_SPEND SKYDROPX_CLIENT_ID SKYDROPX_CLIENT_SECRET
+# La llave DEL DOBLE (§M4-SHIP.19.31.5, v1.80.12.12): con `fake`, la tercera llave
+# de la compra es esta y no la de gasto, así que la E2E puede comprar de punta a
+# punta (cotizar → comprar → guía → imprimir) escribiendo filas en la base de la
+# pila: sin red y sin dinero. FIJA, como el adaptador: solo vale junto a `fake`, y
+# con cualquier otro adaptador el backend NO arranca (PS-166 (b)). Candado (G) de
+# scripts/check-skydropx-spend-lock.sh.
+export SHIPPING_FAKE_PURCHASE=true
 # --- Secretos del arnés nativo: generados, nunca escritos en el repo (S-88-1) --
 # Aquí había literales: `tcg_local_dev_password` dentro del DATABASE_URL, dos
 # secretos JWT y la clave de S3. Eran «de desarrollo local», y ese es justo el
@@ -244,15 +259,26 @@ export JWT_REFRESH_SECRET  # idem
 # (`scripts/s3-local/`, ver su cabecera para qué SÍ y qué NO reproduce de MinIO).
 # Los mismos valores que `.env.example` y `docker-compose.yml`: credenciales de
 # DESARROLLO LOCAL, jamás un secreto real.
-export S3_ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:9000}"
+# S3-CLON (2026-10-05): el puerto se declara ANTES que el endpoint y el endpoint
+# lo SIGUE. Antes `S3_ENDPOINT` era un literal `:9000`, así que `S3_LOCAL_PORT=9100`
+# levantaba el almacén en :9100 y el backend seguía firmando contra :9000 — la
+# salida documentada para dos clones a la vez no funcionaba. DEVOPS_NOTES §85.6.
+S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
+S3_LOCAL_HOST="${S3_LOCAL_HOST:-127.0.0.1}"
+export S3_ENDPOINT="${S3_ENDPOINT:-http://$S3_LOCAL_HOST:$S3_LOCAL_PORT}"
 export S3_REGION="${S3_REGION:-us-east-1}"
 export S3_BUCKET="${S3_BUCKET:-tcg-photos}"
 export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
 export S3_SECRET_ACCESS_KEY  # generado arriba en .native-stack/secrets.env (S-88-1)
 export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-$S3_ENDPOINT/$S3_BUCKET}"
-S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
-S3_LOCAL_HOST="${S3_LOCAL_HOST:-127.0.0.1}"
+# M-3 (QA, 2026-10-05): la CSP del frontend (`frontend/src/security/csp.ts`) pone en
+# `connect-src` el origen de `NEXT_PUBLIC_UPLOAD_ORIGIN`; sin ella cae al comodín de R2
+# y en local el PUT prefirmado al s3-local sale como violación. El backend firma contra
+# `S3_ENDPOINT` (`uploads.service.ts`, path-style), así que el origen es el de ese
+# endpoint — y SIGUE a `S3_LOCAL_PORT` como el endpoint. Se exporta: `next build`,
+# `next start` y `next dev` lo heredan. Candado: check-stack-upload-origin.sh.
+export NEXT_PUBLIC_UPLOAD_ORIGIN="${NEXT_PUBLIC_UPLOAD_ORIGIN:-$(printf '%s' "$S3_ENDPOINT" | sed -E 's|^(https?://[^/?#]+).*|\1|')}"
 S3_DIR="$SCRIPT_DIR/s3-local"
 
 # --- Stripe: PASO A TRAVÉS, nunca un valor en el repo (§39.1) ----------------
@@ -342,7 +368,47 @@ ASSERT_HEAD="$SCRIPT_DIR/assert-serving-head.sh"
 # `node_modules`, `dist`, `coverage` y `*.log` los excluye el propio assert.
 BACKEND_SOURCE_ARGS=(--source "$BACKEND_DIR/src" --source "$BACKEND_DIR/prisma" --source "$BACKEND_DIR/package.json")
 
-head_sha() { git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""; }
+# M-4 (QA, 2026-10-05): QA mide sobre una copia `git archive` (O-9), que NO trae `.git`.
+# Ahí `git rev-parse HEAD` no da nada, el sha esperado salía vacío y `up --gate` moría
+# con un críptico «--sha necesita valor» de assert-serving-head.sh. Ahora:
+#   · con `.git` en ESTE árbol ⇒ HEAD, como siempre (y si además se pasa
+#     STACK_EXPECTED_SHA y NO coincide con HEAD, se aborta: dos verdades, ninguna);
+#   · sin `.git` ⇒ STACK_EXPECTED_SHA (el sha del que salió la copia: quien la hace
+#     lo sabe, p. ej. `STACK_EXPECTED_SHA=$(git rev-parse HEAD)` antes del archive);
+#   · sin `.git` y sin variable ⇒ vacío, y quien necesita el sha (up --gate,
+#     verify:head) para con un mensaje que dice exactamente esto.
+# `[ -e "$ROOT_DIR/.git" ]` y no solo `git rev-parse`: una copia extraída DENTRO de otro
+# repo devolvería el HEAD del repo de fuera — un sha que no es el de la copia.
+# Candado y canario: scripts/check-stack-expected-sha.sh.
+STACK_EXPECTED_SHA="${STACK_EXPECTED_SHA:-}"
+head_sha() {
+  if [ -e "$ROOT_DIR/.git" ]; then
+    git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""
+  else
+    printf '%s\n' "$STACK_EXPECTED_SHA"
+  fi
+}
+# Valida la fuente del sha UNA vez, al arrancar `up --gate` / `verify:head`.
+require_expected_sha() {
+  if [ -n "$STACK_EXPECTED_SHA" ]; then
+    case "$STACK_EXPECTED_SHA" in
+      *[!0-9a-f]*) die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' no es un sha (hex en minúsculas)." ;;
+    esac
+    [ "${#STACK_EXPECTED_SHA}" -ge 7 ] || die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' es demasiado corto (mínimo 7)."
+    if [ -e "$ROOT_DIR/.git" ]; then
+      local h; h="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      case "$h" in
+        "$STACK_EXPECTED_SHA"*) STACK_EXPECTED_SHA="$h" ;;
+        *) die "STACK_EXPECTED_SHA=$STACK_EXPECTED_SHA pero este árbol tiene .git con HEAD=${h:-?}.
+     Con .git manda HEAD; quita la variable o haz checkout de ese sha." ;;
+      esac
+    fi
+  elif [ -z "$(head_sha)" ]; then
+    die "No sé qué commit es este árbol: no hay .git en $ROOT_DIR (¿copia de \`git archive\`?)
+     y STACK_EXPECTED_SHA está vacía. Sin sha esperado no hay aserto de procedencia (SEC-OPS-1).
+     Remedio:  STACK_EXPECTED_SHA=<sha de la copia> ./scripts/stack-native.sh up --gate"
+  fi
+}
 short_sha() { printf '%s' "${1:0:12}"; }
 
 # Hash de ÁRBOL de un directorio en HEAD. Es la identidad del CONTENIDO, no la del
@@ -355,7 +421,13 @@ head_tree() { git -C "$ROOT_DIR" rev-parse --verify --quiet "HEAD:$1" 2>/dev/nul
 # Ficheros de `backend/` con cambios sin commitear. NO es un fallo (aquí se trabaja
 # con el árbol sucio todo el rato); se REGISTRA en el sello para que el siguiente
 # auditor sepa que «HEAD» no cuenta la historia completa.
-dirty_count() { git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '; }
+# Sin `.git` (copia `git archive`) no se puede saber: «?», no «0» (M-4). Mismo criterio
+# que `assert-serving-head.sh`; «?» nunca casa con "0", así que la equivalencia de árbol
+# (que exige árbol limpio) no se concede a ciegas.
+dirty_count() {
+  [ -e "$ROOT_DIR/.git" ] || { echo "?"; return 0; }
+  git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '
+}
 
 # Instante REAL de arranque del proceso que responde en el puerto, derivado de
 # `process.uptime()` que expone `/health` (health.service.ts). Misma derivación que
@@ -404,11 +476,48 @@ s3_alive() {
   [ -n "$code" ] && [ "$code" != "000" ]
 }
 
+# -----------------------------------------------------------------------------
+# S3-CLON (2026-10-05) — «vivo» no es «mío». Medido: `infra-smoke` y
+# `kyc-ine-links` de la rama `claude/arreglos-panel` daban 403 en el PUT
+# presignado del INE porque el s3-local de :9000 era de OTRO clon (`tcg-skyd`):
+# su log tenía 28 × «403 PUT /tcg-photos/kyc_ine/… — la firma NO coincide».
+# Cada clon genera su `S3_SECRET_ACCESS_KEY` (S-88-1) y `start_s3` reutilizaba
+# cualquier cosa que respondiera en el puerto. Ahora, antes de reutilizar, se
+# FIRMA una petición con MIS credenciales (`s3-local/probe-credentials.js`): si
+# el servidor no la acepta, no se reutiliza — se para con el diagnóstico.
+# Lo vigila `scripts/check-s3-local-clone-canary.sh`.
+# -----------------------------------------------------------------------------
+s3_creds_ok() { # rc 0 acepta mis credenciales · 1 otro secreto · 2 no concluyente
+  S3_LOCAL_HOST="$S3_LOCAL_HOST" S3_LOCAL_PORT="$S3_LOCAL_PORT" S3_BUCKET="$S3_BUCKET" \
+    S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY" \
+    S3_REGION="$S3_REGION" node "$S3_DIR/probe-credentials.js" >/dev/null 2>&1
+}
+s3_ajeno_die() {
+  local quien="" pid
+  for pid in $(pids_listening_on "$S3_LOCAL_PORT" 2>/dev/null || true); do
+    quien="$quien pid $pid (cwd $(readlink -f "/proc/$pid/cwd" 2>/dev/null || echo '?'))"
+  done
+  die "El object storage de :$S3_LOCAL_PORT está VIVO pero NO acepta las credenciales de
+     este clon ($ROOT_DIR): firma con OTRO secreto — es de otro clon.${quien:+
+     Lo ocupa:$quien.}
+     Cada clon genera su S3_SECRET_ACCESS_KEY (.native-stack/secrets.env), así que el
+     PUT presignado del INE daría 403 SignatureDoesNotMatch (DEVOPS_NOTES §85.6).
+     NO lo apago: no es mío. Usa un puerto propio para este clon:
+       S3_LOCAL_PORT=<libre, p. ej. 9100> ./scripts/stack-native.sh up --infra
+     y el MISMO S3_LOCAL_PORT en test:integration / up (el endpoint lo sigue)."
+}
+
 start_s3() {
   log "Object storage S3 (scripts/s3-local) en :$S3_LOCAL_PORT"
   if s3_alive; then
-    ok "ya respondía en :$S3_LOCAL_PORT (se reutiliza; NO se borra ningún objeto)."
-    return 0
+    s3_creds_ok
+    case $? in
+      0) ok "ya respondía en :$S3_LOCAL_PORT y ACEPTA las credenciales de este clon (se reutiliza; NO se borra ningún objeto)."
+         return 0 ;;
+      1) s3_ajeno_die ;;
+      *) die "Algo responde en :$S3_LOCAL_PORT pero la sonda de credenciales no concluye
+     (¿no es un s3-local?). No lo reutilizo a ciegas. Usa S3_LOCAL_PORT=<libre>." ;;
+    esac
   fi
   if [ ! -d "$S3_DIR/node_modules" ]; then
     log "  instalando dependencias de s3-local (una vez)"
@@ -465,10 +574,21 @@ start_infra() {
   fi
 
   log "Redis"
+  # REDIS-MISCONF (2026-10-06, DEVOPS_NOTES §90): un redis-server arrancado SIN `--dir` toma
+  # como `dir` el cwd de quien lo lanzó. Lo lanzó un gate desde su scratchpad; al borrarse el
+  # scratchpad (O-20) el BGSAVE falló y, con `stop-writes-on-bgsave-error yes`, Redis rechazó
+  # TODA escritura (MISCONF) y tumbó las suites Redis de todos los árboles. `dir` es config
+  # protegida en Redis 7 (no se cambia en caliente), así que: arranque desde `/` y sin
+  # snapshots (`--save ""`: Redis local es efímero de pruebas), y si ya está arriba en MISCONF,
+  # se cura con `CONFIG SET save ""` (reversible, no reinicia, no pierde claves).
   if redis-cli ping >/dev/null 2>&1; then
     ok "ya respondía PONG."
+    if redis-cli INFO persistence 2>/dev/null | grep -q '^rdb_last_bgsave_status:err'; then
+      warn "Redis con rdb_last_bgsave_status:err (dir='$(redis-cli CONFIG GET dir 2>/dev/null | sed -n 2p)'): desactivo snapshots para salir de MISCONF."
+      redis-cli CONFIG SET save "" >/dev/null || die "No pude desactivar los snapshots de Redis (MISCONF)."
+    fi
   else
-    redis-server --daemonize yes || die "No pude arrancar redis-server."
+    ( cd / && redis-server --daemonize yes --save "" ) || die "No pude arrancar redis-server."
     for i in $(seq 1 20); do redis-cli ping >/dev/null 2>&1 && break; sleep 1; done
     redis-cli ping >/dev/null 2>&1 || die "Redis no respondió tras 20s."
     ok "arriba."
@@ -554,6 +674,87 @@ SQL
 # Backend nativo: el stack Nest COMPLETO por ts-node (no un arnés recortado)
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
+# APAGADO ACOTADO — un `down` mío NO puede matar el stack de otra sesión (I-QA2)
+# -----------------------------------------------------------------------------
+# DE DÓNDE VIENE (QA, 2026-09-22, medido DOS veces el mismo día y las dos con daño):
+#   · el pentester corrió `pkill -f "src/main.ts"` de limpieza y se llevó por
+#     delante el BACKEND DE QA a mitad de su gate;
+#   · QA corrió `down` con FRONTEND_PORT=3200 y mató el `next-server` huérfano
+#     de :3000, que era de OTRO clon.
+# Los patrones de antes (`ts-node --transpile-only src/main.ts`, `^next-server `,
+# `s3-local/server.js`) no filtran ni por puerto ni por clon: describen al
+# PROGRAMA, no a MI instancia. Con dos sesiones en paralelo sobre puertos
+# distintos, eso no es un riesgo teórico — es el mecanismo, cableado dentro del
+# script. Es O-8/O-14 en el recurso «stack»: el mismo error que con el
+# scratchpad y con el árbol de trabajo, en otro recurso compartido.
+#
+# EL CRITERIO NUEVO — se mata un proceso solo si es MÍO por una de dos vías:
+#   (a) ESCUCHA en el puerto que esta invocación declara suyo (BACKEND_PORT /
+#       FRONTEND_PORT / S3_LOCAL_PORT). Pedir ese puerto ES reclamarlo; y
+#   (b) su línea de comando casa el patrón Y su cwd cuelga de ESTE clon
+#       ($ROOT_DIR). Esta vía es la que sigue cazando al backend que murió
+#       ANTES de abrir el puerto (arranque a medias), que (a) no ve.
+# Lo que casa el patrón pero vive en otro clon y en otro puerto YA NO SE TOCA:
+# se nombra en un aviso, para que quien mire sepa que sigue vivo y de quién es.
+# -----------------------------------------------------------------------------
+# >>> APAGADO-ACOTADO (no muevas estas marcas: `check-stack-kill-scope.sh` extrae
+# EXACTAMENTE este bloque del fichero vivo y lo ejerce contra dos stacks de verdad.
+# Si el canario no encuentra las marcas, sale rc=2 — nunca verde por no medir.)
+pids_listening_on() { # <puerto> → pids que ESCUCHAN ahí (no clientes conectados)
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -n tcp "$port" 2>/dev/null | tr ' \t' '\n\n' | grep -E '^[0-9]+$'
+  fi
+}
+pid_es_de_este_clon() { # <pid> → 0 si su cwd cuelga de $ROOT_DIR
+  local cwd; cwd="$(readlink -f "/proc/$1/cwd" 2>/dev/null)" || return 1
+  case "$cwd" in "$ROOT_DIR"|"$ROOT_DIR"/*) return 0 ;; *) return 1 ;; esac
+}
+# stop_scoped <etiqueta> <puerto> [patrón…] — mata SOLO lo que es de esta instancia.
+stop_scoped() {
+  local label="$1" port="$2"; shift 2
+  local pid pat mios="" ajenos=""
+  for pid in $(pids_listening_on "$port" || true); do
+    mios="$mios $pid"
+    # El puerto manda: si pides :$port, reclamas lo que lo ocupa. Pero si el dueño
+    # es de OTRO clon hay que DECIRLO — medido hoy: el s3-local de QA escuchaba en
+    # el :9000 por defecto desde su clon del scratchpad, y los dos clones usan el
+    # mismo puerto por defecto. Acotar por puerto no salva ese caso (no hay dos
+    # puertos que separar); lo que evita es que el gate ajeno muera sin explicación.
+    pid_es_de_este_clon "$pid" || warn "$label: el pid $pid que ocupa :$port es de OTRO clon ($(readlink -f /proc/$pid/cwd 2>/dev/null)) — lo apago porque ESTA invocación reclama ese puerto. Si era de otra sesión, avísale."
+  done
+  for pat in "$@"; do
+    for pid in $(pgrep -f "$pat" 2>/dev/null || true); do
+      # Nunca yo mismo ni mi shell padre: un `pkill -f` sin ancla ya se suicidó
+      # una vez aquí (exit 144) al casar el `bash -c` que corría este `down`.
+      [ "$pid" = "$$" ] && continue
+      [ "$pid" = "${PPID:-0}" ] && continue
+      if pid_es_de_este_clon "$pid"; then mios="$mios $pid"
+      else ajenos="$ajenos $pid"; fi
+    done
+  done
+  # `|| true`: con `set -o pipefail`, un `grep` sin coincidencias (lista vacía =
+  # nada que matar, el caso NORMAL) tumbaría el script entero por errexit.
+  mios="$(printf '%s\n' $mios | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ' || true)"
+  for pid in $ajenos; do
+    case " $mios " in *" $pid "*) continue ;; esac
+    warn "$label: pid $pid casa el patrón pero NO es de este clon ni de :$port — lo DEJO VIVO (cmd: $(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | cut -c1-70))"
+  done
+  [ -n "${mios// /}" ] || return 0
+  for pid in $mios; do kill "$pid" 2>/dev/null || true; done
+  for _ in $(seq 1 10); do
+    local vivos=0
+    for pid in $mios; do kill -0 "$pid" 2>/dev/null && vivos=1; done
+    [ "$vivos" -eq 0 ] && break
+    sleep 1
+  done
+  for pid in $mios; do kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true; done
+}
+# <<< APAGADO-ACOTADO
+
+# -----------------------------------------------------------------------------
 # Apagar SOLO el backend, para poder relanzarlo contra el árbol de ahora.
 #
 # ⚠️ LO QUE ESTA FUNCIÓN **NO** HACE, Y ES EL PUNTO ENTERO:
@@ -570,7 +771,8 @@ stop_backend_only() {
     kill "$pid" 2>/dev/null || true
     rm -f "$RUN_DIR/backend.pid"
   fi
-  pkill -f 'ts-node --transpile-only src/main.ts' 2>/dev/null || true
+  # ACOTADO (I-QA2): solo lo que escucha en MI :$BACKEND_PORT o cuelga de MI clon.
+  stop_scoped "backend" "$BACKEND_PORT" 'ts-node --transpile-only src/main.ts'
   rm -f "$BACKEND_STAMP"
   for i in $(seq 1 20); do
     curl -sf -m 2 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 || { ok "backend obsoleto detenido."; return 0; }
@@ -803,6 +1005,14 @@ verify_head() {
   # `degraded` = respondió y coincide, pero la EVIDENCIA no es de calidad de gate
   # (hoy: frontend en `next dev`, que no se puede fechar). Ver el veredicto abajo.
   local rc=0 degraded=0 expected; expected="${1:-$(head_sha)}"
+  # M-4: sin sha esperado, assert-serving-head.sh moría con «--sha necesita valor».
+  # Aquí se dice qué falta y cómo darlo (require_expected_sha ya lo para antes en
+  # `up --gate` y `verify:head`; esto cubre cualquier otro llamador).
+  if [ -z "$expected" ]; then
+    printf '\n\033[1;31m✖ PROCEDENCIA NO VERIFICABLE: no hay sha esperado (sin .git y sin STACK_EXPECTED_SHA).\033[0m\n' >&2
+    printf '  Remedio: STACK_EXPECTED_SHA=<sha de la copia> o verify:head <sha>.\n' >&2
+    return 1
+  fi
 
   "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
       --stamp "$BACKEND_STAMP" --sha "$expected" "${BACKEND_SOURCE_ARGS[@]}" || rc=1
@@ -953,6 +1163,24 @@ seed_synthetic() {
   log "Seed sintético (datos E2E deterministas, NUNCA datos reales de clientes)"
   ( cd "$BACKEND_DIR" && npm run seed:synthetic )
   ok "Seed cargado."
+  mark_owner
+}
+
+# El DUEÑO de la pila (§M4-SHIP.19.31.5 (5), v1.80.12.12). Las pruebas que compran
+# giran el dial `shipping_label_purchase` con `PUT /admin/settings` COMO el dueño
+# (`User.isOwner`). M-68 marca al dueño solo si en la MIGRACIÓN hay exactamente un
+# súper-admin, y en una base nueva la migración corre ANTES del seed: medido
+# 2026-10-05 (base vacía → migrate deploy → seed-e2e) ⇒ `admin@e2e.local`
+# super_admin con isOwner=false, nadie marcado. Por eso el arnés corre
+# `prisma/set-owner.ts` (el único escritor admitido además de M-68, censo C-OWN-1)
+# con el correo del fixture — leído de `prisma/e2e-fixtures.ts`, no copiado aquí.
+# Idempotente («sin cambios» si ya lo es); si se niega, la siembra falla en ruido.
+mark_owner() {
+  log "Dueño de la pila: set-owner.ts con el súper-admin del fixture"
+  ( cd "$BACKEND_DIR" && export PATH="$BACKEND_DIR/node_modules/.bin:$PATH" \
+    && OWNER_EMAIL="$(ts-node -T -e "process.stdout.write(require('./prisma/e2e-fixtures').E2E_USERS.admin.email)")" \
+    && [ -n "$OWNER_EMAIL" ] && OWNER_EMAIL="$OWNER_EMAIL" ts-node -T prisma/set-owner.ts )
+  ok "Dueño marcado."
 }
 
 stop_apps() {
@@ -966,11 +1194,11 @@ stop_apps() {
       warn "$svc: sin pidfile (¿lo levantaste a mano?)."
     fi
   done
-  pkill -f "ts-node --transpile-only src/main.ts" 2>/dev/null || true
-  pkill -f "next dev -p $FRONTEND_PORT"           2>/dev/null || true
-  pkill -f "next start -p $FRONTEND_PORT"         2>/dev/null || true
+  # ACOTADO (I-QA2): `stop_scoped` mata lo que escucha en MIS puertos o cuelga de
+  # MI clon; lo de otra sesión lo nombra y lo deja vivo.
+  stop_scoped "backend" "$BACKEND_PORT" 'ts-node --transpile-only src/main.ts'
   # `next start` se RENOMBRA a «next-server (vX.Y.Z)» en cuanto arranca, así que los dos
-  # `pkill` de arriba NO lo matan: sólo matan al `npx` que lo lanzó. Y el pidfile guarda
+  # `pkill` de arriba NO lo matan (hoy `stop_scoped`): sólo matan al `npx` que lo lanzó. Y el pidfile guarda
   # ese `npx`, no al servidor. Resultado observado: `down` decía «frontend detenido»,
   # el pidfile quedaba huérfano y el puerto SEGUÍA sirviendo 200 — con lo que el
   # siguiente `up --gate` moría con «Ya hay ALGO sirviendo en :$FRONTEND_PORT».
@@ -979,7 +1207,11 @@ stop_apps() {
   # también a cualquier shell cuya LÍNEA DE COMANDO mencione la cadena — incluido el
   # `bash -c` que esté ejecutando este mismo `down` desde una sesión de agente. Probado:
   # se suicidó (exit 144). El proceso real se llama literalmente «next-server (v15.5.23)».
-  pkill -f "^next-server "                        2>/dev/null || true
+  # Y desde I-QA2 el ancla NO basta: `^next-server ` casa el de CUALQUIER puerto y
+  # de cualquier clon (QA mató con FRONTEND_PORT=3200 el huérfano de :3000). El
+  # filtro de verdad es el puerto + el clon, que es lo que aplica `stop_scoped`.
+  stop_scoped "frontend" "$FRONTEND_PORT" \
+    "next dev -p $FRONTEND_PORT" "next start -p $FRONTEND_PORT" "^next-server "
 
   # Los sellos de procedencia mueren con los procesos que describen. Un sello
   # huérfano no puede engañar al comprobador (compara contra el uptime del proceso
@@ -1121,6 +1353,9 @@ case "${1:-up}" in
     # `FRONTEND_MODE`). Se conserva esa equivalencia y se hace explícita: quien pide
     # frontend HORNEADO está pidiendo un artefacto de gate, con el mismo listón.
     if [ "$FRONTEND_MODE" = "build" ]; then GATE_MODE=1; fi
+    # M-4: un gate sin sha esperado no puede afirmar procedencia. Se para AQUÍ, antes de
+    # minutos de infra y `next build`, con el remedio exacto (copia sin .git).
+    if [ "${GATE_MODE:-0}" = 1 ]; then require_expected_sha; fi
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
     start_infra
     # D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN
@@ -1313,6 +1548,13 @@ case "${1:-up}" in
      El smoke de infraestructura exige el PUT presignado del INE; sin almacén, antes se
      SALTABA en silencio y la suite salía verde. Ahora se para aquí, a la vista.
      Levántalo:  ./scripts/stack-native.sh up --infra"
+      # S3-CLON: vivo no basta, tiene que aceptar MIS credenciales (si no, 403 en el PUT).
+      s3_creds_ok
+      case $? in
+        0) : ;;
+        1) s3_ajeno_die ;;
+        *) die "La sonda de credenciales contra :$S3_LOCAL_PORT no concluye. NO corro un gate a ciegas." ;;
+      esac
       ok "E2E_STRICT_INFRA=true: Redis y el PUT presignado del INE NO se pueden saltar."
     else
       warn "E2E_STRICT_INFRA=$E2E_STRICT_INFRA: el smoke de infra PUEDE saltarse Redis y el"
@@ -1408,6 +1650,7 @@ case "${1:-up}" in
       esac
     done
     log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
+    [ -n "$VH_SHA" ] || require_expected_sha
     verify_head "$VH_SHA"
     ;;
   status)
@@ -1458,7 +1701,9 @@ case "${1:-up}" in
         kill "$(cat "$RUN_DIR/s3.pid")" 2>/dev/null || true
         rm -f "$RUN_DIR/s3.pid"
       fi
-      pkill -f 's3-local/server.js' 2>/dev/null || true
+      # ACOTADO (I-QA2): :$S3_LOCAL_PORT es el puerto que ESTA invocación declara
+      # suyo; el `s3-local` de otro clon en otro puerto sobrevive y se nombra.
+      stop_scoped "s3-local" "$S3_LOCAL_PORT" 's3-local/server.js'
       ok "s3-local detenido (los objetos de $RUN_DIR/s3 se conservan)."
     else
       warn "Postgres, Redis y s3-local SIGUEN ARRIBA (los datos se conservan). Usa 'down --all' para pararlos."

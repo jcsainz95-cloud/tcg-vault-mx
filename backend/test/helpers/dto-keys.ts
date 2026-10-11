@@ -46,6 +46,8 @@ export const GROUPED_LISTING_KEYS = keysOf<GroupedListingDTO>({
   ivaRatePct: true,
   priceBasis: true,
   referenceValue: true,
+  // v1.90⟨miv⟩ (§MIV.2, ADITIVO): el mercado CON IVA. OPCIONAL: viaja ⇔ `priceBasis === 'market'`.
+  referenceDisplayCents: true,
   currency: true,
 });
 
@@ -87,6 +89,8 @@ export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   priceSource: true,
   priceBasis: true,
   referenceValue: true,
+  // v1.90⟨miv⟩ (§MIV.2, ADITIVO): el mercado CON IVA. OPCIONAL: viaja ⇔ `priceBasis === 'market'`.
+  referenceDisplayCents: true,
   currency: true,
 });
 

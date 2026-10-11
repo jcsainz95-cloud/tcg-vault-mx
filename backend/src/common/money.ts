@@ -237,11 +237,38 @@ export function computeSalePriceFromCurve(
 }
 
 /**
+ * v1.80 (API_CONTRACT §M2-B.11, ARCHITECTURE §4.36.6e; decisión del dueño 2026-09-28, `HECHOS.md`) —
+ * **TOPE DE PAGO DEL BOUNTY: se paga el menor entre el bounty y el mercado.** «El bounty nunca paga
+ * más que el precio de mercado.» Un solo cuerpo: lo llaman el peldaño 1 de `quoteAcquisitionFromCurve`
+ * (⇒ cotización, lote, solicitud, oferta derivada y consola), la vitrina pública y el composer de la
+ * consola. ⛔ Prohibido un `Math.min(bounty…, mercado…)` fuera de aquí (candado BC-9).
+ *
+ * - **Mercado** = la MISMA referencia `priced` de la variante que ya entra a la curva y a
+ *   `isBountyEffective`; no se resuelve otro.
+ * - **Presencia H-1:** mercado presente ⇔ `> 0`. Un `0`/negativo es dato degenerado ⇒ AUSENTE ⇒ se
+ *   paga el bounty (jamás topar a MX$0 por un dato corrupto).
+ * - **Sin mercado ⇒ el bounty completo** (decisión del dueño, 2026-09-28).
+ * - **Sin piso en la tarifa normal:** si la curva/bin paga más que el mercado, un bounty efectivo paga
+ *   el mercado igualmente (dueño: «mercado $5, tarifa $7, bounty $8 ⇒ se pagan $5»).
+ * - Enteros de centavos ⇒ el mínimo es entero; ⛔ ningún redondeo.
+ *
+ * PRECONDICIÓN: se llama solo con un bounty ya EFECTIVO (`bountyPriceCents > 0`); quién es efectivo lo
+ * decide `isBountyEffective`, que este tope NO toca.
+ */
+export function bountyPayoutCents(bountyPriceCents: number, marketMxnCents: number | null): number {
+  return isPresentAmount(marketMxnCents) ? Math.min(bountyPriceCents, marketMxnCents) : bountyPriceCents;
+}
+
+/**
  * COMPRA (§4.36.6). Precedencia NORMATIVA:
- *   1. **bounty VÁLIDO** → `bounty`. Válido = habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR**
- *      que la cotización de la curva vigente (criterio 91). Un bounty rebasado por la curva DEJA DE
- *      SER BOUNTY: se salta este peldaño y se paga la curva. El bounty NUNCA se compara contra el
- *      mercado — solo contra la curva (vive en la escala de compra, 30–50 % del mercado).
+ *   1. **bounty EFECTIVO** → `bounty`. Quién es efectivo lo decide `isBountyEffective` (§M2-B.8, Q1):
+ *      habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR** que la curva vigente, **o** `>=` al
+ *      mercado (el piso efectivo es `min(curva, mercado)`). Un bounty rebasado DEJA DE SER BOUNTY: se
+ *      salta este peldaño. **Lo que PAGA** un bounty efectivo es `bountyPayoutCents(bounty, mercado)` =
+ *      `min(bounty, mercado)` (v1.80, §M2-B.11): el mercado es TECHO del pago además de piso de la
+ *      efectividad; sin mercado se paga el bounty. `basis` sigue siendo `bounty` aunque se tope.
+ *      *(Antes de v1.80 este docblock decía «el bounty NUNCA se compara contra el mercado»: dejó de ser
+ *      cierto con Q1 —el mercado ya entraba como piso— y con v1.80 entra también como techo.)*
  *   2. `buyOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**, igual que en venta.
  *   3. CURVA `max(bin, mercado × pct(mercado))` (SIN redondeo) → `market` | `floor`.
  *   4. sin resolver → `pending`.
@@ -256,10 +283,13 @@ export function quoteAcquisitionFromCurve(
 ): CurvePriceResult {
   const fromCurve = resolveBuyFromCurve(marketMxnCents, curve);
   const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
-  // 1. Bounty, REVALIDADO contra la curva vigente (no solo al crear: también aquí, al cotizar).
-  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents)) {
+  // 1. Bounty, REVALIDADO contra el piso efectivo `min(curva, mercado)` (Q1, §M2-B.8): no solo al
+  //    crear, también aquí al cotizar. `marketMxnCents` ya está en mano — es la entrada de la curva.
+  //    v1.80 (§M2-B.11): lo que se PAGA es `min(bounty, mercado)` — ÚNICO cambio de la función; ni
+  //    `basis` ni `marketMxnCents`/`curveQuoteCents` cambian. El override (peldaño 2) NO se topa.
+  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents, marketMxnCents)) {
     return {
-      priceCents: clampCents(controls.bountyPriceCents as number),
+      priceCents: clampCents(bountyPayoutCents(controls.bountyPriceCents as number, marketMxnCents)),
       basis: 'bounty',
       marketMxnCents,
       curveQuoteCents,
@@ -279,17 +309,102 @@ export function quoteAcquisitionFromCurve(
 }
 
 /**
+ * v1.80.2 (API_CONTRACT §M2-B.11 punto 8, ancla `M2-B11-8`; ARCHITECTURE §4.36.5(a), §4.36.6e) —
+ * **QUÉ `basis` VE EL GUARDARRAÍL PREMIUM cuando el bounty ganó el peldaño 1.**
+ *
+ * La exención del guardarraíl para `bounty` existía porque el monto ERA la decisión del admin. Con el
+ * tope (v1.80) un bounty **topado** paga el MERCADO — justo el dato en el que el guardarraíl existe para
+ * no confiar. En esa esquina el guardarraíl ve el basis **de la curva** de la variante; en cualquier
+ * otro caso (sin tope, empate, sin mercado / mercado `<= 0` por H-1) ve `'bounty'` y la exención sigue.
+ *
+ * Devuelve un BASIS, no un monto, y ⛔ NO recibe rareza ⇒ criterio 84 intacto: la rareza la sigue
+ * poniendo `premiumFloorGuard`. «Topado» se decide con `bountyPayoutCents` (el ÚNICO tope, BC-9), no con
+ * una comparación a mano.
+ */
+export function bountyGuardBasis(
+  bountyPriceCents: number,
+  marketMxnCents: number | null,
+  curveBasis: PriceBasis,
+): PriceBasis {
+  return bountyPayoutCents(bountyPriceCents, marketMxnCents) < bountyPriceCents ? curveBasis : 'bounty';
+}
+
+/** Resultado de COMPRA con el basis que debe ver el guardarraíl. `guardBasis` es INTERNO: ⛔ no viaja en DTO. */
+export interface AcquisitionQuoteResult extends CurvePriceResult {
+  /**
+   * Lo que se pasa a `premiumFloorGuard` / `resolvePendingReason` en TODO llamador de COMPRA (en vez de
+   * `basis`). Peldaño 1 (bounty) ⇒ `bountyGuardBasis(bounty, mercado, <basis de la curva>)`; peldaños
+   * 2–4 ⇒ `= basis`.
+   */
+  guardBasis: PriceBasis;
+}
+
+/**
+ * v1.80.2 — `quoteAcquisitionFromCurve` + `guardBasis`. Es la puerta que usan TODOS los llamadores de
+ * COMPRA que pasan controles (quote, batch, createRequest y la oferta derivada vía `decideBuyLine`, y la
+ * consola/binder vía `composeVariantPricing`); un candado de forma prohíbe llamar a
+ * `quoteAcquisitionFromCurve` con controles fuera de este fichero.
+ *
+ * ⚠️ Por qué es una función hermana y no un campo más del resultado de `quoteAcquisitionFromCurve`
+ * (que es lo que dibuja el contrato): BC-5 afirma con `toEqual` la forma EXACTA de ese resultado
+ * (`{priceCents, basis, marketMxnCents, curveQuoteCents}`) y el contrato exige que BC-1…BC-12 sigan
+ * verdes SIN editarse; un campo nuevo la pone roja. La precedencia sigue viviendo en UN solo cuerpo
+ * (`quoteAcquisitionFromCurve`); aquí solo se deriva el basis del guardarraíl. Discrepancia reportada al
+ * arquitecto (BACKEND_NOTES §0.57).
+ *
+ * El basis de la curva está a mano: es `resolveBuyFromCurve(mercado, curva).basis`, la MISMA resolución
+ * pura que el peldaño 3 (determinista; se re-evalúa aquí en vez de exponer un campo más).
+ */
+export function quoteAcquisitionWithGuard(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,
+): AcquisitionQuoteResult {
+  const q = quoteAcquisitionFromCurve(marketMxnCents, curve, controls);
+  const guardBasis =
+    q.basis === 'bounty'
+      ? bountyGuardBasis(
+          controls?.bountyPriceCents as number,
+          marketMxnCents,
+          resolveBuyFromCurve(marketMxnCents, curve).basis,
+        )
+      : q.basis;
+  return { ...q, guardBasis };
+}
+
+/**
  * v1.23-sealed-sales (§4.23b) — precio de VENTA del SELLADO por PRESENTACIÓN. Hermana de
  * `computeSalePriceForRarity`, keyeada por `SealedSubtype` en vez de rareza+acabado.
  * `source` = de dónde salió el precio (SealedSpreadSource del contrato).
  */
 export type SealedSpreadSource = 'override' | 'subtype_spread' | 'global_spread';
+
+/**
+ * 💰 v1.83 (`API_CONTRACT §M11-SP.1`, unión de CLASE L, ADMIN-ONLY) — de QUÉ peldaño salió el precio de venta
+ * de una pieza sellada: `product` = `SealedProduct.ownerDisplayPriceCents` (el dueño, por producto) · `piece` =
+ * `InventoryItem.listPriceCents` (legado por pieza) · `automatic` = mercado × spread · `pending` = sin precio.
+ * ⛔ Nunca viaja a `/catalog/*` (la cara pública sigue diciendo `override`).
+ */
+export type SealedPriceOrigin = 'product' | 'piece' | 'automatic' | 'pending';
+
 export interface SealedSpreadResult {
+  /**
+   * **`L`** — escala de `listPriceCents` (antes de IVA). Con precio del dueño (`origin='product'`) es el **`L`
+   * equivalente** de su `P` con los diales de la petición (`listEquivalentCentsOf`): sirve a las reglas «`> 0` /
+   * vendible» y a la instrumentación; ⛔ NUNCA se re-deriva `P` desde él (`P → L → P` no es identidad, §M11-SP.12.1).
+   */
   salePriceCents: number | null;
   status: 'priced' | 'pending';
   source: SealedSpreadSource;
   /** null cuando source='override'. */
   appliedSpreadPct: number | null;
+  /** v1.83 — de qué peldaño salió (interno/admin). */
+  origin: SealedPriceOrigin;
+  /**
+   * v1.83.1 (§M11-SP.12.3) — **`P` fijo del dueño** (lo que paga el cliente, IVA dentro), `≠ null ⇔ origin='product'`.
+   * Los sitios de venta lo pasan a `saleDisplayCentsOf`, que lo cobra TAL CUAL.
+   */
+  fixedDisplayCents: number | null;
 }
 
 /**
@@ -320,21 +435,114 @@ export function computeSealedSalePrice(
   // H-1: override presente ⇔ > 0 (un 0/negativo es degenerado ⇒ se ignora, cae a mercado×spread).
   if (overrideCents != null && overrideCents > 0) {
     // BE-27: clamp final del override (persistible en `*Cents`, Int32).
-    return { salePriceCents: clampCents(overrideCents), status: 'priced', source: 'override', appliedSpreadPct: null };
+    return {
+      salePriceCents: clampCents(overrideCents),
+      status: 'priced',
+      source: 'override',
+      appliedSpreadPct: null,
+      // v1.83: el override de ESTA función es el de la PIEZA (peldaño 2). El del producto lo resuelve
+      // `computeSealedSaleOf` antes de llegar aquí.
+      origin: 'piece',
+      fixedDisplayCents: null,
+    };
   }
   const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;
   const spread = hasSubtypeSpread ? spreadPctBySubtype[sealedSubtype as string] : fallbackPct;
   const source: SealedSpreadSource = hasSubtypeSpread ? 'subtype_spread' : 'global_spread';
   if (marketMxnCents == null) {
     // Sin mercado y sin override → pendiente (no publicable). NUNCA se inventa un precio.
-    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
+    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread, origin: 'pending', fixedDisplayCents: null };
   }
   return {
     salePriceCents: clampCents(Math.round(marketMxnCents * (1 + spread / 100))),
     status: 'priced',
     source,
     appliedSpreadPct: spread,
+    origin: 'automatic',
+    fixedDisplayCents: null,
   };
+}
+
+/**
+ * 💰 v1.83.1 (`API_CONTRACT §M11-SP.1` + `§M11-SP.12.3`) — **la proyección del precio del dueño que TODO lector
+ * de una pieza tiene que traer.** Es un `include` de Prisma (sin importar Prisma: objeto plano `as const`).
+ */
+export const SEALED_SALE_PRICE_INCLUDE = {
+  sealedProduct: { select: { ownerDisplayPriceCents: true } },
+} as const;
+
+/** El precio del dueño del producto de una pieza (la proyección de `SEALED_SALE_PRICE_INCLUDE`). */
+export interface SealedProductSaleRef {
+  ownerDisplayPriceCents: number | null;
+}
+
+/**
+ * Lo que una pieza necesita para decidir su precio MANUAL de venta. ⚠️ `sealedProduct` es **obligatoria** (puede ser
+ * `null`, no puede faltar): un `findMany` que olvide `SEALED_SALE_PRICE_INCLUDE` **no compila** al llegar aquí
+ * (SP-3). Así una lectura nueva no puede decidir un precio sin ver el del producto.
+ */
+export interface ManualSaleInput {
+  productType: string;
+  listPriceCents: number | null;
+  sealedProduct: SealedProductSaleRef | null;
+}
+
+/** El precio manual de venta: del producto (`P`, con IVA) o de la pieza (`L`, sin IVA). Escalas distintas a propósito. */
+export type ManualSale =
+  | { origin: 'product'; displayCents: number }
+  | { origin: 'piece'; listCents: number };
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.1`, `§M11-SP.12.3`) — **EL ÚNICO predicado de «esta pieza tiene precio de venta a mano»**.
+ *
+ * - **Sellado:** producto (`SealedProduct.ownerDisplayPriceCents > 0`, peldaño 1) **>** pieza (`listPriceCents > 0`,
+ *   legado, peldaño 2) **>** `null`.
+ * - **Raw / graded:** solo la pieza (⛔ jamás lee `sealedProduct`, aunque viniera poblado — P-PRE-1).
+ *
+ * H-1: `<= 0` cuenta como AUSENTE en los dos peldaños. Sustituye a `hasManualPrice(item)` en toda decisión de venta.
+ */
+export function manualSaleOf(item: ManualSaleInput): ManualSale | null {
+  if (item.productType === 'sealed') {
+    const p = item.sealedProduct?.ownerDisplayPriceCents ?? null;
+    if (isPresentAmount(p)) return { origin: 'product', displayCents: p };
+  }
+  if (isPresentAmount(item.listPriceCents)) return { origin: 'piece', listCents: item.listPriceCents };
+  return null;
+}
+
+/**
+ * 💰 v1.83.1 — **el precio de venta del sellado con los cuatro peldaños** (`§M11-SP.1` tabla, `§M11-SP.12.3`):
+ * producto (`P` del dueño) > pieza (`L` legado) > mercado × spread > pendiente.
+ *
+ * Peldaño 1: `fixedDisplayCents = P` (se cobra tal cual) y `salePriceCents = listEquivalentCentsOf(P, dials)` (`L`
+ * equivalente, para las reglas sobre `L`). Peldaños 2–4: el cuerpo de siempre (`computeSealedSalePrice`). ⛔ Ninguna
+ * segunda fórmula: los diales llegan IZADOS por el llamador (una lectura por petición).
+ */
+export function computeSealedSaleOf(
+  manual: ManualSale | null,
+  sealedSubtype: string | null,
+  marketMxnCents: number | null,
+  spreadPctBySubtype: Record<string, number>,
+  fallbackPct: number,
+  dials: IvaDials,
+): SealedSpreadResult {
+  if (manual?.origin === 'product') {
+    return {
+      salePriceCents: listEquivalentCentsOf(manual.displayCents, dials),
+      status: 'priced',
+      source: 'override',
+      appliedSpreadPct: null,
+      origin: 'product',
+      fixedDisplayCents: manual.displayCents,
+    };
+  }
+  return computeSealedSalePrice(
+    manual?.origin === 'piece' ? manual.listCents : null,
+    sealedSubtype,
+    marketMxnCents,
+    spreadPctBySubtype,
+    fallbackPct,
+  );
 }
 
 /**
@@ -417,6 +625,45 @@ export function displayPriceCentsOf(
   ivaRatePct: number,
 ): number {
   return listPriceCents + Math.round((listPriceCents * ivaTransferPct * ivaRatePct) / 10_000);
+}
+
+/**
+ * 💰 v1.90⟨miv⟩ (`API_CONTRACT §MIV.1`, `ARCHITECTURE §4.MIV`) — **el VALOR DE MERCADO con IVA**, solo para pintar en
+ * la tienda junto a la nota «incluye IVA». `M + round(M × r / 100)` ≡ `displayPriceCentsOf(M, 100, r)`.
+ *
+ * - **Recibe la TASA (`iva_pct`), ⛔ nunca `IvaDials`:** el mercado lleva SIEMPRE el IVA completo (P-MIV-5 por
+ *   defecto). El dial de traslación no puede entrar sin cambiar esta firma — y eso es el candado.
+ * - ⛔ **Presentación pura.** No entra en ningún importe, gate, valuación ni cotización: `referenceValue` sigue
+ *   neto. Censo de llamadores en `test/miv.market-display.spec.ts` (MIV-B9): solo las dos fichas del catálogo.
+ * - Cota: misma que `displayPriceCentsOf` (`M ≤ MAX_CENTS`, `r ≤ 100` ⇒ producto intermedio exacto).
+ */
+export function marketDisplayCentsOf(marketMxnCents: number, ivaRatePct: number): number {
+  return displayPriceCentsOf(marketMxnCents, 100, ivaRatePct);
+}
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.12.1`) — **`L` equivalente de un `P` FIJO con ESTOS diales** (lo que el resto del sistema llama
+ * «antes de IVA»): `round(P × 10000 / (10000 + t·r))`, en aritmética entera (mitad hacia arriba sobre positivos).
+ *
+ * - `L → P → L` es **exacto** para todo `L ≥ 1` y todo `(t, r)` enteros en `[0,100]` (SP-15).
+ * - `P → L → P` **NO** es identidad (con 100/16, MX$7.00 ⇒ `L` 603 ⇒ 699). ⛔ Por eso **nunca** se re-deriva un `P`
+ *   desde este valor: con precio del dueño, `P` sale de la columna (`saleDisplayCentsOf`).
+ * - `≥ 1` si `P ≥ 1` (`t·r ≤ 10⁴`). Cota: `P·10⁴ ≤ 10¹² < 2⁵³` ⇒ el producto intermedio es exacto.
+ */
+export function listEquivalentCentsOf(displayCents: number, d: IvaDials): number {
+  return Math.round((displayCents * 10_000) / (10_000 + d.ivaTransferPct * d.ivaRatePct));
+}
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.12.1`, E-3) — **EL camino a `P` de una decisión de VENTA.** Precio del dueño ⇒ el suyo, tal
+ * cual; si no ⇒ la derivación de siempre (`displayPriceCentsOf`). Los tres sitios de venta (checkout, catálogo,
+ * sellado) y las proyecciones admin de `P` pasan por aquí — candado SP-19.
+ */
+export function saleDisplayCentsOf(
+  s: { listPriceCents: number; fixedDisplayCents: number | null },
+  d: IvaDials,
+): number {
+  return s.fixedDisplayCents ?? displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct);
 }
 
 /**
@@ -790,4 +1037,226 @@ export function grossUpTotal(grossUpBaseCents: number, fee: StripeFeeConfig): nu
 /** Precio MXN desde USD con FX + colchón. ARCHITECTURE §3.2 FxRate. */
 export function usdToMxnCents(priceUsdCents: number, rate: number, bufferPct: number): number {
   return clampCents(Math.round(priceUsdCents * rate * (1 + bufferPct / 100)));
+}
+
+// =====================================================================================================
+// §M4-SHIP.4 (v1.80) / §M4-SHIP.15.5 (v1.80.2) — 💰 EL IMPORTE EXACTO DE UN REEMBOLSO (lo calcula el
+// servidor; ⛔ jamás llega en el cuerpo). Sobre las columnas PERSISTIDAS de la orden de origen (⛔ nunca el
+// dial vivo, ⛔ nunca el precio de lista de hoy). Solo filas `IVA_INCLUSIVE` (`ivaIsIncluded`): la identidad
+// `amount = merchandise + shipping + processingFee + compensation` solo es exacta con el IVA DENTRO.
+// =====================================================================================================
+
+/** Los componentes CONGELADOS de una fila del libro `PaymentRefund` (identidad del CHECK de M-61). */
+export interface RefundComponents {
+  amountCents: number;
+  merchandiseCents: number;
+  merchandiseIvaCents: number;
+  shippingCents: number;
+  shippingIvaCents: number;
+  processingFeeCents: number;
+  compensationCents: number;
+}
+
+/** Las columnas de `Order` que la fórmula lee. `S`, `E`, `F`, `r`, `total`, `ivaCents`. */
+export interface RefundOrderMoney {
+  subtotalCents: number;
+  shippingFeeCents: number;
+  processingFeeCents: number;
+  ivaCents: number;
+  ivaRatePct: number;
+  totalCents: number;
+  priceConvention: PriceConvention;
+}
+
+/** `Σ floor(F·Pᵢ/G) ≤ F` ⇒ la suma de reembolsos por carta nunca excede lo cobrado (⛔ nunca `ceil`). */
+export function itemFeeShareCents(o: Pick<RefundOrderMoney, 'subtotalCents' | 'shippingFeeCents' | 'processingFeeCents'>, unitPriceCents: number): number {
+  const G = o.subtotalCents + o.shippingFeeCents;
+  if (G <= 0 || unitPriceCents <= 0) return 0;
+  return Math.floor((o.processingFeeCents * unitPriceCents) / G);
+}
+
+/**
+ * `item_missing` (§M4-SHIP.4): UNA carta ⇒ `P + floor(F × P / G)`. Mercancía `P` (IVA dentro), IVA de
+ * mercancía `P − taxBaseCentsOf(P, r)`, envío `0`, comisión `floor(F × P / G)`.
+ * Ejemplo del dueño (D-1): `S=80000, E=15000, F=4617, P=30000` ⇒ `30000 + 1458 = 31458` (MX$314.58).
+ */
+export function itemMissingRefundComponents(o: RefundOrderMoney, unitPriceCents: number): RefundComponents {
+  const fee = itemFeeShareCents(o, unitPriceCents);
+  const merchandise = unitPriceCents;
+  return {
+    amountCents: merchandise + fee,
+    merchandiseCents: merchandise,
+    merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, o.ivaRatePct),
+    shippingCents: 0,
+    shippingIvaCents: 0,
+    processingFeeCents: fee,
+    compensationCents: 0,
+  };
+}
+
+/**
+ * 💰 v1.82 (§PNL.2) — «la carta más su parte de la comisión» (D-1 del dueño, `HECHOS.md:30`) para UNA línea de orden:
+ * el MISMO cuerpo de `item_missing` (⛔ ninguna segunda fórmula). Lo usan el reembolso de una carta YA ENTREGADA
+ * (`item_delivered`: el verbo y el `deliveredRefund` de M3), con el mismo importe y componentes que si hubiera faltado
+ * al preparar (envío `0`).
+ */
+export function itemRefundComponents(o: RefundOrderMoney, orderItem: { unitPriceCents: number }): RefundComponents {
+  return itemMissingRefundComponents(o, orderItem.unitPriceCents);
+}
+
+/**
+ * `order_remaining` (§M4-SHIP.4): un DIRECTO del que NO sale ninguna carta ⇒ `totalCents − Σ amountCents`
+ * de las filas no fallidas. Mercancía `0` · envío `E` · IVA de envío = el RESIDUAL `ivaCents − Σ
+ * merchandiseIvaCents` (§4.44.j.1: el envío absorbe el centavo) · comisión `amount − E`.
+ * Identidad exacta al cerrar: `Σ amountCents = totalCents` y `Σ IVA = ivaCents`, ±0 (PS-3).
+ */
+export function orderRemainingRefundComponents(
+  o: RefundOrderMoney,
+  nonFailedRows: { amountCents: number; merchandiseIvaCents: number }[],
+): RefundComponents {
+  const refunded = nonFailedRows.reduce((a, r) => a + r.amountCents, 0);
+  const refundedIva = nonFailedRows.reduce((a, r) => a + r.merchandiseIvaCents, 0);
+  const amount = o.totalCents - refunded;
+  const shipping = o.shippingFeeCents;
+  return {
+    amountCents: amount,
+    merchandiseCents: 0,
+    merchandiseIvaCents: 0,
+    shippingCents: shipping,
+    shippingIvaCents: o.ivaCents - refundedIva,
+    processingFeeCents: amount - shipping,
+    compensationCents: 0,
+  };
+}
+
+/** `shipment_fee` (§M4-SHIP.4): el cobro PROPIO de un RETIRO cuando no sale ninguna carta. */
+export function shipmentFeeRefundComponents(s: {
+  totalCents: number;
+  shippingFeeCents: number;
+  ivaCents: number;
+  processingFeeCents: number;
+}): RefundComponents {
+  return {
+    amountCents: s.totalCents,
+    merchandiseCents: 0,
+    merchandiseIvaCents: 0,
+    shippingCents: s.shippingFeeCents,
+    shippingIvaCents: s.ivaCents,
+    processingFeeCents: s.processingFeeCents,
+    compensationCents: 0,
+  };
+}
+
+/**
+ * `order_full` (§M3 v1.80, §M4-SHIP.4): el REMANENTE de la orden ⇒ `totalCents − Σ` no fallidas, con el
+ * remanente de cada componente. Para `IVA_EXCLUSIVE` el IVA persistido se reparte proporcionalmente y se
+ * mete DENTRO de mercancía y envío, así la identidad del CHECK se cumple igual (una prueba por convención).
+ * El remanente de mercancía absorbe lo que no es envío ni comisión (p. ej. compensaciones ya pagadas).
+ */
+export function orderFullRefundComponents(
+  o: RefundOrderMoney,
+  nonFailedRows: { amountCents: number; shippingCents: number; processingFeeCents: number }[],
+): RefundComponents {
+  const refunded = nonFailedRows.reduce((a, r) => a + r.amountCents, 0);
+  const refundedShipping = nonFailedRows.reduce((a, r) => a + r.shippingCents, 0);
+  const refundedFee = nonFailedRows.reduce((a, r) => a + r.processingFeeCents, 0);
+  const amount = o.totalCents - refunded;
+  const inclusive = ivaIsIncluded(o.priceConvention);
+  const G = o.subtotalCents + o.shippingFeeCents;
+  // Envío BRUTO (IVA dentro): en inclusiva ya lo lleva; en exclusiva se le suma su parte del IVA persistido.
+  const grossShipping = inclusive
+    ? o.shippingFeeCents
+    : o.shippingFeeCents + (G > 0 ? Math.round((o.ivaCents * o.shippingFeeCents) / G) : 0);
+  const shipping = Math.max(0, Math.min(amount, grossShipping - refundedShipping));
+  const fee = Math.max(0, Math.min(amount - shipping, o.processingFeeCents - refundedFee));
+  const merchandise = amount - shipping - fee;
+  return {
+    amountCents: amount,
+    merchandiseCents: merchandise,
+    merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, o.ivaRatePct),
+    shippingCents: shipping,
+    shippingIvaCents: shipping - taxBaseCentsOf(shipping, o.ivaRatePct),
+    processingFeeCents: fee,
+    compensationCents: 0,
+  };
+}
+
+/** Lo que el súper-admin ve al capturar un reembolso de caso: `Q = P + floor(F·P/G)` («lo pagado»). */
+export interface CaseRefundContext {
+  /** `OrderItem.unitPriceCents` de la carta. */
+  unitPriceCents: number;
+  /** `Q`: lo pagado por la carta (la fórmula de `item_missing`, un cuerpo). */
+  paidCents: number;
+  /** `fQ = floor(F·P/G)`. */
+  feeShareCents: number;
+  ivaRatePct: number;
+}
+
+export function caseRefundContextOf(o: RefundOrderMoney, unitPriceCents: number): CaseRefundContext {
+  const fQ = itemFeeShareCents(o, unitPriceCents);
+  return { unitPriceCents, paidCents: unitPriceCents + fQ, feeShareCents: fQ, ivaRatePct: o.ivaRatePct };
+}
+
+/**
+ * `caseRefundComponents(X)` (§M4-SHIP.15.5), UN cuerpo, MONÓTONO en cada componente:
+ *  - `X ≤ Q` (devolución de venta, total o parcial): `fee = floor(X × fQ / Q)`, `merchandise = X − fee`,
+ *    `merchandiseIva = merchandise − taxBase(merchandise, r)`, `compensation = 0`.
+ *  - `X > Q`: los componentes EXACTOS de `item_missing` sobre `P` + `compensation = X − Q` (sin IVA de venta).
+ * La fila SPEI = `caseRefundComponents(A) − caseRefundComponents(stripe)` componente a componente: como la
+ * función es monótona, ningún componente de la fila SPEI es negativo y la suma es `caseRefundComponents(A)` ±0.
+ */
+export function caseRefundComponents(x: number, ctx: CaseRefundContext): RefundComponents {
+  if (x <= 0) {
+    return { amountCents: 0, merchandiseCents: 0, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0 };
+  }
+  const Q = ctx.paidCents;
+  if (x <= Q) {
+    const fee = Q > 0 ? Math.floor((x * ctx.feeShareCents) / Q) : 0;
+    const merchandise = x - fee;
+    return {
+      amountCents: x,
+      merchandiseCents: merchandise,
+      merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, ctx.ivaRatePct),
+      shippingCents: 0,
+      shippingIvaCents: 0,
+      processingFeeCents: fee,
+      compensationCents: 0,
+    };
+  }
+  const P = ctx.unitPriceCents;
+  return {
+    amountCents: x,
+    merchandiseCents: P,
+    merchandiseIvaCents: P - taxBaseCentsOf(P, ctx.ivaRatePct),
+    shippingCents: 0,
+    shippingIvaCents: 0,
+    processingFeeCents: ctx.feeShareCents,
+    compensationCents: x - Q,
+  };
+}
+
+/** `a − b` componente a componente (la fila SPEI de un reembolso de caso, §M4-SHIP.15.5). */
+export function subtractRefundComponents(a: RefundComponents, b: RefundComponents): RefundComponents {
+  return {
+    amountCents: a.amountCents - b.amountCents,
+    merchandiseCents: a.merchandiseCents - b.merchandiseCents,
+    merchandiseIvaCents: a.merchandiseIvaCents - b.merchandiseIvaCents,
+    shippingCents: a.shippingCents - b.shippingCents,
+    shippingIvaCents: a.shippingIvaCents - b.shippingIvaCents,
+    processingFeeCents: a.processingFeeCents - b.processingFeeCents,
+    compensationCents: a.compensationCents - b.compensationCents,
+  };
+}
+
+/**
+ * ⭐💰 v1.81 (API_CONTRACT §M4-SHIP.19.11, §19.19.4) — el IVA del COSTO de una guía de Skydropx cuando el proveedor no
+ * da la línea (`vat_fee: null`) o el total de la compra derivó del cotizado: **16/116** de `(total − tarifa de gestión)`.
+ * Es la regla que el panel MIDIÓ (levantamiento M1; PROD §4.3: `vat_fee = 16 % × (amount + extras)`), ⛔ NO el dial
+ * `iva_pct`: el P&L histórico no cambia si el dial se mueve (`IVA-5`). Fracción entera, sin coma flotante en el divisor.
+ */
+export const SKYDROPX_IVA_FRACTION = { numerator: 16, denominator: 116 } as const;
+
+/** `round(taxableCents × 16/116)` en aritmética entera (half-up de `Math.round` sobre el cociente exacto). */
+export function skydropxComputedIvaCents(taxableCents: number): number {
+  return Math.round((taxableCents * SKYDROPX_IVA_FRACTION.numerator) / SKYDROPX_IVA_FRACTION.denominator);
 }

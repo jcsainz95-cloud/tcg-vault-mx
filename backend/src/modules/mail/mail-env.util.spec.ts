@@ -67,26 +67,17 @@ describe('P-21 cierre — consumidores import-time de envOr', () => {
     return mod;
   }
 
-  it('disputes.constants: env vacía → default vivo (soporte@tcghunt.mx); con valor → lo usa', () => {
-    process.env.DISPUTE_EVIDENCE_CONTACT = '';
-    let mod = freshImport<{ DISPUTE_EVIDENCE_CONTACT: string }>('../disputes/disputes.constants');
-    expect(mod.DISPUTE_EVIDENCE_CONTACT).toBe(DEFAULT_SUPPORT);
-
-    process.env.DISPUTE_EVIDENCE_CONTACT = '  soporte@tcghunt.mx ';
-    mod = freshImport<{ DISPUTE_EVIDENCE_CONTACT: string }>('../disputes/disputes.constants');
-    expect(mod.DISPUTE_EVIDENCE_CONTACT).toBe('soporte@tcghunt.mx');
-  });
-
-  it('guest-checkout.constants: env con espacios → default vivo (soporte@tcghunt.mx); con valor → lo usa', () => {
+  // v1.82 · PNL-1 (`D-PNL-2`): `disputes.constants.ts` y `SUPPORT_EVIDENCE_CONTACT` de
+  // `guest-checkout.constants.ts` SALIERON — eran las dos cascadas locales que divergían. Su lugar lo
+  // ocupa el resolutor único `supportContact()`; sus pruebas (DSC-6/DSC-7/DSC-8) viven en
+  // `support-contact.spec.ts` y en `test/support-contact.single-resolver.spec.ts`.
+  it('support-contact: env vacía/blanca → default vivo (soporte@tcghunt.mx); con valor → lo usa saneado', () => {
+    const mod = freshImport<{ supportContact: () => string }>('./support-contact');
+    process.env.SUPPORT_EMAIL = '';
     process.env.DISPUTE_EVIDENCE_CONTACT = '   ';
-    let mod = freshImport<{ SUPPORT_EVIDENCE_CONTACT: string }>(
-      '../orders/guest-checkout.constants',
-    );
-    expect(mod.SUPPORT_EVIDENCE_CONTACT).toBe(DEFAULT_SUPPORT);
-
-    process.env.DISPUTE_EVIDENCE_CONTACT = 'soporte@tcghunt.mx';
-    mod = freshImport<{ SUPPORT_EVIDENCE_CONTACT: string }>('../orders/guest-checkout.constants');
-    expect(mod.SUPPORT_EVIDENCE_CONTACT).toBe('soporte@tcghunt.mx');
+    expect(mod.supportContact()).toBe(DEFAULT_SUPPORT);
+    process.env.DISPUTE_EVIDENCE_CONTACT = '  soporte@tcghunt.mx ';
+    expect(mod.supportContact()).toBe('soporte@tcghunt.mx');
   });
 
   it('buylist-mail.templates: cascada SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → default vivo, saltando vacíos', () => {
@@ -300,18 +291,9 @@ describe('P-21 — ningún default de correo apunta a un dominio muerto', () => 
     jest.restoreAllMocks();
   });
 
-  it('contacto de evidencia de disputa (API §7) usa el dominio vivo', () => {
-    const mod = freshRequire<{ DISPUTE_EVIDENCE_CONTACT: string }>(
-      '../disputes/disputes.constants',
-    );
-    expectLive(mod.DISPUTE_EVIDENCE_CONTACT);
-  });
-
-  it('contacto de soporte del pedido de invitado usa el dominio vivo', () => {
-    const mod = freshRequire<{ SUPPORT_EVIDENCE_CONTACT: string }>(
-      '../orders/guest-checkout.constants',
-    );
-    expectLive(mod.SUPPORT_EVIDENCE_CONTACT);
+  it('buzón de soporte (resolutor único v1.82: disputas, invitado, buylist, /support/contact) usa el dominio vivo', () => {
+    const mod = freshRequire<{ supportContact: () => string }>('./support-contact');
+    expectLive(mod.supportContact());
   });
 
   it('correo de soporte de la plantilla de rechazo de buylist usa el dominio vivo', () => {

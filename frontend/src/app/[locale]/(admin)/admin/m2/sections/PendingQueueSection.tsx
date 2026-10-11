@@ -20,6 +20,7 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from './shared';
+import { SealedUnmappedModal, isSealedUnmapped, type SealedUnmappedMode } from './SealedUnmappedModal';
 
 /**
  * Sección 2 — cola de precio pendiente en DOS BUCKETS (P-6, v1.26). VENTA = context=inventory
@@ -63,6 +64,10 @@ export function PendingQueueSection() {
   });
   const [overrideTarget, setOverrideTarget] = useState<PendingPriceEntryDTO | null>(null);
   const [overridePriceValue, setOverridePriceValue] = useState('');
+  // §M2-SK: modal de las dos salidas del sellado sin mapear (ligar / precio de la pieza).
+  const [sealedModal, setSealedModal] = useState<{ entry: PendingPriceEntryDTO; mode: SealedUnmappedMode } | null>(
+    null,
+  );
   const overrideMutation = useMutation({
     mutationFn: (entry: PendingPriceEntryDTO) => {
       const base = {
@@ -134,11 +139,24 @@ export function PendingQueueSection() {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (e) => (
-        <Button size="sm" variant="secondary" onClick={() => { setOverrideTarget(e); setOverridePriceValue(''); }}>
-          {t('pending.setPrice')}
-        </Button>
-      ),
+      render: (e) =>
+        // §M2-SK: sellado SIN MAPEAR (`gradeKey === 'sealed'`) ⇒ DOS salidas reales y ⛔ NUNCA el «Fijar
+        // precio» de mercado: el servidor lo rechazaría con 422 SEALED_MARKET_KEY_REQUIRED (SK-3). El
+        // sellado MAPEADO (`sealed:tcg:<id>`) y raw/graded siguen con el override de mercado, como hoy.
+        isSealedUnmapped(e) ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" onClick={() => setSealedModal({ entry: e, mode: 'link' })}>
+              {t('pending.sealedUnmapped.link')}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setSealedModal({ entry: e, mode: 'price' })}>
+              {t('pending.sealedUnmapped.pricePiece')}
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => { setOverrideTarget(e); setOverridePriceValue(''); }}>
+            {t('pending.setPrice')}
+          </Button>
+        ),
     },
   ];
 
@@ -359,6 +377,15 @@ export function PendingQueueSection() {
           )}
         </div>
       </Modal>
+
+      {/* §M2-SK: las dos salidas del sellado sin mapear. Se monta solo al abrir (estado propio por apertura). */}
+      {sealedModal && (
+        <SealedUnmappedModal
+          entry={sealedModal.entry}
+          mode={sealedModal.mode}
+          onClose={() => setSealedModal(null)}
+        />
+      )}
     </>
   );
 }

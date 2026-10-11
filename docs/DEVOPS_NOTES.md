@@ -825,7 +825,10 @@ Validaciones estáticas corridas (reales):
       `https://api.tudominio.com/api/v1/webhooks/stripe`.
 - [ ] Habilitar eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`,
       `payment_intent.canceled`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`,
-      `charge.dispute.funds_reinstated`.
+      `charge.dispute.funds_reinstated`, **`charge.refund.updated`** y **`refund.updated`** (estos dos, desde
+      §M4-SHIP v1.80.5: **paso de la ventana de despliegue**, ver §71.1; en un endpoint ya creado se añaden con
+      *Update details > Select events*). Fuente única de la lista: `security/stripe-webhook-events.txt`
+      (la vigila `scripts/check-stripe-webhook-events.sh`).
 - [ ] Copiar el **`whsec_…`** a `STRIPE_WEBHOOK_SECRET` en Railway (11.D [RW]) y **redeploy** del backend.
       (El backend preserva el raw body en esa ruta — ver §3; no pongas un proxy que lo altere.)
 
@@ -2980,7 +2983,7 @@ Notas para frontend (importantes):
 |---|---|
 | **App nueva rota / regresión** | Railway (servicio `backend` → Deployments → **Redeploy** el deploy de `3b9d16f`) y Vercel (Deployments → **Promote to Production** el build previo). Alternativa Git: `git revert` del merge y push. |
 | **Datos** | **No se requiere restaurar DB para revertir el código.** M-31/M-32 son **aditivas**: sus columnas/tablas (`CardProduct`, `rarityCanonical`, `*.cardProductId`) quedan y son inertes para el resolver viejo (las columnas legacy `structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot` se conservaron a propósito para reversibilidad — ver cabecera de la M-31). Solo se restaura del snapshot (§26.3 paso 3) si hubiera corrupción de datos, no por un rollback de código. |
-| **PG < 15 (falla de migración)** | `migrate deploy` falla en M-31 **dentro de su transacción** (Prisma envuelve cada migración) → **rollback atómico de M-31**, el contenedor sale ≠0, Railway reintenta (`ON_FAILURE`, max 10) y **mantiene activo el deploy anterior** (`3b9d16f`). Prod sigue sirviendo el código viejo. Corregir: subir Postgres a ≥15 o aplicar el fallback de índice normal (BACKEND_NOTES M-31, es cambio de **rol backend**). |
+| **PG < 15 (falla de migración)** | `migrate deploy` falla en M-31 **dentro de su transacción** (Prisma envuelve cada migración) → **rollback atómico de M-31**, el contenedor sale ≠0, Railway reintenta (`ON_FAILURE`, max 10) y ~~mantiene activo el deploy anterior~~ (`3b9d16f`). ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). Corregir: subir Postgres a ≥15 o aplicar el fallback de índice normal (BACKEND_NOTES M-31, es cambio de **rol backend**). |
 
 ### 26.5 Verificación de salud post-deploy (a ejecutar por quien tenga egress a prod)
 
@@ -3137,7 +3140,7 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 | **Datos (código)** | **No se restaura la DB para revertir el código.** M-39/M-40 son **aditivas**: sus tablas/columnas (`SealedProduct`, `SealedSetGroup`, `*.sealedProductId`) quedan **inertes** para el código viejo. Solo se restaura del snapshot si hubiera **corrupción de datos**, no por un rollback de código. |
 | **Reshape P-34 aplicado y se quiere revertir el dinero** | Los backfills son **idempotentes y NO destructivos**, pero el paso 3 **reescribe** `buylist_price_rules` / `sale_price_rules` al shape tiered. Para volver al valor exacto previo: **restaurar esas dos filas de `ConfigSetting` desde el snapshot pre-deploy** (por eso el snapshot del paso 3 de §27.5). El compat on-read lee ambos shapes, así que el código viejo tolera el shape tiered si sólo se revierte código. |
 | **Backfill M-39 a revertir** | No destructivo (solo crea `SealedProduct` y liga FKs nullable). Revertir código deja esas filas inertes; no requiere acción de datos. |
-| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway reintiene y **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway reintenta y ~~mantiene activo el deploy anterior~~. ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). |
 
 > Orden de oro (§7): **datos primero** (snapshot antes de migrar y antes del paso 3), luego código.
 
@@ -3929,7 +3932,7 @@ editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (c
 | **¿Y lo que publicó el cut-over?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
 | **Rollback a MITAD del cut-over por sets** | **No hay estado partido que reparar.** Los sets ya repriciados no quedan «a medio migrar»: el precio se resuelve **en lectura**, así que al revertir el código **todos** los sets —repriciados o no— vuelven a la matemática vieja a la vez. Las entradas de cola creadas por el guardarraíl quedan **abiertas e inertes** (el código viejo no las lee) y se cierran solas al volver a v2.0 y re-resolver. Los `InventoryBatch` de las `batchKey` usadas **se conservan**: si se vuelve a v2.0, hay que usar **claves nuevas** para repriciar de verdad (§29.4b-2). |
 | **Rollback SOLO de la fuente (P-47)** | Flip inverso del dial: `PUT /admin/settings` `{"price_provider":"pokemontcg_io"}` (§28.6). **Sin redeploy y sin migración.** Que esto sea una palanca independiente de la curva es **el beneficio operativo de haber serializado** (§29.3). |
-| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0; ~~Railway mantiene activo el deploy anterior~~. ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). |
 | **Corrupción de datos (no rollback de código)** | Única razón para restaurar el snapshot del paso 0. |
 
 **No se requiere ventana de riesgo** (§4.36.9d / §N.9): no hay dinero vivo en tránsito que la migración
@@ -12109,7 +12112,3054 @@ dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
 
-## 66. `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
+# =============================================================================
+# §61 · P-53 — Acotar el WAL de Postgres + Vigilancia propia del disco (devops)
+# =============================================================================
+> **Dueño: devops.** Fecha de medición de esta sección: **2026-09-17**.
+> Entregado en la rama `claude/devops-p53-wal-monitor` (base `origin/production`).
+>
+> **Contexto (verdad medida por el orquestador):** el volumen de Postgres de prod
+> (Railway, 1 GB) estaba al **86%** subiendo **~20 MB/día**. El dueño ya amplió el
+> volumen como red de seguridad ⇒ el reloj de saturación se detuvo. Esta sección
+> entrega las **dos cosas de competencia devops** que P-53 dejó pendientes: (1)
+> acotar el WAL, y (2) una vigilancia propia. La cura de fondo —escribir menos
+> filas/día en `PriceReference`— la diseña el **arquitecto → backend** (money-
+> critical, triple veredicto); **no es devops** y no entra aquí.
+>
+> **⚠️ Lo que NO pude medir (O-1):** este entorno tiene el **egress a Railway
+> bloqueado**, así que **NO medí contra la prod**. Todo lo de abajo lo verifiqué
+> contra un **Postgres 16.13 de usar y tirar** (mismo motor que prod), no contra
+> el volumen real. Los tamaños reales de prod los mide el dueño con la herramienta
+> de §61.2, en su base.
+
+## 61.1 · Acotar el WAL — configuración + runbook (lo aplica el DUEÑO en su ventana)
+
+**El diagnóstico de P-53 (sep):** `pgdata/pg_wal` ≈ **145 MB (46% de lo usado)**
+con **cero replication slots** (verificado: `pg_replication_slots` → 0 filas ⇒
+**no hay fuga**). Es Postgres con `max_wal_size = 1GB` **de fábrica**, dimensionado
+para un disco mucho mayor. Acotarlo recupera **del orden de ~100 MB**.
+
+**La configuración exacta** vive en **`scripts/db-wal-tuning.sql`** (idempotente,
+solo-lectura salvo el `ALTER SYSTEM`; no toca datos). Baja:
+
+| Parámetro | Fábrica | Nuevo | Por qué |
+|---|---|---|---|
+| `max_wal_size` | 1GB | **128MB** | techo del WAL entre checkpoints; el ingest diario (~13-20 MB datos ⇒ ~30-60 MB WAL) cabe holgado ⇒ checkpoints por TIEMPO, no por tamaño |
+| `min_wal_size` | 80MB | **32MB** | deja que Postgres recicle hacia abajo el pool de segmentos ⇒ el WAL **encoge** de verdad |
+| `checkpoint_completion_target` | 0.9 | 0.9 | ya es el default de PG16; se fija explícito para dejarlo auditable |
+| `wal_keep_size` | 0 | 0 | correcto: no hay slots ni réplicas |
+
+**Dato de parámetros (documentado, NO medido contra prod):** `max_wal_size` y
+`min_wal_size` son de contexto **`sighup`** (postgresql.org / `pg_settings.context`)
+⇒ **cambian con un RELOAD, sin reinicio**. Corregí aquí la premisa de P-53 («requiere
+reinicio»): el **cambio de parámetro** no lo exige. Lo que reclama el espacio es que
+ocurran checkpoints; por eso el script termina con `pg_reload_conf()` **y** un
+`CHECKPOINT` manual que fuerza el reciclado del WAL sobrante de inmediato. Aun así el
+runbook mantiene **respaldo + ventana**, porque es prudente en una BD de dinero y
+porque el mecanismo concreto de Railway (§61.1c) puede exigir redeploy.
+
+### 61.1a · Runbook — pasos EXACTOS para el dueño
+1. **Respaldo primero.** En Railway → servicio Postgres → pestaña **Backups**:
+   dispara un backup manual y espera a que termine (o confirma que el backup
+   automático de hoy ya corrió). Es la red por si algo se ve raro.
+2. **Ventana.** No hace falta parar la tienda: el cambio es un `reload`. Elige un
+   momento de bajo tráfico igualmente (el `CHECKPOINT` genera un pico breve de I/O).
+3. **Conéctate a la prod** (una de dos):
+   - Railway → servicio Postgres → **Data / Query** (consola web), pega el contenido
+     de `scripts/db-wal-tuning.sql`; **o**
+   - desde tu máquina con el `DATABASE_URL` del servicio Postgres (entorno
+     `production`):
+     ```bash
+     export DATABASE_URL='postgresql://…'      # NO se pega en ningún fichero del repo
+     psql "$DATABASE_URL" -f scripts/db-wal-tuning.sql
+     unset DATABASE_URL
+     ```
+4. **Verifica que aplicó.** El propio script imprime el bloque **DESPUÉS**; confirma:
+   - `max_wal_size = 128`, `min_wal_size = 32` (unit `MB`), y **`source = configuration file`**.
+   - **⚠️ Si `max_wal_size` sigue en 1024 con `source = command line`:** entonces
+     Railway está fijando el parámetro por un **flag de arranque** (o una variable de
+     servicio), y el `ALTER SYSTEM` **no lo puede pisar** (medido: en mi PG de prueba,
+     arrancar con `-c max_wal_size=1GB` mantuvo 1024 pese al `ALTER SYSTEM`; al
+     reiniciar SIN ese flag, quedó en 128 con `source = configuration file`). En ese
+     caso, cámbialo en la **config del servicio de Railway**, no por SQL. En una
+     instalación de fábrica (que es lo que P-53 midió, `source = default`) el
+     `ALTER SYSTEM` + reload **sí** basta.
+5. **Verifica el ahorro.** A los ~15-30 min (deja que corra ≥1 checkpoint), corre la
+   herramienta de §61.2 o directamente:
+   ```sql
+   SELECT count(*) AS wal_files, pg_size_pretty(sum(size)) AS wal_total FROM pg_ls_waldir();
+   ```
+   El WAL debe bajar de ~145 MB hacia ~min_wal_size (decenas de MB). El número de
+   volumen autoritativo lo ves en el panel de Railway.
+
+### 61.1b · Cómo revertir
+En el pie de `scripts/db-wal-tuning.sql` está el bloque `ALTER SYSTEM RESET …` +
+`pg_reload_conf()`. Vuelve a fábrica (`max_wal_size = 1GB`). **No se pierde ni un
+dato**; el disco simplemente vuelve a crecer como antes.
+
+### 61.1c · Verificación que SÍ hice (2026-09-17, PG 16.13 de usar y tirar)
+Apliqué `scripts/db-wal-tuning.sql` contra un cluster PG16 local: `ALTER SYSTEM` ×4,
+`pg_reload_conf()=t`, `CHECKPOINT` ok. Tras reiniciar sin overrides de línea de
+comandos: `max_wal_size=128 MB`, `min_wal_size=32 MB`, `source=configuration file`
+(confirmado con `pg_settings`). No es una medición de prod (egress bloqueado): prueba
+que **el SQL es válido y hace lo que dice** en el mismo motor.
+
+## 61.2 · Vigilancia propia del disco y del ritmo de filas/día
+
+**Herramienta: `scripts/db-disk-watch.sh`** — todo **solo lectura** (abre
+`BEGIN TRANSACTION READ ONLY`), por **SQL** (no necesita shell en el contenedor de
+Railway), y **no imprime la credencial** (del `DATABASE_URL` solo saca el nombre de
+la base y una huella sha256 del host; repo público). Mide:
+- **uso estimado** del volumen = suma de tamaños de todas las bases + WAL
+  (`pg_ls_waldir()`). El total del VOLUMEN no lo da ningún SQL en Postgres gestionado
+  ⇒ se pasa con `--volume-bytes` (default **1 GiB**, el de prod). El número
+  autoritativo del volumen es el del panel de Railway; esto es la **señal temprana**.
+- **WAL** (ficheros y bytes) — dice si el parche de §61.1 ya surtió efecto.
+- **replication slots** — P-53 esperaba 0; **>0 ⇒ FUGA ⇒ ROJO**.
+- **`max_wal_size`/`min_wal_size` efectivos** — avisa si el WAL sigue **de fábrica**.
+- **`PriceReference`**: filas, bytes/fila, y **filas/día** (prom. 7 días, vía
+  `GROUP BY "capturedDate"`) ⇒ el **ritmo real** de crecimiento.
+- **Proyección**: días hasta llenar el volumen al ritmo medido.
+
+**Veredicto y umbrales** (configurables por bandera):
+- **ROJO** (rc=1, un cron lo NOTIFICA): uso ≥ `--crit-pct` (90) · **o** días-al-tope
+  ≤ `--min-days` (21) · **o** ≥1 replication slot.
+- **AVISO** (rc=0, `::warning::` visible): uso ≥ `--warn-pct` (80). Aún hay margen.
+- **OK** (rc=0). · **rc=2 = NO CONCLUYENTE** (sin URL/psql/target/SQL) — nunca sale
+  0 con una cifra que no leyó.
+
+**Cómo lo corre el dueño a mano** (o en un cron de Railway, red interna):
+```bash
+export DATABASE_URL='postgresql://…'          # idealmente el USUARIO DE SOLO LECTURA de abajo
+./scripts/db-disk-watch.sh --target prod --volume-bytes 1073741824
+unset DATABASE_URL
+./scripts/db-disk-watch.sh --print-queries     # las 4 consultas de P-53, para pegar a mano
+```
+
+**Usuario de solo lectura (vía correcta si se quiere en CI, CLAUDE.md «Secretos»):**
+```sql
+CREATE ROLE disk_watch LOGIN PASSWORD '<generada, no en el repo>';
+GRANT pg_monitor TO disk_watch;   -- da pg_ls_waldir(), pg_replication_slots, tamaños
+GRANT CONNECT ON DATABASE tcg_marketplace TO disk_watch;
+GRANT USAGE ON SCHEMA public TO disk_watch;
+GRANT SELECT ON "PriceReference" TO disk_watch;
+```
+`pg_monitor` es lo que habilita `pg_ls_waldir()` y `pg_replication_slots` a un no-super.
+
+**Cableado en CI: `.github/workflows/db-disk-watch.yml`** (lunes 06:00 UTC + manual,
+y el canario también en cada PR/push que toque la herramienta). **Dos trabajos, y la
+distinción es la lección P-77:**
+- `autoprueba` — **siempre** corre `scripts/check-db-disk-watch-canary.sh` (7 casos,
+  sin base ni red): prueba que la alarma **sabe ponerse roja**. Es el «blanco» real
+  del workflow aunque nadie cablee la prod.
+- `vigilancia` — corre la medición viva **solo si existe el secret `DB_READONLY_URL`**.
+  Si no existe, **no finge verde vigilando**: emite un `::notice::` diciendo que no
+  está cableada y a dónde ir. En ROJO abre/actualiza un **issue** con label `disco`
+  (patrón `deps-audit`) y pone el run en rojo. Tamaño del volumen: variable de repo
+  `DB_VOLUME_BYTES` (vacío ⇒ 1 GiB).
+
+> **Por qué el secret y no el `DATABASE_URL` normal:** la base solo se alcanza donde
+> vive la credencial; el egress a Railway está bloqueado aquí y **no medí** que un
+> runner de GitHub llegue a la prod. Vías sin exponer credencial en GitHub: un **cron
+> de Railway** (red interna) o **correrlo a mano**. Si el dueño quiere el aviso en CI,
+> el usuario de solo lectura de arriba en `DB_READONLY_URL` es la vía correcta.
+
+**⛔ No convertir `db-disk-watch.yml` en required check:** es `schedule`/manual, no
+gatea deploy. Su trabajo es **avisar con semanas de antelación**, no bloquear.
+
+## 61.3 · Qué necesito del dueño
+1. **Una ventana** (unos minutos, bajo tráfico) para aplicar `scripts/db-wal-tuning.sql`
+   con respaldo, siguiendo §61.1a. Es un `reload`, no un corte de servicio.
+2. **Opcional** (para el aviso automático en CI): crear el usuario de solo lectura de
+   §61.2 y ponerlo en el secret `DB_READONLY_URL`; y si su volumen ya no es 1 GB,
+   fijar la variable de repo `DB_VOLUME_BYTES`. Sin esto, la vigilancia sigue
+   disponible corriéndola a mano o desde un cron de Railway.
+## §62 · `backend-e2e` rojo en `production`: NO era el S3, era la clave PII que faltaba en el job (S-PII-CI, 2026-09-17)
+
+**El defecto, medido, no el que me pasaron.** Me llegó como «el S3-local rechaza el PUT presignado (SigV4
+403) y/o el seed no sube las imágenes de INE». **Lo medí y es FALSO.** Gana la medición (O-2):
+
+- Contra el `scripts/s3-local/server.js` REAL, con el firmante REAL (`UploadsService`, mismo `@aws-sdk`
+  3.1109.0, mismo `PutObjectCommand`/`GetObjectCommand`) y credenciales que cuadran: **PUT presignado
+  200, GET presignado 200**, bytes correctos, `Content-Disposition: attachment` y `Cache-Control:
+  no-store` honrados. El bloque `G-3` de `kyc-ine-links` (subir → enlazar → DESCARGAR) pasa entero.
+- El `seed:synthetic` sube las 4 imágenes de INE al bucket sin error (`✓ seed-e2e: 4 imágenes de INE
+  sembradas en tcg-photos`).
+- El «PUT presignado devolvió 403» que reportó un agente en local era un **desajuste de secreto** entre
+  el proceso firmante y el `s3-local` (dos `S3_SECRET_ACCESS_KEY` distintas), no un defecto del stand-in.
+
+**La causa raíz REAL** (medida con la API de check-runs de GitHub sobre `production` 187b1d40, más
+reproducción local contra app + Postgres + `s3-local` reales): `backend-e2e` = **`Tests: 3 failed, 973
+passed`**, las tres en `backend/test/integration/kyc-ine-links.e2e-spec.ts`:
+
+| test | ruta que golpea | resultado |
+|---|---|---|
+| K-2 (`:226`) | `GET /admin/users/:id` (customer2) | **HTTP 500** |
+| K-6 (`:305`) | `GET /users/me/kyc` (customer2) | **HTTP 500** |
+| §M6-K.5 (`:325`) | `GET /users/me/kyc?quotedTotalCents=N` (customer2) | **HTTP 500** |
+
+El 500 es, literal en el log de la app: `Error: Unsupported state or unable to authenticate data`, y su
+causa la nombra `UsersService` sola: *«rfcEnc does not decrypt with this process's PII key … Likely
+`PII_ENCRYPTION_KEY` differs from the one that encrypted it (**ephemeral per-process key in a local
+harness**)»*.
+
+**Por qué pasa, en una frase:** el job `backend-e2e` de `.github/workflows/e2e.yml` **nunca fijaba
+`PII_ENCRYPTION_KEY` / `PII_HMAC_KEY`**, y este job tiene **dos procesos que se pasan PII cifrada por la
+BD**: el `seed:synthetic` (proceso `ts-node` aparte) **cifra** el RFC/CLABE del fixture, y la suite jest
+los **descifra** al servir el 360º de admin y el `/users/me/kyc`. Sin la clave en el entorno,
+`PiiCryptoService` cae a una **clave efímera POR PROCESO** (y, peor, POR instancia de app: cada
+`E2EHarness.create()` genera otra). Con claves distintas, el descifrado revienta ⇒ 500.
+
+**Por qué era order-dependent (y por eso «ambiental»):** cada suite crea su propia app con su propia clave
+efímera; quien escribió de último el `billingProfile` del customer2 manda. En el orden de un runner
+LIMPIO (jest ordena por tamaño de fichero, `buylist-cycle` corre PRIMERO y le escribe el `billingProfile`
+al customer2), `kyc-ine-links` (#10) lo lee con OTRA clave ⇒ 500 determinista. En una corrida con caché
+de jest el orden cambia y tapa el fallo — por eso salía verde en algunas máquinas y rojo en CI. El
+arnés nativo (`scripts/stack-native.sh`) ya fija estas dos claves desde 2026-09-11; este job se quedó sin
+ellas, y `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` **están en el catálogo de secretos exigidos**
+(`security/secretos-exigidos-contenedor.txt`), así que la omisión era un hueco, no una decisión.
+
+**El arreglo (mis rutas, sin tocar código de app ni debilitar prueba alguna):** añadir
+`PII_ENCRYPTION_KEY PII_HMAC_KEY` a la lista de `scripts/secrets-preflight.sh github-env` del paso
+«Resolver secretos» de `e2e.yml`. Se generan por corrida (base64 de 32 bytes, enmascaradas en el log) y
+viven en `$GITHUB_ENV`, así que **el paso de seed y el de test heredan la MISMA clave**: la PII que cifra
+el seed la descifra la app. No se fija ninguna imagen nueva (el arreglo es puro cableado de entorno).
+
+**Medición del arreglo** (app + Postgres + `s3-local` reales, orden de runner limpio = caché de jest
+borrada, BD virgen):
+
+- SIN las dos claves: `Tests: 3 failed, 973 passed` — las MISMAS tres (K-2, K-6, §M6-K.5), reproducido
+  **2/2**, idéntico a lo que reporta CI en `production`.
+- CON las dos claves: **`Tests: 976 passed, 976 total`**, `45 passed` suites. Determinista: la clave
+  estable elimina la dependencia del orden.
+
+**`e2e-real.yml` no está afectado:** resuelve el catálogo COMPLETO (`secrets-preflight.sh github-env` sin
+argumentos), que ya incluye las dos claves. El hueco era exclusivo de la lista acotada de `e2e.yml`.
+
+**Cómo se confirma en CI:** el próximo run de `e2e.yml` sobre esta rama debe dar `backend-e2e` verde
+(`Tests: 976 passed`); si algún día vuelve el 500 en esas rutas, mira primero el aviso
+«PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key» en el log de la app: significa que la clave
+dejó de llegar al proceso.
+
+**Ownership de lo que queda:** que `GET /admin/users/:id` y `GET /users/me/kyc` respondan **500** (y no un
+degradado limpio) ante una fila de PII que no descifra es un comportamiento de **backend** —hoy queda
+tapado por la clave estable, pero un enmascarado/omisión de la fila ilegible sería más robusto que un 500.
+Es hallazgo para **backend**, no arreglo de devops; lo dejo anotado, no tocado.
+
+---
+
+## §66 · El censo E2E pasa a CINCO claves: entra `realOnly`, y el techo baja a lo medido (2026-09-22, B-QA1 + M-QA4)
+
+**Qué estaba rojo.** `./scripts/check-e2e-skip-census.sh` sobre `claude/m4-pedidos-preparar` daba
+**rc=1** (tres categorías CRECIERON) y ese job está en el `needs` de `ci-ok` sin estar en la lista de
+OPCIONALES de `scripts/check-ci-ok.sh` ⇒ **bloqueaba de verdad**. Sobre `origin/main` (`bb239c09`,
+extraído a una copia) el mismo script daba **rc=0**: lo introducía la rama, no era un rojo heredado.
+
+**Lo que el censo cuenta, dicho sin ambigüedad, porque aquí es donde se manda a alguien a lo que no
+es.** El censo cuenta **palabras** (`grep -rwo`), no llamadas. En el fichero nuevo
+`frontend/e2e/m4-preparation.spec.ts` hay 4 apariciones de `mockOnly`, 3 de `needsSeed`, 1 de
+`harnessLimit` y 7 de `realOnly`, y **solo TRES son llamadas**:
+
+| Sitio | Clave | Qué es |
+|---|---|---|
+| `:79` | `needsSeed(...)` | llamada real |
+| `:102` | `mockOnly(...)` | llamada real |
+| `:181` | `realOnly(...)` | llamada real |
+| `:3`, `:26`, `:35`, `:40`–`:42`, `:96`, `:169` | varias | **import y PROSA** de los docstrings |
+
+En particular **`harnessLimit` +1 es 100 % prosa**: el fichero **no tiene ni una llamada** a
+`harnessLimit`; la palabra aparece solo porque el docstring de `:41` enumera la taxonomía entera.
+
+Y el matiz de las **instancias**: el fichero entero vive dentro de `for (const vp of VIEWPORTS)` con
+dos anchos (390×844 y 1280×800), así que cada llamada produce **dos tests saltados**. De ahí el «dos»
+que reportaron frontend y QA: **son instancias, no sitios**. Las dos cuentas son correctas y miden
+cosas distintas; decir cuál se está usando evita mandar a backend a sembrar dos filas cuando la
+petición es una.
+
+**Dos techos que bajan, y no los baja este stream.** Medido sobre `origin/main`: el censo ya daba
+`mockOnly` **98/22** (el baseline decía 99/23) y `skipIfSeedMissing` **10/5** (decía 15/6). Es decir,
+`main` venía verde con dos claves **por debajo** del techo, y el delta visible de `mockOnly` (+3)
+estaba **enmascarado** por ese −1 heredado: el fichero nuevo aporta **+4**. Este `--update` fija los
+techos en lo medido hoy, que es justo lo que pedía el aviso «bajó: regenera el baseline».
+
+**La decisión de M-QA4: `realOnly` ENTRA al censo.** Es la quinta clave desde hoy. El razonamiento,
+por si alguien quiere revertirlo con datos:
+
+1. **Por el criterio que el propio script declara** — «cada uno es un test que en algún entorno NO
+   mide». `realOnly` es `test.skip(!IS_REAL, …)` (`frontend/e2e/utils/auth.ts:227`): no se salta en el
+   pase real de QA, se salta en la **corrida de mocks**. Y la corrida de mocks es la que **gatea cada
+   PR**; el pase real corre por stream/release. Su ventana ciega es **la más frecuente de las cinco**.
+2. **Por un agujero operativo, no teórico** — mientras estuvo fuera, convertir un `mockOnly` en un
+   `realOnly` **bajaba** el censo y **subía** lo no medido en CI. El instrumento hecho para contar lo
+   que no mide tenía una gaveta que no veía. Medido: ningún script ni workflow del repo menciona
+   `realOnly` (`grep -rn realOnly scripts/ .github/` ⇒ vacío antes de hoy).
+3. **Contarla no la castiga.** Cada clave lleva **su propia línea y su propio techo**: `realOnly` no
+   se mezcla con las otras cuatro. Subirla cuesta lo mismo que subir cualquiera — un `--update
+   --motivo` en el mismo diff. Esto es lo contrario de desalentarla: es reconocerla como gaveta de
+   primera clase, después de que el techlead zanjara (contra la primera lectura de frontend) que
+   `realOnly` es **preferible** a dejar la receta en un comentario, que es una quinta gaveta que
+   **ningún runner enumera**.
+
+**Corrección al encargo, con el dato:** `realOnly` **no la estrena este stream**. `origin/main` ya
+traía **7 ocurrencias en 3 ficheros** — `catalog.spec.ts:273` y `grading-estimate.spec.ts:465/629/862`
+(cuatro llamadas reales), más la definición en `utils/auth.ts`. El stream añade **una** llamada. El
+techo inicial de `realOnly` (14/4) es por tanto **una foto, no un crecimiento de nadie**.
+
+**Estado después del arreglo** — `mockOnly 102/23 · needsSeed 34/9 · harnessLimit 5/3 ·
+skipIfSeedMissing 10/5 · realOnly 14/4`, gate en **rc=0, 3/3 corridas**, canario **rc=0, 3/3**.
+
+**Caducidad declarada:** el `needsSeed` de `:79` muere el día que `backend/prisma/seed-e2e.ts` siembre
+un `ShipmentRequest` en `picking`. Ese día el censo **baja** y hay que regenerar el baseline.
+
+**Y una propiedad del instrumento que conviene saber antes de usarlo:** `--update` **sobrescribe** el
+fichero, así que el baseline guarda **un solo motivo, el último**. El anterior (2026-09-11, KYC,
+`mockOnly` 92→99) no se pierde: vive en git en `1972e80`. No lo cambié — acumularlos haría crecer sin
+límite una línea que ya es enorme, y `git log -p scripts/e2e-skip-census.baseline` los da todos.
+
+---
+
+## §67 · El apagado del stack mataba stacks AJENOS — acotado por puerto y por clon (2026-09-22, I-QA2)
+
+**Dos daños medidos el mismo día, por dos agentes distintos:**
+
+- el **pentester** corrió `pkill -f "src/main.ts"` de limpieza y mató el **backend de QA** a mitad de
+  su gate;
+- **QA** corrió `down` con `FRONTEND_PORT=3200` y mató el `next-server` huérfano de **:3000**, que era
+  de **otro clon**.
+
+**La causa no era la mano de nadie: estaba cableada en el script.** `stack-native.sh` apagaba con
+`pkill -f 'ts-node --transpile-only src/main.ts'`, `pkill -f '^next-server '` y
+`pkill -f 's3-local/server.js'`. Los tres patrones describen **el programa**, no **mi instancia**: ni
+filtran por puerto ni por clon. Con dos sesiones en paralelo sobre puertos distintos, el mecanismo
+para matarse entre sí **venía de fábrica**. Es O-8/O-14 en el recurso «stack»: allí era el scratchpad
+y el árbol de trabajo, aquí es el stack.
+
+**El criterio nuevo** (bloque `>>> APAGADO-ACOTADO` de `scripts/stack-native.sh`). Se mata un proceso
+solo si es mío por una de dos vías:
+
+- **(a) escucha en el puerto que esta invocación declara suyo** (`BACKEND_PORT` / `FRONTEND_PORT` /
+  `S3_LOCAL_PORT`) — pedir ese puerto **es** reclamarlo; o
+- **(b) su línea de comando casa el patrón Y su `cwd` cuelga de ESTE clon** (`$ROOT_DIR`, vía
+  `/proc/<pid>/cwd`). Esta vía es la que sigue cazando al backend que **murió antes de abrir el
+  puerto** (arranque a medias), que (a) no ve.
+
+Lo que casa el patrón pero vive en otro clon **y** en otro puerto **ya no se toca**: se nombra en un
+aviso, con su `cwd`, para que quien mire sepa que sigue vivo y de quién es.
+
+**El límite, dicho entero, porque acotar por puerto NO lo cubre todo.** Medido hoy mientras trabajaba:
+había un `s3-local` vivo en **:9000** cuyo `cwd` era
+`…/scratchpad/qa-m4b/clone` — **el clon de QA**. Los dos clones usan el **mismo puerto por defecto**,
+así que ahí **no hay dos puertos que separar**: un `down --all` mío seguiría llevándoselo, y tiene que
+hacerlo (si no reclama su puerto, el siguiente `up --gate` muere con «ya hay algo sirviendo en
+:9000»). Lo que sí se exige ahora es que **lo diga, con el `cwd` del dueño**: la muerte de un gate
+ajeno tiene que ser **explicable**, no un misterio. Para separarse de verdad, dos sesiones simultáneas
+deben exportar **puertos distintos** (`BACKEND_PORT` / `FRONTEND_PORT` / `S3_LOCAL_PORT`) — y ahora
+eso **funciona**, que es lo que antes no pasaba.
+
+**Canario: `scripts/check-stack-kill-scope.sh`** (job `stack-kill-scope` en `ci.yml`, dentro del
+`needs` de `ci-ok`). No lee código: **extrae el bloque del fichero vivo**, levanta **procesos de
+verdad escuchando en puertos de verdad** y mira quién quedó vivo.
+
+| Caso | Exige |
+|---|---|
+| 1 | dos stacks, dos puertos: apago el mío ⇒ **el ajeno sigue vivo** (N tiradas, O-3) |
+| 2 | …y apagar **apaga**: el mío muere (si no, el puerto queda tomado y cae SEC-OPS-1) |
+| 3 | patrón + otro clon + otro puerto ⇒ **sobrevive**, y se **nombra** |
+| 5bis | mi puerto ocupado por otro clon ⇒ muere (reclamo el puerto) **pero se nombra con su `cwd`** |
+| 4 | patrón + mi clon **sin puerto abierto** ⇒ **muere** (arranque a medias) |
+| 6 | estático: no queda ni un `pkill` **ejecutable** en `stack-native.sh` |
+
+**Medición del arreglo:** canario **8/8**, `rc=0` en **3/3** corridas con `N=5` (⇒ **15/15** en el caso
+del stack ajeno y 15/15 en «el mío muere»).
+
+**Y el canario muerde** — mutación sobre una **copia** del árbol (O-9), devolviendo `stop_scoped` al
+`pkill` por patrón de antes: **rc=1**, con «el stack AJENO murió en **5 de 5** tiradas», reproducido
+**3/3 corridas**. Es decir: el mecanismo viejo mataba el stack ajeno **el 100 % de las veces**, no de
+cuando en cuando.
+
+**Detalle del canario que casi lo deja mintiendo:** su primera versión buscaba `pkill` con
+`^[^#]*\bpkill\b` y llamó rojo a una **línea de ayuda dentro de un heredoc** (la que dice «a mano NO
+basta con `pkill -f 'next start -p …'`»). Un candado que no distingue **código** de **prosa** manda a
+arreglar lo que no está roto. Hoy exige que el `pkill` **empiece una sentencia**.
+
+**Lo que NO arregla:** que un agente escriba `pkill -f src/main.ts` **a mano** en su terminal. Eso no
+es código, es doctrina — y su sitio es el encargo, no este script.
+
+---
+
+## §68 · `REL-D` refrescada: mismo número, contenido distinto (2026-09-22, `S-M4P-C`) — y una retractación mía sobre el rango del diff (§68.1)
+
+**De dónde viene.** El pentester declaró las dependencias «NO RE-MEDIDO» porque *«el corte no las
+mueve»*, y **seguridad lo refutó con el argumento correcto**: `npm audit` no cambia con el *lockfile*,
+cambia cuando **se publican avisos nuevos**. El lockfile está congelado; **la base de avisos no**.
+
+**Re-medido por mí `[medido 2026-09-22]`** (`npm audit --package-lock-only --omit=dev`, sobre `31aff17`):
+
+- **frontend: 0 vulnerabilidades.**
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — en `@nestjs/core`, `@nestjs/platform-express`,
+  `body-parser`, `express`, `qs`.
+
+**El mismo número que `REL-D`, y el mismo que `origin/main`** (lo audité también en una copia de
+`bb239c09`: 5 moderate, los mismos cinco paquetes). Pero **el contenido de la ficha estaba caduco**:
+`REL-D` decía que *«las cinco cuelgan de `qs`»*. Hoy son **tres avisos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | Alcance en esta app |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` ≤6.15.3 | sí | el de siempre |
+| `GHSA-4mjr-xmp4-gh2g` — DoS vía `isBuffer` (CVE-2026-82417) | `qs` ≤6.15.3 | **no** | **no alcanzable** |
+| `GHSA-36xv-jgw5-4q75` — *injection* en SSE (CVE-2026-35515) | `@nestjs/core` ≤11.1.17 | **no** (no como aviso propio) | **no aplica** |
+
+**Por qué los dos nuevos son inocuos aquí — medido, no supuesto** (re-corrí los dos greps de
+seguridad):
+
+- `@nestjs/core` es **inyección en SSE**: exige que la app exponga un `@Sse()`.
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos**. La
+  ruta vulnerable **nunca se instancia**.
+- `qs` exige `plainObjects:true` o `allowPrototypes:true` más un ida-y-vuelta `parse`→`stringify`.
+  `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src` ⇒ **0
+  aciertos**, sin importación directa de `qs`. Express va con sus opciones por defecto.
+
+⇒ **La postura de `REL-D` no cambia: Info, no bloqueante, ABIERTA.** El gate de CI tampoco:
+`.github/workflows/security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y los tres son
+`moderate`. **`@nestjs/core` 10.x no recibe el parche** (se corrige en `11.1.18`; `npm` propone
+`12.0.4`, **cambio rompedor**) ⇒ **el salto de mayor de NestJS es de ventana ordinaria, no de este
+release** — así lo dejó seguridad y así lo dejo yo. ⛔ No lo toqué en este pase.
+
+### §68.1 · RETRACTADO y corregido: `cheerio` **ya estaba en producción**. Lo que queda es la trampa del rango (2026-09-22)
+
+**Lo que escribí primero, y era falso:** que esta rama mete `cheerio 1.0.0` como dependencia nueva de
+producción. **Me refutó el orquestador con medición y tenía razón** (O-2). Lo comprobé yo antes de
+corregir, y el dato lo confirma entero:
+
+```
+cheerio en origin/production (c7c58aa): 1      ← YA DESPLEGADO
+cheerio en origin/main       (bb239c09): 0
+cheerio en HEAD              (0cdab08):  1      ← heredado, no añadido
+
+git merge-base --is-ancestor 097d422 origin/production          ⇒ SÍ
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'  ⇒ VACÍO
+```
+
+⇒ **Esta fusión NO mete ninguna dependencia nueva en producción.** `cheerio` entró por `097d422`
+(*decks-meta* Fase 2), que es **ancestro de `production`**; esta rama sale de `production`, así que lo
+**arrastra por herencia**. El pentester y seguridad midieron `c7c58aa..5e6f2ee` —**el rango correcto
+para esta PR**— y por eso les salió vacío. **En este punto ellos acertaron y yo no.**
+
+**Y mi error es exactamente la clase que yo mismo estaba enunciando, aplicada a mí:** medí contra la
+referencia equivocada. Pero la conclusión operativa se **invierte**, y así es como hay que escribirla:
+
+> **El rango de un diff de dependencias es el de la BASE DE LA FUSIÓN, no `main` por costumbre.**
+> En este proyecto la fusión que publica es **`main` → `production`**, y la base contra la que se
+> pregunta «¿qué entra en producción?» es **`production`**.
+
+**Por qué aquí eso es una trampa y no una sutileza — medido hoy:**
+
+| Rango | Commits que incluye | Qué son |
+|---|---|---|
+| `origin/main...HEAD` (el que usé) | **432** | …de los cuales **404 YA ESTÁN DESPLEGADOS** |
+| `origin/production...HEAD` (el correcto) | **28** | lo que de verdad entra |
+
+`main` **es ancestro de `production`** y va **404 commits por detrás** (`0` en sentido contrario). No
+es que «diverjan»: es que `main` está **estrictamente atrasado**, y por eso `origin/main...HEAD`
+arrastra 404 commits de trabajo **ya publicado** y los presenta como novedad. Con esa base, **cualquier
+release parece meter dependencias nuevas**. A mí me salió una; el mecanismo produce tantas como haya
+acumulado `production` desde el último toque de `main`.
+
+**Lo peor de este fallo es CUÁNDO ocurre:** el diff de dependencias se mira justo al redactar la
+solicitud de fusión, es decir **en el momento de firmar un despliegue**. Un hallazgo fantasma ahí no es
+ruido: es una alarma que puede frenar una publicación correcta, o —al revés— gastar la credibilidad
+que hace falta cuando la alarma sea de verdad.
+
+**Los comandos, para copiarlos en el momento en que hacen falta** (redacción de la solicitud
+`main → production`):
+
+```bash
+git fetch origin production
+# ¿qué dependencias entran DE VERDAD en producción con esta fusión?
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'
+git diff        origin/production...HEAD -- '*/package.json' | grep -E '^[-+] {4}"'
+# cordura: ¿cuánto de lo que vería contra main ya está publicado?
+git rev-list --count origin/main..origin/production
+```
+
+**Lo que NO hice y por qué:** no cableé un candado para esto. Hoy **ningún job de CI consume ese
+diff** — el gate de dependencias es `npm audit` sobre el árbol, que no depende del rango — así que un
+check nuevo vigilaría una entrada que nadie usa. El sitio correcto es la **lista de comprobación de la
+solicitud de fusión**, que es de quien la redacta. Queda dicho aquí para que se copie de un sitio con
+los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere hoy el rango contra
+`main` (no la revisé).
+
+**Lo que sí queda abierto, y no es fantasma:** `cheerio` **está en runtime de producción** —lo importa
+`backend/src/modules/decks-meta/limitless-html.parser.ts:16`, un parser de HTML de terceros que corre
+sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
+(inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
+como pendiente; yo no toco esas rutas.
+
+## §69 · C2-bis / DO-D4 — `dast-release` pasa a BLOQUEANTE (`report_only: false`) antes de que caduque el 2026-10-06 (2026-09-28, rama `claude/paquete-seguridad`)
+
+### 69.1 · Qué mide ese DAST, contra qué y cuándo (leído del árbol en `c4d378b`)
+
+- **Qué:** ZAP (perfil `full`, escaneo activo, tope 10 min) contra la vitrina y nuclei contra vitrina + API,
+  con la política `security/zap/baseline.conf`; el veredicto lo da `security/scripts/dast-gate.py`. Antes
+  de escanear, el job `selftest` barre un canario con vulnerabilidades plantadas y **exige** rojo.
+- **Contra qué:** un **stack efímero** levantado en el runner (`docker-compose.staging.yml`, datos
+  sintéticos) sobre el SHA pedido. **No necesita staging** (HECHOS.md: no existe) ni secretos de CD. NO es
+  producción (§44.4): no cubre la red/CDN/TLS de Vercel y Railway ni sus datos.
+- **Cuándo:** (1) en cada push a `production` vía `deploy.yml > dast-release`, sobre ese SHA;
+  (2) lunes 06:00 UTC (`schedule`, rama por defecto); (3) a mano.
+- **Qué hacía `report_only: true`:** solo el color del run. `blocking` se calcula igual (F1-1) y las
+  `promote-*` —inertes, el CD por Actions está apagado— lo exigen `== 'false'`.
+
+### 69.2 · Lo medido (API de GitHub, 2026-09-28)
+
+| Qué | Resultado |
+|---|---|
+| Runs de `Deploy` por push a `production` desde el 2026-09-12 (`35870241154` sobre `47e4efa` … `34692360915` sobre `9050d59e`) | **19/19** con veredicto del candado **VERDE**, 0 líneas `FAIL` (anotación «DAST … — VERDE» del check-run «DAST contra el stack efímero») |
+| Run `34650494939` (2026-09-11, `efe65f57`) | **rojo** por «Levantar y preparar el stack efímero» — un fallo de arranque pone el run rojo **con o sin** `report_only`; no es de la política |
+| Barridos semanales (`schedule`) 09-14, 09-21, 09-28 | **3/3 VERDE**. Ojo: 09-21 y 09-28 escanearon `bb239c09` (la punta de la rama por defecto no se movió entre ambas) |
+| `abrir-issue` en los 19 | **skipped** ⇒ `blocking` nunca fue `'true'` |
+| Rulesets activos sobre `production` (`GET /rules/branches/production`) | **ninguno** (`[]`) |
+| Protección clásica de ramas | **NO MEDIDO** (403 para el token de integración) |
+| Artefactos `dast-ephemeral-reports` | **NO MEDIDO** (descarga bloqueada por el proxy de salida); el veredicto sale de las anotaciones, que dast-gate.py escribe con independencia de `report_only` |
+
+Lo que se ve en las anotaciones del último run (`47e4efa`): solo `WARN` — CSP ausente (Medio x5),
+anti-clickjacking ausente (Medio x5), cookie sin HttpOnly (Bajo x5). Ninguno es `FAIL` según la política
+vigente. Revisar esos `WARN` le toca a seguridad, no a este cambio.
+
+### 69.3 · Qué pasaba el 6 de octubre sin este cambio
+
+`check-dast-report-only-expiry.sh` devuelve rc=9 ⇒ el job `dast-report-only-expiry` sale rojo ⇒ **`ci-ok` sale
+rojo en todos los push y PR de todas las ramas**, sin que el producto haya cambiado. `ci-ok` es el check que
+cita C5 (`check-candidate-checks.sh <sha>` debe dar rc=0 antes de cada publicación), así que **el
+procedimiento de publicación quedaba parado** hasta retirar la línea o mover la fecha. Comprobado sobre una
+copia de `deploy.yml` de `HEAD`: `--today 2026-09-28` → rc=0, `--today 2026-10-06` → **rc=9**.
+
+### 69.4 · El cambio
+
+- `deploy.yml > dast-release`: `report_only: false` (explícito, para que volver a `true` se vea en el diff).
+  Comentarios de cabecera y del bloque puestos al día.
+- **No bloquea la publicación.** Vercel y Railway publican solos al recibir el push a `production`; este run
+  corre después, sobre el mismo SHA. Un hallazgo `FAIL` pone rojo el run y abre issue: es la alarma de que
+  **lo publicado** tiene algo bloqueante, no una puerta previa. Hacerlo puerta previa exigiría escanear en
+  `main` antes de la solicitud de fusión — eso es otra decisión (§69.5).
+- `scripts/check-dast-report-only-expiry.sh`: la semántica no cambia (sin `report_only: true` → verde; con él
+  y fecha ≥ 2026-10-06 → rc=9). Queda como **anti-regresión** y así lo dicen su cabecera y el comentario del
+  job en `ci.yml`. `FECHA_LIMITE` no se mueve.
+- `security-dast.yml`: comentario de cadencia actualizado.
+
+**Medido en el árbol (sin actionlint en este contenedor):** YAML de los 3 workflows parsea; expiry sobre el
+árbol → rc=0 con hoy, `2026-10-06` y `2027-01-01`; canario de caducidad **8/8**; mutación sobre copia
+(volver a `report_only: true`) → rc=0 el 09-28 y **rc=9** el 10-06; `check-dast-gate-live`,
+`check-provenance-gate`, `check-ci-ok --static`, `check-workflow-cwd`, `check-secret-defaults` → rc=0.
+**NO MEDIDO:** actionlint, y el primer run bloqueante real — lo da el primer push a `production` que lleve
+este commit (hay que citarlo por número con `blocking=false`, como pide la condición C2-bis).
+
+### 69.5 · Qué tiene que decidir seguridad
+
+1. **Confirmar que lo retirado es lo decidido.** La decisión ya está escrita («Decisión sobre `report_only`»
+   en SECURITY_NOTES: retirarlo, plazo 2026-09-25, pasado ya). Este commit la ejecuta; el cierre de C2-bis
+   pide además citar el primer run de `dast-release` en `production` con `blocking=false`.
+2. **Si el DAST debe ser puerta *previa*:** hoy es una alarma *posterior* a la publicación. Hacerlo previo
+   exige correr `security-dast.yml` sobre el SHA candidato de `main` y meterlo en C5; cuesta ~17 min por
+   candidato. Lo decide seguridad (y el dueño, por el tiempo del ciclo).
+3. **Los `WARN` que se repiten** (CSP, anti-clickjacking, cookie sin HttpOnly): aceptarlos con motivo, o
+   subirlos a `FAIL` en `security/zap/baseline.conf` — subirlos **hoy** pondría rojos los runs, porque salen en
+   todos los barridos.
+4. **Si el primer run bloqueante sale rojo:** según lo ya decidido, el hallazgo va a su dueño y **no** se vuelve
+   a `report_only`.
+
+**Rollback de este cambio:** revertir el commit. Antes del 2026-10-06 no rompe nada; desde esa fecha vuelve a
+poner `ci-ok` en rojo, y así tiene que ser.
+
+## §70 · SEC-HDR-1: ZAP 10020 y 10021 pasan de WARN a FAIL (2026-09-29, rama `claude/paquete-seguridad`)
+
+**Qué cambió.** `security/zap/baseline.conf:88` (10020, anti-clickjacking) y `:89` (10021, nosniff): `WARN` -> `FAIL`,
+con el motivo escrito en la línea. Frontend sirve las cabeceras desde `6d59712` (`frontend/next.config.mjs`
+`headers()`). 10038/10055 (CSP completa) **siguen en WARN**: son SEC-HDR-2, aparte.
+
+**Qué perfil aplica (medido leyendo el código, no ejecutando ZAP).** Hay **una sola** política: `baseline.conf` es
+el `-c` de `dast-ephemeral.sh:245`, `dast-zap-full.sh:39`, `dast-zap-baseline.sh:42`, y el `--policy` de
+`dast-gate.py` (`dast-ephemeral.sh:307`). No hay perfil separado para vitrina y backend. El blanco por defecto de
+ZAP es solo la vitrina (`dast-ephemeral.sh:67`, `ZAP_TARGETS=${FRONTEND_URL}`, `http://localhost:3010`).
+
+**Advertencia pedida: NO aplica el riesgo de orden.** El DAST (`security-dast.yml`, llamado por `deploy.yml`
+`dast-release` en cada push a `production`) escanea un stack **efímero levantado en el runner desde el SHA del run**
+(`next build` + `next start`), no la URL de Vercel. Por tanto ve las cabeceras en cuanto el SHA las contiene, sin
+depender de que Vercel haya publicado; no hace falta orden entre frontend y backend. Lo que sí es cierto: **el SHA
+que se escanee debe contener `6d59712`**. Un run sobre un SHA anterior (p. ej. `production` actual, si aún no
+recibió esta rama) daría 10020/10021 FAIL = rojo. Y la prueba puntual autorizada contra `tcghunt.mx` (§14.3) sí
+vería la cabecera ausente hasta que Vercel publique.
+
+**Candados.** `scripts/check-dast-gate-live.sh` no fija conteos de WARN/FAIL de reglas concretas (solo que el
+gate rojo con un FAIL sintético, 40018); no hubo nada que actualizar. **NO MEDIDO:** un barrido ZAP real con esta
+política (no corrí ZAP aquí); riesgo residual: 10021 sobre assets `_next/static` y 10020 en respuestas que no pasen
+por `headers()`. El primer `dast-release` sobre un SHA con esto lo mide.
+
+**Rollback:** revertir el commit (las dos líneas vuelven a WARN).
+## §71 · §M4-SHIP v1.80.5 — lo que le toca a devops en el despliegue (2026-09-29, rama `claude/envio-preparar`)
+
+Encargo: `API_CONTRACT §M4-SHIP.14` fila **devops** («suscribir `charge.refund.updated`; seed del dial por entorno; consulta de
+residuo con credencial de solo lectura») + rollback de `M-61`. Cada punto dice **qué medí** y qué no.
+
+### 71.1 · Webhook: `charge.refund.updated` (y `refund.updated`) — paso del DUEÑO en la ventana de despliegue
+
+**Medido (2026-09-29):** los eventos se suscriben **a mano en el dashboard de Stripe**; ni un script ni un workflow los registra.
+`grep -rn "enabled_events\|stripe listen\|webhook_endpoints" scripts .github security` ⇒ 0 resultados; la única lista es §11.G de estas notas.
+El backend hoy maneja 7 eventos (`backend/src/modules/payments/payments.service.ts:148-168`); el contrato añade dos con **el mismo
+manejador** (`API_CONTRACT §9`, «⭐ v1.80 — `charge.refund.updated`… y `refund.updated`»). **NO MEDIDO:** qué eventos tiene suscritos hoy el
+endpoint real (no hay acceso al dashboard desde aquí; no se pide la clave): se lee en el dashboard, en el paso de abajo.
+
+**Paso exacto (dueño, dashboard de Stripe; una vez por endpoint: staging en modo prueba y producción):**
+1. Developers > Webhooks > el endpoint `…/api/v1/webhooks/stripe` > **Update details** (o *Add events*).
+2. *Select events* > marcar **`charge.refund.updated`** y **`refund.updated`** (los 7 anteriores ya deben estar) > guardar.
+3. **No** se cambia el `whsec_…` ni hace falta redeploy: el secreto del endpoint no cambia al editar sus eventos.
+4. Verificación (ventana): en el mismo endpoint, la lista de eventos muestra los 9; y tras el primer reembolso real de un caso, la fila
+   del libro pasa de `submitted` a `succeeded` (sin este evento se queda en `submitted` para siempre).
+
+**Por qué es paso de ventana y no de CI:** sin la suscripción el despliegue pasa todos los gates y el evento no llega jamás (la clase de
+§32: cambio de configuración que ningún gate ve). SEC-SHIP-B4 (`SECURITY_NOTES`): norma operativa **«nunca reembolsar desde el panel de Stripe»**;
+un reembolso hecho ahí llega sin `metadata.paymentRefundId` y el backend solo lo registra en log.
+
+**Candado nuevo (CI):** `scripts/check-stripe-webhook-events.sh` (job `stripe-webhook-events`, en el `needs` de `ci-ok`) falla si el backend
+maneja un `case '<evento de Stripe>'` que no está en `security/stripe-webhook-events.txt` (fuente única de la lista) o si un evento del
+manifiesto falta en la lista de §11.G. Canario `scripts/check-stripe-webhook-events-canary.sh` (5 casos: 2 verdes y 3 rojos, incl. extractor
+ciego), corrido 3/3 verde. **Límite honesto:** comprueba que la lista **documentada** crece con el backend; **no** puede ver el dashboard. Que el
+dueño haya marcado el evento se verifica con el paso 4. El fixture de webhooks del harness E2E no existe como fichero (los E2E forjan sus
+eventos en cada spec), por eso el candado lee el código del backend y no un fixture.
+
+### 71.2 · Diales nuevos — de quién es cada cosa (medido en `API_CONTRACT`)
+
+| Cosa | ¿Dial? | Valor inicial | Dueño |
+|---|---|---|---|
+| `operator_refund_cap_24h_cents` (tope del operador en 24 h) | **sí**, `ConfigSetting` | **500000** (MX$5,000; decisión D-3 del dueño, `HECHOS.md`) | backend: default en `settings.constants.ts` / `seed.ts` |
+| `case_refund_hard_multiplier` (bloqueo de reembolso de caso > k×R) | **sí**, `ConfigSetting`, entero 2–50 | **5** | backend (ídem) |
+| Confirmación reforzada a 2×R | **no**: constante | 2 | backend (`API_CONTRACT §M4-SHIP.15.5`: «El `2` es la constante») |
+| Plazo de 7 días de «Por reponer» | **no**: constante derivada, sin columna ni job | 7×24 h (`REPLACEMENT_CASE_DUE_MS`, `API_CONTRACT` ~línea 18904) | backend |
+
+**Devops no añade variables de entorno para ninguno** (ninguno va por entorno: son filas de `ConfigSetting`); `.env.example` no cambia por esto.
+**Regla §11.0/§32:** `seed.ts` usa `update: {}`, así que en un entorno ya sembrado (producción) el `seed` **no** cambia filas existentes; para
+una clave **nueva** el comportamiento es el de la clave **ausente**, que `settings.service.ts` resuelve al **default de código** (medido:
+comentario «Una clave AUSENTE en la tabla … resuelve al default», `settings.service.ts:161`). Por tanto: **sin `PUT` ni `UPDATE` en la
+ventana** mientras backend ponga los dos defaults en `SETTING_DEFAULTS` (500000 y 5). **NO MEDIDO todavía** (backend está construyendo
+en paralelo; `grep operator_refund_cap backend` ⇒ 0 hoy): verificar tras aterrizar que ambas claves están en `SETTING_DEFAULTS` y en el DTO.
+Si el dueño quiere otro valor, lo edita en M10 (auditado); **`UPDATE` directo a la base sigue prohibido (§32.3)**. Post-deploy:
+`GET /admin/settings` debe traer los dos con 500000 y 5 (si falta uno, el binario desplegado no es el que creemos: parar).
+
+### 71.3 · Residuo pre-despliegue de `M-61`: `scripts/vault-full-refund-residue.sh`
+
+**Qué mide:** cuántas órdenes `fulfillmentMode='vault'` con `status='refunded'` existen **sin** haber pasado por el cierre de M-61 (`fullRefundClosedAt`).
+Son el residuo del hueco: antes de M-61 un reembolso total de una compra a bóveda no devolvía la carta. **Ningún script las toca** (`API_CONTRACT`
+bloque v1.80.4); se listan y las resuelve el súper-admin a mano.
+**Cuándo:** **ANTES** de fusionar `main → production` (fase PRE, cifra que el dueño lee al decidir) y, si se quiere la cifra «sin sello», **después** de
+`migrate deploy` (fase POST). Es estable después del despliegue (el código nuevo siempre escribe el sello); lo irrecuperable es solo la foto previa.
+**Cómo (usuario de solo lectura, nunca la credencial de la app):**
+```sql
+-- una vez, como admin de la base (contraseña generada, NO en el repo):
+CREATE ROLE residuo_ro LOGIN PASSWORD '<generada>';
+GRANT CONNECT ON DATABASE <base> TO residuo_ro;
+GRANT USAGE ON SCHEMA public TO residuo_ro;
+GRANT SELECT ON "Order" TO residuo_ro;
+```
+```bash
+export DATABASE_URL_RO='postgresql://residuo_ro:…@<host>:<puerto>/<base>'   # en TU shell; no se pega en ningún fichero ni chat
+./scripts/vault-full-refund-residue.sh --target prod --list
+unset DATABASE_URL_RO
+```
+(o que lo corra el dueño donde la credencial ya vive; `DROP ROLE residuo_ro` al terminar). **Cómo se lee:** imprime la huella del host (no el host), la fase
+(PRE/POST según exista la columna), el **RESIDUO** y una fila lista para pegar en la tabla de abajo; con `--list`, los 8 primeros caracteres de cada id.
+rc=0 = midió (léelo: **0 ⇒ nada que hacer; >0 ⇒** los ids completos se sacan desde tu terminal, se listan en `BACKEND_NOTES` y el súper-admin los resuelve con
+`reclaim-vault` / `chargeback-inventory`; **no** bloquea solo, lo decide el dueño antes de fusionar). rc=2 = **NO CONCLUYENTE** (sin URL, sin `psql`, rol que
+puede escribir, host que contradice `--target`, SQL falló): nunca es «0».
+**Probado (2026-09-29, N=1 por caso, consulta determinista) contra un Postgres 16 local desechable:** PRE con 1 orden `vault refunded` ⇒ 1; con la columna añadida y sin
+sello ⇒ 1; con sello ⇒ 0; un rol con escritura ⇒ rc=2 «TIENE privilegio de escritura»; `--target prod` contra host local ⇒ rc=2. **NO MEDIDO contra producción**
+(egress bloqueado, sin credencial). **Una sola fuente:** el literal es el del contrato; la consulta dueña es la de backend (`BACKEND_NOTES`): si difieren, manda la de backend y se corrige el script.
+
+| fecha UTC | fase | objetivo/huella | residuo |
+|---|---|---|---|
+| *(sin medir todavía en producción — 2026-09-29)* | | | |
+
+### 71.4 · Migración `M-61` — despliegue y rollback (rollback MEDIDO el 2026-09-29)
+
+**Qué trae** (`backend/prisma/migrations/20260929120000_m61_shipment_prep_refunds/migration.sql`, en `claude/release-s5` 1a5954ff): 3 tablas nuevas
+(`PaymentRefund`, `ReplacementCase`, `ManualRefund`), columnas nuevas nullable o con default (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`,
+`ShipmentRequest.preparedAt/preparedByUserId`, `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/missingReason`, `VaultPlacementItem.missingReason`),
+7 enums nuevos, **dos enums existentes que ganan valores** (`MovementReason + replacement, refund_return`; `VaultPlacementCancelReason + full_refund`),
+un backfill (`missingReason='not_found'` donde `prepStatus='missing'`) y CHECKs. **Cuatro CHECKs caen sobre tablas que ya existían:**
+`VaultPlacementItem_missing_reason_chk` (:248), `ShipmentRequest_prepared_seal_chk` (:236), `ShipmentItem_prep_mark_chk` y `ShipmentItem_missing_reason_chk`.
+
+**Antes:** snapshot de la BD de producción (Railway > Postgres > Backups), regla de oro de §11.F.
+**Aplicación:** `prisma migrate deploy` (corre al arrancar el contenedor). Falla ⇒ rollback **atómico** de esa migración, Railway mantiene el deploy anterior (patrón §26.4).
+
+#### Rollback, para el dueño (en llano)
+
+Volver a la versión anterior **no es solo apretar «Redeploy»**. La versión anterior tiene un botón («no está», al preparar un pedido de bóveda) que la base
+nueva rechaza: si se vuelve atrás sin más, ese botón da **error 500** y la carta no se puede marcar ni desmarcar. Se arregla quitando **una sola regla**
+de la base antes del redeploy. Nada se borra: los reembolsos, los casos «Por reponer» y las transferencias SPEI se quedan guardados, la versión vieja
+simplemente no los muestra, y reaparecen al volver a la versión nueva.
+
+1. **Medir** (solo lee; vale un usuario de solo lectura): `./scripts/rollback-m61.sh --check` con `DATABASE_URL` exportada en tu terminal
+   (nunca en un fichero ni en el chat; `unset DATABASE_URL` al terminar). Imprime una **huella** de la base y un veredicto.
+   - `rc=0` ⇒ se puede volver atrás después del paso 2.
+   - `rc=1` ⇒ **NO volver atrás todavía**: hay filas con valores nuevos (`refund_return`, `replacement`, `full_refund`) que la versión vieja **no sabe
+     leer**; las pantallas que las lean dan 500 (medido: ficha de la pieza y los verbos de una colocación cancelada por reembolso total). Postgres no
+     permite quitar un valor de un enum y reescribir movimientos es decisión tuya con backend: se escala, no se improvisa.
+   - `rc=2` ⇒ no concluyente (sin URL, sin `psql`, SQL que falló): no es «seguro».
+   También dice cuánto trabajo de dinero quedaría **abierto e invisible** mientras dure el rollback (reembolsos `requested/submitted/failed`, casos
+   abiertos, SPEI pendientes). No se pierde, pero nadie lo verá ni lo avanzará hasta volver a la versión nueva.
+   (`./scripts/rollback-safety-probe.sh <sha-anterior>` sigue valiendo para columnas `NOT NULL` sin default, pero **no mira CHECKs**: su verde no cubre esto.)
+2. **Quitar la regla** (solo si el paso 1 dio `rc=0`): `./scripts/rollback-m61.sh --apply --confirm <huella>`. Pide escribir `VOLVER ATRAS M-61` en una
+   terminal interactiva; sin terminal, o con otra huella, no escribe nada. Hace **un** `ALTER TABLE "VaultPlacementItem" DROP CONSTRAINT IF EXISTS
+   "VaultPlacementItem_missing_reason_chk"` en una transacción con `lock_timeout` de 5 s. Idempotente. Necesita la credencial dueña de la tabla (la de la app).
+3. **Redeploy** del código anterior: Railway *Redeploy* del deploy previo + Vercel *Promote* del build previo. Su `migrate deploy` dice «No pending
+   migrations» (medido) porque la fila de M-61 en `_prisma_migrations` **se queda**.
+
+**Qué NO se toca, y por qué:** las tablas y columnas nuevas (son el libro de reembolsos; la versión vieja las ignora); los otros tres CHECKs (miran
+columnas que la versión vieja no conoce ni escribe — medido abajo); los valores de enum (no se pueden quitar); y **la fila de M-61 en
+`_prisma_migrations` (⛔ NO borrarla)**: sin ella, la versión nueva intenta re-crear M-61 al arrancar y **falla** (medido: `P3018`, `type "MissingReason"
+already exists`) — y la cabecera de la migración sugiere ese `DELETE` solo como parte de la reversa TOTAL que tira las tablas, que aquí no se hace.
+El dinero ya devuelto por Stripe **no se revierte** con nada de esto. La suscripción del webhook a `charge.refund.updated`/`refund.updated` puede
+quedarse: con la versión vieja cae en «evento no manejado» y responde 200.
+
+**Volver a avanzar (roll-forward):** `./scripts/rollback-m61.sh --reforward --confirm <huella>` (frase `AVANZAR M-61`) **ANTES** de publicar otra vez
+la versión nueva. En una transacción: pone `missingReason='not_found'` a las cartas que la versión vieja marcó «no está» sin motivo, limpia el motivo
+de las que desmarcó, y re-añade el CHECK idéntico al de M-61 (lo compara con `pg_get_constraintdef`). Ese orden es a propósito: mientras corre, el
+botón «no está» de la versión vieja vuelve a dar 500 (falla cerrado, sin dato malo), y la versión nueva nunca ve una carta «no está» sin motivo — su
+`confirm` lo necesita para abrir el caso «Por reponer».
+
+**Medido el 2026-09-29** (devops; Postgres 16 local, BD propia `devops_rb61`; migraciones del árbol de `claude/release-s5` 1a5954ff hasta M-61; backend
+de `origin/production` a2da420 **vivo** con `ts-node src/main.ts` en su worktree y su cliente Prisma; verbos por HTTP con el operador del seed):
+
+| Medición | Sin paso de DDL (canario) | Tras `--apply` |
+|---|---|---|
+| `PATCH …/prep-items/:id {status:'missing'}` (marcar «no está») | **500** `VaultPlacementItem_missing_reason_chk` — **3/3** | 200 — **3/3** |
+| Regresar a `pending` una carta que la versión nueva dejó `missing`+`not_found` | **500**, mismo CHECK — **3/3** | 200 — **3/3** |
+| Palomear (`picked`) y «dar por preparado» | 200 — 3/3 | 200 — 3/3 |
+| Suite de integración de a2da420 entera (51 suites, 1137 pruebas) | **15 rojas** en 3 suites de colocación; **las 34** violaciones del log son de ese CHECK, **ninguna** de los otros tres | vault 0 rojas; 1 suite roja ajena (abajo) |
+| Misma suite sobre BD **sin** M-61 (línea base) | 51/51 suites, 1135 + 2 skip | — |
+| Fila con `refund_return` / colocación `full_refund` leída por la versión vieja | — | **500** (`Value 'refund_return' not found in enum`) — N=1 cada una; `--check` las cuenta y sale `rc=1` |
+
+Roll-forward, medido: con cartas dejadas por la versión vieja (1 «no está» sin motivo + 1 motivo sobrante), re-añadir el CHECK **a pelo** falla
+(«violated by some row»: por eso normaliza); `--reforward` ⇒ 1 + 1 normalizadas, CHECK idéntico, rc=0; segunda corrida ⇒ 0 + 0 (idempotente); la versión
+vieja vuelve a dar 500 al marcar (el CHECK muerde); `migrate deploy` del código nuevo ⇒ «No pending migrations»; y 4 suites de integración del código
+nuevo sobre esa BD (`vault-placement-verbs`, `vault-placement-races`, `replacement-cases`, `full-refund-vault`) ⇒ **92/92**.
+Candados del script, medidos: sin `--confirm`, huella ajena, sin TTY, frase distinta ⇒ rc=2 y el CHECK sigue (verificado con `--check`); `--apply`
+repetido ⇒ rc=0 sin cambio; con un rol de solo lectura `--check` funciona (misma huella) y `--apply` ⇒ rc=2 «no es dueño».
+**NO MEDIDO:** contra producción (sin credencial, egress bloqueado; lo corre el dueño donde vive la credencial); cómo trata la versión nueva un retiro
+que la vieja avanzó después de que la nueva lo marcara «preparado» (el script solo lo cuenta).
+**Rojo ajeno a M-61 (enrutado a backend):** en la corrida tras `--apply`, `buylist-cycle.e2e-spec.ts` 4 rojas: la prueba crea una dirección
+«Calle Nueva 456» que no borra y la relee con `address.findFirst` **sin `orderBy`** (`backend/test/integration/buylist-cycle.e2e-spec.ts:75`, también en
+1a5954ff); con dos direcciones el orden físico decide. `Address` no la toca M-61; sobre la BD base la misma spec pasó 72/72 con el mismo residuo.
+
+| fecha UTC | modo | huella | enum nuevos |
+|---|---|---|---|
+| *(sin correr en producción — 2026-09-29)* | | | |
+
+**2026-09-29 (devops, BLOQ-3 de QA sobre c20451f):** baseline del censo E2E regenerado con motivo: `mockOnly` 113/24 -> 121/25 por `frontend/e2e/m4-ship.spec.ts` (8 palabras = import + prosa + 6 llamadas; 12 casos). Gate rc=0 y canario 14/14 tras el cambio. Deuda: cuando el seed real siembre reembolsos/casos/transferencias, el censo baja y se regenera.
+
+**2026-09-29 (devops, fusión `claude/release-s5` sobre 6fd5507):** censo E2E rojo al fusionar `claude/paquete-dinero`:
+`mockOnly` 121/25 -> 126/26 por `frontend/e2e/admin-m2-sealed-unmapped.spec.ts` (§M2-SK, cf30bfb). Medido: en
+`origin/claude/paquete-dinero` (650a4ed) el censo **ya estaba rojo** (113 -> 118) y el baseline no se tocó allí (último
+cambio en esa rama: 05de0c9, M4-VAULT). Las 5 palabras = import :3 + prosa :13 + **3 llamadas** (:40 :57 :82): 3 casos que
+no miden contra el stack real. Legítimos por la política del censo (§66): dependen de la fila `ppe-sealed-unmapped` de la
+semilla del mock y el seed real no siembra un sellado sin mapear; el 422 `SEALED_MARKET_KEY_REQUIRED` (SK-3) y SK-2 los
+mide `backend/test/integration/sealed-market-key.e2e-spec.ts` contra Postgres real. Baseline regenerado con motivo;
+canario sobre copia (`mockOnly` falso en el spec, y en un spec nuevo) -> rojo rc=1 (126->127, 126->128). DEUDA: sembrar
+un sellado sin mapear en el seed real; ese día el censo baja y se regenera.
+**Renumeración (mismo commit):** la fusión dejó dos «§69»; la segunda (§M4-SHIP v1.80.5) pasa a **§71** —no §70, que ya
+era SEC-HDR-1— con sus 71.1–71.4 y la referencia de la checklist de Stripe (§71.1). Quedan fuera de este commit, apuntando
+aún a «§69.1/§69.4» de M4-SHIP: `scripts/check-ci-ok.sh:55` (devops) y `TRASPASO.md:80` (orquestador).
+
+## §72 · P-REL-3 — la cubeta SPEI contra el stack real CORRE en CI, una vez, y no puede saltarse en verde (2026-09-29, rama `claude/release-s5`)
+
+**Qué entra.** `frontend/e2e/m4-ship-spei-real.spec.ts` (frontend, 327b53df) conduce la cubeta «Reembolsos manuales (SPEI)» contra la API real y **consume** las dos filas `pending` del paso 13 de `backend/prisma/seed-e2e.ts` (`seedSpeiBucket`: `e2e:mr-pay`, `e2e:mr-cancel`). Sin fila, sus 2 casos se saltan (`skipIfSeedMissing`).
+
+**Qué había, medido sobre 327b53df (2026-09-29):**
+1. `e2e-real.yml` **no corría el spec**: el smoke solo ejecuta `SMOKE_SPECS` (checkout, guest-checkout, shipments, buylist). La siembra sí estaba: «Seed sintético» corre `seed:synthetic` = `ts-node prisma/seed-e2e.ts` (incluye el paso 13) una vez, sobre Postgres recién creado.
+2. **El reintento convierte un rojo en verde.** `frontend/playwright.config.ts:84` pone `retries: isCI ? 2 : 0`. Si un caso falla *después* de consumir su fila, el reintento no la encuentra, se salta, y Playwright 1.56.0 computa `flaky` (`computeTestCaseOutcome`: 1 unexpected + 1 skipped) ⇒ **rc=0**. Medido en un proyecto sintético (consume la fila y falla, `retries=2`, `E2E_EXPECT_NOT_MEASURED=0`): **5/5 rc=0** (N=5, devops). El reporter `not-measured.ts` tampoco lo ve: filtra `outcome() === 'skipped'`.
+3. Sin semilla: `skipped` ⇒ rc=0 salvo que se fije `E2E_EXPECT_NOT_MEASURED`.
+
+**Qué se cableó.**
+- `e2e-real.yml`, paso **«P-REL-3 cubeta SPEI (REAL)»** (tras el smoke; `if: !cancelled() && steps.seed.outcome == 'success'`): `npm run test:e2e -- m4-ship-spei-real.spec.ts --retries=0 --output=test-results-spei/artifacts --reporter=list,github,json,./e2e/reporters/not-measured.ts` con `E2E_EXPECT_NOT_MEASURED=0`, y después `scripts/check-e2e-must-run.sh --report test-results-spei/report.json --spec m4-ship-spei-real.spec.ts --min 2`. Aborta si alguien mete el spec también en `smoke_specs` (segunda corrida por siembra = salto). La línea del veredicto en el *Summary* dice si la cubeta corrió, falló o no corrió. `frontend/test-results-spei` va al artefacto `playwright-report-real`.
+- `scripts/check-e2e-must-run.sh`: por spec, ≥`--min` casos y cada uno `expected` con **un único** intento `passed`. Salto, flaky, reintento o 0 casos ⇒ rc=1; reporte ausente/roto ⇒ rc=2 (rojo en CI).
+- `scripts/check-e2e-must-run-canary.sh` (en `ci.yml`, job `e2e-skip-census`, cada PR): 19 comprobaciones sobre reportes sintéticos con la forma medida del reporter `json` + el cableado del paso. Mutaciones medidas sobre copia (2026-09-29): quitar `--retries=0`, `--min 1`, quitar `E2E_EXPECT_NOT_MEASURED`, meter el spec en el smoke por defecto, renombrar el paso, y un comprobador que nunca falla ⇒ **6/6 rojo**.
+- Medición real contra el comprobador (proyecto sintético, Playwright 1.56.0): pasa ⇒ 0; falla tras consumir con `retries=2` ⇒ Playwright 0 / **comprobador 1**; sin semilla ⇒ 1. `--list` en modo real selecciona los **2** casos del spec (`:119`, `:202`), coherente con `--min 2`.
+- Censo estático regenerado: `realOnly 14/4 → 16/5`, `skipIfSeedMissing 12/6 → 15/7` (motivo en `scripts/e2e-skip-census.baseline`).
+
+**NO MEDIDO.** Que el spec **pase** en un run de GitHub Actions (no puedo lanzar `e2e-real.yml` desde aquí; corre nightly, `workflow_dispatch` o `deploy.yml`). Lo cierra: un `workflow_dispatch` de `e2e-real.yml` sobre esta rama y mirar el paso P-REL-3 y el *Summary*. Si sale rojo por el producto, va a frontend/backend; si sale rojo por 429 de login, es límite del arnés (frontend).
+
+**Local (QA).** Cada corrida exige re-sembrar: `./scripts/stack-native.sh up --seed` (la siembra devuelve las filas a `pending`, `seed-e2e.ts:1085`). Para aplicar el mismo candado a mano: correr el spec con `PLAYWRIGHT_JSON_OUTPUT_NAME=/ruta/r.json --retries=0 --reporter=list,json` y pasar `r.json` a `scripts/check-e2e-must-run.sh`.
+
+**Rollback.** Revertir el commit: el paso desaparece de `e2e-real.yml` y el canario de `ci.yml` (van juntos: el canario comprueba el cableado, así que quitar uno sin el otro pone rojo `e2e-skip-census`).
+
+### §72.1 · Manifiesto de valores publicados regenerado (2026-09-29, sobre a77c7181+c1b55a40)
+
+`check-secret-defaults.sh` estaba rojo en HEAD (medido sobre `git archive HEAD`): manifiesto desfasado y `frontend/e2e/utils/env.ts:105` (`E2E_SPEI_CUSTOMER_PASSWORD ?? 'SpeiRefund123!'`, dd6fb1d7). Regenerado desde una copia limpia de HEAD (no del árbol vivo, que tenía cambios sueltos de backend): **+19 hashes, 0 retirados**. Auditados uno por uno: todos son literales de prueba en `backend/test/` o `frontend/e2e/`, o expresiones o identificadores que el generador captura como «valor» (`randomBytes(32)…`, `REFRESH_SECRET,`, `hmacKey,`, `C7_ACCESS_SECRET,`), más un código de error (`TOO_MANY_PASSWORD_ATTEMPTS`, `backend/src/common/error-codes.ts:54`). Ninguno es una credencial real. Origen: C7 y SEC-C7-* (`cf32dc9d`, `114aecff`, `ff3ecc41`, `d1fbbf81`, rama `paquete-seguridad`), §M4-SHIP (`482eae50`, `19972b59`, `envio-preparar`: claves de idempotencia `re_fix32_`/`re_fix40_`/`re_fix40b_`) y P-REL-3 (`dd6fb1d7`, `release-s5`). Rollback: revertir el commit; el manifiesto solo añade rechazos.
+
+**2026-09-30 (devops, sobre e3bfae42):** `check-secret-defaults.sh` rojo desde `72ec57d0` (bisección del orquestador; rc=0 en `7b9c196e`). Regenerado desde `git archive HEAD`: **+1 hash, 0 retirados** — `2424ec00…` = sha256 de `whsec_pentest_`, capturado por la regla de PREFIJOS del generador (la etiqueta `PREFIJO` del manifiesto es la categoría, no un literal) en `docs/PENTEST_NOTES.md:1962` (`whsec_pentest_…`, prefijo con elipsis del secreto efímero y local del pentester; ninguna credencial real). Única aparición en el árbol. Tras regenerar, sobre la copia: `check-secret-defaults.sh` rc=0 y su canario rc=0. Rollback: revertir el commit.
+
+## §73 · Censo E2E: `mockOnly 126/26 → 127/26` por P-M5-DECLINE (2026-10-02, rama `claude/post-release-s5`)
+
+**Qué crece y por qué.** `frontend/e2e/admin.spec.ts:206`, test «P-M5-DECLINE: emitir → cancelar la oferta → declinar, como operador» (frontend, `5ff5f920`). Es una **llamada** `mockOnly(…)`, no un comentario: el fichero pasa de 4 a 5 ocurrencias por palabra (`grep -cw`), y el diff `5ff5f920~1..HEAD -- frontend/e2e` solo toca ese fichero con esa única línea `mockOnly` añadida (el comentario «no `mockOnly`» de la línea 258 ya existía, en `:209`). Ficheros: 26 → 26. Las otras cuatro claves no cambian.
+
+**Motivo (dueño: frontend).** El ciclo usa `sr-3004` del fixture mock (`frontend/src/lib/mock/fixtures.ts:3170`); declinar es terminal y, en real, consumiría la solicitud `cotizada` del seed que usan los `@real` de la mesa M5. **Deuda:** semilla `cotizada` propia en `backend/prisma/seed-e2e.ts` (backend) para poder quitar el `mockOnly`.
+
+**Medido (devops, sobre `bd0b3a1d` + baseline regenerado):** gate antes del `--update` rc=1 (`mockOnly 126 → 127: CRECIÓ`); después `check-e2e-skip-census.sh` rc=0 y `check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno.
+
+**Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el test).
+
+## §74 · `brace-expansion` (GHSA-q2hr-2g5m-vwhr y hermanas) pone rojos `npm-audit`, `trivy-fs`, `trivy-image` y `sast-ok` (2026-10-02, rama `claude/post-release-s5`)
+
+**Síntoma (medido por QA con la API de GitHub, 2026-10-02):** en `production` (`8fd637fb`) y en `claude/post-release-s5`
+(`8a10153e`) están rojos `sast-ok`, `npm-audit`, `trivy-fs`, `trivy-image`; en `production` además `dast-release`.
+
+**Causa (medido por devops sobre `git archive 8a10153e` entero, node 22.22.2 / npm 10.9.7, trivy v0.75.0 compilado
+desde fuente):** tres advisories ALTAS de `brace-expansion` publicadas el 2026-09-14 (GHSA-q2hr-2g5m-vwhr,
+GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p; en trivy CVE-2026-102276/102278). Parches: 1.1.21, 2.1.7, 5.0.12.
+
+| App | Dónde | Versión | ¿Runtime? | Gate que lo ve |
+|---|---|---|---|---|
+| backend | `exceljs → archiver → archiver-utils → glob@7 → minimatch@3` y `archiver → readdir-glob → minimatch@5` | 1.1.18, 2.1.4 | **SÍ** (`npm audit --omit=dev`: 1 high) | `audit-npm.sh` (sin fichas posibles), `trivy-fs.sh`, `trivy-image` |
+| backend | eslint, fork-ts-checker, test-exclude… | 1.1.18 | no | trinquete dev |
+| frontend | `brace-expansion` raíz y `@typescript-eslint/typescript-estree` | 1.1.18, 5.0.9 | no (`--omit=dev`: 0) | trinquete dev (`audit-npm-dev.sh`, `trivy-dev-fichas.sh`): «SIN ficha» |
+
+Corrección a la premisa recibida: en backend **no** es solo `@nestjs/cli → minimatch` (dev); el que bloquea es de
+**runtime** vía `exceljs`. Por eso **no admite ficha**: `npm-audit-dev-fichas.tsv` solo cubre devDependencies.
+
+**Arreglo (dueños: backend y frontend; devops lo deja preparado, no toca sus `package.json`):** `overrides`
+acotados por rango, la misma forma que ya usa backend para `glob@^10`/`picomatch@^4` (§22.6), y regenerar el lock
+con `npm install --package-lock-only`:
+
+- backend: `"brace-expansion@^1": "^1.1.21"`, `"brace-expansion@^2": "^2.1.7"` → lock: 7 entradas, solo versión/URL/integrity.
+- frontend: `"brace-expansion@^1": "^1.1.21"`, `"brace-expansion@^5": "^5.0.12"` → lock: 2 entradas.
+
+**Medido con el arreglo aplicado sobre la copia (antes → después):** `audit-npm.sh` rc 1 → **0**; `audit-npm-dev.sh`
+rc 1 → **0**; `trivy-fs.sh` rc 1 (4 HIGH) → **0**; `trivy-dev-fichas.sh` rc 1 → **0**; autopruebas
+`audit-npm-dev-selftest.sh` y `trivy-fs-selftest.sh` rc 0; `npm ci` en ambas apps rc 0; `npm run lint` backend y
+frontend rc 0; `trivy rootfs` HIGH/CRITICAL sobre los `node_modules` instalados (aprox. de la capa node-pkg de las
+imágenes) rc 0 en ambas. **NO MEDIDO:** `trivy-image` real (no hay demonio Docker aquí; la capa OS no se midió) y las
+suites de backend/frontend (las corre su rol / QA).
+
+**Fichas podadas (mismo commit):** GHSA-5xrq-8626-4rwp, GHSA-fx2h-pf6j-xcff, GHSA-2883-xcg3-v3hh — el trinquete las
+daba por obsoletas con npm audit y con trivy. Tras la poda: verde con el arreglo, **rojo** sin él (el candado sigue mordiendo).
+
+**`dast-release` rojo en `production` (C2-bis):** `8fd637fb` es el primer push a `production` con `report_only: false`
+(§69.4), así que su `dast-release` es justo el run que C2-bis pide citar — y salió rojo. Es la **alarma posterior a la
+publicación** (§69.4), no una puerta: lo publicado ya está publicado. Causa **NO MEDIDA** sin el log (`Deploy`, push a
+`production`, `head_sha 8fd637fb`): o un `FAIL` del candado (`blocking=true`; abre issue), o un fallo de arranque del
+stack efímero (como el run `34650494939`). C2-bis **no se cierra** con este run; se cierra con un run de `dast-release`
+sobre `production` con `blocking=false`, citado por número.
+
+**Rollback:** revertir el commit (vuelven las tres fichas; no cambia ningún veredicto con el arreglo aplicado).
+
+## §75 · El candado del DAST juzga solo NUESTROS orígenes (`--scope-origin`) · C2-bis: el primer run bloqueante fue rojo por un tercero (2026-10-02, rama `claude/post-release-s5`)
+
+**Qué pasó (lo midió el orquestador con la API de GitHub, 2026-10-02):** `Deploy` run **36969283231** (push a
+`production`, `8fd637fb`). Fue el **primer** `dast-release` con `report_only: false` (§69.4). Autoprueba del candado:
+success. «Levantar el stack» y «Escanear»: success. «Candado — veredicto»: **FAILURE** por un **solo** FAIL: ZAP `10020`
+(Missing Anti-clickjacking Header), Medio ×1, con ejemplo `https://js.stripe.com/v3/m-outer-3437aaddcdf6922d623e172c2d6f9278.html`.
+Es el iframe de Stripe que carga la araña AJAX, **fuera de nuestro origen**. nuclei: 0 high/critical. El job
+«Abrir/actualizar issue» comentó en el **issue #30** («[dast] Hallazgos bloqueantes en el stack efímero — production»,
+abierto el 2026-09-11 por el run 34650494939). El último comentario cita `runs/36969283231` y nombra 10020 y
+js.stripe.com (medido por devops con la API pública de issues).
+
+**Causa:** falso positivo **de alcance**. El candado aplicaba la política a todo lo que contenía el informe de ZAP,
+incluidas páginas de terceros. Antes no se notaba porque 10020 era WARN hasta SEC-HDR-1 (§70).
+
+**Arreglo (elegido para que no pueda esconder un 10020 real nuestro):**
+- `security/scripts/dast-gate.py`, opción nueva `--scope-origin <url>` (repetible). Con ella cada **instancia** de
+  ZAP se juzga por su origen (esquema + host + puerto, con el puerto por defecto explícito):
+  - Una alerta con un caso en js.stripe.com y otro en localhost:3010 **sigue en FAIL**.
+  - Los casos de terceros salen en el resumen como «Fuera de alcance» (regla, acción, host) y en la anotación del run.
+    Nunca son invisibles.
+  - Si ninguna instancia cae en nuestros orígenes, el veredicto es **ROJO** («el escáner no vio la app o el alcance
+    está mal declarado»).
+  - Sin la opción no se filtra nada; la autoprueba del canario sigue igual.
+- `security/scripts/dast-ephemeral.sh gate` pasa `--scope-origin` con los orígenes de **sus blancos**
+  (`DAST_SCOPE_ORIGINS`, por defecto `ZAP_TARGETS` + `NUCLEI_TARGETS`, es decir `http://localhost:3010` y
+  `http://localhost:3011`).
+- **Descartado:** excluir hosts de terceros dentro de ZAP. Ese camino no deja rastro en el informe, no se puede
+  probar sin levantar ZAP, y una lista de terceros siempre va un host por detrás.
+- La política (`security/zap/baseline.conf`) lo declara en su cabecera. No cambia ninguna regla: 38 reglas, 16 FAIL.
+
+**Medido (devops, 2026-10-02):** `scripts/check-dast-gate-live.sh` (bloque 5-ter, corre en cada push) da rc=0 con
+todos sus checks en verde. Sus fixtures:
+
+| Caso | Resultado |
+|---|---|
+| 10020 solo en js.stripe.com, con alcance | VERDE |
+| El mismo informe sin alcance | ROJO |
+| 10020 en localhost:3010 | ROJO |
+| 10020 mixto (Stripe primero, nuestro después) | ROJO |
+| localhost:8080 | se trata como tercero |
+| Alcance que no casa con nada | ROJO |
+| SQLi de manual con alcance | ROJO |
+
+Mutaciones sobre una copia del árbol (`git ls-files`), una por pase. Cada una pone rojo exactamente su check (1 ✗) y
+la restauración vuelve a 0 ✗. Son deterministas, sin carrera:
+- Decidir solo por la primera instancia: muerde «10020 mixto».
+- Quitar la guarda de alcance vacío: muerde «alcance que no casa».
+- Comparar el origen sin puerto: muerde «localhost:8080».
+
+**NO MEDIDO:** un ZAP real con este candado (aquí no hay Docker). Lo mide el próximo `dast-release`.
+
+**Riesgos que quedan:**
+- Con alcance declarado, «Casos» cuenta las instancias que trae el JSON, no el campo `count`.
+- Un barrido de nuestra app sin **ningún** hallazgo, ni siquiera WARN, saldría ROJO por la guarda. Hoy hay más de 10
+  WARN propios por barrido. Si algún día ocurre, la guarda pasa a exigir que el informe declare nuestro `site`.
+
+**C2-bis (para SECURITY_NOTES; lo escribe seguridad):**
+- El primer run de `dast-release` bloqueante en `production` fue **36969283231**, rojo por ese FAIL **de tercero**
+  (10020 en js.stripe.com). No hubo hallazgo en nuestro origen.
+- C2-bis **se cierra con el siguiente** `dast-release` sobre `production` que lleve este commit y salga con
+  `blocking=false`, citado por número. Cuando salga verde, el issue #30 se puede cerrar citando ese run.
+- No se vuelve a `report_only`.
+
+**Rollback:** revertir el commit. El candado vuelve a juzgar todo el informe, y el próximo `dast-release` vuelve a
+salir rojo por el iframe de Stripe.
+
+## §76 · `braces@3.0.3` (CVE-2026-93687 = GHSA-vfj7-8cjw-p6xm, HIGH, sin arreglo) pone rojos `npm-audit`, `trivy-fs` y `trivy-image` (2026-10-04, rama `claude/post-release-s5`)
+
+**Síntoma (medido por el orquestador, run 37176114596 sobre `ab8fcc89`):** `trivy-fs` (trinquete dev vía
+`trivy-dev-fichas.sh`), `npm-audit` (`audit-npm-dev.sh`) y `trivy-image` rojos por `braces@3.0.3`. Aviso nuevo, no
+viene de ningún diff: rojo en cualquier rama.
+
+**¿Hay arreglo? No (medido 2026-10-04):** `npm view braces versions` → la última es `3.0.3`; el aviso cubre `<=3.0.3`.
+`micromatch@4.0.8` (la última) exige `braces ^3.0.3`; `chokidar@3.6.0` exige `braces ~3.0.2`. `fixAvailable` de npm
+propone `@nestjs/cli@12` (major, de backend) y no quitaría la rama de jest→micromatch. No hay override posible.
+
+**Dónde está (medido):**
+
+| Sitio | Cadena | ¿Runtime? |
+|---|---|---|
+| backend lock | `@nestjs/cli→chokidar→braces`, `jest→@jest/core→micromatch→braces` | no: `npm ls braces --omit=dev` vacío |
+| frontend lock | `tailwindcss→chokidar/micromatch→braces` | no: `npm ls braces --omit=dev` vacío |
+| imagen `tcg-backend` | `/app/node_modules/braces/package.json` | fichero presente, **no cargado** (ver abajo) |
+| imagen `tcg-frontend` | — (standalone de Next: `trivy rootfs` 0 hallazgos) | — |
+
+La imagen backend lo trae porque `Dockerfile.backend` copia `node_modules` **con devDependencies** a propósito
+(§6.2: `prisma` del `migrate deploy` y `ts-node` del seed son devDependencies). En el contenedor solo corren el
+preflight (`sh`), `node node_modules/prisma/build/index.js migrate deploy`, `node dist/main.js` y, a mano,
+`ts-node prisma/seed.ts`; ninguno tiene braces en su cierre (`npm ls braces` solo muestra @nestjs/cli y jest) y
+ningún fichero de `src/`/`prisma/`/`scripts/` importa braces/micromatch/chokidar/fast-glob. Ninguna entrada de
+usuario llega a un patrón glob: los únicos patrones son los fijos de `jest.config.js` y `tailwind.config.ts`.
+
+**Decisión: fichar, con fecha corta, en los DOS registros, sin tocar umbrales.**
+
+1. `security/npm-audit-dev-fichas.tsv`: **una** ficha `GHSA-vfj7-8cjw-p6xm,CVE-2026-93687`, dueño backend,frontend,
+   `revisar_antes_de 2026-11-03`. La primera columna ahora admite **alias separados por coma**, porque el mismo aviso
+   llega con dos IDs: npm audit da el GHSA y trivy el CVE (su DB no trae el GHSA en `References` — medido con trivy
+   sobre `backend/package-lock.json`). Con dos fichas sueltas, cada trinquete pedía «PÓDALA» de la otra: un aviso
+   falso que invita a borrar una excepción viva. `audit-npm-dev.sh` casa el ID exacto contra cualquiera de los
+   alias; el self-test suma 4 casos (CVE casa, GHSA casa, caduca por el CVE, `CVE-2026-12` NO casa `CVE-2026-1`).
+2. `security/.trivyignore-image` (**nuevo**, solo imágenes): `CVE-2026-93687 exp:2026-11-03`. No va en
+   `.trivyignore` porque ese fichero lo leen también `trivy-fs.sh` y `trivy-dev-fichas.sh`: los dejaría ciegos al
+   mismo aviso, que en lockfiles ya juzga la ficha (1). El job `trivy-image` pasa
+   `trivyignores: security/.trivyignore,security/.trivyignore-image` (la acción v0.36.0 concatena ficheros planos);
+   `trivy-image.sh` hace la misma concatenación. Toda línea lleva `exp:` y trivy deja de honrarla sola.
+3. Registro de decisiones de `security/README.md` (bloque que se publica en cada run): entrada nueva.
+
+**Prueba (devops, 2026-10-04, árbol de trabajo sobre `ab8fcc89` + este diff; trivy compilado desde fuente con
+`go install …/trivy@latest`, DB de `mirror.gcr.io`):**
+
+| Paso | Resultado |
+|---|---|
+| `audit-npm.sh` (runtime) | rc 0 |
+| `audit-npm-dev.sh` | rc 0 (GHSA fichado; sin «PÓDALA») |
+| `audit-npm-dev-selftest.sh` | 10/10 |
+| `trivy-fs.sh` / `trivy-fs-selftest.sh` | rc 0 / rc 0 |
+| `trivy-dev-fichas.sh` | rc 0 (CVE fichado; sin «PÓDALA») |
+| `trivy rootfs` (config y umbral del gate) sobre `npm ci --include=dev` del lock de HEAD (= capa node-pkg de `tcg-backend`) con `.trivyignore`+`.trivyignore-image` | rc 0; solo con `.trivyignore`: rc 1 |
+| ídem sobre el standalone de Next (`tcg-frontend`) | rc 0 con y sin la excepción |
+
+**Mutaciones (copia en scratchpad, deterministas, N=1 cada una):** sin la ficha → `audit-npm-dev.sh` ROJO (GHSA) y
+`trivy-dev-fichas.sh` ROJO (CVE); ficha sin el alias CVE → npm verde, trivy ROJO; `AUDIT_DEV_HOY=2026-11-04` →
+ambos ROJO «venció»; `.trivyignore-image` sin la línea → imagen rc 1; con `exp:2026-10-03` → rc 1; self-test nuevo
+contra el `audit-npm-dev.sh` de HEAD → 8/10 (los dos casos de alias en verde caen).
+
+**NO MEDIDO:** `trivy-image` real con `docker build` (aquí no hay demonio Docker; la capa OS de alpine no se midió):
+lo mide el job de CI tras el push.
+
+**Salida real (para la revisión del 2026-11-03):** que backend mueva `prisma`/`ts-node`/`typescript` a
+`dependencies` (decisión suya, `backend/package.json`) para que devops pode devDeps en la imagen — eso quita braces,
+jest y @nestjs/cli del artefacto —, o que upstream publique braces arreglado. Si a esa fecha nada cambió, la ficha
+se renueva **con nueva medición**, no copiando esta.
+
+**Rollback:** revertir el commit. Los tres gates vuelven a rojo por braces (que es el estado sin decisión).
+
+## §77 · Censo E2E: `mockOnly 127/26 → 135/27` y `realOnly 16/5 → 19/6` por `precios-s5.spec.ts` (2026-10-04, rama `claude/precios-s5`, PR #69)
+
+**Síntoma (medido por el orquestador):** job `e2e-skip-census` rojo en la PR #69 (run 37182993065, job 111379130538).
+
+**Qué crece y por qué (medido por devops, 2026-10-04, sobre `84aabc68`).** Todo el crecimiento sale de
+`frontend/e2e/precios-s5.spec.ts` (frontend, `0f3dda00`, FRONTEND_NOTES §85): `grep -rwo` da **8** `mockOnly` y
+**3** `realOnly` en ese fichero, y 0 de las otras tres claves. Contraprueba: copia de `frontend/e2e` sin ese fichero
+→ gate rc=0, las cinco claves = baseline anterior (127/26, 34/9, 5/3, 15/7, 16/5).
+
+**Motivo (dueño: frontend).** Los casos de dinero de §39/§40 son `mockOnly` porque el seed E2E no tiene pedidos
+directos liquidados en `enviado`/`guia` ni un reembolso tras envío sin motivo. Los `realOnly` son 400/403/404 que el
+mock no sirve (legítimos: miden en el pase real).
+
+**PENDIENTE P-CENSO-S5 (abierto 2026-10-04):**
+- **backend** (`backend/prisma/seed-e2e.ts`): sembrar un pedido directo liquidado en `enviado`, otro en `guia` y uno
+  reembolsado con `fullRefundAfterShipment=true` sin motivo.
+- **frontend** (`frontend/e2e/precios-s5.spec.ts`): convertir esos casos `mockOnly` en `@real`.
+- **devops**: regenerar el baseline a la baja (`--update --motivo`) en el mismo diff de la conversión.
+- **Comprobación:** `grep -cw mockOnly frontend/e2e/precios-s5.spec.ts` baja de 8 y `check-e2e-skip-census.sh`
+  muestra `mockOnly` por debajo de 135.
+
+**Medido tras `--update` (devops, 2026-10-04):** `check-e2e-skip-census.sh` rc=0 y
+`check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno (deterministas).
+
+**Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el spec).
+
+**gitleaks PR #70 (devops, 2026-10-04):** el job `gitleaks` (run 37192755201) marcaba 3 `generic-api-key` en dos specs de integración de backend (`staff-without-email.e2e-spec.ts:405,:412` @0a42d85a; `stf-errata-v1-80-9-1.e2e-spec.ts:167` @1d946722): contraseñas de ficción, medido que no aparecen en ningún `.env`, workflow ni `scripts/`. Añadidas a `[allowlist]` de `security/gitleaks.toml` **por valor exacto anclado** (no por ruta). Medido con gitleaks 8.30.1: rango `origin/production..HEAD` 3 → 0 hallazgos (21 commits); `sast-gitleaks-canary.sh` 11/11; una variante del valor con sufijo sigue roja. **Rollback:** revertir el commit (la PR vuelve a rojo).
+
+**Manifiesto de secretos publicados, PR #70 (devops, 2026-10-04):** el job `stripe-webhook-failclosed` (run 37193001346) fallaba en `check-secret-defaults.sh` (E): el manifiesto no cubría 3 literales nuevos de esta rama. Medido de dónde salen: `backend/prisma/reset-admin-password.ts:26` (placeholder `'…'` del ejemplo de uso en un docstring), `backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts:167` (prefijo de ficción + `randomUUID()`) y `:170` (el identificador `HMAC_KEY`, que es `randomBytes(32)` en tiempo de ejecución). Ninguno es un valor real. Regenerado con `gen-published-secrets-manifest.sh`: +3 hashes, 0 jubilados, catálogos sin cambios. El job entero sale verde: failclosed rc=0 (3/3), su canario 31/31, `check-secret-defaults` rc=0 y su canario 70/70. **Rollback:** revertir el commit (el job vuelve a rojo).
+
+## §78 · Skydropx fase D — D0 (sonda de solo lectura) y D0' (entorno sin llaves) (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.19.15` (piezas D0 y D0'), `§19.19.7` (puerta de compra), `§19.19.12`
+(variables), `§19.19.17` (PS-99, capa (d) = `C-SDX-8`), `§19.19.18` (los `M-PRD-n`); `ARCHITECTURE §4.60`;
+`HECHOS.md:48` (credenciales de producción en el entorno; ⛔ comprar una guía real exige autorización del dueño
+guía por guía). Cierra la discrepancia **D-SDX-3** de `BACKEND_NOTES §57.4`.
+
+### 78.1 D0' — qué quedó en el entorno
+
+| Dónde | Qué | Por qué |
+|---|---|---|
+| `.env.example` (bloque «Envíos con Skydropx») | `SKYDROPX_BASE_URL=`, `SKYDROPX_CLIENT_ID=`, `SKYDROPX_CLIENT_SECRET=`, `SKYDROPX_RPS=`, `SKYDROPX_URL_HOSTS=` vacías; `SHIPPING_PROVIDER_ADAPTER=fake`; **`SKYDROPX_ALLOW_SPEND=` vacía** con el aviso «solo producción, solo por instrucción del dueño» | §19.19.12; §19.19.15 D0' pide literalmente `SHIPPING_PROVIDER_ADAPTER=fake` en la plantilla (quien copia la plantilla corre con el doble) |
+| `docker-compose.staging.yml` (la pila de `e2e-real.yml` y del DAST) | `SHIPPING_PROVIDER_ADAPTER: fake` **literal**, sin `${…}`; ninguna `SKYDROPX_*` | Esa pila corre `NODE_ENV=production` y **sin `CI` dentro del contenedor**: el candado de ejecución solo queda cerrado porque la llave no llega. `environment:` es allow-list, así que lo que no se nombra no pasa |
+| `docker-compose.yml` (dev) | `SHIPPING_PROVIDER_ADAPTER: ${SHIPPING_PROVIDER_ADAPTER:-fake}`; ninguna credencial | El dev puede pedir `skydropx`, pero sin credenciales cae a Noop (`409 {missing:['env']}`) |
+| `scripts/stack-native.sh` (arnés E2E de QA) | `export SHIPPING_PROVIDER_ADAPTER=fake` (fijo) y `unset SKYDROPX_ALLOW_SPEND SKYDROPX_CLIENT_ID SKYDROPX_CLIENT_SECRET` | El contenedor de Claude puede tener las credenciales de producción en su entorno (`HECHOS.md:48`); el arnés no las hereda |
+| CI | Ningún workflow nombra `SKYDROPX_*` (medido 2026-10-04: `grep -rniE 'skydropx' .github/` ⇒ 9 líneas, todas en `ci.yml`: comentarios, nombres de paso/job y las rutas del candado y del lanzador de la prueba; `grep -rE 'SKYDROPX_' .github/` ⇒ 0) | PS-99 (d) |
+
+⛔ **`SKYDROPX_ALLOW_SPEND`** la pone devops **solo** en Railway (producción) y **solo** cuando el orquestador lo pide
+con la instrucción del dueño (§19.19.7). Las credenciales van a Railway al salir a producción; nunca a GitHub.
+
+### 78.2 El candado `check-skydropx-spend-lock.sh` (+ canario)
+
+Job `skydropx-spend-lock` de `ci.yml` (en el `needs` de `ci-ok`). Bloques: **(A)** `.github/` no nombra
+`SKYDROPX_CLIENT_ID|CLIENT_SECRET|ALLOW_SPEND` ni lee `secrets.*`/`vars.*` con «skydropx»; **(B)** ningún
+`docker-compose*.yml` nombra esas tres (ni como clave ni como `${…}`) ni usa `env_file:`; **(C)** `.env.example`
+trae `SKYDROPX_ALLOW_SPEND=` **una vez y vacía**, y las dos credenciales vacías; **(D)** la pila E2E con `fake`
+(compose de staging literal + `stack-native.sh` exporta y hace `unset`); **(E)** el catálogo de secretos que el CI
+genera (`security/secretos-exigidos*.txt`) no lista `SKYDROPX_*`; **(F)** la sonda y su prueba existen, un
+workflow corre `run-prod-probe.sh test` y ninguno corre la sonda.
+
+El canario (`check-skydropx-spend-lock-canary.sh`) copia lo que el candado lee, exige **VERDE** en el prístino y
+planta **21** fugas, cada una con **ROJO** nombrando su bloque. Determinista (sin carreras): una corrida por
+mutación. Medido 2026-10-04 en este árbol: **22/22**.
+
+> ⭐ **Actualización 2026-10-05 (§82):** el candado gana el bloque **(G)** —la llave del doble,
+> `SHIPPING_FAKE_PURCHASE`— y el canario pasa a **36/36** (prístino + 35 mutaciones).
+
+Con esto **D-SDX-3** queda cerrado del lado de devops; backend puede endurecer su aserción de
+`.env.example` de «nunca con valor» a «presente y vacía» (`backend/test/skydropx.no-real-purchase.spec.ts`).
+
+### 78.3 D0 — la sonda `scripts/skydropx/prod-probe.ts`
+
+**Qué mide** (§19.19.18, todo sin gastar):
+
+| Id | Qué hace | Qué sale en el informe |
+|---|---|---|
+| saldo | `GET /api/v1/finance/credits` al empezar y al terminar | saldo y moneda, y `balanceUnchanged` (si cambió ⇒ código de salida 3) |
+| **M-PRD-1** | Cotiza 14210→06600, paquete A (25×18×*h* cm, 1 kg), con `package_protected:true` y `declared_value` ∈ {2500, 2501, 3000, 5000, 7500, 10000, 10001, 15000, 20000, 30000, 50000, 100000}; **cambia el alto 1 cm por petición** (`--height-base`, default 20) para esquivar la reutilización (M-5); si el eco de `packages[0]` no coincide o el id ya se vio, reintenta una vez con +37 cm | por fila: valor declarado, alto, eco (`package_protected`, `declared_value`, `protection_value`), los `protection_value_total` distintos de las tarifas, `echoMatches`, cociente seguro/valor |
+| **M-PRD-2** | La misma cotización dos veces (control de reutilización) y otras dos con `order_id` distintos; guarda el estado con `--state` para repetir a +1 h y +25 h con `--followup` | `controlReused`, `orderIdBreaksReuse`, `twoOrderIdsDiffer`, códigos HTTP |
+| **M-PRD-3** | Lee las plantillas (`GET /address_templates`) y cotiza con la de origen en las dos formas posibles (`address_template_from_id` arriba, y `address_from.address_template_id`) | `requires_origin_verification` (arriba y por tarifa), si la plantilla vuelve en el eco, tarifas exitosas |
+| **M-PRD-4** | `GET /finance/extra-charges` (y `extra_charges` si 404) | código y **forma** (claves y tipos, sin valores) |
+| **M-PRD-5** | `GET /office_points?rate_id=…&direction=delivery` con una tarifa de M-PRD-1 (99minutos si la hay) | código y forma |
+| **M-PRD-6** | `GET /shipments` con `reference`, `q`, `search`, `filter[reference]`, `external_reference` | código, `total_count`, claves de `meta` por parámetro |
+
+Unas 60–80 peticiones a ≤ 1.67 req/s (≥ 600 ms entre peticiones; `SKYDROPX_RPS` solo puede hacerlo **más lento**).
+
+**La garantía de cero gasto** (tres capas, cada una probada):
+1. **Lista blanca antes de la red** (`assertReadOnlyRequest`): solo `POST /api/v1/oauth/token`,
+   `POST /api/v1|v2/quotations` y `GET`, siempre al host de la API y por `https:`. La ruta se compara **después** de
+   normalizar la URL y a la red viaja esa misma URL normalizada. Todo lo demás (`POST /api/v2/shipments` = compra,
+   `/cancellations`, `/protect`, `/pickups`, `/orders`, `PUT/PATCH/DELETE`, otro host) lanza
+   `ProbeForbiddenRequestError` sin abrir conexión.
+2. **Pre-vuelo** con el mismo `evaluateMutationGate` del backend (`spend-gate.ts`, importado): la sonda **no arranca**
+   si `SKYDROPX_ALLOW_SPEND` trae cualquier valor, si el candado diría `allowed`, en CI (`CI` puesto) ni bajo pruebas.
+3. **Su prueba** (`prod-probe.test.ts`, `node:test`, corre en el job `backend` de `ci.yml`): 30 peticiones vetadas
+   (compra, cancelación, protección, trucos `..`/`%2e%2e`, mayúsculas, otro host, `http:`, credenciales en URL) con
+   **cero** llamadas al transporte; una corrida **entera** contra un doble en memoria (`probe-stub.ts`) que registra
+   cada petición (solo token, cotizaciones y GET; exactamente 19 POST); el pre-vuelo; y un estático que exige que la
+   única llamada a la red esté en `request()` **después** del veto. Mutaciones medidas el 2026-10-04 (copia en el
+   scratchpad, árbol `scripts/skydropx` + `backend` de este HEAD): **9/9 en ROJO** (quitar el veto, POST libre,
+   compra en la lista, ignorar la llave, imprimir el token, una compra en la corrida, aceptar otro host, saltarse la
+   normalización, ignorar `CI`); sin mutar, 6/6 verdes. Deterministas: N=1 por mutación.
+
+**Secretos y salida.** Las credenciales salen solo de `SKYDROPX_CLIENT_ID`/`SKYDROPX_CLIENT_SECRET` del entorno y
+nunca se imprimen. El informe **no vuelca respuestas**: se arma con campos elegidos (lista blanca por construcción,
+SEC-SDX-13); los ids de cotización, tarifa y plantilla salen como huella `fp:<sha256[0..10]>`; de la plantilla de
+origen solo sale tipo y si es la predeterminada (ni alias, ni nombre, ni teléfono, ni correo, ni RFC). Toda línea
+pasa además por un redactor (token, credenciales, ids de plantilla y tarifa, correos, teléfonos, cadenas largas
+tipo token). Antes de pegar un informe en el repo (que es público), el revisor lo lee igual.
+
+**Cómo se corre** — ⛔ **no** desde CI ni desde este contenedor (sin red a Skydropx: medido 403 el 2026-09-29). Lo
+corre una sesión del entorno con acceso a Internet, donde las credenciales ya están (`HECHOS.md:48`; no se le pide
+nada al dueño):
+
+```bash
+cd backend && npm ci && cd ..
+scripts/skydropx/run-prod-probe.sh test            # la prueba propia: 6/6 antes de tocar la red
+scripts/skydropx/run-prod-probe.sh dry-run         # ensayo contra el doble: el plan de peticiones, sin red
+scripts/skydropx/run-prod-probe.sh run \
+  --state "$SCRATCH/sdx-probe-state.json" --out "$SCRATCH/sdx-probe-informe.json"
+# a +1 h y a +25 h (M-PRD-2, duración de la reutilización):
+scripts/skydropx/run-prod-probe.sh run --followup --state "$SCRATCH/sdx-probe-state.json"
+```
+
+Opciones: `--only M-PRD-1,M-PRD-3`, `--values 2500,3000,…`, `--height-base N` (1..150; si M-PRD-1 sale con eco que
+no coincide, repetir con otro valor), `--state`, `--followup`, `--out`. `SKYDROPX_BASE_URL` es opcional: sin ella usa
+`https://pro.skydropx.com/api/v1` (PROD §1; no es secreta). Códigos de salida: `0` bien · `1` abortada (token, borde
+403/1010) · `2` el pre-vuelo no la deja arrancar · `3` **el saldo cambió** (parar e investigar) · `4` una petición
+vetada (defecto de la sonda: no hubo red). El estado y el informe van al scratchpad, **no** al repo; lo que se
+publique va a `docs/specs/` ya revisado.
+
+**Rollback.** La sonda no cambia nada en Skydropx (solo lee y cotiza; las cotizaciones no gastan, PROD §0), así que
+no hay nada que revertir del lado del proveedor. Si el saldo de después difiere del de antes (salida 3): no se
+repite la corrida; se compara contra `GET /finance/credits` en el panel y se avisa al orquestador. Del lado del
+repo, revertir D0/D0' es `git revert` del commit; el candado `skydropx-spend-lock` se iría con él (es el mismo
+commit), y PS-99 (d) volvería a apoyarse solo en el estático de backend.
+
+### 78.4 De paso
+
+- `security/secretos-publicados.sha256` estaba **desfasado** en `3238ece1` (medido: `check-secret-defaults.sh` ⇒
+  `(E) El manifiesto está DESFASADO`, sobre una copia `git archive HEAD`). Cuatro valores nuevos, todos ficción de
+  pruebas/documentación ya commiteados por backend (p. ej. `SKYDROPX_CLIENT_SECRET: 'secret'` de
+  `backend/test/shipping-provider.factory.spec.ts`). Regenerado; el resultado es idéntico desde una copia limpia de
+  HEAD con los cambios de este commit, y el candado vuelve a VERDE.
+- **Discrepancia con el encargo**, para el orquestador: el encargo decía «todas vacías», incluida
+  `SHIPPING_PROVIDER_ADAPTER`; §19.19.15 D0' dice `SHIPPING_PROVIDER_ADAPTER=fake` en `.env.example`. Seguí el
+  contrato (manda sobre el encargo). Si se quiere vacía (⇒ `skydropx` ⇒ Noop sin credenciales), es una línea y el
+  candado no la mira.
+- `gitleaks` no está instalado en este contenedor: que los valores inventados del doble (`probe-stub.ts`, todos con
+  `_dummy`, que la allowlist global reconoce) no disparen `generic-api-key` es **NO MEDIDO** aquí; lo mide el SAST
+  del PR.
+
+---
+## §79 · Catálogo de CP (SEPOMEX → `PostalCode`, M-64): importador, `C-GEO-1`/`C-GEO-2` y lo que bloquea la ventana (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.23.6` (errata v1.80.12.3, `f0009e92`): `C-GEO-1` (qué es «catálogo
+cargado») y `C-GEO-2` (se carga en el arranque, tras `migrate deploy` y antes de servir; idempotente, sin borrar,
+falla-cerrado, archivo fijado por `sha256`; ⛔ ni descargar al arrancar ni cargar a mano después). Por qué importa:
+con `PostalCode` vacía toda dirección nueva es `422 POSTAL_CODE_UNKNOWN` y nadie paga un envío (`BACKEND_NOTES §58`).
+
+### 79.0 Estado en una línea
+
+> ⛔ **v1.80.12.5 (§81):** el catálogo ya **no** se carga en el arranque (`boot` y C-GEO-2 retirados) y la ventana de
+> 79.9 (a)(b)(c) queda sustituida por la de §81.4. Lo de abajo es historia.
+>
+> ⚠️ **Superado en parte por §80 (2026-10-04, errata v1.80.12.4):** C-GEO-1 (1) ya no es igualdad de conteo sino
+> inclusión + huella; hay modo estricto/arnés; el `CMD` **ya está cableado** (modo arnés en compose/CI, estricto en
+> Railway). Lo de abajo queda como historia; manda §80.
+
+**El importador está hecho y probado; el cableado en el arranque NO, porque falta el archivo.** No se puede
+descargar desde este contenedor (79.2) y meterlo en el repo —que es público— es una decisión del dueño por tamaño y
+por licencia. ⛔ **Hasta que el archivo esté fijado y el `CMD` cableado, la fase C no se puede publicar** (C-GEO-2).
+
+### 79.1 Qué hay
+
+| Ruta | Qué |
+|---|---|
+| `scripts/geo/sepomex-parse.ts` | Lector puro del TXT de SEPOMEX: UTF-8 si es válido, si no Latin-1; columnas por **nombre** (`d_codigo`, `d_asenta`, `d_mnpio`, `d_estado`); fila con otro número de campos = **error** (fichero roto, no se carga nada); fila inválida (CP no `^\d{5}$`, campo vacío, carácter ilegible) = **descartada y contada por motivo**; duplicados exactos `(CP, colonia)` colapsados (se queda la primera). |
+| `scripts/geo/import-sepomex.ts` | `boot` (C-GEO-2), `verify` (C-GEO-1, solo lectura) e `import` (recarga **explícita**, fuera del arranque). Comprueba el `sha256` antes de leer. Pisos **constantes** (`C_GEO_FLOORS` congelado: ≥ 100 000 filas, ≥ 25 000 CP, = 32 estados); ⛔ no hay opción para bajarlos. |
+| `scripts/geo/import-sepomex.sh` | Lanzador (ts-node con el `node_modules` de `backend/`, como la sonda de §78). |
+| `scripts/geo/import-sepomex.test.ts` | Prueba (`node:test`): parte pura siempre; parte con base solo con `SEPOMEX_TEST_DATABASE_URL` (localhost y nombre con «sepomex»: la prueba vacía la tabla). |
+| `scripts/geo/fixtures/sepomex-extracto-sintetico.txt` (+ `.sha256`) | 13 líneas, 1 350 bytes, Latin-1 con CRLF, **escrito a mano en el formato de SEPOMEX; no es la fuente oficial**. Trae los 5 CP del arnés, ñ, ü, acentos, un `\|` final y un duplicado. |
+| `.github/workflows/ci.yml`, job `backend` | Paso nuevo «Importador SEPOMEX — prueba con base dedicada (M-64)» (79.6). |
+
+**`boot`**, paso a paso, todo en **una** transacción con `pg_advisory_xact_lock` (dos réplicas no se mezclan):
+1. `sha256` del archivo = el fijado (`--sha256` o el hermano `F.sha256`); si no, sale 1 sin abrir la base.
+2. El archivo alcanza los pisos; si no, sale 1 («se para y se pide errata al arquitecto»).
+3. Si C-GEO-1 (1)(2)(4) ya se cumplen ⇒ comprueba (3) y **no escribe** (re-arranque barato: 1.9 s con 143 913 filas).
+4. Si no ⇒ `INSERT … ON CONFLICT ("postalCode", neighborhood) DO NOTHING` (⛔ **nunca borra**) y verifica C-GEO-1
+   **entero dentro de la transacción**, incluidos los 5 CP del arnés por `PostalCodeService.resolvePostalCode` (el
+   mismo cuerpo que la app). Cualquier fallo ⇒ ROLLBACK y salida 1.
+
+### 79.2 La fuente — medido y no medido
+
+- **Medido 2026-10-04:** `www.correosdemexico.gob.mx` da **403 del proxy de salida** (política de la organización)
+  por `https` y por `http`; `docs.railway.com` también. Desde este contenedor **no se puede descargar** el catálogo ni
+  leer la documentación de Railway. No se reintentó ni se buscó rodeo (espejos de terceros: procedencia no fijable).
+- **NO MEDIDO (de memoria; lo cierra quien lo descargue):** la página oficial es
+  `https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx`, un formulario ASP.NET
+  (elegir «Todos» los estados y formato **TXT**; también ofrece XML y Excel); entrega un ZIP con `CPdescarga.txt`,
+  Latin-1, separado por `|`, con una línea de aviso y la cabecera `d_codigo|d_asenta|d_tipo_asenta|D_mnpio|…`. Tamaño
+  del orden de 15 MB sin comprimir. Si hay captcha: no lo sé.
+- ⚠️ **Licencia (NO MEDIDO, de memoria):** la línea de aviso del propio fichero dice que se proporciona «para uso
+  particular, no estando permitida su comercialización, total o parcial, ni su distribución a terceros». **El repo
+  es público**: commitear el fichero podría ser distribuirlo. Decisión del dueño, no mía.
+- **El importador lee el TXT.** ZIP ⇒ error «descomprímelo»; XML/HTML ⇒ error «descarga el TXT».
+
+### 79.3 Lo que necesita el dueño (y por qué)
+
+1. **Descargar una vez** el catálogo en su navegador (79.2), descomprimir y correr en su máquina, desde la raíz del
+   repo con `cd backend && npm ci && npx prisma generate` hecho, **sin base**:
+   ```bash
+   sha256sum CPdescarga.txt > CPdescarga.txt.sha256
+   ls -l CPdescarga.txt                               # el TAMAÑO: el orquestador lo pidió antes de meterlo en el repo
+   scripts/geo/import-sepomex.sh import --file CPdescarga.txt --dry-run   # no abre base si no hay DATABASE_URL
+   ```
+   > ⚠️ **Corregido 2026-10-07 (§92.4, medido):** `import --dry-run` **sí exige base**: sin `DATABASE_URL` sale 1
+   > con `[sepomex] ⛔ falta DATABASE_URL` (lo midió primero el orquestador; re-medido por devops). Es por diseño: el
+   > dry-run informa de la tabla de hoy y de la inclusión (1a). El paso **sin base** es `manifest --file …` (§81.4).
+   El `dry-run` imprime sha256, codificación, filas/CP/estados derivados, descartes por motivo y si alcanza los pisos.
+   Esas cifras son las que el contrato pide anotar aquí (aún **NO MEDIDAS**). Si no alcanza un piso: se para y se pide
+   errata al arquitecto.
+2. **Decidir dónde vive el archivo fijado**, sabiendo el tamaño y la licencia: (a) en el repo
+   (`scripts/geo/data/CPdescarga.txt` + `.sha256`), o (b) un artefacto **privado** con su `sha256` (p. ej. un objeto
+   en el bucket de producción) que el **build** descarga y verifica (no el arranque). (b) añade una dependencia al
+   build y una credencial de lectura; (a) no, pero publica el fichero.
+
+Medición que lo justifica: 403 en la descarga desde aquí (arriba). Sin el archivo no hay `sha256` que fijar.
+
+### 79.4 El cableado que falta (se aplica cuando exista el archivo; no antes)
+
+No lo dejé cableado porque **sin el archivo el arranque falla cerrado en todos los entornos** que usan la imagen
+(Railway, `docker-compose.staging.yml` de `e2e-real.yml` y del DAST). El cambio, ya decidido:
+
+- `.dockerignore`: `!scripts/geo/*.ts` y `!scripts/geo/data/CPdescarga.txt*` (hoy `scripts` está excluido entero).
+- `Dockerfile.backend`, etapa runtime: copiar `scripts/geo/` y el archivo. ⚠️ El importador importa
+  `../../backend/src/...`; en la imagen la fuente vive en `/app/src`. Hay que copiarlo a `/opt/geo/scripts/geo` con
+  un enlace `/opt/geo/backend → /app` (o equivalente) — **se prueba con `docker build` antes de publicar**.
+- `CMD`: entre `migrate deploy` y `node dist/main.js`:
+  `… && node node_modules/prisma/build/index.js migrate deploy && node -r ts-node/register /opt/geo/scripts/geo/import-sepomex.ts boot --file /opt/geo/scripts/geo/data/CPdescarga.txt && node dist/main.js`
+  (con `TS_NODE_TRANSPILE_ONLY=1` y `TS_NODE_PROJECT=/app/tsconfig.json`). Medido en local con un archivo sintético de
+  143 913 filas: primera carga 4.2 s, re-arranque 1.9 s; `healthcheckTimeout` de `railway.json` es 300 s.
+- Candado: que el `CMD` traiga el paso `boot` antes de `dist/main.js` (mismo estilo que los preflights).
+
+### 79.5 Railway ante un arranque que falla — **NO MEDIDO**
+
+El contrato lo pide medido o citado **antes** de la ventana. **No pude**: sin acceso a Railway ni a su documentación
+(403, 79.2). Este documento ya lo **afirma** en las tablas de rollback de §26.4, §27.4 y §29.7 («el contenedor sale ≠0,
+Railway … mantiene activo el deploy anterior») **sin medición citada**: trátese como NO MEDIDO. Lo que
+sí está en el repo: `railway.json` fija `healthcheckPath: /api/v1/health`, `healthcheckTimeout: 300`,
+`restartPolicyType: ON_FAILURE`, `restartPolicyMaxRetries: 10`. Mi expectativa (de memoria): Railway no pasa tráfico a
+un despliegue nuevo hasta que su healthcheck da 200 y, si nunca lo da, lo marca fallido y deja el anterior sirviendo.
+**Cómo se mide** (quien tenga Railway, sin tocar producción): en un entorno de Railway que no sea `production`,
+desplegar una rama cuyo `CMD` haga `exit 1` antes de `node`, y anotar aquí qué dice el panel y si la URL sigue
+respondiendo el despliegue anterior.
+
+### 79.6 El paso de CI (`ci.yml`, job `backend`)
+
+Tras la prueba de la sonda de Skydropx: deriva `tcg_sepomex_ci` de `DATABASE_URL` (falla si no puede), la crea y
+migra con `prisma migrate deploy` (el usuario del servicio es superusuario; en local, sin `CREATEDB`, se midió que
+Prisma **intenta** crearla: `permission denied to create database`), corre `import-sepomex.sh test` y **falla si la
+parte con base se saltó** (`# skipped 0`). Base dedicada porque la prueba vacía la tabla y no debe tocar `tcg_ci`.
+Candados estáticos re-corridos en este árbol: `check-workflow-cwd`, `check-secret-defaults`, `check-secret-masking`,
+`check-skydropx-spend-lock`, `check-secret-absence-wording` ⇒ 0. Que el paso pase en GitHub: **NO MEDIDO** hasta el push.
+
+### 79.7 Mediciones (2026-10-04, base local `tcg_devops_sepomex`, Postgres 16.13)
+
+- **Prueba:** 9/9 con base (3 corridas), 8 pasan + 1 saltada sin base.
+- **Mutaciones** sobre copia (`git archive cd761248` + `scripts/geo`), deterministas, N=1 cada una: **12/12 en ROJO**
+  — `boot` borra · sin los CP del arnés · sin sha256 · piso bajado a 20 000 · sin conteo (1) · sin verificar tras
+  cargar · sin guarda de encogimiento · sin deduplicar · acepta líneas cortas · `import` borra y reinserta · sin
+  Latin-1 · no descarta CP inválido.
+- **Extracto (vía `resolvePostalCode`/`canonicalize`):** `44100` ⇒ 2 colonias (Jalisco); `06600` ⇒ «Juárez»,
+  Cuauhtémoc; `15520` + «penon de los BANOS» ⇒ «Peñón de los Baños»; `58000` + «AGUITA FRIA» ⇒ «Agüita Fría»;
+  `14210` + «jardines de la montana» ⇒ «Jardines de la Montaña»; `99999` ⇒ `null`.
+- **Archivo sintético grande** (Latin-1, 16.7 MB, 143 913 filas, 32 002 CP, 32 estados): `boot` +143 913 en 4.2 s;
+  segundo `boot` sin escribir, md5 de la tabla idéntico; `sha256` falso ⇒ salida 1, tabla idéntica; extracto ⇒ salida
+  1 por pisos; una fila de más ⇒ salida 1, la fila **no** se borra, tabla idéntica.
+- **`kill -9` a mitad de la transacción** (tras ver el `RowExclusiveLock` sobre `PostalCode`): `boot` **5/5** tabla
+  intacta (vacía), `import` **5/5** tabla intacta (md5 idéntico). Carrera de tiempo: N=5 cada uno, autor devops.
+- **Credencial:** con `DATABASE_URL` con contraseña canario, apuntando a `*.railway.internal` o a un puerto muerto, la
+  salida no contiene la contraseña (0 apariciones). Fuera de localhost la etiqueta oculta host y puerto.
+
+### 79.8 Discrepancias para el arquitecto
+
+1. **C-GEO-1 (1) contra las filas del arnés.** (1) exige `count(*)` = filas del archivo; §19.23.6 dice también que en
+   CI «las filas del arnés sobreviven porque el arranque nunca borra». `seed-e2e.ts` mete `E2E_POSTAL_CODES` con
+   colonias que no son de SEPOMEX (`06600 «Roma Norte»`, `01000 «Centro»`, medido en `backend/prisma/e2e-fixtures.ts:119-127`).
+   En un entorno que arranque **después** del seed (re-arranque de staging, DAST), el conteo no cuadra y el `boot`
+   **falla cerrado** (medido con una fila de más: salida 1). Hay que decidir: (1) como «todas las filas del archivo
+   presentes» en vez de igualdad, o que el seed no meta colonias inventadas en entornos con catálogo real.
+2. **Descartes vs. fichero roto.** Sigo el contrato (fila inválida = descarte contado), pero una fila con **otro
+   número de campos** la trato como fichero roto (error, nada se carga), no como descarte: con el `sha256` fijado no
+   debería ocurrir, y si ocurre el archivo fijado está mal.
+
+### 79.9 Ventana y rollback
+
+**En la ventana** (cuando 79.3 y 79.4 estén hechos): el arranque carga solo; no hay paso a mano (⛔ C-GEO-2). Se
+anota en la solicitud de fusión: (a) el registro del `boot` de los logs de Railway (filas, CP, estados, `sha256`);
+(b) los cinco `GET https://<api>/api/v1/geo/postal-codes/{01000,06600,14210,44100,64000}` ⇒ `200` con
+`neighborhoods.length ≥ 1`; (c) el dueño hace una compra con envío eligiendo la colonia de la lista. Comprobación
+extra de solo lectura, si se quiere desde fuera (la credencial no sale del entorno de Railway; el script no la imprime):
+```bash
+railway run --service <servicio-de-Postgres> --environment production -- \
+  scripts/geo/import-sepomex.sh verify --file scripts/geo/data/CPdescarga.txt     # salida 0 ⇔ C-GEO-1 se cumple
+```
+(`railway run` corre en la máquina del dueño con las variables inyectadas; el script usa `DATABASE_PUBLIC_URL` si
+`DATABASE_URL` es `*.railway.internal`. El nombre del servicio y que exista `DATABASE_PUBLIC_URL`: **NO MEDIDO**.)
+
+**Rollback.** Código: redeploy del anterior (no lee `PostalCode`; M-64 es aditiva). La tabla puede quedarse llena.
+Datos: el `boot` solo inserta; para vaciar, la reversa de M-64 (`DROP TABLE "PostalCode"`) o `DELETE FROM "PostalCode"`
+con la versión anterior sirviendo. Un catálogo nuevo de SEPOMEX entra con `import` explícito (reconcilia altas,
+cambios y bajas, aborta si quita > 10 % sin `--allow-shrink`) **y** un nuevo `sha256` fijado. Revertir esta sección:
+`git revert` del commit (se va el paso de CI con él).
+
+---
+## §80 · Catálogo de CP, errata v1.80.12.4: inclusión + huella, dos modos por blanco, manifiesto y `CMD` cableado (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.24` (`ab969d0f`), `ARCHITECTURE §4.60 (q)`. Manda sobre §79 donde choque.
+Resuelve las dos discrepancias de §79.8: (1) C-GEO-1 (1) es inclusión + huella, y las filas del arnés se toleran en
+modo arnés; (2) una fila con otro número de campos sigue siendo fichero roto (el contrato no lo cambia).
+
+### 80.0 Estado en una línea
+
+> ⛔ **RETIRADA el 2026-10-04 por §81 (errata v1.80.12.5, `API_CONTRACT §M4-SHIP.19.25.4`).** La consigna «no
+> fusionar a `production` antes de cerrar G-1» existía **solo** porque el `CMD` de 80.2 corría `boot` y, en Railway
+> (estricto, sin manifiesto), la imagen no arrancaba. Ese `boot` era a su vez la respuesta a un problema que ya no
+> existe: con la colonia obligatoria de la lista, una tabla `PostalCode` vacía dejaba a la tienda **sin poder cobrar
+> envíos**. El dueño decidió (`HECHOS.md:57`) que la colonia funcione como en Mercado Libre: la lista ayuda, no
+> bloquea, y con la tabla vacía se vende con la colonia escrita. Sin ese hueco, mantener el `boot` era cambiar «no
+> vender un envío» por «no vender nada». El `boot` salió del `CMD` y del importador, y con él esta consigna. **G-1
+> queda sin urgencia.** Rige §81.
+
+**Construido y cableado todo lo que no depende del archivo.** Falta G-1 (dónde vive el archivo: (A) objeto privado en
+`S3_BUCKET`, por defecto; o (B) repo), el archivo y su manifiesto. ⛔ **Hasta entonces el `CMD` hace que la imagen NO
+arranque en Railway** (modo estricto sin manifiesto ⇒ salida 1). Es el comportamiento que pide el contrato («la versión
+no se publica mientras G-1 esté abierta»), y depende de que Railway conserve la versión anterior: **NO MEDIDO** (80.5).
+Consecuencia práctica: **no fusionar esta rama a `production` antes de cerrar G-1**, o el despliegue falla.
+
+### 80.1 Qué cambió en `scripts/geo/`
+
+| Pieza | Qué |
+|---|---|
+| `sepomex-parse.ts` | Motivo de descarte nuevo `separador_en_campo` (TAB/CR/LF dentro de un valor: la serialización de `setDigest` tiene que ser inyectiva). |
+| `import-sepomex.ts` · `manifest --file F [--out M]` | Sin base. Escribe `{fileSha256, encoding, derived{rows,postalCodes,municipalities,states}, discarded, duplicatesDropped, setDigest, sourceNotice}`. Imprime si alcanza los pisos. Es lo que se commitea (no el archivo). |
+| · `setDigestOf` / `sqlSetDigest` | §19.24.3: `cp TAB colonia TAB municipio TAB estado LF`, orden por **bytes** (`Buffer.compare`; en SQL `COLLATE "C"`), sha256. |
+| · `classifyTarget` | Arnés ⇔ la URL pasa `assertSeedTarget` **importada** de `backend/prisma/seed-target-guard.ts` (incluida su escotilla `SEED_E2E_ALLOW_HOST`); si no, estricto. `--strict` lo fuerza; no hay opción que afloje. |
+| · `boot [--file F] [--strict]` | `DATABASE_URL` **tal cual** (sin salto a `DATABASE_PUBLIC_URL`). Estricto: sin manifiesto ⇒ 1; manifiesto bajo los pisos ⇒ 1; tabla = manifiesto + (3)(4) ⇒ 0 **sin escribir ni pedir el archivo**; si no, archivo con `sha256` comprobado **antes** de interpretarlo, su `setDigest` = el del manifiesto, `INSERT … ON CONFLICT DO NOTHING`, y dentro de la tx (1a)+(1b)+(2)+(3)+(4); ajena o discrepante ⇒ ALARMA y 1, sin borrar. Arnés: sin archivo ⇒ imprime `[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés` y sale 0 **sin abrir la base**; con archivo ⇒ exige su manifiesto hermano y verifica (1a) `faltan = 0`, (3) y (4); ajenas/discrepantes se imprimen (hasta 10 ejemplos). |
+| · `verify` / `import` | Usan el manifiesto como fijación (sustituye al `.sha256` hermano de §79, que ya no existe). `import` comprueba al final `setDigest(tabla) = setDigest(archivo)`. |
+| `fixtures/sepomex-extracto-sintetico.manifest.json` | El manifiesto del extracto (10 filas, 8 CP, 5 estados): en modo arnés con `--file` se usa ése. |
+| `.github/workflows/ci.yml` | Sin cambios en este pase (el paso de §79.6 corre la prueba nueva). |
+
+**Interpretación mía, para que el arquitecto la confirme:** los pisos (2) se exigen solo en modo **estricto**. En arnés
+con el extracto (10 filas) no podrían cumplirse nunca, y §19.24.5 describe la verificación del arnés como «(1a) con
+`faltan = 0`», sin (2).
+
+### 80.2 El arranque, cableado (`Dockerfile.backend`, `.dockerignore`)
+
+- `.dockerignore`: `!scripts/geo`, y fuera `scripts/geo/fixtures` y `scripts/geo/*.test.ts`.
+- Runtime: `COPY scripts/geo/ /opt/geo/scripts/geo/` + enlace `/opt/geo/backend → /app` (el importador importa
+  `../../backend/src/…` y `../../backend/prisma/seed-target-guard`; en la imagen viven en `/app/src` y `/app/prisma`).
+  Un `RUN` de guarda hace fallar el **build** si falta el importador o el guard, o si viaja la prueba.
+- `CMD`: `… migrate deploy && TS_NODE_PROJECT=/app/tsconfig.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register
+  /opt/geo/scripts/geo/import-sepomex.ts boot && node dist/main.js`. Sin `--file`: hoy no hay archivo.
+- Quién queda en qué modo (por el host de `DATABASE_URL`, regla de `assertSeedTarget`):
+
+| Entorno | Host | Modo | Hoy (sin manifiesto) |
+|---|---|---|---|
+| Railway `production` | `*.railway.internal` (de memoria: NO MEDIDO) | estricto | **sale 1 ⇒ la versión no arranca** |
+| `docker-compose.yml` (dev) | `postgres` | arnés | sale 0 sin tocar base |
+| `docker-compose.staging.yml` (`e2e-real.yml`, DAST) | `postgres` | arnés | sale 0 sin tocar base; el seed pone `E2E_POSTAL_CODES` después |
+| CI `backend` (no usa la imagen) | `localhost` | — | corre la prueba (§79.6) |
+
+- Candado nuevo en la prueba (test 19): un solo `CMD`; `boot` va después de `migrate deploy` y antes de
+  `node dist/main.js`, unido con `&&`; sin `--file/--manifest` hoy; el `COPY` está; `.dockerignore` reincluye `scripts/geo`
+  y excluye prueba y extracto. Canarios 3/3 en ROJO: quitar `boot` del `CMD`, cambiar `&&` por `;`, dejar entrar la prueba.
+
+### 80.3 `docker build` — lo medido y lo NO MEDIDO
+
+- **`docker build -f Dockerfile.backend` completo: NO MEDIDO aquí.** Arranqué `dockerd` en el contenedor. La imagen
+  base se descarga, pero `apk upgrade` falla: `dl-cdn.alpinelinux.org` da `TLS: server certificate not trusted`, y con
+  la CA del proxy inyectada en una copia, **`HTTP 403: Forbidden`** (política de salida). No busqué rodeo. Lo miden los
+  workflows que construyen la imagen al empujar (NO MEDIDO hasta entonces).
+- **Medido (2026-10-04) con una réplica de la capa runtime** (`node:24-alpine`, sin `apk`/`npm`; `node_modules`, `src`,
+  `prisma`, `tsconfig.json` del backend local; las líneas de geo y el tramo `boot` del `CMD` **extraídos literales**
+  de `Dockerfile.backend`; contexto = raíz del repo, con su `.dockerignore`): build verde (el `RUN` de guarda pasa: el
+  importador está, la prueba no; en `/opt/geo/scripts/geo` solo `import-sepomex.{sh,ts}` y `sepomex-parse.ts`).
+  Ejecutado con `--network none` y `DATABASE_URL` con contraseña canario:
+  - host `postgres` ⇒ `modo arnés` · `sin archivo, no se carga` · **salida 0**;
+  - host `postgres.railway.internal` ⇒ `modo ESTRICTO` · `no hay manifiesto … la versión no se publica` · **salida 1**;
+  - host `x.proxy.rlwy.net` ⇒ ídem, **salida 1**;
+  - la contraseña canario aparece **0** veces en la salida.
+  Lo que esa réplica **no** prueba: el motor de Prisma para musl (en la imagen real lo genera `prisma generate` dentro
+  de Alpine) — por eso los tres casos son los que no abren conexión.
+
+### 80.4 Pruebas y mutaciones (2026-10-04, base local `tcg_devops_sepomex`, PG 16.13; medido por devops)
+
+- **Prueba:** 19/19 con base; 14 pasan + 5 saltadas sin base.
+- **G1–G11** (§19.24.9): G1 test 8 (+ test 9: `boot` sin salto a `DATABASE_PUBLIC_URL`) · G2/G4/G6/G8/G9 test 16 ·
+  G3 test 15 · G5 test 10 · G7 test 17 (tabla temporal con `COLLATE "und-x-icu"`; la prueba **comprueba la premisa**:
+  el orden ICU difiere del de bytes con `Zapata/Ángel/a/B/ñu/nz/Ñandú/Óscar`) · G10 test 11 · G11 test 13 (canarios
+  en la propia prueba: fila 21 y sin «SINTÉTICO» ⇒ rojo).
+- **Mutaciones** sobre copia (`git archive ab969d0f` + `scripts/geo` vivo), deterministas, N=1 cada una: **24/24 en
+  ROJO**, más 3/3 del cableado (80.2):
+  - de §19.24.9: G1 `*.railway.internal` como arnés · G2 tolerar ajenas sin mirar el modo · G3 igualdad también en
+    arnés · G4 leer el archivo antes de comparar la huella · G6 hash después de parsear · G7 sin `COLLATE "C"` ·
+    G9 por clave en vez de por huella (sin discrepantes ni (1b)) · G11 fila 21 en el extracto · `boot` salta a
+    `DATABASE_PUBLIC_URL` · G5 sin manifiesto pasa · G10 sin pisos del manifiesto · estricto sin archivo sale 0;
+  - **re-declaradas** de §79.7: «sin conteo (1)» ya no existe (el conteo se fue); su papel lo cubren G2 y G9. Las
+    demás siguen: `boot` borra · sin verificar tras cargar · sin sha256 · piso bajado a 20 000 · sin los CP del arnés ·
+    sin guarda de encogimiento · sin deduplicar · acepta líneas cortas · `import` borra y reinserta · sin Latin-1 ·
+    no descarta CP inválido · (nueva) no descarta separador en campo.
+- **`kill -9` a mitad de la transacción** de `boot --strict` (archivo sintético de 143 913 filas, tras ver el
+  `RowExclusiveLock` sobre `PostalCode`): tabla intacta **5/5** (N=5, autor devops). Después: `boot` carga en 5.1 s;
+  re-arranque sin archivo ⇒ «tabla = manifiesto, sin escribir» en 1.2 s.
+- Candados: `check-compose-images`, `check-workflow-cwd`, `check-secret-defaults`, `check-secret-masking` y
+  `check-stripe-webhook-failclosed` (lee el `CMD`) ⇒ 0.
+
+### 80.5 Railway ante un arranque fallido — sigue **NO MEDIDO**
+
+Medición del orquestador (2026-10-04): en los deployments de GitHub del entorno `marvelous-kindness / production`
+(160 en total) el **único** fallido es el primero (`cd530a13`, 2026-08-15): no había versión anterior que conservar, así
+que el historial **no** responde la pregunta. Corregidas las tablas de rollback de §26.4, §27.4 y §29.7, que lo daban por
+hecho. Siguiente medición por coste (§19.24.8): (2) el dueño lee la documentación de Railway o mira en su panel; (3)
+un entorno que no sea `production` con un `CMD` que haga `exit 1` (⛔ no se le pide al dueño sin que (2) falle, O-6).
+**Si Railway no conserva la anterior, no se abre la ventana** y se pide errata al arquitecto.
+
+### 80.6 Lo que falta (tras G-1) y rollback
+
+- **(A) objeto privado** (por defecto): obtenedor con las `S3_*` en `FileSource` (`import-sepomex.ts`), clave
+  `geo/sepomex/<fileSha256>.txt`, la medición del `GET` anónimo ⇒ 403/404, y G4/G6 con ese obtenedor. **(B) repo**:
+  `scripts/geo/data/CPdescarga.txt` y `--file` en el `CMD`.
+- En ambos: el dueño descarga el archivo y corre `scripts/geo/import-sepomex.sh manifest --file CPdescarga.txt --out
+  scripts/geo/sepomex.manifest.json` (sin base; imprime las cifras reales y si alcanza los pisos). Ese JSON se commitea.
+- **Rollback del cableado:** `git revert` del commit de esta sección: el `CMD` vuelve a `migrate deploy && node
+  dist/main.js` y la imagen deja de llevar `scripts/geo`. Datos: el `boot` nunca borra; ver §79.9.
+
+---
+## §81 · Catálogo de CP, errata v1.80.12.5: `boot` fuera del arranque, candado G-BOOT, C-GEO-2 retirado (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.25.4` (`59c62e67`), fila devops de §19.25.7; origen `HECHOS.md:57` (la
+colonia como Mercado Libre). **Manda sobre §79 y §80 donde choque.** Commits: `e3ad5220` (código, CMD, imagen, CI) y
+`011b5924` (dos casos de prueba más del modo estricto).
+
+### 81.0 Estado en una línea
+
+**Ningún arranque carga, lee ni verifica `PostalCode`.** Con la tabla vacía la imagen arranca y la tienda vende
+(colonia escrita a mano). El catálogo se carga **cuando exista el archivo** con `import --file` explícito, lo corre
+**el dueño donde ya vive la credencial**, y G-1 (dónde vive el archivo) queda **sin urgencia**. §80.0 («no fusionar
+antes de G-1») queda **retirada** (motivo en 80.0).
+
+### 81.1 Qué cambió
+
+| Pieza | Antes (§80) | Ahora |
+|---|---|---|
+| `Dockerfile.backend` `CMD` | `… migrate deploy && … import-sepomex.ts boot && node dist/main.js` | `… secrets-preflight.sh assert && … migrate deploy && node dist/main.js` (= el de antes de §80, byte a byte) |
+| Imagen | `COPY scripts/geo/ /opt/geo/…`, enlace `/opt/geo/backend → /app` y `RUN` de guarda | Fuera los tres. La imagen no lleva `scripts/geo` |
+| `.dockerignore` | `!scripts/geo` (+ fuera prueba y extracto) | Fuera la reinclusión; `scripts` sigue excluido entero salvo los dos preflights |
+| `import-sepomex.ts` | `manifest`, `boot`, `verify`, `import` | `manifest`, `import`, `verify`. ⛔ `boot`/`bootCatalog` retirados (código muerto con nombre de arranque invita a volver a cablearlo) |
+| `import` | reconcilia, sin modo; comprueba solo la huella | **por modo** (`assertSeedTarget`, como antes `boot`). **Estricto:** sin manifiesto ⇒ 1 (G5); manifiesto bajo pisos ⇒ 1 (G10); `sha256` antes de interpretar (G6); **reconcilia** (altas, cambios, bajas; > 10 % de bajas sin `--allow-shrink` ⇒ 1) y dentro de la tx (1b) huella = manifiesto, (2) pisos de la tabla, (3) los 5 CP del arnés por `resolvePostalCode`, (4) forma ⇒ si falla, ROLLBACK. **Arnés:** solo inserta (`ON CONFLICT DO NOTHING`; las ajenas son del seed y no se borran, G3), (1a) faltan = 0, (3), (4) |
+| `verify` | salida 3 si no cumple | Tabla vacía ⇒ `[sepomex] catálogo vacío: 0 filas (no cargado)` y **sale 2**, aunque no haya manifiesto. Cargada: estricto (2) del manifiesto y de la tabla, (1b), (3), (4), y con `--file` (1a) + **ALARMA** si hay ajenas o discrepantes (G2/G9; solo lectura, ⛔ no borra); no cumple ⇒ **sale 1** («cargado pero mal», el texto de §19.25.4) |
+| Base | `boot` sin salto; `verify`/`import` saltan a `DATABASE_PUBLIC_URL` | Sin `boot`, el salto aplica siempre: si `DATABASE_URL` es `*.railway.internal` se usa `DATABASE_PUBLIC_URL` (y sin ella sale 1). El modo se clasifica con la URL con la que se escribe |
+| Códigos de salida | 0 · 1 · 2 uso · 3 no cumple | **0** bien · **1** error, alarma o no cumple (nada escrito) · **2** `verify` con la tabla vacía · **64** uso (antes 2: se mueve para que «2» signifique una sola cosa) |
+| Prueba | 19 pruebas; test 19 exigía `boot` en el `CMD` | 20 pruebas. Test 20 = **G-BOOT**; G4 fuera; G5 por el CLI en `import`; G2/G9 en `verify`; G3/G6/G8 en `import`; nuevo `verify` vacía ⇒ 2; nuevo «`boot` ya no es subcomando ⇒ 64» |
+| CI | — | Job **`boot-no-geo`** en `ci.yml` (candado + canario) y en el `needs` de `ci-ok` |
+
+**Interpretación mía, para el arquitecto (§81.5):** §19.25.4 dice que los modos siguen en `import`/`verify` y que «en
+producción una fila ajena o discrepante es alarma (sale 1, ⛔ no borra)». Lo aplico a **`verify`**. A `import`
+estricto lo dejo **reconciliando**, porque §19.24.5 y §19.24.2 lo nombran como *el* acto que corrige una ajena y que
+carga un catálogo nuevo; si `import` estricto tampoco borrara, una colonia que SEPOMEX retire no podría salir nunca.
+
+### 81.2 G-BOOT (`scripts/check-boot-no-geo.sh` + canario)
+
+Norma: §19.25.4 «candado nuevo» y §19.25.6 fila **G-BOOT**. Estático (sin red, sin Docker, sin node). Comprueba, con
+los comentarios fuera (documentar el porqué no lo pone rojo) y uniendo las continuaciones `\`:
+(A) hay `CMD` y ningún `CMD`/`ENTRYPOINT` nombra `import-sepomex`, `scripts/geo` ni `/opt/geo`; (B) ninguna
+instrucción de `Dockerfile.backend` los nombra (la imagen no los lleva); (C) `.dockerignore` excluye `scripts` y no
+reincluye `scripts/geo` ni `scripts` entero; (D) ni `railway.json` ni `docker-compose*.yml` arrancan el importador.
+Canario (`check-boot-no-geo-canary.sh`), determinista: prístino verde + **10 mutaciones en ROJO con su bloque** —
+incluida la del contrato, que repone el `CMD` de v1.80.12.4 **idéntico byte a byte** al de `976b0e97` (medido con
+`diff`)— + **1 verde** (un comentario que documenta el `boot` retirado): **12/12**. El test 20 de la prueba del
+importador repite la comprobación por su cuenta (dos implementaciones) y corre el candado sobre una copia con el `boot`
+repuesto, exigiendo rojo.
+
+### 81.3 Mediciones (2026-10-04, devops)
+
+- **Prueba con base** (`tcg_devops_geo2_sepomex`, PG local; el nombre lleva «sepomex» porque la prueba **se niega** a
+  vaciar una base que no lo lleve, y no aflojé esa guarda): **20/20**, 3 corridas sobre el árbol vivo (con el trabajo
+  de backend sin commitear en ese momento) y 1 sobre la copia de `011b5924`. Sin base: 14 pasan + 6 saltadas.
+- **Mutaciones** sobre copia `git archive 011b5924` (árbol entero), deterministas, N=1 cada una: **16/16 en ROJO en la
+  prueba esperada** — reponer `boot` en el `CMD` (canario del contrato) · `.dockerignore` reincluye `scripts/geo` ·
+  `boot` vuelve como subcomando · `verify` vacía sale 1 · `verify` lee el manifiesto antes de mirar si está vacía ·
+  G5 sin manifiesto pasa · G10 sin pisos · G6 hash después de parsear · G2 `verify` estricto tolera ajenas · G9 por
+  clave · G3 el arnés reconcilia · estricto solo inserta · estricto sin el `check` en la tx · arnés sin (1a) ·
+  G7 sin `COLLATE "C"` · sin salto a `DATABASE_PUBLIC_URL`.
+- **Candados** re-corridos en el árbol vivo tras el cambio, todos 0: `check-stripe-webhook-failclosed` (+ canario),
+  `check-compose-images` (+ canario 10/10), `check-workflow-cwd` (80 invocaciones; + canario 8/8),
+  `check-secret-defaults` (+ canario: reconstruye la imagen desde los `COPY` y extrae el `CMD`: «4 ficheros»),
+  `check-secret-masking` (+ canario 5/5), `check-ci-ok --static` (25 jobs) + canario 10/10, `check-skydropx-spend-lock`,
+  `check-secret-absence-wording`, `check-boot-no-geo` + canario 12/12.
+- **`docker build -f Dockerfile.backend`: NO MEDIDO.** Mismo bloqueo que §80.3 (`apk` ⇒ 403 del proxy de salida). El
+  cambio deja el `CMD` y las capas de geo como estaban antes de §80, que sí se construyeron y desplegaron; que el build
+  de hoy pase lo dicen los workflows que construyen la imagen al empujar (NO MEDIDO hasta entonces).
+- **Que el job `boot-no-geo` y el paso del importador pasen en GitHub: NO MEDIDO** hasta el push.
+
+### 81.4 Cómo se carga el catálogo (cuando exista el archivo; sin urgencia)
+
+Lo corre **el dueño, en su máquina, donde la credencial ya vive** (`CLAUDE.md`, «Secretos», segunda vía), con
+`cd backend && npm ci && npx prisma generate` hecho:
+
+```bash
+scripts/geo/import-sepomex.sh manifest --file CPdescarga.txt --out scripts/geo/sepomex.manifest.json   # sin base
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh import --file CPdescarga.txt --dry-run                                    # nada escrito
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh import --file CPdescarga.txt                                              # una tx: carga entero y pasa C-GEO-1, o ROLLBACK
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh verify --file CPdescarga.txt                                              # 0 cargado · 1 mal · 2 vacío
+```
+
+- ~~El manifiesto se commitea (no el archivo; §79.2, licencia NO MEDIDA).~~ **Superado 2026-10-07 (§92):** el dueño
+  decidió que el archivo va en el repositorio (`HECHOS.md`); viven ahí archivo, `.sha256` y manifiesto. ⛔ Ni descargar de SEPOMEX desde un script ni
+  de un origen no fijado. La app **no** necesita reiniciarse: lee la tabla en cada consulta.
+- El nombre del servicio y que `railway run` inyecte `DATABASE_PUBLIC_URL`: **NO MEDIDO** (§79.9).
+- **Condición de la ventana de esta release** (sustituye a 79.9 (a)(b)(c) y a §80.0; §19.25.5): el dueño hace una
+  compra con envío a domicilio **escribiendo la colonia a mano** (con la tabla vacía es el único camino) y, en
+  «Capturar guía», ve el aviso de revisión. §19.24.8 / §80.5 (Railway ante un arranque fallido) deja de ser
+  precondición por el catálogo; sigue NO MEDIDO y sigue importando para los otros `assert` del `CMD`.
+
+### 81.5 Para el arquitecto
+
+1. `import` estricto reconcilia (borra ajenas, corrige discrepantes) y `verify` estricto da la alarma sin borrar
+   (81.1). Si la intención de §19.25.4 era que `import` estricto tampoco borre, hace falta decir cómo sale del catálogo
+   una colonia que SEPOMEX retire.
+2. Códigos de salida: «no cumple» pasa de 3 a 1 (lo que dice §19.25.4) y «uso» de 2 a 64 para que 2 sea solo «vacía».
+
+### 81.6 Rollback
+
+`git revert 011b5924 e3ad5220`: vuelve el `boot` al `CMD`, la imagen vuelve a llevar `scripts/geo`, y **con ellos el
+bloqueo** (en Railway, sin manifiesto, la imagen no arranca: §80.0). El job `boot-no-geo` se va con el revert (si se
+revierte solo el código y no el job, G-BOOT se pone rojo, que es lo correcto). Datos: ninguno; este cambio no toca
+`PostalCode` ni migraciones.
+
+---
+
+## §82 · Skydropx fase D, errata v1.80.12.12 — la compra de punta a punta en la pila E2E con el doble (`SHIPPING_FAKE_PURCHASE`), candado (G) y el dueño en la siembra (2026-10-05, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.31.5` (la llave del doble; puntos 4 y 5) y `§19.31.11` (fila devops);
+PS-166 (e). Lo de backend (`isPurchaseKeyTurned`, el arranque que se niega con la llave mal puesta, el PDF del doble)
+es de backend y no está aquí.
+
+### 82.1 Qué quedó en el entorno
+
+| Dónde | Qué | Por qué |
+|---|---|---|
+| `scripts/stack-native.sh` (bloque «Envíos») | `export SHIPPING_FAKE_PURCHASE=true` **fijo**, junto a `export SHIPPING_PROVIDER_ADAPTER=fake` | El arnés de QA tiene que poder comprar contra el doble. Fija, como el adaptador (§19.31.5 (4): ⛔ sin `${…:-}` en la pila E2E) |
+| `docker-compose.staging.yml` (servicio `backend`) | `SHIPPING_FAKE_PURCHASE: "true"` **literal**, junto a `SHIPPING_PROVIDER_ADAPTER: fake` | La pila de `e2e-real.yml` y del DAST compra con el doble |
+| `docker-compose.yml` (dev, servicio `backend`) | `SHIPPING_FAKE_PURCHASE: ${SHIPPING_FAKE_PURCHASE:-}` | Vacía salvo que el dev la exporte. Si la exporta con un adaptador que no sea `fake`, el backend **no arranca** (PS-166 (b), de backend) |
+| `.env.example` (bloque «Envíos con Skydropx») | **una** línea `SHIPPING_FAKE_PURCHASE=` vacía, con su aviso | La plantilla dice que existe y que va vacía |
+| `.github/` | **0** apariciones | Los workflows levantan la pila por esos dos ficheros; una env propia en un workflow sería una segunda fuente |
+| `SKYDROPX_ALLOW_SPEND` | Sin cambio: en ningún fichero salvo `.env.example` vacía y el `unset` del arnés | PS-98/PS-99: la llave de gasto nunca acompaña al doble |
+
+*Por qué esto no debilita PS-99:* la llave del doble solo abre la compra con `kind = 'fake'`, donde «comprar» es
+escribir filas en la base de la pila (sin red, sin dinero). Con el adaptador real la llave **impide arrancar**, y
+`evaluateMutationGate` no la lee (§19.31.5, «por qué PS-99 no se debilita»).
+
+### 82.2 Candado (G) en `check-skydropx-spend-lock.sh` (+ canario)
+
+El contrato lo llama «candado (E)»; en el fichero la letra E ya era el catálogo de secretos, así que es el bloque
+**(G)**. Comprueba:
+
+- **(G.1)** `.github/` no nombra `SHIPPING_FAKE_PURCHASE` (ni comentada).
+- **(G.2)** En cada `docker-compose*.yml`, **por servicio**: si un servicio pone la llave con valor (literal o
+  `${…}` con respaldo no vacío), **ese mismo servicio** fija `SHIPPING_PROVIDER_ADAPTER: fake` literal. El único
+  pass-through admitido es `${SHIPPING_FAKE_PURCHASE:-}` (vacío), que el arranque del backend filtra.
+- **(G.3)** El resto de la infraestructura (`scripts/`, `security/` y los ficheros sueltos de la raíz: `Dockerfile*`,
+  `railway.json`, `vercel.json`…; con git, los ficheros versionados o nuevos no ignorados): si un fichero pone la
+  llave (sin contar comentarios ni `unset`), fija el adaptador a `fake` **y a nada más** (una línea buena no tapa una
+  que lo pise después).
+- **(G.4)** `.env.example`: una vez y vacía.
+- **(G.5)** En positivo: la pila E2E **sí** la gira (`"true"` literal en el servicio `backend` del compose de
+  staging; `export …=true` en el arnés nativo). Sin esto, los flujos F de compra de Playwright vuelven a quedarse en el
+  botón y nadie lo nota.
+
+Fuera de alcance, a propósito: `backend/` y `frontend/` (PS-166 (b) pone la llave con `skydropx` **adrede** para
+probar que el backend no arranca; ese censo es de backend, `test/skydropx.no-real-purchase.spec.ts`).
+
+**Canario:** 14 mutaciones nuevas del bloque (G): un workflow la pone; la pila E2E con adaptador `skydropx`; el
+compose dev con `"true"` y con `${…:-true}` (adaptador `${…}`); la llave en el servicio `frontend`; `.env.example` con
+`true`, sin la línea, repetida; un script que fija `fake` y luego lo pisa con `skydropx`; un script que la pone sin
+fijar el adaptador; `railway.json` con la llave; el arnés nativo con el adaptador `${…:-fake}`; la pila E2E y el arnés
+sin girarla. Medido 2026-10-05 en este árbol: **36/36** (prístino VERDE + 35 en ROJO nombrando su bloque).
+Determinista: una corrida por mutación.
+
+**Mutaciones del candado** (sobre una copia en el scratchpad, no sobre el árbol; 2026-10-05): (M1) el compose
+acepta cualquier adaptador como `fake` ⇒ canario 34/36; (M2) el bloque de infraestructura no mira si el adaptador
+se pisa ⇒ 35/36 (la primera versión del canario lo dejaba pasar: el caso solo tenía `skydropx`, y «sin fijar» ya lo
+ponía rojo; se rehízo con `fake` + `skydropx`); (M3) no se mira `.github/` ⇒ 35/36; (M4) un valor en compose no
+cuenta como «poner» ⇒ 33/36. Las cuatro, mordidas.
+
+### 82.3 El dueño en la pila E2E (§19.31.5 (5))
+
+**Medido 2026-10-05** con un Postgres 16 desechable (base vacía → `prisma migrate deploy` → `seed-e2e.ts`, el mismo
+orden que `stack-native.sh up --seed` y `e2e-real.yml`): la semilla deja **exactamente un** súper-admin
+(`admin@e2e.local`, de `prisma/e2e-fixtures.ts:21`) **con `isOwner = false`; nadie marcado**. El motivo: M-68
+marca al dueño **dentro de la migración**, y en una base nueva la migración corre **antes** de que el seed cree a
+nadie (0 candidatos ⇒ nadie). La frase «así M-68 lo marca» de §19.31.5 (5) no se cumple en la E2E.
+
+El contrato da la otra vía y es la que se tomó: **el arnés corre `prisma/set-owner.ts`** (el único escritor admitido
+además de M-68, censo `C-OWN-1`) con el correo del fixture, leído de `prisma/e2e-fixtures.ts` por `ts-node`
+(no copiado en el arnés):
+
+- `scripts/stack-native.sh` → `mark_owner`, tras `npm run seed:synthetic` (solo con `--seed`).
+- `.github/workflows/e2e-real.yml` → paso «Seed sintético», tras el seed, dentro del contenedor `backend`.
+- `.github/workflows/e2e.yml` **no** se tocó: su job corre la integración de jest, que siembra lo suyo; no levanta
+  la UI contra la pila.
+
+Medido en el mismo Postgres: `set-owner` ⇒ `dueño marcado … (antes: nadie)`, `admin@e2e.local | t` y una fila
+`user.owner_set {actor:'script:set-owner', previousOwnerUserId:null}`; **re-siembra** ⇒ la marca sobrevive (el
+`update` del upsert no toca `isOwner`) y un segundo `set-owner` ⇒ `sin cambios`. Se probaron la función
+`mark_owner` extraída del arnés y la línea del workflow (con `sh`, la ruta de `node_modules/.bin` cambiada a la
+local). **NO MEDIDO:** la línea dentro del contenedor real de `e2e-real.yml` (lo mide la primera corrida del
+workflow). Si `set-owner` se niega, el paso falla en ruido (mejor que un `403` lejano en la prueba de compra).
+
+### 82.4 ⛔ Comprobación en CADA despliegue a producción: Railway sin el doble
+
+El candado del repo no ve el panel de Railway. Un `SHIPPING_PROVIDER_ADAPTER=fake` **con**
+`SHIPPING_FAKE_PURCHASE=true` en producción «compraría» guías falsas: sin dinero, pero con números de rastreo falsos
+al cliente (§19.31.5, *Residuo*). Antes de fusionar `main → production` (y en la solicitud de fusión, como paso del
+dueño):
+
+1. Railway → servicio del backend → entorno **production** → *Variables*.
+2. **`SHIPPING_FAKE_PURCHASE` no existe.** Si existe (con cualquier valor), se borra antes de fusionar.
+3. **`SHIPPING_PROVIDER_ADAPTER` no existe o vale `skydropx`.** Nunca `fake`.
+
+Quién la hace: **el dueño** (o un usuario de Railway de solo lectura creado para eso). ⛔ No se piden credenciales
+ni se pegan variables por chat. Por CLI, si el dueño la prefiere, es leer solo esos dos nombres con
+`railway variables` en el entorno `production` filtrando por `SHIPPING_` (la forma exacta del comando: **NO
+MEDIDO**, no hay CLI de Railway en este contenedor). Si el backend ve la llave con `skydropx` no arranca
+(PS-166 (b)), así que la combinación peligrosa es solo `fake` + llave; `fake` sin llave deja el Fake sin poder comprar,
+pero igualmente **no** es producción: es un error de configuración que se corrige.
+
+### 82.5 Mediciones de este cambio (2026-10-05, en el árbol)
+
+- `check-skydropx-spend-lock.sh` ⇒ VERDE (bloques A–G).
+- `check-skydropx-spend-lock-canary.sh` ⇒ **36/36**.
+- `check-secret-defaults.sh` ⇒ VERDE; el manifiesto `security/secretos-publicados.sha256` **no cambia** (ningún
+  valor nuevo con forma de secreto: `true` y `fake` no son nombres de secreto).
+- `check-secret-defaults-canary.sh` ⇒ **70/70**; `check-secret-masking.sh` ⇒ 6/6; su canario ⇒ 5/5.
+- `check-ci-ok.sh --static` ⇒ estática OK (25 jobs, 24 en `needs`, 4 opcionales; el job del candado ya estaba).
+- `gitleaks` 8.30.1 (la versión que fija `security-sast.yml`), descargado al scratchpad, sobre el commit de esta
+  sección (`e0a7ddfc`, `gitleaks git --log-opts=HEAD~1..HEAD` con `security/gitleaks.toml`) ⇒ **no leaks found**.
+
+### 82.6 Rollback
+
+`git revert` del commit de esta sección: quita la llave del doble de la pila E2E (vuelve `409 {missing:['allow_spend']}`
+en `label`), el bloque (G) y sus 14 casos de canario, y el `set-owner` del arnés. Datos: ninguno en producción; en la
+base de la pila E2E queda la marca `isOwner` del admin del fixture, que es inocua.
+
+
+## §83 · Gate de QA sobre `31af0883`: censo E2E (B-1) y el paso M-64 rojo siempre en CI (I-1) (2026-10-05, rama `claude/skydropx-d`)
+
+**B-1 · censo E2E.** `frontend/e2e/shipping-alerts.spec.ts` (`3d0238f0`) sumó `mockOnly` **135/27 → 138/28**
+(2 llamadas + el import; el método `grep -rwo` cuenta los tres, como en el resto de ficheros). Los dos son
+legítimos: el selector «Ver como» solo se renderiza con `canSwitchRole` (`AdminTopbar.tsx:41-43`, modo demo) y la
+lista con `alert=true` sale del servidor falso. Baseline regenerada con `--update --motivo` (motivo en la línea 3;
+el de `precios-s5` del 2026-10-04 sigue en `git log -p scripts/e2e-skip-census.baseline`). **Salida pendiente,
+dueño frontend:** un spec `@real` aparte con súper-admin y operador reales sobre `/admin/m4?tab=envios&alert=true`.
+Medido: gate rc=0; canario **14/14 en 3/3**.
+
+**I-1 · «la prueba con base se saltó» (job `backend`, paso M-64).** Causa **medida**: no faltaba base ni variable.
+El job usa **Node 24**; desde Node 23 el reporter por defecto de `node:test` es `spec` también sin TTY y el
+resumen sale `ℹ skipped N`, no `# skipped N`. El `grep '^# skipped 0$'` no podía casar nunca ⇒ rojo en **cada**
+corrida desde que el paso existe (en `origin/main` no hay paso M-64: «verde en main» no medía nada de esto). En
+local QA vio `# skipped 0` porque el entorno tiene Node 22.
+
+| Medición (2026-10-05, misma prueba sin base) | Resumen |
+|---|---|
+| Node 22.22.2 (`/opt/node22`) | `# skipped 6` |
+| Node 24.21.0 (tarball oficial, sha256 verificado contra `SHASUMS256.txt`) | `ℹ skipped 6` |
+| Node 24.21.0 + `NODE_OPTIONS=--test-reporter=tap` | `# skipped 6` |
+
+**Arreglo** (`ci.yml`, solo el paso): reporter TAP forzado por `NODE_OPTIONS` y un control previo que exige
+`# tests N≥1` — así «formato desconocido» y «se saltó» son errores distintos. Canario de la lógica del paso:
+Node 24+TAP sin base ⇒ «se saltó» **3/3**; Node 24 sin TAP (la configuración anterior) ⇒ «formato»; salida
+sintética `# skipped 0` ⇒ verde; `# tests 0` ⇒ «formato». **NO MEDIDO en local:** la parte con base bajo Node 24
+(no tengo base dedicada propia); la medición que lo cierra es el job `backend` en CI tras el push de este cambio.
+
+## §84 · Cupo diario de Vercel agotado (`api-deployments-free-per-day`) — `git.deploymentEnabled` para que `claude/*` NO cree despliegues (2026-10-05, rama `claude/hotfix-texto-sellado`, PR #71)
+
+> **Renumerada en la fusión con `claude/arreglos-panel` (2026-10-05, orquestador, rama `claude/precio-sellado`):** en la
+> rama `claude/hotfix-texto-sellado` (PR #71) esta sección es la **§78**; el panel trae su propia §78 (Skydropx D0) hasta la
+> §83. Las referencias «`DEVOPS_NOTES §78`» de `ci.yml`, `scripts/check-vercel-deploy-branches*.sh`,
+> `scripts/vercel-ignore-build.sh` y `frontend/vercel.json` apuntan **aquí, a §84**. Contenido sin cambios salvo esos números.
+
+### 84.1 El síntoma y la causa (MEDIDO, 2026-10-05)
+
+- Estado `Vercel` = `failure` «Deployment rate limited — retry in 24 hours» en las cabezas de
+  `claude/precio-sellado` (03:11 UTC), `claude/arreglos-panel`, `claude/skydropx-d` y
+  `claude/hotfix-texto-sellado` (03:19). Comentario de Vercel en la PR #71 (03:26): «Resource is limited -
+  try again in 24 hours (more than 100, code: "api-deployments-free-per-day")».
+  *Comando:* `gh api repos/jcsainz95-cloud/tcg-vault-mx/commits/<sha>/statuses` y `…/issues/71/comments`.
+- **104 pushes en las 24 h previas** al primer corte (2026-10-04T03:20 → 2026-10-05T03:20), de la API de
+  eventos de GitHub (`…/events`, `PushEvent`): **101 a `claude/*`** (42 `skydropx-d`, 20 `precios-s5`,
+  15 `arreglos-panel`, 14 `staff-sin-correo`, …), **3 a `production`**, 0 a `main`.
+- **El *Ignored Build Step* cancela, pero el despliegue se CREA:** cada cabeza `claude/*` desde el
+  2026-09-10 tiene dos estados `Vercel`: «Vercel is deploying your app» y, segundos después, «Canceled by
+  Ignored Build Step». Es un despliegue creado ⇒ cuenta para el cupo (la cuenta exacta que hace Vercel:
+  **NO MEDIDO**, pero 104 > 100 coincide con el corte).
+- **Consecuencia:** con el cupo agotado, un push a `production` tampoco se publica hasta que pase la ventana.
+
+### 84.2 La palanca: `git.deploymentEnabled` (MEDIDO en el paquete oficial, no en vercel.com)
+
+`vercel.com/docs` y `openapi.vercel.sh` dan **403 al CONNECT** desde este entorno (medido hoy). Fuente usada:
+el paquete npm **`@vercel/config@0.9.0`** (publicado por Vercel, repo `vercel/vercel`, `packages/config`),
+`dist/types.d.ts`:
+
+```ts
+export interface GitDeploymentConfig { [branch: string]: boolean; }
+export interface GitConfig {
+    /** Specifies the branches that will not trigger an auto-deployment when committing to them.
+     *  Any non specified branch is `true` by default. */
+    deploymentEnabled?: boolean | GitDeploymentConfig;
+```
+
+y `dist/utils/validation.js` lo valida como campo estático «boolean or object with branch booleans».
+Es decir: la rama a `false` **no dispara** el auto-despliegue (no se crea, no solo se cancela), y toda rama
+no listada es `true` ⇒ `main` y `production` despliegan aunque no se nombren. Igualmente las nombramos
+`true` de forma explícita y el candado lo exige.
+
+Configuración puesta (idéntica en `vercel.json` y `scripts/vercel.frontend-root.json`):
+
+```json
+{
+  "git": { "deploymentEnabled": { "main": true, "production": true, "claude/*": false } },
+  "ignoreCommand": "case \"${VERCEL_GIT_COMMIT_REF:-main}\" in main|production) exit 1 ;; *) exit 0 ;; esac"
+}
+```
+
+El `ignoreCommand` se queda como **segunda capa** (§40): si una rama no casa el patrón, se sigue cancelando.
+
+### 84.3 ⚠️ DÓNDE lo lee Vercel: la raíz es INERTE — hace falta `frontend/vercel.json` (rol frontend)
+
+- **No hay `package.json` en la raíz** (`ls package.json` → no existe; sí `frontend/package.json`) y los
+  despliegues de `production` terminan bien ⇒ el *Root Directory* del proyecto es `frontend` (coincide con
+  §6.1/§11.A/HANDOFF.md:44).
+- **MEDIDO en `vercel@62.2.0` (CLI oficial):** con *Root Directory* puesto, la configuración se lee de
+  `join(cwd, rootDirectory)` y, si solo hay `vercel.json` en la raíz, la CLI avisa literalmente
+  «The vercel.json file should be inside of the provided root directory».
+- **Conclusión:** el `vercel.json` de la raíz **no lo lee Vercel hoy** (igual que ya decía §40.4). Las
+  cancelaciones «Canceled by Ignored Build Step» que se ven vienen, casi seguro, del **campo del panel**
+  (HANDOFF.md:120 pidió ponerlo) — **NO MEDIDO** cuál de las dos fuentes es: lo cierra el dueño mirando el
+  panel (§84.6, paso 1).
+- **Por tanto, el freno de cupo solo se activa cuando exista `frontend/vercel.json`** con este contenido.
+  Esa ruta es del **rol frontend** (CLAUDE.md); devops no la escribe. Contenido exacto, sin transcribir:
+
+  ```sh
+  cp scripts/vercel.frontend-root.json frontend/vercel.json
+  ```
+
+  Si `frontend/vercel.json` ya existiera con otras claves (p. ej. las redirecciones de §25.7), se **añaden**
+  `git` e `ignoreCommand`; no se sustituye. El candado admite claves extra.
+- **Por rama:** Vercel lee la configuración **del commit que despliega** (no hay otra copia de la que leer;
+  la forma exacta en que la integración de Git la consulta antes de crear el despliegue: **NO MEDIDO**).
+  Así que el ajuste tiene que estar **en el árbol de cada rama `claude/*` que reciba pushes**. Las ramas
+  nuevas que salgan de `main`/`production` después de la fusión lo heredan; las vivas hay que tocarlas.
+
+### 84.4 Lo MEDIDO frente a lo NO MEDIDO
+
+| Afirmación | Estado |
+|---|---|
+| 104 pushes/24 h, 101 a `claude/*`; corte a partir de 03:11 UTC | **MEDIDO** (API de eventos y estados de GitHub) |
+| El *Ignored Build Step* crea y luego cancela (2 estados por sha) | **MEDIDO** (estados `Vercel` en las cabezas) |
+| `git.deploymentEnabled` existe, admite objeto rama→booleano y no listadas = `true` | **MEDIDO** (`@vercel/config@0.9.0`) |
+| Vercel lee `vercel.json` del *Root Directory* (`frontend/`), no de la raíz | **MEDIDO en la CLI** `vercel@62.2.0`; en la integración de Git, **NO MEDIDO** |
+| Los patrones glob (`claude/*`) funcionan en las claves | **NO MEDIDO** (de memoria: la doc dice que sí, con minimatch). Si no funcionaran, `claude/*` no casaría nada ⇒ todo sigue como hoy (falla hacia «se despliega»), nunca hacia «producción congelada» |
+| Una rama a `false` no consume cupo `api-deployments-free-per-day` | **NO MEDIDO** (se deduce: no se crea despliegue) |
+| Qué fuente cancela hoy (panel vs. fichero) | **NO MEDIDO** — §84.6 paso 1 |
+
+**Comprobación que cierra los NO MEDIDO** (tras fusionar con `frontend/vercel.json`, y en una rama que lo
+tenga): push trivial a esa rama `claude/*` y, a los 2 min,
+`gh api repos/jcsainz95-cloud/tcg-vault-mx/commits/<sha>/statuses --jq '[.[]|select(.context=="Vercel")]|length'`
+debe dar **0** (hoy da 2). Después, push a `main` y comprobar que **sí** aparece «Deployment has completed».
+**Las dos, en ese orden**: la segunda es la que protege producción.
+
+### 84.5 El candado: `scripts/check-vercel-deploy-branches.sh` (+ canario), cableado en `ci.yml`
+
+Job `vercel-deploy-branches` (en el `needs` de `ci-ok`). Comprueba en `vercel.json`,
+`scripts/vercel.frontend-root.json` y `frontend/vercel.json` (si existe): `deploymentEnabled` no es `false`;
+`main` y `production` explícitas y `true`; todo patrón `false` empieza por segmento literal + `/` distinto de
+`main`/`production` **y** no casa ninguna de las dos con la semántica de glob más permisiva; `ignoreCommand`
+presente y, ejecutado con `sh`, da los cinco casos del §40.3; y las copias no divergen.
+
+Medido 2026-10-05 sobre este árbol: candado **rc=0**; canario **14/14 casos correctos, cada uno 3/3**
+(`production`/`main` a `false`, `deploymentEnabled=false`, `"*"`, `"**"`, `"prod*"`, `production` omitida,
+sin `ignoreCommand`, signo del `ignoreCommand` al revés, `frontend/vercel.json` con `production=false`,
+copias divergentes, JSON inválido ⇒ ROJO; config tal cual y `frontend/vercel.json`+`redirects` ⇒ VERDE).
+También verdes: `vercel-ignore-build.sh --self-test`, `check-ci-ok.sh --static`, `check-ci-ok-canary.sh`,
+`check-workflow-cwd.sh`.
+
+### 84.6 Lo que hace el dueño en el panel de Vercel (sin credenciales para nadie)
+
+1. **Mirar (solo lectura), para cerrar el NO MEDIDO de §84.3:** proyecto `tcg-vault-mx` →
+   **Settings → Build and Deployment** (en paneles viejos: *General*) → **Root Directory**: ¿dice `frontend`?
+   Y **Settings → Git → Ignored Build Step**: ¿tiene el one-liner del §40.8-B? **No borrarlo**: hoy es,
+   probablemente, lo único que cancela las ramas.
+2. **Nada que cambiar para el cupo:** no hay en el panel un equivalente por rama de `git.deploymentEnabled`
+   que yo haya podido medir (**NO MEDIDO**). El freno vive en `frontend/vercel.json`.
+3. **El cupo se libera solo:** Vercel dice «try again in 24 hours». Si `production` recibe un push mientras
+   dura el corte, ese push **no se publica**: cuando pase la ventana, **Deployments → Create Deployment**
+   (o *Redeploy* sobre el último de `production`) eligiendo la rama `production`, y comprobar que el
+   despliegue *Production* termina en *Ready*. Más simple: **fusionar la PR después** de que pase la ventana.
+
+### 84.7 Rollback
+
+- Fichero: quitar la clave `git` de `frontend/vercel.json` (o `git revert` del commit) y desplegar. Vuelve
+  el comportamiento de §40 (crear y cancelar). `vercel.json` de la raíz: inerte, revertir no cambia nada.
+- **Comprobación tras revertir:** push trivial a `main` ⇒ aparece despliegue nuevo. El modo de fallo es
+  silencioso; no se da por hecho.
+
+---
+
+## §85 · Listo para dinero real — la parte de devops: LIVE-3 · 9 · 10 · 11 · 13 · 16, y el 403 del almacén local (2026-10-05, rama `claude/listo-real`)
+
+> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión: esta sección era la **§83** en la rama `claude/listo-real`; se renumera a **§85** porque §83 ya la publicó `claude/skydropx-d` (gate de QA sobre `31af0883`). Sus autorreferencias se actualizaron; las citas externas «§83» que vienen de `claude/listo-real` apuntan aquí.)*
+
+> Norma: `API_CONTRACT §14` (rev v1.84), porqué en `ARCHITECTURE §4.63`. Escrito sobre `2fe1cea1`; todo lo
+> medido aquí se midió el 2026-10-05 en `/home/user/tcg-real` (local, **sin** producción: el proxy de este
+> entorno responde `403 CONNECT` a `tcghunt.mx` y a `…up.railway.app`, medido con `curl` ese día).
+> Numeración: §78 la usa `claude/hotfix-texto-sellado` y §78–§82 `claude/skydropx-d`; esta sección es **§83**.
+
+### 85.1 · LIVE-3 (parte devops) — la pareja `CSP_MODE` ↔ ZAP 10038/10055
+
+- `security/zap/baseline.conf`: 10038 y 10055 **siguen en WARN** (fase `report-only`). Comentario nuevo encima.
+  Suben a **FAIL en el mismo cambio** que ponga `CSP_MODE = 'enforce'` en `frontend/src/security/csp.ts` (§14.3).
+- Candado `scripts/check-csp-zap-parity.sh` (job `live-candados` de `ci.yml`): `enforce` sin las dos en FAIL ⇒ rojo;
+  `report-only` con alguna en FAIL ⇒ rojo (ZAP no cuenta la `-Report-Only` y el DAST de release se pondría rojo por un
+  hallazgo esperado); constante no literal ⇒ rc 2; sin `csp.ts` ⇒ «no aplica todavía». Medido hoy contra el `csp.ts`
+  que está escribiendo frontend (sin commitear): `CSP_MODE=report-only · 10038=WARN · 10055=WARN` ⇒ rc 0.
+- Canario `check-csp-zap-parity-canary.sh`: **8/8**, con mutación «enforce sin exigir FAIL» cazada.
+- `.env.example`: `NEXT_PUBLIC_UPLOAD_ORIGIN=` (público; sin valor ⇒ comodín de R2 del contrato). Valor de producción
+  **NO MEDIDO** (lo revela la fase Report-Only).
+
+### 85.2 · LIVE-9 — vigía de disponibilidad (`.github/workflows/uptime-watch.yml`)
+
+- Cada 10 min: `GET` a la home (sigue hasta 5 redirecciones) y a `/api/v1/health` (200, `status: ok`, y `stripeMode`
+  = variable `EXPECTED_STRIPE_MODE` si existe). Cada comprobación se reintenta 3 veces (20 s) antes de llamarla roja.
+  Con rojo abre **un** issue `[caída] …` con label `caida` (GitHub manda correo al dueño); con verde y el issue abierto,
+  comenta «recuperado» y lo cierra. No comenta en cada corrida roja (un correo por incidente).
+- Herramienta `scripts/uptime-watch.sh` (solo GET, solo https, rc 0/1/2). Canario `check-uptime-watch-canary.sh`:
+  **13/13** contra un servidor de mentira (home 500, salud 503, salud sin `stripeMode`, `stripeMode` distinto, no-JSON,
+  conexión rechazada, redirección de idioma, parpadeo absorbido por el reintento) + 2 mutaciones cazadas. Corre en el
+  job `autoprueba` antes de cada vigilancia y en `live-candados`.
+- **Carga sobre producción:** ≈ 288 GET/día (2 cada 10 min). `/health` es `@SkipThrottle`. Nada escribe.
+- **Límites de GitHub (declarados):** los `schedule` solo corren desde `main` (el vigía empieza cuando esto llegue a
+  `main`); GitHub los retrasa en horas de carga (frecuencia real **NO MEDIDA**); y los **desactiva tras 60 días sin
+  actividad** en un repo público (se reactivan en Actions → Uptime Watch → Enable). Un run rojo también puede mandar el
+  correo estándar de «workflow failed» de GitHub a quien editó el cron por última vez; si molesta, se apaga en
+  *Settings → Notifications → Actions* sin perder el issue.
+- **URLs:** variables de repositorio opcionales `UPTIME_SITE_URL` (def. `https://tcghunt.mx/`) y `UPTIME_HEALTH_URL`
+  (def. `https://tcg-vault-mx-production.up.railway.app/api/v1/health`, el dominio de §23.2; vigente hoy **NO MEDIDO**
+  desde aquí — si cambió, el vigía se pone rojo y lo dice).
+- **`EXPECTED_STRIPE_MODE`** (variable de repositorio, no secreta): `test` ahora; `live` en el paso 8 de §85.7. Sin
+  ella el run emite `::notice:: stripeMode NO comparado` y no finge verde de ese punto. ⚠️ Hasta que el backend
+  publique LIVE-7, la salud no trae `stripeMode`: con la variable puesta el vigía saldría rojo «(ausente)». **Ponerla
+  después** de que LIVE-7 esté en producción.
+- **Rollback:** borrar `.github/workflows/uptime-watch.yml` (o *Disable workflow* en Actions). Nada más depende de él.
+
+### 85.3 · LIVE-10 — DAST `full` como puerta previa a la solicitud de fusión
+
+- `security-dast.yml`: (a) `run-name` con `perfil=`, `ref=` y ` · report_only` para leer la lista de runs; (b) paso
+  nuevo **«Sello del barrido (LIVE-10)»** tras el candado: anotación `notice` con título `DAST-SELLO` y mensaje
+  `sha=<sha escaneado> perfil=<full|baseline> report_only=<0|1> blocking=<true|false|vacío> gate=<outcome>`.
+- `scripts/check-candidate-checks.sh --exige-dast-full <sha>`: además de los check-runs del commit, exige un run verde de
+  `security-dast.yml` cuyo job «DAST contra el stack efímero» salió `success` y cuyo sello es **exactamente**
+  `sha=<ESTE sha> perfil=full report_only=0 blocking=false gate=success`. Imprime la URL para citarla. rc nuevo **4** =
+  «no hay DAST full sellado» (distinto de rc 2 «no pude leer»). El sello se lee de las **anotaciones** (API de
+  check-runs), no del título: un `ref` de rama no dice qué commit se escaneó.
+- Canario C5 ampliado: **26/26** (12 casos nuevos: baseline, report_only con hallazgos, `blocking` vacío, otro sha, job
+  no-success, sin sello, sin runs, respuesta no-JSON ⇒ rc 2, rojo + DAST bueno ⇒ rc 1, sin la opción ⇒ conducta de
+  siempre; mutación «solo mirar el sha» cazada). `check-dast-gate-live.sh` y `check-provenance-gate.sh` siguen en rc 0.
+- **Procedimiento de release:** Actions → «DAST (stack efímero de CI)» → *Run workflow* en `main` con `ref=<sha
+  candidato>`, `scan_profile=full`, `report_only=false` ⇒ cuando acabe, `GITHUB_TOKEN=… ./scripts/check-candidate-checks.sh
+  --exige-dast-full <sha>` ⇒ rc 0 ⇒ pegar la URL en la solicitud `main → production`.
+- ⚠️ El sello solo existe en runs **posteriores** a este cambio (cuando `security-dast.yml` llegue a la rama desde la
+  que se dispara). Ningún run anterior cuenta. **NO MEDIDO** contra la API real: el proxy de esta sesión niega
+  `actions/*` (`403 Access to this GitHub Actions path is not permitted`). Lo cierra la primera ejecución real.
+- **Rollback:** revertir; sin `--exige-dast-full` el script se comporta como antes (caso del canario).
+
+### 85.4 · LIVE-11 — C6: la sonda daba **falso cierre**, corregida
+
+**Hallazgo (devops, medido 2026-10-05).** `edge-xff-probe.sh` mandaba los 6 logins con **el mismo** correo. Desde C7
+(v1.80) existe un segundo tope **por cuenta**: `PASSWORD_FREE_ATTEMPTS = 5`
+(`backend/src/modules/auth/password-attempts.constants.ts:11`); el 5.º fallo pone un candado de 60 s y el 6.º intento
+es `429 TOO_MANY_PASSWORD_ATTEMPTS` **venga de la IP que venga**. La sonda leía «6.º = 429» como «el tope por IP
+cuenta por la IP del borde» ⇒ **«C6 CIERRA» aunque el bypass existiera**. Medido con la sonda de `HEAD` contra un
+backend de mentira que deja elegir la IP por `X-Forwarded-For` y tiene el candado de cuenta: **«C6 CIERRA» 3/3**
+(log `orig-*.log`). C6 nunca se había corrido en producción (§58.3 sigue con el hueco del resultado), así que no hay
+ningún cierre falso registrado — pero el primero lo habría sido.
+
+**Arreglo** (`scripts/edge-xff-probe.sh`): un correo `@example.invalid` **distinto por petición** (ninguna cuenta
+llega a 5 ⇒ no hay candado, ni correo de aviso, ni bitácora); un 429 solo cuenta si `error.code = RATE_LIMITED`
+(`TOO_MANY_PASSWORD_ATTEMPTS` ⇒ rc 2 «sonda contaminada»); pausa de 65 s entre rondas si hay más de una.
+
+**Presupuesto: el autorizado.** El dueño autorizó **6 intentos fallidos** para C6 (`HECHOS.md`, fila 2026-10-05
+«Listo para dinero real — respuestas del dueño», P-7/P-9). Por eso el valor por defecto es **una ronda = 6
+peticiones**. Si el 6.º es `429 RATE_LIMITED`, C6 cierra: ese código solo lo pone el tope por IP, así que no hace
+falta control. Si rotando XFF **no** hay ningún 429, la sonda **para con rc 2** y pide autorización para **6 más**
+(`--with-control`: 6 peticiones sin XFF propio que tienen que dar 429 `RATE_LIMITED`); sin ese control, «nunca 429»
+no distingue un bypass de un tope apagado. Rondas extra (`--rounds N`) también exigen autorización nueva. ⚠️ Con una
+sola ronda la proporción es **1/1**: un cierre con N=1 (O-3) — suficiente para un tope determinista con un solo nodo
+de borde; con varios nodos de borde (NO MEDIDO) haría falta más N.
+
+Canario `check-edge-xff-probe-canary.sh` (N=3 por caso): borde que fija la IP ⇒ rc 0 con **6 peticiones** **3/3**;
+borde que deja elegirla sin control ⇒ rc 2 «hace falta autorización» **3/3**; con `--with-control` ⇒ rc 1 «C6 FALLA»
+**3/3**; sin tope por IP ⇒ rc 2 **3/3**; 3 rondas ⇒ rc 0 **3/3**; guarda de host local; mutación «un solo correo» ⇒
+deja de dar «FALLA» **3/3** (sale rc 2); mutación «forma de antes» (un correo + cualquier 429) ⇒ **rc 0 «CIERRA»
+3/3**, que es el falso cierre.
+
+**Ventana (con el permiso ya dado por el dueño; la corre el agente de pruebas, no yo):**
+```
+TARGET_BASE_URL='https://<host-del-backend-de-produccion>' ./scripts/edge-xff-probe.sh --i-have-a-window
+```
+
+**Desde un runner de GitHub (2026-10-10, §96.3).** El contenedor de los agentes no llega a producción (403 CONNECT,
+re-medido 2026-10-10 con `curl` a js.stripe.com/api.stripe.com: mismo 403 de política). Workflow
+`.github/workflows/edge-xff-probe.yml`, **solo a mano** y con la frase `C6-6-INTENTOS`; corre la sonda con sus valores
+por defecto (1 ronda = 6 peticiones, sin control) — el presupuesto que autorizó el dueño, sin input para ampliarlo:
+```
+gh workflow run edge-xff-probe.yml --ref <rama-con-el-workflow> -f confirmar=C6-6-INTENTOS
+#  objetivo por defecto: vars.C6_TARGET_BASE_URL o https://tcg-vault-mx-production.up.railway.app (§23.2)
+```
+Sin secretos; el resultado sale en el resumen del run. **Cada corrida gasta 6 intentos: no repetir sin autorización.**
+
+> **[RESULTADO C6 — run `38074439305`, 2026-10-10 ~18:06 UTC, sha `00535194`, objetivo por defecto
+> `https://tcg-vault-mx-production.up.railway.app`]: rc = 2 → NO CONCLUYENTE.** El workflow corrió bien (canario
+> `success`; confirmación `C6-6-INTENTOS` `success`; checkout `success`); el único paso rojo fue «C6 contra producción»,
+> cuyo exit code = rc del script (`exit "$rc"`) = **2** (anotación del check-run: «Process completed with exit code 2»).
+> rc 2 = la sonda NO cerró (no es rc 0 «C6 CIERRA») y NO halló el bypass (no es rc 1 «C6 FALLA»); tampoco es un fallo
+> del workflow. **Los 6 intentos autorizados (HECHOS.md P-9) SÍ se gastaron:** las 6 peticiones se envían en el bucle
+> `for i in 1..6` ANTES de clasificar, así que cualquier rama de rc 2 ocurre con las 6 ya enviadas. **La rama exacta de
+> rc 2 queda NO MEDIDA:** el texto de la sonda (c6.log) solo vive en el resumen del run y en el blob de Azure de los
+> logs, que el proxy de egreso de este contenedor bloquea con 403 de política (`productionresultssa19.blob.core.windows.net`,
+> re-medido 2026-10-10); no se reintenta una denegación de política. Las tres ramas posibles de rc 2: (a) rotando XFF no
+> hubo NINGÚN 429 ⇒ la sonda pide `--with-control` y otra autorización de 6 (la salida esperada por diseño); (b) `CUENTA`
+> — salió un 429 `TOO_MANY_PASSWORD_ATTEMPTS` (sonda contaminada; improbable porque cada petición usa un correo único);
+> (c) `RARO` — respuestas inesperadas (URL/path). ⛔ **NO re-disparar sin nueva autorización del dueño: otra corrida gasta
+> otros 6 intentos.** Para leer la rama exacta sin el proxy: abrir el resumen del run en la web de GitHub (Actions → run
+> `38074439305` → job «sonda»). C6 sigue **abierto** (§58.3).
+
+### 85.5 · LIVE-13 — respaldos y simulacro de restauración (`scripts/restore-drill-verify.sh`)
+
+**Estado:** que los respaldos de Railway estén **activados**: NO MEDIDO (lo ve el dueño, §14.11 paso 1). Restauración
+probada contra producción: **ninguna todavía**. Instrumento: **escrito y probado en local**.
+
+**Qué hace.** `--snapshot` (solo lectura) saca una foto de control: filas de **cada** tabla de `public`,
+`SUM("totalCents")` y filas de `Order` por estado, `PaymentRefund` y `ManualRefund` por estado, última migración y
+cuántas hay. Con `--dump FICHERO` hace además el `pg_dump -Fc` **dentro del mismo snapshot** de la base
+(`pg_export_snapshot` + `pg_dump --snapshot`), así foto y volcado describen el mismo instante aunque la tienda venda.
+`--restore` hace `pg_restore` y **se niega si la base de destino tiene alguna tabla** (producción nunca está vacía).
+`--verify` toma la misma foto en la restaurada y compara; rc 0 solo si todo cuadra; imprime la antigüedad (RPO).
+`--target` obligatorio y cruzado con el host; `--target prod` no restaura ni verifica. Nunca imprime el URL ni el host
+(solo una huella sha256 de 8 hex).
+
+**Medido en local (2026-10-05, Postgres 16, base sembrada con `seed-e2e.ts`, 51 migraciones, 44 tablas):**
+- foto + volcado (184 KB, 0 s) ⇒ restaurar en base vacía (2 s) ⇒ `--verify` **49/49 líneas cuadran**, rc 0;
+- 3 mutaciones sobre la restaurada (un centavo en `Order.totalCents`, una `ManualRefund` menos, una migración menos):
+  **3/3 rc 1**, cada una nombrando su línea; tras re-restaurar, verde otra vez;
+- restaurar encima de la base de origen (44 tablas) ⇒ **rc 2, se niega**; `--verify --target prod` ⇒ rc 2;
+- **por qué el snapshot compartido:** con un escritor concurrente actualizando `Order` (N=5): foto+volcado
+  compartidos **cuadran 5/5**; foto y `pg_dump` separados **cuadran 0/5**.
+- Canario sin base para CI `check-restore-drill-canary.sh`: **16/16** (mutación «siempre cuadra» cazada).
+
+**Procedimiento del simulacro (lo corre el dueño en SU terminal; ⛔ ningún valor por chat):**
+1. *Railway → Postgres → Backups*: activar diario (y semanal si lo hay); captura con la fecha del último. Guardar
+   `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` y `JWT_*` en su gestor de contraseñas (sin ellas la CLABE/RFC del respaldo es
+   **irrecuperable**).
+2. En su terminal, con la conexión **pública** de Railway (mejor un usuario de solo lectura):
+   ```
+   DATABASE_URL='…' ./scripts/restore-drill-verify.sh --snapshot --target prod --out foto.tsv --dump respaldo.dump
+   ```
+   ⚠️ `pg_dump` tiene que ser **de la misma versión mayor o mayor** que el Postgres de Railway (versión del servidor:
+   NO MEDIDA; si no cuadra, `pg_dump` lo dice y el script no escribe nada).
+3. Crear una base **nueva y vacía** que no sea producción (entorno temporal de Railway o Postgres en su máquina) y:
+   ```
+   DATABASE_URL='<base temporal>' ./scripts/restore-drill-verify.sh --restore respaldo.dump --target drill
+   DATABASE_URL='<base temporal>' ./scripts/restore-drill-verify.sh --verify foto.tsv --target drill
+   ```
+4. Anotar abajo: fecha, duración de cada paso (RTO = crear base + restaurar + cambiar conexión), antigüedad del
+   respaldo (RPO), y el rc del `--verify`. Borrar la base temporal. `respaldo.dump` y `foto.tsv` ⇒ disco cifrado;
+   ⛔ nunca al repo ni a un artefacto de Actions.
+5. Objetivo por defecto (§14.11.5): **RPO ≤ 24 h, RTO ≤ 2 h**. Lo cobrado entre respaldo y caída se reconcilia
+   contra el panel de Stripe.
+
+> **[SIMULACRO EN PRODUCCIÓN — fecha · duración volcado/restauración · RPO · rc --verify · quién]** (vacío: no hecho)
+
+### 85.6 · El 403 en el PUT presignado del almacén local (`infra-smoke`, `kyc-ine-links`) — causa y arreglo
+
+**Causa (medida):** el s3-local que ocupaba `:9000` era de **otro clon**: proceso de `/home/user/tcg-skyd/…/server.js`,
+vivo desde hacía ~5,5 h. Su log (`/home/user/tcg-skyd/.native-stack/s3.log`) tiene **28 × «403 PUT
+/tcg-photos/kyc_ine/… — la firma NO coincide»** y más GET igual. Cada clon genera su propio `S3_SECRET_ACCESS_KEY` en
+`<clon>/.native-stack/secrets.env` (S-88-1; `tcg-panel` tiene el suyo), y `start_s3` **reutilizaba cualquier cosa viva
+en el puerto** («ya respondía en :9000, se reutiliza»). El backend del clon B firmaba con el secreto de B contra un
+servidor que solo conoce el de A ⇒ `403 SignatureDoesNotMatch`. No es defecto del producto ni de las pruebas: es el
+arnés juntando clones en un recurso compartido (O-8 en el recurso «puerto»). No leí los secretos de ningún clon: el
+diagnóstico sale del log del servidor y del código.
+
+**Arreglo (`scripts/stack-native.sh`, `scripts/s3-local/probe-credentials.js`):**
+- antes de reutilizar un s3-local vivo, `s3_creds_ok` **firma** un GET con las credenciales de este clon: 404/200 ⇒
+  es mío, se reutiliza; 403 de firma ⇒ **para** con el diagnóstico (pid y cwd del dueño del puerto) y la salida;
+  `test:integration` con `E2E_STRICT_INFRA=true` hace la misma comprobación;
+- `S3_ENDPOINT` ahora **sigue** a `S3_LOCAL_PORT` (antes era un literal `:9000`, así que `S3_LOCAL_PORT=9100` levantaba
+  el almacén en 9100 y el backend seguía firmando contra 9000: la salida no funcionaba).
+- **Qué hace quien se lo encuentre:** `S3_LOCAL_PORT=9100 ./scripts/stack-native.sh up --infra` y el mismo
+  `S3_LOCAL_PORT` en `test:integration`. ⛔ No apagar el s3-local de otro clon.
+- Canario `check-s3-local-clone-canary.sh` (N=3): sonda mismo secreto ⇒ rc 0 **3/3**; secreto de otro clon ⇒ rc 1
+  **3/3**; puerto vacío ⇒ rc 2 **3/3**; `start_s3` **real** extraído del fichero: propio ⇒ reutiliza **3/3**, ajeno ⇒
+  se para **3/3**; endpoint sigue al puerto; mutación «reutilizar sin sonda» ⇒ rojo **3/3**. Candados del arnés que
+  tocan `stack-native.sh` re-corridos: `harness-gaps`, `db-pool-limit`, `daemon-stdout-leak`, `secret-defaults`,
+  `secret-absence-wording`, `secret-masking` ⇒ rc 0.
+- **NO MEDIDO:** la re-corrida de `infra-smoke` y `kyc-ine-links` en `claude/arreglos-panel` con este arreglo (es otra
+  rama y otro árbol; la mide quien la lleve, con `S3_LOCAL_PORT` propio o tras merge).
+
+### 85.7 · LIVE-16 — guía del dueño: cambio a modo real (transcripción de `API_CONTRACT §14.10`)
+
+⛔ **Ningún valor de clave sale del panel donde se crea:** se copia de Stripe y se pega directo en Railway/Vercel.
+
+**Antes (todo verde o no se empieza):**
+- [ ] Condiciones de §14.0 cerradas (C1, S5-1, TD-4, C2, C3, DAST full previo, C6, MSH-1).
+- [ ] **SEC-HDR-2 / S5-1 (b) — CSP en `enforce` en producción**, tras **≥ 72 h en report-only publicadas** (§14.3), no
+  «CSP publicada». Evidencia (seguridad CL-1, `SECURITY_NOTES` veredicto listo-real §5): `git show
+  <sha-en-production>:frontend/src/security/csp.ts | grep "CSP_MODE: CspMode = 'enforce'"`; `curl -sI
+  https://tcghunt.mx/es | grep -i '^content-security-policy:'` con `nonce-` (la cabecera sin `-Report-Only`); y
+  `scripts/check-csp-zap-parity.sh` rc 0.
+- [ ] **P-GL-2 — gitleaks ve una clave live en todo el repo, `docs/*.md` incluidos** (seguridad CL-2; «disparador duro:
+  antes de cualquier `sk_live_`»). Evidencia: en el run de `security-sast.yml` sobre el sha en producción, el paso
+  «Canario de gitleaks» muestra `P-GL-2 (dir) … 5/5 sitios` y `P-GL-2 (git) … 5/5 sitios`. Cerrado en devops el
+  2026-10-05 (§87); esta casilla es la comprobación de que sigue cerrado en el sha que se publica.
+- [ ] Fase A del cobro de punta a punta pasada (§14.9).
+- [ ] Censo y limpieza de datos de prueba hechos (§14.8), C3 = 0.
+- [ ] Respaldo del día existente y simulacro hecho (§85.5).
+- [ ] Cuenta de Stripe **activada** para cobrar y depositar en MX (solo lo ve el dueño, §14.13 P-2).
+- **Modo provisional** (`API_CONTRACT §14.10`, errata v1.84.4 / §14.17 E4-4; sustituye las dos casillas legales de
+  v1.84.2). ⚠️ Excepción **aceptada por el dueño, no por el equipo**: `HECHOS.md` fila 2026-10-05 (sesión 6) «Salir en
+  vivo SIN datos fiscales del aviso de privacidad; se regulariza después» («Por el momento salimos sin datos fiscales
+  nos regularizamos rápido»). Cubre solo razón social, RFC y domicilio (P-LEG-1…3).
+  - [ ] `npm run check:legal:provisional` verde sobre el sha que está en producción (lo corre devops o el CI; aquí se
+    cita el run). Los sitios 3 (`GuestCheckoutForm`) y 7 (`pedido/layout.tsx`) siguen bloqueando. Rojo ⇒ no se empieza.
+  - [ ] QA aprueba 500–508 contra la tienda publicada con las excepciones de E4-5 y solo esas (veredicto con su sha;
+    cada criterio `cumple` / `excepción aceptada (HECHOS 2026-10-05)`; una tercera categoría ⇒ no se empieza).
+  - [ ] El dueño leyó el aviso publicado (`https://tcghunt.mx/es/privacidad`; borrador del product-owner sin validar
+    por abogado, P-LEG-4), puesto en la solicitud de fusión `main → production`.
+
+**Pasos:**
+1. [ ] **Stripe (live) → Developers → Webhooks → Add endpoint.** URL `https://<dominio-del-backend>/api/v1/webhooks/stripe`;
+   **versión de API `2024-06-20`**; eventos: exactamente los 9 de `security/stripe-webhook-events.txt`. Guardar.
+2. [ ] En ese endpoint, **Reveal signing secret** (`whsec_…` de live) ⇒ **Railway → backend → Variables →
+   `STRIPE_WEBHOOK_SECRET`** (si Railway despliega al guardar, seguir al paso 3 de inmediato).
+3. [ ] **Stripe (live) → Developers → API keys:** Secret key `sk_live_…` ⇒ Railway `STRIPE_SECRET_KEY`.
+   (`STRIPE_PUBLISHABLE_KEY` de Railway no la lee el backend; opcional.) Railway vuelve a desplegar.
+   *Opcional, defensa en profundidad (seguridad, veredicto listo-real §2.3):* en lugar de la `sk_live_` completa, una
+   **clave restringida `rk_live_…`** con solo lo que usa el backend (Checkout Sessions, PaymentIntents, Refunds); el
+   código ya la acepta (`health.service.ts:28`, `secrets-preflight.sh:177`). Si se filtran las variables de Railway,
+   esa clave hace mucho menos. ⚠️ **NO MEDIDO** qué llamadas exactas hace el backend: antes de usarla hay que medirlo
+   (si falta un permiso, el cobro falla en producción). Sin esa medición, `sk_live_`.
+4. [ ] Publishable key `pk_live_…` ⇒ **Vercel → Settings → Environment Variables →
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, solo **Production** ⇒ **Redeploy** de producción (se hornea al construir).
+5. [ ] Abrir `https://<dominio-del-backend>/api/v1/health` ⇒ `"stripeMode":"live"`. En el pago, ya no sale el aviso de
+   modo prueba de Stripe.
+6. [ ] **Desactivar** en Stripe **modo prueba** el endpoint que apunta a producción.
+7. [ ] Fase B de §14.9 (una compra real pequeña + reembolso **desde Ventas**).
+8. [ ] GitHub → Settings → Secrets and variables → Actions → **Variables** → `EXPECTED_STRIPE_MODE` = `live` (la lee el
+   vigía de §85.2; no es secreta).
+
+**Ventana:** entre el paso 3 y el 4 el backend es live y la tienda aún prueba: un pago en ese intervalo **falla** (no
+cobra). Hora de poco tráfico.
+
+**Reversa (volver a prueba):** los mismos pasos con `sk_test_`/`pk_test_` y el `whsec_` del endpoint de prueba
+(reactivarlo); `health` ⇒ `"stripeMode":"test"`; `EXPECTED_STRIPE_MODE` = `test`. ⚠️ Los pedidos **live** cobrados en
+el intervalo se reembolsan desde el panel de Stripe live **solo** en ese caso, y se anota.
+
+
+#### Después — Regularización legal (`API_CONTRACT §14.10`, v1.84.4 E4-4; pendiente prioritario, `HECHOS.md` 2026-10-05 (c))
+Se abre cuando el dueño entrega P-LEG-1…3 y se cierra con:
+- [ ] Frontend sustituye la frase fija de E4-1 por los datos, vacía `pendingOwnerData` y carga `common.footer.legalEntity`
+  en `es.json` y `en.json` (mismo valor, criterio 506); backend pone la razón social en el pie de los correos (507).
+- [ ] `npm run check:legal` (final) verde: rojo mientras quede un `pendingOwnerData` o `legalEntity` entre corchetes.
+- [ ] QA aprueba 500–508 completos, sin excepciones, contra la tienda publicada (sha citado).
+- [ ] Solo entonces se borra la excepción de esta guía. Si llega a la vez el texto del abogado (P-LEG-4), sustituye al
+  borrador entero, verbatim.
+
+### 85.8 · Rollback de esta sección
+
+Todo es aditivo y vive en `scripts/`, `security/`, `.github/workflows/` y `.env.example`; revertir el commit lo
+deshace sin tocar datos. Lo único con efecto fuera del repo es `uptime-watch.yml` (issues y GET a producción), que
+se apaga con *Disable workflow*. `stack-native.sh`: revertir vuelve a reutilizar cualquier s3-local vivo (y al 403).
+
+### 85.9 · Lo que le toca al dueño (y la medición que lo justifica)
+
+| # | Qué | Por qué (medido) | Cuándo |
+|---|---|---|---|
+| D-1 | Variable de repositorio `EXPECTED_STRIPE_MODE=test` | sin ella el vigía no compara el modo (lo dice en cada run); la salud no trae `stripeMode` hasta que LIVE-7 llegue a producción | **después** de publicar LIVE-7 |
+| D-2 | Activar respaldos en Railway y captura (§85.5 paso 1) | `DEVOPS_NOTES.md:459` lo afirma sin medición; nadie de devops ve el panel | antes del cambio |
+| D-3 | Simulacro (§85.5 pasos 2–4) en su terminal | la base de producción solo se alcanza donde vive la credencial (este entorno: `403 CONNECT`) | antes del cambio |
+| D-4 | Solo si la sonda de C6 sale rc 2 «hace falta autorización»: autorizar **6 intentos más** (ronda de control) | ya autorizó 6 (`HECHOS.md` 2026-10-05); el control solo hace falta si rotando XFF no hay ningún 429 | en la ventana, si pasa |
+| D-5 | Nada más. `UPTIME_*_URL` solo si el dominio del backend ya no es el de §23.2 | NO MEDIDO desde aquí; si cambió, el vigía lo avisará en rojo | si el vigía avisa |
+
+### 85.10 · E-8 (v1.84.1) — sonda de TTFB en producción (`scripts/ttfb-probe.sh` + `.github/workflows/ttfb-probe.yml`)
+
+> Norma: `API_CONTRACT §14.14 E-8` y el umbral de `§14.3`; porqué en `ARCHITECTURE §4.63.11`. Escrito sobre
+> `6480d86b`, commit de la sonda `004b2324`. Medido el 2026-10-05 en local (sin producción: el proxy de este entorno
+> niega `tcghunt.mx`, §85 cabecera).
+
+- **Qué mide.** 1 `GET` de calentamiento (descartado) + **N = 10** `GET` secuenciales a `TTFB_URL`
+  (def. `https://tcghunt.mx/es`), `curl -w %{time_starttransfer}`, sin seguir redirecciones. **11 GET por corrida**,
+  ruta pública, sin secreto; no es carga ni escaneo. p50/p90 en ms por **rango más cercano** (N=10 ⇒ 5.ª y 9.ª
+  muestra ordenada, sin interpolar). Imprime también `MUESTRAS_MS` y `X_VERCEL_CACHE` (para leer un p50 bajo como
+  caché del borde y no como render).
+- **Etiqueta.** `despues` si alguna `content-security-policy*` lleva `'nonce-`; `antes` si ninguna. Producción hoy
+  sirve la estática `frame-ancestors 'none'` (`origin/production:frontend/next.config.mjs:75`, leído 2026-10-05) ⇒
+  se espera `antes` con `CSP_CABECERAS=1`. Las 11 respuestas deben dar la misma etiqueta; si cambia a mitad (despliegue
+  en curso) ⇒ muestra inválida, repetir.
+- **E-6 en Vercel.** `CSP_CABECERAS=<n> (aplicadas=<a> report_only=<r>)` dice si la del middleware **sustituye** a la
+  estática (1 cabecera) o salen las dos; `E6_FRAME_ANCESTORS=si|no` dice si alguna **aplicada** trae
+  `frame-ancestors 'none'`. `no` ⇒ alarma (invariante de §14.3, en las dos fases).
+- **Umbral (§14.3),** solo con `despues`: p90 > 800 ms, o p90 − p90(antes) > 300 ms ⇒ `UMBRAL=ROJO`. El p90 de antes
+  lo toma el workflow del **último comentario `ETIQUETA=antes` escrito por `github-actions[bot]`** en el issue (el repo
+  es público: el comentario de cualquier otra cuenta se ignora). Sin corrida antes ⇒ «subida NO comparada», dicho.
+- **rc:** 0 válida sin alarma · 3 válida con alarma (umbral o E-6) · 1 muestra inválida (no-200, 30x, conexión,
+  timeout, etiqueta mezclada) y **no imprime p50/p90** · 2 no concluyente (argumentos, URL no https).
+- **Workflow.** Disparadores: `push` a `main`, `schedule` diario `17 14 * * *` (08:17 CDMX) y `workflow_dispatch`;
+  `pull_request` que toque la sonda solo corre el canario. Job `autoprueba` (canario) ⇒ job `medicion` (`issues:
+  write`): crea si falta la etiqueta `ttfb` y el issue único `[ttfb] TTFB de la tienda publicada…`, mide, y **comenta
+  siempre** (con fecha, evento, sha de `main` que disparó, salida entera y URL del run). Run rojo si rc ≠ 0. Acción
+  única `actions/checkout@v5`, como el resto del repo. ⚠️ El sha del comentario es el de `main` que disparó; **lo
+  medido es lo que sirve producción** (que publica desde `production`): en F1, `main` avanza y producción sigue sin
+  nonce ⇒ `antes`, que es justo lo que pide E-8.
+- **Cómo se lee desde una sesión:** `gh api "repos/jcsainz95-cloud/tcg-vault-mx/issues?labels=ttfb&state=all"` y los
+  `…/issues/<n>/comments` (la API de `actions/*` la niega el proxy, §85.3). Hoy: 0 issues `ttfb` (medido 2026-10-05).
+- **Canario** `scripts/check-ttfb-probe-canary.sh` (en `ttfb-probe.yml` y en `ci.yml` job `live-candados`): **24/24**,
+  servidor de mentira en `127.0.0.1` que **cuenta** las peticiones (exactamente 11, todas `GET /es`). Casos: sin CSP;
+  solo estática; Report-Only+nonce con estática (2 cabeceras); Report-Only+nonce **sustituyendo** (E-6 roto ⇒ rc 3);
+  enforce; cabecera en mayúsculas; lenta 400 ms (umbral p90 y subida ⇒ rc 3; subida ≤ 300 ⇒ verde); calentamiento
+  lento descartado; 500; 500 en la petición 6; 307 (dice adónde); antes→después a mitad; servidor caído; `http`; `--n`
+  no entero. Mutaciones internas cazadas: sin detección de nonce, aceptar cualquier código, no descartar calentamiento.
+  - Estabilidad: **10/10** verdes (N=10, devops, 2026-10-05) con load 9–12 en 4 CPU.
+  - Mutaciones externas sobre copia `git archive 004b2324` (devops, N=3 cada una): quitar la alarma E-6 **3/3 rojo**;
+    quitar la comparación de subida **3/3 rojo**; quitar la etiqueta mezclada **3/3 rojo**; aceptar 30x **3/3 rojo**;
+    control sin mutar rc 0.
+  - Prueba manual contra un servidor propio en `127.0.0.1:18437` (matado por PID): 11 GET servidos, `despues`,
+    `CSP_CABECERAS=2`, `E6_FRAME_ANCESTORS=si`, rc 0.
+- **NO MEDIDO:** que `GITHUB_TOKEN` pueda crear el issue/etiqueta en este repo (ningún workflow ha abierto aún un issue:
+  las etiquetas del repo son las de GitHub por defecto, medido por la API 2026-10-05). Lo cierra la primera corrida
+  tras F1; si falla con 403, el dueño revisa *Settings → Actions → General → Workflow permissions*. Tampoco medido si
+  `/es` responde 200 directo en producción o redirige (p. ej. a `www`): si redirige, la sonda sale rc 1 diciendo
+  adónde, y se fija la variable de repositorio `TTFB_URL`.
+- **Secuencia (E-8):** F1 (merge a `main`) dispara la corrida `antes` ⇒ el orquestador espera ese comentario antes de
+  abrir `main → production`. Tras F2, la primera corrida diaria o manual (*Actions → TTFB Probe (E-8) → Run workflow*)
+  da `despues`. El commit de `enforce` cita los dos comentarios.
+- **Rollback:** borrar `ttfb-probe.yml` (o *Disable workflow*) y el paso E-8 de `live-candados`. El issue queda como
+  registro; nada más depende de esto.
+- **Dueño:** nada. `TTFB_URL` solo si la primera corrida sale rc 1 por redirección; permisos solo si sale 403.
+
+### 85.11 · Arreglos del gate de QA/techlead sobre `241d4dca` (B-1, C-2, M-3, M-4, TD-LIVE-8/9) — 2026-10-05
+
+Medido sobre una copia **del árbol entero** (`git archive HEAD` = `5ea58917` + los ficheros de este pase, con `git init`
+para que `git ls-files` funcione), no sobre el árbol vivo (en él trabajaban backend y frontend a la vez). Load 6–18
+en 4 CPU durante las corridas.
+
+- **B-1 (bloqueante) · S-88-1 rojo.** `gen-published-secrets-manifest.sh --check` no cubría 4 literales. Identificados
+  uno a uno (hash ⇒ valor, con una copia instrumentada del generador): `clonA_$RANDOM$RANDOM$RANDOM` y
+  `clonB_$RANDOM$RANDOM$RANDOM` (`SECRETO_A/B`: **plantillas** de bash que generan un aleatorio al correr,
+  `check-s3-local-clone-canary.sh:50-51`); `"$1" node "$PROBE" …` (`S3_SECRET_ACCESS_KEY`: un **fragmento de código**,
+  `:74`); `acc-secret-ses-0123456789abcdef0123456789` (`JWT_ACCESS_SECRET`: **fixture** de
+  `backend/test/auth.session-max-age.spec.ts:39`). Ninguno es real. Manifiesto regenerado: **+4 hashes, 0 jubilados,
+  catálogos sin cambio** (148 valores). Resultado en la copia: `--check` rc 0; `check-secret-defaults.sh` **rc 0**;
+  su canario **70/70**; `check-stripe-webhook-failclosed.sh` 3/3 y su canario **31/31**. Control positivo: en otra copia,
+  `scripts/plantado.sh` con `export STRIPE_SECRET_KEY=sk_live_<30 alfanum. aleatorios>` commiteado ⇒
+  `check-secret-defaults.sh` **rc 1** (sección C lo nombra y el manifiesto sale desfasado); gitleaks 8.30.1 sobre el
+  mismo fichero ⇒ `stripe-access-token` (rojo). N=1 cada uno (deterministas).
+- **gitleaks** (CI escanea el rango del push, `security-sast.yml`): con 8.30.1 (binario oficial, sha256 del tarball
+  `551f6fc8…` = el de `checksums.txt`) sobre `3e09685a..HEAD` daba **2** hallazgos `generic-api-key`, ambos en
+  `backend/test/auth.session-max-age.spec.ts` (`6a227527`): `ref-secret-ses-0123…` y `acc-secret-ses-0123…`, ficción.
+  Permitidos **por valor exacto anclado** en `[allowlist]` de `security/gitleaks.toml` (precedente `868dbcea`) ⇒ **0**.
+  `sast-gitleaks-canary.sh` **11/11**. (Modo `dir` local ve 8 más: 5 en `.native-stack/secrets.env`, ignorado por git, y
+  3 en specs de backend que ya estaban en la base `3e09685a` — ni lo uno ni lo otro lo escanea el CI.)
+- ⚠️ **Pendiente fuera de mis rutas:** el `backend/test/telemetry.spec.ts` **sin commitear** de backend (en curso a la
+  hora de esta medición) añade un literal de ficción (`… 'PaSsWoRd=[redacted] TOKEN=[redacted]'`, hash `2d6dd2cb…`).
+  Cuando se commitee, S-88-1 volverá a rojo hasta regenerar el manifiesto (`./scripts/gen-published-secrets-manifest.sh`
+  + commit de `security/secretos-publicados.sha256`), y conviene pasar gitleaks por el rango.
+- **C-2** · §85.7 «Antes» lleva las **dos** casillas de la errata v1.84.2 (`API_CONTRACT §14.10/§14.15`, `5ea58917`):
+  `npm run check:legal` verde (criterios 500–508) y QA aprobó 500–508 contra la tienda publicada (con sha).
+- **M-3** · `stack-native.sh` exporta `NEXT_PUBLIC_UPLOAD_ORIGIN` = origen de `S3_ENDPOINT` (sigue a `S3_LOCAL_PORT`;
+  un valor explícito se respeta). `next build`/`start`/`dev` lo heredan. Candado `check-stack-upload-origin.sh`
+  (9000 y 9100, casa con `ORIGIN_RE` leído de `csp.ts`, nadie lo pisa) y canario **3/3** mutaciones rojas, N=3 corridas.
+  **NO MEDIDO:** la cabecera CSP de un `up` real con el s3-local (no levanté stack: load alto y el árbol era compartido).
+- **M-4** · copia sin `.git`: `STACK_EXPECTED_SHA=<sha>` da el sha esperado (sello y aserto); sin `.git` y sin variable,
+  `up --gate` y `verify:head` paran **en < 1 s, antes de levantar nada**, diciendo exactamente eso; con `.git` y una
+  variable que no es prefijo de HEAD ⇒ rojo. `dirty` sin `.git` es `?` (no `0`). `assert-serving-head.sh --sha ""` ⇒
+  rc 2 con mensaje claro en vez de «--sha necesita valor». Candado `check-stack-expected-sha.sh` (infra sustituida por
+  señuelos: un mutante no puede tocar el Postgres/s3 de otros clones) y canario **4/4** mutaciones rojas, N=3 corridas.
+  `check-gate-parity-canary.sh` (su sandbox no tiene `.git`) pasa ahora `STACK_EXPECTED_SHA` fijo: 12/12.
+  **NO MEDIDO:** un `up --gate` completo en copia con la variable (exige levantar el stack entero).
+  Uso para QA: `STACK_EXPECTED_SHA=$(git -C <árbol> rev-parse HEAD) ./scripts/stack-native.sh up --gate` en la copia.
+- **TD-LIVE-8 (cerrada, no anotada como abierta)** · `uptime-watch.yml` busca su issue con un filtro único `ISSUE_JQ`:
+  título + etiqueta `caida` + autor bot de Actions; evaluado con el `jq` del runner. Canario de uptime-watch **21/21**
+  (antes 13/13; +8 comprobaciones «issue propio»: 6 casos y 2 mutaciones del filtro).
+- **TD-LIVE-9 y el aviso de 60 días** anotados en `docs/TECH_DEBT.md` (sección Devops · 2026-10-05).
+- Re-corridos en la copia, rc 0: `harness-gaps`, `stack-kill-scope`, `secret-masking`, `secret-absence-wording`,
+  `provenance-gate` (+canario), `workflow-cwd` (+canario), `db-pool-limit` (+canario 11/11), `daemon-stdout-leak`,
+  `gate-parity-canary` 12/12. `check-ci-ok.sh`: parte estructural verde; la de veredicto necesita `NEEDS_JSON` (solo CI).
+  No re-corrido: `check-s3-local-clone-canary.sh` (necesita `npm ci` del s3-local; no toca nada de lo cambiado).
+- **Rollback:** revertir el commit. Sin efecto en datos ni en producción; `uptime-watch` vuelve a buscar por título.
+
+## §86 · Re-pase de QA sobre `44943d30`: B-3 (censo E2E) y los dos canarios que daban falso rojo bajo carga (2026-10-05, rama `claude/listo-real`)
+
+> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión: esta sección era la **§84** en la rama `claude/listo-real`; se renumera a **§86** porque §84 ya la publicó `claude/precio-sellado` (cupo diario de Vercel; era la §78 de esa rama). Sus autorreferencias se actualizaron; las citas externas «§84» que vienen de `claude/listo-real` apuntan aquí.)*
+
+**B-3 · censo E2E `realOnly 19/6 → 22/7`.** Las 3 apariciones nuevas son de `frontend/e2e/session-max-age.spec.ts`
+(fab9bb13, LIVE-2, FRONTEND_NOTES §103): `import` (l.3), mención en el docblock (l.17) y **una** llamada en
+`beforeEach` (l.68) que cubre los dos UX-SMA-2 (tienda y panel). Es legítima: el spec finge los dos `401` con
+`page.route` y necesita el bundle sin mocks (con `NEXT_PUBLIC_USE_MOCKS`, `api.ts` no llama a `fetch` y no hay
+`401` que interceptar); el tope real de 30/7 días lo miden los unitarios y la integración de backend. Medido: los
+otros 6 ficheros con `realOnly` tienen los mismos recuentos que en `a86ee970` (el último baseline), y las otras
+cuatro claves no cambian. Baseline regenerado con `--update --motivo` en `655f1221`. `check-e2e-skip-census.sh`
+rc=0; canario 3/3 rc=0 (N=3, devops). El pendiente P-CENSO-S5 (§77) sigue abierto: su motivo ya no está en la
+cabecera del baseline (la reescribe cada `--update`), pero vive en §77.
+
+**Canarios `check-ci-ok` y `check-stripe-webhook-events` (QA menores 1 y 2).** La causa no era un timeout (ninguno
+de los dos tiene temporizador): era **SIGPIPE + `pipefail`**. `printf … | grep -q X` dentro de un script con
+`set -o pipefail`: `grep -q` sale al primer acierto, el `stdout` de bash va con búfer por línea, así que `printf`
+puede seguir escribiendo, recibe SIGPIPE (141) y `pipefail` convierte un **acierto en «no encontrado»**. Bajo
+carga, el planificador intercala más y el falso rojo aparece.
+- Medido (devops, load ≈6–10, 4 CPU): microbanco de la línea exacta, tubería **4/3000** y **3/2000** falsos en la
+  búsqueda de jobs de ci-ok; **2/2000** y **0/3000** en la de §11.G; here-string **0/3000** en ambas.
+  Canarios completos, árbol antes y después del arreglo, N=40 cada uno: ci-ok **2/40 → 0/40** rojos; stripe-events
+  **1/40 → 0/40**.
+- Arreglo: here-strings (`grep -q X <<<"$var"`) en `scripts/check-ci-ok.sh` (lista de OPCIONALES) y en
+  `scripts/check-stripe-webhook-events.sh` (las 3 búsquedas). Sin cambio de conducta: las mutaciones siguen
+  mordiendo (OPCIONALES con un job fantasma ⇒ rc=1; manifiesto con un evento que no está en §11.G ⇒ rc=1).
+- El mismo patrón aparece en otros 10 scripts (TECH_DEBT TD-DO-PIPE-1), **sin medir** si alguno es vulnerable: depende
+  de que lo escrito ocupe más de un `write`.
+- **Rollback:** revertir el commit. Solo toca scripts de CI; no afecta a datos ni a producción.
+
+## §87 · Encargos del veredicto de release `listo-real` sobre `c62621e6`: CL-2 (`P-GL-2`), `RL-SEC-2`, guía §85.7, cuarto flujo de dinero y ruido de gitleaks (2026-10-05, rama `claude/listo-real`)
+
+Origen: `SECURITY_NOTES.md` (veredicto de release listo-real, §3.1, §3.2, §5 CL-2 y §8) y la condición IMPORTANTE-2
+de QA. Todo lo que sigue lo medí yo (devops) el 2026-10-05, sobre una copia del árbol entero (`git archive HEAD` de
+`2e41f36c` más los ficheros modificados), con el **mismo binario** que fija CI (gitleaks **8.30.1**,
+`security-sast.yml`).
+
+### 87.1 · CL-2 / `P-GL-2` — gitleaks ve una clave live en todos los sitios
+- **Causa:** `[allowlist].paths` global de `security/gitleaks.toml` eximía `(^|/)docs/.*\.md$`,
+  `security/.*\.(md|toml|yml|yaml)$` y `docker-compose.*\.yml$`. Esas exenciones venían del commit de arranque
+  (`ec8b9595`, 2026-08-13), no de ruido medido.
+- **Coste medido de quitarlas:** `gitleaks git .` sobre el historial completo (2255 commits) sin esas tres rutas da
+  **5 hallazgos nuevos**, los cinco ficción o no-secretos en `docs/` (`sk_live_51ClaveRealDelDueno`,
+  `ppt_live_ABC123`, `re_AbCd123456`, `E2E_ENABLE_THROTTLER=true` y la cabecera JWT pública `eyJhbGciOiJIUzI1NiIs…`).
+  Se eximen **por valor exacto anclado**, igual que el resto de la allowlist.
+- **Arreglo:** se retiran las tres rutas y se añaden esas 5 exenciones por valor. Las únicas rutas que quedan son
+  `.env.example` y los dos canarios que plantan ficción.
+- **Segunda red, independiente del binario:** bloque **(H)** nuevo en `scripts/check-secret-defaults.sh`. Busca la
+  **forma de valor** `(sk|rk)_live_[0-9A-Za-z]{24,}|whsec_[0-9A-Za-z]{24,}` en **todos** los ficheros versionados
+  o nuevos, **`*.md` incluidos** (no usa `es_autoreferente`, que es la exclusión de `*.md` de la línea 145). Solo excluye
+  los dos canarios. Nunca imprime el valor, solo fichero:línea y prefijo. Medido: 1977 ficheros, 0 coincidencias.
+  Coste: menos de 1 s.
+- **Re-medición de la plantación de seguridad** (§3.1: la misma `sk_live_`, `rk_live_` y `whsec_` aleatorias en
+  `backend/src/plant.ts`, `NOTA_RAIZ.md`, `docs/NOTA_PLANT.md`, `security/plant.toml` y `docker-compose.plant.yml`):
+  con la config nueva, **5/5 sitios con las tres formas** y 0 hallazgos fuera de la plantación. Con la config de
+  `2e41f36c`, **2/5** (reproduce la medición de seguridad).
+- **Candado con canario.** `security/scripts/sast-gitleaks-canary.sh` (paso de `security-sast.yml`) gana un bloque
+  P-GL-2. Planta las tres formas en los 5 sitios y exige 5/5, en modo `dir` y en modo `git`, que es el de CI. Además
+  exige verde para la ficción eximida en `docs/` y rojo para esa ficción con dos caracteres de más (el ancla).
+  Resultado: **15/15**. Mutaciones, N=3 cada una, todas rojas **3/3**:
+
+  | Mutación de la config | Canario | Qué nombra |
+  |---|---|---|
+  | config de `2e41f36c` (las tres rutas) | 12/15 | `P-GL-2 (dir)` y `(git)` 2/5: se escapan `docs/NOTA_PLANT.md`, `security/plant.toml` y `docker-compose.plant.yml` |
+  | solo `(^\|/)docs/.*\.md$` de vuelta | 12/15 | 4/5, se escapa `docs/NOTA_PLANT.md`; y el ancla en verde |
+  | solo `security/.*` de vuelta | 13/15 | 4/5, se escapa `security/plant.toml` |
+  | solo `docker-compose.*` de vuelta | 13/15 | 4/5, se escapa `docker-compose.plant.yml` |
+  | `^sk_live_51ClaveRealDelDueno$` desanclado | 14/15 | el caso del ancla en verde |
+- `scripts/check-secret-defaults-canary.sh` gana el bloque H: `sk_live_` en `docs/*.md`, `rk_live_` en un `.md` de
+  la raíz, `whsec_` en `security/*.toml` y `sk_live_` en un **comentario** de `docker-compose.yml` dan ROJO (cada uno
+  nombra fichero:línea). La ficción corta que `docs/` ya cita da VERDE. Total **75/75**. Mutación: devolver `*.md` a
+  la exclusión del bloque (H) ⇒ canario rojo (proporción en 87.5).
+- **`HEAD` ya estaba rojo, antes de esta edición.** Sobre `2e41f36c` (el commit del veredicto de seguridad),
+  `gen-published-secrets-manifest.sh --check` da **2 literales sin cubrir**: `sk_live_51ClaveRealDelDueno` y
+  `whsec_9f2b7c1d`, que `docs/SECURITY_NOTES.md:67-68` cita. El generador lee todo lo versionado, `docs/` incluido.
+  Por eso `check-secret-defaults.sh` (bloque E) está rojo en `HEAD`. El arreglo prescrito es regenerar.
+- **Un canario existente tuvo que cambiar, y por qué.** Regenerar publica `sk_live_51ClaveRealDelDueno`, que era la
+  clave «real» de los casos G.1–G.3 de `check-secret-defaults-canary.sh`. El preflight toma una clave publicada por
+  **no real** (`webhook-secret-preflight.sh`, `hay_stripe_real` → `es_publico`). Así, G.1 y G.2 («`sk_live_` + `whsec_`
+  publicado ⇒ ABORTA») pasaban a dar PASA por el motivo equivocado: sin clave real no hay nada que exigir. Medido: con
+  el manifiesto regenerado, el canario da 73/75 y caen exactamente G.1 y G.2. Arreglo: la clave de G.1–G.3 se genera
+  **al vuelo** en cada corrida (`sk_live_51` + 32 hex de `/dev/urandom`). Así no está en ningún fichero y no puede
+  llegar al manifiesto, la cite quien la cite. Además el canario comprueba que su huella no esté en el manifiesto.
+  Los asertos de G.1–G.3 no cambian.
+- **Manifiesto:** `security/secretos-publicados.sha256` gana **3 huellas** `PREFIJO` y no pierde ninguna. Dos son
+  el desfase previo de arriba. La tercera es `re_AbCd123456`, que ahora cita `gitleaks.toml`. Solo añade: hay más
+  valores publicados que el preflight rechaza. La variante «ficción + 2 caracteres» del canario de gitleaks se
+  construye por concatenación, para no publicar una huella más.
+- **Si un doc futuro da un falso positivo en CI:** se exime **ese valor**, anclado, en `[allowlist].regexes`, con su
+  fichero y su commit en el comentario. **Nunca la ruta.**
+
+### 87.2 · Ruido de `gitleaks dir` (Info, §3.1 y §8)
+Los 3 falsos positivos de specs (`auth.refresh-typ.spec.ts:27`, `auth.c7-policy.spec.ts:466`,
+`inventory.sealed-product-alta.spec.ts:521`) se eximen por valor exacto anclado en la misma edición. Medido con la
+config nueva: `gitleaks dir .` sobre el árbol completo ⇒ **rc 0, 0 hallazgos**; `gitleaks git .` sobre el historial
+completo ⇒ **rc 0, 0 hallazgos**. No queda deuda que anotar en `TECH_DEBT.md`.
+
+### 87.3 · `RL-SEC-2` — CLIs de despliegue fijadas
+- `deploy.yml`: `npm i -g @railway/cli@latest` ⇒ **`@railway/cli@5.63.1`** y `vercel@latest` ⇒ **`vercel@62.4.0`**,
+  en los cuatro jobs (staging y producción, backend y frontend). Son las versiones vigentes en `registry.npmjs.org`
+  el 2026-10-05 (`dist-tags.latest`; 5.63.1 se publicó el 2026-09-28 y 62.4.0 el **mismo** 2026-10-05).
+- **Candado:** `scripts/check-compose-images.sh` (el de dependencias externas fijadas, en `ci.yml`) ahora también
+  inventaría los `npm i|install|add -g|--global <pkg>` de los `run:` de **todos** los workflows y exige versión
+  **exacta** (`N.N.N[-pre]`). Son MÓVIL: `@latest`, cualquier etiqueta, un rango (`^`, `~`) o no poner versión
+  (incluido `@scope/pkg` a secas). `--resolve` comprueba que esa versión existe en npm: las 4 dieron HTTP 200.
+- **Canario** `check-compose-images-canary.sh`: m10 (`@railway/cli@latest`), m11 (`@railway/cli` sin versión), m12
+  (`npm install --global vercel` en bloque `|`) y m13 (`vercel@^62.4.0`) ⇒ ROJO **3/3** cada una (N=3). La base, que
+  incluye `npm ci` y un comentario tras el paquete, da VERDE. Total **14/14**.
+- Sigue latente: los tokens de CD no están cargados (`PENDIENTES.md:247`, según seguridad).
+
+### 87.4 · IMPORTANTE-2 (QA) — cuarto flujo de dinero: `address-colonia.spec.ts`
+`frontend/e2e/address-colonia.spec.ts:31` (invitado con un CP fuera del catálogo, que paga) entra en `MONEY_SPECS` y
+en los tres `SMOKE_SPECS` por defecto de `e2e-real.yml` (`workflow_dispatch`, `workflow_call` y `env`). También en el
+respaldo local de `stripe-test-key-preflight.sh`, en el rótulo «COBRO» de `e2e-capability-gate.sh`, en la cabecera y
+en el marcador del hueco de dinero. Los avisos del preflight ya no dicen «3 smokes»: listan `$MONEY_SPECS` o
+`$SALTADOS`. Medido con el preflight y las listas leídas del workflow, sin credencial: `skipped_specs` = los cuatro y
+`specs=buylist.spec.ts`. El spec trae un segundo caso `@real` (libreta, sin pago) que se salta junto al de pago cuando
+no hay clave, porque el filtro es por fichero. **NO MEDIDO** contra el stack corriendo (no levanté nada): lo mide la
+próxima corrida de `e2e-real` con las claves de prueba.
+
+### 87.5 · Verificación (copia del árbol entero, 2026-10-05)
+`sast-gitleaks-canary.sh` 15/15, y sus 5 mutaciones rojas 3/3 cada una (repetidas sobre el canario final) ·
+`check-secret-defaults-canary.sh` 75/75 en **3/3** corridas · mutación de (H) con `*.md` de vuelta: canario rojo en
+**3/3** corridas, 73/75, y caen exactamente los dos casos `.md` · canario con la clave literal antigua y el manifiesto
+nuevo: 73/75, caen exactamente G.1 y G.2 (N=1, determinista) · `check-secret-defaults.sh` rc 0 (en `2e41f36c` era
+rc 1 por el manifiesto) · `gitleaks dir .` del árbol completo rc 0 ·
+`gen-published-secrets-manifest.sh --check` rc 0 · `check-compose-images.sh` rc 0 y su canario 14/14 ·
+`check-ci-ok.sh --static` rc 0 y su canario 10/10 · `check-e2e-skip-census.sh` rc 0 (= baseline) ·
+`check-e2e-harness-gaps.sh`, `check-secret-absence-wording.sh`, `check-gate-parity-canary.sh` y
+`check-e2e-must-run-canary.sh` rc 0 · los 13 YAML (workflows y compose) parsean, y `gitleaks.toml` parsea con `tomllib`.
+
+### 87.6 · Rollback
+Revertir los commits. Solo tocan config de CI, scripts y esta nota: no afectan a datos ni a producción. Si se
+revierte 87.1, `P-GL-2` vuelve a estar abierta y bloquea `sk_live_` (CL-2). Si se revierte 87.3, el candado de
+imágenes deja de mirar los `npm -g` y `deploy.yml` vuelve a `@latest`.
+
+
+## §88 · `format-mix` (BL-27): falso rojo en `backend/src/main.ts` de la PR #76 (2026-10-05, rama `claude/listo-real`)
+
+**Causa (medida con prettier 3.9.6 sobre `fe2b58d3`..`3e3f341d`):** en la base, `main.ts` tenía **una** sola zona
+que no estaba formateada con prettier: el `app.use('/api/v1/webhooks/stripe', json({ verify… }))` de las líneas
+50-54. El cambio **borra** esa zona y pone `applyBodyParsers(app)`. Con eso HEAD queda prettier-limpio sin que se
+reformatee nada. El comparador razonaba así: «HEAD está limpio y la base no; entonces el cambio reformateó; y como
+`prettier(base) ≠ HEAD`, hay mezcla». Ese «entonces» es falso: hay dos maneras de que un archivo quede limpio, y
+borrar la zona sin formato es la segunda.
+
+Las dos listas, medidas: R son las líneas que prettier escribe sobre la base, es decir, las 9 líneas del
+`app.use(` reformateado. A son las líneas que añade el cambio: el import, 2 comentarios y `applyBodyParsers(app);`.
+**A ∩ R = ∅**, así que en el diff no hay ninguna línea reformateada.
+
+**Arreglo, que no relaja la norma:** se añade una rama (3c) en `scripts/check-format-mix.sh`, que solo actúa
+cuando antes se daba rojo (3b). Si ninguna línea añadida (`>` de `diff base head`) coincide exactamente con una
+línea que escribe prettier (`>` de `diff base prettier(base)`), el diff no tiene líneas reformateadas donde
+esconder lógica, y el resultado es OK. Para saber qué archivos han entrado por esta rama, se listan aparte. El
+cotejo es por línea exacta, así que una línea genérica que coincida (`);`, `},`, una línea en blanco) cuenta como
+reformateo y da rojo.
+
+**Límite conocido:** si **todas** las líneas reformateadas de un archivo llevan también un cambio de lógica, ninguna
+coincide con R y el resultado es verde. En ese caso cada línea tocada es un cambio real que se ve en el diff, así que
+no hay nada escondido entre reformateo puro, que es lo que vigila BL-27.
+
+Nuevo modo `FORMAT_MIX_VERBOSE=1`: imprime en stderr una línea por archivo con la rama de decisión. No cambia el
+veredicto.
+
+**Canario** (`check-format-mix-canary.sh`), que pasa de 4 a 6 casos:
+- Caso 5: la base tiene una sola zona sin formato y HEAD la sustituye. Es esta PR y debe dar VERDE.
+- Caso 6: misma base, pero HEAD reformatea esa zona y además cambia `1.16` por `1.17`. Debe dar ROJO, y es el
+  contrapeso del caso 5.
+
+Resultados:
+
+| Canario | Comparador | Resultado |
+|---|---|---|
+| nuevo | nuevo | **6/6** |
+| nuevo | viejo | **1/6 fallan**: falla solo el caso 5 (rc=1); el caso 6 sigue en ROJO |
+| viejo (4 casos) | nuevo | **4/4** |
+
+**Diff real** (`fe2b58d3`..`3e3f341d`, 54 archivos evaluados), verbose del comparador viejo frente al nuevo:
+
+- **53/54** archivos tienen la misma rama de decisión: 47 caen en (1) «HEAD sin formato» y 6 en (2) «base ya
+  formateada».
+- Solo cambia `backend/src/main.ts`, que pasa de 3b-MEZCLA a 3c.
+- El comparador nuevo da rc=0; el viejo original da rc=1, con el mismo «15 líneas» que el check-run 112019293240.
+
+**Rollback:** revertir el commit. Así vuelve el falso rojo en cualquier diff que borre la última zona sin formato
+de un archivo.
+
+## §89 · `trivy-fs`, `npm-audit` y `trivy-image` en rojo en `production` `36091259`: dos avisos nuevos en transitivas (2026-10-06, rama `claude/fix-trivy-runtime`)
+
+**Causa (medida el 2026-10-06 con Trivy 0.75.0, la última release; el workflow la instala por apt sin fijar
+versión, y el sha256 del tarball se verificó contra `trivy_0.75.0_checksums.txt`).** Ninguna PR cambió
+dependencias: se publicaron dos avisos sobre versiones que ya estaban en los lockfiles.
+
+| Paquete | Aviso | Severidad | Ruta | Arreglado en |
+|---|---|---|---|---|
+| `proxy-addr@2.0.7` | CVE-2026-90711 / GHSA-jqcg-44mw-7w3h | CRITICAL (CVSS 9.1) | backend, transitiva (`express` → `proxy-addr ~2.0.7`) | 2.0.8 |
+| `source-map-js@1.2.1` | CVE-2026-93749 / GHSA-68fv-2mgg-jv7q | HIGH (CVSS 7.5) | frontend, transitiva (`postcss` → `source-map-js ^1.2.1`) | 1.2.2 |
+
+**Arreglo.** `npm update proxy-addr --package-lock-only` en `backend/` y `npm update source-map-js
+--package-lock-only` en `frontend/`. Los rangos de los padres ya admiten la versión corregida, así que no hace falta
+`overrides` ni tocar `package.json`. Solo cambia la entrada de cada paquete en su lockfile. No hay ninguna
+excepción nueva en `.trivyignore`.
+
+**Antes → después, con la misma invocación:**
+- `./security/scripts/trivy-fs.sh`: rc=1 (1 CRITICAL en backend y 1 HIGH en frontend) → rc=0.
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 (backend con 1 critical, frontend con 1 high) → rc=0.
+  Quedan 2 moderate en el backend (`@nestjs/core` GHSA-36xv-jgw5-4q75), que están por debajo del umbral.
+- Capa npm de la imagen backend: `trivy rootfs` sobre `npm ci --include=dev` del lockfile, con
+  `.trivyignore` + `.trivyignore-image`. Da rc=1 (`proxy-addr` CRITICAL) → rc=0. Base `node:24-alpine`
+  (alpine 3.24.2) escaneada en remoto, solo paquetes de SO: 0 HIGH/CRITICAL, así que el rojo de la imagen viene de
+  npm y no de la base. El `docker build` completo sigue **NO MEDIDO** aquí, porque `apk` está bloqueado por la
+  política de salida (§80.3).
+
+**Rollback:** revertir el commit. Los tres gates vuelven a ponerse en rojo.
+
+**Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
+externa va fijada». Lo dejo propuesto, no lo cambio.
+
+## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+
+**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
+los árboles con `MISCONF ... unable to persist to disk`.
+
+**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
+`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
+el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
+escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
+
+**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
+DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
+Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
+
+**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
+ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
+Rollback: revertir el commit.
+
+**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+
+## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
+
+**Causa (medida el 2026-10-06 sobre `production` `a884a2ec`).** Ninguna PR cambió dependencias. Se publicó un
+aviso sobre la versión que ya estaba en el lockfile: `sharp@0.35.4`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889
+(vulnerabilidad en la dependencia `librsvg`), severidad **high**, corregido en 0.35.5. `sharp` es dependencia
+**directa** del frontend (`"sharp": "^0.35.4"`, la usa `next/image`). El backend no se toca: sigue con las 2
+moderate ya registradas (RL-DEP-1).
+
+**Arreglo.** Igual que en §89: `npm update sharp --package-lock-only` en `frontend/`. El rango `^0.35.4` ya admite
+0.35.5, así que no hace falta tocar `package.json` ni añadir `overrides`. En el lockfile cambian 27 entradas, todas
+de la familia `sharp`: `sharp` 0.35.4 → 0.35.5, los binarios `@img/sharp-*` 0.35.4 → 0.35.5 y
+`@img/sharp-libvips-*` 1.3.3 → 1.3.4. Ninguna otra entrada cambia (comprobado con un diff de `packages`,
+entrada por entrada). El lockfile se generó en una copia del frontend en el scratchpad, no en el
+`node_modules` compartido.
+
+**Antes → después, con la misma invocación:**
+- `npm audit --omit=dev --audit-level=high` en `frontend/`: rc=1 (`sharp <0.35.5`, 1 high) → rc=0 (`found 0
+  vulnerabilities`).
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 → rc=0.
+- `npm ci` del lockfile nuevo: rc=0. `sharp.versions.sharp` = 0.35.5 (vips 8.18.7, rsvg 2.63.2), y codifica un
+  PNG de prueba.
+- `next build` del frontend en esa copia: rc=0.
+- `trivy-fs`: **NO MEDIDO** aquí, porque `trivy` no está instalado en este entorno. Lo medirá el CI de la PR.
+
+**Rollback:** revertir el commit. `npm-audit` vuelve a ponerse en rojo.
+
+---
+## §92 · Catálogo de CP de SEPOMEX en el repositorio, con su huella fijada (2026-10-07, rama `claude/catalogo-cp`)
+
+Norma: `HECHOS.md`, fila 2026-10-07 «Catálogo de códigos postales (SEPOMEX) VA EN EL REPOSITORIO, público, con su
+huella fijada» (opción (a) de §79.3; «solo asegúrate que nadie lo pueda alterar»). Sigue rigiendo §81: **ningún
+arranque carga, lee ni verifica el catálogo** (`API_CONTRACT §M4-SHIP.19.25.4`, `HECHOS.md:57`, candado G-BOOT).
+
+### 92.0 Estado en una línea
+
+El archivo, su `.sha256` y su manifiesto están en `scripts/geo/data/`; la huella está fijada en código
+(`scripts/check-sepomex-pin.sh`) y un job de CI (`sepomex-pin`, en el `needs` de `ci-ok`) rompe si cualquiera de las
+cuatro cosas cambia sin las otras o si git pudiera normalizar el archivo. **La carga en producción sigue siendo el
+`import` explícito de §81.4**, ahora con `--file scripts/geo/data/CPdescarga.txt` (no hace falta descargar nada).
+
+### 92.1 Qué hay
+
+| Ruta | Qué |
+|---|---|
+| `scripts/geo/data/CPdescarga.txt` | El archivo que entregó el dueño, **bytes idénticos** (`cmp` = 0): 15 732 978 B, Latin-1, CRLF en las 159 342 líneas (aviso + cabecera + 159 340 filas). |
+| `scripts/geo/data/CPdescarga.txt.sha256` | `071fd9ecb5c3cd71788d12e51306dcea4d55775b30bd98c9b0607ddb725235dc  CPdescarga.txt` (`sha256sum -c` ⇒ OK). |
+| `scripts/geo/data/CPdescarga.manifest.json` | `import-sepomex.sh manifest` (sin base). Hermano del archivo ⇒ `import`/`verify` lo encuentran solos (`manifestPathFor`). `setDigest` `20cd4a578b0cd2b30b5232e7eb783a625ccb29eaf1c80efadd6ee41af68aeb5b`. |
+| `.gitattributes` (nuevo) | `scripts/geo/data/CPdescarga.txt binary` (= `-text -diff -merge`): git no convierte CRLF ni nada, tenga quien tenga `core.autocrlf`. |
+| `scripts/check-sepomex-pin.sh` | Candado. Constantes `PINNED_FILE_SHA256` y `PINNED_SET_DIGEST`. [A] sha256 del archivo = fijado · [B] `.sha256` exacto · [C] manifiesto `fileSha256`/`setDigest` = fijados · [D] `git check-attr` text/diff/merge = unset · [E] blob del índice = bytes del árbol · [F] `.gitignore` no lo ignora. |
+| `scripts/check-sepomex-pin-canary.sh` | Repo git temporal por caso: **17/17** (2 VERDES: prístino y comentario; 15 ROJOS nombrando su bloque: byte cambiado, CRLF→LF, fila añadida, archivo borrado, archivo+`.sha256`+manifiesto re-fijados sin tocar el código, `.sha256` alterado / con 2 líneas, manifiesto `fileSha256` / `setDigest` alterado / borrado, sin regla, `text eol=lf`, solo `-diff`, índice ≠ árbol, `.gitignore` sin la excepción). 6 s. |
+| `.gitignore` | Excepción `!scripts/geo/data/` tras la regla general `data/` (medido: sin ella `git add` rechazaba el archivo). |
+| `.github/workflows/ci.yml` | Job `sepomex-pin` (candado + canario) y en el `needs` de `ci-ok`. |
+
+**Integridad, en capas:** (1) el importador comprueba `sha256` = manifiesto **antes** de interpretar el archivo y luego
+`setDigest` = manifiesto (`obtainVerified`, `import-sepomex.ts`; confirmado leyendo el código y midiendo: §80.4 G4/G6);
+(2) el candado ata archivo, `.sha256` y manifiesto a la constante del script; (3) `.gitattributes` impide la
+alteración involuntaria por fin de línea. **Lo que no protege:** quien pueda fusionar a `production` puede cambiar
+archivo + huellas + script en una sola PR; eso lo para la revisión de la PR. **No hay `CODEOWNERS`** en el repo (medido:
+ni en la raíz, ni en `.github/`, ni en `docs/`) y no lo invento: es una decisión del dueño (y solo muerde con
+protección de rama que exija revisión de propietarios).
+
+**Cambiar el catálogo (cuando SEPOMEX publique otro):** archivo + `.sha256` + `manifest --out` + las dos constantes del
+script + fila de `HECHOS.md`, en la misma PR; luego `import` explícito (§81.4).
+
+### 92.2 Lo que NO se hizo, y por qué: el `boot` en el `CMD` (§79.4)
+
+El encargo pedía §79.4 (`boot` entre `migrate deploy` y `node dist/main.js`, `scripts/geo` en la imagen, candado de que
+el `CMD` lo trae). **§79.4 está superado por §81** (errata v1.80.12.5, `API_CONTRACT §M4-SHIP.19.25.4`, que sale de
+`HECHOS.md:57`, «colonia como Mercado Libre»): `boot` ya **no existe** como subcomando (sale 64), la imagen no lleva
+`scripts/geo` y el candado G-BOOT (`check-boot-no-geo.sh`, job `boot-no-geo`) exige justo lo contrario. Cablearlo sería
+contradecir el contrato y poner rojo un gate de CI; la fila de `HECHOS.md` del 2026-10-07 decide **dónde vive** el
+archivo, no reabre el arranque. Si se quisiera volver a cargar en el arranque, es errata del arquitecto primero (regla
+9). `Dockerfile.backend` y `.dockerignore` **no cambian**: `scripts` sigue excluido del contexto, así que el archivo no
+viaja en la imagen.
+
+### 92.3 Arranques de CI/E2E/DAST
+
+Ninguno cambia: `e2e-real.yml`, `security-dast.yml` y `docker-compose.staging.yml` construyen `Dockerfile.backend` con
+contexto `.` y el `.dockerignore` de siempre (G-BOOT verde re-corrido). Ninguno nombra `scripts/geo` ni `PostalCode`
+(grep). `railway up` (`deploy.yml`) sube el repo (≈15 MB más, sin comprimir) pero el build lo excluye por
+`.dockerignore`: **NO MEDIDO** en Railway. gitleaks sobre el archivo: **NO MEDIDO** (no está instalado aquí); una
+reimplementación aproximada de la regla `generic-api-key` en Python da **0** coincidencias.
+
+### 92.4 Mediciones (2026-10-07, devops; base local propia `tcg_devops_cp_sepomex`, rol `devops_cp_sepomex`, PG 16)
+
+- `manifest` (sin base): **158 322 filas** (pares CP-colonia únicos), **31 874 CP**, **2 478 municipios**, **32
+  estados**; descartes: **1 018 duplicadas** `(CP, colonia)` (159 340 − 1 018 = 158 322), 0 CP no `^\d{5}$`, 0 campo
+  vacío, 0 carácter ilegible, 0 separador en campo. Pisos C-GEO-1 (2) ⇒ **OK**. 1.8 s.
+- `import --dry-run` **sin** `DATABASE_URL` ⇒ **sale 1**, `⛔ falta DATABASE_URL` (la nota de §79.3 estaba mal;
+  corregida allí). Con base ⇒ 0, «faltan 158 322», nada escrito.
+- `import --strict` (el camino de producción), tabla vacía: **+158 322 · ~0 · −0 · C-GEO-1 OK · COMMIT, 7.2 s**
+  (7.9 s de reloj). Segunda vez: **+0 · ~0 · −0, 6.3 s** (7.0 s de reloj). `verify --strict --file` ⇒ 0, «CATÁLOGO
+  CARGADO», faltan/discrepantes/ajenas 0, 4.2 s. N=1 cada uno (tiempos, no proporciones).
+- `PostalCodeService.resolvePostalCode` (el de la app, con `LocalPostalCodeSource`): **`01780` ⇒ local, 2 colonias**
+  («Olivar de los Padres», «Tizampampano del Pueblo Tetelpan»; Álvaro Obregón, CDMX); `01000` ⇒ 1; `64000` ⇒ 2;
+  `99999` ⇒ `null`.
+- Prueba del importador con esa base: **20/20**, `# skipped 0`.
+- Candados re-corridos, todos 0: `check-sepomex-pin` + canario 17/17, `check-boot-no-geo`, `check-ci-ok --static`
+  (28 jobs) + canario 10/10, `check-workflow-cwd` (100 invocaciones) + canario 8/8. Mutaciones del propio candado
+  sobre copia (N=1, deterministas): sin comparar el sha256 ⇒ canario **4/16 rojos**; sin mirar `text` ⇒ **2/16 rojos** (medido antes de añadir [F]).
+- La contraseña de la base local aparece **0** veces en los registros.
+
+### 92.5 Rollback
+
+`git revert` del commit: se van archivo, huellas, `.gitattributes`, la excepción de `.gitignore`, candado y job. No toca imagen, `CMD` ni
+migraciones. Datos: este cambio no escribe en ninguna base; si el `import` ya se corrió, la tabla se queda (§79.9).
+
+---
+## §93 · `sharp` en la imagen del backend (fotos de accesorios, §AC.11) — candado G-SHARP (2026-10-07, rama `claude/accesorios`)
+
+Norma: `API_CONTRACT §AC.11` (fotos procesadas con `sharp`) y `§AC.16` («que la imagen de Railway instala `sharp`:
+devops, con un arranque»). Dependencia añadida por backend en `44175fd` (`backend/package.json`: `"sharp": "^0.34.5"`).
+
+### 93.0 Estado en una línea
+
+Railway construye con **`Dockerfile.backend`** (`railway.json`: `"builder": "DOCKERFILE"`, no Nixpacks), base
+`node:24-alpine` (**musl**). Con el lockfile actual, `npm ci` en esa base instala y **carga** el binario musl de
+`sharp`, y el backend **arranca** y lo tiene cargado en memoria. **No hace falta cambiar el Dockerfile.** Lo nuevo es
+un candado (G-SHARP) en el job `trivy-image`, sobre la MISMA imagen que se escanea. **Bloqueo aparte, de backend:**
+`sharp 0.34.5` pone en rojo `npm-audit`, `trivy-fs` y `trivy-image` (93.3).
+
+### 93.1 Por qué no cambia el Dockerfile
+
+- El lockfile fija `sharp` y **todos** los binarios `@img/sharp-*` / `@img/sharp-libvips-*` con `resolved` +
+  `integrity` (registro npm). Las entradas no llevan `libc`, así que en Linux x64 npm instala **las dos** variantes
+  (glibc y musl); `sharp` elige en tiempo de ejecución la de la libc real. Medido en la imagen:
+  `node_modules/@img/` = `sharp-linux-x64`, `sharp-linuxmusl-x64`, `sharp-libvips-linux-x64`,
+  `sharp-libvips-linuxmusl-x64`, y el proceso carga **`sharp-linuxmusl-x64.node`** + `libvips-cpp.so.8.17.3`
+  (leído de `/proc/<pid>/maps`, no del paquete).
+- El script de instalación de `sharp` (`node install/check.js || npm run build`) no descarga nada: comprueba que el
+  binario precompilado está y sale. Nada fuera del lockfile entra en la imagen por `sharp`.
+- No hacen falta `--os/--cpu/--libc`: construir **dentro** de la base Alpine ya es la plataforma de destino. Esos
+  flags solo harían falta si alguien generara `node_modules` fuera y lo copiara, que este Dockerfile no hace.
+
+### 93.2 Mediciones (2026-10-07, devops, copia `git archive 4d15501f` en el scratchpad)
+
+Docker sí arranca aquí y `docker pull` de Docker Hub funciona, pero **`dl-cdn.alpinelinux.org` da 403** (política de
+salida del sandbox). Por eso la imagen se construyó con una **variante de medición** del Dockerfile (solo en el
+scratchpad): CA del proxy añadida, y el `apk upgrade && apk add libc6-compat openssl` sustituido por un `openssl`
+falso que solo responde a `openssl version` (para que Prisma elija su motor `linux-musl-openssl-3.0.x`, el mismo que
+elige la imagen real; `libssl.so.3` ya viene en `node:24-alpine`). Todo lo demás, igual que el Dockerfile real.
+
+| Medida | Resultado |
+|---|---|
+| Build de la variante (etapas deps/build/runtime, guards de npm y de Prisma) | rc=0 |
+| `require('sharp')` como `nestjs`, `--network none` | OK, `sharp 0.34.5`, `vips 8.17.3`, binario `linuxmusl-x64` |
+| Tubería de §AC.11 (`limitInputPixels`, `failOn:'error'`, `metadata`, `rotate`, `resize contain`, `webp`) | OK |
+| **Arranque** con el `CMD` real (preflights + `migrate deploy` + `node dist/main.js`) contra Postgres 16 y Redis 7 desechables (red Docker propia, sin puertos al host, secretos aleatorios) | `/api/v1/health` = `{"status":"ok","db":"up","redis":"up"}` a los 9 s; rutas `/api/v1/admin/accessories/:id/photo` mapeadas; el PID 1 tiene `sharp-linuxmusl-x64.node` cargado |
+| `./scripts/check-image-sharp.sh` | verde |
+| `./scripts/check-image-sharp-canary.sh` | **5/5** (V1 verde; R1 sin addon musl, R2 sin libvips musl, R3 sin `accessory-photo.js`, R4 libc equivocada: rojos) |
+| CI en glibc: job `backend` de CI sobre `8ab4c88d` (con `sharp`) | success (ubuntu instala `@img/sharp-linux-x64` del lockfile) |
+
+### 93.3 Bloqueo de backend: `sharp 0.34.5` tiene un aviso HIGH
+
+`npm audit --omit=dev --audit-level=high` sobre `backend/` (lockfile de `4d15501f`): **1 high** en `sharp <=0.35.5-rc.1`
+(GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w — el mismo de §91 en el frontend). Coincide con CI:
+`Security SAST` pasó de **success** en `e0bcba7c` (antes de `44175fd`) a **failure** desde `1bde01de` (primer push con
+`sharp`) con `npm-audit`, `trivy-fs` y `trivy-image` en rojo. Los registros de CI no se pueden leer desde aquí (403 del
+almacén de logs); la causa está medida en local, no en el log.
+
+El arreglo es de **backend** (`backend/package.json` es suyo): `"sharp": "^0.35.5"` y regenerar el lockfile. Medido en
+una copia (sin tocar el árbol vivo):
+- `npm install sharp@^0.35.5 --save --package-lock-only`: 28 entradas cambian, todas de la familia `sharp`
+  (más la raíz). `npm audit --omit=dev --audit-level=high` ⇒ rc=0.
+- Imagen con 0.35.5: G-SHARP verde (`sharp-linuxmusl-x64-0.35.5.node`, vips 8.18.7) y **arranque** OK (health 6 s).
+- `tsc -p tsconfig.build.json` (código de producción): rc=0.
+- **Pero** `test/accessories.photo.spec.ts:33` deja de compilar: `TS2503: Cannot find namespace 'sharp'` (usa
+  `sharp.Color`; en 0.35 los tipos ya no se exponen como espacio de nombres). `accessories.photo-isolation.spec.ts`
+  pasa. Ese ajuste de la prueba es de backend.
+
+### 93.4 Lo que queda NO MEDIDO hasta el primer despliegue en Railway
+
+1. **Que el build de Railway pase** con `sharp` (en particular el `apk` real con `libc6-compat`, que aquí no se pudo
+   instalar). Lo medirá antes el job `trivy-image` + G-SHARP en CI, que construye el Dockerfile real con `apk`.
+2. **Que Railway construya en `linux/amd64`.** G-SHARP comprueba la arquitectura que tenga el contenedor; el lockfile
+   también trae `linuxmusl-arm64`, así que en arm64 tampoco faltaría el binario, pero no está medido.
+3. **Cómo se comprueba en Railway** (servicio backend, proyecto `marvelous-kindness`):
+   - *Build Logs*: la línea `npm warn install-scripts   sharp@0.3x.x (install: node install/check.js || npm run build)`
+     y **ninguna** línea de `node-gyp`/`gyp ERR!`/`sharp: Attempting to build from source` (eso significaría que no
+     encontró el binario y que intentó compilarlo).
+   - *Deploy Logs*: aparecen `Mapped {/api/v1/admin/accessories/:id/photo, POST} route` y
+     `Nest application successfully started`, y el healthcheck `/api/v1/health` pasa. Si `sharp` no cargara, el
+     proceso moriría antes con `Could not load the "sharp" module using the linuxmusl-x64 runtime` (el módulo lo
+     importa al cargar), y Railway lo dejaría en `ON_FAILURE`.
+   - Prueba funcional: subir una foto a un accesorio desde el panel y ver que se sirve como WebP.
+
+### 93.5 Rollback
+
+`git revert` del commit de este § quita el paso de CI y los dos scripts; no toca imagen, `CMD` ni datos. Si en Railway
+el backend no arranca por `sharp`: *Redeploy* del despliegue anterior desde la pestaña Deployments de Railway y revisar el *Build Log* según 93.4.
+
+### 93.6 Censo E2E y CI de la rama antes del gate de QA (2026-10-08, devops, sobre `f76fe398`)
+
+*(Encargado como «§93.2 · censo y CI»; ese número ya lo usa «Mediciones», así que va como 93.6.)*
+
+**Censo de salvaguardas E2E.** `scripts/check-e2e-skip-census.sh` salía **rc=1** en `f76fe398` (y en CI, job
+`e2e-skip-census`, runs 37704549788 y 37705396919): `skipIfSeedMissing` 15→18 (7→8 ficheros) y `realOnly` 22→24 (7→8),
+todo de `frontend/e2e/accessories.spec.ts` (`FRONTEND_NOTES §107.real`). Baseline regenerado con `--update --motivo`;
+el gate queda **rc=0**. Los 3 `skipIfSeedMissing` son condicionales (`deckScenario().ready`); backend ya siembra las
+filas que los disparaban (`f76fe398`, `BACKEND_NOTES §83.seed`: `ptcgoCode EEB`, cartas #40/#41, cuatro piezas
+`listed`), así que por lectura del seed quedan **latentes** (NO MEDIDO contra el stack: lo mide el pase real de QA).
+Si frontend los convierte en fallo duro, el censo baja a 15/7 y el techo se regenera a la baja.
+
+**P-S6-CENSO — medido: era verdad.** Sobre una copia del baseline vivo (4 líneas de motivo), dos `--update` seguidos
+dejaron **1** línea de motivo (`logs/p-s6-censo-medicion.log` del scratchpad `devops-ac2`): el bloque `--update`
+reescribía el fichero con solo el motivo nuevo. Arreglo en `check-e2e-skip-census.sh`: conserva las líneas
+`# AAAA-MM-DD …` anteriores y añade la nueva (escritura atómica por `mktemp`+`mv`). Prueba: caso **9bis** del canario
+(`check-e2e-skip-census-canary.sh`): segundo `--update` conserva el motivo del primero y deja 5 líneas de conteo.
+Contra el script viejo: **rojo** (16/17); con el arreglo: **17/17**, N=5 corridas, 5/5 rc=0 (determinista). Tras el
+arreglo, dos registros sobre la copia del baseline vivo dejan 5 + 1 motivos.
+
+**CI de la rama en `f76fe398`** (runs 37705396919 CI, 37705396860 Security SAST, 37705396828 E2E):
+
+| Job | Estado | Dueño | Evidencia |
+|---|---|---|---|
+| CI · `e2e-skip-census` (y `ci-ok` por él) | failure | devops | anotación «2 categorías CRECIERON»; cerrado aquí |
+| SAST · `npm-audit` | **success** | — | `sharp 0.35.5` (`882f0629`) cierra el aviso de 93.3 |
+| SAST · `trivy-image` › backend + **G-SHARP** + Trivy image backend | **success** | — | pasos 4-6 del job 113078843423 |
+| SAST · `trivy-image` › Build imagen **frontend** | failure | devops (por atribuir) | ver abajo |
+| SAST · `trivy-fs` › runtime | failure | devops (por atribuir) | ver abajo |
+| E2E · `backend-e2e` (y `e2e-ok` por él) | failure | **backend** (clase: arquitecto) | ver abajo |
+| E2E · `frontend-e2e` | success | — | — |
+
+- **`backend-e2e`**: 1 de 2507 rojo, `test/integration/enum-query-axes.e2e-spec.ts:1465` («ningún `@Query` fuera de las
+  CINCO listas»). Reproducido en local sobre `git archive f76fe398` (solo ese describe, sin BD): 4 `@Query` de §AC sin
+  clase declarada — `GET /accessories::<sin nombre>`, `GET /accessories/suggestions::exclude`,
+  `GET /admin/accessories::<sin nombre>`, `GET /admin/accessories/:id/stock-movements::<sin nombre>`. El mismo rojo
+  estaba ya en `4d15501f` (run 37702884504). No es de tooling: lo cierra backend, con la clase que decida el arquitecto.
+- **`trivy-fs` runtime**: en local, trivy 0.69.3 en contenedor sobre el mismo árbol ⇒ **0 hallazgos** (backend,
+  frontend, s3-local). Indicio (no prueba): el paso tardó 2 s y el siguiente 5 s, al revés que en las verdes
+  (4-5 s / 1-2 s), compatible con que falló la **descarga de la base**. Medido: el gate viejo devolvía **rc=1 también
+  sin base** — mismo color que un hallazgo. Arreglo en `security/scripts/trivy-fs.sh`: la base se baja aparte con 3
+  reintentos (si no baja ⇒ rc=2 «NO CONCLUYENTE», nunca 0), el escaneo corre con `--skip-db-update` (rc=1 solo es
+  hallazgo) y el rojo publica una anotación con ficheros y avisos. Los reintentos son solo de la descarga, jamás del
+  escaneo. Candado: caso **3bis** de `trivy-fs-selftest.sh` (canario ⇒ rc=1 con anotación; base inalcanzable ⇒ rc=2).
+  Con el gate viejo el 3bis cae (1/1); con el nuevo, el self-test entero pasa (1/1, determinista).
+  Medido en CI sobre `1c133193` (run 37707384065): `trivy-fs` **success** en los tres pasos. Efecto secundario cazado
+  ahí: el self-test reimprimía la salida del canario y su `::error` salía como anotación de error en un job verde;
+  ahora se reimprime con los comandos de workflow desactivados (`[canario] ::error`), y las comprobaciones siguen
+  leyendo la salida original (local: 0 `::error` sueltos, self-test rc=0).
+- **Imagen de frontend**: no corría desde `1bde01de` (el escaneo de backend caía antes). Con el `Dockerfile.frontend` real
+  salvo el `apk` (403 aquí), sobre `git archive f76fe398` y los mismos `--build-arg`, **construye rc=0**. Sin registro no
+  se puede atribuir el rojo de CI; el paso ahora publica la etapa y las líneas de error en una anotación
+  (probado forzando el fallo del `apk` aquí). La siguiente corrida dirá si fue transitorio o de código.
+  En CI sobre `1c133193` construyó y se escaneó (**success**): el rojo de `f76fe398` no se repitió (N=1, causa sin atribuir).
+
+**Rollback.** `git revert` del commit: devuelve el baseline anterior (el gate vuelve a rc=1), el script de censo sin
+conservar motivos, `trivy-fs.sh` sin la descarga aparte y el paso de imagen sin anotación. No toca imágenes ni datos.
+
+---
+## §94 · Lista de deseos: censo E2E, arreglos traídos de `claude/accesorios` y CI antes del gate de QA (2026-10-08, rama `claude/wishlist`, devops, sobre `f7ef1a8d`)
+
+### 94.1 Ficheros traídos de `claude/accesorios` (P-S6-CENSO y trivy-fs «sin base»)
+
+Copiados **byte a byte** con `git show origin/claude/accesorios:<ruta> > <ruta>` (blob idéntico, comprobado con
+`git hash-object` contra `git rev-parse origin/claude/accesorios:<ruta>`), de los commits `1c133193` y `2aa807f7`
+(descritos en `DEVOPS_NOTES §93.6` de esa rama):
+
+- `scripts/check-e2e-skip-census.sh` — `--update` ya no borra las líneas de motivo anteriores.
+- `scripts/check-e2e-skip-census-canary.sh` — caso 9bis (un segundo `--update` conserva el motivo previo).
+- `security/scripts/trivy-fs.sh` — la base de Trivy se baja aparte con reintentos; si no baja ⇒ rc=2 «NO CONCLUYENTE»
+  (antes rc=1, el mismo color que un hallazgo); el escaneo corre con `--skip-db-update`.
+- `security/scripts/trivy-fs-selftest.sh` — caso 3bis y reimpresión del canario sin `::error` sueltos.
+
+Como el blob es el mismo en las dos ramas, al fusionar estos cuatro ficheros **no chocan**. No se trajo el cambio de
+`security-sast.yml` de `1c133193` (anotación del build de la imagen de frontend): esta rama no toca ese fichero, así
+que entra limpio con la fusión de `claude/accesorios`.
+
+**Mediciones (local, 2026-10-08, árbol `f7ef1a8d` + este diff):**
+
+| Instrumento | Resultado |
+|---|---|
+| `check-e2e-skip-census-canary.sh` | rc=0, **17/17** |
+| Mutación: canario con el `check-e2e-skip-census.sh` de `f7ef1a8d` (viejo), copia `git archive HEAD` del árbol entero | rc=1, **16/17** — cae el caso 9bis («BORRÓ el motivo anterior»). Determinista, N=1 |
+| `trivy-fs-selftest.sh` (trivy 0.69.3, binario oficial con sha256 verificado contra `trivy_0.69.3_checksums.txt`) | rc=0, 0 `::error` sueltos |
+| `trivy-fs.sh` | rc=0 (sin HIGH/CRITICAL de runtime) |
+
+### 94.2 Censo de salvaguardas E2E
+
+`check-e2e-skip-census.sh` daba **rc=1** en `f7ef1a8d` (local y CI: job `e2e-skip-census`, run 37707412553).
+Baseline regenerado con `--update --motivo` y los motivos de `FRONTEND_NOTES §108.v1.87.3` y `§108.v1.87.4`; las tres
+líneas de motivo anteriores se conservan (es justo lo que arregla 94.1):
+
+| Clave | Antes | Ahora |
+|---|---|---|
+| `mockOnly` | 144 / 30 | 148 / 31 (WSH-F3 y WSH-F9 «confirmar»: token HMAC que solo vive en el correo) |
+| `needsSeed` | 35 / 10 | 33 / 9 (baja: el seed ya siembra un sellado `listed`, `1753f9ed`) |
+| `realOnly` | 22 / 7 | 25 / 8 («avísame» de sellado: lo deriva el servidor; en mock siempre `FEATURE_DISABLED`) |
+| `harnessLimit`, `skipIfSeedMissing` | 5 / 3, 15 / 7 | sin cambio |
+
+Gate tras regenerar: **rc=0**.
+
+### 94.3 Al fusionar con `claude/accesorios`: el baseline CHOCARÁ (y estas notas también)
+
+`scripts/e2e-skip-census.baseline` cambia en las dos ramas (aquí `mockOnly`/`needsSeed`/`realOnly`; en accesorios
+`skipIfSeedMissing 18/8` y `realOnly 24/8`). Ninguna de las dos cifras vale tras la fusión: **no se resuelve el
+conflicto a mano eligiendo números**. Procedimiento, tras la **segunda** fusión:
+
+1. Resolver el conflicto conservando **todas** las líneas `#` de motivo de ambos lados (unión).
+2. `./scripts/check-e2e-skip-census.sh --update --motivo "fusión claude/wishlist + claude/accesorios: …"` sobre el
+   árbol fusionado (recuenta y deja las cifras reales).
+3. Comprobar `check-e2e-skip-census.sh` rc=0 y `check-e2e-skip-census-canary.sh` 17/17.
+
+`docs/DEVOPS_NOTES.md` también choca por cola (§93 allí, §94 aquí, ambas al final): se resuelve por unión, §93 antes
+de §94.
+
+### 94.4 CI de la rama sobre `f7ef1a8d` (antes de este commit)
+
+Medido con `gh api …/actions/runs?branch=claude/wishlist` y `…/jobs`; anotaciones con `check-runs/<id>/annotations`
+(los registros devuelven 403 desde aquí):
+
+| Run · job | Resultado | Dueño |
+|---|---|---|
+| CI 37707412553 · `e2e-skip-census` | failure (censo creció) | devops — arreglado en 94.2 |
+| CI · `frontend` › paso 8 `Build` | failure (`exit code 1`, sin anotación de causa) | por atribuir (ver abajo) |
+| CI · `ci-ok` | failure («2 job(s) no cumplen»: los dos de arriba) | — (consecuencia) |
+| CI · resto (26 jobs, incl. `backend`) | success | — |
+| Security SAST 37707412658 (6 jobs) | success | — |
+| E2E 37707412685 (`backend-e2e`, `frontend-e2e`, `e2e-ok`) | success | — |
+
+Ningún `cancelled` en ese sha. **`frontend` Build:** primera caída en la rama (en `7482f220` y `1d9e8182` pasó);
+`f7ef1a8d` solo toca `e2e/*.spec.ts`, un `page.test.tsx` y notas. En local, copia `git archive f7ef1a8d` del árbol
+entero, `npm ci` + `npm run build` con las mismas `NEXT_PUBLIC_*` del job ⇒ **rc=0** (Node 22; CI usa Node 24 —
+**NO MEDIDO** con 24). En el mismo sha, la imagen de frontend de `trivy-image` y `frontend-e2e` construyeron bien.
+La corrida del commit de este apartado vuelve a medirlo.
+
+### 94.5 Rollback
+
+`git revert` del commit: vuelven el baseline anterior y los cuatro scripts previos (el `--update` vuelve a borrar
+motivos y `trivy-fs` vuelve a dar rc=1 sin base). No toca imágenes, datos ni despliegue.
+
+---
+## §95 · Fusión `claude/accesorios` + `claude/wishlist` en la rama de publicación (2026-10-08, rama `claude/release-s7`, devops)
+
+Árbol medido: `HEAD` `d98e8bf6` (= `origin/production` + `claude/accesorios` `cabd8a15`) con `merge --no-commit` de
+`claude/wishlist` `d815b57d` en curso. Los ficheros de otros roles se resolvían en paralelo; nada de lo de abajo los lee
+salvo donde se dice.
+
+### 95.1 Conflictos de devops resueltos
+
+- **`docs/DEVOPS_NOTES.md`**: unión por cola, §93 (accesorios) y después §94 (wishlist), como pedía §94.3. Sin cambios de texto.
+- **`scripts/e2e-skip-census.baseline`**: procedimiento de §94.3. Unión de las líneas `#` de motivo de los dos lados y
+  después `check-e2e-skip-census.sh --update --motivo "…"` sobre el árbol fusionado. **Ninguna cifra se eligió a mano.**
+  `frontend/e2e/` no tenía conflictos ni marcadores en ese momento (`accessories.spec.ts` = blob de `HEAD`,
+  `wishlist.spec.ts` = blob de `d815b57d`, `catalog.spec.ts` fusionado sin conflictos).
+
+| Clave | accesorios | wishlist | **fusionado (medido)** |
+|---|---|---|---|
+| mockOnly | 144/30 | 148/31 | **148/31** |
+| needsSeed | 35/10 | 33/9 | **33/9** |
+| harnessLimit | 5/3 | 5/3 | **5/3** |
+| skipIfSeedMissing | 18/8 (techo; real 15/7 tras `d11be7bf`) | 15/7 | **15/7** |
+| realOnly | 24/8 | 25/8 | **27/9** (base 22/7 + 2/1 accesorios + 3/1 wishlist) |
+
+`check-e2e-skip-census.sh` rc=0 (las 5 claves = baseline); `check-e2e-skip-census-canary.sh` rc=0, **17/17**.
+
+### 95.2 Coherencia de la infraestructura en el árbol fusionado
+
+- `security-sast.yml`, `ci.yml`, `e2e.yml`, `Dockerfile.backend`: blob del árbol = blob de `HEAD`. `security-sast.yml` es el de
+  accesorios (wishlist lo traía igual a `production`), con G-SHARP entre el `docker build` y `Trivy image backend`.
+- `check-e2e-skip-census{,-canary}.sh`, `trivy-fs.sh`, `trivy-fs-selftest.sh`: mismo blob en las dos ramas y en el árbol (`git hash-object`).
+- `backend/package.json` trae `sharp ^0.35.5` y `backend/package-lock.json` = blob de `HEAD`: wishlist no añade dependencias.
+  `backend/src/modules/accessories/accessory-photo.ts` sigue existiendo, así que el caso R3 del canario G-SHARP tiene a qué apuntar.
+
+### 95.3 Candados corridos en local (2026-10-08, el árbol descrito al principio de §95)
+
+- **Verdes (rc=0):** todos los `scripts/check-*.sh` y sus canarios, menos los de la lista de abajo; entre ellos `check-ci-ok --static`
+  (28 jobs), `check-secret-defaults-canary` (**75/75**, repetido con timeout de 900 s porque con carga ~13 en 4 CPU se pasó de 300 s),
+  sepomex, stripe, skydropx, workflow-cwd, provenance y vercel.
+- `trivy-fs-selftest.sh` rc=0, sin `::error` sueltos, y **`trivy-fs.sh` rc=0** sobre el árbol fusionado (sin HIGH/CRITICAL). Trivy 0.69.3,
+  binario oficial con el sha256 comprobado contra `trivy_0.69.3_checksums.txt`, en el scratchpad.
+- `security/scripts/audit-npm.sh` rc=0 (ninguna app con avisos de nivel high o superior).
+- Los candados no tocaron nada de infraestructura en el árbol: `git status` de `scripts/ security/ .github/` es el mismo antes y después.
+
+**NO CONCLUYENTES aquí:**
+- `check-image-sharp.sh` y su canario: aquí no hay demonio de Docker (`/var/run/docker.sock` no existe). Los mide el job `trivy-image` de la PR.
+- `check-candidate-checks.sh`: pregunta a la API de GitHub por el sha y el árbol aún no está commiteado (422). Va después del commit y el push.
+- `check-ci-ok.sh` sin `--static` necesita el `NEEDS_JSON` de Actions (solo en CI).
+- `check-format-mix.sh`: compara commits (`origin/main..HEAD`), no la fusión sin commitear. Además se pasó de 300 s con la carga alta. Lo mide el CI.
+- `check-s3-local-clone-canary.sh` y `check-s3-local-expiry.sh`: falta `scripts/s3-local/node_modules`. Ninguna de las dos ramas los toca.
+- `check-graded-estimate-dials.sh` (necesita `ADMIN_BASE_URL`, en producción), `check-dast-gate-live.sh` y `check-e2e-must-run.sh` (necesita el informe de Playwright): solo tienen sentido en CI o en producción.
+
+### 95.4 Rollback
+
+Esta sección y el baseline vuelven con el `git revert -m 1` del commit de fusión. Para revertir solo el censo, se
+restaura el baseline de un lado y se repite `--update --motivo` sobre el árbol que quede. No toca imágenes, datos ni despliegue.
+
+## §96 · CL-1: la CSP pasa a `enforce` (con ZAP 10038/10055 en FAIL), sonda de Stripe.js y C6 desde GitHub (2026-10-10, rama `claude/salida-real`, devops)
+
+> Norma: `API_CONTRACT §14.3`, `SECURITY_NOTES` CL-1 (SEC-HDR-2) y §14.14; escrito sobre `20b676bf` (= `origin/production`).
+> Todo lo «medido» aquí se midió el 2026-10-10 en una copia `git archive HEAD` entera del árbol (O-9), salvo donde dice
+> otra cosa. Producción y Stripe **no** son alcanzables desde este contenedor (403 CONNECT, re-medido hoy).
+
+### 96.1 · Qué cambia
+
+- `frontend/src/security/csp.ts:32` → `CSP_MODE = 'enforce'`. **Línea de frontend hecha por devops por urgencia,
+  encargo del orquestador**; con ella, sus candados de fase: `csp.test.ts` («fase vigente: enforce») y
+  `middleware.test.ts` (el bloque «fase vigente» fijaba `report-only` por defecto: ahora hay un caso «sin forzar
+  fase ⇒ `Content-Security-Policy` con nonce y sin `-Report-Only`», y los tres de Report-Only fuerzan esa fase
+  porque siguen siendo la vuelta atrás de §14.3). Ningún otro fichero de `frontend/`.
+- `security/zap/baseline.conf`: **10038 y 10055 → FAIL** en el mismo cambio. `check-csp-zap-parity.sh` rc 0
+  (`CSP_MODE=enforce · 10038=FAIL · 10055=FAIL`); su canario 8/8.
+- **Sub-alertas de 10055 a WARN por clave `10055-<n>`** (nuevo en `dast-gate.py`: si el `alertRef` del JSON de ZAP
+  está en la política, manda esa clave; si no, la regla). Sin esto el DAST de release salía **rojo seguro** con la
+  política tal como la define §14.3 — leído en el código de la regla (`ContentSecurityPolicyScanRule.java`,
+  zaproxy/zap-extensions) y de su parser (salvation2 `Policy.java`), no supuesto:
+  - `10055-6` *style-src unsafe-inline*: §14.3 pone `'unsafe-inline'` en `style-src` a propósito.
+  - `10055-4` *Wildcard Directive*: `img-src … https:` (deliberado, §14.3); la regla prueba un host al azar
+    `https://<n>.owasp.org` y `https:` lo permite. ⚠️ esa alerta agrupa directivas: un `script-src *` futuro caería
+    también en WARN; lo cubre `csp.test.ts` (texto de `script-src`), no el DAST.
+  - `10055-3` *Notices*: salvation avisa «report-uri deprecated» y §14.3 usa `report-uri` (→ `POST /telemetry/csp`).
+  - Siguen en FAIL: `10055-5` (script-src unsafe-inline), `10055-10` (unsafe-eval), `10055-13` (frame-ancestors /
+    form-action sin definir), `10055-9` (malformada) y toda `10038` (`-1` sin CSP, `-3` solo Report-Only).
+  - ~~ZAP ignora las claves `10055-n`~~ **FALSO — ver §96.7.** `load_config` las guarda y `get_af_output_summary`
+    hace `int(id)` sobre cada clave: ZAP revienta en el arranque. Hoy ZAP recibe una copia sin ellas.
+    Sin `alertRef` en el JSON, la alerta cae en la regla (FAIL): sin dato, no se afloja.
+  - Candado: `check-dast-gate-live.sh` 5-quater (6 casos). Mutaciones sobre la copia: gate de `HEAD` (sin soporte de
+    sub-claves) ⇒ 3 rojos **3/3**; `rule = ref` anulado ⇒ 3 rojos; sub-clave convertida en `10055 WARN` ⇒ 2 rojos.
+- **Lo que NO está medido:** el barrido ZAP real con la CSP en enforce. Lo cierra
+  `gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=baseline -f report_only=true`
+  (pasivo basta para 10038/10055) **antes** de la solicitud de fusión; la lista de WARN/FAIL sale en las anotaciones
+  del run (`gh api repos/<o>/<r>/check-runs/<job>/annotations`).
+
+Verificado en la copia: `vitest` frontend completo **4248 passed / 10 skipped**, rc 0; `tsc --noEmit` rc 0;
+`next lint` sin avisos; Playwright (build de producción, mocks) `csp.spec` + `checkout.spec` + `guest-checkout.spec`
+**29/29** (N=1) — incluye CSP-5 «en enforce el `<script>` sin nonce no se ejecuta» y el recorrido sin violaciones.
+
+### 96.2 · Sonda de Stripe.js (`scripts/csp-stripe-probe.mjs` + `.github/workflows/csp-stripe-probe.yml`)
+
+Ningún E2E comprobaba que el iframe de Stripe cargue (el `@real comprar` solo mira que el modal se abra). La sonda
+sirve en `127.0.0.1` una página con **la cabecera que produce `buildCsp(…, 'enforce')`** (importada del `.ts`, entorno
+de producción, API en un host `.invalid` para que los informes de prueba no lleguen a `/telemetry/csp` de
+producción), inserta `js.stripe.com/v3` como `loadStripe` y monta un `PaymentElement` diferido (MXN). Autoprueba:
+planta un iframe prohibido y un `<script>` sin nonce y exige ver las dos violaciones. rc 0 limpio · 1 violación ·
+2 no concluyente.
+- Local (sin red a Stripe): autoprueba **3/3**, rc 2 «es red, no política» 3/3 (correcto: no da verde sin medir).
+- Mutación «`script-src` sin `'strict-dynamic'` ni `https:`» ⇒ `✗ VIOLACIÓN script-src-elem js.stripe.com/v3` rc 1
+  **3/3**.
+- En GitHub corre solo al empujar cambios de `csp.ts`/`middleware.ts`/la sonda en `claude/**` (3 tiradas). El
+  «PaymentElement ready» exige `secrets.STRIPE_TEST_PUBLISHABLE_KEY` válida; si no, se dice «ready NO medido».
+- No cubre: el reto 3-D Secure real (el iframe del banco va DENTRO del de Stripe y lo rige la CSP de Stripe; el marco
+  que lo aloja es `js.stripe.com`/`hooks.stripe.com`, en `frame-src`), Google Identity, ni el `return_url`.
+
+Orígenes de Stripe en la política (texto de `buildCsp`, entorno de producción): `script-src 'self' 'nonce-…'
+'strict-dynamic' https:` (Stripe.js entra por `'strict-dynamic'`); `connect-src … https://api.stripe.com`;
+`frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com`; `img-src … https:`;
+`style-src 'self' 'unsafe-inline'`; `form-action 'self'` (Stripe no envía formularios desde nuestro documento).
+
+### 96.3 · C6 desde GitHub (`.github/workflows/edge-xff-probe.yml`)
+
+Ver §85.4. Manual, frase `C6-6-INTENTOS`, 1 ronda = 6 peticiones, sin control, sin secretos, `concurrency` sin
+cancelación. `push`/`pull_request` con filtro de rutas solo corren el canario (y registran el workflow: `main` está
+parado en `bb239c09`, 2026-09-15, y un workflow que nunca corrió no se puede disparar a mano). Canario local 8/8 (N=1).
+
+### 96.4 · Qué buscar en Railway tras publicar
+
+`POST /telemetry/csp` **solo registra, no guarda en BD** (`backend/src/modules/health/telemetry.controller.ts`,
+TLM-5): una línea `warn` del logger `Telemetry` por informe:
+`CSP_VIOLATION {"effectiveDirective":"…","blockedOrigin":"…","documentPath":"…","disposition":"enforce"}` (sin IP,
+UA ni usuario; tope 60/min por IP). En Railway → servicio del backend → Logs, buscar `CSP_VIOLATION`.
+`disposition":"report"` = de antes del cambio; `"enforce"` = **algo se bloqueó de verdad**. Alarma si aparece con
+`documentPath` de `/checkout`, `/pedido` o `/login`, o con `blockedOrigin` de `stripe.com`/`google.com`.
+
+### 96.5 · Hallazgos de esta medición (no arreglados aquí)
+
+- **E-8 (TTFB) nunca se midió.** `gh api …/issues?labels=ttfb&state=all` ⇒ 0 issues; `ttfb-probe.yml` solo ha corrido
+  en `pull_request` (2 runs, 2026-10-05). Su medición se dispara con `push` a `main`, y `main` no avanza. El «antes»
+  (producción sin nonce) ya no se puede medir. Lo medible hoy: `gh workflow run ttfb-probe.yml --ref production`
+  ⇒ etiqueta `despues` (Report-Only); `enforce` sirve la misma página por el mismo middleware cambiando solo el
+  nombre de la cabecera (`middleware.ts`, lectura de código, NO medición de tiempo), así que el p90 de esa corrida
+  vale para el umbral absoluto (≤ 800 ms); la subida (≤ 300 ms) queda **sin comparar**.
+- **Los `schedule` de `uptime-watch.yml`, `ttfb-probe.yml` y `db-disk-watch.yml` nunca han corrido:** GitHub solo
+  programa desde la rama por defecto (`main`), que no tiene esos ficheros (`git ls-tree origin/main`). Runs de
+  `uptime-watch`: 0 `schedule` (API, 2026-10-10). El vigía de disponibilidad (LIVE-9) no vigila.
+- ~~`ghcr.io/zaproxy/zaproxy:stable` sin fijar (`dast-ephemeral.sh:80`, `dast-selftest.sh:36`).~~ Cerrado en §96.7.
+
+### 96.6 · Rollback
+
+`git revert <commit>` devuelve `CSP_MODE='report-only'`, 10038/10055 a WARN y los tests de fase a la vez (la pareja
+la vigila `check-csp-zap-parity.sh`). Vercel publica solo con el push; en caso de urgencia, *Instant Rollback* al
+despliegue anterior en Vercel (la CSP es solo frontend: el backend no cambia). Los dos workflows nuevos no tienen
+estado: borrarlos basta.
+
+### 96.7 · ZAP reventaba con las sub-claves `10055-n` y el paso salía verde (2026-10-10, devops)
+
+**El defecto (medido por el orquestador en el log del job 114278597979, run 38074441197, sha `00535194`).** §96.1
+añadió a `security/zap/baseline.conf` las claves `10055-3`, `10055-4` y `10055-6`. Ese fichero se le pasaba **tal
+cual** a ZAP con `-c` (`dast-ephemeral.sh:250` de entonces) y ZAP murió en 33 s sin informe:
+`ValueError: invalid literal for int() with base 10: '10055-3'` en `/zap/zap_common.py:708`. Con la **misma** imagen
+(digest `sha256:7aaa659b…f0d2`) el DAST full de producción (job 114263040360) había funcionado: es del sha, no del
+entorno. Tres agujeros encadenados:
+
+1. **ZAP recibía la política del candado.** `zap_common.load_config` mete toda clave en `config_dict` y
+   `get_af_output_summary` hace `int(id)` sobre cada una. Reproducido aquí sin Docker con las dos funciones
+   extraídas de `docker/zap_common.py` de zaproxy (rama main, leída hoy): la política de `HEAD` ⇒ el mismo
+   `ValueError` en la **línea 708**; la copia filtrada ⇒ `OK`, 38 reglas. (Lo que afirmé en §96.1 era falso.)
+2. **`rc 1` se leía como «ZAP encontró cosas»** en `cmd_scan`: el paso «Escanear» salió verde. Solo el candado, un
+   paso después, dijo «No hay informe de ZAP ⇒ ROJO».
+3. **La autoprueba lo celebraba** (lectura de código, NO medido en ese run): `dast-gate.py --expect-red` daba
+   `ok = red`, y un rojo **por falta de informe** contaba como «✅ el candado cierra». Con ZAP muerto también sobre
+   el canario, el job `selftest` —del que depende `dast`— salía verde.
+
+⚠️ Habría roto el DAST bloqueante del deploy a producción (`deploy.yml` → `dast-release`, perfil full): fail-closed
+(`blocking` vacío no promueve), pero **sin medición** y con los dos primeros pasos en verde.
+
+**Arreglo:**
+- `security/scripts/dast-zap-lib.sh` (nuevo, se hace `source`): `ZAP_IMAGE_FIJADA` =
+  `ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2` (el digest que
+  dio el orquestador de los dos jobs; `ZAP_IMAGE` del entorno sigue mandando para probar otra) y
+  `zap_conf_for_zap <dir>`, que escribe la copia para ZAP y la valida antes de arrancarlo.
+- `security/scripts/dast-zap-policy.py` (nuevo): `for-zap` deja comentarios, vacías, claves enteras y `OUTOFSCOPE`
+  (dice por stderr qué quita); `check` emula `load_config` + `int(id)`. Las mal formadas **pasan** el filtro a
+  propósito, para que `check` y ZAP las rechacen en voz alta.
+- Los **cuatro** scripts que arrancan ZAP (`dast-ephemeral`, `dast-selftest`, `dast-zap-full`, `dast-zap-baseline`)
+  montan la copia en `/zap/wrk/conf-zap` y le pasan `-c /zap/wrk/conf-zap/baseline.conf`. **`dast-gate.py --policy`
+  sigue leyendo el original**: una sola fuente de verdad, dos lectores. La copia queda en el artefacto
+  (`security/reports/zap-conf/baseline.conf`) para ver qué recibió ZAP.
+- `dast-ephemeral.sh scan`: borra el JSON previo antes de cada blanco; **`rc≠0` sin JSON ⇒ «ZAP reventó»**, `::error`
+  propio y el paso sale 1. `rc 1/2` **con** JSON sigue siendo «encontró cosas» (lo decide `gate`).
+- `dast-selftest.sh`: sin JSON del canario ⇒ exit 1 antes del candado. `dast-gate.py --expect-red`:
+  `ok = bool(blocking) and not missing_input` (un rojo sin informe es «la autoprueba no midió»).
+
+**Candados** (`scripts/check-zap-conf.sh`, job `live-candados` de `ci.yml`, y `--real` en el job `selftest` de
+`security-dast.yml`, antes de escanear):
+- emulador muerde (`10055-3` ⇒ rc 1 con `ValueError`; solo enteros ⇒ rc 0); la copia de la política real la lee
+  ZAP y no pierde ninguna regla entera ni `OUTOFSCOPE`;
+- los 4 scripts que arrancan ZAP pasan por `zap_conf_for_zap` + `${ZAP_CONF_MOUNT}` y ninguno define su imagen;
+  `ZAP_IMAGE_FIJADA` por `@sha256:<64 hex>`; ninguna línea ejecutable con `zaproxy/zaproxy:<etiqueta>`;
+- **conducta** de `dast-ephemeral.sh scan` con un `docker` falso que hace lo que ZAP con `-c`: lee el fichero
+  **montado** y revienta si ZAP reventaría. ZAP sano con rc 1 + informe ⇒ paso 0; filtro roto ⇒ paso 1; ZAP rc 1
+  sin informe ⇒ paso 1 con «ZAP reventó»;
+- `dast-gate --expect-red` sin informe ⇒ rc≠0;
+- `--real`: `docker run --entrypoint python3` en la imagen fijada importa el `zap_common` **de verdad**: la copia
+  filtrada pasa `load_config` + `get_af_output_summary`, y la política con `99999-1` plantada tiene que reventar
+  con el mismo `ValueError` (el instrumento muerde). **NO MEDIDO aquí** (este contenedor no tiene demonio Docker:
+  `docker pull` ⇒ «no such file … docker.sock»); se mide en el primer run de `security-dast.yml`.
+
+Medido aquí (2026-10-10, árbol vivo de `claude/salida-real` sobre `99d6690c`, solo mis rutas cambiadas):
+`check-zap-conf.sh` rc 0; canario `check-zap-conf-canary.sh` **9/9** casos, mutaciones cazadas **8/8**, repetido
+**3 veces** (determinista: sin carreras ni temporizadores). Las 8 mutaciones: volver a pasar el original en
+`dast-ephemeral` y en `dast-selftest`, filtro que deja pasar todo, emulador sin `int(id)`, imagen a `:stable` en la
+librería y en `dast-zap-full`, quitar la rama «ZAP reventó», `ok = red` en `--expect-red`. Siguen en verde:
+`check-dast-gate-live`, `check-csp-zap-parity` (+canario), `check-provenance-gate` (+canario),
+`check-secret-defaults-canary`, `check-workflow-cwd` (+canario), `check-candidate-checks-canary`.
+`check-secret-defaults.sh` sale rojo por «manifiesto DESFASADO» **también en una copia `git archive HEAD`** de
+`99d6690c`: no lo introduce este cambio (pendiente aparte, dueño devops).
+
+**Lo que NO cierra:** `NUCLEI_IMAGE` sigue en `projectdiscovery/nuclei:latest` (etiqueta móvil; no medí su digest).
+
+**Para medir el barrido real** (lo dispara el orquestador tras el push):
+`gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=full -f report_only=true`.
+Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK 38` y el `ValueError` de `99999-1`; en
+`dast` → `timings.txt` con `rc=` y segundos del orden de minutos (no 33 s), y la anotación `DAST-SELLO` con
+`blocking=true|false` (no vacío).
+
+**Rollback:** `git revert` del commit. Vuelve el defecto (ZAP revienta con las sub-claves); si hay que revertir,
+revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
+pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
+
+## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+
+**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
+⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
+un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
+autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
+
+**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
+(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
+
+    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
+    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
+
+12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
+
+**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
+medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
+`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
+concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
+`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
+no cambia.
+
+**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
+(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
+local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
+
+**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
+`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
+Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
+`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
+
+**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
+pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
+datos.
+
+## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
+
+**Qué pasa.** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue **SIN MEDIR**, así que no
+se puede garantizar que `enforce` no rompa la portada. Por eso este release vuelve la CSP a `report-only`
+(frontend pone `CSP_MODE='report-only'` en `frontend/src/security/csp.ts`) y el paso a `enforce` queda pendiente
+como **CL-1**.
+
+**Mi cambio (`security/zap/baseline.conf`).** Bajé **10038 y 10055 de FAIL a WARN**. Con `report-only` ZAP no cuenta
+la CSP como aplicada y las dispara SIEMPRE: dejarlas en FAIL pondría rojo el DAST de release por un hallazgo
+**esperado**. Siguen saliendo en el informe (WARN: se ven, no bloquean). Las sub-alertas `10055-3/-4/-6` quedan como
+estaban (WARN). El comentario de la política (§14.3) describe ahora las dos fases y dice que 10038/10055 **vuelven a
+FAIL en el MISMO cambio** que ponga `CSP_MODE='enforce'`.
+
+**Lo ata `scripts/check-csp-zap-parity.sh`** (job `live-candados` de ci.yml): la constante de frontend y la política
+de devops se mueven juntas. `report-only` con alguna en FAIL ⇒ rc 1; `enforce` con alguna ≠ FAIL ⇒ rc 1.
+
+**Medido (2026-10-10).**
+- `check-csp-zap-parity.sh` con mi baseline.conf y un `csp.ts` simulado a `report-only`: **rc 0** («report-only con
+  10038/10055 en WARN»). Con el `csp.ts` aún en `enforce` del árbol (frontend no había commiteado): rc 1 — esperado,
+  el verde final se confirma cuando ambos commits (frontend `csp.ts` + este) estén.
+- `check-zap-conf.sh` (§96.7, emulación sin Docker): **rc 0**, todos los casos verdes; el filtro sigue quitando solo
+  `10055-3/-4/-6` para ZAP. No corrí `--real` (necesita Docker).
+
+**Rollback.** `git revert` de este commit devuelve 10038/10055 a FAIL. OJO: FAIL solo es coherente con
+`CSP_MODE='enforce'`; el candado de paridad exige revertir las dos cosas juntas (baseline.conf + csp.ts). No toca
+producción ni datos.
+
+## §99 · `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
 
 Estado vigente, no bitácora. El script arranca una carpeta nueva con **el equipo** (plantilla) y **ficheros de
 arranque en blanco**; no toca el proyecto en curso.

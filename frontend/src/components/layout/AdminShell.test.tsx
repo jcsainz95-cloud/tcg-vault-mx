@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { renderWithIntl } from '@/test/render';
+import { renderWithProviders } from '@/test/render';
 import { AdminShell } from './AdminShell';
 import { useRole } from '@/lib/role';
 import { setStoredUser, markIntentionalLogout, resetIntentionalLogoutForTests } from '@/lib/session';
@@ -51,7 +51,7 @@ describe('AdminShell — gate de sesión (modo real)', () => {
 
   it('QA2-1 / FE-34: sesión vaciada por «Cerrar sesión» explícito → el guard NO impone /login?next=/admin (deja navegar al llamador)', async () => {
     markIntentionalLogout();
-    renderWithIntl(
+    renderWithProviders(
       <AdminShell>
         <RoleProbe />
       </AdminShell>,
@@ -64,7 +64,7 @@ describe('AdminShell — gate de sesión (modo real)', () => {
   });
 
   it('sin sesión NO renderiza el back-office y redirige a /login con next', async () => {
-    renderWithIntl(
+    renderWithProviders(
       <AdminShell>
         <RoleProbe />
       </AdminShell>,
@@ -81,7 +81,7 @@ describe('AdminShell — gate de sesión (modo real)', () => {
 
   it('con sesión renderiza el back-office y el rol viene de la SESIÓN (super_admin)', async () => {
     setStoredUser(admin);
-    renderWithIntl(
+    renderWithProviders(
       <AdminShell>
         <RoleProbe />
       </AdminShell>,
@@ -96,7 +96,7 @@ describe('AdminShell — gate de sesión (modo real)', () => {
 
   it('el rol efectivo es el del usuario de sesión (vault_operator), no super_admin', async () => {
     setStoredUser({ ...admin, role: 'vault_operator' });
-    renderWithIntl(
+    renderWithProviders(
       <AdminShell>
         <RoleProbe />
       </AdminShell>,
@@ -108,7 +108,7 @@ describe('AdminShell — gate de sesión (modo real)', () => {
 
   it('un customer logueado NO ve el back-office y es redirigido al storefront', async () => {
     setStoredUser({ ...admin, role: 'customer' });
-    renderWithIntl(
+    renderWithProviders(
       <AdminShell>
         <RoleProbe />
       </AdminShell>,

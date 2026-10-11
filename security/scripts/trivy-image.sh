@@ -40,10 +40,16 @@ if [[ -z "${IMAGES:-}" ]]; then
   IMAGES="tcg-backend:scan tcg-frontend:scan"
 fi
 
+# §76: las imágenes leen .trivyignore + .trivyignore-image (igual que el job
+# `trivy-image`, cuya acción concatena ambos ficheros planos).
+IGNORE_IMG="$(mktemp -t trivyignore-img-XXXXXX)"
+trap 'rm -f "$IGNORE_IMG"' EXIT
+cat "${SEC_DIR}/.trivyignore" "${SEC_DIR}/.trivyignore-image" > "$IGNORE_IMG"
+
 FAILED=0
 for img in ${IMAGES}; do
   echo "→ Trivy image: ${img} ..."
-  if ! trivy image --config "${SEC_DIR}/trivy.yaml" --ignorefile "${SEC_DIR}/.trivyignore" --exit-code 1 --no-progress "${img}"; then
+  if ! trivy image --config "${SEC_DIR}/trivy.yaml" --ignorefile "$IGNORE_IMG" --exit-code 1 --no-progress "${img}"; then
     echo "✗ ${img}: HIGH/CRITICAL detectadas."
     FAILED=1
   fi

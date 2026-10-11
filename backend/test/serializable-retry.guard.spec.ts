@@ -104,7 +104,7 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     expect(codigo(join(SRC, HELPER))).toMatch(/TransactionIsolationLevel\s*\.\s*Serializable/);
   });
 
-  it('⭐ los seis llamadores siguen ahí: nadie "arregló" el 500 quitando la transacción', () => {
+  it('⭐ los siete llamadores siguen ahí: nadie "arregló" el 500 quitando la transacción', () => {
     // `SEC-A2` y sus hermanos dependen de que estas operaciones sigan siendo serializables. Si el
     // número baja, alguien quitó una garantía de concurrencia; si sube, hay que auditar que el nuevo
     // cuerpo no tenga efectos fuera de la BD (el reintento lo ejecutaría dos veces).
@@ -113,6 +113,9 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     const sitios = ficheros
       .filter((f) => !f.endsWith(HELPER))
       .flatMap((f) => codigo(f).match(/\brunSerializable\s*\(/g) ?? []);
-    expect(sitios).toHaveLength(6);
+    // v1.82 · PNL-4: SIETE — `BuylistService.rejectItems` (`reject-items`). Auditado: su cuerpo solo toca la BD
+    // (y `logger.warn`); el correo 29 sale DESPUÉS del commit, fuera del callback, así que un reintento no
+    // lo duplica.
+    expect(sitios).toHaveLength(7);
   });
 });

@@ -81,7 +81,13 @@ function parseNonNegativeInt(raw: string | undefined, field: string): number | u
 // `from` = inicio de día (`00:00:00.000Z`), `to` = fin de día INCLUSIVO (`23:59:59.999Z`). Un
 // datetime ISO completo (con hora/offset) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste).
 // Punto ÚNICO que ambos endpoints comparten → arregla M5, M3 y el caso latente de orders a la vez.
-const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+// ⭐ v1.78.2 (§M4-PREP) — **EXPORTADA, y solo eso: la gramática de «date-only» es UNA en el repo.**
+// `?date=` de `GET /admin/shipments/picking-list` la reusa para no escribir una tercera
+// (`shipments.service.ts` · `parseDayFilter`). ⛔ Lo que ese eje **NO** hereda de este fichero es la
+// forma del `details`: aquí se emite `{ [field]: raw }`, que es **grafía LEGADA congelada donde
+// está**; un eje que nace hoy lleva `{ field }` (§0-Q punto 2 prohíbe el eco del valor). Unificar
+// las dos formas es cambio de §0-Q ⇒ arquitecto (regla 9).
+export const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseDate(
   raw: string | undefined,

@@ -92,10 +92,11 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
           const cutoff = where.createdAt.lt as Date;
           return orders.filter((o) => o.createdAt < cutoff);
         }),
-        update: jest.fn(async ({ data }: any) => {
+        // 💰 v1.84 LIVE-4 (TD-4): `pending → failed` es un CAS y va PRIMERO en la tx de liberación.
+        updateMany: jest.fn(async ({ data }: any) => {
           calls.push('release-order');
           released.push({ order: data });
-          return {};
+          return { count: 1 };
         }),
       },
       inventoryItem: {
@@ -105,6 +106,8 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
           return { count: 1 };
         }),
       },
+      // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): la liberación suelta también los renglones de accesorio (aquí, ninguno).
+      orderAccessoryLine: { findMany: jest.fn(async () => []) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const stripe: any = {

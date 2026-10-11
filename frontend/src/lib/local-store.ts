@@ -38,6 +38,13 @@ export interface LocalStoreOptions<T> {
    * `undefined` si `raw` no es legado. Ej.: el carrito de compra v1 era un array plano de ids.
    */
   migrateLegacy?: (raw: unknown) => T | undefined;
+  /**
+   * §AC (carrito v3, FRONTEND_NOTES §107): el valor es un OBJETO cuyas llaves van al nivel del registro
+   * (`{ ids, accessories, deckPulls, updatedAt }`) en vez de anidarse bajo `field`. `field` sigue siendo la
+   * llave que reconoce el registro (un v2 `{ ids, updatedAt }` se lee como v3 sin perder caducidad) y
+   * `sanitize` recibe el registro ENTERO. Sin `flat`, nada cambia.
+   */
+  flat?: boolean;
 }
 
 /** Resultado de `read()`: el valor vigente y si, para dárselo, hubo que descartar uno caducado. */
@@ -66,11 +73,12 @@ export interface LocalStore<T> {
 }
 
 export function createLocalStore<T>(opts: LocalStoreOptions<T>): LocalStore<T> {
-  const { key, field, event, maxAgeMs, sanitize, empty, migrateLegacy } = opts;
+  const { key, field, event, maxAgeMs, sanitize, empty, migrateLegacy, flat = false } = opts;
 
   function persist(value: T) {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(key, JSON.stringify({ [field]: value, updatedAt: Date.now() }));
+    const record = flat ? { ...(value as object), updatedAt: Date.now() } : { [field]: value, updatedAt: Date.now() };
+    window.localStorage.setItem(key, JSON.stringify(record));
   }
 
   const fresh = (value: T): ReadResult<T> => ({ value, expired: false });
@@ -90,7 +98,7 @@ export function createLocalStore<T>(opts: LocalStoreOptions<T>): LocalStore<T> {
 
       if (parsed && typeof parsed === 'object' && field in (parsed as Record<string, unknown>)) {
         const record = parsed as Record<string, unknown>;
-        const clean = sanitize(record[field]);
+        const clean = sanitize(flat ? record : record[field]);
         const updatedAt = record.updatedAt;
         if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) {
           // Timestamp ausente/corrupto: mismo trato que el formato legado (no se descarta).

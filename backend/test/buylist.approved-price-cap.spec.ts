@@ -58,6 +58,8 @@ function buildService(item: any, settings = buildSettings()) {
     },
     sellRequest: { update: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(item.kyc ?? null) },
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
   };
   const svc = new BuylistService(

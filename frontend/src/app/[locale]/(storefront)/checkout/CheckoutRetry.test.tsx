@@ -312,9 +312,10 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');
     await usr.type(screen.getByLabelText('Calle y número'), 'Av. Reforma 123');
-    await usr.type(screen.getByLabelText('Ciudad'), 'CDMX');
-    await usr.type(screen.getByLabelText('Estado'), 'CDMX');
+    // v1.81 (§M4-SHIP.19.5): CP → colonia de la lista; municipio y estado salen del CP.
     await usr.type(screen.getByLabelText('Código postal'), '06600');
+    await screen.findByRole('option', { name: 'Juárez' });
+    await usr.selectOptions(screen.getByRole('combobox', { name: 'Colonia' }), 'Juárez');
     await usr.type(screen.getByLabelText('Teléfono'), '5512345678');
     await usr.click(screen.getByRole('checkbox', { name: /Acepto los términos/ }));
   }
@@ -412,6 +413,7 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     expect(block).toHaveTextContent('con este correo');
     expect(within(block).queryByRole('link')).toBeNull();
     expect(within(block).getByRole('button', { name: 'Reintentar en un momento' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Pagar MX\$/ })).toBeDisabled();
+    // 💰 F-SP-5: sin sesión creada el botón del invitado no pinta importe («Pagar» a secas).
+    expect(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar$/ })).toBeDisabled();
   });
 });

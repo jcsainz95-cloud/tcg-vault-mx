@@ -9,11 +9,15 @@ import { cn } from '@/lib/cn';
 export type AccountSectionId =
   | 'profile'
   | 'email'
+  /** ⭐ v1.80.9 (§42.8): en lugar de `email` para el equipo sin correo. */
+  | 'username'
   | 'addresses'
   | 'billing'
   | 'kyc'
   | 'password'
-  | 'session';
+  | 'session'
+  /** ⭐ §WSH-UX.3 (a): solo `customer`, después de `addresses`, y solo si el dial está encendido. */
+  | 'wishlist';
 
 /**
  * Envoltorio de una sección de «Mi cuenta» (DESIGN_SYSTEM §33.6): `<section aria-labelledby>`

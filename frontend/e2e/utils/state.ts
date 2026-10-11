@@ -328,8 +328,8 @@ const LOGIN_LIMIT = Number(process.env.E2E_LOGIN_LIMIT ?? 5);
 const LOGIN_WINDOW_MS = Number(process.env.E2E_LOGIN_WINDOW_MS ?? 66_000);
 
 /** Ranuras ya gastadas (epoch ms), las viejas podadas. */
-function liveSlots(now: number): number[] {
-  const stored = readState<number[]>(LOGIN_BUDGET_KEY);
+function liveSlots(now: number, key: string = LOGIN_BUDGET_KEY): number[] {
+  const stored = readState<number[]>(key);
   const slots = Array.isArray(stored?.value) ? stored!.value : [];
   return slots.filter((at) => typeof at === 'number' && now - at < LOGIN_WINDOW_MS);
 }
@@ -384,6 +384,53 @@ export async function reserveLoginSlot(label: string, maxWaitMs = 75_000): Promi
   }
 }
 
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════
+ * CUPO DE `POST /auth/change-password` (STF-17-E2E, 2026-10-04)
+ * ═════════════════════════════════════════════════════════════════════════════════════
+ *
+ * El mismo defecto que B-2, en otra ruta: `POST /auth/change-password` lleva su PROPIO
+ * `@Throttle({ default: { ttl: 60_000, limit: 5 } })` (`backend/src/modules/auth/auth.controller.ts`,
+ * encima de `@Post('change-password')`; el throttler cuenta por ruta y por IP, así que no comparte
+ * cubo con el login). El ciclo de STF-17-E2E envía CUATRO por cuenta (temporal → definitiva, actual
+ * mala, nueva igual, cambio bueno) y `account.spec.ts` otros tres: sin cupo compartido, dos workers
+ * en el mismo minuto se comen el `429 RATE_LIMITED` y el rojo dice «la UI no respondió».
+ *
+ * ⛔ Cuenta TODO envío del formulario, también los que el servidor rechaza con `422`: el throttler
+ * cuenta peticiones, no éxitos. Misma ventana con margen que el login.
+ */
+const CHANGE_PASSWORD_BUDGET_KEY = 'change-password-budget:v1';
+const CHANGE_PASSWORD_LIMIT = Number(process.env.E2E_CHANGE_PASSWORD_LIMIT ?? 5);
+
+/** Reserva UNA ranura de `POST /auth/change-password`; mismas reglas que `reserveLoginSlot`. */
+export async function reserveChangePasswordSlot(label: string, maxWaitMs = 75_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    const waitMs = await withFileLock(
+      CHANGE_PASSWORD_BUDGET_KEY,
+      async () => {
+        const now = Date.now();
+        const slots = liveSlots(now, CHANGE_PASSWORD_BUDGET_KEY);
+        if (slots.length < CHANGE_PASSWORD_LIMIT) {
+          writeState(CHANGE_PASSWORD_BUDGET_KEY, [...slots, now]);
+          return 0;
+        }
+        return Math.max(250, Math.min(...slots) + LOGIN_WINDOW_MS - now);
+      },
+      { timeoutMs: 60_000 },
+    );
+    if (waitMs === 0) return;
+    if (Date.now() + waitMs > deadline) {
+      throw new Error(
+        `Cupo de POST /auth/change-password agotado y la espera (${Math.ceil(waitMs / 1000)} s) no ` +
+          `cabe en el presupuesto de «${label}». El producto limita esa ruta a ${CHANGE_PASSWORD_LIMIT} ` +
+          `por ${Math.round(LOGIN_WINDOW_MS / 1000)} s POR IP; esto NO es un fallo de la UI.`,
+      );
+    }
+    await sleep(waitMs);
+  }
+}
+
 /** Cuántas ranuras de login se han gastado en la ventana viva. Para decirlo en voz alta. */
 export function loginSlotsUsed(): number {
   return liveSlots(Date.now()).length;
@@ -392,4 +439,5 @@ export function loginSlotsUsed(): number {
 /** Olvida el gasto acumulado (lo llama el `globalTeardown`: el cupo no es de nadie entre corridas). */
 export function clearLoginBudget(): void {
   clearState(LOGIN_BUDGET_KEY);
+  clearState(CHANGE_PASSWORD_BUDGET_KEY);
 }

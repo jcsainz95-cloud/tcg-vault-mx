@@ -16,6 +16,7 @@ const CARD = {
   subtypes: [],
   setId: 's',
   setName: 'Darkness Ablaze',
+  setPtcgoCode: null,
   imageSmallUrl: '',
   imageLargeUrl: '',
   availableFinishes: ['holofoil' as const],
@@ -236,6 +237,100 @@ describe('Mesa de decisión — decidir y emitir', () => {
     expect(why).toHaveTextContent('Agrega MX$80.00 de bruto');
   });
 
+  /**
+   * ⚠️ EL PRE-LLENADO Y SU GUARDA. El campo «Precio ofertado» nace MOSTRANDO el precio con que se
+   * cotizó (`derivedPriceCents`) —no vacío— para que el operador confirme/ajuste en vez de teclear
+   * en blanco (un campo vacío invitó al `0.01` fantasma). Pero es SOLO display: mientras no lo
+   * cambie, la línea sigue SIN override —basis derivado, sin motivo, sin `overridePriceCents`—.
+   */
+  it('(a) el campo «Precio ofertado» nace PRE-LLENADO con el derivado, no vacío', async () => {
+    render(table()); // derivedPriceCents 84000 ⇒ $840
+    const amount = (await screen.findByLabelText(
+      'Precio ofertado para Charizard VMAX',
+    )) as HTMLInputElement;
+    expect(amount.value).toBe('840');
+    // Pre-llenar NO es ajustar: no hay motivo ni marca de override.
+    expect(screen.queryByLabelText('Motivo del ajuste')).not.toBeInTheDocument();
+  });
+
+  /**
+   * ⚠️ Carta SIN derivado (null / PRICE_PENDING): el campo queda VACÍO. No se inventa un precio en
+   * un campo que decide dinero.
+   */
+  it('(a·bis) sin `derivedPriceCents` el campo queda VACÍO —no se inventa precio', async () => {
+    render(table({ lines: [line({ derivedPriceCents: null })] }));
+    const amount = (await screen.findByLabelText(
+      'Precio ofertado para Charizard VMAX',
+    )) as HTMLInputElement;
+    expect(amount.value).toBe('');
+  });
+
+  it('(b) SIN tocar nada la línea NO es manual: la oferta emite el DERIVADO sin `overridePriceCents`', async () => {
+    render(table()); // una sola línea con derivedPriceCents 84000
+    const spy = vi.spyOn(api, 'emitBuylistOffer').mockResolvedValue({
+      sellRequestId: 'sr-1',
+      status: 'ofertada',
+      offerState: 'sent',
+      offerSentAt: '2026-09-01T12:00:00.000Z',
+      offerGrossCents: 84000,
+      offerShippingFeeCents: 18000,
+      offerNetCents: 66000,
+      offerAcceptDeadlineAt: '2026-09-03T18:00:00.000Z',
+      requiresAuthorization: false,
+      items: [],
+    });
+    // El campo nace en '840' (el derivado); NO lo tocamos.
+    const amount = (await screen.findByLabelText(
+      'Precio ofertado para Charizard VMAX',
+    )) as HTMLInputElement;
+    expect(amount.value).toBe('840');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
+    // Basis derivado ⇒ la línea viaja como `buy` PELADA: sin `overridePriceCents`, sin `overrideReason`.
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith('sr-1', [{ itemId: 'i-1', decision: 'buy' }]),
+    );
+  });
+
+  it('(c) al CAMBIAR el pre-llenado a un monto distinto, la línea SÍ se vuelve override', async () => {
+    render(table());
+    const amount = (await screen.findByLabelText(
+      'Precio ofertado para Charizard VMAX',
+    )) as HTMLInputElement;
+    // Arranca en el derivado, sin motivo.
+    expect(amount.value).toBe('840');
+    expect(screen.queryByLabelText('Motivo del ajuste')).not.toBeInTheDocument();
+
+    // Cambiarlo a un monto DISTINTO ⇒ ahora es override: aparece el motivo y la basis lo marca.
+    fireEvent.change(amount, { target: { value: '900' } });
+    const reason = await screen.findByLabelText('Motivo del ajuste');
+    expect(reason).toBeInTheDocument();
+    fireEvent.change(reason, { target: { value: 'el mercado se movió' } });
+
+    const spy = vi.spyOn(api, 'emitBuylistOffer').mockResolvedValue({
+      sellRequestId: 'sr-1',
+      status: 'ofertada',
+      offerState: 'sent',
+      offerSentAt: '2026-09-01T12:00:00.000Z',
+      offerGrossCents: 90000,
+      offerShippingFeeCents: 18000,
+      offerNetCents: 72000,
+      offerAcceptDeadlineAt: '2026-09-03T18:00:00.000Z',
+      requiresAuthorization: false,
+      items: [],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith('sr-1', [
+        { itemId: 'i-1', decision: 'buy', overridePriceCents: 90000, overrideReason: 'el mercado se movió' },
+      ]),
+    );
+  });
+
   it('el override exige motivo, y mandar el derivado EXACTO no lo exige', async () => {
     render(table());
     const amount = await screen.findByLabelText('Precio ofertado para Charizard VMAX');
@@ -359,7 +454,10 @@ describe('Mesa de decisión — decidir y emitir', () => {
 
   it('emitida ⇒ la mesa es de SOLO LECTURA (el override vive solo antes del correo)', async () => {
     render(table({ status: 'ofertada' }));
-    expect(await screen.findByText('La oferta ya salió: la mesa es de solo lectura.')).toBeInTheDocument();
+    // §60.5 d: fuera de `cotizada` el texto dice DÓNDE está la acción, por estado.
+    expect(
+      await screen.findByText('La oferta ya salió y el vendedor la tiene. Para cambiarla o cerrarla, usa «Cancelar la oferta» en la solicitud.'),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Emitir oferta' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Precio ofertado para Charizard VMAX')).not.toBeInTheDocument();
   });
@@ -371,5 +469,34 @@ describe('Mesa de decisión — decidir y emitir', () => {
     expect(screen.getByText('Not yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Issue offer' })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m5\.desk/);
+  });
+});
+
+/**
+ * BRJ-UI-2 = FE-BRJ-2 (DESIGN_SYSTEM §60.5 d · contrato v1.82 §PNL.4): «Declinar» DENTRO de la mesa en `cotizada`,
+ * que llama al MISMO `onDecline` que abre el diálogo de la fila; en `aceptada` no hay «Declinar» y el texto dice
+ * dónde está la acción. Canario: ofrecer «Declinar» en `aceptada`.
+ */
+describe('BRJ-UI-2 · «Declinar» en la mesa', () => {
+  it('cotizada ⇒ «Declinar» junto a «Emitir oferta», y lo pulsa ⇒ onDecline', async () => {
+    const onDecline = vi.fn();
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table());
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} onDecline={onDecline} />, 'es');
+    await screen.findByRole('button', { name: 'Emitir oferta' });
+    fireEvent.click(screen.getByTestId('desk-decline'));
+    expect(onDecline).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    // ✏ §BSD-UX.6a: la nota ya no dice «ya no se cancela» (en `aceptada` existe «Declinar» — el de la FICHA, no el de la mesa).
+    ['aceptada', 'El vendedor aceptó. Genera su guía para que mande las cartas; si ya no quieres comprarlas, puedes declinarla mientras no diga que ya las mandó.'],
+    ['en_transito', 'El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal.'],
+    ['verificacion', 'Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas».'],
+    ['pagada', 'Esta solicitud ya no tiene nada que decidir aquí.'],
+  ] as const)('%s ⇒ sin «Declinar» y con su texto', async (status, text) => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table({ status }));
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} onDecline={() => {}} />, 'es');
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByTestId('desk-decline')).not.toBeInTheDocument();
   });
 });

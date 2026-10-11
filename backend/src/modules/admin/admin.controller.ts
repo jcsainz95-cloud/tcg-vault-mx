@@ -7,6 +7,7 @@ import {
   HttpCode,
   Ip,
   Logger,
+  Optional,
   Param,
   Patch,
   Post,
@@ -14,6 +15,8 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { AdminDeniedAttempt, AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
+import { StaffControlAlertsService } from '../spend-alerts/staff-control.service';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
@@ -21,11 +24,14 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
+import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
 import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
-import { UserAuditScope } from '../audit/audit.service';
+import { UserAuditScope, USER_AUDIT_SCOPE_VALUES } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { parseAdminListFilters } from '../../common/admin-list-filters';
+import { RefundReportsService } from '../payments/refunds/refund-reports.service';
 
 export class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
@@ -74,7 +80,10 @@ export class UpdateStatusDto {
  * y lanza `422 VALIDATION_ERROR` (el contrato exige 422; el pipe global solo da 400 estructural).
  */
 class CreateAdminUserDto {
-  @IsString() email!: string;
+  // v1.80.9 (§M6-U.6): cliente ⇒ `email` obligatorio y `username` prohibido; equipo ⇒ al revés. Solo ESTRUCTURA
+  // aquí; la regla (con `details.field`/`details.rule`) vive en `AdminService.createUser`.
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() username?: string;
   @IsString() name!: string;
   @IsString() role!: string;
   @IsOptional() @IsString() password?: string;
@@ -104,6 +113,8 @@ const ADMIN_USERS_QUERY_KEYS = ['q', 'status', 'kycStatus', 'page', 'pageSize'] 
  * **Declaración canónica: la línea del endpoint en `API_CONTRACT §M9`** (``axis?` (`sale | buy`;
  * omitido = ambos)`). Paridad a **dos bandas** —contrato ↔ este literal— sostenida por `C-EQ-1`.
  */
+/** `?reason=` de `GET /admin/finance/shrinkage` (§M4-SHIP.17.5) — clase L (§0-Q): dos valores de `InventoryStatus`, sin enum propio. */
+export const SHRINKAGE_REASON_VALUES = ['lost', 'damaged'] as const;
 export const PRICING_BRACKETS_AXIS_VALUES = ['sale', 'buy'] as const;
 
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
@@ -117,7 +128,43 @@ export class AdminUsersController {
   constructor(
     private readonly admin: AdminService,
     private readonly audit: AuditService,
+    // 🔒 D2g (§19.30.2 (3)): AG-22. `@Optional()` solo porque los unitarios construyen el controlador a mano; en DI siempre está
+    // (`AdminModule` importa `SpendAlertsModule`).
+    @Optional() private readonly staffControl?: StaffControlAlertsService,
   ) {}
+
+  /**
+   * 🔒 D2g (§19.30.2 (2)) — corre el acto; si el servicio lo niega con `OWNER_ACCOUNT_PROTECTED`, deja la bitácora
+   * `user.admin_action_denied {attempted, reason:'owner_protected'}` (⛔ el rechazo no depende de ella) y AG-22 🔴
+   * `owner_account_denied`, y relanza el `403`.
+   */
+  private async ownerGuarded<T>(
+    attempted: AdminDeniedAttempt,
+    targetId: string,
+    actor: { id: string; role: Role },
+    target: { userId: string; name: string; role: Role } | null,
+    act: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await act();
+    } catch (e) {
+      if (!(e instanceof BusinessException) || e.code !== 'OWNER_ACCOUNT_PROTECTED') throw e;
+      try {
+        await this.audit.log({
+          actorUserId: actor.id,
+          actorRole: actor.role,
+          action: 'user.admin_action_denied',
+          entityType: 'User',
+          entityId: targetId,
+          after: { attempted, reason: 'owner_protected' },
+        });
+      } catch (err) {
+        this.logger.error(`user.admin_action_denied: bitácora falló (${err instanceof Error ? err.message : String(err)})`);
+      }
+      await this.staffControl?.report(actor.id, 'owner_account_denied', target);
+      throw e;
+    }
+  }
 
   /**
    * `GET /admin/users` — **API_CONTRACT §M6-L** (`A5`, v1.71) · ARCHITECTURE §4.53.
@@ -174,7 +221,10 @@ export class AdminUsersController {
    */
   @Post()
   @HttpCode(201)
-  @Roles(Role.super_admin)
+  // ⭐ v1.80.9 (§M6-U.6, D-STF-1): solo `super_admin`, y el rechazo a `vault_operator` es 403 **con** fila
+  // `user.admin_action_denied` (antes `@Roles(Role.super_admin)`: 403 sin bitácora).
+  @AuditedSuperAdmin('create')
+  @UseGuards(AuditedSuperAdminGuard)
   async createUser(
     @Body() dto: CreateAdminUserDto,
     @CurrentUser() user: { id: string; role: Role },
@@ -189,11 +239,16 @@ export class AdminUsersController {
       // SEGURIDAD: NUNCA la contraseña (temp o provista). Solo metadatos no sensibles.
       after: {
         role: res.user.role,
+        // v1.80.9 (§M6-U.6): quién es (`username`) y si tiene correo. ⛔ Nunca la contraseña.
+        username: res.user.username,
+        hasEmail: res.user.email !== null,
         emailVerified: res.user.emailVerified,
         authProvider: res.user.authProvider,
         mustChangePassword: res.mustChangePassword,
       },
     });
+    // 🔒 D2g (§19.30.2 (3)): AG-22 `staff_created` post-commit (🔴 si creó un súper-admin; el dueño ⇒ no-op; cliente ⇒ nada).
+    await this.staffControl?.report(user.id, 'staff_created', { userId: res.user.id, name: res.user.name, role: res.user.role });
     return res;
   }
 
@@ -216,11 +271,10 @@ export class AdminUsersController {
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
-    const normalizedScope: UserAuditScope = (['target', 'actor', 'both'] as const).includes(
-      scope as UserAuditScope,
-    )
-      ? (scope as UserAuditScope)
-      : 'target';
+    // `EQ-D1` · clase **R** (§0-Q): ausente/vacío ⇒ el default declarado `target`; token del dominio
+    // ⇒ filtra; fuera de dominio ⇒ `400` (antes se **clampaba** en silencio a `target`).
+    const normalizedScope: UserAuditScope =
+      parseEnumFilter('scope', scope, USER_AUDIT_SCOPE_VALUES) ?? 'target';
     return this.audit.listForUser({
       userId: id,
       scope: normalizedScope,
@@ -369,7 +423,9 @@ export class AdminUsersController {
     @Body() dto: UpdateStatusDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.admin.updateUserStatus(id, dto.status);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): la cuenta del dueño ⇒ `403 OWNER_ACCOUNT_PROTECTED` SIEMPRE (también si es él mismo).
+    const res = await this.ownerGuarded('status', id, user, target, () => this.admin.updateUserStatus(id, dto.status));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -378,6 +434,7 @@ export class AdminUsersController {
       entityId: id,
       after: { status: dto.status },
     });
+    await this.staffControl?.report(user.id, 'staff_status_changed', target);
     return res;
   }
 
@@ -388,9 +445,13 @@ export class AdminUsersController {
    */
   @Post(':id/reset-password')
   @HttpCode(200)
-  @Roles(Role.super_admin)
+  // ⭐ v1.80.9 (§M6-U.6, D-STF-1): 403 + fila `user.admin_action_denied {attempted:'reset_password'}` a `vault_operator`.
+  @AuditedSuperAdmin('reset_password')
+  @UseGuards(AuditedSuperAdminGuard)
   async resetPassword(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.admin.resetPassword(id);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): destino dueño ∧ actor ≠ destino ⇒ `403 OWNER_ACCOUNT_PROTECTED`.
+    const res = await this.ownerGuarded('reset_password', id, user, target, () => this.admin.resetPassword(id, user.id));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -399,6 +460,7 @@ export class AdminUsersController {
       entityId: id,
       // SEGURIDAD: NUNCA se guarda la contraseña temporal en el before/after.
     });
+    await this.staffControl?.report(user.id, 'staff_password_reset', target);
     return res;
   }
 
@@ -409,7 +471,9 @@ export class AdminUsersController {
   @Delete(':id')
   @Roles(Role.super_admin)
   async deleteUser(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.admin.deleteUser(id, user.id);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): `409 CANNOT_DELETE_SELF` primero (sin cambio); luego la cuenta del dueño ⇒ `403`.
+    const res = await this.ownerGuarded('delete', id, user, target, () => this.admin.deleteUser(id, user.id));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -418,6 +482,7 @@ export class AdminUsersController {
       entityId: id,
       after: { mode: res.mode },
     });
+    await this.staffControl?.report(user.id, 'staff_deleted', target);
     return res;
   }
 }
@@ -426,7 +491,26 @@ export class AdminUsersController {
 @Controller('admin/finance')
 @Roles(Role.super_admin)
 export class AdminFinanceController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly refundReports: RefundReportsService,
+  ) {}
+
+  /** 🔒 v1.80.3 (§M4-SHIP.17.5 (3)) — la MERMA POR ACTOR: la ENTRADA a `lost|damaged` se cuenta UNA vez. */
+  @Get('shrinkage')
+  @Header('Cache-Control', 'no-store')
+  shrinkage(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('actorUserId') actorUserId?: string,
+    @Query('reason') reason?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
+  ) {
+    const f = parseAdminListFilters({ page, pageSize, from, to });
+    const r = parseEnumFilter('reason', reason, SHRINKAGE_REASON_VALUES);
+    return this.refundReports.shrinkage({ from: f.dateRange?.gte, to: f.dateRange?.lte, actorUserId: actorUserId || undefined, reason: r, page: f.page, pageSize: f.pageSize });
+  }
 
   @Get('pnl')
   pnl(@Query('from') from?: string, @Query('to') to?: string) {
@@ -466,7 +550,53 @@ export class AdminFinanceController {
 @Controller('admin/reports')
 @Roles(Role.super_admin)
 export class AdminReportsController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly sales: SalesAnalyticsService,
+  ) {}
+
+  /**
+   * 💰 §AN (API_CONTRACT §15.1) — pestaña «Ventas» de M9. `super_admin` por la clase (⛔ el operador no ve dinero, 613).
+   * Días de México resueltos en el servidor (§15.2); `400 VALIDATION_ERROR` sin `details.value`.
+   */
+  @Get('sales')
+  @Header('Cache-Control', 'no-store')
+  salesReport(
+    @Query('preset') preset?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: string,
+    @Query('topSort') topSort?: string,
+  ) {
+    return this.sales.report({ preset, from, to, groupBy, topSort }, new Date());
+  }
+
+  /**
+   * 💰 §15.7 — el CSV de la tabla por día/semana/mes (pesos con dos decimales, AN-1.1). ⚠️ Sin `?topSort=`: el CSV no
+   * lleva «lo más vendido» (§15.7 lo prohíbe), así que el orden no cambiaría ni un byte — declararlo sería un eje que
+   * valida y no hace nada (C-EQ-1 «filtra» no observable). Discrepancia con §15.2 anotada para el arquitecto.
+   */
+  @Get('sales/export.csv')
+  @Header('Cache-Control', 'no-store')
+  async salesCsv(
+    @Res() res: Response,
+    @Query('preset') preset?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    const csv = await this.sales.csv({ preset, from, to, groupBy }, new Date());
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${csv.filename}"`);
+    res.send(csv.body);
+  }
+
+  /** 💰 §15.5 — tarjeta «Ventas de hoy» del tablero (⛔ no sale de `/admin/dashboard`, que es `vault_operator+`). */
+  @Get('sales/today')
+  @Header('Cache-Control', 'no-store')
+  salesToday() {
+    return this.sales.today(new Date());
+  }
 
   @Get('launch-metrics')
   launchMetrics(@Query('from') from?: string, @Query('to') to?: string) {

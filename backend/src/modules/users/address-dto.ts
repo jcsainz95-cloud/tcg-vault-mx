@@ -17,6 +17,8 @@
  * nadie lo decida. `userId`, `createdAt` y `updatedAt` se quedan fuera a propósito.
  */
 
+import { isAddressComplete } from './address-rules';
+
 /** Las columnas de `Address` que la proyección lee. Estructural: cualquier fila Prisma la cumple. */
 export interface AddressRow {
   id: string;
@@ -29,10 +31,12 @@ export interface AddressRow {
   postalCode: string;
   country: string;
   phone: string;
+  /** ⭐ v1.81 (M-64, §M4-SHIP.19.5): referencias para el repartidor. */
+  references: string | null;
   isDefault: boolean;
 }
 
-/** `AddressDTO` del contrato §11 (v1.67: `recipientName: string | null`). */
+/** `AddressDTO` del contrato §11 (v1.67: `recipientName: string | null`; v1.81: `references`, `complete`). */
 export interface AddressDTO {
   id: string;
   recipientName: string | null;
@@ -44,8 +48,32 @@ export interface AddressDTO {
   postalCode: string;
   country: string;
   phone: string;
+  references: string | null;
   isDefault: boolean;
+  /**
+   * ⭐ v1.81 (§M4-SHIP.19.5) — DERIVADO (⛔ no es columna): `neighborhood ≠ null ∧ postalCode ~ ^\d{5}$ ∧ phone ~
+   * ^\d{10}$` (`addressMissing`, `address-rules.ts`). `false` ⇒ un retiro con ella da `422 ADDRESS_INCOMPLETE`.
+   */
+  complete: boolean;
 }
+
+/**
+ * ⭐ v1.81 — las COLUMNAS que la proyección lee (lo que un `select` de Prisma pide). `complete` no está: se deriva.
+ */
+export const ADDRESS_ROW_KEYS: readonly (keyof AddressRow)[] = [
+  'id',
+  'recipientName',
+  'line1',
+  'line2',
+  'neighborhood',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+  'phone',
+  'references',
+  'isDefault',
+] as const;
 
 /**
  * Las claves de `AddressDTO`, en el orden del contrato. Se exporta para que el test de paridad y
@@ -62,7 +90,9 @@ export const ADDRESS_DTO_KEYS: readonly (keyof AddressDTO)[] = [
   'postalCode',
   'country',
   'phone',
+  'references',
   'isDefault',
+  'complete',
 ] as const;
 
 export function toAddressDTO(a: AddressRow): AddressDTO {
@@ -78,6 +108,8 @@ export function toAddressDTO(a: AddressRow): AddressDTO {
     postalCode: a.postalCode,
     country: a.country,
     phone: a.phone,
+    references: a.references,
     isDefault: a.isDefault,
+    complete: isAddressComplete(a),
   };
 }

@@ -6,6 +6,8 @@ import { SealedGradedInventoryService } from './sealed-graded.service';
 import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
 // v1.39-sealed-product-module (M-39, P-38): catálogo `SealedProduct` persistido + sync + curación.
 import { SealedProductService } from './sealed-product.service';
+// 💰 v1.83 (§M11-SP): hoja de precios del sellado + precio del dueño por producto.
+import { SealedPriceService } from './sealed-price.service';
 import { InventoryController } from './inventory.controller';
 import { PricingModule } from '../pricing/pricing.module';
 // v1.51.18 (BL-25, §4.39m.5) / v1.51.20 (R1): el puerto de DISPARO de publicación
@@ -23,6 +25,7 @@ import { PricingModule } from '../pricing/pricing.module';
     SealedGradedInventoryService,
     SealedCatalogAdminService,
     SealedProductService,
+    SealedPriceService,
   ],
   controllers: [InventoryController],
   exports: [

@@ -32,7 +32,7 @@ Eres el último rol del pipeline: cuando el trabajo tiene doble veredicto aproba
 
 ## Formato de salida
 Al terminar, resume: qué se configuró, comandos para levantar/probar/desplegar, variables de entorno que el humano debe rellenar, y cualquier bloqueo.
-## Doctrina medida (vale en cualquier proyecto; cada punto nació de un error real, ver `CLAUDE.md` O-1…O-17)
+## Doctrina medida (vale en cualquier proyecto; cada punto nació de un error real, ver `CLAUDE.md` O-1…O-22)
 - **Commit acotado o nada.** Commiteas solo tus rutas: `git add <rutas> && git commit -m "..." -- <rutas>`.
   ⛔ Prohibido: `commit --amend`, `add .`, `add -A`, `commit -a`, `reset`, `checkout <ruta>`, `stash`, `rebase`.
   `HEAD` puede ser de otro agente que commiteó hace segundos; esos verbos lo reescriben.

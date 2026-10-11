@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GoogleTokenVerifier, GoogleIdentity } from '../src/modules/auth/google-token-verifier';
 import { BusinessException } from '../src/common/business.exception';
+import { c7Args } from './helpers/auth-c7-deps';
 
 /**
  * v1.1 — Login con Google (ARCHITECTURE §4.7, API_CONTRACT §auth/google):
@@ -54,6 +55,7 @@ describe('AuthService.google — verificación del ID token', () => {
       audit,
       tokens,
       mail,
+      ...c7Args(),
     );
     await expect(svc.google('bad-token')).rejects.toMatchObject({ code: 'GOOGLE_TOKEN_INVALID' });
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -71,6 +73,7 @@ describe('AuthService.google — verificación del ID token', () => {
       audit,
       tokens,
       mail,
+      ...c7Args(),
     );
     await expect(svc.google('t')).rejects.toMatchObject({ code: 'GOOGLE_EMAIL_UNVERIFIED' });
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -97,6 +100,7 @@ describe('AuthService.google — verificación del ID token', () => {
       audit,
       tokens,
       mail,
+      ...c7Args(),
     );
     const res = await svc.google('t');
     expect(res.user.id).toBe('u1');
@@ -122,6 +126,7 @@ describe('AuthService.google — verificación del ID token', () => {
       audit,
       tokens,
       mail,
+      ...c7Args(),
     );
     const res = await svc.google('t');
     const created = prisma.user.create.mock.calls[0][0].data;
@@ -151,6 +156,7 @@ describe('AuthService.google — verificación del ID token', () => {
       audit,
       tokens,
       mail,
+      ...c7Args(),
     );
     await expect(svc.google('t')).rejects.toMatchObject({ code: 'USER_BLOCKED' });
   });
@@ -169,7 +175,7 @@ describe('AuthService.login — cuentas solo-Google (sin passwordHash)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifierReturning({} as any), audit, tokens, mail);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifierReturning({} as any), audit, tokens, mail, ...c7Args());
     await expect(svc.login({ email: 'g@x.com', password: 'whatever' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });

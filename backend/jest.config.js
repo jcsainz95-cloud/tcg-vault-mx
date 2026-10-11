@@ -11,6 +11,9 @@ module.exports = {
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   coverageDirectory: './coverage',
   testEnvironment: 'node',
+  // ⭐💰🔒 PS-99 (c) — la red a *.skydropx.com vetada en TODA la suite (API_CONTRACT §M4-SHIP.19.19.17).
+  // ⛔ No se quita: `test/skydropx.no-real-purchase.spec.ts` lo exige aquí y en el de integración.
+  setupFiles: ['<rootDir>/test/setup/forbid-skydropx-network.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },

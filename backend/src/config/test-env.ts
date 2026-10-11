@@ -45,3 +45,16 @@ export function isThrottlerDisabled(): boolean {
 export function isSchedulerDisabled(): boolean {
   return isTestEnv() && process.env.E2E_ENABLE_SCHEDULER !== 'true';
 }
+
+/**
+ * C7 (v1.80, `ARCHITECTURE §4.57.6`) — el contador de intentos de contraseña usa SIEMPRE el almacén
+ * en MEMORIA bajo la suite (nuevo por cada `AppModule`), aunque haya `REDIS_URL` (en CI la hay): un
+ * Redis compartido dejaría contadores vivos de una spec a otra (TTL 2 h) ⇒ intermitencias.
+ *
+ * ⛔ Esto NO apaga el candado: solo elige DÓNDE se cuenta. El candado es el control que se está
+ * probando y está vivo en la suite (canario C7-17). A diferencia del throttler, aquí no hay env
+ * `E2E_ENABLE_*`: el almacén Redis se prueba DIRECTAMENTE (C7-12), no a través del `AppModule`.
+ */
+export function isLoginAttemptRedisDisabled(): boolean {
+  return isTestEnv();
+}

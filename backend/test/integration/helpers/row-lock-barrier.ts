@@ -2,8 +2,9 @@ import type { PrismaService } from '../../../src/prisma/prisma.service';
 
 /**
  * # `row-lock-barrier.ts` — ⭐⭐ **CÓMO SE PRUEBA UNA CARRERA SIN CRUZAR LOS DEDOS**
- * Propiedad: backend. Lo usan `avisos-sellos.e2e-spec.ts` (§R.4 / `D-AVISO-2`) y
- * `buylist-step-guard.e2e-spec.ts` (§M5-S).
+ * Propiedad: backend. Lo usan `avisos-sellos.e2e-spec.ts` (§R.4 / `D-AVISO-2`),
+ * `buylist-step-guard.e2e-spec.ts` (§M5-S) y `buylist-intake-concurrency.e2e-spec.ts` (§6 / `SEC-A2`,
+ * P-BUYLIST-CONC-FLAKE).
  *
  * ## El problema que resuelve, con sus dos medidas
  * Una prueba de concurrencia escrita como *«lanzo N peticiones a la vez y compruebo el resultado»*
@@ -22,10 +23,14 @@ import type { PrismaService } from '../../../src/prisma/prisma.service';
  * ## La técnica: el orden se FUERZA con el candado de fila de Postgres
  * ```
  * prueba:  BEGIN; SELECT … FOR UPDATE        ⇐ la fila queda bloqueada
- * A:       (petición) … UPDATE …             ⇐ SE BLOQUEA, y se COMPRUEBA que se bloqueó
- * B:       (petición) … UPDATE …             ⇐ se encola DETRÁS de A (la cola de espera es FIFO)
+ * A:       (petición) … <sentencia> …        ⇐ SE BLOQUEA, y se COMPRUEBA que se bloqueó
+ * B:       (petición) … <sentencia> …        ⇐ se encola DETRÁS de A (la cola de espera es FIFO)
  * prueba:  [deja el estado que toque]; COMMIT ⇐ se sueltan, en el orden elegido
  * ```
+ * `<sentencia>` es **cualquiera que pida un candado sobre esa fila**, no solo un `UPDATE`: en
+ * `avisos-sellos` y `buylist-step-guard` es un `UPDATE` de la propia fila; en
+ * `buylist-intake-concurrency` es un `INSERT "SellRequestItem"` cuya **FK a `"Card"`** pide
+ * `FOR KEY SHARE` sobre la carta, y por eso espera al `FOR UPDATE` de la prueba.
  * Con esto el entrelazado es **el mismo en toda máquina**, y las dos cosas que hay que demostrar de
  * un candado —que **muerde** con el defecto y que **no muerde** sin él— dejan de ser proporciones y
  * pasan a ser hechos.
@@ -51,8 +56,13 @@ export function diferida(): { promesa: Promise<void>; abrir: () => void } {
  * Espera —y **comprueba**— que haya al menos `cuantas` peticiones **bloqueadas en el candado de
  * fila** de `tabla`.
  *
- * ⛔ No es un `sleep`: si el producto dejara de escribir esa tabla (o dejara de hacerlo con un
- * `UPDATE`), esto **lanza** en vez de dejar pasar un candado que ya no mide nada.
+ * `tabla` es la que aparece en la **sentencia que espera** (`pg_stat_activity.query`), que no tiene
+ * por qué ser la tabla bloqueada: un `INSERT` en `"SellRequestItem"` espera el candado de `"Card"`
+ * por su FK, y aquí se busca `"SellRequestItem"`.
+ *
+ * ⛔ No es un `sleep`: si el producto dejara de ejecutar esa sentencia (o dejara de hacerlo con una
+ * que pida candado sobre la fila bloqueada), esto **lanza** en vez de dejar pasar un candado que ya
+ * no mide nada.
  */
 export async function esperarBloqueoDeFila(
   prisma: PrismaService,
@@ -73,9 +83,10 @@ export async function esperarBloqueoDeFila(
     if (Date.now() > hasta) {
       throw new Error(
         `Esperaba ${cuantas} petición(es) bloqueada(s) en el candado de fila de "${tabla}" y no ` +
-          `llegaron en ${ESPERA_CANDADO_MS} ms. O la operación dejó de escribir esa tabla, o dejó ` +
-          'de hacerlo en un UPDATE: en cualquiera de los dos casos este candado ya no mide lo que ' +
-          'dice, y por eso revienta en vez de pasar.',
+          `llegaron en ${ESPERA_CANDADO_MS} ms. O la operación dejó de ejecutar esa sentencia, o ` +
+          'dejó de pedir candado sobre la fila bloqueada (un UPDATE de la fila, o un INSERT/UPDATE ' +
+          'cuya FK pide FOR KEY SHARE): en cualquiera de los dos casos este candado ya no mide lo ' +
+          'que dice, y por eso revienta en vez de pasar.',
       );
     }
     await new Promise((r) => setTimeout(r, 25));

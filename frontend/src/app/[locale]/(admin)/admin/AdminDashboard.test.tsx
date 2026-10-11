@@ -23,15 +23,14 @@ describe('AdminDashboard · cola de trabajo accionable (§7.8)', () => {
   it('los conteos de la cola de trabajo son ENLACES a su módulo', async () => {
     renderWithProviders(<AdminDashboard />, 'es');
 
-    // Cada conteo enlaza a su módulo: envíos→M4, buylist→M5, disputas→M8, precios→M2.
+    // Cada conteo enlaza a su módulo: envíos→M4, buylist→M5, precios→M2 (F-26: M8 retirado, sin enlace a disputas).
     const shipments = await screen.findByRole('link', { name: /Envíos/ });
     expect(shipments.getAttribute('href')).toContain('/admin/m4');
 
     const buylist = screen.getByRole('link', { name: /^Buylist/ });
     expect(buylist.getAttribute('href')).toContain('/admin/m5');
 
-    const disputes = screen.getByRole('link', { name: /Disputas/ });
-    expect(disputes.getAttribute('href')).toContain('/admin/m8');
+    expect(screen.queryByRole('link', { name: /Disputas/ })).toBeNull();
 
     // "Precios pendientes" aparece como enlace a M2 (cola de trabajo y salud de datos).
     const pending = screen.getAllByRole('link', { name: /Precios pendientes/ });
@@ -89,5 +88,66 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
   /** ⛔ `amountCents` ya no existe: un «amount» junto a otro «amount» distinto es la ambigüedad que se mató. */
   it('⛔ `amountCents` ya no existe en la tarjeta de ventas', () => {
     expect(Object.keys(mockDashboard.salesPeriod)).not.toContain('amountCents');
+  });
+});
+
+/**
+ * **Hueco 9 (auditoría del operador, 2026-09-29) — «Neto: MX$NaN».** El backend OMITE
+ * `salesPeriod.netAmountCents` al `vault_operator` (`admin.service.ts` · `dashboard`: solo el súper
+ * recibe el P&L). Sin el campo la línea del neto no se pinta; nunca «NaN», y el bruto sigue.
+ */
+describe('AdminDashboard · hueco 9: neto ausente para el operador', () => {
+  it('sin `netAmountCents` no pinta la línea del neto ni «NaN»; el bruto sigue', async () => {
+    const api = await import('@/lib/api');
+    const { netAmountCents: _omit, ...operatorSales } = mockDashboard.salesPeriod;
+    void _omit;
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      salesPeriod: { count: operatorSales.count, grossAmountCents: operatorSales.grossAmountCents },
+    } as never);
+    const { container } = renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByTestId('sales-gross')).toHaveTextContent('15,919.98');
+    expect(screen.queryByTestId('sales-net')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/NaN/);
+  });
+});
+
+/**
+ * **SR-UI-9** (`DESIGN_SYSTEM §40.3 (e)`, contrato §M4-SHIP.18.12 (7)): `workQueue.refundReviews` `null` ⇒ la tarjeta
+ * NO existe; con `{pending:2, oldestRefundedAt}` ⇒ «2» y el enlace a `/admin/m3?refundReview=pending`.
+ */
+describe('AdminDashboard · SR-UI-9 «Reembolsos por revisar»', () => {
+  it('`refundReviews: null` ⇒ no existe la tarjeta', async () => {
+    const api = await import('@/lib/api');
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({ ...mockDashboard, workQueue: { ...mockDashboard.workQueue, refundReviews: null } } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    await screen.findByTestId('sales-gross');
+    expect(screen.queryByTestId('dashboard-refund-reviews')).toBeNull();
+    expect(screen.queryByText('Reembolsos por revisar')).toBeNull();
+  });
+
+  it('`{pending:2, oldestRefundedAt}` ⇒ «2» y el enlace a Ventas filtrado', async () => {
+    const api = await import('@/lib/api');
+    const oldest = new Date(Date.now() - 3 * 86_400_000 - 60_000).toISOString();
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      workQueue: { ...mockDashboard.workQueue, refundReviews: { pending: 2, oldestRefundedAt: oldest } },
+    } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    const link = await screen.findByTestId('dashboard-refund-reviews');
+    expect(link).toHaveAttribute('href', '/admin/m3?refundReview=pending');
+    expect(link).toHaveTextContent('Falta el motivo · el más viejo hace 3 días');
+    const card = screen.getByText('Reembolsos por revisar').parentElement!;
+    expect(card.parentElement!.textContent).toContain('2');
+  });
+
+  it('`{pending:0}` ⇒ «Nada por revisar.»', async () => {
+    const api = await import('@/lib/api');
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      workQueue: { ...mockDashboard.workQueue, refundReviews: { pending: 0, oldestRefundedAt: null } },
+    } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByTestId('dashboard-refund-reviews')).toHaveTextContent('Nada por revisar.');
   });
 });

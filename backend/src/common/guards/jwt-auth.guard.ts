@@ -44,7 +44,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token');
     }
     const token = auth.slice('Bearer '.length);
-    let payload: { sub: string; email?: string; role?: string; tv?: number };
+    let payload: { sub?: unknown; email?: string | null; role?: string; tv?: unknown; typ?: unknown };
     try {
       payload = await this.jwt.verifyAsync(token, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
@@ -54,6 +54,15 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired token');
     }
+    // C7 rev v1.80.1 (deuda de backend en 114aecf, cerrada aquí; simétrico a `AuthService.refresh`,
+    // SEC-C7-RT): la firma no basta. Solo entra lo que `issueTokens` emitió como ACCESS: sin `typ`
+    // (un refresh lleva `typ: 'refresh'`, un dispositivo `typ: 'device'`), `sub` string y `tv`
+    // NUMÉRICO. Antes `(tv ?? 0)` convertía «sin tv» en «versión 0» y casaba con cuentas que nunca
+    // revocaron sesión; y un refresh firmado con el mismo secreto (env.validation ya lo impide,
+    // pero la defensa no depende de eso) valía como Bearer.
+    if (payload.typ !== undefined || typeof payload.sub !== 'string' || typeof payload.tv !== 'number') {
+      throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
+    }
 
     // Revocación por versión + estado de cuenta (reset/soft-delete/bloqueo).
     // v1.5: se añade `emailVerified` al select para poblar `req.user` (lo usa EmailVerifiedGuard).
@@ -61,21 +70,23 @@ export class JwtAuthGuard implements CanActivate {
     // un guard más NO cuesta una consulta más (ARCHITECTURE §4.47.2).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true },
+      // v1.80.9 (§M6-U.2): + `email` ⇒ `req.user.hasEmail` DESDE LA BD (no desde el token), para EmailVerifiedGuard.
+      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true, email: true },
     });
     if (
       !user ||
       user.status === UserStatus.blocked ||
       user.status === UserStatus.deleted ||
-      (payload.tv ?? 0) !== user.tokenVersion
+      payload.tv !== user.tokenVersion
     ) {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
     }
 
     req.user = {
       id: payload.sub,
-      email: payload.email,
+      email: payload.email ?? null,
       role: payload.role,
+      hasEmail: user.email !== null,
       emailVerified: user.emailVerified,
       mustChangePassword: user.mustChangePassword,
     };

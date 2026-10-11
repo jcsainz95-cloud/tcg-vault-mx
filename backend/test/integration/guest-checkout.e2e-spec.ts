@@ -289,7 +289,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       // ⭐ D56: la orden archiva la tarifa EXHIBIDA `E` (§M10-IVA.4), no la NETA `F`.
       expect(order!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(order!.claimedAt).toBeNull();
-      expect(order!.shippingAddressSnapshot).toMatchObject({ city: 'Ciudad de México', country: 'MX' });
+      // ⭐ v1.81 (§M4-SHIP.19.5): city/state CANÓNICOS del CP 06600 (catálogo del arnés): la alcaldía, no «Ciudad de México».
+      expect(order!.shippingAddressSnapshot).toMatchObject({ city: 'Cuauhtémoc', state: 'Ciudad de México', neighborhood: 'Juárez', country: 'MX' });
     });
 
     it('INVARIANTE: la pieza queda `reserved` pero SIGUE siendo de la plataforma (no hay bóveda)', async () => {
@@ -417,8 +418,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.body.status).toBe('preparando');
       expect(res.body.emailMasked).toBe('i***@***.com');
       expect(res.body.shipping).toMatchObject({
-        city: 'Ciudad de México',
-        state: 'CDMX',
+        // ⭐ v1.81: los canónicos del CP (la dirección se guardó así al pagar)
+        city: 'Cuauhtémoc',
+        state: 'Ciudad de México',
         postalCodeMasked: '***00',
         recipientNameMasked: 'Juan P.',
       });
@@ -567,6 +569,12 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('captura de guía ⇒ el invitado ve `guia` y el número de rastreo en su enlace (criterio 50)', async () => {
+      // v1.80 §M4-SHIP.5: la guía exige el retiro/envío «preparado» (línea palomeada + sello del operador).
+      const line = await h.prisma.shipmentItem.findFirst({ where: { shipmentRequestId: shipmentId } });
+      const mk = await h.api('PATCH', `/admin/shipments/${shipmentId}/prep-items/${line!.id}`, { token: adminToken, json: { status: 'picked' } });
+      expect(mk.status).toBeLessThan(300);
+      const prep = await h.api('POST', `/admin/shipments/${shipmentId}/prepared`, { token: adminToken, json: { expectedRefundCents: 0 } });
+      expect(prep.status).toBeLessThan(300);
       const res = await h.api('POST', `/admin/shipments/${shipmentId}/tracking`, {
         token: adminToken,
         json: { carrier: 'Estafeta', trackingNumber: 'EST-E2E-0001', shippingCostCents: 14900 },
@@ -1023,10 +1031,16 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         },
       });
       expect(session.status).toBe(409);
-      // (b) …y el operador ya no la ve en la lista de picking.
+      // (b) …y el operador ya no la ve en la cola de «Pedidos a preparar».
+      // ⚠️ §M4-PREP (v1.78): la cola AGRUPA POR PEDIDO — `inventoryItemId` vive en `items[]`, no en
+      // el renglón. Buscarlo arriba daría `false` **siempre**: un verde que no mide nada.
       const picking = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
       expect(picking.status).toBe(200);
-      expect((picking.body.data as any[]).some((r) => r.inventoryItemId === cbItemId)).toBe(false);
+      const enCola = picking.body.data as any[];
+      expect(enCola.every((p) => Array.isArray(p.items))).toBe(true);
+      expect(enCola.flatMap((p) => p.items).some((i: any) => i.inventoryItemId === cbItemId)).toBe(
+        false,
+      );
     });
 
     it('T1-b: una SEGUNDA disputa (otro event.id) NO descongela la pieza ni baja el flag', async () => {

@@ -135,7 +135,9 @@ function fakeDb(opts: {
         _sum: { approvedPriceCents: item.approvedPriceCents },
         _count: { approvedPriceCents: item.approvedPriceCents == null ? 0 : 1 },
       })),
-      count: jest.fn(async () => 1),
+      // v1.82.3 · §PNL.12 — la auto-transición lee las líneas que CUENTAN (`readClosureRule`, un
+      // `findMany`). ≥1 viva ⇒ NO auto-rechaza (mismo efecto que el `count: 1` de antes).
+      findMany: jest.fn(async () => [{ itemStatus: 'aprobada' }]),
     },
     sellRequest: {
       findUnique: jest.fn(async () => ({ ...request })),
@@ -152,6 +154,8 @@ function fakeDb(opts: {
         return { count: 1 };
       }),
     },
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const svc = new BuylistService(

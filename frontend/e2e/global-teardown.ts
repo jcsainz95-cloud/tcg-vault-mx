@@ -1,5 +1,6 @@
 import { IS_REAL, clearSessions } from './utils/env';
 import { restoreGradingDial } from './utils/grading';
+import { restoreAccessoryScenario } from './utils/accessories-scenario';
 
 /**
  * `globalTeardown` de Playwright — corre UNA vez, cuando **todos** los workers terminaron.
@@ -28,6 +29,8 @@ import { restoreGradingDial } from './utils/grading';
 export default async function globalTeardown(): Promise<void> {
   try {
     if (IS_REAL) await restoreGradingDial();
+    // §AC (§107.real): accesorios del arnés que quedaron vivos, energías que activó él y el deck publicado.
+    if (IS_REAL) await restoreAccessoryScenario();
   } finally {
     const removed = clearSessions();
     if (removed > 0) {

@@ -185,6 +185,38 @@ jobs:
         run: npm run typecheck --if-present
       - name: Test
         run: npm test --if-present
+      # 💰🔒 PS-99 (d): la sonda D0 de Skydropx (scripts/skydropx/) NO puede llamar a
+      # compra, cancelación ni protección. Su prueba corre aquí, SIN red y SIN
+      # credenciales (contra un doble en memoria). La sonda en sí no se ejecuta
+      # nunca desde CI. DEVOPS_NOTES §78.
+      - name: Sonda Skydropx — prueba de solo lectura (PS-99 d)
+        run: ../scripts/skydropx/run-prod-probe.sh test
+      # M-64: el importador del catálogo de CP de SEPOMEX (scripts/geo/). Su prueba
+      # corre contra una base DEDICADA (`tcg_sepomex_ci`, la crea `migrate deploy`
+      # porque el usuario del servicio es superusuario), nunca contra `tcg_ci`: la
+      # prueba vacía la tabla. Mide carga por modo, resolución por `resolvePostalCode`,
+      # idempotencia, `verify` (vacía ⇒ 2) y que todo fallo deja la tabla idéntica.
+      # Ningún arranque lo corre (G-BOOT, job `boot-no-geo`). DEVOPS_NOTES §79–§81.
+      - name: Importador SEPOMEX — prueba con base dedicada (M-64)
+        run: |
+          SEPOMEX_TEST_DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed 's#/tcg_ci?#/tcg_sepomex_ci?#')"
+          case "$SEPOMEX_TEST_DATABASE_URL" in
+            *"/tcg_sepomex_ci?"*) ;;
+            *) echo "::error::no pude derivar la base dedicada de DATABASE_URL"; exit 1 ;;
+          esac
+          export SEPOMEX_TEST_DATABASE_URL
+          DATABASE_URL="$SEPOMEX_TEST_DATABASE_URL" npx prisma migrate deploy
+          # Reporter TAP FORZADO: desde Node 23 el reporter por defecto es `spec` también
+          # sin TTY, y su resumen sale «ℹ skipped N», no «# skipped N». MEDIDO 2026-10-05
+          # (devops, I-1): Node 22.22.2 ⇒ «# skipped 6»; Node 24.21.0 ⇒ «ℹ skipped 6», misma
+          # prueba sin base. Con Node 24 aquí, el grep de abajo era rojo SIEMPRE, con o sin
+          # saltos — el «se saltó» mentía desde que el paso existe.
+          out="$(NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--test-reporter=tap" ../scripts/geo/import-sepomex.sh test)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          # Formato desconocido ≠ prueba saltada: si no hay resumen TAP, se dice eso.
+          printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N» (¿cambió el reporter?): no puedo saber si la parte con base corrió"; exit 1; }
+          # La parte con base NO puede saltarse en verde.
+          printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
       - name: Build
         run: npm run build --if-present
 
@@ -377,6 +409,19 @@ jobs:
       - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
         run: ./scripts/check-e2e-harness-gaps.sh
+      # M-4 (QA, 2026-10-05): una copia `git archive` (sin .git) pasa su sha con
+      # STACK_EXPECTED_SHA o `up --gate` para con un mensaje que lo nombra. Canario:
+      # 4 mutaciones, todas rojas. Sin red ni stack (la infra son señuelos).
+      - name: El stack nativo sabe qué commit sirve, también en una copia sin .git
+        run: |
+          ./scripts/check-stack-expected-sha.sh
+          ./scripts/check-stack-expected-sha.sh --canary
+      # M-3 (QA, 2026-10-05): el stack nativo exporta NEXT_PUBLIC_UPLOAD_ORIGIN (el
+      # s3-local entra en connect-src de la CSP). Canario: 3 mutaciones, todas rojas.
+      - name: El stack nativo da a la CSP el origen de subida del s3-local
+        run: |
+          ./scripts/check-stack-upload-origin.sh
+          ./scripts/check-stack-upload-origin.sh --canary
 
   # ---------------------------------------------------------------------------
   # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).
@@ -409,6 +454,8 @@ jobs:
   # FECHA_LIMITE del script (2026-10-06) si sigue puesto, con el retiro en el
   # mensaje. Se apaga solo al quitar la línea. Y su canario demuestra en cada
   # push que sabe ponerse rojo cuando toca y no antes.
+  # 2026-09-28 (C2-bis, DEVOPS_NOTES §69): `report_only` RETIRADO (`false`).
+  # El job queda como ANTI-REGRESIÓN: si `report_only: true` vuelve, rojo.
   # ---------------------------------------------------------------------------
   dast-report-only-expiry:
     runs-on: ubuntu-latest
@@ -586,6 +633,18 @@ jobs:
   # el mismo problema una capa más arriba. Barato: sin red, sin Docker, ~2 s.
   # Ver DEVOPS_NOTES §49.
   # ---------------------------------------------------------------------------
+  # M4-SHIP: los eventos del webhook se suscriben A MANO en el dashboard de Stripe; este job falla si el
+  # backend maneja un evento que no esta en security/stripe-webhook-events.txt / DEVOPS_NOTES §11.G.
+  stripe-webhook-events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Todo evento que maneja el backend esta en la lista de suscripcion del endpoint
+        run: ./scripts/check-stripe-webhook-events.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stripe-webhook-events-canary.sh
+
   stripe-webhook-failclosed:
     runs-on: ubuntu-latest
     steps:
@@ -611,6 +670,57 @@ jobs:
       - name: Y muerde con secretos que NUNCA ha visto (canario de la clase)
         if: ${{ !cancelled() }}
         run: ./scripts/check-secret-defaults-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 💰🔒 PS-99 (d) / C-SDX-8 — ningún workflow, compose ni plantilla reparte las
+  # llaves de Skydropx; la pila E2E corre con el adaptador doble. El canario
+  # planta cada forma de fuga en una copia y exige ROJO. DEVOPS_NOTES §78.
+  # ---------------------------------------------------------------------------
+  skydropx-spend-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ninguna pila de pruebas recibe las llaves de Skydropx
+        run: ./scripts/check-skydropx-spend-lock.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-skydropx-spend-lock-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 💰 G-BOOT — «la tienda nunca deja de vender por el catálogo de CP», al nivel
+  # del arranque (API_CONTRACT §M4-SHIP.19.25.4, decisión del dueño HECHOS.md:57).
+  # Hasta v1.80.12.4 el CMD corría `import-sepomex.ts boot` y en Railway, sin
+  # manifiesto, la imagen NO arrancaba. Este candado impide que vuelva: ni el
+  # CMD/ENTRYPOINT, ni la imagen, ni .dockerignore, ni railway.json, ni compose
+  # cargan el importador. El canario repone el `boot` literal y exige ROJO.
+  # DEVOPS_NOTES §81.
+  # ---------------------------------------------------------------------------
+  boot-no-geo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ningún arranque carga ni verifica el catálogo de CP (G-BOOT)
+        run: ./scripts/check-boot-no-geo.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-boot-no-geo-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 🔒 sepomex-pin — el catálogo de CP del repositorio es el que entregó el dueño
+  # (HECHOS.md 2026-10-07: «déjalo en el código, solo asegúrate que nadie lo pueda
+  # alterar»). sha256 del archivo = constante fijada en el script = `.sha256` =
+  # manifiesto; `.gitattributes` lo marca `binary` (git no lo normaliza). El
+  # canario altera archivo/huellas/atributos (17 casos) y exige ROJO. DEVOPS_NOTES §92.
+  # ---------------------------------------------------------------------------
+  sepomex-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El catálogo de CP es el fijado (sha256 en código + .sha256 + manifiesto + binary)
+        run: ./scripts/check-sepomex-pin.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-sepomex-pin-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
@@ -663,7 +773,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 📊 CENSO DE SALVAGUARDAS DE SALTO EN LA SUITE E2E (techlead N7, 2026-09-11).
-  # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing` es un test que
+  # Desde 2026-09-22 son CINCO claves: entra `realOnly`, que es el inverso — no se
+  # salta en el pase real, se salta en la CORRIDA DE MOCKS, que es justo la que
+  # gatea cada PR (M-QA4, DEVOPS_NOTES §66).
+  # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing`/`realOnly` es un test que
   # en algún entorno NO mide. Esto no los juzga uno a uno: impide que el número
   # SUBA en silencio. Baseline commiteado en scripts/e2e-skip-census.baseline;
   # subirlo exige `--update --motivo "…"` en el mismo diff. Canario: +1 mockOnly
@@ -678,6 +791,14 @@ jobs:
       - name: Y el censo sabe ponerse rojo (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-e2e-skip-census-canary.sh
+      # P-REL-3 (2026-09-29): el censo estático cuenta escotillas; esto vigila la
+      # que un spec que CONSUME su semilla (cubeta SPEI) no se salte en el E2E real.
+      # El comprobador corre en e2e-real.yml sobre el JSON de Playwright; aquí, en
+      # cada PR, su canario (salto / flaky tras reintento / 0 casos ⇒ rojo) y el
+      # cableado del paso (`--retries=0`, JSON, `--min 2`). DEVOPS_NOTES §72.
+      - name: Y un spec que consume su semilla no puede saltarse en verde (canario P-REL-3)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-must-run-canary.sh
 
   # ---------------------------------------------------------------------------
   # B-3 (2026-09-14): un script sin token no puede AFIRMAR qué secrets existen en
@@ -696,6 +817,84 @@ jobs:
         run: ./scripts/check-secret-absence-wording.sh
 
   # ---------------------------------------------------------------------------
+  # 🚦 VERCEL: `main` Y `production` NUNCA QUEDAN DESHABILITADAS (2026-10-05).
+  # Vercel cortó por cupo (`api-deployments-free-per-day`, >100/día): 104 pushes
+  # en 24 h, 101 a `claude/*`. El freno es `git.deploymentEnabled` con
+  # `"claude/*": false`. Una clave mal escrita (`"production": false`, `"*": false`)
+  # congela producción SIN error visible: este job lo impide, y su canario prueba
+  # que muerde (12 mutaciones + 2 controles). DEVOPS_NOTES §78.
+  # ---------------------------------------------------------------------------
+  vercel-deploy-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: main y production siguen desplegando; claude/* no crea despliegues
+        run: ./scripts/check-vercel-deploy-branches.sh
+      - name: Y el candado sabe morder (production=false, "*"=false, signo al revés ⇒ rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-vercel-deploy-branches-canary.sh 3
+
+  # ---------------------------------------------------------------------------
+  # 🔪 EL APAGADO DEL STACK MATA SOLO LO SUYO (I-QA2, 2026-09-22).
+  # Medido dos veces el mismo día y las dos con daño: el pentester hizo
+  # `pkill -f "src/main.ts"` y mató el backend de QA a mitad de su gate; QA corrió
+  # `down` con FRONTEND_PORT=3200 y mató el `next-server` de :3000 de otro clon.
+  # Los patrones describían el PROGRAMA, no la INSTANCIA. El canario levanta dos
+  # stacks de verdad en dos puertos y exige que apagar uno no toque el otro.
+  # Ver DEVOPS_NOTES §67.
+  # ---------------------------------------------------------------------------
+  stack-kill-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Apagar mi stack no mata el de otra sesión (procesos y puertos reales)
+        run: ./scripts/check-stack-kill-scope.sh 5
+
+  # ---------------------------------------------------------------------------
+  # 💰 LISTO PARA DINERO REAL (API_CONTRACT §14, 2026-10-05) — los candados de
+  # devops de LIVE-3/9/10/11/13 y del arnés local, cada uno con su canario y su
+  # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §85.
+  # ---------------------------------------------------------------------------
+  live-candados:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: LIVE-3 · CSP_MODE y ZAP 10038/10055 se mueven juntas (+ canario)
+        run: |
+          ./scripts/check-csp-zap-parity.sh
+          ./scripts/check-csp-zap-parity-canary.sh
+      # §96.7 — `baseline.conf` lleva claves `<regla>-<sub>` que ZAP no sabe leer
+      # (int(id) ⇒ ValueError, rc 1 sin informe: job 114278597979). ZAP recibe una
+      # copia filtrada, la imagen va fijada por digest y «rc≥1 sin informe» es un
+      # fallo propio. Sin Docker aquí: el ZAP real lo arranca security-dast.yml.
+      - name: §96.7 · ZAP recibe una política que puede leer (+ canario 8 mutaciones)
+        if: ${{ !cancelled() }}
+        run: |
+          ./scripts/check-zap-conf.sh
+          ./scripts/check-zap-conf-canary.sh
+      - name: LIVE-9 · el vigía de disponibilidad sabe ponerse rojo
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-uptime-watch-canary.sh
+      - name: LIVE-10 · check-candidate-checks exige un DAST full sellado sobre el sha (canario C5)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-candidate-checks-canary.sh
+      - name: LIVE-11 · la sonda de C6 distingue el tope por IP del candado de cuenta
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-edge-xff-probe-canary.sh 3
+      - name: LIVE-13 · el simulacro de restauración sabe decir «NO cuadra»
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-restore-drill-canary.sh
+      - name: E-8 · la sonda de TTFB distingue antes/después y sabe ponerse roja (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ttfb-probe-canary.sh
+      - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
+        if: ${{ !cancelled() }}
+        run: |
+          ( cd scripts/s3-local && npm ci --no-audit --no-fund )
+          ./scripts/check-s3-local-clone-canary.sh 3
+
+  # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
   # bloques copiados a mano con dos criterios, y un gate nuevo añadido a `needs`
   # SIN su bloque quedaba skipped = verde. Ahora `scripts/check-ci-ok.sh` lee
@@ -706,7 +905,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin]
     if: always()
     runs-on: ubuntu-latest
     steps:

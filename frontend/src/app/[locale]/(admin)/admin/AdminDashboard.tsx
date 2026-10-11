@@ -10,10 +10,13 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
+import { SalesTodayCard } from './SalesTodayCard';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
- * (envíos→M4, buylist→M5, disputas→M8, precios pendientes→M2), no cifras muertas.
+ * (envíos→M4, buylist→M5, precios pendientes→M2), no cifras muertas. F-26 (§PNL.10.7, `DESIGN_SYSTEM §60.8`):
+ * M8 se retiró de la interfaz ⇒ `workQueue.disputes` ya no se suma ni enlaza (el DTO lo sigue trayendo).
  * Subrayado en hover + anillo bermellón en foco (DESIGN_SYSTEM §8.2); el número va
  * en `tabular` para que StatCard lo tiña cuando corresponde.
  */
@@ -26,6 +29,114 @@ function QueueLink({ href, label, count }: { href: string; label: string; count:
       {label} <span className="tabular font-medium text-text">{count}</span>
     </Link>
   );
+}
+
+/**
+ * «Control del gasto» (`DESIGN_SYSTEM §43.19.9`). ⛔ GAS-4: cada cifra tal cual del DTO — ni barra de progreso ni color
+ * por cercanía al tope (sería calcular un porcentaje en pantalla). «Últimas 24 h», ⛔ nunca «hoy»: es la ventana
+ * móvil del tope. Personas en el orden del servidor, máximo 5.
+ */
+function SpendControlCard({ data }: { data: SpendControlDTO }) {
+  const t = useTranslations('admin.dashboard.spendControl');
+  const locale = useLocale() as AppLocale;
+  const money = (c: number) => formatMoneyCents(c, locale);
+  const shown = data.labelSpend24h.slice(0, 5);
+  const rest = data.labelSpend24h.length - shown.length;
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO si hay inmediatos sin ver (el patrón de `dataHealth`).
+      className={data.unseenImmediate > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-spend-control-value">{data.unseenImmediate}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-spend-control">
+          <Link
+            href="/admin/spend-alerts?unseen=true"
+            className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {t('unseen', { immediate: data.unseenImmediate, digest: data.unseenDigest })}
+          </Link>
+          <span>{t('labels24h')}</span>
+          {shown.length === 0 ? (
+            <span>{t('noLabels')}</span>
+          ) : (
+            <ul className="flex flex-col">
+              {shown.map((p) => (
+                <li key={p.userId}>
+                  {p.capCents === null
+                    ? t('personNoCap', { name: p.name?.trim() || '—', cents: money(p.cents) })
+                    : t('personCap', { name: p.name?.trim() || '—', cents: money(p.cents), cap: money(p.capCents) })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {rest > 0 && <span>{t('more', { n: rest })}</span>}
+        </div>
+      }
+    />
+  );
+}
+
+type ShippingWorkQueue = NonNullable<DashboardDTO['workQueue']['shipping']>;
+
+const LINK_CLASS = 'underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none';
+
+/**
+ * «Alertas de envíos» (`DESIGN_SYSTEM §43.22`, contrato §19.13 + §19.35.5 fila 1). La MISMA tarjeta para los dos roles,
+ * salvo «Ver el saldo» (Configuración es solo de súper-admin).
+ * - ⛔ GAS-4: cada cifra tal cual del DTO; ⛔ la pantalla no las suma (un envío con las dos alertas cuenta en las dos,
+ *   y la lista de `?alert=true` es la UNIÓN: por eso la nota «sale una sola vez»).
+ * - `withLabelAlert` ausente (servidor sin B-3) ⇒ «—» y la línea solo de la paquetería; ⛔ nunca `NaN` ni un `0` inventado.
+ * - `lowBalance`: SOLO `true` pinta la línea (`null` = proveedor apagado o sin respuesta ⇒ nada). ⛔ Jamás la cifra del
+ *   saldo, para ningún rol: si un servidor la mandara de más, aquí no se lee.
+ */
+function ShippingAlertsCard({ data, isSuperAdmin }: { data: ShippingWorkQueue; isSuperAdmin: boolean }) {
+  const t = useTranslations('admin.dashboard.shippingAlerts');
+  const label = Number.isFinite(data.withLabelAlert) ? data.withLabelAlert : null;
+  const carrier = data.withCarrierAlert;
+  const anyAlert = (label ?? 0) > 0 || carrier > 0;
+  const href = '/admin/m4?tab=envios&alert=true';
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO la cifra de guía > 0 (la que tiene saldo de por medio, §43.22.2).
+      className={label !== null && label > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-shipping-alerts-value">{label ?? '—'}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-shipping-alerts">
+          {!anyAlert ? (
+            <span>{t('none')}</span>
+          ) : (
+            <Link href={href} className={LINK_CLASS}>
+              {label === null ? t('alertsCarrierOnly', { carrier }) : t('alerts', { label, carrier })}
+            </Link>
+          )}
+          {label !== null && label > 0 && carrier > 0 && <span>{t('overlap')}</span>}
+          {data.labelProcessing > 0 && <span>{t('processing', { n: data.labelProcessing })}</span>}
+          {data.lowBalance === true && (
+            <span className="text-accent" data-testid="dashboard-shipping-low-balance">
+              {t('lowBalance')}
+              {isSuperAdmin && (
+                <>
+                  {' · '}
+                  <Link href="/admin/m10#envios-skydropx" className={LINK_CLASS}>
+                    {t('seeBalance')}
+                  </Link>
+                </>
+              )}
+            </span>
+          )}
+        </div>
+      }
+    />
+  );
+}
+
+/** Días enteros desde una fecha ISO (la «más vieja» de la cubeta SPEI); ilegible ⇒ 0. */
+function daysSince(iso: string, now: Date = new Date()): number {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 0;
+  return Math.max(0, Math.floor((now.getTime() - t) / 86_400_000));
 }
 
 /**
@@ -104,28 +215,158 @@ export function AdminDashboard() {
                   <span data-testid="sales-gross">
                     {t('salesGross')}: {formatMoneyCents(query.data.salesPeriod.grossAmountCents, locale)}
                   </span>
-                  <span data-testid="sales-net">
-                    {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
-                  </span>
+                  {/* Hueco 9 (2026-09-29): el backend OMITE `netAmountCents` al no-súper-admin (el neto
+                      es la cifra del P&L, `admin.service.ts` · `dashboard`). Sin el campo la línea no
+                      se pinta: nunca «MX$NaN». ⛔ No se deriva del bruto (sería otra definición de neto). */}
+                  {Number.isFinite(query.data.salesPeriod.netAmountCents) && (
+                    <span data-testid="sales-net">
+                      {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
+                    </span>
+                  )}
                 </span>
               }
             />
+            {/* §AN-UX.11 (criterio 611): «Ventas de hoy», SOLO súper-admin — para el operador no existe (⛔ ni máscara
+                ni consulta, AN-7). Consulta propia `/admin/reports/sales/today`; su error no toca el resto del tablero. */}
+            {isSuperAdmin && <SalesTodayCard />}
             <StatCard
               label={t('workQueue')}
               value={
                 query.data.workQueue.shipments +
-                query.data.workQueue.buylist +
-                query.data.workQueue.disputes
+                query.data.workQueue.buylist
               }
               sub={
                 <span className="flex flex-wrap gap-x-3 gap-y-1">
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
                   <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
-                  <QueueLink href="/admin/m8" label={t('disputes')} count={query.data.workQueue.disputes} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
+                  {/* 💰 rev BSD-1 (§BSD-UX.6c, BSD-1.1 C-3): el contador lo da el SERVIDOR (hermano de `buylist`, que sigue
+                      siendo un número). ⛔ Con 0 (o ausente: servidor anterior) no hay nodo. Texto completo, ⛔ un número solo. */}
+                  {(query.data.workQueue.buylistGuideDueSoon ?? 0) > 0 && (
+                    <Link
+                      href="/admin/m5"
+                      className="w-full text-sm text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                      data-testid="dashboard-buylist-guide-due"
+                    >
+                      {t('buylistGuideDue', { n: query.data.workQueue.buylistGuideDueSoon ?? 0 })}
+                    </Link>
+                  )}
+                  {/* 💰 rev BSD-1 (BSD-1.3 punto 4): guías de ENTRADA atascadas (`labelAlertOf ≠ null`). Mismo trato que arriba. */}
+                  {(query.data.workQueue.buylistInboundLabelAlert ?? 0) > 0 && (
+                    <Link
+                      href="/admin/m5"
+                      className="w-full text-sm text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                      data-testid="dashboard-buylist-inbound-alert"
+                    >
+                      {t('buylistInboundLabelAlert', { n: query.data.workQueue.buylistInboundLabelAlert ?? 0 })}
+                    </Link>
+                  )}
                 </span>
               }
             />
+            {/*
+             * v1.80 (§M4-SHIP.11 · `DESIGN_SYSTEM §37.11b`): «Pedidos por preparar» INCLUYE bóveda y los casos
+             * «Por reponer» (el mismo cuerpo que el `summary`); los vencidos van en bermellón y enlazan a la
+             * pestaña filtrada. ⛔ `workQueue.shipments` («envíos vivos») no cambia de cifra ni de rótulo.
+             * Opcional en el tipo (aditivo): un backend anterior no la manda y la tarjeta no se pinta.
+             */}
+            {query.data.workQueue.toPrepare && (
+              <StatCard
+                label={t('toPrepare.title')}
+                value={
+                  query.data.workQueue.toPrepare.ship +
+                  query.data.workQueue.toPrepare.vault +
+                  query.data.workQueue.toPrepare.toReplace
+                }
+                sub={
+                  <span className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dashboard-to-prepare">
+                    <Link
+                      href="/admin/m4"
+                      className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    >
+                      {t('toPrepare.detail', {
+                        ship: query.data.workQueue.toPrepare.ship,
+                        vault: query.data.workQueue.toPrepare.vault,
+                        toReplace: query.data.workQueue.toPrepare.toReplace,
+                      })}
+                    </Link>
+                    {query.data.workQueue.toPrepare.toReplaceOverdue > 0 && (
+                      <Link
+                        href="/admin/m4?tab=reponer"
+                        className="text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                        data-testid="dashboard-to-prepare-overdue"
+                      >
+                        {t('toPrepare.overdue', { count: query.data.workQueue.toPrepare.toReplaceOverdue })}
+                      </Link>
+                    )}
+                  </span>
+                }
+              />
+            )}
+            {/* v1.80.12.16 (§43.22.1): los DOS roles; `shipping` ausente o `null` (servidor anterior) ⇒ la tarjeta NO existe. */}
+            {query.data.workQueue.shipping && (
+              <ShippingAlertsCard data={query.data.workQueue.shipping} isSuperAdmin={isSuperAdmin} />
+            )}
+            {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
+            {isSuperAdmin && query.data.workQueue.manualRefunds && (
+              <StatCard
+                label={t('manualRefunds.title')}
+                value={query.data.workQueue.manualRefunds.pending}
+                sub={
+                  <Link
+                    href="/admin/refunds"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-manual-refunds"
+                  >
+                    {query.data.workQueue.manualRefunds.pending > 0 && query.data.workQueue.manualRefunds.oldestCreatedAt
+                      ? t('manualRefunds.detail', {
+                          amount: formatMoneyCents(query.data.workQueue.manualRefunds.pendingCents, locale),
+                          days: daysSince(query.data.workQueue.manualRefunds.oldestCreatedAt),
+                        })
+                      : t('manualRefunds.detailNone')}
+                  </Link>
+                }
+              />
+            )}
+            {/* 💰 v1.80.8.6 (§M4-SHIP.18.12 (7), DESIGN_SYSTEM §40.3 e): solo súper-admin; `null` ⇒ la tarjeta NO existe. */}
+            {isSuperAdmin && query.data.workQueue.refundReviews && (
+              <StatCard
+                label={t('refundReviews.title')}
+                value={query.data.workQueue.refundReviews.pending}
+                sub={
+                  <Link
+                    href="/admin/m3?refundReview=pending"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-refund-reviews"
+                  >
+                    {query.data.workQueue.refundReviews.pending > 0 && query.data.workQueue.refundReviews.oldestRefundedAt
+                      ? t('refundReviews.detail', { days: daysSince(query.data.workQueue.refundReviews.oldestRefundedAt) })
+                      : t('refundReviews.detailNone')}
+                  </Link>
+                }
+              />
+            )}
+            {/* v1.80.3 (SEC-SHIP-M1, D-13 «solo verlo en el panel»): el tablero ES el aviso; ⛔ sin correo. */}
+            {isSuperAdmin && query.data.workQueue.operatorRefunds && (
+              <StatCard
+                label={t('operatorRefunds.title')}
+                value={formatMoneyCents(query.data.workQueue.operatorRefunds.last24hCents, locale)}
+                sub={
+                  <Link
+                    href="/admin/refunds?tab=operadores"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-operator-refunds"
+                  >
+                    {t('operatorRefunds.detail', {
+                      count: query.data.workQueue.operatorRefunds.last24hCount,
+                      amount30d: formatMoneyCents(query.data.workQueue.operatorRefunds.last30dCents, locale),
+                    })}
+                  </Link>
+                }
+              />
+            )}
+            {/* 💰 v1.80.12.9 (§19.29.9, DESIGN_SYSTEM §43.19.9): solo súper-admin; `null` ⇒ la tarjeta NO existe (GAS-1). */}
+            {isSuperAdmin && query.data.workQueue.spendControl && <SpendControlCard data={query.data.workQueue.spendControl} />}
             <StatCard
               label={t('inventoryValue')}
               value={formatMoneyCents(query.data.inventoryValueCents ?? 0, locale)}

@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
@@ -6,12 +7,14 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BusinessException } from '../src/common/business.exception';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import {
   buildGradeKey,
   tryBuildGradeKey,
   sealedMarketGradeKey,
 } from '../src/modules/pricing/pricing.types';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.53-buylist-graded-identity (ARCHITECTURE §4.40.4c / §4.40.9 qa-e y qa-f, **MONEY**) —
@@ -36,11 +39,14 @@ const REF_PSA9 = 30_000;
 /** `PricingService` con los CUERPOS REALES de las dos variantes de clave (aquí es lo que se prueba). */
 function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     gradeKeyFor: jest.fn(PricingService.prototype.gradeKeyFor),
     tryGradeKeyFor: jest.fn(PricingService.prototype.tryGradeKeyFor),
+    // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+    ...REAL_VALUATION_GATE,
     sealedMarketGradeKeyForItem: (i: { tcgplayerProductId: number | null }) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,
     // La ÚNICA fila de mercado de graduadas que existe es la de PSA 10 (el caso real: el defecto
@@ -70,6 +76,8 @@ function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     fxSnapshotSafe: jest.fn(async () => null),
     ...over,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
 }
 
@@ -125,7 +133,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
       inventoryItem: { findMany: jest.fn(async () => items) },
       shipmentItem: { findMany: jest.fn(async () => []) },
     };
-    return new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    return new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
   }
 
   it('sale `pending` y NO suma al portafolio (antes sumaba MX$900 del grado más caro)', async () => {
@@ -146,7 +154,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
     const prisma: any = {
       inventoryItem: { findUnique: jest.fn(async () => ({ ...item, ownerUserId: 'u1', movements: [] })) },
     };
-    const svc = new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
     const res = await svc.holdingDetail('u1', 'i-sin');
     expect(res.referenceValue).toEqual({ status: 'pending' });
   });
@@ -199,7 +207,8 @@ describe('checkout — una pieza sin identidad de slab NO es vendible (`PRICE_PE
     return new OrdersService(
       {} as PrismaService,
       pricingWithRealKeys(),
-      {} as never,
+      // v1.83.1: `salePriceOf` lee los diales (el `L` equivalente del precio del dueño).
+      ivaDialsStub() as never,
       {} as never,
       {} as never,
     );

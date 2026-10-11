@@ -26,6 +26,8 @@ function ref(partial: {
   cardProductId?: string | null;
   priceUsdCents?: number | null;
   isManualOverride?: boolean;
+  // P-53 ALTO-3 (§3): frescura efectiva `evidenceDate ?? capturedDate`. Ausente/null ⇒ capturedDate.
+  evidenceDate?: Date | null;
 }) {
   return {
     priceUsdCents: null,
@@ -357,7 +359,7 @@ describe('SetValueSnapshotJobService — upsert idempotente por día', () => {
 });
 
 describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)', () => {
-  it('recorre Card WHERE setId=<featured> (sin InventoryItem) y usa escalate=false', async () => {
+  it('recorre Card WHERE setId=<featured> (sin InventoryItem) y llama syncCardPrice SIN escalada (v1.80.8.4)', async () => {
     const set = { id: 'setX' };
     const cards = [
       { id: 'c1', externalId: 'sv8-1' },
@@ -376,17 +378,17 @@ describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)',
 
     // Recorre por setId, NO por InventoryItem (cierra DEV-3).
     expect(prisma.card.findMany).toHaveBeenCalledWith({ where: { setId: 'setX' } });
-    // Reusa syncCardPrice con la MISMA regla compartida (TD-1) que la lectura y escalate=false.
+    // Reusa syncCardPrice con la MISMA regla compartida (TD-1) que la lectura. v1.80.8.4: el parámetro
+    // `escalate` (y `context`/`refId`) dejó de existir — `syncCardPrice` no escribe la cola para nadie
+    // (§M2 `M2-VQ`); la llamada lleva EXACTAMENTE los cuatro argumentos de la referencia.
     expect(pricing.syncCardPrice).toHaveBeenCalledTimes(2);
     expect(pricing.syncCardPrice).toHaveBeenCalledWith(
       cards[0],
       SET_VALUE_RULE.productType,
       SET_VALUE_RULE.gradeKey,
       SET_VALUE_RULE.finish,
-      'catalog',
-      undefined,
-      false,
     );
+    expect((pricing.syncCardPrice as jest.Mock).mock.calls[0]).toHaveLength(4);
     expect(res).toEqual({ setId: 'setX', priced: 2, total: 2 });
   });
 
@@ -398,5 +400,54 @@ describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)',
     const res = await job.run();
     expect(res).toEqual({ setId: null, priced: 0, total: 0 });
     expect(prisma.card.findMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * P-53 ALTO-3 (§3) — CANARIO de la INVERSIÓN en computeSetValue (money, snapshot del set destacado).
+ *
+ * computeSetValue lee TODAS las candidatas (findMany sin poda) y desempata con `isBetterRef`. La
+ * inversión aquí vive en la comparación de fecha de `isBetterRef`: antes rankeaba por `capturedDate`
+ * a secas, así que un fallback de menor precedencia con capturedDate=HOY le ganaba a la primaria buena
+ * (capturedDate viejo + evidenceDate=HOY). Con el arreglo la frescura es `evidenceDate ?? capturedDate`.
+ */
+describe('SetValueService.computeSetValue — P-53 ALTO-3: frescura efectiva en isBetterRef', () => {
+  const OLD = new Date('2026-09-01');
+  const TODAY = new Date('2026-09-18');
+
+  it('suma la primaria tcgcsv_singles (capturedDate viejo + evidenceDate=HOY), NO el fallback fresco', async () => {
+    const prisma: any = {
+      card: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
+      priceReference: {
+        findMany: jest.fn().mockResolvedValue([
+          // Fallback de menor precedencia, capturedDate=HOY (lo que escribe refreshCardPrices).
+          ref({ cardId: 'c1', priceMxnCents: 50000, capturedDate: TODAY, source: 'pokemontcg_io', evidenceDate: null }),
+          // Primaria buena: el escritor P-53 CONGELA capturedDate y solo avanza evidenceDate a HOY.
+          ref({ cardId: 'c1', priceMxnCents: 100000, capturedDate: OLD, source: 'tcgcsv_singles', evidenceDate: TODAY }),
+        ]),
+      },
+    };
+    const svc = buildService(prisma);
+    const res = await svc.computeSetValue('set1');
+    // SIN el arreglo: gana el fallback (capturedDate=HOY) ⇒ 50000. CON el arreglo: la primaria cuenta
+    // como fresca (evidencia HOY) y gana por sourceRank a igual fecha efectiva ⇒ 100000.
+    expect(res.totalValueMxnCents).toBe(100000);
+    expect(res.pricedCardCount).toBe(1);
+  });
+
+  it('CA-10: con evidenceDate=null en TODAS las filas (día del deploy) gana el fallback fresco, IDÉNTICO a hoy', async () => {
+    const prisma: any = {
+      card: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
+      priceReference: {
+        findMany: jest.fn().mockResolvedValue([
+          ref({ cardId: 'c1', priceMxnCents: 50000, capturedDate: TODAY, source: 'pokemontcg_io', evidenceDate: null }),
+          ref({ cardId: 'c1', priceMxnCents: 100000, capturedDate: OLD, source: 'tcgcsv_singles', evidenceDate: null }),
+        ]),
+      },
+    };
+    const svc = buildService(prisma);
+    const res = await svc.computeSetValue('set1');
+    // Sin evidencia, COALESCE = capturedDate ⇒ el fallback (HOY) sigue ganando, como producción hoy.
+    expect(res.totalValueMxnCents).toBe(50000);
   });
 });

@@ -3,7 +3,7 @@ import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.serv
 import { PricingService, toPublicPriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { computeSealedSalePrice } from '../src/common/money';
 import { onWire } from './helpers/dto-keys';
@@ -83,6 +83,7 @@ const MARKET_REF = { status: 'priced', referenceMxnCents: 500_000, capturedDate:
 
 function pricingMock(ref: Record<string, unknown> | undefined = MARKET_REF) {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // MERGE v1.50.2 — el gancho de grading se compone en `buildGroups`/`getCard`, así que TODO mock de
     // `PricingService` que pase por ahí debe traer sus tres seams. Dial APAGADO (seed `off`): el gancho

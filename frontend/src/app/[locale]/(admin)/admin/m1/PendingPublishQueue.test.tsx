@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { PendingPublishQueue } from './PendingPublishQueue';
 import * as api from '@/lib/api';
@@ -21,6 +21,7 @@ const CARD = {
   subtypes: [],
   setId: 's',
   setName: 'Darkness Ablaze',
+  setPtcgoCode: null,
   imageSmallUrl: '',
   imageLargeUrl: '',
   availableFinishes: ['holofoil' as const],
@@ -36,10 +37,12 @@ function row(over: Partial<PendingPublishRowDTO> = {}): PendingPublishRowDTO {
     cardProductId: null,
     locationId: null,
     listPriceCents: null,
-    resolvedSalePriceCents: 120000,
-    priceBasis: 'market',
+    // ⭐ Errata SU-1 (`API_CONTRACT §M1-SU` SU.2): sin cajón y CON precio ya no está en la cola; la forma que el
+    // servidor emite es `missing ⊆ ["price"]`, y una pieza sin cajón solo habita la cola si le falta el precio.
+    resolvedSalePriceCents: null,
+    priceBasis: null,
     pendingPriceEntryId: null,
-    missing: ['location'],
+    missing: ['price'],
     acquisitionType: 'buylist',
     sourceSellRequestItemId: 'sri-1',
     createdAt: '2026-08-30T18:00:00.000Z',
@@ -72,22 +75,27 @@ beforeEach(() => {
 
 describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
   it('cada fila dice QUÉ LE FALTA y DE DÓNDE viene la pieza', async () => {
-    stub([row(), row({ inventoryItemId: 'inv-2', folio: 'INV-004202', missing: ['location', 'price'], resolvedSalePriceCents: null, priceBasis: null, pendingPriceEntryId: 'ppe-1' })]);
+    stub([row(), row({ inventoryItemId: 'inv-2', folio: 'INV-004202', locationId: 'loc-1', pendingPriceEntryId: 'ppe-1' })]);
     renderWithProviders(<PendingPublishQueue />, 'es');
 
     expect(await screen.findByText('INV-004201')).toBeInTheDocument();
-    expect(screen.getAllByText('Ubicación').length).toBe(2);
-    expect(screen.getAllByText('Precio').length).toBe(1);
+    // Errata SU-1: el cajón no es motivo — con o sin `locationId`, la fila dice «Precio» y ⛔ nunca «Ubicación».
+    expect(screen.queryAllByText('Ubicación').length).toBe(0);
+    expect(screen.getAllByText('Precio').length).toBe(2);
     expect(screen.getAllByText('Compra a vendedor').length).toBe(2);
   });
 
-  it('sin precio resoluble NO pinta MX$0.00 y enlaza a la cola de precio pendiente', async () => {
+  it('sin precio resoluble NO pinta MX$0.00: «—» + «sin precio», la frase del motivo y el enlace a la cola', async () => {
     stub([
       row({ missing: ['price'], resolvedSalePriceCents: null, priceBasis: null, pendingPriceEntryId: 'ppe-77' }),
     ]);
     renderWithProviders(<PendingPublishQueue />, 'es');
 
-    expect(await screen.findByText('Sin precio resoluble')).toBeInTheDocument();
+    // §39.3 (b): «Sin precio resoluble» se retira; la celda dice «—» con la base «sin precio».
+    expect(await screen.findByText('—')).toBeInTheDocument();
+    expect(screen.getByText('· sin precio')).toBeInTheDocument();
+    // Servidor sin `pendingReason` (clave ausente) y con entrada ⇒ no inventa motivo, manda a la cola.
+    expect(screen.getByText('Sin precio; el motivo está en la cola de precio pendiente.')).toBeInTheDocument();
     expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Ver en la cola de precio pendiente' }),
@@ -112,11 +120,11 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(await screen.findByTestId('publish-missing-unknown')).toBeInTheDocument();
   });
 
-  it('declara su alcance: aquí no se capturan precios de venta', async () => {
+  it('declara su alcance: no captura precios de sueltas ni gradeadas; solo el sellado admite precio final', async () => {
     stub([row()]);
     renderWithProviders(<PendingPublishQueue />, 'es');
     expect(
-      await screen.findByText(/no se capturan precios de venta aquí ni se heredan del costo de compra/),
+      await screen.findByText(/no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra/),
     ).toBeInTheDocument();
     // Y no hay ningún botón de «publicar»: la pieza sale sola (criterio 125).
     expect(screen.queryByRole('button', { name: /publicar/i })).not.toBeInTheDocument();
@@ -159,6 +167,55 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(screen.queryByTestId('publish-queue-total')).not.toBeInTheDocument();
   });
 
+  /**
+   * ⚠️ **P-79c — el sellado pinta la CAJA, no el single ancla.** El defecto medido en producción: un
+   * sellado dado de alta salía como `Weedle — CHAOS RISING · 1 · NORMAL` (nombre y número del ANCLA).
+   * Aquí `sealedProductName` viaja SOLO en `productType='sealed'`; la fila lo pinta y ⛔ NO pinta ni
+   * `card.name` ni `card.number` del ancla.
+   */
+  it('sellado CON nombre pinta la caja (sealedProductName), no el single ancla', async () => {
+    stub([
+      row({
+        productType: 'sealed',
+        finish: 'normal',
+        sealedProductName: 'Charizard ex Super-Premium Collection',
+      }),
+    ]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(
+      await screen.findByText('Charizard ex Super-Premium Collection'),
+    ).toBeInTheDocument();
+    // ⛔ Ni el nombre ni el número de la carta ANCLA aparecen para una pieza sellada.
+    expect(screen.queryByText('Charizard VMAX')).not.toBeInTheDocument();
+    expect(screen.queryByText(/020\/189/)).not.toBeInTheDocument();
+    // Marca «SELLADO» presente; el set del ancla sí acompaña (pertenencia).
+    expect(screen.getByText('SELLADO')).toBeInTheDocument();
+  });
+
+  /**
+   * ⚠️ Sellado LEGADO sin `sealedProductName`: JAMÁS cae a `card.name` (eso reintroduciría el defecto).
+   * Se pinta «Sellado sin identificar»; el `folio` deja la fila accionable.
+   */
+  it('sellado SIN nombre (legado) pinta «sellado sin identificar», nunca card.name', async () => {
+    const { sealedProductName: _drop, ...noName } = row({ productType: 'sealed', finish: 'normal' });
+    stub([noName as PendingPublishRowDTO]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(await screen.findByText('Sellado sin identificar')).toBeInTheDocument();
+    expect(screen.queryByText('Charizard VMAX')).not.toBeInTheDocument();
+    expect(screen.getByText('SELLADO')).toBeInTheDocument();
+  });
+
+  it('raw/graded (single) sigue pintando card.name y su número — sin regresión', async () => {
+    stub([row({ productType: 'raw', finish: 'holofoil' })]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(await screen.findByText('Charizard VMAX')).toBeInTheDocument();
+    expect(screen.getByText(/020\/189/)).toBeInTheDocument();
+    expect(screen.queryByText('SELLADO')).not.toBeInTheDocument();
+  });
+
   it('vacío: mensaje propio, no una tabla en blanco', async () => {
     stub([]);
     renderWithProviders(<PendingPublishQueue />, 'es');
@@ -170,7 +227,45 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     renderWithProviders(<PendingPublishQueue />, 'en');
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument();
     // La fila llega por red: se espera al contenido, no al encabezado estático.
-    expect(await screen.findByText('Location')).toBeInTheDocument();
+    expect(await screen.findByText('Price')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m1\.publishQueue/);
+  });
+
+  it('M11-pending-subtype (CA-5): la fila de sellado pinta el subtipo cuando el server lo proyecta', async () => {
+    stub([
+      row({
+        productType: 'sealed',
+        sealedProductName: 'Chaos Rising Booster Bundle',
+        sealedSubtype: 'bundle',
+        finish: 'normal',
+      }),
+    ]);
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    expect(await screen.findByText('Chaos Rising Booster Bundle')).toBeInTheDocument();
+    // El subtipo (Bundle) aparece junto a la marca SELLADO; ⛔ nunca en raw/graded.
+    expect(screen.getByText(/BUNDLE/)).toBeInTheDocument();
+  });
+
+  it('la fila raw NO pinta subtipo aunque llegue el campo (aditivo, solo sellado)', async () => {
+    stub([row({ productType: 'raw', sealedSubtype: 'bundle' })]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    await screen.findByText('Charizard VMAX');
+    expect(screen.queryByText(/BUNDLE/)).not.toBeInTheDocument();
+  });
+
+  it('§diseño §iii: con productType propaga el filtro al endpoint (M11 la monta filtrada a sellado)', async () => {
+    const spy = vi
+      .spyOn(api, 'getPendingPublish')
+      .mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ productType: 'sealed' }));
+  });
+
+  it('sin productType pide la cola entera (comportamiento de M1, sin cambios)', async () => {
+    const spy = vi
+      .spyOn(api, 'getPendingPublish')
+      .mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ productType: undefined }));
   });
 });

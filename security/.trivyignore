@@ -1,6 +1,8 @@
 # =============================================================================
 # .trivyignore — Excepciones JUSTIFICADAS del gate Trivy  ·  Propiedad: devops
 # =============================================================================
+# ESTADO (2026-10-04): SIN EXCEPCIONES ACTIVAS AQUÍ. Las excepciones SOLO de imagen viven
+# en security/.trivyignore-image (hoy: braces CVE-2026-93687, exp 2026-11-03 — §76).
 # ESTADO (2026-08-17): SIN EXCEPCIONES ACTIVAS. El archivo se conserva y se sigue
 # pasando a los jobs `trivy-fs` / `trivy-image` (security-sast.yml) para que, si
 # algún día hace falta una excepción, viva en un único sitio auditable.

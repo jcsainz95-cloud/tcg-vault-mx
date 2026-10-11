@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { computeCartBreakdown } from '../src/common/money';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
@@ -62,6 +62,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     };
     // Solo se toca si un ítem VÁLIDO no trae `listPriceCents` (ruta PRICE_PENDING).
     const pricing: any = {
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no

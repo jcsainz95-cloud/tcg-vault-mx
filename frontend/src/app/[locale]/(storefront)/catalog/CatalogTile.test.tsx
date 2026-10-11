@@ -26,7 +26,7 @@ const card: CardDTO = {
   supertype: 'Pokémon',
   subtypes: ['Stage 2'],
   setId: 'base1',
-  setName: 'Base Set',
+  setName: 'Base Set', setPtcgoCode: null,
   imageSmallUrl: 'https://img.example/charizard-small.png',
   imageLargeUrl: 'https://img.example/charizard-large.png',
   availableFinishes: ['normal', 'holofoil'],
@@ -200,5 +200,21 @@ describe('CatalogTile · §22.5 badge «estimado si se gradea»', () => {
     const { tile } = renderTile({ gradingHighlight: [psa10] }, 'en');
     expect(tile.textContent).toContain('At PSA 10 it is worth');
     expectVisibleMicroNotice(tile, 'en');
+  });
+});
+
+/** v1.80 (P-71, §37.3c): la teja de Compra pinta «Set · TWM 130»; sin código, «Set · #130». */
+describe('CatalogTile · P-71 código corto del set', () => {
+  it('con código: «Twilight Masquerade · TWM 130» (espacio no separable)', () => {
+    const withCode = { ...card, setName: 'Twilight Masquerade', setPtcgoCode: 'TWM', number: '130' };
+    renderWithIntl(<CatalogTile listing={listing({ card: withCode })} inCart={false} onAdd={vi.fn()} />, 'es');
+    expect(document.body.textContent).toContain('Twilight Masquerade · TWM\u00A0130');
+    expect(document.body.textContent).not.toContain('#130');
+  });
+
+  it('sin código: «Base Set · #4», sin «—» ni «null»', () => {
+    renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
+    expect(document.body.textContent).toContain('Base Set · #4');
+    expect(document.body.textContent).not.toMatch(/null|undefined/);
   });
 });

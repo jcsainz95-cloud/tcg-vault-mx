@@ -63,7 +63,7 @@ export type { SeedRole, InjectedSession };
  *
  * Se re-exporta desde `./auth` para que ningún spec tenga que importar `./state` (plumbing).
  */
-export { reserveLoginSlot } from './state';
+export { reserveLoginSlot, reserveChangePasswordSlot } from './state';
 
 /** Regex de estructura de moneda MXN (`MX$1,234.00`): asserts por FORMATO, no por monto de fixture. */
 export const MONEY_RE = /MX\$[\d,]+\.\d{2}/;
@@ -91,6 +91,7 @@ const MOCK_FORM_CREDENTIALS: Record<SeedRole, { email: string; password: string 
   operator: { email: 'operador@example.com', password: 'secret123' },
   customerTemp: { email: 'temporal@example.com', password: 'cualquiera' },
   operatorTemp: { email: 'operador.temporal@example.com', password: 'temporal-op' },
+  speiCustomer: { email: 'cliente.spei@example.com', password: 'secret123' },
 };
 
 /**

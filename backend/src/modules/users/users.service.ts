@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AuthProvider, KycStatus, NameSource, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -6,6 +6,9 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { isOwnerAccount } from '../spend-alerts/owner';
+import { clabeChangedTemplate } from '../payments/refunds/mail/refund-notice.templates';
 import { monthCommittedGrossCents } from '../../common/buylist-aml';
 import { UploadsService } from '../uploads/uploads.service';
 import {
@@ -17,6 +20,8 @@ import {
 } from './dto/users.dto';
 import { assertPersonName } from './person-name';
 import { AddressDTO, toAddressDTO } from './address-dto';
+import { blankToNull } from './address-rules';
+import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 
 /** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
 export interface BillingProfileDTO {
@@ -44,7 +49,100 @@ export class UsersService {
     // ⭐ v1.69 (P-78, BK-4 · §M6-K.4.1): borrar del bucket la imagen de INE **sustituida**, en el
     // mismo flujo que la sustituye. Sin esto, cada re-subida deja PII que ninguna purga alcanza.
     private readonly uploads: UploadsService,
+    // 🔒 v1.80.3 (SEC-SHIP-A3): `AV-16` al cambiar la CLABE. `@Optional()`: los unitarios construyen el servicio a
+    // mano y el correo es best-effort (⛔ un fallo del correo NO puede hacer fallar el `PUT`).
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.81 (M-64): la lista de colonias por CP. `@Optional()` por el mismo motivo que el correo (unitarios a
+    // mano); sin él, crear/editar una dirección con colonia LANZA (⛔ nunca se guarda sin validar).
+    @Optional() private readonly postalCodes?: PostalCodeService,
   ) {}
+
+  // ================================================================ 🔒 setClabe — EL escritor de la CLABE
+
+  /**
+   * 🔒 v1.80.3 (SEC-SHIP-A3, API_CONTRACT §M4-SHIP.17.3) — **el único escritor** de `KycProfile.clabeEnc|clabeHmac|
+   * clabeUpdatedAt` (candado estático `C-CLABE-1`). Lo llaman `PUT /users/me/kyc`, el alta de buylist y cualquier
+   * otro camino que escriba la CLABE. Dentro de la tx del llamador:
+   *  1. garantiza la fila (`upsert` vacío: ⛔ sin columnas de CLABE) y la toma `FOR UPDATE` — serializa con `paid`
+   *     de la cubeta SPEI, que lee `clabeHmac` bajo el mismo candado;
+   *  2. índice ciego igual al vigente ⇒ **no escribe nada** (ni fecha, ni bitácora, ni aviso) ⇒ `null`;
+   *  3. distinto (o no había) ⇒ `clabeEnc`, `clabeHmac`, `clabeUpdatedAt = now`, bitácora `kyc.clabe_changed`
+   *     (`entityType='User'`, `after:{ previousMasked, newMasked }` — ⛔ nunca la CLABE) y devuelve el cambio para
+   *     que el llamador mande `AV-16` **post-commit** (`notifyClabeChanged`).
+   * La CLABE ya viene validada (`isValidClabe`) por el llamador; aquí se vuelve a comprobar por forma (un solo sitio).
+   */
+  /**
+   * 🔒 v1.80.7 (punto 19, `C-CLABE-1`) — el SEGUNDO y último escritor de la CLABE: la anonimización del borrado suave
+   * de cuenta (C20/PII, `AdminService.deleteUser`). **Solo nulos** (`clabeEnc` ∧ `clabeHmac`), ⛔ sin `clabeUpdatedAt`
+   * (no es un cambio de CLABE), ⛔ sin `AV-16`, sin bitácora propia (la del borrado la escribe quien borra). Con CLABE
+   * nula, `paid` de la cubeta ⇒ `422 CLABE_NOT_ON_FILE`. Sin expediente ⇒ no-op (`count 0` no es error).
+   */
+  async eraseClabe(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await tx.kycProfile.updateMany({ where: { userId }, data: { clabeEnc: null, clabeHmac: null } });
+  }
+
+  async setClabe(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    clabe: string,
+    actor: { id: string; role: Role },
+  ): Promise<ClabeChange | null> {
+    if (!isValidClabe(clabe)) {
+      throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
+    }
+    await tx.kycProfile.upsert({ where: { userId }, create: { userId }, update: {} });
+    await tx.$queryRaw`SELECT id FROM "KycProfile" WHERE "userId" = ${userId} FOR UPDATE`;
+    const current = await tx.kycProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { clabeEnc: true, clabeHmac: true },
+    });
+    const newHmac = this.pii.clabeBlindIndex(clabe);
+    if (current.clabeHmac && this.pii.blindIndexEquals(current.clabeHmac, newHmac)) return null;
+    const now = new Date();
+    const previousMasked = maskClabe(this.pii.tryDecryptOptional(current.clabeEnc).value) ?? null;
+    const newMasked = maskClabe(clabe) as string;
+    await tx.kycProfile.update({
+      where: { userId },
+      data: { clabeEnc: this.pii.encrypt(clabe), clabeHmac: newHmac, clabeUpdatedAt: now },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'kyc.clabe_changed',
+        entityType: 'User',
+        entityId: userId,
+        after: { previousMasked, newMasked },
+      },
+    });
+    return { userId, previousMasked, newMasked, changedAt: now };
+  }
+
+  /** `AV-16` — post-commit, best-effort, al `User.email` de la cuenta. Sin sello: el cambio es el hecho (§17.3). */
+  async notifyClabeChanged(change: ClabeChange | null): Promise<void> {
+    if (!change || !this.mail) return;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: change.userId },
+        select: { email: true, locale: true, anonymizedAt: true },
+      });
+      if (!user || user.anonymizedAt) return;
+      // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): cuenta sin correo ⇒ se omite con aviso, sin error ni reintento.
+      if (!user.email) {
+        this.logger.warn(`AV-16 omitido para ${change.userId}: la cuenta no tiene correo`);
+        return;
+      }
+      await this.mail.send({
+        ...clabeChangedTemplate(
+          { previousMasked: change.previousMasked, newMasked: change.newMasked, changedAt: change.changedAt },
+          user.locale,
+        ),
+        to: user.email,
+      });
+    } catch (err) {
+      this.logger.error(`AV-16 falló para ${change.userId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   /**
    * v1.67 (contrato §1 `GET /users/me`) — la ÚNICA proyección del perfil propio; `GET` y `PATCH`
@@ -63,7 +161,9 @@ export class UsersService {
    */
   private toMeDTO(user: {
     id: string;
-    email: string;
+    email: string | null;
+    username: string | null;
+    lockNoticeAt: Date | null;
     name: string;
     nameSource: NameSource;
     phone: string | null;
@@ -76,10 +176,15 @@ export class UsersService {
     passwordHash: string | null;
     mustChangePassword: boolean;
     kycProfile: { kycStatus: KycStatus } | null;
+    // 🔒 D2g (§M4-SHIP.19.30.3): para `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
+    isOwner: boolean;
+    deletedAt: Date | null;
   }) {
     return {
       id: user.id,
+      // v1.80.9 (§M6-U.5): `email: string | null` + `username` + el aviso de candado pendiente del panel.
       email: user.email,
+      username: user.username,
       name: user.name,
       nameSource: user.nameSource,
       phone: user.phone,
@@ -92,7 +197,19 @@ export class UsersService {
       avatarUrl: user.avatarUrl ?? undefined,
       hasPassword: user.passwordHash != null,
       mustChangePassword: user.mustChangePassword,
+      lockNotice: user.lockNoticeAt ? { since: user.lockNoticeAt.toISOString() } : null,
+      // 🔒 D2g (§M4-SHIP.19.30.3): el front lo usa SOLO para mostrar u ocultar (diales del dueño, acciones sobre su cuenta);
+      // ⛔ nunca autoriza: autoriza el servidor (`OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`).
+      isOwner: isOwnerAccount(user),
     };
+  }
+
+  /**
+   * v1.80.9 (§M6-U.5) — `POST /users/me/lock-notice/dismiss`: acuse de lectura del aviso de candado. Idempotente
+   * (sin aviso ⇒ no-op). Sin bitácora: el candado ya quedó en `auth.password_lock`.
+   */
+  async dismissLockNotice(userId: string): Promise<void> {
+    await this.prisma.user.updateMany({ where: { id: userId }, data: { lockNoticeAt: null } });
   }
 
   async me(userId: string) {
@@ -146,10 +263,18 @@ export class UsersService {
    * 400 `VALIDATION_ERROR` `details.field='recipientName'`). ⛔ El servidor NO lo deriva de
    * `User.name` (puede ser fabricado, y «cómo te llamas» ≠ «a nombre de quién va el paquete»); el
    * pre-relleno es cosa del front y solo con `nameSource !== 'derived'` (ARCHITECTURE §4.47.4).
+   *
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`, «colonia como Mercado Libre»): la colonia es OBLIGATORIA como
+   * texto, de la lista del CP o escrita a mano; `PostalCodeService.resolveAddressGeo` (el mismo cuerpo que sirve
+   * `GET /geo/postal-codes/:cp`, `C-SDX-3`) decide qué se guarda y ⛔ nunca rechaza por geografía: CP fuera del
+   * catálogo ⇒ lo escrito; colonia de la lista ⇒ el canónico + municipio/estado de esa colonia; colonia que no casa
+   * ⇒ la escrita + municipio/estado del CP. Orden: `400` del pipe ⇒ `400 recipientName` ⇒ `422 ADDRESS_NOT_MX` ⇒
+   * resolución (sin error). ⛔ Nada se escribe antes de validar.
    */
   async createAddress(userId: string, dto: AddressDto) {
     const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
+    const geo = await this.requirePostalCodes().resolveAddressGeo(dto.postalCode, dto.neighborhood, dto.city, dto.state);
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
@@ -158,13 +283,14 @@ export class UsersService {
       userId,
       recipientName,
       line1: dto.line1,
-      line2: dto.line2,
-      neighborhood: dto.neighborhood,
-      city: dto.city,
-      state: dto.state,
-      postalCode: dto.postalCode,
+      line2: blankToNull(dto.line2),
+      neighborhood: geo.neighborhood,
+      city: geo.city,
+      state: geo.state,
+      postalCode: geo.postalCode,
       country: dto.country,
       phone: dto.phone,
+      references: blankToNull(dto.references),
       isDefault: dto.isDefault,
     };
     return toAddressDTO(await this.prisma.address.create({ data })); // S49-R4
@@ -174,8 +300,25 @@ export class UsersService {
    * v1.67: `recipientName?` con la misma validación si viene; ⛔ **no vaciable** (ni `null` ni `""`):
    * una dirección que ya tiene destinatario no vuelve a no tenerlo. Es el remedio de
    * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
+   *
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `postalCode` exige `neighborhood`, `city` y `state` en el mismo cuerpo ⇒ si
+   * falta alguno, `400 {field:<el primero que falte, en ese orden>, reason:'required_with_postal_code'}`. Si el
+   * PATCH toca CP, colonia, ciudad o estado, el resultado (CP, colonia, ciudad, estado — lo que no vino, de la fila)
+   * pasa por `resolveAddressGeo` (sin `422` geográficos). Única excepción (decisión de backend, BACKEND_NOTES §58):
+   * una dirección vieja SIN colonia a la que solo se le cambia ciudad o estado se escribe tal cual — no hay colonia
+   * que resolver y la dirección sigue `complete:false`.
    */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
+    if (dto.postalCode !== undefined) {
+      for (const field of ['neighborhood', 'city', 'state'] as const) {
+        if (dto[field] === undefined) {
+          throw BusinessException.badRequest('VALIDATION_ERROR', `${field} is required when postalCode changes`, {
+            field,
+            reason: 'required_with_postal_code',
+          });
+        }
+      }
+    }
     // Lista blanca explícita, campo a campo y SOLO los presentes (un PATCH no debe escribir `undefined`
     // sobre lo que no vino; y un campo nuevo del DTO no se escribe solo — misma norma que `updateMe`).
     const data: Prisma.AddressUpdateInput = {};
@@ -183,21 +326,41 @@ export class UsersService {
       data.recipientName = assertPersonName(dto.recipientName, 'recipientName');
     }
     if (dto.line1 !== undefined) data.line1 = dto.line1;
-    if (dto.line2 !== undefined) data.line2 = dto.line2;
+    if (dto.line2 !== undefined) data.line2 = blankToNull(dto.line2);
     if (dto.neighborhood !== undefined) data.neighborhood = dto.neighborhood;
     if (dto.city !== undefined) data.city = dto.city;
     if (dto.state !== undefined) data.state = dto.state;
     if (dto.postalCode !== undefined) data.postalCode = dto.postalCode;
     if (dto.country !== undefined) data.country = dto.country;
     if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.references !== undefined) data.references = blankToNull(dto.references);
     if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
     if (dto.country) this.assertMx(dto.country);
     const existing = await this.prisma.address.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) throw BusinessException.notFound();
+    const touchesGeo = [dto.postalCode, dto.neighborhood, dto.city, dto.state].some((v) => v !== undefined);
+    const neighborhood = dto.neighborhood ?? existing.neighborhood;
+    if (touchesGeo && neighborhood != null) {
+      const geo = await this.requirePostalCodes().resolveAddressGeo(
+        dto.postalCode ?? existing.postalCode,
+        neighborhood,
+        dto.city ?? existing.city,
+        dto.state ?? existing.state,
+      );
+      data.postalCode = geo.postalCode;
+      data.neighborhood = geo.neighborhood;
+      data.city = geo.city;
+      data.state = geo.state;
+    }
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
     return toAddressDTO(await this.prisma.address.update({ where: { id }, data })); // S49-R4
+  }
+
+  private requirePostalCodes(): PostalCodeService {
+    if (!this.postalCodes) throw new Error('PostalCodeService no disponible');
+    return this.postalCodes;
   }
 
   async deleteAddress(userId: string, id: string) {
@@ -323,16 +486,22 @@ export class UsersService {
       quotedTotalCents === undefined
         ? undefined
         : quotedTotalCents >= (await this.settings.getNumber(SettingKey.INE_THRESHOLD_CENTS));
+    // ⭐ Robustez PII (deuda M11): una `clabeEnc` que NO descifra (clave rotada / fila corrupta) NO
+    // puede tumbar esta pantalla con un 500. `tryDecryptOptional` DEGRADA: `clabeMasked` queda
+    // `undefined` y la respuesta gana `piiUnavailable: true` — aditivo y SOLO en ese estado.
+    const clabe = this.pii.tryDecryptOptional(kyc?.clabeEnc);
     return {
       kycStatus,
       // CLABE cifrada en reposo → se devuelve ENMASCARADA (`****1234`), nunca en claro.
       // Contrato GET /users/me/kyc: la clave es `clabeMasked` (el resto del sistema —
       // contrato, admin.service, frontend— usa ese nombre; `clabe` rompía clabeOnFile).
-      clabeMasked: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
+      clabeMasked: maskClabe(clabe.value),
       // v1.15 (§4.16c): booleano LIMPIO y simétrico a `ineOnFile`. Habilita el atajo del cotizador
       // "usar mi CLABE ****1234" (= omitir `clabe` en POST /buylist/requests, resuelto server-side).
       // Sin PII nueva (la CLABE sigue enmascarada en `clabeMasked`).
       clabeOnFile: Boolean(kyc?.clabeEnc),
+      // 🔒 v1.80.3 (SEC-SHIP-A3): «CLABE actualizada el …». `null` = registrada antes de M-61 (o sin CLABE).
+      clabeUpdatedAt: kyc?.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
       // ⭐ v1.69 (P-78, §M6-K.7): el motivo del rechazo, y SOLO mientras el estado sea `rejected`.
       // ⛔ Nunca `null` residual de un rechazo anterior: la clave **no viaja** en los otros estados.
@@ -343,6 +512,10 @@ export class UsersService {
         : {}),
       // ⭐ v1.69 (P-78, §M6-K.5): el VEREDICTO, presente solo si preguntaron por un total.
       ...(ineRequiredForTotal === undefined ? {} : { ineRequiredForTotal }),
+      // ⭐ Robustez PII (deuda M11): SOLO si la CLABE existe pero no descifró. Aditivo — en el camino
+      // feliz esta clave NO viaja, así que la forma cerrada de §M6-K.5 no cambia. `clabeOnFile` sigue
+      // `true` (el dato EXISTE en la fila; no poder leerlo no lo borra).
+      ...(clabe.unavailable ? { piiUnavailable: true } : {}),
     };
   }
 
@@ -487,21 +660,29 @@ export class UsersService {
       front: dto.ineFrontUploadKey,
       back: dto.ineBackUploadKey,
     });
-    if (dto.clabe) {
-      // Se cifra DESPUÉS de la compuerta: si la key es inválida, no se escribe nada de nada.
-      data.clabeEnc = this.pii.encrypt(dto.clabe);
-      data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
-    }
-
-    await this.prisma.kycProfile.upsert({
-      where: { userId },
-      // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
-      // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
-      create: { userId, ...data, ...ine.data },
-      update: { ...data, ...ine.data },
+    // 🔒 v1.80.3 (SEC-SHIP-A3): la CLABE ya NO se escribe aquí — pasa por `setClabe` (el único escritor,
+    // `C-CLABE-1`), dentro de la MISMA transacción que el `upsert` del INE y DESPUÉS de la compuerta de keys.
+    const change = await this.prisma.$transaction(async (tx) => {
+      await tx.kycProfile.upsert({
+        where: { userId },
+        // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
+        // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
+        create: { userId, ...data, ...ine.data },
+        update: { ...data, ...ine.data },
+      });
+      return dto.clabe ? this.setClabe(tx, userId, dto.clabe, { id: userId, role: Role.customer }) : null;
     });
+    await this.notifyClabeChanged(change);
 
     await this.purgeSupersededIneObjects(userId, ine.supersededKeys);
     return this.getKyc(userId);
   }
+}
+
+/** Lo que `setClabe` devuelve cuando la CLABE cambió (para `AV-16` post-commit). ⛔ Nunca la CLABE. */
+export interface ClabeChange {
+  userId: string;
+  previousMasked: string | null;
+  newMasked: string;
+  changedAt: Date;
 }

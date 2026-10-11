@@ -200,7 +200,7 @@ export function KycReviewView({ userId }: { userId: string }) {
         {/* El NOMBRE es el h1: la pregunta de esta pantalla es «¿esta INE es de esta persona?». */}
         <h1 className="font-serif text-h1">{d.name}</h1>
         <div className="flex flex-wrap items-center gap-2 text-[15px] text-muted">
-          <span className="tabular">{d.email}</span>
+          <span className="tabular">{d.email ?? d.username ?? '—'}</span>
           <span aria-hidden>·</span>
           <span>
             {t('createdAt')} {formatDate(d.createdAt, locale)}
@@ -303,7 +303,9 @@ export function KycReviewView({ userId }: { userId: string }) {
         <KycIdentityPanel
           name={d.name}
           nameSource={d.nameSource}
-          email={d.email}
+          // v1.80.9: la identidad KYC es de CLIENTES (siempre con correo, I-STF-1); la regla de pintado
+          // `email ?? username` evita un hueco si la invariante se rompiera.
+          email={d.email ?? d.username ?? '—'}
           phone={d.phone}
           clabeMasked={kyc?.clabeMasked}
           createdAt={d.createdAt}

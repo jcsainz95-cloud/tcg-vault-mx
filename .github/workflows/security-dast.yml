@@ -39,8 +39,8 @@
 #
 # CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
 #   sustituye) + `workflow_call` desde `deploy.yml` en CADA push a `production`
-#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, en modo
-#   `report_only` mientras seguridad no lo suba a bloqueante (C2, §56) + manual.
+#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, BLOQUEANTE desde
+#   2026-09-28 (C2-bis, §69; antes `report_only`, C2 §56) + manual.
 #   NO por push a otras ramas: el escaneo activo tarda demasiado para castigar
 #   el día a día.
 #
@@ -62,6 +62,11 @@
 # =============================================================================
 
 name: DAST (stack efímero de CI)
+# LIVE-10 (2026-10-05): el título del run dice PERFIL, REF y si fue report_only,
+# para que la lista de runs se lea sin abrir ninguno. La PRUEBA que consume
+# `check-candidate-checks.sh --exige-dast-full` NO es este título (un `ref` de
+# rama no dice qué commit se escaneó): es el SELLO que deja el job `dast` (abajo).
+run-name: "DAST · perfil=${{ inputs.scan_profile || 'full' }} · ref=${{ inputs.ref || github.sha }}${{ inputs.report_only && ' · report_only' || '' }}"
 
 on:
   schedule:
@@ -121,6 +126,7 @@ on:
     paths:
       - ".github/workflows/security-dast.yml"
       - "security/scripts/dast-*"
+      - "scripts/check-zap-conf.sh"
       - "security/zap/**"
       - "security/nuclei/**"
       - "security/dast-selftest/**"
@@ -202,6 +208,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolver-ref.outputs.sha }}
+      # §96.7 — ANTES de escanear: el `zap_common` DE VERDAD, dentro de la imagen
+      # fijada, lee la copia filtrada de la política (y revienta con una sub-clave
+      # plantada: el instrumento muerde). Un minuto aquí en vez de un stack de 10
+      # que muere en 33 s de ZAP. `dast` necesita este job: si falla, no escanea.
+      - name: ZAP real lee la política que se le va a pasar (§96.7)
+        run: ./scripts/check-zap-conf.sh --real
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba
@@ -325,6 +337,23 @@ jobs:
       - name: Candado — veredicto sobre los informes
         id: gate
         run: ./security/scripts/dast-ephemeral.sh gate
+
+      # -----------------------------------------------------------------------
+      # LIVE-10 — EL SELLO. Una anotación `notice` con título `DAST-SELLO` que
+      # dice SOBRE QUÉ commit, con QUÉ perfil, si fue report_only y qué dijo el
+      # candado. Se lee por la API de check-runs (los logs no: el proxy de los
+      # agentes los bloquea), y es lo que exige
+      #   ./scripts/check-candidate-checks.sh --exige-dast-full <sha>
+      # antes de abrir la solicitud de fusión a `production`.
+      # Solo se emite si el candado CORRIÓ (si no, no hay nada que sellar) y
+      # `blocking` sale VACÍO ⇒ el sello dice `blocking=` y no vale como verde.
+      # -----------------------------------------------------------------------
+      - name: Sello del barrido (LIVE-10)
+        if: always() && steps.gate.outcome != 'skipped'
+        env:
+          BLOCKING: ${{ steps.gate.outputs.blocking }}
+        run: |
+          echo "::notice title=DAST-SELLO::sha=${SCAN_SHA} perfil=${SCAN_PROFILE} report_only=${REPORT_ONLY} blocking=${BLOCKING} gate=${{ steps.gate.outcome }}"
 
       - name: Publicar veredicto en la portada del run
         if: always()

@@ -1,0 +1,83 @@
+<!--
+  ⚠️ FIXTURE SINTÉTICO — NO es una captura real de limitlesstcg.com/decks/list/<id>.
+  DECKS-META Fase 2, supuesto A1 (spec §2.3): NO existe fixture capturado de la página de lista
+  completa, así que su estructura es DOCUMENTADA, no verificada. Este archivo reproduce la estructura
+  documentada (`.decklist-card[data-set][data-number][data-lang]` + `span.card-count` +
+  `span.card-name`, columnas «Pokémon (N) / Trainer (N) / Energy (N)», energía básica con
+  `data-basic-energy`) para que los unitarios del parser tengan algo determinista contra qué correr.
+  El DRY-RUN en prod (§8) es lo que VALIDA/AJUSTA estos selectores contra la realidad.
+
+  Suma de cantidades = 60 (14 Pokémon + 32 Trainer + 14 Energy). Incluye un Trainer cuyo nombre
+  EMPIEZA por «Energy» (Energy Search) para probar que un `card-name` no se confunde con un
+  encabezado de sección (defensa del parser).
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Decklist</title></head>
+<body>
+  <div class="decklist">
+    <div class="decklist-column">
+      <div class="decklist-title heading">Pokémon (14)</div>
+      <div class="decklist-card" data-set="TWM" data-number="130" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Dragapult ex</span>
+      </div>
+      <div class="decklist-card" data-set="TWM" data-number="129" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Drakloak</span>
+      </div>
+      <div class="decklist-card" data-set="TWM" data-number="128" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Dreepy</span>
+      </div>
+      <div class="decklist-card" data-set="PRE" data-number="4" data-lang="EN">
+        <span class="card-count">2</span> <span class="card-name">Budew</span>
+      </div>
+      <div class="decklist-card" data-set="SFA" data-number="38" data-lang="EN">
+        <span class="card-count">1</span> <span class="card-name">Fezandipiti ex</span>
+      </div>
+    </div>
+
+    <div class="decklist-column">
+      <div class="decklist-title heading">Trainer (32)</div>
+      <div class="decklist-card" data-set="PAL" data-number="185" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Iono</span>
+      </div>
+      <div class="decklist-card" data-set="PAL" data-number="172" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Boss's Orders</span>
+      </div>
+      <div class="decklist-card" data-set="SVI" data-number="196" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Ultra Ball</span>
+      </div>
+      <div class="decklist-card" data-set="SVI" data-number="181" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Nest Ball</span>
+      </div>
+      <div class="decklist-card" data-set="PAR" data-number="160" data-lang="EN">
+        <span class="card-count">2</span> <span class="card-name">Counter Catcher</span>
+      </div>
+      <div class="decklist-card" data-set="SVI" data-number="191" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Rare Candy</span>
+      </div>
+      <div class="decklist-card" data-set="SVI" data-number="190" data-lang="EN">
+        <span class="card-count">2</span> <span class="card-name">Energy Search</span>
+      </div>
+      <div class="decklist-card" data-set="TEF" data-number="144" data-lang="EN">
+        <span class="card-count">4</span> <span class="card-name">Buddy-Buddy Poffin</span>
+      </div>
+      <div class="decklist-card" data-set="OBF" data-number="186" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Arven</span>
+      </div>
+      <div class="decklist-card" data-set="SVI" data-number="189" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Professor's Research</span>
+      </div>
+    </div>
+
+    <div class="decklist-column">
+      <div class="decklist-title heading">Energy (14)</div>
+      <div class="decklist-card" data-set="PAL" data-number="192" data-lang="EN">
+        <span class="card-count">3</span> <span class="card-name">Reversal Energy</span>
+      </div>
+      <div class="decklist-card" data-basic-energy="11" data-lang="EN">
+        <span class="card-count">11</span> <span class="card-name">Basic Psychic Energy</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

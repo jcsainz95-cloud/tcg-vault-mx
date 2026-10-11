@@ -1,4 +1,5 @@
 import { OrdersService } from './orders.service';
+import { withM61Defaults } from '../../../test/helpers/m61-mock-defaults';
 import { GuestCheckoutService } from './guest-checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -71,12 +72,12 @@ function settingsMock() {
 function buildOrders(prismaOver: Record<string, unknown> = {}) {
   const cardFindMany = jest.fn(async () => []);
   const inventoryFindMany = jest.fn(async () => [inventoryItem()]);
-  const prisma = {
+  const prisma = withM61Defaults({
     inventoryItem: { findMany: inventoryFindMany },
     card: { findMany: cardFindMany },
     order: { findUnique: jest.fn(async () => null) },
     ...prismaOver,
-  } as unknown as PrismaService;
+  }) as unknown as PrismaService;
   const svc = new OrdersService(
     prisma,
     {} as never,

@@ -90,7 +90,9 @@ export function useSellRequirements(totalEstimatedCents = 0): SellRequirements {
     staleTime: 60_000,
   });
 
-  const emailBlocked = ready && isAuthenticated && user?.emailVerified === false;
+  // ⭐ v1.80.9 (DESIGN_SYSTEM §42.7): sin correo no hay «correo sin verificar» (el servidor responde
+  // `403 ACCOUNT_WITHOUT_EMAIL`); misma regla que `VerifyEmailBanner` y `BuylistKycForm`.
+  const emailBlocked = ready && isAuthenticated && user?.emailVerified === false && user?.email != null;
   const ineOnFile = kyc?.ineOnFile ?? false;
 
   return {

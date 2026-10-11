@@ -69,6 +69,20 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     required.push('POKEMONPRICETRACKER_API_KEY');
   }
 
+  // C7 rev v1.80.1 (deuda de backend en 114aecf, cerrada aquí): los dos secretos JWT NO pueden
+  // coincidir, en NINGÚN entorno. Con la misma llave, un access verifica como refresh y al revés y
+  // solo `typ` los separa (SEC-C7-RT y el guard lo comprueban, pero la separación de dominio tiene
+  // que empezar en la llave). Un fixture local con secretos iguales es un fixture roto, no un
+  // atajo: por eso esta regla no relaja en local.
+  if (
+    typeof config.JWT_ACCESS_SECRET === 'string' &&
+    typeof config.JWT_REFRESH_SECRET === 'string' &&
+    config.JWT_ACCESS_SECRET.length > 0 &&
+    config.JWT_ACCESS_SECRET === config.JWT_REFRESH_SECRET
+  ) {
+    throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must differ (same value for both domains)');
+  }
+
   if (!isLocal) {
     const missing = required.filter((k) => !config[k]);
     if (missing.length > 0) {

@@ -30,6 +30,11 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
+import { ShippingSection } from './sections/ShippingSection';
+import { SpendControlSection } from './sections/SpendControlSection';
+import { PremiumFloorSection } from './sections/PremiumFloorSection';
+import { BuylistCycleSection } from './sections/BuylistCycleSection';
+import { WishlistDialsSection } from './sections/WishlistDialsSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -93,7 +98,10 @@ const DIALS: DialSpec[] = [
   { key: 'stripeFeeFixedCents', kind: 'cents' },
   { key: 'pricingProviderRaw', kind: 'provider' },
   { key: 'pricingProviderGraded', kind: 'provider' },
-  { key: 'pricingProviderSealed', kind: 'provider' },
+  // §diseño §4.1 (D-2): la fila `pricingProviderSealed` se RETIRA de M10. Los diales de precio del
+  // SELLADO tienen su superficie ÚNICA de edición en M11 (deep-link de solo-texto abajo). La clave
+  // permanece en `SETTING_DTO_MAP`/`SettingsDTO` (lectura+escritura) — solo cambia qué pantalla la
+  // dibuja; el `PUT /admin/settings` con `pricingProviderSealed` sigue vivo, ahora desde M11.
   { key: 'catalogSyncFromDate', kind: 'text' },
   // v1.51-one-dial (§M10, M-48 —era `M-46`, v1.54(1)): el DIAL ÚNICO del «gancho de grading». Seed `off` fail-closed, y la
   // clave es NUEVA ⇒ ningún entorno la trae encendida. Gobierna exhibición Y obtención: sin él en la
@@ -102,6 +110,9 @@ const DIALS: DialSpec[] = [
   // retirado (`gradedEstimateIngestEnabled`), que se declaró gobernable y nunca se dibujó.
   { key: 'gradingHookEnabled', kind: 'onOff' },
 ];
+
+/** Claves que edita el listado genérico de M10 (candado REL-S7: cada dial se edita en UN solo bloque de M10). */
+export const M10_LIST_DIAL_KEYS: readonly string[] = DIALS.map((d) => d.key);
 
 /**
  * El dial que NO es un número más. Encenderlo es un **acto de dinero** (ARCHITECTURE §4.38r.3):
@@ -149,6 +160,7 @@ function fromInputValue(kind: DialKind, text: string): number | string {
 
 export function M10View() {
   const t = useTranslations('admin.m10');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
@@ -269,12 +281,16 @@ export function M10View() {
   const auditColumns: Column<AuditLogDTO>[] = useMemo(
     () => [
       { key: 'date', header: t('audit.date'), render: (a) => <span className="tabular">{formatDate(a.createdAt, locale)}</span> },
-      { key: 'actor', header: t('audit.actor'), render: (a) => (
+      // Eventos del sistema (p. ej. `auth.password_lock` desde el login): `actorUserId` y `actorRole`
+      // llegan null a la vez (contrato, errata 2026-10-04). La celda dice «—», nunca un hueco ni un Badge vacío.
+      { key: 'actor', header: t('audit.actor'), render: (a) => (a.actorUserId === null || a.actorRole === null ? (
+        <span className="tabular text-muted">—</span>
+      ) : (
         <span className="flex flex-col">
           <span className="tabular text-sm">{a.actorUserId}</span>
           <Badge tone={a.actorRole === 'super_admin' ? 'primary' : 'neutral'}>{a.actorRole}</Badge>
         </span>
-      ) },
+      )) },
       { key: 'action', header: t('audit.action'), render: (a) => <span className="tabular font-medium">{a.action}</span> },
       { key: 'entity', header: t('audit.entity'), render: (a) => <span className="tabular text-muted">{a.entityType} · {a.entityId}</span> },
     ],
@@ -283,7 +299,7 @@ export function M10View() {
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m10')}</h1>
 
       {/* Sección 1: diales */}
       <section className="flex flex-col gap-3">
@@ -327,6 +343,18 @@ export function M10View() {
                   ),
                 )}
               </div>
+
+              {/* §diseño §4.1 (D-2) · los diales de precio del SELLADO (proveedor de referencia,
+                  fuente de mercado, tendencia, alertas y spreads) se editan AHORA en M11, su
+                  superficie única. No se deja un control inerte aquí: solo el deep-link. */}
+              <p className="text-xs text-muted">
+                <Link
+                  href="/admin/m11"
+                  className="border-b border-accent pb-0.5 hover:border-text hover:text-text"
+                >
+                  {t('dials.sealedMovedToM11')}
+                </Link>
+              </p>
 
               {/* El «gancho de grading» NO es un dial más: con UN solo interruptor (v1.51, M-46)
                   encenderlo publica una afirmación comercial **y** autoriza el gasto de créditos de
@@ -416,6 +444,13 @@ export function M10View() {
         </QueryState>
       </section>
 
+      {/* ⭐ §WSH-UX.9 (a) — «Lista de deseos»: sección propia debajo de «Diales de configuración», con su guardado
+          parcial y la confirmación de encendido (criterio 824). `id="wishlist"` = destino del enlace de la lista de compra. */}
+      <WishlistDialsSection />
+
+      {/* §60.7 b (F-9) — los DIEZ diales del ciclo de venta, en su propio grupo, guardado y errores por campo. */}
+      <BuylistCycleSection />
+
       {/* ⭐ Sección 1a: EL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA, criterio 213). Va en su propia
           sección y NO en la retícula de diales de arriba, y no es estética: es **la única puerta**
           del dial y la única que exige el ACUSE del costo en pesos antes de guardar (criterio
@@ -423,6 +458,17 @@ export function M10View() {
           envío — un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
           guardián, y aquí el guardián es el servidor (`PUT /admin/settings/iva-transfer`). */}
       <IvaTransferSection />
+
+      {/* §39.1 — premium en el piso (venta): sección propia, entre el IVA y la ingesta. */}
+      <PremiumFloorSection />
+
+      {/* ⭐ §43.10 — «Envíos (Skydropx)»: sección propia porque gobierna dinero (la puerta de compra, los
+          escalones de seguro). Después del premium en el piso y antes de la ingesta (FS-8). */}
+      <ShippingSection />
+
+      {/* 💰 §43.19.10a — «Control del gasto»: justo después de «Envíos», sección propia (gobierna dinero); diales del
+          dueño (§19.30.2 (1)). `id="control-gasto"` es el destino del enlace «Cambiar el tope» de un aviso. */}
+      <SpendControlSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}

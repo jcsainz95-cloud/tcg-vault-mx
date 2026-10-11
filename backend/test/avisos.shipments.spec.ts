@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { matchesWhere } from './helpers/prisma-where';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -27,6 +28,8 @@ function buildHarness(opts: {
   user?: Record<string, unknown> | null;
   /** `throwing` ⇒ el puerto lanza SIEMPRE (`C-AV-10`). `null` ⇒ no hay puerto. */
   mail?: 'ok' | 'throwing' | null;
+  /** 🔒 v1.80.12.16 (§19.35.1): el emisor de la liga del invitado (`OrderAccessTokenService`). */
+  tokens?: { issue: jest.Mock } | null;
 }) {
   const sent: Sent = [];
   const row = { ...opts.shipment };
@@ -70,8 +73,10 @@ function buildHarness(opts: {
     },
     order: { findUnique: jest.fn().mockResolvedValue(opts.order ?? null) },
     user: { findUnique: jest.fn().mockResolvedValue(opts.user ?? null) },
+    auditLog: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
   };
+  withM61Defaults(tx);
   const mail: MailPort | undefined =
     opts.mail === null || opts.mail === undefined
       ? undefined
@@ -87,6 +92,12 @@ function buildHarness(opts: {
     {} as SettingsService,
     {} as StripeService,
     mail,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    (opts.tokens ?? undefined) as never,
   );
   return { svc, prisma, sent, row };
 }
@@ -96,6 +107,11 @@ const VAULT_SHIPMENT = {
   userId: 'user-1',
   orderId: null,
   status: 'picking',
+  // ⭐ v1.80 (§M4-SHIP.6): la guía exige «preparado» y cero casos `open` EN EL `WHERE`; el fake modela ambos.
+  preparedAt: new Date('2026-09-29T00:00:00.000Z'),
+  preparedByUserId: 'op-1',
+  replacementCases: [],
+  stripePaymentIntentId: null,
   carrier: null,
   trackingNumber: null,
   trackingNoticeSentAt: null,
@@ -136,8 +152,10 @@ describe('⭐⭐ C-AV-3 — DOS correos de envío y NINGUNO al entregar (criteri
   });
 
   it('`cancelado` sí manda (AV-6), y desde `cancelado` no se sale ⇒ no puede haber un segundo', async () => {
+    // ⭐ v1.80 (§M4-SHIP.9): un envío PAGADO (`picking|guia`) ya no se cancela a mano; el único `cancelado`
+    // manual que queda es el de un `solicitado` (no pagado), que sigue mandando `AV-6` una vez.
     const { svc, sent } = buildHarness({
-      shipment: { ...VAULT_SHIPMENT, status: 'guia' },
+      shipment: { ...VAULT_SHIPMENT, status: 'solicitado', preparedAt: null, preparedByUserId: null },
       user: USER,
       mail: 'ok',
     });
@@ -322,5 +340,122 @@ describe('⭐⭐ D-AV-1 — la captura de guía NO regresa el estado (ARCHITECTU
     const escrituraVieja = { carrier: 'DHL', trackingNumber: 'TRK-9', status: 'guia' };
     Object.assign(filaEntregada, escrituraVieja);
     expect(filaEntregada.status).toBe('guia'); // ⇐ la regresión que `D-AV-1` describía
+  });
+});
+
+// =================================================================================================
+/**
+ * ⭐ CTA de los avisos de envío (cableado de `16a3170`; QA IMPORTANTE 2, B3 y B5). Pedido de REGISTRADO ⇒
+ * `orders/<Order.id>`; retiro de bóveda ⇒ `shipments/<id>`. 🔒 v1.80.12.16 (§M4-SHIP.19.35.1, PS-87 reescrita): pedido de
+ * INVITADO (`userId = null`) ⇒ `pedido?token=<nuevo, SIN rotar>`; RECLAMADO (`userId ≠ null`, conserva `guestEmail`) ⇒
+ * `orders/<id>` y ⛔ ningún token. Antes de este bloque, cruzar esas ramas no ponía rojo nada.
+ */
+describe('CTA — el botón del aviso de envío según quién recibe', () => {
+  // Sin `APP_PUBLIC_URL` no hay CTA para NADIE (appUrl ⇒ undefined), y la prueba del invitado
+  // pasaría por la razón equivocada: se fija un origen para que la ausencia signifique algo.
+  const savedOrigin = process.env.APP_PUBLIC_URL;
+  beforeAll(() => {
+    process.env.APP_PUBLIC_URL = 'https://tienda.example';
+  });
+  afterAll(() => {
+    if (savedOrigin === undefined) delete process.env.APP_PUBLIC_URL;
+    else process.env.APP_PUBLIC_URL = savedOrigin;
+  });
+  const body = (m: MailMessage) => `${m.html}\n${m.text}`;
+  const ORDER_SHIPMENT = { ...VAULT_SHIPMENT, id: 'shp-9', userId: null, orderId: 'ord-1' };
+
+  it('B5 — pedido de REGISTRADO ⇒ CON botón a `orders/<Order.id>`', async () => {
+    const { svc, sent } = buildHarness({
+      shipment: { ...ORDER_SHIPMENT },
+      order: {
+        id: 'ord-1',
+        userId: 'user-1',
+        createdAt: new Date(),
+        orderNumber: 'TCG-1001',
+        guestEmail: null,
+        locale: 'es',
+        user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+        fulfillmentMode: 'direct_ship',
+      },
+      mail: 'ok',
+    });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('ash@pallet.mx');
+    expect(body(sent[0])).toContain('orders/ord-1');
+    expect(body(sent[0])).not.toContain('shipments/shp-9');
+  });
+
+  const guestOrder = (userId: string | null, createdAt = new Date()) => ({
+    id: 'ord-1',
+    userId,
+    createdAt,
+    orderNumber: 'TCG-1001',
+    guestEmail: 'guest@correo.mx',
+    locale: 'es',
+    user: userId ? { email: 'cuenta@correo.mx', locale: 'es', anonymizedAt: null } : null,
+    fulfillmentMode: 'direct_ship',
+  });
+  const fakeTokens = () => ({ issue: jest.fn().mockResolvedValue({ clear: 'CLARO-B3', expiresAt: new Date(Date.now() + 90 * 86_400_000) }) });
+
+  it('B3 — pedido de invitado puro ⇒ botón a `pedido?token=<nuevo>` emitido SIN rotar, con bitácora `system:mail` sin el claro', async () => {
+    const tokens = fakeTokens();
+    const { svc, sent, prisma } = buildHarness({ shipment: { ...ORDER_SHIPMENT }, order: guestOrder(null), mail: 'ok', tokens });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('guest@correo.mx');
+    expect(body(sent[0])).toContain('https://tienda.example/es/pedido?token=CLARO-B3');
+    expect(body(sent[0])).not.toContain('orders/');
+    expect(body(sent[0])).not.toContain('shipments/');
+    expect(tokens.issue).toHaveBeenCalledTimes(1);
+    expect(tokens.issue).toHaveBeenCalledWith('ord-1', { rotate: false });
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    const audit = prisma.auditLog.create.mock.calls[0][0].data;
+    expect(audit).toMatchObject({ actorUserId: null, action: 'order.tracking_link.reissue', entityType: 'Order', entityId: 'ord-1' });
+    expect(audit.after).toMatchObject({ actor: 'system:mail', notice: 'AV-4', rotated: false });
+    expect(JSON.stringify(audit)).not.toContain('CLARO-B3');
+  });
+
+  it('B3 — pedido de invitado que RECLAMÓ (conserva `guestEmail`) ⇒ al `guestEmail` con botón a `orders/<id>` y ⛔ CERO tokens', async () => {
+    const tokens = fakeTokens();
+    const { svc, sent, prisma } = buildHarness({ shipment: { ...ORDER_SHIPMENT }, order: guestOrder('user-7'), mail: 'ok', tokens });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('guest@correo.mx');
+    expect(body(sent[0])).toContain('https://tienda.example/es/orders/ord-1');
+    expect(body(sent[0])).not.toContain('pedido?token');
+    expect(tokens.issue).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sin emisor (servicio legacy)', null],
+    ['la emisión FALLA', 'throws'],
+  ] as const)('invitado, %s ⇒ el aviso sale IGUAL, sin botón, y el log no trae el claro', async (_n, mode) => {
+    const tokens = mode === 'throws' ? { issue: jest.fn().mockRejectedValue(Object.assign(new Error('boom CLARO-X'), { code: 'P2002' })) } : null;
+    const { svc, sent, prisma } = buildHarness({ shipment: { ...ORDER_SHIPMENT }, order: guestOrder(null), mail: 'ok', tokens });
+    const warn = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(body(sent[0])).not.toMatch(/pedido\?token|orders\/|shipments\//);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('CLARO');
+  });
+
+  it('invitado con pedido de más de 365 días ⇒ sin botón y ⛔ cero tokens (§4-G.7 «tope de edad»)', async () => {
+    const tokens = fakeTokens();
+    const { svc, sent } = buildHarness({ shipment: { ...ORDER_SHIPMENT }, order: guestOrder(null, new Date(Date.now() - 366 * 86_400_000)), mail: 'ok', tokens });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(body(sent[0])).not.toMatch(/pedido\?token|orders\//);
+    expect(tokens.issue).not.toHaveBeenCalled();
+  });
+
+  it('retiro de bóveda ⇒ botón a `shipments/<id>`', async () => {
+    const { svc, sent } = buildHarness({ shipment: { ...VAULT_SHIPMENT }, user: USER, mail: 'ok' });
+    await svc.setTracking('shp-1', 'DHL', 'TRK-1');
+    expect(body(sent[0])).toContain('shipments/shp-1');
+    expect(body(sent[0])).not.toContain('orders/');
   });
 });

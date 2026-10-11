@@ -1,4 +1,4 @@
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -10,6 +10,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * fix/variant-composition-regression — REGRESIÓN DE DINERO en la cola M2 del SELLADO.
@@ -172,7 +173,7 @@ function buildHarness() {
     ),
   };
 
-  const settings = { getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,
@@ -184,6 +185,7 @@ function buildHarness() {
   // Dial de mercado APAGADO (escenario real del bug): sin fuente automática; solo el override manual
   // del admin (isManualOverride) resuelve. Stubs izados una vez por bulkPublish; el resto corre REAL.
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,

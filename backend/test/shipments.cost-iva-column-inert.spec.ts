@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { matchesWhere } from './helpers/prisma-where';
 import { join } from 'path';
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
@@ -88,7 +89,13 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
         // previa). El fake mantiene una fila viva y **evalúa el `where`**, así que lo que estas
         // pruebas leen es lo que de verdad quedaría escrito.
         ...(() => {
-          const fila: Record<string, unknown> = { ...rawRow };
+          // ⭐ v1.80 (§M4-SHIP.6): el avance a `guia` afirma sobre `preparedAt` y `replacementCases` en el `WHERE`.
+          const fila: Record<string, unknown> = {
+            ...rawRow,
+            preparedAt: new Date('2026-09-29T00:00:00.000Z'),
+            preparedByUserId: 'op-1',
+            replacementCases: [],
+          };
           return {
             findUniqueOrThrow: jest.fn(async () => ({ ...fila })),
             update: jest.fn(async ({ data }: any) => {
@@ -104,6 +111,7 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
         })(),
       },
     };
+    withM61Defaults(prisma);
     return {
       svc: new ShipmentsService(prisma as PrismaService, {} as SettingsService, {} as StripeService),
       prisma,

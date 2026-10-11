@@ -11,6 +11,18 @@ import { UploadsModule } from '../modules/uploads/uploads.module';
 import { VaultModule } from '../modules/vault/vault.module';
 import { CatalogModule } from '../modules/catalog/catalog.module';
 import { OrdersModule } from '../modules/orders/orders.module';
+// DECKS-META Fase 2 (§7): el scheduler programa `decks-meta-refresh` semanal y el disparo manual
+// admin delega en `DecksMetaRefreshService`, exportado por DecksMetaModule.
+import { DecksMetaModule } from '../modules/decks-meta/decks-meta.module';
+// ⭐💰 D2d (API_CONTRACT §M4-SHIP.19.10): los tres jobs de Skydropx viven en `shipments/` (su dominio) y se exportan desde
+// `ShipmentsModule`; aquí solo se programan y se disparan. Sin ciclo: `ShipmentsModule` no importa `JobsModule`.
+import { ShipmentsModule } from '../modules/shipments/shipments.module';
+// 💰 C1 (API_CONTRACT §M4-SHIP.19.33.9): `spend-watch` y `spend-digest` viven en `spend-alerts/` (su dominio) y se exportan desde
+// `SpendAlertsModule`; aquí solo se programan y se disparan. Sin ciclo: `SpendAlertsModule` no importa `JobsModule`.
+import { SpendAlertsModule } from '../modules/spend-alerts/spend-alerts.module';
+// rev v1.87⟨wishlist⟩ (§WSH.5): `wishlist-notify` vive en `wishlist/` y se exporta desde `WishlistModule`; aquí solo se programa y se
+// dispara. Sin ciclo: `WishlistModule` no importa `JobsModule`.
+import { WishlistModule } from '../modules/wishlist/wishlist.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -24,7 +36,7 @@ import { OrdersModule } from '../modules/orders/orders.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

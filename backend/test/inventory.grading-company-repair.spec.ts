@@ -6,6 +6,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.53 (ARCHITECTURE §4.40.5b · §9 **D-BG-4** · API_CONTRACT §M1, ADITIVO) —
@@ -33,7 +34,7 @@ function buildPricing(): PricingService {
     getReference: jest.fn(),
   } as unknown as PricingService;
 }
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 function buildPrisma(item: Record<string, unknown>) {
   const prisma: any = {

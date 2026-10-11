@@ -7,6 +7,7 @@ import { MailService } from '../src/modules/mail/mail.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GoogleTokenVerifier } from '../src/modules/auth/google-token-verifier';
+import { c7Args } from './helpers/auth-c7-deps';
 
 /**
  * v1.71 (SEC-CR-1) — `AuthService.logout`. Cerrar sesión REVOCA todas las sesiones de la cuenta vía
@@ -41,6 +42,7 @@ function make() {
     audit as unknown as AuditService,
     tokens,
     mail,
+    ...c7Args(),
   );
   return { svc, update, audit, signAsync };
 }

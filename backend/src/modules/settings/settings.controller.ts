@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Optional, Put, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { SettingsService } from './settings.service';
-import { SettingKey } from './settings.constants';
+import { canonicalJson, SettingsService } from './settings.service';
+import { ownerOnlyDtoKey, SettingKey } from './settings.constants';
+import { isOwnerAccount, OWNER_SELECT } from '../spend-alerts/owner';
+import { StaffControlAlertsService } from '../spend-alerts/staff-control.service';
 import {
   IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
   IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX,
@@ -13,15 +16,37 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
+ * ¿El valor del cuerpo es el MISMO que el vigente? JSON canónico; `spendAlertsDisabled` es un CONJUNTO (el orden no cuenta: un
+ * formulario que lo reordena no está «moviendo» el dial).
+ */
+function sameSettingValue(dtoKey: string, a: unknown, b: unknown): boolean {
+  if (dtoKey === 'spendAlertsDisabled' && Array.isArray(a) && Array.isArray(b)) {
+    return canonicalJson([...a].map(String).sort()) === canonicalJson([...b].map(String).sort());
+  }
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+/**
  * M10 — Config (diales) y bitácora global. API_CONTRACT §M10. Solo super_admin.
+ *
+ * 💰 D2g (§19.29.8): `@Roles(vault_operator, super_admin)` + `@MoneyOut()` de CLASE — los diales mueven topes de dinero; el
+ * operador recibe `403 MONEY_OUT_FORBIDDEN` y `MoneyOutGuard` escribe `money_out.blocked` (antes: `403 FORBIDDEN` mudo). Para el
+ * operador solo cambia el código del `403`; el súper-admin sigue igual en las seis rutas.
+ * 🔒 D2g (§19.30.2 (1), C-21 (a)): los diales del DUEÑO (`OWNER_ONLY_SETTING_KEYS`) solo los mueve el dueño — ver `updateSettings`.
  */
 @Controller('admin')
-@Roles(Role.super_admin)
+@Roles(Role.vault_operator, Role.super_admin)
+@MoneyOut()
 export class SettingsController {
+  private readonly logger = new Logger(SettingsController.name);
+
   constructor(
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    // `@Optional()` solo porque los unitarios construyen el controlador a mano con tres argumentos; en DI siempre está
+    // (`SettingsModule` importa `SpendAlertsModule`).
+    @Optional() private readonly staffControl?: StaffControlAlertsService,
   ) {}
 
   @Get('settings')
@@ -29,13 +54,48 @@ export class SettingsController {
     return this.settings.getAllDto();
   }
 
+  /**
+   * 🔒 D2g (§19.30.2 (1), C-21 (a), SDX-Z-2) — **el vigilado no apaga su vigilancia.** ANTES de `settings.update`:
+   *  1. la validación por clave de siempre (`422` para cualquiera: un cuerpo inválido no cambia de respuesta por quién lo manda);
+   *  2. actor NO dueño (`isOwnerAccount` leído de la BASE, ⛔ nunca del JWT) y alguna clave de `OWNER_ONLY_SETTING_KEYS` con valor
+   *     DISTINTO del vigente ⇒ `403 OWNER_ONLY_SETTING {keys}` (DTO, ordenadas), NADA se escribe (tampoco las otras claves del
+   *     cuerpo), bitácora `settings.owner_only_denied {keys}` y AG-22 🔴 `owner_setting_denied`;
+   *  3. actor no dueño y esas claves IGUALES a lo vigente ⇒ se QUITAN del cuerpo (⛔ un no dueño nunca escribe una de ellas: un
+   *     formulario viejo no pisa un cambio reciente del dueño). El resto se escribe como siempre.
+   * Sin dueño (nadie cumple `isOwnerAccount`) ⇒ todos reciben el `403` en esas claves (falla cerrado, §19.30.1 (4)).
+   */
   @Put('settings')
   async updateSettings(
     @Body() body: Record<string, unknown>,
     @CurrentUser('id') userId: string,
     @CurrentUser('role') role: Role,
   ) {
+    this.settings.validatePayload(body ?? {});
     const before = await this.settings.getAllDto();
+    // Solo se pregunta «¿es el dueño?» si el cuerpo trae alguna clave del dueño: el resto de diales no cambia de conducta.
+    const ownerKeys = Object.keys(body).filter((k) => ownerOnlyDtoKey(k));
+    const actor = ownerKeys.length > 0 ? await this.prisma.user.findUnique({ where: { id: userId }, select: OWNER_SELECT }) : null;
+    if (ownerKeys.length > 0 && !isOwnerAccount(actor)) {
+      const changed = ownerKeys.filter((k) => !sameSettingValue(k, body[k], before[k])).sort();
+      if (changed.length > 0) {
+        try {
+          await this.audit.log({
+            actorUserId: userId,
+            actorRole: role,
+            action: 'settings.owner_only_denied',
+            entityType: 'ConfigSetting',
+            after: { keys: changed },
+          });
+        } catch (e) {
+          // El rechazo no depende de la bitácora (mismo patrón que `audited-super-admin.guard.ts`).
+          this.logger.error(`settings.owner_only_denied: bitácora falló (${e instanceof Error ? e.message : String(e)})`);
+        }
+        await this.staffControl?.report(userId, 'owner_setting_denied', null, changed);
+        throw BusinessException.forbidden('OWNER_ONLY_SETTING', 'Only the owner can change these settings', { keys: changed });
+      }
+      body = Object.fromEntries(Object.entries(body).filter(([k]) => !ownerKeys.includes(k)));
+      if (Object.keys(body).length === 0) return before;
+    }
     // v2.1.6 (P48-B1, fase de seguridad) — la bitácora se escribe DENTRO de la transacción que
     // persiste los diales, no después de que `update()` retorne.
     //

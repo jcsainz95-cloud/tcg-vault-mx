@@ -1,14 +1,88 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getPendingPublish } from '@/lib/api';
+import { getLocations, getPendingPublish } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
-import type { PendingPublishRowDTO } from '@/types/contract';
+import { useRole } from '@/lib/role';
+import type { AcquisitionType, PendingPublishRowDTO, ProductType } from '@/types/contract';
+import { Banner } from '@/components/ui/Banner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
+import { ItemDetailModal } from './ItemDetailModal';
+import { SealedFinalPrice } from './SealedFinalPrice';
+import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
+import { SealedProductPriceEditor, type SealedProductPriceSaved } from './SealedProductPriceEditor';
+import { SealedPriceSavedNotice, SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
+import { productPriceTargetOf } from './sealed-product-price-target';
+
+/**
+ * Origen traducido (`DESIGN_SYSTEM §39.3 (c)`). ⛔ El valor crudo nunca llega al DOM: un tipo nuevo del servidor
+ * cae a «Origen desconocido».
+ */
+const ORIGIN_KEYS: Record<string, 'originLabel.aportacion_en_especie' | 'originLabel.buylist' | 'originLabel.compra'> = {
+  aportacion_en_especie: 'originLabel.aportacion_en_especie',
+  buylist: 'originLabel.buylist',
+  compra: 'originLabel.compra',
+};
+function originKey(a: AcquisitionType | string | null | undefined) {
+  return (a && ORIGIN_KEYS[a]) || 'originLabel.unknown';
+}
+
+/**
+ * **POR QUÉ falta cada cosa** (`DESIGN_SYSTEM §39.3 (b)`, contrato §M1 «v1.80.8.7» punto 2). Una frase por cada
+ * `missing`; el chip avisa, la frase explica.
+ *
+ * - Sellado ⇒ siempre «ponle precio final» (el botón está en la misma fila).
+ * - Carta con `pendingReason` ⇒ el motivo del servidor (⛔ la UI no deduce `premium_at_floor` de la rareza: es una
+ *   decisión de dinero del servidor y depende del dial de M10).
+ * - Carta con `pendingReason === null` (clave PRESENTE) ⇒ gradeada sin identidad de slab (regla del contrato).
+ * - Clave AUSENTE (servidor anterior) ⇒ no inventa: manda a la cola de precio pendiente, o a sistemas si no hay entrada.
+ */
+function ReasonLines({ row }: { row: PendingPublishRowDTO }) {
+  const t = useTranslations('admin.m1.publishQueue');
+  const { isSuperAdmin } = useRole();
+  const missing = row.missing ?? [];
+  if (missing.length === 0) return null;
+  const lines: React.ReactNode[] = [];
+  if (missing.includes('location')) lines.push(<span key="location">{t('reason.location')}</span>);
+  if (missing.includes('price')) {
+    if (row.productType === 'sealed') {
+      lines.push(<span key="price">{t('reason.sealedNoPrice')}</span>);
+    } else if (row.pendingReason === 'no_market') {
+      lines.push(<span key="price">{t('reason.no_market')}</span>);
+    } else if (row.pendingReason === 'premium_at_floor') {
+      lines.push(
+        <span key="price">
+          {t('reason.premium_at_floor')}
+          {isSuperAdmin && (
+            <>
+              {' '}
+              <Link href="/admin/m10#premium-piso" className="text-text underline underline-offset-2 hover:text-accent">
+                {t('reason.seeRule')}
+              </Link>
+            </>
+          )}
+        </span>,
+      );
+    } else if (row.pendingReason === null) {
+      lines.push(<span key="price">{t('reason.gradedNoSlab')}</span>);
+    } else if (row.pendingPriceEntryId) {
+      lines.push(<span key="price">{t('reason.inQueue')}</span>);
+    } else {
+      lines.push(<span key="price">{t('reason.noEntry')}</span>);
+    }
+  }
+  return (
+    <span className="mt-1 flex flex-col gap-0.5 text-xs text-text" data-testid={`publish-reason-${row.inventoryItemId}`}>
+      {lines}
+    </span>
+  );
+}
 
 /**
  * **QUÉ LE FALTA a esta pieza para estar a la venta.**
@@ -34,15 +108,60 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
     );
   }
   return (
-    <span className="flex flex-wrap gap-2">
-      {missing.map((what) => (
-        <span
-          key={what}
-          className="font-mono text-[10px] uppercase tracking-[0.06em] text-accent"
-        >
-          {what === 'location' ? t('missingLocation') : t('missingPrice')}
+    <span className="flex flex-col">
+      <span className="flex flex-wrap gap-2">
+        {missing.map((what) => (
+          <span key={what} className="font-mono text-[10px] uppercase tracking-[0.06em] text-accent">
+            {what === 'location' ? t('missingLocation') : t('missingPrice')}
+          </span>
+        ))}
+      </span>
+      <ReasonLines row={row} />
+    </span>
+  );
+}
+
+/**
+ * **QUÉ PIEZA es esta fila.** ⚠️ **El sellado pinta la CAJA, no el single ancla** (P-79c, contrato §M1).
+ *
+ * El defecto reportado era pintar `card.name` / `card.number` del **ancla** —que el propio diseño declaró
+ * que «deja de ser identidad» (`resolveAnchorCardId`, ARCHITECTURE §4.34a)— para una pieza
+ * `productType='sealed'`. `productType` es el discriminante (ya viaja en el DTO desde v1.51). Por eso:
+ *   - `sealed` **con** `sealedProductName` ⇒ nombre del sellado + marca «SELLADO»; ⛔ NUNCA número ni acabado.
+ *   - `sealed` **sin** nombre (legado) ⇒ «Sellado sin identificar» en tinta de atención; ⛔ **JAMÁS `card.name`**
+ *     —caer al ancla es *exactamente* el defecto—. Misma doctrina que `MissingCell` y que `total` ausente:
+ *     *ante un «no sé» no se pinta un valor que parezca bueno.*
+ *   - `raw` / `graded` ⇒ single: `card.name` + `setName · number · finish` (sin cambios).
+ *
+ * El `folio` (columna 1) identifica la fila de forma única en los tres casos, así que el sellado legado
+ * **sigue siendo accionable**: el operador va al folio, no al nombre.
+ */
+function PieceCell({ row }: { row: PendingPublishRowDTO }) {
+  const t = useTranslations('admin.m1.publishQueue');
+  const tSub = useTranslations('status.sealedSubtype');
+  if (row.productType === 'sealed') {
+    return (
+      <span className="flex flex-col">
+        {row.sealedProductName ? (
+          <span lang="en">{row.sealedProductName}</span>
+        ) : (
+          <span className="text-accent">{t('sealedUnidentified')}</span>
+        )}
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+          {row.card.setName} · <span className="text-accent">{t('sealedMark')}</span>
+          {/* §diseño §2.C/CA-5 · el SUBTIPO (Bundle/Booster Box/…) se pinta cuando el server lo
+              proyecta; ausente (backend anterior) ⇒ no se pinta nada (aditivo, retrocompatible). */}
+          {row.sealedSubtype ? ` · ${tSub(row.sealedSubtype).toUpperCase()}` : ''}
         </span>
-      ))}
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-col">
+      <span lang="en">{row.card.name}</span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+        {row.card.setName} · {row.card.number} · {row.finish}
+      </span>
     </span>
   );
 }
@@ -56,14 +175,55 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
  * momentos en que puede dejar de faltar algo, y eso **solo es aceptable porque un disparo perdido
  * deja la pieza EN ESTA COLA**, no invisible. Por eso la cola no se estrecha ni se «optimiza».
  *
- * ⚠️ **Alcance: SOLO VISIBILIDAD (D10).** No captura precios de venta, no los sugiere y **no los
- * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada —**sin botón**—,
- * *sin depender de que alguien se acuerde de apretarlo.*
+ * ⚠️ **Alcance: SOLO VISIBILIDAD (D10) — salvo el precio final del SELLADO** (`DESIGN_SYSTEM §39.2`, criterio
+ * **255**, `HECHOS.md` 2026-10-04 (b)). No captura precios de cartas sueltas ni gradeadas, no los sugiere y **no los
+ * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada; el sellado admite aquí su precio
+ * final a mano (`SealedFinalPrice`), que ES el gesto de publicar (con o sin ubicación).
+ *
+ * ⭐ Errata SU-1 (`API_CONTRACT §M1-SU`, `ARCHITECTURE §4.65`): la ubicación **no** es requisito para publicar; a la
+ * fila solo le puede faltar el precio (`missing ⊆ ["price"]`). Las ramas `'location'` de `MissingCell`/`ReasonLines`
+ * se conservan dormidas (el tipo no cambia) y no se pintan porque el servidor ya no emite ese valor.
  */
-export function PendingPublishQueue() {
+/**
+ * `productType` (opcional, §diseño §iii) — filtra la cola a un tipo de producto reusando el
+ * `?productType=` que el endpoint ya acepta (contrato §M1). M1 la monta SIN filtro (cola entera);
+ * M11 la monta con `productType="sealed"`. El `queryKey` incluye el filtro para no colisionar el
+ * caché entre la vista completa y la filtrada.
+ */
+export function PendingPublishQueue({ productType }: { productType?: ProductType } = {}) {
   const t = useTranslations('admin.m1.publishQueue');
+  /** Base del precio (raw/graded): la del servidor; con `listPriceCents` ⇒ «a mano». ⛔ Sin deducir por cifras. */
+  function basisLabel(row: PendingPublishRowDTO): string {
+    if (row.listPriceCents != null) return t('basis.manual');
+    if (row.priceBasis === 'market') return t('basis.market');
+    if (row.priceBasis === 'floor') return t('basis.floor');
+    if (row.priceBasis === 'override') return t('basis.override');
+    return t('basis.none');
+  }
   const locale = useLocale() as AppLocale;
-  const query = useQuery({ queryKey: ['pending-publish'], queryFn: getPendingPublish });
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: ['pending-publish', productType ?? 'all'],
+    queryFn: () => getPendingPublish({ productType }),
+  });
+  // §39.3 (a): el folio abre la pieza sin salir de la cola. Misma `queryKey` que M1/M11.
+  const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const folioRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // §39.2 (b): una fila editando a la vez; abrir otra cierra la anterior sin guardar.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  // §70.3 (b): el aviso del editor del PRODUCTO (cuentas de `autoPublish`), aparte del de la pieza sin producto.
+  const [saved, setSaved] = useState<{ value: SealedProductPriceSaved; seq: number } | null>(null);
+  const { role } = useRole();
+
+  function closeDetail() {
+    const id = detailId;
+    setDetailId(null);
+    // Desde el modal se puede mover o publicar: la cola se refresca y el foco vuelve al folio.
+    void qc.invalidateQueries({ queryKey: ['pending-publish'] });
+    if (id) setTimeout(() => folioRefs.current[id]?.focus(), 0);
+  }
 
   /**
    * **EL TAMAÑO DEL TRABAJO PENDIENTE** (deuda D5 del techlead).
@@ -97,6 +257,20 @@ export function PendingPublishQueue() {
         )}
       </div>
       <p className="mt-1 max-w-[70ch] text-sm leading-[1.6] text-muted">{t('subtitle')}</p>
+      {/* §SU-UX.3 (a): con filas, una línea que dice que el folio abre la pieza; con la cola vacía no se pinta. */}
+      {(query.data?.data.length ?? 0) > 0 && <p className="mt-1 text-xs text-muted">{t('openHint')}</p>}
+      {done && (
+        <div className="mt-3">
+          <Banner key={done} variant="success" role="status" dismissible>
+            {done}
+          </Banner>
+        </div>
+      )}
+      {saved && (
+        <div className="mt-3">
+          <SealedPriceSavedNotice key={saved.seq} saved={saved.value} />
+        </div>
+      )}
 
       <QueryState
         isLoading={query.isLoading}
@@ -128,60 +302,146 @@ export function PendingPublishQueue() {
               </tr>
             </thead>
             <tbody>
-              {query.data?.data.map((row) => (
-                <tr key={row.inventoryItemId} className="border-b border-border last:border-b-0">
-                  <td className="tabular px-3 py-3 align-top font-mono text-[13px] text-text">
-                    {row.folio}
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm text-text">
-                    <span className="flex flex-col">
-                      <span lang="en">{row.card.name}</span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                        {row.card.setName} · {row.card.number} · {row.finish}
-                      </span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <MissingCell row={row} />
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm">
-                    {row.resolvedSalePriceCents != null ? (
-                      <span className="tabular font-mono text-text">
-                        {formatMoneyCents(row.resolvedSalePriceCents, locale)}
-                      </span>
-                    ) : (
-                      /* ⛔ Nunca MX$0.00 para «no resoluble»: cero es un precio (§7.3). */
-                      <span className="flex flex-col gap-1">
-                        <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-                          {t('noSalePrice')}
+              {query.data?.data.map((row) => {
+                // §M11-SP.13.5.1 (C-2) y techlead D-6: de quién es el precio y la cifra del producto, un sitio cada uno.
+                const sealedLink = sealedPieceLinkOf(row);
+                const target = productPriceTargetOf([row]);
+                return (
+                  <tr key={row.inventoryItemId} className="border-b border-border last:border-b-0">
+                    <td className="tabular px-3 py-3 align-top font-mono text-[13px] text-text">
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          folioRefs.current[row.inventoryItemId] = el;
+                        }}
+                        aria-label={t('openPiece', { folio: row.folio })}
+                        className="underline decoration-border underline-offset-2 hover:decoration-current focus-visible:shadow-focus focus-visible:outline-none"
+                        onClick={() => setDetailId(row.inventoryItemId)}
+                      >
+                        {row.folio}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm text-text">
+                      <PieceCell row={row} />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <MissingCell row={row} />
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm">
+                      {sealedLink === 'linked' && typeof row.sealedProductId === 'string' ? (
+                        /* §70.3 (b): pieza LIGADA ⇒ rótulo del precio de la pieza (con IVA) y, para el dueño, el editor
+                           del PRODUCTO. `expected` = `sealedProductDisplayPriceCents` de ESTA fila (§M11-SP.13.7). */
+                        <span className="flex flex-col gap-1">
+                          <SealedPiecePriceLabel
+                            id={row.inventoryItemId}
+                            origin={row.sealedPriceOrigin}
+                            resolvedDisplayPriceCents={row.resolvedDisplayPriceCents}
+                          />
+                          {canSetSealedPrice(role) && target.hasExpected ? (
+                            <SealedProductPriceEditor
+                              product={{
+                                id: row.sealedProductId,
+                                name: row.sealedProductName ?? t('sealedUnidentified'),
+                                ownerDisplayPriceCents: target.ownerDisplayPriceCents,
+                                displayPriceCents: target.displayPriceCents,
+                                effectiveOrigin: target.effectiveOrigin,
+                                pieces: target.pieces,
+                              }}
+                              triggerVariant="product"
+                              editing={editingId === row.inventoryItemId}
+                              onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
+                              onDone={(value) => setSaved((prev) => ({ value, seq: (prev?.seq ?? 0) + 1 }))}
+                            />
+                          ) : (
+                            (row.missing ?? []).includes('price') && (
+                              /* UX-SP-15: la ligada sin precio va a la HOJA, ⛔ no a la cola de M2. */
+                              <Link
+                                href={SHEET_ANCHOR_HREF}
+                                className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                              >
+                                {t('sealedPriceLink')}
+                              </Link>
+                            )
+                          )}
                         </span>
-                        {row.pendingPriceEntryId && (
-                          <Link
-                            href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
-                            className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
-                          >
-                            {t('pendingPriceLink')}
-                          </Link>
-                        )}
+                      ) : row.productType === 'sealed' ? (
+                        /* §39.2 — sellado SIN producto (o clave ausente, en solo lectura): precio por pieza, antes de IVA. */
+                        <span className="flex flex-col gap-1">
+                          <SealedFinalPrice
+                            layout="queue"
+                            piece={{
+                              id: row.inventoryItemId,
+                              folio: row.folio,
+                              // La cola es `in_stock` de plataforma por predicado (§M1 `pending-publish`).
+                              status: 'in_stock',
+                              ownerType: 'platform',
+                              hasLocation: row.locationId != null,
+                              listPriceCents: row.listPriceCents,
+                              resolvedSalePriceCents: row.resolvedSalePriceCents,
+                              resolvedDisplayPriceCents: row.resolvedDisplayPriceCents,
+                              priceBasis: row.priceBasis,
+                              name: row.sealedProductName ?? null,
+                            }}
+                            // §M11-SP.13.5.1: sin producto solo el dueño; clave ausente ⇒ nadie (falla cerrado).
+                            canEdit={canEditSealedPiecePrice(role, row)}
+                            staffNote={sealedLink === 'unlinked' && !canSetSealedPrice(role)}
+                            editing={editingId === row.inventoryItemId}
+                            onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
+                            onDone={setDone}
+                          />
+                          {row.resolvedSalePriceCents == null && row.pendingPriceEntryId && (
+                            <Link
+                              href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
+                              className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                            >
+                              {t('pendingPriceLink')}
+                            </Link>
+                          )}
+                        </span>
+                      ) : row.resolvedSalePriceCents != null ? (
+                        <span className="flex flex-wrap items-baseline gap-1">
+                          <span className="tabular font-mono text-text">
+                            {formatMoneyCents(row.resolvedSalePriceCents, locale)}
+                          </span>{' '}
+                          <span className="text-xs text-muted">· {basisLabel(row)}</span>
+                        </span>
+                      ) : (
+                        /* ⛔ Nunca MX$0.00 para «no resoluble»: cero es un precio (§7.3). «—» + «sin precio». */
+                        <span className="flex flex-col gap-1">
+                          <span className="flex flex-wrap items-baseline gap-1">
+                            <span className="tabular font-mono text-accent">—</span>{' '}
+                            <span className="text-xs text-muted">· {t('basis.none')}</span>
+                          </span>
+                          {row.pendingPriceEntryId && (
+                            <Link
+                              href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
+                              className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                            >
+                              {t('pendingPriceLink')}
+                            </Link>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm text-muted">
+                      <span className="flex flex-col">
+                        <span>{t(originKey(row.acquisitionType))}</span>
+                        <span className="tabular font-mono text-[11px]">
+                          {formatDate(row.createdAt, locale)}
+                        </span>
                       </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm text-muted">
-                    <span className="flex flex-col">
-                      <span>{row.acquisitionType === 'buylist' ? t('originBuylist') : row.acquisitionType}</span>
-                      <span className="tabular font-mono text-[11px]">
-                        {formatDate(row.createdAt, locale)}
-                      </span>
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </QueryState>
 
       <p className="mt-4 max-w-[70ch] text-xs leading-[1.6] text-muted">{t('note')}</p>
+
+      <ItemDetailModal itemId={detailId} onClose={closeDetail} locations={locations.data ?? []} locationsReady={locations.isSuccess} />
     </section>
   );
 }

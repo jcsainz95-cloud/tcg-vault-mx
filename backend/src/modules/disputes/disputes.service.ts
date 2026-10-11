@@ -4,7 +4,8 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
-import { DISPUTE_EVIDENCE_CONTACT } from './disputes.constants';
+// v1.82 · PNL-1 (`D-PNL-2`): el buzón sale del ÚNICO resolutor (antes `disputes.constants.ts`, retirado).
+import { supportContact } from '../mail/support-contact';
 // v1.74 (§R.3) — `AV-10` (recompra) y `AV-11` (rechazada). Puerto global `@Optional()`, plantilla
 // local, envío best-effort POST-COMMIT: ⛔ un fallo de correo no revierte una resolución de dinero.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -57,7 +58,7 @@ function toDisputeDTO(d: DisputeRow) {
     deadlineAt: d.deadlineAt,
     createdAt: d.createdAt,
     resolvedAt: d.resolvedAt,
-    evidenceContact: DISPUTE_EVIDENCE_CONTACT,
+    evidenceContact: supportContact(),
     // FUERA a propósito: `resolvedBy` (identidad del staff) y `repurchaseOrderId` (referencia
     // interna de la compensación). `userId` tampoco: el cliente es el dueño de la sesión, no
     // necesita que se lo devolvamos.
@@ -133,60 +134,10 @@ export class DisputesService {
     }
   }
 
-  /**
-   * Crea disputa de condición (raw o sellado). Ventana = 7 días desde entrega. API_CONTRACT §7.
-   * v1.2: la evidencia se envía POR CORREO a soporte (evidenceContact); no hay subida de fotos.
-   * El graded no aplica (el slab es la garantía) → NOT_RAW.
-   */
-  async create(userId: string, inventoryItemId: string, description: string) {
-    const item = await this.prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } });
-    if (!item || item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    // v1.2: la disputa de condición aplica a raw (carta dañada/equivocada) y a SELLADO
-    // (caja dañada/equivocada). La evidencia va por correo a soporte (ARCHITECTURE §3.6).
-    // El graded no aplica (el slab es la garantía) → NOT_RAW.
-    if (item.productType === 'graded') {
-      throw BusinessException.validation('NOT_RAW', 'Disputes apply only to raw/sealed items');
-    }
-    const disputeType = item.productType === 'sealed' ? 'condition_sealed' : 'condition_raw';
-    // Ventana de 7 días desde entrega (busca el envío entregado del item).
-    const shipmentItem = await this.prisma.shipmentItem.findFirst({
-      where: { inventoryItemId, shipmentRequest: { status: 'entregado' } },
-      include: { shipmentRequest: true },
-      orderBy: { shipmentRequest: { deliveredAt: 'desc' } },
-    });
-    const deliveredAt = shipmentItem?.shipmentRequest.deliveredAt;
-    const now = new Date();
-    if (deliveredAt) {
-      const deadline = new Date(deliveredAt.getTime() + 7 * 24 * 3600 * 1000);
-      if (now > deadline) {
-        throw BusinessException.validation('DISPUTE_WINDOW_CLOSED', 'Dispute window (7d) closed');
-      }
-    }
-    const deadlineAt = deliveredAt
-      ? new Date(deliveredAt.getTime() + 7 * 24 * 3600 * 1000)
-      : new Date(now.getTime() + 7 * 24 * 3600 * 1000);
-
-    const dispute = await this.prisma.dispute.create({
-      data: {
-        userId,
-        inventoryItemId,
-        type: disputeType,
-        status: 'abierta',
-        description,
-        deadlineAt,
-      },
-    });
-    // API_CONTRACT §7: la respuesta 201 incluye `type` (condition_raw|condition_sealed),
-    // derivado server-side del productType del item, y `evidenceContact` (correo de soporte
-    // donde el cliente envía la evidencia; v1.2, ya no hay subida de foto).
-    return {
-      disputeId: dispute.id,
-      status: dispute.status,
-      type: dispute.type,
-      deadlineAt: dispute.deadlineAt,
-      evidenceContact: DISPUTE_EVIDENCE_CONTACT,
-    };
-  }
+  // v1.82 · PNL-1 (§PNL.1): `create` SALIÓ. `POST /disputes` responde `410 DISPUTES_DISCONTINUED` en el
+  // controlador sin llegar aquí; dejar el cuerpo vivo sería una vía de alta sin ruta que alguien puede
+  // volver a cablear sin pasar por el contrato. Lo que sigue (lecturas y M8) queda EN TRANSICIÓN para
+  // cerrar las disputas que existan, hasta que Q-0 de PNL.9 mida cero en producción.
 
   async listMine(userId: string) {
     const rows = await this.prisma.dispute.findMany({
@@ -250,7 +201,7 @@ export class DisputesService {
       description: dispute.description,
       type: dispute.type,
       deadlineAt: dispute.deadlineAt,
-      evidenceContact: DISPUTE_EVIDENCE_CONTACT,
+      evidenceContact: supportContact(),
       item: dispute.inventoryItem,
       order: null,
     };

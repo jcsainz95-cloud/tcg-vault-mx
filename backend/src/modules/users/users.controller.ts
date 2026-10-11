@@ -41,6 +41,16 @@ export class UsersController {
     return this.users.me(userId);
   }
 
+  /**
+   * v1.80.9 (§M6-U.5) — acuse del aviso de candado del panel. `204`, idempotente, cualquier rol. ⛔ NO está en la
+   * allowlist de `PASSWORD_CHANGE_REQUIRED`: con la temporal pendiente, primero se cambia la contraseña.
+   */
+  @Post('lock-notice/dismiss')
+  @HttpCode(204)
+  async dismissLockNotice(@CurrentUser('id') userId: string): Promise<void> {
+    await this.users.dismissLockNotice(userId);
+  }
+
   @Patch()
   updateMe(@CurrentUser('id') userId: string, @Body() dto: UpdateMeDto) {
     return this.users.updateMe(userId, dto);

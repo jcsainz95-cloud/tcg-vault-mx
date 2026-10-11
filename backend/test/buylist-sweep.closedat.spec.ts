@@ -24,6 +24,11 @@ describe('BuylistSweepJobService.run — closedAt en transiciones terminales', (
   function build(rows: Record<string, Record<string, unknown>[]>) {
     const updates: { where: Record<string, unknown>; data: Record<string, unknown> }[] = [];
     const prisma: any = {
+      // rev BSD-1 (B-3): `closeWithGuideTask` corre en UNA transacción con los candados de I-BSD-4 y llama a
+      // `closeInboundShipment` (sin fila de entrada aquí ⇒ `$queryRaw` vacío); la regla 10 lee `shipmentRequest`.
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+      $queryRaw: jest.fn(async () => []),
+      shipmentRequest: { findMany: jest.fn(async () => []) },
       sellRequest: {
         // El fake responde por REGLA (según el `status` pedido), no por orden de llamada: un mock
         // posicional se rompe en cuanto se añade una query, y aquí se añadieron cuatro.

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import * as argon2 from 'argon2';
+import { c7Args } from './helpers/auth-c7-deps';
 
 // `argon2` es un módulo nativo: sus exports no son redefinibles con `jest.spyOn`. Se envuelve el REAL
 // en un `jest.fn` para poder aseverar «no se verificó nada» (paso 2) sin cambiar el comportamiento.
@@ -89,6 +90,7 @@ function make(user: Record<string, unknown> | null, jwt?: JwtService) {
     audit as unknown as AuditService,
     tokens,
     mail,
+    ...c7Args(),
   );
   return { svc, prisma, audit, update };
 }
@@ -269,6 +271,7 @@ describe('google() alta nueva (D-CTA-4) — escribe nameSource', () => {
       { log: jest.fn(async () => undefined) } as unknown as AuditService,
       tokens,
       mail,
+      ...c7Args(),
     );
     return { svc, create };
   }

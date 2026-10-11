@@ -144,6 +144,81 @@ enum VaultZone {
   customer_custody
 }
 
+// v1.79 (M-59, API_CONTRACT §M4-VAULT.2) — ciclo de la COLOCACIÓN en bóveda de una orden `vault`
+// liquidada. Clase E. ⛔ Ningún filtro de query lo consume hoy.
+enum VaultPlacementStatus {
+  pending // nació con la liquidación; está en la cubeta «Para bóveda»
+  placed // el operador confirmó la colocación (terminal)
+  cancelled // no hay nada que colocar (terminal) — ver cancelReason
+}
+
+// v1.79 (M-59, §M4-VAULT.5/.6) — por qué una colocación terminó sin colocar. Clase E.
+enum VaultPlacementCancelReason {
+  chargeback // contracargo: las piezas volvieron a la plataforma (§M4-VAULT.6)
+  nothing_to_place // al confirmar, ninguna pieza se colocó (todas faltantes o bloqueadas) (§M4-VAULT.5)
+  full_refund // v1.80.4 (M-61, §M4-SHIP.18.5): la compra se reembolsó entera; nada se coloca a nombre del cliente
+}
+
+// v1.79.1 (M-59, §M4-VAULT.10) — marca de preparación de UNA carta de un pedido de bóveda. Clase E.
+enum PreparationItemStatus {
+  pending // sin palomear (estado de nacimiento)
+  picked // el operador la tiene en la mano
+  missing // el operador NO la encontró. ⛔ Solo se registra: no mueve dinero, ni inventario, ni avisa
+}
+
+// v1.80 (M-61, §M4-SHIP.2) — por qué una carta de un ENVÍO (o de una colocación, v1.80.1) no sale. Clase E.
+// `not_found` ⇒ la pieza pasa a `lost`; `damaged` ⇒ a `damaged`. UN SOLO modelo de motivo (envío y bóveda).
+enum MissingReason {
+  not_found
+  damaged
+}
+
+// v1.80 (M-61, §M4-SHIP.2) — qué reembolsa una fila del libro `PaymentRefund`. Clase E.
+enum PaymentRefundKind {
+  item_missing // UNA carta de un envío que no sale (vía del operador, §M4-SHIP.5)
+  order_remaining // lo que queda de una orden `direct_ship` cuando NO sale ninguna carta
+  shipment_fee // el cobro de un RETIRO cuando no sale ninguna carta
+  order_full // M3, súper-admin: el remanente de la orden (§M3)
+  case_refund // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
+  item_delivered // v1.82 (M-70, §PNL.2) — UNA carta de un envío directo YA ENTREGADO (súper-admin, motivo ShippedRefundReason)
+}
+
+// v1.80 (M-61, §M4-SHIP.7) — ciclo de una fila del libro. Clase E.
+enum PaymentRefundStatus {
+  requested // el hecho está registrado; Stripe aún no confirmó (o falló de forma transitoria)
+  submitted // Stripe aceptó el reembolso (hay `stripeRefundId`), aún no `succeeded`
+  succeeded // Stripe lo dio por hecho
+  failed // Stripe lo rechazó de forma DEFINITIVA (terminal; lo resuelve el súper-admin)
+}
+
+// v1.80.1 (M-61, §M4-SHIP.15.2) — de dónde nació un caso «Por reponer». Clase E (filtro `?source=`).
+enum ReplacementCaseSource {
+  withdrawal
+  vault_purchase
+}
+
+// v1.80.1 (M-61, §M4-SHIP.15.3) — ciclo del caso. Clase E.
+enum ReplacementCaseStatus {
+  open // nació; la carta se le debe al cliente
+  replaced // se le dio OTRA pieza de la misma identidad (terminal)
+  found // apareció la MISMA pieza (solo not_found) (terminal)
+  refunded // se cerró con un reembolso capturado por el súper-admin (terminal)
+  voided // la orden de origen dejó de estar `settled`: el dinero lo resolvió otro camino (terminal)
+}
+
+// v1.80.2 (M-61, §M4-SHIP.15.13) — cubeta «Reembolsos manuales (SPEI)».
+enum ManualRefundSource {
+  case_excess // la parte de un reembolso de caso que no cabe en el cobro de Stripe (o todo, si el remanente es 0)
+  stripe_failed // una fila `case_refund` que Stripe rechazó en definitiva, pasada a SPEI por el súper-admin
+  withdrawal_delivered // v1.82 (M-70, §PNL.3) — UNA carta de un retiro de bóveda YA ENTREGADO, monto capturado, sin caso
+}
+
+enum ManualRefundStatus {
+  pending // hay que pagarla por fuera
+  paid // el súper-admin la marcó pagada (terminal)
+  cancelled // el súper-admin la canceló con nota (terminal)
+}
+
 enum OrderStatus {
   pending
   settled
@@ -181,6 +256,19 @@ enum ShipmentStatus {
   enviado
   entregado
   cancelado
+}
+
+// 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1) — QUÉ es una fila de `ShipmentRequest`. Clase E (banda 3 universal).
+//   outbound        = todo lo de hoy (retiro de bóveda y envío directo; `orderId` sigue distinguiéndolos)
+//   buylist_inbound = la guía de ENTRADA de una solicitud de venta aceptada (vendedor → tienda): `sellRequestId` poblado,
+//                     `userId`/`orderId`/PaymentIntent nulos y montos en 0 (CHECK `shipment_kind_link`).
+// ⛔ La conducta por `kind` vive en UN fichero (`shipments/label-subject.ts`, candado BSD-B25); los lectores por filtro de
+// la tabla están clasificados en el censo BSD-B23 (`test/bsd.reader-census.spec.ts`).
+// ⚠️ No confundir con el tipo TS `ShipmentKind` de `shipments.service.ts` ('vault_withdrawal' | 'guest_direct_ship'): ése
+// es DERIVADO de `Order.fulfillmentMode` y es otra cosa.
+enum ShipmentKind {
+  outbound
+  buylist_inbound
 }
 
 // v1.51 (M-46, §4.39a / PROJECT §P.1, criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
@@ -225,6 +313,10 @@ enum SellOfferState {
 enum SellRequestExpiryReason {
   no_offer
   not_shipped
+  // 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1, ARCHITECTURE §4.BSD (c)): la solicitud ACEPTADA la cerramos NOSOTROS (a mano con
+  // «Declinar», o sola a los N días naturales sin guía). ⛔ NO culpa al vendedor: no entra en ninguna cifra de conducta
+  // (eso es `not_shipped`). Viaja al cliente y gobierna su copy.
+  not_continued
 }
 
 // v1.51 (M-46, §P.2) — cherry-pick AL OFERTAR, por línea (`SellRequestItem.offerDecision`). Una línea
@@ -334,6 +426,60 @@ enum MovementReason {
   // (POST /admin/inventory/adjustments). El historial de la pieza distingue un ajuste de
   // operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`).
   adjustment
+  // v1.80.1 (M-61, §M4-SHIP.15.2): traspaso de titularidad de una REPOSICIÓN (⛔ no es sale/settle/adjustment).
+  replacement
+  // v1.80.4 (M-61, §M4-SHIP.18.4): la carta vuelve a la plataforma por un reembolso TOTAL de su compra.
+  refund_return
+  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `reserved → listed` porque la orden NUNCA liquidada que la apartaba se
+  // reembolsó entera (⛔ distinto de `refund_return`: aquélla vuelve del cliente congelada).
+  refund_release
+}
+
+// 💰 v1.80.8.6 (M-62, API_CONTRACT §M4-SHIP.18.12 (1)): por qué se reembolsó ENTERO un pedido YA ENVIADO.
+// PROJECT §S.11.4: «solo sería porque no llegó o estaban en mala condición». CLASE R (`business-rules.ts`).
+enum ShippedRefundReason {
+  not_arrived
+  arrived_damaged
+}
+
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.2 + delta §19.19.14) — Skydropx fase D. Cuatro enums, CLASE E.
+// Quién emitió la guía. `manual` = capturada a mano (T.10); `skydropx` = comprada por §19.7. Sin backfill: una fila con
+// `trackingNumber` y `labelSource` nulo se LEE como `manual` (`labelSourceOf`, §19.2) — ⛔ ningún UPDATE lo afirma.
+enum ShipmentLabelSource {
+  manual
+  skydropx
+}
+
+// Estado CRUDO que reporta Skydropx (levantamiento R7). El mapeo a nuestra máquina vive en UN cuerpo
+// (`applyCarrierStatus`, §19.3). ⛔ Ningún valor nuevo en `ShipmentStatus`. Espeja `CARRIER_STATUSES` del puerto.
+enum CarrierStatus {
+  created
+  picked_up
+  in_transit
+  last_mile
+  delivery_attempt
+  delivered_to_branch
+  delivered
+  exception
+  in_return
+  canceled
+  destroyed
+  retained
+}
+
+// De dónde salió la línea de IVA del costo (T.7 / criterio 238).
+enum ShippingIvaSource {
+  provider
+  computed
+  manual
+}
+
+// Cargos extra de Skydropx con fecha propia (§9 D3, T.7).
+enum ShipmentCostAdjustmentKind {
+  overweight
+  extended_zone
+  return
+  other
 }
 
 // v1.20-master-set-everywhere (M-24): motivo OBLIGATORIO del ajuste de inventario por
@@ -408,7 +554,15 @@ enum AuthTokenType {
 
 model User {
   id                 String       @id @default(uuid())
-  email              String       @unique
+  // v1.80.9 (M-63, §M6-U.1): `NULL` solo en cuentas de staff SIN correo (entran con `username`). CHECK
+  // `user_login_identity_xor`: exactamente uno de `email`/`username`; `user_customer_has_email`: cliente ⇒ correo.
+  email              String?      @unique
+  // v1.80.9 (M-63): nombre de usuario del staff, guardado CANÓNICO en minúsculas (CHECK `user_username_canonical`,
+  // `^[a-z][a-z0-9._-]{2,29}$`). La unicidad sin mayúsculas la decide este índice único, no un `findFirst`.
+  username           String?      @unique
+  // v1.80.9 (M-63, §M6-U.4/5): aviso de candado pendiente en el panel desde… Solo cuentas sin correo
+  // (CHECK `user_lock_notice_no_email`). Lo escribe `notifyLock` tras ganar `claimOnce`; lo borra `dismiss`.
+  lockNoticeAt       DateTime?
   // v1.1 (M-3): nullable — null para cuentas creadas SOLO con Google (sin contraseña).
   passwordHash       String?
   role               Role         @default(customer)
@@ -432,13 +586,23 @@ model User {
   // v1.67 (M-52b): origen de `name`. Default `user` es correcto para toda fila `local`; el backfill de
   // la migración marca `derived`/`google` SOLO en `authProvider='google'` (regla determinista).
   nameSource         NameSource   @default(user)
+  // 🔒💰 v1.80.12.10 (M-68, API_CONTRACT §M4-SHIP.19.30.1, C-20): «el dueño» es una MARCA explícita (⛔ no «súper-admin con
+  // correo»). Cardinalidad ≤ 1 por el índice PARCIAL `user_single_owner` (Prisma no expresa índices parciales: vive en el
+  // SQL de M-68) y forma por el CHECK `user_owner_shape` (súper-admin, con correo, no borrado). La escriben SOLO la
+  // migración M-68 (marca inicial con exactamente un candidato) y `prisma/set-owner.ts` (censo `C-OWN-1`).
+  isOwner            Boolean      @default(false)
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.1): «dejar de recibir estos avisos» de la lista de deseos (criterio 814).
+  // `NULL` = avisos activos. Lo escriben `PUT /wishlist/alerts` y `POST /wishlist/mail-actions {action:'pause'}`.
+  wishlistAlertsPausedAt DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
   kycProfile                 KycProfile?
   billingProfile             BillingProfile?
   addresses                  Address[]
-  orders                     Order[]
+  orders                     Order[]                     @relation("OrderToUser")
+  // v1.80.8.6 (M-62, §M4-SHIP.18.12 (1)): órdenes cuyo motivo de «reembolso tras envío» registró este usuario.
+  shippedRefundReasons       Order[]                     @relation("ShippedRefundReasonBy")
   shipmentRequests           ShipmentRequest[]
   sellRequests               SellRequest[]
   disputes                   Dispute[]
@@ -450,6 +614,12 @@ model User {
   kycUploadGrants            KycUploadGrant[]
   // v1.23-sealed-sales (M-28): suscripciones restock del usuario (FK opcional; onDelete SetNull).
   sealedRestockSubscriptions SealedRestockSubscription[]
+  // v1.80.2 (M-61, §M4-SHIP.15.13): reembolsos manuales (SPEI) a este cliente.
+  manualRefunds              ManualRefund[]
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos, avisos y correos de la lista de deseos (cascada en el borrado duro).
+  wishlistItems              WishlistItem[]
+  wishlistNotices            WishlistNotice[]
+  wishlistMails              WishlistMail[]
 
   @@index([role])
   @@index([status])
@@ -502,6 +672,9 @@ model KycProfile {
   // ya limpia `rejectionReason`/`reviewedAt`/`reviewedBy`) y al pasar la decisión a `verified`/`none`.
   // ⛔ Un segundo rechazo consecutivo NO lo limpia (criterio 205(a): dos rechazos ⇒ UN correo).
   kycRejectionNoticeSentAt   DateTime?
+  // v1.80.3 (M-61, SEC-SHIP-A3, §M4-SHIP.17.3): último cambio (o primer registro) de la CLABE. Lo escribe SOLO
+  // `setClabe`. NULL para las CLABE registradas antes de M-61 («fecha de cambio desconocida»).
+  clabeUpdatedAt             DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -528,10 +701,10 @@ model KycProfile {
 // Hacen falta los dos — quien pide un presign y no sube nada tiene permiso sobre un objeto vacío.
 //
 model KycUploadGrant {
-  id String @id @default(uuid())
+  id          String   @id @default(uuid())
   // `Cascade`: si la cuenta se borra, sus permisos de subida se van con ella.
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// La key EXACTA que emitió el presign. `@unique`: una llave pertenece a UNA persona, y punto.
   objectKey   String   @unique
   contentType String
@@ -556,27 +729,45 @@ model BillingProfile {
 }
 
 model Address {
-  id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // v1.67 (M-52a, ARCHITECTURE §4.47.4): quien recibe en ESTA dirección (dato de etiqueta). Nullable
   // SOLO por las filas anteriores a M-52: sin backfill (no hay de dónde sacarlo sin inventar) y
   // ⛔ sin fallback a `User.name` en el servidor. Obligatorio al crear (contrato §1 Direcciones);
   // un retiro con `NULL` responde 422 RECIPIENT_NAME_REQUIRED y el front pide el dato.
   recipientName String?
-  line1        String
-  line2        String?
-  neighborhood String?
-  city         String
-  state        String
-  postalCode   String
-  country      String   @default("MX")
-  phone        String
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  line1         String
+  line2         String?
+  neighborhood  String?
+  city          String
+  state         String
+  postalCode    String
+  country       String   @default("MX")
+  phone         String
+  // ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5): «referencias» para el repartidor, ≤ 70, opcional.
+  // Viaja a la guía como `further_information`. Sin backfill.
+  references    String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
+}
+
+// ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5) — catálogo LOCAL de códigos postales (SEPOMEX): una fila por
+// (CP, colonia). Lo carga devops (`scripts/geo/import-sepomex.ts`), ⛔ no la migración: es dato, no esquema.
+// Lector único: `resolvePostalCode` (`shipping-provider/geo/`), que sirve `GET /geo/postal-codes/:cp` Y valida en
+// el servidor (`C-SDX-3`: un cuerpo, pantalla y servidor no divergen).
+model PostalCode {
+  id           String @id @default(uuid())
+  postalCode   String // ^\d{5}$ (CHECK)
+  state        String
+  municipality String // en CDMX, la alcaldía
+  neighborhood String // tal cual la fuente (el canónico que se guarda)
+
+  @@unique([postalCode, neighborhood])
+  @@index([postalCode])
 }
 
 // ============================= CATALOG =============================
@@ -670,6 +861,10 @@ model SealedProduct {
   marketUsdCents     Int?
   marketUpdatedAt    DateTime?
   active             Boolean         @default(true)
+  // v1.83.1 (§M11-SP.12.1, M-71): `P` del dueño — lo que paga el cliente por pieza, IVA DENTRO, exactamente lo
+  // tecleado (sin redondeo). `null` = el dueño no lo ha fijado ⇒ manda el automático. CHECK 1…100_000_000 en BD.
+  // Lo escribe SOLO `SealedPriceService.setSalePrice` (SP-13); se lee por `manualSaleOf`/`saleDisplayCentsOf`.
+  ownerDisplayPriceCents Int?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
@@ -739,6 +934,14 @@ model Card {
   // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
   numberSort             Int      @default(1000000)
   numberPrefix           String   @default("")
+  // DECKS-META §2 (Fase 0, ARCHITECTURE §12.1) — CRUDO del proveedor, PROCEDENCIA. Se conserva como
+  // hecho crudo del proveedor por si se usa a futuro; Meta Battle Decks YA NO lo usa para GATEAR
+  // legalidad (confía-en-la-fuente, SUP-LEG, ver ARCHITECTURE §12.1). Nullable: promos/sets viejos sin
+  // marca, o carta aún no re-sincronizada. La escribe SOLO `catalog-sync.upsertCards` con NO-DEGRADACIÓN
+  // (ausente ⇒ la clave no viaja ⇒ columna intacta), igual que `imageLargeUrl`/`logoUrl`. Ya NO se
+  // deriva «legal en Standard hoy» de una ventana de marcas (`common/standard-legality.ts` eliminado).
+  regulationMark         String? // pokemontcg.io RemoteCard.regulationMark ("F","G","H","I"…). scrydex: equivalente (NO MEDIDO).
+  legalStandardRaw       String? // pokemontcg.io RemoteCard.legalities.standard ("Legal"|"Banned"); ausente ⇒ null. Banda para bans explícitos.
   createdAt              DateTime @default(now())
 
   inventoryItems             InventoryItem[]
@@ -751,12 +954,23 @@ model Card {
   variantPriceOverrides      VariantPriceOverride[]
   // v1.29 (M-31, §4.27b): productos TCGplayer bajo esta carta (uno por productId). Navegación Prisma.
   cardProducts               CardProduct[]
+  // DECKS-META §3.1 (Fase 1) — relación inversa de `MetaDeckCard.matchedCard`. ADITIVA: una carta que
+  // sale del catálogo NO borra la línea del deck (la línea guarda el crudo set+número, procedencia).
+  // Es LECTURA; el matcher escribe `matchedCardId` sólo al emparejar por `ptcgoCode`+`number`.
+  metaDeckCards              MetaDeckCard[]
+  // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
+  // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
+  metaDeckListCovers         MetaDeckList[]              @relation("MetaDeckListCover")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos de esta carta (cualquier acabado).
+  wishlistItems              WishlistItem[]
 
   @@index([setId])
   @@index([name])
   @@index([rarity])
   // M-26: sirve el ORDER BY del binder y de `GET /buylist/cards` con `setId` (§4.22b).
   @@index([setId, numberPrefix, numberSort])
+  // DECKS-META §2 (Fase 0): sirve la sustitución legal y la evaluación de legalidad por lote (§2.1).
+  @@index([regulationMark])
 }
 
 // v1.29 (M-31, ARCHITECTURE §4.27b) — UN producto TCGplayer (== un `productId`) bajo una carta de
@@ -796,7 +1010,9 @@ model VaultLocation {
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
 
-  items InventoryItem[]
+  items      InventoryItem[]
+  // v1.79 (M-59, §M4-VAULT.2): colocaciones confirmadas en este cajón (relación inversa).
+  placements VaultPlacement[]
 
   @@unique([zone, box, row, slot])
 }
@@ -889,12 +1105,19 @@ model InventoryItem {
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
-  movements     InventoryMovement[]
-  orderItems    OrderItem[]
-  shipmentItems ShipmentItem[]
-  disputes      Dispute[]
+  movements           InventoryMovement[]
+  orderItems          OrderItem[]
+  shipmentItems       ShipmentItem[]
+  disputes            Dispute[]
   // v1.20 (M-24): ajustes por levantamiento físico registrados sobre esta pieza.
-  adjustments   InventoryAdjustment[]
+  adjustments         InventoryAdjustment[]
+  // v1.79.1 (M-59, §M4-VAULT.2): filas de preparación de bóveda que apuntan a esta pieza.
+  vaultPlacementItems VaultPlacementItem[]
+  // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» donde esta pieza es la original / la repuesta.
+  caseAsOriginal      ReplacementCase[]     @relation("CaseOriginal")
+  caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): «esta cuenta ya supo de esta pieza» (una vez por pieza y cuenta).
+  wishlistNotices     WishlistNotice[]
 
   @@index([cardId])
   @@index([status])
@@ -917,6 +1140,19 @@ model InventoryItem {
   // por orden); el segundo, el barrido `order-reservation-sweep` (`status='reserved' ∧ reservedUntil < now()`).
   @@index([reservedByOrderId])
   @@index([status, reservedUntil])
+  // PERF-CATALOG (perf, aditivo, money-safe): sirve la lectura COMPARTIDA de "Compra" —
+  // `GET /catalog/cards` (todos los `sort`) y `GET /catalog/facets` la ejecutan vía
+  // `CatalogService.fetchSellable` con `WHERE ownerType='platform' AND status='listed'
+  // [AND productType<>'sealed'] ORDER BY createdAt DESC`. Sin este índice el plan es
+  // Seq Scan + Sort sobre TODA la tabla (que crece sin cota: withdrawn/shipped/sold se
+  // acumulan mientras el catálogo vivo es una fracción pequeña). Con él, Index Scan de
+  // solo las filas publicadas y en el orden ya pedido (Sort eliminado). Medido sobre un
+  // modelo a escala (120k filas, 880 publicadas, tablas scratch, fixture intacto):
+  // 12.95 ms → 0.29 ms en esa lectura (Seq Scan 2104 buffers → Index Scan 48 buffers).
+  // El `createdAt DESC` sirve el ORDER BY del listado; el prefijo `(ownerType,status)`
+  // sirve también a `facets` (sin el filtro de productType). NO cambia datos ni resultados
+  // (un índice jamás altera la salida, solo el plan). ⚠️ Zona compartida (schema): a gates.
+  @@index([ownerType, status, createdAt(sort: Desc)])
 }
 
 model InventoryMovement {
@@ -985,22 +1221,26 @@ model InventoryBatch {
 // (upsert; sin serie temporal — la auditoría del cambio va por AuditLog). La clave única espeja la
 // de PriceReference menos `capturedDate`. `sealed` NO usa esta tabla (§4.26g: su cadena H-1 sigue).
 model VariantPriceOverride {
-  id                String      @id @default(uuid())
-  cardId            String
-  card              Card        @relation(fields: [cardId], references: [id])
-  productType       ProductType @default(raw) // raw | graded (P-20). sealed NO usa esta tabla (§4.26g).
-  gradeKey          String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
-  finish            Finish      @default(normal) // graded → normal (el acabado no aplica; paridad PriceReference)
-  sellOverrideCents Int? // precio de VENTA manual → PISA el storefront (§4.26b). null = sin override
-  buyOverrideCents  Int? // precio de COMPRA manual → PISA el cotizador público (§4.26b). null = sin override
-  bountyEnabled     Boolean     @default(false) // P-22
-  bountyPriceCents  Int? // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
-  bountyTargetQty   Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
-  bountyAcquiredQty Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
-  bountyCompletedAt DateTime?
-  updatedBy         String? // actorUserId (patrón AuditLog, sin FK dura)
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  id                  String      @id @default(uuid())
+  cardId              String
+  card                Card        @relation(fields: [cardId], references: [id])
+  productType         ProductType @default(raw) // raw | graded (P-20). sealed NO usa esta tabla (§4.26g).
+  gradeKey            String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
+  finish              Finish      @default(normal) // graded → normal (el acabado no aplica; paridad PriceReference)
+  sellOverrideCents   Int? // precio de VENTA manual → PISA el storefront (§4.26b). null = sin override
+  buyOverrideCents    Int? // precio de COMPRA manual → PISA el cotizador público (§4.26b). null = sin override
+  bountyEnabled       Boolean     @default(false) // P-22
+  bountyPriceCents    Int? // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
+  bountyTargetQty     Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
+  bountyAcquiredQty   Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
+  bountyCompletedAt   DateTime?
+  // v2.2 (Q2, M-58 · §M2-B.9): sello de DESPUBLICACIÓN. Espejo de `bountyCompletedAt`. Distingue el
+  // estado derivado `despublicada` (eliminado CON historia) de `apagada` (hold reversible). Aditiva,
+  // nullable, sin backfill: null = «nunca despublicada». `BountyState` NO es enum de Prisma (clase L).
+  bountyUnpublishedAt DateTime?
+  updatedBy           String? // actorUserId (patrón AuditLog, sin FK dura)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   @@unique([cardId, productType, gradeKey, finish])
   @@index([bountyEnabled])
@@ -1125,7 +1365,7 @@ model FxRate {
 // ============================= ORDERS =============================
 
 model Order {
-  id                      String          @id @default(uuid())
+  id                          String               @id @default(uuid())
   // v1.21-guest-checkout (M-25): NULLABLE para alojar el pedido de INVITADO (sin cuenta).
   // NO relaja ninguna autorización: la puerta sigue siendo `order.userId !== :sessionUser`
   // y `null` nunca iguala a un uuid de sesión. Invariante: userId != null OR guestEmail != null.
@@ -1133,62 +1373,86 @@ model Order {
   // opcional): borrar un usuario NO debe huerfanar sus pedidos. Además, con `SetNull` un borrado
   // duro rompería el CHECK `claimedAt IS NOT NULL => userId IS NOT NULL`. Se conserva así el
   // comportamiento previo a M-25 (los usuarios se SOFT-borran, M-15).
-  userId                  String?
-  user                    User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId                      String?
+  // v1.80.8.6 (M-62): nombre EXPLÍCITO = el implícito de Prisma ("OrderToUser"), porque `Order` gana una segunda
+  // relación con `User` (`shippedRefundReasonBy`). ⛔ Sin DDL: el FK `Order_userId_fkey` no cambia.
+  user                        User?                @relation("OrderToUser", fields: [userId], references: [id], onDelete: Restrict)
   // v1.21 (M-25): correo del invitado, normalizado (trim + lowercase) por la aplicación.
   // `guestEmail != null` <=> el pedido NACIÓ como pedido de invitado (inmutable; sobrevive al reclamo).
-  guestEmail              String?
+  guestEmail                  String?
   // v1.21 (M-25): número legible `TCG-000123` (secuencia `order_number_seq`). Nullable SOLO por el
   // backfill de la migración; la aplicación lo escribe SIEMPRE en pedidos nuevos.
-  orderNumber             String?         @unique
+  orderNumber                 String?              @unique
   // v1.21 (M-25): destino del pedido. Default `vault` = comportamiento previo bit a bit.
-  fulfillmentMode         FulfillmentMode @default(vault)
+  fulfillmentMode             FulfillmentMode      @default(vault)
   // v1.21 (M-25): dirección capturada en línea (el invitado no tiene `Address`). Mismo criterio de
   // snapshot que ShipmentRequest.addressSnapshot. Obligatoria (app) cuando fulfillmentMode=direct_ship.
-  shippingAddressSnapshot Json?
+  shippingAddressSnapshot     Json?
   // v1.21 (M-25): envío cobrado DENTRO de esta orden (mismo PaymentIntent). 0 en pedidos a bóveda
   // => el P&L histórico no cambia. Única fuente del ingreso de envío de un pedido de invitado.
-  shippingFeeCents        Int             @default(0)
+  shippingFeeCents            Int                  @default(0)
   // v1.21 (M-25): momento del reclamo (conversión a cuenta). claimedAt != null => userId != null.
-  claimedAt               DateTime?
+  claimedAt                   DateTime?
   // v1.21 (M-25): idioma del correo del invitado (no hay User). order.locale ?? user.locale ?? 'es'.
-  locale                  Locale?
+  locale                      Locale?
   // v1.21 (M-25): marca + 4 últimos de la tarjeta, capturados del charge al liquidar. Dato permitido
   // por PCI-DSS; JAMÁS PAN, BIN ni titular. Alimentan GuestTrackingPaymentDTO (§4-G.3).
-  paymentMethodBrand      String?
-  paymentMethodLast4      String?
-  status                  OrderStatus     @default(pending)
-  subtotalCents           Int
-  processingFeeCents      Int
-  ivaCents                Int
-  totalCents              Int
-  ivaRatePct              Int             @default(16)
+  paymentMethodBrand          String?
+  paymentMethodLast4          String?
+  status                      OrderStatus          @default(pending)
+  subtotalCents               Int
+  processingFeeCents          Int
+  ivaCents                    Int
+  totalCents                  Int
+  ivaRatePct                  Int                  @default(16)
   // v1.64-iva-inclusive (M-50, §4.44.e) — ⛔ NOT NULL y ⛔ SIN @default, Y EL «SIN DEFAULT» ES LA
   // DECISIÓN, no el NOT NULL. Con un `@default(IVA_EXCLUSIVE)`, un camino de escritura que olvide
   // el campo cobraría bajo una convención y archivaría bajo la otra, en silencio y para siempre.
   // Sin default, ese camino REVIENTA con violación de NOT NULL la primera vez que corre. Un fallo
   // ruidoso en una columna de dinero es estrictamente mejor que una fila que se contradice a sí
   // misma. Candado `IVA-3(c)`/`IVA-3(e)` (`API_CONTRACT §M10-IVA.5`).
-  priceConvention         PriceConvention
+  priceConvention             PriceConvention
   // v1.64 (M-50) — NULLABLE y `NULL` en TODA fila anterior al deploy 2. ⛔ NO se backfillea a 100:
   // esas órdenes se cobraron cuando el dial no existía y marcarlas `t=100` sería inventar un hecho
   // (misma doctrina del hueco honesto de §5.2). Es INFORMATIVO/AUDITOR: el dinero se reproduce
   // desde subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention, jamás desde aquí.
-  ivaTransferPct          Int?
-  stripePaymentIntentId   String?         @unique
-  stripeChargeId          String?
-  billingSnapshot         Json?
-  cfdiStatus              CfdiStatus      @default(no_aplica)
-  invoiceRequested        Boolean         @default(false)
+  ivaTransferPct              Int?
+  stripePaymentIntentId       String?              @unique
+  stripeChargeId              String?
+  billingSnapshot             Json?
+  cfdiStatus                  CfdiStatus           @default(no_aplica)
+  invoiceRequested            Boolean              @default(false)
   // Fix 4: contracargo con carta ya ENVIADA/ENTREGADA (no se pudo revertir al inventario);
   // requiere gestión manual (pelear el contracargo con la guía de entrega).
-  chargebackNeedsManual   Boolean         @default(false)
+  chargebackNeedsManual       Boolean              @default(false)
   // Fix 5: resultado del cierre de la disputa (charge.dispute.closed / funds_reinstated):
   // "won" | "lost". Informativo/auditoría (OrderStatus no cambia: won→settled, lost→chargeback).
-  disputeOutcome          String?
-  createdAt               DateTime        @default(now())
-  settledAt               DateTime?
-  refundedAt              DateTime?
+  disputeOutcome              String?
+  createdAt                   DateTime             @default(now())
+  settledAt                   DateTime?
+  refundedAt                  DateTime?
+  // v1.80.4 (M-61, §M4-SHIP.18.2): sello de `onFullRefund` — se escribe UNA vez, bajo el candado de la fila.
+  fullRefundClosedAt          DateTime?
+  // 💰 v1.80.8.6 (M-62, API_CONTRACT §M4-SHIP.18.12 (1)/(2)): «¿el reembolso TOTAL llegó con el envío propio ya
+  // `enviado|entregado`?» — leído BAJO el candado de los envíos y congelado UNA vez, con el sello
+  // (`fullRefundClosedAt`), en la primera pasada de `onFullRefund`. ⛔ Sin backfill: `false` es la verdad en toda
+  // fila anterior (el corte no se registraba). CHECK `order_after_shipment_sealed`: `true` ⇒ sellada.
+  fullRefundAfterShipment     Boolean              @default(false)
+  // El motivo CERRADO de ese reembolso (PROJECT §S.11.4) + nota, quién y cuándo. Los cuatro van juntos (CHECK
+  // `order_shipped_refund_reason_shape`) y solo con `fullRefundAfterShipment`. «Reembolso por revisar» =
+  // `fullRefundAfterShipment ∧ shippedRefundReason IS NULL` (predicado DERIVADO, `refund-review.ts`).
+  shippedRefundReason         ShippedRefundReason?
+  shippedRefundNote           String?
+  shippedRefundReasonAt       DateTime?
+  shippedRefundReasonByUserId String?
+  shippedRefundReasonBy       User?                @relation("ShippedRefundReasonBy", fields: [shippedRefundReasonByUserId], references: [id], onDelete: Restrict)
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.7): la caja elegida, CONGELADA en la sesión:
+  // `{ code, label, lengthCm, widthCm, heightCm, customerFeeCents, baseFeeCents, contentWeightG }`.
+  // `null` ⇔ tarifa fija de hoy (sin accesorios con medidas o sin cajas con tarifa). ⛔ Sin relleno: ningún pedido
+  // histórico eligió caja.
+  shippingBoxSnapshot         Json?
+  // «Revisar caja»: no cupo en ninguna. CHECK `order_shipping_box_review`: `true ⇒ shippingBoxSnapshot NOT NULL`.
+  shippingBoxReview           Boolean              @default(false)
 
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
@@ -1197,6 +1461,14 @@ model Order {
   accessTokens     OrderAccessToken[]
   // v1.21 (M-25): envíos que fulfillan esta orden (envío directo). Vacío en pedidos a bóveda.
   shipmentRequests ShipmentRequest[]
+  // v1.79 (M-59, §M4-VAULT.2): la colocación en bóveda de esta orden (solo `vault` liquidada).
+  vaultPlacement   VaultPlacement?
+  // v1.80 (M-61, §M4-SHIP.2): el libro de reembolsos de esta orden; v1.80.2: sus filas SPEI.
+  refunds          PaymentRefund[]
+  manualRefunds    ManualRefund[]
+  // 💰 v1.86⟨accesorios⟩ (M-73, API_CONTRACT §AC.1): renglones de accesorio y paquete de energías. ⛔ Solo `direct_ship`
+  // (I-AC-4: CONSTRAINT TRIGGER `order_accessory_line_direct_ship` en la migración).
+  accessoryLines   OrderAccessoryLine[]
 
   @@index([userId])
   @@index([status])
@@ -1225,31 +1497,97 @@ model OrderItem {
   marketBracket   MarketBracket?
   finish          Finish?
 
+  // v1.79.1 (M-59, §M4-VAULT.2): su fila de preparación de bóveda (solo órdenes `vault` liquidadas).
+  vaultPlacementItem VaultPlacementItem?
+  // v1.80 (M-61): una carta se reembolsa UNA vez en su vida (`item_missing` o `case_refund`), venga por donde venga.
+  refund             PaymentRefund?
+  // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» cuyo dinero vino de esta línea (`resolveOrigin`).
+  replacementCases   ReplacementCase[]
+
   @@index([orderId])
+}
+
+// ============================= VAULT PLACEMENT (M-59) =============================
+//
+// v1.79 / v1.79.1 (API_CONTRACT §M4-VAULT.2, ARCHITECTURE §4.21q). Una fila por orden `vault`
+// liquidada: el gemelo del `ShipmentRequest` que `settleDirectShipOrder` crea para `direct_ship`.
+// ⛔ NO se reutiliza `ShipmentRequest` (sus lectores la leen como «sale por la puerta»/dinero).
+// Único creador: la rama `vault` de `PaymentsService.onPaymentSucceeded`, en la MISMA transacción
+// que liquida la orden (`createMany … skipDuplicates` ⇒ `ON CONFLICT DO NOTHING` sobre `orderId`).
+// Los sellos coherentes con el estado son CHECKs en la BD (migración M-59), no solo código.
+model VaultPlacement {
+  id                String                      @id @default(uuid())
+  orderId           String                      @unique
+  order             Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  status            VaultPlacementStatus        @default(pending)
+  // = el `now` de la liquidación (MISMO valor que `Order.settledAt`, escrito explícitamente).
+  createdAt         DateTime
+  // --- sello de preparación (v1.79.1) — independiente de `status` ---
+  preparedAt        DateTime?
+  preparedByUserId  String? // de la SESIÓN, ⛔ nunca del body. Sin FK dura (patrón AuditLog)
+  // --- sello de colocación (status='placed') ---
+  placedAt          DateTime?
+  placedByUserId    String? // de la SESIÓN, ⛔ nunca del body. Sin FK dura
+  locationId        String?
+  location          VaultLocation?              @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  // --- sello de cancelación (status='cancelled') ---
+  cancelledAt       DateTime?
+  cancelledByUserId String? // null ⇔ la canceló el sistema (webhook de contracargo)
+  cancelReason      VaultPlacementCancelReason?
+
+  items VaultPlacementItem[]
+
+  @@index([status, createdAt])
+}
+
+// v1.79.1 — una fila por CARTA del pedido de bóveda: el nodo que se palomea. Nace con su colocación.
+model VaultPlacementItem {
+  id                 String                @id @default(uuid())
+  placementId        String
+  placement          VaultPlacement        @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  orderItemId        String                @unique // una carta de la orden ⇒ a lo más UNA fila
+  orderItem          OrderItem             @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  // Copia de `OrderItem.inventoryItemId` (inmutable). Existe para el índice por pieza.
+  inventoryItemId    String
+  inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  prepStatus         PreparationItemStatus @default(pending)
+  prepMarkedAt       DateTime?
+  prepMarkedByUserId String? // de la SESIÓN. Sin FK dura
+  // v1.80.1 (M-61, §M4-SHIP.15.2): ⇔ prepStatus='missing' (CHECK). El MISMO enum que ShipmentItem.
+  missingReason      MissingReason?
+  replacementCase    ReplacementCase?
+
+  @@index([placementId])
+  @@index([inventoryItemId])
 }
 
 // ============================= SHIPMENTS =============================
 
 model ShipmentRequest {
-  id                    String         @id @default(uuid())
+  id                       String                    @id @default(uuid())
+  // 🔒💰 v1.80.12.8 (M-67 = `M-SDX-E`, API_CONTRACT §M4-SHIP.19.28.1 + §19.29.1.1): NUESTRO folio del envío, `ENV-` + ≥ 6
+  // dígitos. Lo pone el DEFAULT de BD (`shipment_folio_next()`: `shipment_folio_seq` sin truncar) ⇒ ⛔ cero escritores en
+  // la aplicación; inmutable. Viaja en la compra como `address_to.reference = "Pedido <folio>-<NN>"` y con él se adopta la
+  // guía en vuelo (§19.28.4). ⛔ Nunca llave de búsqueda en superficies de cliente (SDX-I-6). CHECK `shipment_folio_format`.
+  folio                    String                    @unique @default(dbgenerated("shipment_folio_next()"))
   // v1.21-guest-checkout (M-25): NULLABLE. `null` SOLO en el envío directo de un pedido de
   // invitado (creado por el servidor al liquidar). GET /shipments[...] debe filtrar por
   // `userId = :sessionUser` de forma POSITIVA para que un envío `userId=null` no aparezca nunca.
   // `onDelete: Restrict` explícito (ver la misma nota en `Order.userId`).
-  userId                String?
-  user                  User?          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId                   String?
+  user                     User?                     @relation(fields: [userId], references: [id], onDelete: Restrict)
   // v1.21 (M-25): DISCRIMINADOR. `null` = retiro de bóveda (todo lo existente); poblado = envío
   // directo que fulfilla ese pedido. NO @unique: deja abierta la re-expedición sin migrar.
   // Invariante de aplicación: a lo más UN envío activo por orden.
-  orderId               String?
-  order                 Order?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  addressSnapshot       Json
-  status                ShipmentStatus @default(solicitado)
-  shippingFeeCents      Int
+  orderId                  String?
+  order                    Order?                    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  addressSnapshot          Json
+  status                   ShipmentStatus            @default(solicitado)
+  shippingFeeCents         Int
   // v1.64(4) (§4.44.f-ter, D55(c), decisión del dueño 2026-09-10): `shippingCostCents` es **BRUTO**
   // — el importe TOTAL de la factura de la paquetería, IVA INCLUIDO. Hasta v1.64(3) su semántica no
   // estaba declarada en ninguna parte (`§9 · D-IVA-9`) y se podía capturar de las dos formas.
-  shippingCostCents     Int            @default(0)
+  shippingCostCents        Int                       @default(0)
   // v1.64(4) (M-50 punto 3-bis, §4.44.f-ter): el **IVA ACREDITABLE de esa factura, CONGELADO al
   // capturar**, para que el neto sea una RESTA (`shippingCostCents − shippingCostIvaCents`).
   // ⛔ NUNCA una división por `(1+r)`: esta tabla NO tiene `ivaRatePct` (solo `Order`), así que
@@ -1264,18 +1602,18 @@ model ShipmentRequest {
   // crédito fiscal que nadie verificó.
   // ⚠️ **D-1 NO LA LEE.** La escribe la columna (default) desde el día uno y el primer lector es el
   // P&L del D-2 (`API_CONTRACT §M10-IVA.8`). Candado: `shipments.cost-iva-column-inert.spec.ts`.
-  shippingCostIvaCents  Int            @default(0)
-  ivaCents              Int            @default(0)
-  processingFeeCents    Int            @default(0)
-  totalCents            Int            @default(0)
+  shippingCostIvaCents     Int                       @default(0)
+  ivaCents                 Int                       @default(0)
+  processingFeeCents       Int                       @default(0)
+  totalCents               Int                       @default(0)
   // v1.64-iva-inclusive (M-50, §4.44.e/§4.44.f) — mismas dos columnas y MISMAS reglas que `Order`:
   // ⛔ NOT NULL y ⛔ SIN @default en `priceConvention`; `ivaTransferPct` nullable y sin backfill.
   // El envío entra en la convención porque el criterio 189 lo obliga (§4.44.f).
-  priceConvention       PriceConvention
-  ivaTransferPct        Int?
-  stripePaymentIntentId String?        @unique
-  carrier               String?
-  trackingNumber        String?
+  priceConvention          PriceConvention
+  ivaTransferPct           Int?
+  stripePaymentIntentId    String?                   @unique
+  carrier                  String?
+  trackingNumber           String?
   // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-4` (la guía al COMPRADOR). `setTracking` es el único
   // camino que garantiza que existan `carrier` Y `trackingNumber` (§R.3.a), y **no tenía ninguna
   // guarda** de repetición (`D-AV-1`) ⇒ sin sello, cada re-captura mandaría otro correo.
@@ -1285,28 +1623,549 @@ model ShipmentRequest {
   // ⛔ NULLABLE, sin default, sin backfill, sin índice y ⛔ FUERA DE TODO DTO: la lista blanca
   // `toAdminShipmentRow` ya impide que se auto-publique, y ése es justo el caso para el que se
   // escribió. Candado: `test/avisos.seals-out-of-dto.spec.ts`.
-  trackingNoticeSentAt  DateTime?
-  requestedAt           DateTime       @default(now())
-  pickingAt             DateTime?
-  shippedAt             DateTime?
-  deliveredAt           DateTime?
+  trackingNoticeSentAt     DateTime?
+  requestedAt              DateTime                  @default(now())
+  pickingAt                DateTime?
+  shippedAt                DateTime?
+  deliveredAt              DateTime?
+  // v1.80 (M-61, §M4-SHIP.2): sello de «preparado» (hito DENTRO de `picking`, ⛔ no un estado nuevo). CHECK: van juntos.
+  preparedAt               DateTime?
+  preparedByUserId         String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
+  // ⭐ v1.80.12 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.20.1) — corrección de la dirección del envío
+  // (`PUT /admin/shipments/:id/address`). `addressVersion` es el CAS: sube 1 por corrección. CHECKs: versión ≥ 0;
+  // los dos sellos van juntos; versión 0 ⇔ sin corrección. Sin backfill (filas existentes en 0).
+  addressVersion           Int                       @default(0)
+  addressCorrectedAt       DateTime?
+  addressCorrectedByUserId String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
+  // ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, SKX-SEC-1): los VALORES de cada corrección (la bitácora solo guarda claves y versión).
+  addressRevisions         ShipmentAddressRevision[]
 
-  items ShipmentItem[]
+  // ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.2 + §19.19.14 + §19.20.2). SIN BACKFILL: las filas existentes
+  // nacen con todo NULL/0. CHECKs en la migración (SQL crudo). ⛔ `labelUrl` es INTERNA: nunca viaja a un DTO.
+  labelSource               ShipmentLabelSource? // null ⇔ sin guía todavía. Lo escriben SOLO setTracking (manual) o purchaseLabel (skydropx)
+  providerShipmentId        String?              @unique // id del envío en Skydropx. null ⇔ guía manual o sin guía
+  providerQuotationId       String? // cotización de la que salió la tarifa comprada
+  providerRateId            String? // `rate_id` comprado (snapshot)
+  chosenRateJson            Json? // SNAPSHOT de la tarifa ELEGIDA tal como se mostró
+  recommendedRateJson       Json? // SNAPSHOT de la RECOMENDADA en ese momento (null ⇔ no había recomendada, §19.7 paso 7)
+  rateChosenByUserId        String? // quién eligió (sesión). Sin FK dura (patrón AuditLog)
+  rateChosenAt              DateTime?
+  labelPurchasedAt          DateTime? // Skydropx aceptó la compra (2xx)
+  labelUrl                  String? // ⛔ INTERNA (§19.8 sirve un proxy firmado)
+  trackingUrl               String? // SOLO si Skydropx la dio
+  packageCode               String? // `ShippingPackage.providerPackageType` congelado
+  packageDimsJson           Json? // { lengthCm, widthCm, heightCm, weightKg } congelados al cotizar
+  declaredValueCents        Int? // = COBERTURA del escalón (§19.19.5), congelada con el reclamo
+  insuredValueCents         Int? // ⭐ v1.80.11: el valor a asegurar (lo que va en la caja), congelado con el reclamo
+  insuranceCostCents        Int                  @default(0) // 💰 costo del seguro, BRUTO. Renglón propio
+  shippingIvaSource         ShippingIvaSource?
+  carrierStatus             CarrierStatus? // último estado CRUDO (null ⇔ manual o sin sondeo)
+  carrierStatusAt           DateTime? // instante del ÚLTIMO CAMBIO de carrierStatus
+  carrierPolledAt           DateTime? // último sondeo
+  labelProcessingSince      DateTime? // ≠ null ⇔ reclamo de compra vivo: «en vuelo» (sin providerShipmentId) o «en proceso» (con él, sin número)
+  branchNoticeSentAt        DateTime? // sello AV-18
+  deliveredNoticeSentAt     DateTime? // sello AV-17 (solo Skydropx, CHECK)
+  lastDeliveryAttemptAt     DateTime? // sello AV-19
+  providerCanceledAt        DateTime? // cancelación de la guía en Skydropx (⛔ no es `cancelado` del envío)
+  providerCancelReason      String? // 'reissue' | 'auto_close'
+  providerCancelConfirmedAt DateTime? // ⭐ v1.80.12 (§19.20.2): la escribe SOLO el `ok` de `port.cancel`
+
+  // 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1). `kind` NOT NULL con DEFAULT `outbound`: las filas existentes quedan `outbound`
+  // por el DEFAULT (sin UPDATE). `sellRequestId` SOLO en `buylist_inbound` (CHECK `shipment_kind_link`); `@unique` = a lo
+  // sumo UNA fila de entrada por solicitud (I-BSD-3; la re-emisión reutiliza la misma). CHECK `shipment_inbound_status`:
+  // una fila de entrada solo vive en `solicitado | guia | cancelado`.
+  kind          ShipmentKind @default(outbound)
+  sellRequestId String?      @unique
+  sellRequest   SellRequest? @relation(fields: [sellRequestId], references: [id], onDelete: Restrict)
+
+  costAdjustments ShipmentCostAdjustment[]
+  // 💰 v1.80.12.9 (M-68 = `M-GAS-1`, §19.29.2): el libro de intentos de compra (uno por reclamo, ⛔ sin purga).
+  labelAttempts   ShipmentLabelAttempt[]
+  quotes          ShipmentQuote[]
+  carrierEvents   ShipmentCarrierEvent[]
+
+  items            ShipmentItem[]
+  refunds          PaymentRefund[]
+  replacementCases ReplacementCase[]
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.9): los renglones de accesorio que se palomean (nacen en el settle del directo).
+  accessoryLines   ShipmentAccessoryLine[]
 
   @@index([userId])
   @@index([status])
   // v1.21 (M-25): join orden->envío de la vista pública de seguimiento.
   @@index([orderId])
+  // v1.81 (M-66, §19.2): por id del proveedor (redundante con el `@unique`, pero es la lista del contrato); el sondeo
+  // (vivos con guía Skydropx, los más viejos primero); y el de «guía en proceso».
+  @@index([providerShipmentId])
+  @@index([status, labelSource, carrierPolledAt])
+  @@index([labelProcessingSince])
+  // rev BSD-1 (M-72): los lectores `outbound_only` filtran por `kind` y casi todos por `status` (censo BSD-B23).
+  @@index([kind, status])
 }
 
-model ShipmentItem {
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, §19.2 + delta §19.19.14 + §19.20.1) — la COTIZACIÓN (efímera, 24 h). ⭐ v1.80.11:
+// `providerQuotationId` SIN `@unique` (Skydropx REUTILIZA cotizaciones entre envíos, PROD §4.1) ⇒ única por envío.
+model ShipmentQuote {
+  id                  String          @id @default(uuid())
+  shipmentRequestId   String
+  shipmentRequest     ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  providerQuotationId String
+  requestedByUserId   String
+  requestedAt         DateTime        @default(now())
+  expiresAt           DateTime // requestedAt + 24 h (R4). CHECK expiresAt > requestedAt
+  completedAt         DateTime?
+  packageCode         String
+  packageDimsJson     Json
+  declaredValueCents  Int // = cobertura del escalón. CHECK ≥ 0 y ≥ insuredValueCents
+  insuredValueCents   Int // ⭐ v1.80.11: el valor a asegurar
+  insuranceEchoOk     Boolean // ⭐ v1.80.11: Skydropx devolvió el seguro que mandamos
+  addressVersion      Int // ⭐ v1.80.12 (§19.20.1): sin default — toda cotización la escribe
+  ratesJson           Json // ShipmentRateDTO[] NORMALIZADAS. ⛔ Nunca la respuesta cruda
+  rawResponseJson     Json? // ya REDACTADA (SEC-SDX-6); ⛔ nunca a un DTO
+  recommendedRateId   String?
+
+  @@unique([shipmentRequestId, providerQuotationId])
+  @@index([providerQuotationId])
+  @@index([shipmentRequestId, requestedAt])
+}
+
+// ⭐ v1.81 (M-66) — EVENTOS del transportista (línea de tiempo; idempotencia del sondeo). 🔒 SEC-SDX-9: la llave única
+// lleva `providerShipmentId` para que una guía re-emitida no choque con la historia de la cancelada.
+model ShipmentCarrierEvent {
+  id                 String          @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  providerShipmentId String
+  status             CarrierStatus
+  occurredAt         DateTime
+  detail             String? // ⛔ nunca al cliente tal cual
+  branchName         String?
+  providerEventKey   String
+  observedAt         DateTime        @default(now())
+
+  @@unique([shipmentRequestId, providerShipmentId, providerEventKey])
+  @@index([shipmentRequestId, occurredAt])
+}
+
+// ⭐💰 v1.81 (M-66) — AJUSTES DE COSTO (cargos extra con fecha propia; §9 D3, T.7). CHECK amountCents > 0; 0 ≤ iva ≤ amount.
+model ShipmentCostAdjustment {
+  id                 String                     @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest            @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  kind               ShipmentCostAdjustmentKind
+  providerChargeId   String                     @unique
+  providerChargeType String
+  amountCents        Int // 💰 BRUTO (IVA incluido)
+  ivaCents           Int                        @default(0)
+  ivaSource          ShippingIvaSource
+  chargedAt          DateTime // FECHA PROPIA del cargo: el P&L lo suma en su mes
+  observedAt         DateTime                   @default(now())
+  note               String?
+
+  @@index([shipmentRequestId])
+  @@index([chargedAt])
+}
+
+// ⭐ v1.81 (M-66) — EMPAQUES ESTÁNDAR (T.9). ⭐ v1.80.11: `weightKg` ENTERO ≥ 1 (el panel rechaza < 1 kg y decimales).
+model ShippingPackage {
+  id                  String   @id @default(uuid())
+  code                String   @unique // 'envelope' | 'box' | …
+  label               String
+  lengthCm            Int
+  widthCm             Int
+  heightCm            Int
+  weightKg            Int
+  providerPackageType String // `package_type` de Skydropx ('5H4', '4G')
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.7): lo que paga el CLIENTE por esta caja, IVA dentro. `null` ⇒ la caja no
+  // cuenta para el cobro (las dos semillas nacen `null`: el catálogo con tarifa empieza VACÍO, F3).
+  // CHECK `shipping_package_customer_fee`: NULL OR 1..10_000_000.
+  customerFeeCents    Int?
+  active              Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los valores de cada corrección de
+// dirección del envío. PII: la BORRA la anonimización de cuenta (`deleteUser`, rama suave). ⛔ Ningún endpoint la lee.
+model ShipmentAddressRevision {
   id                String          @id @default(uuid())
   shipmentRequestId String
   shipmentRequest   ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
-  inventoryItemId   String
-  inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  fromVersion       Int // la addressVersion corregida (= expectedAddressVersion); la nueva es fromVersion + 1
+  changedKeys       String[] // ⊆ CORRECTABLE_SNAPSHOT_KEYS, en ese orden, ≥ 1 (CHECK)
+  before            Json // { <clave de changedKeys>: valor viejo | null }
+  after             Json // { <clave de changedKeys>: valor nuevo | null }
+  correctedByUserId String // sin FK dura (patrón AuditLog)
+  createdAt         DateTime        @default(now())
+
+  @@unique([shipmentRequestId, fromVersion])
+}
+
+// ============================= CONTROL DEL GASTO (M-68 = `M-GAS-1`) =============================
+// 💰 v1.80.12.9 (API_CONTRACT §M4-SHIP.19.29.2) + v1.80.12.10 (§19.30.1, .2, .6). ARCHITECTURE §4.60 (v): `ShipmentRequest`
+// guarda solo la guía VIGENTE y la bitácora es JSON sin índice ⇒ ninguna sostiene la suma bajo candado de TG-1 ni el
+// conteo de guías pagadas de TG-2. Precedente: `PaymentRefund` para el tope de reembolsos. ⛔ Ninguna de estas tablas se
+// purga. CHECKs en el SQL de la migración.
+
+// Clase E. El destino de un reclamo de compra (§19.29.4, tabla «Escrituras del libro en cada rama»).
+enum LabelAttemptOutcome {
+  pending
+  labeled
+  not_charged
+  released_unverified
+}
+
+// Clase E. De dónde salió una guía que Skydropx nos cobró.
+enum PaidLabelOrigin {
+  response
+  adopted
+  orphan
+  duplicate
+}
+
+// Clase E. Cómo se canceló una guía pagada.
+enum LabelCancelKind {
+  reissue
+  auto_close
+  orphan_auto
+  orphan_manual
+}
+
+// Clase E. Los avisos al dueño (§19.29.2; AG-21/AG-22 de v1.80.12.10). AG-14…AG-20: reservados, sin disparador en D2.
+enum SpendAlertKind {
+  label_after_address_fix // AG-1
+  label_cap_warning // AG-2
+  label_cap_blocked // AG-3
+  label_reissue_loop // AG-4
+  label_charge_drift // AG-5
+  carrier_extra_charge // AG-6
+  provider_balance_low // AG-7
+  cancel_refund_missing // AG-8
+  label_charged_unexplained // AG-9
+  label_not_shipped // AG-10
+  parcel_returned // AG-11
+  parcel_problem // AG-12
+  label_costly_choice // AG-13
+  operator_refund_cap // AG-14 — reservado
+  super_admin_money_out // AG-15 — reservado
+  shrinkage // AG-16 — reservado
+  chargeback // AG-17 — reservado
+  buylist_manual_price // AG-18 — reservado
+  psa_credits // AG-19 — reservado
+  stuck_refund // AG-20 — reservado
+  owner_account_changed // AG-21 (v1.80.12.10)
+  staff_control_by_non_owner // AG-22 (v1.80.12.10)
+  buylist_guide_due // AG-23 (rev BSD-1, M-72): «esta solicitud aceptada se cierra sola en N días si no tiene guía»
+}
+
+// Clase E. 🔴 inmediato / 🟡 resumen (Z.2).
+enum SpendAlertSeverity {
+  immediate
+  digest
+}
+
+// Clase E. El estado del correo de un aviso (outbox, §19.29.5).
+enum SpendAlertMailStatus {
+  not_applicable
+  pending
+  sending
+  sent
+  batched
+  batch_sent
+  failed
+  failed_unknown
+  no_recipient
+}
+
+// Un reclamo de compra (paso 7 de §19.7). `since` = `labelProcessingSince` del reclamo, EL MISMO valor (igualdad exacta).
+// `attemptNo`/`providerReference`/`sentAt` los escribe el 7b.2 (C-16/C-17/C-18); `sentAt` es LA prueba de I-SENT.
+model ShipmentLabelAttempt {
+  id                    String              @id @default(uuid())
+  shipmentRequestId     String
+  shipmentRequest       ShipmentRequest     @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  since                 DateTime
+  actorUserId           String // quien reclamó (sin FK dura, patrón AuditLog). ⛔ nunca un actor de sistema
+  capExempt             Boolean // isOwnerAccount(actor) leído de BD en la tx del paso 7 (§19.30.1)
+  rateId                String
+  carrierName           String
+  expectedChargeCents   Int // chosenRateJson.priceCents: lo que vio el operador, seguro incluido
+  recommendedPriceCents Int? // recommendedRateJson.priceCents; null si no había recomendada
+  marginCents           Int // rate.marginCents al reclamar
+  attemptNo             Int? // 1..99, en el 7b.2
+  providerReference     String?             @unique // 'ENV-000045-01', en el 7b.2
+  sentAt                DateTime? // commit del 7b.2 — LA prueba de I-SENT (C-16)
+  outcome               LabelAttemptOutcome @default(pending)
+  outcomeReason         String? // 'rejected' | 'balance' | 'forbidden' | 'deadline' | 'sent_write_failed' | 'not_sent' | 'auto_verified' | 'manual_verified' | 'manual'
+  outcomeAt             DateTime?
+  createdAt             DateTime            @default(now())
+  paidLabels            ShipmentPaidLabel[]
+
+  @@unique([shipmentRequestId, since])
+  @@unique([shipmentRequestId, attemptNo])
+  @@index([actorUserId, since])
+}
+
+// Una guía que Skydropx cobró por nosotros: la de la respuesta, la adoptada, una huérfana o un duplicado. Su único escritor
+// de alta es `recordPaidLabel` (I-1: misma tx que `shippingCostCents`); las cancelaciones, las ramas de §19.29.4.
+model ShipmentPaidLabel {
+  id                 String                @id @default(uuid())
+  providerShipmentId String                @unique
+  shipmentRequestId  String // sin FK dura (§19.29.2)
+  attemptId          String? // el intento al que la atribuye el folio; null ⇔ sin folio atribuible
+  attempt            ShipmentLabelAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  origin             PaidLabelOrigin
+  chargedCents       Int // response/adopted: el shippingCostCents escrito (§19.11); orphan/duplicate: expectedChargeCents del intento
+  cancelledAt        DateTime?
+  cancelKind         LabelCancelKind?
+  cancelledByUserId  String? // null ⇔ el sistema
+  unrefundedCents    Int? // shippingCostCents − refundedCents si Skydropx lo dijo; null si no lo dijo (SEC-SDX-11)
+  refundAlertedAt    DateTime? // AG-8 (b) ya evaluado
+  // 🔒 v1.80.12.10 (§19.30.6, C-19): la INTENCIÓN de cancelación automática, escrita ANTES de `cancel` (el fusible la cuenta).
+  autoCancelIntentAt DateTime?
+  createdAt          DateTime              @default(now())
 
   @@index([shipmentRequestId])
+  @@index([cancelledByUserId, cancelledAt])
+  @@index([autoCancelIntentAt])
+}
+
+// Un aviso al dueño (§19.29.5). Único escritor: `spend-alerts.service.ts` (`C-GAS-1`). ⛔ Sin verbo de borrado.
+model SpendAlert {
+  id                String               @id @default(uuid())
+  kind              SpendAlertKind
+  severity          SpendAlertSeverity
+  dedupKey          String               @unique // §19.29.6; un aviso «abierto» de AG-7 usa 'ag7:open'
+  subjectUserId     String? // persona vigilada; null ⇔ hecho del sistema o del proveedor
+  shipmentRequestId String?
+  orderId           String?
+  amountCents       Int?
+  facts             Json // LISTA BLANCA por tipo (§19.29.6). ⛔ PII del cliente
+  occurrenceCount   Int                  @default(1)
+  firstOccurredAt   DateTime             @default(now())
+  lastOccurredAt    DateTime             @default(now())
+  resolvedAt        DateTime? // AG-7 y AG-10: se resuelven solos
+  seenAt            DateTime?
+  seenByUserId      String?
+  mailStatus        SpendAlertMailStatus
+  mailedAt          DateTime?
+  mailAttempts      Int                  @default(0)
+  batchHour         DateTime? // AG con correo diferido al lote «y N más» (§19.29.7)
+  // 🔒 v1.80.12.10 (§19.30.2 (5), C-21 (e)): tipo apagado por el dial ⇒ la fila SE CREA silenciada (sin correo); fijada al crear.
+  muted             Boolean              @default(false)
+
+  @@index([firstOccurredAt])
+  @@index([severity, seenAt])
+  @@index([kind, firstOccurredAt])
+  @@index([subjectUserId, firstOccurredAt])
+  @@index([mailStatus, batchHour])
+}
+
+// El resumen diario (§19.29.7): una fila por día MX resumido (una vez por día).
+model SpendDigestRun {
+  day        DateTime  @id @db.Date // el día MX que resume (el de ayer a las 08:00)
+  status     String // 'sending' | 'sent' | 'empty' | 'failed'
+  alertCount Int
+  sentAt     DateTime?
+  attempts   Int       @default(0)
+}
+
+// 🔒 v1.80.12.10 (§19.30.1 (5), C-20 (b)): el último dueño observado por `spend-watch`. UNA fila (CHECK id = 1). ⛔ No es
+// segunda fuente del hecho (la marca vive en `User.isOwner`): es la memoria de la corrida anterior, como `SpendDigestRun`.
+model SpendOwnerWatch {
+  id          Int      @id @default(1)
+  ownerUserId String? // null ⇔ sin dueño en la última corrida
+  observedAt  DateTime
+}
+
+model ShipmentItem {
+  id                 String                @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest       @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  inventoryItemId    String
+  inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id])
+  // v1.80 (M-61, §M4-SHIP.2): la marca de preparación de UNA carta de un ENVÍO. El MISMO enum de bóveda.
+  prepStatus         PreparationItemStatus @default(pending)
+  prepMarkedAt       DateTime?
+  prepMarkedByUserId String? // de la SESIÓN. Sin FK dura
+  missingReason      MissingReason? // ⇔ prepStatus='missing' (CHECK)
+  refund             PaymentRefund?
+  // v1.80.1: el caso que abrió esta línea (solo retiros) · la línea NUEVA que una reposición metió al paquete.
+  replacementCase    ReplacementCase?      @relation("CaseOpenedByLine")
+  replacedIntoCase   ReplacementCase?      @relation("CaseReplacementLine")
+  // v1.82 (M-70, §PNL.3): las devoluciones SPEI de esta línea de un retiro ENTREGADO (una VIVA, índice parcial SQL).
+  manualRefunds      ManualRefund[]
+
+  @@index([shipmentRequestId])
+}
+
+// ============================= REEMBOLSOS (M-61, §M4-SHIP.2) =============================
+
+// v1.80 — EL LIBRO: una fila por reembolso, con su llave de idempotencia de negocio ÚNICA (a la vez la
+// Idempotency-Key de Stripe), componentes CONGELADOS y estado. ⛔ Ningún importe se re-deriva.
+model PaymentRefund {
+  id                  String              @id @default(uuid())
+  // Formas: `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>` · `order-full:<orderId>` · `case:<caseId>` · `item-delivered:<orderItemId>`
+  idempotencyKey      String              @unique
+  kind                PaymentRefundKind
+  status              PaymentRefundStatus @default(requested)
+  // EL COBRO que se reembolsa: exactamente UNO de los dos (CHECK).
+  orderId             String?
+  order               Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  shipmentRequestId   String? // solo `shipment_fee` (el cobro propio de un retiro)
+  shipmentRequest     ShipmentRequest?    @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  // La LÍNEA que lo causó (`item_missing`; `orderItemId` también en `case_refund`). Una carta se reembolsa UNA vez.
+  orderItemId         String?             @unique
+  orderItem           OrderItem?          @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  shipmentItemId      String?             @unique
+  shipmentItem        ShipmentItem?       @relation(fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  missingReason       MissingReason?
+  // v1.82 (M-70, §PNL.2): ⇔ kind = item_delivered (CHECK). Por qué se reembolsó una carta YA ENTREGADA.
+  deliveredReason     ShippedRefundReason?
+  // IMPORTE y componentes, CONGELADOS al crear la fila (§M4-SHIP.4). IVA DENTRO de mercancía y envío (IVA_INCLUSIVE).
+  amountCents         Int
+  merchandiseCents    Int
+  merchandiseIvaCents Int
+  shippingCents       Int
+  shippingIvaCents    Int
+  processingFeeCents  Int
+  // v1.80.1 — lo que un `case_refund` paga POR ENCIMA de lo cobrado por esa carta (compensación, sin IVA de venta).
+  compensationCents   Int                 @default(0)
+  // v1.80.1 — solo `case_refund`: el caso que cierra (a lo más UNA fila de Stripe por caso).
+  replacementCaseId   String?             @unique
+  replacementCase     ReplacementCase?    @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  manualRefunds       ManualRefund[] // v1.80.2/.3 — la(s) fila(s) SPEI que sustituyen a esta fila `failed` (una viva)
+  // QUIÉN: de la sesión. ⛔ Nunca del cuerpo.
+  requestedByUserId   String
+  requestedByRole     Role
+  reason              String? // texto del súper-admin en `order_full` / `case_refund`; null en los demás
+  stripeRefundId      String?             @unique
+  failureCode         String?
+  // v1.80.3 (SEC-SHIP-M2): intentos de hablar con Stripe y reclamo (lease) del intento en curso.
+  attemptCount        Int                 @default(0)
+  attemptStartedAt    DateTime?
+  createdAt           DateTime            @default(now())
+  submittedAt         DateTime?
+  succeededAt         DateTime?
+  failedAt            DateTime?
+  customerNotifiedAt  DateTime? // sello de `AV-12` (una vez por fila, §R.4.b)
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.9/§AC.10): el RENGLÓN de accesorio que causó la fila. ⛔ SIN @unique: varias
+  // filas por renglón (una por acto: «faltó 1 de 3», luego «entregado» de otra unidad…). `accessoryQty` = unidades que
+  // cubre ESTA fila. CHECKs: `payment_refund_accessory_qty_pair` (cantidad ⇔ renglón), `payment_refund_accessory_qty_min`
+  // (≥ 1), `payment_refund_card_xor_accessory` (nunca carta Y renglón), `payment_refund_accessory_shipment_line`
+  // (línea de envío ⇒ renglón). v1.86.2 (§AC.18): solo en `item_missing` (con línea de envío y motivo) o `item_delivered`
+  // (sin línea de envío, con nota) — `PaymentRefund_item_missing_chk`/`_item_delivered_shape_chk` ampliados en M-73 y
+  // `payment_refund_accessory_shape`.
+  orderAccessoryLineId    String?
+  orderAccessoryLine      OrderAccessoryLine?    @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
+  // El faltante AL PREPARAR: una fila por línea de envío (`acc-item:<shipmentAccessoryLineId>`).
+  shipmentAccessoryLineId String?                @unique
+  shipmentAccessoryLine   ShipmentAccessoryLine? @relation("AccessoryMissingRefund", fields: [shipmentAccessoryLineId], references: [id], onDelete: Restrict)
+  accessoryQty            Int?
+
+  @@index([orderId])
+  @@index([orderAccessoryLineId])
+  @@index([requestedByUserId, createdAt]) // sirve el tope de 24 h (§M4-SHIP.8)
+  @@index([status, createdAt]) // sirve «reembolsos atorados»
+}
+
+// v1.80.1 — apartado «Por reponer» (§M4-SHIP.15): una deuda con nombre por una carta de BÓVEDA que falta o llegó dañada.
+model ReplacementCase {
+  id                         String                @id @default(uuid())
+  source                     ReplacementCaseSource
+  status                     ReplacementCaseStatus @default(open)
+  // EL NODO QUE LO ABRIÓ: exactamente uno (CHECK). @unique ⇒ una línea abre a lo más UN caso.
+  shipmentItemId             String?               @unique // source=withdrawal
+  shipmentItem               ShipmentItem?         @relation("CaseOpenedByLine", fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  shipmentRequestId          String? // = ShipmentItem.shipmentRequestId (desnormalizado, inmutable)
+  shipmentRequest            ShipmentRequest?      @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  placementItemId            String?               @unique // source=vault_purchase
+  placementItem              VaultPlacementItem?   @relation(fields: [placementItemId], references: [id], onDelete: Restrict)
+  // A QUIÉN SE LE DEBE y QUÉ.
+  customerUserId             String
+  originalInventoryItemId    String // a lo más UN caso ABIERTO por pieza: índice único PARCIAL (SQL crudo)
+  originalInventoryItem      InventoryItem         @relation("CaseOriginal", fields: [originalInventoryItemId], references: [id], onDelete: Restrict)
+  missingReason              MissingReason
+  // DE DÓNDE VINO SU DINERO (resolveOrigin, §M4-SHIP.3). null ⇔ no_origin_order.
+  originOrderItemId          String?
+  originOrderItem            OrderItem?            @relation(fields: [originOrderItemId], references: [id], onDelete: Restrict)
+  // NACIMIENTO — de la sesión del acto que lo abrió.
+  openedAt                   DateTime
+  openedByUserId             String
+  customerNotifiedAt         DateTime? // sello de AV-13 (solo withdrawal)
+  // RESOLUCIÓN (todo NULL ⇔ open; CHECKs).
+  resolvedAt                 DateTime?
+  resolvedByUserId           String?
+  replacementInventoryItemId String? // replaced: la pieza que se le dio · found: = original
+  replacementInventoryItem   InventoryItem?        @relation("CaseReplacement", fields: [replacementInventoryItemId], references: [id], onDelete: Restrict)
+  replacementShipmentItemId  String?               @unique // replaced dentro del paquete: la línea nueva
+  replacementShipmentItem    ShipmentItem?         @relation("CaseReplacementLine", fields: [replacementShipmentItemId], references: [id], onDelete: Restrict)
+  refund                     PaymentRefund? // refunded: su fila `case_refund` (puede NO haberla si todo fue a SPEI)
+  voidNote                   String? // voided: texto del súper-admin
+  // v1.80.2 — REEMBOLSO CAPTURADO (todo NULL ⇔ status≠refunded; CHECK). Congelado en el acto.
+  refundAmountCents          Int?
+  refundReason               String?
+  refundPaidRefCents         Int?
+  refundMarketRefCents       Int?
+  refundMarketRefDate        DateTime?
+  refundAboveRefConfirmed    Boolean?
+  manualRefunds              ManualRefund[]
+
+  @@index([status, openedAt])
+  @@index([shipmentRequestId, status])
+  @@index([customerUserId, status])
+}
+
+// v1.80.2 — cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13). ⛔ Sin nombre, CLABE ni correo copiados.
+model ManualRefund {
+  id                  String             @id @default(uuid())
+  // `case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>` · `withdrawal-delivered:<id>`
+  idempotencyKey      String             @unique
+  source              ManualRefundSource
+  status              ManualRefundStatus @default(pending)
+  customerUserId      String
+  customer            User               @relation(fields: [customerUserId], references: [id], onDelete: Restrict)
+  // v1.82 (M-70): opcional — ⇔ source ∈ {case_excess, stripe_failed} (CHECK `ManualRefund_case_sources_chk`).
+  replacementCaseId   String?
+  replacementCase     ReplacementCase?   @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  // v1.82 (M-70, §PNL.3): solo withdrawal_delivered (CHECK): la línea del retiro ENTREGADO, el motivo y la nota.
+  shipmentItemId      String?
+  shipmentItem        ShipmentItem?      @relation(fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  deliveredReason     ShippedRefundReason?
+  deliveredNote       String?
+  paymentRefundId     String? // solo stripe_failed: la fila de Stripe que sustituye (unicidad parcial entre vivas, SQL crudo)
+  paymentRefund       PaymentRefund?     @relation(fields: [paymentRefundId], references: [id], onDelete: Restrict)
+  orderId             String?
+  order               Order?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  // IMPORTE y componentes CONGELADOS (envío siempre 0 aquí).
+  amountCents         Int
+  merchandiseCents    Int
+  merchandiseIvaCents Int
+  processingFeeCents  Int
+  compensationCents   Int
+  createdAt           DateTime           @default(now())
+  createdByUserId     String
+  // PAGO (CHECK: status='paid' ⇔ paidAt, paidByUserId NOT NULL; speiReference opcional, D-11).
+  paidAt              DateTime?
+  paidByUserId        String?
+  speiReference       String?
+  paidNote            String?
+  paidClabeHmac       String? // KycProfile.clabeHmac AL MARCAR (índice ciego; ⛔ nunca la CLABE)
+  // CANCELACIÓN (CHECK).
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  cancelNote          String?
+  // v1.80.3 (SEC-SHIP-M4): la fila CANCELADA que esta re-emite (una re-emisión por cancelada).
+  reissuedFromId      String?            @unique
+  reissuedFrom        ManualRefund?      @relation("MRReissue", fields: [reissuedFromId], references: [id], onDelete: Restrict)
+  reissuedAs          ManualRefund?      @relation("MRReissue")
+  // SELLOS de aviso (§M4-SHIP.15.7).
+  announcedNotifiedAt DateTime? // AV-14
+  paidNotifiedAt      DateTime? // AV-15
+
+  @@index([status, createdAt])
+  @@index([customerUserId])
+  @@index([orderId])
 }
 
 // ============================= BUYLIST =============================
@@ -1453,6 +2312,14 @@ model SellRequest {
   // Lo que SALIÓ por SPEI = max(0, brutoAprobado − envío), sellado en la MISMA transacción que
   // `pagada`. Es la fuente de la caja de M7, distinta del acumulado de COMPROMISO (brutos).
   payoutNetCents Int?
+
+  // --- 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1/§BSD.7, ARCHITECTURE §4.BSD (d)) — la guía de ENTRADA ---
+  // Ancla RE-ANCLABLE del cierre a N días naturales sin guía (regla 8 del barrido): `coalesce(esto, acceptedAt)`.
+  // La escriben SOLO: M-72 (las abiertas al desplegar, P-BSD-2) y la re-emisión de una guía de entrada (§BSD.4.6).
+  // ⛔ Nunca la aceptación (para eso está `acceptedAt`). Admin-only interno: ⛔ fuera de todo DTO (cliente y admin).
+  inboundGuideClockStartedAt DateTime?
+  // Back-relation de `ShipmentRequest.sellRequestId` (a lo sumo una fila `buylist_inbound`).
+  inboundShipment            ShipmentRequest?
 
   items SellRequestItem[]
 
@@ -1729,9 +2596,398 @@ model SealedRestockSubscription {
   sealedCondition    SealedCondition
   notifiedAt         DateTime?
   createdAt          DateTime        @default(now())
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.7 (c)/(d)): `armedAt` = el producto estuvo AGOTADO después de apuntarse
+  // (solo las armadas emparejan); `matchedAt` = primera vez que se vio de vuelta (ventana de agrupado). Nacen NULL (sin relleno).
+  armedAt            DateTime?
+  matchedAt          DateTime?
 
   // Empareja «producto vuelto a listed» → suscripciones pendientes (notifiedAt IS NULL) sin barrer.
   @@index([tcgplayerProductId, sealedCondition, notifiedAt])
   @@index([email])
   @@index([cardId])
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.7 (b)): tope de pendientes por correo y agrupado por correo al enviar.
+  @@index([email, notifiedAt])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// DECKS-META §3.1 (Fase 1) — DECKS META «para jugar». Diseño: docs/specs/DECKS_META_ARCH.md §3.1 /
+// docs/ARCHITECTURE.md §12.2. Contrato: docs/API_CONTRACT.md §13.
+//
+// Separación clave: DECK (arquetipo persistente, con su slug/rank/publicación) vs LISTA (inmutable,
+// con su fecha y fuente). Una rotación del meta NO edita listas viejas: crea una `MetaDeckList` nueva.
+// NO hay tabla de precios (se calcula al render reusando pricing/catalog) ni de alertas (reusa §R).
+// La legalidad NO se persiste aquí y Meta Battle Decks YA NO gatea por marca/legalidad: confía en la
+// fuente (SUP-LEG, ARCHITECTURE §12.1). `regulationMark`/`legalStandardRaw` quedan como crudo del
+// proveedor por si se usan a futuro.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+enum MetaDeckSource {
+  limitless // traído automático (Fase 2)
+  manual // curado a mano por operación (fallback, disponible desde Fase 1)
+}
+
+enum MetaCardGroup {
+  pokemon
+  trainer
+  energy
+}
+
+// Resultado del emparejado por `CardSet.ptcgoCode` + `Card.number` (NUNCA por nombre, §3.2).
+enum MetaMatchStatus {
+  matched // casó a una `Card` única
+  ambiguous // varias candidatas (colisión de ptcgoCode) ⇒ NO se auto-resuelve
+  unmatched_set // el código de set no existe en `CardSet.ptcgoCode`
+  unmatched_number // el set existe pero el número no casa
+  unmatched_basic_energy // energía básica sin set/número (siempre legal; se marca, no se inventa)
+}
+
+model MetaDeck {
+  id               String         @id @default(uuid())
+  slug             String         @unique // /decks-meta/{slug}
+  name             String
+  source           MetaDeckSource @default(manual) // manual = curado (fallback); limitless = auto (Fase 2)
+  sourceRef        String? // id/url del arquetipo en Limitless
+  rank             Int? // posición en el meta (1..10)
+  sharePct         Float? // % del meta, si la fuente lo da
+  trend            Int? // share_actual − share_anterior (▲▼=)
+  published        Boolean        @default(false)
+  pausedByOperator Boolean        @default(false) // el operador congela publicación sin borrar
+  currentListId    String?        @unique
+  currentList      MetaDeckList?  @relation("CurrentList", fields: [currentListId], references: [id])
+  imageCardId      String? // Card cuyo arte representa el deck en la teja
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  lists            MetaDeckList[] @relation("DeckLists")
+
+  @@index([published, rank])
+}
+
+// INMUTABLE: una lista concreta con su fecha y fuente. Una lista nueva NO muta la anterior.
+model MetaDeckList {
+  id                  String           @id @default(uuid())
+  deckId              String
+  deck                MetaDeck         @relation("DeckLists", fields: [deckId], references: [id])
+  formatLabel         String // "Standard 2026-27"
+  activeMarksSnapshot Json // ventana vigente al capturar (procedencia)
+  sourceUrl           String?
+  sourceTournament    String?
+  fetchedAt           DateTime         @default(now())
+  supersededById      String? // apunta a la lista que la reemplazó
+  cards               MetaDeckCard[]
+  currentOf           MetaDeck?        @relation("CurrentList")
+  // rev `decks-portada` (M-60, ARCHITECTURE §12.4.3, API_CONTRACT §13 «Portada del deck»): la PORTADA
+  // que Limitless pinta para el arquetipo en la MISMA foto de la home que produjo esta lista
+  // (`a.leader-image > img[alt="SET-NÚM"]`). Crudo + resultado del casado (mismo motor que las 60).
+  // Invariantes (único escritor: `DecksMetaRefreshService.persistDeck`): las tres primeras son todas
+  // null o todas no-null; `coverCardId ≠ null ⇒ coverMatchStatus = matched`. Curaduría manual ⇒ null.
+  // ⛔ Nunca se guarda la URL de imagen de Limitless (nunca arte externo). Sin índice: se lee lista→carta.
+  coverSetCode        String? // crudo del alt («TWM»); null ⇔ sin portada
+  coverNumber         String? // crudo («25», SIN normalizar); null ⇔ sin portada
+  coverMatchStatus    MetaMatchStatus? // null ⇔ sin portada; si no, el estado del casado
+  coverCardId         String? // solo si coverMatchStatus = matched
+  coverCard           Card?            @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
+
+  @@index([deckId, fetchedAt])
+}
+
+// Una línea de la lista. Guarda el CRUDO (set+número+cantidad); si no casa, `matchedCardId` = null
+// (NUNCA se inventa carta ni precio). Alimenta el reporte de curaduría (`@@index([matchStatus])`).
+model MetaDeckCard {
+  id            String          @id @default(uuid())
+  listId        String
+  list          MetaDeckList    @relation(fields: [listId], references: [id])
+  rawName       String
+  rawSetCode    String // "TWM"
+  rawNumber     String // "130"
+  quantity      Int
+  group         MetaCardGroup
+  matchStatus   MetaMatchStatus @default(unmatched_set)
+  matchedCardId String? // FK lógica a Card; null si no casó
+  matchedCard   Card?           @relation(fields: [matchedCardId], references: [id])
+  createdAt     DateTime        @default(now())
+
+  @@index([listId])
+  @@index([matchStatus])
+}
+
+// Provenance + canario del job semanal (Fase 2). En Fase 1 lo escribe la curaduría manual.
+model MetaFetchRun {
+  id            String         @id @default(uuid())
+  runAt         DateTime       @default(now())
+  source        MetaDeckSource
+  formatVersion String // versión FIJADA del formato Limitless (candado, Fase 2)
+  deckCount     Int
+  applied       Boolean // false = no pasó validación; se conservó lo último bueno
+  note          String?
+}
+
+// ============================= ACCESORIOS (M-73) =============================
+//
+// 💰 v1.86⟨accesorios⟩ (API_CONTRACT §AC.1, ARCHITECTURE §4.AC y §11 «v1.86⟨accesorios⟩»). Fundas, toploaders,
+// carpetas, cajas de mazo, playmats, energías y el paquete de energías del deck. Se venden SOLO en compra de invitado a
+// domicilio (I-AC-4). Los CHECKs, el índice único parcial, el CONSTRAINT TRIGGER y la semilla de las 8 energías viven en
+// el SQL de la migración (Prisma no los modela). ⛔ Ningún importe sale del cuerpo de una petición (I-AC-3).
+
+// Clase E. El ORDEN es el de la pestaña de la tienda (§AC.1): no reordenar.
+enum AccessoryCategory {
+  sleeves
+  toploaders
+  binders
+  deck_boxes
+  playmats
+  energy
+  other
+}
+
+// Clase E. Los 8 tipos de energía básica (P-EN-1, F3).
+enum EnergyType {
+  grass
+  fire
+  water
+  lightning
+  psychic
+  fighting
+  darkness
+  metal
+}
+
+// Clase E. Un renglón es un accesorio suelto o el paquete de energías del deck.
+enum AccessoryLineKind {
+  accessory
+  energy_bundle
+}
+
+// Clase E. Ciclo de un renglón: apartado ⇒ soltado | vendido ⇒ (devuelto a existencias).
+enum AccessoryLineStatus {
+  reserved
+  released
+  sold
+  restocked
+}
+
+// Clase E. Solo cambios de `stockQty` (apartar y soltar NO son existencias).
+enum AccessoryStockMovementKind {
+  initial
+  receive
+  adjust
+  sale
+  restock
+  settle_recovery
+}
+
+model Accessory {
+  id               String                       @id @default(uuid())
+  name             String // 1..120 tras trim (CHECK `accessory_name_length`)
+  description      String? // ≤ 500, texto simple (CHECK `accessory_description_length`)
+  category         AccessoryCategory
+  energyType       EnergyType? // ⇔ category = energy (CHECK `accessory_energy_type`)
+  // Medidas del artículo EMPACADO como se vende. 1..2000 mm (CHECK `accessory_dims_range`); 1..50000 g.
+  lengthMm         Int?
+  widthMm          Int?
+  heightMm         Int?
+  weightG          Int?
+  // 💰 lo que paga el cliente, IVA DENTRO, exactamente lo tecleado. 1..100_000_000. Solo super_admin.
+  priceCents       Int?
+  // 💰 costo del dueño por unidad. 0..100_000_000. Solo super_admin lo ve y lo escribe.
+  unitCostCents    Int?
+  // Existencias (bajan AL PAGARSE) y apartado vivo. CHECK `accessory_stock`: 0 ≤ reservedQty ≤ stockQty (I-AC-2).
+  stockQty         Int                          @default(0)
+  reservedQty      Int                          @default(0)
+  // CHECK `accessory_active_ready`: activo ⇒ precio + foto (+ medidas y peso salvo energía).
+  // Índice único PARCIAL `accessory_energy_type_active_key`: un solo activo por tipo de energía (criterio 732).
+  active           Boolean                      @default(false)
+  // «Sugerido» (AC.5). CHECK `accessory_energy_not_suggested`: una energía nunca es sugerida (P-EN-2, F3).
+  suggested        Boolean                      @default(false)
+  photoVersion     String? // 16 hex del sha256 de la variante `full`; null ⇔ sin foto
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  photo            AccessoryPhoto?
+  movements        AccessoryStockMovement[]
+  orderLines       OrderAccessoryLine[]
+  bundleComponents OrderEnergyBundleComponent[]
+
+  @@index([active, category])
+}
+
+// bytea en Postgres; ⛔ nunca S3 (ARCHITECTURE §4.AC (g), I-AC-6).
+model AccessoryPhoto {
+  accessoryId      String    @id
+  accessory        Accessory @relation(fields: [accessoryId], references: [id], onDelete: Cascade)
+  version          String // = Accessory.photoVersion (se escriben en la misma tx)
+  fullWebp         Bytes // 1200×1200
+  thumbWebp        Bytes // 400×400
+  sourceMime       String // image/png | image/jpeg | image/webp (detectado por firma, ⛔ nunca por extensión)
+  sourceBytes      Int
+  uploadedByUserId String // de la sesión; sin FK dura (patrón AuditLog)
+  uploadedAt       DateTime  @default(now())
+}
+
+// ⛔ Sin purga. CHECK `accessory_movement_identity`: stockAfter = stockBefore + delta ∧ stockAfter ≥ 0;
+// `accessory_movement_delta`: delta ≠ 0; `accessory_movement_adjust_reason`: `adjust` ⇒ motivo de 3..200.
+model AccessoryStockMovement {
+  id          String                     @id @default(uuid())
+  accessoryId String
+  accessory   Accessory                  @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  kind        AccessoryStockMovementKind
+  delta       Int
+  stockBefore Int
+  stockAfter  Int
+  reason      String? // OBLIGATORIO en `adjust`; opcional en `receive`
+  actorUserId String? // null ⇔ lo movió el sistema (sale/restock/settle_recovery). Sin FK dura
+  orderId     String? // en sale/restock/settle_recovery. Sin FK dura
+  createdAt   DateTime                   @default(now())
+
+  @@index([accessoryId, createdAt])
+}
+
+// 💰 Un renglón de accesorio (o el paquete de energías) de un pedido `direct_ship`. Precio y costo CONGELADOS en la sesión.
+// CHECKs (SQL de M-73): `order_accessory_line_kind_accessory` (accessoryId ⇔ accessory), `_quantity` (1..99; paquete ⇒ 1),
+// `_bundle_shape` (campos de paquete no nulos y deckOrderItemIds no vacío ⇔ energy_bundle), `_money` (precio ≥ 1, costo
+// ≥ 0, paquete sin costo propio), `_sold_at`, `_restocked_at`, `_refunded_qty` (0..quantity).
+model OrderAccessoryLine {
+  id                  String                       @id @default(uuid())
+  orderId             String
+  order               Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  kind                AccessoryLineKind
+  accessoryId         String?
+  accessory           Accessory?                   @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  quantity            Int
+  unitPriceCents      Int // 💰 CONGELADO al crear la sesión (IVA dentro)
+  unitCostCents       Int? // 💰 costo CONGELADO (accesorio); en paquete = null (el costo está en sus componentes)
+  snapshot            Json // { name, category, energyType, photoVersion } — lo que se mostró; ⛔ sin precio ni costo
+  // --- solo energy_bundle ---
+  metaDeckId          String?
+  metaDeckListId      String? // la lista FIRMADA en el pullToken (inmutable)
+  deckSlug            String?
+  deckName            String?
+  deckOrderItemIds    String[]                     @default([]) // los OrderItem del deck (P-EN-4); vacío ⇔ kind = accessory
+  // --- apartado y venta ---
+  status              AccessoryLineStatus          @default(reserved)
+  reservedUntil       DateTime // = el vencimiento de la reserva del pedido (renovación incluida)
+  soldAt              DateTime? // ⇔ status ∈ {sold, restocked}
+  settledWithoutStock Boolean                      @default(false) // liquidado tarde sin existencias (§AC.6 (4))
+  restockedAt         DateTime? // ⇔ status = restocked
+  refundedQty         Int                          @default(0)
+  createdAt           DateTime                     @default(now())
+  components          OrderEnergyBundleComponent[]
+  shipmentLine        ShipmentAccessoryLine?
+  refunds             PaymentRefund[]
+
+  @@index([orderId])
+  @@index([status, reservedUntil])
+  @@index([accessoryId])
+}
+
+// Una fila por TIPO de energía del paquete. CHECK `order_energy_bundle_component_quantity`: quantity ≥ 1, costo ≥ 0.
+model OrderEnergyBundleComponent {
+  id            String             @id @default(uuid())
+  lineId        String
+  line          OrderAccessoryLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  accessoryId   String // el producto «Energía <tipo>» activo al crear la sesión
+  accessory     Accessory          @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  energyType    EnergyType
+  quantity      Int
+  unitCostCents Int? // costo CONGELADO del producto de energía
+
+  @@unique([lineId, energyType])
+}
+
+// El nodo que se palomea; nace en el settle del directo, en su misma tx.
+// CHECKs: `shipment_accessory_line_missing` (missing ⇔ missingQty ≥ 1 ∧ motivo; missingQty ≤ quantity),
+// `shipment_accessory_line_quantity` (quantity ≥ 1).
+model ShipmentAccessoryLine {
+  id                   String                @id @default(uuid())
+  shipmentRequestId    String
+  shipmentRequest      ShipmentRequest       @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  orderAccessoryLineId String                @unique // un renglón ⇒ a lo más UNA línea de envío (⛔ re-expedición: fuera de v1)
+  orderAccessoryLine   OrderAccessoryLine    @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
+  quantity             Int // copia de OrderAccessoryLine.quantity
+  prepStatus           PreparationItemStatus @default(pending)
+  missingQty           Int                   @default(0)
+  missingReason        MissingReason?
+  prepMarkedAt         DateTime?
+  prepMarkedByUserId   String? // de la sesión; sin FK dura
+  refund               PaymentRefund?        @relation("AccessoryMissingRefund")
+
+  @@index([shipmentRequestId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// rev v1.87⟨wishlist⟩ (M-74) — LISTA DE DESEOS POR CUENTA. Norma: docs/API_CONTRACT.md §WSH.1; porqué: ARCHITECTURE §4.WSH.
+// Dueño del dato: `backend/src/modules/wishlist/`. ⛔ Ninguna de estas tablas gobierna un cobro ni aparta inventario (815).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Estado de un aviso «ya la tenemos» por (cuenta, pieza). `skipped` lleva su motivo en `skipReason` (CHECK de M-74).
+enum WishlistNoticeStatus {
+  pending
+  sent
+  suppressed
+  skipped
+}
+
+// Un deseo = (cuenta, carta, acabado). Condición: siempre Near Mint (no hay columna). `maxPct` ∈ {5,10,16} (CHECK
+// `wishlist_max_pct_allowed`, HECHOS 2026-10-06 punto 3). El máximo en pesos NO se guarda: se calcula al leer (808).
+model WishlistItem {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardId         String
+  card           Card             @relation(fields: [cardId], references: [id])
+  finish         Finish
+  maxPct         Int
+  lastNotifiedAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  notices        WishlistNotice[]
+
+  // Criterio 804: la carrera del doble alta muere aquí (P2002 ⇒ 409 WISHLIST_DUPLICATE).
+  @@unique([userId, cardId, finish])
+  // Empareja pieza → deseos y agrega la lista de compra.
+  @@index([cardId, finish])
+}
+
+// «Esta cuenta ya supo de esta pieza»: la deduplicación vive en el único `(userId, inventoryItemId)` (criterio 810).
+// La foto (`priceDisplayCents`…`fits`) es lo que dijo el correo (806/825); NULL mientras `pending`.
+model WishlistNotice {
+  id                String               @id @default(uuid())
+  wishlistItemId    String
+  wishlistItem      WishlistItem         @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  // = wishlistItem.userId (desnormalizado para el único).
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inventoryItemId   String
+  // v1.87.2: CASCADE — borrar la pieza se lleva sus avisos (API_CONTRACT §WSH.11 (5)).
+  inventoryItem     InventoryItem        @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  status            WishlistNoticeStatus @default(pending)
+  // CHECK `wishlist_notice_skip_reason`: status='skipped' ⇔ skipReason IN ('paused','unverified','inactive','unavailable').
+  skipReason        String?
+  detectedAt        DateTime             @default(now())
+  mailId            String?
+  mail              WishlistMail?        @relation(fields: [mailId], references: [id], onDelete: SetNull)
+  // Centavos MXN. P de la pieza al enviar (con IVA dentro) = `ListingDTO.displayPriceCents`.
+  priceDisplayCents Int?
+  // Mercado del acabado EL DÍA DEL ENVÍO; NULL = sin mercado.
+  marketCents       Int?
+  // Máximo del cliente ese día, con IVA dentro; NULL ⇔ marketCents NULL.
+  maxDisplayCents   Int?
+  fits              Boolean?
+  resolvedAt        DateTime?
+
+  @@unique([userId, inventoryItemId])
+  @@index([status, detectedAt])
+  @@index([inventoryItemId])
+}
+
+// Un correo enviado = un lote; el tope diario cuenta estas filas. `failedAt`: el proveedor rechazó (sin reintento).
+model WishlistMail {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale    Locale
+  itemCount Int
+  sentAt    DateTime         @default(now())
+  failedAt  DateTime?
+  notices   WishlistNotice[]
+
+  @@index([userId, sentAt])
 }

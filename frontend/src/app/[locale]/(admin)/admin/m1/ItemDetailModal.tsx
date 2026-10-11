@@ -23,11 +23,22 @@ import { ManualPriceBadge } from '@/components/domain/ManualPriceBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { asApiError } from '@/lib/api-client';
+import { useRole } from '@/lib/role';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
+import { Link } from '@/i18n/navigation';
+import { SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
 
 export interface ItemDetailModalProps {
   itemId: string | null;
   onClose: () => void;
   locations: VaultLocationDTO[];
+  /**
+   * §SU-UX.3 (b): ¿`locations` ya llegó del servidor? Solo con `true` se pinta el aviso «no hay destino»; mientras
+   * carga (o si falló) se pinta el selector de siempre — ⛔ un «no hay ubicaciones» que en realidad es «no sé».
+   * Por defecto `true` (quien no lo pasa entrega una lista ya resuelta).
+   */
+  locationsReady?: boolean;
 }
 
 /**
@@ -39,9 +50,11 @@ export interface ItemDetailModalProps {
  * Cada acción confirma con Banner, muestra el error REAL del contrato y refresca
  * ['admin-inventory'] + el detalle.
  */
-export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalProps) {
+export function ItemDetailModal({ itemId, onClose, locations, locationsReady = true }: ItemDetailModalProps) {
   const t = useTranslations('admin.m1');
+  const tsp = useTranslations('admin.sealedProductPrice');
   const tc = useTranslations('common');
+  const { role } = useRole();
   // Etiquetas de estado de inventario ya existentes (catálogo global `status.inventory`).
   const tInv = useTranslations('status.inventory');
   const locale = useLocale() as AppLocale;
@@ -61,15 +74,29 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [price, setPrice] = useState('');
   const priceCents = price.trim() === '' ? undefined : Math.round(Number(price) * 100);
   const priceInvalid = price.trim() !== '' && (!Number.isFinite(priceCents!) || priceCents! < 0);
-  // Sellado publicable exige precio manual: sin listPriceCents previo ni capturado, se bloquea.
-  const sealedNeedsPrice =
-    item?.productType === 'sealed' && priceCents == null && item.listPriceCents == null;
+  /**
+   * §M11-SP.13.5.1 — por el helper único (`sealedPieceLinkOf` / `canEditSealedPiecePrice`), que decide por
+   * `productType` PRIMERO. LIGADO ⇒ el precio es del producto (sin input, ⛔ `listPriceCents` en el PATCH, UX-SP-10).
+   * SIN producto ⇒ precio por pieza antes de IVA, solo el dueño (§M11-SP.3). Clave ausente (`'unknown'`) ⇒ sin input
+   * (falla cerrado).
+   */
+  const isSealed = item?.productType === 'sealed';
+  const sealedLink = item ? sealedPieceLinkOf(item) : 'unknown';
+  const sealedLinked = sealedLink === 'linked';
+  const sealedUnlinked = sealedLink === 'unlinked';
+  const canSetSealed = canSetSealedPrice(role);
+  const canEditSealedPiece = item ? canEditSealedPiecePrice(role, item) : false;
+  // Sin producto, el dueño escribe el precio a mano para publicar (§39); el personal no tiene campo (lo resuelve el
+  // servidor o responde `422 PRICE_PENDING`).
+  const sealedNeedsPrice = canEditSealedPiece && priceCents == null && item?.listPriceCents == null;
+  const showPriceInput = !isSealed || canEditSealedPiece;
 
   const publish = useMutation({
     mutationFn: (status: 'listed' | 'in_stock') =>
       updateInventoryItem(itemId!, {
         status,
-        ...(priceCents != null ? { listPriceCents: priceCents } : {}),
+        // ⛔ Sellado ligado: nunca `listPriceCents` (el precio es del producto, `422 SEALED_PRICE_IS_PER_PRODUCT`).
+        ...(priceCents != null && showPriceInput ? { listPriceCents: priceCents } : {}),
       }),
     onSuccess: () => {
       setPrice('');
@@ -82,12 +109,19 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [toLocationId, setToLocationId] = useState('');
   const [moveNote, setMoveNote] = useState('');
   const move = useMutation({
-    mutationFn: () => moveInventoryItem(itemId!, { toLocationId, note: moveNote || undefined }),
+    // El destino viaja como VARIABLE de la mutación: el aviso de éxito lee su etiqueta de ahí
+    // (`move.variables`), no de la respuesta. La respuesta del move trae `location` desde `6e3b1b7`
+    // (backend de esta rama, `inventory.service.ts · moveItem`); production `a2da420` aún sirve la
+    // fila de `toAdminInventoryItemRow` (solo `locationId`) y con ella pintaba «Item movido a .».
+    // Front y back se publican por separado: la etiqueta elegida vale con las dos formas.
+    mutationFn: (vars: { toLocationId: string; note?: string }) => moveInventoryItem(itemId!, vars),
     onSuccess: () => {
       setToLocationId('');
       setMoveNote('');
       void qc.invalidateQueries({ queryKey: ['admin-inventory'] });
       void qc.invalidateQueries({ queryKey: ['admin-inventory-item', itemId] });
+      // Una pieza en `picking` vive también en «Pedidos a preparar» (M4): su ubicación cambió allí.
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     },
   });
 
@@ -127,6 +161,48 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const canPublish = item?.status === 'in_stock';
   const canUnlist = item?.status === 'listed';
   const canOperate = item?.status === 'in_stock' || item?.status === 'listed';
+  /**
+   * Hueco 1 (auditoría del operador, 2026-09-29) — una carta VENDIDA en preparación (`picking`) tiene
+   * que poder ubicarse o corregirse: sin esto el operador no tenía ningún camino en la UI para decir
+   * dónde está una pieza «Sin ubicar» de un pedido cobrado
+   * (`POST /admin/inventory/items/:id/move` sobre `picking` → 200, medido por el orquestador).
+   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate`.
+   *
+   * **Destinos: solo `platform_stock` activos, para TODA pieza de plataforma** (QA IMPORTANTE sobre
+   * `4ca6c45`, 2026-09-29): hasta entonces el filtro de zona solo se aplicaba en `picking`, y en
+   * `in_stock`/`listed` el selector ofrecía cajones de «Custodia de clientes», que el backend rechaza
+   * con `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`. Una pieza de la tienda —vendida o
+   * no— vive en un estante de la tienda; los cajones de custodia son de un cliente concreto y se
+   * asignan por la colocación (§M4-VAULT), nunca desde aquí. `canMove` solo es cierto en
+   * `in_stock|listed|picking`, que son estados de pieza de PLATAFORMA; una pieza de cliente
+   * (`in_custody`) no entra en esta sección.
+   *
+   * ⚠️ **Quién restringe de verdad (C-1 del techlead, 2026-09-29).** El backend de production
+   * (`a2da420`) **NO restringe hoy** ni el estado de la pieza ni la zona del destino en `move`/`mark`:
+   * QA movió una carta de cliente al estante con 200. Las guardas llegan en esta rama
+   * (`claude/arreglos-operador`): `backend/src/modules/inventory/item-location.rules.ts` —
+   * `assertOperable` (plataforma: `move` en `in_stock|listed|reserved|picking`, `mark` solo en
+   * `in_stock|listed` ⇒ si no, `422 ITEM_NOT_ADJUSTABLE`) y `assertMoveDestination` (pieza de
+   * plataforma ⇒ solo `platform_stock` activo, si no `422 LOCATION_NOT_AVAILABLE`). Con ese backend
+   * desplegado, el backend rechaza y **este filtro es presentación**; hasta entonces es la única
+   * barrera, y por eso no se relaja.
+   */
+  const isPicking = item?.status === 'picking';
+  const canMove = canOperate || isPicking;
+  const moveTargets = locations.filter(
+    (l) => l.id !== item?.location?.id && l.zone === 'platform_stock' && l.isActive,
+  );
+  /**
+   * §SU-UX.3 (b) (Errata SU-1): sin destino, el `Select` vacío y «Mover» no sirven. Dos casos, porque `moveTargets`
+   * excluye la ubicación actual: no existe ninguna `platform_stock` activa ⇒ `noTargets`; la pieza ya está en la
+   * única ⇒ `noOtherTarget`. Solo con la lista resuelta (`locationsReady`).
+   */
+  const noTargetKind: 'noTargets' | 'noOtherTarget' | null =
+    !locationsReady || moveTargets.length > 0
+      ? null
+      : locations.some((l) => l.zone === 'platform_stock' && l.isActive)
+        ? 'noOtherTarget'
+        : 'noTargets';
 
   return (
     <>
@@ -156,7 +232,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 {item.finish && <FinishBadge finish={item.finish} productType={item.productType} />}
                 {/* INV-3: precio manual (override) — badge sobrio compartido; ignora las reglas globales.
                     `hasManualPrice` (dentro del componente) espeja el motor: sellado exige override `> 0`. */}
-                <ManualPriceBadge item={item} />
+                {/* §M11-SP.13.6: sellado ligado ⛔ sin badge (el detalle no trae `sealedPriceOrigin`). */}
+                {!sealedLinked && <ManualPriceBadge item={item} />}
               </div>
               <p className="text-sm">
                 <span lang="en" className="font-medium">{item.card.name}</span>{' '}
@@ -185,9 +262,18 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                   )}
                 </dd>
                 <dt className="text-muted">{t('listPrice')}</dt>
-                <dd className="tabular">
-                  {item.listPriceCents != null ? formatMoneyCents(item.listPriceCents, locale) : '—'}
-                </dd>
+                {sealedLinked ? (
+                  <dd className="flex flex-col" data-testid="detail-sealed-price-by-product">
+                    <span>{t('detail.sealedPriceByProduct')}</span>
+                    <Link href={SHEET_ANCHOR_HREF} className="w-fit text-xs text-text underline underline-offset-4 hover:text-accent">
+                      {t('detail.seeSheet')}
+                    </Link>
+                  </dd>
+                ) : (
+                  <dd className="tabular">
+                    {item.listPriceCents != null ? formatMoneyCents(item.listPriceCents, locale) : '—'}
+                  </dd>
+                )}
               </dl>
             </div>
 
@@ -201,7 +287,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
             )}
             {move.isSuccess && (
               <Banner variant="success" role="status">
-                {t('move.success', { label: move.data?.location?.label ?? '' })}
+                {t('move.success', { label: locationLabel(move.variables?.toLocationId) })}
               </Banner>
             )}
             {mark.isSuccess && (
@@ -216,10 +302,10 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <Megaphone size={16} aria-hidden /> {t('publish.title')}
                 </h3>
-                {canPublish && (
+                {canPublish && showPriceInput && (
                   <>
                     <Input
-                      label={t('publish.priceLabel')}
+                      label={isSealed ? t('publish.priceLabelSealed') : t('publish.priceLabel')}
                       type="text"
                       inputMode="decimal"
                       prefix="MX$"
@@ -227,18 +313,13 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                       onChange={(e) => setPrice(e.target.value)}
                       error={priceInvalid ? t('publish.priceInvalid') : undefined}
                     />
-                    <p className="text-xs text-muted">
-                      {item.productType === 'sealed'
-                        ? t('publish.priceRequiredSealed')
-                        : t('publish.priceHint')}
-                    </p>
+                    {!isSealed && <p className="text-xs text-muted">{t('publish.priceHint')}</p>}
                   </>
                 )}
-                {publish.isError && (
-                  <Banner variant="danger" role="alert" title={t('publish.error')}>
-                    {getError(publish.error)}
-                  </Banner>
+                {canPublish && sealedUnlinked && !canSetSealed && (
+                  <p className="text-xs text-muted">{t('publish.priceRequiredSealed')}</p>
                 )}
+                {publish.isError && publishError(publish.error)}
                 <div className="flex gap-2">
                   {canPublish && (
                     <Button
@@ -263,18 +344,30 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
               </section>
             )}
 
-            {/* Mover de ubicación */}
-            {canOperate && (
+            {/* Mover de ubicación (también en `picking`: hueco 1) */}
+            {canMove && (
               <section className="flex flex-col gap-3 rounded-lg border border-border p-3">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <ArrowRightLeft size={16} aria-hidden /> {t('move.title')}
                 </h3>
+                {noTargetKind ? (
+                  <div className="flex flex-col gap-1" data-testid="move-no-target">
+                    <p className="text-sm text-muted">{t(`move.${noTargetKind}`)}</p>
+                    {/* M1View lee `?locations=open` y abre «Ubicaciones» (SU-UX.3 (b)); se cierra la ficha antes. */}
+                    <Link
+                      href="/admin/m1?locations=open"
+                      onClick={onClose}
+                      className="w-fit text-xs text-text underline underline-offset-4 hover:text-accent"
+                    >
+                      {t('move.manageLocations')}
+                    </Link>
+                  </div>
+                ) : (
+                <>
                 <Select
                   label={t('move.target')}
                   placeholder={t('move.targetPlaceholder')}
-                  options={locations
-                    .filter((l) => l.id !== item.location?.id)
-                    .map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
+                  options={moveTargets.map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
                   value={toLocationId}
                   onChange={(e) => setToLocationId(e.target.value)}
                 />
@@ -291,13 +384,15 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <div>
                   <Button
                     variant="secondary"
-                    onClick={() => move.mutate()}
+                    onClick={() => move.mutate({ toLocationId, note: moveNote || undefined })}
                     disabled={!toLocationId || move.isPending}
                     loading={move.isPending}
                   >
                     {t('move.action')}
                   </Button>
                 </div>
+                </>
+                )}
               </section>
             )}
 
@@ -410,4 +505,40 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
       </Modal>
     </>
   );
+
+  /** Los errores de publicar, con los textos propios del sellado (§70.3 (c)); ⛔ solo toast: va junto al botón. */
+  function publishError(error: unknown) {
+    const sealed = isSealed;
+    const linked = sealedLinked;
+    const err = asApiError(error);
+    if (sealed && err?.status === 422 && err.code === 'SEALED_PRICE_IS_PER_PRODUCT') {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          <p>{tsp('errors.perProduct')}</p>
+          <Link href={SHEET_ANCHOR_HREF} className="text-text underline underline-offset-4 hover:text-accent">
+            {tsp('errors.perProductLink')}
+          </Link>
+        </Banner>
+      );
+    }
+    if (linked && err?.status === 422 && err.code === 'PRICE_PENDING') {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          {t('publish.sealedPricePending')}
+        </Banner>
+      );
+    }
+    if (sealed && !linked && err?.status === 403) {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          {tsp('errors.ownerOnly')}
+        </Banner>
+      );
+    }
+    return (
+      <Banner variant="danger" role="alert" title={t('publish.error')}>
+        {getError(error)}
+      </Banner>
+    );
+  }
 }

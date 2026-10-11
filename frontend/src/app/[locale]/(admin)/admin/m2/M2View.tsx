@@ -1,13 +1,13 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { useCatalogSync } from './sections/useCatalogSync';
 import { PriceIngestSection } from './sections/PriceIngestSection';
 import { PendingQueueSection } from './sections/PendingQueueSection';
 import { FxSection } from './sections/FxSection';
 import { PricingCurveSection } from './curve/PricingCurveSection';
 import { RarityHealthSection } from './sections/RarityHealthSection';
-import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
 import { GradedEstimatesSection } from './sections/GradedEstimatesSection';
 import { GradedEstimateCaptureSection } from './sections/GradedEstimateCaptureSection';
 import { GradedEstimateReviewSection } from './sections/GradedEstimateReviewSection';
@@ -24,11 +24,12 @@ import { CatalogSyncSection } from './sections/CatalogSyncSection';
  */
 export function M2View() {
   const t = useTranslations('admin.m2');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const catalog = useCatalogSync();
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m2')}</h1>
 
       {/* Sección 1 · «Actualizar precios» (PRIMARIA · G3) */}
       <PriceIngestSection catalog={catalog} />
@@ -52,8 +53,17 @@ export function M2View() {
           y hospeda «Unificar rarezas» (§19.5), que dejó de colgar de un editor de precios. */}
       <RarityHealthSection />
 
-      {/* Sección 5b · spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
-      <SealedSpreadsSection />
+      {/* §diseño §4.3 · el editor de spreads de VENTA del SELLADO se MUDÓ a M11 (superficie única de
+          edición de los diales de sellado, decisión del dueño D-2). No se deja un mando muerto: solo
+          una línea con deep-link, para que quien busque los spreads aquí sepa a dónde ir. */}
+      <p className="text-sm text-muted">
+        <Link
+          href="/admin/m11"
+          className="border-b border-accent pb-0.5 hover:border-text hover:text-text"
+        >
+          {t('sealedSpreads.movedToM11')}
+        </Link>
+      </p>
 
       {/* Sección 5c · config del «gancho de grading»: escalones de costo de gradeo + margen mínimo
           + frescura (v1.44-graded-estimate, criterio 110(e)). El interruptor maestro vive en M10. */}

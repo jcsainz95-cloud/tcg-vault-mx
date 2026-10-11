@@ -1,10 +1,17 @@
 import type { Metadata } from 'next';
-import { Archivo, JetBrains_Mono, Montserrat, Zen_Old_Mincho } from 'next/font/google';
+// §109.fonts: ANTES de `next/font/local` — los tramos no latinos y las caras «Fallback» deben
+// quedar en el CSS por delante del tramo latin (el orden de Google; ver el propio fichero).
+import '../fonts/google-subsets.css';
+import localFont from 'next/font/local';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
 import { routing, type AppLocale } from '@/i18n/routing';
 import { Providers } from '@/components/Providers';
+import { NONCE_HEADER } from '@/security/csp';
+import { PrivacyLinkProvider } from '@/components/legal/PrivacyNoticeLink';
+import { privacyLinkVisible } from './(storefront)/footer';
 import '../globals.css';
 
 /*
@@ -13,31 +20,91 @@ import '../globals.css';
  * cuando Inter se declaraba solo por nombre): sin petición a Google en runtime,
  * sin FOUT y con las variables que consume tailwind.config.ts.
  */
-const serif = Zen_Old_Mincho({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
+/*
+ * P-FONTS-CJK: Zen Old Mincho es una familia CJK y `next/font/google` IGNORA `subsets: ['latin']`
+ * en ella: Google la trocea en ~122 tramos unicode-range por peso y los glifos latinos quedan
+ * repartidos en ~22 de ellos (`$`, `N`, `=`… cada uno en un tramo distinto). Medido: 366 woff2
+ * de esta familia en `.next/static/media` y 242 precargados por este layout. El sitio no tiene
+ * ni un carácter japonés, así que se sirve la MISMA familia recortada a latín (3 ficheros de
+ * ~16 KB), generada con `frontend/scripts/subset-zen-old-mincho.sh`. Licencia OFL al lado.
+ */
+const zenOldMincho = localFont({
+  src: [
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-500.woff2', weight: '500', style: 'normal' },
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-600.woff2', weight: '600', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-serif',
+  fallback: ['Georgia', 'Times New Roman', 'serif'],
+  adjustFontFallback: 'Times New Roman',
 });
-const sans = Archivo({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+/*
+ * §109.fonts — Archivo, JetBrains Mono y Montserrat ya NO se descargan de Google en el build
+ * (`next/font/google` tumbaba `next build` de forma intermitente: FRONTEND_NOTES §109.fonts).
+ * Son los MISMOS bytes que servía Google (sha256 fijados en `layout.test.tsx`, OFL al lado) y la
+ * MISMA salida CSS: mismas familias ('Archivo', 'JetBrains Mono', 'Montserrat'), pesos, `swap`,
+ * variables y caras «Fallback». Aquí va solo el tramo `latin` (el que `subsets: ['latin']`
+ * precargaba), una cara por peso apuntando al mismo fichero variable, como hacía Google. Los
+ * tramos no latinos y las métricas de respaldo viven en `../fonts/google-subsets.css` porque
+ * `next/font/local` no admite un `unicode-range` por fichero ni fija métricas a mano.
+ * Los argumentos deben ser literales (lo exige el compilador de next/font): de ahí la repetición.
+ */
+const sans = localFont({
+  src: [
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '500', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '600', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '700', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-sans',
+  declarations: [
+    { prop: 'font-family', value: "'Archivo'" },
+    { prop: 'font-stretch', value: '100%' },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'Archivo Fallback'"],
+  adjustFontFallback: false,
 });
-const mono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const mono = localFont({
+  src: [
+    { path: '../fonts/jetbrains-mono/jetbrains-mono-latin.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/jetbrains-mono/jetbrains-mono-latin.woff2', weight: '500', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-mono',
+  declarations: [
+    { prop: 'font-family', value: "'JetBrains Mono'" },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'JetBrains Mono Fallback'"],
+  adjustFontFallback: false,
 });
 // Marca TCG HUNT (§17.1e): Montserrat 700, EXCLUSIVA del wordmark/lockup.
 // Un peso, un uso: no entra en la escala tipográfica de §3.
-const brand = Montserrat({
-  subsets: ['latin'],
-  weight: ['700'],
+const brand = localFont({
+  src: [{ path: '../fonts/montserrat/montserrat-700-latin.woff2', weight: '700', style: 'normal' }],
   display: 'swap',
   variable: '--font-brand',
+  declarations: [
+    { prop: 'font-family', value: "'Montserrat'" },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'Montserrat Fallback'"],
+  adjustFontFallback: false,
 });
 
 export function generateStaticParams() {
@@ -76,33 +143,56 @@ export default async function LocaleLayout({
 }) {
   const { locale } = await params;
   if (!routing.locales.includes(locale as AppLocale)) notFound();
+  // LIVE-3 (§14.3): leer la petición obliga a renderizar POR PETICIÓN. Sin esto las páginas salen
+  // prerenderizadas en el build (SSG por `generateStaticParams`) con `<script>` SIN nonce, y en
+  // `enforce` la CSP las bloquearía. Next pone el nonce en sus scripts solo (lo saca de la CSP de
+  // la petición que fija `middleware.ts`); aquí no hay `<script>` propio que lo necesite, pero si
+  // algún día lo hay, lleva `nonce={nonce}`. Coste medido en FRONTEND_NOTES (TTFB N=10).
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
   const messages = await getMessages();
 
   return (
     <html
       lang={locale}
-      className={`${serif.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
+      className={`${zenOldMincho.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
+      data-csp={nonce ? 'nonce' : undefined}
     >
       <head>
         {/* PERF — TODAS las imágenes de carta (catálogo, carrusel, carritos, bóveda, admin)
-            vienen de un TERCERO: images.pokemontcg.io. Sin esto, el navegador solo empieza el
-            DNS + TCP + TLS cuando descubre el primer <img> del HTML, y paga ese handshake
-            completo antes del primer byte de píxel. El `preconnect` lo adelanta al parseo del
-            <head>; el `dns-prefetch` es el respaldo para navegadores que ignoran el primero.
-            Van los DOS y en este orden — es el patrón canónico, no una redundancia.
-            Solo este dominio: `preconnect` a dominios que quizá no se usen desperdicia
-            conexiones. El CDN de sellado (tcgplayer-cdn.tcgplayer.com) NO entra: en la home
-            vive en SealedShelf, por DEBAJO del carrusel (bajo el pliegue), y ahí `lazy` +
-            conexión tardía es el comportamiento correcto.
+            vienen de un TERCERO. Sin esto, el navegador solo empieza el DNS + TCP + TLS cuando
+            descubre el primer <img> del HTML, y paga ese handshake completo antes del primer
+            byte de píxel. El `preconnect` lo adelanta al parseo del <head>; el `dns-prefetch`
+            es el respaldo para navegadores que ignoran el primero. Van los DOS por host y en
+            este orden — es el patrón canónico, no una redundancia.
+
+            SON DOS HOSTS, no uno — el mismo conjunto cerrado que gobierna `next.config.mjs`
+            (`images.remotePatterns`) y `SET_IMAGE_HOSTS` en el backend:
+              · images.pokemontcg.io — CDN histórico (arte de todos los sets hasta 2026-08).
+              · images.scrydex.com   — CDN vigente desde 2026-09; sirve el arte de los sets
+                NUEVOS (me2pt5/me3/me4/me5…), 661 cartas ya en producción. Omitirlo dejaba SIN
+                calentar la conexión justo para las cartas más recientes —las que más se ven en
+                el carrusel del home y en las primeras páginas del catálogo—, que pagaban el
+                handshake frío entero al aparecer su primer <img>. Este era el hueco medido de
+                perf de imágenes: el preconnect existía solo para el CDN viejo.
+
+            El CDN de sellado (tcgplayer-cdn.tcgplayer.com) NO entra: en la home vive en
+            SealedShelf, por DEBAJO del carrusel (bajo el pliegue), y ahí `lazy` + conexión
+            tardía es el comportamiento correcto.
             SIN `crossOrigin`: un `<img>` normal no se pide en modo CORS, y un preconnect
             `anonymous` abre una conexión de OTRA piscina que esas imágenes no reutilizarían
             (sería trabajo de más y ahorro cero). El `crossorigin` es para fuentes/fetch CORS. */}
         <link rel="preconnect" href="https://images.pokemontcg.io" />
         <link rel="dns-prefetch" href="https://images.pokemontcg.io" />
+        <link rel="preconnect" href="https://images.scrydex.com" />
+        <link rel="dns-prefetch" href="https://images.scrydex.com" />
       </head>
       <body className="min-h-dvh bg-bg font-sans text-text antialiased">
         <NextIntlClientProvider messages={messages}>
-          <Providers>{children}</Providers>
+          {/* LIVE-8 (DESIGN_SYSTEM §80.6 F-7): la decisión del pie, calculada AQUÍ en el servidor —donde
+              `VERCEL_ENV` existe— y pasada a los enlaces de cliente. Ver `PrivacyNoticeLink.tsx`. */}
+          <PrivacyLinkProvider linked={privacyLinkVisible()}>
+            <Providers>{children}</Providers>
+          </PrivacyLinkProvider>
         </NextIntlClientProvider>
       </body>
     </html>

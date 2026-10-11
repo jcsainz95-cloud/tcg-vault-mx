@@ -1,13 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
+import { parseEnumFilter } from '../../common/enum-filter';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
-import { hasManualPrice } from '../../common/money';
+import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
+import { customerDisplayName } from '../vault/customer-display-name';
+// v1.80 (P-71, §4.57.3): la ÚNICA normalización del código corto del set (vive junto a `toCardDTO`).
+import { publicPtcgoCode } from '../catalog/catalog.service';
 // v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
 // presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
 import {
@@ -49,6 +54,24 @@ export const NOT_ON_HAND: InventoryStatus[] = [
 ];
 
 /**
+ * ⭐ **`EQ-D1` lote 2 — dominio del eje `?sort=` del índice master set (CLASE ORDEN, §0-Q punto 6).**
+ *
+ * Los TRES consumidores de `index()` comparten este orden: `GET /admin/inventory/master-sets`,
+ * `GET /admin/vaults/:userId/master-sets` y `GET /vault/master-sets`. Un solo dominio, un solo
+ * validador (`sortSummaries`), así que la conducta que §0-Q punto 6 prohíbe —el **clamp silencioso**
+ * de `?sort=zzz` al default `release_desc`— se cierra en un sitio para los tres.
+ *
+ * ⛔ **La fila FORMAL de §0-Q punto 4 la escribe el ARQUITECTO** (regla 9): es un MODO de la consulta
+ * (`rg 'enum .*Sort' schema.prisma` ⇒ 0), clase L/ORDEN sin columna. Lo que se arregla aquí es la
+ * conducta (fuera de dominio ⇒ `400` con `details.{field,allowed}`), no el contrato. `C-EQ-1` importa
+ * este literal REAL (no una copia) para vigilar la paridad, y su fila va `PENDIENTE-ARQUITECTO`.
+ */
+export const MASTER_SET_SORT_VALUES = ['release_desc', 'completion_asc', 'pieces_desc'] as const;
+export type MasterSetSort = (typeof MASTER_SET_SORT_VALUES)[number];
+/** Default declarado por el índice (fila del controller: `@Query('sort') sort = 'release_desc'`). */
+const MASTER_SET_SORT_DEFAULT: MasterSetSort = 'release_desc';
+
+/**
  * v1.22 — el ORDEN CANONICO (de acabados y de numeros) vive en `common/card-order.ts`: UN solo
  * algoritmo compartido por el sync (que ESCRIBE `numberSort`/`numberPrefix`), por el `orderBy` de
  * la BD y por los seeds (ARCHITECTURE 4.22b). Se re-exporta aqui por compatibilidad de imports.
@@ -71,7 +94,8 @@ export interface MasterSetViewOptions {
 
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  /** ⭐ v1.79.3 (H-1): `null` SOLO en la vista admin (ii) con nombre fabricado del correo. */
+  name: string | null;
   email?: string;
 }
 
@@ -136,6 +160,11 @@ export interface MasterSetSummaryDTO {
   // Sale de la MISMA fila `CardSet` de la query (1) del índice ⇒ cero queries nuevas, cero N+1.
   // NO existe `symbolUrl` aquí: se persiste en `CardSet` pero NO se expone en ningún DTO (§4.39.5).
   logoUrl: string | null;
+  // v1.80 (P-71, ARCHITECTURE §4.57) — código corto IMPRESO del set («TWM») para la teja del índice.
+  // Mismas reglas que `CardDTO.setPtcgoCode` (clave SIEMPRE presente, `null` = sin código, una sola
+  // normalización `publicPtcgoCode`). Sale de la MISMA fila `CardSet` de la query (1) del índice. La
+  // fila plegada de un combinado emite el DEL PRINCIPAL (mismo patrón que `logoUrl`).
+  ptcgoCode: string | null;
 }
 
 export interface MasterSetIndexResponse {
@@ -156,6 +185,13 @@ export interface SetRefDTO {
 }
 
 /**
+ * v1.80 (P-71, ARCHITECTURE §4.57.2) — cabecera del BINDER: `SetRefDTO` + el código corto del set.
+ * Tipo con NOMBRE PROPIO a propósito: ⛔ `SetRefDTO` NO cambia (lo emiten la gráfica de valor del set y
+ * el sellado, que no pintan cartas con número). En un master combinado = el del PRINCIPAL.
+ */
+export type MasterSetRefDTO = SetRefDTO & { ptcgoCode: string | null };
+
+/**
  * v1.33 (P-27, §4.31b / §DTOs) — una parte de un master set combinado (principal o subset). El binder
  * de un master combinado trae `parts[]` (una entrada por parte importada, en orden de bloque) para que
  * el front pinte el desglose/separador. `catalogCardCount` = nº de `Card` de ESE set-id real.
@@ -169,6 +205,8 @@ export interface SetPartDTO {
   /** Orden de bloque: principal = 0; subsets por su `order` (1, 2, …). */
   order: number;
   catalogCardCount: number;
+  /** v1.80 (P-71): código corto de ESTA parte (⛔ no el del principal). Clave siempre presente; `null` = sin código. */
+  ptcgoCode: string | null;
 }
 
 export interface MasterSetCardCellDTO {
@@ -227,7 +265,8 @@ export interface CardProductDTO {
 }
 
 export interface MasterSetBinderResponse {
-  set: SetRefDTO;
+  /** v1.80 (P-71): `MasterSetRefDTO` (= `SetRefDTO` + `ptcgoCode`). */
+  set: MasterSetRefDTO;
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
@@ -269,9 +308,25 @@ export function expectedFinishes(available: Finish[] | null | undefined): Finish
  */
 interface ResolvedMasterSet {
   /** El `CardSet` PRINCIPAL (nombra al master, provee el `SetRefDTO`). */
-  primary: { id: string; name: string; series: string | null; releaseDate: string | null; printedTotal: number | null };
+  primary: {
+    id: string;
+    name: string;
+    series: string | null;
+    releaseDate: string | null;
+    printedTotal: number | null;
+    ptcgoCode: string | null;
+  };
   /** Partes importadas en orden de bloque (incluye el principal). Siempre ≥2 (si fuera 1 → null). */
-  parts: { setId: string; name: string; label: string; isPrimary: boolean; order: number; printedTotal: number | null }[];
+  parts: {
+    setId: string;
+    name: string;
+    label: string;
+    isPrimary: boolean;
+    order: number;
+    printedTotal: number | null;
+    /** v1.80 (P-71): código CRUDO de esta parte (se normaliza al emitir `SetPartDTO`). */
+    ptcgoCode: string | null;
+  }[];
   /** Set-ids locales reales de las partes, en orden de bloque. */
   partSetIds: string[];
   /** Presente SOLO si el `:setId` pedido era un SUBSET y se normalizó a su principal (el front actualiza URL). */
@@ -344,7 +399,16 @@ export class MasterSetService implements OnModuleInit {
     const partExt = partExternalIds(primaryExternalId); // [principal, ...subsets] en orden de bloque
     const cardSets = await this.prisma.cardSet.findMany({
       where: { externalId: { in: partExt } },
-      select: { id: true, externalId: true, name: true, series: true, releaseDate: true, printedTotal: true },
+      // v1.80 (P-71): `ptcgoCode` de cada parte (cero queries nuevas: misma fila).
+      select: {
+        id: true,
+        externalId: true,
+        name: true,
+        series: true,
+        releaseDate: true,
+        printedTotal: true,
+        ptcgoCode: true,
+      },
     });
     const byExternal = new Map(cardSets.map((s) => [s.externalId, s]));
 
@@ -361,6 +425,7 @@ export class MasterSetService implements OnModuleInit {
         isPrimary: true,
         order: 0,
         printedTotal: primary.printedTotal,
+        ptcgoCode: primary.ptcgoCode,
       },
     ];
     for (const ext of partExt) {
@@ -375,6 +440,7 @@ export class MasterSetService implements OnModuleInit {
         isPrimary: false,
         order: meta?.order ?? 1,
         printedTotal: cs.printedTotal,
+        ptcgoCode: cs.ptcgoCode,
       });
     }
     parts.sort((a, b) => a.order - b.order);
@@ -406,8 +472,23 @@ export class MasterSetService implements OnModuleInit {
     // 404 temprano si el userId del scope no existe (vista (ii) admin). Vista (iii): siempre yo.
     const owner = await this.resolveOwner(scope, opts);
 
+    // §0 «Filtros de lista» (API_CONTRACT: `q` = texto libre, `trim`, vacío/whitespace = ausente): el SERVIDOR
+    // recorta, no confía en que el cliente lo haga (una llamada directa con " twm" debe encontrar el set).
+    const term = q.q?.trim();
+
     const sets = await this.prisma.cardSet.findMany({
-      where: q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {},
+      // v1.80 (P-71, §4.57.4): «Buscar set» casa por NOMBRE **o** por CÓDIGO corto, ambos «contiene» sin
+      // distinguir mayúsculas. Un set con `ptcgoCode` NULL solo casa por nombre (ILIKE sobre NULL ⇒ no
+      // casa, sin error — lo mide P71-B5 contra Postgres real). ⚠️ Se filtra ANTES del plegado de
+      // combinados (conducta heredada, §4.57.4): no cambia en este pase.
+      where: term
+        ? {
+            OR: [
+              { name: { contains: term, mode: 'insensitive' } },
+              { ptcgoCode: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : {},
       // v1.33 (P-27): `externalId` para plegar subsets→principal por el mapa curado (§4.31c).
       // v1.52 (M-47, §4.39.5): `logoUrl` sale de ESTA misma fila ⇒ cero queries nuevas, cero N+1.
       select: {
@@ -418,6 +499,8 @@ export class MasterSetService implements OnModuleInit {
         releaseDate: true,
         printedTotal: true,
         logoUrl: true,
+        // v1.80 (P-71, §4.57): el código corto sale de ESTA misma fila ⇒ cero queries nuevas.
+        ptcgoCode: true,
       },
     });
     const setIds = sets.map((s) => s.id);
@@ -464,6 +547,9 @@ export class MasterSetService implements OnModuleInit {
         // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; `?? null` porque la columna es `String?` y
         // Prisma rinde `null`, pero el `??` deja explícito que jamás se omite ni se emite `""`.
         logoUrl: s.logoUrl ?? null,
+        // v1.80 (P-71): clave SIEMPRE presente; una sola normalización. El plegado NO lo toca ⇒ la fila
+        // combinada conserva el del PRINCIPAL (mismo patrón que `logoUrl`).
+        ptcgoCode: publicPtcgoCode(s.ptcgoCode),
       };
     });
 
@@ -491,8 +577,17 @@ export class MasterSetService implements OnModuleInit {
     };
   }
 
-  /** Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc). */
-  private sortSummaries(rows: MasterSetSummaryDTO[], sort: string): MasterSetSummaryDTO[] {
+  /**
+   * Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc).
+   *
+   * ⭐ `EQ-D1` lote 2 — el eje `?sort=` pasa por `parseEnumFilter` (§0-Q): ausente/vacío ⇒ el default
+   * `release_desc`; un token fuera de dominio ⇒ `400` con `details.{field,allowed}` (antes caía al
+   * `else` y devolvía `release_desc` **sin decirlo** — el clamp silencioso que §0-Q punto 6 prohíbe).
+   * Un solo validador para los TRES consumidores de `index()`. `C-EQ-1` lo vigila por HTTP.
+   */
+  private sortSummaries(rows: MasterSetSummaryDTO[], sortRaw: string): MasterSetSummaryDTO[] {
+    const sort =
+      parseEnumFilter('sort', sortRaw, MASTER_SET_SORT_VALUES) ?? MASTER_SET_SORT_DEFAULT;
     const byRelease = (a: MasterSetSummaryDTO, b: MasterSetSummaryDTO) =>
       (b.releaseDate ?? '').localeCompare(a.releaseDate ?? '');
     if (sort === 'completion_asc') {
@@ -579,13 +674,17 @@ export class MasterSetService implements OnModuleInit {
     if (scope.kind !== 'user_vault') return null;
     const user = await this.prisma.user.findUnique({
       where: { id: scope.userId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, nameSource: true, email: true },
     });
     if (!user) throw BusinessException.notFound('NOT_FOUND', 'User not found');
+    // ⭐ v1.79.3 (H-1): en la vista ADMIN (ii) —la que lleva `email`— el nombre sale por
+    // `customerDisplayName` (fabricado del correo ⇒ `null`). ⛔ La vista (iii) del propio cliente
+    // sigue con `User.name`: la frontera la decidió el contrato, no este método.
     return {
       userId: user.id,
-      name: user.name,
-      ...(opts.includeOwnerEmail ? { email: user.email } : {}),
+      name: opts.includeOwnerEmail ? customerDisplayName(user) : user.name,
+      // v1.80.9 (I-STF-1): el dueño de una bóveda es cliente ⇒ con correo; `null` ⇒ log + `""`.
+      ...(opts.includeOwnerEmail ? { email: customerEmailOrBlank(user.email, 'VaultOwnerRefDTO', user.id) } : {}),
     };
   }
 
@@ -782,6 +881,8 @@ export class MasterSetService implements OnModuleInit {
     const includePricing = scope.kind === 'platform';
     // v2.0 (P-48, §4.36.2): UNA curva izada una vez por request, compartida por los dos ejes.
     const pricingCurve = includePricing ? await this.pricing.loadPricingCurve() : null;
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez junto a la curva (solo scope platform).
+    const salePremiumFloorPolicy = includePricing ? await this.pricing.loadSalePremiumFloorPolicy() : null;
     const variantOverrides = includePricing
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
@@ -835,7 +936,7 @@ export class MasterSetService implements OnModuleInit {
             marketReferenceMxnCents,
             ...(market.capturedDate != null ? { capturedDate: market.capturedDate } : {}),
             // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
-            ...(pricingCurve
+            ...(pricingCurve && salePremiumFloorPolicy
               ? {
                   pricing: composeVariantPricing(
                     mref ?? null,
@@ -843,6 +944,7 @@ export class MasterSetService implements OnModuleInit {
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
                     // v2.0 (§4.36.5): la rareza SOLO para el veredicto del guardarraíl (`premiumAtFloor`).
                     c.rarityCanonical ?? c.rarity,
+                    salePremiumFloorPolicy,
                   ),
                 }
               : {}),
@@ -928,6 +1030,8 @@ export class MasterSetService implements OnModuleInit {
           isPrimary: p.isPrimary,
           order: p.order,
           catalogCardCount: cards.filter((c) => c.setId === p.setId).length,
+          // v1.80 (P-71): el código DE ESTA PARTE (⛔ no el del principal).
+          ptcgoCode: publicPtcgoCode(p.ptcgoCode),
         }))
       : undefined;
 
@@ -937,6 +1041,8 @@ export class MasterSetService implements OnModuleInit {
         name: setRef.name,
         series: setRef.series ?? undefined,
         releaseDate: setRef.releaseDate ?? undefined,
+        // v1.80 (P-71): `MasterSetRefDTO` — en un combinado, el del PRINCIPAL.
+        ptcgoCode: publicPtcgoCode(setRef.ptcgoCode),
       },
       printedTotal,
       catalogCardCount: cards.length,
@@ -980,15 +1086,20 @@ export class MasterSetService implements OnModuleInit {
         productType: { not: 'sealed' },
         cardId: { in: [...new Set(pairs.map((p) => p.cardId))] },
       },
-      include: { card: true },
+      // 💰 v1.83 (§M11-SP.1, SP-3): el precio del dueño del producto viaja con la pieza (aquí solo singles, pero
+      // el predicado único lo exige en el tipo).
+      include: { card: true, ...SEALED_SALE_PRICE_INCLUDE },
     });
     const candidates = listed.filter((i) => wanted.has(`${i.cardId}|${i.finish}`));
     if (candidates.length === 0) return map;
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez (mismo veredicto que el storefront).
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const derivableKeys = candidates
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ esas piezas también derivan precio.
-      .filter((i) => !hasManualPrice(i))
+      // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null`.
+      .filter((i) => manualSaleOf(i) == null)
       // v1.53 (§4.40.4b, MONEY) — LECTURA: una graduada sin identidad de slab no aporta clave; abajo
       // cae al `continue` (no comprable), que es lo correcto. Antes se ofrecía al precio de un PSA 10.
       .flatMap((i) => {
@@ -1002,8 +1113,13 @@ export class MasterSetService implements OnModuleInit {
 
     for (const item of candidates) {
       let salePriceCents: number | null;
-      if (hasManualPrice(item)) {
-        salePriceCents = item.listPriceCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
+      // v1.83 (§M11-SP.1): el predicado único. El binder solo ofrece singles (`productType != sealed`), así que el
+      // peldaño del producto no aplica aquí; si aplicara, `manualSaleOf` lo devolvería y NO se trataría como pieza.
+      const manual = manualSaleOf(item);
+      if (manual?.origin === 'piece') {
+        salePriceCents = manual.listCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
+      } else if (manual != null) {
+        continue; // (inalcanzable: sellado fuera del binder) — nunca se compara un `P` contra `L`.
       } else {
         // v1.53 (§4.40.4b): sin clave no hay referencia ⇒ `null` ⇒ `continue` de abajo (no buyable).
         const gradeKey = this.pricing.tryGradeKeyFor(item);
@@ -1019,6 +1135,7 @@ export class MasterSetService implements OnModuleInit {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: variantOverrides.get(key) ?? null,
           curve,
+          premiumFloorPolicy,
         }).priceCents;
       }
       // Sin precio resoluble (>0) → no comprable (paridad con `sellable` de la ficha §4.9).

@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -12,7 +13,7 @@ import { ivaDialsStub } from './helpers/iva-dials';
 describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', () => {
   function buildService(stripeReject: unknown) {
     // v1.67 (M-52): con destinatario; sin él, `create` corta en 422 RECIPIENT_NAME_REQUIRED antes del PI.
-    const address = { id: 'addr1', userId: 'userA', recipientName: 'Ana Pérez', country: 'MX', line1: 'x', city: 'c', state: 's', postalCode: '00000', phone: '1' };
+    const address = { id: 'addr1', userId: 'userA', recipientName: 'Ana Pérez', country: 'MX', line1: 'x', city: 'c', state: 's', postalCode: '00000', phone: '5500000000', neighborhood: 'Centro' }; // ⭐ v1.81: completa
     const prisma: any = {
       address: { findUnique: jest.fn().mockResolvedValue(address) },
       inventoryItem: {
@@ -27,6 +28,7 @@ describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', (
         delete: jest.fn().mockResolvedValue({}),
       },
     };
+    withM61Defaults(prisma);
     // SEC-H2: el chequeo anti-doble-envío + creación van en una tx serializable; el mock
     // ejecuta el callback con el propio cliente mock como `tx`.
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));

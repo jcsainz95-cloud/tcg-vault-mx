@@ -71,6 +71,19 @@ while [ $# -gt 0 ]; do
 done
 body='[]'
 case "$url" in
+  # LIVE-10: runs del DAST, jobs de un run, anotaciones de un job.
+  */actions/workflows/*/runs*)
+    f="$CANARY_RESP/dast-runs"; [ -f "$f" ] || { printf '{"total_count":0,"workflow_runs":[]}' > "$CANARY_RESP/.vacio"; f="$CANARY_RESP/.vacio"; }
+    if [ -n "$out" ]; then cp "$f" "$out"; else cat "$f"; fi; exit 0 ;;
+  */actions/runs/*/jobs*)
+    id="$(sed -n 's#.*/actions/runs/\([0-9]*\)/jobs.*#\1#p' <<<"$url")"
+    f="$CANARY_RESP/jobs-$id"; [ -f "$f" ] || { printf '{"jobs":[]}' > "$CANARY_RESP/.vacio"; f="$CANARY_RESP/.vacio"; }
+    if [ -n "$out" ]; then cp "$f" "$out"; else cat "$f"; fi; exit 0 ;;
+  */check-runs/*/annotations*)
+    id="$(sed -n 's#.*/check-runs/\([0-9]*\)/annotations.*#\1#p' <<<"$url")"
+    f="$CANARY_RESP/ann-$id"
+    if [ -f "$f" ]; then body="$(cat "$f")"; fi
+    if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi; exit 0 ;;
   *check-runs*)
     page="$(sed -n 's/.*page=\([0-9]*\).*/\1/p' <<<"$url")"; page="${page:-1}"
     f="$CANARY_RESP/page$page"; [ -f "$f" ] || f="$CANARY_RESP/page1"
@@ -101,7 +114,7 @@ caso() {
   local rc_esp="$1" debe="$2" nodebe="$3" nombre="$4" extra="${5:-}"
   local out rc
   out="$(cd "$REPO" && CANARY_RESP="$RESP" PATH="${extra:+$extra:}$STUB:$PATH" GITHUB_TOKEN=canario \
-         bash scripts/check-candidate-checks.sh HEAD 2>&1)"; rc=$?
+         bash scripts/check-candidate-checks.sh ${CASO_FLAGS:-} HEAD 2>&1)"; rc=$?
   if [ "$rc" -ne "$rc_esp" ]; then
     bad "$nombre — rc=$rc, esperaba $rc_esp."; printf '      %s\n' "$(tail -2 <<<"$out" | tr -d '\033')"; return
   fi
@@ -187,6 +200,49 @@ cp "$BASE/orig.sh" "$REPO/scripts/check-candidate-checks.sh"
 mv "$REPO/.github/workflows/deploy.yml" "$BASE/deploy.bak"
 caso 2 "no puedo validar" "están en verde" "sin deploy.yml ⇒ rc=2"
 mv "$BASE/deploy.bak" "$REPO/.github/workflows/deploy.yml"
+
+# =============================================================================
+# LIVE-10 — --exige-dast-full: un DAST `full` verde, bloqueante y SELLADO sobre
+# ESTE sha. Cada caso que no es exactamente eso tiene que dar rc=4 (o rc=2 si no
+# se pudo leer), nunca 0.
+# =============================================================================
+SHA_REPO="$(git -C "$REPO" rev-parse HEAD)"
+# dast <sello|-> [conclusion del job] : un run verde con su job y (si no es «-») su sello
+dast() {
+  rm -f "$RESP"/dast-runs "$RESP"/jobs-* "$RESP"/ann-*
+  printf '{"total_count":1,"workflow_runs":[{"id":777,"html_url":"https://github.com/ejemplo/repo/actions/runs/777","display_title":"DAST"}]}' > "$RESP/dast-runs"
+  printf '{"jobs":[{"id":4242,"name":"DAST contra el stack efímero","conclusion":"%s"}]}' "${2:-success}" > "$RESP/jobs-777"
+  [ "$1" = "-" ] || printf '[{"annotation_level":"notice","title":"DAST-SELLO","message":"%s"}]' "$1" > "$RESP/ann-4242"
+}
+limpiar; fabricar "$RESP/page1" 5 5 completed success
+BUENO="sha=$SHA_REPO perfil=full report_only=0 blocking=false gate=success"
+
+dast "$BUENO";                                         CASO_FLAGS=--exige-dast-full caso 0 "Citar en la solicitud" "-" "LIVE-10 · DAST full verde y sellado sobre el sha ⇒ rc=0 y la URL para citar"
+dast "sha=$SHA_REPO perfil=baseline report_only=0 blocking=false gate=success"; CASO_FLAGS=--exige-dast-full caso 4 "no cuenta" "están en verde" "LIVE-10 · perfil=baseline ⇒ rc=4"
+dast "sha=$SHA_REPO perfil=full report_only=1 blocking=true gate=success";       CASO_FLAGS=--exige-dast-full caso 4 "no cuenta" "están en verde" "LIVE-10 · report_only con hallazgos (run verde) ⇒ rc=4"
+dast "sha=$SHA_REPO perfil=full report_only=0 blocking= gate=success";           CASO_FLAGS=--exige-dast-full caso 4 "ningún DAST full" "están en verde" "LIVE-10 · blocking VACÍO (el candado no escribió) ⇒ rc=4"
+dast "sha=0000000000000000000000000000000000000000 perfil=full report_only=0 blocking=false gate=success"; CASO_FLAGS=--exige-dast-full caso 4 "ningún DAST full" "están en verde" "LIVE-10 · DAST full verde pero sobre OTRO sha ⇒ rc=4"
+dast "$BUENO" failure;                                 CASO_FLAGS=--exige-dast-full caso 4 "no cuenta" "están en verde" "LIVE-10 · el job DAST no salió success ⇒ rc=4"
+dast "-";                                              CASO_FLAGS=--exige-dast-full caso 4 "sin sello" "están en verde" "LIVE-10 · run sin sello DAST-SELLO ⇒ rc=4"
+rm -f "$RESP"/dast-runs "$RESP"/jobs-* "$RESP"/ann-*;  CASO_FLAGS=--exige-dast-full caso 4 "ningún DAST full" "están en verde" "LIVE-10 · ningún run del DAST ⇒ rc=4"
+dast "$BUENO"; printf '<html>rate limit</html>' > "$RESP/dast-runs"; CASO_FLAGS=--exige-dast-full caso 2 "NO parseable" "ningún DAST full" "LIVE-10 · runs no-JSON ⇒ rc=2 (no se confunde con «no hay»)"
+dast "$BUENO"; limpiar; fabricar "$RESP/page1" 3 3 completed failure; CASO_FLAGS=--exige-dast-full caso 1 "NO está verde" "-" "LIVE-10 · DAST bueno pero un check-run rojo ⇒ rc=1 (el rojo manda)"
+limpiar; fabricar "$RESP/page1" 5 5 completed success; rm -f "$RESP"/dast-runs; CASO_FLAGS= caso 0 "están en verde" "LIVE-10" "LIVE-10 · SIN --exige-dast-full no se consulta el DAST (conducta de siempre)"
+
+# Mutación m-dast-perfil: aflojar la exigencia a «mismo sha, lo demás da igual».
+cp "$REPO/scripts/check-candidate-checks.sh" "$BASE/orig.sh"
+python3 - "$REPO/scripts/check-candidate-checks.sh" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+a = 'if [ "$sello" = "sha=$SHA perfil=full report_only=0 blocking=false gate=success" ]; then'
+assert a in s, 'anclaje del sello no encontrado'
+open(p, 'w').write(s.replace(a, 'if [[ "$sello" == "sha=$SHA "* ]]; then'))
+PY2
+dast "sha=$SHA_REPO perfil=baseline report_only=0 blocking=false gate=success"
+out="$(cd "$REPO" && CANARY_RESP="$RESP" PATH="$STUB:$PATH" GITHUB_TOKEN=canario bash scripts/check-candidate-checks.sh --exige-dast-full HEAD 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "mutación m-dast-perfil (solo mirar el sha) ⇒ el caso baseline pasa a rc=0: el canario la caza" \
+  || bad "mutación m-dast-perfil no cambió el veredicto (rc=$rc): el caso baseline no muerde"
+cp "$BASE/orig.sh" "$REPO/scripts/check-candidate-checks.sh"
 
 TOTAL=$((PASADAS+FALLOS))
 printf '\n'

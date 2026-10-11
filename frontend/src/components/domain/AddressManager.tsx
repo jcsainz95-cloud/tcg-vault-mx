@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import {
@@ -10,12 +10,16 @@ import {
   deleteAddress,
   type AddressInput,
 } from '@/lib/api';
-import type { AddressDTO } from '@/types/contract';
+import type { AddressDTO, AddressIncompleteField } from '@/types/contract';
+import { ApiClientError } from '@/lib/api-client';
+import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from './PostalCodeNeighborhoodFields';
 
 /**
  * WS-F · F2 — Gestor de direcciones de envío (contrato §1, solo MX). Lista + alta + editar + marcar
@@ -48,6 +52,49 @@ export function addressMissingRecipient(a: Pick<AddressDTO, 'recipientName'>): b
   return a.recipientName == null || a.recipientName.trim() === '';
 }
 
+/**
+ * ⭐ v1.81 (§M4-SHIP.19.5): la dirección vieja que el servidor marca `complete: false` (sin colonia, CP
+ * que no es de 5 o teléfono que no es de 10) no sirve para un retiro (`422 ADDRESS_INCOMPLETE`). La
+ * DECISIÓN es del servidor (`complete`); ⛔ un DTO sin el campo (caché vieja) no se marca.
+ */
+export function addressIncomplete(a: Pick<AddressDTO, 'complete'>): boolean {
+  return a.complete === false;
+}
+
+/**
+ * Qué le falta, SOLO para nombrarlo y llevar el foco al campo (la decisión de si está completa es
+ * `complete`, del servidor). Mismo orden que `missing` de `422 ADDRESS_INCOMPLETE`.
+ */
+export function addressMissingFields(a: Pick<AddressDTO, 'neighborhood' | 'postalCode' | 'phone'>): AddressIncompleteField[] {
+  const out: AddressIncompleteField[] = [];
+  if (!a.neighborhood || a.neighborhood.trim() === '') out.push('neighborhood');
+  if (!isPostalCode(a.postalCode ?? '')) out.push('postalCode');
+  if (!isMxPhone(a.phone ?? '')) out.push('phone');
+  return out;
+}
+
+/** «a, b y c» — une lo que falta con la conjunción del idioma (sin `Intl.ListFormat`: jsdom/Node varían). */
+export function joinMissing(parts: string[], and: string): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} ${and} ${parts[parts.length - 1]}`;
+}
+
+/**
+ * §43.18 CA-5: **una sola fuente** de palabras para el mismo hueco — la fila de la libreta, el formulario en
+ * modo completar y el bloque del retiro dicen lo mismo (`addresses.incomplete.missing.*` + `.and`).
+ * Lista vacía ⇒ `''` (quien monta pinta el genérico: ⛔ nunca la marca sin texto, CA-3).
+ */
+export function useMissingText(): (missing: readonly AddressIncompleteField[]) => string {
+  const t = useTranslations('addresses');
+  return useCallback(
+    (missing) => joinMissing(missing.map((m) => t(`incomplete.missing.${m}`)), t('incomplete.and')),
+    [t],
+  );
+}
+
+/** Campo al que va el foco al abrir el formulario. */
+export type AddressFocusField = 'recipientName' | AddressIncompleteField;
+
 const EMPTY_FORM: AddressInput = {
   recipientName: '',
   line1: '',
@@ -58,6 +105,7 @@ const EMPTY_FORM: AddressInput = {
   postalCode: '',
   country: 'MX',
   phone: '',
+  references: '',
   isDefault: false,
 };
 
@@ -72,11 +120,14 @@ function formFromAddress(a: AddressDTO): AddressInput {
     postalCode: a.postalCode,
     country: a.country,
     phone: a.phone,
+    references: a.references ?? '',
     isDefault: !!a.isDefault,
   };
 }
 
-type EditorState = { mode: 'create' } | { mode: 'edit'; address: AddressDTO; focusRecipient?: boolean };
+type EditorState =
+  | { mode: 'create' }
+  | { mode: 'edit'; address: AddressDTO; focusField?: AddressFocusField; completeMissing?: AddressIncompleteField[] };
 
 export function AddressManager({
   selectable,
@@ -139,7 +190,11 @@ export function AddressManager({
                 onSelect={onSelect}
                 onSetDefault={() => setDefaultMut.mutate(a.id)}
                 onEdit={() => setEditor({ mode: 'edit', address: a })}
-                onComplete={() => setEditor({ mode: 'edit', address: a, focusRecipient: true })}
+                onComplete={() => setEditor({ mode: 'edit', address: a, focusField: 'recipientName' })}
+                onCompleteAddress={() => {
+                  const missing = addressMissingFields(a);
+                  setEditor({ mode: 'edit', address: a, focusField: missing[0] ?? 'neighborhood', completeMissing: missing });
+                }}
                 onDelete={() => deleteMut.mutate(a.id)}
                 busy={setDefaultMut.isPending || deleteMut.isPending}
               />
@@ -156,7 +211,8 @@ export function AddressManager({
       <AddressFormModal
         open={editor !== null}
         address={editor?.mode === 'edit' ? editor.address : undefined}
-        focusRecipient={editor?.mode === 'edit' ? editor.focusRecipient : undefined}
+        focusField={editor?.mode === 'edit' ? editor.focusField : undefined}
+        completeMissing={editor?.mode === 'edit' ? editor.completeMissing : undefined}
         defaultRecipientName={defaultRecipientName}
         onClose={() => setEditor(null)}
         onSaved={(saved) => {
@@ -178,6 +234,7 @@ function AddressRow({
   onSetDefault,
   onEdit,
   onComplete,
+  onCompleteAddress,
   onDelete,
   busy,
 }: {
@@ -188,13 +245,19 @@ function AddressRow({
   onSetDefault: () => void;
   onEdit: () => void;
   onComplete: () => void;
+  onCompleteAddress: () => void;
   onDelete: () => void;
   busy: boolean;
 }) {
   const t = useTranslations('addresses');
+  const missingText = useMissingText();
+  const lineId = useId();
   const line = [address.line1, address.line2, address.neighborhood].filter(Boolean).join(', ');
   const cityLine = `${address.city}, ${address.state} ${address.postalCode} · ${address.country}`;
   const missingRecipient = addressMissingRecipient(address);
+  const incomplete = addressIncomplete(address);
+  // §43.18f (CA-3): la marca ⇔ `complete === false` (servidor); el texto nombra lo que falta o es el genérico.
+  const rowMissing = incomplete ? missingText(addressMissingFields(address)) : '';
 
   const body = (
     <>
@@ -214,7 +277,24 @@ function AddressRow({
         ) : (
           <p className="truncate text-sm text-text">{t('recipientLine', { name: address.recipientName ?? '' })}</p>
         )}
-        <p className="mt-0.5 truncate text-sm text-text">{line}</p>
+        <p id={lineId} className="mt-0.5 truncate text-sm text-text">
+          {line}
+        </p>
+        {incomplete && (
+          <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[11px] text-accent" data-testid="address-incomplete">
+            <span>{rowMissing ? t('incomplete.rowMissing', { missing: rowMissing }) : t('incomplete.row')}</span>
+            {/* §43.18f: objetivo táctil ≥ 24 px (WCAG 2.5.8) y, con varias filas incompletas, dice de cuál es. */}
+            <button
+              type="button"
+              onClick={onCompleteAddress}
+              disabled={busy}
+              aria-describedby={lineId}
+              className="py-1.5 font-mono text-[11px] text-text underline underline-offset-2 hover:text-accent disabled:opacity-50"
+            >
+              {t('incomplete.cta')}
+            </button>
+          </p>
+        )}
         <p className="tabular mt-1 font-mono text-[11px] text-muted">{cityLine}</p>
         <p className="tabular mt-0.5 font-mono text-[11px] text-muted">{address.phone}</p>
         {address.isDefault && (
@@ -295,6 +375,14 @@ export interface AddressFormState {
   error: unknown;
   /** `'edit'` cuando se montó con `address` (el `submit` hace `PATCH`, no `POST`). */
   mode: 'create' | 'edit';
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25, §43.18m.1): el modo de la colonia que pinta el formulario. La validación
+   * usa el texto de ese modo (§43.18m.7) y, en «todo a mano», exige municipio y estado.
+   */
+  geoMode: NeighborhoodMode;
+  setGeoMode: (mode: NeighborhoodMode) => void;
+  /** `true` si el error del servidor ya se pintó bajo un campo (no se repite abajo). */
+  errorOnField: boolean;
 }
 
 export interface AddressFormOptions {
@@ -302,6 +390,44 @@ export interface AddressFormOptions {
   address?: AddressDTO;
   /** Prellenado del destinatario en alta (nunca en edición). */
   defaultRecipientName?: string;
+}
+
+/** Campos que un `400 VALIDATION_ERROR {field}` puede señalar y que tienen control en el formulario. */
+const FIELD_KEYS = new Set(['recipientName', 'line1', 'line2', 'postalCode', 'neighborhood', 'city', 'state', 'phone', 'references']);
+
+/**
+ * El error del servidor que se pinta BAJO un campo. `null` ⇒ va abajo, genérico.
+ * ⚠️ El `400` del `ValidationPipe` no trae `details.field` (`BACKEND_NOTES §58.2` punto 2): solo los
+ * `400` del servicio (p. ej. `required_with_postal_code`) caen aquí.
+ * v1.80.12.5 (§M4-SHIP.19.25.1): ⛔ ya no hay `422` geográficos (`NEIGHBORHOOD_NOT_IN_POSTAL_CODE` retirado,
+ * `POSTAL_CODE_UNKNOWN` solo es el `404` del `GET`); `required_with_postal_code` puede nombrar también
+ * `city`/`state`, y un `{max}` en `details` es «demasiado largo» (`geo.tooLong`, §43.18m.7).
+ */
+export function addressServerFieldError(
+  error: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  geoMode: NeighborhoodMode = 'list',
+): { field: string; message: string } | null {
+  if (!(error instanceof ApiClientError)) return null;
+  const d = error.details ?? {};
+  if (error.code === 'VALIDATION_ERROR' && typeof d.field === 'string' && FIELD_KEYS.has(d.field)) {
+    const geoField = d.field === 'neighborhood' || d.field === 'city' || d.field === 'state';
+    if (geoField && (typeof d.max === 'number' || typeof d.max === 'string')) {
+      return { field: d.field, message: t('geo.tooLong', { max: String(d.max) }) };
+    }
+    if (d.field === 'neighborhood') {
+      const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+      return { field: 'neighborhood', message: t(manual ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired') };
+    }
+    if (d.field === 'city') return { field: 'city', message: t('geo.cityRequired') };
+    if (d.field === 'state') return { field: 'state', message: t('geo.stateRequired') };
+    if (d.field === 'postalCode') return { field: 'postalCode', message: t('postalCodeInvalid') };
+    if (d.field === 'phone') return { field: 'phone', message: t('phoneInvalid') };
+    if (d.field === 'line2') return { field: 'line2', message: t('line2TooLong', { max: String(LINE2_MAX) }) };
+    if (d.field === 'references') return { field: 'references', message: t('referencesTooLong', { max: String(REFERENCES_MAX) }) };
+    return { field: d.field, message: t('required') };
+  }
+  return null;
 }
 
 export function useAddressForm(
@@ -314,14 +440,21 @@ export function useAddressForm(
     address ? formFromAddress(address) : { ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' };
   const [form, setForm] = useState<AddressInput>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
+  const [errorOnField, setErrorOnField] = useState(false);
 
   // Si cambia la dirección que se edita (otro «Editar» sin desmontar), se rehidrata el formulario.
+  // ⚠️ DURANTE el render, no en un efecto: los campos montan en el mismo pase que el `Modal` se abre, y con
+  // un efecto montarían con el CP del formulario anterior y luego «verían» cambiar el CP — que es justo lo
+  // que apaga CA-9 (la colonia guardada fuera de la lista abre a mano) y vacía municipio y estado.
   const addressId = address?.id;
-  useEffect(() => {
+  const [hydratedFor, setHydratedFor] = useState(addressId);
+  if (hydratedFor !== addressId) {
+    setHydratedFor(addressId);
     setForm(initial());
     setErrors({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addressId]);
+    setErrorOnField(false);
+  }
 
   const mut = useMutation({
     mutationFn: (body: AddressInput) =>
@@ -329,30 +462,68 @@ export function useAddressForm(
     onSuccess: (saved) => {
       setForm({ ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' });
       setErrors({});
+      setErrorOnField(false);
       onSaved(saved);
+    },
+    onError: (e) => {
+      const onField = addressServerFieldError(e, t, geoMode);
+      setErrorOnField(!!onField);
+      if (!onField) return;
+      setErrors((prev) => ({ ...prev, [onField.field]: onField.message }));
     },
   });
 
   function set<K extends keyof AddressInput>(key: K, value: AddressInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+    // Tocar el campo retira su error.
+    setErrors((e) => {
+      if (!(key in e)) return e;
+      const { [key as string]: _drop, ...rest } = e;
+      return rest;
+    });
   }
 
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.recipientName.trim()) e.recipientName = t('required');
     if (!form.line1.trim()) e.line1 = t('required');
-    if (!form.city.trim()) e.city = t('required');
-    if (!form.state.trim()) e.state = t('required');
-    if (form.postalCode.trim().length < 3) e.postalCode = t('postalCodeInvalid');
-    if (form.phone.trim().length < 7) e.phone = t('phoneInvalid');
+    if ((form.line2 ?? '').trim().length > LINE2_MAX) e.line2 = t('line2TooLong', { max: String(LINE2_MAX) });
+    if (!isPostalCode(form.postalCode)) e.postalCode = t('postalCodeInvalid');
+    else {
+      // §43.18m.7: el texto nombra lo que hay que hacer EN ESTE MODO (elegir de la lista o escribirla).
+      const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+      if (!form.neighborhood.trim()) e.neighborhood = t(manual ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired');
+      if (geoMode === 'manualAll') {
+        if (!form.city.trim()) e.city = t('geo.cityRequired');
+        if (!form.state.trim()) e.state = t('geo.stateRequired');
+      }
+    }
+    if (!isMxPhone(form.phone)) e.phone = t('phoneInvalid');
+    if ((form.references ?? '').trim().length > REFERENCES_MAX) {
+      e.references = t('referencesTooLong', { max: String(REFERENCES_MAX) });
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   }
 
   function submit() {
     if (!validate()) return;
+    const references = (form.references ?? '').trim();
     // País fijo MX (envío solo nacional): el backend sigue siendo la puerta (422 ADDRESS_NOT_MX).
-    mut.mutate({ ...form, recipientName: form.recipientName.trim(), country: 'MX' });
+    mut.mutate({
+      ...form,
+      recipientName: form.recipientName.trim(),
+      // §M4-SHIP.19.25.1: colonia de la lista o escrita, siempre texto con trim; municipio y estado SIEMPRE
+      // viajan (del CP o escritos): con el CP en el catálogo el servidor los sobrescribe.
+      neighborhood: form.neighborhood.trim(),
+      city: form.city.trim(),
+      state: form.state.trim(),
+      postalCode: form.postalCode.trim(),
+      phone: normalizeMxPhone(form.phone),
+      // Alta: vacío ⇒ no se manda. Edición: vacío ⇒ `null` (borra la que hubiera).
+      references: references !== '' ? references : address ? null : undefined,
+      country: 'MX',
+    });
   }
 
   return {
@@ -364,31 +535,48 @@ export function useAddressForm(
     isError: mut.isError,
     error: mut.error,
     mode: address ? 'edit' : 'create',
+    geoMode,
+    setGeoMode,
+    errorOnField,
   };
 }
 
 /** Campos del formulario de dirección. La ACCIÓN (guardar) la pone quien lo monta: el modal en su
- *  footer, el alta inline con su propio botón. `focusRecipient`: foco inicial en el destinatario
- *  (acción «Completar» de una fila sin nombre, §33.10a). */
+ *  footer, el alta inline con su propio botón. `focusField`: foco inicial (acción «Completar» de una
+ *  fila sin nombre, §33.10a, o de una dirección incompleta, v1.81).
+ *
+ *  v1.80.12.5 (§M4-SHIP.19.25, §43.18m): CP → colonia de la lista **o escrita** («Mi colonia no está») →
+ *  municipio y estado del CP; sin lista (CP fuera del catálogo, catálogo vacío, consulta fallida) los tres se
+ *  escriben. `references` opcional ≤ 70. */
 export function AddressFormFields({
   state,
-  focusRecipient,
+  focusField,
 }: {
   state: AddressFormState;
-  focusRecipient?: boolean;
+  focusField?: AddressFocusField;
 }) {
   const t = useTranslations('addresses');
   const getMessage = useErrorMessage();
   const { form, errors, set } = state;
   const recipientRef = useRef<HTMLInputElement>(null);
+  const neighborhoodRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!focusRecipient) return;
+    if (!focusField) return;
     // Tras el foco inicial del `Modal` (efecto del padre, que corre DESPUÉS de éste): se difiere un tick.
-    const id = window.setTimeout(() => recipientRef.current?.focus(), 0);
+    const id = window.setTimeout(() => {
+      if (focusField === 'recipientName') recipientRef.current?.focus();
+      else if (focusField === 'neighborhood' && neighborhoodRef.current && !neighborhoodRef.current.disabled) {
+        neighborhoodRef.current.focus();
+      } else {
+        const target = focusField === 'neighborhood' ? 'postalCode' : focusField;
+        formRef.current?.querySelector<HTMLInputElement>(`[data-field="${target}"] input`)?.focus();
+      }
+    }, 0);
     return () => window.clearTimeout(id);
-  }, [focusRecipient]);
+  }, [focusField]);
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={formRef} className="flex flex-col gap-4">
       {/* v1.67: el destinatario va PRIMERO, encima de «Calle y número» (§33.10a). */}
       <Input
         ref={recipientRef}
@@ -402,29 +590,44 @@ export function AddressFormFields({
         required
       />
       <Input label={t('line1')} value={form.line1} onChange={(e) => set('line1', e.target.value)} error={errors.line1} />
-      <Input label={t('line2')} value={form.line2 ?? ''} onChange={(e) => set('line2', e.target.value)} />
-      <Input
-        label={t('neighborhood')}
-        value={form.neighborhood ?? ''}
-        onChange={(e) => set('neighborhood', e.target.value)}
-      />
-      <div className="grid grid-cols-2 gap-4">
-        <Input label={t('city')} value={form.city} onChange={(e) => set('city', e.target.value)} error={errors.city} />
-        <Input label={t('state')} value={form.state} onChange={(e) => set('state', e.target.value)} error={errors.state} />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Input
-          label={t('postalCode')}
-          inputMode="numeric"
-          value={form.postalCode}
-          onChange={(e) => set('postalCode', e.target.value)}
-          error={errors.postalCode}
+      <Input label={t('line2')} value={form.line2 ?? ''} onChange={(e) => set('line2', e.target.value)} error={errors.line2} />
+      <div data-field="postalCode" className="flex flex-col gap-4">
+        <PostalCodeNeighborhoodFields
+          ref={neighborhoodRef}
+          postalCode={form.postalCode}
+          neighborhood={form.neighborhood}
+          city={form.city}
+          state={form.state}
+          onPostalCode={(v) => set('postalCode', v)}
+          onNeighborhood={(v) => set('neighborhood', v)}
+          onCity={(v) => set('city', v)}
+          onState={(v) => set('state', v)}
+          onModeChange={state.setGeoMode}
+          postalCodeError={errors.postalCode}
+          neighborhoodError={errors.neighborhood}
+          cityError={errors.city}
+          stateError={errors.state}
         />
+      </div>
+      {/* §43.18b: las referencias acompañan al lugar (van antes que el teléfono, como §43.2b). */}
+      <Textarea
+        label={t('references')}
+        hint={t('referencesHint', { max: String(REFERENCES_MAX) })}
+        rows={2}
+        counter={{ max: REFERENCES_MAX }}
+        value={form.references ?? ''}
+        onChange={(e) => set('references', e.target.value)}
+        error={errors.references}
+      />
+      <div data-field="phone">
         <Input
           label={t('phone')}
+          type="tel"
           inputMode="tel"
+          autoComplete="tel"
           value={form.phone}
           onChange={(e) => set('phone', e.target.value)}
+          hint={errors.phone ? undefined : t('phoneHint')}
           error={errors.phone}
         />
       </div>
@@ -442,7 +645,7 @@ export function AddressFormFields({
         />
         {t('makeDefault')}
       </label>
-      {state.isError && (
+      {state.isError && !state.errorOnField && (
         <p role="alert" className="font-mono text-xs text-accent">
           {getMessage(state.error)}
         </p>
@@ -459,26 +662,35 @@ export function AddressFormFields({
 export function AddressFormModal({
   open,
   address,
-  focusRecipient,
+  focusField,
+  completeMissing,
   defaultRecipientName,
   onClose,
   onSaved,
 }: {
   open: boolean;
   address?: AddressDTO;
-  focusRecipient?: boolean;
+  focusField?: AddressFocusField;
+  /**
+   * §43.18g · **modo completar** (fila «Dirección incompleta» y bloque del retiro): título «Completar
+   * dirección» y, encima de los campos, qué falta y que lo guardado queda en la libreta. `[]` ⇒ genérico.
+   */
+  completeMissing?: AddressIncompleteField[];
   defaultRecipientName?: string;
   onClose: () => void;
   onSaved: (saved: AddressDTO) => void;
 }) {
   const t = useTranslations('addresses');
+  const missingText = useMissingText();
   const state = useAddressForm(onSaved, { address, defaultRecipientName });
+  const completing = !!address && completeMissing !== undefined;
+  const introMissing = completing ? missingText(completeMissing) : '';
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={address ? t('editTitle') : t('newTitle')}
+      title={completing ? t('incomplete.cta') : address ? t('editTitle') : t('newTitle')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -490,7 +702,12 @@ export function AddressFormModal({
         </>
       }
     >
-      <AddressFormFields state={state} focusRecipient={open && focusRecipient} />
+      {completing && (
+        <p className="mb-4 text-sm text-text" data-testid="address-complete-intro">
+          {introMissing ? t('incomplete.formIntro', { missing: introMissing }) : t('incomplete.formIntroGeneric')}
+        </p>
+      )}
+      <AddressFormFields state={state} focusField={open ? focusField : undefined} />
     </Modal>
   );
 }

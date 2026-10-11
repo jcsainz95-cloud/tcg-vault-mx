@@ -28,6 +28,505 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.59 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
+
+> **Renumerada 2026-09-29 (TD-10 del techlead sobre `b8a3e4ce`):** esta sección se llamaba «§0.55», igual que la del
+> tope del bounty (más abajo), que conserva el número porque es a la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Un
+> informe anterior al 2026-09-29 que diga «§0.55 P-71» se refiere a esta.
+
+> Propiedad: **backend**. Rama `claude/paquete-pantallas`, base `ffef230`. ⛔ Sin schema, sin migración, sin
+> endpoint nuevo, cero dinero: proyección de `CardSet.ptcgoCode`, que el sync ya guardaba.
+
+**Una sola normalización:** `publicPtcgoCode(raw)` en `backend/src/modules/catalog/catalog.service.ts`, junto a
+`toCardDTO` (⛔ no en `common/`). `trim()`; vacío/espacios ⇒ `null`; **mayúsculas intactas** (`'twm'` sale
+`'twm'`); jamás deduce nada del `externalId` ni del nombre. **No** es la clave de emparejado de decks-meta
+(`deck-matcher.service.ts`, `trim().toUpperCase()`), que sigue como estaba.
+
+| Campo (clave SIEMPRE presente) | Emisor | Nota |
+|---|---|---|
+| `CardDTO.setPtcgoCode` | `toCardDTO` | misma relación que `setName`: emisor sin `include:{set:true}` ⇒ ambos `null` |
+| `MasterSetBinderResponse.set.ptcgoCode` (tipo nuevo `MasterSetRefDTO`) | `MasterSetService.binder` | combinado = el del **principal**. ⛔ `SetRefDTO` no cambia |
+| `SetPartDTO.ptcgoCode` | `binder` → `resolveMasterSet` (mismo `select`, +1 columna) | el **de cada parte** |
+| `MasterSetSummaryDTO.ptcgoCode` | `MasterSetService.index` (mismo `select`, +1 columna) | fila plegada = el del **principal** (el plegado no lo toca) |
+| `BuylistSetDTO.ptcgoCode` | `CatalogService.listSetsWithImportedCards` (`GET /buylist/sets`) | ⛔ `GET /catalog/sets` **no** lo trae (su builder arma el objeto campo a campo) |
+| `PublicBountyDTO.setPtcgoCode` | `BuylistService.publicBounties` | la consulta ya cargaba `card.set` |
+
+**«Buscar set»** (`?q=` de `GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`,
+`GET /vault/master-sets` — los tres pasan por `index()`): `OR [name contains q insensitive, ptcgoCode contains q
+insensitive]`. Un set con código `NULL` solo casa por nombre (ILIKE sobre NULL no casa y no revienta — medido en
+Postgres real). La conducta heredada «el `q` se aplica **antes** del plegado de combinados» (§4.57.4) **no cambia**.
+
+**Pruebas** (P71-B1..B7 del contrato):
+- `backend/test/set-ptcgo-code.p71.spec.ts` — B1, B2, B3, B4, B6, B7 (31 casos). Los dobles de Prisma **respetan
+  `select`/`include`** (una columna no seleccionada no llega), así que «quitar `ptcgoCode` del `select`» y «emisor
+  sin `include:{set:true}`» se ven en unitario.
+- `backend/test/integration/set-ptcgo-code-search.e2e-spec.ts` — B5 contra Postgres real, por HTTP, en los **tres**
+  endpoints (`twm`/`TwM`/`TWM`/`wm` ⇒ TWM y no el de código null; `twilight` ⇒ sigue por nombre; `sin codigo` ⇒ el de
+  código null con `ptcgoCode:null`; `zzz` ⇒ `total:0`, sin 500). Fixture propio `P71-*`, limpiado en `afterAll`.
+  Antes de implementar: 15 rojos / 6 verdes de 21 (los verdes eran `twilight` y `zzz`, que ya pasaban por nombre).
+- Ajustadas dos aserciones de forma exacta que el campo nuevo tocaba: `test/catalog.group-dto-shape.spec.ts`
+  (conjunto de claves de `CardDTO`) y `test/buylist.bounties.spec.ts` (`toEqual` del elemento de la vitrina).
+
+**Mutaciones** (sobre copia del árbol, una tirada cada una — son deterministas, sin carrera ni reloj):
+
+| Mutación | Resultado |
+|---|---|
+| `setPtcgoCode: card.set?.ptcgoCode ?? null` (sin normalizar) | 3 rojos |
+| `.toUpperCase()` en `publicPtcgoCode` | 6 rojos |
+| clave omitida en `toCardDTO` cuando no hay código | 4 rojos |
+| quitar `ptcgoCode` del `select` del índice | rojo de compilación (`TS2339`): el tipo de Prisma lo caza antes que la prueba |
+| la fila plegada hereda el código del subset | 2 rojos |
+| todas las partes con el código del principal | 2 rojos |
+| `/buylist/sets` emite `s.ptcgoCode` crudo | 1 rojo |
+| bounties: clave omitida | 1 rojo |
+| `searchAllCards` sin `include:{set:true}` / ficha sin `include:{set:true}` | 1 rojo / 1 rojo |
+| quitar la rama `ptcgoCode` del `OR` (integración) | 12 rojos de 21 |
+| `equals` en vez de `contains` (integración) | 3 rojos (el caso `wm`); el contrato lo declara aceptable, la prueba es más estricta |
+
+**Para frontend:** el campo llega `null` con frecuencia (promos, sets viejos, y quizá recientes: `N-P71-1/2`
+de `ARCHITECTURE §4.57.6`, **NO MEDIDO** en producción). Condicionar por verdad (`code ? … : '#130'`).
+## 0.58 — ⭐⭐ **v1.80.2.2: séptimo lector de SK-5 (export `.xlsx`), BC-9 en tres partes y deuda D-1/D-2/D-4 del techlead** (2026-09-29)
+
+> Contrato v1.80.2.2 — §M2-SK SK-5 errata «séptimo lector» (ancla `M2-SK-5-7`) y §M2-B.11 punto 7 BC-9 (ancla
+> `M2-B11-BC9`) + punto 8; ARCHITECTURE §4.50.6 (D-SK-4, D-BC-1). Deuda del techlead sobre `a3cde51`: D-1, D-2, D-4
+> (D-3 = D-BC-1, D-5 = D-SK-4). Zona de dinero (`inventory`, `buylist`, `pricing`, `vault`, `admin`). Sin schema,
+> sin migración, sin endpoint nuevo, sin campo en DTO, sin cabecera nueva en el `.xlsx`. Rama `claude/paquete-dinero`,
+> cuatro commits sobre `b8edfa7`: `b338886` (punto 1), `cd696a3` (punto 2 + D-2), `2cf50c6` (D-1 + D-4), y el de
+> estas notas.
+
+### 0.58.1 — Qué cambió, por punto
+
+1. **Export `.xlsx` = séptimo lector de patrimonio (`b338886`).** `inventory.service.ts` `exportInventoryXlsx`: la
+   llave de cada fila sale de `PricingService.valuationKeyFor(it)` (`:3216`; sellado mapeado ⇒ `sealed:tcg:<id>` bajo
+   `normal`, sin mapeo ⇒ `null`, graduada sin slab ⇒ `null`), `refs` y `ovByKey` se llavean con `variantKey()`
+   (`:3234`, `:3263`), el monto pasa por `valuationCentsOf(it, ref, sourceOn)` (`:3265`) y el dial se iza una vez por
+   export (`:3223`). `exportGradeKey` **retirado** (`:3297`, queda la nota de por qué). Columnas y cabeceras intactas;
+   `buyMxn`/`sellMxn` con la misma regla (`ov?.buyOverrideCents`; `firstPresentAmount(listPriceCents,
+   sellOverrideCents)`).
+2. **BC-9 en tres partes (`cd696a3`).** `buylist.service.ts` `publicBounties` (`:1324-1335`): por fila
+   `q = quoteAcquisitionWithGuard(referenceMxnCents, curve, r)`; presente ⇔ `q.basis === 'bounty' ∧
+   premiumFloorGuard(rareza, q.guardBasis) === 'ok'`; publica `q.priceCents`. Se retiran la composición manual
+   (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve` ×2) y sus imports.
+   `variant-pricing.ts` `composeVariantPricing` (`:197-200`): `effective = buy.basis === 'bounty'`;
+   `payoutCents = effective && !buyGuarded ? buy.priceCents : null`; `cappedByMarket` sin cambio. Desde `src`, fuera de
+   `common/money.ts`, ya no se importa `bountyPayoutCents` ni `bountyGuardBasis`; `isBountyEffective` queda en sus dos
+   llamadores (`variant-controls.service.ts` gate del alta; `buylist.service.ts` `positionAndSuggestion`).
+3. **D-1 / D-4 (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` (`pricing.service.ts:1257`) = «dial del
+   sellado, una lectura por petición y solo si hay sellado»; lo consumen los siete lectores (`admin.service.ts:1031,
+   1630, 1668`; `vault.service.ts:181, 404, 519`; `admin-vaults.service.ts:136`; export `:3223`). Los lectores llavean
+   el lote con `variantKey()` (`admin.service.ts:1013` productor de `ownedItemRefs`, `:1039`, `:1645`;
+   `vault.service.ts:428`; `admin-vaults.service.ts:149`). `/vault/sealed` (`:404`) pasa de leer el dial siempre a
+   leerlo solo si hay piezas (con la bóveda sellada vacía no hay nada que gatear; la respuesta no cambia).
+4. **D-2 (`cd696a3`).** El candado léxico de `pricing.bounty-guard.spec.ts` es ahora un censo cerrado al patrón VK-6:
+   `quoteAcquisitionFromCurve` aparece en código solo en `common/money.ts` (2) y `variant-controls.service.ts` (2), y
+   fuera de `money.ts` ninguna llamada lleva tercer argumento. Instrumento compartido nuevo:
+   `backend/test/helpers/ident-census.ts` (`walkSources`, `countIdentUses`, `identCensus`, `methodBody`,
+   `topLevelBody`, `callArgCounts`), usado por VK-6, BC-9(b) y este candado — una copia del recorrido, no tres.
+
+### 0.58.2 — Decisiones que el contrato dejaba abiertas (para QA/techlead/arquitecto)
+
+- **Censo de `isBountyEffective` (BC-9(b)):** el contrato dice «solo en un censo cerrado de **dos** llamadores». El
+  identificador aparece en código en **cuatro** ficheros: la definición (`common/pricing-curve.ts`, 1), el peldaño 1
+  (`common/money.ts`, import + uso = 2) y los dos llamadores del contrato (`variant-controls.service.ts` 2,
+  `buylist.service.ts` 2; import + uso cada uno, porque el censo cuenta imports como VK-6). La lista cerrada del spec
+  lleva los cuatro con su razón; «dos llamadores» = los dos fuera de `common/`. No es discrepancia, es la forma
+  concreta del censo.
+- **Presencia en la vitrina con `=== 'ok'`** (antes `!== 'premium_at_floor'`): es la forma del contrato; `GuardVerdict`
+  solo tiene esos dos valores, así que la conducta es idéntica.
+- **El export iza el dial con `sealedSourceOnFor(items)`** (D-4) y no con `loadSealedSpreads()` directo como dice
+  literalmente la errata: por debajo es la misma lectura, una vez, y solo si el export trae sellado. Matiz: un export
+  sin sellado hace **cero** lecturas del dial (la errata dice «una vez por export»; el valor no se usaría).
+- **`ovByKey` para sellado busca bajo `finish:'normal'`** (la llave de valuación), no bajo el `finish` de la pieza.
+  Por lectura no hay fila M-30 con `productType:'sealed'` (`variant-controls.service.ts:123-125` acota el write a
+  `raw`/`graded`), así que ninguna celda `Compra`/`Venta` cambia. **NO MEDIDO** en la BD de producción.
+- **Doble del export (nota de fixture del contrato):** `valuationKeyFor`/`valuationCentsOf`/`tryGradeKeyFor`/
+  `gateSealedMarketCents`/`sealedSourceOnFor` se toman de `PricingService.prototype`; solo `getReferencesBatch` y
+  `loadSealedSpreads` están doblados. Trece dobles más ganaron `sealedSourceOnFor` (delegan en su
+  `loadSealedSpreads` doblado): la causa única medida fue `sealedSourceOnFor is not a function` (130/130).
+- **Lo que queda apuntado en `TECH_DEBT.md`:** tres llaves de variante a mano fuera de SK-5 (`inventory.service.ts:1656`,
+  `master-set.service.ts:1044`, `price-ingest.service.ts:1018`), fuera del alcance de D-1.
+
+### 0.58.3 — Pruebas y mediciones (autor: backend; 2026-09-29; sobre copias del árbol entero, N=1 por mutación —
+todas deterministas: escaneo de fuente o cálculo puro)
+
+| Punto | Rojo antes (sobre el sha previo) | Verde después | Mutaciones (muerden / total) |
+|---|---|---|---|
+| 1 SK-5 export | VK-8a (800 en vez de vacía), VK-8b (vacía en vez de 2500), VK-8c ×3 (2500 con dial apagado; 0 lecturas del dial), VK-6 censo (5≠4) y VK-6 por método — 7 rojas | `inventory.export-xlsx.spec.ts` 16/16, `pricing.valuation-callers-census.spec.ts` 10/10 | llave `'sealed'` ⇒ VK-8a; `it.finish` ⇒ VK-8b; sin gate ⇒ VK-8c; `exportGradeKey` restaurado ⇒ VK-6 ×2 — **4/4** |
+| 2 BC-9 | BC-9(b) 4 rojas + inversión de `money.bounty-cap.spec.ts:246` + inversión de `pricing.bounty-guard.spec.ts:310` + censo D-2 (buylist con 3 usos) — 8 rojas; BC-9(c) verde (12 casos × vitrina y composer) | los tres specs + VK-6: 97/97 | peldaño 1 a mano en `publicBounties` ⇒ BC-9(b) 5 rojas; publicar `r.bountyPriceCents` ⇒ 6 rojas (1000/400/1200, 701/500, 650/500, chase sana, BC-10, «publica 1000»); filtrar sin `guardBasis` ⇒ 3 rojas (BG-6 retenida aparece, ×2 en `bounty-guard`); composer sin guardarraíl ⇒ 2 rojas (BG-6 composer + consola); tercer argumento en `variant-controls` ⇒ D-2 roja — **5/5** |
+| 3 D-1/D-4 | D-1, D-4 y la aserción por método del export rojas; `pricing.sealed-source-on.spec.ts` no compilaba | 33/33 en los tres specs; 121/121 en los 12 specs del ripple | llave a mano en `admin-vaults` ⇒ D-1; copia de `loadSealedSpreads` en `holdings` ⇒ D-4; helper que siempre lee ⇒ «sin sellado» roja; helper que siempre da `false` ⇒ «con sellado» ×2 rojas — **4/4** |
+
+- **Unitaria completa** (`npx jest`, árbol de `2cf50c6`): **360/360 suites, 5967/5967 pruebas** (base 359/5923: +1
+  suite, +44 pruebas). `tsc --noEmit` limpio; `eslint` sin errores (1 aviso preexistente, `inventory.service.ts:644`).
+- **Vecinas de bounty/composer/vitrina** (15 specs: `pricing-curve.spec.ts` BC-7, `buylist.bounties`,
+  `buylist.bounty-revalidation`, `admin-bounties.*`, `pricing.bounty-market-floor`, `master-set.*`, …): 315/315 sin editar.
+- **Integración** (Postgres propio en `:55822`, Redis en `:56822`, migraciones al día; sin MinIO — el seed avisa
+  que no sube las imágenes del INE, que no intervienen): ver el resumen final del pase; `sk5-valuation.e2e-spec.ts`
+  7/7 medido primero como validación del arnés.
+- BC-1…BC-12 y BG-1…BG-8 restantes **sin editar** (solo las dos inversiones que manda el contrato); BC-7
+  (`pricing-curve.spec.ts`) intacto.
+
+### 0.58.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **VK-6 en el contrato dice «`inventory.service.ts` baja de 5 a 4 usos»** — así quedó (import + publicación +
+   re-publicación + … = 4), con la razón reescrita sin la advertencia del export.
+2. **La errata «séptimo lector» describe el dial con `loadSealedSpreads()` «una vez por export»**; con D-4 la lectura
+   va por `sealedSourceOnFor`, que es `loadSealedSpreads()` una vez **si hay sellado** y cero veces si no. Si el
+   contrato quiere fijar «exactamente una» también para exports sin sellado, hay que decirlo; hoy VK-8c fija «una» con
+   sellado presente.
+3. **BC-9(b) «dos llamadores» de `isBountyEffective`:** el censo cerrado lleva cuatro ficheros (definición, `money.ts`
+   y los dos llamadores). Si el contrato prefiere un censo que excluya `common/`, es un cambio de redacción, no de
+   código.
+
+## 0.57 — ⭐⭐ **v1.80.2 §M2-B.11 punto 8: el tope del bounty no se salta el guardarraíl premium** (2026-09-29)
+
+> Contrato v1.80.2 §M2-B.11 punto 8 (ancla `M2-B11-8`) · ARCHITECTURE §4.36.5(a), §4.36.6e (fila v1.80.2). Zona de
+> dinero (`pricing`/`buylist`). Sin schema, sin migración, sin endpoint, sin campo en DTO, sin código de error.
+> **Sustituye a §0.55.3** (la consecuencia que allí reporté es la que el arquitecto normó aquí).
+
+### 0.57.1 — La forma del cambio
+
+- **`bountyGuardBasis(bounty, mercado, curveBasis)`** (`backend/src/common/money.ts`, junto a `bountyPayoutCents`):
+  `bountyPayoutCents(bounty, mercado) < bounty ? curveBasis : 'bounty'`. Devuelve un basis, no un monto, y no
+  recibe rareza (criterio 84). «Topado» se decide con `bountyPayoutCents` (el único tope, BC-9), así que la
+  presencia H-1 (mercado `<= 0` ⇒ ausente) viene gratis.
+- **`quoteAcquisitionWithGuard(mercado, curva, controles)`** (mismo fichero): llama a `quoteAcquisitionFromCurve` y
+  añade el campo interno **`guardBasis`** (tipo `AcquisitionQuoteResult`). Peldaño 1 ⇒ `bountyGuardBasis(bounty,
+  mercado, resolveBuyFromCurve(mercado, curva).basis)`; peldaños 2–4 ⇒ `= basis`. ⛔ No viaja en ningún DTO.
+  ⚠️ Es una función hermana y no un campo del resultado de `quoteAcquisitionFromCurve` — ver 0.57.4 (1).
+- **Llamadores de COMPRA** — todos evalúan el guardarraíl con `guardBasis`, nunca con `basis`:
+  - `decideBuyLine` (`buylist.service.ts`) ⇒ `resolvePendingReason(quote.guardBasis, rareza)`. De ahí salen
+    `/quote`, `/quote/batch`, `createRequest` (escala a la cola `premium_at_floor`, contexto `buylist`) y la
+    derivación de la oferta (`offerDerivedPriceCents = null` ⇒ el operador pone precio con motivo, 148(a)).
+  - `composeVariantPricing` (consola `/admin/pricing/bounties`, variant-controls y binder de master-set) ⇒
+    `premiumFloorGuard(rareza, buy.guardBasis)`. Fila retenida: `buy.source='pending'`, `buy.effectiveCents=null`,
+    `buy.premiumAtFloor=true`, `bounty.payoutCents=null`, `bounty.cappedByMarket=false`; `bounty.effective` intacto
+    ⇒ `state` sigue **`activa`** (`deriveBountyState` no se tocó).
+  - `publicBounties` (vitrina): tras calcular el pago y **antes** de ordenar/cortar a 50, filtra
+    `premiumFloorGuard(rareza, bountyGuardBasis(bounty, mercado, basis-de-la-curva)) === 'premium_at_floor'`.
+- **Lo que no cambia:** `isBountyEffective`, `bountyPayoutCents`, `quoteAcquisitionFromCurve` (forma y conducta:
+  BC-5 intacta), guardarraíl de VENTA, override. `/quote` y `/quote/batch` siguen READ-ONLY.
+- **Cierre:** la retención se **deriva** en cada resolución, no se persiste. Cuando el mercado se corrige, la
+  siguiente `createRequest` de esa variante cierra la entrada (`settlePendingForVariant(null, …, 'buylist')`) y
+  el bounty vuelve a pagar (BG-8).
+
+### 0.57.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| `bountyGuardBasis` pura, BG-1…BG-5 (seam real `publicQuote`), peldaños 2–4, BG-6 sin infra (consola y vitrina, incl. «el filtro va antes del corte a 50»), candado de forma (ningún `quoteAcquisitionFromCurve(m, curva, controles)` fuera de `money.ts`, con canario) | `backend/test/pricing.bounty-guard.spec.ts` |
+| BG-6 (quote, batch, vitrina, solicitud + cola, consola), BG-7 (oferta), BG-8 (cierre) — Postgres real, por HTTP | `backend/test/integration/bounty-guard.e2e-spec.ts` |
+
+**Expectativa invertida (modelo fuerte, anotada):** `pricing.premium-floor-guard.spec.ts`, caso E4 «un BOUNTY…»:
+afirmaba que la chase con mercado MX$1 y bounty MX$9,000 cotizaba **MX$1** (`bounty`), la conducta de `c77ebc8`
+fijada en §0.55.3. Ahora afirma `precio_pendiente` / `quotedPriceCents null` / `priceBasis pending` (BG-1), y añade
+el caso sin tope (bounty 250 < mercado 300, curva en el bin ⇒ paga 250 `bounty`, exención vigente). BC-1…BC-12 y
+la tabla de 12 casos de `isBountyEffective` **no se editaron**.
+
+**Escala en integración (desviación declarada):** bounty retenido **150000** (contrato: 900000) y mercado de BG-8
+**200000** (contrato: 1000000). Con MX$9,000 la solicitud de BG-8 y la oferta de BG-7 chocan con el tope AML por
+solicitud del seed (MX$3,000); y con bounty 150000 un mercado de 1000000 haría que la curva pagara más que el
+bounty (rebasado ⇒ `market`). Se conserva lo que se prueba: bounty > mercado roto (topa), curva en el bin, rareza
+premium; y en BG-8 curva < bounty < mercado (efectivo, sin tope). Las precondiciones se afirman contra la curva
+VIVA (`GET /admin/pricing/curve`).
+
+**INE en la integración:** una línea `precio_pendiente` exige INE en el intake (Fase 0.3, ya existente), así que
+el spec pone INE en archivo al vendedor y lo restaura en `afterAll`. Ver 0.57.4 (3).
+
+### 0.57.3 — Mediciones (autor: backend; 2026-09-29)
+
+- **Rojo contra `5776f74`** (copia del árbol entero `git archive 5776f74` + los specs nuevos; Postgres propio):
+  - Unidad (ts-jest sin diagnóstico para que los símbolos nuevos lleguen `undefined` y no tumben el fichero):
+    rojos **por conducta** BG-1 seam (`cotizada` en vez de `precio_pendiente`), BG-6 consola, BG-6 vitrina (×2)
+    y E4 invertida. BG-3/BG-4 salen rojos solo porque su precondición llama a `quoteAcquisitionWithGuard`
+    (inexistente): **ese rojo es vacuo** y no lo cuento.
+  - Integración: **7/8 rojos por conducta** (quote, batch, vitrina publica 100, solicitud `cotizada`, consola,
+    oferta sale con derivado 100, BG-8 sin entrada que cerrar); verde solo la precondición de la curva.
+  - **BG-2, BG-3, BG-4, BG-5 son verdes contra `5776f74` por diseño**: prueban que NO se retiene de más, y
+    `5776f74` nunca retiene. Su mordida es la de las mutaciones de abajo, no la del rojo previo.
+- **Mutaciones** (copia del árbol entero con este cambio; deterministas, N=1 cada una; línea base de la copia
+  45/45 unidad y 8/8 integración):
+
+| Mutación | Resultado |
+|---|---|
+| `decideBuyLine` con `quote.basis` (conducta `c77ebc8`) | muerta: BG-1, E4 |
+| retener bounty topado con curva `floor` sin `premiumFloorGuard` | muerta: BG-2 |
+| `guardBasis = basis de la curva` en todo el peldaño 1 | muerta: BG-3 (×2), BG-5 (×2), E4 (×2) |
+| `<=` en `bountyGuardBasis` | muerta: BG-3 empate y 8 más |
+| retener todo bounty topado premium sin mirar la curva | muerta: BG-4, vitrina, pura |
+| `bountyGuardBasis` sin H-1 (`mercado != null && mercado < bounty`) | muerta: BG-5 mercado 0, pura |
+| **`curveBasis` = `'floor'` cuando la curva es `pending` (la del contrato para BG-5)** | **sobrevive — mutante equivalente**, ver 0.57.4 (2) |
+| vitrina sin el filtro | muerta: BG-6 vitrina (unidad ×2, integración) |
+| consola con `buy.basis` | muerta: BG-6 consola (unidad, integración) |
+| `createRequest` sin escalar | muerta: BG-6 solicitud, BG-8 |
+| oferta derivada sin guardarraíl (`quote.priceCents`) | muerta: BG-7 |
+| la retención no se cierra (solo se escribe con razón) | muerta: BG-8 |
+
+- **Suites (árbol vivo):** unidad completa **359/359 suites, 5923/5923**; integración buylist/pricing (14 suites:
+  `bounty-cap`, `bounty-guard`, `buylist*`, `admin-bounties`, `pricing-*`, `pending-publish-seed`) **226/226**;
+  `tsc --noEmit` limpio; `eslint` de los ficheros tocados limpio.
+
+### 0.57.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **`guardBasis` no puede ser un campo del resultado de `quoteAcquisitionFromCurve` sin editar BC-5.** El contrato
+   pide ambas cosas: «el resultado gana un campo INTERNO `guardBasis`» y «BC-1…BC-12 siguen verdes **sin
+   editarse**». BC-5 (`test/money.bounty-cap.spec.ts`) afirma con `toEqual` la forma exacta
+   `{priceCents, basis, marketMxnCents, curveQuoteCents}` en sus 9 filas (y E2 de `money.pricing-curve.spec.ts`,
+   dos casos, igual). Un campo nuevo las pone rojas. Implementé la función hermana `quoteAcquisitionWithGuard`
+   (misma precedencia, un solo cuerpo; solo añade el basis del guardarraíl) y un candado que impide llamar a
+   `quoteAcquisitionFromCurve` **con controles** fuera de `money.ts`. BG-1 afirma su precondición sobre la
+   hermana. Si el arquitecto prefiere el campo, hay que autorizar a editar la forma de BC-5/E2.
+2. **La mutación que el contrato asigna a BG-5 es equivalente.** «`curveBasis` por defecto `'floor'` cuando la
+   curva es `pending`» no puede cambiar ninguna salida: la curva de compra es `pending` **solo** sin mercado
+   presente (`explainBuyFromCurve`, `mercado == null || <= 0`), y sin mercado presente `bountyPayoutCents`
+   devuelve el bounty ⇒ `bountyGuardBasis` responde `'bounty'` sin leer `curveBasis`. Medido: sobrevive. BG-5 sí
+   mata la mutación vecina que no es equivalente (quitar H-1 de `bountyGuardBasis`).
+3. **Consecuencia no nombrada (no es contradicción):** una solicitud con una línea retenida **exige INE**, porque
+   el intake exige INE ante cualquier línea `precio_pendiente` (Fase 0.3). El punto 8 dice «idéntico a una chase
+   sin bounty con la curva en el bin», y así es — pero para el vendedor significa que una chase con bounty y
+   mercado roto le pide INE aunque el monto fuera pequeño. Lo dejo dicho por si el dueño lo pregunta.
+
+## 0.56 — ⭐⭐ **v1.80 §M4-VAULT.2-bis.2: `SEC-SETTLE-LATE` — el pago solo se liquida desde `pending` o `failed`** (2026-09-28)
+
+> Contrato v1.80 §M4-VAULT.2-bis.2 · ARCHITECTURE §4.21q (p). Zona de dinero (`payments`). Sin schema, sin
+> migración, sin endpoint, sin código de error.
+
+### 0.56.1 — La forma del cambio
+
+- **Una constante, un predicado:** `SETTLEABLE_ORDER_STATUSES = ['pending','failed'] as const satisfies
+  readonly OrderStatus[]` en `backend/src/modules/payments/settleable-order-statuses.ts`, con
+  `isSettleableOrderStatus(status)` (la única forma de preguntarlo). La leen **tres** sitios y ningún otro: el
+  early-return de `onPaymentSucceeded` (negado) y el CAS `tx.order.updateMany({ where: { id, status: { in:
+  [...SETTLEABLE_ORDER_STATUSES] } } })` en las ramas `vault` y `settleDirectShipOrder`.
+- **El early-return va antes de H1** (un tardío no es un descuadre: ⛔ no audita `order.settle_amount_mismatch`)
+  y antes del reparto por `fulfillmentMode` (⛔ no llama a `getCardDetails`).
+- **La única huella del tardío** es `logger.warn('SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden
+  <orderNumber ?? id> en <status> (PI <pi>)')`, **solo** en `refunded`/`chargeback`; `settled` sale en silencio.
+  El perdedor del CAS no loguea nada (no sabe contra quién perdió). Marcador `ProcessedStripeEvent`: queda.
+- ⛔ No se tocó: `onChargeDispute*`, `onChargeDisputeClosed`, `failAndRelease`, `createMany … skipDuplicates`.
+
+### 0.56.2 — Medido ANTES del arreglo (sobre `cb4ee3e`, Postgres real, webhook firmado, N=1 por caso)
+
+El contrato marcaba ⛔ NO MEDIDO si salía `AV-2` por el camino tardío. **Sale**, y hay algo peor en `direct_ship`:
+
+| Caso (tardío = `succeeded` con otro event.id) | Antes de v1.80 |
+|---|---|
+| `vault` settled → contracargo → tardío | orden vuelve a `settled`, **`AV-2` enviado** |
+| `vault` settled → reembolso total → tardío | `settled`, **`AV-2` enviado** |
+| `direct_ship` (reg./inv.) settled → contracargo → tardío | `settled` + **`ShipmentRequest` NUEVO en `picking`** (el contracargo había cancelado el anterior) + confirmación de invitado / `AV-2` |
+| `direct_ship` (reg./inv.) `pending` → contracargo → tardío | lo anterior **y** la pieza que el contracargo había devuelto a `listed` se **re-congela en `picking`** (rama «recuperada» del settle) |
+
+Es decir: con Stripe entregando fuera de orden, una carta contracargada volvía a la cola de envío. Desde v1.80
+los cuatro casos son no-op (SL-1…SL-3, abajo).
+
+### 0.56.3 — Pruebas (primero en rojo, luego verdes)
+
+| Prueba | Fichero | Rojo sobre `cb4ee3e` | Verde |
+|---|---|---|---|
+| **38 (iii) enmendada** (`where` exacto `{ id, status: { in: ['pending','failed'] } }`, literal) | `test/payments.settle-cas.spec.ts` | 3/3 ramas | ✓ |
+| 38 (iii) literal en las otras tres specs que la afirmaban | `test/payments.service.spec.ts`, `test/payments.vault-placement-birth.spec.ts`, `src/modules/payments/h1-settle-amount.spec.ts` | — (cambio de literal) | ✓ |
+| **38 (ii) intacta** + control positivo `failed` en el fichero nuevo | `test/integration/vault-placement-birth.e2e-spec.ts`, `test/integration/settle-late.e2e-spec.ts` | verde (conducta que se conserva) | ✓ |
+| **SL-5** tabla de 5 estados × 3 ramas (unidad) + warn con id si no hay `orderNumber` + tardío antes de H1 | `test/payments.settle-late.spec.ts` | 18 rojas (las 21 de la corrida incluyen las 3 de 38 (iii)) | ✓ |
+| **SL-6** canario de lista cerrada (una fila por valor de `Object.values(OrderStatus)`) | ídem | — (nace con la constante) | ✓ |
+| **SL-1** `vault` contracargo → tardío (`settledAt` al ms, colocación igual) | `test/integration/settle-late.e2e-spec.ts` | rojo | ✓ |
+| **SL-2** `refunded` → tardío, 3 variantes | ídem | 3 rojas | ✓ |
+| **SL-3** `direct_ship` en `chargeback`, 4 variantes (reg./inv. × tras liquidar / sin liquidar) | ídem | 4 rojas | ✓ |
+| **SL-4** carrera con barrera de fila, N=10 por rama (`vault`, `direct_ship` reg., `direct_ship` inv.) | ídem | 0/10 verdes en cada rama | ✓ |
+| **SL-7** `dispute.closed(won)` conserva `settledAt`; luego tardío ⇒ no-op sin warn | ídem | verde (regresión) | ✓ |
+
+**«Cero escrituras» se mide con `xmin`:** la foto de SL-1…SL-3 incluye `xmin` de `Order`, `InventoryItem`,
+`VaultPlacement(Item)` y `ShipmentRequest`; cualquier `UPDATE` —aunque reescriba el mismo valor— lo cambia. Así
+«la tarjeta no se reescribió» no depende de que el doble de Stripe devuelva otra tarjeta.
+**`AV-2`:** el arnés no trae bandeja propia; la spec espía `mail.send`, `guestMail.sendConfirmation` y
+`logger.warn` **de la instancia viva** de `PaymentsService` (`h.app.get(PaymentsService)`), y
+`h.stripe.getCardDetails`. SL-1 lo mide directamente (no depende de SL-5).
+
+**SL-4, el arnés:** la barrera abre una tx, `SELECT … FOR UPDATE` + `UPDATE "Order" SET status='chargeback'`
+sin confirmar; se lanza el `succeeded` y se espera a verlo en `pg_stat_activity` con `wait_event_type='Lock'` y
+`query ILIKE '%UPDATE%"Order"%'`; se confirma la barrera. **Canario:** una tirada en la que el webhook respondió
+sin haberse visto esperando la fila cuenta como `INVALIDA` (⛔ no como verde) y la prueba exige 10/10 válidas.
+
+### 0.56.4 — Mediciones (autor: backend; sobre copia del árbol ENTERO `git archive HEAD` + mis ficheros)
+
+- **SL-4 verde:** 5 corridas × N=10 ⇒ **50/50 válidas y 50/50 verdes en cada una de las tres ramas**, 0 inválidas.
+- **Mutaciones** (cada una sobre la copia, suites de unidad de payments + `settle-late` + `vault-placement-birth`):
+
+| Mutación | Qué se pone rojo |
+|---|---|
+| M1 CAS **y** early-return a `not: 'settled'` (lo de v1.79.4) | SL-1, SL-2 ×3, SL-3 ×4, SL-4 ×3 (**0/10 verdes por rama, 2 corridas ⇒ 20/20 rojas**), residual ×2; unidad 25 |
+| M2 añadir `'refunded'` a la constante | SL-2 ×3, residual ×2; SL-5/SL-6/38 (iii) en unidad (17) |
+| M3 arreglar solo `vault` (early-return no aplica a `direct_ship` + CAS `direct_ship` viejo) | SL-2 direct_ship ×2, SL-3 ×4, SL-4 direct_ship ×2 (0/10 c/u) |
+| M4 early-return con la lista nueva, **CAS con `not: 'settled'`** en las dos ramas | en integración **solo SL-4** ×3 (**0/10 válidas-verdes por rama, 2 corridas ⇒ 20/20 rojas**); en unidad 38 (iii) + SL-5 (13) |
+| M5a quitar `'failed'` | 38 (ii) ×2 (integración), SL-5, SL-6, 38 (iii) (14) |
+| M5b añadir `'chargeback'` | SL-1, SL-3 ×4, SL-4 ×3, SL-5, SL-6 (23 en unidad) |
+| M5c early-return con lista propia `['pending','failed','refunded']` (CAS intacto) | SL-5 `refunded` ×3; SL-2 ×3 y residual ×2 (por el `warn`) |
+| M5d early-return con lista propia `['pending']` | SL-5 `failed` ×3; 38 (ii) ×2 |
+| M6 añadir `disputed` al enum `OrderStatus` + `prisma generate` | SL-6 ×2 |
+| M7 `onChargeDisputeClosed(won)` con `settledAt: new Date()` | SL-7 |
+| MCAN (canario) early-return que sale siempre | SL-4 ×3: **10/10 `INVALIDA`** por rama ⇒ rojo por el canario (sin él habría sido verde falso) |
+
+### 0.56.5 — ⭐ Residual declarado: el barrido de reservas y una orden `refunded` sin liquidar (MEDIDO)
+
+**Predicado leído** (`OrdersService.sweepExpiredReservations`, `orders.service.ts:1069`): selecciona piezas
+`status='reserved' ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` **sin mirar el estado de la orden**; por
+orden, B3: `closePaymentIntent` y solo si queda `canceled` libera (`reservationGuard(orden)` ⇒ `listed`); la orden
+solo pasa a `failed` si seguía `pending`.
+
+**Medido** (Postgres real, `settle-late.e2e-spec.ts` «RESIDUAL», N=1 por variante): orden `vault` `pending` con 2
+piezas `reserved` vencidas ⇒ `charge.refunded` total (reembolso desde el panel, sin liquidar) ⇒ `refunded` ⇒
+tardío no-op ⇒ barrido:
+- **Con el doble en modo Stripe real** (`cancelOutcome='throws-succeeded'`: un PI reembolsado está `succeeded` y
+  cancelarlo lanza): **NO las suelta**, dos pasadas seguidas. Quedan `reserved` por una orden `refunded` para
+  siempre, y el barrido lo reintenta y loguea `error` en **cada** pasada (cada 15 min).
+- Contraste con el doble que sí cancela (irreal para un PI reembolsado): las soltaría a `listed`; la orden sigue
+  `refunded`.
+
+⇒ **Las piezas no se sueltan.** El contrato dice que en ese caso «se registra en `TECH_DEBT.md` con disparador
+"primer reembolso fuera de la app"»; mi encargo me limitó a `payments/`, sus pruebas y estas notas, así que **no
+lo escribí** — queda para el orquestador (propuesta de texto en el informe). Cuidado al arreglarlo: soltar una
+pieza de una orden reembolsada es devolver a la venta una carta cuyo cliente puede tenerla ya (depende de por
+qué se reembolsó); no es «liberar y ya».
+
+### 0.56.6 — Para QA / seguridad
+
+- Re-medir la sonda S4 de seguridad (N≥10) sobre este sha: `chargeback` + `succeeded` con importe correcto ⇒
+  `200`, sigue `chargeback`, `settledAt` sin reescribir, `logger.warn SEC-SETTLE-LATE` en el log.
+- Frontend: nada.
+
+## 0.55 — ⭐⭐ **v1.80 §M2-B.11: TOPE DE PAGO DEL BOUNTY — se paga `min(bounty, mercado)`** (2026-09-28)
+
+> Contrato v1.80 §M2-B.11 · ARCHITECTURE §4.36.6e · `HECHOS.md` (dos filas del 2026-09-28): «el bounty nunca
+> paga más que el precio de mercado»; sin mercado ⇒ bounty completo; carta barata ⇒ se paga el mercado aunque la
+> tarifa normal pague más (sin piso). Zona de dinero.
+
+### 0.55.1 — La forma del cambio
+
+- **`bountyPayoutCents(bounty, mercado)`** (`backend/src/common/money.ts`, junto a `quoteAcquisitionFromCurve`):
+  `isPresentAmount(mercado) ? Math.min(bounty, mercado) : bounty`. Enteros, sin redondeo. Un mercado `<= 0` es
+  ausente (H-1) ⇒ se paga el bounty, jamás MX$0.
+- **Peldaño 1 de `quoteAcquisitionFromCurve`**: único cambio, `priceCents = clampCents(bountyPayoutCents(...))`.
+  `basis` sigue `bounty`; `marketMxnCents` y `curveQuoteCents` sin cambio. De ahí salen cotización, lote,
+  `createRequest` (congela `quotedPriceCents`) y la **oferta derivada** (`offerDerivedPriceCents`, con el mercado
+  del momento de ofertar).
+- **Override** (`buyOverrideCents`, peldaño 2) y override del operador al ofertar: **no se topan**.
+- `isBountyEffective`, `422 BOUNTY_BELOW_RULE`, `state` de la consola: **intactos** (la tabla de 12 casos de
+  `src/common/pricing-curve.spec.ts` no se editó — canario BC-7).
+- **Vitrina** (`publicBounties`): seleccionar → mercado en lote → filtrar no efectivos → **calcular el pago** →
+  ordenar por el pago desc (desempate: el orden del query, `updatedAt` desc; `sort` es estable) → top 50.
+  `bountyPriceCents` publicado = lo que se paga. Misma forma; ningún campo delata el tope.
+- **`VariantPricingDTO.bounty`** gana `payoutCents: number | null` (`bountyPayoutCents` si `effective`, si no
+  `null`) y `cappedByMarket: boolean` (`payoutCents < priceCents`; empate ⇒ `false`). `priceCents` sigue siendo
+  lo configurado. Para toda fila efectiva `payoutCents === buy.effectiveCents`.
+- **Consola** (`admin-bounties.service.ts`): `price_desc` y el orden dentro de grupo de `attention_first` usan
+  `payoutCents ?? bountyPriceCents`.
+- **No retroactivo**: sin migración ni backfill; lo congelado (`quotedPriceCents`, `offeredPriceCents`,
+  `approvedPriceCents`, `acquisitionCostCents`) no se toca.
+- Docblock de `money.ts` corregido (decía «el bounty NUNCA se compara contra el mercado»).
+
+### 0.55.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| BC-1..BC-6, BC-9 (candado de forma: único `Math.min` sobre bounty en `src/`, comentarios blanqueados, con canario) | `backend/test/money.bounty-cap.spec.ts` |
+| composer / vitrina / consola sin infra (BC-8 y BC-10 en unidad) | `backend/test/pricing.bounty-cap.spec.ts` |
+| BC-8, BC-10, BC-11, BC-12 (Postgres real, por HTTP) | `backend/test/integration/bounty-cap.e2e-spec.ts` |
+
+Montos de la integración **×100** respecto al contrato (MX$1,200 / MX$1,000): con MX$12 la solicitud no pasa el
+mínimo de MX$500 ni el neto mínimo de oferta. BC-10 usa para B mercado 400000 en vez de 10000×100: con la curva
+del seed (50 % en el tramo alto) el B del contrato **no es efectivo**; el B elegido conserva la propiedad que la
+prueba necesita (configurado menor que A, pago mayor).
+
+**Pruebas existentes que cambiaron de expectativa** (afirmaban la conducta anterior, bounty > mercado pagaba el
+bounty): `pricing.bounty-market-floor.spec.ts` (650 y 701 sobre mercado 500 ⇒ pagan 500),
+`buylist.bounty-revalidation.spec.ts` (3 casos: mercado $10 < bounty $50 ⇒ paga $10),
+`pricing.variant-controls.spec.ts` (DTO con los dos campos nuevos), `pricing.premium-floor-guard.spec.ts` (ver
+0.55.3), `buylist.variant-overrides.spec.ts` (el caso de tope por solicitud necesitaba mercado > bounty para que
+el bounty se pague entero).
+
+Mutaciones (sobre copia del árbol entero; todas deterministas): 16 unitarias y 6 de integración, **todas
+muertas** — incluidas `Math.max`, `market != null` en vez de `isPresentAmount`, topar contra la curva, topar solo
+si curva < mercado, `basis: 'market'` al topar, topar el override, vitrina publicando/ordenando por lo
+configurado, `Math.min` a mano en la vitrina, consola ordenando por lo configurado, y reescribir
+`quotedPriceCents` al ofertar.
+
+### 0.55.3 — ⚠️ Para el arquitecto: una consecuencia que el contrato no nombra
+
+> ⛔ **Superada por §0.57 (v1.80.2, 2026-09-29):** el arquitecto normó esta esquina (bounty topado + curva en el
+> bin + premium ⇒ `precio_pendiente`) y la expectativa «MX$1» se invirtió. Lo de abajo queda como historia.
+
+**Guardarraíl premium + bounty.** El guardarraíl (§4.36.5) no dispara con basis `bounty`, y el contrato no lo
+cambia. Pero ahora el **monto** sale del mercado: una chase con un mercado corrupto de MX$1 (justo el dato que
+el guardarraíl existe para no creer) y un bounty de MX$9,000 **cotiza y publica MX$1** en vez de MX$9,000
+(antes) o `pendiente`. Lo implementé literal (mercado presente ⇔ `> 0`) y lo dejé fijado en
+`pricing.premium-floor-guard.spec.ts`. Si el arquitecto quiere otra cosa (p. ej. no topar cuando el
+guardarraíl dispararía sobre la curva), es una decisión de contrato, no mía.
+
+### 0.55.4 — Para frontend
+
+`VariantPricingDTO.bounty.payoutCents` / `cappedByMarket` son aditivos. La vitrina no cambia de forma. La marca
+visual del tope en la consola es de ux-ui.
+
+## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
+
+> Propiedad: **backend**. Cierra los dos últimos lectores de dinero que el barrido del arquitecto
+> (`docs/specs/P53_FRESHNESS_DESIGN.md`) dejó ABIERTOS: `getReference` (**F4**) y
+> `getReferenceByCardProduct` (**F5**). Base: `claude/be-p53-cura3` (`b9c856bd`), que ya arregló F1
+> (`getReferencesBatch`), F2 (`isBetterRef`) y F3 (`computeSetValue`). **Sin schema, sin contrato**
+> (`evidenceDate` ya existe, M-43; es un fix de precedencia de LECTURA, igual naturaleza que §0.1.b).
+
+### 0.54.1 — El defecto (medido)
+
+Bajo **write-on-change** (P-53, §0 de cura3), el escritor diario CONGELA el `capturedDate` de la fila
+primaria buena y solo avanza su `evidenceDate`. `getReference` (F4) y `getReferenceByCardProduct` (F5)
+todavía cortaban su ventana de candidatas del **tier automático** con
+`take: SAME_DAY_REF_CANDIDATES(=32)` ordenado por `capturedDate` **CRUDO**. Consecuencia money-losing:
+una primaria con `capturedDate` viejo (congelado) + `evidenceDate=HOY` caía **fuera del top-32** y una
+automática de MENOR precedencia (§4.27f) con `capturedDate` reciente la vencía — **inversión de
+precedencia**. Es el camino de **checkout single-item** (`orders.service.ts:316`) y **buylist
+single-line/producto separado** (`buylist.service.ts:1097/1108`): money-crítico, no un borde.
+
+### 0.54.2 — El arreglo: DELEGAR (patrón recomendado del diseño)
+
+- **F4 `getReference`** ⇒ delega en **`getReferencesBatch([item])`** y devuelve `.get(variantKey(item))`
+  (o `{status:'pending'}`). `getReferencesBatch` mide la ventana por **FRESCURA EFECTIVA**
+  `COALESCE(evidenceDate, capturedDate)` (`$queryRaw` de F1, ya en gates), conserva la candidata
+  **manual perenne** (`is_manual OR …`) y cierra con el MISMO `isBetterRef`/`liveMxnCents`/FX viva.
+- **F5 `getReferenceByCardProduct`** ⇒ delega en **`getReferencesByCardProductBatch([item])`** (F6, que
+  **ya** lee SIN cota y reduce con `isBetterRef` ⇒ ya durable) y devuelve `.get(cardProductRefKey(item))`.
+
+**Por qué delegar y no replicar el `$queryRaw`:** una sola fuente de verdad para la selección de mercado
+⇒ single-item y lote **no pueden volver a divergir** (mismo espíritu con que §0.1.b cerró la asimetría de
+los manuales). No medí regresión de perf que lo desaconseje: para N=1 el lote es UNA query (`$queryRaw`
+con ventana) en lugar de las dos `findMany` previas — no hay sobre-lectura. Con esto **no queda ningún
+lector de dinero que cape por `capturedDate` crudo** (F6/F7/F8 ya leían sin cota; F9 usa `isStaleByOrigin`).
+
+**Constantes retiradas** (`pricing.service.ts`): `SAME_DAY_REF_CANDIDATES` (la cota `take:32`, vector del
+bug) y `MANUAL_REF_PREDICATE` (la candidata perenne ahora la garantizan los métodos de lote sin cota). Sus
+docblocks afirmaban, **falsamente bajo write-on-change**, que la cota por `capturedDate` era money-safe;
+se sustituyeron por la nota de retiro con la explicación del defecto.
+
+### 0.54.3 — Invariante CA-10 y pruebas
+
+**CA-10:** con `evidenceDate=null` en todas las filas (legadas del deploy y todas las graded de hoy),
+`COALESCE = capturedDate` ⇒ la selección es **IDÉNTICA a producción hoy**. El comportamiento nuevo solo
+emerge cuando el escritor write-on-change empieza a avanzar `evidenceDate`.
+
+Canarios (`test/pricing.getreference-p53-freshness.spec.ts`): **C1** (F4) y **C2** (F5) muerden la
+inversión (primaria `tcgcsv_singles` `capturedDate` viejo + `evidenceDate=HOY` vs fallback
+`pokemontcg_io` `capturedDate=HOY` ⇒ debe ganar la primaria), **cada uno con su gemelo CA-10**
+(`evidenceDate=null` ⇒ gana el fallback, idéntico a hoy) = **4 casos**. **Rojo-primero verificado**:
+revertí F4/F5 al patrón capado sobre una COPIA del árbol y C1+C2 quedaron **rojos** (devolvían el fallback
+peor), los gemelos CA-10 y los candados **verdes**; con la delegación, **6/6 verde**. Candados de
+no-regresión (§4 del diseño): **F6** y **F7** en el mismo spec y **F8** en
+`admin.owned-item-refs.manual-override.spec.ts` (frescura efectiva, «no capar por `capturedDate` crudo»).
+
+**Especificaciones actualizadas por la delegación** (el patrón de lectura cambió de dos `findMany`
+capados a `$queryRaw`/lote): `pricing.getreference-determinism`, `pricing.manual-override-durable-cross-day`,
+`pricing.money-ref-kind`, `fx.mode-switch` (añaden `$queryRaw: makeRefsRawQuery(...)` a su mock y dejan de
+asertar el `take:32`) y, por lectores indirectos que construyen el `PricingService` real,
+`inv1-sales-rule-propagation` (fila con clave completa) + las tres de sellado
+(`inventory.sealed-alta/-aportacion/-product-alta`, añaden `$queryRaw` al mock; **NO** se tocó el código
+de sellado). Suite completa: **325/325 suites, 5376/5376 pruebas** (medido 2026-09-18).
+
 ## 0.53 — ⭐⭐ **D56: EL BLOQUE INDIVISIBLE DEL IVA, COMPLETO** (2026-09-14)
 
 > Propiedad: **backend**. Implementa `API_CONTRACT §M10-IVA` entera (v1.75) y `ARCHITECTURE §4.44` +
@@ -8349,7 +8848,16 @@ vuelve a pisar el precio humano **en silencio**. El comparador estaba bien; la *
 **Approach elegido — lectura DIRIGIDA de manuales unida al bloque reciente (opción a del dictamen).** En `getReference`
 y `getReferenceByCardProduct` la lectura ahora hace **DOS queries en paralelo** (`Promise.all`):
 1. **bloque reciente CAPADO** (`take: 32`, `orderBy capturedDate desc`) — cubre el **tier automático** sin traer el
-   histórico entero (la cota sigue siendo money-safe para automáticas: solo las recientes pueden ganar entre sí);
+   histórico entero.
+   > ⚠️ **CORREGIDO por P-53 ALTO-4 (§0.54, 2026-09-18).** Este punto afirmaba «la cota sigue siendo
+   > money-safe para automáticas: solo las recientes pueden ganar entre sí». **Esa afirmación es FALSA
+   > bajo write-on-change (P-53):** «las recientes» se medía por `capturedDate` CRUDO, pero el escritor
+   > CONGELA el `capturedDate` de la primaria buena (solo avanza `evidenceDate`), así que una primaria con
+   > `capturedDate` viejo + `evidenceDate=HOY` caía fuera del top-32 y una automática PEOR con
+   > `capturedDate` reciente la vencía (inversión §4.27f). La cota **NO** era money-safe para automáticas.
+   > `getReference`/`getReferenceByCardProduct` ya **NO** capan por `capturedDate` crudo: delegan en los
+   > métodos de lote, que miden la ventana por `COALESCE(evidenceDate, capturedDate)`. El `take:32`
+   > (`SAME_DAY_REF_CANDIDATES`) se retiró. Lo de abajo describe el diseño VIEJO (histórico, ya superado).
 2. **lectura DIRIGIDA de manuales** (`MANUAL_REF_PREDICATE = { OR: [isManualOverride:true, source:'manual'] }`),
    **SIN cota de fecha ni `take`**, misma clave. Garantiza que **TODA** fila manual de la clave esté siempre entre
    las candidatas, sin importar cuántos barridos automáticos se acumulen.
@@ -8365,6 +8873,10 @@ código** («el manual es candidata perenne», f-2) de forma auto-documentada. E
 tocaron. La asimetría que reportó seguridad (batch durable, single-item no) queda cerrada: ahora los cuatro coinciden.
 Nuevo export `MANUAL_REF_PREDICATE` en `pricing.service.ts`. Comentario de `SAME_DAY_REF_CANDIDATES` reescrito para f-2
 (la cota gobierna SOLO el tier automático; el manual es perenne).
+> ⚠️ **SUPERADO por P-53 ALTO-4 (§0.54, 2026-09-18).** `getReference`/`getReferenceByCardProduct` ya no
+> hacen las dos `findMany` (capada ⊕ dirigida): DELEGAN en los métodos de lote, que ya son durables sin
+> cota. Las constantes `SAME_DAY_REF_CANDIDATES` **y** `MANUAL_REF_PREDICATE` se **retiraron** (la durabilidad
+> cross-day del manual la garantiza que el lote no capa por `capturedDate`, no un predicado aparte).
 
 ### 0.1.c — Ficha 360° admin `ownedItemRefs` usa `pickBestRef` (blocker #2, consistencia) — 2026-08-24
 
@@ -23538,3 +24050,8028 @@ comió) · idempotencia sin acuse · criterio 209 · `priceConvention` `NOT NULL
   `lockIvaTransferGate`, que no toqué, y su orden sigue medido por el gate spec.
 - **NO MEDIDO:** que `iva_pct = 0` sea alcanzable por la puerta de `iva_pct` en vivo; el caso «dial no
   encerrado» se mide con la tasa sembrada en `0` en el doble.
+
+---
+
+# PERF-CATALOG (2026-09-17) — por qué el home y comprar/vender tardan ~20s, y qué aceleré
+
+**Rama:** `claude/perf-catalog` (base `origin/production`). **Zona money-adjacent (catálogo/precios): cambié VELOCIDAD, no resultados** (mismos ítems, mismo orden, mismos precios, mismas facetas).
+
+## La causa MEDIDA de las tres llamadas de ~10s
+
+Las tres rutas que el dueño cronometró comparten UN camino: `CatalogService.fetchSellable`
+(`backend/src/modules/catalog/catalog.service.ts:642-705`). Medido con un probe que arranca el
+contexto Nest real y cronometra cada query (Prisma `$use`), contra la BD nativa local:
+
+- **`GET /catalog/cards?sort=grading_showcase&pageSize=8`** y **`?sort=price_desc&pageSize=8`** →
+  `listCards` (`catalog.service.ts:1267`) llama a `fetchSellable(singlesPublishedWhere(...))`.
+- **`GET /catalog/facets`** → `facets` (`catalog.service.ts:1377`) llama a `fetchSellable(publishedWhere())`.
+
+**Por eso las tres tardan lo mismo (~10s): ejecutan el MISMO trabajo caro.** Medido: **16 queries por
+request** (15 en facets), dominadas por dos lecturas y por 9 round-trips de config.
+
+### Causa 1 — la lectura del catálogo IGNORA `pageSize` (la más importante)
+El SQL que emite `fetchSellable` (capturado con logging de Prisma) es:
+```
+SELECT ... FROM "InventoryItem"
+ WHERE "ownerType"='platform' AND "status"='listed' [AND "productType" <> 'sealed']
+ ORDER BY "createdAt" DESC OFFSET 0        -- ⚠️ SIN LIMIT
+```
+No hay `LIMIT`: se lee y se **enriquece de precio TODO el inventario publicado**, se agrupa, se ordena
+por precio/grading (claves CALCULADAS, no en BD) y **solo entonces** se rebana a `pageSize=8`
+(`catalog.service.ts:1366-1370`). Por eso `pageSize=8` cuesta lo mismo que `pageSize=todo`: el dueño lo
+leyó como «no es volumen», y es correcto en el sentido de que el `pageSize` no lo explica — lo explica
+que la consulta lee el catálogo entero. **Plan (EXPLAIN ANALYZE): `Seq Scan` sobre `InventoryItem` +
+`Sort`.** No había índice que empezara por `ownerType`.
+
+### Causa 2 — el enriquecimiento de precio lee TODO el histórico por carta
+`PricingService.getReferencesBatch` / `getPricedRawFinishesBatch` (`pricing.service.ts:877`, `:992`)
+leen `PriceReference` con `orderBy capturedDate desc` y **sin cota de fecha ni LIMIT**. `PriceReference`
+guarda un snapshot POR DÍA (unique `[cardId,productType,gradeKey,finish,capturedDate,cardProductId]`),
+así que en prod esto trae **el histórico completo** (meses de días × todas las cartas publicadas) y
+lo ordena para que el JS elija la mejor fila por clave con `isBetterRef`.
+
+### Causa 3 — 9 round-trips a `ConfigSetting` por request
+`loadPricingCurve` + `loadSealedSpreads` (3) + `ivaDialsOf` + `loadGradingContext` leen las claves de
+config una a una: **7 `findUnique` + 2 `findMany` por request** (medido). A latencia de red de prod se
+serializan.
+
+## Lo que optimicé (money-safe, medido)
+
+**Índice aditivo `@@index([ownerType, status, createdAt(sort: Desc)])` en `InventoryItem`**
+(`backend/prisma/schema.prisma`; migración `20260917130000_perf_catalog_inventory_read_index`). Un
+índice **jamás cambia el resultado**, solo el plan — por eso es la palanca money-safe. Sirve la lectura
+compartida de las TRES rutas: filtra a solo lo publicado (prefijo `ownerType,status`, que también sirve
+a `facets`) y entrega ya en `createdAt DESC` (elimina el `Sort`).
+
+### ms antes → después (medido sobre modelo a escala — tablas scratch `_perf_*`, fixture INTACTO)
+Local tiene 180 publicados de 426, así que no reproduce los ~10s de prod. Para medir honesto construí
+un modelo a escala prod-realista (120k filas de inventario, 880 publicadas; 720k filas de histórico de
+precio) en tablas scratch que NO tocan el fixture (borradas al terminar; `InventoryItem` sigue en 426):
+
+- **Lectura del catálogo (Causa 1):** `12.95 ms → 0.29 ms` (~45×). `Seq Scan` 2104 buffers + quicksort
+  → `Index Scan` 48 buffers, **Sort eliminado**. El delta crece con el tamaño real de la tabla (en prod
+  `withdrawn/shipped/sold` se acumulan y lo publicado es una fracción pequeña, así que el índice vale
+  MÁS con el tiempo).
+- **Lectura de histórico de precio (Causa 2):** `93.7 ms` con `external merge` a disco. **Un índice NO
+  ayuda** y lo comprobé: forzándolo (`enable_seqscan=off`) subió a `156 ms` porque la consulta devuelve
+  ~toda la historia de mercado de las cartas publicadas (leer una fracción grande ⇒ el seq scan es lo
+  correcto). Por eso **NO añadí índice ahí** (sería coste de escritura en una tabla de dinero sin
+  beneficio de lectura).
+
+## Migración de índice (para la ventana del dueño)
+- `backend/prisma/migrations/20260917130000_perf_catalog_inventory_read_index/migration.sql`: **un solo
+  `CREATE INDEX`**, no `UNIQUE`, sin `UPDATE/INSERT/DELETE/DROP/ALTER`. Aditiva, no bloquea escrituras de
+  forma destructiva, sin backfill. **Rollback:** `DROP INDEX "InventoryItem_ownerType_status_createdAt_idx";`
+  (instantáneo, sin efecto sobre datos). Aplicada y verificada en la BD local (`migrate status` limpio).
+- La construcción del índice en prod toma un momento proporcional al tamaño de `InventoryItem`; es
+  `CREATE INDEX` normal (no `CONCURRENTLY`, coherente con las demás migraciones del repo) — bloquea
+  escrituras de esa tabla durante el build. En un catálogo del tamaño de esta tienda es breve.
+
+## Prueba (candado + canario)
+`backend/test/migration.perf-catalog-index.spec.ts` (6 verdes): fija que la migración es **SOLO** el
+`CREATE INDEX` esperado (⇒ no puede cambiar ítems/orden/precios — la garantía de resultado idéntico), que
+el schema DECLARA el índice con el orden de columnas medido (paridad), y que ninguna otra migración lo
+toca. **Canario verificado:** inyecté `UPDATE "InventoryItem" SET "listPriceCents"=0;` en la migración y
+2/6 pruebas se pusieron rojas; revertido, 6/6 verdes.
+
+## Enrutado al arquitecto / dueño de `pricing` (NO lo cambié yo — cambia lógica de dinero)
+Las Causas 2 y 3 no se arreglan con índice y tocarían la ruta de dinero (candidatos de `isBetterRef`,
+lectura de config). Requieren diseño + prueba que falle primero:
+1. **Causa 2:** acotar `getReferencesBatch`/`getPricedRawFinishesBatch` a la fila vigente por clave
+   (p.ej. `DISTINCT ON` la última `capturedDate` por `(cardId,gradeKey,finish,source)`) SIN cambiar qué
+   fila gana. ⚠️ Bounding por ventana de fecha NO es seguro: una fuente STALE (ingest caído, que ocurre
+   con egress bloqueado) tiene su última fila meses atrás y recortarla cambiaría el precio.
+2. **Causa 3:** leer las 9 claves de `ConfigSetting` en un `findMany(key IN [...])` por request
+   (mismos valores, menos round-trips).
+3. **Causa 1 (arquitectura):** la lectura no paginable en BD es intrínseca al orden por precio/grading
+   calculado. Materializar `displayPriceCents`/clave de orden permitiría paginar en BD, pero es cambio
+   de esquema+escritura de dinero — decisión del arquitecto.
+
+## Qué debe cronometrar el dueño en prod (Network tab), antes y después del deploy
+- `GET /catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`
+- `GET /catalog/cards?sort=price_desc&pageSize=8`
+- `GET /catalog/facets`
+El índice debe recortar la parte de la lectura de `InventoryItem`. Si tras el deploy siguen ~10s, la
+cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo enrutado arriba.
+
+---
+
+# §M4P-ORDER — la medición de charset que el contrato deja a deber (backend, 2026-09-22)
+
+> **Por qué está aquí y no solo en un informe (`M4P-ORDCH`, techlead):** §M4P-ORDER declara el orden de
+> las cartas por **unidades de código UTF-16** y dice, textual, que **si cambia lo que el operador ve
+> hoy está NO MEDIDO**, dejando la medición a *«quien cablee»*. La hice, pero vivía **solo en mi
+> informe** — y un informe no es un documento que alguien vaya a releer. *Una medición que no está en
+> `docs/` se evapora, y dentro de seis meses alguien vuelve a medirla o, peor, la supone.*
+
+## 1 · La medición pedida: etiquetas fuera del alfabeto seguro
+
+**Consulta (solo lectura):**
+```sql
+SELECT count(*) FROM "VaultLocation" WHERE label !~ '^[A-Z0-9-]+$';
+```
+
+| Fecha | Dónde | Filas totales | Fuera de `^[A-Z0-9-]+$` |
+|---|---|---|---|
+| 2026-09-22 | `tcg_m4prep` (desarrollo, backend) | 4 | **0** |
+| 2026-09-22 | `tcg_m4prep2` (desarrollo, backend) | 4 | **0** |
+
+Las etiquetas existentes son `C01-F01-S01` ×2 y `E2E-F01-S01` ×2. Ordenadas con **los dos**
+comparadores (unidades de código y `localeCompare`) dan **la misma salida** ⇒ sobre lo que hay, el
+cambio de §M4P-ORDER **no es observable**.
+
+> ⚠️ **ALCANCE, dicho sin adornos: son bases de DESARROLLO sembradas por el seed, ⛔ NO la de
+> producción.** La de producción **no la he medido** y no tengo acceso. La consulta de arriba es de
+> solo lectura y la puede correr el dueño en Railway. ⚠️ Y aunque saliera distinto de cero, **el
+> cambio entra igual**: el orden de esas filas hoy depende de la locale del host, es decir
+> **indefinido por contrato** — §M4P-ORDER *define lo indefinido*, no cambia lo definido.
+>
+> ⚠️ **Y no es un invariante, es una costumbre.** `VaultLocation.label` lo compone el backend como
+> `` `${box}-${row}-${slot}` `` desde `CreateLocationDto`, cuyos tres campos son `@IsString()` **a
+> secas**: sin charset, sin longitud, sin mayúsculas. Un acento, una `ñ`, una minúscula o un espacio
+> son **alcanzables por la ruta de alta soportada**.
+
+## 2 · ⭐ El dato que faltaba para `M4P-ORD3`: Postgres coincide, o no, **según la collation**
+
+`GET /admin/inventory/locations` ordena **en Postgres** (`orderBy: { label: 'asc' }`) ⇒ es una
+**tercera autoridad de orden** sobre el mismo campo, y la única que no sigue §M4P-ORDER. El techlead
+marcó **NO MEDIDO** si difiere de verdad. **Medido el 2026-09-22**, con las etiquetas discriminantes de
+los casos 3 y 4 del contrato:
+
+| Autoridad | Orden resultante | ¿= unidades de código? |
+|---|---|---|
+| Unidades de código (§M4P-ORDER) | `C01 < CZ < CÑ < c01` | — (es la norma) |
+| Postgres, collation **`C`** | `C01 < CZ < CÑ < c01` | ✅ **idéntico** |
+| Postgres, collation **`und-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+| Postgres, collation **`en-US-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+
+**La conclusión operable:** la divergencia **no es hipotética ni depende de los datos — depende de la
+configuración de la base**. Una base creada con collation `C`/`C.UTF-8` coincide; una creada con ICU o
+`en_US.UTF-8` **discrepa exactamente en los dos casos que el contrato usa como discriminantes**, que es
+el mismo desacuerdo que tiene `localeCompare`. *El «riesgo bajo» del orden en SQL descansa en un ajuste
+de infraestructura que nadie declaró.*
+
+**Mi base de desarrollo es `C.UTF-8`** (`SELECT datcollate FROM pg_database WHERE datname=current_database()`)
+⇒ por eso coincide, y por eso **medir aquí no responde por producción**. La consulta que lo cierra, de
+solo lectura:
+```sql
+SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();
+```
+
+**Por qué importa aunque hoy no se note:** las dos autoridades ordenan **listas distintas** (la cola de
+preparación vs. el catálogo de ubicaciones), así que la discrepancia **no salta a la vista**: se ve como
+*«el archivero y la hoja de trabajo no van en el mismo orden»*, que un operador atribuye a la pantalla,
+no a una collation. Ficha: **`M4P-ORD3`** en `docs/TECH_DEBT.md`.
+
+---
+
+# §M4-VAULT · M-59 — la COLOCACIÓN en bóveda: schema y nacimiento (backend, fase 1 · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` v1.79.1 (.2, .2-bis, .6, .8). Arquitectura: `§4.21q`. Rama
+> `claude/m4-boveda`. **Fase 1 = solo schema + nacimiento + cancelación por contracargo.** Los verbos
+> (palomear / preparado / confirm / deshacer preparado), la cola de dos fuentes y la vista física son
+> **fase 2** y NO existen todavía (medido: `rg "vault-placements" backend/src` ⇒ 0).
+
+## 1 · Migración `20260925120000_m59_vault_placement`
+
+- **Qué crea:** enums `VaultPlacementStatus`, `VaultPlacementCancelReason`, `PreparationItemStatus`;
+  tablas `VaultPlacement` (`orderId @unique`, índice `(status, createdAt)`) y `VaultPlacementItem`
+  (`orderItemId @unique`, índices `placementId` e `inventoryItemId`); 5 FKs, **todas `Restrict`**; y los
+  **6 CHECKs** del contrato, con nombre propio (así el error dice cuál se violó):
+  `VaultPlacement_pending_seals_chk`, `_placed_seals_chk`, `_cancelled_seals_chk`,
+  `_prepared_seal_chk`, `_placed_requires_prepared_chk` (INV-VP-6) y `VaultPlacementItem_prep_mark_chk`.
+- **Aditiva:** ninguna tabla existente gana columna ni constraint; ningún enum existente cambia; cero
+  `UPDATE/DELETE/DROP`. Sin backfill (`HECHOS.md`: cero ventas reales).
+- **Paridad schema ↔ migraciones medida:** `prisma migrate diff --from-url <bd migrada> --to-schema-datamodel`
+  deja **solo** el `RenameIndex` de `PriceReference_variant_capturedDate_key`, que es deriva **previa** a
+  M-59 (sale igual sobre la base sin M-59) — no es de esta migración y no la toqué.
+- En `InventoryItem` se realinearon (solo espacios) las cuatro relaciones existentes al añadir
+  `vaultPlacementItems`: `git diff -w` sobre el schema no tiene ni una línea `-`.
+
+### Rollback (probado el 2026-09-25 sobre `tcg_vault59_mut`, con filas dentro)
+
+**Orden obligatorio: primero el CÓDIGO, luego el DDL.** El código de fase 1 escribe `VaultPlacement` en
+la transacción del settle: si se tiran las tablas con ese código vivo, **toda liquidación `vault` falla**
+(500 ⇒ Stripe reintenta, no se pierde dinero, pero no liquida). Con el artefacto anterior desplegado:
+```sql
+DROP TABLE "VaultPlacementItem";
+DROP TABLE "VaultPlacement";
+DROP TYPE "PreparationItemStatus";
+DROP TYPE "VaultPlacementCancelReason";
+DROP TYPE "VaultPlacementStatus";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260925120000_m59_vault_placement';
+```
+Medido: tras la reversa, 0 tipos y 0 tablas; `prisma migrate deploy` la vuelve a aplicar y el diff contra
+el schema queda limpio. ⚠️ Pierde el rastro de colocaciones (quién/cuándo preparó y colocó, marcas de
+faltante). No toca dinero ni el estado de ninguna pieza.
+
+### Lo que el `Restrict` obliga a quien BORRA órdenes
+
+`VaultPlacement → Order` y `VaultPlacementItem → OrderItem/InventoryItem` son `Restrict` (el contrato lo
+fija). El código de producción **no borra** órdenes, `OrderItem` ni piezas (medido: `rg
+"order\.delete|orderItem\.delete|inventoryItem\.delete" backend/src` ⇒ 0), pero dos herramientas sí:
+- `prisma/seed-e2e.ts` (reset por usuario del fixture) — borra colocaciones antes que órdenes.
+- `prisma/reset-db-keep-users.ts` — `vaultPlacementItem` al nivel hoja y `vaultPlacement` antes que
+  `order`; candado nuevo en su spec (que exige que **estén** antes de comparar posiciones: el
+  `indexOf === -1` de las aserciones existentes pasaría en silencio).
+
+## 2 · El nacimiento (`payments.service.ts`)
+
+- **Dónde:** `createVaultPlacement(tx, order, now)`, llamado **solo** desde la rama `vault` de
+  `onPaymentSucceeded`, dentro de su `$transaction`, **después** del bucle de piezas. Único creador.
+- **`now` izado:** la rama escribía `settledAt: new Date()` en línea; ahora hay una constante `now` que
+  va a `Order.settledAt` **y** a `VaultPlacement.createdAt` (la prueba unitaria exige la **misma
+  referencia** de objeto, no dos relojes que coinciden).
+- **Mecanismo:** `vaultPlacement.createMany({ skipDuplicates })` ⇒ `ON CONFLICT DO NOTHING`;
+  id por `findUniqueOrThrow({ where: { orderId } })`; `vaultPlacementItem.createMany({ skipDuplicates })`
+  con **todas** las `OrderItem` (sin filtrar por estado de la pieza).
+- **Contracargo** (`onChargeDisputeVault`): al final de su tx, `updateMany({ orderId, status:'pending' }
+  → cancelled/chargeback, cancelledByUserId: null)`. `count 0` no es error. Contracargo ganado,
+  reembolso y `direct_ship` **no** tocan colocaciones (con prueba).
+- ⛔ **Cero dinero:** la escritura de la orden sigue siendo exactamente `{status, settledAt}` (prueba).
+
+## 3 · Pruebas y mutaciones
+
+- Unidad: `test/payments.vault-placement-birth.spec.ts` (13). Integración (Postgres real + webhook
+  firmado): `test/integration/vault-placement-birth.e2e-spec.ts` (14): nacimiento, reentrega secuencial,
+  **carrera con entrelazado forzado** (candado de fila sobre `Order` + `esperarBloqueoDeFila`, N=10),
+  atomicidad (trigger de prueba que revienta el `INSERT` por carta), `direct_ship`, contracargo y los 6
+  CHECKs con su control positivo.
+- Mutaciones (sobre copia del árbol, no el vivo): `create` a secas ⇒ carrera **0/10** verde (el perdedor
+  da 500 en las 10); quitar `skipDuplicates` de las filas por carta ⇒ **0/10**; colocación fuera de la tx
+  ⇒ rojo atomicidad; sin cancelación por contracargo ⇒ rojo F; sin `CHECK` 5 ⇒ rojo INV-VP-6.
+
+## 4 · ⚠️ Medido para el arquitecto (no lo cambié: toca el settle)
+
+**Bajo dos entregas CONCURRENTES del webhook, `VaultPlacement.createdAt ≠ Order.settledAt` al final:
+10/10 en la corrida aislada y 8/10 en la suite completa** (medición informativa de la prueba C, N=10 cada
+una; las 2 iguales son coincidencia de milisegundo entre los dos `now`, no ausencia del mecanismo). Causa, previa a M-59: la segunda entrega también pasa el
+`status === 'settled'` leído **fuera** de la tx y su `order.update` **re-escribe** `settledAt` con su
+propio `now`; la colocación conserva el de la primera (ON CONFLICT). Una sola colocación, sin 500 — pero
+el «un hecho, un instante» del .2-bis solo se cumple en el camino secuencial. Cerrarlo pide guardar el
+`order.update` del settle con el estado en el `WHERE` (decisión del arquitecto: cambia la conducta de una
+escritura de la tabla del dinero). **NO MEDIDO:** si esa misma carrera manda dos veces el correo `AV-2`
+(también cuelga de la lectura fuera de la tx).
+
+# §M4-VAULT · fase 2 — cola «Para bóveda», los cuatro verbos, vista física y H-1 (backend · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` **v1.79.3** (.3, .4, .5 con 6-bis, .10, .11, .12). Rama
+> `claude/m4-boveda`, commits `b6d5e43` (código + pruebas) y `ef7ce20` (arnés de carreras). ⛔ Sin schema:
+> `M-59` idéntico. ⛔ Cero dinero: ningún verbo lee ni escribe importes.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero | Nota |
+|---|---|---|
+| Reglas compartidas (puerta, `P`, retiros activos, `customerDrawers`, sugerencia) | `modules/vault/vault-placement.rules.ts` | Un cuerpo por regla; lo importan la cola, los verbos y la vista física |
+| Proyección de la fila `vault`, conteos, `VaultPlacementDTO`, invariantes | `modules/vault/vault-preparation.view.ts` | `loadVaultQueue` = la segunda fuente de la cola |
+| Los cuatro verbos | `modules/vault/vault-placement.service.ts` + `vault-placements.controller.ts` (`/admin/vault-placements`) | `POST`/`DELETE` con `@HttpCode(200)` |
+| Vista física | `modules/vault/vault-physical-inventory.service.ts`, ruta en `admin-vaults.controller.ts` | `physicalStateOf` exportada (pura) |
+| `customerDisplayName` + orden null-safe | `modules/vault/customer-display-name.ts` | H-1 |
+| Cola mezclada | `shipments.service.ts` · `pickingList` / `byRequestedAt` | La cola **lee**; `byLocation` sigue en el servicio (su guarda de residuo lo lee ahí) |
+| Ayudantes puros de proyección | `modules/shipments/preparation-view.ts` | `nullIfBlank`, `locationViewOf`, `conditionLabelOf`, `lastNameOf`, `preparationCardOf` — **movidos sin cambiar el cuerpo** para que `vault` los use sin ciclo de imports |
+| Códigos nuevos | `common/error-codes.ts` | `LOCATION_NOT_AVAILABLE`, `PLACEMENT_NOT_PENDING`, `PLACEMENT_NOT_PREPARED`, `PREPARATION_CLOSED`, `PREPARATION_INCOMPLETE`, `PREP_ITEM_BLOCKED` |
+
+- **Puerta del cliente:** `pg_advisory_xact_lock(79_125_059::int, hashtext(userId))` — namespace distinto del de
+  reservas (`63_120_959`), candado en `vault.placement-rules.spec.ts`. La toman los cuatro verbos (candado de forma:
+  4 llamadas).
+- **Cuerpos sin clase DTO** (`@Body() body: Record<string, unknown>`): el contrato fija `details` exactos para el `400`
+  (`{field:'status', allowed}`, `{field:'locationId'}`) y el `ValidationPipe` global no los da. Con metatipo `Object` la
+  pipe no valida ni recorta; valida el servicio. Llaves extra (`placedByUserId`, `placedAt`) se ignoran: el actor sale
+  de `@CurrentUser()` (prueba 11, medida por HTTP).
+- **`?action=` de la bitácora NO es dominio cerrado** (lo que .5 paso 11 pedía medir): `settings.controller.ts` ·
+  `auditLog` hace `where.action = action` libre. Las acciones nuevas (`vault_placement.placed | nothing_to_place |
+  prepared | unprepared | item_missing | item_missing_cleared`) se consultan sin registrarlas en ningún sitio (prueba
+  HTTP en `vault-placement-verbs.e2e-spec.ts`).
+
+## 2 · Decisiones de implementación que el contrato dejaba abiertas (para QA/techlead/frontend)
+
+1. **Conteos de `preparation` = partición de `items[]`** (suman `total`): `picked`/`missing` por su **marca** (aunque la
+   carta haya quedado bloqueada después), `pending` = colocable sin marcar, `blocked` = bloqueada **sin marcar**. Es lo
+   único coherente con «`pending` cuenta solo colocables sin marcar; una bloqueada con `pending` cuenta en `blocked`» y
+   con «se puede preparar ⇔ `pending === 0`». Las listas `picked/missing/blocked` de la bitácora de `prepared` /
+   `unprepared` usan la **misma** partición y son **ids de pieza** (`inventoryItemId`), igual que `moved/missing/…` del
+   `confirm`.
+2. **Orden de `items[]` en los resultados del `confirm`** y en la vista cargada por los verbos: por `folio` (unidades de
+   código). La cola ordena sus cartas con `byLocation` (§M4P-ORDER), sin cambio.
+3. **`fromLocationId` del `InventoryMovement` del `confirm`**: se lee la pieza en la misma tx justo antes del `updateMany`
+   con el `WHERE` del contrato (`…P, OR:[{locationId:null},{locationId:{not:target}}]`). El `move` de M1 no toma la puerta
+   (carrera benigna declarada en .5); si se colara entre la lectura y el `UPDATE`, el `from` podría ser el anterior.
+4. **Perder el CAS del `confirm` contra un «deshacer»** (solo alcanzable SIN la puerta — defensa en profundidad, mutación
+   m3) contesta `409 PLACEMENT_NOT_PREPARED` (la fila de la tabla), ⛔ no un `CONFLICT` genérico.
+5. **Vista física — «la marca más reciente»**: por `VaultPlacement.createdAt` desc, desempate `VaultPlacement.id` desc
+   (unidades de código). Dentro de `missing` / `unlocated` el orden es `card.name`, `folio`.
+6. **H-1 — orden de `GET /admin/vaults`**: con nombre, `localeCompare` (lo que ya había); `null` al final; desempate
+   **siempre** `email` (unidades de código) y `userId` — también entre nombres iguales (antes el empate quedaba al orden
+   de `Array.sort`).
+7. **`customerDisplayName` recibe `nameSource` opcional**: un llamador que no lo selecciona trata el nombre como no
+   fabricado. Las cinco fuentes lo seleccionan (candado por HTTP, prueba 27); la de fuente `ship` **no** (asimetría
+   declarada, candada en unidad).
+
+## 3 · Medido para el arquitecto (⛔ no alineado aquí, como pide .11)
+
+- **`pieceCount` de `GET /admin/vaults` ≠ `counts.total` de la vista física**, por construcción: la lista cuenta
+  `ownerType='customer' ∧ status ∉ NOT_ON_HAND` con **cualquier** titularidad (incluye `reserved`/`ownershipStatus=
+  'pending'`); la vista física cuenta `settled ∧ in_custody`. Medido por HTTP: un cliente con 1 pieza en custodia y 1
+  reservada ⇒ `pieceCount 2`, `counts.total 1` (prueba «MEDIDO» de `vault-placement-verbs.e2e-spec.ts`).
+
+## 4 · Pruebas
+
+- **Unidad** (nuevas): `vault.customer-display-name.spec.ts` (27/28 mitad unidad + candado «una función, cinco
+  fuentes»), `shipments.picking-list.vault.spec.ts` (fila `vault`, `P`, conteos, sugerencia, 26, invariantes, orden
+  mezclado), `vault.placement-rules.spec.ts` (reglas puras + candados de forma). Reescrito a propósito: el «`?destination=
+  vault` ⇒ VACÍO» de `shipments.picking-list.spec.ts` y el de `preparation-queue.e2e-spec.ts` (su premisa era el hueco).
+- **Integración**: `vault-placement-verbs.e2e-spec.ts` (32 casos: 4, 5, 7, 8, 9, 11, 12, 14–17, 19–23, 26–28, 30, 31,
+  33 sobre `placed`, 34, 403/404, invariante de la cola, `?action=`), `vault-placement-races.e2e-spec.ts` (6, 6/33, 13,
+  18, 24, 25, 32a, 32b; desde v1.79.5 también 40(a)–(e2), §7). Fixtures: `test/integration/helpers/vault-placement-db.ts`.
+- **Carreras** (entrelazado forzado: candado de fila del CAS o la propia puerta, comprobado en `pg_stat_activity`):
+  todas `k/N = N/N` — ver la tabla del informe de la corrida en §5.
+- **Carrera 25 con la mutación m3 (sin puerta)**: su orden «PATCH primero» usa **la propia puerta** como barrera; sin
+  puerta en el producto nada se bloquea en ella y la espera revienta. Es límite del arnés de esa prueba de regresión, no
+  del producto (el contrato no le pide m3).
+
+## 5 · Mutaciones (sobre copia del árbol ENTERO, `git archive` de `b6d5e43` + el arnés de `ef7ce20`, en
+`scratchpad/backend-vault59/mut-f2`; la copia tiene su propio `git` local para revertir entre mutaciones)
+
+| Mutación | Prueba que la muerde | Resultado |
+|---|---|---|
+| m1 — `confirm` sin paso 6 y sin `preparedAt` en su CAS | 24 (orden «deshacer primero») | **roja**: 10/20 tiradas ok; las 10 «deshacer primero» dan `500` (CHECK `INV-VP-6`) |
+| m2 — `DELETE` sin estado bajo la puerta y sin `status:'pending'` en su CAS | 24 (orden «confirm primero») | **roja**: 10/20; las 10 «confirm primero» dan `500` |
+| m3 — quitar SOLO la puerta (los 4 verbos) | 24 | **verde 20/20** (lo que el contrato predice: los dos CAS sobre la misma fila bastan) |
+| m3 | 13 | **roja 0/10**: en las 10 tiradas, dos `200` y el cliente queda con **dos** cajones |
+| m3 | 18 | **roja 0/20**: violación (preparada con una colocable `pending`) en las 20 |
+| m3 (control) | 32b | verde 10/10 (el `WHERE` del cierre directo basta sin puerta) |
+| m4 — quitar `status:'pending'` del `WHERE` del cierre directo (la mutación de la prueba 32) | 32b | ⚠️ **verde 10/10 — SOBREVIVE**: con la puerta, el segundo `confirm {}` relee bajo la puerta (paso 5), ve `cancelled` y contesta `409` antes de su CAS. Ver §6 |
+| m4 + m3 (sin `status` y sin puerta) | 32b | **roja 0/10**: dos `200 nothing_to_place` y **dos** bitácoras en las 10 |
+| m5 — `customerDrawers` sin filtro de zona | unidad (1) + integración 4, 5, 8, 12, 14, 19, 20, 23… | **roja** (11 integración) |
+| m6 — trampa del NULL (`NOT:{locationId}` en vez del `OR`) | 7 | **roja** (solo integración: un doble de Prisma no evalúa SQL) |
+| m7 — `sortRows` de vuelta a `a.name.localeCompare(b.name)` | 28 (unidad) | **roja** (2) |
+| m8 — `sealed` con `User.name` crudo | 27 (unidad) | **roja** |
+| m9 — `409 {placed}` con `locationId` en vez de `location` | 23/33 | **roja** (solo integración) |
+
+## 6 · ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+
+**Prueba 32, mutación declarada:** *«quitar `status:'pending'` del `WHERE` del cierre directo ⇒ (b) debe dar dos
+bitácoras en alguna tirada ⇒ roja»*. **Medido: no muerde (10/10 verde)** mientras exista la puerta del cliente, porque
+el paso 5 (relectura bajo la puerta) ya filtra el segundo `confirm {}`. Solo se pone roja quitando **también** la puerta
+(0/10). Es el mismo razonamiento que el contrato hace para m3 en la prueba 24 («los dos CAS sobre la misma fila
+bastan»), al revés: aquí la puerta basta sin el `WHERE`. El `WHERE` sigue siendo necesario como defensa en profundidad
+(es la única protección si alguien quita la puerta — medido: m4+m3 roja), pero la prueba 32 tal como está escrita **no
+lo discrimina**. Decisión del arquitecto: o se reescribe la mutación de la 32 como «m4 + sin puerta», o se acepta que
+el candado del `WHERE` del cierre directo sea la combinación.
+
+> ⭐ **Resuelto en v1.79.5 (arquitecto, `9b5b08f`):** la cláusula de mutación de la 32 se retiró del contrato; la 32
+> queda como **regresión de la puerta** (así lo dice ahora un comentario encima de 32a/32b en la suite) y la mutación
+> del `status` de los `WHERE` pasa a la **prueba 40** (§7), contra el contracargo.
+
+## 7 · Prueba 40 — contracargo vs verbo (v1.79.5 · backend · 2026-09-28)
+
+Cierra C1 de techlead + seguridad y la IMPORTANTE 3 de QA (sobre `db7d1c2`). Commits `982fddf` (prueba + log del
+marcador + limpiezas) y `8979202` (40(e) en dos `it`). ⛔ Sin cambios en los `WHERE` ni en el orden de candados.
+
+- **Dónde:** `vault-placement-races.e2e-spec.ts`, casos 40(a)–(d) (N=10, entrelazado forzado) y 40(e1)/(e2)
+  (secuencial, N=1). Webhook `charge.dispute.created` **firmado** (`E2EHarness.sendStripeWebhook`) con `event.id` propio
+  (se borra en `afterAll`).
+- **Canario del arnés:** `VaultPlacementDb.waitRowBlocked(n)` cuenta sesiones con `wait_event_type='Lock'` y
+  `wait_event IN ('transactionid','tuple')` — candado de **fila**, ⛔ no advisory (la puerta). Se exige ver a A y luego
+  a A+B esperando fila; una tirada sin eso se reporta como `SIN-ENTRELAZADO:` y la prueba exige **0** de ésas.
+- **Qué asierta (todas las tiradas):** webhook `200`; fila `cancelled/chargeback` con `cancelledByUserId NULL`;
+  `Order.status='chargeback'`; B `409 PLACEMENT_NOT_PENDING {status:'cancelled', cancelReason:'chargeback'}`; y por
+  caso: (a) `preparedAt` intacto, 0 bitácoras `nothing_to_place`; (b) 0 `InventoryMovement reason='move'`, piezas
+  `platform/listed` con su `locationId` de antes, 0 `placed`; (c) `preparedAt`/`preparedByUserId` NULL, 0 `prepared`;
+  (d) `preparedAt` intacto, 0 `unprepared`; (e1) `placed` intacta y piezas `platform/listed` **en el cajón**; (e2)
+  `nothing_to_place` conserva razón, autor y fecha.
+
+**Medido por mí** (copias del árbol ENTERO con `git archive`, BD propia `tcg_bevault3`/`tcg_bevault3_mut`, Postgres 16):
+
+| Corrida | SHA de la copia | Resultado |
+|---|---|---|
+| limpio | `982fddf` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; (e) verde |
+| limpio (repetición) | `8979202` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; e1, e2 verdes; suite de carreras 14/14 |
+| m-a — sin `status` en el cierre directo (`:463`) | `982fddf` | **40a roja 0/10** (B `200 nothing_to_place`, fila `nothing_to_place` con **operador** como autor, 1 bitácora); b/c/d 10/10 |
+| m-b — sin `status` en el paso 8 (`:510`) | `982fddf` | **40b roja 0/10** (B `500 INTERNAL`; la fila queda `cancelled/chargeback`, 0 movimientos); a/c/d 10/10 |
+| m-c — sin `status` en `POST …/prepared` (`:330`) | `982fddf` | **40c roja 0/10** (B `200 prepared` sobre la cancelada, `preparedAt` escrito, 1 bitácora); a/b/d 10/10 |
+| m-d — sin `status` en `DELETE …/prepared` (`:380`) | `982fddf` | **40d roja 0/10** (B `200 unprepared`, `preparedAt` borrado, 1 bitácora); a/b/c 10/10 |
+| m-e — sin `status` en el `WHERE` del contracargo (`payments.service.ts:895`) | `982fddf` / `8979202` | a–d 10/10; **e1 roja** (webhook `500`: el CHECK rechaza la placed cancelada) y **e2 roja** (reescribe a `chargeback`, autor `NULL`) — medidas por separado en `8979202` |
+| m-gate — quitar SOLO la puerta (`lockCustomerVaultGate` no-op) | `982fddf` | 40a/b/c/d **10/10 verdes** + (e) verde: lo que el contrato pide (el rival no toma la puerta) |
+
+«0/10» = 0 tiradas correctas de 10 (roja en las 10). Las filas `(m-b)`–`(m-e)` estaban **NO MEDIDAS** en el contrato;
+su forma de ponerse rojas coincide con la derivada allí.
+
+**Otros de este pase:**
+- **37 (QA menor 7):** ahora asierta marca/últimos 4 (`visa/4242`, del doble `getCardDetails` del harness); «una vez»
+  lo da `re === 0` (una segunda escritura sería `settled→settled` y el trigger la cuenta). Mutación m-37 (el settle
+  `direct_ship` sin marca, `8979202`): **roja 0/10** invitado y **0/10** registrado.
+- **Borrado del marcador de Stripe (`payments.service.ts`, tras fallo del handler):** su error ya no se traga en
+  silencio: `logger.error` con evento, tipo, causa y «requiere reproceso manual». Semántica sin cambio (se propaga el
+  error original). Unidad nueva en `payments.service.spec.ts`; mutación m-log (volver a `.catch(() => undefined)`):
+  **roja** (1 de 16). ⛔ Sigue NO MEDIDO con fallo inyectado en integración. Resto en `TECH_DEBT.md` `SEC-VLT-DL`.
+- **Techlead:** corregido el comentario falso de `shipments.service.ts` («`?destination=vault` devuelve VACÍO hoy») y
+  quitado el JSDoc duplicado de `preparation-view.ts`. Deuda D1–D4, D8 y SEC-VLT-DL en `docs/TECH_DEBT.md` (`d6af930`).
+
+# §M4-VAULT.2-bis.1 · el settle es un CAS (v1.79.4 · backend · 2026-09-25)
+
+> Cierra el hallazgo de la fase 1 (§M4-VAULT · M-59 §4 de arriba: `createdAt ≠ settledAt` bajo dos entregas
+> concurrentes). Commit `aa1fec7`, **separado** de la fase 2. Contrato: `API_CONTRACT §M4-VAULT.2-bis.1`, pruebas 35–39.
+
+- **Qué cambió:** en las dos ramas del settle (`onPaymentSucceeded` rama `vault` y `settleDirectShipOrder`) la primera
+  escritura de la tx es `tx.order.updateMany({ where: { id, status: { not: 'settled' } }, data })`. `count === 0` ⇒ la tx
+  devuelve `false` sin escribir nada más y, fuera, `return` antes de auditoría de anomalías, confirmación de invitado y
+  `AV-2`. `data` idéntico al de antes. Early-return, `skipDuplicates` y `ProcessedStripeEvent` sin cambio.
+- **Pruebas:** `test/payments.settle-cas.spec.ts` (36a, 38iii; tres variantes). `vault-placement-birth.e2e-spec.ts`: C
+  (35) pasa a aserción con un **trigger de prueba** que cuenta `UPDATE "Order"` `settled → settled` (se borra en
+  `afterAll`); H (37) repite la carrera en `direct_ship` registrado e invitado; I (38ii) `failed → settled`. 38(i) = la B
+  de siempre, verde.
+- **Rojo antes / verde después (N=10, entrelazado forzado, medido por mí):** 35 **0/10 → 10/10**; 37 invitado **0/10 →
+  10/10**; 37 registrado **0/10 → 10/10**. Unidad: 6/9 rojas antes, 9/9 después.
+- **36(b):** `E2EHarness` **no** captura correos (medido: no sobreescribe `MAIL_PORT`; `rg -i mail
+  test/integration/helpers/e2e-app.ts` sin captura) ⇒ «un `AV-2` / una confirmación» se prueba solo por la unidad 36(a),
+  como permite el contrato.
+
+**Mutaciones (copia del árbol entero, `git archive aa1fec7`):**
+
+| Mutación | Qué la muerde | Medido |
+|---|---|---|
+| s1 — quitar `status` del `WHERE` (rama `vault`) | 35 | **0/10 verdes** (roja en las 10). En una tirada `createdAt === settledAt` coincidió por milisegundo y el trigger contó igual `re=1`: sin el conteo esa tirada habría pasado. También 5 unitarias |
+| s2 — ídem en `settleDirectShipOrder` | 37 | **0/10** invitado y **0/10** registrado; 35 sigue 10/10 (muerde a quien arregle solo `vault`). 2 unitarias |
+| s3 — la rama `vault` sigue avisando tras `count 0` | 36(a) | roja (1 unitaria: `AV-2` enviado por el perdedor) |
+| s4 — `createVaultPlacement` con `create` a secas (la mutación de fase 1) | **ya no la muerde la integración** (C/35 17/17 verde: el perdedor no llega al `INSERT`) | **16 unitarias rojas** (`payments.vault-placement-birth.spec.ts`: la forma `createMany + skipDuplicates`). Es lo que la prueba 39 declara: la segunda defensa queda candada por forma |
+
+# Meta Battle Decks — arte de la teja: «la ex representativa del deck» (2026-09-25)
+
+> **Sustituida (2026-09-28)** por «Meta Battle Decks — portada del deck = la de Limitless (M-60)» más abajo: la regla
+> pasó a ser normativa (API_CONTRACT §13) y las reglas 2/2b se funden en un solo conjunto. Lo de aquí queda como historia.
+
+Pedido del dueño: «En las imágenes hay que poner la EX representativa del deck» / «No cualquier carta en los decks».
+El contrato no fija la regla (`imageUrl` de `GET /decks-meta`); es decisión de implementación. Código:
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage(deckName, imageCardId, cards)`, función pura),
+pruebas en `deck-image.spec.ts`.
+
+**Medido antes de decidir:** Limitless trae el nombre del arquetipo SIN «ex» (`test/fixtures/limitless/home-index.html`:
+«Dragapult», «Basic Box», «Alakazam», «N's Zoroark», «Slowking», «Mega Excadrill»). El jalado automático
+(`decks-meta-refresh.service.ts`, upsert de `MetaDeck`) NO escribe `imageCardId`. La regla vieja tomaba la primera
+Pokémon casada en el orden en que Prisma devolvía las líneas (sin `orderBy`) ⇒ típicamente una básica.
+
+**Regla** (sólo líneas casadas, grupo Pokémon, con imagen de catálogo; nunca arte externo):
+1. `imageCardId` del admin, si sigue en la lista.
+2. La **ex** cuyo nombre aparece en el nombre del deck (palabras completas; si hay varias, la que aparece antes:
+   «Gardevoir ex / Jellicent ex» ⇒ Gardevoir ex; «Charizard Pidgeot» ⇒ Charizard ex).
+3. (2b) Si ninguna ex casa por nombre: la Pokémon NO-ex cuyo nombre aparece en el del deck («Alakazam» ⇒ Alakazam,
+   no Fezandipiti ex). Añadido al orden pedido porque los nombres de Limitless lo hacen necesario.
+4. La ex con más copias (sumando impresiones). 5. La Pokémon con más copias. 6. `null`.
+
+Normalización: minúsculas, sin acentos (NFD), apóstrofo tipográfico ⇒ recto, «ex»/«EX» suelto fuera; ex = nombre
+terminado en «ex» (cualquier caja) o `subtypes` con «ex». Coincidencia: nombre completo sin «ex» primero, luego la
+especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: posición más
+temprana en el nombre del deck (el primero nombrado); a igual posición, completa > especie (deck «Excadrill» ⇒
+«Excadrill ex», no «Mega Excadrill ex»); más copias; nombre ascendente.
+Varias impresiones de la misma carta: más copias en su línea, luego `externalId` ascendente.
+
+**Propuesta (no implementada, requiere arquitecto):** la home de Limitless ya trae la carta que Limitless usa como
+portada del arquetipo: `a.leader-image img[alt="TWM-130"]` (set+número; en el fixture: TWM-130, TWM-25, MEG-56,
+JTG-98, SCR-58, PBL-65). `limitless-html.parser.ts` no la extrae hoy. Casándola por `ptcgoCode`+`number` como el
+resto de líneas y guardándola en `imageCardId` (o en un campo nuevo, para no pisar la elección del admin) daría la
+portada exacta de la fuente sin heurística de nombres.
+
+**Aclaración (gate sobre `3806fec`, techlead menor):** la regla 1 (`imageCardId` del admin) NO lleva el filtro de
+grupo/estado de las demás: si alguna línea trae esa carta con imagen de catálogo, gana aunque sea entrenador o
+energía. Intencional — la elección explícita del operador manda sobre la heurística. Docstring de `deck-image.ts`
+alineado. `decks-meta.service.ts` reutiliza `imageOf` (exportado de `deck-image.ts`) en vez de repetir
+`imageLargeUrl ?? imageSmallUrl ?? null`.
+
+**Candado de servicio (QA IMPORTANTE 1):** `decks-meta.service.spec.ts` › «listPublished — arte de la teja»: deck
+«Alakazam» con Fezandipiti ex (1) y Dudunsparce ex (2) ⇒ exige Alakazam. Sin él, la mutación
+`pickDeckImage('', deck.imageCardId, cards)` en `listPublished` sobrevivía la suite unitaria entera (QA, 5266/5266).
+Con él cae (backend, 2026-09-25, copia del árbol con el cambio; recibe `dud.png`). Mutación determinista: N=1 basta.
+Deuda de la heurística: `docs/TECH_DEBT.md` «TD-2 (arreglos-rápidos)».
+
+---
+
+# P-BUYLIST-CONC-FLAKE — el rojo intermitente de `buylist-intake-concurrency` era un `503`, no la no-vacuidad (2026-09-25)
+
+**Síntoma.** `test/integration/buylist-intake-concurrency.e2e-spec.ts` salía rojo de vez en cuando en
+`expect(servidor).toEqual([])` (línea 161 de la versión anterior a `c36b492`).
+
+**Causa real (medida).** La respuesta era **`503 BUSY_TRY_AGAIN`**, no un `500` ni un fallo de la no-vacuidad. La versión
+anterior disparaba **4 altas simultáneas del mismo vendedor × 12 rondas** dentro de `runSerializable` (SERIALIZABLE,
+`SEC-A2`). Con 4 contendientes sobre el mismo predicado (el acumulado mensual AML), el SSI puede abortar a 3 por ronda y
+los reintentos vuelven a pelear entre sí; de vez en cuando una alta pierde los **5** intentos
+(`SERIALIZABLE_ATTEMPTS`), el helper propaga el `P2034` original y `AllExceptionsFilter.motivoTransitorio` lo traduce a
+`503` + `Retry-After: 1` (§0-T, desde `a5aa07e`). Es la «cola esperable» bajo carga que §0-T describe: conducta de
+producción correcta; lo frágil era la prueba, que apostaba a que la máquina no produjera esa cola.
+
+**Mediciones (autor · N):**
+| Qué | Resultado | Autor | N |
+|---|---|---|---|
+| CI de la PR #59 | 1 prueba roja de 1044, `503 BUSY_TRY_AGAIN`; verde al re-run | CI (registro de la PR) | 1 corrida |
+| Versión anterior, aislada en local, `connection_limit=5` como el CI | **1/30** rojas, la roja con `503 BUSY_TRY_AGAIN` | backend (`c36b492`) | 30 |
+| Presupuesto de intentos, versión 4×12 (histórico) | 3 intentos ⇒ **10/10 rojas**; 5 ⇒ **8/8 verdes** | backend (`dd3522b`, 2026-09-14) | 10 y 8 |
+
+⚠️ Con una tasa de ~1/30, un «verde» de pocas corridas no dice nada (0.97^10 ≈ 74 % de sacar 10/10 verdes con el
+intermitente dentro).
+
+**Arreglo (`c36b492`, solo prueba, cero producción).** Cada ronda FUERZA el entrelazado con
+`test/integration/helpers/row-lock-barrier.ts`: la prueba toma `SELECT … FROM "Card" … FOR UPDATE`, suelta **2** altas y
+comprueba en `pg_stat_activity` que las dos esperan en el `INSERT "SellRequestItem"` (la FK a `"Card"` pide
+`FOR KEY SHARE`), ya con el acumulado leído y su `SellRequest` insertada. Al soltar, el SSI tiene que abortar a una y su
+reintento corre sin rival ⇒ determinista. Aserciones endurecidas, ninguna relajada (cero `5xx`; 201 en todas; ≥1
+conflicto **por ronda**). El helper de barrera documenta ahora a este usuario y que la sentencia que espera puede ser
+cualquiera que pida candado sobre la fila (no solo `UPDATE`).
+
+**Lo que se pierde, dicho:** la prueba nueva ya no distingue 2 intentos de 5, así que **ningún candado de integración
+sostiene hoy `SERIALIZABLE_ATTEMPTS = 5`**. Queda un candado unitario barato del literal
+(`test/serializable-retry.spec.ts`, «el presupuesto es 5») y la propuesta de estrés fuera del gate en
+`docs/TECH_DEBT.md` «TD-1 (arreglos-rápidos)».
+
+⛔ NO MEDIDO: la proporción de `503` con ~50 altas simultáneas del mismo vendedor.
+
+# Meta Battle Decks — portada del deck = la de Limitless (M-60, rev `decks-portada`, 2026-09-28)
+
+Diseño: `ARCHITECTURE.md §12.4`; contrato: `API_CONTRACT.md §13` «Portada del deck (`imageUrl`) — regla normativa» y
+«Admin» (`decks[].cover` del ensayo). Rama `claude/decks-portada`. Implementado tal cual; sin discrepancias con el
+contrato que requieran al arquitecto (ver «Decisiones de implementación» para lo que el diseño dejaba abierto).
+
+## Qué hace, por pieza
+- **Parser** (`limitless-html.parser.ts`): `HomeLeader.cover: { setCode, number } | null`, leído SOLO de
+  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-9])?)-([A-Za-z0-9]{1,8})$`
+  y longitud ≤ 20 (`parseCoverAlt`, exportada). El set empieza y TERMINA en alfanumérico (QA 5, 2026-09-28):
+  «TWM--25» ⇒ `null`, no set «TWM-». Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
+  `logger.warn` que empieza por «portada:» (no es check del canario).
+- **Matcher**: `DeckMatcherService.matchCover(cover) ⇒ { matchStatus, card }` delega en `matchLines` con una línea
+  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`. `matchStatus` es
+  `CoverMatchStatus = Exclude<MetaMatchStatus, 'unmatched_basic_energy'>` (TD-c, también en `DeckCoverReport`);
+  si el motor devolviera `unmatched_basic_energy` (inalcanzable por construcción), `matchCover` LANZA y el refresh lo
+  trata como fallo de portada (abajo).
+- **Refresh** (`decks-meta-refresh.service.ts`): por deck, `matchDeckCover` aparte de `matched` (las 60). Modo vivo:
+  `persistDeck` escribe `coverSetCode/coverNumber/coverMatchStatus/coverCardId` en la `MetaDeckList` nueva. Ensayo:
+  `DeckReport.cover = { setCode, number, matchStatus, cardId, imageUrl } | null` (`imageUrl` = `imageOf` de NUESTRA
+  carta). Deck con `error` ⇒ `cover:null`. `GET /admin/decks-meta/preview` devuelve el reporte tal cual, así que el
+  campo llega al front sin tocar el controlador.
+- **Regla** (`deck-image.ts`): `pickDeckImage({ deckName, imageCardId, coverCard, cards })` (firma-objeto). Orden:
+  1 admin › 2 `coverCard` con imagen (sin filtro de grupo, no exige estar en las 60) › 3 nombre en UN conjunto con
+  desempate (posición, completa<especie, ex<no-ex, copias desc, clave asc) › 4 ex con más copias › 5 Pokémon con más
+  copias › `null`.
+- **Lectura** (`decks-meta.service.ts` `listPublished`): `include: { currentList: { include: { coverCard: true, … } } }`
+  y pasa `coverCard`. `getBySlug` y `paste`: sin cambio. `adminCreateOrCurate` NO escribe portada (nace null).
+
+## Migración M-60 — `20260928120000_m60_meta_deck_list_cover`
+Escrita a mano (equivale a lo que genera `prisma migrate diff`, medido: mismas dos sentencias salvo el orden de
+columnas). 4 columnas nullable en `MetaDeckList` + FK `MetaDeckList_coverCardId_fkey → Card(id) ON DELETE SET NULL ON
+UPDATE CASCADE`. Sin default, sin backfill, sin índice, sin enum nuevo. Número: M-59 lo usa otra rama
+(`20260925120000_m59_vault_placement`, dato del orquestador, NO MEDIDO por mí en esta rama); si al fusionar hay
+colisión de timestamp u orden, el orquestador lo reasigna — la migración no depende de M-59.
+
+**Rollback** (medido en BD propia dentro de `BEGIN … ROLLBACK`: deja 0 columnas `cover%`; tras el `ROLLBACK`, 4):
+```sql
+ALTER TABLE "MetaDeckList" DROP CONSTRAINT "MetaDeckList_coverCardId_fkey";
+ALTER TABLE "MetaDeckList" DROP COLUMN "coverCardId", DROP COLUMN "coverMatchStatus",
+  DROP COLUMN "coverNumber", DROP COLUMN "coverSetCode";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260928120000_m60_meta_deck_list_cover';
+```
+y desplegar el backend anterior (no lee estas columnas). Sólo se pierde procedencia de portada, que el job reescribe.
+Sin la migración, el backend nuevo falla al escribir/leer `coverCard` ⇒ migración y código van juntos (la migración
+primero, como siempre: es aditiva y el código viejo la ignora).
+
+## Decisiones de implementación (lo que el diseño no fijaba)
+1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo),
+   `logger.warn` **y una entrada en `errors[]` con la forma EXACTA `cover <SET>-<NÚM>: <msg>`** (API_CONTRACT §13 Admin
+   fila 4b, ARCHITECTURE §12.4.2; C-1 del techlead, cerrado 2026-09-28). El deck no pasa a `error`, ni cambian
+   `verdict`, `canary` ni `persistedCount`. `errors[]` viaja al `note` del `MetaFetchRun`, así que el fallo queda
+   también en la traza de la corrida. Motivo: §13 «la portada nunca bloquea». En la práctica `matchCover` hace las
+   mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
+2. **Nombre de la línea sintética:** `name` = `SET-NÚM` (no se persiste: la línea no sale de `matchCover`).
+3. **Aviso del parser**: `logger.warn` por corrida, no por bloque.
+
+## Pruebas (§12.4.6) y dónde viven
+| # | Fichero |
+|---|---|
+| P1, P2 (+aviso, +set terminado en guion), P3–P6, C-1, TD-c | `backend/test/decks-meta-portada.spec.ts` (P3–P6 y C-1 con el matcher REAL sobre catálogo en memoria; C-1 = `matchCover` lanza ⇒ deck sin portada, reporte igual y `errors == ['cover TWM-25: …']`) |
+| P7, S1 | `backend/src/modules/decks-meta/decks-meta.service.spec.ts` (el mock de S1 honra el `include`) |
+| D1–D7 | `backend/src/modules/decks-meta/deck-image.spec.ts` (las 19 previas: sólo cambia la forma de la llamada) |
+| matchCover | `deck-matcher.service.spec.ts` (`4`↔`004`, minúsculas, `unmatched_set/number`, `ambiguous`) |
+| forma M-60 | `backend/test/migration.m60-meta-deck-list-cover.spec.ts` |
+| integración | `backend/test/integration/decks-meta-persistence.e2e-spec.ts` › «portada del deck (M-60)»: `matchCover` contra BD real, `listPublished` lee la portada, `ON DELETE SET NULL`, curaduría ⇒ null |
+
+Todas deterministas (sin reloj ni carrera): N=1 por mutación. Las 18 mutaciones de la tabla §12.4.6 (y variantes)
+mueren; detalle en el informe del commit.
+
+## NO MEDIDO
+- Qué carta de NUESTRO catálogo es `TWM-25`: no hay BD con catálogo en este entorno (la BD de pruebas es propia y
+  vacía). Se mide en staging/prod con el ensayo: la columna «Portada» dirá `casada` y la miniatura.
+- Cuántas portadas de la home real casan hoy contra el catálogo de prod (depende de `ptcgoCode` de `MEG`/`JTG`/`PBL`).
+
+## Deuda anotada
+- **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
+  `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
+
+
+# Hotfix — los CTA de los correos al cliente llevaban a rutas inexistentes (404) (2026-09-29)
+
+**Defecto medido:** los avisos §R al cliente usaban `appUrl('cuenta/pedidos'|'boveda/envios'|'cuenta/identidad'|'cuenta/aclaraciones')`.
+Ninguna de esas carpetas existe en `frontend/src/app/[locale]/` ⇒ el botón del correo daba 404 a clientes reales.
+
+| Aviso | Antes | Ahora (ruta real del storefront) |
+|---|---|---|
+| AV-2 pedido liquidado (`orders/mail/order-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` |
+| AV-3 reembolso | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** (el detalle exige sesión) |
+| AV-4/5/6 envío de un **pedido** (`shipments/mail/shipment-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** |
+| AV-4/5/6 retiro de **bóveda** | `boveda/envios` | `shipments/<ShipmentRequest.id>` |
+| AV-1 rechazo de identidad (`admin/mail/kyc-notice.templates.ts`) | `cuenta/identidad` | `account` (ahí vive `KycSection`) |
+| AV-10/11 disputas (`disputes/mail/dispute-notice.templates.ts`) | `cuenta/aclaraciones` | `vault` (las aclaraciones se listan en `WithdrawalsList`) |
+
+- Parámetros nuevos: `OrderSettledParams.orderId: string`, `OrderRefundedParams.orderId: string | null`,
+  `ShipmentNoticeParams.orderId?: string | null` (lo resuelve `ShipmentsService.resolveRecipient`: solo para el titular
+  registrado del pedido). El envío de un pedido va al detalle del **pedido**, no al del envío: `GET /shipments/:id`
+  compara `shipment.userId`, que en un envío de pedido es `null`.
+- Los demás enlaces al front ya eran correctos y ahora quedan bajo el mismo candado: `pedido?token=` (invitado),
+  `verify-email`, `reset-password`, `buylist/requests/<id>`.
+- **Candado:** `backend/test/mail-links.frontend-routes.spec.ts` lee el árbol de páginas del front (grupos `(x)` fuera,
+  `[param]` = segmento dinámico) y (1) renderiza cada aviso (exhaustivo sobre los exports `*Template`) exigiendo que todo
+  enlace exista, y (2) barre `backend/src` buscando `appUrl('…')`, `${origin}/${locale}/…` y `buildFrontendLink(…, '…')`.
+  ⚠️ Lee `../frontend`: corre sobre el árbol ENTERO (O-9). Mutaciones (N=1 cada una, deterministas): volver a
+  `boveda/envios` ⇒ 7 rojas; `cuenta/pedidos` ⇒ 5; `cuenta/identidad` ⇒ 4; `pedido` → `seguimiento` en el correo de
+  invitado ⇒ 1 (barrido estático); quitar `(storefront)/vault` del front ⇒ 5. Base: 28/28.
+- **Consecuencia para frontend:** renombrar/mover `orders/[orderId]`, `shipments/[id]`, `account`, `vault`, `pedido`,
+  `verify-email`, `reset-password` o `buylist/requests/[id]` pone rojo este test del backend. Es a propósito.
+- ⭐ 2026-09-29 — **cableado con candado (QA IMPORTANTE 2):** las cuatro mutaciones que sobrevivían (B2 invitado con CTA en
+  el reembolso, B3 invitado con CTA en el envío, B4 AV-2 sin `Order.id`, B5 registrado sin CTA en el envío) mueren en
+  los bloques «CTA —» de `test/avisos.orders.spec.ts` y `test/avisos.shipments.spec.ts` (fijan `APP_PUBLIC_URL`: sin
+  origen no hay CTA para nadie y «sin enlace» no probaría nada). N=1 cada una, deterministas; base 40/40.
+  *Medido:* hoy el único creador de `direct_ship` es `guest-checkout` (`userId=null` + `guestEmail`) ⇒ la rama
+  «registrado» de `resolveRecipient` (B5) **no es alcanzable** en producción todavía; el candado la protege para cuando
+  lo sea. Deuda: `TECH_DEBT.md` MAIL-URL1 / MAIL-CTA2 / MAIL-NOTE8.
+
+## M1 · guardas de `move` y `mark` (2026-09-29, rama `claude/arreglos-operador`)
+
+> Medido por techlead y QA: `POST /admin/inventory/items/:id/move` y `…/mark` no miraban estado ni zona. El API
+> aceptaba mover la carta **de un cliente en un retiro cobrado** al estante de tienda y marcar perdida una pieza en
+> `picking` de un pedido cobrado. Reglas en `modules/inventory/item-location.rules.ts` (un cuerpo por regla).
+
+| Pieza | `move` admite | Destino | `mark` admite |
+|---|---|---|---|
+| plataforma | `in_stock · listed · reserved · picking` | solo `platform_stock` | `in_stock · listed` (= ajuste del binder) |
+| cliente | `in_custody` + `settled`, **fuera** de retiro `picking/guia/enviado` | solo un cajón que **ya es suyo** (`customerDrawersOf`) | ~~igual que `move` (§0: «`mark` + reposición para custodia»)~~ ⛔ **retirado el 2026-09-29 (D-SHIP-5, sección siguiente): ninguna pieza de cliente** |
+| terminal / otro | ⛔ | — | ⛔ |
+
+**Errores (todos existentes en el catálogo):**
+- estado no admitido ⇒ `422 ITEM_NOT_ADJUSTABLE` `details:{ status, ownerType }`;
+- pieza de cliente en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT` (desde D-SHIP-5, **solo `move`**: `mark` ya no
+  llega a mirar el retiro porque rechaza toda pieza de cliente antes);
+- destino ⇒ `422 LOCATION_NOT_AVAILABLE` `details.reason`: `not_found` · `inactive` · `not_customer_custody` ·
+  `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) · `not_platform_stock` (`reason` nuevo:
+  **escrito en el contrato por el arquitecto en v1.79.6 §M1, `dde785b`**, junto con el campo `location`, el `201` y la
+  decisión de que `toLocationId` sigue `@IsString()` — un id malformado es `422 not_found`, no `400`). Antes, un destino
+  inexistente daba `500` (FK);
+- la pieza cambió entre la lectura y la escritura ⇒ `409 CONFLICT` (update condicionado a estado+dueño leídos).
+
+**Decisión leyendo el contrato:** la pieza de cliente **no** puede ir a un cajón vacío/ajeno: §M4-VAULT.4 regla 4 dice
+que el `move` existe para **consolidar** cajones del mismo cliente; la **primera** colocación es del `confirm` (que
+toma la puerta del cliente). El `move` de cliente ahora toma **la misma puerta** (`lockCustomerVaultGate`).
+
+**Transacción:** lectura, guardas, `update` y `InventoryMovement` en **una** `$transaction` (antes, dos sentencias
+sueltas). `tryAutoPublish` sigue **después** del commit, best-effort, como antes.
+
+**Para frontend:** la respuesta del `move` añade `location: { id, label, zone } | null` (aditivo; el resto de la fila
+no cambia).
+
+**Pruebas:** `test/inventory.move-mark-guards.spec.ts` (41; 32 rojas contra el código anterior, las 9 verdes son los
+casos permitidos), `test/integration/inventory-move-mark-guards.e2e-spec.ts` (8; 8/8 rojas contra el backend de `6695e9e`, 8/8
+verdes contra Postgres 16). Suites (medido 2026-09-29 sobre `6c90907`): unitaria 354/354 suites, 5883/5883; integración
+completa contra un Postgres propio 52/52 suites, 1143 verdes + 2 `skip` ya existentes; `tsc` limpio; eslint 0 errores. Mutaciones (copia del árbol sin `frontend/`, N=1 cada una, deterministas): 15/15 muertas —
+sin guarda de estado, sin chequeo de retiro (move y mark), sin zona de plataforma, sin zona de custodia, sin cajón
+propio, `mark` admitiendo `picking`, update sin condición de estado, sin puerta, destino inactivo, sin `location`,
+cliente `pending` admitido, movimiento fuera de la transacción, `P2025` sin mapear, y la de custodia de
+`inventory.pending-publish.spec.ts` (el intento de publicar no tumba el `move`), cuyo fixture pasó a un cajón del
+mismo cliente.
+
+## M1 · D-SHIP-5 y D-SHIP-6: `mark` solo plataforma; el `status` del `PATCH` gana la misma guarda (2026-09-29, rama `claude/arreglos-operador`, sobre `4ca6c45` + contrato `dde785b` v1.79.6)
+
+> **Fuente normativa:** diseño §M4-SHIP v1.80.3, **§M4-SHIP.17.1 (SEC-SHIP-A1)** puntos (1) y (2) —leído en el worktree
+> `claude/envio-preparar` (`/home/user/tcg-envio/docs/API_CONTRACT.md`, solo lectura)— que el orquestador etiquetó
+> **D-SHIP-5** y **D-SHIP-6**. Cita textual de (1): *«`mark` — solo plataforma `in_stock | listed`, guarda en el `WHERE`
+> del CAS; todo lo demás ⇒ `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`. ⚠️ Divergencia deliberada con
+> `claude/arreglos-operador`: esa rama dejó `mark` permitido sobre una pieza de cliente `in_custody` fuera de un retiro
+> […] marcar `lost` la carta de un cliente fuera de un caso es exactamente el vector (3) — la pieza deja de ser retirable
+> y ningún lector de deuda (`ReplacementCase`) la ve. ⇒ Backend: en `assertOperable(item, 'mark')` la rama `customer`
+> lanza `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`)»*. Cita de (2): *«`PATCH …
+> {status:'in_stock'}` — solo plataforma `in_stock | listed`: lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura
+> condicionada `updateMany({ where: { id, ownerType:'platform', status: <leído> }, data })` (`count 0` ⇒ `409 CONFLICT`);
+> los demás campos del mismo `PATCH` en la misma transacción (todo o nada). `status:'listed'` sigue por el pipeline de
+> v1.51 (ya guardado). ⛔ Sin `InventoryMovement` para `listed ↔ in_stock`»*. Invariante **INV-SP-7**: `lost | damaged`
+> no vuelve a `in_stock | listed` por ningún verbo del operador.
+
+**Qué cambió (un cuerpo, `modules/inventory/item-location.rules.ts`; el servicio solo lo aplica):**
+
+| Verbo | Admite | Si no |
+|---|---|---|
+| `mark` | **solo plataforma `in_stock · listed`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}` — **incluida toda pieza de cliente**, en retiro o no |
+| `PATCH {status:'in_stock'}` (verbo `status` de las reglas) | **solo plataforma `in_stock · listed`**; `listed → in_stock` despublica; `in_stock → in_stock` **no escribe `status`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`; pieza cambiada entre lectura y escritura ⇒ `409 CONFLICT` |
+| `PATCH {status:'listed'}` | sin cambio: pipeline v1.51 (`assertPublishableGuards` + `claimListed`) | `422 ITEM_NOT_PUBLISHABLE` / `PRICE_PENDING` (sin cambio) |
+| `PATCH` sin `status` | sin cambio: edición de campos con `update` plano | — |
+| `move` | **sin cambio** (§M4-SHIP.17.1 (3)) | — |
+
+- `assertOperable(item, verb)` gana el verbo `'status'` y **overloads**: `'mark' | 'status'` devuelven siempre
+  `'platform'`; la rama de cliente (`isCustomerCustody`) solo existe para `'move'`. `MARKABLE_PLATFORM_STATUSES` es el
+  allowlist de los dos.
+- `markItem`: se quitó `if (kind === 'customer') await this.assertNotInActiveWithdrawal(tx, id)`. **Consecuencia:**
+  `409 ITEM_IN_ANOTHER_SHIPMENT` ya solo lo emite `move` (una pieza de cliente en `mark` cae en `422` antes de mirar
+  retiros; sin lectura de `ShipmentItem` ni puerta del cliente — medido por el spec con `not.toHaveBeenCalled`).
+- `updateItem` (camino no publicante **con** `status`): `$transaction` (`VAULT_VERB_TX_OPTIONS`) → `readGuardedItem` →
+  `assertOperable(item,'status')` → `guardedItemUpdate` (el **mismo** `update` condicionado a `{id, status, ownerType,
+  ownerUserId}` leídos que usan `move`/`mark`; `P2025` ⇒ `409 CONFLICT`). Los demás campos del `PATCH` van en **esa**
+  escritura: si la guarda rechaza, tampoco se escriben (medido contra Postgres: `certNumber` queda `null`). El contrato
+  pide `updateMany` con `ownerType:'platform'`; `update` con filtro no único es la misma condición (y ya está probado
+  contra el motor por `move`/`mark`); no se duplicó la escritura.
+- ⛔ **Sin `InventoryMovement`** para `listed ↔ in_stock` (visibilidad de catálogo, no hecho físico; ARCHITECTURE
+  §4.57 (o) del diseño v1.80.3).
+- **No construido aquí (fuera del encargo, para el stream de envíos que construya §M1 v1.80.3):** la bitácora
+  `inventory.item_updated` con `before`/`after` (el controller sigue escribiendo `inventory.update` sin diff).
+
+**Discrepancias para el arquitecto (este árbol):** el contrato de esta rama (`dde785b`, v1.79.6 §M1, tabla 1 fila
+`customer`/`mark` y tabla 2 paso 3 de `mark`) todavía dice que `mark` admite la custodia liquidada fuera de retiro y
+que en retiro cobrado da `409`. Ese texto **documentaba lo construido en `6e3b1b7`** y queda superado por D-SHIP-5
+(v1.80.3 lo corrige en el otro worktree): hay que alinear §M1 aquí (`mark` ⇒ solo plataforma; `409` solo en `move`) y
+añadir la fila del `PATCH status:'in_stock'` (D-SHIP-6). El código sigue al diseño v1.80.3 por orden del orquestador
+(regla de conflicto: PROJECT/diseño aprobado por seguridad manda sobre la errata que solo transcribía el código).
+
+**Pruebas (rojo antes → verde después, mismo árbol, N=1 cada corrida, deterministas):**
+- `test/inventory.move-mark-guards.spec.ts`: 2 casos cambian de signo + 1 nuevo (D-SHIP-5) — **3/3 rojas** contra
+  `4ca6c45`, 42/42 verdes después.
+- `test/inventory.patch-status-guard.spec.ts` (nuevo, 21): **18/21 rojas** contra `4ca6c45` (las 3 verdes son «lo que
+  no cambia»: sin `status`, `listed` por el pipeline, y el `404`), 21/21 después.
+- `test/integration/inventory-move-mark-guards.e2e-spec.ts`: el caso de `mark` cliente en retiro pasa de `409` a
+  `422`, +1 caso `mark` cliente fuera de retiro, +1 `describe` del `PATCH` (8 casos, incl. que un rechazo no escribe
+  `certNumber`). Contra Postgres 16 propio (`/var/lib/postgresql/be-hotfix-guards`, 55434, `migrate deploy` limpio):
+  **17/17**; con `vault-placement-verbs.e2e-spec.ts` (usa `move`): 49/49.
+- `jest test/inventory`: 29 suites, **421/421** (base 399 + 22). Suite unitaria completa: **355/355 suites,
+  5905/5905** (base 354/5883). eslint sobre
+  los 4 ficheros tocados: 0 errores (1 aviso previo en `inventory.service.ts:655`, `actorUserId` sin usar, ya en HEAD).
+  ⚠️ `tsc --noEmit` **NO MEDIDO** en esta corrida: el clasificador de permisos del entorno lo bloqueó dos veces; los
+  ficheros tocados compilan bajo `ts-jest` (diagnósticos activos) en las suites de arriba.
+- **Mutaciones** (copia del árbol en scratchpad propio sin `frontend/`, restaurada y verificada `diff -q` al final; N=1,
+  deterministas): **3/3 muertas** — (M1) rama `customer` de vuelta en `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin
+  `assertOperable(item,'status')` en `updateItem` ⇒ 14/21 rojas unitarias **y 6 rojas del e2e contra Postgres**; (M3)
+  escritura del `PATCH` sin condición (`update({ where: { id } })`) ⇒ 3 rojas (CAS, `in_stock → in_stock` y TOCTOU).
+
+**Para frontend:** «Marcar perdida/dañada» **no** se ofrece sobre piezas de cliente (ningún estado) ni sobre
+plataforma fuera de `in_stock|listed`; el `PATCH` a `in_stock` desde la pantalla debe esperar `422 ITEM_NOT_ADJUSTABLE`
+y `409 CONFLICT` además de los errores de v1.51.
+# SEC-RESET-TV — el script de rescate de contraseña de staff revoca sesiones (backend · 2026-09-28)
+
+**Hallazgo de seguridad** (`docs/SECURITY_NOTES.md` › `SEC-RESET-TV`, Media): `backend/prisma/reset-admin-password.ts`
+cambiaba el hash **sin** `tokenVersion +1`; un refresh token robado seguía valiendo hasta `JWT_REFRESH_TTL` (30 d).
+
+**Arreglo:** la MISMA `user.update` escribe `passwordHash`, `tokenVersion: { increment: 1 }`, `emailVerified: true` y
+`mustChangePassword: false` (igual que `auth.service.ts:272-281` reset por correo y `:347-353` cambio de contraseña;
+el reset de admin `admin.service.ts:1341-1349` también incrementa, pero pone `mustChangePassword: true` porque la
+contraseña es temporal — aquí la fija quien corre el script, así que `false`). Una sola escritura ⇒ atómico: no hay
+estado intermedio «hash nuevo, sesiones vivas».
+
+**Forma:** la lógica sale a `resetStaffPassword(prisma, env, hash?)` exportada; `main()` solo corre con
+`require.main === module` (mismo patrón que `reset-db-keep-users.ts`). El uso no cambia:
+`npx ts-node prisma/reset-admin-password.ts`.
+
+**Prueba:** `backend/prisma/reset-admin-password.spec.ts` (6 casos, sin BD: Prisma y hasher inyectados). Roja contra
+el código anterior (2/6: los dos de revocación). Mutaciones (deterministas, N=1 cada una), las tres mueren con 2 rojas:
+M1 quitar el `increment`; M2 `increment: 0`; M3 mover el `increment` a una segunda escritura aparte (no atómica).
+
+## Barrido: otros escritores de `passwordHash` / `role` sin `tokenVersion +1` (medido 2026-09-28, `grep` sobre `c4d378b`)
+- **`backend/src/`:** ningún `update` escribe `role` (los únicos `role:` en `data` son `create`: `admin.service.ts:716-735`
+  alta de usuario, `auth.service.ts:441-455` alta Google con `customer` fijo). Escritores de `passwordHash` en
+  `update`: `auth.service.ts:272`, `:347`, `admin.service.ts:1341`, `:1458` (anonimización, `null`) — **los cuatro
+  incrementan**. `VLT-3`/C2 sigue latente: hoy no hay mutación de `User.role` en la app.
+- **`backend/prisma/seed.ts`:** `upsert` con `update: {}` — solo crea (nace con `tokenVersion=0`). Sin hallazgo.
+- **`backend/prisma/seed-e2e.ts`** (NO arreglado, se reporta): cuatro `upsert` cuyo `update` reescribe `passwordHash`
+  y/o `role` sin `tokenVersion +1` — `:117` (`role`), `:809-834` (temporales: hash + `role`), `:839-865`
+  (solo-Google: hash `null` + `role`), `:981-1005` (KYC: hash + `role`). Es siembra de fixtures con
+  `assertSeedTarget` (`seed-target-guard.ts`) que se niega a correr contra hosts no autorizados, así que el riesgo
+  en producción es nulo mientras el candado aguante. No lo toqué porque cambia la conducta del harness E2E (una
+  re-siembra a mitad de corrida invalidaría sesiones de Playwright) y eso no lo puedo medir sin levantar el stack.
+  **NO MEDIDO:** si alguna corrida E2E re-siembra con sesiones ya emitidas.
+- **`backend/prisma/data-repair/*.sql`:** no tocan `User`.
+
+# C7 — límite de intentos de contraseña POR CUENTA + dispositivo conocido (v1.80 · backend · 2026-09-28)
+
+> Implementa `API_CONTRACT §1` «Límite de intentos por cuenta» (`#auth-password-attempts`) y `ARCHITECTURE §4.57`
+> (decisiones 1–14). Código en `cf32dc9` (rama `claude/paquete-seguridad`). Todo lo de esta sección está **medido**
+> salvo lo marcado **NO MEDIDO**.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero |
+|---|---|
+| Números con nombre (5 libres, 60 s·2^(f−5) tope 3600 s, olvido 2 h, 250 ms, 30 s, 50 000 claves, 24 h) y `lockMsForFailures` | `backend/src/modules/auth/password-attempts.constants.ts` |
+| Almacén: `MemoryLoginAttemptStore` (cuerpo síncrono ⇒ atómico), `RedisLoginAttemptStore` (Lua, una ida y vuelta), `ResilientLoginAttemptStore` (Redis con plazo 250 ms ⇒ memoria 30 s), cliente Redis propio, selección | `backend/src/modules/auth/login-attempt.store.ts` |
+| Política: claves (HMAC del correo normalizado vía `PiiCryptoService.blindIndex`, `auth-cp:v1:`, `auth-pwdev:v1:`), `reserve` ⇒ `429`, `clear`/`clearForUser`, efectos del candado sin `await` | `backend/src/modules/auth/password-attempts.service.ts` |
+| `deviceToken` (JWT HS256 90 d, llave HKDF de `JWT_REFRESH_SECRET`, `info=tcg-hunt/device-token/v1`) | `backend/src/modules/auth/device-token.service.ts` |
+| Orden normativo en `login`, contador de `change-password`, limpieza en `reset-password`, `deviceToken` en login/google/refresh/reset-password | `backend/src/modules/auth/auth.service.ts` |
+| `Retry-After` en `429 TOO_MANY_PASSWORD_ATTEMPTS` | `backend/src/modules/auth/retry-after.interceptor.ts` (en `AuthController`) |
+| Reset por admin levanta el candado | `backend/src/modules/admin/admin.service.ts` (`resetPassword`) + `AdminModule` importa `AuthModule` |
+| Correo de aviso a staff | `mail.templates.ts` `passwordLockAlertTemplate`, `MailService.sendPasswordLockAlert` |
+| Código de error | `common/error-codes.ts` `TOO_MANY_PASSWORD_ATTEMPTS` (zona compartida, lo pedía el diseño) |
+| Memoria siempre bajo la suite | `config/test-env.ts` `isLoginAttemptRedisDisabled()` (zona compartida, lo pedía el diseño) |
+| `trust proxy = 1` (C7-18) | `backend/src/trust-proxy.ts`, usado por `main.ts` **y** por el arnés E2E (`test/integration/helpers/e2e-app.ts`, que antes no lo ponía) |
+
+## 2 · Para frontend
+
+- `POST /auth/login` acepta `deviceToken?` (string ≤ 2048; más largo ⇒ `400 VALIDATION_ERROR` del `ValidationPipe`;
+  ajeno/caducado/mal firmado ⇒ se ignora sin error).
+- `200` de `login`, `google`, `refresh` y `reset-password` traen `deviceToken`. `reset-password` responde
+  `{ ok: true, deviceToken }` (sin sesión).
+- `429 TOO_MANY_PASSWORD_ATTEMPTS`: cabecera `Retry-After` = `details.retryAfterSeconds` (mismo número, segundos).
+  Lo emiten `login` y `change-password`. El `message` es fijo en inglés y no distingue nada.
+
+## 3 · Decisiones de implementación que el diseño no fijaba (para arquitecto/techlead)
+
+1. **Tope del correo 1/24 h:** vive en el almacén, como `claimOnce(key, ttlMs)` (Redis `SET NX PX`; memoria con
+   el mismo `Map` acotado). §4.57.5 solo nombra `acquire`/`reset`; no quise añadir estado a la BD.
+2. **`reset-password` y reset por admin limpian también el cubo de `change-password`** (`auth-cp:v1:<id>`), no
+   solo el del login: si no, el usuario recién reseteado podía encontrarse `change-password` en `429` con una
+   sesión nueva. Los cubos de dispositivo no se pueden enumerar (van por `jti`) y no se limpian.
+3. **`change-password`:** solo el `200` limpia (lectura literal del contrato). Un `422 PASSWORD_SAME_AS_CURRENT`
+   tras una actual correcta **cuenta** como intento.
+4. **Correo a staff solo si `status = active`** (un staff bloqueado/borrado no recibe aviso).
+5. **Bitácora:** `actorUserId = null` en login (nadie autenticado); `= userId` en `change-password`.
+6. **`Retry-After` por interceptor del módulo `auth`** y no en el filtro global (`common/filters`, zona compartida
+   que el diseño no pedía tocar). El filtro conserva las cabeceras ya puestas.
+7. **`AdminService` recibe `PasswordAttemptsService` como `@Optional()`** porque 25 specs lo construyen a mano; el
+   cableado real lo prueba C7-8(b) por HTTP contra la app.
+8. **`AuthService` NO lo recibe opcional:** las 14 construcciones manuales en specs usan
+   `test/helpers/auth-c7-deps.ts` (política y dispositivo REALES sobre memoria nueva; no apaga nada).
+9. **Arranque con Redis:** `ResilientLoginAttemptStore.onModuleInit` conecta con plazo de 2 s; si falla, arranca
+   igual en memoria. Con un Redis que acepta TCP y no contesta, el arranque espera esos 2 s (medido en
+   `auth.c7-store.spec.ts`).
+
+## 4 · Pruebas y dónde viven
+
+| C7 | Unit (sin infra) | Integración (Postgres/Redis reales) |
+|---|---|---|
+| 1 | `auth.c7-policy.spec.ts` (5/5 correos nuevos) | `auth-password-attempts.e2e-spec.ts` (X-Forwarded-For distinto, 5/5) |
+| 2, 3, 7, 9, 10, 11, 14, 16, 17 | `auth.c7-policy.spec.ts` | `auth-password-attempts.e2e-spec.ts` |
+| 4 | memoria: `auth.c7-store.spec.ts` y `auth.c7-policy.spec.ts`, **N=10, 10/10** cada una | HTTP 20 simultáneos; Redis: `auth-password-attempts-redis.e2e-spec.ts`, **N=10, 10/10** almacén y **N=10, 10/10** `AuthService` |
+| 5, 6 | `auth.c7-store.spec.ts` (reloj falso) | Lua: `auth-password-attempts-redis.e2e-spec.ts` |
+| 8 | `auth.c7-policy.spec.ts` (a–d) | `auth-password-attempts.e2e-spec.ts` (a–d, incl. reset admin por HTTP) |
+| 12 | — | `auth-password-attempts-redis.e2e-spec.ts` (prefijo aleatorio; sin `REDIS_URL` salta con aviso salvo `E2E_STRICT_INFRA=true`) |
+| 13 | `auth.c7-store.spec.ts` (fallo, cuelgue, ioredis real a puerto cerrado y a agujero negro) | — |
+| 15 | `auth.c7-policy.spec.ts` (audit que nunca resuelve, 1 correo/24 h, customer 0) | filas reales en `AuditLog` |
+| 18 | `auth.c7-trust-proxy.spec.ts` | — |
+| deviceToken | `auth.c7-device-token.spec.ts` | refresh con `deviceToken` en `auth-password-attempts.e2e-spec.ts` |
+
+**Mutaciones** — sobre copia del árbol ENTERO (`git archive cf32dc9`), 24 de 24 en rojo (medido 2026-09-28):
+M1 sin reserva · M2 candado tras argon2 · M2b dejar pasar al acierto · M3 no contar inexistente · M4 `await` entre
+mirar y contar (memoria: store 10/10 y política 10/10 en rojo) · M4r dos operaciones en Redis (20/20 en rojo) ·
+M5a contar durante el candado · M5b sin tope · M6 TTL ≤ tope · M7 no limpiar al acertar · M8 limpiar en
+forgot-password · M9 ignorar deviceToken · M10a no comparar `sub` · M10b firmar con `JWT_REFRESH_SECRET` tal cual ·
+M11 limpiar la cuenta en acierto por dispositivo · M12 correo en claro en la clave · M13a fail-open · M13b
+fail-closed · M14 umbral por rol · M15 `await` de la bitácora · M16 compartir cubo login/cp · M17a sin normalizar ·
+M17b saltar en test · M18 `trust proxy = true`; extra: M19 sin `Retry-After`, M20 correo sin tope de 24 h.
+
+## 5 · N-C7-4 y N-C7-5 (medidos)
+
+- **N-C7-4:** bajo la suite **no hay `PII_HMAC_KEY`**; `PiiCryptoService` usa una clave EFÍMERA aleatoria por
+  proceso (arnés `NODE_ENV=test`) ⇒ el blind index es determinista dentro del proceso y el candado funciona. Visto en
+  el aviso `PII_HMAC_KEY not set — using an EPHEMERAL random key` y en las pruebas verdes. En producción/staging la
+  clave es obligatoria (fail-fast ya existente).
+- **N-C7-5 (backend):** con C7 activo, la suite de integración existente (51 suites, sin las dos nuevas) quedó
+  **51/51 verde, 1135 pasan, 2 saltadas** (mismas que antes) y la unitaria **357/357 suites, 5889 pruebas**.
+  **Ninguna spec existente hace ≥ 5 logins fallidos con el mismo correo en el mismo `AppModule`**; no hubo que cambiar
+  ninguna por el candado. Las que sí cambié, por **otra** causa (constructor con dos dependencias nuevas, o el
+  nuevo shape de `reset-password`): `auth.change-password.spec.ts`, `auth.email-flows.spec.ts` (además
+  `resetPassword` ⇒ `{ ok, deviceToken }` y la fila de prueba gana `email`), `auth.google.spec.ts`,
+  `auth.login-timing.spec.ts`, `auth.logout.spec.ts`. **Frontend (Playwright): NO MEDIDO** por corrida; por `grep`
+  no encontré ≥ 5 logins fallidos con el mismo correo en `frontend/e2e`. Nota para frontend: `loginViaApi`
+  (`frontend/e2e/utils/env.ts`) reintenta ante **cualquier** `429`, también `TOO_MANY_PASSWORD_ATTEMPTS`.
+
+## 6 · NO MEDIDO
+
+- **N-C7-3** (ritmo de `argon2.verify` en el contenedor de producción): NO MEDIDO. Solo indicativo, **local** (4
+  CPU, máquina cargada por otros agentes): ~159 ms por `verify` en serie y ~10,6 `verify`/s con 20 en paralelo.
+- N-C7-1, N-C7-2, N-C7-6: de devops (sin cambios).
+
+# Deuda C7 tras 8ea245f — SEC-C7-RT, QA IMPORTANTE 2 (C7-3 intermitente) y SEC-C7-OPT (backend · 2026-09-29)
+
+Tres encargos sobre la rama `claude/paquete-seguridad`, base `1b82970`. ⛔ No toqué `SEC-C7-MINT`, el respaldo de
+Redis por plazo ni `reset-admin-password` (en diseño con el arquitecto). Sin Postgres ni Redis: todo unitario.
+
+| Punto | sha | Ficheros |
+|---|---|---|
+| 1 · SEC-C7-RT (`refresh()` exige `typ` y `tv`) | `114aecf` | `backend/src/modules/auth/auth.service.ts` (`refresh`, ~`:513-547`), `backend/test/auth.refresh-typ.spec.ts` (nuevo) |
+| 2 · C7-3 intermitente (reloj falso en `makeWorld`) | `178c705` | `backend/test/auth.c7-policy.spec.ts` (`makeWorld` `:65-71`, `:131`; C7-3 nuevo `it` `:209-219`) |
+| 3 · SEC-C7-OPT (sin `@Optional()`) | `bf2a486` | `backend/src/modules/admin/admin.service.ts` (constructor `:614-630`, guardia de `resetPassword` `:1342-1346`, `clearForUser` `:1369`), `backend/test/app.module.spec.ts` (`:110-132`), `backend/test/admin.user-management.spec.ts` |
+
+## 1 · SEC-C7-RT — `refresh()` ya no acepta ni un access ni un `deviceToken` ni un refresh sin `tv`
+
+**Qué cambió (`auth.service.ts` `refresh`)**: tras verificar la firma, `typ !== 'refresh' || typeof tv !== 'number'
+|| typeof sub !== 'string'` ⇒ `401 UNAUTHENTICATED` **antes de tocar la BD**; y la comparación con `tokenVersion` es
+estricta (`payload.tv !== user.tokenVersion`), sin `?? 0`. Mismo código y mensaje `401` que el resto de rechazos.
+
+**Prueba en rojo antes → verde después** (`auth.refresh-typ.spec.ts`, 7 casos): sobre `1b82970` + la spec
+(antes de `114aecf`) **3 en rojo de 7**, exactamente los tres que debían morder:
+- con `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (lo que `env.validation` permite), un **access** presentado como
+  refresh devolvía sesión ⇒ ahora `401`;
+- un `{ typ: "device" }` firmado con `JWT_REFRESH_SECRET` **tal cual** (el caso «con la llave de refresh tal cual» de
+  C7-10) verificaba, y `tv ?? 0` casaba con `tokenVersion = 0` ⇒ ahora `401`;
+- un refresh bien firmado **sin `tv`** contra una cuenta con `tokenVersion = 0` ⇒ ahora `401`.
+Los otros cuatro (control positivo, revocación por `tv`, `deviceToken` real con llave HKDF, `tv` como string) ya
+eran verdes y siguen. Tras el arreglo: **7/7**; suites de auth (7 ficheros): **87/87**.
+
+**Mutaciones (copia de `178c705`, `git archive`, N=5 cada una):** **sin `typ`** (quitar `payload.typ !== 'refresh' ||`) ⇒ spec **roja 5/5** · **volver a `(payload.tv ?? 0)`** (quitar `typeof tv !== 'number'` y restaurar el `?? 0`) ⇒ spec **roja 5/5**. Limpia en la misma copia: **verde 5/5**.
+
+**⚠ Riesgo para el arquitecto (no lo cambio yo, zona `config/`):** `env.validation.ts:78-87` exige que **existan**
+`JWT_ACCESS_SECRET` y `JWT_REFRESH_SECRET` y que midan ≥ 32, pero **no impide que sean iguales**. Con este cambio,
+aunque coincidan, un access ya no vale como refresh (`typ`). Lo que **sigue abierto** si coinciden: el **guard**
+(`common/guards/jwt-auth.guard.ts:49-70`, zona compartida, fuera de este encargo) no rechaza `typ === 'refresh'` y
+mantiene `(payload.tv ?? 0)` ⇒ un **refresh** presentado como `Bearer` entraría. Dos cierres posibles, ambos del
+arquitecto: (a) `env.validation` rechaza secretos iguales; (b) el guard exige `typ` ausente/`'access'` y `tv`
+numérico (simetría con `refresh()`). Recomiendo los dos.
+
+## 2 · QA IMPORTANTE 2 — C7-3 exigía `retry: 60` con reloj real
+
+**Causa medida en el código**: `MemoryLoginAttemptStore.acquire` (`login-attempt.store.ts`) calcula
+`retryAfterSeconds = ceil((lockExpiresAt − now) / 1000)` con el reloj del almacén. Con `Date.now`, si entre el 5.º
+intento (que pone el candado de 60 000 ms) y el 6.º pasa **≥ 1 s** (carga, argon2 de otras pruebas), sale **59**.
+
+**Qué cambió**: `makeWorld` crea por defecto `new MemoryLoginAttemptStore(() => clock.t)` con `clock = { t: Date.now() }`
+congelado y devuelve `clock`. Una prueba que pasa su propio `store` conserva su reloj (C7-15 staff ya lo hacía).
+**Nuevo `it` en C7-3** que demuestra el cableado (con `Date.now` real no cambiaría): a `+30 s` el `429` dice **30**;
+a `+60 s` el candado se abre (`401`).
+
+**Cifras**: `auth.c7-policy.spec.ts` (39 pruebas) sobre copia de `178c705`, máquina cargada (load ≈ 18, tres lotes jest a la vez): **verde 10/10** (N=10). No tengo medición propia del 59 con reloj real: el dato es de QA sobre `8ea245f`. **Mutación «Retry-After fijo en 0»** (`acquire` devuelve `retryAfterSeconds: 0` en la
+rama bloqueada; copia de `178c705`): **verde 0/5, roja 5/5** (N=5; C7-3 espera `retry: 60` y el nuevo `it` espera 60→30, y C7-1 exige `≥ 1`) — la prueba sigue mordiendo.
+
+## 3 · SEC-C7-OPT — `PasswordAttemptsService` deja de ser `@Optional()` en `AdminService`
+
+**Medido antes de cambiar nada** (copia de `178c705` + la aserción nueva de `app.module.spec`; mutación «`AdminModule`
+sin `AuthModule` en `imports`», `@Optional()` todavía presente; N=5): el smoke `compiles the full module graph`
+**verde 5/5** —el silencio que denunciaba seguridad— y la aserción nueva **roja 5/5**.
+
+**Qué cambió**:
+- `admin.service.ts`: sin `@Optional()`. El `?` de TypeScript **se queda**, y no por gusto: va detrás de `mail?`
+  (`MAIL_PORT`, `@Optional()` legítimo de v1.74) y TS no admite un parámetro obligatorio tras uno opcional; los
+  ~28 unitarios que construyen `AdminService` a mano con 4 argumentos siguen compilando (`tsc` exit 0). En DI es
+  obligatorio: `AdminModule` importa `AuthModule`, que lo exporta.
+- `resetPassword` **se niega a correr sin el servicio, ANTES de leer o escribir** (`throw` con el nombre del módulo
+  que falta). Lo puse al principio a propósito: si fallara después del `update`, quedaría un reset a medias (hash
+  nuevo persistido, candado puesto, contraseña temporal nunca devuelta).
+- `app.module.spec.ts`: aserción de arranque — `AdminService.passwordAttempts` **es el mismo singleton** que recibe
+  `AuthService.attempts` (un doble o una segunda instancia con otro almacén limpiaría un contador que nadie mira).
+- `admin.user-management.spec.ts`: la construcción manual pasa un doble explícito; asevera `clearForUser` **después**
+  del `update` y con `{ id, email }`; caso nuevo «sin servicio ⇒ falla en seco sin tocar la BD». C7-8(b) en
+  `auth.c7-policy.spec` sigue con el servicio real.
+
+**Medido después** (copia de `bf2a486`, misma mutación, N=5): el arranque entero cae —
+`Nest can't resolve dependencies of the AdminService (…, MAIL_PORT, ?). Please make sure that the argument
+PasswordAttemptsService at index [5] is available in the AdminModule context` — smoke **rojo 5/5**, aserción
+**roja 5/5**, suite roja 5/5. Ya no hay modo mudo.
+
+## 4 · Verificación en el worktree a `bf2a486`
+
+`tsc --noEmit` exit 0 · `eslint` sobre los 6 ficheros tocados exit 0 · `test/auth.*.spec.ts` + `admin.user-management`
++ `app.module`: **14/14 suites, 153/153 pruebas** · muestra de unitarios que construyen `AdminService` a mano
+(`admin.user-create`, `admin.kyc-review`, `admin.pii`, `admin.contract-shapes`, `pii-degrade`): verdes dentro de
+un lote de **8/8 suites, 100/100**. **NO MEDIDO**: la suite unitaria completa (357 suites) y la de integración
+(`auth-password-attempts*`: no toqué el almacén ni el servicio de política, solo el reloj de la spec unitaria).
+
+# C7 rev v1.80.1 — SEC-C7-MINT, C7-R (QA IMPORTANTE 1), script de rescate y dos cierres de 114aecf (backend · 2026-09-29)
+
+Encargo: `API_CONTRACT` changelog v1.80.1 (`POST /auth/login`, `POST /auth/refresh`, tabla C7, pruebas C7-19…C7-23,
+«Script de rescate» `#reset-admin-password-script`) y `ARCHITECTURE §4.57.3/.4/.5/.8/.10`. Rama `claude/paquete-seguridad`,
+base `f602dca` (HEAD compartido avanzó a `940be1c` por devops mientras trabajaba; ninguno de sus ficheros se cruza con los míos).
+⛔ Sin schema, sin migración, sin env nueva, sin cambio de shape: **frontend no cambia** (medido: los `Object.keys(...)`
+de las e2e de login/refresh/reset-password siguen verdes con la lista exacta).
+
+| Bloque | sha | Ficheros |
+|---|---|---|
+| 1 · C7-R: memoria = caché de Redis + reposición en el Lua; `bump` de ventana fija (C7-22) | `668b6f8` | `backend/src/modules/auth/login-attempt.store.ts`, `password-attempts.constants.ts`, `backend/test/auth.c7-store.spec.ts`, `backend/test/helpers/fake-redis-attempt-store.ts` (nuevo), `backend/test/integration/auth-password-attempts-redis.e2e-spec.ts` |
+| 2 · SEC-C7-MINT: `jti = sid`, `refresh` hereda, legado, tope agregado (C7-19/20/21; C7-22 a nivel de servicio) | `d1fbbf8` | `backend/src/modules/auth/auth.service.ts`, `password-attempts.service.ts`, `device-token.service.ts`, `backend/test/auth.c7-mint.spec.ts` (nuevo), `backend/test/auth.c7-cache.spec.ts` (nuevo), `backend/test/helpers/auth-c7-world.ts` (nuevo), `backend/test/integration/auth-password-attempts.e2e-spec.ts` |
+| 3 · Script de rescate levanta el candado (C7-23) | `ff3ecc4` | `backend/prisma/reset-admin-password.ts`, `backend/prisma/reset-admin-password.c7.spec.ts` (nuevo), `backend/test/integration/reset-admin-password-lock.e2e-spec.ts` (nuevo) |
+| 4 · `env.validation` secretos iguales; guard `typ`/`tv` estrictos | `3c03f36` | `backend/src/config/env.validation.ts`, `backend/src/common/guards/jwt-auth.guard.ts`, `backend/test/env.validation.spec.ts`, `backend/test/jwt-auth.guard.typ.spec.ts` (nuevo) |
+| 5 · Deuda con fecha (sid legado) | `7cf48e5` | `docs/TECH_DEBT.md` («C7-LEGACY-SID») |
+
+## 1 · Dónde vive cada cosa (v1.80.1)
+
+- **`sid`** — `AuthService.issueTokens(user, sid = randomUUID())` (`auth.service.ts`): claim `sid` **solo en el refresh
+  token** (el access no lo necesita: no emite dispositivos). El par devuelto sigue siendo `{ accessToken, refreshToken }`:
+  el `sid` **no** viaja en el objeto para que el `...tokens` de las cuatro respuestas no gane campos.
+  - `login` / `google`: `sid = randomUUID()` → `issueTokens(user, sid)` + `devices.issue(user.id, sid)`.
+  - `refresh`: `AuthService.sessionIdOf(payload)` (estática, pura): `sid` del token si es string no vacío; si no,
+    `"legacy:" + sub + ":" + iat`; sin `iat` numérico ⇒ `null` ⇒ `401` (no hay de dónde derivar la sesión). Emite el
+    **mismo dispositivo** con `exp` renovado y el par nuevo hereda el `sid`.
+  - `reset-password`: `devices.issue(userId)` sin `jti` ⇒ aleatorio (no hay sesión). `register` y `change-password`
+    crean un `sid` nuevo por `issueTokens` (sin `deviceToken`; el siguiente `refresh` lo trae con ese `sid`).
+- **`DeviceTokenService.issue(userId, jti = randomUUID())`** (`device-token.service.ts`): `jti` vacío ⇒ `Error`.
+- **Tope agregado** (`password-attempts.constants.ts`: `DEVICE_AGGREGATE_KEY_PREFIX = 'auth-pwdevagg:v1:'`,
+  `DEVICE_ROUTE_CAP = 30`, `DEVICE_ROUTE_WINDOW_MS = 24 h`; `PasswordAttemptsService.deviceRouteAllowed(userId)` =
+  `store.bump(aggKey, 24 h) <= 30`). En `login` (`auth.service.ts`), **después** de verificar el token y **antes** de
+  elegir cubo: `if (viaDevice && user) viaDevice = await this.attempts.deviceRouteAllowed(user.id)`. Al pasarse, el
+  intento va al cubo de la cuenta (no hay 429 propio). Lo limpia `clearForUser` (reset-password, reset por admin) y el
+  script; ⛔ el acierto solo limpia el cubo usado.
+- **`passwordAttemptKeysForUser(pii, { id, email })`** (`password-attempts.service.ts`, función pura exportada): las tres
+  claves enumerables de una cuenta (`auth-pw` por `blindIndex(normalizeEmail)`, `auth-cp:v1:<id>`, `auth-pwdevagg:v1:<id>`).
+  El servicio y el script la comparten: es lo que el contrato pide con «nada duplicado a mano».
+- **Almacén** (`login-attempt.store.ts`): interfaz `LoginAttemptStore` gana `bump(key, ttlMs)`. Interfaz nueva
+  `PrimaryLoginAttemptStore` (la que ve `ResilientLoginAttemptStore`): `acquireSync(key, pending)` y
+  `bumpSync(key, ttl, pending)` devuelven además la **foto** (`{ failures, lockMs }` / `{ count, windowMs }`).
+  `MemoryLoginAttemptStore` guarda por clave `{ failures, failExpiresAt, lockExpiresAt, unsynced, resetPending }` (y
+  `{ count, windowExpiresAt, unsynced, resetPending }` para ventanas), con `syncAcquire/syncBump` (Redis manda),
+  `takePending*`/`giveBackPending*` (lo pendiente se entrega una sola vez; si la reposición no llega, vuelve) y
+  `markReset` (reset que Redis no vio). `ResilientLoginAttemptStore.acquire/bump`: si `degraded` ⇒ memoria; si no,
+  `takePending` → Redis con plazo 250 ms → `sync` (o `markDown` + `giveBack` + memoria). `reset`: Redis `DEL` y la foto
+  desaparece; si falla, `markReset`. `claimOnce` sigue siendo mejor esfuerzo (no entra en la caché).
+- **Lua** (`ACQUIRE_LUA`): 7 `ARGV` (`ttl, libres, base, tope, extra, lockRestanteMs, borrar`), en este orden: `DEL` si
+  `borrar`; `INCRBY extra` + `PEXPIRE`; `SET lock PX lockRest` solo si `lockRest > PTTL` (nunca acorta); después la
+  reserva de siempre. Al bloquear devuelve también `f` (`{0, pttl, f}`) para que la foto sea completa. `BUMP_LUA`:
+  `DEL` si `borrar`; `SET 0 PX ttl NX` + `INCRBY extra`; `SET 0 PX ttl NX`; `INCR`; devuelve `{n, pttl}`.
+- **`loginAttemptRedisKeys(k, prefix)`** y **`withTimeout`** exportados (los usa el script).
+- **Script** (`prisma/reset-admin-password.ts`): `clearPasswordLock(user, env, opts)` exportada, nunca lanza; la llama
+  `resetStaffPassword` **después** del `update`. `resetStaffPassword(prisma, env, hash?, opts?)` con
+  `opts.log` (por defecto `console.log`) y `opts.redisClient` (por defecto `createLoginAttemptRedisClient`). El retorno
+  sigue siendo `{ email, role }` (la spec «intacta» hace `toEqual` estricto). Plazo total conectar+`DEL`: 2 s
+  (`LOCK_CLEAR_TIMEOUT_MS`); `quit` con 500 ms y `disconnect` de respaldo. Necesita `PII_HMAC_KEY` del servicio (y en
+  no-local `PII_ENCRYPTION_KEY`, porque `PiiCryptoService` exige las dos: si faltan, el candado no se limpia y lo dice).
+- **`env.validation.ts`**: `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (ambos string no vacío) ⇒ `Error` en **todo**
+  entorno. **`jwt-auth.guard.ts`**: `payload.typ !== undefined || typeof sub !== 'string' || typeof tv !== 'number'` ⇒
+  `401`; comparación `payload.tv !== user.tokenVersion` sin `?? 0`.
+
+## 2 · Rojo antes → verde después
+
+- **Rojo medido sobre `f602dca` + las specs nuevas** (`red-unit.txt` del scratchpad): `env.validation` **2/3 rojas**
+  (iguales en production / en local); `jwt-auth.guard.typ` **4/5 rojas** (el control pasaba); `auth.c7-mint`,
+  `auth.c7-cache`, `auth.c7-store` y `reset-admin-password.c7` **no compilan** (API que no existía: `bump`,
+  `PrimaryLoginAttemptStore`, `DEVICE_*`, `loginAttemptRedisKeys`, `RedisLike`). El rojo **conductual** de C7-19…C7-23 lo
+  dan las mutaciones de §3 (reintroducen el defecto de `8ea245f` y la spec muerde).
+- **Verde después (árbol vivo a `7cf48e5`, unitarias de auth + guard + env + script + admin.user-management + app.module):**
+  **22/22 suites, 227/227 pruebas** (`green-unit.txt`; base en `f602dca` para las mismas rutas: 16 suites, 171). Después de
+  corregir dos aserciones **mías** mal contadas (un 6.º `acquire` sin vencer el candado no cuenta: f = 5, no 6) el
+  `auth.c7-store` quedó **32/32**.
+- **Integración contra Postgres/Redis propios** (`postgresql://127.0.0.1:55801/tcg_seg_c7`, `redis://127.0.0.1:56801`,
+  `E2E_STRICT_INFRA=true`): `auth-password-attempts` (24, con C7-19/20/21 por HTTP), `auth-password-attempts-redis` (30,
+  con el Lua real de reposición y `bump`), `reset-admin-password-lock` (1) ⇒ **3/3 suites, 55/55**. Base en `f602dca`:
+  2 suites, 45/45.
+- **`tsc --noEmit` exit 0 · `eslint` sobre los 19 ficheros tocados exit 0.**
+- **Suite unitaria completa sobre copia del árbol ENTERO (`git archive 7cf48e5`, O-9):** **362/362 suites, 5940/5940 pruebas** (195 s, `--maxWorkers=2`, `full-unit.txt` del scratchpad). Sin rojos, sin skips nuevos..
+
+## 3 · Mutaciones (copia del árbol entero por mutación, `git archive 7cf48e5`; N y proporción)
+
+Arnés: `mutate.sh` copia el árbol entero (`git archive <sha> | tar -x`), enlaza `node_modules`, aplica UN parche (python con
+`assert old in s`) y corre la spec N veces. Cada fila dice qué prueba mordió (leído en `run-1.log`). Control limpio en la
+misma copia sin parche: **verde 2/2** sobre las seis specs (82/82).
+
+| Mutación (contrato) | Parche | Spec | Proporción | Qué mordió |
+|---|---|---|---|---|
+| C7-19: `randomUUID()` en `refresh` | `sessionIdOf(payload)` → `randomUUID()` | `auth.c7-mint` | **roja 5/5** (N=5) | C7-19 «usuario 1…5/5» (el 6.º llegó a argon2) y las tres de C7-21 |
+| C7-20 (a): quitar el `bump` | línea `deviceRouteAllowed` borrada | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (b): el acierto limpia el agregado | `clear(bucket, aggKey)` en login | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (c): ventana deslizante | memoria `windowExpiresAt = now + ttl` siempre | `auth.c7-mint` + `auth.c7-store` | **roja 3/3** | sobre `7cf48e5` solo mordió el almacén («la ventana se fija al crear»); la C7-20 del servicio seguía verde porque a +24 h ningún candado de cuenta sobrevive. Corregida en `8210af6` (re-bloquea la cuenta antes del +24 h): **roja 3/3** solo con `auth.c7-mint` (muerde C7-20: el 34.º con jti dio 429 en vez de 200); control limpio de la misma spec en copia de `8210af6`: **verde 2/2** |
+| C7-21: `sid` legado sin `sub` | `legacy:${iat}` | `auth.c7-mint` | **roja 3/3** | «dos usuarios con el mismo iat ⇒ jti distintos» y «3 refresh ⇒ mismo jti» |
+| C7-21: `sid` nuevo por reproducción | `randomUUID()` en la rama legado | `auth.c7-mint` | **roja 3/3** | las dos de C7-21 |
+| C7-22 (a): memoria desde 0 al caer (código de `8ea245f`) | sin `syncAcquire(photo)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (10 a argon2), la de caché (`:201` sustituida), el agregado, y tres del almacén |
+| C7-22 (b): no reponer al volver | `acquireSync(key, NO_PENDING_ACQUIRE)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (el 7.º dio 401), reset en memoria, y dos del almacén |
+| C7-22 (c): reponer sin `borrar` | `takePendingAcquire` devuelve `borrar: false` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | «un reset hecho en modo memoria se repone al volver Redis (borrar)» |
+| C7-23: no borrar | `del(...keys)` quitado | `reset-admin-password.c7` | **roja 3/3** | «seis claves», «DEL falla», «normaliza» |
+| C7-23: fallar si Redis no contesta | `catch` relanza | `reset-admin-password.c7` | **roja 3/3** | puerto cerrado, agujero negro, «DEL falla» |
+| C7-23: clave con el correo sin normalizar | `passwordAttemptKeysForUser` sin `normalizeEmail` | `reset-admin-password.c7` | **roja 3/3** | «Admin@TCG.local y admin@tcg.local borran las mismas claves» |
+| Guard: sin comprobación de `typ` | condición sin `payload.typ` | `jwt-auth.guard.typ` | **roja 3/3** | refresh como Bearer ⇒ 401; `typ: device` ⇒ 401 |
+| Guard: volver a `tv ?? 0` | `?? 0` restaurado y `tv` no exigido | `jwt-auth.guard.typ` | **roja 3/3** | «sin tv contra tokenVersion = 0 ⇒ 401» |
+| `env.validation`: sin la regla | comparación → `false` | `env.validation` | **roja 3/3** | «iguales en production» e «iguales en test/development» |
+
+## 4 · Decisiones que el contrato no fijaba (para arquitecto/techlead)
+
+- **`sid` no va en el objeto que devuelve `issueTokens`**: si fuera un tercer campo del par, el `...tokens` de las
+  respuestas lo colaría en el cuerpo y las e2e de shape (`Object.keys(...)` exacto) se pondrían rojas — y el contrato
+  dice «el front no lo lee». Los llamadores generan el `sid` y lo pasan dos veces (par y dispositivo).
+- **`sessionIdOf` devuelve `null` sin `iat` numérico ⇒ `401`.** Un refresh sin `sid` y sin `iat` no lo emitió nunca
+  `issueTokens` (jsonwebtoken pone `iat` siempre salvo `noTimestamp`); tratarlo como legado fabricaría un cubo
+  `legacy:<sub>:undefined` compartido por todos los tokens raros de esa cuenta. Mismo criterio que `typ`/`tv` (SEC-C7-RT).
+- **La reposición entrega lo pendiente UNA vez (`takePending` pone `unsynced = 0` antes de llamar a Redis) y lo devuelve
+  si la llamada falla.** Sin eso, dos peticiones simultáneas de la misma clave al volver Redis repondrían el mismo
+  `extra` dos veces. Un comando que Redis ejecutó pero contestó tarde sí queda contado dos veces (aceptado, §4.57.5).
+- **Lo pendiente de una clave que nadie vuelve a tocar no se repone** (no hay barrido de fondo). Es la misma pérdida que
+  §4.57.5 ya aceptaba para la memoria; la nota del almacén lo dice. Si se quiere cerrar, un `onModuleDestroy`/barrido
+  periódico que recorra `unsynced > 0` — decisión del arquitecto (añade una operación fuera del camino del login).
+- **`markReset` marca también la ventana de `bump`** para la misma clave (las claves de cuenta y de agregado son
+  disjuntas por prefijo, así que en la práctica solo aplica al agregado cuando `clearForUser` corre en modo memoria).
+  Cuesta una entrada de mapa por reset en modo memoria, acotada por el tope de 50 000.
+- **`change-password` NO limpia el agregado.** El contrato se contradice (§5 abajo); seguí la fila «Tope agregado» y
+  `ARCHITECTURE §4.57.10.1 b`, que listan exactamente tres vías (reset-password, reset por admin, script).
+- **`env.validation` rechaza secretos iguales también en local.** Medido antes: `test/integration/setup.ts`
+  (`e2e_access_secret` / `e2e_refresh_secret`), `.env.example` (dos `CHANGE_ME_…` distintos), `stack-native.sh`
+  (generados), `ci.yml`/`e2e.yml` (preflight de secretos) — ningún fixture tenía los dos iguales; no hubo que arreglar
+  ninguno. Los unitarios que construyen `ConfigService` a mano no pasan por `validateEnv`.
+- **El guard rechaza cualquier `typ` presente**, no solo `'refresh'`/`'device'`: `issueTokens` nunca pone `typ` en el
+  access, así que «tiene `typ`» ya significa «no es un access nuestro».
+- **`test/helpers/auth-c7-world.ts`** duplica el `makeWorld` de `auth.c7-policy.spec.ts` en vez de extraerlo de allí: esa
+  spec la midió QA sobre `178c705` y no quise moverla en el mismo pase. Candidata a unificar (deuda menor, no anotada
+  como bloqueante).
+
+## 5 · Discrepancias con el contrato (para el arquitecto — ⛔ no toqué `API_CONTRACT.md`)
+
+1. **C7-20, aritmética:** «7 logins correctos ⇒ 7 `jti`… 29 fallos repartidos (≤ 4 por `jti`, ninguno pone candado de
+   dispositivo)». Con 5 libres, el **5.º** fallo de un cubo ya pone candado, así que «≤ 4 por `jti`» con 7 `jti` da como
+   mucho **28** fallos, no 29. La prueba usa **8** logins (8 `jti`, 4×7 + 1 = 29) y así el 30.º es el correcto y el
+   31.º pasa del tope, como manda el resto de la fila. Propuesta: cambiar «7» por «8» (o «29» por «28» y renumerar).
+2. **Quién limpia el agregado:** la fila «Qué lo limpia» dice «*estos tres últimos y `reset-password` limpian también
+   `auth-cp` y el agregado*», y «los tres últimos» de esa lista son reset por admin, **`change-password`** y el script.
+   La fila «Tope agregado» y `ARCHITECTURE §4.57.10.1 b` dicen «reset-password, reset por admin y el script; ⛔ no el
+   acierto», sin `change-password`. Implementé lo segundo (`change-password` limpia `auth-cp` + cuenta, como en v1.80,
+   y **no** el agregado). Si el arquitecto quiere que `change-password` también lo limpie, es una línea en
+   `changePassword` (`clear(cpKey, accountKey, aggKey)`) y una aserción nueva.
+3. **C7-23, «f = 6 + candado»:** con la escalera del contrato, 6 fallos seguidos dejan f = 5 (el 6.º está bloqueado y
+   no cuenta). La prueba de integración vence el candado a mano entre el 5.º y el 6.º para tener f = 6 y 120 s; no
+   cambia lo que se demuestra.
+
+## 6 · NO MEDIDO
+
+- El Lua de reposición contra el Redis **de Railway** (solo contra Redis 7 local); `maxmemory-policy` sigue siendo de devops (§4.57.9).
+- Réplicas > 1 (`N-C7-6`): la convergencia al volver Redis se razona, no se midió con dos procesos.
+- La e2e completa de Playwright (frontend no cambia; QA decide si la corre).
+- El script contra la BD real (`railway run`): solo con Prisma doble + Redis real.
+## P-71 — `?q=` del índice de master sets se recorta en el servidor (2026-09-29)
+`MasterSetService.index` (`backend/src/modules/inventory/master-set.service.ts:476`) hace `q.q?.trim()`; vacío o solo
+whitespace = sin filtro. Cumple la convención transversal de `q` de `API_CONTRACT.md` (texto libre, `trim`, vacío =
+ausente), redactada para `/admin/buylist` y `/admin/orders`; §M-P71 no dice nada propio sobre normalización de `q`,
+así que el arquitecto puede fijar en una errata que la regla también aplica a los tres índices de master set.
+# P-83 · **MONEY** — `'sealed'` es clave de COLA, nunca de PRECIO (§M2-SK, v1.70 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK (normas SK-1…SK-4) y §0 `SEALED_MARKET_KEY_REQUIRED`; diseño: `ARCHITECTURE.md`
+§4.50.1. Rama `claude/paquete-dinero`. Implementado **lo que el reparto asigna a backend** (SK-2 en `inventoryValue`,
+SK-3); SK-1 (cero migración) y SK-4 (la vía `listPriceCents` ya existía) no llevan código.
+
+## Qué cambió
+- **SK-3** — `POST /admin/pricing/override` (`pricing.controller.ts`, justo tras `isCanonicalGradeKey` y **antes**
+  del `findUnique` de la carta): `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`**,
+  `details: { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' }`. Código nuevo en `common/error-codes.ts`.
+  `isCanonicalGradeKey` **no se tocó**: `'sealed'` sigue siendo canónica para la COLA (pendientes, `PendingPriceEntry`).
+- **SK-2** — `admin.inventoryValue()`: retirado el fallback a `'sealed'` (antes pedía ambas claves al lote y hacía
+  `mercado ?? legacy`, **también para piezas MAPEADAS** sin referencia bajo su `sealed:tcg:<id>`). Ahora: sin clave de
+  mercado, o sin referencia bajo ella ⇒ `pendingPriceCount`. Efecto declarado por el contrato: el total **baja** y los
+  pendientes **suben** en la cuantía de las filas legadas que antes se sumaban.
+
+## Decisiones que el contrato no fijaba
+- **Orden de la guarda SK-3:** va antes de la búsqueda de la carta porque se decide solo con el body (un `cardId`
+  inexistente + `'sealed'` responde `422 SEALED_MARKET_KEY_REQUIRED`, no `404`). No se consulta BD para rechazar.
+- **Sin bitácora del intento bloqueado:** el contrato no la pide (la de `GRADED_*` sale de §O.8, que es de graduadas).
+- **Datos existentes:** ni backfill ni borrado (SK-1). Las filas `PriceReference(productType='sealed', gradeKey='sealed')`
+  que existan quedan **inertes** para `inventoryValue`; el censo sigue siendo el de P-79(d) (solo `SELECT`), NO MEDIDO
+  en producción.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.sealed-market-key-required.spec.ts` (8): 5 rojas contra el código previo, 3 controles verdes.
+- `test/admin.inventory-value-breakdown.spec.ts`: los dos casos que afirmaban el fallback se **invierten** (SK-2);
+  rojos contra el código previo.
+- `test/pricing.graded-intent.spec.ts`: dos casos usaban `sealed`/`'sealed'` como ejemplo de «no graduada»; pasan a
+  `sealed:tcg:4242` (con `'sealed'` hoy reciben el 422, que es la norma).
+- `test/pricing.m44-no-degrade.spec.ts`: la lista «claves legítimas siguen pasando» incluía `['sealed','sealed']`;
+  sale de la lista (sigue siendo canónica para la cola, pero el override responde 422). Lo cazó la suite completa.
+- `test/integration/sealed-market-key.e2e-spec.ts` (3, Postgres real, por HTTP): sobre de error y CERO filas escritas;
+  control mapeado `200`; delta de `inventory-value` con fila legada (no suma) y mapeada sin ref (pendiente).
+
+## ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+§M2-SK SK-2 dice que `inventoryValue` es **«la ÚNICA excepción viva»**. **Medido 2026-09-28 (Postgres propio,
+sonda HTTP no commiteada):** con una pieza sellada **de cliente** sin mapeo y una fila legada `'sealed'` de MX$800,
+- `GET /vault/holdings` ⇒ `referenceValue {status:'priced', referenceMxnCents: 80000}` (`vault.service.ts` `holdings`,
+  `tryGradeKeyFor(item)` ⇒ `'sealed'` ⇒ `getReference(cardId,'sealed','sealed',finish)`);
+- `GET /vault/holdings/:id` ⇒ lo mismo (`holdingDetail`);
+- `GET /admin/finance/custody-value` ⇒ `105000 → 185000` (`admin.service.ts` `custodyValue`).
+Por lectura de código (NO MEDIDO por HTTP) el mismo patrón está en `admin-vaults.service.ts` (valuación en lote de
+bóvedas) y `admin.service.ts` `ownedItemRefs` (ficha 360° de usuario). La causa común: `tryBuildGradeKey` devuelve
+`'sealed'` para sellado, y esos lectores no tratan el sellado aparte (los cinco «gemelos» que el contrato ratifica sí).
+Además, para una pieza de cliente **mapeada** estos lectores leen `'sealed'` y **no** su `sealed:tcg:<id>`.
+No lo toqué: cambia el patrimonio que ve el **cliente** y el reparto de §M2-SK no lo asigna; decide el arquitecto
+(¿`tryBuildGradeKey('sealed')` ⇒ `null` en lectura, o cada lector resuelve `sealedMarketGradeKeyForItem`?).
+
+# SK-5 · **MONEY** — una sola llave de valuación por pieza; los seis lectores de patrimonio la usan (§M2-SK SK-5, v1.80.1 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK **SK-5** (tabla de lectores, VK-1…VK-7); diseño: `ARCHITECTURE.md` §4.50.1-bis.
+Rama `claude/paquete-dinero`, medido sobre `1971291` + este cambio. Cierra la «Discrepancia» de P-83 (arriba).
+
+## Qué cambió
+- **`PricingService.valuationKeyFor(item)`** — sellado mapeado ⇒ `{cardId,'sealed','sealed:tcg:<id>','normal'}`
+  (finish `normal` aunque la pieza traiga otro); sellado sin mapeo ⇒ `null` (⛔ nunca `'sealed'`); raw/graduada ⇒
+  `tryGradeKeyFor(item)` (misma clave que antes). Llama al envoltorio `this.tryGradeKeyFor`, no a `tryBuildGradeKey`
+  directo: es la misma función, y así los dobles de prueba que fijan `tryGradeKeyFor` siguen gobernando la clave.
+- **`PricingService.valuationCentsOf(item, ref, sourceOn)`** — sellado ⇒ `gateSealedMarketCents` (el gate de
+  `/vault/sealed`: manual sobrevive al dial, `tcgcsv` solo con dial on, `<= 0` ⇒ `null`); raw/graduada ⇒
+  `priced ∧ != null` (sin cambio de un centavo).
+- **Seis lectores** por esas dos funciones: `vault.holdings`, `vault.holdingDetail` (comparten un `valuate()` privado),
+  `admin.custodyValue`, `adminVaults.list`, `admin.ownedItemRefs`, `admin.inventoryValue`. **Opcional del contrato,
+  hecho:** `vault.sealedTab` (`/vault/sealed` y, por delegación, `/admin/vaults/:userId/sealed`) también pasa por
+  ellas — una regla, un sitio; su número no cambia (su clave y su gate ya eran éstos).
+- `sourceOn` sale de `loadSealedSpreads()` **una vez por petición y solo si hay alguna pieza sellada** (sin sellado no
+  se lee el dial: cero consultas nuevas en bóvedas solo-raw).
+- `tcgplayerProductId` entra al `select` de `admin-vaults` y al de `ownedItems` (`ADMIN_USER_DETAIL_SELECT`) y al
+  tipo de `ownedItemRefs`. ⛔ No viaja a ningún DTO.
+- `tryBuildGradeKey('sealed')` **no cambió** (llave de cola, SK-2).
+
+## Decisiones que el contrato no fijaba
+- **`null` de `valuationCentsOf` ⇒ `referenceValue: {status:'pending'}`** en los lectores que emiten `PriceInfo`. Para
+  raw/graduada esto solo difiere de antes en un caso patológico: una fila `priced` **sin** `referenceMxnCents`, que
+  antes se emitía tal cual (`priced` sin cifra) y ya contaba como pendiente; ahora sale `pending`. Ningún total cambia.
+- **Efecto de `inventoryValue` declarado por §4.50.1-bis:** ahora gatea por dial. Con `sealed_price_source=off`, una
+  caja de plataforma mapeada cuyo único mercado es `tcgcsv` pasa de `atReferenceCents` a `pendingPriceCount`.
+  **NO MEDIDO** el valor del dial en producción.
+- Pruebas unitarias de los lectores: sus dobles de `PricingService` ganan `REAL_VALUATION_GATE`
+  (`test/helpers/valuation-gate.ts`): los **métodos reales** del prototipo, no stubs. Donde el doble valuaba sellado
+  se le añadió `loadSealedSpreads` con dial **on** (esas pruebas no son del dial; el dial lo cubren VK-2/VK-5), y el
+  fixture de `vault.holdings-sealed-identity.spec.ts` gana `tcgplayerProductId: 42` (la clave `sealed:tcg:42` que su
+  doble ya fijaba) + una aserción nueva: la caja se busca bajo `sealed:tcg:42`/`normal`. `vault-sealed.spec.ts`
+  sustituye su copia del gate por el real (el real además trata `<= 0` como sin mercado). Ninguna aserción se relajó.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.valuation-key.spec.ts` — **VK-1/VK-2** (20). Contra `c77ebc8`: no compila (las funciones no existían).
+- `test/pricing.valuation-callers-census.spec.ts` — **VK-6** (9): censo CERRADO por fichero y nº de apariciones del
+  identificador en código (comentarios fuera con `helpers/strip-comments.ts`; cuenta también referencias sin
+  paréntesis e imports), cada entrada con su razón; los tres ficheros de SK-5 no pueden figurar y deben llamar a las
+  dos funciones; canario (llamada inyectada en `vault.service.ts` se ve; comentario no cuenta). Rojo contra el
+  código previo (5 de 9: `vault.service.ts` 2, `admin-vaults.service.ts` 2, `admin.service.ts` 4 usos).
+- `test/integration/sk5-valuation.e2e-spec.ts` — **VK-3, VK-4, VK-5, VK-7** (7), Postgres real por HTTP, **fixture
+  propio** (set, 2 cartas, clientes y piezas por corrida). Contra el código previo: **5 rojas / 2 verdes** (las verdes:
+  VK-7 control y el 6º lector de VK-3, que SK-2 ya había arreglado en `inventoryValue`).
+- **Mutaciones** (copia del árbol ENTERO `git archive 1971291` + este cambio, BD propia; deterministas, N=1 cada una):
+  - VK-3, una por lector, revirtiendo SU clave a `tryGradeKeyFor`: **6/6 muerden**, y cada una en SU aserción
+    (holdings `:218`, holdingDetail `:222`, custody `:224`, `/admin/vaults` `:226`, ficha 360° `:229`,
+    inventory-value `:237`). Todas ponen también rojo VK-4.
+  - VK-1 `'sealed'` en la rama sin mapeo ⇒ rojo (unit + 2 e2e); VK-1 `item.finish` en la mapeada ⇒ rojo (unit).
+  - VK-2 gate cambiado por `status==='priced'` ⇒ rojo (2 unit + VK-5 dial off).
+  - VK-6 llamada nueva a `tryGradeKeyFor` en `vault.service.ts` ⇒ rojo (2 del censo).
+- Suites: unit **358/358 suites, 5902/5902**; `tsc --noEmit` limpio; eslint 0 errores (5 avisos previos, ninguno
+  de estos ficheros). Integración completa sobre BD **virgen**: ver «Discrepancias» (una roja, **preexistente**).
+
+## N-MEDICIÓN pedida por el arquitecto — ¿el mapeo de M2 acepta piezas de CLIENTE? **Sí (medido)**
+Sonda HTTP no commiteada, Postgres propio, **N=1, backend, 2026-09-28**: caja sellada de cliente sin mapeo ⇒
+aparece en `GET /admin/pricing/sealed/unmapped` (`true`); `PUT /admin/pricing/sealed/items/:id/mapping`
+`{tcgplayerProductId, tcgplayerGroupId}` ⇒ **`200`**; «Mi bóveda» pasa de `{status:'pending'}` a
+`{status:'priced', referenceMxnCents: 111100}` (con una ref manual bajo `sealed:tcg:<id>`). Por código
+(`sealed-mapping.service.ts` `listUnmapped`/`updateMapping`): ninguno filtra por `ownerType`. ⇒ «Lo fijaremos pronto»
+tiene camino real en el backend. **NO MEDIDO:** la pantalla de M2 que lo ofrece para piezas de cliente (frontend).
+⚠️ Por lectura (NO MEDIDO): `applyToSiblings` copia el mapeo a piezas `sealed` sin mapeo con el mismo
+`(cardId, sealedSubtype)` **de cualquier dueño** (cliente y plataforma).
+
+## ⚠️ Discrepancias / hallazgos para el arquitecto (NO los arreglé)
+1. **Export `.xlsx` de inventario cae a `'sealed'`** (fuera de los seis lectores): `inventory.service.ts`
+   `exportGradeKey` devuelve `tryBuildGradeKey(it)` = `'sealed'` para sellado **sin mapeo**, y las columnas de
+   mercado/compra/venta del export salen con la fila legada `'sealed'` (el precio de otra caja). Solo plataforma
+   (`ownerType:'platform'`). Además, para sellado **mapeado** busca con `it.finish`, no `normal`. Por lectura, **NO
+   MEDIDO** por HTTP. Candidato natural a `valuationKeyFor`. Está en el censo VK-6 con esta nota.
+2. **`price-sync` (job) pide `'sealed'` para sellado** — por lectura es uso de **cola** (sincroniza/escala por
+   variante), no valúa patrimonio; lo dejo en el censo como legítimo. Resto de la lista del contrato: confirmados por
+   lectura detrás de rama de sellado o sin sellado posible. Además de la lista del contrato, el censo encontró
+   `inventory.service.ts` re-publicación por variante (clave de cola, legítimo) y el export (punto 1).
+3. **Rojo PREEXISTENTE en integración, no de SK-5:** `enum-query-axes.e2e-spec.ts` › `GET /admin/vaults?sort= ⇒
+   conforme` sale rojo cuando corre detrás de cierta secuencia de suites. Medido: BD virgen + secuencia
+   `buylist-cycle, vault-placement-races, fx-mode, seed-idempotency, pricing-visibility, seed-account-fixtures,
+   buylist-pay-verdicts, checkout-reservation-owner, preparation-queue, enum-query-axes` ⇒ **rojo igual en el árbol
+   base `1971291` sin este cambio y con él** (N=1 cada uno). Sola, verde (N=2). Dependencia de orden de la prueba.
+   Integración completa del árbol con SK-5 sobre BD virgen: 54/55 suites, 1165 verdes, esa 1 roja.
+# §M4-SHIP · «Pedidos por preparar»: preparar envíos, la carta que falta, «Por reponer», la cubeta SPEI y el reembolso total de bóveda (v1.80.5 + errata v1.80.6 · backend · 2026-09-29)
+
+> Contrato: `API_CONTRACT §M4-SHIP` **v1.80.5 con la errata v1.80.6** (commit `290f27f`: predicados `reclaimedBy`/
+> `isVaultReclaimTarget` anclados a `refund_return` con `createdAt ≥ fullRefundClosedAt`, `closed_nothing_to_ship` de un
+> retiro con todas las líneas `blocked`, guarda `409 CONFLICT {reason:'nothing_to_ship'}`, `inventoryItemIds?` en
+> `reclaim-vault`). Copys de los correos que emite backend: `DESIGN_SYSTEM v4.9 §37` (`f0962d5`). Rama
+> `claude/envio-preparar`, worktree `/home/user/tcg-envio`. Cuatro commits, uno por bloque: `811e06a` (M-61 + fórmula),
+> `e843041` (preparación, libro, tope, M3 bóveda §18, webhooks), `482eae5` (apartado «Por reponer», cubeta SPEI,
+> `setClabe`, cadena del contracargo, §16), `19972b5` (SEC-SHIP-A1, pruebas §18, tablero/merma/M3/M7, enlaces de correo).
+> Lo medido lo medí yo en este entorno (Postgres 16 propio en `:55441`, Redis propio en `:56441`, doble de Stripe con
+> estado); lo que no pude medir va marcado **NO MEDIDO**.
+
+## 1. Migración `M-61` — `20260929120000_m61_shipment_prep_refunds` (una sola, aditiva)
+
+- Enums nuevos: `MissingReason`, `PaymentRefundKind`, `PaymentRefundStatus`, `ReplacementCaseSource`,
+  `ReplacementCaseStatus`, `ManualRefundSource`, `ManualRefundStatus`; `MovementReason` gana `replacement` y
+  `refund_return`; `VaultPlacementCancelReason` gana `full_refund`.
+- Columnas: `ShipmentRequest.preparedAt/preparedByUserId`; `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/
+  missingReason`; `VaultPlacementItem.missingReason` (**backfill `not_found`** sobre marcas `missing` previas: **0 filas**
+  aquí); `Order.fullRefundClosedAt`; `KycProfile.clabeUpdatedAt` (nace `NULL`: «fecha de cambio desconocida»).
+- Tablas: `PaymentRefund` (el libro; llaves `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>`
+  · `order-full:<orderId>` · `case:<caseId>`; `orderItemId @unique`, `shipmentItemId @unique`, `replacementCaseId @unique`),
+  `ReplacementCase` (un nodo exacto: `shipmentItemId` xor `placementItemId`; índice parcial **un caso `open` por pieza**),
+  `ManualRefund` (`case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>`; índices parciales
+  «una viva por caso+source» y «una viva por fila de Stripe»; `reissuedFromId @unique`).
+- Todos los `CHECK` de §M4-SHIP.2 (forma por `kind`, identidad `amount = merchandise + shipping + fee + compensation`,
+  `compensation = 0 ⇔ kind ≠ case_refund`, `submitted|succeeded ⇒ stripeRefundId`, `failed ⇒ failedAt`; en el caso:
+  `open ⇔ sin resolución`, `found ⇒ misma pieza ∧ not_found`, `replacementShipmentItemId ⇒ replaced`, `refunded ⇔ los
+  seis refund*`; en SPEI: `paid ⇔ paidAt/paidBy`, `cancelled ⇔ cancelledAt/By/nota`).
+- Diales: `operator_refund_cap_24h_cents` (seed **500000**, D-3) y `case_refund_hard_multiplier` (seed **5**, entero 2–50,
+  D-12). `CASE_REFUND_CONFIRM_MULTIPLIER = 2`, `REPLACEMENT_CASE_DUE_MS = 7×24 h`, `CLABE_RECENT_CHANGE_MS = 72 h`,
+  `REFUND_ATTEMPT_LEASE_MS = 5 min`, `STUCK_REFUND_AFTER_MS = 10 min` — una constante cada una
+  (`vault/replacement-case.rules.ts`, `payments/refunds/refund-ledger.service.ts`).
+- **Drift preexistente, no mío:** `prisma migrate diff` reporta `RenameIndex PriceReference_variant_capturedDate_key`
+  desde antes de `HEAD` (medido sobre `c4d378b` antes de tocar nada).
+
+## 2. Qué se construyó (por módulo) y las decisiones que el contrato dejaba abiertas
+
+**`common/money.ts`** — `itemMissingRefundComponents` (`P + floor(F·P/G)`, IVA dentro), `orderRemainingRefundComponents`
+(el centavo residual del IVA va al envío), `shipmentFeeRefundComponents`, `orderFullRefundComponents` (también
+`IVA_EXCLUSIVE`, con el IVA persistido repartido DENTRO para que la identidad del `CHECK` se cumpla),
+`caseRefundContextOf` + `caseRefundComponents(X)` (monótona; `X > Q` ⇒ compensación) y `subtractRefundComponents` (la fila
+SPEI = diferencia, ±0 por construcción). `common/refund-math.spec.ts`: `31458`, `52430+31458+15729 = 99617`, ±0 para 200
+montos.
+
+**`shipments/shipment-prep.service.ts`** — `PATCH …/prep-items/:id` (CAS sobre `prepStatus` **y** `missingReason`),
+`POST …/prepared` (el algoritmo de §M4-SHIP.5 entero: tope del operador con `pg_advisory_xact_lock` por actor, plan del
+servidor, `REFUND_PREVIEW_STALE`, CAS por pieza, casos «Por reponer» en retiros, sello CAS, cierre `cancelado`,
+post-commit `executeRefund` + `AV-12`/`AV-13`), `DELETE …/prepared` (conserva marcas; en un retiro llama a `onFullRefund
+('unprepared', onlyItemIds)` por cada orden de origen con sello ⇒ `reclaimed[]` en la respuesta), `assertCanAdvance`
+(**las guardas de dinero van primero**: `WITHDRAWAL_LINE_ORIGIN_REFUNDED` / `ORDER_NOT_SETTLED`, luego
+`SHIPMENT_NOT_PREPARED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `nothing_to_ship`), `summary` (`toReplace`,
+`toReplaceOverdue`, `stuckRefunds`, `manualRefundsPending` solo súper-admin).
+- *Decisión:* los conteos de preparación cuentan **`blocked` por disponibilidad** aunque la línea esté `picked` (una
+  carta reclamada por un reembolso total no va a salir); la marca se conserva. Es lo que hace que un retiro vacío por
+  reclamo se titule «Nada que enviar» (PS-66) y que `PREPARATION_HAS_BLOCKED_LINES` **no** cuente bloqueadas cuyo origen
+  ya no está `settled`.
+- *Decisión:* `closed_nothing_to_ship` en un retiro con todas las líneas `blocked` emite `shipment_fee` **desde
+  `prepared`** (v1.80.6, PS-66); `closeWithdrawalIfEmpty` sigue siendo exclusivo de `refund`/`void` del apartado.
+
+**`payments/refunds/`** — `refund-ledger.service.ts` (`createRows` + bitácora `payment_refund.requested` por fila;
+`executeRefund` con **reclamo de 5 min**, `list` paginado por `metadata.refundId` cuando `attemptCount > 1`, clasificación
+definitivo/transitorio de `StripeService.classifyRefundError`; `retry` — el operador no reintenta `order_full` ni
+`case_refund`; **AV-12 un correo por destinatario y acto** — el `case_refund` y la `shipment_fee` de su cierre van
+juntos; `AV-3` lo manda **quien hace la transición `settled → refunded`**, sea la confirmación de M3 o el webhook: es
+equivalente a «quien escribe el sello» en bóveda y evita el doble correo del directo, donde el sello se escribe en la
+tx1); `full-refund.service.ts` (`onFullRefund` despacha por `fulfillmentMode` y **lanza** ante lo que no tiene rama;
+`reclaimVaultOnFullRefund` idempotente por pieza, destino `picking`, `ownershipStatus` en el CAS, `in_packed_withdrawal`
+sin `unpackedConfirmed`, sello por tabla de §18.2, colocación `pending` ⇒ `cancelled/full_refund`);
+`manual-refund.service.ts` (la cubeta; `revealToken = base64url(HMAC(k, 'mr-reveal:v1:' + id + ':' + clabeHmac))` con
+`PiiCryptoService.domainHmac` — la misma llave del índice ciego, ⛔ ningún secreto nuevo, ⛔ nada persistido; `paid` bajo
+`ManualRefund → KycProfile → Order`; `reissue`; `toManual` con la orden `FOR UPDATE` y `REFUND_FAILURE_DISPUTE_CODES`);
+`refund-reports.service.ts` (`operator-summary`, `shrinkage` con `toStatus ∈ {lost,damaged} ∧ fromStatus ∉ {lost,damaged}`);
+`origin.ts` (`resolveOriginsBatch`: la adquisición **más reciente** entre casos `replaced` y compras, empate ⇒ compra;
+`currentPiecesOf` con tope 16 y ciclo/bifurcación ⇒ `ambiguous`; `originsBeingRefunded`).
+- *Decisión:* las plantillas `AV-12…AV-16` viven en `payments/refunds/mail/refund-notice.templates.ts` (el contrato
+  sugería `shipments/`): el hecho que avisan es del libro. Copys y enlaces por `DESIGN_SYSTEM §37.7/§37.8f/§37.9d`.
+- *Decisión (v1.80.6, PS-61 M6):* `returned` en `vaultPieces` ⇔ hay `refund_return ≥ sello`, **y se queda** aunque la
+  pieza cambie después (`recuperada` ⇒ `listed` sin movimiento; `no_recuperada` ⇒ `lost` con movimiento);
+  `pendingConfirmation ⇔ sigue picking ∧ needsManual`.
+- **`REFUND_FAILURE_DISPUTE_CODES = ['charge_disputed', 'charge_already_refunded_or_disputed']`** — **NO MEDIDO** en modo
+  prueba real de Stripe MX (aquí no hay `STRIPE_SECRET_KEY` de prueba; el doble responde `charge_disputed`). PS-48 fija
+  la conducta con el doble; queda por medir en la ventana con claves.
+
+**`orders/`** — `order-refund.service.ts` (M3 total: `requestFullRefund` con `confirmPiecesWithCustomer`,
+`VAULT_PIECE_IN_PACKED_WITHDRAWAL` **solo en tx1**; `reclaimVault` §18.10 con `inventoryItemIds` 1–50 solo con
+`confirmUnpacked`, ids ajenos ⇒ `400 {field:'inventoryItemIds'}`); `orders.service.ts` (`chargeback-inventory` para
+`vault refunded`: objetivos por el **ancla** `refund_return ≥ sello`, **⛔ no por «está picking»** — el `WHERE` del CAS es
+la garantía (`409 CONFLICT` y rollback si alguien la puso `in_stock` por fuera); una objetivo ya en su estado de venta
+la dejó una pasada anterior y se omite; `recuperada` de bóveda **no** escribe movimiento; `no_recuperada` ⇒ `lost`
+firmada); `order-public-status.ts` (**un cuerpo** para el invitado y el cliente registrado: `publicStatus`,
+`activeShipment`, `refundedCentsOf`, `clientRefundOf`; la regla v1.80 «todo devuelto por Stripe ⇒ `reembolsado`» vive
+dentro); `GET /orders/:id` gana `fulfillmentMode`, `publicStatus`, `shipment` (lista blanca), `refundedCents`,
+`items[].refund`, `items[].replacement` (con `refund.transferStatus` derivado de la fila SPEI vigente); `GET /orders`
+gana `publicStatus`/`fulfillmentMode`; M3 lista gana `customer`/`refundedCents`/`q` sobre `recipientName`; M3 detalle
+gana `customer`, `refunds`, `items[].refund`, `shipments`, `vaultPlacement`, `manualRefunds`/`manualRefundedCents`
+(solo súper-admin) y `vaultPieces` (bóveda).
+
+**`vault/`** — `replacement-case.service.ts` + `admin-replacement-cases.controller.ts` (lista/detalle/candidatas hasta 50,
+`replace`/«apareció», `refund-preview`, `refund`, `void`; orden de candados **puerta del cliente → envío → caso → piezas
+(id asc) → orden de origen → libro**); `vault-placement.service.ts` (`missingReason` obligatorio con `missing`; el caso
+nace en `confirm` y en el 6-bis; CAS de la pieza con `P` en el `WHERE` ⇒ `lost|damaged` a nombre del cliente,
+movimiento con el actor = **la merma con firma**); `vault-physical-inventory.service.ts` (`to_replace` primero,
+`counts.toReplace` fuera de `total`); `vault.service.ts` (`marketValueOf` extraído — **la misma** valuación que «Mi
+bóveda» da `M`; `HoldingDTO.replacement`; `withdrawable` gana la quinta condición vía `originsBeingRefunded`).
+- *Medido (§M4-SHIP.15.2 «NO MEDIDO por el arquitecto»):* **(a)** M7 hoy **no** leía merma por movimiento; la merma por
+  actor nace en este stream con la regla «entrada a `lost|damaged` una vez» (`shrinkageWhere`): el nacimiento del caso
+  cuenta, el traspaso `replacement` no (PS-49 verde). **(b)** `GET /vault/holdings` **sí lista y sí valúa** una pieza
+  `lost|damaged` del cliente (no filtra por `status`, solo `≠ withdrawn`): se deja así a propósito — es la carta que se
+  le debe («la estamos reponiendo», `withdrawable:false`).
+
+**`users/` + `buylist/`** — `UsersService.setClabe(tx, userId, clabe, actor)`: **el único escritor** de `clabeEnc|
+clabeHmac|clabeUpdatedAt` (`FOR UPDATE` de la fila; índice ciego igual ⇒ nada; distinto ⇒ escribe, bitácora
+`kyc.clabe_changed {previousMasked,newMasked}` y `AV-16` post-commit vía `notifyClabeChanged`). `PUT /users/me/kyc` y el
+alta de buylist lo usan (el `upsert` del INE ya **no** lleva la CLABE). `GET /users/me/kyc` gana `clabeUpdatedAt`.
+
+**`inventory/`** — SEC-SHIP-A1 **en este worktree** (el contrato decía «en `claude/arreglos-operador` o donde el
+orquestador decida»; esa rama no existe aquí): `mark` solo plataforma `in_stock|listed` con el estado en el `WHERE`
+(`ITEM_NOT_ADJUSTABLE {status, ownerType}` para el resto, incluida la carta de un cliente fuera de un caso — D-14 = «por
+ahora no»); `PATCH {status:'in_stock'}` con la misma guarda, escritura condicionada y todos los campos en la misma tx,
+bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`.
+~~**Instrucción de fusión (techlead R3 sobre `c20451f`):** «manda `item-location.rules.ts` y la copia en línea se
+borra»…~~ 🔒 **Sustituida (2026-09-29) por la regla única de `API_CONTRACT v1.80.7.2`, §M1
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)** (y `ARCHITECTURE §9 D-SHIP-7`, que la cita): la instrucción
+anterior citaba v1.80.7 p.9 y contradecía lo que el contrato decía entonces; **ya no se sigue**. Qué queda, qué sale, en qué
+orden fusionan los tres streams (hotfix · dinero · envío) y qué pruebas se re-corren sobre el **árbol fusionado** (PS-41,
+PS-41b, PS-42, **PS-42b invertida**, PS-64, INV-SP-8 y las suites del hotfix) está **solo** allí — ⛔ no se copia aquí para
+no tener dos textos. ⛔ Esta rama (`claude/envio-preparar`) **no** hace la fusión: la hace la sesión que fusione los tres
+streams. ✅ **Aplicada en la fusión `claude/release-s5` (`5321b8c6`, 2026-09-29)** según la [regla de fusión
+SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule), punto por punto con fichero:línea en «Release s5 — fusión de backend» al
+final de este documento. El hueco que la copia
+en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
+quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
+
+**`admin/`** — `workQueue.toPrepare {ship, vault, toReplace, toReplaceOverdue, stuckRefunds}` (el mismo cuerpo que el
+`summary`), `workQueue.manualRefunds` y `workQueue.operatorRefunds` (`null` para el operador), `GET
+/admin/finance/shrinkage`; P&L e IVA restan lo devuelto (libro `submitted|succeeded` por `submittedAt`; SPEI `paid` por
+`paidAt`): `refundsCents` (mercancía + envío **netos**), `refundedFeesCents`, `compensationsCents` (renglón propio, ⛔
+nunca restando IVA), `ivaRefundedCents`/`ivaNetCents`; `profitCents` resta los tres. `exportCsv(pnl)` gana las tres
+columnas **antes** de `profitCents` (mismo orden que el objeto).
+
+## 3. Lo que difiere del contrato o el contrato no fijaba — para el arquitecto (regla 9)
+
+1. **P&L/IVA:** el contrato manda restar (§M4-SHIP v1.80 tabla de backend, PS-40) pero **no nombra los campos** del DTO.
+   Puse `refundsCents`, `refundedFeesCents`, `compensationsCents` (P&L) e `ivaRefundedCents`, `ivaNetCents` (IVA),
+   aditivos; `pnl-iva-neutral` sigue verde sobre las seis cifras heredadas. **Pido que el arquitecto ratifique (o
+   renombre) esos cinco nombres en §M7.**
+2. **`C-CLABE-1` con una excepción declarada:** `AdminService.deleteUser` (borrado suave, C20/PII) **anula** `clabeEnc/
+   clabeHmac` (`null`, nunca un valor). El candado la tolera explícitamente (solo nulos, sin `clabeUpdatedAt`). No es
+   un cambio de CLABE (con CLABE nula, `paid` ⇒ `422 CLABE_NOT_ON_FILE`), pero el texto de §M4-SHIP.8 dice «cualquier
+   otro escritor ⇒ rojo»: que el arquitecto lo bendiga o pida que la anonimización pase por un verbo de `users`.
+3. **`POST /shipments` con una carta reclamada:** PS-55/PS-63 esperan `422 ITEM_NOT_IN_CUSTODY`; medido: `classifyItems`
+   responde `422 NOT_FOUND`, porque la pieza ya **no es del cliente** (regla M-25 «no revelar»). Las dos cierran la
+   puerta; las pruebas aceptan ambas. Que el arquitecto elija si M-25 manda (mi lectura) o si hay que buscar por `id`.
+4. **Operador ⇒ `403 MONEY_OUT_FORBIDDEN` auditado en la cubeta y en `refund`/`void`:** para que sea `MoneyOutGuard`
+   quien conteste (y audite), esos verbos llevan `@Roles(operador+)` de clase + `@MoneyOut()` (como M3), ⛔ no
+   `@Roles(super_admin)` — con éste el guard de roles contestaría `FORBIDDEN` **sin** bitácora. El efecto es el del
+   contrato (solo `super_admin` pasa); lo anoto porque el texto dice `@Roles(super_admin)`.
+5. **`found` no escribe `replacementShipmentItemId`** (el `CHECK` de M-61 solo lo admite con `replaced`; la línea que
+   vuelve a `picked` es la misma). Coherente con el schema del contrato, no con la frase «guarda su id» de §15.4 paso 7.
+6. **`REPLACEMENT_CASE` y `RawCondition`:** el schema solo tiene `NM`, así que PS-22 no puede medir «otra condición»;
+   mide acabado, carta y ambos.
+7. **Webhook bajo candado ⇒ `503 BUSY_TRY_AGAIN`:** en la carrera M3-confirmación vs `charge.refunded` (PS-57), cuando
+   la fila `Order` está tomada, el webhook responde `503` (Stripe reintenta) y el invariante se cumple igual (un
+   movimiento por carta, una bitácora, un `AV-3`) — es conducta previa del webhook, no nueva.
+8. **`vaultPieces`/`chargeback-inventory` (v1.80.6 M6):** `returned` es permanente desde el ancla; la selección de
+   objetivos no filtra por `picking`; una objetivo ya confirmada se omite (idempotencia entre pasadas). Es mi lectura
+   de «una objetivo forzada a `in_stock` ⇒ 409» **y** «una pasada nueva solo toca la nueva» a la vez.
+9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
+    🔒 **se resuelve con la regla única de `API_CONTRACT v1.80.7.2` §M1 [«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)**
+    (sustituye la lectura anterior de v1.80.7 p.9; ver §2 «inventory»). La aplica la sesión que fusione los tres streams.
+    ✅ **Aplicada en `claude/release-s5` (`5321b8c6`, 2026-09-29)**: ver «Release s5 — fusión de backend» al final.
+10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
+    `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
+    por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
+    (`PrismaClientValidationError`). Ahora esa fila va **sin origen** (`no_origin_order`, H8) y la cola responde. Medido:
+    `preparation-queue.e2e-spec.ts` 5 rojas → 17/17. No cambia el contrato; lo anoto porque es conducta ante corrupción.
+11. **`AV-6` legado se mide sobre un `solicitado`** (`avisos-sellos.e2e-spec.ts`): con §M4-SHIP.9 (`picking|guia → cancelado`
+    ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`, y `TRANSITIONS` ya no los admite) la carrera «dos `PATCH {cancelado}` sobre la
+    misma lectura» solo existe sobre un `solicitado` sin cobrar. Es lo que el contrato dice; lo anoto para QA porque la
+    prueba cambió de fixture, no de aserto (un correo, dos `200`). Las demás suites legadas que cambiaron (guest-checkout,
+    vault-shipments, iva-price-convention, vault-placement-birth) solo se alinearon a v1.80: la guía exige «preparado»,
+    `customer` es aditivo en `AdminShipmentDTO`, el CSV del P&L trae las tres columnas de lo devuelto, `missing` ⇔
+    `missingReason`.
+12. **Candados que las carreras no distinguen (mutaciones equivalentes, con la razón):** (a) ~~el `FOR UPDATE` de la orden
+    de origen en `ReplacementCaseService.refund` (`lockOriginOrder`) — equivalente~~ **CORREGIDO (techlead R1 sobre
+    `c20451f`): NO es equivalente.** PS-27b/PS-27c seguían 10/10 sin él solo porque M3 toma las piezas que el caso también
+    toma; pero `lockCase` lee la orden ANTES de esperar la pieza y hay escritores de `Order.status` que no tocan la pieza
+    del caso ni dejan fila del libro (`charge.dispute.created` de bóveda; `charge.refunded` desde el panel de Stripe). Sin la
+    relectura bajo `FOR UPDATE`, el reembolso del caso decidía con `settled` caduco y creaba `case_refund`/SPEI sobre un
+    cargo disputado ⇒ doble pago. La caza es **PS-27d** (contracargo encolado primero reteniendo `Order`, N=10): con M12
+    aplicada **0/10**; con el código, **10/10**. Razón escrita en `lockOriginOrder`. (b) el CAS `replacementCases: none open` de `shipments.service` en `→guia`: la
+    guarda primaria es `prep.assertCanAdvance` (quitarla: PS-21 rojo); el CAS es la segunda capa. (c) `paid` sin el `FOR
+    UPDATE` de la fila pero con el CAS `status:'pending'`: PS-33/PS-33b siguen 10/10 (el CAS basta); quitar candado + CAS +
+    guarda ⇒ PS-33b **0/10**. Techlead: si prefiere una sola capa, es decisión suya; yo dejé las dos.
+
+## 4. Mediciones B13/B14 (§18.9 / §18.11)
+
+- **B13** — `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded' AND "fullRefundClosedAt"
+  IS NULL`: **NO MEDIDO en producción** (sin usuario de solo lectura aquí). En mi BD de pruebas el conteo varía con las
+  fixtures (una PS pone `refunded` sin cierre a propósito). **Antes de desplegar** la corre el dueño o un usuario de solo
+  lectura; esperado **0** (`HECHOS`: sin ventas reales); si > 0 ⇒ arquitecto (esas órdenes no tienen verbo:
+  `reclaim-vault ⇒ 409 not_closed`).
+- **B14** — `AdminService.inventoryValue()` (`admin.service.ts:1671`): `where: { ownerType: 'platform', status: { in:
+  ['in_stock', 'listed', 'reserved'] } }` ⇒ **no cuenta `picking`**: la carta congelada por el reclamo **no** infla
+  `atReferenceCents` hasta `no_recuperada`. Sin cambio de M7.
+- `IVA_EXCLUSIVE` liquidadas en esta BD: 1 de 15 (fixture de otra suite); `REFUND_NOT_AVAILABLE {legacy_convention}` la
+  cubre (PS-15).
+
+## 5. Pruebas y cifras (medidas por mí, 2026-09-29, sobre `37fd85a` salvo donde se indica)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, sobre `37fd85a`) | **354/354 suites · 5837/5837 pruebas** |
+| `test/integration/shipments-prep.e2e-spec.ts` (PS-1…PS-17, PS-43…45, PS-50/51) | 19/19 (`5cf99e3`) |
+| `test/integration/replacement-cases.e2e-spec.ts` (PS-18…PS-39 salvo PS-20/37, PS-46…48, PS-53/54) | 26/26 (`37fd85a`) |
+| `test/integration/full-refund-vault.e2e-spec.ts` (PS-55…PS-66, PS-41/42/49/52, PS-40) | 13/13 (`5cf99e3`) |
+| `test/integration/orders-public-status.e2e-spec.ts` (PO-1…PO-7) | 4/4 (`5cf99e3`) |
+| `test/integration/vault-placement-verbs/races` (PS-20, `to_replace`, `customer` v1.80) | 47/47 (`5cf99e3`) |
+| `test/refunds.candados.spec.ts` (C-REF-1, C-MREF-1, C-CLABE-1, C-FULLREF-1, lease > timeout, PS-62) | 17/17 |
+| Legadas que tocó el stream (`d030c85`): preparation-queue 17/17 · guest-checkout · vault-shipments · iva-price-convention · vault-placement-birth · avisos-sellos 15/15 | 6/6 suites verdes |
+| Resto de la integración (22 suites de `driver.sh`, sobre `19972b5`; las 6 de arriba se re-midieron sobre `d030c85`) | verde salvo las 6 que se alinearon |
+
+Carreras (barrera de fila, entrelazado observado en las N tiradas, N=10, autor: backend, `int-core-final` + `int-rc-final`):
+PS-1 10/10 · PS-4 10/10 · PS-6 10/10 · PS-7 10/10 · PS-11 10/10 · PS-44 10/10 · PS-51 10/10 · PS-21 10/10 · PS-23 (dos
+casos) 10/10 · PS-23 (vs compra) 10/10 · PS-27 10/10 · **PS-27b** (M3 primero) 10/10 · **PS-27c** (dos casos, misma orden)
+10/10 · PS-33 10/10 · **PS-33b** (cancel primero) 10/10 · PS-47 10/10 · PS-57 (M3 vs webhook) 10/10 · PS-57 (webhook ×2)
+10/10 · PS-41 10/10 · **PS-41b** (reserva primero) 10/10 · PS-65 10/10 · VP-6/13/18/24/25/32/40 (vault-placement-races)
+todas N/N. Las «b/c» son el **otro orden** de la misma carrera: el escritor rival se encola primero y el verbo decide con
+una lectura caduca; son las que distinguen las mutaciones que el orden original no distinguía (abajo).
+
+### Mutaciones (sobre COPIA del árbol ENTERO, `git archive HEAD` + `node_modules` enlazado; O-9)
+
+Ronda 1 (`mutate.py`, HEAD `19972b5`), 14 mutaciones: **8 rojas** (M5 C-CLABE-1 · M6 PS-61 · M7 PS-63 · M8 PS-66 · M9 PS-55 ·
+M10 PS-57 · M13 PS-36 · M14 PS-31), **6 verdes** que se investigaron una a una:
+
+| Ronda 1 verde | Qué era | Qué se hizo | Ronda 2/3 (`5cf99e3`) |
+|---|---|---|---|
+| M1 PS-21 | quitar el CAS `none open` de `shipments.service` | era la 2.ª capa (§3.12b) ⇒ mutar la guarda primaria (M1b) y las dos (M1c) | **M1b roja · M1c roja** |
+| M2 PS-23 | quitar `status` del CAS de la candidata | la carrera vuelca `ownerType`, así que no distingue; lo mide PS-22 (`not_platform_available`) | **M2b roja** (`PS-22\|PS-23`) |
+| M3 PS-33 | quitar `status:'pending'` del CAS de `paid` | el `FOR UPDATE` + relectura lo cubre; y sin el candado, el CAS lo cubre (M3b verde, §3.12c) ⇒ nueva carrera **PS-33b** | **M3c roja** (PS-33b 0/10) |
+| M4 PS-47 | `if (false && …)` | rompía la compilación (narrowing) ⇒ 0 pruebas: error del arnés, no del código; re-mutado `expected = body.revealToken` | **M4b roja** |
+| M11 PS-41 | quitar `status` del WHERE del CAS de `mark` | la carrera original siempre dejaba ganar a `mark`; nueva carrera **PS-41b** (reserva primero) | **M11b roja** (PS-41b 0/10) |
+| M12 PS-27 | quitar el `FOR UPDATE` de la orden en el reembolso del caso | PS-27b y PS-27c siguen 10/10 sin él porque M3 toma las piezas que el caso también toma; **no es equivalente**: el contracargo de bóveda y el `charge.refunded` del panel cambian `Order.status` sin tocar la pieza ni el libro ⇒ nueva carrera **PS-27d** (techlead R1) | **M12c roja** (PS-27d 0/10 con la mutación; PS-27/27b/27c 10/10 con ella — solo PS-27d la caza) |
+
+Total: **14 de 14** mutaciones distinguidas por al menos una prueba (M12 dejó de ser «equivalente» con PS-27d; ver
+§M4-SHIP-TL más abajo). `mut-report.txt`, `mut2-report.txt`, `mut3-report.txt` y las salidas por mutación quedaron en el scratchpad
+del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en el resumen del encargo).
+
+## 6. Lo que el frontend necesita (DTOs y códigos)
+
+- Cola ENVÍO: `ShipPreparationOrderDTO` (`kind`, `customer`, `preparation`, `items[].{prepStatus, missingReason,
+  prepMarkedBy, availability, refund}`), `PATCH prep-items {status, missingReason?}`, `POST prepared
+  {expectedRefundCents}` ⇒ `{outcome:'prepared'|'closed_nothing_to_ship'|'already_prepared', refunds, cases?}`,
+  `DELETE prepared` ⇒ `{outcome, reclaimed?}`; `GET picking-list/summary`.
+- Apartado: `ReplacementCaseDTO` (+ `candidates` en detalle), `CaseRefundPreviewDTO`, verbos `replace`
+  `{inventoryItemId, locationId?}`, `refund {amountCents, reason, expectedStripeCents, expectedManualCents,
+  confirmAboveReference?}`, `void {note}`.
+- Cubeta SPEI: `ManualRefundDTO` (con `clabeUpdatedAt`, `clabeChangedRecently`, `reissuedFromId/AsId`), `reveal-clabe`
+  ⇒ `{clabe, beneficiaryName, clabeUpdatedAt, clabeChangedRecently, revealToken}`, `paid {revealToken, speiReference?,
+  note?, confirmRecentClabeChange?, confirmOriginNotSettled?}`, `cancel {note}`, `reissue {note}`, `POST
+  /admin/refunds/:id/to-manual`.
+- M3: `POST …/refund {reason, confirmPiecesWithCustomer?}` (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `422
+  REFUND_CONFIRMATION_REQUIRED {vaultPieces}`), `POST …/reclaim-vault {note, confirmUnpacked?, inventoryItemIds?}`,
+  `vaultPieces[]` en el detalle, `chargeback-inventory` sobre `vault refunded`.
+- Cliente: `GET /orders/:id` (`publicStatus`, `shipment`, `refundedCents`, `items[].refund/replacement`), `GET /orders`
+  (`publicStatus`), `GET /shipments/:id` (`refundedCents`, `items[].refund/replacement`), `HoldingDTO.replacement` y
+  `withdrawable`, `GET /users/me/kyc.clabeUpdatedAt`, `422 ITEM_ORIGIN_REFUNDED` / `ineligible[].reason='origin_refunded'`.
+- Códigos nuevos en `common/error-codes.ts`: los de §0 v1.80–v1.80.5 (`PREPARATION_*`, `PREP_ITEM_*`, `REFUND_*`,
+  `MONEY_OUT_LIMIT_EXCEEDED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `CASE_*`, `REPLACEMENT_NOT_ELIGIBLE`, `MANUAL_REFUND_*`,
+  `CLABE_NOT_ON_FILE`, `CLABE_CHANGED_SINCE_REVEAL`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`,
+  `ITEM_ORIGIN_REFUNDED`, `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `REFUND_CONFIRMATION_REQUIRED`, `ITEM_NOT_ADJUSTABLE`).
+- Enlaces de correo: `/orders/{id}` (pedido) y `/vault?tab=withdrawals` (retiro); `AV-14` sin CLABE ⇒ `/cuenta#kyc`.
+
+
+# §M4-SHIP-TL · Gate del techlead sobre `c20451f` (R1/R2/R3 + deuda (a)) y errata `API_CONTRACT v1.80.7` (backend · 2026-09-29)
+
+> Rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`, base `ea615c3` (errata v1.80.7 del arquitecto sobre
+> `4fcc6b6`/`c20451f`). Postgres 16 propio en `:55447`, Redis en `:56447`; lo medido lo medí yo (autor: backend); las
+> proporciones llevan su N. Mutaciones sobre **COPIA del árbol ENTERO** (`tar` del worktree + `node_modules` enlazado, O-9).
+> Cada punto: **rojo antes → verde después**, fichero, prueba, mutación.
+
+## 1. R1 (Alta, dinero) — M12 NO era equivalente: `lockOriginOrder` es la única relectura de `Order`
+
+- **Antes:** §3.12(a) y la tabla de mutaciones decían que quitar el `FOR UPDATE` de la orden en `refund` era «equivalente»
+  porque PS-27b/PS-27c seguían 10/10. Era cierto para esos rivales (M3 toma las piezas que el caso también toma) y falso en
+  general: `lockCase` (`replacement-case.service.ts` · `load`) lee la orden **antes** de esperar la pieza, y el
+  contracargo de bóveda (`payments.service.ts · onChargeDisputeVault`: `updateMany` que NO alcanza la pieza `lost|damaged`
+  del caso, luego `order.update({status:'chargeback'})`) y el `charge.refunded` del panel de Stripe (sin `PaymentRefund` ⇒ la
+  vista previa no caduca) cambian `Order.status` sin serializar con nada de lo que el caso toma antes.
+- **Prueba (falla primero):** **PS-27d** (`test/integration/replacement-cases.e2e-spec.ts`): `charge.dispute.created`
+  encolado PRIMERO reteniendo `Order`, luego `POST …/refund`; N=10. Con M12 aplicada (copia): **0/10** — el caso queda
+  `refunded` con fila `case_refund` y la orden `chargeback` (doble pago). Con el código: **10/10** — `200` el webhook,
+  `409 CASE_ORIGIN_NOT_SETTLED` el caso, 0 filas, 0 SPEI, 0 llamadas a Stripe, caso `open`; PS-27/27b/27c siguen 10/10
+  bajo M12 (solo PS-27d la caza).
+- **Código:** sin cambio de conducta; `lockOriginOrder` gana el porqué (comentario). §3.12(a) y la tabla, corregidas arriba.
+
+## 2. R2 (Media) — `void` tomaba `caso → Order → piezas`; ahora `piezas → Order` como todos
+
+- **Antes:** `void` (`replacement-case.service.ts`) pedía `Order` (paso «¿viable?») y después la pieza; `refund`/`replace`,
+  M3 tx1 (`order-refund.service.ts`), `reclaim-vault`/`unprepare` (`full-refund.service.ts`) y el webhook de disputa van
+  piezas → `Order`. Rival real medido: **`reclaim-vault`** sobre una orden ya `refunded` (donde `void` sí es viable). M3
+  **no** sirve de rival: sobre una orden no `settled` contesta `422` antes de tomar candado alguno, y sobre una `settled`
+  es `void` quien contesta `409 CASE_NOT_VOIDABLE` antes de tocar la pieza (primera versión de PS-36b: Δ deadlocks = 0
+  por eso, no por el candado).
+- **Prueba:** **PS-36b** (`replacement-cases.e2e-spec.ts`): `mkSpei` + `charge.refunded` total (orden `refunded`, sellada,
+  la pieza del caso `open_case` sin tocar), barrera en la pieza del caso, `reclaim-vault` encolado primero vs `void`; N=10;
+  `pg_stat_database.deadlocks` antes/después. Con el orden viejo (copia): **0/10**, Δ deadlocks > 0 y un `503
+  BUSY_TRY_AGAIN` por tirada. Con el reorden: **10/10**, Δ = 0, los dos `200`, caso `voided`, pieza `lost` de plataforma.
+- **Código:** `lockPieces` antes de `lockOriginOrder` en `void` (comentario con el porqué).
+
+## 3. R3 — SEC-SHIP-A1 dos veces: el hueco del `PATCH {status}` igual al leído, cerrado; la fusión, invertida
+
+- **Antes:** `updateItem` (`inventory.service.ts`) guardaba solo el cambio de `status` **distinto** al leído; con `status`
+  igual (`in_stock→in_stock`, `listed→listed`) caía en el `update` plano y **re-escribía `status`** ⇒ una pieza que un checkout
+  acababa de poner `reserved` volvía a `in_stock`: reserva perdida. `item-location.rules.ts` del hotfix ya decía
+  «`in_stock → in_stock` no escribe `status`».
+- **Prueba (falla primero):** **PS-42b** (`full-refund-vault.e2e-spec.ts`): (a) espía sobre `inventoryItem.update`: un
+  `PATCH {status:'in_stock', listPriceCents}` sobre una `in_stock` no lleva `status` en `data`; (b) carrera reserva
+  (`in_stock → reserved`, encolada primero) vs `PATCH` con lectura caduca, N=10. Con el código viejo (copia): **0/10** (la
+  pieza vuelve a `in_stock` con dueño). Con el fix: **10/10** (`reserved` del comprador, `listPriceCents` escrito).
+- **Código:** el `update` plano quita `status` del `data` (`const { status: _sameStatus, ...fields } = patch`).
+- ~~**Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
+  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.~~
+  🔒 **Sustituida (2026-09-29) por la [regla de fusión SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule)** (`API_CONTRACT
+  v1.80.7.2` §M1; `ARCHITECTURE §9 D-SHIP-7`): qué cuerpo, qué llamadores, qué pruebas — incluida **PS-42b invertida** —
+  están solo allí. Aplicada en `claude/release-s5` (`5321b8c6`): ver «Release s5 — fusión de backend» al final.
+
+## 4. Deuda (a) / v1.80.7 puntos 12 y 18 — el tope acumulado tiene prueba determinista: **PS-4b**
+
+- `operatorUsedCents` (`refund-ledger.service.ts`) es SQL ⇒ integración. **PS-4b** (`shipments-prep.e2e-spec.ts`), con las
+  cifras del contrato: operador NUEVO (usado absoluto 0), filas por SQL con `createdAt` explícito — `item_missing`
+  `requested` 10000 + `submitted` 20000 + `succeeded` 30000 **cuentan**; `failed` 40000, `order_full` del súper-admin 50000,
+  `succeeded` a −25 h 60000 y una de OTRO operador 70000 **no** ⇒ `operatorUsedCents = 60000`, `operator-summary.capUsedCents
+  = 60000`; `cap = 91457` ⇒ `403 {capCents: 91457, usedCents: 60000, requestedCents: 31458}`, 0 filas, 1 bitácora; `cap =
+  91458` ⇒ `200`; el siguiente `prepared` ⇒ `403 {usedCents: 91458}`. Mutación «`if (planCents > cap)`» (copia): **ROJA**
+  (el primer 403 no ocurre). PS-4: su `usedNow` ahora lleva la ventana de 24 h (el MISMO predicado que el tope), así que
+  `used0` ya no depende de filas viejas de otra corrida.
+
+## 5. v1.80.7 punto 17 🔴 — la confirmación de M3 adopta el orden del webhook (`onFullRefund` ANTES de `Order → refunded`)
+
+- **Antes:** `applyStripeOutcome` (`refund-ledger.service.ts`) hacía `Order → refunded` y después `onFullRefund`
+  (envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro. `prepared` de un retiro (envío → piezas → órdenes de
+  origen) sostenía el retiro mientras pedía `Order` ⇒ ciclo.
+- **Prueba (falla primero):** **PS-57c** (`full-refund-vault.e2e-spec.ts`): orden `vault` con dos cartas, retiro `picking`
+  sin preparar con una, M3 tx1 (transitorio) ⇒ fila `requested`; barrera en la fila del retiro, `prepared` encolado primero
+  vs `retry` (doble `succeeded`); N=10; contador de `deadlocks`. Con el orden viejo (copia): **0/10**, Δ > 0 y un `503`.
+  Con el orden del webhook: **10/10**, Δ = 0; desenlaces: `prepared` `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` + pieza
+  `returned` **10/10**, `prepared` `200` + `in_packed_withdrawal` **0/10** (con la fila `requested` ya creada, el taller
+  siempre ve la orden en devolución); `retry` `200`, fila `succeeded`, orden `refunded`, sello, un `AV-3`.
+- **Código:** (1) CAS de la fila; (2) lectura sin candado de `Order.status` (∉ {settled, refunded} ⇒ log error, fin); (3)
+  `onFullRefund`; (4) `Order → refunded` bajo ese candado (`count 1` con `refunded` = éxito); (5) `AV-3` quien transicionó.
+  PS-57 (a/b/inversa/carreras) siguen verdes.
+- **Medido además (encargo): `chargeback-inventory` vs `reclaim-vault`.** `resolveChargebackInventory`
+  (`orders.service.ts`) hacía el claim sobre `Order` y DESPUÉS `vaultReclaimTargets` (piezas `FOR UPDATE`); `reclaim-vault`
+  va piezas → `Order`. **PS-61b** (`full-refund-vault.e2e-spec.ts`): orden `vault` `refunded` sellada por el webhook
+  (`chargebackNeedsManual: true`), barrera en una pieza devuelta, `reclaim-vault` encolado primero vs `chargeback-inventory
+  (recuperada)`, N=10. Con el orden viejo (copia): **0/10**, Δ > 0, un `503`. **Reordenado igual** (en bóveda las piezas se
+  toman antes del claim; el claim sigue decidiendo): **10/10**, Δ = 0, los dos `200`, piezas `listed`, `needsManual=false`.
+
+## 6. v1.80.7 punto 19 — `UsersService.eraseClabe` + `constantTimeEquals`
+
+- `UsersService.eraseClabe(tx, userId)`: solo nulos (`clabeEnc` ∧ `clabeHmac`), sin `clabeUpdatedAt`, sin `AV-16`, sin
+  bitácora propia. `AdminService.deleteUser` (borrado suave) lo llama dentro de su tx (`UsersModule` importado en
+  `AdminModule`; `@Optional()` por los unitarios que construyen el servicio a mano, y `deleteUser` exige que esté).
+  **C-CLABE-1** (`refunds.candados.spec.ts`): censo = **dos** sitios en `users.service.ts`, **cero** fuera; la excepción
+  declarada en `admin.service.ts` desaparece. Mutación «`deleteUser` escribe `clabeEnc: null` directo» ⇒ **ROJA**.
+- `PiiCryptoService.constantTimeEquals` (el mismo cuerpo que `blindIndexEquals`, con el nombre de lo que compara) y `paid`
+  (`manual-refund.service.ts`) lo usa para el `revealToken`. Unitaria en `pii-crypto.spec.ts` (igual/distinto/longitud/
+  nulo/vacío) y censo en `refunds.candados.spec.ts` («`paid` compara con `constantTimeEquals`, ⛔ nunca `===`/`!==`»).
+  Mutación «`expected !== body.revealToken`» ⇒ **ROJA**.
+
+## 7. v1.80.7 punto 13 — `HoldingDTO.withdrawableReason`
+
+- `withdrawableReasonOf` (`vault.service.ts`, exportada): un cuerpo para el flag y el motivo, en el orden del contrato
+  (`pending` → `replacing`/`not_in_custody` → `in_withdrawal` → `origin_refunded` → `null`); `withdrawable =
+  (withdrawableReason === null)`. Clave siempre presente en `GET /vault/holdings`.
+- Unitaria `test/vault.withdrawable-reason.spec.ts` (los cinco motivos, el orden, «caso abierto sin `lost|damaged` no es
+  `replacing`», y sobre `holdings` el invariante con el DTO). PS-65 ampliada (`{false, 'origin_refunded'}` con la fila
+  `order_full` viva; `{true, null}` con la fila `failed`; el invariante en todas las filas). Mutación «sin la quinta
+  condición» ⇒ unitaria y PS-65 **ROJAS**.
+- **Frontend (contrato):** el chip «Compra en reembolso» solo con `origin_refunded`; `replacing` ya tiene su copy.
+
+## 8. v1.80.7 punto 3 — PS-55/PS-63 fijan `422 NOT_FOUND`
+
+`classifyItems` (`shipments.service.ts`) contesta `NOT_FOUND` a una pieza que ya no es del cliente (M-25); las dos pruebas
+dejan de aceptar `ITEM_NOT_IN_CUSTODY`. Mutación «buscar por `id` sin `ownerUserId`» ⇒ `ITEM_NOT_IN_CUSTODY` ⇒ **ROJAS**.
+
+## 9. v1.80.7 punto 15 — el `429` del login, medido y cerrado
+
+- **Medido (auth-throttle e2e, `E2E_ENABLE_THROTTLER=true`, login ×6):** el throttler de Nest (`@nestjs/throttler` 6) SÍ
+  ponía `Retry-After: n` en la respuesta, pero `AllExceptionsFilter` devolvía como `details` el objeto crudo del framework
+  (`{statusCode, message}`): la cifra no llegaba al front. Con el filtro de `ea615c3` la aserción nueva
+  (`Retry-After: n ∧ details.retryAfterSeconds === n`) es **ROJA** (mutación M-429 sobre la copia); con el cierre, verde.
+- **Cierre:** `all-exceptions.filter.ts · rateLimitDetails(res)`: en un `429` de `HttpException`, `details = {
+  retryAfterSeconds: n }` si la respuesta lleva `Retry-After: n` (entero > 0), si no `{}`. Un `RATE_LIMITED` de negocio
+  (`auth.service.ts`, sin ventana) sigue con `details {}`. Unitaria `test/rate-limited-shape.spec.ts` (con cabecera,
+  cabecera como texto, sin cabecera, `0`, negocio).
+
+## 10. Cifras (medidas por mí, 2026-09-29)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo con todos los cambios; tras el segundo pase) | **5924/5924** (primer pase: 356/356 suites · 5858/5858) |
+| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ deadlocks 0) · **PS-42b** 10/10 · **PS-57c**
+10/10 (Δ 0; 409+returned 10/10, 200+in_packed 0/10) · **PS-61b** 10/10 (Δ 0). Determinista: **PS-4b** verde.
+
+### Mutaciones (copia del árbol entero; `mutate.py` en el scratchpad hasta la limpieza)
+
+| Mutación | Qué | Prueba | Resultado (copia del árbol entero, 11/11 ROJAS) |
+|---|---|---|---|
+| M12 | quitar la relectura de `Order` en `refund` | PS-27 / PS-27b / PS-27c / **PS-27d** | **ROJA** — PS-27 10/10, PS-27b 10/10, PS-27c 10/10 (no la distinguen), **PS-27d 0/10** (caso `refunded` con fila y Stripe llamado sobre una orden `chargeback`) |
+| M-void | `void` de vuelta a `Order → piezas` | PS-36b | **ROJA** — 0/10, Δ deadlocks = 10, `503 BUSY_TRY_AGAIN` en `void` en las 10 |
+| M-R3 | el `update` plano vuelve a escribir `status` | PS-42b | **ROJA** (1 failed) |
+| M-cap | `if (planCents > cap)` | PS-4b | **ROJA** (el primer 403 no ocurre) |
+| M-17 | `Order → refunded` antes de `onFullRefund` | PS-57c | **ROJA** — 0/10, Δ deadlocks = 10 (la víctima fue la tx de confirmación: `retry` 200 con la fila aún `requested` y la orden `settled`) |
+| M-61b | el claim de `Order` antes de las piezas | PS-61b | **ROJA** — 0/10, Δ deadlocks = 10, `503` en `chargeback-inventory` |
+| M-clabe | `deleteUser` escribe `clabeEnc: null` directo | C-CLABE-1 | **ROJA** (1 failed / 18) |
+| M-cte | `paid` compara con `!==` | censo `constantTimeEquals` | **ROJA** (1 failed / 18) |
+| M-3 | `classifyItems` sin `ownerUserId` | PS-55 / PS-63 | **ROJA** (2 failed) |
+| M-429 | el filtro devuelve el `details` crudo | unitaria 429 + auth-throttle e2e | **ROJA** (unitaria 2 failed / 4; e2e 1 failed / 1) — es la medición de que el cierre hacía falta |
+| M-13 | sin la quinta condición en `withdrawableReasonOf` | unitaria + PS-65 | **ROJA** (unitaria 2 failed / 15; PS-65 1 failed) |
+
+## 11. Segundo pase (mismo día): veredicto de QA sobre `c20451f` (BLOQ-1, BLOQ-2 a/b, IMP-1, MENOR) + errata `v1.80.7.1`
+
+- **BLOQ-1 (dinero saliente) — `POST /admin/manual-refunds/:id/paid` y `/cancel` devolvían `{outcome, manualRefund}`** y el
+  contrato (§M4-SHIP.17.3 paso 4: «Res `ManualRefundDTO`») y el frontend esperan el DTO ⇒ la pantalla del súper-admin
+  moría (`customer.fullName` de `undefined`). **Ahora la respuesta ES el `ManualRefundDTO`** y `outcome`
+  (`paid|already_paid` / `cancelled|already_cancelled`) viaja como **campo aditivo** (`ManualRefundDTO & { outcome }`),
+  igual que `reissue`/`to-manual` devuelven el DTO. Pruebas (primero rojas): PS-33/PS-54 y PS-38 exigen
+  `{ id, status, customer: { userId, fullName, email } }` en la raíz y **ausencia** de `manualRefund`. *Para el
+  arquitecto:* `outcome` no está en el DTO del contrato; lo dejé aditivo porque PS-33/PS-38 lo aseveran y el front lo
+  ignora — si prefiere solo el DTO, es quitar una clave.
+- **BLOQ-2(a) — `C-EQ-1` (`enum-query-axes.e2e-spec.ts`) rojo por 13 `@Query` sin clase.** Clasificados por §0-Q punto 3
+  / §4.37 (v1.80.7.1 §M4-SHIP.1 decide E/E/E/E/L), ⛔ sin debilitar el candado: **cuatro** a `NO_ENUM_POR_RUTA`
+  (`shrinkage::from/to`, `refunds::from/to` — fechas; `replacement-cases::overdue` — booleano;
+  `replacement-cases/:id/refund-preview::amountCents` — entero) y **siete filas nuevas del `REGISTRO`**, con fixture
+  propio (`sembrarFixture` (h), `ShipPrepDb`) que discrimina: `replacement-cases::state` (**L**, `open|closed`,
+  `REPLACEMENT_CASE_STATE_VALUES`), `replacement-cases::source` (**E**, `ReplacementCaseSource`), `manual-refunds::status`
+  (**E**, `ManualRefundStatus`), `refunds::requestedByRole` (**E**, `Role`), `refunds::kind` (**E**, `PaymentRefundKind`),
+  `refunds::status` (**E**, `PaymentRefundStatus`), `finance/shrinkage::reason` (**L**, `lost|damaged`,
+  `SHRINKAGE_REASON_VALUES`). Trinquete: `REGISTRO` 44 → **51**, pendientes 11 → **18** (a propósito: es la conversación
+  que el trinquete exige; bajan a 11 cuando el arquitecto escriba las filas). Paridad L a dos bandas: entradas nuevas para
+  `?state=` (línea de §M4-SHIP.15.13) y `?reason=` (línea de §M4-SHIP.17.5).
+- **D-EQ-4 (medido, para que el arquitecto escriba las filas de §0-Q punto 4):** el descubrimiento de `C-EQ-1` **sí ve**
+  los ejes `?kind=`/`?status=` de `GET /admin/refunds`, `?status=` de `GET /admin/manual-refunds` y `?state=`/`?source=` de
+  `GET /admin/replacement-cases` (eran huérfanos exactos del rojo). Su conformidad HTTP con §0-Q, medida por las seis
+  propiedades del candado sobre las siete filas (vacío/espacios ⇒ `200`; `filtra` con datos que discriminan `valid` ≠ base
+  ≠ `alterno`; basura ⇒ `400 VALIDATION_ERROR {field, allowed}` con `allowed` = el dominio derivado): ver la tabla de
+  cierre de esta sección. Clases medidas: `refunds::kind` E · `refunds::status` E · `manual-refunds::status` E ·
+  `replacement-cases::state` L · `replacement-cases::source` E — coinciden con v1.80.7.1 §M4-SHIP.1.
+- **BLOQ-2(b) — `?missing=` ↔ `enum MissingReason` (v1.80.7.1 punto 1):** ⛔ sin renombrar el enum. La entrada `missing`
+  de la lista L gana `homonimosDeNombre: [{ enum: 'MissingReason', porque }]` y la prueba (3) pasa a: **(a)** todo enum
+  que case la regex de nombre está declarado (la regex **no cambia**) y **(b)** los valores del declarado, leídos de
+  `schema.prisma` en disco, son **disjuntos** del literal. Mutación: añadir `location` a `enum MissingReason` en una copia
+  del schema ⇒ **ROJA** (ver tabla).
+- **IMP-2 / v1.80.7.1 punto 2 — banda 3 UNIVERSAL en `enum-values-parity.spec.ts`:** parsea **todos** los `enum X {…}` del
+  schema (55), compara con la línea `^X\s+=` de §0 (con continuaciones `|`) y exige que los sin línea sean **exactamente**
+  `SIN_LINEA_CANONICA` (NameSource, PriceConvention, PriceRefKind, CardProductKind, PendingPriceStatus, MetaDeckSource,
+  MetaCardGroup, MetaMatchStatus). **Medido antes de escribirla (2026-09-29, sobre `7a860cd`): 0 discrepancias y los 8 sin
+  línea son exactamente esos** — ningún enum preexistente discrepa; nada que reportar al arquitecto en esta banda.
+  Además, **una sola declaración** (§4.37): `MISSING_REASON_VALUES`, `PREPARATION_ITEM_STATUS_VALUES`,
+  `PAYMENT_REFUND_KIND_VALUES`, `PAYMENT_REFUND_STATUS_VALUES`, `MANUAL_REFUND_STATUS_VALUES` viven en
+  `common/enum-values.ts` (tres bandas) y los consumidores (`vault-placement.service.ts`, `shipment-prep.service.ts`,
+  `admin-refunds.controller.ts`, `manual-refund.service.ts`; también `SOURCE_VALUES` de `replacement-case.service.ts`) las
+  importan.
+- **IMP-1 — `Math.ceil` en `itemFeeShareCents` (`common/money.ts`) no lo cazaban `refund-math.spec.ts` ni PS-2** (cocientes
+  enteros: `4617·30000/95000 = 1458.0`). Ahora: `P=30001 ⇒ 1458` (ceil 1459) y la propiedad Σ ≤ F con cifras que
+  discriminan (`G=3, F=100`, tres cartas de 1 centavo ⇒ 33+33+33 = 99 ≤ 100; con ceil 102 > F). Mutación ⇒ **ROJA**.
+- **MENOR — los 5 avisos `no-unused-vars`** (`buylist.dto.ts` `IsObject`, `inventory.service.ts` `actorUserId` →
+  `_actorUserId`, `sealed-product.service.ts` `normalizeSetName`, `buylist.guide-transit.spec.ts` `matches` → `_matches`,
+  `inventory.m11-debt.spec.ts` `Prisma`): `npm run lint` ⇒ **0 problemas**.
+- **PS-39 era dependiente del entorno, no del código:** `appUrl` (`mail-shell.ts`) construye los CTA con
+  **`APP_PUBLIC_URL`** (no `APP_BASE_URL`); sin ella el correo degrada el CTA a texto y PS-39 (AV-14 «regístrala en tu
+  cuenta» ⇒ `/cuenta#kyc`) sale roja (medido: roja aquí en `ea615c3` y en mi árbol; verde en QA, que la exporta).
+  `test/integration/setup.ts` fija un default local (`http://localhost:3000`), como hace con el resto de variables.
+- **PS-16 (mía, del pase anterior):** los 8 directos de PS-4b empujaron el envío de PS-16 a la página 2 (la lista va
+  `requestedAt asc`, `pageSize=100`). PS-16 ahora **recorre las páginas** (mide que `?q=` por destinatario ENCUENTRA el
+  envío, no en qué página cae) y PS-4b siembra con 3 directos (dos líneas por directo) en vez de 6.
+
+### Cifras del segundo pase (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo) | **5924/5924** |
+| `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`) sobre el árbol vivo | **429/429** (antes: 2 rojas en `ea615c3`, 3 en la corrida completa) |
+| `replacement-cases` · `shipments-prep` · `full-refund-vault` sobre el árbol vivo | 28/28 · 20/20 · 16/16 |
+| `npm run lint` | **0 problemas** (eran 5 avisos) |
+| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scratchpad hasta la limpieza) — **6/6 ROJAS**:
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| IMP-1: `Math.ceil` en `itemFeeShareCents` | `refund-math.spec.ts` | **ROJA** (2 failed / 10) |
+| BLOQ-1: `paid` vuelve a envolver `{outcome, manualRefund}` | PS-33 | **ROJA** |
+| BLOQ-2(b): `location` entra a `enum MissingReason` (copia del schema) | `C-EQ-1` prueba (3) de L | **ROJA** (1 failed) |
+| banda 3 universal: `MovementReason` + `teleport` (enum SIN derivada en código) | `enum-values-parity` | **ROJA** (1 failed) |
+| banda 3 universal: `enum SinLinea {a b}` nuevo sin línea en §0 | `enum-values-parity` | **ROJA** (2 failed) |
+| `C-EQ-1`: `?kind=` de `GET /admin/refunds` valida y TIRA el valor (QA-M3 sobre el eje nuevo) | `C-EQ-1` «filtra» | **ROJA** (1 failed) |
+
+## 12. Errata `v1.80.7.2` punto 2 (D-a del techlead sobre `59a0c1f`) — la confirmación de M3 cierra aunque haya contracargo
+
+Rama `claude/envio-preparar`, 2026-09-29. ⛔ El punto 1 de la errata (regla de fusión única de guardas de inventario,
+§M1 `#M1-merge-rule`) **no** se hace en esta rama: lo hace la sesión que fusione los tres streams. Aquí solo se corrige la
+cita en §2 «inventory» y en §7 punto 9.
+
+- **Código** (`payments/refunds/refund-ledger.service.ts · applyStripeOutcome`): se quitó la lectura **sin candado** de
+  `Order.status` que cortaba antes de `onFullRefund` (antes `:301-305`). Ahora, como el webhook `charge.refunded`
+  (`payments.service.ts · onChargeRefunded`): (1) CAS de la fila → (3) `onFullRefund` (envíos → piezas → `Order FOR
+  UPDATE`, sello) → (4) `Order → refunded` con `WHERE status='settled'` → si `count 0`, relectura **bajo el candado que (3)
+  tomó**: `refunded` ⇒ éxito sin log (M5); **`chargeback` ⇒ `logger.warn`** «cierre por reembolso total hecho (sello,
+  revisión manual, colocación); su estado chargeback se conserva y no hay AV-3»; otro ⇒ `logger.error` (invariante).
+  `AV-3` solo con `count 1`. Docblock y comentario corregidos (ya no dicen «la orden no se toca»).
+- **PS-57d** (`test/integration/full-refund-vault.e2e-spec.ts`): **(seq)** disputa commit → `retry` ⇒ fila `succeeded`,
+  orden `chargeback`, sello puesto, flag `true`, cero `refund_return`, un `chargeback_return`, colocación
+  `cancelled/chargeback`, una bitácora `order.full_refund_closed`, cero `AV-3`; y un `charge.refunded` posterior ⇒ la foto
+  entera (orden, piezas, movimientos, bitácoras, colocación, filas del libro) **idéntica** (`toEqual`). **(race, N=10)**
+  `forced` con barrera en `Order`, A = disputa (encolada primero), B = `retry` ⇒ ambos `200` y la misma foto; `inter === N`.
+  **Unitaria** `test/refund-ledger.confirm.spec.ts` (6 casos): `chargeback` ⇒ `warn`, no `error`; `onFullRefund` antes de
+  `Order → refunded`; `count 1` ⇒ AV-3; `refunded` ⇒ silencio; `failed`/`pending` ⇒ `error`.
+- **Rojo antes (medido sobre `a703f2d`, commit de pruebas `cc0570e`):** (seq) `seal=null, flag=false, closed=0` y el
+  `log error` «la orden … está chargeback; … la orden no se toca» (falso: la colocación sí la había cancelado la disputa);
+  unitaria 1/6 roja. **Verde después** (`3849421`): PS-57d, PS-57 y PS-57c verdes.
+- **Supuesto «desde `settled` solo se llega a `refunded` o `chargeback`» — censo con `rg`** (`rg -U "\.order\.(update|
+  updateMany|upsert|create)\(\{[^;]*?status:" src`, 2026-09-29): escritores de `Order.status` = `settled` (pago, `WHERE
+  status ≠ settled`, `payments.service.ts:268-270`/`:427-430`; disputa ganada `:1018-1021`), `refunded` (webhook
+  `:687`/`:696-697`, M3 `refund-ledger.service.ts:312-313`, los tres `WHERE status='settled'`), `chargeback` (disputa
+  directa `:869-872`, bóveda `:971-973`, disputa perdida `:1028-1031` — por `id`, sin estado en el `WHERE`) y **`failed`**
+  (cuatro: `payments.service.ts:604` tras leer `status === 'pending'` sin candado; `orders.service.ts:896`
+  `releaseReservation`, **sin** guarda de estado — la llaman `attachPaymentIntent` al fallar Stripe sobre una orden recién
+  creada `pending` y el barrido legado de invitados tras cancelar el PI; `:1042` `supersedeOwnOrder`, tras confirmar el PI
+  `canceled`; `:1181` barrido, con `order.status === 'pending'` leído). **Ninguno de los `failed` lleva el estado en el
+  `WHERE`:** lo que impide que toquen una orden `settled` es que su PI está `succeeded` y `closePaymentIntent` no puede
+  cancelarlo (⇒ 409/skip), no la base. El supuesto se sostiene hoy por esa vía; si algún día se rompe, lo caza el `log
+  error` de la rama «otro estado». `create` solo escribe `pending`.
+- **PS-57c (nota (c) del encargo):** la rama «`prepared` 200 + `in_packed`» salió 0/20 en QA y 0/10 aquí: **es
+  inalcanzable con ese fixture** — la fila `order_full` `requested` (tx1 de M3) existe antes de la carrera y `prepared` la
+  mira bajo candado (`shipment-prep.service.ts:721-745` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`). **Elegí simplificar**:
+  la prueba asevera la única rama alcanzable (409 con ese código, pieza `returned`, `preparedAt` nulo) 10/10; «preparado
+  ANTES de la fila ⇒ la confirmación deja la carta intacta» ya lo mide PS-63. Commit `ff942ca`.
+- **Pendiente para el arquitecto (nota (d)):** `outcome` (`paid|already_paid` / `cancelled|already_cancelled`) viaja como
+  campo **aditivo** en la respuesta de `POST /admin/manual-refunds/:id/paid` y `/cancel` (§11, BLOQ-1) y **no está
+  declarado** en el `ManualRefundDTO` del contrato (§M4-SHIP.17.3). Hay que declararlo (o decidir quitarlo); ⛔ no lo
+  escribo yo.
+
+### Mutaciones (copias del árbol entero `git archive ff942ca`, una por mutación, `node_modules` enlazado)
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| (a) el código de hoy: lectura previa sin candado ⇒ `log error` y fin | PS-57d (seq) · unitaria | **ROJA** (seq) 2/2 corridas: `seal=null, flag=false, closed=0`; `charge.refunded` posterior **sí** escribe (sella el webhook: dos semánticas); (race) 10/10 verde, como predice el contrato (la lectura previa ve `settled` porque la disputa aún no hizo commit); unitaria 3/6 rojas |
+| (b) semántica (a) del techlead: tras el `FOR UPDATE` de la pasada, `chargeback` ⇒ salir sin escribir (`full-refund.service.ts`, solo `trigger='m3'`) | PS-57d (seq + race) | **ROJA** — (seq) 2/2 corridas `seal=null`; (race) **0/10** verdes, N=10 (sello `null` en las 10), `inter` 10/10. Unitaria verde (la simula con doble de `onFullRefund`: no la ve, la ve la integración) |
+| (c) `logger.error` en vez de `warn` para `chargeback` | unitaria | **ROJA** (1/6) |
+
+### Cifras (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| `npm run typecheck` · `npm run lint` (copia del árbol entero de `0e979de`) | limpio · **0 problemas** |
+| Unitaria completa (`npx jest`, misma copia) | **357/357 suites · 5 930/5 930** (5 924 + los 6 de `refund-ledger.confirm.spec.ts`) |
+| Integración completa (`--runInBand`, 55 suites, misma copia, base Postgres 16 **nueva** por corrida) | **2/3 corridas verdes (N=3):** 55/55 · 1 267/1 267 dos veces; la tercera 54/55 · 1 265/1 267 — rojas las 2 de `buylist-intake-concurrency` (barrera «esperaba 2 bloqueadas en `SellRequestItem`», el flake abierto **P-BUYLIST-CONC-FLAKE**). No es de este diff: `git diff --stat cfb43b3 HEAD -- backend/` = solo `refund-ledger.service.ts` y dos pruebas |
+| `cfb43b3` (base del orquestador) sobre copia, misma máquina | 55/55 · **1 266/1 266** (= mi HEAD − PS-57d). *Del orquestador:* 1 281 + 2 skip sobre ese mismo sha — la diferencia de 15 es de entorno (⚠️ NO MEDIDO cuál; los 2 skip son `stripe-in-tx-pool` sin `connection_limit=5`, que aquí sí corren) |
+| PS-57d (race) | **10/10 en cada una de 4 corridas** (N=10 por corrida, 40/40), `inter` 10/10 |
+| PS-57c | 10/10 en 4 corridas, Δ deadlocks 0 |
+
+⚠️ **Hallazgo lateral para el dueño de `buylist` (no es de este stream, no lo toqué):** tras el rojo de
+`buylist-intake-concurrency`, **la base queda envenenada**: esa suite sale **0/10** sobre la base de la corrida roja y
+**10/10** sobre una limpia — y el cruce lo confirma (código de `cfb43b3` sobre la base envenenada 0/3; código de HEAD
+sobre una limpia 3/3). O sea, su `afterAll` no deja la base como la encontró cuando la ronda revienta. Mecanismo ⚠️ NO
+MEDIDO (el alta se rechaza antes de insertar `SellRequestItem`). Relevante para P-BUYLIST-CONC-FLAKE: un rojo arrastra
+los siguientes si la base se reutiliza.
+
+---
+
+# Release s5 — fusión de backend (2026-09-29)
+
+Rama `claude/release-s5`, commit de fusión **`5321b8c6`** (envío-preparar sobre `7a32b833` = pantallas + dinero + hotfix).
+Qué se hizo en la parte de backend de la fusión. La regla que se aplicó vive **una sola vez** en el contrato:
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule) (`API_CONTRACT v1.80.7.2` §M1, citada desde §M4-SHIP.17.1
+punto 1 y `ARCHITECTURE §9 D-SHIP-7`). Aquí solo se anota **dónde quedó cada punto** — ⛔ no se copia la regla.
+Líneas medidas sobre `5321b8c6`. Logs: `scratchpad/backend-merge-s5/` (sesión `1afd7c0b…`).
+
+## 1 · Regla `#M1-merge-rule`, punto por punto
+
+| Punto de la regla | Dónde quedó (fichero:línea en `5321b8c6`) |
+|---|---|
+| **(i)** `item-location.rules.ts` es el **único cuerpo de guardas**; verbos `move\|mark\|status\|price`; `MARKABLE_PLATFORM_STATUSES` se exporta solo de ahí | `backend/src/modules/inventory/item-location.rules.ts:68` (única declaración), `:71` (`ItemVerb` con `'price'`), `:120-133` (`assertOperable`; `mark\|status\|price` comparten el allowlist `in_stock\|listed`, solo `move` tiene rama de cliente) |
+| **(ii)** escritor condicionado = `guardedItemUpdate` del hotfix (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) | `backend/src/modules/inventory/inventory.service.ts:2829-2851`; lector `readGuardedItem` `:2810-2817` |
+| **(iii)** `moveItem` y `markItem` = hotfix | `inventory.service.ts:2732-2746` (`moveItem`: `readGuardedItem` → `assertOperable(item,'move')` → `guardedItemUpdate`), `:2787-2806` (`markItem`: ídem con `'mark'`) |
+| **(iv)** `updateItem` = **estructura** de `envio-preparar` (una tx, bitácora `inventory.item_updated` `before/after`) **re-cableada** a `readGuardedItem` + `assertOperable(item,'status'\|'price')` + `guardedItemUpdate` | `inventory.service.ts:2417-2464` (camino no publicante; comentario de la regla `:2418-2435`, verbo `:2436-2437`, tx `:2442-2462`) |
+| su `MARKABLE_PLATFORM_STATUSES` local (antes `inventory.service.ts:389` de envío) **se borra** | borrado; lo fija el candado estático «se DECLARA una sola vez» (`backend/test/inventory.move-mark-guards.spec.ts:452-457`) |
+| **PS-42b se invierte** (D-d del techlead) | `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` — §3 |
+
+Import en el servicio: `inventory.service.ts:64-69` (`assertMoveDestination`, `assertOperable`, `GuardedItem`,
+`inActiveWithdrawalError` desde `./item-location.rules`). La resolución del conflicto de `inventory.service.ts` (4 bloques)
+se hizo con `resolve_inv.py` sobre las dos versiones (`inv.ours.ts` / `inv.theirs.ts` en el scratchpad).
+
+## 2 · INV-SP-8 (`#M1-patch-price-guard`, v1.80.2.3) construido en la fusión
+
+El código de v1.80.2.3 (dinero) se construyó aquí, sobre el cuerpo único: `PATCH {listPriceCents}` solo sobre plataforma
+`in_stock|listed` (`assertOperable(item,'price')`), cliente en cualquier estado / `reserved` / vendida / terminal ⇒
+`422 ITEM_NOT_ADJUSTABLE`, **todo o nada** (ningún otro campo del mismo `PATCH` se escribe); cuerpo solo de identidad
+(`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) sigue **sin** guarda. `status` y `listPriceCents` juntos ⇒
+**una** llamada con verbo `'status'` (mismo allowlist ⇒ un solo `422`, `details` únicos).
+Prueba nueva: `backend/test/inventory.patch-price-guard.spec.ts` (casos 1–9 en `:135-248`, más `assertOperable(item,'price')`
+puro en `:250-271`).
+
+## 3 · PS-42b invertida
+
+Antes certificaba lo que INV-SP-8 prohíbe (`res.b < 300` y precio `1000+i` escrito sobre una pieza ya `reserved` **del
+comprador**). Ahora (`full-refund-vault.e2e-spec.ts:872-921`): la reserva encolada primero gana, el `PATCH {status:'in_stock',
+listPriceCents}` con lectura caduca recibe **`409 CONFLICT`**, la pieza sigue `reserved/customer` del comprador y su precio
+**intacto**; N=10, `inter === N`. La primera mitad se re-ancló a conducta: `{status:'in_stock', listPriceCents}` sobre una
+`in_stock` ⇒ `200`, precio escrito, `status` sigue `in_stock` y **sin** bitácora `inventory.item_updated` (`:885-888`). Que
+`data` no lleve `status` lo fija la unitaria gemela `backend/test/inventory.patch-status-guard.spec.ts:166`.
+
+## 4 · Candado estático endurecido (ignora comentarios) + canario
+
+`backend/test/inventory.move-mark-guards.spec.ts:404-492` («candado estático — un solo cuerpo de guardas
+(#M1-merge-rule)»): (a) `MARKABLE_PLATFORM_STATUSES` se **declara** una sola vez en `backend/src`, en
+`item-location.rules.ts` (`:452-457`); (b) `markItem` y `updateItem` no llevan guarda en línea ni allowlist y **llaman**
+a `assertOperable(` (`:459-464`).
+**Endurecimiento:** `stripComments` (`:440`) quita `// …` y `/* … */` antes de mirar el cuerpo. Motivo, **medido** en la
+mutación M1 de la fusión: `updateItem` nombra `assertOperable(` en su comentario de la regla, así que borrar la llamada
+dejaba el candado **verde** (`mut-M1.log`: `PASS test/inventory.move-mark-guards.spec.ts`). Con el endurecimiento la
+misma mutación lo pone rojo (`mut-M1-lock.log`: 1/45, `delegates: false`).
+**Canario** (`:468-491`): una segunda declaración y una guarda en línea se detectan, y una llamada **solo nombrada en un
+comentario** (`//` y `/* */`) **no** cuenta como delegar (`delegates === false`). Aproximación declarada: no hay `//`
+dentro de cadenas en esos dos métodos.
+
+## 5 · Las 7 rojas de la primera corrida unitaria: causa raíz y arreglo
+
+Primera corrida unitaria completa sobre el árbol fusionado (`unit-full-1.log`): **377/380 suites, 6381/6388** — 7 rojas en
+3 suites. Ninguna era conducta: las tres son **pruebas de un stream que fijaban la forma de algo que otro stream cambió**.
+
+| Rojas | Suite (origen) | Causa raíz | Arreglo |
+|---|---|---|---|
+| 5 | `test/vault.withdrawable-reason.spec.ts` (nació en envío) | su doble de `PricingService` es anterior a D-4 (v1.80.2.2, dinero): `VaultService.holdings` (`src/modules/vault/vault.service.ts:220`) ya llama `this.pricing.sealedSourceOnFor(items)` ⇒ `TypeError: … is not a function` | el doble gana el helper **real** `sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor` (`backend/test/vault.withdrawable-reason.spec.ts:65-67`) |
+| 1 | `test/pricing.bounty-cap.spec.ts` (dinero) | lista **cerrada** de claves de `PublicBountyDTO`, anterior a P-71 punto 6 (pantallas), que añade `setPtcgoCode` | se añade `setPtcgoCode` a la lista; la forma sigue cerrada (`backend/test/pricing.bounty-cap.spec.ts:143-156`) |
+| 1 | `test/mail-links.frontend-routes.spec.ts` (candado de enlaces; ausente en envío) | las plantillas de envío `AV-14/15/16` construían `appUrl('cuenta' / 'cuenta#kyc')`: **ruta inexistente** en el front (la ruta es `(storefront)/account`) | enlaces **`cuenta` → `account`**: `backend/src/modules/payments/refunds/mail/refund-notice.templates.ts:208, :247, :286` |
+
+Segunda corrida tras el arreglo: verde (§7).
+
+## 6 · Bitácora `inventory.item_updated`: sí en el camino no publicante, no en `→ listed`
+
+- **Sí** en el camino **no publicante** de `updateItem`, dentro de la misma tx y después de la escritura condicionada, **solo
+  cuando `status` cambia** respecto al leído (`before: {status}`, `after: {status, fields}`):
+  `inventory.service.ts:2447-2460`. `in_stock → in_stock` o un `PATCH` solo de precio **no** la escriben. Fijado por
+  `inventory.patch-status-guard.spec.ts:153-160` (unidad) y `full-refund-vault.e2e-spec.ts:824-826` (`listed → in_stock`,
+  Postgres) y `:888` (igual al leído ⇒ 0 filas).
+- **No** en `→ listed` (camino publicante, `inventory.service.ts:2465` en adelante): ese camino sigue el pipeline de v1.51
+  (`assertPublishableGuards` + `claimListed`) y no escribe esta bitácora. Fijado desde el pase del §8 por
+  `backend/test/inventory.pending-publish.spec.ts:481-524` («(4b)»: ancla que ve la bitácora en `listed → in_stock` con el
+  mismo arnés + tres casos publicantes sin ella).
+
+## 7 · Cifras
+
+| Qué | Resultado | Quién lo midió |
+|---|---|---|
+| Unitaria completa, 1.ª corrida (árbol fusionado, antes del §5) | 377/380 suites · 6381/6388 (7 rojas, §5) | backend (`unit-full-1.log`) |
+| Unitaria completa, 2.ª corrida | **380/380 suites · 6389/6389** | backend (`unit-full-2.log`) |
+| Unitaria completa sobre copia del árbol entero en `5321b8c` | **380/380 · 6389/6389** | orquestador |
+| Las 3 suites de guardas (`move-mark-guards`, `patch-status-guard`, `patch-price-guard`) | 3/3 · **95/95** | backend (`unit-inventory-guards.log`) |
+| Integración de guardas (`inventory-move-mark-guards.e2e-spec.ts` + `full-refund-vault.e2e-spec.ts`, Postgres 16 + Redis, pool `connection_limit=5`) | **2/2 suites · 46/46**; carreras PS-41b, PS-42b, PS-65 **10/10 con N=10** cada una, **una** corrida (load al final 3.43) | backend (`integ-guards-1.log`) |
+
+Mutaciones (sobre copia; la definición de cada una se reconstruye de su firma de fallo en el log):
+
+| Mutación | Resultado | Quién |
+|---|---|---|
+| **M1** — `updateItem` sin `assertOperable`, candado **sin** endurecer | **28/95 rojas** en `patch-price-guard` + `patch-status-guard`; `move-mark-guards` **verde** (el hueco del §4) | backend (`mut-M1.log`) |
+| **M1** con el candado endurecido | el candado estático muerde: **1/45** en `move-mark-guards` (`delegates: false`) | backend (`mut-M1-lock.log`) |
+| **M1** «sin `assertOperable` en `updateItem`», árbol `5321b8c` | **29/95 rojas** en las 3 suites de guardas (= 28 + el candado); restaurado **95/95** | orquestador |
+| **M2** — reintroducir en `updateItem` el allowlist local + guarda en línea de envío | **2/95**: las dos pruebas del candado estático (declaración duplicada; `inline/allowlist: true, delegates: false`) | backend (`mut-M2.log`) |
+| **M3** — CAS de `guardedItemUpdate` sin el estado/dueño leído (la mutación que nombra PS-42b) | unidad **7/95 rojas** (TOCTOU de `move`, `mark`, `PATCH status`, `PATCH price`); PS-42b **0/10 con N=10** (`200` + precio `1000+i` escrito sobre la `reserved` del comprador) | backend (`mut-M3.log`, `mut-M3-ps42b.log`) |
+
+## 8 · Pendientes del §8 original: cerrados (pase 2026-09-29, sobre `6fd55074` + este commit)
+
+Los tres pendientes que dejó la fusión, cerrados. Mutaciones sobre **copia del árbol entero** (`cp -a` en
+`scratchpad/backend-ps42b/tree`, sesión `1afd7c0b…`), Postgres 16 + Redis de `stack-native.sh up --infra`; load máximo
+medido durante las corridas de integración 1.25 (4 CPU). Logs en `scratchpad/backend-ps42b/logs/`.
+
+1. **PS-42b — semilla de precio no nula (CERRADO).** `ShipPrepDb.mkPiece` acepta `listPriceCents` (aditivo, sin él nace
+   `null` como antes: `backend/test/integration/helpers/ship-prep-db.ts:122,140`). La carrera siembra `55_500 + i`
+   (distinto del `1000 + i` del `PATCH`) y asevera la semilla (`full-refund-vault.e2e-spec.ts:904-906`).
+   | Mutación | Prueba nueva | Prueba anterior (`6fd55074`) |
+   |---|---|---|
+   | **M3** — `guardedItemUpdate` con `where: { id }` (sin `status`/`ownerType`/`ownerUserId`) | **0/10 con N=10** (`200` + precio `1000+i` sobre la reservada) — `mut-M3-ps42b.log` | (ya roja: §7) |
+   | **M4** — en `updateItem`, si la tx acaba en `409 CONFLICT`, un `update` sin guarda escribe `listPriceCents: null` y relanza (la respuesta sigue siendo `409 CONFLICT`, la pieza sigue `reserved/customer`) | **0/10 con N=10** (`price=null,VIOLATION`) — `mut-M4-ps42b-new.log` | **10/10 verde con N=10** (`price=null` = semilla `null`) — `mut-M4-ps42b-old.log`: el hueco era real |
+   Un primer intento de M4 (anular el precio **antes** de la tx) no aísla el hueco: cambia la respuesta a `422
+   ITEM_NOT_ADJUSTABLE` y pone roja también la prueba vieja. Por eso M4 es la variante en la rama de `CONFLICT`.
+   Sin mutación, PS-42b **10/10 con N=10** en dos corridas (`integ-frv-new.log` en la copia; `integ-touched.log` en el árbol vivo).
+2. **`PATCH → listed` no escribe `inventory.item_updated` (CERRADO, unitaria).** `inventory.pending-publish.spec.ts:481-524`:
+   el arnés gana un espía `auditLog.create` (su `$transaction` corre sobre el mismo cliente, así que ve también lo escrito
+   dentro de una tx); **ancla** — `listed → in_stock` SÍ la escribe con ese arnés (la ausencia no es vacía); y
+   `in_stock → listed` con precio resoluble, con `listPriceCents` + `gradeValue`, y sin precio (`422 PRICE_PENDING`)
+   ⇒ `auditLog.create` **no llamado**. Canarios: **M5a** (bitácora forzada tras `claimListed`) ⇒ **2/39 rojas** (los
+   dos casos que publican; `mut-M5a.log`); **M5b** (bitácora forzada dentro de un `$transaction` al entrar al camino
+   publicante, antes de las guardas) ⇒ **3/39 rojas** (los tres; `mut-M5b.log`). Deterministas (sin carrera).
+3. **Espía de tx de PS-42b (MEDIDO: no ve).** Prueba temporal en la copia (borrada; `spy-tx.log`), contra la app Nest real:
+   con `jest.spyOn(h.prisma.inventoryItem, 'update')` y `jest.spyOn(h.prisma, '$transaction')`, un `PATCH
+   {status:'in_stock', listPriceCents:4321}` sobre `in_stock` ⇒ `200`, precio **4321 en BD**, `$transaction` **1**
+   llamada, `update` espiado **0** llamadas. Controles: una llamada directa `h.prisma.inventoryItem.update` ⇒ el espía
+   cuenta **1**; un `h.prisma.$transaction(tx => tx.inventoryItem.update(…))` propio ⇒ sigue en **1** (no la ve). O sea:
+   el delegado de la tx interactiva de Prisma 5 **no** es el objeto espiado; re-anclar la primera mitad a conducta fue
+   correcto. Mutación **M6** («reescribir `status` igual al leído dentro de la tx»: `guardedItemUpdate(tx, item, patch)`
+   siempre): integración `full-refund-vault` + `inventory-move-mark-guards` **46/46 verde** (`mut-M6-integ.log`: el valor
+   escrito es el mismo, no es observable en BD); unitaria **1/50 roja** — «in_stock → in_stock NO escribe `status`»
+   (`inventory.patch-status-guard.spec.ts`, `mut-M6-unit.log`). Esa unitaria es el único candado, y basta: la conducta que
+   protege (no pisar una reserva) la fija la carrera de PS-42b vía el CAS (M3).
+
+## 9 · Cifras del pase del §8 (árbol vivo, `6fd55074` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/`) | 0 errores | backend |
+| Unitaria completa | **380/380 suites · 6393/6393** (6389 + 4 nuevas de «(4b)») | backend (`unit-full.log`) |
+| Integración de las suites que usan `ShipPrepDb` + guardas (`full-refund-vault`, `replacement-cases`, `shipments-prep`, `orders-public-status`, `inventory-move-mark-guards`) | **5/5 suites verdes**; PS-42b **10/10 con N=10** | backend (`integ-touched.log`) |
+| `enum-query-axes.e2e-spec.ts` (también usa `ShipPrepDb`) | **3 rojas de 429** (`pending-publish?acquisitionType=`, `?missing=`, `?productType=` ⇒ «FIXTURE VACÍO»: la cola sin filtro vuelve vacía). **Preexistente, no de este pase:** con los tres ficheros de prueba de `6fd55074` sobre la misma BD, las **mismas 3** rojas (`integ-enum-base.log`). Causa **NO MEDIDA** (hipótesis: estado de la BD compartida, piezas del fixture resueltas con precio). Pendiente abierto abajo | backend |
+
+> ✅ **CERRADO en §10.2** (2026-09-29, sobre `550bc371`): causa raíz = PS-64 de `full-refund-vault` deja `listed` la
+> única pieza de la cola y `enum-query-axes` no re-sembraba; arreglo en la víctima (re-siembra en `beforeAll`), 0/3 → 3/3
+> (N=3). Lo de abajo es el texto original del pendiente, conservado. (Anotado por TD-10 del techlead sobre `b8a3e4ce`.)
+
+**(Histórico) Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
+`GET /admin/inventory/pending-publish` (arriba). Comprobación que lo cerraría: correrla sola contra una BD recién
+migrada (sin restos de otras suites); si sigue roja, es del fixture o del código de la cola, y es de backend.
+
+## 10 · P-REL-3 (cubeta SPEI sembrada) y `enum-query-axes` «FIXTURE VACÍO» (2026-09-29, sobre `550bc371`)
+
+Logs: `scratchpad/backend-prel3/logs/` (sesión `1afd7c0b…`). Load máximo medido durante las corridas: 1.59 (4 CPU).
+
+### 10.1 · La semilla de la cubeta SPEI (`seedE2E` paso 13)
+
+**Por qué:** en local no había forma de obtener un `ManualRefund` sin Stripe (solo nace del reembolso de un caso
+`case_excess` o de una fila de Stripe fallida `stripe_failed`). Frontend lo midió leyendo el código en `6fd55074`.
+
+- **Constantes:** `backend/prisma/e2e-fixtures.ts` `E2E_SPEI_FIXTURE` (`:544`). Cliente propio y desechable
+  `spei.refund@e2e.local` / `SpeiRefund123!`, nombre `Ana Transferencia E2E` (`nameSource='user'`), `emailVerified`;
+  orden `TCG-E2E-SPEI-0001`; filas `e2e:mr-pay` (MX$535.00 = 500.00 + 15.00 + 20.00, IVA dentro 68.97) y
+  `e2e:mr-cancel` (MX$315.00 = 300.00 + 9.00 + 6.00, IVA dentro 41.38).
+- **Siembra:** `backend/prisma/seed-e2e.ts` `seedSpeiBucket` (`:1098`), llamada al final de `seedE2E` (`:1075`). Deja lo
+  que el producto habría dejado tras `POST /admin/replacement-cases/:id/refund` con todo a SPEI: orden de bóveda
+  `settled`, `IVA_INCLUSIVE` con `ivaTransferPct: 100` (⇒ nunca `origin_not_settled`; y el candado M-50 de
+  `iva-price-convention` exige el dial archivado en toda `IVA_INCLUSIVE` — la primera versión sin él lo puso rojo, medido
+  en la integración completa) → colocación `placed` → línea `missing` por carta → caso `vault_purchase`
+  **`refunded`** con la captura completa → pieza original en plataforma `lost`/`damaged` (como `originalToPlatform`) →
+  `ManualRefund` `case_excess` `pending`, ya anunciada (`announcedNotifiedAt` sellado ⇒ sin `AV-14` por sembrar).
+- **Idempotente con ids ESTABLES** (todo por clave única y `upsert` que restaura). Cada siembra: borra el `KycProfile`
+  del cliente (sin CLABE; la clave PII es del proceso), borra toda fila del cliente fuera de las dos claves fijas
+  (re-emisiones, soltando antes `reissuedFromId`) **antes** de devolver las dos a `pending` con todos los sellos de
+  pago/cancelación y `paidNotifiedAt` a `null`.
+- **Diferencia con el encargo, a favor del schema:** el encargo decía `amountCents = merchandise + iva + fee +
+  compensation`; el CHECK `ManualRefund_amount_identity_chk` (migración M-61) es `amountCents = merchandiseCents +
+  processingFeeCents + compensationCents` — el IVA va **dentro** de la mercancía (`merchandiseIvaCents` es informativo).
+  Se sembró según el CHECK (la otra forma no entra en la BD).
+- **`setClabe` no valida el nombre** (medido: `users.service.ts:78-116` solo exige `^\d{18}$`), así que no hay
+  requisito de nombre que cumplir; el nombre es el `beneficiaryName` de la cubeta mientras no haya `legalName`.
+- **Lo que el E2E de frontend tiene que saber (medido en la prueba de abajo):** tras `PUT /users/me/kyc {clabe}`,
+  `clabeUpdatedAt > createdAt` ⇒ `clabeChangedRecently: true` ⇒ `POST …/paid` exige `confirmRecentClabeChange: true`
+  (si no, `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}`); `speiReference` solo admite
+  `^[A-Za-z0-9]{1,30}$` (con guion ⇒ `400`); `paid` necesita el `revealToken` de `GET …/reveal-clabe`.
+
+**Prueba:** `backend/test/integration/seed-spei-bucket.e2e-spec.ts` (3 casos): (1) forma de la siembra (importes que
+cuadran, todos > 0, caso `refunded`, origen `settled`, sin KYC); (2) dos siembras seguidas ⇒ **el mismo estado, ids
+incluidos**; (3) **N=3 ciclos** por HTTP — el cliente pone su CLABE, el súper-admin revela y paga una, cancela y
+re-emite la otra — y una siembra lo devuelve todo al estado de (2): **3/3**. Además, por la CLI (`npm run
+seed:synthetic` dos veces seguidas): estado de las dos filas, casos, piezas y KYC **idéntico** (`cli-state-1/2.txt`).
+Canarios (sobre copia): sin el borrado de re-emisiones ⇒ la re-siembra revienta con `P2002 (replacementCaseId,source)`
+(índice parcial de filas vivas) — rojo; sin `paidClabeHmac: null` ⇒ rojo (queda el HMAC de la pagada); sin borrar el
+`KycProfile` ⇒ rojo (`kyc` no nulo). Una corrida por mutación (deterministas). Primera versión de la prueba: si la
+siembra del `afterAll` fallaba, jest no cerraba la app y se colgaba (medido en la mutación A1) ⇒ `try/finally`.
+
+### 10.2 · `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO»: causa raíz y arreglo
+
+- **BD recién migrada y sembrada** (`tcg_fresh_b`, creada para medir y borrada después): **3/3 corridas verdes, 429/429**
+  (N=3). Luego no era código de la cola.
+- **Qué la envenena (medido con una sonda sobre `GET /admin/inventory/pending-publish` tras cada suite):** la cola de
+  «listas para publicar» del seed tiene **una** pieza, `E2E-STK-0001` (plataforma `in_stock`, sin caja).
+  `full-refund-vault` **PS-64** llama `POST /admin/inventory/publish-all` **global** (el verbo real, a propósito: prueba
+  que ningún camino publica una pieza congelada) y la deja **`listed`**: tras esa suite, `platform in_stock = 0` y la cola
+  vacía. `inventory-move-mark-guards` también la encontró así; `replacement-cases`, `shipments-prep` y
+  `orders-public-status` la restauran porque re-siembran. `enum-query-axes` **no re-sembraba** (solo `ensureSeeded`, que
+  siembra una BD vacía) ⇒ medía lo que dejó la suite anterior.
+- **Misma clase que P-BUYLIST-CONC-FLAKE** (estado de la BD compartida que deja otra corrida y la víctima no restaura),
+  **no el mismo mecanismo**: aquí no hace falta un rojo previo — PS-64 verde basta.
+- **Arreglo (en la víctima):** `enum-query-axes` re-siembra en su `beforeAll` (`seedE2E`), como las demás suites
+  (`enum-query-axes.e2e-spec.ts:1041-1046`). No se tocó PS-64: su `publish-all` global es la prueba.
+- **Medición cruzada, N=3 ciclos «`full-refund-vault` → `enum-query-axes`» sobre la BD compartida:** sin el arreglo (copia
+  con el fichero de `550bc371`) **0/3 verdes** (3 rojas cada vez, las mismas tres); con el arreglo **3/3 verdes**
+  (429/429 cada vez).
+- **NO MEDIDO:** en la corrida por lotes del §9 salió una **cuarta** roja (`GET /admin/vaults?sort=`, N=1); no volvió a
+  salir en ninguna de las 9 corridas posteriores de esta suite. Se deja anotada, sin causa.
+- **Observación para el arquitecto (NO MEDIDO si es conducta querida):** `publish-all` publicó `E2E-STK-0001` **sin
+  ubicación** (`listed`, `locationId: null`), mientras la cola de pendientes trata «sin ubicación» como lo que le falta
+  para publicarse. No cambié nada; lo anoto porque es la misma pieza.
+
+### 10.3 · Cifras (árbol vivo, `550bc371` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/` y `prisma/`) | 0 errores | backend (`tsc.log`) |
+| Unitaria completa | **380/380 suites · 6393/6393** | backend (`unit-full.log`) |
+| Integración COMPLETA (66 suites), con la 1.ª versión de la siembra (sin `ivaTransferPct`) | 64/66 suites · 1420/1423: `iva-price-convention` 1 roja (la del dial, **mía**, arreglada abajo) y `settle-late` 2 rojas (**preexistentes**, abajo) | backend (`integ-full.log`) |
+| Tras añadir `ivaTransferPct: 100`: `iva-price-convention` · `seed-spei-bucket` · `enum-query-axes` | 39/39 · 3/3 · 429/429 | backend (`re-*.log`, `cyc-fix-enum-*.log`) |
+| La integración completa **no** se repitió tras ese cambio de un campo | NO MEDIDO | — |
+
+**Pendiente abierto (medido 2026-09-29):** `settle-late.e2e-spec.ts` — 2 rojas en «RESIDUAL — barrido de reservas sobre
+una orden `refunded` sin liquidar»: `refundFull` responde `200` pero la orden sigue `pending` (se esperaba `refunded`,
+`:409`). **Preexistente:** mismas 2 rojas sobre BD recién migrada **con la siembra de `550bc371`** (`fresh-base-settle-late.log`)
+y con la de este commit (`fresh-mine-settle-late.log`). Causa NO MEDIDA; es camino de dinero (reembolso total de una orden
+sin liquidar) y es de backend. Comprobación que lo cerraría: bisecar entre la última corrida verde conocida de esa suite y
+`550bc371`.
+
+## 11 · `settle-late` 2 rojas — BISECCIÓN Y CAUSA RAÍZ: choque de CONTRATO entre ramas (⛔ sin arreglar: va al arquitecto)
+
+Medido 2026-09-29 sobre worktrees de bisección propios (borrados) y BDs propias `tcg_settle_late_<sha>` (borradas),
+Postgres compartido que ya estaba arriba (no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Bisección** (la suite entera, una corrida por punto; determinista):
+
+| Punto | Qué es | `settle-late` |
+|---|---|---|
+| `650a4ed3` (`origin/claude/paquete-dinero`, donde nació SEC-SETTLE-LATE) | dinero | **15/15** |
+| `7a32b833` (release-s5 antes de envío) | pantallas + dinero + hotfix | **15/15** |
+| `5321b8c6` (merge de `envio-preparar` 896fe8ea en release-s5) | + envío | **13/15** (las 2 rojas) |
+| `96418a88`, `0df68ede`, `f2f10923` | merges previos | sin `settle-late` (la suite nace con dinero) |
+| `ff83abf` (`envio-preparar`) | envío | sin `settle-late` (la suite no existe en esa rama) |
+
+**Causa:** en `5321b8c6` `onChargeRefunded` quedó con la versión de envío: `Order → refunded` con
+`updateMany({ where: { id, status: 'settled' } })` (`payments.service.ts:707` modo legado y `:717`). Dinero la tenía
+incondicional salvo `refunded`. Una orden **`pending`** reembolsada desde el panel de Stripe ya **no** pasa a `refunded`.
+
+**Consecuencia de dinero (medida con una sonda sobre `5321b8c6`, orden `vault` `pending` con 2 piezas):**
+`charge.refunded` total ⇒ `200`, orden **sigue `pending`** (`refundedAt null`), pero `onFullRefund` **sí** corrió
+(`fullRefundClosedAt` sellado, `chargebackNeedsManual: true`), piezas `reserved` del cliente. Luego un
+`payment_intent.succeeded` tardío ⇒ `200`, orden **`settled`**, las 2 piezas **`in_custody` del cliente** (2
+movimientos): **el cliente se queda las cartas Y el dinero devuelto** — exactamente lo que §M4-VAULT.2-bis.2 cerró
+(«hasta hoy un `succeeded` tardío las movía a custodia… desde v1.80 se quedan `reserved`»). Mismo sondeo sobre
+`7a32b833`: `refunded`, y el `succeeded` tardío no mueve nada.
+
+**Por qué no lo arreglo yo — el contrato dice las dos cosas:**
+- Envío fija el origen de la transición: tareas de backend de §M4-SHIP.18 (`API_CONTRACT.md:21640`) «`Order → refunded`
+  con `status IN (settled, refunded)`», y la unitaria de envío `test/payments.service.spec.ts:319-321` lo clava
+  (`where: { id: 'o1', status: 'settled' }`, REL-B / SEC-SHIP-M5).
+- Dinero da por hecho `pending → refunded` por el webhook del panel (§M4-VAULT.2-bis.2 «Residual declarado»,
+  `API_CONTRACT.md:17922` y `:17963-17967`), y `settle-late` RESIDUAL lo mide.
+
+**Candidato medido (en un worktree, ⛔ sin commit):** CAS del webhook `status: { in: ['settled','pending'] }` (las dos
+ramas de `onChargeRefunded`) ⇒ `settle-late` **15/15 en 3/3** corridas (N=3); las 5 suites de integración que mandan
+`charge.refunded` (`full-refund-vault`, `orders-public-status`, `replacement-cases`, `settle-late`, `shipments-prep`)
+**84/84**; unitaria **6392/6393** — la única roja es la de envío de arriba, que fija `'settled'`. **Preguntas para el
+arquitecto:** (1) ¿el webhook transiciona `pending → refunded`? (2) ¿y `failed → refunded`? (un `failed` es liquidable,
+así que el mismo `succeeded` tardío lo liquidaría); (3) sobre una `pending`, ¿`onFullRefund` debe sellar
+`fullRefundClosedAt` y poner `chargebackNeedsManual` (hoy lo hace; no hay colocación ni custodia que deshacer)?
+
+## 12 · v1.80.8.3 construida — `charge.refunded` total desde `pending|failed|settled`, `failAndRelease` con CAS, SL-8…SL-11 (2026-09-29)
+
+Errata del arquitecto `a77c7181` (`API_CONTRACT` §M4-SHIP.18.2 y §M4-VAULT.2-bis.2, bloques «v1.80.8.3»). Cierra el §11.
+Medido sobre BDs propias (`tcg_sl_fix`, `tcg_sl_fix2`, `tcg_sl_base`, borradas) en el Postgres compartido que dejó
+frontend arriba (⛔ no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Código:**
+- `settleable-order-statuses.ts`: `CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']` (literal, como el
+  contrato; la relación `= SETTLEABLE ∪ {settled}` la asevera SL-11).
+- `payments.service.ts`: `onChargeRefunded`, las dos ramas con esa lista — legada `:713-717` (AV-3 **solo** si
+  `count 1`; antes lo mandaba siempre) y con `fullRefund` `:728-740`; variante `vault` de AV-3 ⇔ `vault` ∧
+  `orderStatusUnderLock === 'settled'` (en la legada, sin candado, se usa el `status` leído). `failAndRelease` `:628`:
+  `updateMany where {id, status:'pending'}` y ⛔ libera piezas solo con `count 1`.
+- `full-refund.service.ts`: el `FOR UPDATE` de `Order` lee `status` en las dos ramas (`:201`, `:274`) ⇒
+  `FullRefundPassResult.orderStatusUnderLock` (`null` en retiro); vault 1.ª pasada `needsManual = items>0 ∧ status ∉
+  SETTLEABLE` (`:374`); `order.full_refund_closed` gana `after.statusAtClose` (`:398`).
+- **Escritores de `Order.status` (`rg "order\.(update|updateMany)\(" src`, confirmando la tabla del arquitecto):** los de
+  su tabla están, más **uno que no nombraba**: `OrdersService.releaseReservation` (`orders.service.ts:896`, `update` por
+  `id` a `failed`). Sus dos llamadores son la compensación de `attachPaymentIntent` (el PI **no** se creó ⇒ no hay cargo
+  que reembolsar) y el barrido legado de invitado **tras** `closePaymentIntent` (`guest-checkout.service.ts:480-495`) — la
+  misma clase que la fila «barrido de reservas» de su tabla (no alcanzable con cargo reembolsado; ⛔ NO MEDIDO con Stripe
+  real). Sin cambio; lo anoto para que la tabla quede completa.
+
+**Pruebas:**
+- Unitarias: `payments.service.spec.ts` M2/A1 (`where` con la lista) y B5 (`updateMany` `status:'pending'`) + caso nuevo
+  «CAS cuenta 0 ⇒ cero piezas liberadas»; `payments.settle-late.spec.ts:172` **SL-11** (tabla por `OrderStatus` + relación).
+- Integración (`settle-late.e2e-spec.ts`): **SL-8** `:450` (vault 2 piezas y directo invitado + un control `settled`
+  que conserva variante `vault` y `needsManual`), **SL-9** `:498` (directo; vault re-compra con O2 `settled` intacta
+  por `xmin`), **SL-10** `:536-680` (`failAndRelease` vs reembolso, ambas ramas; y `succeeded` vs reembolso sobre
+  `pending` en los dos órdenes de llegada, con reentrega del mismo `event.id` si no fue 2xx).
+- **Diferencia con el texto de SL-8, declarada:** «bitácora `order.full_refund_closed` con `statusAtClose`» se asevera
+  solo en la rama `vault`: la rama directo nunca escribió esa bitácora (solo `shipment.closed_by_full_refund` por envío
+  cerrado, y una `pending` no tiene envío). No añadí bitácora nueva al directo.
+
+**Cifras:**
+
+| Qué | Resultado |
+|---|---|
+| `settle-late` completa | **24/24 en 3/3 corridas** (N=3; era 13/15) |
+| SL-4 (sin cambio) | 10/10 válidas y verdes por rama, en las 3 |
+| SL-10 `failAndRelease` vs reembolso | vault **10/10**, directo **10/10** válidas y verdes, en las 3 |
+| SL-10 `succeeded` vs reembolso | primero el reembolso: 10/10 verdes, 0 con 5xx; primero el pago: 10/10 verdes, **10/10 con `503` del reembolso y reentrega** (acaba `settled → refunded` con las cartas reclamadas `refund_return`), en las 3 |
+| Mutación SL-8 (a) — `WHERE status:'settled'` (el código de `5321b8c6`) | rojas SL-8 ×2, SL-9 ×2 y SL-10 «primero el reembolso» **0/10** |
+| Mutación SL-8 (b) — `needsManual` sin mirar el estado | rojas SL-8 vault y SL-9 re-compra |
+| Mutación SL-9 — quitar `'failed'` de la lista | rojas SL-9 directo y re-compra |
+| Mutación SL-10 — `failAndRelease` vuelve a `update` por `id` | SL-10 fallo vault **0/10** y directo **0/10** (10/10 válidas) |
+| Mutación SL-11 (a) — `'chargeback'` en la lista | 2 rojas (tabla y relación) |
+| Mutación SL-11 (b) — `'chargeback'` en `SETTLEABLE` sin tocar la lista | la relación roja (y 15 más de SL-5/SL-6) |
+| `tsc --noEmit` | 0 errores |
+| Unitaria completa | **380/380 suites · 6396/6396** |
+| Integración completa (66 suites, load 6.83 al arrancar — acababa la unitaria — y 3.11 al terminar) | **65/66 · 1431/1432**: la roja, `shipments-prep` PS-50 (abajo) |
+
+Cada mutación: una corrida (las secuenciales son deterministas; las de carrera llevan su N=10 dentro), sobre copia del
+árbol entero, restaurada y borrada.
+
+**`shipments-prep` intermitente — ⛔ no atribuible a este cambio (medido):** sobre la BD usada `tcg_sl_fix`, mi árbol
+**4/5** en solitario (PS-51 rojo 1 vez) + PS-50 rojo en la integración completa; el árbol de **`a77c7181` (sin este
+cambio) sobre la misma BD: 4/5** (PS-43 rojo 1 vez). Sobre BD recién migrada: mi árbol **5/5**, `a77c7181` **5/5**. Las
+rojas son de preparación/libro de un directo (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
+`PREPARATION_HAS_BLOCKED_LINES`), caminos que este cambio no toca. Causa **NO MEDIDA**; misma clase que §10.2 (estado de
+BD compartida) o carrera propia de la suite. **Pendiente abierto** (backend): medirla N≥10 en BD usada vs limpia.
+
+## 13 · M-1 de QA sobre `b8a3e4ce`: el PATCH publicante escribía el precio y DESPUÉS perdía el CAS (2026-09-29, commit `81696fb8`)
+
+**El defecto (venía de v1.51, fase 8), medido:** en `updateItem`, camino publicante (`resultingStatus==='listed'` desde un
+estado no `listed`), los campos del body (incluido `listPriceCents`) se escribían con `inventoryItem.update({ where: { id } })`
+y **después** corría `claimListed` (el `updateMany` condicionado a `ownerType=platform` + `status ∈ {in_stock, listed}`). Si un
+checkout reservaba la pieza entre la lectura y la escritura, el CAS perdía ⇒ `422 ITEM_NOT_PUBLISHABLE`, pero el precio ya
+estaba escrito sobre una pieza `reserved`. Contradice INV-SP-8 (`#M1-patch-price-guard`: todo o nada).
+
+**Medición antes del arreglo:** `test/integration/inventory-patch-publish-race.e2e-spec.ts`, barrera de candado de fila
+(`helpers/row-lock-barrier.ts`: la prueba toma `FOR UPDATE`, el PATCH se para en su primera escritura —comprobado en
+`pg_stat_activity`—, la prueba hace `in_stock → reserved` y suelta). **10/10 rojas con N=10** (`422 … → reserved/45678`: el
+precio nuevo escrito). Control con la misma barrera y sin reserva: 10/10 verdes.
+
+**Arreglo:** `claimListed(item, lineListPriceCents?, fields = {})` — los campos viajan en el **mismo** `updateMany`
+condicionado que pone `listed`. Una sola escritura: si el CAS pierde, no se escribe nada. Los caminos de lote no pasan
+`fields` (sin cambio). Conducta visible sin cambio (mismos códigos, misma respuesta). ⛔ El contrato no cambia.
+
+**Cifras (árbol vivo, `81696fb8`):**
+| Medición | Resultado |
+|---|---|
+| Carrera tras el arreglo | 10/10 verdes (N=10); control 10/10 (N=10) |
+| Mutación 1 (volver al orden viejo: `update` por `id` + `claimListed` sin campos), copia entera `git archive HEAD` | carrera **10/10 rojas** (N=10); unitaria `inventory.graded-cert.spec.ts` roja |
+| Mutación 2 (no pasar `fields` a `claimListed`) | unitaria `graded-cert` roja (el `certNumber` no viaja) |
+| Unitaria completa | 380 suites / 6396 pruebas verdes |
+| Integración: race + move-mark-guards + pending-publish-seed + full-refund-vault + enum-query-axes | 5 suites / 487 verdes |
+
+`inventory.graded-cert.spec.ts` «PATCH que publica una gradeada aportando el certNumber» aseveraba la forma vieja (`update`
+llamado); ahora asevera `update` **no** llamado y un único `updateMany` con `{ certNumber, status: 'listed' }` y el `where`
+condicionado.
+
+**Del mismo pase:** M-2 (comentarios `/cuenta#kyc` ⇒ `/account#kyc` en `test/integration/setup.ts` y
+`replacement-cases.e2e-spec.ts`); TD-5 del techlead (comentarios que contradecían la norma vigente):
+`payments.service.ts · onChargeRefunded` (origen `CHARGE_REFUNDED_SOURCE_STATUSES`, v1.80.8.3),
+`refund-ledger.service.ts` cabecera (M3: `onFullRefund` y después `WHERE status='settled'`), y `readGuardedItem` /
+`guardedItemUpdate` en `inventory.service.ts` (también los usa el PATCH no publicante). Solo comentarios.
+
+## 14 · Cola de precio pendiente (Venta): «SIN MOTIVO» — escritores del alta y del sellado ponen `reason` (2026-10-02, rama `claude/post-release-s5`, sobre `22b0b08d`)
+
+**Síntoma (dueño):** encabezado de M2 Venta «0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO». «Sin motivo» =
+`counts.unknown` = filas `open` con `reason IS NULL` (contrato §M2: «filas anteriores a M-41»), pero las de hoy las
+siguen escribiendo escritores vigentes que llaman a `escalatePending` sin su 9.º argumento (default `null`).
+
+**Escritores medidos (re-medido sobre `22b0b08d`):**
+| Escritor | Antes | Ahora |
+|---|---|---|
+| `createItem` / `batchCreate` / `adjust(encontrada)` — sellado sin `listPriceCents` | `reason=null`, y escalaba **siempre** (aunque hubiera mercado) | `escalateSealedAltaIfPriceless`: escala **solo** si no resuelve (sin override manual del alta, y sin mapeo o `gateSealedMarketCents(ref, sourceOn) == null`), con `no_market` |
+| `resolveCreation` — aportación sin referencia (raw/graded/sellado) | `reason=null` | `no_market` |
+| `resolvePublishSalePrice` — sellado sin override ni mercado | `reason=null` | `derived.pendingReason ?? 'no_market'` |
+| `resolvePublishSalePrice` — raw/graded | ya `?? 'no_market'` | sin cambio |
+| `PricingService.syncCardPrice` (job `price-sync`) | `reason=null` | **SIN CAMBIO — bloqueado, va al arquitecto** (abajo) |
+
+**Por qué el alta de sellado ya no escala si el precio resuelve:** el contrato del alta (§M1 `POST /admin/inventory/items`,
+v1.23) dice «si se omite [`listPriceCents`], el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
+sin mercado ni override queda PRICE_PENDING». Escalar un sellado que SÍ resuelve no tiene motivo verdadero en
+`PendingPriceReason = no_market | premium_at_floor`, y esa fila **no la cierra nadie** (la publicación del sellado no cierra
+la cola: `pendingKey: null`). Escalar es solo aviso: no mueve ningún precio. La puerta es la MISMA que la publicación
+(`gateSealedMarketCents` con el dial `sealedPriceSource`; el override manual de mercado sobrevive al dial).
+
+**Por qué `syncCardPrice` NO se tocó (decisión pendiente del arquitecto):** su escalada no significa «sin mercado», significa
+«el proveedor POR CARTA no devolvió cotización hoy». Medido en código: los proveedores de `graded`/`sealed` son *stubs* que
+devuelven siempre `null` (`providers/graded-sealed.providers.ts:23-31`, `:48-52`) ⇒ cada pieza graded/sealed del barrido
+escala **cada día**; el sellado además escala con `tryGradeKeyFor(item)` = `'sealed'` (clave de override, no la de mercado
+`sealed:tcg:<id>` que lee la publicación) ⇒ fila que nada cierra; y en raw, un HTTP fallido de pokemontcg.io escala aunque
+`price-ingest` tenga referencia. Ponerle `no_market` sería falso y rompería el diagnóstico del contrato («suben los dos a la
+vez ⇒ feed degradado»). Además el job barre `status ∉ {withdrawn, lost}` sin filtrar `ownerType` (`jobs/price-sync.service.ts:35-41`)
+y escala con `context='inventory'` piezas de CLIENTE y vendidas; ARCHITECTURE §5 (`price-sync` «sí escala pendientes» de
+«los items en custodia») lo describe así, y §4.24c define VENTA como inventario de plataforma: es una contradicción de diseño,
+no un arreglo de backend.
+
+**Filas históricas `reason IS NULL`:** `escalatePending` ya actualiza la razón de una fila abierta de la misma clave
+(`pricing.service.ts` `if (reason != null && open.reason !== reason)`), así que un `publish-all` tras este cambio reclasifica
+(o cierra, raw/graded que resuelven) las filas de piezas de plataforma `in_stock|listed`. Lo que quede `null` después es de
+claves que ninguna pieza vendible necesita (price-sync sobre clientes/vendidas/`'sealed'`) — su cierre depende de la decisión
+de arriba. No se escribió migración: reclasificar exige resolver el precio (lógica de app), no es SQL idempotente y seguro.
+
+**Pruebas:** `test/inventory.pending-reason-writers.spec.ts` (12, `escalatePending` REAL sobre almacén en memoria): 12/12 rojas
+sobre `22b0b08d`, verdes después. `inventory.sealed.spec.ts` y `inventory.finish-pending.spec.ts` aseveraban la firma vieja
+(sin motivo); ahora aseveran `'no_market'`. Mutaciones (copia entera, deterministas): helper sin `reason` ⇒ 6 rojas; sin
+puerta de mercado ⇒ 3; sin salida por override manual ⇒ 1; publicación de sellado con `null` ⇒ 2; aportación sin `reason` ⇒ 2;
+ignorar el dial (`sourceOn=true`) ⇒ 1. Unitaria completa 381 suites / 6408 verdes; integración completa (BD propia
+`tcg_be_pending_reason`) 67 suites / 1434 verdes.
+
+## 15 · v1.80.8.4 construida — la cola de VENTA la escribe solo la vía de precio de venta; barrido VQ; el sellado cierra su fila (2026-10-02, sobre `bc9eac45`)
+
+Norma: API_CONTRACT rev v1.80.8.4 §M2 `M2-VQ` (VQ-1…VQ-9) y ARCHITECTURE §4.36.5 (c-bis). Sin schema, sin enum, sin
+cambio de forma.
+
+- **`PricingService.syncCardPrice`** pierde la escalada (sus dos ramas: sin cotización y M-43) y los parámetros
+  `context`/`refId`/`escalate`, que solo existían para ella. Firma: `(card, productType, gradeKey, finish)`.
+  `set-price-sync` ajustado; `test/set-value.spec.ts` asevera la llamada de 4 argumentos.
+- **`PriceSyncJobService.run()`**: mismo alcance de barrido (refresca `PriceReference` de todo lo no `withdrawn/lost`).
+  Log de telemetría `{ priced, noQuote (por productType), failed, skippedNoGradeIdentity }`. `noQuote` = `syncCardPrice`
+  devolvió `pending` (incluye la rama M-43, fila del día que no es de mercado). Solo en corrida **completa** (sin
+  `cardIds`) llama a `sweepUnreasonedSaleQueue()`. ~~o con lista vacía, que ya barría todo~~ — **corregido en §16**: un
+  `cardIds` vacío es «ninguna carta» (no-op), nunca «todas».
+- **Barrido VQ** (`sweepUnreasonedSaleQueue`, público para ops/pruebas): filas `open ∧ context='inventory' ∧ reason IS
+  NULL`; se cierran (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las que no casan con la clave de cola de
+  ninguna pieza `platform ∧ {in_stock, listed} ∧ ¬hasManualPrice`. Clave de pieza en `queueKeyOfItem`, idéntica a la
+  de `derivePublishSalePrice` (raw/graded por `tryGradeKeyFor`; sellado por `sealedMarketGradeKeyForItem ?? 'sealed'`,
+  `normal`, `sealedProductId`). El `updateMany` repite el predicado `reason: null`: si un escritor le puso motivo entre
+  la lectura y la escritura, no se toca. Log con nº de cerradas y sus ids.
+- **VQ-6:** `derivePublishSalePrice` devuelve `pendingKey` también cuando el sellado resuelve (misma clave que la
+  escalada, una sola constante `sealedKey`); `resolvePublishSalePrice` cierra con `settlePendingForVariant(null, …,
+  'inventory')`. Precio manual por pieza ⇒ `pendingKey: null` ⇒ no cierra.
+- **Censo VK-6** (`pricing.valuation-callers-census.spec.ts`): `jobs/price-sync.service.ts` `n` 1→2 (el barrido usa la
+  llave de cola), `why` reescrito. **Candado VQ-5** nuevo en `test/pricing.vq-sale-queue.spec.ts`: censo cerrado de
+  `escalatePending|settlePendingForVariant` en `src/` (inventory 5, price-ingest 1, pricing 3, buylist 1 —
+  `createRequest`), cuerpo de `syncCardPrice` sin cola ni `escalate`, y llamadas de 4 argumentos.
+- `test/sealed-price-resolver.spec.ts`: su prisma de prueba no tenía `pendingPriceEntry.updateMany` (el sellado nunca
+  cerraba); se añade y se asevera que el cierre usa `sealed:tcg:100` (refuerzo, no debilitamiento).
+
+**Pruebas y mediciones:**
+| Medición | Resultado |
+|---|---|
+| VQ-1…5, 7, 8 (`test/pricing.vq-sale-queue.spec.ts`, 10) + VQ-6 (`inventory.pending-reason-writers.spec.ts`, 3) | verdes |
+| VQ-9 (`test/integration/sale-queue-vq.e2e-spec.ts`, BD propia) | 3/3 verdes; sobre `bc9eac45` sin el cambio: **roja** (`unknown` 2, esperado 0) |
+| Mutaciones unitarias (copia entera, deterministas, N=1 cada una) | escalada reintroducida sin cotización ⇒ 5 rojas; en rama M-43 ⇒ 3; barrido sin `ownerType` ⇒ 1; sin `hasManualPrice` ⇒ 1; sin `reason: null` ⇒ 1; sin `context` ⇒ 1; barre también con `cardIds` ⇒ 1; clave de sellado legacy en el barrido ⇒ 1; sellado sin `pendingKey` al resolver ⇒ 1 |
+| Mutación de integración: `run()` sin barrido | VQ-9 roja (`unknown` 2) |
+| Unitaria completa | 382 suites / 6421 verdes |
+| Integración completa (BD propia `tcg_be_vq`, dos corridas) | 1.ª: 67/68 (`enum-query-axes` `/admin/vaults?sort=`, que corrió ANTES de la suite nueva); 2.ª: 67/68 (`buylist-intake-concurrency`, barrera de candado por tiempo). Aisladas el par: árbol vivo 7/8 corridas verdes (N=8); árbol sin el cambio 4/5 (N=5) ⇒ intermitencia preexistente, no de este cambio |
+
+## 16 · Gate de QA + techlead sobre `8a10153e`: `scope` validado, `cardIds` vacío no barre, clave de cola compartida (2026-10-02)
+
+Rama `claude/post-release-s5`. Norma: API_CONTRACT §M2 v1.80.8.4 (`POST /admin/pricing/sync`, «con `scope="cardIds"` no
+barre») y `M2-VQ`. Sin schema, sin enum, sin cambio de forma de request/response.
+
+**1 · QA MENOR — `POST /admin/pricing/sync`.**
+- `SyncDto.scope`: `@IsIn(PRICE_SYNC_SCOPES)` (`['all_vault','cardIds']`, exportado desde `pricing.controller.ts`).
+  `{"scope":"bogus"}` / `""` / no-string ⇒ **`400 VALIDATION_ERROR`** del pipe (antes 201 y corrida completa).
+- `SyncDto.cardIds`: `@IsArray() @IsString({ each: true })` (antes sin validar: un string llegaba a Prisma).
+- `PriceSyncJobService.enqueue('cardIds', [] | undefined)` ⇒ **no-op, `201 { jobId, queued: 0 }`**, sin refrescar y
+  ⛔ sin barrido VQ. `run(cardIds?)`: `undefined` = completa (scheduler / `all_vault`) con barrido; array = solo esas
+  cartas, sin barrido; `[]` = ninguna.
+- ⚠️ **Para el arquitecto:** el contrato no dice si `scope="cardIds"` con lista vacía es `400` o no-op. Implementé
+  **no-op** (es lo único que el texto exige: «no barre», y la forma de respuesta no cambia). Si se prefiere `400`, es
+  un `@ArrayNotEmpty` condicionado a `scope="cardIds"` y una línea en §M2.
+
+**2 · QA MENOR — `buylist-cycle.e2e-spec.ts` hermético.** `findFirst` de la dirección del customer con
+`orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]` (el mismo de `seed-e2e.ts`), y el bloque «corregir la
+dirección de origen» purga en `beforeAll`/`afterAll` las direcciones `Calle Nueva 456` del customer (`Address` no
+tiene FKs entrantes: el snapshot de la solicitud es JSON).
+
+**3 · Techlead D-1 — una derivación y una serialización de la clave de cola de VENTA.** Nuevo
+`src/modules/pricing/sale-queue-key.ts`: `saleQueueKeyOf(item, resolvers)` / `sealedSaleQueueKeyOf` (pura dada
+`SaleQueueKeyResolvers`, que es `PricingService`; se pasa como parámetro para que los dobles que sustituyen
+`tryGradeKeyFor` sigan gobernando ambos llamadores) y `serializeSaleQueueKey` (`JSON.stringify` de la tupla de seis,
+`undefined ≡ null`). La usan `derivePublishSalePrice` (sellado y raw/graded) y el barrido VQ; se retiraron
+`queueKeyOfItem`/`queueKey` del job y el `|`.join de `pendingQueueKey` (que conserva nombre y los seis componentes a la
+vista por R3, delegando en la serialización). Censo VK-6: `inventory.service.ts` 4→3, `price-sync.service.ts` 2→1,
+`sale-queue-key.ts` 2 (nuevo).
+
+**4 · Techlead D-2 / D-6 — hechos, sin deuda que registrar.** La escritura del barrido es
+`PricingService.closeUnreasonedSaleQueueRows(ids)` (mismo predicado `open ∧ inventory ∧ reason IS NULL` en el `where`;
+devuelve el `count` real). VQ-5 ampliado: censo de escrituras crudas `pendingPriceEntry.(create|createMany|update|
+updateMany|upsert|delete|deleteMany|…AndReturn)` = `{ pricing.service.ts: 5 }`, ningún `"PendingPriceEntry"` en SQL
+crudo, y `closeUnreasonedSaleQueueRows` solo desde `price-sync`. El log del barrido enumera como mucho
+`VQ_SWEEP_LOG_ID_CAP = 20` ids y añade `… (+N más)`. (El censo es léxico: un alias lo esquiva; lo cubre la revisión.)
+
+**Pruebas nuevas:** `test/pricing.sale-queue-key.parity.spec.ts` (paridad POR CONDUCTA: la `pendingKey` real de
+`derivePublishSalePrice` sembrada como fila «sin motivo» ⇒ el barrido real la deja y cierra la variante vecina, en raw,
+graded, sellado mapeado, sellado legacy y promo con `cardProductId`; también con precio derivado; graded sin slab sin
+clave; censo de uso), `test/pricing.sync-dto.spec.ts`, dos casos nuevos en `test/pricing.vq-sale-queue.spec.ts`
+(`cardIds` vacío no-op; tope del log) y `test/integration/pricing-sync-scope.e2e-spec.ts` (por HTTP: `[]` y omitido ⇒
+201 `queued: 0` sin barrido; `bogus`/`""`/`cardIds` string ⇒ 400; testigo «sin motivo» intacto).
+
+**Mediciones (autor: backend, 2026-10-02):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa (`--maxWorkers=2`) | **384/384 suites, 6444/6444** |
+| Mutaciones (copia del árbol entero, deterministas, N=1 cada una) | `derivePublishSalePrice` cierra sin `cardProductId` ⇒ 1 roja; escala sin `cardProductId` ⇒ 1; barrido sin `sealedProductId` ⇒ 3; `cardIds` vacío = completa ⇒ 1; `scope` con `@IsString` ⇒ 2; escritura de vuelta en el job ⇒ 1 (VQ-5); log sin tope ⇒ 1 — **7/7 muerden** |
+| `buylist-cycle` sobre BD reutilizada (2.ª corrida completa, spec viejo) | **4/72 rojas** (snapshot, detalle admin, guía, correo PII) — las 4 de QA |
+| Spec viejo sobre BD con dirección sobrante | **3/3 corridas con 4 rojas** |
+| Spec nuevo sobre BD con 2 y con 4 direcciones sobrantes | **6/6 corridas 72/72**; sobrantes tras cada corrida: 0 |
+
+| Integración completa, árbol vivo (BD propia `tcg_backend_s5`, Postgres/Redis compartidos), 4 corridas | antes del arreglo de `buylist-cycle`: 1.ª 1441/1443 (2 rojas `buylist-intake-concurrency`), 2.ª 1435/1443 (las 4 de `buylist-cycle` + las 2 de concurrencia). Con todo (incl. `brace-expansion`): 1.ª 1439/1443 (2 rojas `buylist-intake-concurrency`), 2.ª **1441/1441 + 2 skipped, 69/69 suites** |
+| `buylist-intake-concurrency` (barrera de candado por tiempo, 10 s) | aislada en árbol vivo **5/5 verdes**; en corrida completa del árbol vivo verde 1/4; árbol `8a10153e` completo 1/1 verde. El cambio no toca su camino (`POST /buylist/requests`); §15 ya la midió intermitente sobre la base (7/8). **No atribuida con certeza: N pequeño** |
+| `npm audit --omit=dev` (parche de devops) | antes: 1 high (`brace-expansion`) + 6 moderate; después: **0 high / 0 critical** + los mismos 6 moderate (`@nestjs/core`, `multer`, `qs`) |
+
+## 15 · v1.80.8.5 — «Premium en el piso», en VENTA, se publica al piso según el dial `premiumFloorSalePublish` (2026-10-04, rama `claude/precios-s5`, sobre `9f08cd64`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.5»` (ancla `M2-PF`) y `ARCHITECTURE §4.36.5 (c-ter)`. Decisión del dueño: `HECHOS.md`
+2026-10-04, «Precios — decisiones» (a) y «Precios y reembolsos — respuestas…» (a) — solo `Double Rare` y `Rare Holo EX`
+se publican al piso (MX$25); el resto de premium sigue retenida `premium_at_floor`. **Sin schema, sin migración, sin
+endpoint nuevo.** El contrato cuadró con el código: no hubo nada que escalar al arquitecto.
+
+**1 · La regla, en un solo sitio (`common/pricing-curve.ts`).** `PremiumFloorPolicy`, `BUY_PREMIUM_FLOOR_POLICY`
+(`none`, congelada), `DEFAULT_SALE_PREMIUM_FLOOR_POLICY` (seed `only` DR/EX), `premiumFloorPublishes(policy, rareza)`
+(igualdad EXACTA de la canónica: un alias, un patrón o una cruda sin mapear con token `ex` **se retienen**),
+`validatePremiumFloorSalePublish` (el MISMO cuerpo para la puerta y la lectura) y `sanitizePremiumFloorSalePublish`
+(lectura money-safe: `undefined` ⇒ seed; inválido ⇒ `none` + problema; válido ⇒ copia). `premiumFloorGuard` y
+`resolvePendingReason` ganan `policy` **obligatorio**; `no_market` se decide antes de mirar la política.
+
+**2 · El dial.** `SettingKey.PREMIUM_FLOOR_SALE_PUBLISH = 'premium_floor_sale_publish'` en las cuatro estructuras de
+`settings.constants.ts`; DTO `premiumFloorSalePublish` en `GET/PUT /admin/settings` (auditado por `settings.update`).
+Validador: objeto con **exactamente** `{mode, rarities}` (una clave extra ⇒ 422 — decisión de backend, el contrato fija la
+forma exacta); `mode ∈ all|none|only`; `rarities` array de strings sin duplicados; vacío ⇔ `mode ≠ only`; con `only`,
+cada elemento es la `key` canónica de una rareza `premium:true` (alias como `doublerare` ⇒ 422: con comparación exacta no
+publicaría nada). Error ⇒ `422 VALIDATION_ERROR` con `details.errors.premiumFloorSalePublish: string`.
+Lector único: `PricingService.loadSalePremiumFloorPolicy()` (fila inválida ⇒ `none` + `logger.error [MONEY]`).
+
+**3 · ¿Cachea `SettingsService`? NO (medido, 2026-10-04).** `SettingsService.get()` hace un `findUnique` por llamada
+(`settings.service.ts:229-233`); no hay memo, `Map` ni TTL en `backend/src/modules/settings/` (`grep -i "cache|ttl"`: solo
+un comentario «no cacheable» del preview de IVA). `loadSalePremiumFloorPolicy` se llama por request/lote ⇒ **un `PUT` del
+dial rige desde la siguiente petición**. Lo que NO medí: cachés fuera del backend (CDN / `revalidate` del frontend sobre el
+catálogo) — no es mi carpeta.
+
+**4 · Quién pasa QUÉ política (candado PF-11, `test/pricing.premium-floor-sale.spec.ts`).**
+| Llamador | Política |
+|---|---|
+| `buylist.service.ts` (cotización/`createRequest` y vitrina de bounties) | `BUY_PREMIUM_FLOOR_POLICY` (⛔ no lee el dial) |
+| `variant-pricing.composeVariantPricing` | `buy` ⇒ `BUY_PREMIUM_FLOOR_POLICY`; `sell` ⇒ parámetro **obligatorio** `salePremiumFloorPolicy` |
+| `PricingService.decideSalePrice` | campo **obligatorio** `premiumFloorPolicy`; `computeSalePriceForItem` lo carga si no viene |
+| catálogo (`fetchSellable` iza una vez; uso single ⇒ seam), checkout auth/guest (`orders.salePriceOf` ⇒ seam), `inventory` (`PublishPricingCtx.premiumFloorPolicy`, izada por corrida en publish-all, cola «listas para publicar» y re-evaluación), binder (`master-set` consola y `resolveBuyables`), `price-ingest` (reconciliación), `admin-bounties`, `variant-controls`, barrido VQ | `loadSalePremiumFloorPolicy()` una vez por request/lote |
+
+`composeVariantPricing`: el parámetro `rarityCanonical` pierde su default `= null` (no se puede poner un obligatorio
+detrás de uno con default). Ningún llamador de `src/` dependía del default; los de pruebas pasan `null` explícito.
+
+**5 · Barrido VQ, rama nueva.** `sweepUnreasonedSaleQueue()` lee la política UNA vez y devuelve
+`{ closed, kept, premiumFloorClosed }` (campo nuevo; antes `{closed, kept}`). Rama nueva: filas `open ∧ inventory ∧
+premium_at_floor` con `card.rarityCanonical ?? card.rarity`; cierra las que `premiumFloorPublishes` publica, sin casar
+piezas; `none` ⇒ no-op sin consultar. Escritura en `PricingService.closeStalePremiumFloorSaleRows(ids)` (repite
+`status/context/reason` en el `where`; `resolvedPriceRefId = null`). VQ-5: escrituras crudas de la cola en
+`pricing.service.ts` 5 → **6**. Log con el mismo tope `VQ_SWEEP_LOG_ID_CAP`.
+
+**6 · Pruebas.** Nuevas: `test/pricing.premium-floor-sale.spec.ts` (PF-1, PF-2, PF-3 cotización, PF-6, PF-8 puerta +
+loader + `SettingsService.update`, PF-9, PF-11 con canario) y `test/integration/premium-floor-sale.e2e-spec.ts` (PF-3 con
+`createRequest`, PF-7 catálogo + `stockCount` + checkout auth y guest con seed y con `none`, PF-8 por HTTP con bitácora,
+PF-10 escenario del dueño + 2.ª corrida no-op). PF-4 en `inventory.publish-all.spec.ts` (su harness ahora respeta el `OR`
+por eje de `closePendingForVariant`; sin eso la fila de COMPRA se cerraba en el doble), PF-5 en
+`price-ingest.service.spec.ts`. Las 12 que cambian, parametrizadas (`none` conserva la aserción original): `pricing-curve.spec`,
+`pricing.premium-floor-guard`, `inventory.bulk-publish-escalate` (+DR seed/none), `inventory.publish-all` (+PF-4),
+`price-ingest.service` (+PF-5), `master-set.scopes` (+DR en el binder seed/none), `pricing.pending-close-scope`,
+`pricing.vq-sale-queue` (VQ-8 con `none`; forma `premiumFloorClosed`), `sale-queue-vq.e2e` (VQ-9 con `none`, restaura el
+dial), `pricing-visibility.e2e` (+DR publicada al piso con el seed), `pricing.bounty-cap` (firma), comentarios de
+`seed-e2e.ts`/`e2e-fixtures.ts` (`floorpremium` es `Secret Rare` ⇒ sigue retenida con el seed). ⛔ Ninguna aserción de
+COMPRA cambió de valor. Además ~35 specs con dobles de `PricingService` ganaron `loadSalePremiumFloorPolicy` (seed) en el
+mock — solo forma del doble, ninguna aserción.
+
+**Mediciones (autor: backend, 2026-10-04; todas deterministas ⇒ N=1 por corrida):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` / `eslint` de los ficheros tocados | limpio / limpio |
+| Unitaria completa, base `9f08cd64` (copia del árbol entero) | 383/384 suites, 6443/6444 — la roja es `enum-values-parity` (`MovementReason`: el contrato ya trae `refund_release` de v1.80.8.6 y el schema no) |
+| Unitaria completa, este cambio | 384/385 suites, 6500/6501 — la MISMA roja preexistente, ninguna otra |
+| Integración completa (BD propia `tcg_pf580`, Postgres/Redis compartidos) | 69/70 suites, 1464/1465: la roja era PF-3 (`BUYLIST_MINIMUM_NOT_MET`, fixture sin línea sana); corregido el fixture ⇒ PF-e2e + VQ-9 + pricing-visibility **47/47** |
+| Mutaciones unitarias (copia del árbol entero) | **21/21 muerden** (en la 1.ª pasada «sin fila ⇒ `all`» SOBREVIVIÓ: en producción `getRaw` nunca devuelve `undefined` — cae a `SETTING_DEFAULTS` —, así que esa rama solo la ejercía un doble; se añadió la prueba pura de `sanitize…` y se re-midió roja, junto con la mutación de `SETTING_DEFAULTS`): guard ignora `policy`; `only`≡`all`; `policy` antes que `pending`; sin fila ⇒ `all`; basura ⇒ `all`; `SETTING_DEFAULTS` ⇒ `all`; seed sin `Rare Holo EX`; comparación por patrón; seam con `none` fijo; compra lee el dial; cierre sin eje; ctx de inventory sin política; `price-ingest` sin política; `where` sin `context/reason`; cerrar sin mirar la rareza; barrido sin rama nueva; validador acepta no-premium; validador acepta `only` vacío; `sellGuarded` sin política; `buyGuarded` con el dial; canario literal en `decideSalePrice` |
+| Mutaciones de integración (copia, BD `tcg_pf580_mut`; control sin mutar 21/21 verde) | **5/5 muerden**: checkout sin política; catálogo sin política; compra lee el dial; barrido sin rama nueva; barrido sin mirar la rareza |
+
+**Lo que NO medí:** el número real de filas DR/EX vs otras premium en la cola de producción (la consulta de
+`ARCHITECTURE §4.36.5 (c-ter)` la corre el orquestador); el frontend (control de M10).
+
+## 17 · v1.80.8.6 + v1.80.8.7 (9) — reembolso TOTAL «depende de si ya salió»: `M-62`, SRF-1…SRF-13 (2026-10-04, rama `claude/precios-s5`, sobre `64ce47bb`)
+
+Norma: `API_CONTRACT §M4-SHIP.18.12` (1)–(9); porqué: `ARCHITECTURE §4.57 (w)`. Cierra `SSL-R1`.
+
+### 17.1 Qué se construyó (dónde)
+| Pieza | Fichero |
+|---|---|
+| `M-62` (aditiva, sin backfill): enum `ShippedRefundReason`, `MovementReason + refund_release`, 5 columnas de `Order`, FK RESTRICT, CHECKs `order_shipped_refund_reason_shape` y `order_after_shipment_sealed` | `prisma/migrations/20261004120000_m62_shipped_refund_reason/` · `schema.prisma` (la relación `Order.user` se nombra `"OrderToUser"` = el nombre implícito ⇒ ⛔ sin DDL; medido con `prisma migrate diff`) |
+| Clase R `ACCEPTED_SHIPPED_REFUND_REASONS` (lista exacta + subconjunto + «nadie lo deriva») | `common/business-rules.ts` · `test/enum-values-parity.spec.ts` |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE`, `409 SHIPPED_REFUND_REASON_ALREADY_SET` | `common/error-codes.ts` |
+| Predicado único «por revisar» (`isRefundReviewPending` + `REFUND_REVIEW_PENDING_WHERE`) y `FullRefundReviewDTO` | `payments/refunds/refund-review.ts` (paridad: `test/refund-review.spec.ts`) |
+| Cuerpo único `releaseReservedOfUnsettledRefund` + `lockReservedOfOrder` | `payments/refunds/release-unsettled-refund.ts` |
+| Corte «enviado» bajo candado, liberación SSL-R1, sello + motivo, bitácora `order.full_refund_closed` (`afterShipment`, `shippedReason`, `releasedItemIds`) | `payments/refunds/full-refund.service.ts` |
+| M3 tx1: TODOS los envíos `FOR UPDATE` + estado tras candado; `422 required:['shipped_reason']` / `409 NOT_APPLICABLE` antes de `createRows`; nota = `reason` recortado a 500; `order.refund.after.shippedReason` | `orders/order-refund.service.ts`, `orders/dto/orders.dto.ts` |
+| Verbo `POST /admin/orders/:id/shipped-refund-reason` (`@MoneyOut`, cuerpo crudo validado entero) | `orders/admin-orders.controller.ts`, `OrderRefundService.recordShippedRefundReason` |
+| `GET /admin/orders`: `refundReviewPending` por fila + `?refundReview=pending` (clase L); detalle: `fullRefundReview`, `shipmentShipped`, `settledAt: string \| null` siempre presente (A-1) | `orders/admin-orders.controller.ts` |
+| Tablero `workQueue.refundReviews` (`null` al operador) | `admin/admin.service.ts` |
+| Barrido: rama `refunded ∧ settledAt IS NULL` sin `closePaymentIntent`, log `info` | `orders/orders.service.ts` (`releaseRefundedUnsettled`) |
+
+### 17.2 Decisiones de implementación que otros roles deben saber
+1. **La rama directo escribe ahora `order.full_refund_closed`** en la primera pasada (antes solo la bóveda). La norma (2)
+   dice «`after` gana `afterShipment`, `shippedReason`, `releasedItemIds`»: en la rama directo no existía la fila, y sin
+   ella esos tres campos no tendrían dónde vivir. `after` del directo: `{ trigger, statusAtClose, closedShipmentIds,
+   frozenItemIds, afterShipment, shippedReason, releasedItemIds }`. ⚠️ Para el arquitecto: no estaba escrito que el
+   directo ganara la fila; si no la quiere, se quita sin tocar nada más.
+2. **SRF-11 «la ventana» — defecto encontrado y cerrado (fuera del texto de la norma, dentro de su criterio).** En la
+   rama directo, si el `succeeded` tardío confirma ENTERO entre la lectura de envíos del reembolso y su candado de
+   `Order`, el settle crea un envío `picking` que la pasada no vio: la orden quedaba `refunded` con un envío VIVO
+   (exactamente el rojo de SRF-11, «envío creado para una orden refunded»). Arreglo: tras el `FOR UPDATE` de `Order`, se
+   releen los envíos de la orden que no estaban en el primer candado, se bloquean y se cierran igual (paso 4-bis). Es un
+   candado `ShipmentRequest` DESPUÉS de `Order` — solo en esa ventana; en el camino normal la lista está vacía. Prueba
+   propia: SRF-11 «la VENTANA» (espía sobre `lockReservedOfOrder` que deja confirmar el settle entero en medio), y su
+   mutación (quitar el 4-bis) la pone roja.
+3. **Rama bóveda:** las `reserved` por la orden entran al MISMO `FOR UPDATE` de piezas (unión con las de la cadena, un
+   solo `ORDER BY id`), y bajo el candado se relee cuáles siguen `reserved` por ella: un id rancio no llega al cuerpo.
+4. **El verbo nuevo valida el cuerpo crudo** (`@Body() body: unknown`): el `ValidationPipe` global es `whitelist` sin
+   `forbidNonWhitelisted`, así que con una clase DTO una clave desconocida se borraría en silencio y el contrato pide
+   `400`. `note` vacía tras `trim` ⇒ `null`.
+5. `C-EQ-1`: `?refundReview=` entra al REGISTRO como clase L `PENDIENTE-ARQUITECTO` (52 filas, 19 pendientes): el
+   contrato pide la fila de §0-Q «en el mismo commit» y §0-Q punto 4 no la tiene (medido: `grep refundReview
+   docs/API_CONTRACT.md` ⇒ solo §M3, §M4-SHIP.18.12 y el tablero).
+
+### 17.3 M-62 — los dos conteos de SOLO LECTURA previos al despliegue (⛔ no corridos contra producción)
+Los corre quien tenga la credencial donde ya vive (vía de `CLAUDE.md` «Secretos»), con un usuario de solo lectura:
+```sql
+-- (1) Órdenes reembolsadas cuyo envío propio YA salió. Esperado 0 (HECHOS: sin ventas reales al 2026-09-11).
+--     > 0 ⇒ vuelve al orquestador: ¿se le muestran al dueño como «por revisar»? (⛔ M-62 no hace backfill).
+SELECT count(*) AS refunded_after_shipment
+  FROM "Order" o
+ WHERE o.status = 'refunded'
+   AND EXISTS (SELECT 1 FROM "ShipmentRequest" s
+                WHERE s."orderId" = o.id AND s.status IN ('enviado', 'entregado'));
+
+-- (2) Piezas apartadas por una orden reembolsada NUNCA liquidada (SSL-R1). Esperado 0; si > 0, las libera el barrido
+--     (rama `refunded ∧ settledAt IS NULL`, `refund_release`) en su siguiente pasada tras el despliegue.
+SELECT count(*) AS reserved_by_unsettled_refunded
+  FROM "InventoryItem" i
+  JOIN "Order" o ON o.id = i."reservedByOrderId"
+ WHERE i.status = 'reserved'
+   AND o.status = 'refunded'
+   AND o."settledAt" IS NULL;
+```
+Ninguna de las dos toca columnas de `M-62`: se pueden correr ANTES de migrar (que es cuando importan).
+
+### 17.4 Rojo primero, verde después, mutaciones (medido por mí; esquema propio `s11`/`s11_mut` en `tcg_marketplace`)
+- **Rojo antes del código:** la spec `shipped-refund-reason.e2e-spec.ts` contra el `src/` de `64ce47bb` (schema y
+  migración nuevos, servicios viejos): **29 rojas / 6 verdes de 35** (las 6 verdes son controles: `failed` sin
+  `refund_release`, el cuerpo único llamado directo, SRF-9/SRF-10 en el orden «reembolso/M3 primero», barrido sobre
+  liquidada, M3 sobre `pending`).
+- **Verde con el código:** 35/35 (y 37/37 con SRF-11 «anomalía»). Carreras, cada una N=10 por variante (proporción
+  de verdes, cero tiradas inválidas): SRF-6 forzado 10/10 · suelto 10/10; SRF-9 enviado-primero 10/10 (A) ·
+  reembolso-primero 10/10 (B) · suelta 10/10 (las 10 cayeron en A); SRF-10 m3-primero 10/10 (A) · enviado-primero
+  10/10 (B) · suelta 10/10 (2 A / 8 B); SRF-11 directo y bóveda × pago/reembolso primero 10/10 cada una (pago-primero:
+  9–10 de 10 con `503` + reentrega por `40P01`, como SL-10) · ventana 10/10; SRF-12 barrido-vs-webhook 20/20.
+- **Mutaciones** (cada una sobre copia del árbol ENTERO, `run-mut.sh`; «rojo» = la prueba nombrada falla):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| SRF-1 | quitar la llamada a `releaseReservedOfUnsettledRefund` | **rojo** (2/2 variantes) |
+| SRF-2 | escribir el movimiento sin `count === 1` | **rojo** en el cuerpo llamado con un id rancio. ⚠️ La reentrega ×10 NO lo ve: en una reentrega el estado bajo candado ya es `refunded` y el cuerpo ni se llama; y el candado de piezas filtra `status='reserved'` (EvalPlanQual) ⇒ el `count` es un segundo cinturón |
+| SRF-3 | `reservationGuard` (legadas `null`) en el `WHERE` y en el candado | **rojo** en directo; bóveda verde (su lista de ids sale de `reservedIdsOfOrder`, `reservedByOrderId` exacto: segundo cinturón) |
+| SRF-4 | escribir `fullRefundAfterShipment` en toda pasada, `false` en las siguientes | **rojo** (2/2) |
+| SRF-5 | quitar `@MoneyOut()` | **rojo** |
+| SRF-6 | (contrato) quitar `shippedRefundReason: null` del CAS | ⚠️ **SOBREVIVE** (2/2 verdes, N=10 c/u): el `FOR UPDATE` de `Order` ya serializa; el segundo lee el motivo del primero y da `409`. Quitando ADEMÁS el `FOR UPDATE` (SRF-6b): **rojo**, forzado 0/10 verdes, suelto 2/10 |
+| SRF-7 | (contrato) mover la comprobación después de `createRows` | ⚠️ **SOBREVIVE**: el `422` se lanza dentro de la tx1 ⇒ rollback de la fila; Stripe va post-commit. Quitar la comprobación (SRF-7b): **rojo** |
+| SRF-8 | (contrato) leer envíos con el `findMany` filtrado `picking\|guia` | ⚠️ SRF-8 **SOBREVIVE** (su envío está en `guia`, entra al filtro). La misma mutación la caza SRF-10: enviado-primero 0/10, suelta 3/10 |
+| SRF-9 | `afterShipment` con la lectura previa al `FOR UPDATE` | **rojo**: enviado-primero 0/10, suelta 3/10 (mezcla `enviado`+`afterShipment=false`) |
+| SRF-10 | bloquear en tx1 solo `picking\|guia` | **rojo**: enviado-primero 0/10, suelta 3/10 |
+| SRF-11 | (contrato) liberar antes de leer el estado bajo candado | ⚠️ las 5 carreras **SOBREVIVEN** (N=10 c/u): el settle saca las piezas de `reserved` en la misma tx en que pone `settled`, y el candado de piezas filtra por `reserved` ⇒ nunca hay pieza que liberar de una liquidada. Prueba añadida «anomalía sembrada» (liquidada con pieza aún `reserved`): **rojo** en directo |
+| SRF-11w | quitar el 4-bis (envíos nacidos en la ventana) | **rojo**: 0/10 (orden `refunded` con envío vivo) |
+| SRF-12 | conservar `closePaymentIntent` en la rama `refunded` | **rojo** (3/3 pruebas; carrera 0/20) |
+| SRF-13 | pedir `shipped_reason` en bóveda con `already_withdrawn` | **rojo** |
+
+⚠️ **Para el arquitecto (no lo resolví yo):** las mutaciones que §M4-SHIP.18.12 (8) asigna a SRF-6, SRF-7, SRF-8 y SRF-11
+no pueden poner roja su prueba con el algoritmo normado: cada una quita un cinturón que la norma duplica (FOR UPDATE +
+CAS en (6); tx1 con rollback en (4); el estado bajo candado + el filtro de piezas en (3)). Medido arriba qué sí muerde.
+
+## 18 · v1.80.8.7 `M1-SFP` construida — bitácora antes/después del `PATCH` de M1, `pendingReason` en la cola, precio derivado del sellado en el listado (2026-10-04, rama `claude/precios-s5`, sobre `2b99b5c2`; código en `64ce47bb`)
+
+Contrato: `API_CONTRACT §M1` «v1.80.8.7» (`M1-SFP`, puntos 1–9). Arquitectura: §4.36.5 (c-quater). Criterio 255.
+⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+**`D-SFP-1` — CERRADA por backend** (medido 2026-10-04 sobre `64ce47bb`): SFP-1…SFP-6 verdes con sus mutaciones
+(SFP-5 con proporción, N=10 forzada + N=10 suelta, los dos caminos). El registro en `ARCHITECTURE §9` es del
+arquitecto (no lo toco). `D-SFP-2` (`listPriceCents: null`) sigue **fuera**: no se tocó su conducta.
+
+### Qué hace el código (`inventory/inventory.service.ts`)
+1. **Un solo cuerpo** del `before/after`: `itemUpdatedAudit(read, written, fields)` (pura; `null` si ni `status` ni
+   `listPriceCents` cambian; `fields` ordenado) y `writeItemUpdatedAudit(tx, actor, id, …)`, que escribe con el
+   handle `tx` de la escritura auditada. Es el **único** literal `'inventory.item_updated'` de `inventory/` (SFP-6).
+2. **No publicante:** `guardedItemUpdate(tx, item, data, { listPriceCents: <leído> })` — el precio leído entra al CAS
+   (`P2025` ⇒ `409 CONFLICT`); lo leído se fija **antes** de escribir. `move`/`mark` no pasan la condición.
+3. **Publicante:** `claimListed(…, audited)` corre dentro de `$transaction(VAULT_VERB_TX_OPTIONS)` con
+   `listPriceCents: <leído>` en el `updateMany`; `count 0` ⇒ relee en la tx: plataforma ∧ `in_stock|listed` ⇒
+   `409 CONFLICT`; si no ⇒ `422 ITEM_NOT_PUBLISHABLE { status: <releído> }`. `resolvePublishSalePrice` sigue antes y
+   fuera. **Los caminos de lote** (`bulk-publish`, `publish-all`, reevaluación/auto-publicación) **no pasan
+   `audited`**: sin tx nueva, sin precio en el CAS, sin esta bitácora (no son la captura del criterio 255; ARCH lo
+   declara «lo que NO cubre»).
+4. **`pendingReason`** (`PendingPublishState` + fila de `pending-publish`, siempre presente): `pendingKey == null` ⇒
+   `null` (gradeada sin slab); si no ⇒ `derived.pendingReason ?? 'no_market'` — **la misma expresión** con la que
+   `resolvePublishSalePrice` escala (incluido el sellado). ⛔ No lee `PendingPriceEntry`.
+5. **Listado** (`listItems` → `sealedSalePricesOf`): solo `sealed ∧ platform ∧ in_stock|listed`;
+   `loadPublishPricingCtx` una vez por página (ninguna consulta sin elegibles); `derivePublishSalePrice(item, null,
+   ctx)`; `ok:false` ⇒ `{ null, 'pending' }`. En el resto de filas las claves no viajan. No escribe.
+
+### Pruebas
+- Unitarias: `backend/test/inventory.sealed-final-price.spec.ts` (39). El arnés hace **rollback de verdad** en
+  `$transaction` (SFP-3 mide «nada escrito», no «el doble no se llamó»).
+- Integración (Postgres real): `backend/test/integration/inventory-price-audit.e2e-spec.ts` (20). SFP-3 se mide con
+  un **TRIGGER** `BEFORE INSERT ON "AuditLog"` que lanza para las piezas de la prueba (se crea y se borra en la
+  propia prueba, también en `afterAll`). SFP-5 forzada usa `row-lock-barrier.ts` (2 peticiones bloqueadas
+  comprobadas en `pg_stat_activity`).
+- **Rojo antes** (sobre `2b99b5c2`, sin el código): unitaria 23/39 rojas (SFP-1 6/6, SFP-2 2/2, SFP-3 2/3 —la de
+  `status` ya tenía bitácora—, SFP-5 3/3, SFP-6 1/2, SFP-7 6/6, SFP-8 3/9); integración 13/20 rojas (SFP-1 3/3,
+  SFP-2 2/2, SFP-3 1/1, SFP-5 4/4 —forzada 10/10 `[200,200]` sin filas, suelta 10/10—, SFP-7, SFP-9 primera,
+  SFP-8). Verdes antes, como dice el contrato: SFP-4 (candado) y el `422` de SFP-9.
+- **Actualizadas a la forma nueva (no borradas):** `inventory.pending-publish.spec.ts` (4b: el publicante ahora SÍ
+  escribe una fila), `inventory.patch-price-guard.spec.ts` (3: `audit@tx` + precio en el CAS),
+  `inventory.graded-cert.spec.ts` (CAS con `listPriceCents` + doble de `auditLog`),
+  `integration/full-refund-vault.e2e-spec.ts` PS-42b (`{status igual, listPriceCents}` deja una fila con el
+  `status` igual en los dos lados).
+
+### Mutaciones (sobre copia `git archive` + mis ficheros, esquema propio; N=1 deterministas salvo SFP-5)
+| Mutación | Resultado |
+|---|---|
+| M1 volver a `if (statusChanges)` | SFP-1 rojo: unit 4, integ 3 |
+| M2 quitar la bitácora del publicante | SFP-2 rojo: unit 2, integ 2 |
+| M3a bitácora del no publicante DESPUÉS del commit, fuera de la tx | SFP-3 rojo: unit 2, integ 1 |
+| M3b bitácora del publicante DESPUÉS del commit | SFP-3 rojo: unit 1, integ 1 |
+| M4 sin comparar valores (fila siempre) | SFP-4 rojo: unit 2, integ 1 |
+| M5 quitar `listPriceCents` del CAS no publicante | forzada **10/10 rojas**, suelta **9/10 rojas** (N=10 c/u); unit 1 |
+| M5b quitar `listPriceCents` del CAS publicante | forzada **10/10 rojas**, suelta **10/10 rojas** (N=10 c/u); unit 1 |
+| M6 segundo literal en `claimListed` (canario) | SFP-6 rojo |
+| M7 `pendingReason` constante `'no_market'` | SFP-7 rojo: unit 2, integ 2 |
+| M8a fórmula propia (mercado sin spread) | SFP-8 rojo: unit 1, integ 1 |
+| M8b campos también en raw/graded | SFP-8 rojo: unit 3, integ 1 |
+| M9 memoizar `loadSalePremiumFloorPolicy` | SFP-9 rojo: integ 1 |
+
+Sin mutación: SFP-5 verde **10/10 forzada** y **10/10 suelta** en los dos caminos (formas medidas en la suelta:
+`[200,409]` 10/10 en ambos caminos).
+
+### Para otros roles / decisiones abiertas
+- **Contrato vs schema (menor):** SFP-7 dice «`PendingPriceEntry` idéntica (conteo y `updatedAt`)», pero el modelo
+  **no tiene `updatedAt`** (`schema.prisma`, `model PendingPriceEntry`). La prueba compara la fila ENTERA y el conteo.
+- **Residual del «antes» exacto (para el arquitecto):** el CAS publicante condiciona `status ∈ {in_stock, listed}`
+  (como dice el contrato) más el precio, no el `status` exacto. Si un lote publica la pieza `in_stock → listed` sin
+  tocar su precio entre la lectura y el CAS del `PATCH`, la fila del `PATCH` dirá `before.status: in_stock`. La
+  cadena sigue cuadrando porque el lote no escribe `inventory.item_updated`; no lo cambié porque el contrato no lo
+  pide y cambiaría un `200` actual por `409`.
+- **Frontend:** `pendingReason` viaja siempre (`null` incluido); `resolvedSalePriceCents`/`priceBasis` en el listado
+  solo en sellado de plataforma `in_stock|listed` (claves ausentes en el resto).
+
+### 17.4-bis Suites completas sobre copia del árbol ENTERO (`git archive 8b343b12`)
+- **Unitaria:** 387/387 suites, **6561/6561** pruebas.
+- **Integración** (BD propia `tcg_s11`): 71/72 suites, **1527/1529** pruebas. Las 2 rojas son
+  `buylist-intake-concurrency.e2e-spec.ts` (la barrera no ve 2 bloqueos en `SellRequestItem`): **3/3 rojas** repetidas
+  aislada, y **también roja sobre `64ce47bb`** (antes de este trabajo) en la misma BD ⇒ no es de este cambio; en la corrida
+  previa sobre el esquema `s11` de `tcg_marketplace` había pasado ⇒ dependiente del estado/entorno de la BD, NO MEDIDO por
+  qué. Dueño: backend (stream buylist). La spec SRF entera verde dentro de la corrida completa (37/37, todas las carreras
+  10/10 · 20/20).
+- (Una corrida anterior en esquemas `s11` dentro de `tcg_marketplace` dio rojas en `iva-price-convention` y
+  `replacement-cases`: consultan `pg_enum` sin filtrar por esquema y veían el enum duplicado — artefacto del aislamiento
+  por esquema, no del código; esquemas ya borrados.)
+
+### 17.5 Discrepancias con el texto del contrato (para el arquitecto; ⛔ no cambiadas)
+1. **SRF-13 «M3 sobre `pending` ⇒ `400` como hoy»:** hoy es **`422 VALIDATION_ERROR {status}`**
+   (`order-refund.service.ts`, `BusinessException.validation`). Conservé la conducta de hoy; la prueba fija el código y los
+   `details`, y acepta 400|422 en el status hasta que el contrato diga cuál.
+2. **§0-Q punto 4 sin la fila `?refundReview=`** (ver 17.2 (5)).
+3. **SRF-8 `PATCH →enviado` tras la tx1:** medido `409 CONFLICT` (el CAS del envío ve `cancelado`), la prueba lo fija.
+4. **Mutaciones de SRF-6/7/8/11** que no muerden (17.4).
+5. **Bitácora `order.full_refund_closed` en la rama directo** (17.2 (1)).
+## 17-bis · PR #68 — rojo de `backend-e2e` en PS-51: el fixture leía las líneas del envío en orden FÍSICO (2026-10-04, sobre `8a18b170`)
+
+**Síntoma (CI, run 37054037762, job 110994253030, evento `pull_request`; el `push` del mismo sha salió verde):**
+`TypeError: Cannot read properties of undefined (reading 'id')` en `shipments-prep.e2e-spec.ts:506` — `row` (la fila
+`item_missing` que crea el `prepared` del setup) no existía. ⛔ No pude bajar el log de CI (el proxy rechaza el host de
+los artefactos), así que lo de abajo sale de reproducirlo aquí, no de leer aquel log.
+
+**Causa (medida) — defecto de la PRUEBA, no del producto:** `ShipPrepDb.mkDirect`/`mkWithdrawal` devolvían
+`lines: shipment.items` de un `include: { items: true }` **sin `ORDER BY`** (Prisma 5 emite `… WHERE
+"shipmentRequestId" IN ($1) OFFSET $2`, medido con el log de consultas). Postgres devuelve orden físico: en BD nueva
+coincide con el de inserción; en BD **usada** (los `cleanup()` dejan huecos) la segunda línea puede quedar delante. Las
+pruebas asumen `lines[1]` = la carta de MX$300; con el orden invertido marcan `missing` la de MX$500 y `prepared`
+contesta **`409 REFUND_PREVIEW_STALE {refundCents: 52430}`** (≠ 31458) ⇒ cero filas ⇒ `TypeError`. Es también la causa
+de lo que §12 dejó «NO MEDIDO» (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
+`PREPARATION_HAS_BLOCKED_LINES`: misma inversión). El producto no depende del orden (marcas por `shipmentItemId`,
+plan por línea, piezas `id asc.`).
+
+**Los `40P01` / `BUSY_TRY_AGAIN` del log NO son de esta suite:** reproducidos en la integración completa, los 10
+interbloqueos (`Order FOR UPDATE` de `onFullRefund` vs `UPDATE InventoryItem` de reserva) salen en `settle-late` (SL-10,
+el `503` medido y aceptado en §12, «10/10 con `503` del reembolso»); Nest escribe en tiempo real y jest imprime el
+bloque `FAIL` al final, por eso aparecen «justo antes». PS-51 corre en serie: no hay contendiente posible en su setup.
+
+**Arreglo (solo prueba, nada debilitado):**
+- `helpers/ship-prep-db.ts` — `alignLines(lines, pieceIds)`: `lines[i]` es la línea de la pieza `i` por construcción;
+  si falta una, revienta en el fixture diciendo cuál.
+- `shipments-prep.e2e-spec.ts` — `prepTransient(d)`: el setup de PS-10 / PS-50 / PS-51 **asevera** `200 prepared` y
+  exactamente una fila `item_missing requested 31458`. Un setup roto ya no llega a la carrera como `undefined`: dice qué
+  contestó `prepared`. El oráculo de PS-51 (una sola `create`, un `200`, un `409 REFUND_ATTEMPT_IN_PROGRESS`) no cambia.
+
+| Medición (autor: backend; BD propia `tcg_ps51`, usada; Postgres/Redis compartidos) | Resultado |
+|---|---|
+| Antes — suite sola, árbol `8a18b170` + solo registro de diagnóstico, 2 tandas | **38/40 corridas verdes (N=40)**: 1 roja por inversión (PS-10, `409 REFUND_PREVIEW_STALE 52430`), 1 roja por la carrera de abajo (PS-51 9/10). Inversiones observadas sin rojo en 5 fixtures de 20 corridas (pruebas que toleran el orden) |
+| Mutación A — orden físico invertido forzado, SIN alinear (copia del árbol entero) | **9 rojas de 20**, entre ellas PS-51 con el mensaje nuevo `409 REFUND_PREVIEW_STALE {refundCents: 52430}` y PS-10/PS-50/PS-1/PS-43 |
+| Mutación B — orden físico invertido forzado, CON `alignLines` | **20/20 verdes** |
+| Después — suite sola, árbol vivo, BD usada | **20/20 corridas verdes (N=20)**; PS-51 10/10 en cada una (200 tiradas) |
+| Unitaria completa | **384/384 suites · 6444/6444** |
+| Integración completa, árbol vivo, BD `tcg_ps51`, 5 corridas (load 2.8–9; otro agente corría su integración a la vez en las dos primeras) | `shipments-prep` **verde 5/5** (PS-51 10/10 en cada una). Totales: 1441/1443 · 1439/1443 · 1441/1443 · 1440/1443 · 1442/1443. Las rojas, todas en suites que NO usan los ficheros tocados: `buylist-intake-concurrency` 4/5 (la barrera por tiempo de 10 s de §16: «Esperaba 2 petición(es) bloqueada(s)… SellRequestItem»), `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` 2/5, `replacement-cases` PS-23 timeout 30 s 1/5 (load ~9), `graded-estimate` 3b 1/5. Las tres de la corrida 2 re-corridas solas con load < 3: **459/459** |
+| Integración completa, copia `git archive` del HEAD SIN este arreglo, misma BD | **69/69 · 1443/1443** (1 corrida, load ~3.6); la de arranque sobre BD nueva, también 69/69 · 1443/1443 |
+| ⚠️ NO MEDIDO | si `buylist-intake-concurrency` / `enum-query-axes` C-EQ-1 rojos dependen de la BD usada o de la carga: no los perseguí (fuera del encargo) |
+
+**⚠️ ABIERTO — para el arquitecto (no lo toqué):** segunda intermitencia de PS-51, distinta: `BAD(200:ok, 409:
+REFUND_NOT_RETRYABLE, create=1)` — **1 tirada de 400** (40 corridas × N=10, antes del arreglo; 0 de 200 después, que
+no la descarta). Mecanismo **demostrado**: en `executeRefund`, el perdedor pierde el reclamo (`count 0`) y RELEE la
+fila; si el ganador ya terminó (doble de Stripe 150 ms + tx de confirmación), la relectura ve `submitted` ⇒
+`not_requested` ⇒ `REFUND_NOT_RETRYABLE`. Mutación C (copia; 400 ms entre el reclamo perdido y la relectura): **0/10**,
+las 10 con esa firma. El dinero está bien (una sola `create`, el perdedor no escribe). La duda es de CONTRATO:
+§M4-SHIP.17.6 paso 0 dice «`count 0` ⇒ desde `retry` ⇒ `409 REFUND_ATTEMPT_IN_PROGRESS`», y §errores dice
+`REFUND_NOT_RETRYABLE` = «fila que no está `requested`», que en el momento de contestar también es verdad. Opciones:
+(1) clasificar en la MISMA sentencia que el reclamo (bajo el candado de fila) y contestar `IN_PROGRESS` si perdió contra
+un reclamo vigente; (2) que PS-51 acepte cualquiera de los dos `409` (el invariante de dinero es «una `create`»).
+Ninguna se hace sin decisión del arquitecto.
+
+## 19 · v1.80.8.8 construida — CAS publicante por `status` leído (SFP-10), SRF-13 `422`, fila del directo (SRF-4), PS-51 con los dos `409`, `C-EQ-1`; y por qué `buylist-intake-concurrency` salía roja (2026-10-04, rama `claude/precios-s5`; código en `60048797`)
+
+Norma: `API_CONTRACT` rev v1.80.8.8 (cabecera, §M1 «v1.80.8.7» punto 1 + SFP-10, §M4-SHIP.18.12 (10), §M4-SHIP.17.6 paso 0
++ PS-51, §0-Q punto 4). ⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+### 19.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `claimListed` con `audited` (solo el `PATCH` publicante) condiciona `status: <leído>` exacto + `listPriceCents` leído; los lotes siguen con `status ∈ PUBLISHABLE_ORIGIN_STATUSES`. `count 0` ⇒ la relectura de siempre (`409 CONFLICT` si sigue publicable) | `inventory.service.ts` (`claimListed`) |
+| SFP-10 unitaria (lote publica entre lectura y CAS ⇒ `409`, sin fila; forma exacta del `where`) | `test/inventory.sealed-final-price.spec.ts` |
+| SFP-10 integración: `publish-all` REAL; forzada (el lote se encola PRIMERO en el candado de fila, el `PATCH` detrás — FIFO comprobado con `pg_stat_activity`) y suelta. Oráculo del «antes real»: TRIGGER `AFTER UPDATE` que anota viejo/nuevo `status`/precio de cada `UPDATE` de la pieza | `test/integration/inventory-price-audit.e2e-spec.ts` |
+| Dos unitarias que fijaban la forma vieja del `where` (`status: {in:[in_stock,listed]}`) pasan a `status: 'in_stock'` (el leído; subconjunto estricto, la guarda anti-double-sell sigue excluyendo `reserved`) | `test/inventory.graded-cert.spec.ts`, `test/inventory.pending-publish.spec.ts` |
+| SRF-13 fija `[422, 'VALIDATION_ERROR', {status:'pending'}]` exacto | `shipped-refund-reason.e2e-spec.ts` |
+| SRF-4 (ya aseveraba UNA fila y cero en la reentrega ×10) ahora fija la forma declarada en (10).2: las **siete** claves exactas de `after`, `entityType:'Order'`, `actorRole:null` | ídem |
+| SRF-11: títulos «SRF-11 «ventana»» y «SRF-11 «anomalía sembrada»» | ídem |
+| PS-51: el perdedor vale si es `409 REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}` o `409 REFUND_NOT_RETRYABLE {status ≠ 'requested'}`; rojo un `2xx`, otro código o `NOT_RETRYABLE` con `requested`; imprime la proporción de cada clase | `shipments-prep.e2e-spec.ts` |
+| `C-EQ-1`: `GET /admin/orders?refundReview=` pasa a `transcrita`; registro 52 fijo, pendientes **19 → 18** | `enum-query-axes.e2e-spec.ts` |
+
+### 19.2 Mediciones (autor: backend; BD `tcg_orq_b8_mut`, esquemas propios `dev1`/`mut`; Postgres/Redis compartidos)
+| Prueba / mutación (copia `git archive HEAD` del árbol ENTERO, `60048797`) | Resultado |
+|---|---|
+| SFP-10 **antes** del código (rojo primero) | forzada **0/10 verdes** (las 10: `200`, `before.status:'in_stock'`, traza `in_stock>listed` del lote antes del `PATCH`); suelta **7/10 verdes** (3 con el defecto) |
+| SFP-10 con el código, 3 corridas × N=10 | forzada **30/30** (`409 CONFLICT`, cero filas, la pieza `listed` con su precio). Suelta **30/30 válidas**: `409` 4/30, `200` con `before.status` = el real (`in_stock`) 26/30 (por corrida: 1/9, 3/7, 0/10) |
+| Mutación SFP-10 (volver al conjunto en el CAS auditado) | **rojo**: forzada 0/10, suelta 3/10 con `before.status:'in_stock'` sobre pieza ya `listed` |
+| Mutación SRF-13 (`validation` → `badRequest`) | **rojo** (`400` en vez de `422`) |
+| Mutación SRF-4 (quitar el `auditLog.create` del directo) | **rojo** (2/2 variantes: `order.full_refund_closed` 0 filas) |
+| Mutación nueva de SRF-8 (quitar la rama `¬shipped ∧ shippedReason ⇒ 409 NOT_APPLICABLE` de la tx1) | **rojo**, como predijo el arquitecto: `500 INTERNAL` en vez de `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` |
+| PS-51, 3 corridas × N=10 (árbol vivo, load 2–4) | **30/30 OK**, una `create` por tirada; perdedor `IN_PROGRESS` **30/30**, `NOT_RETRYABLE` **0/30** (no observado aquí; §17-bis lo midió 1/400) |
+
+### 19.3 `buylist-intake-concurrency` roja «3/3 en BD nueva, verde en otras» — diagnóstico (no era la conducta)
+- **Causa (medida):** `kyc-ine-links.e2e-spec.ts` K-7 hace `PUT /users/me/kyc {clabe:'…599'}` a `customer2` y su
+  `afterAll` restauraba la decisión de KYC pero **no** la CLABE. `buylist-intake-concurrency` da de alta con
+  `CLABE_B` (`…568`) y `buylist.service.ts:1475-1477` contesta `422 CLABE_NOT_OWN_NAME` **antes** de abrir la
+  transacción ⇒ ninguna alta llega al `INSERT "SellRequestItem"` ⇒ `esperarBloqueoDeFila` revienta a los 10 s
+  (`row-lock-barrier.ts:84`). Depende de si `kyc-ine-links` corrió antes **y** ninguna `seedE2E` (que borra los
+  `KycProfile`, paso 3) corrió en medio — por eso unas BD/órdenes rojas y otras verdes. Jest reordena las suites
+  rojas al principio de la siguiente corrida, así que una vez roja tiende a repetirse.
+- **Reproducido:** esquema nuevo ⇒ `kyc-ine-links` sola ⇒ `buylist-intake-concurrency` sola: **roja 3/3** (las
+  respuestas ya recibidas: dos `422 CLABE_NOT_OWN_NAME`). Sobre una BD sin esa suite delante: verde 4/4.
+- **Arreglo (solo pruebas, nada debilitado):** (1) `buylist-intake-concurrency` **presta** la CLABE de archivo como
+  ya prestaba el tope (la deja `null`, el estado del fixture) y la devuelve tal cual en el `afterAll`; si la barrera
+  no llega, el error ahora trae las respuestas ya recibidas. (2) `kyc-ine-links` devuelve la CLABE que había antes.
+  Medido: sobre el estado contaminado (CLABE `…599` en archivo) **verde 4/4**; tras `kyc-ine-links` arreglada, la
+  CLABE de `customer2` queda `NULL`. ⛔ La comprobación de CLABE propia no se tocó.
+
+### 19.4 Para otros roles
+- **QA:** SFP-10 y PS-51 imprimen sus proporciones (`SFP-10 suelta formas`, `[PS-RACE PS-51 perdedor]`).
+- Ningún cambio de forma de respuesta. El `409 CONFLICT` de la ventana del lote ya lo trata la pantalla (§39.2 (f)).
+
+## 20 · v1.80.8.9 construida (`M2-VQ9`) — «Publicar todo» barre la cola; la cola por eje y con la clave entera (2026-10-04, rama `claude/precios-s5`; código en `e5834a96`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.9»` (ancla `M2-VQ9`), `ARCHITECTURE §4.36.5 (c-quinquies)`. ⛔ Sin schema, migración,
+endpoint ni forma de respuesta nuevos.
+
+### 20.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `sweepUnreasonedSaleQueue(origin: 'price-sync' \| 'publish-all' = 'price-sync')`: el mismo cuerpo, sus líneas de log dicen quién barrió | `jobs/price-sync.service.ts` |
+| `publishAll` llama `sweepSaleQueueAfterPublishAll()` después del bucle y antes de armar la respuesta. Falla-seguro (`logger.error`, `200` intacto). El replay sale antes y no barre. `PriceSyncJobService` se inyecta `@Optional()` (los unitarios construyen con 3 args): sin él, `logger.error` — ⛔ nunca un salto mudo | `inventory.service.ts` |
+| `reconcilePublishedPrices` abre/cierra con `saleQueueKeyOf(item, pricing)` (con `cardProductId`); la lectura de referencias no cambia | `pricing/price-ingest.service.ts` |
+| `escalatePending`: `context` entra al `findFirst` del dedupe (siete componentes). El cierre no cambia | `pricing/pricing.service.ts` |
+| Deep-link de M1 (`openPendingEntriesFor`): `context: 'inventory'` | `inventory.service.ts` |
+| Censo de `saleQueueKeyOf`: + `price-ingest.service.ts: 2` (tercer llamador legítimo, por contrato) | `test/pricing.sale-queue-key.parity.spec.ts` |
+| VQ-10…VQ-14 | `test/integration/sale-queue-publish-all-sweep.e2e-spec.ts` (nuevo) |
+
+⚠️ VQ-10 llama a `publish-all` **sin filtro** (lo que pide el contrato): publica también piezas vendibles que otras
+suites dejaron. La prueba las **devuelve** a `in_stock` al terminar. Las filas de cola que el lote escale para
+ellas se quedan (son filas legítimas).
+
+### 20.2 Mediciones (autor: backend; esquemas `dev1`/`mut` de `tcg_orq_b8_mut`; deterministas ⇒ N=1 por corrida)
+| | Resultado |
+|---|---|
+| Rojo primero (spec nueva contra el código de `60048797`) | **6 rojas / 1 verde de 7**; la verde es VQ-11 (a) (sin barrido no hay nada que el replay pueda ejecutar: la muerde su mutación) |
+| Con el código | **7/7**; `sale-queue-vq` y `premium-floor-sale` siguen verdes (31/31 las tres) |
+| (M1) quitar la llamada al barrido de `publishAll` | **rojo** VQ-10, VQ-11 (b), VQ-11 (c) |
+| (M2) llamar solo a la rama `null` | **rojo** VQ-10 ((viii) sigue `open`) y VQ-11 (b) |
+| VQ-11 (a): barrer antes del chequeo de replay | **rojo** VQ-11 (a) |
+| VQ-11 (b): quitar el `try/catch` | **rojo** VQ-11 (b) |
+| VQ-11 (c): barrer solo «sin filtro» | **rojo** VQ-11 (c) (y (b), que usa filtro) |
+| VQ-12: volver a la clave de cuatro componentes | **rojo** VQ-12 |
+| VQ-13: quitar `context` del `where` del dedupe | **rojo** VQ-13 |
+| VQ-13 (C) canario: quitar el dedupe entero | **rojo** VQ-13 (y VQ-10) |
+| VQ-14: quitar `context:'inventory'` del deep-link | **rojo** VQ-14 |
+
+Ninguna prueba existente aseveraba una fila compartida entre ejes (la suite completa lo dice: ver el informe final).
+
+## 21 · Condiciones de los gates sobre `4d994c55`: techlead C-1/C-2/C-3 + D-1/D-3/D-6, QA MENOR-1 (2026-10-04, rama `claude/precios-s5`; código en `0ceedf77`)
+
+⛔ Sin schema, endpoint ni conducta nuevos, salvo MENOR-1 (el listado de M3 deja de llevar dos columnas que el contrato
+no declara). Base medida: `HEAD` era `1b1ab19a` (mismo árbol que `fe44901e`, que nombraba el encargo:
+`git diff --stat fe44901e 1b1ab19a` vacío; el remoto apunta a `1b1ab19a`).
+
+### 21.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| **C-1** — «ya salió» en un solo sitio: `SHIPPED_OUT_STATUSES` (tipada contra `ShipmentStatus`), `isShippedOut(status)` y `lockShipmentsOfOrder(tx, orderId, exceptIds?)` («bloquear los envíos de la orden y leer su estado BAJO el candado») | `payments/refunds/refund-review.ts` |
+| M3 tx1 usa el helper y el predicado (antes: su propio `FOR UPDATE` y el literal `'enviado' \|\| 'entregado'`) | `orders/order-refund.service.ts` |
+| `onFullRefund` rama directo: pasos (1)+(2) y (4-bis) en un cuerpo, `lockAndCloseShipments` (**cierra D-1**); la clase `already_withdrawn` de bóveda lee la misma constante | `payments/refunds/full-refund.service.ts` |
+| El detalle de M3 (`shipmentShipped`) usa `isShippedOut`; el controlador ya no importa de `full-refund.service` | `orders/admin-orders.controller.ts` |
+| **C-2** — la cabecera de `full-refund.service.ts` y el docblock de `closeShipmentsOnFullRefund` dicen las DOS excepciones al orden de candados (ver 21.3) | `full-refund.service.ts` |
+| **MENOR-1** — `GET /admin/orders`: la fila ya no lleva `fullRefundAfterShipment` ni `shippedRefundReason` crudos (se quitan junto a las otras tres); `refundReviewPending` se sigue derivando de ellas. El detalle no cambia (`fullRefundReview`) | `orders/admin-orders.controller.ts` |
+| **D-3** — el docblock de `openPendingEntriesFor` vuelve encima de su función | `inventory/inventory.service.ts` |
+| **D-6** — cabecera de M-62: «motivo, cuándo y quién juntos; nota opcional CON motivo». ⛔ DDL intacto | `prisma/migrations/20261004120000_m62_shipped_refund_reason/migration.sql` |
+| **C-3** + D-2, D-4, D-5, D-9 anotadas (D-1, D-3, D-6 como cerradas) | `docs/TECH_DEBT.md` (SHIP-D3 ampliada; PS5-D1…D6, D9) |
+| Pruebas: `C-1` en `test/refund-review.spec.ts` (+5: `isShippedOut` sobre todo el enum; censo de los tres lectores sin literal ni lista propia; mismo helper en M3 y `onFullRefund`; forma del helper con y sin `exceptIds`); `test/admin-orders.list-review-columns.spec.ts` (nuevo, 2); SRF-4 gana la aserción de las cinco columnas ausentes en la fila | `test/` |
+
+**Frontend:** el listado de M3 en `frontend/src` no lee `fullRefundAfterShipment` ni `shippedRefundReason` (medido:
+`grep -rn` en `frontend/src` ⇒ solo `lib/mock/m4-ship.ts`, el mock del detalle). Nada que cambiar allí.
+
+**M-62 y el checksum de Prisma (D-6):** cambiar el comentario cambia el checksum de una migración ya aplicada en BD
+locales. Medido en `tcg_fix_be_mut`: aplicada con el texto de `HEAD~1`, luego `prisma migrate deploy` ⇒ «No pending
+migrations to apply» y `prisma migrate status` ⇒ «Database schema is up to date!». `migrate dev` (no lo usamos) podría
+pedir reset en una BD de desarrollo: NO MEDIDO. M-62 no está en `main` ni en `production`
+(`git cat-file -e origin/{main,production}:<migración>` ⇒ no existe).
+
+### 21.2 Mediciones (autor: backend; copia `git archive HEAD` del árbol ENTERO en `0ceedf77`)
+| | Resultado |
+|---|---|
+| Unitaria completa | **388/388 suites, 6572/6572 pruebas** (161 s) |
+| Integración completa (`tcg_fix_be`, `--runInBand`, carga 1 min al terminar 7.66 con 4 CPU) | **73/73 suites, 1538/1538 pruebas** (562 s) |
+| SRF-9 (N=10 por orden) | `enviado-primero` **10/10**, `reembolso-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| SRF-10 (N=10 por orden) | `m3-primero` **10/10**, `enviado-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| Mut. MENOR-1: devolver las dos columnas a `...o` | **rojo** `list-review-columns` «ninguna de las cinco columnas crudas» |
+| Mut. C-1 (a): `SHIPPED_OUT_STATUSES = ['enviado']` | **rojo** «`isShippedOut` sobre TODOS los estados» |
+| Mut. C-1 (b): M3 vuelve a un literal `'enviado'` | **rojo** censo «… no escribe la lista a mano» |
+| Mut. C-1 (c) conductual: `lockShipmentsOfOrder` devuelve el estado leído ANTES del `FOR UPDATE` (`tcg_fix_be_mut`) | **rojo**: SRF-9 `enviado-primero` 0/10, `suelta` 0/10; SRF-10 `enviado-primero` 0/10, `suelta` 0/10 (N=10 cada una; `m3-primero`/`reembolso-primero` 10/10, como se espera: ahí el estado no cambia en la ventana). Desenlace típico: `enviado,shipped/shipped,after=false` — paquete salido sin «por revisar» |
+
+Las mutaciones (a)–(c) se hicieron sobre una SEGUNDA copia (`git archive HEAD`), nunca sobre el árbol vivo.
+
+### 21.3 Para el arquitecto — las dos excepciones al orden de candados (techlead C-2)
+Orden documentado: envíos → piezas → `Order` → libro. Excepciones, ambas en la rama directo de `onFullRefund`:
+1. **(4-bis, SRF-11) — ya aceptada por el arquitecto.** Envíos bloqueados DESPUÉS de `Order`. Segura porque el único
+   creador de un envío de la orden (settle de un `succeeded` tardío) lo crea bajo el candado de `Order`.
+2. **M3 directo — ⚠ NO MEDIDA como carrera.** M3 tx1 toma envíos → `Order` y luego llama a `onFullRefund`, cuyo
+   `lockReservedOfOrder` bloquea piezas `reserved` por la orden ⇒ **piezas después de `Order`**. En una orden `settled`
+   la consulta no devuelve filas (no bloquea nada). Solo con la anomalía sembrada de SRF-11 (orden liquidada con una
+   pieza aún `reserved`) bloquearía, y podría dar `40P01` contra quien tome pieza → `Order`. Medición que lo cerraría:
+   sembrar esa anomalía y correr M3 contra un verbo que tome pieza → `Order` de la misma orden con barrera de fila
+   (N ≥ 10 por orden), contando `40P01`/`500`. Decisión pedida: aceptarla como 4-bis, o que M3 tome las piezas
+   `reserved` antes de `Order` (cambio del orden en M3 tx1, no en `onFullRefund`).
+## 55 · v1.80.9 construida — usuarios de back-office SIN correo: `M-63`, STF-1…STF-30 (2026-10-04, rama `claude/staff-sin-correo`, desde `43c42b3d`; código en `0a42d85a` + el commit de esta sección)
+
+> ⚠️ **Renumerada el 2026-10-04 (QA M-1):** nació como «§22» con subsecciones «21.x», y chocaba con la `## 22.
+> v1.4-finance` (más arriba) y con la `## 21 ·` de `precios-s5`. Número elegido: **55**, el primero libre por encima
+> del mayor usado en este documento (medido con `grep -oE "^## [0-9]+" | sort -n`: usados 0–23 y 25–54; el hueco 24
+> queda en el bloque de agosto y no se recicla). Las citas **`BACKEND_NOTES §22` (21.1/21.2/21.3)** de `API_CONTRACT`
+> (cabecera y §M6-U.11) y `ARCHITECTURE` (§4.58.9, §11 `M-63`) — errata v1.80.9.1 — **apuntan aquí** (§55.1/55.2/55.3);
+> esos documentos son del arquitecto y no los toco.
+
+Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2`; `PROJECT §U`
+(criterios 256–270); `HECHOS.md` fila 2026-10-04 «Usuarios de back-office SIN correo».
+
+### 55.1 Qué se construyó (dónde vive)
+
+| Pieza | Dónde |
+|---|---|
+| Migración **M-63** (número asignado por el orquestador; production y ramas vivas terminan en m61/m62): `email` DROP NOT NULL, `username` (UNIQUE), `lockNoticeAt`, 5 CHECK, sin backfill | `prisma/migrations/20261005120000_m63_staff_username/` |
+| Identificador del login: `isLoginIdentifier` / `@IsLoginIdentifier()` en `LoginDto.email` y `ForgotPasswordDto.email` | `modules/auth/dto/auth.dto.ts` |
+| `normalizeIdentifier` (= `normalizeEmail`, la MISMA función), `checkUsername` (reglas `required→length→charset→start`), `USERNAME_CANONICAL_REGEX` (= el CHECK) | `common/validation/credentials.ts` |
+| Login: búsqueda por `email` (con `@`) o `username` (sin `@`); orden C7 intacto | `auth.service.ts` `login` |
+| Una cuenta, un cubo: `passwordAttemptKeysForUser` deriva de `email ?? username` y **lanza** sin ninguno; `accountKeyForUser`; `lockMsForUser` | `password-attempts.service.ts` |
+| Aviso de candado sin correo ⇒ `updateMany({id, email:null}, {lockNoticeAt})` tras ganar `claimOnce` | `password-attempts.service.ts` `notifyLock` |
+| `peekLockMs` en las tres implementaciones del almacén (memoria; Redis `PTTL`; resiliente con respaldo) | `login-attempt.store.ts` |
+| `GET /users/me` + `username`, `lockNotice`; **`POST /users/me/lock-notice/dismiss`** (204, fuera de la allowlist) | `users.service.ts`, `users.controller.ts` |
+| `GET /admin/users`: `username`, `lockedUntil`, `lockState`; `?q=` por usuario. Ficha (los dos DTOs): `username`, `lockedUntil` | `admin.service.ts` (`lockedUntilOf`) |
+| Alta (§M6-U.6, orden normativo) y `409 USERNAME_TAKEN` por `P2002` sobre `username` | `admin.service.ts` `createUser` |
+| `AuditedSuperAdminGuard` + `@AuditedSuperAdmin('create'|'reset_password')` ⇒ 403 + `user.admin_action_denied` (D-STF-1) | `modules/admin/audited-super-admin.guard.ts` |
+| `ACCOUNT_WITHOUT_EMAIL` (antes de `EMAIL_NOT_VERIFIED`); `req.user.hasEmail` desde la BD | `email-verified.guard.ts`, `jwt-auth.guard.ts` |
+| D-STF-2: los 7 envíos al cliente omiten con `logger.warn` si `email == null` | `users.service.ts`, `refund-ledger.service.ts` (×2), `manual-refund.service.ts` (×2), `shipment-prep.service.ts`, `shipments.service.ts` |
+| I-STF-1: refs de **cliente** siguen `string`; `null` ⇒ `logger.error('I-STF-1 …')` + `""` | `common/customer-email.ts` (`customerEmailOrBlank`), 11 call-sites |
+| Anonimización: `username: null` **y `lockNoticeAt: null`** | `admin.service.ts` `deleteUser` |
+
+### 55.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
+
+1. **Rama `@` del login = `@IsEmail` de hoy, no `EMAIL_REGEX`.** §M6-U.2 dice a la vez «formato `EMAIL_REGEX`» e
+   «igual que hoy»; hoy es `@IsEmail` de class-validator, que NO es `EMAIL_REGEX` (p. ej. `a@b` y espacios). Elegí
+   «igual que hoy» (criterio 270). Sin `@`: solo `trim` 1–254, sin forma.
+   ⚠️ *Corregido en §56.3 (medido 2026-10-04):* `a@b` lo rechazan **las dos** (`EMAIL_REGEX` exige un punto tras la
+   `@`); el valor que las distingue es `a@b.c` (`isEmail` ⇒ `false`, `EMAIL_REGEX` ⇒ `true`).
+2. **`lockNoticeAt: null` en la anonimización.** El contrato pide solo `username: null`; sin anular también el aviso,
+   el CHECK 5 (`lockNoticeAt` solo sin correo) rompe el soft-delete de un staff con aviso pendiente (STF-30 lo siembra).
+3. **El rechazo auditado es un guard de RUTA**, no un chequeo en el handler: corre antes de los pipes, así que un
+   `vault_operator` con cuerpo mal formado también deja la fila (no un `400`). Si la bitácora falla, 403 igual.
+4. **Cliente con `username` ⇒ `details.rule:'customer_without_username'`** (el contrato fija `field`, no la regla).
+   Todos los `422` de `createUser` ganan `details.field` (aditivo). «Presente» = `!== undefined && !== null`.
+5. **`ResilientLoginAttemptStore.peekLockMs` NO lanza con Redis caído**: lee la memoria, que es la que decide el `429`
+   en ese modo (misma regla que `acquire`). Consecuencia: `lockState:'unavailable'` solo sale si el almacén mismo lanza
+   (o si `AdminService` se construye sin `PasswordAttemptsService`). Si el arquitecto quiere «unavailable» también con
+   Redis degradado, es un cambio de una línea — no lo hice porque contradiría la fuente del `429`.
+   ⚠️ *Superado por la errata v1.80.9.1 (D-4 + TD-9): el arquitecto eligió «unavailable» en modo degradado y que
+   solo la clase del almacén se traduzca. Construido en §56.1.*
+6. **`sendVerificationEmail` LANZA sin correo** (en vez de `return`): un `return` silencioso tapaba que el paso nuevo de
+   `resendVerification` desapareciera (la mutación de STF-26 salía verde). Ahora la mutación da `500` ⇒ roja.
+7. **`changePasswordKey`/`deviceAggregateKey`** ya no pasan por `passwordAttemptKeysForUser` (que ahora lanza sin
+   identificador); dan la misma clave que antes (`prefijo + userId`).
+8. **Doble normalización deliberada** (login normaliza el identificador y la función de clave vuelve a normalizar). La
+   mutación de STF-18 tiene que quitar **las dos** para morder (medido: quitar solo una ⇒ verde).
+9. **Censo de rutas de cliente (§M6-U.8 (c), NO MEDIDO por el arquitecto):** `@Post|@Put|@Patch` de `orders`, `vault`,
+   `payments`, `shipments`, `buylist`, `disputes` (no admin): solo las cinco con `@RequireEmailVerified` CREAN una
+   orden/venta/retiro; el resto opera sobre filas propias ya existentes (inalcanzables para una cuenta sin correo) o
+   son de invitado/operador. Medido el 2026-10-04 con `rg "@Post|@Put|@Patch"`.
+
+### 55.3 Respuestas a ux-ui (DESIGN_SYSTEM §42.10)
+
+- **A-1 (ficha sin `lockState`):** construido según el contrato: la ficha trae `lockedUntil` y **no** `lockState`; con el
+  almacén lanzando, `lockedUntil: null` (STF-24 lo mide en la ficha). Añadir `lockState` a la ficha es contrato ⇒ arquitecto.
+  ⚠️ *Superado por v1.80.9.1 A-1: la ficha (los dos DTOs) gana `lockState` — §56.1.*
+- **A-2 (`auth.password_lock` en `scope=target`):** **SÍ, medido.** `notifyLock` escribe `entityType:'User'`,
+  `entityId:<id de la cuenta>`, y `listForUser` filtra `scope=target` por exactamente eso (`audit.service.ts:94`).
+  STF-23 lo asevera por HTTP (`GET /admin/users/:id/audit?scope=target` contiene `auth.password_lock`). La fila no
+  lleva actor (`actorUserId: null`) en el login; lo lleva en `change-password`.
+
+### 55.4 Pruebas y mutaciones (medido por backend, 2026-10-04)
+
+Nuevas: `test/integration/staff-without-email.e2e-spec.ts` (24), `staff-throttle.e2e-spec.ts` (STF-21),
+`m63-migration.e2e-spec.ts` (STF-25 a/b), `test/stf.staff-without-email.spec.ts` (33 unitarias). Todas vistas ROJAS
+contra el árbol con schema+compatibilidad de tipos y sin la conducta (25/27 de integración rojas; STF-4 y STF-25(a)
+nacen verdes porque prueban la migración ya escrita — su rojo lo dan las mutaciones). STF-9/16/17-E2E/22 son de
+frontend.
+
+Mutaciones sobre copia `git archive` del árbol entero, BD `tcg_stf_mut`; cada una ROJA por la razón esperada:
+STF-1 (correo ficticio ⇒ 500; sin `username` en el `after`), STF-2 (422→201), STF-3/15 (sin fila), STF-4 (cada uno de
+los 5 CHECK soltado ⇒ su caso), STF-5 (tope 31; sin `toLowerCase`), STF-7, STF-8, STF-10, STF-11, STF-12 (DTO
+`@IsEmail` ⇒ 400; buscar por usuario ⇒ token), STF-13, STF-14 (temporal ⇒ 429), STF-17 (500), STF-18 (las dos
+normalizaciones), STF-19 (dominio), STF-21 (sin `@Throttle`), STF-23 (aviso antes de `claimOnce`; correo sin mirar
+`email`), STF-24 (siempre `null`; propagar ⇒ 500), STF-25 (backfill ⇒ la migración falla), STF-26, STF-27, STF-28,
+STF-29 (canario `PASSWORD_FREE_ATTEMPTS=6` ⇒ 22 rojas en la suite C7 EXISTENTE), STF-30.
+
+**Carreras (R = 10 rondas × N = 10):** verde STF-6 **10/10**, STF-20 **10/10**. Con mutación: STF-20 (acquire no
+atómico) **10/10 rondas rojas**; STF-6 con `findFirst` justo antes del `create` (tras `argon2.hash`) **1/10 rondas
+rojas** (ventana estrecha), con `findFirst` en la validación (la forma natural de «validar antes») **10/10 rojas**.
+
+### 55.5 Pruebas existentes que cambiaron (ninguna se debilita)
+
+- **Rompe a propósito (contrato):** alta de staff con correo `201 ⇒ 422`. `admin.user-create.spec.ts`: el `it.each` de
+  los tres roles queda para `customer`; staff pasa a su propio caso (sin correo, `emailVerified=false`,
+  `mustChangePassword=true`) + uno nuevo que asevera el `422 staff_without_email`. `auth-change-password.e2e-spec.ts`:
+  solo el fixture del operador (alta con `username`, login con él); aserciones del ciclo intactas.
+- **Listas de claves ampliadas a la forma v1.80.9** (igualdad de conjunto, sigue siendo exacta): `users.me-and-addresses`,
+  `account-profile` (+`username`,`lockNotice`), `admin.users-kyc-filter`, `admin-users-kyc-queue` (+`username`,
+  `lockedUntil`; y la cláusula `username` del `OR` de `q`), `admin.user-detail-shape` (los dos DTOs), `pricing.declared-shapes`
+  y `pricing-visibility` (+`username` en `PATCH status`), `admin.user-create` (`after` + `username`,`hasEmail`).
+- `admin.user-audit.spec.ts`: el candado de `@Roles(super_admin)` en `createUser` pasa a asertar el guard auditado en
+  alta **y** reset (la conducta 403 + fila la miden STF-3/15).
+- **Solo tipos:** `.email!` en 8 specs de integración (Prisma tipa `email` como `string | null`); diff verificado:
+  quitar `!` deja las líneas idénticas.
+- Dobles: `auth-c7-deps.ts` y `reset-admin-password.c7.spec.ts` pasan el 5.º argumento (Prisma) al servicio;
+  `fake-redis-attempt-store.ts` implementa `peekLockMs`.
+
+## 56 · Errata v1.80.9.1 construida — almacén degradado ⇒ `unavailable`, `lockState` en la ficha, TD-9, rescate por usuario; STF-31…STF-36 (2026-10-04, rama `claude/staff-sin-correo`, sobre `58126076`)
+
+Fuente: `API_CONTRACT` errata v1.80.9.1 (cabecera, §M6-U.4/.6/.7/.11, §1 «Script de rescate» fila «por usuario»,
+STF-2/24/30 ampliadas, STF-31…36); `ARCHITECTURE §4.58.5`, `§4.58.9`. Cierra la parte backend de C-1 del techlead
+y anota C-2 en `TECH_DEBT` («gate del techlead sobre `da6d910e`»).
+
+### 56.1 Qué cambió (dónde vive)
+
+| Norma | Código |
+|---|---|
+| D-4: clase `LoginAttemptStoreUnavailableError` (exportada) | `modules/auth/login-attempt.store.ts` |
+| D-4: `ResilientLoginAttemptStore.peekLockMs` — degradado ⇒ lanza sin tocar Redis ni leer memoria; Redis falla/vence ⇒ lanza, **sin** `markDown`. Memoria pura y Redis puro: sin cambio | idem |
+| TD-9: `lockedUntilOf` — solo la clase del almacén ⇒ `'unavailable'`; cualquier otra excepción se propaga; sin `PasswordAttemptsService` lanza (`requirePasswordAttempts`, el MISMO texto de cableado que `resetPassword`) | `modules/admin/admin.service.ts` |
+| A-1: `lockState` en la raíz de los DOS DTOs de la ficha (misma función que el listado) | `admin.service.ts` `getUser` |
+| TD-4(b): `ADMIN_USERNAME` (normalizado con `normalizeIdentifier`); las dos variables a la vez ⇒ error sin cambios; vacío ⇒ error; `emailVerified=true` solo con correo; candado con `{ id, email, username }`; salida `email ?? username` | `prisma/reset-admin-password.ts` |
+| TD-4(a), D-1, D-2, D-5: sin código nuevo (ya construidos); se fijan con STF-36, STF-35, STF-30, STF-2 | — |
+| TD-5 (techlead): prueba de paridad CHECK vivo ↔ `USERNAME_CANONICAL_REGEX` | `test/integration/stf-errata-v1-80-9-1.e2e-spec.ts` |
+
+**Forma de la salida del script (para devops/dueño):** `resetStaffPassword` devuelve `{ email, role }` por correo (sin
+cambio: los 6 casos de `reset-admin-password.spec.ts` y C7-23 intactos) o `{ username, role }` por usuario. Uso:
+`railway run --service backend -e NEW_ADMIN_PASSWORD='…' -e ADMIN_USERNAME='ana' npx ts-node prisma/reset-admin-password.ts`.
+`ADMIN_USERNAME` es una variable **nueva** del script (no del servicio): devops puede querer anotarla junto a
+`ADMIN_EMAIL` en su tabla de variables (`DEVOPS_NOTES` ~l. 8260; no es mía).
+
+### 56.2 Decisiones que el contrato no fijaba
+
+1. **`ADMIN_USERNAME` vacío o de solo espacios ⇒ error sin lectura** (no «sin variable»): una variable puesta pero vacía
+   en Railway es un error de quien la puso; caer a `SEED_ADMIN_EMAIL` sería una precedencia silenciosa.
+2. **«A la vez» = las dos `!== undefined`** (también `ADMIN_EMAIL=''`).
+3. **`update` por `{ username }`** en el camino por usuario (simétrico al `{ email }` de hoy, misma clave única).
+4. **Arnés:** `E2EHarness.create(customize?)` acepta sustituciones adicionales de proveedores (STF-32 sustituye
+   `LOGIN_ATTEMPT_STORE`). Sin argumento, la app de siempre.
+5. **Fixtures de unitarios (TD-9, «ajustan su fixture, no su aserción»):** 7 specs que construyen `AdminService` a mano
+   y llaman `getUser`/`listUsers` reciben `noLockAttempts()` (`test/helpers/no-lock-attempts.ts`: almacén sano sin
+   candado). Ninguna aserción cambió. `admin.user-detail-shape`: las dos listas exactas ganan `lockState`.
+6. **STF-34 nunca apunta a una cuenta de la suite:** el respaldo `SEED_ADMIN_EMAIL` del entorno de la prueba es un correo
+   inexistente y el caso «las dos» usa un staff desechable. Medido: la corrida ROJA contra el código viejo (que ignora
+   `ADMIN_USERNAME`) le cambió la contraseña a `admin@e2e.local` en `tcg_stf2_mut` — restaurada; la prueba se rehízo
+   para que un script defectuoso falle con «No user found» en vez de tocar el fixture.
+
+### 56.3 D-1 / STF-35: el valor que distingue las dos reglas (corrige §55.2.1)
+
+Medido con `node` (class-validator del árbol, 2026-10-04): `'a@b'` ⇒ `isEmail` `false`, `EMAIL_REGEX` **`false`** (la
+regex exige un punto tras la `@`), así que §55.2.1 se equivocaba y `a@b` no distingue nada. Valores que sí:
+`a@b.c`, `a..b@x.com`, `.a@x.com`, `a@x_y.com` (`isEmail` `false`, `EMAIL_REGEX` `true`). STF-35 usa `a@b` (lo que pide el
+contrato) **y** `a@b.c` (el que muerde). Mutación `isEmail` → `EMAIL_REGEX.test` ⇒ roja por `a@b.c`.
+
+### 56.4 Pruebas: rojo primero, verde después
+
+| Prueba | Dónde | Rojo contra el código anterior (medido) |
+|---|---|---|
+| STF-31 (a)(b×2)(c) + memoria pura | `test/stf.errata-v1-80-9-1.spec.ts` | (a), (b throw), (b hang) rojas; (c) y memoria pura nacen verdes (conducta que no cambia) |
+| STF-33 (a)(b)(c) + sano | idem | 4/4 rojas |
+| STF-32 | `test/integration/stf-errata-v1-80-9-1.e2e-spec.ts` | roja (`lockState` `'ok'` con Redis caído) |
+| STF-32 (iii) listas de claves | `test/admin.user-detail-shape.spec.ts` | super_admin y operador rojas |
+| STF-34 sin BD (5) | `prisma/reset-admin-password.username.spec.ts` | 4/5 rojas (la 5.ª fija el camino de correo de hoy) |
+| STF-34 con BD (2) | `stf-errata-v1-80-9-1.e2e-spec.ts` | 2/2 rojas |
+| STF-24 ampliada | `staff-without-email.e2e-spec.ts` | roja (ficha sin `lockState`) |
+| STF-2 ampliada, STF-30, STF-35, STF-36 | `staff-without-email.e2e-spec.ts` | nacen verdes (fijan conducta ya construida); su rojo lo dan las mutaciones |
+| TD-5 | `stf-errata-v1-80-9-1.e2e-spec.ts` | nace verde; rojo por mutación |
+
+Rojo medido sobre copia `git archive HEAD` (`58126076`) del árbol entero + las pruebas nuevas + stubs de **tipo** solos
+(la clase vacía y `ADMIN_USERNAME?` en `ResetEnv`, para que el rojo sea de conducta y no de compilación); BD
+`tcg_stf2_mut`.
+
+### 56.5 Mutaciones (copia del árbol entero, BD `tcg_stf2_mut`; cada una revertida tras correr; N=1 — todas deterministas)
+
+**25/25 rojas**, cada una por el caso esperado (una primera variante de STF-36 (i) no compilaba —`BusinessException.forbidden` no existe— y se rehízo con un `422`; no cuenta):
+STF-31 (i) degradado ⇒ memoria → (a); (ii) `markDown` en el `catch` → (b)×2; (iii) `catch` ⇒ memoria → (b)×2 ·
+STF-32 (i) conducta construida, por HTTP → STF-32; (ii) ficha con `lockState` fijo `'ok'` → STF-32; (iii) quitar
+`lockState` de un DTO → su caso de `admin.user-detail-shape` (las dos variantes) ·
+STF-33 (i) rama muda sin servicio → (a); (ii) `catch` sin mirar la clase → (b); (iii) `catch` que solo relanza → (c) ·
+STF-34 (i) `emailVerified` siempre → unitaria y con BD (el CHECK 4 tumba el `update`); (ii) candado con `{ id, email }`
+→ unitaria y con BD; (iii) sin `normalizeIdentifier` → 2 unitarias; (iv) precedencia de `ADMIN_USERNAME` → unitaria;
+precedencia de `ADMIN_EMAIL` → con BD ·
+STF-35 `isEmail` → `EMAIL_REGEX` · STF-36 (i) rechazar destinatario `super_admin` · (ii) rechazar destinatario sin correo ·
+STF-2 cambiar el texto de la `rule` · STF-24 propagar el error del almacén (500) · siempre `null` ·
+STF-30 no anular `lockNoticeAt` (CHECK 5 ⇒ 500) · TD-5 regex de la app `{2,30}` ≠ CHECK.
+
+### 56.6 Repetición (N=10)
+
+- `stf-errata-v1-80-9-1.e2e-spec.ts` (STF-32 tiene plazos reales: `timeoutMs` 100 ms, modo memoria 400 ms): **10/10
+  verdes** (copia del árbol, `tcg_stf2_mut`, load 3–4 con 4 CPU).
+- Unitarias STF-31/33/34 (STF-31 (b) con plazo real de 20 ms): **10/10 verdes**.
+- Carreras STF-6 y STF-20 (R = 10 rondas × N = 10 por corrida, en la corrida completa de 56.7): **10/10** y **10/10**
+  rondas verdes.
+
+### 56.7 Suites completas (medido por backend, 2026-10-04, copia `git archive HEAD` del árbol ENTERO en `db62b28c`)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **391/391 suites, 6621/6621 pruebas** |
+| Integración (`stack-native.sh test:integration`, BD `tcg_stf2_mut`) | **77/77 suites, 1571/1571 pruebas** |
+| `tsc --noEmit`, `npm run lint` | 0 errores |
+
+⚠️ La **primera** corrida de integración dio **1 roja de 1571** (STF-28, `I-STF-1 = 1`), y **no era conducta**: la
+mutación de STF-30 («no anular `lockNoticeAt`») hace fallar el soft-delete y deja en `tcg_stf2_mut` un staff sin correo
+con un `ShipmentRequest` sembrado; la consulta I-STF-1 de STF-28 es **global** a la BD y lo cuenta. Medido con SQL
+(1 fila, usuario `del…`, el prefijo de STF-30), anonimizado a mano como lo hace la app, y la corrida completa repetida:
+verde. En `tcg_stf2` (sin mutaciones) la misma consulta da 0. **Quien corra la mutación de STF-30 sobre una BD
+compartida tiene que limpiar ese residuo**, o STF-28 se pondrá roja en la siguiente corrida.
+
+### 56.8 Pendiente para el arquitecto (⛔ no lo toqué)
+
+- Las citas `BACKEND_NOTES §22` / «21.x» en `API_CONTRACT` (l. 10 y §M6-U.11) y `ARCHITECTURE` (l. 27, §4.58.9, §11
+  `M-63`) apuntan ahora a **§55** (55.1/55.2/55.3). La nota de §55 lo dice; el texto es del arquitecto.
+- STF-35 del contrato afirma (marcado NO MEDIDO) que `EMAIL_REGEX` acepta `a@b`: es falso (§56.3); la prueba usa además
+  `a@b.c`.
+- §M6-U.6 2-bis (v1.80.10, F-7, `customer_phone_required`) **no está construido** en esta rama (medido:
+  `rg customer_phone_required backend/src` ⇒ 0). No es parte de este encargo.
+
+## 57 · Skydropx fase D1 construida — D1a cliente, D1b adaptador y doble, D1c URLs y etiqueta; PS-99 en cuatro capas (2026-10-04, rama `claude/skydropx-d`, sobre `79db38f1`; código en `e8bfcfc0` + `c150fab5`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.19` (errata v1.80.11; §19.19.3, .4, .7, .9, .15, .16, .17), §19.4, §19.8, §19.18.5;
+`ARCHITECTURE §4.60 (l)`; medición `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md` (PROD §n). ⛔ Cero llamadas a
+`*.skydropx.com` en todo el trabajo: transporte grabador, `FakeShippingProvider` y el fixture medido.
+
+### 57.1 Dónde vive cada pieza (`backend/src/modules/shipping-provider/`)
+
+| Pieza | Fichero | Norma |
+|---|---|---|
+| Puerto y tipos (`QuoteInput`, `ProviderRate`, `PurchaseInput`, `ProviderShipmentState`…) | `shipping-provider.port.ts` | §19.4 con los tipos de §19.19.4/.8 |
+| Errores con status ya decidido (`502/503/422/409`), «compra en vuelo», `SkydropxMutationForbiddenError` | `shipping-provider.errors.ts` | matriz §19.19.3 (4), §19.19.7 |
+| Cliente: UA, origen, token, cubeta, matriz, timeouts, `mutate()` | `http/skydropx-client.ts`, `http/skydropx-origin.ts`, `http/token-bucket.ts` | §19.19.3 (0)–(7) |
+| Candado de ejecución (ÚNICO lector de `SKYDROPX_ALLOW_SPEND`) | `spend-gate.ts` | §19.19.7, PS-99 (b) |
+| Importes a centavos exactos (bigint, half-up una vez) | `decimal-cents.ts` | §19.19.4, PS-94 |
+| Filtro + contadores, eco del seguro, recomendada (puras) | `rate-normalization.ts` | §19.19.4 |
+| Adaptador real (cotizar con sondeo, comprar, rastreo, cancelar, saldo, cargos, catálogos) + cuerpos puros | `skydropx.adapter.ts` | §19.19.4, .8, .10 |
+| `redactProviderPayload` (lista blanca) | `redact.ts` | §19.4 (5), SEC-SDX-6/7 |
+| `assertProviderUrl`, `providerUrlsFrom`, `resolveUrlHosts` | `provider-url.ts` | §19.18.5, §19.19.9 |
+| Proxy acotado de la etiqueta (`Authorization` solo al host de la API) | `label-proxy.ts` | §19.8, §19.18.5, §19.19.9 |
+| `Noop`, `FakeShippingProvider` (+ fixture medido) | `noop-shipping-provider.adapter.ts`, `fake-shipping-provider.ts`, `fixtures/skydropx-quotation.fixture.ts` | §19.16, §19.19.7, PS-70/94 |
+| Selección del adaptador y módulo Nest | `shipping-provider.factory.ts`, `shipping-provider.module.ts` | §19.19.7, §19.19.12 |
+| Códigos `SHIPPING_PROVIDER_{ERROR,BUSY,REJECTED,NOT_CONFIGURED}` | `common/error-codes.ts` (⚠️ zona compartida: **solo** cuatro líneas añadidas al final) | §19.4 (5) |
+| Veto de red PS-99 (c) | `test/setup/forbid-skydropx-network.ts` (+ `forbidden-network.ts` sin efectos), en `setupFiles` de **los dos** `jest.config` | §19.19.17 |
+
+⚠️ **Lo que D1 NO hace (es D2):** `ShippingProviderModule` está construido pero **no** importado en `AppModule` ni
+inyectado en `shipments` (no toqué `shipments/` ni `app.module.ts`); el endpoint `label.pdf`, la bitácora
+`provider_url_rejected`/`label_printed`, el `insuranceCoverageFor`, el IVA `'computed'` (`SKYDROPX_IVA_FRACTION` en
+`common/money.ts`), la persistencia de `ShipmentQuote` y toda migración (`M-SDX-C`/`M-SDX-D`) quedan para D2.
+
+### 57.2 Contrato para quien construya D2 (cómo se usa)
+
+- **Selección:** `selectShippingProvider(process.env)` ⇒ `{ port, kind: 'skydropx'|'fake'|'noop', urlHosts, client }`.
+  `NODE_ENV=test` ⇒ solo `Noop` o `Fake` (`SHIPPING_PROVIDER_ADAPTER=fake`); `fake` con `SKYDROPX_ALLOW_SPEND=true` ⇒ el
+  arranque lanza. Sin `SKYDROPX_BASE_URL/CLIENT_ID/CLIENT_SECRET` ⇒ `Noop` (`409 {missing:['env']}`).
+- **Errores:** todo lo que sale del puerto es `ShippingProviderError` (`.toBusinessException()` da el `code` + status de
+  la matriz). La compra lanza **`ShippingProviderPurchaseInFlightError`** (`purchaseInFlight: true`) en timeout, red,
+  `5xx`, `404`, cualquier otro `4xx` no listado, `3xx` o `2xx` sin id: ⛔ no deshacer el reclamo — es «compra en vuelo»
+  (§19.7 paso 9 ⚠️). `400/422` ⇒ `SHIPPING_PROVIDER_REJECTED` (deshacer el reclamo). `403` ⇒ `502` (`reason:'edge_blocked'`
+  si es el borde), **no** en vuelo. `SkydropxMutationForbiddenError` ⇒ `409 {missing:['allow_spend']}`.
+- **Cotizar:** `QuoteResult` trae, además de lo del contrato, `excluded` (los cinco contadores) e `insuranceEcho
+  {ok, echoedProtected, echoedDeclaredValueCents}`. Con `ok:false`, `rate.insuranceCents` es `null` y D2b pone el
+  `costCents` del escalón (`insuranceSource:'tier_table'`). La recomendada: `pickRecommendedRateId(rates con priceCents,
+  shipping_preferred_carriers)`.
+- **Comprar:** `PurchaseInput.from.snapshot` (el `skydropx_origin_snapshot`, o `null`); `package.coverageCents`
+  (el escalón). Las URLs del resultado son **crudas**: pasarlas por `providerUrlsFrom(result, selection.urlHosts)` antes de
+  escribir; `rejected[]` trae `{field, host}` para la bitácora.
+- **Rastreo:** `ProviderShipmentState` gana `unknownCarrierStatus` (valor fuera de los 12) y `statusUpdatedAt` (para la
+  llave del evento sintético sin `now`, SEC-SDX-2); `ProviderEvent.status` es `null` cuando el valor crudo no es uno de
+  los 12 (evento no aplicado, `rawStatus` lo conserva).
+- **Etiqueta:** `downloadLabelPdf(labelUrl, { api: selection.client, allowedHosts: selection.urlHosts })` ⇒ `Buffer` o
+  `502 {op:'label_download', reason?}`. Con `kind:'fake'` no hay `client`: D2 decide qué sirve el doble.
+- **Doble:** `FakeShippingProvider` reutiliza `providerQuotationId` por ruta+medidas (M-5) y su eco dice el seguro de la
+  primera; resultados de compra en cola (`labeled`/`processing`/`error_detail`/`in_flight`/`rejected`), `purchaseBarrier`,
+  `setShipment`/`pushEvent`, `cancelOutcomes`, `balanceCents`, `extraChargeList`; `callsOf('purchase')[i].input.body` es
+  el cuerpo que el real mandaría (`buildPurchaseBody`).
+
+### 57.3 Decisiones que el contrato no fijaba
+
+1. **Cubeta de capacidad 1** (salidas espaciadas ≥ `1000/rps` ms), no capacidad `rps`: el contrato dice
+   `TokenBucket(SKYDROPX_RPS, 1000 ms)` y PS-93 exige «espaciado ≥ 500 ms»; una cubeta de 2 deja salir dos en el mismo
+   milisegundo. Cumple las dos lecturas.
+2. **Compra con un `4xx` no listado (409, 405…) o `3xx` ⇒ «en vuelo»**, no rechazo: la matriz solo nombra `400/422`
+   (rechazo) y `404` (en vuelo). Liberar el reclamo de una guía que sí existe es la guía duplicada; retenerlo de más solo
+   cuesta una nota del súper-admin. La **protección** (`/protect`) usa la clase de la compra (gasta: sin reintento de
+   `5xx`) pero con timeout de 10 s.
+3. **Un `403` JSON que no es del borde ⇒ `502` sin `reason`**, sin reintento (§19.4 (5)).
+4. **El candado se evalúa antes de CADA intento**, no solo una vez: un `401` que reintenta la compra vuelve a pasar por
+   `assertMutationAllowed`. Lee `process.env` en cada llamada (sin caché).
+5. **`CI` con cualquier valor no vacío niega** (también `CI=false`): falla cerrado; nadie pone `CI` en producción.
+6. **Token con `created_at` del proveedor ya «caducado»** al llegar (reloj desfasado) ⇒ se cuenta desde el reloj local,
+   para no pedir un token por llamada.
+7. **`SKYDROPX_URL_HOSTS` ausente ⇒ solo el host de la API** (derivado de `SKYDROPX_BASE_URL`), sin host literal en el
+   código (`C-SDX-1`). El comodín `*.dominio` admite **un** nivel.
+8. **Cuerpos NO MEDIDOS** que elegí (se corrigen con `PG-1`/`PG-3`): cancelación `{ reason }`; protección
+   `{ package_protected: true, declared_value }`; `refundedCents` de `refunded_amount`/`refund_amount` si viene;
+   compra con cabecera `Idempotency-Key` (inocua si no la soporta). Estado del transportista: el primero que exista de
+   `included[package].tracking_status|status`, `attributes.tracking_status|shipment_status|status`.
+9. **`SKYDROPX_CLIENT_SECRET` se lee solo en `shipping-provider.factory.ts`** (C-SDX-1 dice «solo en `config`»: lo leí
+   como «en un solo sitio de configuración»; `backend/src/config/` es zona compartida y no lo toqué).
+
+### 57.4 Discrepancias con el contrato (para el arquitecto; ⛔ no cambié el contrato)
+
+- **D-SDX-1 · Orden del filtro de tarifas** (`API_CONTRACT.md:24712`): dice «`success === true` primero (si no ⇒
+  `unavailable`)», pero en la API **medida** las tarifas `no_coverage` llegan con `success:false` (PROD §4.6, la de
+  Paquetexpress Express Next Day) — con ese orden `noCoverage` y `notApplicable` serían **siempre 0**. Construí:
+  `no_coverage`/`not_applicable` por `status` primero, después `success`. Con el fixture: `unavailable` 2 (J&T),
+  `noCoverage` 12, `notApplicable` 5. Si el arquitecto quiere el orden literal, cambia una línea y los conteos de PS-94.
+- **D-SDX-2 · `C-SDX-7` (2) tal como está escrito no es satisfacible** (`API_CONTRACT.md:24568-24570`): «`labelUrl:`/
+  `trackingUrl:` como clave de escritura en `backend/src` ⇒ un sitio». Medido hoy: `trackingUrl:` ya aparece en
+  `orders/mail/guest-order.templates.ts:66` y `orders/guest-order-mail.service.ts:67,89` (otro concepto: la liga a
+  `/pedido`), y el puerto **produce** `PurchaseResult` con esas claves (adaptador, doble). Propongo acotarlo a escrituras
+  Prisma (`data: { labelUrl … }`) en `backend/src/modules/shipments/`. No lo implementé (es de D2); sí `C-SDX-7` (1).
+- **D-SDX-3 · PS-99 (d), dos piezas de devops sin construir:** `scripts/skydropx/prod-probe.ts` no existe (D0) y
+  `.env.example` no trae `SKYDROPX_ALLOW_SPEND=` (D0'). Mi prueba aserta «nunca con valor» (verde si falta); cuando
+  devops lo añada, endurecer a «presente y vacío».
+- **Tipos del puerto ampliados** (sin cambio de conducta normada): `QuoteResult.excluded/insuranceEcho`,
+  `PurchaseInput.from.snapshot` y `package.coverageCents`, `ProviderShipmentState.unknownCarrierStatus/statusUpdatedAt`,
+  `ProviderEvent.status | null`, y `catalogs?()` partido en `packagings?/consignmentNote?/searchConsignmentNotes?/
+  addressTemplates?` (la forma nueva de `GET /admin/shipping/catalogs`, §19.19.6).
+
+### 57.5 Pruebas y mutaciones (medido por mí sobre copias `git archive` del árbol ENTERO)
+
+Ficheros: `test/skydropx.no-real-purchase.spec.ts` (PS-99 a–d), `test/skydropx-client.spec.ts` (PS-91/92/93),
+`test/skydropx-adapter.spec.ts` (PS-94, PS-95 lado adaptador, PS-70 fixture, PS-85/96/97 lado cuerpo, parsers, doble),
+`test/skydropx-provider-url.spec.ts` (PS-100, PS-84/88 lado `shipping-provider`, `C-SDX-7` (1), `C-SDX-1`),
+`test/shipping-provider.factory.spec.ts`. Helpers: `test/helpers/skydropx-recorder.ts` (grabador, reloj virtual,
+`withSpendGateOpen` — abre el candado solo con un grabador, para probar la matriz de la COMPRA).
+
+⚠️ Honestidad de orden: las pruebas se escribieron **junto** al código, no antes; la «roja primero» se demuestra con
+la mutación de cada una (tabla en el informe del encargo y abajo). Dos mutaciones salieron **verdes** en la primera
+pasada y eso cambió las pruebas (`c150fab5`): el canario de PS-99 (c) importaba la clase del fichero que **instala** el
+veto (el import lo reinstalaba), y «redondear cada `extra_fee`» no mordía porque la normalización solo se probaba con
+un combustible.
+
+Instrumento de la mutación PS-99 (c): con el veto quitado, el canario haría un `fetch` real; se corrió con un
+`--require` de scratchpad que corta `net/tls.connect` hacia `*.skydropx.com` **antes de DNS**, para que el rojo sea
+«otra clase de error» sin abrir conexión.
+
+**Mutaciones (copia de `c150fab5`, N = 1 cada una — todas deterministas: reloj virtual, sin carrera):** 17 de 17 **rojas**.
+
+| Mutación | Rojo |
+|---|---|
+| PS-99 (a) quitar `assertMutationAllowed` de `mutate()` | 2/27 |
+| PS-99 (b) `evaluateMutationGate` ignora `CI` | 4/27 |
+| PS-99 (c) quitar el veto de `setupFiles` (con el corte de socket de scratchpad) | 5/27 |
+| PS-99 (d) un `/cancellations` en otro fichero · leer `SKYDROPX_ALLOW_SPEND` fuera de `spend-gate.ts` | 1/27 · 1/27 |
+| PS-91 quitar el `User-Agent` · tratar el `403` del borde como transitorio | 1/40 · 5/40 |
+| PS-92 token por llamada · `401` sin límite | 2/40 · 1/40 |
+| PS-93 compra en el reintento genérico | 7/40 |
+| PS-94 `parseFloat×100` · redondear cada `extra_fee` · admitir `success:false` | 4/46 · 1/46 · 3/46 |
+| PS-100 token siempre · PS-84 seguir `Location` sin `assertProviderUrl` | 2/68 · 2/28 |
+| M-5 el doble no reutiliza · C-SDX-1 URL de Skydropx en el código | 1/46 · 1/28 |
+
+## 58 · Skydropx fase C construida (M-64 = `M-SDX-C`): catálogo de CP, dirección de lista, `PUT …/address`; y la errata v1.80.12.1 sobre D1 (2026-10-04, rama `claude/skydropx-d`; código en `eea04309`, `239cec70`, `fae954ce`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.5`, `§19.20.1` (errata v1.80.12), `§19.19.14/.15`, `§19.21` (errata v1.80.12.1);
+`ARCHITECTURE §4.60 (e)(m)`, `§11 «v1.81-skydropx»`; `PROJECT §T.2`, criterios 235 y 315; `HECHOS.md` 2026-10-04
+«Poder corregir todo». ⛔ Cero llamadas a `*.skydropx.com`.
+
+### 58.1 Dónde vive cada pieza
+
+| Pieza | Fichero |
+|---|---|
+| Migración M-64 (aditiva, sin backfill, idempotente: cada sentencia con `IF NOT EXISTS` / bloque `pg_constraint`) | `prisma/migrations/20261006120000_m64_sdx_c_address/migration.sql` |
+| `normalizeColonia`, `PostalCodePort`, fuente local, **`PostalCodeService.resolvePostalCode`** (EL cuerpo, `C-SDX-3`), `describe` (el `GET`), `canonicalize` (la validación) | `src/modules/shipping-provider/geo/postal-code.ts` |
+| `GET /api/v1/geo/postal-codes/:cp` (público, 60/min, `Cache-Control: public, max-age=86400`) | `…/geo/geo.controller.ts`, `geo.module.ts` (módulo Nest aparte: no arrastra el adaptador de guías) |
+| Cotas compartidas, `addressMissing`/`isAddressComplete`, validadores de campo con `{field}` | `src/modules/users/address-rules.ts` |
+| `AddressDTO` + `references` + `complete`; `ADDRESS_ROW_KEYS` (columnas) vs `ADDRESS_DTO_KEYS` (DTO) | `src/modules/users/address-dto.ts` |
+| Libreta (`POST/PATCH /users/me/addresses`) | `users.service.ts`, `dto/users.dto.ts` |
+| Invitado (`GuestAddressInput`, quote y sesión; `/pedido` lee la dirección DEL ENVÍO) | `orders/dto/guest-checkout.dto.ts`, `orders/guest-checkout.service.ts` |
+| Retiro con dirección incompleta ⇒ `422 ADDRESS_INCOMPLETE`; snapshot de 10 campos; `AdminShipmentDTO.address`; `shipTo.references/addressCorrected` | `shipments/shipments.service.ts` |
+| **`PUT /api/v1/admin/shipments/:id/address`** | `shipments/shipment-address.service.ts`, `admin-shipments.controller.ts` |
+| Códigos `NEIGHBORHOOD_NOT_IN_POSTAL_CODE`, `POSTAL_CODE_UNKNOWN`, `ADDRESS_INCOMPLETE`, `SHIPMENT_ALREADY_LABELED` | `common/error-codes.ts` (cuatro líneas al final) |
+| Catálogo de CP del arnés (`E2E_POSTAL_CODES`: 01000, 06600, 14210, 44100, 64000) | `prisma/e2e-fixtures.ts`, `prisma/seed-e2e.ts` (paso 12a) |
+
+### 58.2 Decisiones que el contrato no fijaba (medidas o declaradas)
+
+1. **Cotas:** §19.20.1 pide «un juego» y manda la del invitado donde difiera. Medido en `GuestAddressInput` (sobre
+   `3238ece1`): `line1` 200, **`line2` 200** (§19.20.1 decía 0..120 ⇒ manda 200), `neighborhood`/`city`/`state`/
+   `recipientName` 120, CP `^\d{5}$`, tel `^\d{10}$`, `references` 70. Viven en `ADDRESS_LIMITS`; los tres DTO las citan.
+2. **`PUT …/address` valida el cuerpo en el servicio**, no con el `ValidationPipe`: PS-103 exige `400 {field}` y el
+   pipe no emite `field` (deuda ya registrada en `person-name.ts`). Cuerpo como `unknown`, igual que `prepared`.
+3. **Fase C sin `labelSource`/`labelProcessingSince`** (son `M-SDX-D`): la guarda «ya tiene guía» usa
+   `labelSourceOf(row)` = `trackingNumber ? 'manual' : null` (la mitad derivada de §19.2) y el `WHERE` del CAS lleva
+   `trackingNumber: null` como sustituto de `labelSource: null`. **D2a/D2c deben**: cambiar el cuerpo de `labelSourceOf`
+   por el de §19.2, añadir `labelSource: null, labelProcessingSince: null` al `WHERE` y la guarda `409 LABEL_IN_PROGRESS`.
+   Hoy `setTracking` lleva el envío a `guia` en la misma tx (`REL-C`), así que `SHIPMENT_ALREADY_LABELED` en `picking`
+   solo lo alcanza una fila legada: defensa en profundidad (la prueba la siembra a mano).
+4. **Orden de `ADDRESS_INCOMPLETE` en el retiro:** después de la elegibilidad de las piezas (medido: PS-55/63/65 de
+   `full-refund-vault.e2e-spec.ts` esperan `NOT_FOUND`/`ITEM_ORIGIN_REFUNDED` con una dirección incompleta) y antes de la
+   tx serializable y del PaymentIntent. `quote` del retiro no cambia (§19.5).
+5. **`PATCH` de la libreta:** si toca CP, colonia, ciudad o estado y la colonia resultante existe ⇒ se valida el par
+   (CP, colonia) y se escriben los canónicos. Excepción: dirección vieja SIN colonia a la que solo se cambia ciudad o
+   estado ⇒ se escribe tal cual (no hay colonia que validar; sigue `complete:false`).
+6. **El quote del invitado también valida la colonia** cuando trae dirección (mismo `GuestAddressInput`, §4-G.1).
+7. **`unchanged`:** se compara clave a clave contra lo leído; ausente ≡ `null` (un snapshot de 9 campos sin
+   `references` no «cambia» por recibir `null`). `country` se fija a `MX`; `phone` no se toca (P-ADR-1).
+8. **`AdminShipmentDTO.address`** va en la fila y en el detalle (dentro de `adminIdentity`): una consulta de `User`
+   por fila corregida (mismo patrón N+1 que `preparedBy`).
+9. **`GET /geo` sin colonias:** `municipality`/`state` = el más frecuente entre las filas del CP (un CP de SEPOMEX puede
+   cruzar municipios); la VALIDACIÓN usa el municipio de la colonia elegida, no el del `GET`.
+10. **Qué superficie del cliente leía la orden habiendo envío (NO MEDIDO en el contrato, medido aquí):** solo
+    `POST /orders/guest/track` (`guest-checkout.service.ts`, antes `order.shippingAddressSnapshot`). `/orders/:id` y
+    `/shipments/:id` ya leían el del envío; `AV-4` no lleva domicilio. Ahora `/pedido` lee el del envío si existe.
+
+### 58.3 Discrepancias con el contrato (para el arquitecto; ⛔ no cambié el contrato)
+
+- **D-SDX-4 · PS-105 y PS-106 no son construibles en fase C** (`API_CONTRACT §M4-SHIP.19.20.9`, fila backend: «Fase C:
+  … PS-102…PS-107»). PS-105 necesita `ShipmentQuote.addressVersion` (columna de `M-SDX-D`, §19.20.1 «Schema») y los verbos
+  `quote`/`label` (D2b/D2c); PS-106 necesita la compra. Quedan para D2b/D2c, igual que la carrera «corrección contra
+  compra» de criterio 315 (e). En fase C se mide la carrera análoga con el único otro escritor que existe (captura de
+  guía manual, abajo).
+- **D-SDX-5 · La mutación declarada de PS-104 («quitar `addressVersion` del `WHERE` del CAS») sale VERDE** (medido, N = 10
+  rondas forzadas: 10/10 verdes con la mutación). Por qué: el paso 3 normativo toma `SELECT … FOR UPDATE` y compara la
+  versión bajo el candado; el perdedor ya ve la versión nueva y responde `409` antes del CAS. No hay escritor rival que
+  no pase por el candado (lección `ARCHITECTURE §4.60 (o)`): el `WHERE` es defensa en profundidad. Lo que SÍ muerde
+  (medido): quitar el candado **y** la versión del `WHERE` ⇒ 0/10; quitar la guarda **y** la versión del `WHERE` ⇒ 0/10;
+  quitar solo el candado ⇒ 10/10 verde (el `WHERE` es el segundo muro). Propuesta: reescribir la mutación de PS-104 como
+  «quitar el candado y la versión del `WHERE`».
+
+### 58.4 Bloqueos de despliegue (fuera de backend)
+
+> ⚠️ **Superado por §60 (v1.80.12.5, `HECHOS.md:57`):** con la tabla vacía ya no se rechaza ninguna dirección; el
+> primer punto de abajo dejó de ser bloqueo. Se conserva como historia.
+
+- **`PostalCode` nace VACÍA.** Con la tabla vacía, TODA dirección nueva (libreta e invitado) es `422 POSTAL_CODE_UNKNOWN`
+  ⇒ nadie puede pagar un envío. `scripts/geo/import-sepomex.ts` **no existe** (medido: `ls scripts/geo` ⇒ no existe,
+  2026-10-04). El import de devops tiene que correr en la misma ventana que M-64, antes de abrir el tráfico.
+- **Frontend tiene que mandar la colonia** (checkout de invitado, libreta): sin ella el servidor responde `400`. Las
+  pruebas Playwright que teclean CP (`frontend/e2e/guest-checkout.spec.ts:146` y `checkout-retry.spec.ts:126` con 44100,
+  `buylist.spec.ts:136` con 06600) dependen de ello; el catálogo del arnés ya trae esos CP.
+
+### 58.5 Errata v1.80.12.1 sobre D1 (§M4-SHIP.19.21)
+
+- **URLs crudas** (`.21.2`): `PurchaseResult`/`ProviderShipmentState` ⇒ `rawLabelUrl`/`rawTrackingUrl`; `providerUrlsFrom`
+  es la única lectora. `C-SDX-7` (2) nuevo en `test/skydropx-provider-url.spec.ts`: (a) y (b) sobre el TEXTO de
+  `backend/src` fuera de `shipping-provider/` ⇒ 0; dentro, productores = puerto/adaptador/doble/`provider-url.ts` y
+  lector único = `provider-url.ts`; canario plantado (`labelUrl: result.rawLabelUrl` en `shipments/` ⇒ rojo en (a);
+  `pkg.label_url` ⇒ rojo en (b)). Las opciones de configuración del `FakeShippingProvider` siguen llamándose
+  `labelUrl`/`trackingUrl` (son entradas del doble, no el dato del puerto).
+- **`403` JSON no-borde en la compra ⇒ «en vuelo»** (`.21.4`, `http/skydropx-client.ts`); en cotización, lecturas y
+  cancelación sigue `502`. PS-109 (lado adaptador): `3xx`, `409`, `403` no-borde ⇒ en vuelo, 1 llamada.
+- **`warn cancel_refund_unverified`** (`.21.6`): `cancel()` con `refundedCents ≠ null` y
+  `CANCEL_REFUND_FIELD_VERIFIED = false` (`skydropx.adapter.ts`); `PG-3` lo pasa a `true`.
+- **PS-99 (d) sin endurecer** (`.21.7`): `.env.example` con `SKYDROPX_ALLOW_SPEND=` y `scripts/skydropx/prod-probe.ts` no
+  están commiteados por devops (medido: `git status` los muestra modificado/sin seguir, 2026-10-04). Al commitearse, se
+  endurece a «presente y vacío».
+
+### 58.6 Pruebas y mutaciones
+
+Ficheros nuevos: `test/sdx-c.address-rules.spec.ts` (26), `test/integration/sdx-c-address.e2e-spec.ts` (17),
+`test/helpers/fake-postal-codes.ts`. Ajustados a la conducta nueva (colonia obligatoria, canónicos, 10 campos, `complete`):
+`address-dto.parity`, `admin.user-detail-shape`, `guest-checkout.{contract,session,tracking}`, `users.me-and-addresses`,
+`shipments.{picking-list,recipient-name,rollback,withdraw-invariant}` y en integración `account-profile`,
+`guest-chargeback`, `guest-checkout`, `preparation-queue`, `vault-shipments`, `helpers/ship-prep-db` (`mkAddress` completa).
+
+Carreras (barrera de fila, N = 10, sobre `eea04309`, BD `tcg_sdxc_mut`): PS-104 dos correcciones 10/10; criterio 315 (e)
+fase C, corrección contra captura de guía manual (orden alternado en la cola del candado) 10/10.
+
+Migración sobre BD con datos (`tcg_sdxc_mut`: seed E2E + 12 envíos y 3 direcciones legadas sembradas a mano): huella md5
+de las columnas preexistentes de `ShipmentRequest` y `Address` y conteo de las 43 tablas **idénticos** antes/después; las
+12 filas nacen `addressVersion = 0`, sin sello; segunda aplicación del SQL a mano ⇒ esquema (`pg_dump --schema-only`),
+datos y conteos idénticos. `prisma migrate diff` contra el schema ⇒ solo el renombre de índice de `PriceReference` que ya
+existía antes de M-64.
+
+Mutaciones (copia `git archive` del árbol entero; fase C sobre `eea04309`, errata sobre `fae954ce`; N = 1 salvo las de
+carrera, que corren N = 10 rondas forzadas dentro de la prueba):
+
+| Mutación | Resultado |
+|---|---|
+| PS-102 escribir también `Order.shippingAddressSnapshot` · bitácora con el snapshot entero sin actor · aceptar `city` del cuerpo · sin `unchanged` | rojo · rojo · rojo · rojo |
+| PS-103 guardar la colonia tecleada sin `resolvePostalCode` | rojo (3) |
+| PS-104 quitar `addressVersion` del `WHERE` (la del contrato) | **verde** (D-SDX-5) |
+| PS-104 quitar el candado · candado + `WHERE` · guarda + `WHERE` | verde (esperado) · rojo 0/10 · rojo 0/10 |
+| PS-104 aceptar cualquier estado | rojo (guardas; carrera 315 (e) 5/10) |
+| PS-107 condicionar el verbo al dial de compra | rojo |
+| 235 libreta sin validar colonia · sesión de invitado sin validar · retiro sin `addressMissing` | rojo · rojo · rojo |
+| `normalizeColonia` sin quitar acentos · `GET` sin `Cache-Control` · `/pedido` lee la orden · `complete` siempre `true` · `addressCorrected` siempre `false` | rojo · rojo · rojo · rojo · rojo |
+| Errata: `403` no-borde de la compra vuelve a `502` · todo `403` en vuelo (también el borde) · sin `warn` · `rawLabelUrl` leído en `shipments/` · segunda lectora en `label-proxy.ts` | rojo · rojo · rojo · rojo · rojo |
+
+## 59 · Errata v1.80.12.2 construida (parte backend): SKX-SEC-1 opción (a) con M-65, `address.missing` (2026-10-04, rama `claude/skydropx-d`; código en `f5b58a75` + `9117cb24`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.22.1/.2` (commit `4b3f3c10`), `ARCHITECTURE §4.60 (o)`. Fuera de este pase (son D2):
+`consignment-notes {consignmentNotes, hasMore}`, `PUT …/packages`, `ShipmentCostAdjustmentDTO` (§19.22.3/.4).
+
+### 59.1 Qué cambió y dónde
+
+| Pieza | Fichero |
+|---|---|
+| M-65 = `M-SDX-C2` (número confirmado: la última era M-64): tabla `ShipmentAddressRevision`, FK cascade, `@@unique([shipmentRequestId, fromVersion])`, CHECKs `fromVersion ≥ 0`, `changedKeys` no nulo y no vacío, `changedKeys ⊆` claves corregibles; idempotente, no toca `AuditLog` | `prisma/migrations/20261006130000_m65_sdx_c2_address_revision/migration.sql`, `schema.prisma` |
+| Paso 6 nuevo de `PUT …/address`: la revisión con los valores + bitácora `before {addressVersion}` / `after {addressVersion, changedKeys, revisionId}`, misma tx | `shipments/shipment-address.service.ts` |
+| Purga al anonimizar: `deleteMany` de revisiones con `shipmentRequest: { OR: [{userId}, {order:{userId}}] }` dentro de la tx del borrado suave | `admin/admin.service.ts` (`deleteUser`, rama suave) |
+| `shipmentAddressMissing` (fichero propio, sin ciclo de imports; compone `addressMissing` de la libreta) y `AdminShipmentDTO.address.missing` siempre presente, `complete = missing.length === 0` | `shipments/shipment-address-missing.ts`, `shipments.service.ts` (`addressStateOf`) |
+
+⚠️ **Precondición de despliegue (§19.22.1), sin cambio:** medir en producción `SELECT count(*) FROM "AuditLog" WHERE action
+= 'shipment.address_corrected'` ⇒ 0 antes de M-65. NO MEDIDO por mí (no tengo acceso a producción).
+
+`422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` de `quote`/`label` debe llamar a `shipmentAddressMissing` sobre el snapshot
+leído bajo candado: es de D2 (esos verbos no existen todavía).
+
+### 59.2 Pruebas y mutaciones
+
+- PS-112 (integración, `test/integration/sdx-c-address.e2e-spec.ts`, describe «PS-112»): retiro + envío directo de un
+  cliente registrado, dos correcciones a cada uno con canarios por corrida, borrado suave por HTTP; (1) canarios en
+  `AuditLog` = 0 sobre la tabla entera antes y después; (2) revisiones suyas = 0; (3) las 4 filas de bitácora siguen,
+  con `after` = exactamente `{addressVersion, changedKeys, revisionId}`; (4) la revisión de otro cliente intacta.
+- PS-102 y la carrera de PS-104 leen los valores de la revisión (antes leían `AuditLog.after`).
+- CHECKs de M-65 en el test de migración; `shipmentAddressMissing` en `test/sdx-c.address-rules.spec.ts`; el mock de
+  `deleteUser` en `test/admin.user-management.spec.ts` aserta el `deleteMany` con el `OR`.
+- M-65 aplicada a mano por segunda vez sobre `tcg_sdxc_mut` (con datos del arnés): esquema (`pg_dump --schema-only`) y
+  conteos de todas las tablas idénticos.
+
+Mutaciones (copia `git archive` del árbol entero; `f5b58a75`, y las dos últimas sobre `9117cb24`; N = 1, deterministas):
+
+| Mutación | Resultado |
+|---|---|
+| valores en `AuditLog.after` | rojo en (1) (5 filas con canario) y en PS-102 |
+| `deleteMany` solo por `shipmentRequest.userId` | rojo en (2) (quedan 2: las del envío directo) |
+| `deleteMany` sin filtro | rojo en (4) |
+| borrar la purga | rojo en (2) |
+| purgar y además borrar las filas de bitácora | rojo en (3) |
+| `complete` con la regla vieja (`addressMissing`) | **verde** con las pruebas de `f5b58a75` ⇒ se añadió la prueba de `9117cb24` ⇒ rojo |
+| `shipmentAddressMissing` sin `recipientName` | rojo (unitaria) |
+
+## 60 · Errata v1.80.12.5 construida (parte backend): la colonia como Mercado Libre — `resolveAddressGeo`, `neighborhoodCheck`, PS-103 sustituida, PS-114, PS-115; y lo pendiente de v1.80.12.3 (PS-99 (d4)/(d5), M1–M4 de PS-104) (2026-10-04, rama `claude/skydropx-d`, sobre `143b9b94`; código en `3a6d15c9` + `4b930010` + el commit de esta sección)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.25` (tabla de §19.25.7), `§19.23.2`, `§19.23.5`; `ARCHITECTURE §4.60 (r)`; `HECHOS.md:57`
+(«si, hazlo como mercado libre»). ⛔ Ningún endpoint, columna, migración ni código de error nuevos.
+
+### 60.1 Qué cambió y dónde
+
+| Pieza | Fichero |
+|---|---|
+| `canonicalize` ⇒ **`resolveAddressGeo(postalCode, neighborhood, city, state)`**: cuatro casos, ⛔ nunca lanza. CP fuera del catálogo ⇒ lo escrito (trim), `check:'postal_code_not_in_catalog'`; colonia que casa por `normalizeColonia` ⇒ canónico + municipio/estado DE ESA colonia, `'in_catalog'`; colonia que no casa ⇒ la escrita + municipio/estado **del CP** (`mostCommon`, lo mismo que pinta el `GET`), `'not_in_postal_code_list'`. **`neighborhoodCheckOf(postalCode, neighborhood)`** para el DTO: la misma consulta y la misma comparación (`matchColonia`, una función para los dos) | `shipping-provider/geo/postal-code.ts` |
+| Libreta: `POST` resuelve con `city`/`state` del cuerpo; `PATCH` con `postalCode` exige `neighborhood`, `city` y `state` en ese orden (`400 {field, reason:'required_with_postal_code'}`), y lo que no viene sale de la fila | `users/users.service.ts`, `users/dto/users.dto.ts` (comentarios) |
+| Invitado: `city`/`state` con trim + `MinLength(1)`; la sesión resuelve sin `422`, antes de reservar y del PaymentIntent (misma posición); **`quote` ya no consulta el catálogo** | `orders/dto/guest-checkout.dto.ts`, `orders/guest-checkout.service.ts` |
+| `PUT /admin/shipments/:id/address`: `city`/`state` obligatorios en el cuerpo (`requiredText`, 1..120); solo cuentan con el CP fuera del catálogo | `shipments/shipment-address.service.ts` |
+| `AdminShipmentDTO.address.neighborhoodCheck`, calculado al leer (fila y detalle). `ShipmentsService` recibe `PostalCodeService` como `@Optional()` (los unitarios legacy lo construyen a mano); sin él, leer `address` lanza (`requirePostalCodes`), no degrada a un valor | `shipments/shipments.service.ts` |
+| `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` fuera; `POSTAL_CODE_UNKNOWN` solo como `404` del `GET` | `common/error-codes.ts` |
+
+### 60.2 Decisiones que el contrato no fijaba
+
+1. **`neighborhoodCheck` de un snapshot sin colonia (o en blanco), sin CP o con CP mal formado** ⇒ `'postal_code_not_in_catalog'`
+   **sin consultar** la fuente (§19.25.3 lo dice para «sin colonia o CP mal formado»; el blanco cuenta como sin colonia, igual
+   que en `addressMissing`).
+2. **`PATCH` de la libreta que toca solo colonia/ciudad/estado** (sin CP): se resuelve con el CP de la fila y lo que no vino
+   sale de la fila. La excepción de §58.2 (5) sigue: dirección vieja SIN colonia a la que solo se cambia ciudad/estado ⇒ tal cual.
+3. **Una dirección vieja con CP mal formado** (`'1000'`) a la que se le cambia la colonia: `resolvePostalCode` ⇒ `null` ⇒ caso 2
+   (se guarda lo escrito). Antes era `422 POSTAL_CODE_UNKNOWN`; hoy no hay `422` que emitir. La forma del CP solo se valida
+   cuando el `PATCH` trae `postalCode` (pipe), como antes.
+4. **`check` no se persiste en la sesión del invitado**: se separa con `const { check: _check, ...geo }` antes de armar el
+   snapshot (un campo de más en `toAddressSnapshot` sería un undécimo campo).
+
+### 60.3 Pruebas
+
+- **Unitarias** (`test/sdx-c.address-rules.spec.ts`): los cuatro casos de `resolveAddressGeo` (incluido el catálogo vacío y
+  «del CP» = lo que muestra `describe`, con un CP de cuatro colonias en el que el municipio más frecuente no es ni el primero
+  ni el último), `neighborhoodCheckOf` (tres valores + sin colonia / CP mal formado sin consultar), `canonicalize` ya no existe;
+  el cuerpo del `PUT` con `city`/`state` (ausente, blanco, 121). `shipments.recipient-name.spec.ts` pasa el `PostalCodeService`.
+- **Integración** (`test/integration/sdx-c-address.e2e-spec.ts`): **PS-103** sustituida, (a)(b)(c)(d) de §19.25.6; **PS-114**
+  libreta (a)(b)(c)(d) y `PATCH` (`required_with_postal_code` para `neighborhood`/`city`/`state`, cero escrituras), invitado
+  (a)(b)(c)(d), **con `PostalCode` vacía** (borrada y restaurada en `finally`) un invitado con CP 20000 crea la orden y su
+  PaymentIntent (`Order.stripePaymentIntentId` = el devuelto), y el `quote` con colonia inventada / CP desconocido ⇒ `200`;
+  **PS-115**: el envío se escribe **por el verbo** con el CP fuera del catálogo; se carga otra colonia del CP ⇒
+  `not_in_postal_code_list`; se carga la suya ⇒ `in_catalog` con la fila **byte a byte** igual; `PUT` con colonia escrita ⇒
+  `not_in_postal_code_list`, con colonia de la lista ⇒ `in_catalog`; se borra el CP ⇒ vuelve a `postal_code_not_in_catalog`;
+  fila y detalle coinciden; ausente en `AddressDTO` y en `ShipPreparationOrderDTO`. PS-102 ahora asevera `neighborhoodCheck`.
+- **PS-99 (d4)/(d5)** (`test/skydropx.no-real-purchase.spec.ts`, sustituye la aserción transitoria): (d4) las tres llaves
+  `SKYDROPX_ALLOW_SPEND`/`CLIENT_ID`/`CLIENT_SECRET` aparecen **exactamente una vez** en `.env.example` y vacías; (d5)
+  existen `scripts/skydropx/prod-probe.ts` y `prod-probe.test.ts` y un workflow invoca `run-prod-probe.sh test` en una línea
+  no comentada. Cada regla es una función pura con sus canarios sintéticos en la propia prueba, además de la mutación sobre
+  la copia (abajo).
+
+**Suites (árbol vivo, BD propia `tcg_be_colml`):** unitaria completa **397/397 suites, 6816/6816** (sobre `3a6d15c9` + la
+prueba de `mostCommon` reforzada); integración completa con `stack-native.sh test:integration` **78/78 suites, 1601/1601**,
+8 min 25 s, load inicial ≈ 2–8 (otros agentes en la máquina). Sin rojos por timeout.
+
+### 60.4 Mutaciones (copia `git archive` del árbol ENTERO en `4b930010`; BD `tcg_be_colml`)
+
+Deterministas, N = 1 cada una (las de carrera, abajo):
+
+| Mutación | Prueba que muerde | Resultado |
+|---|---|---|
+| `resolveAddressGeo` caso 3 acepta `city`/`state` del cuerpo (CP en catálogo) | unit caso 3 | rojo |
+| caso 2 vuelve a lanzar `POSTAL_CODE_UNKNOWN` | unit casos 2 y vacío | rojo (2) |
+| caso 4 vuelve a lanzar | unit caso 4 | rojo |
+| caso 4 usa `city` del cuerpo · la última entrada · la primera entrada (en vez de `mostCommon`) | unit caso 4 | rojo · rojo · rojo (la de «última entrada» salió **verde** con la primera versión de la prueba, porque en el CP sintético la última coincidía con la más frecuente; se reforzó la prueba y se repitió) |
+| `PUT`: `city`/`state` opcionales en el cuerpo | unit cuerpo | rojo (4) |
+| `neighborhoodCheckOf` consulta con la colonia en blanco | unit | rojo |
+| sesión del invitado reintroduce `POSTAL_CODE_UNKNOWN` (la del contrato) | PS-114 invitado (c) y **catálogo vacío** (orden no creada) | rojo (2) |
+| `PATCH` sin exigir `city`/`state` (la del contrato) | PS-114 `PATCH` | rojo |
+| **guardar la marca al escribir** (en el snapshot) y leerla (la del contrato) | PS-115 (el envío escrito por el verbo sigue diciendo lo viejo tras cargar el CP), PS-102 | rojo (2) |
+| el `quote` vuelve a consultar y rechazar | PS-114 quote | rojo |
+| `PUT` acepta `city`/`state` del cuerpo con el CP en el catálogo (la del contrato) | PS-103 (a)(b), PS-102 | rojo (3) |
+| `PUT` vuelve a `422` en (b)/(c) (la del contrato) | PS-103 (b)(c), PS-115 | rojo (3) |
+| libreta rechaza la colonia escrita | PS-114 libreta (b) | rojo |
+| PS-99 (d4): borrar la línea · `SKYDROPX_ALLOW_SPEND=true` · segunda línea `SKYDROPX_ALLOW_SPEND=` · `SKYDROPX_CLIENT_SECRET=abc` | (d4) árbol | rojo · rojo · rojo · rojo (la primera era **verde** con la aserción transitoria) |
+| PS-99 (d5): borrar `prod-probe.test.ts` · quitar el paso `run-prod-probe.sh test` de `ci.yml` | (d5) árbol | rojo · rojo |
+
+**PS-104 por pares (§19.23.2)**, cada una con las **N = 10 rondas forzadas** de la prueba (barrera de fila), sobre
+`shipment-address.service.ts` en `4b930010`:
+
+| Mutación | Exigido | Medido (rondas `ok`/N) |
+|---|---|---|
+| **M1** sin la comparación de versión del paso 3 **y** sin `addressVersion` en el `WHERE` | rojo | **0/10** ⇒ rojo |
+| **M2** sin el candado **y** sin `addressVersion` en el `WHERE` | rojo | **0/10** ⇒ rojo |
+| **M3** sin el candado, solo | verde 10/10 | **10/10** ⇒ verde |
+| **M4** sin `addressVersion` en el `WHERE`, solo | verde 10/10 | **10/10** ⇒ verde |
+
+⚠️ **Hallazgo para el arquitecto (no cambia el veredicto de M1/M2):** en M1 y M2 el perdedor de cada ronda no responde
+`200` (no hay «gana la última escritura» con dos `200`): responde **`500 INTERNAL`** por `Unique constraint failed on
+(shipmentRequestId, fromVersion)` — la `@@unique` de `ShipmentAddressRevision` (M-65) aborta su tx y la fila queda en `v=1`
+con una sola bitácora (las 10 rondas: `MAL(200:corrected,500:INTERNAL;v=1;logs=1)`). Es decir, desde M-65 hay un
+**tercer muro** (de esquema) que impide la doble escritura aunque caigan candado/comparación y el `WHERE`; lo que la prueba
+detecta en M1/M2 es el `500` en vez del `409`. El reporte de §58.6 («guarda + `WHERE` ⇒ 0/10») es anterior a M-65.
+
+### 60.5 Lo que NO está aquí
+
+- Frontend, `Dockerfile.backend`/`boot`/G-BOOT y `import-sepomex` (devops), `PROJECT.md` (product-owner): fuera de mis rutas.
+- La `E2E` de §19.25.6 (Playwright) es de frontend + QA.
+- PS-104 filas D2a, PS-105a/b, PS-106, PS-113: siguen en su hito (§19.23.1).
+
+## 61 · Skydropx D2a construida — `M-66` (`M-SDX-D`), los diales de Skydropx y del gasto, y la guarda `LABEL_IN_PROGRESS` de `PUT …/address` (2026-10-04, rama `claude/skydropx-d`; código en `62f89781` + `cd50d7a0`; ⭐ sección escrita el 2026-10-05 por el agente de D2c-cierre, MIDIENDO el código de esos dos commits)
+
+> **Por qué se escribe tarde.** El agente de D2a se cortó por un reinicio del contenedor antes de escribir esta sección;
+> el orquestador commiteó su último cambio (`cd50d7a0`, O-10). La cabecera de `M-66` cita «BACKEND_NOTES §61» y «§61.6»
+> (`migration.sql:5`, `:19`), y no existían (pregunta 14 de §62.5; `API_CONTRACT §19.31.7 (h)`). Lo de abajo sale de
+> `git show 62f89781` / `cd50d7a0` y del árbol actual, ⛔ no de memoria: lo que no se pudo medir dice NO MEDIDO.
+
+### 61.1 Qué se construyó y dónde (medido con `git show --stat 62f89781`)
+
+| Pieza | Fichero(s) |
+|---|---|
+| **`M-66`** — DDL aditivo, sin backfill, idempotente: 4 enums (`ShipmentLabelSource`, `CarrierStatus`, `ShippingIvaSource`, `ShipmentCostAdjustmentKind`); `ShipmentRequest` + 27 columnas nulables (salvo `insuranceCostCents INT NOT NULL DEFAULT 0`) + 3 índices + **12** CHECK (medido: 12 `ALTER TABLE "ShipmentRequest" ADD CONSTRAINT`, los mismos 12 que deja caer la reversa; la cabecera dice «11 CHECK»: errata de la cabecera, el SQL manda); tablas `ShipmentQuote`, `ShipmentCarrierEvent`, `ShipmentCostAdjustment`, `ShippingPackage` con sus CHECK; semillas `ON CONFLICT DO NOTHING`: 2 empaques (`envelope` `5H4`, `box` `4G`) y 12 diales con `shipping_provider='off'` y `shipping_label_purchase='disabled'` (fail-closed); reversa en la cabecera | `prisma/migrations/20261007120000_m66_sdx_d_skydropx/migration.sql`, `prisma/schema.prisma`, `prisma/seed.ts` |
+| **Reversa de la config** (`cd50d7a0`): el `DELETE FROM "ConfigSetting"` de la cabecera borra SOLO las filas `updatedBy = 'migration:m66-sdx-d'` (las que la migración escribió y nadie tocó; §11.0: no se destruye config de un operador). Solo comentario: cero SQL ejecutable cambiado | `migration.sql` (cabecera) |
+| **Diales** — los 12 de §19.19.12 (`shipping_provider`, `shipping_label_purchase`, `skydropx_origin_address_template_id`, `skydropx_origin_snapshot`, `shipping_preferred_carriers`, `shipping_dropoff_points`, `shipping_consignment_note` = `49101600`, `shipping_package_rule_box_min_cards`, `skydropx_low_balance_cents`, `shipping_tracking_poll_minutes`, `shipping_insurance_tiers`, `shipping_label_format` = `standard`) y los 9 de control del gasto de §19.29.8 (`operator_label_cap_24h_cents`, `shipping_label_reissue_max_per_shipment`, `spend_alerts_disabled`, `spend_alert_*`) en las cuatro tablas (clave, default, validador, DTO); `M-66` NO siembra los del gasto (los siembra `M-68`) | `src/modules/settings/settings.constants.ts`, `settings/shipping-dials.ts` |
+| **`LABEL_IN_PROGRESS`** (409, sin `details`) | `src/common/error-codes.ts` |
+| **`PUT …/address` con las columnas nuevas** (§19.23.3): `labelSourceOf(row) = row.labelSource ?? (row.trackingNumber ? 'manual' : null)`; paso 3 en orden estado ⇒ `SHIPMENT_ALREADY_LABELED` ⇒ `LABEL_IN_PROGRESS` ⇒ versión; el `WHERE` del CAS lleva el predicado ENTERO (`labelSource`, `trackingNumber`, `labelProcessingSince` nulos + `addressVersion`). Candado y `WHERE` son dos muros, cada uno basta solo | `src/modules/shipments/shipment-address.service.ts` (hoy `labelSourceOf` vive en `shipments/label-source.ts`: D2c lo sacó a un fichero propio para leerlo sin ciclo de imports) |
+
+### 61.2 Decisiones que el contrato no fijaba
+
+1. **Sin backfill.** Una fila con `trackingNumber` y `labelSource` nulo es una guía manual anterior a v1.81 y la LEE
+   `labelSourceOf`; ⛔ ningún `UPDATE` afirma lo que nadie capturó. Cero dinero movido (`migration.sql:14-16`).
+2. **Idempotente** (`IF NOT EXISTS` en cada `CHECK`, `ON CONFLICT DO NOTHING` en las semillas): aplicarla dos veces no
+   cambia nada.
+3. **La guarda en el MISMO pase que las columnas**: no puede existir un despliegue con `labelSource` en el esquema y una
+   guarda de `PUT …/address` que no lo lea (cabecera de `shipment-address.service.ts`).
+
+### 61.3 Pruebas (nombres medidos en el árbol)
+
+- `test/sdx-d.dials.spec.ts`: los 12 diales en las cuatro tablas (ni uno más; `shippingDeclaredValueCapCents` no existe),
+  fail-closed, los del gasto sin sembrar en `M-66`, validadores (PS-96 y PS-97 parte dial), «una lista, dos artefactos»
+  (los 12 `INSERT` == `SETTING_DEFAULTS`; los 2 empaques == `DEFAULT_SHIPPING_PACKAGES`; sin `UPDATE`/`DELETE` fuera de
+  comentarios), `CarrierStatus` del schema == `CARRIER_STATUSES` del puerto.
+- `test/integration/sdx-d-schema.e2e-spec.ts`: columnas nuevas nacen NULL/0, formas legales e ilegales de los CHECK,
+  `providerShipmentId` único, PS-95 (esquema), SEC-SDX-9, ajustes, PS-97 (esquema), diales por `GET/PUT /admin/settings`.
+- `test/integration/sdx-c-address.e2e-spec.ts`: PS-104 filas D2a (guía Skydropx en proceso ⇒ `SHIPMENT_ALREADY_LABELED`;
+  compra en vuelo ⇒ `LABEL_IN_PROGRESS`; cero escrituras) y la carrera D2a contra un reclamo simulado, orden alternado,
+  N = 10.
+- ⛔ NO MEDIDO aquí: las proporciones y las mutaciones que el agente de D2a corrió (se perdieron con el reinicio). La
+  mutación M11 de §62.3 (quitar la guarda y el `labelProcessingSince` del `WHERE`) la volvió a medir D2c: PS-113 rojo,
+  5/10 rondas MAL.
+
+### 61.4 Lo que D2a dejó para después
+
+D2b/D2c (cotizar, comprar, cancelar, liberar: §62), `M-67`/`M-68` (§62), D2d (rastreo y jobs), D2e (correos al
+cliente), D2f (P&L y tablero), D2g (despacho de avisos). Plan vigente: `API_CONTRACT §19.31.10`.
+
+### 61.6 Preguntas al arquitecto que citaba la cabecera de `M-66` (`migration.sql:18-22`)
+
+Dos CHECK de §19.2 se escribieron con la forma que permite el propio algoritmo del contrato; ambos fallan del lado seguro
+(nunca impiden persistir el id de una guía PAGADA):
+1. «Guía en proceso sin número» es `labelProcessingSince IS NULL OR trackingNumber IS NULL`, **sin** exigir
+   `providerShipmentId`: el reclamo de §19.7 paso 7 escribe `labelProcessingSince` sin id («compra en vuelo», §19.20.2,
+   PS-104 fila D2a).
+2. «Con id ⇒ datos de compra» (`shipment_provider_id_requires_purchase`) **no** exige `recommendedRateJson`: §19.7 paso 7
+   lo escribe `?? null`.
+Estado: medido con `grep` en `API_CONTRACT.md` y `ARCHITECTURE.md` el 2026-10-05 — ninguna errata los menciona ni los
+contradice; el código de D2c (§62) escribe exactamente esas dos formas (reclamo sin id; `recommendedRateJson` `DbNull`).
+Se dejan como están salvo que el arquitecto diga otra cosa.
+
+## 62 · Skydropx D2b + D2c construidas, y `M-67`/`M-68` (2026-10-05, rama `claude/skydropx-d`, desde `50a04523`; código en `2483e327`, `855861c6`, `2d8c93a4`, `a37afaad`, `efd661dd`, `e20eddc7` + el commit de esta sección)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.6/.7/.8/.18.3/.18.4` leídas con TODAS sus erratas, de la más vieja a la más nueva
+(§19.19.x, §19.20 … §19.30); orden de construcción §19.29.11 y §19.30.13; `ARCHITECTURE §4.60 (o)…(w)`;
+`SECURITY_NOTES` C-1…C-24 (las de D2c). `HECHOS.md:58` (también el personal compra), `:61` (folio), `:62` (topes), y la fila
+«El dueño» del 2026-10-04 (un solo súper-admin con correo ⇒ la marca se pone sola).
+
+⛔ **Ninguna prueba ni CI compra una guía real (PS-99).** `SKYDROPX_ALLOW_SPEND` no se pone en ningún sitio: la llave de
+entorno de la compra es un proveedor inyectable (`LABEL_SPEND_KEY`, por defecto `isSpendKeyTurned()` de `spend-gate.ts`, la
+única lectura) y las pruebas lo sustituyen junto al proveedor DOBLE (`createLabelWorld`). Solo Fake y Noop.
+
+### 62.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) | Commit |
+|---|---|---|
+| **M-67** — folio `ENV-` ≥ 6 dígitos sin truncar (`lpad(s, greatest(6, length(s)))`, §19.29.1.1), secuencia, default, backfill por `(requestedAt, id)`, `@unique`, CHECK; reversa en la cabecera | `prisma/migrations/20261008120000_m67_sdx_e_folio/` | `2483e327` |
+| **M-68** — `ShipmentLabelAttempt`, `ShipmentPaidLabel` (+`autoCancelIntentAt`), `SpendAlert` (+`muted`), `SpendDigestRun`, `SpendOwnerWatch`, 6 enums, `User.isOwner` + índice parcial único + CHECK, la marca SOLO con exactamente un candidato y nadie marcado, 10 diales sembrados; reversa en la cabecera | `prisma/migrations/20261009120000_m68_gas_1_spend_control/`, `prisma/set-owner.ts` | `2483e327` |
+| **D2b** — `POST/GET /admin/shipments/:id/quote` (PS-69, 70, 71, 95, 96, 105a) | `shipments/label-quote.service.ts`, `insurance.ts`, `folio-neutralize.ts`, `label-dto.ts`, `label-clock.ts` | `855861c6` |
+| **D2c lado proveedor** — id legible o `null`, `422` con id, folio en `address_to.reference`, `notAfter`, cuerpo bajo el temporizador, `recentShipments` (v1, ≤ 3 páginas) | `shipping-provider/*` | `2d8c93a4` |
+| **D2c `POST …/label`** — puerta (dial + rol con conjunto explícito + llave), reclamo con `pg_try_advisory_xact_lock(65_310_701)`, TG-1/TG-2 previa y bajo el candado, CAS con `addressVersion`, libro de intentos, 7b.1 (saldo tras el reclamo), 7b.2 (I-SENT con CAS de `since` exacto y `attemptNo` del libro), matriz del paso 9, `count 0` clasificado, AG-1/2/3/4/5/7/13 | `shipments/label-purchase.service.ts`, `label-spend.ts`, `label-view.ts`, `label-verify.constants.ts`, `spend-alerts/` | `a37afaad` |
+| **D2c `label/cancel`**, cancelación automática (`C-SDX-5`), **`label/release`** con `confirmConflict`, **`recoverInFlightLabel`** de solo lectura con adopción por folio exacto | `shipments/label-cancel.service.ts`, `label-auto-close.ts`, `label-recovery.service.ts`; llamadores en `payments/payments.service.ts`, `payments/refunds/full-refund.service.ts`, `payments/refunds/refund-ledger.service.ts`, `orders/order-refund.service.ts` | `e20eddc7` |
+| `setTracking` (captura manual): guardas `SHIPMENT_ALREADY_LABELED`/`LABEL_IN_PROGRESS` leídas en la MISMA sentencia que toma el candado, y escribe `labelSource:'manual'` (§19.7 «`POST …/tracking` con Skydropx») | `shipments/shipments.service.ts` | `a37afaad` |
+| Detalle admin: `label`, `labelPending` (`verifyingUntil`, `providerReference`), `labelAlert` (precedencia con `label_orphan`), `labelOptions` por actor con `limit`, `costAdjustments`, `folio`, `labelSource` | `shipments/shipments.service.ts`, `label-view.ts` | `a37afaad` |
+
+### 62.2 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **Diales leídos FUERA de la tx interactiva.** Medido: con 10 `POST …/label` simultáneos, una lectura de diales con
+   `this.prisma` dentro de la tx del paso 2 pedía una segunda conexión mientras 9 tx esperaban el candado de fila ⇒ pool agotado
+   ⇒ `500 Timed out fetching a new connection` en 2–4 de 10 respuestas. Ahora el paso 2 lee los diales antes de abrir la tx; el
+   paso 7 ya lo hacía. Regla: dentro de una tx interactiva, todo por `tx`.
+2. **Candado ocupado y el mismo envío (PS-73 vs §19.28.8).** `pg_try_advisory_xact_lock` ⇒ `false` da `409 purchase_in_flight`
+   por norma; PS-73 pide «ningún 409» con 10 clics al MISMO envío. Al fallar el candado se relee la fila con `FOR SHARE` (espera
+   solo a la tx del reclamo que ya escribió esa fila, milisegundos; ⛔ nunca al candado consultivo): si el envío ya tiene
+   reclamo ⇒ `200 in_progress`. Medido: **0 de 90** respuestas no ganadoras fueron `409` (N = 10 rondas × 9). La prueba admite
+   `409 purchase_in_flight` y cuenta cuántos (ver pregunta 3).
+3. **«Ya tiene guía» antes que el estado.** Repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED` (PS-73), aunque el envío ya
+   esté en `guia` (antes salía `SHIPMENT_NOT_IN_PREPARATION`).
+4. **`rate_id` por cotización en el DOBLE.** Las tarifas del Fake llevan `@<quotationId>` (misma cotización ⇒ mismas ids; otra ⇒
+   otras), como la API real. Sin esto dos envíos compartían ids y `rate_already_purchased` mordía en falso.
+5. **`count 0` «CAS local» (§19.28.3 punto 4)** responde `409 CONFLICT` sin `reason` (el contrato no lo nombra) y la guía pagada
+   se cancela post-commit. **7b.2 `released`** ⇒ `409 CONFLICT`; **`attempts_exhausted`** ⇒ `409 CONFLICT {reason}`.
+6. **`label/cancel`**: (a) ya sellada (por el verbo o por `auto_close`) y confirmada ⇒ `200 already_cancelled` sin red (PS-83);
+   (b) `cancelado` + `auto_close` sin confirmar ⇒ es el **reintento** (llama `cancel`, confirma, no cambia el estado); (c) si
+   `port.cancel` LANZA (sin respuesta legible) se revierte el sello igual que con `ok:false` y se propaga el error (502/503):
+   NO MEDIDO si Skydropx canceló; un `cancel` repetido sobre una guía ya cancelada lo rechaza el proveedor sin costo;
+   (d) `carrierStatusAt` también a `NULL` junto a `carrierStatus`; (e) `providerQuotationId/providerRateId/chosenRateJson` se
+   conservan (historia; el siguiente reclamo los sobrescribe y `rate_already_purchased` excluye al propio envío).
+7. **Post-commit de la cancelación automática.** `cancelProviderLabelIfAny` sella en la tx del escritor; el `cancel` lo hace
+   `afterAutoCloseVia(moduleRef, ids)` en los CUATRO sitios que comitean un `onFullRefund` que puede cerrar envíos (webhook
+   `charge.refunded` ×2, M3 `requestFullRefund`, confirmación del libro) y en el contracargo. Se resuelve por token
+   `LABEL_AUTO_CLOSE` con `ModuleRef` (`strict:false`) para no crear un ciclo `payments ⇄ shipments`; sin el servicio (unitarias
+   legacy) es no-op. Si el proceso muere entre el commit y el `cancel`, queda el sello sin confirmar ⇒ `label_cancel_failed` a los
+   2 min y el reintento por el verbo.
+8. **«Liberar» con veredicto `not_sent`** ⇒ libera como verificado: `via:'manual_verified'`, intento `not_charged`
+   `outcomeReason:'not_sent'`. **`pending`/`uncertain`** ⇒ `via:'manual'`, intento `released_unverified`. La adopción por
+   «Liberar» usa `via:'reference'` (§19.18.4) y el job (D2d) usará `'recent_list'` (§19.27.5).
+9. **AG-9 (a)** se levanta también en «Liberar» cuando el veredicto es `charged_not_found` (llave `ag9:nf:<attemptId>`, la misma
+   que usará el job).
+10. **La adopción atribuye al que RECLAMÓ** (`claimerId` del intento): AG-1 busca correcciones de esa persona y AG-13 es sobre ella,
+    aunque adopte el súper-admin.
+11. **`isOwnerAccount`** niega además un correo en blanco.
+12. **Status census:** el `data` de deshacer el reclamo va escrito en línea en cada `updateMany` (no la constante `CLAIM_UNDO`),
+    para que el censo de escritores de `status` lo lea.
+
+### 62.3 Pruebas
+
+- **Unitarias:** `test/sdx-m67-m68.migrations.spec.ts`, `test/sdx-own.census.spec.ts` (C-OWN-1), `test/sdx-d2b.quote.spec.ts`
+  (46), `test/sdx-d2c.provider.spec.ts` (10), `test/sdx-d2c.label-units.spec.ts` (39: PS-145, PS-139, alertas y
+  `labelPending`, S-GAS-5, `parseLabelBody`, PS-131 (c), PS-132 (b) con canarios, PS-117 y su ampliación, C-SDX-5, C-SDX-4).
+- **Integración** (Postgres real, app completa por HTTP): `sdx-d2bc-migrations.e2e-spec.ts` (11), `sdx-d2b-quote.e2e-spec.ts`
+  (19), `sdx-d2c-label.e2e-spec.ts` (46), `sdx-d2c-cancel-release.e2e-spec.ts` (26). Con el reloj manual CONGELADO dos
+  escrituras empatan en `since`/`requestedAt`: los arneses avanzan el reloj 1 ms por `POST …/label` y por `POST …/quote`
+  (medido: una roja de D2b en la suite completa sobre una copia por empate de `requestedAt`; 3/3 verdes tras el arreglo).
+- **Carreras (proporción, N = 10 rondas cada una, medidas en verde):** PS-73/PS-121 10/10; PS-122 (c) 10/10; PS-132 (a)
+  10/10; PS-140 10/10; PS-83 SEC-SDX-3 «con número» 10/10 y «sin número» 10/10; PS-113 10/10 (5 rondas gana la corrección, 5 la
+  compra, por barrera); PS-82 cancelar y comprar 10/10; PS-74 liberar y comprar 10/10; PS-137 10/10.
+
+**Mutaciones** (cada una sobre una copia `git archive` del árbol ENTERO —`e20eddc7` la tanda 1, `7f705dc1` la tanda 2—, BD
+propia `tcg_be_d2bc_mut`; logs en el scratchpad `be-d2bc/logs/mut-*.log`). En las carreras la proporción es de rondas MAL
+dentro de la prueba (N = 10):
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | quitar `labelProcessingSince: null` del CAS del reclamo | PS-73/PS-121 | **8/10** rondas MAL (≥ 2 `purchase`) |
+| M2 | sin `pg_try_advisory_xact_lock` (`ok = true`) | PS-122 (c) | **10/10** MAL |
+| M3 | quitar `addressVersion` del `WHERE` del paso 7 | PS-105b (inyección) / PS-113 | rojo (determinista) / **5/10** MAL (justo las 5 rondas en que la corrección entra antes del reclamo) |
+| M4 | sacar `checkLabelLimits` de la tx del candado | PS-140 sin barrera / con barrera | **sobrevivió** (0/10: la serialización «en vuelo» tapaba la carrera) ⇒ se añadió la barrera ⇒ **10/10** MAL |
+| M5 | 7b.2 sin el CAS (a) | PS-137 | **sobrevivió**: el CAS (c) sobre la fila del intento lo para solo (C-17 son dos muros); sin (a) **y** (c) ⇒ **10/10** MAL |
+| M6 | C-22 `?? 0` | PS-138 (C-22), PS-139 | rojo (2) |
+| M7 | adoptar sin folio (`mine = withRef`) | PS-129 | rojo (d), (e), (f) |
+| M8 | «Liberar» sin buscar | PS-74 (b) adopted | rojo |
+| M9 | cierre por reembolso total sin `cancelProviderLabelIfAny` | PS-83 `charge.refunded` | rojo |
+| M10 | `persistProcessing` sin `status:'picking'` | PS-83 SEC-SDX-3 | «sin número» **10/10** MAL; «con número» 0/10 (lo para `assertCanAdvance`) |
+| M11 | `PUT …/address` sin la guarda `LABEL_IN_PROGRESS` ni `labelProcessingSince` en el `WHERE` (D2a) | PS-113 | rojo: la corrección gana 10/10 rondas en vez de 5/10 ⇒ **5/10** MAL |
+
+Nota de método: la primera versión de PS-113 (sin barrera) dio «ganó la corrección 10/10» ⇒ el orden «la compra reclama
+primero» nunca ocurría y M11 no podía morder; se cambió a barrera en las lecturas del saldo (paso 6 / 7b.1), alternada.
+
+
+### 62.4 Lo que FALTA (D2c y vecinos), con dueño
+
+Medido con `grep` sobre `backend/src` en el sha de esta sección. Nada de esto está a medias en el árbol: o está entero
+(con prueba) o no existe.
+
+| Falta | Por qué / de quién | Comprobación |
+|---|---|---|
+| Job **`shipment-label-processing`** (el segundo llamador de `recoverInFlightLabel`, cada minuto, `T_UNKNOWN` ⇒ `label_verify_uncertain`, `not_sent` y `not_charged` automáticos, filas `label_verify_*`) ⇒ **PS-75, PS-124…PS-127, PS-133, PS-134 (a)(c)** | D2d (§19.10 y tabla §25283: «los tres jobs») | `grep -rn "shipment-label-processing" backend/src` ⇒ solo comentarios |
+| **Evidencia negativa** (§19.27.4 paso 4 + §19.28.9: lecturas limpias, contaminación, cable trampa `inflight_negative_violated`) | va con el job (escribe `label_verify_clean/dirty`); hoy `INFLIGHT_NEGATIVE_VERIFIED = false` ⇒ nunca decide; si una configuración la enciende, `recoverInFlightLabel` loguea `inflight_negative_not_built` y la trata como `not_calibrated` | `label-recovery.service.ts`, cabecera |
+| Conciliación de **huérfanas tardías** (`label_orphan {cause:'late'}`), `duplicate` ⇒ dos filas `origin:'duplicate'` + AG-9 (b), cancelación automática de huérfanas con C-14/C-19 y fusible `ORPHAN_FUSE_LOCK_KEY` (PS-130) | D2d (§19.28.6, §19.29.1.5, §19.30.6). Hoy `uncertain('duplicate')` solo responde y NO escribe las dos filas | `grep -rn "origin: 'duplicate'" backend/src` ⇒ 0 |
+| **`GET …/label.pdf`** (la ruta del proxy) | D1c construyó `downloadLabelPdf` (`shipping-provider/label-proxy.ts`) pero **no hay ruta**: el operador compra y no puede imprimir desde el panel (ciclo incompleto, O-4). No es de D2c por la tabla §25278; lo anoto porque cierra el ciclo | `grep -rn "label.pdf" backend/src/modules/shipments/*.controller.ts` ⇒ 0 |
+| Filtros `?labelSource=`, `?alert=`, `?folio=` de `GET /admin/shipments` | §19.7 «filtros nuevos» / §19.30 (D2g) | `grep -n "labelSource\|folio" backend/src/modules/shipments/admin-shipments.controller.ts` ⇒ solo el detalle |
+| **D2g** entero: despacho del correo de los avisos (outbox con freno, lote, resumen 08:00, `spend-watch`, `spend-digest`, AVG-1/2/3, panel, AG-21/AG-22, C-24) | D2g. Los avisos 🔴 quedan `mailStatus='pending'` esperando a su despachador | `spend-alerts.service.ts`, cabecera |
+| PS-161…PS-163 (ajustes del dueño, cuenta protegida, AG-22) | «Usuarios y ajustes» (§19.30.13), otro stream | — |
+| PS-122 (a) «`retryAfterSeconds = 5`» con un reclamo de 20 s | sustituido por la fórmula de §19.28.8 (hoy da 160); ver pregunta 3 | prueba (a) aserta la fórmula (60 con 2 min) |
+
+
+### 62.5 Preguntas al arquitecto (no resueltas aquí)
+
+Cada una con fichero:línea; ninguna se resolvió tocando el contrato.
+
+1. **Paridad de enums (banda 3) en rojo, 7 pruebas.** `M-68` creó `LabelAttemptOutcome`, `LabelCancelKind`, `PaidLabelOrigin`,
+   `SpendAlertKind`, `SpendAlertMailStatus`, `SpendAlertSeverity` y §0 de `API_CONTRACT.md` no tiene su línea canónica
+   (`test/enum-values-parity.spec.ts`; §19.29.2 dice en `API_CONTRACT.md:27370` «`C-ENUM`: los cinco enums entran en §Enums con
+   paridad», pero no entraron y además son seis). Pide al arquitecto las seis líneas.
+2. **`expiresAt` de una cotización reutilizada** (D2b): se fija en la PRIMERA observación + 24 h (§19.19.4); una
+   `providerQuotationId` que Skydropx reutiliza pasadas 24 h nace vencida. ¿Es lo querido?
+3. **PS-73 vs §19.28.8.** `API_CONTRACT.md:24686` pide «ningún 409» con 10 clics al mismo envío; `:27043-27045` manda `409
+   purchase_in_flight` cuando el candado consultivo está ocupado. Implementado: relectura `FOR SHARE` ⇒ `200 in_progress` si el
+   reclamo es del mismo envío (medido 0/90 `409`). La prueba admite el `409` y lo cuenta. ¿Se confirma, o PS-73 se reescribe?
+4. **PS-122 (a)** (`API_CONTRACT.md:26825`): «reclamo de hace 20 s ⇒ `retryAfterSeconds = 5`» no cuadra con la fórmula de
+   §19.28.8 (`:27050`, hoy 160 s). Implementada la fórmula.
+5. **Códigos no nombrados:** `count 0` «CAS local» (§19.28.3 punto 4, `:26958`) y 7b.2 `released` (§19.29.1.4, `:27215`)
+   responden `409 CONFLICT` sin `reason`. ¿Llevan `reason`?
+6. **`label/cancel` cuando `port.cancel` LANZA** (sin respuesta legible): §19.8 solo dice qué hacer con `ok:false`. Implementado:
+   revertir el sello y propagar `502/503`. ¿O se conserva el sello (alerta `label_cancel_failed` y reintento)?
+7. **«Liberar» con veredicto `not_sent`:** §19.27.6 solo nombra `not_charged ⇒ via:'manual_verified'`. Implementado igual
+   (intento `not_charged`, `outcomeReason:'not_sent'`).
+8. **AG-9 (a) desde «Liberar»** (§19.29.6 la ata a `label_verify_uncertain`, que escribe el job): implementado también en el verbo
+   con la misma llave. ¿Correcto?
+9. **E2E de la compra contra la pila:** con `SHIPPING_PROVIDER_ADAPTER=fake` la llave `SKYDROPX_ALLOW_SPEND` no puede estar
+   puesta (PS-98: el proceso no arranca), así que en la pila E2E `label` siempre responde `409 {missing:['allow_spend']}` y los
+   flujos F de compra de Playwright no pueden pasar del botón. ¿Cómo se ejerce la compra en la E2E (devops + arquitecto)?
+10. **`packageCode` del envío** guarda el `providerPackageType` (§19.2) aunque el texto de §19.7 hable del código propio.
+11. **El deshacer del reclamo** limpia también `packageCode`, `packageDimsJson`, `declaredValueCents`, `insuredValueCents` (lo que
+    escribió el paso 7); §19.18.4 paso 5 enumera solo 7 campos.
+12. **Sin correo del destinatario** (envío sin `guestEmail` ni cuenta): `to.email` viaja `''`. ¿Se exige o se deja?
+13. **`excluded` de una cotización reutilizada** se recalcula del `rawResponseJson` redactado (no hay columna).
+14. **BACKEND_NOTES §61 (M-66 de D2a) no existe**: el agente de D2a terminó sin escribirla; la cabecera de `M-66` cita
+    «§61.6». La deuda es de backend; la anoto aquí para que no se pierda.
+15. **«La cotización vigente» = la de `requestedAt` mayor** (`GET …/quote`, `label-quote.service.ts:292`), y una
+    re-cotización que Skydropx devuelve con el MISMO `providerQuotationId` ACTUALIZA la fila sin tocar `requestedAt`
+    (§19.19.4). Si entre medias hubo otra cotización (otro empaque), el `GET` devuelve aquella y no la última que vio el
+    operador. No hay columna `updatedAt` en `ShipmentQuote`. ¿Se añade, o se ordena por otra cosa?
+
+## 63 · D2c-cierre construida — errata v1.80.12.12 (`API_CONTRACT §M4-SHIP.19.31`): `GET …/label.pdf`, filtros de la lista, la llave de compra del doble, la cancelación sin respuesta, la vigencia de la cotización reutilizada, dos `reason`, `isOwner` en las fichas; PS-73, PS-122 (a), PS-166…PS-169 (2026-10-05, rama `claude/skydropx-d`, desde `8a40ca39`; código en `ff3be337`, `6cb9678e`, `459f37dc`, `e8709204`, `f61bfd7e` + el commit de esta sección)
+
+Fuente: `API_CONTRACT §19.31` entera (lista por rol en §19.31.11, pruebas en §19.31.9, plan en §19.31.10 pieza 1), con
+§19.8 (`label.pdf`), §19.18.5 (proxy), §19.3/§19.20.2 (alertas), §19.30.8 S-GAS-2 (`?folio=`); porqué en
+`ARCHITECTURE §4.60 (x)`. ⛔ **Ninguna prueba ni CI compra (PS-99).** `SKYDROPX_ALLOW_SPEND` no se pone en ningún
+sitio nuevo; `evaluateMutationGate`/`readMutationGateInput` no cambian y no leen la llave del doble (censo y prueba).
+
+### 63.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) | Commit |
+|---|---|---|
+| **La tercera llave según el adaptador** (§19.31.5): `isPurchaseKeyTurned(kind, env)` (`skydropx` ⇒ `SKYDROPX_ALLOW_SPEND`, `fake` ⇒ `SHIPPING_FAKE_PURCHASE`, `noop` ⇒ `false`) y `fakePurchaseKeyMisplaced(adapter, env)`; `spend-gate.ts` sigue siendo el ÚNICO lector de las dos envs. La fábrica NO arranca con la llave del doble junto a otro adaptador (con o sin credenciales, también el default). `LABEL_SPEND_KEY` por defecto = `purchaseKeyFor(selection.kind)` (lee el proceso en cada llamada) | `shipping-provider/spend-gate.ts`, `shipping-provider.factory.ts`, `shipments/shipments.module.ts`, `label-purchase.service.ts` | `ff3be337` |
+| **`GET /admin/shipments/:id/label.pdf`** (operador+): proxy de D1c (`downloadLabelPdf`) con el adaptador real; con `kind='fake'` sirve `FakeShippingProvider.labelPdf()` (PDF 1.4 fijo de una página, ⛔ cero `fetch`); con `noop` ⇒ `409 {missing:['env']}`. `inline; filename="guia-<orderNumber|shipmentId>.pdf"`, `private, no-store`; bitácora `shipment.label_printed` SOLO si se sirvió; con `shipping_provider='off'` sigue | `shipments/label-pdf.service.ts`, `admin-shipments.controller.ts`, `shipping-provider/fake-shipping-provider.ts` | `ff3be337` |
+| **Filtros de `GET /admin/shipments`**: `?labelSource=` (E, con la derivación de `labelSourceOf`: `manual` incluye la guía heredada con número y `labelSource` nulo), `?alert=true` (L; `carrierAlertActive ∨ labelAlertOf ≠ null` con las MISMAS funciones del DTO), `?folio=` (igualdad exacta, `^ENV-\d{6,}$`, fuera ⇒ `400 {field:'folio'}`) | `shipments/shipments.service.ts`, `label-view.ts`, `admin-shipments.controller.ts` | `ff3be337` |
+| **`label`** (§19.31.3, §19.31.7 (a)): la relectura `FOR SHARE` con el candado consultivo ocupado lee `labelSource`/`trackingNumber` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}`; 7b.2 liberado ⇒ `409 CONFLICT {reason:'claim_released'}` (cero compra); `count 0` local ⇒ `409 CONFLICT {reason:'shipment_changed_during_purchase', labelAutoCancelled:true}` | `shipments/label-purchase.service.ts` | `ff3be337` |
+| **`label/cancel`** (§19.31.6): `cancel` que LANZA en una re-emisión ⇒ sello revertido + `shipment.label_cancel_unknown {providerShipmentId, error:{code,status,reason?}}` fuera de tx + `502`/`503`; `ok:false` ⇒ `getShipment` antes de revertir: `canceled` ⇒ aceptada con `refundedCents:null` y `after.via:'provider_already_cancelled'`; ilegible o sin `canceled` ⇒ revertido + `422` | `shipments/label-cancel.service.ts` | `6cb9678e` |
+| **Cotización reutilizada** (§19.31.2): `quoteExpiryFor(rows, now)` pura; la fila del mismo envío viva conserva su `expiresAt`, vencida abre generación; la actualización escribe `requestedAt = now` y `requestedByUserId`; log `info quotation_id_reissued_after_expiry fp=<sha256 12 hex> lastExpiredAt=…` (⛔ el id entero no va al log) | `shipments/label-quote.service.ts` | `6cb9678e` |
+| **`isOwner` en las DOS fichas de M6** (§19.31.8): `isOwnerAccount` de la fila (el `select` gana `isOwner`) | `admin/admin.service.ts` | `459f37dc` |
+
+### 63.2 Qué devuelve el doble por defecto en la compra (pedido por §19.31.5 (6))
+
+Medido en el código y por prueba: `purchase()` toma `this.purchaseOutcomes.shift() ?? { kind: 'labeled' }`
+(`fake-shipping-provider.ts:218`), o sea **«éxito con número»**, determinista: id `fake-shipment-<tag>-<n>`, número
+`FAKE<TAG><n con 6 dígitos>`, `carrierStatus:'created'`, total = el de la tarifa cotizada. Lo nuevo de este pase: el doble
+que construye la FÁBRICA (el de la pila) trae `defaultLabelUrl = https://<primer host admitido>/labels/fake.pdf`
+(`fake.invalid` sin `SKYDROPX_URL_HOSTS`; `*.dominio` ⇒ `labels.dominio`), así que la guía nace con `labelAvailable:true`
+y «Imprimir etiqueta» aparece; `label.pdf` NUNCA descarga esa URL. Lo asevera PS-166 (d) contra el cableado real:
+`200 labeled`, número `^FAKE[0-9A-F]{8}\d{6}$`, una `purchase`, `label.pdf` `200 application/pdf`, cero `fetch`.
+
+### 63.3 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **`label.pdf` con el envío `cancelado`** ⇒ `404 LABEL_NOT_AVAILABLE` SIN `details` (el contrato declara
+   `{labelSource?}`; no inventé un `{status}`). Con `labelUrl` nula (URL rechazada al escribir) ⇒ ídem.
+2. **Nombre del fichero**: `orderNumber` (o el id) reducido a `[A-Za-z0-9_-]` (va en una cabecera).
+3. **`carrierAlert` «envío vivo»** = `status ∉ {entregado, cancelado}` (§19.3 no lo define). El DTO `carrierAlert` aún
+   no existe (llega con `applyCarrierStatus`, D2d); el filtro usa la misma función pura que usará el DTO.
+4. **`?alert=true`**: consulta ANCHA (superconjunto de los predicados) + derivación exacta en memoria con
+   `labelAlertOf`/`carrierAlertActive` ⇒ `id IN (…)`. Un solo cuerpo; ⛔ ninguna segunda definición en SQL. Escala con
+   el número de envíos con reclamo/sello/estado de alerta (pocos por construcción).
+5. **`?folio=` en blanco** ⇒ sin filtro (como §0-Q punto 1); con espacios alrededor ⇒ `400` (igualdad exacta).
+6. **El «otro ⇒ 409 CONFLICT» del paso 7** (CAS 0 sin rama) loguea `error` salvo cuando la causa es la dirección
+   corregida entre el paso 2 y el 7 (PS-105b/PS-113: esperado).
+7. **`label_cancel_unknown` solo en la re-emisión** (`sealed`, con persona); el reintento por el verbo de un `auto_close`
+   conserva el sello (§19.31.6 (3)). `getShipment` ante `ok:false` se aplica también a ese reintento.
+8. **`requestedAt` no se toca al REUTILIZAR** (paso 6 sin `force`: no hay escritura). Ver pregunta 2.
+
+### 63.4 Pruebas
+
+- **Unitarias nuevas** `test/sdx-d2c-cierre.units.spec.ts` (37): PS-166 (a) tabla 3×4 + literal + `purchaseKeyFor` sin
+  caché; PS-166 (b) arranque (5 variantes) y `fakeLabelUrlFor`; PS-166 (c) `evaluateMutationGate(readMutationGateInput(…))`
+  ⇒ `not_enabled` y firma sin cambio; `quoteExpiryFor` (PS-168 (a)(b), frontera, huella); PS-169 estático «claves del
+  reclamo ⊆ las de CADA deshacer» (4 sitios: `undo`, CAS local, `CLAIM_UNDO`, «Liberar») con canario sintético;
+  `parseFolioFilter`, `carrierAlertActive`, `labelFilenameOf`, el PDF del doble (xref apunta a objetos reales).
+  `skydropx.no-real-purchase.spec.ts` gana el censo de la llave del doble (solo `spend-gate.ts`, fuera de las dos
+  funciones del candado). `admin.user-detail-shape.spec.ts`: `isOwner` en los dos conjuntos de claves.
+- **Integración nuevas**: `sdx-d2c-cierre.e2e-spec.ts` (20: `label.pdf` ×5, filtros ×4, PS-167 ×5, PS-168 ×4, PS-169
+  ×2) y `sdx-d2c-fake-purchase.e2e-spec.ts` (3: PS-166 (d) con el cableado REAL, sin sustituir `LABEL_SPEND_KEY` ni la
+  selección). `sdx-d2c-label.e2e-spec.ts`: **PS-73 reescrita** (barrera de fila por un cliente Prisma APARTE —el pool de 5
+  de la app es de las 10 peticiones; con la barrera en el mismo pool el observador no conseguía conexión—, la `purchase`
+  demorada 300 ms, el reloj de la guía avanza 1 ms por lectura durante la ronda) + su **fila determinista** (candado
+  consultivo tomado por otra tx y el envío ya con guía ⇒ `SHIPMENT_ALREADY_LABELED`); **PS-122 (a)** con 60 y 160.
+  `sdx-d2b-quote.e2e-spec.ts` PS-95: «`requestedAt` intacto» sustituido por §19.31.2 (5). C-EQ-1: `?labelSource=` (E) y
+  `?alert=` (L) en el `REGISTRO` como `PENDIENTE-ARQUITECTO` (52 → 54, 18 → 20) con fixture propio (una guía manual
+  heredada y una de Skydropx con `exception`); `?folio=` a `NO_ENUM_POR_RUTA` (44 → 45).
+- **Proporciones** (autor: backend, este pase; N y sha dichos): PS-73 10/10 rondas verdes sobre `f61bfd7e` (N = 10;
+  `409 purchase_in_flight` en 3 de 90 respuestas perdedoras, `409 SHIPMENT_ALREADY_LABELED` en 0 de 90); sobre
+  `e8709204` con el reloj congelado: 10/10, 0 de 90.
+
+**Suites completas** sobre una copia `git archive` del árbol ENTERO en `f61bfd7e` (scratchpad `be-d2c-cierre/tree`,
+BD `tcg_be_d2cc` recreada):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **404/404 suites · 7009/7009** (también 404/7009 en `459f37dc`) |
+| Integración (`stack-native.sh test:integration`, pool 5) | **84/85 suites · 1772/1774**. Las 2 rojas son `admin-users-kyc-queue.e2e-spec.ts` `L-6` (super_admin y operador): aserta que el JSON del LISTADO de usuarios no case `/rfc/i`, y casó el `username` **`m-rfcf52e`** que `staff-without-email.e2e-spec.ts:221` crea como `m-r${sfx}` con sufijo aleatorio (colisión cuando el sufijo empieza por `fc`). Ajena a este pase (no toca el listado ni esos ficheros); la misma suite sola sobre BD recreada: **21/21** verde |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | 0 errores, 0 avisos |
+
+Carga durante la integración completa: 7–12 (4 CPU, otros agentes vivos); ninguna roja por timeout.
+
+**Mutaciones** (copia `git archive` de `e8709204` en `be-d2c-cierre/mut`, misma BD; script `mut.sh` aplica UNA
+mutación, corre la prueba y restaura el `src` limpio; logs `logs/mut-*.log`). Todas deterministas salvo M6 (N = 10 rondas
+dentro de la prueba):
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | `isPurchaseKeyTurned` = `ALLOW ∨ FAKE` sin mirar `kind` | PS-166 (a) | rojo: (`skydropx`, FAKE), (`fake`, ALLOW), `purchaseKeyFor` |
+| M2 | quitar `fakePurchaseKeyMisplaced` de la fábrica | PS-166 (b) | rojo: 5/5 variantes |
+| M3 | `allowSpend: SKYDROPX_ALLOW_SPEND ?? SHIPPING_FAKE_PURCHASE` | PS-166 (c) + censo | rojo (2) |
+| M4 | `fetch(labelUrl)` en la rama del doble de `label.pdf` | PS-166 (d) | rojo: `fetch` llamado 1 vez |
+| M5 | relectura sin `labelSource` | PS-73 fila determinista | rojo: `409:CONFLICT` en vez de `SHIPMENT_ALREADY_LABELED` |
+| M6 | quitar `labelProcessingSince: null` del CAS del reclamo | PS-73 | reloj congelado: **10/10** rondas MAL pero por un `500` (único `(shipmentRequestId, since)` del libro de intentos) con 1 `purchase`; reloj que avanza (versión final): **10/10** rondas MAL, **9/10** con 2 `purchase` |
+| M7 | `retryAfterSeconds = 5` / `T_UNKNOWN` en la fórmula | PS-122 (a) | rojo / rojo |
+| M8 | no revertir el sello cuando `cancel` lanza | PS-167 (a) | rojo (2) |
+| M9 | saltarse `getShipment` ante `ok:false` | PS-167 (b) | rojo (2) |
+| M10 | alargar una viva / heredar de la primera observación / no tocar `requestedAt` | PS-168 (a) / (b) / (c) | rojo / rojo / rojo |
+| M11 | columna nueva en el reclamo sin deshacer (`trackingNoticeSentAt`) / quitar `reason` del CAS local / quitar `claim_released` | PS-169 estático / PS-169 / PS-169 | rojo (nombra la columna) / rojo / rojo |
+| M12 | `?alert` ignorado / `manual` sin la heredada / `?alert` sin `carrierAlert` | filtros e2e; C-EQ-1 | rojo / rojo / rojo; C-EQ-1 `?alert= ⇒ conforme` rojo |
+| M13 | quitar `isOwner` de la cabecera de la ficha | `admin.user-detail-shape` | rojo (2) |
+
+⚠️ Visto de paso (NO de este pase, ⛔ no se tocó): en una de las dos corridas de C-EQ-1 con M12 salió además rojo
+`GET /admin/vaults?sort= ⇒ conforme` (`filtra`: huella igual con y sin `?sort=`); en la otra corrida mutada y en las dos
+limpias sobre la misma BD, verde. Proporción medida: 1 roja de 4 corridas (N = 4, autor backend). Dueño: stream
+«Inventario y vault».
+
+### 63.5 Lo que NO está aquí (medido con `grep` sobre `backend/src` en `f61bfd7e`)
+
+| Falta | Por qué | Comprobación |
+|---|---|---|
+| `SpendAlertDTO.muted`, `SpendAlertSummaryDTO.mutedCount`, `byKind` sin silenciados, AG-22 `facts.keys` camelCase (§19.31.8) | **No existe el código que cambiarían**: ni `SpendAlertDTO`, ni `summarizeSpendAlerts`, ni el panel de avisos, ni quien levanta AG-22 (`staff_control_by_non_owner`). Son de D2g (§19.31.10 fila 2b: «endpoints con `muted`, `mutedCount`…; §19.30.2 … AG-22»). La columna `SpendAlert.muted` sí existe y `raise` ya la escribe | `grep -rn "SpendAlertDTO\|summarizeSpendAlerts\|staff_control_by_non_owner" backend/src` ⇒ solo el mapa de códigos y `NEVER_MUTED` en `spend-alerts.service.ts` |
+| `isOwner` en `me` y en el LISTADO de usuarios (§19.30.3) | D2g. Las fichas ya lo tienen (este pase); el comentario del contrato «el listado ya se lo da» hoy NO es cierto en el código | `grep -rn "isOwner" backend/src/modules/users backend/src/modules/auth` ⇒ 0 |
+| Filas de §0-Q para `?labelSource=`/`?alert=`, y la clase de `?folio=` | arquitecto (preguntas 1 y 3) | `enum-query-axes.e2e-spec.ts` (`PENDIENTE-ARQUITECTO`) |
+| D2d, D2e, D2f, D2g | §19.31.10 filas 2a–3b | — |
+
+### 63.6 Preguntas al arquitecto
+
+1. **§0-Q punto 4 no tiene las filas** de `GET /admin/shipments?labelSource=` (E) ni `?alert=` (L), aunque §19.7
+   (`API_CONTRACT.md:24610-24611`) dice «§0-Q punto 4 los registra» (medido: `grep` en la tabla `:6876-6915` ⇒ 0). Entran
+   a C-EQ-1 como `PENDIENTE-ARQUITECTO`.
+2. **«La vigente» tras REUTILIZAR**: el paso 6 sin `force` devuelve la fila viva sin escribir, así que con
+   X (sobre) en T, Y (caja) en T+1 h y «sobre» otra vez en T+2 h SIN `force`, la respuesta es X (`reused:true`) pero
+   `GET …/quote` devuelve Y. §19.31.2 (5) solo cubre la ACTUALIZACIÓN. ¿Se escribe `requestedAt` también al reutilizar?
+3. **`?folio=` «clase L»** (S-GAS-2): su dominio es un formato y su `400` no lleva `allowed` (§0-Q punto 2 lo exige para
+   E/R/L). Lo registré en `NO_ENUM_POR_RUTA` (como las fechas). ¿Se confirma, o se quiere otra forma?
+4. **`label.pdf` con el envío `cancelado`**: ¿`404 LABEL_NOT_AVAILABLE` sin `details` (lo construido) o con `{status}`?
+5. **«Envío vivo» de `carrierAlert`** (§19.3): construido como `status ∉ {entregado, cancelado}`.
+6. **Cabecera de `M-66`**: dice «11 CHECK» y el SQL crea 12 (§61.1). No toqué la migración (ya aplicada); solo lo anoto.
+
+## 64 · D2d construida — rastreo y verificación de Skydropx (`API_CONTRACT §M4-SHIP.19.19.15` fila D2d con §19.27–§19.32): `applyCarrierStatus`, los tres jobs, `refresh-tracking`, «Salida de hoy», la evidencia negativa (construida y APAGADA), la conciliación de huérfanas con C-14/C-19 y fusible, AG-6/AG-9 (b)(c)(d)/AG-11/AG-12, y §19.32.2 (2026-10-05, rama `claude/skydropx-d`, desde `13942d3b`; código en `07ea87a6`, `473e8eb7`, `be2de724` + el commit de esta sección)
+
+Fuente: §19.19.15 fila D2d, §19.31.10 fila 2a y §19.32.9 (la partición con D2g), con §19.3, §19.9, §19.10, §19.18.1–.4,
+§19.19.9–.10, §19.27.4–.7, §19.28.2–.9, §19.29.1.3–.5, §19.29.4 (tabla del libro), §19.29.6 (AG-6/9/11/12), §19.30.6 (C-19),
+§19.32.2 y §19.32.5; `SECURITY_NOTES` C-14 y C-19. Columna respetada al pie de la letra (§19.32.9): `shipments/**`,
+`shipping-provider/**`, `jobs/{scheduler.service,jobs.module,admin-jobs.controller}.ts` (+ su `.spec`), pruebas `sdx-d2d*`,
+`helpers/label-db.ts`, dos `sdx-d2c*` cuya conducta cambió. ⛔ `prisma/` intacto (ninguna columna hizo falta). ⛔ Ningún código de
+error nuevo. ⛔ **Ninguna prueba ni CI compra (PS-99)**: el job no llama `purchase` (censo en `sdx-d2d.units.spec.ts` + el de
+PS-117), solo el doble.
+
+### 64.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| **`applyCarrierStatus(shipmentId, event)`** — §19.3 pasos 1–7 en UNA tx con el candado de fila: 2 (manual ⇒ `not_provider`), 2b (sintético sin cambio ⇒ solo `carrierPolledAt`), 3 (evento único por guía y llave; `createMany … skipDuplicates`: un P2002 abortaría la tx interactiva), 4 (CAS SEC-SDX-9), 5 (efectos con su precondición en el `WHERE`), 6, 7 (`shipment.carrier_event`, actor `system:carrier-poll`). Post-commit: AV-4 (guía en proceso que recibe número), AV-5 (al ganador de `enviado`) y el puerto de avisos AV-17/18/19 | `shipments/carrier-status.service.ts`, `carrier-notices.ts` |
+| **`transitionFromProvider(tx, id, to)`** — el cuerpo de `updateStatus` para el sondeo y el lote: guardas de §M4-SHIP.6, CAS `WHERE status='guia'`/`'enviado'`, `delivered` desde `guia` pasa por `enviado` en la MISMA tx (PS-79); `deliveredAt = max(occurredAt, observedAt)` (SEC-SDX-1). El movimiento de piezas se extrajo a `movePiecesOnTransition` (un cuerpo: lo usa también `updateStatus`, sin cambio de conducta) | `shipments/shipments.service.ts` |
+| **`setTrackingFromProvider`** (§19.3 `created`): la guía en proceso recibe su número con el reclamo EXACTO en el `WHERE` | `carrier-status.service.ts` |
+| **Job `shipment-tracking-poll`** (50 por corrida, `carrierPolledAt asc` nulos primero, no-op con `off`/`noop`, single-flight) y **`refresh-tracking`** (6/min POR ENVÍO con `ShipmentThrottlerGuard`; `404 FEATURE_DISABLED` con `off`) | `tracking-poll.job.ts`, `shipment-throttler.guard.ts`, `admin-shipments.controller.ts` |
+| **Job `shipment-label-processing`**: guía en proceso; compra en vuelo (cadencia: primera mirada a `since + PURCHASE_MAX_LIFE`, cada minuto hasta `T_UNKNOWN`, cada 10 min hasta 24 h); `found` ⇒ adopta (`recent_list`, cable trampa), `not_sent`/`not_charged` ⇒ libera (`auto_not_sent`/`auto_verified`), `duplicate` ⇒ dos filas `origin:'duplicate'`, `label_verify_uncertain` UNA vez (AG-9 (a)); calibración pasiva (log `inflight_calibration`); purga diaria de cotizaciones (SEC-SDX-6) | `label-processing.job.ts`, `label-recovery.service.ts` (`adoptFound`, `autoRelease`, `markUncertain`, `recordDuplicates`) |
+| **Evidencia negativa** (§19.27.4 paso 4 con §19.28.9): dos testigos (listado `readable ∧ coversFrom ∧ folio leído en todos ∧ ninguno con nuestro folio` + saldo al centavo), contaminación ampliada (`T_DEBIT_LAG`/`T_REFUND_LAG`), filas `label_verify_clean/dirty`, dos limpias separadas ≥ `T_VERIFY_GAP`, **cable trampa** (`shipment.inflight_negative_violated` ⇒ sin `not_charged` 30 días). Sigue **APAGADA** (`INFLIGHT_NEGATIVE_VERIFIED = false`) | `label-recovery.service.ts` |
+| **Conciliación de huérfanas**: tardías en los listados YA leídos (`label_orphan {cause:'late'}` + `ShipmentPaidLabel {origin:'orphan'}`), y la cancelación sola SOLO con (a) legible con rastreo, (e) sin movimiento, (b) envío `cancelado` o guía vigente `skydropx` con otro id, (c) rastreo normalizado ajeno a todo envío nuestro, (d) fusible por INTENCIONES bajo `ORPHAN_FUSE_LOCK_KEY` (65 310 703); AG-9 (b) 🔴 / (c) 🟡 / (d) `orphan_fuse` / `orphan_cancel_unknown` | `orphan-reconcile.service.ts` |
+| **Job `shipment-extra-charges`** (45 d, idempotente por `providerChargeId`, guía del envío o del libro, `kind`, IVA 16/116, `chargedAt` del cargo o `observedAt`) y **AG-6** | `extra-charges.job.ts` |
+| **«Salida de hoy»**: `GET /admin/shipments/departure?date=` (lista blanca + `folio`, S-GAS-1) y `POST /admin/shipments/departed` | `departure.service.ts`, `admin-shipments.controller.ts` |
+| **DTO**: `carrierAlert {status, detail, at}` con `carrierAlertActive` (§19.32.5, un cuerpo) | `shipments.service.ts`, `label-view.ts` |
+| **AG-11 / AG-12** desde `applyCarrierStatus`, en la tx del hecho (outbox: el correo de AG-11 lo despacha D2g) | `carrier-status.service.ts` |
+| **§19.32.2**: REUTILIZAR sin `force` escribe `requestedAt`/`requestedByUserId` con CAS `expiresAt > now`; `count 0` ⇒ red | `label-quote.service.ts` |
+| Puerto: `ProviderEvent.detail/branchName/providerEventId` (aditivo, tolerante; la llave solo se pone si viene) | `shipping-provider.port.ts`, `skydropx.adapter.ts`, `fake-shipping-provider.ts` (`pushEvent` con extras) |
+| Planificador: `shipment-tracking-poll` (`SHIPMENT_TRACKING_POLL_CRON`, `*/10`), `shipment-label-processing` (`…_LABEL_PROCESSING_CRON`, cada minuto), `shipment-extra-charges` (`…_EXTRA_CHARGES_CRON`, `30 8 * * *`); `POST /admin/jobs/<name>` (súper-admin, auditados; `{shipmentId?}` en el sondeo) | `jobs/scheduler.service.ts`, `jobs.module.ts`, `admin-jobs.controller.ts` |
+
+### 64.2 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **AV-17/18/19 por un PUERTO** (`CARRIER_NOTICES`): D2d decide QUÉ hecho ocurrió (evento nuevo ⇒ aviso) y lo entrega post-commit; la
+   plantilla, el destinatario y el SELLO (`deliveredNoticeSentAt`, `branchNoticeSentAt`, `lastDeliveryAttemptAt`) son de **D2e**, que
+   sustituye el proveedor por defecto (hoy: log `info carrier_notice_pending`, ⛔ ningún correo al cliente; `C-AV-1` sigue 19).
+   AV-17 se entrega con `delivered` aunque el CAS de estado cuente 0 (PS-75); AV-19 uno por evento (la llave lo garantiza).
+2. **La llave del evento**: id del evento si Skydropx lo da (`id:<id>`) > `estado:<occurredAt crudo>` > `estado`. Sin historial, el
+   sintético de §19.18.2. Un evento de historial sin fecha toma `updated_at` o `now` como `occurredAt` (su llave no lleva `now`).
+3. **Excepción al paso 2b**: un `created` sintético con NÚMERO sobre una guía en proceso sin número NO es «sin cambio» (si no, el
+   número no se escribiría nunca: el estado ya podía ser `created`). En modo «en proceso» el `created` va primero.
+4. **AG-11/AG-12 dentro de la tx del hecho** (no post-commit): el evento se inserta una vez ⇒ el aviso se crea una vez y no se pierde si
+   el proceso muere tras el commit. AG-11 🔴 queda `mailStatus='pending'` para el despachador de D2g. `facts` por lista blanca.
+5. **Estado desconocido** (§19.19.10): log `warn unknown_carrier_status` + bitácora `shipment.carrier_status_unknown {value}` UNA vez por
+   envío y valor; ⛔ nunca un `500`. ⛔ NO entra a `carrierAlert` (su `status` es `CarrierStatus`): pregunta 2.
+6. **Un sondeo que falla** cuenta como sondeo (`carrierPolledAt = now`): un envío que siempre falla no tapa a los demás del lote.
+7. **`refresh-tracking`** de una guía EN PROCESO lee su número (mismo cuerpo); guía manual, cancelada o envío cerrado ⇒ `200` con el DTO
+   y cero llamadas; error del proveedor ⇒ se propaga (`502/503`).
+8. **`departed`**: ids repetidos una vez; uuid; id inexistente ⇒ `rejected {code:'NOT_FOUND'}`; `picking` sin guía ⇒ `rejected
+   {code:'CONFLICT'}`; las guardas con SU código (`ORDER_NOT_SETTLED`, …). El grupo de «Salida de hoy» es el `carrierName` de la tarifa
+   comprada (`provider_name`, el de `shipping_preferred_carriers`), `carrierLabel` el visible.
+9. **`not_sent` pasadas 24 h** se libera igual (es un hecho LOCAL: la compra no salió); lo demás deja de mirarse a `T_VERIFY_TAIL`.
+10. **`duplicate`** escribe su `label_verify_uncertain {reason:'duplicate'}` EN EL ACTO (no espera a `T_UNKNOWN`): después los dos ids
+    son conocidos y la lectura siguiente ya no los vería.
+11. **Una huérfana se evalúa UNA vez** (la marca es su AG-9 `ag9:o:<Y>`): una persona la atiende; ⛔ no se lee cada minuto. La fusionada
+    lleva además su `ag9:o:<Y>` (`cause:'orphan'`) junto al `ag9:fuse:<díaMX>`. `cancel` con `ok:false` ⇒ AG-9 🔴 `orphan` (la intención
+    cuenta). La comparación (c) en SQL usa `regexp_replace(upper(normalize(x, NFKC)), '[^A-Z0-9]', '', 'g')` (el mismo cuerpo que
+    `normalizeTracking`).
+12. **Contaminación ⇒ `unreadable`** como motivo a `T_UNKNOWN` (el saldo «no vota»; el enum no tiene `contaminated`).
+13. **Cadencia de cola y calibración en MEMORIA** del proceso (se purgan una vez al día). Tras un reinicio, la primera mirada de cola sale
+    de inmediato (solo LECTURA). Single-flight en el proceso; la idempotencia la dan las llaves y los CAS.
+14. **`@Optional()`** en los tres jobs del planificador y de `AdminJobsController`: SOLO por las pruebas unitarias ajenas que construyen
+    con la lista posicional (`test/scheduler.spec.ts`, `test/admin-jobs.controller.spec.ts`, fuera de mi columna). Sin ellos el
+    planificador NO los programa y loguea `error`; el disparo responde `404`. Que la app real los inyecta lo asevera la integración.
+15. **Purga diaria** (SEC-SDX-6) por SQL: cotizaciones vencidas hace > 30 d cuya `providerQuotationId` no es la de su envío.
+16. **Medido de paso** (lo dice la prueba): la compra escribe `carrierStatus:'created'` con `carrierStatusAt` = NUESTRO reloj; un evento
+    del transportista fechado ANTES (desfase de reloj) no mueve `carrierStatus` (el CAS de SEC-SDX-9), aunque sus efectos sí corren.
+    Pregunta 4.
+
+### 64.3 Pruebas
+
+- **Unitarias nuevas**: `test/sdx-d2d.units.spec.ts` (32: `carrierEventsOf` — la llave sintética NUNCA lleva `now`, historial
+  en orden, id del evento —; `normalizeTracking` con canario de «solo espacios»; `adjustmentKindOf`; «Salida de hoy» — día MX por
+  defecto, ida y vuelta, fin del día MX, el lote —; la llave del cubo de `refresh-tracking`; censos `C-SDX-5` (llamadores de
+  `applyCarrierStatus`, `pollShipment`, `recoverInFlightLabel`), PS-99/PS-117 (cero `.purchase(`/`.protect(` en los ficheros de D2d;
+  la única `port.cancel(` nueva vive en la conciliación) y el fusible bajo `ORPHAN_FUSE_LOCK_KEY` con la intención ANTES de `cancel`);
+  `test/sdx-d2d.scheduler.spec.ts` (3: crons por defecto y por env, enrutado, sin los servicios no se programan);
+  `src/jobs/admin-jobs.controller.spec.ts` (+3: los tres disparos auditan, `200`, sin servicio `404`).
+- **Unitarias que cambiaron** (su conducta cambió, §19.32.9): `sdx-d2c-cierre.units.spec.ts` PS-169 (cinco deshacer: el quinto es
+  `autoRelease`), `sdx-d2c.label-units.spec.ts` PS-132 (b) (el fusible es el segundo candado de `shipments/`).
+- **Integración nuevas** (Postgres real, app completa por HTTP, doble del proveedor, llave de compra sustituida):
+  `sdx-d2d-tracking` (PS-72, PS-75, PS-78, PS-79, PS-150, `refresh-tracking`, relleno de `labelUrl`, estado desconocido, `off`),
+  `sdx-d2d-departure` (PS-77), `sdx-d2d-verify` (cadencia, PS-124…PS-127, PS-133, PS-134 (a)(c), duplicado),
+  `sdx-d2d-orphans` (PS-130 con C-14 y C-19: control positivo por el flujo REAL, (a)…(e)), `sdx-d2d-charges` (PS-80, PS-144 y el
+  CABLEADO: el planificador recibe los tres jobs del AppModule real). `sdx-d2c-cierre.e2e-spec.ts` gana **PS-168 (e)** (§19.32.2).
+  `helpers/label-db.ts` sustituye el puerto `CARRIER_NOTICES` por un registro (`NoticeRecorder`).
+- **Proporciones** (autor: backend, este pase; N = 10 rondas por corrida): PS-72 concurrente (10 lecturas simultáneas por ronda ⇒ 1
+  fila, 1 transición, 1 AV-5) **10/10** en cada una de 5 corridas (50/50 rondas; la última en `be2de724`); PS-77 concurrente (10 lotes `departed`
+  simultáneos sobre el mismo envío ⇒ 1 `shipped`, 1 AV-5) **10/10** en cada una de 4 corridas (40/40 rondas).
+- **Suites completas** sobre una copia `git archive` del árbol ENTERO (scratchpad `be-d2d/tree`, BD propia `tcg_be_d2d`):
+
+  | Suite | sha | Resultado |
+  |---|---|---|
+  | Unitaria (`npx jest`) | `473e8eb7` | **406/406 suites · 7047/7047** |
+  | Integración (`stack-native.sh test:integration`, pool 5) | `473e8eb7` | **89/90 suites · 1844/1845**. La roja es la **esperada**: `C-EQ-1` (`enum-query-axes.e2e-spec.ts`, «DESCUBRIMIENTO») nombra `GET /admin/shipments/departure::date` — hasta la costura **C2** (§19.32.9: el fichero es de D2g en esta fase). Carga 4–16 (4 CPU, otro agente vivo); ninguna roja por timeout |
+  | Unitarias de D2d/D2c/Skydropx/jobs + integración `sdx-d2*` y `C-EQ-1` | `be2de724` | 23/23 · 588/588; 15/16 · 727/728 (la misma roja esperada de `C-EQ-1`) |
+  | **Árbol combinado D2d + D2g** (unitaria e integración completas) | `f7b4eebd` | **407/407 · 7095/7095**; **93/94 · 1922/1923** — la única roja, la ESPERADA de `C-EQ-1` (`departure::date`); PS-72 y PS-77 10/10 otra vez (60/60 y 50/50 en total) |
+  | `tsc --noEmit`, `eslint` de los ficheros tocados | `be2de724` | 0 errores, 0 avisos |
+
+### 64.4 Mutaciones
+
+Sobre una copia `git archive` de **`473e8eb7`** (scratchpad `be-d2d/mut`, misma BD); `mut.sh` aplica UNA mutación, corre la prueba y
+restaura; logs `be-d2d/logs/mut-*.log`. En las carreras, la proporción es de rondas MAL dentro de la prueba (N = 10).
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| U1 | la llave del evento sintético con `now` | `carrierEventsOf` | rojo |
+| U2 | normalizar solo espacios (C-19 (c)) | `normalizeTracking` + canario | rojo (5) |
+| U3 | un `.purchase(` en el job | censo PS-99/PS-117 | rojo |
+| I01 | CAS del paso 4 sin `carrierStatusAt` (SEC-SDX-9) | PS-72 fuera de orden | rojo |
+| I02 | `transitionFromProvider` con `status IN (guia, enviado)` | PS-77 | **sobrevivió**: el candado de fila (`FOR UPDATE`, primera sentencia del llamador) serializa y la relectura bajo él ve `enviado`; el CAS es el SEGUNDO muro |
+| I02b | los dos muros a la vez (sin `FOR UPDATE` en `departed` **y** sin el CAS) | PS-77 concurrente | rojo: **0/10** rondas bien (10/10 MAL) |
+| I03 | `deliveredAt = occurredAt` (SEC-SDX-1) | PS-78 | rojo |
+| I04 | `delivered_to_branch ⇒ entregado` | PS-78 | rojo |
+| I05 | AV-17 solo si ganó la transición | PS-75 | rojo |
+| I06 | quitar (e) «sin movimiento» (C-19) | PS-130 (d) y estado desconocido | rojo (2) |
+| I07 | el fusible cuenta ÉXITOS (`cancelledAt`) en vez de intenciones | PS-130 (e) | rojo |
+| I08 | aceptar una guía vigente manual en (b) (C-14) | PS-130 (b) | rojo |
+| I09 | liberar con UNA lectura limpia | PS-126 | rojo (4) |
+| I10 | contaminación limitada a `[since, now]` (`T_DEBIT_LAG` fuera) | PS-133 | rojo |
+| I11 | ignorar el cable trampa | PS-133 | rojo |
+| I12 | mirar antes de `since + PURCHASE_MAX_LIFE` | cadencia | rojo |
+| I13 | AG-6 también para `cancel:` | PS-144 | rojo |
+| I14 | `knownIds` como candidatos | PS-124 | rojo (X cuenta como segundo folio ⇒ duplicado) |
+| I15 | ignorar el `count` del CAS al reutilizar | PS-168 (e) vencida | rojo |
+| I15b | reutilizar SIN escribir `requestedAt` | PS-168 (e) | rojo (2) |
+| I16 | escribir sin el CAS `expiresAt > now` | PS-168 (e) vencida | rojo |
+| I17 | AG-11 como 🟡 | PS-150 | rojo (2) |
+| I18 | la comparación (c) sin normalizar en SQL | PS-130 (d) | rojo |
+
+⛔ **No medida**: «`autoRelease` sin el `since` exacto en el `WHERE`» (PS-126, «reclamo renovado») — mi prueba renueva el reclamo
+ANTES de la lectura que daría `not_charged`, así que el CAS nunca llega a decidir; morder exige una barrera entre el veredicto y la
+escritura. El muro existe (CAS `labelProcessingSince: since` + CAS inverso del intento) y es el mismo patrón que «Liberar» (PS-137).
+
+### 64.5 Lo que NO está aquí (medido con `grep` sobre `backend/src` en `be2de724`)
+
+| Falta | Por qué / de quién |
+|---|---|
+| **C1** (`spend-watch`/`spend-digest` en el planificador y en `admin-jobs`) y **C2** (`'GET /admin/shipments/departure::date'` a `NO_ENUM_POR_RUTA` de `C-EQ-1`) | costuras serializadas (§19.32.9): un agente después |
+| Los correos AV-17/AV-18/AV-19, `timeline`, `customerUrl` | D2e (§19.31.10 fila 3a): sustituye `CARRIER_NOTICES` |
+| AG-8 (b) y AG-10 | D2g (`spend-watch`, §19.32.9) |
+| P&L de los ajustes, `workQueue.shipping.withCarrierAlert` | D2f (usa `carrierAlertActive`) |
+
+### 64.6 Preguntas al arquitecto
+
+1. **PS-75 contra §19.10.** PS-75 pide «`entregado` a mano en un envío Skydropx ⇒ cero AV-17; después `delivered` del doble ⇒
+   AV-17 una vez», pero §19.10 dice «envíos `entregado`/`cancelado` **no se consultan**» (criterio 241): tras un `entregado` a mano el
+   sondeo (y `refresh-tracking`) ya no leen ese envío, así que AV-17 **nunca** sale por el sondeo. Lo construido respeta §19.10; la
+   conducta de `applyCarrierStatus` (AV-17 aunque el CAS cuente 0) está probada llamando al cuerpo directamente. ¿Se amplía el dominio
+   del sondeo (p. ej. `entregado` de Skydropx sin `carrierStatus='delivered'` durante N días) o se reescribe PS-75?
+2. **Estado desconocido en la tarjeta** (§19.19.10: «alerta del transportista con `detail = value`»): `carrierAlert.status` es
+   `CarrierStatus` y no puede llevar un valor desconocido. Construido: log + bitácora `shipment.carrier_status_unknown {value}` (una vez
+   por envío y valor), ⛔ sin alerta en el DTO. ¿Cómo se pinta (otro campo, `status:'exception'` con `detail=value`, …)?
+3. **El dinero de una huérfana o un duplicado** no entra al P&L: su `ShipmentPaidLabel` lleva `chargedCents` (lo cuenta TG-1/TG-2), pero
+   ningún `ShipmentCostAdjustment` ni `shippingCostCents` lo recoge; si se cancela con reembolso parcial, tampoco el no devuelto. ¿Un
+   ajuste `kind:'other'` (como `cancel:` de SEC-SDX-11) al detectarla, o lo decide D2f?
+4. **`carrierStatusAt` de la compra** (§19.7 paso 9, D2c) es NUESTRO reloj: un evento del transportista fechado unos segundos ANTES
+   (desfase) no mueve `carrierStatus` (CAS de SEC-SDX-9), aunque sus efectos sí corren. ¿Se escribe `carrierStatusAt = null` al comprar
+   (el `created` de la compra no es un evento del transportista), o se acepta?
+5. **AG-8 (b) y AG-10** quedaron en D2g por §19.32.9 (pasos de `spend-watch`); §19.29.6 los pone en D2d. No están aquí.
+6. **`?alert=true` y `carrierAlert`** siguen sin incluir el estado desconocido (pregunta 2); `workQueue.shipping.withCarrierAlert` (D2f)
+   debe usar `carrierAlertActive` (§19.32.5).
+
+## 65 · D2g construida — el despacho de avisos al dueño y la cuenta del dueño (`API_CONTRACT §19.29.5–.9`, `§19.30.1–.3, .7, .9`, `§19.31.8`, `§19.32.1, .8, .9`) (2026-10-05, rama `claude/skydropx-d`, en paralelo con D2d; código en `e367ca20`, pruebas en `55b82ecb` y `07fecc57` + el commit de esta sección)
+
+Fuente: la columna D2g de `§19.32.9` al pie de la letra, `§19.31.10` fila 2b, y las condiciones C-20, C-21 y C-24 de
+`SECURITY_NOTES.md:1-158`. ⛔ Sin `prisma/` (todo lo que D2g necesita ya existía: `M-68`), sin `shipments/**`,
+`shipping-provider/**`, `jobs/**`, `mail/`, `auth/` ni `app.module.ts`. La interfaz con D2d (`raise`, `resolve`,
+`observeBalance`, `RaiseInput`, `dayMx`, `SPEND_ALERT_CODE_OF`) **no cambió de firma**; lo nuevo del servicio es aditivo.
+**No incluye las costuras C1/C2** (van después, un solo agente).
+
+### 65.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| **Despacho del correo (outbox)**: bajo `pg_advisory_xact_lock(SPEND_MAIL_LOCK_KEY = 65_310_702)` cuenta los `sent|sending` con `mailedAt` en la hora de reloj y decide en la MISMA tx `pending|failed → sending` (con `mailedAt`) o `→ batched` (`batchHour`); envío después del commit; `sent` / `failed` (+1 intento, ≤ 3); `sending` > 10 min ⇒ `failed_unknown` sin reintento. Cupo global 5/h; **C-24**: con `subjectUserId`, 2 por persona y hora (lo demás de esa persona al lote). **AG-21** nunca al lote y también a la cuenta ANTERIOR (con correo, activa). Sin dueño ⇒ `no_recipient` + `warn`. El **lote** de cada hora cerrada: `batched → batch_sent` en la tx del candado, luego UN correo; fallo conocido ⇒ vuelven a `batched` | `spend-alerts/spend-mail.service.ts` |
+| **Plantillas `AVG-1/2/3`** (patrón §R.1, `MAIL_PORT` inyectado, ⛔ `mail/` intacto), con el título y la frase de cada tipo de `DESIGN_SYSTEM §43.19.11` / `§43.20.2–.4, .7, .10`; pie GASTO (y la variante de la cuenta anterior en AG-21); «Frenar» en prosa a `admin/m10` en los 🔴 de guías | `spend-alerts/spend-alert.mail.ts`, `spend-alert-text.ts` |
+| **Panel**: `GET /admin/spend-alerts` (ejes `kind`/`severity` E, `unseen`/`muted` L, `subjectUserId`, `from`/`to` días MX, `page`/`pageSize` ≤ 100 def. 25, orden `firstOccurredAt desc`), `GET …/summary` (= `summarizeSpendAlerts`), `GET …/:id`, `POST …/seen` (`{updated, skipped}`, bitácora `spend_alert.seen {count, skipped}`). `@Roles(vault_operator, super_admin)` + `@MoneyOut()` de clase, `no-store` | `spend-alerts/spend-alerts.controller.ts`, `spend-alerts-panel.service.ts`, `spend-alert.view.ts`, `mx-day.ts`, `spend-summary.ts` |
+| **`spend-watch`** (`run()`): (0) la marca del dueño contra `SpendOwnerWatch` ⇒ AG-21 (y `error NO_OWNER_ACCOUNT`); (1) correos; (2) lotes; (3) con `shipping_provider='skydropx'`: saldo por la lectura cacheada (⇒ `observeBalance`, AG-7), **AG-8 (b)** (avisa y sella `refundAlertedAt`, CAS) y **AG-10** (crea 🟡 y resuelve). Single-flight por `pg_try_advisory_xact_lock(SPEND_WATCH_LOCK_KEY = 65_310_710)` | `spend-alerts/spend-watch.service.ts`, `provider-balance.service.ts` |
+| **`spend-digest`** (`run({day?, now?})`): ayer MX; `INSERT SpendDigestRun … ON CONFLICT DO NOTHING` (una vez por día; un `failed` lo re-manda el cron o `{day}`), cero ⇒ `empty` sin correo; si no ⇒ un `AVG-3` por dueño. Candado `SPEND_DIGEST_LOCK_KEY = 65_310_711` | `spend-alerts/spend-digest.service.ts` |
+| **Arranque**: `NO_OWNER_ACCOUNT` (`error`, ⛔ no tumba) | `spend-watch.service.ts` (`onApplicationBootstrap`) |
+| **Diales del dueño** (C-21 (a)): `OWNER_ONLY_SETTING_KEYS` (las 11 de §19.29.8 + `shipping_label_purchase`); `PUT /admin/settings` ⇒ validación por clave (`422`, para cualquiera) → no dueño con alguna de esas claves DISTINTA ⇒ `403 OWNER_ONLY_SETTING {keys}` (DTO, ordenadas), nada escrito, `settings.owner_only_denied {keys}` fuera de tx, AG-22 🔴; IGUAL ⇒ se quita del cuerpo. `SettingsController` pasa a `@Roles(op, sa)` + `@MoneyOut()` de clase (§19.29.8). `validatePayload` = la validación de `update` extraída (un cuerpo) | `settings/settings.constants.ts`, `settings.controller.ts`, `settings.service.ts`, `settings.module.ts` |
+| **Cuenta del dueño protegida** (C-21 (b)): `reset-password` (destino marcado ∧ actor ≠ destino), `status` (siempre), `DELETE` (tras `CANNOT_DELETE_SELF`) ⇒ `403 OWNER_ACCOUNT_PROTECTED`; la guarda va en el `where` de la escritura (`where` único extendido, `isOwner: false`) además de la lectura; bitácora `user.admin_action_denied {attempted, reason:'owner_protected'}` (⛔ el rechazo no depende de ella) + AG-22 🔴. `AdminDeniedAttempt` gana `'status' \| 'delete'` | `admin/admin.service.ts`, `admin.controller.ts`, `audited-super-admin.guard.ts`, `admin.module.ts` |
+| **AG-22** (C-21 (c)): `staff_created` (🔴 si super_admin), `staff_password_reset` (🔴 si super_admin), `staff_status_changed`, `staff_deleted` (🟡), `owner_account_denied`, `owner_setting_denied` (🔴); post-commit, ⛔ nunca hace fallar al acto; actos sobre clientes ⇒ nada; el dueño ⇒ no-op (`raise`) | `spend-alerts/staff-control.service.ts` |
+| **`isOwner`** en `GET/PATCH /users/me`, en `GET /admin/users` y en la respuesta de `PATCH …/status` (`isOwnerAccount` de la fila) | `users/users.service.ts`, `admin/admin.service.ts` |
+| **Códigos** `OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`; **bandas 1–2** de `SpendAlertKind`/`SpendAlertSeverity` | `common/error-codes.ts`, `common/enum-values.ts` |
+
+### 65.2 Medido (no supuesto)
+
+- **Ciclo `SettingsModule` (global) → `SpendAlertsModule`**: NO lo marca Nest. La app completa arranca en cada suite de
+  integración (`E2EHarness.create` compila `AppModule`) sin `forwardRef` (94 suites en `int-full-1`).
+- **`SpendAlertDTO.shipment.kind`** (S-GAS-2 pedía medir): el tipo existente es `ShipmentKind = 'guest_direct_ship' |
+  'vault_withdrawal'` (`shipments.service.ts:140`); **`'order_ship'` no existe** y, como manda la errata, se usa el tipo
+  existente (con orden `direct_ship` ⇒ `guest_direct_ship`; sin orden ⇒ `vault_withdrawal`; otro ⇒ `null`).
+- **T-FLAKY-RFC-1**: ver 65.4.
+
+### 65.3 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **`422` antes que `403 OWNER_ONLY_SETTING`**: la validación por clave corre primero (un cuerpo inválido es `422` para
+   cualquiera; no revela nada). Así `sdx-d-schema` («tope en 0 ⇒ 422» con el súper-admin del seed, que no es dueño) sigue
+   siendo verdad. Solo se lee el actor si el cuerpo trae alguna clave del dueño.
+2. **`spendAlertsDisabled` se compara como CONJUNTO** (un formulario que lo reordena no «mueve» el dial); los demás, JSON
+   canónico.
+3. **Protección por la MARCA cruda** (`User.isOwner`), no por `isOwnerAccount`: una cuenta marcada pero bloqueada sigue
+   protegida (falla cerrado; se rescata con el script). El resto de decisiones (exención, destinatario, diales) usa
+   `isOwnerAccount`.
+4. **`facts` con objetos** (`target` de AG-22, `previousOwner`/`currentOwner` de AG-21): el contrato los define así, pero el
+   tipo CONGELADO `SpendFacts` y el `facts` del DTO (§19.29.9) solo nombran escalares. Se escriben con un cast en el llamador
+   (⛔ sin tocar `RaiseInput`). Pregunta 2.
+5. **`summary` sin `from`/`to`** ⇒ hoy (día MX); con uno solo ⇒ ese día.
+6. **`?unseen=true`** = `seenAt IS NULL` (incluye silenciados; se combina con `?muted=`). Coincide con la fila de §0-Q.
+7. **Enlaces sin cadena de consulta**: PS-153 exige «sin `?`»; los CTA de `AVG-2/3` van a `admin/spend-alerts` sin los
+   filtros que sugería `DESIGN_SYSTEM §43.19.12`. Pregunta 3.
+8. **El correo a varios destinatarios** (solo AG-21 con la cuenta anterior): si falla uno, el aviso queda `failed` y el
+   reintento manda a los dos otra vez (a lo sumo 3).
+9. **AG-21 por par de cuentas**: `ag21:<anterior>:<actual>`; un A→B→A→B repite la llave de la primera vez y el segundo A→B
+   solo sube `occurrenceCount` (sin correo). Pregunta 4.
+10. **AG-10 no se repite cada 5 min**: si ya existe `ag10:<paidLabelId>` (abierto o resuelto) no se vuelve a levantar.
+11. **El `skipped` de `seen`** se cuenta en la misma tx que la escritura (`count` de candidatos − `updated`).
+
+### 65.4 Pruebas
+
+- **Unitarias nuevas** `test/sdx-d2g.units.spec.ts` (42): **PS-165** (`OWNER_ONLY_SETTING_KEYS` ⊇ las 11 claves de §19.29.8
+  LEÍDAS DEL CONTRATO + `shipping_label_purchase`, y todo `spend_alert*` del código dentro; canarios), `ownerOnlyDtoKey`
+  en camelCase (S-GAS-9), seeds de PS-155 y el validador sin AG-21/22; claves de candado (702/703 y 710…719; todo
+  `pg_advisory_xact_lock` de `spend-alerts/` con constante); **PS-157 / C-GAS-1** (escritores de `SpendAlert` SOLO
+  `spend-alerts.service.ts`, ningún borrado, `SpendOwnerWatch` solo `spend-watch.service.ts`, canario); la frontera de día
+  MX (PS-154); plantillas: cada tipo con disparador en ES/EN y SDX-I-8 sobre `AVG-1/2/3`; gravedad de AG-22.
+- **Integración nuevas** (helper propio `test/integration/helpers/spend-db.ts`: reloj del módulo manual con hora PROPIA por
+  corrida, puerto de correo que captura, el doble del proveedor, personas propias; la marca por SQL como PS-160):
+  `sdx-d2g-mail` (12: destinatarios, 5/h + lote, mismo `dedupKey`, fallo y reintento ≤ 3, `failed_unknown`, **C-24**,
+  AG-21 fuera del lote y a la anterior, **canarios del cliente en los 14 tipos con disparador + SDX-I-8**, **carrera**,
+  `spend-watch` (1)(2)); `sdx-d2g-panel` (12: PS-152, C-21 (d), `muted`/`?muted=`/`mutedCount`/`byKind`, ejes, `isOwner`);
+  `sdx-d2g-owner` (15: PS-155, **PS-161** con su **carrera**, falla cerrado sin dueño, PS-162, PS-163); `sdx-d2g-watch` (7:
+  PS-160 (d), PS-147 (b), PS-149, AG-7 cacheado, PS-154).
+- **Cambiadas por el contrato** (`isOwner` en DTOs de claves exactas, §19.30.3): `users.me-and-addresses.spec.ts`,
+  `admin.users-kyc-filter.spec.ts`, `integration/account-profile`, `integration/admin-users-kyc-queue` (L-1),
+  `integration/pricing-visibility` (`PATCH …/status`). `enum-values-parity` (+`SpendAlertKind`/`Severity`, bandas 1–3).
+  **C-EQ-1**: los 4 ejes de `spend-alerts` al REGISTRO como `transcrita` con fixture propio (l); `?labelSource=`/`?alert=`
+  salen de `PENDIENTE-ARQUITECTO` (§19.32.1); trinquete 54→**58** y 20→**18**; `NO_ENUM_POR_RUTA` +5
+  (`spend-alerts::subjectUserId|from|to`, `summary::from|to`), techo 45→**50** con la razón (§19.32.1).
+- **T-FLAKY-RFC-1** (§19.32.8): `L-6` aserta **ninguna llave** que case `/rfc/i` (recorrido del JSON) y **ningún valor** del RFC
+  que su fixture SIEMBRA (un usuario `verified` con `rfcEnc` cifrado por `PiiCryptoService`; ni en claro ni cifrado); la
+  primera consulta comprueba que ese usuario ESTÁ en la página. Medido: (a) **determinista**: con un usuario `m-rfcd2g0` en
+  la base, la `L-6` nueva **verde** y la aserción vieja (subcadena) **roja 2/2** (super_admin y operador); (b) **N = 10**
+  corridas del par `staff-without-email` + `admin-users-kyc-queue` sobre la misma base: **10/10 verdes** (⚠️ en esas 10 no se
+  dio el `m-rfc…` natural — 11 `m-r…` creados, 0 con `fc`: el N=10 no distingue por sí solo; lo distingue (a)); (c) mutación
+  «llave `rfcOnFile` en el listado» ⇒ **rojo 2/2**.
+
+**Suites completas** sobre una copia `git archive` del árbol ENTERO en `f7b4eebd` (HEAD de la rama con D2d y D2g; scratchpad
+`be-d2g/tree`, BD `tcg_be_d2g` recreada):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **407/407 suites · 7095/7095** |
+| Integración (`stack-native.sh test:integration`, pool 5) | **93/94 suites · 1922/1923**. La roja es la **esperada**: `C-EQ-1` «DESCUBRIMIENTO» nombra `GET /admin/shipments/departure::date` (eje de D2d) hasta la costura **C2** |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | 0 errores, 0 avisos |
+
+Carga durante la integración: 2–8 al final (4 CPU, otro agente vivo antes); ninguna roja por timeout.
+
+**Proporciones** (autor: backend D2g; sha `f7b4eebd`; dentro de cada prueba, N = 10 rondas): **PS-153 carrera** 10/10 rondas
+con exactamente 5 individuales + 5 al lote (también 10/10 en `55b82ecb` y en las corridas de desarrollo); **PS-161 carrera**
+10/10 rondas con el tope de la dueña intacto.
+
+**Mutaciones** (copia `be-d2g/mut` de `07ea87a6` + D2g, misma BD; `mut.py` aplica UNA, corre su prueba con `-t` y restaura
+`src`; logs `logs/mut-*.log`). Todas **rojas**:
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M01 | `@MoneyOut()` a secas (sin mirar `isOwnerAccount`) | PS-161 | rojo 5; la carrera da **3/10** |
+| M02 | no quitar del cuerpo las claves del dueño iguales | PS-161 «formulario entero» | rojo |
+| M03 | `resetPassword` sin leer `isOwner` (lectura y `where`) | PS-162 | rojo 3 |
+| M04 | `updateUserStatus` sin `isOwner: false` en el `where` | PS-162 | rojo 3 |
+| M05 | `seen` con `NOT {subjectUserId: V}` a secas | PS-152 / C-21 (d) | rojo |
+| M06 | `seen` sin excluir al sujeto | PS-152 / C-21 (d) | rojo |
+| M07 | cupo solo global (sin C-24) | C-24 | rojo |
+| M08 | sin `SPEND_MAIL_LOCK_KEY` en el despacho | PS-153 carrera | **4/10** rondas correctas (6/10 con > 5 individuales: 9+1, 7+3, 6+4…) |
+| M09 | `sending` vencido ⇒ `pending` (reintentar) | PS-153 | rojo |
+| M10 | tipo apagado ⇒ no-op sin fila | PS-155 | rojo |
+| M11 | quitar el paso (0) de `spend-watch` | PS-160 (d) | rojo 2 |
+| M12 | AG-8 (b) sin sellar `refundAlertedAt` | PS-147 (b) | rojo |
+| M13 | AG-10 sin resolver | PS-149 | rojo |
+| M14 | frontera de día en UTC | PS-154 | rojo |
+| M15 | sin `SpendDigestRun` (re-mandar siempre) | PS-154 | rojo 2 |
+| M16 | AG-22 fuera de «persona» (avisa también del dueño) | PS-163 | rojo |
+| M17 | no avisar los actos sobre personal | PS-163 | rojo |
+| M18 | `skydropx_low_balance_cents` fuera de la constante | PS-165 | rojo 3 |
+| M19 | `isOwner` constante `false` en `me` | `isOwner` | rojo |
+| M20 | enlace con `?token=` | PS-153 / SDX-I-8 | rojo |
+| M21 | llave `rfcOnFile` en el listado | T-FLAKY-RFC-1 / L-6 | rojo 2 |
+| M22 | destinatarios = súper-admin con correo (sin la marca) | PS-153 destinatarios | rojo 2 |
+| M23 | AG-21 sin la cuenta anterior | AG-21 | rojo |
+| M24 | un escritor de `SpendAlert` fuera de `spend-alerts.service.ts` | C-GAS-1 | rojo |
+
+### 65.5 Lo que NO está aquí (medido con `grep` sobre `backend/src` en `f7b4eebd`)
+
+| Falta | Por qué | Comprobación |
+|---|---|---|
+| **C1**: `spend-watch` (`*/5`) y `spend-digest` (08:00 MX) en el planificador y `POST /admin/jobs/spend-watch|spend-digest` | costura serializada (§19.32.9); D2g ⛔ toca `jobs/`. Hasta coserse, **los dos jobs no corren solos** (O-4): un 🔴 queda `pending` | `grep -rn "SpendWatchService\|SpendDigestService" backend/src/jobs` ⇒ 0 |
+| **C2**: `GET /admin/shipments/departure::date` a `NO_ENUM_POR_RUTA` | costura; C-EQ-1 sale rojo nombrándolo hasta entonces (rojo esperado) | la roja de la integración completa |
+| `dispatchImmediate` desde los disparadores de `shipments/` (D2c/D2d) | `shipments/` no es de D2g; sus 🔴 salen por `spend-watch` (≤ 5 min con C1). Los de D2g (AG-21, AG-22) sí se despachan post-commit | `grep -rn "dispatchImmediate" backend/src/modules/shipments` ⇒ 0 |
+| `workQueue.spendControl` y `picking-list/summary.spendAlertsUnseenImmediate` (S-GAS-3) | D2f (§19.32.9) | — |
+| AG-14…AG-20 | otro stream | — |
+
+### 65.6 Preguntas al arquitecto
+
+1. **`422` o `403` primero** cuando un no dueño manda un dial del dueño INVÁLIDO (p. ej. tope en 0): construido `422`
+   (65.3 (1)). ¿Se confirma?
+2. **`facts` con objetos** (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) frente al tipo congelado `SpendFacts` y al
+   `facts` del DTO de §19.29.9 (`string | number | boolean | string[] | null`): ¿se amplía el tipo del DTO a objetos, o se
+   aplanan (`targetUserId`, `targetName`, …)? Hoy viajan como objetos (lo que §19.30.1 (6) y §19.30.2 (3) describen).
+3. **Enlaces de `AVG-2/3` sin filtros**: PS-153 pide «sin `?`» y `DESIGN_SYSTEM §43.19.12` sugería
+   `admin/spend-alerts?severity=immediate&from=…&to=…`. Construido sin cadena de consulta (manda la prueba). ¿Se confirma, o
+   se admite un `?` de una PÁGINA que no actúa?
+4. **AG-21 en un A→B→A→B**: la llave `ag21:<A>:<B>` se repite y el segundo cambio a B no manda correo. ¿Se acepta, o se
+   añade el día MX a la llave?
+5. **`order_ship`** (S-GAS-2) no existe en el sistema: `SpendAlertDTO.shipment.kind ∈ {vault_withdrawal, guest_direct_ship}
+   | null` (65.2). ¿Se corrige la errata?
+6. **Las pruebas de claves exactas** de otros streams (`account-profile`, `pricing-visibility`, `users.me-and-addresses`,
+   `admin.users-kyc-filter`) se tocaron por §19.30.3 (`isOwner`); `test/helpers/query-axis-cross.ts` (las listas de C-EQ-1)
+   también. Fuera de la columna literal de §19.32.9, pero forzadas por el contrato — el orquestador lo comprueba.
+
+## 66 · Costuras C1 y C2 construidas (`API_CONTRACT §M4-SHIP.19.33.9`, errata v1.80.12.14 con G2 y G4 de §19.33.7) (2026-10-05, rama `claude/skydropx-d`, desde `d5ceaf26`; código en `a4758aa6` (C1) y `604f7edb` (C2) + el commit de esta sección)
+
+### 66.1 Qué se construyó y dónde
+
+- **C1 — `jobs/`:** `jobs.module.ts` importa `SpendAlertsModule` (sin ciclo: `SpendAlertsModule` no importa `JobsModule`).
+  `scheduler.service.ts` inyecta `SpendWatchService` y `SpendDigestService` con `@Optional()` (el patrón de D2d, §64.2 (14):
+  sin ellos no se programan y se loguea `error`) y programa en `tcg-daily`: `spend-watch` (`SPEND_WATCH_CRON`, defecto
+  `*/5 * * * *`, `jobId` `spend-watch-cron`) y `spend-digest` (`SPEND_DIGEST_CRON`, defecto `0 8 * * *` **con
+  `tz: 'America/Mexico_City'`**, `jobId` `spend-digest-daily`). El worker llama `SpendWatchService.run()` y
+  `SpendDigestService.run({})`. Single-flight: el candado consultivo de cada servicio (nada nuevo).
+  - ⭐ **El enrutado del worker pasa a un método `SchedulerService.process(job)`** (antes un cierre dentro de `setup`; el
+    cuerpo del `switch` no cambió). Razón: que la integración recorra el MISMO camino que el cron con el AppModule real y sin
+    Redis — así «quitar el `case` de `spend-watch`» pone roja también la (c) de PS-172, como pide el contrato.
+- **C1 — `admin-jobs.controller.ts`:** `POST /admin/jobs/spend-watch` (sin cuerpo) y `POST /admin/jobs/spend-digest {day?}`;
+  súper-admin (de la clase), `200` con el resultado de `run`, auditados `jobs.spend_watch.run` / `jobs.spend_digest.run`
+  (`entityType 'Job'`; el de resumen guarda `after.requestedDay`). `day` fuera de `YYYY-MM-DD` (o día imposible, `isYmd` de
+  `mx-day.ts`) ⇒ `400 VALIDATION_ERROR {field:'day'}` sin correr ni auditar. Servicio ausente ⇒ `404` (como D2d).
+- **G2 — `spend-alerts/`:** `SpendFactValue = string | number | boolean | string[] | null | { userId: string; name: string |
+  null }` en `spend-alerts.service.ts`; `SpendFacts = Record<string, SpendFactValue>`; `FactValue` (el de `SpendAlertDTO.facts`
+  y de las plantillas) es ese mismo tipo. Fuera los dos `as unknown as SpendFacts` (AG-21 en `spend-watch.service.ts`, AG-22 en
+  `staff-control.service.ts`).
+- **G4:** llave de AG-21 = `ag21:<anterior|none>:<actual|none>:<now ISO de la corrida>`.
+- **C2:** `'GET /admin/shipments/departure::date'` en `NO_ENUM_POR_RUTA` (`test/helpers/query-axis-cross.ts`) y techo
+  **50 → 51** en `enum-query-axes.e2e-spec.ts`, con la razón al lado (fecha `YYYY-MM-DD`; `parseDepartureDate` de
+  `departure.service.ts` responde `400 {field:'date'}` fuera de forma).
+
+### 66.2 Medido (no supuesto)
+
+- **BullMQ admite `tz`:** `package-lock.json:4011-4012` fija `bullmq` **5.81.3**; su `RepeatOptions` extiende `ParserOptions`
+  de `cron-parser` (**4.9.0**, que declara `tz?: string`), y `getNextMillis` pasa las opciones a `parseExpression`. Medición
+  directa con la librería instalada: `getNextMillis(2026-10-05T10:00Z, {pattern:'0 8 * * *', tz:'America/Mexico_City'})` ⇒
+  **`2026-10-05T14:00:00.000Z`** (08:00 MX); sin `tz` ⇒ `2026-10-06T08:00Z`. Por eso NO se usa el `0 14 * * *` UTC de reserva.
+- **AG-22 `target` lleva `role`** (§19.30.2 (3): `target: {userId, name, role} | null`) y el correo lo usa (`targetOf` en
+  `spend-alert-text.ts`). Ver 66.5 (1).
+
+### 66.3 Decisiones que el contrato no fijaba
+
+1. `{day: null}` y `{day: ''}` ⇒ `400 {field:'day'}` (solo la AUSENCIA del campo es «sin día»). El DTO usa `@Allow()` para que
+   el `ValidationPipe` global (whitelist) no se coma el campo; la forma la valida el controlador (medido por HTTP en PS-172 (c)).
+2. Con `day` válido, `spend-digest` responde lo que dé `run` (p. ej. `skipped` para un día que nunca corrió: el re-envío manual
+   solo re-manda un `failed`, §65).
+3. `spend-watch` usa `repeatEvery` (sufijo `-cron`, alta frecuencia como los de D2d); `spend-digest` un `repeatTz` nuevo (sufijo
+   `-daily`, con `tz`).
+
+### 66.4 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| PS-172 (a) | `test/sdx-c1.scheduler.spec.ts` (nuevo) | crons por defecto (con `tz`) y por env; enrutado de los dos nombres; sin servicios ⇒ no se programan, `error` en el log, worker devuelve `null` |
+| PS-172 (b) | `src/jobs/admin-jobs.controller.spec.ts` (bloque nuevo) | los dos disparos auditan, `200`, `day` mal formado `400 {field:'day'}` (7 formas), sin servicio `404` |
+| PS-172 (c) | `test/integration/sdx-c1-jobs.e2e-spec.ts` (nuevo) | AppModule real: el planificador recibe los dos servicios; 🔴 `pending` sembrado ⇒ `POST …/spend-watch` ⇒ `sent` + correo a la dueña + auditoría (operador `403`); lo mismo por `process({name:'spend-watch'})` (el camino del cron); `spend-digest` por HTTP: `400 {field:'day'}` ×4, `200` auditado; cero `purchase` en el doble |
+| G2 | `test/sdx-c1.facts-type.spec.ts` (nuevo) | igualdad de tipos `SpendFacts` ≡ `Record<string, SpendFactValue>` ≡ `SpendAlertDTO['facts']` (la juzga el compilador) + censo «ningún `as unknown as SpendFacts` en `src/`» |
+| PS-160 (G4) | `test/integration/sdx-d2g-watch.e2e-spec.ts` (ampliada) | A→B→A→B ⇒ **3** AG-21 distintos, `occurrenceCount` 1, cada uno con correo individual a A y a B (6 correos); llave con el instante; corrida sin cambio ⇒ nada |
+
+Fichero tocado fuera de lo nombrado: `test/sdx-d2g.units.spec.ts` (una línea: el `target` de AG-22 con `role` pasa a variable,
+porque con G2 el literal con `role` ya no compila en una posición tipada — ver 66.5 (1)).
+
+**Rojo primero (medido):** con las pruebas nuevas y el `src` de `d5ceaf26`, las tres suites unitarias no compilan
+(`SpendFactValue` no existe; `runSpendWatch`/`runSpendDigest` no existen; el constructor no admite los dos servicios). La
+integración, roja por mutación (abajo).
+
+**Suites completas** sobre una copia `git archive 604f7edb` del árbol ENTERO (scratchpad `be-c1c2/tree`, BD propia `tcg_be_c1c2`
+recreada, `stack-native.sh test:integration` con pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **409/409 suites · 7106/7106** |
+| Integración | **95/95 suites · 1927/1927** — sin la roja de `C-EQ-1` (§64.3, §65.4) |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | 0 errores, 0 avisos |
+
+Carga: hasta 17 durante la unitaria (otros agentes vivos), 5–9 durante la integración; ninguna roja.
+
+**Mutaciones** (copia `be-c1c2/mut` = `d5ceaf26` + el diff de C1/C2; `mut.py` aplica UNA, corre su prueba y restaura;
+logs `logs/mut-*.log`). Deterministas; todas **rojas**:
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | quitar el `case 'spend-watch'` | PS-172 (a) y (c) | (a) rojo 1; (c) rojo 1 («camino del cron»: el aviso se queda `pending`) |
+| M2 | quitar el `case 'spend-digest'` | PS-172 (a) | rojo 1 |
+| M3 | `spend-digest` sin `tz` | PS-172 (a) | rojo 2 |
+| M4 | no programar `spend-watch` | PS-172 (a) | rojo 2 |
+| M5 | llave AG-21 sin instante | PS-160 (G4) | rojo **3/3** (N = 3), «Expected: 3 · Received: 2» |
+| M6 | acción de auditoría equivocada | PS-172 (b) | rojo 1 |
+| M7 | `day` sin validar la forma (solo `typeof string`) | PS-172 (b) | rojo 1 |
+| M8 | `jobs.module` sin importar `SpendAlertsModule` | PS-172 (c) | rojo 4/4 (cableado, `404` en los disparos) |
+| M9 | `SpendFactValue` con `{[k:string]: unknown}` | G2 | rojo (no compila: `Equal<…>` falso) |
+| M10 | el cron corre `run({day})` en vez de `run({})` | PS-172 (a) | rojo 1 |
+| C2-a | sin la línea `departure::date` | `C-EQ-1` «ningún `@Query` fuera de las CINCO listas» | rojo 1 |
+| C2-b | techo de vuelta a 50 | `C-EQ-1` TRINQUETE | rojo 1 |
+
+PS-99: ninguna prueba ni job nuevo compra; `sdx-c1-jobs` asevera `callsOf('purchase') = 0` en el doble.
+
+### 66.5 Preguntas al arquitecto
+
+1. **G2 «⛔ sin más formas» frente a AG-22 `target: {userId, name, role}` (§19.30.2 (3)).** El tipo de G2 es `{userId; name}`
+   y el `target` construido (y el que el contrato describe) lleva además `role`, que el correo usa. Construido: `role` se
+   conserva y viaja como **subtipo** del objeto persona (sin cast; TypeScript lo admite por estructura fuera de un literal
+   fresco). El DTO del front no lo nombra. ¿Se añade `role?: Role` al objeto de `SpendFactValue`, o se quita `role` de
+   `facts.target` (y el correo lo lee de otro sitio)? Mientras tanto no se pierde nada de lo que el correo dice hoy.
+2. `{day: null}` / `{day: ''}` ⇒ `400` (66.3 (1)). ¿Se confirma, o `null` cuenta como ausente?
+
+## 67 · D2e construida — correos del transportista al cliente (`AV-17/18/19`), `customerUrl`, `trackingUrl` y `timeline` en las tres superficies del cliente, y la errata §19.33 .1/.2/.4 (`API_CONTRACT §M4-SHIP.19.19.15` fila D2e, §19.12, §19.20.6, §19.33; `DESIGN_SYSTEM §43.11–§43.12c`) (2026-10-05, rama `claude/skydropx-d`, desde `3f40b70c`, en paralelo con D2f; código y pruebas en `e7fa5b0e`, `0cc99796` + el commit de esta sección)
+
+⛔ `prisma/` intacto: las tres columnas de sello ya venían de `M-SDX-D` (m66). ⛔ Ningún código de error ni enum nuevos. ⛔ Ninguna
+prueba ni job compra (PS-99): solo el doble.
+
+### 67.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| Plantillas **`AV-17`** (`shipmentDeliveredTemplate`), **`AV-18`** (`shipmentAtBranchTemplate`), **`AV-19`** (`shipmentDeliveryAttemptTemplate`), ES/EN, textos de §43.12–§43.12c; la frase de soporte escrita UNA vez (`supportLine`, con `supportEmail()`); `AV-4`/`AV-5` ganan la liga de rastreo (letra chica) solo si vino; la cabecera «NO HAY PLANTILLA DE ENTREGADO» reescrita | `shipments/mail/shipment-notice.templates.ts`; `buylist/mail-shell.ts` (solo `export` de `supportEmail`, §43.12 «exportada») |
+| El puerto `CARRIER_NOTICES` deja de ser el registro de D2d: `mailCarrierNotices` ⇒ `ShipmentsService.notifyCarrierNotice` sella y manda por el MISMO `claimAndNotify` de §R (sin destinatario no se quema el sello; un fallo de correo no se propaga). Sellos: `AV-17` `deliveredNoticeSentAt` (+ `labelSource='skydropx'` en el `WHERE`), `AV-18` `branchNoticeSentAt`, `AV-19` `lastDeliveryAttemptAt` reclamado con `IS NULL OR < occurredAt` y escrito con el `occurredAt` del intento | `shipments/carrier-notices.ts`, `shipments.module.ts`, `shipments.service.ts` |
+| `customerUrl` resuelto por el SERVICIO (`resolveRecipient` ⇒ `customerUrlOf`): retiro ⇒ `shipments/<id>`, registrado ⇒ `orders/<id>`, invitado ⇒ `null` (ver 67.4 P-D2E-1) | `shipments.service.ts` |
+| `toCustomerTimeline` (un cuerpo) + `providerTrackingUrlOf`; `trackingUrl?` y `timeline` en `GuestTrackingShippingDTO`, `CustomerOrderShipmentDTO` y `ClientShipmentDTO` (el `include` lleva `carrierEvents` con la selección mínima) | `shipments/customer-timeline.ts`, `orders/guest-checkout.service.ts`, `orders/orders.service.ts`, `shipments.service.ts` |
+| §19.33.2: estado desconocido ⇒ evento `exception`, `detail = 'Estado no reconocido: ' + v (+ ' · ' + detalle)`, llave con el estado `unknown:<v>` (nunca `exception`); `v` recortado a 64 y sin control (`unknownStatusValue`, la MISMA forma en la bitácora) | `carrier-status.service.ts` (`carrierEventsOf`) |
+| §19.33.4: el CAS del paso 4 gana `OR carrierStatus = 'created'` | `carrier-status.service.ts` |
+
+### 67.2 Decisiones que el contrato no fijaba
+
+1. **La línea de tiempo usa solo los eventos de la guía VIGENTE** (`providerShipmentId` del envío): una re-emitida no hereda la historia de
+   la cancelada. Envío con guía manual (o sin guía de Skydropx) ⇒ solo `shipped`/`delivered` de las fechas, como dice §19.12.
+2. **Guía de Skydropx marcada `entregado` a mano** (sin evento `delivered`): la línea de tiempo NO lleva `delivered` (§19.12 la deriva de
+   los eventos para Skydropx); el título sigue `publicStatus`. Si se quiere la fecha, es una línea más en `toCustomerTimeline`.
+3. **`AV-17` usa `carrierStatusAt`** si `carrierStatus='delivered'` (el caso normal); si no (no debería pasar), el `occurredAt` del evento.
+4. **`AV-4`/`AV-5` con `trackingUrl`**: §43 no tiene el texto; se reutiliza el de `AV-18/19` («Rastrear mi paquete en la paquetería:
+   {url}» / “Track my package with the carrier: {url}”), letra chica, un solo CTA (§41.4). Pregunta 67.4 (3) para ux-ui.
+5. **`trackingUrl` al cliente solo con `labelSource='skydropx'`** (`providerTrackingUrlOf`): una URL que quedara de una guía cancelada no
+   viaja con una manual.
+6. **`claimAndNotify` generalizado** a un sello `{where, column, value}`: el `data` sigue siendo un literal sin `status` (el censo
+   `shipments.state-monotonic` lo clasifica `sin-status`).
+
+### 67.3 Pruebas
+
+- **Unitarias nuevas** `test/sdx-d2e.units.spec.ts` (29): ML-24/25/26 por idioma, sin fecha/sucursal/paquetería, escape de `branchName`,
+  invitado con `customerUrl`; **barrido de 72 variantes** (fecha, sucursal, paquetería, rastreo, pedido/retiro/invitado, es/en) sin plazo,
+  disputa, importe ni «segundo», con la frase de soporte fuera del pie; PS-88 de plantilla y censo `C-SDX-6`; la cabecera reescrita;
+  PS-89 del cuerpo (mapeo, mudos fuera, claves exactas, guía vigente, manual); §19.33.2 del cuerpo (llave distinta de un `exception` real
+  del mismo instante, recorte, sintético).
+- **Integración nueva** `test/integration/sdx-d2e-notices.e2e-spec.ts` (11, puerto `CARRIER_NOTICES` REAL, bandeja contada): `C-AV-3b`
+  (bandeja exacta 6: AV-4·AV-5·AV-18·AV-19×2·AV-17), mudos, sin destinatario ⇒ sello intacto; `C-AV-3a`; PS-75 (b) carrera con el lote
+  real y barrera en `getShipment` (**10/10** rondas, autor backend, N=10, dos corridas: `e7fa5b0e` y la de 67.5) y (c); PS-78 (8 días,
+  sin plazo, «Escríbenos»; `estado_raro`); PS-72 ampliada; PS-87 (registrado/retiro); PS-88 (URL exacta en AV-4/5/17/18 y en las tres
+  superficies; null y hostiles ⇒ nada + bitácora); PS-89 en las tres superficies.
+- **Cambiadas por conducta nueva** (fuera de la columna literal, forzadas por el contrato): `avisos.copy-guard` (registro 11 ⇒ 14,
+  exhaustividad, «entregado existe una vez»), `refund-review` y `mail-links.frontend-routes` (exhaustividad; casos AV-17/18/19 y la ruta
+  `pedido?token=`), `guest-checkout.tracking` y `integration/orders-public-status` (claves exactas ganan `timeline`), `sdx-d2d.units` y
+  `integration/sdx-d2d-tracking` (el desconocido ya no se descarta, §19.33.2).
+
+### 67.4 Preguntas al arquitecto (y una a ux-ui)
+
+1. **P-D2E-1 — `customerUrl` del invitado no es construible tal como está escrito (§19.12, PS-87).** Pide `pedido?token=<el último
+   OrderAccessToken no revocado>`; el servidor guarda SOLO el SHA-256 (`OrderAccessToken.tokenHash`, T5: el claro es irrecuperable por
+   diseño). La única forma de poner un token en el correo es EMITIR uno: (A) `issue` con rotación en cada correo ⇒ revoca el enlace de
+   todos los correos anteriores (incluido el de la confirmación) y gasta el cupo del reenvío `resendQuotaExceeded` (5 emisiones/24 h: un
+   día con AV-4, AV-5, AV-18, AV-19 y AV-17 lo agota); (B) `issue` sin rotar ⇒ un token vivo de 90 días más por correo; (C) otra.
+   **Construido mientras tanto:** invitado ⇒ `customerUrl = null` ⇒ sin CTA (la conducta de antes de D2e); registrado y retiro sí. `AV-12`
+   no se tocó (su única diferencia es este mismo caso). PS-87 queda **parcial** (sin la fila del invitado).
+2. **PS-89 dice «`timeline` de 6»** para `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered`, pero el
+   mapeo normativo de §19.12 añade `shipped = shippedAt` ⇒ salen **7** (los 6 del transportista + `shipped`). Construido el mapeo; la
+   prueba asevera los 6 en orden y `shipped` en su lugar por `at`. ¿Se corrige PS-89 a 7, o `shipped` no va con guía de Skydropx?
+3. **(ux-ui)** El texto de la liga de rastreo en `AV-4`/`AV-5` (67.2 (4)) no está en §43: se reutilizó el de `AV-18/19`. Ratificar o dar otro.
+
+### 67.5 Suites y mutaciones
+
+**Suites** sobre copia `git archive` del árbol ENTERO (scratchpad `be-d2e/tree`, BD propia `tcg_be_d2e`):
+
+| Suite | sha | Resultado |
+|---|---|---|
+| Unitaria (`npx jest`) | `e7fa5b0e` | **410/410 suites · 7149/7149** |
+| Integración (`stack-native.sh test:integration`) | `e7fa5b0e` | 95/96 · 1937/1938 — la roja: `orders-public-status` (lista cerrada sin `timeline`), corregida en `0cc99796` y re-corrida sola 4/4 |
+| Integración completa | `0cc99796` | **96/96 suites · 1938/1938**; PS-75 (b) 10/10, PS-72 concurrente 10/10, PS-77 concurrente 10/10 (N=10 cada una, autor backend) |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | árbol vivo | 0 errores, 0 avisos |
+
+**Mutaciones** (copia `be-d2e/tree`, `mut.py` aplica UNA y restaura; base `f1187f46` + el diff de D2e):
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | AV-17 solo si ganó la transición | PS-75 (b) | rojo |
+| M2 | ampliar el `WHERE` del lote a `entregado` (solo) | PS-75 (c) | **sobrevivió**: `pollable()` es el segundo muro (filtra el lote y `refresh-tracking`) |
+| M2c | `WHERE` del lote **y** `pollable()` con `entregado` | PS-75 (c) | rojo |
+| M3 | llave del desconocido `exception:<instante>` | PS-78 ampliada (integración) | rojo |
+| M4 | quitar el término `created` del CAS | PS-72 ampliada | rojo |
+| M5 | el término siempre verdadero (`{ id }`) | SEC-SDX-9 fuera de orden (`sdx-d2d-tracking`) | rojo (con `{}` sobrevivió: Prisma descarta el objeto vacío en un `OR`, así que no era la mutación) |
+| M6 | sello de AV-19 solo `IS NULL` | C-AV-3b (AV-19 ×2) | rojo |
+| M8 | AV-5 sin `trackingUrl` | PS-88 (integración) | rojo |
+| M9 | `exception ⇒ in_transit` en el mapeo | PS-89 cuerpo | rojo |
+| M10 | registrado ⇒ `customerUrl` null | PS-87 | rojo |
+| M11 | «Tienes 7 días para abrir una disputa» en la variante SIN fecha de AV-17 | ML-24 barrido | **sobrevivió** a la primera versión (las pruebas solo miraban la variante con fecha) ⇒ se añadió el barrido de 72 variantes ⇒ rojo |
+| M12 | `guest/track` con `timeline: []` | PS-89 (integración) | rojo |
+
+⛔ **No medido:** que el SELLO de `AV-17`/`AV-18` muerda por sí solo — con una guía, el `@@unique` del evento ya impide el segundo aviso, así
+que quitar el sello no se ve; morder exige una re-emisión con su propio `delivered_to_branch` (el contrato dice «una vez por envío»).
+
+## 68 · D2f construida — dinero y tablero de Skydropx (`API_CONTRACT §M4-SHIP.19.19.15` fila D2f, §19.31.10 fila 3b, §19.33.6/.10): P&L con ajustes y seguro, `workQueue.shipping` y `spendControl`, S-GAS-3, empaques, catálogos y saldo; PS-80/81 (P&L), PS-90 (tablero y saldo), PS-110, PS-171 (2026-10-05, rama `claude/skydropx-d`, desde `3f40b70c`, medida sobre `e7fa5b0e`; código en ``6256d309`` + el commit de esta sección)
+
+⛔ **Nada de P-SDX-PNL-1** (huérfanas y duplicados en el P&L, §19.33.3): sin respuesta del dueño, el P&L no los cuenta (se queda (C) de hecho).
+**Migración:** ninguna (todo lo que D2f lee ya existía: `ShipmentCostAdjustment`, `ShippingPackage`, `insuranceCostCents`, `SpendAlert`).
+
+### 68.1 Qué y dónde
+
+| Pieza | Norma | Dónde |
+|---|---|---|
+| **P&L**: `shippingCostCents` = Σ neto de envíos (por `pickingAt`) **+ Σ (`amountCents − ivaCents`) de `ShipmentCostAdjustment` por `chargedAt`** (sin filtrar por estado del envío); `shippingAdjustmentsCents` (ese sumando, aparte); `shippingInsuranceCents` (Σ `insuranceCostCents` de los envíos del periodo, informativo — ya va dentro del bruto); `shippingCostMissingCount` excluye `labelSource='skydropx'`; `profitCents` sin cambio de fórmula. CSV: las dos columnas nuevas **tras `shippingCostMissingCount`**, el mismo orden que el objeto | §19.11, §M10-IVA.8 | `admin/admin.service.ts` (`pnl`, `exportCsv`) |
+| **`workQueue.shipping`** `{lowBalance, withCarrierAlert, labelProcessing}` para los dos roles; ⛔ cifra de saldo para nadie | §19.13 | `shipments/shipping-work-queue.ts` (cuerpo), `admin/dashboard-shipping.service.ts` (diales + caché) |
+| `withCarrierAlert` = filas con **`carrierAlertActive`** (consulta ancha con `CARRIER_ALERT_STATUSES` importada + filtro por la función); el desconocido de D2e entra solo como `exception` | §19.32.5, §19.33.6 | `shipping-work-queue.ts` (`countCarrierAlerts`) |
+| `lowBalance` = saldo < `skydropx_low_balance_cents` con la lectura **cacheada 5 min** de `ProviderBalanceService.read` (la de `spend-watch`: una cifra, una fuente; pasa por `observeBalance`); `null` ⇔ `shipping_provider ≠ 'skydropx'` (⛔ ni una llamada) o sin respuesta | §19.13, PS-90 | ídem |
+| **`workQueue.spendControl`** (súper-admin; `null` al operador): `unseenImmediate`/`unseenDigest` = `severity`, `seenAt NULL`, `muted=false`, ⛔ AG-7/AG-11/AG-12; `labelSpend24h` por persona **con gasto > 0** usando `labelSpend24h` de TG-1 (la misma función, por actor), `capCents` = dial, `null` para el dueño (`isOwnerAccount` de la base); orden: más gasto primero | §19.29.9 | `spend-alerts/spend-control.ts` (`unseenSpendAlertsWhere`, `countUnseenImmediate`, `spendControlOf`) |
+| **S-GAS-3** `picking-list/summary.spendAlertsUnseenImmediate` (`null` al operador) = `countUnseenImmediate` (el mismo cuerpo) | §19.30.8 | `shipments/shipment-prep.service.ts` (`summary`) |
+| **Empaques** `GET /admin/shipping/packages` operador+ (`{packages}` por `sortOrder`, luego `code`; ⛔ `id`/fechas), `PUT` súper-admin: reemplazo entero (borra lo que no viene, `upsert` por `code`), bitácora `shipping.packages_updated {before:{packages}, after:{packages}}` en la MISMA tx; dos `PUT` a la vez se serializan con `LOCK TABLE "ShippingPackage" IN SHARE ROW EXCLUSIVE MODE` | §19.13, §19.20.3, §19.22.3, PS-110 | `admin/admin-shipping.controller.ts`, `admin/shipping-config.service.ts`, `admin/shipping-config.ts` (`parsePackagesBody`) |
+| **Catálogos** `GET /admin/shipping/catalogs` (súper-admin) ⇒ `{packagings, consignmentNote, addressTemplates}`; **`…/catalogs/consignment-notes?description=`** ⇒ `{consignmentNotes, hasMore}` (una página; `hasMore` ⇔ `meta.next_page ≠ null`) | §19.19.6, §19.22.3 | ídem + `shipping-provider/skydropx.adapter.ts`, `fake-shipping-provider.ts`, `shipping-provider.port.ts` (`searchConsignmentNotes` cambia de forma) |
+| **Saldo** `GET /admin/shipping/balance` (súper-admin, `no-store`) ⇒ `{balanceCents, currency, lowBalance, thresholdCents, fetchedAt}` **en vivo** por `ProviderBalanceService.readFresh` (nuevo: sin caché, refresca el caché del tablero, `observeBalance`, y el fallo SE PROPAGA ⇒ `502/503`) | §19.13, §19.29.6 AG-7 (i) | `spend-alerts/provider-balance.service.ts` (`readFresh`), `shipping-config.service.ts` (`liveBalance`) |
+
+### 68.2 Decisiones propias (el contrato no las fija; ⛔ ninguna cambia una forma del contrato)
+
+1. **`labelProcessing` = `labelProcessingSince ≠ null`** (la misma condición que `labelPending`: compra en vuelo **y** en proceso con id). §19.13 solo da el nombre.
+2. **Catálogos y saldo ⛔ miran el dial `shipping_provider`**: son lecturas, y el dueño las necesita para configurar **antes** de encender (elegir plantilla de origen y Carta Porte). Sin credenciales (`noop`) ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}`; fallas ⇒ los `502/503` de siempre; un error que no es del proveedor ⇒ `502 {op, status:null}` sin detalle crudo. Efecto: `GET …/balance` con `off` **sí** pasa por `observeBalance` (AG-7 dice «toda lectura de saldo»). El tablero, en cambio, con `off` ⇒ `null` sin llamar (§19.13). Si el arquitecto quiere `404 FEATURE_DISABLED` con `off`, es una línea.
+3. **`addressTemplates`**: el DTO exige `addressType ∈ {from,to}` y strings; el puerto los da nulables ⇒ una plantilla sin tipo legible **se omite** (no se puede elegir como origen); `alias`/`postalCode` nulos ⇒ `''`.
+4. **`PUT …/packages`**: `400 VALIDATION_ERROR {field, index}` (el `index` es aditivo, para que la pantalla marque la fila); medidas enteras 1..1000 (las columnas son `Int`), `code` 1..40, `label` 1..80, `providerPackageType` 0..20 (`null` ⇒ `''`, el tipo del frontend lo admite), `sortOrder` entero, ≤ 50 empaques; `{packages: []}` ⇒ `no_active_package`.
+5. **Los tableros leen diales desde un servicio aparte** (`DashboardShippingService`): `AdminService` ⛔ tiene `SettingsService` (candado `IVA-11 (c-estructural)`, medido rojo al primer intento: el P&L no puede leer el dial). Los controladores nuevos viven en `admin/` (no en `shipments/`) para no tocar `shipments.module.ts` mientras D2e trabajaba en él; `AdminModule` importa `ShippingProviderModule` (solo el puerto).
+6. **Los ajustes del P&L no filtran por estado del envío**: un cargo de una guía de un envío luego cancelado (p. ej. lo no devuelto, `cancel:<id>`, SEC-SDX-11) es dinero que salió en el mes de su cargo.
+
+### 68.3 Pruebas
+
+- **Nuevas:** `test/sdx-d2f.units.spec.ts` (26: PS-171 censo + canario, P&L por `chargedAt` y CSV, predicado de «sin ver», cuerpo de empaques, `description`, `hasMore` del adaptador y del doble); `test/integration/sdx-d2f-money.e2e-spec.ts` (15: PS-80, PS-81, PS-90 ×3, `labelProcessing`, **PS-171**, `spendControl` + S-GAS-3, `labelSpend24h`, PS-110, `PUT` con bitácora, **dos `PUT` a la vez N = 10**, catálogos, Carta Porte, saldo).
+- **Rojo primero** (copia `git archive 3f40b70c` + las pruebas + stubs de tipo, `logs/red-*.log`): unitaria **23/26 rojas**; integración **14/14 rojas** por conducta (`NaN` en las cifras nuevas, `workQueue.shipping` ausente, `404` en las rutas).
+- **Tocadas por el contrato** (formas que crecen): `admin.pnl-shipping.spec.ts`, `admin.pnl-iva-neutral.spec.ts` (las dos nuevas fuera de la neutralidad, como las demás aditivas), `integration/iva-price-convention.e2e-spec.ts` (cabecera del CSV), y **`C-EQ-1`**: `GET /admin/shipping/catalogs/consignment-notes::description` a `NO_ENUM_POR_RUTA` (`test/helpers/query-axis-cross.ts`, texto libre) con el **techo 51 → 52** (`enum-query-axes.e2e-spec.ts`) — ⚠️ **pendiente de ratificar por el arquitecto** (como G6).
+
+**Suites completas** sobre una copia `git archive e7fa5b0e` del árbol ENTERO + las rutas de D2f superpuestas (= el árbol de
+`6256d309` salvo `0cc99796`, que solo toca una prueba de D2e), scratchpad `be-d2f/tree`, BD propia `tcg_be_d2f`,
+`stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **411/411 suites · 7175/7175** |
+| Integración | **96/97 suites · 1952/1953** — la única roja, `orders-public-status.e2e-spec.ts` PO-1 (`timeline` en la lista cerrada del envío del cliente), es de **D2e**: medida **roja también sobre `e7fa5b0e` puro** (`logs/pure-e7fa5b0e-orders-public-status.log`) y ya arreglada por D2e en `0cc99796` |
+| `tsc --noEmit`; `eslint` de los ficheros tocados | 0 errores; 0 avisos |
+| Dos `PUT …/packages` a la vez | **10/10** rondas correctas (N = 10, en la corrida completa) |
+
+Carga durante las corridas: 3–10 (otro agente vivo); ninguna roja por tiempo.
+
+### 68.4 Mutaciones (copia `mut/` = `4692dddb` + D2f; `mut.py` aplica UNA, corre sus pruebas y restaura; logs `logs/mut-*.log`)
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | `withCarrierAlert` con su propia lista y sin «envío vivo» | PS-171 censo (2) + integración | rojo (unit 2, integración «7 ≠ 8») |
+| M2 | ajustes por `observedAt` | unit `chargedAt` + PS-80 | rojo 1 + 1 |
+| M3 | `shippingCostMissingCount` contando Skydropx | unit + PS-81 | rojo 1 + 1 |
+| M4 | «sin ver» contando AG-7/11/12 | unit + integración (2 ≠ 4) | rojo 1 + 1 |
+| M5 | tablero leyendo el saldo SIN caché | PS-90 «una llamada» | rojo (1 ≠ 2) |
+| M6 | `GET …/packages` solo súper-admin | PS-110 | rojo (`403`) |
+| M7 | `hasMore` siempre `false` | unit adaptador | rojo 1 |
+| M8 | sin `no_active_package` | unit (2) + integración | rojo |
+| M9 | `GET …/balance` desde el caché | saldo «en vivo» | rojo |
+| M10 | S-GAS-3 con predicado propio | unit (censo) + integración | rojo 1 + 1 |
+| M11 | tablero leyendo el saldo con `off` | PS-90 `off` | rojo |
+| M12 | ajustes fuera de `shippingCostCents` | unit + PS-80 | rojo 1 + 1 |
+| M13 | `PUT …/packages` sin `LOCK TABLE` | dos `PUT` a la vez | rojo: **1/10** rondas correctas (N = 10) |
+
+### 68.5 Lo que NO está aquí
+
+| Falta | Por qué |
+|---|---|
+| P-SDX-PNL-1 (huérfanas y duplicados en el P&L) | pregunta al dueño (§19.33.3); ⛔ D2f no construye nada hasta la respuesta |
+| `workQueue.shipments.withLabelAlert` (§19.20.2) | ver pregunta 1 |
+| Tipos del frontend (`workQueue.shipping`, `spendAlertsUnseenImmediate` ya estaba) | frontend |
+
+### 68.6 Preguntas al arquitecto
+
+1. **`workQueue.shipments`** es un **número** (`admin.service.ts`, `DashboardDTO.workQueue.shipments: number`), pero §19.3 dice «`workQueue.shipments` gana `withCarrierAlert`» y §19.20.2 «`workQueue.shipments` gana `withLabelAlert: number`». Construido: `withCarrierAlert` en `workQueue.shipping` (§19.13, §19.33.6). `withLabelAlert` **no** está (no es de D2f en §19.31.10 y no cabe en un número): ¿va a `workQueue.shipping.withLabelAlert` (con `labelAlertOf`) y quién lo construye?
+2. **Techo de `NO_ENUM_POR_RUTA` 51 → 52** por `?description=` de la búsqueda de Carta Porte (texto libre, §19.22.3). ¿Se ratifica?
+3. **Catálogos/saldo con `shipping_provider = 'off'`**: construido «funcionan» (68.2 (2)); ¿se confirma, o `404 FEATURE_DISABLED`?
+4. **`labelProcessing`** = `labelProcessingSince ≠ null` (68.2 (1)): ¿se confirma?
+
+## 69 · B-1 construida — la liga del invitado en los avisos: token NUEVO sin rotar (`API_CONTRACT §M4-SHIP.19.35.1`, PS-87 reescrita, SDX-R14 de §19.35.6, `ARCHITECTURE §4.60 (ab)`; resuelve P-D2E-1 de §67.4) (2026-10-05, rama `claude/skydropx-d`, desde `a132cf59`; código y pruebas en `37899dac` + el commit de esta sección)
+
+⛔ `prisma/` intacto (ni migración, ni enum, ni código de error, ni `AuditLog.action` nuevo: se reusa `order.tracking_link.reissue`).
+⛔ `OrderAccessTokenService` sin cambiar (se usa `issue(id, { rotate: false })` tal cual). ⛔ Ninguna prueba compra (PS-99): el doble.
+
+### 69.1 Qué y dónde
+
+| Pieza | Fichero |
+|---|---|
+| **`orderMailLinkOf`** — UN cuerpo para todo aviso de pedido: `order.userId ≠ null` (registrado **o reclamado**) ⇒ `orders/<id>` sin token; `userId = null ∧ guestEmail` ⇒ sin origen público ⇒ `null`; `createdAt` < now − 365 d ⇒ `null`; si no ⇒ `issue(rotate:false)` (90 d) + `AuditLog order.tracking_link.reissue` (`actorUserId` nulo, `after = {actor:'system:mail', notice, rotated:false, expiresAt}`, ⛔ ni claro ni hash) ⇒ `pedido?token=<claro>`. Cualquier fallo ⇒ `null` + `warn` sin claro ni mensaje crudo; ⛔ nunca lanza. ⛔ No consulta `resendQuotaExceeded` ni revoca | `shipments/guest-mail-link.ts` (nuevo) |
+| `resolveRecipient` ya **no** resuelve el enlace: devuelve `link` (`{kind:'shipment'}` \| `{kind:'order', order}`); el enlace lo resuelve `claimAndNotify` **después** de ganar el sello (`customerUrlFor`), y `claimAndNotify` recibe el aviso (`AV-4/5/6/17/18/19`) para la bitácora. Sin `MAIL_PORT`, sin destinatario o sello perdido ⇒ se sale antes ⇒ cero tokens. `recipientEmailOf` (la compra de la guía) ⇒ cero tokens | `shipments/shipments.service.ts` |
+| `ShipmentsModule` importa `GuestOrderTokensModule` (el módulo mínimo sin dependencias que ya usaba `payments`); `OrderAccessTokenService` entra `@Optional()` al final del constructor (pruebas legacy) | `shipments/shipments.module.ts` |
+| **`AV-12`** por su propio camino con el MISMO cuerpo: tras reclamar `customerNotifiedAt`, si el grupo tiene pedido ⇒ `customerUrl = orderMailLinkOf(…, 'AV-12')`; un retiro (sin pedido) conserva su enlace de siempre (N-8, `vault?tab=withdrawals`). La plantilla gana `customerUrl?: string \| null` (string ⇒ ese enlace; `null` ⇒ sin CTA; ausente ⇒ el de siempre) | `payments/refunds/refund-ledger.service.ts`, `payments/refunds/mail/refund-notice.templates.ts` |
+
+### 69.2 Decisiones que el contrato no fijaba
+
+1. **Sin `APP_PUBLIC_URL` no se acuña token** (el enlace no se puede escribir; un token que nadie recibe es una puerta abierta más).
+2. **Bitácora `after`** lleva `actor`, `notice`, `rotated:false` y `expiresAt` (el `expiresAt` como el reenvío de soporte); el actor va en `after.actor` porque `actorUserId` es nulo (el mismo patrón que `system:carrier-poll`).
+3. **Si la bitácora falla después de emitir**, el aviso sale sin CTA y ese token queda vivo sin haber viajado (el claro se descarta). Inofensivo, y la alternativa (revocarlo) sería tocar la tabla en un camino de error.
+4. **`AV-12` de un pedido de registrado** sigue `orders/<id>` (antes salía de la plantilla, ahora del cuerpo: mismo enlace). **Cambio de conducta para el invitado en `AV-12`:** antes su CTA era `orders/<id>` (página que exige sesión que el invitado no tiene); ahora es su `pedido?token=`.
+5. `avisos.shipments.spec.ts` B3 (invitado ⇒ sin botón; reclamado ⇒ sin botón) codificaba la regla anterior: **reescrita por el contrato** (invitado ⇒ `pedido?token`, reclamado ⇒ `orders/<id>` y cero tokens), más dos casos (sin emisor / la emisión falla ⇒ el aviso sale igual sin CTA y el log sin claro) y el de 365 días.
+
+### 69.3 Pruebas
+
+- **Integración nueva** `test/integration/sdx-b1-guest-mail-link.e2e-spec.ts` (10; puerto `CARRIER_NOTICES` real, doble del proveedor,
+  bandeja contada, `Logger`/`console` capturados): PS-87 **(a)** AV-4·AV-5·AV-18 con `Xᵢ` distintos, settle + todos `200`, filas = settle + 3,
+  tres `reissue` `system:mail` sin claro ni hash, log sin `Xᵢ`, y **(f)** tras `resend-link` los cuatro `410 TOKEN_REVOKED`; **(b)** reclamado
+  ⇒ `orders/<id>`, cero filas, el viejo sigue `410`; **(c)** registrado/retiro; **(d)** `recipientEmailOf` ×3 ⇒ 0 filas y la compra deja
+  solo la del AV-4; **(e)** sello perdido (disparos directos de AV-4 y AV-18) ⇒ 0; **(e) carrera** 5 disparos simultáneos del mismo AV-18
+  ⇒ 1 correo y 1 fila, **10/10** rondas (N = 10, autor backend, en la corrida completa); **(g)** con 5 filas, AV-19 con liga que abre;
+  **(h)** 366 días ⇒ sin CTA, 0 filas; AV-4 manual (`setTracking`), AV-5 a mano y AV-6; **AV-12** invitado (token) y registrado (`orders/<id>`).
+- **Unitaria nueva** `test/sdx-b1.guest-mail-link.spec.ts` (9): la regla sin BD (no consulta cupo ni revoca; `userId ≠ null` nunca emite;
+  365/364 días; sin origen; fallo de emisión o de bitácora ⇒ `null` sin claro en el log), la plantilla de AV-12 con `customerUrl`, y
+  candados estáticos: dos lectores exactos de `orderMailLinkOf`, el enlace después de `sealed.count !== 1` y de `claimed.count === 0`,
+  `resolveRecipient` sin emisión, el cuerpo sin `rotate: true`/`resendQuotaExceeded`/`revokeAll`.
+- **Reescrita por el contrato:** `test/avisos.shipments.spec.ts` (bloque CTA, ver 69.2 (5)).
+- **Rojo primero:** la integración sobre el código de `a132cf59` (copia `mut/` con los cuatro ficheros de `src` de `a132cf59` y sin
+  `guest-mail-link.ts`): **8/10 rojas** (verdes solo (c) y (h), que ya eran la conducta de antes); carrera `0/10` (`1 correo / 0 filas`).
+
+### 69.4 Suites y mutaciones
+
+Copia `git archive a132cf59` del árbol ENTERO + mis ficheros superpuestos (= el `backend/` de `37899dac`, comprobado con `diff -r`),
+scratchpad `be-b1/tree`, BD propia `tcg_be_b1`; mutaciones en `be-b1/mut` con BD `tcg_be_b1m` (`mut.py` aplica UNA, corre y restaura;
+`diff -r` contra `tree` tras cada tanda). Carga 3–7 (otro agente backend vivo).
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **412/412 suites · 7187/7187** |
+| Integración (`stack-native.sh test:integration`) | **98/98 suites · 1963/1963** |
+| `tsc --noEmit`; `eslint` de los ficheros tocados | 0 errores; 0 avisos |
+
+| # | Mutación | Integración (N = 3 cada una) | Unitaria |
+|---|---|---|---|
+| M1 | `issue(…, { rotate: true })` | **(a)** rojo 3/3 (+ AV-4 manual) | 3 rojas |
+| M2 | emitir con `userId ≠ null` si hay `guestEmail` | **(b)** rojo 3/3 (sola) | 2 rojas |
+| M3 | emitir en `resolveRecipient` | **(d)** rojo 3/3 (+ (a), (e), carrera, (g), AV-4 manual) | 3 rojas (estática) |
+| M4 | consultar `resendQuotaExceeded` antes de emitir | **(g)** rojo 3/3 (sola) | 5 rojas |
+| M5 | resolver el enlace ANTES del sello | (e), carrera (`1 correo / 6 filas`, 0/10), (a), (d), (g) rojo 3/3 | 2 rojas (estática) |
+| M6 | AV-12 sin el cuerpo para el invitado (`first.order && first.order.userId`) | AV-12 rojo 3/3 (sola) | **sobrevive** (la unitaria no mira el camino de AV-12 por conducta; la integración sí) |
+
+### 69.5 Preguntas y notas
+
+1. **`after` de la bitácora** lleva `actor` y `expiresAt` además de `{notice, rotated}` (69.2 (2)). Si el arquitecto quiere el conjunto
+   exacto `{notice, rotated}`, es una línea; ⛔ claro y hash no están en ningún caso (PS-87 (a)).
+2. El encabezado de `test/integration/sdx-d2e-notices.e2e-spec.ts` (línea 15) todavía dice que el invitado quedó fuera por P-D2E-1: es
+   un comentario; no lo toqué porque ese fichero lo edita B-2 (PS-89) en paralelo.
+3. Nota para product-owner (del contrato, no bloquea): `PROJECT` T.8 «el mismo token» es irrealizable al pie de la letra.
+
+## 70 · B-2…B-5 construidas y las notas N-SDX-4/N-SDX-5 de ux-ui (`API_CONTRACT §M4-SHIP.19.35.2/.3/.5`, §19.34.1; `DESIGN_SYSTEM §43.22.10` contra §41.2, §41.4, §41.7) (2026-10-05, rama `claude/skydropx-d`, desde `37899dac`, en paralelo con B-1; código y pruebas en `75cb2800` + el commit de esta sección)
+
+### 70.1 Qué cambió
+
+| Encargo | Fichero | Qué |
+|---|---|---|
+| **B-2** (§19.35.2/.3) | `shipments/customer-timeline.ts` | `delivered` con UN cuerpo para las dos guías: evento `delivered` de la guía vigente ⇒ su `occurredAt`; si no hay y `deliveredAt ≠ null` ⇒ `deliveredAt` (Skydropx marcada `entregado` a mano, o guía manual). ⛔ Nunca dos: ni evento + fecha, ni dos eventos `delivered` (manda el primero en el orden `occurredAt, observedAt`). PS-89 «de 6» se lee «de 7»: lo construido ya daba 7 con `shippedAt`; la prueba nueva lo asevera |
+| **B-3** (§19.35.5 fila 1) | `shipments/shipping-work-queue.ts`, `admin/dashboard-shipping.service.ts` | `workQueue.shipping.withLabelAlert` (los dos roles) = envíos con `labelAlertOf(fila, now) ≠ null`. `labelAlertShipmentIds(db, now, tUnknownMs)`: superconjunto ancho en SQL (los cuatro predicados de fila + huérfanas de 7 días de la bitácora, como el DTO) y la decisión fila a fila con `labelAlertOf`. ⛔ Ningún umbral propio (censo en la unitaria). El reloj y `tUnknownMs` son los de `ShipmentsModule` (`SHIPMENTS_LABEL_CLOCK`, `LABEL_VERIFY_CONFIG`), leídos por `ModuleRef.get(…, {strict:false})` — ver 70.4 (1) |
+| **B-4** (§19.34.1) | `spend-alerts/spend-alerts.service.ts:74`, `spend-alerts/staff-control.service.ts` | `SpendFactValue` objeto persona gana `role?: Role`; `staff-control` deja de construir su subtipo y pone el objeto en `facts` sin cast |
+| **B-5** (§19.35.5 fila 3) | solo prueba | PS-90 ampliada en `sdx-d2f-money.e2e-spec.ts` |
+| **N-SDX-4** | `shipments/mail/shipment-notice.templates.ts` | `AV-4`/`AV-5` usan `ctaLabelOf` (§41.4 filas 17/18: pedido — incluido el `/pedido?token` del invitado — ⇒ `VER MI PEDIDO`/`SEE MY ORDER`; retiro ⇒ `VER MI ENVÍO`/`SEE MY SHIPMENT`) |
+| **N-SDX-5** | ídem | `AV-5` usa `carrierDato` (§41.7 ✏ del 18: sin paquetería ⇒ `Guía: <n>`, sin el hueco «Paquetería:  · »); asuntos de `AV-4`/`AV-5` sin `TCG HUNT — ` (§41.2 filas 17/18 ✏). Comprobado en `DESIGN_SYSTEM.md` §41.2 (tabla de asuntos), §41.4 (filas 17/18/19) y §41.7 (fila 18) antes de cambiar |
+
+### 70.2 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| B-2 cuerpo (6) | `test/sdx-b25.units.spec.ts` (nuevo) | 7 con `shipped` en orden; `entregado` a mano ⇒ última `delivered` = `deliveredAt`; evento + `deliveredAt` ⇒ una (la del evento); dos eventos ⇒ una; evento de guía cancelada no cuenta; sin nada ⇒ sin `delivered` |
+| PS-89 corregida y ampliada (3) | `test/integration/sdx-b2-timeline.e2e-spec.ts` (nuevo) | por `POST /orders/guest/track`: secuencia completa + `shippedAt` ⇒ 7; `created`,`in_transit` + `PATCH entregado` ⇒ última `delivered` con `at = deliveredAt`, cero AV-17; `delivered` del transportista ⇒ una, con la fecha del evento |
+| B-3 cuerpo (4) | `test/sdx-b25.units.spec.ts` | juego con cada `LabelAlertKind`, los tres «jóvenes» 1 s por debajo de su umbral y uno con dos alertas ⇒ = `labelAlertOf` fila a fila; reloj que se le pasa; ventana de huérfanas; censo sin `T_*_MS` |
+| PS-173 | `sdx-d2f-money.e2e-spec.ts` | reloj inyectado 1 h POR DELANTE del sistema; los cinco `kind` + tres jóvenes + uno con dos alertas ⇒ `withLabelAlert` = filas de `GET /admin/shipments?alert=true` con `labelAlert ≠ null`, delta 6; el de dos alertas es UNA fila con `label_processing_stuck` y `exception`; +61 s ⇒ los jóvenes entran, delta 3, siguen cuadrando. Claves exactas del operador con `withLabelAlert` |
+| PS-90 ampliada | `sdx-d2f-money.e2e-spec.ts` | `off` ⇒ `catalogs`, `consignment-notes?description=cart`, `balance` `200` con el doble llamado (espía / `calls`), `quote` `404 FEATURE_DISABLED` y cero `quote` al doble; harness con la selección `noop` (sin credenciales) ⇒ los tres `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}` con dial `off` y `skydropx` |
+| B-4 | `test/sdx-c1.facts-type.spec.ts`, `test/sdx-d2g.units.spec.ts` | igualdad de tipos con `role?: Role`; AG-22 `target` con `role` sin cast; el literal con `role` vuelve en línea en la de plantillas |
+| N-SDX-4/5 (14) | `test/sdx-b25.units.spec.ts` | rótulo por destino en `AV-4`/`AV-5` (pedido, invitado con `customerUrl`, retiro; ES/EN); `AV-5` sin paquetería ⇒ `Guía: X` sin «Paquetería:»; asuntos exactos sin marca |
+
+**Rojo primero** (copia `git archive 37899dac` del árbol ENTERO + las pruebas, con stubs de tipo de `countLabelAlerts`/`labelAlertShipmentIds`
+que devuelven 0/[]): unitaria **21 rojas / 26** (B-2: 3 — los otros 3 describen lo que ya era así; B-3: 4; N-SDX-4/5: 14 — de ellas, las del rótulo
+de retiro eran rojas por falta de `APP_PUBLIC_URL` en la prueba (sin CTA), corregido; que muerden lo prueban M5–M7 abajo; B-4: las
+dos suites de tipos no compilan); integración **5 rojas / 22** (PS-173, claves del operador, PS-89 ampliada; las 2 de `noop` eran un
+defecto de la prueba — el entorno de la pila trae `SHIPPING_PROVIDER_ADAPTER=fake` — y se corrigieron fijando la selección `noop`).
+
+**Suites completas** sobre la copia `git archive 37899dac` del árbol ENTERO + mis rutas (= `75cb2800` salvo los docs de B-1 en
+`6f5461a9`), scratchpad `be-b25/tree`, BD propia `tcg_be_b25`, `stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest --maxWorkers=3`) | **413/413 suites · 7214/7214** |
+| Integración | **98/99 suites · 1969/1970**. La roja era MI prueba nueva (PS-89 ampliada, «última entrada»): mezclaba relojes — `shippedAt` sale del reloj inyectado de la guía (adelantado 1 s por `refresh`) y `deliveredAt` del `PATCH` (reloj del sistema), así que `shipped` quedaba 0,6 s DESPUÉS de `delivered`. Corregida (el sondeo corre 1 min por detrás, como en producción con un reloj); la suite sola: **3/3** |
+| `tsc --noEmit` (incluye `test/`); `eslint` de los 11 ficheros | 0 errores; 0 avisos |
+
+Carga durante las corridas: 3–11 (4 CPU, otros agentes vivos); ninguna roja por tiempo.
+
+### 70.3 Mutaciones
+
+Copia `be-b25/mut` (= la de suites); `mut.py` aplica UNA, corre sus pruebas y restaura (verificado con `cmp` contra el árbol vivo).
+Todas deterministas (sin carrera ni temporizador): N = 1 cada una.
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | quitar la rama de `deliveredAt` para Skydropx | unitaria + PS-89 ampliada | rojo (unit 2; integración 1) |
+| M2 | quitar el «nunca dos» | unitaria + e2e | rojo (unit 3; integración 2: la de 7 da 8 y «una, la del evento») |
+| M3 | umbral propio en el tablero (`tUnknownMs × 2`) | unitaria + PS-173 | rojo (unit 2; integración «6 ≠ 5») |
+| M3b | el tablero con el reloj del sistema en vez del inyectado | PS-173 | rojo («6 ≠ 2») |
+| M4 | quitar `role?` | `tsc` | no compila: `staff-control.service.ts:81`, `sdx-c1.facts-type.spec.ts:35,44`, `sdx-d2g.units.spec.ts:226` |
+| M5 / M5b | rótulo fijo «VER MI ENVÍO» en `AV-4` / `AV-5` | unitaria | rojo 3 / 3 |
+| M6 | la línea con hueco en `AV-5` | unitaria | rojo 2 |
+| M7 | prefijo de marca en el asunto de `AV-4` | unitaria | rojo 2 |
+
+### 70.4 Decisiones y notas para otros roles
+
+1. **`ModuleRef` en `DashboardShippingService`.** `SHIPMENTS_LABEL_CLOCK` y `LABEL_VERIFY_CONFIG` son proveedores de `ShipmentsModule` que el
+   módulo no exporta, y `shipments.module.ts` era de B-1 en este pase. Se leen con `ModuleRef.get(token, {strict:false})`: es LA
+   instancia de `ShipmentsModule` (la que las pruebas sustituyen; PS-173 lo mide con el reloj 1 h adelantado y la mutación
+   «reloj del sistema» sale roja). Alternativa más limpia cuando el fichero esté libre: exportar los dos tokens desde
+   `ShipmentsModule` e inyectarlos. ⛔ No se declaran por segunda vez en `AdminModule` (podrían divergir).
+2. **Un cuerpo para `?alert=true` (pendiente, fuera de mi columna):** `ShipmentsService.alertShipmentIds` (`shipments.service.ts`,
+   de B-1) repite la consulta ancha y el mapa de huérfanas que ahora exporta `labelAlertShipmentIds`. Hoy coinciden (PS-173 lo
+   compara contra la lista). Cuando el fichero esté libre, `alertShipmentIds` debería ser `countCarrierAlerts`-ids ∪
+   `labelAlertShipmentIds` para que el SQL ancho viva en un solo sitio.
+3. **`AV-6` (§41.2 fila 19) sigue con `TCG HUNT — `** en el asunto y `IR A MI CUENTA` (§41.4 fila 19): fuera de las notas
+   N-SDX-4/5, no tocado.
+4. **Frontend:** `workQueue.shipping.withLabelAlert` ya viene en la respuesta (F-1 lo tipa). B-4 no cambia nada del front.
+
+## 71 · Condiciones del gate techlead sobre `31af0883` (C-TL-1, C-TL-2), deudas D-1/D-8 pagadas, D-9 corregida y B-6 de la errata v1.80.12.17 (`API_CONTRACT §M4-SHIP.19.36.2 (2)`) (2026-10-05, rama `claude/skydropx-d`, desde `31af0883`; B-6 contra el contrato de `bf9e73fc`)
+
+### 71.1 Qué cambió
+
+| Encargo | Fichero | Qué |
+|---|---|---|
+| **C-TL-1** (un cuerpo SQL) | `shipments/shipping-work-queue.ts` | `carrierAlertShipmentIds` (antes solo `countCarrierAlerts`) y `alertShipmentIdsOf(db, now, tUnknownMs)` = `carrierAlertShipmentIds ∪ labelAlertShipmentIds`. La ventana de huérfanas usa `ORPHAN_ALERT_TTL_MS` |
+| C-TL-1 | `shipments/shipments.service.ts` | `alertShipmentIds()` (`?alert=true`) = `alertShipmentIdsOf(prisma, labelClock.now(), labelCfg.tUnknownMs)`; ⛔ ya no hay consulta ancha propia. `labelFieldsOf` usa `ORPHAN_ALERT_TTL_MS` en vez del literal `7 * 24 * 60 * 60 * 1000`. Se quitó el import ya sin uso de `CARRIER_ALERT_STATUSES` |
+| C-TL-1 (inyección) | `shipments/shipping-work-queue.service.ts` (nuevo), `shipments.module.ts`, `admin/dashboard-shipping.service.ts` | `ShippingWorkQueueService` (Prisma + `SHIPMENTS_LABEL_CLOCK` + `LABEL_VERIFY_CONFIG` inyectados normal) lo provee y **exporta** `ShipmentsModule`; `DashboardShippingService` lo inyecta y solo pone los diales y la lectura del saldo. ⛔ `ModuleRef.get(…, {strict:false})` |
+| **C-TL-2** (AV-6) | `shipments/mail/shipment-notice.templates.ts` | botón con `ctaLabelOf` (§41.4 fila 19: pedido ⇒ `VER MI PEDIDO`/`SEE MY ORDER`; retiro ⇒ `VER MI ENVÍO`/`SEE MY SHIPMENT`); `next` («vuelve a solicitarlo desde tu cuenta») solo sin `orderNumber`; asunto sin `TCG HUNT — ` (§41.2 fila 19) |
+| **D-1** | `shipments.service.ts` `transitionFromProvider` | `await this.requirePrep().assertCanAdvance(…)`: sin `ShipmentPrepService` lanza, ⛔ se salta la guarda |
+| **D-8** | `shipments/guest-mail-link.ts` (`safeErrorTag`, exportada), `shipments.service.ts` `claimAndNotify`, `payments/refunds/refund-ledger.service.ts` `notifyCustomer` | los `catch` registran `name` + `code`, ⛔ `message` (podía llevar el enlace con token). `guest-mail-link.ts` usa la misma función (antes en línea) |
+| **D-9** | `src/jobs/scheduler.service.ts:119`, `test/integration/sdx-d2e-notices.e2e-spec.ts:15` | referencias corregidas (de una línea): `sdx-d2d-jobs` (no existe) ⇒ `sdx-d2d-charges.e2e-spec.ts:132-133`; «invitado: §67 P-D2E-1» ⇒ `sdx-b1-guest-mail-link.e2e-spec.ts`, §69 |
+| **B-6** (§19.36.2 (2)) | `shipments/customer-timeline.ts` | `shipped.at = min(shippedAt, primer occurredAt de un MOVIMIENTO de la guía vigente)`, `MOVEMENT_KINDS = {in_transit, out_for_delivery, delivery_attempt, at_branch, delivered}` (⛔ `label_created` ni no mapeados). `shipped` se empuja primero ⇒ en empate va antes. `shippedAt` en BD intacto; guía manual sin cambio |
+| D-2…D-7, D-10, D-12 | `docs/TECH_DEBT.md` (sección «Backend · 2026-10-05 · Skydropx · gate techlead sobre 31af0883») | anotadas con dónde/impacto/corrección/disparador/comprobación. D-9 anotada como cerrada. D-11 es de frontend, no anotada |
+
+**Desvío consciente de la letra de C-TL-1:** el techlead pidió «exportar la constante de `shipping-work-queue.ts:27`». Ya existía
+`ORPHAN_ALERT_TTL_MS` exportada en `label-verify.constants.ts:69` (§19.28.6, sin ningún uso). Exportar una segunda habría dejado
+**dos nombres para un hecho**; se borró la local y los tres sitios usan la existente. El censo de la prueba lo asevera.
+
+### 71.2 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| C-TL-1 (6) | `test/sdx-tl31af.units.spec.ts` (nuevo) | unión exacta y sin duplicados (incluye `cancelado` con `exception`: sin alerta de transportista, con `label_live_on_cancelled`); `ShipmentsService.alertShipmentIds` con reloj inyectado 1 h adelante ⇒ la unión y la ventana desde ESE reloj; censo (sin consulta ancha ni literal de 7 d en `shipments.service.ts`/`shipping-work-queue.ts`); `ShippingWorkQueueService` con el reloj y el `tUnknownMs` inyectados (dos pruebas); `ShipmentsModule` lo provee y exporta, el tablero no importa `@nestjs/core` ni los dos tokens |
+| C-TL-2 (7) | ídem | rótulo por destino (pedido ES/EN, invitado con `customerUrl`, retiro ES/EN), `next` solo en retiro (html y texto), ⛔ `IR A MI CUENTA`; asuntos exactos ES/EN |
+| D-1 (1) | ídem | sin prep ⇒ rechaza `/ShipmentPrepService/` y cero `updateMany` |
+| D-8 (3) | ídem | `safeErrorTag`; `claimAndNotify` y `AV-12` con un error cuyo mensaje lleva `…/pedido?token=…` ⇒ el log lleva `Error E_MAIL` y ⛔ ni `token` ni el mensaje |
+| B-6 unit (11) | `test/sdx-b6.units.spec.ts` (nuevo) | PS-89 (c) exacta (y la fila intacta); salida a T+30min ⇒ sin cambio; `created` y `exception`/`retained` no acotan; cada uno de los cinco movimientos acota con `shipped` primero en el empate; otra guía no acota; guía manual sin cambio |
+| PS-89 (c) (2) | `test/integration/sdx-b2-timeline.e2e-spec.ts` | por `POST /orders/guest/track`: `created` T, `picked_up` T+1h, `delivered_to_branch` T+3h, sondeo a T+5h ⇒ `[label_created T, shipped T+1h, in_transit T+1h, at_branch T+3h]` y `shippedAt` en BD = T+5h; salida por `PATCH` a S = T+30min ⇒ `shipped` = S |
+| Ajustadas al contrato nuevo | `sdx-b2-timeline` (PS-89 de 7), `sdx-d2e-notices` (PS-87/88/89, tres superficies) | aseveraban `shipped.at = shippedAt` con un `picked_up` 8 d antes; ahora `min(shippedAt, primer movimiento)` (= `picked_up`), con la fila intacta |
+
+**Rojo primero** (copia `git archive 31af0883` del árbol ENTERO + las pruebas nuevas, con stubs de tipo de los nombres nuevos sin
+conducta): `sdx-tl31af` **15 rojas / 16** (la verde es la de `ShipmentsService.alertShipmentIds`, que caracteriza conducta que ya
+era así: el refactor debe conservarla); `sdx-b6` **5 rojas / 10** (las 5 verdes son los «sin cambio» que el contrato pide conservar).
+
+**Suites completas** sobre copia del árbol ENTERO (`git archive bf9e73fc` + mis rutas; `cmp` contra el vivo = idénticos), scratchpad
+`be-skyfix/tree`, BD propia `tcg_be_skyfix` (`prisma migrate deploy`), `stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest --maxWorkers=2`) | **415/415 suites · 7241/7241**; después se añadió 1 prueba a `sdx-tl31af` (la de `tUnknownMs`, ver M3) ⇒ ese fichero **17/17** |
+| Integración | **98/99 suites · 1971/1972**. La roja: `sdx-d2e-notices` PS-87/88/89 aseveraba `shipped.at = shippedAt` — conducta que B-6 cambia por contrato. Ajustada (arriba); re-corridas `sdx-d2e-notices` + `sdx-b2-timeline`: **2/2 suites · 16/16** |
+| `tsc --noEmit` (incluye `test/`); `eslint` de los 14 ficheros | 0 errores; 0 avisos |
+
+Carga durante las corridas: 4–16 (4 CPU, otros agentes vivos); ninguna roja por tiempo.
+
+### 71.3 Mutaciones
+
+`be-skyfix/mut.py`: aplica UNA sobre la copia, corre, restaura y compara con el vivo (todas «restaurado OK»). Deterministas: N = 1.
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M3 | `tUnknownMs × 2` en `ShippingWorkQueueService` | unit `sdx-tl31af` + PS-173 | primero **sobrevivió** en unitaria (las filas al límite eran de `T_STUCK_MS`): se añadió la prueba de una en vuelo justo a `tUnknownMs` ⇒ rojo 1; PS-173 rojo |
+| M3b | reloj del sistema en `ShippingWorkQueueService` | unit + PS-173 | rojo (unit 1→2 con la prueba nueva; PS-173 1) |
+| U1 | `alertShipmentIdsOf` sin la parte del transportista | unit + `sdx-d2d-tracking` + `sdx-d2e-notices` | rojo (unit 2; integración 5). En `sdx-d2f-money` sola **sobrevive** (PS-173 compara solo `labelAlert`) — esperado |
+| T1 | AV-6 con `IR A MI CUENTA` fijo | unit | rojo 5 |
+| T2 | `next` siempre | unit | rojo 3 |
+| T3 | prefijo de marca en el asunto de AV-6 | unit | rojo 2 |
+| D1 | volver a `if (this.prep)` | unit | rojo 1 |
+| D8a / D8b | `e.message` en el log de `claimAndNotify` / `AV-12` | unit | rojo 1 / 1 |
+| B6a | quitar la cota | unit + PS-89 (c) + d2e | rojo (unit 6; integración 3) |
+| B6b | `created` cuenta como movimiento | unit + PS-89 (c) + d2e | rojo (unit 6; integración 4) |
+
+Las M3/M3b de §70.3 se repitieron en su sitio nuevo (el reloj y `tUnknownMs` ya no viven en el tablero sino en el servicio
+exportado): siguen rojas en PS-173.
+
+### 71.4 Notas para otros roles
+
+1. **Arquitecto:** ninguna discrepancia con el contrato. `shipped.at` ahora puede ser ANTERIOR a `shippedAt` (por diseño, §19.36.2);
+   quien compare la línea de tiempo con `shippedAt` (p. ej. un E2E de frontend) debe usar la cota.
+2. **Frontend:** sin cambio de forma. F-5 (invertir) es independiente.
+3. **QA:** PS-89 (c) vive en `sdx-b2-timeline.e2e-spec.ts`; las condiciones C-TL-1/2 y D-1/D-8 en `test/sdx-tl31af.units.spec.ts`.
+
+## 72 · v1.82 PNL-2 + PNL-3 construidas (💰) — reembolso de UNA carta tras la entrega, SPEI de un retiro entregado, `M-70` (2026-10-05, rama `claude/arreglos-panel`; código en `24097323` + `5a3bd05c`)
+
+> **Nota de renumeración (fusión `claude/arreglos-panel` + `claude/skydropx-d`, 2026-10-05):** en la rama del panel estas secciones eran **§58, §59 y §60**; Skydropx ya usaba esos números (§57…§71), así que aquí pasan a **§72, §73 y §74** (subsecciones igual: §58.6 ⇒ §72.6, §60.10 ⇒ §74.10). Las citas «`BACKEND_NOTES §58.x` / `§59.x` / `§60.x`» escritas en la rama del panel (código, pruebas, contrato, `DESIGN_SYSTEM`) se leen §72.x / §73.x / §74.x; ⛔ no se reescribieron en la fusión.
+
+**Fuente:** `API_CONTRACT §PNL.2, §PNL.3, §PNL.7, §PNL.8` (v1.82); `ARCHITECTURE §4.61.2/.3`; `DESIGN_SYSTEM §60.2 (b)` (correos);
+`HECHOS.md:30` (D-1), `:31` (b), `:32` (D-12), `:44` (a)(b).
+
+### 72.1 `M-70` (`20261020120000_m70_panel_refunds`)
+- **Cabe en una migración: ⛔ no hizo falta `M-70b`.** Medido aplicándola con `psql -1` (UNA transacción, el caso más
+  estricto) sobre una copia con datos de `tcg_marketplace`: los `ADD VALUE` y los CHECK que comparan `::text` conviven en
+  la misma tx (el literal es texto; el valor nuevo del enum no se usa).
+- **Huella antes/después** (copia de `tcg_marketplace`, 2026-10-05): `PaymentRefund 0 filas`, `ManualRefund 2 filas md5
+  a2f54d1a…`, `Order 39 md5 5258a4ae…`, `ShipmentItem 0` — **idénticas** tras la 1.ª y la 2.ª aplicación; `pg_dump
+  --schema-only` tras la 2.ª = tras la 1.ª (solo difiere el token `\restrict` de `pg_dump`). Idempotente: `ADD VALUE /
+  ADD COLUMN / CREATE INDEX IF NOT EXISTS` y `DROP CONSTRAINT IF EXISTS` + `ADD`.
+- **Reversa** (la del encabezado del SQL) **probada** en esa copia (sin filas de los `kind`/`source` nuevos): OK, y re-subir
+  M-70 después: OK con la misma huella.
+- Las dos `ManualRefund` existentes (`case_excess`, con caso) cumplen `ManualRefund_case_sources_chk` sin backfill.
+
+### 72.2 PNL-2 — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`
+- Verbo en `OrderRefundService.refundDelivered` (⛔ no hay servicio nuevo registrado: `orders.module.ts` lo tocaba PNL-1 a la
+  vez). Piezas puras en `orders/item-delivered-refund.ts`: `deliveredRefundDecision` (pasos 3–4, **un cuerpo** para el verbo
+  y para `items[].deliveredRefund` de M3), `deliveredLinesOf` (la línea `si`, por lote), `parseItemDeliveredBody` (cuerpo
+  crudo: las llaves extra se ignoran ⇒ un `amountCents` nunca se lee).
+- Importe: `itemRefundComponents(order, orderItem)` en `common/money.ts` = **el mismo cuerpo** que `item_missing`.
+- **Aditivo no listado en el contrato:** `GET /admin/orders/:id` → `items[].orderItemId`. Sin él la pantalla no tiene la llave
+  del verbo (el DTO de M3 no la traía). Pregunta abierta al arquitecto (abajo).
+- Cliente / invitado: `clientRefundOf` gana `kind` (`item_delivered` ⇒ `after_delivery`; el resto ⇒ `missing_at_prep`) y
+  `reason = deliveredReason ?? missingReason`. ⚠️ `GET /shipments/:id` (`shipments.service.ts:544`, zona de otro stream)
+  sigue con su proyección propia sin `kind`; **no es alcanzable** para un directo (production escribe `userId: null` en el
+  envío de un directo ⇒ el cliente no lo ve en «Retiros»), así que no se tocó.
+
+### 72.3 PNL-3 — `POST /admin/manual-refunds/withdrawal-delivered` + `GET …/preview`
+- `payments/refunds/withdrawal-delivered-refund.service.ts`. `PaymentsModule` importa `VaultModule` (por `marketRefOf`: `M`
+  es LA valuación de «Mi bóveda»); sin ciclo de proveedores (medido: la app arranca en las 27 de integración).
+- **Topes en un cuerpo:** `payments/refunds/refund-reference.ts` (`refundReferenceOf`, `refundConfirmationOf`,
+  `assertCapturedAmountWithinLimits`); `ReplacementCaseService` dejó de tener su propia copia.
+- Decisiones donde el contrato calla (pregunta al arquitecto abajo): origen `IVA_EXCLUSIVE` ⇒ `Q = null` y componentes «todo
+  compensación», pero `orderId` = el origen igual. La preview aplica las mismas guardas `409` que el verbo.
+- `ManualRefundDTO.case` anulable + `withdrawal`; `reissue` de una `withdrawal_delivered` copia línea/motivo/nota y busca la
+  «viva» **por línea** (⛔ `replacementCaseId: null` en el `where` habría encontrado la viva de OTRO retiro); la búsqueda `q`
+  de la cubeta también mira el folio de la carta del retiro.
+- Bitácora del acto: `createRow` acepta la acción (`manual_refund.withdrawal_delivered_created`, una fila, en la tx).
+
+### 72.4 Lectores de `PaymentRefundKind` (§PNL.2, `rg` 2026-10-05) y qué hacen con `item_delivered`
+| Lector | Qué hace con `item_delivered` |
+|---|---|
+| `refund-ledger.service.ts` `operatorUsedCents` (`kind ≠ order_full`) | entra en la suma, pero solo cuenta filas del operador y este `kind` solo lo crea el súper-admin ⇒ nunca suma |
+| `refund-ledger.service.ts` `retry` | `SUPER_ADMIN_ONLY_RETRY_KINDS`: el operador NO lo reintenta (como `order_full`/`case_refund`) |
+| `refund-ledger.service.ts` `notifyCustomer` (AV-12) | `AV12_CARD_KINDS`: nombra la carta; variante `item_delivered` (correo 23, §60.2) |
+| `refund-ledger.service.ts` `applyStripeOutcome` / `av3Allowed` | solo miran `order_full` ⇒ sin cambio (no cierra la orden, no manda AV-3) |
+| `orderFullRefundComponents` / `refundedNonFailedCents` | genéricos: el total posterior reembolsa el remanente (IDR-9 `68159`) |
+| `shipment-prep.service.ts:376-380` (cierre `order_remaining`) | solo cuenta `item_missing`; una carta `item_delivered` existe solo tras `entregado` ⇒ el preparado ya pasó |
+| `origin.ts:237`, `shipment-prep.service.ts:732` | solo `order_full` ⇒ sin cambio |
+| M7 `refundsInPeriod` (`admin.service.ts`) | suma componentes sin mirar `kind` ⇒ devolución de venta (mercancía + IVA + comisión), como `item_missing` |
+| `admin-refunds.controller.ts` `?kind=` | derivado del enum (clase E) ⇒ `item_delivered` válido |
+| `manual-refund.service.ts:toManual` | solo `case_refund` ⇒ `409 REFUND_NOT_CONVERTIBLE` para `item_delivered` (sin cambio) |
+
+### 72.5 Correos (DESIGN_SYSTEM §60.2 (b))
+- AV-12 `item_delivered` y AV-14 `withdrawal_delivered`: funciones propias en `refund-notice.templates.ts`; ⛔ ni «no salió» ni
+  «reponer». Candado **ML-25** en `test/pnl-delivered-refunds.spec.ts` (el encargo decía ML-24, que en §60.13 es el correo de
+  buylist de PNL-4). Sin correo nuevo (SRF-13 sigue verde).
+
+### 72.6 Pruebas y mutaciones (medido por backend sobre copias `git archive`, BD propia `tcg_be_pnlm`)
+- Integración `test/integration/pnl-delivered-refunds.e2e-spec.ts`: IDR-1…15 + `?kind=` + WDR-1…10 (+ WDR-9b), 27/27.
+  Carreras: **IDR-5 10/10** y **WDR-6 10/10** (N=10, backend).
+- Mutaciones (todas rojas, sobre la copia): fórmula con otro `G` ⇒ IDR-1; sin comparar `expectedRefundCents` ⇒ IDR-8; aceptar
+  `enviado` ⇒ IDR-3; sin `@MoneyOut` ⇒ IDR-2; ignorar `item_delivered` en el remanente ⇒ IDR-9; quitar candados + mapeo
+  `P2002` ⇒ IDR-5 **0/10** (500 en 10/10) y WDR-6 **0/10**; quitar SOLO los candados ⇒ sigue 10/10 (el índice + el mapeo
+  bastan: defensa en profundidad); índice sin `WHERE status <> 'cancelled'` ⇒ WDR-5; leer `case.id` sin nulo ⇒ WDR-1/WDR-7
+  (y el compilador ya lo impide: `TS18047`); quitar cada variante de correo ⇒ ML-25 (2+2).
+- **Suites completas** (copia `git archive` de `5a3bd05c`, BD `tcg_be_pnlm`): unitarias **394/394 suites, 6641/6641**
+  (la paridad de enums, roja a propósito hasta M-70, queda verde); integración **78/80 suites, 1605/1608** con tres rojos:
+  (1) `C-EQ-1` descubrimiento — los dos `@Query` de la preview sin clase ⇒ **arreglado en el commit de esta sección**
+  (`NO_ENUM_POR_RUTA` + tope 44 → 46, ⚠️ ratificación del arquitecto pendiente); (2) `C-EQ-1` fila 2 `GET /admin/vaults?sort=`
+  — **2/3 rojo sobre la BD ya usada por la corrida completa, 3/3 verde sobre BD recién creada** (carga 1.6–3), y la base
+  `7ce3bff4` (sin estos cambios) **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO. Huele a dependencia de datos
+  del propio test, no a estos cambios (no tocan `admin/vaults`); (3) `shipped-refund-reason` SRF-7 manda un `reason` de 600 y
+  espera `201`: lo rompe **PNL-6** (`171c36bf`, `@MaxLength(500)`, de otro agente), no PNL-2/3.
+
+## 73 · v1.82 PNL-1 + PNL-4 + PNL-6 construidas — disputas fuera (`410`) y un solo buzón, rechazo de varias cartas con un correo, tope del motivo del reembolso (2026-10-05, rama `claude/arreglos-panel`; código en `1a61cdbd`, `171c36bf`, `5cbbe29b`, `8818ff09`)
+
+**Fuente:** `API_CONTRACT §PNL.1, §PNL.4, §PNL.6, §PNL.8` (v1.82); `ARCHITECTURE §4.61.1/.4`; `DESIGN_SYSTEM §60.6` (correo 29)
+y `§60.13` (ML-24). Medido sobre copia `git archive` del árbol entero + mis parches, base propia `tcg_be_pnlb`.
+
+### 73.1 PNL-1 — `POST /disputes` ⇒ `410` y `GET /support/contact`
+- `POST /api/v1/disputes` lanza **siempre** `410 DISPUTES_DISCONTINUED { supportContact }`. El handler **no tiene
+  parámetros** (ni `@Body`): el `ValidationPipe` no tiene nada que validar, así que ningún `400`/`403`/`422` se adelanta
+  (DSC-2 lo mide con seis cuerpos distintos: respuesta idéntica). Sin sesión ⇒ `401` (guard global, como siempre).
+- `DisputesService.create` **se retiró** (no solo se desenrutó). Lecturas del cliente, `GET /admin/disputes` y `resolve`
+  siguen (transición; DSC-4).
+- **Resolutor único:** `backend/src/modules/mail/support-contact.ts` → `supportContact()` =
+  `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → 'soporte@tcghunt.mx'` (con `envOr`), **leído en cada llamada** (las
+  constantes de antes se fijaban al importar). `disputes.constants.ts` se borró; `SUPPORT_EVIDENCE_CONTACT` salió de
+  `orders/guest-checkout.constants.ts`; `buylist-mail.templates.ts`, `buylist/mail-shell.ts` (pie), los correos de
+  disputa y `GuestOrderTrackingDTO.support.evidenceContact` lo importan. **Cambio de conducta posible:** si en
+  producción `SUPPORT_EMAIL` existe y difiere de `DISPUTE_EVIDENCE_CONTACT`, el seguimiento del invitado y `evidenceContact`
+  de disputas pasan a decir `SUPPORT_EMAIL` (NO MEDIDO qué valen en Railway — lo mide devops, §PNL.1).
+- `GET /api/v1/support/contact`: `@Public`, limitador global, `Cache-Control: public, max-age=300`, `200 { contact }`.
+  Controlador `orders/support-contact.controller.ts`, registrado en `OrdersModule`.
+- Candado DSC-8 (`test/support-contact.single-resolver.spec.ts`): barre `src/` **en crudo** (el limpiador de comentarios
+  es ciego a trozos en `mail-shell.ts`) buscando lecturas de las dos variables fuera del resolutor; con canario.
+
+### 73.2 PNL-6 — `RefundDto.reason` ≤ 500
+`@IsString() @MaxLengthWithField('reason', REFUND_REASON_MAX)` en `orders/dto/orders.dto.ts`. El `ValidationPipe` global
+no emite `details.field` (BE-82), así que el decorador es `@Transform` (lanza `BusinessException 400 VALIDATION_ERROR
+{field, max}` dentro de `plainToInstance`, antes del servicio) + `@MaxLength` con la misma cifra. Sin `MinLength`.
+⚠️ SRF-7 (`shipped-refund-reason.e2e-spec.ts`) mandaba 604 caracteres esperando `201` y recorte a 500: con v1.82 es
+`400`; la prueba se puso al día en `8818ff09` (lo encontró la corrida completa, no la dirigida — mi error de orden).
+
+### 73.3 PNL-4 — `POST /admin/buylist/:id/reject-items`
+- Cuerpo **crudo** validado en `buylist/buylist-reject-items.ts` (`parseRejectItemsBody`): `400 VALIDATION_ERROR
+  {field, rule}` con `rule ∈ required|type|size|duplicates|length`. Claves de más se ignoran.
+- `runSerializable` + `SELECT … FROM "SellRequest" … FOR UPDATE`; precedencia del contrato: cerrada (terminal o
+  `closedAt`) ⇒ `409 CONFLICT {status, closedAt}`; `status ≠ verificacion` ⇒ `409 INVALID_TRANSITION {from,
+  allowedFrom:['verificacion']}`; id ajeno/inexistente ⇒ `404`; alguna `skip` ⇒ `422 ITEM_NOT_OFFERED {itemIds}`; alguna
+  no rechazable ⇒ `409 CONFLICT {itemIds}`.
+- **No rechazable** (`REJECT_ITEMS_BLOCKED_STATUSES`): `convertida_inventario`, `pagada` **y `rechazada`** — esta última
+  es decisión mía (ver 59.5 Q-2): re-rechazar movería `rejectedAt`, el ancla de los plazos de devolución/abandono.
+- Por carta, `rejectItemWrite` — **el mismo cuerpo** que usa ahora `PATCH …/decision {reject}` (sin CAS allí: sin cambio
+  de conducta) — con **CAS por estado** de la carta; el total aprobado se recalcula y la auto-transición
+  (`autoRejectIfAllRejectedTx`, el mismo cuerpo que `maybeAutoRejectRequest`) corre **en la misma tx**.
+- `200 { items: AdminSellItemRow[] (orden de itemIds), requestClosed: boolean }` (ver 59.5 Q-1). Bitácora
+  `buylist.items_rejected { itemIds, reason, requestClosed }` solo si no lanzó. Correo 29 post-commit, best-effort.
+- **Correo 29** `sellItemsRejectedTemplate` (junto al 4): textos de §60.6; los días («7», «30») se **derivan** de
+  `deadline − rejectedAt` (ML-24: con plazos de +10/+45 el texto dice 10 y 45). Saludo como el correo 4
+  (`Hola {name}:`) — `greetingLine` de §41.13 E-2 aún no existe en el código.
+- **Dos defectos medidos por BRJ-8, cerrados en el mismo commit:**
+  1. `PATCH …/decision approve` no hacía CAS por estado: si `reject-items` confirmaba entre su lectura y su escritura,
+     la carta quedaba **`aprobada` con `rejectedAt`/`rejectionReason`** (la limpieza se decidía con la lectura vieja).
+     Medido forzando el orden con candado de fila. Ahora `itemStatus` observado en el `where` y, si cambió,
+     `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }` (antes caía en `NO_LIVE_ADJUSTMENT`, que mentiría).
+  2. `recomputeApprovedTotal` suelto (post-commit de la decisión por carta) leía el agregado y escribía sin candado:
+     **total viejo** sobre una carta ya rechazada (medido 1 de 4 corridas de BRJ-8 (c) con N=12 rondas: `approvedTotalCents
+     = 12000` con la carta `rechazada`). Ahora toma `SellRequest FOR UPDATE` antes de agregar.
+- `runSerializable` pasa de 6 a 7 llamadores (`serializable-retry.guard.spec.ts`); el cuerpo de `rejectItems` solo toca BD.
+
+### 73.4 Mediciones (copia `git archive` + parches; base `tcg_be_pnlb`)
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar censos/mocks) | 6658/6695; los 37 rojos = 7 specs de mocks sin `$queryRaw` + 3 censos (runSerializable, plantillas ×2) + `enum-values-parity` (M-70, del otro agente: ya en `24097323`) |
+| unitarios tras el ajuste, dirigidos (`test/buylist*`, `serializable-retry`, `refund-review`) | 1332/1332 + 22/22 |
+| integración completa | 78/80 suites, 1585/1594: SRF-7 (corregido en `8818ff09`) y `graded-estimate` (8 rojos en la corrida completa, **verde aislada 2/2** — no toco `catalog`; orden-dependiente, NO diagnosticado) |
+| integración dirigida tras el commit (buylist ×9, disputes ×2, refund-reason-max, graded-estimate ×3) | 205/205 |
+| BRJ-8 (c) N=20 rondas | 6/6 corridas verdes (120 rondas coherentes; 0–4 rondas por corrida con los dos `200`) |
+
+**Mutaciones** (sobre la copia): restaurar `@Body` en `POST /disputes` ⇒ DSC-1/2/6 rojas (1/1, determinista);
+cascada local en `guest-checkout` ⇒ DSC-6 y DSC-8 rojas (1/1); quitar el tope de `reason` ⇒ RFD-1 roja; tope 499 ⇒ RFD-1/2
+rojas; quitar el CAS de la aprobación ⇒ BRJ-8 (a) roja **3/3** y (c) roja **3/3** (estado mixto visto); «7»/«30» literales
+⇒ ML-24 canario rojo; recálculo sin `FOR UPDATE` ⇒ unitario de orden rojo, ⚠️ pero **BRJ-8 (c) no lo ve: 0/6 corridas
+rojas a N=20** — el único rojo por HTTP de ese defecto fue 1/4 corridas a N=12 antes del arreglo. La prueba HTTP de ese
+defecto **no es sensible**; lo sostiene el unitario de orden de llamadas.
+⚠️ Una ventana de ~20 s de mutación unitaria se solapó con la corrida completa de integración en la misma copia; por eso
+las suites de buylist/disputas se re-corrieron después (fila «dirigida tras el commit»).
+
+### 73.5 Para el arquitecto
+- **Q-1:** la forma del `200` de `reject-items` («la misma proyección que la decisión por carta») era ambigua para varias
+  cartas: elegí `{ items: [...], requestClosed }`. Pido que §PNL.4 lo fije.
+- **Q-2 (💰, defecto existente):** §PNL.4 paso 4 dice «alguna que la decisión por carta **no** dejaría rechazar (mismo
+  predicado)». **La decisión por carta no tiene ese predicado.** MEDIDO por HTTP (sonda en la copia, 1/1, determinista):
+  `PATCH …/decision {reject}` sobre una carta `convertida_inventario` con `approvedPriceCents = 8000` ⇒ **`200`**, la carta
+  queda `rechazada` y `approvedPriceCents = null` — **la pieza sigue en nuestro inventario y su precio sale del total que
+  se le paga al vendedor**. Implementé el `409` de BRJ-5 en `reject-items` y **no** toqué `PATCH` (el contrato dice «sin
+  cambio»). Pido decisión: ¿`PATCH reject` gana el mismo predicado (`409` sobre `convertida_inventario`/`pagada`)?
+- **Q-3:** `ML-25` (AV-12 / AV-14) son plantillas de `payments/` (PNL-2/3, el otro agente), no de este encargo.
+
+## 74 · Errata v1.82.1 §PNL.10 construida (💰) — `ITEM_FINAL` en la decisión por carta (E-2), CAS en la conversión a inventario (E-3); BRJ-10…14, WDR-11 (2026-10-05, rama `claude/arreglos-panel`; código en `24edf8a7`)
+
+### 74.1 Qué cambió (y dónde)
+- **Un predicado:** `ITEM_FINAL_STATUSES = ['convertida_inventario','pagada']` e `isItemFinal()` en
+  `buylist-reject-items.ts`; `REJECT_ITEMS_BLOCKED_STATUSES = [...ITEM_FINAL_STATUSES, 'rechazada']` (compuesto, no a mano).
+- **`PATCH /admin/buylist/items/:itemId/decision`, los tres verbos:** `assertItemNotFinal(item)` justo después de
+  `NO_LIVE_ADJUSTMENT` ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`, antes de la idempotencia del
+  `reject` y de la escalera del ciclo (incluido `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`). Cero escrituras, correo, bitácora
+  (el controlador audita solo tras el `200`) y recálculo. Sin código de error nuevo: valor nuevo de `details.reason`.
+- **La guarda del motor del rechazo:** el `where` de `rejectItemWrite` lleva **siempre** `itemStatus NOT IN
+  ITEM_FINAL_STATUSES` (en un `AND`, junto al `expectedItemStatus` de `reject-items` cuando viene). En el `PATCH {reject}`,
+  `count ≠ 1` se relee (`throwRejectWriteConflict`): solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta final ⇒
+  `ITEM_FINAL`; otra cosa ⇒ el `409` terminal de siempre. `approve`/`adjust` no ganan guarda nueva: su CAS por estado leído
+  ya lo es (una conversión en medio ⇒ `409 … CONCURRENT_UPDATE`, §PNL.10.2.3).
+- **`convertToInventory`:** la escritura de la carta pasa a `updateMany({ where: { id, itemStatus: 'aprobada',
+  inventoryItemId: null } })` dentro de la misma tx que crea pieza y `InventoryMovement`. Si no casa, se relee dentro de la
+  tx y se lanza una señal interna (`ConvertCasMiss`) ⇒ rollback entero; fuera: `inventoryItemId` ya puesto ⇒ respuesta
+  idempotente de siempre; si no ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`. El folio de
+  `nextFolio()` se pierde (como en `P2002`). El índice único `sourceSellRequestItemId` sigue cubriendo conversión contra
+  conversión.
+- Para frontend: la forma del `409 ITEM_FINAL` es la de `CONCURRENT_UPDATE` en el mismo endpoint; se distingue por
+  `details.reason` (FE-BRJ-4).
+
+### 74.2 El defecto, medido ANTES del arreglo (copia `git archive` + la prueba nueva, BD `tcg_be_pnlf`)
+BRJ-13 (b), rondas simultáneas `convert-to-inventory` ∥ rechazo sobre una carta `aprobada`, N = 12 por corrida. «Mixta» =
+`convertida_inventario` con `rejectedAt`/sin precio, o `rechazada` con pieza.
+
+| Código | Variante | Corridas (mixtas / N) |
+|---|---|---|
+| sin E-2 ni E-3 (el de `63961651`) | `PATCH {reject}` | **12/12, 12/12, 12/12** — 10, 10 y 12 de ellas E-3 (`convertida+rejectedAt`); el resto E-2 (`rechazada` con pieza) |
+| sin E-2 ni E-3 | `reject-items` | **7/12, 9/12** (todas E-3: el lote ya bloqueaba la convertida) |
+| con E-2, sin E-3 (aísla E-3) | `PATCH {reject}` / `reject-items` | **7/12** / **8/12** |
+| con E-2 y E-3 | las dos | **0/12** y **0/12**; después N = 20 ×2 corridas: **0/20, 0/20** en cada variante |
+
+El defecto **es** sensible sin forzar (no hizo falta el candado para verlo), pero BRJ-13 (a) lo fuerza igualmente: la
+prueba toma `"Card" FOR UPDATE`, la conversión se detiene en su `INSERT "InventoryItem"` (FK ⇒ `FOR KEY SHARE`) **después**
+de leer `aprobada`, el rechazo confirma entero, y se suelta. Determinista.
+Reparto de desenlaces con el arreglo (N = 20; corrida 1 · corrida 2): `PATCH` — conversión `409 CONCURRENT_UPDATE` 13 · 14,
+conversión gana y rechazo `409 ITEM_FINAL` 3 · 3, conversión `422 ITEM_NOT_APPROVED` 4 · 3; `reject-items` — `409
+CONCURRENT_UPDATE` 12 · 12, conversión gana y lote `409 {itemIds}` 7 · 5, `422` 1 · 3.
+
+### 74.3 Pruebas
+| Prueba | Dónde | Qué |
+|---|---|---|
+| BRJ-10 (+10b, 10c) | `test/integration/buylist-item-final.e2e-spec.ts` | `reject` sobre convertida (8000, fabricada por `approve`→`convert`) ⇒ `409 ITEM_FINAL`, fila/total/pieza/bitácora idénticos, 0 correos; 10b: carta `pagada` en los tres verbos (incluido `adjust` en ciclo: `ITEM_FINAL` gana a `ADJUST_NOT_ALLOWED…`); 10c: solicitud `pagada` ⇒ `NO_LIVE_ADJUSTMENT` gana |
+| BRJ-11 | ídem | `approve` (ciclo) y `adjust {1}` / `approve {1}` (legado) ⇒ `409 ITEM_FINAL`; `approvedPriceCents` sigue 8000; `adjustmentSentAt` sigue nulo |
+| BRJ-12 | ídem + `test/buylist.reject-items.spec.ts` | integración con `assertItemNotFinal` apagado por `jest.spyOn` ⇒ el `where` responde `409 ITEM_FINAL`; unitarios del `where` (con y sin `expectedItemStatus`) y de la relectura (viva+final ⇒ `ITEM_FINAL`; terminal ⇒ `NO_LIVE_ADJUSTMENT`) |
+| BRJ-13 🔁 | `buylist-item-final.e2e-spec.ts` | (a) forzado ×2 variantes; (b) N = `BRJ13_N` (12 por defecto) ×2 variantes, proporción al log; cuenta también `InventoryMovement` (rollback entero) |
+| BRJ-14 | ídem | `reject-items` sobre una ya `rechazada` ⇒ `409 {itemIds}`, `rejectedAt`/motivo idénticos, 0 correos |
+| composición | `test/buylist.reject-items.spec.ts` | `REJECT_ITEMS_BLOCKED_STATUSES ⊇ ITEM_FINAL_STATUSES` y `= [...ITEM_FINAL_STATUSES,'rechazada']` |
+| CAS de la conversión | `test/buylist.convert-guard.spec.ts` | `updateMany` con `{id, itemStatus:'aprobada', inventoryItemId:null}`; `count 0` ⇒ `409 CONCURRENT_UPDATE` lanzado dentro de la tx; `count 0` con pieza ⇒ idempotente |
+| WDR-11 | `test/integration/pnl-delivered-refunds.e2e-spec.ts` | origen `IVA_EXCLUSIVE`, M = 60000 ⇒ preview `paidReferenceCents null`, `referenceCents = M`; verbo `201`, todo `compensationCents = A`, `orderId` = origen. No existía con otro nombre (WDR-9b es «sin origen») |
+
+⚠️ BRJ-13 sube el tope MENSUAL de intake (`buylist_cap_per_month_cents`) durante la suite y lo restaura en `afterAll`:
+cada ronda aprueba 12000 del mismo vendedor y sin eso la ronda 22 choca con `BUYLIST_LIMIT_EXCEEDED` (medido).
+Mocks unitarios de la conversión (`buylist.security`, `bl25-bl26`, `inventory.card-product-id`, `convert-guard`) pasan de
+`update` a `updateMany`; `buylist.reject.spec` afirma el término nuevo del `where`.
+
+### 74.4 Mutaciones (copia `git archive`, BD `tcg_be_pnlf`; cada una revertida antes de la siguiente)
+| Mutación | Resultado |
+|---|---|
+| M1 quitar el peldaño **y** el término del `where` | BRJ-10 roja (`200`) |
+| M2 peldaño solo para `reject` | BRJ-11 y BRJ-10b rojas (`200`) |
+| M3 quitar solo el término del `where` | BRJ-12 integración roja (`200`), unitarios del `where` rojos ×2, `buylist.reject.spec` rojo; BRJ-10 sigue verde (lo sostiene el pre-check, como pide el contrato) |
+| M4 `count = 0` del `PATCH` siempre a terminal | BRJ-12 roja (`NO_LIVE_ADJUSTMENT` en vez de `CONFLICT`) |
+| M5 quitar el CAS de la conversión | BRJ-13 (a) roja en las dos variantes **4/4 corridas**; (b) **11/12** (`PATCH`) y **6/12** (`reject-items`) mixtas; `convert-guard` rojo |
+| M6 quitar `'rechazada'` de la lista compuesta | BRJ-14 roja (`200`, `rejectedAt` movido); unitarios de composición rojos |
+| M7 lista escrita a mano sin `pagada` | unitario de composición rojo (y el de `not_rejectable`) |
+| M8 `caseRefundComponents` también con `IVA_EXCLUSIVE` | WDR-11 roja en la preview (`paidReferenceCents 52885`); con esa aserción quitada en la copia, roja en componentes (`merchandiseCents 42546`, `compensationCents 0`) |
+
+### 74.5 Suites completas
+Medido por backend sobre `git archive` de **`24edf8a7`** (árbol entero), BD `tcg_be_pnlf` recién creada, load 6–18 (4 CPU;
+otros agentes vivos).
+
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar los mocks de la conversión) | 6703/6718: los 15 rojos = 4 specs de mocks con `sellRequestItem.update` (conversión) + `buylist.reject.spec` (el `where` exacto) — esperados por el cambio, ajustados en el mismo commit |
+| unitarios completos (`24edf8a7`) | **396/396 suites · 6720/6720** |
+| integración completa (`24edf8a7`) | **79/82 suites · 1623/1632**. Los 9 rojos, ninguno de este cambio: |
+| · `infra-smoke` (1) + `kyc-ine-links` (7) | `PUT presignado devolvió 403` contra el almacén local. **Aislado: rojo 2/2 en `24edf8a7` y rojo 1/1 en la base `378055e8` (sin este cambio), mismo 8/26** ⇒ de ENTORNO (almacén S3 local), no del código. Dueño: devops. NO diagnosticado |
+| · `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` (1) | el conocido **P-INT-CEQ1-VAULTS**; aislado sobre la BD ya usada: **verde 3/3** |
+| · `graded-estimate` (P-INT-GRADED) | verde en esta corrida completa (1/1) |
+| BRJ-13 (b) dentro de la corrida completa | 0/12 y 0/12 mixtas; BRJ-8 (c) 20/20 coherentes |
+
+### 74.6 Errata v1.82.3 §PNL.12 construida (💰) — «Regla C»: las líneas `skip` no cuentan para cerrar la solicitud (2026-10-05, rama `claude/arreglos-panel`, sobre `b06ac1ca`)
+
+**La regla, una vez en cada forma** (`backend/src/modules/buylist/buylist-reject.constants.ts`, bloque final):
+- `SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE = { OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }] }` y
+  `readClosureRule(db, sellRequestId)` → `{ countingItems, nonRejectedItemStatuses }` (UN `findMany` filtrado por ese
+  `where`; las `skip` no llegan a memoria) + `closesAsRejectedByWhere(reading)`.
+- Forma pura: `countsForClosure(item)` / `closesAsRejected(items)` (`offerDecision` ausente ⇒ cuenta).
+
+**Los cuatro sitios:**
+| # | Sitio | Qué hace ahora |
+|---|---|---|
+| a | `autoRejectIfAllRejectedTx` (`buylist.service.ts`) | `readClosureRule` en la tx del llamador; 0 líneas que cuentan ⇒ no cierra. Resto igual |
+| b | `rejectRequest` | precondición = Regla C por `readClosureRule`; `422 REQUEST_HAS_NON_REJECTED_ITEMS` con los estados de **las líneas que cuentan**; con 0 que cuentan, `422` con los estados de **todas** (fail-closed, contrato 12.1 b) |
+| c | `deriveRejectedReason` | `'all_items_rejected'` ⇔ `closesAsRejected(items)`. Tipo de `items` = `ClosureRuleItem[]` (`offerDecision` opcional: ausente cuenta, o sea la conducta previa) |
+| d | `adminSellRequestDTO` | **`isRejectable: !isTerminalSellRequestStatus(status) && closesAsRejected(items)`** — en la proyección admin COMPARTIDA (listado, detalle, mesa, mutaciones). No toca `toSellRequestBaseDTO` ⇒ no llega al vendedor (afirmado en SKP-3) |
+
+Sin schema, migración, endpoint ni correo. La `skip` nunca se escribe. Nota para frontend: `isRejectable` sigue la fórmula
+literal del contrato (`isTerminal === false ∧ Regla C`); una fila incoherente de §M5-T (`closedAt` sellado con `status` vivo)
+daría `true` y el `POST …/reject` respondería `409` — la misma situación que ya tiene `isTerminal`.
+
+**Pruebas que cambian por la errata (dueño backend):**
+- Mocks unitarios con `sellRequestItem.count` (la auto-transición) pasan a `findMany` (`buylist.reject`, `offer-cycle-guards`,
+  `m5r-received-approve`, `ronda-c`, `request-reject`); en `request-reject` el `where` afirmado es ahora el `OR` explícito.
+- ⚠️ `test/integration/buylist-pay-verdicts.e2e-spec.ts` **assert 3** y **B1**: montaban por la API la fila de `BL-45`
+  (única `buy` rechazada + `skip` ⇒ viva con el aprobado en `null`). Con la Regla C **la API ya la cierra `rechazada`**: assert 3
+  ahora afirma primero eso (cierre + `pay-spei` ⇒ `409 CONFLICT`, cero pesos) y después reconstruye la fila **atorada** de
+  antes de la errata deshaciendo SOLO el cierre (`status=verificacion, closedAt=null`) para seguir midiendo V-a. Es la única
+  excepción a la norma «nada de sembrar» de ese fichero, y queda escrita en su cabecera. Cuántas filas así hay en producción:
+  **NO MEDIDO** (consulta de §PNL.12.5).
+
+### 74.7 El defecto, medido ANTES del arreglo
+Copia del árbol de trabajo entero (`b06ac1ca` + la prueba nueva), BD `tcg_be_skp`: `buylist-skip-closure.e2e-spec.ts`
+**7/7 rojos** — SKP-1 `requestClosed` false; SKP-2 sigue `verificacion`; SKP-3 `POST …/reject` 422; SKP-4 los `details` traen
+el estado de la `skip`; SKP-5 `isRejectable` undefined; SKP-5b/6b sin la regla.
+
+### 74.8 Pruebas
+| Prueba | Fichero |
+|---|---|
+| SKP-1, SKP-2, SKP-3 (+ SKP-6 antes/después), SKP-4 💰, SKP-5, **SKP-5b** (pre-ciclo, se rechazan las 2 ⇒ cierra), **SKP-6b** (solo `skip` ⇒ `422` fail-closed, `isRejectable:false`) — Postgres real, por HTTP | `backend/test/integration/buylist-skip-closure.e2e-spec.ts` |
+| Regla pura vs lectura `where` (8 casos), candado del `OR` explícito, `deriveRejectedReason` con `skip` | `backend/test/buylist.skip-closure-rule.spec.ts` |
+
+⚠️ **SKP-5 tal como está escrita no muerde la mutación del NULL, y por qué.** Con `{ offerDecision: { not: 'skip' } }`
+(o `{ offerDecision: 'buy' }`) las líneas `null` desaparecen de **las dos** lecturas (las que cuentan y las vivas), y como la
+Regla C exige ≥1 línea que cuenta, el efecto es «el pre-ciclo **nunca** cierra», no «cierra de más». SKP-5 («se rechaza 1 ⇒ no
+cierra») sigue verde bajo la mutación. Lo que muerde es **SKP-5b** (se rechazan las 2 ⇒ debe cerrar, como hoy). Medido además:
+con el Prisma del árbol, `{ not: 'skip' }` **sí descarta los NULL** (SKP-5b rojo 3/3).
+
+### 74.9 Mutaciones (copia del árbol entero, BD `tcg_be_skp`; cada una revertida antes de la siguiente; deterministas, N=3)
+| Mutación | Rojos | N |
+|---|---|---|
+| M1 — (a) cuenta todas las líneas (el `count` de antes) | SKP-1, SKP-2 | 3/3 |
+| M2 — (b) guard de antes (todas las líneas no `rechazada`) | SKP-3, SKP-4 | 3/3 |
+| M3 💰 — Regla C sin «toda línea que cuenta»: solo bloquean las `buy` sin veredicto (`aprobada` deja cerrar) | SKP-4 (`requestClosed` true con una `aprobada`) | 3/3 |
+| M4 — `{ offerDecision: { not: 'skip' } }` en vez del `OR` | SKP-5b | 3/3 |
+| M4b — `{ offerDecision: 'buy' }` | SKP-5b | 3/3 |
+| M5 — (c) sin el filtro `skip` (`every` sobre todas) | SKP-3 (`rejectedReason` null) | 3/3 |
+| M6 — (d) `every(itemStatus==='rechazada')` local | SKP-3 (`isRejectable` false antes) | 3/3 |
+| M7 — la pura diverge del `where` (`countsForClosure` siempre true) | SKP-3 (la igualdad de SKP-6) | 3/3 |
+
+### 74.10 Suites completas (copia del árbol de trabajo entero = `b06ac1ca` + este cambio; load 1–5, 4 CPU)
+| Qué | Resultado |
+|---|---|
+| unitarios completos | **397/397 suites · 6732/6732** |
+| integración completa (antes de adaptar `buylist-pay-verdicts`) | 82/83 · los 2 rojos = assert 3 y B1 (ver 60.6) |
+| integración completa (final) | **82/83 suites · 1636/1639 (2 skipped)**. El rojo: `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` = el conocido **P-INT-CEQ1-VAULTS**; aislado **2/3 verde, 1/3 rojo** (N=3) — intermitente, ajeno a buylist |
+
+## 75 · v1.83 §M11-SP + errata v1.83.1 §M11-SP.12 construidas — el precio del sellado es del PRODUCTO, lo pone el dueño CON IVA (2026-10-05, rama `claude/precio-sellado`, desde `435da147`)
+
+> **Renumerada en la fusión con `claude/arreglos-panel` (2026-10-05, orquestador):** en la rama `claude/precio-sellado`
+> esta sección era la **§57** (y sus subsecciones 57.1…57.10); el panel trae su propia §57 (Skydropx D1) hasta la §74.
+> Las referencias «`BACKEND_NOTES §57.x`» escritas en la rama de sellado (contrato §M11-SP, `ARCHITECTURE §4.62`,
+> `FRONTEND_NOTES`, comentarios de código) apuntan **aquí, a §75.x**. Contenido sin cambios salvo esos números.
+
+Fuente: `API_CONTRACT` rev v1.83 §M11-SP y errata v1.83.1 §M11-SP.12 (manda donde choca); `ARCHITECTURE §4.62` /
+§4.62.8; `HECHOS.md` filas «Precio del sellado (responde P-SELLADO-PRECIO…)» y «Precio del sellado — respuestas a
+P-SP-1/2/3» (2026-10-05): por producto, solo el dueño, editable sin retirar, el automático como respaldo y **el dueño
+escribe el precio CON IVA**.
+
+### 75.1 Qué se construyó (dónde vive)
+
+| Pieza | Dónde |
+|---|---|
+| **`M-71`**: `SealedProduct.ownerDisplayPriceCents Int?` + CHECK `1…100_000_000`, **sin relleno**, idempotente (`ADD COLUMN IF NOT EXISTS`, CHECK quitar-si-existe y poner), reversa en la cabecera | `prisma/migrations/20261021120000_m71_sealed_product_owner_display_price/` (nombre de §M11-SP.12.12) |
+| `manualSaleOf` (producto > pieza; raw/graded solo pieza; `sealedProduct` **obligatoria** en el tipo, SP-3), `computeSealedSaleOf`, `listEquivalentCentsOf`, **`saleDisplayCentsOf`** (el camino único a `P`), `SealedPriceOrigin`, `SEALED_SALE_PRICE_INCLUDE`; `SealedSpreadResult` gana `origin` y `fixedDisplayCents` | `common/money.ts` |
+| `resolveSealedSalePrice(item, ref, ctx, dials)` — `dials` obligatorio; peldaño 1 = `P` del dueño con su `L` equivalente. Se retira `computeSealedSalePriceForItem` (sin llamadores, no conocía el producto) | `pricing.service.ts` |
+| Los tres sitios de venta pasan por `saleDisplayCentsOf`: checkout (`derivedSaleDecision`, `SaleDecision.fixedDisplayCents`), catálogo (`toListingRow`), rejilla/ficha de sellado (`fromPriceCents`; el representante se elige por **`P`**) | `orders.service.ts`, `catalog.service.ts`, `sealed-catalog.service.ts` |
+| Los sitios que decidían con `hasManualPrice`/`listPriceCents` pasan por `manualSaleOf` (con el `include` del producto): checkout, catálogo (lote de overrides y rama raw), publicación (`derivePublishSalePrice`, `loadPublishPricingCtx`, reprecio fresco), binder de master set, `price-ingest`, barrido VQ de `price-sync`, export `.xlsx` | ídem + `inventory.service.ts`, `master-set.service.ts`, `price-ingest.service.ts`, `jobs/price-sync.service.ts` |
+| **`PUT /admin/inventory/sealed-products/:id/sale-price`** `{displayPriceCents, expectedDisplayPriceCents}`: `@Roles(super_admin)` de método + `canSetSealedSalePrice` en el servicio; una tx con lectura, doble clic idempotente, CAS (`409 { currentDisplayPriceCents }`), bitácora `sealed_product.sale_price_set` (`before`, `after.{ownerDisplayPriceCents, pieces, ivaDials}`) y cierre de la cola del producto; **después** del commit `reevaluateForPublication` (best-effort) ⇒ `autoPublish`; la fila se relee al final | `inventory/sealed-price.service.ts`, `inventory.controller.ts`, `dto/inventory.dto.ts` (`SetSealedSalePriceDto`) |
+| Cierre de la cola con el handle `tx` (VQ-5: toda escritura de la cola en `pricing.service`) | `PricingService.closeSealedProductSaleQueue` |
+| **`GET /admin/inventory/sealed-price-sheet`** (`vault_operator+`; `?setId&q&scope=on_hand|all&page&pageSize≤100`): filas de 12.4, margen sobre el **neto fiscal** (`sealedMarginOf`), `iva`, `canEdit`, `unlinkedCount`; consultas constantes | `inventory/sealed-price.service.ts` |
+| `canSetSealedSalePrice` (hoy `super_admin`, `D-SP-1`) y la regla SP.4 (`assertSealedPriceWriters`) en alta, lote (todo el lote), «encontrada», `bulk-publish` (todo el lote) y `PATCH` | `inventory/sealed-price.policy.ts`, `inventory.service.ts` |
+| `SEALED_PRICE_IS_PER_PRODUCT` | `common/error-codes.ts` |
+| A-1: `sealedProductId` (toda fila sellada; ⛔ raw/graded) y `sealedProductPieces` (misma agregación que la hoja, un `groupBy` por página); `resolvedDisplayPriceCents`, `sealedPriceOrigin`, `sealedProductDisplayPriceCents` en las filas S-2 del listado y en la cola | `inventory/sealed-product-pieces.ts`, `inventory.service.ts` |
+| El alta sin precio de un sellado cuyo producto ya tiene precio del dueño ⇒ ⛔ no escala a la cola | `escalateSealedAltaIfPriceless` |
+
+### 75.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
+
+1. **Nombre de la carpeta de `M-71`.** El encargo decía `…_m71_sealed_product_owner_price`; §M11-SP.12.12 (la errata,
+   que manda) dice `…_m71_sealed_product_owner_display_price`. Usé el de la errata.
+2. **Diales del `PUT`: se leen JUSTO antes de la tx, no dentro.** `SettingsService.getIvaDials` usa su propio handle;
+   llamarlo dentro de la tx pediría una segunda conexión (la clase I1). Es la misma petición y el mismo instante a
+   efectos del contrato (con ellos se reconstruye el `L` equivalente); si el arquitecto quiere la lectura literal «en
+   la tx», hace falta un `getIvaDials(db)` en `settings` (otro stream). → **pregunta Q-3**.
+3. **Paso 2 (doble clic) y `autoPublish`.** El paso 2 no escribe NADA en la tx (ni precio ni bitácora), pero el disparo
+   post-commit **sí corre** (es idempotente: no publica nada nuevo si el primer clic ya lo hizo), para que `autoPublish`
+   nunca sea `null` sin que el intento haya lanzado. → **pregunta Q-2**.
+4. **El sellado con precio de PIEZA (legado) corta antes del resolvedor** en checkout y publicación (`manualSaleOf ⇒
+   piece`), como hacía `hasManualPrice`. Es la misma decisión (`manualSaleOf` ES los peldaños 1–2) y no cambia ninguna
+   cifra; solo ahorra las lecturas de mercado. Con precio del PRODUCTO, `manualSaleOf` devuelve `product` y la pieza
+   queda sombreada (SP-2 lo mide con la mutación del contrato).
+5. **Export `.xlsx`, columna «Precio venta» (escala `L`)**: con precio del dueño exporta su **`L` equivalente** con los
+   diales del momento (una lectura por export, solo si hay alguno). Mezclar `P` en una columna `L` sería leerse mal en
+   silencio (`money.ts`, convención). No lo norma el contrato. → **pregunta Q-4**.
+6. **`sealedProductId` en el listado**: antes viajaba en TODA fila (el listado es un spread de la fila de Prisma, así
+   que raw/graded llevaban `sealedProductId: null`). Ahora, como pide §M11-SP.12.7, solo en filas selladas; ⛔ ausente en
+   raw/graded. La relación `sealedProduct` (que el `include` trae para decidir el precio) ⛔ no viaja.
+7. **«encontrada»** (`AdjustmentFoundItemInput`) no declara `sealedProductId` ni `manualMarketMxnCents` (el pipe con
+   `whitelist` los borra): el caso «ligado ⇒ 422» de SP.4 es **inalcanzable** por ese escritor; la regla se llama igual
+   (misma función) y hoy solo puede dar el `403` de «sin producto». → **nota Q-6**.
+8. **Sin actor (o sin rol) = no dueño** en todo el servicio (falla cerrado). Los métodos `createItem`/`batchCreate`/
+   `adjust`/`bulkPublish` ganan `actorRole?` y el controlador lo pasa.
+9. **Margen**: `sealedMarginOf(P, avg, r)` = `N = taxBaseCentsOf(P, r)`, `cents = N − avg`, `bps = round(cents·10⁴/N)`
+   (los cuatro vectores de 12.5, medidos en unitaria y los tres de `r=16` además por HTTP).
+10. **Respuesta del `PUT`, `data`**: la fila se construye con el mismo cuerpo que la hoja, sin filtro de `scope`.
+
+### 75.3 Pruebas existentes que cambiaron (ninguna se debilita)
+
+- **Dobles de `SettingsService`**: 33 ficheros existentes ganan `...ivaDialsStub()` (el helper que ya existía, `test/helpers/
+  iva-dials.ts`): la publicación, la cola, el listado y `salePriceOf` leen los diales. Solo dobles.
+- **Rompen a propósito por el contrato (rol y SP.4):** el actor pasa a ser el dueño donde la prueba mide la MECÁNICA de
+  un precio o un mercado a mano de sellado (`inventory.sealed.spec`, `inventory.sealed-product-alta.spec`,
+  `inventory.pending-reason-writers.spec`, `inventory.bulk-publish-escalate.spec`, `inventory.sealed-final-price.spec`,
+  `test/integration/inventory-price-audit.e2e-spec.ts`). La prueba «vault_operator puede fijar el precio manual
+  (decisión del humano v1.39.1)» se **invierte** (operador ⇒ 403, sin pieza ni override ni bitácora; dueño ⇒ procede):
+  la decisión la cambió el dueño el 2026-10-05. «LOTE · con `listPriceCents` NO se escala nada» se sustituye por dos:
+  el `422` del lote entero y «producto con precio del dueño ⇒ no se escala».
+- **Formas exactas**: `sealed-pricing.spec` (`computeSealedSalePrice` gana `origin`/`fixedDisplayCents`),
+  `sealed-price-resolver.spec` (firma con `dials`).
+- **Censos**: `iva-derivacion-cableada.spec` pasa a censar `saleDisplayCentsOf(` en los tres sitios (y ⛔
+  `displayPriceCentsOf(` en checkout y catálogo); el censo de emisiones de `ivaTransferPct:` gana la bitácora del `PUT`
+  (admin-only). `pricing.vq-sale-queue.spec` (VQ-5): 6 → **7** escrituras crudas de la cola, todas en
+  `pricing.service.ts`, + censo de `closeSealedProductSaleQueue`. `enum-query-axes` (C-EQ-1): fila transcrita del
+  `?scope=` de la hoja + fixture (k); trinquete 52 → 53, pendientes 18.
+
+### 75.4 Pruebas nuevas (SP-1…SP-19) y sus mutaciones (medido por backend, 2026-10-05)
+
+`test/sealed-price.sp.spec.ts` (37 unitarias) y `test/integration/sealed-price.e2e-spec.ts` (28 de integración). Todas
+las mutaciones sobre **copia `git archive` del árbol ENTERO** (`scratchpad/be-sellado/mut`, sha `97c92eee`; la de SP-6
+con la prueba de `757a3bdd`), BD `tcg_be_sell`. Deterministas ⇒ N=1 es medida; las carreras con su proporción (75.5).
+
+| Prueba | Mutación | Resultado |
+|---|---|---|
+| 💰 SP-1 | `saleDisplayCentsOf` ignora `fixedDisplayCents` (⇒ 699) · peldaños 1–2 invertidos · raw lee el producto | ROJA ×3 (1, 3 y 1 pruebas) |
+| 💰 SP-2 | el checkout vuelve al override por pieza primero (`listPriceCents > 0` antes que el producto) | ROJA (la sesión cobra 1160) |
+| 💰 SP-2 | el catálogo deriva `P` desde el `L` equivalente (`fixedDisplayCents: null`) | ROJA (ficha 699) |
+| SP-3 | `sealedProduct?` opcional | ROJA (`TS2578 Unused '@ts-expect-error'`, la suite no compila) |
+| 💰 SP-4 | sin `@Roles(super_admin)` de método · sin el predicado en el servicio | ROJA ×2 (unitaria; ver 75.2 sobre la defensa en dos puntas) |
+| 💰 SP-5 | CAS sin `ownerDisplayPriceCents` en el `where` | ROJA: forzada **10/10** rondas rojas; suelta **10/10** |
+| 💰 SP-6 | el PI se crea con un total re-preciado tras reservar | ROJA: forzada **10/10**; suelta **5/10** (las que la sesión precio antes del `PUT`) |
+| 💰 SP-7 | fan-out de `listPriceCents` a las piezas en la tx del `PUT` | ROJA (SP-7, SP-16 y SP-6 forzada **10/10** `PUT_BLOQUEADO`) |
+| SP-8 | bitácora fuera de la tx (`void this.prisma.auditLog.create(…).catch()`) | ROJA (el TRIGGER ya no revierte el precio) |
+| SP-8/10 | contar vendidas (`shipped`) entre las piezas | ROJA (SP-10: costo) |
+| 💰 SP-9 | el lote sin la regla · la regla aplicada a raw · solo la 1.ª línea | ROJA ×3 (integración, unitaria, unitaria) |
+| SP-10 | margen sobre `P` · consulta por fila | ROJA (4 vectores) · ROJA (1 vs 50 difiere) |
+| SP-11 | cerrar la cola de VENTA de todo el sellado (sin `sealedProductId`) | ROJA (Y/inventory se cierra) |
+| 💰 SP-12 | un relleno en `M-71` | ROJA |
+| SP-13 | canario: escribir `ownerDisplayPriceCents` en `claimListed` | ROJA |
+| 💰 SP-15 | `Math.floor` en `listEquivalentCentsOf` | ROJA (exhaustiva, aleatoria, extremos; y SP-17) |
+| 💰 SP-16 | sin el disparo (`autoPublish` inventado) · el disparo dentro de la tx | ROJA ×2 |
+| SP-17 | contar `sealedProductPieces` con las filas de la página | ROJA |
+| 💰 SP-18 | «guardar `L`» (el `L` equivalente del alta, con el dial neutro, y `P` re-derivado) | ROJA (SP-18 y SP-2) |
+| SP-19 | canario: `displayPriceCentsOf` directo en `catalog.service.ts` | ROJA (SP-19 y la pieza 7 del censo IVA) |
+
+SP-14 hoy mide la tabla **pre-fusión** (`super_admin` ⇒ sí; `vault_operator`/`customer`/sin actor ⇒ no). La tabla de
+PS-145 (dueño marcado ⇒ sí; súper-admin sin marca ⇒ no) la activa el stream que fusione segundo con Skydropx (SP.3).
+
+### 75.5 Carreras (N = 10 forzada + N = 10 suelta por corrida)
+
+| | Forzada | Suelta |
+|---|---|---|
+| SP-5 (CAS) | **10/10** ok | 200+409 **10/10**; dos `200` en serie 0/10 |
+| SP-6 (re-precio vs checkout) | **10/10** ok | línea A **7/10**, B **3/10**; «PI = total de la sesión = Σ líneas» **10/10** |
+
+Esa fila es la corrida SIN mutación sobre la copia `97c92eee` (BASE de 75.4). Además: en el árbol vivo (2 corridas)
+SP-5 10/10 y 10/10, SP-6 forzada 10/10 y suelta 8/2 y 9/1; y en las **11** corridas con mutaciones que no tocan ni el
+CAS ni el checkout (I1, I2, I6…I14 de 75.4) SP-5 forzada y suelta **10/10** en las 11, SP-6 forzada **10/10** en las 11
+y la suelta repartió A/B entre 5/5 y 10/0 con el invariante siempre en pie. (La corrida final de 75.7 añade una más.)
+
+Forzada = candado de fila (`row-lock-barrier.ts`): SP-5 bloquea `"SealedProduct"` (los dos `PUT` esperan en el CAS);
+SP-6 bloquea la pieza y espera el `INSERT "OrderItem"` de la sesión (pide `FOR KEY SHARE` por la FK) — la sesión ya
+precio fuera de su tx, el `PUT` confirma, y se suelta.
+
+### 75.6 `M-71` sobre una base CON datos (2026-10-05, `tcg_be_sell`)
+
+Base tras la integración completa del sha de partida + 3 `SealedProduct` y 6 piezas selladas sembradas (precios de
+legado iguales, distintos y ausentes, y una sin producto): **46 tablas, 118 piezas**. Huella = conteo por tabla + `md5`
+de `SealedProduct` (columnas previas) y de `InventoryItem` (`status`, `listPriceCents`, `sealedProductId`, `updatedAt`,
+costo) + filas `sealed_product.*` de bitácora. **Igual** tras `prisma migrate deploy`, tras **re-aplicar** el fichero con
+`psql` (`NOTICE … already exists, skipping`), tras la **reversa** de la cabecera y tras volver a aplicar. 3/3 filas
+`NULL`; CHECK rechaza `0` y `100000001`. SP-12 lo repite en cada corrida sobre un esquema temporal.
+
+### 75.7 Suites completas (medido por backend, 2026-10-05, copia `git archive HEAD` del árbol ENTERO)
+
+| Suite | Sha | Resultado |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | `adc426b5` | 0 errores |
+| Unitaria (`npx jest`) | `adc426b5` | **392/392 suites, 6659/6659 pruebas** |
+| Integración (BD `tcg_be_sell`) | `adc426b5` | **77/78 suites, 1606/1607** — la roja es `stf-errata-v1-80-9-1` STF-32 (`store.degraded` con plazos reales de 100/400 ms, módulo `auth`, ⛔ no tocado aquí); load de 15 min **8.26** al terminar. Repetida aislada con carga baja: **10/10 verde** (load 2.9–6.6) |
+| Integración | `dd51dad7` | 77/78, 1593/1607 — las 14 rojas eran `vault-sealed-enum-filters`, contaminada por **residuo de una corrida de mutación matada a mitad** (2 piezas de cliente del fixture compartido). Verde 27/27 tras barrer; corregido en `adc426b5` (75.3, limpieza por prefijo y comprador propio) |
+| Integración | `88aa1083` | 76/78, 1584/1599 — las 2 rojas eran el registro de C-EQ-1 (`?scope=`) y `inventory-price-audit` con el operador; las dos corregidas después (`97c92eee`, `176f6c25`) |
+| Unitaria / integración del sha de partida `435da147` (referencia) | `435da147` | 390/391 (la roja: `pii-crypto`, artefacto de exportar `PII_ENCRYPTION_KEY` al correr la unitaria; sin ella, verde) / **77/77, 1571/1571** |
+
+En la corrida de `adc426b5`, SP-5: forzada 10/10, suelta 200+409 10/10; SP-6: forzada 10/10, suelta A 9/10 · B 1/10.
+
+### 75.8 Preguntas para el arquitecto (⛔ no las resolví yo)
+
+- **Q-1 (nombre de carpeta).** El encargo del orquestador nombra `20261021120000_m71_sealed_product_owner_price`;
+  `API_CONTRACT §M11-SP.12.12` (`docs/API_CONTRACT.md`, bloque «12.12 · `M-71` sin relleno») nombra
+  `…_owner_display_price`. Usé el de la errata. ¿Confirmas?
+- **Q-2 (paso 2 y `autoPublish`).** §M11-SP.2 paso 2 («`200` sin escribir nada») y §M11-SP.12.6 («`autoPublish: null`
+  ⇔ el intento lanzó»): en el doble clic idempotente, ¿se dispara la reevaluación (es lo que construí: no escribe en la
+  tx, la reevaluación es idempotente y `autoPublish` sale con cuentas) o se omite y entonces qué `autoPublish` va?
+- **Q-3 (diales «leídos en la tx»).** §M11-SP.12.4 (bitácora, «diales leídos en la tx»): los leo inmediatamente antes
+  de la tx (75.2.2). ¿Vale, o hace falta `getIvaDials(db)` en `settings` (otro stream)?
+- **Q-4 (export `.xlsx`).** `inventory.service.ts` (`exportInventoryXlsx`, columna «Precio venta») estaba en la lista
+  (m2) del contrato pero su conducta con precio del dueño no está normada: exporto el `L` equivalente (75.2.5).
+- **Q-5 (`sealedProductId` en raw/graded del listado).** Antes viajaba como `null` en toda fila (spread de Prisma);
+  ahora ⛔ ausente en raw/graded por §M11-SP.12.7. Es un cambio de forma observable para el front (aditivo para sellado,
+  sustractivo para raw/graded).
+- **Q-6 («encontrada»).** El DTO no declara `sealedProductId`: la fila «ligado ⇒ 422» de SP.4 para ese escritor es hoy
+  inalcanzable. ¿Se quiere declarar el campo (ligar al alta por ajuste) o se deja así?
+
+### 75.9 Errata v1.83.2 (§M11-SP.13) construida — SP-20, SP-16b, SP-9 (backend, 2026-10-05, commit `cf12d215`)
+
+**Qué cambió (código).** Solo `inventory/inventory.service.ts`:
+- **Export `.xlsx` (Q-4, §M11-SP.13.4).** `INVENTORY_EXPORT_COLUMNS`: la 17 (`sellMxn`) pasa a «Precio venta antes de IVA
+  MXN»; nueva 18 `productDisplayMxn` «Precio del producto con IVA MXN» (`width` 22). Con `m = manualSaleOf(it)`:
+  `product` ⇒ 17 vacía y 18 = `m.displayCents` exacto (también con legado sombreado); `piece` ⇒ 17 = `m.listCents`
+  (`firstPresentAmount` con el override de variante, que con pieza presente da la pieza) y 18 vacía; `null` ⇒ 17 =
+  `sellOverrideCents` o vacía, 18 vacía. **Se retiró la lectura de `getIvaDials` del export** y el uso de
+  `listEquivalentCentsOf` (import quitado del fichero).
+- **`sellOverrideCents` está en escala `L` (lo pide SP-20; medido leyendo el código):** el checkout lo resuelve en
+  `computeSalePriceFromCurve` (`common/money.ts`, peldaño 2) ⇒ `sale.priceCents` ⇒ `instrument(sale.priceCents, …)` como
+  `listPriceCents` (`orders.service.ts`, final de `resolveSaleDecision`) ⇒ `derivedSaleDecision` deriva `P` con
+  `saleDisplayCentsOf` (IVA encima). Es el mismo hueco que `listPriceCents` ⇒ la columna 17 lo rotula bien.
+- **Q-2 y Q-6 sin cambio de conducta:** lo construido ya era lo normado (paso 2 retorna dentro de la tx y el disparo
+  post-commit corre en los dos caminos; el DTO de «encontrada» no declara `sealedProductId` y la lista blanca del
+  `ValidationPipe` lo quita). Solo se actualizó el comentario de `adjustFound` (la llamada a `assertSealedPriceWriters`
+  se queda).
+
+**Pruebas nuevas.**
+| # | Dónde | Qué |
+|---|---|---|
+| 💰 SP-20 (3 casos) | `test/inventory.export-xlsx.spec.ts` | cabeceras 17/18 y 18 columnas; tabla A…F del contrato + **G** (raw sin pieza con `sellOverrideCents 800` ⇒ 17 `8`, 18 vacía); **cero** llamadas a `getIvaDials` (doble con diales **(50,16)**, no neutros, para que cualquier derivación se vea) |
+| 💰 SP-16b | `test/integration/sealed-price.e2e-spec.ts` (bloque SP-16) | 1.er `PUT` 700 con disparo que lanza ⇒ `null`, A `in_stock`; fila `open` de cola del producto puesta después; 2.º `PUT` idéntico ⇒ `200`, `{1,0,0}`, A `listed`, bitácora sigue en 1, cola y fila de `SealedProduct` **idénticas**; 3.º ⇒ `{0,0,0}` |
+| SP-9 (v1.83.2) | ídem (bloque SP-9) | «encontrada» sellado con `listPriceCents` y `sealedProductId: X` en el cuerpo: operador `403 FORBIDDEN`, nada creado; dueño `201`, pieza con `sealedProductId: null` y `listPriceCents 5000`; cero piezas en X |
+
+**Roja primero (SP-20, sobre el árbol vivo antes del código):** 3/3 rojas — A/B salían `6.48` en la 17 (el `L`
+equivalente con (50,16)) y nada en la 18; `getIvaDials` llamado 1 vez; cabeceras distintas. SP-16b y SP-9 normaban lo
+construido ⇒ verdes desde el principio; su rojo se demostró por mutación.
+
+**Mutaciones** (copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/mut`, BD `tcg_be_sell2`;
+deterministas ⇒ N=1 por mutante, como dice §M11-SP.13.9): **8/8 mordidas.**
+| Mutante | Prueba que muerde |
+|---|---|
+| M1 la 17 lleva el `L` equivalente del producto | SP-20 tabla |
+| M2 la 17 lleva el legado sombreado (B ⇒ 10) | SP-20 tabla |
+| M3 la 17 lleva `P` | SP-20 tabla |
+| M4 una lectura de `getIvaDials` en el export | SP-20 «cero lecturas» |
+| M5 la 18 lleva la pieza en `origin = 'piece'` | SP-20 tabla |
+| M6 el paso 2 sale sin disparar (`autoPublish: null`) | SP-16b (`null` en vez de `{1,0,0}`) |
+| M7 el paso 2 no sale (el CAS pasa y escribe) | SP-16b (bitácora 2 ≠ 1) |
+| M8 canario: `@IsOptional() @IsString() sealedProductId?` en `AdjustmentFoundItemInput` | SP-9 — muerde ya en la línea del **operador**: `422 SEALED_PRICE_IS_PER_PRODUCT` en vez de `403` (la fila «ligado ⇒ 422 para cualquier rol» vuelve a aplicar, que es justo lo que el canario debe anunciar) |
+
+**Suites (medido por backend, copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/tree`, BD
+`tcg_be_sell2`, s3-local `:9000` del clon `tcg-sellado`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | — |
+| Unitaria (`npx jest`) | **392/392 suites, 6662/6662** (+3 = SP-20) | 3.76 |
+| Integración | **78/78 suites, 1609/1609** (+2 = SP-16b, SP-9) | 7.28 (al terminar 5.97) |
+
+**Aviso que no es pregunta (lo pide §M11-SP.13.4 para la solicitud de fusión):** la columna 17 del export cambia de
+nombre y aparece una 18; si el dueño tiene fórmulas sobre la hoja exportada: **NO MEDIDO**.
+
+**Preguntas al arquitecto:** ninguna nueva.
+
+### 75.10 Tras el gate de techlead (sobre `4f367aea`): D-8 cerrada, SP-18 con redundancia, deuda anotada (backend, 2026-10-05, commit `75b6c363`)
+
+**D-8 cerrada (código).** `inventory/sealed-price.service.ts#setSalePrice`: si la relectura posterior al commit no
+encuentra el producto (borrado entre el commit y la relectura), ahora lanza `404 NOT_FOUND` (código ya listado para el
+`PUT …/sale-price` en el contrato) en vez de devolver `200` con `data: undefined`. El precio y su bitácora ya quedaron
+confirmados en la tx; lo que no hay es fila que devolver. Prueba: «D-8» en `test/sealed-price.sp.spec.ts` (doble clic
+idempotente + relectura `null` ⇒ `rejects { code: 'NOT_FOUND' }`).
+
+**SP-18 con redundancia (QA menor 2).** Con el dial 100 → 50, `P = 129 900` da ida y vuelta exacta `P → L → P` en los
+dos diales, así que la mutación «`P` derivado desde el `L` equivalente» pasaba SP-18. Se añadió un producto con
+`P = 7000`, que **no** la da en ninguno de los dos (100/16: `L` 6034 ⇒ 6999; 50/16: `L` 6481 ⇒ 6999 — búsqueda
+exhaustiva por múltiplos de 100: el menor `P` que falla en ambos es 6500, y 7000 también). Se afirma `[ficha, quote] =
+[7000, 7000]` con dial 100 y con dial 50, y `qo100 = o100` (antes solo se comparaba el quote consigo mismo).
+⚠️ Con el `P = 700` que sugería el encargo la redundancia es solo a medias: 700 sí falla en 100/16 (699) pero en
+50/16 da 700 exacto.
+
+**Deuda anotada** en `docs/TECH_DEBT.md` (sección «Backend · 2026-10-05 · stream Precio del sellado»): `SPS-D1`, `D2`,
+`D3`, `D4` (va en el encargo de SP-14; incluye el espejo de frontend, cuya mitad es de frontend), `D7`; `SPS-D8`
+marcada cerrada.
+
+**Mutaciones (medido por backend; copias `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/`, BD
+`tcg_be_sell3`):**
+| Mutante | Prueba | Resultado |
+|---|---|---|
+| M-A: `orders.service.ts:326` `unitPriceCents: displayPriceCentsOf(d.listPriceCents, …)` (P desde el `L` equivalente) | SP-18 | **roja 4/4** (N=4: 1 corrida de la integración completa + 3 de SP-18 sola), siempre en la nueva aserción `[7000, 6999] ≠ [7000, 7000]` (línea 982). En la corrida completa también cayó SP-2 (lo esperado) y dos `PS-57/PS-57c` por timeout de 30 s con carga ~15 en 4 CPU (O-16: no cuentan como rojo; ajenas a la mutación) |
+| D-8: quitar el `throw` (volver a `rowsOf(product ? [product] : [])`) | «D-8» unitaria | **roja 1/1** («Received promise resolved instead of rejected»); determinista |
+
+**Suites (medido por backend, copia `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/tree`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | 7.12 |
+| Unitaria (`npx jest`) | **392/392 suites, 6663/6663** (+1 = D-8) | 7.12 (al terminar 14.75) |
+| Integración `sealed-price.e2e-spec.ts` (BD `tcg_be_sell3`, `stack-native.sh test:integration`) | **30/30** | 7.53 |
+
+La integración completa **no** se corrió sobre el árbol sin mutar (solo la de `sealed-price`, como pedía el encargo).
+
+**Preguntas al arquitecto:** ninguna nueva.
+
+## 76 · v1.84 «Listo para dinero real» — parte backend de LIVE-1, LIVE-2 y LIVE-7 (2026-10-05, rama `claude/listo-real`, sobre `2fe1cea1`; código en `df6d8dcc` (LIVE-1), `6a227527` (LIVE-2), `659704f7` (LIVE-7))
+
+> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión: esta sección era la **§57** en la rama `claude/listo-real`; se renumera a **§76** porque §57 ya la publicó `claude/skydropx-d` (Skydropx fase D1, publicada con sellado). Sus autorreferencias se actualizaron; las citas externas «§57» que vienen de `claude/listo-real` apuntan aquí.)*
+
+Contrato: `API_CONTRACT §14.1`, `§14.2`, `§14.7`. ⛔ Sin schema, sin migración, sin código de error nuevo. LIVE-4/5/6
+**no** están aquí (chocan con otras ramas, §14.12).
+
+### 76.1 LIVE-1 · `qs` y dependientes
+- `backend/package.json` → `overrides`: `qs` `^6.15.3` ⇒ **`^6.16.0`**, `multer` `^2.2.0` ⇒ **`^2.4.0`** (primera sin
+  GHSA-3pph). Nota: la línea `package.json:74` que cita el contrato es la del bloque `overrides` (ya existía; `qs` no es
+  dependencia directa). `express` 4.22.2 / `body-parser` 1.20.6 se quedan: con el override ya resuelven `qs@6.16.0`
+  (`npm ls qs` ⇒ todas `deduped` a 6.16.0).
+- Lock regenerado con `npm install --package-lock-only` (sale `concat-stream`/`typedarray`, que `multer` 2.4 ya no usa).
+- **Cierre medido:** `npm audit --omit=dev` ⇒ **2 moderadas**, ambas `@nestjs/core`/`platform-express` (GHSA-36xv, la de
+  SSE que el contrato deja seguir). Antes: 6 (`qs` ×2 advisories, `body-parser`, `express`, `multer`, `@nestjs/*`).
+- ⚠️ `node_modules` del árbol vivo NO se reinstaló (sigue con `qs@6.15.3` hasta el próximo `npm ci`); el lock es la fuente.
+
+### 76.2 LIVE-2 · tope absoluto de sesión (`modules/auth`)
+Decisión del dueño: `HECHOS.md` fila «Listo para dinero real — respuestas del dueño (2026-10-05) a §4.63.9», P-6 «Cada
+7 días»: 7 d panel (personal y dueño), 30 d clientes.
+- `auth/session-max-age.ts`: constantes (⛔ no dial), `sessionMaxAgeSeconds(role)` (`customer` 30 d; cualquier otro 7 d),
+  `SESSION_MAX_AGE_REASON = 'session_max_age'` y `ttlSeconds()` (ver abajo).
+- `issueTokens(user, sid?, sat?)`: el refresh gana el claim **`sat`** (sin él ⇒ `now`: login, Google, registro,
+  cambio de contraseña) y `exp = min(now + JWT_REFRESH_TTL, sat + tope(user.role))`. El access token **no** cambia.
+- `refresh()`: tras typ/tv/usuario/sid, `sat = claim` (o **`iat`** si falta — legado; presente pero no numérico ⇒ 401),
+  `now − sat >= tope(rol de BD)` (**v1.84.1**; era `>`, ver §76.6) ⇒ **`401 UNAUTHENTICATED {details:{reason:'session_max_age'}}`**; luego la caducidad
+  normal (`now >= exp` ⇒ 401 sin `reason`); emite el par con el mismo `sid` y el mismo `sat`.
+- ⭐ **Decisión de implementación que el contrato no escribe (y que SES-1/SES-2 exigen):** como el `exp` del refresh se
+  acota a `sat + tope`, el token **siempre caduca justo en el tope**; si `jsonwebtoken` rechazara la caducidad en
+  `verifyAsync`, el `401` del día 31 / día 8 saldría **sin** `reason` y SES-1/SES-2 serían inalcanzables. Por eso
+  `verifyAsync` va con `ignoreExpiration: true` y la caducidad se comprueba **a mano, después** del tope (misma regla
+  `now >= exp` que `jsonwebtoken`). Firma, algoritmo, typ, tv, usuario y sid se siguen comprobando antes. Un token
+  caducado **nunca** emite par: solo cambia el `reason` del 401. Efecto colateral medido: un refresh caducado ahora
+  hace una lectura de `user` antes de rechazarse (antes se rechazaba sin BD). Un refresh sin `exp` ⇒ 401 (antes
+  `jsonwebtoken` lo aceptaba; nuestros tokens siempre lo llevan).
+- `ttlSeconds()`: como el `exp` va explícito (`jsonwebtoken` prohíbe `exp` + `expiresIn`), el TTL se interpreta igual
+  que `jsonwebtoken`/`ms`; prueba de paridad contra `jsonwebtoken` real (13 formatos). Formato inválido ⇒ lanza (como antes).
+- Frontend: el `reason` solo elige el texto (clave nueva en `auth`, de frontend/ux-ui).
+
+### 76.3 LIVE-7 · salud y telemetría (`modules/health`, `main.ts`)
+- `GET /health` gana `stripeMode` (`stripeModeOf()` en `health.service.ts`): `sk_live_`/`rk_live_` ⇒ `live`,
+  `sk_test_`/`rk_test_` ⇒ `test`, vacía/ausente ⇒ `none`. **Cualquier otro prefijo ⇒ `none`** (el contrato no define un
+  cuarto valor). No degrada. `HealthService` recibe `ConfigService` (2.º parámetro).
+- `POST /api/v1/telemetry/csp` (`telemetry.controller.ts`, en `HealthModule`): `@Public`, `@Throttle 60/min`, `204`
+  siempre. Registra `warn` `CSP_VIOLATION {"effectiveDirective","blockedOrigin","documentPath","disposition"}`, una
+  línea por informe, ≤ 20 por petición; campo fuera de forma ⇒ se omite (nunca crudo). `blocked-uri` no-URL
+  (`inline`, `eval`…) se registra tal cual; `data:`/`blob:` ⇒ solo el esquema.
+- `POST /api/v1/telemetry/client-error`: `@Public`, `@Throttle 30/min`, DTO `ClientErrorReportDto`, `204`; registra
+  `error` `CLIENT_ERROR {"message","path"(sin query/fragmento),"digest"?,"release"?}`. Nada en BD.
+- **Parsers** (`src/body-parsers.ts`, ⭐ una sola fuente para `main.ts` **y** el arnés `test/integration/helpers/e2e-app.ts`,
+  que antes duplicaba la configuración): webhook raw → **CSP: `text()` de cualquier tipo, límite 16 KB** → `json()`.
+  Texto y no JSON a propósito: un JSON roto daría `400` y el contrato pide `204`. **`413` sale sin cuerpo** (el contrato
+  no fija cuerpo y ⛔ no hay código nuevo; el filtro global mapearía 413 a `INTERNAL`). Otro fallo de lectura ⇒ `204`.
+
+### 76.4 Pruebas y mediciones (copia `git archive HEAD` entera + este diff; BD propia)
+- Nuevas: `test/auth.session-max-age.spec.ts` (SES-1…6 + TTL), `test/health.stripe-mode.spec.ts` (HLT-1),
+  `test/telemetry.spec.ts` (TLM-1, TLM-4, forma del log), `test/integration/telemetry.e2e-spec.ts` (HLT-1 HTTP, TLM-1…5,
+  SES-6 HTTP). SES-1…5 se vieron **rojas antes del código (7 rojas / 11)**. Las de LIVE-7 se escribieron junto con el código (no se corrieron antes); su mordida la prueban las mutaciones de abajo.
+- Unitaria completa: **394/394 suites, 6666/6666**; `tsc` y `eslint` limpios. Integración completa: **77/78 suites,
+  1571 verdes, 8 rojas, 2 omitidas** — las 8 son `graded-estimate.e2e-spec.ts` y son **previas** (ver 76.5).
+- Mutaciones (todas restauradas y el árbol comprobado limpio): LIVE-2 quitar paso 3 **3/3 rojo**, tope de cliente para
+  todos **3/3**, `exp` sin tope **3/3**, legado `sat = now` **3/3**, rol del token **3/3**, `sat` en el cuerpo **3/3**;
+  LIVE-7 HLT-1 prefijo crudo **3/3**, TLM-1 URI completa **3/3**, TLM-4 sin `MaxLength` **3/3**, `path` con query **3/3**,
+  TLM-2 sin límite **2/2**, TLM-3 sin `@Throttle` **2/2**, TLM-5 persistir **2/2**; LIVE-1 lock con `qs@6.15.3` ⇒ `npm
+  audit` vuelve a listar `qs` **2/2**. Son deterministas (no hay carrera); la N es de repetición, no de proporción.
+
+### 76.5 Hallazgo previo (no de este encargo): `graded-estimate.e2e-spec.ts` depende del orden
+Corriendo `enum-query-axes → buylist-cycle → replacement-cases → full-refund-vault → graded-estimate` (secuenciador fijo)
+salen **8 rojas** en `graded-estimate` (p. ej. `3) … teja.gradingHighlight` `undefined`) **igual en `HEAD 2fe1cea1` sin
+este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es contaminación de estado entre suites
+(clase H-2), sin relación con LIVE-*. Queda para quien lleve catálogo/precios.
+
+### 76.6 Errata v1.84.1 · §14.14 E-1 — el tope de sesión con `>=` (SES-7, SES-8) (2026-10-05, sobre `6480d86b`)
+- **Borde:** `refresh()` comparaba `now − sat > tope` (`auth.service.ts`, paso 4 de E-1) y luego `now >= exp`. Como el
+  último refresh lleva `exp = sat + tope`, en el segundo exacto `now = sat + tope` el tope no disparaba y la caducidad sí
+  ⇒ `401` **sin** `reason`. Ahora `now − sat >= tope(rol de BD)`: las dos fronteras coinciden. Un token caducado sigue
+  sin emitir par; solo cambia el `reason`. El orden del código ya era el de E-1 (verificar con `ignoreExpiration:true`
+  → typ/tv/usuario/sid → `sat` → tope → `exp` ausente/no number o `now >= exp` → par); no se movió nada más.
+- **SES-7** (`test/auth.session-max-age.spec.ts`): `customer` (30 d), `super_admin` y `vault_operator` (7 d): un segundo
+  antes del tope ⇒ `200`; en `sat + tope` exacto ⇒ `401 {reason:'session_max_age'}`. Precondición aseverada: el `exp` del
+  token cae justo en el tope. Se vio **roja antes del cambio: 3/3 casos** (`reason: undefined`).
+- **SES-8:** el caso que ya existía («caducado por TTL ⇒ 401 sin reason», sin número) **pasa a llamarse SES-8** y no se
+  duplica (lo pide E-1); gana: ningún par (`issueTokens` y `devices.issue` no se llaman), el segundo exacto `now = exp`
+  ⇒ `401` sin `reason`, y un refresh bien firmado **sin** `exp` ⇒ `401` sin `reason` y sin par. Ya era verde antes del
+  cambio (protege conducta existente, no un defecto); su mordida la da la mutación.
+- **Mutaciones** (copia `git archive HEAD` entera + este diff; deterministas, la N es de repetición): volver a `>` ⇒
+  SES-7 roja **5/5** corridas (3 casos rojos, y solo esos); quitar la comprobación manual de `exp` ⇒ SES-8 roja **3/3**
+  (sus 3 casos). Fuente restaurada y comparada byte a byte con el árbol vivo.
+- **Suites** (misma copia): unitaria **394/394 suites, 6671/6671** (+5 netos: +6 casos, −1 absorbido en SES-8); `tsc` y
+  `eslint` limpios. Integración de auth + telemetría sobre BD propia `tcg_be_live2` (`E2E_STRICT_INFRA=false`, solo
+  esas suites; no es corrida de gate): **7/7 suites, 85/85**.
+
+### 76.7 Errata v1.84.2 · §14.15 E2-3 — `scrubClientText` en `client-error` (TLM-6, TLM-7, TLM-8) (2026-10-05, sobre `5ea58917`)
+- **Dónde:** `scrubClientText(s)` en `modules/health/telemetry-report.ts` (pura, no lanza); `telemetry.controller.ts`
+  la aplica a `message` antes de construir la línea `CLIENT_ERROR`. `path` sigue por `pathWithoutQuery` (ya quitaba
+  query **y** fragmento; ahora hay prueba para el fragmento). `digest`/`release` no se tocan (E2-3).
+- **Reglas, en orden 1 → 2 → 3:** (1) `/(\S)[?#]\S*/g` ⇒ `$1` (`error #418` intacto: `#` con espacio delante);
+  (2) `/([\w.-]*(?:token|code|secret|password|key|signature|sig))=\S+/gi` ⇒ `$1=[redacted]` — el sufijo cubre
+  `access_token`, `refresh_token`, `id_token`, `X-Amz-Signature`, `client_secret`, `apikey`; **solo valor no vacío**
+  (`token=` sin valor no esconde nada); (3) `/eyJ[\w-]+\.[\w-]+\.[\w-]*/g` ⇒ `[jwt]` (firma vacía admitida: `alg:none`).
+  Vacío ⇒ `Error`. Consecuencia del sufijo, conforme al contrato: `monkey=x` también se redacta.
+- ⚠️ **Para el arquitecto (no cambié el contrato):** E2-3 punto 4 dice «el resultado solo puede ser más corto o igual
+  de largo». **No es cierto con la regla 2 tal cual:** un valor de menos de 10 caracteres crece (`sig=a` ⇒
+  `sig=[redacted]`; `'sig=a '×50` = 300 ⇒ 650 sin tope). Como el motivo declarado es «los 300 del DTO siguen valiendo»,
+  el código **recorta a 300 al final** (`CLIENT_MESSAGE_MAX`; recortar solo quita cola, no puede destapar nada) y hay
+  prueba de ello. Si el arquitecto prefiere otra salida (marcador más corto, o aceptar que crezca), es un cambio de una
+  línea.
+- **Pruebas:** `test/telemetry.spec.ts` — TLM-6, TLM-7 (combinada + «#418» sola, byte a byte), TLM-8, fragmento de
+  `path`, tabla regla a regla (14 casos), tope 300, entradas raras; `test/integration/telemetry.e2e-spec.ts` —
+  TLM-6/7/8 por HTTP en una petición. Valores obviamente falsos (`abc123`, `s3cr3t`, `t0k3n`, `fake`); el JWT se arma
+  en ejecución (`alg:none`). ⛔ Ningún nombre en MAYÚSCULAS seguido de `=` en las cadenas de prueba: el generador del
+  manifiesto S-88-1 lo leería como variable de entorno (me pasó con `TOKEN=fake`, cambiado a `ToKeN=fake`).
+- **Roja antes del código** (stub identidad): **17/31** en `telemetry.spec.ts` (TLM-6, TLM-7 ×2, TLM-8 —por el secreto
+  tras el `\n`; su parte «una línea» ya era verde, es candado de lo construido—, 13 de la tabla).
+- **Suites** (copia `git archive HEAD` entera + este diff): unitaria **394/394 suites, 6692/6692**; `tsc` y `eslint`
+  limpios. Integración auth + telemetría + health, BD propia `tcg_be_live3` (`E2E_STRICT_INFRA=false`, no es gate):
+  **7/7 suites, 86/86**.
+- **Mutaciones** (deterministas; la N es de repetición): regla 1 solo para URL absolutas («quitar rutas relativas»)
+  ⇒ unit **3/3** rojas (5 casos: TLM-6, TLM-8, 3 de tabla), integración **2/2**; quitar regla JWT ⇒ unit **3/3** (TLM-7
+  + 1 de tabla), integración **2/2**; solo la regla del cliente (mutación de TLM-7 en el contrato) ⇒ **3/3** (14 casos);
+  controller sin llamar a `scrubClientText` ⇒ **3/3** (TLM-6/7/8); `message` sin escapar ⇒ **3/3** (TLM-8 + la de
+  forma). ⚠️ Con «quitar rutas relativas» **sola**, el oráculo literal de TLM-6 en el contrato (`no contiene abc123`)
+  seguiría verde porque la regla 2 redacta `token=abc123`; muerde por la aserción extra `no contiene 'token'` y por
+  la ruta seguida de ` al cargar`. Fuente restaurada y comparada byte a byte con el árbol vivo.
+
+### 76.8 Gate del techlead sobre `241d4dca` — TD-LIVE-2 construido, TD-LIVE-1/3/4 anotados (2026-10-05, sobre `a047c3cb`)
+- **TD-LIVE-2 (construido, no anotado):** `test/auth.ignore-expiration.lock.spec.ts`. Recorre todo `src/**/*.ts` con
+  el AST de TypeScript (`ts.createSourceFile`; los comentarios no cuentan, la clave entre corchetes sí) y exige
+  **exactamente una** aparición de `ignoreExpiration`, como propiedad del objeto de opciones de una llamada
+  `*.verifyAsync(...)` cuyo método envolvente es `refresh` de la clase `AuthService`. Si alguien necesita otra, la
+  necesidad pasa por revisión: el candado se cambia a propósito, no por accidente.
+- **Canarios en la propia suite** (5): copia al `verifyAsync` de `jwt-auth.guard.ts`, forma
+  `['ignoreExpiration']`, movida a otro método de `AuthService`, constante de opciones suelta, cero apariciones.
+- **Mutación real** (copia `git archive HEAD` entera + este diff, en scratchpad `be-live4`, borrada al terminar):
+  añadir `ignoreExpiration: true,` al `verifyAsync` de `src/common/guards/jwt-auth.guard.ts` ⇒ **rojo 3/3** (N=3,
+  determinista: no depende de reloj ni de orden). Fuente restaurada y comparada con `cmp` contra el árbol vivo.
+- **Anotados en `TECH_DEBT.md` (sección backend):** TD-LIVE-1 (`stripeModeOf` vs regex de `pii-crypto`; toca
+  `common/`, se serializa), TD-LIVE-3 (amplificación de `CSP_VIOLATION`: ≤ 20 líneas × 60 pet/min por IP), TD-LIVE-4
+  (la discrepancia del recorte a 300 de §76.7, para el arquitecto).
+- **Suites** (misma copia entera + este diff): unitaria **395/395 suites, 6699/6699** (antes 394/6692: +1 suite, +7
+  pruebas); `tsc --noEmit` limpio; `eslint` del fichero nuevo limpio. Sin cambios de código de producción.
+
+### 76.9 Errata v1.84.4 · §14.17 E4-5 — enlace «Aviso de privacidad» en el pie de todos los correos (criterio 507) (2026-10-05, sobre `77188b5f`; código en `ec9d3aae`)
+
+**Dónde estaba el pie (medido, `grep` 2026-10-05):** no hay uno, hay **tres** más un correo sin pie:
+- `buylist/mail-shell.ts` → `mailShell()` (lo usan las 7 familias de `*-notice.templates.ts` y `buylist-mail.templates.ts`: buylist, pedido con cuenta, envíos, reembolsos, CLABE, KYC, disputas — 20 de las 27 plantillas);
+- `mail/mail.templates.ts` → `layout()` (verificación, restablecer contraseña, bloqueo de staff);
+- `orders/mail/guest-order.templates.ts` → `layout()` duplicado (confirmación de invitado y reenvío de enlace; BE-43);
+- `catalog/sealed-restock-notify.service.ts` → HTML en línea, sin pie (reposición de sellado).
+
+**Qué se construyó.** Una sola decisión en `mail-shell.ts`: `privacyNoticeUrl()`, `privacyNoticeLabel(locale)`,
+`privacyNoticeHtml(locale, style)`. Los cuatro sitios la llaman; ninguno arma el enlace por su cuenta.
+- **URL:** `<origen>/es/privacidad` en los dos idiomas (literal del contrato; el aviso es un documento en español). Etiqueta: «Aviso de privacidad» / «Privacy notice».
+- **Origen:** `APP_PUBLIC_URL` (vía `appUrl`, la base de los avisos) y, si falta o está en blanco, el **primer** origen de `APP_BASE_URL` (la base de los enlaces de verificación/contraseña/invitado). Es el respaldo que `DEVOPS_NOTES §35.2` pedía; se aplica **solo** a este enlace (los CTA de los avisos no cambian). Esquema no http(s) ⇒ sin `href`.
+- **Sin ningún origen:** el pie dice «Aviso de privacidad: tcghunt.mx/es/privacidad» como **texto**; ⛔ nunca un `href` a medias.
+- **Posición en `mailShell`:** fila de letra chica sobre **papel**, justo encima de la banda de tinta, **no dentro**. §31.6h prohíbe en la banda todo lo que el lector necesite (degrada en modo oscuro), y el candado N2 (`buylist.mail-shell.spec.ts`: «el pie en tinta no lleva `<a `») sigue en verde sin tocarlo. Si ux-ui lo quiere en otro sitio, es un cambio de una línea en `mailShell`.
+
+**Decisiones que el contrato no fijaba (para el arquitecto):**
+1. **El aviso de bloqueo de staff (`passwordLockAlertTemplate`) también lleva el enlace.** Comparte `layout()` con verificación/contraseña y el contrato dice «pie común de todas las familias». Su comentario dice «⛔ sin enlaces» (anti-phishing): el enlace al aviso no es una acción, pero si se prefiere quitarlo ahí, es un parámetro de `layout`.
+2. **El texto plano no lleva el enlace.** El texto de cada plantilla es propio (no hay pie de texto común) y el contrato habla del pie visible. Añadirlo serían 27 + 1 ediciones; no lo hice sin decisión.
+3. **Reposición de sellado:** correo bilingüe ⇒ etiqueta en español.
+
+**Pruebas.** `test/mail.privacy-footer.spec.ts` (64): PRIV-0 censo (las 27 `*Template` de `src/` tienen render; una nueva sin render ⇒ rojo), PRIV-1 cada plantilla ES+EN y la reposición llevan `<a href="<origen>/es/privacidad">` con su etiqueta, una sola vez; PRIV-2 origen y respaldo; PRIV-3 sin origen; PRIV-4 barrido de `src/` (todo fichero con `subject` y marcado HTML llama a `mailShell(` o `privacyNoticeHtml(`). `test/mail-links.frontend-routes.spec.ts`: `linkedPaths` aparta `/privacidad` (no es el CTA) y una prueba nueva mide que la ruta existe en el front.
+
+**Choques previstos al fusionar** (medido con `git merge-tree` contra `origin/claude/skydropx-d` y `origin/claude/arreglos-panel`): **ninguno textual en `backend/`** (`mail-shell.ts` y el spec de rutas se auto-fusionan). **Sí semánticos:** PRIV-0 se pondrá rojo con las plantillas nuevas de esas ramas (`shipmentDeliveredTemplate`, `shipmentAtBranchTemplate`, `shipmentDeliveryAttemptTemplate`; `sellItemsRejectedTemplate`) hasta que quien fusione les añada su render en `RENDERS` — es el candado haciendo su trabajo (igual que SRF-13). Todas usan `mailShell`, así que ya llevan el enlace.
+
+**Medido (copia `git archive ec9d3aae` del árbol ENTERO, 2026-10-05):** unitaria **396/396 suites, 6764/6764** (antes de este cambio, §76.8: 395/6699; además del spec nuevo entraron commits de otras ramas, así que no comparo la diferencia prueba a prueba); `tsc --noEmit` limpio. **Mutaciones** (sobre otra copia, N=1 cada una porque son deterministas): quitar la fila del aviso de `mailShell` ⇒ **47 rojas**; quitarla del `layout` de `mail/` ⇒ **11**; del `layout` de invitado ⇒ **8**; de la reposición ⇒ **2** (PRIV-1 + barrido PRIV-4); quitar el respaldo a `APP_BASE_URL` ⇒ **2** (PRIV-2). Con todo en su sitio, 64/64. **Fusión simulada** (`git merge-tree`): con `arreglos-panel`, PRIV-0 rojo solo por `sellItemsRejectedTemplate`, como se predijo; con `skydropx-d` el spec nuevo no compila en mi copia porque el cliente Prisma generado es el de esta rama (`SpendAlertKind` falta) — **NO MEDIDO** ahí; las otras dos specs de correo dan 291/291.
+
+### 76.10 Choque A de la fusión — PRIV-0 conoce las 4 plantillas que trajo la fusión (2026-10-05, sobre `1eb6bdcd`)
+
+**Medido (`grep`/lectura, 2026-10-05):** `sellItemsRejectedTemplate` (`buylist/buylist-mail.templates.ts`, correo 29, al
+vendedor) arma su HTML con `mailShell`; `shipmentDeliveredTemplate`, `shipmentAtBranchTemplate` y
+`shipmentDeliveryAttemptTemplate` (`shipments/mail/shipment-notice.templates.ts`, AV-17/18/19, al cliente) pasan por
+`carrierNotice`, que llama a `mailShell`. Las cuatro **ya llevaban el pie**; ninguna es interna. No se tocó código de
+producción: solo se añadió su render a `RENDERS` en `test/mail.privacy-footer.spec.ts` (27 → 31 plantillas; 64 → 72 pruebas).
+
+**Medido (copia `git archive 1eb6bdcd` del árbol ENTERO + este diff):** `tsc --noEmit` limpio; unitaria **427 suites, 7548
+pruebas, 1 roja**: SDX-I-8 en `sdx-d2g.units.spec.ts` (choque B, fuera de este cambio). **Mutaciones** (deterministas, N=1
+cada una): quitar el enlace al aviso del HTML de `sellItemsRejectedTemplate` ⇒ **3 rojas** (PRIV-1 ES y EN + CONTROL de
+aparición única); quitar el render de `shipmentAtBranchTemplate` del censo ⇒ **1 roja** (PRIV-0). Restaurado: 72/72.
+
+### 76.11 Errata v1.84.5 · §14.18 E5-1…E5-5 — choque B: los correos solo-staff (AVG-1/2/3) sin el pie de privacidad (2026-10-05, sobre `0d3f6b42`)
+
+**Qué se construyó (E5-2).** `MailShellOptions.audience?: 'customer' | 'staff'` (defecto `'customer'`). Con `'staff'`,
+`mailShell` omite `privacyRow` **y** su `spacerRow(16)`; el resto del esqueleto no cambia. `audience: 'staff'` solo en las
+tres llamadas de `spend-alerts/spend-alert.mail.ts` (AVG-1 `spendAlertImmediateMail`, AVG-2 `spendAlertBatchMail`,
+AVG-3 `spendDigestMail`). ⛔ Ningún otro fichero lo pasa (PRIV-6 lo vigila); ampliar la lista exige errata.
+SDX-I-8 (`sdx-d2g.units.spec.ts`) y PRIV-0…4 **sin cambio de aserciones**; en `mail.privacy-footer.spec.ts` cambió la
+cabecera y entraron **PRIV-5** (AVG-1 🔴 de guías, AVG-2, AVG-3 × ES/EN × con/sin origen: ni `privacidad` ni la etiqueta en
+`html` ni `text`; CONTROL: el `html` lleva `footerDescriptor(l)`) y **PRIV-6** (barrido sin comentarios: `audience:'staff'`
+solo en `spend-alert.mail.ts`, exactamente 3).
+
+**Medido (copia `git archive 0d3f6b42` del árbol ENTERO + este diff, 2026-10-05):** `tsc --noEmit` limpio; `eslint` de los
+3 ficheros limpio; unitaria completa **427/427 suites, 7553/7553** (SDX-I-8 en verde). **Mutaciones** (deterministas, **una
+tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el árbol, después 119/119):
+| # | Mutación | Rojas reales (privacy-footer + sdx-d2g.units) |
+|---|---|---|
+| MUT-B1 | `mailShell` ignora `audience` | 5: PRIV-5 ×4 + SDX-I-8 |
+| MUT-B2 | defecto `'staff'` (`opts.audience ?? 'staff'`) | 55: PRIV-1 de las **26** plantillas de shell ×2 idiomas + CONTROL + PRIV-3 ×2; las 5 de pie a mano, verdes |
+| MUT-B3 | `audience: 'staff'` en `refundNoticeTemplate` | 6: PRIV-1 `refundNoticeTemplate` ×2 + PRIV-6 + CONTROL + PRIV-3 ×2 |
+| MUT-B4 | quitar `audience` de `spendDigestMail` | 6: PRIV-5 ×4 + PRIV-6 + SDX-I-8 |
+| MUT-B5 | `spendAlertUrl` añade `?token=x` | 1: SDX-I-8 |
+
+**NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
+propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
+test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.
+
+### 77. P-MAIL-MARCA — los 6 correos a clientes que iban con HTML a mano, sobre `mailShell` (2026-10-06, sobre `36091259`)
+
+**Qué cambió.** `guestOrderConfirmationTemplate`, `guestTrackingLinkTemplate` (`orders/mail/guest-order.templates.ts`),
+`emailVerificationTemplate`, `passwordResetTemplate`, `passwordLockAlertTemplate` (`mail/mail.templates.ts`) y el correo
+de reposición de sellado (`catalog/sealed-restock-notify.service.ts`) se renderizan con `mailShell`: bloque de marca,
+retícula, pie en tinta y la fila «Aviso de privacidad» (criterio 507), `audience` por defecto `'customer'` en los seis.
+Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hacen los builders del shell, S15-B1).
+- **Sin cambio:** asuntos y versión de texto plano (comparados byte a byte contra `36091259`: 11/11 iguales), enlaces
+  (siguen siendo páginas del front; el botón lo emite `ctaRows`, con la URL en texto debajo), caducidades y avisos.
+- **Lo nuevo (todo de §31):** eyebrow (`SEGURIDAD DE LA CUENTA`/`ACCOUNT SECURITY` en los de cuenta, §31.9 filas 7–8;
+  `TU PEDIDO · <número>` en los de invitado, igual que AV-2), rótulos y botón en mayúsculas (§31.2), línea «por qué
+  recibes esto» del pie, preheader. Los `<strong>` del número de pedido y del nombre del producto desaparecen (los
+  builders reciben texto plano); en la reposición el nombre va entre comillas, como ya iba en el texto plano.
+- **Razón documentada para NO usar el shell:** ninguna. §31.15 (DESIGN_SYSTEM) planeaba este paso («pase 2»); BE-43 /
+  §4.56.3 hablaban de quién podía tocar `mail/`, no de excluirlo. `passwordLockAlertTemplate` («sin enlaces»): el shell
+  no añade ninguna acción; su único `href` sigue siendo el aviso de privacidad, que E5-1 exige (correo mixto ⇒ de cliente).
+- **Discrepancia anotada, no aplicada:** §31.7 nombra los botones 7/8 «Verificar mi correo»/«Restablecer mi contraseña»;
+  se conservó el texto vigente («VERIFICAR CORREO», «RESTABLECER CONTRASEÑA»). Decisión de ux-ui/PO si se cambia.
+- **Candado:** `test/mail.privacy-footer.spec.ts` — PRIV-4 ahora exige `mailShell(` (un pie a mano con
+  `privacyNoticeHtml(` ya no basta) y **PRIV-7** (nuevo) renderiza todo el censo PRIV-0 + la reposición y exige la firma
+  del shell (doctype con `lang`, `brandRows()`, `footerDescriptor(l)`), con un CONTROL de que un HTML a mano con marca y
+  aviso no la cumple. `test/mail.greeting-name.spec.ts`: el saludo se busca como celda (`>Hola:</td>`) en vez de `<p>`.
+
+#### 77.1 Condiciones de QA y techlead sobre `7aa2c0ce` (2026-10-06)
+- **Rótulos de CTA (orquestador, `DESIGN_SYSTEM §41.4`), solo en el HTML:** 7 `VERIFICAR MI CORREO`/`VERIFY MY EMAIL`,
+  8 `RESTABLECER MI CONTRASEÑA`/`RESET MY PASSWORD`, 13 y 14 `VER MI PEDIDO`/`SEE MY ORDER` (§41.8, 13≡15). Sustituye la
+  «discrepancia anotada, no aplicada» de §77. Asuntos y texto plano, intactos.
+- **m-3:** en la verificación, la letra chica (caducidad + «copia esta URL») va **después** del botón, como en restablecer.
+- **N3:** el preheader del 14 pasa a una frase propia (`resendPreheader`, 40–90 caracteres; la intro en español medía
+  109). Solo el preheader: la prosa visible y el texto plano no cambian.
+- **Candados:** los seis entran a `MIGRADOS` de `test/buylist.mail-shell.spec.ts` (ML-1…ML-10, N1…N9 sobre ellos; `CON_CTA`
+  excluye 9 y 28, y `urlDe()` da el destino de cada CTA). Nuevos: **I-1** (el único `href` del 9 es `/es/privacidad`,
+  medido con `APP_PUBLIC_URL` puesto) e **I-2** (los plazos «N horas/días» del HTML visible = los del texto plano).
+- **Deuda registrada:** BE-43 (mitad de `mail/` pagada), AV-D2 (11 ficheros de 8 módulos y ciclo `mail/`↔`buylist/`),
+  FX-D9 (disparador = traslado a `common/`), y MAIL-D1…D7 al final de `docs/TECH_DEBT.md`.
+
+## 78 · rev BSD-1, paso B-1 (💰) — M-72, `label-subject.ts`, `closeInboundShipment`, `writeSellRequestGuide`, censos BSD-B23/B25 (2026-10-06, rama `claude/buylist-skydropx`, sobre `629c78bd` → `88a7cea8`)
+
+Norma: `API_CONTRACT §BSD` (rev BSD-1 + errata BSD-1.1 §BSD.15). Esto es la **costura** que usan B-2 (`shipments/*`) y
+B-3 (barrido, `buylist.service`). ⛔ Ningún verbo HTTP nuevo, ni PDF, ni correo, ni `decline-accepted`, ni barrido.
+
+### 78.1 Qué hay y dónde (para B-2 / B-3)
+| Pieza | Fichero | Para quién |
+|---|---|---|
+| `M-72` (una sola migración; ⛔ sin `M-72b`, medido) | `prisma/migrations/20261025120000_m72_bsd_inbound_label/` | todos |
+| `ShipmentKind`, `ShipmentRequest.kind/sellRequestId/sellRequest`, `SellRequest.inboundGuideClockStartedAt/inboundShipment`, `not_continued`, `buylist_guide_due` | `prisma/schema.prisma` | todos |
+| `labelSubjectOf`, `isBuylistInbound`, `OUTBOUND_ONLY`, `INBOUND_ONLY`, `outboundOnlySql(alias?)`, `BUYLIST_INBOUND_KIND`, `lockSubjectRows` (I-BSD-4) | `src/modules/shipments/label-subject.ts` | B-2 añade AQUÍ dirección/`chargedOf`/`insuredValueOf`/empaque/recomendada (§BSD.3) |
+| `closeInboundShipment(tx, srId, 'close'\|'shipped', now?)` ⇒ `{shipmentId, outcome, liveSkydropxGuide, rowCancelled}`; `needsGuideCancelTask(sr, res)` | `src/modules/shipments/inbound-close.ts` | B-3 (regla 2/8, `decline-accepted`, `confirm-shipment`) |
+| `writeSellRequestGuide(tx, srId, carrier, trackingNumber, now, source, shipDeadlineBusinessDays)` ⇒ `{count}` | `src/modules/buylist/sell-request-guide.ts` | `adminGuide` (ya) y `persistLabeled` de entrada (B-2) |
+| `SPEND_ALERT_CODE_OF.buylist_guide_due = 'AG-23'` (solo el código; el enum lo exige) | `spend-alerts.service.ts` | B-3 pone disparador y textos |
+
+- ⚠️ **`writeSellRequestGuide` tiene un 7.º parámetro** que §BSD.4.7 no lista: `shipDeadlineBusinessDays` (el dial lo lee
+  el llamador fuera de la tx, como hacía `adminGuide`; el fichero no arrastra `SettingsService`). No toca HTTP ni DTO.
+- ⭐ **BSD-1.1 C-6:** el `carrier` que `persistLabeled` pase debe ser el **nombre legible** (`carrierLabel` o, vacío,
+  `carrierName`); el número es el mismo en las dos filas. La firma no cambia.
+- `closeInboundShipment` toma `SellRequest FOR UPDATE` **él mismo** antes de la fila de entrada (no espera si el llamador
+  ya la tiene): el orden I-BSD-4 no depende de que el llamador se acuerde. `afterAutoCloseVia` post-commit es del
+  llamador (cuando `outcome === 'sealed'`).
+- ⚠️ El nombre `ShipmentKind` ya existía como **tipo TS** en `shipments.service.ts` / `shipment-prep.service.ts`
+  (`'vault_withdrawal' | 'guest_direct_ship'`, derivado). No chocan mientras ningún fichero importe los dos. Y el
+  `AdminShipmentDTO` **ya tiene** `kind` con ese otro significado ⇒ §BSD.5 «`AdminShipmentDTO` gana `kind: ShipmentKind`»
+  choca (para B-2/arquitecto).
+
+### 78.2 `M-72`: contenido, idempotencia, reversa
+Orden de §BSD.1 (1)…(8); DDL igual al de `prisma migrate diff` (nombres de índice/FK de Prisma). Idempotente
+(`IF NOT EXISTS`, constraints quitar-y-poner, `CREATE TYPE` en `DO … duplicate_object`). **Desviación consciente del texto
+del relleno:** `… AND "inboundGuideClockStartedAt" IS NULL` — idéntico en la primera aplicación (columna recién nacida);
+en una re-aplicación evita RE-ANCLAR a un `now()` posterior. Reversa documentada en la cabecera del SQL (con la
+comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `tcg_be_bsd_b1`):
+- `stack-native.sh up --infra` ⇒ «All migrations have been successfully applied», M-72 la más reciente ⇒ los `ADD VALUE`
+  caben en la misma migración (precedente M-70).
+- Re-aplicar el fichero con `psql -v ON_ERROR_STOP=1` ⇒ exit 0, solo `NOTICE … skipping`; definiciones de los dos CHECK y
+  la FK **idénticas** antes/después (`pg_get_constraintdef`).
+- `prisma migrate diff --from-url <bd> --to-schema-datamodel` ⇒ sin diferencias de M-72 (solo un `RENAME INDEX` de
+  `PriceReference` que ya estaba).
+
+### 78.3 Censos (B-1 los deja VERDES; lo pendiente es un TRINQUETE con dueño)
+- **BSD-B23** `test/bsd.reader-census.spec.ts` + `test/helpers/bsd-census.ts` (AST de TypeScript, llave `fichero
+  función#verbo#n`): **100 sitios** clasificados (`outbound_only` / `all_kinds` / `by_key`). B-1 **puso `OUTBOUND_ONLY`** en
+  los 18 `outbound_only` (lista admin y su total, picking list, cola de preparación y conteos, salida de hoy ×2, tablero
+  ×2, métrica de lanzamiento, P&L, reportes de reembolsos, AG-10, sondeo, lista de cliente, `?alert=true` ×2 y su conteo
+  de tablero). Hoy es conducta nula (no hay filas de entrada); B-2 no tiene que tocarlos.
+  ⚠️ **Para B-2:** `label-processing.job.ts processing#findMany#1` es `all_kinds` pero filtra `status:'picking'` ⇒ no
+  vería una fila de entrada «en proceso» (vive en `solicitado`). Y los CAS por id de `claim`/`persistLabeled`/
+  `persistProcessing`/`correct`/`applyReissue`/`setTrackingFromProvider` llevan `status` de salida.
+- **BSD-B25** `test/bsd.structural.spec.ts`: (a) `kind` solo en `label-subject.ts` — verde; (b) censo de escrituras de
+  `status` de `SellRequest` (18 sitios) con **`PENDIENTE`** = trinquete: el sitio pendiente debe SEGUIR sin
+  `closeInboundShipment` (si alguien lo cablea sin sacarlo de la lista, rojo; si lo saca sin cablearlo, rojo):
+  - `closeWithGuideTask` (regla 2) y `adminConfirmShipment` ⇒ **B-3**;
+  - `autoRejectIfAllRejectedTx` y `rejectRequest` ⇒ **ARQUITECTO**: su `where` es `liveRequestWhere()` (⊇ `aceptada`) y
+    escriben `rechazada`. La decisión `reject` por carta **no exige recepción** (`assertRequestReceived` solo frena
+    `approve`), así que rechazar todas las líneas de una `aceptada` la cierra **sin** pasar por I-BSD-1 — un escritor que
+    §BSD.2 no lista. (NO MEDIDO por HTTP; leído en `buylist.service.ts`.)
+- Pruebas existentes ajustadas por conducta nueva normada: `sdx-d2c.label-units.spec.ts` (C-SDX-5: `cancelProviderLabelIfAny`
+  pasa de 2 a **3** llamadores, el tercero `inbound-close.ts`, §BSD.4.8), y tres `toEqual` de `where` que ganan
+  `kind:'outbound'` (`shipments.guest-direct-ship`, `admin.user-audit`, `shipments.client-tracking`).
+  `enum-values-parity.spec.ts`: solo el ancla humana de `SpendAlertKind` (+`buylist_guide_due`), que es como ese fichero
+  pide que se añada un valor.
+
+### 78.4 Mediciones (copia del árbol entero en el scratchpad `be-bsd-b1`, BD propia `tcg_be_bsd_b1`, doble del proveedor)
+- **Integración BSD-B2/B3** (`bsd-m72-migration.e2e-spec.ts`, 20 pruebas): **10/10 corridas verdes** tras arreglar un
+  falso rojo propio (`now()` con µs vs `TIMESTAMP(3)`: ±1 ms, cazado 1/1 al primer intento de mutación; la aserción
+  ahora exige UN valor común a las tres y ≤ 1 ms de `now()`).
+- **Integración completa** (antes de ese arreglo): 106/108 suites, 2093/2109 pruebas. Las 2 suites rojas
+  (`auth-password-attempts-redis`, `reset-admin-password-lock`) mueren con `MISCONF Redis … unable to persist to disk`:
+  el Redis compartido tiene `dir` VACÍO (`redis-cli config get dir`) y `rdb_last_bgsave_status:err` ⇒ niega escrituras.
+  Infra (devops), no B-1: no tocan `ShipmentRequest`/`SellRequest`. ⛔ No toqué la configuración del Redis compartido.
+- **Unitaria completa** (árbol = `3abbf642` + el arreglo de abajo): tsc exit 0, `npm run lint` exit 0, **430/430 suites, 7593/7593
+  pruebas**.
+- **Mutaciones** (deterministas, N=1 cada una, sobre copia): 13/13 unitarias en rojo (M1 schema sin `not_continued` ⇒
+  paridad; M2/M3 sin `OUTBOUND_ONLY` en lista admin / P&L ⇒ B23; M4 lector nuevo ⇒ B23; M5 `kind:'outbound'` a mano ⇒
+  B25a; M6 cablear sin sacar de PENDIENTE ⇒ trinquete; M7 sacar de PENDIENTE sin cablear ⇒ B25b; M8 escritor nuevo ⇒
+  B25b; M9 candado ShR antes que SR; M10 `shipped` cancela guía; M11 sin guarda skydropx; M12 plazo movido; M13 tarea
+  incondicional) y 3/3 de integración (CHECK `shipment_kind_link` borrado en la BD ⇒ 9 rojas; relleno quitado del SQL ⇒
+  suite roja; relleno sin `status='aceptada'` ⇒ rojo).
+
+### 78.5 · B-2 (💰) — la guía de ENTRADA sobre el MISMO motor de compra (§BSD.3/.4/.8.2; BSD-1.1 C-1/C-6; BSD-1.3 puntos 2, 4 y 5) (2026-10-06, sobre `5af161a7`)
+
+Norma: `API_CONTRACT §BSD` con las erratas BSD-1.1/1.2/1.3. ⛔ Ningún sitio nuevo de compra: la fila de entrada pasa por
+`quote`/`label`/`label/cancel`/`address`/`release`/el job de «en proceso» de siempre; la conducta la elige la POLÍTICA de la
+fila. Sin schema, sin migración, sin código de error nuevo.
+
+| Pieza | Dónde | Notas |
+|---|---|---|
+| Estados por clase (BSD-1.3 p. 5): `OPEN_FOR_LABEL_STATUS`, `LABELED_STATUS`, `openForLabelWhere()`; banderas `requiresPreparation`, `recommendation`; `LABEL_SUBJECT_SELECT` | `shipments/label-subject.ts` | los CAS por id (`claim`, `persistLabeled`, `persistProcessing`, `correct`, `applyReissue`, `setTrackingFromProvider`) toman su `status` de `labelSubjectOf(row)`; `preparedAt`/`assertCanAdvance`/casos solo con `requiresPreparation` |
+| `AdminShipmentKind` (3 valores), `OutboundAdminShipmentKind`, `INBOUND_ADMIN_KIND`, `adminKindOf` (BSD-1.3 p. 2) | `label-subject.ts` | UNA declaración; `shipments.service`/`shipment-prep` ya no declaran `ShipmentKind` (el `?kind=` de la lista sigue con los 2 de salida) |
+| Piezas de la solicitud (§BSD.3): guarda (`assertInboundOpenForLabel`, `INBOUND_SELL_REQUEST_GUARD_SELECT`), destino (`storeDestinationOf`), direcciones (`inboundQuoteAddresses`, `inboundPurchaseAddresses`), dinero (`inboundChargedOf`, `inboundInsuredValueCents`), empaque (`inboundPackageLines`), copia del domicilio (`inboundAddressSnapshotOf`), `labelPdfAvailableOf` + `INBOUND_LABEL_SELECT` (C-1), `sellerCarrierLabelOf` (C-6), `rejectDestinationKeys` | `shipments/label-inbound.ts` (puro) | ⛔ no compara `kind` (BSD-B25 (a)) |
+| I-BSD-4 en el motor | `lockSubjectRows` en `guardedRead`, `precheck`, `claim` (tras el candado consultivo), `persistLabeled`, `persistProcessing`, `casZero`, `cancel`, `applyReissue`, `correct`, `applyCarrierStatus` | los 8 `FOR UPDATE` por id del motor son ahora el de `lockSubjectRows` (censo B23: −8 filas `sql`; CONTROL `≥ 12`) |
+| `POST /admin/buylist/:id/inbound-shipment` (§BSD.4.1) | `shipments/inbound-shipment.service.ts` + `inbound-shipment.controller.ts` (`@Controller('admin/buylist')`) | candado de la solicitud + manejo de `P2002`; bitácora `buylist.inbound_shipment_opened` sin PII |
+| `GET /buylist/requests/:id/label.pdf` (§BSD.4.4) | mismos ficheros (`@Controller('buylist')`) | roles de las demás rutas de `buylist/requests` y filtro por dueño; ⛔ `@Throttle` propio: la ruta admin `label.pdf` no lo tiene ⇒ el global (300/min, `app.module.ts`), MEDIDO por lectura |
+| La descarga, UN cuerpo | `shipments/label-pdf-download.ts` (`downloadLabelPdfVia`) | la usan la ruta admin, la del vendedor y AV-7 |
+| AV-7 con la etiqueta (§BSD.8.2, BSD-UX.2) | `shipments/inbound-guide-notice.service.ts`; variantes S/S0/+R en `sellGuideTemplate` (`buylist/buylist-notice.templates.ts`, parámetro opcional `skydropx`; M bit a bit) | sello `guideNoticeSentAt` por `UPDATE … WHERE status='aceptada' ∧ closedAt IS NULL ∧ guideNoticeSentAt IS NULL ∧ número = el de la fila` (el mecanismo y la guarda de `claimAndNotifySellRequest` de B-3, que es privado de `buylist.service`); log `buylist.guide_mail_without_pdf` |
+| `MailMessage.attachments` | `mail/mail.port.ts`, `resend-mail.adapter.ts` (los pasa), `noop-mail.adapter.ts` (los cuenta en el log) | NM-5 por LECTURA: `resend@4.8.0` (`package-lock`) tipa `attachments: {filename, content: Buffer, contentType}[]`, ≤ 40 MB; el correo de prueba sigue NO MEDIDO |
+| Puerto: `QuoteInput.from = {templateId} \| {address}`, `PurchaseInput.from = {templateId, snapshot} \| {address}`, `PurchaseInput.to` + CP/áreas opcionales | `shipping-provider/shipping-provider.port.ts`, `skydropx.adapter.ts` (cuerpos), `fake-shipping-provider.ts` (la reutilización de cotización incluye el CP de origen) | ⚠️ NM-1/NM-2 NO MEDIDOS (⛔ no se midieron contra Skydropx); salida bit a bit (pruebas CONTROL) |
+| Rutas solo-salida ⇒ `404` (§BSD.4.2, BSD-B24) | `ShipmentsService.assertOutboundRoute` en `refresh-tracking`, `prep-items`, `prepared` (POST/DELETE), `PATCH status`, `POST tracking`; `transitionFromProvider` ⇒ `404` para la entrada (cubre `departed` y el rastreo) | |
+| Rastreo (I-BSD-6) | `applyCarrierStatus`: en la entrada solo `created` (el número de una guía «en proceso») ⇒ `writeSellRequestGuide` + AV-7; cualquier otro evento solo anota `carrierPolledAt` | sin esto un `in_transit` en el job intentaría `enviado` y el CHECK `shipment_inbound_status` abortaría la tx |
+| `AdminShipmentDTO` (§BSD.5) | `kind: 'buylist_inbound'`, `inbound: {sellRequestId, sellerName, offerShippingFeeCents, offerGrossCents, destination}` (`null` en salida), margen del `label` contra la tarifa | |
+| Costura de la anonimización (BSD-B27) | `shipments/inbound-sync.ts` `scrubInboundShipmentPii(tx, userId)` | ⚠️ **sin llamador**: `deleteUser` (`admin.service.ts`) debe llamarla en su tx (borrado suave) |
+
+Decisiones y desviaciones (para quien lea el código):
+- **D-B2-1 · Fail-closed donde se escribe, tolerante donde se pinta.** El motor usa `labelSubjectOf` (lanza ante un `kind`
+  desconocido); los lectores del DTO (`inboundOf`, el margen del `label`, `chargedOf`) usan `isBuylistInbound` (una fila sin
+  `kind` —dobles legacy— es de salida). Medido: 2 pruebas legacy (`shipments.recipient-name`) caían con la versión estricta.
+- **D-B2-2 · `applyCarrierStatus` lee la política DENTRO de su tx** (y el dial del plazo con `getNumber(…, tx)`): los dobles
+  legacy solo traen `$transaction` (medido: `sdx-tl31af` D-8).
+- **D-B2-3 · Censos tocados (solo filas mías):** B23 (−8 `sql`, `applyCarrierStatus#updateMany#4`, `scrubInboundShipmentPii`
+  `inbound_only`); C-SDX-4 (`sdx-d2c.label-units`) reconoce `….reissueStatus`/`….labeledStatus` además del literal (sigue
+  habiendo UN escritor del retroceso); BSD-B25 (c) en fichero propio `test/bsd-b2.structural.spec.ts` (el de B25 (a)/(b) lo
+  edita B-3 en este momento).
+- **D-B2-4 · Dos cuerpos de la copia del domicilio (§BSD.4.1 paso 3) — PENDIENTE de unificar.** `label-inbound.ts`
+  `inboundAddressSnapshotOf` (la creación de la fila) y `buylist/inbound-address-sync.ts` `inboundSnapshotFromPickup` (B-3, el
+  re-sincronizado) difieren en los faltantes (`null` vs `''`; `line2`/`neighborhood` presentes vs ausentes). Uno debe importar
+  al otro; lo decide el orquestador cuando B-3 comitee.
+
+Lo que el contrato no aguantó (medido; para el arquitecto):
+- **BSD-B4, mutación «quitar el manejo de `P2002`»: NO muerde.** El candado de la solicitud (I-BSD-4, mismo §BSD.4.1 paso 2)
+  serializa las aperturas: la segunda ve la fila y contesta `created:false` sin chocar con el `@unique`. Medido sobre copia, la
+  carrera de 10 rondas × 5: sin `P2002` ⇒ 0/10 rondas rojas; sin el candado ⇒ 0/10; **sin los dos ⇒ 10/10 rondas rojas**
+  (`500`). Son dos muros, cada uno basta; la mutación va por pares.
+- **BSD-B9, mutación «quitar `status:'solicitado'` del CAS de entrada»: NO muerde (0/10 rondas).** El doble clic lo para
+  `labelProcessingSince IS NULL` del mismo CAS y la guarda de la solicitud que `claim` relee bajo su candado. El `status` del
+  CAS es defensa en profundidad para el cierre ENTRE `precheck` y `claim` (eso lo mide BSD-B16, de B-3).
+- **BSD-B11 «`payoutNetCents = 132000`»:** el neto se calcula al pagar (fuera de `shipments/`). B-2 afirma lo suyo: la compra
+  no toca la oferta ni ninguna cifra `*Cents` del portal del vendedor.
+- **§BSD.4.8 «si `port.cancel` no responde `ok`, el servicio de cancelación escribe `guideCancellationPendingAt`»:** B-2 NO
+  lo escribe en `shipments/`; lo escribe el LLAMADOR (barrido y `decline-accepted`, B-3 `inbound-cancel-task.ts`) con la misma
+  guarda `IS NULL`. Hoy hay UN escritor; si el arquitecto lo quiere en el servicio de cancelación, se mueve (no se duplica).
+- **`inboundLabelOptions` (§BSD.5, B-3):** `ShipmentLabelService.labelOptionsFor(actor, shipmentId)` es público; `buylist`
+  no importa `ShipmentsModule`, así que se resuelve como `LABEL_AUTO_CLOSE` (`ModuleRef`, `strict:false`). Sin fila de entrada
+  aún, cualquier id sirve: TG-2 cuenta 0 guías de un envío que no existe.
+- **BSD-B13/B28** los construyó B-3 en `buylist/` (`adminGuide`, `pickup-address`, `resyncInboundAddress`); **C-1**
+  (`labelPdfAvailable` plano en lista y detalle del cliente) vive en `buylist.service.ts` (B-3): `labelPdfAvailableOf` +
+  `INBOUND_LABEL_SELECT` están listos, ⚠️ **sin cablear**. **BSD-B27** por HTTP espera a `deleteUser`.
+
+Mediciones (copia del árbol ENTERO = `5af161a7` + los ficheros de B-2, scratchpad `be-bsd-b2/verify`; cliente de Prisma generado
+en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b2v` recién creada; S3 propio `:9102`; doble del
+proveedor; `SKYDROPX_ALLOW_SPEND` vacía):
+- tsc exit 0; `eslint src test scripts` exit 0.
+- Unitaria completa: **432/433 suites, 7831/7832 pruebas**. La roja es `bsd.reader-census` «filas muertas»: 7 filas que
+  `5af161a7` (B-4) añadió para código de B-3 que aún no está comiteado (`closeWithGuideTask#sql#1`, `adminGuide#sql#1`,
+  `resyncInboundAddress#updateMany#1`, `inboundLabelAlertSellRequestIds#findMany#1`…). No son de B-2; se ponen verdes cuando
+  B-3 comitee.
+- Integración completa (BD limpia): **108/110 suites, 2110/2141 pruebas**; las 2 suites rojas (31 pruebas) son
+  `auth-password-attempts-redis` y `reset-admin-password-lock`: `MISCONF Redis … unable to persist to disk` (Redis compartido,
+  infra; ⛔ no se tocó). Una corrida anterior sobre una BD ensuciada por una corrida mía INTERRUMPIDA dio además rojos en
+  `iva-price-convention` y `buylist-cards-order` (filas sobrantes); sobre la BD limpia, verdes.
+- `bsd-b2-inbound.e2e-spec.ts`: 27/27 en 3 corridas seguidas sobre el árbol final; las dos carreras (BSD-B4 10 rondas × 5,
+  BSD-B9 10 rondas × 3) **30/30 rondas verdes** cada una. Sobre `src` de la base (parche de B-2 revertido en la copia): 26/26
+  ROJAS (las pruebas se escribieron para fallar).
+- Mutaciones (sobre la copia, restauradas tras cada una; deterministas, N=1 cada una): 5/5 unitarias rojas (clave de destino,
+  `status:'picking'` en el job ⇒ B25 (c), C-6 sin `carrierLabel`, recomendada de salida, spend-watch sin `OUTBOUND_ONLY` ⇒ B23)
+  y 14/14 de integración rojas, cada una en la aserción que le toca: `to` desde el snapshot (B5), recomendada de salida (B5),
+  clave de destino (B6), saltar `assertGate` (B7), sin `writeSellRequestGuide` (B8), AV-4 en vez de AV-7 (B8), C-6 (B8),
+  plazo en `persistProcessing` (B10), `status:'picking'` en el job (B10), AG-10 (B12), AG-1 (B12), sin comprobación de dueño
+  (B22), sin el 404 de `PATCH status` (B24), sin limpiar `shipDeadlineAt` (B26), costura de la anonimización (B27). Carreras:
+  ver «Lo que el contrato no aguantó».
+
+### 78.B4 · B-4 (💰) — la guía y la tarifa del buylist en `pnl()` y su CSV (errata BSD-1.2 + BSD-1.3 punto 6) (2026-10-06)
+Norma: `API_CONTRACT §BSD.16` y `§BSD.17` punto 6; porqué en `ARCHITECTURE §4.BSD (l)`. ⛔ Sin schema, migración ni endpoint.
+
+| Pieza | Dónde |
+|---|---|
+| Las reglas por fila (puras): `retainedShippingFeeCents`, `skydropxInboundGuideCostCents`, `isSkydropxInbound`, `guideCostOfRequest` | `src/modules/admin/pnl-buylist.ts` |
+| Las tres lecturas y las sumas: `pnlBuylistGuides(period)`; `pnl()` suma retenido y resta guías en `profitCents`; CSV | `src/modules/admin/admin.service.ts` |
+| Censo BSD-B23: clase nueva **`inbound_only`** (debe llevar `INBOUND_ONLY`; `INBOUND_ONLY` solo en esa clase); entrada `admin.service.ts pnlBuylistGuides#findMany#1` | `test/bsd.reader-census.spec.ts`, `test/helpers/bsd-census.ts` (`ReaderSite.inboundFiltered`) |
+
+**La fórmula implementada** (cada renglón con su fecha; los cuatro van AL FINAL del objeto y del CSV, en este orden):
+- `buylistShippingFeeRetainedCents` (**suma**) = Σ sobre `status='pagada'` por `paidAt` de `brutoConsumado(sr) − payoutNetCents`.
+- `buylistGuideCostCents` (**resta**) = (a) Σ sobre `ShipmentRequest` `INBOUND_ONLY ∧ labelSource='skydropx'` por
+  `labelPurchasedAt` de `shippingCostCents − shippingCostIvaCents` (0 si `providerCancelConfirmedAt` no es nulo) + (b) Σ sobre
+  `SellRequest` con `guideActualCostCents ≠ null` por `guideSentAt`, cuya fila de entrada NO es de Skydropx, de `guideActualCostCents`.
+- `buylistGuideMarginCents` (informativo) = Σ sobre las pagadas del periodo de (retenido − costo de **su** guía, por (a) o (b)).
+- `buylistGuideCostMissingCount` (informativo) = pagadas del periodo con guía manual entregada (`guideSentAt`) y sin costo.
+- `profitCents` = lo de antes `+ buylistShippingFeeRetainedCents − buylistGuideCostCents`. `shippingCostCents` (venta) no cambia.
+
+**Lecturas que el contrato deja abiertas (para el arquitecto; implementado como se dice aquí):**
+1. **Retenido con `approvedTotalCents` nulo.** `approvedTotalCents − payoutNetCents` no está definido si el aprobado es nulo, y
+   `paySpei` paga con la cascada `brutoConsumado` (aprobado ?? ofertado ?? cotizado). Uso esa misma cascada: con el aprobado
+   poblado es literalmente la fórmula del contrato. `payoutNetCents = null` (fila pre-M-46, no se le descontó tarifa) ⇒ 0.
+2. **«Con guía manual»** del contador = `guideSentAt ≠ null` y sin fila de entrada de Skydropx. Una pagada sin guía (p. ej.
+   pre-M-46) no tiene costo que capturar y no se cuenta.
+3. **(b) sin `guideSentAt`.** `adminConfirmShipment` acepta `guideActualCostCents` aunque no haya guía (`guideMissing` en su
+   bitácora). Ese costo no tiene fecha de (b): entra en el P&L sin periodo y en ninguno con periodo. NO MEDIDO si pasa en
+   producción. Consulta de solo lectura: `SELECT count(*) FROM "SellRequest" WHERE "guideActualCostCents" IS NOT NULL AND
+   "guideSentAt" IS NULL;`.
+4. **Solicitud con fila de entrada de Skydropx Y `guideActualCostCents`**: cuenta solo por (a); (b) no la suma (una guía, una
+   fuente). En el margen, una guía de Skydropx con cancelación confirmada cuesta 0 (lo no devuelto está en «ajustes»).
+
+**Dobles de prueba.** Los dobles legacy del P&L responden `shipmentRequest.findMany` igual a cualquier `where`, así que la
+lectura de entrada habría recibido los envíos de venta. `test/helpers/pnl-buylist-doubles.ts` (`withPnlBuylistDoubles`) le da
+al servicio un proxy: la lectura `INBOUND_ONLY` responde `[]` y `sellRequest.findMany` responde `[]` si falta. El `jest.fn` del
+test queda intacto (sus `mock.calls`, `toHaveBeenCalledTimes` y `mockResolvedValue` posteriores ven solo las lecturas de venta).
+Lo adoptan 7 suites: `admin.pnl-shipping`, `admin.pnl-iva-neutral`, `admin.period`, `iva-10-tablero`, `iva-11-costo-envio`,
+`sdx-d2f.units` y `buylist.m5v-items-not-decided`. Las dos primeras ganan además los cuatro campos en su forma y su CSV (valen 0).
+
+**Mediciones** (copia del árbol ENTERO = `ff7e839f` + solo los ficheros de B-4, scratchpad `be-bsd-b4`; cliente de Prisma
+generado en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b4`):
+- **Primero en rojo:** `test/bsd.b4-pnl.spec.ts` sobre `ff7e839f` sin el código ⇒ la suite no compila (los cuatro campos no
+  existen). BSD-B35 es «por ausencia»: verde antes y después, y su mutación la pone roja.
+- tsc exit 0 · `npm run lint` exit 0 · **unitaria completa 431/431 suites, 7799/7799 pruebas**.
+- **Integración completa:** 105/109 suites, 2081/2114. Rojas: `iva-price-convention` (la cabecera del CSV, que esta errata
+  cambia; corregida y repetida: verde junto con `bsd-b4-pnl`, 44/44), `auth-password-attempts-redis` y
+  `reset-admin-password-lock` (`MISCONF` del Redis compartido, conocido) e `infra-smoke` (PUT de S3 404: no hay almacén para la
+  copia). Las tres últimas no tocan el P&L.
+- **Mutaciones** (deterministas, N=1 cada una, sobre una segunda copia): 10/10 unitarias en rojo — M1 sin la guía en
+  `profitCents` ⇒ B32; M2 contar las canceladas con confirmación ⇒ B32+B34; M3 retenido = `offerShippingFeeCents` ⇒ B33;
+  M4 margen = retenido total − costo total ⇒ B34 (y B36); M5 restar la tarifa del `acquisitionCostCents` al convertir ⇒ B35;
+  M6 orden del CSV ⇒ B36; M7 sin `INBOUND_ONLY` ⇒ B23 (y B32/B34/B36); M8 (b) sin excluir Skydropx ⇒ B32; M9 contador sin
+  exigir guía ⇒ B34; M10 los cuatro antes de `profitCents` ⇒ B36. 5/5 de integración en rojo (M2, M3, M4, M6, M8).
+
+### 78.B3 · B-3 (💰) — barrido (reglas 8, 9, 10 y 2), `decline-accepted`, BSD-M1, AG-23, rechazar en `aceptada`, la guía de entrada en M5 (rev BSD-1 + BSD-1.1 C-2/C-3/C-7/C-8 + BSD-1.3 puntos 1 y 4) (2026-10-06)
+
+**Qué hay y dónde.**
+| Pieza | Fichero |
+|---|---|
+| Reloj del cierre sin guía: ancla `coalesce(inboundGuideClockStartedAt, acceptedAt)`, días NATURALES en ms, «sin guía» en JS (`guideClockRunning`, DTO) y en Prisma (`guideClockRunningWhere`, barrido y tablero), `guideDueAt/Soon/InDays` | `src/modules/buylist/guide-clock.ts` |
+| Reglas 8 (`not_continued`, `declinedBy=null`, BSD-M1), 9 (AG-23, `dedupKey ag23:<id>:<ancla ISO>`) y 10 (tarea tras 1 h sin confirmar); regla 2 llama a `closeInboundShipment` y abre la tarea solo con `needsGuideCancelTask`; retorno + `guideWarned/notContinued/cancelTasksOpened`; orden 1,2,recordatorios,5,6,7,9,8,10 | `src/jobs/buylist-sweep.service.ts` |
+| `POST /admin/buylist/:id/decline-accepted` (`DECLINE_ACCEPTED_LEGAL` = la guarda Y `declineAcceptedAllowed`), bitácora `buylist.request.decline_accepted` con el motivo (⛔ correo) | `buylist.service.ts` `adminDeclineAccepted`, `admin-buylist.controller.ts` |
+| BSD-M1 `sellRequestNotContinuedTemplate` | `buylist-mail.templates.ts` |
+| AG-23: título/frase (fecha de cierre, ⛔ «N días»), correo con filas, remedio y CTA a `/<locale>/admin/m5` sin `?`; apagable (`SPEND_ALERT_CODES` + AG-23) | `spend-alerts/spend-alert-text.ts`, `spend-alert.mail.ts`, `settings/shipping-dials.ts` |
+| Diales `buylist_guide_close_calendar_days` (7, 1..60) y `buylist_guide_warn_days_before_close` (2, 0..30) | `settings.constants.ts` |
+| `AdminBuylistDTO`: `inboundShipment` (+`labelAlert` por `labelAlertOf`), `guideDueAt`, `guideDueSoon`, `guideDueInDays`, `declineAcceptedAllowed`; `?inboundLabelAlert=true`; `isRejectable=false` en `aceptada` | `buylist.service.ts`, `inbound-view.ts` |
+| Contadores `workQueue.buylistGuideDueSoon` / `buylistInboundLabelAlert` (hermanos de `workQueue.buylist`, dos roles) | `inbound-view.ts` `buylistWorkQueueOf`; cableado en `admin/dashboard-shipping.service.ts` `buylistQueue` (los diales; `AdminService` no los lee, IVA-11) y `admin.service.ts` `dashboard` |
+| BSD-1.3 punto 1: `422 REQUEST_NOT_RECEIVED {sellRequestId,status:'aceptada',remedy:'decline_accepted'}` en la decisión `reject` y en `POST …/reject`; `NOT: { status: 'aceptada' }` en el `WHERE` de `autoRejectIfAllRejectedTx` y `rejectRequest` (clase `excludes_aceptada` de BSD-B25 (b), leída del AST: `whereText` en el helper); `PENDIENTE` vacío | `buylist.service.ts`, `test/bsd.structural.spec.ts` |
+| §BSD.4.5: captura a mano frente a la guía de entrada (409 `SHIPMENT_ALREADY_LABELED`/`LABEL_IN_PROGRESS`); `confirm-shipment` (`400 provider_cost`, `closeInboundShipment('shipped')`); `PATCH …/pickup-address` vendedor y admin (candados I-BSD-4, 409s, re-sincronía de la fila en `solicitado`: versión +1 y `ShipmentAddressRevision`); la copia del domicilio gana `recipientName`/`references` | `buylist.service.ts`, `inbound-address-sync.ts` |
+| Tarea «cancelar guía no usada» inmediata si Skydropx no confirma la cancelación automática | `inbound-cancel-task.ts` |
+
+**Decisiones que otro rol tiene que conocer.**
+- ⚠️ `closeWithGuideTask` (reglas 1, 2, 8) corre ahora en UNA tx con `SellRequest FOR UPDATE` y luego `ShipmentRequest FOR UPDATE`. **Medido (BSD-B18, barrera de candado de fila, 10 rondas):** sin esos dos candados, el `updateMany` espera el candado de la solicitud y Postgres re-evalúa el `WHERE` con la instantánea VIEJA de la subconsulta de la fila de entrada ⇒ cierra con el reclamo ya commiteado: **10/10 rondas en rojo**; con ellos, 10/10 en verde. Cierra también el «residual read-then-write» que documentaba el método.
+- La tarea de §BSD.4.8 cuando `port.cancel` no dice `ok` la abre el LLAMADOR (barrido y `decline-accepted`) tras `afterAutoCloseVia`, con la misma guarda `IS NULL` que la del servicio de cancelación: si B-2 la escribe también, la segunda no casa. Si el arquitecto prefiere un solo escritor en `shipments/`, se quita de aquí.
+- El sello de AV-7 (`guideNoticeSentAt`) ahora exige `status='aceptada' ∧ closedAt IS NULL`: una guía comprada justo antes de «Declinar»/regla 8 no avisa al vendedor si el cierre ganó el post-commit. ⚠️ `claimAndNotifySellRequest` es privado de `BuylistService`: el AV-7 de la guía de entrada (B-2) necesita una puerta pública o pasar por aquí.
+- La lista de M5 no recibe actor (BL-17) ⇒ `inboundShipment.labelAlert.canRelease` es `false` en la LISTA; el detalle lo calcula para el actor. `tUnknownMs` = `T_UNKNOWN_MS` (el valor de producción de `LABEL_VERIFY_CONFIG`); las respuestas de mutación no consultan huérfanas (`label_orphan`).
+- `rejectItemWrite` excluye también `aceptada` en su `WHERE` (más allá de las dos escrituras de BSD-1.3): una aceptación entre el aviso y la escritura no deja una carta rechazada con correo sobre cartas no recibidas.
+- Sin `SettingsService` (unitarios a mano) las reglas 8/9 no corren; un fallo de las reglas 8/9/10 se loggea y no tumba la pasada.
+- Tras el commit de B-2 (`8fcd0bc2`): la copia del domicilio de la fila de entrada es UNA — `inboundAddressSnapshotOf`
+  (`shipments/label-inbound.ts`: todas las claves de §BSD.4.1, faltante ⇒ `null`; `recipientName`/`references` ausentes si
+  vacías); la re-sincronía de `PATCH …/pickup-address` la usa. `labelPdfAvailable` (C-1) en lista y detalle del cliente con
+  `labelPdfAvailableOf` + `INBOUND_LABEL_SELECT` (en el mismo `findMany`). `deleteUser` (borrado suave) llama a
+  `scrubInboundShipmentPii` (BSD-B27).
+- `PATCH /admin/buylist/:id/pickup-address`: la `ShipmentAddressRevision` de la fila de entrada se firma con el VENDEDOR (la
+  dirección es de su libreta); quién la eligió queda en la bitácora. ⛔ La firma del método no gana parámetros (candado SEC-A1).
+- `PATCH …/pickup-address`: si solo cambia el teléfono (no corregible, P-ADR-1), el snapshot y la versión se mueven y la revisión no se escribe (el CHECK exige ≥ 1 clave corregible).
+
+**Lo que NO está y por qué (para el orquestador).**
+- `inboundLabelOptions` (§BSD.5) va SOLO en el detalle (`GET /admin/buylist/:id`): es por actor y la lista no recibe actor
+  (BL-17). Se resuelve `ShipmentLabelService.labelOptionsFor` por `ModuleRef` (`strict: false`); sin el servicio ⇒ `null`.
+- Q: BSD-UX.4a pide `not_continued` «sin montos (como `no_offer`)» en el portal; el contrato no lo norma ⇒ el DTO de cliente sigue mandando `quotedTotalCents`. Decisión del arquitecto.
+- ⚠️ Contrato: BSD-B16 dice «nunca BSD-M1 y AV-7», pero §BSD.6/BSD-B14 permiten declinar DESPUÉS de una guía ya comprada y avisada (se cancela `auto_close` y sale BSD-M1). La prueba afirma lo que sí se puede garantizar: nunca los dos con la guía VIVA.
+- «Comprar» en BSD-B16/B18/B31 es un sustituto fiel al contrato del motor de B-2 (reclamo I-BSD-4 + CAS `solicitado`, `writeSellRequestGuide`, `casZero` rama (3)); repetirlas contra `POST /admin/shipments/:id/label` cuando B-2 entregue.
+
+**Mediciones de B-3** (copia del árbol entero = `8fcd0bc2` + lo de B-3, scratchpad `be-bsd-b3`, BD propia `tcg_be_bsd_b3`, doble
+del proveedor, `SKYDROPX_ALLOW_SPEND` vacía, cliente Prisma generado en la copia):
+- tsc 0 · lint 0 · **unitaria completa 435/435 suites, 7896/7896 pruebas**.
+- Integración `bsd-b3.e2e-spec.ts` 30/30 (y `buylist-cycle` 72/72). Integración completa sobre `5af161a7`+B-3 (antes del
+  commit de B-2): 106/110 suites; rojas: `auth-password-attempts-redis` y `reset-admin-password-lock` (Redis `MISCONF`
+  conocido), `infra-smoke` (sin almacén S3 en esta máquina, `E2E_STRICT_INFRA=false`) y `buylist-cycle` (tope mensual por
+  el residual R.3 cerrado en BSD-1.3 ⇒ la prueba ahora DECLINA la solicitud; 72/72 después). Lo que B-3 dejaba vivo en la base
+  contaminaba a `sdx-*` (reclamo de entrada = «otra compra en vuelo» de la cuenta) y a `awaitingGuide`: la suite neutraliza
+  sus restos en `afterAll`; `sdx-d2d-departure` filtra `kind:'outbound'` al pasar guías a `enviado`.
+- Mutaciones (copia `mut/`, deterministas N=1 salvo dicho): unitarias 9/9 en rojo (BSD-M1 con paquetería; sin exclusión del
+  reclamo en Prisma y en JS; `floor` en C-8; sin `NOT aceptada` en autoReject ⇒ B25b; sin `closeInboundShipment('shipped')`
+  ⇒ B25b; sin `INBOUND_ONLY` ⇒ B23; CTA de AG-23 con `?`; AG-23 no apagable). Integración 16/16 en rojo: B15 (sin
+  `sellerShippedDeclaredAt`), B16 (decline sin `closeInboundShipment`: 7 de 10 rondas malas), B17 (días hábiles; sin
+  exclusión del reclamo), **B18 (regla 8 sin candados: 10/10 rondas cerradas con reclamo; original 10/10 verdes)**, B20
+  (llave por día), B29 ×2, B30, B37, B38, B39, B14 ×2, §BSD.4.5. **B31** (orden de candados invertido en `decline-accepted`):
+  con 10 rondas por corrida el interbloqueo salió en 5 de 30 rondas y la prueba lo cazó en 2 de 3 corridas ⇒ la prueba pasó a
+  30 rondas; el original, 0 `40P01` en todas las corridas medidas.
+
+### 78.B5 · Errata BSD-1.4 (💰) — los puntos de backend de `API_CONTRACT §BSD.18` (2026-10-06, rama `claude/buylist-skydropx`, sobre `01c1e5d9`; código en `d04cb905`, pruebas ajustadas en `220e5df3`)
+
+Norma: `API_CONTRACT §BSD.18` (15 puntos) y su porqué en `ARCHITECTURE §4.BSD (n)`. ⛔ Sin schema, migración, enum, código de
+error ni endpoint nuevo. Un solo agente backend hizo todos los puntos, en serie.
+
+| Punto | Qué cambió | Dónde | Prueba (primero en rojo) |
+|---|---|---|---|
+| 1 BSD-B4/B45 | — (código igual). B4: mutación por pares; B45 nueva | `test/bsd-b5.units.spec.ts` | B45 verde sobre el código (el manejo existe); su mutación, roja |
+| 2 BSD-B9 | — (solo texto de la prueba) | `bsd-b2-inbound.e2e-spec.ts` | ver «Lo que el contrato no aguantó» |
+| 3 un escritor de la tarea | comentario de `inbound-close.ts` (y cabecera de `inbound-cancel-task.ts`); candado «`shipments/` no menciona `guideCancellationPendingAt`» | `test/bsd-b2.structural.spec.ts` | — (hoy 0 menciones, medido) |
+| 4 AV-7 | `guideNoticeSealWhere(id, trackingNumber)` en `buylist/sell-request-guide.ts`; `claimAndNotifySellRequest(id, {field, trackingNumber} \| null, build)`; `notifyLabeled` lo usa con `sr.shipmentTrackingNumber` | `sell-request-guide.ts`, `buylist.service.ts`, `inbound-guide-notice.service.ts` | **B40 (b) ROJA sobre `01c1e5d9`**: el post-commit de A tardío mandaba 1 correo con **A** después de corregir a B (el hueco era real; el arquitecto lo tenía NO MEDIDO). B40 (a) estructural (AST), B40 (c) |
+| 5 BSD-B11/B46 | — (código igual). B11 retitulada; B46 nueva | `bsd-b2-inbound`, `bsd-b5.e2e-spec.ts` | B46 verde (el código ya era correcto); su mutación, roja |
+| 6 `@Throttle` | `@Throttle({default:{ttl:60_000,limit:10}})` en `GET /buylist/requests/:id/label.pdf` | `inbound-shipment.controller.ts` | B44 ROJA sobre el código previo |
+| 7 BSD-B16 | texto: «nunca BSD-M1 y AV-7 con la guía VIVA» | `bsd-b3`, `bsd-b5` | ver punto 9 |
+| 8 `not_continued` | `MONEY_REDACTED_EXPIRY = {no_offer, not_continued}`; `isMoneyRedactedClosure` (antes `isNoOfferClosure`) | `buylist.service.ts` | B41 ROJA sobre el código previo (34 claves `*Cents` no nulas) |
+| 10 firma con actor | `adminUpdatePickupAddress(id, addressId, actorUserId)`; el controlador pasa `user.id` | `buylist.service.ts`, `admin-buylist.controller.ts` | B42 (la prueba de admin de `bsd-b3` §BSD.4.5 pasa a esperar `operator.id`); candado SEC-A1 reescrito |
+| 12 (b) del P&L | `OR: [{guideSentAt: P}, {guideSentAt: null, shipmentConfirmedAt: P}]` | `admin.service.ts` `pnlBuylistGuides` | B43 unitaria ROJA sobre el código previo (2 de 3); B43 de integración |
+| 14 re-emisión | — (sin defecto) | `bsd-b5.e2e-spec.ts` «Punto 14» | medición, abajo |
+
+**Decisiones que otro rol tiene que conocer.**
+- ⚠️ **Frontend (punto 8): en `not_continued` la redacción alcanza MÁS que en `no_offer`.** En `no_offer` las demás cifras ya eran
+  nulas por construcción (nunca hubo oferta); en `not_continued` sí la hubo, y BSD-B41 exige que **ninguna** clave `*Cents` del DTO
+  de cliente sea distinta de `null`. Implementado: en las líneas (`items[]`, lista y detalle) `quotedPriceCents`,
+  `approvedPriceCents`, `offeredPriceCents` y `marketMxnCents` viajan `null` explícito; y en el detalle **`offer` viaja `null`**
+  (sus cifras son `number` en `SellOfferPublicDTO` y su `terms.rule` lleva los montos ya escritos en prosa, así que no se podía
+  redactar dentro). Consecuencia en el portal: con `not_continued` el stepper ya no tiene `offer.sentAt`/`offer.acceptedAt`, y
+  `ClosingMessage` no pinta «aceptaste el …». La regla es UNA para los dos cierres: en `no_offer` cambia solo que
+  `marketMxnCents`/`approvedPriceCents` de las líneas pasan a `null` explícito. Unitaria completa sin rojos por esto.
+- **Punto 10, el candado SEC-A1 reescrito** (`test/buylist.pickup-address.spec.ts`, el que era `length === 2`). La intención —«el
+  admin ELIGE una fila de la libreta; ningún domicilio entra al método»— se conserva con tres aserciones en vez de un proxy:
+  aridad **3**; los tres parámetros son `string` en el FUENTE (AST de TypeScript); el cuerpo pasa por el MISMO `ValidationPipe`
+  de `main.ts` (`whitelist`) y solo sobrevive `addressId`. Mutaciones (N=1 cada una): un 4.º parámetro objeto ⇒ rojo por
+  aridad (lo que mordía el viejo); el actor como `string | {line1}` con aridad 3 ⇒ rojo por el AST (el viejo `=== 2` tampoco lo
+  veía); `line1` en `AdminPickupAddressDto` ⇒ rojo por el pipe. Y BSD-B42 (integración) con «firmar con `before.userId`» ⇒ rojo.
+- **Punto 4:** `claimAndNotifySellRequest` ya no sella si la captura no trae número (inalcanzable: el DTO lo exige). El sello de
+  la entrada compara ahora con `sr.shipmentTrackingNumber` (el número que el correo ANUNCIA); antes, `row.trackingNumber` —
+  iguales por la comprobación de la línea anterior.
+- **B40 (c), segunda variante:** ningún cierre de hoy deja `status='aceptada'` con `closedAt` sellado (todos mueven `status`),
+  así que `closedAt` del predicado es redundante con `status` para todo estado alcanzable. Su canario usa ese estado a mano
+  (la única forma de que el predicado sea el último muro); con un cierre REAL (`decline-accepted`) la prueba también está y
+  pasa, pero ahí frenan antes `labelPdfAvailableOf` y `status`.
+- **Punto 14 (medido, no inferido):** `applyReissue` (`shipments/label-cancel.service.ts:207-226`) deja la fila de entrada con
+  `labelSource=null`, `labelPurchasedAt=null`, `shippingCostCents=0` y `status='solicitado'`. Medido por HTTP en «Punto 14»: guía
+  de Skydropx ⇒ (a) +neto; re-emitir ⇒ (a) vuelve a +0 (lo no devuelto va a «ajustes»); captura manual + `confirm-shipment` con
+  9 000 ⇒ (b) +9 000; pagar ⇒ retenido +18 000 y margen +9 000; contador de faltantes +0. ⇒ «una guía, una fuente» se cumple;
+  **sin defecto**, nada que avisar al arquitecto.
+
+**Lo que el contrato no aguantó (medido; para el arquitecto).**
+1. **BSD-B9 — la mutación nueva tampoco muerde.** «Quitar a la vez el candado consultivo y `labelProcessingSince: null` del
+   CAS» ⇒ **0/30 rondas malas** (3 corridas × 10, ruta real). En la fila de ENTRADA hay un tercer muro que §BSD.18 punto 2 no
+   lista: `claim` toma I-BSD-4 (`lockSubjectRows`) y relee la fila; con `labelProcessingSince` puesto devuelve `in_progress`
+   (`label-purchase.service.ts`, la línea antes de `assertInboundOpenForLabel`). Quitando los TRES ⇒ 10/10 rondas rojas, pero
+   por `5xx` (2 por ronda): seguía habiendo **1 `port.purchase` y 1 guía pagada** por ronda (hay al menos un cuarto muro
+   aguas abajo, no lo aislé). Ninguna de las dos del contrato muerde sola (si las dos juntas no muerden, sola tampoco: no lo
+   repetí por separado). Propuesta: la mutación de B9 son los tres; decisión del arquitecto.
+2. **BSD-B16, segunda mutación** («quitar `assertInboundOpenForLabel` de la relectura de `claim`») ⇒ **NO muerde: 0/36 rondas
+   malas** (3 corridas × 12). El cierre (`closeInboundShipment`) ya pasó la fila a `cancelado` y el CAS de `claim` exige
+   `status='solicitado'`: cero compra. Lo único que cambia, 9/9 rondas del modo «Declinar entre `precheck` y `claim`», es el
+   código: `409 GUIDE_NOT_ALLOWED` ⇒ `409 CONFLICT` (CAS 0). BSD-B16 se queda con la primera mutación, como dice la norma. Si
+   el arquitecto quiere un canario para la guarda, es afirmar ese código en el modo 2 (§BSD.3: «el error de la guarda»).
+3. **Punto 8: «con los mismos campos» y BSD-B41 («ninguna `*Cents` distinta de `null`, recursivo») no caben juntos** en
+   `not_continued`: con solo `quotedTotalCents`/`quotedPriceCents` la prueba queda roja (`offer.*`, `offeredPriceCents`…).
+   Implementé lo que exige la prueba (ver «Decisiones», primera viñeta, `offer: null`). Si el arquitecto prefiere `offer` con
+   cifras `null`, cambia el tipo de `SellOfferPublicDTO`.
+4. **BSD-B43, «la suma de enero a diciembre es igual a la del P&L sin periodo»:** en la BD compartida el P&L sin periodo
+   incluye filas de otras suites. En integración se afirma por DIFERENCIA (Σ de los 12 meses de un año propio = Δ del P&L sin
+   periodo); en la unitaria, exacta.
+5. **Punto 9 — carreras contra la ruta real.** La barrera de B18 se reproduce con la ruta: el doble del proveedor deja un gancho
+   en la lectura del saldo (entre `precheck` y `claim`); ahí la prueba toma la FILA de entrada y el `claim` se queda esperando
+   con la SOLICITUD tomada — el instante exacto que forzaba el sustituto de B-3.
+
+**Mediciones** (copias del árbol ENTERO por `git archive` en el scratchpad `be-bsd-b5`; cliente de Prisma generado en la copia, ⛔
+no en el `node_modules` compartido — comprobado: 0 apariciones de `buylist_inbound` en el compartido antes y después; BD propia
+`tcg_be_bsd_b5`; doble del proveedor; `SKYDROPX_ALLOW_SPEND` vacía):
+- **Carreras, ruta real, originales:** BSD-B16 **72/72** rondas sin defecto (6 corridas × 12); BSD-B18 **60/60** (6 × 10);
+  BSD-B31 **180/180** sin `40P01` ni cerrada con guía viva (6 × 30). Tres corridas con desfases de 0–25 ms y tres con
+  «Declinar»/barrido a 0–150 ms (la compra por la ruta tarda decenas de ms: con 25 ms «Declinar» ganaba siempre).
+- **Carreras, mutadas:** B16 sin `closeInboundShipment` en `decline-accepted` ⇒ **36/36** rondas malas (3 × 12; 1 de ellas
+  con la guía VIVA); B16 sin la guarda en `claim` ⇒ **0/36** (no muerde); B18 regla 8 sin los candados de `closeWithGuideTask`
+  ⇒ **30/30** (3 × 10); B31 orden invertido en `decline-accepted` ⇒ prueba roja **3/3** corridas, **5/90** rondas con `40P01`
+  (llega como `5xx BUSY_TRY_AGAIN`; una ronda además cerrada con reclamo vivo); B4 sin candado ∧ sin `P2002` ⇒ **10/10** rondas
+  rojas; solo sin candado ⇒ 0/10; solo sin `P2002` ⇒ 0/10 (repite lo de B-2).
+- **Deterministas (N=1 cada una, sobre copia):** B44 (sin `@Throttle`), B45 (sin manejo de `P2002`), B40 (a) ×2 (sello en
+  línea), B40 (b) (sin el número), B40 (c) (sin `closedAt`), B41 (sin `not_continued`), B42 (firma con el vendedor), B43
+  unitaria e integración (sin la rama `guideSentAt: null`), B46 (restar la guía en `paySpei`), punto 3 (escribir la columna en
+  `afterAutoClose`), SEC-A1 ×3 ⇒ **todas rojas**.
+- **Sobre `220e5df3` (copia del árbol entero por `git archive`, BD `tcg_be_bsd_b5` recién recreada):** tsc exit 0;
+  `eslint src test scripts` exit 0; **unitaria completa 436/436 suites, 7906/7906 pruebas**; **integración completa 112/112
+  suites, 2182/2182 pruebas** (con `E2E_STRICT_INFRA=false`: corrida de construcción, ⛔ no de gate). Sin rojos de Redis `MISCONF`
+  en esta corrida (devops lo arregló en `1377a688`).
+
+### 78.B6 · Errata BSD-1.5 (💰, solo pruebas) — B9 y B16 de `API_CONTRACT §BSD.19` (2026-10-06, rama `claude/buylist-skydropx`, sobre `2ae42e77`)
+
+Norma: `API_CONTRACT §BSD.19` puntos 1 y 2; porqué en `ARCHITECTURE §4.BSD (o)`. ⛔ Sin cambio en `src/`.
+
+| Prueba | Qué cambió | Mutación (medida) |
+|---|---|---|
+| BSD-B9 (`bsd-b2-inbound.e2e-spec.ts`) | afirma PRIMERO que toda respuesta de los 3 clics es `200 labeled`, `200 in_progress`, `409 CONFLICT {purchase_in_flight}` o `409 SHIPMENT_ALREADY_LABELED` (⛔ `5xx`, ⛔ nada más); luego, como antes, 1 `port.purchase` / 1 guía pagada / `guia` por ronda (el conteo de `5xx` sale del `tally`: ya lo cubre el conjunto) | quitar a la vez `:443` (candado consultivo), `:474` (relectura `in_progress`) y `:493` (`labelProcessingSince: null` del CAS) ⇒ **30/30 rondas rojas** (3 corridas × 10), **3/3 corridas** rojas en `expect(fuera)` (`:459`), con 2 `500 INTERNAL` por ronda; el `tally` de dinero sale `1/1/guia` en las 30 ⇒ el rojo es la aserción nueva, no un efecto lateral |
+| BSD-B16 (`bsd-b5.e2e-spec.ts`, ruta real) | en el modo 2 («Declinar entre `precheck` y `claim`») la compra debe dar `409` con `error.code = 'GUIDE_NOT_ALLOWED'`; ⛔ sin fijar `details.reason` | quitar `assertInboundOpenForLabel` de la relectura de `claim` (`:475`) ⇒ **12/12 rondas del modo 2 rojas** (4 corridas × 3), todas `409 CONFLICT`; ningún otro defecto en esas corridas |
+
+**El muro de abajo de B9 (medido, no por lectura).** Con los tres muros quitados, los **60/60** `500` de las tres corridas
+mutadas vienen del candidato (i): `P2002` «Unique constraint failed on the fields: (`shipmentRequestId`,`since`)» en
+`tx.shipmentLabelAttempt.create()` (`label-purchase.service.ts:523`, sin manejo ⇒ `AllExceptionsFilter` ⇒ `500`). Los dos
+reclamos que pasan el CAS comparten `since` porque la prueba usa el reloj manual (un `clock.advance(1)` por ronda). Cuarta
+mutación de diagnóstico (además de los tres muros, `since` distinto por reclamo): **20/20** respuestas fuera del conjunto en
+1 corrida × 10 rondas, todas `409 CONFLICT {reason:'claim_released'}`, cero `5xx`, y el dinero sigue `1/1/guia` en las 10 ⇒
+detrás de (i) muerde (ii), `markSent` (a) (`:606-610`). (iii) no apareció. ⇒ **Ningún 500 alcanzable sin mutación** en lo
+medido: sobre el código original B9 dio 0 respuestas fuera del conjunto en 30 rondas (3 corridas × 10, incluida la de la
+suite `bsd-*` entera). El `P2002` de `:523` solo se alcanza si los tres muros caen a la vez.
+
+**Medición pedida por el orquestador — B40 (b) depende de la integración.** Mutación: quitar
+`shipmentTrackingNumber: trackingNumber` de `guideNoticeSealWhere` (`buylist/sell-request-guide.ts:39`). En
+`bsd-b5.e2e-spec.ts -t BSD-B40`: **3/3 corridas** rojas, y la ÚNICA roja es «(b) manual: capturar A y corregir a B…» (el
+post-commit tardío de A manda 1 correo; esperado 0, `:232`). «(c) Declinar», «(c) `closedAt`» y «CONTROL» siguen verdes.
+Sin la mutación, las 4 verdes. Confirma lo que el orquestador midió en la unitaria (18/18 verdes con la mutación, medición
+suya): el candado del número vive en esta prueba de integración.
+
+**Mediciones** (copia del árbol ENTERO por `git archive 2ae42e77` + las dos pruebas, scratchpad `be-bsd-b6`; cliente de Prisma
+generado en la copia, ⛔ no en el compartido — 0 apariciones de `buylist_inbound` en el compartido después; BD propia
+`tcg_be_bsd_b6`; doble del proveedor; `SKYDROPX_ALLOW_SPEND` sin poner; integración con `jest --runInBand` directo, pool 5/10,
+`E2E_STRICT_INFRA=false`, corrida de construcción, ⛔ no de gate): B16 original **12/12** rondas del modo 2 con
+`409 GUIDE_NOT_ALLOWED` (4 corridas × 3); tsc exit 0; eslint de las dos pruebas exit 0; **unitaria completa 436/436 suites,
+7906/7906 pruebas**; **integración `bsd-*` 5/5 suites, 93/93 pruebas**. El HEAD avanzó a `30a64b5a` durante la medición,
+solo con `frontend/` y `docs/FRONTEND_NOTES.md` (`git diff --stat 2ae42e77 30a64b5a -- backend` vacío).
+
+## 79 · P-DB-LIMPIEZA — guiones de limpieza de la base antes de cobrar en real (2026-10-06, rama `claude/limpieza-db`, sobre `a49a3a6c` = diseño `af571497` + M-72)
+
+Diseño: `docs/specs/LIMPIEZA_DB.md`. Lo corre **el dueño** en Railway; aquí solo hay ficheros y pruebas. Ninguno lleva
+host, usuario ni contraseña.
+
+> ⚠️ **v2 (2026-10-07) — §79.5 manda sobre lo de abajo.** El dueño pidió borrar también el inventario (`HECHOS.md:80`;
+> spec §14). B ya no restaura piezas (adiós P-1, P-2, G-4, G-6, lista 2.4/2.5/2.7, cajón de vuelta, movimientos de
+> cierre); C se llama `…_3_folios.sql` y reinicia también `INV-`; **el paso E (`limpieza:republicar`) se retiró del
+> código**. Las filas B, C y E de la tabla y las decisiones 1, 2 y 5+ de abajo describen v1 (histórico).
+
+**Artefactos** (`backend/prisma/data-repair/`, patrón del precedente `20260912_p79d_*`):
+
+| # | Fichero | Qué hace | Usuario |
+|---|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Solo lectura (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`): conteos por tabla, FK reales de `pg_constraint`, G-0…G-4 en modo informe, INE guardadas (R-6), los tres contadores, `max(providerReference)`, ¿M-72? y desglose por `kind` **solo si la columna existe** (`\gset` + `\if`). | **admin** dentro de `READ ONLY` (ver ⚠️) |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §7 entero en UNA transacción, `LOCK TABLE … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`, termina en `ROLLBACK;` (el dueño la cambia a `COMMIT;`). Tres líneas `\set` que edita el dueño: `respaldo_manual`, `fuera_de_venta` (P-2), `buylist_piezas` (P-1). | admin |
+| C | `20261006_pdblimpieza_3_folio_pedidos.sql` | Aborta si `Order` tiene filas; si no, `setval('order_number_seq', 1, false)` ⇒ siguiente `TCG-000001`. Solo ese contador. | admin |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Solo lectura: §8.3 línea a línea (`OK`/`FALLA`/`INFO`) y una última `VERIFICACION: TODO OK` o `HAY FALLAS (n)`. Compara contra el **rastro** de B (conteos de antes y contadores), así que no hay que copiar números a mano. | **admin** dentro de `READ ONLY` |
+| E | `src/cli/limpieza-republicar.ts` → `node dist/cli/limpieza-republicar.js [--apply]` (`npm run limpieza:republicar`) | **Vía preferida de §4.5** (§79.2). ⚠️ La 1.ª versión de esta fila decía «vía M1: las restauradas están en la cola “Listas para publicar”» y era **falsa** (QA-1): la cola solo enseña las que tienen `missing ≠ []` (`inventory.service.ts` `pendingPublish`, «`missing: []` ⇒ NO entra»), así que las que ya tenían precio y cajón quedaban `in_stock` fuera de venta **y** fuera de la cola, sin aviso. | app |
+
+**Decisiones de implementación que la spec no fijaba (o que tuve que ajustar), para que el arquitecto las ratifique:**
+1. **G-4 y `respaldo_manual` se comprueban AL FINAL, no al principio.** §8.2 paso 4 manda correr B «tal cual» para ver
+   las listas (incluida la de P-1, §10 «el ensayo te las lista»), pero §8.1 dice que con `respaldo_manual` vacío aborta.
+   Si abortara al principio, el ensayo no enseñaría nada. B corre entero, imprime todo y, si falta una decisión, el
+   último bloque lanza «Falta tu decisión; no se escribió nada» con lo que falta. Con P-1 sin contestar, el paso 12 no
+   toca nada. G-1, G-2, G-3, una respuesta de P-1 mal escrita y un folio de exclusión que no está en `T` sí abortan al
+   principio.
+2. **G-4 mira TODAS las piezas con `sourceSellRequestItemId`, no solo las de `T`.** Todas las solicitudes se borran
+   (`HECHOS.md:79` (2)), así que cualquier vínculo quedaría colgando, y §8.3 exige 0 en toda la tabla. La letra de §4.2
+   decía «alguna pieza de T».
+3. **Idempotencia y bitácora.** El rastro solo se escribe si la corrida cambió algo (suma de `lz_cambio` > 0). Si ya
+   existe un rastro, B borra solo la bitácora **anterior** al más reciente; lo posterior es real. Una segunda corrida
+   sobre la base limpia no cambia **nada** (foto idéntica, rastro incluido). D comprueba «exactamente 1 rastro y nada
+   anterior a él» en vez de «AuditLog = 1 fila», porque la app puede escribir bitácora entre B y D.
+4. **G-7 (añadida; ampliada en §79.2 por QA-7):** si ya hay rastro de limpieza y existe **cualquier** fila en las tablas
+   BORRAR (salvo `AuditLog`), B se niega entero. Sin ella, una re-corrida después de salir en vivo borraría pedidos
+   reales — o, tras un job diario, portafolios y avisos reales con un 2.º rastro.
+5. **Cajón de vuelta (§4.3):** «la colocación más antigua» es el `move` más antiguo cuyo destino es un cajón
+   `customer_custody`, no un texto de `note`. Si su origen no es `platform_stock`, queda sin cajón.
+6. **`fuera_de_venta`:** `INV-1, INV-2:damaged` (sin sufijo ⇒ `withdrawn`). Cada folio tiene que estar en `T`; un error
+   tipográfico aborta.
+7. **El rastro lleva además** `folio` junto a cada id restaurado, `secuencias` (lo que D compara) y `bountiesAjustados`.
+   Sin PII.
+8. **Lectores de `InventoryAdjustment` (§4.4, NO MEDIDO en la spec):** `rg "inventoryAdjustment\.(find|count|group|aggregate)"`
+   en `backend/src` = 0. Ningún lector exige la pareja movimiento↔ajuste, así que el movimiento de cierre va sin fila
+   de levantamiento.
+
+**⚠️ Para el dueño (va en los encabezados de A y D) — corregido en §79.2 (C-2/QA-5):** A y D se corren con el
+**administrador**, dentro de `BEGIN TRANSACTION READ ONLY` (Postgres rechaza cualquier escritura) y terminan en
+`ROLLBACK`. `tcg_readonly` solo lee seis tablas (PENDIENTES «MEDICIÓN-PROD 2026-09-12») y A **muere en la primera
+consulta** que toca otra (medido por QA; la frase «el resto del censo sale igual» de la 1.ª versión era falsa). La
+receta `GRANT SELECT ON ALL TABLES … TO tcg_readonly` de la 1.ª versión **se retiró**: ampliaba esa credencial a
+hashes de contraseña, `AuthToken` e INE.
+
+**Pruebas** (`backend/test/integration/pdb-limpieza.e2e-spec.ts` + `helpers/limpieza-db.ts` + `helpers/limpieza-fixture.ts`):
+- Cada caso trabaja en un **esquema propio** de la BD de `DATABASE_URL`, migrado desde cero y sembrado con la base de
+  §9: tres pedidos (bóveda colocado, directo con guía Skydropx `ENV-000003` y todo lo suyo, invitado con token que
+  aparta), un retiro con caso reembolsado y SPEI re-emitido dos veces, un caso de bóveda repuesto, una disputa
+  cerrada, una solicitud pagada con pieza convertida y bounty completado, una aceptada con envío `buylist_inbound` con
+  guía, Cinccino dañada en preparación con reembolso parcial, piezas reales con movimientos de M1 antes y después del
+  corte, un aviso de gasto, un portafolio y bitácora. Los guiones se pasan por **`psql`** tal cual (texto del fichero
+  por stdin), como los corre el dueño. Requiere el binario `psql` en el PATH; si falta, la prueba **falla** (no se
+  salta). Que el runner de CI lo traiga: NO MEDIDO.
+- 25 casos: §9.1 (ensayo con y sin variables: foto de **contenido** de todas las tablas + las tres secuencias,
+  idénticas), §9.2, §4.4, §2.2 (`deriveBountyState` ⇒ `apagada`), §9.3, §9.5, P-1 borrar/conservar, P-2, §9.4 (G-1,
+  G-2, G-3, G-4 ×2, respaldo vacío, folio de exclusión erróneo, G-7), A y D de solo lectura (D sobre la base sin
+  limpiar marca FALLA en cada línea), §9.6 ×2, §9.7 ×2 (N = 3 esquemas cada una) y §9.8 (estático: B no nombra
+  columnas de M-72; dinámico: esquema con M-72 quitada, A/B/C/D corren y D da TODO OK).
+- **Hallazgo de entorno (medido):** 46 `ADD CONSTRAINT` de las migraciones van tras `IF NOT EXISTS (SELECT 1 FROM
+  pg_constraint WHERE conname = …)`, y esa consulta **no mira el esquema**. Un segundo esquema en la misma base se queda
+  sin esas FK y CHECK (medido: `ShipmentQuote/ShipmentCarrierEvent/ShipmentAddressRevision → ShipmentRequest` sin
+  trigger de cascada, y B falló en G-5 con «ShipmentQuote 1≠0»). En producción no pasa (un solo esquema). El arnés migra
+  desde una copia de `prisma/` con esas guardas acotadas a `current_schema()`, y `assertConstraintsComplete` verifica
+  que cada `ADD CONSTRAINT` de las migraciones esté en el esquema. **Las migraciones no se tocaron.**
+
+**Mediciones** (copia del árbol entero `git archive a49a3a6c` + estos ficheros, scratchpad `be-limpieza`; cliente de
+Prisma generado en la copia, 0 apariciones de `buylist_inbound` en el compartido; BD propia `tcg_be_limpieza`):
+- Rojas antes: **25/25** (los cuatro guiones no existían: `ENOENT`). Verdes después: **25/25**. tsc exit 0; eslint de
+  los tres ficheros exit 0; `check-e2e-skip-census.sh` y `check-e2e-harness-gaps.sh` exit 0.
+- Mutaciones (en la copia, nunca en el árbol vivo):
+
+| Mutación | Resultado |
+|---|---|
+| C también reinicia `ENV-` (`setval('shipment_folio_seq',1,false)`) | **3/3** corridas en rojo, y en cada una «sin reiniciar ENV-» dio `1/1` huérfanas en los **3/3** esquemas (9/9). Sin mutar: `0/0` en 3/3 |
+| B hace `setval` de `ENV-` (el ensayo movería un contador) | las 2 pruebas §9.1 en rojo |
+| el rastro se escribe siempre (sin la condición de cambio) | §9.3 en rojo |
+| cajón: la colocación MÁS RECIENTE en vez de la más antigua | §9.2 en rojo |
+| la última línea de B pasa a `COMMIT;` | §9.1 en rojo |
+| D: «0 filas» siempre OK | en la 1.ª versión **sobrevivió** (otras líneas ya daban FALLA); prueba reforzada para exigir FALLA línea por línea ⇒ en rojo |
+| G-1 desactivada | G-1 en rojo |
+| no se quita la reserva | §9.2 en rojo |
+| P-1 «conservar» borra igual | §9.2 en rojo |
+
+### 79.2 · 2.º pase tras los gates sobre `2ba6a316` (QA RECHAZADO, techlead APROBADO CON CONDICIONES) — 2026-10-06
+
+**QA-1 (bloqueante) — E es un comando, no «vía M1».** `limpieza:republicar` (§4.5, vía preferida):
+- Código: `src/cli/limpieza-republicar.ts` (contexto Nest **mínimo**: Config + Prisma + Audit + Settings + Inventory; sin
+  HTTP y **sin `JobsModule`**, así que ni BullMQ ni ningún job corre mientras dura) y la lógica en
+  `src/modules/inventory/limpieza-republicar.ts`. Lee la fila de rastro más reciente (`maintenance.test_data_purge`,
+  `after.piezasRestauradas`) y pasa los ids por `InventoryService.reevaluateForPublication` — el cuerpo único de
+  publicación (guardas + precio + `claimListed`). ⛔ Nunca escribe `listed` por su cuenta.
+- Sin `--apply` = **simulacro**: `InventoryService.previewPublication(ids)`, el MISMO recorrido (`reevaluateMany` →
+  `reevaluateOne(…, dryRun)`) con `derivePublishSalePrice` (no escala a M2) y sin `claimListed`. No hay segunda copia de
+  la regla. `PublishReevaluationResult` gana `detail?` (motivo de `not_publishable`), aditivo.
+- Salida por pieza: **a la venta** (publicada / ya lo estaba) · **en «Listas para publicar»** con lo que le falta
+  (cajón/precio) · **cambió después de la limpieza** (ya no es de plataforma o su estado no es `in_stock`/`listed`: se
+  informa y no se toca) · **SIN RESOLVER** (ni se publica ni la cola la enseña — p. ej. gradeada sin certificado —; el
+  comando sale con **código 2** y dice que se corrige en M1). 0 = bien, 1 = error (p. ej. sin rastro).
+- Cómo lo corre el dueño (escrito en el encabezado de B, paso E — corregido en §79.3 por E1): (a) en el contenedor de
+  la API, `node dist/cli/limpieza-republicar.js` y luego `--apply` (el runtime **no** trae npm, `Dockerfile.backend`);
+  (b) desde una copia del repo, `cd backend && npm ci && npm run build` y `DATABASE_URL='<URL PÚBLICA>' node
+  dist/cli/limpieza-republicar.js`. Si la consola del contenedor y `railway run` sirven en su cuenta: **NO MEDIDO**.
+- Comprobación del encargo (medida en la prueba): tras B (COMMIT) + `--apply`, **toda** pieza de `piezasRestauradas`
+  está `listed` o en `GET /admin/inventory/pending-publish` con `missing ≠ []`. En el fixture: P1, P3, P7, P12 ⇒
+  `listed`; P2, P4, P5, P11 ⇒ cola con `['location']`.
+
+**Pregunta para el arquitecto (no la decidí):** el encargo pedía que B **no** baje a `in_stock` una pieza que estaba
+`listed` y solo tocó un pedido `failed`/`pending`. El diseño dice lo contrario: §4.3 fija `status = in_stock` para
+**toda** pieza de `T` (salvo P-2), G-6 lo exige y §9.5 lo prueba («ninguna pieza de T queda `listed`»). No lo cambié.
+Con E el resultado práctico es el mismo para las que conservan precio y cajón (vuelven a `listed`), y una cuyo precio
+**ya no** resuelve cae a la cola con su motivo en vez de seguir publicada con un precio que hoy no se sostiene. Si el
+arquitecto quiere la excepción («`listed` + plataforma + sin reserva ⇒ se queda `listed`»), cambian §4.3, G-6, §9.5 y
+el fixture (P12).
+
+**Condiciones del techlead y menores de QA:**
+- **C-1 / QA-2:** los cuatro encabezados mandan `psql "$URL" -v ON_ERROR_STOP=1 -f <fichero>` o `\i <fichero>`, con
+  «⛔ NUNCA lo pegues en la ventana de psql» y, en B, «SI AL FINAL VES ROLLBACK, NO SE APLICÓ NADA». `\set VERBOSITY
+  terse` (sin la línea `CONTEXT` tras el `RAISE`) y `\set QUIET off` justo antes de la última línea, para que la
+  palabra final (`ROLLBACK`/`COMMIT`) se vea. Requisito escrito en cada encabezado: cliente `psql` (meta-comandos `\set`,
+  `\if`, `\gset`); `railway connect` abre psql si el CLI está instalado — **NO MEDIDO**.
+- **C-2 / QA-5:** ver el ⚠️ de arriba. A y D: admin + `READ ONLY`; sin receta `GRANT`.
+- **C-3:** **G-8** al principio de B: toda tabla del esquema (salvo `_prisma_migrations`) tiene que estar en
+  borrar/ajustar/conservar; si no, aborta nombrándola. `MetaDeck`, `MetaDeckList`, `MetaDeckCard`, `MetaFetchRun` ⇒
+  conservar (54/54 modelos clasificados).
+- **C-4 / QA-6:** B corre en `REPEATABLE READ` (una foto; la primera consulta va **después** del `LOCK`, así que la foto
+  ya tiene los candados). D: «mismo conteo» se **exige** solo en `InventoryItem` (lo que B modifica); `User`, `Card`,
+  `PriceReference`, `ConfigSetting` salen como `INFO`. `PortfolioSnapshot` y `SpendAlert` (los escriben jobs diarios):
+  D exige 0 filas **anteriores** al rastro y enseña las posteriores.
+- **C-5:** fixture con **P12**: nacida de la solicitud pagada (buylist, con levantamiento) y en un pedido **fallido** O4
+  que la apartó y soltó (sigue `listed` en A2). Con P-1 «borrar» los conteos de la fórmula de G-5 son ≠ 0 (2
+  movimientos, 1 ajuste) y cuadra. Con HEAD `2ba6a316` esa prueba ya pasaba: la fórmula estaba bien, faltaba el caso.
+- **QA-7:** G-7 ampliada (arriba). D sigue «exactamente 1 rastro».
+- **QA-8:** C, con pedidos y con rastro ⇒ «La limpieza YA se hizo y ya hay N pedido(s) nuevo(s) (el primero, TCG-…): …
+  No hay nada que hacer aquí», sin «corre primero la limpieza».
+- **QA-9:** `\set QUIET on` (sin `INSERT 0 3`/`DELETE 2`/`DO`); estados de pieza y pedido en castellano en las listas de
+  B (función temporal `pg_temp.lz_es`).
+
+**Mediciones** (copia del árbol entero `git archive 2ba6a316` + estos ficheros, scratchpad `be-limpieza2`, Prisma
+generado en la copia, BD propia `tcg_be_limpieza2`):
+- Rojas «hoy» (los cuatro `.sql` de `2ba6a316` + E sin publicar): **16/46**. Verdes después: **46/46**. tsc exit 0;
+  eslint de los 7 ficheros exit 0; unitarias `test/inventory* test/buylist* test/pricing* test/app.module*` 137/137
+  suites, 2637/2637.
+- Concurrencia (C-4, B esperando un candado de fila mientras entra un alta de usuario): sin mutar **5/5** verdes.
+
+| Mutación (en la copia) | Resultado |
+|---|---|
+| B sin `REPEATABLE READ` (`BEGIN;`) | prueba de concurrencia roja **3/3** (G-5 «User n+1≠n») |
+| G-8 con predicado falso | «tabla nueva» roja 1/1 |
+| G-7 como antes (solo Order/Shipment/Sell) | QA-7 roja 1/1 |
+| sin `VERBOSITY terse` | C-1 «lo último es G-1» roja 1/1 |
+| `QUIET off` | QA-9 roja 1/1 |
+| D exige también User/Card/… | C-4 «alta entre B y D» roja 1/1 |
+| C sin la rama de QA-8 | QA-8 roja 1/1 |
+| E `--apply` = simulacro (nunca publica) | 2 pruebas de E rojas 1/1 |
+| E deja entrar al pipeline lo que cambió de estado | «SIN RESOLVER / cambió después» roja 1/1 |
+
+### 79.3 · 3.er pase tras el re-pase de QA sobre `cfbc1d82` (APROBADO CON CONDICIONES) — 2026-10-06
+
+- **E1:** el encabezado de B ya no dice solo «`limpieza:republicar`» (script npm que no existe en la imagen): da las
+  órdenes exactas — (a) contenedor de la API: `node dist/cli/limpieza-republicar.js` [`--apply`]; (b) máquina con el
+  repo: `cd backend && npm ci && npm run build` + `DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/…`; y
+  `railway run --service <API> node dist/cli/…`. El comando hace el salto de `scripts/geo/import-sepomex.ts`
+  (`resolveDatabaseUrl`): `DATABASE_URL` `*.railway.internal` + `DATABASE_PUBLIC_URL` ⇒ la pública; interna sin pública
+  ⇒ se niega diciendo qué URL poner (`resolveRepublicarDatabaseUrl`, unidad `test/limpieza-republicar.cli.spec.ts`).
+  Ojo: dentro del contenedor, si la API tiene `DATABASE_PUBLIC_URL` en su entorno, también salta a la pública
+  (funciona igual; NO MEDIDO si esa variable está en el servicio de la API).
+- **M1:** contexto Nest con `logger: false` (el aviso `NO_OWNER_ACCOUNT` de `SpendWatchService` y los de
+  `MasterSetService` no salen); el comando solo imprime su reporte y sus propios errores.
+- **M2:** la prueba del comando corre **dos** veces: con ts-node y **compilado** (`tsc -p tsconfig.build.json` a un
+  directorio temporal = lo que `nest build` deja en `dist/`), y exige salida sin `[Nest]`/`NO_OWNER_ACCOUNT`/`ERROR`.
+- **M3:** en la lista 2.4 de B, la columna «ojo» marca «¿EXISTE Y ESTÁ BIEN? era perdida|dañada: si no, ponla en ✏️ 2
+  (P-2)» para las piezas que vuelven a inventario desde `lost`/`damaged`.
+- Medido (copia entera de `cfbc1d82` + cambios, BD propia): integración 49/49, unidad nueva 4/4, tsc y eslint exit 0.
+  Mutaciones 1/1 rojas: logger `['error','warn']` (2 pruebas), sin la marca de M3, sin el salto a la pública (2 de 4
+  unitarias). ⚠️ La suite completa dio **1 roja en 6 corridas completas** (la primera, en la prueba del comando
+  compilado, a los 1.5 s); no se repitió en 5 completas más ni en 6 del bloque E, y **no la diagnostiqué**: el log de
+  esa corrida no guardó el detalle.
+- **Diagnóstico de esa intermitente (4.º pase, 2026-10-06) — causa NO encontrada, dicho así:** 0 rojas en 19 corridas
+  nuevas guardando el log entero y la carga: 10 completas con caché de jest fría (carga 0.7–2.1), 3 completas en árbol
+  recién creado + Prisma recién generado (las condiciones exactas de la que falló) y 6 del bloque E con 4 bucles de CPU
+  propios (carga 5–6.4, la de aquella corrida era ~4–6). Descartado por construcción: compilación concurrente de
+  `dist/` (cada corrida compila a su propio `.lz-dist-<RUN>`, nunca al `dist/` real; un solo `tsc` por proceso de jest),
+  BD o puerto compartidos (esquema propio por caso, BD propia, el comando no abre puerto), orden (jest `maxWorkers: 1`,
+  orden fijo). Por la duración (1573 ms frente a 3.6–5.7 s de una pasada sana) el fallo ocurrió ANTES de que el comando
+  hiciera su trabajo: en `fresh()`/B o en el arranque del proceso hijo. Hipótesis compatible y NO MEDIDA: `spawnSync`
+  con error de arranque (con `stdout/stderr` nulos la aserción vieja, `dry.stderr.slice`, reventaba con `TypeError` sin
+  decir nada). Lo que cambia: la prueba ahora etiqueta el paso que falla (`fresh` / `B COMMIT`) con su tiempo y carga, y
+  de cada proceso hijo guarda código, señal, error de spawn, duración, carga y las colas de stdout/stderr en el mensaje
+  de fallo. No subí timeouts ni la salté. Si vuelve a salir, el propio mensaje dice dónde.
+
+### 79.4 · Condición CS-1 de seguridad sobre `00ec3888` (LZ-S1, media) — 2026-10-06
+- Los cuatro encabezados ya no piden `psql "$URL"` ni `DATABASE_URL='…' node …` (contraseña de admin en el historial y en
+  `ps`). A–D: 1.º `railway connect` + `\i <fichero>`; 2.º `psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1
+  -f <fichero>` (URL SIN contraseña: psql la pide sin mostrarla). E: (a) consola del contenedor, (b) `railway run
+  --service <API> node dist/cli/limpieza-republicar.js`, (c) a mano con `read -rs DATABASE_URL; export DATABASE_URL` y
+  `unset` al final. Todos: «si la tecleaste o pegaste, CAMBIA la contraseña de Postgres». `railway connect`/`run`: NO MEDIDO.
+- B: «¿QUIERES CONSERVAR LA BITÁCORA?» con `\copy (SELECT * FROM "AuditLog" …) TO 'bitacora-antes-de-limpieza.csv' WITH
+  (FORMAT csv, HEADER)`; una prueba ejecuta esa línea tal cual y comprueba cabecera + todas las filas.
+- LZ-S2 (baja) no se hizo: a TECH_DEBT PDB-TD4 (una caducidad por fecha pondría roja la suite en CI; sin `livemode` en
+  `Order` cualquier otra guarda sería adivinar).
+- Medido (copia entera de `9352915c` + cambios, BD propia): 50/50; tsc y eslint exit 0. Mutaciones 1/1 rojas: volver a
+  poner `psql "$URL"` en el encabezado de C; romper el formato del `\copy`.
+
+### 79.5 · v2 — también se BORRA el inventario (2026-10-07, spec `LIMPIEZA_DB.md` §14, `HECHOS.md:80`; sobre `87ddf21c`)
+
+**Artefactos v2** (`backend/prisma/data-repair/`):
+
+| # | Fichero | v2 |
+|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Sin G-4/P-1. Añade G-9 en modo informe (cartas de cliente), total del inventario que se borra, **A.5 custodia por dueño** (correo, nombre, rol, cartas, pedidos, id) y A.6 resumen tipo × estado × dueño. |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §14.3. Dos `\set` ✏️: `respaldo_manual` y **`cuentas_prueba`** (correos o ids, coma). `LOCK` + `InventoryBatch`, `PendingPriceEntry`. Orden: … `ShipmentRequest` → `Order` (9) → `SellRequest` (10) → **`DELETE FROM "InventoryItem"`** (11, cascada movimientos y levantamientos) → `InventoryBatch` y `PendingPriceEntry` `inventory`/`portfolio` (12) → avisos, portafolio, bounties (13) → bitácora (14). Listas: pedidos, envíos, solicitudes, **2.4 custodia por dueño** (con «declarada de prueba: sí / NO — falta en ✏️ 2»), **2.5 resumen del inventario** (tipo × estado × de quién, total, lotes, huecos de precio), 2.6 bounties. Sin lista por pieza. Sin `setval`/`nextval` (prueba estática). |
+| C | `20261006_pdblimpieza_3_folios.sql` (renombrado; el viejo `…_3_folio_pedidos.sql` se borró) | `LOCK "Order", "InventoryItem"`. Guardas **independientes**: `Order` vacía ⇒ `TCG-000001`; `InventoryItem` vacía ⇒ `INV-000001`; la que no se puede dice «NO se toca: ya hay N …; no pasa nada». Ambas llenas ⇒ aborta (sin rastro: «corre primero la limpieza»; con rastro, QA-8: «la limpieza YA se hizo… el primero, TCG-…»). `ENV-` **nunca** (§5.2). Imprime antes/después y el próximo folio de los tres. |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Patrón «0 anteriores al rastro» también para `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` (`createdAt`) y `PendingPriceEntry` `inventory`/`portfolio`. INFO: `User`, `Card`, `PriceReference`, `ConfigSetting`, `VaultLocation`, `SealedProduct`, `VariantPriceOverride`, cola `catalog`/`buylist`. Nuevas: «contador de inventario: el siguiente es INV-000001, o la primera carta subida es INV-000001» (exige rastro) y **«ningún folio por delante de su contador»** para `INV-` y `TCG-` (`max` numérico del folio < próximo valor). Fuera: «mismo conteo InventoryItem» y «inventory_folio_seq igual que en la limpieza»; `shipment_folio_seq` igual que en el rastro se queda. |
+| E | — | **Retirado** (§14.7). Medido con `rg` en `backend/` (2026-10-07): `previewPublication` solo lo usaba `modules/inventory/limpieza-republicar.ts:130`, y el campo `detail?` de `PublishReevaluationResult` solo lo leía ese mismo fichero (`:85`). Se borraron `src/cli/limpieza-republicar.ts`, `src/modules/inventory/limpieza-republicar.ts`, `test/limpieza-republicar.cli.spec.ts` y el script `limpieza:republicar` de `package.json`; `inventory.service.ts` e `inventory-publish.port.ts` vuelven **exactos** a su estado anterior a `82f32691` (`git diff 82f32691~1 -- <esos dos>` vacío): sin `previewPublication`, sin `dryRun` en `reevaluateOne`, sin `detail`. Nada de esto llegó a `production`. |
+
+**Decisiones de implementación (para que el arquitecto las ratifique):**
+1. **G-9, dos momentos.** La *errata* (un elemento de `cuentas_prueba` que no es ningún `User`, ni por `lower(email)` ni por
+   `id`) aborta **al principio**, como el folio erróneo de P-2 en v1. La *discrepancia* (cartas `customer` de una cuenta
+   no declarada, o con `ownerUserId` nulo) se comprueba **al final**, junto a `respaldo_manual`, para que el ensayo
+   enseñe la lista 2.4 antes de pedirla; el mensaje nombra solo a quienes faltan (correo, o id si no tiene).
+   Correo sin distinguir mayúsculas. ⚠️ Una carta de cliente sin dueño **no se puede fabricar**: la base la rechaza
+   (`InventoryItem_customer_has_owner_chk`, medido al intentar sembrarla); el guion la trata igual por si acaso.
+2. **`PendingPriceEntry` esperado = antes − filas `inventory`/`portfolio` contadas ANTES de borrar** (tabla `lz_cola`),
+   no lo que devolvió el `DELETE`: así G-5 caza un borrado que se pase a `catalog`/`buylist`.
+3. **Clasificación G-8/G-7 v2:** `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` pasan a
+   `borrar` (y por eso G-7 se niega tras volver a subir, §14.3); `PendingPriceEntry` a `ajustar`.
+4. **Rastro v2:** fuera `piezasRestauradas`/`piezasExcluidas`/`piezasBuylist*`; dentro `inventarioBorrado {total, porTipo
+   {raw, graded, sealed}, custodiaPorUsuario {<userId>: n}}` y `cuentasPrueba` (cuentas distintas declaradas). Sin
+   correos ni folios (la prueba lo comprueba sobre el JSON).
+5. **`lz_t` se queda solo para G-1…G-3** (sin `corte`: ya no hay movimientos de cierre).
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 45 casos; fixture ampliado: `SealedProduct` con precio del dueño
+e imagen, pieza sellada P14, dos `InventoryBatch`, cola de los cuatro contextos, segundo cliente con custodia P13/O5):
+§9.2 reescrita (0 filas por medición directa en el inventario y lo transaccional; **contenido** idéntico de toda tabla no
+tocada —`User`, `Card`, `CardSet`, `SealedProduct`, `PriceReference`, `VaultLocation`, `ConfigSetting`… con filas
+exigidas—; cola `catalog`/`buylist` idéntica; `VariantPriceOverride` idéntica salvo bounty/`updatedAt`); G-9 ×5 (no
+declarado nombra al cliente, errata por correo, errata por id, ambos declarados por correo en mayúsculas y por id, sin
+custodia y lista vacía); G-7 tras volver a subir (no borra la pieza nueva); D tras alta por la app (`nextFolios` ⇒
+`INV-000001…3`, TODO OK) y con folio por delante (`INV-000050`, FALLA en esa línea); C v2 ×5 (§9.6 con ambas tablas,
+sin nada, solo piezas, solo pedidos, QA-8). Se borraron §4.4, §9.5, P-1 ×2, P-2, G-4 ×2, M3 y todo QA-1 · E.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `87ddf21c` + cambios en el scratchpad `be-limpieza-v2`, `node_modules`
+propio con `@prisma`/`.prisma` copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local):
+- Rojo antes de tocar los guiones: 38/45 rojas (las nuevas y todas las que corren B con `cuentas_prueba`; las 7 verdes
+  eran estáticas o de A/D/CS-1 que no cambian de conducta).
+- Verde: 45/45 integración `pdb-limpieza`; `tsc --noEmit` y eslint de lo tocado exit 0; unitaria completa 439/439
+  suites, 7949/7949 pruebas (y, tras escribir estas notas, las 18 suites que leen `BACKEND_NOTES`/`TECH_DEBT`: 18/18).
+- Mutaciones (copia aparte del árbol, SQL restaurado entre una y otra):
+  - **M-v2-1b** (sin `DELETE` de piezas + `InventoryItem/Movement/Adjustment` reclasificadas a `conservar`, G-5 de B
+    pasa): §9.2 roja por **medición directa** (`InventoryItem` n = 14 ≠ 0, B terminó en COMMIT) y D roja
+    («0 filas anteriores… InventoryItem: 14 anteriores»). 1/1 (determinista).
+  - **M-v2-2a** (C hace `setval('shipment_folio_seq', 1, false)`): §9.7 «sin reiniciar ENV-» con huérfana falsa en
+    **6/6 esquemas** (2 corridas × N = 3: `1/1` en cada uno) y §9.6 «ENV- igual» roja 2/2.
+  - **Propia** (G-7 con la clasificación v1: ignora `Inventory*`): «G-7 tras volver a subir» roja (B sale 0 y borraría la
+    pieza re-subida); las otras dos de G-7 siguen verdes, como debe ser. 1/1.
+
+### 79.6 · v2.1 — C y D dicen lo mismo del folio `INV-` (2026-10-07, spec `LIMPIEZA_DB.md` §14.12; QA N-1, MENOR-1, MENOR-3 sobre `ec808db2`; sobre `b5ce0727`)
+
+**Cambios** (`backend/prisma/data-repair/`):
+- **C** (`…_3_folios.sql`): si ya hay piezas, la línea de inventario dice la **frase común** `NO se reinició INV-: ya
+  había piezas cuando corriste C (N pieza(s), de INV-x a INV-y). Tus folios siguen desde ahí, no desde INV-000001. No
+  rompe nada (…). La próxima vez, este paso va ANTES de subir cartas.` (fuera «no pasa nada»). Mínimo y máximo
+  **numéricos** (`substring(folio FROM 5)::bigint` sobre `^INV-[0-9]+$`), no `max(folio)` de texto. C sigue sin
+  exigir orden: `TCG-` se reinicia igual (§14.12 motivo 1).
+- **D** (`…_4_verificacion.sql`): estado nuevo **`AVISO`** (se enseña, no cuenta como falla; la línea final dice
+  `VERIFICACION: TODO OK (con N aviso(s))`, sigue casando `/VERIFICACION: TODO OK/`). Línea 51 renombrada a
+  `contador de inventario: reiniciado en el fichero 3`, con la tabla de §14.12 en dos CTE (`inv`, `inv_estado`):
+  sin rastro ⇒ FALLA; sin piezas ∧ siguiente = 1 ⇒ OK; piezas ∧ `m ≤ R` ⇒ OK; piezas ∧ `m > R` ∧ `T1` ⇒ AVISO con la
+  frase común y `primera INV-x · siguiente INV-z`; resto ⇒ FALLA `el contador no se reinició y C no corrió (…)`. `m` es
+  el mínimo **numérico**; `R` = `rastro.secuencias.inventory_folio_seq`; `T1` = siguiente `TCG-` es 1. Se quitó el
+  `menor` de texto del CTE `folios` (también la rama `TCG-`). Línea 53 lee `FROM shipment_folio_seq` (la misma fuente que
+  guarda B) y se retiró el CTE `sec` sobre `pg_sequences` (MENOR-1). Línea 52 sin cambio.
+- **B** (`…_2_limpieza.sql`): **solo comentario** del PASO 5 de la cabecera (§14.12 «Guion», paso 8): si D dice AVISO en
+  el contador de inventario, subiste cartas antes de C; no rompe nada. Ninguna línea ejecutable cambia.
+- Cabeceras de C (`:15-16`) y D (`:36-37`) ajustadas como pide §14.12.
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 49 casos): nuevas T-N1, T-N1-ctl, T-M3, T-M1 (bloque «§14.12
+v2.1»), con helpers `lineaD`/`resultadoDe`/`rastroInv`. Ajustada «§9.6 con piezas nuevas y sin pedidos»: buscaba
+`/ya hay 1 pieza/` (la frase vieja); ahora exige la frase común con `(1 pieza(s), de INV-x a INV-x)` y que no salga «no
+pasa nada».
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `b5ce0727` + cambios, scratchpad `be-lz21`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local con el rol de la pila nativa — no hubo rol
+ni BD propios: el rol `tcg` no tiene `CREATEROLE` ni `CREATEDB`):
+- **Rojo antes del arreglo:** T-N1 roja (C «no pasa nada»), T-M3 roja (`FALLA … primera carta INV-000002`), T-M1 roja
+  (`FALLA … ahora ? · rastro 1`), §9.6 ajustada roja; T-N1-ctl **verde** (es el candado, verde hoy como dice la spec).
+  T-M3 y T-M1 eran «deducido, NO MEDIDO» en §14.12: ahora medidas. En el fixture `R = 14`.
+- **Verde:** 49/49 integración `pdb-limpieza`.
+- **Mutaciones** (en la copia, SQL restaurado y `diff -r` vacío tras cada una; deterministas ⇒ N = 1): M-N1-a (AVISO
+  cuenta como falla) ⇒ solo T-N1 roja, 1/1; M-N1-b (AVISO sin `T1`) ⇒ solo T-N1-ctl roja (`AVISO` ≠ `FALLA`), 1/1;
+  M-N1-c (C con la frase vieja) ⇒ solo T-N1 roja, 1/1; M-M3 (`min(folio) = 'INV-000001'` de texto) ⇒ solo T-M3 roja,
+  1/1; M-M1 (línea 53 desde `pg_sequences`) ⇒ solo T-M1 roja, 1/1. Además **M-v2-2a** con la lectura nueva (C hace
+  `setval('shipment_folio_seq', 1, false)`): «D … tras B + C ⇒ TODO OK» roja con `FALLA | contador shipment_folio_seq
+  … | ahora 1 · rastro 3`, 1/1.
+- **NO MEDIDO:** que la app pueda borrar la **fila** de una pieza (T-M3 la borra por SQL); `R` e `is_called` de
+  `shipment_folio_seq` en producción (los imprime A/B en el ensayo); los puntos ciegos (a)/(b) de §14.12 quedan
+  aceptados, sin prueba.
+
+### 79.7 · Condiciones de QA (veredicto sobre `37f7a450`, APROBADO CON CONDICIONES) y LZ2-S1 de seguridad (2026-10-07, sobre `e1e2ff0a`)
+
+**Cambios:**
+- **IMPORTANTE (QM1)** — prueba nueva `T-N1-sinPiezas`: B COMMIT → sin C → sin altas, con el contador de pedidos ya usado
+  (el fixture lo usa: precondición afirmada) ⇒ D línea 51 `FALLA` («C no corrió», `siguiente INV-<R+1>`), línea 50
+  `FALLA`, `HAY FALLAS`, sin `AVISO`. Cubre la rama de §14.12 «sin piezas ∧ P ≠ 1 ⇒ FALLA».
+- **QM3** — dos pruebas `T-R-borde` que fijan R en el límite: `m = R ⇒ OK` (B → C → R altas → se borran por SQL
+  `INV-000001…R-1`) y `m = R + 1 ⇒ AVISO` (B → 1 alta → C). Cada una fuerza ANTES de B que el contador de pedidos del
+  rastro quede del lado contrario del límite (sube `inventory_folio_seq` o `order_number_seq` con `setval`, solo hacia
+  arriba) y lo afirma como precondición: así leer R de otra clave cambia el resultado siempre, no por casualidad del
+  fixture.
+- **C-4 «alta de usuario MIENTRAS B corre»** — sin ventanas fijas: el tercero (con `application_name` propio) toma el
+  candado y lo **sostiene** (`pg_sleep(170)`) hasta que la prueba lo suelta con `pg_cancel_backend`; la prueba espera
+  por **estado**: (1) el tercero está en `PgSleep` (ya tiene el candado), (2) B aparece en `pg_stat_activity` con el
+  pid del tercero en `pg_blocking_pids` (B ya contó «antes» y espera). Solo entonces da el alta y suelta. Un `finally`
+  cancela al tercero si algo falla antes (solo el suyo, por `application_name`).
+- **LZ2-S1** — cabecera de A (`…_1_censo.sql`, lista de custodia con correo/nombre/rol) y de B (`…_2_limpieza.sql`,
+  lista 2.4 y G-9): `⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el
+  repositorio.` C y D no imprimen datos personales: sin cambio. Prueba nueva `LZ2-S1 · censo/limpieza` (cabeceras).
+- **MENOR de QA (coletilla «el de pedidos tampoco está en TCG-000001») — NO cambiado:** §14.12 fija ese detalle
+  **literal** para «cualquier otro caso» de la tabla; hacerlo condicional a `¬T1` cambia la tabla ⇒ va al arquitecto.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `e1e2ff0a` + cambios, scratchpad `be-lz22`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en `tcg_marketplace` local):
+- **Rojo contra su mutación** (en la copia, SQL restaurado y comparado con `cmp` tras cada una; deterministas ⇒ N = 1):
+  QM1 de QA (`WHEN piezas = 0 THEN 'reiniciado'`) ⇒ solo `T-N1-sinPiezas` roja (`OK … sin cartas · siguiente
+  INV-000015`), 1/1. QM3 de QA (R de la clave `order_number_seq`) ⇒ las dos `T-R-borde` rojas (m = R da `AVISO`;
+  m = R + 1 da `OK`), 1/1. Extra propia `m < r_inv` en vez de `m <= r_inv` ⇒ `T-R-borde m = R` roja, 1/1. LZ2-S1:
+  con las cabeceras de `e1e2ff0a` las dos pruebas de cabecera rojas, 1/1. En el fixture `R = 14`.
+- **C-4 con carga** (4 bucles de CPU propios, 4 CPU, muertos por PID): suite **completa** `pdb-limpieza` **10/10**
+  verdes (54/54 cada una, load 5.0–10.7); C-4 aislada 10/10 (load 5.0–9.8). La versión anterior aislada con la misma
+  carga también dio 10/10 (N = 10): el fallo de QA era en la suite completa, y no lo reproduje aislado.
+- **Hallazgo al medir:** la 1.ª tanda de suites completas dio 5 rojas en la corrida 1 por `remaining connection slots
+  are reserved` (71 conexiones de esta suite a la vez: cada esquema dejaba su `PrismaClient` abierto hasta `afterAll`;
+  `max_connections` = 100 compartido con otros agentes). Arreglo en la prueba: `afterEach` hace `$disconnect` de los
+  clientes de cada esquema (medido: 5 conexiones durante la suite). Las 10/10 de arriba son con ese arreglo.
+- **Unitarias que leen `data-repair`/`BACKEND_NOTES`/`TECH_DEBT`** (las 18 de §79.6): 18/18 suites, 807/807.
+- **NO MEDIDO:** la coletilla condicional (pendiente del arquitecto).
+
+## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
+
+Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).
+⛔ Fase C (`M-AN-1`: método de pago, contracargos por día) **no** construida: sus claves **no viajan** (`mix.byPaymentMethod`,
+`chargebacks`, `chargebacksUndatedCount`), y tampoco `shipping.buylistRevenueCents/CostCents` (#78).
+
+### 80.1 Lo que hay
+| Pieza | Dónde |
+|---|---|
+| `GET /admin/reports/sales`, `/sales/export.csv`, `/sales/today` (`AdminReportsController`, `super_admin` de clase, `no-store`) | `admin/admin.controller.ts` |
+| Periodo, presets, cubos recortados, validación §15.2 | `sales-analytics/sales-period.ts` (puro) |
+| Una definición por cifra, `Delta`, `allocateByWeight`, `centsToPesosCell` | `sales-analytics/sales-figures.ts` (puro) |
+| `report` / `csv` / `today` / `dayFigures` (un solo cuerpo: `bucketFigures`) | `sales-analytics/sales-analytics.service.ts` |
+| M7 partido en cubos: `pnlBuckets`, `refundRowsInPeriod`, `refundsInPeriod` | `admin/pnl-core.ts`; `AdminService.pnl()` = un cubo con el `range()` de siempre |
+| Línea «Ventas de ayer» + envío con pedidos sin avisos (P-AN-1 default) | `spend-alerts/spend-digest.service.ts`, `spend-alert.mail.ts` (`salesDigestLine`) |
+
+`SalesAnalyticsModule` lo importan `AdminModule` y `SpendAlertsModule`; él no importa ninguno (sin ciclo). `SpendDigestService`
+recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano siguen valiendo; sin él, la regla es la de antes).
+
+### 80.2 Decisiones de implementación que otros roles necesitan
+- **`?topSort=` NO está en `/sales/export.csv`.** §15.2 dice que los dos primeros endpoints aceptan los mismos parámetros, pero el CSV
+  no lleva listas (§15.7) ⇒ el orden no cambia un byte, y `C-EQ-1` exige que todo eje declarado sea observable («filtra») y prohíbe
+  excepciones de `filtra`. Se omitió; un `?topSort=` en el CSV se ignora como cualquier parámetro desconocido. ⇒ **arquitecto**.
+- **C-EQ-1:** `preset`/`groupBy`/`topSort` (×`sales`) y `preset`/`groupBy` (×CSV) van al registro como **`PENDIENTE-ARQUITECTO`**: §15.2
+  los declara clase L pero la **tabla de §0-Q punto 4** no tiene sus filas (medido con `grep 'reports/sales'`). Trinquetes: registro
+  59 → 64, pendientes 18 → 23; `from`/`to` de las dos rutas en `NO_ENUM_POR_RUTA` (tope 54 → 58). La paridad de clase L lee la tabla
+  de §15.2 (la regex quita el `\|` de Markdown).
+- **`preset=custom` sin fechas** ⇒ `400 {field:'from'}` (la tabla de errores de §15.2 no lo lista; se trata como «falta `from`»).
+- ⭐ **AN-1.2 (`50b5faeb`, §15.12):** ratificados `topSort` fuera del CSV y `custom` sin fechas ⇒ `400 {field:'from'}`. Las cinco
+  filas de C-EQ-1 pasan a `transcrita` (pendientes 23 → 18; registro 64). `TopSealed.setName` es `string | null` en el DTO,
+  pero **medido: nunca `null`** — sin `SealedProduct` el set es el de la `Card` de la pieza (`cardId` y `Card.setId` obligatorios);
+  prueba nueva en `sales-analytics.e2e-spec.ts`. Copia `50b5faeb` + cambio: unitaria 428/428 (7777), integración sales + C-EQ-1
+  3/3 suites, 561/561.
+- **CSV:** la fila `total` lleva `to` vacío. Columnas de fase A + fase B (con `shippingResultNetMxn` tras `shippingCostNetMxn`).
+- **`comparison.piecesPerOrder.diff`** se redondea a un decimal (la resta en coma flotante de dos cifras de un decimal no lo es).
+- **`mix.byDestination` / `byBuyer`** se emiten (no necesitan migración); `byProductType` reparte el `netRevenueCents` de cada pedido
+  entre sus renglones por `unitPriceCents` (resto mayor, desempate por `OrderItem.id`) e **incluye** los `refunded`.
+- **Rendimiento:** dos pasadas de `bucketFigures` (periodo y anterior) ⇒ ~14 consultas por informe; el arquitecto sugería una sola
+  consulta de órdenes para los dos periodos (§4.64.6, no normativo). Sin índice nuevo; el disparador de `@@index([settledAt])` sigue
+  siendo el de §4.64.6 (NO MEDIDO el volumen de producción).
+- **`PnlComponents` es `type`, no `interface`**: el tipo de `pnl()` sigue siendo asignable a `Record<string, number>` como antes
+  (`sdx-d2f.units.spec.ts` lo usa así).
+
+### 80.3 Pruebas (fixture `test/integration/helpers/sales-db.ts`: ventana propia feb–may 2021, ids fijos, comprueba que esté vacía)
+- `test/sales-analytics.units.spec.ts` (37): presets en día MX, AN-B-14 (11 filas de error, sin `value`), AN-B-6 puro, AN-B-5, AN-B-7,
+  AN-B-21 puro (25862 = 8621 + 8621 + 8620; CONTROL 3 × `taxBaseCentsOf` = 25863), AN-B-23.
+- `test/integration/sales-analytics.e2e-spec.ts` (19, Postgres real): AN-B-1, 2, 3 (68001 = 53000 + 15001), 4, 6, 7, 8, 9, 10 (pesos,
+  sin datos de cliente con CONTROL), 11, 12 (403/200/401, `no-store`), 14 por HTTP, 15 (profit 11009, envío 25000/10000/2000), 16,
+  17, 18 (envía con pedidos sin avisos; `empty` sin ninguno), 21 (con `refunded`, y el ejemplo del contrato), 22.
+- `test/integration/sales-analytics-pnl-parity.e2e-spec.ts` — **AN-B-13**: instantánea `fixtures/an-b-13-pnl-snapshot.json`
+  (`pnl`, `ivaReport`, `exportCsv('pnl')`, `launchMetrics`, 6 rangos) escrita con el código **anterior** al refactor
+  (`AN_PARITY_WRITE=1`, commit `d644be0d`); ⛔ no se regenera para hacer pasar nada.
+- Candados estructurales `IVA-9`/`IVA-11` leen ahora `admin.service.ts` **y** `pnl-core.ts` (el bucle del P&L se mudó).
+
+### 80.4 Medido (2026-10-06, copia `git archive 1a2e9165` del árbol ENTERO en el scratchpad `be-ventas`, `node_modules` propio con `prisma generate` dentro, BD propia `tcg_be_ventas`)
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa | **428/428 suites, 7777/7777** |
+| Integración completa (`--runInBand`) | **109/109 suites, 2154 verdes + 2 skipped** de 2156 (incluye `enum-query-axes` 539/539) |
+| AN-B-13 antes del refactor (escribe la instantánea) / después | 2/2 · 2/2 |
+
+**Mutaciones** (deterministas ⇒ N=1 cada una, dicho así; aplicadas y revertidas sobre la copia; `src` de la copia comparado con el vivo
+al terminar: idéntico):
+| # | Mutación | Rojas reales |
+|---|---|---|
+| m1 | R-2 con `status: 'settled'` | AN-B-4, y además AN-B-1, 3, 7, 8, 9, 16, 21 (8 rojas) |
+| m2 | `lte` en lugar del semiabierto | AN-B-1, AN-B-8, AN-B-11 |
+| m3 | `subtotalCents` en vez de `netRevenueCents` | AN-B-3, AN-B-4, AN-B-21 ×2 |
+| m4 | `avgTicketCents = 0` con 0 pedidos | AN-B-5 |
+| m5 | sin recorte de semana/mes | AN-B-6 (integración) + 2 unitarias de cubos |
+| m6 | `pnl-core` salta los ajustes | AN-B-13 (instantánea y CONTROL), AN-B-15, AN-B-22 |
+| m7 | CSV en centavos | AN-B-10 |
+| m8 | `byProductType` con `taxBaseCentsOf` por renglón | AN-B-21 (el ejemplo del contrato) |
+| m9 | `resultNetCents` resta otra vez los ajustes | AN-B-15, AN-B-22 |
+| m11 | `centsToPesosCell` con `Math.trunc` (pierde el signo con \|n\| < 100) | AN-B-23 (`-5 ⇒ "-0.05"`) |
+| m10 | (fase C) | no aplica: fase C no construida |
+
+### 80.5 Arreglos tras los gates de QA y techlead sobre `76dd1ee9` (2026-10-06)
+
+- **C-1 (bloqueante) — el resumen de las 08:00 ya no deja la fila en `sending`.** `spend-digest.service.ts`: TODO lo que
+  corre después de reservar el día (`count` de avisos, línea de ventas, envío) va dentro del `try`; cualquier fallo ⇒
+  `failed` (re-enviable por cron o `{day}`). La línea de ventas es un **extra** (`salesLine()`: si `dayFigures` lanza, se
+  registra y devuelve `'failed'`). **Decisión** para la regla «avisos O pedidos ⇒ se manda»:
+  - con avisos ⇒ el resumen de gasto **sale sin la línea**;
+  - sin avisos ⇒ no se sabe si hubo pedidos ⇒ **no se manda** y la fila pasa a `failed` (⛔ nunca `empty`, que cerraría
+    el día en silencio). El re-envío lo recoge con la línea sana.
+  Prueba **AN-B-18b** (`test/integration/sales-analytics.e2e-spec.ts`, doble = `jest.spyOn(SalesAnalyticsService.dayFigures)`
+  que lanza): roja sobre `76dd1ee9` (estado final `sending`), verde con el arreglo. Mutaciones: llamada fuera del `try` ⇒
+  rojo; quitar el `failed` del caso sin avisos ⇒ rojo (sale `empty`).
+- **QA menor (no-store en 401/403): NO aplicado.** El proyecto pone `Cache-Control: no-store` con `@Header` en el handler
+  (≈25 rutas: `admin.controller.ts`, `admin-shipments.controller.ts`, `guest-orders.controller.ts`, …) y **ninguna** lo
+  lleva en sus 401/403 (los lanza el guard antes del handler; ni el filtro de excepciones ni `main.ts` ponen
+  `Cache-Control`, medido con `grep -rn Cache-Control src/common src/main.ts` ⇒ vacío). Hacerlo solo aquí sería
+  incoherente; si se quiere, es un cambio transversal (filtro global) para el arquitecto.
+- **TD-AN-5/6/7 cerradas en código** (ver `docs/TECH_DEBT.md`, sección «Backend · 2026-10-06 · gates … `76dd1ee9`»):
+  válvula `AN_PARITY_WRITE` cerrada en CI; seguro `580` en la fixture (S2) con la instantánea AN-B-13 **regenerada con el
+  código de `d644be0d`** (antes de `pnl-core`; solo cambian los 8 campos `shippingInsuranceCents`); `total.pnl` lanza si
+  `pnlBuckets` trae una llave fuera de los cubos; R-2 con `status in (settled, refunded, chargeback)` explícito.
+  Pruebas: `test/sales-analytics.pnl-keys.spec.ts` (TD-AN-6/7, rojas 2/3 sobre `76dd1ee9`), CONTROL de AN-B-13
+  (`shippingInsuranceCents = 580`; quitar la línea del seguro en `pnl-core` ⇒ AN-B-13 2/2 rojas).
+
+## 81 · Fusión `claude/analitica-ventas` + #78 (`claude/buylist-skydropx`, `f5ef59b7`) — 💰 `pnlBuckets` con el buylist (2026-10-06)
+
+**Qué quedó.** El cuerpo de `pnl()` sigue en `admin/pnl-core.ts` (`pnlBuckets`, §AN fase B) y ahora lleva los cuatro renglones
+de B-4 (§BSD.16) que #78 había puesto en `AdminService.pnl()`/`pnlBuylistGuides`. Cada renglón cae en el cubo de la fecha
+con la que #78 lo acota: retenido, margen por solicitud y «sin costo capturado» por `paidAt` (solicitudes `pagada`); guía de
+Skydropx de entrada por `labelPurchasedAt` (`INBOUND_ONLY`, ⛔ las de cancelación confirmada); guía manual con costo por
+`coalesce(guideSentAt, shipmentConfirmedAt)` (BSD-1.4 punto 12). La ganancia de cada cubo suma lo retenido y resta las guías
+del cubo. La lectura es `buylistRowsInPeriod` (mismas tres consultas de #78); las reglas por fila siguen en `pnl-buylist.ts`.
+El envío de VENTA de `pnlBuckets` ganó `OUTBOUND_ONLY` (lo traía el `pnl()` de #78; en `pnl-core` faltaba). `PnlComponents` y
+`zeroPnl()` llevan las cuatro claves al final (orden del DTO y del CSV de M7). `AdminService.pnl()` = el cubo `all`.
+- **Censo BSD-B23:** las llaves pasan a `pnl-core.ts pnlBuckets#findMany#1` (`outbound_only`) y `pnl-core.ts
+  buylistRowsInPeriod#findMany#1` (`inbound_only`), también en los mínimos. **C-EQ-1:** techo 55 (BSD) + 4 (AN) = **59**.
+- **Analítica:** `profitCents` de cada fila incluye ahora el buylist (612 = «regla de Finanzas» = `pnl()`; Σ días = `pnl()`).
+  ⚠️ **Para el arquitecto/dueño:** la «Ganancia» de la pestaña Ventas cambia en los días con guías o pagos del buylist.
+- **AN-5 (622 `shipping.buylistRevenueCents/CostCents`) NO se añade aquí:** el contrato lo condiciona a «#78 en
+  `production`», que al fusionar no se cumple; y aunque el mapeo es trivial (`buylistShippingFeeRetainedCents` /
+  `buylistGuideCostCents` del mismo cubo), arrastra columnas del CSV de §15.7, el DTO del front y pruebas. Sigue pendiente;
+  AN-B-15 sigue afirmando que las claves NO viajan.
+- ⚠️ `ARCHITECTURE §9 D-AN-3` dice que el código no devuelve las cifras del buylist en `pnl`: con #78 devuelve las de §BSD.16
+  (no las `buylistShippingRevenueCents/CostCents/Basis` del §M7 viejo). Lo actualiza el arquitecto.
+
+**Fixture de la analítica (`helpers/sales-db.ts`).** Con la fixture anterior el `pnl()` de #78 daba un retenido de **−40 000**
+(SR1 tenía `payoutNetCents` sin bruto). Ganó: SR1 con bruto 58 000 y guía manual 15 000 entregada el 03-02; SR2 con guía
+manual sin costo; SR3 `aceptada` con guía de Skydropx de entrada 25 000/3 448 comprada el 03-04; SR4 con costo 7 000 confirmado
+sin guía el 03-07; `assertWindowEmpty` vigila además `labelPurchasedAt`, `guideSentAt` y `shipmentConfirmedAt`.
+**AN-B-13:** la instantánea se REGENERÓ con el código de #78 (`git archive origin/claude/buylist-skydropx` = `f5ef59b7`, su
+`pnl()` sin partir) sobre la fixture nueva (`AN_PARITY_WRITE=1`, local, sin `CI`) y el código fusionado la iguala. Su CONTROL
+afirma los cuatro renglones (18 000 · 43 552 · 3 000 · 1). AN-B-15: total `11009 + 18000 − 15000 − 21552 − 7000`.
+**Prueba nueva «AN-B-15 por día»** (`sales-analytics.e2e-spec.ts`): cada fila = `pnl()` de SU día; Σ filas = total no ve un
+renglón puesto en otro día del periodo. Unitaria nueva `test/pnl-core.buylist-buckets.spec.ts` (cubos, `all`, filtros de clase).
+
+**Medido** (copia del árbol entero del merge, BD propia, `node_modules` propio con `prisma generate` dentro; sin S3: el seed
+avisa y el smoke de INE no corre en estricto): tsc 0 · eslint 0 · unitaria **439/439 suites, 7949/7949** · integración
+**114/114 suites, 2252/2252** · frontend vitest **290 ficheros (1 skip), 3854 pruebas (10 skip)**, tsc 0.
+**Mutaciones** (N=1 cada una, deterministas): M1 guía de Skydropx al cubo `null` ⇒ roja la unitaria de cubos y «AN-B-15 por
+día» (AN-B-13 y AN-B-15 siguen verdes: por eso existe la prueba por día); M2 margen sin restar la guía ⇒ rojas AN-B-13 (2) y
+BSD-B34 e2e; M3 ganancia sin el buylist ⇒ rojas AN-B-13 y AN-B-15; M4 sin `OUTBOUND_ONLY` en el envío de venta ⇒ rojos el
+censo BSD-B23 y la unitaria de clases. Las cuatro restauradas y comparadas con `cmp` contra el árbol vivo.
+
+## 82 · Errata SU-1 construida (💰) — la ubicación deja de ser requisito para publicar (2026-10-07, rama `claude/sin-ubicacion`, sobre `8c72c556`; código en `7e1462a6`)
+
+**Norma.** `API_CONTRACT §M1-SU` (SU.1–SU.6), `ARCHITECTURE §4.65`, HECHOS «La ubicación (cajón) NO es requisito para
+publicar, por ahora» (2026-10-07). Sin schema, migración, endpoint, código de error ni campo nuevo.
+
+**Qué cambió (servidor).**
+- `inventory.service.ts` `pendingPublishStateOf`: ya no hace `missing.push('location')` ⇒ `missing ⊆ ['price']`.
+  `reevaluateOne`: sin el corte `missing_location` ⇒ una pieza sin cajón pasa por guardas + precio + `claimListed` como
+  cualquiera (con precio ⇒ `published`; sin precio ⇒ escala a M2, `price_pending`, `["price"]`). Guardas de graded
+  (cert + identidad de slab) intactas.
+- `pendingPublish`: `?missing=location` sigue válido (clase L) y corta en seco con `200 { data: [], page, pageSize,
+  total: 0 }` (antes empujaba `locationId: null` a SQL). Ninguna fila puede casar, así que no se barre el inventario.
+- `buylist.service.ts` `triggerPublish`: el degradado (puerto ausente o que lanza) pasa de `['location','price']` a
+  `['price']`. ⛔ Nunca `[]`.
+- Vocabulario dormido, sin tocar tipos: `PendingPublishMissing`, `PublishReevaluationOutcome.missing_location`,
+  `SealedAutoPublishDTO.missingLocation` (vale siempre 0), `PENDING_PUBLISH_MISSING_VALUES`. **Revertir** = devolver
+  la línea de `pendingPublishStateOf` (comentario en el sitio la cita), el corte de `reevaluateOne` y el degradado.
+- Nuevo `InventoryService.previewPublication(ids)`: el pronóstico de `reevaluateForPublication` **sin escribir**
+  (mismo orden: listed → guardas → precio con `pendingPublishStateOf`). Lo usa el modo por defecto del script.
+  Los diales de una corrida (`curve`, política de venta, spreads, IVA) se leen en `loadPublishRunDials`, que comparten
+  los dos: el censo PF-11 de `loadSalePremiumFloorPolicy` sigue en 4 en `inventory.service.ts`.
+
+**Script del rezago (SU.3): `backend/scripts/reevaluate-unlocated.ts`.**
+- `npx ts-node scripts/reevaluate-unlocated.ts` cuenta y **no escribe**: `{"mode":"dry-run","selected",
+  "wouldPublish","pricePending","notPublishable"}`. Con `--apply` corre `reevaluateForPublication(ids)` sobre
+  `platform ∧ in_stock ∧ locationId IS NULL` y cuenta `published`, `pricePending`, `notPublishable` y `byOutcome`. Una
+  segunda corrida con `--apply` da `published: 0`. Cualquier otro argumento sale con 64.
+- Base: `DATABASE_URL`, o `DATABASE_PUBLIC_URL` si `DATABASE_URL` es `*.railway.internal` (mismo salto que
+  `scripts/geo/import-sepomex.ts`, reimplementado en el script para no importar código de devops). Imprime solo una
+  etiqueta (`localhost:5432/db` o `***.dominio:***/db`), nunca la URL.
+- Contexto Nest **mínimo** (`ConfigModule` sin `.env`, Prisma, Crypto, Audit, Settings, Inventory), no `AppModule`:
+  ni el planificador de jobs ni workers de BullMQ arrancan. Al arrancar, `SpendWatchService` puede registrar
+  `NO_OWNER_ACCOUNT` (solo lee; ruido conocido en bases sin dueño).
+- ⚠️ **Para devops/orquestador:** la imagen de `Dockerfile.backend` copia `src/`, `prisma/` y `tsconfig.json`, pero **no
+  `backend/scripts/`**. Para correrlo dentro de Railway hay que añadir la copia o correrlo desde un checkout con
+  `railway run` (que inyecta `DATABASE_URL`/`DATABASE_PUBLIC_URL`). Recomendado: dry-run primero y pegar las cuentas
+  en la solicitud de fusión.
+
+**Semilla E2E.** `E2E_FOLIOS.pendingPublishNoLocation` (`E2E-STK-0001`) pasa a la carta `nopref` (sin
+`PriceReference`): `in_stock`, sin cajón y **sin precio** ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`,
+`priceBasis: 'pending'`. El `reset` también re-apunta `cardId` (una BD sembrada antes la tenía en `common`, con precio,
+y saldría de la cola en la primera corrida). El nombre del folio se conserva porque lo citan el contrato y otras suites.
+
+**Pruebas SU-B (tabla SU.6), rojas sobre `8c72c556` y verdes en `7e1462a6`:**
+| # | Dónde | Rojo medido sobre el código de partida |
+|---|---|---|
+| SU-B1 | `test/inventory.su1-sin-ubicacion.spec.ts` | `missing_location` en vez de `published` (+ sin precio: `missing_location` en vez de `price_pending`) |
+| SU-B2 | ídem (i)–(iii) + `integration/pending-publish-seed.e2e-spec.ts` (ii por HTTP con la semilla, iii por HTTP) | (i) total 1; (ii) `["location","price"]`; (iii) la fila sin cajón |
+| SU-B3 | ídem (i) roja; (ii) verde a propósito (guarda de slab con precio manual) | (i) `missing_location` |
+| SU-B4 | `integration/sealed-price.e2e-spec.ts` | `{published:0, missingLocation:1, …}` |
+| SU-B5 | `test/buylist.bl25-bl26.spec.ts` (+ convert-guard, security) | `["location","price"]` |
+| SU-B6 | `integration/reevaluate-unlocated.e2e-spec.ts` (+ `test/reevaluate-unlocated.spec.ts`) | 1.ª `--apply` `published: 0` |
+
+Reescritas (no borradas), además de la lista de §M1-SU: `inventory.pending-publish.spec.ts` (5) «y SALE de la cola»
+(ahora entra por precio y sale con el `move`) y (1b) (las filas selladas entran por falta de precio; el doble de
+pricing ganó `sealedMarketGradeKeyForItem`/`resolveSealedSalePrice`, el mismo que `inventory.sealed-final-price.spec`);
+`inventory.sealed-final-price.spec.ts` SFP-7 «el campo viaja SIEMPRE» y SFP-8 (la paridad con la fila de la cola se
+fija ahora contra `previewPublication` y el basis por valor, porque la pieza con precio ya no está en la cola);
+`integration/inventory-price-audit.e2e-spec.ts` SFP-7/SFP-8 (ídem, por HTTP + `previewPublication`); y dos que el
+contrato no listaba:
+- ⚠️ **Discrepancia con §M1-SU (para el arquitecto):** el contrato dice que `enum-query-axes.e2e-spec.ts:412` «sigue
+  verde sin cambios». **Medido: rojo** («punto 1 fila 2 — FILTRA», distancia 0). Con SU-1 toda fila de la cola trae
+  `missing = ['price']`, así que `?missing=price` ≡ sin filtro y no puede demostrar que filtra. Arreglo: se invierten
+  `valid: 'location'` / `alterno: 'price'` (`?missing=location` ⇒ `[]` ≠ base, y `price` lo discrimina). El dominio
+  (`allowed`) y la paridad clase L no cambian. Verde después.
+- `integration/buylist-item-final.e2e-spec.ts` BRJ-10: la pieza convertida tiene precio de mercado ⇒ la conversión la
+  publica en el acto (SU.1 disparador (a)); la precondición pasa de `in_stock` a `listed`.
+
+**Mediciones (copia del árbol entero en scratchpad, BD propia `tcg_be_ubic`, Postgres 16 + Redis locales).**
+- Antes del cambio de regla (código de `8c72c556` + pruebas nuevas): unitarias SU **7 rojas** (SU-B1 ×3, SU-B2 i–iii,
+  SU-B3 i) + buylist **6 rojas** (SU-B5 y las de `['location','price']`); integración **10 rojas** (SU-B2 ii/iii por HTTP,
+  SU-B4, SU-B6, SP-2, SP-16, SFP-7/9, «ninguna fila emite location»). SU-B3 (ii) verde, como pide la tabla.
+- Después (`7e1462a6`): `tsc --noEmit` y `eslint` limpios; **unitaria completa 441/441 suites, 7968/7968**;
+  **integración completa 115/115 suites, 2255 verdes + 2 skipped**.
+- Mutaciones (sobre una segunda copia, restauradas con `cmp` contra el árbol vivo; deterministas, N=1 cada una):
+  | Mutación | Rojas |
+  |---|---|
+  | M1 volver a exigir ubicación (las dos líneas) | 18 unitarias (5 suites) · integración SU-B4, SP-16, SU-B6 |
+  | M1a solo el corte de `reevaluateOne` | SU-B1 ×2, SU-B1 «missing_location ya no se produce», SU-B3 (i) |
+  | M1b solo el `missing.push('location')` | SU-B1 sin precio, «missing_location…», SU-B2 (i), (ii) |
+  | M2 degradado `[]` / M2' degradado `['location','price']` | 6 unitarias cada una (SU-B5 + convert-guard + security) |
+  | M3 el modo sin `--apply` llama a `reevaluateForPublication` | unitaria «⛔ sin --apply NO llama…» · integración SU-B6 |
+  | M4 sin la guarda de identidad de slab | SU-B3 (ii) |
+
+### 82.SU8 · SU.8 construida — el alta dispara la publicación (2026-10-07, rama `claude/sin-ubicacion`, sobre `35b06778`)
+
+**Norma.** `API_CONTRACT §M1-SU` SU.8 (SU.8.1–SU.8.5), `ARCHITECTURE §4.65 (h)`. Sin schema, migración, endpoint, código
+de error ni campo nuevo.
+
+**Qué cambió (servidor, solo `inventory.service.ts`).**
+- Helper privado `publishCreated(ids, trigger: 'alta' | 'alta_lote' | 'encontrada', folios = [])`: llama al MISMO cuerpo
+  (`reevaluateForPublication(ids)`) dentro de `try/catch`; si lanza, `logger.warn` con trigger y folios y devuelve `[]`.
+  Con `ids` vacío no llama. El tercer parámetro (`folios`, solo para el log) es un añadido a la firma recomendada del
+  contrato: SU.8.2 pide el folio en el `warn` y los ids solos no lo traen.
+- `createItem`: tras el `$transaction`, `publishCreated([id], 'alta', [folio])`; el `201` devuelve `status: 'listed'` si
+  el resultado es `published` y el de la fila creada (`in_stock`) en cualquier otro caso (sin precio, guarda, fallo).
+  Sin relectura: decide el `outcome` del cuerpo.
+- `batchCreate`: tras el `$transaction` (fresco), UNA llamada con los `inventoryItemIds` de todas las líneas `ok:true`.
+  El fast-path de replay y la rama P2002 devuelven antes y no llegan. `publishCreated` no lanza, así que no puede caer
+  en el `catch` del P2002. `resultJson` y la forma de la respuesta no cambian (SU.8.3).
+- `adjustFound` (`encontrada`): tras el `$transaction`, `publishCreated(response.inventoryItemIds, 'encontrada',
+  response.folios)`. `toStatus: 'in_stock'` se queda.
+- ⛔ El `move` (`tryAutoPublish`) no cambia.
+
+**Efecto visible.** Lo dado de alta con precio que resuelve nace `listed` sin `bulk-publish`; raw/graded de `compra`
+sin precio escalan a M2 en el alta (antes no) y quedan en `pending-publish` con `["price"]` y su `pendingPriceEntryId`.
+El sellado sin precio sigue con UNA entrada (dedupe por clave; `inventory.sealed-pending-dedup.spec.ts` verde sin
+cambios).
+
+**Pruebas — `test/integration/su8-alta-publica.e2e-spec.ts`** (Postgres real, HTTP; el cuerpo se observa con
+`jest.spyOn` sobre la instancia real de `InventoryService`, y SU-B12 tumba `PricingService.loadPricingCurve`):
+SU-B7 (raw / graded / sellado sin producto), SU-B8, SU-B9 (con una tercera línea `ok:false` para que «exactamente los
+`ok:true`» discrimine), SU-B10 y SU-B12 (canarios), SU-B11, y un extra de backend: «SU-B7 (extra)» sellado LIGADO con
+`manualMarketMxnCents` ⇒ `listed` y 0 entradas en M2.
+- SU-B8 usa una carta PROPIA sin referencia: con la `nopref` del fixture salía **verde sobre el código de partida**,
+  porque la semilla ya tiene una entrada abierta para su clave (pieza `E2E-STK-0001`) y la fila de la cola toma el
+  `pendingPriceEntryId` de cualquier entrada abierta. Con carta virgen el id solo puede venir de SU.8.
+
+**Prueba existente que cambió y el contrato no listaba: `test/inventory.pending-reason-writers.spec.ts`.** «alta con
+override manual de mercado (`manualMarketMxnCents`) ⇒ resuelve ⇒ 0 entradas» quedó roja con SU.8 (1 entrada
+`no_market`). Causa: el doble de `getReferencesBatch` devolvía siempre `Map` vacío, así que el disparo no veía el
+`PriceReference isManualOverride` que el propio alta acababa de escribir y escalaba. La consulta real sí lo ve (medido:
+«SU-B7 (extra)» con Postgres ⇒ `listed`, 0 entradas). Arreglo en el doble, no en la aserción: por defecto responde los
+overrides manuales escritos en su almacén (misma clave `cardId|productType|gradeKey|finish`); sin overrides ⇒ `Map`
+vacío como antes. La aserción (0 entradas) no cambia.
+
+**Pruebas que el contrato preveía que podían cambiar y NO cambiaron (medido: verdes).** `inventory.adjustments.spec.ts`,
+`inventory.batch.spec.ts` y `inventory.sealed-pending-dedup.spec.ts`: sus arneses no simulan `inventoryItem.findMany`,
+en las altas el disparo lanza dentro del `try/catch` (se ve el `warn`) y lo que aseveran no depende de él: la fila
+creada y `toStatus` en «encontrada» (`adjustments:215`); `updateMany` no llamado en ajustes de pieza existente
+(`adjustments:355/374`) y en `bulk-publish` (`batch:363/407/431`), que no son altas. Como avisa el contrato, no prueban SU.8: eso lo hace la
+suite de integración de arriba. `integration/sealed-price.e2e-spec.ts:730/755`: verdes sin cambios.
+
+**Mediciones (copia del árbol ENTERO por `git archive 35b06778` + los ficheros de SU.8, scratchpad `be-su8`; cliente de
+Prisma generado en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b4` tras `migrate reset`; Redis
+db 14).**
+- **Primero en rojo** (código de `35b06778` + la suite nueva): 6 rojas — SU-B7 ×3 (`in_stock` en vez de `listed`),
+  SU-B8 (0 entradas en M2), SU-B9 (0 llamadas al cuerpo), SU-B11 (`in_stock`). Canarios verdes: SU-B10, SU-B12 (A) y (B).
+- **Después:** `tsc --noEmit` exit 0 · `eslint` (src, test, scripts) exit 0 · **unitaria completa 441/441 suites,
+  7968/7968** · **integración completa 116/116 suites, 2265 verdes + 2 skipped** (incluye `sealed-price` y la suite nueva,
+  10/10).
+- **Mutaciones** (segunda copia, restaurada con `cmp` contra el árbol vivo; deterministas, N=1 cada una), todas rojas:
+  | Mutación | Rojas |
+  |---|---|
+  | M1 sin disparo en `createItem` | SU-B7 ×3, SU-B7 (extra), SU-B8 |
+  | M2 sin disparo en `batchCreate` | SU-B9 |
+  | M3 sin disparo en `adjustFound` | SU-B11 |
+  | M4 disparo en el replay (fast-path de `batchCreate`) | SU-B10 |
+  | M5 sin `try/catch` (el `catch` relanza) | SU-B12 (A) y (B) |
+- **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
+  `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
+  spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).
+
+## 83 · v1.86⟨accesorios⟩ — zona compartida: schema + `M-73` + `enum-values.ts` con AC-B1/AC-B2 (2026-10-07, rama `claude/accesorios`, sobre `c7cc8a90`)
+
+**Alcance (§AC.17 «zona compartida primero»):** solo `prisma/schema.prisma`, la migración
+`prisma/migrations/20261026120000_m73_accessories/` (número y carpeta reservados) y `common/enum-values.ts`, con sus
+pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
+
+### 83.1 Qué hay
+- **Schema:** 5 enums (`AccessoryCategory` en el orden de la tienda, `EnergyType`, `AccessoryLineKind`,
+  `AccessoryLineStatus`, `AccessoryStockMovementKind`); 6 modelos (`Accessory`, `AccessoryPhoto`, `AccessoryStockMovement`,
+  `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`); `Order.shippingBoxSnapshot/shippingBoxReview`
+  (+ relación `accessoryLines`), `ShipmentRequest.accessoryLines`, `ShippingPackage.customerFeeCents`,
+  `PaymentRefund.orderAccessoryLineId/shipmentAccessoryLineId/accessoryQty`. Diff del schema: **solo inserciones** (0 líneas
+  existentes tocadas; `prisma format` NO se dejó aplicado porque realineaba 25 bloques ajenos).
+- **Migración:** DDL generado con `prisma migrate diff` (BD en M-72 → schema nuevo) + CHECKs, índice parcial, disparador y
+  semilla a mano. Idempotente (medido: segunda aplicación con `psql` sobre un esquema recién migrado ⇒ sin error, 8 filas).
+- **`enum-values.ts`:** `ACCESSORY_CATEGORY_VALUES`, `ENERGY_TYPE_VALUES`, `ACCESSORY_LINE_KIND_VALUES`,
+  `ACCESSORY_LINE_STATUS_VALUES`, `ACCESSORY_STOCK_MOVEMENT_KIND_VALUES` (clase E).
+
+### 83.2 Restricciones con nombre (las que (A)/(B) verán en un error 23514)
+| Tabla | CHECK |
+|---|---|
+| `Accessory` | `accessory_stock` (I-AC-2), `accessory_energy_type`, `accessory_energy_not_suggested`, `accessory_active_ready`, `accessory_price_range` (1..1e8), `accessory_cost_range` (0..1e8), `accessory_dims_range` (1..2000), `accessory_weight_range` (1..50000), `accessory_name_length` (1..120 y no solo espacios), `accessory_description_length` (≤ 500) |
+| `AccessoryStockMovement` | `accessory_movement_identity` (after = before + delta, ambos ≥ 0), `accessory_movement_delta` (≠ 0), `accessory_movement_adjust_reason` (`adjust` ⇒ 3..200) |
+| `OrderAccessoryLine` | `order_accessory_line_kind_accessory`, `_quantity` (1..99; paquete = 1), `_bundle_shape`, `_money` (precio ≥ 1, costo ≥ 0, paquete sin costo propio), `_sold_at`, `_restocked_at`, `_refunded_qty` (0..quantity) |
+| `OrderEnergyBundleComponent` | `order_energy_bundle_component_quantity` (≥ 1, costo ≥ 0) |
+| `ShipmentAccessoryLine` | `shipment_accessory_line_quantity` (≥ 1), `shipment_accessory_line_missing` |
+| `Order` | `order_shipping_box_review` |
+| `ShippingPackage` | `shipping_package_customer_fee` (NULL o 1..1e7) |
+| `PaymentRefund` | `payment_refund_accessory_qty_pair`, `_accessory_qty_min`, `_card_xor_accessory`, `_accessory_shipment_line` |
+
+Índice único parcial `accessory_energy_type_active_key` (criterio 732; error 23505). CONSTRAINT TRIGGER
+`order_accessory_line_direct_ship` (I-AC-4; error `check_violation` con ese nombre en el mensaje).
+
+### 83.3 Decisiones que NO están literales en §AC.1 (para que el arquitecto las ratifique o las tumbe)
+1. **El disparador cubre también `UPDATE OF "orderId"`**, no solo `AFTER INSERT`: sin eso, mover un renglón a un pedido
+   `vault` saltaba I-AC-4. ⛔ No cubre cambiar `Order.fulfillmentMode` con renglones dentro (el modo no cambia en la
+   aplicación; un disparador en `Order`, tabla caliente, no lo pide el contrato).
+2. **CHECKs sobre comentarios del contrato no marcados «(CHECK)»:** `delta ≠ 0`, `quantity ≥ 1` de componente y de línea
+   de envío, `unitPriceCents ≥ 1`, costos ≥ 0, **paquete sin `unitCostCents`** (si no, el P&L contaría su costo dos veces),
+   y en `_bundle_shape` el lado **accesorio ⇒ todos los campos de deck nulos** (la letra «todas no nulas ⇔ paquete»
+   admitía un accesorio con `metaDeckId`).
+3. **`deckOrderItemIds String[] @default([])`** (§AC.1 no pone default). Sin él, un `create` de Prisma que omite el campo
+   guarda NULL; el CHECK lee NULL como vacío (`COALESCE(cardinality(…),0)`) de todos modos.
+4. **`@@index([orderAccessoryLineId])` en `PaymentRefund`**: la FK no tiene índice propio y el CAS/agrupación por renglón
+   lo lee.
+5. **Semilla idempotente por TIPO** (`WHERE NOT EXISTS` por `energyType`, no por nombre: si el dueño renombra, no duplica).
+
+### 83.4 Bloqueos para el arquitecto (medidos sobre `4e06c7e`) — ✅ CERRADOS por la errata v1.86.2 (`e0bcba7`, §AC.18; ver 83.6)
+- **(a) AC-B2 banda 3:** `docs/API_CONTRACT.md` no tiene línea canónica `Nombre = a | b …` en «Enums (fuente de verdad)»
+  para los 5 enums nuevos (`grep -nE '^(AccessoryCategory|EnergyType|AccessoryLineKind|AccessoryLineStatus|AccessoryStockMovementKind)\s+='`
+  ⇒ 0). Resultado: `test/enum-values-parity.spec.ts` **11 rojas** (5 de banda 3 + 5 de banda 3 universal + «SIN línea
+  EXACTAMENTE»). Bandas 1 y 2: verdes. Lo cierra el arquitecto con 5 líneas en §0 (no se tocó la prueba para tapar el hueco).
+- **(b) 💰 Los CHECK de M-61/M-70 sobre `PaymentRefund` rechazan las filas de accesorio que §AC.9/§AC.10 piden.** Medido con
+  `psql` (tx deshecha) sobre la BD con M-73:
+  - `item_missing` de §AC.9 (`orderAccessoryLineId`, `shipmentAccessoryLineId`, `accessoryQty`, sin `orderItemId`) ⇒
+    `violates check constraint "PaymentRefund_item_missing_chk"` (exige `orderItemId ∧ shipmentItemId ∧ missingReason`).
+  - `item_delivered` de §AC.10 (2) ⇒ `violates check constraint "PaymentRefund_item_delivered_shape_chk"` (exige
+    `orderItemId ∧ shipmentItemId`).
+  §AC.1 no los modifica. Sin esa decisión del arquitecto (ampliar esos dos CHECK en `M-73` o una `M-73b`, y si la fila de
+  accesorio lleva `missingReason`), el stream (B) no puede escribir ningún reembolso de accesorio.
+
+### 83.5 Pruebas
+- **AC-B1** `test/integration/accessories-m73-migration.e2e-spec.ts` (104 casos): texto de la migración (cada CHECK con
+  nombre, índice parcial, disparador), catálogo de la BD, semilla, columnas nuevas, y conducta (cada CHECK con su caso que
+  revienta y su CONTROL que entra). Antes: 104/104 rojas (sin carpeta ni tablas). Después: 104/104 verdes.
+  Mutaciones (deterministas, 1 corrida cada una, sobre copia del árbol y esquema propio): sin `accessory_stock` ⇒ 3 rojas
+  (texto + 2 de I-AC-2); sin el disparador ⇒ 3 rojas (texto + 2 de I-AC-4).
+- **AC-B2** `test/enum-values-parity.spec.ts`: 5 enums en el ancla, en `PRISMA_ENUMS` y en `DERIVED_VALUES`, más el orden
+  exacto de `AccessoryCategory`. Antes: la suite no compilaba (TS2305 ×10). Después: bandas 1-2 y orden verdes; banda 3 roja
+  por 83.4 (a).
+
+### 83.6 Errata v1.86.2 (§AC.18) construida — formas de `PaymentRefund` para accesorios (2026-10-07, sobre `44175fd`)
+- **§AC.18.1:** las 5 líneas canónicas ya están en §0 ⇒ `test/enum-values-parity.spec.ts` **149/149**.
+- **§AC.18.3 en `M-73`** (no `M-73b`; M-73 no está fusionada): tras los cuatro CHECK de accesorio, `DROP`/`ADD` de
+  `PaymentRefund_item_missing_chk` y `PaymentRefund_item_delivered_shape_chk` (mismos nombres de M-61/M-70, rama carta +
+  rama accesorio) y `payment_refund_accessory_shape` nuevo. Texto literal del contrato.
+- **§AC.18.4 en la reversa:** el bloque de reversa vive ahora entre `-- REVERSA:BEGIN` y `-- REVERSA:END` (cada línea con
+  `-- ` delante; quitarlo da SQL ejecutable) y **repone los dos CHECK de M-61/M-70 ANTES** de los `DROP COLUMN` de
+  `PaymentRefund`. AC-B51 lo extrae y lo ejecuta tal cual, en una tx deshecha.
+- **AC-B1 ajustada:** sus filas de `PaymentRefund` con renglón usaban `order_remaining` (forma que v1.86.2 prohíbe); ahora
+  usan `item_delivered`/`item_missing` de accesorio. Sus consultas de catálogo leen `current_schema()` (antes `public`) para
+  poder correr en un esquema propio. `NAMED_CHECKS` gana `payment_refund_accessory_shape` (105 casos).
+- **AC-B47…B51** en `test/integration/accessories-m73-refund-shapes.e2e-spec.ts` (22 casos; siembra `seedE2E`; filas con
+  FK reales; «rechaza» = `23514` + nombre del CHECK). AC-B50 aplica M-73 ENTERA por segunda vez (splitter que respeta
+  `$$…$$`) y aplica la parte `PaymentRefund` de M-73 sobre una copia de la tabla devuelta a forma M-72 con una fila de carta de
+  cada `kind`. AC-B52 es del stream de cobro (B): no está aquí.
+- **Antes** (BD con la M-73 de `4e06c7e`): 11 rojas de 22 — B47 (2)(5)(8), B48 (2)(3), B49 ×2, B50 texto/definición
+  viva/forma M-72, B51. **Después:** 22/22; con AC-B1, 127/127.
+- **Mutaciones de §AC.18.5** (copia del árbol entero en `44175fd` + los 4 ficheros, cada una en su esquema recién migrado;
+  deterministas, 1 corrida):
+
+  | Mutación | Rojas | Incluye la nombrada |
+  |---|---|---|
+  | M-61 literal en `item_missing_chk` | 3 | B47 (2) ✓ |
+  | `missingReason` solo en la rama carta | 1 | B47 (3) ✓ |
+  | sin `shipmentAccessoryLineId IS NULL` en el entregado | 1 | B48 (4) ✓ |
+  | sin `reason IS NOT NULL` | 1 | B48 (6) ✓ (`pnl-delivered-refunds:490`: NO MEDIDO bajo mutación; por lectura su `UPDATE … reason = NULL` deja de reventar) |
+  | sin `payment_refund_accessory_shape` | 4 | B49 ×2 ✓ |
+  | reversa sin reponer los dos CHECK | 1 | B51 ✓ |
+  | sin comparar `expectedRefundCents` | — | AC-B52: stream (B), no medida aquí |
+- **Suites (copia del árbol entero en `44175fd` + estos ficheros; BD en esquema propio `acc_m73`, no `public`):** unitarias
+  **441/441 · 7989/7989**; integración del subconjunto de reembolsos/preparación (`accessories-m73*`,
+  `pnl-delivered-refunds`, `shipments-prep`, `full-refund-vault`, `orders-public-status`, `settle-late`, `guest-checkout`,
+  `sales-analytics-pnl-parity`, `seed-spei-bucket`, `refund-reason-max`) **11/11 · 286/286**; `migrate deploy` desde cero
+  en `acc_m73` ✓ y el diff contra `schema.prisma` no menciona nada de M-73.
+- **Integración completa: NO MEDIDA limpia.** La corrida murió (`Killed`, exit 137) con carga ~17 en 4 CPU. Además, en un
+  esquema que no es `public` hay rojos de entorno ajenos a M-73: `m64`/`m68` crean CHECKs tras
+  `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = …)` sin filtrar esquema (ya existen en `public` ⇒ se saltan),
+  y varias pruebas consultan `pg_enum`/`pg_constraint` sin esquema y ven duplicados de `public`, `wsh_be`, `acc_*`.
+
+### 83.A Stream (A) construido — `accessories/`: tienda pública, panel, fotos en Postgres, existencias manuales, cajas con tarifa y diales (2026-10-07, rama `claude/accesorios`)
+**Alcance (§AC.17 (A)):** ⛔ sin cobro. Apartar/soltar/liquidar/reponer (`accessory-stock.ts` de §AC.6), `box-fit.ts`
+(§AC.7) y todo `quote`/`session`/preparación/reembolsos son del stream (B): **no** se crearon aquí (los nombres de
+fichero de §AC.6/§AC.7 quedan libres para (B)).
+
+**Ficheros:** `src/modules/accessories/` — `accessories.module.ts`, `accessories.controller.ts` (público),
+`accessories.service.ts`, `admin-accessories.controller.ts`, `admin-accessories.service.ts`, `accessory-dto.ts` (listas
+blancas), `accessory-input.ts` (cuerpos y consultas), `accessory-photo.ts` (`sharp`), `activation.ts`,
+`suggestion-rule.ts`. Fuera del módulo: `common/error-codes.ts` (los **15** códigos de §AC.13, también los de (B)),
+`admin/shipping-config.ts` + `.service.ts` (`customerFeeCents`), `settings/settings.constants.ts` (2 diales),
+`app.module.ts` (import), `package.json` (`sharp ^0.34.5`).
+
+**Endpoints:** `GET /accessories`, `GET /accessories/suggestions`, `GET /accessories/:id`,
+`GET /accessories/:id/photo/:version/:variant` (públicos); `GET|POST /admin/accessories`, `GET|PATCH|DELETE
+/admin/accessories/:id`, `POST …/:id/activate|deactivate` (★), `POST …/:id/photo`, `POST …/:id/stock`,
+`GET …/:id/stock-movements`; `GET|PUT /admin/shipping/packages` con `customerFeeCents`; `PUT /admin/settings` con
+`energyBundlePriceCents` y `accessorySuggestionCount`.
+
+#### 83.A.1 Decisiones que otros roles necesitan
+1. **URL de la foto = ruta absoluta de la API, sin host:** `/api/v1/accessories/<id>/photo/<version>/full|thumb` (letra de
+   §AC.3 «rutas absolutas de la API»). ⚠️ **Discrepancia para el arquitecto/frontend:** `AccessoryPhoto.tsx` y
+   `AccessoryTile.tsx` ponen `photo.thumbUrl` tal cual en `<img src>`; con la tienda en otro origen (Vercel) y la API en
+   Railway, una ruta sin host apunta al origen de la tienda ⇒ 404. O el frontend antepone el origen de
+   `NEXT_PUBLIC_API_BASE_URL`, o el contrato pide URL con host (el backend no tiene hoy variable con su propio origen
+   público). NO MEDIDO contra el stack desplegado.
+2. **`Cross-Origin-Resource-Policy: cross-origin`** en la respuesta de la foto: `helmet()` (`main.ts:44`) pone
+   `same-origin` por defecto y el navegador bloquearía el `<img>` de otro origen. Más `immutable` + `nosniff` de §AC.3.
+3. **Tipo de la foto por firma a mano** (PNG/JPEG/WebP por números mágicos), no con `file-type`: la 21 instalada es solo
+   ESM y el backend es CommonJS bajo ts-jest. Misma regla («por firma, nunca por extensión»), sin dependencia nueva.
+4. **multer en memoria, a mano** (`multer` 2 sin `@types`): límite 10 MiB ⇒ `422 PHOTO_INVALID {reason:'too_large'}` (⛔ el
+   `413`); sin archivo o multipart roto ⇒ `400 VALIDATION_ERROR {field:'file'}`. El procesador repite el tope de 10 MiB.
+5. **Alta:** el súper-admin puede mandar `active`; se **ignora** (nace inactivo siempre; activar es su verbo con su `422`).
+   El operador que lo manda recibe `403 FORBIDDEN_FIELD` con los demás ★. «Mandar» = llave presente con valor ≠
+   `undefined` (también `null`).
+6. **`PATCH` de un activo que lo dejaría sin precio/medidas/peso** ⇒ `422 ACCESSORY_NOT_ACTIVATABLE {missing}` (el contrato
+   no lo dice; sin esto el CHECK `accessory_active_ready` daría `500`). Cambiar a categoría no-energía sin mandar
+   `energyType` lo limpia; energía sin tipo, tipo sin energía o «Sugerido» en energía ⇒ `400 {field}`.
+7. **Borrar sin ventas borra también sus `AccessoryStockMovement`** (FK `Restrict`; sin eso el `204` del contrato es
+   imposible) y la foto (cascada). La bitácora `accessory.deleted` guarda la fila y `movementsDeleted`. Un renglón creado en
+   paralelo gana por la FK (`P2003` ⇒ `409 ACCESSORY_HAS_SALES`).
+8. **Respuesta de `POST …/stock`** (el contrato no la fija): `200 AdminAccessoryDTO`. `adjust` con `newStockQty =
+   expectedStockQty` ⇒ `400 {field:'newStockQty', reason:'no_change'}`; el CAS es `WHERE stockQty = expected AND
+   reservedQty <= new` y, si no casa, se distingue `STOCK_CONFLICT {stockQty}` de `STOCK_BELOW_RESERVED {reservedQty}`.
+   `receive.note` (≤ 200) va a `AccessoryStockMovement.reason`.
+9. **Panel:** `pageSize` por defecto 50 (≤ 100) en lista y movimientos; orden categoría → nombre → id. Movimientos: más
+   recientes primero.
+10. **Cajas:** `customerFeeCents` ausente en el `PUT` ⇒ `null` (es reemplazo entero). Rango 1..10_000_000 ⇒ si no, `400
+    {field:'customerFeeCents', index}`.
+11. **Diales:** `energy_bundle_price_cents` (1..100_000, default 2000) y `accessory_suggestion_count` (0..6, default 3), sin
+    fila en la migración: `prisma/seed.ts` (y `seed-e2e`) siembran todo `SETTING_DEFAULTS` con `upsert … update:{}`, y sin
+    fila manda el default de código. ⛔ Fuera de `OWNER_ONLY_SETTING_KEYS`. El operador
+    recibe el `403 MONEY_OUT_FORBIDDEN` de clase de `SettingsController` (no un `403 FORBIDDEN` llano).
+12. **Sugerencias:** «más vendidos» = Σ `quantity` de renglones `accessory` en pedidos `status = settled` con `settledAt` en
+    30 d (letra; un pedido después reembolsado ya no es `settled` y no cuenta). Desempate final por `id`.
+13. **404 de la foto** usa `NOT_FOUND` (no `ACCESSORY_NOT_FOUND`, que es de la ficha).
+
+#### 83.A.2 Pruebas (de §AC.14, las del panel y la tienda; las de `quote`/`session`/`track` son de (B))
+| Prueba | Dónde | Antes del código | Después |
+|---|---|---|---|
+| AC-B3 (lista, ficha, sugerencias; ⛔ `quote`/`track`) | `test/accessories.activation-and-dto.spec.ts` + `integration/accessories-panel.e2e-spec.ts` | no compila / rojo | verde |
+| AC-B4 (procesador y HTTP) | `test/accessories.photo.spec.ts` (13) + integración | no compila / rojo | verde |
+| AC-B5 (sin S3 ni `UploadsService`, con canario) | `test/accessories.photo-isolation.spec.ts` | rojo (no existía el módulo) | verde |
+| AC-B6, AC-B45 (mitad de activación) | unitaria + integración | no compila / rojo | verde |
+| AC-B7, AC-B8, AC-B9, AC-B39 | integración | rojo | verde |
+| AC-B23 | `test/accessories.suggestion-rule.spec.ts` + integración | no compila / rojo | verde |
+| AC-B40 + diales | `test/accessories.dials-and-packages.spec.ts` + integración | no compila / rojo | verde |
+- **Antes** (sin `accessories/`): unitarias 5/5 suites sin compilar (TS2307/TS2339); integración **27 rojas / 2 verdes de
+  29** (las 2 verdes son controles que ya valían: `403` del operador en cajas/diales y `404` de un id inexistente).
+- **Suite unitaria entera** (copia `git archive` de `501faf1`, árbol entero): 445/446 suites y 8038/8038 pruebas; la suite
+  restante (`auth.c7-mint`) murió por `SIGKILL` del worker con carga ~17 en 4 CPU y, repetida sola, 13/13 ⇒ **446/446**.
+- **Después:** unitarias de accesorios 62/62; `accessories-panel.e2e-spec.ts` 29/29 (3 corridas en el árbol vivo, esquema `acc_a`; la 2.ª
+  dio 28/29 por un supuesto falso de la prueba — los diales SÍ vienen sembrados por `seed-e2e` — corregido en `501faf1`).
+- **Ajustadas por norma (§AC.15, llave aditiva):** `test/sdx-d2f.units.spec.ts` y `integration/sdx-d2f-money.e2e-spec.ts`
+  (`toEqual` exacto de `ShippingPackageDTO` ⇒ + `customerFeeCents: null`). Ambas verdes.
+
+#### 83.A.3 Mutaciones (copia `git archive` del árbol ENTERO en `501faf1`, esquema propio `acc_a_mut`; deterministas, 1 corrida)
+| Mutación | Resultado |
+|---|---|
+| `toCardDTO` con `...r` | AC-B3 «llaves EXACTAS» rojo |
+| sin comprobar la firma | AC-B4 texto renombrado y GIF rojos (2) |
+| `.withMetadata()` en la salida | AC-B4 «sin EXIF ni GPS» rojo |
+| `fit: 'cover'` | AC-B4 relleno/alfa/orientación rojos (3) |
+| importar `UploadsService` en `accessory-photo.ts` | AC-B5 rojo |
+| la energía pide medidas | AC-B45 rojos (2) |
+| la regla deja pasar energías | AC-B23 unitaria roja |
+| sin rango de `customerFeeCents` | AC-B40 unitaria: 6 rojas |
+| dial de sugerencias 0..7 | 1 roja |
+| integración, una corrida con 8 mutaciones en sitios disjuntos (cada prueba nombrada mira uno solo): `forbidStar` siempre pasa; CAS sin `stockQty = expected`; borrar sin la comprobación de ventas **y** sin mapear `P2003`; sin `immutable`; orden sin «agotados al final»; activar sin `activationMissing`; sugerencias sin el filtro `settled`/30 d | **10/29 rojas**, exactamente las 10 de esas mutaciones (AC-B7 ×2, AC-B6/B45 ×2, AC-B8, AC-B9 ×2, AC-B39, AC-B3 lista, AC-B23) |
+| quitar `customerFeeCents` del `select` de cajas | no compila (TS2322): el tipo `ShippingPackageDTO` lo exige |
+| borrar SOLO la comprobación de ventas (con el mapeo de `P2003`) | AC-B9 **verde** (3/3): la FK `Restrict` es la segunda red. Por eso la mutación que cuenta es la doble |
+
+#### 83.A.4 NO MEDIDO (y qué lo cierra)
+- La foto en el stack desplegado (CORP real detrás de `helmet()`, `<img>` desde Vercel): E2E de frontend contra el stack.
+- `sharp` en la imagen de Railway: devops, con un arranque (dependencia añadida en `44175fd`).
+- Carreras del panel (dos `adjust` a la vez, dos `activate` del mismo tipo): el CAS y el índice parcial las cubren por
+  construcción; sin prueba N=10 (no son dinero de cobro). Lo cierra una prueba de carrera si QA la pide.
+- Suite completa de integración: solo corrí `accessories-panel`, `sdx-d2f-money`, `accessories-m73-migration` y
+  `kyc-ine-links` (las tres últimas 147/147 en un esquema reiniciado con la M-73 del árbol vivo, que otro agente estaba
+  reescribiendo; `accessories-panel` 29/29). El resto de la integración: NO MEDIDO por mí.
+
+#### 83.A.v1.86.3 Errata §AC.19.2 construida (2026-10-07, sobre `4dd5649`)
+- **Borrado con la lista entera (punto 7, AC-B53):** `remove` lee los `AccessoryStockMovement` del accesorio
+  (orden `createdAt`, desempate `id`) ANTES de borrarlos, dentro de la misma transacción con la fila bloqueada, y la
+  bitácora `accessory.deleted` lleva `before.movements: {kind, delta, stockBefore, stockAfter, reason, actorUserId,
+  createdAt}[]` (`createdAt` en ISO) con `movementsDeleted` = su largo. ⛔ Sin `id` ni `orderId` del movimiento: con
+  ventas no se puede borrar, así que `orderId` es siempre `null` aquí, y la lista es la de §AC.19.2 al pie de la letra.
+- **Lo que ya cumplía (medido, sin cambio de código):** `PATCH` que desarma un activo ⇒ `422 ACCESSORY_NOT_ACTIVATABLE
+  {missing}` sin escrituras (AC-B54, candado nuevo: no existía prueba de integración del `PATCH`); `PATCH` sin cambio,
+  `activate` de un activo y `deactivate` de un inactivo ⇒ `200` con la fila y sin bitácora; `stock` ⇒ `200
+  AdminAccessoryDTO`; `no_change` se compara con `expectedStockQty` (`accessory-input.ts:157`), no con `stockQty`.
+- **Pruebas** (`test/integration/accessories-panel.e2e-spec.ts`, bloque «v1.86.3»): AC-B53 (antes rojo: `before.movements`
+  `undefined`; después verde), AC-B54 y «respuestas fijadas» (verdes antes y después: candados de lo ya construido).
+  Integración del módulo **32/32**; unitarias de accesorios **5/5 suites, 62/62**. Esquema propio `acc_a2`.
+- **Mutaciones** (copia `git archive HEAD` del árbol entero + los dos ficheros cambiados; 1 corrida cada una, deterministas):
+  guardar solo la cuenta ⇒ AC-B53 rojo; quitar `activationMissing` del `PATCH` ⇒ AC-B54 rojo; `deactivate` sin el
+  corto de idempotencia ⇒ «respuestas fijadas» rojo; quitar `no_change` ⇒ «respuestas fijadas» rojo (`409` en vez de
+  `400`). Cada una puso roja solo su prueba.
+
+### 83.C Stream (C) `decks-meta` — energías del deck, paquete y `pullToken` (§AC.8) 💰 (2026-10-07, rama `claude/accesorios`; código en `a80c50b`, sobre `501faf1`)
+
+**Alcance:** solo `src/modules/decks-meta/` y sus pruebas. ⛔ Sin schema, sin migración, sin secreto nuevo (la firma usa
+`PiiCryptoService.domainHmac`, misma llave del índice ciego, dominio `deck-pull:v1:`). ⛔ No toca `orders`/`payments`.
+
+#### 83.C.1 Qué hay
+- `energy-type.ts` — `energyTypeOf(rawName): EnergyType | null` (puro).
+- `deck-pull-token.ts` — `signPullToken` / `verifyPullToken` (puros; la llave la pone quien llama).
+- `energy-bundle.ts` — `computeEnergyBundleOffer` (la oferta de la ficha) y `evaluateDeckPulls` (**el validador puro**), más
+  `accessoryPhotoOf`.
+- `decks-meta.service.ts`:
+  - `GET /decks-meta/:slug` gana `energyBundle` en la raíz y `basicEnergy` en **todas** las líneas (`null` salvo energía
+    ligada).
+  - `POST /decks-meta/paste` gana `basicEnergy` por línea; ⛔ sin `energyBundle` ni `pullToken` (P-EN-7).
+  - `unitInventoryItemIds`, `availableQty` y `unitPriceMxnCents` no cambian (criterio 747; AC-B36).
+- `decks-meta.module.ts` **exporta `DecksMetaService`** para que el checkout de invitado lo inyecte.
+- El constructor de `DecksMetaService` gana un 4.º parámetro `PiiCryptoService` (global; DI sin cambios en otros módulos).
+
+#### 83.C.2 💰 Lo que llama el stream B (firma)
+```ts
+// src/modules/decks-meta/decks-meta.service.ts — inyectar DecksMetaService (importar DecksMetaModule en OrdersModule)
+evaluateDeckPulls(
+  pulls: readonly { pullToken: string; withEnergyBundle: boolean }[],
+  opts: {
+    requestInventoryItemIds: readonly string[];          // las piezas de la petición, DESPUÉS de la poda en quote (P-EN-4)
+    db?: Prisma.TransactionClient | PrismaService;       // la tx de `session` (default: this.prisma)
+    now?: Date;                                          // reloj (default: new Date())
+    extraAvailableByAccessoryId?: ReadonlyMap<string, number>; // lo apartado por la PROPIA reserva (retryOfCheckoutToken)
+  },
+): Promise<DeckPullEvaluation[]>                         // uno por entrada, mismo orden (campo `index`)
+
+type DeckPullEvaluation =
+  | { index; status: 'bundle' | 'offer'; deckSlug; deckName; metaDeckId; metaDeckListId /* la FIRMADA */;
+      signedInventoryItemIds: string[] /* ⇒ deckOrderItemIds */; bundle: EnergyBundleDTO /* §AC.4, con photo */ }
+  | { index; status: 'invalid'; withEnergyBundle: boolean; deckSlug: string | null; reason: BundleReason }
+  | { index; status: 'ignored'; deckSlug; why: 'bundled' | 'offer_repeated' };
+```
+- Puro y síncrono, si B ya tiene los hechos cargados: `evaluateDeckPulls(pulls, ctx)` de `energy-bundle.ts`, con
+  `ctx = { signer, nowSec, requestInventoryItemIds, decksBySlug, listsById, products, bundlePriceCents }`. El método del
+  servicio solo carga eso y delega. Lo cargan también, sueltos, `loadEnergyProducts(db, extra?)` y
+  `loadEnergyBundlePriceCents(db)`.
+- **Cómo lo traduce B (lectura de §AC.4/§AC.8; B decide el cableado):**
+  - `bundle` ⇒ renglón `energy_bundle`: `unitPriceCents = bundle.priceCents` (el dial, leído **en la llamada**);
+    componentes = `bundle.energies[]` (`accessoryId`, `energyType`, `quantity`); `metaDeckId`, `metaDeckListId`,
+    `deckSlug`, `deckName`; `deckOrderItemIds` = los `OrderItem` de `signedInventoryItemIds`.
+  - `offer` ⇒ `energyBundleOffers` (`bundle`).
+  - `invalid` ⇒ `quote`: `unavailableBundles {deckSlug, reason}`. `session` con `withEnergyBundle:true`: `422
+    ENERGY_BUNDLE_INVALID {deckSlug, reason}`; con `false`: se ignora («no se valida»).
+  - `ignored` ⇒ nada (no es error).
+- ⛔ **No aparta nada.** El apartado por tipo, sumado con las energías sueltas y con otros paquetes del mismo pedido, es el
+  `UPDATE … WHERE "stockQty" - "reservedQty" >= q` de B (§AC.4 paso 2). `insufficient_stock` aquí se calcula **por
+  paquete**: dos paquetes de 8 «Fuego» con 10 disponibles salen los dos `bundle`; la suma la corta B (en `quote`, su poda;
+  en `session`, `409 ACCESSORY_INSUFFICIENT_STOCK`).
+- Llamar a `quote` **después** de podar piezas: P-EN-4 compara contra `requestInventoryItemIds`.
+
+#### 83.C.3 Decisiones que NO están literales en §AC.8 (para que el arquitecto las ratifique o las tumbe)
+1. **Precedencia del `reason`** de la oferta: (1) ningún tipo ⇒ `no_basic_energy`; (2) algún tipo sin producto activo
+   ⇒ `not_offered`; (3) P-EN-3 ⇒ `not_offered`; (4) P-AC-4 ⇒ `not_offered`; (5) existencias ⇒ `insufficient_stock`.
+   Lo estructural antes que las existencias. §AC.8 no dice qué `reason` lleva «tipo sin producto activo»; elegí
+   `not_offered` (no se arregla reponiendo). En el validador, `no_basic_energy` ⇒ `not_offered` (no está en `BundleReason`).
+2. **P-AC-4, «líneas que no son energía básica»** = `matchStatus ≠ unmatched_basic_energy`. Una energía sin set de tipo
+   desconocido (p. ej. «Jet Energy») **no** cuenta en el denominador; una energía básica que **sí** casó como carta **sí**
+   cuenta (y no entra a `energies`, porque `energyTypeOf` solo se aplica a `unmatched_basic_energy`).
+3. **`looseTotalCents`** suma solo los tipos con producto activo (sin producto no hay precio). Da igual para `offered`
+   (ese caso ya es `not_offered`), pero la cifra que ve el cliente en ese caso es parcial.
+4. **«Copias firmadas»** = número de ids firmados (sin repetir). En la ficha se firma la unión de todos los
+   `unitInventoryItemIds` de la lista **vigente**.
+5. **`deck_incomplete` también para `withEnergyBundle:false`** (el paso 3 es «por cada `deckPulls[i]`»): en `quote`, un
+   deck que el cliente desarmó en el carrito sale en `unavailableBundles` con `deck_incomplete` aunque nunca pidiera el
+   paquete. Si el frontend lo quiere callado, es cambio de contrato.
+6. **Duplicados:** se cuentan entre los `true` que pasaron los pasos 1–3. Los `false` se evalúan después de todos los
+   `true`: si el deck ya lleva paquete ⇒ `ignored: bundled`; si ya se ofreció ⇒ `ignored: offer_repeated` (una oferta por
+   deck). El estado `ignored` es interno (B no lo expone).
+7. **Lista firmada de otro deck** (`list.deckId ≠ deck.id`, p. ej. deck borrado y recreado con el mismo slug) o lista
+   inexistente ⇒ `deck_unpublished`.
+8. **Forma estricta de la carga:** exactamente `v, slug, listId, ids, iat`; `ids` cadenas en orden estricto (sin
+   repetidos); `iat` entero ≥ 0 y no más de 5 min en el futuro. Cualquier otra cosa, aunque la firma sea buena ⇒
+   `invalid_token`. Orden: texto → firma → carga → vigencia; con firma mala nunca se dice `expired` ni se consulta la BD
+   con datos del token.
+9. **Vigencia:** vale mientras `now − iat ≤ 30 días` (el segundo 30 d + 1 ya es `expired`).
+10. **El dial `energy_bundle_price_cents`** se lee de `ConfigSetting` aquí (`loadEnergyBundlePriceCents`), con la clave y el
+    default de `settings.constants` (`SettingKey.ENERGY_BUNDLE_PRICE_CENTS`, `SETTING_DEFAULTS` = 2000; los registró (A) en
+    `45e7911`). Ausente o fuera de 1..100_000 ⇒ 2000. Lectura directa (no `SettingsService`) para poder leerlo con el
+    cliente de la transacción de B.
+11. **`basicEnergy: null` explícito** en toda línea no ligada (§AC.8 «Si no ⇒ `null`»), no omitido.
+12. **Foto:** `accessoryPhotoOf` delega en `photoDTO` de `accessories/accessory-dto.ts` (de (A)): **un** solo constructor,
+    `/api/v1/accessories/:id/photo/:v/full|thumb` (ruta de la API con prefijo, sin host). El frontend la usa como `src`
+    directo (`AccessoryTile.tsx:34`): si la API vive en otro origen que la tienda, una ruta sin host no carga. **NO
+    MEDIDO** cómo la resuelve el frontend; aplica igual a (A).
+
+#### 83.C.4 Pruebas (escritas antes del código; «antes» medido contra stubs con la misma firma)
+| Prueba | Fichero | Casos | Antes (stub) | Después |
+|---|---|---|---|---|
+| AC-B28 `energyTypeOf` | `src/modules/decks-meta/energy-type.spec.ts` | 38 | 23 rojas (las 15 verdes son los `null` esperados) | 38/38 |
+| AC-B31 `pullToken` | `src/modules/decks-meta/deck-pull-token.spec.ts` | 38 | 13 rojas (las 25 verdes son rechazos; los muerde la mutación y sus CONTROL) | 38/38 |
+| AC-B30 oferta + AC-B32 validador (puro) | `src/modules/decks-meta/energy-bundle.spec.ts` | 32 | 30 rojas | 32/32 |
+| AC-B29, AC-B30 (ficha y `paste`), AC-B36, AC-B32 (lectura de BD) | `test/integration/decks-meta-energy.e2e-spec.ts` | 17 | 16 rojas (AC-B36 verde: es el candado de «no cambia») | 17/17 |
+| Existentes de `decks-meta` | `decks-meta.service.spec.ts`, `decks-meta-persistence.e2e-spec.ts` | — | verdes | verdes (solo se les pasó el 4.º parámetro y los mocks de `accessory`/`configSetting`) |
+
+**Mutaciones** (copia del árbol entero `git archive 501faf1` + los 12 ficheros de `a80c50b`, `node_modules` enlazado;
+deterministas, 1 corrida cada una; M1 y M2 repetidas también sobre una copia anterior de `44175fd`, mismo resultado):
+| Mutación | Rojas |
+|---|---|
+| M1 verificar con `domainHmac('', parte1)` (sin dominio) | 20 (token + validador), incluida «firma SIN dominio ⇒ invalid_token» |
+| M1b aceptar con dominio **o** sin dominio | 1: «firma SIN dominio ⇒ invalid_token» |
+| M2 quitar la regla de la mitad (P-AC-4) | 6 unitarias + 1 de integración («2 de 6 copias ⇒ not_offered») |
+| M2b `Math.floor` en vez de `Math.ceil` | 1: «49 no-energía (impar)» |
+
+**Suite unitaria entera** (misma copia): 449/449 suites, 8159/8159 pruebas. En la corrida completa 2 suites
+(`money.bounty-cap`, `buylist.admin-list-filters`) cayeron por el entorno —un worker con SIGKILL y
+`node_modules/.prisma/client/default.js` ausente mientras otro agente regeneraba el cliente compartido; carga ~15 con 4
+CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración: `decks-meta-energy` 17/17 y
+`decks-meta-persistence` 7/7 en el esquema propio `acc_c`.
+
+**NO MEDIDO:** el cableado en `quote`/`session` (AC-B32 de punta a punta, AC-B33 carrera del paquete): es de (B). La foto
+servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
+compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
+
+
+### 83.B Stream (B) construido — compra de invitado con accesorios y paquete, apartado, liquidación, caja, preparación, reembolsos, M3/seguimiento, P&L y analítica 💰 (2026-10-07, rama `claude/accesorios`, sobre `4dd5649`)
+
+**Alcance (§AC.17 (B)):** `orders`, `payments`, `shipments`, `admin/pnl-core`, `sales-analytics`. ⛔ Sin schema ni
+migración (M-73 ya trae todo), sin tocar `accessories/` (solo se importa `photoDTO`) ni `decks-meta/` (solo se llama
+`DecksMetaService.evaluateDeckPulls`). Contrato: v1.86 + erratas .1/.2/.3; el orden de `quote`/`session` es el de §AC.19.4.
+
+**Ficheros nuevos (los nombres de §AC.6/§AC.7 quedan en `orders/`, no en `accessories/`, que es de (A)):**
+- `orders/accessory-stock.ts` — un cuerpo por verbo de §AC.6: `reserveAccessories`, `releaseAccessoryReservations`,
+  `renewAccessoryReservations`, `settleAccessories`, `restockAccessoriesOnFullRefund`, `accessoryReservedDrift`,
+  `expiredAccessoryOrderIds`. Toda condición va en el `UPDATE`; orden por `accessoryId` ascendente.
+- `orders/box-fit.ts` — §AC.7 puro: `chooseBox`, `fitUnitsOf` (⛔ energías), `shippingFeeWithBox` (`max`, P-AC-2),
+  `boxSnapshotOf`.
+- `orders/accessory-cart.ts` — puro: `allocateQuoteStock` (paquetes primero, §AC.19.4 paso 4), `wantsOf` (apartado único),
+  `lineIvaCents`, `sameLooseCart`.
+- `orders/guest-accessory-cart.ts` — la parte de accesorios de `quote`/`session` (lee con el `db` que le den; traduce el
+  validador de C).
+- `orders/accessory-lines-view.ts` — `OrderAccessoryLineDTO` (M3 y seguimiento), `accessoryAmountByQtyCents`,
+  `accessoryDeliveredRefundOf` (la vista de M3 Y las guardas del verbo: un cuerpo), renglones del correo.
+- `orders/dto/accessory-cart.dto.ts` — `accessoryLines`/`deckPulls` (§AC.4), `CartNotEmpty`, `accessoryId` repetido ⇒
+  `400 {field:'accessoryLines'}`.
+- `orders/mail/accessory-mail-lines.ts` — «Penny sleeves ×3 — $267.00» / «Paquete de energías — <deck> ×1 (Fuego ×8)».
+- `shipments/accessory-prep.ts` — `ShipAccessoryLineDTO`, `loadAccessoryPrepLines`, cuerpo del `PATCH`, seguro.
+
+**Endpoints:**
+- `POST /checkout/guest/quote` y `/session`: §AC.4 + §AC.19.4 (respuestas aditivas). `inventoryItemIds` pasa a opcional.
+- `POST /checkout/quote` y `/session` (con cuenta): `accessoryLines`/`deckPulls` declarados; no vacíos ⇒ `422
+  ACCESSORIES_REQUIRE_DIRECT_SHIP` en el controlador, ANTES del servicio (criterio 749). La ruta de invitado con sesión
+  válida sigue en `409 ALREADY_AUTHENTICATED` (`reject-authenticated.guard.ts`, sin cambio: ya rechazaba).
+- `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (operador+): §AC.19.5.
+- `GET /admin/shipments/:id` y `/picking-list`: `accessoryLines` + `box`.
+- `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (`@MoneyOut`): §AC.10 (2) v1.86.2.
+- `GET /admin/orders/:id`: `accessoryLines` con `deliveredRefund`. `POST /orders/guest/track`: `accessoryLines` sin él.
+
+#### 83.B.1 Decisiones que otros roles necesitan (lo que el contrato no fija letra por letra)
+1. 💰 **Carrera del paquete: el perdedor recibe una de DOS respuestas, según el instante** (medido: 1/10 en una corrida de
+   AC-B33). Si las dos sesiones validan antes de que la otra aparte ⇒ el `UPDATE … WHERE` decide ⇒ `409
+   ACCESSORY_INSUFFICIENT_STOCK`. Si una valida DESPUÉS del commit de la otra, el validador de C ya ve el stock corto ⇒
+   `422 ENERGY_BUNDLE_INVALID {reason:'insufficient_stock'}` (§AC.19.4 paso 3). Las dos son del contrato y en las dos
+   ⛔ no hay cobro ni doble apartado. ⚠️ **Para frontend:** las dos significan «ya no hay suficientes» (criterio 741).
+   **Para el arquitecto:** si quiere UN código, es errata (p. ej. que `session` traduzca el `insufficient_stock` del
+   validador a `409`).
+2. **Detalles de `409 ACCESSORY_UNAVAILABLE`:** `reason ∈ {not_found, inactive}` (sin precio solo puede ser inactivo: CHECK
+   `accessory_active_ready`). **`409 ACCESSORY_INSUFFICIENT_STOCK.availableQty`** = `stockQty − reservedQty` al fallar el
+   `UPDATE` (lo que queda para OTRO).
+3. **Reuso (§AC.4):** una orden reclamada que solo aparta accesorios (sin piezas) también es «propia» (el pre-scan por piezas
+   no la ve). `heldAlive` = todos sus renglones `reserved` sin vencer. Reuso ⇔ mismas piezas ∧ mismo multiconjunto ∧
+   mismos `deckSlug` ∧ todo aún apartado. En `quote`, el desglose CONGELADO solo rige si además casan los accesorios.
+4. **Soltar nunca resta por debajo de lo real:** si `reservedQty < Σ` (deriva), no se resta (⛔ soltar de más vendería lo
+   apartado por otro); lo denuncia `accessory.reserved_drift` en el barrido.
+5. **Pago tardío sin existencias:** `settledWithoutStock = true`, sin tocar existencias; bitácora
+   `order.settle_accessory_unbacked {lineId, accessoryId, quantity}` UNA por renglón, fuera de la tx. Un paquete se
+   recupera entero o nada.
+6. **El settle/soltar del webhook deciden con los renglones leídos ANTES** (`include: { accessoryLines: { select: { id } } }`):
+   nacen en la sesión, antes del pago, así que esa lectura los ve todos. Sin renglones ⇒ el camino de hoy, literal.
+7. **Reponer al reembolso total** corre en la pasada de `closeShipmentsOnFullRefund` (M3 tx1 y `charge.refunded`), con la
+   orden `settled|refunded` y `afterShipment = false` bajo los candados; idempotente por el CAS `sold → restocked`. ⚠️ En
+   M3 eso es al PEDIR el reembolso (tx1), igual que el cierre del envío: si Stripe lo rechaza después, las unidades ya
+   volvieron al estante. Mismo momento que el contrato fija («en `closeShipmentsOnFullRefund`»).
+8. **`PATCH …/prep-accessory-lines`:** `400 {field}` de forma ANTES de leer; `missingQty > quantity` (o `≠ 1` en paquete) es
+   `400 {field:'missingQty', max}` DESPUÉS de leer la línea (necesita su cantidad). Bitácora con `before` y `after`.
+9. **Verbo de entregado:** las guardas bajo candado son `accessoryDeliveredRefundOf` (el MISMO cuerpo que la vista de M3):
+   `order_not_settled|not_delivered ⇒ 409 ITEM_REFUND_NOT_AVAILABLE {reason}`; `fully_refunded ⇒ 409
+   ACCESSORY_REFUND_EXCEEDS {refundableQty: 0}`; `bundle_requires_deck ⇒ 409 BUNDLE_REFUND_REQUIRES_DECK`; paquete con
+   `quantity ≠ 1 ⇒ 400 {field:'quantity'}`. Candados: envíos → `Order` → renglón (`FOR UPDATE`).
+10. **AV-12 de accesorio:** el nombre lo arma el libro («Penny sleeves ×1»; «Paquete de energías — <deck> ×1»); la
+    plantilla no cambia.
+11. **Correos de pedido (AV-2 y confirmación de invitado):** renglones sin foto (§AC.19.1). El esqueleto de marca SÍ lleva
+    su `<img>` del logotipo (`mail-shell`): la prueba compara el número de `<img>` con el mismo correo sin accesorios.
+12. **Analítica:** `byProductType.accessory`; peso del reparto = `unitPriceCents × quantity` del renglón; `pieces` =
+    unidades + 1 por paquete, también en `totals.pieces`.
+
+#### 83.B.2 Pruebas (escritas ANTES del código)
+| Prueba (§AC.14 / §AC.19.7) | Fichero | Antes del código | Después |
+|---|---|---|---|
+| AC-B24, AC-B25 (snapshot), AC-B45 (filtro) — tabla de la caja | `test/accessories-b.box-fit.spec.ts` (19) | 19 rojas (stub con la firma) | 19/19 |
+| AC-B56 (puro), AC-B12, apartado único, reuso | `test/accessories-b.cart-allocation.spec.ts` (12) | 12 rojas | 12/12 |
+| §AC.4 DTO, AC-B10 (whitelist), 749 (422 con cuenta) | `test/accessories-b.checkout-dto.spec.ts` (17) | no compila (TS2339: el DTO no declaraba los campos) | 17/17 |
+| AC-B60 (llaves exactas), AC-B55 (foto vigente), importes por cantidad, `deliveredRefund`, correo sin foto | `test/accessories-b.order-lines-view.spec.ts` (16) | la suite no corre (stub lanza) | 16/16 |
+| AC-B37 censo con canario | `test/accessories-b.release-census.spec.ts` (20) | 17 rojas / 3 verdes (canarios + «no ciego») | 20/20 |
+| AC-B10, B11, B12, B13, B14, B15, B16+749, B24/B25/B45/B46, B32, B33, B34, B38, B43, B44, B56, B57 | `test/integration/accessories-checkout.e2e-spec.ts` (34) | 33 rojas / 1 verde (CONTROL: sesión válida en la ruta de invitado ⇒ 409, ya existía) | 34/34 |
+| AC-B18, B19, B20, B21, B22, B35, B41, B42, B52, B55, B58, B59, B60 | `test/integration/accessories-prep-refunds.e2e-spec.ts` (18) | 18 rojas | 18/18 |
+| AC-B17, AC-B46 (guía con otra caja) | `test/integration/accessories-label-quote.e2e-spec.ts` (3) | 2 rojas / 1 verde (CONTROL: directo sin accesorios) | 3/3 |
+| AC-B26, AC-B27 | `test/integration/accessories-pnl-analytics.e2e-spec.ts` (4) | 4 rojas | 4/4 |
+
+- Antes, medido: unitarias **48 rojas / 3 verdes de 51** más 2 suites que no corrían (33 pruebas); integración **57 rojas / 2
+  verdes de 59** (los 2 verdes son CONTROLES de conducta que ya existía). Logs en el scratchpad (`before-unit.log`,
+  `before-int.log`).
+- **Dos pruebas mías corregidas antes del verde (premisa, no debilitamiento):** (a) «el correo no lleva `<img`»: el esqueleto
+  de marca (`buylist/mail-shell`) trae el logotipo; ahora compara el número de `<img>` con el mismo correo sin accesorios y
+  exige que no haya `/photo/`. (b) El censo AC-B37 (2) aceptaba solo nombres de tabla; ahora acepta también el cuerpo único
+  que lee los renglones (`releaseAccessoryReservations`, `settleAccessories`, `restockAccessoriesOnFullRefund`,
+  `accessoryInsuredCents`, `expiredAccessoryOrderIds`) — el canario sigue mordiendo.
+- **AC-B33 corregida tras medir** (ver 83.B.1 (1)): aceptaba solo `409`; en 1 de 10 rondas el perdedor recibió `422
+  ENERGY_BUNDLE_INVALID {reason:'insufficient_stock'}`, también del contrato. El predicado exige además `reserved=8`.
+- **Pruebas heredadas ajustadas por norma (§AC.15):** dobles de Prisma ganan `orderAccessoryLine`/`shipmentAccessoryLine`
+  (`m61-mock-defaults.ts`, `guest-checkout.session|guard-sweep-mail`, `orders.reservation`, `orders.reservation-owner`);
+  `guest-checkout.tracking` (allowlist + `accessoryLines`, aditivo §AC.19.6); `sales-analytics.e2e` AN-B-21 (+ celda
+  `accessory`); `refunds.candados` C-REF-1 (`order-refund.service.ts` 2 ⇒ 3 llamadores de `createRows`: el verbo que §AC.10
+  (2) nombra).
+
+#### 83.B.3 Carreras (N=10, O-3)
+| Carrera | Corridas × N | Resultado |
+|---|---|---|
+| AC-B13 última unidad (2 sesiones, `stockQty=1`) | 4 × 10 | **40/40**: una `201`, una `409 ACCESSORY_INSUFFICIENT_STOCK`, `reservedQty=1`, 1 renglón |
+| AC-B33 paquete (8 «Fuego», 2 sesiones de 8) | 4 × 10 | **40/40** una gana y `reservedQty=8`; el código del perdedor: `409` en 39/40, `422 ENERGY_BUNDLE_INVALID/insufficient_stock` en 1/40 (83.B.1 (1)) |
+| AC-B22 entregado sobre la última unidad (2 actos) | 3 × 10 | **30/30**: una `201`, una `409 ACCESSORY_REFUND_EXCEEDS`, `refundedQty=1`, 1 fila |
+
+Carga durante las corridas: 4–8 (4 CPU), con otros agentes. Más una corrida final sobre `git archive 1ae3c21` (esquema `acc_b_mut`): AC-B13 10/10, AC-B33 10/10 (perdedor `409` en las 10), AC-B22 10/10. **Totales: AC-B13 50/50, AC-B33 50/50 (perdedor `409` 49/50, `422 insufficient_stock` 1/50), AC-B22 40/40.**
+
+#### 83.B.4 Mutaciones
+Copia del árbol ENTERO (`git archive 1ae3c21`, `node_modules` enlazado), esquema propio `acc_b_mut`; una corrida por
+mutación (las carreras, N=10 dentro de la prueba). **15/15 rojas:**
+
+| Mutación | Prueba que la muerde | Resultado |
+|---|---|---|
+| **(1)** quitar `AND "stockQty" − "reservedQty" ≥ q` del apartado | AC-B13 | **0/10** verdes (10/10 rojas): el perdedor recibe `500` — el CHECK `accessory_stock` es la segunda red (nunca dos apartados), el `WHERE` es lo que da el `409` limpio |
+| **(2)** no comparar `expectedRefundCents` en el verbo de renglón | AC-B52 | rojo (cero filas con `A−1` ya no se cumple) |
+| **(3)** contar el costo del paquete dos veces en el P&L | AC-B26 | 2 rojas |
+| quitar `status = 'reserved'` del soltar | AC-B14 «dos soltadas» | rojo |
+| quitar `afterShipment = false` de la reposición | AC-B20 «ENVIADO» | rojo |
+| sueltos antes que paquetes en `quote` | AC-B56 (unitaria: 2; integración: 1) | rojo |
+| sumar renglones a `ShipPreparationCounts.total` | AC-B59 (en AC-B18) | rojo |
+| foto con `snapshot.photoVersion` | AC-B55 (unitaria: 2; integración M3/seguimiento: 1) | rojo |
+| `spread` de la fila en `OrderAccessoryLineDTO` | AC-B60 | 4 rojas |
+| quitar `releaseAccessoryReservations` del pago fallido | AC-B37 (censo por fichero) y AC-B14 `payment_failed` | rojo |
+| quitar el filtro `category ≠ energy` de la caja | AC-B45 | rojo |
+| quitar el término de accesorios de `refundPreviewCents` (el plan lo sigue sumando) | AC-B41 | rojo |
+
+#### 83.B.5 Suites
+- **Antes (pruebas que fallan, sobre `4dd5649` + pruebas nuevas):** unitarias de (B) 48 rojas / 3 verdes de 51, y 2 suites que
+  ni corrían (33 pruebas, módulos inexistentes); integración 57 rojas / 2 verdes (los dos testigos) de 59.
+- **Después:** unitarias de (B) 84/84; integración de (B) 59/59.
+- **Unitaria ENTERA sobre `git archive 1ae3c21` (árbol entero, sin env de PII):** 454/454 suites, 8243/8243 pruebas.
+- **Integración de los módulos tocados (41 suites) sobre la misma copia, esquema `acc_b_mut`:** 38/41 suites, 791 verdes /
+  19 rojas / 2 omitidas de 812. Las 3 rojas son de entorno, no de (B): `replacement-cases` PS-34 y `iva-price-convention`
+  leen `information_schema`/`pg_enum` sin filtrar esquema (excluidas por el encargo); `decks-meta-energy` (de C) supone que la
+  perilla del paquete NO tiene fila, y el `seed-e2e` sí la siembra (valor medido 2000) — aviso para (C)/arquitecto.
+
+#### 83.B.6 NO MEDIDO (y qué lo cierra)
+- **El stack levantado:** las pruebas son HTTP contra la app Nest real (harness) y Postgres real; ⛔ no levanté
+  `stack-native.sh` ni el frontend. El recorrido de punta a punta de 724/748/749 en pantalla: QA (E2E).
+- **Stripe real (modo prueba):** se usa el doble del arnés (PI, reembolsos, cancelación).
+- **Carta Porte con más de un concepto** (§AC.9): sin cambio en v1; sandbox de Skydropx.
+- **`decks-meta-energy.e2e-spec.ts` (de C) roja en mi esquema:** su `expect(dialExisted).toBe(false)` (línea 80) supone
+  que `energy_bundle_price_cents` no existe, y `seed-e2e` siembra todos los `SETTING_DEFAULTS` (medido: la fila existe con
+  `2000` en `acc_b`). Depende del orden de las suites, no de (B). Lo cierra C (o QA en BD limpia).
+- **Suites que leen el catálogo sin esquema** (`replacement-cases` PS-34 con `information_schema`, `iva-price-convention`
+  con `pg_enum`): rojas en un esquema que no es `public` por duplicados de otros esquemas; ⛔ no medidas aquí (instrucción
+  del orquestador).
+- **Integración completa (todas las suites):** NO MEDIDA; solo el subconjunto de módulos tocados (83.B.5).
+- **Rendimiento de `GET /admin/shipments/:id`:** ahora arma la vista de preparación (para `accessoryLines`) en cada detalle
+  directo; no medido con carga.
+
+### 83.v1.86.4 Errata v1.86.4 (§AC.20) aplicada — AC-B61, AC-B62, AC-B63 y la norma del dial (2026-10-07, rama `claude/accesorios`, sobre `23ac19d4`; pruebas en `2f8731e3`)
+
+**Sin cambio de código de producción.** Las tres pruebas son candados de conducta ya construida (§AC.20.4): nacen verdes y
+cada una se entrega con su mutación roja. Ninguna prueba demostró un defecto.
+
+#### 83.v1.86.4.1 Qué cambió
+- **`test/integration/decks-meta-energy.e2e-spec.ts` (§AC.20.2):** `beforeAll` guarda `prev` (`valueJson` + `updatedBy`) y
+  pone el estado base «ausente» con `deleteMany` (sustituye al `expect(dialExisted).toBe(false)`); los casos 6000 y 0 usan
+  `upsert`; `afterAll` repone `prev` (lo recrea si existía, si no lo deja ausente). **AC-B63** añadida (ausente ⇒ 2000;
+  2300 ⇒ 2300 y `offered:true`).
+- **`test/integration/accessories-panel.e2e-spec.ts:49` (revisada con la misma regla):** ya guardaba y reponía los diales;
+  perdía `updatedBy` al reponer (medido: `seed-e2e` ⇒ `NULL` tras la suite). Ahora lo conserva.
+- **AC-B61** en `accessories-checkout.e2e-spec.ts` (dentro de AC-B32): (a) 5 «Fuego» y el deck pide 8 ⇒ `422
+  ENERGY_BUNDLE_INVALID {index:0, deckSlug, reason:'insufficient_stock'}`; (b) 10 y dos paquetes de 8 de decks distintos ⇒
+  `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: Fuego, availableQty: 10}`. En las dos: mismas órdenes, renglones,
+  componentes y PaymentIntent creados que antes, y existencias sin cambio.
+- **AC-B62** en `accessories-prep-refunds.e2e-spec.ts` (dentro de AC-B20): funda ×3 (10 → 7), M3 total con
+  `refundOutcome='definitive'` ⇒ fila `order_full` `failed`, `stockQty=10`, envío `cancelado`, renglón `restocked`, un
+  movimiento `restock` (3, 7→10); después `charge.refunded` total ⇒ orden `refunded`, `stockQty=10`, sigue habiendo uno.
+  **El doble de Stripe ya sabía rechazar** (`refundOutcome = 'definitive'`, `helpers/e2e-app.ts`): no se tocó.
+
+#### 83.v1.86.4.2 Antes / después
+- **`decks-meta-energy` vieja en un esquema con `seed-e2e`** (copia `git archive 23ac19d4`, esquema `acc_b2`): **17/17
+  rojas** (el `expect` de `beforeAll`). Además su `afterAll` **borró la fila sembrada** (medido: 0 filas tras la suite) —
+  el efecto que §AC.20.2 (3) prohíbe.
+- **Nueva:** 19/19 con la fila sembrada (y la fila queda `2000`/`seed-e2e`); 19/19 con la fila ausente (y queda ausente).
+- **AC-B61 y AC-B62:** verdes desde el primer intento (3/3 corridas). AC-B62 **N=10: 10/10 verde** (secuencial: el orden de
+  los eventos lo fija la prueba, no hay carrera).
+
+#### 83.v1.86.4.3 Mutaciones (copia `git archive` del árbol entero + las pruebas, esquema `acc_b2`)
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| traducir el `insufficient_stock` del validador a `409` (`guest-accessory-cart.ts`) | AC-B61 (a) | rojo: `409` en vez de `422` |
+| el validador no ve la falta (disponible infinito vía `extraAvailableByAccessoryId`; equivale a validar después del apartado) | AC-B61 (a) | rojo: `409` en vez de `422` |
+| quitar `status = 'sold'` del CAS de `restockAccessoriesOnFullRefund` (lectura **y** `UPDATE`) | AC-B62 | rojo: `stockQty 13` |
+| mover la reposición a la confirmación (la pasada que sella, tx1 de M3, no repone) | AC-B62 | rojo: `stockQty 7` tras el `failed` |
+| el lector del dial devuelve siempre el default | AC-B63 caso 2300 | rojo: `2000` |
+| sin respaldo para la fila ausente (`row ? … : 0`) | AC-B63 caso ausente | rojo: `0` |
+| quitar `status = 'sold'` **solo** del `UPDATE` (la lectura sigue filtrando) | AC-B62 | **sobrevive** (verde) |
+
+- **La sobreviviente, explicada:** las dos pasadas (tx1 de M3 y `charge.refunded`) toman los candados envíos → `Order` antes
+  de leer los renglones, así que la segunda lee con la primera ya confirmada y el filtro `status:'sold'` de la lectura basta.
+  El `WHERE status='sold'` del `UPDATE` es la segunda red. Matarla haría falta una pasada que lea sin el candado de
+  `Order`, que hoy no existe. ⛔ No es un defecto; queda dicho para quien quite un candado.
+
+#### 83.v1.86.4.4 Para quien corra la integración
+- ⚠️ Las suites de integración comparten estado de BD (energías de la semilla, diales): **`--runInBand`**
+  (`jest-integration.config.js` ya dice `maxWorkers: 1`). Medido: con `--maxWorkers=2` y dos ficheros a la vez, AC-B61 (a)
+  dio `not_offered` porque el `init()` de la otra suite apagó «Fuego» a mitad de la prueba. No es de la prueba.
+- Los CHECK de M-64/M-68 no se aplicaron en `acc_b2`: ninguna de estas pruebas depende de ellos.
+
+#### 83.v1.86.4.5 Suites
+- Integración, ficheros tocados + `accessories-panel` (en serie, esquema `acc_b2`): **4/4 suites, 106/106**.
+- Unitaria ENTERA sobre `git archive 2f8731e3` (árbol entero, `--maxWorkers=2`): **454/454 suites, 8243/8243 pruebas**.
+
+#### 83.v1.86.4.6 NO MEDIDO
+- La integración completa (todas las suites): solo las cuatro de arriba.
+- El reparto `409`/`422` bajo carrera (AC-B33): no se re-midió aquí; es de QA (criterio 741).
+
+### 83.sharp `sharp` 0.34.5 → 0.35.5 (aviso alto de `npm audit`, DEVOPS_NOTES §93) (2026-10-07, rama `claude/accesorios`, sobre `fbb21087`)
+- **Qué:** `"sharp": "^0.35.5"` en `backend/package.json`; lock regenerado con `npm install`. Diff del lock medido
+  entrada a entrada (`packages`): **28 entradas**, todas `sharp` / `@img/sharp-*` / `@img/sharp-libvips-*`
+  (0.34.5→0.35.5 y libvips 1.2.4→1.3.4; dos nuevas opcionales `@img/sharp-freebsd-wasm32` y
+  `@img/sharp-webcontainers-wasm32`) más la raíz `""` (el rango). Nada más se movió.
+- `npm audit --omit=dev --audit-level=high` ⇒ **rc=0**.
+- **Tipos en 0.35:** el paquete publica `dist/index.d.mts` (vía `types`) y nuestro `tsconfig` (CommonJS, resolución
+  clásica) lo resuelve: ahí `sharp` es `export default` y los tipos son **exportaciones con nombre**, no un namespace.
+  Por eso `sharp.Color` daba `TS2503`. Arreglo en la prueba: `import sharp, { type Color } from 'sharp'`; la prueba no
+  cambia de conducta. `src/modules/accessories/accessory-photo.ts` no usa tipos del namespace: sin cambios. El
+  runtime sigue cargando `dist/index.cjs` (`require`), sin avisos de obsolescencia en `rotate()`, `failOn`,
+  `limitInputPixels`.
+- **Mutación** (copia `git archive` del árbol entero): añadir `.withMetadata()` tras `.rotate()` ⇒ «⛔ sin EXIF ni GPS»
+  roja **3/3** (`m.exif` llega con `Exif…`); el resto 12/12 verde. Restaurado ⇒ 13/13.
+- **Suites** (misma copia, `node_modules` enlazado): `tsc --noEmit` rc=0; unitaria entera **454/454 suites,
+  8243/8243**; integración `accessories-panel` (esquema `acc_sharp`) **1/1, 32/32**.
+- **NO MEDIDO:** la imagen Docker (musl, canario de §93) con 0.35 — es de devops/CI (`trivy-image`).
+
+### 83.seed Filas del deck de energías en `seed-e2e.ts` (petición de frontend, `FRONTEND_NOTES §107.real`) (2026-10-07, rama `claude/accesorios`, sobre `4d15501f`)
+
+**Qué entra** (`backend/prisma/e2e-fixtures.ts` + `backend/prisma/seed-e2e.ts`; espejo de `DECK_SEED` en
+`frontend/e2e/utils/accessories-scenario.ts`):
+- `E2E_SET.ptcgoCode = 'EEB'`. El `upsert` del set pasa de `update: {}` a `update: { ptcgoCode }`: una BD sembrada antes
+  queda CORREGIDA, no como estaba (medido: `ptcgoCode` puesto a `NULL` a mano ⇒ tras sembrar, `EEB`). 3 letras a
+  propósito: los fixtures propios de `decks-meta-persistence`/`decks-meta-energy` usan códigos de 4 letras ⇒ sin choque
+  en el emparejador.
+- `E2E_CARDS.deckember` (`e2e-ac-deck-ember`, «E2E Deck Ember» #40) y `E2E_CARDS.deckspark` (`e2e-ac-deck-spark`,
+  «E2E Deck Spark» #41), en «E2E Base Set», `raw:NM` MX$50 (5000 ¢; la raw más barata ⇒ el orden por precio de
+  `frontend/e2e/utils/grading.ts` no se mueve). Al estar en `E2E_CARDS` entran solas al borra-y-declara de
+  `PriceReference` y al candado de `seed-idempotency.e2e-spec`.
+- Cuatro piezas `listed` de plataforma, raw NM, en la ubicación de plataforma: `E2E-LST-0010/0011` (#40) y
+  `E2E-LST-0012/0013` (#41) (`E2E_FOLIOS.listedDeck*`). Se resetean a plataforma/listed en cada siembra, como el resto
+  de `E2E-LST-*`, y sus `InventoryMovement` entran al reset del paso 3b.
+
+**Único candado que cuenta filas del set y se ajustó:** el oráculo `E2E_SET_EXPECTED_NUMBERS` gana `'40', '41'`
+(entre `33` y `98`). Es contar dos filas nuevas, no debilitar: canario medido — con las filas nuevas y el oráculo viejo,
+`buylist-cards-order` sale **rojo** (`Expected: 11, Received: 13`).
+
+**Medido** (esquema propio `acc_seed`, Postgres local):
+- Idempotencia: seed ×2 ⇒ conteos de `CardSet/Card/PriceReference/InventoryItem/User/Order` (2/17/15/19/11/2) y filas
+  del deck **idénticos** (`diff` vacío entre las dos fotos).
+- Integración completa `--runInBand` con el cambio: 124 suites, 108 verdes / 16 rojas. Re-corridas las 16: 8 eran
+  transitorias (6 por `sharp` a medio reinstalar en `node_modules` durante la corrida —subida 0.34→0.35 de otro rol—,
+  2 carreras bajo carga) y salen verdes; las otras 8 (31 pruebas: CHECKs/migraciones en esquema no-`public`,
+  `C-EQ-1`, PS-27/33/34/36b) fallan **igual** sobre una copia `git archive 4d15501f` del árbol entero sin el cambio
+  (esquema `acc_seed_base`): mismos 31 nombres. Preexistentes y de entorno, no de esta fila.
+- Verdes y sensibles al seed: `seed-idempotency`, `buylist-cards-order`, `catalog-checkout-webhook`, `buylist`,
+  `buylist-raw-only`, `buylist-cycle`, `vault-shipments`, `reevaluate-unlocated`, `decks-meta-energy`,
+  `decks-meta-persistence`, `set-ptcgo-code-search`. Unitaria `seed-e2e.target-guard` 16/16.
+
+**NO MEDIDO:** que los casos del deck de `accessories.spec.ts` dejen de saltarse contra el stack con este seed (lo cierra
+una corrida real de frontend/QA; frontend lo midió con las mismas filas simuladas por SQL, §107.real).
+
+### 83.ceq1 `C-EQ-1` clasifica los `@Query` de accesorios (CI `backend-e2e` 1/2507 rojo, `enum-query-axes` «ningún `@Query` fuera de las CINCO listas») (2026-10-08, rama `claude/accesorios`, sobre `2aa807f7`)
+
+**El rojo:** cuatro llaves sin clase — `GET /accessories::<sin nombre>`, `GET /accessories/suggestions::exclude`,
+`GET /admin/accessories::<sin nombre>`, `GET /admin/accessories/:id/stock-movements::<sin nombre>`.
+
+**Decisión: los tres `@Query()` enteros pasan a llaves con nombre, ⛔ no a `QUERY_SIN_NOMBRE`.** Esa lista tiene techo 2
+(trinquete) y, peor, **esconde las llaves al censo**: `?category=` (un enum) habría quedado fuera del descubrimiento y de la
+mitad HTTP. No hay motivo tipo `D-A5-3` para leer la query entera (el parser ya ignoraba las llaves desconocidas, y las sigue
+ignorando). Cambio en `accessories.controller.ts` y `admin-accessories.controller.ts`: los mismos parsers de siempre
+reciben `{category, q, page, pageSize}` / `{…, active, soldOut}` / `{page, pageSize}`.
+
+| Llave del censo | Clase | Dónde |
+|---|---|---|
+| `GET /accessories::category`, `GET /admin/accessories::category` | **E** (`AccessoryCategory`; §AC.3 «`category` ∈ enum») | `REGISTRO`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'` |
+| `::q`, `::page`, `::pageSize` (las tres rutas) | no-enum por nombre | `NO_ENUM_TRANSVERSAL` (sin tocar) |
+| `GET /accessories/suggestions::exclude` | CSV de ≤ 50 UUID (formato, no tokens) | `NO_ENUM_POR_RUTA` |
+| `GET /admin/accessories::active`, `::soldOut` | banderas `true\|false` | `NO_ENUM_POR_RUTA` |
+
+**Arreglo de conducta que el registro exigió:** `?category=` no cumplía §0-Q: devolvía `400 {field}` **sin `allowed`** y
+`?category=%20%20` daba `400` (punto 1: solo espacios ⇒ no filtra). Ahora pasa por `parseEnumFilter('category', …,
+ACCESSORY_CATEGORY_VALUES)` (`accessory-input.ts`), ⛔ sin `echoValue`. Fixture (n) de `enum-query-axes`: tres accesorios
+activos `CEQ1-` (2 `sleeves`, 1 `playmats`), limpiados por nombre. Observación propia `OBS_ACCESORIOS` (total + ids, la
+respuesta es `{items,…}` sin `data`).
+
+**Topes que se movieron (la conversación del trinquete):** `REGISTRO` 64 → **66**, pendientes 18 → **20**,
+`NO_ENUM_POR_RUTA` ≤ 59 → **≤ 62**. `QUERY_SIN_NOMBRE` ≤ 2 **sin cambio**.
+
+**Para el arquitecto (regla 9):**
+1. Falta la fila de §0-Q punto 4 de `?category=` en `GET /accessories` y `GET /admin/accessories` (clase E). Al escribirla,
+   las dos filas pasan a `transcrita` y los pendientes bajan a 18.
+2. `?active=`/`?soldOut=` del panel: §AC.11 no declara su dominio. Se trataron como banderas (precedente `?guest=`,
+   `?principalOnly=`), pero hay precedente en contra: `?muted=true|false` es **L** con fila en §0-Q. Si las quiere L, salen
+   de `NO_ENUM_POR_RUTA` al `REGISTRO` y su `400` gana `allowed`.
+3. Ratificar `?exclude=` como no-enum (UUIDs).
+
+**Medido:**
+- `enum-query-axes` sobre el árbol vivo (esquema `acc_ceq`): **555/555, 7/7 corridas** (N=7).
+- Mutación 1 (copia del árbol entero, quitar `'GET /admin/accessories::soldOut'` de `NO_ENUM_POR_RUTA`): el descubrimiento
+  sale **rojo** nombrando esa llave. Mutación 2 (volver al parser viejo de `category`): **4 rojas** (`espacios` y `error`
+  en las dos rutas). 1 corrida cada una (son deterministas).
+- ⚠️ En la corrida de la mutación 1 salió además roja `GET /admin/vaults?sort= ⇒ conforme` (`filtra`: `pieces_desc` ≡ sin
+  filtrar). No la toca este cambio y no se repitió: 1 roja en 9 corridas sobre el mismo esquema. Causa **NO MEDIDA**.
+- Unitarias: `enum-query-census-canary`, `enum-values-parity`, `enum-filter`, `enum-parity-lock-canary` y las 10 de
+  accesorios, 342/342; unitaria completa 454 suites / 8243 pruebas. Integración `accessories-*` 7 suites / 221.
+
+#### 83.ceq1.v1.86.5 Errata v1.86.5 aplicada — `?category=` transcrita, `?active=`/`?soldOut=` clase L (2026-10-08, rama `claude/accesorios`, sobre `179d8163`)
+
+**Qué cambió** (`API_CONTRACT` errata v1.86.5, §0-Q punto 4 y §AC.11):
+- `?category=` de `GET /accessories` y `GET /admin/accessories`: las dos filas del `REGISTRO` pasan a `transcrita`.
+- `?active=` y `?soldOut=` del panel: clase **L** `true | false` (`ACCESSORY_BOOLEAN_FILTER_VALUES`, `accessory-input.ts`),
+  por `parseEnumFilter`. **Cambio de conducta:** solo espacios ⇒ no filtra (antes `400`); fuera del dominio ⇒ `400 {field,
+  allowed: ['true','false']}` (antes sin `allowed`), ⛔ sin `echoValue`. Salen de `NO_ENUM_POR_RUTA` y entran al
+  `REGISTRO` con paridad a dos bandas contra la fila de §AC.11. El parser booleano anterior (`boolParam`) se retiró: no
+  quedaba otro llamador.
+- `?exclude=` sigue en `NO_ENUM_POR_RUTA` (ratificado).
+- Fixture (n) gana un accesorio `CEQ1-` **inactivo y agotado** (`binders`, `stockQty` 0): es el único de `active=false` y de
+  `soldOut=true`.
+
+**Topes medidos:** `REGISTRO` 66 → **68**, pendientes 20 → **18**, `NO_ENUM_POR_RUTA` ≤ 62 → **≤ 60** (coinciden con el
+cálculo del arquitecto).
+
+**Frontend** (solo lectura, `frontend/src/lib/api.ts` `listAdminAccessories`): manda `active` como `String(boolean)` u
+omitido, y `soldOut` como `'true'` u omitido. Ambos dentro del dominio ⇒ compatible, sin cambio en el frontend.
+
+**Medido** (esquema `acc_ceq`):
+- La prueba antes que el código: con las filas nuevas y el parser viejo, **4 rojas** (`espacios` y `error` de `active` y
+  `soldOut`), 569 verdes.
+- Con el código: `enum-query-axes` **573/573 en 6 de 7 corridas**. La séptima roja fue `GET /admin/vaults?sort=` (abajo).
+- Mutación 1 (copia del árbol entero, quitar la fila `soldOut` del `REGISTRO`): el descubrimiento sale rojo
+  (`GET /admin/accessories::soldOut` huérfano) y también el trinquete (68). Mutación 2 (parser viejo solo en `soldOut`):
+  2 rojas, las dos de `soldOut`.
+- Unitarias de paridad 196/196 (`enum-query-census-canary`, `enum-values-parity`, `enum-filter`,
+  `enum-parity-lock-canary`). Unitaria completa 454 suites / 8243 pruebas. Integración `accessories-*` 7 / 221.
+
+**⚠️ `GET /admin/vaults?sort= ⇒ conforme` (propiedad `filtra`) es intermitente y ya pasaba antes de este cambio.** Fue roja
+en 4 de 22 corridas: 3 de 19 en los árboles de este trabajo (§83.ceq1 y este apartado, mutaciones incluidas) y 1 de 3
+sobre una copia de `2aa807f7` sin ningún cambio mío (esquema recién sembrado `acc_ceq_base`), donde cayó en la segunda. En las dos siembras nuevas que vi completas, cayó en la **segunda corrida después de sembrar**.
+Ese patrón está medido pocas veces. No es de accesorios. Causa **NO MEDIDA**. La cerraría medir la huella de `pieces_desc`
+contra la base en esa corrida. Dueño: el stream de la bóveda (`admin-vaults.service.ts`).
+
+### 83.gates Condiciones de QA y techlead sobre `dd26ae79` (C-1, C-2, menor de la foto) + errata v1.86.6 (§AC.21, TD-AC-1) (2026-10-08, rama `claude/accesorios`, sobre `2aab8582`)
+
+#### 83.gates.1 C-1 · interbloqueo `40P01` entre liquidar/reponer y apartar
+- **Defecto (de QA, reproducido aquí):** `reserveAccessories` bloquea `Accessory` por id ascendente; `settleAccessories`
+  (renglón `reserved` y recuperación `released`) y `restockAccessoriesOnFullRefund` lo hacían **por renglón**. Dos
+  renglones de ids cruzados (L1→B, L2→A, A<B) ⇒ B y luego A contra A y luego B.
+- **Arreglo:** `lockAccessories(tx, ids)` (`orders/accessory-stock.ts`) — una sentencia
+  `SELECT id FROM "Accessory" WHERE id = ANY($ids) ORDER BY id COLLATE "C" FOR UPDATE`, al entrar a los dos verbos, con
+  todos los accesorios de los renglones que el verbo va a tocar (sueltos y componentes). `COLLATE "C"` = el orden de bytes
+  de `byId` (el de `reserveAccessories`); con UUID en minúscula coincide con la intercalación de la BD, pero así no
+  depende de ella. «Paquete entero o nada» sin cambio: el candado solo adelanta el orden, no la lógica por renglón.
+- **Por qué no hay ciclo con `Order`/`OrderAccessoryLine`:** el settle gana antes el CAS de `Order`
+  (`payments.service.ts:459-467`) y el reembolso total ya tiene la orden bloqueada; dos verbos del MISMO pedido se
+  serializan ahí. El candado nuevo solo ordena entre pedidos distintos.
+- **Pruebas (escritas antes del arreglo):**
+  - `test/integration/accessories-lock-order.e2e-spec.ts` — entrelazado forzado (`row-lock-barrier.ts`: tercera conexión
+    retiene B; espera comprobada en `pg_stat_activity`, sin `sleep`), un caso por verbo (`settle_reserved`,
+    `settle_recovery`, `restock`), `ACL_N` rondas (10).
+  - `test/accessories-c1.lock-order.spec.ts` — doble de Prisma: primer contacto con cada accesorio en orden ascendente, el
+    `FOR UPDATE` antes de cualquier `UPDATE` y cubriendo todos (5 casos: suelto, recuperación, paquete+suelto, ×2 verbos).
+- **Medido (Postgres 16 propio):** antes (`dd26ae79`) **10/10 con 40P01 por verbo** (N=10, dos corridas: árbol vivo y
+  copia revertida ⇒ 20/20); después **0/40 por verbo** (4 corridas × N=10). En los 40 la compra (`reserve`) terminó `ok`
+  y el estado final cuadró.
+- **Mutaciones (copia del árbol entero):** M0 revertir el fichero ⇒ unitaria 5/7 rojas, integración 3/3 rojas (10/10 cada
+  verbo). M1 sin candado en settle ⇒ 3 unitarias y 2 integración rojas (restock verde). M2 sin candado en restock ⇒ 2
+  unitarias y 1 integración rojas. M3 sin `sort` en JS y M4 sin `ORDER BY` ⇒ unitaria 5/7 roja; integración **verde**
+  (M3: el `ORDER BY` de la sentencia sigue ordenando; M4: el plan devolvió las filas en orden de índice — no garantizado)
+  — por eso existe la prueba con doble, que fija ambas mitades.
+
+#### 83.gates.2 C-2 · `accessoryLines` obligatorio
+`settleDirectShipOrder` y `onChargeDisputeDirectShip` (`payments.service.ts:445`, `:911`) piden
+`accessoryLines: { id: string }[]` (antes opcional): el compilador exige el `include` en cada llamador (`:219`→`:277`,
+`:858`→`:863`). Las lecturas (`:556`, `:611`, `:692`, `:974`) **siguen** `?.length ?? 0`: sin cambio de conducta. Medido:
+con lecturas estrictas (`order.accessoryLines.length`) la unitaria daba **6 suites / 28 pruebas rojas** (`payments.*`: sus
+dobles construyen la orden a mano sin `accessoryLines`); la producción no lo puede hacer ya (lo exige el tipo), así que no
+se tocaron esos dobles. `tsc` limpio. **Mutación:** quitar `accessoryLines` del `include` de `:219` ⇒ `error TS2345` en
+`:277`; del de `:858` ⇒ `TS2345` en `:863`.
+
+#### 83.gates.3 Menor de QA · la foto se decodificaba dos veces en paralelo
+`processAccessoryPhoto` hacía `Promise.all([render(1200), render(400)])` desde la fuente (hasta 40 MP ⇒ ~2×160 MB). Ahora la
+fuente se decodifica **una** vez (para `full`) y la miniatura sale de `full` (cuadrada 1200², misma geometría `contain`,
+mismo fondo). `version` sigue siendo el sha de `full` ⇒ sin cambio. **Cambio visible:** los bytes de `thumbWebp` cambian
+(re-escalado desde el WebP de 1200 en vez de la fuente); las dimensiones, formato y alfa no. Prueba
+`test/accessories.photo-single-decode.spec.ts` (envuelve `sharp` y cuenta tuberías sobre el buffer fuente que llegan a
+`toBuffer`): antes 2 ⇒ roja 2/2; después 1. Las 25 de `accessories.photo*` siguen verdes.
+
+#### 83.gates.4 Errata v1.86.6 (§AC.21) — liquidar nunca cae por un accesorio (TD-AC-1)
+- `settleAccessories` devuelve `{ anomalies: AccessorySettleAnomaly[] }` (antes `{ unbacked }`). Renglón `reserved`, por
+  componente en orden de id: (a) venta; (b) recuperación desde libres sin tocar `reservedQty` (`settle_recovery`);
+  (c) sin respaldo: lo escrito vuelve (`stockQty += q`, sin `reservedQty`), lo no alcanzado suelta su apartado
+  (`reservedQty −= q ⇔ reservedQty ≥ q`), el que falló nada; `settledWithoutStock = true` (segundo `updateMany` tras el
+  CAS), sin movimientos. Los candados ya los tomó C-1. Sin `throw` por existencias; errores de BD se propagan.
+- `payments.service.ts:564-577`: fuera de la tx, `.catch` como B3 — `recovered` ⇒ `order.settle_accessory_anomaly
+  {lineId, accessoryId, quantity, was:'reserved', recovered:true}`; sin respaldo ⇒ `order.settle_accessory_unbacked
+  {lineId, accessoryId, quantity, was}`. **Cambio de forma:** la bitácora `unbacked` gana `was` (la del pago tardío lleva
+  `was:'released'`); se actualizó la expectativa en `accessories-checkout.e2e-spec.ts:386`.
+- **Pruebas** `test/integration/accessories-settle-anomaly.e2e-spec.ts` (AC-B64, AC-B65, AC-B66 (i)/(ii)): antes del
+  código 4/4 rojas (el `throw`). En AC-B66 «Fuego»/«Agua» son papeles (contador sano/roto) sobre dos energías de la semilla
+  (fire, water), asignados según el orden de sus ids para cubrir los dos órdenes.
+- **Mutaciones (copia, N=1 cada una — sin carrera, §AC.21.5):** reponer el `throw` ⇒ 4/4 rojas; saltar (b) ⇒ B64 roja;
+  (b) con `stockQty ≥ q` ⇒ B65 roja (y B66 (i)/(ii)); en (c) deshacer también `reservedQty` ⇒ B66 (i) roja; no deshacer lo
+  escrito ⇒ B66 (i) roja; no soltar lo no alcanzado ⇒ B66 (ii) roja. Las seis como pide el contrato.
+
+#### 83.gates.5 Deuda
+`docs/TECH_DEBT.md` «Backend · 2026-10-08 · gate de techlead sobre `dd26ae79`»: TD-AC-1 cerrada por v1.86.6; TD-AC-2…7 y
+TD-AC-10 (propuesta del arquitecto, sin construir). El texto del veredicto no estaba en el árbol: alcance de cada entrada
+según el encargo; fichero:línea re-medidos por backend.
+
+#### 83.gates.6 Suites (copia `git archive HEAD` del árbol entero + los ficheros de este pase)
+- Integración `accessories-*` y `decks-meta-*` con `--runInBand`, Postgres 16 propio: **11/11 suites, 254/254** (dos
+  corridas; la segunda con el estado final de C-2).
+- Unitaria completa: **456/456 suites, 8252/8252 pruebas**. `tsc --noEmit` limpio; `eslint` limpio en los ficheros tocados.
+
+---
+
+## 84 · §WSH lista de deseos construida (💰) — M-74, módulo `wishlist`, job `wishlist-notify`, lista de compra del dueño y «avísame» de sellados agendado con armado (2026-10-07, rama `claude/wishlist`, sobre `de751da`; código en `3615dbf`, `c61f1f0`, `c933461`, `c0667e6`)
+
+Norma: `API_CONTRACT §WSH` con la errata v1.87.1 (el contrato manda). Decisiones del dueño: `HECHOS.md` filas 2026-10-07
+«Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada». Numeración reservada por el orquestador: `M-74`, §84.
+
+### 84.0 Commits (en orden)
+| Commit | Qué |
+|---|---|
+| `3615dbf` M-74 | esquema aditivo (3 tablas, enum, 4 columnas, índice) + `20261027120000_m74_wishlist/migration.sql` (2 CHECK, siembra de los 8 diales `ON CONFLICT DO NOTHING`), idempotente (re-aplicada a mano: 0 errores) |
+| `c61f1f0` pruebas | WSH-T1…T37 escritas ANTES del código: unit 4/4 suites rojas (24 rojas / 2 verdes), e2e 4/4 suites rojas (49 rojas / 1 verde) |
+| `c933461` diales + aritmética | `settings.constants.ts` (8 claves, seeds, dominios, `SETTING_DTO_MAP`), `error-codes.ts` (3 códigos), `common/wishlist-math.ts` |
+| `c0667e6` módulo | `modules/wishlist/*`, catálogo, pagos, admin, planificador, disparo manual, adaptación de pruebas existentes |
+
+
+### 84.1 Qué hay y dónde
+- `src/common/wishlist-math.ts` — `maxDisplay`, `fits`, `tope`, `ceiling`, `marginAtMarket`, `demandRowMath`. `BigInt`, un solo
+  redondeo por cifra (`halfDiv`). `pct` en puntos con un decimal, redondeo simétrico.
+- `src/modules/wishlist/` — `wishlist.service.ts` (CRUD, preview, alertas, `mail-actions`, `consumeForSettledOrder`),
+  `wishlist-notify.service.ts` (el job), `wishlist-demand.service.ts` (JSON + CSV), `wishlist-market.service.ts` (UNA lectura de
+  `M` y del precio normal), `wishlist-pieces.ts` (el predicado único en SQL), `wishlist-mail.ts` (render puro, foto filtrada),
+  `wishlist-dials.ts`, `wishlist.constants.ts`, `dto/wishlist.dto.ts` (`StrictBodyPipe`), `wishlist.controller.ts` (3 controladores).
+- `CatalogService.sellableByIds(ids)` (`catalog.service.ts`, junto a `fetchSellable`): mismo cuerpo que la ficha.
+- `GET /catalog/cards/:cardId` gana `wishlistEnabled` en la raíz — se añade en el CONTROLADOR (`catalog.controller.ts` `getCard`),
+  no en el servicio: los dobles de `SettingsService` de 9 suites unitarias del catálogo no tienen `getString`, y el censo de
+  consultas de `graded-estimate.composition.spec.ts` («la ficha cuesta 1 query de config») sigue exacto.
+- Planificador: `wishlist-notify` y `sealed-restock-notify` cada 5 min (`WISHLIST_NOTIFY_CRON`, `SEALED_RESTOCK_NOTIFY_CRON`,
+  sufijo `-cron`), `scheduler.service.ts:286-287` y `case` en `:407-410`. Disparo manual `POST /admin/jobs/wishlist-notify`
+  (`200`, auditado `jobs.wishlist_notify.run`).
+
+### 84.2 D-WSH-1…7 — cierre
+| # | Cerrado en | Prueba |
+|---|---|---|
+| D-WSH-1 (job sin agendar) | `scheduler.service.ts:286-287`, `:407-410` | WSH-T24 unit + e2e (AppModule real) |
+| D-WSH-2 (correo sin enlace) | `sealed-restock-notify.service.ts:177` (`sendRestockEmail`, `appUrl('sellado/{id}','es')`) | WSH-T25, unit (e) |
+| D-WSH-3 (dos filas ⇒ dos correos) | capa 1 `sealed-catalog.service.ts:526` (no crea la 2.ª pendiente); capa 2 agrupado por correo `sealed-restock-notify.service.ts:138-161` | WSH-T25 (fila duplicada sembrada a mano ⇒ 1 correo) |
+| D-WSH-4 (avisaría sin agotarse) | armado `sealed-restock-notify.service.ts:127` + `ready` exige `armedAt` y ventana `:138` | WSH-T26; mutación M7b roja |
+| D-WSH-5 (PII en suscripciones) | borrado suave `admin.service.ts:1683` (y lista + correos); **también** el duro `:1639` | WSH-T17, `admin.user-management.spec.ts` |
+| D-WSH-6 (pipe global se come campos) | `StrictBodyPipe` por PARÁMETRO (`dto/wishlist.dto.ts`) — ver 84.3 (1) | WSH-T1 |
+| D-WSH-7 (bandera en memoria) | `pg_try_advisory_xact_lock` en `wishlist-notify.service.ts:68` y `sealed-restock-notify.service.ts:80` — ver 84.3 (3) | unit «candado tomado ⇒ no corre» |
+
+### 84.3 Desviaciones y huecos para el arquitecto (el contrato NO se tocó)
+1. **El pipe estricto «a nivel de controlador» (§WSH.4) no puede rechazar nada.** Nest corre los pipes global → controlador →
+   parámetro; el global (`main.ts:54`, `whitelist:true`) entrega el cuerpo YA sin los campos desconocidos. Se implementó en el
+   parámetro: `@Body(new StrictBodyPipe(Dto)) dto: Record<string, unknown>` (con tipo no-clase el global no valida y pasa el
+   cuerpo crudo). Medición: ver 84.5 (M0). Propuesta: que §WSH.4 diga «por parámetro».
+2. **`sellableByIds` devuelve `{ inventoryItemId, displayPriceCents }`**, no `salePriceCents`: desde §M10-IVA.3 `salePriceCents`
+   ya no existe en `ListingDTO` y en el código significa `L`. El valor es `P` (con IVA), el que pide el contrato.
+3. **Candado consultivo:** `pg_try_advisory_xact_lock` dentro de una transacción «portadora» que dura la corrida (Prisma no fija
+   una conexión fuera de una transacción, así que `pg_try_advisory_lock` + `unlock` no es seguro). Coste: 1 conexión del pool
+   retenida mientras corre el job (timeout 10 min). Equivalente en efecto: se suelta al terminar, cubre N instancias.
+4. **`@Public()` no lee el token** (`jwt-auth.guard.ts:28-32`): «con sesión se usa el correo de la cuenta» (§WSH.7 (b)) era
+   imposible sin un guard. Nuevo `catalog/optional-session.guard.ts` (mismas comprobaciones que el global; nunca rechaza),
+   SOLO en `POST /catalog/sealed/restock-subscriptions`. Una cuenta sin correo (staff) se trata como invitado.
+5. **`WishlistNotice.inventoryItemId` es `RESTRICT`** (forma de §WSH.1): un borrado DURO de `InventoryItem` falla si la pieza tiene
+   avisos. ⚠️ `HECHOS` 2026-10-07 «CAMBIO P-DB-LIMPIEZA: también se BORRA el inventario»: el script de limpieza tendrá que borrar
+   `WishlistNotice` antes (o el arquitecto cambia a `Cascade`). NO MEDIDO contra ese script (es de otra rama).
+6. Pieza detectada que queda `listed` pero sin precio vendible ⇒ el aviso **espera** (como `reserved`); el contrato solo nombra
+   `reserved`. Cualquier otro estado ⇒ `skipped/unavailable`.
+7. `WishlistNotifyResult.sent` = avisos (filas) marcados `sent`, no correos.
+8. `fits` de la foto queda `null` sin mercado (como `availableNow.fits`).
+9. Orden de guardas en `/wishlist*`: dial (`404 FEATURE_DISABLED`) antes que staff sin correo (`403`).
+10. CSV: el contrato fija solo las columnas por nivel; el resto de nombres (`carta,set,numero,…,buylist_hoy`) y la sección
+    `sellados` los fijó backend; celdas de texto entre comillas y sin fórmulas (`= + - @` ⇒ `'`).
+11. Sellados en la demanda: `productName` = `sealedProductName` de la pieza más reciente de ese `tcgplayerProductId`, si no el
+    nombre de la carta ancla.
+12. Correo de reposición: `mailShell` con las frases de `DESIGN_SYSTEM §WSH-UX.8 (b)`; `mail-shell.ts` ganó `thumbUrl` opcional en
+    `cardLineRows` (sin él, salida byte a byte igual) y `smallLinkRow`.
+
+### 84.4 Pruebas
+- Unit nuevas: `wishlist-math.spec.ts` (T22, T35), `wishlist-mail.spec.ts` (T13, T36), `wishlist.scheduler.spec.ts` (T24),
+  `wishlist.settings.spec.ts` (T30). Reescrita: `sealed-restock-notify.spec.ts` (la conducta vieja —avisar sin armado, un correo
+  por fila— es justo D-WSH-3/4).
+- E2E nuevas: `wishlist.e2e-spec.ts`, `wishlist-notify.e2e-spec.ts`, `wishlist-demand.e2e-spec.ts`, `sealed-restock-armed.e2e-spec.ts`
+  + arnés `helpers/wishlist-db.ts` (reloj por el token `'WISHLIST_CLOCK'`, correo que captura).
+- Censos tocados, cada uno con su porqué en la línea: PF-11 (`wishlist-market` lee la política de VENTA para el precio normal),
+  criterio 209 (`wishlist-demand` emite `ivaTransferPct` solo en `/admin/reports/*`), censo de `saleDisplayCentsOf(`.
+- WSH-T9: alta suelta y `bulk-publish` por HTTP real; conversión de buylist y liberación de reserva **simuladas** escribiendo el
+  estado resultante (la detección es por estado, ARCHITECTURE §4.WSH (b)). WSH-T16 envío directo: pedido sintético con `userId`
+  (hoy un directo con cuenta solo existe si se reclama antes del webhook; frecuencia NO MEDIDA).
+
+### 84.5 Mediciones (2026-10-07, máquina compartida de 4 CPU con carga 10–18 de otros agentes)
+- **Antes del código** (`c61f1f0` sobre `3615dbf`): unit 4/4 suites rojas (24/26 rojas); e2e 4/4 suites rojas (49/50 rojas),
+  rojas por conducta (`404` en las rutas, `201` esperado) y por módulos inexistentes.
+- **Suite unitaria completa** sobre copia `git archive HEAD` del árbol ENTERO en `c0667e6`: **445/445 suites, 8043/8043 pruebas**.
+- **Integración completa** sobre la misma copia (esquema propio `wsh_be` del Postgres compartido): 111/120 suites, 2283/2317.
+  De las 9 rojas: 1 era mía (`enum-query-axes`, C-EQ-1: los `?sort=`/`?dir=` de la demanda sin clase) ⇒ cerrada en este pase
+  (registro + fixture (m); 571/571 en el árbol vivo). Las otras 8 (`bsd-m72-migration`, `iva-price-convention`,
+  `replacement-cases`, `stf-errata-v1-80-9-1`, `sdx-c-address`, `sdx-d-schema`, `sdx-d2bc-migrations`, `telemetry`) son de
+  **entorno**: dos esquemas en la misma BD. Medido: el CHECK `shipment_label_source_iff_provider_id` existe en `public` y NO
+  en `wsh_be` (`pg_constraint` por `connamespace`: `public|1`) — las migraciones idempotentes buscan el nombre sin filtrar
+  esquema y se saltan la creación; `telemetry` cuenta tablas de `information_schema` sin esquema y tropieza con `"Accessory"`
+  (tabla de M-73 en `public`). El orquestador avisó de 4 de ellas; las 4 `sdx-*`/`telemetry` son la misma clase. Las mide él
+  en una BD sin esquemas ajenos.
+- **Carrera del tope (WSH-T3)**: con `FOR UPDATE`, 30/30 rondas con exactamente un ganador (3 corridas × N=10). Mutante sin
+  `FOR UPDATE` (M4): 4/10, 7/10, 3/10, 6/10 rondas correctas ⇒ la prueba roja **4/4 corridas** (N=10 cada una).
+- **Mutaciones** (sobre copia, cada una revertida y comprobada con `diff -rq`):
+  | # | Mutación | Resultado |
+  |---|---|---|
+  | M0 | pipe estricto a nivel de CONTROLADOR (lo que dice §WSH.4) | `POST /wishlist` con `maxPriceCents` ⇒ **201 y fila creada** (1/1): confirma 84.3 (1) |
+  | M1 | `ceiling` redondea el «sin IVA» intermedio | WSH-T22 **rojo** (2 pruebas: 78710 ≠ 78711) |
+  | M2 | `pct` como fracción | WSH-T35 **rojo** (4 pruebas) |
+  | M3a / M3b | `?utm_source=` en la foto / sin filtro de host | WSH-T36 **rojo** (2 y 2 pruebas) |
+  | M4 | sin `FOR UPDATE` | WSH-T3 **rojo** 4/4 (arriba) |
+  | M5 | `mail-actions` exige el dial | WSH-T34 **rojo** |
+  | M6 | sin la llamada de la rama envío directo | WSH-T16 (directo) **rojo** |
+  | M7 / M7b | sin armado ni ventana / solo sin `armedAt` | WSH-T26 **rojo** / **rojo** |
+- **NO MEDIDO:** canario «quitar `@@unique([userId, inventoryItemId])` ⇒ T10 rojo» (exige migrar un esquema mutado; no se
+  corrió); el candado consultivo con DOS instancias reales (solo por diseño + la unitaria «candado tomado ⇒ no corre»);
+  `REDIS_URL` en producción (sin él el planificador no programa NADA, `scheduler.service.ts:142-149`; lo cierra la línea
+  «Scheduler activo (BullMQ)» en Railway tras desplegar); cuántas `SealedRestockSubscription` hay en producción (consulta en
+  `API_CONTRACT §WSH.1`); qué hosts tiene hoy `Card.imageSmallUrl` (otro host ⇒ correo sin foto, no fuga); si `resend` 4.8.0
+  rechaza algo del HTML nuevo; la suite E2E de frontend (no es de este rol).
+
+### 84.v1.87.2 Errata v1.87.2⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43b28f8`)
+
+Norma: `API_CONTRACT §WSH.11` (índice) + los puntos ⭐ v1.87.2 de WSH.1/4/5/7, `ARCHITECTURE §4.WSH (k)`. El contrato no se tocó.
+
+| Commit | Qué |
+|---|---|
+| `0f38170` pruebas | WSH-T38…T41 escritas ANTES del cambio: `test/wishlist.source-locks.spec.ts` (candados de fuente de T38 y T39) y `test/integration/wishlist-v1-87-2.e2e-spec.ts` (conducta T38…T41) |
+| `54c1629` M-74 | `WishlistNotice.inventoryItemId` `ON DELETE RESTRICT` ⇒ `CASCADE` en `migration.sql` (editada en sitio, M-74 no publicada) y `onDelete: Cascade` en `schema.prisma` |
+
+- **84.3 (5) queda cerrada:** borrar una pieza se lleva sus avisos; el deseo y el `WishlistMail` quedan. La limpieza P-DB ya no tiene
+  que borrar `WishlistNotice` antes del inventario.
+- **Re-aplicar M-74 sobre una base con la versión vieja** (medido en el esquema propio `wsh_be2`): con la FK puesta a mano en
+  `RESTRICT`, `migration.sql` re-ejecutado por `psql -v ON_ERROR_STOP=1` ⇒ 0 errores y `confdeltype = 'c'`. Una base con la
+  versión vieja **registrada** en `_prisma_migrations` verá otro checksum en `migrate dev` (lo dice WSH.11); `migrate deploy` en
+  una base nueva aplica la versión nueva (medido: esquema borrado y re-desplegado, T40 verde).
+- **WSH-T23:** su prueba (`wishlist-notify.e2e-spec.ts:294`) ya decía `displayPriceCents`; sin cambio.
+- **WSH-T41 es determinista:** la prueba toma `pg_advisory_xact_lock(<clave>)` en una transacción propia (otra conexión del pool),
+  comprueba en `pg_locks` que está concedido y SOLO entonces dispara el job. No hay carrera que medir con N.
+- **T40 filtra por `current_schema()`** (`pg_namespace.nspname`): la base compartida tiene otros esquemas con las mismas tablas.
+- ⚠️ Los candados consultivos son de **base**, no de esquema: dos corridas de T41 en esquemas distintos de la misma base se
+  pisarían la clave (la otra vería `ALREADY_RUNNING` un instante). La prueba solo exige `≥ 1` candado concedido; el riesgo es de
+  entornos compartidos, no de CI (una base por corrida). NO MEDIDO con dos corridas simultáneas.
+
+**Antes del cambio** (sobre `0f38170`, esquema `wsh_be2` desplegado con la M-74 vieja): e2e nueva 11/13 verdes, **T40 2/2 rojas**
+por conducta (`"WishlistNotice.inventoryItemId": "r"` y violación de FK al borrar la pieza). T38, T39 y T41 verdes: el código ya
+hacía lo que la errata ratifica (pipe por parámetro, guard opcional, candado en transacción portadora); su valor está en las
+mutaciones. Candados de fuente 5/5 verdes.
+
+**Mutaciones** (copia `git archive HEAD` del árbol ENTERO en `54c1629`, N=1 cada una —todas deterministas—, revertida y
+comprobada limpia con `git status` de la copia):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M38 | las 4 rutas con `@Body() dto: <Dto>` (el global descarta el campo en silencio; mismo efecto que el pipe de controlador, M0) | T38 e2e **4/4 rojas** (201/200/200/200 en vez de 400); candado **2/5 rojas** |
+| M39a | sin `@UseGuards(OptionalSessionGuard)` | T39 **2 rojas** ((a) guarda `dto.email`; tope sobre el correo resuelto); candado **1 roja** |
+| M39b | el guard no mira `tokenVersion` ni `blocked`/`deleted` | T39 (c) **roja** (caso «`tv` viejo» guardado con `userId`) |
+| M39c | el guard también en `GET /catalog/cards/:cardId` | candado **1 roja** (aparece en 2 `@UseGuards`) |
+| M39d | el guard rechaza con `401` si la firma no verifica | T39 (c) **roja** («firma mala» ⇒ 401) |
+| M40 | FK puesta a mano en `RESTRICT` (= M-74 vieja) | T40 **2/2 rojas** |
+| M41a / M41b | `wishlist-notify` / `sealed-restock-notify` ignoran el candado (`if (!locked) return null` fuera) | T41 **roja** en su caso, 1/1 cada una |
+
+**Medición final** (copia `git archive HEAD` del árbol ENTERO en `521c18b`; el commit siguiente solo añade este párrafo):
+unitaria completa `--maxWorkers=2` **446/446 suites, 8048/8048 pruebas** (incluidas las de paridad `enum-values-parity`,
+`enum-parity-lock-canary`, `enum-query-census-canary`, `address-dto.parity`, `pricing.sale-queue-key.parity`); integración §WSH
+(`wishlist*`, `sealed-restock-armed`, `enum-query-axes`) en el esquema propio `wsh_be2` **6/6 suites, 634/634 pruebas**.
+
+### 84.v1.87.3 Errata v1.87.3⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `71fc6e3f`)
+
+Norma: `API_CONTRACT §WSH.12` (índice) + WSH.7 (f), WSH.4 «Se quita sola», WSH.9 (T42/T43, M42-a…e, M43). El contrato no se tocó.
+
+| Commit | Qué |
+|---|---|
+| `18d577c2` pruebas | WSH-T42/T43 (`wishlist-v1-87-3.e2e-spec.ts`), helper único `helpers/restock-subscribe.ts`, T25–T28 y T39 al cuerpo nuevo, candados T42 (a)–(d) y T43 (`wishlist.source-locks.spec.ts`), unitarias del alta (`sealed-catalog.spec.ts`). Escritas ANTES del código |
+| `ee13ac77` B-1 | DTO `{email, inventoryItemId}` + `StrictBodyPipe` en el parámetro; derivación en `subscribeRestock`; `groupKey` → `sealedIdentityKey`; M-74 paso (8) y cabecera |
+| `817d7e02` M-1 | `SET_PRODUCT_PREDICATE` (única copia de «producto de set») en `wishlist-pieces.ts`; `consumeForSettledOrder` en SQL con él |
+| `46bb643b` M-2 | comentario de `sellableByIds` al día (`displayPriceCents`) |
+| `64b293b7` prueba | T42 (4) mide los dos cuerpos viejos antes de afirmar (el mensaje del commit dice «cuatro»: son dos en el bucle y dos de `inventoryItemId` inválido aparte) |
+| `180087df` deuda | `TECH_DEBT.md` TD-WSH-1…10 (veredicto techlead sobre `503cf07`), sin pagar |
+
+**Para frontend / QA.**
+- El cuerpo es `{ email, inventoryItemId }`; cualquier otro campo ⇒ `400 VALIDATION_ERROR {field}`. `inventoryItemId` ausente o
+  no-uuid ⇒ `400 {field:'inventoryItemId'}`. Correo ausente/no-texto ⇒ `400 {field:'email'}` (lo rechaza el pipe antes del
+  servicio); correo con forma inválida ⇒ `422` como antes. Pieza inexistente o no sellada ⇒ `202` sin fila.
+- El cuerpo viejo de la pantalla da `400 {field}` con el primer campo desconocido (medido: `cardId`/`sealedSubtype`/
+  `sealedCondition`), así que durante el desfase de despliegue el formulario muestra el error genérico, no crea filas.
+- **El candado de paridad WSH-T42 (b) lee `frontend/src/lib/api.ts`.** Sobre `180087df` (sin el commit de frontend) está
+  **rojo**: `RestockSubscriptionInput` aún trae `cardId/sealedSubtype/sealedCondition/tcgplayerProductId` en `HEAD`. Con el
+  `api.ts` del árbol de trabajo de frontend (sin commitear al medir) está verde 12/12. Es el candado haciendo su trabajo: la
+  rama no debe fusionarse con la pantalla y el servidor desalineados.
+
+**Canario de partida (sobre copia `git archive 503cf07` + el spec T42):** T42 (1) con el cuerpo que manda la pantalla de
+`503cf07` (`{email, cardId, sealedSubtype, sealedCondition}`, `SealedDetailView.tsx:240-244`) ⇒ **rojo**, por tres
+afirmaciones medidas por separado (N=1 cada una, deterministas): la fila queda con `c:<cardId>:box:mint` y la pieza es
+`p:<id>:mint`; con existencia, el primer tick pone `armedAt` (`2032-05-12T18:00:00Z`); y tras agotarse, volver y la ventana
+⇒ **0 correos** (esperado 1). Es el rojo de QA (`smoke6.mjs`). La rama (2) no mapeada pasaba ya en `503cf07`.
+
+**Antes del código** (sobre `18d577c2`, esquema `wsh_be3`): e2e de los tres ficheros 18/29 rojas (T42 6/6, T43 3/6 —promo,
+deck, huérfana—, T25–T28 y T39 por el `422` del cuerpo nuevo); unit 4 rojas + `sealed-catalog.spec.ts` sin compilar. T43
+«graded» y las dos de set ya pasaban (controles).
+
+**Mutaciones** (copia `git archive` del árbol ENTERO en `46bb643b`/`64b293b7` con el `api.ts` de frontend superpuesto; N=1,
+deterministas; cada una revertida y comprobada «copia LIMPIA» con `diff -rq` contra un `git archive` limpio):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M42-a | derivación guarda `tcgplayerProductId: null` | T42 (1) y (3) **rojas** |
+| M42-b | `@Body() dto: RestockSubscriptionDto` sin pipe estricto | T42 (4) **roja** (el cuerpo con pieza + `tcgplayerProductId` ⇒ `202` y 1 fila; el viejo de pantalla ⇒ `400` sin `field`); candado (c) **rojo** |
+| M42-c | `cardId?` en `RestockSubscriptionInput` del frontend | candado (b) **rojo** |
+| M42-d | derivar solo de piezas `listed` (`findFirst` con `status`) | T42 (3) **roja** |
+| M42-e | sin `bool_and` en el paso (8) | T42 (6) **roja** (caso C rellenado) |
+| M42-(d) | `groupKey` con su propia plantilla `p:`/`c:` | candado (d) **rojo** |
+| M43 | `consumeForSettledOrder` con `productType='raw'` sin el fragmento | T43 promo, deck y huérfana **rojas**; candado T43 **rojo** |
+
+**Escritores de `tcgplayerProductId` en piezas ya dadas de alta** (el arquitecto lo dejó NO MEDIDO; `grep` en `src/`,
+`prisma/` y `scripts/`): **uno**, `SealedMappingService.updateMapping` (`modules/pricing/sealed-mapping.service.ts:117-120`
+la pieza, y `:122-133` con `applyToSiblings` a las hermanas selladas del mismo `(cardId, sealedSubtype)` aún sin mapear),
+por `PUT /admin/pricing/sealed/items/:itemId/mapping` (`sealed-pricing.controller.ts:112`). También **desmapea**
+(`tcgplayerProductId: null`). El resto de escritores son de alta (`inventory.service.ts:1297-1314` `resolveSealedMapping`) o
+de otras tablas (`SealedProduct`, `CardProduct`, `PriceReference`). ⇒ El caso «conocido y fuera de alcance» de WSH.7 (f)
+**sí ocurre**: al curar el mapeo de un producto, las suscripciones `c:` pendientes hechas antes dejan de casar (y al
+desmapear, las `p:`). Decisión del arquitecto (p. ej. que `updateMapping` re-escriba las suscripciones pendientes de esa
+identidad en la misma transacción, con la regla del paso 8). No se tocó.
+
+**Medición final** (copia `git archive 180087df` del árbol ENTERO): unitaria completa `--maxWorkers=2` **445/446 suites,
+8054/8055 pruebas** — la única roja es WSH-T42 (b) por el `api.ts` de frontend sin commitear (arriba); con ese `api.ts`
+superpuesto la suite de candados da 12/12. Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enum-query-axes`) en el
+esquema propio `wsh_be3` (re-desplegado desde cero con la M-74 nueva: `migrate deploy` limpio) **7/7 suites, 646/646**.
+`eslint` de los ficheros tocados limpio. ⚠️ `M-74` cambia de checksum otra vez (misma nota que v1.87.2).
+
+**NO MEDIDO:** los conteos del paso (8) en producción (van a la solicitud de fusión, WSH.7 (f)); el estado del dial
+`sealed_restock_alerts` en producción; `smoke6.mjs` de QA contra un stack levantado (el canario lo reproduce en la suite de
+integración, no contra el stack).
+
+### 84.v1.87.4 Errata v1.87.4⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43c3f8f1`)
+
+API_CONTRACT WSH.7 (g), WSH.9 (WSH-T44, M44-a…f y M44-c'), WSH.13; porqué ARCHITECTURE §4.WSH (m). Contrato sin tocar.
+
+| Commit | Qué |
+|---|---|
+| `fdc13335` prueba | WSH-T44 en fichero nuevo `test/integration/wishlist-v1-87-4.e2e-spec.ts`, escrito ANTES del código |
+| `d3d5fe11` (g) | `reconcileOrphans()` en `catalog/sealed-restock-notify.service.ts`; doble de Prisma de `test/sealed-restock-notify.spec.ts` al día + 3 casos unitarios |
+| `1753f9ed` seed | `E2E_SEALED_LISTED` en `seed-e2e.ts`/`e2e-fixtures.ts` (petición de frontend, WSH-F5) + `seed-sealed-listed.e2e-spec.ts` |
+
+**Qué hace (g).** Primera línea de `matchAndNotify` (dentro del callback que tomó el candado consultivo; con el dial `off`
+`run()` sale antes y no reconcilia). En UNA transacción interactiva propia (`this.prisma.$transaction`, en una conexión
+distinta de la del candado, como el resto de `matchAndNotify`): un `$queryRaw` con la forma del contrato (huérfana +
+`|D|` con `NULL` como valor + `min(pid)`), y en TS el choque por correo (pendientes de esos correos que no se re-apuntan, y
+entre re-apuntadas por `(createdAt, id)`); `deleteMany` de las que chocan y `updateMany` por `pid` con
+`armedAt = matchedAt = NULL`, ambos con guarda `notifiedAt IS NULL`. Log: `reconciliación de mapeo — X re-apuntadas, Y
+borradas por choque, Z huérfanas intactas` (sin correos). `SealedRestockNotifyResult`, `pricing/sealed-mapping.service.ts`,
+`M-74` y su paso (8) sin cambio. Sin import nuevo de `wishlist/` desde `catalog`.
+
+**Lecturas de WSH-T44 que conviene saber (no cambian el contrato):**
+- El job se corre con `app.get(SealedRestockNotifyService).run()` (reloj inyectado `WISHLIST_CLOCK`), no por HTTP.
+- (6) y (8) congelan la fila DESPUÉS de un tick que la arma (o del ciclo completo hasta `notifiedAt`): así «byte a byte»
+  incluye `armedAt`, y cualquier reescritura de (g) se ve (reinicia el armado).
+- (9) segunda mitad: tras el paso (8) el tick arma B, C y E (su clave no está a la venta: es el ARMADO, no (g)). Se comparan
+  A y D byte a byte y B/C/E con todas las columnas salvo `armedAt`. «0 filas escritas» = 0 escritas por (g).
+- (10a) compara la TABLA ENTERA antes y después del segundo tick (incluye una `p:` armada y emparejada no huérfana: la
+  que hace morder a M44-c).
+
+**Canario (sobre `43c3f8f1` + el spec, sin el código):** 9/14 rojas. T44 (1): `tcg null`, `sameKeyAsPiece false`,
+`matched false`, **0 correos** (esperado 1). Verdes ya entonces (controles): (6), (8), (10b), candado de fuente y (9) 2.ª
+mitad.
+
+**Mutaciones** (copia `git archive d3d5fe11` del árbol ENTERO, N=1 cada una —deterministas—, aplicadas por script y
+revertidas copiando el original; al final `diff -rq` contra `git archive` limpio ⇒ «copia LIMPIA» y T44 14/14):
+
+| # | Mutación | Rojas |
+|---|---|---|
+| M44-a | sin la llamada a `reconcileOrphans()` | (1) (2) (3) (4) (5) (5b) (7) (10a) (9) 1.ª |
+| M44-b | re-apuntar sin `armedAt`/`matchedAt` a nulo | (5b) |
+| M44-c | sin la condición de huérfana | (1) (3) (7) (8) (10a) |
+| M44-c' | sin la parte `NULL` del conteo de `D` | (3) (6) (7) |
+| M44-d | sin el borrado por choque | (7) |
+| M44-e | sin `notifiedAt IS NULL` (CTE y guardas) | (8) (9) ambas |
+| M44-f | `updateMapping` escribe `SealedRestockSubscription` | candado, (6) (7) |
+
+**Pieza sellada del seed (WSH-F5).** Folio `E2E-SLD-0001`, nombre de producto **«E2E Surging Sparks Booster Box»**,
+`box`/`mint`, plataforma `listed`, `listPriceCents 450000`, `tcgplayerProductId 610000001` / grupo `61001`, anclada a la carta
+`thirdraw` («E2E Third Bird», set E2E). Por API: `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid filtra por el nombre
+de la CARTA) y la teja con ese `productName`; en pantalla, `/es/sellado` muestra el nombre del producto. El seed la resetea
+en cada corrida (estado, dueño, precio, mapeo). Fuera de `E2E_FOLIOS`. ⚠️ Para frontend: `frontend/e2e/catalog.spec.ts:62`
+(`needsSeed('ningún grupo sellado publicado…')`) y el comentario de `:249-252` («el estado vacío SIEMPRE está ahí») asumían
+`total: 0`; con el seed nuevo `/es/sellado?sealedSubtype=box` ya NO está vacío. NO MEDIDO contra el stack con navegador.
+
+**Medición final** (copia `git archive 1753f9ed` del árbol ENTERO, esquema propio `wsh_be4` re-creado desde cero con
+`migrate deploy`): unitaria completa `--maxWorkers=2` **446/446 suites, 8058/8058** (T42 (b) verde: el `api.ts` de frontend ya
+está commiteado). Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enum-query-axes`, `seed-sealed-listed`) **9/9
+suites, 662/662**. Integración completa 115/124 suites, 2354/2390 (34 rojas, 2 omitidas): las **mismas 9 suites** salen rojas
+sobre `49482fb0` (sin el seed nuevo) en el mismo esquema (9/9 suites rojas, 38 pruebas): CHECKs/migraciones que buscan
+en `public` (lo ya anotado en §84.5), carreras de `vault-placement-races` y estado compartido. No las causa este cambio.
+
+### 84.cierre Cierre de menores de QA y techlead sobre `1b0306f4` (2026-10-08, rama `claude/wishlist`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`; esto cierra sus menores de backend. Contrato y schema **no** se tocaron.
+
+- **QA-1 · log de la reconciliación (g).** `reconcileOrphans` escribía «reconciliación de mapeo — 0 re-apuntadas, 0 borradas,
+  0 intactas» en cada tick (cada 5 min ⇒ ~288 líneas/día). Ahora solo registra si alguna de las tres cifras ≠ 0
+  (`sealed-restock-notify.service.ts`, al final de `reconcileOrphans`). Ojo: unas huérfanas **intactas** (ambiguas) que
+  persisten siguen dejando una línea por tick; es intencional (hay algo que mirar). Prueba: `test/sealed-restock-notify.spec.ts`
+  «QA-1 (§84.cierre)».
+- **QA-2 · movimientos de la pieza sellada del seed.** `E2E-SLD-0001` sigue **fuera** de `E2E_FOLIOS` (no se mueven los
+  candados que cuentan piezas por ese mapa); su folio se suma solo a la consulta del reset de `InventoryMovement` en
+  `seed-e2e.ts` (paso 3b). Prueba: `seed-idempotency` caso 6 (crea 2 movimientos, siembra ⇒ 0, siembra otra vez ⇒ 0 y una
+  sola pieza).
+- **techlead-5 (backend) · suscripciones `@e2e.local`.** `seed-e2e` (paso 3b) borra las `SealedRestockSubscription` con correo
+  que termina en `@e2e.local` (insensible a mayúsculas), pendientes o notificadas, y **solo** esas. Prueba: `seed-idempotency`
+  caso 7 (crea 2 `@e2e.local` + 1 ajena, siembra ⇒ 0 `@e2e.local` y la ajena sigue). Con esto la mitigación que
+  `TD-WSH-F5` marca «NO MEDIDO» ya existe; cerrar o actualizar esa entrada es de frontend.
+- **TECH_DEBT.** Ampliadas TD-WSH-5 (identidad del sellado como filtro en 4 sitios; helper `sealedIdentityWhere`) y
+  TD-WSH-6 (tx interactiva de `reconcileOrphans` con timeout de 5 s sobre lecturas sin paginar). Nuevas TD-WSH-11 (P4,
+  `as unknown as` con `StrictBodyPipe`) y TD-WSH-12 (P4, duplicados `(email, clave)` tras M-74 paso (8); **propuesta al
+  arquitecto**: contar esos duplicados en la ventana de despliegue).
+  **Procedencia:** esas cuatro entradas (retoques de TD-WSH-5 y TD-WSH-6, TD-WSH-11 y TD-WSH-12) las escribió backend, pero
+  entraron en el commit `ef034161` (título «docs(frontend)…») porque frontend hizo `git add -- docs/TECH_DEBT.md` sobre el
+  fichero compartido justo después de que backend lo editara. No se reescribió ese commit (sin amend/reset).
+
+---
+
+## 85 · Fusión accesorios + wishlist en la rama de publicación (2026-10-08, rama `claude/release-s7`; base `origin/production` `74996a24` + `claude/accesorios` `cabd8a15` (fusionada en `d98e8bf6`) + `claude/wishlist` `d815b57d`)
+
+Número reservado por el orquestador. Alcance de backend: los conflictos de sus rutas y la medición del árbol unido.
+
+### 85.1 Conflictos resueltos (unión estructurada; nada de un lado se perdió, sin cabeceras duplicadas)
+| Fichero | Bloques | Cómo |
+|---|---|---|
+| `backend/prisma/schema.prisma` | 1 | Bloque `ACCESORIOS (M-73)` entero y, detrás, el bloque `v1.87⟨wishlist⟩ (M-74)` entero (orden de las migraciones). Solo se añadió el `}` que cerraba el último modelo de M-73 (lo compartían ambos lados en el texto). Nada reformateado. |
+| `backend/src/common/error-codes.ts` | 1 | Los 15 de §AC.13 y luego los 3 de §WSH (`WISHLIST_DUPLICATE`, `WISHLIST_LIMIT_REACHED`, `WISHLIST_LINK_INVALID`). |
+| `backend/src/modules/settings/settings.constants.ts` | 4 | En `SettingKey`, defaults, validadores y `SETTING_DTO_MAP`: los 2 diales de accesorios (`energy_bundle_price_cents`, `accessory_suggestion_count`) y luego los 8 de wishlist. Ninguno entra en `OWNER_ONLY_SETTING_KEYS` (ninguna rama lo hacía). |
+| `backend/test/integration/enum-query-axes.e2e-spec.ts` | 5 | Imports, observadores (`OBS_ACCESORIOS` y `OBS_WISHLIST`/`OBS_WISHLIST_CSV`), filas del registro, fixtures (`(m)` wishlist antes de `(n)` accesorios, por letra) y el trinquete (85.2). |
+| `docs/BACKEND_NOTES.md` | 1 | §83 y luego §84. |
+| `docs/TECH_DEBT.md` | 1 | Entradas de accesorios (TD-AC-*) y luego las de wishlist (TD-WSH-*); sin identificadores repetidos (`grep '^### TD-' | sort | uniq -d` vacío). |
+
+### 85.2 Trinquetes de `enum-query-axes`: base + delta + delta, no el máximo
+Las dos ramas subieron los literales **desde la misma base** (`74996a24`: `REGISTRO` 64, pendientes 18), y ambas
+escribieron `toBe(68)`: git no habría visto conflicto si el resto del bloque coincidiera, y el máximo (68) habría
+quedado **4 ejes por debajo** del registro real. Cálculo:
+- `REGISTRO`: 64 + 4 (accesorios: `category` ×2, `active`, `soldOut`) + 4 (wishlist: `sort`/`dir` × JSON/CSV) = **72**.
+- `PENDIENTE-ARQUITECTO`: 18 + 0 (accesorios entraron `transcrita` en v1.86.5) + 4 (wishlist) = 22, y **22 → 18** con
+  la errata **v1.88⟨release-s7⟩** del arquitecto (las cuatro filas de `wishlist-demand` en §0-Q punto 4,
+  `API_CONTRACT.md` ~7584-7587): esas cuatro filas pierden `filaEn0Q` y salen de la lista de pendientes de la prueba.
+- `NO_ENUM_POR_RUTA ≤ 60`: solo accesorios lo movió (59 → 60); wishlist no ⇒ 60 se queda.
+- Se añadió la cabecera `// ====` que le faltaba al bloque de filas de wishlist tras la unión (la compartían en el texto).
+
+### 85.3 Migraciones
+M-73 (`20261026120000_m73_accessories`) y M-74 (`20261027120000_m74_wishlist`) ya están en orden por fecha. Sus DDL son
+disjuntos (M-73: tablas de accesorios, columnas de `Order`, trigger; M-74: tablas de deseos, columna de `User`, INSERT de
+diales en `ConfigSetting`) ⇒ **M-74 no necesita cambio de fecha ni de contenido**.
+
+### 85.4 REL-S7-UX (4) · el correo de «avísame» de sellados nombra la pestaña real
+`sealed-restock-notify.service.ts` (`noOrigin`, el texto que sale cuando no hay origen público para enlazar) decía
+«Comprar › Sellado / Shop › Sealed»; la pestaña es `storeTabs.sealed` = «Producto sellado» / «Sealed product»
+(`frontend/messages/{es,en}.json`). Cambiado el texto; la etiqueta de la línea del producto («Sellado · Sealed») no es una
+ruta y no se tocó. Prueba `REL-S7-UX (4)` en `test/sealed-restock-notify.spec.ts`: **roja antes del cambio, verde después**
+(1/1 cada una; determinista, sin carrera).
+
+### 85.5 Mediciones (copia del árbol ENTERO tras resolver, Postgres 16 propio en `:5544`, Redis propio en `:6544`)
+| Qué | Resultado |
+|---|---|
+| `prisma validate` | válido |
+| `prisma migrate deploy` desde BD vacía | todas aplicadas, M-73 y luego M-74 |
+| `prisma migrate diff` BD ↔ schema | solo el `RenameIndex` de `PriceReference_variant_capturedDate_key`, deriva **previa** conocida (anotada ya en la tabla de M-52 de estas notas); nada de M-73/M-74 |
+| `tsc --noEmit` | limpio |
+| Unitaria completa con `env -i` | **461/461 suites, 8344/8344 pruebas** |
+| Integración completa `--runInBand`, BD limpia | **134/134 suites, 2671 verdes + 2 saltadas de 2673**; `enum-query-axes` verde con 72/18 (el registro coincide con el descubrimiento y con §0-Q) |
+
+**Aviso de entorno (no de la fusión):** la primera corrida de integración con `env -i` **murió por memoria** en la suite
+33 (`FATAL ERROR: Reached heap limit`, montón en ~2 GB): `env -i` quita el `NODE_OPTIONS=--max-old-space-size=8192` que
+trae el entorno, y node se queda con su tope por defecto (2096 MB medido con `env -i node -e …heap_size_limit`). Con
+`env -i` + `NODE_OPTIONS=--max-old-space-size=8192` explícito: verde completa (fila de arriba). Si la suite cabe en ~2 GB
+sobre `production` sin estas dos ramas **NO MEDIDO**; lo cerraría la misma corrida `env -i` sin `NODE_OPTIONS` sobre
+`74996a24`. CI (`e2e.yml`) no fija `NODE_OPTIONS`.
+
+### 85.6 Arreglos por la combinación
+Ninguno de código: la única pieza que la combinación rompía era el trinquete de `REGISTRO` (85.2). Todo lo demás compiló y
+pasó tal cual al unirse.
+
+## 87 · P-DB-LIMPIEZA v2.2 — la limpieza conoce las 9 tablas de M-73 y M-74 (2026-10-08, rama `claude/release-s7`, sobre `7345179d`; código en `e3ab1128`)
+
+Número reservado por el orquestador (§86 es de otra rama). Norma: `docs/specs/LIMPIEZA_DB.md §14.13` (errata
+**v1.88.1⟨release-s7⟩**, `API_CONTRACT.md:13-28`), más LZ-W1/LZ-W2 de `API_CONTRACT §WSH.11`. LZ-W3 y LZ-W4 (c) **no**
+se escribieron: quedan sustituidas por la G-10 condicionada (LZ-A8). Q-LZ-A1: opción **(a)** (por defecto).
+
+### 87.1 El rojo, reproducido antes de tocar nada
+Postgres 16 propio (`127.0.0.1:55437`, BD `lzv22`), árbol en `7345179d`: `pdb-limpieza.e2e-spec.ts` ⇒ **39 rojas, 15
+verdes de 54**, todas por el mismo mensaje: `G-8 · La base tiene tabla(s) que el diseño de la limpieza no clasificó:
+Accessory, AccessoryPhoto, AccessoryStockMovement, OrderAccessoryLine, OrderEnergyBundleComponent, ShipmentAccessoryLine,
+WishlistItem, WishlistMail, WishlistNotice.` Es el mismo rojo que el orquestador midió en CI (run `37733554396`). La
+única verde de C-3 era la de «tabla nueva ⇒ G-8»: G-8 hacía lo que debía.
+
+### 87.2 Qué cambió en B (`…_2_limpieza.sql`) — sin tocar la conducta sobre una base sin M-73/M-74
+- **Banderas antes del `BEGIN`** (`:106-107`): `SELECT to_regclass(…'Accessory') IS NOT NULL AS lz_m73,
+  to_regclass(…'WishlistNotice') IS NOT NULL AS lz_m74 \gset`. Fuera de la transacción: no toma la foto REPEATABLE READ.
+- **Todo lo nuevo que nombra una tabla de M-73/M-74 va dentro de `\if :lz_m73` / `\if :lz_m74`** (psql no manda esas
+  líneas al servidor). Fuera de `\if` solo quedan: los nombres como TEXTO en `lz_conteo` (`to_regclass` las cuenta como
+  ausentes) y la clave `accesorios` del rastro, que va tras un `CASE WHEN to_regclass(…)`.
+- `LOCK` condicional (`:120-125`) de `Accessory`+`OrderAccessoryLine` y de `WishlistNotice`, después del `LOCK` de
+  siempre (que no cambia).
+- `lz_conteo`: 5 `borrar` (`OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`,
+  `AccessoryStockMovement`, `WishlistNotice`), `Accessory` en `ajustar`, 3 `conservar` (`AccessoryPhoto`, `WishlistItem`,
+  `WishlistMail`). G-8 no cambió.
+- Borrados (cada uno en `\if :lz_m73`, etiqueta con número de paso + espacio): `8 ShipmentAccessoryLine` antes de
+  `8 ShipmentRequest`; `9 OrderEnergyBundleComponent` y `9 OrderAccessoryLine` antes de `9 Order`;
+  `11 AccessoryStockMovement` y `11 Accessory existencias` (el `UPDATE … SET stockQty = 0, reservedQty = 0, updatedAt =
+  now() WHERE stockQty <> 0 OR reservedQty <> 0`) después de `11 InventoryItem`. `WishlistNotice` sin `DELETE` propio:
+  cae por CASCADE con la pieza.
+- `lz_acc` (temporal, **creada siempre**, llenada solo con M-73) alimenta la lista **2.7** y la clave `accesorios`
+  `{conExistencias, existencias, apartadas}` del rastro (sumas, sin nombres). Lista **2.8** (solo con M-74): los dos
+  diales (`valueJson #>> '{}'`, ausente = `off`), suscripciones pendientes sin armar y armadas, número de deseos y de
+  correos de deseos. Sin correos de clientes.
+- G-5: LZ-W2 (`esperado = 0` solo si `antes IS NOT NULL`), `Accessory` con `esperado = antes`, y un `DO` propio (en
+  `\if :lz_m73`) que aborta si queda algún accesorio con existencias o apartados (nombra hasta 20).
+- **G-10 v2** (en `\if :lz_m74`, un `DO` que escribe en la temporal `lz_falta`, creada siempre vacía; el bloque final de
+  «Falta tu decisión» la añade): solo si `sealed_restock_alerts = 'on'` **y** hay `SealedRestockSubscription` con
+  `notifiedAt IS NULL AND armedAt IS NULL`. `wishlist_enabled` no para nada.
+- La tabla de conteos final enseña solo filas con `antes` o `después` no nulos (sin M-73/M-74, la de siempre).
+- Cabecera: «NO toca» suma el catálogo de accesorios (existencias a 0, lista 2.7) y la lista de deseos; fecha v2.2.
+
+### 87.3 D (`…_4_verificacion.sql`)
+Las tres líneas `0 filas en` de accesorios, las dos de «anteriores a la limpieza» (`AccessoryStockMovement` por
+`createdAt`, `WishlistNotice` por `detectedAt`, conteo dinámico con `query_to_xml`) y los cuatro `INFO` (`Accessory`,
+`AccessoryPhoto`, `WishlistItem`, `WishlistMail`) salen **solo si la tabla existe**. Sin rastro, las de «anteriores»
+salen igual y en FALLA (como las de siempre). A y C sin cambio.
+
+### 87.4 Pruebas y arnés
+- **Fixture** (`limpieza-fixture.ts`): sin pedidos ni envíos nuevos (otras pruebas miden `order_number_seq = 5`,
+  `shipment_folio_seq = 3` y `conteosAntes.Order = 5`). Las fundas (activas, foto `bytea`, precio, costo; `initial +20`,
+  `sale −2`) van vendidas en **O2** (directo) con su línea de envío en ENV-000003 (`missing`, 1) y un `PaymentRefund`
+  `item_missing` que apunta al renglón y a la línea; el paquete de energías de O2 con su componente sobre «Energía Fuego»
+  de la semilla (`receive +10`, `sale −2` ⇒ 8); **O3** (directo, pendiente) aparta 1 funda ⇒ `reservedQty = 1`. Las otras
+  7 energías, tal cual. Deseo + correo + aviso (sobre P9) para LZ-W4 (a).
+- **Arnés** (`limpieza-db.ts`): `revertM73` ejecuta el bloque `REVERSA:BEGIN…END` del propio fichero de M-73 (repone los
+  dos CHECK de `PaymentRefund`) tras borrar las filas del libro que apuntan a renglones; `revertM74` la reversa de la
+  cabecera de M-74; `limpiezaSql({ frozen: true })` lee la **copia congelada**
+  `test/integration/fixtures/pdblimpieza_2_limpieza.a7232d7a.sql` (1.ª línea: de qué sha sale; resto byte a byte, sha256
+  `7c6f672c…` vigilado por T-AC3); `cloneSchema` deja un esquema gemelo con el contenido EXACTO de otro.
+- **Por qué `cloneSchema`** (medido): el fixture usa ids y fechas aleatorias, así que dos esquemas sembrados por separado
+  nunca dan la misma foto. T-AC3 siembra uno, revierte M-74 y M-73 en los dos, copia el contenido (tablas, también
+  `_prisma_migrations`, y secuencias) y **comprueba que las dos fotos son iguales antes** de correr los guiones. Dos
+  detalles medidos: los enums son tipos de cada esquema (un `SELECT *` entre esquemas falla con 42804 ⇒ cast por texto al
+  tipo gemelo), y copiar por `jsonb_populate_record` convierte un `jsonb` `null` en SQL NULL (falla un NOT NULL de
+  `ConfigSetting`) ⇒ copia columna a columna. Usa `session_replication_role = replica` (requiere superusuario: lo es el
+  usuario de Postgres local y el de CI, `POSTGRES_USER`).
+- **T-AC3, lo que se compara y lo que no:** mismo código de salida y `stderr`; foto igual tabla por tabla salvo
+  `AuditLog` (sin `id`, `createdAt` ni `after.puntoPitr`: igual) y `VariantPriceOverride` (sin `updatedAt`: igual). Esta
+  segunda excepción **no está en §14.13.5** y es inevitable: los dos B ponen `updatedAt = now()` en los bounties, en
+  instantes distintos. Las salidas de A, C y D se comparan enteras salvo la hora de `now()`.
+- T-AC1…T-AC7 y T-W10a…e según §14.13.5. T-AC5/T-AC6 reciben piezas por el servicio de la app
+  (`AdminAccessoriesService.stock`, `kind: 'receive'`). T-AC7 hace las N = 3 dentro de la propia prueba (3 esquemas) y
+  exige `['aborta','aborta','aborta']`.
+- `EMPTIED` gana las 5 `borrar`; `PARTIAL` gana `Accessory`; `KEY_KEPT` gana `Accessory`, `AccessoryPhoto`,
+  `WishlistItem`, `WishlistMail`. Como `Accessory` está en `KEY_KEPT` **y** en `PARTIAL`, la comprobación de §9.2 admite
+  una tabla de `PARTIAL` como «conservada» si conserva su número de filas (su contenido lo compara T-AC1).
+
+### 87.5 Mutaciones (copia del árbol ENTERO con `git archive HEAD`, nunca el vivo; deterministas ⇒ 1/1 salvo M-LOCK)
+Árboles: `e3ab1128` (primera ronda) y `b60e969e` (repetición de las que miran T-AC3, tras 87.6). Postgres propio.
+| # | Mutación | Prueba que la caza | Muerde | Por qué (lo que se leyó en el log) |
+|---|---|---|---|---|
+| M-A1 | sin `9 OrderAccessoryLine` | T-AC1 | sí 1/1 | B aborta: FK `OrderAccessoryLine_orderId_fkey` al borrar `Order` |
+| M-A2 | sin `8 ShipmentAccessoryLine` | T-AC1 | sí 1/1 | B aborta: FK `ShipmentAccessoryLine_shipmentRequestId_fkey` |
+| M-A3a | sin el `UPDATE` de existencias | T-AC1 | sí 1/1 | B aborta: `G-5 · Quedaron accesorios … Energía Fuego (8 · 0), Fundas … (18 · 1)` |
+| M-A3b | sin el `UPDATE` **y** sin la G-5 de accesorios | T-AC1 | sí 1/1 | B hace COMMIT; la prueba lo caza por medición directa (`k` = 2 accesorios con existencias ≠ 0) |
+| M-A4 | `Accessory` a `borrar` con `DELETE` | T-AC1 | sí 1/1 | por la guarda de B: `G-5 · … AccessoryPhoto 0≠1` |
+| M-A4b | ídem + `AccessoryPhoto` a `borrar` + sin `esperado = antes` de `Accessory` (sin red en B) | T-AC1 | sí 1/1 | B hace COMMIT; la prueba lo caza por medición directa (`Accessory` 9 → 0 filas) |
+| M-A5 | `DELETE` de `ShipmentAccessoryLine` fuera de `\if` | T-AC3 | sí 1/1 | B nuevo aborta: `relation "ShipmentAccessoryLine" does not exist` |
+| M-A6 | `UPDATE` sin su `WHERE` | T-AC1 y T-AC4 | sí 1/1 | T-AC1: cambia el `updatedAt` de las 7 energías; T-AC4: la 2.ª corrida escribe rastro |
+| M-A7 | clave `accesorios` del rastro sin condición | T-AC3 | sí 1/1 | el rastro del B nuevo ≠ el del congelado |
+| M-LZW2 | sin `antes IS NOT NULL` | T-AC3 | sí 1/1 | B nuevo aborta en G-5 (`NULL ≠ 0`) |
+| M-W10a | G-10 solo con el dial | T-W10b | sí 1/1 | «Falta tu decisión» con 0 suscripciones |
+| M-W10b | sin G-10 | T-W10a | sí 1/1 | B hace COMMIT |
+| M-W10c | G-10 cuenta también las armadas | T-W10c | sí 1/1 | «Falta tu decisión» |
+| M-W10d | G-10 fuera de `\if :lz_m74` | T-W10e y T-AC3 | sí 1/1 cada una | `column x.armedAt does not exist` |
+| M-LOCK | sin el `LOCK` de `Accessory` | T-AC7 | sí **3/3** | en las 3 iteraciones B hizo COMMIT (~110 ms, base cambiada) en vez de esperar el candado |
+
+### 87.6 Lo que las mutaciones enseñaron de las pruebas (y se corrigió)
+- **T-AC3 daba rojos falsos** al comparar la salida de A: `now()` pierde los ceros finales de los microsegundos y psql
+  reajusta el ancho de la columna (medido en M-A7 y M-W10d de la primera ronda: rojas por el alineado, no por la
+  mutación). Arreglado en `f8c397dc` (se normaliza la hora **y** el alineado); T-AC3 3/3 verde después. Las mutaciones
+  que miran T-AC3 se repitieron sobre el árbol corregido y muerden por su causa real (tabla de arriba).
+- **M-W10d no mordía T-AC3** (sí T-W10e): con el dial apagado, plpgsql nunca llega a la consulta con `armedAt`. T-AC3 corre
+  ahora con el dial encendido y una suscripción pendiente (`b60e969e`): el B congelado pasa y el nuevo tiene que pasar.
+- **M-A4 tal como está en §14.13.6 la caza la G-5 de B**, no la prueba. Se añadió M-A4b (sin esa red) para medir que la
+  prueba muerde por sí sola: muerde.
+
+### 87.7 Proporciones (carrera ⇒ N = 3, O-3)
+- **T-AC7** (B aborta por `lock_timeout` con un `UPDATE` sin confirmar sobre una energía con 0 piezas, y la base queda
+  idéntica): cada corrida hace 3 esquemas; 4 corridas verdes (1 de la suite entera + 3 sueltas) ⇒ **12/12** iteraciones
+  abortaron como deben.
+- **M-LOCK**: **3/3** iteraciones con B pasando de largo (la prueba roja).
+
+### 87.8 Mediciones finales (árbol `b60e969e`, Postgres 16 propio `:55437`, Redis propio `:56379`, `s3-local` propio `:59000`)
+| Qué | Resultado |
+|---|---|
+| `pdb-limpieza.e2e-spec.ts` antes (árbol `7345179d`) | **39 rojas / 54**, todas G-8 con las 9 tablas |
+| `pdb-limpieza.e2e-spec.ts` después | **67/67** verdes (54 de antes + 13 nuevas) |
+| T-AC3 suelta tras el arreglo del alineado | 3/3 corridas verdes |
+| Integración completa (`npm run test:integration`, BD nueva, `seed:synthetic`) | **135/135 suites, 2740/2740 pruebas**; ningún rojo heredado en esta corrida |
+| `npm run lint` · `tsc --noEmit` | limpio · limpio |
+
+### 87.9 Para el arquitecto / el orquestador (ninguno bloquea)
+- **§14.13.5 T-AC3, una excepción más de las que nombra:** `VariantPriceOverride.updatedAt` difiere entre los dos B
+  (ambos lo ponen a `now()` en los bounties, en instantes distintos). Se compara esa tabla sin `updatedAt`. Inevitable con
+  dos corridas; no es una diferencia de conducta.
+- **§14.13.6 M-A4** la caza la G-5 de B antes que la prueba; se añadió M-A4b para medir la prueba sin esa red (87.5).
+- **§14.13.6 M-W10d «(y T-AC3)»** solo era cierto con el dial encendido: T-AC3 ahora lo enciende (87.6).
+- **`cloneSchema` necesita superusuario** (`session_replication_role`). Local: sí. CI: el usuario es el de
+  `POSTGRES_USER` de la imagen `postgres:16-alpine`, que es superusuario — que la corrida de CI lo confirme: **NO MEDIDO**
+  hasta que corra el push de esta rama.
+- **Guion del dueño (§14.13.4)** no es fichero de backend: la retirada del paso «apaga los dos avisos» y el texto nuevo del
+  paso 2 quedan para quien lleve `LIMPIEZA_DB.md §14.8` (la cabecera de B ya dice lo de la lista 2.7).
+
+### 87.10 handlebars 4.7.9 → 4.7.10 (2026-10-09, rama `claude/release-s7`, sobre `6c6226d4`)
+- **Por qué:** CI de la PR #84 rojo en `trivy-fs` (`trivy-dev-fichas.sh`) y `trivy-image`: GHSA-p8wg-vrv2-v86f y
+  GHSA-8r5x-fm3f-whwj (críticos) + GHSA-xw65-4hp5-5hc7 (moderado), todos `>=4.0.0 <=4.7.9` según `npm audit --json`.
+  Avisos nuevos contra una dependencia transitiva de desarrollo: `ts-jest@29.4.12` → `handlebars` (pide `^4.7.9`).
+- **Cambio mínimo:** `npm update handlebars`; solo cambia `package-lock.json` (handlebars 4.7.10, que pide
+  `minimist ^1.2.8`; ya se resolvía 1.2.8). Sin `overrides`: el rango de ts-jest ya admite 4.7.10.
+- **Por qué también lo ve `trivy-image`:** el backend se instala con `npm ci --include=dev` (`Dockerfile.backend:40`) y la
+  imagen final copia `node_modules` entero sin podar devDependencies (`Dockerfile.backend:49-55`, `:80`). El único
+  handlebars del repo está en `backend/package-lock.json`, así que el lockfile nuevo debería bastar. Que `trivy-image`
+  salga verde: **NO MEDIDO** en local (sin demonio Docker); se mide en el siguiente CI.
+- **Medido:** `npm ls handlebars` → 4.7.10; `npm audit` sin críticos (antes 1 crítico, ahora 0); `npm audit --omit=dev`
+  idéntico al de antes; `security/scripts/audit-npm-dev.sh` y `audit-npm.sh` verdes. trivy no está instalado aquí:
+  `trivy-dev-fichas.sh` no se pudo correr en local. `tsc --noEmit` y `lint` limpios; jest **462/462 suites, 8358/8358**.
+
+## 86 · §BMK.2 — `referencePrice` del cotizador de venta: `priced` solo en línea cotizada con mercado > 0 (2026-10-08, rama `claude/buylist-mercado`, sobre `42eaeabf` (v1.89⟨bmk⟩); código en `fa10107e`)
+
+**Norma.** `API_CONTRACT §BMK.2` y §BMK.8 (BMK-B1…B4), `ARCHITECTURE §4.BMK`. Sin schema, migración, endpoint, campo ni
+código de error.
+
+**Qué cambió (servidor).** Un solo sitio: `backend/src/modules/buylist/buylist.service.ts` `toQuotePayload` (~:1288-1296).
+`referencePrice` sale `{status:"priced", priceMxnCents}` ⇔ `line.quotedPriceCents != null ∧ line.referenceMxnCents != null
+∧ line.referenceMxnCents > 0`; si no, `{status:"pending"}` sin la clave. Lo usan `POST /buylist/quote` y `/quote/batch`
+(vía `quoteCardForFinish`). ⛔ `decideBuyLine`, `quoteAcquisitionWithGuard` y `createRequest` **no se tocaron**:
+`SellRequestItem.marketMxnCents` sigue congelando `line.quote.marketMxnCents` también en líneas `precio_pendiente`
+(lo fija una prueba de BMK-B1). Ningún importe cambia.
+
+**Casos que cambian de conducta** (los de §BMK.2): guardarraíl `premium_at_floor` (incluido bounty topado en premium al
+bin) ⇒ antes `priced`, ahora `pending`; override o bounty con mercado `0` ⇒ antes `priced` con 0, ahora `pending`.
+
+**Para frontend.** La forma no cambia. Un servidor viejo (o un carrito en `localStorage`) puede traer `priced` junto a
+`precio_pendiente`: por eso §BMK.3 repite el predicado en el cliente.
+
+**BMK-B2 sobre el doble.** Que el lector real (`PricingService.getReference` → `getReferencesBatch`) pueda devolver
+`priced` con `referenceMxnCents = 0` es **NO MEDIDO**: la ingesta solo persiste `market > 0` (`pricing.service.ts`
+~:2535, ~:1697) y `liveMxnCents` cae al almacenado. La prueba se hace sobre el doble de `getReference`, como permite el
+contrato.
+
+**Pruebas.** `backend/test/buylist.bmk-reference-price.spec.ts` (14 casos, deterministas, N=1):
+- BMK-B1 (`/quote`, `/quote/batch`, bounty topado premium) y BMK-B2 (`/quote`, `/quote/batch`, bounty con mercado 0):
+  **6 rojas contra `42eaeabf`** (sale `priced` con 100 / con 0), verdes tras el cambio.
+- BMK-B3 (criterio 852, candado, verde antes y después): peldaños `market`, `floor`, `override`, `bounty`, bounty topado
+  — `referencePrice.priceMxnCents` de `/quote` y de `/quote/batch` === `marketMxnCents` congelado por `createRequest`, y
+  mismo `quotedPriceCents`; dos acabados con mercados distintos (10 000 / 25 000), cada uno el suyo.
+- BMK-B4 por ausencia: `git diff --numstat 42eaeabf fa10107e -- backend/test` = `275 0` (solo añade).
+  `buylist.batch-clabe.spec.ts` y `buylist.variant-overrides.spec.ts` verdes sin editar.
+
+**Mediciones.** `tsc --noEmit` exit 0 · `npm run lint` exit 0 · **unitaria completa 442/442 suites, 7982/7982**.
+Integración: no aplica (ninguna spec de `test/integration` menciona `referencePrice`; medido con `grep`), no corrida.
+Mutaciones sobre copia del árbol ENTERO (`git archive fa10107e`), N=1 cada una, todas rojas:
+
+| Mutación | Rojas |
+|---|---|
+| M1 condición = solo `referenceMxnCents != null` (la de antes) | B1 ×3, B2 ×3 |
+| M2 sin `> 0` | B2 ×3 |
+| M3 sin `quotedPriceCents != null` | B1 ×3 |
+| M4 `quoteCardForFinish` emite la referencia del acabado `normal` | B3 «dos acabados» |
+
+### 86.1 · Siembra E2E: la carta del guardarraíl de COMPRA, `E2E Bin Premium` (2026-10-08, hallazgo de QA sobre `342f84dc`)
+
+**Hueco.** Con la siembra normal, ninguna carta caía en «`precio_pendiente` con mercado > 0 guardado», que es lo único que
+distingue BMK-2 de un pendiente cualquiera: las pendientes eran todas sin mercado, y `E2E Floor Premium` sale `cotizada`
+en COMPRA (1000 × 0.30 = 300 > bin 100). Por eso el caso BMK-E1 de `frontend/e2e/buylist-bmk.spec.ts` no ejercitaba el
+guardarraíl; QA solo lo cubrió bajando el mercado a mano.
+
+**Cambio (solo siembra; código de servidor intacto).** `backend/prisma/e2e-fixtures.ts`: nueva `E2E_CARDS.binpremium` =
+`{ externalId: 'e2e-bin-premium', name: 'E2E Bin Premium', number: '100', rarity: 'Rare Secret', refNmCents: 200 }`, en
+`E2E Base Set`; el oráculo `E2E_SET_EXPECTED_NUMBERS` gana `'100'` al final. `backend/prisma/seed-e2e.ts`: su `raw:NM` de
+200 centavos. Con la curva de fábrica: COMPRA 200 × 0.30 = 60 < bin 100 ⇒ `floor` ⇒ `premium_at_floor` ⇒
+`precio_pendiente`; VENTA 320 < piso 2500 ⇒ retenida (`Secret Rare` fuera del dial). A partir de 334 centavos sale del
+guardarraíl (medido: `resolvePendingReason(quoteAcquisitionWithGuard(334,…).guardBasis, …) = null`).
+Número `100` a propósito: entra al final del orden natural y no desplaza a ninguna carta. Sin inventario ni fila de cola
+sembrada ⇒ no cambia conteos de la cola ni del catálogo publicado (`grep` de `E2E_CARDS`/`E2E_SET`/`Base Set` en
+`backend/test` y `frontend/e2e`: los únicos que dependen del número de cartas usan el oráculo).
+
+**Para frontend (no lo toca en este pase).** BMK-E1 debe apuntar a la carta **`E2E Bin Premium`** (acabado `normal`,
+número 100, en `E2E Base Set`) en vez de iterar «cualquier teja pendiente»: es la única pendiente del set cuyo
+`referencePrice` es `pending` **por el guardarraíl** y no por falta de mercado.
+
+**Mediciones (Postgres 16 propio como `nobody`, `/var/tmp/be-bmk2-pg`, puerto 55471; backend compilado de `342f84dc`,
+puerto 55472; `POST /buylist/quote` raw NM por cada acabado de las 15 cartas sembradas, cruzado con su `raw:NM` en BD).**
+- Antes (siembra de `342f84dc`): **0** filas con `precio_pendiente` y mercado > 0 (17 combinaciones carta×acabado).
+- Después (misma BD re-sembrada con este cambio; `backend/src` idéntico a `342f84dc`): la única diferencia es una fila
+  nueva — `E2E Bin Premium · normal · mercado=200 · {"priceBasis":"pending","quote":{"status":"precio_pendiente",
+  "quotedPriceCents":null},"referencePrice":{"status":"pending"}}`. `/buylist/quote/batch` da lo mismo.
+  `GET /buylist/cards?setId=<e2e-base>` = 12 cartas, orden `4,16,…,98,99,100`.
+- Integración en la misma BD, dos corridas (19 suites distintas; `buylist-cards-order` va en las dos): 4 suites 53/53
+  (`buylist-cards-order`, `seed-idempotency`, `pricing-visibility`, `premium-floor-sale`) y 16 suites 241/241 (`buylist*`,
+  `sale-queue*`, `catalog*`, `pending-publish-seed`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
+  `eslint` de los dos ficheros de `prisma/` exit 0 · `seed-e2e.target-guard.spec.ts` 16/16. N=1 en todo (deterministas).
+
+## 88 · §MIV — mercado con IVA en la tienda: `marketDisplayCentsOf`, `referenceDisplayCents` y `display*` en la tendencia de sellado (2026-10-10, rama `claude/mercado-iva`, sobre `d8f72da3` (v1.90⟨miv⟩); código en `523bdc18`)
+
+**Norma.** `API_CONTRACT §MIV.0–MIV.8`, `ARCHITECTURE §4.MIV`, `HECHOS.md:160` (2026-10-10). Sin schema, migración,
+endpoint, código de error ni dial. **Ningún importe cambia**: `referenceValue` sigue neto; `displayPriceCents` y
+`fromPriceCents` salen igual que antes (MIV-B2 y MIV-B6 los fijan: 133400 y 273760).
+
+**Qué cambió (servidor).**
+- `backend/src/common/money.ts` — `marketDisplayCentsOf(marketMxnCents, ivaRatePct) = displayPriceCentsOf(M, 100, r)`.
+  Recibe la **tasa**, no `IvaDials` (P-MIV-5 sostenida por la firma).
+- `catalog.service.ts` — `GroupedListingDTO.referenceDisplayCents?`; en `buildGroups` se deriva de
+  `cheapest.dto.referenceValue` (**ya proyectado** por `toPublicPriceInfo`) con `cheapest.dto.ivaRatePct` (la misma
+  lectura de diales de la petición, `toListingDTO` ~:1004). Clave ausente si no hay número proyectado.
+- `sealed-catalog.service.ts` — `SealedGroupDTO.referenceDisplayCents?`; en `toGroupDTO` la proyección se guarda en
+  `publicReference` y de **ella** sale la clave (⛔ no de la referencia cruda local, que con precio a mano trae el
+  mercado). Tasa: `dials.ivaRatePct`.
+- `sealedValueHistory` — tipos nuevos `SealedValuePointDTO`/`SealedValueHistoryResponse`. `getIvaDials()` se lee
+  **después** del interruptor y de la búsqueda de la pieza (con `sealed_value_trend=off` ⇒ 404 sin leer diales).
+  `points[].displayValueMxnCents = marketDisplayCentsOf(valueMxnCents, r)`; `change.displayAbsMxnCents =
+  display(último) − display(primero)` (vacía ⇒ 0). `pct`/`direction` siguen sobre el neto.
+- ⛔ No tocado: rejillas (`GroupedListingSummaryDTO`/`SealedGroupSummaryDTO`, el tipo propio impide copiar la clave —
+  medido con `tsc`), `ListingDTO`, rutas de set (`set-value.service.ts`), bóveda, buylist, wishlist, admin.
+
+**Para frontend.** `referenceDisplayCents` solo viaja con `priceBasis === "market"` (en carta y sellado no hay grupos
+`pending`: un grupo sin precio no se publica, así que en la práctica la ausencia es «override»). En la tendencia, los
+dos campos `display*` son siempre presentes en esta ruta.
+
+**Pruebas.** `backend/test/miv.market-display.spec.ts`, 34 casos, deterministas (N=1 dicho como tal):
+- Contra `d8f72da3` sin implementación: **24 rojas / 10 verdes**. Las 10 verdes son las mitades de ausencia (B3
+  override/pending, B10 rejillas y `ListingDTO`), B8 (candado de orden, el contrato lo declara «no rojo hoy») y la de
+  set sin cambio. La función se lee por índice del módulo para que el rojo sea «no existe» y no un error de compilación.
+- Con la implementación: 34/34.
+- MIV-B11 por ausencia: la única edición de pruebas existentes es **añadir** `referenceDisplayCents: true` en
+  `test/helpers/dto-keys.ts` (`GROUPED_LISTING_KEYS` y `SEALED_GROUP_KEYS`). Ningún escenario de conjunto exacto
+  existente es no-`market`, así que no hizo falta tocar listas de ausentes.
+
+**Mediciones (copia del árbol entero, `git archive`).** `tsc --noEmit` exit 0 · `npm run lint` exit 0 · unitaria
+completa **463/463 suites, 8392/8392**. Integración: `pricing-visibility.e2e-spec.ts` (su conjunto exacto de claves de
+la ficha incluye ahora la clave nueva y la carta sembrada es `market`) **23/23** contra Postgres 16 propio, migrado y
+sembrado con `seed:synthetic`; el resto de la integración no se corrió (ninguna otra spec lee estas claves ni la
+tendencia de sellado; medido con `grep`).
+
+**Mutaciones** sobre copia de `523bdc18` (árbol entero), N=1 cada una (deterministas), **todas muerden**:
+| # | Mutación | Rojas |
+|---|---|---|
+| M1 | `Math.floor` en vez de `round` | B1 (4,16), B1 barrido, B7 [1,4] |
+| M2 | `M + M·r/100` sin redondear | B1 ×4, B7 [1,4] |
+| M3 | carta emite el neto como display | B2 ×2, B4, B5 |
+| M4 | carta con `16` fijo | B2 (r=8), B5 carta |
+| M4b | sellado con `16` fijo | B5 sellado |
+| M5 | sellado deriva de la referencia **cruda** | B3 (override + priced) |
+| M6 | sellado usa `displayPriceCentsOf(M, ivaTransferPct, r)` | B4 sellado (da 108000) |
+| M7 | quitar la llamada en `toGroupDTO` | B3, B4, B5, B6 (sellado) |
+| M8 | `displayAbs = marketDisplayCentsOf(abs)` | B7 [1,4] (da 3) |
+| M9 | `pct` sobre displays | B7 ×2 |
+| M10 | leer diales antes del interruptor | B8 |
+| M11 | llamarla desde `buylist.service.ts` | B9 |
+| M12 | copiar la clave a la lista blanca de la rejilla (carta y sellado) | `tsc` TS2353 en los dos |
+
+Hueco conocido: B4 (traslación) muerde solo en sellado; en carta la mutación no es expresable sin cambiar la firma de
+`buildGroups` (el DTO por pieza no lleva `ivaTransferPct`, criterio 209), que es justo lo que P-MIV-5 quiere.
+
+### 88.1 Cierre de gates §MIV (2026-10-10, sobre `f3a6c702`; techlead APROBADO CON DEUDA, QA APROBADO CON CONDICIONES)
+
+- **D-2 (techlead) cerrada.** La mitad de MIV-B10 sobre la ficha de carta (`test/miv.market-display.spec.ts`) recorría
+  `(card as unknown as { units?: unknown[] }).units ?? []` sin afirmar que hubiera piezas: con `units` vacío pasaba sin
+  comprobar nada. Ahora usa `card.units` tipado y afirma `card.units.length > 0` antes del bucle.
+  Mutaciones sobre copia del árbol entero (`git archive HEAD` + la spec editada), deterministas ⇒ N=1 cada una:
+  | # | Mutación en `catalog.service.ts` (`getCard`) | Resultado |
+  |---|---|---|
+  | M-B10a | `units` emite `referenceDisplayCents: 1` en cada pieza | MIV-B10 «`ListingDTO` por pieza» **roja** |
+  | M-B10b | `units: []` (la que la versión anterior dejaba pasar) | MIV-B10 «`ListingDTO` por pieza» **roja** |
+- **D-1 (techlead) y el MENOR de QA** (`product.name` de la tendencia de sellado) quedan anotados en `TECH_DEBT.md`
+  (TD-MIV-1, TD-MIV-2). Ninguno bloquea.
+## 89 · v1.84 LIVE-4 (TD-4) y LIVE-5 (C2) construidas (💰) — CAS en los tres escritores de `failed`; el SPEI pregunta a Stripe por el cobro (2026-10-10, rama `claude/salida-real`, sobre `20b676bf` = `origin/production`)
+
+Contrato: `API_CONTRACT §14.4` (LIVE-4) y `§14.5` (LIVE-5). Porqué: `ARCHITECTURE §4.63.4`. ⛔ Sin schema, sin migración,
+sin enum, sin código de error nuevo (`CASE_ORIGIN_NOT_SETTLED`, `MANUAL_REFUND_CONFIRMATION_REQUIRED` y
+`PAYMENT_PROVIDER_UNAVAILABLE` ya existían; solo dos valores nuevos de `details.reason`, los del contrato).
+
+### 89.1 LIVE-4 · TD-4 — `pending → failed` es un CAS
+- Helper único `failPendingOrder(tx, orderId) → boolean` en `orders/reservation.ts`:
+  `order.updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`. Es la **primera** escritura de
+  la tx que libera. `false` ⇒ el llamador ⛔ no libera piezas ni apartados de accesorio y sale sin escribir.
+- Los tres sitios: `releaseReservation` (compensación A2 y barrido legado de invitado), `supersedeOwnOrder`
+  (sustitución; si el CAS pierde **no lanza**: la reserva nueva choca luego con `ITEM_UNAVAILABLE` si las piezas ya no
+  están libres) y `sweepExpiredReservations`.
+- **Barrido, decisión de lectura del contrato:** el CAS se aplica cuando la orden se **leyó** `pending` (la rama que
+  escribía `failed`). Si se leyó en otro estado (p. ej. ya `failed` con piezas aún reservadas por ella) se conserva la
+  conducta de antes: no se escribe la orden y se suelta lo que siga reservado con `reservationGuard`. Aplicar el CAS
+  también ahí dejaría esas piezas atrapadas para siempre (la prueba de siempre «una orden ya `failed` con piezas aún
+  reservadas por ella se libera sin volver a marcarla» lo fija). Si el arquitecto lo quiere distinto, es una línea.
+- El log de `noop` del barrido ya no afirma «la orden quedó `failed`» sin condición.
+- **TD4-3 y la carrera «libre»:** con un Stripe fiel, el barrido y la sustitución solo escriben si el PI quedó
+  `canceled`, y un PI cancelado ya no se liquida ⇒ la carrera libre `succeeded ∥ barrido` **no llega** al CAS (la
+  ventana solo existe si falla esa propiedad de Stripe, que es justo de lo que el contrato no quiere depender). Por eso
+  TD4-3 se mide con **barrera de fila** (`row-lock-barrier`, canario `pg_stat_activity`): la barrera escribe
+  `settled` + piezas `in_custody` sin confirmar, el barrido se **ve** bloqueado en su `UPDATE`, la barrera confirma y
+  Postgres re-evalúa el `WHERE`. Y TD4-2 «liquidada/reembolsada entre la lectura y la escritura» se fuerza con el doble
+  de Stripe: mientras se cancela el PI (B3, que corre entre la lectura `pending` y la tx), llega el
+  `payment_intent.succeeded` firmado real (y en la variante `refunded`, también el `charge.refunded`).
+
+### 89.2 LIVE-5 · C2 — `chargeState` y la cubeta SPEI
+- `StripeService.chargeState(pi)`: `paymentIntents.retrieve(pi, { expand: ['latest_charge'] })` ⇒
+  `{ mode: 'current', disputed: latest_charge.disputed, amountRefundedCents }`; `StripeInvalidRequestError` con
+  `code: 'resource_missing'` ⇒ `{ mode: 'other' }`; **cualquier** otro fallo ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE`.
+- `ManualRefundService.originChargeOf(orderId)` lo llama **fuera** de toda `$transaction` (CS-6) y devuelve un valor
+  (`none` | `unavailable` | `other` | `current{disputed}`); sin orden o sin PI no llama a Stripe.
+- `to-manual`: la lectura va antes de la tx; se **aplica** en el paso 3-bis (tras `REFUND_NOT_CONVERTIBLE`, la
+  idempotencia y el `FOR UPDATE` de la orden). Así, repetir un `to-manual` ya hecho sigue siendo `200` con la misma fila
+  aunque Stripe esté caído. `other` ⇒ `409 CASE_ORIGIN_NOT_SETTLED {originStatus:'settled', reason:'payment_other_mode'}`;
+  `disputed` ⇒ `409 … reason:'charge_disputed'`; caído ⇒ `503`. La lista `REFUND_FAILURE_DISPUTE_CODES` sigue detrás
+  como atajo y registro, ⛔ ya no es la puerta.
+- `reveal-clabe`: gana `originCharge: { disputed, otherMode } | null` y `originChargeUnavailable: boolean` (siempre
+  presente; `true` solo con Stripe caído). No bloquea.
+- `paid`: `disputed` u `otherMode` cuentan como origen no liquidado ⇒ sin `confirmOriginNotSettled` ⇒
+  `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['origin_not_settled'], originStatus, reason}`. Stripe caído ⇒ se
+  registra igual; la bitácora `manual_refund.paid` gana `reason` (`charge_disputed` | `payment_other_mode` | `null`) y
+  `originChargeUnavailable`.
+- **Frontend (no es mío, aviso):** el aviso rojo de `reveal-clabe` (§14.5, textos de ux-ui) no está construido; el
+  `422` de `paid` ya lo maneja la pantalla (`required: ['origin_not_settled']`), aunque ahora puede llegar con
+  `originStatus: 'settled'` + `reason`.
+- ⛔ **NO MEDIDO contra Stripe real** (en este contenedor no hay claves): ni el código exacto que Stripe MX devuelve al
+  reembolsar un cargo disputado, ni que `latest_charge.disputed` siga `true` tras una disputa **ganada** (si sigue,
+  `to-manual` bloquea para siempre ese cobro y el SPEI habría que hacerlo fuera de la tienda). La medición que lo
+  cierra está en `§14.5` (tarjeta `4000 0000 0000 0259` en modo prueba). Con LIVE-5 ese número ya no decide dinero.
+- `refund-ledger.service.ts` (`onRefundUpdated`) sigue guardando `failureCode = stripe_<status>` para los fallos
+  asíncronos: no casa con la lista, pero con el 3-bis ya no importa. Guardar `refund.failure_reason` sería mejor
+  registro; no lo toqué (no lo pide el contrato).
+
+### 89.3 Pruebas y cifras (árbol vivo, `20b676bf` + este commit; Postgres 16 y Redis propios)
+- Nuevas: `test/orders.td4-failed-cas.spec.ts` (7, unidad), `test/integration/td4-failed-cas.e2e-spec.ts` (12:
+  TD4-1 ×2 + control, TD4-2 barrido ×4 + control, sustitución ×2 + control, TD4-3 N=10),
+  `test/stripe.charge-state.spec.ts` (8), y en `replacement-cases.e2e-spec.ts` CS-1/2/3, CS-4/5, CS-5b, CS-6 (CS-7 =
+  PS-48 sin tocar, verde). Ajustadas a la forma CAS (mocks `order.updateMany`): `orders.reservation-owner.spec.ts`,
+  `orders.reservation.spec.ts`, `guest-checkout.session.spec.ts`, `guest-checkout.guard-sweep-mail.spec.ts`.
+  `TestStripeService` gana `chargeState` guionizable por PI (por defecto: cobro limpio).
+- **Rojo primero:** TD-4 sobre el código de `20b676bf`: unidad 6/7 rojas; integración 9/12 rojas (las 3 verdes son
+  los controles), TD4-3 **0/10 verdes, 10/10 válidas**, todas `KO(failed,in_custody+in_custody)` = pedido pagado que
+  queda `failed`. LIVE-5 sobre el `manual-refund.service.ts` de `20b676bf` (copia): CS-1, CS-4/5, CS-5b y CS-6 rojas;
+  PS-35 y PS-48 verdes.
+- **Verde:** TD4-3 **10/10 válidas, 10/10 verdes**. 18 suites de integración relacionadas (reservas, checkout,
+  barridos, settle tardío, reembolsos, SPEI): **354/354**.
+- Unidad completa **464/464 suites, 8373/8373 pruebas**; `tsc --noEmit` exit 0; `npm run lint` exit 0.
+- **Mutaciones** (copia del árbol ENTERO en el scratchpad, `git archive 20b676bf` + estos ficheros):
+  helper sin `status:'pending'` ⇒ integración 9/12 rojas, TD4-3 0/10; cada sitio vuelto a `update` por id ⇒ rojas
+  **solo** las de su sitio (release 2, sustitución 2, barrido 4 + TD4-3 0/10); sin paso 3-bis ⇒ CS-1 roja; `paid`
+  sin contar `disputed` ⇒ CS-4/5 roja; `chargeState` dentro de la tx ⇒ CS-6 roja; `resource_missing` como limpio ⇒
+  unidad CS-2 roja; `catch` que sigue ⇒ unidad CS-3 4/4 rojas. N=1 por mutación: deterministas (barrera de fila y
+  doble guionizado, no tiradas de dados); TD4-3 da su proporción con N=10.
+
+### 89.4 Condición C-2 del techlead (sobre `10d1430c`) — cerrada en (a)–(d); D-1 y D-6 quedan en `TECH_DEBT` (2026-10-10)
+- **(a)** `payments.service.ts` `failAndRelease` ya no repite el CAS: llama a `failPendingOrder(tx, order.id)` (`:703`).
+  Misma conducta (`false` ⇒ no se libera nada).
+- **(b) Candado RS5-TD-4:** `test/orders.failed-writer-lock.spec.ts`. Recorre `backend/src` (sin `*.spec.ts`), quita
+  comentarios, y busca escrituras literales de `status: 'failed'` / `OrderStatus.failed` en `order.update|updateMany|
+  upsert|create|createMany(…)` (ignorando el `where: {…}`) y en `UPDATE "Order" SET … status = 'failed'` crudo (solo la
+  parte `SET`). Lista de permitidos de **un** elemento: la llamada dentro de `failPendingOrder` (por desplazamiento en
+  `orders/reservation.ts`). Canarios: 4 formas que deben saltar (incluida la de `payments.service.ts:701` en
+  `10d1430c`) y 5 que no (otro modelo, `failed` en el `where`, otro estado, comentarios, SQL con `failed` en el
+  `WHERE`); censo no ciego. ⛔ **No ve** un `data` armado en una variable aparte ni un estado por parámetro.
+- **(c) D-7:** `ManualRefundService.originChargeOf` traduce a `{kind:'unavailable'}` SOLO un `BusinessException`
+  `PAYMENT_PROVIDER_UNAVAILABLE` con status `503` (la forma exacta del «Stripe no respondió» de `chargeState`,
+  §14.5). Cualquier otro error se **propaga** (500 del filtro global; ocurre antes de toda tx ⇒ cero escrituras).
+  Elegí acotar el `catch` y no que `chargeState` devuelva `{mode:'unavailable'}` porque §14.5 fija que `chargeState`
+  **lanza** `PaymentProviderUnavailable`; cambiar esa firma es del arquitecto.
+- **(d) D-2:** `releaseReservation` sigue tragándose el fallo de su tx (conducta igual), pero registra
+  `logger.error(JSON.stringify({ event: 'orders.release_reservation_failed', orderId, itemCount, error }))`.
+- **Rojo primero** (código de `10d1430c`, árbol vivo antes de tocar `src`): candado 1/4 rojo, exactamente
+  `["failPendingOrder", "modules/payments/payments.service.ts:701 (order.updateMany)"]`;
+  `test/manual-refund.origin-charge-errors.spec.ts` 3/5 rojas (los dos controles verdes);
+  `test/orders.release-reservation-log.spec.ts` 1/2 roja (el control verde).
+- **Mutaciones** (copia del árbol ENTERO: `git archive 10d1430c` + los 6 ficheros de este pase; N=1, deterministas):
+  `failAndRelease` con el CAS literal de vuelta ⇒ candado rojo; `releaseReservation` con `order.update` por id ⇒
+  candado rojo; `catch` sin condición ⇒ 3/5 rojas; sin la comprobación de `503` ⇒ 1/5 roja; log silenciado ⇒ 1/2 roja.
+  Restaurado ⇒ 11/11.
+- **Cifras** (árbol vivo, `10d1430c` + este pase): unidad **467/467 suites, 8384/8384**; `tsc --noEmit` 0;
+  `npm run lint` 0. Integración con Postgres 16 + Redis propios: 15 suites (td4-failed-cas, replacement-cases,
+  checkout-reservation-owner, guest-checkout, accessories-checkout, catalog-checkout-webhook, settle-late,
+  vault-legacy-reservation-sweep, guest-chargeback, seed-spei-bucket, pnl-delivered-refunds, shipped-refund-reason,
+  stripe-in-tx-pool, bsd-b3, bsd-b5) **327/327 verdes, 2 omitidas** (las de `stripe-in-tx-pool` que solo corren con el
+  pool de CI, `:216/:233`). Carga de la máquina ~10–13 con 4 CPU durante la corrida: ningún rojo por timeout.
+- **Abiertas** (en `TECH_DEBT` RS5-TD-4 y RS5-C2): **D-1** (el barrido suelta piezas de una orden leída no-`pending`
+  sin CAS sobre el estado leído, `orders.service.ts:1258-1264`; la decisión es del arquitecto, §14.4 fijó «como antes»)
+  y **D-6** (`resource_missing` no siempre es «otro modo»; `latest_charge.disputed` tras disputa ganada NO MEDIDO).
+
+## 90 · El candado de enlaces de correo excluye el catch-all centinela de CSP (2026-10-10, rama `claude/salida-real`, sobre `24e1afe2`)
+
+El commit `0515d53a` (frontend) añadió `frontend/src/app/[locale]/[...rest]/page.tsx`: un catch-all cuyo
+`page.tsx` **solo** llama a `notFound()`. No es un destino; existe para que una URL desconocida case dentro de
+`[locale]` y su 404 salga por-petición con el nonce de CSP (candado `e2e/csp.spec.ts` CSP-2). Ruta de front
+legítima, **no se toca**.
+
+El daño estaba en mi candado `backend/test/mail-links.frontend-routes.spec.ts`: su walker `frontendRoutes()`
+veía `[...rest]` como un catch-all que casa con CUALQUIER path ⇒ `routeExists(lo-que-sea)` devolvía `true`. Esto
+(1) ponía roja `:125` (`routeExists('cuenta/pedidos')` pasó a `true`) y (2) **vaciaba** el candado «ninguno
+apunta a una ruta inexistente»: un CTA de correo roto ya no se cazaría (defecto nacido en clientes reales,
+2026-09-29).
+
+**Arreglo (no debilita el candado):** `isNotFoundOnlySentinel(dir, entries)` detecta un catch-all cuyo `page.tsx`,
+sin comentarios, llama a `notFound()` y —quitadas esas llamadas— no deja ni `return` ni JSX (`<[A-Za-z]`). El
+walker NO registra ese catch-all como ruta. Un catch-all REAL que sirva contenido (tendría `return`/JSX) sí se
+registra como ruteable; la exclusión es específica del centinela, no un parche al número.
+
+**Verificación:** spec completo 37/37 verde. Mutación O-9 directa (archivo temporal `appUrl('cuenta/pedidos')` en
+`backend/src`): el candado de «ninguno apunta a una ruta inexistente» se pone ROJO (1 fallo) → sigue mordiendo;
+revertido. Mutación inversa (`esCentinela = false`): `:125` se pone ROJA (`Received true`) → la exclusión es lo que
+arregla; revertida.

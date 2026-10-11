@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
@@ -14,6 +14,8 @@ import type { Role } from '@/types/contract';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
+import { AdminLockNotice } from './AdminLockNotice';
+import { Banner } from '@/components/ui/Banner';
 
 // Roles con acceso al back-office (contrato §0). Un `customer` autenticado NO entra.
 const ADMIN_ROLES: Role[] = ['vault_operator', 'super_admin'];
@@ -41,6 +43,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
    * también en modo mock (la bandera vive en la sesión local).
    */
   const mustChange = ready && isAuthenticated && user?.mustChangePassword === true;
+  // ⭐ v1.80.9 (§42.6): el aviso de candado solo se consulta con sesión de staff y SIN temporal pendiente.
+  const lockNoticeEnabled = ready && isAuthenticated && hasAdminRole && !mustChange;
+  const mainRef = useRef<HTMLElement>(null);
   const blocked = mustChange && !isPasswordRoute(pathname);
   // Misma construcción que el interceptor global y que PrivateRouteGuard (F2-3): la página de
   // contraseña del ROL (no una ruta escrita a mano) y el `next` CON su query string.
@@ -109,10 +114,38 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <AdminTopbar onMenu={() => setDrawer(true)} />
-          <main className="flex-1 px-5 py-8 lg:px-10">{children}</main>
+          {/* `tabIndex=-1`: al cerrar el aviso de candado el foco pasa al <main> (no se pierde en el body). */}
+          <main ref={mainRef} tabIndex={-1} className="flex-1 px-5 py-8 outline-none lg:px-10">
+            <AdminLockNotice enabled={lockNoticeEnabled} onDismissed={() => mainRef.current?.focus()} />
+            <DesktopOnlyNotice pathname={pathname} />
+            {children}
+          </main>
         </div>
       </div>
     </RoleProvider>
+  );
+}
+
+/**
+ * §60.9 f (HECHOS 2026-10-05 (1)): solo «Pedidos por preparar» (`/admin/m4`) está pensada para el celular. En
+ * `< lg`, toda otra página del panel lo dice UNA vez arriba, sin cerrar, con el atajo a M4. Se pinta con CSS
+ * (`lg:hidden`), ⛔ sin detectar el dispositivo en JS: el servidor no sabe el ancho.
+ */
+function DesktopOnlyNotice({ pathname }: { pathname: string }) {
+  const t = useTranslations('admin.mobile');
+  if (pathname === '/admin/m4') return null;
+  return (
+    <div className="mb-6 lg:hidden print:hidden" data-testid="admin-desktop-only">
+      <Banner variant="info">
+        {t.rich('desktopOnly', {
+          link: (chunks) => (
+            <Link href="/admin/m4" className="underline underline-offset-4 hover:text-accent">
+              {chunks}
+            </Link>
+          ),
+        })}
+      </Banner>
+    </div>
   );
 }
 

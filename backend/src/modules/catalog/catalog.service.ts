@@ -19,13 +19,15 @@ import { SettingsService } from '../settings/settings.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
-  displayPriceCentsOf,
-  hasManualPrice,
+  SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
+  manualSaleOf,
+  marketDisplayCentsOf,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
-import { PricingCurve } from '../../common/pricing-curve';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
+import { PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
@@ -83,6 +85,18 @@ const FINISHES: readonly Finish[] = FINISH_VALUES;
 const RAW_CONDITIONS: readonly RawCondition[] = ACCEPTED_RAW_CONDITIONS;
 
 /**
+ * `EQ-D1` — dominio del ORDEN de `GET /catalog/cards` (§0-Q punto 6, clase **L**: no hay enum de
+ * orden en `schema.prisma`; el dominio lo declara la línea del endpoint del contrato, §2).
+ * Antes: un `?sort=` fuera de dominio caía al `else` y devolvía `newest` **sin decirlo** (clamp
+ * silencioso, prohibido por §0-Q punto 6). Ahora ⇒ `400` con `field`+`allowed`. `grading_showcase`
+ * es un token del dominio, con su requisito propio (`gradingHighlight=true`) que `validateGradingQuery`
+ * sigue exigiendo por separado (`400 GRADING_SORT_REQUIRES_FILTER`).
+ */
+export const CATALOG_CARDS_SORT_VALUES = ['newest', 'price_asc', 'price_desc', 'grading_showcase'] as const;
+export type CatalogCardsSort = (typeof CATALOG_CARDS_SORT_VALUES)[number];
+const CATALOG_CARDS_SORT_DEFAULT: CatalogCardsSort = 'newest';
+
+/**
  * `CardDTO` del contrato (§DTOs), **declarado como INTERFAZ que espeja el CONTRATO** (v2.1.9, T-2).
  *
  * ### Por qué no `ReturnType<typeof toCardDTO>`
@@ -107,6 +121,12 @@ export interface CardDTO {
   subtypes: string[];
   setId: string;
   setName: string | null;
+  /**
+   * v1.80 (P-71, ARCHITECTURE §4.57) — código corto IMPRESO del set de esta carta («TWM»), de
+   * `CardSet.ptcgoCode` normalizado por `publicPtcgoCode`. Clave SIEMPRE presente; `null` = sin código
+   * (normal y permanente) o set no cargado por el emisor (misma relación que `setName`).
+   */
+  setPtcgoCode: string | null;
   imageSmallUrl: string | null;
   imageLargeUrl: string | null;
   availableFinishes: Finish[];
@@ -138,6 +158,8 @@ interface ListingCtx {
   reference?: PriceInfo;
   // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
   curve?: PricingCurve;
+  // v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada una vez junto a la curva.
+  premiumFloorPolicy?: PremiumFloorPolicy;
   // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
   // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
   sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
@@ -161,6 +183,18 @@ interface ListingCtx {
  * **inferido**: la misma clase que B-1 cerró en `GroupedListingDTO` seguía abierta en el DTO
  * por-pieza, que es el que alimenta `units[]`, `GET /catalog/listings/:id` y la ficha de sellado.
  */
+/**
+ * DECKS-META §3.4 (Fase 1) — proyección NEUTRA de una pieza vendible para `decks-meta`: sólo la
+ * identidad de la pieza y su precio exhibido (`P`, con IVA) bajo un nombre neutral. ⛔ NO lleva el
+ * token `displayPriceCents`, así la derivación de `P` no se extiende fuera de este módulo (el censo
+ * `iva-derivacion-cableada` sigue acotado a `catalog.service.ts`). `priceMxnCents` puede ser `null`
+ * (pieza sin precio resoluble no llega aquí, pero el tipo es honesto).
+ */
+export interface DeckMetaUnitDTO {
+  inventoryItemId: string;
+  priceMxnCents: number | null;
+}
+
 export interface ListingDTO {
   inventoryItemId: string;
   card: CardDTO;
@@ -196,6 +230,25 @@ export interface ListingDTO {
 }
 
 /**
+ * v1.80 (P-71, ARCHITECTURE §4.57.3) — la ÚNICA normalización del código corto del set para EXHIBIRLO.
+ * La usan TODOS los emisores de v1.80 (`CardDTO.setPtcgoCode`, `MasterSetRefDTO`, `SetPartDTO`,
+ * `MasterSetSummaryDTO`, `BuylistSetDTO`, `PublicBountyDTO`).
+ *
+ *  - `trim()`; vacío o solo espacios ⇒ `null` (nunca `""`).
+ *  - ⛔ NO pasa a mayúsculas: sale tal como lo guardó el sync (un valor raro se ve, no se esconde).
+ *  - ⛔ NO deduce nada del nombre ni del `externalId` (`sv6` no es un código impreso): sin dato ⇒ `null`.
+ *  - ⛔ NO es la clave de emparejado de decks-meta (`deck-matcher.service.ts`, `trim().toUpperCase()`):
+ *    aquélla COMPARA, ésta EXHIBE. Dos funciones, dos propósitos.
+ *
+ * Vive en `catalog/` junto a `toCardDTO` (⛔ no en `common/`: no se abre zona compartida).
+ */
+export function publicPtcgoCode(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
  * @param pricedFinishes v1.22-2 / N-15 (§4.22a-6): acabados de ESTA carta con `hasPricedRef`
  *   (PriceReference raw `raw:NM`, `priceMxnCents > 0`), de `PricingService.getPricedRawFinishesBatch`.
  *   El llamador lo pasa para computar `displayFinishes` (supresión del acabado ESPURIO en premium de
@@ -224,6 +277,8 @@ export function toCardDTO(
     subtypes: (card.subtypes as string[] | null) ?? [],
     setId: card.setId,
     setName: card.set?.name ?? null,
+    // v1.80 (P-71): misma relación que `setName` ⇒ si el emisor no cargó el set, ambos `null`.
+    setPtcgoCode: publicPtcgoCode(card.set?.ptcgoCode),
     imageSmallUrl: card.imageSmallUrl,
     imageLargeUrl: card.imageLargeUrl,
     availableFinishes,
@@ -293,7 +348,11 @@ export function yearFromReleaseDate(releaseDate?: string | null): number | null 
   return m ? parseInt(m[1], 10) : null;
 }
 
-type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+// 💰 v1.83 (§M11-SP.1, SP-3): con el precio del dueño del producto (`SEALED_SALE_PRICE_INCLUDE`) — obligatorio.
+type ItemWithCard = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
 
 /**
  * `GroupedListingDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
@@ -397,6 +456,13 @@ export interface GroupedListingDTO {
    */
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * v1.90⟨miv⟩ (§MIV.2, ADITIVO) — el MERCADO **con IVA** (`marketDisplayCentsOf(referenceValue.referenceMxnCents,
+   * ivaRatePct)`), lo único que la ficha pinta como «Valor de mercado · incluye IVA». Presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`, el `iff` de D2): se deriva del valor
+   * YA proyectado. ⛔ No entra en `GroupedListingSummaryDTO` (rejilla) ni en `ListingDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
 }
 
@@ -621,6 +687,20 @@ export class CatalogService {
   }
 
   /**
+   * rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.1 «A la venta») — **¿cuáles de estas piezas están a la venta AHORA y a qué `P`?**
+   * El MISMO cuerpo que el catálogo (`fetchSellable` → `toListingRow`: `listed` de plataforma ∧ `sellable` ∧ `L` resuelto):
+   * el módulo `wishlist` no recalcula precios. `displayPriceCents` es el `ListingDTO.displayPriceCents` público (P, con IVA)
+   * (API_CONTRACT §WSH.1 y §WSH.11 (2): `{ inventoryItemId, displayPriceCents }`, alineado en v1.87.2).
+   */
+  async sellableByIds(ids: string[]): Promise<{ inventoryItemId: string; displayPriceCents: number }[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.fetchSellable(this.publishedWhere({ id: { in: [...new Set(ids)] } }));
+    return rows
+      .filter((r) => r.dto.displayPriceCents != null)
+      .map((r) => ({ inventoryItemId: r.item.id, displayPriceCents: r.dto.displayPriceCents as number }));
+  }
+
+  /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
    * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza la curva de precios **una vez** por
@@ -630,12 +710,14 @@ export class CatalogService {
   private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: { createdAt: 'desc' },
     });
     if (items.length === 0) return [];
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por request (como la curva).
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
     const sealedSpreads = await this.pricing.loadSealedSpreads();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
@@ -662,7 +744,8 @@ export class CatalogService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       items
         // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
-        .filter((i) => i.productType !== 'sealed' && !hasManualPrice(i))
+        // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null` (raw/graded: solo la pieza).
+        .filter((i) => i.productType !== 'sealed' && manualSaleOf(i) == null)
         // v1.53 (§4.40.4b): sin identidad de slab no hay clave de variante que buscar.
         .flatMap((i) => {
           const gk = this.pricing.tryGradeKeyFor(i);
@@ -680,6 +763,7 @@ export class CatalogService {
       const { dto, listPriceCents } = await this.toListingRow(item, {
         reference,
         curve,
+        premiumFloorPolicy,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
@@ -780,6 +864,11 @@ export class CatalogService {
     // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
     // dato para la regla de visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
     let priceBasis: PriceBasis = 'pending';
+    // 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño (sellado con precio de producto) o `null`.
+    let fixedDisplayCents: number | null = null;
+    // ⭐ Los diales, izados (o leídos UNA vez en uso single) ANTES de resolver: el sellado los necesita para
+    // el `L` equivalente del precio del dueño, y la derivación de `P` de abajo usa los MISMOS.
+    const dials = await this.ivaDialsOf(ctx);
 
     if (item.productType === 'sealed') {
       // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
@@ -793,8 +882,9 @@ export class CatalogService {
       // dial encendido (§4.23a); con off el sellado solo se vende con override. `referenceValue` =
       // valor de mercado TCGCSV cuando el gate lo deja pasar, si no `pending`.
       const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
-      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx);
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx, dials);
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      fixedDisplayCents = sale.fixedDisplayCents;
       // v2.0 (§4.36.7a): el sellado NO cambia de matemática (criterio 85) — solo DERIVA su basis del
       // `priceSource` que ya tenía: override⇒override; subtype/global_spread⇒market; sin precio⇒pending.
       priceBasis = sealedPriceBasisOf(sale);
@@ -811,12 +901,14 @@ export class CatalogService {
           ? { status: 'pending' }
           : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
-      if (hasManualPrice(item)) {
+      // v1.83 (§M11-SP.1): el predicado único (raw/graded: solo la pieza; ⛔ nunca el producto).
+      const manual = manualSaleOf(item);
+      if (manual?.origin === 'piece') {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
         // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
         // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por
         // §N.7 la ficha NO muestra «Valor de mercado»: el mercado no produjo este precio).
-        salePriceCents = item.listPriceCents;
+        salePriceCents = manual.listCents;
         priceBasis = 'override';
       } else {
         // v2.0 (P-48, §4.36.1): precio de venta por la CURVA sobre el VALOR DE MERCADO — ya no
@@ -854,8 +946,14 @@ export class CatalogService {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: variantOverride,
         };
+        // v1.80.8.5 (`M2-PF`): la política viaja con la curva; si un contexto de lote no la trajera, se
+        // LEE (jamás se asume): el veredicto es el mismo que el del checkout.
         const sale = ctx?.curve
-          ? this.pricing.decideSalePrice({ ...decision, curve: ctx.curve })
+          ? this.pricing.decideSalePrice({
+              ...decision,
+              curve: ctx.curve,
+              premiumFloorPolicy: ctx.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy()),
+            })
           : await this.pricing.computeSalePriceForItem(decision);
         if (sale.priceCents != null) {
           salePriceCents = sale.priceCents;
@@ -877,11 +975,9 @@ export class CatalogService {
     // `P = round(L × (1 + t·r))` (`ARCHITECTURE §4.44.b`, `API_CONTRACT §M10-IVA.3`). El servidor
     // manda la cifra **ya hecha**; ⛔ el frontend no multiplica nada (§4.44.i). Si el front la
     // compusiera, cada superficie sería un sitio donde el precio puede salir distinto.
-    const dials = await this.ivaDialsOf(ctx);
+    // 💰 v1.83.1 (E-3): EL camino a `P` — precio del dueño tal cual; si no, la derivación desde `L` (SP-19).
     const displayPriceCents =
-      salePriceCents == null
-        ? undefined
-        : displayPriceCentsOf(salePriceCents, dials.ivaTransferPct, dials.ivaRatePct);
+      salePriceCents == null ? undefined : saleDisplayCentsOf({ listPriceCents: salePriceCents, fixedDisplayCents }, dials);
 
     const dto: ListingDTO = {
       inventoryItemId: item.id,
@@ -1098,6 +1194,8 @@ export class CatalogService {
           ? highlightResult.highlight.map(toGradedEstimateDTO)
           : null;
 
+      // v1.90⟨miv⟩: el número de mercado TAL COMO SALE al cliente (ya pasado por `toPublicPriceInfo`).
+      const projectedMarketCents = cheapest.dto.referenceValue.referenceMxnCents;
       // ANOTADO con el tipo del contrato: omitir un campo requerido ya no compila (v2.1.7).
       const dto: GroupedListingDTO = {
         representativeInventoryItemId: item.id,
@@ -1132,6 +1230,13 @@ export class CatalogService {
         priceBasis: cheapest.dto.priceBasis,
         // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
         referenceValue: cheapest.dto.referenceValue,
+        // v1.90⟨miv⟩ (§MIV.2): el mercado CON IVA, derivado del `referenceValue` YA PROYECTADO de arriba — hereda el
+        // `iff` de D2: con override (o sin mercado) no hay número ⇒ la clave NO existe (ni `null`, ni `0`). La tasa
+        // es `ivaRatePct` del DTO, o sea la MISMA lectura de diales de esta petición (criterio 862: cambiar
+        // `iva_pct` mueve la cifra sin volver a publicar). ⛔ Nunca `ivaTransferPct` (P-MIV-5, la firma lo impide).
+        ...(projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) && projectedMarketCents >= 0
+          ? { referenceDisplayCents: marketDisplayCentsOf(projectedMarketCents, cheapest.dto.ivaRatePct) }
+          : {}),
         currency: 'MXN' as const,
         // ⚠️ MERGE v1.50.2 — `gradingHighlight` NO va aquí. Tras D2, `GroupedListingDTO` es el DTO de la
         // FICHA, y la ficha expone `gradedEstimates` en su raíz (más rico: PSA 10 y 9, y sin gatear).
@@ -1270,6 +1375,10 @@ export class CatalogService {
   }) {
     // v1.44: se valida ANTES de la query (un sort inválido no debe costar una lectura).
     const onlyHighlighted = this.validateGradingQuery(q);
+    // `EQ-D1` (§0-Q punto 6): el ORDEN se valida contra su dominio declarado. Vacío/ausente ⇒ el
+    // default `newest`; token fuera de dominio ⇒ `400` (antes clampaba a `newest` en silencio).
+    // `grading_showcase` es del dominio; su requisito de filtro ya lo cribó `validateGradingQuery`.
+    const sort = parseEnumFilter('sort', q.sort, CATALOG_CARDS_SORT_VALUES) ?? CATALOG_CARDS_SORT_DEFAULT;
     // Endpoint PÚBLICO: los filtros enum se validan contra la taxonomía real ANTES de
     // llegar a Prisma. Un valor inválido (p. ej. ?condition=LP, ?productType=foo) hoy
     // rompía con PrismaClientValidationError (500); ahora responde 400 VALIDATION_ERROR.
@@ -1328,9 +1437,9 @@ export class CatalogService {
     if (q.minPriceCents != null) groups = groups.filter((g) => g.displayPriceCents >= q.minPriceCents!);
     if (q.maxPriceCents != null) groups = groups.filter((g) => g.displayPriceCents <= q.maxPriceCents!);
 
-    if (q.sort === 'price_asc') groups.sort((a, b) => a.listPriceCents - b.listPriceCents);
-    else if (q.sort === 'price_desc') groups.sort((a, b) => b.listPriceCents - a.listPriceCents);
-    else if (q.sort === 'grading_showcase') {
+    if (sort === 'price_asc') groups.sort((a, b) => a.listPriceCents - b.listPriceCents);
+    else if (sort === 'price_desc') groups.sort((a, b) => b.listPriceCents - a.listPriceCents);
+    else if (sort === 'grading_showcase') {
       // v1.44 (§4.38f) — nombre deliberadamente NEUTRO: no nombra el criterio, así que ajustar la
       // política comercial es un cambio server-side con CERO impacto en contrato y cliente. Criterio
       // vigente: mayor GANANCIA NETA SOBRE PSA 9 (el escenario realista, no el optimista), con desempate
@@ -1472,6 +1581,48 @@ export class CatalogService {
       // contenedor, ni skeleton, ni «—», ni $0, ni «pendiente» (criterio 102).
       ...(gradedEstimates.length > 0 ? { gradedEstimates } : {}),
     };
+  }
+
+  /**
+   * DECKS-META §3.4 (Fase 1) — **piezas RAW NM vendibles por carta, EN LOTE, cheapest-first.**
+   *
+   * REUSA `fetchSellable` (mismo `where` de publicación, mismo precio con IVA `P`, misma resolución
+   * de comprabilidad) — NO reinventa ni el precio ni la disponibilidad (regla dura del dueño / §3.4).
+   * Es el eje que consume `decks-meta` para armar la disponibilidad por línea (`availableQty`,
+   * `unitPriceMxnCents`, `unitInventoryItemIds`) SIN abrir la ficha carta por carta (sin N+1).
+   *
+   * ⛔ **Devuelve una PROYECCIÓN NEUTRA `DeckMetaUnitDTO { inventoryItemId, priceMxnCents }`, no el
+   * `ListingDTO`.** Así el token `displayPriceCents` (la derivación de `P`) NO sale de este módulo:
+   * `decks-meta` CONSUME el precio ya hecho bajo un nombre neutral y jamás lo deriva — el censo
+   * money-safe `iva-derivacion-cableada` (§M10-IVA.9.f) sigue acotado a este fichero.
+   *
+   * Sólo **raw NM**: una carta de deck jugable es una pieza suelta Near Mint (M8 / `PROJECT.md §H`);
+   * las graduadas y el sellado NO son «un ejemplar jugable». Ordenado por `L` ascendente (cheapest-
+   * first, mismo orden que `units[]` de la ficha); una carta sin stock no aparece en el `Map`.
+   */
+  async getSellableRawUnitsByCardIds(cardIds: string[]): Promise<Map<string, DeckMetaUnitDTO[]>> {
+    const out = new Map<string, DeckMetaUnitDTO[]>();
+    const ids = [...new Set(cardIds)].filter((id): id is string => !!id);
+    if (ids.length === 0) return out;
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: ids } }));
+    // raw NM únicamente (la condición de compra/venta es siempre NM, ACCEPTED_RAW_CONDITIONS).
+    // Orden por `L` (cheapest-first, igual que `units[]`): `SellableRow` ya trae `listPriceCents`.
+    const rawNm = rows
+      .filter(
+        (r) =>
+          r.item.productType === 'raw' &&
+          r.item.rawCondition != null &&
+          RAW_CONDITIONS.includes(r.item.rawCondition),
+      )
+      .sort((a, b) => a.listPriceCents - b.listPriceCents);
+    for (const r of rawNm) {
+      const arr = out.get(r.item.cardId) ?? [];
+      // `priceMxnCents` = `P` (con IVA), la MISMA cifra que la ficha exhibe. Se copia bajo nombre
+      // neutral; la derivación vive sólo en `toListingRow` (arriba), no aquí ni en `decks-meta`.
+      arr.push({ inventoryItemId: r.dto.inventoryItemId, priceMxnCents: r.dto.displayPriceCents ?? null });
+      out.set(r.item.cardId, arr);
+    }
+    return out;
   }
 
   /**
@@ -1860,7 +2011,8 @@ export class CatalogService {
   async listSetsWithImportedCards() {
     const sets = await this.prisma.cardSet.findMany({
       where: { cards: { some: {} } },
-      select: { id: true, name: true, series: true, releaseDate: true, logoUrl: true },
+      // v1.80 (P-71): `ptcgoCode` de la MISMA fila (cero queries nuevas).
+      select: { id: true, name: true, series: true, releaseDate: true, logoUrl: true, ptcgoCode: true },
     });
     // `releaseDate` viene de pokemontcg.io como `yyyy/MM/dd`, por lo que la comparación
     // lexicográfica de strings equivale a la cronológica con la fecha completa.
@@ -1875,6 +2027,9 @@ export class CatalogService {
         year: yearFromReleaseDate(s.releaseDate),
         // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; ausencia = `null` explícito, nunca omitida.
         logoUrl: s.logoUrl ?? null,
+        // v1.80 (P-71, §4.57): fuente del índice Y de la cabecera del COTIZADOR (modo `quoter`). Clave
+        // SIEMPRE presente; una sola normalización (`publicPtcgoCode`). ⛔ `GET /catalog/sets` NO lo trae.
+        ptcgoCode: publicPtcgoCode(s.ptcgoCode),
       }))
       .sort((a, b) => {
         if (a.releaseDate && b.releaseDate) {

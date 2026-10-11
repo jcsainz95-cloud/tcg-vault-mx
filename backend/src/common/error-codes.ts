@@ -47,6 +47,17 @@ export const ErrorCode = {
   // 422 — POST /auth/change-password sobre `passwordHash IS NULL` (solo-Google): no hay actual que
   // probar y este endpoint NO crea contraseñas (remedio: forgot-password). ARCHITECTURE §4.47.3.
   PASSWORD_NOT_SET: 'PASSWORD_NOT_SET',
+  // 429 — v1.80 (C7, ARCHITECTURE §4.57): demasiados intentos de contraseña CONTRA LA MISMA CUENTA
+  // (`POST /auth/login`, por correo normalizado) o desde la misma sesión (`change-password`, por
+  // userId). Cabecera `Retry-After` + details { retryAfterSeconds }. Idéntico exista o no la cuenta.
+  // Distinto de RATE_LIMITED porque el remedio difiere: restablecer la contraseña también lo levanta.
+  TOO_MANY_PASSWORD_ATTEMPTS: 'TOO_MANY_PASSWORD_ATTEMPTS',
+  // 403 — v1.80.9 (§M6-U.8 (c), criterio 269): una cuenta del equipo SIN correo intenta una acción de cliente (las
+  // cinco rutas con `@RequireEmailVerified`). Lo emite `EmailVerifiedGuard` ANTES de mirar `emailVerified`.
+  ACCOUNT_WITHOUT_EMAIL: 'ACCOUNT_WITHOUT_EMAIL',
+  // 409 — v1.80.9 (§M6-U.6): `POST /admin/users` con un nombre de usuario ya usado (sin distinguir mayúsculas: se
+  // guarda canónico). Lo decide el índice único (`P2002` sobre `username`). Solo `super_admin` lo ve.
+  USERNAME_TAKEN: 'USERNAME_TAKEN',
   // 422 — POST /shipments/quote | /shipments con un `addressId` cuya fila tiene `recipientName IS NULL`
   // (dirección anterior a M-52). Emisor: módulo `shipments` (Stream A · B5). details { field, addressId }.
   RECIPIENT_NAME_REQUIRED: 'RECIPIENT_NAME_REQUIRED',
@@ -99,6 +110,10 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.2 (Q2, §M2-B.9): `DELETE …/variant-controls/:cardId/:finish/bounty` sobre una variante que NO
+  // tiene bounty en alcance (§M2-B.0). La variante/carta existe, pero no hay nada de bounty que
+  // eliminar. 404.
+  BOUNTY_NOT_FOUND: 'BOUNTY_NOT_FOUND',
   // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
   // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
   // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).
@@ -163,6 +178,12 @@ export const ErrorCode = {
   // 409 y no 422: el body es sintácticamente impecable — el conflicto es con el ESTADO del recurso, y
   // lo que hay que cambiar es la INTENCIÓN, no el cuerpo.
   GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF: 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+  // ⭐ v1.70 (P-83, API_CONTRACT §M2-SK norma SK-3 · §0) — 422. `POST /admin/pricing/override` con
+  // `productType:"sealed"` y `gradeKey:"sealed"` (la constante legada = pieza SIN mapeo). `'sealed'` es
+  // clave de COLA, nunca de PRECIO: la fila no la lee nadie (la publicación lee `sealed:tcg:<id>`) y no
+  // distingue un producto de otro. `details: { gradeKey: "sealed", remedy: "map_or_price_the_piece" }`.
+  // Remedio: mapear la pieza a su presentación (M2) o fijar `InventoryItem.listPriceCents` de ESA pieza.
+  SEALED_MARKET_KEY_REQUIRED: 'SEALED_MARKET_KEY_REQUIRED',
   // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
   // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
   //
@@ -204,6 +225,11 @@ export const ErrorCode = {
   // NO existe o está inactivo (soft-deleted). El backend deriva la identidad del sellado desde el
   // `SealedProduct` persistido; un id muerto no puede dar identidad. 422 (por-línea en el lote).
   SEALED_PRODUCT_NOT_FOUND: 'SEALED_PRODUCT_NOT_FOUND',
+  // 💰 v1.83 (§M11-SP.4): un escritor de `listPriceCents` (alta, lote, «encontrada», línea de `bulk-publish`, `PATCH`)
+  // recibió precio para una pieza SELLADA ligada a un `SealedProduct`: el precio del sellado es del producto y lo pone
+  // el dueño con `PUT /admin/inventory/sealed-products/:id/sale-price`. `details: { sealedProductId, itemId? }`. Todo o
+  // nada (un lote entero se rechaza). Lo recibe cualquier rol, también el dueño. 422.
+  SEALED_PRICE_IS_PER_PRODUCT: 'SEALED_PRICE_IS_PER_PRODUCT',
   // v1.39.1 (P-38, §4.34d): se envió `manualMarketMxnCents` en una línea de alta de sellado cuyo
   // mercado YA está resuelto (live/caché priced). El override manual SOLO llena el HUECO de precio
   // (mercado null): JAMÁS pisa un mercado vivo. Money-safe. NO se dispara por rol (vault_operator+ lo
@@ -295,6 +321,23 @@ export const ErrorCode = {
   // diría al cliente CUÁL falló, que es un oráculo gratis sobre qué keys existen y de quién son.
   // `details: { field }` dice QUÉ CAMPO, no por qué.
   INE_UPLOAD_KEY_INVALID: 'INE_UPLOAD_KEY_INVALID',
+  // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+  // §M5-K, D51 reescrita) — 422. `POST /buylist/requests` cuando la solicitud cae AL/POR ENCIMA del
+  // umbral INE (mismo `ineRequired` que la puerta `INE_REQUIRED`, o sea `>= INE_THRESHOLD_CENTS` **o**
+  // `hasPendingLine` — no `>= threshold` a secas, para no reabrir el bypass de «precio pendiente» de
+  // C15) Y el vendedor tiene la identidad **rechazada** (`kycStatus === 'rejected'`).
+  //
+  // ⛔ EXCEPCIÓN ACOTADA A D51: `kycStatus` NO gatea dinero en ningún OTRO endpoint (ni ofertar, ni
+  // pagar) ni por DEBAJO del umbral — ahí el comportamiento actual queda intacto (montos chicos se
+  // dejan crear aunque la INE esté rechazada). Bloquea SOLO `rejected` (NO `none`/`pending`: no toca a
+  // quien apenas se verifica). No reabre la pregunta 40 (cotejo INE↔titular de la CLABE, cerrada por
+  // «no existe fuente»): gatea sobre el VEREDICTO del admin, que ya existe, no sobre el nombre.
+  //
+  // `details: {}` VACÍO — misma doctrina que `INE_REQUIRED` (§M6-K.5 / v1.69): NI el umbral NI PII
+  // (jamás `rejectionReason`) viajan al vendedor. El motivo lo lee solo el propio usuario por
+  // `GET /users/me/kyc`. Filas legacy `rejected` sin `rejectionReason` (pre-M-54) se bloquean igual,
+  // con mensaje genérico.
+  KYC_REJECTED: 'KYC_REJECTED',
   // ⭐ v1.70 (C20 / SEC-PII-7) — 500. `DELETE /admin/users/:id` en modo HARD cuando la imagen de INE
   // **no se pudo borrar del bucket**. La cascada borraría la fila `KycProfile` con sus keys dentro,
   // así que el ÚNICO puntero a esa imagen desaparecería y la purga de retención **nunca** la
@@ -571,6 +614,9 @@ export const ErrorCode = {
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
+  // 410 — v1.82 (§PNL.1, `HECHOS.md:44`): `POST /disputes` ya no crea disputas. `details: { supportContact }`.
+  // Sale ANTES de validar el cuerpo y de leer la pieza (un 403/422 según la pieza sería un oráculo).
+  DISPUTES_DISCONTINUED: 'DISPUTES_DISCONTINUED',
 
   // ── MODO del tipo de cambio (v1.63/v1.63.1 · API_CONTRACT §M2-F · ARCHITECTURE §4.43) ──
   // Las DOS mitades del invariante I-FX4 («no existe manual sin número»), disparadas por la MISMA
@@ -615,6 +661,177 @@ export const ErrorCode = {
   // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
   // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
   AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
+
+  // ── COLOCACIÓN EN BÓVEDA (v1.79/v1.79.1/v1.79.3 · API_CONTRACT §0 y §M4-VAULT.5/.10) ──────────
+  // 422 — `POST /admin/vault-placements/:id/confirm`: el cajón no sirve. `details.reason`:
+  // `not_found | inactive | not_customer_custody | not_customer_drawer` (+ `customerDrawers`) |
+  // `location_required` (+ `pickedCount`, v1.79.3). Se valida ANTES de reclamar ⇒ no escribió nada.
+  LOCATION_NOT_AVAILABLE: 'LOCATION_NOT_AVAILABLE',
+  // 409 — la colocación ya no está `pending` (los cuatro verbos). `details`: `{status:'placed',
+  // location:{id,label,zone}}` | `{status:'cancelled', cancelReason}`. Un helper, ⛔ cuatro copias.
+  PLACEMENT_NOT_PENDING: 'PLACEMENT_NOT_PENDING',
+  // 409 — `confirm` sobre una colocación `pending` sin «preparado». `details: { preparation }`.
+  PLACEMENT_NOT_PREPARED: 'PLACEMENT_NOT_PREPARED',
+  // 409 — `PATCH …/prep-items/:id` con el pedido ya preparado. `details: { preparedAt }`.
+  PREPARATION_CLOSED: 'PREPARATION_CLOSED',
+  // 409 — `POST …/prepared` con ≥1 carta colocable sin marcar. `details: { pendingCount }`.
+  PREPARATION_INCOMPLETE: 'PREPARATION_INCOMPLETE',
+  // 409 — `PATCH …/prep-items/:id` a `picked|missing` sobre una carta bloqueada. `details: { reason }`.
+  PREP_ITEM_BLOCKED: 'PREP_ITEM_BLOCKED',
+
+  // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
+  // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
+  DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
+  // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
+  // pero su contenido no es una lista parseable. API_CONTRACT §13.
+  DECK_LIST_UNPARSEABLE: 'DECK_LIST_UNPARSEABLE',
+
+  // ── §M4-SHIP (v1.80…v1.80.6 · API_CONTRACT §0) — «Pedidos por preparar», cubeta ENVÍO, el libro de
+  // reembolsos, el apartado «Por reponer», la cubeta SPEI y el reembolso total de bóveda ────────────
+  // 409 — un verbo de preparación de envío sobre un envío que NO está `picking`. `details: { status }`.
+  SHIPMENT_NOT_IN_PREPARATION: 'SHIPMENT_NOT_IN_PREPARATION',
+  // 409 — guía (`tracking` / `→guia`) sobre un envío `picking` sin «preparado». `details: { preparation }`.
+  SHIPMENT_NOT_PREPARED: 'SHIPMENT_NOT_PREPARED',
+  // 409 — cambiar la marca de una carta de envío que YA se reembolsó. `details: { refundId }`.
+  PREP_ITEM_REFUNDED: 'PREP_ITEM_REFUNDED',
+  // 409 💰 — el importe confirmado (`expectedRefundCents` / `expected*`) no es el vigente. `details: { refundCents }`.
+  REFUND_PREVIEW_STALE: 'REFUND_PREVIEW_STALE',
+  // 409 💰 — una carta faltante no se puede reembolsar por esta vía. `details: { lines: [{ shipmentItemId, reason }] }`.
+  REFUND_NOT_AVAILABLE: 'REFUND_NOT_AVAILABLE',
+  // 409 💰 — v1.82 (§PNL.2/§PNL.3): una carta YA ENTREGADA no se puede reembolsar (directo) ni devolver por SPEI
+  // (retiro) por la vía pedida. `details: { reason, refundId?, manualRefundId? }`. Cero escrituras, cero Stripe.
+  ITEM_REFUND_NOT_AVAILABLE: 'ITEM_REFUND_NOT_AVAILABLE',
+  // 403 💰 — el operador superaría su tope de 24 h. `details: { capCents, usedCents, requestedCents }`.
+  MONEY_OUT_LIMIT_EXCEEDED: 'MONEY_OUT_LIMIT_EXCEEDED',
+  // 409 — `PATCH …/status {to:'cancelado'}` sobre un envío pagado (o `solicitado` ya cobrado). `details: { status }`.
+  PAID_SHIPMENT_NOT_CANCELLABLE: 'PAID_SHIPMENT_NOT_CANCELLABLE',
+  // 409 💰 — `retry` sobre una fila que no está `requested`. `details: { status }`.
+  REFUND_NOT_RETRYABLE: 'REFUND_NOT_RETRYABLE',
+  // 409 — cambiar la marca de una carta que ya abrió un caso «Por reponer». `details: { caseId, status }`.
+  PREP_ITEM_IN_REPLACEMENT: 'PREP_ITEM_IN_REPLACEMENT',
+  // 409 — guía de un retiro con casos `open`. `details: { caseIds }`.
+  SHIPMENT_HAS_OPEN_REPLACEMENTS: 'SHIPMENT_HAS_OPEN_REPLACEMENTS',
+  // 409 — verbo de resolución sobre un caso ya resuelto. `details: { status, resolvedAt }`.
+  CASE_NOT_OPEN: 'CASE_NOT_OPEN',
+  // 422 — la pieza propuesta no sirve para reponer. `details: { reason, mismatch? }`.
+  REPLACEMENT_NOT_ELIGIBLE: 'REPLACEMENT_NOT_ELIGIBLE',
+  // 409 💰 — el reembolso de un caso no está disponible. `details: { reason: 'no_origin_order' | 'legacy_convention' }`.
+  CASE_REFUND_NOT_AVAILABLE: 'CASE_REFUND_NOT_AVAILABLE',
+  // 409 — reponer/reembolsar/pasar a SPEI un caso cuya orden de origen ya no está `settled`. `details: { originStatus }`.
+  CASE_ORIGIN_NOT_SETTLED: 'CASE_ORIGIN_NOT_SETTLED',
+  // 409 — anular un caso cuya orden de origen SIGUE `settled`. `details: { originStatus }`.
+  CASE_NOT_VOIDABLE: 'CASE_NOT_VOIDABLE',
+  // 422 💰 — el monto capturado supera 2×R sin `confirmAboveReference:true`. `details: { referenceCents, confirmAboveCents, limitCents }`.
+  CASE_REFUND_CONFIRMATION_REQUIRED: 'CASE_REFUND_CONFIRMATION_REQUIRED',
+  // 422 💰 — el monto capturado supera k×R (dial). `details: { referenceCents, limitCents }`.
+  CASE_REFUND_ABOVE_LIMIT: 'CASE_REFUND_ABOVE_LIMIT',
+  // 409 💰 — verbo de la cubeta SPEI sobre una fila que no está `pending`. `details: { status }`.
+  MANUAL_REFUND_NOT_PENDING: 'MANUAL_REFUND_NOT_PENDING',
+  // 422 — `reveal-clabe` / `paid` sin CLABE registrada.
+  CLABE_NOT_ON_FILE: 'CLABE_NOT_ON_FILE',
+  // 409 💰 — `to-manual` sobre una fila que no es `case_refund` `failed`. `details: { kind } | { status }`.
+  REFUND_NOT_CONVERTIBLE: 'REFUND_NOT_CONVERTIBLE',
+  // 409 — `prepared` con líneas bloqueadas cuya orden de origen sigue `settled`. `details: { lines }`.
+  PREPARATION_HAS_BLOCKED_LINES: 'PREPARATION_HAS_BLOCKED_LINES',
+  // 409 💰 — preparar/guía/enviado de un DIRECTO cuya orden ya no está `settled`. `details: { orderStatus }`.
+  ORDER_NOT_SETTLED: 'ORDER_NOT_SETTLED',
+  // 409 💰 — `paid` con un `revealToken` que ya no corresponde a la CLABE vigente. `details: { clabeUpdatedAt }`.
+  CLABE_CHANGED_SINCE_REVEAL: 'CLABE_CHANGED_SINCE_REVEAL',
+  // 422 💰 — `paid` sin la confirmación reforzada que el estado exige. `details: { required, clabeUpdatedAt?, originStatus? }`.
+  MANUAL_REFUND_CONFIRMATION_REQUIRED: 'MANUAL_REFUND_CONFIRMATION_REQUIRED',
+  // 409 💰 — `retry` mientras otro intento de esa fila habla con Stripe. `details: { attemptStartedAt }`.
+  REFUND_ATTEMPT_IN_PROGRESS: 'REFUND_ATTEMPT_IN_PROGRESS',
+  // 409 💰 — `reissue` sobre una fila que no está `cancelled` o que ya tiene re-emisión viva.
+  MANUAL_REFUND_NOT_CANCELLED: 'MANUAL_REFUND_NOT_CANCELLED',
+  // 409 💰 — M3 total (tx1) sobre una orden `vault` con una carta en un retiro preparado o en `guia`. `details: { items }`.
+  VAULT_PIECE_IN_PACKED_WITHDRAWAL: 'VAULT_PIECE_IN_PACKED_WITHDRAWAL',
+  // 409 💰 — retiro: una línea `picked` disponible cuya compra de origen se está devolviendo. `details: { items }`.
+  WITHDRAWAL_LINE_ORIGIN_REFUNDED: 'WITHDRAWAL_LINE_ORIGIN_REFUNDED',
+  // 422 💰 — `POST /shipments` con una pieza cuya compra de origen se está devolviendo (`classifyItems`).
+  ITEM_ORIGIN_REFUNDED: 'ITEM_ORIGIN_REFUNDED',
+  // 422 💰 — M3 total con cartas ya en manos del cliente sin `confirmPiecesWithCustomer:true`. `details: { required, items }`.
+  REFUND_CONFIRMATION_REQUIRED: 'REFUND_CONFIRMATION_REQUIRED',
+  // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)/(6)) — motivo «tras envío» sobre una orden que NO salió: M3 con
+  // `shippedReason` sin envío `enviado|entregado`, o `shipped-refund-reason` con `fullRefundAfterShipment=false`.
+  // `details: { afterShipment: false }`. No escribió nada.
+  SHIPPED_REFUND_REASON_NOT_APPLICABLE: 'SHIPPED_REFUND_REASON_NOT_APPLICABLE',
+  // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — `shipped-refund-reason` con un motivo DISTINTO del ya registrado (el
+  // mismo ⇒ `200 already_recorded`). `details: { reason }` (A-2, v1.80.8.7: ⛔ sin `recordedBy`). No escribió nada.
+  SHIPPED_REFUND_REASON_ALREADY_SET: 'SHIPPED_REFUND_REASON_ALREADY_SET',
+  // Envíos con Skydropx (§M4-SHIP.19.4 (5), §19.19.3 matriz). Los lanza `shipping-provider/`.
+  // 502 — respuesta no transitoria ni rechazo de negocio (`403`, `404`, segundo `401`, redirección, cuerpo
+  // ilegible). `details: { provider, op, status, reason? }` (`reason:'edge_blocked'` = borde, §19.19.3 (0)).
+  SHIPPING_PROVIDER_ERROR: 'SHIPPING_PROVIDER_ERROR',
+  // 503 — transitorio (red, timeout, `5xx` tras reintentos, `429` tras 3 esperas). `details: { provider, op }`.
+  SHIPPING_PROVIDER_BUSY: 'SHIPPING_PROVIDER_BUSY',
+  // 422 — el proveedor rechazó (`400`/`422`). `details: { provider, op, providerCode?, providerMessage? }`.
+  SHIPPING_PROVIDER_REJECTED: 'SHIPPING_PROVIDER_REJECTED',
+  // 409 — falta configuración: `details: { missing: ['env' | 'allow_spend' | 'insurance_tier' | …] }`.
+  SHIPPING_PROVIDER_NOT_CONFIGURED: 'SHIPPING_PROVIDER_NOT_CONFIGURED',
+  // ⭐ v1.81 fase C (M-64, §M4-SHIP.19.5 / .19.20.1) — la dirección.
+  // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` RETIRADO (ningún emisor; la colonia escrita a
+  // mano se acepta). `POSTAL_CODE_UNKNOWN` queda SOLO como el `404` de `GET /geo/postal-codes/:cp` (ningún verbo de
+  // escritura lo emite). `details: { postalCode }`.
+  POSTAL_CODE_UNKNOWN: 'POSTAL_CODE_UNKNOWN',
+  // 422 — retiro con una dirección de la libreta `complete=false`. `details: { addressId, missing }`.
+  ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
+  // 409 — corregir la dirección (u otro verbo de guía) de un envío que ya tiene guía. `details: { labelSource }`.
+  SHIPMENT_ALREADY_LABELED: 'SHIPMENT_ALREADY_LABELED',
+  // ⭐💰 409 — v1.80.12.3 (§M4-SHIP.19.23.3, D2a): hay un reclamo de compra vivo (`labelProcessingSince ≠ null`, sin
+  // `labelSource`: la compra salió o está saliendo a Skydropx). Sin `details`. Catálogo del contrato: `API_CONTRACT.md:7259`.
+  LABEL_IN_PROGRESS: 'LABEL_IN_PROGRESS',
+  // ⭐💰 Skydropx D2b/D2c (§M4-SHIP.19.6–.8, §19.18.4, §19.29.4; catálogo §0 del contrato). Los emite `shipments/`.
+  // 422 — la dirección del envío no se puede comprar: `details: { missing: ShipmentAddressMissingField[] }` (§19.22.2).
+  SHIPMENT_ADDRESS_INCOMPLETE: 'SHIPMENT_ADDRESS_INCOMPLETE',
+  // 422 — `rateId` no está en la cotización indicada.
+  RATE_NOT_IN_QUOTE: 'RATE_NOT_IN_QUOTE',
+  // 409 — cotización vencida o de otra dirección: `details: { quote: ShipmentQuoteDTO, reason: 'expired'|'address_changed' }`.
+  QUOTE_EXPIRED: 'QUOTE_EXPIRED',
+  // 409 — las cifras que vio el operador ya no son las de la tarifa: `details: { priceCents, marginCents }`.
+  LABEL_PREVIEW_STALE: 'LABEL_PREVIEW_STALE',
+  // 422 — falta confirmar margen negativo / entrega en sucursal: `details: { required, marginCents? }`.
+  LABEL_CONFIRMATION_REQUIRED: 'LABEL_CONFIRMATION_REQUIRED',
+  // 409 — saldo de Skydropx insuficiente: `details: { requiredCents }` (⛔ sin el saldo, T.11).
+  SHIPPING_INSUFFICIENT_BALANCE: 'SHIPPING_INSUFFICIENT_BALANCE',
+  // 404 — sin etiqueta que servir: `details: { labelSource? }`.
+  LABEL_NOT_AVAILABLE: 'LABEL_NOT_AVAILABLE',
+  // 409 — la guía no se puede cancelar: `details: { reason: 'not_provider'|'already_picked_up'|'status', carrierStatus? }`.
+  LABEL_NOT_CANCELLABLE: 'LABEL_NOT_CANCELLABLE',
+  // 409 — `label/release` no aplica: `details: { reason, retryAfterSeconds?, otherShipmentId? }` (§19.18.4, §19.26.3).
+  LABEL_NOT_RELEASABLE: 'LABEL_NOT_RELEASABLE',
+  // 403 💰 — TG-1/TG-2 (§19.29.4): `details: { limit: 'daily_spend'|'reissue' }` (⛔ sin cifras).
+  LABEL_PURCHASE_LIMIT: 'LABEL_PURCHASE_LIMIT',
+  // 🔒💰 D2g (§M4-SHIP.19.30.2 (1), C-21 (a)): un no dueño intentó MOVER un dial del dueño (`OWNER_ONLY_SETTING_KEYS`).
+  // 403 — `details: { keys: string[] }` (nombres del DTO, camelCase, ordenados). Nada se escribe.
+  OWNER_ONLY_SETTING: 'OWNER_ONLY_SETTING',
+  // 🔒 D2g (§M4-SHIP.19.30.2 (2), C-21 (b)): restablecer/bloquear/borrar la cuenta del dueño desde otra cuenta. 403 sin `details`.
+  OWNER_ACCOUNT_PROTECTED: 'OWNER_ACCOUNT_PROTECTED',
+
+  // ===== v1.86⟨accesorios⟩ (§AC.13) — los 15 de la tabla, de una vez (streams A y B los comparten; añadidos por (A)) =====
+  ACCESSORY_NOT_FOUND: 'ACCESSORY_NOT_FOUND', // 404 ficha pública (inexistente o inactivo, sin distinguir)
+  ACCESSORY_UNAVAILABLE: 'ACCESSORY_UNAVAILABLE', // 409 sesión `{accessoryId, reason}`
+  ACCESSORY_INSUFFICIENT_STOCK: 'ACCESSORY_INSUFFICIENT_STOCK', // 409 sesión `{accessoryId, availableQty}`
+  ACCESSORIES_REQUIRE_DIRECT_SHIP: 'ACCESSORIES_REQUIRE_DIRECT_SHIP', // 422 checkout con cuenta
+  ENERGY_BUNDLE_INVALID: 'ENERGY_BUNDLE_INVALID', // 422 sesión `{deckSlug, reason}`
+  ACCESSORY_NOT_ACTIVATABLE: 'ACCESSORY_NOT_ACTIVATABLE', // 422 activar `{missing}`
+  ENERGY_TYPE_TAKEN: 'ENERGY_TYPE_TAKEN', // 409 activar `{accessoryId}`
+  ACCESSORY_ACTIVE: 'ACCESSORY_ACTIVE', // 409 cambiar la categoría energía↔otra de uno activo
+  ACCESSORY_HAS_SALES: 'ACCESSORY_HAS_SALES', // 409 borrar
+  FORBIDDEN_FIELD: 'FORBIDDEN_FIELD', // 403 operador con campo ★ `{fields}`
+  STOCK_CONFLICT: 'STOCK_CONFLICT', // 409 ajuste `{stockQty}`
+  STOCK_BELOW_RESERVED: 'STOCK_BELOW_RESERVED', // 409 ajuste `{reservedQty}`
+  PHOTO_INVALID: 'PHOTO_INVALID', // 422 foto `{reason}`
+  ACCESSORY_REFUND_EXCEEDS: 'ACCESSORY_REFUND_EXCEEDS', // 409 entregado por unidad `{refundableQty}`
+  BUNDLE_REFUND_REQUIRES_DECK: 'BUNDLE_REFUND_REQUIRES_DECK', // 409 paquete sin su deck reembolsado
+
+  // ── rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4 / §WSH.6) ─────────────────────────────────────────────────────────────
+  // 409 — `POST /wishlist` con la misma (carta, acabado) ya deseada (criterio 804). `details: { wishlistItemId, maxPct }`.
+  WISHLIST_DUPLICATE: 'WISHLIST_DUPLICATE',
+  // 422 — el tope por cuenta (dial `wishlist_max_per_account`, criterio 803). `details: { limit, count }`.
+  WISHLIST_LIMIT_REACHED: 'WISHLIST_LIMIT_REACHED',
+  // 404 — `POST /wishlist/mail-actions`: token que no cuadra o `id` inexistente (⛔ no distingue cuál). Sin `details`.
+  WISHLIST_LINK_INVALID: 'WISHLIST_LINK_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

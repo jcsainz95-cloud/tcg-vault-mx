@@ -24,6 +24,7 @@ import { FinishLabel } from '../../../_shared/FinishLabel';
 import { SUPPORT_CONTACT_FALLBACK } from '../../../checkout/support-contact';
 import { OfferAmounts } from './OfferAmounts';
 import { readOffer } from './offer-readiness';
+import { SellerLabelBlock } from './SellerLabelBlock';
 
 /** Identidad de la carta bajo su nombre: set · número · acabado. Mismo renglón que el correo. */
 function LineSpec({ line }: { line: SellItemDTO }) {
@@ -164,6 +165,7 @@ export function SellRequestDetailView({ sellRequestId }: { sellRequestId: string
           confirming={confirming}
           setConfirming={setConfirming}
           onRespond={(decision) => respond.mutate(decision)}
+          onLabelUnavailable={() => void query.refetch()}
           isResponding={respond.isPending}
           respondError={respond.isError ? getErrorMessage(respond.error) : null}
         />
@@ -202,6 +204,7 @@ function Detail({
   onRespond,
   isResponding,
   respondError,
+  onLabelUnavailable,
 }: {
   data: SellRequestDetailDTO;
   locale: AppLocale;
@@ -212,6 +215,7 @@ function Detail({
   onRespond: (decision: Decision) => void;
   isResponding: boolean;
   respondError: string | null;
+  onLabelUnavailable?: () => void;
 }) {
   const t = useTranslations('buylist.offer');
   const tb = useTranslations('buylist');
@@ -223,7 +227,17 @@ function Detail({
   // a `null`, y esto es el segundo cinturón: si un backend anterior los sigue mandando, aquí no
   // se pintan igual. Las cartas SÍ se siguen listando — no se le borra su solicitud, se le quita
   // una cifra que ya no significa nada.
-  const hideMoney = data.status === 'expirada' && data.expiredReason === 'no_offer';
+  //
+  // 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.4a, errata BSD-1.4 punto 8): `not_continued` («decidimos no continuar») va por el
+  // MISMO camino — una oferta aceptada con «Se te depositan MX$…» al lado de «no continuamos» se lee como deuda. Aquí sí
+  // HUBO oferta, así que además el bloque entero de la oferta (montos, líneas con precio, acciones) NO se pinta: la
+  // solicitud se lee como un cierre, con su frase espejo de BSD-M1. El servidor ya manda los montos a `null`; esto es el
+  // segundo cinturón (UX-BSD-3: cero `MX$` en el DOM aunque el servidor los mandara).
+  const notContinued = data.status === 'expirada' && data.expiredReason === 'not_continued';
+  const hideMoney = data.status === 'expirada' && (data.expiredReason === 'no_offer' || notContinued);
+  const showOffer = !!offer && !notContinued;
+  /** Los dos cierres en que nunca hubo ni habrá guía (los mismos que redactan el dinero). */
+  const closedWithoutGuide = hideMoney;
 
   /**
    * ⚠️ **Las acciones NO se apagan por el reloj del navegador, y es deliberado.**
@@ -281,7 +295,7 @@ function Detail({
         </div>
       )}
 
-      {offer && readiness && !readiness.renderable && (
+      {showOffer && readiness && !readiness.renderable && (
         <div className="gutter mt-6">
           {/* Ver `offer-readiness.ts`: si no se puede enseñar el trato entero, no se enseña a
               medias ni se ofrece aceptarlo. */}
@@ -291,7 +305,7 @@ function Detail({
         </div>
       )}
 
-      {offer && readiness?.renderable && (
+      {showOffer && readiness?.renderable && (
         <section className="gutter mt-8">
           <h1 className="font-serif text-[22px] leading-[1.15] text-text lg:text-[30px]">
             {t('headline', { bought: readiness.buy.length, total: offer.lines.length })}
@@ -409,7 +423,7 @@ function Detail({
         </section>
       )}
 
-      {!offer && (
+      {!showOffer && (
         <section className="gutter mt-8">
           {/* §23.5d — ANTES de que exista oferta: ni guía, ni NUESTRA dirección, ni instrucciones
               de envío, y ninguna vía para decir «ya lo mandé» (criterio 114). */}
@@ -430,6 +444,18 @@ function Detail({
           )}
           <ClosedNotice data={data} />
         </section>
+      )}
+
+      {/* 💰 rev BSD-1 (§BSD-UX.4b): «Tu guía» ⇔ `labelPdfAvailable === true` (lo decide el SERVIDOR: guía viva de entrada
+          con número ∧ `aceptada`). ⛔ Nunca por `offer.trackingNumber` (una guía manual también lo trae y no tiene PDF).
+          Encima de «Tus cartas». En un cierre no existe (el servidor manda `false`, y `notContinued` lo refuerza). */}
+      {data.labelPdfAvailable === true && !notContinued && (
+        <SellerLabelBlock
+          sellRequestId={data.sellRequestId}
+          carrier={offer?.carrier}
+          trackingNumber={offer?.trackingNumber}
+          onUnavailable={onLabelUnavailable}
+        />
       )}
 
       <section className="gutter mt-10">
@@ -459,8 +485,10 @@ function Detail({
       {/* §23.5d/e — SU propia dirección de origen: es su dato y es lo que vamos a IMPRIMIR, así
           que tiene que poder verificarla ANTES de que compremos la etiqueta. No es NUESTRA
           dirección (esa sigue oculta hasta la aceptación, criterio 114). */}
-      {data.pickupAddress && (
-        <section className="gutter mt-10">
+      {/* M-2 (gate QA): en un cierre SIN guía (`no_offer`, `not_continued`) nunca habrá etiqueta: ni «va impresa en la guía»
+          ni el bloque, que ya no le sirve al vendedor para nada. */}
+      {data.pickupAddress && !closedWithoutGuide && (
+        <section className="gutter mt-10" data-testid="seller-pickup-address">
           <h2 className="eyebrow">{tb('request.address.label')}</h2>
           <address className="mt-2 not-italic text-sm leading-[1.7] text-text">
             {[
@@ -561,6 +589,8 @@ function ClosedNotice({ data }: { data: SellRequestDetailDTO }) {
     if (data.status === 'expirada') {
       if (data.expiredReason === 'not_shipped') return t('closedNotShipped');
       if (data.expiredReason === 'no_offer') return t('closedNoOffer');
+      // 💰 rev BSD-1 (§BSD-UX.4a): espejo de BSD-M1, sin culpa (BX2). ⛔ Nunca la frase de `not_shipped`.
+      if (data.expiredReason === 'not_continued') return t('closedNotContinued');
       // ⚠️ Motivo ausente ⇒ frase NEUTRA, jamás la acusatoria (§23.1d): en un desenlace ambiguo
       // el sistema no acusa al vendedor de no haber mandado nada.
       return t('noLongerActive');

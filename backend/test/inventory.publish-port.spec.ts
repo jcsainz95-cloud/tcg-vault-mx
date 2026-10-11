@@ -2,13 +2,14 @@ import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import {
   INVENTORY_PUBLISH_PORT,
   InventoryPublishPort,
 } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51.18 — **BL-25: `INVENTORY_PUBLISH_PORT`, el puerto de DISPARO.**
@@ -25,7 +26,7 @@ import * as path from 'path';
  *     corre exactamente el mismo pipeline.
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface ItemOpts {
   id: string;
@@ -59,6 +60,17 @@ function item(o: ItemOpts) {
 function build(items: ReturnType<typeof item>[]) {
   const rows = items;
   const prisma: any = {
+    // `moveItem` corre en UNA transacción y valida el destino (guardas de `item-location.rules.ts`):
+    // las `loc-*` de este harness son estantes de tienda activos.
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    vaultLocation: {
+      findUnique: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        label: where.id.toUpperCase(),
+        zone: 'platform_stock',
+        isActive: true,
+      })),
+    },
     inventoryItem: {
       findMany: jest.fn(async ({ where }: any) =>
         where?.id?.in ? rows.filter((r) => where.id.in.includes(r.id)) : rows,
@@ -80,6 +92,7 @@ function build(items: ReturnType<typeof item>[]) {
     pendingPriceEntry: { findMany: jest.fn(async () => []) },
   };
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
@@ -154,12 +167,29 @@ describe('⚠️⚠️ (1) es un puerto de DISPARO: la autoridad NO cruza la fro
     expect(rows[0].status).toBe('in_stock');
   });
 
-  it('⚠️ sin UBICACIÓN no publica y NO escala nada: el hueco es de captura, no de mercado', async () => {
-    const { port, pricing } = build([item({ id: 'a', priced: true })]);
+  it('⭐ SU-1 (§M1-SU): sin UBICACIÓN y con precio SÍ publica, por la guarda ATÓMICA — el cajón no entra en la decisión', async () => {
+    const { port, prisma, rows } = build([item({ id: 'a', priced: true })]);
     const [res] = await port.reevaluateForPublication(['a']);
-    expect(res.outcome).toBe('missing_location');
-    // Escalar aquí ensuciaría la cola de M2 con piezas cuyo precio SÍ resuelve.
-    expect(pricing.settlePendingForVariant).not.toHaveBeenCalled();
+    expect(res.outcome).toBe('published');
+    expect(res.missing).toEqual([]);
+    expect(rows[0].status).toBe('listed');
+    // Publicar no es ubicar: no se inventa cajón.
+    expect(rows[0].locationId).toBeNull();
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ['in_stock', 'listed'] } }),
+      }),
+    );
+  });
+
+  it('⭐ SU-1: sin UBICACIÓN y sin precio ⇒ escala como cualquier otra (`price_pending`, `missing` = `["price"]`)', async () => {
+    const { port, pricing, rows } = build([item({ id: 'a' })]);
+    const [res] = await port.reevaluateForPublication(['a']);
+    expect(res.outcome).toBe('price_pending');
+    expect(res.missing).toEqual(['price']);
+    expect(res.pendingPriceEntryId).toBe('ppe-1');
+    expect(pricing.settlePendingForVariant).toHaveBeenCalled();
+    expect(rows[0].status).toBe('in_stock');
   });
 
   it('con todo en orden publica, y por la guarda ATÓMICA', async () => {
@@ -207,8 +237,11 @@ describe('⚠️ (2) idempotente, en lote, y no-op sobre lo que ya está', () =>
     expect(by.get('a')).toBe('published');
     expect(by.get('b')).toBe('price_pending');
     expect(by.get('c')).toBe('not_publishable');
-    expect(by.get('d')).toBe('missing_location');
+    // ⭐ SU-1 (§M1-SU): la sin cajón con precio se publica (antes `missing_location`).
+    expect(by.get('d')).toBe('published');
     expect(rows[0].status).toBe('listed');
+    expect(rows[2].status).toBe('reserved');
+    expect(rows[3].status).toBe('listed');
   });
 
   it('un id inexistente devuelve `not_found` — NO lanza y no tumba el lote', async () => {
@@ -278,13 +311,15 @@ describe('⚠️ (4) la RED: lo que el puerto deja atrás sigue en `pending-publ
   });
 
   it('y lo que SÍ publica sale de la cola', async () => {
-    // Empieza EN la cola (le falta la caja) y sale cuando el disparo la encuentra completa.
-    const { svc, port, rows } = build([item({ id: 'a', priced: true })]);
+    // Empieza EN la cola (le falta el precio) y sale cuando el disparo la encuentra con precio.
+    // ⭐ SU-1 (§M1-SU): antes le faltaba la caja; ahora lo único que retiene es el precio — y SIN cajón.
+    const { svc, port, rows } = build([item({ id: 'a' })]);
     const antes: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(antes.total).toBe(1);
-    expect(antes.data[0].missing).toEqual(['location']);
-    (rows[0] as Record<string, unknown>).locationId = 'loc-1';
+    expect(antes.data[0].missing).toEqual(['price']);
+    (rows[0] as Record<string, unknown>).__priced = true;
     expect((await port.reevaluateForPublication(['a']))[0].outcome).toBe('published');
+    expect(rows[0].locationId).toBeNull();
     expect((await svc.pendingPublish({ page: 1, pageSize: 20 })).total).toBe(0);
   });
 });

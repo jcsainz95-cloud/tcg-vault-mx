@@ -245,6 +245,19 @@ describe('PiiCryptoService — S-88-2: las claves NO cuelgan de NODE_ENV', () =>
     },
   );
 
+  it('🔒 v1.80.7 — `constantTimeEquals` es `blindIndexEquals` con el nombre de lo que compara (tokens): igual ⇒ true; distinto, otra longitud, nulo o vacío ⇒ false', () => {
+    process.env.NODE_ENV = 'test';
+    const svc = new PiiCryptoService(new ConfigService({}));
+    const tok = svc.domainHmac('mr-reveal:v1:', 'abc');
+    expect(svc.constantTimeEquals(tok, tok)).toBe(true);
+    expect(svc.constantTimeEquals(tok, svc.domainHmac('mr-reveal:v1:', 'abd'))).toBe(false);
+    expect(svc.constantTimeEquals(tok, tok.slice(1))).toBe(false);
+    expect(svc.constantTimeEquals(tok, null)).toBe(false);
+    expect(svc.constantTimeEquals(null, tok)).toBe(false);
+    expect(svc.constantTimeEquals('', '')).toBe(false);
+    expect(svc.constantTimeEquals(tok, tok)).toBe(svc.blindIndexEquals(tok, tok));
+  });
+
   it('con claves REALES cargadas, ningun entorno falla (incluido NODE_ENV ausente)', () => {
     delete process.env.NODE_ENV;
     const svc = new PiiCryptoService(

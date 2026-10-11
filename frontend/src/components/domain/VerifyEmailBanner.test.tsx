@@ -45,3 +45,19 @@ describe('VerifyEmailBanner', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * **UX-13** (`DESIGN_SYSTEM §42.7`, nota N-2): una cuenta del equipo SIN correo trae `emailVerified:false` (CHECK 4)
+ * y no tiene correo que verificar ⇒ el banner no se pinta. Canario: quitar `&& email != null`.
+ */
+describe('UX-13 · VerifyEmailBanner sin correo', () => {
+  it('`emailVerified:false, email:null` ⇒ no pinta nada', () => {
+    sessionValue = {
+      user: user({ email: null, username: 'ana', role: 'vault_operator', emailVerified: false }),
+      isAuthenticated: true,
+      ready: true,
+    };
+    const { container } = renderWithIntl(<VerifyEmailBanner />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});

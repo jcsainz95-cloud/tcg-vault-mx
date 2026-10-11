@@ -14,8 +14,16 @@ export interface AuditEntry {
   ip?: string;
 }
 
-/** Ámbito de la consulta de auditoría por usuario (GET /admin/users/:id/audit). */
-export type UserAuditScope = 'target' | 'actor' | 'both';
+/**
+ * Ámbito de la consulta de auditoría por usuario (GET /admin/users/:id/audit).
+ *
+ * `EQ-D1` — dominio de `?scope=` de ese endpoint (§M6). Clase **R**: NO es un enum de Prisma; es un
+ * subconjunto semántico fijado por el contrato de auditoría (`target` = acciones SOBRE el usuario;
+ * `actor` = acciones POR el usuario; `both` = OR). Antes el controller **clampaba** a `target` ante
+ * basura (§0-Q punto 6 lo prohíbe). El default declarado sigue siendo `target`.
+ */
+export const USER_AUDIT_SCOPE_VALUES = ['target', 'actor', 'both'] as const;
+export type UserAuditScope = (typeof USER_AUDIT_SCOPE_VALUES)[number];
 
 /** Entrada expuesta por la actividad/auditoría por usuario. NUNCA incluye before/after. */
 export interface UserAuditEntryDTO {

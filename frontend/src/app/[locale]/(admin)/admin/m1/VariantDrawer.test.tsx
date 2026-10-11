@@ -120,6 +120,21 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
     expect(screen.queryByRole('heading', { name: 'Precios' })).toBeNull();
   });
 
+  it('SELLADO-M1(C): el encabezado del sellado muestra el SUBTIPO (Bundle/Booster Box), no solo «SELLADO»', async () => {
+    // S3-SELLADO-M1 (2026-09-17): tras el alta el desglose de FORMATO se perdía en el drill-down —
+    // el encabezado pintaba «SELLADO» a secas aunque el subtipo YA viaja como prop.
+    renderDrawer({
+      productType: 'sealed',
+      sealedSubtype: 'bundle',
+      sealedCondition: 'mint',
+      cardId: 'c-sealed-chaos-bundle',
+      cardName: 'Chaos Rising Booster Bundle',
+    });
+    await screen.findByText(/Piezas \(/);
+    // El subtipo (Bundle) aparece en el encabezado.
+    expect(screen.getByText(/BUNDLE/)).toBeInTheDocument();
+  });
+
   it('M-1: guardar un override en la consola pinta el estado nuevo SIN reabrir y refresca agregados', async () => {
     const pricing: VariantPricingDTO = {
       buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'market', premiumAtFloor: false },
@@ -170,6 +185,44 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
         `Mostrando ${rows.length} de 137 piezas de esta carta (lista truncada).`,
       ),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * **QA MENOR (preexistente) sobre `4ca6c45`, 2026-09-29.** El cajón ofrecía «Merma» y «Editar
+   * precio» sobre una pieza VENDIDA (`picking`); el backend rechaza la merma
+   * (`422 ITEM_NOT_ADJUSTABLE`: solo `in_stock|listed`, contrato §0) y el precio de una pieza vendida
+   * ya está en la orden. Reglas de pantalla del contrato (§M1 v1.79.6 «5»): «Merma» solo en
+   * `in_stock|listed` (⛔ nunca `picking` ni `reserved`); «Editar precio» ⛔ no sobre `picking` (aquí
+   * también `shipped|delivered`, la misma pieza vendida más tarde). En `in_stock` siguen las dos
+   * (control positivo). Sobre `reserved` el precio no está normado y no se asevera.
+   */
+  it('una pieza VENDIDA (picking/shipped/delivered) NO ofrece «Merma» ni «Editar precio»; `reserved` tampoco merma; `in_stock` sí', async () => {
+    const fxm = await import('@/lib/mock/fixtures');
+    const base = { ...fxm.mockInventory.find((i) => i.id === 'inv-2001')!, listPriceCents: 150_000 };
+    const rows = [
+      base,
+      { ...base, id: 'inv-2901', folio: 'INV-002901', status: 'picking' as const },
+      { ...base, id: 'inv-2902', folio: 'INV-002902', status: 'shipped' as const },
+      { ...base, id: 'inv-2903', folio: 'INV-002903', status: 'delivered' as const },
+      { ...base, id: 'inv-2904', folio: 'INV-002904', status: 'reserved' as const },
+    ];
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({ data: rows, page: 1, pageSize: 100, total: 5 });
+    renderDrawer();
+
+    // Control positivo: la pieza en stock conserva las dos acciones.
+    expect(await screen.findByRole('button', { name: 'Merma de INV-000201' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Editar precio de INV-000201' })).toBeInTheDocument();
+    for (const folio of ['INV-002901', 'INV-002902', 'INV-002903']) {
+      // La fila existe (folio y detalle), pero sin merma ni edición de precio.
+      expect(screen.getByRole('button', { name: `Ver detalle de ${folio}` })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: `Merma de ${folio}` })).toBeNull();
+      expect(screen.queryByRole('button', { name: `Editar precio de ${folio}` })).toBeNull();
+    }
+    // Apartada en un pedido sin pagar: tampoco se merma (`ITEM_NOT_ADJUSTABLE`).
+    expect(screen.getByRole('button', { name: 'Ver detalle de INV-002904' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Merma de INV-002904' })).toBeNull();
+    // El precio de la pieza vendida se sigue LEYENDO (solo deja de editarse): 5 filas, 5 precios.
+    expect(screen.getAllByText('MX$1,500.00').length).toBe(5);
   });
 
   it('gradeadas: las filas muestran el certNumber completo (copiable)', async () => {

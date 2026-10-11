@@ -1,6 +1,7 @@
 import { HealthController } from '../src/modules/health/health.controller';
 import { HealthService, HealthRedisClient } from '../src/modules/health/health.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 
 /** Response de Express falso: captura el status fijado por el controller. */
 function fakeRes() {
@@ -21,7 +22,7 @@ function makeService(opts: {
       opts.dbOk ? Promise.resolve([{ '?column?': 1 }]) : Promise.reject(new Error('db down')),
     ),
   } as unknown as PrismaService;
-  return new HealthService(prisma, opts.redis);
+  return new HealthService(prisma, new ConfigService({}), opts.redis);
 }
 
 describe('HealthController (GET /api/v1/health)', () => {

@@ -11,6 +11,8 @@
  * y se reapunta cuando ese archivo se reescriba con sus siete reglas. Las otras dos —el set terminal
  * y el `CLOSED` de `ine-retention`— **ya se cobraron**, ver abajo.
  */
+import type { Prisma, SellItemStatus } from '@prisma/client';
+
 export const BUYLIST_REJECT_RETURN_WINDOW_DAYS = 7;
 export const BUYLIST_REJECT_ABANDON_WINDOW_DAYS = 30;
 
@@ -115,13 +117,15 @@ export function deriveRejectedReason(
     /** v1.51.17 — la PRECONDICIÓN de las reglas de fecha. Ver el bloque de arriba. */
     acceptedAt?: Date | null;
   },
-  items: { itemStatus: string }[] | null | undefined,
+  // ⚠️ v1.82.3 · §PNL.12 (c) — cada línea trae su `offerDecision`: sin ella una `skip` contaría y una
+  // solicitud cerrada con `skip` vivas saldría `null` en vez de `all_items_rejected`.
+  items: readonly ClosureRuleItem[] | null | undefined,
 ): SellRequestRejectionReason | null {
   // Solo tiene sentido sobre una solicitud RECHAZADA: en cualquier otro estado no hay causa que dar.
   if (r.status !== 'rechazada') return null;
   // (1) Ninguna carta pasó la verificación. Va PRIMERO — ver el bloque de arriba.
-  const list = items ?? [];
-  if (list.length > 0 && list.every((i) => i.itemStatus === 'rechazada')) return 'all_items_rejected';
+  // v1.82.3 · §PNL.12 — «ninguna carta» = ninguna línea que CUENTA (Regla C; las `skip` no cuentan).
+  if (closesAsRejected(items ?? [])) return 'all_items_rejected';
   // (2)/(3) Las dos causas del ciclo de OFERTA. Su mundo es el de una oferta **sin aceptar**:
   //  - `acceptedAt != null` ⇒ la solicitud pasó de la oferta, así que ni «rechazó» ni «no contestó»
   //    describen lo que ocurrió. **`null` es la respuesta honesta** (v1.51.17).
@@ -132,4 +136,70 @@ export function deriveRejectedReason(
   return r.closedAt.getTime() <= r.offerAcceptDeadlineAt.getTime()
     ? 'declined_by_seller'
     : 'accept_deadline_passed';
+}
+
+/**
+ * ⚠️⚠️ v1.82.3 · **§PNL.12 «Regla C»** (ARCHITECTURE §4.61.9) — **las líneas `skip` NO cuentan para cerrar
+ * la solicitud.** UNA regla, escrita DOS veces y solo dos (el contrato lo fija así):
+ *
+ * ```
+ * Línea que CUENTA  :=  offerDecision IS NULL  OR  offerDecision <> 'skip'
+ * Regla C           :=  ∃ ≥1 línea que cuenta  ∧  toda línea que cuenta tiene itemStatus = 'rechazada'
+ * ```
+ * - **Como `where` de Prisma** (`SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE`, leído por `readClosureRule`): la leen el
+ *   auto-cierre (a, `autoRejectIfAllRejectedTx`) y el guard de `POST …/reject` (b, `rejectRequest`), DENTRO
+ *   de su tx.
+ * - **Como función pura** (`closesAsRejected`): la leen `deriveRejectedReason` (c) e `isRejectable` (d) en la
+ *   proyección, sobre las líneas que ya trae la fila.
+ * - SKP-6 (`test/integration/buylist-skip-closure.e2e-spec.ts`) fija que las dos dicen lo mismo sobre las
+ *   mismas filas. ⛔ No hay tercera copia: el frontend lee `isRejectable`.
+ *
+ * ⛔ **El `OR` es EXPLÍCITO y no `{ offerDecision: { not: 'skip' } }`**: la columna es NULLABLE y el `<>` de
+ * SQL descarta los `NULL` ⇒ borraría del conteo TODA línea pre-ciclo (mismo candado que
+ * `admin.service.ts`, serie de compra §N.8). La mutación está medida en `docs/BACKEND_NOTES.md §60.x`.
+ *
+ * Pre-ciclo (`offerSentAt IS NULL`) toda línea tiene `offerDecision = null` ⇒ toda línea cuenta ⇒ conducta
+ * idéntica a la de antes de v1.82.3. Las `skip` **no se escriben** nunca por esta regla.
+ */
+export const SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE = {
+  OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }],
+} as const satisfies Prisma.SellRequestItemWhereInput;
+
+/** La forma mínima de una línea para evaluar la Regla C en memoria. `offerDecision` ausente ⇒ cuenta. */
+export type ClosureRuleItem = { itemStatus: string; offerDecision?: string | null };
+
+/** ¿La línea CUENTA para el cierre? (forma pura del `where` de arriba). */
+export function countsForClosure(i: { offerDecision?: string | null }): boolean {
+  return i.offerDecision == null || i.offerDecision !== 'skip';
+}
+
+/** **Regla C, forma pura** (sitios c y d): ≥1 línea que cuenta y todas las que cuentan `rechazada`. */
+export function closesAsRejected(items: readonly ClosureRuleItem[]): boolean {
+  const counting = items.filter(countsForClosure);
+  return counting.length > 0 && counting.every((i) => i.itemStatus === 'rechazada');
+}
+
+/** Lo que el `where` lee de Postgres: cuántas líneas cuentan y qué estados NO `rechazada` tienen (distintos). */
+export type ClosureRuleReading = { countingItems: number; nonRejectedItemStatuses: SellItemStatus[] };
+
+/**
+ * **Regla C, forma `where`** (sitios a y b): UNA lectura en el cliente que se le pase (la `tx` del llamador),
+ * filtrada en Postgres por `SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE` — las `skip` no llegan a la memoria.
+ * `nonRejectedItemStatuses` es el `details` del `422 REQUEST_HAS_NON_REJECTED_ITEMS`: solo líneas que cuentan.
+ */
+export async function readClosureRule(
+  db: Pick<Prisma.TransactionClient, 'sellRequestItem'>,
+  sellRequestId: string,
+): Promise<ClosureRuleReading> {
+  const counting = await db.sellRequestItem.findMany({
+    where: { sellRequestId, ...SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE },
+    select: { itemStatus: true },
+  });
+  const live = counting.filter((i) => i.itemStatus !== 'rechazada').map((i) => i.itemStatus);
+  return { countingItems: counting.length, nonRejectedItemStatuses: Array.from(new Set(live)) };
+}
+
+/** Veredicto de la lectura `where`: el mismo predicado que `closesAsRejected`. */
+export function closesAsRejectedByWhere(r: ClosureRuleReading): boolean {
+  return r.countingItems > 0 && r.nonRejectedItemStatuses.length === 0;
 }

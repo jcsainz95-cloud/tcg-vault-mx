@@ -22,8 +22,17 @@ export class EmailVerifiedGuard implements CanActivate {
     if (!required) return true;
 
     const req = context.switchToHttp().getRequest();
-    const user = req.user as { emailVerified?: boolean } | undefined;
+    const user = req.user as { emailVerified?: boolean; hasEmail?: boolean } | undefined;
     if (!user) throw new BusinessException('UNAUTHENTICATED', 401, 'Not authenticated');
+    // v1.80.9 (§M6-U.8 (c), criterio 269, P-STF-8): una cuenta del equipo SIN correo no compra ni vende. Va ANTES de
+    // `emailVerified` (que en esa cuenta es siempre `false`, CHECK 4): «verifica tu correo» se lo diría a quien no
+    // tiene correo. `=== false` estricto: un `req.user` sin la marca (dobles de prueba) cae a la regla de siempre.
+    if (user.hasEmail === false) {
+      throw BusinessException.forbidden(
+        'ACCOUNT_WITHOUT_EMAIL',
+        'Las cuentas del equipo sin correo no pueden comprar ni vender. Usa una cuenta de cliente.',
+      );
+    }
     if (!user.emailVerified) {
       throw BusinessException.forbidden(
         'EMAIL_NOT_VERIFIED',

@@ -3,7 +3,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { usdToMxnCents } from '../src/common/money';
 import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * WS-A (v1.14-price-ingest, §4.15c/§4.15d) — PriceIngestService:
@@ -400,8 +400,16 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
 
 /**
  * Auditoría de precios (2026-08-17) — `hasRecentIngest` alimenta el catch-up al boot:
- * "reciente" = ≥1 PriceReference NO-manual con capturedDate ≥ ayer 00:00 UTC. Los overrides
- * manuales del admin NO cuentan como ingesta.
+ * "reciente" = el barrido CONFIRMÓ ≥1 PriceReference NO-manual hoy/ayer. Los overrides manuales del
+ * admin NO cuentan como ingesta.
+ *
+ * ⚠️ **P-53 §4.3 (T-6/CA-6, cierre de ALTO-2):** la señal se mide contra la EVIDENCIA
+ * (`evidenceDate ?? capturedDate`), NO `capturedDate` a secas. Con el escritor DIARIO write-on-change,
+ * un barrido que confirma precios SIN cambios no escribe fila nueva (no hay `capturedDate` de hoy) —
+ * solo avanza `evidenceDate`. Medir SOLO `capturedDate` haría que un día sin cambios devolviera `false`
+ * y el boot re-disparara el barrido (podía quemar cuota del proveedor de PAGA). El `OR` con fallback a
+ * `capturedDate` (para filas legadas `evidenceDate=null`) evita el re-disparo en el PRIMER boot tras el
+ * deploy. Este canario cae en rojo si alguien revierte a un `capturedDate` de nivel superior.
  */
 describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', () => {
   function buildWithRef(row: unknown) {
@@ -419,22 +427,36 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
     return { svc, prisma };
   }
 
+  const ayer00Utc = () => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d;
+  };
+
   it('hay referencia no-manual reciente → true', async () => {
     const { svc } = buildWithRef({ id: 'ref-1' });
     await expect(svc.hasRecentIngest()).resolves.toBe(true);
   });
 
-  it('sin referencias recientes → false, y el filtro excluye manuales y acota a ayer 00:00 UTC', async () => {
+  it('T-6/CA-6 · la señal mira EVIDENCIA (evidenceDate), no capturedDate a secas; excluye manuales y acota a ayer 00:00 UTC', async () => {
     const { svc, prisma } = buildWithRef(null);
     await expect(svc.hasRecentIngest()).resolves.toBe(false);
 
     const where = prisma.priceReference.findFirst.mock.calls[0][0].where;
     expect(where.isManualOverride).toBe(false);
-    const since: Date = where.capturedDate.gte;
-    const expected = new Date();
-    expected.setUTCHours(0, 0, 0, 0);
-    expected.setUTCDate(expected.getUTCDate() - 1);
-    expect(since.toISOString()).toBe(expected.toISOString());
+    // MONEY_REF_WHERE: la pregunta es «¿corrió el barrido de MERCADO?» (no un estimado).
+    expect(where.refKind).toBe('market');
+    // ⛔ CANARIO ALTO-2: NO hay un `capturedDate` de nivel superior — se mide la evidencia.
+    expect(where.capturedDate).toBeUndefined();
+    expect(Array.isArray(where.OR)).toBe(true);
+    expect(where.OR).toHaveLength(2);
+    const expected = ayer00Utc();
+    // Rama primaria: evidencia reciente (la que puebla el escritor DIARIO write-on-change).
+    expect((where.OR[0].evidenceDate.gte as Date).toISOString()).toBe(expected.toISOString());
+    // Rama fallback: fila LEGADA (evidenceDate=null) con captura reciente ⇒ no re-dispara el primer boot.
+    expect(where.OR[1].evidenceDate).toBeNull();
+    expect((where.OR[1].capturedDate.gte as Date).toISOString()).toBe(expected.toISOString());
   });
 });
 
@@ -782,6 +804,7 @@ describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cie
     const real = PricingService.prototype;
     const pricing: any = {
       persistMarketReference: jest.fn(async () => {}),
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       tryGradeKeyFor: jest.fn(() => 'raw:NM'),
@@ -815,6 +838,38 @@ describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cie
     expect(h.settled).toHaveLength(1);
     expect(h.settled[0].reason).toBe('premium_at_floor');
     expect(h.settled[0].key).toMatchObject({ cardId: 'db-1', productType: 'raw', finish: 'normal' });
+  });
+
+  /**
+   * PF-5 (v1.80.8.5, API_CONTRACT §M2 `M2-PF`) — la reconciliación de `price-ingest` re-resuelve con la
+   * política de VENTA: con el seed, la `Double Rare` raw `listed` en el piso CIERRA su fila (reason null)
+   * y la `Special Illustration Rare` queda `premium_at_floor`. Con `none`, las dos `premium_at_floor`.
+   */
+  it.each([
+    ['seed', DEFAULT_SALE_PREMIUM_FLOOR_POLICY, [null, 'premium_at_floor']],
+    ['none', { mode: 'none' as const, rarities: [] }, ['premium_at_floor', 'premium_at_floor']],
+  ])('PF-5 · dial %s: DR y SIR `listed` en el piso', async (_g, policy, expected) => {
+    const dr = listedItem({ id: 'inv-dr', cardId: 'db-dr', card: { rarity: 'Double Rare', rarityCanonical: 'Double Rare' } });
+    const sir = listedItem({
+      id: 'inv-sir',
+      cardId: 'db-sir',
+      card: { rarity: 'Special Illustration Rare', rarityCanonical: 'Special Illustration Rare' },
+    });
+    const h = buildIngest([dr, sir], 1000);
+    h.pricing.loadSalePremiumFloorPolicy.mockResolvedValue(policy);
+    h.pricing.getReferencesBatch.mockResolvedValue(
+      new Map([
+        ['db-dr|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 }],
+        ['db-sir|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 }],
+      ]),
+    );
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled.map((s) => [s.key.cardId, s.reason])).toEqual([
+      ['db-dr', expected[0]],
+      ['db-sir', expected[1]],
+    ]);
+    // El cierre de la DR es POR SU EJE (el seam lo recibe con `context='inventory'`).
+    expect(h.pricing.settlePendingForVariant.mock.calls.every((c: unknown[]) => c[2] === 'inventory')).toBe(true);
   });
 
   it('feed que DEJA de reportar la variante: entra como `no_market`', async () => {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
 import {
   FINISH_VALUES,
@@ -6,10 +6,11 @@ import {
   PENDING_PRICE_REASON_VALUES,
   PRODUCT_TYPE_VALUES,
 } from '../../common/enum-values';
-import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { Allow, IsArray, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
+import { ErrorCode } from '../../common/error-codes';
 // `H3-d`: §0-Q (ausente/vacío/token/inválido) en UN solo sitio. No se re-teclea aquí.
 import { parseEnumFilter } from '../../common/enum-filter';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
@@ -169,9 +170,18 @@ class SealedSpreadsDto {
   @IsOptional() @Allow() fallbackPct?: number | null;
 }
 
-class SyncDto {
-  @IsOptional() @IsString() scope?: 'all_vault' | 'cardIds';
-  @IsOptional() cardIds?: string[];
+/**
+ * Dominio de `scope` en `POST /admin/pricing/sync` (§M2: `scope?: "all_vault" | "cardIds"`).
+ * QA (gate sobre `8a10153e`): solo `@IsString` aceptaba `{"scope":"bogus"}` con 201 y corría la
+ * corrida COMPLETA (con barrido VQ). Fuera del dominio ⇒ `400 VALIDATION_ERROR` del pipe.
+ */
+export const PRICE_SYNC_SCOPES = ['all_vault', 'cardIds'] as const;
+
+export class SyncDto {
+  @IsOptional() @IsIn(PRICE_SYNC_SCOPES) scope?: (typeof PRICE_SYNC_SCOPES)[number];
+  // Lista de `cardId` (string). Con `scope="cardIds"` vacía u omitida ⇒ no-op (`queued: 0`), ⛔ nunca
+  // «todas» ni barrido (§M2 v1.80.8.4: «con `scope="cardIds"` no barre»). Ver `PriceSyncJobService.enqueue`.
+  @IsOptional() @IsArray() @IsString({ each: true }) cardIds?: string[];
 }
 
 /**
@@ -352,6 +362,25 @@ export class PricingController {
           `productType:"${dto.productType}". Una fila de precio con una clave imposible es dinero que ` +
           'ninguna pieza puede leer.',
         { field: 'gradeKey' },
+      );
+    }
+    // ===== v1.70 (P-83, API_CONTRACT §M2-SK norma SK-3) — `'sealed'` es clave de COLA, no de PRECIO ==
+    //
+    // `isCanonicalGradeKey` admite `'sealed'` porque sigue siendo una clave legítima… de la COLA de
+    // pendientes (deduplica «esta clase de pieza espera precio»). Como clave de DINERO no sirve dos
+    // veces: la publicación solo lee `sealed:tcg:<productId>` (nadie lee esta fila) y no identifica al
+    // producto (un ETB y un blíster anclados a la misma `Card` compartirían la fila). Escribir dinero
+    // en una llave que no identifica al producto es peor que no escribirlo ⇒ se rechaza diciendo qué
+    // hacer, y ANTES de cualquier lectura o escritura (se decide solo con el body).
+    // ⛔ Sin fallback: no se «traduce» a otra llave ni se escribe en la pieza desde aquí.
+    if (dto.productType === 'sealed' && dto.gradeKey === 'sealed') {
+      throw BusinessException.validation(
+        ErrorCode.SEALED_MARKET_KEY_REQUIRED,
+        'Este sellado no tiene clave de mercado (gradeKey "sealed" = pieza sin mapeo): un precio de ' +
+          'mercado aquí no identifica al producto y ninguna pieza lo leería. Dos salidas: mapea la ' +
+          'pieza a su presentación (M2) y fija el precio bajo "sealed:tcg:<productId>", o fija el ' +
+          'precio de ESA pieza (InventoryItem.listPriceCents).',
+        { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' },
       );
     }
     const card = await this.prisma.card.findUnique({
@@ -588,6 +617,22 @@ export class PricingController {
     @CurrentUser('id') userId: string,
   ) {
     return this.variantControls.update(cardId, finish, dto, userId);
+  }
+
+  /**
+   * v2.2 (Q2, §M2-B.9 / ARCHITECTURE §4.36.6b) — **ELIMINAR el bounty** de una variante. `super_admin`
+   * (hereda el `@Roles` del controller) y AUDITADO dentro del servicio. Verbo DEDICADO —⛔ NO un
+   * `bounty:{remove:true}` en el `PUT` (mutación B-20)— y acotado al sub-recurso `bounty`: no toca
+   * `sellOverrideCents`/`buyOverrideCents`. El servidor **ramifica por historia**: sin compra ⇒
+   * borra; con compra ⇒ despublica (estado `despublicada`). Responde el `VariantPricingDTO` resultante.
+   */
+  @Delete('variant-controls/:cardId/:finish/bounty')
+  deleteBounty(
+    @Param('cardId') cardId: string,
+    @Param('finish') finish: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.variantControls.deleteBounty(cardId, finish, userId);
   }
 
   /**

@@ -1,6 +1,7 @@
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { PokemonTcgIoProvider } from '../src/modules/pricing/providers/pokemontcg-io.provider';
@@ -8,6 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.36-sealed-alta (M-37, P-35 · ARCHITECTURE §4.32c · API_CONTRACT §M1) — el alta de SELLADO reusa
@@ -60,6 +62,9 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
       }),
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
+    // P-53 ALTO-4 (§3): `getReference` DELEGA en `getReferencesBatch`, que poda por ventana vía
+    // `$queryRaw`. El emulador aplica el mismo filtro por clave que el `findMany` de abajo sobre `priceRefs`.
+    $queryRaw: makeRefsRawQuery(priceRefs),
     priceReference: {
       findFirst: jest.fn(async ({ where }: any) =>
         priceRefs.find(
@@ -108,7 +113,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
     $transaction: jest.fn(async (fn: any) => fn(prisma)),
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

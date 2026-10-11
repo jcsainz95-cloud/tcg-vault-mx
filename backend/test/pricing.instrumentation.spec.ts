@@ -9,10 +9,11 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
-import { DEFAULT_PRICING_CURVE, marketBracketOf } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, marketBracketOf, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -51,6 +52,7 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     };
     const prisma = { inventoryItem: { findMany: jest.fn(async () => [item]) } } as unknown as PrismaService;
     const pricing = {
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -149,6 +151,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       $transaction: jest.fn(async (cb: (p: unknown) => unknown) => cb(prisma)),
     } as unknown as PrismaService & { sellRequest: { create: jest.Mock } };
     const pricing = {
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -172,7 +175,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       getNumber: jest.fn(withMinimumOff(async () => 100_000_000)),
     } as unknown as SettingsService;
     return {
-      svc: new BuylistService(prisma, pricing, settings, {} as UsersService, pii),
+      svc: new BuylistService(prisma, pricing, settings, (usersStubM61() as unknown as UsersService), pii),
       created,
     };
   }

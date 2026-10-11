@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+// rev v1.87⟨wishlist⟩ (§WSH.7): sesión OPCIONAL en el alta del «avísame» y el reloj del job (mismo token que `wishlist`).
+import { OptionalSessionGuard } from './optional-session.guard';
+import { systemWishlistClock, WISHLIST_CLOCK } from '../wishlist/wishlist.constants';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
@@ -27,7 +31,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
  * SetValueService, por eso viven aquí para evitar ciclos con JobsModule, patrón portfolio-snapshot).
  */
 @Module({
-  imports: [PricingModule, FinishReconcilerModule], // SettingsModule/AuditModule/PrismaModule/ConfigModule son @Global
+  imports: [PricingModule, FinishReconcilerModule, JwtModule.register({})], // SettingsModule/AuditModule/PrismaModule/ConfigModule son @Global
   providers: [
     CatalogService,
     CatalogSyncService,
@@ -43,6 +47,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // v1.12-catalog-pricing (§4.13c): vive aquí porque depende de CatalogSyncService (evita ciclos
     // con JobsModule, mismo patrón que set-price-sync).
     CatalogPriceSyncJobService,
+    OptionalSessionGuard,
+    { provide: WISHLIST_CLOCK, useValue: systemWishlistClock },
   ],
   controllers: [CatalogController, AdminCatalogController, GradedEstimatesController],
   exports: [

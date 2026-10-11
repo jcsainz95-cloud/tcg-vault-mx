@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { VaultsView } from './VaultsView';
 import * as api from '@/lib/api';
@@ -27,27 +27,76 @@ describe('Admin · Bóvedas de clientes (GET /admin/vaults, v1.20)', () => {
     // Ana (mockHoldings: 128000+950000+320000 = MX$13,980.00; Zapdos pendiente NO suma).
     expect(await screen.findByText('Ana López')).toBeInTheDocument();
     expect(screen.getByText('ana@example.com')).toBeInTheDocument();
-    expect(screen.getByText('4 piezas')).toBeInTheDocument();
+    // §36.17 / PV-13: «a su nombre», ⛔ no «piezas» (la vista física cuenta OTRA cosa).
+    expect(screen.getByText('4 a su nombre')).toBeInTheDocument();
     expect(screen.getByText(/13,980\.00/)).toBeInTheDocument();
     // Bruno (bóveda chica) después por valor.
     expect(screen.getByText('Bruno Díaz')).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sort: 'value_desc', page: 1 }));
 
     // value_desc: Ana (mayor valor) antes que Bruno.
-    const names = screen.getAllByRole('button', { name: /Ver bóveda/ }).map((b) => b.textContent);
+    const names = screen.getAllByRole('link', { name: /Ver bóveda/ }).map((b) => b.textContent);
     expect(names[0]).toContain('Ana López');
   });
 
-  it('clic en un cliente abre su master set en modo lectura (vista (ii))', async () => {
-    const spy = vi.spyOn(api, 'getAdminVaultMasterSets');
+  it('cada cliente es un ENLACE a su detalle con URL propia (H-6), ya no un estado local', async () => {
     renderWithProviders(<VaultsView />, 'es');
 
-    fireEvent.click(await screen.findByRole('button', { name: /Ver bóveda · Ana López/ }));
+    const link = await screen.findByRole('link', { name: /Ver bóveda · Ana López/ });
+    expect(link).toHaveAttribute('href', '/admin/vaults/u-777');
+  });
 
-    // Cabecera con el cliente + owner del DTO (con email) y el índice de SU bóveda.
-    expect(await screen.findByRole('heading', { name: 'Ana López' })).toBeInTheDocument();
-    expect(await screen.findByText(/Bóveda de Ana López · ana@example\.com/)).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /Base Set/ })).toBeInTheDocument();
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('u-777', expect.anything()));
+  /**
+   * ⭐ **Prueba 29 del contrato (§M4-VAULT.8, H-1 frontend).** Una fila con `name: null` (cuenta con
+   * nombre fabricado del correo) pinta la AUSENCIA CON NOMBRE + el correo, también en el nombre
+   * accesible del enlace; ⛔ ningún nodo de texto igual a `email.split('@')[0]`.
+   */
+  it('H-1 · fila con `name: null`: «Sin nombre registrado» + correo (también en el `aria-label`), ⛔ nunca el prefijo del correo', async () => {
+    vi.spyOn(api, 'getAdminVaults').mockResolvedValue({
+      data: [
+        { userId: 'u-780', name: null, email: 'jcsainz95@example.com', pieceCount: 1, totalValueMxnCents: 9500, pendingPriceCount: 0 },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    const { container } = renderWithProviders(<VaultsView />, 'es');
+
+    const link = await screen.findByRole('link', {
+      name: 'Ver bóveda · Sin nombre registrado · jcsainz95@example.com',
+    });
+    expect(within(link).getByTestId('vault-row-noname-u-780')).toHaveTextContent('Sin nombre registrado');
+    // El correo también dentro de la celda de nombre (en `< sm` la columna de correo se oculta).
+    expect(within(link).getAllByText('jcsainz95@example.com').length).toBeGreaterThanOrEqual(1);
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      expect((n.textContent ?? '').trim()).not.toBe('jcsainz95');
+    }
+    expect(container.textContent).not.toContain('null');
+  });
+
+  /**
+   * **PV-13 · PV-14 (§36.17).** La celda de `pieceCount` dice «a su nombre», también en singular, y
+   * ⛔ ningún «pieza(s)» en la pantalla (ni cabecera ni opción de orden): la vista física cuenta otra
+   * cosa («deben estar en bóveda») y las dos cifras no comparten sustantivo.
+   */
+  it('PV-13/PV-14 · «1 a su nombre» y ⛔ ningún «pieza(s)» en la lista (celda, cabecera ni orden)', async () => {
+    vi.spyOn(api, 'getAdminVaults').mockResolvedValue({
+      data: [{ userId: 'u-1', name: 'Uno', email: 'uno@example.com', pieceCount: 1, totalValueMxnCents: 100, pendingPriceCount: 0 }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    const { container } = renderWithProviders(<VaultsView />, 'es');
+    expect(await screen.findByText('1 a su nombre')).toBeInTheDocument();
+    expect(screen.getByText('A su nombre')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'A su nombre (mayor primero)' })).toBeInTheDocument();
+    expect(container.textContent?.toLowerCase()).not.toMatch(/pieza/);
+  });
+
+  it('PV-13 · EN: «in their name», ⛔ ningún «piece(s)»', async () => {
+    const { container } = renderWithProviders(<VaultsView />, 'en');
+    expect(await screen.findByText('4 in their name')).toBeInTheDocument();
+    expect(container.textContent?.toLowerCase()).not.toMatch(/\bpieces?\b/);
   });
 });

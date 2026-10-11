@@ -43,11 +43,16 @@ import { IS_REAL, apiAs } from './env';
  */
 
 /** Rol del contrato para el actor desechable. */
-export type TempActorKind = 'customer' | 'vault_operator';
+export type TempActorKind = 'customer' | 'vault_operator' | 'super_admin';
 
 export interface TempPasswordActor {
   /** `id` del `User` creado. `null` en MOCK (no hay backend al que pedírselo). */
   id: string | null;
+  /**
+   * Lo que se TECLEA en «Correo o usuario»: el correo del cliente, o el **nombre de usuario** del
+   * operador (v1.80.9, §M6-U.2: el login usa la MISMA llave `email` para los dos identificadores, así
+   * que el campo conserva su nombre y `loginWith`/`sessionForCredentials` no cambian).
+   */
   email: string;
   /** La contraseña TEMPORAL recién emitida: la que el flujo de §33.8 va a consumir. */
   password: string;
@@ -65,6 +70,17 @@ const DISPOSABLE_EMAIL_PREFIX = 'e2e-disposable-temp-';
 const DISPOSABLE_EMAIL_DOMAIN = '@e2e.local';
 
 /**
+ * ⭐ B-1 (QA sobre `da6d910e`) — **el operador desechable nace SIN correo.** Desde v1.80.9
+ * (`API_CONTRACT §M6-U.6` paso 3) un alta de staff con `email` es `422 {field:'email',
+ * rule:'staff_without_email'}`: el operador se da de alta con `username`. Prefijo propio del arnés para
+ * que la barredera lo encuentre por `?q=` (el backend busca también por usuario, §M6-U.7).
+ *
+ * Forma (§M6-U.6): 3–30, `a-z 0-9 . _ -`, empieza con letra. `e2e-tmp-op-`/`e2e-tmp-sa-` (11) + sello
+ * (≤ 17) = ≤ 28.
+ */
+const DISPOSABLE_USERNAME_PREFIX = 'e2e-tmp-';
+
+/**
  * Edad a partir de la cual un desechable se considera HUÉRFANO y se barre. Generosa a propósito:
  * una corrida lenta contra el stack real pasa de media hora, y barrer el actor de una corrida VIVA
  * la tumbaría con un 401 — exactamente la clase de avería que este módulo vino a cerrar.
@@ -75,24 +91,58 @@ const ORPHAN_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MOCK_ACTORS: Record<TempActorKind, { email: string; password: string }> = {
   customer: { email: 'temporal@example.com', password: 'cualquiera' },
   vault_operator: { email: 'operador.temporal@example.com', password: 'temporal-op' },
+  // v1.80.9: súper-admin SIN correo del servidor falso (`MOCK_STAFF_USERNAMES`, `lib/api.ts`).
+  super_admin: { email: 'jefa', password: 'temporal-jefa' },
 };
 
 interface AdminCreateUserResponse {
-  user?: { id?: string; email?: string; role?: string };
+  user?: { id?: string; email?: string | null; username?: string | null; role?: string };
   tempPassword?: string;
   mustChangePassword?: boolean;
 }
 
 interface AdminUserSummary {
   id: string;
-  email: string;
+  email: string | null;
+  username?: string | null;
   createdAt: string;
 }
 
-function disposableEmail(kind: TempActorKind): string {
-  const stamp = `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
-  const slug = kind === 'customer' ? 'customer' : 'operator';
-  return `${DISPOSABLE_EMAIL_PREFIX}${slug}-${stamp}${DISPOSABLE_EMAIL_DOMAIN}`;
+function disposableStamp(): string {
+  return `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
+}
+
+function disposableEmail(): string {
+  return `${DISPOSABLE_EMAIL_PREFIX}customer-${disposableStamp()}${DISPOSABLE_EMAIL_DOMAIN}`;
+}
+
+/** Usuario desechable del equipo (ver `DISPOSABLE_USERNAME_PREFIX`): `op` operador, `sa` súper-admin. */
+function disposableUsername(kind: 'vault_operator' | 'super_admin'): string {
+  return `${DISPOSABLE_USERNAME_PREFIX}${kind === 'super_admin' ? 'sa' : 'op'}-${disposableStamp()}`;
+}
+
+/**
+ * Cuerpo del alta según el rol (§M6-U.6): cliente con correo (como siempre); staff con `username` y
+ * ⛔ sin clave `email` (ni vacía: «presente, aun vacío» ⇒ `422`). El súper-admin desechable (STF-17-E2E)
+ * nace igual que el operador.
+ */
+function disposableCreateBody(
+  kind: TempActorKind,
+): { identifier: string; body: Record<string, unknown> } {
+  if (kind === 'customer') {
+    const email = disposableEmail();
+    return { identifier: email, body: { email, name: 'E2E desechable cliente', role: kind, locale: 'es' } };
+  }
+  const username = disposableUsername(kind);
+  return {
+    identifier: username,
+    body: {
+      username,
+      name: kind === 'super_admin' ? 'E2E desechable súper' : 'E2E desechable operador',
+      role: kind,
+      locale: 'es',
+    },
+  };
 }
 
 /**
@@ -111,13 +161,8 @@ export async function provisionTempPasswordActor(kind: TempActorKind): Promise<T
 
   await sweepOrphanDisposables();
 
-  const email = disposableEmail(kind);
-  const res = await apiAs<AdminCreateUserResponse>('admin', 'POST', '/admin/users', {
-    email,
-    name: kind === 'customer' ? 'E2E desechable cliente' : 'E2E desechable operador',
-    role: kind,
-    locale: 'es',
-  });
+  const { identifier, body } = disposableCreateBody(kind);
+  const res = await apiAs<AdminCreateUserResponse>('admin', 'POST', '/admin/users', body);
 
   if (res.status !== 201) {
     throw new Error(
@@ -136,7 +181,10 @@ export async function provisionTempPasswordActor(kind: TempActorKind): Promise<T
     );
   }
 
-  return { id: user.id, email: user.email ?? email, password: tempPassword, kind };
+  // Cliente: el correo que devuelve el servidor (o el que mandamos). Operador: su usuario CANÓNICO
+  // (el servidor lo guarda en minúsculas; el nuestro ya lo es).
+  const typed = kind === 'customer' ? (user.email ?? identifier) : (user.username ?? identifier);
+  return { id: user.id, email: typed, password: tempPassword, kind };
 }
 
 /**
@@ -157,26 +205,42 @@ export async function disposeTempPasswordActor(actor: TempPasswordActor | null):
 }
 
 /**
+ * ¿Esta fila la fabricó este módulo? Cliente por el prefijo del CORREO; operador (sin correo desde
+ * v1.80.9) por el prefijo del USUARIO. Una sola regla para el alta y la barredera.
+ */
+function isDisposableRow(row: { email?: string | null; username?: string | null } | null | undefined): boolean {
+  if (!row) return false;
+  return (
+    (typeof row.email === 'string' && row.email.startsWith(DISPOSABLE_EMAIL_PREFIX)) ||
+    (typeof row.username === 'string' && row.username.startsWith(DISPOSABLE_USERNAME_PREFIX))
+  );
+}
+
+/**
  * Barre desechables que una corrida anterior dejó sin borrar (worker caído, stack tumbado a
- * mitad). Solo toca correos con el prefijo del arnés Y más viejos que `ORPHAN_MAX_AGE_MS`: nunca
- * el actor de una corrida concurrente, y nunca una cuenta que no fabricó este módulo.
+ * mitad). Solo toca cuentas con un prefijo del arnés (correo `e2e-disposable-temp-` o, desde
+ * v1.80.9, usuario `e2e-tmp-`) Y más viejas que `ORPHAN_MAX_AGE_MS`: nunca el actor de una corrida
+ * concurrente, y nunca una cuenta que no fabricó este módulo. Dos búsquedas porque `?q=` es UNA
+ * cadena (§M6-U.7: correo, usuario o nombre).
  */
 async function sweepOrphanDisposables(): Promise<void> {
-  try {
-    const res = await apiAs<{ data?: AdminUserSummary[] }>(
-      'admin',
-      'GET',
-      `/admin/users?q=${encodeURIComponent(DISPOSABLE_EMAIL_PREFIX)}&pageSize=100`,
-    );
-    if (res.status !== 200 || !Array.isArray(res.body?.data)) return;
-    const cutoff = Date.now() - ORPHAN_MAX_AGE_MS;
-    for (const row of res.body.data) {
-      if (!row?.email?.startsWith(DISPOSABLE_EMAIL_PREFIX)) continue;
-      const born = Date.parse(row.createdAt ?? '');
-      if (!Number.isFinite(born) || born > cutoff) continue;
-      await apiAs('admin', 'DELETE', `/admin/users/${row.id}`);
+  const cutoff = Date.now() - ORPHAN_MAX_AGE_MS;
+  for (const prefix of [DISPOSABLE_EMAIL_PREFIX, DISPOSABLE_USERNAME_PREFIX]) {
+    try {
+      const res = await apiAs<{ data?: AdminUserSummary[] }>(
+        'admin',
+        'GET',
+        `/admin/users?q=${encodeURIComponent(prefix)}&pageSize=100`,
+      );
+      if (res.status !== 200 || !Array.isArray(res.body?.data)) continue;
+      for (const row of res.body.data) {
+        if (!isDisposableRow(row)) continue;
+        const born = Date.parse(row.createdAt ?? '');
+        if (!Number.isFinite(born) || born > cutoff) continue;
+        await apiAs('admin', 'DELETE', `/admin/users/${row.id}`);
+      }
+    } catch {
+      // Barrer es higiene, no precondición: un fallo aquí no puede impedir que el caso mida.
     }
-  } catch {
-    // Barrer es higiene, no precondición: un fallo aquí no puede impedir que el caso mida.
   }
 }

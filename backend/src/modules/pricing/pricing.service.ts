@@ -37,8 +37,11 @@ import {
 import {
   usdToMxnCents,
   computeSalePriceFromCurve,
-  computeSealedSalePrice,
+  computeSealedSaleOf,
+  manualSaleOf,
   CurvePriceResult,
+  IvaDials,
+  ManualSaleInput,
   PriceBasis,
   SealedSpreadResult,
   VariantPriceControls,
@@ -79,6 +82,8 @@ import {
   normalizePricingCurve,
   resolvePendingReason,
   sanitizePricingCurve,
+  PremiumFloorPolicy,
+  sanitizePremiumFloorSalePublish,
 } from '../../common/pricing-curve';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
@@ -281,37 +286,35 @@ const PRICE_REF_SELECT = {
   capturedDate: true,
   cardProductId: true,
   refKind: true,
+  // P-53 §3: fecha de última confirmación del barrido. Se lee para medir la frescura contra
+  // `evidenceDate ?? capturedDate`; `null` (filas graded/legadas) cae a `capturedDate` ⇒ sin cambio.
+  evidenceDate: true,
 } as const;
 
 /**
- * Cota de candidatas AUTOMÁTICAS a leer para el desempate por-clave (M-31, MAYOR-3). Por
- * `(cardId, productType, gradeKey, finish, capturedDate)` dentro de `BASE_CARD_REF_WHERE` las filas
- * solo difieren en `cardProductId` (null | set_base | other): un puñado por día. Bajo
- * `orderBy capturedDate desc`, las filas de los días más recientes (las únicas del TIER AUTOMÁTICO
- * que pueden ganar) caen en el bloque inicial; 32 es una cota holgadísima que las cubre sin traer el
- * histórico entero.
+ * P-53 ALTO-4 (§3/§5) — RETIRADO: `SAME_DAY_REF_CANDIDATES` (cota `take:32`) y `MANUAL_REF_PREDICATE`.
  *
- * §4.27f-2 (P47-2, v1.46): esta cota YA NO gobierna al override MANUAL. Bajo el dictamen de durabilidad
- * cross-day, el override manual es TIER SUPERIOR ABSOLUTO y CANDIDATA PERENNE: gana aunque su
- * `capturedDate` sea de meses atrás frente a una automática de hoy. Por eso NO puede quedar sujeto a
- * `take`/recencia — tras ~32 barridos diarios automáticos caería fuera de la ventana y el feed volvería
- * a pisar el precio humano en silencio (regresión money-losing). La lectura de referencia (getReference /
- * getReferenceByCardProduct) SIEMPRE une a las candidatas del bloque reciente TODAS las filas manuales de
- * la clave (`MANUAL_REF_PREDICATE`, sin cota de fecha), de modo que `pickBestRef` nunca deja de verlas.
- * El cap sigue acotando SOLO el tier automático.
+ * Ambos servían al patrón «bloque reciente CAPADO por `capturedDate` ⊕ lectura dirigida de manuales»
+ * que vivía en `getReference` (F4) y `getReferenceByCardProduct` (F5). Ese patrón tenía dos defectos
+ * que el diseño P-53 cerró de raíz al DELEGAR esos dos métodos a los de LOTE:
+ *
+ *  1. La cota `take: SAME_DAY_REF_CANDIDATES(=32)` cortaba la ventana de candidatas del TIER AUTOMÁTICO
+ *     por `capturedDate` **CRUDO**. Su viejo docblock afirmaba que eso era «money-safe para automáticas
+ *     — solo las recientes pueden ganar entre sí». **Esa afirmación era FALSA bajo write-on-change
+ *     (P-53):** el escritor diario CONGELA el `capturedDate` de la fila primaria buena (solo avanza su
+ *     `evidenceDate`), así que una primaria con `capturedDate` viejo + `evidenceDate=hoy` caía FUERA del
+ *     top-32 y una automática PEOR con `capturedDate` reciente la vencía — inversión de la precedencia
+ *     §4.27f. La frescura del tier automático se mide por FRESCURA EFECTIVA `COALESCE(evidenceDate,
+ *     capturedDate)`, nunca por `capturedDate` crudo con `take`.
+ *  2. La candidata PERENNE manual ya la garantizan los métodos de lote SIN necesidad de un predicado
+ *     aparte: `getReferencesBatch` la conserva en su ventana `$queryRaw` (`is_manual OR
+ *     COALESCE(evidenceDate,capturedDate)=max_auto_date`) y `getReferencesByCardProductBatch` lee SIN
+ *     cota alguna. `isBetterRef` la iza como tier absoluto durable cross-day.
+ *
+ * `getReference` ⇒ delega en `getReferencesBatch`; `getReferenceByCardProduct` ⇒ delega en
+ * `getReferencesByCardProductBatch`. Una sola fuente de verdad para la selección de mercado ⇒ single-item
+ * y lote NO pueden volver a divergir. No queda ningún lector de dinero que cape por `capturedDate` crudo.
  */
-const SAME_DAY_REF_CANDIDATES = 32;
-
-/**
- * §4.27f-2 (P47-2, v1.46) — predicado de override MANUAL de MERCADO: `isManualOverride=true` O
- * `source='manual'` (`manualOverride()` escribe ambos juntos; se casan los dos por robustez). Es la
- * candidata PERENNE de la resolución de referencia: se lee SIN cota de fecha ni `take` y se une a las
- * candidatas recientes, garantizando la durabilidad cross-day del control humano de precio. Se combina
- * con otros filtros vía `AND` para no colisionar con el `OR` de `BASE_CARD_REF_WHERE`.
- */
-export const MANUAL_REF_PREDICATE: Prisma.PriceReferenceWhereInput = {
-  OR: [{ isManualOverride: true }, { source: 'manual' }],
-};
 
 export type RefRow = {
   priceMxnCents: number;
@@ -320,6 +323,14 @@ export type RefRow = {
   source: string;
   capturedDate: Date;
   cardProductId: string | null;
+  // P-53 ALTO-3 (§3): la frescura de la SELECCIÓN de mercado se mide con `evidenceDate ?? capturedDate`
+  // — EL MISMO predicado que ya usan el escritor diario (`persistMarketReference`) y el camino graded
+  // (`getGradedEstimatesBatch`). OPCIONAL a propósito: una fila sin este campo o con `null` (filas
+  // legadas y graded de HOY) cae a `capturedDate` ⇒ selección IDÉNTICA a producción hoy (CA-10). Sin
+  // esto, `isBetterRef` congelaba la frescura en `capturedDate` mientras el escritor solo avanza
+  // `evidenceDate`, y un fallback de menor precedencia con `capturedDate=hoy` DESCARTABA a la primaria
+  // buena con `capturedDate` viejo pero evidencia fresca (inversión de la precedencia §4.27f).
+  evidenceDate?: Date | null;
 };
 
 /**
@@ -348,7 +359,9 @@ function sourceRank(source: string, isManualOverride: boolean): number {
  *      manual gana SIEMPRE sobre una automática, sin mirar `capturedDate` — no solo el mismo día. Es
  *      una decisión humana explícita que persiste hasta que el admin la cambie; nunca la supersede una
  *      referencia automática por ser «más fresca».
- *   2. DENTRO del mismo tier (ambas manuales o ambas automáticas): `capturedDate` más reciente gana.
+ *   2. DENTRO del mismo tier (ambas manuales o ambas automáticas): la de FRESCURA EFECTIVA más
+ *      reciente gana, medida como `evidenceDate ?? capturedDate` (P-53 ALTO-3 §3). Con
+ *      `evidenceDate = null` (filas legadas/graded) es `capturedDate` a secas ⇒ IDÉNTICO a hoy (CA-10).
  *   3. A igual tier y día, mejor precedencia de FUENTE (`sourceRank`): entre manuales rank 0; entre
  *      automáticas tcgcsv_singles > tcgcsv > PPT/PokeTrace > pokemontcg.io. NO se iza `sourceRank`
  *      por encima de `capturedDate` dentro del tier: una `tcgcsv_singles` STALE no debe ganarle a un
@@ -364,9 +377,13 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
   const am = a.isManualOverride || a.source === 'manual';
   const bm = b.isManualOverride || b.source === 'manual';
   if (am !== bm) return am;
-  const at = a.capturedDate.getTime();
-  const bt = b.capturedDate.getTime();
-  if (at !== bt) return at > bt; // dentro del mismo tier: gana la más fresca.
+  // P-53 ALTO-3 (§3): la frescura EFECTIVA es `evidenceDate ?? capturedDate` — el MISMO predicado del
+  // escritor diario y del camino graded. Con `evidenceDate = null|undefined` (filas legadas/graded)
+  // cae a `capturedDate` ⇒ orden IDÉNTICO a hoy (CA-10). El único cambio de conducta: una fila con
+  // evidencia fresca pero `capturedDate` viejo ahora cuenta como fresca (que es justo el arreglo).
+  const at = (a.evidenceDate ?? a.capturedDate).getTime();
+  const bt = (b.evidenceDate ?? b.capturedDate).getTime();
+  if (at !== bt) return at > bt; // dentro del mismo tier: gana la más fresca (frescura efectiva).
   const ar = sourceRank(a.source, a.isManualOverride);
   const br = sourceRank(b.source, b.isManualOverride);
   if (ar !== br) return ar < br; // mismo día: precedencia de fuente (determinismo).
@@ -740,51 +757,18 @@ export class PricingService {
     gradeKey: string,
     finish: Finish = 'normal',
   ): Promise<PriceInfo> {
-    // v1.29 (M-31, §4.27f): la referencia de la CARTA DE SET considera SOLO filas del set_base/other
-    // (o legacy `cardProductId=null`); NUNCA una fila de deck_exclusive/promo (ese precio vive en su
-    // producto separado).
-    // M-31 MAYOR-3 (money-safe): el price-ingest diario escribe una fila `cardProductId=null` y el
-    // resolver de singles escribe otra `cardProductId=<set_base>` el MISMO día; ambas pueden coexistir
-    // (p. ej. un `sync {force:true}`). `capturedDate desc` a secas es NO determinista para ese empate,
-    // así que NO se toma «la primera del orden»: se leen las candidatas del día y se elige la mejor con
-    // `isBetterRef` (fuente → cardProductId NULLS LAST → cuid), estable y reproducible.
-    // §4.27f-2 (P47-2, v1.46): el bloque reciente va CAPADO (`take`) al tier automático, pero el override
-    // MANUAL es candidata PERENNE (durable cross-day). Se une una lectura DIRIGIDA de TODAS las filas
-    // manuales de la clave SIN cota de fecha ni `take`, de modo que un override humano de meses atrás
-    // nunca cae fuera de la ventana ni lo pisa el barrido diario. `pickBestRef` desempata el conjunto.
-    // v1.50.3-f (M-43, §4.38l.4.4A): `MONEY_REF_WHERE` en **las dos** queries — el bloque reciente y el
-    // `MANUAL_REF_PREDICATE`. Olvidarlo en la segunda habría dejado vivo el caso exacto de GE-1: el
-    // estimado se escribe SIEMPRE con `isManualOverride=true` por la vía manual, así que es justamente
-    // la fila que la lectura de candidatas PERENNES trae sin cota de fecha (y por eso el estimado
-    // rancio a −400 días seguía priciando el slab). Se aplica por `AND` para no colisionar con el `OR`
-    // de `BASE_CARD_REF_WHERE`.
-    const [dayRows, manualRows] = await Promise.all([
-      this.prisma.priceReference.findMany({
-        where: { cardId, productType, gradeKey, finish, AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE] },
-        orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
-        select: PRICE_REF_SELECT,
-        take: SAME_DAY_REF_CANDIDATES,
-      }),
-      this.prisma.priceReference.findMany({
-        where: {
-          cardId,
-          productType,
-          gradeKey,
-          finish,
-          AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE, MANUAL_REF_PREDICATE],
-        },
-        select: PRICE_REF_SELECT,
-      }),
-    ]);
-    const ref = pickBestRef([...dayRows, ...manualRows]);
-    if (!ref) return { status: 'pending' };
-    const fx = await this.fxSnapshotSafe();
-    return {
-      status: 'priced',
-      referenceMxnCents: this.liveMxnCents(ref, fx),
-      source: ref.source as PriceSourceStr,
-      capturedDate: ref.capturedDate.toISOString().slice(0, 10),
-    };
+    // P-53 ALTO-4 (§3) — DELEGA en `getReferencesBatch`. Antes hacía DOS `findMany` (bloque reciente
+    // CAPADO por `capturedDate` crudo con `take: SAME_DAY_REF_CANDIDATES` ⊕ lectura dirigida de
+    // manuales). Ese `take:32` por `capturedDate` CRUDO era el vector del bug: bajo write-on-change el
+    // escritor CONGELA el `capturedDate` de la primaria buena (solo avanza `evidenceDate`), así que una
+    // primaria con `capturedDate` viejo + `evidenceDate=hoy` caía FUERA del top-32 y una automática PEOR
+    // con `capturedDate` reciente la vencía (inversión §4.27f). `getReferencesBatch` mide la ventana por
+    // FRESCURA EFECTIVA `COALESCE(evidenceDate,capturedDate)` (F1, ya en gates), conserva la candidata
+    // PERENNE manual (`is_manual OR …`) y cierra con el MISMO `isBetterRef`/`liveMxnCents`/FX viva.
+    // Delegar (no replicar) hace que single-item (checkout, buylist) y lote NO puedan volver a divergir.
+    const item = { cardId, productType, gradeKey, finish };
+    const batch = await this.getReferencesBatch([item]);
+    return batch.get(variantKey(item)) ?? { status: 'pending' };
   }
 
   /**
@@ -826,43 +810,17 @@ export class PricingService {
     gradeKey: string,
     finish: Finish = 'normal',
   ): Promise<PriceInfo> {
-    // M-31 MAYOR-3 (money-safe): mismo desempate DETERMINISTA que `getReference`. Aquí todas las filas
-    // comparten `cardProductId`, así que el empate que importa es a igual día por FUENTE (p. ej. un
-    // override manual vs tcgcsv_singles del mismo día): se elige con `isBetterRef`, no «la primera».
-    // §4.27f-2 (P47-2, v1.46): consistente con `getReference` — el bloque reciente va CAPADO al tier
-    // automático y se une la lectura DIRIGIDA de TODAS las filas manuales de ESTE `cardProductId` (sin
-    // cota de fecha ni `take`), para que el override manual siga siendo candidata perenne durable.
-    const [dayRows, manualRows] = await Promise.all([
-      this.prisma.priceReference.findMany({
-        where: { cardProductId: cardProductInternalId, productType, gradeKey, finish, ...MONEY_REF_WHERE },
-        orderBy: { capturedDate: 'desc' },
-        select: PRICE_REF_SELECT,
-        take: SAME_DAY_REF_CANDIDATES,
-      }),
-      this.prisma.priceReference.findMany({
-        where: {
-          cardProductId: cardProductInternalId,
-          productType,
-          gradeKey,
-          finish,
-          // M-43 (§4.38l.4.4A): también aquí, y también en LAS DOS queries. Hoy una fila de estimado
-          // nunca lleva `cardProductId` (§4.38a: el estimado es de la CARTA), así que el predicado es
-          // redundante — se pone igual porque la regla es del LECTOR, no del escritor: la garantía debe
-          // sobrevivir a que mañana alguien escriba un estimado por producto.
-          AND: [MONEY_REF_WHERE, MANUAL_REF_PREDICATE],
-        },
-        select: PRICE_REF_SELECT,
-      }),
-    ]);
-    const ref = pickBestRef([...dayRows, ...manualRows]);
-    if (!ref) return { status: 'pending' };
-    const fx = await this.fxSnapshotSafe();
-    return {
-      status: 'priced',
-      referenceMxnCents: this.liveMxnCents(ref, fx),
-      source: ref.source as PriceSourceStr,
-      capturedDate: ref.capturedDate.toISOString().slice(0, 10),
-    };
+    // P-53 ALTO-4 (§3) — DELEGA en `getReferencesByCardProductBatch` (F6). Antes hacía DOS `findMany`
+    // (bloque reciente CAPADO por `capturedDate` crudo con `take: SAME_DAY_REF_CANDIDATES` ⊕ manuales
+    // dirigidas). El `take:32` por `capturedDate` CRUDO era el mismo vector que en `getReference`: bajo
+    // write-on-change la primaria buena con `capturedDate` congelado + `evidenceDate=hoy` podía caer
+    // fuera del top-32 y perder contra un fallback peor con `capturedDate` reciente. La hermana de lote
+    // LEE SIN COTA (todas las filas de la clave, incluidas las manuales perennes) y reduce con el mismo
+    // `isBetterRef` (que mide frescura por `evidenceDate ?? capturedDate`): sin `take`, sin corte por
+    // `capturedDate` crudo, misma FX viva y mismo `PriceInfo`. Camino de buylist de producto separado.
+    const item = { cardProductId: cardProductInternalId, productType, gradeKey, finish };
+    const batch = await this.getReferencesByCardProductBatch([item]);
+    return batch.get(cardProductRefKey(item)) ?? { status: 'pending' };
   }
 
   /**
@@ -884,21 +842,82 @@ export class PricingService {
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
       variantKey(i);
     const wanted = new Set(items.map(keyOf));
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
-        productType: { in: [...new Set(items.map((i) => i.productType))] },
-        gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
-        finish: { in: [...new Set(items.map((i) => i.finish))] },
-        // v1.29 (M-31, §4.27f): excluye filas de deck_exclusive/promo del precio de la carta de set.
-        // v1.50.3-f (M-43, §4.38l.4.4A): + la naturaleza. Éste es el seam que alimenta bulk-publish,
-        // bóveda, binder, buylist y los reportes de dinero de admin: un estimado que se colara aquí
-        // pricearía a la vez decenas de piezas.
-        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
-      },
-      orderBy: { capturedDate: 'desc' },
-      select: PRICE_REF_SELECT,
-    });
+    // ⭐⭐ H-PERF-1 (perf-catalog-2, MONEY-SAFE) — **PODA DEL HISTÓRICO EN LA BD, NO EN NODE.**
+    //
+    // El `findMany` anterior traía `orderBy capturedDate desc` **SIN cota de fecha**: para cada carta
+    // del catálogo materializaba TODA su historia de precios (una fila por día por acabado) y luego
+    // `isBetterRef` elegía la vigente en memoria. Medido a escala local (3.000 publicadas × 60 días =
+    // 180.000 filas de `PriceReference`): `getReferencesBatch` tardaba **~2.300 ms** (BD ~590 ms de
+    // Seq Scan + external-merge Sort a disco, y ~1.700 ms de Node iterando 180.000 objetos) para
+    // devolver **3.000** entradas — un sobre-lectura de **60×** (= nº de días de historia).
+    //
+    // ⛔ Money-safe por CONSTRUCCIÓN, no por confianza. La decisión sigue siendo `isBetterRef` INTACTA:
+    // esta query NO elige la vigente, solo **descarta filas que NO PUEDEN ganar** y deja que el mismo
+    // reduce de siempre desempate el resto. Prueba de que el resultado no cambia: toda fila excluida
+    // está DOMINADA por una incluida bajo `isBetterRef`, así que el máximo no se mueve —
+    //   · TIER MANUAL (`isManualOverride ∨ source='manual'`): se incluyen TODAS (candidata perenne
+    //     cross-day de §4.27f-2; el reduce elige la más reciente entre ellas).
+    //   · TIER AUTOMÁTICO: solo las del `capturedDate` MÁXIMO por clave. Una automática de un día
+    //     anterior SIEMPRE pierde contra la del día máximo de su clave (mismo tier ⇒ gana la más
+    //     fresca, isBetterRef paso 2), y esa fila máxima SÍ está incluida ⇒ descartarla no cambia nada.
+    //   Los empates del mismo día (que por el `@@unique(…,capturedDate,cardProductId)` solo difieren en
+    //   `cardProductId`) llegan TODOS al reduce, que aplica sourceRank/NULLS-LAST como hasta hoy.
+    // El WHERE es idéntico al anterior (MONEY_REF_WHERE + BASE_CARD_REF_WHERE, aquí en SQL con el mismo
+    // LEFT JOIN a CardProduct que expresa el `OR cardProductId IS NULL`). Verificado byte-a-byte contra
+    // el algoritmo previo sobre datos adversarios (manual cross-day, multi-fuente y multi-cardProduct el
+    // mismo día, `graded_estimate` excluido): `test/pricing.references-batch-history-prune.*`.
+    const cardIds = [...new Set(items.map((i) => i.cardId))];
+    const productTypes = [...new Set(items.map((i) => i.productType as string))];
+    const gradeKeys = [...new Set(items.map((i) => i.gradeKey))];
+    const finishes = [...new Set(items.map((i) => i.finish as string))];
+    const rows = await this.prisma.$queryRaw<
+      {
+        cardId: string;
+        productType: ProductType;
+        gradeKey: string;
+        finish: Finish;
+        priceMxnCents: number;
+        priceUsdCents: number | null;
+        isManualOverride: boolean;
+        source: string;
+        capturedDate: Date;
+        cardProductId: string | null;
+        evidenceDate: Date | null;
+      }[]
+    >(Prisma.sql`
+      WITH filtered AS (
+        SELECT pr."cardId", pr."productType", pr."gradeKey", pr."finish",
+               pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
+               pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
+               (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual
+        FROM "PriceReference" pr
+        LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+        WHERE pr."cardId" IN (${Prisma.join(cardIds)})
+          AND pr."productType"::text IN (${Prisma.join(productTypes)})
+          AND pr."gradeKey" IN (${Prisma.join(gradeKeys)})
+          AND pr."finish"::text IN (${Prisma.join(finishes)})
+          AND pr."refKind" = 'market'::"PriceRefKind"
+          AND (pr."cardProductId" IS NULL
+               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+      ),
+      ranked AS (
+        -- P-53 ALTO-3 (§3): la ventana de frescura del TIER AUTOMATICO se mide por FRESCURA EFECTIVA
+        -- COALESCE(evidenceDate, capturedDate) -- el MISMO predicado del escritor diario. Sin esto, un
+        -- fallback de menor precedencia con capturedDate=HOY fijaba max_auto_date=HOY y EXCLUIA la
+        -- primaria buena (capturedDate viejo + evidenceDate=HOY, que el escritor congela), invirtiendo
+        -- la precedencia 4.27f. Con evidenceDate=null (filas legadas) COALESCE = capturedDate => ventana
+        -- IDENTICA a hoy (CA-10).
+        SELECT filtered.*,
+               MAX(CASE WHEN NOT is_manual THEN COALESCE("evidenceDate", "capturedDate") END)
+                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date
+        FROM filtered
+      )
+      SELECT "cardId", "productType", "gradeKey", "finish",
+             "priceMxnCents", "priceUsdCents", "isManualOverride",
+             "source", "capturedDate", "cardProductId", "evidenceDate"
+      FROM ranked
+      WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
+    `);
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
     const fx = await this.fxSnapshotSafe();
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
@@ -993,21 +1012,26 @@ export class PricingService {
     const map = new Map<string, Set<Finish>>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return map;
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: ids },
-        productType: 'raw',
-        gradeKey: 'raw:NM',
-        priceMxnCents: { gt: 0 },
-        // v1.29 (M-31): un precio de deck_exclusive/promo NO cuenta como precio de la carta de set.
-        // M-43: y un estimado tampoco «tiene precio» a efectos de display. Redundante hoy (esta query
-        // es `raw:NM` y el estimado es `graded:PSA:*`), presente por la regla del lector: el default de
-        // toda lectura de `PriceReference` es EXCLUIR lo que no es `market` (§4.38l.4.4A).
-        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
-      },
-      select: { cardId: true, finish: true },
-      distinct: ['cardId', 'finish'],
-    });
+    // ⭐ H-PERF-1 (perf-catalog-2, MONEY-SAFE) — `DISTINCT` en la BD, no en Node. El `findMany({distinct})`
+    // de Prisma (sin `orderBy`) DEDUPLICA EN MEMORIA: transfiere TODAS las filas `raw:NM` (todo el
+    // histórico por día) al engine para devolver ~un par (cardId,finish) por carta. Medido a escala
+    // (180.000 filas): ~316 ms. Aquí es una pregunta de EXISTENCIA (`priceMxnCents > 0`), no de valuación
+    // ni de orden, así que un `SELECT DISTINCT` que resuelve la BD devuelve el MISMO CONJUNTO de pares
+    // sin materializar el histórico. WHERE idéntico (MONEY_REF_WHERE + BASE_CARD_REF_WHERE, con el mismo
+    // LEFT JOIN que expresa `cardProductId IS NULL OR kind IN (set_base,other)`). El `Map<cardId,Set>`
+    // resultante es idéntico byte-a-byte (mismo conjunto) — verificado con el snapshot de `displayFinishes`.
+    const rows = await this.prisma.$queryRaw<{ cardId: string; finish: Finish }[]>(Prisma.sql`
+      SELECT DISTINCT pr."cardId", pr."finish"
+      FROM "PriceReference" pr
+      LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+      WHERE pr."cardId" IN (${Prisma.join(ids)})
+        AND pr."productType" = 'raw'::"ProductType"
+        AND pr."gradeKey" = 'raw:NM'
+        AND pr."priceMxnCents" > 0
+        AND pr."refKind" = 'market'::"PriceRefKind"
+        AND (pr."cardProductId" IS NULL
+             OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+    `);
     for (const r of rows) {
       let s = map.get(r.cardId);
       if (!s) {
@@ -1148,6 +1172,35 @@ export class PricingService {
   }
 
   /**
+   * ⭐ v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter, **MONEY**) — **EL ÚNICO LECTOR
+   * del dial de VENTA `premium_floor_sale_publish`.** Se iza UNA vez por request/lote, igual que la
+   * curva (BE-25). ⛔ Ningún llamador de VENTA construye una política literal (candado PF-11) y ⛔
+   * ningún llamador de COMPRA llama aquí (usa `BUY_PREMIUM_FLOOR_POLICY`).
+   *
+   * - fila AUSENTE ⇒ el seed `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }` (decisión del
+   *   dueño, HECHOS 2026-10-04);
+   * - valor almacenado que NO pasa el validador de la puerta ⇒ `{ mode:'none', rarities:[] }` (retener
+   *   todo: la dirección conservadora) + `logger.error`. La puerta `PUT /admin/settings` ya impide
+   *   llegar ahí; esto cubre una edición directa a la BD.
+   *
+   * Lectura sin caché: `SettingsService.get` hace un `findUnique` por llamada (medido, BACKEND_NOTES),
+   * así que un cambio del dial rige desde la siguiente petición.
+   */
+  async loadSalePremiumFloorPolicy(): Promise<PremiumFloorPolicy> {
+    // `getRaw` ya cae a `SETTING_DEFAULTS` (= el seed) cuando la fila no existe; `undefined` no es un
+    // valor JSON almacenable, así que `sanitize…` también lo lee como «sin fila» ⇒ seed.
+    const raw = await this.settings.getRaw(SettingKey.PREMIUM_FLOOR_SALE_PUBLISH);
+    const { policy, problem } = sanitizePremiumFloorSalePublish(raw);
+    if (problem != null) {
+      this.logger.error(
+        `[MONEY] El setting ${SettingKey.PREMIUM_FLOOR_SALE_PUBLISH} es INVÁLIDO en BD (${problem}): se ` +
+          'RETIENE toda premium en el piso de VENTA (`mode:none`). Corrígelo en M10 (PUT /admin/settings).',
+      );
+    }
+    return policy;
+  }
+
+  /**
    * v2.1 (P-48, §4.36.8a) — **DRY-RUN de la curva**. Evalúa una curva BORRADOR contra N mercados de
    * sonda y devuelve, por sonda, el resultado con el borrador Y con la curva **VIGENTE** (que se lee
    * de ESTE almacén, jamás del cliente: si el cliente pudiera echarla de vuelta, un cliente rancio
@@ -1222,6 +1275,21 @@ export class PricingService {
     const fallbackPct = await this.settings.getNumber(SettingKey.SEALED_SPREAD_FALLBACK_PCT);
     const sourceOn = (await this.settings.getString(SettingKey.SEALED_PRICE_SOURCE)) === 'tcgcsv';
     return { spreadPctBySubtype, fallbackPct, sourceOn };
+  }
+
+  /**
+   * ⭐ v1.80.2.2 (D-4 del techlead, 2026-09-29) — **el dial del sellado para un LOTE de lectores de
+   * patrimonio, UNA lectura por petición y solo si hay sellado que gatear.** Es el `sourceOn` que
+   * consume `valuationCentsOf` (SK-5) en los ocho lectores (holdings, holdingDetail, `/vault/sealed`,
+   * custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue y el export `.xlsx`).
+   *
+   * Antes este cuerpo (`items.some(sealed) ? (await loadSealedSpreads()).sourceOn : false`) estaba
+   * copiado seis veces; un lector nuevo lo copiaría por séptima vez o, peor, leería el dial de otra
+   * forma. Sin sellado en el lote ⇒ `false` sin tocar `ConfigSetting` (el valor no se usa: la rama raw/
+   * graduada de `valuationCentsOf` ignora `sourceOn`). El candado de forma vive en VK-6.
+   */
+  async sealedSourceOnFor(items: readonly { productType: ProductType }[]): Promise<boolean> {
+    return items.some((i) => i.productType === 'sealed') ? (await this.loadSealedSpreads()).sourceOn : false;
   }
 
   /**
@@ -1601,7 +1669,17 @@ export class PricingService {
       // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
       // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
       // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
-      const target = isStaleByOrigin(r.capturedDate.toISOString().slice(0, 10), isManual, today, cfg)
+      // P-53 §3: la frescura mide contra `evidenceDate ?? capturedDate`. Hoy las filas graded tienen
+      // `evidenceDate = null` ⇒ cae a `capturedDate` ⇒ IDÉNTICO al comportamiento previo (CA-10). El
+      // comportamiento nuevo solo emerge si en el futuro se cablea la evidencia del parser graded.
+      const evidenceDate = r.evidenceDate ? r.evidenceDate.toISOString().slice(0, 10) : null;
+      const target = isStaleByOrigin(
+        r.capturedDate.toISOString().slice(0, 10),
+        isManual,
+        today,
+        cfg,
+        evidenceDate,
+      )
         ? bestStaleByKey
         : bestFreshByKey;
       // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
@@ -1788,55 +1866,49 @@ export class PricingService {
    * ConfigSetting (vía `ctx`, izado una vez por request con `loadSealedSpreads`); nada del DTO del cliente.
    */
   resolveSealedSalePrice(
-    item: { listPriceCents: number | null; sealedSubtype: string | null },
+    // 💰 v1.83.1 (§M11-SP.1/SP.12.3): `sealedProduct` OBLIGATORIA en el tipo (SP-3) — el precio del dueño por
+    // producto es el peldaño 1. `productType` viaja para que `manualSaleOf` no lea el producto en raw/graded.
+    item: ManualSaleInput & { sealedSubtype: string | null },
     ref: PriceInfo | undefined | null,
     ctx: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean },
+    // 💰 v1.83.1: los diales que la petición YA izó (⛔ leerlos aquí dentro): con ellos se saca el `L` equivalente
+    // del `P` del dueño. Obligatorios: dos piezas del mismo lote no pueden derivarse con diales distintos.
+    dials: IvaDials,
   ): SealedSpreadResult {
     const marketCents = this.gateSealedMarketCents(ref, ctx.sourceOn);
-    return computeSealedSalePrice(
-      item.listPriceCents,
+    return computeSealedSaleOf(
+      manualSaleOf(item),
       item.sealedSubtype,
       marketCents,
       ctx.spreadPctBySubtype,
       ctx.fallbackPct,
+      dials,
     );
   }
 
-  /**
-   * v1.23-sealed-sales (§4.23d) — precio de VENTA del sellado por presentación (SEC-A1). Lee el
-   * contexto de spreads e invoca la pura `computeSealedSalePrice`. `marketMxnCents` = el
-   * `sealedMarketRef` YA gateado por el dial (el llamador pasa `null` si `sourceOn=false`).
-   */
-  async computeSealedSalePriceForItem(
-    item: { listPriceCents: number | null; sealedSubtype: string | null },
-    marketMxnCents: number | null,
-  ): Promise<SealedSpreadResult> {
-    const { spreadPctBySubtype, fallbackPct } = await this.loadSealedSpreads();
-    return computeSealedSalePrice(
-      item.listPriceCents,
-      item.sealedSubtype,
-      marketMxnCents,
-      spreadPctBySubtype,
-      fallbackPct,
-    );
-  }
+  // 💰 v1.83 (§M11-SP, SP-19 / techlead «ninguna segunda fórmula»): aquí vivía `computeSealedSalePriceForItem`, un
+  // segundo camino al precio del sellado SIN el peldaño del producto. No tenía llamadores (medido: `rg
+  // computeSealedSalePriceForItem backend/` ⇒ solo su definición) y se retira: el único camino es
+  // `resolveSealedSalePrice`.
 
   /**
-   * Sincroniza el precio de una carta (cache diario). Devuelve el PriceInfo.
-   * Si no hay precio y no hay override → crea PendingPriceEntry (no descarta).
+   * Sincroniza el precio de una carta (cache diario) desde el proveedor POR CARTA. Devuelve el
+   * PriceInfo: `priced` con la referencia del día, o `pending` si el proveedor no cotizó.
+   *
+   * ⛔ v1.80.8.4 (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis) — **NO escribe la cola de
+   * precio pendiente, nunca.** Hasta v1.80.8.3 escalaba a `PendingPriceEntry` (con `reason=null`,
+   * `context='inventory'`) cada pieza cuyo proveedor no contestara: los de graded/sellado son stubs que
+   * devuelven siempre `null`, el sellado escalaba con la clave `'sealed'` que nada cierra, y el job
+   * `price-sync` barre piezas de clientes y vendidas. Eso era el «SIN MOTIVO» de la cola de VENTA.
+   * «El proveedor no contestó hoy» es telemetría del job (log), no trabajo del dueño. La cola de VENTA
+   * la escriben solo quienes deciden un precio de venta de plataforma, siempre con motivo. Por eso se
+   * fueron también `context`/`refId`/`escalate`: solo existían para la escalada.
    */
   async syncCardPrice(
     card: Card,
     productType: ProductType,
     gradeKey: string,
     finish: Finish = 'normal',
-    context: 'catalog' | 'portfolio' | 'buylist' | 'inventory' = 'inventory',
-    refId?: string,
-    // v1.9-set-chart: el `set-price-sync` precia TODO el set destacado (agregación de
-    // mercado/marketing, no bóveda). Con `escalate=false` una carta sin precio NO se encola en
-    // PendingPriceEntry (ARCHITECTURE §4.12a: no inundar la cola con todo el catálogo del set).
-    // Los flujos de bóveda/buylist siguen con el default `true` (nunca se descarta una carta).
-    escalate = true,
   ): Promise<PriceInfo> {
     // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
     // v1.29 (M-31): esta ruta (graded/sealed/market genérico) escribe con `cardProductId=null`. Como
@@ -1877,12 +1949,7 @@ export class PricingService {
     const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey, finish }) : null;
 
     if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
-      // v1.8-ronda-c FIX: propaga `finish` a la cola de pendientes. Antes se encolaba sin acabado,
-      // colapsando `normal`/`holofoil` de la misma carta en UNA entrada al escalar.
-      // v1.9-set-chart: `escalate=false` (set-price-sync) NO encola pendientes (§4.12a).
-      if (escalate) {
-        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
-      }
+      // v1.80.8.4 (§M2 `M2-VQ`): sin cotización ⇒ `pending`, y NADA en la cola (ver docblock).
       return { status: 'pending' };
     }
 
@@ -1903,8 +1970,8 @@ export class PricingService {
     // M-43 (§4.38l.4.3 regla 2) — **la naturaleza solo la SUBE un humano con `intent:"market"`; ningún
     // escritor automático la mueve.** Si la fila del día es un estimado, este barrido NO la pisa (ni la
     // promueve ni la degrada): hace skip + traza y devuelve `pending`, exactamente igual que ya hacía
-    // ante un `isManualOverride`. Con `escalate` la pieza entra a la cola de precio pendiente, que es
-    // la señal honesta («esta pieza no tiene precio de mercado»), no un precio heredado.
+    // ante un `isManualOverride`. v1.80.8.4: ya no escala a la cola (la escalada salió de esta función
+    // entera); devolver `pending` es la señal honesta, no un precio heredado.
     // Hoy es un camino inalcanzable —no existe ningún proveedor de mercado `graded` (§4.38l.4.6,
     // candado 4: son *stubs* que devuelven `null`)—; se escribe porque el día que exista, el fallo
     // silencioso sería un P2002 en un job y un precio que nadie explica.
@@ -1914,9 +1981,6 @@ export class PricingService {
           '(no `market`): NO se escribe la referencia de mercado (M-43, §4.38l.4.3). Retira el estimado ' +
           'o fija el precio con POST /admin/pricing/override e intent:"market".',
       );
-      if (escalate) {
-        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
-      }
       return { status: 'pending' };
     }
     const ref = await this.prisma.priceReference.create({
@@ -1975,8 +2039,11 @@ export class PricingService {
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
     // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
     // sealedProductId, status='open')` — v1.30 añade `cardProductId`; v1.42 (M-40) añade `sealedProductId`.
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 3): `context` entra a la clave — SIETE componentes. Cada eje tiene SU fila: uno ya
+    // no reutiliza ni reescribe el `reason` de la del otro, y el aviso de VENTA no vive en una fila de COMPRA que
+    // `?context=inventory` no muestra (VQ-13). El CIERRE no cambia (`closePendingForVariant`).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, status: 'open' },
     });
     if (open) {
       if (reason != null && open.reason !== reason) {
@@ -2078,6 +2145,57 @@ export class PricingService {
   }
 
   /**
+   * v1.80.8.4 — **la ESCRITURA del barrido VQ** (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis
+   * punto 5). Techlead D-2 (sobre `8a10153e`): vivía en `PriceSyncJobService`, fuera del dueño de la
+   * cola; ahora toda escritura de `pendingPriceEntry` está en este servicio (VQ-5 lo vigila).
+   *
+   * Cierra (`resolved`, `resolvedPriceRefId=null`) las filas `ids` que **sigan** `open`,
+   * `context='inventory'`, `reason IS NULL`: el `where` repite el predicado del barrido, así que una
+   * fila a la que un escritor le puso motivo (o cerró) entre la lectura y aquí NO se toca. ⛔ No decide
+   * QUÉ filas cerrar —eso es del barrido, que casa claves con `saleQueueKeyOf`—. Devuelve cuántas cerró.
+   */
+  async closeUnreasonedSaleQueueRows(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { id: { in: ids }, status: 'open', context: 'inventory', reason: null },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
+   * 💰 v1.83 (`API_CONTRACT §M11-SP.2` paso 5) — **el precio del dueño de un producto sellado cierra SU cola de VENTA.**
+   *
+   * Cierra (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las `PendingPriceEntry` `open` con
+   * `sealedProductId = :id` y `context = 'inventory'`, **con el handle `tx` del `PUT`** (se confirma junto con el precio
+   * y su bitácora, o no se confirma). ⛔ No toca las de OTRO producto del mismo set (la clave lleva `sealedProductId`), ni
+   * las de COMPRA. Vive aquí porque toda escritura de la cola es de `PricingService` (VQ-5). Devuelve cuántas cerró.
+   */
+  async closeSealedProductSaleQueue(tx: Prisma.TransactionClient, sealedProductId: string): Promise<number> {
+    const res = await tx.pendingPriceEntry.updateMany({
+      where: { sealedProductId, context: 'inventory', status: 'open' },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
+   * v1.80.8.5 — **la ESCRITURA de la rama nueva del barrido VQ** (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE
+   * §4.36.5 c-ter). Cierra (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las filas `ids`
+   * que **sigan** `open`, `context='inventory'`, `reason='premium_at_floor'`: el `where` repite el
+   * predicado, así que ⛔ nunca toca COMPRA (`buylist`), ni `no_market`, ni `null`. ⛔ No decide QUÉ
+   * filas cerrar —eso es del barrido, que mira la rareza con `premiumFloorPublishes`—. Devuelve cuántas.
+   */
+  async closeStalePremiumFloorSaleRows(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { id: { in: ids }, status: 'open', context: 'inventory', reason: 'premium_at_floor' },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
    * v2.0 (§4.36.5c) — **EL MISMO SEAM que escala CIERRA**. Un solo cuerpo para las dos direcciones:
    *  - `reason != null` ⇒ escala (o actualiza la razón de la entrada abierta) y devuelve su id;
    *  - `reason == null` ⇒ cierra las entradas `open` de esa clave y devuelve `undefined`.
@@ -2159,14 +2277,6 @@ export class PricingService {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
-    // v1.29 (M-31): `cardProductId` es `null` en este fallback (PPT/graded). Prisma no tipa `null` en
-    // la clave compuesta ⇒ findFirst + update-by-id/create (invariante de un renglón/día por app).
-    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (mercado raw). Ver arriba.
-    const existing = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId },
-    });
-    // No clobbea el override manual del admin (§4.1): si hay override de hoy, se respeta.
-    if (existing?.isManualOverride) return;
     const isUsd = market.currency === 'USD';
     const priceMxnCents = isUsd
       ? usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct)
@@ -2174,6 +2284,73 @@ export class PricingService {
     const priceUsdCents = isUsd ? market.marketCents : null;
     const fxRate = isUsd ? fx.rate : null;
     const fxBufferPct = isUsd ? fx.bufferPct : null;
+
+    // ⚠️ P-53 §2 — **ESTE es el ESCRITOR DIARIO (`ingestSinglesForSet` → cron `price-ingest-1/2`), y su
+    // ritmo de escritura cambió: WRITE-ON-CHANGE.** Hasta P-53 la CLAVE de lectura incluía
+    // `capturedDate = today()`, así que cada barrido materializaba UNA fila POR (carta, producto,
+    // acabado) POR DÍA aunque el precio no se moviera (~28,559 filas/día que el disco no sostiene). Ahora
+    // se escribe **solo cuando el VALOR cambia**:
+    //  - **El VALOR es `priceUsdCents` (+ `fxBufferPct`), NO `priceMxnCents`.** El MXN se deriva de
+    //    `priceUsdCents × FX del día` y la FX Banxico se mueve a diario aunque el USD no ⇒ medir el
+    //    cambio sobre el MXN casi no colapsaría nada. La deriva de FX es una conversión derivada, no un
+    //    cambio de precio; se recompone en cada lectura viva (`liveMxnCents`). `fxBufferPct` SÍ entra al
+    //    predicado (dial de negocio). Con currency MXN (el proveedor ya da MXN, sin FX que amortiguar) el
+    //    valor ES `priceMxnCents`.
+    //  - **Día sin cambio:** 0 filas nuevas; se avanza `evidenceDate` de la vigente (nunca retrocede) ⇒
+    //    money-safe (la valuación viva recompone el MISMO MXN) y `hasRecentIngest` (§4.3) ve la
+    //    confirmación (cierra ALTO-2: la evidencia AHORA sí se escribe).
+    //  - **Día de cambio (USD/colchón distinto, sin fila, o la vigente es un estimado):** fila NUEVA del
+    //    día con `capturedDate = evidenceDate = today`. Cada punto de cambio sobrevive ⇒ la serie de
+    //    valor por fecha (`computeSetValue` forward-fill) es idéntica.
+    //  - **Override manual vigente (§4.1/§4.27f):** el escritor de mercado NO lo pisa ni le bump-ea
+    //    `evidenceDate`.
+    //
+    // Clave de la SERIE (SIN `capturedDate`): la fila VIGENTE es la más reciente. `cardProductId` puede
+    // ser `null` (fallback PPT/graded) o un id (primario `tcgcsv_singles`) ⇒ findFirst (Prisma no tipa
+    // `null` en la @@unique compuesta; invariante de un renglón/día por app).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (mercado raw), no de candidatas.
+    const current = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, cardProductId },
+      orderBy: { capturedDate: 'desc' },
+      select: {
+        id: true,
+        capturedDate: true,
+        evidenceDate: true,
+        isManualOverride: true,
+        refKind: true,
+        priceUsdCents: true,
+        priceMxnCents: true,
+        fxBufferPct: true,
+      },
+    });
+    // No pisa el override manual del admin (§4.1/§4.27f) — ni le avanza la evidencia.
+    if (current?.isManualOverride) return;
+
+    // ¿El VALOR es el MISMO que la fila vigente de MERCADO? → confirmar (avanzar evidencia), NO insertar.
+    const sameValue =
+      current != null &&
+      current.refKind === PriceRefKind.market &&
+      (isUsd
+        ? current.priceUsdCents === priceUsdCents &&
+          current.fxBufferPct != null &&
+          Number(current.fxBufferPct) === fxBufferPct
+        : current.priceUsdCents === null && current.priceMxnCents === priceMxnCents);
+
+    if (sameValue) {
+      // Día sin cambio: 0 filas nuevas. Solo avanza `evidenceDate` (invariante: nunca retrocede).
+      // `capturedDate`/`priceMxnCents`/`fxRate` de la vigente NO se tocan (congelarlos es inocuo: toda
+      // lectura viva recompone MXN desde el USD vigente; el único lector del MXN congelado —la rama
+      // `asOf` de `computeSetValue`— se corrige en el job del snapshot, §4.1).
+      if (current!.evidenceDate == null || current!.evidenceDate < capturedDate) {
+        await this.prisma.priceReference.update({
+          where: { id: current!.id },
+          data: { evidenceDate: capturedDate },
+        });
+      }
+      return;
+    }
+
+    // Cambió el valor (o no había fila, o la vigente es un estimado): fila del día (write-on-change).
     const data = {
       source: market.source,
       priceUsdCents,
@@ -2186,9 +2363,13 @@ export class PricingService {
       // esta fila nunca puede ser la del estimado; se fija igual porque la regla de (l.4.3) es del
       // ESCRITOR y no admite excepciones «porque en este call-site no puede pasar».
       refKind: PriceRefKind.market,
+      // P-53 §1: el día del cambio la evidencia coincide con la captura.
+      evidenceDate: capturedDate,
     };
-    if (existing) {
-      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+    // Idempotencia intra-día: si la vigente ES la fila de HOY (re-run del mismo día con valor nuevo), se
+    // corrige en su sitio (sin colisión con la @@unique de 6 campos). Si no, fila NUEVA del día.
+    if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
+      await this.prisma.priceReference.update({ where: { id: current.id }, data });
     } else {
       await this.prisma.priceReference.create({
         data: {
@@ -2721,6 +2902,11 @@ export class PricingService {
     controls?: VariantPriceControls | null;
     /** Curva izada UNA vez por request (BE-25). */
     curve: PricingCurve;
+    /**
+     * v1.80.8.5 (`M2-PF`, MONEY) — la política del guardarraíl de VENTA, de `loadSalePremiumFloorPolicy()`
+     * (izada una vez por request, como la curva). OBLIGATORIA como `rarityCanonical`: no se puede «olvidar».
+     */
+    premiumFloorPolicy: PremiumFloorPolicy;
   }): SalePriceDecision {
     // 1. EL MONTO — solo del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
     //    precedencia `sellOverrideCents > curva > pendiente`. Sin rareza, sin acabado.
@@ -2728,7 +2914,9 @@ export class PricingService {
     // 2. EL VEREDICTO — `no_market` (sin dato el PISO no gana, decisión LOCKED §4.36.0) o el guardarraíl
     //    `premium_at_floor` (una chase en el piso solo puede significar dato de mercado malo). NO dispara
     //    con `override` ni `bounty`: son decisiones deliberadas del admin y no se corrigen (§4.36.6).
-    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical);
+    //    v1.80.8.5 (`M2-PF`): el guardarraíl de VENTA consulta el dial — una premium cuya rareza el dial
+    //    publica, en el piso, sale con `priceCents = piso` y `pendingReason = null` (como una Common).
+    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical, input.premiumFloorPolicy);
     if (pendingReason != null) {
       // El monto se SUPRIME aquí, en el seam, y no en cada caller: así ninguna superficie puede
       // publicar/cobrar/ofrecer un precio que otra superficie ya considera no publicable.
@@ -2751,9 +2939,12 @@ export class PricingService {
     rarityCanonical: string | null;
     controls?: VariantPriceControls | null;
     curve?: PricingCurve;
+    /** v1.80.8.5 (`M2-PF`): si el llamador no la trae, se lee con `loadSalePremiumFloorPolicy()`. */
+    premiumFloorPolicy?: PremiumFloorPolicy;
   }): Promise<SalePriceDecision> {
     const curve = input.curve ?? (await this.loadPricingCurve());
-    return this.decideSalePrice({ ...input, curve });
+    const premiumFloorPolicy = input.premiumFloorPolicy ?? (await this.loadSalePremiumFloorPolicy());
+    return this.decideSalePrice({ ...input, curve, premiumFloorPolicy });
   }
 
   /**
@@ -2783,5 +2974,61 @@ export class PricingService {
    */
   tryGradeKeyFor(item: LooseGradeKeyInput): string | null {
     return tryBuildGradeKey(item);
+  }
+
+  /**
+   * v1.80.1 (API_CONTRACT §M2-SK **SK-5**, ARCHITECTURE §4.50.1-bis, **MONEY**) — **QUÉ fila de precio
+   * valúa esta pieza.** Es la ÚNICA puerta de los seis lectores de patrimonio (holdings, holdingDetail,
+   * custodyValue, `/admin/vaults`, `ownedItemRefs`, `inventoryValue`); el censo VK-6
+   * (`test/pricing.valuation-callers-census.spec.ts`) impide esquivarla.
+   *
+   * - sellado **mapeado** ⇒ `sealed:tcg:<id>` con acabado **`normal`** (la fila de mercado del producto se
+   *   escribe siempre en `normal`, sea cual sea el `finish` de la pieza);
+   * - sellado **sin mapeo** ⇒ `null`. ⛔ **Jamás `'sealed'`**: esa es la llave de COLA (SK-2) y no
+   *   identifica al producto — un ETB y un blíster anclados a la misma `Card` comparten fila, así que
+   *   valuar con ella es valuar una caja con el precio de otra;
+   * - raw / graduada ⇒ exactamente `tryBuildGradeKey` (esta rev no cambia su llave).
+   *
+   * `null` ⇒ **no hay referencia** ⇒ la pieza no suma y cuenta como pendiente. Ningún `??` lo rellena.
+   */
+  valuationKeyFor(
+    item: LooseGradeKeyInput & { cardId: string; finish: Finish; tcgplayerProductId: number | null },
+  ): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
+    if (item.productType === 'sealed') {
+      return item.tcgplayerProductId != null
+        ? {
+            cardId: item.cardId,
+            productType: 'sealed',
+            gradeKey: sealedMarketGradeKey(item.tcgplayerProductId),
+            finish: 'normal',
+          }
+        : null;
+    }
+    // Por el envoltorio (no `tryBuildGradeKey` directo): es la MISMA función, y así un doble de pruebas
+    // que fije `tryGradeKeyFor` sigue gobernando la clave raw/graduada de esta puerta.
+    const gradeKey = this.tryGradeKeyFor(item);
+    return gradeKey == null
+      ? null
+      : { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish };
+  }
+
+  /**
+   * v1.80.1 (SK-5, **MONEY**) — **CUÁNTO cuenta** la fila que eligió `valuationKeyFor`.
+   *
+   * - sellado ⇒ `gateSealedMarketCents(ref, sourceOn)`: el MISMO gate que `/vault/sealed` (H-1). El
+   *   override manual sobrevive al dial; la fuente `tcgcsv` solo con el dial encendido; `<= 0` ⇒ `null`.
+   *   Va aquí dentro para que «Mis piezas» y «Sellado» no digan dos cosas de la misma caja.
+   * - raw / graduada ⇒ la condición de siempre (`priced ∧ != null`). ⛔ No se unifica con el gate del
+   *   sellado: eso sería otro cambio de dinero (§4.50.1-bis punto 3).
+   *
+   * `sourceOn` sale de `loadSealedSpreads()` UNA vez por petición (el llamador lo iza).
+   */
+  valuationCentsOf(
+    item: { productType: ProductType },
+    ref: PriceInfo | undefined,
+    sourceOn: boolean,
+  ): number | null {
+    if (item.productType === 'sealed') return this.gateSealedMarketCents(ref, sourceOn);
+    return ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
   }
 }

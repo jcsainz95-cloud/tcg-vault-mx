@@ -359,7 +359,7 @@ jobs:
             echo
             echo "${REGISTRO}"
             echo
-            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\`._"
+            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\` (todos los gates) y \`security/.trivyignore-image\` (solo imágenes)._"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
@@ -428,6 +428,15 @@ jobs:
         if: hashFiles('backend/package.json') != ''
         run: |
           docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
+      # G-SHARP (DEVOPS_NOTES §93, API_CONTRACT §AC.11/§AC.16): la MISMA imagen que se
+      # escanea —la que construye Railway con este Dockerfile— carga `sharp` con el
+      # binario musl de su plataforma, procesa una foto como §AC.11 y carga el módulo
+      # compilado que lo importa. Sin red (`--network none`). Canario: 5 casos.
+      - name: G-SHARP — sharp carga en la imagen del backend (y su canario muerde)
+        if: hashFiles('backend/package.json') != ''
+        run: |
+          ./scripts/check-image-sharp.sh tcg-backend:scan
+          ./scripts/check-image-sharp-canary.sh tcg-backend:scan
       - name: Trivy image backend
         if: hashFiles('backend/package.json') != ''
         uses: aquasecurity/trivy-action@v0.36.0
@@ -443,16 +452,32 @@ jobs:
           # venían del npm empaquetado en `node:20-alpine`
           # (/usr/local/lib/node_modules/npm/node_modules/...), NO de deps de la
           # app. Dockerfile.backend elimina npm/npx de la etapa `runtime`, así que
-          # esa superficie desapareció en vez de ignorarse. Todo bloquea.
-          trivyignores: security/.trivyignore
+          # esa superficie desapareció en vez de ignorarse.
+          # §76 (2026-10-04): + security/.trivyignore-image — excepciones SOLO de
+          # imagen, cada una con `exp:` ≤30 días (hoy: braces CVE-2026-93687, que
+          # viaja inerte con las devDeps del backend). Registro: security/README.md.
+          trivyignores: security/.trivyignore,security/.trivyignore-image
+      # DEVOPS_NOTES §93.6 (2026-10-08): en `f76fe398` este paso cayó por primera vez
+      # (antes no llegaba a correr: el escaneo de backend caía primero desde `1bde01de`)
+      # y desde las sesiones de trabajo los registros de CI no se leen, solo las
+      # anotaciones. El mismo árbol construye en local (rc=0). Si vuelve a caer, la
+      # anotación lleva la etapa y las últimas líneas de error, para poder atribuirlo.
       - name: Build + scan imagen frontend
         if: hashFiles('frontend/package.json') != ''
         run: |
-          docker build -f Dockerfile.frontend -t tcg-frontend:scan --target runtime \
+          set +e
+          docker build -f Dockerfile.frontend -t tcg-frontend:scan --target runtime --progress=plain \
             --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1 \
             --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_scan \
             --build-arg NEXT_PUBLIC_DEFAULT_LOCALE=es \
-            --build-arg NEXT_PUBLIC_USE_MOCKS=false .
+            --build-arg NEXT_PUBLIC_USE_MOCKS=false . 2>&1 | tee /tmp/frontend-image-build.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            etapa="$(grep -oE '\[(base|deps|build|runtime) +[0-9]+/[0-9]+\][^"]*' /tmp/frontend-image-build.log | tail -1 | cut -c1-160)"
+            causa="$(grep -iE 'error|ERR!|failed|fatal|Killed|no space' /tmp/frontend-image-build.log | grep -v '^#[0-9]* DONE' | tail -15 | cut -c1-300 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')"
+            echo "::error title=imagen frontend · docker build rc=${rc}::última etapa: ${etapa:-no identificada}%0A${causa:-sin líneas de error reconocibles; ver el registro del job}"
+            exit "$rc"
+          fi
       - name: Trivy image frontend
         if: hashFiles('frontend/package.json') != ''
         uses: aquasecurity/trivy-action@v0.36.0
@@ -467,7 +492,9 @@ jobs:
           # Mismo criterio que el backend: sin excepciones activas. La etapa
           # `runtime` de Dockerfile.frontend también borra npm/npx de la imagen
           # base (el runtime standalone de Next arranca con `node server.js`).
-          trivyignores: security/.trivyignore
+          # §76: mismas excepciones de imagen que el backend (plano + plano: la
+          # acción los concatena).
+          trivyignores: security/.trivyignore,security/.trivyignore-image
 
   # ---------------------------------------------------------------------------
   # Gate final SAST.

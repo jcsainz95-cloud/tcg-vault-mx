@@ -3,7 +3,9 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
-import { VaultView } from './VaultView';
+import { VaultView, withdrawableHintKey } from './VaultView';
+import { mockHoldings } from '@/lib/mock/fixtures';
+import type { HoldingDTO } from '@/types/contract';
 import { WITHDRAWAL_REQUESTED_KEY } from './vaultTabs';
 
 // `?tab=` lo decide cada test (vi.hoisted: la fábrica de vi.mock se iza al top del módulo).
@@ -199,5 +201,109 @@ describe('VaultView · pestaña «Retiros» (§33.4)', () => {
     expect(h1.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(notice.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(screen.getByText('TCG-000777')).toBeInTheDocument());
+  });
+});
+
+/**
+ * ⭐ v1.80.7 (contrato §3 · `DESIGN_SYSTEM §37.10d`): `withdrawableReason` viaja con el flag. Un caso por motivo:
+ * el botón RETIRAR apagado con su hint, el chip «Compra en reembolso» SOLO con `origin_refunded`, «La estamos
+ * reponiendo» con `replacing`, y `null` ⇒ el enlace RETIRAR. La invariante `withdrawable === (reason === null)`
+ * la mide `lib/mock/holding-withdrawable.test.ts` sobre la regla y sobre `GET /vault/holdings`.
+ */
+describe('VaultView · v1.80.7 · chip y hint por `withdrawableReason`', () => {
+  const base = (): HoldingDTO => ({
+    inventoryItemId: 'inv-x1',
+    folio: 'INV-000901',
+    card: mockHoldings[0].card,
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    ownershipStatus: 'settled',
+    status: 'in_custody',
+    referenceValue: { status: 'priced', referenceMxnCents: 10000, capturedDate: '2026-08-13' },
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
+    withdrawableReason: null,
+  });
+  const serve = (h: Partial<HoldingDTO>) =>
+    vi.spyOn(api, 'getHoldings').mockResolvedValue({
+      data: [{ ...base(), ...h }],
+      portfolio: { totalValueMxnCents: 10000, pendingPriceCount: 0, currency: 'MXN' },
+    });
+
+  it('`null` ⇒ RETIRAR es un enlace a /shipments?item=…, sin chip', async () => {
+    serve({});
+    renderWithProviders(<VaultView />, 'es');
+    const link = await screen.findByRole('link', { name: 'Retirar' });
+    expect(link).toHaveAttribute('href', '/shipments?item=inv-x1');
+    expect(screen.queryByTestId('item-origin-refunded-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('item-replacing')).not.toBeInTheDocument();
+  });
+
+  it('`origin_refunded` ⇒ chip «Compra en reembolso» + su frase, y el botón apagado la repite como hint', async () => {
+    serve({ withdrawable: false, withdrawableReason: 'origin_refunded' });
+    renderWithProviders(<VaultView />, 'es');
+    const chip = await screen.findByTestId('item-origin-refunded-chip');
+    expect(chip).toHaveTextContent('Compra en reembolso');
+    expect(chip).toHaveTextContent(
+      'Esta carta viene de una compra que se está reembolsando: no se puede retirar. Si el reembolso no procede, volverá a estar disponible.',
+    );
+    const btn = screen.getByRole('button', { name: /Retirar — Esta carta viene de una compra/ });
+    expect(btn).toBeDisabled();
+    // ⛔ Nada de «Ya no está en tu bóveda» aquí: esa frase es del pedido reembolsado, no de una carta que sigue siendo suya.
+    expect(screen.queryByText(/Ya no está en tu bóveda/)).not.toBeInTheDocument();
+  });
+
+  it('`replacing` (con `replacement` abierto) ⇒ «La estamos reponiendo» + motivo; hint «se está reponiendo»', async () => {
+    serve({
+      status: 'lost',
+      withdrawable: false,
+      withdrawableReason: 'replacing',
+      replacement: { status: 'open', reason: 'not_found', refund: null },
+    });
+    renderWithProviders(<VaultView />, 'es');
+    const chip = await screen.findByTestId('item-replacing');
+    expect(chip).toHaveTextContent('La estamos reponiendo');
+    expect(chip).toHaveTextContent('No la encontramos al prepararla.');
+    expect(screen.getByRole('button', { name: /Retirar — Esta carta se está reponiendo/ })).toBeDisabled();
+    expect(screen.queryByTestId('item-origin-refunded-chip')).not.toBeInTheDocument();
+  });
+
+  it('`replacing` SIN `replacement` (backend anterior) ⇒ el chip solo, sin frase de motivo', async () => {
+    serve({ status: 'lost', withdrawable: false, withdrawableReason: 'replacing' });
+    renderWithProviders(<VaultView />, 'es');
+    const chip = await screen.findByTestId('item-replacing');
+    expect(chip).toHaveTextContent('La estamos reponiendo');
+    expect(chip).not.toHaveTextContent('No la encontramos');
+  });
+
+  it('`in_withdrawal` ⇒ badge EN RETIRO, hint «ya está en un retiro en curso», sin chip', async () => {
+    serve({ shipmentState: 'guia', activeShipmentId: 'shp-1', withdrawable: false, withdrawableReason: 'in_withdrawal' });
+    renderWithProviders(<VaultView />, 'es');
+    expect(await screen.findByRole('button', { name: /Retirar — Esta carta ya está en un retiro en curso/ })).toBeDisabled();
+    expect(screen.queryByTestId('item-origin-refunded-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('item-replacing')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['pending', { ownershipStatus: 'pending' as const }],
+    ['not_in_custody', { status: 'damaged' as const }],
+  ])('`%s` ⇒ hint de siempre («Solo las piezas liquidadas…»), sin chip', async (reason, over) => {
+    serve({ ...over, withdrawable: false, withdrawableReason: reason as HoldingDTO['withdrawableReason'] });
+    renderWithProviders(<VaultView />, 'es');
+    expect(await screen.findByRole('button', { name: /Retirar — Solo las piezas liquidadas y sin envío activo/ })).toBeDisabled();
+    expect(screen.queryByTestId('item-origin-refunded-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('item-replacing')).not.toBeInTheDocument();
+  });
+
+  it('withdrawableHintKey: una clave por motivo; sin motivo cae a `shipmentState`', () => {
+    expect(withdrawableHintKey('origin_refunded', false)).toBe('item.originRefundedBody');
+    expect(withdrawableHintKey('replacing', false)).toBe('item.replacingHint');
+    expect(withdrawableHintKey('in_withdrawal', false)).toBe('inWithdrawalHint');
+    expect(withdrawableHintKey('pending', false)).toBe('onlySettled');
+    expect(withdrawableHintKey('not_in_custody', false)).toBe('onlySettled');
+    expect(withdrawableHintKey(null, true)).toBe('inWithdrawalHint');
+    expect(withdrawableHintKey(null, false)).toBe('onlySettled');
   });
 });

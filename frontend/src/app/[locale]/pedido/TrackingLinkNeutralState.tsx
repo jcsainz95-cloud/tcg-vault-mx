@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { isValidEmail } from '../(storefront)/checkout/guest-validation';
-import { SUPPORT_CONTACT_FALLBACK } from '../(storefront)/checkout/support-contact';
+import { useSupportContact } from '@/hooks/useSupportContact';
 
 export interface TrackingLinkNeutralStateProps {
   /**
@@ -48,6 +48,8 @@ const MIN_VISIBLE_MS = 700;
  */
 export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProps) {
   const t = useTranslations('track.neutral');
+  // §60.1 b · §PNL.1: el buzón sale de `GET /support/contact` (fallo ⇒ valor de respaldo).
+  const { contact: supportContact } = useSupportContact();
   const tTrack = useTranslations('track');
   const headingRef = useRef<HTMLHeadingElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -224,9 +226,9 @@ export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProp
           {tTrack('createAccountCta')}
         </Link>
       </div>
-      <p className="mt-4 text-xs leading-relaxed text-muted">
-        {t('support', { contact: SUPPORT_CONTACT_FALLBACK })}
-      </p>
+      {supportContact && (
+        <p className="mt-4 text-xs leading-relaxed text-muted">{t('support', { contact: supportContact })}</p>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SETTING_VALIDATORS, SettingKey } from '../src/modules/settings/settings.constants';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.19-sealed-tcgcsv (API_CONTRACT §M1) — Campos READ-ONLY del item sellado:
@@ -30,7 +31,7 @@ function build(rows: unknown[], refsMap: Map<string, unknown>) {
     getReferencesBatch: jest.fn().mockResolvedValue(refsMap),
     getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
   } as unknown as PricingService;
-  const svc = new InventoryService(prisma, pricing, {} as SettingsService);
+  const svc = new InventoryService(prisma, pricing, ivaDialsStub() as unknown as SettingsService);
   return { svc, prisma, pricing };
 }
 

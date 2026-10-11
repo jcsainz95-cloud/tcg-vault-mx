@@ -18,6 +18,9 @@ vi.mock('@/i18n/navigation', () => ({
 const DETAIL: AdminUserDetailDTO = {
   id: 'u-780',
   email: 'jcsainz95@example.com',
+  username: null,
+  lockedUntil: null,
+  lockState: 'ok',
   name: 'jcsainz95',
   role: 'customer',
   status: 'active',

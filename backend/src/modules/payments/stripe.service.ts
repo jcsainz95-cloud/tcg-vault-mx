@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { BusinessException } from '../../common/business.exception';
 
+/** 💰 v1.84 LIVE-5 — resultado de {@link StripeService.chargeState}. */
+export type ChargeState = { mode: 'current'; disputed: boolean; amountRefundedCents: number } | { mode: 'other' };
+
 /**
  * P-WH-1 (ALTA, pentest): el secreto de webhook NO está configurado (ausente, vacío o solo
  * espacios). Es un **defecto de configuración NUESTRO**, no una firma inválida del llamador:
@@ -266,16 +269,101 @@ export class StripeService implements OnModuleInit {
     }
   }
 
-  async refund(paymentIntentId: string, idempotencyKey?: string): Promise<string> {
-    try {
-      const refund = await this.stripe.refunds.create(
-        { payment_intent: paymentIntentId },
-        idempotencyKey ? { idempotencyKey } : undefined,
-      );
-      return refund.id;
-    } catch (e) {
-      throw this.mapStripeError(e);
+  /**
+   * ⭐⭐ v1.80 (§M4-SHIP.7) — el reembolso SIEMPRE lleva `amount` y la llave del LIBRO. ⛔ Ya no existe el
+   * reembolso «sin monto» (H3): con reembolsos por carta ya hechos, pedir «todo» sin `amount` era pedirle a
+   * Stripe el remanente sin que nuestro registro lo supiera. `metadata.paymentRefundId` es lo que permite
+   * ENCONTRAR el reembolso en un reintento cuando la memoria de idempotencia de Stripe (24 h) ya caducó.
+   * Devuelve el `status` de Stripe (`pending|succeeded|failed|canceled`) para que el libro lo refleje.
+   */
+  async createRefund(params: {
+    paymentIntentId: string;
+    amountCents: number;
+    idempotencyKey: string;
+    metadata: Record<string, string>;
+  }): Promise<{ id: string; status: string }> {
+    if (!Number.isInteger(params.amountCents) || params.amountCents <= 0) {
+      throw new Error(`createRefund: amountCents must be a positive integer (got ${params.amountCents})`);
     }
+    const refund = await this.stripe.refunds.create(
+      {
+        payment_intent: params.paymentIntentId,
+        amount: params.amountCents,
+        metadata: params.metadata,
+      },
+      { idempotencyKey: params.idempotencyKey },
+    );
+    return { id: refund.id, status: refund.status ?? 'pending' };
+  }
+
+  /**
+   * 💰 v1.84 LIVE-5 · C2 (API_CONTRACT §14.5, ARCHITECTURE §4.63.4) — el estado del COBRO, leído fresco de Stripe
+   * justo antes de una decisión de dinero por SPEI. No depende de ningún código de error de reembolso.
+   *  - `{ mode: 'current', disputed, amountRefundedCents }` — el PI existe en el modo de la clave en uso;
+   *    `disputed` = `latest_charge.disputed` (sin cargo ⇒ `false`, `0`).
+   *  - `{ mode: 'other' }` — Stripe responde `resource_missing`: el PI vive solo en el OTRO modo (un pedido de prueba
+   *    leído con clave live, o al revés) ⇒ no hay dinero real que devolver por este cobro.
+   *  - lanza `503 PAYMENT_PROVIDER_UNAVAILABLE` ante cualquier otro fallo (red/5xx tras los reintentos del SDK, clave
+   *    mala…): ante la duda no se decide dinero.
+   * ⛔ El llamador la invoca FUERA de toda `$transaction` (lección I3: no alargar candados con un tercero; CS-6).
+   */
+  async chargeState(paymentIntentId: string): Promise<ChargeState> {
+    let pi: Stripe.PaymentIntent;
+    try {
+      pi = await this.stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
+    } catch (e) {
+      if (e instanceof Stripe.errors.StripeInvalidRequestError && e.code === 'resource_missing') return { mode: 'other' };
+      this.logger.warn(`chargeState(${paymentIntentId}): Stripe no respondió (${(e as Error).message})`);
+      throw BusinessException.retriable(
+        'PAYMENT_PROVIDER_UNAVAILABLE',
+        'Could not read the charge state from the payment provider; nothing was changed. Please retry.',
+      );
+    }
+    const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
+    return { mode: 'current', disputed: charge?.disputed === true, amountRefundedCents: charge?.amount_refunded ?? 0 };
+  }
+
+  /** Tamaño de página de `refunds.list` (el máximo de Stripe). SEC-SHIP-M2: se pagina SIEMPRE. */
+  static readonly REFUND_LIST_PAGE_SIZE = 100;
+
+  /**
+   * v1.80.3 (SEC-SHIP-M2) — los reembolsos de un PaymentIntent, PAGINADOS (`has_more`/`starting_after`)
+   * hasta agotar la lista. ⛔ Nunca una sola página: con 25+ reembolsos sobre un PI el de la fila puede
+   * estar en la página 2 y «no encontrarlo» significa crear OTRO (PS-50).
+   */
+  async listRefunds(paymentIntentId: string): Promise<{ id: string; status: string; metadata: Record<string, string> }[]> {
+    const out: { id: string; status: string; metadata: Record<string, string> }[] = [];
+    let startingAfter: string | undefined;
+    for (;;) {
+      const page = await this.stripe.refunds.list({
+        payment_intent: paymentIntentId,
+        limit: StripeService.REFUND_LIST_PAGE_SIZE,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      for (const r of page.data) {
+        out.push({ id: r.id, status: r.status ?? 'pending', metadata: (r.metadata ?? {}) as Record<string, string> });
+      }
+      if (!page.has_more || page.data.length === 0) break;
+      startingAfter = page.data[page.data.length - 1].id;
+    }
+    return out;
+  }
+
+  /**
+   * v1.80 (§M4-SHIP.7 paso 4) — ¿el error de Stripe es DEFINITIVO (la fila pasa a `failed`) o TRANSITORIO
+   * (la fila se queda `requested` y se reintenta)? `StripeInvalidRequestError` (monto mayor al disponible,
+   * cargo en disputa, PI inexistente) es definitivo; red, `5xx`, `rate_limit`, timeouts son transitorios.
+   * ⛔ NO MEDIDO en Stripe MX el `code` exacto de un reembolso sobre un cargo disputado (se anota en
+   * BACKEND_NOTES cuando se pruebe en modo prueba).
+   */
+  static classifyRefundError(e: unknown): { definitive: boolean; code: string } {
+    if (e instanceof Stripe.errors.StripeInvalidRequestError || e instanceof Stripe.errors.StripeCardError) {
+      return { definitive: true, code: e.code ?? e.type ?? 'invalid_request' };
+    }
+    if (e instanceof Stripe.errors.StripeError) {
+      return { definitive: false, code: e.code ?? e.type ?? 'stripe_error' };
+    }
+    return { definitive: false, code: 'network' };
   }
 
   /**

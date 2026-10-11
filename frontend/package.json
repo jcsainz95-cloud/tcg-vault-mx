@@ -12,6 +12,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "check:legal": "LEGAL_PUBLISH_CHECK=1 vitest run src/content/legal/publish-ready.test.ts",
+    "check:legal:provisional": "LEGAL_PUBLISH_CHECK=provisional vitest run src/content/legal/publish-ready.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report"
   },
@@ -50,6 +52,8 @@
   },
   "overrides": {
     "postcss": "^8.5.26",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "brace-expansion@^1": "^1.1.21",
+    "brace-expansion@^5": "^5.0.12"
   }
 }

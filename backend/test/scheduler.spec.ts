@@ -102,11 +102,15 @@ const sealedPriceIngest = {
 const orderReservationSweep = {
   run: jest.fn().mockResolvedValue({ swept: 0, skipped: 0, legacySwept: 0 }),
 } as unknown as OrderReservationSweepJobService;
+// DECKS-META Fase 2 (§7): refresh semanal de decks meta (fail-closed por dial).
+const decksMetaRefresh = {
+  run: jest.fn().mockResolvedValue({ skipped: true, reason: 'DIAL_OFF', mode: 'off' }),
+} as unknown as import('../src/modules/decks-meta/decks-meta-refresh.service').DecksMetaRefreshService;
 
 function build(config: ConfigService) {
   return new SchedulerService(
     config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
-    sealedPriceIngest, orderReservationSweep,
+    sealedPriceIngest, orderReservationSweep, decksMetaRefresh,
   );
 }
 
@@ -173,6 +177,8 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
       // v1.68 (§4-R.4): NO es diario — una reserva sin pagar bloquea piezas únicas 60 min, así
       // que barre cada 15 min. Sustituye a `guest-order-sweep`.
       'order-reservation-sweep': '*/15 * * * *',
+      // DECKS-META Fase 2 (§7): refresh SEMANAL de decks meta (lunes 09:00 UTC). Fail-closed por dial.
+      'decks-meta-refresh': '0 9 * * 1',
     });
     // El barrido pesado catalog-price-sync YA NO se auto-programa (su rol de pricing lo tomó price-ingest).
     expect(byName['catalog-price-sync-1']).toBeUndefined();
@@ -216,6 +222,10 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     expect(orderReservationSweep.run).toHaveBeenCalledTimes(1);
     await workerProcessor!({ name: 'guest-order-sweep' });
     expect(orderReservationSweep.run).toHaveBeenCalledTimes(2);
+
+    // DECKS-META Fase 2 (§7): el worker enruta el refresh semanal a su servicio.
+    await workerProcessor!({ name: 'decks-meta-refresh' });
+    expect(decksMetaRefresh.run).toHaveBeenCalledTimes(1);
 
     await svc.onModuleDestroy();
   });

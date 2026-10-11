@@ -23,7 +23,14 @@
 #         · el CONTENIDO de un canario copiado a OTRA ruta (la allowlist es por
 #           ruta, no por contenido);
 #         · en modo `git` (el que usa CI): commit con la clave real ⇒ rojo.
+#         · P-GL-2 / CL-2 (2026-10-05): `sk_live_`, `rk_live_` y `whsec_` de
+#           forma real plantadas en 5 sitios (backend/src, .md en la raíz,
+#           docs/*.md, security/*.toml, docker-compose*.yml) ⇒ las tres vistas
+#           en los 5: exige 5/5, en dir y en git. Con la exención por ruta
+#           antigua salía 2/5;
+#         · una ficción eximida por valor con dos caracteres de más ⇒ rojo.
 #   VERDE · los dos canarios en SUS rutas exactas (dir y git);
+#         · la ficción que ya vive en docs/ (eximida por VALOR exacto);
 #         · los placeholders que el repo usa (`sk_test_dummy`, `sk_test_e2e_dummy`,
 #           `pk_test_ci_dummy`, `sk_test_CHANGE_ME`, `sk_test_xxx…`);
 #         · un árbol limpio.
@@ -143,6 +150,66 @@ mkdir -p "$D/tools/scripts"
 cp "$ROOT_DIR/scripts/check-secret-defaults-canary.sh" "$D/tools/scripts/"
 caso ROJO dir "el canario bajo tools/scripts/ (la ruta está anclada a la raíz)" "$D" "tools/scripts/check-secret-defaults-canary.sh"
 
+# --- P-GL-2 / CL-2: una clave live se ve en TODOS los sitios -----------------
+# Seguridad (2026-10-05, §3.1) plantó la misma `sk_live_` y un `whsec_` en 5
+# sitios con este binario y esta config: 2/5. La allowlist GLOBAL eximía por
+# ruta `docs/*.md`, `security/*.toml|md|yml` y `docker-compose*.yml` — justo
+# donde se pega una clave al escribir una guía. Aquí se plantan las TRES formas
+# live (`sk_live_`, `rk_live_`, `whsec_`) en los MISMOS 5 sitios y se exige que
+# cada sitio dé hallazgo de las tres: 5/5. Con cualquiera de las tres rutas de
+# vuelta en la allowlist, esto sale rojo y nombra el sitio que se escapa.
+FAKE_RK_LIVE="rk_live_51$(printf 'Zy9Xw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe')"
+SITIOS_PGL2=(backend/src/plant.ts NOTA_RAIZ.md docs/NOTA_PLANT.md security/plant.toml docker-compose.plant.yml)
+plantar_pgl2() {
+  local d="$1"; mkdir -p "$d/docs" "$d/security"
+  printf '%s\n' "export const K = '$FAKE_SK_LIVE';" "export const R = '$FAKE_RK_LIVE';" "export const W = '$FAKE_WHSEC';" > "$d/backend/src/plant.ts"
+  printf '%s\n' "Pega esto en Railway: \`STRIPE_SECRET_KEY=$FAKE_SK_LIVE\`" "Restringida: \`$FAKE_RK_LIVE\`" "Webhook: \`$FAKE_WHSEC\`" > "$d/NOTA_RAIZ.md"
+  cp "$d/NOTA_RAIZ.md" "$d/docs/NOTA_PLANT.md"
+  printf '%s\n' "stripe_key = \"$FAKE_SK_LIVE\"" "stripe_rk = \"$FAKE_RK_LIVE\"" "stripe_whsec = \"$FAKE_WHSEC\"" > "$d/security/plant.toml"
+  printf '%s\n' "services:" "  backend:" "    environment:" "      STRIPE_SECRET_KEY: $FAKE_SK_LIVE" "      STRIPE_RESTRICTED_KEY: $FAKE_RK_LIVE" "      STRIPE_WEBHOOK_SECRET: $FAKE_WHSEC" > "$d/docker-compose.plant.yml"
+}
+# `cinco_de_cinco <modo> <dir>` → exige, por cada sitio, un hallazgo de cada prefijo.
+cinco_de_cinco() {
+  local modo="$1" d="$2" rc s pref n falta vistos=0 escapan=""
+  if [ "$modo" = git ]; then escaneo_git "$d"; else escaneo_dir "$d"; fi; rc=$?
+  if [ "$rc" -ne 1 ]; then
+    bad "P-GL-2 ($modo) — gitleaks rc=$rc sobre los 5 sitios plantados (esperado 1: hallazgos). $(tail -1 "$d/.log")"; return
+  fi
+  for s in "${SITIOS_PGL2[@]}"; do
+    falta=""
+    for pref in sk_live_ rk_live_ whsec_; do
+      n="$(jq --arg f "$s" --arg p "$pref" '[.[] | select(.File == $f and (.Secret | startswith($p)))] | length' "$d/.report.json" 2>/dev/null)"
+      [ "${n:-0}" -ge 1 ] || falta="$falta $pref"
+    done
+    if [ -z "$falta" ]; then vistos=$((vistos+1)); else escapan="$escapan $s(${falta# })"; fi
+  done
+  if [ "$vistos" -eq "${#SITIOS_PGL2[@]}" ]; then
+    ok "P-GL-2 ($modo) — clave live (sk/rk/whsec) vista en ${vistos}/${#SITIOS_PGL2[@]} sitios, incluidos docs/*.md, security/*.toml y docker-compose*.yml."
+  else
+    bad "P-GL-2 ($modo) — clave live vista solo en ${vistos}/${#SITIOS_PGL2[@]} sitios. Se escapa en:${escapan}. ¿Volvió una exención POR RUTA a [allowlist].paths?"
+  fi
+}
+D="$(arbol p-gl-2-cinco-sitios)"; plantar_pgl2 "$D"
+cinco_de_cinco dir "$D"
+
+# Las exenciones que sustituyen a las rutas son POR VALOR EXACTO: los valores de
+# ficción que el repo ya tiene en docs/ pasan; uno de más (mismo prefijo, dos
+# caracteres extra) vuelve a ser rojo. Sin esto, «por valor» podría degradar a
+# un patrón amplio sin que el 5/5 de arriba lo notara.
+D="$(arbol p-gl-2-ficcion-docs)"
+mkdir -p "$D/docs"
+{
+  echo "solo ficción: \`sk_live_51ClaveRealDelDueno\` y \`PPT=ppt_live_ABC123\`"
+  echo '  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",'
+} > "$D/docs/NOTA.md"
+caso VERDE dir "P-GL-2 — la ficción ya publicada en docs/ pasa por su VALOR exacto" "$D"
+
+D="$(arbol p-gl-2-ancla)"
+mkdir -p "$D/docs"
+# Por concatenación: escrita de una pieza entraría al manifiesto de publicados.
+echo "no es la ficción: \`sk_live_51ClaveRealDelDueno$(printf X7)\`" > "$D/docs/NOTA.md"
+caso ROJO dir "P-GL-2 — la ficción con 2 caracteres de más en docs/ (el ancla no se afloja)" "$D" "docs/NOTA.md"
+
 # --- Modo git (el de CI): mismas dos respuestas ------------------------------
 if command -v git >/dev/null 2>&1; then
   D="$(arbol git-canarios)"
@@ -155,6 +222,10 @@ if command -v git >/dev/null 2>&1; then
   printf '%s\n' "export const STRIPE_KEY = '$FAKE_SK_TEST';" > "$D/backend/src/stripe.ts"
   git -C "$D" init -q && git -C "$D" add -A && git -C "$D" -c user.email=c@c -c user.name=c commit -qm "clave"
   caso ROJO git "modo git: commit con la clave de prueba de forma real" "$D" "stripe-access-token"
+
+  D="$(arbol git-p-gl-2)"; plantar_pgl2 "$D"
+  git -C "$D" init -q && git -C "$D" add -A && git -C "$D" -c user.email=c@c -c user.name=c commit -qm "guia con clave live"
+  cinco_de_cinco git "$D"
 else
   bad "sin git no puedo ejercitar el modo que usa CI."
 fi

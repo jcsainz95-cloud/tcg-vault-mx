@@ -215,7 +215,7 @@ fi
 printf '\n──────────────────────────────────────────────────────────────────────────────\n'
 printf ' CAPACIDADES DEL ARNÉS E2E EN ESTE ENTORNO\n'
 printf '──────────────────────────────────────────────────────────────────────────────\n'
-printf '  COBRO  (checkout · guest-checkout · shipments) : %s%s\n' \
+printf '  COBRO  (checkout · guest-checkout · shipments · address-colonia) : %s%s\n' \
   "$( [ "$MONEY_OK" = 1 ] && printf 'DISPONIBLE' || printf 'NO DISPONIBLE' )" \
   "$( [ "$REQ_MONEY" = 1 ] && printf '   [EXIGIDA]' )"
 printf '  SUBIDA (uploads/presign · INE del buylist)     : %s%s\n' \

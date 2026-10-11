@@ -35,4 +35,4 @@ le hablas en español llano, de consecuencias de negocio. Tu manual es `CLAUDE.m
 - Ningún agente escribe fuera de su ruta; los gates no corrigen código. Scratch único por agente (O-8). Un
   informe no es un commit (O-10). Nunca `reset`/`checkout`/cambio de rama mientras un agente escribe (O-12).
 - No pidas nada al dueño sin haber medido que hace falta (O-6), y lo que le pidas comprobar, recórrelo tú antes
-  desde su pantalla (O-16).
+  desde su pantalla (O-21).

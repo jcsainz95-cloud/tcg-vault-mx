@@ -67,6 +67,13 @@ export interface SellGuideParams {
   /** Plazo de envío YA congelado en la fila. `null` ⇒ ⛔ no se inventa ninguna fecha. */
   shipDeadlineAt: Date | null;
   portalUrl?: string;
+  /**
+   * ⭐ rev BSD-1 (API_CONTRACT §BSD.8.2, `DESIGN_SYSTEM §BSD-UX.2`): la guía de ENTRADA comprada con Skydropx. Ausente ⇒
+   * variante **M** (guía manual), **bit a bit como hoy**. Presente ⇒ **S** (`pdfAttached`) o **S0** (la descarga falló: el
+   * cuerpo manda a «Mi cuenta»), y **+R** (`replaced`) si la solicitud ya tuvo otra guía de entrada cancelada por re-emisión.
+   * `trackingUrl` solo si Skydropx la dio (en prosa, ⛔ segundo botón). El adjunto lo pone quien manda el correo.
+   */
+  skydropx?: { pdfAttached: boolean; replaced: boolean; trackingUrl: string | null };
 }
 
 /**
@@ -98,10 +105,40 @@ export function sellGuideTemplate(
 ): MailMessage {
   const l = normalizeLocale(locale);
   const en = l === 'en';
-  const title = en ? 'Your prepaid label is ready' : 'Tu guía prepagada ya está lista';
-  const intro = en
-    ? 'We already paid for the label. Drop the package off with the carrier below.'
-    : 'La guía ya está pagada por nosotros. Entrega el paquete en la paquetería de abajo.';
+  const sdx = params.skydropx ?? null;
+  const replaced = sdx?.replaced === true;
+  const title = replaced
+    ? en
+      ? 'Your new prepaid label is ready'
+      : 'Tu nueva guía prepagada ya está lista'
+    : en
+      ? 'Your prepaid label is ready'
+      : 'Tu guía prepagada ya está lista';
+  const replacedLine = en
+    ? "This label replaces the one we sent you before: don't use the old one."
+    : 'Esta guía sustituye a la que te enviamos antes: no uses la anterior.';
+  const intro = !sdx
+    ? en
+      ? 'We already paid for the label. Drop the package off with the carrier below.'
+      : 'La guía ya está pagada por nosotros. Entrega el paquete en la paquetería de abajo.'
+    : sdx.pdfAttached
+      ? en
+        ? "We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. It's attached to this email as a PDF: print it and stick it on your package."
+        : 'Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. Va adjunta a este correo en PDF: imprímela y pégala en tu paquete.'
+      : en
+        ? "We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. We couldn't attach it to this email: download the PDF from your request in “My account”, print it and stick it on your package."
+        : 'Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. No pudimos adjuntarla a este correo: descárgala en PDF desde tu solicitud, en «Mi cuenta», imprímela y pégala en tu paquete.';
+  const dropoff = en
+    ? `Take the package to a ${params.carrier} branch: the carrier won't pick it up.`
+    : `Lleva el paquete a una sucursal de ${params.carrier}: la paquetería no pasa a recogerlo.`;
+  const trackingLine = sdx?.trackingUrl
+    ? en
+      ? `You can follow your package on ${params.carrier}'s website: ${sdx.trackingUrl}`
+      : `Puedes seguir tu paquete en la página de ${params.carrier}: ${sdx.trackingUrl}`
+    : '';
+  const redownload = en
+    ? 'If you lose the PDF, download it again from your request in “My account”.'
+    : 'Si pierdes el PDF, vuelve a descargarlo desde tu solicitud, en «Mi cuenta».';
   const dato = en
     ? `Carrier: ${params.carrier} · Tracking: ${params.trackingNumber}`
     : `Paquetería: ${params.carrier} · Guía: ${params.trackingNumber}`;
@@ -118,15 +155,21 @@ export function sellGuideTemplate(
     spacerRow(24),
     proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
     spacerRow(16),
+    // ⭐ BSD-UX.2 (+R): la línea de sustitución, el PRIMER párrafo tras el saludo, en prosa (⛔ letra chica).
+    ...(replaced ? [proseRow(replacedLine), spacerRow(16)] : []),
     proseRow(intro),
     spacerRow(24),
     ruleRow(),
     spacerRow(24),
     monoRow(dato),
+    // ⭐ BSD-UX.2 (S/S0): la sucursal y, si Skydropx la dio, la liga de rastreo en prosa.
+    ...(sdx ? [spacerRow(16), proseRow(dropoff)] : []),
+    ...(trackingLine ? [spacerRow(16), proseRow(trackingLine)] : []),
     // ⛔ Sin plazo congelado no se pinta ninguna fecha: *un aviso no inventa un dato que no tiene*.
     ...(deadline ? [spacerRow(24), deadlineRow(deadlinePre, deadline, deadlinePost)] : []),
     spacerRow(24),
     smallPrintRow(alreadySent),
+    ...(sdx?.pdfAttached ? [spacerRow(16), smallPrintRow(redownload)] : []),
     spacerRow(32),
     ...(params.portalUrl
       ? [ctaRows(params.portalUrl, ctaLabel, 'accent')]
@@ -134,11 +177,17 @@ export function sellGuideTemplate(
   ];
   return {
     to: '',
-    subject: en ? `${BRAND} — Your prepaid label` : `${BRAND} — Tu guía prepagada`,
+    subject: replaced
+      ? en
+        ? `${BRAND} — Your new prepaid label`
+        : `${BRAND} — Tu nueva guía prepagada`
+      : en
+        ? `${BRAND} — Your prepaid label`
+        : `${BRAND} — Tu guía prepagada`,
     html: mailShell({
       locale: l,
       title,
-      preheader: `${title}. ${dato}`,
+      preheader: replaced ? replacedLine : `${title}. ${dato}`,
       blocks,
       footerWhy: sellRequestFooterWhy(en),
     }),
@@ -147,12 +196,16 @@ export function sellGuideTemplate(
       '',
       title,
       '',
+      ...(replaced ? [replacedLine, ''] : []),
       intro,
       '',
       dato,
+      ...(sdx ? ['', dropoff] : []),
+      ...(trackingLine ? ['', trackingLine] : []),
       ...(deadline ? ['', `${deadlinePre}${deadline}${deadlinePost}`] : []),
       '',
       alreadySent,
+      ...(sdx?.pdfAttached ? ['', redownload] : []),
       ...(params.portalUrl ? ['', params.portalUrl] : []),
       '',
       BRAND,

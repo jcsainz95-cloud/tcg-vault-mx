@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { AuthForm } from './AuthForm';
 import { config } from '@/lib/config';
+import { ApiClientError } from '@/lib/api-client';
 import type { AuthResponse, Role } from '@/types/contract';
 
 // AuthForm y GoogleSignInButton usan next-intl navigation; capturamos push.
@@ -174,5 +175,97 @@ describe('AuthForm — redirección post-login según rol', () => {
     const { container } = renderWithIntl(<AuthForm mode="login" next="/admin/m6" />, 'es');
     submit(container);
     await waitFor(() => expect(push).toHaveBeenCalledWith('/admin/m6'));
+  });
+});
+
+/**
+ * v1.80 (C7, contrato §1 «Límite de intentos por cuenta», pruebas F-C7-1 y F-C7-3). El `429
+ * TOO_MANY_PASSWORD_ATTEMPTS` se pinta con minutos redondeados hacia arriba y un enlace a
+ * restablecer (que también levanta el candado); nunca afirma que la cuenta exista («bloqueada»); y
+ * el formulario NO reintenta solo. Mutaciones que estas pruebas cazan: pintar `tErr(code)` genérico
+ * (sin minutos ni enlace) ⇒ F-C7-1 rojo; programar un reintento con `retryAfterSeconds` ⇒ F-C7-3 rojo.
+ */
+describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
+  function locked(retryAfterSeconds?: number) {
+    return new ApiClientError(429, {
+      code: 'TOO_MANY_PASSWORD_ATTEMPTS',
+      message: 'Too many password attempts',
+      ...(retryAfterSeconds === undefined ? {} : { details: { retryAfterSeconds } }),
+    });
+  }
+
+  beforeEach(() => {
+    push.mockClear();
+    replace.mockClear();
+    login.mockReset();
+  });
+
+  it('F-C7-1 · ES: retryAfterSeconds 150 ⇒ «3 minutos» + enlace a restablecer, sin «bloqueada»', async () => {
+    login.mockRejectedValue(locked(150));
+    const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
+    submitLogin(container);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Demasiados intentos con este correo. Vuelve a intentarlo en 3 minutos, o restablece tu contraseña.',
+    );
+    // Fusión release-s5: el enlace es la clave propia `auth.login.rateLimitedResetLink` (DESIGN_SYSTEM §37.13),
+    // no un tramo enriquecido de la frase.
+    const link = within(alert).getByRole('link', { name: 'Restablecer contraseña' });
+    expect(link).toHaveAttribute('href', '/forgot-password');
+    expect(alert.textContent).not.toMatch(/bloquead/i);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('F-C7-1 · EN: mismo copy y enlace; 1 s ⇒ «1 minute» (nunca 0)', async () => {
+    login.mockRejectedValue(locked(1));
+    const { container } = renderWithIntl(<AuthForm mode="login" />, 'en');
+    submitLogin(container);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Too many attempts with this email. Try again in 1 minute, or reset your password.',
+    );
+    expect(within(alert).getByRole('link', { name: 'Reset password' })).toHaveAttribute(
+      'href',
+      '/forgot-password',
+    );
+    expect(alert.textContent).not.toMatch(/locked/i);
+  });
+
+  it('ES singular: 60 s ⇒ «1 minuto» (plural ICU, no «1 minutos»)', async () => {
+    login.mockRejectedValue(locked(60));
+    const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
+    submitLogin(container);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Demasiados intentos con este correo. Vuelve a intentarlo en 1 minuto, o restablece tu contraseña.',
+    );
+  });
+
+  it('sin details usables no inventa cifra: copy sin minutos, con enlace', async () => {
+    login.mockRejectedValue(locked());
+    const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
+    submitLogin(container);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo, o restablece tu contraseña.',
+    );
+    expect(alert.textContent).not.toMatch(/\d/);
+  });
+
+  it('F-C7-3 · tras el 429 NO hay reintento automático, ni pasado el Retry-After', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      login.mockRejectedValue(locked(60));
+      const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
+      submitLogin(container);
+      await screen.findByRole('alert');
+      expect(login).toHaveBeenCalledTimes(1);
+      // Más allá del candado (60 s) y del tope (60 min): nadie vuelve a llamar a login.
+      await vi.advanceTimersByTimeAsync(3_700_000);
+      expect(login).toHaveBeenCalledTimes(1);
+      // El botón vuelve a estar disponible: reintentar es decisión del usuario.
+      expect(screen.getByRole('button', { name: 'Entrar' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

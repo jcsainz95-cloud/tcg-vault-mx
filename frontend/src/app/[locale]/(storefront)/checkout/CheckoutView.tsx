@@ -22,7 +22,11 @@ import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { clearUnavailableNotice, pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
+import { clearAccessoryNotices } from './accessory-notice';
+import { AccessoryCartNotices } from './AccessoryCartNotices';
+import { SignedInAccessoriesBlock } from './SignedInAccessoriesBlock';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -42,7 +46,7 @@ import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome
  *    (`/checkout/quote` → `/checkout/session` → Stripe, destino bóveda).
  *  - SIN sesión: `GuestCheckoutView` (gate de identidad + formulario de invitado + upsell
  *    de bóveda + `/checkout/guest/*`). Un invitado NUNCA toca un endpoint `customer` ni ve
- *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.2).
+ *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.3.2).
  * Al crear cuenta/iniciar sesión desde el flujo de invitado, `useSession` reacciona y esta
  * misma vista conmuta al flujo con cuenta sin recargar la ruta: el carrito (localStorage)
  * se conserva y el desglose se re-cotiza.
@@ -126,14 +130,22 @@ export function CheckoutView() {
       : null);
 
   // Al salir del checkout el aviso caduca: solo lo conserva la sesión de compra actual.
-  useEffect(() => () => clearUnavailableNotice(), []);
+  useEffect(
+    () => () => {
+      clearUnavailableNotice();
+      clearAccessoryNotices();
+    },
+    [],
+  );
 
-  if (cart.ids.length === 0 && !paid && !guestPaid) {
+  // §AC (carrito v3): vacío ⇔ sin piezas, sin accesorios y sin paquete (un deck sin paquete no cuenta).
+  if (cart.isEmpty && !paid && !guestPaid) {
     // Carrito vacío — incluido el caso "todo el carrito murió": EmptyState + aviso,
     // NUNCA la pantalla de error genérico ni un botón de reintentar (contrato §4).
     return (
       <div className="gutter py-14">
         <UnavailableItemsNotice className="mx-auto mb-10 max-w-[620px]" />
+        <AccessoryCartNotices className="mx-auto mb-10 max-w-[620px]" />
         <EmptyState
           title={t('empty')}
           action={
@@ -255,6 +267,13 @@ export function CheckoutView() {
           de carga de la re-cotización que la propia poda dispara. */}
       <UnavailableItemsNotice className="gutter mb-6 max-w-[680px]" />
 
+      {/* §AC-UX.4 (AC-F7): carrito SOLO de accesorios con sesión ⇒ sin cotización ni botón de pago; queda el bloque. */}
+      {cart.ids.length === 0 && (
+        <div className="gutter max-w-[680px] pb-14">
+          <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
+        </div>
+      )}
+
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -303,6 +322,9 @@ export function CheckoutView() {
                 </div>
               ))}
 
+              {/* §AC-UX.4 (AC-F7): los accesorios del carrito local van APARTE, no suman y ⛔ nunca se mandan. */}
+              <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
+
               {/* Artboard: recordatorio del valor de la bóveda ANTES de los avisos legales. */}
               <div className="mt-6 border-t border-border-strong pt-6">
                 <p className="eyebrow">{t('vaultKeepEyebrow')}</p>
@@ -326,6 +348,11 @@ export function CheckoutView() {
                   {t('viewTerms')}
                 </Link>
               </p>
+              {/* LIVE-8 · sitio 4 (DESIGN_SYSTEM §80.2, criterio 505 ii). */}
+              <PrivacySiteNote
+                site="checkout"
+                className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted"
+              />
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('cfdiNotice')}
               </p>
@@ -341,6 +368,9 @@ export function CheckoutView() {
                 <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               </div>
 
+              {/* ⛔ Sin segunda copia de `afterPayment` aquí (B-3b, gate de release s5): DESIGN_SYSTEM §15.3
+                  fija TRES notas al margen («no se añade ni se quita ninguna») y PROJECT 48b exige los
+                  mismos avisos que el checkout de invitado, que pinta una sola. */}
               {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
               {vaultUpsellDone && (
                 <div role="status" aria-live="polite" className="mt-6">

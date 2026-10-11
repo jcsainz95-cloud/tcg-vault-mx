@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { Finish, ProductType } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
+import { formatCardCode } from '@/lib/setCode';
 import { Modal } from '@/components/ui/Modal';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
@@ -11,6 +12,8 @@ import { RarityLabel } from '@/components/domain/RarityLabel';
 export interface CardDetailModalCard {
   name: string;
   setName?: string;
+  /** v1.80 (P-71): código corto del set; con él la ficha pinta «TWM 130» en vez de `#130`. */
+  setPtcgoCode?: string | null;
   number?: string;
   rarity?: string | null;
   productType?: ProductType;
@@ -29,6 +32,12 @@ export interface CardDetailModalProps {
   priceCents?: number | null;
   /** Si el precio está pendiente, se rotula «Precio pendiente» en vez de la cifra. */
   pricePending?: boolean;
+  /**
+   * §BMK (API_CONTRACT §BMK.4 · DESIGN_SYSTEM §BMK.3): valor de mercado YA decidido por el llamador
+   * con `visibleMarketCents` (el mismo número que la teja que abrió la ventana). Ausente, `null` o no
+   * entero `> 0` ⇒ la fila no existe. La ventana no decide nada: solo pinta.
+   */
+  marketCents?: number | null;
 }
 
 /**
@@ -49,14 +58,19 @@ export function CardDetailModal({
   finish,
   priceCents,
   pricePending,
+  marketCents,
 }: CardDetailModalProps) {
   const t = useTranslations('cardDetail');
+  // §BMK.8: «Valor de mercado» / «Te pagamos» viven UNA vez, en `buylist.sellPrice` (un dato, un nombre).
+  const tSell = useTranslations('buylist.sellPrice');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
 
   if (!card) return null;
   const imageSrc = card.imageLargeUrl || card.imageSmallUrl;
   const showPrice = pricePending || (priceCents != null && priceCents >= 0);
+  // §BMK.3: la fila de mercado NO hereda el `>= 0` de arriba (desviación (f)4): su condición es `> 0`.
+  const showMarket = typeof marketCents === 'number' && Number.isInteger(marketCents) && marketCents > 0;
 
   return (
     <Modal open={open} onClose={onClose} title={card.name}>
@@ -81,7 +95,7 @@ export function CardDetailModal({
           </div>
         </div>
 
-        {/* Ficha de datos: nombre (ya en el título), set · #, acabado, rareza, precio. */}
+        {/* Ficha de datos: nombre (ya en el título), set · #, acabado, rareza, mercado (§BMK), te pagamos. */}
         <dl className="flex flex-col">
           {(card.setName || card.number) && (
             <div className="flex items-baseline justify-between gap-4 border-b border-border py-2.5">
@@ -89,7 +103,8 @@ export function CardDetailModal({
               <dd lang="en" className="text-right text-[13px] text-text">
                 {card.setName}
                 {card.setName && card.number ? ' · ' : ''}
-                {card.number ? `#${card.number}` : ''}
+                {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130` como siempre. */}
+                {formatCardCode(card.setPtcgoCode, card.number ?? '')}
               </dd>
             </div>
           )}
@@ -109,9 +124,23 @@ export function CardDetailModal({
               </dd>
             </div>
           )}
+          {/* §BMK.3 (DESIGN_SYSTEM): «Valor de mercado» va ANTES de «Te pagamos», secundaria (13 px,
+              muted). ⛔ Sin tachado ni estilo que dependa de cuál cifra es mayor (§BMK.1 punto 2). */}
+          {showMarket && (
+            <div className="flex items-baseline justify-between gap-4 border-b border-border py-2.5">
+              <dt className="text-[12px] text-muted">{tSell('market')}</dt>
+              <dd className="text-right">
+                <span className="tabular font-mono text-[13px] text-muted">
+                  {formatMoneyCents(marketCents, locale)}
+                </span>
+              </dd>
+            </div>
+          )}
           {showPrice && (
             <div className="flex items-baseline justify-between gap-4 border-b border-border py-2.5">
-              <dt className="text-[12px] text-muted">{t('estimate')}</dt>
+              {/* §BMK.3: la fila «Estimado» se renombra en pantalla a «Te pagamos» (único llamador: el
+                  cotizador, `MasterSetBinder`). El tono lo sostiene `masterSet.quoterPriceNote` (§BMK.7). */}
+              <dt className="text-[12px] text-muted">{tSell('wePay')}</dt>
               <dd className="text-right">
                 {pricePending ? (
                   <span className="font-mono text-[12px] text-accent">{t('pending')}</span>

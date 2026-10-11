@@ -5,6 +5,7 @@ import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.28 (P-17, §4.26d / API_CONTRACT §M1) — `GET /admin/inventory/items` gana los filtros
@@ -22,7 +23,7 @@ function buildService() {
   const pricing = {
     getReferencesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
-  const svc = new InventoryService(prisma as PrismaService, pricing, {} as SettingsService);
+  const svc = new InventoryService(prisma as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService);
   return { svc, findMany };
 }
 

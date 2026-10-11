@@ -121,7 +121,11 @@ export type SellRequestStatus =
  * ⚠️ DESIGN_SYSTEM §23.1d: `expirada` es el ÚNICO enum del sistema que se pinta por su MOTIVO
  * y no por su valor — `not_shipped` acusa al vendedor, `no_offer` nos acusa a nosotros.
  */
-export type SellRequestExpiryReason = 'no_offer' | 'not_shipped';
+/**
+ * 💰 rev BSD-1 (§BSD.1, `M-72`): + `not_continued` — «decidimos no continuar» (cierre automático a N días naturales sin
+ * guía, o «Declinar» en `aceptada`). ⛔ Sin culpa: se pinta NEUTRAL y sin montos (DESIGN_SYSTEM §BSD-UX.4a, BX2).
+ */
+export type SellRequestExpiryReason = 'no_offer' | 'not_shipped' | 'not_continued';
 export type SellItemStatus =
   | 'cotizada'
   | 'precio_pendiente'
@@ -181,6 +185,10 @@ export interface CardDTO {
   subtypes: string[];
   setId: string;
   setName: string;
+  // v1.80 (P-71, ARCHITECTURE §4.57): código corto IMPRESO del set de esta carta («TWM»). Clave SIEMPRE
+  // presente; `null` = sin código (normal y permanente) o set no cargado. Tal como lo guardó el sync
+  // (sin mayúsculas forzadas). ⛔ Nunca deducido del nombre ni del externalId. Se pinta «TWM 130».
+  setPtcgoCode: string | null;
   imageSmallUrl: string;
   imageLargeUrl: string;
   // v1.6-finish: acabados en que existe la carta (derivados de tcgplayer.prices al importar).
@@ -321,6 +329,35 @@ export interface SetValueHistoryResponse {
 }
 
 /**
+ * ⭐ v1.90⟨miv⟩ (`API_CONTRACT §MIV.3`) — un punto de la tendencia del SELLADO: el de `SetValuePointDTO`
+ * más el mercado CON IVA. `valueMxnCents` sigue viajando (neto) pero ⛔ la tienda ya no lo pinta.
+ */
+export interface SealedValuePointDTO extends SetValuePointDTO {
+  displayValueMxnCents: number;
+}
+
+/**
+ * ⭐ v1.90⟨miv⟩ (`API_CONTRACT §MIV.3`) — respuesta de `GET /catalog/sealed/:inventoryItemId/value-history`:
+ * «`SetValueHistoryResponse`-con-`product`» más los campos `display*`, REQUERIDOS en esta ruta. `pct` y
+ * `direction` NO cambian (se calculan sobre el neto). Las rutas de SET siguen con `SetValueHistoryResponse`.
+ *
+ * `product`: el contrato no fija su forma interna y la pantalla no lo lee; se tipa abierto a propósito
+ * (antes este endpoint se tipaba con `set`, que el servidor nunca emitió aquí).
+ */
+export interface SealedValueHistoryResponse {
+  product: Record<string, unknown>;
+  range: SetValueRange;
+  points: SealedValuePointDTO[];
+  change: {
+    absMxnCents: number;
+    pct: number | null;
+    direction: 'up' | 'down' | 'flat';
+    /** display(último) − display(primero); serie vacía ⇒ 0. ⛔ No es `marketDisplayCentsOf(absMxnCents)`. */
+    displayAbsMxnCents: number;
+  };
+}
+
+/**
  * La convención de precio de **este desglose** (§M10-IVA.4). Viaja **por fila**, ⛔ nunca se
  * deduce de un ajuste global: una orden ya cobrada bajo `IVA_EXCLUSIVE` tiene que seguir
  * leyéndose igual para siempre (criterio **190**).
@@ -395,7 +432,14 @@ export type NameSource = 'user' | 'google' | 'derived';
 
 export interface UserDTO {
   id: string;
-  email: string;
+  /**
+   * ⭐ v1.80.9 (§M6-U.2/§M6-U.5): `null` SOLO en cuentas del equipo sin correo (entran con
+   * `username`). El CHECK `user_login_identity_xor` garantiza exactamente uno de los dos. ⛔ Nunca
+   * se pinta a pelo: la regla es `email ?? username` (DESIGN_SYSTEM §42.5.1).
+   */
+  email: string | null;
+  /** ⭐ v1.80.9: nombre de usuario canónico (minúsculas) del equipo sin correo; `null` en el resto. */
+  username?: string | null;
   name: string;
   phone?: string;
   role: Role;
@@ -425,12 +469,56 @@ export interface UserDTO {
   hasPassword?: boolean;
   /** v1.67: ver `NameSource`. `GET /users/me` y `PATCH /users/me` lo traen SIEMPRE. */
   nameSource?: NameSource;
+  /**
+   * ⭐ v1.80.9 (§M6-U.5): aviso de candado pendiente en el panel (solo cuentas sin correo; las que
+   * tienen correo lo reciben por correo). Solo lo trae `GET /users/me`. Se cierra con
+   * `POST /users/me/lock-notice/dismiss` (`204`). Opcional en el tipo porque la sesión guardada y la
+   * respuesta del login no lo llevan.
+   */
+  lockNotice?: { since: string } | null;
+  /**
+   * 🔒 v1.80.12.10 (§M4-SHIP.19.30.3): `isOwnerAccount` de la fila (la cuenta del dueño, marca `User.isOwner`);
+   * `false` para todo cliente. El front lo usa **solo** para mostrar u ocultar (diales del dueño, la fila del
+   * dueño en Usuarios); ⛔ nunca autoriza: autoriza el servidor (`403 OWNER_ONLY_SETTING`,
+   * `403 OWNER_ACCOUNT_PROTECTED`). Opcional: la sesión guardada y la respuesta del login no lo llevan; ausente
+   * ⇒ se trata como `false` (falla cerrado: se deshabilita, el servidor decide).
+   */
+  isOwner?: boolean;
 }
 
 export interface AuthResponse {
   user: UserDTO;
   accessToken: string;
   refreshToken: string;
+  /**
+   * v1.80 (C7, contrato §1 «Límite de intentos por cuenta»): «dispositivo conocido». `login` y
+   * `google` lo traen SIEMPRE; `register` no (por eso es opcional en el tipo compartido). No
+   * autentica: solo elige el contador de intentos del siguiente `POST /auth/login`.
+   */
+  deviceToken?: string;
+}
+
+/** POST /auth/login — Req (v1.80: +`deviceToken?`, string ≤ 2048, el último que recibió este navegador). */
+export interface LoginRequest {
+  email: string;
+  password: string;
+  deviceToken?: string;
+}
+
+/** POST /auth/refresh {refreshToken} → 200 (v1.80: +`deviceToken`, aditivo). */
+export interface RefreshResponse {
+  accessToken: string;
+  refreshToken: string;
+  deviceToken: string;
+}
+
+/**
+ * `details` de `429 TOO_MANY_PASSWORD_ATTEMPTS` (v1.80, C7; `POST /auth/login` por cuenta y
+ * `POST /auth/change-password` por usuario). Mismo número que la cabecera `Retry-After`.
+ * ⛔ El front no reintenta solo. Copy: `max(1, ceil(retryAfterSeconds / 60))` minutos.
+ */
+export interface TooManyPasswordAttemptsDetails {
+  retryAfterSeconds: number;
 }
 
 // ---- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----
@@ -446,11 +534,13 @@ export interface ResendVerificationResponse {
 export interface ForgotPasswordResponse {
   ok: true;
 }
-// POST /auth/reset-password {token, password} → { ok: true }
-// (422 RESET_TOKEN_INVALID, 400 VALIDATION_ERROR). NO devuelve tokens: el usuario
-// re-inicia sesión con la nueva contraseña.
+// POST /auth/reset-password {token, password} → { ok: true, deviceToken }
+// (422 RESET_TOKEN_INVALID, 400 VALIDATION_ERROR). NO devuelve sesión: el usuario
+// re-inicia sesión con la nueva contraseña. v1.80 (C7): +`deviceToken` (quien pulsó el
+// enlace probó control del buzón) — con él, su login no queda atrapado por un atacante.
 export interface ResetPasswordSelfResponse {
   ok: true;
+  deviceToken: string;
 }
 
 // ---- Cambiar la propia contraseña, desde dentro (contrato §1, v1.67 · Stream A · P-75) ----
@@ -489,15 +579,38 @@ export interface AddressDTO {
    */
   recipientName: string | null;
   line1: string;
-  line2?: string;
-  neighborhood?: string;
+  line2?: string | null;
+  /** ⭐ v1.81 (§M4-SHIP.19.5): OBLIGATORIA al crear y de la lista del CP; `null` solo en filas viejas. */
+  neighborhood?: string | null;
+  /** v1.81: municipio canónico del CP (lo fija el servidor). */
   city: string;
+  /** v1.81: estado canónico del CP (lo fija el servidor). */
   state: string;
   postalCode: string;
   country: string;
   phone: string;
+  /** ⭐ v1.81: referencias para el repartidor, ≤ 70 (van a la guía como `further_information`). */
+  references: string | null;
   isDefault?: boolean;
+  /**
+   * ⭐ v1.81 — DERIVADO por el servidor: `neighborhood ≠ null ∧ postalCode ~ ^\d{5}$ ∧ phone ~ ^\d{10}$`.
+   * `false` ⇒ `POST /shipments` (retiro) con ella responde `422 ADDRESS_INCOMPLETE {addressId, missing}`.
+   */
+  complete: boolean;
 }
+
+/** `422 ADDRESS_INCOMPLETE {addressId, missing}` del retiro (§M4-SHIP.19.5). */
+export type AddressIncompleteField = 'neighborhood' | 'postalCode' | 'phone';
+
+/**
+ * Códigos que la libreta (`POST/PATCH /users/me/addresses`), el checkout de invitado y el retiro
+ * pueden recibir por la dirección (§M4-SHIP.19.5). Declarados aquí para que el candado de
+ * `i18n-parity` exija su `error.<CODE>` en los dos catálogos.
+ * v1.80.12.5 (§M4-SHIP.19.25.1): `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` RETIRADO (ningún emisor) y
+ * `POSTAL_CODE_UNKNOWN` queda solo como `404` del `GET /geo/postal-codes/:cp` (la pantalla lo lee como
+ * «escribe a mano», nunca como mensaje).
+ */
+export type AddressErrorCode = 'ADDRESS_INCOMPLETE';
 
 // ---- Perfil de facturación CFDI (contrato §1 «Perfil de facturación») ----
 /**
@@ -535,6 +648,13 @@ export interface KycInfoDTO {
   // v1.15: hay imagen de INE (frente+reverso) en archivo. El front oculta los uploaders de INE y
   // omite `ineUploadKeys`; el backend trata el INE en archivo como "provisto" para el umbral AML.
   ineOnFile: boolean;
+  /**
+   * ⭐ v1.80.7 (§M6 `GET /users/me/kyc`, clave SIEMPRE presente; normativo desde v1.80.3, SEC-SHIP-A3,
+   * §M4-SHIP.17.3): último cambio (o primer registro) de la CLABE, sellado SOLO por `setClabe`.
+   * `null` ⇔ «fecha de cambio desconocida» (CLABE anterior a `M-61`, o sin CLABE). La cuenta pinta
+   * «CLABE actualizada el …» (`DESIGN_SYSTEM §37.9d`); con `null` no pinta nada.
+   */
+  clabeUpdatedAt: string | null;
   /**
    * ⭐ v1.69 (P-78, contrato §M6-K.5 / §1): presente **si y solo si** `kycStatus === 'rejected'`.
    * Es el texto LITERAL que escribió el `super_admin` al rechazar, y es lo que cierra el ciclo:
@@ -628,6 +748,8 @@ export interface CardSetDTO {
  */
 export interface BuylistSetDTO extends CardSetDTO {
   logoUrl: string | null;
+  /** v1.80 (P-71): código corto del set; mismas reglas que `CardDTO.setPtcgoCode`. */
+  ptcgoCode: string | null;
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -732,6 +854,15 @@ export interface GroupedListingDTO {
   // en `units[]` (ListingDTO.priceBasis).
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.90⟨miv⟩ (ADITIVO, `API_CONTRACT §MIV.2`) — el mercado **CON IVA**, calculado en el servidor
+   * (`marketDisplayCentsOf(referenceValue.referenceMxnCents, ivaRatePct)`). Presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`). **Es la única cifra de
+   * mercado que pinta la ficha.** Ausente ⇒ el bloque NO se pinta: ⛔ nunca se cae al neto
+   * (`referenceValue` sigue NETO y ya no se pinta en la tienda). ⛔ No existe en
+   * `GroupedListingSummaryDTO` ni en `ListingDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
   // v1.50.2: `gradingHighlight` YA NO VIVE AQUÍ — se movió a `GroupedListingSummaryDTO` (rejilla +
   // vitrina). Tras D2 este DTO es el de la FICHA, y la ficha lee `gradedEstimates` de la RAÍZ de
@@ -803,9 +934,24 @@ export interface GroupedListingDetailResponse {
   //   * v1.50.2: los `listings[i]` YA NO traen `gradingHighlight` (se movió al Summary de la
   //     rejilla). La ficha se sirve SOLO de este campo.
   gradedEstimates?: GradedEstimateDTO[];
+  /**
+   * ⭐ v1.87⟨wishlist⟩ (§WSH.4, ADITIVO): dial `wishlist_enabled` vigente. El bloque «Lista de deseos» de la ficha
+   * se monta SOLO con `true` (WSH-5: lo apagado no existe). Opcional en el TIPO porque un servidor anterior no lo
+   * trae; la ausencia se lee como apagado.
+   */
+  wishlistEnabled?: boolean;
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
+/** ⭐ v1.80.7 (§3): motivo de `withdrawable:false`; `null` ⇔ retirable. */
+export type WithdrawableReason =
+  | 'pending'
+  | 'replacing'
+  | 'not_in_custody'
+  | 'in_withdrawal'
+  | 'origin_refunded'
+  | null;
+
 export interface HoldingDTO {
   inventoryItemId: string;
   folio: string;
@@ -847,6 +993,26 @@ export interface HoldingDTO {
   // si `ownershipStatus='settled' && shipmentState=null` (mismo criterio del backend). Evita descubrir
   // el 409/422 al intentar.
   withdrawable: boolean;
+  /**
+   * ⭐ v1.80.7 (§3, ADITIVO, clave siempre presente): POR QUÉ `withdrawable` es `false`. Invariante del
+   * contrato: **`withdrawable === (withdrawableReason === null)`**. Sale del MISMO cuerpo que calcula el
+   * flag (`vault.service`), en este orden (la primera condición que falla nombra el motivo):
+   *   `pending` ⇔ `ownershipStatus ≠ 'settled'` · `replacing` ⇔ `status ≠ 'in_custody'` ∧ caso «Por reponer»
+   *   abierto · `not_in_custody` ⇔ `status ≠ 'in_custody'` sin caso · `in_withdrawal` ⇔ `shipmentState ≠ null`
+   *   · `origin_refunded` ⇔ la compra de origen se está reembolsando (`ITEM_ORIGIN_REFUNDED`).
+   * Es la PROYECCIÓN de los rechazos de `classifyItems` (⛔ no una segunda regla). El front pinta el chip
+   * «Compra en reembolso» (§37.10d) SOLO con `origin_refunded`; `replacing` ya tiene su copy; los otros
+   * tres solo apagan RETIRAR con su hint de siempre.
+   */
+  withdrawableReason: WithdrawableReason;
+  /**
+   * v1.80.1 (§3 / §M4-SHIP.15.8): la pieza tiene un caso «Por reponer» abierto (no la encontramos o
+   * llegó dañada al prepararla; sigue siendo del cliente mientras se repone). `withdrawable` es
+   * `false` por la regla de siempre. ⛔ Sin actor, cifras de mercado ni candidatas.
+   * v1.80.2: con el caso `refunded` la carta se muestra «reembolsada» con su parte por transferencia.
+   * Opcional en el tipo: aditivo (un backend anterior no lo manda y la pieza se pinta como siempre).
+   */
+  replacement?: CustomerReplacementInfo | null;
 }
 
 export interface PortfolioSummary {
@@ -990,6 +1156,10 @@ export interface OrderItemDTO {
   inventoryItemId: string;
   card: HistoricalOrderItemCardDTO;
   unitPriceCents: number;
+  /** v1.80 (§M4-SHIP.10): «no salió · te devolvimos MX$X». Solo filas `submitted|succeeded`. */
+  refund?: CustomerItemRefundInfo | null;
+  /** v1.80.2 (§M4-SHIP.16): el caso más reciente con `originOrderItemId` = esta línea. */
+  replacement?: CustomerReplacementInfo | null;
 }
 
 /**
@@ -1059,6 +1229,12 @@ export interface OrderSummaryDTO {
    * responde `200 reused` (no hay endpoint de «reanudar»: reanudar ES reintentar).
    */
   reservedUntil?: string;
+  /**
+   * v1.80.2 (§M4-SHIP.16), aditivo: el estado PÚBLICO (mismo cuerpo que el seguimiento del invitado,
+   * §4-G.5) y el modo. La lista titula con `publicStatus` cuando viene; ⛔ nunca «Liquidada» al cliente.
+   */
+  publicStatus?: GuestOrderPublicStatus;
+  fulfillmentMode?: FulfillmentMode;
 }
 
 export interface OrderDetailDTO {
@@ -1070,6 +1246,15 @@ export interface OrderDetailDTO {
   settledAt?: string;
   /** v1.68 (§4-R.5): solo con `status: 'pending'` (ver `OrderSummaryDTO.reservedUntil`). */
   reservedUntil?: string;
+  /**
+   * v1.80.2 (§M4-SHIP.16) — `CustomerOrderDetailAdditions`, aditivo: la pantalla titula con
+   * `publicStatus` (⛔ nunca con `status`: «LIQUIDADA» es un término interno de dinero) y pinta el
+   * bloque de envío con `shipment` (`null` ⇔ `vault`, o directo aún sin envío). Opcionales en el
+   * tipo: contra un backend anterior se cae al rótulo neutro, nunca a `status`.
+   */
+  fulfillmentMode?: FulfillmentMode;
+  publicStatus?: GuestOrderPublicStatus;
+  shipment?: CustomerOrderShipmentDTO | null;
   breakdown: BreakdownDTO;
   /**
    * v1.51-c: NO es la forma del quote. `card` es `HistoricalOrderItemCardDTO` (tolerante):
@@ -1118,6 +1303,9 @@ export interface ShipmentDTO {
   ivaCents?: number;
   processingFeeCents?: number;
   totalCents?: number;
+  // ⭐ §19.12 (aditivo, `ClientShipmentDTO`): liga solo si Skydropx la dio; movimientos sin códigos.
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
   // v1.17: timestamps por etapa (para la línea de tiempo del rastreo). `requestedAt` == alta del retiro.
   requestedAt?: string;
   pickingAt?: string;
@@ -1139,6 +1327,10 @@ export interface ShipmentDTO {
     card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string };
     productType?: ProductType;
     finish?: Finish;
+    // v1.80 (§M4-SHIP.10): la carta que no salió y se reembolsó (solo filas `submitted|succeeded`).
+    refund?: CustomerItemRefundInfo | null;
+    // v1.80.1 (§M4-SHIP.15.8): la carta que se está reponiendo / se repuso / se reembolsó por caso.
+    replacement?: CustomerReplacementInfo | null;
   }[];
 }
 
@@ -1167,7 +1359,21 @@ export interface AddressSnapshotDTO {
 }
 
 /** Tipo de envío en la cola de M4 (contrato §M4 v1.21.2: se deriva de `Order.fulfillmentMode`). */
-export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+/** 💰 rev BSD-1 (errata BSD-1.3 punto 2): + `buylist_inbound` — la guía de ENTRADA del buylist (vendedor → tienda). */
+export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship' | 'buylist_inbound';
+
+/**
+ * 💰 rev BSD-1 (§BSD.5) — `AdminShipmentDTO.inbound`: solo en la guía de ENTRADA (`null` en salida). `sellerName` es una
+ * SUGERENCIA para «Quién envía» (⛔ nunca se escribe sola, BX7); `destination` = la tienda (`skydropx_origin_snapshot`),
+ * de SOLO LECTURA (BX4).
+ */
+export interface InboundShipmentBlockDTO {
+  sellRequestId: string;
+  sellerName: string;
+  offerShippingFeeCents: number;
+  offerGrossCents: number;
+  destination: { name: string; street1: string; postalCode: string; state: string; city: string; neighborhood: string };
+}
 
 export interface AdminShipmentDTO {
   id: string;
@@ -1179,6 +1385,8 @@ export interface AdminShipmentDTO {
    * serializa siempre.
    */
   kind?: AdminShipmentKind;
+  /** 💰 rev BSD-1 (§BSD.5): solo `kind='buylist_inbound'`; `null`/ausente en salida (o servidor anterior). */
+  inbound?: InboundShipmentBlockDTO | null;
   orderId?: string | null;
   orderNumber?: string;
   guestEmail?: string;
@@ -1203,17 +1411,768 @@ export interface AdminShipmentDTO {
   totalCents?: number;
   /** Costo real pagado a la paquetería (interno, v1.4-finance). */
   shippingCostCents?: number;
-  items?: { id?: string; inventoryItemId: string; folio?: string; card?: CardDTO }[];
+  items?: {
+    id?: string;
+    inventoryItemId: string;
+    folio?: string;
+    card?: CardDTO;
+    // v1.80 (§M4-SHIP.10): solo en `/:id`.
+    prepStatus?: PreparationItemStatus;
+    missingReason?: MissingReason | null;
+  }[];
+  // ---- v1.80 (§M4-SHIP.10), aditivo ----
+  /** EL COMPRADOR (§M4-SHIP.3). `null` ⇔ invitado (que ya trae `guestEmail` y `recipientName`). */
+  customer?: CustomerRefDTO | null;
+  preparedAt?: string | null;
+  preparedBy?: { userId: string; name: string | null } | null;
+  missingCount?: number;
+  /** Solo en `/:id`. */
+  refunds?: PaymentRefundDTO[];
+  // ---- ⭐ Skydropx (contrato §M4-SHIP.19.7 / .19.19.7 / .19.20), aditivo y OPCIONAL en el tipo ----
+  // Opcional porque el backend de la fase D todavía no existe: una fila sin estos campos es una fila
+  // de hoy (guía manual, sin integración), y la pantalla la trata así (⛔ nunca inventa el dato).
+  /** `null` ⇔ sin guía; `'manual'` ⇔ «Capturar a mano»; `'skydropx'` ⇔ comprada por la ventana. */
+  labelSource?: ShipmentLabelSource | null;
+  label?: ShipmentLabelDTO | null;
+  carrierAlert?: { status: CarrierStatus; detail: string | null; at: string } | null;
+  costAdjustments?: ShipmentCostAdjustmentDTO[];
+  margin?: { chargedNetCents: number; costNetCents: number; marginCents: number } | null;
+  /** §19.20.1: versión del snapshot (CAS de `PUT …/address`) y la ÚLTIMA corrección. */
+  address?: ShipmentAddressStateDTO;
+  /** §19.19.7: lo que la ventana puede ofrecer AL ACTOR (dial + rol + env). */
+  labelOptions?: LabelOptionsDTO;
+  /** §19.20.2 */
+  labelPending?: LabelPendingDTO | null;
+  labelAlert?: LabelAlertDTO | null;
+  /**
+   * 🔒💰 v1.80.12.8 (§M4-SHIP.19.28.11): nuestro folio del envío (`ENV-000045`), fila y detalle. Es de admin
+   * (SK15/SDX-I-6): ⛔ ninguna superficie de cliente lo pinta. Opcional SOLO para un servidor anterior a `M-67`:
+   * sin él se pinta lo de hoy (el uuid), ⛔ nunca vacío.
+   */
+  folio?: string;
+  /**
+   * 💰 v1.80.12.7 (§M4-SHIP.19.27.9) + v1.80.12.8 (`auto_not_sent`): la última liberación de las últimas 24 h si el
+   * envío quedó sin guía y sin reclamo. **Solo en el detalle** y en la respuesta de `label/release`. ⛔ Sin importes.
+   */
+  lastLabelRelease?: LabelReleaseDTO | null;
 }
 
-// Fila de la lista de picking (contrato §M4 · GET /admin/shipments/picking-list),
-// ordenada por ubicación; `location` = label plano ("C03-F02-S15" | "UNASSIGNED").
-export interface PickingListEntryDTO {
-  shipmentId: string;
+/** §19.27.9 / §19.28.11 — cómo se soltó el último reclamo de compra. */
+export type LabelReleaseVia = 'auto_verified' | 'auto_not_sent' | 'manual' | 'manual_verified';
+export interface LabelReleaseDTO {
+  at: string;
+  via: LabelReleaseVia;
+}
+
+// ---- ⭐ Skydropx: la ventana «Capturar guía» (contrato §M4-SHIP.19.19 v1.80.11 + §19.20 v1.80.12) ----
+
+/** §Enums `CarrierStatus` (los 12 valores de la referencia, §19.19.10). */
+export type CarrierStatus =
+  | 'created'
+  | 'picked_up'
+  | 'in_transit'
+  | 'last_mile'
+  | 'delivery_attempt'
+  | 'delivered_to_branch'
+  | 'delivered'
+  | 'exception'
+  | 'retained'
+  | 'in_return'
+  | 'destroyed'
+  | 'canceled';
+export const CARRIER_STATUSES: readonly CarrierStatus[] = [
+  'created',
+  'picked_up',
+  'in_transit',
+  'last_mile',
+  'delivery_attempt',
+  'delivered_to_branch',
+  'delivered',
+  'exception',
+  'retained',
+  'in_return',
+  'destroyed',
+  'canceled',
+];
+export type ShipmentLabelSource = 'manual' | 'skydropx';
+export type ShippingIvaSource = 'provider' | 'computed' | 'manual';
+
+/** §19.19.4 (sustituye la forma de §19.6) + `isPromo` de §19.20.4. */
+export interface ShipmentRateDTO {
+  rateId: string;
+  carrierName: string;
+  carrierLabel: string;
+  serviceName: string;
+  /** total (IVA incluido) + seguro. ⛔ La pantalla NO lo recompone del desglose (SK3). */
+  priceCents: number;
+  breakdown: {
+    amountCents: number;
+    extraFeesCents: number;
+    ivaCents: number;
+    serviceFeeCents: number;
+    totalCents: number;
+    insuranceCents: number;
+  };
+  ivaSource: 'provider' | 'computed';
+  insuranceSource: 'quote' | 'tier_table';
+  netCostCents: number;
+  marginCents: number;
+  days: number | null;
+  deliveryKind: 'home' | 'branch' | 'unknown';
+  pickup: boolean | null;
+  planType: string | null;
+  /** §19.20.4: lo decide el servidor (`isPromoPlan`); ⛔ la pantalla no mira `planType` para esto. */
+  isPromo: boolean;
+  dropoff: { name: string; address: string } | null;
+  recommended: boolean;
+  /** ⇔ `deliveryKind === 'branch'` */
+  hidden: boolean;
+}
+
+export interface ShipmentQuoteDTO {
+  quoteId: string;
+  providerQuotationId: string;
+  requestedAt: string;
+  expiresAt: string;
+  completed: boolean;
+  reused: boolean;
+  package: { code: string; label: string; lengthCm: number; widthCm: number; heightCm: number; weightKg: number };
+  insurance: { insuredValueCents: number; coverageCents: number; costCents: number };
+  charged: { grossCents: number; netCents: number };
+  recommendedRateId: string | null;
+  /** Ordenadas por `priceCents` asc (orden del servidor). */
+  rates: ShipmentRateDTO[];
+  excluded: { unavailable: number; noCoverage: number; notApplicable: number; multipackage: number; breakdownMismatch: number };
+}
+
+/** `POST …/quote` (§19.19.4): ⛔ sin `declaredValueCents`. */
+export interface ShipmentQuoteRequest {
+  packageCode?: string;
+  force?: boolean;
+}
+
+/** `POST …/label` (§19.7): `expected*` = lo que el operador vio. */
+export interface ShipmentLabelRequest {
+  quoteId: string;
+  rateId: string;
+  expectedPriceCents: number;
+  expectedMarginCents: number;
+  confirmNegativeMargin?: boolean;
+  confirmBranchDelivery?: boolean;
+}
+
+export interface ShipmentLabelDTO {
+  source: 'skydropx';
+  providerShipmentId: string;
+  carrierName: string;
+  serviceName: string;
+  trackingNumber: string | null;
+  /** `null` ⇔ Skydropx no la dio (decisión 4): ⛔ nunca se construye con la guía. */
+  trackingUrl: string | null;
+  /** ⇔ `labelUrl ≠ null` (la URL cruda nunca viaja). */
+  labelAvailable: boolean;
+  purchasedAt: string;
+  chosenBy: { userId: string; name: string | null };
+  chosenAt: string;
+  chosen: ShipmentRateDTO;
+  recommended: ShipmentRateDTO | null;
+  wasRecommended: boolean;
+  cost: {
+    grossCents: number;
+    ivaCents: number;
+    ivaSource: ShippingIvaSource;
+    insuranceCents: number;
+    netCents: number;
+    marginCents: number;
+  };
+  carrierStatus: CarrierStatus | null;
+  carrierStatusAt: string | null;
+  processing: boolean;
+  canceledAt: string | null;
+  cancelReason: string | null;
+}
+
+/** §M4-SHIP.19.22.4 (v1.80.12.2). Orden `chargedAt` asc; `[]` si no hay. ⛔ Sin `providerChargeId`. */
+export type ShipmentCostAdjustmentKind = 'overweight' | 'extended_zone' | 'return' | 'other';
+export interface ShipmentCostAdjustmentDTO {
+  id: string;
+  kind: ShipmentCostAdjustmentKind;
+  /** Tal cual de Skydropx (p. ej. `ExtraCharge::Overweight`). */
+  providerChargeType: string;
+  /** BRUTO, IVA incluido (> 0). */
+  amountCents: number;
+  ivaCents: number;
+  ivaSource: ShippingIvaSource;
+  /** `amountCents − ivaCents` (lo calcula el servidor). */
+  netCents: number;
+  chargedAt: string;
+  observedAt: string;
+  note: string | null;
+}
+
+/** §19.19.7 */
+export interface LabelOptionsDTO {
+  provider: 'off' | 'skydropx';
+  purchase: ShippingLabelPurchase;
+  canPurchase: boolean;
+  /**
+   * 💰 v1.80.12.9 (§M4-SHIP.19.29.4, TG-1/TG-2): tope que ya se sabe sin el precio. `reissue` ⇔ el envío ya gastó su
+   * recompra; `daily_spend` ⇔ lo gastado en 24 h ya llegó al tope (el caso que depende del precio solo se sabe al
+   * pulsar: `403 LABEL_PURCHASE_LIMIT`). `null` para el dueño. ⛔ Sin cifra (SK11). Opcional: servidor anterior.
+   */
+  limit?: LabelPurchaseLimit | null;
+}
+/** §19.29.4 — `403 LABEL_PURCHASE_LIMIT {limit}` y `labelOptions.limit`. */
+export type LabelPurchaseLimit = 'daily_spend' | 'reissue';
+export interface LabelPurchaseLimitDetails {
+  limit: LabelPurchaseLimit;
+}
+export type ShippingLabelPurchase = 'disabled' | 'super_admin_only' | 'operators';
+
+/** §19.20.1 + §19.22.2 (v1.80.12.2). */
+export interface ShipmentAddressStateDTO {
+  /** ⇔ `missing.length === 0`. */
+  complete: boolean;
+  version: number;
+  corrected: { at: string; by: { userId: string; name: string | null } } | null;
+  /**
+   * SIEMPRE presente (`[]` si completa), en orden fijo. Es la MISMA lista del `422 SHIPMENT_ADDRESS_INCOMPLETE
+   * {missing}` de `quote`/`label`. La ventana decide con ella el modo del paso 1 (§43.2a).
+   */
+  missing: ShipmentAddressMissingField[];
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25.3): si la colonia del snapshot se comprobó contra el catálogo. Lo CALCULA el
+   * servidor al leer (⛔ no se guarda; tras `PUT …/address` o al cargar el catálogo cambia solo). La ventana
+   * lo usa para el aviso de revisión del paso 1 (§43.18m.6); ⛔ no bloquea nada. Opcional SOLO para un
+   * servidor anterior a v1.80.12.5: sin el dato, cero marcas (UX-ADR-12).
+   */
+  neighborhoodCheck?: NeighborhoodCheck;
+}
+/** §M4-SHIP.19.25.1 — el resultado de `resolveAddressGeo` (casos 3 · 4 · 2). */
+export type NeighborhoodCheck = 'in_catalog' | 'not_in_postal_code_list' | 'postal_code_not_in_catalog';
+export type ShipmentAddressMissingField = 'recipientName' | 'line1' | 'neighborhood' | 'postalCode' | 'phone';
+
+/**
+ * §19.20.1 — `PUT /admin/shipments/:id/address`. v1.80.12.5 (§M4-SHIP.19.25.1): `neighborhood` de la lista
+ * o escrita (texto 1..120, sin `422`), y gana **`city`/`state`** (obligatorios 1..120): el servidor solo los
+ * escribe con el CP fuera del catálogo; con el CP en el catálogo pone los del CP. ⛔ Sin `country` ni `phone`
+ * (P-ADR-1).
+ */
+export interface CorrectShipmentAddressReq {
+  expectedAddressVersion: number;
+  recipientName: string;
+  line1: string;
+  line2: string | null;
+  postalCode: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  references: string | null;
+}
+export interface CorrectShipmentAddressRes {
+  outcome: 'corrected' | 'unchanged';
+  shipment: AdminShipmentDTO;
+}
+
+/** §19.20.2 */
+export interface LabelPendingDTO {
+  since: string;
+  state: 'in_flight' | 'processing';
+  carrierLabel: string | null;
+  serviceName: string | null;
+  chosenBy: { userId: string; name: string | null } | null;
+  /** 💰 v1.80.12.6 (§19.26.5): el precio de la opción reclamada (lo que se ve en el panel de Skydropx). Opcional: servidor anterior. */
+  priceCents?: number | null;
+  /**
+   * 🔒💰 v1.80.12.8 (§19.28.11): el token del reclamo vigente (`ENV-000045-01`); en pantalla va como
+   * «Pedido ENV-000045-01» (el texto exacto de la etiqueta y del panel). `null` ⇔ la compra no llegó a llevar folio.
+   */
+  providerReference?: string | null;
+  /** 💰 v1.80.12.7 (§19.27.9): `in_flight` ⇒ `since + T_UNKNOWN`; `processing` ⇒ `null`. */
+  verifyingUntil?: string | null;
+}
+export type LabelAlertKind =
+  | 'label_unknown'
+  | 'label_processing_stuck'
+  | 'label_cancel_failed'
+  | 'label_live_on_cancelled'
+  /** 🔒💰 v1.80.12.8 (§19.28.6): una guía pagada de un intento anterior que no es la que usamos. */
+  | 'label_orphan';
+/** §19.27.4 + v1.80.12.8 (`duplicate`): por qué la verificación automática no pudo decidir. */
+export type InFlightUncertainReason =
+  | 'conflict'
+  | 'charged_not_found'
+  | 'ambiguous'
+  | 'balance_moved'
+  | 'unreadable'
+  | 'not_calibrated'
+  | 'duplicate';
+export const IN_FLIGHT_UNCERTAIN_REASONS: readonly InFlightUncertainReason[] = [
+  'conflict',
+  'charged_not_found',
+  'ambiguous',
+  'balance_moved',
+  'unreadable',
+  'not_calibrated',
+  'duplicate',
+];
+export interface LabelAlertDTO {
+  kind: LabelAlertKind;
+  since: string;
+  /** ⇔ `kind='label_unknown'` ∧ actor súper-admin (lo decide el servidor; ⛔ la pantalla no mira el rol). */
+  canRelease: boolean;
+  /** 💰 v1.80.12.7 (§19.27.9): solo con `label_unknown`; `null` si el job aún no lo escribió. */
+  reason?: InFlightUncertainReason | null;
+}
+/** §19.20.2: `T_UNKNOWN` / `T_STUCK` — van como `{minutes}` en el copy (§43.8c). */
+export const LABEL_T_UNKNOWN_MINUTES = 15;
+export const LABEL_T_STUCK_MINUTES = 30;
+
+/** `POST …/label` — §19.7 + §19.20.5. */
+export type ShipmentLabelResponse =
+  | { outcome: 'labeled'; shipment: AdminShipmentDTO; label: ShipmentLabelDTO }
+  | {
+      outcome: 'processing' | 'in_progress' | 'in_flight';
+      shipment: AdminShipmentDTO;
+      /** 💰 v1.80.12.6 (§19.26.1): Skydropx creó el envío Y reportó un error (solo con `processing`, solo en esta respuesta). */
+      providerError?: { code: string | null; message: string | null };
+    };
+
+/**
+ * 💰 `409 CONFLICT` de `POST …/label` por `details.reason` (§19.26.3, §19.27.2/§19.28.8, §19.28.11, §19.29.9).
+ * ⛔ La pantalla ramifica por `reason`, nunca por status (UX-SDX-12/29).
+ */
+export type LabelPurchaseConflictDetails =
+  | { reason: 'rate_already_purchased'; otherShipmentId: string }
+  | { reason: 'provider_id_taken'; otherShipmentId: string }
+  | { reason: 'purchase_in_flight'; otherShipmentId: string | null; otherFolio: string | null; retryAfterSeconds: number }
+  | { reason: 'attempts_exhausted' }
+  | { reason: 'stale_purchase_response' };
+
+/** `POST …/label/cancel` (§19.8). */
+export interface CancelShipmentLabelRes {
+  outcome: 'cancelled' | 'already_cancelled';
+  shipment: AdminShipmentDTO;
+}
+/** `POST …/label/release` (§19.18.4, súper-admin). */
+export interface ReleaseShipmentLabelReq {
+  note: string;
+  /** 💰 v1.80.12.6 (§19.26.3 (b)): SOLO si la pantalla pintó la casilla y la persona la marcó; ⛔ si no, la clave no viaja. */
+  confirmConflict?: true;
+}
+/** §19.27.6 + v1.80.12.8 (`not_sent`). */
+export type InFlightVerdictOutcome = 'found' | 'not_charged' | 'not_sent' | 'pending' | 'uncertain';
+export interface ReleaseShipmentLabelRes {
+  outcome: 'adopted' | 'released';
+  shipment: AdminShipmentDTO;
+  /** 💰 v1.80.12.7 (§19.27.6), aditivo. Opcional: servidor anterior. */
+  verdict?: { outcome: InFlightVerdictOutcome; reason: InFlightUncertainReason | null };
+}
+
+/** `GET /geo/postal-codes/:cp` (§19.5, público). */
+export interface PostalCodeDTO {
+  postalCode: string;
+  state: string;
+  municipality: string;
+  neighborhoods: string[];
+  source: 'local' | 'skydropx';
+}
+
+/** `GET /admin/shipping/packages` (§19.20.3: operador+). */
+export interface ShippingPackageDTO {
+  code: string;
+  label: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightKg: number;
+  providerPackageType: string | null;
+  active: boolean;
+  sortOrder: number;
+  /**
+   * 💰 §AC.7 (aditivo): lo que paga el cliente por esta caja, IVA dentro; 1..10_000_000. `null` ⇒ la caja no
+   * cuenta para el cobro. Opcional por tolerancia a un servidor anterior a M-73; el `PUT` siempre lo manda.
+   */
+  customerFeeCents?: number | null;
+}
+
+/** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
+export interface ShippingCatalogsDTO {
+  packagings: { code: string; name: string }[];
+  consignmentNote: { code: string; description: string } | null;
+  addressTemplates: { id: string; alias: string; addressType: 'from' | 'to'; isDefault: boolean; postalCode: string }[];
+}
+/** `GET /admin/shipping/catalogs/consignment-notes` (§19.22.3). */
+export interface ConsignmentNotesSearchDTO {
+  consignmentNotes: { code: string; description: string }[];
+  hasMore: boolean;
+}
+/** `GET /admin/shipping/balance` (§19.13, súper-admin). */
+export interface ShippingBalanceDTO {
+  balanceCents: number;
+  currency: 'MXN';
+  lowBalance: boolean;
+  thresholdCents: number;
+  fetchedAt: string;
+}
+
+/** `GET /admin/shipments/departure` (§19.9). */
+export interface DepartureBoardDTO {
+  date: string;
+  groups: {
+    carrierName: string;
+    carrierLabel: string;
+    dropoff: { name: string; address: string } | null;
+    isPreferred: boolean;
+    shipments: {
+      shipmentId: string;
+      orderNumber: string | null;
+      kind: AdminShipmentKind;
+      recipientName: string;
+      city: string;
+      trackingNumber: string;
+      labelAvailable: boolean;
+      labelPurchasedAt: string;
+      /** 🔒 v1.80.12.10 (§19.30.8 S-GAS-1): folio del envío. Opcional: servidor anterior. */
+      folio?: string;
+    }[];
+  }[];
+  manualPending: number;
+}
+/** `POST /admin/shipments/departed` (§19.9). */
+export interface DepartedResultDTO {
+  results: { shipmentId: string; outcome: 'shipped' | 'already_shipped' | 'rejected'; code?: string }[];
+}
+
+/** §19.19.5: dial `shipping_insurance_tiers`. */
+export interface ShippingInsuranceTier {
+  coverageCents: number;
+  costCents: number;
+  measuredAt: string;
+}
+
+/** §19.12: la línea de tiempo del CLIENTE (las tres superficies). */
+export type CustomerTimelineKind =
+  | 'label_created'
+  | 'shipped'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'delivery_attempt'
+  | 'at_branch'
+  | 'delivered';
+export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
+  'label_created',
+  'shipped',
+  'in_transit',
+  'out_for_delivery',
+  'delivery_attempt',
+  'at_branch',
+  'delivered',
+];
+export interface CustomerTimelineEventDTO {
+  kind: CustomerTimelineKind;
+  at: string;
+  /** Solo en `at_branch` (§19.12: «es el dato que necesita para recoger»). */
+  branchName?: string;
+}
+
+// ---- «Pedidos a preparar» (contrato §M4-PREP v1.78 · GET /admin/shipments/picking-list) ----
+//
+// ⚠️ La RUTA sigue diciendo `picking-list` (decisión del arquitecto en §M4-PREP: se conserva la ruta
+// y solo cambia el DTO, para no mover guard ni ruteo). El renombrado «picking → Pedidos a preparar»
+// es de cara al OPERADOR (copy/etiquetas), no de la ruta interna.
+//
+// Reemplaza a `PickingListEntryDTO` (lista PLANA de piezas ordenada por ubicación). Un elemento =
+// UN pedido/envío a preparar, con sus cartas anidadas.
+//
+// ⛔ `PreparationDestination` es un TIPO DE DTO, **NO un enum de dominio**: se DERIVA de
+// `Order.fulfillmentMode` y sus valores (`ship`/`vault`) NO coinciden con los de `FulfillmentMode`
+// (`direct_ship`/`vault`). Por eso NO va al bloque «Enums (fuente de verdad)» ni a ningún control de
+// paridad de enums (§M4-PREP, nota explícita).
+export type PreparationDestination = 'vault' | 'ship';
+
+// ⭐⭐ §M4-VAULT v1.79 (.3) — `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA por `destination`.
+// La rama 'ship' ES el DTO de v1.78.3 con dos precisiones: `destination` literal y `shipTo`
+// OBLIGATORIO. La rama 'vault' nace de `VaultPlacement` (no de `ShipmentRequest`): no tiene
+// `shipmentId` ni dirección (CA #21: nunca guía).
+export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
+
+export interface ShipPreparationOrderDTO {
+  destination: 'ship';
+  // --- identidad y traza ---
+  shipmentId: string; // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
+  // v1.80 (§M4-SHIP.3): retiro vs directo, la misma derivación de §M4.
+  kind: AdminShipmentKind;
+  orderId: string | null; // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
+  orderNumber: string | null; // folio legible "TCG-000123"; null cuando orderId es null (retiro)
+  // --- antigüedad (CA #9: atender lo más viejo primero) ---
+  requestedAt: string; // ISO; la cola ordena asc por defecto
+  // --- cliente: EL COMPRADOR (v1.80, ⛔ no el destinatario, que es shipTo.recipientName) ---
+  customer: {
+    userId: string | null; // null ⇔ invitado
+    email: string | null; // cuenta: User.email · invitado: Order.guestEmail
+    lastName: string | null; // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — §6.A; NO bloquea
+    // v1.78.1 — `| null`: la fuente del INVITADO puede faltar (snapshot de 8 campos anterior a v1.67).
+    // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
+    fullName: string | null; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+  };
+  // v1.80 (§M4-SHIP.3): estado de preparación de la cubeta ENVÍO (sello y conteos del servidor).
+  preparation: ShipPreparationStateDTO;
+  // --- dirección COMPLETA, CON la calle (CA #6). v1.79: obligatoria en esta rama ---
+  shipTo: {
+    recipientName: string | null; // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
+    line1: string; // la CALLE
+    line2?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+    /** ⭐ §19.20.1: la dirección del envío se corrigió en «Capturar guía». Opcional hasta la fase C. */
+    addressCorrected?: boolean;
+  };
+  // --- las cartas del pedido (v1.80: con su marca, disponibilidad y lo que se reembolsaría) ---
+  items: ShipPreparationItemDTO[];
+  /** ⭐ §19.20.2 (opcionales hasta que exista la fase D en el servidor). */
+  labelPending?: LabelPendingDTO | null;
+  labelAlert?: LabelAlertDTO | null;
+  /** 🔒💰 v1.80.12.8 (§19.28.11): folio del envío (`ENV-000045`), de admin. Opcional: servidor anterior a `M-67`. */
+  folio?: string;
+  /** 💰 §AC.9 (aditivo, solo envío directo): renglones de accesorio y paquetes. */
+  accessoryLines?: ShipAccessoryLineDTO[];
+  /** 💰 §AC.7: la caja congelada en la sesión; `null` ⇔ tarifa de hoy. */
+  box?: ShipmentBoxDTO | null;
+}
+
+export interface VaultPreparationOrderDTO {
+  destination: 'vault';
+  placementId: string; // VaultPlacement.id — la referencia estable de la fila (⛔ no hay shipmentId)
+  orderId: string; // SIEMPRE: una colocación nace de una orden
+  orderNumber: string | null; // mismo tratamiento que en 'ship' (nullIfBlank)
+  requestedAt: string; // VaultPlacement.createdAt (= momento de la liquidación)
+  // v1.79.2 — TITULAR = fullName ENTERO; email = segunda línea (desempate). `fullName` null ⇔ nombre
+  // en blanco O fabricado del correo (nameSource 'derived'). ⛔ `lastName` no se pinta en esta tarjeta.
+  customer: { userId: string; email: string; lastName: string | null; fullName: string | null };
+  suggestedLocation: VaultLocationSuggestion; // §M4-VAULT.4 (un cliente = un cajón)
+  preparation: VaultPreparationStateDTO; // §M4-VAULT.10
+  items: VaultPreparationItemDTO[];
+  // ⛔ SIN `shipTo`: no hay dirección, no sale por la puerta (CA #21: nunca guía).
+}
+
+export interface VaultPreparationItemDTO {
+  placementItemId: string; // VaultPlacementItem.id — EL NODO QUE SE PALOMEA
+  orderItemId: string; // OrderItem.id (traza a la venta)
   inventoryItemId: string;
   folio: string;
-  location: string;
+  quantity: number; // SIEMPRE 1
+  card: PreparationItemDTO['card']; // el MISMO objeto de §M4-PREP
+  currentLocation: LocationView; // dónde está HOY (lo normal: el estante de tienda)
+  // La ZONA de donde se saca (las etiquetas se repiten entre zonas). null ⇔ currentLocation 'unassigned'.
+  currentZone: VaultZone | null;
+  prepStatus: PreparationItemStatus;
+  placeability: { kind: 'placeable' } | { kind: 'blocked'; reason: VaultPlacementBlockReason };
 }
+
+// Enum de Prisma (clase E) — `PreparationItemStatus` (§M4-VAULT.2, M-59).
+export type PreparationItemStatus = 'pending' | 'picked' | 'missing';
+// Enums de Prisma (clase E) — `VaultPlacementStatus` / `VaultPlacementCancelReason` (M-59).
+export type VaultPlacementStatus = 'pending' | 'placed' | 'cancelled';
+// v1.80.4 (§M4-SHIP.18.5): + `full_refund` — la colocación se cancela porque la compra se reembolsó entera.
+export type VaultPlacementCancelReason = 'chargeback' | 'nothing_to_place' | 'full_refund';
+
+// Estado de preparación del pedido. Conteos sobre items[] (total = items.length). `blocked` cuenta
+// aparte y NO bloquea «preparado». `pending` cuenta SOLO colocables sin marcar.
+// ⇒ «se puede dar por preparado» ⇔ status==='in_progress' ∧ pending===0 (la MISMA regla del verbo).
+export interface VaultPreparationCounts {
+  total: number;
+  pending: number;
+  picked: number;
+  missing: number;
+  blocked: number;
+}
+export type VaultPreparationStateDTO =
+  | ({ status: 'in_progress' } & VaultPreparationCounts)
+  | ({
+      status: 'prepared';
+      preparedAt: string;
+      preparedBy: { userId: string; name: string | null };
+    } & VaultPreparationCounts);
+
+// Tipo de DTO (clase L: se COMPUTA, ⛔ no es enum de Prisma).
+export type VaultPlacementBlockReason = 'in_withdrawal' | 'not_in_custody';
+
+// §M4-VAULT.4 — «un cliente = un cajón».
+export interface CustomerDrawerRef {
+  id: string;
+  label: string;
+  zone: 'customer_custody'; // SIEMPRE: la pantalla nombra el cajón CON su zona
+  customerPieceCount: number; // cuántas piezas de ESTE cliente hay HOY en ese cajón
+}
+export type VaultLocationSuggestion =
+  | { source: 'existing_customer_vault'; location: CustomerDrawerRef } // su cajón: se confirma, ⛔ no se elige
+  | { source: 'multiple_drawers'; locations: CustomerDrawerRef[] } // ⚠️ ANOMALÍA: se elige ENTRE éstos
+  | { source: 'none' }; // cliente nuevo ⇒ el operador ELIGE (CA #19)
+
+// ---- Verbos de la colocación (§M4-VAULT.5 / .10) · operador+ ----
+
+export interface VaultPlacementDTO {
+  id: string;
+  orderId: string;
+  orderNumber: string | null;
+  status: VaultPlacementStatus;
+  createdAt: string;
+  preparedAt: string | null;
+  preparedBy: { userId: string; name: string | null } | null;
+  placedAt: string | null;
+  placedBy: { userId: string; name: string | null } | null;
+  location: { id: string; label: string; zone: 'customer_custody' } | null;
+  cancelledAt: string | null;
+  cancelReason: VaultPlacementCancelReason | null;
+}
+
+/** `PATCH /admin/vault-placements/:placementId/prep-items/:placementItemId` */
+export interface SetVaultPrepItemRequest {
+  status: PreparationItemStatus;
+}
+export interface SetVaultPrepItemResponse {
+  changed: boolean;
+  item: VaultPreparationItemDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `POST /admin/vault-placements/:placementId/prepared` */
+export interface PrepareVaultPlacementResponse {
+  outcome: 'prepared' | 'already_prepared';
+  placement: VaultPlacementDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `DELETE /admin/vault-placements/:placementId/prepared` (v1.79.2) */
+export interface UnprepareVaultPlacementResponse {
+  outcome: 'unprepared' | 'not_prepared';
+  placement: VaultPlacementDTO; // preparedAt/preparedBy ya en null
+  preparation: VaultPreparationStateDTO; // status 'in_progress', conteos con las marcas conservadas
+}
+
+/**
+ * `POST /admin/vault-placements/:placementId/confirm` — v1.79.3 (H-4): `locationId` OPCIONAL.
+ * Se manda ⇔ `items.filter(i => i.prepStatus === 'picked').length > 0` (contado sobre `items[]`).
+ */
+export interface ConfirmVaultPlacementRequest {
+  locationId?: string;
+}
+export type VaultPlacementSkipReason = VaultPlacementBlockReason | 'not_picked'; // clase L
+export type VaultPlacementItemResultDTO =
+  | { inventoryItemId: string; folio: string; result: 'moved' | 'already_there' | 'missing' }
+  | { inventoryItemId: string; folio: string; result: 'skipped'; reason: VaultPlacementSkipReason };
+export type ConfirmVaultPlacementResponse =
+  | {
+      outcome: 'placed' | 'nothing_to_place';
+      placement: VaultPlacementDTO;
+      items: VaultPlacementItemResultDTO[];
+    }
+  | { outcome: 'already_placed'; placement: VaultPlacementDTO };
+
+// `details` de los errores de estos verbos (catálogo §0 + §M4-VAULT.5/.10, v1.79.3).
+/** `409 PLACEMENT_NOT_PENDING` — v1.79.3 (H-2): `location` sustituye a `locationId`. */
+export type PlacementNotPendingDetails =
+  | { status: 'placed'; location: { id: string; label: string; zone: 'customer_custody' } }
+  | { status: 'cancelled'; cancelReason: VaultPlacementCancelReason };
+/**
+ * `422 LOCATION_NOT_AVAILABLE` — v1.79.3: + `location_required`; H-5 `customerDrawers`.
+ * v1.79.6: lo emite TAMBIÉN `POST /admin/inventory/items/:id/move` (§M1) con `not_platform_stock`
+ * (pieza de plataforma, destino fuera de `platform_stock`; solo `move` lo produce). `location_required`
+ * no aplica al `move`.
+ */
+export type LocationNotAvailableDetails =
+  | { reason: 'not_found' | 'inactive' | 'not_customer_custody' | 'not_platform_stock' }
+  | { reason: 'not_customer_drawer'; customerDrawers: CustomerDrawerRef[] }
+  | { reason: 'location_required'; pickedCount: number };
+
+// ---- §M4-VAULT.11 · GET /admin/vaults/:userId/physical-inventory (operador+) ----
+export interface CustomerPhysicalInventoryDTO {
+  // name = MISMA regla que customer.fullName de la cola: null si en blanco o nameSource 'derived'.
+  owner: { userId: string; name: string | null; email: string };
+  drawer:
+    | { kind: 'none' }
+    | { kind: 'single'; location: CustomerDrawerRef }
+    | { kind: 'multiple'; locations: CustomerDrawerRef[] }; // ⚠️ ANOMALÍA nombrada
+  counts: {
+    total: number;
+    inDrawer: number;
+    pendingPlacement: number;
+    missing: number;
+    inWithdrawal: number;
+    unlocated: number;
+  };
+  items: PhysicalInventoryItemDTO[];
+}
+export interface PhysicalInventoryItemDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: PreparationItemDTO['card'];
+  currentLocation: LocationView;
+  currentZone: VaultZone | null;
+  origin: { placementId: string; orderId: string; orderNumber: string | null } | null;
+  physical: PhysicalState;
+}
+export type PhysicalState = // clase L (computado), ⛔ no es enum de Prisma
+  | { state: 'in_drawer'; drawer: { id: string; label: string; zone: 'customer_custody' } }
+  | { state: 'pending_placement'; placementId: string; prepStatus: PreparationItemStatus; prepared: boolean }
+  | { state: 'missing'; placementId: string; markedAt: string; markedBy: { userId: string; name: string | null } }
+  | { state: 'in_withdrawal'; shipmentId: string; shipmentStatus: 'picking' | 'guia' | 'enviado' }
+  | { state: 'unlocated'; reason: 'no_location' | 'not_in_customer_drawer' }; // ⚠️ ANOMALÍA
+
+export interface PreparationItemDTO {
+  shipmentItemId: string; // ShipmentItem.id — el nodo por carta (será lo que se palomee en la rebanada siguiente)
+  inventoryItemId: string; // InventoryItem.id
+  folio: string; // InventoryItem.folio
+  quantity: number; // SIEMPRE 1 bajo el modelo actual (un ShipmentItem = una pieza física; no hay columna cantidad)
+  card: {
+    name: string; // Card.name (nomenclatura de tienda)
+    setName: string | null; // Card.set.name — SET prominente para ENVÍO (mapea a carpeta por set)
+    finish: Finish; // InventoryItem.finish
+    conditionLabel: string; // COMPUESTA EN EL BACK: graded → "PSA 9" | raw → "NM" | sealed → "Mint"
+    imageSmallUrl: string | null; // Card.imageSmallUrl (nullable en catálogo)
+  };
+  currentLocation: LocationView; // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
+}
+
+// CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
+//
+// ⭐⭐ **v1.78.2 — UNIÓN DISCRIMINADA, y el tipo deja de permitir el estado ilegal.**
+// Antes era `{ kind: 'assigned' | 'unassigned'; label?: string }`: el invariante vivía en el
+// comentario y `{kind:'assigned'}` **sin etiqueta a la que caminar** era REPRESENTABLE — así que
+// cada consumidor lo re-derivaba con **su propio predicado** (el techlead contó CUATRO ramas
+// defensivas y una divergencia de orden back↔front sobre `label: ''`). Es la doctrina de v1.78.1
+// (`fullName`) aplicada al campo de al lado: **una grafía por hecho**.
+//
+// ⇒ Con la unión, preguntar `kind === 'assigned'` **basta y es total**: en ese brazo `label` es
+// `string` obligatorio, y en el otro **la llave no existe**. ⛔ Prohibido `if (loc.label)`: un
+// predicado sobre el campo vuelve a admitir el estado que el tipo acaba de borrar.
+// Una `VaultLocation.label` en blanco (⛔ inalcanzable por construcción) se sirve `{kind:'unassigned'}`.
+export type LocationView =
+  | { kind: 'assigned'; label: string } // "C03-F02-S15" — NO en blanco (§M4-PREP)
+  | { kind: 'unassigned' }; // ⛔ sin `label`: la llave no existe en este brazo
+
+// ⭐ §M4-PREP v1.78.1 — LA NOTA DE `customer.fullName`, porque el tipo solo dice la mitad.
+// `null` es la ÚNICA marca de «no hay nombre» en este DTO — igual que en `lastName`,
+// `shipTo.recipientName`, `orderId` y `orderNumber`. ⛔ `""` está PROHIBIDA (y omitir la llave
+// también): una cadena vacía renderiza como un hueco invisible, no se distingue de un nombre vacío
+// legítimo y obliga a todo consumidor a escribir `if (!x)` en vez de `x === null`.
+//
+// ⚠️ **Obligación NORMATIVA del consumidor (nosotros):** con `null` se pinta una **AUSENCIA CON
+// NOMBRE** —el patrón que §M4 ya exige para el destinatario («SIN DESTINATARIO (retiro anterior a
+// v1.67)»)— y ⛔ **nunca un «—» mudo sin causa**. `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase
+// que diga que no se pudo saber**, y §16.3a advierte que el em dash **ya carga semántica de dinero**
+// («precio pendiente») y se lee como cero. **La redacción de esa frase es de ux-ui**, no del
+// contrato ni del frontend: ver el `PENDIENTE-UX` de `PreparationQueue.tsx`.
+//
+// Por qué `| null` aunque backend midiera que hoy el caso es inalcanzable (los snapshots de 8 campos
+// son de RETIROS, que tienen `User.name`): el contrato declara la **forma** de la fuente, no su
+// suerte. Un campo no-nulo «mientras la coincidencia se sostenga» miente en cuanto se rompa, y no
+// avisa — sale un hueco pintado en la pantalla del operador.
 
 // Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).
 // shippingCostCents (v1.4-finance): costo real en centavos MXN que la plataforma
@@ -1223,6 +2182,722 @@ export interface ShipmentTrackingRequest {
   carrier: string;
   trackingNumber: string;
   shippingCostCents?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §M4-SHIP v1.80.5 — «Pedidos por preparar», cubeta ENVÍO interactiva, el libro de reembolsos,
+// el apartado «Por reponer», la cubeta SPEI y el reembolso total de bóveda. Tipos 1:1 con el
+// contrato (docs/API_CONTRACT.md §M4-SHIP.1–.18, §M3, §5, §0). Ningún enum se transcribe con
+// valores de más: cada uno es el del schema `M-61`.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// Enums de Prisma (clase E, `M-61`).
+/** Por qué una carta de un ENVÍO (o de una colocación) no sale. `damaged` ⇒ la pieza queda `damaged`. */
+export type MissingReason = 'not_found' | 'damaged';
+/** v1.82 (§PNL.2, M-70): + `item_delivered` = UNA carta de un envío directo YA ENTREGADO, reembolsada con motivo. */
+export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund' | 'item_delivered';
+export type PaymentRefundStatus = 'requested' | 'submitted' | 'succeeded' | 'failed';
+export type ReplacementCaseSource = 'withdrawal' | 'vault_purchase';
+export type ReplacementCaseStatus = 'open' | 'replaced' | 'found' | 'refunded' | 'voided';
+/** v1.82 (§PNL.3, M-70): + `withdrawal_delivered` = SPEI de UNA carta de un retiro YA ENTREGADO (sin caso). */
+export type ManualRefundSource = 'case_excess' | 'stripe_failed' | 'withdrawal_delivered';
+export type ManualRefundStatus = 'pending' | 'paid' | 'cancelled';
+
+/** §M4-SHIP.10 — `{ userId, fullName, email }`; `fullName` null ⇔ `customerDisplayName` derivado. */
+export interface CustomerRefDTO {
+  userId: string;
+  fullName: string | null;
+  email: string;
+}
+
+/** Una fila del libro de reembolsos (§M4-SHIP.3). ⛔ Sin componentes ni CLABE: es la proyección admin. */
+export interface PaymentRefundDTO {
+  id: string;
+  kind: PaymentRefundKind;
+  status: PaymentRefundStatus;
+  amountCents: number;
+  missingReason: MissingReason | null;
+  requestedAt: string;
+  requestedBy: { userId: string; name: string | null; role: Role };
+  submittedAt: string | null;
+  succeededAt: string | null;
+  failedAt: string | null;
+  failureCode: string | null;
+  /** v1.82 (§PNL.2, aditivo): el motivo de una fila `item_delivered` (si no, `null`/ausente). */
+  deliveredReason?: ShippedRefundReason | null;
+}
+
+/**
+ * v1.82 (§PNL.2) — `GET /admin/orders/:id` · `items[].deliveredRefund`: si ESTA carta entregada se puede
+ * reembolsar sola, con el importe que calcula el servidor (⛔ la pantalla no lo calcula ni lo edita). `null` ⇔
+ * la línea ya tiene `refund`.
+ */
+export type DeliveredRefundDTO =
+  | { kind: 'refundable'; amountCents: number }
+  | { kind: 'not_refundable'; reason: 'not_direct_ship' | 'order_not_settled' | 'legacy_convention' | 'not_delivered' };
+
+/** v1.82 (§PNL.2) — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`. ⛔ Sin `amountCents`. */
+export interface RefundDeliveredItemRequest {
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. Queda en bitácora; el cliente no la ve. */
+  note: string;
+  /** El importe que el súper-admin VIO (`deliveredRefund.amountCents`). */
+  expectedRefundCents: number;
+}
+export interface RefundDeliveredItemResponse {
+  refund: PaymentRefundDTO;
+}
+/** `409 ITEM_REFUND_NOT_AVAILABLE { reason }` (§PNL.2 paso 3 y §PNL.3 paso 3). */
+export type ItemRefundNotAvailableReason =
+  | 'not_direct_ship'
+  | 'order_not_settled'
+  | 'legacy_convention'
+  | 'already_refunded'
+  | 'not_delivered'
+  | 'not_withdrawal'
+  | 'not_shipped'
+  | 'no_reference';
+
+/** §M4-SHIP.3 — referencia corta al caso que abrió una línea de retiro. */
+export interface ReplacementCaseRefDTO {
+  id: string;
+  status: ReplacementCaseStatus;
+  missingReason: MissingReason;
+  openedAt: string;
+  resolvedAt: string | null;
+  replacement: { inventoryItemId: string; folio: string } | null;
+}
+
+/** Disponibilidad de una carta de envío (un cuerpo para la cola y los tres verbos, §M4-SHIP.3). */
+export type ShipItemAvailability =
+  | { kind: 'available' }
+  | { kind: 'blocked'; reason: 'piece_not_available'; pieceStatus: InventoryStatus };
+
+/** Lo que se reembolsaría si se marca faltante — o lo que ya se reembolsó, o por qué no se puede. */
+export type ShipItemRefundInfo =
+  | { kind: 'refundable'; amountCents: number }
+  | { kind: 'refunded'; refund: PaymentRefundDTO }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' | 'legacy_convention' | 'no_origin_order' }
+  // v1.80.1 — SOLO líneas de un RETIRO: nunca se reembolsan al preparar.
+  | { kind: 'to_replacement' }
+  | { kind: 'replacement'; case: ReplacementCaseRefDTO };
+
+export interface ShipPreparationItemDTO extends PreparationItemDTO {
+  prepStatus: PreparationItemStatus;
+  missingReason: MissingReason | null; // ⇔ prepStatus==='missing'
+  prepMarkedBy: { userId: string; name: string | null } | null;
+  availability: ShipItemAvailability;
+  refund: ShipItemRefundInfo;
+}
+
+export interface ShipPreparationCounts {
+  total: number;
+  pending: number;
+  picked: number;
+  missing: number;
+  blocked: number;
+}
+/**
+ * `refundPreviewCents` = EXACTAMENTE el `expectedRefundCents` que el servidor aceptaría ahora.
+ * ⛔ La pantalla no lo suma: lo lee (criterio 220).
+ */
+export type ShipPreparationStateDTO =
+  | ({ status: 'in_progress'; refundPreviewCents: number } & ShipPreparationCounts)
+  | ({
+      status: 'prepared';
+      preparedAt: string;
+      preparedBy: { userId: string; name: string | null };
+      openReplacements: number; // casos abiertos del retiro (0 en un directo). >0 ⇒ la guía espera
+    } & ShipPreparationCounts);
+
+/** `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` (§M4-SHIP.5). */
+export interface SetShipPrepItemRequest {
+  status: PreparationItemStatus;
+  missingReason?: MissingReason; // obligatorio ⇔ status==='missing'
+}
+export interface SetShipPrepItemResponse {
+  changed: boolean;
+  item: ShipPreparationItemDTO;
+  preparation: ShipPreparationStateDTO;
+}
+
+/** `POST /admin/shipments/:id/prepared` (§M4-SHIP.5). `expectedRefundCents` SIEMPRE (0 si no falta nada). */
+export interface PrepareShipmentRequest {
+  expectedRefundCents: number;
+}
+export interface PrepareShipmentResponse {
+  outcome: 'prepared' | 'closed_nothing_to_ship' | 'already_prepared';
+  shipment: AdminShipmentDTO;
+  preparation: ShipPreparationStateDTO;
+  refunds: PaymentRefundDTO[]; // estado de cada fila TRAS llamar a Stripe
+  cases: ReplacementCaseRefDTO[]; // v1.80.1 — vacío en un directo
+}
+
+/** `DELETE /admin/shipments/:id/prepared` (§M4-SHIP.5). `reclaimed` solo en retiros y solo si reclamó. */
+export interface UnprepareShipmentResponse {
+  outcome: 'unprepared' | 'not_prepared';
+  shipment: AdminShipmentDTO;
+  preparation: ShipPreparationStateDTO;
+  reclaimed?: { orderId: string; inventoryItemIds: string[] }[];
+}
+
+/** `GET /admin/shipments/picking-list/summary` (§M4-SHIP.11) — el contador DERIVADO que la pantalla sondea. */
+export interface PickingListSummaryDTO {
+  ship: number;
+  vault: number;
+  oldestRequestedAt: string | null;
+  stuckRefunds: number;
+  toReplace: number;
+  oldestOpenCaseAt: string | null;
+  toReplaceOverdue: number;
+  manualRefundsPending: number | null; // null para `vault_operator`
+  /**
+   * 🔒 v1.80.12.10 (§19.30.8 S-GAS-3): avisos de gasto 🔴 sin ver (sin AG-7/11/12, sin `muted`) — el mismo predicado que
+   * `workQueue.spendControl.unseenImmediate`. `null` para `vault_operator`. Opcional: servidor anterior.
+   */
+  spendAlertsUnseenImmediate?: number | null;
+}
+
+// ---- `details` de los errores de la cubeta ENVÍO (§0 v1.80 / v1.80.1 / v1.80.5) ----
+export interface RefundPreviewStaleDetails {
+  refundCents: number;
+}
+export interface RefundNotAvailableDetails {
+  lines: { shipmentItemId: string; reason: 'order_not_settled' | 'legacy_convention' | 'no_origin_order' | 'exceeds_charge' }[];
+}
+/**
+ * `403 MONEY_OUT_LIMIT_EXCEEDED` (§0 v1.80 · ⭐ v1.80.7): los tres `details` son NORMATIVOS (PS-4/PS-4b los
+ * aseveran con igualdad exacta) y los ve el OPERADOR (personal interno: el criterio 201 protege al cliente y
+ * no aplica). `usedCents` es la SUMA de filas anteriores del actor en 24 h (`kind ≠ order_full`, `status ≠
+ * failed`). Pintar cifras es opcional; el copy lo fija ux-ui (`DESIGN_SYSTEM §37.4`: hoy sin cifra).
+ * ⛔ Ningún `customer` recibe este código.
+ */
+export interface MoneyOutLimitExceededDetails {
+  capCents: number;
+  usedCents: number;
+  requestedCents: number;
+}
+export interface WithdrawalLineOriginRefundedDetails {
+  items: {
+    inventoryItemId: string;
+    folio?: string;
+    shipmentItemId?: string;
+    orderId?: string;
+    orderNumber?: string | null;
+    orderStatus?: OrderStatus;
+    pendingFullRefund?: boolean;
+  }[];
+}
+
+// ---- Apartado «Por reponer» (§M4-SHIP.15) ----
+export interface PieceIdentityDTO {
+  cardId: string;
+  productType: ProductType;
+  finish: Finish;
+  cardProductId: number | null;
+  rawCondition: RawCondition | null;
+  gradingCompany: GradingCompany | null;
+  gradeValue: string | null;
+  sealedProductId: string | null;
+  sealedCondition: SealedCondition | null;
+}
+
+export type CaseRefundContext =
+  | {
+      available: true;
+      paidReferenceCents: number;
+      market: { cents: number; capturedDate: string } | null;
+      referenceCents: number;
+      confirmAboveCents: number;
+      limitCents: number;
+      stripeAvailableCents: number;
+      closesShipment: boolean;
+      customerHasClabe: boolean;
+    }
+  | { available: false; reason: 'no_origin_order' | 'legacy_convention' | 'origin_not_settled' };
+
+export interface ReplacementCaseDTO {
+  id: string;
+  source: ReplacementCaseSource;
+  status: ReplacementCaseStatus;
+  missingReason: MissingReason;
+  customer: CustomerRefDTO;
+  original: {
+    inventoryItemId: string;
+    folio: string;
+    card: PreparationItemDTO['card'];
+    identity: PieceIdentityDTO;
+    pieceStatus: InventoryStatus;
+    currentLocation: LocationView;
+  };
+  origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null; // null ⇔ no_origin_order
+  shipment: { id: string; status: ShipmentStatus; preparedAt: string | null } | null; // solo withdrawal
+  placement: { id: string; orderNumber: string | null } | null; // solo vault_purchase
+  destination: 'package' | 'drawer'; // dónde iría una reposición AHORA
+  customerDrawers: CustomerDrawerRef[];
+  candidateCount: number;
+  openedAt: string;
+  openedBy: { userId: string; name: string | null };
+  resolvedAt: string | null;
+  resolvedBy: { userId: string; name: string | null } | null;
+  replacement: { inventoryItemId: string; folio: string } | null;
+  refund: PaymentRefundDTO | null;
+  voidNote: string | null;
+  // v1.80.2 — PLAZO derivado por el servidor (⛔ la pantalla no calcula vencimientos).
+  dueAt: string;
+  overdue: boolean;
+  // SOLO super_admin (null para el operador, o caso no `open`).
+  refundContext: CaseRefundContext | null;
+  refundCapture: {
+    amountCents: number;
+    reason: string;
+    paidReferenceCents: number;
+    market: { cents: number; capturedDate: string } | null;
+    aboveReferenceConfirmed: boolean;
+  } | null;
+  manualRefunds: ManualRefundDTO[] | null; // null para el operador; [] si no hubo parte SPEI
+}
+
+export interface ReplacementCandidateDTO {
+  inventoryItemId: string;
+  folio: string;
+  status: 'in_stock' | 'listed';
+  currentLocation: LocationView;
+  listPriceCents: number | null;
+}
+
+export type ReplacementCaseDetailDTO = ReplacementCaseDTO & { candidates: ReplacementCandidateDTO[] };
+
+export interface ReplacementCasesFilters {
+  state?: 'open' | 'closed';
+  source?: ReplacementCaseSource;
+  q?: string;
+  overdue?: boolean;
+  page?: number;
+}
+
+/** `POST /admin/replacement-cases/:id/replace` (§M4-SHIP.15.4, operador+). */
+export interface ReplaceCaseRequest {
+  inventoryItemId: string;
+  locationId?: string; // solo con destino `drawer`
+}
+export interface ReplaceCaseResponse {
+  outcome: 'replaced' | 'found' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  preparation?: ShipPreparationStateDTO;
+}
+
+/** `POST /admin/replacement-cases/:id/refund` (§M4-SHIP.15.5, SOLO super_admin). */
+export interface CaseRefundRequest {
+  amountCents: number;
+  reason: string;
+  expectedStripeCents: number;
+  expectedManualCents: number;
+  confirmAboveReference?: boolean;
+}
+export interface CaseRefundResponse {
+  outcome: 'refunded' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  refunds: PaymentRefundDTO[];
+  manualRefunds: ManualRefundDTO[];
+  shipment?: { status: ShipmentStatus; closed: boolean };
+}
+export interface CaseRefundPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number;
+  market: { cents: number; capturedDate: string } | null;
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;
+  stripeAvailableCents: number;
+  caseStripeCents: number | null;
+  shipmentFeeCents: number;
+  stripeCents: number | null;
+  manualCents: number | null;
+  closesShipment: boolean;
+  customerHasClabe: boolean;
+}
+export interface CaseRefundConfirmationRequiredDetails {
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+}
+export interface CaseRefundAboveLimitDetails {
+  referenceCents: number;
+  limitCents: number;
+}
+export interface CaseRefundPreviewStaleDetails {
+  stripeCents: number;
+  manualCents: number;
+}
+export interface ReplacementNotEligibleDetails {
+  reason: 'not_found' | 'not_platform_available' | 'identity_mismatch' | 'same_piece_damaged' | 'same_piece_not_lost';
+  mismatch?: string[];
+}
+
+/** `POST /admin/replacement-cases/:id/void` (§M4-SHIP.15.10, SOLO super_admin). */
+export interface VoidCaseRequest {
+  note: string;
+}
+export interface VoidCaseResponse {
+  outcome: 'voided' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  shipment?: { status: ShipmentStatus; closed: boolean };
+}
+
+// ---- Cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13 + §M4-SHIP.17.3/.8) ----
+export interface ManualRefundDTO {
+  id: string;
+  source: ManualRefundSource;
+  status: ManualRefundStatus;
+  amountCents: number;
+  components: { merchandiseCents: number; merchandiseIvaCents: number; processingFeeCents: number; compensationCents: number };
+  customer: CustomerRefDTO;
+  beneficiaryName: string | null; // VIVO: KycProfile.legalName ?? customerDisplayName(User)
+  clabeOnFile: boolean; // VIVO
+  clabeMasked: string | null; // ⛔ NUNCA la CLABE entera en este DTO
+  /** ⚠️ v1.82 (§PNL.3): `null` ⇔ `source = 'withdrawal_delivered'`. ⛔ Leerlo sin guarda tumba la cubeta. */
+  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string } | null;
+  /** v1.82 (§PNL.3): solo `withdrawal_delivered` (si no, `null`/ausente): de qué retiro entregado y qué carta. */
+  withdrawal?: {
+    shipmentId: string;
+    shipmentItemId: string;
+    card: PreparationItemDTO['card'];
+    folio: string;
+    reason: ShippedRefundReason;
+    note: string;
+    deliveredAt: string | null;
+  } | null;
+  origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;
+  paymentRefundId: string | null;
+  createdAt: string;
+  createdBy: { userId: string; name: string | null };
+  paidAt: string | null;
+  paidBy: { userId: string; name: string | null } | null;
+  speiReference: string | null;
+  paidNote: string | null;
+  paidToCurrentClabe: boolean | null;
+  cancelledAt: string | null;
+  cancelledBy: { userId: string; name: string | null } | null;
+  cancelNote: string | null;
+  // v1.80.3 (SEC-SHIP-A3 / M4)
+  clabeUpdatedAt: string | null; // null ⇒ «fecha de cambio desconocida» (CLABE anterior a M-61)
+  clabeChangedRecently: boolean;
+  reissuedFromId: string | null;
+  reissuedAsId: string | null;
+}
+/**
+ * v1.82 (§PNL.3) — `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (súper-admin):
+ * el subconjunto de `CaseRefundPreviewDTO` sin las cifras de Stripe. `paidReferenceCents` `null` ⇔ sin compra de origen.
+ */
+export interface WithdrawalDeliveredPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number | null;
+  market: { cents: number; capturedDate: string } | null;
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;
+}
+/** v1.82 (§PNL.3) — `POST /admin/manual-refunds/withdrawal-delivered`. El monto LO CAPTURA el dueño. */
+export interface CreateWithdrawalDeliveredRefundRequest {
+  shipmentItemId: string;
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. */
+  note: string;
+  amountCents: number;
+  /** Obligatorio `true` si `amountCents > 2·R` (el diálogo de re-escribir). */
+  confirmAboveReference?: boolean;
+}
+export interface CreateWithdrawalDeliveredRefundResponse {
+  manualRefund: ManualRefundDTO;
+}
+
+export interface ManualRefundsFilters {
+  status?: ManualRefundStatus;
+  q?: string;
+  page?: number;
+}
+export interface ManualRefundsResponse extends Paginated<ManualRefundDTO> {
+  pendingCents: number;
+}
+/** `GET /admin/manual-refunds/:id/reveal-clabe` (v1.80.3): el token ata la CLABE revelada al `paid`. */
+export interface RevealManualRefundClabeResponse {
+  clabe: string;
+  beneficiaryName: string | null;
+  clabeUpdatedAt: string | null;
+  clabeChangedRecently: boolean;
+  revealToken: string;
+  /**
+   * v1.84 LIVE-5 (§14.5, aditivo): el cobro de origen según Stripe, preguntado al revelar. `null` sin orden/PI **o**
+   * con Stripe caído (y entonces `originChargeUnavailable: true`). ⛔ No bloquea el reveal: es el aviso ANTES de
+   * transferir. Opcionales en el tipo solo para tolerar un backend previo a v1.84 (sin aviso).
+   */
+  originCharge?: ManualRefundOriginCharge | null;
+  originChargeUnavailable?: boolean;
+}
+export interface ManualRefundOriginCharge {
+  disputed: boolean;
+  otherMode: boolean;
+}
+/** v1.84 LIVE-5 (§14.5): motivo del cobro cuando la orden sigue `settled` (409 de `to-manual`, 422 de `paid`). */
+export type OriginChargeReason = 'charge_disputed' | 'payment_other_mode';
+/** `POST /admin/manual-refunds/:id/paid` (v1.80.3 / D-11: `speiReference` y `note` OPCIONALES). */
+export interface MarkManualRefundPaidRequest {
+  revealToken: string;
+  speiReference?: string;
+  note?: string;
+  confirmRecentClabeChange?: boolean;
+  confirmOriginNotSettled?: boolean;
+}
+export interface ManualRefundConfirmationRequiredDetails {
+  required: ('recent_clabe_change' | 'origin_not_settled')[];
+  clabeUpdatedAt?: string | null;
+  originStatus?: OrderStatus;
+  /** v1.84 LIVE-5 (§14.5): presente cuando `origin_not_settled` viene del cobro y no del estado de la orden. */
+  reason?: OriginChargeReason;
+}
+export interface ManualRefundNoteRequest {
+  note: string;
+}
+
+// ---- Vista del súper-admin sobre los reembolsos (§M4-SHIP.17.5) ----
+export type AdminRefundRowDTO = PaymentRefundDTO & {
+  order: { id: string; orderNumber: string | null } | null;
+  shipmentId: string | null;
+  customer: CustomerRefDTO | null;
+  item: { folio: string; cardName: string } | null;
+};
+export interface AdminRefundsFilters {
+  requestedByRole?: Role;
+  actorUserId?: string;
+  kind?: PaymentRefundKind;
+  status?: PaymentRefundStatus;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface AdminRefundsResponse extends Paginated<AdminRefundRowDTO> {
+  sumCents: number;
+}
+export interface OperatorRefundSummaryDTO {
+  /** ⭐ v1.80.9 (§M6-U.8 (b)): `email` anulable + `username`; el front pinta `email ?? username`. */
+  user: { userId: string; name: string | null; email: string | null; username?: string | null; active: boolean };
+  refunds: {
+    last24h: { count: number; cents: number };
+    last7d: { count: number; cents: number };
+    last30d: { count: number; cents: number };
+  };
+  capUsedCents: number;
+  prepared30d: { shipments: number; lines: number; missingLines: number; missingRatePct: number | null };
+  shrinkage30d: { pieces: number; costCents: number; unknownCostPieces: number };
+  selfReplaced30d: number;
+}
+export interface OperatorRefundSummaryResponse {
+  generatedAt: string;
+  capCents: number;
+  operators: OperatorRefundSummaryDTO[];
+}
+
+// ---- Reembolso total de una compra a BÓVEDA (§M4-SHIP.18) ----
+/** Clase L derivada (⛔ no es enum de schema): la clasificación de cada carta de una compra a bóveda. */
+export type VaultPieceState =
+  | 'in_custody'
+  | 'returned'
+  | 'in_packed_withdrawal'
+  | 'already_withdrawn'
+  | 'open_case'
+  | 'not_customer'
+  | 'ambiguous'
+  | 'other_purchase';
+export interface VaultPieceDTO {
+  orderItemId: string;
+  inventoryItemId: string;
+  folio: string;
+  cardName: string;
+  state: VaultPieceState;
+  pendingConfirmation: boolean;
+}
+/** `POST /admin/orders/:id/refund` (§M3): v1.80.5 gana `confirmPiecesWithCustomer`. */
+export interface RefundOrderRequest {
+  reason: string;
+  confirmPiecesWithCustomer?: boolean;
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)): motivo del reembolso total de un pedido YA ENVIADO. ⛔ Solo se manda
+   * cuando el pedido salió: con el pedido sin salir el servidor responde `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE`.
+   */
+  shippedReason?: ShippedRefundReason;
+}
+/**
+ * 💰 v1.80.8.6 (§M4-SHIP.18.12, clase R — NO SE DERIVA): «solo sería porque no llegó o estaban en mala condición»
+ * (`PROJECT §S.11.4`). Literal cerrado; su lista vive en `SHIPPED_REFUND_REASONS`.
+ */
+export const SHIPPED_REFUND_REASONS = ['not_arrived', 'arrived_damaged'] as const;
+export type ShippedRefundReason = (typeof SHIPPED_REFUND_REASONS)[number];
+/** §M4-SHIP.18.12 (7): en `GET /admin/orders/:id`; `null` si el reembolso total no se ha cerrado. */
+export interface FullRefundReviewDTO {
+  afterShipment: boolean;
+  /** = `isRefundReviewPending` del servidor. ⛔ La pantalla no lo recalcula. */
+  pending: boolean;
+  reason: ShippedRefundReason | null;
+  note: string | null;
+  recordedAt: string | null;
+  recordedBy: { id: string; name: string | null } | null;
+}
+/** `POST /admin/orders/:id/shipped-refund-reason` (§M4-SHIP.18.12 (6), `@MoneyOut`). */
+export interface RecordShippedRefundReasonRequest {
+  reason: ShippedRefundReason;
+  note?: string;
+}
+export interface RecordShippedRefundReasonResponse {
+  orderId: string;
+  outcome: 'recorded' | 'already_recorded';
+  fullRefundReview: FullRefundReviewDTO;
+}
+/**
+ * `422 REFUND_CONFIRMATION_REQUIRED`. v1.80.8.6: `required` gana `'shipped_reason'` (con `shipmentStatus`, sin
+ * `items`); `'pieces_with_customer'` sigue con `items`. ⛔ La pantalla ramifica por `required`, no por el código.
+ */
+export interface RefundConfirmationRequiredDetails {
+  required: ('pieces_with_customer' | 'shipped_reason')[];
+  items?: { inventoryItemId: string; folio: string; state: 'already_withdrawn' }[];
+  shipmentStatus?: 'enviado' | 'entregado';
+}
+export interface VaultPieceInPackedWithdrawalDetails {
+  items: { inventoryItemId: string; folio?: string; shipmentId: string; shipmentStatus?: ShipmentStatus }[];
+}
+/** `POST /admin/orders/:id/reclaim-vault` (§M4-SHIP.18.10, SOLO super_admin; custodia, ⛔ no dinero). */
+export interface ReclaimVaultRequest {
+  note: string;
+  confirmUnpacked?: boolean;
+  /** v1.80.6 (SEC-SHIP-B12): 1–50, SOLO con `confirmUnpacked:true`. Ausente ⇒ todas las de la orden. */
+  inventoryItemIds?: string[];
+}
+export interface ReclaimVaultResponse {
+  orderId: string;
+  reclaimed: string[];
+  untouched: { inventoryItemId: string; state: VaultPieceState }[];
+  chargebackNeedsManual: boolean;
+  vaultPieces: VaultPieceDTO[];
+}
+/** `POST /admin/orders/:id/chargeback-inventory` (§M3, operador+). */
+export interface ChargebackInventoryRequest {
+  outcome: 'recuperada' | 'no_recuperada' | 'reexpedir';
+  note: string;
+}
+export interface ChargebackInventoryResponse {
+  orderId: string;
+  outcome: ChargebackInventoryRequest['outcome'];
+  inventoryItemIds: string[];
+  shipmentId?: string;
+  chargebackNeedsManual: false;
+}
+
+/**
+ * Detalle M3 (`GET /admin/orders/:id`) — forma declarada en `API_CONTRACT §11 AdminOrderDetailDTO` + aditivos
+ * v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6).
+ *
+ * ⛔ NO extiende `AdminOrderDTO`/`OrderSummaryDTO` (QA s5 IMPORTANTE-1, 2026-10-04): esa herencia le daba un
+ * `totalCents` en la RAÍZ que el detalle NO emite — el total vive en `breakdown.totalCents`. Leer la raíz pintaba
+ * «MX$NaN» en producción y tsc no lo veía. Declarado a mano para que un lector de `o.totalCents` NO compile.
+ */
+export interface AdminOrderDetailDTO {
+  id: string;
+  userId: string | null;
+  status: OrderStatus;
+  /** El total, el subtotal y el IVA de la orden. ⛔ No hay `totalCents` en la raíz del detalle. */
+  breakdown: BreakdownDTO;
+  cfdiStatus?: CfdiStatus;
+  invoiceRequested?: boolean;
+  stripePaymentIntentId?: string | null;
+  shippingFeeCents?: number;
+  paymentMethodBrand?: string;
+  paymentMethodLast4?: string;
+  guestEmail?: string | null;
+  claimedAt?: string;
+  createdAt: string;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
+  refundReviewPending?: boolean;
+  /**
+   * v1.80.8.7 (A-1): SIEMPRE presente en el detalle admin; `null` ⇔ la orden nunca se liquidó. ⛔ La clave
+   * ausente (servidor anterior) NO cuenta como `null`: la pantalla compara con `=== null`.
+   */
+  settledAt: string | null;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): ∃ envío de la orden `enviado|entregado` (vivo). Solo pide el motivo ANTES; decide la tx1. */
+  shipmentShipped?: boolean;
+  /** 💰 v1.80.8.6: `null` si el reembolso total no se ha cerrado. */
+  fullRefundReview?: FullRefundReviewDTO | null;
+  orderNumber?: string | null;
+  fulfillmentMode?: FulfillmentMode;
+  isGuestOrder?: boolean;
+  chargebackNeedsManual?: boolean;
+  disputeOutcome?: 'won' | 'lost' | null;
+  customer?: CustomerRefDTO | null;
+  refundedCents?: number; // Σ Stripe `submitted|succeeded`
+  manualRefundedCents?: number; // Σ SPEI `paid` (solo super_admin)
+  refunds?: PaymentRefundDTO[];
+  manualRefunds?: ManualRefundDTO[]; // solo super_admin
+  items?: (Omit<OrderItemDTO, 'refund'> & {
+    refund?: PaymentRefundDTO | null;
+    /**
+     * v1.82.1 (§PNL.10, E-6, ratificado): la llave de `refund-delivered` (`AdminOrderItemDTO.orderItemId: string`).
+     * Opcional aquí solo por tolerancia a un backend anterior; sin ella no hay botón.
+     */
+    orderItemId?: string | null;
+    /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
+    deliveredRefund?: DeliveredRefundDTO | null;
+  })[];
+  shipments?: {
+    id: string;
+    status: ShipmentStatus;
+    kind: AdminShipmentKind;
+    requestedAt: string;
+    preparedAt: string | null;
+    carrier: string | null;
+    trackingNumber: string | null;
+  }[];
+  vaultPlacement?: { id: string; status: VaultPlacementStatus } | null;
+  vaultPieces?: VaultPieceDTO[]; // solo órdenes `vault`
+  /** 💰 §AC.12 (aditivo): renglones de accesorio y paquetes. ⛔ Sin costo. */
+  accessoryLines?: OrderAccessoryLineDTO[];
+}
+
+// ---- Cliente (§M4-SHIP.10 / .15.13 / .16) ----
+/** Lo que el cliente ve de un caso «Por reponer» sobre una línea suya. ⛔ Sin actor, motivo interno ni CLABE. */
+export interface CustomerReplacementInfo {
+  status: ReplacementCaseStatus;
+  reason: MissingReason;
+  refund: { amountCents: number; byTransferCents: number; transferStatus: 'pending' | 'paid' | 'cancelled' | null } | null;
+}
+/** `items[].refund` del cliente: solo filas `submitted|succeeded`. */
+export interface CustomerItemRefundInfo {
+  amountCents: number;
+  /**
+   * v1.82 (§PNL.2 «Lecturas que cambian»): de dónde salió el reembolso de ESTA carta. Ausente ⇒
+   * backend anterior ⇒ se lee como `missing_at_prep`. La línea del cliente se elige por `kind`,
+   * ⛔ nunca por el valor de `reason` (DESIGN_SYSTEM §60.2 a).
+   */
+  kind?: 'missing_at_prep' | 'after_delivery';
+  /** `MissingReason` con `missing_at_prep`; `ShippedRefundReason` con `after_delivery`. */
+  reason: MissingReason | ShippedRefundReason;
+  refundedAt: string;
+}
+export interface CustomerOrderShipmentDTO {
+  id: string;
+  status: ShipmentStatus;
+  carrier: string | null;
+  trackingNumber: string | null;
+  requestedAt: string;
+  pickingAt: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  shipTo: { recipientName: string; city: string; state: string; postalCode: string };
+  missingCount: number;
+  /** ⭐ §19.12 (aditivo): solo si Skydropx la dio; ausente si no. */
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
 }
 
 // ---- Buylist (contrato §6) ----
@@ -1365,8 +3040,13 @@ export interface SellItemDTO {
   marketMxnCents?: number | null;
   priceBasis?: PriceBasis;
   marketBracket?: MarketBracket | null;
-  quotedPriceCents?: number;
-  approvedPriceCents?: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.4 punto 8): en la proyección de CLIENTE de un cierre `expirada` + `no_offer`/`not_continued`
+   * las cuatro cifras de la línea (`quotedPriceCents`, `approvedPriceCents`, `offeredPriceCents`, `marketMxnCents`) llegan
+   * `null` EXPLÍCITO. El tipo lo dice para que ningún consumidor las lea sin guarda.
+   */
+  quotedPriceCents?: number | null;
+  approvedPriceCents?: number | null;
   itemStatus: SellItemStatus;
   inventoryItemId?: string;
   // v1.18-buylist-rejects (contrato §11): poblados SOLO si itemStatus="rechazada"; en
@@ -1480,7 +3160,14 @@ export interface SellRequestDTO {
   isTerminal: boolean;
   /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
   expiredReason?: SellRequestExpiryReason | null;
-  quotedTotalCents: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.1 C-1): campo PLANO, en LISTA y DETALLE. `true` ⇔ guía viva de entrada de Skydropx con
+   * número ∧ `status='aceptada'`. ⛔ La pantalla no lo deduce de `offer.trackingNumber` (UX-BSD-4). Opcional en el tipo
+   * (servidor anterior): ausente se lee como `false`.
+   */
+  labelPdfAvailable?: boolean;
+  /** `null` EXPLÍCITO en un cierre `expirada` + `no_offer`/`not_continued` (v1.51.4 §6 + errata BSD-1.4 punto 8). */
+  quotedTotalCents: number | null;
   ineRequired: boolean;
   items: SellItemDTO[];
   createdAt?: string;
@@ -1567,7 +3254,41 @@ export interface DashboardSalesPeriodDTO {
 export interface DashboardDTO {
   profitPeriodCents?: number;
   salesPeriod: DashboardSalesPeriodDTO;
-  workQueue: { shipments: number; buylist: number; disputes: number; pendingPrices: number };
+  workQueue: {
+    shipments: number;
+    buylist: number;
+    disputes: number;
+    pendingPrices: number;
+    /**
+     * v1.80 (§M4-SHIP.11): «Pedidos por preparar» INCLUYE bóveda — el mismo cuerpo que el `summary`.
+     * ⛔ `shipments` no cambia de cifra (envíos vivos). Opcionales: aditivos.
+     */
+    toPrepare?: { ship: number; vault: number; toReplace: number; toReplaceOverdue: number };
+    stuckRefunds?: number;
+    /** v1.80.2: SOLO super_admin (`null` para el operador). */
+    manualRefunds?: { pending: number; pendingCents: number; oldestCreatedAt: string | null } | null;
+    /** v1.80.3 (SEC-SHIP-M1): SOLO super_admin (`null` para el operador). */
+    operatorRefunds?: { last24hCount: number; last24hCents: number; last30dCents: number } | null;
+    /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): SOLO super_admin (`null` para el operador ⇒ la tarjeta no existe). */
+    refundReviews?: { pending: number; oldestRefundedAt: string | null } | null;
+    /**
+     * 💰 v1.80.12.9 (§19.29.9, D2f): SOLO super_admin (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
+     * `labelSpend24h` = las 24 h MÓVILES de TG-1 (se rotula «últimas 24 h», ⛔ nunca «hoy»); `capCents: null` ⇔ el dueño.
+     */
+    spendControl?: SpendControlDTO | null;
+    /**
+     * v1.80.12.16 (§M4-SHIP.19.13 + §19.35.5 fila 1, F-1): «Alertas de envíos», los DOS roles. Opcional: un servidor
+     * anterior no la manda ⇒ la tarjeta no existe. `lowBalance: null` ⇔ proveedor `off` o Skydropx sin respuesta.
+     * `withLabelAlert` = envíos con `labelAlert ≠ null` (el mismo cuerpo que el DTO); `withCarrierAlert` =
+     * `carrierAlertActive`; `labelProcessing` = `labelPending ≠ null`. ⛔ Nunca trae la cifra del saldo (T.11).
+     * La tarjeta lee `withLabelAlert` con `Number.isFinite`: un servidor con D2f y sin B-3 no lo manda (§43.22.2 ⇒ «—»).
+     */
+    shipping?: { lowBalance: boolean | null; withCarrierAlert: number; withLabelAlert: number; labelProcessing: number } | null;
+    /** 💰 rev BSD-1 (BSD-1.1 C-3): hermano de `buylist` (que sigue siendo un número). Solicitudes con `guideDueSoon`. */
+    buylistGuideDueSoon?: number;
+    /** 💰 rev BSD-1 (BSD-1.3 punto 4): solicitudes cuya guía de entrada tiene `labelAlert ≠ null`. */
+    buylistInboundLabelAlert?: number;
+  };
   inventoryValueCents?: number;
   custodyValueCents?: number;
   buylistPeriod: { count: number; amountCents: number };
@@ -1602,15 +3323,73 @@ export interface InventoryItemDTO {
   listPriceCents?: number;
   acquisitionType?: AcquisitionType;
   acquisitionCostCents?: number;
+  // v1.23-sealed (contrato §M1, read-only en M1; solo `productType='sealed'`): mapeo curado al producto
+  // TCGplayer/TCGCSV (`null`/omitidos si NO mapeado, M-23) y su referencia informativa. ⛔ El mapeo NO se
+  // edita por `PATCH /admin/inventory/items/:id` — solo por `PUT /admin/pricing/sealed/items/:itemId/mapping`.
+  // §M2-SK: una pieza sellada SIN `tcgplayerProductId` no tiene clave de mercado ⇒ su precio es
+  // `listPriceCents` (SK-4) o ligarla a su presentación; nunca un override bajo `'sealed'` (SK-3).
+  tcgplayerProductId?: number | null;
+  tcgplayerGroupId?: number | null;
+  sealedMarketRef?: PriceInfo | null;
+  /**
+   * v1.80.8.7 (S-2, §M1 «v1.80.8.7» punto 3): SOLO en el LISTADO y SOLO en sellado de plataforma
+   * `in_stock | listed` — el precio de venta de hoy, misma derivación que `pending-publish`. En toda otra fila la
+   * clave no viaja (⛔ raw/graded: P-PRE-1).
+   */
+  resolvedSalePriceCents?: number | null;
+  priceBasis?: PriceBasis | null;
+  /**
+   * §M11-SP.12.7 / 13.5 — identidad del producto. Regla: se decide por `productType` PRIMERO. En `sealed` la clave
+   * viene siempre (`string` = ligada, `null` = sin producto); en raw/graded el listado no la trae y ⛔ no se lee.
+   * (El detalle `GET …/items/:id` la trae en toda fila, raw/graded `null`, §M11-SP.13.6.)
+   */
+  sealedProductId?: string | null;
+  /** §M11-SP.12.7 — solo filas S-2 ligadas: el conteo del PRODUCTO (⛔ no las filas de la página). */
+  sealedProductPieces?: SealedProductPiecesDTO;
+  /** §M11-SP.1/12.4 — solo filas S-2: de qué peldaño sale el precio. */
+  sealedPriceOrigin?: SealedPriceOrigin;
+  /** §M11-SP.12.4 — solo filas S-2: `P` del dueño del producto; `null` = no hay. Es el `expected` del editor. */
+  sealedProductDisplayPriceCents?: number | null;
+  /** §M11-SP.12.4 — solo filas S-2: el `P` de ESTA pieza (con IVA). ⛔ `resolvedSalePriceCents` es `L`. */
+  resolvedDisplayPriceCents?: number | null;
 }
 
+// ⭐ §M2 (v1.23-sealed) · `PUT /admin/pricing/sealed/items/:itemId/mapping` (`super_admin`, auditado):
+// asigna, actualiza o quita el mapeo de UN item. `tcgplayerProductId: null` DESMAPEA (limpia también
+// `tcgplayerGroupId`); con valor, `tcgplayerGroupId` es OBLIGATORIO (el fetch de precios es por grupo) y
+// ambos enteros positivos. `applyToSiblings` (default false) copia el mapeo a los demás items `sealed`
+// SIN mapeo con el mismo `(cardId, sealedSubtype)`; nunca pisa mapeos existentes. Err: 404 NOT_FOUND
+// (item), 422 VALIDATION_ERROR (no es sealed / groupId ausente con productId / no enteros positivos).
+// Es «Ligar a su presentación» de §M2-SK: la cura de raíz del sellado sin mapear.
+export interface SealedItemMappingRequest {
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId?: number;
+  applyToSiblings?: boolean;
+}
+
+export interface SealedItemMappingResponse {
+  inventoryItemId: string;
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId: number | null;
+  siblingsUpdated: number;
+}
+
+/**
+ * `GET /api/v1/admin/locations` → `200 { data: VaultLocationDTO[] }` (§M4-VAULT.4 v1.79.5, errata de
+ * ruta). Orden `label asc` del motor; sin paginar; TODAS las zonas, también las inactivas.
+ */
 export interface VaultLocationDTO {
   id: string;
   zone: VaultZone;
   box: string;
   row: string;
   slot: string;
+  // ⚠️ `${box}-${row}-${slot}`: se REPITE entre zonas (§M4-VAULT.1) ⇒ nunca identifica solo.
   label: string;
+  // v1.79.5 (§M4-VAULT.4): declarado. Hoy siempre `true` (no hay escritor de `false`); la lista del
+  // cliente nuevo lo filtra igual. La guarda real es el `422 inactive` del `confirm`.
+  isActive: boolean;
+  createdAt: string;
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
@@ -1625,7 +3404,29 @@ export type MovementReason =
   | 'lost'
   | 'damaged'
   | 'buylist_convert'
-  | 'adjustment';
+  | 'adjustment'
+  // v1.80.1 (M-61, §M4-SHIP.15.2): traspaso de una reposición.
+  | 'replacement'
+  // v1.80.4 (M-61, §M4-SHIP.18.4): la carta vuelve a la plataforma por reembolso total.
+  | 'refund_return'
+  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `reserved → listed` porque la orden NUNCA liquidada se reembolsó.
+  | 'refund_release';
+/** Lista exacta de `MovementReason` (paridad con `schema.prisma` y §Enums; la usa el candado SR-UI-10). */
+export const MOVEMENT_REASONS: readonly MovementReason[] = [
+  'alta',
+  'move',
+  'sale',
+  'settle',
+  'chargeback_return',
+  'withdrawal',
+  'lost',
+  'damaged',
+  'buylist_convert',
+  'adjustment',
+  'replacement',
+  'refund_return',
+  'refund_release',
+];
 
 // Historial de movimientos de un item (contrato §M1 · GET /admin/inventory/items/:id:
 // "detalle + historial de movimientos"). El backend devuelve los InventoryMovement
@@ -1645,6 +3446,12 @@ export interface InventoryMovementDTO {
 // Detalle por pieza del back-office (GET /admin/inventory/items/:id): el item + movimientos.
 export interface AdminInventoryItemDetailDTO extends InventoryItemDTO {
   movements: InventoryMovementDTO[];
+  /**
+   * §M11-SP.13.6 (A-5) — en el DETALLE viaja en toda fila (raw/graded `null`). `ItemDetailModal` decide por
+   * `productType` primero: sellado + `string` ⇒ ligado («Lo fija el producto»), sellado + `null` ⇒ sin producto.
+   * El detalle ⛔ no trae `sealedPriceOrigin` ni `resolvedDisplayPriceCents`.
+   */
+  sealedProductId: string | null;
 }
 
 // ===== v1.16-master-set: Master Set + inventario a escala (§M1) =====
@@ -1691,6 +3498,9 @@ export interface MasterSetSummaryDTO {
   // cotizador se quedaría sin logo. Lo pinta `MasterSetIndex` (DESIGN_SYSTEM §24: placa de tinta
   // + monograma cuando es `null`). ⛔ PROHIBIDO construir la URL por plantilla desde el `setId`.
   logoUrl: string | null;
+  // v1.80 (P-71): código corto del set para la teja del índice (fila plegada = el del PRINCIPAL).
+  // Requerido por la misma razón que `logoUrl`: el modo `quoter` lo compone desde `BuylistSetDTO`.
+  ptcgoCode: string | null;
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
@@ -1703,7 +3513,9 @@ export type MasterSetScope = 'platform' | 'user_vault';
 // en la vista (iii) del propio cliente se omite.
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  // v1.79.3 (H-1): en la vista ADMIN (ii) `null` ⇔ nombre fabricado del correo o en blanco. La vista
+  // (iii) del propio cliente sigue emitiendo `User.name`.
+  name: string | null;
   email?: string;
 }
 
@@ -1792,12 +3604,23 @@ export interface VariantPriceFaceDTO {
 // explícito SIGUE siendo efectivo: en ese caso NO hay aviso, §21.9c).
 export interface VariantBountyDTO {
   enabled: boolean;
+  /** Lo CONFIGURADO por el admin. ⚠️ v1.80: lo que se paga es `payoutCents`. */
   priceCents: number | null;
   targetQty: number | null;
   acquiredQty: number;
   completedAt: string | null;
   effective: boolean;
   curveQuoteCents: number | null;
+  // ⭐ v1.80 (§M2-B.11, ADITIVOS, INFORMATIVOS — no cambian `state` ni alerta):
+  //   `payoutCents` = lo que se paga HOY = bountyPayoutCents(priceCents, mercado) si `effective`;
+  //   `null` si no (un bounty no efectivo no paga nada). Se conserva: `buy.source === 'bounty'` ⇒
+  //   `payoutCents === buy.effectiveCents`.
+  //   `cappedByMarket` = `effective ∧ payoutCents < priceCents`.
+  // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): bounty efectivo RETENIDO por el guardarraíl (topado + curva en el
+  //   bin + premium) ⇒ `buy.source='pending'`, `buy.effectiveCents=null`, `buy.premiumAtFloor=true`,
+  //   `payoutCents=null`, `cappedByMarket=false`; `state` sigue `activa`.
+  payoutCents: number | null;
+  cappedByMarket: boolean;
 }
 
 export interface VariantPricingDTO {
@@ -1939,10 +3762,18 @@ export interface SetPartDTO {
   isPrimary: boolean;
   order: number;
   catalogCardCount: number;
+  /** v1.80 (P-71): el código de ESTA parte, no el del principal. */
+  ptcgoCode: string | null;
 }
 
+/**
+ * v1.80 (P-71): cabecera del BINDER = `SetRefDTO` + el código corto del set (en un combinado, el del
+ * PRINCIPAL). ⛔ `SetRefDTO` no cambia: lo emiten superficies que no pintan cartas con número.
+ */
+export type MasterSetRefDTO = SetRefDTO & { ptcgoCode: string | null };
+
 export interface MasterSetBinderResponse {
-  set: SetRefDTO;
+  set: MasterSetRefDTO;
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
@@ -2160,6 +3991,166 @@ export interface SealedSetGroupLinkRequest {
   kind: SealedGroupKind;
 }
 
+// ===== M11 (§diseño §§9-11): traer precios de sellado, estado por set y mapeo manual =====
+
+/**
+ * §9 — Respuesta de `POST /admin/jobs/sealed-price-ingest` (`super_admin`, `202`). El job es AWAITED:
+ * cuando la promesa resuelve, la corrida ya terminó. La respuesta NO trae conteos (`priced`/
+ * `unmatched`); ésos se leen refrescando `GET /admin/inventory/sealed-price-status` (§10).
+ *  - `enqueued:true` ⇒ la corrida se ejecutó.
+ *  - `enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'` ⇒ el dial maestro está apagado (fail-closed,
+ *    I-2); NO es error, es la puerta money-safe: no se escribió ni una `PriceReference`.
+ *  - `enqueued:false` SIN `reason` ⇒ ya hay una ingesta en curso (single-flight).
+ */
+export interface SealedPriceIngestResponse {
+  job: string;
+  enqueued: boolean;
+  jobId?: string;
+  reason?: 'SEALED_PRICE_SOURCE_OFF';
+  scope?: string;
+  groupId?: number;
+}
+
+/** §10 — Estado ROLLUP del precio/mapeo de un set de sellado. */
+export type SealedPriceState = 'priced' | 'mapped_unpriced' | 'unmapped';
+
+/**
+ * §10 — Por qué un set NO trae precio (para el humano, sin abrir logs):
+ *  - `no_group` ⇒ el set no tiene grupo TCGCSV resuelto (arréglalo con el mapeo manual §11).
+ *  - `dial_off` ⇒ está mapeado pero el dial maestro `sealed_price_source` está apagado (I-2).
+ *  - `no_source_price` ⇒ mapeado y dial `on`, pero la fuente no trajo precio (dispara §9 o revisa).
+ */
+export type SealedPriceStatusReason = 'no_group' | 'dial_off' | 'no_source_price';
+
+/**
+ * §10 — Estado de precio/mapeo del sellado POR SET, desde estado PERSISTIDO (sin TCGCSV, O-17 safe).
+ * `priced`/`mappedUnpriced`/`unmapped` son el desglose a nivel de producto sellado del set; `state`
+ * es el rollup (el peor no-vacío). Reusa el mismo gate (`gateSealedMarketCents`) que el alta: la
+ * vista REFLEJA la verdad del motor, no la inventa (I-2/I-6).
+ */
+export interface SealedPriceStatusRowDTO {
+  set: SetRefDTO;
+  setMainGroupId: number | null;
+  linkedGroupIds: number[];
+  productCount: number;
+  priced: number;
+  mappedUnpriced: number;
+  unmapped: number;
+  state: SealedPriceState;
+  reason?: SealedPriceStatusReason;
+}
+
+export interface SealedPriceStatusResponse {
+  /** El dial maestro (para el copy: con `off`, lo mapeado cuenta como `mapped_unpriced` por gate). */
+  sealedPriceSource: SealedPriceSource;
+  data: SealedPriceStatusRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// ===== §M11-SP (v1.83 + v1.83.1 §M11-SP.12 + v1.83.2 §M11-SP.13): el precio del sellado es del PRODUCTO =====
+/**
+ * De QUÉ peldaño salió el precio de venta de un sellado (§M11-SP.1): `product` = precio del dueño del producto;
+ * `piece` = `listPriceCents` por pieza (legado, o el de un sellado SIN producto); `automatic` = mercado × margen;
+ * `pending` = sin precio.
+ */
+export type SealedPriceOrigin = 'product' | 'piece' | 'automatic' | 'pending';
+
+/**
+ * Fila de la hoja «Precios del sellado» (`GET /admin/inventory/sealed-price-sheet`, §M11-SP.5 con los campos de
+ * precio de §M11-SP.12.4). Vocabulario (`DESIGN_SYSTEM §70.0-bis`): `P` = con IVA (lo que paga el cliente), `N` = sin
+ * IVA (`netPriceCents`), `L` = antes de IVA (`automaticListPriceCents`; la hoja NO lo pinta).
+ * ⛔ Retirados (no construidos): `ownerPriceCents`, `automaticPriceCents`, `effectivePriceCents`.
+ */
+export interface SealedPriceSheetRowDTO {
+  sealedProductId: string;
+  name: string;
+  subtype: SealedSubtype;
+  imageUrl: string | null;
+  active: boolean;
+  set: SetRefDTO;
+  /** Piezas de plataforma ligadas a ESTE producto. */
+  pieces: { inStock: number; listed: number; reserved: number };
+  /** Sobre las piezas de `pieces`; `0` es un costo válido. Con `scope=all` y sin piezas: todo `null`, `withoutCost 0`. */
+  cost: { avgCents: number | null; minCents: number | null; maxCents: number | null; withoutCost: number };
+  /** `P` del dueño (peldaño 1), lo tecleado; `null` = no hay. */
+  ownerDisplayPriceCents: number | null;
+  /** `L` automático (peldaño 3), siempre calculado. ⛔ La hoja no lo pinta. */
+  automaticListPriceCents: number | null;
+  /** Su `P`. */
+  automaticDisplayPriceCents: number | null;
+  /** `null` ⇔ `automaticListPriceCents` null. */
+  automaticSource: 'subtype_spread' | 'global_spread' | null;
+  /** Puntos de markup sobre el mercado, aplicados a `L` (§M11-SP.12.8). `null` ⇔ `automaticSource` null. */
+  appliedSpreadPct: number | null;
+  effectiveOrigin: 'product' | 'automatic' | 'pending';
+  /** LO QUE PAGA EL CLIENTE por una pieza sin precio propio: owner ?? automaticDisplay. */
+  displayPriceCents: number | null;
+  /** `N` = sin IVA, por pieza, informativo (calculado por el servidor). */
+  netPriceCents: number | null;
+  /** Referencia de mercado (MXN, `capturedDate`): `null` o `status: 'priced'`, ⛔ nunca `pending` (§M11-SP.13.7). */
+  market: PriceInfo | null;
+  /** `P` de las piezas con `listPriceCents > 0` (peldaño 2); `shadowed` ⇔ hay precio del dueño. */
+  legacyPiecePrices: { count: number; minDisplayCents: number | null; maxDisplayCents: number | null; shadowed: boolean };
+  /** Informativo: `netPriceCents − cost.avgCents`; `bps = round(cents·10000/N)`. */
+  margin: { cents: number; bps: number } | null;
+}
+
+export type SealedPriceSheetScope = 'on_hand' | 'all';
+
+/** `GET /admin/inventory/sealed-price-sheet` (`vault_operator+`, §M11-SP.5 + 12.4 + 13.7). */
+export interface SealedPriceSheetResponse {
+  data: SealedPriceSheetRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  /** Piezas selladas de plataforma en existencia SIN `sealedProductId` (cuenta global). */
+  unlinkedCount: number;
+  /** El servidor dice si quien pide puede fijar precio (§M11-SP.3). */
+  canEdit: boolean;
+  /** Diales de IVA de la petición: `ratePct` = tasa `r` (margen en vivo), `transferPct` = fracción `t`. */
+  iva: { ratePct: number; transferPct: number };
+}
+
+/** Cuentas del intento de auto-publicación tras el `PUT` (§M11-SP.12.6). Cuentas a cero ≠ `null` (13.2). */
+export interface SealedAutoPublishDTO {
+  published: number;
+  missingLocation: number;
+  notPublished: number;
+}
+
+/** Req de `PUT /admin/inventory/sealed-products/:id/sale-price` (§M11-SP.12.4): los DOS campos obligatorios. */
+export interface SetSealedSalePriceRequest {
+  /** `P`, entero `1…100_000_000`: lo tecleado, exacto. */
+  displayPriceCents: number;
+  /** El `ownerDisplayPriceCents` que la pantalla mostró; `null` = «no tenía». */
+  expectedDisplayPriceCents: number | null;
+}
+
+/** Res `200` del `PUT`. `autoPublish: null` ⇔ el intento de publicar lanzó (el precio SÍ se guardó). */
+export interface SetSealedSalePriceResponse {
+  data: SealedPriceSheetRowDTO;
+  autoPublish: SealedAutoPublishDTO | null;
+}
+
+/** Conteo del producto en las filas S-2 del listado y en las `sealed` de la cola (§M11-SP.12.7). */
+export interface SealedProductPiecesDTO {
+  inStock: number;
+  listed: number;
+  reserved: number;
+}
+
+/**
+ * §11 — Req de `PUT /admin/inventory/sealed-sets/:setId/set-main-group` (`super_admin`). Fija/
+ * REEMPLAZA el grupo `set_main` del set aunque ya haya uno (a diferencia de `linkGroup`, que solo
+ * escribe si `CardSet.tcgcsvGroupId` es null). Auditado con `before/after`.
+ */
+export interface SetMainGroupRequest {
+  tcgplayerGroupId: number;
+  reason?: string;
+}
+
 // ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
 // GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
 // `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
@@ -2191,6 +4182,8 @@ export interface PublicBountyDTO {
   name: string;
   number: string;
   setName: string;
+  /** v1.80 (P-71): código corto del set de la carta; mismas reglas que `CardDTO.setPtcgoCode`. */
+  setPtcgoCode: string | null;
   imageSmallUrl?: string;
   rarity?: string;
   finish: Finish;
@@ -2208,9 +4201,14 @@ export interface PublicBountiesResponse {
 //
 // ⛔ `state` LO DERIVA EL SERVIDOR y la UI lo OBEDECE: no se recalcula cruzando
 // `enabled`/`effective`/`completedAt` ni comparando importes en pantalla (§M2-B.1, §28.0 regla
-// «el estado lo dice el servidor»). Son CINCO valores del enum del contrato —en español, no
+// «el estado lo dice el servidor»). Son SEIS valores del enum del contrato —en español, no
 // `outbid`/`active`/`off`—; traducirlos a rótulos es trabajo de i18n, jamás un enum paralelo.
-export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada';
+//
+// ⭐ v2.2 (Q2, §M2-B.0/.9): el sexto, `despublicada`, es el bounty que se ELIMINÓ teniendo historia
+// (`DELETE …/bounty` rama B). Se conserva el registro pero sale de la vitrina pública Y del tablero
+// admin por defecto (§M2-B.1: `data` lo excluye salvo con `?state=despublicada`; `counts` lo trae
+// SIEMPRE como selector). Va AL FINAL del enum, en el mismo orden en que lo escribe el `AdminBountyRowDTO`.
+export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada' | 'despublicada';
 
 /** `sort` del endpoint. `attention_first` es el DEFAULT (decisión de producto de §M2-B.1). */
 export type AdminBountySort = 'attention_first' | 'price_desc' | 'updated_desc';
@@ -2224,8 +4222,13 @@ export interface AdminBountyProgressDTO {
 
 /**
  * `AdminBountyCountsDTO` — el conteo por estado SOBRE EL CONJUNTO CLASIFICADO, jamás sobre la
- * página. **Cinco claves, las mismas del enum**: `invalida` tiene la suya y no se funde en
- * `activa`. Ignora el filtro `state` y respeta los de identidad (`setId`, `finish`, `q`).
+ * página. **Seis claves, las mismas del enum** (⭐ v2.2: `despublicada` entró como sexta): `invalida`
+ * tiene la suya y no se funde en `activa`. Ignora el filtro `state` y respeta los de identidad
+ * (`setId`, `finish`, `q`).
+ *
+ * ⚠️ **`counts` reporta SIEMPRE las seis cubetas, `despublicada` incluida** (§M2-B.1): es el
+ * **selector** con el que el dueño VE cuántas hay archivadas aunque el tablero por defecto no las
+ * liste, y puede pedirlas. Es **`data`** quien excluye `despublicada` por defecto, **no** `counts`.
  */
 export type AdminBountyCountsDTO = Record<BountyState, number>;
 
@@ -2268,7 +4271,9 @@ export interface AdminBountyListResponse {
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
 export interface AdminVaultSummaryDTO {
   userId: string;
-  name: string;
+  // §M4-VAULT.3 v1.79.3 (H-1): `null` ⇔ nombre en blanco o fabricado del correo (nameSource
+  // 'derived'). ⛔ Nunca se reconstruye desde `email` en el cliente.
+  name: string | null;
   email: string;
   pieceCount: number;
   totalValueMxnCents: number;
@@ -2745,17 +4750,62 @@ export interface PendingPublishRowDTO {
   productType: ProductType;
   finish: Finish;
   cardProductId: number | null;
+  // v1.69.1 (P-79c, contrato §M1) — NOMBRE del producto sellado, presente SOLO cuando
+  // productType='sealed' (ausente en raw/graded). RESUELTO server-side: SealedProduct.name (vivo, vía
+  // sealedProductId) → snapshot InventoryItem.sealedProductName (M-37). ⛔ En ESTA cola el último
+  // escalón NO cae a Card.name (el nombre del ancla es justo el defecto reportado): sin nombre
+  // resoluble el front pinta «sellado sin identificar», nunca `card.name`. El front pinta la CAJA
+  // sellada, no el single ancla. Mismo estilo que HoldingDTO/BatchInventoryItemInput.
+  sealedProductName?: string;
+  /**
+   * v1.xx (M11 · §diseño §2.C) — PRESENTACIÓN del sellado, presente SOLO cuando
+   * `productType==='sealed'` (ausente en raw/graded). RESUELTA server-side desde
+   * `InventoryItem.sealedSubtype`. Mismo patrón opcional que `sealedProductName`. La cola de M11
+   * la pinta (Bundle/Booster Box/…); consumidores viejos la ignoran (aditivo, retrocompatible).
+   */
+  sealedSubtype?: SealedSubtype;
   locationId: string | null;
   listPriceCents: number | null;
   resolvedSalePriceCents: number | null;
   priceBasis: PriceBasis | null;
   /** Deep-link a la cola de precio pendiente de M2. */
   pendingPriceEntryId: string | null;
+  /**
+   * v1.80.8.7 (S-1, §M1 «v1.80.8.7» punto 2): POR QUÉ le falta el precio — veredicto de HOY de la derivación.
+   * `null ∧ missing ∋ 'price'` ⇔ gradeada sin identidad de slab (regla del contrato). Opcional en el tipo solo
+   * para tolerar un servidor anterior (clave ausente ⇒ la UI no inventa motivo).
+   */
+  pendingReason?: PendingPriceReason | null;
   /** QUÉ LE FALTA. Vacío ⇒ la pieza ya no debería estar aquí. */
   missing: ('location' | 'price')[];
   acquisitionType: AcquisitionType;
   sourceSellRequestItemId: string | null;
   createdAt: string;
+  /** §M11-SP.12.7 / 13.5 — filas `sealed`: `string` = ligada, `null` = sin producto. Raw/graded: ausente, ⛔ no se lee. */
+  sealedProductId?: string | null;
+  /** §M11-SP.12.7 — filas `sealed` ligadas: conteo del producto. */
+  sealedProductPieces?: SealedProductPiecesDTO;
+  /** §M11-SP.1 — filas `sealed`. */
+  sealedPriceOrigin?: SealedPriceOrigin;
+  /** §M11-SP.12.4 — filas `sealed`: `P` del dueño del producto (el `expected` del editor). */
+  sealedProductDisplayPriceCents?: number | null;
+  /** §M11-SP.12.4 — filas `sealed`: el `P` de esta pieza. */
+  resolvedDisplayPriceCents?: number | null;
+}
+
+/** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */
+export interface RejectBuylistItemsRequest {
+  itemIds: string[];
+  reason: string;
+}
+/**
+ * v1.82.1 (§PNL.10.1, E-1) — `200` de `reject-items`: una carta por id, EN SU ORDEN (la proyección de la decisión por
+ * carta) y `requestClosed` ⇔ ESTA llamada cerró la solicitud. El total aprobado y el estado de la solicitud no viajan:
+ * el front recarga el detalle.
+ */
+export interface RejectBuylistItemsResponse {
+  items: SellItemDTO[];
+  requestClosed: boolean;
 }
 
 export interface AdminBuylistDTO {
@@ -2810,6 +4860,18 @@ export interface AdminBuylistDTO {
    */
   isPayable: boolean;
   /**
+   * v1.82.3 ([§PNL.12](docs/API_CONTRACT.md)) — **DERIVADO SERVER-SIDE, ADMIN-ONLY.** ¿Ofrece M5 «Rechazar solicitud»?
+   * ```
+   * Línea que CUENTA  :=  offerDecision IS NULL  OR  offerDecision <> 'skip'
+   * isRejectable      :=  isTerminal === false  ∧  ∃ ≥1 línea que cuenta  ∧  toda línea que cuenta está `rechazada`
+   * ```
+   * Existe para borrar `allItemsRejected` de `M5View` — la copia local de la regla **sin el filtro `skip`**, que dejaba
+   * atorada en `verificacion` una solicitud con las `buy` rechazadas y una `skip` viva. **El cliente no recompone la
+   * regla**: lee `=== true` (campo ausente ⇒ sin botón, fail-closed como `isTerminal === false`).
+   * ⛔ Jamás en el DTO del vendedor.
+   */
+  isRejectable: boolean;
+  /**
    * v1.61 (§M5-V.5, `BL-45`) — **ADITIVO, DERIVADO SERVER-SIDE, ADMIN-ONLY.** Cuántas líneas
    * **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
    * convertida_inventario}`). ⚠️ **Las `skip` NO cuentan** (§M5-V.0): nunca pueden aprobarse.
@@ -2859,7 +4921,46 @@ export interface AdminBuylistDTO {
   sellerShippedDeclaredAt?: string | null;
   /** Costo REAL de la etiqueta. ⚠️ **NO participa en lo que se le deposita al vendedor.** */
   guideActualCostCents?: number | null;
+  // ---- 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-8 + BSD-1.3 punto 4) · la guía de ENTRADA. Todo DERIVADO por el servidor
+  // (⛔ la pantalla no calcula ni decide, BX5). Opcionales en el tipo: servidor anterior ⇒ ausentes ⇒ fail-closed.
+  inboundShipment?: AdminInboundShipmentDTO | null;
+  /** Solo en el DETALLE (`GET /admin/buylist/:id`): es por actor. `null` si el servidor no pudo calcularlo. */
+  inboundLabelOptions?: LabelOptionsDTO | null;
+  /** Ancla + close días × 24 h, solo `aceptada` sin guía; si no, `null`. */
+  guideDueAt?: string | null;
+  /** `now ≥ guideDueAt − warn días`. ⛔ El cliente no lo deriva de `guideDueAt` (BSD-F6). */
+  guideDueSoon?: boolean;
+  /** Solo con `guideDueSoon`: `ceil((guideDueAt − now)/24 h)`, mínimo 0; si no, `null` (C-8). */
+  guideDueInDays?: number | null;
+  /** La MISMA regla que la guarda de `decline-accepted` (§BSD.6). ⛔ La pantalla no mira `status` (BSD-F5). */
+  declineAcceptedAllowed?: boolean;
   items: SellItemDTO[];
+}
+
+/** 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-5 + BSD-1.3 punto 4): `AdminBuylistDTO.inboundShipment`. ⛔ `labelUrl` nunca. */
+export interface AdminInboundShipmentDTO {
+  id: string;
+  folio: string;
+  status: 'solicitado' | 'guia' | 'cancelado';
+  labelSource: ShipmentLabelSource | null;
+  labelProcessing: boolean;
+  carrier: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  /** C-5: BRUTO pagado a Skydropx (con IVA y seguro); `costIvaCents`/`insuranceCostCents` son desglose DENTRO (⛔ no se suman). */
+  costCents: number;
+  costIvaCents: number;
+  insuranceCostCents: number;
+  providerCanceledAt: string | null;
+  cancelConfirmed: boolean;
+  /** BSD-1.3 punto 4: el MISMO `labelAlertOf` de M4. */
+  labelAlert?: LabelAlertDTO | null;
+}
+
+/** 💰 rev BSD-1 (§BSD.4.1): `POST /admin/buylist/:id/inbound-shipment` (idempotente). */
+export interface OpenInboundShipmentRes {
+  created: boolean;
+  shipment: AdminShipmentDTO;
 }
 
 // v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
@@ -2882,6 +4983,16 @@ export interface RejectedSellItemDTO {
 export interface AdminOrderDTO extends OrderSummaryDTO {
   breakdown?: BreakdownDTO;
   cfdiStatus?: CfdiStatus;
+  // v1.21: pedidos de invitado en M3 (aditivo).
+  isGuestOrder?: boolean;
+  guestEmail?: string | null;
+  fulfillmentMode?: FulfillmentMode;
+  // v1.80 (§M4-SHIP.10), aditivo: quién es quién y lo devuelto por Stripe.
+  customer?: CustomerRefDTO | null;
+  refundedCents?: number;
+  chargebackNeedsManual?: boolean;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
+  refundReviewPending?: boolean;
 }
 
 // POST /admin/orders/:id/refund (contrato §M3, super_admin, money-out).
@@ -2944,24 +5055,18 @@ export interface DisputeDTO {
   };
 }
 
-// ---- Disputas del CLIENTE (contrato §7) ----
-// WS-F F6. Forma CLIENTE (distinta del DisputeDTO admin): incluye `deadlineAt` (ventana de 7 días)
-// y `evidenceContact` (correo de soporte donde el cliente envía la evidencia, v1.2). El `type` lo
-// deriva server-side del productType del ítem (el cliente NO lo envía).
-export interface CreateDisputeInput {
-  inventoryItemId: string;
-  description: string;
+// ---- Soporte «Escríbenos» (contrato v1.82 §PNL.1) ----
+/** `GET /support/contact` — público, `Cache-Control: public, max-age=300`. `contact` no vacío. */
+export interface SupportContactResponse {
+  contact: string;
+}
+/** `410 DISPUTES_DISCONTINUED` de `POST /disputes` (v1.82 PNL-1): `details.supportContact`. */
+export interface DisputesDiscontinuedDetails {
+  supportContact: string;
 }
 
-// Respuesta 201 de POST /disputes. `evidenceContact` alimenta el componente DisputeEvidenceContact.
-export interface CreateDisputeResponse {
-  disputeId: string;
-  status: DisputeStatus;
-  type: DisputeType;
-  deadlineAt: string;
-  evidenceContact: string;
-}
-
+// ---- Disputas del CLIENTE (contrato §7 — EN TRANSICIÓN, PNL-1) ----
+// `POST /disputes` ya no crea (410); `GET /disputes` sigue para leer las que existan.
 // Fila de GET /disputes / GET /disputes/:id (cliente). El listado crudo del backend NO trae
 // `evidenceContact` (solo la creación lo devuelve), por eso es opcional aquí.
 export interface ClientDisputeDTO {
@@ -3376,6 +5481,12 @@ export interface SealedGroupDTO {
   // sin precio⇒"pending". El SELLADO no cambia de matemática (§K): solo gana este campo.
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.90⟨miv⟩ (ADITIVO, `API_CONTRACT §MIV.2`) — misma regla que `GroupedListingDTO.referenceDisplayCents`:
+   * el mercado CON IVA, derivado en el servidor del `referenceValue` YA PROYECTADO. ⛔ No existe en
+   * `SealedGroupSummaryDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
 }
 // v2.1.9 (D2): el DTO de la REJILLA de sellado = `SealedGroupDTO` MENOS `priceBasis`,
@@ -3764,7 +5875,15 @@ export type AdminUserStatus = 'active' | 'blocked' | 'deleted';
 
 export interface AdminUserSummaryDTO {
   id: string;
-  email: string;
+  /** ⭐ v1.80.9 (§M6-U.7): clave SIEMPRE presente; `null` en el equipo sin correo. Se pinta `email ?? username`. */
+  email: string | null;
+  /** ⭐ v1.80.9: `null` en clientes y en el equipo con correo. */
+  username: string | null;
+  /**
+   * ⭐ v1.80.9 (§M6-U.7): fin del candado por intentos (ISO = ahora + PTTL del almacén); `null` sin
+   * candado **o** si el almacén no contestó (entonces el listado trae `lockState:'unavailable'`).
+   */
+  lockedUntil: string | null;
   name: string;
   role: Role;
   status: AdminUserStatus;
@@ -3777,6 +5896,22 @@ export interface AdminUserSummaryDTO {
    * no miente — no se deriva de ningún otro campo.
    */
   kycStatus?: KycStatus;
+  /**
+   * 🔒 v1.80.12.10 (§19.30.3): la cuenta del dueño. Un no dueño no ve «Restablecer», «Bloquear» ni «Borrar» en su fila;
+   * el propio dueño no ve «Bloquear» ni «Borrar» (§19.30.2 (b)). Solo para mostrar; autoriza el servidor
+   * (`403 OWNER_ACCOUNT_PROTECTED`). Opcional: servidor anterior.
+   */
+  isOwner?: boolean;
+}
+
+/**
+ * ⭐ v1.80.9 (§M6-U.7): `GET /admin/users` gana `lockState` a nivel raíz. `'unavailable'` ⇒ el
+ * almacén de candados no contestó: todas las filas traen `lockedUntil: null` y el front NO afirma
+ * «sin candado» (aviso discreto, DESIGN_SYSTEM §42.5.4).
+ */
+export type AdminUsersLockState = 'ok' | 'unavailable';
+export interface AdminUsersListResponse extends Paginated<AdminUserSummaryDTO> {
+  lockState: AdminUsersLockState;
 }
 
 // POST /admin/users/:id/reset-password → contraseña temporal UNA sola vez (v1.3.1).
@@ -3880,6 +6015,12 @@ export interface AdminUserOwnedItemRef {
 // GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
 // (proyección reducida SEC-A4: sin RFC/INE/billing).
 export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
+  /**
+   * ⭐ v1.80.9.1 A-1 (§M6-U.7): en la RAÍZ de la ficha, en los DOS DTOs (`AdminUserDetailDTO` y
+   * `AdminUserDetailOperatorDTO`), con la misma regla que el listado. `'unavailable'` ⇒
+   * `lockedUntil: null` y el front pinta el aviso discreto, no «sin candado».
+   */
+  lockState: AdminUsersLockState;
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;
@@ -3906,7 +6047,10 @@ export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
 export interface AdminCreatedUserDTO {
   user: {
     id: string;
-    email: string;
+    /** ⭐ v1.80.9 (§M6-U.6): `null` en el alta de equipo. */
+    email: string | null;
+    /** ⭐ v1.80.9: el usuario canónico guardado (minúsculas) en el alta de equipo; `null` en cliente. */
+    username: string | null;
     name: string;
     role: Role;
     locale: Locale;
@@ -3924,8 +6068,10 @@ export interface AdminCreatedUserDTO {
 // omitido). NUNCA incluye before/after (posible PII/estado sensible; §M6/ARCHITECTURE §3.2).
 export interface UserAuditEntryDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -3961,6 +6107,31 @@ export interface SettingsDTO {
   buylistCapPerMonthCents: number;
   ineThresholdCents: number;
   repoCapPerCardCents: number;
+  /*
+   * v1.51 (M-46) · §E2E-ADM.3 (F-9): los DIEZ diales del ciclo de adquisición del buylist (§M10, tabla «DIEZ diales»).
+   * Opcionales por tolerancia a un backend anterior; la pantalla (M10 «Ciclo de venta») los pinta si vienen.
+   */
+  buylistOfferIssueDeadlineBusinessDays?: number;
+  buylistOfferAcceptDeadlineBusinessDays?: number;
+  buylistShipDeadlineBusinessDays?: number;
+  buylistMinimumRequestCents?: number;
+  buylistShippingFeeCents?: number;
+  buylistMinimumOfferNetCents?: number;
+  buylistOperatorOfferCapCents?: number;
+  buylistShipmentConfirmAlertBusinessDays?: number;
+  buylistOfferReissueAlertCount?: number;
+  buylistVariantPositionCap?: number;
+  /** 💰 rev BSD-1 (§BSD.9): días NATURALES sin guía hasta el cierre de una `aceptada` (1..60, default 7). Aplica a las en curso. */
+  buylistGuideCloseCalendarDays?: number;
+  /** 💰 rev BSD-1 (§BSD.9): días naturales antes del cierre para AG-23 y `guideDueSoon` (0..30, default 2; 0 = sin aviso). */
+  buylistGuideWarnDaysBeforeClose?: number;
+  /**
+   * 💰 §AC.11 (aditivos): diales `energy_bundle_price_cents` (1..100_000, default 2000) y
+   * `accessory_suggestion_count` (0..6, default 3). El nombre camelCase sigue la convención de `SETTING_DTO_MAP`
+   * (§AC.11 no lo enumera: solicitud al arquitecto en FRONTEND_NOTES §107). Opcionales: servidor anterior a M-73.
+   */
+  energyBundlePriceCents?: number;
+  accessorySuggestionCount?: number;
   fxBufferPct: number;
   fxManualOverrideRate?: number;
   pricingProviderRaw: string;
@@ -3996,6 +6167,238 @@ export interface SettingsDTO {
    * producción) y el deploy siguiente habría empezado a gastar solo.
    */
   gradingHookEnabled?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv/§3): interruptor MAESTRO de la fuente automática de mercado del
+   * sellado (`sealed_price_source`, enum `tcgcsv | off`, **seed `off` fail-closed**). Ya viaja en
+   * `GET /admin/settings` y se acepta en `PUT /admin/settings` (DTO map `settings.constants.ts`),
+   * pero hasta M11 **no tenía UI** — su único mando era `curl`/runbook. Encenderlo (`off→tcgcsv`) es
+   * un ACTO DE DINERO GLOBAL (§3): autoriza a la ingesta a resolver mercado y hace que el mercado
+   * automático cuente como efectivo (gate I-2). ⚠️ NO gatea el override manual (I-7): un precio
+   * `source='manual'` sobrevive con el dial `off`. Opcional en el tipo porque un backend anterior a
+   * M11 podría omitirlo; la UI trata la ausencia como `off`.
+   */
+  sealedPriceSource?: SealedPriceSource;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): tendencia de valor del sellado (`sealed_value_trend`, enum
+   * `on | off`, **seed `off` fail-closed**). Ya vive en el `SETTING_DTO_MAP` del backend
+   * (`settings.constants.ts`), pero hasta M11 **no tenía UI** — su único mando era `curl`. Opcional
+   * en el tipo porque un backend anterior a M11 la omite; la UI trata la ausencia como `off`.
+   * Se edita por `PUT /admin/settings` (body parcial), misma validación/auditoría que el resto.
+   */
+  sealedValueTrend?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): alertas de reposición de sellado (`sealed_restock_alerts`, enum
+   * `on | off`, **seed `off` fail-closed**). Igual que `sealedValueTrend`: en el DTO map del
+   * backend desde antes, sin UI hasta M11. Ausente ⇒ `off`. `PUT /admin/settings` parcial.
+   */
+  sealedRestockAlerts?: OnOff;
+  /**
+   * 💰 v1.80.8.5 (§M2 `M2-PF`): qué premiums cuyo precio de VENTA cae al piso se publican al piso. Seed
+   * `{ mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] }`. Opcional: un servidor anterior no la trae y la
+   * UI de M10 NO asume el seed (`DESIGN_SYSTEM §39.1 (b)`). Se edita SOLO desde su sección propia de M10.
+   */
+  premiumFloorSalePublish?: PremiumFloorSalePublish;
+  // ---- ⭐ Envíos con Skydropx (§M4-SHIP.19.19.12, `SETTING_DTO_MAP` en camelCase). Opcionales: el
+  // servidor los trae desde `M-SDX-D`; antes, M10 no pinta la sección como si existieran. ----
+  shippingProvider?: 'off' | 'skydropx';
+  shippingLabelPurchase?: ShippingLabelPurchase;
+  skydropxOriginAddressTemplateId?: string | null;
+  shippingPreferredCarriers?: string[];
+  shippingDropoffPoints?: Record<string, { name: string; address: string }>;
+  shippingConsignmentNote?: string;
+  shippingPackageRuleBoxMinCards?: number;
+  skydropxLowBalanceCents?: number;
+  shippingTrackingPollMinutes?: number;
+  shippingInsuranceTiers?: ShippingInsuranceTier[];
+  shippingLabelFormat?: 'standard' | 'thermal';
+  // ---- 💰 Control del gasto (§M4-SHIP.19.29.8; diales del DUEÑO, §19.30.2 (1)). Opcionales: servidor anterior. ----
+  operatorLabelCap24hCents?: number;
+  shippingLabelReissueMaxPerShipment?: number;
+  spendAlertsDisabled?: SpendAlertCode[];
+  spendAlertLabelCapWarnPct?: number;
+  spendAlertShipmentCancelCount?: number;
+  spendAlertPersonCancelCount24h?: number;
+  spendAlertChargeDriftImmediateCents?: number;
+  spendAlertExtraChargeImmediateCents?: number;
+  spendAlertCancelRefundDays?: number;
+  spendAlertLabelNotShippedDays?: number;
+  // ---- ⭐ v1.87⟨wishlist⟩ (§WSH.2): ocho diales de la lista de deseos. Opcionales: un servidor anterior no los trae;
+  // la UI trata la ausencia de `wishlistEnabled` como `off` (seed). ----
+  wishlistEnabled?: OnOff;
+  wishlistMaxPerAccount?: number;
+  wishlistMaxIvaMode?: WishlistIvaMode;
+  wishlistDailyMailCap?: number;
+  wishlistMailWindowMin?: number;
+  wishlistTargetMarginPct?: number;
+  wishlistMarginBasis?: WishlistMarginBasis;
+  sealedRestockMaxPendingPerEmail?: number;
+}
+
+/**
+ * 🔒 v1.80.12.10 (§19.30.2 (1)): las claves (nombres del DTO) que solo el dueño cambia — las 11 de §19.29.8 (incluido
+ * `skydropxLowBalanceCents`) + `shippingLabelPurchase`. Espejo de `OWNER_ONLY_SETTING_KEYS` del servidor; la pantalla
+ * la usa para DESHABILITAR (⛔ no autoriza: el servidor responde `403 OWNER_ONLY_SETTING {keys}`).
+ */
+export const OWNER_ONLY_SETTING_DTO_KEYS = [
+  'operatorLabelCap24hCents',
+  'shippingLabelReissueMaxPerShipment',
+  'spendAlertsDisabled',
+  'spendAlertLabelCapWarnPct',
+  'spendAlertShipmentCancelCount',
+  'spendAlertPersonCancelCount24h',
+  'spendAlertChargeDriftImmediateCents',
+  'spendAlertExtraChargeImmediateCents',
+  'skydropxLowBalanceCents',
+  'spendAlertCancelRefundDays',
+  'spendAlertLabelNotShippedDays',
+  'shippingLabelPurchase',
+] as const satisfies readonly (keyof SettingsDTO)[];
+export type OwnerOnlySettingKey = (typeof OWNER_ONLY_SETTING_DTO_KEYS)[number];
+/** `403 OWNER_ONLY_SETTING {keys}` (§19.30.2 (1)): nombres del DTO, ordenados. */
+export interface OwnerOnlySettingDetails {
+  keys: string[];
+}
+
+// ---- 💰 Avisos de gasto (§M4-SHIP.19.29.9 + §19.30) ----
+export type SpendAlertKind =
+  | 'label_after_address_fix'
+  | 'label_cap_warning'
+  | 'label_cap_blocked'
+  | 'label_reissue_loop'
+  | 'label_charge_drift'
+  | 'carrier_extra_charge'
+  | 'provider_balance_low'
+  | 'cancel_refund_missing'
+  | 'label_charged_unexplained'
+  | 'label_not_shipped'
+  | 'parcel_returned'
+  | 'parcel_problem'
+  | 'label_costly_choice'
+  | 'operator_refund_cap'
+  | 'super_admin_money_out'
+  | 'shrinkage'
+  | 'chargeback'
+  | 'buylist_manual_price'
+  | 'psa_credits'
+  | 'stuck_refund'
+  | 'owner_account_changed'
+  | 'staff_control_by_non_owner'
+  /** 💰 rev BSD-1 (§BSD.7.2): AG-23 «Solicitud de venta sin guía» — solo al dueño, `facts` sin PII. */
+  | 'buylist_guide_due';
+/** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
+export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
+  label_after_address_fix: 'AG-1',
+  label_cap_warning: 'AG-2',
+  label_cap_blocked: 'AG-3',
+  label_reissue_loop: 'AG-4',
+  label_charge_drift: 'AG-5',
+  carrier_extra_charge: 'AG-6',
+  provider_balance_low: 'AG-7',
+  cancel_refund_missing: 'AG-8',
+  label_charged_unexplained: 'AG-9',
+  label_not_shipped: 'AG-10',
+  parcel_returned: 'AG-11',
+  parcel_problem: 'AG-12',
+  label_costly_choice: 'AG-13',
+  operator_refund_cap: 'AG-14',
+  super_admin_money_out: 'AG-15',
+  shrinkage: 'AG-16',
+  chargeback: 'AG-17',
+  buylist_manual_price: 'AG-18',
+  psa_credits: 'AG-19',
+  stuck_refund: 'AG-20',
+  owner_account_changed: 'AG-21',
+  staff_control_by_non_owner: 'AG-22',
+  buylist_guide_due: 'AG-23',
+};
+export type SpendAlertCode =
+  | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
+  | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
+  | 'AG-23';
+/** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
+export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
+  'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
+  // 💰 rev BSD-1 (BSD-1.1 C-7): AG-23 se apaga como los demás (backend `SPEND_ALERT_CODES`); la marca de M5 y el contador
+  // del tablero NO se apagan con él (son derivados).
+  'AG-23',
+];
+export type SpendAlertSeverity = 'immediate' | 'digest';
+export type SpendAlertMailStatus =
+  | 'not_applicable'
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'batched'
+  | 'batch_sent'
+  | 'failed'
+  | 'failed_unknown'
+  | 'no_recipient';
+/** §19.29.9 + §19.30.1 (6)/§19.30.2 (3) (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`: personas del personal). */
+export type SpendAlertFactValue = string | number | boolean | string[] | null | { userId: string; name: string | null; role?: Role };
+export interface SpendAlertDTO {
+  id: string;
+  code: SpendAlertCode;
+  kind: SpendAlertKind;
+  severity: SpendAlertSeverity;
+  /** Miembro del personal; ⛔ nunca un cliente. */
+  subject: { userId: string; name: string | null } | null;
+  /** 🔒 v1.80.12.15 (G5): `kind` obligatorio, `null` ⇒ sin orden ⇒ envíos por folio; con `order` ⇒ pedido. */
+  shipment: { id: string; folio: string; kind: AdminShipmentKind | null } | null;
+  order: { id: string; orderNumber: string | null } | null;
+  amountCents: number | null;
+  /** Lista blanca por kind (§19.29.6); la pantalla aplica OTRA lista blanca al pintar (UX-GAS-6). */
+  facts: Record<string, SpendAlertFactValue | undefined>;
+  occurrenceCount: number;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+  resolvedAt: string | null;
+  seen: { at: string; by: { userId: string; name: string | null } } | null;
+  mail: { status: SpendAlertMailStatus; at: string | null };
+  /** 🔒 v1.80.12.10 (§19.30.2 (5)): el tipo estaba apagado al crearse (sin correo, fuera de `unseen*`). */
+  muted?: boolean;
+}
+export interface SpendAlertListFilters {
+  kind?: SpendAlertKind;
+  severity?: SpendAlertSeverity;
+  subjectUserId?: string;
+  unseen?: boolean;
+  muted?: boolean;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface SpendAlertListRes {
+  data: SpendAlertDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+export interface SpendAlertSummaryDTO {
+  from: string;
+  to: string;
+  byKind: { code: SpendAlertCode; immediate: number; digest: number; amountCents: number }[];
+  labelSpendByPerson: { userId: string; name: string | null; cents: number; labels: number }[];
+  costlyChoices: { count: number; overRecommendedCents: number; byPerson: { userId: string; name: string | null; count: number }[] };
+}
+/** `POST /admin/spend-alerts/seen` — `skipped` desde v1.80.12.10 (§19.30.2 (4)). */
+export interface MarkSpendAlertsSeenRes {
+  updated: number;
+  skipped?: number;
+}
+/** `workQueue.spendControl` (§19.29.9). */
+export interface SpendControlDTO {
+  unseenImmediate: number;
+  unseenDigest: number;
+  labelSpend24h: { userId: string; name: string | null; cents: number; capCents: number | null }[];
+}
+
+/** §M2 `M2-PF` — el dial `premiumFloorSalePublish`. `rarities` vacío ⇔ `mode !== 'only'` (validador del servidor). */
+export const PREMIUM_FLOOR_MODES = ['only', 'all', 'none'] as const;
+export type PremiumFloorSalePublishMode = (typeof PREMIUM_FLOOR_MODES)[number];
+export interface PremiumFloorSalePublish {
+  mode: PremiumFloorSalePublishMode;
+  rarities: string[];
 }
 
 /**
@@ -4220,8 +6623,10 @@ export interface GradedEstimateDeleteResponse {
 
 export interface AuditLogDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -4229,8 +6634,10 @@ export interface AuditLogDTO {
 }
 
 // ---- M7: Finanzas (contrato §M7) ----
-// GET /admin/finance/pnl?from=&to= (contrato §M7, v1.4-finance):
-// profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents.
+// GET /admin/finance/pnl?from=&to= (contrato §M7, v1.4-finance; forma completa §M10-IVA.8 / §M4-SHIP.19.36.1):
+// profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents
+//             − refundsCents − refundedFeesCents − compensationsCents.
+// ⛔ `shippingAdjustmentsCents` y `shippingInsuranceCents` YA están dentro de `shippingCostCents`: no se suman a nada.
 export interface PnlDTO {
   incomeCents: number;
   shippingRevenueCents: number;
@@ -4256,7 +6663,30 @@ export interface PnlDTO {
    * envíos no tienen costo: revísalos»*—. La pantalla lo rotula así y ⛔ **no lo suma a nada**.
    */
   shippingCostMissingCount: number;
+  /**
+   * §M4-SHIP.19.36.1 / §19.11 — «ajustes de paquetería»: cargos extra de la paquetería (netos de IVA) contados en el mes
+   * de su cargo. ⛔ **Ya están DENTRO de `shippingCostCents`**: la pantalla los muestra como «Incluye…», sin signo.
+   */
+  shippingAdjustmentsCents: number;
+  /** §M4-SHIP.19.36.1 / §19.11 — seguro del envío del periodo. ⛔ Ya está DENTRO de `shippingCostCents` (informativo). */
+  shippingInsuranceCents: number;
+  /** §M10-IVA.8 (v1.80.7) — reembolsos del periodo, mercancía + envío NETOS de IVA. Resta en `profitCents`. */
+  refundsCents: number;
+  /** §M10-IVA.8 (v1.80.7) — comisión de plataforma (`processingFee`) devuelta en el periodo. Resta en `profitCents`. */
+  refundedFeesCents: number;
+  /** §M10-IVA.8 (v1.80.7) — compensaciones por carta perdida pagadas en el periodo. Resta en `profitCents`. */
+  compensationsCents: number;
+  /** Ganancia del periodo calculada por el SERVIDOR. ⛔ El cliente nunca la recalcula (GAS-4). */
   profitCents: number;
+  // ---- 💰 rev BSD-1 (errata BSD-1.2, §BSD.16.2; BSD-1.4 punto 12) · la guía y la tarifa del buylist ----
+  /** SUMA a `profitCents`: lo retenido de verdad a los vendedores en las solicitudes `pagada` del periodo (`paidAt`). */
+  buylistShippingFeeRetainedCents: number;
+  /** RESTA: guías de entrada de Skydropx (netas de IVA) + guías manuales con costo capturado. */
+  buylistGuideCostCents: number;
+  /** Informativo (ya está dentro de los dos de arriba): Σ (retenido − costo de SU guía) de las pagadas. Puede ser < 0. */
+  buylistGuideMarginCents: number;
+  /** Informativo: pagadas en el periodo con guía manual y sin costo capturado. */
+  buylistGuideCostMissingCount: number;
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.
@@ -4317,6 +6747,182 @@ export interface LaunchMetricsDTO {
   goals: LaunchGoalsDTO | null;
 }
 
+// ---- §AN · Analítica de ventas del dueño (contrato §15, rev v1.85⟨ventas⟩) ----
+// GET /admin/reports/sales (+ /export.csv, + /today) — solo super_admin (operador ⇒ 403).
+// ⚠️ Los campos de P2 (fase B/C, §15.8) son OPCIONALES en el tipo del front a propósito
+// (DESIGN_SYSTEM §AN-UX.16 FS-AN-4): un servidor en fase A no los manda y la pantalla tiene que
+// poder pintar la AUSENCIA como ausencia (bloque que no existe), nunca como `0`. ⛔ AN-1: el front
+// no deriva ninguna cifra de otras; todo número sale tal cual de aquí.
+
+/** `'YYYY-MM-DD'`, día civil de México (`America/Mexico_City`). */
+export type SalesYmd = string;
+export type SalesPreset = 'today' | 'yesterday' | 'last7' | 'last30' | 'this_month' | 'last_month' | 'custom';
+export type SalesGroupBy = 'day' | 'week' | 'month';
+export type SalesTopSort = 'net' | 'pieces';
+
+export interface SalesRefundsDTO {
+  count: number;
+  amountCents: number;
+  netCents: number;
+  byChannel: { card: { count: number; amountCents: number }; spei: { count: number; amountCents: number } };
+}
+
+/** §15.4 · P2 `shipping` — `buylistRevenueCents`/`buylistCostCents` SOLO con #78 en production (ausentes, no `0`). */
+export interface SalesShippingDTO {
+  chargedNetCents: number;
+  costNetCents: number;
+  costMissingCount: number;
+  adjustmentsCents: number;
+  /** ⭐ AN-1.1 (N-AN-3, §15.11.3, fase B): `chargedNetCents − costNetCents` del MISMO cubo, lo da el SERVIDOR. ⛔ El front no resta. */
+  resultNetCents?: number;
+  buylistRevenueCents?: number;
+  buylistCostCents?: number;
+}
+
+export interface SalesBuylistDTO {
+  paidCount: number;
+  paidNetCents: number;
+  paidWithoutPayoutCount: number;
+}
+
+export interface SalesFiguresDTO {
+  orders: number;
+  chargedCents: number;
+  netSalesCents: number;
+  refunds: SalesRefundsDTO;
+  netSalesAfterRefundsCents: number;
+  pieces: number;
+  /** `null` si `orders = 0` (criterio 604) ⇒ «—». */
+  avgTicketCents: number | null;
+  /** un decimal; `null` si `orders = 0`. */
+  piecesPerOrder: number | null;
+  // ---- P2 (fase B) — opcionales en el front ----
+  shipping?: SalesShippingDTO;
+  buylist?: SalesBuylistDTO;
+  /** 612, regla de Finanzas (§15.8, hereda D-AN-1). */
+  profitCents?: number;
+  /** ⭐ AN-1.1 (N-AN-1, §15.11.1, fase C): abiertos en el cubo; desenlace de HOY. Ausente hasta M-AN-1. */
+  chargebacks?: SalesChargebacksDTO;
+}
+
+export interface SalesMoneyCellDTO {
+  count: number;
+  amountCents: number;
+}
+export interface SalesChargebacksDTO {
+  count: number;
+  amountCents: number;
+  byOutcome: { open: SalesMoneyCellDTO; won: SalesMoneyCellDTO; lost: SalesMoneyCellDTO };
+}
+export interface SalesPieceCellDTO {
+  pieces: number;
+  netCents: number;
+}
+
+/** `pct` entero; `null` si el anterior es 0 o alguno es `null`. */
+export interface SalesDeltaDTO {
+  diff: number | null;
+  pct: number | null;
+}
+
+export interface SalesTopCardDTO {
+  cardId: string;
+  name: string;
+  number: string;
+  setName: string;
+  finish: Finish;
+  productType: ProductType;
+  pieces: number;
+  netCents: number;
+}
+export interface SalesTopSetDTO {
+  setId: string;
+  setName: string;
+  pieces: number;
+  netCents: number;
+}
+export interface SalesTopSealedDTO {
+  sealedProductId: string | null;
+  name: string;
+  /** AN-1.2 (§15.12.4): un sellado sin producto puede no tener set ⇒ `null` ⇒ «—». */
+  setName: string | null;
+  pieces: number;
+  netCents: number;
+}
+
+export interface SalesMixCellDTO {
+  orders: number;
+  chargedCents: number;
+}
+
+export interface SalesBestDaysDTO {
+  /** 1 = lunes; siempre 7. */
+  byWeekday: Array<{ weekday: 1 | 2 | 3 | 4 | 5 | 6 | 7; orders: number; chargedCents: number }>;
+  /** 0–23, hora de México; siempre 24. */
+  byHour: Array<{ hour: number; orders: number; chargedCents: number }>;
+}
+
+export interface SalesMixDTO {
+  byDestination: { vault: SalesMixCellDTO; direct_ship: SalesMixCellDTO };
+  /** guest ⇔ `guestEmail != null`. */
+  byBuyer: { account: SalesMixCellDTO; guest: SalesMixCellDTO };
+  /** fase C (M-AN-1); `method: null` = «sin dato». Cadena ABIERTA (no enum). Opcional en el front: fase B no la trae. */
+  byPaymentMethod?: Array<{ method: string | null; orders: number; chargedCents: number }>;
+  /** ⭐ AN-1.1 (N-AN-2, §15.11.2, fase B): incluye los `refunded`; Σ = `totals.pieces` / `totals.netSalesCents`. */
+  byProductType?: {
+    raw: SalesPieceCellDTO;
+    graded: SalesPieceCellDTO;
+    sealed: SalesPieceCellDTO;
+    /** §AC.12 (aditivo): unidades de renglones `accessory` + 1 por paquete. Ausente ⇒ servidor anterior. */
+    accessory?: SalesPieceCellDTO;
+  };
+}
+
+export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
+
+export interface SalesReportDTO {
+  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City' };
+  previousPeriod: { from: SalesYmd; to: SalesYmd };
+  groupBy: SalesGroupBy;
+  totals: SalesFiguresDTO;
+  previousTotals: SalesFiguresDTO;
+  comparison: {
+    orders: SalesDeltaDTO;
+    chargedCents: SalesDeltaDTO;
+    netSalesCents: SalesDeltaDTO;
+    refundsAmountCents: SalesDeltaDTO;
+    netSalesAfterRefundsCents: SalesDeltaDTO;
+    avgTicketCents: SalesDeltaDTO;
+    piecesPerOrder: SalesDeltaDTO;
+  };
+  /** TODOS los cubos del periodo, en orden, también los de cero. */
+  rows: SalesRowDTO[];
+  top: { sort: SalesTopSort; cards: SalesTopCardDTO[]; sets: SalesTopSetDTO[]; sealed: SalesTopSealedDTO[] };
+  customers: { new: number; returning: number; distinct: number };
+  // ---- P2 (fase B / C) — opcionales en el front ----
+  bestDays?: SalesBestDaysDTO;
+  mix?: SalesMixDTO;
+  /** ⭐ AN-1.1 (fase C): contracargos de TODO el histórico sin `chargebackOpenedAt` (anteriores a M-AN-1). */
+  chargebacksUndatedCount?: number;
+}
+
+/** §15.5 — tarjeta «Ventas de hoy» (criterio 611). */
+export interface SalesTodayDTO {
+  today: { day: SalesYmd; orders: number; chargedCents: number };
+  /** ese día COMPLETO (P-AN-2, default). */
+  sameWeekdayLastWeek: { day: SalesYmd; orders: number; chargedCents: number };
+  comparison: { orders: SalesDeltaDTO; chargedCents: SalesDeltaDTO };
+}
+
+/** Parámetros de `GET /admin/reports/sales` y `/export.csv` (§15.2). */
+export interface SalesReportParams {
+  preset?: SalesPreset;
+  from?: SalesYmd;
+  to?: SalesYmd;
+  groupBy?: SalesGroupBy;
+  topSort?: SalesTopSort;
+}
+
 // ---- Errores (contrato §0) ----
 export interface ApiError {
   code: string;
@@ -4345,8 +6951,15 @@ export type FulfillmentMode = 'vault' | 'direct_ship';
 export interface GuestAddressInput {
   line1: string;
   line2?: string;
-  neighborhood?: string;
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25.1) — OBLIGATORIA como texto 1..120: de la lista de
+   * `GET /geo/postal-codes/:cp` o escrita a mano. ⛔ Sin `422` geográficos: el servidor nunca rechaza por
+   * el catálogo (con el CP en el catálogo guarda la grafía canónica si casa).
+   */
+  neighborhood: string;
+  /** v1.80.12.5: obligatorio 1..120. Con el CP en el catálogo el servidor pone el municipio del CP. */
   city: string;
+  /** v1.80.12.5: obligatorio 1..120. Con el CP en el catálogo el servidor pone el estado del CP. */
   state: string;
   /** ^\d{5}$ */
   postalCode: string;
@@ -4356,6 +6969,8 @@ export interface GuestAddressInput {
   phone: string;
   /** nombre de quien recibe (el invitado no tiene User.name) */
   recipientName: string;
+  /** ⭐ v1.81 — opcional, ≤ 70, para el repartidor; se imprime en la guía. */
+  references?: string;
 }
 
 /** POST /checkout/guest/quote — read-only, no reserva inventario. §4-G.1 */
@@ -4394,6 +7009,14 @@ export interface GuestCheckoutQuoteResponse {
    * nunca error.
    */
   unavailableItems: UnavailableCartItemDTO[];
+  /** 💰 §AC.4 (aditivas). Opcionales solo por tolerancia a un servidor anterior a M-73. */
+  accessoryLines?: QuoteAccessoryLineDTO[];
+  energyBundles?: EnergyBundleDTO[];
+  energyBundleOffers?: EnergyBundleDTO[];
+  unavailableAccessories?: UnavailableAccessoryDTO[];
+  unavailableBundles?: UnavailableBundleDTO[];
+  shippingBox?: QuoteShippingBoxDTO | null;
+  vaultExcludesAccessories?: boolean;
 }
 
 /** POST /checkout/guest/session. §4-G.2 */
@@ -4415,6 +7038,9 @@ export interface GuestCheckoutSessionRequest {
    * en **`sessionStorage`** (ámbito pestaña; ⛔ nunca `localStorage`) y viaja SOLO en el body.
    */
   retryOfCheckoutToken?: string;
+  /** 💰 §AC.4 (aditivas). ⛔ Sin importes: precio, envío y paquete los pone el servidor (I-AC-3). */
+  accessoryLines?: AccessoryLineInput[];
+  deckPulls?: DeckPullInput[];
 }
 
 export interface GuestCheckoutSessionResponse {
@@ -4442,6 +7068,10 @@ export interface GuestCheckoutSessionResponse {
   reused?: boolean;
   reservedUntil?: string;
   supersededOrderIds?: string[];
+  /** 💰 §AC.4 (aditiva): lo creado en la sesión. */
+  accessoryLines?: QuoteAccessoryLineDTO[];
+  energyBundles?: EnergyBundleDTO[];
+  shippingBox?: QuoteShippingBoxDTO | null;
 }
 
 /** Estado público derivado (§4-G.5). El texto legible vive en i18n del front. */
@@ -4481,6 +7111,9 @@ export interface GuestTrackingShippingDTO {
   trackingNumber?: string;
   shippedAt?: string;
   deliveredAt?: string;
+  /** ⭐ §19.12 (aditivo): solo si Skydropx la dio; ausente si no. */
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
 }
 
 /** Marca + últimos 4. NADA más (criterio 51). */
@@ -4508,6 +7141,11 @@ export interface GuestOrderTrackingDTO {
   claim: { available: boolean };
   support: { evidenceContact: string; disputeWindowDays: number; disputeDeadlineAt?: string };
   tokenExpiresAt: string;
+  /**
+   * 💰 §AC.12 (aditivo): renglones de accesorio. ⛔ Sin costo. v1.86.3 (§AC.19.6): con `id` (uuid opaco, llave de
+   * lista) y `kind`; ⛔ `deliveredRefund` solo en M3.
+   */
+  accessoryLines?: Omit<OrderAccessoryLineDTO, 'deliveredRefund'>[];
 }
 
 /** POST /orders/guest/resend-link — unión discriminada; `email` SOLO nunca se acepta (§4-G.4). */
@@ -4673,4 +7311,712 @@ export interface IvaTransferUpdateRequest {
 export interface IvaTransferUpdateResponse {
   ivaTransferPct: number;
   preview: IvaTransferPreviewDTO;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §13 — DECKS META (2026-09-18, arquitecto). Espejo de docs/API_CONTRACT.md §13. El carrito sigue
+// siendo de cliente (array de inventoryItemId, §4-G): estos DTOs devuelven los `inventoryItemId`
+// a agregar; NO hay carrito servidor nuevo. Precio y piezas se REUSAN de §2 (no se reinventan).
+//
+// DISPONIBILIDAD (§13 «Convenciones», trust-source SUP-LEG): la fuente (Limitless) ya sólo publica
+// decks legales, así que NO re-filtramos por legalidad. Una línea es OFRECIBLE si casó
+// (`matchStatus === 'matched'`) y tiene stock; `matchStatus ≠ 'matched'` ⇒ no identificada, sin
+// `card`/precio (nunca se inventa carta ni precio).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** §13 — el grupo de la sección de deck (Pokémon / Entrenador / Energía). */
+export type MetaCardGroup = 'pokemon' | 'trainer' | 'energy';
+
+/**
+ * §13 — resultado del emparejado set+número ↔ nuestra `Card`. Solo `matched` trae `card` y precio;
+ * el resto se muestra «no identificada» sin inventar nada (regla dura del dueño).
+ */
+export type MetaMatchStatus =
+  | 'matched'
+  | 'ambiguous'
+  | 'unmatched_set'
+  | 'unmatched_number'
+  | 'unmatched_basic_energy';
+
+/** §13 — la `Card` casada de una línea (solo cuando `matchStatus === 'matched'`). */
+export interface MetaDeckCardRefDTO {
+  cardId: string;
+  name: string;
+  imageUrl: string;
+}
+
+/**
+ * §13 (Fase 3, opcional) — otra impresión de la misma carta en stock, sugerida cuando la línea
+ * original está agotada. Ausente en Fase 1.
+ */
+export interface MetaDeckLineSubstituteDTO {
+  cardId: string;
+  name: string;
+  setCode: string;
+  number: string;
+  availableQty: number;
+  unitPriceMxnCents: number | null;
+  unitInventoryItemIds: string[];
+}
+
+/**
+ * §13 `MetaDeckLineDTO` — una línea del deck con su disponibilidad.
+ *
+ * `unitInventoryItemIds`: hasta `availableQty`, cheapest-first — es el add-to-cart «de jalón».
+ * Una línea NO identificada (`matchStatus≠matched`) o sin stock NO aporta `unitInventoryItemIds`
+ * propios; puede traer `substitute` (Fase 3).
+ */
+export interface MetaDeckLineDTO {
+  rawName: string;
+  setCode: string;
+  number: string;
+  quantity: number;
+  group: MetaCardGroup;
+  matchStatus: MetaMatchStatus;
+  /** `null` si la línea no casó a una `Card` (nunca se inventa). */
+  card: MetaDeckCardRefDTO | null;
+  /** `min(quantity, stockNM)`; 0 si falta. */
+  availableQty: number;
+  /** «desde» de la carta (salePriceCents); `null` si pending/faltante. */
+  unitPriceMxnCents: number | null;
+  /** Hasta `availableQty`, cheapest-first — las piezas del «de jalón». */
+  unitInventoryItemIds: string[];
+  substitute?: MetaDeckLineSubstituteDTO;
+  /**
+   * 💰 §AC.8 (aditivo): presente y no nulo ⇔ energía básica reconocida con producto ACTIVO de su tipo.
+   * `null`/ausente ⇒ la línea se pinta como hoy (criterio 734).
+   */
+  basicEnergy?: MetaDeckBasicEnergyDTO | null;
+}
+
+/** §13 — las líneas del deck agrupadas por sección. Misma forma en el detalle y en `paste`. */
+export interface MetaDeckGroupsDTO {
+  pokemon: MetaDeckLineDTO[];
+  trainer: MetaDeckLineDTO[];
+  energy: MetaDeckLineDTO[];
+}
+
+/** §13 `GET /decks-meta` — teja del top-10 del meta. */
+export interface MetaDeckSummaryDTO {
+  slug: string;
+  name: string;
+  rank: number;
+  /** % del meta, si la fuente lo da. */
+  sharePct?: number;
+  /** share_actual − anterior (▲=+, ▼=−, 0). */
+  trend?: number;
+  /** «desde»: suma de disponibles con precio; opcional. */
+  fromPriceMxnCents?: number;
+  /** Σ availableQty de líneas casadas con stock. */
+  availableCount: number;
+  totalCount: number;
+  /** arte de una Card representativa (nunca arte externo). */
+  imageUrl?: string;
+}
+
+/** §13 `GET /decks-meta` — top-10 publicado, ordenado por `rank` asc, con cita de fuente. */
+export interface DecksMetaListResponse {
+  data: MetaDeckSummaryDTO[];
+  /** fetchedAt de la lista más reciente aplicada. */
+  updatedAt: string;
+  source: string;
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. */
+export interface DeckMetaDetailResponse {
+  slug: string;
+  name: string;
+  rank: number;
+  sharePct?: number;
+  trend?: number;
+  source: string;
+  sourceUrl?: string;
+  sourceTournament?: string;
+  groups: MetaDeckGroupsDTO;
+  /** 💰 §AC.8 (aditivo, en la raíz). ⛔ `POST /decks-meta/paste` no lo emite (P-EN-7). */
+  energyBundle?: DeckEnergyBundleDTO;
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — misma forma que `groups` del detalle (parsea+empareja+valora en
+ * memoria, no persiste). Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`.
+ */
+export interface DeckMetaPasteResponse {
+  groups: MetaDeckGroupsDTO;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────
+ * §13 Fase 2 (auto-fetch) — ADMIN dry-run. `GET /admin/decks-meta/preview` (rol `vault_operator+`)
+ * corre el pipeline REAL (home → listas → parse → match → canary) en dry-run y
+ * devuelve el reporte INLINE **sin escribir NADA**. Es la vía de verificación en prod: superficie
+ * de OPERADOR, no de cliente, por eso vive aquí y no en la superficie pública §13.
+ *
+ * Los tipos ESPEJAN `RefreshReport`/`RefreshRunResult` del backend
+ * (`backend/src/modules/decks-meta/decks-meta-refresh.service.ts` + `canary.ts`). No se inventan
+ * campos: si el backend cambia el shape, se actualiza aquí a mano (no hay generación de tipos).
+ * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+export interface DecksMetaCanaryCheck {
+  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5';
+  ok: boolean;
+  measured: number;
+  threshold: number;
+  /** Etiqueta de procedencia del backend (NO es i18n de UI: la pantalla la rotula por `id`). */
+  label?: string;
+}
+
+export interface DecksMetaCanaryResult {
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  checks: DecksMetaCanaryCheck[];
+  reason: string | null;
+  inBandDeckCount: number;
+}
+
+export interface DecksMetaDeckReport {
+  archetypeId: string;
+  name: string | null;
+  rank: number | null;
+  sharePct: number | null;
+  listId: string;
+  /** Nº de líneas parseadas de la lista. */
+  cardsParsed: number;
+  /** Σ de cantidades (un deck estándar = 60). */
+  sumQuantity: number;
+  matched: number;
+  total: number;
+  matchStatusBreakdown: Record<string, number>;
+  /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
+  inBand: boolean;
+  error?: string;
+  /**
+   * rev `decks-portada` (§13 «Portada del deck», ARCHITECTURE §12.4) — la portada que Limitless da
+   * para el arquetipo y si casó contra NUESTRO catálogo. Solo lectura/procedencia: no altera
+   * `verdict`/`checks`/`inBand`. `null` ⇔ la home no trajo portada válida o la lista falló.
+   * Opcional (`?`) para tolerar un backend anterior a la rev, que no manda el campo.
+   */
+  cover?: DecksMetaDeckCover | null;
+}
+
+/** Portada del deck en el ensayo (`GET /admin/decks-meta/preview` › `decks[].cover`). */
+export interface DecksMetaDeckCover {
+  /** Crudo del `alt` de Limitless («TWM-130» ⇒ `TWM`), ya validado por el backend. */
+  setCode: string;
+  /** Crudo, SIN normalizar («25»; el casado normaliza 25 ↔ 025). */
+  number: string;
+  matchStatus: 'matched' | 'ambiguous' | 'unmatched_set' | 'unmatched_number';
+  /** `null` si no casó. */
+  cardId: string | null;
+  /** Imagen de NUESTRO catálogo de esa carta; `null` si no casó o no tiene imagen. Nunca arte de Limitless. */
+  imageUrl: string | null;
+}
+
+export interface DecksMetaRefreshReport {
+  mode: 'live' | 'dryrun';
+  formatCode: string | null;
+  formatLabel: string;
+  autopublish: boolean;
+  startedAt: string;
+  finishedAt: string;
+  urlsFetched: string[];
+  decks: DecksMetaDeckReport[];
+  canary: DecksMetaCanaryResult;
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  wouldPublish: boolean;
+  applied: boolean;
+  persistedCount: number;
+  publishedSlugs: string[];
+  supersededListIds: string[];
+  manualConflicts: string[];
+  pausedSkipped: string[];
+  errors: string[];
+}
+
+/**
+ * La respuesta del endpoint es el `RefreshRunResult`: o bien corrió (`skipped:false` + `report`),
+ * o bien se saltó por single-flight (`ALREADY_RUNNING`). En dry-run el dial `off` NO aplica (el
+ * dry-run se fuerza), así que en la práctica sólo llega `ALREADY_RUNNING`, pero se tipa completo.
+ */
+export type DecksMetaPreviewResponse =
+  | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
+  | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
+
+// ── §13 Fase 2 · DIAL del jalado automático (operación admin) ────────────────────────────────────
+// Espeja el endpoint ya construido en `admin-decks-meta.controller.ts`. No cambia el contrato:
+// mirror de shapes existentes.
+
+/** El interruptor de 3 estados del auto-fetch. `on` dispara egress real + publicación (super_admin). */
+export type DecksMetaAutofetch = 'off' | 'dryrun' | 'on';
+
+/**
+ * Estado del dial (`GET /admin/decks-meta/dial`, vault_operator+; `PUT` super_admin). Fail-closed:
+ * ausente ⇒ `{ autofetch:'off', autopublish:false }`.
+ */
+export interface DecksMetaDialDTO {
+  autofetch: DecksMetaAutofetch;
+  autopublish: boolean;
+}
+
+/** Patch parcial del dial (`PUT /admin/decks-meta/dial`). Sólo las llaves que el dueño tocó. */
+export interface DecksMetaDialUpdateRequest {
+  autofetch?: DecksMetaAutofetch;
+  autopublish?: boolean;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────
+ * 💰 §AC — ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + errata v1.86.1).
+ * Espejo de `API_CONTRACT §AC.1–§AC.13`. ⛔ Ningún DTO público lleva costo, existencias, `suggested` ni
+ * medidas (I-AC-3, criterio 730). Lo que el contrato declara aditivo en DTOs existentes va como opcional
+ * (`?`) para tolerar un servidor anterior a M-73; la pantalla lee `?? []` / `?? null` (FRONTEND_NOTES §107).
+ * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** Enum de Prisma (clase E). Orden = orden de la tienda (§AC.1). */
+export const ACCESSORY_CATEGORIES = ['sleeves', 'toploaders', 'binders', 'deck_boxes', 'playmats', 'energy', 'other'] as const;
+export type AccessoryCategory = (typeof ACCESSORY_CATEGORIES)[number];
+/** Enum de Prisma (clase E), P-EN-1. Orden = el de los desgloses «Fuego ×8 · Agua ×4». */
+export const ENERGY_TYPES = ['grass', 'fire', 'water', 'lightning', 'psychic', 'fighting', 'darkness', 'metal'] as const;
+export type EnergyType = (typeof ENERGY_TYPES)[number];
+export type AccessoryLineKind = 'accessory' | 'energy_bundle';
+export type AccessoryLineStatus = 'reserved' | 'released' | 'sold' | 'restocked';
+export type AccessoryStockMovementKind = 'initial' | 'receive' | 'adjust' | 'sale' | 'restock' | 'settle_recovery';
+
+/** §AC.3 — rutas absolutas de la API, con versión (`/accessories/:id/photo/:version/:variant`). */
+export interface AccessoryPhotoDTO {
+  url: string;
+  thumbUrl: string;
+}
+
+/** §AC.3 — teja pública. `priceCents` con IVA dentro (precio exhibido). */
+export interface AccessoryCardDTO {
+  id: string;
+  name: string;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  priceCents: number;
+  /** `stockQty − reservedQty = 0`. */
+  soldOut: boolean;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.3 — ficha pública. `maxQty = min(disponible, 99)`; 0 ⇔ soldOut. Único rastro del disponible. */
+export interface AccessoryDetailDTO extends AccessoryCardDTO {
+  description: string | null;
+  maxQty: number;
+}
+
+/** `GET /accessories?category=&q=&page=&pageSize=` (§AC.3). */
+export interface AccessoryListResponse {
+  items: AccessoryCardDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** `GET /accessories/suggestions?exclude=` (§AC.3). `[]` ⇔ dial en 0 o sin candidatos. */
+export interface AccessorySuggestionsResponse {
+  items: AccessoryCardDTO[];
+}
+
+/** §AC.4 — cuerpo aditivo de `quote`/`session`. ⛔ Sin precio: el servidor ignora llaves extra (I-AC-3). */
+export interface AccessoryLineInput {
+  accessoryId: string;
+  /** Entero 1..99. */
+  quantity: number;
+}
+/** §AC.4/§AC.8 — el `pullToken` viaja SOLO en el cuerpo (⛔ nunca en URL). */
+export interface DeckPullInput {
+  pullToken: string;
+  withEnergyBundle: boolean;
+}
+
+/** §AC.4 — renglón de accesorio cotizado. `lineTotalCents` lo calcula el servidor. */
+export interface QuoteAccessoryLineDTO {
+  accessoryId: string;
+  name: string;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.4 (+ v1.86.1: `photo` por energía, nunca null). */
+export interface EnergyBundleDTO {
+  deckSlug: string;
+  deckName: string;
+  /** El dial `energy_bundle_price_cents`. */
+  priceCents: number;
+  /** Referencia: Σ need × precio de cada energía (F2 regla 2). ⛔ Sin tachar. */
+  looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string; photo: AccessoryPhotoDTO }[];
+}
+
+export type BundleReason =
+  | 'invalid_token'
+  | 'expired'
+  | 'deck_incomplete'
+  | 'deck_unpublished'
+  | 'not_offered'
+  | 'insufficient_stock'
+  | 'duplicate';
+
+/** §AC.4 (+ v1.86.1: `name`, `null` ⇔ not_found). */
+export interface UnavailableAccessoryDTO {
+  accessoryId: string;
+  name: string | null;
+  reason: 'not_found' | 'inactive' | 'sold_out' | 'insufficient';
+  availableQty?: number;
+}
+export interface UnavailableBundleDTO {
+  /** v1.86.3 (§AC.19.4): posición en `deckPulls` de la petición (0-based). Con `invalid_token` es la única llave. */
+  index: number;
+  /** v1.86.3 (§AC.19.4): lo que pedía ese `deckPull`. Decide si el aviso de paquete aparece. */
+  withEnergyBundle: boolean;
+  deckSlug: string | null;
+  reason: BundleReason;
+}
+/** §AC.4/§AC.7 — `null` ⇔ tarifa de hoy. ⛔ `label`/`code`/`review` no se pintan al cliente (§AC-UX.7). */
+export interface QuoteShippingBoxDTO {
+  code: string;
+  label: string;
+  review: boolean;
+}
+
+/** §AC.8 — energía básica ligada a su producto activo (aditivo en `MetaDeckLineDTO`). */
+export interface MetaDeckBasicEnergyDTO {
+  energyType: EnergyType;
+  accessoryId: string;
+  unitPriceCents: number;
+  soldOut: boolean;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.8 — raíz de `GET /decks-meta/:slug`. `pullToken` SIEMPRE presente. ⛔ `paste` no lo emite. */
+export interface DeckEnergyBundleDTO {
+  offered: boolean;
+  reason: 'no_basic_energy' | 'not_offered' | 'insufficient_stock' | null;
+  priceCents: number;
+  looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string | null }[];
+  pullToken: string;
+}
+
+/** §AC.7 — la caja congelada que ve quien prepara (detalle del envío y hoja). */
+export interface ShipmentBoxDTO {
+  code: string;
+  label: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  review: boolean;
+  contentWeightG: number;
+}
+
+/** §AC.9 (+ v1.86.1) — lo que se reembolsaría por el renglón, calculado por el servidor. */
+export type ShipAccessoryRefundInfo =
+  | {
+      kind: 'refundable';
+      /** largo = quantity; `[k−1]` = importe de «faltan k». Paquete: un solo elemento. */
+      amountByQtyCents: number[];
+      /** = amountByQtyCents[(missing ? missingQty : quantity) − 1]. */
+      amountCents: number;
+    }
+  | { kind: 'refunded'; refund: PaymentRefundDTO }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' };
+
+/** §AC.9 — renglón de accesorio en «Pedidos por preparar» (`ShipmentAccessoryLine`). */
+export interface ShipAccessoryLineDTO {
+  /** `ShipmentAccessoryLine.id` — el nodo que se palomea. */
+  id: string;
+  kind: AccessoryLineKind;
+  name: string;
+  photo: AccessoryPhotoDTO | null;
+  quantity: number;
+  deckName: string | null;
+  /** `[]` en `accessory` (criterio 743). */
+  components: { energyType: EnergyType; quantity: number }[];
+  prepStatus: PreparationItemStatus;
+  missingQty: number;
+  missingReason: MissingReason | null;
+  settledWithoutStock: boolean;
+  refunded: boolean;
+  refund: ShipAccessoryRefundInfo;
+  /** v1.86.1 — solo energy_bundle: los `ShipmentItem` de este envío que son el deck. */
+  deckShipmentItemIds: string[];
+  /** v1.86.1 — sugerencia de la pantalla; ⛔ el servidor no actúa con él. */
+  deckAllMissing: boolean;
+}
+
+/** `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9; respuesta v1.86.3, §AC.19.5). */
+export interface SetShipPrepAccessoryLineRequest {
+  status: PreparationItemStatus;
+  /** 1..quantity; en energy_bundle solo 1. Obligatorio con `missing`. */
+  missingQty?: number;
+  missingReason?: MissingReason;
+}
+
+/**
+ * v1.86.3 (§AC.19.5) — `200` del `PATCH …/prep-accessory-lines/:lineId`. `preparation.refundPreviewCents` ya incluye
+ * el cambio; `changed:false` ⇔ el cuerpo era igual a lo vigente (sin escritura). Los conteos son SOLO cartas.
+ */
+export interface SetShipPrepAccessoryLineResponse {
+  changed: boolean;
+  line: ShipAccessoryLineDTO;
+  preparation: ShipPreparationStateDTO;
+}
+
+/**
+ * v1.86.3 (§AC.19.5) — `details` de `409 PREPARATION_INCOMPLETE`: `pendingCount` son cartas (como hoy);
+ * `pendingAccessoryCount` es aditivo (renglones de accesorio `pending`). Opcional por tolerancia a un servidor anterior.
+ */
+export interface PreparationIncompleteDetails {
+  pendingCount: number;
+  pendingAccessoryCount?: number;
+}
+
+/** §AC.12 (+ v1.86.3, §AC.19.6) — renglón de accesorio en M3 / seguimiento. Lista blanca, ⛔ sin costo. */
+export interface OrderAccessoryLineDTO {
+  /** v1.86.3 (§AC.19.6): `OrderAccessoryLine.id`, obligatorio. La llave de `…/accessory-lines/:lineId/refund-delivered`. */
+  id: string;
+  /** v1.86.3 (§AC.19.6): obligatorio. El paquete se reconoce por `kind` (⛔ no por `deckName !== null`). */
+  kind: AccessoryLineKind;
+  /** `snapshot.name`; en paquete = `deckName` (el título «Paquete de energías» lo pone la pantalla por `kind`). */
+  name: string;
+  photo: AccessoryPhotoDTO | null;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  refundedQty: number;
+  deckName: string | null;
+  components: { energyType: EnergyType; quantity: number }[];
+  /**
+   * 💰 v1.86.2 (§AC.12) — SOLO M3: lo que el súper-admin confirma, calculado por el servidor (⛔ la pantalla no
+   * lo calcula). Opcional por tolerancia a un servidor anterior: ausente ⇒ sin botón.
+   */
+  deliveredRefund?: AccessoryDeliveredRefundDTO;
+}
+
+/** v1.86.2 (§AC.12): `amountByQtyCents[k−1]` = importe de reembolsar k unidades; largo = `refundableQty`. */
+export type AccessoryDeliveredRefundDTO =
+  | { kind: 'refundable'; refundableQty: number; amountByQtyCents: number[] }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' | 'not_delivered' | 'fully_refunded' | 'bundle_requires_deck' };
+
+/**
+ * `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (§AC.10 (2) + v1.86.2, `@MoneyOut`).
+ * `expectedRefundCents` = el importe que el súper-admin VIO (`amountByQtyCents[quantity − 1]`); si no cuadra ⇒
+ * `409 REFUND_PREVIEW_STALE { refundCents }`, cero escrituras.
+ */
+export interface RefundAccessoryLineDeliveredRequest {
+  quantity: number;
+  reason: ShippedRefundReason;
+  /** OBLIGATORIA, 3–500 tras `trim()` (v1.86.2). */
+  note: string;
+  expectedRefundCents: number;
+}
+export interface RefundAccessoryLineDeliveredResponse {
+  refund: PaymentRefundDTO;
+}
+
+/** §AC.11 — DTO del panel. `unitCostCents` AUSENTE (no null) para el operador. */
+export interface AdminAccessoryDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  lengthMm: number | null;
+  widthMm: number | null;
+  heightMm: number | null;
+  weightG: number | null;
+  priceCents: number | null;
+  unitCostCents?: number | null;
+  stockQty: number;
+  reservedQty: number;
+  availableQty: number;
+  active: boolean;
+  suggested: boolean;
+  photo: AccessoryPhotoDTO | null;
+  hasSales: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AdminAccessoryListResponse {
+  items: AdminAccessoryDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+export interface AdminAccessoryListParams {
+  category?: AccessoryCategory;
+  q?: string;
+  active?: boolean;
+  soldOut?: boolean;
+  page?: number;
+}
+/** Campos de alta/edición. ★ = solo súper-admin (`priceCents`, `unitCostCents`, `suggested`). */
+export interface AdminAccessoryWriteFields {
+  name?: string;
+  description?: string | null;
+  category?: AccessoryCategory;
+  energyType?: EnergyType | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  weightG?: number | null;
+  priceCents?: number | null;
+  unitCostCents?: number | null;
+  suggested?: boolean;
+}
+export type AdminAccessoryCreateRequest = AdminAccessoryWriteFields & { name: string; category: AccessoryCategory };
+/** `ACCESSORY_NOT_ACTIVATABLE.details.missing` (§AC.11). */
+export type AccessoryActivationMissing = 'price' | 'photo' | 'dimensions' | 'weight' | 'energy_type';
+/** `POST /admin/accessories/:id/stock` (§AC.11). Respuesta: NO especificada (se re-lee la ficha). */
+export type AccessoryStockRequest =
+  | { kind: 'receive'; quantity: number; note?: string }
+  | { kind: 'adjust'; newStockQty: number; expectedStockQty: number; reason: string };
+export interface AccessoryStockMovementDTO {
+  kind: AccessoryStockMovementKind;
+  delta: number;
+  stockBefore: number;
+  stockAfter: number;
+  reason: string | null;
+  actor: { userId: string; name: string | null } | null;
+  orderNumber: string | null;
+  createdAt: string;
+}
+export interface AccessoryStockMovementsResponse {
+  items: AccessoryStockMovementDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+/** `PHOTO_INVALID.details.reason` (§AC.11). */
+export type AccessoryPhotoInvalidReason = 'too_large' | 'unsupported_type' | 'too_many_pixels' | 'not_image';
+
+// ============================================================================
+// ⭐ v1.87⟨wishlist⟩ + errata v1.87.1 — §WSH Lista de deseos por cuenta, «lista de compra casi segura»
+// (API_CONTRACT §WSH.2, §WSH.4, §WSH.6, §WSH.8). Espejo literal del contrato.
+// ⛔ Toda cifra en pesos sale del servidor: el front no multiplica, no divide, no compara (WSH-2).
+// ============================================================================
+
+/** Cómo se lee el máximo del cliente (dial `wishlist_max_iva_mode`). */
+export type WishlistIvaMode = 'with_iva' | 'without_iva';
+/** Sobre qué se mide el margen de la lista de compra (dial `wishlist_margin_basis`). */
+export type WishlistMarginBasis = 'cost' | 'sale';
+/** Los tres niveles admitidos (HECHOS 2026-10-06, punto 3). */
+export type WishlistMaxPct = 5 | 10 | 16;
+export const WISHLIST_MAX_PCTS: readonly WishlistMaxPct[] = [5, 10, 16];
+
+export interface WishlistItemDTO {
+  id: string;
+  card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string | null };
+  finish: Finish;
+  maxPct: WishlistMaxPct;
+  /** «se recalcula el día que la consigamos»; `no_market` ⇒ sin cifra, ni 0 (criterio 807). */
+  maxToday: { status: 'priced'; maxDisplayCents: number; approximate: true } | { status: 'no_market' };
+  /** Piezas vendibles hoy. `fits` lo calcula el SERVIDOR (v1.87.1); `null` ⇔ sin mercado. */
+  availableNow: { count: number; fromDisplayCents: number; fits: boolean | null } | null;
+  lastNotifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface WishlistResponse {
+  items: WishlistItemDTO[];
+  count: number;
+  limit: number;
+  alertsPaused: boolean;
+  emailVerified: boolean;
+  ivaMode: WishlistIvaMode;
+  /** ⭐ v1.87.1: dial `iva_pct` vigente (entero, p. ej. 16). */
+  ivaRatePct: number;
+}
+
+/** ⭐ v1.87.1 (Q-WSH-UX-1): `GET /wishlist/preview?cardId=` — pesos de cada % ANTES de guardar. */
+export interface WishlistPreviewResponse {
+  cardId: string;
+  ivaMode: WishlistIvaMode;
+  ivaRatePct: number;
+  finishes: {
+    finish: Finish;
+    maxToday:
+      | { status: 'priced'; approximate: true; tiers: { maxPct: WishlistMaxPct; maxDisplayCents: number }[] }
+      | { status: 'no_market' };
+  }[];
+}
+
+export interface WishlistCreateRequest {
+  cardId: string;
+  finish: Finish;
+  maxPct: WishlistMaxPct;
+}
+
+export type WishlistMailAction = 'remove' | 'pause';
+export interface WishlistMailActionRequest {
+  action: WishlistMailAction;
+  id: string;
+  token: string;
+}
+export interface WishlistMailActionResponse {
+  result: 'removed' | 'paused' | 'already_done';
+}
+
+export type WishlistDemandSort = 'wanted' | 'ceiling' | 'margin' | 'market' | 'normal' | 'buyers' | 'buylist';
+export const WISHLIST_DEMAND_SORTS: readonly WishlistDemandSort[] = [
+  'wanted',
+  'ceiling',
+  'margin',
+  'market',
+  'normal',
+  'buyers',
+  'buylist',
+];
+export interface WishlistDemandParams {
+  sort?: WishlistDemandSort;
+  dir?: 'asc' | 'desc';
+}
+
+export interface WishlistDemandTierDTO {
+  maxPct: WishlistMaxPct;
+  accounts: number;
+  /** máximo del cliente, CON IVA (como lo ve él) */
+  maxDisplayCents: number | null;
+  /** «puedes pagar hasta», SIN IVA */
+  ceilingCents: number | null;
+}
+
+export interface WishlistDemandRowDTO {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+  finish: Finish;
+  imageSmallUrl: string | null;
+  wantedCount: number;
+  /** solo niveles con ≥ 1 cuenta, orden 16 → 10 → 5 */
+  tiers: WishlistDemandTierDTO[];
+  mainCeilingCents: number | null;
+  marketCents: number | null;
+  normalPrice: { listCents: number; displayCents: number } | null;
+  buyersAtNormalPrice: number | null;
+  /** `pct` en PUNTOS porcentuales con un decimal (v1.87.1): `-9.5` = −9.5 %. */
+  marginAtMarket: { cents: number; pct: number } | null;
+  buylistTodayCents: number | null;
+}
+
+export interface WishlistDemandResponse {
+  generatedAt: string;
+  dials: {
+    ivaMode: WishlistIvaMode;
+    ivaRatePct: number;
+    ivaTransferPct: number;
+    targetMarginPct: number;
+    marginBasis: WishlistMarginBasis;
+  };
+  rows: WishlistDemandRowDTO[];
+  sealed: {
+    productName: string;
+    sealedSubtype: SealedSubtype | null;
+    sealedCondition: SealedCondition;
+    waitingCount: number;
+  }[];
 }

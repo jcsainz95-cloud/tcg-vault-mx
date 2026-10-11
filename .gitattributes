@@ -1,0 +1,8 @@
+# .gitattributes — propiedad devops. DEVOPS_NOTES §92.
+#
+# Catálogo de códigos postales de SEPOMEX (HECHOS.md 2026-10-07: va en el repositorio, público, con su huella
+# fijada). El archivo es Latin-1 con CRLF y su sha256 está fijado en scripts/check-sepomex-pin.sh, en el
+# `.sha256` hermano y en el manifiesto. `binary` (= -text -diff -merge): git NO lo normaliza (ni CRLF→LF ni
+# nada) al commitear ni al sacarlo, aunque alguien tenga `core.autocrlf` puesto; tampoco intenta diff/merge de
+# texto sobre él. Si esta regla se quita o se afloja, el candado `sepomex-pin` (ci.yml) se pone rojo.
+scripts/geo/data/CPdescarga.txt binary

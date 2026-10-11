@@ -25,6 +25,13 @@
 # se calcula en todos los modos (dast-gate.py → GITHUB_OUTPUT) y los `promote-*`
 # exigen `== 'false'`. Este script solo vigila que el «no pone rojo» tenga fin.
 #
+# ESTADO (2026-09-28, C2-bis — DEVOPS_NOTES §69): `report_only` RETIRADO de
+# `dast-release` (ahora `report_only: false`, decisión de seguridad). Este
+# script ya no cuenta días: queda de ANTI-REGRESIÓN. Si alguien vuelve a poner
+# `report_only: true` en el bloque, desde FECHA_LIMITE el rojo es inmediato.
+# FECHA_LIMITE NO se mueve para «reabrir la calibración» sin decisión de
+# seguridad escrita en SECURITY_NOTES y motivo en DEVOPS_NOTES.
+#
 # Uso:  ./scripts/check-dast-report-only-expiry.sh [--today YYYY-MM-DD] [--deploy RUTA]
 #       (`--today` y `--deploy` existen para el canario; en CI no se pasan)
 # rc: 0 vigente o retirado · 9 CADUCÓ · 2 no concluyente
@@ -64,7 +71,7 @@ fi
 
 # Solo cuenta el USO: se descartan líneas comentadas.
 if ! grep -vE '^[[:space:]]*#' <<<"$BLOQUE" | grep -E '^[[:space:]]*report_only:[[:space:]]*true([[:space:]]|$)' >/dev/null; then
-  printf '\033[1;32m  ✔ dast-release ya NO lleva `report_only: true`: el DAST bloquea el run. Nada que retirar.\033[0m\n'
+  printf '\033[1;32m  ✔ dast-release ya NO lleva `report_only: true`: el DAST bloquea el run. Nada que retirar (retirado el 2026-09-28, C2-bis).\033[0m\n'
   exit 0
 fi
 

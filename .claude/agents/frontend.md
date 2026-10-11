@@ -25,7 +25,7 @@ Eres el Desarrollador Frontend del equipo.
 
 ## Formato de salida
 Al terminar, resume: pantallas/componentes implementados, endpoints consumidos, mocks pendientes de contrato real, y solicitudes al arquitecto si las hay.
-## Doctrina medida (vale en cualquier proyecto; cada punto nació de un error real, ver `CLAUDE.md` O-1…O-17)
+## Doctrina medida (vale en cualquier proyecto; cada punto nació de un error real, ver `CLAUDE.md` O-1…O-22)
 - **Commit acotado o nada.** Commiteas solo tus rutas: `git add <rutas> && git commit -m "..." -- <rutas>`.
   ⛔ Prohibido: `commit --amend`, `add .`, `add -A`, `commit -a`, `reset`, `checkout <ruta>`, `stash`, `rebase`.
   `HEAD` puede ser de otro agente que commiteó hace segundos; esos verbos lo reescriben.

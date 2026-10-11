@@ -46,6 +46,12 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
     { patron: /\b1\.16\s*[*/]/, porque: 'el 1.16 como factor' },
     { patron: /ivaRatePct\s*\/\s*100/, porque: 'convertir la TASA en factor: el paso previo a aplicarla' },
     { patron: /1\s*\+\s*\w*[Ii]vaRate/, porque: 'construir (1 + r) para aplicarlo a un importe' },
+    /*
+     * ⭐ Añadido 2026-09-29 (endurece, no afloja): el patrón de arriba exige el `1` pegado al `+`, así que
+     * `(100 + ivaRatePct)` —la base gravable en porcentaje, `round(P × 100 / (100 + r))`— se le escapaba.
+     * Medido: la única ocurrencia fuera de tests y simuladores era `src/lib/mock/refund-math.ts@cfb43b3:35`.
+     */
+    { patron: /\b100\s*\+\s*\w*[Ii]vaRate/, porque: 'construir (100 + r) para sacar la base gravable de un precio' },
     { patron: /\*\s*\(\s*1\s*\+/, porque: 'aplicar un factor (1 + algo) a un importe' },
     { patron: /ivaCents\s*[+-]\s*/, porque: 'sumar o restar el IVA a un importe de cliente' },
     { patron: /[+-]\s*\w*\.?ivaCents\b/, porque: 'usar el IVA como sumando: bajo IVA_INCLUSIVE no lo es' },
@@ -89,9 +95,36 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
     .filter((rel) => !/\.test\.tsx?$/.test(rel))
     .filter((rel) => !SIMULADORES_DEL_SERVIDOR.includes(rel));
 
+  /**
+   * ⭐ **Una excepción CONTRACTUAL, acotada a un fichero, a un patrón y a UNA ocurrencia** (2026-10-05, SP-F).
+   *
+   * `API_CONTRACT §M11-SP.12.5` **manda** al cliente calcular el margen en vivo del editor del precio del sellado:
+   * `N = round(P·100/(100+r))` —la base gravable de un `P` que el dueño acaba de teclear y que todavía no existe en el
+   * servidor—. `DESIGN_SYSTEM §70.2 (d)` lo llama «la **única** cuenta de dinero del cliente» (N-4), informativa: ⛔ no
+   * se envía ni se pinta como precio, y su candado son los cuatro vectores del contrato (UX-SP-8,
+   * `sealed-final-price.test.ts`), los mismos que SP-10 de backend.
+   *
+   * ⛔ No exime el fichero entero: los demás patrones lo siguen mirando, y si aparece una **segunda** ocurrencia del
+   * `(100 + r)` —en este fichero o en cualquier otro— esto se pone rojo.
+   */
+  const EXCEPCION_CONTRACTUAL = {
+    rel: 'src/app/[locale]/(admin)/admin/m1/sealed-final-price.ts',
+    patron: /\b100\s*\+\s*\w*[Ii]vaRate/,
+    ocurrencias: 1,
+  };
+
   it.each(PROHIBIDO)('⛔ ninguna pantalla hace: $porque', ({ patron }) => {
-    const ofensores = ficheros.filter((rel) => patron.test(soloCodigo(rel)));
+    const esLaExcepcion = (rel: string) =>
+      rel === EXCEPCION_CONTRACTUAL.rel && patron.source === EXCEPCION_CONTRACTUAL.patron.source;
+    const ofensores = ficheros.filter((rel) => !esLaExcepcion(rel) && patron.test(soloCodigo(rel)));
     expect(ofensores).toEqual([]);
+  });
+
+  it('⭐ la excepción contractual del margen en vivo (§M11-SP.12.5) es UNA ocurrencia, en UN fichero', () => {
+    const codigo = soloCodigo(EXCEPCION_CONTRACTUAL.rel);
+    const global = new RegExp(EXCEPCION_CONTRACTUAL.patron.source, 'g');
+    expect(codigo.match(global)?.length ?? 0).toBe(EXCEPCION_CONTRACTUAL.ocurrencias);
+    expect(codigo).toMatch(/export function marginPreview\(/);
   });
 
   /**
@@ -160,9 +193,14 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
  * ⭐⭐⭐ **EL CANARIO DEL CANDADO DE ARRIBA — «un candado sin canario no está demostrado».**
  *
  * No se inventa un caso: se usa **el fichero real** y **la ventana real** que el limpiador v1
- * borraba (`StorefrontHeader.tsx:96-107`, cegada por el `/*` que lleva el comentario de `:95`), se
+ * borraba (`StorefrontHeader.tsx:96-110`, cegada por el `/*` que lleva el comentario de `:95`), se
  * le mete dentro **el defecto que esta regla prohíbe** —multiplicar por 1.16— y se exige que el
  * candado lo vea.
+ *
+ * ⚠️ La ventana se re-apuntó de `95-109` a `95-110` (2026-09-19) al entrar la 6ª entrada de nav
+ * («Meta Battle Decks», decisión del dueño), que desplazó la tabla +2 líneas. Sigue arrancando en el
+ * `/*` de `:95` y cubre la misma región —entradas del arreglo `links` hasta el `<header>`/`<div>`
+ * del render—, medida con la herramienta: 13 líneas con código, 12 borradas por el v1.
  *
  * La comparación contra el v1 es la mitad que enseña: con el limpiador viejo **ese mismo defecto,
  * en ese mismo fichero, pasaba en VERDE**.
@@ -177,6 +215,7 @@ const PATRONES_DEL_CANARIO = [
   { defecto: '/ 1.16', patron: /[*/]\s*1\.16\b/ },
   { defecto: '* (1 + r)', patron: /\*\s*\(\s*1\s*\+/ },
   { defecto: '+ line.ivaCents', patron: /[+-]\s*\w*\.?ivaCents\b/ },
+  { defecto: '* 100 / (100 + ivaRatePct)', patron: /\b100\s*\+\s*\w*[Ii]vaRate/ },
 ];
 
 describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 borraba', () => {
@@ -193,17 +232,17 @@ describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 b
     return l.join('\n');
   }
 
-  it('⭐ el v1 NO veía la ventana 95-109: 12 líneas de código real fuera del alcance', () => {
+  it('⭐ el v1 NO veía la ventana 95-110: 12 líneas de código real fuera del alcance', () => {
     const limpio = v1(fuente);
     const { lineasConCodigo } = analizarFuente(fuente, CABECERA);
-    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 109);
+    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 110);
     /*
-     * ⚠️ El v1 **no conserva la numeración** (220 líneas → 184), así que la pérdida no se puede
+     * ⚠️ El v1 **no conserva la numeración** (222 líneas → 184), así que la pérdida no se puede
      * medir por índice: se mide por CONTENIDO, comprobando que la línea ya no existe como línea
      * en su salida.
      *
      * ⭐ **El número exacto, y por qué NO es 13:** en la ventana hay **13** líneas con código y el
-     * v1 se las come **todas**; pero una de ellas (`:106`, `return (`) es texto que aparece
+     * v1 se las come **todas**; pero una de ellas (`:108`, `return (`) es texto que aparece
      * **igual en otro sitio** del fichero, así que por contenido solo se pueden DEMOSTRAR 12.
      * Se afirma lo demostrable.
      */
@@ -219,7 +258,7 @@ describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 b
 
   it('⭐⭐ el limpiador nuevo SÍ ve esa ventana entera — la demostración del arreglo', () => {
     const { limpio, lineasConCodigo } = analizarFuente(fuente, CABECERA);
-    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 109);
+    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 110);
     expect(enLaVentana.length).toBe(13);
     for (const n of enLaVentana) {
       expect(limpio.split('\n')[n - 1].trim(), `${CABECERA}:${n}`).not.toBe('');

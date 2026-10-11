@@ -89,7 +89,9 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
       // v1.24-buylist-request-reject: la auto-transición cuenta ítems no-rechazados restantes.
       // Default 1 (≥1 ítem vivo) ⇒ NO auto-rechaza, para que estos tests item-céntricos no
       // disparen la transición de la solicitud (cubierta en buylist.request-reject.spec.ts).
-      count: jest.fn(async () => 1),
+      // v1.82.3 · §PNL.12 — la auto-transición lee las líneas que CUENTAN (`readClosureRule`, un
+      // `findMany`). ≥1 viva ⇒ NO auto-rechaza (mismo efecto que el `count: 1` de antes).
+      findMany: jest.fn(async () => [{ itemStatus: 'aprobada' }]),
     },
     sellRequest: {
       update: jest.fn(async () => {
@@ -108,6 +110,8 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     // v1.24 (endurecimiento §4.18f): la auto-transición corre count+updateMany en un $transaction
     // Serializable; el mock ejecuta el callback con `prisma` como `tx` (`$transaction:(fn)=>fn(tx)`).
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
   };
   if (mail) {
@@ -163,7 +167,12 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
     // v1.51.5 · BL-14: el `where` lleva la GUARDA de terminal además del id — es la exclusión del
     // motor, no un `if` sobre la lectura previa (que una carrera invalida).
     expect(prisma.sellRequestItem.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sri-1', sellRequest: { status: { notIn: expect.arrayContaining(['pagada']) } } },
+      where: {
+        id: 'sri-1',
+        sellRequest: { status: { notIn: expect.arrayContaining(['pagada']) } },
+        // 💰 v1.82.1 · §PNL.10.2.3 (E-2): una carta final no se rechaza — término SIEMPRE presente.
+        AND: [{ itemStatus: { notIn: ['convertida_inventario', 'pagada'] } }],
+      },
       data: {
         itemStatus: 'rechazada',
         approvedPriceCents: null,

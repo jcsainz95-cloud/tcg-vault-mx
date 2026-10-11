@@ -18,6 +18,12 @@
  * **Nada de mocks de Prisma.** Todo por HTTP, con guards, `ValidationPipe` y Postgres real. **Y nada
  * de sembrar el escenario**: si el agujero se pudiera montar sólo sembrando, la gravedad sería otra
  * — el punto es que **se llega por la API, con el ciclo normal y sin rol extraordinario**.
+ *
+ * ⚠️ **v1.82.3 · §PNL.12** — desde la Regla C (las `skip` no cuentan para cerrar), la API **cierra**
+ * `rechazada` la solicitud de assert 3 / B1 en el último rechazo: el agujero ya no se alcanza por la
+ * puerta, y esos dos casos lo afirman. La fila viva con el aprobado en `null` sigue existiendo como
+ * fila **atorada** de antes de la errata (§PNL.12.5), y ahí se reconstruye deshaciendo **solo** el
+ * cierre: es la única excepción a «nada de sembrar», y está acotada a ese paso.
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -274,12 +280,29 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     });
     expect(rj.status).toBe(200);
 
-    // ⚠️⚠️ **EL MECANISMO ENTERO, AFIRMADO PASO A PASO** — sin esto el caso pasaría por casualidad
-    // el día que la auto-transición cambie:
-    //  (1) la auto-transición a `rechazada` **NO dispara**: exige que TODO ítem esté `rechazada` y
-    //      la `skip` se quedó en `verificacion` ⇒ cuenta como no-rechazada;
-    //  (2) la solicitud sigue **viva y en estado pagable**, con `receivedAt`/`verifiedAt` sellados;
-    //  (3) `approvedTotalCents` es **`null`** (ningún ítem tiene `approvedPriceCents`)
+    // ⚠️⚠️ v1.82.3 · **§PNL.12 (Regla C) CAMBIÓ EL PRIMER PASO, y se afirma aquí — el día que la
+    // auto-transición cambió, este caso dejó de pasar por casualidad, que es para lo que existe.**
+    // La `skip` YA NO CUENTA para cerrar: con la única `buy` rechazada, la solicitud se cierra
+    // `rechazada` por la API y **no queda nada que pagar** — el agujero ya no se alcanza por la puerta.
+    const cerrada = await rowOf(srId);
+    expect(cerrada.status).toBe('rechazada');
+    expect(cerrada.closedAt).toBeTruthy();
+    const intento = await pay(srId, 'SPEI-V-A3-CERRADA');
+    expect(intento.status).toBe(409); // §M5-T: `closedAt` sellado ⇒ «cerrada, ya no se paga».
+    expect((intento.body as any).error.code).toBe('CONFLICT');
+    const trasIntento = await rowOf(srId);
+    expect(trasIntento.paidAt).toBeNull();
+    expect(trasIntento.payoutNetCents).toBeNull();
+    expect(trasIntento.speiReference).toBeNull();
+
+    // ⚠️ **Pero V-a sigue siendo la que tapa la fila ATORADA** que el defecto anterior a v1.82.3 dejó
+    // en producción (§PNL.12.5: sin backfill; cuántas hay = NO MEDIDO). Esa fila es EXACTAMENTE la de
+    // arriba sin el cierre, así que se reconstruye deshaciendo SOLO el cierre — el único paso que la
+    // API ya no da. Lo demás (oferta, recepción, verificación, veredicto) sigue siendo el de la puerta.
+    await h.prisma.sellRequest.update({ where: { id: srId }, data: { status: 'verificacion', closedAt: null } });
+    // El mecanismo de la fila atorada, afirmado paso a paso:
+    //  (1) la solicitud sigue **viva y en estado pagable**, con `receivedAt`/`verifiedAt` sellados;
+    //  (2) `approvedTotalCents` es **`null`** (ningún ítem tiene `approvedPriceCents`)
     //      ⇒ `brutoConsumado` caería a `offerGrossCents` ⇒ `max(0, 50000 − 18000) = 32000`.
     const fila = await rowOf(srId);
     expect(fila.status).toBe('verificacion');
@@ -592,6 +615,11 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
         })
       ).status,
     ).toBe(200);
+    // ⚠️ v1.82.3 · §PNL.12 — la `skip` ya no impide el cierre: la API la deja `rechazada`. La fila con
+    // el aprobado en `null` y VIVA es la atorada de antes de la errata (§PNL.12.5), y se reconstruye
+    // deshaciendo SOLO el cierre (ver assert 3). Lo que este caso mide —el SQL del `where`— no cambia.
+    expect((await h.prisma.sellRequest.findUnique({ where: { id: srId } }))!.status).toBe('rechazada');
+    await h.prisma.sellRequest.update({ where: { id: srId }, data: { status: 'verificacion', closedAt: null } });
     const fila = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
     expect(fila!.approvedTotalCents).toBeNull();
     expect(fila!.status).toBe('verificacion');

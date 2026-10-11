@@ -13,7 +13,7 @@ beforeEach(() => {
 describe('SealedValueTrend · flag ENCENDIDO (hay serie)', () => {
   it('pinta la tendencia con título, valor actual y selector de rangos', async () => {
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue(generateSealedValueHistory('1m'));
-    renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" />, 'es');
+    renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'es');
 
     // El selector de rangos solo aparece cuando la serie ya cargó (no en el esqueleto).
     expect(await screen.findByRole('group', { name: 'Rango de la tendencia' })).toBeInTheDocument();
@@ -23,12 +23,13 @@ describe('SealedValueTrend · flag ENCENDIDO (hay serie)', () => {
 
   it('serie vacía muestra el aviso de «recopilando historial»', async () => {
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue({
-      set: { id: 'sealed:x', name: 'X' },
+      // §MIV.3: la forma de esta ruta es `product` + `display*` (serie vacía ⇒ `displayAbsMxnCents` 0).
+      product: { inventoryItemId: 'inv-1008' },
       range: '1m',
       points: [],
-      change: { direction: 'flat', absMxnCents: 0, pct: null },
+      change: { direction: 'flat', absMxnCents: 0, pct: null, displayAbsMxnCents: 0 },
     });
-    renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" />, 'es');
+    renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'es');
 
     expect(await screen.findByText('Recopilando historial de mercado.')).toBeInTheDocument();
   });
@@ -39,7 +40,7 @@ describe('SealedValueTrend · flag APAGADO (404 FEATURE_DISABLED)', () => {
     vi.spyOn(api, 'getSealedValueHistory').mockRejectedValue(
       new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }),
     );
-    const { container } = renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" />, 'es');
+    const { container } = renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'es');
 
     await waitFor(() => expect(screen.queryByText('Tendencia de valor')).toBeNull());
     expect(container).toBeEmptyDOMElement();
@@ -49,7 +50,7 @@ describe('SealedValueTrend · flag APAGADO (404 FEATURE_DISABLED)', () => {
     vi.spyOn(api, 'getSealedValueHistory').mockRejectedValue(
       new ApiClientError(404, { code: 'NOT_FOUND', message: 'not mapped' }),
     );
-    const { container } = renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" />, 'es');
+    const { container } = renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'es');
 
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });

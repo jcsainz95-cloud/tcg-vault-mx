@@ -1,6 +1,7 @@
 import { OrdersService } from './orders.service';
 import { PricingService } from '../pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../../common/pricing-curve';
+import { ivaDialsStub } from '../../../test/helpers/iva-dials';
 
 /**
  * BE-26 (money-safety) — `salePriceOf` rechaza un precio de venta <= 0 (no solo `== null`): una
@@ -9,7 +10,7 @@ import { DEFAULT_PRICING_CURVE } from '../../common/pricing-curve';
  */
 function build(pricingOver: Partial<PricingService>) {
   const pricing = pricingOver as unknown as PricingService;
-  const svc = new OrdersService({} as never, pricing, {} as never, {} as never, {} as never);
+  const svc = new OrdersService({} as never, pricing, ivaDialsStub() as never, {} as never, {} as never);
   return svc;
 }
 

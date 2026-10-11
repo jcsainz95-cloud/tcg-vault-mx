@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { getMe } from '@/lib/api';
+import { getMe, getWishlist } from '@/lib/api';
+import { asApiError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { isStaffRole } from '@/lib/account-routes';
 import { cn } from '@/lib/cn';
@@ -11,19 +12,25 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import type { UserDTO } from '@/types/contract';
 import { ProfileSection } from './ProfileSection';
 import { EmailSection } from './EmailSection';
+import { UsernameSection } from './UsernameSection';
 import { AddressesSection } from './AddressesSection';
 import { BillingSection } from './BillingSection';
 import { KycSection } from './KycSection';
 import { PasswordSection } from './PasswordSection';
 import { SessionSection } from './SessionSection';
+import { WishlistSection } from './WishlistSection';
 import { SectionError, type AccountSectionId } from './SectionShell';
 
 export type AccountSurface = 'storefront' | 'admin';
 
-/** Secciones por rol (DESIGN_SYSTEM §33.6, tabla): el staff no compra, no retira ni vende. */
-export function sectionsForRole(staff: boolean): AccountSectionId[] {
+/**
+ * Secciones por rol (DESIGN_SYSTEM §33.6, tabla): el staff no compra, no retira ni vende.
+ * ⭐ v1.80.9 (§42.8): el equipo SIN correo ve `username` en lugar de `email` (con `email: null` la
+ * sección de correo sería un hueco más un «SIN VERIFICAR» falso). `hasEmail` por defecto `true`.
+ */
+export function sectionsForRole(staff: boolean, hasEmail = true): AccountSectionId[] {
   return staff
-    ? ['profile', 'email', 'password', 'session']
+    ? ['profile', hasEmail ? 'email' : 'username', 'password', 'session']
     : ['profile', 'email', 'addresses', 'billing', 'kyc', 'password', 'session'];
 }
 
@@ -38,11 +45,32 @@ export function sectionsForRole(staff: boolean): AccountSectionId[] {
  */
 export function AccountView({ surface }: { surface: AccountSurface }) {
   const t = useTranslations('account');
+  const tWishlist = useTranslations('wishlist');
   const { user: sessionUser, ready } = useSession();
   const meQuery = useQuery({ queryKey: ['me'], queryFn: getMe, enabled: ready && !!sessionUser });
   const user: UserDTO | null = meQuery.data ?? sessionUser;
   const staff = isStaffRole(user?.role);
-  const sections = useMemo(() => sectionsForRole(staff), [staff]);
+  const hasEmail = user?.email != null;
+  // ⭐ §WSH-UX.3 (a): la sección de la lista de deseos EXISTE solo para el cliente y con el dial encendido. La consulta
+  // decide su existencia (`404 FEATURE_DISABLED` ⇒ ni sección ni entrada del índice, WSH-5). Staff: ni se consulta
+  // (Q-WSH-UX-6). Misma clave que la ficha y «Mi lista»: una sola lectura cacheada.
+  const wishlist = useQuery({
+    queryKey: ['wishlist'],
+    queryFn: getWishlist,
+    enabled: ready && !!user && !staff,
+    retry: false,
+  });
+  const wishlistOff = (() => {
+    const err = asApiError(wishlist.error);
+    return err?.status === 404 && err.code === 'FEATURE_DISABLED';
+  })();
+  const showWishlist = !!user && !staff && !wishlistOff;
+  const sections = useMemo(() => {
+    const base = sectionsForRole(staff, hasEmail);
+    if (!showWishlist) return base;
+    const i = base.indexOf('addresses');
+    return [...base.slice(0, i + 1), 'wishlist' as const, ...base.slice(i + 1)];
+  }, [staff, hasEmail, showWishlist]);
   const [hash, setHash] = useState<string>('');
 
   // Anclajes (`#profile`, `#password`…): al llegar con hash la sección recibe el foco (tabIndex=-1,
@@ -91,7 +119,7 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
                     active === id ? 'text-text' : 'text-muted hover:text-text',
                   )}
                 >
-                  {sectionTitle(id, t)}
+                  {sectionTitle(id, t, tWishlist)}
                 </a>
               </li>
             ))}
@@ -101,8 +129,11 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
         <div className="min-w-0 max-w-2xl">
           <p className="eyebrow">{t('eyebrow')}</p>
           <h1 className="mt-3 font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
-          {/* El correo, no el nombre (regla 2 de §33.0: un nombre inventado no es rótulo). */}
-          <p className="mt-3 break-all text-[15px] text-muted">{user.email}</p>
+          {/* El correo, no el nombre (regla 2 de §33.0: un nombre inventado no es rótulo).
+              ⭐ v1.80.9 (§42.8): sin correo, «Usuario: ana» — ⛔ nunca un hueco. */}
+          <p className="mt-3 break-all text-[15px] text-muted">
+            {user.email ?? t('usernameLine', { username: user.username ?? '—' })}
+          </p>
 
           {meQuery.isError && (
             <div className="mt-6">
@@ -114,8 +145,17 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
             <ProfileSection user={user} focusNameOnMount={hash === 'profile'} />
           )}
           {sections.includes('email') && <EmailSection user={user} canResend={!staff} />}
+          {sections.includes('username') && <UsernameSection username={user.username ?? '—'} />}
           {sections.includes('addresses') && <AddressesSection user={user} />}
-          {sections.includes('billing') && <BillingSection accountEmail={user.email} />}
+          {sections.includes('wishlist') && (
+            <WishlistSection
+              data={wishlist.data}
+              isLoading={wishlist.isLoading}
+              error={wishlist.error}
+              onRetry={() => wishlist.refetch()}
+            />
+          )}
+          {sections.includes('billing') && <BillingSection accountEmail={user.email ?? ''} />}
           {sections.includes('kyc') && <KycSection />}
           {sections.includes('password') && <PasswordSection user={user} />}
           {sections.includes('session') && <SessionSection surface={surface} />}
@@ -125,12 +165,18 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
   );
 }
 
-function sectionTitle(id: AccountSectionId, t: ReturnType<typeof useTranslations<'account'>>): string {
+function sectionTitle(
+  id: AccountSectionId,
+  t: ReturnType<typeof useTranslations<'account'>>,
+  tWishlist: ReturnType<typeof useTranslations<'wishlist'>>,
+): string {
   switch (id) {
     case 'profile':
       return t('profile.title');
     case 'email':
       return t('email.title');
+    case 'username':
+      return t('username.title');
     case 'addresses':
       return t('addresses.title');
     case 'billing':
@@ -141,6 +187,8 @@ function sectionTitle(id: AccountSectionId, t: ReturnType<typeof useTranslations
       return t('password.title');
     case 'session':
       return t('session.title');
+    case 'wishlist':
+      return tWishlist('account.title');
   }
 }
 

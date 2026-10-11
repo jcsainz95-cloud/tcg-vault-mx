@@ -1,4 +1,5 @@
 import { Role } from '@prisma/client';
+import { AUDITED_SUPER_ADMIN_KEY, AuditedSuperAdminGuard } from '../src/modules/admin/audited-super-admin.guard';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -147,10 +148,30 @@ describe('AuditService.listForUser — proyección por rol', () => {
 });
 
 describe('AdminUsersController.userAudit — normaliza scope y respeta rol', () => {
-  it('scope inválido cae a target; pasa el rol del actor a listForUser', async () => {
+  // ⭐ `EQ-D1` (2026-09-16): antes un `?scope=` fuera de dominio **clampaba a `target`** en silencio
+  // (§0-Q punto 6 lo prohíbe). Ahora ⇒ `400 VALIDATION_ERROR`, y ⛔ NO se llama a `listForUser`.
+  it('scope inválido ⇒ 400 (ya NO clampa a target — `EQ-D1`)', async () => {
     const auditMock = { log: jest.fn(), listForUser: jest.fn(async () => ({ data: [], page: 1, pageSize: 20, total: 0 })) };
     const ctrl = new AdminUsersController({} as any, auditMock as any);
-    await ctrl.userAudit('u1', Role.vault_operator, 'garbage', '1', '20');
+    // El `throw` de `parseEnumFilter` es SÍNCRONO (antes de cualquier `await`): se captura así.
+    let err: any;
+    try {
+      await ctrl.userAudit('u1', Role.vault_operator, 'garbage', '1', '20');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'scope', allowed: ['target', 'actor', 'both'] },
+    });
+    expect(auditMock.listForUser).not.toHaveBeenCalled();
+  });
+
+  // Vacío/ausente ≡ el default declarado `target` (§0-Q punto 6, fila 1): eso SÍ se conserva.
+  it('scope vacío ⇒ default `target`; pasa el rol del actor a listForUser', async () => {
+    const auditMock = { log: jest.fn(), listForUser: jest.fn(async () => ({ data: [], page: 1, pageSize: 20, total: 0 })) };
+    const ctrl = new AdminUsersController({} as any, auditMock as any);
+    await ctrl.userAudit('u1', Role.vault_operator, '', '1', '20');
     expect(auditMock.listForUser).toHaveBeenCalledWith({
       userId: 'u1',
       scope: 'target',
@@ -175,9 +196,13 @@ describe('AdminUsersController.userAudit — normaliza scope y respeta rol', () 
 });
 
 describe('Guards de rol (403 sin rol suficiente)', () => {
-  it('POST /admin/users exige super_admin (metadata @Roles en el método)', () => {
-    const roles = Reflect.getMetadata(ROLES_KEY, AdminUsersController.prototype.createUser);
-    expect(roles).toEqual([Role.super_admin]);
+  // v1.80.9 (§M6-U.6, D-STF-1): alta y reset dejan `@Roles(super_admin)` (403 SIN bitácora) por el guard de ruta
+  // `AuditedSuperAdminGuard` (403 + fila `user.admin_action_denied`). La conducta (403 + fila) la miden STF-3/STF-15.
+  it('POST /admin/users exige super_admin (guard auditado en el método)', () => {
+    expect(Reflect.getMetadata(AUDITED_SUPER_ADMIN_KEY, AdminUsersController.prototype.createUser)).toBe('create');
+    expect(Reflect.getMetadata('__guards__', AdminUsersController.prototype.createUser)).toEqual([AuditedSuperAdminGuard]);
+    expect(Reflect.getMetadata(AUDITED_SUPER_ADMIN_KEY, AdminUsersController.prototype.resetPassword)).toBe('reset_password');
+    expect(Reflect.getMetadata('__guards__', AdminUsersController.prototype.resetPassword)).toEqual([AuditedSuperAdminGuard]);
   });
 
   it('/admin/users es vault_operator+ a nivel de clase (cubre el audit read)', () => {
@@ -219,7 +244,7 @@ describe('Listados admin — filtro ?userId= (F2)', () => {
     };
     const svc = new ShipmentsService(prisma as any, {} as any, {} as any);
     await svc.adminList(undefined, 1, 20, 'user-7');
-    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'user-7' });
+    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ kind: 'outbound', userId: 'user-7' }); // rev BSD-1: + OUTBOUND_ONLY (censo BSD-B23)
   });
 
   it('disputes.adminList añade where.userId', async () => {

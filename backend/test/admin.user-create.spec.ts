@@ -31,6 +31,7 @@ function prismaCreate(): any {
       create: jest.fn(async ({ data }: any) => ({
         id: 'new-id',
         email: data.email,
+        username: data.username ?? null,
         name: data.name,
         role: data.role,
         locale: data.locale,
@@ -46,7 +47,9 @@ function prismaCreate(): any {
 }
 
 describe('AdminService.createUser', () => {
-  it.each(['customer', 'vault_operator', 'super_admin'])(
+  // v1.80.9 (§M6-U.6): el CLIENTE conserva la conducta de antes (correo, verificado, mustChangePassword=false con la
+  // contraseña tecleada). El EQUIPO ya no se da de alta con correo: su caso está en el `it.each` siguiente.
+  it.each(['customer'])(
     'crea %s OK con password provista: emailVerified=true, authProvider=local, sin passwordHash en la respuesta, mustChangePassword=false',
     async (role) => {
       const prisma = prismaCreate();
@@ -80,10 +83,37 @@ describe('AdminService.createUser', () => {
     },
   );
 
+  // ⭐ v1.80.9 (§M6-U.6, P-STF-6) — equipo: SIN correo, con usuario canónico, `emailVerified=false` (CHECK 4) y
+  // `mustChangePassword=true` SIEMPRE (también con la contraseña tecleada).
+  it.each(['vault_operator', 'super_admin'])(
+    'crea %s SIN correo con password provista: username canónico, email null, emailVerified=false, mustChangePassword=true',
+    async (role) => {
+      const prisma = prismaCreate();
+      const res = await svc(prisma).createUser({ username: '  Ana.Op ', name: 'Ana', role, password: 'password123' });
+      expect(res.user.role).toBe(role);
+      expect(res.user.email).toBeNull();
+      expect(res.user.username).toBe('ana.op');
+      expect(res.user.emailVerified).toBe(false);
+      expect(res.mustChangePassword).toBe(true);
+      expect(res.tempPassword).toBeUndefined();
+      const data = prisma.user.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ email: null, username: 'ana.op', emailVerified: false, mustChangePassword: true, authProvider: 'local' });
+      await expect(argon2.verify(data.passwordHash, 'password123')).resolves.toBe(true);
+    },
+  );
+
+  it.each(['vault_operator', 'super_admin'])('v1.80.9: %s CON correo ⇒ 422 field email (rompe a propósito: antes 201)', async (role) => {
+    const prisma = prismaCreate();
+    await expect(
+      svc(prisma).createUser({ email: 'NewUser@Example.com', name: 'N', role, password: 'password123' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'email', rule: 'staff_without_email' } });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
   it('autogenera la password si se omite: devuelve tempPassword UNA vez + mustChangePassword=true', async () => {
     const prisma = prismaCreate();
     const res = await svc(prisma).createUser({
-      email: 'temp@example.com',
+      username: 'temp',
       name: 'Temp',
       role: 'vault_operator',
     });
@@ -175,12 +205,13 @@ describe('AdminUsersController.createUser — auditoría sin filtrar la contrase
     const created = {
       user: {
         id: 'u1',
-        email: 'a@x.com',
+        email: null,
+        username: 'ana',
         name: 'N',
         role: 'vault_operator',
         locale: 'es',
         status: 'active',
-        emailVerified: true,
+        emailVerified: false,
         authProvider: 'local',
         createdAt: new Date(),
       },
@@ -192,7 +223,7 @@ describe('AdminUsersController.createUser — auditoría sin filtrar la contrase
     const ctrl = new AdminUsersController(adminMock as any, auditMock as any);
 
     const res = await ctrl.createUser(
-      { email: 'a@x.com', name: 'N', role: 'vault_operator' } as any,
+      { username: 'ana', name: 'N', role: 'vault_operator' } as any,
       { id: 'admin', role: 'super_admin' } as any,
     );
 
@@ -204,9 +235,12 @@ describe('AdminUsersController.createUser — auditoría sin filtrar la contrase
     expect(logArg.action).toBe('user.create');
     expect(logArg.entityType).toBe('User');
     expect(logArg.entityId).toBe('u1');
+    // v1.80.9 (§M6-U.6): el `after` gana `username` y `hasEmail` (y sigue sin contraseña).
     expect(logArg.after).toEqual({
       role: 'vault_operator',
-      emailVerified: true,
+      username: 'ana',
+      hasEmail: false,
+      emailVerified: false,
       authProvider: 'local',
       mustChangePassword: true,
     });

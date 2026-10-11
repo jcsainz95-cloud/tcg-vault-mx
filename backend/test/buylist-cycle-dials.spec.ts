@@ -196,8 +196,10 @@ describe('M-46 §4.39l — exposición en el DTO de M10 (los DIEZ, y nada más)'
     // ANCLA, del mismo tipo que las de `enum-values-parity`: si alguien añade un dial del ciclo sin
     // pasar por el arquitecto, este número deja de cuadrar y hay que decidirlo a propósito.
     // Se excluyen los DOS `buylistCap*` de AML, que son de v1.1 y no pertenecen al ciclo.
+    // 💰 rev BSD-1 (§BSD.9): los dos `buylistGuide*` del cierre sin guía tampoco son del ciclo de M-46 (los ancla
+    // `bsd.b3-guide-clock.spec.ts`).
     const delCiclo = Object.keys(SETTING_DTO_MAP).filter(
-      (k) => k.startsWith('buylist') && !k.startsWith('buylistCap'),
+      (k) => k.startsWith('buylist') && !k.startsWith('buylistCap') && !k.startsWith('buylistGuide'),
     );
     expect(delCiclo.sort()).toEqual(
       [
@@ -464,8 +466,10 @@ describe('B-4 — `buylist_no_offer_expiry_enabled` (gate del paso 6, NO un dial
     expect(Object.keys(SETTING_DTO_MAP)).not.toContain('buylistNoOfferExpiryEnabled');
     // El mismo conteo que el ancla de arriba, re-aseverado desde el lado del gate: añadirlo al DTO
     // rompería LOS DOS tests, que es justo lo que obliga a decidirlo a propósito.
+    // 💰 rev BSD-1 (§BSD.9): los dos `buylistGuide*` del cierre sin guía tampoco son del ciclo de M-46 (los ancla
+    // `bsd.b3-guide-clock.spec.ts`).
     const delCiclo = Object.keys(SETTING_DTO_MAP).filter(
-      (k) => k.startsWith('buylist') && !k.startsWith('buylistCap'),
+      (k) => k.startsWith('buylist') && !k.startsWith('buylistCap') && !k.startsWith('buylistGuide'),
     );
     expect(delCiclo).toHaveLength(10);
   });

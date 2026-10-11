@@ -22,6 +22,11 @@
 #   m5  un compose NUEVO con una imagen móvil ⇒ prueba que la enumeración NO es
 #       una lista a mano y que un fichero nuevo entra solo
 #   m6  (control inverso) clavar por digest `@sha256:` ⇒ el candado debe seguir VERDE
+#   m7–m9  imágenes de workflows (`services:`/`container:`, §4.52.4)
+#   m10–m13 RL-SEC-2: `npm i -g` en un workflow con `@latest`, sin versión (con
+#       y sin scope, forma larga `--global` en bloque `|`) y con rango `^` ⇒ ROJO.
+#       La base incluye `npm ci` (no global) y un comentario tras el paquete:
+#       ninguno de los dos puede contar como dependencia.
 #
 # Uso:  ./scripts/check-compose-images-canary.sh [N]
 # =============================================================================
@@ -74,6 +79,15 @@ jobs:
       image: returntocorp/semgrep:1.177.0
     steps:
       - run: echo ok
+  despliegue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar Railway CLI
+        run: npm i -g @railway/cli@5.63.1  # comentario que NO es un paquete
+      - name: Instalar Vercel CLI
+        run: |
+          npm install --global vercel@62.4.0
+          npm ci
 YML2
   printf '%s' "$D"
 }
@@ -130,6 +144,20 @@ mutar 8 'container: de WORKFLOW con etiqueta movil (el caso semgrep:latest)' \
 
 mutar 9 'workflow NUEVO con service movil (la enumeracion de workflows no es una lista)' \
   "printf 'jobs:\\n  colado:\\n    runs-on: ubuntu-latest\\n    services:\\n      almacen:\\n        image: minio/minio:latest\\n    steps:\\n      - run: echo ok\\n' > .github/workflows/nuevo.yml" ROJO
+
+# --- RL-SEC-2 (2026-10-05): CLIs npm instaladas en GLOBAL en un workflow, en el
+# job que recibe RAILWAY_TOKEN/VERCEL_TOKEN. Exige versión EXACTA.
+mutar 10 'npm i -g @railway/cli@latest (el caso exacto de deploy.yml)' \
+  "sed -i 's|@railway/cli@5.63.1|@railway/cli@latest|' .github/workflows/ci.yml" ROJO
+
+mutar 11 'npm i -g @railway/cli SIN versión (el único @ es el del scope)' \
+  "sed -i 's|@railway/cli@5.63.1|@railway/cli|' .github/workflows/ci.yml" ROJO
+
+mutar 12 'npm install --global vercel SIN versión (bloque |, forma larga)' \
+  "sed -i 's|vercel@62.4.0|vercel|' .github/workflows/ci.yml" ROJO
+
+mutar 13 'npm i -g vercel@^62 (un RANGO no es una versión fijada)' \
+  "sed -i 's|vercel@62.4.0|vercel@^62.4.0|' .github/workflows/ci.yml" ROJO
 
 echo
 if [ "$FALLOS" -eq 0 ]; then

@@ -92,8 +92,19 @@ function cellOf(grid: Locator, cardName: string): Locator {
  * por (carta, acabado)**, hermanas entre sí — no una celda con sub-casillas dentro. Se localizan
  * por el `#número`, que cada casilla imprime junto a su acabado («#58 · Reverse Holo»).
  */
+/**
+ * v1.80 (P-71): el renglón de número de la teja es «TWM 130» cuando el set trae código y `#130`
+ * cuando no (`data-testid="card-code"`). Los helpers leen el NÚMERO de ese renglón sin depender de
+ * cuál de las dos formas toca (el código depende del set y de la semilla, no de lo que se mide aquí).
+ */
+const CARD_CODE_PREFIX = /^(?:#|\S+\s)/;
+function numberOfCardCode(text: string): string {
+  return text.replace(CARD_CODE_PREFIX, '').trim();
+}
+
 function variantTilesOf(grid: Locator, cardNumber: string): Locator {
-  return grid.locator('li').filter({ hasText: `#${cardNumber}` });
+  const exact = new RegExp(`^(?:#|\\S+\\s)${cardNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+  return grid.locator('li').filter({ has: grid.page().getByTestId('card-code').filter({ hasText: exact }) });
 }
 
 /** Botón «Agregar {carta} ({acabado}) a la venta» dentro de la rejilla. */
@@ -158,9 +169,10 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
   }) => {
     const grid = await openQuoterSet(page, ORACLE.orderSet);
 
-    // Números de las celdas EN EL ORDEN en que se pintan (texto `#<number>` de cada celda).
-    const raw = await grid.getByText(/^#/).allInnerTexts();
-    const numbers = raw.map((s) => s.replace(/^#/, '').trim());
+    // Números de las celdas EN EL ORDEN en que se pintan (renglón `#<number>` o, con código de set,
+    // `TWM <number>` — v1.80, P-71).
+    const raw = await grid.getByTestId('card-code').allInnerTexts();
+    const numbers = raw.map(numberOfCardCode);
     expect(numbers.length).toBeGreaterThanOrEqual(2);
 
     const isNumeric = (s: string) => /^\d+$/.test(s);

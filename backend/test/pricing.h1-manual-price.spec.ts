@@ -4,7 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { firstPresentAmount, hasManualPrice, isPresentAmount } from '../src/common/money';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -67,6 +67,7 @@ const CURVE_PRICE = 115000;
 
 function pricingMock() {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
@@ -138,7 +139,7 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
   it('publicación (`resolvePublishSalePrice`): deriva por la curva en vez de listar a $0', async () => {
     const { InventoryService } = await import('../src/modules/inventory/inventory.service');
     const pricing = pricingMock();
-    const svc = new InventoryService({} as PrismaService, pricing, {} as SettingsService);
+    const svc = new InventoryService({} as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService);
     const ctx = await (svc as never as { loadPublishPricingCtx: (i: unknown[]) => Promise<unknown> })
       .loadPublishPricingCtx([ITEM({ status: 'in_stock' })]);
     const resolved = await (
@@ -152,7 +153,7 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
   it('un `0` en la LÍNEA de bulk-publish no enmascara el override de la PIEZA', async () => {
     const { InventoryService } = await import('../src/modules/inventory/inventory.service');
     const pricing = pricingMock();
-    const svc = new InventoryService({} as PrismaService, pricing, {} as SettingsService);
+    const svc = new InventoryService({} as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService);
     const item = ITEM({ status: 'in_stock', listPriceCents: 9900 });
     const ctx = await (svc as never as { loadPublishPricingCtx: (i: unknown[]) => Promise<unknown> }).loadPublishPricingCtx([item]);
     const resolved = await (

@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.20-master-set-everywhere (§4.20c) — GET /admin/vaults: lista de clientes CON bóveda.
@@ -40,7 +41,11 @@ function build(over: {
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
+    // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+    ...REAL_VALUATION_GATE,
     getReferencesBatch: jest.fn().mockResolvedValue(over.refs ?? new Map()),
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   // VaultService solo lo usa `AdminVaultsService.sealed` (no `list`); stub vacío para estos tests.
   const vault = { sealedTab: jest.fn() } as unknown as VaultService;

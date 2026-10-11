@@ -72,7 +72,15 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     for (const key of ['customer', 'customer2', 'operator'] as const) {
       const u = await h.prisma.user.findUnique({ where: { email: E2E_USERS[key].email } });
       userId[key] = u!.id;
-      const addr = await h.prisma.address.findFirst({ where: { userId: u!.id } });
+      // ⚠️ QA (gate sobre `8a10153e`): `orderBy` EXPLÍCITO, el mismo de `seed-e2e.ts` (predeterminada y,
+      // a igualdad, la más antigua = la del seed). Sin orden, `findFirst` devuelve la fila que quiera el
+      // planificador; en una BD reutilizada con direcciones de corridas anteriores tomaba otra y este
+      // spec daba 4 rojas (snapshot «Av. E2E 123», detalle admin, guía y correo PII). Medido: 2.ª corrida
+      // completa sobre la misma BD ⇒ 4/72 rojas.
+      const addr = await h.prisma.address.findFirst({
+        where: { userId: u!.id },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      });
       // El operador no tiene libreta y no la necesita: solo se guarda su id para aseverar
       // `declinedBy` (D39, el ÚNICO discriminador entre «decidimos» y «dejamos vencer»).
       if (addr) addressId[key] = addr.id;
@@ -196,13 +204,21 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     let srId: string;
     let otraDireccionId: string;
 
+    /** La dirección que crea ESTE bloque. Se identifica por `line1` para purgar también restos de corridas viejas. */
+    const OTRA_LINE1 = 'Calle Nueva 456';
+    const purgeOtra = () =>
+      h.prisma.address.deleteMany({ where: { userId: userId.customer, line1: OTRA_LINE1 } });
+
     beforeAll(async () => {
+      // Hermético (QA, gate sobre `8a10153e`): una BD reutilizada puede traer las de corridas anteriores.
+      // `Address` no tiene FKs entrantes (el snapshot de la solicitud es JSON), así que borrarla es seguro.
+      await purgeOtra();
       const created = await createRequest(validBody());
       srId = created.body.sellRequestId;
       const addr = await h.prisma.address.create({
         data: {
           userId: userId.customer,
-          line1: 'Calle Nueva 456',
+          line1: OTRA_LINE1,
           city: 'Monterrey',
           state: 'NL',
           postalCode: '64000',
@@ -211,6 +227,11 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         },
       });
       otraDireccionId = addr.id;
+    });
+
+    afterAll(async () => {
+      // Limpia lo que creó: sin esto la siguiente corrida sobre la misma BD hereda una dirección más.
+      await purgeOtra();
     });
 
     it('re-congela el snapshot mientras NO haya guía', async () => {
@@ -298,6 +319,52 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       const fila = res.body.data.find((r: { seller: { id: string } }) => r.seller.id === userId.customer);
       expect(fila).toBeTruthy();
       expect(fila.seller.phone).toBe(E2E_USERS.customer.phone);
+    });
+  });
+
+  // ===========================================================================================
+  // 3-bis) ROBUSTEZ PII — un `clabeSnapshotEnc` INDESCIFRABLE DEGRADA el detalle, NO lo tumba con 500
+  // ===========================================================================================
+  describe('robustez PII: CLABE indescifrable degrada el detalle admin (deuda M11, clase de PR #43)', () => {
+    it('con el snapshot corrupto en BD, GET /admin/buylist/:id responde 200 degradado (clabeMasked ausente + piiUnavailable), NO 500', async () => {
+      // Estado que la API NO puede fabricar (siempre escribe ciphertext válido): se SIEMBRA por la BD
+      // real (norma de la suite) un `clabeSnapshotEnc` con la forma correcta pero que NINGUNA clave de
+      // este proceso autentica — emula clave rotada / fila corrupta. La conducta se prueba POR HTTP,
+      // que es donde el throw se traducía a 500 en el filtro global.
+      const created = await createRequest(validBody());
+      expect(created.status).toBe(201);
+      const srId = created.body.sellRequestId;
+
+      const UNDECRYPTABLE =
+        'v1:' +
+        Buffer.alloc(12).toString('base64') +
+        ':' +
+        Buffer.alloc(16).toString('base64') +
+        ':' +
+        Buffer.from('garbage').toString('base64');
+      await h.prisma.sellRequest.update({
+        where: { id: srId },
+        data: { clabeSnapshotEnc: UNDECRYPTABLE },
+      });
+
+      const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+      expect(detail.status).toBe(200); // ANTES del arreglo: 500 (el throw subía sin capturar).
+      expect(detail.body.piiUnavailable).toBe(true);
+      expect(detail.body.clabeMasked ?? null).toBeNull(); // enmascarado a nada en el estado degradado
+      // El resto del detalle viaja intacto y el ciphertext NUNCA se filtra a la respuesta.
+      expect(detail.body.id).toBe(srId);
+      expect(detail.body.status).toBe('cotizada');
+      expect(JSON.stringify(detail.body)).not.toContain(UNDECRYPTABLE);
+    });
+
+    it('camino feliz: un snapshot que SÍ descifra sigue enmascarando la CLABE y NO gana el flag', async () => {
+      const created = await createRequest(validBody());
+      const srId = created.body.sellRequestId;
+      const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+      expect(detail.status).toBe(200);
+      expect(detail.body.clabeMasked).toBe('**************4567');
+      expect(detail.body).not.toHaveProperty('piiUnavailable');
+      expect(JSON.stringify(detail.body)).not.toContain(CLABE_A);
     });
   });
 
@@ -1729,13 +1796,22 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       const inv = await h.prisma.inventoryItem.count({ where: { sourceSellRequestItemId: itemId } });
       expect(inv).toBe(0);
 
-      // Y el residual NOMBRADO de R.3: `reject` pre-recepción **sigue pasando**, a propósito.
+      // 💰 rev BSD-1.3 punto 1: el residual de R.3 se CIERRA en `aceptada` — rechazar una carta que no ha llegado manda el
+      // correo y los relojes de devolución sobre cartas que nunca recibimos. El remedio es «Declinar».
       const rej = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
         json: { decision: 'reject', reason: 'el paquete no llegó y el vendedor pide cerrar' },
       });
-      expect(rej.status).toBe(200);
-      expect(rej.body.itemStatus).toBe('rechazada');
+      expect(rej.status).toBe(422);
+      expect(rej.body.error).toMatchObject({ code: 'REQUEST_NOT_RECEIVED', details: { sellRequestId: srId, status: 'aceptada', remedy: 'decline_accepted' } });
+      // …y el remedio que nombra cierra la solicitud (sin él, su compromiso seguiría contando en el tope mensual del vendedor
+      // y las altas siguientes de esta suite chocarían con `BUYLIST_LIMIT_EXCEEDED`).
+      const dec = await h.api('POST', `/admin/buylist/${srId}/decline-accepted`, {
+        token: operatorToken,
+        json: { reason: 'el paquete no llegó y el vendedor pide cerrar' },
+      });
+      expect(dec.status).toBe(200);
+      expect(dec.body).toMatchObject({ status: 'expirada', expiredReason: 'not_continued' });
     });
 
     it('§M5-R · ⭐ EL CAMINO FELIZ: `receive` → `approve` → `convert-to-inventory`, los tres 200', async () => {

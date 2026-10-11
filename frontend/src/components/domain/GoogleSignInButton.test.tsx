@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { GoogleSignInButton } from './GoogleSignInButton';
-import { getToken, setToken } from '@/lib/api-client';
+import { ApiClientError, getToken, setToken } from '@/lib/api-client';
+import * as api from '@/lib/api';
 import { config } from '@/lib/config';
 
 describe('GoogleSignInButton (§6.7, rama mock)', () => {
@@ -102,5 +103,33 @@ describe('GoogleSignInButton (§6.7, rama real GIS — descarte del prompt)', ()
     act(() => momentListener?.(notification({ isNotDisplayed: () => true })));
 
     await waitFor(() => expect(btn).not.toBeDisabled());
+  });
+});
+
+/**
+ * §37.13 v4.9.1 · contrato v1.80.8.1: `/auth/google` solo emite `429 RATE_LIMITED` (por IP) ⇒ se pinta con
+ * `auth.rateLimitedByIp*`, ⛔ sin enlace a restablecer y ⛔ sin «correo»; no el genérico `error.RATE_LIMITED`.
+ */
+describe('GoogleSignInButton · 429 RATE_LIMITED (errata v1.80.8.1)', () => {
+  beforeEach(() => setToken(null));
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    [undefined, 'Demasiados intentos seguidos. Espera un momento y vuelve a intentarlo.'],
+    [{ retryAfterSeconds: 61 }, 'Demasiados intentos seguidos. Vuelve a intentarlo en 2 minutos.'],
+  ])('details=%o ⇒ texto por IP, sin enlace y sin «correo»', async (details, text) => {
+    vi.spyOn(api, 'loginWithGoogle').mockRejectedValue(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x', details }));
+    const onSuccess = vi.fn();
+    renderWithProviders(<GoogleSignInButton onSuccess={onSuccess} />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Continuar con Google/ }));
+
+    const box = await screen.findByTestId('google-rate-limited');
+    expect(box).toHaveTextContent(text);
+    expect(box.textContent).not.toMatch(/correo|restablece/i);
+    expect(box.querySelector('a')).toBeNull();
+    expect(screen.getByRole('alert')).toBe(box.firstElementChild);
+    expect(onSuccess).not.toHaveBeenCalled();
+    // Sale del «Conectando…»: el botón vuelve a estar disponible.
+    expect(screen.getByRole('button', { name: /Continuar con Google/ })).toBeEnabled();
   });
 });

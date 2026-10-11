@@ -21,7 +21,9 @@ export function VerifyEmailBanner() {
   const { status, resend } = useResendVerification();
 
   // Solo clientes sin verificar. Google entra con emailVerified=true (no afectado).
-  if (!ready || !user || user.emailVerified !== false) return null;
+  // ⭐ v1.80.9 (DESIGN_SYSTEM §42.7, UX-13): una cuenta del equipo SIN correo trae `emailVerified:false`
+  // (CHECK 4) y no tiene correo que verificar ⇒ no se pinta.
+  if (!ready || !user || user.emailVerified !== false || user.email == null) return null;
 
   return (
     // Dirección 5a: franja de papel con regla; el aviso lo marca la nota, no un fondo de color.

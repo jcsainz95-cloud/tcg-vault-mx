@@ -10,6 +10,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { ADDRESS_DTO_KEYS, toAddressDTO } from '../src/modules/users/address-dto';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * v1.67.1 (techlead F2-2, `D-CTA-8`, contrato §M6 / §11 `AddressDTO`) — **UNA sola proyección de
@@ -33,6 +34,7 @@ const ROWS = [
     postalCode: '06700',
     country: 'MX',
     phone: '5555555555',
+    references: 'Portón verde',
     isDefault: true,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
@@ -50,6 +52,7 @@ const ROWS = [
     postalCode: '01000',
     country: 'MX',
     phone: '5544443333',
+    references: null,
     isDefault: false,
     createdAt: new Date('2025-12-01T00:00:00Z'),
     updatedAt: new Date('2025-12-01T00:00:00Z'),
@@ -88,7 +91,7 @@ function buildAdmin() {
     fxSnapshotSafe: jest.fn().mockResolvedValue(null),
     liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
   } as unknown as PricingService;
-  return new AdminService(prisma as PrismaService, pricing, pii, {} as never);
+  return new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts());
 }
 
 function buildUsers() {
@@ -108,6 +111,9 @@ describe('AddressDTO — paridad users ↔ admin (una sola proyección, v1.67.1)
     }
     expect(expected[0].recipientName).toBe('Mamá de Ana');
     expect(expected[1].recipientName).toBeNull();
+    // ⭐ v1.81 (M-64): `references` viaja y `complete` se DERIVA (colonia + CP 5 + tel 10).
+    expect(expected[0]).toMatchObject({ references: 'Portón verde', complete: true });
+    expect(expected[1]).toMatchObject({ references: null, complete: false });
   });
 
   it('GET /users/me/addresses emite toAddressDTO(row) tal cual', async () => {

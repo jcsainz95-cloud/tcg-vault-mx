@@ -36,6 +36,10 @@ import { localUid } from '@/components/master-set/capture';
 import { QuickAddSection, type QuickAddTarget } from './QuickAdd';
 import { QuickRemoveSection } from './QuickRemove';
 import { ItemDetailModal } from './ItemDetailModal';
+import { SealedFinalPrice } from './SealedFinalPrice';
+import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
+import { SealedProductPriceBlock } from './SealedProductPriceBlock';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
 
 /**
  * Drill-down de piezas por VARIANTE — P-17 (DESIGN_SYSTEM §16.4). Panel lateral (sheet 480px en
@@ -66,6 +70,11 @@ export interface VariantDrawerProps {
   /** Pieza a resaltar/enfocar (buscador por folio §16.1.1). */
   highlightFolio?: string;
   locations?: VaultLocationDTO[];
+  /**
+   * §SU-UX.3 (b): ¿`locations` ya llegó del servidor? Se reenvía a la ficha (`ItemDetailModal`), que solo dice
+   * «no hay ubicaciones» con `true`. Por defecto `false`: quien no lo sabe no lo afirma.
+   */
+  locationsReady?: boolean;
   onClose: () => void;
   /** Refresca agregados del binder/pestaña tras alta/publicación/merma/guardado de precios. */
   onChanged?: () => void;
@@ -87,6 +96,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
     marketCapturedDate,
     highlightFolio,
     locations = [],
+    locationsReady = false,
     onClose,
     onChanged,
     onToast,
@@ -94,6 +104,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
   } = props;
   const t = useTranslations('admin.drawer');
   const tSpec = useTranslations('finish');
+  const tSub = useTranslations('status.sealedSubtype');
   const { isSuperAdmin } = useRole();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -160,7 +171,12 @@ export function VariantDrawer(props: VariantDrawerProps) {
       ? 'RAW · NM'
       : productType === 'graded'
         ? `GRADED · ${props.gradeInfo ? `${props.gradeInfo.gradingCompany} ${props.gradeInfo.gradeValue}` : ''}`
-        : 'SELLADO',
+        : // SELLADO-M1(C): el desglose de FORMATO (Bundle/Booster Box/ETB…) YA viaja como prop
+          // `sealedSubtype`; se pintaba «SELLADO» a secas y el subtipo se perdía en el drill-down.
+          // Display-only passthrough del campo que el drawer ya recibe.
+          props.sealedSubtype
+          ? `SELLADO · ${tSub(props.sealedSubtype).toUpperCase()}`
+          : 'SELLADO',
     productType === 'raw' ? tSpec(finish).toUpperCase() : null,
   ].filter(Boolean);
 
@@ -342,7 +358,9 @@ export function VariantDrawer(props: VariantDrawerProps) {
               highlighted={highlighted}
               variantHasOverride={variantHasOverride}
               showCert={productType === 'graded'}
+              sealed={productType === 'sealed' ? { name: cardName, marketRefCents: marketRefCents ?? null } : null}
               locations={locations}
+              locationsReady={locationsReady}
               onToast={onToast}
               onChanged={() => {
                 void pieces.refetch();
@@ -368,7 +386,9 @@ function PiecesSection({
   highlighted,
   variantHasOverride,
   showCert,
+  sealed,
   locations,
+  locationsReady,
   onToast,
   onChanged,
 }: {
@@ -380,7 +400,13 @@ function PiecesSection({
   highlighted: string[];
   variantHasOverride: boolean;
   showCert: boolean;
+  /**
+   * §39.2 (c): SOLO sellado ⇒ el precio por pieza es `SealedFinalPrice` con rótulo visible. `null` (raw/graded) ⇒
+   * el código de siempre, sin tocar (P-PRE-1: «se conserva como está, sin hacerlo más visible»).
+   */
+  sealed: { name: string; marketRefCents: number | null } | null;
   locations: VaultLocationDTO[];
+  locationsReady: boolean;
   onToast?: (msg: string) => void;
   onChanged: () => void;
 }) {
@@ -394,6 +420,26 @@ function PiecesSection({
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState('');
   const [lossItem, setLossItem] = useState<InventoryItemDTO | null>(null);
+  const [sealedEditingId, setSealedEditingId] = useState<string | null>(null);
+  const { role } = useRole();
+  const canSetPrice = canSetSealedPrice(role);
+  /**
+   * §M11-SP.12.7 / 13.5 — en sellado se decide por `sealedProductId` de la fila: `string` ⇒ ligada (precio del
+   * PRODUCTO, un bloque encima de la lista), `null` ⇒ sin producto (precio por pieza, antes de IVA, solo el dueño).
+   * Clave ausente ⇒ sin bloque y la pieza en solo lectura (falla cerrado; §13.5.1, `sealedPieceLinkOf`).
+   */
+  const linkedProducts = useMemo(() => {
+    if (!sealed) return [];
+    const byId = new Map<string, InventoryItemDTO[]>();
+    for (const r of rows) {
+      if (typeof r.sealedProductId === 'string') {
+        const list = byId.get(r.sealedProductId) ?? [];
+        list.push(r);
+        byId.set(r.sealedProductId, list);
+      }
+    }
+    return [...byId.entries()];
+  }, [rows, sealed]);
 
   // batchKey estable por sesión de publicación (replay idempotente en reintentos).
   const publishKeyRef = useRef<string | null>(null);
@@ -462,6 +508,18 @@ function PiecesSection({
         error={query.error}
         onRetry={() => query.refetch()}
       >
+        {/* §70.3 (a): «Precio del producto · N piezas», UNA vez encima de la lista, por producto ligado. */}
+        {sealed &&
+          linkedProducts.map(([productId, productRows]) => (
+            <SealedProductPriceBlock
+              key={productId}
+              productId={productId}
+              name={sealed.name}
+              rows={productRows}
+              canSet={canSetPrice}
+              onChanged={onChanged}
+            />
+          ))}
         {query.data != null &&
           (rows.length === 0 ? (
             <p className="text-sm text-muted">{t('noPieces')}</p>
@@ -471,6 +529,15 @@ function PiecesSection({
                 const isHighlighted = highlighted.includes(piece.folio);
                 const publishable = piece.status === 'in_stock';
                 const listed = piece.status === 'listed';
+                // Reglas de pantalla del contrato (§M1 v1.79.6 «5»; QA menor sobre `4ca6c45`, 2026-09-29):
+                // - «Merma» solo en `in_stock|listed` (= `ITEM_NOT_ADJUSTABLE`, el mismo predicado que
+                //   `removableCount`); ⛔ nunca `picking` (el backend la rechazaba con 422) ni `reserved`.
+                // - «Editar precio» ⛔ no sobre una pieza VENDIDA (`picking`; y `shipped|delivered`, que
+                //   son la misma pieza más tarde): su precio ya es el de la línea del pedido. Se sigue
+                //   LEYENDO. Sobre `reserved` el contrato no norma nada y aquí no se cambia.
+                const markable = publishable || listed;
+                const sold =
+                  piece.status === 'picking' || piece.status === 'shipped' || piece.status === 'delivered';
                 return (
                   <li
                     key={piece.id}
@@ -517,8 +584,45 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
-                    {/* Precio manual por pieza (gana sobre el de variante). */}
-                    {editingPriceId === piece.id ? (
+                    {sealedPieceLinkOf(piece) === 'linked' ? (
+                      /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
+                      <span className="ml-auto">
+                        <SealedPiecePriceLabel
+                          id={piece.id}
+                          origin={piece.sealedPriceOrigin}
+                          resolvedDisplayPriceCents={piece.resolvedDisplayPriceCents}
+                        />
+                      </span>
+                    ) : sealed ? (
+                      <span className="ml-auto">
+                        <SealedFinalPrice
+                          layout="panel"
+                          piece={{
+                            id: piece.id,
+                            folio: piece.folio,
+                            status: piece.status,
+                            ownerType: piece.ownerType,
+                            hasLocation: piece.location != null,
+                            listPriceCents: piece.listPriceCents ?? null,
+                            resolvedSalePriceCents: piece.resolvedSalePriceCents,
+                            resolvedDisplayPriceCents: piece.resolvedDisplayPriceCents,
+                            priceBasis: piece.priceBasis,
+                            name: sealed.name,
+                            marketRefCents: sealed.marketRefCents,
+                          }}
+                          // §M11-SP.13.5.1: sin producto solo el dueño; clave ausente ⇒ nadie (falla cerrado).
+                          canEdit={canEditSealedPiecePrice(role, piece)}
+                          staffNote={sealedPieceLinkOf(piece) === 'unlinked' && !canSetPrice}
+                          editing={sealedEditingId === piece.id}
+                          onEditingChange={(open) => setSealedEditingId(open ? piece.id : null)}
+                          onDone={(msg) => {
+                            onToast?.(msg);
+                            onChanged();
+                          }}
+                        />
+                      </span>
+                    ) : /* Precio manual por pieza (gana sobre el de variante). */
+                    editingPriceId === piece.id ? (
                       <span className="flex items-end gap-2">
                         <Input
                           label={t('editPriceLabel')}
@@ -550,6 +654,12 @@ function PiecesSection({
                         <Button size="sm" variant="ghost" onClick={() => setEditingPriceId(null)}>
                           {tc('cancel')}
                         </Button>
+                      </span>
+                    ) : sold ? (
+                      <span className="ml-auto font-mono tabular-nums text-xs text-text">
+                        {piece.listPriceCents != null
+                          ? formatMoneyCents(piece.listPriceCents, locale)
+                          : '—'}
                       </span>
                     ) : (
                       <button
@@ -602,15 +712,17 @@ function PiecesSection({
                           </button>
                         )
                       )}
-                      <button
-                        type="button"
-                        aria-label={t('markLoss', { folio: piece.folio })}
-                        title={t('markLossTitle')}
-                        className="flex h-8 w-8 items-center justify-center text-muted hover:text-accent"
-                        onClick={() => setLossItem(piece)}
-                      >
-                        <TriangleAlert size={15} />
-                      </button>
+                      {markable && (
+                        <button
+                          type="button"
+                          aria-label={t('markLoss', { folio: piece.folio })}
+                          title={t('markLossTitle')}
+                          className="flex h-8 w-8 items-center justify-center text-muted hover:text-accent"
+                          onClick={() => setLossItem(piece)}
+                        >
+                          <TriangleAlert size={15} />
+                        </button>
+                      )}
                     </span>
                   </li>
                 );
@@ -665,7 +777,7 @@ function PiecesSection({
         />
       )}
 
-      <ItemDetailModal itemId={detailId} onClose={() => setDetailId(null)} locations={locations} />
+      <ItemDetailModal itemId={detailId} onClose={() => setDetailId(null)} locations={locations} locationsReady={locationsReady} />
     </section>
   );
 }

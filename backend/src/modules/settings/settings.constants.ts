@@ -33,7 +33,12 @@ import {
 // v2.0 (P-48, §4.36.2): la CURVA vive en `common/` (zona compartida, sin infra) para que el seed, las
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
-import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
+import {
+  DEFAULT_PRICING_CURVE,
+  DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
+  validatePremiumFloorSalePublish,
+  validatePricingCurve,
+} from '../../common/pricing-curve';
 // v1.63 (§M2-F.1, §4.43c): la regla de resolución del MODO de la FX vive en `common/` (mismo motivo
 // que la curva: la comparten `FxService` y este módulo, y `FxService` ya depende de éste). Aquí solo
 // se declaran su KEY, su DEFAULT (el sentinel) y su validador de puerta.
@@ -49,6 +54,23 @@ import {
   isFxRateInBand,
 } from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, §M4-SHIP.19.19.12): los diales de Skydropx — seeds y validadores PUROS en su fichero.
+import {
+  DEFAULT_SHIPPING_DROPOFF_POINTS,
+  DEFAULT_SHIPPING_INSURANCE_TIERS,
+  validateConsignmentNote,
+  validateDropoffPoints,
+  validateInsuranceTiers,
+  validateIntRange,
+  validateOriginSnapshot,
+  validateOriginTemplateId,
+  validatePreferredCarriers,
+  validateShippingLabelFormat,
+  validateShippingLabelPurchase,
+  validateShippingProvider,
+  validateNonNegIntCents,
+  validateSpendAlertsDisabled,
+} from './shipping-dials';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
@@ -131,6 +153,12 @@ export const SettingKey = {
   // Editable SOLO por `GET/PUT /admin/pricing/curve` (como los spreads del sellado): NO se expone en
   // `SETTING_DTO_MAP`, así que `PUT /admin/settings` no la toca.
   PRICING_CURVE: 'pricing_curve',
+  // ⭐ v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter, MONEY) — el dial del guardarraíl
+  // «premium en el piso» del eje de VENTA: `{ mode: 'all'|'none'|'only', rarities }`. Seed y valor sin
+  // fila = `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }` (decisión del dueño, HECHOS
+  // 2026-10-04). Se expone en `GET/PUT /admin/settings` (`premiumFloorSalePublish`). ⛔ La COMPRA no lo
+  // lee: usa la constante `BUY_PREMIUM_FLOOR_POLICY`. Lector único: `PricingService.loadSalePremiumFloorPolicy`.
+  PREMIUM_FLOOR_SALE_PUBLISH: 'premium_floor_sale_publish',
   // v1.23-sealed-sales (§4.23c): spreads de VENTA del SELLADO por presentación + fallback global.
   // Mecanismo INDEPENDIENTE de la curva de precios (v2.0, §4.36): el sellado no interpola, usa
   // `pct` = markup ARRIBA de mercado por SealedSubtype (NO % de la referencia como en buylist).
@@ -189,6 +217,10 @@ export const SettingKey = {
   // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
   // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
   CATALOG_SYNC_FROM_DATE: 'catalog_sync_from_date',
+  // v1.80 (§M4-SHIP.8, D-3): tope de reembolsos de 24 h por OPERADOR (`vault_operator`); el súper-admin no tiene.
+  OPERATOR_REFUND_CAP_24H_CENTS: 'operator_refund_cap_24h_cents',
+  // v1.80.2 (§M4-SHIP.15.5, D-12): múltiplo `k` de la referencia por encima del cual un reembolso de caso se BLOQUEA.
+  CASE_REFUND_HARD_MULTIPLIER: 'case_refund_hard_multiplier',
   // ===== v1.51 (M-46, §4.39l / API_CONTRACT §M10) — LOS DIEZ DIALES DEL CICLO DE ADQUISICIÓN =====
   // `PROJECT.md` §P.10 es el ORIGEN ÚNICO de estos números. Todos viven en `ConfigSetting`, se editan
   // SIN REDEPLOY, quedan AUDITADOS y aplican a solicitudes NUEVAS. Los DIEZ se exponen en el DTO de
@@ -255,6 +287,11 @@ export const SettingKey = {
   // hay identidad aritmética que preservar. *Meterlo «por simetría» sería inventar una relación entre
   // un número de veces y un monto.*
   BUYLIST_OFFER_REISSUE_ALERT_COUNT: 'buylist_offer_reissue_alert_count',
+  // 💰 rev BSD-1 (API_CONTRACT §BSD.9, §BSD.7 reglas 8 y 9): el cierre de una `aceptada` SIN guía a N días NATURALES
+  // desde `coalesce(inboundGuideClockStartedAt, acceptedAt)`, y el aviso AG-23 al dueño `warn` días antes. Aplican a las
+  // solicitudes EN CURSO (el barrido las lee en cada pasada). Claves nuevas ⇒ basta el default de abajo.
+  BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS: 'buylist_guide_close_calendar_days',
+  BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE: 'buylist_guide_warn_days_before_close',
 
   // ===========================================================================================
   // ⚠️⚠️ NO ES EL DIAL 11. Es el INTERRUPTOR DEL PASO 6 DE M-46 (B-4).
@@ -281,6 +318,61 @@ export const SettingKey = {
   // cambio de contrato ⇒ **lo decide el arquitecto, no el backend** (regla 9). Se opera por fila de
   // `ConfigSetting`, igual que el paso 6 se opera a mano.
   BUYLIST_NO_OFFER_EXPIRY_ENABLED: 'buylist_no_offer_expiry_enabled',
+
+  // ===== ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.19.12) — LOS DOCE DIALES DE SKYDROPX =====
+  // Todos `super_admin`, auditados, en `SETTING_DTO_MAP`. Seeds y validadores: `shipping-dials.ts`.
+  // ⛔ `shipping_declared_value_cap_cents` (de §19.2) está RETIRADO (§19.19.5) y nunca se construyó: no existe.
+  // ⛔ Las credenciales y la URL base NO son diales (env, `C-SDX-1`).
+  // Interruptor del proveedor (patrón `sealed_price_source`). Seed `off`: FAIL-CLOSED.
+  SHIPPING_PROVIDER: 'shipping_provider',
+  // §19.19.7 — la primera llave de la puerta de compra. Seed `disabled`: «arranca apagado y lo enciende el dueño»
+  // (`HECHOS.md:58`). Los tres modos, `operators` incluido («también el personal», `HECHOS.md:58`; errata v1.80.12.6,
+  // §19.26.6): solo el súper-admin gira el dial (`PUT /admin/settings` es `@Roles(super_admin)`).
+  SHIPPING_LABEL_PURCHASE: 'shipping_label_purchase',
+  SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID: 'skydropx_origin_address_template_id',
+  SKYDROPX_ORIGIN_SNAPSHOT: 'skydropx_origin_snapshot',
+  SHIPPING_PREFERRED_CARRIERS: 'shipping_preferred_carriers',
+  SHIPPING_DROPOFF_POINTS: 'shipping_dropoff_points',
+  // Carta Porte SAT del contenido. Seed '49101600' «Coleccionables» (`HECHOS.md:48`).
+  SHIPPING_CONSIGNMENT_NOTE: 'shipping_consignment_note',
+  SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS: 'shipping_package_rule_box_min_cards',
+  SKYDROPX_LOW_BALANCE_CENTS: 'skydropx_low_balance_cents',
+  SHIPPING_TRACKING_POLL_MINUTES: 'shipping_tracking_poll_minutes',
+  // §19.19.5 — escalones de seguro (regla `HECHOS.md:48`: «siempre se asegura, el escalón que cubra»).
+  SHIPPING_INSURANCE_TIERS: 'shipping_insurance_tiers',
+  SHIPPING_LABEL_FORMAT: 'shipping_label_format',
+
+  // ===== 💰 v1.80.12.9 (§M4-SHIP.19.29.8, `HECHOS.md:62` «Control del gasto — límites aceptados») — topes y avisos =====
+  // Cableados en D2a (cuatro tablas); su SEMBRADO en BD es de M-68 (D2g) y sus lectores (TG-1/TG-2, AG-n) de D2c/D2g.
+  // ⚠️ D2g además cambia `SettingsController` a `@Roles(vault_operator, super_admin)` + `@MoneyOut()` (no hecho aquí).
+  OPERATOR_LABEL_CAP_24H_CENTS: 'operator_label_cap_24h_cents', // TG-1
+  SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT: 'shipping_label_reissue_max_per_shipment', // TG-2
+  SPEND_ALERTS_DISABLED: 'spend_alerts_disabled',
+  SPEND_ALERT_LABEL_CAP_WARN_PCT: 'spend_alert_label_cap_warn_pct', // AG-2
+  SPEND_ALERT_SHIPMENT_CANCEL_COUNT: 'spend_alert_shipment_cancel_count', // AG-4
+  SPEND_ALERT_PERSON_CANCEL_COUNT_24H: 'spend_alert_person_cancel_count_24h', // AG-4
+  SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS: 'spend_alert_charge_drift_immediate_cents', // AG-5
+  SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS: 'spend_alert_extra_charge_immediate_cents', // AG-6
+  SPEND_ALERT_CANCEL_REFUND_DAYS: 'spend_alert_cancel_refund_days', // AG-8 (b)
+  SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS: 'spend_alert_label_not_shipped_days', // AG-10
+
+  // ===== 💰 v1.86⟨accesorios⟩ (§AC.2 (2), §AC.3, §AC.11) — sin semilla en BD: el default de código manda hasta el primer PUT =====
+  // Precio del paquete de energías del deck, IVA dentro (F1/F2: MX$20). Lo LEE la sesión (stream B) y lo congela.
+  ENERGY_BUNDLE_PRICE_CENTS: 'energy_bundle_price_cents',
+  // Cuántas sugerencias da «¿Te falta algo?» (0 apaga el recuadro).
+  ACCESSORY_SUGGESTION_COUNT: 'accessory_suggestion_count',
+
+  // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los OCHO diales de la lista de deseos =====
+  // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
+  // los máximos se calculan al leer (criterio 808). Seeds: la tabla de §WSH.2 (y el INSERT de M-74, mismo valor).
+  WISHLIST_ENABLED: 'wishlist_enabled', // seed off: se enciende DESPUÉS del aviso de privacidad (824)
+  WISHLIST_MAX_PER_ACCOUNT: 'wishlist_max_per_account', // HECHOS 2026-10-07 «…P-WSH-4 cerrada»: «20 por cuenta»
+  WISHLIST_MAX_IVA_MODE: 'wishlist_max_iva_mode', // HECHOS 2026-10-07 «Respuestas…»: «Con IVA pero déjame flexible»
+  WISHLIST_DAILY_MAIL_CAP: 'wishlist_daily_mail_cap',
+  WISHLIST_MAIL_WINDOW_MIN: 'wishlist_mail_window_min', // también la ventana del «avísame» de sellados (§WSH.7 (d))
+  WISHLIST_TARGET_MARGIN_PCT: 'wishlist_target_margin_pct', // P-WSH-7 (a)
+  WISHLIST_MARGIN_BASIS: 'wishlist_margin_basis', // P-WSH-7: cost | sale
+  SEALED_RESTOCK_MAX_PENDING_PER_EMAIL: 'sealed_restock_max_pending_per_email', // anti-abuso §WSH.7 (b)
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -349,12 +441,20 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
+  [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: 500000, // MX$5,000 — decisión del dueño D-3 (2026-09-29)
+  [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: 5, // 5× la referencia ⇒ bloqueado — D-12 («Sí, así»)
   // v2.0 (P-48, §4.36.2 / M-41.7): SEED = los diales de PROJECT §N.2 VERBATIM. NO se DERIVA de las
   // reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función
   // del mercado) son INCONMENSURABLES — cualquier «conversión» sería una interpretación inventada, y el
   // negocio NO está en vivo, así que no hay comportamiento que preservar. Son DIALES: el súper-admin los
   // mueve desde M2 sin redeploy (el upsert del seed no pisa un valor ya editado).
   [SettingKey.PRICING_CURVE]: DEFAULT_PRICING_CURVE,
+  // v1.80.8.5 (`M2-PF`): seed = respuesta del dueño a P-PRE-2 («solo ex y double rare»). Copia mutable
+  // (el `upsert` del seed y el DTO serializan el objeto; la constante de `common/` está congelada).
+  [SettingKey.PREMIUM_FLOOR_SALE_PUBLISH]: {
+    mode: DEFAULT_SALE_PREMIUM_FLOOR_POLICY.mode,
+    rarities: [...DEFAULT_SALE_PREMIUM_FLOOR_POLICY.rarities],
+  },
   // v1.23-sealed-sales (§4.23c, SUP-6): seed confirmado por el PO — markup % arriba de mercado por
   // presentación (ítems chicos → % mayor) y fallback global 25 para piezas sin subtype o subtype
   // sin regla. Editables en M2 (GET/PUT /admin/pricing/sealed-spreads).
@@ -455,10 +555,49 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // número que el humano mueve no puede exigir un redeploy. *Una alerta de más cuesta un vistazo;
   // una de menos cuesta un vendedor.*
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: 2,
+  // rev BSD-1 (§BSD.9): 7 días naturales (`HECHOS.md` 2026-10-06) y aviso el día 5 (P-BSD-1 ⇒ 2 días antes).
+  [SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS]: 7,
+  [SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE]: 2,
   // ⚠️ B-4 — el interruptor del PASO 6 de M-46 nace **APAGADO**, y ése ES el mecanismo. Un entorno
   // recién desplegado NO caduca ninguna `cotizada` ni manda un solo correo de «no procederemos»
   // hasta que un humano haya hecho el censo/triage y encienda esta fila a mano.
   [SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED]: 'off',
+  // ⭐💰 v1.81 (M-66, §19.19.12). ⚠️ La migración M-66 siembra EXACTAMENTE estos valores (`ON CONFLICT DO NOTHING`);
+  // candado de paridad: `test/sdx-d.dials.spec.ts`.
+  [SettingKey.SHIPPING_PROVIDER]: 'off',
+  [SettingKey.SHIPPING_LABEL_PURCHASE]: 'disabled', // HECHOS.md:58 — arranca apagado; lo enciende el dueño
+  [SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID]: null,
+  [SettingKey.SKYDROPX_ORIGIN_SNAPSHOT]: null,
+  [SettingKey.SHIPPING_PREFERRED_CARRIERS]: ['ninetynineminutes'],
+  [SettingKey.SHIPPING_DROPOFF_POINTS]: DEFAULT_SHIPPING_DROPOFF_POINTS,
+  [SettingKey.SHIPPING_CONSIGNMENT_NOTE]: '49101600', // HECHOS.md:48 — «son coleccionables»
+  [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: 60,
+  [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: 100000, // MX$1,000 — HECHOS.md:62 (v1.80.12.9, §19.29.2; antes 50000)
+  [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: 60,
+  [SettingKey.SHIPPING_INSURANCE_TIERS]: DEFAULT_SHIPPING_INSURANCE_TIERS, // HECHOS.md:48 — $2,500 ⇒ $25; $10,000 ⇒ $170
+  [SettingKey.SHIPPING_LABEL_FORMAT]: 'standard',
+  // 💰 v1.80.12.9 (§19.29.8; seeds = HECHOS.md:62 / PROJECT §Z.3 aceptado entero por el dueño)
+  [SettingKey.OPERATOR_LABEL_CAP_24H_CENTS]: 250000, // MX$2,500 por operador en 24 h
+  [SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT]: 1,
+  [SettingKey.SPEND_ALERTS_DISABLED]: [],
+  [SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT]: 80,
+  [SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT]: 2,
+  [SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H]: 3,
+  [SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS]: 2000,
+  [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: 15000,
+  [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: 3,
+  [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: 3,
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: 2000, // MX$20 (F1/F2)
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: 3,
+  // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
+  [SettingKey.WISHLIST_ENABLED]: 'off',
+  [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
+  [SettingKey.WISHLIST_MAX_IVA_MODE]: 'with_iva',
+  [SettingKey.WISHLIST_DAILY_MAIL_CAP]: 3,
+  [SettingKey.WISHLIST_MAIL_WINDOW_MIN]: 30,
+  [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: 15,
+  [SettingKey.WISHLIST_MARGIN_BASIS]: 'cost',
+  [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: 5,
 };
 
 /**
@@ -997,6 +1136,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // v2.0 (P-48, §4.36.3): la CURVA. Editable SOLO por PUT /admin/pricing/curve (no está en
   // SETTING_DTO_MAP), pero se valida igual en esta puerta: V1–V8 money-safe, sin excepción.
   [SettingKey.PRICING_CURVE]: validatePricingCurveSetting,
+  // v1.80.8.5 (`M2-PF`): MISMO validador que aplica el loader en lectura (fila inválida ⇒ `none` + log).
+  [SettingKey.PREMIUM_FLOOR_SALE_PUBLISH]: validatePremiumFloorSalePublish,
   // v1.23-sealed-sales (§4.23c/§4.23h): spreads del sellado (editados por M2, no por PUT settings,
   // pero se validan igual) + feature flags on|off.
   [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: validateSealedSpreads,
@@ -1049,6 +1190,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // ⚠️ Dial 9: `>= 1`. El `0` NO es legal — ver el docblock del validador.
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: validateBuylistMinimumOfferNetCents,
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: validatePositiveIntDial('cancellations'),
+  // rev BSD-1 (§BSD.9): 1..60 y 0..30. El efectivo del aviso es `min(warn, close − 1)` (lo aplica `guide-clock.ts`, no aquí:
+  // un validador por clave no ve la otra).
+  [SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS]: (v) => (isInt(v) && v >= 1 && v <= 60 ? null : 'must be an integer 1..60 (calendar days)'),
+  [SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE]: (v) => (isInt(v) && v >= 0 && v <= 30 ? null : 'must be an integer 0..30 (days)'),
   // ⚠️ B-4 — interruptor del paso 6 (NO es el dial 11). `on|off` estricto, por el mismo motivo que
   // `grading_hook_enabled`: que un `true` o un `'ON'` no queden guardados **pareciendo encendidos**
   // en la fila que decide si se mandan correos terminales a vendedores reales.
@@ -1057,6 +1202,46 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
+  [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: (v) => (isInt(v) && v >= 2 && v <= 50 ? null : 'must be an integer in [2, 50]'),
+  // ⭐💰 v1.81 (M-66, §19.19.12) — los doce de Skydropx (`shipping-dials.ts`).
+  [SettingKey.SHIPPING_PROVIDER]: validateShippingProvider,
+  [SettingKey.SHIPPING_LABEL_PURCHASE]: validateShippingLabelPurchase,
+  [SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID]: validateOriginTemplateId,
+  [SettingKey.SKYDROPX_ORIGIN_SNAPSHOT]: validateOriginSnapshot,
+  [SettingKey.SHIPPING_PREFERRED_CARRIERS]: validatePreferredCarriers,
+  [SettingKey.SHIPPING_DROPOFF_POINTS]: validateDropoffPoints,
+  [SettingKey.SHIPPING_CONSIGNMENT_NOTE]: validateConsignmentNote,
+  [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: validateIntRange(1, 500),
+  [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: validateIntRange(5, 1440),
+  [SettingKey.SHIPPING_INSURANCE_TIERS]: validateInsuranceTiers,
+  [SettingKey.SHIPPING_LABEL_FORMAT]: validateShippingLabelFormat,
+  // 💰 v1.80.12.9 (§19.29.8). ⛔ El tope en 0 NO es legal (criterio 319: para cerrar compras está el interruptor).
+  [SettingKey.OPERATOR_LABEL_CAP_24H_CENTS]: validateIntRange(100, 100000000),
+  [SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT]: validateIntRange(0, 10),
+  [SettingKey.SPEND_ALERTS_DISABLED]: validateSpendAlertsDisabled,
+  [SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT]: validateIntRange(1, 99),
+  [SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT]: validateIntRange(1, 10),
+  [SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H]: validateIntRange(1, 50),
+  [SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS]: validateNonNegIntCents,
+  [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: validateNonNegIntCents,
+  [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: validateIntRange(1, 30),
+  [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: validateIntRange(1, 30),
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): rangos del contrato.
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
+  // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
+  [SettingKey.WISHLIST_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: validateIntRange(1, 200),
+  [SettingKey.WISHLIST_MAX_IVA_MODE]: (v) =>
+    v === 'with_iva' || v === 'without_iva' ? null : 'must be one of with_iva|without_iva',
+  [SettingKey.WISHLIST_DAILY_MAIL_CAP]: validateIntRange(1, 20),
+  [SettingKey.WISHLIST_MAIL_WINDOW_MIN]: validateIntRange(0, 720),
+  [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: validateIntRange(0, 100),
+  [SettingKey.WISHLIST_MARGIN_BASIS]: (v) => (v === 'cost' || v === 'sale' ? null : 'must be one of cost|sale'),
+  [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: validateIntRange(1, 50),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1099,6 +1284,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
+  operatorRefundCap24hCents: SettingKey.OPERATOR_REFUND_CAP_24H_CENTS,
+  caseRefundHardMultiplier: SettingKey.CASE_REFUND_HARD_MULTIPLIER,
+  // v1.80.8.5 (`M2-PF`, MONEY): el dial de VENTA «premium en el piso» — editable sin redeploy, auditado.
+  premiumFloorSalePublish: SettingKey.PREMIUM_FLOOR_SALE_PUBLISH,
   // v1.51 (M-46, §M10): los DIEZ diales del ciclo de adquisición del buylist. Se exponen en el GET y
   // se editan por este PUT (mismo patrón que el resto de `ConfigSetting`): sin redeploy y auditados.
   // ⚠️ NO se expone ninguno de los DOS retirados (`buylistShippingThresholdCents` de D31 y el
@@ -1113,4 +1302,76 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   buylistShipmentConfirmAlertBusinessDays: SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS,
   buylistMinimumOfferNetCents: SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
   buylistOfferReissueAlertCount: SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT,
+  // rev BSD-1 (§BSD.9): los dos diales del cierre sin guía (M10, `super_admin`).
+  buylistGuideCloseCalendarDays: SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS,
+  buylistGuideWarnDaysBeforeClose: SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE,
+  // ⭐💰 v1.81 (M-66, §19.13 + §19.19.12): los doce de Skydropx. `shippingLabelPurchase`, `shippingInsuranceTiers` y
+  // `shippingLabelFormat` entran (v1.80.11); `shippingDeclaredValueCapCents` NO existe (retirado, §19.19.5).
+  shippingProvider: SettingKey.SHIPPING_PROVIDER,
+  shippingLabelPurchase: SettingKey.SHIPPING_LABEL_PURCHASE,
+  skydropxOriginAddressTemplateId: SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID,
+  skydropxOriginSnapshot: SettingKey.SKYDROPX_ORIGIN_SNAPSHOT,
+  shippingPreferredCarriers: SettingKey.SHIPPING_PREFERRED_CARRIERS,
+  shippingDropoffPoints: SettingKey.SHIPPING_DROPOFF_POINTS,
+  shippingConsignmentNote: SettingKey.SHIPPING_CONSIGNMENT_NOTE,
+  shippingPackageRuleBoxMinCards: SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS,
+  skydropxLowBalanceCents: SettingKey.SKYDROPX_LOW_BALANCE_CENTS,
+  shippingTrackingPollMinutes: SettingKey.SHIPPING_TRACKING_POLL_MINUTES,
+  shippingInsuranceTiers: SettingKey.SHIPPING_INSURANCE_TIERS,
+  shippingLabelFormat: SettingKey.SHIPPING_LABEL_FORMAT,
+  // 💰 v1.80.12.9 (§19.29.8): topes y avisos del gasto en guías.
+  operatorLabelCap24hCents: SettingKey.OPERATOR_LABEL_CAP_24H_CENTS,
+  shippingLabelReissueMaxPerShipment: SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT,
+  spendAlertsDisabled: SettingKey.SPEND_ALERTS_DISABLED,
+  spendAlertLabelCapWarnPct: SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT,
+  spendAlertShipmentCancelCount: SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT,
+  spendAlertPersonCancelCount24h: SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H,
+  spendAlertChargeDriftImmediateCents: SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS,
+  spendAlertExtraChargeImmediateCents: SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
+  spendAlertCancelRefundDays: SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
+  spendAlertLabelNotShippedDays: SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): los edita el súper-admin; ⛔ NO son diales del dueño (no van a OWNER_ONLY_SETTING_KEYS).
+  energyBundlePriceCents: SettingKey.ENERGY_BUNDLE_PRICE_CENTS,
+  accessorySuggestionCount: SettingKey.ACCESSORY_SUGGESTION_COUNT,
+  // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
+  wishlistEnabled: SettingKey.WISHLIST_ENABLED,
+  wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,
+  wishlistMaxIvaMode: SettingKey.WISHLIST_MAX_IVA_MODE,
+  wishlistDailyMailCap: SettingKey.WISHLIST_DAILY_MAIL_CAP,
+  wishlistMailWindowMin: SettingKey.WISHLIST_MAIL_WINDOW_MIN,
+  wishlistTargetMarginPct: SettingKey.WISHLIST_TARGET_MARGIN_PCT,
+  wishlistMarginBasis: SettingKey.WISHLIST_MARGIN_BASIS,
+  sealedRestockMaxPendingPerEmail: SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL,
 };
+
+/**
+ * 🔒💰 D2g (API_CONTRACT §M4-SHIP.19.30.2 (1), C-21 (a), SDX-Z-2) — **los diales del DUEÑO.** Las 11 claves de §19.29.8
+ * (incluido `skydropx_low_balance_cents`) + `shipping_label_purchase` (`HECHOS.md:58`: «lo enciende el dueño»).
+ *
+ * Un no dueño (`!isOwnerAccount(actor)`, leído de la BASE) que manda una de estas claves con un valor DISTINTO del vigente
+ * recibe `403 OWNER_ONLY_SETTING {keys}` y NADA se escribe; si la manda IGUAL, se quita del cuerpo (⛔ un no dueño nunca
+ * escribe una de estas claves: un formulario viejo no pisa un cambio reciente del dueño). Regla: **todo dial de §Z es del
+ * dueño** — el censo PS-165 (`test/sdx-d2g.units.spec.ts`) pone rojo un dial de §Z que no esté aquí.
+ * ⚠️ `operator_refund_cap_24h_cents` (v1.80.7) NO entra: lo decide su stream con AG-14 (§19.30.11).
+ */
+export const OWNER_ONLY_SETTING_KEYS: readonly SettingKeyType[] = [
+  SettingKey.SHIPPING_LABEL_PURCHASE,
+  SettingKey.SKYDROPX_LOW_BALANCE_CENTS,
+  SettingKey.OPERATOR_LABEL_CAP_24H_CENTS,
+  SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT,
+  SettingKey.SPEND_ALERTS_DISABLED,
+  SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT,
+  SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT,
+  SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H,
+  SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS,
+  SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
+  SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
+  SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
+];
+
+/** Los nombres del DTO (camelCase) de `OWNER_ONLY_SETTING_KEYS`, ordenados: la MISMA lista de `403 {keys}` y de AG-22 `facts.keys` (S-GAS-9). */
+export function ownerOnlyDtoKey(dtoKey: string): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(SETTING_DTO_MAP, dtoKey) && OWNER_ONLY_SETTING_KEYS.includes(SETTING_DTO_MAP[dtoKey])
+  );
+}

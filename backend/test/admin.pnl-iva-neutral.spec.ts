@@ -1,5 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
+import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -87,7 +89,24 @@ const envio = (e: Partial<EnvioFake> = {}): EnvioFake => ({
  * aparte, en su propio bloque. *La neutralidad se afirma de lo que existía; lo nuevo se prueba nuevo.*
  */
 function seisCifras(p: Awaited<ReturnType<AdminService['pnl']>>) {
-  const { shippingCostMissingCount: _nuevo, ...heredadas } = p;
+  // (v1.80: lo devuelto es ADITIVO y con 0 filas vale 0 — la neutralidad de las SEIS heredadas sigue midiéndose igual.)
+  // 💰 D2f (§19.11): `shippingAdjustmentsCents` y `shippingInsuranceCents` son ADITIVAS (con 0 ajustes, el `shippingCostCents`
+  // heredado no cambia): fuera de la comparación, como las demás nuevas; se prueban en `sdx-d2f.units.spec.ts`.
+  const {
+    shippingCostMissingCount: _nuevo,
+    shippingAdjustmentsCents: _a,
+    shippingInsuranceCents: _i,
+    refundsCents: _r,
+    refundedFeesCents: _f,
+    compensationsCents: _c,
+    // 💰 §BSD.16 (BSD-1.2): los cuatro del buylist son ADITIVOS; sin solicitudes ni guías de entrada valen 0 y la ganancia
+    // no cambia (se prueba en `bsd.b4-pnl.spec.ts`).
+    buylistShippingFeeRetainedCents: _bR,
+    buylistGuideCostCents: _bC,
+    buylistGuideMarginCents: _bM,
+    buylistGuideCostMissingCount: _bN,
+    ...heredadas
+  } = p;
   return heredadas;
 }
 
@@ -123,7 +142,7 @@ function servicio(ordenes: OrdenFake[], envios: EnvioFake[]) {
     shipmentRequest: { findMany: jest.fn().mockResolvedValue(envios) },
   };
   const service = new AdminService(
-    prisma as unknown as PrismaService,
+    withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
     {} as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as any,
@@ -217,14 +236,17 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
       const esperado = pnlLegacy(ordenes, envios);
       const [header, row] = (await service.exportCsv('pnl')).trim().split('\n');
       // ⭐ D56: el CSV gana `shippingCostMissingCount` **en el mismo orden que el objeto**.
+      // 💰 D2f (§19.11): + `shippingAdjustmentsCents`, `shippingInsuranceCents` tras `shippingCostMissingCount` (orden del objeto).
       expect(header).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,profitCents',
+          'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+          // 💰 §BSD.16: los cuatro del buylist, al final (0 sin solicitudes).
+          'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount',
       );
       const missing = envios.filter((e) => e.shippingCostCents === 0).length;
       expect(row).toBe(
         `pnl,${esperado.incomeCents},${esperado.shippingRevenueCents},${esperado.cogsCents},` +
-          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},${esperado.profitCents}`,
+          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},0,0,0,0,0,${esperado.profitCents},0,0,0,0`,
       );
     });
   });

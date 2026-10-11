@@ -7,6 +7,7 @@ import { InventoryController } from '../src/modules/inventory/inventory.controll
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * P-31 — export de inventario a Excel (GET /admin/inventory/export.xlsx):
@@ -17,12 +18,32 @@ import { SettingsService } from '../src/modules/settings/settings.service';
  *  - el controller manda Content-Type xlsx + Content-Disposition attachment.
  */
 
-const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
-function buildPricing(refs: Map<string, any>): PricingService {
+/**
+ * Doble de `PricingService` para el export.
+ *
+ * v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`; nota de fixture):
+ * `valuationKeyFor` y `valuationCentsOf` se toman **del prototipo real** (con sus dos dependencias
+ * puras, `tryGradeKeyFor` y `gateSealedMarketCents`) para que VK-8 mida la REGLA y no el doble; solo
+ * se dobla la lectura de BD (`getReferencesBatch`, `loadSealedSpreads` con el `sourceOn` del caso).
+ */
+function buildPricing(refs: Map<string, any>, sourceOn = true): PricingService {
   return {
     getReferencesBatch: jest.fn(async () => refs),
+    loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn })),
+    // D-4: el helper real, que delega en el `loadSealedSpreads` doblado de arriba (una lectura).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
+    tryGradeKeyFor: PricingService.prototype.tryGradeKeyFor,
+    gateSealedMarketCents: PricingService.prototype.gateSealedMarketCents,
+    valuationKeyFor: PricingService.prototype.valuationKeyFor,
+    valuationCentsOf: PricingService.prototype.valuationCentsOf,
   } as unknown as PricingService;
+}
+
+/** Todas las peticiones (aplanadas) que el export mandó al lote de referencias. */
+function batchRequests(pricing: PricingService): { cardId: string; gradeKey: string; finish: string }[] {
+  return (pricing.getReferencesBatch as jest.Mock).mock.calls.flatMap((c: any[]) => c[0]);
 }
 
 const CARD = (over: any = {}) => ({
@@ -240,6 +261,167 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
     // sellado en fila 3: mercado por clave sealed:tcg:<productId>.
     expect(ws.getRow(3).getCell(colIndex('condition')).value).toBe('mint');
     expect(ws.getRow(3).getCell(colIndex('marketMxn')).value).toBe(2500);
+  });
+});
+
+/**
+ * v1.80.2.2 — **VK-8: el export es el SÉPTIMO lector de patrimonio** (API_CONTRACT §M2-SK SK-5, errata
+ * «séptimo lector», ancla `M2-SK-5-7`; ARCHITECTURE §4.50.6 D-SK-4). Valúa el sellado por la MISMA
+ * puerta que los otros seis (`valuationKeyFor` + `valuationCentsOf`): sin mapeo ⇒ vacía (jamás la
+ * fila legada `'sealed'`, que es de COLA y puede ser el precio de otra caja); mapeado ⇒ `sealed:tcg:<id>`
+ * con acabado `normal` sea cual sea el `finish` de la pieza; y el gate del dial (`tcgcsv` solo con el
+ * dial encendido; `manual` sobrevive). VK-8d (control) son los casos de arriba, que siguen verdes.
+ */
+describe('VK-8 · export .xlsx = séptimo lector de SK-5 (v1.80.2.2, MONEY)', () => {
+  const SEALED_UNMAPPED = () =>
+    ITEM({
+      id: 's-unmapped',
+      cardId: 'c3',
+      folio: 'INV-S3',
+      productType: 'sealed',
+      rawCondition: null,
+      sealedCondition: 'mint',
+      tcgplayerProductId: null,
+      listPriceCents: 1500,
+      card: CARD({ name: 'Blíster sin mapeo' }),
+    });
+  const SEALED_MAPPED = (over: any = {}) =>
+    ITEM({
+      id: 's-mapped',
+      cardId: 'c2',
+      folio: 'INV-S2',
+      productType: 'sealed',
+      rawCondition: null,
+      sealedCondition: 'mint',
+      tcgplayerProductId: 999,
+      card: CARD({ name: 'ETB' }),
+      ...over,
+    });
+
+  it('VK-8a · sellado SIN mapeo + fila legada `sealed` priced 80000 ⇒ `Mercado` VACÍA y jamás se pide `gradeKey:"sealed"`; `Venta` = listPriceCents (SK-4)', async () => {
+    const refs = new Map<string, any>([
+      ['c3|sealed|sealed|normal', { status: 'priced', referenceMxnCents: 80000, source: 'manual' }],
+    ]);
+    const pricing = buildPricing(refs);
+    const svc = new InventoryService(buildPrisma([SEALED_UNMAPPED()]) as PrismaService, pricing, settings);
+    const ws = await loadSheet(await svc.exportInventoryXlsx({}));
+    const row = ws.getRow(2);
+    expect(row.getCell(colIndex('marketMxn')).value == null).toBe(true); // hoy: 800 (la caja de otro)
+    expect(batchRequests(pricing).filter((r) => r.gradeKey === 'sealed')).toEqual([]);
+    expect(row.getCell(colIndex('sellMxn')).value).toBe(15); // el precio de la pieza sigue saliendo
+  });
+
+  it('VK-8b · sellado MAPEADO con finish `holofoil` + ref bajo `normal` (manual 250000) ⇒ `Mercado` 2500; el lote pide `finish:"normal"`; la celda `finish` sigue `holofoil`', async () => {
+    const refs = new Map<string, any>([
+      ['c2|sealed|sealed:tcg:999|normal', { status: 'priced', referenceMxnCents: 250000, source: 'manual' }],
+    ]);
+    const pricing = buildPricing(refs, false); // dial apagado: `manual` sobrevive igual
+    const svc = new InventoryService(
+      buildPrisma([SEALED_MAPPED({ finish: 'holofoil' })]) as PrismaService,
+      pricing,
+      settings,
+    );
+    const ws = await loadSheet(await svc.exportInventoryXlsx({}));
+    const row = ws.getRow(2);
+    expect(row.getCell(colIndex('marketMxn')).value).toBe(2500); // hoy: vacía (busca con `holofoil`)
+    expect(batchRequests(pricing)).toEqual([
+      { cardId: 'c2', productType: 'sealed', gradeKey: 'sealed:tcg:999', finish: 'normal' },
+    ]);
+    expect(row.getCell(colIndex('finish')).value).toBe('holofoil'); // control: cambia la búsqueda, no el dato
+  });
+
+  it.each([
+    ['tcgcsv', false, null, 'fuente automática con el dial APAGADO ⇒ vacía (hoy: 2500)'],
+    ['tcgcsv', true, 2500, 'fuente automática con el dial ENCENDIDO ⇒ 2500'],
+    ['manual', false, 2500, 'override manual con el dial apagado ⇒ 2500 (control: sobrevive al dial)'],
+  ] as [string, boolean, number | null, string][])(
+    'VK-8c · ref source=%s, sourceOn=%s ⇒ Mercado %p (%s)',
+    async (source, sourceOn, expected) => {
+      const refs = new Map<string, any>([
+        ['c2|sealed|sealed:tcg:999|normal', { status: 'priced', referenceMxnCents: 250000, source }],
+      ]);
+      const pricing = buildPricing(refs, sourceOn);
+      const svc = new InventoryService(buildPrisma([SEALED_MAPPED()]) as PrismaService, pricing, settings);
+      const ws = await loadSheet(await svc.exportInventoryXlsx({}));
+      const cell = ws.getRow(2).getCell(colIndex('marketMxn')).value;
+      if (expected == null) expect(cell == null).toBe(true);
+      else expect(cell).toBe(expected);
+      // El dial se lee UNA vez por export (no por fila, y no cero: hay sellado que gatear).
+      expect((pricing.loadSealedSpreads as jest.Mock).mock.calls.length).toBe(1);
+    },
+  );
+});
+
+// ================================================================================================ SP-20
+/**
+ * 💰 SP-20 (API_CONTRACT §M11-SP.13.4, errata v1.83.2, Q-4) — el export lleva DOS columnas de venta STORED, una por
+ * escala, ambas por `manualSaleOf` (un solo camino):
+ *  - 17 «Precio venta antes de IVA MXN» (escala `L`): la pieza (`listPriceCents`) o el override de variante.
+ *  - 18 «Precio del producto con IVA MXN» (escala `P`): lo que TECLEÓ el dueño, exacto.
+ * Con precio del producto la 17 va VACÍA (también con legado sombreado). ⛔ El export no lee diales ni deriva.
+ */
+describe('💰 SP-20 — export `.xlsx`: col 17 «antes de IVA» y col 18 «del producto con IVA», sin diales', () => {
+  const sealed = (over: any) =>
+    ITEM({ productType: 'sealed', rawCondition: null, sealedCondition: 'mint', tcgplayerProductId: null, ...over });
+  // Diales NO neutros a propósito: con ellos el `L` equivalente de 700 sería 648 (≠ 603 del neutro) — cualquier
+  // derivación se vería. Y el doble cuenta las lecturas: el export debe hacer CERO.
+  const getIvaDials = jest.fn(async () => ({ ivaTransferPct: 50, ivaRatePct: 16 }));
+  const dialSettings = { getIvaDials, getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const X = { ownerDisplayPriceCents: 700 };
+  const Y = { ownerDisplayPriceCents: null };
+  const rows = [
+    sealed({ id: 'A', folio: 'A', cardId: 'cA', sealedProduct: X, listPriceCents: null }),
+    sealed({ id: 'B', folio: 'B', cardId: 'cB', sealedProduct: X, listPriceCents: 1000 }), // legado sombreado
+    sealed({ id: 'C', folio: 'C', cardId: 'cC', sealedProduct: Y, listPriceCents: 1000 }),
+    sealed({ id: 'D', folio: 'D', cardId: 'cD', sealedProduct: null, listPriceCents: 1200 }), // sin producto
+    ITEM({ id: 'E', folio: 'E', cardId: 'cE', listPriceCents: 500, sealedProduct: null }), // raw
+    sealed({ id: 'F', folio: 'F', cardId: 'cF', sealedProduct: Y, listPriceCents: null }), // ligado sin precio alguno
+    // m = null con override de VARIANTE (escala `L`, el mismo hueco que `listPriceCents`): sigue en la 17.
+    ITEM({ id: 'G', folio: 'G', cardId: 'cG', listPriceCents: null, sealedProduct: null }),
+  ];
+  const overrides = [
+    { cardId: 'cG', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', buyOverrideCents: null, sellOverrideCents: 800 },
+  ];
+
+  async function exportRows() {
+    getIvaDials.mockClear();
+    const svc = new InventoryService(buildPrisma(rows, overrides) as PrismaService, buildPricing(new Map()), dialSettings);
+    const ws = await loadSheet(await svc.exportInventoryXlsx({}));
+    const out: Record<string, [unknown, unknown]> = {};
+    for (let r = 2; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const v = (c: number) => row.getCell(c).value ?? null;
+      out[String(row.getCell(colIndex('folio')).value)] = [v(17), v(18)];
+    }
+    return { ws, out };
+  }
+
+  it('cabeceras: 17 «Precio venta antes de IVA MXN», 18 «Precio del producto con IVA MXN» (width 22); 18 columnas', async () => {
+    expect(INVENTORY_EXPORT_COLUMNS.length).toBe(18);
+    expect(INVENTORY_EXPORT_COLUMNS[16].header).toBe('Precio venta antes de IVA MXN');
+    expect(INVENTORY_EXPORT_COLUMNS[17]).toMatchObject({ header: 'Precio del producto con IVA MXN', width: 22 });
+    const { ws } = await exportRows();
+    const headers = (ws.getRow(1).values as any[]).slice(1);
+    expect(headers[16]).toBe('Precio venta antes de IVA MXN');
+    expect(headers[17]).toBe('Precio del producto con IVA MXN');
+  });
+
+  it('A/B (producto 700): 17 vacía, 18 = 7.00; C/D/E: la pieza en la 17; F vacía/vacía; G: override en la 17', async () => {
+    const { out } = await exportRows();
+    expect(out).toEqual({
+      A: [null, 7],
+      B: [null, 7],
+      C: [10, null],
+      D: [12, null],
+      E: [5, null],
+      F: [null, null],
+      G: [8, null],
+    });
+  });
+
+  it('CERO lecturas de diales en el export (el export no deriva `L` ni `P`)', async () => {
+    await exportRows();
+    expect(getIvaDials).not.toHaveBeenCalled();
   });
 });
 

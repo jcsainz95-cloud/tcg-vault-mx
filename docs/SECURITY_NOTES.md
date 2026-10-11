@@ -1,3 +1,2990 @@
+# VEREDICTO BLUE TEAM — **P-DB-LIMPIEZA v2.1 «también se borra el inventario»** · SHA **`37f7a450`** (rama `claude/limpieza-db`) · 2026-10-07
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `37f7a450` — 0 críticas · 0 altas · 0 medias abiertas · 3 bajas (aceptadas, abajo)
+>
+> - **Sustituye** al veredicto v1 sobre `00ec3888` (sección siguiente, conservada como historia). v1 describía el paso E
+>   (`limpieza:republicar`), que v2 **retiró**: `git grep "limpieza-republicar|limpieza:republicar|previewPublication"` en
+>   `backend/src`, `backend/package.json`, `scripts/`, `.github/` = **0 aciertos** (medido por mí en `37f7a450`). Con E se
+>   van LZ-6 y la parte de LZ-1 sobre el comando.
+> - **Condición media de v1 (LZ-S1 / CS-1) sigue CERRADA.** Los cuatro guiones (`…_1_censo.sql:22-32`,
+>   `…_2_limpieza.sql:32-44`, `…_3_folios.sql:29-40`, `…_4_verificacion.sql:23-33`) recomiendan `railway connect` + `\i`,
+>   o `psql "postgresql://USUARIO@HOST:PUERTO/BASE"` **sin** contraseña (psql la pide sin eco), prohíben `URL=…` y la URL
+>   con contraseña, y piden rotar si se tecleó/pegó. Ningún guion lleva host, usuario ni contraseña (grep medido). CS-2
+>   (rotación y respaldo real) sigue siendo procedimiento del dueño: banderas abajo.
+> - **Repo público:** el diff `00ec3888..37f7a450` no añade credenciales (`grep` de `postgres://user:pw@`, `sk_live_`,
+>   `sk_test_…`, `whsec_…`, `AKIA`, `BEGIN … KEY`, hosts `rlwy.net`/`railway.app` = solo el texto-ejemplo
+>   `usuario:CONTRASEÑA@…` de los encabezados). Correos añadidos: solo `yo+prueba1/2@gmail.com` (ejemplo del encabezado,
+>   `…_2_limpieza.sql:96`) y `*@example.test` (fixtures). `security/secretos-publicados.sha256` +1 línea: un **hash** de
+>   prefijo, no un valor. El rastro de B no guarda correos ni folios (`…_2_limpieza.sql:405-427`: ids, conteos,
+>   secuencias, `respaldoManual`, `puntoPitr`, `ejecutadoCon = current_user`).
+
+## LZ2-1. Que nada borre a un cliente real en custodia o con pedido real
+
+- **G-9** (`…_2_limpieza.sql:140-145` lista, `:260-264` errata, `:449-456` custodia no declarada): aborta si hay **una**
+  pieza `ownerType='customer'` de una cuenta no declarada en ✏️ `cuentas_prueba`, o si un token no es ninguna cuenta.
+  La custodia solo se fija junto con su dueño (`orders.service.ts:1518`, `shipment-prep.service.ts:560`,
+  `vault-placement.rules.ts:53`) y la base rechaza custodia sin dueño (CHECK `InventoryItem_customer_has_owner_chk`, nota
+  de la suite `pdb-limpieza.e2e-spec.ts:325-326`). El correo se normaliza a minúsculas en el alta
+  (`auth.service.ts:161, 497`), así que el casado `lower(email)` no puede declarar dos cuentas a la vez. ✅
+- **G-1/G-2/G-3** se conservan (pieza de cliente o en custodia/camino sin pedido que la explique ⇒ aborta). ✅
+- **G-7** (`:227-234`): con rastro previo y **cualquier** fila en una tabla BORRAR (ahora incluye `InventoryItem` e
+  `InventoryBatch`) ⇒ se niega. El rastro es durable: **ningún** camino de la app borra `AuditLog` ni escribe
+  `maintenance.test_data_purge` (`grep` en `backend/src` = 0), así que G-7 no se puede desactivar desde la aplicación. ✅
+- **G-8** (`:170-183`): tabla no clasificada ⇒ aborta. ✅
+- **Medición propia (red team, sobre copia del árbol ENTERO `git archive 37f7a450`, cliente Prisma generado en la copia,
+  esquemas propios `sec<run>_n` en `tcg_marketplace`, borrados al terminar; deterministas ⇒ N=1 por sonda):**
+  | Sonda | Resultado |
+  |---|---|
+  | RT-1 pegado **sin** `ON_ERROR_STOP`, `COMMIT` al final, cliente 2 sin declarar | base **idéntica** (tablas + 3 secuencias) — 1/1 |
+  | RT-2 «herramienta que no es psql»: sin `BEGIN`, sin `ON_ERROR_STOP`, autocommit | base **idéntica** — 1/1. **Canario:** un `DELETE` desacoplado de `lz_cambio` lo pone en **rojo** 1/1 (cada DML de B depende de una tabla temporal `ON COMMIT DROP`: fuera de una transacción psql, nada borra) |
+  | RT-3 inyección en `cuentas_prueba` (`x'); DELETE FROM "User"; --`) | aborta G-9 (errata), `User` intacto — 1/1 (`:'var'` se cita como literal) |
+  | RT-4 separador `;` en vez de `,` | aborta G-9 — 1/1 |
+  | RT-5 comodines `%`, `*`, `%@%` | abortan — 3/3 |
+  | RT-6 tras COMMIT, pedido nuevo y la lista entera declarada | G-7 se niega, base idéntica — 1/1 |
+  Fichero de sondas y logs: `scratchpad/sec-lz4/` (la copia del árbol se borra al terminar). **NO MEDIDO por mí:** la
+  suite completa `pdb-limpieza.e2e-spec.ts` (me apoyo en el pase de QA sobre este sha) y las mutaciones M-v2/M-N1.
+
+## LZ2-2. Hallazgos (todos BAJA, aceptados; ninguno bloquea)
+
+- **LZ2-S1 · BAJA · la salida del ensayo B ahora trae PII.** La lista 2.4 imprime **correo, nombre y rol** de los clientes
+  con custodia (`…_2_limpieza.sql:282-289`) y los mensajes de G-9 nombran el correo (`:263`, `:455`). Contradice la nota
+  v1 «salida de B/D sin PII» (LZ-1). Es el operador viendo sus propios clientes (legítimo y necesario para G-9), pero el
+  dueño suele **pegar la salida en el chat** para pedir ayuda. Dueño: **backend** (una línea en el encabezado: «no pegues
+  la lista 2.4 ni los mensajes G-9 en chats ni en el repositorio») + **dueño**. Disparador: antes de que el dueño corra el
+  ensayo; sube a media si la custodia incluye cuentas ajenas al equipo.
+- **LZ2-S2 · BAJA · G-9 es declarativa (hereda LZ-S3).** Para casos de error de dedo es infalible (RT-3/4/5, errata), pero si el
+  dueño **declara** de prueba a un cliente real, B lo borra; SQL no puede saberlo (no hay `livemode` ni marca de cuenta de
+  prueba: `schema.prisma:555-619`). Mitigación: la lista 2.4 enseña rol y nº de pedidos; `HECHOS.md:16` (nunca hubo
+  dinero real). Dueño: **dueño** (procedimiento).
+- **LZ2-S3 · BAJA · pedidos reales antes del primer COMMIT (= LZ-S2 / `TECH_DEBT` PDB-TD4, sin cambio).** Los pedidos de
+  envío directo no pasan por G-9; antes del rastro, B no distingue uno real de uno de prueba. v2 no lo empeora para pedidos
+  (ya se borraban todos) y G-9 cubre la custodia. Disparador vigente: cualquier retraso de B más allá de `sk_live_`.
+- **LZ-S4 (base equivocada)** sigue igual: aceptable (no hay staging, `HECHOS.md:17`).
+- **C** (`…_3_folios.sql:63-99`): con pedidos **y** piezas se niega; nunca toca `ENV-`; el `AVISO` v2.1 es texto, sin
+  efecto de seguridad. ✅
+
+## LZ2-3. Banderas para el humano
+
+1. **Simulacro de restauración PITR (P-3) antes del COMMIT** — en v2 pesa más: se va **todo** el inventario y la única
+   marcha atrás es PITR, que nadie ha ensayado.
+2. **Respaldo manual de verdad** y anotar el PUNTO PITR (la guarda solo mira que el texto no esté vacío).
+3. **`cuentas_prueba`: escribe solo cuentas que sabes tuyas de prueba**; si en 2.4 aparece alguien que no reconoces, para.
+4. **No pegues la salida 2.4 / G-9 en chats** (LZ2-S1).
+5. **Rota la contraseña de Postgres** si la tecleaste o pegaste en algún sitio (CS-2).
+6. **No pasar a `sk_live_` antes** de B (COMMIT) + C + D; PDB-R6 (INE sin purga) cerrado antes de abrir el buylist real.
+
+> **Mínimo para seguir aprobado:** nada bloqueante. LZ2-S1 es una línea de encabezado (backend), recomendable antes del
+> ensayo del dueño.
+
+---
+
+# ~~VEREDICTO BLUE TEAM — P-DB-LIMPIEZA v1~~ **SUSTITUIDO** por el veredicto v2.1 sobre `37f7a450` (arriba) · SHA **`00ec3888`** (rama `claude/limpieza-db`) · 2026-10-06
+
+> ⚠️ **Sección histórica.** Describe el paso E (`limpieza:republicar`), retirado en v2; LZ-S1/CS-1 se cerró en `df931a9e`.
+
+> ## VEREDICTO: ⚠️ **APROBADO CON CONDICIONES** sobre `00ec3888`
+>
+> - **0 críticas · 0 altas** abiertas. **1 media** (LZ-S1, la URL con contraseña en el historial del shell) y **3 bajas**.
+>   Nada bloquea que el dueño corra la limpieza; las condiciones son de **procedimiento** (encabezados/manual) y se
+>   cumplen sin tocar la lógica de los guiones.
+> - **Condiciones (mínimo para considerarla cerrada):**
+>   **CS-1 (backend, encabezados de B y §79):** la vía recomendada para A–D es `railway connect` (no se teclea la URL) y para
+>   E la (a) contenedor o `railway run`; si el dueño usa `psql "$URL"` / `DATABASE_URL='…'`, el encabezado le dice cómo no
+>   dejarla en el historial (`read -rs URL; export URL` o espacio inicial con `HISTCONTROL=ignorespace`) y no la escribe literal.
+>   **CS-2 (dueño, banderas):** rotar la contraseña de Postgres en Railway al terminar si la URL pública se tecleó o pegó
+>   en algún sitio; y el respaldo manual **tomado de verdad** antes del COMMIT (la guarda solo comprueba que el texto no
+>   esté vacío, LZ-S3).
+> - **Sobre qué medí.** Lectura de los 4 guiones, el comando E y su módulo, la prueba y la spec en `/home/user/tcg-limpieza`
+>   a `00ec3888` (`git log -1` medido). Medición en vivo **mía**: el comando E en una copia (`git archive 00ec3888`, cliente
+>   Prisma generado **en la copia**, no en ningún árbol vivo) con `DATABASE_URL` que lleva la contraseña canario `S3cr3tPw`,
+>   **6/6 caminos de error** sin la contraseña en stdout+stderr (host inalcanzable, URL inválida para `URL`, URL inválida
+>   para Prisma, salto interna→pública inalcanzable, autenticación fallida, DNS inexistente): `grep -c S3cr3tPw` = 0 en los 6.
+>   **NO MEDIDO por mí:** la suite `pdb-limpieza.e2e-spec.ts` contra Postgres (no tuve credencial de la BD local; me apoyo en
+>   el pase de QA sobre este sha). Sin pentest específico de este cambio (no hay superficie HTTP nueva, LZ-6).
+
+## LZ-1. Credenciales (URL con contraseña)
+
+- **El comando no imprime la URL.** `backend/src/cli/limpieza-republicar.ts:38-58`: los tres errores propios son texto
+  fijo; el salto a `DATABASE_PUBLIC_URL` imprime solo `(DATABASE_URL era la red interna de Railway: uso DATABASE_PUBLIC_URL)`
+  (`:76`). Los errores de Prisma muestran **host:puerto y usuario**, nunca la contraseña (medido 6/6, arriba). Logger de
+  Nest apagado (`logger: false`, `:77`). ✅ Confirma lo que midió QA.
+- **El rastro no guarda credenciales:** `ejecutadoCon: current_user` (nombre del rol) y nada de host/URL
+  (`20261006_pdblimpieza_2_limpieza.sql:512-531`). Los guiones no llevan host, usuario ni contraseña (encabezados). ✅
+- **Salida de B/D sin PII:** se listan folios, números de pedido, totales, `paymentMethodLast4` y guías; ni correos, ni
+  nombres de cliente, ni direcciones, ni INE (grep medido). ✅
+- **LZ-S1 · MEDIA · la URL pública con contraseña de ADMIN acaba en texto claro en el historial del shell.** El encabezado
+  de B pide `psql "$URL" …` (para lo cual el dueño hace antes `URL='postgresql://…'`) y, para E, literalmente
+  `DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js` (`…_2_limpieza.sql:57-59`; §79.3).
+  Ambos dejan la contraseña del **administrador de producción** en `~/.bash_history`/`~/.zsh_history`, y la vía `psql "$URL"`
+  además la pone en `argv` (visible en `ps` del equipo mientras corre). El endpoint público de Railway es alcanzable desde
+  internet: quien lea ese historial (respaldo del portátil, sincronización de shell, pantalla compartida) tiene la base.
+  **No es explotable desde fuera por sí solo** ⇒ media, no alta. Dueño: **backend** (texto de encabezados, CS-1) + **dueño**
+  (rotación, CS-2). `railway connect` y `railway run` no exponen la URL en el historial; `railway run` sí carga **todos** los
+  secretos del servicio de la API en un proceso local (aceptable: es el dueño en su equipo).
+
+## LZ-2. La bitácora se borra (decisión del dueño, `HECHOS.md:79`)
+
+- **El rastro conserva lo necesario:** conteos antes/después por tabla, piezas restauradas/excluidas/buylist (ids y
+  folios), bounties ajustados, las tres secuencias, `respaldoManual`, `puntoPitr` (UTC) y `ejecutadoCon`
+  (`…_2_limpieza.sql:512-531`); sin PII. Se inserta **en la misma transacción** tras G-5/G-6 y solo si hubo cambios. ✅
+- **LZ-S3 · BAJA · la guarda de respaldo es declarativa.** `respaldo_manual` vacío ⇒ aborta (`…_2_limpieza.sql:547-559`, y
+  prueba «respaldo_manual vacío»), pero SQL no puede verificar que el respaldo exista: un texto cualquiera la pasa. La red real
+  es PITR (cobertura desde `2026-10-05 22:32:25`, `HECHOS.md:74`) y **nunca se ha ensayado una restauración** (D-3/P-3). Dueño:
+  el **dueño** (procedimiento). Bandera abajo.
+- **Qué evidencia de seguridad se pierde (para decidir con los ojos abiertos):** toda la bitácora previa — quién cambió cada
+  dial (`settings.controller.ts` historial), acciones de `super_admin`/operador (reembolsos, SPEI, ajustes, cambios de rol,
+  desbloqueos de cuenta), rastros de compras de guía en Skydropx, y cualquier huella de un acceso indebido durante el periodo
+  de pruebas. Desde la base viva **ya no se podrá investigar** nada anterior al COMMIT; solo restaurando el respaldo/PITR en
+  una base aparte, mientras dure su retención (**NO MEDIDO**: retención de Railway). Si el dueño quiere conservarla fuera de
+  la base, la opción es exportar `AuditLog` a un fichero **antes** de B (no lo pide el diseño; decisión suya).
+
+## LZ-3. A y D de solo lectura; ninguna credencial ampliada
+
+- A y D abren `BEGIN TRANSACTION READ ONLY` y terminan en `ROLLBACK` (`…_1_censo.sql:34,111`; `…_4_verificacion.sql:37,143`);
+  sin `INSERT/UPDATE/DELETE/setval/nextval` (grep medido). Postgres rechaza toda escritura no temporal y `nextval` en una
+  transacción READ ONLY, así que corren con el admin sin poder escribir. Prueba «A … sin cambiar nada» y «D … y no escribe». ✅
+- **La receta `GRANT … TO tcg_readonly` se retiró:** no aparece en ningún guion, ni en migraciones, ni en los ficheros que
+  tocaron los commits de P-DB-LIMPIEZA (`git log --grep LIMPIEZA` → ningún `prisma/migrations/`); BACKEND_NOTES §79 lo dice
+  (`docs/BACKEND_NOTES.md:29914`). `tcg_readonly` sigue con sus seis tablas, sin acceso a hashes, `AuthToken` ni INE. ✅
+
+## LZ-4. Guardas contra borrar lo real y contra la base equivocada
+
+- **G-7** (`…_2_limpieza.sql:261-268`): con rastro previo y cualquier fila en una tabla BORRAR ⇒ aborta sin escribir; **C**
+  replica la idea (`…_3_folio_pedidos.sql:46-53`). **G-8** (`:158-171`): tabla no clasificada ⇒ aborta. G-1…G-6 + REPEATABLE
+  READ + `LOCK … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`. Todas con prueba que muerde (spec `:270-319`, `:549-617`). ✅
+- **LZ-S2 · BAJA · G-7 depende del rastro.** Antes del primer COMMIT no hay rastro, y G-1…G-3 no distinguen un pedido real de
+  uno de prueba (no hay marca de modo Stripe en `Order`: `grep livemode schema.prisma` vacío). Si alguien cambiara a
+  `sk_live_` y vendiera **antes** de correr B, B borraría ventas reales. Mitigado por el orden del manual (§8.2 paso 10:
+  `sk_live_` solo después) y por PITR. Recomendación (backend, no bloqueante): una guarda de caducidad (abortar si existe
+  un `Order` posterior a una fecha fija, o si `now()` pasa de una fecha límite) y retirar los guiones tras la corrida (PDB-TD3).
+- **Base equivocada — LZ-S4 · BAJA:** nada compara la identidad de la base (B solo **imprime** `current_database()`/usuario,
+  paso 0). Riesgo acotado: **no hay staging, solo producción** (`HECHOS.md:17`), así que la única base Railway es la buena;
+  correrlo por error contra una local solo vacía datos de desarrollo. El comando E sin `DATABASE_URL` se niega antes de
+  cargar `.env` (`cli/limpieza-republicar.ts:41`), y sin rastro en la base apuntada se niega (`modules/inventory/limpieza-republicar.ts:93-101`). Aceptable.
+
+## LZ-5. INE de vendedores de prueba sin purga (PDB-R6)
+
+- **Real y con dueño:** `TECH_DEBT.md` `PDB-R6` (P2, dueño backend + seguridad, disparador «el COMMIT de la limpieza en
+  producción», comprobación de cierre definida). El 2026-09-12 había **1** expediente con INE en producción; hoy **NO MEDIDO**
+  (lo imprime el censo A, fila R-6).
+- **Riesgo aceptado como deuda, no bloqueante:** son INE de **cuentas de prueba** del propio equipo/dueño, el bucket es privado
+  y el acceso a la INE ya está restringido por rol. Pero es un documento de identidad oficial retenido **sin plazo**, y el mismo
+  hueco afecta a cualquier usuario real que suba INE y nunca abra una solicitud. **Disparador firme:** se cierra antes de
+  abrir el buylist a vendedores reales con `sk_live_`. Si el censo A muestra INE de personas ajenas al equipo, sube a **alta**.
+
+## LZ-6. Exposición como endpoint
+
+- Ningún controlador importa `limpieza-republicar` ni `LimpiezaRepublicarModule` (`git grep` en `backend/src` medido: solo el
+  CLI). `previewPublication` solo la llama el comando. El campo nuevo `detail` de `PublishReevaluationResult` no llega a ninguna
+  respuesta HTTP (`buylist.service.ts:8086-8091` y `sealed-price.service.ts:391-398` solo leen `missing`/`outcome`). El script
+  `npm run limpieza:republicar` es local. Los SQL viven en `prisma/data-repair/`, que no se ejecuta en el arranque. ✅
+
+## LZ-7. Banderas para el humano
+
+1. **Simulacro de restauración (D-3/P-3) antes del COMMIT:** la única marcha atrás es PITR y nadie la ha probado.
+2. **Respaldo manual de verdad** (Railway → Backups) y anotar el punto PITR; la guarda no puede comprobarlo (LZ-S3).
+3. **Pérdida de la bitácora** (LZ-2): si quieres poder investigar el periodo de pruebas sin restaurar, exporta `AuditLog` antes.
+4. **Rotar la contraseña de Postgres** tras la operación si tecleaste/pegaste la URL (LZ-S1).
+5. **No pasar a `sk_live_` antes** de COMMIT de B + C + D + E (LZ-S2); y PDB-R6 cerrado antes de abrir el buylist real.
+
+# VEREDICTO BLUE TEAM — **STREAM «Publicar sin ubicación» (§M1-SU, SU.1…SU.9, SU.3-R; ARCHITECTURE §4.65)** · SHA **`15dffc9a`** (rama `claude/sin-ubicacion`, árbol `/home/user/tcg-ubic`) · 2026-10-07
+
+> ## VEREDICTO: **APROBADO CON CONDICIONES** sobre `15dffc9a`
+>
+> 0 críticas, 0 altas. **Una media de procedimiento** (SU-S1: `--apply` del script re-publica retiradas). No la puede
+> disparar un atacante, y su mitigación es una norma que tiene que ir en la solicitud de fusión. Dos bajas y dos info
+> quedan aceptadas como deuda con disparador. Nada de seguridad bloquea el botón `main → production` si se cumple
+> la condición C-SU-1.
+>
+> **Sobre qué medí** (2026-10-07, solo lectura): `HEAD` del árbol = `15dffc9a`. `origin/production` es ancestro de
+> `15dffc9a` (`git merge-base --is-ancestor`). `git diff --stat 2c516314 15dffc9a -- backend/src backend/scripts` sale
+> vacío, así que el backend que QA midió en vivo es el que juzgo. Delta: `git diff origin/production..15dffc9a`, 53
+> ficheros. El código de servidor que cambia está en `inventory.service.ts`, `inventory-publish.port.ts`,
+> `sealed-price.service.ts` (un comentario), `buylist.service.ts` (el degradado) y `scripts/reevaluate-unlocated.ts`.
+> **No ejecuté nada.** Este stream no tiene pase del pentester en `PENTEST_NOTES.md` (medido: la primera sección es
+> §AN), así que hice las dos lentes por lectura. Marcas de origen: **[QA]** = gate de QA sobre `2c516314`, que no volví
+> a medir.
+
+## §SU.1 Preguntas del encargo, una por una
+
+| # | Pregunta | Respuesta | Evidencia (fichero:línea en `15dffc9a`) |
+|---|---|---|---|
+| 1 | ¿Una pieza puede salir a la venta con un precio equivocado, en 0 o de otra pieza? | **No, por un camino nuevo.** El alta llama al **mismo** cuerpo (`reevaluateForPublication` → `reevaluateOne`) que ya usaban `move`, el precio del sellado y buylist. Solo se quitó el corte de ubicación (`:3293-3298`). El precio sale de `derivePublishSalePrice`, que no cambió: un `0` no cuenta como precio (`firstPresentAmount`/`isPresentAmount`, `common/money.ts:153`, `:509`) y todo `listPriceCents` del DTO es `@Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`dto/*.ts:109,150,201,228,284`). `publishCreated` solo recibe **ids**, ni precio ni `status` del llamador (`:840-855`). El ownerType y el status van en el CAS de `claimListed` (`:2385-2398`), así que no hay doble venta. | lectura |
+| 2 | ¿La custodia (vault) sigue exigiendo cajón? ¿Algo publica piezas de clientes? | **Sí exige cajón, y no, nada las publica.** `git diff --stat` sobre `backend/src/modules/vault`, `schema.prisma`, `orders` y `payments` sale vacío. Siguen `vault-placement.service.ts:513` y `replacement-case.service.ts:520` (`location_required`). Las tres altas crean `ownerType:'platform'` (`buildItemData`, `:1410`, la única forma de crear en `:798`, `:1501`, `:3586`). Una pieza de cliente se rechaza dos veces: en `assertPublishableGuards` (`:1796`) y en el `where ownerType:'platform'` del CAS (`:2388`). | lectura + `git diff --stat` |
+| 3 | ¿Un operador sin permiso puede publicar al dar de alta? | **No hay escalada.** `POST inventory/items`, `…/items/batch` y `…/adjustments` llevan el `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:90`). `bulk-publish` (`:428`) y `publish-all` (`:452`) tienen **el mismo** permiso. Quien da de alta ya podía publicar. El precio del sellado por producto sigue siendo solo del dueño: `assertSealedPriceWriters` va **antes** de escribir en las tres altas (`:771`, `:1452`, `:3540`). | lectura |
+| 4 | ¿El replay o la idempotencia pueden duplicar, o re-publicar retiradas? | **Las altas, no.** `publishCreated` se llama después del commit y solo en el camino nuevo: el fast-path del lote (`:1447-1448`) y el de «encontrada» (`:3541-3545`) regresan antes, y la rama P2002 no llega a la llamada. SU-B10 lo fija como canario **[QA]**. `publishCreated` atrapa todo y devuelve `[]` (`:846-854`), así que no hay un `500` después del commit que invite a reintentar. **El script, sí: ver SU-S1.** | lectura |
+| 5 | ¿El script filtra la URL o la credencial en los registros? | **La credencial, no. El host, quizá** (SU-S4). `describeUrl` imprime `***.<dominio>:***/<db>` fuera de local, y sin usuario ni contraseña en local. El salto `*.railway.internal` → `DATABASE_PUBLIC_URL` no imprime la URL. El `catch` de arriba imprime solo `e.message`. | `scripts/reevaluate-unlocated.ts:46-77`, `:206-214` |
+| 6 | ¿Hay algo sensible en el diff (repo público)? | **No.** Busqué en las líneas añadidas `postgres://`, `sk_`, `whsec_`, `password=`, `api_key`, `rlwy.net` y `@host:puerto`. Solo aparecen los fixtures falsos de `test/reevaluate-unlocated.spec.ts:15-16` (`u:s3cr3t@…`, `roundhouse.proxy.rlwy.net:41234`). Siguen el mismo patrón falso que `seed-e2e.target-guard.spec.ts:67`. En el frontend no hay sumideros nuevos: ni `dangerouslySetInnerHTML` ni redirecciones abiertas. `?locations=open` solo se compara con un literal y se borra de la URL (`M1View.tsx`). | `git diff … \| grep -E '^\+'` |
+
+## §SU.2 Hallazgos priorizados
+
+### SU-S1 · **Media** (procedimiento, no explotable desde fuera) · `--apply` del script re-publica piezas retiradas a propósito
+- **Ubicación:** `backend/scripts/reevaluate-unlocated.ts:105-112` (selección `platform ∧ in_stock ∧ locationId IS NULL`)
+  → `reevaluateForPublication`.
+- **Evidencia:** **[QA]** N=1, determinista. INV-000006 estaba retirada (`PATCH status:'in_stock'`) y quedó `listed`
+  después de `--apply`. Lo confirmo por lectura: `in_stock` no distingue «retenida por la regla vieja» de
+  «retirada por el operador», y la selección no consulta `AuditLog`.
+- **Impacto en dinero:** se vende una pieza que el operador sacó a propósito (dañada, apartada, en revisión). El
+  **precio no es incorrecto**, porque decide el pipeline de siempre. El daño es una venta que hay que cancelar o
+  reembolsar.
+- **Qué lo mitiga hoy:** (a) el script **no va en la imagen** (SU.7 (4)), así que solo lo corre quien tiene la
+  credencial; (b) **por defecto no escribe**; (c) la norma SU.3-R (no correr `--apply` si va la limpieza, si hay
+  retiradas o si no se pueden contar).
+- **Dueño:** el orquestador (condición **C-SU-1**, abajo). Backend se encarga de la exclusión (`excludedWithdrawn` +
+  SU-B7) **solo si** se va a usar `--apply`.
+
+### SU-S2 · **Baja** · El alta con precio manual publica sin una segunda mirada
+- Antes de SU-1, el precio tecleado en el alta no salía a la venta hasta una segunda acción: `move` o `bulk-publish`.
+  Ahora sale en el acto (`:818`). Un error de tecleo, por ejemplo `100` en vez de `10000`, queda a la venta.
+- **No es escalada:** el mismo rol podía publicar ese mismo precio con `bulk-publish`. Lo acotan `@Min(1)` y `@Max`.
+- **Lo acepto.** Lo que lo dispara: el primer caso real de pieza vendida por error de tecleo, o el paso a `sk_live_`
+  con volumen. En ese punto, que el frontend muestre el precio en el aviso `createToastListed` (frontend) o un
+  guardarraíl de mínimo contra el mercado para el precio manual (arquitecto).
+
+### SU-S3 · **Baja** · El alta suelta no es idempotente y ahora la pieza duplicada sale a la venta
+- `POST /admin/inventory/items` no tiene clave de idempotencia (ya era así). Si se reintenta un `201` perdido en la
+  red, se crea otra pieza. Con SU.8 esa pieza fantasma queda `listed` y se puede comprar algo que no existe.
+- **Qué lo mitiga:** `publishCreated` nunca lanza (no hay `500` después del commit). El botón se deshabilita mientras
+  la petición va en curso (`AddItemModal.tsx:280-281`, `AddGradedModal.tsx:103-104`). Una pieza de más se ve en el
+  conteo físico.
+- **Lo acepto.** Dueño: backend. Lo que lo dispara: el próximo trabajo en la familia de idempotencia
+  (`TECH_DEBT` BE-BR1/H2), o cualquier pieza duplicada que se detecte.
+
+### SU-S4 · **Info** · El error de conexión del script puede imprimir host y puerto
+- `describeUrl` oculta el host, pero un error de conexión de Prisma («Can't reach database server at `h:p`») sale
+  tal cual por `stderr` (`reevaluate-unlocated.ts:210`). No incluye la credencial. Se imprime en la terminal de quien
+  ya tiene la URL. **Lo acepto**, con una condición: no pegar esa salida en issues ni en registros públicos de CI.
+
+### SU-S5 · **Info** (ya existía; es `TD-SU-9` / SU.9) · El precio del sellado y `move` re-publican retiradas
+- Es la misma clase que SU-S1, en disparadores manuales del operador o del dueño. Está aceptada en
+  `docs/TECH_DEBT.md` (TD-SU-9). La salida de fondo (una marca persistida «retirada por el operador») es del
+  arquitecto. Desde seguridad no sube de severidad: la dispara una persona con el permiso que corresponde.
+
+**Totales: Crítica 0 · Alta 0 · Media 1 (SU-S1) · Baja 2 · Info 2.**
+
+## §SU.3 Deuda de seguridad aceptada (registro del DoD)
+| Id | Impacto | Lo que la dispara | Dueño |
+|---|---|---|---|
+| SU-S2 | Un error de tecleo en el precio sale a la venta | primer caso real, o `sk_live_` con volumen | frontend / arquitecto |
+| SU-S3 | Un reintento crea una pieza duplicada que sale a la venta | trabajo en idempotencia, o la primera duplicada detectada | backend |
+| SU-S4 | Host y puerto en `stderr` local | si el script entra a CI o a un registro compartido | backend |
+| SU-S5 / TD-SU-9 | Un disparador manual re-publica una retirada | decisión del arquitecto sobre la marca «retirada» | arquitecto → backend |
+
+## §SU.4 Condiciones
+- **C-SU-1 (antes del botón, la cumple el orquestador):** el cuerpo de la solicitud `main → production` lleva la norma
+  SU.3-R tal cual: **no se corre `--apply`** si la limpieza de base va a correr, si el conteo de retiradas (consulta
+  de SU.3-R, solo lectura, la corre quien tiene la credencial) es > 0 o si no se puede hacer. El caso esperado es
+  solo la corrida en seco con `selected: 0` después de la limpieza.
+- **C-SU-2 (solo si algún día hace falta `--apply`):** primero, backend construye la exclusión `excludedWithdrawn` +
+  SU-B7 y vuelve a pasar por seguridad.
+- Siguen las heredadas de antes de `sk_live_` (ver los veredictos de `c62621e6` y `b370cf9b`). Este stream no las toca.
+
+## §SU.5 NO MEDIDO
+- No ejecuté ninguna suite ni el script. La conducta de SU-S1 y los SU-B7…B12 los consolido de **[QA]**.
+- No corrí la consulta de conteo de retiradas contra ninguna base (como dice SU.3-R).
+- No medí si `ts-node` está en las `node_modules` de producción: no hace falta para este veredicto.
+
+## §SU.6 Banderas para el humano
+- **Antes de vender con piezas que retiraste a mano:** no pidas que se corra el script con `--apply` sin el conteo
+  de SU.3-R. «Publicar todo» de M1 tiene el mismo efecto sobre las retiradas **con** cajón.
+- Siguen sin cambios: antes de `sk_live_`, el pentest de un tercero y el bug bounty, y la validación legal de la custodia
+  y de la PII.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-07 · código `15dffc9a` (rama `claude/sin-ubicacion`) · **APROBADO CON CONDICIONES** (C-SU-1 en el cuerpo de la solicitud de fusión; nada más bloquea)
+
+---
+
+# VEREDICTO BLUE TEAM — **RELEASE «Analítica de ventas del dueño» (§AN)** · SHA **`c78f8a24`** (rama `claude/analitica-ventas`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `c78f8a24`
+>
+> 0 críticas, 0 altas, 0 medias abiertas en el delta. Una baja (AN-5) **aceptada como deuda** con disparador medible
+> (§AN.3). No exijo la fase en vivo del pentester (§AN.4). Nada de seguridad bloquea la solicitud `main → production`.
+>
+> **Sobre qué medí** (todo en `/home/user/tcg-ventas`, 2026-10-06): `origin/production` es ancestro de `c78f8a24`
+> (`git merge-base --is-ancestor`, medido). `git diff --stat c78f8a24 6609060f` ⇒ solo `docs/PENTEST_NOTES.md` (medido):
+> el código juzgado es `c78f8a24`. Delta revisado: `git diff --stat origin/production c78f8a24 -- backend/src frontend/src
+> scripts security` ⇒ **37 ficheros, +4999/−166**. Marcas de origen: **[pentester]** (caja blanca sobre `c78f8a24`, sin fase
+> en vivo), **[QA]** (en vivo sobre `76dd1ee9`, APROBADO CON CONDICIONES); no lo volví a medir.
+
+## §AN.1 Hallazgos del red team, consolidados
+
+| Id | Sev. | Mi juicio | Evidencia mía |
+|---|---|---|---|
+| AN-1 authz vertical | Info | **Confirmado.** `@Roles(Role.super_admin)` de clase en `AdminReportsController` cubre las tres rutas nuevas; guardas globales Throttler→Jwt→PasswordChange→Roles (`app.module.ts:82-85`). En vivo **[QA]**: 401/403/200. | `admin.controller.ts` diff (rutas `sales`, `sales/export.csv`, `sales/today` dentro de la clase) |
+| AN-2 PII | Info | **Confirmado.** El correo del cliente se usa como llave en memoria (`customerKeyOf`) y en el `where` de `customers()` (`sales-analytics.service.ts:321-340`); no viaja al DTO ni al CSV. **[QA]** en vivo: CSV sin `@`/nombres/dirección/orderNumber/ids. | lectura del service |
+| AN-3 CSV-fórmula | Info | **Confirmado.** Sin columnas de texto libre en el CSV. `filename` se arma de `from`/`to` (`isYmd`, regex anclada + fecha real, `spend-alerts/mx-day.ts:33`) y `groupBy` (lista blanca) ⇒ sin CRLF en `Content-Disposition`. | `sales-period.ts` `readYmd`, `resolvePeriod` |
+| AN-4 SQL | Info | **Confirmado.** Sin `$queryRaw`/`Prisma.sql` en el delta; `typeof !== 'string'` ⇒ 400 también para `?from=a&from=b` (array). **[QA]**: 13 casos de 400, incl. inyección en `from`. | `sales-period.ts` `readYmd` |
+| AN-5 DoS por rango | **Baja** | **Confirmado y ampliado** (ver §AN.3). Aceptado como deuda. | service `:194-227`, `:321-347` |
+| AN-6 correo 08:00 | Info | **Confirmado.** Destinatarios = `ownerRecipients` (`isOwner`); la línea solo lleva 3 números. Si `dayFigures` falla, el log lleva `e.message` del error (sin cifras de cliente). | `spend-digest.service.ts` diff |
+| AN-7 refactor pnl | Info | **Confirmado.** `pnl-core.ts` es puro; `GET /admin/finance/pnl` sigue `super_admin`. | diff `admin.controller.ts` (sin cambios de guarda) |
+
+## §AN.2 Lo que revisé yo y el pentester no cubrió
+
+- **Delta `76dd1ee9 → c78f8a24`** (lo que entró después de la evidencia en vivo de QA): `git diff --stat` ⇒ 10 ficheros,
+  +101/−32 (medido). **Ninguno toca guardas, rutas ni DTO de salida**: el service solo añade `status in
+  [settled, refunded, chargeback]` (TD-AN-7, *estrecha* lo leído) y un `throw` de coherencia (TD-AN-6) que sale como
+  `500 INTERNAL "Internal server error"` sin el mensaje interno (`all-exceptions.filter.ts:82-83`); el digest mueve el
+  conteo dentro del `try` (C-1). Por eso la evidencia en vivo de QA sobre `76dd1ee9` sigue valiendo para authz/PII/400.
+- **Manifiesto de secretos** (`security/secretos-publicados.sha256`, commit `7768d811`): las 2 líneas nuevas son
+  exactamente `sha256("re_an_fix_o3")` y `sha256("re_an_fix_o4")` (medido con `sha256sum`), ids de reembolso **de
+  prueba** de `backend/test/integration/helpers/sales-db.ts:289,294`. Correcto: no es un secreto real, y listarlo solo
+  hace que el preflight rechace ese literal como valor de entorno.
+- **`scripts/stack-native.sh`** (Redis `--save ""` desde `/`, `CONFIG SET save ""` si MISCONF): solo afecta al Redis
+  local de pruebas; no toca config de deploy. Sin efecto de seguridad en producción.
+- **Dependencias:** `npm audit --omit=dev --package-lock-only` sobre `c78f8a24` (copia en scratchpad, borrada):
+  frontend **0 vulnerabilidades** (sharp 0.35.5 cierra GHSA-wq5f-xc86-pv6w); backend **2 moderadas**, y
+  `backend/package*.json` **no cambia** en el delta (`git diff --stat` vacío) ⇒ son las de RL-DEP-1, ya registradas.
+- **Frontend:** sin `dangerouslySetInnerHTML`/`innerHTML`/`eval` en los ficheros nuevos (grep, medido). El único
+  `localStorage` (`tcg.salesPhase`) vive en `lib/mock/sales.ts`, solo en modo demo (`config.useMocks`). La tarjeta
+  «Ventas de hoy» se monta solo con `isSuperAdmin` (`AdminDashboard.tsx:231`) — eso es UX; la frontera real es el 403
+  del servidor (**[QA]** en vivo).
+- **Rate limiting:** las rutas heredan el throttler global (300/min por IP, `app.module.ts:46`); no tienen
+  `ActorThrottlerGuard`. Relevante solo para AN-5.
+
+## §AN.3 AN-5 — decisión: **ACEPTADO como deuda Baja, sin medir antes de publicar**
+
+**Ampliación mía:** además de `ordersIn`/`itemsOf`, `customers()` (`service:326-335`) trae **todas las órdenes previas**
+de los clientes del periodo sin `take` (y con listas `in` del tamaño del periodo). Es la consulta que más crece con la
+antigüedad de la tienda, no con el rango.
+
+**Por qué no bloquea:** (1) solo `super_admin`, que hoy es el dueño; un atacante necesita su sesión, y con su sesión
+tiene cosas peores que un GET lento; (2) solo lectura, no mueve dinero ni deja estado a medias; (3) el throttler
+global limita la ráfaga; (4) el volumen actual de la tienda es pequeño frente a lo que una agregación en memoria
+aguanta — **NO MEDIDO** con cifra; no lo medí contra producción (⛔ fuera de alcance).
+
+**Disparador (cualquiera de los tres) ⇒ backend mide y acota:**
+1. Cuando los pedidos cobrados (`settled/refunded/chargeback`) en cualquier ventana de 366 días pasen de **10 000**, o
+   los `OrderItem` de esa ventana de **50 000** (lo mide el dueño o devops con un `count` de solo lectura).
+2. Cualquier 5xx/timeout o p95 > 3 s en `GET /admin/reports/sales*` en los registros de Railway.
+3. Antes de dar `super_admin` a una segunda persona o de exponer el reporte a otro rol.
+
+**Medición que lo cierra** (la del pentester): sembrar el umbral del punto 1 en local y cronometrar
+`GET /admin/reports/sales?preset=custom&from=…&to=…&groupBy=day` (N≥5, reportar mediana y máximo, y RSS del proceso).
+**Arreglo esperado si muerde:** agregación en BD (`groupBy`/sumas por día) o tope de rango menor para `groupBy=day`, y
+`customers()` resuelto con `EXISTS`/`distinct` en vez de traer filas. Dueño: **backend**.
+
+## §AN.4 ¿Es aceptable que el pentester no hiciera fase en vivo? **Sí.**
+
+Lo que una fase en vivo habría probado ya lo midió **[QA]** en vivo sobre `76dd1ee9`: 401/403/200 en las tres rutas,
+`no-store` en los 200, CSV sin PII, 13 casos de 400 (incl. inyección en `from`), operador sin pestaña ni petición a
+`/sales`, correo 08:00 solo a `isOwner`. Y el delta `76dd1ee9 → c78f8a24` no toca nada de eso (§AN.2, medido). Lo único
+que la fase en vivo añadiría es el tiempo de AN-5, que queda como deuda con disparador. **No exijo otra medición** para
+este release.
+
+## §AN.5 Banderas para el humano
+- Sin cambios respecto al veredicto «listo-real» de abajo: **CL-1/CL-2/CL-3** siguen siendo condiciones antes de
+  `sk_live_`; este release no las abre ni las cierra (no medido su estado hoy: lo dirá el siguiente pase).
+- El reporte de ventas expone cifras de negocio completas: la sesión del dueño vale más que antes. Nada nuevo que hacer,
+  pero suma un argumento a la 2FA de `super_admin`, que §4 de abajo deja como P1 **después** de salir a cobro real (no
+  cambio esa decisión).
+
+# VEREDICTO BLUE TEAM — **RELEASE «Buylist con guía Skydropx de entrada» (BSD)** · SHA **`64877aad`** (rama `claude/buylist-skydropx`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `64877aad` (con un aceptado y dos pendientes no bloqueantes)
+>
+> - **0 críticas · 0 altas · 0 medias** abiertas en el delta. Nada de seguridad bloquea fusionar `claude/buylist-skydropx`
+>   a `main` ni la solicitud `main → production` **en modo prueba**.
+> - **`BSD-RT-1` (baja) se ACEPTA documentado** (§BSD-S3, A-BSD-1), no se arregla antes de fusionar. **`BSD-RT-2` (info) es
+>   PENDIENTE de devops, no condición del release** (§BSD-S4, P-BSD-SEC-1).
+> - **CL-1 / CL-2 / CL-3** (pase «listo-real», más abajo) **siguen abiertas sin cambio**: son condiciones para `sk_live_`,
+>   no para este release. Este pase no las cierra ni les añade nada.
+>
+> **Sobre qué medí.** Código juzgado: `64877aad`. Después solo hay `e48cd3ac` y `daff8008`, ambos **solo**
+> `docs/PENTEST_NOTES.md` (`git log --oneline` medido). Delta del stream: `git diff a884a2ec..64877aad -- backend/src` ⇒ 48
+> ficheros de producción, +3361/−279 (medido); `a884a2ec` es el lado `production` del merge `ccde6d14`, así que ese merge
+> **no** entra en el delta. Sin cambios en `package.json`/`package-lock.json` ni en `.github/` o `security/`; solo
+> `scripts/stack-native.sh` (Redis local `--save ""`, sin efecto en despliegue).
+> **Lo medido por mí** lleva fichero:línea o comando (lectura de código y `grep`/`git` en `/home/user/tcg-bsdx`, 2026-10-06).
+> **[pentester]** = Fase en vivo del red team sobre `64877aad` (`:3299`, adaptador `fake`), no la repetí. No levanté stack ni
+> corrí suites: todo lo que el red team ya midió en vivo (IDOR, authz, carreras, CHECK) lo crucé contra el código, no lo re-medí.
+
+## BSD-S1. Hallazgos del red team, consolidados
+
+| Id | Sev. RT | Validación blue team | Decisión |
+|---|---|---|---|
+| `BSD-RT-1` throttle `label.pdf` por IP | Baja | **Real.** `inbound-shipment.controller.ts:42` usa `@Throttle` sin guard propio ⇒ el tracker es `req.ip` (con `trust proxy` bien puesto, `src/trust-proxy.ts:15`, así que NO es «todos comparten la IP del balanceador»). Severidad **Baja confirmada**. Matiz que añado: rotar IP también **burla el objetivo de coste** (una cuenta con guía viva puede pedir >10 descargas/min a Skydropx y escribir una fila `AuditLog buylist.label_downloaded` por descarga, `inbound-shipment.service.ts:166`); queda acotado por el global 300/min/IP, por los ≤ 5 MB/10 s del proxy y porque solo sirve guías propias. | **ACEPTADO** (A-BSD-1) |
+| `BSD-RT-2` DAST sin las rutas nuevas | Info | **Real, y más que info en lo documental:** `API_CONTRACT.md:40517` dice «la ruta ya está en el inventario del DAST (§BSD.12.5)», pero `security/` **no tiene** inventario de rutas y `grep -rln "label.pdf\|inbound-shipment\|decline-accepted\|buylist" security/` ⇒ 0 (medido). La afirmación del contrato no es cierta hoy. No es una vulnerabilidad: los controles de esas rutas están cubiertos por candados (BSD-B44, B27, censo B23) y por el ataque en vivo del red team. | **PENDIENTE devops** (P-BSD-SEC-1) |
+
+Coincido con el resto del pase del red team; lo que crucé contra código y resiste: IDOR del PDF (`findFirst {id, userId}`,
+mismo 404), cabeceras/nombre saneado, destino no manipulable, rutas de salida 404 con id de entrada, CAS de
+`decline-accepted`, redacción del portal `not_continued`, CSV sin texto libre.
+
+## BSD-S2. Lo que revisé yo (fuera del alcance del red team)
+
+1. **SSRF en la descarga del PDF — sin hallazgo.** La URL **sí** viene del proveedor (`ShipmentRequest.labelUrl`), y los tres
+   llamadores (admin, vendedor, adjunto AV-7) pasan por **un** cuerpo: `label-pdf-download.ts:17-29` ⇒ `downloadLabelPdf`
+   (`shipping-provider/label-proxy.ts`, **sin cambios** en el delta): `assertProviderUrl` contra `SKYDROPX_URL_HOSTS` en el
+   primer salto y en cada `Location`, `redirect:'manual'`, ≤ 3 saltos, `Bearer` solo hacia el host de la API, `application/pdf`,
+   ≤ 5 MB, 10 s. Con `fake`, cero red. El vendedor nunca ve `labelUrl`.
+2. **Adjunto por Resend — sin hallazgo.** `mail.port.ts`: `contentType` es el literal `'application/pdf'`, a lo sumo un adjunto,
+   tamaño acotado por el proxy (5 MB, muy por debajo del límite de Resend); `filename` = `sellerLabelFilenameOf` (solo
+   `[A-Za-z0-9]`). `resend-mail.adapter.ts` solo añade la clave si hay adjunto. AV-7 va **solo** a `sr.user.email`, salta
+   cuentas anonimizadas y sella una vez (`inbound-guide-notice.service.ts:66-77`).
+3. **PII del vendedor.**
+   - *Fila de entrada:* `addressSnapshot` copiado de `pickupAddressSnapshot` sin `addressId` (`inbound-shipment.service.ts:116`).
+     Bitácora sin PII (`:121-130`, solo `shipmentId`).
+   - *Hacia Skydropx:* `from` = domicilio, nombre y teléfono del vendedor; **el correo es el de la tienda**
+     (`label-inbound.ts:171`), como manda ARCHITECTURE §4.BSD (i). Minimización correcta.
+   - *Correos:* BSD-M1 sin motivo ni domicilio; AV-7 lleva el PDF (que sí trae el domicilio del propio vendedor) **solo** a él.
+     AG-23 al dueño solo con `sellRequestId`, fecha y monto.
+   - *Logs:* revisé todos los `logger.*` añadidos en el delta (`git diff … | grep logger`): ids, códigos y nombres de clase de
+     error; **ningún** domicilio, nombre, teléfono, correo, token ni secreto de Skydropx. `skydropx.adapter.ts` no añade logs.
+   - *Borrado de cuenta (BSD-B27):* cableado **dentro** de la tx de `deleteUser` (`admin.service.ts:1679`), en la rama de borrado
+     suave, que es la única que alcanza a un vendedor (tener una `SellRequest` cuenta como transacción, `:1624`). Prueba de
+     integración `test/integration/bsd-b2-inbound.e2e-spec.ts:729` y cableado en `test/admin.user-management.spec.ts:109`.
+     **Matiz (info, I-BSD-1):** el mismo domicilio **sigue** en `SellRequest.pickupAddressSnapshot`, que por política deliberada
+     de ARCHITECTURE §4.39 (a)/(b) no se purga al borrar la cuenta (registro de dónde salió una mercancía que pagamos), y en
+     Skydropx como encargado. B27 cumple su norma; no anonimiza el domicilio de la base. No es defecto del stream: es la
+     política de retención ya aceptada, y su revisión alcanza a los tres snapshots a la vez.
+4. **Secretos de Skydropx — sin hallazgo.** `SKYDROPX_CLIENT_SECRET` se sigue leyendo solo en la fábrica; el delta no toca
+   `shipping-provider.factory.ts`, `spend-gate.ts` ni `label-proxy.ts` (`git diff --stat … -- modules/shipping-provider/` ⇒
+   solo `port`, `adapter`, `fake`).
+5. **`SKYDROPX_ALLOW_SPEND` / PS-99 — intactos.** La guía de entrada **no** abre una vía de compra nueva: el único llamador de
+   `port.purchase` sigue siendo `label-purchase.service.ts:339` (grep medido), detrás del reclamo, del tope de 24 h del operador
+   (`claimed.kind==='limited'`, `:305`) y de la puerta de dos llaves + candado de ejecución. Los candados de devops
+   (`scripts/check-skydropx-spend-lock.sh` y su canario) no cambian en el delta. El red team corrió todo con `fake`.
+6. **Authz de las rutas nuevas — sin hallazgo.** `POST …/inbound-shipment` y `POST …/decline-accepted`: `@Roles(vault_operator,
+   super_admin)` de clase (`inbound-shipment.controller.ts:24`, `admin-buylist.controller.ts:42`); ninguna gasta (la compra sigue
+   en `POST /admin/shipments/:id/label`, con sus topes). `GET …/label.pdf`: rol + propiedad por `userId`.
+7. **Inyección — sin hallazgo.** Los `$queryRaw` nuevos son plantillas etiquetadas con parámetros (`inbound-close.ts:50-51`, barrido).
+   `outboundOnlySql(alias)` (`label-subject.ts:41-42`) interpola `alias` en `Prisma.raw`, pero **no tiene llamadores** fuera de su
+   definición (grep medido): endurecimiento opcional, no hallazgo.
+8. **El barrido frente a carreras — sin hallazgo por código.** Regla 8 relee bajo `SELECT … FOR UPDATE` de la `SellRequest` y luego
+   de la fila de entrada (mismo orden I-BSD-4 que `decline-accepted` y la compra) y cierra por el **mismo** `closeInboundShipment`;
+   una compra en vuelo cae en la rama `in_flight`/«pagada pero cancelado» (§19.18.3) que ya usa el auto-cierre por reembolso.
+   Regla 10 abre la tarea con `updateMany … IS NULL` (idempotente). Una regla que falla no tumba las demás (`isolated`). La
+   carrera declinar∥comprar la midió el red team en vivo (**[pentester]**, 0/12 fuga, N=2×12) por el mismo cuerpo de cierre; la
+   variante barrido∥compra **no la medí** (NO MEDIDO): comparte cuerpo y candados, por eso no la elevo.
+9. **Dependencias.** `npm audit --omit=dev` (backend, 2026-10-06) ⇒ 0 altas/críticas, 2 moderadas `@nestjs/core` /
+   `@nestjs/platform-express`: es `RL-DEP-1`, ya registrado; el delta no toca el lockfile.
+
+## BSD-S3. Deuda de seguridad aceptada en este pase (no bloquea)
+
+- **A-BSD-1 · `BSD-RT-1` · Baja.** Throttle de `GET /buylist/requests/:id/label.pdf` por IP. **Por qué se acepta:** sin impacto de
+  confidencialidad ni integridad; el daño es disponibilidad para vendedores tras un NAT compartido y una cota de coste algo más
+  laxa frente a quien rote IP con su propia guía; volumen esperado de 1–2 descargas por vendedor. **Disparador:** (a) la primera
+  queja/registro de `429` legítimo en esa ruta, (b) escalar a más de una instancia del backend, o (c) antes de `sk_live_` si para
+  entonces no se hizo — lo que llegue antes. **Arreglo propuesto (backend):** llave por **actor**, con el patrón ya existente
+  `ActorThrottlerGuard` (`modules/admin/actor-throttler.guard.ts`). ⛔ No por `:id` de solicitud: el throttle corre **antes** del
+  chequeo de propiedad, y un tercero podría agotar el cubo de la solicitud de otro vendedor. **Comprobación:** prueba que dos
+  cuentas desde la misma IP tienen cupos independientes, y mutación que vuelve a `req.ip` y la pone roja.
+- **I-BSD-1 · Info.** Domicilio del vendedor retenido en `SellRequest.pickupAddressSnapshot` tras borrar la cuenta (§BSD-S2.3).
+  Política existente. **Disparador:** cualquier revisión de la política de retención de domicilios (alcanza a los tres snapshots).
+
+## BSD-S4. Pendientes (no condición del release)
+
+- **P-BSD-SEC-1 · devops · `BSD-RT-2`.** Meter `GET /buylist/requests/:id/label.pdf` en el recorrido **autenticado** del DAST
+  (cuenta de cliente con una guía `fake` sembrada) y valorar sondas dirigidas a los dos POST admin nuevos. **Por qué no es
+  condición:** no es una vulnerabilidad, el CI de SAST/DAST sigue en pie y los controles los cubren candados de prueba y el
+  ataque en vivo. **Disparador:** antes de cerrar el próximo release, o antes de `sk_live_`, lo que llegue antes.
+  **Comprobación:** `grep -rn "label.pdf" security/` ≥ 1 y un informe de ZAP donde la URL aparezca con `200`.
+  **Y arquitecto:** errata de `API_CONTRACT.md:40517` («la ruta ya está en el inventario del DAST»), que hoy es falsa.
+
+## BSD-S5. Banderas para el humano (el dueño)
+
+1. **Aviso de privacidad y la guía de entrada.** La fila de Skydropx dice «Nombre de quien **recibe**, dirección, teléfono y
+   correo» (`frontend/src/content/legal/privacidad.es.ts:169`). Con este release, el domicilio, nombre y teléfono del
+   **vendedor** (como remitente) viajan a Skydropx. Es el punto 6 de §BSD.12 (product-owner, «NO MEDIDO si ya lo dice»): **medido,
+   no lo dice con precisión**. No bloquea la seguridad del release (el aviso sigue en borrador, con los datos P-LEG pendientes),
+   pero conviene que el product-owner ajuste la fila («nombre, dirección y teléfono de quien envía o recibe») antes de publicar el
+   aviso o de comprar guías de entrada con vendedores reales — lo que llegue antes. Validación legal recomendada.
+2. **Primera guía de entrada real.** Las tres «NO MEDIDO» de §BSD.13 (que Skydropx acepte el origen explícito) se miden con dinero
+   real del saldo Skydropx en producción. Desde seguridad no hay objeción, siempre por la puerta de dos llaves existente.
+3. **Sin cambio:** pentest de tercero + bug bounty antes de operar con dinero real, y CL-1/CL-2/CL-3 antes de `sk_live_`.
+
+## BSD-S6. Ruteo
+
+| Qué | Rol dueño | Cuándo |
+|---|---|---|
+| A-BSD-1 (throttle por actor) | backend | por disparador (§BSD-S3) |
+| P-BSD-SEC-1 (DAST con la ruta) | devops | próximo release o antes de `sk_live_` |
+| Errata `API_CONTRACT.md:40517` | arquitecto | con P-BSD-SEC-1 |
+| Fila de Skydropx en `/privacidad` | product-owner (texto) → frontend | antes de publicar el aviso o de guías de entrada reales |
+
+---
+
+# VEREDICTO BLUE TEAM — **RELEASE «listo-real» (antes del paso a COBRO REAL)** · SHA **`c62621e6`** (rama `claude/listo-real`) · 2026-10-05
+
+> ## VEREDICTO: ✅ **APROBADO CON CONDICIONES** sobre `c62621e6`
+>
+> - **Publicar `c62621e6` a producción (todavía en modo prueba): APROBADO.** 0 críticas, 0 altas y 0 medias
+>   abiertas en el delta. Nada bloquea la solicitud de fusión `main → production`.
+> - **Poner `sk_live_` todavía NO.** Siguen abiertas tres condiciones de seguridad del tipo «antes de
+>   `sk_live_`» (§5): **CL-1** (CSP en `enforce`, la parte (b) de S5-1 / SEC-HDR-2), **CL-2** (`P-GL-2`: gitleaks
+>   sigue sin vigilar `docs/*.md`, que es la vía por la que se filtraría una clave live) y **CL-3** (los puntos de
+>   seguridad de la lista «Antes» de la guía §85.7, cada uno con su evidencia citada). Ninguna es un defecto de este
+>   release: CL-1 empieza a contar justo cuando este release se publica, y CL-2 es una tarea pequeña de devops.
+>   Cuando las tres estén cerradas, el cambio a cobro real queda aprobado por seguridad **sin otro pase**.
+>
+> **Sobre qué medí.** Código juzgado: `c62621e6`. `git diff c62621e6 79dd65aa --stat` ⇒ **solo**
+> `docs/PENTEST_NOTES.md | 74 +` (medido). `origin/production` = `fe2b58d3` (#75) y es **ancestro** de `c62621e6`
+> (`git merge-base --is-ancestor`, medido). ⚠️ **El delta es más grande de lo que decía el encargo:**
+> `git diff --stat origin/production c62621e6 -- backend/src frontend/src` ⇒ **60 ficheros, +3930/−50**. Además del aviso
+> provisional (§14.17), `audience` (§14.18) y los enlaces de privacidad, entran **LIVE-2** (tope de vida de la sesión,
+> `auth.service.ts`, `session-max-age.ts`), **LIVE-3** (CSP con nonce en **report-only**, `frontend/src/security/csp.ts`,
+> `middleware.ts`), **LIVE-7** (`stripeMode` en `/health`, y **dos endpoints públicos nuevos**: `POST /telemetry/csp` y
+> `POST /telemetry/client-error`). El pentester no menciona la telemetría, así que la revisé yo (§3.3).
+>
+> **Lo que mido yo y lo que me reportan.** Todo lo que lleva fichero:línea o comando lo medí yo en
+> `/home/user/tcg-real` el 2026-10-05. Lo que viene de otros va marcado así: **[pentester]** (Fase 2 en vivo sobre
+> `c62621e6`), **[QA]** (E2E de release sobre `c62621e6`, APROBADO CON CONDICIONES, ninguna de seguridad) y
+> **[orquestador]** (CI `e2e-real.yml` run 37371153265 sobre `c62621e6`, verde, claves de prueba). No lo volví a medir.
+
+---
+
+## 1. Hallazgos del red team: consolidados uno a uno
+
+| Id | Pentester | **Blue team** | Evidencia propia | Dueño | ¿Bloquea? |
+|---|---|---|---|---|---|
+| `RL-DEP-1` | Baja | **CONFIRMO, y la bajo a Info** (no alcanzable) | `npm audit --omit=dev` (backend) ⇒ `{moderate: 2, high: 0, critical: 0}`. Las dos son **la misma**: GHSA-36xv-jgw5-4q75 (`@nestjs/core`, inyección en la salida de **SSE**), con `@nestjs/platform-express` por dependencia. `grep -rn "@Sse\|MessageEvent" backend/src` ⇒ **0**: sin endpoint SSE no hay sumidero. El arreglo es un **salto de versión mayor** (`fixAvailable` 12.1.2, `isSemVerMajor: true`; hoy `"@nestjs/core": "^10.4.4"`, `package.json:37`). Frontend: **0** vulnerabilidades. **C1 (`qs`) queda CERRADA:** `package.json:72-74` `overrides.qs ^6.16.0` y el audit ya no lista `qs`/`body-parser`/`express`/`multer` | devops (+ backend para el salto a Nest 11/12) | **No.** Deuda aceptada (§6) |
+| `RL-INFO-1` (D-SP-2) | Info | **CONFIRMO Info para seguridad, pero corrijo el mitigante.** El chequeo `amount_received === order.totalCents && currency === 'mxn'` (`payments.service.ts:243-268`, leído) protege contra que **alguien manipule** el importe. D-SP-2 es otra cosa: el **pedido mismo** se crea con el precio de la sesión, así que ese chequeo **cuadra** aunque el cliente haya visto otra cifra (`API_CONTRACT.md:36373-36376`: «por dentro el cobro cuadra»). No es explotable por un atacante. Con dinero real, el riesgo es de **consumidor y contracargo** («me cobraron otra cifra»), no de seguridad | — | backend + frontend (F-SP-5); arquitecto | **No** (para seguridad). Bandera al dueño (§7) |
+| `RL-INFO-2` | Info | **CONFIRMO.** `refund-ledger.service.ts:209` `if (actor.role !== 'vault_operator' \|\| planCents <= 0) return;`. Recomendación en §4 | Ver §4 | dueño (decisión), backend | **No** |
+| `RL-INFO-3` | Info, positivo | **CONFIRMO.** `buylist/mail-shell.ts:619,657`: sin `audience`, el pie de privacidad **se pone**. Solo **3** llamadas usan `'staff'`, todas en `spend-alerts/spend-alert.mail.ts:141,183,242` (correos al dueño) | `grep -rn "audience: 'staff'" backend/src` ⇒ 3 | — | — |
+| `RL-INFO-4` | Info, positivo | **CONFIRMO.** `env.validation.ts:47-59`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PII_*` y `JWT_*` son obligatorias fuera de local. La versión de API de la guía (`2024-06-20`) cuadra con `stripe.service.ts:136`. Los 9 eventos de `security/stripe-webhook-events.txt` son exactamente los 9 `case` de `payments.service.ts:159-184` | leído | — | — |
+| `RL-INFO-5` | Info | **CONFIRMO Info.** `orders.service.ts:1999-2000`: `404` si no existe y `403` si es ajeno. Revela si un id existe, pero los ids son UUID (no se pueden adivinar) y el cuerpo va vacío | leído | backend (si se homogeneiza) | **No** |
+
+**Controles que el pentester probó en vivo y que acepto** **[pentester]**: rechazo de webhook falso o reenviado
+(400), `@MoneyOut` que bloquea al operador y lo deja auditado, carrera de `refund-delivered` **12/12 → 409 y 0
+filas** (N=12), IDOR, fuerza bruta de login (5×401 y luego 429) y SSRF. Lo que **no midió** en vivo y él mismo lo
+dice: el doble reembolso en el camino feliz (falta el fixture), la doble compra de Skydropx (el dial está apagado)
+y el reenvío de un webhook **bien firmado** (sin `whsec_`). Esos tres quedan cubiertos por código:
+`PaymentRefund.orderItemId @unique` + `P2002`, el advisory lock + CAS y la idempotencia por `event.id`. Lo registro
+como residuo de `C12` (§6).
+
+---
+
+## 2. La guía de paso a modo real (`DEVOPS_NOTES §85.7`), revisada para seguridad
+
+**Lo que está bien (leído en `DEVOPS_NOTES.md`, §85.7):**
+- Las claves no pasan por nadie: se copian de Stripe y se pegan **directamente** en Railway o Vercel. Ninguna clave
+  live va a GitHub. El paso 8 solo pone una **variable** que no es secreta (`EXPECTED_STRIPE_MODE`). Lo medí:
+  `grep secrets.STRIPE .github/workflows/` ⇒ los workflows solo leen `STRIPE_TEST_*`.
+- `whsec_` y `sk_live_` se piden por separado y en el orden correcto. La guía dice explícitamente que el `whsec_` de
+  live sale del endpoint **live** (paso 2). El de prueba se desactiva en el paso 6, y la reversa reactiva el `whsec_`
+  de prueba.
+- La salud dice el modo **solo por el prefijo de la clave**, sin enseñar ni un carácter de ella
+  (`health.service.ts:26-28`). Además, `stripe-test-key-preflight.sh:185` impide que una `sk_live_` entre en CI.
+- La Fase B (§14.9 B2 y B5) obliga a ver la orden `settled` **y** las entregas live del webhook en `2xx`. Eso
+  detecta el error que más dinero real cuesta: un `whsec_` equivocado. Con él, Stripe cobra y el pedido no se
+  liquida nunca, la reserva caduca y la carta se puede vender dos veces.
+- El reembolso de la Fase B se hace **desde Ventas**, nunca desde el panel de Stripe.
+- Comprobé el repositorio: `git grep` sobre `c62621e6` de `sk_live_…`, `rk_live_…`, `whsec_…` y `pk_live_…` con
+  forma real ⇒ solo **ficción de canarios y specs** (`sk_live_deadbeef`, `sk_live_51ClaveRealDelDueno`,
+  `whsec_9f2b7c1d…`). En el historial (`git log --all -G`) solo aparecen esos mismos canarios.
+
+**Lo que le falta a la guía (dueño: devops; no bloquea por sí solo, se resuelve junto con CL-2/CL-3):**
+1. La lista «Antes» repite el mapa de `API_CONTRACT §14.0`, y a ese mapa **se le cayó `P-GL-2`**. Esta misma
+   bitácora la marcó «**Disparador duro: antes de cualquier `sk_live_`**» (§2.3 y tabla §4 del veredicto «release Stream B
+   "Lo que se rompe con el dinero"» del 2026-09-11, en este mismo fichero). Hay que añadirla a la lista (**CL-2**).
+2. La lista dice «SEC-HDR-2 cerrada», pero no dice en qué consiste cerrarla. Debe decir: **«CSP en `enforce` en
+   producción»** (§14.3 fase 2), no «CSP publicada». Hoy `csp.ts:32` es `'report-only'` (**CL-1**).
+3. Opcional, defensa en profundidad: usar una **clave restringida `rk_live_`** con solo los permisos que usa el
+   backend (Checkout Sessions, PaymentIntents, Refunds), en lugar de la `sk_live_` completa. El código ya la acepta
+   (`health.service.ts:28`, `secrets-preflight.sh:177`). Si se filtran las variables de Railway, esa clave puede
+   hacer mucho menos. Antes hay que medir qué llamadas hace el backend; si no, falla en producción.
+
+---
+
+## 3. Lo que revisé yo (el red team no lo cubrió o lo cubrió solo de pasada)
+
+### 3.1 Los candados de secretos (`check-secret-defaults.sh`, gitleaks y el manifiesto)
+- **gitleaks, medido** con el **mismo binario** que fija CI (`GITLEAKS_VERSION: "8.30.1"`, `security-sast.yml`),
+  descargado en mi scratchpad. Copié `c62621e6` entero (`git archive`). Planté **la misma** `sk_live_` (30
+  alfanuméricos aleatorios) y un `whsec_` (32) en 5 sitios y corrí `gitleaks dir . --config security/gitleaks.toml`.
+  **Solo 2 de 5 sitios dieron hallazgo:** `backend/src/plant.ts` y `NOTA_RAIZ.md` (raíz, que es donde viven
+  `PENDIENTES.md` y `HECHOS.md`). **No dieron hallazgo** `docs/NOTA_PLANT.md`, `security/plant.toml` ni
+  `docker-compose.plant.yml`. Causa: `[allowlist].paths` global de `gitleaks.toml` (`(^|/)docs/.*\.md$`,
+  `security/.*\.(md|toml|yml|yaml)$`, `docker-compose.*\.yml$`). La compensación tampoco cubre ese hueco:
+  `check-secret-defaults.sh:145` salta todos los `*.md`. **`P-GL-2` sigue exactamente como la medí el 2026-09-11.**
+  El repositorio es **público** (`gh api repos/jcsainz95-cloud/tcg-vault-mx` ⇒ `"visibility":"public"`, medido).
+  `docs/` es justo donde los agentes escriben guías y traspasos. ⇒ **CL-2.**
+- **Ruido aparte:** el mismo escaneo dio 3 hallazgos más, y los tres son ficción de pruebas
+  (`auth.refresh-typ.spec.ts:27`, `auth.c7-policy.spec.ts:466`, `inventory.sealed-product-alta.spec.ts:521`). CI escanea
+  solo el **rango** del push, así que no da rojo. El escaneo `dir` completo, en cambio, ya no sale limpio. Es Info
+  para devops (allowlist por valor exacto, como las demás).
+- **Compensación que puede existir y que no medí:** GitHub tiene escaneo de secretos con *push protection* para
+  repos públicos, y Stripe participa en ese programa. Leer si está activo exige permisos de admin: `gh api` devuelve
+  `security_and_analysis: null`. **NO MEDIDO.** Lo puede ver el dueño (§7).
+- Lo que cambia en los candados de secretos, medido con `git diff origin/production c62621e6 -- scripts security`:
+  `check-secret-defaults.sh` **no cambia**. `gitleaks.toml` gana **solo** dos exenciones **por valor exacto y
+  anclado** (`^ref-secret-ses-0123…$` y `^acc-secret-ses-0123…$`, ficción de `auth.session-max-age.spec.ts`). Esa
+  es la forma correcta: no amplía ninguna ruta. `secretos-publicados.sha256` gana **4 huellas**, y eso solo
+  añade: hay más valores publicados que el preflight rechazará en runtime. Ninguno de estos cambios debilita un
+  candado.
+
+### 3.2 La cadena de despliegue tiene acceso a las claves live (latente)
+`deploy.yml` (job `promote-production-*`) instala `@railway/cli@latest` y `vercel@latest` **sin fijar versión**, en
+el mismo job que recibe `RAILWAY_TOKEN` y `VERCEL_TOKEN` (`deploy.yml:~521-572`). Desde el cobro real, con
+`RAILWAY_TOKEN` se pueden leer las variables de Railway, **incluida `sk_live_`**. Hoy es **latente**: según
+`PENDIENTES.md:247`, esos secretos de CD **no están cargados** y Railway y Vercel despliegan solos al recibir el push
+(`HECHOS.md`). Además va contra la regla del proyecto «toda dependencia externa va fijada». ⇒ **`RL-SEC-2`, Baja,
+devops.** Disparador: **antes de cargar `RAILWAY_TOKEN` o `VERCEL_TOKEN`** en GitHub. No hay `pull_request_target`
+en ningún workflow (`grep`, medido).
+
+### 3.3 Código nuevo del delta (telemetría, tope de sesión, CSP)
+- **`POST /telemetry/csp` y `POST /telemetry/client-error`** (`telemetry.controller.ts`, `body-parsers.ts`). Son
+  públicos, con `@Throttle` 60/min y 30/min. Lo único que hacen es escribir log (no tocan la BD). El parser de
+  `/telemetry/csp` es texto acotado a 16 KB y devuelve `413` sin cuerpo. `client-error` escribe campo a campo (sin
+  `...dto`), pasa `message` por `scrubClientText` y `JSON.stringify` evita inyectar líneas en el log. El webhook
+  de Stripe sigue recibiendo su `rawBody` (`body-parsers.ts`, mismo orden que antes). Residuo: el tope cuenta por
+  IP, así que con suplantación de XFF se pueden inundar los logs. Esto depende de **C6** (ya está en la guía) y es Info.
+- **Tope de sesión (LIVE-2, S5-1 parte a)** (`auth.service.ts` diff, `session-max-age.ts`). Es correcto.
+  `ignoreExpiration: true` **solo** en el refresh, y después viene la comprobación manual: primero `now - sat >=
+  tope(rol)` y luego `typeof exp !== 'number' || now >= exp` ⇒ 401. Un token caducado nunca recibe un par nuevo. `sat`
+  va firmado; si `sat` no es numérico ⇒ 401. El rol se lee **de la BD**, así que un cliente ascendido cae al tope
+  de 7 días. El personal tiene **7 días** (`SESSION_MAX_AGE_STAFF_SECONDS`), como decidió el dueño en P-6
+  (`HECHOS.md` fila «Listo para dinero real…»).
+- **CSP (LIVE-3)** (`csp.ts:93-150`, `middleware.ts`). La política está bien hecha: `script-src 'self' 'nonce-…'
+  'strict-dynamic' https:`, sin `unsafe-eval` en producción, `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`, `frame-ancestors 'none'`. La cabecera estática `frame-ancestors 'none'` de
+  `next.config.mjs` **sigue aplicada** mientras dure la fase report-only, porque usa otro nombre de cabecera. **Pero
+  `CSP_MODE = 'report-only'` (`csp.ts:32`):** hoy la CSP **no bloquea** ningún script. ⇒ **CL-1.**
+- `/pedido`: el token se lee una vez y se borra de la URL (`TrackingPageClient.tsx:36-39`), y la página lleva
+  `referrer: 'no-referrer'` (`pedido/page.tsx:15`). Los enlaces nuevos al aviso son internos y fijos
+  (`PRIVACY_HREF = '/privacidad'`); el que va dentro de una frase lleva `rel="noopener noreferrer"`. No encontré fuga.
+
+---
+
+## 4. `RL-INFO-2`: ¿basta con aceptarlo, o hace falta un tope o 2FA antes de cobrar en real?
+
+**Mi recomendación: aceptarlo y registrarlo. NO poner un tope monetario al súper-admin. NO exigir 2FA antes del
+primer peso. Lo que sí debe estar antes es CL-1 (CSP en enforce), más la higiene de cuentas del dueño (§7).
+2FA y re-autenticación para mover dinero quedan como P1 después de salir.** La decisión es del dueño. Este es mi
+razonamiento, con lo que medí:
+
+1. **Con una sesión robada de súper-admin no se puede mandar dinero a la cuenta del atacante desde la app.**
+   `grep -rniE "transfers\.create|payouts\.create" backend/src` ⇒ **0**. La única salida de dinero que ejecuta el
+   backend es `stripe.refunds.create({ payment_intent, amount })` (`stripe.service.ts:285-292`). Ese dinero
+   vuelve **a la tarjeta que pagó**, y Stripe no permite devolver más de lo cobrado. La cubeta SPEI **solo
+   registra**: el dueño hace la transferencia en su banco («Solo marcar si se realizó y quién», `HECHOS.md` D-11).
+   Así que el daño de un reembolso malicioso es pérdida para la tienda, no ganancia directa para el atacante,
+   salvo que el atacante sea **comprador** y se reembolse sus propias compras. En ese caso el daño tiene como
+   límite lo que él mismo pagó.
+2. **Un tope monetario solo cubre esa parte, y no lo más grave.** Con la misma sesión se puede: fijar el precio
+   de un sellado (`sealed-price.service.ts`, `@Roles(super_admin)`) y comprarlo barato; **revelar CLABEs**
+   (`reveal-clabe`) y ver INEs; y cambiar diales. Un tope sobre reembolsos no toca nada de eso.
+3. **Cómo se roba esa sesión hoy, y qué lo para:**
+   - Robo de la **contraseña** (phishing, reutilización): 2FA lo para. Ojo: hay **dos caminos más que valen lo
+     mismo que la contraseña**: el **restablecimiento por correo** y el **inicio con Google** que se vincula por
+     correo verificado a una cuenta existente (`auth.service.ts`, paso 2 «Account-linking por email verificado»).
+     El buzón y la cuenta de Google del dueño **ya funcionan hoy como su segundo factor**. Por eso pido 2FA ahí
+     **ya**, en §7, y no espero a construirlo en la app.
+   - **XSS → robo del token**: los tokens viven en `localStorage` (`frontend/src/lib/api-client.ts:36-52`). Aquí 2FA
+     **no ayuda**, porque el token se roba después del login. Lo que ayuda es la **CSP en enforce** (CL-1) y el
+     tope de 7 días (hecho). Por eso CL-1 sí es condición y 2FA no.
+4. **Lo que recomiendo construir después de salir (P1; dueños: arquitecto → backend + frontend):**
+   (a) TOTP o WebAuthn **obligatorio para `super_admin`**; (b) **re-autenticación** (volver a meter la contraseña o
+   el segundo factor, válida pocos minutos) para `@MoneyOut`, para fijar el precio del sellado y para `reveal-clabe`.
+   (b) también cubre el token robado por XSS, que 2FA solo no cubre. (c) Si el dueño quiere algo antes y barato:
+   un **aviso por correo al dueño en cada reembolso hecho por un súper-admin**. Encaja con lo que ya pidió («Ponme
+   los avisos…», `HECHOS.md` fila 2026-10-04 «Control del dinero que nos cuesta») y le dice si alguien está
+   usando su sesión. **Disparador para que pase a ser condición:** que se dé de alta un **segundo** `super_admin`,
+   o lo que llegue antes entre 30 días de operación con dinero real y el primer incidente de cuenta.
+
+---
+
+## 5. Condiciones ANTES de `sk_live_` (escritas como comprobaciones)
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **CL-1** | **frontend + devops** | **SEC-HDR-2 / S5-1 (b): CSP en `enforce` en producción**, según §14.3 (≥ 72 h en report-only en producción con la Fase A pasada, umbral de TTFB de §14.14 E-8, y `10038`/`10055` en FAIL en el mismo cambio). Si el dueño quiere cobrar en real **antes** de `enforce`, tiene que **aceptarlo él** y quedar escrito en `HECHOS.md`, como hizo con P-1. El equipo no puede aceptarlo por él | `git show <sha-en-production>:frontend/src/security/csp.ts \| grep "CSP_MODE: CspMode = 'enforce'"`; `curl -sI https://tcghunt.mx/es \| grep -i '^content-security-policy:'` con `nonce-` (no la `-Report-Only`); `scripts/check-csp-zap-parity.sh` rc 0 |
+| **CL-2** | **devops** | **`P-GL-2`**: que las reglas `stripe-live-secret-key`, `stripe-live-restricted-key` y `stripe-webhook-secret` (y las de serie de gitleaks para Stripe) **no queden exentas por ruta** en `docs/*.md`, `security/*` ni `docker-compose*.yml`. Forma: sacar esas rutas de `[allowlist].paths` global y eximir **por valor exacto**, o añadir un paso que escanee esas rutas solo con las reglas de Stripe live, sin exenciones. Añadir el caso al canario `sast-gitleaks-canary.sh` | Repetir mi plantación (§3.1) en los 5 sitios ⇒ **5/5** con hallazgo (hoy **2/5**). Mutación: volver a poner `(^|/)docs/.*\.md$` en la allowlist global ⇒ el canario sale rojo |
+| **CL-3** | **devops + dueño** (ejecuta tester-e2e en la ventana autorizada) | Los puntos de seguridad de la lista «Antes» de §85.7, **cada uno con su evidencia citada en la solicitud de fusión**, no con una casilla marcada: **C6** (resultado N/N en el hueco de §85.4, hoy vacío); **DAST `full` sellado** sobre el sha en producción (`check-candidate-checks.sh --exige-dast-full <sha>` rc 0 y su URL); **C3 = 0** (§14.8); **simulacro de restauración** (§85.5, hoy «no hecho») con las claves `PII_*` guardadas fuera de Railway | Los cuatro resultados escritos en `DEVOPS_NOTES §85` con fecha y sha. Si cualquiera falta ⇒ no se pone `sk_live_` |
+
+**No son condición, pero entran en el mismo encargo a devops:** corregir la guía (§2, puntos 1 y 2) y `RL-SEC-2`
+antes de cargar los tokens de CD.
+
+---
+
+## 6. Revisión de lo aceptado antes: ¿hay algo que el cobro real convierta en dinero real en riesgo?
+
+| Id (origen) | Sev. | Estado medido hoy | Con dinero real… | Decisión |
+|---|---|---|---|---|
+| `P-RL-1` → `C6` / `C7` | Media en prod (prov.) | **C7 cerrada**: tope por cuenta `PASSWORD_FREE_ATTEMPTS = 5` (`password-attempts.constants.ts:11`) + `@Throttle 5/min` (`auth.controller.ts:28,40,50`); el pentester midió 5×401 y luego 429 **[pentester]**. **C6 abierta**: la sonda está corregida (§85.4) y no se ha corrido | Sin C6 no se sabe si el tope por IP se puede saltar en el borde de Railway. El tope por cuenta **sí** protege a la cuenta del dueño | **CL-3** |
+| `S5-1` (a)+(b) | Baja | (a) **cerrada** en este delta (§3.3). (b) = SEC-HDR-2 **abierta** | Sin (b), un XSS da una sesión de súper-admin de hasta 7 días | **CL-1** |
+| `P-GL-2` | Baja | **Abierta, re-medida** (§3.1) | Empieza a haber un valor que vale la pena filtrar | **CL-2** |
+| `C12` (pase vivo antes del primer peso) | — | Cubierta en lo esencial: el pase vivo s5 (SPEI/CLABE con CAS 10/10, tope del operador) y esta Fase 2 (carrera 12/12, webhook, IDOR) **[pentester]**, más `e2e-real` verde con claves de prueba **[orquestador]** | Residuo **NO MEDIDO** en vivo: reenvío de un webhook firmado y doble reembolso en el camino feliz. Defensas por código: `@unique` + `P2002`, idempotencia por `event.id` | **Aceptada**. Disparador: el primer `payment_refund` duplicado o un evento procesado dos veces en `AuditLog` |
+| `C13` (pentest de un tercero + programa de divulgación) | — | **Aceptado por el dueño**, no por el equipo: `HECHOS.md` fila 2026-10-05 P-1 «Empiezo sin ella» | — | Sigo recomendándolo (§7). No bloquea porque es decisión del dueño |
+| `C1` (`qs`) | Baja | **Cerrada** (§1, `RL-DEP-1`) | — | Cerrada |
+| `BL-42` caminos 1 y 3 (INE sin ancla de purga) | **Media** | Sigue aceptada, con disparador «primera solicitud ARCO o regla 7» | **No es dinero**: es retención de PII. El cobro real no la empeora, pero el aviso de privacidad **provisional** (sin razón social, `HECHOS.md` fila 2026-10-05 sesión 6) hace que una solicitud ARCO sea más difícil de atender bien | Aceptada sin cambios. Bandera legal en §7 |
+| `SB-B2`, `SB-B5`, `P-SEED-1`, `P-NAME-1`, `P-REDIR-1`, `P-BILL-DoS`, `S-NAT-1` | Baja/Info | Sin cambios en este delta | Ninguno mueve dinero ni abre un camino nuevo con `sk_live_` | Aceptadas sin cambios |
+| `SDX-D-14`, `SDX-D-21` (Altas de diseño, 2026-10-04) | Alta → cerradas | Cerradas en diseño (C-8, C-14; cabecera de la revisión de `0363f7e2`). El pentester revisó Skydropx en este pase y encontró que resiste | El gasto de Skydropx es dinero de la tienda, no de Stripe. El cobro real no lo cambia | — |
+
+**Ninguna crítica ni alta queda abierta.** De lo aceptado, lo que el cobro real convierte en riesgo de dinero real
+está en CL-1, CL-2 y CL-3.
+
+---
+
+## 7. Banderas para el humano (el dueño)
+
+1. **No pongas `sk_live_` hasta que CL-1, CL-2 y CL-3 estén cerradas.** La que más tarda es CL-1: la CSP tiene
+   que pasar ≥ 72 h en producción en modo informe **después** de publicar este release. Si decides cobrar antes,
+   es tu decisión, como la del pentest externo. Pide que quede escrita en `HECHOS.md`.
+2. **Activa hoy 2FA en estas cuentas, porque hoy son tu segundo factor de verdad:** el **correo** con el que entras
+   como súper-admin (con él se restablece tu contraseña) y la **cuenta de Google** con ese correo (con ella se entra
+   directamente como tú), **Stripe**, **Railway**, **Vercel** y **GitHub**. Usa una contraseña de súper-admin única, que
+   **no** sea ninguna de las del repo (`StagingAdmin123!`, `Operador123!` y las de los specs son públicas). **NO MEDIDO**
+   por el equipo: solo lo puedes ver tú.
+3. **GitHub → Settings → Code security:** revisa que estén activos el *Secret scanning* y la *Push protection*. Es
+   la red que queda si una clave live acaba en un documento. **NO MEDIDO** (el proxy no nos deja leerlo).
+4. **Pentest externo (C13):** lo aceptaste para empezar. Te recomiendo contratarlo **en los primeros 30 días** con
+   dinero real. Custodia de cartas de terceros, reembolsos y datos de identidad es el tipo de negocio que justifica
+   que lo mire alguien de fuera.
+5. **D-SP-2:** mientras siga abierta, un cliente puede pagar una cifra distinta de la que vio si cambias un precio
+   mientras está comprando. Con dinero real eso puede acabar en reclamaciones o contracargos. No es un ataque,
+   pero conviene que no cambies precios en horas de venta hasta que se cierre.
+6. **Legal (no es del equipo):** el aviso de privacidad sale **provisional** (sin razón social, RFC ni domicilio)
+   por tu decisión del 2026-10-05, y el texto no lo ha validado un abogado (P-LEG-4). Hay INEs guardadas sin plazo
+   de purga en algunos casos (`BL-42`). Las dos cosas pesan más con clientes que pagan de verdad.
+
+---
+
+## 8. Deuda de seguridad aceptada en este pase (no bloquea)
+
+| Id | Sev. | Dueño | Impacto aceptado | Disparador |
+|---|---|---|---|---|
+| `RL-DEP-1` | Info | devops (+ backend) | GHSA-36xv (SSE de `@nestjs/core`); no se alcanza porque no hay `@Sse` | El primer `@Sse` del backend, que el audit pase a alta o crítica, o el salto planificado a Nest 11+ |
+| `RL-INFO-2` | Info | dueño (decisión), backend | Sin tope monetario para `super_admin`. El daño tiene límite: reembolsos a la tarjeta de origen, sin transferencias salientes | Ver §4: segundo `super_admin`, 30 días con dinero real o primer incidente ⇒ 2FA + re-autenticación |
+| `RL-INFO-5` | Info | backend | 403 frente a 404 revela si un UUID existe | Cuando se toque `getOrder` |
+| `RL-SEC-2` | Baja | devops | `@railway/cli@latest` y `vercel@latest` sin fijar en el job que recibe los tokens de despliegue (latente: los secretos no están cargados) | **Antes** de cargar `RAILWAY_TOKEN`/`VERCEL_TOKEN` en GitHub |
+| Telemetría por IP | Info | devops (C6) | Con XFF suplantable se pueden inundar los logs (sin BD, sin dinero) | Si C6 sale mal |
+| `gitleaks dir` con ruido | Info | devops | 3 falsos positivos de ficción en specs (§3.1). CI no los ve porque escanea el rango | Al cerrar CL-2 (misma edición) |
+
+---
+
+## 9. Ruteo
+
+- **frontend + devops:** CL-1 (cuando se cumplan las 72 h y el TTFB).
+- **devops:** CL-2, la corrección de la guía §85.7 (§2, puntos 1 y 2), `RL-SEC-2` y el ruido de gitleaks; CL-3
+  como instrumento, y la ejecuta tester-e2e en la ventana que autorice el dueño.
+- **dueño:** decidir sobre §4, las banderas de §7 y ejecutar los pasos de §85.7.
+- **arquitecto → backend + frontend (después de salir, P1):** 2FA y re-autenticación para súper-admin (§4.4).
+
+Limpieza: la copia de `c62621e6` usada para gitleaks está borrada del scratchpad. No toqué la BD ni levanté ningún
+servidor.
+
+— SEGURIDAD (blue team), 2026-10-05 · código `c62621e6` · **APROBADO CON CONDICIONES** (publicar: sí; `sk_live_`:
+después de CL-1, CL-2 y CL-3)
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.9 (control del gasto §Z y cierres C-14…C-18)** (`API_CONTRACT §M4-SHIP.19.29`; `ARCHITECTURE §4.60 (v)`) · SHA **`0363f7e2`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **C-14…C-18: CERRADAS en diseño.** C-14 cierra SDX-D-21 lo bastante para construir D2d. Queda un residuo bajo
+>   (SDX-Z-5), que entra en D2d como C-19.
+> - **§Z (TG-1, TG-2, avisos, `isOwnerAccount`, endpoints): APROBADO CON CONDICIONES.** No hay críticos ni altos. Hay
+>   **3 medios**: el «dueño» se deduce de un dato que no lo garantiza (SDX-Z-1); un súper-admin vigilado puede apagar su
+>   propia vigilancia (SDX-Z-2); y cancelar con reembolso desconocido baja el contador del tope (SDX-Z-3).
+> - **D2c: DESBLOQUEADA**, con C-22 y C-23 dentro (abajo, como pruebas que deben fallar).
+> - **D2d: DESBLOQUEADA**, con C-19 dentro.
+> - **D2g: DESBLOQUEADA para construir.** C-20 y C-21 deben estar en verde **antes de fusionar D2g** y, en cualquier caso,
+>   antes de que el dueño encienda `shipping_label_purchase` en producción.
+>
+> **0 críticos · 0 altos · 3 medios · 3 bajos · 3 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una errata del arquitecto que meta C-20…C-23 (y C-19 en §19.29.1.5), y la
+> medición de SDX-Z-1 en producción (la corre el dueño, solo lectura). **No es el veredicto de la release.** La fase
+> completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Lectura y grep sobre el árbol vivo y sobre `HEAD`. **No ejecuté nada**, así que no hice
+copia. Lo que hay en `backend/` sin commitear (D2a en curso) **no** lo revisé.
+- Contrato `:27119-27500` (§19.29 entera), `:26977-27003` (§19.28.6), `:24006-24012` (`PurchaseInput`), `:24373-24385`
+  (`auto_close`). Arquitectura `:27687-27722`. `HECHOS.md:51,58,62`.
+- **¿Algún verbo cambia el rol de una cuenta?** Medí `git grep` de `user.update|updateMany|upsert` en `backend/src`,
+  `backend/prisma/*.ts` y scripts, más `UPDATE "User"` crudo. **Ningún** escritor toca `role` después del alta:
+  `admin.service.ts:1456-1462` (solo `status`), `:1489-1497` (contraseña), `:1616-1630` (anonimizar), `auth.service.ts:132,
+  222,301,388,499` (versión de token, verificación, contraseña, enlace de Google por correo **existente**),
+  `users.service.ts:225-237` (`updateMe` arma `data` a mano: `name`, `phone`, `locale`), `reset-admin-password.ts:214`
+  (contraseña). `seed.ts:55,74` hace `upsert` con `update: {}`. Y **ningún** verbo añade correo a una cuenta sin correo:
+  no hay flujo de cambio de correo (`git grep changeEmail|newEmail` ⇒ 0), y el alta de staff con correo da `422`
+  (`admin.service.ts:730-735`). **Respuesta a la pregunta del arquitecto: no existe hoy.** El hueco está en otro sitio
+  (SDX-Z-1).
+- `M-63` (`20261005120000_m63_staff_username/migration.sql:11-12`): **sin backfill**, «ninguna cuenta existente pierde su
+  correo». Antes de v1.80.9 el correo era obligatorio para todos.
+- `admin.service.ts:1473-1499` (`resetPassword`) y `audited-super-admin.guard.ts:44`: **cualquier** súper-admin restablece
+  la contraseña de **cualquier** cuenta, incluida otra de súper-admin, y la temporal vuelve en la respuesta.
+  `updateUserStatus` (`:1456`) tampoco filtra por rol.
+- `money-out.guard.ts:32-46`: lee el rol del JWT; si no es `super_admin` escribe `money_out.blocked` y responde `403
+  MONEY_OUT_FORBIDDEN`. `audit.service.ts:101-115`: la bitácora por usuario que ve el operador **nunca** trae
+  `before/after`, así que las cifras de `label_purchase_limited` no le llegan por ahí.
+- `settings.controller.ts:18-19`: hoy `@Roles(super_admin)` de clase, como dice la errata.
+
+## 1. ¿Cierran C-14…C-18?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-14** (SDX-D-21) | **Cerrada.** D2d desbloqueada | (b) prohíbe cancelar si la guía vigente es `manual`, y eso por sí solo mata el camino de SDX-D-21 («Liberar» y capturar a mano). (c) añade una defensa independiente por número de rastreo. (a) falla cerrado sin rastreo. (d) limita el radio de un parseo roto a 3 por día. Residuo en SDX-Z-5 | PS-130 (a)(b)(c) + control positivo |
+| **C-15** (SDX-D-20) | **Cerrada**, con un ajuste (SDX-Z-4) | `folioTokenOf` anclado a `^PEDIDO ENV-(\d{6,})-(\d{2})$`. Para forjarlo, un campo del cliente tendría que volver **entero** como `reference`. La neutralización enumera seis campos, y la colonia, el municipio y el estado (ahora texto libre del cliente, `HECHOS` «Colonia como Mercado Libre») viajan en la cotización y no están en la lista | PS-129 (i)(j), PS-135 (c)(d) |
+| **C-16** (SDX-D-24) | **Cerrada** | I-SENT es una columna (`sentAt`) con `@@unique(envío, since)`, escrita en la tx del 7b, y el fallo de esa escritura da 0 `purchase`. Ya no se busca en JSON | PS-134 (c)(d) |
+| **C-17** (SDX-D-22) | **Cerrada** | Doble CAS (fila del envío y fila del intento con `sentAt: null`), con el CAS inverso al liberar. Las dos ramas se excluyen **por fila**, así que el desfase de reloj entre instancias ya no decide nada | PS-137 |
+| **C-18** (SDX-D-23) | **Cerrada** | `-NN` fijo, `\d{6,}`, `lpad` con `greatest(6, length)`; `attemptNo` en una fila sin purga, `1 + max` bajo el candado de fila. Buen hallazgo del arquitecto: el `lpad` de `M-67` truncaba | PS-135 (d)(e) |
+
+## 2. Las preguntas del encargo
+
+### 2.1 ¿Se pueden saltar los topes?
+
+| Vía | Juicio |
+|---|---|
+| **Carrera** (dos `POST …/label` a la vez) | **Resiste.** `checkLabelLimits` va dentro de la tx de `pg_try_advisory_xact_lock`, y el `INSERT` del intento va en la misma tx. El segundo ve el intento del primero o recibe `purchase_in_flight`. PS-140 con N ≥ 10 |
+| **Comprobación previa (paso 2) contra la del paso 7** | **Resiste.** La del paso 2 es solo lectura y sirve para negar antes de la red. La que manda es la del paso 7 |
+| **Otra cuenta (operador)** | Por diseño, el tope es por persona. Dos operadores suman 2 × MX$2,500, y eso es aceptado. Un operador no puede crear cuentas (alta solo súper-admin, `AuditedSuperAdmin('create')`). **Un súper-admin vigilado sí puede:** crea N operadores y gasta N × tope ⇒ SDX-Z-2 |
+| **«Capturar a mano»** | Fuera de los topes por decisión (criterio 338), y es correcto: no gasta de nuestro saldo. **Excepto** si quien captura compró la guía en el **panel de Skydropx** con nuestra cuenta: esa compra no pasa por TG-1/TG-2 ni lleva folio, y la conciliación solo mira guías con folio ⇒ **nada** avisa salvo AG-7 (saldo bajo) ⇒ SDX-I-7 |
+| **Cancelar para bajar el contador** | **Se puede. SDX-Z-3 (Media).** `spendOfPaidLabel` = `unrefundedCents ?? 0` para una cancelada. Con `CANCEL_REFUND_VERIFIABLE = false`, toda cancelación sin cifra cuenta **0** al instante. El bucle es: compra MX$2,500, cancela todo (vuelve a 0), compra otra vez. Lo acota TG-2 (2 guías pagadas por envío) y el número de envíos preparados. Lo **detectan** AG-4 (iii) a las 3 cancelaciones en 24 h (🔴 con correo) y AG-8 al día 3, pero el tope **preventivo** queda roto justo en el caso que el dueño quería cubrir: que Skydropx no devuelva el dinero (SEC-SDX-11, NO MEDIDO) |
+| **`auto_close` como vía de cancelación** | No aporta. Solo lo disparan el contracargo y el reembolso total (`API_CONTRACT:24373-24376`), que tienen su propio tope y su aviso (AG-14) |
+| **Súper-admin vigilado** | **Puede subir su tope o apagar los avisos.** Ver SDX-Z-2 |
+
+### 2.2 ¿Se puede conseguir `isOwnerAccount`?
+
+- **Cambio de rol: no** (medido arriba, ningún escritor de `role` ni de `email` después del alta).
+- **Alta nueva de súper-admin con correo: no** (`422 staff_without_email`).
+- **Cuentas heredadas: sí, y es la forma probable. SDX-Z-1 (Media).** Todo súper-admin dado de alta **antes de v1.80.9**
+  tiene correo, porque `M-63` no hizo backfill (`migration.sql:11-12`). Cada uno de esos `isOwnerAccount = true`
+  significa: exento de TG-1/TG-2, sus actos no generan avisos «sobre una persona», y **recibe los correos del dueño**
+  (nombres del personal, montos, gasto por persona). La premisa de §19.29.3, «hoy la única forma de ser súper-admin con
+  correo es ser la cuenta del dueño», **no se cumple por construcción. Es un hecho de datos sin medir.** Cuántos
+  súper-admin con correo hay en producción: **NO MEDIDO.** Lo mide el dueño con una consulta de solo lectura (C-20).
+- **Tomar la cuenta del dueño: sí. Es parte de SDX-Z-2.** Cualquier súper-admin pulsa «Restablecer contraseña» sobre la
+  cuenta del dueño (`admin.service.ts:1473-1499`, sin filtro de rol ni de dueño), recibe la temporal y entra **como
+  dueño**. Ya no tiene topes y sus actos dejan de avisar. Antes de §Z ser súper-admin y ser el dueño daba los mismos
+  poderes, así que esto no ganaba nada. **§Z crea un escalón nuevo («el dueño») y no protege la entrada.** Se nota: el
+  dueño queda fuera de su sesión y sin poder entrar hasta que use «olvidé mi contraseña». Queda bitácora
+  `user.reset_password`. Bloquear o borrar al dueño (`updateUserStatus`, `deleteUser`) deja al sistema **sin
+  destinatario** (`no_recipient`, solo un `warn` en el log).
+
+### 2.3 ¿Los correos al dueño filtran datos del cliente? — **No, por diseño.**
+La lista blanca por tipo (`toSpendAlertMail`), AG-1 con `changedKeys` sin valores, `facts` sin PII y PS-153 con
+canarios en **cada** tipo cubren lo que pedí. Lo que viaja (nombre del personal, número de pedido, folio, montos) no es
+del cliente. Una sola condición de forma: el «enlace al interruptor `shipping_label_purchase`» debe llevar a una
+**página**. Nunca un GET que cambie estado ni un enlace con token, porque los escáneres de correo siguen los enlaces ⇒
+SDX-I-8.
+
+### 2.4 ¿Se puede inundar al dueño o tapar un aviso grave?
+- **Inundar: no.** Como máximo 5 correos más 1 de lote por hora de reloj (en el cambio de hora pueden juntarse 10 en dos
+  minutos, y es aceptable). El `dedupKey` único impide repetir: AG-3 repetido sube `occurrenceCount`, no manda correo. El
+  envío es a lo sumo una vez (`failed_unknown` no se reintenta).
+- **Tapar: se puede retrasar, no perder. SDX-Z-6 (Baja).** El cupo de 5 se reparte por orden de llegada. Un operador
+  que corrige la dirección y compra en 5 envíos genera 5 AG-1 🔴 reales y gasta el cupo de la hora. El siguiente 🔴 del
+  sistema (fusible de huérfanas, paquete destruido, gasto sin explicar) baja al lote y llega hasta ~65 min después, como
+  una línea entre otras. Ningún aviso se pierde: sigue en el panel y en el resumen.
+- **Apagar avisos:** `spend_alerts_disabled` hace `no-op` **sin fila**. En manos del dueño es su decisión. En manos de
+  otro súper-admin borra la evidencia ⇒ SDX-Z-2.
+
+### 2.5 ¿El operador ve o marca avisos sobre sí mismo? — **No.**
+`@Roles(op, sa)` + `@MoneyOut()` de clase: el operador recibe `403 MONEY_OUT_FORBIDDEN` con `money_out.blocked` en
+**todas** las rutas, incluidos los `GET` (`money-out.guard.ts:32-46`), y `workQueue.spendControl = null`. La bitácora por
+usuario que sí ve no trae `after` (`audit.service.ts:101-115`). La negativa `LABEL_PURCHASE_LIMIT` no lleva cifras.
+**El súper-admin vigilado sí puede:** lista y marca como vistos los avisos sobre sí mismo. Con eso los saca de la tarjeta
+del dueño (`unseenImmediate`), aunque no del correo ni del resumen ⇒ parte de SDX-Z-2.
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-Z-1** | Media | `isOwnerAccount` deduce «dueño» de «súper-admin con correo». Todo súper-admin anterior a v1.80.9 tiene correo (`M-63` sin backfill), así que sería «dueño»: exento de topes, sin avisos sobre él, destinatario de los correos. Cuántos hay en producción: NO MEDIDO | §19.29.3; `M-63:11-12` | **humano** (medir) → arquitecto (errata) → backend |
+| **SDX-Z-2** | Media | Un súper-admin que no es el dueño controla su propia vigilancia, en contra de P-GAS-9 («vigilar también a otros súper-admin») y de «configurable **por el dueño**» (`HECHOS.md:62`): **(i)** cambia los diales de §Z (tope hasta 1e8, recompras hasta 10, `spend_alerts_disabled`, que ni siquiera deja fila); **(ii)** restablece la contraseña del dueño y entra como él, o lo bloquea y deja el sistema sin destinatario; **(iii)** crea operadores para multiplicar el tope; **(iv)** marca como vistos los avisos sobre sí mismo. Todo queda en bitácora, pero **nada avisa al dueño** | §19.29.3, §19.29.8 (SettingsController), §19.29.9 (`seen`); `admin.service.ts:1456,1473-1499` | arquitecto → backend |
+| **SDX-Z-3** | Media | TG-1 falla abierto con el reembolso desconocido: una guía cancelada con `unrefundedCents = null` cuenta 0 al instante. Con `CANCEL_REFUND_VERIFIABLE = false` es **toda** cancelación sin cifra. Bucle compra–cancela–compra por encima del tope, acotado por envíos × (1 + recompras). Se detecta (AG-4 (iii), AG-8), pero no se previene | §19.29.4 (`spendOfPaidLabel`), PS-139 («con `null` ⇒ 0») | arquitecto → backend |
+| **SDX-Z-4** | Baja | C-15 enumera seis campos de `PurchaseInput.to`. La colonia, el municipio y el estado (texto libre del cliente) viajan en la **cotización** sin neutralizar, y no hay normalización Unicode (`ＥＮＶ－`, guiones tipográficos) antes del patrón | §19.29.1.2 | arquitecto → backend |
+| **SDX-Z-5** | Baja | Residuo de C-14 con el envío `cancelado`. Si S llevaba una guía **manual** que ya salió (contracargo o reembolso total en tránsito) y la comparación de rastreo falla (formato con guiones, rastreo maestro contra rastreo de bulto), (b) pasa por «cancelado» y se cancela la guía en tránsito. Además, el fusible cuenta filas que se escriben **después** de `cancel`: una cancelación con resultado desconocido no gasta fusible | §19.29.1.5 (b)(c)(d) | arquitecto → backend (D2d) |
+| **SDX-Z-6** | Baja | El cupo de 5 correos por hora se gasta por orden de llegada. Los avisos 🔴 de una persona retrasan hasta el lote (~65 min) un 🔴 del sistema | §19.29.5 | arquitecto → backend (D2g) |
+| **SDX-I-7** | Info | Una guía comprada en el **panel de Skydropx** (sin folio, id desconocido) no pasa por TG ni genera AG. Solo AG-7 la delata. Las credenciales del panel deben ser solo del dueño | §19.28.6, §19.29.6 AG-9 | humano; arquitecto (opcional: AG-9 `cause:'unattributed'`) |
+| **SDX-I-8** | Info | El enlace al interruptor en el correo debe llevar a la página de ajustes, nunca a un GET que actúe ni a un token | §19.29.5 | backend / ux-ui |
+| **SDX-I-9** | Info | La cuenta del dueño pasa a ser la única identidad sin tope y la que recibe los avisos, y entra sin segundo factor (`HECHOS.md:50`). Es la cuenta más valiosa del sistema | §19.29.3 | humano |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-18: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción y su autor, reloj y constantes inyectados, ⛔ nunca la red.
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-19** | D2d | PS-130 gana **(d)**: S `cancelado` cuya guía vigente es `manual` con `trackingNumber = "1Z-999-AA1"` y `getShipment(Y)` con rastreo `"1Z999AA1"` y estado de paquetería `in_transit` ⇒ **0** `cancel` y AG-9 🔴. Dos reglas nuevas: `normalize` quita **todo** lo que no sea alfanumérico; y se exige que `getShipment(Y)` no muestre movimiento de paquetería (`carrierStatus ∈ {null, created}`). **(e)** Fusible: el doble de `cancel` lanza un *timeout* (resultado desconocido) tres veces ⇒ la 4.ª huérfana **no** se cancela. El fusible cuenta una fila de intención escrita **antes** de llamar (por ejemplo `ShipmentPaidLabel.cancelKind='orphan_auto'` con un sello previo), no la bitácora posterior | quitar la condición de movimiento ⇒ (d); normalizar solo espacios ⇒ (d); contar solo los éxitos ⇒ (e) | SDX-Z-5 | arquitecto → backend |
+| **C-20** | fusionar D2g / encender en prod | **(a)** Medición del dueño, de solo lectura: `SELECT count(*) FROM "User" WHERE role='super_admin' AND email IS NOT NULL AND status='active' AND "deletedAt" IS NULL` ⇒ esperado **1**. Si sale > 1, el arquitecto decide (quitar el correo a los heredados, o marcar al dueño de forma explícita). **(b)** Prueba: con dos súper-admin con correo activos en la base, `spend-watch` crea **un** aviso 🔴 `owner_set_changed` (o el arranque registra `error`), y el conjunto «dueño» queda **fijado**: un id nuevo que aparezca en el conjunto respecto de la corrida anterior ⇒ aviso al conjunto anterior. Con la errata actual no hay nada que lo detecte | quitar la comprobación ⇒ (b) en verde sin aviso | SDX-Z-1 | humano (a); arquitecto → backend (b) |
+| **C-21** | fusionar D2g | Con un súper-admin **sin** correo (vigilado) V: **(a)** `PUT /admin/settings` de `operatorLabelCap24hCents`, `shippingLabelReissueMaxPerShipment`, `spendAlertsDisabled` o cualquier dial de §19.29.8 ⇒ `403` con bitácora (solo `isOwnerAccount` los cambia), **o** bien se permite pero crea un aviso 🔴 con correo inmediato al dueño (decide el arquitecto; prefiero el `403`). **(b)** `POST /admin/users/<dueño>/reset-password` y `PATCH …/<dueño>/status` hechos por V ⇒ `403` con bitácora. El dueño se restablece por «olvidé mi contraseña» o con el script de rescate. **(c)** V da de alta un operador ⇒ aviso al dueño (🟡 en el resumen basta). **(d)** `POST /admin/spend-alerts/seen` de V sobre un aviso con `subjectUserId = V` ⇒ `updated: 0` y el aviso sigue sin ver. **(e)** `spend_alerts_disabled` apaga el **correo**, no la fila: un tipo apagado sigue creando el aviso en el panel con `mailStatus='not_applicable'` | `@MoneyOut()` a secas sin `isOwnerAccount` ⇒ (a); `resetPassword` sin filtro ⇒ (b); `seen` sin excluir al sujeto ⇒ (d); `no-op` sin fila ⇒ (e) | SDX-Z-2 | arquitecto → backend |
+| **C-22** | D2c | PS-139 cambia una fila: guía cancelada con `unrefundedCents = null` ⇒ cuenta **`chargedCents`** en TG-1 (falla cerrado) mientras el reembolso no esté confirmado. Y PS-138 gana: operador con tope 250000 compra 15 guías de 15000 (225000), las cancela todas con reembolso **desconocido** y pide otra de 30000 ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}` y **0** llamadas al doble. Con reembolso **entero** conocido sigue pasando (fila actual de PS-138). El P&L puede seguir con su supuesto; el tope no | `unrefundedCents ?? 0` ⇒ compra la 16.ª | SDX-Z-3 | arquitecto → backend |
+| **C-23** | D2c | PS-135 (c) se amplía: la fixture pone «Pedido ENV-000046-01» también en colonia, municipio, estado, `line2` y referencias, y en una variante con `ＥＮＶ－000046－01` (ancho completo) y con `‐`/`–`. Ni el cuerpo de la **cotización** ni el de la **compra** que recibe el doble contienen, tras NFKC, `/ENV\s*[-‐–—]\s*\d/i` fuera de `address_to.reference`. La neutralización se aplica **por construcción** a todo campo de texto de `address_to` en los dos puertos, recorriendo las llaves, no con una lista | lista fija de seis campos ⇒ la colonia pasa; sin NFKC ⇒ el ancho completo pasa | SDX-Z-4 | arquitecto → backend |
+| **C-24** | D2g (no bloquea) | PS-153 gana: 5 AG-1 🔴 del mismo sujeto en 10 min y luego un AG-9 🔴 `orphan_fuse` ⇒ el AG-9 sale como correo **individual** en esa hora. Regla sugerida: como máximo 2 correos inmediatos por `subjectUserId` y hora; lo demás de esa persona va al lote | cupo solo global ⇒ el AG-9 baja al lote | SDX-Z-6 | arquitecto → backend |
+
+## 5. Deuda aceptada (no bloquea)
+- **Tope por persona, no por equipo.** Dos operadores suman dos topes. Disparador: el dueño pide un tope global de
+  guías al día.
+- **Comprobar el reembolso de una cancelación** (`CANCEL_REFUND_VERIFIABLE = false`). Con C-22 deja de ser un hueco del
+  tope y queda como deuda de exactitud del P&L. Disparador: `M-PRD-7` mide `transaction_stats`.
+- **La puerta de la hora de reloj** (hasta 10 correos en dos minutos alrededor del cambio de hora). Disparador: queja
+  del dueño.
+- SDX-I-5 sigue aceptada (el folio secuencial; `§19.29.1.7`).
+
+## 6. Banderas para el humano
+1. **Mide cuántos súper-admin con correo hay** (C-20 (a)). La consulta es de solo lectura y la corres tú donde ya vive la
+   credencial. Si sale más de uno, el sistema trataría a esa persona como «el dueño».
+2. **Las credenciales del panel de Skydropx, solo tuyas.** Una guía comprada en el panel no pasa por los topes ni avisa
+   (SDX-I-7).
+3. **Tu cuenta pasa a ser la más valiosa:** sin tope y la que recibe los avisos. Conviene un segundo factor en ella
+   antes de operar con el gasto encendido (SDX-I-9).
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después, y un pentest de terceros
+   antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.8 (el folio nuestro), antes de D2c** (`API_CONTRACT §M4-SHIP.19.28`; `ARCHITECTURE §4.60 (u)`) · SHA **`2612064e`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **D2c (§19.28.1–.5, .7–.12): APROBADO CON CONDICIONES.** Las condiciones son C-15, C-16, C-17 y C-18, abajo,
+>   escritas como pruebas que deben fallar. C-8 y C-10…C-13 quedan **cerradas en diseño**. C-9 queda cerrada para la adopción.
+> - **§19.28.6, la rama «cancelación automática de una huérfana cuyo envío ya tiene otra guía viva»: RECHAZADA tal
+>   como está escrita.** Hay **1 alto** (SDX-D-21): el job puede cancelar la guía que va pegada al paquete. Esa rama es
+>   de **D2d**, no de D2c, así que **no bloquea empezar D2c**. Sí bloquea construir D2d hasta que haya una errata que
+>   cumpla C-14.
+>
+> **0 críticos · 1 alto · 2 medios · 2 bajos · 2 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una línea de errata en §19.28.6 que cumpla C-14; que C-15, C-16 y C-18
+> entren en PS-129/PS-134/PS-135 y en el formato del token; y que C-17 entre en el 7b. **No es el veredicto de la release.** La fase completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo. **No ejecuté nada**, así que no hice copia.
+- Contrato `:26810-27073`, arquitectura `:27636-27685`, `HECHOS.md:55-62`, `PROJECT.md:8625-8645` (§Z.4).
+- `skydropx-client.ts:304-335`: la puerta `spec.guard` corre **después** de `getToken()` y de `bucket.acquire()`, justo
+  antes de mandar la petición. Así que poner el `notAfter` de §19.28.2 en esa puerta es el sitio correcto: un token
+  lento no puede sacar un `POST` fuera de plazo. `:434-435` (`clearTimeout` en el `finally`) y `:339,375,388`
+  (`safeText` después): confirmo que hoy el cuerpo de la respuesta se lee **sin temporizador**.
+- `git grep "\.purchase(" HEAD -- backend/src` ⇒ **0** llamadores fuera de pruebas. No hay código viejo capaz de
+  comprar sin pasar por el 7b. Eso confirma §19.28.5, último punto.
+- `audit.service.ts:50-55`: `log()` no se traga el error. Si falla la escritura del 7b, la compra no sigue.
+- Lo que hay en `backend/` sin commitear (D2a en curso) no lo revisé.
+- **NO MEDIDO**, igual que el arquitecto: si `address_to.reference` vuelve en el listado o en el detalle, si Skydropx
+  lo trunca, y si alguna paquetería lo mezcla con `further_information`. Ninguna conducta real de Skydropx con envíos.
+
+## 1. ¿Cierra C-8…C-13?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-8** (SDX-D-14) | **Cerrada**, condicionada a C-15 | La ventana tiene cota superior (+5 min). Un `createdAt` nulo ya no es candidato. El cuadre exige el folio exacto **con su intento**. La dirección de destino se busca por relación, no por posición. El total ya no sirve para cuadrar. Comparar el destinatario se sustituye por el folio, y lo acepto: es un dato que escribimos nosotros, no un parecido. **Pero** el argumento entero descansa en que nadie más que nosotros pueda poner `ENV-…` en lo que leemos ⇒ SDX-D-20 | PS-129 (a)…(h) |
+| **C-9** (SDX-D-15) | **Cerrada para la adopción** (§19.28.7). **Abierta para la conciliación nueva** | Cancelar tras adoptar exige el folio exacto. Pero §19.28.6 abre un segundo camino de `cancel` sin persona, y ese camino **no** prueba que la huérfana no sea la guía que va en el paquete ⇒ SDX-D-21 | PS-130 (ampliar: C-14) |
+| **C-10** (SDX-D-16) | **Cerrada** | Las escrituras usan `since` exacto. La clasificación de `count 0` nunca descarta un id (`label_orphan`). La compra tiene plazo y el cuerpo queda bajo temporizador. Las relaciones entre constantes se asertan. El job arranca en `since + 180 s` | PS-131 (a)…(d) |
+| **C-11** (SDX-D-18) | **Cerrada** | `pg_try_advisory_xact_lock`, clave `65_310_701` con censo. Comprobé las dos claves `bigint` existentes: no chocan (63_120_863, 64_440_950) | PS-132 |
+| **C-12** (SDX-D-17) | **Cerrada** | La contaminación se mide en `[since − T_REFUND_LAG, now]` (30 días hasta medir). Hay cable trampa. La regla de encendido pasa a N ≥ 60 con la cola de las lentas. Cumple los 4 requisitos que puse para encender `INFLIGHT_NEGATIVE_VERIFIED` | PS-133 |
+| **C-13** | **Cerrada** | PS-120 ampliada, tal como la pedí | PS-120 |
+
+## 2. Las preguntas del encargo
+
+### 2.1 El folio como dato que viaja a un tercero y se imprime en la etiqueta
+
+**¿Filtra algo?** Sí: el **volumen**, y nada más.
+- `ENV-` más 6 dígitos de secuencia global, sobre **todos** los `ShipmentRequest`, incluidos los retiros de bóveda.
+  Quien reciba dos paquetes separados por un tiempo sabe cuántos envíos hubo entre ellos. Eso cuenta la actividad de
+  la tienda **y la de custodia**.
+- El `-n` dice además que esa guía es una recompra.
+- No filtra PII, ni el id interno, ni Stripe, ni el número de pedido (§19.28.1 lo prohíbe y PS-135 (b) lo asevera).
+- El dueño lo aceptó (palabras relayadas en §19.28.1). ⚠️ La fila `HECHOS.md:61` recoge el folio, pero **no** recoge la
+  aceptación de que el volumen quede visible ⇒ bandera 1. Hay una alternativa sin coste para el cruce: un folio no
+  secuencial (por ejemplo, base32 aleatorio de 6 caracteres). El cruce funciona igual; lo que se pierde es el «pedido
+  1, 2, 3» que pidió el dueño. La decisión es suya ⇒ **SDX-I-5 (Info)**.
+- **Superficie:** el folio es enumerable. Hoy solo viaja en DTOs de admin (§19.28.11). Debe seguir así: ningún
+  endpoint de cliente, de invitado o público debe resolver nada por folio. Así nunca será una llave ⇒ **SDX-I-6**.
+
+**¿Se puede forjar o colisionar?**
+
+| Vía | ¿Adopta una guía ajena? | Juicio |
+|---|---|---|
+| Otro envío nuestro | No. El token lleva folio e intento, y `ENV-000046-1 ≠ ENV-000045-1` (PS-129 (e)) | Resiste |
+| Intento viejo del mismo envío | No: pasa a `label_orphan` (PS-129 (f)) | Resiste |
+| La dirección de **origen** con nuestra `reference` | No: se busca por relación (PS-129 (h)) | Resiste |
+| **El cliente escribe `ENV-000046-1`** (o «Pedido ENV-000046-1») en sus referencias, nombre o calle | **Depende de algo NO MEDIDO.** Si Skydropx, o una paquetería, devuelve `further_information` como `reference`, o mezcla los dos campos, el token que leemos **es el que escribió el cliente**. La secuencia es predecible. Si la guía de A cae en la ventana de B (posible, porque el bloqueo bajó a 3 min y la ventana dura +5), con la misma paquetería y el mismo CP, **B adopta la guía de A**: el paquete de B sale con la dirección de A. **Y en ese mundo el camino legítimo no funciona** (nuestro token nunca vuelve), así que la única adopción posible es la forjada. `folioTokenOf` busca con `\b…\b` en cualquier parte del texto, **sin anclar**, y nada impide que un campo del cliente lleve el patrón | **SDX-D-20 (Media).** Se arregla barato: anclar y sanear (C-15) |
+| Personal con acceso al panel que teclea el folio en una compra a mano | Sí, si cae en [−2, +5 min] con la misma paquetería y el mismo CP, y la compra por API no llegó a Skydropx. Si la compra por API sí llegó, sale `duplicate`. Si es por error, la guía es de ese mismo envío, que es lo correcto. Si es a propósito, quien lo hace ya tiene la custodia física y puede corregir la dirección | Info. No añade riesgo marginal (SDX-D-19 ya lo cubre) |
+
+**¿Qué pasa si Skydropx no lo devuelve o lo trunca?**
+- **No lo devuelve.** No hay adopción y sale «incierto», que lleva a «Liberar». Falla cerrado. La conciliación queda
+  ciega (no ve huérfanas) y la evidencia negativa no vota (§19.28.9: exige el folio en **todos** los candidatos). Se
+  pierde dinero sin vigilancia, pero no se pierde seguridad. Lo mide `M-PRD-7` tras PG-1.
+- **Lo trunca.** Si corta el texto en un sitio cualquiera, el token queda `null` y falla cerrado. **Excepto en un
+  caso:** con intento de dos dígitos, «Pedido ENV-000045-12» cortado en 19 caracteres da «Pedido ENV-000045-1», que
+  es un token **válido de otro intento**. Hoy el resultado es una huérfana falsa del intento 1. Con §19.28.6 tal como
+  está, eso alimenta la cancelación automática. Lo mismo ocurre al pasar de `ENV-999999`: con `\d{6}` exacto, el
+  folio 1 000 000 deja de leerse para siempre, sin aviso ⇒ **SDX-D-23 (Baja)**.
+
+### 2.2 La cancelación automática de un duplicado pagado: ¿puede cancelar una guía viva legítima? — **Sí. SDX-D-21 (Alta).**
+
+La regla (§19.28.6) dice: una huérfana (folio legible, id desconocido, intento que no es el vigente) cuyo envío
+«ya tiene **otra** guía viva» ⇒ `port.cancel` sin persona. El fallo está en «otra». **Nada comprueba que la guía viva
+del envío no sea la propia huérfana, capturada a mano.** El camino lo marca nuestra propia pantalla:
+1. S queda en vuelo. Skydropx tarda en listarla y a T+15 sale `label_unknown`.
+2. El súper-admin abre «Liberar». La ventana le dice «busca en el panel de Skydropx: **Pedido ENV-000045-1**»
+   (§19.28.11) y la encuentra: la compra sí se hizo.
+3. Libera. Ahora `labelPending = null`, así que aparece «Capturar a mano» (`API_CONTRACT:25254`, PS-101), y la
+   persona captura **el número de rastreo de esa misma guía**. Es lo sensato: la guía existe y está pagada.
+4. La captura a mano guarda paquetería y número, **no** `providerShipmentId` (`labelSource='manual'`,
+   `API_CONTRACT:23718`). Por eso su id no entra en `knownIds`.
+5. Más tarde el listado la muestra: id desconocido, token `(ENV-000045, 1)`, y el reclamo vigente ya no existe. Pasa a
+   `label_orphan`. Su envío «tiene otra guía viva» (la manual, que **es ella**). El resultado es **`port.cancel` sobre
+   la guía pegada al paquete**, que ya va con la paquetería.
+
+Impacto: un paquete con cartas en custodia viaja con una guía cancelada (devolución, retención o pérdida), y no hace
+falta atacante, solo seguir la operación normal. Por eso es **Alta**, la misma clase que SDX-D-14.
+
+Hay también un **riesgo de radio**. Es el único `cancel` masivo que puede hacer una máquina, y no tiene tope. Un fallo
+de parseo (SDX-D-23, o un cambio de forma en `included`) podría convertir muchas guías en «huérfanas» en una sola
+corrida. Pido un fusible.
+
+Lo que **sí** resiste, y es la mayoría de los casos:
+- La huérfana de un envío `cancelado` (no va a salir).
+- Los dos sobrantes de un `duplicate` cuando el envío ya tiene la guía buena **comprada por API**
+  (`providerShipmentId ≠` el de la huérfana).
+
+### 2.3 `not_sent` automático: ¿puede liberar una compra que sí salió?
+
+El diseño es correcto en la idea: I-SENT convierte «no salió» en un hecho local. Hay tres caminos por los que
+fallaría **abierto**, que ahora mismo significa una segunda compra pagada:
+1. **La búsqueda de la fila del 7b falla en silencio. SDX-D-24 (Media).** Se busca por `after.since` dentro del JSON
+   de la bitácora. Cualquier desajuste (formato ISO contra `Date`, milisegundos, zona horaria, otra llave) hace que
+   **toda** compra en vuelo parezca «no salió» y se libere a los 3 min. PS-134 (a) solo prueba la **ausencia**, y una
+   búsqueda rota pasa esa prueba en verde. Falta el control positivo **contra Postgres real**, con la fila escrita por
+   el 7b real (C-16).
+2. **Relojes distintos o un 7b lento sin CAS. SDX-D-22 (Baja).** El 7b.2 (§19.27.3) solo inserta en la bitácora: **no**
+   comprueba que el reclamo siga vivo. Hoy lo salva `notAfter` (120 s < 180 s), **si** `since`, `notAfter` y el `now`
+   del job vienen del mismo reloj. Con desfase de más de 60 s entre instancias, o con `since` sacado de `now()` de la
+   base y `notAfter` del reloj de la aplicación, el job libera, el 7b tardío inserta y el `POST` sale. Improbable,
+   pero el cinturón cuesta una línea: el 7b.2 hace un CAS sobre la fila en la misma tx (C-17).
+3. **Código que compra sin 7b.** Hoy no lo hay (medido: 0 llamadores). PS-117 (un solo llamador) y PS-134 (b) lo
+   vigilan. Resiste.
+
+### 2.4 `INFLIGHT_ADOPTION_ENABLED = true`: ¿justificado? — **Sí, con C-15 construida.**
+El argumento del arquitecto (§4.60 (u)) es correcto: una adopción falsa exige que nos vuelva **nuestro** token en un
+envío que no compramos. La única forma realista de que eso pase sin un insider es SDX-D-20. Con C-15, la acepto
+encendida. Además el apagado de emergencia es por errata y las pruebas la inyectan en `false`. Sin C-15, pediría
+`false` hasta que la segunda corrida de `M-PRD-7` mida que `reference` vuelve **exactamente como la mandamos**.
+
+### 2.5 Control del gasto (`HECHOS.md:62`, `PROJECT.md §Z.4`): ¿choca con §19.28? — **No choca, pero hay tres puntos de unión que el arquitecto debe fijar al meterlo.** No lo reviso todavía.
+- **TG-2 («una re-emisión por envío») no puede contarse con el `n` del token.** `n` cuenta intentos con
+  `label_purchase_sent`, e incluye los que no costaron nada (`PurchaseDeadlineError`, rechazo sin id). Con `n`, un fallo
+  de red gastaría la única recompra del operador. Al revés, contar solo las guías persistidas deja fuera las huérfanas y
+  los `duplicate`, que **sí** se pagaron. Se deben contar las **guías pagadas**: persistidas, adoptadas o huérfanas con
+  id.
+- **TG-1 (MX$2,500 en 24 h) y la compra en vuelo.**
+  - Un reclamo en vuelo o incierto cuenta por `expectedChargeCents` hasta que se resuelva. `not_sent` lo descuenta.
+  - La adopción y la huérfana se atribuyen a **quien reclamó** (el actor de `label_requested`), nunca a
+    `system:label-verify`.
+  - La cancelación automática solo descuenta lo que se devolvió (SEC-SDX-11: el seguro, NO MEDIDO).
+- **Concurrencia (§Z.4).** El candado `SKYDROPX_PURCHASE_LOCK_KEY` ya serializa el paso 7 de toda la cuenta. Si TG-1 y
+  TG-2 se comprueban **dentro** de esa tx, la concurrencia queda resuelta sin mecanismo nuevo.
+- Coherente: «la 3.ª la compra el dueño» y P-SDX-REL por defecto (solo súper-admin). Ojo: la excepción de §Z es **el
+  dueño** (Z.0.5), no el rol `super_admin` («vigilar también a otros súper-admin»).
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-21** | **Alta** | La conciliación cancela sola una huérfana cuyo envío «tiene otra guía viva», sin comprobar que esa guía viva no sea **la misma**, capturada a mano tras «Liberar» (la captura manual no guarda `providerShipmentId`). Resultado: cancela la guía del paquete en tránsito. Además no hay fusible de cancelaciones automáticas. Detalle en 2.2 | §19.28.6 (primera viñeta de «Qué se hace»), PS-130 (fila de la huérfana), §4.60 (u) última fila | **arquitecto** (errata) → backend (D2d) |
+| **SDX-D-20** | Media | El folio se puede forjar con datos del cliente si Skydropx devuelve o mezcla `further_information` (o algún otro campo del cliente) en `reference` (NO MEDIDO). `folioTokenOf` no está anclado y los campos del cliente no se sanean del patrón. En ese mundo, la única adopción posible es la forjada | §19.28.1 (extracción), §19.28.4, PS-129, PS-135 | **arquitecto** → backend |
+| **SDX-D-24** | Media | `not_sent` falla abierto si la búsqueda de `label_purchase_sent` por `since` no encuentra una fila que existe, y PS-134 no lo detectaría (solo prueba la ausencia) | §19.28.5, PS-134 | **arquitecto** (prueba) → backend |
+| **SDX-D-22** | Baja | El 7b.2 no comprueba que el reclamo siga vivo. La seguridad de `not_sent` frente a un 7b tardío depende de que `since`, `notAfter` y el job compartan reloj | §19.27.3 paso 2, §19.28.2, §19.28.5 | backend (y arquitecto: una línea) |
+| **SDX-D-23** | Baja | Formato del token: con intento de dos dígitos, un truncado deja un token válido de otro intento; `\d{6}` exacto deja de leer al pasar del folio 999 999; `n` sale de contar la bitácora (si esas filas tuvieran purga, `n` se repetiría: **NO MEDIDO** si `shipment.*` tiene retención) | §19.28.1 | arquitecto → backend |
+| **SDX-I-5** | Info | El folio secuencial revela el volumen de envíos y de retiros de bóveda. Aceptado por el dueño según relato, sin fila en `HECHOS` | §19.28.1 | **humano** |
+| **SDX-I-6** | Info | El folio no debe ser nunca llave de búsqueda en superficies de cliente, invitado o públicas (es enumerable) | §19.28.11 | arquitecto (una línea) |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-13: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción, todo con el doble (⛔ nunca la red).
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-14** | **D2d** (bloquea) | PS-130 gana tres filas. **(a)** S en vuelo; «Liberar»; captura a mano con el `trackingNumber` que `getShipment(Y)` devuelve para la huérfana Y (`ENV-000045-1`). El listado muestra después Y ⇒ **0** `cancel` y alerta `label_orphan` para una persona. **(b)** Si `getShipment(Y)` no se lee, o la guía viva de S es `labelSource='manual'` ⇒ **0** `cancel` y alerta. **(c)** Fusible: con 3 cancelaciones automáticas de huérfanas en las últimas 24 h, la 4.ª ⇒ **0** `cancel`, aviso 🔴 al dueño y bitácora. Control positivo: la guía viva de S es `skydropx` con `providerShipmentId ≠ Y` y el rastreo de Y ≠ todo número de rastreo nuestro ⇒ `cancel` **una** vez | quitar la comparación del rastreo ⇒ (a); aceptar una guía viva manual ⇒ (b); quitar el fusible ⇒ (c) | SDX-D-21 | arquitecto → backend |
+| **C-15** | D2c | **(a)** PS-135 gana: con `Address.references = "Pedido ENV-000046-1"`, y el mismo patrón en `name` y en `street1`, el cuerpo que recibe el doble **no** contiene ninguna coincidencia de `/ENV-\d+-\d+/i` fuera de `address_to.reference` (el patrón se neutraliza al armar la compra). **(b)** PS-129 gana: el doble devuelve como `reference` de destino el texto del cliente «Pedido ENV-000046-1» para la guía de A, dentro de la ventana de B, con la misma paquetería y el mismo CP ⇒ B **no** adopta. **(c)** Unitaria de `folioTokenOf`: solo acepta el texto **entero** (tras recortar y en mayúsculas) con la forma exacta que mandamos. «Pedido ENV-000045-01 casa azul» ⇒ `null`; «x ENV-000045-01» ⇒ `null` | quitar el saneado ⇒ (a)/(b); volver a `\b…\b` sin anclar ⇒ (c) | SDX-D-20 | arquitecto → backend |
+| **C-16** | D2c | PS-134 gana **(c)** de integración, contra Postgres real y con el 7b **real** (sin repositorio falso): reclamo, 7b comiteado, la `purchase` del doble colgada, reloj en `since + 180 s` ⇒ el job **no** sale `not_sent` (0 liberaciones). Y **(d)**: la escritura del 7b.2 falla ⇒ **0** `purchase` | buscar la fila por otra forma de `since` (por ejemplo, `Date` contra ISO, o `createdAt` en lugar de `after.since`) ⇒ (c) libera; tragarse el error del 7b.2 ⇒ (d) | SDX-D-24 | arquitecto → backend |
+| **C-17** | D2c | El 7b.2 hace, en la misma tx que la bitácora, `updateMany({id, labelProcessingSince: since, providerShipmentId: null})` y exige `count = 1`. Si no ⇒ **0** `purchase`. Prueba con barrera: una liberación (`not_sent` o «Liberar») entra entre el 7b.1 y el 7b.2 ⇒ **0** `purchase`, N ≥ 10, con su proporción. Además, unitaria: `since`, `notAfter` y el `now` del job salen de **un** reloj inyectado | quitar el CAS ⇒ sale `purchase` | SDX-D-22 | backend |
+| **C-18** | D2c | Formato del token: intento con ancho fijo de 2 (`-01`) y folio `\d{6,}`. Unitarias: «Pedido ENV-000045-1» (truncado de `-12`) ⇒ `null`; «Pedido ENV-1000000-01» ⇒ token. Y `n` sale de una fuente sin purga (si la bitácora `shipment.*` tiene retención, de un contador en la fila) | volver a `\d{1,3}` ⇒ el truncado se lee como intento 1 | SDX-D-23 | arquitecto → backend |
+
+**Para cuando el arquitecto meta §Z** (no son de D2c y no las reviso todavía): TG-2 cuenta guías pagadas, nunca `n`.
+TG-1 cuenta los reclamos en vuelo y los atribuye a quien reclamó. Las dos se comprueban dentro de la tx del candado
+`SKYDROPX_PURCHASE_LOCK_KEY` (2.5). La revisión de seguridad de esa errata vendrá después.
+
+## 5. Deuda aceptada (no bloquea)
+- **SDX-I-5.** Volumen visible en la etiqueta. Disparador: que el dueño diga que no lo quiere, o un competidor que lo
+  explote.
+- **La conciliación queda ciega si el folio no vuelve.** Se pierde dinero sin vigilancia, pero falla cerrado.
+  Disparador: la segunda corrida de `M-PRD-7` tras PG-1.
+- **Folio tecleado en el panel por el personal (2.1).** Lo cubre SDX-D-19 y §Z.
+- Siguen igual SDX-D-6 (ahora mitigada por `labelPending.providerReference`), SDX-D-18 (c) y SDX-D-19 (ahora la recoge
+  §Z, `HECHOS.md:60,62`).
+
+## 6. Banderas para el humano
+1. **El folio impreso cuenta cuántos envíos y retiros de bóveda hacemos.** El cruce funciona igual con un folio no
+   secuencial. Si lo aceptas, conviene que quede en `HECHOS.md` con tus palabras (hoy la fila 61 no lo dice).
+2. **P-SDX-REL sigue sin respuesta.** Queda el valor por defecto, solo súper-admin, y lo sigo recomendando.
+3. Mientras C-15 no esté construida, **nadie compra en el panel de Skydropx tecleando el folio a mano** salvo para el
+   mismo envío.
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después (y ahora también: ¿vuelve
+   `reference` tal cual?), y un pentest de terceros antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de las erratas v1.80.12.6 y v1.80.12.7, antes de D2c** (`API_CONTRACT §M4-SHIP.19.26`, `§M4-SHIP.19.27`; `ARCHITECTURE §4.60 (s)`, `(t)`) · SHA **`eade24d3`** (rama `claude/skydropx-d`, medido con `git log -1`) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **v1.80.12.6 (§19.26): APROBADO.** Cierra en diseño SDX-D-1, -2, -3 y -10 tal como pedí, y C-1…C-6 están
+>   completas como PS-116…PS-121. SDX-D-5 y SDX-I-1 las cerró el dueño (`HECHOS.md:58`). SDX-D-6 queda como deuda con
+>   disparador. El modo `operators` no abre un camino nuevo para gastar; solo cambia quién (ver 1.2).
+> - **v1.80.12.7 (§19.27): RECHAZADO tal como está escrito.** Hay **1 alto** (SDX-D-14: la adopción automática puede
+>   tomar una guía que no es de ese envío) y **3 medios** (SDX-D-15, -16, -17).
+>
+> **0 críticos · 1 alto · 3 medios · 2 bajos · 1 info** (todos nuevos; los de `ace57032` están abajo, en 0.2).
+>
+> **Lo mínimo para aprobar:** una errata del arquitecto que cierre SDX-D-14 y SDX-D-16 (condiciones **C-8** y **C-10**)
+> y que meta C-9, C-11 y C-12 como pruebas. **Hay otra vía** si no se quiere esperar la errata: D2c construye §19.26
+> completo y §19.27.2/.3 (serialización y foto del saldo), con la **adopción automática apagada** detrás de una
+> constante `INFLIGHT_ADOPTION_ENABLED = false`, igual que `INFLIGHT_NEGATIVE_VERIFIED`. En ese caso el job solo
+> escribe `label_verify_uncertain` y «Liberar» busca, pero **no adopta sin persona**. C-10 sigue siendo obligatoria en
+> las dos vías: no depende de la adopción.
+> **No es el veredicto de la release.** La fase completa (pentester + seguridad sobre D2 ya construido) sigue pendiente
+> en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo; **no ejecuté nada**, así que no hice copia.
+- Contrato y arquitectura leídos en `eade24d3`.
+- El código que cito coincide con `HEAD`: `git diff --quiet HEAD` sobre `shipping-provider/`,
+  `admin-shipments.controller.ts` y `audit/` da vacío.
+- Los ficheros sin commitear de D2a (`shipping-dials.ts`, migración `m66`) son obra en curso y solo los cité de
+  referencia.
+- **NO MEDIDO:** cualquier conducta de Skydropx con envíos reales (la cuenta nunca compró). Tampoco medí la duración
+  real de una compra con reintentos: la calculé con las constantes (ver SDX-D-16).
+
+## 0. Lo que traen las erratas, contra mi veredicto anterior
+
+### 0.1 v1.80.12.6 (§19.26), hallazgo por hallazgo
+| Mío | Estado en el diseño | Dónde | Prueba |
+|---|---|---|---|
+| SDX-D-1 | **Cerrado.** Hay una matriz con 4 filas; un id presente nunca se descarta; `null`, nunca `''`; un `400/422` con id va a «rechazo con id» con **un** solo parser | §19.26.1 | PS-116 = C-1 completa |
+| SDX-D-2 | **Cerrado.** Replay tachado sin condición; `purchase` tiene un solo llamador. ⚠️ Pero §19.27 hace que el job **sí** llame a `cancel` tras una adopción (SDX-D-15) | §19.26.2 | PS-117 (+ ampliada) = C-2 |
+| SDX-D-3 | **Cerrado.** Guarda previa `rate_already_purchased` (cero red) más el cinturón `provider_id_taken` (cero `500`, A intacta, B retenido, `confirmConflict` para liberar) | §19.26.3 | PS-118 = C-3 |
+| SDX-D-5 | **Cerrado por el dueño** (`HECHOS.md:58`): el personal también compra. El modelo de amenazas cambia (1.2, SDX-D-19) | §19.26.6 | PS-120 |
+| SDX-D-6 | **Deuda aceptada.** La API no tiene campo de referencia (lectura del arquitecto de `SKYDROPX_API_REFERENCIA.md:142-186`; yo no lo releí). La ventana de «Liberar» muestra con qué cuadrar, más `priceCents` | §19.26.5 | — |
+| SDX-D-10 | **Cerrado.** Reclamo deshecho y `409 allow_spend`; se distingue por clase antes del manejo genérico | §19.26.4 | PS-119 = C-4 |
+| SDX-I-1 | **Cerrado por el dueño:** cancelar sigue siendo operador o superior | §19.26.6 | PS-120 |
+| SDX-D-4 / C-7 | **Abierto, sin cambio.** Lo tiene devops antes de PG-1 | — | — |
+| SDX-D-7, -8, -9, -12, -13 | Sin cambio (deuda o release) | — | — |
+
+### 0.2 Qué cambia el modo `operators` en C-5
+- **C-5 (i)** («un segundo `super_admin` ⇒ `200`») **sigue igual**. El dueño amplió, no restringió.
+- **PS-120 ya trae** lo que el modo `operators` exige: `operators` + `vault_operator` ⇒ `200`; `super_admin_only` +
+  `vault_operator` ⇒ `403`; `label/cancel` funciona como operador con el dial en `disabled`; `label/release` como
+  operador ⇒ `403`.
+- **Le falta una fila** (C-13): el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo operador
+  ⇒ la segunda da `403`. Hoy solo se prueba el paso a `disabled`, y la caché del dial que mordería a esta fila es
+  justo la del modo nuevo.
+- **La puerta se escribe con un conjunto explícito** `{vault_operator, super_admin}`, nunca como `role ≠ customer`.
+  Hoy son equivalentes porque `Role` tiene tres valores (`schema.prisma:16-20`); un rol nuevo mañana entraría a
+  comprar sin que nadie lo decidiera.
+
+## 1. Las preguntas del encargo
+
+### 1.1 ¿Puede la adopción tomar una guía que no es de ese envío? — **Sí. SDX-D-14 (Alta).**
+Candidato, según §19.27.4: id desconocido, `createdAt ≥ since − 2 min` **(sin cota superior)** o `createdAt` nulo, y
+`source` nulo o `'api'`. Cuadre: misma paquetería y **al menos uno** de {total, CP} legible e igual. La adopción corre
+**cada minuto hasta T+15 min y cada 10 min hasta T+24 h** (§19.27.5). La serialización de §19.27.2 solo ordena
+**nuestras** compras por API, y se levanta a los 15 min.
+
+| Origen de la guía ajena | ¿La adopta? |
+|---|---|
+| **Guía comprada en el panel de Skydropx** para otro pedido y capturada con «Capturar a mano». Se guarda número de rastreo, **no** `providerShipmentId`, así que no entra en `knownIds` | **Sí**, si es única y cuadra: misma paquetería y mismo CP (cualquier cliente del mismo CP) **o** mismo total (mismo empaque y zona ⇒ misma tarifa, que es justo el caso M-5). `source` en el listado: NO MEDIDO ⇒ nulo ⇒ entra |
+| Compra en el panel **durante la cola de 24 h** | **Sí**: sin cota superior en `createdAt`, cualquier compra del panel en las 24 h siguientes es candidata |
+| **El diseño empuja a esto**: mientras S verifica, `409 purchase_in_flight` bloquea las demás compras hasta 15 min y la ventana sigue ofreciendo «Capturar a mano» para S2 | El camino natural del personal es comprar S2 en el panel **dentro de la ventana de S** |
+| Otro envío nuestro en vuelo S' | **No**, cubierto por el paso 3 (`matches(c, S')`) |
+| Una guía ya conocida (persistida, cancelada, `label_failed` con `kept`, adoptada) | **No** (`knownIds`) |
+
+**Impacto.** S queda con la guía de **otro paquete**:
+- La etiqueta que se imprime para S lleva la dirección de otro cliente, y las cartas de S (custodia) van a parar ahí.
+- El rastreo de S marca «entregado» con los eventos de otro paquete.
+- La compra real de S, si existió, queda huérfana y sin vigilar: la conciliación es deuda de (t).
+- Si S ya estaba `cancelado`, el job cancela sola la guía ajena (SDX-D-15).
+
+No hace falta atacante: basta la operación normal. Por eso es **Alta**. Arreglarlo es barato (C-8).
+
+### 1.2 Modelo de amenazas con `operators` (`HECHOS.md:58`)
+- **Gastar saldo con credenciales de operador.** El personal entra con usuario y contraseña, **sin segundo factor**
+  (`HECHOS.md:50`). Con el dial en `operators`, una credencial robada compra guías. El daño tiene tope: solo envíos
+  preparados, un reclamo por envío, y `rate_already_purchased` corta comprar la misma tarifa dos veces. Lo que
+  **no** tiene tope es el bucle cancelar–recomprar: en cada vuelta se pierde lo que Skydropx no reembolsa (el
+  seguro, SEC-SDX-11, NO MEDIDO) ⇒ **SDX-D-19 (Baja)**.
+- **Desviar un paquete.** El mismo operador corrige la dirección completa (`PUT :id/address`, operador o superior,
+  `admin-shipments.controller.ts:15,116`; `HECHOS.md:50`) y compra la guía, sin un segundo par de ojos. El riesgo
+  marginal es bajo porque el operador **ya tiene la custodia física**, y queda bitácora con actor (revisión SKX-SEC-1).
+  Mitigación sugerida, sin contradecir al dueño: un aviso en el panel del dueño cuando la misma persona corrige la
+  dirección y compra la guía del mismo envío ⇒ SDX-D-19.
+- **«Liberar» es el único control de segregación que queda en el camino a una guía duplicada.** Recomiendo
+  **P-SDX-REL (a)**: solo el súper-admin (SDX-I-4).
+
+### 1.3 Cuando se encienda, ¿puede la liberación automática abrir una segunda compra pagada? — **Sí, por tres caminos.** SDX-D-16 (Media, hoy) y SDX-D-17 (Media, latente)
+La liberación no compra; compra el clic del operador que viene después. Una liberación falsa ⇒ dos guías pagadas.
+1. **Respuesta tardía de la compra (SDX-D-16).** Calculé la vida de una llamada de compra con las constantes
+   (`skydropx-client.ts:53,56,58,350,361`): 30 s por intento, un reintento tras `401` y tres tras `429` con
+   `Retry-After` de hasta 60 s ⇒ **5 intentos × 30 s + 3 × 60 s ≈ 330 s, más la obtención del token**. Eso son unos
+   6 minutos, y **un `POST` nuevo puede salir al minuto 5,5**. La liberación automática lee a T+5 y T+7.
+   - Peor: **todas** las escrituras de la respuesta (§19.7 paso 9, `API_CONTRACT:24208,24232`; §19.26.1;
+     §19.18.3) llevan `labelProcessingSince:{not:null}` en el `WHERE`, **no el `since` exacto** de su reclamo. Una
+     respuesta tardía del reclamo T1, tras liberar y recomprar con T2:
+     - si es éxito sin número, escribe su id sobre el reclamo **T2**;
+     - si es rechazo, **deshace el reclamo T2** con la compra T2 aún en vuelo ⇒ el envío vuelve a «comprable» ⇒ tercera compra.
+     - Y si la respuesta T2 encuentra después `count 0` con `status = picking`, §19.18.3 punto 1 **cancela la guía
+       buena**.
+   - Hoy la liberación manual exige más de 15 min (`too_early`), así que el solape no ocurre con la duración
+     calculada. Con la liberación automática a los 7 min, sí.
+   - **El otro lado es real ya desde el día 1:** la adopción empieza a T+1 min con la compra viva. Si la respuesta
+     llega después con un id Z distinto del adoptado, §19.18.3 punto 1 responde `409` y **Z se pierde sin
+     bitácora**. Eso contradice «un id presente nunca se descarta» (§19.26.1).
+2. **Envenenar el saldo con un reembolso (SDX-D-17).** Ver 1.4.
+3. **Una calibración débil (SDX-D-17).** La regla `M-PRD-8` acepta **K ≥ 5** compras limpias. Si el 10 % de las
+   compras tardan en aparecer o en debitarse, 5/5 limpias sale con probabilidad 0.9⁵ ≈ **59 %**: la muestra no ve la
+   cola. Además la calibración se hace sobre compras **que respondieron**, y las que quedan en vuelo ocurren justo
+   cuando Skydropx va lento. Es una **población distinta**: sesgo de selección.
+
+### 1.4 ¿Se puede envenenar con recargas, cargos extra o cancelaciones?
+| Movimiento en la ventana | Efecto | ¿Seguro? |
+|---|---|---|
+| Recarga | Saldo sube ⇒ `balance_moved` ⇒ incierto | Sí, falla cerrado |
+| Cargo extra (sobrepeso) de otra guía | Si es igual a `expectedChargeCents` ⇒ `charged_not_found`; si no, `balance_moved` | Sí, incierto |
+| Compra en el panel | Crea un candidato ⇒ la lectura no está limpia (negativo) **pero** puede adoptarse (SDX-D-14) | Negativo sí; positivo **no** |
+| **Reembolso de una cancelación anterior a `since`** que llega dentro de la ventana, **por la misma cifra** que nuestro cargo | Neto 0 ⇒ «saldo igual al centavo». Si además el listado tarda ⇒ **dos lecturas limpias falsas ⇒ `not_charged` falso** | **No.** La contaminación solo mira `label_cancelled` y `providerCancelConfirmedAt` **dentro de `[since, now]`**. Cuándo entra el reembolso al saldo: NO MEDIDO. La cifra igual **es el caso común**: el remedio documentado de `label_processing_stuck` es «cancela y re-emite» (§19.26.1), misma ruta y mismo empaque ⇒ misma tarifa (M-5). ⇒ **SDX-D-17** |
+| Recarga y cargo que se compensan | Neto 0 | No, pero es improbable: las recargas son cifras redondas. Se cubre con el libro de movimientos (`M-PRD-7`) |
+
+Hoy la liberación automática está **apagada**, así que el envenenamiento solo cambia el `reason` del incierto. Por eso
+SDX-D-17 es Media latente: bloquea el **encendido**, no D2c.
+
+### 1.5 ¿El job llama a `purchase` en algún camino? — **No.** Pero sí llama a `cancel`.
+- `purchase` tiene un solo llamador (§19.26.2, §19.27.5 «el reintento es un clic»). PS-117 ampliada lo cubre con
+  censo y con conducta. La lectura del listado va por la ruta **v1**, distinta de la de compra que vigila PS-99 (d). Bien.
+- **Pero** `found` sobre un S `cancelado` ⇒ §19.18.3 punto 3 ⇒ **`port.cancel`** post-commit. Es una mutación en
+  Skydropx hecha por un cron **sin actor**. Solo la protege el candado de entorno (`skydropx.adapter.ts:314`, por
+  `mutate`). Con una adopción bien atribuida, esa cancelación es deseable (devuelve saldo). Con la de SDX-D-14,
+  **cancela la guía viva de otro paquete** que ya va en camino ⇒ **SDX-D-15 (Media)**. PS-117 ampliada lo deja fuera
+  del censo a propósito («la `cancel` de §19.18.3 sigue en su función»).
+
+### 1.6 `409 purchase_in_flight` como denegación de servicio — **SDX-D-18 (Baja)**
+- **Falla cerrado, y no lo controla un atacante.** Solo bloquea un reclamo sin id de menos de 15 min, y eso exige un
+  fallo del proveedor o que el proceso muera entre el reclamo y el paso 7b. Un operador malicioso no puede fabricarlo.
+- **Peor caso**, con Skydropx degradado: cada intento queda en vuelo ⇒ **un intento cada 15 min**. Es aceptable: es
+  exactamente cuando no se debe comprar en paralelo.
+- **Efecto lateral:** empuja al personal al panel de Skydropx durante la ventana, lo que alimenta SDX-D-14. El texto
+  de la pantalla debería decir «no compres en el panel mientras tanto» (ux-ui).
+- **Detalles de construcción:**
+  - (a) `pg_advisory_xact_lock` **espera**. Si alguien metiera la red dentro de la tx del paso 7, el candado se
+    sostendría 30 s y las peticiones agotarían la tx interactiva o el pool. Hace falta una prueba de que el candado
+    se suelta antes de la red, o usar `pg_try_advisory_xact_lock` ⇒ `409`.
+  - (b) La clave `bigint` nueva comparte espacio con `FX_GATE_LOCK_KEY = 63_120_863` (`fx-mode.ts:515`) y con
+    `IVA_TRANSFER_GATE_LOCK_KEY = 64_440_950` (`iva-transfer.ts:259`). Los espacios de dos `int` no se cruzan con
+    `bigint`. Hace falta un censo de claves únicas.
+  - (c) `retryAfterSeconds = 5` supone que una compra dura ≤ 35 s, pero puede durar ~6 min (1.3). Es cosmético.
+
+## 2. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-14** | **Alta** | **La adopción automática puede atribuir a S una guía ajena** (panel, «Capturar a mano», cola de 24 h). Causas: `createdAt` sin cota superior; un `createdAt` nulo cuenta como candidato y puede ser **el único**; el cuadre es «paquetería + **uno** de {total, CP}»; y no se compara el destinatario. Detalle en 1.1 | §19.27.4 (candidatos, cuadre, paso 3), §19.27.5 fila `found`, §19.27.7 | **arquitecto** (errata) → backend |
+| **SDX-D-15** | Media | **El cron cancela en Skydropx sin actor** tras adoptar sobre un S `cancelado` (§19.18.3 p. 3). Junto con SDX-D-14, cancela la guía viva de otro paquete | §19.27.5 fila `found`, §19.18.3 p. 3, PS-117 ampliada | **arquitecto** → backend |
+| **SDX-D-16** | Media | **Respuesta tardía de la compra.** (a) Las escrituras del paso 9 y de §19.18.3 no condicionan por el `since` **exacto** ⇒ la respuesta de un reclamo liberado pisa o deshace el reclamo nuevo y puede cancelar la guía buena. (b) Tras una adopción, una respuesta con otro id ⇒ `409` y ese id se pierde sin bitácora. (c) La vida de una compra (~6 min calculados) no está atada por ninguna constante a `T_VERIFY_MIN` ni a `too_early` | §19.7 paso 9 (`API_CONTRACT:24208,24232`), §19.26.1, §19.18.3 p. 1–2, §19.27.7; `skydropx-client.ts:53,56,58,350,361` | **arquitecto** → backend |
+| **SDX-D-17** | Media (latente: liberación apagada) | **La evidencia negativa se puede envenenar y la regla de encendido es débil.** Un reembolso de una cancelación anterior a `since`, por la misma cifra, deja el saldo igual. K ≥ 5 no ve una cola del 10 % (59 %). La calibración se hace sobre compras que respondieron. Y la conciliación de huérfanas está como «disparador», no como requisito | §19.27.4 paso 4 (contaminación), §19.27.7 (`M-PRD-8`), deuda de (t) | **arquitecto** (regla) · **devops** (`M-PRD-7`/`-8`) |
+| **SDX-D-18** | Baja | `purchase_in_flight`: el candado espera (no es *try*), la clave `bigint` no tiene censo, `retryAfterSeconds` parte de una premisa equivocada, y la pantalla no avisa de no comprar en el panel. Detalle en 1.6 | §19.27.2 | backend · ux-ui (texto) |
+| **SDX-D-19** | Baja | Con `operators`: no hay segundo factor del personal (`HECHOS.md:50`); el bucle cancelar–recomprar no tiene tope; y una persona sola corrige la dirección y compra. Mitigación: un tope diario de compras por operador con alerta, y un aviso «misma persona corrigió y compró» en el panel del dueño | §19.26.6; `admin-shipments.controller.ts:15,116` | **humano** (decide si quiere tope y aviso) → arquitecto |
+| **SDX-I-4** | Info | P-SDX-REL: recomiendo **(a) solo el súper-admin**. Con el personal comprando, es la única segregación que queda en el camino a una guía duplicada | §19.27.6 | **humano** |
+
+`label_purchase_sent` lleva `balanceBeforeCents` (dato del súper-admin). Lo verifiqué: los lectores de la bitácora no
+seleccionan `before`/`after` (`audit.service.ts:105-117`). El listado de Skydropx trae direcciones (PII): el diseño
+prohíbe guardarlas o loguearlas (§19.27.4). Se verifica en la release.
+
+## 3. Condiciones antes de construir D2c, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-6: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera y
+N ≥ 10 con proporción, todo con el doble (⛔ nunca la red). C-1…C-6 quedan como PS-116…PS-121, sin cambio.
+
+| # | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|
+| **C-8** | Adopción estricta. S en vuelo desde T. El doble lista un **único** desconocido Y. **No** se adopta (incierto a T+15, **0** `purchase`, `providerShipmentId` nulo) en cada uno de estos casos: (a) Y con `createdAt = T+20 min` (compra de panel en la ventana) y (a') `T+3 h` en la cola; (b) Y con paquetería y CP iguales pero `totalCents` nulo; (c) Y con `createdAt` nulo; (d) Y con paquetería, total y CP iguales, pero `getShipment(Y)` trae otro destinatario o calle (comparado **en memoria**, sin log). Control positivo: Y con `createdAt ∈ [T−2 min, T + vida máx. de compra + 2 min]` y todo igual, destinatario y calle incluidos ⇒ se adopta | quitar la cota superior ⇒ (a)/(a') adoptan; volver a «uno de {total, CP}» ⇒ (b) adopta; aceptar `createdAt` nulo ⇒ (c); omitir la comparación del destinatario ⇒ (d) | SDX-D-14 | arquitecto → backend |
+| **C-9** | S `cancelado` y adopción por el job ⇒ `port.cancel` se llama **solo** si la adopción pasó el cuadre estricto de C-8. Con Y que pasa paquetería, total y CP pero falla el destinatario ⇒ **0** `cancel`, **0** adopción y alerta para una persona | cancelar antes de comparar el destinatario | SDX-D-15 | arquitecto → backend |
+| **C-10** | Respuesta tardía. (a) Reclamo T1 ⇒ el doble retiene la respuesta ⇒ liberar (reloj +16 min) ⇒ nuevo reclamo T2 (otra tarifa) ⇒ el doble suelta la respuesta de T1 en dos variantes, «éxito sin número `sdx-old`» y «rechazo sin id». Esperado: la fila de T2 **intacta byte a byte** (`labelProcessingSince = T2`, `providerShipmentId` nulo). En la de éxito, bitácora `label_conflict` (o la que norme el arquitecto) **con `sdx-old`** y una alerta. (b) Adopción de Y a T+1 min y luego la respuesta viva con Z ≠ Y ⇒ Z queda en la bitácora con alerta, **nunca** un `409` mudo; con Z = Y ⇒ `200` idempotente. (c) Unitaria: `T_VERIFY_MIN` y `too_early` > vida máxima de compra calculada con las constantes del cliente (intentos × timeout + esperas `429`) | `WHERE labelProcessingSince:{not:null}` en vez de `= since` ⇒ (a) en rojo; descartar el id en §19.18.3 p. 1 ⇒ (b); subir `MAX_429_RETRIES` ⇒ (c) | SDX-D-16 | arquitecto → backend |
+| **C-11** | (a) Con la `purchase` del doble demorada 10 s, un `POST …/label` de otro envío recibe `409 purchase_in_flight` en **< 1 s**: el candado se soltó antes de la red. Con N ≥ 10, se reporta la proporción. (b) Censo: toda constante usada en `pg_advisory_xact_lock(<bigint>)` en `backend/src` es única | meter `port.purchase` dentro de la tx del paso 7 ⇒ (a) espera ≥ 10 s; reutilizar `FX_GATE_LOCK_KEY` ⇒ (b) | SDX-D-18 | backend |
+| **C-12** | PS-127 gana una variante: un `label_cancelled` de **otro** envío con `createdAt = since − 2 h` (reembolso aún no observado), la constante inyectada en `true`, el saldo igual al centavo y el listado vacío en las dos lecturas ⇒ **no** se libera (contaminado o incierto) | limitar la contaminación a `[since, now]` | SDX-D-17 (la parte que se construye en D2c) | arquitecto → backend |
+| **C-13** | PS-120 gana dos filas: el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo `vault_operator` ⇒ `200` y luego `403`; y la puerta compara contra el conjunto explícito `{vault_operator, super_admin}` (unitaria de la función de puerta con un rol fuera del conjunto ⇒ niega) | cachear el dial; escribir `role !== 'customer'` | C-5 / `HECHOS.md:58` | backend |
+
+**Requisito para encender `INFLIGHT_NEGATIVE_VERIFIED`** (no para D2c). Es una errata del arquitecto **con revisión
+de seguridad**, y exige:
+1. K justificada con proporción y N (O-3/O-15), no K ≥ 5 a secas: con la regla de tres, 0 fallos en 60 compras acota la cola por debajo del 5 % con 95 % de confianza.
+2. El tiempo hasta que el reembolso de una cancelación entra al saldo, medido, y la ventana de contaminación
+   ajustada a esa medida. Alternativa: el libro de movimientos (`M-PRD-7`).
+3. La conciliación «envíos de la cuenta que no son nuestros» **construida**, no como disparador.
+4. C-10 en verde.
+
+## 4. Deuda aceptada (no bloquea)
+- **SDX-D-6.** El disparador es el de §19.26.5.
+- **SDX-D-18 (c).** Cosmético.
+- **SDX-D-19.** Mientras el dueño no decida el tope y el aviso. Disparador: la primera compra de un operador con el
+  dial en `operators`, o el primer bucle cancelar–recomprar del mismo envío.
+
+## 5. Banderas para el humano
+1. **P-SDX-REL:** recomiendo (a), solo el súper-admin (SDX-I-4).
+2. **¿Tope diario de compras de guías por operador y aviso «misma persona corrigió la dirección y compró»?**
+   (SDX-D-19). Hoy el personal entra sin segundo factor (`HECHOS.md:50`).
+3. **Mientras la verificación esté activa, nadie compra guías en el panel de Skydropx a mano.** Es el vector
+   principal de SDX-D-14 hasta que C-8 esté construida.
+4. Siguen vigentes las banderas 3 de la revisión anterior: la fase completa de la release, PG-1 con el saldo medido
+   antes y después, y un pentest de terceros antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO del delta Skydropx antes de D2c** (fila «🔒 Revisión» de `API_CONTRACT §M4-SHIP.19.19.15`; v1.80.11 … v1.80.12.5) · SHA **`ace57032`** (rama `claude/skydropx-d`) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO — **APROBADO CON CONDICIONES** sobre `ace57032`
+>
+> **0 críticos · 0 altos · 4 medios · 6 bajos · 3 info.** Nada de lo construido (D0, D0', D1a–D1c, fase C, errata
+> v1.80.12.2/.5) permite hoy comprar una guía. Los cuatro hallazgos medios están en el **diseño de D2c**. Si se
+> construye tal como está escrito, cada uno puede terminar en **una guía pagada y huérfana** o en **una segunda
+> compra**. **D2c se puede construir** siempre que se cumplan las condiciones **C-1…C-6** (abajo, escritas como
+> pruebas que deben fallar). C-7 (devops) se exige antes de `PG-1`, no antes de D2c.
+> **No es el veredicto de la release:** la fase completa (pentester + seguridad sobre lo construido) sigue pendiente
+> en el gate E.
+
+**Lo que medí yo** (copia `git archive ace57032` del árbol entero, en mi ruta de scratchpad; ya está borrada.
+Carga 0.15 al empezar):
+- `skydropx.no-real-purchase.spec`, `skydropx-client.spec`, `skydropx-provider-url.spec` y
+  `shipping-provider.factory.spec` ⇒ **4/4 suites, 111/111 verdes**.
+- **Mutación 1:** en `label-proxy.ts:52` cambié `if (host === deps.api.apiHost)` por `if (true)`, es decir, el token
+  va siempre. Resultado: **2 rojas** en PS-100 («cubeta sin Authorization» y «redirección de la API a la cubeta: el
+  segundo salto va sin token»).
+- **Mutación 2:** en `spend-gate.ts:30` quité la rama `ci`. Resultado: **4 rojas** en PS-99 (b) (`CI=true`, `CI=1`,
+  `CI=false` y «prod con CI y llave girada»).
+- Las dos mutaciones son deterministas y no dependen de carreras, así que con N=1 basta. Restauré la copia antes de
+  cada corrida.
+- **NO MEDIDO por mí:** las integraciones con Postgres de la fase C, PS-112 incluida. Acepto el informe de backend
+  (`BACKEND_NOTES §59.2`, cinco mutaciones en rojo). Tampoco medí nada de Railway (C-7).
+
+## 1. Las cuatro preguntas del encargo
+
+### 1.1 La puerta de compra: ¿quién puede comprar una guía, o comprarla dos veces, sin ser el dueño?
+| Camino | ¿Compra? | Dónde lo veo |
+|---|---|---|
+| Operador (`vault_operator`) con el dial en `super_admin_only` | **No.** Recibe `403` y queda en bitácora (diseño §19.19.7). El rol viene del JWT, pero ninguna ruta cambia el rol (revisión STF, `b688bb5d`) | `jwt-auth.guard.ts:85-88` |
+| Operador que gira el dial | **No.** `PUT /admin/settings` es solo `super_admin` y escribe la bitácora en la misma tx | `settings.controller.ts:19,32-58` |
+| **Otro `super_admin` que no es el dueño** | **Sí.** `super_admin_only` significa «cualquier súper-admin», y el dueño puede crear más (STF-S1) | ⇒ **SDX-D-5** |
+| jest (unitaria o integración) | **No, por tres capas.** (a) `JEST_WORKER_ID` o `NODE_ENV=test` ⇒ `test_runtime`; con `NODE_ENV=test` la fábrica solo da `Noop`/`Fake`; (c) la red a `*.skydropx.com` está vetada en los dos `setupFiles` | `spend-gate.ts:29`, `shipping-provider.factory.ts:363`, `jest.config.js:16`, `test/jest-integration.config.js:21`; mutación 2 |
+| CI | **No.** No hay credenciales (`.github/` solo nombra la sonda en modo `test`, `ci.yml:188-193`) y `CI` con cualquier valor niega | `spend-gate.ts:30` |
+| Pila local o E2E en el contenedor de Claude, **que tiene las credenciales de producción** (`HECHOS.md:48`) | **No.** `NODE_ENV=development` (`stack-native.sh:196`) ⇒ `not_enabled`; se exporta `SHIPPING_PROVIDER_ADAPTER=fake` y lo vigila `check-skydropx-spend-lock-canary.sh` | — |
+| Reintento HTTP | **No** tras un timeout, red, `5xx`, `404`, `403` de aplicación o un 2xx sin id: todos son «en vuelo», sin reintento. Sí reintenta tras `401` (una vez) y `429` (hasta 3), y la puerta se re-evalúa antes de cada intento | `skydropx-client.ts:311,324-335,350-372,394-411`; `skydropx.adapter.ts:281-283` ⇒ **SDX-D-8** |
+| **Job `shipment-label-processing` o `label/release` (replay de la compra)** | **Lo permite el diseño** si alguien construye la rama condicional (3a). El job no tiene actor y no pasa por el dial | §19.18.4 (3a), §19.7 paso 9 ⇒ **SDX-D-2** |
+| **Dos compras para el mismo envío** | Cerrado por el reclamo CAS (`labelProcessingSince`) antes de la red y por `providerShipmentId @unique`. **Quedan tres huecos de diseño** | ⇒ **SDX-D-1, SDX-D-3, SDX-D-6** |
+| Railway: un entorno que no es producción con `SKYDROPX_ALLOW_SPEND=true` | **NO MEDIDO.** El candado no sabe en qué entorno corre | ⇒ **SDX-D-4** |
+
+### 1.2 `Authorization` solo al host de la API (PS-100): SSRF y fuga del token
+**Correcto en lo construido.**
+- El token se decide **por salto**: `label-proxy.ts:50-55` compara `URL.host` con `apiHost`, ambos en minúsculas.
+- `assertProviderUrl` rechaza el puerto explícito, así que si la base trajera puerto el token nunca se adjunta. Falla cerrado.
+- Cada `Location` se vuelve a validar, con `redirect:'manual'` y como máximo 3 saltos. El tipo de contenido, el tamaño
+  y el timeout están acotados y la URL se re-valida al leer.
+- Una redirección de la API a la cubeta va **sin** token (mutación 1).
+- El cliente usa `redirect:'manual'` hacia `SKYDROPX_BASE_URL` (`skydropx-client.ts:78-85`) y `skydropxOrigin` exige
+  `https` y no admite credenciales.
+- **Residual: SDX-D-7 (Baja).**
+
+### 1.3 La unicidad de `ShipmentQuote`: ¿puede una carrera acabar en doble cobro?
+**No por sí sola.** La cotización no es un candado. Lo que garantiza una sola guía es el CAS sobre `ShipmentRequest`
+(§19.7 paso 7) más `providerShipmentId @unique` (`API_CONTRACT:23671`). Los pasos 2 y 4 vuelven a comprobar `rateId`
+y el precio que vio el operador contra la fila de la cotización, así que si una carrera actualiza `ratesJson`, la
+compra sale en `409` y no a una cifra que nadie vio.
+
+Hay dos residuos:
+- **SDX-D-3 (Media):** la misma `rate_id` usada por dos envíos (M-5, NO MEDIDO) y la `P2002` en `providerShipmentId`.
+- **SDX-D-9 (Baja):** un `500` en `quote` por un upsert concurrente.
+
+### 1.4 Lo que traen v1.80.12.1…v1.80.12.5
+- **La dirección escrita a mano (§19.25): no abre una clase nueva de inyección.**
+  - Hacia Skydropx el cuerpo sale por `JSON.stringify` y el PDF lo genera Skydropx, no nosotros.
+  - En nuestros sumideros: React escapa; las plantillas de correo no llevan colonia, municipio ni estado (`grep` en
+    `modules/mail`: 0); el CSV de admin lee el snapshot por lista blanca de tres claves (`admin.service.ts:351,612`).
+  - Lo que sí amplía es la superficie de texto libre (colonia; municipio y estado cuando el CP no está en el
+    catálogo), con la misma falta de filtro de caracteres de control y bidi que ya tenían `line1` y `references` ⇒
+    **SDX-D-12 (Baja)**.
+  - Que una colonia mal escrita acabe en una compra rechazada falla de forma segura: `422`, el reclamo se deshace y
+    no hay compra.
+- **SKX-SEC-1: CERRADO EN CÓDIGO tal como lo pedí (opción (a)).**
+  - `shipment-address.service.ts:150-181`: los valores van a `ShipmentAddressRevision` y la bitácora guarda solo
+    `{addressVersion, changedKeys, revisionId}`, en la misma tx.
+  - `admin.service.ts:1606-1614`: el borrado suave purga las revisiones de los retiros (`userId`) **y** de los envíos
+    directos (`order.userId`).
+  - Hay FK en cascada (`schema.prisma:1564`).
+  - La prueba que pedí existe: PS-112 (`sdx-c-address.e2e-spec.ts:613+`) busca canarios en **toda** la tabla
+    `AuditLog` antes y después de anonimizar.
+  - Queda verificar PS-112 en la release, porque yo no corrí la integración.
+  - Residuos: **SDX-D-13 (Baja)**, porque los canarios no cubren los campos que ahora son texto libre, y **SDX-I-2
+    (Info)**, porque los invitados no tienen cuenta que anonimizar.
+  - Precondición de despliegue, sin cambio: `SELECT count(*) FROM "AuditLog" WHERE action='shipment.address_corrected'`
+    debe dar 0 en producción antes de M-65. Le toca a devops en la ventana; yo no lo medí.
+
+## 2. Hallazgos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-1** | **Media** | **Una compra con `error_detail` y con `data.id` se trata como rechazo y se pierde el id.** El contrato manda «`error_detail.error_code ≠ null` ⇒ rama de rechazo», y esa rama deshace el reclamo. El adaptador ya devuelve `providerShipmentId = data.id` **junto con** `error`. Si Skydropx creó el envío (y cobró, o cobra después: NO MEDIDO), la guía queda pagada y huérfana, y el envío vuelve a «preparado sin guía», listo para **una segunda compra**. Además, sin id el adaptador devuelve `providerShipmentId: ''`, un valor que no debe persistirse nunca. | §19.19.8 «Respuesta», §19.7 paso 9; `skydropx.adapter.ts:279-285` | **arquitecto** (norma: un id presente nunca se descarta) → backend |
+| **SDX-D-2** | **Media** | **El replay de la compra (§19.18.4 (3a), §19.7 paso 9) sigue en el contrato como rama condicional** («si PS-SBX-1 confirma `Idempotency-Key`»). PS-SBX-1 no se puede correr: no hay sandbox (`HECHOS.md:17`), y §19.19.18 prohíbe medirlo comprando dos veces. Además lo ejecutaría el **cron** `shipment-label-processing`, sin actor y sin dial. §19.21.6 dice «no se ejecuta», pero el texto normativo sigue invitando a construirlo detrás de una bandera. Construido, es una compra automática sin clic del dueño. | §19.18.4 paso 3(a), §19.7 paso 9, §19.10 (job), §19.21.6 | **arquitecto** (tachar (3a) sin condición) → backend |
+| **SDX-D-3** | **Media** | **`P2002` en `ShipmentRequest.providerShipmentId @unique` dentro de §19.7 paso 9: el diseño no dice qué hacer.** Es el caso M-5 (NO MEDIDO): dos envíos comparten `providerQuotationId` y `rate_id`, y Skydropx devuelve para el segundo el envío ya creado. Hoy acabaría en `500` con el reclamo puesto ⇒ `label_unknown` ⇒ `label/release` ⇒ compra otra vez, en bucle, y con un paquete sin guía. | §19.7 paso 9, §19.19.4 (M-5), `API_CONTRACT:23671` | **arquitecto** → backend |
+| **SDX-D-4** | **Media (NO MEDIDO)** | **El candado no tiene identidad de entorno.** `allowed` = `NODE_ENV=production ∧ !CI ∧ !JEST ∧ ALLOW_SPEND=true`. Un entorno de Railway que no sea producción (entorno de PR o duplicado) que herede las variables cumple las cuatro. Hoy solo está medido «marvelous-kindness / production» (`HECHOS.md:80-85`). Que Railway tenga entornos de PR o variables compartidas está NO MEDIDO. | `spend-gate.ts:28-33`; §19.19.7 | **devops** (medir y acotar); arquitecto si decide añadir `RAILWAY_ENVIRONMENT_NAME` al candado |
+| **SDX-D-5** | Baja | **`super_admin_only` ≠ «solo el dueño».** `HECHOS.md:48` dice «autorización explícita del dueño guía por guía». Cualquier cuenta `super_admin` compra, y el dueño puede crear más (STF-S1). Cuántas hay en producción: NO MEDIDO. | §19.19.7 | **humano** (decide); PO lo refleja |
+| **SDX-D-6** | Baja | **La compra no lleva una referencia nuestra.** El cuerpo de §19.19.8 no incluye `shipmentId` ni el número de pedido. «Liberar» (§19.18.4) exige una nota del tipo «lo comprobé en el panel», y la única forma de cuadrar es por destinatario. Un error humano ahí = segunda compra. | §19.19.8, §19.18.4 | **arquitecto** (mandar la referencia si la API lo admite, M-PRD-6/PG-1; mientras tanto, la pantalla de «Liberar» muestra destinatario, CP y la hora del reclamo) |
+| **SDX-D-7** | Baja | **Proxy: en el host de la API, el `Bearer` va a una ruta que elige el proveedor.** Solo es `GET` y solo se sirve si es PDF. Además, una lista **por host** no acota un bucket con estilo de ruta (`s3.amazonaws.com/<cualquiera>`) ni un comodín sobre un dominio compartido. No hay fuga de token (mutación 1). | `label-proxy.ts:50-55`, `provider-url.ts:24-54`; §19.19.9 | **arquitecto** (prefijo de ruta cuando PG-1 mida el host) · **devops** (⛔ comodines o hosts multi-inquilino sin prefijo) |
+| **SDX-D-8** | Baja (aceptada) | La compra se reintenta tras un `429` hasta 3 veces. Que un `429` no procese está NO MEDIDO y el soporte de `Idempotency-Key` también. Aceptado por diseño (la semántica HTTP lo respalda). | §19.19.3 (4); `skydropx-client.ts:361-372` | backend · **disparador:** el primer `429` en una compra en los logs ⇒ el arquitecto lo pasa a «en vuelo» |
+| **SDX-D-9** | Baja | Dos `quote` concurrentes del **mismo** envío que reciben el mismo `providerQuotationId` ⇒ `P2002` en el upsert ⇒ `500`. PS-95 solo cubre dos envíos distintos. No toca dinero (ver 1.3). | §19.19.4, PS-95 | backend |
+| **SDX-D-10** | Baja | Ni §19.7 paso 9 ni la matriz dicen a qué rama va `SkydropxMutationForbiddenError` lanzado **después** del reclamo. Es seguro que no salió nada a la red ⇒ debe deshacer el reclamo. Si cae en «en vuelo», el envío queda atascado hasta «Liberar» con nota y empuja a una liberación por costumbre. | §19.19.7, §19.7 paso 9 | backend (prueba) |
+| **SDX-D-12** | Baja | Los campos de texto libre de la dirección (ahora también colonia, municipio y estado) admiten caracteres de control C0/C1 y los de bidi (`U+202A–202E`, `U+2066–2069`). Un cliente puede hacer que en la ventana «Capturar guía» o en la etiqueta el texto se vea distinto de lo que se manda. Ya pasaba con `line1`/`references`. | `users.dto.ts:44-52`, `guest-checkout.dto.ts:30-60`, `address-rules.ts` (`requiredText`) | arquitecto (cota) → backend · deuda; **disparador:** el primer snapshot con esos caracteres o cualquier cambio en `address-rules.ts` |
+| **SDX-D-13** | Baja | Los canarios de PS-112 van solo en `recipientName`, `line1`, `line2` y `references`. Los campos que §19.25 volvió texto libre (`neighborhood`; `city`/`state` con el CP fuera del catálogo) no tienen canario. Hoy la bitácora solo escribe claves, así que es un riesgo de regresión, no un defecto. | `sdx-c-address.e2e-spec.ts:618` | backend |
+| **SDX-I-1** | Info | `label/cancel` es operador+ y no mira el dial de compra: un operador puede cancelar la guía que compró el dueño. No gasta (devuelve saldo), pero lo que no se reembolsa (¿el seguro?) es NO MEDIDO (SEC-SDX-11). | §19.8 | **humano** (¿cancelar también solo el dueño?) |
+| **SDX-I-2** | Info | Las revisiones de dirección de un **invitado** (sin cuenta) no se purgan nunca, igual que su `shippingAddressSnapshot`. Es coherente con la retención vigente. | `admin.service.ts:1610-1612` | se reabre si se define una política de retención o llega una solicitud ARCO de un invitado |
+| **SDX-I-3** | Info | Si Railway pusiera `CI` en el runtime, la primera compra del dueño saldría `409 allow_spend` (falla cerrado). NO MEDIDO. Se ve en PG-1. | `spend-gate.ts:30` | devops (en PG-1) |
+
+## 3. Condiciones antes de construir D2c, escritas como pruebas que deben fallar
+
+Cada una con su mutación roja demostrada, en la copia del árbol entero con su sha. La de carrera va con N ≥ 10 y
+proporción.
+
+| # | Prueba que debe fallar hoy (o con la mutación) | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|
+| **C-1** | Escenario: el doble responde `2xx` con `data.id='sdx-1'` y `error_detail.error_code='X'`. Esperado: (a) el reclamo **no** se deshace; (b) `providerShipmentId='sdx-1'` queda persistido (o la fila queda «en vuelo» con ese id) con alerta y bitácora `label_failed` que **lleva el id**; (c) un segundo `POST …/label` ⇒ **0** llamadas a `purchase`. Escenario aparte: `error` sin id ⇒ nunca se escribe `providerShipmentId=''` | tratar «id + error» como rechazo ⇒ (c) registra una segunda `purchase` | SDX-D-1 | arquitecto → backend |
+| **C-2** | Censo estático: `.purchase(` aparece en `backend/src/modules/shipments/` en **una sola** función (el verbo `label`), después del CAS del reclamo. En `recoverInFlightLabel`, el job `shipment-label-processing` y `label/release` aparece **0** veces. `.protect(` tiene **0** llamadores (`API_CONTRACT:84`). Prueba de conducta: el job, con un envío «en vuelo sin id», registra 0 `purchase` en el doble | añadir un replay de `purchase` en `recoverInFlightLabel` ⇒ rojo en el censo **y** en la conducta | SDX-D-2 | arquitecto (tachar (3a)) → backend |
+| **C-3** | Escenario: el envío A ya tiene `providerShipmentId='sdx-1'`, y la compra del envío B devuelve `sdx-1`. Esperado: **cero** `500`; A queda intacto; B no queda con un reclamo que «Liberar» suelte sin más (alerta `label_conflict` o la rama que norme el arquitecto); `label/release` sobre B ⇒ 0 `purchase` nuevas | dejar que la `P2002` suba ⇒ `500` | SDX-D-3 | arquitecto → backend |
+| **C-4** | `SkydropxMutationForbiddenError` después del reclamo (candado cerrado, con el dial y el rol abiertos) ⇒ `409 {missing:['allow_spend']}`, reclamo **deshecho** (`labelProcessingSince` NULL) y 0 peticiones en el transporte | mapearlo a «en vuelo» ⇒ `labelProcessingSince` queda puesto | SDX-D-10 | backend |
+| **C-5** | PS-98 completa, más dos filas: (i) un **segundo `super_admin`** con el dial en `super_admin_only` ⇒ `200` (documenta SDX-D-5 hasta que decida el humano; si decide «solo el dueño», la fila pasa a `403`); (ii) el dial cambia a `disabled` entre dos llamadas ⇒ la segunda responde `404` (la puerta se lee en cada llamada, sin caché) | quitar la comprobación de rol; cachear el dial | PS-98 | backend |
+| **C-6** | PS-73 con N ≥ 10 y barrera: 10 `POST …/label` simultáneos ⇒ **1** `purchase` en el doble en **10/10** rondas. Además: el doble tarda más de 30 s ⇒ «en vuelo», 1 sola llamada, y un `label` posterior ⇒ `in_progress` sin llamada | quitar `labelProcessingSince:null` del `where` del CAS | SDX-R4 | backend |
+| **C-7** *(antes de PG-1, no de D2c)* | Medición escrita en `DEVOPS_NOTES`: los entornos de Railway que no son `production` (PR, duplicados) tienen **0** variables `SKYDROPX_*`, `SKYDROPX_ALLOW_SPEND` está acotada al entorno `production` (no compartida) y los entornos de PR están desactivados o no heredan | — (es medición; si falla, el arquitecto añade la identidad de entorno al candado) | SDX-D-4 | devops |
+
+## 4. Deuda aceptada (no bloquea)
+- **SDX-D-7.** Disparador: PG-1 mide el host de `label_url`. Si es multi-inquilino o de estilo de ruta, el
+  arquitecto añade el prefijo de ruta antes de ponerlo en `SKYDROPX_URL_HOSTS`.
+- **SDX-D-8.** Disparador: el primer `429` en una compra.
+- **SDX-D-9** y **SDX-D-13.** Se cierran en la release.
+- **SDX-D-12.** Disparadores en la tabla.
+- **SDX-I-2.** Se reabre con una política de retención.
+
+## 5. Banderas para el humano
+1. **¿«Solo el dueño» o «cualquier súper-admin»?** (SDX-D-5) Hoy el sistema entiende lo segundo. Si en producción
+   solo existe su cuenta `super_admin`, es lo mismo; si hay otra, no. NO MEDIDO.
+2. **¿Puede un operador cancelar una guía que compró el dueño?** (SDX-I-1)
+3. Antes de operar con dinero real en Skydropx, la fase completa de la release (pentester + seguridad sobre D2
+   construido) y PG-1 con el saldo medido antes y después. Que se recomiende un pentest de terceros y bug bounty
+   antes de dinero real sigue vigente para la tienda en general.
+
+---
+
+# VEREDICTO BLUE TEAM — **STF «Usuarios de back-office sin correo»** (v1.80.9 + v1.80.9.1, M-63) **y pase RETROACTIVO de la PR #69** (precios y reembolsos, `aab55abe..da3e8ae2`) · SHA **`b688bb5d`** (rama `claude/staff-sin-correo`) · 2026-10-04
+
+> ## VEREDICTO 1 — Stream STF: **APROBADO** sobre `b688bb5d`
+> **0 críticos · 0 altos · 0 medios.** 1 Baja (`STF-P1`, **aceptada** como deuda, abajo) + 1 Baja propia (`STF-S1`, aceptada, decisión del dueño) + Info.
+> El código auditado es el del pentest: `git diff --stat 8adefd6a b688bb5d -- backend frontend` = vacío (los dos commits posteriores son solo docs).
+>
+> ## VEREDICTO 2 — PR #69 retroactivo (ya en producción): **APROBADO**
+> **0 críticos · 0 altos · 0 medios.** 1 Baja (`R69-1`) + Info. Ninguna condición de código.
+> **Hallazgo de PROCESO `PROC-69` (dueño: orquestador):** la PR #69 se publicó sin fase de seguridad (incumple CLAUDE.md, flujo paso 7 y DoD). Este pase lo repara a posteriori. Sin red team sobre #69: lo mío es revisión de código más dos mutaciones medidas, **no** un pentest en vivo de ese delta.
+>
+> **Lo que medí yo (2026-10-04, copia `git archive b688bb5d` en scratchpad, BD `tcg_sec_s5`; la copia ya está borrada):**
+> - Unitarias: `stf.staff-without-email`, `stf.errata-v1-80-9-1`, `refund-review`, `admin-orders.list-review-columns`, `admin.user-audit`, `reset-admin-password.username` ⇒ **6/6 suites, 87/87**.
+> - Integración contra `tcg_sec_s5`: `shipped-refund-reason.e2e-spec` + `staff-without-email.e2e-spec` ⇒ **2/2 suites, 63/63**.
+> - **Mutación A** (#69): quité `@MoneyOut()` de `POST /admin/orders/:id/shipped-refund-reason` ⇒ `shipped-refund-reason.e2e-spec` **ROJA** (1 rojo: «operador 403 auditado»). El candado muerde. Es determinista (no hay carrera), así que N=1 basta.
+> - **Mutación B** (STF): `AuditedSuperAdminGuard` admite también a `vault_operator` ⇒ integración **ROJA** (STF-3 y STF-15) y unitaria **ROJA** (2/33). El candado muerde.
+> - Dependencias: `git diff aab55abe HEAD -- {backend,frontend}/package*.json` = vacío ⇒ ningún delta toca dependencias. `npm audit` **NO RE-MEDIDO** en este pase.
+> - Secretos: `git grep` de `sk_live|sk_test|whsec_` con 10+ caracteres en `backend/src`, `frontend/src` y `backend/prisma` ⇒ 0.
+
+## Parte A · Stream STF: consolidación del red team (`PENTEST_NOTES` «PASE STF … 8adefd6a»)
+
+| Id | Sev. red team | Mi decisión | Base en código |
+|---|---|---|---|
+| `STF-P1` username en `AuditLog user.create` tras anonimizar | Baja | **Confirmado. Baja. ACEPTADO** (no se arregla ahora; razones y disparador en «Deuda aceptada») | `admin.controller.ts:203-204` escribe `after.username`. Ningún código reescribe ni borra `AuditLog`: `grep auditLog\.(update\|delete)` en `src/` da 0 resultados. |
+| `STF-P2` rutas de seguimiento sin `@RequireEmailVerified` | Info | **Confirmado, no explotable.** Los cinco puntos de entrada de dinero sí llevan la guarda (`orders.controller.ts:32,65,77`, `shipments.controller.ts:21`, `buylist.controller.ts:111`); el seguimiento se decide por titularidad. | `email-verified.guard.ts`: `hasEmail === false` ⇒ 403 antes de mirar `emailVerified`. `hasEmail` sale de la BD (`jwt-auth.guard.ts`, `select … email`), no del token. |
+| `STF-P3` `/auth/register` responde `EMAIL_TAKEN` | Info | **Confirmado. Viene de antes y queda fuera del delta.** El staff no tiene correo, así que no es enumerable por esta vía. | — |
+| `STF-P4` `X-Forwarded-For` y throttle por IP | Info | **Confirmado.** El candado C7 va por cuenta (blindIndex del identificador), no por IP. Devops mantiene `trust proxy = 1`. | `password-attempts.service.ts` `passwordAttemptKeysForUser` |
+
+### Lo que revisé yo (lo que el red team no cubrió o cubrió solo desde fuera)
+- **M-63:** los cinco CHECK son el respaldo correcto. El regex del CHECK (`^[a-z][a-z0-9._-]{2,29}$`) es el mismo literal que `USERNAME_CANONICAL_REGEX` (`credentials.ts`). `checkUsername` re-aplica el regex al final, así que nunca deja pasar algo que el CHECK convertiría en 500. La migración no hace backfill y su reversa está documentada.
+- **Login:** con `@` busca por `email` y sin `@` por `username` (`auth.service.ts:login`). Un username no puede contener `@`, así que **no hay colisión de cubo** entre una cuenta con correo y una sin él. El dummy argon2 corre siempre (medido en vivo por el red team). `isLoginIdentifier` no valida la forma del username: es intencional para que el formato no decida el código de respuesta (cero oráculo).
+- **`forgot-password`:** busca **solo** por `email` y exige `user.email`, así que un username nunca emite token.
+- **Alta (`createUser`):** el staff **no** puede traer correo (422 `staff_without_email`) y siempre nace con `mustChangePassword` a `true`. La unicidad la decide el índice (`P2002` sobre `username` ⇒ `USERNAME_TAKEN`). Asignación masiva cerrada (medido en vivo por el red team).
+- **`AuditedSuperAdminGuard`:** falla en cerrado (sin metadato o con otro rol ⇒ 403). La bitácora es best-effort, pero el rechazo no depende de ella. Corre antes de los pipes. Mutación B: muerde.
+- **Cambio de rol:** no existe ruta que mute `role` ni `email`/`username` (`admin.controller.ts` solo tiene `@Patch(':id/kyc')` y `@Patch(':id/status')`; `UpdateMeDto` no tiene `email`). Los CHECK `user_customer_has_email`/XOR no se pueden romper por API. Que el rol se lea del token (pre-existente) no abre ventana, porque el rol es inmutable.
+- **`login-attempt.store` `peekLockMs`:** lectura sin efectos. En modo degradado lanza `LoginAttemptStoreUnavailableError` **sin** `markDown`, así que una lectura del panel no cambia por dónde decide el login. `lockedUntilOf` solo traduce esa clase; cualquier otro error se propaga (TD-9).
+- **Aviso de candado sin correo:** `updateMany where {id, email:null}` cumple el CHECK 5 por construcción. `POST /users/me/lock-notice/dismiss` filtra por `userId` del token (sin IDOR).
+- **Script de rescate:** `ADMIN_EMAIL` y `ADMIN_USERNAME` a la vez ⇒ error sin cambios. Prisma lo parametriza. Rechaza cuentas que no son staff. Exige contraseña ≥ 12. Con `email: null` no escribe `emailVerified` (CHECK 4). Incrementa `tokenVersion` en la misma escritura. Nunca imprime la contraseña.
+- **`customerEmailOrBlank`:** si I-STF-1 está rota, devuelve `""` más `logger.error`. El log lleva `userId`, **no** PII. Correcto.
+- **Anonimización (`admin.service.ts` `deleteUser`, soft):** anula `username` y `lockNoticeAt`, y vuelve a anonimizar el correo, cumpliendo los CHECK 1 y 5.
+
+### Hallazgos propios del stream STF
+- **`STF-S1` · Baja · un `super_admin` puede restablecer la contraseña de OTRO `super_admin` (incluido el dueño) y recibe la temporal en claro.** Ubicación: `admin.service.ts` `resetPassword` (no compara el rol del destino) + `createUser` (admite `role: super_admin` con username). Una segunda cuenta `super_admin` creada por el dueño puede tomar la del dueño: reset ⇒ temporal ⇒ login. Mitigaciones existentes: queda auditado (`user.reset_password`); `tokenVersion++` expulsa al dueño, que lo nota; y el `super_admin` ya puede mover dinero, así que no es escalada. El contrato v1.80.9.1 lo prevé a propósito («reset de súper-admin sin correo desde Usuarios por otro súper-admin»). **Decisión: ACEPTADO** mientras haya **un solo** `super_admin` humano. **Disparador:** el día que exista un segundo `super_admin`, el arquitecto decide si `reset-password` sobre un `super_admin` exige confirmación por correo del destino o queda solo para el script de rescate. Dueño: arquitecto → backend.
+- **`STF-S2` · Info · bloqueo por intentos contra staff con username adivinable.** Con 5 fallos en 60 s cualquiera bloquea a `ana` desde fuera. Pasaba igual con correos; un handle corto se adivina más fácil. Lo mitiga la vía por dispositivo conocido (`viaDevice`) y el reset del dueño. No requiere acción; se anota para que ux-ui recomiende usernames no triviales en el alta (opcional).
+
+### Decisión sobre `STF-P1`: **ACEPTAR, no arreglar ahora**
+- Lo que queda es un **handle interno de back-office** (no correo, ni nombre legal, ni RFC/INE/CLABE) dentro de una bitácora **append-only** por diseño.
+- `before/after` **no salen por ninguna API**: `audit.service.ts:107-117` («before/after NUNCA se seleccionan») y `settings.controller.ts:233-241` seleccionan solo `id/actor/action/entity/createdAt`. Solo se lee con acceso directo a la BD.
+- Conservar quién existió y con qué rol es el propósito legítimo de la bitácora de altas. Reescribir `AuditLog` abriría una excepción a su inmutabilidad, y eso cuesta más que lo que protege.
+- **Disparadores (cualquiera reabre el hallazgo, dueño backend):** (1) una ruta o exportación empieza a devolver `before/after`; (2) llega una solicitud ARCO de cancelación de un ex-empleado; (3) se define una política de retención de `AuditLog`. **Regla para backend desde hoy:** ninguna fila nueva de bitácora lleva más identidad que `username`/`hasEmail`.
+
+## Parte B · Duda N-6 de ux-ui (Skydropx, `claude/skydropx-d` DESIGN_SYSTEM:24160 / API_CONTRACT §M4-SHIP.19.20 paso 6 y fila «seguridad»): qué hace la anonimización con las filas de bitácora que guardan direcciones
+
+**Medido hoy en `b688bb5d`:**
+1. **La anonimización NO toca `AuditLog`.** Ningún `auditLog.update`/`delete` en `src/`. Lo que se escriba en `before/after` es **permanente**.
+2. El soft-delete (`admin.service.ts` `deleteUser`) borra `Address`, `BillingProfile` y `PortfolioSnapshot`, anula RFC/razón social/claves de INE/CLABE, pero **conserva** `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` como registro económico (decisión previa).
+3. El proyecto **ya tiene la norma contraria**: `buylist.controller.ts:172` y `admin-buylist.controller.ts:473` auditan **solo `addressId`**: *«Un domicilio en la bitácora es PII que nadie va a purgar»*.
+
+**Conclusión:** tal como lo especifica §M4-SHIP.19.20 paso 6 (`before/after` con los **valores** de las claves cambiadas), cada corrección dejaría el domicilio viejo y el nuevo de un cliente **en una bitácora que nunca se purga**, contra la norma vigente. **`SKX-SEC-1` · Media si se construye así · condición del gate de seguridad de la release de Skydropx** (no bloquea este stream, porque Skydropx no está construido). Dueño: **arquitecto** (contrato) → backend. Opciones, a decidir por el arquitecto:
+- (a) la bitácora guarda **solo las claves** cambiadas + `addressVersion` + actor, y el valor viejo vive en una tabla de revisiones ligada al `ShipmentRequest` que la anonimización **purga o redacta**; o
+- (b) `before/after` cifrados con una clave por sujeto (crypto-shredding al anonimizar).
+- Además, la prueba de la release debe medir: anonimizar al cliente ⇒ cero domicilios legibles en `AuditLog` para sus envíos.
+
+## Parte C · PR #69 retroactivo (`git diff aab55abe da3e8ae2 -- backend frontend`)
+
+**Revisado y correcto:**
+- **Autorización de dinero:** `POST /admin/orders/:id/refund` y `POST /admin/orders/:id/shipped-refund-reason` llevan `@MoneyOut` (el operador recibe 403 auditado; mutación A muerde). `PUT /admin/settings` es de clase `@Roles(super_admin)` (`settings.controller.ts:19`). `refundReviews` vale `null` para `vault_operator` (`admin.service.ts` dashboard).
+- **Carreras de dinero:** el corte «ya salió» se lee **bajo** `FOR UPDATE` de todos los envíos (`lockShipmentsOfOrder`). M3 y `onFullRefund` usan el mismo predicado (`isShippedOut`). El motivo exige `sealedNow ∧ afterShipment` como invariante. `recordShippedRefundReason` hace `FOR UPDATE` + CAS `where {fullRefundAfterShipment:true, shippedRefundReason:null}` + bitácora en la misma tx; el mismo motivo ⇒ idempotente, otro ⇒ 409. Ni Stripe, ni libro, ni piezas.
+- **Liberar piezas (`releaseReservedOfUnsettledRefund` + barrido):** solo con estado **bajo candado** ∈ `SETTLEABLE` (`pending|failed`) o `refunded ∧ settledAt IS NULL` (releído bajo `FOR UPDATE` en el barrido). CAS por pieza `where {status:'reserved', reservedByOrderId: orden}` (nunca suelta legadas ajenas). Movimiento solo con `count === 1`. Un `succeeded` tardío sobre `refunded` no liquida (`settleable-order-statuses.ts`), así que no hay doble venta de una pieza liberada. M3 tx1 exige `settled`, así que la liberación por M3 solo actúa sobre la anomalía SRF-11.
+- **Bitácora de precios + CAS `claimListed`:** el CAS del `PATCH` publicante condiciona `status` **y** `listPriceCents` leídos, en la misma `$transaction` que la fila `inventory.item_updated` (si la bitácora falla, no se publica). `listPriceCents` va como `@IsInt @Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`inventory.dto.ts`).
+- **Dial `premiumFloorSalePublish`:** validador estricto (claves desconocidas ⇒ error, `mode` cerrado, `rarities` solo canónicas premium, sin duplicados ⇒ tamaño acotado). Una fila inválida en BD ⇒ `mode:none` (retiene todo) + `logger.error [MONEY]`. La compra no lo lee (`BUY_PREMIUM_FLOOR_POLICY`).
+- **Cola de publicación y barrido VQ en «Publicar todo»:** el barrido solo cierra filas `open ∧ context='inventory'` con `reason` nulo o `premium_at_floor` (lo repite el `where` de la escritura). Falla de forma segura. El deep-link filtra `context:'inventory'`.
+- **Inyección:** todo `$queryRaw` nuevo es plantilla etiquetada (parametrizada). Ningún `$queryRawUnsafe`.
+- **DTOs:** el listado de M3 descarta las cinco columnas crudas del motivo (`admin-orders.list-review-columns.spec`, verde). `fullRefundReview.recordedBy` = `{id, name}`, sin correo.
+- **Frontend:** `parseFinalPrice` convierte pesos → centavos con aritmética entera sobre texto (`isSafeInteger`, tope `MAX_LIST_PRICE_CENTS`). Ni `dangerouslySetInnerHTML` ni `innerHTML` en el delta. `RefundOrderDialog` solo envía `shippedReason` del enum; el servidor decide (400/409/422).
+
+**Hallazgos #69:**
+- **`R69-1` · Baja · `RefundDto.reason` sin `@MaxLength`** (`orders/dto/orders.dto.ts:23`). Va entero a `AuditLog.after.reason` (`order-refund.service.ts`, `order.refund`), acotado solo por el límite por defecto del body-parser de Express (~100 KB; `main.ts` no fija uno: medido con `grep`). Solo lo puede enviar un `super_admin` (`@MoneyOut`), así que es higiene, no ataque. La nota del motivo ya se recorta a 500. **Dueño: backend** (`@MaxLength(500)` o el tope que fije el arquitecto). Disparador: el siguiente cambio en `orders/dto`.
+- **`R69-2` · Info · `fullRefundReview.note` (texto libre del súper-admin) lo ve también `vault_operator`** en `GET /admin/orders/:id`. El operador ya ve el correo del comprador en M3, así que no hay exposición nueva. Si el dueño quiere notas «solo súper-admin», lo decide el arquitecto.
+- **`R69-3` · Info · `publish-all` (abierto a `vault_operator`) dispara ahora el barrido VQ global en cada llamada.** El costo está acotado por las filas abiertas de la cola. El throttle de ese verbo está **NO MEDIDO**. Sin acción salvo que el volumen crezca.
+- **`PROC-69` · proceso · dueño orquestador:** publicar sin fase de seguridad. Queda cubierto por este pase retroactivo, sin pentest en vivo de #69. **Bandera para el humano:** si quiere paridad completa, falta un pase del red team sobre `aab55abe..da3e8ae2` (prioridad baja: la revisión no encontró superficie nueva expuesta a cliente; todo el delta es back-office con `@MoneyOut`/`super_admin`).
+
+## Deuda de seguridad aceptada (este pase)
+| Id | Sev. | Impacto | Disparador | Dueño |
+|---|---|---|---|---|
+| `STF-P1` | Baja | El handle del staff persiste en `AuditLog.user.create` tras borrar o anonimizar | API/exportación de `before/after`; solicitud ARCO de un ex-empleado; política de retención de `AuditLog` | backend |
+| `STF-S1` | Baja | Un `super_admin` puede tomar la cuenta de otro `super_admin` por `reset-password` | Que exista un segundo `super_admin` humano | arquitecto → backend |
+| `R69-1` | Baja | `reason` sin tope en la bitácora (solo súper-admin) | Siguiente cambio en `orders/dto` | backend |
+
+## Banderas para el humano
+- `SKX-SEC-1`: la corrección de dirección de Skydropx, tal como está especificada, deja domicilios **para siempre** en la bitácora. Se decide en el contrato antes de construir.
+- Sigue pendiente un pentest de terceros + bug bounty antes de operar a escala con dinero real y PII (INE/CLABE), igual que en los veredictos anteriores.
+
+---
+
+# VEREDICTO BLUE TEAM — **FRENTE B · PAQUETE DINERO** (tope del bounty · SEC-SETTLE-LATE · SSL-R1 · SK-5 · guardarraíl BG · errata v1.80.2.1) · SHA **`a3cde51`** (rama `claude/paquete-dinero`) · 2026-09-29
+
+> ## VEREDICTO — **APROBADO** sobre `a3cde51` (con una condición de PROCESO, no de código)
+>
+> **0 críticos · 0 altos · 0 medios abiertos.** 2 Bajas + 3 Info, todas no bloqueantes, registradas abajo.
+> **Condición de proceso:** `docs/PENTEST_NOTES.md` **no tiene pase del red team sobre este rango** (último pase de
+> dinero: Bounties Q1+Q2 sobre `2a2a9ed7`). Este veredicto es solo blue team. Por `CLAUDE.md` §7 la fase de seguridad
+> del **release** exige pentester + seguridad; antes de promover a `production`, un pase del pentester sobre este
+> SHA (o el candidato de release que lo contenga) con foco en el ciclo cotización→solicitud→oferta con bounty topado.
+
+**Alcance.** Commits `c77ebc8`, `2fb61f1`, `a1095df`, `5776f74`, `aff3bb1`, `a3cde51` (código en `common/money.ts`,
+`buylist.service.ts`, `variant-pricing.ts`, `admin-bounties.service.ts`, `payments.service.ts`,
+`settleable-order-statuses.ts`, `pricing.service.ts`, `admin.service.ts`, `admin-vaults.service.ts`, `vault.service.ts`).
+Medido: `git diff --stat 7d96f50 a3cde51 -- '*.controller.ts' backend/prisma` ⇒ **vacío**: ningún controller, guard,
+DTO de entrada ni schema cambió en el rango.
+
+**Lo que medí yo (copia del árbol ENTERO `git archive a3cde51`, ruta propia de scratchpad, 2026-09-29):**
+- Unitarias del rango: `money.bounty-cap`, `pricing.bounty-cap`, `pricing.bounty-guard`, `pricing.premium-floor-guard`,
+  `payments.settle-late`, `payments.settle-cas`, `pricing.valuation-key`, `pricing.valuation-callers-census`,
+  `src/modules/payments` ⇒ **9/9 suites, 148/148 verdes** (N=1; deterministas, sin carrera).
+- **Mutación** (alias + spread, ver SEC-DIN-2) en `variant-pricing.ts`: el candado léxico «ningún
+  `quoteAcquisitionFromCurve(m, curve, controles)` fuera de money.ts» **siguió verde** (esquivado, confirmado); la prueba
+  de conducta BG-6 consola **se puso roja** (muerde). N=1, determinista. Copia restaurada y verificada con `diff`.
+- **NO MEDIDO por mí:** las integraciones con Postgres (BC/BG/SL/VK e2e); las acepto como reporte de backend
+  (`BACKEND_NOTES` §0.55–§0.57 y «SK-5»).
+
+## 1. Las preguntas del encargo, una a una
+
+**1.1 ¿Se puede hacer que la tienda pague de más con el tope del bounty?** — **No.** `bountyPayoutCents`
+(`common/money.ts:258`) es `min(bounty, mercado)` con mercado presente ⇔ `> 0`; si no, el bounty. Para toda entrada,
+pago_nuevo ≤ pago_anterior (antes pagaba el bounty completo): el cambio es **monótono hacia pagar menos**.
+- *Manipular el mercado al alza* (fuente externa de baja liquidez): el techo sube como máximo **hasta el bounty**
+  que fijó `super_admin`; nunca por encima. *A la baja*: paga menos al vendedor (daño al vendedor, no a la tienda), y
+  en chase premium con curva en el bin la línea queda **retenida** (BG) en vez de pagarse.
+- *Borrar el mercado* (H-1: ausente o `<= 0`) ⇒ paga el bounty completo = decisión del dueño (`HECHOS.md`), y es el
+  mismo monto que ya pagaba antes de v1.80. Ver SEC-DIN-5 (Info).
+- *Rareza:* no entra al monto (criterio 84); `bountyGuardBasis` no recibe rareza; `premiumFloorGuard` solo puede
+  **suprimir** el precio (`pricing-curve.ts:566,592`).
+- *Acabado/producto elegido por el vendedor:* acabado validado contra la carta (`buylist.service.ts:1115`); en la rama
+  `productId` el override/bounty **no aplica** (`effectiveOverride = null`, `:1111`). El bounty es por variante.
+- *Carrera cotización→solicitud→oferta:* la oferta **re-deriva** con la curva vigente por `decideBuyLine`
+  (`buylist.service.ts:3514`, `:3603`); el pago sale de `offeredPriceCents`. Un mercado que baja entre cotizar y
+  ofertar baja la oferta. El camino legado (`offerSentAt IS NULL`) sigue acotado a `quoted × 2` + tope AML
+  (`:5880`, `:5915-5930`): con quote topado, la cota es menor. Un override del operador sobre línea retenida pide motivo
+  y, sobre el tope de operador, queda `pending_authorization` (`:3505-3507`; sin cambio en el rango).
+- *Vitrina/cotizador/consola:* los tres usan el mismo `bountyPayoutCents` con el mismo mercado; la vitrina filtra
+  retenidas antes de ordenar/cortar (`:1336-1346`). El número publicado es el que se paga.
+
+**1.2 ¿Liquidación tardía / doble pago?** — **Cerrado.** `SETTLEABLE_ORDER_STATUSES = ['pending','failed']`
+(`payments/settleable-order-statuses.ts:21`), lista positiva y cerrada contra el enum (`schema.prisma:168-174`: 5
+valores, los 3 restantes no liquidan). El early-return (`payments.service.ts:211`) es su negación exacta y el CAS usa
+la misma constante en las dos ramas (`:278`, `:438`). Un `succeeded` tardío sobre `refunded`/`chargeback` ⇒ 0
+escrituras, 0 avisos. Un reembolso concurrente gana por el CAS (re-evaluación del `WHERE` bajo READ COMMITTED). El
+reembolso propio exige `settled` (`admin-orders.controller.ts:239`, `@MoneyOut`). Idempotencia por
+`ProcessedStripeEvent` sin cambio. `failed` sigue liquidable (prueba 38 (ii)): correcto, el dinero entró.
+
+**1.3 ¿Algún camino esquiva el guardarraíl? ¿El candado léxico es explotable desde entrada externa?** — **No es
+explotable desde fuera; es riesgo de desarrollador** (SEC-DIN-2). La entrada externa (`/buylist/quote`, `/batch`,
+`/requests`) no elige qué función se llama ni aporta los controles: el override/bounty se lee de BD
+(`VariantPriceOverride`, escritura solo `super_admin`, `pricing.controller.ts:196-197`); mercado y acabado se derivan
+del servidor (SEC-A1). Los dos llamadores con controles (`buylist.service.ts:1128`, `variant-pricing.ts:182`) usan
+`quoteAcquisitionWithGuard`; los otros dos llamadores de `quoteAcquisitionFromCurve` pasan **2 argumentos**
+(`buylist.service.ts:1322,1343`, `variant-controls.service.ts:508`) y no pueden devolver `bounty`.
+
+**1.4 ¿El sellado se valúa con dos llaves distintas en algún lector?** — **En los seis lectores de patrimonio +
+`sealedTab`, no:** todos pasan por `valuationKeyFor`/`valuationCentsOf` (`pricing.service.ts:2895-2934`). Venta de
+sellado (checkout `orders.service.ts:284-296`, catálogo, publicación `inventory.service.ts:1440,1599`) usa
+`sealedMarketGradeKeyForItem` + `normal` + `gateSealedMarketCents` = misma llave y mismo gate. **Excepción:** el
+export `.xlsx` (SEC-DIN-1).
+
+**1.5 Autorización de los endpoints tocados** (sin cambios de guard en el rango; leída la clase):
+`GET /buylist/bounties` público, sin PII, emite el pago; `GET /admin/pricing/bounties` `super_admin`
+(`admin-bounties.controller.ts:63-64`); `/admin/finance/inventory-value|custody-value` `super_admin`
+(`admin.controller.ts:425-442`); `/admin/vaults` y ficha 360° `vault_operator|super_admin`; `GET /vault/holdings/:id`
+con chequeo de dueño antes de valuar (`vault.service.ts:513`). `tcgplayerProductId` entra a `select` pero no a DTO
+(por lectura).
+
+## 2. Hallazgos (priorizados)
+
+### SEC-DIN-1 · **Baja** · El export `.xlsx` de inventario valúa el sellado con otra llave (séptimo lector fuera de SK-5)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:3286-3299` (`exportGradeKey`) y su uso `:3205-3214`,
+  `:3249-3258` (refKey con `it.finish`, sin gate de dial).
+- **Qué:** sellado **sin mapeo** ⇒ `tryBuildGradeKey` = `'sealed'` (fila legada: puede ser el precio de **otra caja**
+  anclada a la misma `Card`); sellado **mapeado** ⇒ busca con `it.finish` en vez de `normal` (columna vacía si difiere)
+  y sin `gateSealedMarketCents` (el dial `off` no apaga `tcgcsv`). El override de venta también se busca bajo `'sealed'`.
+- **Evidencia:** por lectura (backend lo reportó en «SK-5 · Discrepancias 1»; yo lo confirmé en el código de `a3cde51`).
+  **NO MEDIDO por HTTP.**
+- **Impacto:** solo lectura, solo inventario de plataforma, solo `vault_operator|super_admin`; ningún import lo
+  relee (`git grep` sin lector de `.xlsx`). No mueve dinero; puede inducir a un operador a fijar a mano un precio con un
+  mercado ajeno. No explotable externamente.
+- **Dueño:** backend (el arquitecto decide si entra al censo como lector de `valuationKeyFor`). **Disparador:** antes de
+  que el export se use para decisiones de precio de sellado, o en la próxima pasada por `inventory`.
+
+### SEC-DIN-2 · **Baja** · El candado de forma de BG es léxico: alias o `...args` lo esquivan (confirmado por mutación)
+- **Dónde:** `backend/test/pricing.bounty-guard.spec.ts:278-300`.
+- **Evidencia:** mutación en copia (`import { quoteAcquisitionFromCurve as qa }` + `qa(..._args)` con controles en
+  `variant-pricing.ts`) ⇒ «ningún `quoteAcquisitionFromCurve(m, curve, controles)`» **verde**; BG-6 consola **roja**. N=1,
+  determinista. Es decir: para los llamadores **conocidos** muerde la prueba de conducta; un **llamador nuevo** con alias
+  no lo vería ninguna de las dos.
+- **Impacto:** no explotable desde entrada externa (ver 1.3). Riesgo de regresión del desarrollador, cubierto hoy por
+  revisión (lo declara el contrato, `API_CONTRACT.md:12696-12697`).
+- **Dueño:** backend. Endurecimiento sugerido (no obligatorio): convertirlo en candado de **tipos**, p. ej. que
+  `quoteAcquisitionFromCurve` exportada no acepte controles y la de tres argumentos sea privada de `money.ts`.
+  **Disparador:** el siguiente llamador de COMPRA nuevo.
+
+### SEC-DIN-3 · **Info** · SSL-R1 (piezas `reserved` de una orden `refunded` sin liquidar) — confirmo Baja, no bloqueante
+- Ya registrado en `docs/TECH_DEBT.md` (SSL-R1, `a1095df`) con dueño, comprobación y disparador. Solo alcanzable con
+  un reembolso desde el panel de Stripe sobre una orden `pending` (el nuestro exige `settled`). Riesgo: inventario
+  atrapado, no dinero. **NO MEDIDO por mí:** si un `charge.dispute.created` sobre una orden aún `pending` deja el mismo
+  residual; que el dueño de SSL-R1 lo incluya al cerrarlo.
+
+### SEC-DIN-4 · **Info** · Con SK-5 el mapeo de sellado ya valúa bóvedas de CLIENTE; `applyToSiblings` cruza dueños
+- `sealed-pricing.controller.ts:36-37,112` (`super_admin`, auditado). Por lectura de backend (**NO MEDIDO** por mí):
+  `applyToSiblings` copia el mapeo a piezas sin mapear de **cualquier dueño** con el mismo `(cardId, sealedSubtype)`.
+  Un mapeo equivocado cambia el patrimonio que ve el cliente y el pasivo de custodia. No mueve dinero. Dueño: backend
+  (confirmar que cada pieza hermana queda en `audit.log`).
+
+### SEC-DIN-5 · **Info** · El techo del bounty depende de que exista mercado
+- Sin mercado (caída de fuente, dato `<= 0`) se paga el bounty completo (`money.ts:258`). Es decisión del dueño y no
+  paga más que antes de v1.80; se deja para que sepa que un apagón de la fuente de precios **quita el techo** de todos
+  los bounties a la vez. Mitigación existente: tope de operador y AML en la oferta.
+
+## 3. Deuda de seguridad aceptada (este rango)
+| Id | Sev. | Impacto | Dueño | Disparador |
+|---|---|---|---|---|
+| SEC-DIN-1 | Baja | Export muestra mercado de otra caja para sellado sin mapeo | backend | Uso del export para precio de sellado / próxima pasada por `inventory` |
+| SEC-DIN-2 | Baja | Un llamador nuevo con alias esquivaría el guardarraíl sin prueba roja | backend | Siguiente llamador de COMPRA |
+| SSL-R1 | Baja | Piezas atrapadas en `reserved` | backend + arquitecto | Primer reembolso desde el panel de Stripe |
+
+## 4. Banderas para el humano
+- **Falta el pase del red team** sobre este rango (condición del veredicto). Sin él la fase de seguridad del release no
+  está completa.
+- Sigue vigente la bandera de pentest de tercero + bug bounty antes de operar con dinero real a volumen.
+- SEC-DIN-5: si la fuente de precios cae, los bounties vuelven a pagar lo configurado. Es lo que decidiste; se nombra.
+
+## 5. Mínimo para mantener APROBADO
+Nada de código. Proceso: pase del pentester sobre el SHA del release que contenga `a3cde51`. Si ese pase abre un
+crítico/alto, este veredicto cae.
+
+---
+
+# VEREDICTO BLUE TEAM — **M4-PREP «Pedidos a preparar»** (reproyección de SOLO LECTURA de `GET /admin/shipments/picking-list`) · SHA **`5e6f2ee`** (rama `claude/m4-pedidos-preparar`) · 2026-09-22
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `5e6f2ee`
+>
+> **0 críticos · 0 altos abiertos** ⇒ el DoD («sin hallazgos críticos/altos abiertos») se cumple.
+> Quedan registrados abajo **1 Media** y **3 Bajas** como deuda de seguridad aceptada, cada una con
+> su disparador. **Nada de esto bloquea la fusión de este stream.**
+>
+> **Conclusión sobre el corte, con las palabras que el encargo pide:** *este stream **no introduce
+> riesgo nuevo de autorización, de inyección, de dinero ni de secretos**.* Lo que sí ensancha —y es lo
+> único que ensancha— es la **concentración de PII en una sola pantalla**, y eso está **decidido por
+> producto** (CA #6 de §S), **acotado por candados que muerden** y **no otorga ninguna capacidad nueva
+> a ningún rol**. Lo medido que sostiene cada mitad de esa frase está abajo.
+
+> ### Sobre qué sha emito el veredicto, y cómo medí
+> **`5e6f2ee`**, árbol **limpio** (`git status --porcelain` vacío, verificado antes y después de cada
+> mutación). ⚠️ **El red team midió `f835f19`**, que es **4 commits anterior**: `975a307` (sus propias
+> notas), `7b45d69` (contrato v1.78.3), `6018ee5` y `5e6f2ee` (§M4P-ORDER). **Ese delta NO lo atacó
+> nadie del red team y lo audito yo aquí** (§5 de «lo que revisé yo»).
+>
+> **Instrumento:** copia del árbol **ENTERO** (`git archive 5e6f2ee`, ⛔ no un subárbol — las suites
+> leen `docs/`) en scratchpad propio; BD y rol **propios** (`seg_m4`/`tcg_seg_m4`), creados y
+> **destruidos** al terminar. ⛔ Nunca toqué `tcg_marketplace`, `tcg_qa_*`, `tcg_m4prep*`,
+> `tcg_pentest_*` ni `tcg_orq_o9`; comprobé `pg_stat_activity` antes y después y la sesión viva de QA
+> (`qa_m4c`/`tcg_qa_m4c`, 2 conexiones) **sobrevivió intacta**. ⛔ No escribí una sola línea de código:
+> las mutaciones corrieron **sobre la copia** y se restauraron.
+>
+> **`[medido]`** = lo corrí yo sobre `5e6f2ee`. **`[código]`** = lectura del árbol. **`NO MEDIDO`** =
+> dicho así, con la medición que lo cerraría. Toda proporción lleva su **N** (O-3).
+
+---
+
+## Resumen: qué entra, con qué severidad, y quién lo corrige
+
+| ID | Hallazgo | Severidad **mía** | Sev. red team | Rol dueño | ¿Bloquea? |
+|---|---|---|---|---|---|
+| `S-M4P-A` | **NUEVO (mío)** · El guard de rol del endpoint que este stream volvió PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO** | **Media** | — (no lo buscó) | **backend** | **No** |
+| `S-M4P-B` | **NUEVO (mío)** · La cola de PII se sirve **sin `Cache-Control: no-store`**, contra el precedente del propio proyecto | **Baja** | — (no lo buscó) | **backend** | **No** |
+| `M4P-1` | El `409` de una fila corrupta niega la cola entera (y `GET /admin/shipments`) | **Baja** (confirmo) | Baja | backend (vía arquitecto) | **No** |
+| `M4P-2` | La cola se sirve completa, sin paginar, con `include` de 4 niveles | **Baja** (confirmo) | Baja | backend / devops | **No** |
+| `M4P-3` | `?destination=` refleja el valor del cliente en `message` (tope 64) | **Info** (confirmo) | Info | n/a — conducta ratificada | **No** |
+| `M4P-4` | La expansión de PII no es exposición de authz nueva | **Info** (confirmo el fondo, **corrijo un matiz**) | Info | n/a | **No** |
+| `M4P-5` | Nombre/destinatario en blanco aceptado por los DTO | **Info** (confirmo) | Info | backend (otro stream) | **No** |
+| `S-M4P-C` | **NUEVO (mío)** · La postura de dependencias `REL-D` está **CADUCA**; re-medida | **Info** | «NO RE-MEDIDO» | devops | **No** |
+
+---
+
+# PARTE 1 — Consolidación de los cinco hallazgos del red team (`M4P-1`..`M4P-5`)
+
+## `M4P-1` · El `409` de una fila corrupta niega la cola entera — **CONFIRMO Baja**, y **amplío el censo**
+
+**El red team dice:** el estado corrupto (`ShipmentRequest{status:'picking', orderId→Order.fulfillmentMode='vault'}`) **no es alcanzable por la API**; tuvo que sembrarlo con SQL directo. Censó los caminos de **creación** de `ShipmentRequest`.
+
+**Coincido — y cierro el eje que él NO censó.** Su censo mira cómo *nace* el envío; falta preguntar si la orden puede **cambiar de modo DESPUÉS** de que el envío exista. Es el camino obvio a la corrupción y no estaba medido. Lo medí `[código]`:
+
+- **Creación** (confirmo su censo): solo dos sitios crean `ShipmentRequest` con `orderId` —
+  `payments.service.ts:412` (dentro de `settleDirectShipOrder`, alcanzable **solo** por la rama
+  `direct_ship`) y `orders.service.ts:1554` (`reexpedir`, guardada en `:1499` con
+  `fulfillmentMode !== 'direct_ship' ⇒ 400`).
+- **⭐ Mutación posterior (eje nuevo):** censé **todos** los `order.update` / `order.updateMany` /
+  `upsert` del backend (17 sitios) y **NINGUNO escribe `fulfillmentMode`**. Comprobación:
+  `grep -rn -A6 "\.update(\|\.updateMany(\|\.upsert(" backend/src | grep fulfillmentMode` ⇒ **0
+  aciertos en código**. `fulfillmentMode` se fija **en la creación de la orden y nunca se reescribe**.
+
+⇒ **El estado corrupto es inalcanzable por las DOS puertas**, no solo por la que él miró. **Confirmo Baja** y confirmo que **no es condición de release**.
+
+**Candado verificado [medido]:** muté `kindForFulfillment` para que `vault` devolviera
+`'guest_direct_ship'` en silencio (tragarse la corrupción) ⇒ `shipments.picking-list.spec.ts` **1 roja
+de 102** (N=1; determinista, sin carrera ni temporizador). **La denuncia del invariante está
+guardada.**
+
+---
+
+## `M4P-2` · Cola sin paginar — **CONFIRMO Baja**
+
+Verificado `[código]`: `pickingList` hace `findMany` sin `skip`/`take`; el throttler es el global
+`default` (`app.module.ts:46`: `ttl 60_000, limit 300`) y **no hay `@Throttle` propio** en
+`backend/src/modules/shipments/` (grep ⇒ 0). Requiere credencial de operador válida y la cardinalidad
+la acota el nº de envíos pagados-sin-preparar. La lista plana anterior tampoco paginaba.
+
+**Matiz que añado:** la deuda `M4P-SORT` (`docs/TECH_DEBT.md`) ata una cosa a la otra — el cliente
+**re-ordena la lista completa**, y eso solo es correcto **mientras la cola no pagine**. Así que
+paginar no es solo una mejora de recurso: **arrastra la retirada de `sortPreparationOrders` /
+`sortPreparationItems` del cliente**. Quien tome `M4P-2` tiene que tomar las dos. **No bloquea.**
+
+---
+
+## `M4P-3` · Eco de `?destination=` — **CONFIRMO Info**, y respondo si la asimetría es defendible (pregunta 3 del encargo)
+
+**La asimetría es DEFENDIBLE, y no es deuda.** No es una omisión: es la postura estricta aplicada
+donde se estrena y la laxa congelada donde ya estaba publicada. Lo sostengo con cuatro mediciones:
+
+1. **No es vector de amplificación.** `ENUM_FILTER_ECHO_MAX = 64` acota el eco y **declara** lo
+   omitido (`…(+N)`). Una petición grande produce una respuesta **más pequeña** ⇒ **de-amplificación**.
+   **Candado verificado [medido]:** muté `echoSafe` para devolver el valor sin tope ⇒
+   `test/enum-filter.spec.ts` **4 rojas de 23** (N=1, función pura). El tope muerde.
+2. **No es XSS.** `Content-Type: application/json` + `helmet()` (`nosniff`), y en el cliente
+   **`grep -rn dangerouslySetInnerHTML frontend/src/` ⇒ 0 aciertos**: React escapa. El `<script>` viaja
+   como dato.
+3. **⭐ No es inyección de bitácora, y esto no lo había mirado nadie.** El valor del cliente **nunca
+   llega a un log**: `AllExceptionsFilter` **retorna en la línea 33** para toda `BusinessException`,
+   **antes** de cualquier `logger.*`; y no hay middleware de petición que registre la query
+   (`morgan`/interceptor ⇒ **0 aciertos** en `backend/src`). Sin sumidero, un `\r\n` en el valor no
+   forja nada.
+4. **Endpoint autenticado y con guard de rol** — a diferencia del caso que originó el tope (`P-89`,
+   catálogo `@Public()`).
+
+Y el eje `?date=` **no ecoa nada** por una razón de fondo, no por descuido: un enum tiene dominio
+cerrado y el eco ayuda a reconocer el *near-miss* del propio token (`holofil`→`holofoil`); **un día
+del calendario no es near-miss de nada enumerable**. §0-Q punto 2 prohíbe el eco a los ejes que nacen
+hoy, y `?date=` lo cumple. **La dirección de viaje es la correcta.** ⛔ Ninguna acción.
+
+---
+
+## `M4P-4` · La PII — **CONFIRMO el fondo**, pero **corrijo un matiz que el red team afirmó de más**
+
+**Lo que confirmo, y lo confirmo por código (él lo midió por HTTP; son dos fuentes, no una):** la
+reproyección **no otorga ninguna capacidad nueva a ningún rol**.
+
+- `toAdminShipmentRow` (`shipments.service.ts:231`) devuelve **`addressSnapshot` crudo**, y lo usan
+  **`adminList`** y **`adminGet`** (vía `withAdminKind`, `:641`). El operador **ya leía la dirección
+  completa** por `GET /admin/shipments` y `GET /admin/shipments/:id`, **mismo controlador, mismo
+  guard de clase**.
+- El guard **no cambió** en este stream: el diff de `admin-shipments.controller.ts` es **la firma del
+  handler y un docblock**; `@Roles(Role.vault_operator, Role.super_admin)` sigue a **nivel de clase**
+  (`:13`). **0 rutas nuevas, 0 cambios de guard** — verificado por mí sobre el diff, coincide con lo
+  que el orquestador midió.
+- **La cola es incluso MÁS ESTRECHA en un eje:** `withAdminKind` expone **`guestEmail`** al operador;
+  **`PreparationOrderDTO` NO lo lleva.** La reproyección **quitó** un campo de contacto.
+
+**⛔ El matiz que corrijo (afirmación de más del red team):** dice *«el `shipTo` solo se sirve para
+`destination='ship'`»*, y lo presenta como acotación. **Es cierto y es vacuo.** `destinationOf`
+(`:907`) devuelve `'ship'` en **las dos** ramas — `orderId == null` ⇒ `'ship'`, y con `orderId` la
+única salida no-lanzante es `'ship'`. El propio código lo declara (`:723`) y el E2E lo confirma
+(`?destination=vault` ⇒ **vacío**). ⇒ **el 100 % de las filas de esta cola llevan la dirección postal
+completa.** No es un defecto, pero **presentarlo como acotación es tranquilizar con una condición que
+siempre se cumple**, y la acotación real es otra: los candados de forma (abajo).
+
+**⭐ Y aquí está la mitad que el red team no pesó: la autorización no cambia, pero la EXPOSICIÓN
+INCIDENTAL sí.** Antes de este corte, la pantalla diaria del operador mostraba `{folio, ubicación}` —
+**cero PII**. Ahora esa misma pantalla, la que está abierta toda la jornada en una estación de
+almacén, muestra **nombre + calle + colonia + CP + teléfono de cada pedido pagado**. Los otros dos
+endpoints existían, pero son **otra pantalla y otro gesto**. Que la *capacidad* no crezca no
+significa que el *riesgo* no crezca: cambia la superficie de hombro, de captura de pantalla y de
+caché de disco (⇒ `S-M4P-B`). Esto **no es un defecto** —está decidido, ver abajo— pero **es el hecho
+central de este stream** y merecía nombrarse entero.
+
+### ¿Es coherente con la política de PII del dueño? (pregunta del encargo) — **SÍ, y está DECIDIDO**
+
+La política es: *las imágenes de INE las ve **solo** el súper-administrador, nunca el operador de
+bóveda.* Verificado que se sostiene `[código]`: `GET /admin/:id/kyc/ine-links` lleva
+`@Roles(Role.super_admin)` + `ActorThrottlerGuard` + `@Throttle(10/min)` + `Cache-Control: no-store` +
+`X-Robots-Tag` + auditoría **fallo-cerrado** (`admin.controller.ts:313-318`).
+
+**No es una asimetría que nadie decidió.** Son **dos clases de dato distintas** y la distinción es
+coherente:
+
+| | INE | Dirección de envío |
+|---|---|---|
+| Qué es | **documento de identidad** (KYC del vendedor) | **dato operativo del encargo** |
+| Para qué lo necesita el operador | **para nada** | **para meter la carta en la caja y rotular la guía** |
+| Quién la ve | solo `super_admin` | `vault_operator` + `super_admin` |
+
+Negarle la dirección a quien escribe la etiqueta del paquete no sería minimización, sería impedirle
+el trabajo. **Y está escrito como requisito de producto:** **CA #6 de §S** en `PROJECT.md:6607` —
+*«En destino envío, la cola muestra la dirección COMPLETA, con la calle»*, prioridad **ALTA**, estado
+*«construido y con prueba»*. ⇒ **decisión trazable, no deriva.**
+
+⚠️ **Pero con una salvedad que va a la bandera del humano:** §S está marcada
+**«RECONSTRUIDA v2.3 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). La decisión
+existe por escrito, pero **el documento que la registra es una reconstrucción que el dueño aún no ha
+re-aprobado**. Ver **BANDERA H-1**.
+
+---
+
+## `M4P-5` · Nombre/destinatario en blanco — **CONFIRMO Info**, pre-existente y fuera de alcance
+
+Verificado `[código]`: `guest-checkout.dto.ts:45` (`@IsString() @MaxLength(120)`, sin `@IsNotEmpty()`)
+y `auth.dto.ts:12-14` (`@MinLength(1)` sin `trim`). Confirmo su conclusión de que **no hay nada peor
+detrás**: la proyección normaliza el blanco a `null` (`nullIfBlank`) y la salida es JSON. Toca el
+checkout (más ancho que este stream). **backend, en su propio stream. No bloquea.**
+
+---
+
+# PARTE 2 — Lo que revisé yo (lo que el red team no buscó)
+
+## ⭐ `S-M4P-A` — **Media** · El guard del endpoint PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO**
+
+**Categoría:** defensa en profundidad / ausencia de candado sobre un control fallo-abierto.
+**Ubicación:** `backend/src/common/guards/roles.guard.ts:20` · `backend/src/modules/shipments/admin-shipments.controller.ts:13` · `backend/test/integration/preparation-queue.e2e-spec.ts:466-468`.
+
+**⛔ Esto NO es una vulnerabilidad abierta.** La conducta **hoy es correcta** y está medida por las dos
+partes: el red team la midió en vivo (cliente ⇒ `403`, anónimo ⇒ `401`) y yo verifiqué el decorador en
+código. **Lo que reporto es que nada lo sostiene mañana.**
+
+**El mecanismo, medido `[código]`:** `RolesGuard` **falla abierto** —
+
+```ts
+// roles.guard.ts:20
+if (!required || required.length === 0) return true;
+```
+
+Sin metadatos `@Roles`, **toda sesión autenticada pasa**. Lo único que separa a un `customer` de la
+dirección postal de todos los clientes es **un decorador de clase**.
+
+**El defecto real, MEDIDO por mí (y es el hallazgo):** retiré `@Roles(Role.vault_operator,
+Role.super_admin)` de `AdminShipmentsController` **sobre la copia** y corrí las suites:
+
+| suite | resultado con el guard RETIRADO | N |
+|---|---|---|
+| `test/integration/preparation-queue.e2e-spec.ts` (la del stream, contra Postgres real) | **14/14 VERDE** | 1 |
+| Suite unitaria **completa** del backend | **344/344 suites · 5666/5666 pruebas VERDE** | 1 |
+
+**Ni una sola prueba de las 5666 se entera de que el back-office quedó abierto a cualquier cliente
+autenticado.** (Deterministas: sin carrera ni temporizador ⇒ N=1 basta.)
+
+⚠️ **Honestidad sobre una roja intermedia:** en la primera corrida vi `pii-crypto.spec.ts` en rojo
+(8/24). **No era el mutante ni un defecto: era mi arnés** — las `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`
+aleatorias que yo inyecté. Con el guard **restaurado** seguía roja, y sin esas dos variables da
+**24/24 verde**. Re-corrí la suite entera con el entorno limpio y el mutante puesto ⇒ **5666/5666**.
+*Un falso rojo antes de un veredicto cuesta lo mismo que un falso verde.*
+
+**Por qué el candado que existe no cubre:** la única aserción de authz del stream es
+
+```ts
+// preparation-queue.e2e-spec.ts:466-468
+it('el guard sigue siendo el de siempre: sin sesión ⇒ 401', async () => {
+  const res: any = await h.api('GET', '/admin/shipments/picking-list');
+  expect([401, 403]).toContain(res.status);
+});
+```
+
+Mide **el caso anónimo**, que lo cierra `JwtAuthGuard` (ése **sí** es default-deny) — o sea, **mide el
+guard equivocado**: sigue verde aunque `@Roles` desaparezca. Además la aserción es **floja**
+(`[401,403]`, acepta cualquiera de los dos). Y no hay censo global que cubra: el fichero
+`auth-authz.e2e-spec.ts` solo toca `/admin/orders` y `/admin/finance/pnl` — **`/admin/shipments` no
+aparece**. El `clienteId` del spec se usa solo para **sembrar** filas, nunca para **pedir** con sesión
+de cliente.
+
+**Por qué Media y no Baja:** porque el reparto de modelos de `CLAUDE.md` dice que *«el modelo barato
+no toca pruebas ni candados, **solo código de producción**»* y que *«la prueba es el contrato entre
+los dos»*. Un decorador de clase **es código de producción**. En el punto exacto donde el proceso
+confía en que la prueba muerda, **la prueba no existe** — y el endpoint que protege es, desde este
+stream, **el más denso en PII del back-office**. La severidad no la da la explotabilidad de hoy (cero)
+sino el fallo-abierto sin red.
+
+**Nota de continuidad:** `SECURITY_NOTES.md:85` (pase anterior) ya observó que *«`RolesGuard` no es
+default-deny pero `JwtAuthGuard`, que corre antes, sí»*. **Esa tranquilidad solo cubre al anónimo.**
+Este hallazgo la refina: no cubre al **cliente autenticado**, que es el escenario que ahora vale PII.
+
+**Rol dueño: `backend`.** Mínimo para cerrar: una aserción de **`403` con sesión de `customer`** contra
+`GET /admin/shipments/picking-list` (y preferiblemente un censo que recorra los controladores `admin/`
+exigiendo `@Roles` presente). ⛔ **No bloquea este release** — la conducta está verificada correcta en
+`5e6f2ee` por dos partes independientes.
+
+---
+
+## `S-M4P-B` — **Baja** · La cola de PII se sirve **sin `Cache-Control: no-store`**
+
+**Ubicación:** `backend/src/modules/shipments/admin-shipments.controller.ts:45-48` (sin `@Header`).
+
+**El precedente es del propio proyecto, y es de este rol.** `admin.controller.ts:288` dice, textual:
+*«**`Cache-Control: no-store`** (hallazgo de `seguridad`): esta respuesta transporta […] así que no
+puede quedarse en una caché intermedia, en un proxy corporativo ni en el disco del navegador. El
+contrato ya exige `no-store` para `orders/guest/track`, que transporta **menos** que esto.»*
+
+`GET /admin/shipments/picking-list` transporta ahora **nombre + calle + colonia + CP + teléfono de
+cada pedido pagado, en una sola respuesta** — y **no lleva la cabecera**. `grep` sobre
+`backend/src/modules/shipments/` ⇒ **0 aciertos** de `Cache-Control`. Con el criterio que este
+proyecto ya aplicó a respuestas **menos** densas, ésta la merece.
+
+**Por qué Baja y no más:**
+- **Cachés compartidas quedan excluidas por transporte:** la autenticación es **Bearer** en
+  `Authorization` (`jwt-auth.guard.ts:36`), y RFC 9111 §3.5 prohíbe a una caché compartida almacenar
+  respuestas a peticiones con `Authorization` salvo permiso explícito (que aquí no se da).
+- El residual es la **caché privada del navegador** en disco. Express trae `etag` por defecto (no se
+  desactiva: el único `app.set` es `trust proxy`) y **sin `Cache-Control` el navegador puede aplicar
+  caché heurística** ⇒ PII en reposo en la estación del almacén, sin política de retención.
+- Explotarlo exige **acceso local al equipo del operador**.
+
+⚠️ **`NO MEDIDO`:** no he comprobado **en vivo** que un navegador concreto escriba esta respuesta a
+disco; el razonamiento es de código + RFC. **Medición que lo cerraría:** pedir la cola desde el
+navegador del operador y buscar el cuerpo en la caché de disco del perfil.
+
+**Es clase pre-existente** (`GET /admin/shipments` y `/:id` tampoco la llevan y ya exponían el
+snapshot), **pero este stream la agrava**: mueve el dato a la pantalla que está abierta toda la
+jornada. **Rol dueño: `backend`** (un `@Header('Cache-Control','no-store')` en el controlador; la
+decisión de extenderlo a los endpoints hermanos es la misma línea). **No bloquea.**
+
+---
+
+## `S-M4P-C` — **Info** · La postura de dependencias `REL-D` estaba **CADUCA**. Re-medida
+
+**Respondo a la pregunta 5 del encargo: el red team declaró las dependencias «NO RE-MEDIDO» y dijo que
+valía `REL-D` «porque el corte no la mueve». Su conclusión acierta; su razonamiento NO, y había que
+mirarlo.** `npm audit` no cambia cuando cambia el *lockfile*: cambia cuando se publican **avisos
+nuevos**. El lockfile está congelado; **la base de avisos no lo está**. Verifiqué primero que los
+manifiestos no se tocan (`git diff --name-only` sobre `package.json`/`package-lock.json` en
+`c7c58aa..5e6f2ee` ⇒ **vacío**) y **re-corrí igualmente**.
+
+**Medido por mí `[medido]` sobre `5e6f2ee` (`npm audit --package-lock-only --omit=dev`):**
+
+- **frontend: `found 0 vulnerabilities`** — limpio, como decía `REL-D`.
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — **el mismo número que `REL-D`**…
+
+…**y ahí está la trampa: el número coincide pero el contenido NO.** `REL-D` afirma que *«las cinco
+cuelgan de **`qs`**»* y presenta a `@nestjs/core` como mera **vía de propagación**. Hoy son **tres
+avisos distintos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | ¿Aplica a esta app? |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` 6.15.3 | sí | ver abajo |
+| **`GHSA-4mjr-xmp4-gh2g`** — *DoS vía `isBuffer` controlado* (CVE-2026-82417) | `qs` 6.15.3 | **NO** | **NO alcanzable** |
+| **`GHSA-36xv-jgw5-4q75`** — ***Injection*** en `@nestjs/core` (CVE-2026-35515) | `@nestjs/core` 10.4.22 | **NO** (no como aviso propio) | **NO aplica** |
+
+**Y las dos nuevas son inocuas AQUÍ — medido, no supuesto:**
+
+- **`@nestjs/core` (CVE-2026-35515)** es **inyección en SSE**: `SseStream._transform()` no sanea `\r`/`\n`
+  en `message.type`/`id`. **Requiere que la app exponga un `@Sse()`.** Medido:
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos en
+  ambos**. **La app no tiene ni un endpoint SSE** ⇒ la ruta vulnerable **nunca se instancia**.
+- **`qs` (CVE-2026-82417)** exige `plainObjects:true` o `allowPrototypes:true` en el parseo **y** un
+  ida-y-vuelta `parse`→`stringify`. Medido: `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src`
+  ⇒ **0 aciertos**, y **no hay importación directa de `qs`**. Express va con sus opciones por defecto
+  (ninguna de las dos activada) ⇒ **no alcanzable**.
+
+⇒ **La POSTURA de `REL-D` (no bloqueante) sigue siendo válida; su DESCRIPCIÓN está caduca.** El gate
+de CI no se mueve: `security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y estos tres
+son `moderate`. **Rol dueño: `devops`** — refrescar la ficha de `REL-D` con los tres avisos y su
+alcance real, y anotar que **`@nestjs/core` 10.x no recibe el parche** (el aviso se corrige en
+`11.1.18`; `npm` propone `12.0.4`, cambio **rompedor**) ⇒ el salto de mayor de NestJS es decisión de
+ventana ordinaria, **no de este release**.
+
+> **Lección, dicha entera:** si me hubiera quedado en «5 moderate, igual que antes ⇒ vale `REL-D`»,
+> habría ratificado una ficha falsa con un número que coincidía **por casualidad**. El conteo agregado
+> de `npm audit` **no es una huella**: dos avisos entraron y la suma no se movió.
+
+---
+
+## Lo demás que revisé de este stream, y que **RESISTIÓ** (control positivo)
+
+Nombro lo que miré aunque no produjera hallazgo — un informe que solo lista defectos no dice qué
+quedó sin mirar.
+
+- **⭐⭐ Los candados de FORMA de la PII muerden — y esto es lo que de verdad acota el ensanche.**
+  Tres mutaciones mías sobre la copia (N=1 cada una, deterministas):
+
+  | Mutación | Resultado |
+  |---|---|
+  | Añadir `guestEmail` a `order.select` **y** `email` a `user.select` de la cola | **1 roja / 102** (`:324-325` congela las columnas cargadas) |
+  | Añadir un **décimo campo** (`taxId`) a `shipTo` | **4 rojas / 102** (el `toEqual` del `shipTo` + el censo de blancos) |
+  | Tragarse la corrupción en `kindForFulfillment` | **1 roja / 102** |
+
+  ⇒ **Ensanchar la PII de esta cola no se puede hacer en silencio**: ni cargando una columna nueva de
+  `Order`/`User`, ni añadiendo una clave nueva al `shipTo`. Es la mejor noticia del pase y equilibra
+  el hecho central de `M4P-4`: la concentración creció, **pero está encerrada**.
+- **`?date=`** — confirmo el control que el red team midió: gramática `DATE_ONLY_RE` **importada**
+  (⛔ no una tercera copia) + comprobación **ida y vuelta** que cierra el desbordamiento de calendario
+  (`2026-02-30` ⇒ `400`, ⛔ no `200` del 2-mar). `details:{field:'date'}` **sin eco**. Sólido.
+- **Inyección:** `pickingList` usa Prisma con `where` tipado; **0 `$queryRaw`** en el módulo. El único
+  valor de cliente que toca la consulta es `date`, ya validado contra `RegExp` + calendario;
+  `destination` muere contra la whitelist **antes** de tocar Prisma.
+- **§M4P-ORDER (pregunta 4 del encargo) — miré, y NO hay nada de seguridad.** El comparador es
+  `A.label < B.label ? -1 : A.label > B.label ? 1 : 0` (`:1088`) sobre `Array.prototype.sort`: sin
+  `RegExp` (⇒ **sin ReDoS**), sin recursión, sin acceso indexado por clave de usuario (⇒ **sin
+  contaminación de prototipo**), y es un **orden total y consistente** (`unassigned` siempre al final)
+  ⇒ no hay entrada que lo haga divergir ni lanzar. Sobre el `label` sin `MaxLength` que el encargo
+  señala: **`@IsString()` está en `box`/`row`/`slot` (`inventory.dto.ts:165-167`), no en `label`** —
+  `label` **no es escribible directamente**, se **deriva** (`inventory.service.ts:3331`:
+  `` `${dto.box}-${dto.row}-${dto.slot}` ``). Sin cota, un `label` largo es un amplificador de la
+  cola… **pero solo lo escribe `@Roles(vault_operator, super_admin)`** (`inventory.controller.ts:88`),
+  **exactamente el mismo rol que lee la cola** ⇒ no hay cruce de privilegio, y el cuerpo va acotado por
+  el límite por defecto de `express.json()` (~100 kB). **Higiene de entrada, no seguridad**; cae bajo
+  `M4P-2`. **Cambiar el comparador no movió ninguna superficie.**
+- **Sin PII en bitácoras:** los únicos `logger.*` de `shipments.service.ts` registran **identificadores
+  y el modo** (`:685`) o *«no recipient email»* (`:1578`) — **ningún valor de dirección, nombre o
+  teléfono** viaja a un log (grep de `logger.*` cruzado con `address|phone|recipient|fullName|postal`
+  en todo `backend/src` ⇒ solo mensajes de *ausencia*, sin el dato).
+- **Sin secretos en el diff** (el repositorio es **PÚBLICO**): `git diff c7c58aa..5e6f2ee` filtrado por
+  `sk_live|sk_test|pk_live|whsec_|AKIA|BEGIN .* PRIVATE KEY|password=|secret=|api_key=` ⇒ **0
+  aciertos**. Las fixtures del mock son sintéticas y evidentes (`Ash Ketchum`).
+- **Transporte y cabeceras, sin cambios y correctos:** `helmet()` activo; **CORS por allow-list** desde
+  `APP_BASE_URL`, ⛔ nunca `origin:true` (`main.ts:16-23,62`); `ValidationPipe` global con
+  `whitelist:true`.
+- **Cliente:** `grep` de `localStorage|sessionStorage|persistQueryClient|indexedDB` sobre el camino de
+  esta cola ⇒ **la PII vive solo en la caché en memoria de React Query**, no se persiste. La cubeta y
+  la fecha **no viajan en la URL** ⇒ sin fuga por `Referer`. `AdminShell` re-comprueba el rol en el
+  cliente (`ADMIN_ROLES`) como defensa en profundidad, reconociendo que **el servidor es la
+  autoridad**.
+- **Suites del stream, verdes sobre `5e6f2ee` [medido]:** unitaria backend **344/344 suites ·
+  5666/5666**; integración `preparation-queue.e2e-spec.ts` **14/14** (Postgres real, BD propia);
+  frontend M4 + `preparation-order` **76/76**.
+
+### Pregunta 2 del encargo — ¿el `shipmentId` del `409` en pantalla es aceptable? **SÍ**
+
+Tres cosas, medidas:
+
+1. **¿Enumerable?** **No.** `ShipmentRequest.id` es `@default(uuid())` (`schema.prisma:1265`) —
+   **v4, generado por el servidor**, no adivinable ni secuencial. Y el atacante **no elige cuál se le
+   revela**: sale el de la fila corrupta, un estado que (ver `M4P-1`) **él no puede provocar**. No hay
+   oráculo: sin fila corrupta no hay `409`, y la fila corrupta no es inducible por la API.
+2. **¿Registra ese identificador en un log que salga de la máquina?** `this.logger.error` (`:685`)
+   escribe el `shipmentId` a **stdout**. En el repositorio **no hay ningún sumidero externo**:
+   `grep -rniE "sentry|datadog|logtail|newrelic|opentelemetry|winston|pino|splunk|elastic"` sobre
+   `backend/src` y `backend/package.json` ⇒ **0 aciertos**; tampoco hay *log drain* configurado en
+   `railway.json`, `vercel.json`, `docker-compose.yml` ni en los workflows. ⇒ **no sale a un tercero.**
+   Queda en el recolector de la plataforma (Railway captura stdout), que es **bitácora operativa
+   interna** y contiene un **identificador**, ⛔ no PII. ⚠️ `NO MEDIDO`: si Railway reenvía a algún
+   destino configurado **fuera del repositorio** — lo cerraría **devops** revisando los ajustes del
+   proyecto en Railway.
+3. **¿Aceptable en pantalla?** **Sí.** Va en un `<details>` **cerrado**, tras el guard de rol, y lo ve
+   **quien ya puede leer ese envío entero** por `GET /admin/shipments/:id`: **no revela nada que el
+   lector no pudiera pedir**. Se pinta con interpolación JSX ⇒ **React escapa** (0
+   `dangerouslySetInnerHTML` en todo `frontend/src`). El único extra es el **nombre del enum**
+   (`vault`), información de esquema interno para un rol interno. El candado `PR-14` fija que vaya al
+   cajón y ⛔ no al título. **Ninguna acción.**
+
+---
+
+# Deuda de seguridad ACEPTADA (registro que el DoD exige)
+
+Ninguna bloquea. Cada una con **impacto** y **disparador** — una deuda sin disparador es una intención.
+
+| ID | Impacto si no se toca | Disparador: cuándo deja de ser aceptable | Dueño |
+|---|---|---|---|
+| **`S-M4P-A`** (Media) | Un cambio futuro en `admin-shipments.controller.ts` puede abrir el back-office a cualquier cliente autenticado **sin que ninguna prueba lo note** | **El PRIMERO de:** (a) el próximo cambio que toque ese controlador o sus guards; (b) que se encargue trabajo de este módulo al **modelo barato** (el reparto de `CLAUDE.md` presupone que la prueba muerde, y aquí **no existe**); (c) el próximo release | **backend** |
+| **`S-M4P-B`** (Baja) | PII (nombre+dirección+teléfono) puede quedar en la caché de disco de la estación del operador, sin retención | **El PRIMERO de:** (a) que la cola se use en un equipo compartido o no gestionado; (b) que se añada cualquier campo nuevo de PII a la cola; (c) el próximo toque del controlador — es una línea | **backend** |
+| **`M4P-1`** (Baja) | Una fila corrupta (hoy **inalcanzable por la API**, por las dos puertas) tumbaría la cola y `GET /admin/shipments` hasta limpieza manual | Que aparezca **cualquier** camino de escritura que fije `Order.fulfillmentMode` **después** de crear la orden, o un `FulfillmentMode` nuevo. Degradar por fila cambia conducta fijada ⇒ **pasa por arquitecto** (regla 9) | backend (vía **arquitecto**) |
+| **`M4P-2`** (Baja) | Amplificación autenticada; techo 300 req/min heredado | Que la cola crezca a un tamaño que moleste, **o** que se pagine — y si se pagina, **hay que retirar el orden de cliente a la vez** (`M4P-SORT`) | backend / devops |
+| **`M4P-5`** (Info) | Dato de baja calidad (nombre en blanco); ya normalizado a `null` en la salida | Cuando se toque el checkout o el registro | backend (otro stream) |
+| **`S-M4P-C`** (Info) | Ficha de dependencias que **describe mal** la exposición real | **devops** refresca `REL-D`; el salto `@nestjs/core` 10→11/12 se decide en ventana ordinaria (⛔ no en este release) | devops |
+| **`M4P-3`** (Info) | Ninguno — conducta ratificada, tope con candado | ⛔ Ninguno. Si alguien enciende `echoValue` en un eje nuevo, `test/enum-filter.spec.ts` se pone rojo y la salida es **arquitecto**, no apagar el test | n/a |
+
+---
+
+# Banderas para el humano
+
+**H-1 · Confirma CA #6 cuando re-apruebes §S, y hazlo a sabiendas.**
+La dirección postal **completa** (calle, colonia, CP, teléfono) en la cola diaria del operador de
+bóveda está **decidida por escrito** — CA #6 de §S, `PROJECT.md:6607`. Pero §S está marcada
+**«RECONSTRUIDA v2.3 · PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). De los 12 CA de
+§S, **CA #6 es el único que ensancha la exposición de datos personales a un rol menos privilegiado**.
+Mi juicio técnico es que **es coherente** con tu política de INE (documento de identidad ⇒ solo
+súper-administrador; dato de envío ⇒ quien rotula la caja), y **no** es una asimetría accidental.
+**Lo que te pido no es que cambies nada, sino que esa línea la confirmes tú explícitamente**, porque
+hoy se apoya en una reconstrucción y no en una frase tuya.
+*Si quisieras minimizar sin perder la operación, la opción existe y es de producto, no de seguridad:*
+*el **recoger** las cartas del archivero no necesita la dirección — la necesita el **rotular**. Mostrar*
+*nombre+ciudad al recoger y la dirección completa al generar la guía daría el mismo trabajo con menos*
+*PII en pantalla. ⛔ No lo propongo como defecto ni como condición: es tuyo y de producto.*
+
+**H-2 · Antes de operar con dinero real: pentest de tercero + bug bounty.**
+Se mantiene la bandera de pases anteriores y **no la levanta este stream**. Todo lo medido aquí lo
+hizo el equipo (rojo y azul) **sobre local**, y `HECHOS.md` registra que **no hay staging: solo
+producción**, y que la tienda sigue **en modo prueba de Stripe sin ninguna venta real**. Este stream
+**no toca dinero** (cero Stripe, cero escritura, cero schema — verificado por mí), así que **no mueve
+esa bandera en ninguna dirección**; solo dejo constancia de que sigue abierta.
+
+**H-3 · Custodia y PII: validación legal pendiente (no técnica).**
+El producto custodia bienes de terceros y trata **INE y CLABE**. Un aviso de privacidad, la base
+legal del tratamiento, la **retención** (cuánto tiempo vive un `addressSnapshot`) y los derechos ARCO
+**no son cuestiones que este rol pueda cerrar**: son de asesoría legal. Lo señalo porque `S-M4P-B`
+roza justo eso — PII sin política de retención en la caché de un equipo — y porque el snapshot de
+dirección, por diseño (§5.2), **no se reescribe nunca**.
+
+**H-4 · Un apunte de proceso, porque afecta a lo que puedes confiar de estos informes.**
+El red team midió **`f835f19`**; el árbol que apruebo es **`5e6f2ee`**, cuatro commits después.
+Esta vez el delta era pequeño y lo audité yo (§M4P-ORDER: sin superficie de seguridad). **Pero el
+patrón —el pentester mide un sha y el release sale con otro— ya apareció en un pase anterior** (el de
+bounties Q1+Q2 dice textualmente que el blue team aprobó un delta que *«el red team NO había
+atacado»*). Vale la pena que la fase de seguridad se corra **sobre el sha que se publica**, o que el
+delta se declare explícitamente como aquí. No es un hallazgo del producto; es del proceso.
+
+---
+
+# VEREDICTO
+
+## ✅ **APROBADO** — `5e6f2ee` (rama `claude/m4-pedidos-preparar`)
+
+**Por qué:** el DoD exige **«sin hallazgos críticos/altos abiertos»**. Hay **0 críticos y 0 altos**,
+medidos por las dos mitades de la fase (red team sobre `f835f19` + este pase sobre `5e6f2ee`, con el
+delta auditado). Lo abierto —**1 Media (`S-M4P-A`)** y **3 Bajas (`S-M4P-B`, `M4P-1`, `M4P-2`)**—
+queda **registrado y aceptado arriba con su disparador**, que es exactamente lo que el DoD pide para
+lo aceptado.
+
+**Y lo digo con las palabras que el encargo pide:** *este stream **no introduce riesgo nuevo**.*
+Lo que mediste tú y re-medí yo lo sostiene: **0 ficheros de `prisma/migrations` y 0 de
+`schema.prisma`** (`git diff --name-only c7c58aa..5e6f2ee -- backend/prisma/` ⇒ **vacío**), **0 rutas
+nuevas** (el diff del controlador es la firma de un handler y un docblock), **0 cambios de guard**,
+**0 escritura**, **0 Stripe**, **0 dependencias**. La superficie de autorización, de inyección, de
+transporte y de secretos queda **idéntica**. La única superficie que ensancha de verdad es **la
+densidad de PII en una pantalla**, y ésa (a) **no otorga capacidad nueva a ningún rol** —el operador
+ya leía ese mismo `addressSnapshot` por dos endpoints hermanos del mismo controlador y guard—,
+(b) está **decidida por producto** (CA #6 de §S) y (c) está **encerrada por candados que verifiqué que
+muerden** (1, 4 y 1 rojas en tres mutaciones).
+
+⛔ **Ninguna de las dos aportaciones mías (`S-M4P-A`, `S-M4P-B`) es condición para fusionar.** Las dos
+son **ausencias de red**, no agujeros: la conducta que protegen está **verificada correcta en este
+sha** por dos partes independientes. Reportarlas como bloqueantes sería inventar un bloqueo para
+justificar el pase.
+
+### Mínimo necesario si alguna vez se RECHAZARA (no es el caso hoy)
+Solo pasaría a **RECHAZADO** si apareciera **un crítico o un alto abierto**. Hoy no hay ninguno.
+Lo más cercano a un bloqueo futuro es **`S-M4P-A`**, y su cierre es barato y concreto:
+
+1. Una prueba que pida `GET /admin/shipments/picking-list` con **sesión de `customer`** y exija
+   **`403`** (⛔ no `[401,403]`). Canario: retirar `@Roles` del controlador **debe** ponerla roja.
+2. *(Recomendado, no exigido)* un censo que recorra los controladores bajo `admin/` y exija `@Roles`
+   presente — cierra la **clase**, no el caso. `RolesGuard` **falla abierto** y hoy nada vigila esa
+   puerta a nivel de repositorio.
+
+### Ruteo de lo abierto
+- **backend:** `S-M4P-A` (candado de authz — el más valioso), `S-M4P-B` (`no-store`), `M4P-5` (en su
+  propio stream).
+- **backend vía arquitecto (regla 9):** `M4P-1`, si alguna vez se quiere degradar por fila en vez de
+  rechazar entera — el contrato **prohíbe** hoy degradar (§M4-PREP v1.78.2 punto 2).
+- **devops:** `S-M4P-C` (refrescar la ficha `REL-D` con los tres avisos y su alcance real; decidir el
+  salto de mayor de NestJS en **ventana ordinaria**), y cerrar el `NO MEDIDO` de los reenvíos de
+  bitácora de Railway.
+- **arquitecto (informativo, ⛔ no de este stream):** el desbordamiento de calendario **sigue vivo** en
+  `common/admin-list-filters.ts` (`?from=`/`?to=` de `/admin/buylist` y `/admin/orders`):
+  `from=2026-02-30` filtra por el **2 de marzo** con `200`. `shipments.service.ts` lo cerró con la
+  comprobación ida-y-vuelta; **sus hermanos no**. Lo reporta ya el propio código (`:816`) y lo ratifico:
+  **misma clase, otros endpoints, fuera del alcance de este corte.**
+- **⛔ Nada para `frontend`** en este pase.
+
+---
+# NOTA DE RESIDUALES ACEPTADOS — **DECKS-META FASE 2 · AUTO-FETCH (fix pass)** · rama `claude/be-decksmeta-f2` · 2026-09-19
+
+> **Autoría:** escrita por **backend** por indicación del orquestador (el detalle vive en
+> `docs/specs/DECKS_META_F2_AUTOFETCH.md §12`); **seguridad** conserva el veredicto formal del release.
+> Fase 2 pasó los tres gates (QA/techlead/seguridad) sin bloqueantes; este fix pass endurece hallazgos
+> MEDIA/nits y deja registrados los residuales aceptados.
+>
+> - **[CORREGIDO · anti-SSRF]** El cliente de fetch pasó de `redirect:'follow'` (validaba `res.url`
+>   *después* de seguir el 3xx — hueco de blind-SSRF sobre una superficie de egress nueva) a
+>   `redirect:'manual'`: ante un 3xx valida el `origin` del `Location` contra el allowlist **antes** de
+>   seguirlo y **rechaza off-host sin traerlo**, con cota de saltos. Cubierto por
+>   `backend/src/modules/decks-meta/limitless-fetch.client.spec.ts`.
+> - **[ACEPTADO · DNS-rebinding]** Host FIJO (`https://limitlesstcg.com`, no controlado por entrada);
+>   sin secretos ni red interna alcanzable ⇒ residual aceptado, sin pin de IP.
+> - **[ACEPTADO · single-flight en memoria]** Suficiente a **`numReplicas:1`** (`railway.json` /
+>   `DEVOPS_NOTES §20.3`, worker BullMQ in-process). El lock de advisory en BD para multi-instancia
+>   queda **DIFERIDO**, gateado detrás de separar el worker por §20.3.
+> - **[NO ALCANZABLE · `nth-check@2.1.1`]** Aviso de ReDoS es `<2.0.1`; la transitiva es **2.1.1**
+>   (parcheada) y los selectores CSS son **estáticos** ⇒ ruta no alcanzable.
+>
+> Correcciones de correctitud del mismo pase (no de seguridad): `MetaFetchRun.deckCount` = arquetipos
+> persistidos reales; `note` siempre JSON válido dentro del cap; `GET /admin/decks-meta/preview`
+> ahora auditado (egress a un tercero); log de discrepancia de `formatCode` (gana el `<h2>`, §2.1).
+
+---
+
+# VEREDICTO BLUE TEAM — **DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin)** · SHA **`d77eb699`** (rama `feat/decks-meta`, no-ancestro de `main`) · base `origin/production` no medida · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** para `d77eb699`
+>
+> **No queda ningún hallazgo CRÍTICO ni ALTO abierto.** Las cuatro superficies de riesgo del encargo
+> (fuga de inventario/dinero, autorización, inyección/DoS, no-fabricación) están cerradas por
+> construcción. Quedan **dos hallazgos MEDIOS/BAJOS** en la ROTACIÓN de legalidad —accountability y
+> atomicidad—, ambos **no explotables** (siguen tras `@Roles`) y **no bloqueantes**; se registran y se
+> enrutan a **backend**. Revisado sobre worktree detached anclado a `d77eb699`.
+>
+> ### Eje 1 — Fuga de inventario / dinero en `unitInventoryItemIds`: **LIMPIO**
+> Una pieza solo llega a `unitInventoryItemIds` si pasa **cuatro compuertas encadenadas**, todas
+> medidas en código:
+> - **Casada** (`decks-meta.service.ts` `buildLine`): `matchStatus === 'matched' && matchedCard`. Lo
+>   no casado, la energía básica y lo ambiguo devuelven `card:null, legal:false, unitInventoryItemIds:[]`.
+> - **Legal en Standard HOY** (`isLegalStandardNow`, `common/standard-legality.ts`): `regulationMark ∈
+>   activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`; **fail-closed** si
+>   `regulationMark == null`. Una carta ROTADA se marca `legal:false` y **no aporta piezas ni precio**
+>   (`buildLine` y `listPublished` — `if (!legal) continue`). La legalidad es **derivada en lectura**
+>   contra la config vigente, no un booleano persistido ⇒ la rotación aplica en vivo sin backfill.
+> - **Vendible/publicada** (`CatalogService.getSellableRawUnitsByCardIds` → `fetchSellable` →
+>   `singlesPublishedWhere`): `ownerType='platform' AND status='listed' AND productType<>'sealed'`,
+>   y solo filas con `dto.sellable && listPriceCents != null`. Esto **excluye inventario de otro dueño**
+>   (`OwnerType.customer`, consignación) y todo lo no disponible (`reserved/in_custody/sold/…`).
+> - **Raw NM** (`RAW_CONDITIONS = ACCEPTED_RAW_CONDITIONS`, `common/business-rules.ts`): solo
+>   `productType==='raw'` con `rawCondition ∈ {NM}` (decisión de `PROJECT §H`, vigilada por
+>   `enum-values-parity.spec.ts` — no derivada del enum, así un futuro `LP/MP` no se cuela solo).
+>
+> **Precio:** `availableQty = min(quantity, units.length)`; `unitPriceMxnCents` = precio de la pieza
+> más barata ofrecida (`offered[0].priceMxnCents`) o `null` si no hay stock. El monto es `P` (con IVA,
+> el mismo que exhibe la ficha), copiado bajo la **proyección NEUTRA `DeckMetaUnitDTO
+> {inventoryItemId, priceMxnCents}`**: ⛔ **no** viaja el token `displayPriceCents` ni `referenceValue`
+> ni `source/isManualOverride/priceBasis`. El censo money-safe `iva-derivacion-cableada` sigue acotado
+> a `catalog.service.ts`. **No hay fuga de costo/margen ni de metadata interna de precio** — esto
+> evita, en esta superficie, el vector P48-M1 de PENTEST_NOTES (metadata de `referenceValue` en ruta
+> anónima). No se ofrece precio de nada rotado, no vendible, no NM ni de otro dueño.
+>
+> **`paste`/`:slug` no exponen datos internos:** `GET /decks-meta` y `GET /decks-meta/:slug` filtran
+> `published:true, pausedByOperator:false` (un borrador o un deck pausado **no** es alcanzable por slug
+> público); `slug` es `@unique`. Los campos expuestos son de presentación (nombre, rank, share, trend,
+> imagen, fuente, `matchStatus`, `cardId`, `inventoryItemId`, precio `P`). Sin PII, sin owner, sin
+> costo. `decks-meta` **no reserva ni compromete dinero** — solo devuelve ids disponibles+legales; el
+> carrito/checkout re-valida en `orders` (confirmado en el docstring del módulo).
+>
+> ### Eje 2 — Autorización: **LIMPIO**
+> Cadena global de guards (`app.module.ts`, `APP_GUARD` en orden): `AppThrottlerGuard → JwtAuthGuard →
+> PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`.
+> - **`JwtAuthGuard` default-deny**: toda ruta sin `@Public()` exige Bearer válido (HS256 fijo,
+>   anti-algorithm-confusion), re-valida cuenta activa y `tokenVersion` contra BD (revocación viva).
+> - **Los tres controllers admin llevan `@Roles(vault_operator, super_admin)` a NIVEL DE CLASE**;
+>   `RolesGuard` lee `getAllAndOverride([handler, class])` ⇒ aplica a **todos** los métodos. Un cliente
+>   (`role=customer`) recibe `403 FORBIDDEN`; sin token, `401`.
+> - **`PUT /admin/config/standard-legality` (la ROTACIÓN, el control más sensible)** vive en
+>   `AdminStandardLegalityController`, también `@Roles(vault_operator, super_admin)` a nivel de clase.
+>   **Un cliente NO puede tocarla.** (Nota de diseño, no defecto: el contrato la abre a `vault_operator`
+>   además de `super_admin`; coincide con `admin-decks-meta.controller.ts` y `ARCHITECTURE §7`.)
+> - El controller público marca `@Public()` por método (`list`, `bySlug`, `paste`); ninguna ruta admin
+>   es pública. Sin rutas huérfanas (una ruta sin `@Public` y sin `@Roles` quedaría autenticada por
+>   `JwtAuthGuard`; `RolesGuard` no es default-deny pero `JwtAuthGuard`, que corre antes, sí).
+>
+> ### Eje 3 — Inyección / DoS: **LIMPIO**
+> - **Tamaño + rate-limit:** `PasteDeckDto.text` `@MaxLength(20_000)`; `POST /decks-meta/paste`
+>   `@Throttle({default:{ttl:60_000, limit:20}})` (20/min, `429`). `ValidationPipe` global con
+>   `whitelist:true` (campos extra se descartan). El curador (`CurateDeckDto.listText`) también
+>   `@MaxLength(20_000)`.
+> - **ReDoS: descartado por MEDICIÓN.** Las tres regex del parser (`CARD_LINE`, `BASIC_ENERGY_LINE`,
+>   `SECTION_HEADER`) medidas con entradas adversarias de 20 000 chars (todo-letras sin cierre,
+>   espacios alternados, casi-match, colas letra-dígito, `.*\bEnergy` casi-cierre) y con un texto de
+>   2000 líneas de caída total: **todos < 0.12 ms por línea; texto completo ≈ 1.2 ms** (N=1,
+>   `redos.js`, node standalone). El `.+?` lazy no backtrackea catastróficamente porque las clases de
+>   anclaje (`[A-Za-z]{2,4}`, `\d` en la cola) podan de inmediato.
+> - **Sin SQL crudo:** `grep` de `queryRaw/executeRaw/Prisma.raw/$query` en `decks-meta.service.ts` y
+>   `deck-matcher.service.ts` ⇒ **0**. El matcher usa solo `prisma.cardSet.findMany` /
+>   `prisma.card.findMany` con `where` **parametrizado** (`ptcgoCode:{not:null}`, `setId:{in:[...]}`);
+>   la normalización de número y el emparejado tolerante son **en memoria**, sin interpolar entrada del
+>   cliente en la query. Lecturas en LOTE (sin N+1). Universo de sets/cartas acotado al catálogo ⇒ sin
+>   amplificación de DoS por entrada.
+>
+> ### Eje 4 — No fabricar carta/precio: **CONFIRMADO**
+> Regla dura del dueño respetada de punta a punta. El matcher (`deck-matcher.service.ts`) empareja SOLO
+> por `ptcgoCode + número` (nunca por nombre); lo no resuelto sale con `matchStatus ∈
+> {unmatched_set, unmatched_number, ambiguous, unmatched_basic_energy}` y `matchedCard:null` —
+> **jamás inventa una `Card`**. En persistencia (`adminCreateOrCurate`) las líneas se crean con
+> `matchedCardId: m.matchedCard?.id ?? null`; lo no casado se guarda crudo (`rawName/rawSetCode/
+> rawNumber`) sin carta. En lectura (`buildLine`) lo no casado o no legal devuelve `card:null,
+> unitPriceMxnCents:null, unitInventoryItemIds:[]`. Un múltiple hit ⇒ `ambiguous`, **no** auto-resuelto.
+>
+> ---
+> ### Hallazgos abiertos (registrados, NO bloqueantes) — rol dueño: **backend**
+>
+> **SEG-DMF1-1 · MEDIO — La rotación de legalidad (money-adjacent) NO deja bitácora de auditoría.**
+> `adminUpdateStandardLegality` (`decks-meta.service.ts`) escribe `ConfigSetting` con `upsert` y solo
+> fija `updatedBy` (que se **sobrescribe**, sin histórico). El proyecto YA tiene convención para config
+> money-adjacent: `settings.service.ts` escribe el dial FX **dentro de una transacción CON entrada de
+> `AuditLog`** («la ESCRITURA del dial: la única, con acuse, transaccional y auditada»). La rotación
+> —que el propio encargo señala como el control más sensible («gobierna qué es jugable/comprable»)—
+> se aparta de ese patrón: no hay entrada en `AuditLog` ni historial de quién cambió la ventana y
+> cuándo. **No explotable** (sigue tras `@Roles(vault_operator, super_admin)`; captura el último
+> `updatedBy`); es una brecha de **accountability/forense**, no de acceso. **MEDIO**, no bloquea.
+> *Comprobación de cierre:* la rotación escribe un `AuditLog` con actor, valores previo/nuevo y timestamp.
+>
+> **SEG-DMF1-2 · BAJO — Escritura de rotación NO atómica.** `activeMarks` y `banlistCardIds` se
+> escriben como **dos `upsert` independientes** vía `Promise.all` (no una transacción). Un fallo
+> parcial deja la config a medias. Mitigado por que `isLegalStandardNow` es **fail-closed** (una
+> ventana no aplicada tiende a NO-legal, conservador) y por que cada clave es idempotente
+> (reemplazo total del array); además no hay lock optimista, así que dos operadores concurrentes es
+> last-writer-wins (aceptable para reemplazo total). **BAJO.** *Cierre:* envolver ambos upserts en
+> `$transaction`, alineado con el patrón del dial FX.
+>
+> **Informativo (no-seguridad, para techlead):** `matchLines` hace `cardSet.findMany({where:{ptcgoCode:
+> {not:null}}})` (scan completo de `CardSet`, universo pequeño) en cada `paste`; y
+> `StandardLegalityDto.activeMarks/banlistCardIds` no acotan tamaño de array ni longitud de cada string
+> (solo admin). Ninguno es un vector de atacante.
+>
+> ### Consolidación de PENTEST_NOTES
+> El `docs/PENTEST_NOTES.md` en `d77eb699` **no contiene hallazgos específicos de decks-meta** (el red
+> team no cubrió esta feature en esta fase). Este veredicto es una revisión de código blue-team directa.
+> El vector genérico más cercano (P48-M1: metadata de `referenceValue`/`priceBasis` en superficie
+> anónima) **no aplica a decks-meta**: su DTO neutro (`DeckMetaUnitDTO`) expone solo `inventoryItemId`
+> + `priceMxnCents` (=`P`), sin `referenceValue` ni metadata de basis.
+>
+> ### Verificación (O-9), sobre worktree detached anclado a `d77eb699`
+> - **[MEDIDO]** ReDoS: `redos.js` (node standalone) — 9 entradas adversarias de 20 000 chars + texto
+>   de 2000 líneas de caída total, **todas < 0.12 ms/línea, total ≈ 1.2 ms** (N=1).
+> - **[código]** Cadena de guards y `@Roles` de clase — `app.module.ts:82-87`, `roles.guard.ts`,
+>   `jwt-auth.guard.ts`, `admin-decks-meta.controller.ts`.
+> - **[código]** Compuertas de disponibilidad — `catalog.service.ts:639-720,1522-1540`
+>   (`singlesPublishedWhere`, `fetchSellable`, `getSellableRawUnitsByCardIds`), `business-rules.ts`,
+>   `schema.prisma` (`OwnerType`, `InventoryStatus`, `RawCondition`).
+> - **[código]** No-fabricación — `deck-matcher.service.ts` (match por `ptcgoCode+número`),
+>   `decks-meta.service.ts` (`buildLine`, `adminCreateOrCurate`).
+> - **[código]** `grep` de SQL crudo en el módulo decks-meta ⇒ **0**.
+
+---
+
+# VEREDICTO BLUE TEAM — **BOUNTIES Q1+Q2** · SHA **`74d77aa9`** (rama `claude/be-bounties-q1q2`) · foco: `DELETE …/variant-controls/:cardId/:finish/bounty` (Q2) + piso `min(curva,mercado)` (Q1) · contrato §M2-B.8/.9/.10 · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `74d77aa9`
+>
+> **0 críticos, 0 altos.** El delta Q1+Q2 llegó money-safe, bien autorizado y auditado de forma
+> **atómica**. Reviso los seis puntos del encargo (§M2-B.8/.9/.10) y **los seis pasan**. Lo único que
+> queda abierto es **deuda Baja/Media heredada** (no introducida por este delta) y **una bandera de
+> proceso**: el red team **no** ha atacado ESTE delta en vivo (su pase de bounties `v1.62` fue sobre
+> `7472395`, ANTERIOR a Q1+Q2, y describe el gate `<=` **ya superado**). Mi aprobación descansa en
+> revisión estática + **la suite corrida por mí sobre `74d77aa9`**, no en un pase ofensivo sobre este SHA.
+>
+> ### Procedencia de mis mediciones (todas `[MEDIDO]` sobre `74d77aa9`)
+> - `git worktree --detach 74d77aa9`, HEAD verificado = `74d77aa9f5b1…`. `node_modules` enlazado del árbol principal (solo lectura; no toqué código).
+> - `test/pricing.delete-bounty.spec.ts` ⇒ **13/13 verde** (ramas A/B, B-17/B-20/B-21, idempotencia, códigos, verbo dedicado).
+> - `test/pricing.variant-controls.spec.ts` + `test/pricing.bounty-market-floor.spec.ts` + `test/buylist.bounty-revalidation.spec.ts` ⇒ **64/64 verde** (gate Q1 `min(curva,mercado)`, revalidación en cotización/vitrina).
+> - Lectura estática de `variant-controls.service.ts`, `pricing.controller.ts`, `admin-bounties.*`, `bounty-state.ts`, `common/pricing-curve.ts`, `common/money.ts`, `audit.service.ts`, `buylist.service.ts::publicBounties`, `app.module.ts` (cadena de guards).
+
+## 0. Los seis puntos del encargo, uno a uno (§M2-B.8/.9/.10)
+
+**Convención:** `[MEDIDO]` = ejecutado por mí sobre `74d77aa9` con su N · `[código]` = leído en fuente sobre `74d77aa9`.
+
+### 1. Autorización del `DELETE …/bounty` — **CUMPLE** `[código]`
+- El handler `deleteBounty` cuelga de `PricingController` (`pricing.controller.ts:600`), y la clase lleva `@Controller('admin/pricing')` **+ `@Roles(Role.super_admin)`** a nivel de clase (`:195-196`). El DELETE **hereda** ese rol.
+- Cadena de guards **global** vía `APP_GUARD` (`app.module.ts:80-85`, en orden): `AppThrottlerGuard → JwtAuthGuard → PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`. `RolesGuard` corre para TODA ruta ⇒ el `@Roles(super_admin)` de clase se impone al DELETE. Un cliente (`customer`) o incluso un `vault_operator` reciben **403**; sin token, **401**.
+- ⚠️ **Matiz de contrato (no es hallazgo de seguridad):** el encargo pedía «roles admin (vault_operator/super_admin)». La implementación es **más estricta**: solo `super_admin`. Esto es lo que **manda el contrato** (§M2-B.9: *«`super_admin`, AUDITADO»*; código `403` explícito «no `super_admin`») y coincide con la consola de lectura. Más estricto ⇒ **safe**; no despublica/borra quien no debe. Sin acción.
+- El red team ya validó `PricingController` como `super_admin`-only por seis vías (B62-4, pase v1.62) y R-4 (pase v1.28); el DELETE usa **el mismo guard de clase**, no una excepción.
+
+### 2. AuditLog OBLIGATORIO y completo — **CUMPLE, y en la forma más fuerte (atómica)** `[MEDIDO 13/13]` `[código]`
+- Ambas ramas escriben `AuditLog` **DENTRO del `$transaction`** pasando el cliente transaccional `tx` a `audit.log(entry, tx)` (`variant-controls.service.ts:281-291` rama A `bounty.deleted`; `:298-308` rama B `bounty.unpublished`).
+- `AuditService.log` usa `await (tx ?? this.prisma).auditLog.create(...)` (`audit.service.ts:42-58`): al pasarle el `tx`, la fila de bitácora **participa del mismo commit/rollback** que la escritura. **Si la auditoría falla, la transacción entera hace rollback** ⇒ **no existe borrado/despublicación sin auditoría**. Es el diseño correcto para un control money-adjacent (más fuerte que el `PUT`, cuya auditoría va fuera de tx — pero el `PUT` no está en este encargo).
+- Completitud: `before`/`after` usan `snapshot()` (`:66-80`), que incluye `sellOverrideCents`, `buyOverrideCents`, `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` y **`bountyUnpublishedAt`** (el sello que distingue `despublicada`). Actor = `actorUserId` (id del JWT vía `@CurrentUser('id')`), timestamp = `createdAt` (default de BD). **No es solo `updatedBy` sobrescrito**: es pre/post-imagen completa reconstruible. Verificado en el spec (`before.controls` con `bountyPriceCents:7500`; `after.controls` = `null` al borrar).
+
+### 3. `INV-BOUNTY-COST` — **CUMPLE** `[MEDIDO 2/2 canario]` `[código]`
+- La `$transaction` del DELETE escribe **SOLO** `variantPriceOverride` (update **o** delete) **+ `auditLog`**. **Cero** referencias a `inventoryItem`, `acquisitionCostCents` o asiento de P/L en `deleteBounty` (grep + lectura línea a línea de `:261-310`).
+- El canario del spec (`inventorySpy`, B-21) falla si CUALQUIER método de `InventoryItem` se llamara: **rama A 0 llamadas, rama B 0 llamadas** (`test/pricing.delete-bounty.spec.ts:158-173`). El costo vive una sola vez en `InventoryItem` (sellado al adquirir en buylist), y despublicar/borrar no lo toca. Sin doble conteo.
+
+### 4. Sin fuga de costo/PII/owner; vitrina pública excluye `despublicada` — **CUMPLE** `[código]`
+- `deriveBountyState` (`bounty-state.ts`) hace que `bountyUnpublishedAt != null` **discrimine primero** ⇒ estado `despublicada`, que en la consola admin sale del tablero por defecto (`data` excluye `despublicada` salvo `?state=despublicada`; `admin-bounties.service.ts:173-175`).
+- **Vitrina pública** `GET /buylist/bounties` → `publicBounties()` filtra `where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null }` (`buylist.service.ts:1264`). Una fila `despublicada` (`enabled=false` **y** `bountyUnpublishedAt != null`) queda **doblemente excluida** (defensa en profundidad). No hay fuga del estado archivado ni de su precio/contador a superficie pública.
+- La respuesta del DELETE es el `VariantPricingDTO` compuesto **campo por campo** (sin `...row`), lectura `super_admin`; el red team ya descartó la fuga clase-`legalName` (B62-6). Sin PII/CLABE/INE en este módulo.
+
+### 5. Validación de input y del predicado; sin inyección; DoS acotado — **CUMPLE** `[código]` `[MEDIDO parcial]`
+- El DELETE **no lleva cuerpo**: solo params de ruta. `:finish` se valida contra `FINISH_VALUES` (enum de Prisma) + `resolveGradeKey` impone `raw:NM` y `FINISH_NOT_AVAILABLE` (SEC-A1). `:cardId` va a `prisma.card.findUnique({ where: { id } })` (parametrizado) ⇒ `404 NOT_FOUND` si no existe. Sin superficie de mass-assignment en el DELETE (no hay body que colar).
+- Predicado de alcance / consola: `q` va a `contains` de Prisma (parametrizado); **no existe `$queryRaw`/`$queryRawUnsafe` en `modules/pricing/`** (confirmado por B62-7 y grep). DoS acotado: la consola clasifica ≤ `ADMIN_BOUNTY_SERVER_CAP=1000` filas + 2 lecturas en lote, independiente de los parámetros; DELETE es op de una fila por clave única. Todo tras `super_admin` + throttler.
+
+### 6. Q1 money-safe: el ablandamiento del piso NUNCA paga arriba de mercado ni activa un rebasado fuera del borde — **CUMPLE** `[MEDIDO 64/64]` `[código]`
+- `isBountyEffective(price, curveQuoteCents, marketMxnCents)` (`pricing-curve.ts:617-625`): `price>0 ∧ (price > curve  ∨  (market != null ∧ price >= market))`. Piso efectivo = `min(curva, mercado)`.
+- **Nunca activa por debajo del piso:** si `price < min(curva, mercado)` entonces `price ≤ curva` y `price < mercado` ⇒ ambos disyuntos falsos ⇒ `false` (rebasada). No se paga un bounty por debajo del piso.
+- **Fuera del borde (curva < mercado):** el 2º disyunto exige `price >= mercado > curva`, subconjunto de `price > curva` ⇒ el gate efectivo es `> curva` **estricto** (empate-con-curva rechazado, criterio 91). Un `price ≤ curva` (< mercado) queda `rebasada`, **no** se cuela a `activa` por el tope de mercado. Sin activación espuria.
+- **En el borde (curva ≥ mercado):** basta `price >= mercado` (empate-con-mercado aceptado). El ablandamiento **BAJA** el piso hasta el mercado; **no** introduce ninguna vía que fuerce pagar por ENCIMA del mercado — al contrario, evita obligar a pagar `> curva > mercado`.
+- **Linchpin verificado:** el claim «curva `null` ⇒ mercado `null` por construcción» se sostiene: `explainBuyFromCurve` devuelve `priceCents: null` **IFF** `marketMxnCents == null ∨ ≤ 0` (`pricing-curve.ts:516-530`). Por tanto cuando `curveQuoteCents == null` (⇒ `isBountyEffective` acepta el bounty explícito, decisión LOCKED §4.36.0), el mercado también es nulo/no-positivo ⇒ no hay «mercado real» que se pueda rebasar. Sin agujero.
+- **Coherencia alta↔runtime por construcción:** el gate del alta (`BOUNTY_BELOW_RULE`, `variant-controls.service.ts:509`), la cotización (`quoteAcquisitionFromCurve`, `money.ts:258`), la vitrina y el `state` de la consola llaman **la misma** `isBountyEffective` — no hay `<`/`<=` re-derivado a mano (prohibición mutación B-16). El `422 BOUNTY_BELOW_RULE` dispara IFF `!isBountyEffective(...)`.
+
+## 1. Hallazgos (severidad · ubicación · dueño)
+
+Ninguno **crítico** ni **alto** en el delta Q1+Q2. Los abiertos son heredados / defensa en profundidad:
+
+- **`SEC-BQ-1` [BAJA · carryover de B62-3] · Mass-assignment latente en el objeto `bounty` anidado del PUT** — `pricing.controller.ts` (`class VariantControlsDto { @Allow() bounty?: unknown }`) + `mergeBounty`. El `ValidationPipe({whitelist:true})` no recurre dentro de `bounty` (tipado `unknown`), pero `mergeBounty` **enumera a mano** solo `enabled/priceCents/targetQty`; `acquiredQty`/`completedAt` se toman SIEMPRE de la fila en BD y el dinero se re-deriva server-side ⇒ **campos extra inertes hoy**. **No aplica al DELETE** (no tiene cuerpo). Impacto hoy: ninguno. Riesgo futuro: si alguien «simplifica» a `{ ...next, ...input.bounty }`, el cliente podría fijar el contador antilavado. **Dueño: backend** (DTO anidado tipado o `forbidNonWhitelisted`). **Aceptable dejarlo documentado** (no bloquea).
+- **`SEC-BQ-2` [MEDIA · carryover de B62-1] · Deps runtime backend con CVE moderado (`qs`/`body-parser`/`express`)** — no introducido por este delta; viaja a prod igual. **Dueño: devops** (bump en ventana ordinaria).
+- **`SEC-BQ-3` [BAJA · carryover de B62-2] · Deps dev frontend (vitest/vite) fuera del bundle de prod** — riesgo de dev/CI, no de runtime. **Dueño: devops/frontend.**
+- **Nota de higiene (no hallazgo):** la observación B62-8 del red team describe el gate `next.bountyPriceCents <= curveQuoteCents` — ese cuerpo **ya no existe**; fue reemplazado por el gate Q1 `isBountyEffective(min(curva,mercado))`. Al consolidar, esa línea de PENTEST_NOTES está **superada**, no abierta.
+
+## 2. Bandera para el humano (proceso)
+
+- **El red team no ha atacado en vivo el delta Q1+Q2 sobre `74d77aa9`.** El pase de bounties de `PENTEST_NOTES.md` (`v1.62`) fue sobre `7472395` (consola de LECTURA + gate `<=` antiguo), ANTERIOR a los commits `207ae50f` (Q1 piso + Q2 DELETE) y `74d77aa9` (tests). Mi APROBADO se apoya en **revisión estática + suite corrida por mí** (verde), no en un pase ofensivo sobre este SHA. Recomendación consistente con la bandera permanente del proyecto («pentest de tercero + bug bounty antes del primer peso real»): **un pase ofensivo del `pentester` sobre este delta exacto** (escalada de rol al DELETE en vivo, forja de rama borra↔despublica, intento de tocar `InventoryItem`, borde Q1 con mercado hipotético) **antes de contar este corte hacia un release de dinero real**. No bloquea el merge del stream (mis seis puntos pasan), pero cierra el ciclo pentester→seguridad que exige `CLAUDE.md` §7.
+
+## 3. Mínimo para mantener APROBADO
+- No hay condición **bloqueante** de este delta. `SEC-BQ-1` queda **aceptada como deuda** (Baja, con disparador: cualquier refactor de `mergeBounty` la reabre). `SEC-BQ-2/3` son de devops y no específicas de bounties.
+- Para el **cierre de fase de seguridad del release** (no del stream): cerrar la bandera de proceso (pase ofensivo del red team sobre `74d77aa9`).
+
+— SEGURIDAD (blue team / AppSec), 2026-09-19 · SHA **`74d77aa9`** · **APROBADO** (Q1+Q2 money-safe, authz sólido, auditoría atómica, INV-BOUNTY-COST limpio, sin fuga) · deuda Baja/Media heredada + bandera de proceso (red team sobre este SHA)
+
+---
+
+
+---
+
+# VEREDICTO BLUE TEAM — **M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5)** · SHA **`604f7622`** · base `cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `604f7622`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11.** Las tres condiciones que este commit
+> se propuso cerrar (`SEC-M11-3`, `SEC-M11-4`, `SEC-M11-5`) están **cerradas y verificadas por mí en vivo**
+> (no recibidas), y las dos que ya estaban cerradas (`SEC-M11-1` atomicidad, `SEC-M11-2` auditoría en `tx`)
+> **NO regresaron**. Todo money-safe: el motor de precios y el gate de sellado no cambian de números.
+>
+> **Estado de las cinco condiciones sobre `604f7622`:**
+> - **`SEC-M11-1` (atomicidad) — CERRADA, no regresa.** El remap (degradar set_main previo(s) → promover/
+>   crear el nuevo → reescribir el espejo `CardSet.tcgcsvGroupId`) sigue COMPLETO dentro de un solo
+>   `prisma.$transaction` (`sealed-product.service.ts:972-1004`). El `listGroups()` de red (label) queda
+>   FUERA de la transacción (O-17), antes de abrirla (`:960-970`). O entra todo o no entra nada.
+> - **`SEC-M11-2` (auditoría en la misma tx) — CERRADA, no regresa.** `audit.log(..., tx)` se llama DENTRO
+>   del `$transaction`, con el `tx` como segundo argumento (`:988-1002`) ⇒ mapeo + bitácora committean o
+>   rollbackean juntos. La prueba `inventory.m11-debt.spec.ts` asserta que `audit.log` recibe el `tx`.
+> - **`SEC-M11-3` (before/after COMPLETO) — CERRADA.** El rastro ya no lleva sólo el espejo `tcgcsvGroupId`:
+>   `before.groups` es el `kind` de CADA grupo del set ANTES, y `after.groups` el `kind` RESULTANTE
+>   (set_main viejo→promo_collection, grupo nuevo→set_main, fila nueva si no existía) más `reason`
+>   (`:944-958`, `:996-998`). La derivación de `afterGroups` coincide EXACTAMENTE con lo que escribe la
+>   transacción (comparé rama a rama). **Cobertura suficiente para reconstruir el remap:** el auditor tiene
+>   estado previo y resultante de todos los grupos + el espejo + el motivo. Sin queries extra (se deriva del
+>   estado ya leído). No queda cambio money-relevante sin auditar (el `label` del grupo nuevo es
+>   observabilidad/curación, no dinero; los `id` de fila son internos de BD).
+> - **`SEC-M11-4` (`reason` acotado 3–500 tras trim) — CERRADA.** `SetMainGroupRequestDto.reason` es
+>   `@IsOptional() @Transform(trim) @IsString() @Length(3, 500)` (`inventory.dto.ts:389`). El `ValidationPipe`
+>   global corre con `transform: true` (`main.ts:56`) ⇒ el `trim` ejecuta ANTES de validar ⇒ la cota se
+>   aplica TRAS trim (verificado: `'  a  '` con <3 tras trim ⇒ 400; 500 chars rodeados de espacios ⇒ pasa).
+>   **La cota cierra el vector de tamaño:** un super_admin ya no puede escribir filas de bitácora
+>   desmesuradas (501+ ⇒ 400). **Sin inyección/escape al serializar:** `reason` viaja a `AuditLog.after`
+>   como valor JSON vía Prisma parametrizado (JSON.stringify escapa comillas/backslashes); `before/after`
+>   NUNCA se expone en la UI de auditoría ⇒ sin XSS almacenado explotable. Fuera de rango ⇒ 400, nunca 500.
+> - **`SEC-M11-5` (N+1 en lote) — CERRADA, MISMOS NÚMEROS.** `sealedPriceStatus` resolvía el ancla
+>   (`findFirst`) + `getReferencesBatch` UNA VEZ POR SET (N+1). Ahora: UNA consulta de anclas
+>   (`resolveAnchorCardIds`, `findMany` con el MISMO `orderBy` que el `findFirst`) + UN `getReferencesBatch`
+>   con todas las claves, antes del bucle (`:809-829`). **El gate `gateSealedMarketCents` sigue aplicándose
+>   producto a producto, con la misma clave** `${anchorCardId}|sealed|${gradeKey}|normal`; el ancla es única
+>   por set ⇒ sin colisión, y `getReferencesBatch` descarta cualquier clave no pedida (`!wanted.has(k)`) ⇒
+>   el resultado por clave es idéntico batch-por-set o todo-junto. **No cambia números** (verificado: dial ON
+>   ⇒ `priced`, dial OFF ⇒ `mapped_unpriced`, igual que antes).
+>
+> ### Verificación en vivo (O-9), sobre worktree detached anclado a `604f7622` literal
+> Corrí las tres suites en mi worktree (`git worktree add --detach … 604f7622`; egress bloqueado, O-17;
+> `node_modules` reusado del repo por symlink, sólo lectura — el código bajo prueba es el del sha):
+> - `backend/test/inventory.set-main-group-reason.spec.ts` → **7/7 verde** (SEC-M11-4: 501/5000 ⇒ error,
+>   `<3` ⇒ error, `<3` tras trim ⇒ error, 500 exactos y rodeados de espacios ⇒ pasa, ausente ⇒ pasa).
+> - `backend/test/inventory.m11-debt.spec.ts` → **4/4 verde** (SEC-M11-3: before/after con `groups` kind
+>   previo y resultante; audit recibe `tx` — SEC-M11-2 no regresa. SEC-M11-5: censo de queries
+>   `findFirst=0`, `findMany≤1`, `getReferencesBatch≤1`; dial OFF ⇒ mapped_unpriced).
+> - `backend/test/sealed-product.service.spec.ts` → **63/63 verde** (62→63 con el caso del lote; gate-parity
+>   con dial OFF, no-egress, base de era NUNCA cruza al grupo de promos — todo sigue verde bajo el lote).
+>
+> ### Nota (INFO, no bloqueante — no es hallazgo)
+> `resolveAnchorCardIds` toma la primera carta por set de un orden global `(numberPrefix, numberSort)`, sin
+> desempate adicional; `resolveAnchorCardId` (el que sustituye) usaba `findFirst` con el mismo `orderBy`.
+> Si dos cartas de un mismo set empataran EXACTO en `(numberPrefix, numberSort)`, cuál queda de ancla podría
+> teóricamente diferir. En la práctica el número de carta es único por set ⇒ no hay empate; y la
+> no-determinación ya existía en la versión single. Money-safe; sólo se anota para que el owner lo tenga
+> presente si algún día el modelo permitiera colisión de número dentro de un set.
+>
+> ### Ruta de hallazgos
+> Ninguno. Nada que enrutar a backend. Las cinco condiciones `SEC-M11-1..5` quedan **cerradas** sobre
+> `604f7622`; el bloque histórico de abajo (verdicto sobre `fafe7461`) queda superado por este cierre.
+# VEREDICTO BLUE TEAM — **P-53 CIERRE · ALTO-4 (F4/F5 delegan al lote) · FRESCURA EFECTIVA EN TODA RUTA DE DINERO** · SHA **`81b9e241`** (rama `claude/be-p53-cura4`) · base `origin/production`=`cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `81b9e241`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** Este es el cierre del ciclo P-53 (los cuatro
+> ALTOS que rechacé en los pases previos). Medí el árbol en un worktree detached sobre el sha fijo
+> `81b9e241` (no toqué `/home/user/tcg-vault-mx`). Resumen: **ALTO-1, ALTO-2, ALTO-3 y ALTO-4
+> CERRADOS; no hay ALTO-5; CA-10 se mantiene; money-safe.**
+>
+> ### Estado de los cuatro ALTOS (cada uno con dónde lo medí)
+>
+> **ALTO-1 — Escritor diario write-on-change: CERRADO** (`0e76a37f`, `persistMarketReference`,
+> `backend/src/modules/pricing/pricing.service.ts:~2185-2298`). En un día sin cambio de valor NO
+> inserta fila; solo **avanza `evidenceDate` de la fila vigente a `today()`** (monotónico: línea 2256
+> `evidenceDate == null || evidenceDate < capturedDate`, nunca retrocede, tope en hoy). El valor que
+> gobierna el cambio es `priceUsdCents`+`fxBufferPct` (o `priceMxnCents` en MXN), no el MXN derivado.
+> **No pisa el override manual** (línea `if (current?.isManualOverride) return`). El día de cambio
+> escribe `capturedDate = evidenceDate = today()`.
+>
+> **ALTO-2 — `hasRecentIngest`: CERRADO** (`price-ingest.service.ts:469-489`). Mide recencia por
+> **frescura efectiva**: `OR [{evidenceDate ≥ ayer}, {evidenceDate=null AND capturedDate ≥ ayer}]`,
+> con `isManualOverride:false` + `MONEY_REF_WHERE`. El avance diario de `evidenceDate` del escritor
+> ahora **sí lo ve**, así que un día sin cambio ya no dispara un fail-open del catch-up. Excluye
+> estimados (evita el fail-open «fase 2 hace creer que corrió el mercado») y manuales.
+>
+> **ALTO-3 — Selección en lote: CERRADO** (`b9c856bd`). `getReferencesBatch` (F1,
+> `pricing.service.ts:~830-935`): ventana `$queryRaw` con
+> `MAX(COALESCE(evidenceDate,capturedDate)) OVER (PARTITION BY clave)` y
+> `WHERE is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date`. `isBetterRef`
+> (`:361-384`): tier manual absoluto → **frescura efectiva `evidenceDate ?? capturedDate`** →
+> `sourceRank` → NULLS-LAST → cuid. `computeSetValue` (F3, `set-value.service.ts:202-217`) selecciona
+> `evidenceDate` y reduce con `isBetterRef`.
+>
+> **ALTO-4 — F4/F5 single-item sin `take:32`: CERRADO** (ESTE sha, `81b9e241`). `getReference`
+> (`:749-767`) delega en `getReferencesBatch([item])` y devuelve `.get(variantKey(item)) ?? pending`.
+> `getReferenceByCardProduct` (`:802-819`) delega en `getReferencesByCardProductBatch([item])` (F6,
+> lee **sin cota** y reduce con `isBetterRef`) y devuelve `.get(cardProductRefKey(item)) ?? pending`.
+> **`SAME_DAY_REF_CANDIDATES` y `MANUAL_REF_PREDICATE` retirados** (solo quedan en comentarios;
+> `git grep` no halla `const … =` ni un `take:` con el símbolo). Las claves hacen round-trip
+> (`getReferencesBatch` indexa por `variantKey`; F6 por `cardProductRefKey`). Misma `WHERE`
+> (`MONEY_REF_WHERE` + `BASE_CARD_REF_WHERE`), mismo `isBetterRef`, misma FX viva (`liveMxnCents`,
+> izada 1×), mismo `PriceInfo`. **Firmas sin cambio** ⇒ los llamadores
+> (`orders.service.ts:316`, `buylist.service.ts:1097/1108`, vault, inventory, admin) no se tocan.
+>
+> **La inversión primaria↔fallback ya NO ocurre en NINGÚN lector de mercado.** Barrí todos los
+> consumidores de dinero (`git grep` de `getReference`/`getReferencesBatch`/`getReferenceByCardProduct`/
+> `computeSetValue`/`ownedItemRefs` en `backend/src/modules`): todos resuelven por frescura efectiva
+> (ventana `COALESCE` o `isBetterRef`), ninguno recorta candidatas por `capturedDate` crudo con `take`.
+>
+> ### ¿ALTO-5? — **NO.** No encontré ningún sitio nuevo ni ninguno que el arquitecto dejara fuera.
+>
+> 1. **Barrido propio de lectores de `capturedDate` en rutas de dinero** (pricing/orders/buylist/
+>    vault/inventory/admin/catalog/set-value + payments/shipments/disputes). Todo sitio que RANKEA
+>    frescura o bien usa la ventana `COALESCE` (F1) o bien reduce con `isBetterRef` **sin `take`**
+>    (F6 `:967`, F7 `getSeparateProductsByCard :1063`, F8 `ownedItemRefs admin.service.ts:979`,
+>    F9 `getGradedEstimatesBatch :1604` con `isStaleByOrigin(...evidenceDate)`). Sin cota, el
+>    `orderBy capturedDate desc` no descarta filas: la primaria congelada sigue entre las candidatas
+>    y `isBetterRef` la elige. Los sitios `capturedDate`-crudo restantes son **IDENTIDAD/AUDITORÍA/
+>    DISPLAY** (I1 cabeza de serie del escritor, I2 `priceHistory`, I3 serie sellada, I4 snapshot
+>    `asOf`, I5 archivo de undo, I6 orden de cola de revisión) — no eligen qué precio se cobra.
+> 2. **La delegación no abre superficie ni permisos nuevos.** Son llamadas servicio→servicio
+>    internas: sin endpoint nuevo, sin cambio de DTO, sin cambio de firma. Ningún camino donde una
+>    fila mala gane: la protección **GE-1** se conserva —un estimado (`refKind='graded_estimate'`)
+>    queda fuera del CTE `filtered` (que exige `refKind='market'`) **antes** del `is_manual`, así que
+>    no se cuela por la puerta de la candidata manual perenne— y la manual perenne se preserva vía
+>    `is_manual` (F1) / lectura sin cota (F6).
+> 3. **`evidenceDate` sigue siendo NO manipulable.** `git grep evidenceDate` en `**/dto` y
+>    `*.controller.ts` da **0**: no está expuesta en ninguna entrada de request. El **único** escritor
+>    de la columna en producción es `persistMarketReference` (server-side), y siempre a
+>    `capturedDate = today()` (`today()` = `new Date()` a medianoche UTC, sin input). El `evidenceDate`
+>    del feed externo (`pokemonpricetracker-bulk.provider.ts:234`) **NO se persiste** a la columna
+>    (comentario del propio provider: «sigue sin persistirse»; se usa solo como gate de rancidez en
+>    ingesta y para el `AuditLog`). El override manual (`:2614`) **no escribe `evidenceDate`** (queda
+>    `null`; gana por tier, no por frescura). ⇒ Nadie externo puede fijar `evidenceDate` para ganar el
+>    ranking de frescura.
+>
+> ### CA-10 (`evidenceDate=null` ⇒ idéntico a hoy): **SE MANTIENE. Money-safe.**
+> Con `evidenceDate=null` (filas legadas el día del deploy y todo graded hoy),
+> `COALESCE(evidenceDate,capturedDate)=capturedDate` en TODOS los predicados: `isBetterRef` (`:379-380`),
+> la ventana `$queryRaw` de F1 (`:906/:914`), `hasRecentIngest` y `isStaleByOrigin`
+> (`common/graded-estimate.ts:861`). Los gemelos CA-10 del canario nuevo
+> (`test/pricing.getreference-p53-freshness.spec.ts`) asertan que con evidencia nula gana el fallback
+> fresco (`toBe(50039)`) y **`.not.toBe(100000)`** ⇒ conducta idéntica a producción el día del deploy.
+>
+> ### Pruebas (revisadas, no solo relayadas)
+> - **C1/C2 muerden** la inversión: primaria `tcgcsv_singles` (`capturedDate` VIEJO + `evidenceDate=HOY`,
+>   100000) gana a 40 fallbacks `pokemontcg_io` frescos (50000+); el emulador modela la vía capada vieja
+>   (rojo-primero). Cada uno con su gemelo CA-10. **Candados de no-regresión F6/F7/F8** presentes.
+> - **Sin tests apagados:** `git grep` de `.skip/.todo/xit/.only` **añadidos** en el diff = 0. Delta de
+>   `expect()` en specs = **+9** (13 retirados de patrón viejo, 22 añadidos). El spec
+>   `pricing.manual-override-durable-cross-day` NO se debilitó: sustituye `expect(take).toBe(32)` por
+>   la aserción de que la ventana de lote **conserva la candidata manual perenne** sin caparla.
+>
+> ### Caveat (NO bloqueante, sin cambio respecto a los pases previos)
+> Los canarios corren contra el **emulador en memoria** (`test/helpers/refs-raw-emulate.ts`), no contra
+> Postgres real — la misma limitación que aceptó el gate de ALTO-3 (`b9c856bd`). El predicado SQL
+> `is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date` es simple y ya pasó los gates en
+> `b9c856bd`; la delegación de este sha no introduce SQL nuevo. Se anota, no es un ALTO.
+>
+> ### Ruteo por rol
+> Ninguno pendiente para este delta: **0 hallazgos de seguridad abiertos**. Las banderas de largo plazo
+> (pentest de tercero antes de dinero real; validación legal PII/custodia; `BANXICO_SIE_TOKEN` en
+> secret manager) siguen vivas como en pases anteriores y **no las reabre este delta** (no toca PII, no
+> añade endpoint, no añade secreto).
+>
+> — SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `81b9e241` · P-53 cierre ·
+> **APROBADO** (ALTO-1..4 CERRADOS · sin ALTO-5 · sin críticos/altos abiertos · CA-10 mantenido · money-safe)
+# VEREDICTO BLUE TEAM — **GATE PII · DEGRADAR `clabeSnapshotEnc` EN `adminGet` (buylist)** · SHA **`b884e827`** · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `b884e827`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El try/catch acotado en
+> `BuylistService.adminGet` (`backend/src/modules/buylist/buylist.service.ts:2568-2602`) degrada la
+> vista de detalle cuando `clabeSnapshotEnc` no descifra —`clabeMasked` queda `undefined` +
+> `piiUnavailable:true`, ambos **aditivos y solo en el estado degradado**, y 200 en vez de 500— sin
+> filtrar cripto ni contaminar el camino del dinero. Reviso los cuatro focos del gate PII de #43.
+>
+> ### Foco 1 — No fuga de PII/cripto al degradar: **LIMPIO**
+> - **Log (`buylist.service.ts:2575-2580`):** registra SOLO `id` (id de la solicitud, no PII) y
+>   `cause = e.message`. Los mensajes que puede lanzar `decrypt` son genéricos: `'Malformed PII
+>   ciphertext'` (`common/crypto/pii-crypto.service.ts:198` y `:207`) o el error de Node en `.final()`
+>   (`:213`, «unable to authenticate data»). **Ninguno contiene ciphertext ni claro.** El blob cifrado
+>   (`req.clabeSnapshotEnc`) **no se interpola** en el log — solo `cause`.
+> - **Respuesta:** `adminSellRequestDTO` (`:2434-…`) es una proyección por **lista blanca**
+>   (`toSellRequestBaseDTO(r)` + campos nombrados), **no** un `...r` crudo ⇒ `clabeSnapshotEnc` nunca
+>   se propaga. `adminGet` solo añade `clabeMasked` (undefined en degradado) y opcional
+>   `piiUnavailable`. Las pruebas aseveran `res.clabeSnapshotEnc` undefined y
+>   `JSON.stringify(res)).not.toContain(UNDECRYPTABLE_CLABE)` (unit `buylist.clabe-pii.spec.ts` +
+>   e2e `buylist-cycle.e2e-spec.ts`).
+>
+> ### Foco 2 — No enmascarar lo que debe ser ruidoso (camino del dinero): **LIMPIO**
+> - `revealClabe` (`buylist.service.ts:5637-5648`) sigue llamando `this.pii.decryptOptional(...)` **SIN
+>   try/catch**: un snapshot indescifrable **LANZA** y sube al filtro global ⇒ **sigue siendo ruidoso**.
+>   Es `@Roles(super_admin)` + `@MoneyOut()` + **auditado** en `AuditLog`
+>   (`admin-buylist.controller.ts:219-232`). El degradado NO se cuela ahí.
+> - El degradado no puede volver pagable una solicitud sin CLABE: `isPayable` se **deriva de las
+>   decisiones de ítems** (`isPayableSellRequestWithItems`, `:2458`), no de `clabeMasked`. Pagar exige
+>   `revealClabe`, que lanza si no hay CLABE. El try/catch es estrictamente de PRESENTACIÓN.
+>
+> ### Foco 3 — `piiUnavailable` aditivo, sin oráculo cross-tenant: **LIMPIO**
+> - La bandera **solo aparece en el estado degradado**; `adminGet` está tras `JwtAuthGuard` +
+>   `RolesGuard` globales (`app.module.ts:81-83`, `APP_GUARD`) y `@Roles(vault_operator, super_admin)`
+>   a nivel de clase (`admin-buylist.controller.ts:42`) ⇒ **solo back-office autenticado**. El vendedor
+>   no alcanza la ruta.
+> - No es oráculo sobre el valor de la CLABE: es un booleano sobre el **estado de clave/cripto**.
+>   Distingue «presente-pero-corrupto/rotado» de «ausente» —ausente ⇒ `decryptOptional(null)` devuelve
+>   `undefined` **sin lanzar** ⇒ sin bandera y sin falso positivo (`pii-crypto.service.ts:218`)— lo que
+>   es diagnóstico legítimo para un operador auditado, no una filtración cross-tenant (panel de un solo
+>   inquilino; el vendedor no llega). El candado de conjunto de claves sigue verde en el camino feliz.
+>
+> ### Foco 4 — Duplicación del patrón, mismo contrato que #43, sin variante que filtre o enmascare de más: **LIMPIO**
+> - PR #43 (`PiiCryptoService.tryDecryptOptional`) **NO está en este sha**: confirmado que `getKyc`
+>   (`users.service.ts:331`) y `admin.service.ts:912` aún llaman `decryptOptional` crudo sin try/catch.
+>   El try/catch local es una reproducción fiel y autocontenida del contrato descrito: degradado ⇒
+>   `clabeMasked` undefined + `piiUnavailable:true` + 200; camino feliz sin bandera. Sin variante que
+>   filtre ni que enmascare de más. Cuando #43 aterrice, reemplazable por `tryDecryptOptional` sin
+>   cambiar el contrato de respuesta.
+> - **Alcance correcto del catch:** solo muerde cuando un blob **no nulo** falla el descifrado; un
+>   snapshot ausente no dispara `piiUnavailable` (no hay throw). No hay ruido falso.
+>
+> **Deuda registrada (aceptada, no bloqueante):** el patrón queda duplicado a propósito respecto de #43
+> para no tocar `common/crypto/`. Consolidar a `tryDecryptOptional` cuando #43 aterrice; no es
+> condición de este gate.
+
+---
+
+# VEREDICTO BLUE TEAM — **H-PERF-1 · PODA DEL HISTÓRICO DE `PriceReference` (ZONA MONEY)** · SHA **`12927edd`** (rama `claude/perf-catalog-2`) · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `12927edd`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El cambio (`$queryRaw`+`Prisma.sql` en
+> `getReferencesBatch` y `getPricedRawFinishesBatch`, `backend/src/modules/pricing/pricing.service.ts`)
+> es **seguro contra inyección SQL** y **money-safe por construcción**. Reviso dos ángulos.
+>
+> ### Ángulo 1 — Inyección SQL / seguridad del raw: **LIMPIO**
+> Todo valor variable entra como **PARÁMETRO**, no por concatenación. Los cinco valores de entrada
+> —`cardIds`, `productTypes`, `gradeKeys`, `finishes` (líneas 936-939) e `ids` (línea 1062)— entran
+> vía `${Prisma.join(...)}` dentro de un `Prisma.sql\`…\``, que Prisma **parametriza** (`$1,$2,…`).
+> No hay **ni una** interpolación de texto que arme SQL: `grep` sobre el fichero da **0** de
+> `$queryRawUnsafe`/`$executeRawUnsafe`/`Prisma.raw`/concatenación de string. Los únicos literales
+> incrustados son **constantes estáticas** del propio código (`'market'::"PriceRefKind"`,
+> `'raw'::"ProductType"`, `'raw:NM'`, `'set_base'/'other'::"CardProductKind"`), no valores de entrada.
+> Los enums se comparan con `::text IN (${Prisma.join(...)})` — el cast es fijo, el valor va como
+> parámetro. Trazado el origen: los cinco valores vienen de los argumentos `items[]`/`cardIds[]` de
+> las funciones batch; aun si un atacante controlara cada byte, la parametrización lo neutraliza.
+> (Robustez, no seguridad: `Prisma.join([])` emitiría `IN ()` inválido, pero ambas funciones cortan
+> con `if (items.length===0)/(ids.length===0) return` y cada ítem porta los 4 campos ⇒ arrays no vacíos.)
+>
+> ### Ángulo 2 — Integridad del dinero (la poda no puede cambiar un precio): **LIMPIO**
+> La poda conserva `is_manual OR "capturedDate" = max_auto_date` por partición
+> `(cardId, productType, gradeKey, finish)`. **Prueba de dominancia** (la fila descartada nunca gana
+> `isBetterRef`, líneas 361-378):
+> - `isBetterRef` ordena **tier MANUAL por encima del automático SIEMPRE** (cross-day, paso 1), y
+>   **dentro del tier** por `capturedDate` (más fresca gana, paso 2) **ANTES** que `sourceRank`
+>   (paso 3, explícito líneas 353-355: el rango de fuente NO se iza sobre la fecha).
+> - El ganador global es (a) una fila manual —**todas** se conservan— o (b) una automática, y solo si
+>   la partición **no tiene manuales**, en cuyo caso el ganador es una fila de `capturedDate` máxima
+>   = `max_auto_date` ⇒ **conservada**. Toda fila descartada es automática **estrictamente más vieja**
+>   que la máxima de su partición ⇒ pierde el paso 2 ⇒ **no puede ser el ganador**.
+> - **Semántica de fecha idéntica** SQL↔JS: `capturedDate DateTime @db.Date` (schema línea 1045) es de
+>   **granularidad de día**; `MAX`/igualdad en SQL y `getTime()` (medianoche UTC) en JS coinciden — no
+>   hay divergencia por sub-milisegundos ni por zona horaria. Cierra el ataque de «empates de fecha /
+>   TZ / `capturedDate` vs `evidenceDate`»: `evidenceDate` **no la lee ninguna valuación** (schema
+>   línea 1068: «ningún escritor la puebla y ninguna lectura la consume»).
+> - **NULLs**: `source`, `refKind`, `isManualOverride`, `priceMxnCents`, `capturedDate` son **NOT NULL**
+>   en el schema ⇒ sin sorpresas de NULL en la poda. `cardProductId` nullable, tratado idénticamente
+>   por el `LEFT JOIN` + `cardProductId IS NULL OR cp.kind IN (set_base,other)` = `BASE_CARD_REF_WHERE`.
+> - **Predicado manual byte-idéntico**: SQL `(isManualOverride OR source='manual')` == JS
+>   `(isManualOverride || source==='manual')`. `max_auto_date` se computa **solo sobre auto**
+>   (`CASE WHEN NOT is_manual`), así que un manual reciente **no** encoge la ventana automática.
+> - **Paridad de agrupación EXACTA**: `variantKey` = `cardId|productType|gradeKey|finish` (función pura,
+>   sin normalización, `backend/src/common/variant-key.ts`) == `PARTITION BY` de los mismos 4 campos.
+> - **Paridad de WHERE**: `refKind='market'` == `MONEY_REF_WHERE` (excluye `graded_estimate` ⇒ GE-1
+>   sigue cerrado); `LEFT JOIN` == `BASE_CARD_REF_WHERE`. `@@unique([...,capturedDate,cardProductId])`
+>   (schema 1077) ⇒ filas mismo-día-misma-clave difieren solo en `cardProductId`, todas con la misma
+>   fecha máxima ⇒ todas conservadas ⇒ el desempate `sourceRank`/NULLS-LAST se aplica como antes.
+> - `liveMxnCents` (líneas 719-726) lee solo `priceMxnCents`/`priceUsdCents`/`isManualOverride` (todos
+>   en el `SELECT` raw) + la FX izada; `refKind` (omitido del raw) no interviene en el cálculo. Paridad.
+>
+> ### Verificación en vivo (O-9), sobre worktree anclado a `12927edd`
+> - **[MEDIDO]** `backend/test/pricing.references-batch-history-prune.spec.ts` (canario determinista,
+>   N=1, sin BD) → **3/3 verde**: confirma que se emite `$queryRaw` con `max_auto_date`/`SELECT DISTINCT`
+>   y que `priceReference.findMany` **jamás** se llama (muerde la regresión de sobre-lectura).
+> - **[código]** `backend/test/integration/references-batch-history-prune.e2e-spec.ts` es un
+>   **oráculo-equivalencia** contra Postgres real: reconstruye el algoritmo VIEJO (histórico completo +
+>   `pickBestRef`) y exige `toEqual` byte-a-byte contra la poda sobre datos **adversarios** (historia de
+>   200 días, manual cross-day en día −3 ganando, multi-fuente mismo día `sourceRank`, multi-`cardProductId`
+>   NULLS-LAST, `graded_estimate` y `deck_exclusive` excluidos). **NO LO CORRÍ YO** (sin credencial de BD;
+>   lectura de `/proc/environ` bloqueada por política, y no se rodea O-17); es el gate de release de QA.
+>   Su contenido y cableado los verifiqué por inspección.
+>
+> **Ruta de hallazgos:** ninguno. No hay nada que enrutar a backend.
+
+---
+
+# VEREDICTO BLUE TEAM — **M11 · SELLADO (money + admin)** · SHA **`fafe7461`** (rama `origin/claude/m11-integracion`) · base `origin/production`=`187b1d40` · rama de seguridad `claude/sec-m11` · 2026-09-17
+
+> ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `fafe7461`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11 → puede publicar.** Hice el pase
+> **red-team + blue-team en un solo agente** (no había pase del `pentester` para M11 en
+> `PENTEST_NOTES.md`, medido) sobre el **árbol anclado en `fafe7461`** (`git checkout -b
+> claude/sec-m11 origin/claude/m11-integracion`; `git rev-parse HEAD` = `fafe7461`).
+>
+> **La superficie nueva de M11 respeta la frontera de dinero y de rol.** Los tres endpoints nuevos
+> están gateados donde deben, el motor de precios **no se toca**, el remap **no puede re-apuntar un
+> `PriceReference` a otro grupo** (verificado en código y prueba), la ingesta es **fail-closed por el
+> dial**, y toda escritura queda **auditada con actor**. Las condiciones abiertas (`SEC-M11-1..5`) son
+> **medias/bajas de robustez y deuda**, ninguna bloqueante; se enrutan a **backend**.
+>
+> ### Verificación en vivo (O-9), sobre copia anclada a `fafe7461`
+> - `backend/test/sealed-product.service.spec.ts` → **62/62 verde** (incluye: tres-estados de
+>   `sealed-price-status`; **gate-parity con dial OFF** → un set con `PriceReference` cuenta
+>   `mapped_unpriced`, no `priced`; **remap reemplaza** `CardSet.tcgcsvGroupId`; **unlink** vuelve a
+>   `null`; **no-egress** el endpoint responde aunque el provider TCGCSV lance; base de era **NUNCA
+>   cruza al grupo de promos**).
+> - `backend/test/inventory.pending-publish.spec.ts` → **35/35 verde** (passthrough `sealedSubtype`
+>   display-only, presente solo para `productType='sealed'`).
+
+---
+
+## 0. Alcance y procedencia
+
+- **Blanco:** integración M11 (sellado) — 3 endpoints nuevos + 1 passthrough de DTO, sobre `inventory`
+  (dinero/mapeo). Diff: `git diff origin/production origin/claude/m11-integracion` (33 ficheros; el
+  núcleo money+admin está en 4 ficheros backend).
+- **Diseño de referencia:** `git show origin/claude/arch-m11-precios:docs/specs/M11_SELLADO_DESIGN_DRAFT.md`.
+- **Entorno (O-17):** egress a `tcgcsv.com`/prod **BLOQUEADO**; toda medición es local con mocks/unit.
+- **Convención:** `[MEDIDO]` = ejecutado hoy por mí con su N · `[código]` = leído en fuente sobre
+  `fafe7461` · `NO MEDIDO` = no ejercité, digo qué lo cerraría.
+
+Endpoints bajo revisión:
+| Endpoint | Rol exigido | Escribe | Audita |
+|---|---|---|---|
+| `GET /admin/inventory/sealed-price-status` | `vault_operator+` (clase) | no (read-only) | no (lectura, correcto) |
+| `PUT /admin/inventory/sealed-sets/:setId/set-main-group` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_main_group_set`, before/after) |
+| `DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_group_unlink`, before) |
+| `POST /admin/jobs/sealed-price-ingest` (preexistente, en alcance) | `super_admin` (clase) | `PriceReference` | sí (`jobs.sealed_price_ingest.run`) |
+
+---
+
+## 1. Permisos / control de acceso — **VERIFICADO OK (sin bypass)**
+
+**El bypass de `vault_operator` a los endpoints de dinero está cerrado por el guard, no por adorno.**
+
+- **Mecanismo `[código]`:** `RolesGuard` usa `reflector.getAllAndOverride(ROLES_KEY, [getHandler(),
+  getClass()])` (`backend/src/common/guards/roles.guard.ts:17-20`). El **método pisa la clase**: en
+  `setMainGroup` y `unlinkSealedSetGroup` el `@Roles(Role.super_admin)` **anula** el
+  `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:84`). Resultado:
+  `required=[super_admin]` → un `vault_operator` **no está incluido** → `403 FORBIDDEN`
+  (`roles.guard.ts:26`). Mismo patrón ya probado en vivo para finanzas M7
+  (`test/integration/auth-authz.e2e-spec.ts:98-105`, operador→403).
+- **Guards globales `[código]`:** `APP_GUARD` registra `JwtAuthGuard` → `RolesGuard`
+  (`app.module.ts:81,83`) — no dependen de que el controller los declare.
+- **`sealed-price-status` es `vault_operator+` read-only** (hereda la clase; sin `@Roles` de método):
+  correcto por diseño (D-4). **No filtra nada sensible:** la respuesta es `SetRefDTO`
+  (`id/name/series/releaseDate`, `master-set.service.ts:151-156`, catálogo público) + IDs de grupo
+  TCGCSV (identificadores externos públicos) + `sealedPriceSource` (el dial, que `vault_operator` ya ve
+  en otras lecturas de sellado) + **conteos de estado, sin ningún MXN**. Sin PII (INE/CLABE), sin
+  object-keys, sin precios internos. `[código]` `sealed-product.service.ts` (bloque §10).
+- **Frontend (defensa en profundidad, no la frontera):** panel de diales + botón «Traer precios» en
+  `<SuperAdminOnly>` (`M11View.tsx:107-109`); el CTA de mapeo bajo `{isSuperAdmin && …}`
+  (`SealedPriceStatusSection.tsx`); la ruta es `vault_operator+` sin wrapper (`m11/page.tsx`). El
+  backend 403ea igual — la frontera real es el guard.
+- **Ingesta:** `AdminJobsController` es `@Roles(Role.super_admin)` a nivel de clase
+  (`admin-jobs.controller.ts:42`) → `vault_operator`→403.
+
+**Conclusión:** ningún endpoint de escritura money/mapeo es alcanzable por `vault_operator` o menor.
+
+---
+
+## 2. Money-safety bajo ataque — **VERIFICADO OK**
+
+- **El diff NO toca el motor de precios.** `money.ts`, `pricing.service.ts` (gate, precedencia, I-7) no
+  aparecen en `git diff --stat`. La precedencia **override>0 > mercado×spread(subtipo) >
+  mercado×spread(global) > PRICE_PENDING** y el que **el maestro apagado NO gatea el override manual**
+  (I-7) quedan **intactos** — no hay ruta nueva para saltarlos.
+- **Fabricar precio / publicar en $0:** no hay vector nuevo. `sealed-price-status` es lectura de
+  conteos (no fija ni muestra MXN); `set-main-group`/`unlink` cambian **mapeo**, no precio; la ingesta
+  es fail-closed. El «nunca $0» vive en `money.ts` (no tocado).
+- **Remap re-apuntando un `PriceReference` a OTRO grupo (debe ser imposible) → ES IMPOSIBLE por este
+  código.** `[código]` `setMainGroup`/`unlinkGroup` sólo escriben `CardSet` y `SealedSetGroup`; **cero
+  llamadas a `prisma.priceReference.*`** (`git grep queryRaw/priceReference` en el bloque nuevo = 0).
+  `PriceReference` se llavea por `(cardId, sealed, sealedMarketGradeKey(tcgplayerProductId), finish)`
+  — el remap no altera ningún `tcgplayerProductId` ni ninguna fila `PriceReference`; sólo cambia **de
+  qué grupo saldrá el precio en la próxima ingesta**. Verificado por la prueba
+  `M11-remap-no-price-fabrication` (verde).
+- **Interruptor maestro apagado deja intactos los overrides manuales:** `[MEDIDO]` prueba
+  `M11-status-gate-parity` — con `sealed_price_source=off`, un producto con `PriceReference` clasifica
+  `mapped_unpriced` (no `priced`), reflejando exactamente lo que `gateSealedMarketCents(ref,false)`
+  devuelve (I-2). El status usa **el MISMO gate** que el alta, no un cálculo nuevo. El override manual
+  vive en el `InventoryItem`, fuera del alcance del dial (I-7, no tocado).
+- **Dial + botón no cura el mapeo:** la ingesta con dial `off` → `enqueued:false,
+  reason:'SEALED_PRICE_SOURCE_OFF'` y **cero** `PriceReference`
+  (`backend/src/jobs/sealed-price-ingest.service.ts:57-60`), y con `on` sólo pide a la fuente y
+  upsertea referencia (informativa) — **no fija precio de venta**. Single-flight en memoria
+  (`:62-66`).
+
+---
+
+## 3. Auditoría — **VERIFICADO OK (toda escritura deja rastro con actor)**
+
+- `set-main-group` → `audit.log({action:'inventory.sealed_set_main_group_set', entityType:'CardSet',
+  entityId:setId, before:{tcgcsvGroupId}, after:{tcgcsvGroupId,reason}})`
+  (`inventory.controller.ts:322-330`).
+- `unlink` → `audit.log({action:'inventory.sealed_set_group_unlink', before:{setId,tcgplayerGroupId,
+  kind}})` (`inventory.controller.ts:352-360`).
+- `sealed-price-ingest` → `audit.log({action:'jobs.sealed_price_ingest.run', after:{job,groupId,
+  enqueued,reason?}})` (`admin-jobs.controller.ts:224-236`).
+- `sealed-price-status` → **lectura, no se audita** (correcto; misma doctrina que `pending-publish`).
+
+Ver `SEC-M11-2/3` (bajas) para los matices de atomicidad/cobertura del `before/after`.
+
+---
+
+## 4. Inyección / validación en los params nuevos — **VERIFICADO OK (400/404/422, nunca 500 ni fuga)**
+
+- **Sin SQL cruda:** `git grep queryRaw|executeRaw|$queryRawUnsafe` en `sealed-product.service.ts` +
+  `inventory.controller.ts` (rama `fafe7461`) = **0**. Todo es Prisma parametrizado.
+- **`:setId` fuera de dominio** → `findUnique` null → `NOT_FOUND` **404** (probado:
+  «setMainGroup con set inexistente → 404», verde).
+- **`:groupId` no numérico / ≤0** → regex `/^\d+$/` + `<=0` en el controller → **400 VALIDATION_ERROR**
+  (`inventory.controller.ts:339-342`), antes de tocar Prisma.
+- **`?state=` fuera de dominio** → `parseEnumFilter('state', …, SEALED_PRICE_STATE_VALUES)` →
+  **400 VALIDATION_ERROR** con `details.field` + `details.allowed`; vacío/omitido → sin filtro
+  (`enum-filter.ts:254-272`). Sin 500 (el `if` crudo que era `500` en P-84 ya está cerrado).
+- **`tcgplayerGroupId` no int / <1** → `@IsInt() @Min(1)` (`inventory.dto.ts` `SetMainGroupRequestDto`)
+  → **422** vía `ValidationPipe` global (`main.ts:56`).
+- **Mass-assignment:** `whitelist:true` (`main.ts:56`) descarta props no declaradas → sólo
+  `tcgplayerGroupId`/`reason` entran al body.
+- **Paginación acotada:** `pageSize` capado a **100**, `page`≥1 (`inventory.controller.ts:296-298`).
+
+---
+
+## 5. Disparo «traer precios» — no abusa de la fuente ni corre sin dial — **VERIFICADO OK**
+
+- **No corre sin dial:** fail-closed (`sealed-price-ingest.service.ts:57-60`) — dial `off` = no-op,
+  cero `PriceReference`.
+- **No martillea la fuente:** single-flight en memoria; `super_admin`-only; AWAITED (alcance de
+  decenas de requests). El jalón real a `tcgcsv.com` lo dispara el dueño en prod (O-17). El fetch de
+  `listGroups()` que `setMainGroup` hace **para el label** va envuelto en `try/catch` → egress cerrado
+  no bloquea el mapeo (ver `SEC-M11-nota`).
+
+---
+
+## 6. Hallazgos priorizados
+
+**Críticos:** ninguno. **Altos:** ninguno.
+
+### MEDIA
+
+- **`SEC-M11-1` (MEDIA-BAJA) — `setMainGroup` no es atómico. Owner: BACKEND.**
+  `sealed-product.service.ts` (método `setMainGroup`, ~`:757-810`) ejecuta **varias escrituras Prisma
+  secuenciales sin `$transaction`**: degradar el/los `set_main` previos a `promo_collection` (bucle),
+  crear/promover la fila del nuevo grupo, y **reescribir `CardSet.tcgcsvGroupId`**. Un fallo a mitad
+  (p. ej. agotamiento de conexiones) deja el mapeo **money-relevante parcialmente aplicado** (grupo
+  degradado pero `CardSet` sin actualizar, o viceversa). **Recuperable** (super_admin re-ejecuta; §10
+  muestra el estado honesto) y de bajo riesgo (mismo DB). **Fix sugerido:** envolver las escrituras en
+  `prisma.$transaction` y pasar el `tx` a `audit.log` (que ya lo soporta, `audit.service.ts:50`) para
+  que mapeo + auditoría committeen o rollbackeen juntos. **No bloqueante.**
+
+### BAJA
+
+- **`SEC-M11-2` (BAJA) — auditoría escrita fuera de transacción (mutación → luego `audit.log` sin
+  `tx`). Owner: BACKEND.** En `setMainGroup`/`unlink`, si `audit.log` fallara tras committear la
+  mutación, quedaría un **cambio de mapeo sin rastro**. **No es regresión de M11**: es el patrón
+  preexistente del módulo (`linkGroup` en `origin/production:inventory.controller.ts:263-270` audita
+  igual) → **deuda de módulo aceptada**. Se cierra junto con `SEC-M11-1` usando el `tx`.
+- **`SEC-M11-3` (BAJA) — cobertura del `before/after` en `setMainGroup`. Owner: BACKEND.** El audit
+  registra `tcgcsvGroupId` before/after + `reason`, pero **no** el cambio de `kind` de los grupos
+  degradados (`set_main`→`promo_collection`) ni la promoción del nuevo. El grupo anterior se infiere
+  del `before.tcgcsvGroupId`, pero la reestructuración completa de `SealedSetGroup` no queda explícita
+  en el rastro. Recomendación: incluir el desglose de grupos afectados en `after`.
+- **`SEC-M11-4` (BAJA/INFO) — `reason` sin límite de longitud. Owner: BACKEND.**
+  `SetMainGroupRequestDto.reason` es `@IsString()` sin `@MaxLength`, y viaja a `AuditLog.after` (JSON).
+  `before/after` **NUNCA** se expone en la UI de auditoría (`audit.service.ts` docstring: «NUNCA expone
+  before/after») → **sin XSS almacenado explotable**. Queda como higiene: añadir `@MaxLength` para
+  evitar filas de bitácora desmesuradas.
+- **`SEC-M11-5` (BAJA/PERF — no seguridad estricta). Owner: BACKEND/TECHLEAD.** `sealedPriceStatus`
+  carga **todos** los `SealedProduct` active + `SealedSetGroup` + `CardSet` (con `tcgcsvGroupId`) en
+  memoria y **pagina después**; además resuelve el ancla + `getReferencesBatch` **por set en bucle**
+  (N+ consultas). Es lectura `vault_operator+`, acotada por el tamaño del catálogo de sets y con
+  `pageSize` capado a 100, así que el riesgo de DoS es bajo; conviene paginar en BD y batch-ear las
+  referencias si el catálogo de sellado crece.
+
+### Nota (INFO, verificado)
+- **`SEC-M11-nota` — `setMainGroup` hace un `provider.listGroups()` (egress a `tcgcsv.com`) sólo para
+  poblar el `label` de un grupo NUEVO.** Va en `try/catch` que traga el fallo (label=null) → money-safe
+  bajo O-17. Restringido a `super_admin`, una llamada por remap de grupo nuevo. Sin SSRF (URL fija, el
+  `groupId` sólo se usa en un `.find()` sobre la lista devuelta). Aceptable.
+
+---
+
+## 7. Banderas para el humano
+
+- **La ingesta real de precios de sellado no se ha ejercitado contra `tcgcsv.com`** (egress bloqueado,
+  O-17): el cableado botón→job→`PriceReference` se probó con **fixtures/mocks**. El primer jalón en
+  vivo lo confirma el dueño en prod (ya previsto en el diseño §9/§12).
+- **Antes de operar con dinero real** sigue vigente la bandera de releases previos: pentest de tercero
+  + bug bounty. M11 no la mueve.
+
+---
+
+## 8. Enrutado por rol (resumen para el orquestador)
+
+- **BACKEND:** `SEC-M11-1` (atomicidad `$transaction`), `SEC-M11-2` (auditoría con `tx`), `SEC-M11-3`
+  (before/after completo), `SEC-M11-4` (`@MaxLength` en `reason`), `SEC-M11-5` (paginación en BD /
+  batch). **Todas medias/bajas, ninguna bloquea la publicación.**
+- **FRONTEND:** sin hallazgos (gating correcto; defensa en profundidad presente).
+- **Condiciones de la aprobación:** cerrar `SEC-M11-1`/`SEC-M11-2` en la siguiente iteración de
+  `inventory` (idealmente en un solo `$transaction` + `tx` de auditoría). No detienen `fafe7461`.
+
 # VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
@@ -10978,3 +13965,2490 @@ y que nadie estaba mirando.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-09 · candidato `97f3bcf` · §M2-F v1.63.1 ·
 **APROBADO-CON-CONDICIONES**
+
+---
+
+# Revisión de robustez PII — «degradar en vez de 500» · sha `1d43a19e` (2026-09-18)
+
+**Alcance:** el commit `1d43a19e` («fix(pii): degradar en vez de 500 cuando un campo PII no
+descifra», deuda M11). Cuatro ficheros: `common/crypto/pii-crypto.service.ts` (nuevo
+`tryDecryptOptional`), `modules/admin/admin.service.ts` (`getUser`), `modules/users/users.service.ts`
+(`getKyc`) y la prueba `test/pii-degrade.spec.ts`. Revisión de **código a sha fijado** (worktree
+detached sobre `1d43a19e`); no medí en vivo (no hacía falta para este delta: la superficie es una
+rama `catch` pura y dos proyecciones de solo-lectura).
+
+## Qué hace el cambio
+`tryDecryptOptional(payload)` es `decryptOptional` con la excepción capturada: `null/undefined` →
+`{value: undefined, unavailable: false}`; payload que existe y **no** descifra → `{value: undefined,
+unavailable: true}` + `logger.error(motivo)` **sin lanzar**. Se usa en exactamente dos vistas de
+solo-lectura que enmascaran PII: `GET /admin/users/:id` (super_admin: kyc.clabe, kyc.rfc,
+billing.rfc; vault_operator: solo clabe) y `GET /users/me/kyc` (clabe propia). Un campo ilegible
+DEGRADA su casilla (enmascarado `undefined`) y el DTO afectado gana `piiUnavailable: true`; el resto
+de la respuesta viaja intacto y el código sale 200.
+
+## Hallazgos por foco
+
+**1 · Fuga de PII / material cripto — LIMPIO.**
+- El log de `tryDecryptOptional` registra **solo el motivo**: un mensaje fijo + `e.message`.
+  `decrypt()` solo lanza `'Malformed PII ciphertext'` (literal) o el error genérico del GCM
+  (`'Unsupported state or unable to authenticate data'`) — ninguno contiene el texto cifrado ni
+  descifrado. No hay `${payload}` ni valor parcial en el log. (De hecho `tryDecryptOptional` es más
+  parco que `toBillingProfileDTO`, que sí loguea `id`/`userId`; aquí no hay ni identificadores.)
+- La respuesta al cliente/admin **no expone el payload cifrado**. Los tres mapeadores
+  (`toAdminKycDetailDTO`, `toAdminKycOperatorDTO`, `toAdminBillingDTO`) **enumeran** sus claves
+  (allowlist, no spread-de-resto): `clabeEnc`/`rfcEnc` nunca se leen a la salida. El cambio solo
+  añade el booleano `piiUnavailable` sobre un DTO ya enumerado. La prueba lo blinda:
+  `JSON.stringify(res)` no contiene ni la CLABE en claro ni el ciphertext (`pii-degrade.spec.ts`).
+
+**2 · No enmascarar un fallo que debe ser ruidoso — CORRECTO.**
+- `git grep tryDecryptOptional` sobre `1d43a19e`: los tres únicos llamadores de producción son las
+  dos vistas de solo-lectura declaradas (`admin.service.ts:916,920,921` y `users.service.ts:329`).
+  **No se coló en ningún camino obligatorio.**
+- Los caminos de dinero siguen usando `decrypt`/`decryptOptional` y **siguen lanzando**:
+  `buylist.revealClabe` (reveal de CLABE completa para el pago SPEI, `buylist.service.ts:5610,5613`)
+  y el fallback «usar mi CLABE en archivo» al crear la solicitud (`buylist.service.ts:1433`) fallan
+  ruidosos si el dato no descifra — correcto, no se paga a una CLABE que no se puede leer.
+- **Verificado el claim del backend:** `toBillingProfileDTO` (`users.service.ts:239`) mantiene su
+  `decrypt` con re-throw intencional (500 fail-closed, con diagnóstico `id`/`userId`/causa al log,
+  nunca al cliente). Es el P-BILL-DoS ya documentado en `PENTEST_NOTES.md`, autoinfligido y no
+  explotable por atacante. El cambio NO lo tocó. Nota deliberada y defendible: el mismo `rfcEnc`
+  corrupto degrada (200) en la ficha 360° de admin pero sigue lanzando (500) en
+  `GET /users/me/billing-profile` — la vista de resumen no debe tumbarse por una casilla; el recurso
+  dedicado prefiere fallar-cerrado. Ambos caminos no filtran PII.
+
+**3 · `clabeOnFile: true` sigue reflejando existencia — CORRECTO, no engañoso.**
+- `clabeOnFile: Boolean(kyc?.clabeEnc)` se deriva de la existencia de la columna cifrada, no del
+  éxito del descifrado. Estado degradado: `clabeMasked: undefined` + `piiUnavailable: true` +
+  `clabeOnFile: true`. Al operador/cliente le dice exactamente la verdad: «hay una CLABE en archivo,
+  pero ahora mismo no se puede leer», que es lo correcto (no poder leer ≠ no existir).
+
+**4 · Superficie de autorización — la degradación NO amplía lo que cada rol ve.**
+- Rama super_admin: computa `kycRfc` y `billingRfc` (que ya veía enmascarados). Rama
+  vault_operator: computa **solo** `clabe`; `kycRfc`/`billingRfc` viven dentro de la rama super_admin
+  y no se calculan para el operador, así que su `piiUnavailable` refleja **únicamente** la clabe. El
+  operador no gana visibilidad de la degradación del RFC. La proyección sigue siendo la
+  allowlist enumerada por rol (SEC-A4). Rutas self-scoped/role-guarded (`@CurrentUser('id')` en
+  getKyc; guard de clase + `@CurrentUser('role')` en admin): la degradación no cambia guardas.
+
+**5 · ¿Oráculo aditivo? — RESIDUAL ACEPTADO (Info), no explotable.**
+- `piiUnavailable` distingue «existe pero no descifra» de «no existe» (`clabeOnFile`) y de «existe y
+  descifra». Pero esa distinción solo la ven principales **autenticados**: el usuario sobre **su
+  propio** dato (no hay oráculo cross-tenant) o roles de back-office **auditados** (super_admin /
+  vault_operator). El bit no revela material de clave ni el texto claro; a un rol que ya puede ver
+  `clabeOnFile` y el enmascarado solo le añade el hecho operativo «esta fila no descifra con la clave
+  del proceso», que es justo lo que necesita para diagnosticar una rotación de `PII_ENCRYPTION_KEY`.
+  Sin exposición no autenticada ni entre usuarios. **Aceptable.**
+
+## Observaciones menores (no bloquean, enrutadas a su dueño)
+
+- **[Info · backend] Vista de admin residual de la misma clase, fuera del alcance de este commit:**
+  `adminSellRequestDTO` (`buylist.service.ts:2571`) enmascara `clabeSnapshotEnc` con
+  `decryptOptional`, así que un snapshot indescifrable **aún tumbaría con 500** el detalle de la
+  solicitud en el panel. Es el mismo patrón que M11 arregló en `getUser`/`getKyc`, pero en otra
+  vista de solo-lectura que este commit no tocó. Robustez, no fuga de PII. Dueño: **backend** (si se
+  decide extender la degradación a esa vista).
+- **[Info · backend] Trazabilidad del log:** `tryDecryptOptional` no incluye qué fila degradó
+  (a diferencia de `toBillingProfileDTO`, que sí logea `id`/`userId`). Es más seguro (menos PII en
+  logs) pero deja al operador sin saber **qué** perfil degradó. Si se quisiera correlacionar, el
+  `id`/`userId` podría pasarse como contexto **desde el llamador** (nunca el valor). Cosmético.
+
+## VEREDICTO
+
+### **APROBADO** sobre `1d43a19e`
+
+El delta no tiene hallazgos **críticos ni altos** abiertos. La rama de degradación no filtra ni el
+texto cifrado ni el descifrado (log de motivo genérico; DTOs de allowlist enumerada; prueba que
+verifica la ausencia de CLABE y ciphertext en el JSON). `tryDecryptOptional` está contenido en las
+dos vistas de solo-lectura declaradas y **no se coló en ningún camino obligatorio** — reveal SPEI,
+fallback de CLABE al crear solicitud y `toBillingProfileDTO` siguen fallando ruidosos. `clabeOnFile`
+sigue reflejando existencia sin engañar. La degradación no amplía la superficie por rol. El único
+oráculo aditivo es visible solo a principales autenticados/auditados sobre datos que ya podían ver, y
+es residual aceptado (Info). Quedan dos observaciones **Info** enrutadas a **backend** (vista residual
+de `adminSellRequestDTO` y trazabilidad del log), ninguna bloqueante.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `1d43a19e` · robustez PII / deuda M11 ·
+**APROBADO**
+
+---
+
+# Stream bóveda M4-VAULT «Para bóveda» — consolidación VLT-1..4 + hallazgo del techlead · sha `db7d1c2` (rama `claude/m4-boveda`) · 2026-09-28
+
+**Alcance:** los cuatro verbos de `/admin/vault-placements` (`PATCH …/prep-items/:id`, `POST|DELETE …/prepared`,
+`POST …/confirm`), las lecturas `GET /admin/vaults*` y `…/physical-inventory`, el nacimiento de `VaultPlacement` en
+el settle, el settle CAS (`payments.service.ts:241-252`, v1.79.4) y el contracargo de bóveda
+(`payments.service.ts:820-896`). Normativo: `API_CONTRACT §M4-VAULT` v1.79.4. Insumo: `PENTEST_NOTES.md` pase
+2026-09-28 (estático) y el hallazgo del techlead relayado por el orquestador.
+
+**Cómo medí (O-9/O-14):** copia `git archive db7d1c2` en
+`scratchpad/sec-vault/` (árbol vivo intacto; solo escribo este fichero), BD propia `secvault` creada tras
+`pg_stat_activity` (QA estaba en `tcg_qavault`; no la toqué) y **borrada al terminar** (rol incluido). La copia de
+`vault-placement.service.ts` se restauró y se comprobó idéntica a `db7d1c2` (`diff -q` vacío) antes de cada corrida
+de referencia. Una sonda propia, solo en la copia —`backend/test/integration/zz-secvault-probe.e2e-spec.ts`—
+fuerza el entrelazado contracargo↔`confirm` con la barrera de fila de `helpers/vault-placement-db.ts` (la misma
+técnica FIFO de `vault-placement-races.e2e-spec.ts`, sin `sleep`). **Todo número de abajo es mío, con su N**;
+lo que no medí va marcado **NO MEDIDO**.
+
+**Línea base medida en `db7d1c2`:** `vault-placement-{verbs,races,birth}.e2e-spec.ts` **3/3 suites, 57/57** verdes.
+Proporciones de carrera (N por escenario): `6-same 10/10`, `6-diff 10/10`, `13 10/10`, `18 20/20`, `24 20/20`,
+`25 20/20`, `32a 20/20`, `32b 10/10`.
+
+## Lo que revisé y RESISTE (confirmo al pentester, con la línea)
+
+- **Authz:** `@Roles(vault_operator, super_admin)` a nivel de clase en `vault-placements.controller.ts:16` y
+  `admin-vaults.controller.ts:15`; `RolesGuard`/`JwtAuthGuard` globales. El actor sale de `@CurrentUser()`, nunca
+  del cuerpo (`vault-placement.service.ts:33`). Los verbos no tocan dinero ni titularidad: la única escritura sobre la
+  pieza es `locationId` (`:527-536`), con `placeableWhere(userId)` en el `WHERE` y `userId` derivado de la orden.
+- **IDOR:** `markItem` rechaza con 404 una carta de otra colocación (`:225`). El resto opera por `placementId` y deriva
+  al cliente de la orden (`assertSane`, `:117-127`).
+- **Concurrencia de los verbos entre sí:** puerta por cliente (`pg_advisory_xact_lock`, parámetros vinculados,
+  `vault-placement.rules.ts:31-34`) + CAS con estado en el `WHERE` en `prepare` (`:330`), `unprepare` (`:380`),
+  cierre sin cajón (`:463`), reclamo (`:510`). Medido en vivo (línea base arriba).
+- **Contracargo vs verbos, las dos órdenes, medido** (N=10 cada una, sonda propia):
+  - contracargo primero → `confirm {}`: **10/10** `409 PLACEMENT_NOT_PENDING`, fila `cancelled/chargeback`,
+    `cancelledByUserId = null` (rastro intacto).
+  - contracargo primero → `confirm {locationId}`: **10/10** `409`, fila `cancelled/chargeback`, pieza
+    `platform/listed` fuera del cajón (no se movió).
+  - `confirm {locationId}` primero → contracargo: ver `VLT-1` abajo (interbloqueo, converge).
+- **Settle CAS** (`payments.service.ts:249-253`): `updateMany … status:{not:'settled'}` como primera escritura, el
+  perdedor sale sin escribir ni avisar; `createMany … skipDuplicates` sobre `orderId @unique` como segunda defensa.
+  Correcto por construcción; no re-medí la prueba 39 de backend (la reporta `BACKEND_NOTES`; relayado, **no medido
+  por mí**).
+- **Idempotencia del webhook ante fallo:** si el handler lanza, el marcador `ProcessedStripeEvent` se borra y el error
+  se propaga (`payments.service.ts:175-183`). **Medido:** tras el interbloqueo de `VLT-1`, `marker=0` en **10/10** y
+  el reintento con el **mismo** `event.id` aplica el contracargo en **10/10**.
+- **PII:** la vista de la colocación selecciona `{id, name, nameSource, email}` del cliente
+  (`vault-preparation.view.ts:103`); `customerDisplayName` da `null` a nombres derivados del correo. Ni CLABE, ni RFC,
+  ni INE, ni dirección en esta superficie. Dentro de lo aprobado.
+- **Inyección:** sin `$queryRawUnsafe` ni `$executeRawUnsafe` en el delta de `backend/src`; el único `$executeRaw` es
+  la puerta, parametrizada.
+- **Dependencias:** `npm audit --omit=dev` = 0 críticas, 0 altas, 5 moderadas (`qs`/`express`/`@nestjs/*`), que ya
+  estaban registradas como `REL-D` (devops). Este stream no toca `package-lock.json`.
+
+## Hallazgos consolidados (por severidad)
+
+| ID | Sev. | Estado | Bloquea este stream |
+|---|---|---|---|
+| `SEC-RESET-TV` (nuevo, fuera del stream) | **Media** | abierto | No (anterior al stream, fuera del delta) |
+| `SEC-VLT-TL` (hallazgo del techlead, **medido**) | **Baja** | abierto | **Condición de aprobación** (C1) |
+| `SEC-SETTLE-LATE` (observación del contrato, ahora **medida**) | **Baja** | abierto | No (conducta previa, otro stream) |
+| `VLT-1` (pentester: Baja) → **reclasificado Info** | Info | cerrado por diseño (medido) | No |
+| `SEC-VLT-DL` (nuevo, derivado de VLT-1) | Info | aceptado con disparador | No |
+| `VLT-2` | Info | cerrado por decisión del dueño | No |
+| `VLT-3` | Info (latente) | aceptado con condición | No (condición C2 con disparador) |
+| `VLT-4` | Info | cerrado en parte por esta medición | No |
+
+Críticos: **0**. Altos: **0**.
+
+### `SEC-VLT-TL` — Baja — el `status:'pending'` del cierre sin cajón no tiene prueba que lo sostenga (el techlead tenía razón)
+- **Ubicación:** `backend/src/modules/vault/vault-placement.service.ts:462-470` (`confirm`, paso 6-bis).
+- **El código en `db7d1c2` está bien:** el `WHERE` lleva `status:'pending'`. Lo que falla es la **prueba**: la
+  mutación que declara la prueba 32 del contrato (`§M4-VAULT.8` #32) no la detecta. Bajo la puerta, el segundo
+  `confirm` relee en `:441`, ve `cancelled` y nunca llega a `:462`. **El único escritor que se salta la puerta es el
+  contracargo** (`payments.service.ts:885-893`), y **ninguna prueba enfrenta un verbo con el contracargo**.
+- **Medido (sobre la copia, mutación = quitar `status:'pending'` de `:463`):**
+  - La mutación **sobrevive** a 4/4 suites de integración de bóveda (`vault-placement-{verbs,races,birth}`,
+    `vault-shipments`: **74/74 verdes**) y a la suite unitaria completa (**349/349 suites, 5742/5742**).
+    `32a` **20/20** y `32b` **10/10** siguen verdes con la mutación puesta.
+  - Mi sonda S1 (contracargo primero, `confirm {}` detrás, forzado) **muerde en 10/10**: con la mutación, la fila
+    acaba `cancelled/nothing_to_place`, `cancelledByUserId = <operador>`, más una bitácora
+    `vault_placement.nothing_to_place` (se pierde el rastro del contracargo **en la colocación**). Sin la mutación:
+    **10/10** `cancelled/chargeback`, `cancelledByUserId = null`.
+- **Impacto si alguien quita esa condición:** se falsea la auditoría (el operador aparece como quien cerró algo que
+  cerró un contracargo). No mueve dinero ni piezas: `Order.status='chargeback'` y los
+  `InventoryMovement chargeback_return` sobreviven. Por eso es **Baja** y no más. Pero está en zona de dinero y es
+  justo la clase «candado sin canario» que el proyecto no acepta.
+- **Relación con `VLT-1`:** tienen la **misma raíz**: el contracargo es el único escritor fuera de la puerta. `VLT-1`
+  es el orden «`confirm` gana y el contracargo llega detrás»; `SEC-VLT-TL` es el orden «el contracargo gana entre la
+  lectura bajo la puerta y el CAS». El segundo es el que los `WHERE` con estado protegen, y es el que no tiene prueba.
+- **Condición de cierre (C1) — responsable: backend:** una prueba de integración con entrelazado forzado de
+  **contracargo vs verbo**, N≥10, que muerda (**roja en alguna tirada**) al quitar `status:'pending'` de **`:463`**, y
+  que se demuestre con la mutación sobre copia (O-9). Recomendado extenderla con el mismo arnés al reclamo (`:510`,
+  `preparedAt`/`status`) y a `prepare`/`unprepare` (`:330`, `:380`) frente al contracargo. Como plantilla vale la
+  sonda S1 de `scratchpad/sec-vault/backend/test/integration/zz-secvault-probe.e2e-spec.ts` (barrera de fila sobre
+  `VaultPlacement`; A = `charge.dispute.created` firmado, B = `confirm {}`). Muerde 10/10 y pasa 10/10 sin la
+  mutación. **Si la prueba cambia la tabla de la #32 del contrato, pasa antes por el arquitecto** (regla 9).
+
+### `VLT-1` — reclasificado **Info**, cerrado por diseño — carrera contracargo vs `confirm` (medido)
+- **Lo que el pentester razonó (estático):** que `confirm` y el contracargo se confirmaran los dos a la vez, dejando
+  una colocación `placed` obsoleta sobre una pieza ya revertida.
+- **Lo que pasa en realidad (medido, sonda S2, `confirm {locationId}` primero y contracargo detrás, forzado):** los
+  dos **no se confirman a la vez**: **se interbloquean** (`40P01 deadlock detected`) en **20/20** entrelazados forzados
+  (dos corridas de N=10). Postgres aborta uno:
+  - víctima el **webhook** en **19/20**: `503 BUSY_TRY_AGAIN` ⇒ `confirm 200 placed`, contracargo **sin aplicar**,
+    `marker=0` (medido en 10/10 de la corrida que lo miró). El reintento con el mismo `event.id` ⇒ `200` y estado
+    final en **10/10**: `vp=placed`, pieza `platform/listed` con `locationId` = cajón del cliente,
+    `order=chargeback`.
+  - víctima el **`confirm`** en **1/20**: `503` al operador; el contracargo se aplica (`cancelled/chargeback`, pieza
+    `platform/listed` en el estante).
+- **El estado final** (`placed` + pieza de plataforma en el cajón del cliente) es **exactamente** la «consecuencia
+  conocida, NO es un defecto» que el contrato declara para el contracargo **posterior** a la colocación
+  (`API_CONTRACT §M4-VAULT.6`: «es la verdad física… ⛔ no se arregla moviendo la ubicación en el webhook»). La
+  carrera no produce ningún estado que la secuencia normal no produzca. No hay pérdida de dinero, doble titularidad
+  ni fuga: la pieza no aparece en `physical-inventory` (`customerCustodyWhere`).
+- **Cierre:** cerrado por diseño. La carrera en sí deja un residuo, que registro aparte como `SEC-VLT-DL`.
+
+### `SEC-VLT-DL` — Info — contracargo y `confirm` toman los candados en orden inverso (interbloqueo recuperable)
+- **Causa:** `confirm` bloquea la fila `VaultPlacement` (reclamo, `:509`) y **después** las piezas (`:527`). El
+  contracargo bloquea las piezas (`payments.service.ts:846`), luego `Order` (`:877`) y **al final** `VaultPlacement`
+  (`:885`). Con los dos en vuelo sobre el mismo cliente, el ciclo es seguro.
+- **Por qué es solo Info:** Postgres lo detecta y aborta a uno. El webhook borra su marcador y Stripe reintenta; el
+  operador recibe `503` y reintenta. **Medido:** converge al estado correcto en **10/10** reintentos.
+- **Coste residual:** (a) la reversión de la pieza se retrasa un ciclo de reintentos de Stripe (**cadencia NO
+  MEDIDA**). Mientras tanto la pieza sigue `customer/in_custody`, aunque esa ventana ya existe entre la disputa y la
+  primera entrega del webhook. (b) La recuperación depende de que `processedStripeEvent.delete` no falle; su
+  `.catch(() => undefined)` (`payments.service.ts:180`) se traga el error y, si el borrado fallara, **el contracargo
+  se perdería** en silencio. Esto es anterior al stream y **no lo medí** con fallo inyectado. (c) La probabilidad
+  **natural** (sin barrera) **NO está MEDIDA**: la ventana dura milisegundos.
+- **Disparador para abordarlo:** que aparezca un `40P01` en los registros de producción, o el próximo cambio al
+  contracargo de bóveda. **Opciones (backend, vía arquitecto):** que el contracargo bloquee primero la colocación
+  (hoy el contrato la pone «al final»), o que tome la puerta del cliente. Aparte, loguear con `error` cuando falle el
+  borrado del marcador en `:180`.
+
+### `VLT-2` — Info — cajón compartido entre clientes en la primera colocación: cerrado por decisión del dueño
+- Confirmado en `vault-placement.service.ts:503`. El contrato lo declara a propósito: `§M4-VAULT.4` v1.79.2, P-E
+  (el dueño: «yo me encargo del aspecto físico»), «⛔ no hay `422` de exclusividad». Los datos siguen siendo
+  consistentes (un dueño y una ubicación por pieza). **Sin acción.** Se reabre solo si el dueño cambia P-E.
+
+### `VLT-3` — Info latente — `RolesGuard` decide por el claim `role` del JWT
+- **Confirmado:** `jwt-auth.guard.ts:62-65` relee de BD `status`, `tokenVersion`, `emailVerified` y
+  `mustChangePassword`, pero **no** `role`; `:78` pone `role: payload.role`. El refresh sí relee el rol de BD
+  (`auth.service.ts:476-486` → `issueTokens(user)`), así que la ventana de un rol viejo es el TTL del access token
+  (`JWT_ACCESS_TTL`, por defecto `15m`, `auth.service.ts:87`).
+- **Hoy no es explotable:** en `backend/src` ninguna escritura muta `User.role`. Medido con `grep` de
+  `user.update|updateMany|upsert`: `updateUserStatus` solo toca `status` (y el guard relee `status`), el perfil propio
+  no acepta `role`, y el único `update` de rol está en `prisma/seed-e2e.ts:117`, que es de pruebas.
+- **Condición (C2), con disparador — responsable: backend (auth):** **cualquier mutación futura de `User.role`**
+  (endpoint, script de ops o migración de datos) debe incrementar `tokenVersion` **en la misma sentencia**. La
+  alternativa más barata y robusta, que recomiendo: añadir `role: true` al `select` de `jwt-auth.guard.ts:64` y usar
+  el rol de BD en `:78`. No cuesta ninguna consulta más y deja de depender de que alguien se acuerde. **Disparador:**
+  antes de fusionar cualquier cambio que escriba `User.role`.
+
+### `VLT-4` — Info — superficie que el pentest no midió en vivo: cerrada en parte
+- Cerrado ahora: la línea base de carreras en vivo (arriba) y contracargo vs `confirm` en las dos órdenes (N=10
+  cada una).
+- Sigue **NO MEDIDO:** el DAST genérico (no hay staging, `HECHOS.md`) y la prueba 39 del settle CAS en mi copia
+  (la reporta backend).
+
+### `SEC-SETTLE-LATE` — Baja — un `succeeded` que llega tarde vuelve a liquidar una orden en `chargeback` (conducta previa, ahora medida)
+- **Ubicación:** `payments.service.ts:193` (el early-return solo mira `settled`) y `:249` (el CAS `not:'settled'`).
+  El contrato lo tenía como «observación registrada, NO decidida… ⛔ NO MEDIDO si es alcanzable» (`§M4-VAULT.2-bis.1`,
+  remite a `ARCHITECTURE §4.21q (n)`).
+- **Medido en local (sonda S4, N=1, eventos firmados sintéticos):** con la orden en `chargeback`, un
+  `payment_intent.succeeded` con importe y moneda correctos ⇒ `200` y la orden pasa a **`settled`**, **con
+  `settledAt` reescrito**. La pieza se queda `platform/listed` (la protege `reservationGuard`) y la colocación sigue
+  `cancelled/chargeback` (`skipDuplicates`).
+- **Impacto:** el registro de dinero miente: la orden dice «liquidada» cuando Stripe revirtió los fondos, y
+  `settledAt` deja de escribirse una sola vez. Probablemente sale también el aviso `AV-2` al cliente (**NO MEDIDO**).
+  Las piezas no se mueven. Un atacante no puede forzarlo (hace falta un evento firmado por Stripe). Stripe no
+  garantiza el orden de entrega, así que es alcanzable si la entrega del `succeeded` falla y se reintenta después de
+  procesarse la disputa. La alcanzabilidad **con Stripe real está NO MEDIDA**.
+- **No es de este stream:** el CAS de v1.79.4 conservó a propósito la semántica anterior. **Responsable:** arquitecto
+  y después backend (stream «Órdenes y dinero»), para decidir qué estados de origen pueden liquidarse.
+  **Disparador:** antes de operar con disputas reales, o en el siguiente pase del stream de dinero.
+
+### `SEC-RESET-TV` — Media — el script de rescate de contraseña de staff no revoca sesiones (fuera del stream)
+- **Ubicación:** `backend/prisma/reset-admin-password.ts:51-54`: `data: { passwordHash, emailVerified: true }`,
+  **sin** `tokenVersion: { increment: 1 }`. Los dos caminos de la app sí lo incrementan (`auth.service.ts:277` en el
+  reset por correo, `:351` en el cambio de contraseña), y también el reset de admin (`admin.service.ts:1347`).
+- **Impacto:** este script es el camino de rescate del `super_admin` (el rol que aprueba el dinero saliente). Si se
+  usa porque la cuenta está **comprometida**, los refresh tokens del atacante siguen valiendo hasta
+  `JWT_REFRESH_TTL` (**30 días** por defecto, `auth.service.ts:94`): el refresh solo compara `tokenVersion`, que no
+  cambió. Quien corre el script cree, con motivo, que cortó el acceso. Para explotarlo hace falta haber robado antes
+  un token. Por eso es **Media** y no Alta.
+- **No es del delta del stream** (el fichero no cambia en `db7d1c2`) y **nunca se había registrado** (`grep` en
+  `SECURITY_NOTES`, `PENTEST_NOTES`, `BACKEND_NOTES`, `TECH_DEBT`: sin menciones). **Responsable: backend.** El
+  arreglo es una línea: `tokenVersion: { increment: 1 }`. Conviene añadir también `mustChangePassword: false`
+  explícito si aplica. **Disparador:** antes del próximo uso del script en producción.
+
+## Deuda de seguridad aceptada (no bloquea)
+- `VLT-2`: por decisión del dueño (P-E).
+- `SEC-VLT-DL`: interbloqueo recuperable; se retoma si aparece un `40P01` en producción o al cambiar el contracargo.
+- `VLT-3`: latente, con la condición C2 (disparador: cualquier escritura de `User.role`).
+- `SEC-SETTLE-LATE`: conducta previa, se enruta al stream de dinero.
+- `REL-D` (dependencias moderadas): sin cambio, ya enrutado a devops.
+
+## Banderas para el humano
+- **Antes de operar con disputas reales:** cerrar `SEC-SETTLE-LATE`. Hoy una entrega fuera de orden de Stripe puede
+  dejar una orden «liquidada» cuyo dinero ya se revirtió.
+- **Antes de volver a usar `reset-admin-password.ts` en producción** (`SEC-RESET-TV`): hoy **no** cierra las sesiones
+  abiertas. Si alguna vez se usó por sospecha de compromiso, conviene cerrarlas a mano (incrementar
+  `tokenVersion` de esa cuenta).
+- Sigue vigente la bandera general: pentest de un tercero y bug bounty antes de operar con dinero real; no hay
+  staging, así que el DAST no mide esta superficie.
+
+## VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `db7d1c2`
+
+Cero críticos y cero altos abiertos en el stream. El DoD («sin críticos/altos abiertos») **se cumple**. La
+superficie nueva resiste por construcción, y lo medí en vivo: authz de clase, IDOR, puerta + CAS en los cuatro
+verbos, contracargo vs `confirm` en las dos órdenes, idempotencia del webhook ante fallo, y PII mínima. `VLT-1` no
+produce ningún estado que el contrato no declare. `VLT-2` es decisión del dueño.
+
+**Condiciones:**
+- **C1 (antes de fusionar a `main`) — backend:** la prueba de contracargo vs verbo de `SEC-VLT-TL`, demostrada con la
+  mutación de `:463` sobre copia: **roja en ≥1 de N≥10** con la mutación y **verde en N/N** sin ella. Hoy esa mutación
+  sobrevive a **toda** la suite. Es barata (la plantilla ya existe en mi scratch) y protege el rastro de auditoría de
+  un contracargo en zona de dinero.
+- **C2 (con disparador, no bloquea la fusión) — backend (auth):** `VLT-3`. Toda mutación futura de `User.role`
+  incrementa `tokenVersion` en la misma sentencia; mejor aún, el guard lee `role` de BD.
+
+**Mínimo para quedar APROBADO sin condiciones:** C1 cerrada y medida por QA o por mí sobre un sha fijado.
+`SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja) son anteriores al stream y **no** condicionan este veredicto, pero
+quedan enrutados a backend (y al arquitecto, en el segundo caso) con su disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `db7d1c2` · §M4-VAULT v1.79.4 · **APROBADO CON CONDICIONES**
+
+# Stream bóveda M4-VAULT — re-verificación de C1 · sha `f2981e1` (rama `claude/m4-boveda`) · 2026-09-28
+
+> Medido por mí (seguridad) el **2026-09-28** sobre copias del árbol ENTERO (`git archive f2981e1`, limpio y mutante)
+> en `scratchpad/sec-vault2/`, BD propias `tcg_secvault2` / `tcg_secvault2_mut` (rol `secvault2`), Postgres 16; antes
+> de crearlas, `pg_stat_activity` sin sesiones sobre `%secvault%`. El canario del arnés filtra por
+> `current_database()`, así que la corrida en paralelo de QA sobre su BD no lo contamina.
+
+## C1 — prueba 40 (contracargo firmado vs verbo, §M4-VAULT.8 v1.79.5) · **CERRADA**
+
+| Corrida | Qué cambia | 40(a) | 40(b) | 40(c) | 40(d) | e1/e2 |
+|---|---|---|---|---|---|---|
+| limpio (suite de carreras entera) | nada | **10/10** | **10/10** | **10/10** | **10/10** | verdes · suite 14/14 |
+| **m-a** (condición C1) | sin `status:'pending'` en `vault-placement.service.ts:463` | **0/10 — ROJA** | 10/10 | 10/10 | 10/10 | verdes |
+| m-b | ídem `:510` (reclamo, paso 8) | 10/10 | **0/10 — ROJA** | 10/10 | 10/10 | verdes |
+| m-c | ídem `:330` (`POST …/prepared`) | 10/10 | 10/10 | **0/10 — ROJA** | 10/10 | verdes |
+| m-d | ídem `:380` (`DELETE …/prepared`) | 10/10 | 10/10 | 10/10 | **0/10 — ROJA** | verdes |
+
+N=10 por caso y por corrida; «sin entrelazado observado» **0/10** en todas (el arnés vio a A y a A+B esperando
+candado de FILA en cada tirada). Cada mutación muerde **solo** su caso: la prueba discrimina, no es un rojo genérico.
+
+Forma del rojo (coincide con la derivada en el contrato y con `BACKEND_NOTES §7`):
+- **m-a:** B `200 nothing_to_place`; la fila acaba `cancelled/nothing_to_place` **con el operador como autor** y 1
+  bitácora; la orden sí queda `chargeback`. Es exactamente el riesgo de `SEC-VLT-TL`: el rastro del contracargo se
+  reescribe como un cierre operativo.
+- **m-b:** B `500 INTERNAL`, fila `cancelled/chargeback` intacta y **0** movimientos: el CHECK de BD frena el daño
+  (defensa en profundidad), pero el `500` lo caza la prueba.
+- **m-c:** B `200 prepared` sobre la fila cancelada (escribe `preparedAt`, 1 bitácora).
+- **m-d:** B `200 unprepared` sobre la fila cancelada (borra `preparedAt`, 1 bitácora).
+
+Revisé el arnés: el webhook va **firmado** (`sendStripeWebhook`), la barrera es un candado de fila real sobre
+`VaultPlacement`, y el canario (`waitRowBlocked`, `wait_event IN ('transactionid','tuple')`) excluye la puerta
+advisory; una tirada sin entrelazado no cuenta y la prueba exige 0 de ésas. m-e (`payments.service.ts:895`) y m-gate
+**no** las repetí: quedan como medición de backend (`BACKEND_NOTES §7`), no mía.
+
+## `payments.service.ts:180-189` — log del fallo al borrar el marcador de Stripe · **correcto**
+- La semántica no cambia: se sigue propagando el error **original** (⇒ `5xx` ⇒ Stripe reintenta). Solo el `.catch`
+  del borrado pasa de tragarse a `logger.error`.
+- El log lleva `event.id`, `event.type` y el mensaje del error de Prisma: ni PII ni secretos (el `WHERE` es el
+  `event.id`). Aceptable.
+- Medido: unidad `payments.service.spec.ts` **16/16** en limpio; con la mutación «volver a `.catch(() => undefined)`»,
+  **roja 1/16** (la de `SEC-VLT-DL`). Determinista, N=1 basta.
+- Sigue **NO MEDIDO** con fallo inyectado en integración, y un log no reintenta: está dicho en la deuda.
+
+## `SEC-VLT-DL` — registrado como aceptado · **correcto**
+`docs/TECH_DEBT.md` (en `f2981e1`) lo lleva como **ACEPTADO** por el arquitecto (`API_CONTRACT §M4-VAULT.5`, v1.79.5),
+con qué, riesgo residual (la dependencia del borrado del marcador y que el reproceso es manual), dueño («Órdenes y
+dinero») y **disparador** (un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en
+producción). Cumple lo que pedí.
+
+## Resto del delta `db7d1c2..f2981e1`
+Backend de producción: solo el cambio de arriba más comentarios/JSDoc (`shipments.service.ts`, `preparation-view.ts`),
+sin código ejecutable nuevo. Frontend: reordenación de módulos de `/admin/vaults` y textos; sin `innerHTML`, sin
+almacenamiento de tokens, sin llamadas nuevas a la API. Nada nuevo que revisar desde seguridad.
+
+## Pendiente que no cambia
+- **C2** (`VLT-3`, con disparador) sigue como estaba: no condiciona la fusión.
+- `SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja): anteriores al stream, siguen enrutados y con su bandera.
+
+## VEREDICTO
+
+### **APROBADO** sobre `f2981e1`
+
+C1 queda cerrada y medida por mí: la mutación de `:463` pone roja la 40(a) en **10 de 10** tiradas y el árbol limpio
+pasa **10/10** en los cuatro casos, con el entrelazado confirmado en todas. De paso, las tres mutaciones recomendadas
+(`:510`, `:330`, `:380`) también las muerde cada una su caso, 10 de 10. Cero críticos y cero altos abiertos en el stream.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `f2981e1` · §M4-VAULT v1.79.5 · **APROBADO**
+
+# Paquete de seguridad — SEC-RESET-TV + DAST de release bloqueante + C7 · sha `8ea245f` (rama `claude/paquete-seguridad`) · 2026-09-29
+
+> Alcance `c4d378b..8ea245f`: `4d3ba5f` (SEC-RESET-TV), `9da6f13` (DAST de release, `report_only: false`),
+> `ffe0f7b` (contrato v1.80), `cf32dc9` + `c885b89` + `8ea245f` (C7 backend/frontend/notas).
+> **Medido por mí (seguridad) el 2026-09-29** sobre una copia del árbol (`git archive 8ea245f`; `backend/src` y
+> `backend/prisma` comparados con `diff -r` contra el sha: idénticos) en `scratchpad/sec-seg/`, con Postgres 16 propio
+> (`/var/lib/postgresql/secseg2e9d`, puerto 55439; `pg_stat_activity` sin sesiones `%secseg%` antes de crear las BD
+> `tcg_secseg_2e9d` y `tcg_secseg_2e9d_it`) y Redis propio (puerto 56389). Servicios parados al terminar.
+> **No hubo pase del pentester sobre este delta** (el último de `PENTEST_NOTES` es M4-VAULT `db7d1c2`): los ataques de
+> abajo los hice yo y van marcados como míos.
+
+## 1. Lo que medí
+
+| # | Ataque / verificación | Resultado | N |
+|---|---|---|---|
+| A1 | Fuerza bruta contra UNA cuenta rotando `X-Forwarded-For` en cada intento (la serie A de la condición C7) | `401×5`, el 6.º **`429 TOO_MANY_PASSWORD_ATTEMPTS`** con `Retry-After: 60` y `details.retryAfterSeconds: 60`; los intentos 7 y 8 también `429` (~10 ms, sin `argon2`); la contraseña **correcta** sin `deviceToken` ⇒ `429` | 1 serie de 8 + las de A2 |
+| A2 | Enumeración por respuesta: 6 intentos contra cuenta existente vs inexistente | **Una sola secuencia** en las dos (estado, código, `Retry-After`) | 10 + 10 |
+| A3 | Enumeración por tiempo, intento 1 (sin candado) | existente 498 ms vs inexistente 567 ms de mediana: dentro del ruido de `argon2` (rango 316–692 ms) | 12 + 12 |
+| A4 | Enumeración por tiempo en el intento que PONE el candado (el 5.º: la bitácora solo se escribe si la cuenta existe) | diferencia 5.º−4.º: +20 ms existente vs −9 ms inexistente (medianas), con dispersión de ±150 ms por `argon2`. **Sin oráculo observable a N=20**; cada muestra le cuesta al atacante poner un candado | 20 + 20, intercalado |
+| A5 | Tiempo del `429` | 11.2 ms existente vs 11.5 ms inexistente (medianas) | 10 + 10 |
+| A6 | Atomicidad: 25 fallos **simultáneos** contra un correo nuevo, almacén **Redis** | **5×401 / 20×429 en 10/10** corridas | 10 |
+| A7 | Mutación sobre la copia: `await` entre «mirar candado» y «reservar» en `MemoryLoginAttemptStore.acquire` | `C7-4` **roja en 10/10** corridas de la prueba; restaurado y comparado con el sha | 10 |
+| A8 | Redis caído a mitad (lo apago): 10 fallos seguidos | `401×5`, luego `429×5`: **ni fail-open ni fail-closed** | 1 |
+| A9 | `deviceToken` como refresh / access como refresh / `deviceToken` como `Bearer` en `/users/me` | `401` / `401` / `401` | 1 |
+| A10 | Cuenta bloqueada + contraseña correcta + el `deviceToken` **del atacante** (otra cuenta) | `429` (se ignora, se usa el cubo de la cuenta) | 1 |
+| A11 | Cuenta bloqueada + contraseña correcta + el `refreshToken` de la víctima como `deviceToken` | `429` (no se confunde de dominio) | 1 |
+| A12 | Cuenta bloqueada + contraseña correcta + el `deviceToken` **legítimo** del dueño | `200` (la puerta del dueño funciona) | 1 |
+| A13 | Exención de Google: 10 `POST /auth/google` con token basura, luego login con contraseña | `200`: Google no toca el contador de la cuenta | 1 |
+| A14 | ⭐ **Acuñar `deviceToken` con un refresh token** y adivinar por el cubo de cada uno (hallazgo `SEC-C7-MINT`, abajo) | **30/30 intentos fallidos llegan a `argon2` y ninguno recibe `429`**; el cubo de la cuenta queda intacto | **3/3** series |
+| A15 | Los `deviceToken` acuñados **sobreviven a la revocación**: el dueño hace `logout` (`tokenVersion +1`) y el cubo de la cuenta está en `429` | refresh tras logout `401`, pero los 3 acuñados siguen abriendo cubos nuevos (`401`, `argon2` alcanzado) | **3/3** |
+| A16 | Suites en la copia: unit `auth.c7-*` + `reset-admin-password.spec` + `auth.login-timing` | **87/87**, 6 suites | 1 |
+| A17 | Integración `auth-password-attempts*.e2e-spec` (incluye C7-12 directo contra MI Redis, C7-8 a–d, C7-15, C7-16) | **45/45**, 2 suites | 1 |
+| A18 | Mutación sobre la copia: quitar `tokenVersion: { increment: 1 }` del script de rescate | `reset-admin-password.spec` **roja 2/6** (super_admin y vault_operator); restaurado | 1 (determinista) |
+
+## 2. Hallazgos
+
+### `SEC-C7-MINT` — MEDIA · **bloquea el cierre de C7 (y por tanto el dinero real); no bloquea la fusión** · backend (diseño: arquitecto)
+- **Qué:** `POST /auth/refresh` emite un `deviceToken` con **`jti` nuevo en cada llamada**
+  (`auth.service.ts:531-533` → `device-token.service.ts:48-52`, `randomUUID()`), y cada `jti` es un cubo nuevo con 5
+  intentos libres (`password-attempts.service.ts` `deviceKey`). Quien tiene un refresh token robado (y `refresh`
+  admite 20/min por IP, `auth.controller.ts:59`) acuña cubos sin límite y adivina la contraseña real **sin que el
+  contador por cuenta vea nada**. Y como el `deviceToken` no se liga a `tokenVersion` (decisión §4.57.4) y vive 90
+  días, **puede almacenar cubos antes de que lo echen** y seguir adivinando después del `logout` o de un reset.
+- **Evidencia:** A14 (30/30 a `argon2`, 0 `429`, 3/3) y A15 (3/3). Script: `scratchpad/sec-seg/t9-refresh-mint.mjs`,
+  `t10-post-revoke.mjs`.
+- **Por qué importa:** es justo la amenaza que `ARCHITECTURE §4.57.2 #14` nombra para `change-password` («una sesión
+  robada adivinando la contraseña real para poder cambiarla y quedarse la cuenta»). Allí el contador por `userId` la
+  corta a ~34 intentos/día. Por esta vía no hay ningún tope, salvo el de IP, que es lo que `C6` todavía no ha
+  medido. Y `§4.57.4` afirma que al ladrón le queda «un contador de 5 intentos libres + retroceso»: **medido, es
+  falso**. Le quedan todos los que quiera.
+- **Por qué Media y no Alta:** exige robar antes un refresh token (XSS en `localStorage` o acceso al dispositivo), y
+  frente a `c4d378b` **no es una regresión**: antes no había ningún límite por cuenta. El control nuevo mejora mucho
+  el caso principal (A1, A6) y falla en este.
+- **Arreglo (lo decide el arquitecto, porque toca §4.57.4 del contrato).** Opciones, en mi orden de preferencia:
+  1. **No acuñar un `jti` nuevo en `refresh`.** Si el cuerpo trae un `deviceToken` válido de ese `sub`, se reemite
+     con el **mismo** `jti`. Si no trae ninguno, se emite uno solo por cadena de refresh (p. ej. `jti` derivado
+     por HMAC de un identificador de sesión en el refresh token).
+  2. O un **tope agregado por cuenta** sobre los fallos por vía dispositivo (p. ej. 20 fallos en 24 h entre todos
+     los `jti`), que al superarse cae al cubo de la cuenta.
+
+  Cualquiera de las dos cierra A15 **solo si** el tope no depende de cuántos `jti` tenga el atacante.
+- **Condición de cierre:** prueba nueva que **falle hoy**. Con un refresh token, acuñar ≥ 4 `deviceToken`, hacer 5
+  fallos con cada uno, y exigir `429` antes de llegar a `argon2` más de *T* veces (*T* = el tope que fije el
+  arquitecto). N=5, 5/5. Mutación: volver a `randomUUID()` en `refresh` ⇒ roja. Yo re-mido A14/A15 sobre el sha
+  del arreglo.
+
+### `SEC-HDR-1` — MEDIA · anterior a este delta · frontend (o devops vía `vercel.json`)
+- **Qué:** la vitrina (Next.js) **no manda ni `X-Frame-Options` ni `frame-ancestors`**. Lo leí en el código:
+  `frontend/next.config.mjs` no tiene `headers()`, `frontend/src/middleware.ts` solo tiene `next-intl` y
+  `vercel.json` solo tiene `ignoreCommand`. Coincide con el WARN `10020` (x5) que sale en todos los barridos
+  (`DEVOPS_NOTES §69.2`). La API sí los lleva (helmet), pero el WARN es de la vitrina.
+- **Impacto:** la sesión vive en `localStorage` del mismo origen. Un iframe en un sitio hostil carga **ya
+  autenticado** el panel `(admin)` del dueño, que es donde se aprueba el dinero saliente ⇒ clickjacking sobre
+  acciones de dinero. En producción **NO LO HE MEDIDO**: lo cierra `curl -sI https://<vitrina-prod>/es` en una
+  ventana autorizada.
+- **Arreglo:** `headers()` en `next.config.mjs` con `X-Frame-Options: DENY` y
+  `Content-Security-Policy: frame-ancestors 'none'` para todas las rutas. Después, devops sube `10020` a **FAIL** en
+  `security/zap/baseline.conf`.
+- **Disparador:** antes de `sk_live_`. Es barato y conviene hacerlo en el siguiente pase de frontend.
+
+### Bajas (deuda con disparador; coinciden con lo que el techlead dejó como deuda)
+- **`SEC-C7-RT` (Baja, backend):** `refresh()` no exige `typ === 'refresh'`, y `(payload.tv ?? 0)`
+  (`auth.service.ts:526`, y el guard en `jwt-auth.guard.ts:70`) acepta como versión 0 un token sin `tv`. **Medido:**
+  no se puede explotar con la configuración actual (A9), porque cada tipo de token se firma con una llave distinta.
+  Pero `env.validation.ts:79-87` **no impide** que `JWT_ACCESS_SECRET == JWT_REFRESH_SECRET`. Si coinciden, un
+  access sirve como refresh y un refresh sirve como access.
+  - **Arreglo:** exigir `typ === 'refresh'` en `refresh()`, rechazar `typ === 'refresh'` en el guard, que falte
+    `tv` ⇒ `401`, y en `env.validation` rechazar los dos secretos iguales.
+  - **Disparador:** siguiente pase de `auth`.
+- **`SEC-C7-RDEG` (Baja, backend):** si Redis está caído, `reset()` solo limpia la memoria
+  (`login-attempt.store.ts`, rama `if (this.degraded) return`). Un candado que ya estaba en Redis reaparece cuando
+  Redis vuelve, ≤ 60 min. Solo afecta a la disponibilidad: la puerta del dispositivo y el reset por correo siguen
+  funcionando.
+  - **Disparador:** un `warn` de `LoginAttemptStore` en producción, o réplicas > 1 (`N-C7-6`).
+- **`SEC-C7-OPT` (Baja, backend):** `@Optional()` en `AdminService.passwordAttempts` (`admin.service.ts:625`). Si
+  alguien rompe el cableado, el reset por admin deja de levantar el candado **sin avisar**. Hoy lo protege
+  `C7-8(b)` por HTTP (verde en A17).
+  - **Arreglo:** quitar `@Optional()` y adaptar la construcción manual de las pruebas.
+- **`SEC-C7-SCRIPT` (Baja, backend):** `prisma/reset-admin-password.ts` revoca las sesiones (bien, ver §3) pero
+  **no levanta el candado C7**. Si el dueño lo usa porque un atacante le tiene el login bloqueado, sigue en `429`
+  hasta 60 min. Le quedan como salida su `deviceToken` y el reset por correo.
+  - **Arreglo:** que el script borre `tcg:auth:{f,l}:<blindIndex>` si hay `REDIS_URL`, o al menos que lo diga al
+    terminar.
+  - **Disparador:** antes del próximo uso del script en producción.
+- **`SEC-HDR-3` (Info, aceptado):** el WARN `10010` («cookie sin HttpOnly», x5) es `NEXT_LOCALE`. `next-intl`
+  4.13.6 lo pone por defecto: `localeCookie ?? true`, `sameSite: 'lax'`, sin `httpOnly`
+  (`node_modules/next-intl/dist/esm/development/routing/config.js`, **LEÍDO**). Solo lleva `es`/`en` y el front no
+  usa cookies de sesión (los JWT van en `localStorage`), así que **se acepta**. Que sea esa cookie y no otra **NO
+  LO HE MEDIDO** en el artefacto de ZAP (la descarga está bloqueada, §69.2). Opcional para frontend:
+  `localeCookie: false`, que con `localeDetection: false` no sirve para nada.
+
+## 3. SEC-RESET-TV (`4d3ba5f`) · **CERRADO**
+`reset-admin-password.ts` escribe `passwordHash`, `tokenVersion: { increment: 1 }`, `emailVerified` y
+`mustChangePassword: false` en **una sola** `update`. Nunca imprime la contraseña y rechaza a quien no es staff.
+Prueba unitaria **6/6**, y la mutación la muerde (A18). Retiro la bandera «antes de volver a usar el script» de mi
+veredicto del 2026-09-28; queda `SEC-C7-SCRIPT` (Baja), que es otra cosa.
+
+## 4. DAST de release (`9da6f13`) — las decisiones de `DEVOPS_NOTES §69.5`
+1. **Confirmo lo retirado.** `deploy.yml:493` `report_only: false` es exactamente lo que decidí en «Decisión sobre
+   `report_only`». Además, el valor por defecto de `workflow_call` y de `workflow_dispatch` ya era `false`
+   (`security-dast.yml:80-83,104-108`), y `check-dast-report-only-expiry.sh` queda como anti-regresión. **C2-bis
+   sigue abierta solo por su segunda mitad:** citar por número el **primer run de `dast-release` sobre
+   `production` que lleve este commit**, con `blocking=false`. Eso solo existe cuando el dueño fusione. Si sale rojo
+   por un hallazgo real, el hallazgo va a su dueño y **no** se vuelve a `report_only` (sin cambio).
+2. **¿Puerta previa? Sí, pero desde `sk_live_`.** Mientras Stripe siga en modo prueba acepto la alarma
+   *posterior*: 19/19 barridos verdes, el blanco es un stack efímero y no producción, y no hay dinero real en
+   juego. **Antes de habilitar `sk_live_`**, C5 (`check-candidate-checks.sh`) exige además un run verde de
+   `security-dast.yml` (`scan_profile: full`) sobre el **sha candidato de `main`**, citado en el cuerpo de la
+   solicitud de fusión `main → production`. Cuesta ~17 min por candidato, y lo considero el precio de publicar
+   dinero real. **Dueño:** devops (cablearlo en C5); el dueño solo decide si lo adelanta.
+3. **Los WARN recurrentes:**
+   - **anti-clickjacking `10020`** ⇒ es `SEC-HDR-1` (Media). Se sube a **FAIL** en `baseline.conf` en el mismo
+     cambio en que frontend ponga la cabecera. Hoy no, porque pondría rojo todo barrido.
+   - **CSP `10038`/`10055`** ⇒ `SEC-HDR-2` (Media, deuda con disparador). Como los tokens viven en
+     `localStorage`, un XSS equivale a tomar la cuenta, y la CSP es la segunda barrera. Se hace en dos pasos:
+     (a) antes de `sk_live_`, una CSP base en la vitrina: `frame-ancestors 'none'; object-src 'none';
+     base-uri 'self'; form-action 'self'`, más `connect-src` restringido a la API y a Stripe, y `10038` pasa a
+     FAIL; (b) `script-src` con *nonce* en el siguiente pase de frontend. Hoy no hay ningún XSS conocido (40012,
+     40014 y 40026 están en FAIL y salen verdes).
+   - **cookie sin HttpOnly `10010`** ⇒ aceptada (`SEC-HDR-3`, arriba). Se queda en WARN.
+
+## 5. C7 — cómo queda la condición heredada
+La comprobación de cierre que escribí («serie A con XFF rotatorio ⇒ `429` antes del 11.º; mutar el límite ⇒
+rojo») **se cumple**: A1, A6 y A7. Acepto las dos exclusiones del arquitecto:
+- **`google`:** no hay secreto que adivinar, y contar por un correo sin verificar dejaría bloquear cualquier
+  cuenta. Lo medí en A13.
+- **`register`:** no adivina nada.
+
+`trust proxy = 1` está fijado y probado (C7-18 en A16). Aun así, **C7 NO queda cerrada para dinero real mientras
+`SEC-C7-MINT` siga abierto**, porque el control no aguanta en el escenario de sesión robada que su propio diseño
+nombra. `C6` (el edge de Railway) sigue abierta y sin cambios: C7 no cubre *password spraying* ni *credential
+stuffing* (§4.57.1), y para eso el eje sigue siendo la IP.
+
+## Banderas para el humano
+- **Antes de `sk_live_`:** cerrar `SEC-C7-MINT`, `SEC-HDR-1` y la CSP base (`SEC-HDR-2a`), cablear el DAST como
+  puerta previa (§4.2) y cerrar `C6`. Siguen vigentes el pentest de un tercero y el bug bounty.
+- **Primer push a `production` con este commit:** hay que citar el número del run de `dast-release` con
+  `blocking=false`. Con eso se cierra C2-bis.
+- `N-C7-1` y `N-C7-2` (que haya Redis en producción y su `maxmemory-policy`) siguen sin medir. Sin Redis, el
+  contador vive en la memoria del proceso: se pierde al reiniciar y cuenta por réplica.
+
+## VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `8ea245f`
+
+Cero críticos y cero altos. El paquete **mejora** la postura frente a `c4d378b`: SEC-RESET-TV queda cerrado,
+el DAST de release bloquea y el login tiene por fin un límite por cuenta que medí atómico (10/10), sin oráculo de
+existencia y sin fallar abierto ni cerrado cuando Redis cae. Puede fusionarse y publicarse **en modo prueba**.
+
+**Condiciones:**
+- **C-MINT (backend + arquitecto; bloquea dinero real, no la fusión):** cerrar `SEC-C7-MINT` con la prueba y la
+  mutación descritas en §2. Yo re-mido A14/A15 sobre el sha del arreglo.
+- **C2-bis (devops, en el primer push a `production`):** citar el run de `dast-release` con `blocking=false`.
+- **C-HDR (frontend + devops; antes de `sk_live_`):** `SEC-HDR-1` + CSP base, y los WARN `10020`/`10038`
+  pasan a FAIL.
+
+**Mínimo para quedar APROBADO sin condiciones:** `SEC-C7-MINT` cerrado y medido por mí o por QA sobre un sha fijado,
+y el run de C2-bis citado. Las bajas (`SEC-C7-RT`, `-RDEG`, `-OPT`, `-SCRIPT`) quedan como deuda con su disparador.
+
+# Re-medición C7 v1.80.1 — cierre de C-MINT y C-HDR · sha `2ef3f50` (rama `claude/paquete-seguridad`) · 2026-09-29
+
+> Alcance `8ea245f..2ef3f50` (delta que me dio el orquestador; sha **fijado** `2ef3f50`): `114aecf` (refresh exige
+> `typ`/`tv`), `178c705` (C7-3 reloj falso), `bf2a486` (`@Optional` fuera), `74a81bc`+`d1fbbf8`+`668b6f8` (C7 v1.80.1:
+> `jti = sid`, tope agregado 30/24 h, C7-R), `ff3ecc4` (script limpia el candado), `3c03f36` (env secretos iguales +
+> guard `typ`/`tv`), `6d59712`+`940be1c` (SEC-HDR-1 cabeceras + ZAP 10020/10021 a FAIL), `7cf48e5`/`8210af6` (deuda/test).
+> **Medido por mí (seguridad) el 2026-09-29** sobre una copia del árbol ENTERO (`git -C /home/user/tcg-seg archive
+> 2ef3f50 | tar -x`) en mi ruta exclusiva `scratchpad/seg-seg-2ef3f50` (O-8), backend compilado desde esa copia
+> (`nest build`, `node_modules` enlazado del worktree; `schema.prisma` idéntico por `diff`), con **Postgres 16 propio**
+> (`/var/lib/postgresql/seg-seg2`, puerto 55450, BD `tcg_seg_2e9d` y `tcg_seg_2e9d_it`) y **Redis propio** (puerto 56450).
+> Servicios parados y datos borrados al terminar. Sin pase nuevo del pentester sobre este delta: los ataques de abajo
+> los repetí yo (A14/A15) y van marcados como míos. Insumo de backend: `BACKEND_NOTES §«C7 rev v1.80.1»`.
+
+## 1. Lo que medí (sobre `2ef3f50`)
+
+| # | Ataque / verificación | Resultado | N |
+|---|---|---|---|
+| A14′ | **Acuñar `deviceToken` con un refresh robado** y adivinar (6 refrescos × 5 intentos = 30) | `jti = sid` heredado ⇒ **un solo cubo**: **5 llegan a `argon2`, 25 `429`**; cubo de la cuenta intacto (`401` sin device); contraseña correcta con device fresco `200` | **3/3** series |
+| A14-agg | Tope agregado 30/24 h con **sesiones distintas** (40 `deviceToken` de 40 logins, 1 intento fallido c/u) | **35 a `argon2`** (30 por vía dispositivo + 5 del cubo de cuenta) **luego `429`**; secuencia idéntica | **3/3** series |
+| A15′ | Supervivencia tras `logout`: el dueño cierra sesión (`tokenVersion +1`), atacante sigue con el device acuñado | `logout 204`, `refresh` tras logout `401`, cubo de cuenta `429`, los devices acuñados **siguen abriendo** (`401`) — **pero acotado** | **3/3** series |
+| A15-bound | Un device que sobrevive al logout, 12 intentos seguidos | **5 `argon2` → 7 `429`**: el cubo único bloquea en 5 (ya no es ilimitado) | **3/3** series |
+| C7-4′ | Atomicidad: 25 fallos **simultáneos** contra cuenta nueva (Redis real) | **5×`401` / 20×`429`** | **5/5** corridas |
+| C7-R | Fallback por timeout + reposición (unit `auth.c7-cache`/`auth.c7-store` + integración `auth-password-attempts-redis`, Lua real, timeout 250 ms, foto) | verdes (ver A-unit/A-int) | — |
+| A-unit | Unit `auth.c7-mint` + `auth.c7-cache` + `auth.c7-store` + `jwt-auth.guard.typ` + `env.validation` + `reset-admin-password.c7` | **82/82, 6 suites** | 1 |
+| A-int | Integración `auth-password-attempts` + `auth-password-attempts-redis` + `reset-admin-password-lock` (Postgres+Redis propios) | **55/55, 3 suites** | 1 |
+| A-mut1 | Mutación sobre copia entera: `refresh` vuelve a `randomUUID()` (defecto de `8ea245f`) | `auth.c7-mint` **roja: 8 fallan** (determinista) | 1 |
+| A-mut2 | Mutación sobre copia entera: la memoria olvida la foto de Redis (`syncAcquire` con `failures: 0`, defecto C7-22a) | `auth.c7-cache`+`auth.c7-store` **rojas: 7 fallan** (determinista) | 1 |
+| A-hdr | SEC-HDR-1: `next build` + `next start` **y** artefacto `standalone/server.js` + `curl -I` | **X-Frame-Options: DENY, CSP frame-ancestors 'none', X-Content-Type-Options: nosniff** en `/`, `/es`, `/es/admin` y **404 real** (`/es/…-xyz`) | 1 |
+| A-zap | `security/zap/baseline.conf` reglas 10020 y 10021 | ambas **FAIL** (líneas 88/89), con nota anti-regresión | 1 |
+| A-enum | Enumeración por respuesta (cuerpo del `429`) y por tiempo (existente vs inexistente) | cuerpo del `429` idéntico; mediana existente 250 ms vs inexistente 245 ms — dentro del ruido de `argon2` | 12+12 |
+| A-time | Timing en el intento que PONE el candado (5.º) | dif. mediana `+4.9 ms` (existente) vs `−4.1 ms` (inexistente): **sin oráculo observable** | 20+20 |
+
+## 2. Hallazgos
+
+### `SEC-C7-MINT` — **CERRADO** sobre `2ef3f50` (medido por mí)
+El arreglo tomó **las dos** opciones que propuse (§2 del veredicto de `8ea245f`): (1) `refresh` **no acuña `jti`
+nuevo** — hereda el `sid` del refresh token (`auth.service.ts:565` `sessionIdOf` → `issueTokens(user, sid)` →
+`devices.issue(user.id, sid)`), legado determinista (`legacy:<sub>:<iat>`); y (2) **tope agregado** 30 fallos/24 h por
+vía dispositivo (`password-attempts.constants.ts:51-53`, `deviceRouteAllowed` bumpea antes de elegir cubo,
+`auth.service.ts:421`). Medido: A14′ pasa de **30/30 a `argon2`** (en `8ea245f`) a **5/30**; A15-bound demuestra que un
+device que sobrevive al logout está **acotado a 5 por cubo**, no ilimitado; y A14-agg acota el total por cuenta a **~35
+intentos/24 h** (30 dispositivo + 5 cuenta), en línea con los ~34/día que `ARCHITECTURE §4.57.2 #14` cita para
+`change-password`. La condición de cierre («prueba que falle hoy + mutación `randomUUID` roja») se cumple: A-mut1.
+**Residual aceptado (por diseño §4.57.4):** el `deviceToken` no está ligado a `tokenVersion`, así que sobrevive al
+`logout`/reset y vive 90 días; ya no es un agujero porque el tope agregado lo acota. Queda como la deuda `C7-LEGACY-SID`
+(TECH_DEBT, borrar la rama de refresh legado 30 días tras el despliegue).
+
+### `SEC-HDR-1` — **CERRADO** sobre `2ef3f50` (medido por mí)
+La vitrina sirve `X-Frame-Options: DENY` + `Content-Security-Policy: frame-ancestors 'none'` + `X-Content-Type-Options:
+nosniff` + `Referrer-Policy` en **todas** las rutas (`next.config.mjs headers()` con `source: '/:path*'`), verificado en
+el artefacto de producción (`standalone/server.js`) sobre `/`, `/es`, `/es/admin` y un 404 real. ZAP `baseline.conf`
+sube 10020 y 10021 a **FAIL** con nota anti-regresión. Queda pendiente la **CSP completa** (`SEC-HDR-2`: `script-src`
+con nonce, `connect-src`, `object-src`, etc.) como deuda con disparador «antes de `sk_live_`» — hoy `next.config` solo
+trae la directiva `frame-ancestors`.
+
+### Bajas de mi veredicto anterior — estado sobre `2ef3f50`
+- **`SEC-C7-RT` — CERRADO** (`114aecf`+`3c03f36`): `refresh()` exige `typ === 'refresh'` y `tv` numérico; el guard
+  rechaza cualquier `typ` presente y compara `tv` estricto (sin `?? 0`); `env.validation` rechaza
+  `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` en todo entorno. Verde en A-unit; mutaciones de backend (guard/env)
+  reproducidas por él, y las suites `jwt-auth.guard.typ`/`env.validation` verdes en mi copia.
+- **`SEC-C7-OPT` — CERRADO** (`bf2a486`): `PasswordAttemptsService` deja de ser `@Optional()` en `AdminService`.
+- **`SEC-C7-SCRIPT` — CERRADO** (`ff3ecc4`): `reset-admin-password.ts` levanta el candado C7 en Redis con las mismas
+  claves del backend (`clearPasswordLock`); verde en `reset-admin-password-lock.e2e-spec` (A-int) y `reset-admin-password.c7` (A-unit).
+- **`SEC-C7-RDEG` — mitigado por C7-R**: la memoria es ahora caché de Redis con reposición en el mismo Lua, y un reset
+  hecho en modo memoria se marca (`markReset`) y se repone con `borrar` al volver Redis — cubierto por las mutaciones
+  «reponer sin borrar» y «no reponer al volver» (rojas en backend; A-mut2 muerde la variante gemela). No lo reduje a
+  cero con dos procesos (`N-C7-6`): la convergencia con réplicas > 1 sigue **NO MEDIDA**.
+
+## 3. Discrepancia 2 de backend (¿`change-password` limpia el agregado?) — recomendación al arquitecto
+Backend implementó que `changePassword` limpia `auth-cp` + el cubo de cuenta pero **NO** el tope agregado
+(`auth.service.ts:386` `clear(cpKey, accountKey)`), siguiendo `ARCHITECTURE §4.57.10.1 b` y la fila «Tope agregado»
+(reset-password, reset por admin, script). La fila «Qué lo limpia» del contrato se contradice al incluir
+`change-password` entre los que limpian el agregado. **Mi lectura (blue team): no es una vulnerabilidad, y no limpiarlo
+es la opción conservadora** — el único efecto de no limpiarlo es que los intentos legítimos del dueño por vía dispositivo
+siguen contados ≤ 24 h tras cambiar la contraseña (nit de disponibilidad, no de seguridad; el dueño no queda bloqueado
+porque los cubos son disjuntos). **Recomendación:** que el arquitecto **alinee el contrato a la implementación** (quitar
+`change-password` de la lista que limpia el agregado). No bloquea.
+
+## 4. C2-bis (devops · ventana de despliegue) — sin cambio
+Sigue abierta **solo** por su segunda mitad: citar por número el **primer run de `dast-release` sobre `production`** que
+lleve este commit, con `blocking=false`. Ese run **solo existe cuando el dueño fusione** `main → production`, así que es
+condición de la ventana de despliegue, no del código. `deploy.yml` con `report_only: false` ya lo confirmé en el
+veredicto de `8ea245f` y no cambió en este delta.
+
+## VEREDICTO
+
+### **APROBADO** sobre `2ef3f50`
+
+Cero críticos y cero altos. Las dos condiciones que bloqueaban **dinero real** en mi veredicto anterior están
+**cerradas y medidas por mí** sobre el sha fijado `2ef3f50`: `SEC-C7-MINT` (A14′ 5/30 vs 30/30; A15-bound acotado a 5;
+tope agregado ~35/24 h; mutación `randomUUID` roja) y `SEC-HDR-1` (cabeceras en el artefacto de producción; ZAP
+10020/10021 en FAIL). Además cierran cuatro bajas (`SEC-C7-RT`, `-OPT`, `-SCRIPT`, y `-RDEG` mitigada por C7-R). La
+atomicidad se mantiene (5/5) y no hay oráculo de enumeración ni de timing (N=20+20). Puede fusionarse y publicarse **en
+modo prueba**.
+
+**Condición que queda (no es hallazgo de código; es de la ventana de despliegue):**
+- **C2-bis (devops, primer push a `production`):** citar el run de `dast-release` con `blocking=false`.
+
+**Deuda con disparador (no bloquea):** `SEC-HDR-2` (CSP completa) y el pre-gate DAST `full` sobre el sha candidato,
+ambos **antes de `sk_live_`**; `C7-LEGACY-SID` (borrar rama legado 30 d tras despliegue); `N-C7-6` (convergencia con
+réplicas > 1, no medida); `N-C7-1`/`N-C7-2` (Redis en producción y su `maxmemory-policy`).
+
+**Banderas para el humano (antes de operar con dinero real / `sk_live_`):** cerrar `C6` (rate-limit de borde en
+Railway — fuera de este stream), la CSP completa (`SEC-HDR-2`), cablear el DAST `full` como pre-gate; y siguen
+vigentes el **pentest de un tercero** y el **bug bounty** antes de custodiar dinero/PII reales.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · candidato `2ef3f50` · contrato v1.80.1 · **APROBADO**
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · candidato `8ea245f` · contrato v1.80 · **APROBADO CON CONDICIONES**
+---
+
+# Revisión de DISEÑO — stream «Preparar envíos» §M4-SHIP v1.80.2 (`API_CONTRACT`) + `ARCHITECTURE §4.57` · sha `ff57390` (rama `claude/envio-preparar`) · 2026-09-29
+
+> ## ⭐ VEREDICTO SOBRE EL DISEÑO — **CON CONDICIONES** (4 altas de diseño + 4 medias que deben entrar al contrato ANTES de construir)
+>
+> El núcleo del diseño **resiste**: el importe del operador lo fija el servidor, una vez por línea, acotado a lo cobrado bajo
+> candado, con tope serializado por operador; todo el canal SPEI nace, se paga y se cancela solo por `@MoneyOut`; la CLABE
+> no se copia y su reveal es solo `pending` y auditado. Lo que **no** resiste está en los **bordes** del diseño: verbos de
+> inventario de hoy que el diseño da por guardados y no lo están, un pedido reembolsado que sigue siendo enviable ahora que
+> se quita «Cancelar», la CLABE editable sin rastro justo antes de un pago manual, y `to-manual` sobre un cargo en disputa.
+> **Ningún hallazgo exige re-preguntar al dueño lo ya decidido** (`HECHOS.md` filas 26–28): todos se cierran con cambios de
+> contrato que respetan sus decisiones.
+
+**Qué es esta revisión y qué no (O-1):** revisión de **diseño** sobre documentos en `ff57390`, contrastada por **lectura**
+del código de production que el worktree contiene (`a2da420`). ⛔ **No hay pentest de este stream** (no existe sección en
+`docs/PENTEST_NOTES.md` para §M4-SHIP): nada de lo de abajo se reprodujo contra un stack; donde cito código es **lectura
+con fichero:línea**, marcada «leído, NO reproducido». La fase de seguridad completa (pentester + seguridad) sigue siendo
+obligatoria sobre el código construido, por release.
+
+## Lo que revisé y RESISTE (con su sitio)
+
+| Control | Dónde | Por qué resiste |
+|---|---|---|
+| Importe del operador calculado por el servidor, ⛔ nunca del cuerpo; `expectedRefundCents` solo confirma | §M4-SHIP.4, .5 paso 7 | El operador no elige cifra; `REFUND_PREVIEW_STALE` impide reembolsar lo que no vio |
+| Una vez por línea y por carta | `PaymentRefund.shipmentItemId/orderItemId @unique` (§M4-SHIP.2) | Dos candados de BD; `case_refund` comparte el `orderItemId @unique` ⇒ una carta no se paga por dos caminos de Stripe |
+| `Σ no fallidas ≤ totalCents` bajo candado de `Order` | §M4-SHIP.5 paso 9, INV-SP-2, PS-11/PS-27 | M3, preparado y caso toman la misma fila |
+| Tope 24 h — **carreras y fraccionar** | §M4-SHIP.5 paso 6 (`pg_advisory_xact_lock` por operador, suma rodante `createdAt > now−24h`) | Fraccionar no evade (la suma es acumulada, no por acto); dos actos simultáneos del mismo operador se serializan (PS-4 N≥10). `retry` no re-cuenta pero tampoco crea filas; una `failed` libera cupo pero el operador no puede reintentarla |
+| Dial del tope solo súper-admin | `settings.controller.ts:19` `@Roles(super_admin)` (leído) | El operador no se sube su propio tope |
+| `@MoneyOut` audita el intento bloqueado | `common/guards/money-out.guard.ts:30-45` (leído) | Los 4 verbos SPEI + `refund`/`void` del caso + `to-manual` lo llevan (§M4-SHIP.15.13) |
+| `C-REF-1` (5 sitios) y `C-MREF-1` (2 creadores + 2 cierres + 1 reveal) | §M4-SHIP.8 | Candado estático con mutación entregada (PS-37); ver SEC-SHIP-B3 para ampliarlo |
+| Operador sin acceso a la cubeta, ni por conteo | `manualRefundsPending: null`, `workQueue.manualRefunds: null` (§M4-SHIP.11) | Mínima exposición de dinero y PII bancaria |
+| CLABE: no se copia; `clabeMasked` en listas; reveal solo `pending`, `no-store`, una bitácora por llamada | §M4-SHIP.15.13, PS-34 | Menos superficie que el reveal de buylist |
+| `to-manual` solo desde `failed` (INV-MR-2) | §M4-SHIP.15.13, PS-35 | Una `requested` no se convierte ⇒ no hay Stripe+SPEI del mismo peso **por reintento** (ver SEC-SHIP-A4 para la disputa) |
+| Webhook firmado, falla cerrada; idempotencia por `event.id` | `stripe.service.ts` `constructEvent` (P-WH-1), `payments.service.ts:116-140` `processedStripeEvent.create` (leído) | `charge.refund.updated` nuevo hereda ambas |
+| Reponer: identidad exacta (9 campos, mejor condición ⛔), CAS de la candidata con estado+identidad en el `WHERE`, sin dinero | §M4-SHIP.15.4, PS-22/23 | Reponer no puede dar más de lo debido ni dar una pieza dos veces |
+| Plazo derivado, sin job ni escritor | §M4-SHIP.15.12 | Vencer no mueve dinero |
+
+## Hallazgos priorizados
+
+### ALTA — condiciones de diseño (bloquean construir la parte afectada)
+
+**SEC-SHIP-A1 · Los verbos de inventario del operador escriben estado SIN guarda: anulan la «merma firmada» y crean limbo.**
+- **Evidencia (leído, NO reproducido):** `markItem` hace `inventoryItem.update({ where: { id }, data: { status } })` sobre
+  **cualquier** pieza, sin guarda de estado ni de dueño (`backend/src/modules/inventory/inventory.service.ts:2692-2706`;
+  `@Roles(vault_operator, super_admin)` de clase, `inventory.controller.ts:88`). `PATCH /admin/inventory/items/:id` con
+  `{status:'in_stock'}` va por el camino **no-publicación** = `update` plano sin guarda (`inventory.service.ts:2402-2406`),
+  sin `InventoryMovement` y con bitácora sin `before/after` (`inventory.controller.ts:646-653`). El contrato lo reconoce
+  a medias (H10: «`markItem` no tiene guarda de estado») pero afirma «no existe verbo `lost → in_stock`», y **sí existe**:
+  es este `PATCH`. El `adjust` sí está guardado (`ADJUSTABLE_ORIGIN_STATUSES`, `:395`, `:2905`); el `PATCH` y `mark` no.
+- **Vectores sobre el diseño nuevo:**
+  1. **Borrar la firma:** marcar faltante (reembolso al cómplice, pieza `lost` con firma) y luego `PATCH {status:'in_stock'}`
+     ⇒ la pieza vuelve al estante sin movimiento de regreso; la «merma firmada» —el control compensatorio principal de
+     §M4-SHIP.8 (5) y §4.57 (f)— deja de verse por estado.
+  2. **Limbo de dinero (pregunta 6):** en un **directo**, `mark`/`PATCH` sobre una pieza `picking` la vuelve `blocked`; el
+     paso 5 cuenta las bloqueadas como «no quedan `picked`» ⇒ **cierre** ⇒ envío `cancelado` **sin** `order_remaining` (exige
+     que toda `OrderItem` tenga `item_missing`) ⇒ **pedido cobrado, nada enviado, nada devuelto**. Es además una
+     «cancelación manual de un envío pagado», lo que el dueño prohibió (`HECHOS.md` fila 26 (3)).
+  3. **Retiro:** `mark` sobre la pieza `in_custody` del cliente ⇒ `lost` **del cliente sin caso** ⇒ línea bloqueada, el
+     retiro puede cerrarse con `shipment_fee` y la deuda de la carta **no aparece en «Por reponer»**.
+  4. **Doble venta:** `PATCH {status:'in_stock'}` sobre una pieza `picking`/`reserved` de un pedido pagado y luego
+     `{status:'listed'}` (el camino de publicación solo exige `platform ∧ in_stock|listed`) ⇒ se re-publica lo vendido.
+- **Condición de cierre (contrato, arquitecto; código, backend):** (a) `mark` solo sobre `ownerType='platform' ∧ status ∈
+  {in_stock, listed}` con esa guarda **en el `WHERE`** del CAS (`count 0` ⇒ `422 ITEM_NOT_MARKABLE`); la pieza de un
+  cliente o de un envío se marca **solo** por el palomeo; (b) `PATCH … status` solo `in_stock ↔ listed` **desde**
+  `in_stock|listed`, en el `WHERE`, con `InventoryMovement`; (c) en `prepared` de un **directo**, una línea `blocked` con la
+  orden aún `settled` ⇒ `409` (no cuenta para el cierre); (d) pruebas con mutación: `mark` sobre `picking`/`in_custody`
+  ⇒ `422`; `PATCH in_stock` sobre `lost`/`picking` ⇒ `422`. **Dueño:** arquitecto (§M1 y §M4-SHIP.5) → backend.
+
+**SEC-SHIP-A2 · Un pedido reembolsado entero sigue siendo preparable y enviable, y ya no hay «Cancelar».**
+- **Evidencia (leído):** M3 `refund` solo escribe `Order.status='refunded'` (`admin-orders.controller.ts` ~`:239-261`), no toca
+  el envío; `setTracking` y `onChargeRefunded` no leen el estado de la orden (grep `order.status|settled|refunded|shipment`
+  en `setTracking` y en `onChargeRefunded` ⇒ **0**). En §M4-SHIP.5 el paso 9 solo valida la orden **si hay plan**: un
+  preparado sin faltantes no la mira. Hasta hoy el operador «arreglaba» esto cancelando a mano; §M4-SHIP.9 quita esa salida.
+- **Efecto:** M3 total (o un reembolso total desde el panel de Stripe ⇒ `charge.refunded`) sobre un directo en `picking`
+  ⇒ el envío sigue en la cola ⇒ palomear, preparar, guía, enviar ⇒ **se envía la mercancía de un pedido ya devuelto**.
+- **Condición de cierre:** (a) `prepared`, `setTracking`, `→guia` y `→enviado` de un **directo** exigen `Order.status =
+  'settled'` bajo candado (en el `WHERE` o `FOR UPDATE` de la orden) ⇒ `409 ORDER_NOT_SETTLED`; (b) M3 `order_full` y
+  `charge.refunded` total cierran el envío vivo de esa orden por el **mismo** escritor automático que el contracargo de
+  un directo (§4-G.6), con el destino de sus piezas `picking` declarado; (c) prueba: M3 total con envío `picking` ⇒
+  guía `409`. **Dueño:** arquitecto (§M4-SHIP.7 «Interacciones», §M4-SHIP.9) → backend.
+
+**SEC-SHIP-A3 · Cambio de CLABE justo antes del SPEI (secuestro de cuenta ⇒ desvío), sin rastro.**
+- **Evidencia (leído):** `PUT /users/me/kyc` (`users.controller.ts:120-122`, `users.service.ts:~490-505`) reescribe
+  `clabeEnc/clabeHmac` con **solo la sesión del cliente**: sin re-autenticación, sin bitácora, sin fecha de cambio, sin
+  aviso al correo de la cuenta (grep `clabe_changed|clabeUpdatedAt` ⇒ 0). Buylist **sí** rechaza una CLABE distinta a la
+  de archivo (`CLABE_NOT_OWN_NAME`, `buylist.service.ts:1427-1432`), pero ese candado se rodea por `PUT /users/me/kyc`.
+  El diseño lee la CLABE **viva** al revelar y congela `paidClabeHmac` **al marcar pagado**, no al revelar.
+- **Vector:** quien toma la sesión (o la contraseña) de un cliente con `ManualRefund pending` —y `AV-14` le dice que hay
+  un depósito en camino y le enlaza a `/cuenta#kyc`— pone su CLABE; el dueño revela y transfiere a un tercero. El SPEI
+  es irreversible. Los importes de este canal son los **más altos** del stream (compensación hasta `k×R`, sin tope de 24 h).
+  Además, si la CLABE cambia **entre** reveal y `paid`, `paidClabeHmac` registra una CLABE a la que **no** se pagó
+  (evidencia falsa).
+- **Condición de cierre:** (a) todo cambio de CLABE escribe `KycProfile.clabeUpdatedAt`, bitácora `kyc.clabe_changed`
+  (⛔ sin la CLABE) y **aviso al correo de la cuenta** con la máscara vieja y nueva; (b) la cubeta y el reveal muestran
+  «CLABE cambiada el …» y, si cambió **después** de crear la `ManualRefund` o hace < 72 h, el `paid` exige confirmación
+  reforzada (`confirmRecentClabeChange: true`, auditada); (c) `reveal-clabe` devuelve también el `clabeHmac` (o un token
+  que lo ata) y `paid` lo reenvía: si ya no coincide con el vigente ⇒ `409 CLABE_CHANGED_SINCE_REVEAL`; `paidClabeHmac` =
+  la **revelada**. **Dueño:** arquitecto (§M4-SHIP.15.13, §M6-K) → backend; ux-ui el aviso.
+
+**SEC-SHIP-A4 · `to-manual` sobre un cargo en disputa = doble pago (tarjeta por la disputa + SPEI).**
+- **Evidencia (diseño):** §M4-SHIP.7 prevé que Stripe rechace un reembolso **porque el cargo está en disputa** ⇒ fila
+  `failed`. `to-manual` (§M4-SHIP.15.13) solo exige `kind='case_refund' ∧ status='failed'`: **no** mira la orden de
+  origen. Y `paid` sobre una orden no `settled` solo pinta un aviso rojo (§M4-SHIP.15.9).
+- **Efecto:** el motivo más probable del `failed` es justo el que hace que el dinero ya lo esté resolviendo el banco;
+  convertirlo a SPEI y pagarlo paga dos veces.
+- **Condición de cierre:** (a) `to-manual` toma `FOR UPDATE` de la orden de origen y exige `settled` ⇒ si no, `409
+  CASE_ORIGIN_NOT_SETTLED` (mismo código que el caso); (b) `paid` con origen ≠ `settled` exige `confirmOriginNotSettled:
+  true` (auditada con el estado), ⛔ no solo un color; (c) prueba: `failed` por disputa ⇒ `to-manual` `409`. **Dueño:**
+  arquitecto → backend.
+
+### MEDIA — deben entrar al contrato antes de construir (no bloquean por sí solas si el dueño las acepta por escrito)
+
+**SEC-SHIP-M1 · El control de detección del reembolso del operador está prometido y no especificado.**
+§M4-SHIP.8 (7) dice que el súper-admin ve cada reembolso de operador en «la cola "reembolsos de operador" de §M4-SHIP.11»;
+**§M4-SHIP.11 no la define** (grep «reembolsos de operador» ⇒ solo `API_CONTRACT.md:17814`). Y la «merma en M7 con
+nombre» de (5) no tiene lector por actor hoy (grep en `admin` de merma × actor ⇒ 0; ⛔ NO MEDIDO a fondo). Con la
+separación de poderes perdida (choque declarado con `PROJECT §S.5`), el vector real —**colusión**: marcar faltante, el
+reembolso vuelve a la tarjeta del cómplice, la carta sale igual en la caja o se la queda el operador— solo lo contiene el
+tope (MX$5,000/24 h ⇒ hasta ~MX$150,000/mes **por operador**) y lo que el dueño llegue a mirar.
+**Cierre:** (a) especificar la vista: reembolsos `requestedByRole=vault_operator` con filtro por actor, suma 24 h/7 d/30 d
+y tasa «faltantes por pedidos preparados» por operador; (b) **aviso al súper-admin** por reembolso de operador (o
+resumen diario; lo elige el dueño); (c) merma M7 filtrable por actor del movimiento. **Recomendado, no exigido:** tope por
+cliente/correo en 30 días para faltantes. **Dueño:** arquitecto → backend/frontend.
+
+**SEC-SHIP-M2 · Reintento tras 24 h: la búsqueda en Stripe no pagina y dos reintentos pueden crear dos reembolsos.**
+§M4-SHIP.7 paso 2 usa `stripe.refunds.list({ payment_intent })` y busca por `metadata`: la lista trae **10** por defecto;
+un pedido con muchas cartas y reembolsos puede no encontrar la suya ⇒ crea otra con la llave ya expirada. Y dos
+`retry` simultáneos (o `retry` + post-commit) pasadas las 24 h listan «nada» los dos y crean los dos.
+**Cierre:** auto-paginación (o `limit:100` + paginado) en la búsqueda; reclamo de la fila antes de llamar a Stripe
+(lease CAS `attemptStartedAt` con caducidad, ⛔ no un candado de BD a través de la red); prueba con >10 reembolsos en el
+doble y dos reintentos concurrentes con la llave expirada (N≥10). **Dueño:** arquitecto → backend.
+
+**SEC-SHIP-M3 · `resolveOrigin` da precedencia al caso sobre la compra más reciente; `currentPieceOf` sin regla de ciclo.**
+§M4-SHIP.3: «si existe un caso `replaced` con esa pieza y ese cliente ⇒ su origen; si no ⇒ la última `OrderItem`». Una
+pieza repuesta a U, luego revertida a plataforma (contracargo con la cadena) y **re-comprada por U** tendría origen = el
+del caso viejo (orden disputada), no la compra nueva ⇒ reembolso/contracargo atribuidos al cobro equivocado.
+**Cierre:** el origen es el **evento de adquisición más reciente** entre casos `replaced` (`resolvedAt`) y órdenes `vault`
+(`settledAt`) de ese cliente; `currentPieceOf` sigue **solo** `status='replaced'` (un `found` tiene `replacement =
+original` y lazo a sí mismo), con profundidad máxima y detección de ciclo ⇒ `needsManual`; ampliar PS-29 con la re-compra.
+**Dueño:** arquitecto → backend.
+
+**SEC-SHIP-M4 · Cancelar una `ManualRefund` es irreversible y silencioso.**
+El caso queda `refunded` (terminal), la llave `case-spei:<caseId>` y el índice parcial impiden crear otra: una cancelación
+por error deja **una deuda con el cliente que el sistema ya no puede pagar**, y el cliente no recibe aviso.
+**Cierre (a elegir, en contrato):** reemisión `super_admin` con llave `case-spei:<caseId>:<n>` que conserve INV-MR-1, **o**
+aceptación explícita del dueño de «cancelar = definitivo, se resuelve fuera», más un estado visible al cliente
+(`transferStatus:'cancelled'`). **Dueño:** arquitecto (y el dueño si elige la segunda).
+
+### BAJA — deuda aceptable con disparador
+
+| # | Hallazgo | Disparador para abordarla | Dueño |
+|---|---|---|---|
+| SEC-SHIP-B1 | `speiReference` no es única entre filas `paid`: la misma transferencia puede «pagar» dos deudas | Antes del primer SPEI real; cierre: índice único parcial `WHERE status='paid'` o aviso de duplicado | arquitecto → backend |
+| SEC-SHIP-B2 | Importes «congelados» solo por convención: nada impide un `UPDATE` de `amountCents`/componentes de `PaymentRefund`/`ManualRefund` | Si aparece un segundo escritor de esas tablas; cierre: trigger que rechace `UPDATE` de las columnas de importe | backend |
+| SEC-SHIP-B3 | `C-REF-1`/`C-MREF-1` enumeran llamadas Prisma; un `$executeRaw INSERT INTO "PaymentRefund"` los rodea | Con la construcción; cierre: el candado busca también SQL crudo sobre esas tablas | backend |
+| SEC-SHIP-B4 | Un reembolso hecho desde el panel de Stripe no entra al libro ⇒ `max` sobrestimado; falla **segura** (Stripe rechaza ⇒ `failed`), pero entonces `to-manual` pagaría por SPEI lo que el panel ya devolvió | Si el dueño opera reembolsos desde el panel; cierre: norma operativa «nunca desde el panel» + `charge.refund.updated` desconocido ⇒ alerta | dueño / devops |
+| SEC-SHIP-B5 | El tope es **por operador**: N operadores ⇒ N×MX$5,000/24 h | Al dar de alta un segundo operador; cierre: tope global adicional o aceptación | arquitecto / dueño |
+| SEC-SHIP-B6 | Reponer (pregunta 3): marcar «no la encontré», reponer con una del estante y quedarse la original (o meter las dos en la caja del cómplice). **Mismo** vector que el robo simple, firmado por quien marcó; no crea dinero ni da más de lo debido (identidad exacta). Lo contienen A1 (que la firma no se borre) y M1 (verla por actor) | Si la merma por operador crece; recomendado: marcar en la cola los casos repuestos por **el mismo** actor que los abrió | arquitecto |
+
+## Respuestas directas a las seis preguntas del encargo
+
+1. **Operador que reembolsa:** el importe, la unicidad y las carreras del tope están bien resueltos (fraccionar no evade;
+   la puerta por operador serializa). Contracargo + reembolso: Stripe rechaza reembolsar un cargo disputado ⇒ `failed`
+   (declarado; ⚠️ el código exacto de Stripe MX está NO MEDIDO en el contrato). Lo que falta es **detección** (M1) y que la
+   firma no se pueda borrar (A1). Cuatro ojos sobre umbral: **no lo exijo** — el dueño decidió lo contrario y el tope
+   cumple ese papel; lo recomiendo solo si M1 muestra tasas anómalas. El operador puede reembolsar un pedido **entero**
+   (todas faltantes ⇒ `order_remaining`), cosa que M3 reserva al súper-admin: acotado por el tope, pero va como bandera.
+2. **SPEI:** CLABE en claro bien contenida; **cambio de CLABE = A3**; doble pago Stripe+SPEI por reintento cerrado
+   (INV-MR-2), **por disputa abierto = A4**; cancelar sin reabrir = M4.
+3. **Reponer:** sin dinero y con identidad exacta, no permite sacar **más** de lo debido; el abuso posible es el robo
+   firmado (B6), que depende de A1 y M1.
+4. **Cadena:** correcta en el caso lineal; falla con la re-compra y le falta regla de ciclo (M3). `C-REF-1`/`C-MREF-1`
+   bien planteados; ampliar a SQL crudo (B3).
+5. **Idempotencia:** llave de negocio = llave de Stripe, bien; la búsqueda post-24 h necesita paginar y un reclamo por fila
+   (M2). `charge.refund.updated` hereda firma y deduplicación.
+6. **Sin cancelación manual:** sí quedan dos caminos a limbo: los verbos de inventario sin guarda (A1-2/A1-3) y el pedido
+   reembolsado que sigue en la cola (A2).
+
+## Banderas para el humano
+
+- **Antes de operar reembolsos por SPEI con dinero real:** pentest de tercero del canal SPEI y del cambio de CLABE, y una
+  revisión legal/fiscal de la «compensación» (ya señalada al contador en §M4-SHIP.13).
+- **El operador puede reembolsar pedidos completos** (dentro de MX$5,000/24 h). Es consecuencia de la decisión del
+  2026-09-29; que el dueño lo sepa dicho así.
+- **Nunca reembolsar desde el panel de Stripe** mientras exista este libro (B4).
+- **`PROJECT §S.5`** sigue diciendo que marcar y reembolsar son personas distintas: lo actualiza el product-owner.
+
+## VEREDICTO
+
+**CON CONDICIONES** sobre el diseño en `ff57390`. Cambios de diseño **exactos** antes de encargar la construcción de la
+parte afectada:
+1. **A1** — guardas en el `WHERE` de `mark` y de `PATCH … status` (solo plataforma `in_stock|listed`, con movimiento), y
+   «línea bloqueada con orden `settled` ⇒ `409`» en `prepared` de un directo.
+2. **A2** — la preparación/guía/envío de un directo exige orden `settled`; M3 total y `charge.refunded` total cierran el
+   envío vivo por el escritor automático.
+3. **A3** — `clabeUpdatedAt` + bitácora + aviso al correo; confirmación reforzada si cambió tras crear la deuda o < 72 h;
+   `paid` atado a la CLABE revelada.
+4. **A4** — `to-manual` exige origen `settled` bajo candado; `paid` con origen ≠ `settled` exige confirmación explícita.
+5. **M1–M4** en el contrato (o aceptadas por escrito por el dueño, registradas aquí).
+
+Las Bajas quedan como deuda aceptada con su disparador. El veredicto de seguridad del **release** sigue pendiente de la
+fase completa (pentester + seguridad) sobre el código construido.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `ff57390` · §M4-SHIP v1.80.2 / ARCHITECTURE §4.57 · **CON CONDICIONES**
+
+---
+
+# Re-revisión de DISEÑO — §M4-SHIP v1.80.4 (`API_CONTRACT` §M4-SHIP.17 + **.18**) + `ARCHITECTURE §4.57 (p)` · sha **`0e1faf6`** (rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`) · 2026-09-29
+
+> ## ⭐ VEREDICTO SOBRE EL DISEÑO — **CON CONDICIONES** (2 altas de diseño + 1 media, todas en §M4-SHIP.18; §M4-SHIP.17 y D-13/D-14 quedan CERRADOS)
+>
+> Lo que v1.80.4 **acierta** es lo difícil: el cierre de bóveda corre al **confirmar** el reembolso (un `failed` deja al
+> cliente con su carta), la pieza vuelve `in_stock` y no a la venta, la cadena de reposición y la re-compra se
+> respetan, el sello hace idempotente el par M3 ↔ webhook, y el despacho por `fulfillmentMode` lanza en vez de caer por
+> defecto. Lo que **no resiste** son dos bordes del mismo diseño: **(A5)** la pasada es de **un solo tiro** (el sello la
+> vuelve no-op) pero deja deliberadamente piezas sin tocar (`in_packed_withdrawal`) que **ningún verbo** puede reclamar
+> después, y el retiro que las contiene **no tiene guarda** — es el único camino de «carta y dinero» que encontré, y es
+> **permanente**; **(A6)** la devuelta queda `in_stock`, que es exactamente el estado que `publish-all`, `bulk-publish`
+> y `PATCH {status:'listed'}` publican, así que el control «`in_stock`, no `listed`» que justifica media sección se
+> vacía por tres caminos ya existentes (y §18.7 lo admite de pasada). Los dos se cierran con guardas, no con
+> re-preguntar al dueño.
+
+**Qué es esta revisión y qué no (O-1):** revisión de **diseño** sobre `docs/API_CONTRACT.md` (§M4-SHIP.17 entero, §M4-SHIP.18
+entero, changelog v1.80.4, y por referencia §M3 l.15194-15206, §M1 `publish-all` l.11200-11202, §5 `POST /shipments`
+l.9485, §M4-SHIP.15.4, §M4-SHIP.7, §M4-SHIP.11 l.18141) y `docs/ARCHITECTURE.md §4.57 (p)` (l.25558-25581), todo en
+`0e1faf6` (`refs/heads/claude/envio-preparar` leído del worktree). ⛔ **Sin Bash en este pase** (el clasificador de la
+herramienta no respondió; no lo forcé: la máquina estaba saturada) ⇒ nada ejecutado, nada reproducido; ⛔ no releí código
+de production (la lectura del hueco original es del orquestador y así lo declara el propio contrato, §18 «Fuente»).
+Todo lo de abajo es lectura con sección/línea. La fase de seguridad **completa** (pentester + seguridad) sigue siendo
+obligatoria sobre el código construido, por release.
+
+## 0. Cierre de las condiciones de v1.80.2 (mi sección anterior) — **CERRADAS en contrato**
+
+| Condición | Dónde se cierra | Juicio |
+|---|---|---|
+| **A1** verbos de inventario sin guarda | §17.1: `mark` solo plataforma `in_stock\|listed` **en el `WHERE`**; `PATCH` con guarda + CAS; `PREPARATION_HAS_BLOCKED_LINES`; `INV-SP-7`; PS-41/42/43 | **Cerrada.** Acepto la desviación respecto a mi (b): `listed ↔ in_stock` **sin** `InventoryMovement` — el argumento («publicar es visibilidad; ningún camino de publicación escribe movimiento; uno solo daría dos verdades») es correcto y el vector (`lost → in_stock` sin regreso) deja de existir porque ya no hay transición física por ese verbo |
+| **A2** pedido reembolsado sigue enviable | §17.2: `ORDER_NOT_SETTLED` en `prepared`/`tracking`/`→guia`/`→enviado` bajo `FOR UPDATE`; `closeShipmentsOnFullRefund` desde M3 y webhook; PS-44 | **Cerrada** para el **directo**. ⚠️ El **retiro** no recibe guarda equivalente — es parte de **A5** abajo |
+| **A3** CLABE cambia antes del SPEI | §17.3: `setClabe` único escritor + `clabeUpdatedAt` + bitácora sin CLABE + `AV-16`; `revealToken` HMAC atado al `clabeHmac` revelado; `paid` lo recalcula bajo `FOR UPDATE` y exige confirmaciones; `C-CLABE-1`; PS-46/47 | **Cerrada.** El token reusa la llave del índice ciego con prefijo de dominio (sin secreto nuevo, nada persistido, no se registra): correcto. Determinista y sin caducidad es aceptable porque lo que prueba es «la CLABE que vi», no «cuándo» |
+| **A4** `to-manual` en disputa | §17.4: orden de origen `FOR UPDATE` + `settled`; `REFUND_FAILURE_DISPUTE_CODES` (NO MEDIDO el valor, declarado; PS-48 lo fija con el doble) | **Cerrada** |
+| **M1** detección del reembolso del operador | §17.5 (1)–(4): libro filtrable, `operator-summary` (con `capUsedCents` = **el mismo** predicado del tope y `selfReplaced30d` para B6), merma por actor, tarjeta del tablero. (5) `AVA-1` **retirado** por D-13 | **Cerrada** en su parte de lectura; la parte de aviso la decidió el dueño (ver §2 y B8) |
+| **M2** reintento sin paginar / doble `create` | §17.6: lease CAS `attemptStartedAt` fuera de tx larga, paginación `limit:100` + `has_more`; PS-50/51 (N≥10) | **Cerrada** |
+| **M3** origen y ciclo | §17.7: evento de adquisición **más reciente**; `currentPieceOf` solo `replaced` **de la misma compra**, visitados + `REPLACEMENT_CHAIN_MAX_DEPTH=16`; pertenencia por `resolveOrigin`; PS-52 | **Cerrada** |
+| **M4** cancelar SPEI definitivo y mudo | §17.8: `reissue` (`@MoneyOut`, llave `reissue:<id>`, sin segundo `AV-14`), `INV-MR-2` «a lo más una viva», `transferStatus:'cancelled'` visible; PS-53 | **Cerrada** |
+
+Las Bajas B1–B6 siguen como deuda aceptada con su disparador (§17.10 las recoge sin cambio; B3 se pide ya para `C-CLABE-1`).
+
+## 1. Lo que revisé de v1.80.4 y RESISTE (con su sitio)
+
+| Control | Dónde | Por qué resiste |
+|---|---|---|
+| **Bóveda cierra al confirmar, no al pedir** | §18.3, PS-58 | Es la decisión correcta y la más importante del pase: `failed` ⇒ el cliente conserva carta y orden `settled`. En el directo el fallo seguro es el inverso y §17.2 (3) lo declara |
+| **Vuelve `in_stock`, no `listed`** + `needsManual` + humano confirma | §18.4, §18.7, §4.57 (p) fila 3 | Intención correcta (inventario fantasma). ⚠️ El **estado elegido** la vacía: **A6** |
+| **M3 rechaza con la carta en caja** (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, cero escrituras) | §18.4 precondición, PS-59 | Un cambio de dueño en el sistema no saca la carta de la caja; rechazar y pedir `DELETE …/prepared` es lo honesto. ⚠️ Solo cubre el camino M3 en la tx1: **A5** |
+| **Sello `fullRefundClosedAt` bajo `Order FOR UPDATE`, tras los candados de la rama** | §18.2, PS-57 (N≥10) | M3 → webhook tardío y dos webhooks simultáneos: una sola escritura por carta; se suma a la deduplicación por `event.id` (`processedStripeEvent`, ya leída en mi pase anterior) y a la firma del webhook. ⚠️ El orden **webhook → M3** no está escrito: **M5** |
+| **Despacho por `fulfillmentMode` que lanza** + `C-FULLREF-1` | §18.2, PS-62 | Sin rama por defecto (§4.21d); llamadores enumerados con mutación. Vale la Baja B3 (SQL crudo no lo rodea porque no hay tabla nueva que insertar: el candado es de llamadores, no de escrituras) |
+| **Cadena y re-compra** | §18.4 «Por carta», PS-60 | `currentPieceOf` + `resolveOrigin ≠ oi ⇒ other_purchase`: O2 pagó por Y; O1 no la toca. Correcto en ambos sentidos (reembolsar O2 sí la reclama) |
+| **`open_case` no se toca y no se anula solo** | §18.4 fila `open_case`, §4.57 (p) fila 9, §M4-SHIP.15.4 paso 6 | `replace`/`found` toman la orden de origen `FOR UPDATE` y exigen `settled` ⇒ `409 CASE_ORIGIN_NOT_SETTLED` con rollback: tras el reembolso total **no** se le repone ni se le «aparece» la carta al cliente. `void` sigue `@MoneyOut` (puede emitir `shipment_fee`): un webhook no origina dinero. **Este era el vector «caso abierto ⇒ reposición gratis» y está cerrado por §15.4** |
+| **Reembolso parcial + retiro** (pregunta del encargo) | §M3 l.15194-15198, l.261/319 («reembolso parcial … PLANEADO») | **No existe** parcial en M3: `order_full` = `totalCents − Σ no fallidas`, `remaining ≤ 0 ⇒ 409`. Los parciales que existen son `case_refund` (la pieza ya es `lost\|damaged`) y `item_missing`/`order_remaining` (directo). No hay camino «parcial y me quedo la carta» en bóveda por diseño |
+| **`Σ ≤ totalCents` sigue mandando** | §M4-SHIP.5 paso 9, §18 no lo toca | El reembolso total de bóveda no crea filas nuevas del libro: solo cambia lo que pasa con las piezas |
+| **Colocación `pending` cancelada con `status:'pending'` en el `WHERE`** | §18.5, PS-56 (b) | Una `placed` no cambia; el `CHECK` de `cancelled` aborta si alguien quita el filtro |
+| **`vaultPieces` derivado, un cuerpo (`classifyVaultPiece`)** | §18.6 | Sin columna, sin dos verdades; `pendingConfirmation` es predicado, no estado |
+| **D-14: sin verbo** | §18.1, §17.1 (1) | No añade superficie; la consecuencia (la deuda nace en el palomeo) está declarada dos veces |
+| **Autorización de los verbos** | M3 `refund` `super_admin` + `@MoneyOut` (§M3, PS-12 intacta); webhook `actorUserId=null` con firma; `DELETE …/prepared` operador+; `void` `super_admin` `@MoneyOut` | Sin cambio de perímetro: el único origen de dinero saliente sigue siendo el súper-admin o Stripe firmado |
+
+## 2. `AVA-1` retirado (D-13) — ¿se pierde rastro de auditoría?
+
+**No.** El correo era **notificación**, no registro. El rastro es: cada `PaymentRefund` con `actorUserId` +
+`requestedByRole` (§M4-SHIP.2), la bitácora del acto de preparar, `GET /admin/refunds` filtrable por actor/rol/fecha,
+`operator-summary` (24 h / 7 d / 30 d, `capUsedCents`, `missingRatePct`, `selfReplaced30d`), `/finance/shrinkage` por actor,
+y `workQueue.operatorRefunds`. Quitar `adminNotifiedAt` quita una columna, un CHECK y una prueba de carrera: limpio.
+**Lo que sí cambia es la naturaleza del control:** pasa de **detectivo activo** (llega solo) a **pasivo** (hay que abrir
+el panel). Es decisión del dueño y se registra como deuda **B8** con disparador, no como hallazgo.
+
+## 3. Hallazgos nuevos, priorizados
+
+### ALTA — condiciones de diseño (bloquean construir §M4-SHIP.18.2/.18.4/.18.7)
+
+**SEC-SHIP-A5 · La pasada de reclamo es de un solo tiro, deja piezas sin tocar a propósito, y no hay verbo que las reclame después ni guarda que impida que salgan: «carta y dinero», permanente.**
+- **Evidencia (contrato):** (1) §18.2: `fullRefundClosedAt ≠ null ⇒ no-op completo`. (2) §18.4 filas `in_packed_withdrawal`
+  (por webhook, o el retiro de (e)) y `already_withdrawn`: «⛔ no se toca». (3) §18.7: los objetivos de
+  `chargeback-inventory` son **solo** las `pendingConfirmation` (= `returned`); «las cartas **no** objetivo
+  (`open_case`, `already_withdrawn`, …) no se tocan; la `note` registra lo que el humano decidió» — es decir, para una
+  `in_packed_withdrawal` el humano **anota**, no actúa. (4) `mark` rechaza piezas de cliente (§17.1 (1)); `PATCH` solo
+  plataforma (§17.1 (2)). ⇒ **No existe verbo** que devuelva a plataforma una pieza que la pasada dejó `in_custody`.
+  (5) El retiro que la contiene no tiene guarda: `PREPARATION_HAS_BLOCKED_LINES` mira solo líneas `blocked` (§17.1 (4)) y
+  la pieza intacta **no** está bloqueada; `tracking`/`→guia`/`→enviado` exigen `settled` **solo en un directo** (§17.2
+  (1)); `POST /shipments` exige solo `in_custody` (§5 l.9485), sin mirar la orden de origen.
+- **Caminos (dos, y uno no necesita el panel de Stripe):**
+  - **(i) M3 con confirmación diferida:** tx1 pasa la precondición (ningún retiro preparado) y crea la fila; Stripe da un
+    error **transitorio** ⇒ fila `requested` «horas» (§18.3 lo dice). En esas horas el cliente pide el retiro y el operador
+    lo **prepara** (cola normal). `retry` confirma ⇒ la rama corre en la tx de confirmación, ⛔ **sin** re-evaluar la
+    precondición («solo en M3, en la tx que crea la fila», §18.4) ⇒ fila «en caja» ⇒ intacta + `needsManual` + **sello**.
+    El retiro sigue: guía, enviado, `withdrawn`. El cliente tiene la carta y el dinero. El súper-admin ve
+    `in_packed_withdrawal` en `vaultPieces`… y no tiene verbo.
+  - **(ii) `charge.refunded` total desde el panel** (B4, contra la norma operativa) con un retiro preparado: idéntico.
+  - Y aunque el súper-admin deshaga el preparado (`DELETE …/prepared`) **antes** de que salga: la pieza sigue `in_custody`,
+    la orden `refunded` y el sello puesto ⇒ nunca se reclama; el cliente puede pedir **otro** retiro más tarde
+    (`in_custody` ⇒ `withdrawable`).
+- **Por qué Alta:** es el único camino de «carta y dinero» del diseño, no requiere colusión, el residual de §18.3 se
+  declara «visible» pero **no resoluble** (visible sin verbo es una cola que no se vacía), y la lección del contrato
+  (§4.21c-bis, §M4-SHIP.17.2) es justo que «congelado sin desenlace = para siempre».
+- **Condición de cierre (arquitecto → backend):**
+  (a) **Idempotencia por pieza, no no-op total:** la rama corre **siempre** la clasificación + CAS por pieza (una ya
+  plataforma ⇒ `not_customer`, cero escrituras; una `in_custody` cuyo retiro **ya no** está preparado ⇒ se reclama). El
+  sello sigue existiendo pero gobierna **solo** lo que no debe repetirse: `chargebackNeedsManual=true`, la bitácora
+  `order.full_refund_closed` y `AV-3` se escriben **una vez** (o `needsManual` solo si esta pasada escribió algo). Esto
+  además vuelve innecesario distinguir «M3 y luego webhook» de «webhook y luego M3» (M5).
+  **Alternativa** si se prefiere conservar el no-op: `chargeback-inventory` sobre `vault refunded` gana un objetivo
+  «`in_packed_withdrawal` cuyo retiro ya no está preparado ni con guía» y lo reclama (mismo CAS, mismo movimiento
+  `refund_return`); y un verbo `super_admin` para re-correr la rama (`POST /admin/orders/:id/reclaim-vault`).
+  (b) **Guarda del retiro — el análogo de A2:** `prepared`, `tracking`, `→guia` y `→enviado` de un **retiro** toman la(s)
+  orden(es) de origen de sus líneas `picked` (`resolveOrigin`, ya calculado para §17.1 (4)) `FOR UPDATE`/`FOR SHARE`;
+  alguna `refunded`, o con fila `order_full` `requested|submitted` ⇒ **`409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items}`**,
+  cero escrituras (la carta no sale mientras el humano decide). `POST /shipments` rechaza la pieza con origen `refunded`
+  (`422 ITEM_ORIGIN_REFUNDED`) para que ni siquiera entre a la cola. `entregado` no se guarda (ya salió).
+  (c) **Re-evaluar la precondición en la confirmación de M3** (no solo en tx1): si en la tx de confirmación hay retiro
+  preparado ⇒ **no** se rechaza (el dinero ya salió) pero con (b) el retiro no puede avanzar y con (a) se reclama en
+  cuanto se deshaga el preparado.
+  (d) **PS-63** (con mutación): fixture «tx1 → retiro preparado → confirmación» ⇒ pieza intacta, `in_packed_withdrawal`,
+  `tracking` ⇒ `409`; `DELETE …/prepared` ⇒ re-pasada (webhook tardío o verbo) ⇒ pieza `returned`, **un** movimiento;
+  `POST /shipments` con ella ⇒ `422`. Mutación: dejar el no-op total ⇒ la pieza queda del cliente; quitar la guarda ⇒
+  guía `200`.
+
+**SEC-SHIP-A6 · La devuelta queda `in_stock`, que es exactamente lo que los tres caminos de publicación publican: el control «no a la venta hasta confirmar» se vacía antes de nacer.**
+- **Evidencia (contrato):** §18.4 CAS ⇒ `status:'in_stock'` plataforma. `publish-all` selecciona **server-side** `ownerType=platform ∧
+  status ∈ {in_stock, listed}`, **sin cap** (§M1 l.11200-11203); `bulk-publish` misma allowlist
+  (`PUBLISHABLE_ORIGIN_STATUSES`, l.11205); `PATCH … {status:'listed'}` sigue «por el pipeline de v1.51» para plataforma
+  `in_stock|listed` (§17.1 (2)). Y §18.7 lo reconoce como conducta normal: «una que el operador **ya publicó** cuenta 0 y se
+  omite». ⛔ NO MEDIDO qué otros verbos disparan `tryAutoPublish` (l.16518 nombra uno existente); si `move` de M1 lo
+  dispara, el «move al estante» que el frontend sugiere (§18.5) la publicaría **antes** de `recuperada`.
+- **Efecto:** la razón de ser de `in_stock` (§4.57 (p) fila 3: «re-listar vendería otra vez lo que quizá no existe») no la
+  sostiene ningún candado: un `publish-all` de rutina (o el operador desde M1) la pone a la venta; se vende; al preparar
+  «no la encontré» ⇒ `item_missing` del operador (dentro del tope) ⇒ el dinero sale de nuevo por un fantasma que el
+  propio sistema acababa de marcar como «pendiente de confirmar». No es robo; es el control central del cambio que nace
+  roto en zona de dinero, y la analogía con §4.21c-bis es **imperfecta** (allí las piezas quedan `picking` **congeladas**,
+  que no es publicable; aquí quedan en el estado publicable por excelencia).
+- **Condición de cierre (arquitecto → backend), dos opciones, una sola:**
+  (a) **Respetar «sin columna»:** los tres caminos de publicación (`PATCH listed`, `bulk-publish`, `publish-all`) y
+  `tryAutoPublish` **excluyen** las piezas con `pendingConfirmation` (predicado de §18.6, calculado en el `WHERE`/filtro
+  server-side: último `InventoryMovement.reason='refund_return'` ∧ su orden de origen `chargebackNeedsManual`) ⇒ `422
+  ITEM_PENDING_CONFIRMATION` en el `PATCH`, y contador `pendingConfirmation` en el resumen de los lotes; **o**
+  (b) **Estado congelado como en el directo:** la devuelta queda plataforma con un estado **no publicable** (el mismo
+  `picking` congelado de §4.21c-bis, o `reserved` sin reserva) y `recuperada` la lleva a `listed`; `no_recuperada` a
+  `lost`. Menos código, más coherente con §17.2, pero rompe «`in_stock` = está en el estante» en «Qué debe haber».
+  (c) Quitar de §18.7 la frase «una que el operador ya publicó cuenta 0 y se omite» como conducta admitida.
+  (d) **PS-64** (con mutación): orden `vault` `refunded` con devueltas ⇒ `publish-all` ⇒ **0** publicadas y el contador las
+  nombra; `PATCH listed` ⇒ `422`; tras `recuperada` ⇒ `listed`. Mutación: quitar la exclusión ⇒ `listed` sin confirmar.
+
+### MEDIA — debe entrar al contrato antes de construir
+
+**SEC-SHIP-M5 · El orden «webhook antes que la confirmación de M3» no está escrito, y M3 escribe `Order → refunded WHERE status='settled'`.**
+§18.2 enumera «M3 y luego su webhook, o un reintento de Stripe». Pero Stripe emite `charge.refunded` al aceptar el
+reembolso, **antes** de que M3 reciba su respuesta y abra la tx de confirmación; bajo carga el webhook puede ganar. Si
+gana: reclama, sella, y (como hoy) pone la orden `refunded`. La tx de M3 llega: fila del libro `requested → submitted`
+(CAS, bien), sello ≠ null ⇒ rama no-op (bien), y `Order → refunded WHERE status='settled'` ⇒ **count 0** — el contrato no
+dice si eso es éxito o error. Si es error/rollback, el súper-admin recibe un fallo por un reembolso que **sí** salió, la
+fila se queda `requested` y solo un `retry` (paginado) la concilia; y `AV-3` podría ir dos veces si su sello es el estado
+de la orden (§R.3: `if (order.status === 'refunded') return` — cubre el caso, pero conviene decirlo).
+**Cierre:** una frase en §18.2: la tx de confirmación de M3 es **independiente del orden de llegada** — `Order` ya
+`refunded` con sello ⇒ **éxito** (la fila del libro pasa a `submitted`/`succeeded` igual; `200`); PS-57 gana la secuencia
+inversa (webhook → M3) y la carrera tx2-de-M3 vs webhook con barrera en `Order` (N≥10): siempre un movimiento por carta,
+una bitácora, un `AV-3`, y M3 `200`. Con **A5 (a)** este punto casi se resuelve solo; aun así debe quedar escrito.
+**Dueño:** arquitecto → backend.
+
+### BAJA — deuda aceptable con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| SEC-SHIP-B7 | El CAS del reclamo (§18.4) exige `ownerType:'customer', ownerUserId, status:'in_custody'` pero **no** `ownershipStatus:'settled'`, aunque la clasificación sí lo pide. Hoy no hay pieza `in_custody` con `ownershipStatus ≠ settled` para una orden `settled`, pero el `WHERE` es la garantía, no la lectura (doctrina de §15.4) | Con la construcción: añadir `ownershipStatus:'settled'` al `WHERE` | backend |
+| SEC-SHIP-B8 | Con `AVA-1` retirado (D-13), la detección del reembolso del operador es **pasiva** y `workQueue.operatorRefunds` son ventanas **rodantes** (`last24hCount/Cents`, `last30dCents`, l.18141): un reembolso que el dueño no mira en 24 h desaparece del contador y en 30 d del importe; no hay «sin revisar» | Al dar de alta un segundo operador, o si `operator-summary` muestra tasa anómala; cierre barato: `last30dCount` + «desde tu última visita» (o un `reviewedAt` en `PaymentRefund` que el dueño marque) — ⛔ no un correo, el dueño ya lo descartó | arquitecto / dueño |
+| SEC-SHIP-B9 | `chargeback-inventory` es `vault_operator+` (l.15162): el «humano que confirma» de §18.7 para una compra reembolsada por el súper-admin es el **operador**. `recuperada` (⇒ `listed`) y `no_recuperada` (⇒ `lost` firmada) quedan en la misma persona que marca faltantes; lo contiene la firma (`InventoryMovement.actorUserId`) + `/finance/shrinkage` por actor + `selfReplaced30d` (B6). Debe **decirse** en §18.7 (hoy hereda el rol sin nombrarlo) | Si la merma por actor crece; alternativa: `no_recuperada` sobre `vault refunded` solo `super_admin` | arquitecto |
+| SEC-SHIP-B10 | M3 total sobre una orden `vault` con piezas `already_withdrawn` u `open_case` sale sin confirmación explícita: el súper-admin se entera **después** por `untouched` en la bitácora. Es su decisión legítima («disputa de condición») pero es dinero saliente con la carta en manos del cliente | Antes del primer reembolso real de bóveda; cierre: el detalle M3 (`vaultPieces`, ya especificado) se muestra en el diálogo y, si hay `already_withdrawn`, `refund` exige `confirmPiecesWithCustomer:true` (patrón de §17.3 paso 7), auditado | arquitecto → frontend/backend |
+| SEC-SHIP-B11 | El sello se lee **después** de tomar `FOR UPDATE` sobre retiros y piezas (§18.4 (b)–(d)); un webhook tardío tras `recuperada` → venta a otro cliente bloquea brevemente filas que ya son de otro. No es fallo (no escribe); es contención. Cierre: lectura rápida del sello **antes** de (b) como atajo, ⛔ sin sustituir la comprobación bajo candado | Con la construcción | backend |
+
+## 4. Las mutaciones PS-55…PS-62 — ¿muerden lo que importa?
+
+**Sí en el núcleo:** PS-55 (a) es exactamente el hueco original y (b) el `listed` prohibido; PS-56 (b) usa el CHECK como
+juez; PS-57 mata el sello; PS-58 mueve la rama a la tx equivocada (la mutación más valiosa del pase: es la que
+dejaría al cliente sin carta y sin dinero); PS-59 (a)/(b) la precondición y el trato de «preparado»; PS-60 (a)/(b) la cadena
+y la re-compra; PS-62 el candado. **Lo que no cubren, y deben cubrir tras el cierre:** **PS-63** (A5: pieza intacta ⇒
+reclamable después y retiro sin guía), **PS-64** (A6: los tres caminos de publicación la omiten), PS-57 ampliada (M5:
+orden inverso), y una línea en PS-60: `replace`/`found` sobre el `open_case` de una orden `refunded` ⇒ `409
+CASE_ORIGIN_NOT_SETTLED` (hoy lo garantiza §15.4 paso 6 pero ninguna PS de v1.80.4 lo asevera para este origen).
+PS-61 «recuperada tras publicar cuenta 0» deja de tener sentido con A6 (a).
+
+## 5. Banderas para el humano
+
+- **Antes de operar reembolsos reales de compras a bóveda:** el `product-owner` debe registrar en `PROJECT.md` que un
+  reembolso total **saca la carta de la bóveda del cliente** (§18.9 lo pide; §H hoy no lo dice). Es una regla de
+  custodia que el cliente debe poder leer en los términos **antes** de que se aplique.
+- **«Nunca reembolsar desde el panel de Stripe»** (B4) pesa más desde v1.80.4: el webhook no puede rechazar, y hasta
+  cerrar A5 el panel es el camino más corto a «carta y dinero».
+- La **detección** del reembolso del operador es ahora pasiva por decisión del dueño (D-13): que sepa que el contador del
+  tablero se vacía a las 24 h (B8).
+
+## 6. VEREDICTO
+
+**CON CONDICIONES** sobre el diseño en **`0e1faf6`** (§M4-SHIP v1.80.4 + ARCHITECTURE §4.57 (p)). ⛔ **El diseño NO puede
+pasar a construcción entero.** Mínimo para APROBADO (una v1.80.5 del arquitecto):
+1. **A5** — reclamo idempotente **por pieza** (el sello gobierna solo `needsManual`/bitácora/`AV-3`) **o** un verbo que
+   reclame las `in_packed_withdrawal` cuando el retiro deje de estar preparado; **guarda del retiro** (`409
+   WITHDRAWAL_LINE_ORIGIN_REFUNDED` en `prepared`/`tracking`/`→guia`/`→enviado`, `422` en `POST /shipments`); PS-63 con
+   mutación.
+2. **A6** — las devueltas **no son publicables** hasta `recuperada` (exclusión en los tres caminos + `tryAutoPublish`, o
+   estado congelado); quitar la frase de §18.7; PS-64 con mutación.
+3. **M5** — orden de llegada webhook/M3 explícito en §18.2; PS-57 ampliada.
+
+**Lo que SÍ puede pasar a construcción ya**, porque A5/A6/M5 no cambian su cuerpo: §M4-SHIP.17 entero (los cierres
+A1–A4, M1–M4 de v1.80.3, ya validados en §0), §M4-SHIP.18.1 (D-13: quitar `AVA-1`/`adminNotifiedAt`; D-14), §18.3 (el
+momento del cierre), §18.5 (colocación), §18.6 (`vaultPieces`/`classifyVaultPiece`), y el despacho + `C-FULLREF-1` de
+§18.2 **salvo la semántica del sello**. Deben esperar: la semántica no-op de §18.2, las filas «no se toca» de §18.4 y
+§18.7. Las Bajas B7–B11 quedan como deuda aceptada con su disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `0e1faf6` · §M4-SHIP v1.80.4 / ARCHITECTURE §4.57 (p) · **CON CONDICIONES** (A5, A6, M5)
+
+---
+
+# Re-revisión de DISEÑO (blue team) — §M4-SHIP v1.80.5 · rama `claude/envio-preparar` · sha `3498766` · 2026-09-29
+
+> **En una línea:** las tres condiciones de mi sección anterior (`0e1faf6`: A5, A6, M5) **están cerradas en el contrato**
+> y las Bajas B7–B11 decididas; no queda camino «carta y dinero». Aparece **un** hallazgo Medio nuevo que no es de
+> dinero saliente sino de la propia mecánica de A6: el selector de objetivos de `chargeback-inventory` para bóveda se
+> apoya en «**último** movimiento = `refund_return`», y el `move` al estante que el propio contrato sugiere **escribe un
+> movimiento** ⇒ la pieza sale del conjunto objetivo y queda `picking` sin verbo. Se cierra con una línea del arquitecto;
+> no exige otra vuelta de seguridad.
+
+**Qué es esta revisión (O-1):** lectura de `docs/API_CONTRACT.md` en `3498766` (changelog v1.80.5 l.7-29; §M4-SHIP.18
+entera l.19393-19694; §M4-SHIP.5 `prepared` paso 9 l.17952-17959 y `DELETE …/prepared` l.18002-18025; `retry`
+l.18036-18041; §M4-SHIP.6 l.18058-18067; §5 `POST /shipments` l.9529; §0 códigos l.5963-5980; §M3 l.15206-15276; §M1
+`move` l.10961) y `docs/ARCHITECTURE.md §4.57 (p)` l.25571-25594 y `(q)` l.25596-25625. Bash usado solo para leer y
+`grep` (`git log -1` = `3498766`, árbol limpio). ⛔ Nada ejecutado sobre código: sigue sin haber código de v1.80.4/5.
+
+## 1. Condición por condición
+
+| Cond. | Dónde se cierra (sha `3498766`) | Juicio |
+|---|---|---|
+| **A5 (a)** reclamo por pieza | §18.2 tabla del sello (l.19445-19462): CAS + clasificación en **toda** pasada, el sello solo gobierna `needsManual` (1.ª pasada), bitácora y `AV-3`; `unprepared` con `onlyItemIds` (§M4-SHIP.5 l.18012-18025, orden envío → piezas → `Order`, sin interbloqueo); `reclaim-vault` (§18.10) | **Cerrada.** El argumento de (q) l.25588 es correcto: el `WHERE` del CAS ya distinguía «de plataforma» de «reclamada ahora»; el no-op protegía de un problema que no existía |
+| **A5 (b)** guarda del retiro | `prepared` paso 9 (l.17952-17959), `tracking`/`→guia`/`→enviado` (l.18058-18067): origen `FOR UPDATE`, predicado **`status ≠ settled ∨ ∃ PaymentRefund{order_full, status ≠ failed}`**; `classifyItems` quinta condición (l.9529) ⇒ `422 ITEM_ORIGIN_REFUNDED` y `withdrawable=false` (lectura = escritura) | **Cerrada.** La ventana **antes** de `refunded` la cubre la fila del libro (`requested\|submitted`), no el estado; la carrera `prepared` vs tx1 serializa en `Order FOR UPDATE` (mismo candado en los dos) y PS-65 la mide N≥10 con los dos únicos desenlaces admisibles. `entregado` sin guarda: correcto (ya salió) |
+| **A5 (c)** confirmación no rechaza | §18.3 l.19500-19503, §18.4 l.19514-19517, `retry` l.18036-18041 (un cuerpo en `executeRefund` paso 4) | **Cerrada.** Con (b) la carta no sale y con (a) se reclama; abortar dejaría la fila del libro sin registrar con el dinero fuera |
+| **A5 (d)** PS-63 / C-FULLREF-1 | PS-63 (l.19646) cubre tx1 → preparado → `retry`, `tracking` 409, `DELETE` reclama con **un** movimiento y **cero** `AV-3`, variante `guia` con/sin `confirmUnpacked`, idempotencia; PS-62 asevera cuatro llamadores y `unpackedConfirmed` solo desde `reclaim-vault` | **Cerrada.** Mutación (a) es exactamente el hallazgo |
+| **A6** devuelta no publicable | Opción (b): `picking` congelada (§18.4 fila 1, l.19537); allowlist `{in_stock, listed}` de `PUBLISHABLE_ORIGIN_STATUSES`/`claimListed` (§M1 l.11249, l.10976) excluye `publish-all`, `bulk-publish`, `PATCH listed`, `tryAutoPublish`; `mark`/`adjust`/`bulk-remove` la rechazan (PS-41/42 ya lo aseveran para `picking`); `chargeback-inventory` mismo cuerpo que el directo `refunded` (§M3 l.15223-15228, §18.7); muere «ya publicó cuenta 0» (ahora `count 0 ⇒ 409` + rollback, l.19603); PS-64 | **Cerrada** en cuanto a publicación: **ningún camino sin humano** la saca de `picking` (el único es `chargeback-inventory`, `vault_operator+`). ⚠️ Pero el **selector** de ese único camino tiene un hueco: **M6** abajo |
+| **M5** orden de llegada | §18.2 l.19463-19473: `Order → refunded WHERE status IN (settled, refunded)`, `count 1` con `refunded` = éxito `200`, `count 0` (`chargeback\|failed`) ⇒ `log error` sin tocar la orden y la fila del libro conserva su estado; `AV-3` lo manda quien sella + `if refunded return` de §R.3; PS-57 secuencia inversa + carrera N≥10, mutación (b) | **Cerrada** |
+| **B7** | `ownershipStatus:'settled'` en el `WHERE` del CAS (l.19537) | Cerrada |
+| **B8** | Deuda aceptada con disparador (2.º operador / tasa anómala) y cierre barato escrito (§18.11); ⛔ sin correo (D-13) | Aceptada |
+| **B9** | §18.7 l.19628-19632 nombra `vault_operator+`, contención por firma + `/finance/shrinkage` + `selfReplaced30d`, disparador a `super_admin` | Cerrada |
+| **B10** | `confirmPiecesWithCustomer` en la tx1 (§18.4 l.19518-19522, §M3 l.15267-15273), `422 REFUND_CONFIRMATION_REQUIRED {required, items}`, auditado en `payment_refund.requested`; `open_case` no la exige (correcto: la carta no está con el cliente) | Cerrada |
+| **B11** | Atajo sin candado antes de (b), ⛔ nunca en lugar de la comprobación bajo candado (l.19459-19462) | Cerrada |
+| PS-60 línea `replace`/`found` ⇒ `409 CASE_ORIGIN_NOT_SETTLED` | l.19643, mutación (c) | Cerrada |
+
+## 2. Las tres preguntas del encargo
+
+**¿Queda algún camino carta + dinero?** No encuentro ninguno. Recorrido por estado de la carta en el instante de la tx1 y
+de la confirmación: (i) sin retiro ⇒ se reclama al confirmar; entre tx1 y confirmación no puede entrar a una caja
+(`ITEM_ORIGIN_REFUNDED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`). (ii) En retiro `solicitado|picking` sin preparar ⇒ se
+reclama al confirmar, línea `blocked`, el retiro sigue sin ella. (iii) Preparado o `guia` ⇒ tx1 rechaza (`409
+VAULT_PIECE_IN_PACKED_WITHDRAWAL`); por panel de Stripe (B4) ⇒ `in_packed_withdrawal`, el retiro **no avanza** (409
+en `tracking`/`→guia`/`→enviado`) y se reclama con `DELETE …/prepared` o `reclaim-vault {confirmUnpacked}`. (iv)
+`enviado|entregado|withdrawn` ⇒ `already_withdrawn`, solo con `confirmPiecesWithCustomer:true` (decisión explícita y
+auditada del súper-admin: no es residual). (v) `open_case` ⇒ `replace`/`found` dan `409` (PS-60). (vi) Re-comprada ⇒
+`other_purchase`, la responde la otra compra. El único «carta y dinero» que queda es (iv), y es una decisión de la
+única persona con `@MoneyOut`, con las cartas a la vista.
+
+**¿La ventana antes de `refunded` está cubierta por el predicado?** Sí: la fila `order_full` nace en la tx1 **bajo
+`Order FOR UPDATE`** y los cuatro verbos del retiro toman ese mismo candado antes de leer la fila ⇒ o ven la fila, o la
+tx1 ve el retiro preparado (PS-65 carrera). El único lector **sin** ese candado es `classifyItems` (`POST /shipments`,
+tx serializable — no serializa con una tx `READ COMMITTED` + `FOR UPDATE`): la carrera puede crear un retiro
+`solicitado` con la carta, pero en esa forma (sin preparar) la confirmación **sí** la reclama (fila 1 de §18.4). No es
+un hueco de custodia; su residuo es de **tarifa** (M7 abajo).
+
+**¿`confirmUnpacked` es abusable?** No como escalada: solo `super_admin` (que ya tiene `@MoneyOut`), sin dinero, con
+`note` obligatoria y **dos** bitácoras (`order.vault_reclaim_requested` siempre + `order.vault_reclaimed` si reclamó),
+y `unpackedConfirmed` solo puede entrar desde ese verbo (`C-FULLREF-1`, PS-62 mutación). El fallo si el humano miente
+(afirma «saqué la carta» y no la sacó): el paquete sale con una carta que el sistema ya cuenta como plataforma `picking`
+⇒ `no_recuperada` ⇒ **merma firmada por el actor** en `/finance/shrinkage`. Es decir, la mentira deja rastro con
+nombre; no da dinero nuevo. Dos matices menores en B12/B13.
+
+## 3. Hallazgos nuevos
+
+### MEDIA — debe entrar al contrato antes de construir §18.6/§18.7 (no bloquea el veredicto; sin nueva vuelta de seguridad)
+
+**SEC-SHIP-M6 · El selector de objetivos de `chargeback-inventory` (bóveda) y la derivación de `returned` dependen del
+«último movimiento», y `move` escribe un movimiento: un `move` antes de `recuperada` deja la carta `picking` sin verbo,
+para siempre.**
+- **Evidencia:** §18.7 l.19607-19608 «objetivos: piezas plataforma `picking` cuyo **último** movimiento es `refund_return`
+  de esta orden»; §18.6 l.19590-19593 `returned` y `pendingConfirmation` con la misma cláusula «último movimiento»;
+  §M1 l.10961 «`POST …/move` → registra `InventoryMovement`» (`reason:'move'`, l.16571); §18.5 l.19570-19572 «la sugerencia
+  [de `move`] sigue valiendo **antes o después** de `recuperada`»; §18.4 fila 1 «solo `chargeback-inventory` la saca de ahí».
+- **Efecto:** operador sigue la sugerencia de la pantalla (`move` del cajón del cliente al estante) **antes** de
+  `recuperada` ⇒ último movimiento = `move` ⇒ la pieza deja de ser objetivo y `vaultPieces` la clasifica `not_customer`
+  ⇒ `recuperada`/`no_recuperada` no la tocan (o `409` si no queda ninguna objetivo) ⇒ plataforma `picking` que ningún verbo
+  publica, marca ni ajusta: congelada sin desenlace, la clase que el propio contrato declara inaceptable (§4.21c-bis,
+  §M4-SHIP.17.2). No es dinero saliente; es una carta real que no se vende ni se registra como merma. Asimetría con el
+  directo (sus objetivos se hallan por líneas de envío, inmunes a `move`).
+- **Cierre (arquitecto → backend):** el selector y `returned`/`pendingConfirmation` se anclan a «existe un
+  `InventoryMovement{reason:'refund_return'}` de esta orden para la pieza **y** ningún movimiento posterior con
+  `fromStatus ≠ toStatus`» (un `move` es `picking → picking`), o equivalente: «último movimiento **que cambia de
+  estado**». PS-64 ya hace `move` y luego `recuperada ⇒ listed`: fijar que el fixture los corra **en ese orden** y añadir
+  la mutación «seleccionar por último movimiento sin filtrar `move` ⇒ `recuperada` no encuentra nada».
+
+### BAJA — deuda aceptable con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| **SEC-SHIP-M7** (Baja-dinero) | Un retiro cuya(s) línea(s) quedan **todas** `blocked` por el reclamo (retiro de una sola carta creado antes de la tx1, o la carrera `classifyItems` vs tx1) se queda `picking` con la tarifa **cobrada** y nada que enviar: §18.4 fila 1 «el retiro no se toca» y §M4-SHIP.5 dice que `closed_nothing_to_ship` ya no lo produce un retiro en `prepared`; el `closeWithdrawalIfEmpty` + `shipment_fee` existe solo en el apartado (§15.6). Dinero del cliente (una tarifa) sin camino declarado; no explotable | Antes del primer reembolso real de bóveda: una línea en §18.4 — si tras el reclamo el retiro no tiene líneas `picked` ni casos, `closeWithdrawalIfEmpty` (misma clase de fila que emite el apartado, `@MoneyOut` ⇒ solo en las pasadas con actor `super_admin`; por webhook/`unprepared` queda visible en `summary.stuckRefunds` o equivalente) | arquitecto → backend |
+| **SEC-SHIP-B12** | `confirmUnpacked` es **de orden**, no de pieza: afirma «saqué de su caja» sobre todas las `in_packed_withdrawal` de la orden, que pueden estar en **varios** retiros | Si una orden `vault` con >1 carta en retiros distintos llega a `in_packed_withdrawal`; cierre: `inventoryItemIds?: string[]` opcional que acota `unpackedConfirmed` (sin ids = todas, como hoy) | arquitecto |
+| **SEC-SHIP-B13** | Órdenes `vault` `refunded` **antes** del despliegue (sin sello): con v1.80.5 sus cartas dejan de ser retirables (`origen ≠ settled`) y **no tienen verbo** (`reclaim-vault ⇒ 409 not_closed`; `unprepared` exige sello). La consulta de residuo (l.17683-17687) mide si existen; `HECHOS`: sin ventas reales ⇒ esperado **0** (NO MEDIDO por mí) | Si la consulta da > 0 antes de desplegar: `reclaim-vault` acepta `fullRefundClosedAt = null` con `status='refunded'` (y sella en esa pasada), o el procedimiento manual queda escrito en `BACKEND_NOTES` | backend (medir) → arquitecto (si > 0) |
+| **SEC-SHIP-B14** | NO MEDIDO qué estados cuenta `GET /admin/finance/inventory-value` (`atReferenceCents`): si incluye plataforma `picking`, una congelada infla el valor hasta `no_recuperada`. Igual que las congeladas del directo (no es nuevo de v1.80.5); el P&L (§5 ARCHITECTURE) se acota por `pickingAt` de envíos, no por estado de pieza ⇒ **sin modo de fallo de dinero** | Cierre: backend lee el `where` de `admin.inventoryValue()` y lo anota; si cuenta `picking`, excluirlo o etiquetar «pendiente de confirmación» | backend |
+
+## 4. Banderas para el humano
+
+- **La guarda de `guia` es del sistema, no del mostrador:** con la guía ya comprada, el paquete físico puede irse aunque
+  `→enviado` dé `409`. Regla operativa a escribir donde el operador la lea: **ningún paquete sale del local hasta que el
+  sistema diga `enviado`**. Sin eso, `WITHDRAWAL_LINE_ORIGIN_REFUNDED` protege el registro, no la caja.
+- Siguen vigentes las de mi sección anterior: registrar en `PROJECT.md` que el reembolso total saca la carta de la bóveda
+  (§18.9 lo pide al product-owner), «nunca reembolsar desde el panel de Stripe» (B4: ahora ya no deja «carta y dinero»,
+  pero sí una carta en caja que exige `reclaim-vault` a mano), y la detección pasiva del reembolso del operador (B8).
+
+## 5. VEREDICTO
+
+**APROBADO** sobre el diseño en **`3498766`** (§M4-SHIP v1.80.5 + ARCHITECTURE §4.57 (q)). **El diseño §M4-SHIP v1.80.5
+puede pasar a construcción.** Condiciones A5, A6 y M5 de `0e1faf6`: cerradas; B7–B11: decididas. Sin hallazgos críticos
+ni altos abiertos.
+
+Lo que el arquitecto escribe **antes** de que backend construya la parte que lo toca (no bloquea el resto ni exige otra
+vuelta de seguridad; lo verifico en la fase de seguridad completa sobre el código): **M6** (selector de objetivos y
+`returned` inmunes a `move`, en §18.6/§18.7 + PS-64), y una línea para **M7** (retiro vaciado por el reclamo). B12–B14
+quedan como deuda con disparador. La fase de seguridad completa (pentester + seguridad) sobre el código construido, por
+release, sigue siendo obligatoria: aquí no se ha ejecutado nada.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `3498766` · §M4-SHIP v1.80.5 / ARCHITECTURE §4.57 (q) · **APROBADO** (M6, M7 al contrato; B12–B14 deuda)
+
+---
+
+# Revisión de DISEÑO (blue team) — §M4-SHIP v1.81 «Envíos con Skydropx» · rama `claude/skydropx-envios` · sha **`62d0c46`** · 2026-09-29
+
+> Solo lectura sobre `API_CONTRACT §M4-SHIP.19` (.2–.17, mapa SDX-R1…R14, PS-67…PS-90, PS-SBX-1…12), §R.3/§R.7, §1
+> Direcciones, `GET /geo/postal-codes/:cp`; `ARCHITECTURE §4.58` y `M-62`; `PROJECT §T` (T.10/T.11); `SKYDROPX_LEVANTAMIENTO
+> §8`. Del código vigente medí solo lo que cambia una severidad: `disputes.service.ts:155-166` (ventana = `deliveredAt +
+> 7 d`), `main.ts:56` (`forbidNonWhitelisted: false`), `shipments.service.ts:1013-1151` (`entregado` ⇒ `in_custody →
+> withdrawn`, sin verbo inverso), `app.module.ts:46` (throttler global por IP). ⛔ Nada ejecutado; la red no llega a
+> Skydropx (no es hallazgo). Sin `PENTEST_NOTES` para esta versión (fase de diseño): SDX-R1…R14 es el insumo del red team.
+
+## 1. Lo que RESISTE (con su sitio)
+
+| Lente | Veredicto | Dónde |
+|---|---|---|
+| PII al tercero | Lista blanca `PurchaseInput.to` (nombre, `company=name`, tel, correo, calle, referencia) + niveles de dirección + valor declarado; `email` = `guestEmail` si existe; ⛔ pago/cartas/`User.email`; `C-SDX-2`/PS-85 asertan las claves exactas | §19.4 (6), T.11 |
+| Secretos | Solo env (`SKYDROPX_*`), token OAuth en memoria, ningún dial ni `GET /admin/settings` los lleva, `502 SHIPPING_PROVIDER_ERROR {provider, op, status}` sin cuerpo, `C-SDX-1` + canario (PS-86), SAST regla devops | §19.2, §19.4 (1)(5)(7), §19.13 |
+| `labelUrl` | Columna interna, fuera de todo DTO (lista blanca `toAdminShipmentRow`, PS-84), proxy operador+ `no-store` + bitácora `label_printed`, ⛔ sin redirect; DAST `label.pdf` sin sesión asignado a devops | §19.7, §19.8, §19.17 |
+| Una guía por N clics | CAS `labelProcessingSince` **antes** de la red, `providerShipmentId @unique`, `SHIPMENT_ALREADY_LABELED`, rechazo deshace el reclamo (PS-73 N≥10, PS-74) | §19.7 pasos 7–9 |
+| Cifras vistas / saldo | `expectedPriceCents/MarginCents` contra `ratesJson` del servidor, `QUOTE_EXPIRED` **sin comprar en la misma llamada**, `LABEL_CONFIRMATION_REQUIRED`, `SHIPPING_INSUFFICIENT_BALANCE` sin cifra al operador | §19.7 pasos 3–6 |
+| Guardas de negocio | `quote`/`label` reusan **las mismas funciones** de §M4-SHIP.6 (`preparedAt`, casos `open`, `ORDER_NOT_SETTLED`, origen reembolsado) bajo candado de fila; PS-69 muta la reimplementación | §19.6 paso 2 |
+| Costo | Ningún campo de costo en ningún cuerpo (PS-81), IVA `16/116` constante nombrada (no el dial), cargos extra `providerChargeId @unique` (PS-80 N=10), `chargedAt` propia | §19.11, §19.10 |
+| Rastreo | `applyCarrierStatus` un cuerpo, `@@unique(shipmentRequestId, providerEventKey)` + CAS de estado (PS-72), manual ⇒ `applied:false` y no se sondea, ⛔ sin ruta de webhook (SDX-R8, por ausencia), `delivered_to_branch` nunca `entregado` | §19.3, §19.10 |
+| Kill switch | `shipping_provider='off'` seed, fail-closed: `quote`/`label` ⇒ `404`, tres jobs no-op (PS-90); env faltante ⇒ `NOT_CONFIGURED` sin valor | §19.2 |
+| Dirección | `GET /geo/postal-codes/:cp` público, catálogo local (sin cuota del tercero), 60/min/IP, datos SEPOMEX; `PATCH …/address-neighborhood` operador+, solo `picking` sin guía, solo colonia/municipio/estado, `before/after` (PS-68); colonia de lista cerrada, `references` ≤ 70 sin control chars | §19.5, SDX-R9/R10 |
+| Autorización | Cotizar/comprar/etiqueta/cancelar/salida/refresco: operador+; saldo, catálogos, empaques, diales, jobs: `super_admin` (PS-90); elección con nombre en bitácora | §19.6–.13 |
+| Guía manual | `POST …/tracking` intacto + guarda `SHIPMENT_ALREADY_LABELED`; no pasa por el puerto; `departed` la acepta; `PATCH …/status` sin cambio; funciona con el dial `off` | §19.4, §19.7, §19.9, T.10 |
+
+## 2. Hallazgos (ninguno crítico ni alto)
+
+### MEDIA — entran al contrato antes de construir la parte que tocan (fase D); no exigen otra vuelta de seguridad
+
+**SEC-SDX-1 (dinero/cliente) · La ventana de disputa de 7 días se ancla a un sello del tercero.** §19.3 `delivered` ⇒
+`deliveredAt = event.occurredAt`; `disputes.service.ts:160,166` calcula `deadline = deliveredAt + 7 d`. Un `occurredAt`
+atrasado (sondeo tardío, evento histórico, transportista que fecha atrás) **consume** parte o toda la ventana antes de
+que `AV-17` salga; el correo anuncia una fecha ya vencida. Cierre: la ventana se calcula desde cuando **nosotros** lo
+supimos — `deliveredAt = max(event.occurredAt, observedAt)` para guía Skydropx (o disputas usa
+`max(deliveredAt, deliveredNoticeSentAt)`), `carrierStatusAt` conserva la fecha del transportista para el registro.
+Mutación en PS-78: `delivered` con `occurredAt = now − 8 d` ⇒ la disputa **sigue abierta**. Dueño: arquitecto → backend.
+
+**SEC-SDX-2 (correo/idempotencia) · El evento sintetizado con `occurredAt: updated_at ?? now` crea una llave nueva por
+sondeo.** §19.10: si la API solo da el estado actual (NO MEDIDO, PS-SBX-5), `providerEventKey = status:occurredAt` con
+`now` cambia en cada corrida ⇒ una fila de `ShipmentCarrierEvent` por hora, línea de tiempo pública que crece, y `AV-19`
+**repetido** en cada sondeo mientras el estado siga `delivery_attempt` (el sello `lastDeliveryAttemptAt <
+event.occurredAt` lo deja pasar). Rompe el criterio 241 en la rama de respaldo; PS-72 no lo ve porque el doble da fechas
+estables. Cierre: sintetizar **solo si `status ≠ carrierStatus` leído bajo el candado**, con llave `status:<updated_at>`
+y, sin `updated_at`, `status:<carrierStatusAt del cambio>` — nunca `now`. Añadir a PS-72 el doble «solo estado actual»
+×10 ⇒ 1 fila, 1 correo. Dueño: arquitecto → backend.
+
+**SEC-SDX-3 (dinero, carrera estrecha) · Compra que gana en Skydropx pero pierde el CAS a `guia`: rama no
+especificada.** Durante la llamada de red (paso 8) el envío puede pasar a `cancelado` (contracargo de un directo u
+`onFullRefund`, §19.8): `cancelProviderLabelIfAny` ve `labelSource IS NULL` y no cancela nada. Al volver, «éxito con
+número» hace `setTrackingFromProvider` con `WHERE status='picking'` ⇒ `count 0` y el contrato no dice qué pasa con la
+guía **ya pagada**; «éxito sin número» escribe `providerShipmentId` con `WHERE labelProcessingSince ≠ null` **sin**
+condición de estado ⇒ guía viva y pagada sobre un envío `cancelado`, sin alerta (`carrierStatus` sigue `null`, así que ni
+`label_live_on_cancelled`). Cierre: ambas ramas del paso 9 llevan `status:'picking'` en el `WHERE`; con `count 0` ⇒
+persistir `providerShipmentId`, `labelSource:'skydropx'`, sello `providerCanceledAt/Reason='auto_close'`, `port.cancel`
+post-commit y alerta `label_live_on_cancelled`; y los dos escritores de `cancelado` tratan `labelProcessingSince ≠ null`
+como «compra en vuelo» (alerta). Mutación en PS-83: `cancelado` entre el reclamo y la respuesta del doble ⇒ `cancel`
+llamado una vez, cero guías vivas. Dueño: arquitecto → backend.
+
+**SEC-SDX-4 (dinero/operación) · El escape de «`providerShipmentId = null` con reclamo puesto» no existe como verbo.**
+§19.7 paso 9 ⚠️ remite a `POST …/label/cancel {reason:'unknown'}` por el súper-admin; §19.8 lo rechaza (`labelSource ≠
+'skydropx'` ⇒ `409 LABEL_NOT_CANCELLABLE {not_provider}`) y el verbo es operador+. Resultado: envío atorado en
+`LABEL_IN_PROGRESS` para siempre, o —si se «libera» sin saber el id en Skydropx— una guía pagada huérfana y una segunda
+compra (**doble costo**), justo el caso que la búsqueda por referencia (NO MEDIDO, PS-SBX-6) pretende cerrar. Cierre:
+verbo **`super_admin`** explícito (`POST …/label/release`, o `cancel` con `reason:'unknown'` admitido) con precondición
+`labelProcessingSince ≠ null ∧ providerShipmentId IS NULL ∧ labelProcessingSince < now − 15 min`, `note` obligatoria («lo
+comprobé en el panel de Skydropx»), bitácora `shipment.label_released`; y si PS-SBX-1 confirma `Idempotency-Key`, el
+reintento del sondeo lo usa. Dueño: arquitecto → backend.
+
+**SEC-SDX-5 (SSRF / enlace al cliente) · Las URLs que devuelve el proveedor se consumen sin validar esquema ni host.**
+El proxy `label.pdf` hace `fetch(labelUrl)` desde el servidor y devuelve el cuerpo (§19.8): una URL manipulada o un
+cambio del proveedor (`http://`, host interno de Railway/metadata, redirección cross-host) convierte al operador en
+lector de red interna. `trackingUrl` se pone como `href` en `AV-4/5/17/18` y en los tres DTOs del cliente (§19.12) sin
+regla de forma. Es confianza en un tercero, no un atacante externo; sigue siendo el único sitio del sistema que hace
+`fetch` a una URL leída de una respuesta ajena. Cierre: `assertProviderUrl(url)` al **escribir** `labelUrl`/`trackingUrl`
+— `https:` obligatorio, host en lista blanca (`SKYDROPX_URL_HOSTS`, env, poblada con lo medido en PS-SBX-4/5), sin
+credenciales embebidas; el proxy no sigue redirecciones a otro host y limita tamaño (p. ej. 5 MB) y tipo
+(`application/pdf`). Mutación en PS-84/PS-88: doble con `labelUrl='http://169.254.169.254/'` ⇒ no se persiste, alerta.
+Dueño: arquitecto → backend (regla) · devops (env).
+
+### BAJA — deuda aceptada con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| **SEC-SDX-6** | `ShipmentQuote.rawResponseJson` se guarda **sin redactar** (la cotización puede ecoar `address_to`) y **sin retención**: filas efímeras de 24 h que viven para siempre con carga cruda del tercero | Antes del primer mes en producción: `redactProviderPayload` también antes de persistir, y purga en el job diario (`expiresAt < now − 30 d` salvo la cotización comprada) | arquitecto → backend |
+| **SEC-SDX-7** | `redactProviderPayload` es **lista negra** (`phone,email,street1,name,reference`) sobre un esquema NO MEDIDO: no cubre `company`, `further_information` ni un renombre del proveedor. Y §19.5 manda `references` como `further_information` mientras §19.4 (6) lista `reference?` **y** `furtherInformation?`: `C-SDX-2` necesita una sola verdad | Al cerrar PS-SBX-3/4: log por **lista blanca** de claves (`op,status,ms,ids,codes`); el arquitecto fija en qué campo viaja `Address.references` | arquitecto → backend |
+| **SEC-SDX-8** | `label` con `quoteId` vencido re-cotiza con `force` en **cada** llamada (§19.7 paso 3): un operador (o un cliente que repite) consume la cuota de 2 rps y crea filas; no toca dinero | Cerrar en el contrato: reusar la cotización vigente (§19.6 paso 6) y solo `force` si no hay ninguna | arquitecto |
+| **SEC-SDX-9** | `applyCarrierStatus` paso 4 escribe `carrierStatus` sin orden temporal ⇒ eventos fuera de orden **retroceden** `carrierStatus` (tarjeta/alertas; `ShipmentStatus` no, por CAS). La alerta derivada solo se ve en envíos vivos: un `exception` tras `delivered` es invisible. `@@unique` del evento no incluye `providerShipmentId` (re-emisión) | Cierre barato con D1: `WHERE carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt`; `@@unique([shipmentRequestId, providerShipmentId, providerEventKey])` | arquitecto → backend |
+| **SEC-SDX-10** (dinero/custodia) | Un `delivered` del tercero mueve `in_custody → withdrawn` (irreversible: sin verbo inverso, `shipments.service.ts:1141-1151`) aunque el paquete no haya llegado. Mitigado por `AV-17` + ventana de 7 d + disputas; NO MEDIDO que la resolución de una disputa pueda devolver `withdrawn → in_custody` | Primera disputa «no me llegó» sobre una guía Skydropx: el arquitecto confirma el camino de reversión en `disputes` (o lo añade) | arquitecto |
+| **SEC-SDX-11** (P&L) | `label/cancel` pone el costo a **0** asumiendo que el saldo regresa entero (seguro incluido; PS-SBX-8 NO MEDIDO). Si no regresa, el P&L subestima el costo; no explotable | PS-SBX-8: si no reembolsa (todo o el seguro) ⇒ `ShipmentCostAdjustment kind:'other'` con lo no devuelto en vez de 0 | arquitecto (errata v1.81.1) |
+| **SEC-SDX-12** | Con `shipping_provider='off'` el contrato define `quote`/`label`/jobs; **no** dice qué hacen `label/cancel`, `label.pdf`, `departed`, `refresh-tracking` (`Noop` ⇒ `NOT_CONFIGURED`?). Y PS-81 dice «`400` con `forbidNonWhitelisted` si aplica»: `main.ts:56` es `false` ⇒ el campo se **ignora**, no da `400` — la prueba debe asertar «sin efecto» | Una línea en §19.2: `off` ⇒ `label.pdf` y `label/cancel` **siguen** (son de seguridad/operación sobre guías ya compradas), `refresh-tracking` ⇒ `409 FEATURE_DISABLED`; PS-81 corregida | arquitecto |
+| **SEC-SDX-13** (PII/secretos) | `docs/specs/SKYDROPX_SANDBOX_RESULTADOS.md` (guion PS-SBX) va al **repo público**: además del token, las respuestas traen ids de cuenta, `label_url` firmadas y la plantilla de origen con **teléfono/correo del dueño** | `sbx-probe.ts` redacta por lista blanca y el revisor del PR lo comprueba antes de fusionar | devops |
+
+## 3. Banderas para el humano
+
+- **Datos personales a un tercero (T.11):** Skydropx recibirá nombre, teléfono, correo y dirección de cada cliente. Conviene
+  que el aviso de privacidad nombre a la paquetería/intermediario como encargado y que exista (o se pida) el acuerdo de
+  tratamiento de datos de Skydropx; no es técnico y no lo mide nadie del equipo.
+- **Un `delivered` de la paquetería cierra la custodia (SEC-SDX-10):** la carta deja de estar «en bóveda» por un dato
+  ajeno. La ventana de 7 días es la defensa del cliente; que la regla de disputa por «no me llegó» esté escrita donde el
+  operador la lea.
+- **Sin tope de gasto por operador (SDX-R6, aceptado):** el saldo prepagado es el único límite; la bitácora tiene nombre.
+  Si el saldo va a ser grande, pedir el dial de tope antes de operar.
+- **Saldo y sandbox:** ninguna prueba compra guías reales; PS-SBX-4 compra en sandbox. Antes de la primera guía real:
+  apagar los avisos propios de Skydropx (T.6) y medir el doble seguro «SOS Protección» (§4.58 (h)(4)).
+- Sigue vigente la fase de seguridad completa (pentester con SDX-R1…R14 + seguridad) **sobre el código**, por release.
+
+## 4. VEREDICTO
+
+**APROBADO** sobre el diseño en **`62d0c46`** (§M4-SHIP v1.81 + ARCHITECTURE §4.58, M-62). Sin hallazgos críticos ni altos.
+**El diseño §M4-SHIP v1.81 puede pasar a construcción (fases C y D).** Fase C no está tocada por ningún hallazgo. Antes
+de que backend construya la parte que lo toca en fase D, el arquitecto escribe en el contrato **SEC-SDX-1** (ventana de
+disputa desde `observedAt`), **SEC-SDX-2** (evento sintetizado solo al cambiar), **SEC-SDX-3** (rama «pagada pero
+cancelado»), **SEC-SDX-4** (verbo de liberación `super_admin`) y **SEC-SDX-5** (`assertProviderUrl` + proxy sin
+redirecciones), cada uno con su mutación en PS-78/72/83/74/84; no hace falta otra vuelta de seguridad de diseño: lo
+verifico en la fase de seguridad sobre el código. SEC-SDX-6…13 quedan como deuda con disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `62d0c46` · §M4-SHIP v1.81 / ARCHITECTURE §4.58 · **APROBADO** (SEC-SDX-1…5 al contrato antes de D; 6…13 deuda)
+# Veredicto de seguridad sobre el CÓDIGO — stream §M4-SHIP «Preparar envíos» · sha FIJADO **`59a0c1f`** (rama `claude/envio-preparar`) · 2026-09-29
+
+> **En una línea:** las carreras de dinero que el pentester dejó sin disparar (`SHIP-P4`) las disparé en vivo con N≥10 y
+> **aguantan**: 0 violaciones, 0 interbloqueos, y la mutación que quita el candado del tope sale **0/10**. La CLABE
+> completa no aparece en ninguna respuesta (salvo `reveal-clabe`), correo, bitácora, fila ni salida del servidor. **Sin
+> hallazgos críticos ni altos.** `SHIP-P1` baja a **Baja** (medí que no se alcanza) y se corrige antes de `sk_live_`.
+> **APROBADO CON CONDICIONES**: nada bloquea fusionar a `main`; tres condiciones antes de operar con dinero real.
+
+**Qué es este pase (O-1):** qué medí yo en vivo y qué solo consolido.
+- **Medido por mí, `[VIVO]`:** copia del árbol ENTERO (`git archive 59a0c1f`) en mi ruta exclusiva del scratchpad;
+  Postgres 16 propio (`/var/lib/postgresql/seg-envio`, `:58441`), Redis propio (`:58442`); la app Nest real por HTTP
+  (`E2EHarness`) con el doble de Stripe con estado (tope por lo cobrado, idempotencia por llave) y la firma de webhook
+  **real** (`constructEvent`). Todo se borró al terminar (datos, scratchpad, procesos).
+- **Consolidado, no re-medido:** diseño (`0e1faf6`, `3498766` + M6/M7/B12 cerradas en v1.80.6), el pase estático del
+  pentester sobre `c20451f`, lo que QA midió sobre `c20451f` y las mediciones y mutaciones de backend en `BACKEND_NOTES
+  §M4-SHIP-TL` / v1.80.7 / segundo pase (autor: backend; N=10 cada una).
+- ⚠️ **Transparencia:** `node_modules` de la copia es un enlace al del worktree vivo, y corrí `prisma generate` una
+  vez. El `schema.prisma` de `59a0c1f` es **idéntico** al del worktree (`diff` vacío), así que el cliente generado es el
+  mismo; no toqué ningún fichero versionado. Al terminar, el árbol vivo tiene `docs/API_CONTRACT.md` modificado **y sin
+  commitear (+37/−3)**. **No es mío**: estaba así cuando cerré. El orquestador debe averiguar de quién es (O-14).
+
+## 1. Réplica independiente de las suites de dinero (sobre la copia `59a0c1f`)
+
+`full-refund-vault` + `replacement-cases` + `shipments-prep`: **3/3 suites, 64/64 pruebas**. Cada carrera con barrera
+de fila salió **10/10 (N=10)**:
+
+- **Por reponer, casos y SPEI:** PS-21, PS-23 (casos / compra), PS-27, PS-27b, PS-27c, **PS-27d** (el R1 del techlead),
+  PS-36b (Δ interbloqueos 0), PS-33, PS-33b, PS-47.
+- **Reembolso total de bóveda:** PS-57 (M3 contra webhook), PS-57 (dos webhooks), **PS-57c** (Δ 0; 409 + `returned`
+  10/10), PS-61b (Δ 0), PS-41, PS-41b, PS-42b, PS-65.
+- **Preparar el envío:** PS-1, **PS-4**, PS-6, PS-7, PS-51, PS-11, PS-44.
+
+Esto confirma lo que reportaron backend y QA sobre este sha: **ahora es medición mía**.
+
+## 2. `SHIP-P4` — las carreras de dinero, disparadas en vivo SIN barrera (reparto en abanico, N≥10)
+
+Las PS de backend fuerzan un entrelazado de **dos** actores con barrera. Yo añadí la forma que un atacante o un doble
+clic producen de verdad: **muchas peticiones a la vez sobre el mismo recurso, sin barrera**. Las pruebas vivieron solo
+en la copia y se borraron con ella. **No hay ninguna prueba nueva en el repo.**
+
+| Id | Qué se disparó | Invariante | Resultado |
+|---|---|---|---|
+| **SEG-CAP** | Por ronda: **dos operadores nuevos** (lo usado parte de 0). Cada uno lanza **4 `prepared` concurrentes** de 31458 (8 a la vez), con un tope de 2×31458+100 | Cada operador exactamente 2×`200` y 2×`403 MONEY_OUT_LIMIT_EXCEEDED`; Σ usado = 62916 ≤ tope por operador; Stripe = 4 llamadas nuevas | **10/10 (N=10 rondas, 80 actos)**, Δ interbloqueos **0** |
+| **SEG-CAP · mutación** | Mismo disparo, con la línea `lockOperatorRefundGate` comentada (copia) | — | **0/10**: cada operador 4 `200`, usado 125832 (el doble del tope), 8 llamadas a Stripe. **Además, la PS-4 de backend también la caza: 0/10 en dos corridas.** El candado del tope sí se prueba |
+| **SEG-PAID-a** | Por ronda: **5× `paid` (misma referencia) + 5× `cancel`** concurrentes sobre una `ManualRefund` recién revelada | Un solo ganador; solo `200`/`409` (0×5xx); bitácora y `AV-15` = 1 si ganó `paid`, 0 si no; después, el verbo contrario da `409` | **10/10 (N=10)**. Ganó `paid` 6/10 y `cancel` 4/10: se observaron **los dos órdenes** |
+| **SEG-PAID-b** | Por ronda: **10× `paid` con referencias distintas** | 1×`paid`, 9×`409 MANUAL_REFUND_NOT_PENDING`, 1 bitácora, 1 `AV-15` | **10/10 (N=10)**, Δ interbloqueos **0** |
+| **SEG-M3WH-1** | M3 con fallo transitorio (fila `requested`). Después, **a la vez**: `retry` (Stripe `succeeded`) + 4 `charge.refunded` (2 con id distinto y 2 con el **mismo** `event.id`) | Un reembolso en Stripe por PI; un `refund_return` por carta; un sello (`order.full_refund_closed`); un `AV-3`; orden `refunded`; 0×500 | **10/10 (N=10)**, 0×503, Δ interbloqueos **0** |
+| **SEG-M3WH-2** | Reembolso **hecho en el panel** de Stripe (sembrado en el doble) + **a la vez** M3 + 3 `charge.refunded` | Un solo reembolso en Stripe; un `refund_return` por carta; orden `refunded`; 0×500 | **10/10 (N=10)**. M3 respondió `409 CONFLICT` en las 10: leyó `settled` sin candado y perdió **bajo** el candado, así que el entrelazado sí ocurrió. Ninguna fila `order_full` y ningún segundo reembolso |
+
+**Límites de estas mediciones (dichos enteros):**
+- **Stripe es el doble del arnés, no Stripe real.** Cumple las dos propiedades de las que depende el dinero (no
+  reembolsar más de lo cobrado e idempotencia por llave), pero las respuestas de error reales de Stripe MX no están
+  medidas (condición C2).
+- **Un solo proceso Node.** La serialización es de Postgres (`FOR UPDATE`, candado de sesión *advisory*, CAS). Nada
+  depende de memoria del proceso, así que no espero diferencia con varias réplicas. **NO MEDIDO con varias réplicas.**
+- **SEG-M3WH-2 solo vio un orden** (el webhook llegó primero las 10 veces). El orden inverso con el mismo candado lo
+  cubren PS-57 y la secuencia inversa de PS-57, que repliqué 10/10.
+
+## 3. La CLABE en claro — medido
+
+- **SEG-CLABE `[VIVO]`**: recorrí el ciclo `list` → `get` → `reveal-clabe` → `paid`. Luego el cliente cambió su CLABE
+  (`PUT /users/me/kyc`, que dispara `AV-16`), y leí `GET /users/me/kyc`, el detalle M3, la ficha 360°, el caso,
+  `GET /orders/:id` y `holdings`. Sumé **11 respuestas, 2 correos** (`AV-15`, `AV-16`), **9 bitácoras** y las filas
+  `ManualRefund`. Ni la CLABE vieja ni la nueva aparecen: **A=false, B=false**, y ninguna secuencia de 18 dígitos.
+  `reveal-clabe` responde con `Cache-Control: no-store` (verificado en la cabecera).
+- **Salida del servidor:** busqué las dos CLABE y cualquier secuencia de 18 dígitos en toda la salida de las cuatro
+  corridas (incluye líneas `ERROR`/`WARN` de Nest de `RefundLedgerService`/`PaymentsService`): **0 coincidencias**.
+  - En código, ningún `logger.*` interpola la CLABE ni `kyc`.
+  - El único log de cuerpo de correo es `NoopMailAdapter` (nivel `debug`), y los correos solo llevan la máscara.
+  - `revealClabe` audita sin la CLABE ni el token.
+  - El DTO de `clabe` (`@Length(18,18)`) y `CLABE_INVALID` no repiten el valor recibido.
+- **Resto del delta desde el pase del pentester (`c20451f..59a0c1f`), revisado:**
+  - `eraseClabe` escribe solo nulos (el censo C-CLABE-1 lo vigila).
+  - `constantTimeEquals` usa `timingSafeEqual` y devuelve `false` si las longitudes no coinciden.
+  - El filtro del `429` solo añade `retryAfterSeconds`; los demás `details` no cambian.
+  - `paid`/`cancel` devuelven el DTO: sin CLABE, verificado en SEG-CLABE.
+
+## 4. Decisiones sobre los hallazgos del pentester
+
+| Id | Severidad del pentester → la mía | Decisión | Dueño |
+|---|---|---|---|
+| **SHIP-P1** (`qs`/`body-parser`/`express`) | Media → **Baja** | Hoy **no es alcanzable** (detalle debajo de la tabla). **No bloquea la fusión**. Sí se cierra **antes de la primera `sk_live_`** (**C1**): el arreglo es barato, sin cambio mayor, y la dependencia está a un cambio de configuración de ser alcanzable | **backend** (`backend/package.json`: `overrides.qs` a `^6.16.0` + lockfile), y devops mantiene `npm audit` en el gate |
+| **(nuevo)** `@nestjs/core` ≤ 11.1.17, GHSA-36xv-jgw5-4q75 (6.º aviso de `npm audit`, el pentester no lo desglosó) | **Info** | Inyección en **SSE**. `grep` de `@Sse` / `text/event-stream` en `backend/src`: **0**. No alcanzable. El arreglo exige saltar de versión mayor de Nest (10 → 11.1.18+) | Deuda: se aborda **si se introduce SSE** o en la próxima subida de Nest (**backend**) |
+| **SHIP-P2** (`multer`) | Baja → **Baja** | Confirmo que no es alcanzable (no hay rutas multipart). Se cierra con la subida de C1 | backend |
+| **SHIP-P3** (`revealToken` no caduca) | Info → **Info, aceptado** | El token no es credencial: `paid` exige **además** el JWT de `super_admin` y `@MoneyOut`. El token solo **ata** la CLABE revelada a la que se paga (una CLABE distinta ⇒ `CLABE_CHANGED_SINCE_REVEAL`, medido en PS-47 10/10). Uno viejo solo sirve para pagar a la **misma** CLABE que sigue vigente, que es lo correcto. **Disparador para ponerle caducidad:** que revelar y pagar dejen de ser el mismo rol (un «pagador» distinto de quien revela), o que el token salga del navegador del súper-admin | arquitecto (solo si llega el disparador) |
+| **SHIP-P4** (carreras sin disparar) | Info → **CERRADO** | Disparadas en vivo (§2) | — |
+
+**Por qué `SHIP-P1` no es alcanzable hoy:** Express 4.22 llama a `qs.parse(str, {allowPrototypes: true})` sin `comma`.
+El salto del límite de arrays (GHSA-x5fp) exige `comma: true`. El `isBuffer` (GHSA-4mjr) exige además un
+`qs.stringify` del objeto ya parseado, y `grep` de `from 'qs'` / `stringify(req.query` en `backend/src` da **0**.
+El `limit` global de 300/min sigue aplicando.
+
+## 5. Condiciones (numeradas, con dueño) — ninguna bloquea fusionar a `main`
+
+1. **C1 · antes de la primera `sk_live_`** — *backend*: subir `qs` a ≥ 6.16.0 (override), y con ello `body-parser` /
+   `express` / `multer`. **Comprobación:** `npm audit --omit=dev` sin los avisos de `qs`/`multer`; la suite unitaria
+   sigue verde.
+2. **C2 · en la ventana con claves de prueba de Stripe, antes de `sk_live_`** — *backend* mide y *arquitecto* decide si
+   hay diferencia: `REFUND_FAILURE_DISPUTE_CODES` (`charge_disputed`, `charge_already_refunded_or_disputed`) está **NO
+   MEDIDO** contra Stripe MX real (`BACKEND_NOTES §M4-SHIP` §2). Si el código real es otro, un reembolso sobre un
+   cargo disputado se clasificaría mal y podría acabar enviándose por `to-manual` (SPEI) además del contracargo.
+   **Comprobación:** respuesta real de `refunds.create` sobre un cargo disputado en modo prueba, anotada en
+   `BACKEND_NOTES`.
+3. **C3 · antes de desplegar** — *dueño* (o un usuario de solo lectura; no por chat): la consulta B13 (`Order` `vault`
+   `refunded` con `fullRefundClosedAt IS NULL`), con 0 esperado. Si da > 0 ⇒ *arquitecto* (esas órdenes no tienen
+   verbo).
+
+## 6. Deuda de seguridad aceptada (no bloquea)
+
+- **`@nestjs/core` SSE**: ver §4. Disparador: introducir `@Sse` o subir Nest.
+- **`SHIP-P3`**: ver §4. Disparador: separar el rol que revela del que paga.
+- **El tope es por operador** (diseño D-3): con *k* operadores, el techo diario es *k*×tope. Medido: cada operador
+  queda acotado por separado (SEG-CAP), y es lo que fija el contrato, no un bypass. **Disparador:** un tercer operador
+  o un P&L con devoluciones anómalas ⇒ añadir un tope global (arquitecto).
+- **Sin cambios desde `3498766`:** B8 (detección pasiva del reembolso del operador), B12 (`confirmUnpacked` por pieza,
+  ya aditivo en v1.80.6), B14 (medido por backend: `inventoryValue` no cuenta `picking`), y los avisos operativos de
+  abajo.
+
+## 7. Banderas para el humano
+
+- **Pentest de un tercero + bug bounty antes de operar con dinero real.** Este stream abre dinero saliente (Stripe y
+  SPEI) y datos bancarios. Todas las mediciones de arriba son internas y con el doble de Stripe.
+- **Regla operativa (se mantiene de `3498766`):** ningún paquete sale del local hasta que el sistema diga `enviado`.
+  **Nunca** reembolsar desde el panel de Stripe: medido, no deja «carta y dinero» (SEG-M3WH-2), pero sí deja una carta
+  que hay que reclamar a mano.
+- **Validación legal (se mantiene):** custodia y reembolso por SPEI a CLABE de terceros, y la retención de la CLABE
+  tras el borrado de cuenta (`eraseClabe` la anula, verificado en código).
+
+## 8. VEREDICTO
+
+**APROBADO CON CONDICIONES** sobre el código en **`59a0c1f`** (rama `claude/envio-preparar`).
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 2** (`SHIP-P1`, `SHIP-P2`) · **Info 2** (`@nestjs/core` SSE, `SHIP-P3`).
+  `SHIP-P4`: cerrado en vivo.
+- **Fusionar a `main`: sí**, sin condiciones de seguridad.
+- **Operar con `sk_live_`:** tras **C1** (backend: subir `qs`), **C2** (backend + arquitecto: medir los códigos de
+  disputa de Stripe en modo prueba) y **C3** (dueño: consulta B13 = 0).
+- Además, pentest de un tercero antes del dinero real.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · código `59a0c1f` · §M4-SHIP · **APROBADO CON CONDICIONES** (C1–C3 antes de `sk_live_`; nada bloquea el merge)
+
+---
+
+# Release s5 · 7b9c196e — veredicto de seguridad (blue team) · 2026-09-29
+
+> **En una línea:** sin críticos ni altos. Lo que la fusión cambió en zonas de dinero (v1.80.8.3, M-1/INV-SP-8)
+> lo repliqué y lo muté yo sobre una copia de `7b9c196e`, y aguanta. La carrera del tope del operador entre
+> reembolsos **exitosos** ya no es NO MEDIDO: la disparé con el doble de Stripe devolviendo `succeeded` (10/10, N=10), y
+> la mutación que quita el candado sale 0/10. **APROBADO CON CONDICIONES**: nada bloquea el botón (`main → production`
+> en modo prueba). Quedan condiciones **antes de `sk_live_`** y una **en la ventana de despliegue**.
+
+**Sobre qué sha:** código `7b9c196e` (rama `claude/release-s5`). El `HEAD` del árbol vivo es `33fe1dde`, que es
+`7b9c196e` más solo `docs/PENTEST_NOTES.md` (`git diff --stat 7b9c196e HEAD` = 1 fichero). No toqué el árbol vivo.
+
+**Qué medí yo `[VIVO]` y qué consolido:**
+- **Medido por mí:** copia del árbol ENTERO (`git archive 7b9c196e`) en `scratchpad/seg-rel-7b9c`. Base y rol propios
+  `seg_rel7b` (creados como `postgres`, igual que `psql_as_postgres`), Redis `db 9`, `migrate deploy` +
+  `seed:synthetic`. `node_modules` es un enlace al del worktree vivo, y **no** corrí `prisma generate`: el schema de
+  `33fe1dde` es el de `7b9c196e`. Carga baja (`loadavg` 0.2). Al terminar borré la base, el rol, la `db 9` (tenía
+  0 claves) y la copia. Los logs quedan en `scratchpad/seg-rel-7b9c-logs/`.
+- **Consolidado, no re-medido:** el pase EN VIVO del pentester y su cierre de los NO MEDIDOS (`PENTEST_NOTES`,
+  sección «Release s5 · 7b9c196e»), y las cifras de backend en `BACKEND_NOTES §11–§13`.
+- **CI en `7b9c196e`, consultado por mí en la API pública de GitHub** (los logs no los leí): CI `36636733282`,
+  Security SAST `36636733374` y E2E `36636733378` → `success`. **E2E real `36640481398`** (`workflow_dispatch`) →
+  `success`, con el paso 18 «P-REL-3 cubeta SPEI (REAL) — debe ejecutarse y pasar en su único intento» en `success`,
+  y los pasos 20–21 del «marcador del hueco de dinero» en `skipped`.
+
+## 1. El diff de la fusión (`a2da420..7b9c196e`), con lente de seguridad
+
+Del rango, **lo nuevo desde mis veredictos anteriores** (`2ef3f50` y `59a0c1f`, ambos ancestros de `7b9c196e`) son
+`38494211` (D-a), `c2cda0fd` (v1.80.8.3), `81696fb8` (M-1), la resolución de las fusiones (`5321b8c6`, `7a32b833`,
+`0df68ede`, `f2f10923`) y los cambios de texto `/account#kyc` y 429 por `code` (v1.80.8.1, solo cliente).
+La auth de C7 y la CLABE ya las medí en esos veredictos. Aquí las recorrí con el diff y no vi regresión.
+
+| Cambio | Lo que revisé | Resultado |
+|---|---|---|
+| **v1.80.8.3** `c2cda0fd`: `charge.refunded` total ⇒ `refunded` desde `pending\|failed\|settled` (`settleable-order-statuses.ts:40`); `failAndRelease` con CAS `status='pending'` (`payments.service.ts:628-629`); `onFullRefund` sin `needsManual` en órdenes nunca liquidadas (`full-refund.service.ts:374`) | Cierra el hueco SEC-SETTLE-LATE que reabrió la fusión `5321b8c6`: una orden `pending`/`failed` con el cargo reembolsado se quedaba **liquidable**, y el `succeeded` tardío la liquidaba con el dinero ya devuelto. Las dos ramas de `onChargeRefunded` usan **la misma lista**. `failAndRelease` ya no puede pisar un `refunded` con `failed`, que es liquidable | **`[VIVO]` `settle-late` 24/24 en 3/3 corridas** (incluye las carreras `succeeded` vs `charge.refunded` y `failAndRelease` vs `charge.refunded`, N=10 cada una). **Mutación** (la lista vuelve a `['settled']`, sobre la copia): **7 rojas de 24**, entre ellas «succeeded vs charge.refunded, primero el reembolso — N=10». El candado muerde |
+| **M-1 / INV-SP-8** `81696fb8`: el `PATCH` que publica escribe los campos **dentro** del `updateMany` condicionado de `claimListed` (`inventory.service.ts:1951-1974`, `:2502`) | Antes, un `update` por `id` escribía el precio y **después** perdía el CAS: el precio quedaba puesto sobre una pieza que un checkout acababa de reservar | **`[VIVO]` `inventory-patch-publish-race` 2/2 (N=10 cada una).** **Mutación** (volver al `update` por `id` previo): la prueba ⭐ sale **roja**. El pentester midió además, en vivo, que el operador sobre una pieza de cliente recibe `422` sin escribir nada |
+| **D-a** `38494211`: `applyStripeOutcome` ya no lee sin candado antes de cerrar (`refund-ledger.service.ts:~300-335`) | Una lectura sin candado ya no decide nada: el cierre va bajo `FOR UPDATE` y la clasificación se hace **después** | Sin hallazgo. Lo cubre PS-57d (backend, N=10) |
+| **Tope del operador** (`refund-ledger.service.ts:159-197`) | **Sin cambios** desde `59a0c1f` (`git diff 59a0c1f 7b9c196e` solo toca el orden de M3, líneas 11-18 y 270-335) | Ver §3 |
+| **429 por `code`** (v1.80.8.1) y `all-exceptions.filter.ts:43-52` | El filtro solo añade `retryAfterSeconds` desde la cabecera. v1.80.8.1 es una errata **del cliente** (elegir el aviso por `error.code`). No hay oráculo nuevo: el pentester midió el mismo `401 INVALID_CREDENTIALS` con cuenta que existe y que no | Sin hallazgo |
+| **`/account#kyc`** | Solo cambia la ruta del enlace de los correos (`APP_PUBLIC_URL` + ruta fija). No usa ninguna entrada del usuario | Sin hallazgo |
+| Rutas nuevas o cambiadas del rango (`admin-orders`, `admin-refunds`, `admin-manual-refunds`, `admin/users`, `inventory`, `pricing`) | `@Roles` / `@MoneyOut` leídos controlador por controlador. El dinero saliente (`:id/refund`, `to-manual`, todo `manual-refunds`) lleva `@MoneyOut`. `retry` es operador+ **sobre una fila ya contada en el tope** (`requested` cuenta, PS-4b), y `order_full`/`case_refund` solo para súper-admin, en el servicio | Sin hallazgo. Coincide con el barrido en vivo del pentester (§B) |
+
+**La deuda del techlead, evaluada como riesgo de seguridad:**
+- **TD-2 (rama legado de `onChargeRefunded` con lectura sin candado, `payments.service.ts:711-719`)** → **sin riesgo
+  en producción.** La rama solo corre si `FullRefundService` no está inyectado. `PaymentsModule` siempre lo provee
+  (`payments.module.ts:19`), y ningún otro módulo provee `PaymentsService` (`grep`). Aun en la rama legado, la
+  escritura es un CAS con la misma lista. Lo único que decide la lectura sin candado es la **variante del correo**
+  AV-3. Deuda de limpieza (backend): quitar la rama o hacerla inalcanzable por tipo. No bloquea.
+- **TD-4 (`releaseReservation` con `update` por `id`, sin CAS; también la sustitución `orders.service.ts:1042` y el
+  barrido `:1181`)** → **Baja, deuda antes de `sk_live_`.** Leí los tres llamadores. Solo escriben `failed` después
+  de que Stripe **no** creó el PI (`:1309`) o después de que `closePaymentIntent` lo dejó en `canceled` (`:909-924`,
+  que desambigua con `getPaymentIntentStatus`). Un PI `canceled` no tiene cargo, así que ni se liquida ni se
+  reembolsa. Hoy la invariante «nadie saca una orden de `settled`/`refunded` hacia un estado liquidable» descansa en
+  esa propiedad de Stripe, que está **NO MEDIDA contra Stripe real**. Coincido con el arquitecto (`API_CONTRACT`
+  fila R-1): hay que pasar a CAS. Pido que sea **antes de `sk_live_`**, no «algún día», porque con dinero real el
+  fallo sería un reembolso **y** una entrega. Dueño: backend, con la prueba y la mutación que ya describe el contrato.
+- **TD-3** → **NO LOCALIZADO**. No encontré su texto en el árbol (`TECH_DEBT`, `BACKEND_NOTES`, `PENDIENTES`,
+  contrato). No lo evalúo. Si toca dinero o autorización, que el orquestador me pase la referencia.
+
+## 2. LOW-1 e INFO-1 — decisiones
+
+**LOW-1 · refresh sin estado, sin uso único ni revocación por sesión** (`auth.service.ts:93-114`, `:530-567`).
+- **Confirmo el hallazgo y lo amplío** `[LEÍDO]`. El pentester dijo que un refresh robado «vive hasta su `exp`
+  (30 d)». **Es peor:** `refresh()` emite un par nuevo con `expiresIn` de 30 días **desde ahora**, hereda el `sid`, y
+  no existe un tope absoluto de la sesión (no hay `auth_time` ni fecha de nacimiento que se compare). Quien roba
+  **un** refresh puede **renovarlo sin fin** y sin que la víctima lo note, hasta que suba `tokenVersion` (logout,
+  cambio o reset de contraseña, bloqueo). El pentester midió en vivo que esa palanca funciona.
+- **Por qué sigue en Baja:** para robarlo hace falta un XSS (no se conoce ninguno; las reglas 40012/40014/40026 del
+  DAST están en FAIL y salen verdes) o el dispositivo. Con el dispositivo comprometido, rotar no salva a nadie.
+  Revocar por dispositivo fue **una decisión del dueño** (2026-09-14, `auth.service.ts:117-128`: «NO hay mecanismo
+  por-dispositivo… el dueño no lo pidió»), y no la reabro.
+- **Decisión: se ACEPTA en modo prueba y se EXIGE antes de `sk_live_` (condición S5-1).** Motivo: los tokens viven
+  en `localStorage` (`frontend/src/lib/api-client.ts:36-42`). La CSP de la vitrina hoy es **solo**
+  `frame-ancestors 'none'` (`frontend/next.config.mjs:75`), así que `SEC-HDR-2` (CSP base y `script-src` con nonce)
+  sigue abierta. Si un XSS aparece, el robo de un `super_admin` sería una sesión **perpetua con dinero saliente**.
+  Con eso, S5-1 tiene dos piezas:
+  - **(a)** un **tope absoluto de vida de la sesión**. Sin tabla y sin cambiar la decisión del dueño: un claim de
+    nacimiento de la sesión que viaja con el `sid` y un `refresh()` que rechaza pasado N días desde el login. El
+    arquitecto fija N y si es más corto para el personal.
+  - **(b)** cerrar `SEC-HDR-2`, que ya era condición antes de `sk_live_`.
+  - **Dueño:** arquitecto (contrato de la forma del token), luego backend (prueba roja: un refresh encadenado más
+    allá de N ⇒ `401`; mutación = quitar la comprobación ⇒ verde indebido), y frontend (b).
+  - La detección de reúso (familia de refresh) queda como **opción**, no como exigencia: necesita estado, y eso
+    toca la decisión del dueño.
+
+**INFO-1 · el operador lista el padrón (email, nombre, `role`, `kycStatus`)** (`admin.controller.ts:114-173`,
+`admin.service.ts` `listUsers`).
+- **Alcance confirmado leyendo el código:**
+  - La **lista** proyecta solo `id, email, name, role, status, createdAt, kycStatus`.
+  - La **ficha** del operador es la reducida de SEC-A4: direcciones (las necesita para enviar) y `clabeMasked`. Sin
+    RFC, sin `legalName`, sin CLABE en claro y sin INE (`ine-links` es solo súper-admin: el pentester midió `403`).
+  - Todas las escrituras son solo súper-admin.
+- **Decisión: ACEPTADO** (Info, deuda con disparador). Es el acceso mínimo para la función del operador (preparar
+  y enviar a esas personas). La paginación está acotada a 100 (medido por el pentester), así que no hay volcado de
+  una sola vez.
+- **Disparador para acotarla:** un operador que no sea de confianza directa del dueño, un tercer operador, o que el
+  aviso de privacidad no cubra ese acceso. En cualquiera de esos casos: lista solo con búsqueda (`q` obligatorio) y
+  bitácora de lectura del padrón. **Dueño:** arquitecto.
+
+**INFO-2 · el manifiesto de valores publicados hashea identificadores** → **ACEPTADO** como ruido de la
+herramienta. Devops auditó los literales uno a uno (`DEVOPS_NOTES §72.1`) y ninguno es una credencial. Deuda de
+devops. **Disparador:** que el ruido tape un literal real, es decir, que el manifiesto supere lo que se puede
+revisar a mano en un PR.
+
+## 3. La carrera del tope del operador entre reembolsos EXITOSOS — CERRADA por medición `[VIVO]`
+
+- **¿Existía una prueba?** **Sí, casi.** `PS-4` (`backend/test/integration/shipments-prep.e2e-spec.ts:243-292`) usa
+  el doble de Stripe del arnés con `refundOutcome = 'ok'`. Ese valor responde `pending`, y la fila queda
+  `submitted`, que **cuenta** en el tope. La prueba dispara dos `prepared` concurrentes del **mismo** operador con el
+  tope en `usado + 40000` y planes de 31458, con N=10. `PS-4b` fija, de forma determinista, que `requested`,
+  `submitted` y `succeeded` cuentan igual y que `failed` no. Lo que faltaba era correr la carrera con la fila en
+  `succeeded`.
+- **Lo que medí sobre la copia de `7b9c196e`:**
+  - `PS-4` tal cual: **10/10 (N=10)**, un `200` y un `403 MONEY_OUT_LIMIT_EXCEEDED` en cada tirada. Salieron los
+    dos órdenes.
+  - Mutación (`lockOperatorRefundGate` comentado en `refund-ledger.service.ts:187`): **0/10 en 2 corridas de 2**
+    (N=10 cada una). Siempre dos `200`.
+  - **Variante `succeeded`** (solo en mi copia; el doble devuelve `succeeded` durante la carrera y registro las filas
+    por tirada): **10/10 (N=10)**. Cada tirada dejó **exactamente una** fila `succeeded:31458`, y `usedCents` subió
+    de forma acumulativa (31458 → 314580). Cada tirada vio **todas** las filas `succeeded` anteriores y rechazó la
+    que rebasaba. Con la mutación: **0/10**, dos filas `succeeded` por tirada y 629160 usados, **el doble** del límite.
+  - La variante no quedó en el repo: vivió en la copia y se borró con ella.
+- **Decisión:** no exijo una prueba nueva antes del botón. `PS-4` + `PS-4b` en el repo ya muerden la clase (medido
+  arriba), y la diferencia entre `submitted` y `succeeded` no entra en el predicado del tope. **Opcional para
+  backend (deuda menor):** parametrizar `PS-4` con `refundOutcome ∈ {ok, succeeded}`.
+- **Qué queda sin medir:**
+  - **Stripe real.** La clase depende de que Stripe no deje la fila en un estado que el tope no cuente. La cubre C2
+    (abajo).
+  - **Varias réplicas.** NO MEDIDO. La puerta es `pg_advisory_xact_lock` en Postgres, no memoria del proceso, así
+    que no espero diferencia.
+
+## 4. Condiciones heredadas — estado sobre `7b9c196e`
+
+| Id | Qué | Estado medido hoy | Cuándo |
+|---|---|---|---|
+| **C1** | `qs` ≥ 6.16.0 (y con él `body-parser`/`express`/`multer`) | **ABIERTA.** `backend/package.json:74` `"qs": "^6.15.3"`. `npm audit --omit=dev` (copia de `7b9c196e`, backend): **6 moderadas**, las mismas que en `59a0c1f` (`qs` GHSA-x5fp/GHSA-4mjr, `body-parser`, `express`, `multer` GHSA-3pph, y `@nestjs/core` SSE). Frontend: 0. Sigue sin ser alcanzable (mismo razonamiento que `59a0c1f` §4; el rango no añade `qs.stringify` ni `@Sse`) | **antes de `sk_live_`** · backend |
+| **C2** | Códigos reales de Stripe MX para reembolso sobre cargo disputado (`REFUND_FAILURE_DISPUTE_CODES`) | **ABIERTA.** `BACKEND_NOTES:25403` sigue diciendo NO MEDIDO. Con una `sk_test_` real serviría además para el cierre de §3 contra Stripe real | **antes de `sk_live_`** · backend mide, arquitecto decide |
+| **C3** | Consulta B13 (`vault` + `refunded` + `fullRefundClosedAt IS NULL`) = 0 | **ABIERTA**, y el instrumento ya existe: `scripts/vault-full-refund-residue.sh` (solo `DATABASE_URL_RO`, `READ ONLY`, fases PRE y POST). **Corrijo mi texto de `59a0c1f`**, que decía «antes de desplegar» en §5 y «antes de `sk_live_`» en §8: lo único irrecuperable es la foto **PRE** (antes de la migración M-61); el conteo POST es estable después. Con la tienda en modo prueba (HECHOS 2026-09-10) no hay custodia pagada con dinero real en ese residuo | **Ventana de despliegue** (fase PRE, recomendada, **no bloquea el botón**). El resultado = 0 es exigible **antes de `sk_live_`**. Dueño del sistema (vía usuario RO o la corre él); si da > 0 ⇒ arquitecto |
+| **C2-bis** | Citar el primer run de `dast-release` sobre `production` que lleve el commit, con `blocking=false` | **ABIERTA solo por esa cita.** Solo existe cuando el dueño fusione | **Primer push a `production`** · devops |
+| `SEC-HDR-2` | CSP base + `script-src` con nonce en la vitrina | **ABIERTA** (`next.config.mjs:75`: solo `frame-ancestors`). Ahora además sostiene S5-1 | **antes de `sk_live_`** · frontend (+ devops para subir `10038` a FAIL) |
+| Pre-gate DAST `full` sobre el sha candidato | Ver el veredicto de `2ef3f50` | **ABIERTA** | **antes de `sk_live_`** · devops |
+
+## 5. Hallazgos consolidados sobre `7b9c196e`
+
+| Id | Severidad | Ubicación | Dueño | Cuándo |
+|---|---|---|---|---|
+| **LOW-1** (+ la ampliación de la renovación sin fin) → **S5-1** | Baja | `auth.service.ts:93-114, 530-567` | arquitecto → backend; frontend para `SEC-HDR-2` | antes de `sk_live_` |
+| **TD-4** (CAS en `releaseReservation` / sustitución / barrido) | Baja | `orders.service.ts:889-899, 1042, 1181` | backend | antes de `sk_live_` |
+| **C1** (`qs`/`multer`/`body-parser`/`express`) | Baja | `backend/package.json:72-77` | backend | antes de `sk_live_` |
+| `@nestjs/core` SSE (GHSA-36xv) | Info | — (`@Sse`: 0) | backend | deuda; disparador: introducir SSE o subir Nest |
+| **TD-2** (rama legado inalcanzable) | Info | `payments.service.ts:711-719` | backend | deuda de limpieza |
+| **INFO-1** (padrón para el operador) | Info, aceptado | `admin.controller.ts:114-173` | arquitecto si hay disparador | deuda con disparador |
+| **INFO-2** (manifiesto ruidoso) | Info, aceptado | `scripts/gen-published-secrets-manifest.sh` | devops | deuda con disparador |
+| id malformado ⇒ `500 INTERNAL` (lo midió el pentester en §H) | Info | — | backend | deuda: sin fuga (no hay stack ni cadenas sensibles), pero un `404`/`400` es la respuesta correcta y evita ruido en las alarmas |
+
+**Deuda de seguridad aceptada que sigue igual:** el tope es por operador (con *k* operadores el techo es *k*×tope),
+`SHIP-P3` (`revealToken` sin caducidad), `C7-LEGACY-SID`, `N-C7-1`, `N-C7-2` y `N-C7-6`. Todas conservan el
+disparador de sus veredictos.
+
+## 6. NO MEDIDO (dicho entero)
+- **Stripe real**, en tres puntos: el tope con respuestas reales (§3), los códigos de disputa (C2), y la propiedad
+  «un PI `canceled` nunca se cobra» en la que descansa TD-4.
+- **Varias réplicas del backend:** ni el tope ni SEC-SETTLE-LATE. Todo serializa en Postgres, pero no lo medí.
+- **La consulta B13 en producción** (C3): no tengo credencial y no se pide por chat.
+- **Los logs de los runs de GitHub:** leí la conclusión de cada paso por la API, no su salida.
+- **TD-3:** no localizado.
+
+## 7. Banderas para el humano
+- **Antes de dinero real (`sk_live_`):** pentest de un tercero y bug bounty. Siguen vigentes. Todo lo de arriba es
+  interno y con el doble de Stripe.
+- **En la ventana del botón (recomendado, no obligatorio):** correr `scripts/vault-full-refund-residue.sh --target
+  prod` en fase PRE, con un usuario de **solo lectura**, antes de que se aplique la migración. Es la única foto que
+  no se puede tomar después.
+- **Regla operativa (se mantiene):** nunca reembolsar desde el panel de Stripe; ningún paquete sale hasta que el
+  sistema diga `enviado`.
+- **Validación legal (se mantiene):** custodia, reembolso por SPEI a una CLABE y alcance de la PII que ve el
+  operador (INFO-1) en el aviso de privacidad.
+
+## 8. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `7b9c196e`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 3** (S5-1/LOW-1, TD-4, C1) **· Info 5.**
+- **Botón `main → production` (modo prueba): sí.** No hay condición de seguridad que lo bloquee.
+- **En el primer push a `production`:** C2-bis (devops cita el run de `dast-release` con `blocking=false`).
+- **Antes de `sk_live_`:** S5-1 (arquitecto → backend: tope absoluto de sesión; frontend: `SEC-HDR-2`), TD-4
+  (backend: CAS), C1 (backend: `qs`), C2 (backend + arquitecto: códigos de disputa en Stripe prueba), C3 = 0
+  (dueño, con usuario RO), pre-gate DAST `full` (devops) y `C6` (edge de Railway), más el pentest de un tercero.
+- **Mínimo para quedar APROBADO sin condiciones:** que se cite el run de C2-bis. El resto son condiciones de dinero
+  real, no de este release en modo prueba.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · código `7b9c196e` (rama `claude/release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; S5-1, TD-4, C1, C2, C3 antes de `sk_live_`; C2-bis en el primer push a `production`)
+
+---
+
+# post-release s5 · b370cf9b — veredicto de seguridad (blue team) · 2026-10-02
+
+> **En una línea:** ningún hallazgo crítico, alto ni medio. El filtro de alcance del DAST no puede esconder un FAIL de
+> nuestro origen: lo comprobé con cuatro mutaciones y el canario muerde en las cuatro. El barrido VQ no cierra nada
+> que proteja dinero. «Declinar» y «Cancelar la oferta» en manos del operador no abren ningún poder nuevo.
+> **APROBADO CON CONDICIONES**: nada bloquea el botón. C2-bis sigue abierta hasta que se cite un run verde.
+
+**Sobre qué sha:** `b370cf9b` (rama `claude/post-release-s5`, base `production` `8fd637fb`). No escribí nada en el
+árbol vivo `/home/user/tcg-post` salvo este fichero.
+
+**Qué medí yo y qué consolido:**
+- **Medido por mí:** copia del árbol ENTERO (`git archive b370cf9b`) en el scratchpad, borrada al terminar.
+  `node_modules` es un enlace al del worktree. El schema no cambia en el rango (`git diff --stat`), así que no
+  regeneré Prisma. Carga baja (`loadavg` 0.10, 4 CPU). No usé base de datos ni Redis.
+- **CI en `b370cf9b`, consultado en la API pública de GitHub:** CI `37050914782` → success. Security SAST
+  `37050914645` → success. E2E `37050914631` → **in_progress** cuando lo consulté. No leí sus logs.
+- **Consolidado, no re-medido:** el veredicto de QA (APROBADO CON CONDICIONES sobre `8a10153e`), el del techlead
+  (APROBADO CON DEUDA sobre `8a10153e`, con D-1/D-2/D-6 pagadas en `0dd18c6e`), `DEVOPS_NOTES §74–§75` y
+  `BACKEND_NOTES §14–§16`. El run `36969283231` y el issue #30 los midió el orquestador y devops; yo no los volví a
+  abrir.
+- **Pentester:** no hubo pase de red team sobre este paquete. Lo último en `PENTEST_NOTES` es de `7b9c196e`. Por la
+  cadencia, la fase completa corre por release, y este paquete no añade superficie de dinero saliente ni rutas
+  nuevas.
+
+## 1. DAST `--scope-origin` (`771848e0`), revisado con lupa
+
+**Por qué el filtro no puede esconder un FAIL nuestro** (leído en `security/scripts/dast-gate.py`):
+- **Se decide por instancia, no por alerta** (`load_zap_split`). Una alerta con al menos una instancia en nuestro
+  origen entra en `dentro` con su acción de política. Lo de terceros no tapa lo nuestro.
+- **El origen se compara entero:** esquema, host y puerto, en minúsculas y con el puerto por defecto explícito
+  (`origin_of`).
+  - `https://localhost:3010` no casa con `http://localhost:3010`, y `localhost:8080` cuenta como tercero.
+  - Un URI ilegible devuelve `None`: cuenta como tercero y por tanto sale en «Fuera de alcance».
+  - Un `--scope-origin` ilegible hace salir con `rc=2`.
+- **Alcance vacío = ROJO:** si declaras alcance y no queda ni una instancia dentro, el candado sale rojo.
+- **Sin `--scope-origin` no se filtra nada.** Así la autoprueba del canario sigue juzgando el informe entero.
+- **Nuclei no pasa por el filtro.**
+- **El alcance coincide con los blancos reales:** ZAP corre con `--network host` contra `http://localhost:3010`, y la
+  vitrina efímera llama a `http://localhost:3011/api/v1` (`docker-compose.staging.yml:238`). Los dos orígenes están
+  en `DAST_SCOPE_ORIGINS`, y ningún workflow sobreescribe esa variable (lo comprobé con `grep`).
+
+**Medido `[VIVO]` sobre la copia:** `scripts/check-dast-gate-live.sh` → rc=0, todos los checks del bloque 5-ter en
+verde. Ese script corre en cada push (`.github/workflows/ci.yml:450`). Hice cuatro mutaciones a `dast-gate.py`, una
+por pase y restaurando entre pases. Son deterministas, así que con N=1 basta:
+
+| Mutación | Resultado del canario |
+|---|---|
+| M1 · decide solo la primera instancia de cada alerta | **ROJO**: muerde «10020 mixto» |
+| M2 · el origen se compara sin puerto | **ROJO**: muerde «localhost:8080 como tercero» |
+| M3 · se quita la guarda de alcance vacío | **ROJO**: muerde «alcance que no casa ⇒ ROJO» |
+| M4 · se filtra por defecto aunque no haya `--scope-origin` | **ROJO**: 4 checks, incluido «el candado no puede ponerse rojo con un SQLi» |
+
+**Riesgos residuales** (ninguno bloquea):
+- **DAST-SCOPE-1 (Info, devops, deuda con disparador).** Con alcance declarado, una alerta se juzga **solo por las
+  instancias que trae el JSON**.
+  - Si el informe trae menos instancias que su `count` y todas las listadas son de terceros, las no listadas no
+    deciden.
+  - NO MEDIDO si el informe `-J` de ZAP recorta instancias.
+  - **Disparador:** ver en algún informe real `count > len(instances)`.
+  - **Arreglo:** que la diferencia cuente como «dentro» (conservador).
+- **DAST-SCOPE-2 (Info, devops).** `DAST_SCOPE_ORIGINS` se puede sobreescribir por entorno, y el canario no vigila
+  que ningún workflow lo haga.
+  - Hoy nadie lo hace (comprobado con `grep`).
+  - **Arreglo opcional:** añadir ese `grep` a `check-dast-gate-live.sh`.
+- **Comprobado NO MEDIDO por devops:** un ZAP real con este candado. Lo mide el próximo `dast-release`. Por eso
+  **C2-bis sigue abierta**.
+
+**C2-bis (registro):**
+- El primer `dast-release` bloqueante en `production` fue el run **36969283231** (`8fd637fb`). Salió **ROJO solo
+  por un 10020 de tercero** (`https://js.stripe.com/v3/m-outer-….html`), con nuclei 0 high/critical. No hubo ningún
+  hallazgo en nuestro origen (fuente: `DEVOPS_NOTES §75`, medido por el orquestador y por devops).
+- Se comentó en el issue #30.
+- **Se cierra** con el primer `dast-release` sobre `production` que lleve `771848e0` y salga con `blocking=false`,
+  citado por número. En ese momento se cierra también el issue #30.
+- **No se vuelve a `report_only`.**
+
+## 2. «Declinar» y «Cancelar la oferta» en M5 (`5ff5f920`): ¿le dan algo de más al operador?
+
+**No.** El frontend cablea verbos que ya existían. Su autorización está en el backend y no cambió en este rango:
+- **`@Roles` sin cambio:** `admin-buylist.controller.ts:41-42` declara `vault_operator, super_admin` para la clase, y
+  `:333` (`offer/cancel`) y `:480` (`decline`) no lo sobreescriben. Es lo que pide el contrato (D39 y criterio 145).
+  `offer/authorize` (`:305-307`) y el SPEI siguen siendo solo `super_admin`.
+- **Declinar solo cierra solicitudes que no tienen oferta enviada.** La guarda es atómica
+  (`buylist.service.ts:5617-5638`): `updateMany` con `status='cotizada' ∧ closedAt IS NULL`.
+  - Una oferta ya enviada pone la solicitud en `ofertada`, así que da `409 DECLINE_NOT_ALLOWED`.
+  - La oferta que «anula» es solo `pending_authorization`. Esa oferta nunca salió al vendedor y la prepara el propio
+    operador.
+  - Anularla **reduce** el compromiso de dinero; no lo aumenta. No hay dinero saliente: correctamente, sin
+    `@MoneyOut`.
+- **Correo 4 y correo 5 son plantillas fijas** (`sendNotPursuedMail` en `:5662`, `sendOfferCancelledMail` en
+  `:4592`). Reciben solo folio, nombre, idioma y la URL del portal.
+  - El `reason` libre (`@Length(0,500)`, `dto/buylist.dto.ts:225,279`) **nunca** llega al correo ni a ningún DTO.
+  - `offerCancelReason` no aparece en ninguna proyección (comprobado con `grep`).
+  - El operador no puede inyectar texto que llegue al vendedor.
+- **Auditado con actor y rol:** `buylist.request.decline` y `buylist.offer.cancel`, con el `before` completo de la
+  oferta. La fila guarda además `declinedBy`.
+- **Cancelar y volver a ofertar** pasa otra vez por `adminOffer`, que aplica el tope del operador y exige
+  autorización si se supera. No hay atajo.
+- **Riesgo residual:** un operador malintencionado podría declinar solicitudes legítimas. El daño es reputacional,
+  no de dinero, y queda auditado. Lo acepto, y entra en el mismo disparador que INFO-1: un operador que no sea de
+  confianza directa del dueño.
+
+**«Reembolsos» en una pestaña (`ea853e0f`):**
+- **Sin cambio de autorización.** `RefundsView` envuelve la página entera en `SuperAdminOnly`, y
+  `ManualRefundsView`, `OperatorRefundsView` y el detalle conservan el suyo.
+- El backend (`admin-manual-refunds.controller.ts`, con `@MoneyOut`) no cambió en el rango.
+- **`?tab=` no es un vector:** se convierte a un enum en `tabs.ts`.
+- **La redirección `/admin/manual-refunds` es a una ruta fija.** El idioma se valida contra `routing.locales`, así
+  que no es una redirección abierta.
+
+## 3. Barrido VQ (`8a10153e`, `0dd18c6e`): ¿puede cerrar avisos que protegen dinero?
+
+**No.** Las razones, leídas en el código:
+- **La cola de VENTA es una bandeja de trabajo, no un candado.** Sus únicos lectores son:
+  - el contador del panel (`admin.service.ts:2038`);
+  - el *deep-link* de la publicación (`inventory.service.ts:1957`, «es una LECTURA: no escala nada»);
+  - la deduplicación de `escalatePending` (`pricing.service.ts:2016`);
+  - la lista de M2.
+
+  **Ninguna venta, publicación, cotización de compra ni pago se condiciona a que haya una fila `open`.** Lo que
+  impide vender sin precio es `derivePublishSalePrice`. Si hace falta, al publicar vuelve a escalar la fila con
+  motivo.
+- **El cierre está acotado dos veces.**
+  - **La escritura** (`closeUnreasonedSaleQueueRows`, `pricing.service.ts:2128-2135`) repite el predicado: `status
+    open ∧ context='inventory' ∧ reason IS NULL`. No toca filas con motivo, ni la cola de COMPRA (`buylist`), ni las
+    de otro `context`.
+  - **La decisión** conserva toda fila cuya clave necesite una pieza de plataforma `in_stock`/`listed` sin precio
+    manual. Usa la misma clave que la publicación (`sale-queue-key.ts`).
+- **El barrido solo corre en una corrida completa** (programada, o `scope=all_vault`). Con `scope=cardIds` no barre.
+  Deja rastro en el log con los ids, con un tope de 20.
+
+**Medido `[VIVO]` sobre la copia:** cuatro suites (`pricing.sync-dto`, `pricing.vq-sale-queue`,
+`pricing.sale-queue-key.parity` y `inventory.pending-reason-writers`) dan **48/48**. Mutaciones, una por pase y
+restaurando entre pases:
+
+| Mutación | Resultado |
+|---|---|
+| MA · la escritura sin `reason:null`/`status`/`context` | **1 roja** |
+| MB · el barrido cuenta también piezas de clientes | **1 roja** |
+| MD · `cardIds:[]` vuelve a barrer | **1 roja** |
+| MC · la lectura del barrido trae también filas con motivo | **0 rojas**, pero no es un hueco: MA demuestra que la escritura las excluye igual. Es una mutación equivalente en efecto |
+
+**Observación (Info, no bloquea):** el cierre del barrido no escribe `AuditLog`, solo una línea de log. Me parece
+aceptable porque no mueve dinero ni precio y la fila guarda `resolvedAt` con `resolvedPriceRefId=null`, que la
+distingue de un cierre por precio. **Disparador:** que la cola llegue a usarse como evidencia de auditoría (por
+ejemplo, «¿quién decidió que no hacía falta precio?»). Dueño: arquitecto.
+
+## 4. Validación de `POST /admin/pricing/sync` (`0dd18c6e`)
+
+- **¿Rompe a algún llamador interno?** **No.**
+  - El job programado llama a `PriceSyncJobService.run()` directamente (`scheduler.service.ts:245`), sin pasar por
+    el DTO.
+  - `set-price-sync` llama a `syncCardPrice` sin los parámetros retirados (`set-price-sync.service.ts:45`).
+  - El frontend no llama a `POST /admin/pricing/sync`: el endpoint está `@deprecated` y solo existe `sync-status`
+    (comprobado con `grep` en `frontend/src`).
+  - El controlador es solo `super_admin` (`pricing.controller.ts:206`), y la llamada se audita como `pricing.sync`.
+- **`scope` con `@IsIn`:** correcto. Antes `{"scope":"bogus"}` hacía la corrida completa con barrido. Ahora da
+  `400`.
+- **`scope=cardIds` con `[]` ⇒ `201 {queued:0}` como no-op: lo ACEPTO, no pido `400`.** Motivos:
+  - es idempotente;
+  - no escribe nada salvo la entrada de auditoría;
+  - no barre (lo fija la mutación MD de arriba);
+  - es solo para `super_admin`;
+  - y «una lista vacía son cero cartas» es la lectura menos sorprendente.
+
+  Lo que de verdad había que impedir era que `[]` significara «todas». Eso ya está cerrado. **Pido solo** que el
+  arquitecto lo escriba como norma en `§M2`, para que no dependa de un comentario.
+- **Info (preexistente, no del rango):**
+  - `{cardIds:[…]}` **sin** `scope` hace la corrida completa con barrido, porque `scope ?? 'all_vault'` ignora
+    `cardIds`. Es inocuo: el barrido es idempotente y no toca dinero. Pero sorprende. **Dueño: arquitecto** (decidir
+    entre `400` y inferir `cardIds`). Es deuda.
+  - `cardIds` no tiene `ArrayMaxSize`. Lo acota el límite de 100 kB del parser y que el endpoint es solo
+    `super_admin`.
+
+## 5. Dependencias (`e20c7ab2`, `834348f8`, `92845c1c`)
+
+Medido `[VIVO]` con `npm audit --package-lock-only`, sobre la copia de `b370cf9b` y sobre los lockfiles de `8fd637fb`:
+
+| | `8fd637fb` | `b370cf9b` |
+|---|---|---|
+| backend `--omit=dev` | **1 alta (`brace-expansion`)** + 6 moderadas | **0 altas** + 6 moderadas |
+| backend completo | — | 0 altas y 0 críticas (1 baja, 13 moderadas) |
+| frontend `--omit=dev` / completo | — | 0 / 0 |
+
+- En el lockfile del backend, `brace-expansion` queda en `1.1.21` (×6) y `2.1.7` (×1).
+- **La alta de producción (vía exceljs) queda cerrada.**
+- **Las 6 moderadas son las mismas de C1** (`qs`, `body-parser`, `express`, `multer` y `@nestjs/core` SSE).
+  Preexistentes, sin cambios.
+- **La poda de las tres fichas dev:** las fichas ya no aparecen en el audit del frontend completo (0 de 0), así que
+  la poda es correcta. Queda en 0 fichas activas, y eso hace que una alta nueva de desarrollo ponga el trinquete
+  rojo, que es lo que se busca.
+
+## 6. Condiciones heredadas — estado sobre `b370cf9b`
+
+| Id | Estado | Cuándo · dueño |
+|---|---|---|
+| **C2-bis** | **ABIERTA**, solo por la cita de un run verde (ver §1) | primer push a `production` con `771848e0` · devops |
+| C1 (`qs`/`multer`/`body-parser`/`express`) | ABIERTA, sin cambios (las mismas 6 moderadas) | antes de `sk_live_` · backend |
+| C2 (códigos de disputa en Stripe MX) | ABIERTA, el rango no la toca | antes de `sk_live_` · backend + arquitecto |
+| C3 (B13 = 0) | ABIERTA, el rango no la toca | antes de `sk_live_` · dueño (usuario de solo lectura) |
+| S5-1 / `SEC-HDR-2`, TD-4, pre-gate DAST `full`, C6 | ABIERTAS, el rango no las toca | antes de `sk_live_` · ver el veredicto de `7b9c196e` |
+
+## 7. Hallazgos de este paquete
+
+| Id | Severidad | Ubicación | Dueño | Cuándo |
+|---|---|---|---|---|
+| DAST-SCOPE-1 (instancias no listadas no deciden) | Info | `security/scripts/dast-gate.py` `load_zap_split` | devops | deuda; disparador: ver `count > len(instances)` en un informe real |
+| DAST-SCOPE-2 (sobreescritura de `DAST_SCOPE_ORIGINS` sin vigilancia) | Info | `security/scripts/dast-ephemeral.sh:73` | devops | deuda; opcional |
+| VQ sin `AuditLog` | Info | `pricing.service.ts:2128` | arquitecto | deuda; disparador en §3 |
+| `sync` sin `scope` ignora `cardIds` (preexistente) | Info | `pricing.controller.ts:246` | arquitecto | deuda |
+| Norma de `cardIds:[]` ⇒ no-op en `§M2` | Info (documental) | `docs/API_CONTRACT.md §M2` | arquitecto | deuda; no bloquea |
+
+**Crítica 0 · Alta 0 · Media 0 · Baja 0 · Info 5.**
+
+## 8. NO MEDIDO
+- **Un ZAP real con `--scope-origin`:** aquí no hay Docker. Lo mide el próximo `dast-release` (C2-bis).
+- **Si el `-J` de ZAP recorta instancias** frente a `count` (DAST-SCOPE-1).
+- **La E2E de CI en `b370cf9b`:** `37050914631` estaba `in_progress` cuando la consulté.
+- **Las suites de integración con base de datos** (`sale-queue-vq.e2e-spec`, `pricing-sync-scope.e2e-spec`,
+  `buylist-cycle`): no las corrí. Las consolido de QA y backend (`BACKEND_NOTES §16`).
+- **El frontend de M5 y de «Reembolsos» en vivo:** no levanté la vitrina. La autorización la verifiqué en el
+  backend, que es la autoridad, y la envoltura `SuperAdminOnly` leyendo el código.
+- **Los logs de los runs de GitHub:** solo leí su conclusión por la API.
+
+## 9. Banderas para el humano
+- No cambian respecto de `7b9c196e`:
+  - **antes de `sk_live_`**, pentest de un tercero y bug bounty;
+  - nunca reembolsar desde el panel de Stripe;
+  - validación legal de la custodia, del SPEI a CLABE y de la PII que ve el operador.
+- **Nuevo:** el operador ya puede declinar desde la pantalla (antes solo por API). Si el dueño quiere que los
+  vendedores solo reciban «no procederemos» con su visto bueno, es una decisión de producto que no es de seguridad,
+  y la tomaría el product-owner.
+
+## 10. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `b370cf9b`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 0 · Info 5.**
+- **Botón `main → production` (modo prueba): sí.** Ninguna condición de seguridad de este paquete lo bloquea.
+- **En el primer push a `production` con `771848e0`:** C2-bis. Devops cita el run de `dast-release` con
+  `blocking=false` y cierra el issue #30.
+  - Si ese run sale ROJO **por nuestro origen**, es un hallazgo real y vuelve a frontend o devops según la regla.
+  - **No** se vuelve a `report_only`.
+- **Antes de `sk_live_`:** las heredadas sin cambios (S5-1/`SEC-HDR-2`, TD-4, C1, C2, C3, pre-gate DAST `full`, C6)
+  y el pentest de un tercero.
+- **Mínimo para quedar APROBADO sin condiciones:** que se cite el run verde de C2-bis.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-02 · código `b370cf9b` (rama `claude/post-release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; C2-bis en el primer push a `production`; las de `sk_live_`, heredadas)
+
+---
+
+# Release sesión 7 — accesorios + lista de deseos (bc8e3533)
+
+> **En una línea:** ningún hallazgo crítico ni alto. La media del pentester (REL7-P1) baja a **Baja**: ya estaba en
+> `production` y la parte vulnerable de Nest (SSE) no la usamos. El abuso del «avísame» con correo ajeno (REL7-P3) se
+> **acepta** con condición: ya existía y esta publicación lo acota, pero ahora el aviso sale solo cada 5 min.
+> **APROBADO CON CONDICIONES** sobre `bc8e3533`.
+
+**Fecha:** 2026-10-08 · **Rama:** `claude/release-s7` · **sha del código:** `bc8e3533` (= `production` `74996a24` +
+§AC hasta v1.86.6 + §WSH hasta v1.87.4 + errata v1.88; `git merge-base --is-ancestor 74996a24 bc8e3533` ⇒ 0). Encima
+solo hay `c1eddf5f`, que toca **únicamente** `docs/PENTEST_NOTES.md` (`git diff --stat bc8e3533 HEAD`).
+
+**Qué medí yo y qué consolido:**
+- **Medido por mí, estático:** el diff `74996a24..bc8e3533` de `backend/src`, `backend/prisma` y `frontend/src` con lente de
+  seguridad. Leí completos los controladores nuevos y `OptionalSessionGuard`, `admin-accessories.service.ts`,
+  `accessories.service.ts`, `accessory-photo.ts`, `deck-pull-token.ts`, `wishlist.service.ts`, `wishlist-mail.ts`, el CSV de
+  `wishlist-demand.service.ts`, `subscribeRestock` y la reconciliación de `sealed-restock-notify.service.ts`, y
+  `refundAccessoryDelivered`/`markAccessoryLine`. También los CHECK de M-73 y M-74 y los diffs de `payments.service.ts`,
+  `full-refund.service.ts`, `shipment-prep.service.ts`, `csp.ts` y `scheduler.service.ts`.
+- **Medido por mí, dinámico (sin stack HTTP):** copia ENTERA `git archive bc8e3533` en mi scratchpad. `node_modules` es un
+  enlace al del worktree. Corrí una prueba propia de ataque, `zz-seg-rel7.spec.ts`, que vivió solo en la copia y ya está
+  borrada: **11/11 verdes**. Además pasaron `test/accessories.photo.spec.ts` y `deck-pull-token.spec.ts` (**51/51**).
+  Las pruebas son deterministas: N=1 basta (O-3 no aplica). Lo que comprobé:
+  - un SVG con `<script>` da `unsupported_type`;
+  - un políglota (PNG seguido de HTML) se re-encoda a WebP y la salida no lleva `<script>`;
+  - un PNG de 50 MP que pesa menos de 10 MiB da `too_many_pixels`;
+  - un GIF da `unsupported_type`;
+  - de un JPEG con GPS en EXIF sale un WebP sin EXIF;
+  - en `OptionalSessionGuard` acaban como **invitado**: el refresh (`typ`), un `tv` viejo, `alg:none`, otra llave y HS512
+    con la misma llave. Un access válido pasa.
+- **`npm audit --omit=dev --package-lock-only` de los lockfiles de AMBOS sha** (`git show <sha>:…/package-lock.json`):
+  ver REL7-P1/P2.
+- **Consolidado sin re-medir:** `PENTEST_NOTES.md`, sección «Release sesión 7» (pase estático del pentester). Las pruebas
+  HTTP de authz del repo prueban la autorización en el stack Nest real con BD:
+  - `test/integration/accessories-panel.e2e-spec.ts` (operador ⇒ `403 FORBIDDEN_FIELD`, `403` en activar, desactivar y
+    borrar);
+  - `wishlist.e2e-spec.ts` (sin sesión `401` en las 6 rutas; la cuenta B ⇒ `404` sobre ids de A; token alterado, ajeno o
+    cruzado ⇒ `404 WISHLIST_LINK_INVALID`);
+  - `accessories-prep-refunds.e2e-spec.ts` (operador ⇒ `403 MONEY_OUT_FORBIDDEN`; `expectedRefundCents` viejo ⇒ `409` y
+    cero filas).
+
+  **No las corrí yo**: son de QA. Su resultado sobre `bc8e3533` es la condición R7-C1.
+
+## 1. ¿Basta el pase estático del pentester? — Sí, para esta superficie (con R7-C1)
+
+No levanté un stack local. Razones medidas:
+1. **No hay middleware ni guard global nuevo.** El orden de guards de `app.module.ts` no cambia. Lo único nuevo en el
+   camino de autenticación es `OptionalSessionGuard`, que **nunca rechaza** y solo puebla `req.user`. Lo ataqué
+   directamente (arriba).
+2. **La autorización de cada ruta nueva ya tiene prueba HTTP en el repo** contra el `AppModule` real con Postgres (las
+   tres suites de arriba). Un DAST a ciegas repetiría eso con menos precisión.
+3. **Lo que solo se ve en vivo es probabilístico:** las carreras del último paquete, settle contra recuperación, doble
+   reembolso y el tope 20. Su proporción N la da la suite de integración de QA. Está defendido por construcción:
+   `FOR UPDATE` + CAS + CHECK de BD (`accessory_stock`, `order_accessory_line_refunded_qty`).
+4. **`production` sigue en modo prueba de Stripe** (`HECHOS.md:16`): ningún peso real sale por estas rutas antes de `sk_live_`.
+5. **La CSP sigue en `report-only`** (`csp.ts:33`). El cambio de `img-src` solo añade el origen de la API, que en producción
+   ya cubría `https:`.
+
+Lo único que una prueba viva aportaría y no está cubierto es la **subida multipart real** de la foto: el límite de multer
+y el `413` convertido en `422`. El procesador lo medí yo. El tope de bytes lo pone multer (`fileSize`, `files:1`,
+`parts:6`) y solo lo alcanzan el operador y el súper-admin: no es superficie pública. **No bloquea.**
+
+## 2. Revisión defensiva por área (lo que resiste, con la línea)
+
+- **Authz por rol y objeto:**
+  - `admin/accessories` es operador+. Activar, desactivar y borrar son `@Roles(super_admin)`.
+  - Los campos ★ (precio, costo, «Sugerido», `active` en el alta) los rechaza `forbidStar` **antes** de tocar la BD
+    (`admin-accessories.service.ts`, `starFieldsIn` usa `hasOwnProperty`: un `null` también cuenta).
+  - El costo **no aparece** en la respuesta para el operador (`accessory-dto.ts:140`) ni en la bitácora
+    (`auditView(…, withCost)`).
+  - Las respuestas públicas se arman campo por campo (`toCardDTO`/`toDetailDTO`), sin `stockQty` ni costo.
+  - `markAccessoryLine` comprueba `line.shipmentRequestId !== shipmentId ⇒ 404` (`shipment-prep.service.ts:552`) y
+    `refundAccessoryDelivered` comprueba `head.orderId !== orderId ⇒ 404` (`order-refund.service.ts`).
+  - La lista de deseos filtra por `userId` en todas las escrituras.
+  - La demanda y su CSV son `@Roles(super_admin)`.
+- **Dinero:**
+  - `refund-delivered` de un renglón de accesorio lleva `@MoneyOut()`.
+  - El faltante al preparar entra en `plan.cents` y pasa por `assertOperatorCap` (`shipment-prep.service.ts`, `prepare`):
+    el operador no puede saltarse el tope de 24 h con accesorios.
+  - El importe lo calcula siempre el servidor (`itemMissingRefundComponents`) y se valida contra el remanente.
+  - Precios del carrito de invitado: salen de la BD y del dial, nunca del cuerpo (`guest-accessory-cart.ts:79,329,355`).
+  - Con sesión, los accesorios dan `422` antes del servicio (`orders.controller.ts`).
+- **Tokens HMAC:**
+  - `domainHmac` = `HMAC(key, domain‖value)` con prefijos `deck-pull:v1:`, `wsh-mail:v1:` y `mr-reveal:v1:`. Ninguno es
+    prefijo de otro y ninguna ruta firma un valor que elija el atacante: no hay oráculo cruzado.
+  - La comparación es en tiempo constante.
+  - El `pullToken` verifica la firma antes del `JSON.parse` y caduca a los 30 días.
+- **Fotos:**
+  - Al subirlas se reconoce el tipo por la firma de bytes, se aplica el tope de píxeles, se quitan los metadatos y se
+    re-encodan (medido, en «Qué medí yo»).
+  - Al servirlas se valida el UUID, la versión en hex de 16 y la variante cerrada, con `nosniff` y CORP `cross-origin`.
+  - Todo sale como `image/webp` re-encodado, así que CORP `cross-origin` no expone nada que no sea público.
+  - El SQL crudo de la tienda solo interpola nombres de columna estáticos (`ROW_COLUMNS` desde `ACCESSORY_ROW_SELECT`).
+    Todo lo del usuario va como parámetro (`ILIKE … ESCAPE`).
+- **CSV:** `text()` antepone `'` a lo que empiece por `= + - @ \t \r` y duplica las comillas. Las demás celdas son números
+  o enums. Sin PII: los correos solo se **cuentan** (`emails.size`).
+- **Correo con imagen remota:**
+  - El `src` de la imagen pasa por `safeCardImageUrl`: solo `https`, host exacto de `SET_IMAGE_HOSTS`, sin query, puerto
+    ni credenciales, y se escapa.
+  - Los enlaces pasan por `isSafeMailUrl` y se escapan.
+  - La página `/lista-de-deseos/aviso` lleva `referrer: 'no-referrer'` y `noindex`, quita el token de la barra
+    (`history.replaceState`) y **pide un clic**: los escáneres que pre-abren enlaces no disparan la acción.
+- **CHECKs M-73/M-74:** acotan precio, costo, `reservedQty ≤ stockQty`, `refundedQty ≤ quantity`, la forma del paquete y
+  `maxPct ∈ {5,10,16}`. Son la red debajo de cada CAS.
+- **Reconciliación de suscripciones** (`reconcileOrphans`): todo es parámetro o constante, no hay entrada del usuario en
+  SQL, no se loguea ningún correo y usa una sola transacción bajo el candado consultivo del job.
+- **Borrado de cuenta:** el borrado suave (`admin.service.ts`, bloque v1.87) borra `WishlistItem` (los avisos caen en
+  cascada), `WishlistMail` y las suscripciones «avísame» de la cuenta **y de su correo previo**. El borrado duro cae por
+  FK `CASCADE` (M-74 §5). Cumple «si borras tu cuenta, tu lista se borra».
+- **Secretos y logs:** el `git diff` del rango no tiene llaves (`sk_`, `whsec_`, `re_`, `AKIA`, PEM) ni `logger.*` nuevos con
+  correo.
+
+## 3. Hallazgos consolidados (pentester + blue team)
+
+| ID | Severidad | Qué | Estado / decisión | Dueño |
+|---|---|---|---|---|
+| **REL7-P1** | ~~Media~~ → **Baja** | `@nestjs/core` 10.4.22 · GHSA-36xv-jgw5-4q75 (CVE-2026-35515) | **Ya estaba en `production`**: misma versión 10.4.22 en el lockfile de `74996a24` y en el de `bc8e3533`, y `npm audit --omit=dev` da las mismas 2 moderadas en ambos. **No explotable en nuestro uso:** el fallo está en `SseStream._transform` (saltos de línea en los campos `type`/`id` de un Server-Sent Event) y `grep -rn "@Sse\|text/event-stream" backend/src` ⇒ 0 resultados. Corregido en `@nestjs/core` 11.1.18: es un salto de mayor (10 → 11), no un `npm audit fix`. **Aceptado** (§4). | devops (subida) + backend (regresión) |
+| **REL7-P2** | Baja | `next` 15.5.24 · GHSA-4jqv-mc3x-m676 y **GHSA-mcj8-r9mp-w47p** (el pentester nombró solo la primera) | Ya estaba en `production`: `frontend/package-lock.json` no cambia en el rango. La primera es solo para self-hosted, y nosotros estamos en Vercel. La segunda exige **una página catch-all en la raíz**: `find frontend/src/app -maxdepth 3 -name '[...*'` ⇒ ninguna. No aplica hoy. Corregido en 15.5.27 (parche menor). **Aceptado** (§4). | devops |
+| **REL7-P3** | Baja | «Avísame» de sellados: un invitado puede apuntar un correo ajeno | Ver §5. **Aceptado con condición R7-C2.** | backend |
+| REL7-P4 | Info | `OptionalSessionGuard` toma `role` del JWT | Confirmado, no explotable: el único consumidor usa `id`/`email`. El disparador para cambiarlo es reutilizar el guard en una ruta que autorice por rol. | backend |
+| REL7-P5 | Info | Los tokens de los enlaces del correo de la lista no caducan | Confirmado. Con uno se puede quitar un deseo o pausar los avisos, nada más: no hay dinero ni datos. Igual que `revealToken` (SHIP-P3). | backend (opcional) |
+| REL7-P6 | Info | Vulnerabilidades de dependencias solo de desarrollo y CI | Confirmado, fuera del runtime servido. | devops |
+| **SEG-R7-1** | Baja | El aviso de privacidad (§WSH.5) no nombra el **historial de avisos** ni la **imagen remota** del correo | Ver §6. Bandera legal; no bloquea, porque el dial `wishlist_enabled` nace `off`. | product-owner (texto) + abogado |
+| SEG-R7-2 | Info | Un reembolso de accesorio que **falla** en Stripe no devuelve `refundedQty` | `refundedQty` sube en la tx **antes** del cobro en Stripe y nada lo baja si la fila acaba `failed`. Esas unidades ya no se pueden reembolsar por esta ruta: queda el reembolso total (`NON_FAILED` excluye la fila fallida del remanente). Falla **cerrado**: no sale dinero de más. **NO MEDIDO en vivo** (requiere un fallo de Stripe). Disparador: el primer `failed` de este tipo en M3. | backend |
+| SEG-R7-3 | Info | El job de reposición lee **todas** las suscripciones pendientes sin tope | Un invitado con muchas IP y muchos correos distintos (5/min por IP) puede hacer crecer la tabla y el trabajo de cada corrida. No hay dinero en juego. Disparador: más de 10 000 pendientes, o una corrida de más de 30 s. | backend |
+
+**Críticos/Altos abiertos: 0.** Medias: 0 (REL7-P1 rebajada con medición). Bajas: 3. Info: 6.
+
+## 4. Deuda de seguridad aceptada (no bloquea)
+
+| ID | Motivo de la aceptación | Disparador para abordarla |
+|---|---|---|
+| REL7-P1 | Ya estaba en producción. No usamos SSE, así que el vector no llega. Subir de mayor sin regresión cuesta más que el riesgo. | **Antes de `sk_live_`**, o el día que alguien añada un `@Sse`. Lo que ocurra primero. |
+| REL7-P2 | Ya estaba en producción y no se cumple ninguna de las dos precondiciones (no es self-hosted, no hay catch-all en la raíz). | El siguiente mantenimiento de dependencias (parche menor 15.5.27), o al añadir un `[...slug]` en la raíz. |
+| REL7-P3 | Ver §5. | Ver R7-C2. |
+| REL7-P4/P5/P6, SEG-R7-2/3 | Info, sin dinero ni datos expuestos. | El que dice cada fila de §3. |
+
+## 5. REL7-P3 — decisión: se ACEPTA, con condición
+
+**Medido:**
+- **`production` ya lo tenía, y peor.** En `74996a24`, `subscribeRestock` usaba el `dto.email` de cualquiera, con o sin
+  sesión, y no tenía tope por correo (`git show 74996a24:…/sealed-catalog.service.ts:454-504`).
+- **Esta publicación lo acota:**
+  - con sesión se ignora el cuerpo y se usa el correo de la cuenta;
+  - como mucho `sealed_restock_max_pending_per_email = 5` pendientes por correo;
+  - se deduplica por identidad;
+  - la respuesta es un `202` neutro, sin enumeración;
+  - el límite es 5/min por IP;
+  - cada suscripción avisa **una sola vez** y solo tras ver el producto agotado y de vuelta (`armedAt`/`matchedAt`).
+- **Lo que cambia y obliga a decidir:** en `production` el job **no estaba agendado**; el disparo era manual
+  (`74996a24`, cabecera del servicio, «el cron queda fuera hasta encender el flag»). Con `bc8e3533` **se agenda cada
+  5 min** (`scheduler.service.ts`, `SEALED_RESTOCK_NOTIFY_CRON`). Si el dial `sealed_restock_alerts` está **encendido**
+  en producción, a partir de esta publicación esos correos salen solos.
+- **En qué estado está el dial en producción: NO MEDIDO.** Lo cierra
+  `SELECT "valueJson" FROM "ConfigSetting" WHERE key='sealed_restock_alerts';`, corrido por el dueño o con un usuario de
+  solo lectura.
+
+**Por qué no bloquea:** el techo es «una víctima recibe a lo sumo un aviso por producto sellado que vuelva, con 5
+pendientes a la vez». No hay dinero, no hay datos de la víctima expuestos, y el pie del correo dice «¿No lo pediste?
+Ignóralo: no volverás a recibirlo por este producto». Es spam acotado, no compromiso.
+
+**Condición R7-C2:** antes de **encender** `sealed_restock_alerts`, o, si ya está encendido, en la misma ventana de
+despliegue, el dueño sabe y acepta que un visitante sin cuenta puede apuntar el correo de otra persona. Disparadores para
+el doble opt-in (confirmar el correo del invitado antes de guardar), con dueño backend: **cualquier** queja de un
+destinatario, más de 5 suscripciones de invitado a un mismo correo en un día, o antes de `sk_live_`. Lo que ocurra
+primero.
+
+## 6. Aviso de privacidad de la lista de deseos (§WSH.5) frente al código
+
+| Dice el aviso | El código | ¿Cuadra? |
+|---|---|---|
+| Guardamos qué cartas, el acabado, el % máximo y el correo de la cuenta | `WishlistItem` {cardId, finish, maxPct, lastNotifiedAt, createdAt}. El correo **no se copia**: se lee de `User` al enviar | Sí |
+| Te avisamos por correo, con el precio y si cabe | `wishlist-mail.ts` lleva el precio, el máximo de hoy y si cabe. Solo a correo **verificado**, cuenta activa y sin pausa (`wishlist-notify.service.ts:139`) | Sí |
+| Para decidir qué comprar usamos solo totales, sin nombre ni correo | `wishlist-demand.service.ts`: conteos por carta y nivel; los correos de sellados solo se cuentan (`emails.size`); el CSV no lleva columnas de persona | Sí |
+| Quitar o dejar de recibir desde el correo, sin entrar | `POST /wishlist/mail-actions` `@Public`, sin depender del dial; prueba HTTP T14 | Sí |
+| Si borras tu cuenta, tu lista se borra | Borrado suave: `deleteMany` explícito. Borrado duro: FK `CASCADE` | Sí |
+| *(no lo dice)* | Se guarda un **historial de avisos**: `WishlistNotice` {pieza, precio mostrado, mercado, máximo, si cabía, fechas} y `WishlistMail` {fecha, idioma, nº de cartas} | **Hueco menor** (SEG-R7-1) |
+| *(no lo dice)* | La miniatura del correo se carga desde `images.pokemontcg.io` y el segundo CDN de `SET_IMAGE_HOSTS`. Al abrir el correo, un tercero ve la IP del destinatario (salvo clientes que hacen proxy, como Gmail) | **Hueco menor** (SEG-R7-1) |
+
+No hay nada que el código haga **en contra** de lo que dice el aviso. Hay dos cosas que hace **y el aviso no menciona**.
+Las dos son derivadas del servicio que se describe, por eso quedan en **Baja**. La decisión de nombrarlas o no es del
+dueño con su abogado (P-LEG). Si se nombran, el texto lo cambia product-owner en `PROJECT.md` y frontend lo copia; el
+candado `privacy-wishlist.test.ts` lee `PROJECT.md`. Con el dial `wishlist_enabled` en `off` (semilla M-74 paso 7) no sale
+ningún correo hasta que el dueño lo encienda.
+
+## 7. Condiciones
+
+| # | Condición | Dueño | ¿Bloquea el botón? |
+|---|---|---|---|
+| **R7-C1** | El veredicto de QA de la publicación cita **sobre `bc8e3533`** en verde `accessories-panel`, `wishlist`, `wishlist-demand`, `accessories-prep-refunds` y `wishlist-v1-87-2` (`*.e2e-spec.ts`). Son la prueba HTTP de la autorización que este veredicto da por buena. | QA / orquestador | **Sí**, si falta o alguna está roja en una ruta de authz o de dinero |
+| **R7-C2** | El dueño lee y acepta lo de REL7-P3 (§5) antes de encender, o de mantener encendido, el «avísame» de sellados | dueño | No |
+| **R7-C3** | `wishlist_enabled` se enciende solo **después** de ver el párrafo «Lista de deseos» publicado en `/es/privacidad` y `/en/privacidad` (criterio 824). Si el abogado lo pide, antes se añaden los dos huecos de SEG-R7-1. | dueño (+ product-owner) | No |
+| Heredadas | S5-1/`SEC-HDR-2`, TD-4, C1, C2, C3, el pre-gate DAST `full`, C6, el pentest de un tercero, **y ahora REL7-P1** | varios | Solo antes de `sk_live_` |
+
+### Para la solicitud de fusión — en lenguaje llano para el dueño
+
+> **Seguridad: aprobado con condiciones.** No encontramos nada grave en accesorios ni en la lista de deseos: los precios
+> los pone el servidor, solo tú (súper-admin) puedes devolver dinero de un accesorio ya entregado, y nadie puede ver ni
+> tocar la lista de otra persona.
+>
+> 1. **Antes de pulsar:** que QA confirme en verde, sobre esta misma versión, las pruebas de permisos de accesorios y de
+>    la lista de deseos.
+> 2. **El «avísame cuando vuelva» de sellados:** desde esta versión los avisos salen **solos** cada 5 minutos, si lo
+>    tienes encendido. Alguien sin cuenta puede apuntar el correo de otra persona: como mucho le llegarían unos pocos
+>    avisos de «volvió este producto», nada de dinero ni de datos. Ya pasaba antes, y ahora está más limitado. Si te
+>    parece bien así, déjalo; si recibes una queja, pedimos que el visitante confirme su correo primero.
+> 3. **La lista de deseos nace apagada.** Enciéndela solo cuando veas publicado el párrafo «Lista de deseos» en tu aviso
+>    de privacidad. Cuando se lo pases a tu abogado, menciónale dos detalles que el texto no dice: guardamos un historial
+>    de qué avisos mandamos, y la foto de la carta en el correo se carga desde el servidor de imágenes de Pokémon TCG.
+> 4. **Antes de cobrar con dinero real:** actualizar una pieza del servidor (NestJS) que tiene un aviso de seguridad. Hoy
+>    no nos afecta porque no usamos la función vulnerable, pero conviene llegar al cobro real sin ese aviso.
+
+## 8. NO MEDIDO (dicho entero)
+- Estado del dial `sealed_restock_alerts` en producción (consulta en §5).
+- Las proporciones de las carreras (último paquete, settle contra recuperación, doble reembolso, tope 20): las da la suite
+  de integración de QA, no yo.
+- La subida multipart de la foto por HTTP de punta a punta (multer + `422 too_large`): medí el procesador, no la ruta.
+- SEG-R7-2 en vivo (requiere que Stripe rechace un reembolso).
+- El resultado de las suites HTTP de authz sobre `bc8e3533` (R7-C1).
+
+## 9. Banderas para el humano
+- **Pentest de un tercero y bug bounty antes de `sk_live_`**, sin cambios. Accesorios añade una ruta nueva de dinero
+  saliente (`accessory-lines/:lineId/refund-delivered`) que entra en ese alcance.
+- **Abogado:** §WSH.5 (consentimiento por opt-in al agregar la carta, «SUPUESTO» del product-owner) y los dos huecos de
+  SEG-R7-1.
+
+## 10. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `bc8e3533`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 3 · Info 6.**
+- **Botón `main → production` (modo prueba): sí, con R7-C1 cumplida.** R7-C2 y R7-C3 no bloquean el botón: gobiernan cuándo
+  se encienden los dos diales.
+- **Mínimo para quedar APROBADO sin condiciones:** R7-C1 citada en verde, y R7-C2 aceptada por el dueño o el dial
+  `sealed_restock_alerts` medido en `off`.
+- **Antes de `sk_live_`:** las heredadas, más REL7-P1 (subir `@nestjs/core` a 11.1.18 o posterior, con regresión).
+
+— SEGURIDAD (blue team / AppSec), 2026-10-08 · código `bc8e3533` (rama `claude/release-s7`) · **APROBADO CON CONDICIONES**
+# §BMK · 2026-10-08 — «Valor de mercado» en el cotizador de venta · veredicto de seguridad (blue team)
+
+**Sha auditado:** `764c6537` (rama `claude/buylist-mercado`). Código idéntico al que atacó el pentester
+(`329f0cb5`): `ba30128b` y `764c6537` solo tocan un E2E y `PENTEST_NOTES.md`. Base de comparación:
+`origin/production` `a7232d7a` (merge-base; contiene `74996a24`, comprobado con `git merge-base --is-ancestor`).
+
+**Superficie del stream** (`git diff a7232d7a 764c6537 --stat`): en backend, **un solo predicado** de presentación
+(`buylist.service.ts:1293-1296`, `toQuotePayload`) más la carta sembrada `binpremium` (solo fixtures/E2E). En frontend,
+pintado: `lib/sell-market.ts` (predicado `visibleMarketCents`), `MasterSetBinder.tsx`, `CardDetailModal.tsx`,
+`SellCartContents.tsx` e i18n. **Sin endpoints nuevos, sin cambios en DTOs ni en `@Throttle`, sin cambios de schema y
+sin cambios de dependencias** (ningún `package*.json` en el diff, así que `npm audit` no cambia respecto al último pase).
+
+## 1. Lo que medí yo
+
+| # | Medición | Resultado |
+|---|---|---|
+| M1 | `git show a7232d7a:backend/src/modules/buylist/buylist.service.ts`, `toQuotePayload` | **Antes de §BMK**, `referencePrice` salía `{status:'priced', priceMxnCents}` **siempre que existiera mercado** (`line.referenceMxnCents != null`), **incluidas** las líneas en `precio_pendiente` por guardarraíl y los mercados `<= 0`. Mismo `POST /buylist/quote` y `/quote/batch`, `@Public`, mismos `@Throttle` (60/60 s y 12/60 s) y mismo tope de 50 por lote (`dto/buylist.dto.ts:41`) |
+| M2 | Mismo fichero en `764c6537` | Ahora solo sale si `quotedPriceCents != null && referenceMxnCents != null && referenceMxnCents > 0`. **El conjunto de cartas cuyo mercado viaja por la red es un SUBCONJUNTO estricto del de antes** |
+| M3 | `git show a7232d7a:…/buylist/SellCartContents.tsx:310-316` | El carrito de venta **ya pintaba** el mercado («Valor de referencia») con la condición `referencePrice.status === 'priced'`, sin mirar `quote.status`, así que incluso en líneas pendientes por guardarraíl se veía. §BMK lo cambia a `visibleMarketCents` |
+| M4 | `CardDetailView.tsx:222` (ficha de la tienda) | Muestra «Valor de mercado» cuando `priceBasis === 'market'`, solo en cartas publicadas. Confirma la nota del orquestador: el mercado ya era un dato visible en la tienda |
+| M5 | Suite `backend/test/buylist.bmk-reference-price.spec.ts` sobre una **copia** (`git archive 764c6537`) | **14/14 verdes** |
+| M6 | **Mutación** en la copia: restauré el predicado de antes (`line.referenceMxnCents != null`) | **6/14 rojas**: `/quote` y `/quote/batch` en guardarraíl, bounty topado en premium al bin y bounty con mercado 0. Es una mutación determinista (sin carrera ni temporizador), así que basta una corrida. **El candado muerde** |
+| M7 | `frontend/src/lib/sell-market.test.ts` en la copia | **7/7 verdes** |
+| M8 | Lectura de XSS/inyección en las superficies nuevas | Las cifras pasan por `formatMoneyCents(number)` y React las escapa. No hay `dangerouslySetInnerHTML` en el diff. Los textos con `{name}` son ICU de next-intl, también escapados |
+| M9 | Origen del dato | `referenceMxnCents` es el precio de un tercero (feeds `tcgcsv`/TCGplayer del catálogo) convertido a MXN. **No es un secreto de la tienda**: es dato público de terceros convertido de moneda. La oferta (`quotedPriceCents`) ya era pública por carta antes de §BMK |
+
+Copia y enlaces borrados al terminar. No levanté un stack: lo que hacía falta probar en vivo (BMK-2 y BMK-3) ya lo
+midió el pentester, y lo que quedaba por cerrar se decidía con el diff y la suite.
+
+## 2. Consolidación de `PENTEST_NOTES §BMK`
+
+### BMK-1 — el pentester la puso en **MEDIA**; yo la **bajo a BAJA, heredada, no introducida por §BMK** · dueño: devops (vía `P-RL-1`/C6)
+- **Lo que es real:** con `/quote/batch` se pueden sacar unos 600 mercados por minuto por IP, y el tope por IP hereda
+  el bypass de `X-Forwarded-For` de `P-RL-1` si el edge de Railway respeta el header entrante.
+- **Lo que no se sostiene:** que «el mercado pasa a ser dato público» con §BMK. M1 demuestra que **esa capacidad
+  existía igual (o mayor) antes de §BMK**, con el mismo endpoint, el mismo campo, el mismo tope de lote y el mismo
+  rate-limit. §BMK **reduce** lo que sale por la red (M2): deja de emitir el mercado de las cartas en guardarraíl y de
+  los mercados `<= 0`. Lo único nuevo es que la UI lo pinta, y la UI no es la superficie que se raspa.
+- **Impacto de negocio:** bajo. Es dato público de terceros (M9), el dueño decidió mostrarlo (HECHOS 2026-10-08,
+  «hay que hacer A») y ya se veía en la ficha de la tienda (M4). Lo que se infiere del par mercado/oferta (la curva de
+  compra) ya era inferible antes, con `referencePrice` y `quotedPriceCents` por la misma ruta.
+- **Freno:** depende de `P-RL-1`, que ya tiene su cierre (**C6**: medir el edge con `scripts/edge-xff-probe.sh`).
+  Esta nota no abre una condición nueva. Si C6 confirma el bypass, el raspado del cotizador entra en el alcance de la
+  corrección de `P-RL-1` y no en este stream.
+
+### BMK-2 — INFO · confirmado, y **reforzado**
+El pentester lo midió en vivo. Yo añado que no solo no hay fuga, sino que **§BMK cierra una fuga previa**: antes, el
+mercado «sospechoso» de una premium en el bin sí viajaba en `/quote` y `/quote/batch` y se pintaba en el carrito (M1,
+M3). El candado de backend muerde (M6). En el cliente, `visibleMarketCents` repite la regla como defensa en
+profundidad ante cotizaciones viejas en `localStorage`.
+
+### BMK-3 — INFO · confirmado
+`whitelist:true` (`main.ts:54`) y DTOs sin campos de dinero. `createRequest` congela el mercado desde `decideBuyLine`
+en el servidor. §BMK no toca `decideBuyLine` ni `createRequest` (M2: el cambio es solo `toQuotePayload`). Una
+cotización manipulada en `localStorage` solo cambia lo que ve quien la manipula: el servidor vuelve a derivar todo al
+crear la solicitud.
+
+## 3. Hallazgos de este stream
+
+| Severidad | # | Detalle |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — (`P-RL-1` ALTA sigue **abierta y heredada**: no la introduce ni la agrava §BMK) |
+| Media | 0 | — |
+| Baja | 1 | `BMK-1`, heredada (ver §2) |
+| Info | 2 | `BMK-2` (con mejora neta), `BMK-3` |
+
+## 4. Deuda de seguridad aceptada
+- **`BMK-1`: mercado consultable en lote por el cotizador anónimo.** Impacto: un competidor puede reunir la tabla de
+  mercado en MXN, que es dato público de terceros. **Disparador:** (a) C6 sale mal, y entonces se trata dentro de
+  `P-RL-1`; o (b) el dueño empieza a usar un mercado **propio** (no de terceros) o a considerar la curva de compra un
+  secreto. En ese caso el dueño es **backend**, que bajaría el tope de lote o exigiría sesión para `referencePrice` en
+  `/quote/batch`.
+
+## 5. NO MEDIDO
+- El edge de Railway frente a `X-Forwarded-For` (C6). Es heredado y sigue abierto.
+- El frontend en vivo (no levanté la vitrina). La autoridad es el backend (M2, M5, M6) y el predicado del cliente lo
+  medí con su suite (M7).
+
+## 6. Banderas para el humano
+- Sin cambios: antes de `sk_live_`, pentest de un tercero y bug bounty; validación legal de custodia, SPEI/CLABE y PII.
+- Para que lo decida con los ojos abiertos: mostrar el mercado junto a la oferta deja ver, carta por carta, qué
+  porcentaje paga la tienda. Eso ya se podía calcular antes desde la misma API, así que no es nuevo, pero ahora lo ve
+  cualquier vendedor sin esfuerzo. Es una decisión de negocio, no de seguridad, y ya está tomada (HECHOS 2026-10-08).
+
+## 7. VEREDICTO
+
+### **APROBADO** sobre `764c6537`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 1 (heredada) · Info 2.**
+- **Paso a `production` de este stream: sí. Nada de §BMK lo bloquea.** El cambio de backend reduce la exposición
+  respecto de `production` (M1/M2) y su candado muerde (M6).
+- **Heredado, sin cambios y fuera de este stream:** `P-RL-1` (ALTA) con su cierre C6 (devops + autorización del
+  dueño) y C7, más el resto de condiciones de `sk_live_` registradas en pases anteriores. Siguen bloqueando el **DoD**
+  y `sk_live_` como hasta ahora, **no** este merge.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-08 · código `764c6537` (rama `claude/buylist-mercado`) · **APROBADO**
+
+---
+
+# Release salida-real · LIVE-5 + TD-4 + CSP report-only · veredicto de seguridad (blue team) · 2026-10-10
+
+**Alcance:** rama `claude/salida-real`, sha CONGELADO **`8e1b34d7`** (árbol `/home/user/tcg-live`). Revisión de
+CÓDIGO estática sobre una copia del árbol ENTERO (`git archive 8e1b34d7 | tar -x`, docs/ incluido). ⛔ NO levanté el
+stack ni lancé escaneos de red (QA corría su E2E en paralelo sobre el mismo árbol, O-16/O-14) y ⛔ NADA contra
+producción. Superficie NUEVA del lote (12 commits, `1f2bb471..8e1b34d7`): TD-4 (CAS pending→failed + escritor único),
+C2 (`StripeService.chargeState` + `to-manual`/`reveal-clabe`/`paid` preguntan a Stripe por el cobro de origen),
+C-1 (aviso de cobro de origen al revelar la CLABE, frontend), CSP vuelta a `report-only`, y la regeneración del
+manifiesto de secretos por un literal de test.
+
+## 1. Candados de seguridad corridos (sobre la copia `8e1b34d7`, árbol entero)
+
+| Candado | rc | Qué prueba |
+|---|---|---|
+| `check-secret-defaults.sh` | **0** | 2272 ficheros (docs/ incl.): ningún `sk_live_`/`rk_live_`/`whsec_` con forma real; ningún secreto con valor del repo. |
+| `check-secret-defaults-canary.sh` | **0** | **75/75** — muerde con secretos nunca vistos, deja pasar lo legítimo (cierra la CLASE, no 7 líneas). |
+| `check-csp-zap-parity.sh` | **0** | `CSP_MODE=report-only` ⇔ ZAP 10038/10055 en **WARN** (van juntas). |
+| `check-csp-zap-parity-canary.sh` | **0** | **8/8** — caza `enforce`+WARN (desincronización CSP↔ZAP). |
+| `check-stripe-webhook-failclosed.sh` | **0** | **3/3** — la firma del webhook NO se puede verificar con clave conocida/publicada (P-WH-1 cerrado). |
+| `check-stripe-webhook-failclosed-canary.sh` | **0** | **31/31** — el cable de fail-closed muerde donde toca. |
+| `check-stripe-webhook-events.sh` | **0** | 9 eventos del backend cubiertos por el manifiesto y §11.G. |
+
+Todas corridas por mí sobre la copia con sha verificado (`8e1b34d7`), carga de máquina 0.92/4 CPU al arrancar.
+
+## 2. Revisión defensiva de la superficie nueva (lo que resiste, con la línea)
+
+- **`chargeState` NO filtra tarjeta ni PII** (`stripe.service.ts` `chargeState`): expande `latest_charge` y devuelve
+  SOLO `{mode, disputed, amountRefundedCents}`. Nunca PAN/BIN/titular; el único dato de tarjeta que persiste el
+  sistema sigue siendo marca+last4 vía `getCardDetails` (PCI-permitido). El DTO de `reveal-clabe` añade
+  `originCharge:{disputed,otherMode}` + `originChargeUnavailable` — booleanos, sin monto de tarjeta ni datos del
+  cobro. **No hay fuga nueva al rol admin.**
+- **No permite doble reembolso.** `paid` conserva el CAS (`updateMany where status:'pending'` ⇒ `count===1`, si no
+  `409 CONFLICT`) + `FOR UPDATE` de la fila; LIVE-5 AÑADE una barrera (cobro disputado o de otro modo ⇒
+  `originNotSettled` ⇒ exige `confirmOriginNotSettled`), no una vía nueva de salida. `to-manual` chequea
+  idempotencia (`idempotencyKey=refund-spei:<id>`) ANTES del paso 3-bis ⇒ un replay devuelve la MISMA fila y
+  sobrevive a «Stripe no respondió».
+- **TD-4 escritor único de `failed`** (`payments.service.ts`, `orders.service.ts`): el CAS pending→failed pasa por
+  el helper único `failPendingOrder` (candado estático `orders.failed-writer-lock.spec.ts`, lista de permitidos de
+  1), de modo que un `charge.refunded`/settle tardío no es pisado por un `failed` liquidable. D-2: el fallo de la tx
+  de liberación ahora se registra (`orders.release_reservation_failed`), conducta sin cambio.
+- **D-7 (endurecimiento correcto):** `originChargeOf` trata como `unavailable` SOLO el `503
+  PAYMENT_PROVIDER_UNAVAILABLE`; cualquier otro error PROPAGA (500 antes de toda tx). Leer un fallo interno como
+  «Stripe caído» habría dejado que `paid` registrara sin pedir la confirmación de origen no liquidado — ese agujero
+  está cerrado.
+- **CLABE en claro** sigue viviendo SOLO en el estado de la vista de detalle (`ManualRefundDetailView.tsx`), ⛔
+  nunca global ni en logs; el aviso de cobro de origen es `role=alert` informativo, no cambia la autorización
+  (`@MoneyOut` ⇒ `super_admin`, auditado).
+- **Literal `sk_test_unit`** (`stripe.charge-state.spec.ts:16`): NO es credencial real — se pasa a un
+  `ConfigService` falso y el cliente Stripe se sustituye por un doble en la línea 17 (nunca sale a la red). Su hash
+  (`4824ffe6…`) está neutralizado en `security/secretos-publicados.sha256` como `PREFIJO`. `check-secret-defaults`
+  rc 0.
+- **Sin dependencias nuevas:** `package.json`/lock sin cambios en el rango ⇒ el inventario de `npm audit` es el de
+  pases previos (REL7-P1 `@nestjs/core`, ACEPTADO por el dueño el 2026-10-10 por SSE no usado, `grep @Sse`=0).
+
+## 3. CSP en `report-only` — evaluación de riesgo para salir a cobros reales
+
+- **Qué es:** `CSP_MODE='report-only'` (`frontend/src/security/csp.ts:37`), constante en código (no variable de
+  Vercel, queda en el diff). La CSP con nonce NO bloquea scripts inyectados; solo reporta a `/telemetry/csp`.
+- **Por qué:** la causa de los avisos CSP de prod en `/es` y `/es/decks-meta` está **SIN MEDIR** contra la tienda
+  viva; `enforce` podría romper la portada. Es una decisión de DISPONIBILIDAD legítima, registrada como CL-1 con
+  disparador claro (medir prod ⇒ pasar a `enforce` en el MISMO cambio que sube ZAP 10038/10055 a FAIL; lo ata el
+  candado de paridad, que da rc 0 y canario 8/8).
+- **Riesgo residual:** la sesión vive en `localStorage` (`lib/api-client.ts`), así que un XSS podría exfiltrarla y la
+  CSP es la 2.ª barrera. PERO: (a) el pentester NO encontró XSS/inyección en la app en ningún pase; (b) las demás
+  cabeceras anti-XSS/clickjacking SÍ se aplican (`X-Frame-Options: DENY`, `frame-ancestors 'none'`, `object-src
+  'none'`, `base-uri 'self'`, `form-action 'self'` — verificadas en vivo en el pase G del pentester); (c) la 1.ª
+  barrera (escape de React + validación) es la primaria. ⇒ **MEDIA, deuda aceptada con disparador — NO bloquea**,
+  pero es BANDERA para el humano (ver §6).
+
+## 4. Consolidación con `PENTEST_NOTES.md` — ¿hace falta una pasada fresca del red team?
+
+Los pases del pentester en el documento (último de dinero: release s5 `7b9c196e`; últimos de superficie: `bc8e3533`
+accesorios/wishlist y §BMK `329f0cb5`) **NO cubren esta superficie LIVE-5**. El ciclo reveal→`paid` que el pentester
+cerró en s5 es ANTERIOR a que C2 cambiara la respuesta de `reveal-clabe` (ahora con `originCharge`) y las puertas de
+`to-manual`/`paid` (ahora dirigidas por `chargeState`, no por la lista `REFUND_FAILURE_DISPUTE_CODES`).
+
+**SÍ recomiendo una pasada fresca del pentester ANTES de operar con dinero real, contra LOCAL o STAGING con claves
+de Stripe en modo PRUEBA (⛔ nunca producción).** No bloquea el merge a `main` (mi revisión estática + las pruebas
+CS-1…CS-6 contra el doble de Stripe no hallan crítico/alto nuevo), pero el código mismo declara **NO MEDIDO contra
+Stripe real** y el dueño pasa a llaves reales HOY: el primer contacto de esta lógica con Stripe no debería ser en
+producción con dinero. La pasada debe sembrar un `KycProfile` con CLABE, un cobro **disputado** y un PI del **otro
+modo**, y medir N≥10: (1) `reveal-clabe` no filtra tarjeta/PII más allá del booleano `disputed`; (2) `paid` no paga
+dos veces bajo concurrencia (CAS); (3) `to-manual` idempotente + reintento con Stripe caído; (4) la confirmación
+`origin_not_settled` no se puede esquivar. Son exactamente los NO MEDIDO de dinero que el propio pentester dejó
+abiertos.
+
+## 5. Hallazgos consolidados (pentester + blue team)
+
+| # | Sev | Descripción | Ubicación / endpoint | Rol dueño | Estado |
+|---|---|---|---|---|---|
+| CSP-RO | **Media** | CSP en `report-only`: 2.ª barrera anti-XSS no aplicada con sesión en `localStorage` | `frontend/src/security/csp.ts:37` | frontend/devops | **Aceptada (CL-1, con disparador)** |
+| LIVE5-STRIPE | **Media** | Lógica de dinero LIVE-5 NO MEDIDA contra Stripe real (solo doble) | `stripe.service.ts chargeState`, `manual-refund.service.ts` | backend + pentester | **Condición (medir en test antes de dinero real)** |
+| P-RL-1 | **Alta** | Rate-limit por-IP evadible rotando `X-Forwarded-For` (hereda del edge) | `trust-proxy.ts` + edge Railway | devops | **ABIERTO (heredado, severidad real NO MEDIDA contra el edge)** |
+| REL7-P1 | Media | `@nestjs/core` GHSA en SSE no usado | dep backend | devops | **ACEPTADO por el dueño (2026-10-10)** |
+
+**Ningún hallazgo crítico/alto NUEVO en la superficie LIVE-5.** La única ALTA abierta es **P-RL-1**, heredada, fuera
+de esta superficie, con severidad real NO MEDIDA contra el edge de Railway (su cierre es C6 de devops, ya autorizado
+por el dueño). Consistente con el veredicto blue-team previo (§BMK, 2026-10-08): P-RL-1 gatea el **DoD** y `sk_live`,
+no este merge.
+
+## 6. Banderas para el humano (español llano)
+
+1. **Antes de aceptar cobros reales, probar el flujo de reembolsos SPEI contra Stripe en modo PRUEBA** (no en la
+   tienda real). Este código nuevo que decide cuándo se puede pagar un reembolso nunca ha hablado con el Stripe de
+   verdad: lo probamos contra un «Stripe de mentira» en las pruebas. Es la pieza que toca dinero saliente; conviene
+   verla funcionar con Stripe real-en-pruebas antes de que mueva pesos de clientes.
+2. **Confirmar que las claves y el secreto del webhook de Stripe están puestos en el servidor (Railway).** Nuestro
+   candado comprueba que el código RECHAZA un webhook sin secreto (bien), pero NO puede ver desde el repositorio si
+   el valor está realmente cargado en Railway (DEVOPS_NOTES §49.1). Al pasar a llaves reales hoy, alguien debe
+   verificar en Railway que `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` existen y son las reales.
+3. **La protección anti-robo-de-sesión va «en modo aviso», no «en modo bloqueo» (CSP report-only).** Es una decisión
+   deliberada para no romper la portada hasta medir por qué da avisos en producción. No encontramos ninguna vía de
+   ataque XSS hoy, y las otras protecciones (anti-clickjacking, etc.) sí están activas. Queda anotado para activarla
+   del todo cuando se mida la portada en vivo.
+4. **Operar con dinero real sigue pidiendo lo de siempre** (de pases anteriores): pentest de tercero + bug bounty
+   antes de montos grandes, y cerrar P-RL-1 en el edge (C6). Nada de esto cambió en este release.
+
+## 7. NO MEDIDO (dicho entero)
+
+- La lógica LIVE-5 contra Stripe real/test (sin claves en el entorno de revisión): CS-1…CS-6 están probadas contra un
+  doble, no contra Stripe. **NO MEDIDO.**
+- El valor real de `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` en Railway: no medible desde el repo. **NO MEDIDO.**
+- La causa de los avisos CSP de prod en `/es` y `/es/decks-meta`: **NO MEDIDO** (es la razón del report-only).
+- P-RL-1 contra el edge real de Railway: **NO MEDIDO** (fuera de alcance, ⛔ sin tocar prod).
+- No levanté stack ni corrí E2E/DAST (QA en paralelo, O-14/O-16): mi revisión de esta superficie es **estática +
+  candados**, no en vivo.
+
+## 8. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `8e1b34d7`
+
+- **Conteo de la superficie NUEVA: Crítica 0 · Alta 0 · Media 2 (CSP-RO aceptada, LIVE5-STRIPE condición) · Baja 0.**
+- **El merge a `main` NO está bloqueado por la superficie LIVE-5**: no introduce hallazgo crítico/alto; los candados
+  de secretos, CSP↔ZAP y webhook fail-closed dan rc 0 (con canarios 75/75, 8/8, 31/31); el dinero saliente resiste
+  por construcción (CAS + idempotencia + `@MoneyOut` super_admin auditado + confirmación de origen no liquidado).
+- **Condiciones para OPERAR CON DINERO REAL** (no para fusionar):
+  1. Ejercitar los flujos LIVE-5 (reveal→`paid`, `to-manual`, cobro disputado / otro modo / Stripe caído) contra
+     Stripe en modo **PRUEBA** en local/staging — idealmente una pasada fresca del pentester con ese fixture.
+  2. Verificar en Railway que `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` reales están cargados (devops + humano).
+- **Deuda aceptada con disparador:** CSP `report-only` (CL-1 — pasa a `enforce` cuando se mida la portada en vivo).
+- **Heredado, sin cambios y fuera de este stream:** `P-RL-1` (Alta, severidad real NO MEDIDA contra el edge) y el
+  resto de condiciones de `sk_live_`/DoD de pases anteriores siguen gateando el **DoD** y la operación con
+  `sk_live_`, **no** este merge — consistente con el veredicto del 2026-10-08.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-10 · código `8e1b34d7` (rama `claude/salida-real`) · **APROBADO CON CONDICIONES**
+
+---
+
+## 9. §MIV vMIV-2 — nota del valor de mercado dice «incluye IVA» (revisión estática) · `567be924`
+
+**Rama:** `claude/mercado-iva` · **sha:** `567be924` · **árbol:** `/home/user/tcg-iva` · **tipo:** cambio de
+**PRESENTACIÓN** en frontend (texto). QA y techlead ya APROBARON. Revisión ESTÁTICA (no se levantó stack ni se
+escaneó red; `⛔ NO` se escaneó producción).
+
+### 9.1 Qué entra realmente en vMIV-2 (medido, `git show 5b4f0f6c`)
+- `frontend/src/components/ui/IvaLabel.tsx`: nueva prop opcional `showRate?: boolean` (default `true`).
+  `showRate={false}` ⇒ la rama inclusiva pinta `common.ivaIncludedBare` en vez de `common.ivaIncluded`.
+  Las ramas «sin IVA» (`withoutIva`) y «no pinta nada» (`ivaIncluded === undefined`) quedan **idénticas**.
+- `frontend/messages/{es,en}.json`: una clave nueva — `common.ivaIncludedBare` = «incluye IVA» / «VAT included».
+- `CardDetailView.tsx`, `SealedDetailView.tsx`, `SealedValueTrend.tsx`: las superficies de **mercado** pasan
+  `showRate={false}`; en la tendencia `ivaRatePct` se vuelve opcional y **deja de pintarse**.
+
+> Nota de alcance: `567be924` comparado con `origin/production` arrastra también **vMIV-1** (la cifra de mercado
+> CON IVA `referenceDisplayCents`, calculada en servidor y consumida de solo-lectura por el cliente) — `grep`
+> confirma que `referenceDisplayCents` **no** está aún en `origin/production`. vMIV-1 fue revisado en su propio
+> pase (según el encargo); aquí **NO** se re-auditó vMIV-1 en profundidad — ver §9.6 (NO MEDIDO).
+
+### 9.2 ¿Expone algún dato nuevo al cliente? → NO (medido)
+vMIV-2 no añade campo ni endpoint. El único dato que cambia en la superficie de mercado es que **se QUITA la
+tasa** («16 %») del rótulo; se muestra estrictamente **menos** información, no más. La cifra con IVA
+(`referenceDisplayCents`) ya la mandaba el servidor desde vMIV-1; vMIV-2 solo cambia el texto del rótulo
+contiguo. `git show 5b4f0f6c --stat`: ningún archivo de `api.ts`/contrato/DTO cambia en vMIV-2.
+
+### 9.3 ¿Filtra el margen o dato interno mostrar el mercado CON IVA en la tienda? → NO (medido)
+El margen (15 %) no aparece en ninguna de estas superficies y vMIV-2 no lo acerca. El único número que vMIV-2
+toca es la **tasa de IVA** (16/8), que es pública y no sensible, y la **elimina** del rótulo de mercado. El
+**dial de traslación** (`IVA_INCLUSIVE/IVA_EXCLUSIVE`, criterio 209 — prohibido en superficie de cliente) **no**
+se expone; de hecho `ivaRatePct` deja de pasarse/pintarse en la tendencia. Las etiquetas «Fracción trasladada»
+que aparecen en `messages/es.json` (líneas 4807/4838) son el **dial de admin preexistente**, NO tocado por
+vMIV-2 y fuera de las superficies de tienda.
+
+### 9.4 ¿La clave i18n / la prop introducen inyección o XSS? → NO (medido)
+`common.ivaIncludedBare` es una **cadena literal estática sin placeholders** (el candado de paridad
+`miv-locks.test.ts` afirma `placeholders(...) === []` en ambos idiomas). El texto se renderiza vía `next-intl`
+`t()` como hijo React (auto-escapado). `git grep dangerouslySetInnerHTML 567be924 -- frontend/src/` → **NONE**.
+No hay interpolación de datos de usuario; el `{rate}` de la clave `common.ivaIncluded` (rama de precio, sin
+cambios) es un número, no texto libre. **Cero superficie de inyección.**
+
+### 9.5 ¿Se debilitó algún candado existente? → NO (medido)
+- El corazón de §M10-IVA (criterios 190/195/208/209) no se toca: `showRate` SOLO afecta la rama inclusiva; las
+  ramas «sin IVA» y «no pinta nada» son invariables.
+- Sin frases jurídicas/fiscales prohibidas en las cadenas nuevas (`git grep -niE
+  "trasladad|conforme a la ley|disposición fiscal|no es un recargo|artículo" 567be924 -- frontend/messages/`
+  solo devuelve claves preexistentes/ajenas, ninguna nueva).
+- El candado de paridad de i18n se **reforzó** para cubrir `common.ivaIncludedBare` (existencia en ambos idiomas,
+  texto exacto del dueño, sin placeholders, y que no reaparezcan las claves de mercado legadas prohibidas).
+
+### 9.6 NO MEDIDO (dicho entero)
+- **vMIV-1** (`referenceDisplayCents` server-side y su cómputo): NO re-auditado en este pase; confirmado solo que
+  es una cifra de display de solo-lectura consumida por el cliente y que no está aún en `origin/production`.
+- No se ejecutó la suite (revisión estática por encargo); se leyó el diff y los candados, no se corrieron.
+- No se midió comportamiento en runtime (sin stack levantado, por encargo).
+
+### 9.7 ¿Hace falta una pasada de pentester para vMIV-2? → NO aplica (y por qué)
+Es un cambio de **solo texto** en cliente: no hay nuevo flujo de datos, ni endpoint, ni superficie de inyección,
+ni autenticación/autorización/dinero tocados, y muestra estrictamente **menos** información. Un DAST/pentest
+contra staging no añade cobertura que esta revisión estática no cubra ya para un rótulo literal. (vMIV-1 y la
+fase de seguridad completa por release siguen gateando el DoD y la operación con dinero real, como en §8.)
+
+## 10. VEREDICTO vMIV-2
+
+### **APROBADO** sobre `567be924` (superficie vMIV-2)
+
+- **Conteo de la superficie NUEVA (vMIV-2): Crítica 0 · Alta 0 · Media 0 · Baja 0.**
+- No introduce dato nuevo al cliente, ni superficie de inyección/XSS, ni debilita candado alguno; muestra menos
+  información (quita la tasa del rótulo de mercado). Pentester: **no aplica** para un cambio de solo texto (§9.7).
+- **Alcance del APROBADO:** la superficie **vMIV-2**. vMIV-1 (arrastrado en el mismo sha) fue revisado en su pase;
+  no se re-auditó aquí (§9.6). Las condiciones de operación con dinero real del §8 siguen vigentes sin cambio.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-10 · código `567be924` (rama `claude/mercado-iva`) · **APROBADO**

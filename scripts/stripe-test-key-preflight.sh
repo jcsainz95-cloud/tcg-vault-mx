@@ -64,9 +64,10 @@ set -uo pipefail
 SECRET_KEY="${STRIPE_TEST_SECRET_KEY:-}"
 PUB_KEY="${STRIPE_TEST_PUBLISHABLE_KEY:-}"
 SMOKE_SPECS="${SMOKE_SPECS:-}"
-# Los tres smokes que exigen proveedor de pago REAL (abren el modal de Stripe).
-# Fuente única de verdad: si mañana hay un cuarto flujo de dinero, se añade aquí.
-MONEY_SPECS="${MONEY_SPECS:-checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts}"
+# Los smokes que exigen proveedor de pago REAL (abren el modal de Stripe). El
+# workflow (e2e-real.yml, `MONEY_SPECS`) es la fuente; esto es el respaldo local y
+# va igual. Cuarto flujo (2026-10-05, IMPORTANTE-2 de QA): address-colonia.spec.ts.
+MONEY_SPECS="${MONEY_SPECS:-checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts}"
 REQUIRE_REAL_STRIPE="${REQUIRE_REAL_STRIPE:-false}"
 
 # Longitud mínima del sufijo (lo que va DESPUÉS de `sk_test_`) para que el valor
@@ -247,13 +248,13 @@ done
 
 # --- rama A: hay credencial -> TODO corre, gate de dinero ACTIVO --------------
 if [ "$GATE_ON" = "true" ]; then
-  resumen "**Gate de dinero: ACTIVO.** Las dos claves tienen forma de credencial real, así que los tres smokes de dinero corren y son OBLIGATORIOS."
+  resumen "**Gate de dinero: ACTIVO.** Las dos claves tienen forma de credencial real, así que los smokes de dinero corren y son OBLIGATORIOS."
   resumen ""
   resumen "- Specs que corren: \`$CORREN\`"
   resumen "- Specs saltados: **ninguno**"
   resumen ""
-  resumen "> Un rojo en \`checkout\` · \`guest-checkout\` · \`shipments\` a partir de aquí **es un bug de producto**, no falta de entorno."
-  echo "::notice title=Gate de dinero ACTIVO::Claves de prueba de Stripe con forma real. Los 3 smokes de dinero (checkout · guest-checkout · shipments) corren y son obligatorios."
+  resumen "> Un rojo en \`checkout\` · \`guest-checkout\` · \`shipments\` · \`address-colonia\` a partir de aquí **es un bug de producto**, no falta de entorno."
+  echo "::notice title=Gate de dinero ACTIVO::Claves de prueba de Stripe con forma real. Los smokes de dinero ($MONEY_SPECS) corren y son obligatorios."
   salida money_gate on
   salida secret_verdict "$SECRET_VERDICT"
   salida pub_verdict "$PUB_VERDICT"
@@ -270,9 +271,9 @@ if [ "$REQUIRE_REAL_STRIPE" = "true" ]; then
   resumen "**Gate de dinero: EXIGIDO Y NO DISPONIBLE. Abortado.**"
   resumen ""
   resumen "- Motivo: $MOTIVO"
-  resumen "- Esta corrida es el **gate de promoción a producción** (\`require_real_stripe: true\`), y ahí los tres smokes de dinero **no son saltables**."
+  resumen "- Esta corrida es el **gate de promoción a producción** (\`require_real_stripe: true\`), y ahí los smokes de dinero **no son saltables**."
   resumen "- Dónde se arregla: GitHub → *Settings > Secrets and variables > Actions* → secrets \`STRIPE_TEST_SECRET_KEY\` (\`sk_test_…\`) y \`STRIPE_TEST_PUBLISHABLE_KEY\` (\`pk_test_…\`), del dashboard de Stripe **en Test mode**. Instrucciones exactas: \`docs/DEVOPS_NOTES.md\` §31.1. **NUNCA una clave live.**"
-  echo "::error title=Gate de promocion sin clave de PRUEBA real::$MOTIVO. Esta corrida promueve a produccion y exige los 3 smokes de dinero. Pon los secrets STRIPE_TEST_SECRET_KEY (sk_test_...) y STRIPE_TEST_PUBLISHABLE_KEY (pk_test_...) en Settings > Secrets and variables > Actions. Ver DEVOPS_NOTES 31.1. Nunca una clave live."
+  echo "::error title=Gate de promocion sin clave de PRUEBA real::$MOTIVO. Esta corrida promueve a produccion y exige los smokes de dinero. Pon los secrets STRIPE_TEST_SECRET_KEY (sk_test_...) y STRIPE_TEST_PUBLISHABLE_KEY (pk_test_...) en Settings > Secrets and variables > Actions. Ver DEVOPS_NOTES 31.1. Nunca una clave live."
   exit 1
 fi
 
@@ -302,7 +303,7 @@ if [ -z "${GITHUB_ACTIONS:-}" ]; then
   resumen ""
   resumen "> ⚠️ **Esto se midió FUERA de GitHub Actions.** Aquí no hay secrets ni salida a \`api.stripe.com\`, así que el gate de dinero sale \`off\` **siempre**, exista o no la credencial en CI. Para saber qué hace CI, mira la corrida nocturna de \`e2e-real.yml\`: si NO subió el artefacto \`SIN-MEDIR-comprar-invitado-retirar\`, el gate de dinero estaba **ON**. Ver DEVOPS_NOTES §60."
 fi
-echo "::warning title=SIN GATE DE DINERO — 3 smokes SALTADOS::$MOTIVO. Se saltan checkout · guest-checkout · shipments (no ejecutados, NO aprobados) y corre el resto del E2E real. Este verde NO cubre los flujos de dinero. Arreglo: secrets STRIPE_TEST_SECRET_KEY y STRIPE_TEST_PUBLISHABLE_KEY (DEVOPS_NOTES 31.1)."
+echo "::warning title=SIN GATE DE DINERO — smokes de dinero SALTADOS::$MOTIVO. Se saltan ${SALTADOS:-ninguno} (no ejecutados, NO aprobados) y corre el resto del E2E real. Este verde NO cubre los flujos de dinero. Arreglo: secrets STRIPE_TEST_SECRET_KEY y STRIPE_TEST_PUBLISHABLE_KEY (DEVOPS_NOTES 31.1)."
 salida money_gate off
 salida secret_verdict "$SECRET_VERDICT"
 salida pub_verdict "$PUB_VERDICT"

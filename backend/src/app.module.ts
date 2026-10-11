@@ -27,7 +27,11 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './modules/health/health.module';
+import { DecksMetaModule } from './modules/decks-meta/decks-meta.module';
+import { AccessoriesModule } from './modules/accessories/accessories.module';
 import { JobsModule } from './jobs/jobs.module';
+// rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH): lista de deseos, aviso «ya la tenemos» y lista de compra del dueño.
+import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
@@ -63,7 +67,10 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     UploadsModule,
     AdminModule,
     HealthModule,
+    DecksMetaModule,
+    AccessoriesModule,
     JobsModule,
+    WishlistModule,
   ],
   providers: [
     // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero

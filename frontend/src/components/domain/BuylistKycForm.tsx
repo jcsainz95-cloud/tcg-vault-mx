@@ -19,6 +19,7 @@ import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 import { BuylistShippingNote } from './BuylistShippingNote';
 import { BuylistMinimumShortfall } from './BuylistMinimumShortfall';
 import { BuylistPickupAddressField } from './BuylistPickupAddressField';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
 /**
  * Ítem del payload de `POST /buylist/requests` (contrato §6). El modelo es
@@ -250,7 +251,9 @@ export function BuylistKycForm({
 
   // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
   // sesiones viejas sin el campo dejan decidir al backend).
-  const emailBlocked = ready && !!user && user.emailVerified === false;
+  // ⭐ v1.80.9 (§42.7): sin correo no hay «correo sin verificar»; el servidor responde
+  // `403 ACCOUNT_WITHOUT_EMAIL` y su texto sale por `getErrorMessage`.
+  const emailBlocked = ready && !!user && user.emailVerified === false && user.email != null;
 
   const ineComplete = !!ineFrontKey && !!ineBackKey;
 
@@ -491,15 +494,19 @@ export function BuylistKycForm({
           <ShieldCheck size={18} className="text-info" aria-hidden />
           <h3 className="text-h3 font-semibold">{t('ineSectionTitle')}</h3>
         </div>
-        {ineOnFile ? (
-          /* v1.15: INE ya en archivo → no se re-pide (el backend lo trata como provisto, umbral AML). */
+        {ineOnFile && kycStatus !== 'rejected' ? (
+          /* v1.15: INE ya en archivo Y NO rechazada → no se re-pide (el backend lo trata como
+             provisto, umbral AML). El verde solo cuando NO hay rechazo: una INE rechazada con el
+             archivo aún presente (`ineOnFile:true`) NO puede ganarle al banner de rechazo, o el
+             vendedor nunca vería POR QUÉ falló ni que debe re-subir. */
           <p className="text-sm text-success">{t('ineOnFileNote')}</p>
         ) : (
           <>
             <p className="text-sm text-muted">{t('ineSectionNote')}</p>
             {ineRequired && <Banner variant="warning" role="alert">{t('ineRequiredError')}</Banner>}
             {/* El rechazo, donde duele: si le volvemos a pedir la INE, tiene que leer POR QUÉ
-                falló la anterior — con el motivo textual del revisor, entre comillas (§34.8.4). */}
+                falló la anterior — con el motivo textual del revisor, entre comillas (§34.8.4).
+                Se muestra AUNQUE `ineOnFile` sea true: el archivo previo no borra el rechazo. */}
             {kycStatus === 'rejected' && rejectionReason && (
               <Banner variant="warning" role="status" title={t('ineRejectedTitle')}>
                 <span className="flex flex-col gap-1">
@@ -529,6 +536,10 @@ export function BuylistKycForm({
           </>
         )}
       </section>
+
+      {/* LIVE-8 · sitio 5 (DESIGN_SYSTEM §80.2, criterio 505 iii): SIEMPRE visible —la CLABE se pide
+          siempre—, fuera de la sección de la INE (que solo aparece cuando se pide). */}
+      <PrivacySiteNote site="sellForm" className="text-xs leading-[1.6] text-muted" />
 
       {/* ZONA DE AVISOS, y es un ANCLA con nombre (`noticeRef`): los desenlaces que no pertenecen a
           un campo concreto viven juntos y aquí es adonde el efecto de P-4 lleva la pantalla. Se

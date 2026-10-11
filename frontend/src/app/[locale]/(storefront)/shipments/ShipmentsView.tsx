@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -10,13 +10,19 @@ import { formatMoneyCents } from '@/lib/format';
 import { createShipment, getHoldings, getShipmentQuote, listAddresses, updateAddress } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
-import type { ShipmentCreateResponse } from '@/types/contract';
+import type { AddressIncompleteField, ShipmentCreateResponse } from '@/types/contract';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { AddressManager } from '@/components/domain/AddressManager';
+import {
+  AddressFormModal,
+  AddressManager,
+  addressIncomplete,
+  addressMissingFields,
+  useMissingText,
+} from '@/components/domain/AddressManager';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
@@ -45,6 +51,13 @@ const RECIPIENT_MAX = 120;
  * se pide sola y el CTA se habilita. Si aun así el servidor responde `422 RECIPIENT_NAME_REQUIRED`
  * (quote o create), se abre la misma captura para ESA `addressId` y se reintenta — hermano de
  * `PHONE_REQUIRED`. ⛔ Nunca se manda `User.name` por el usuario (puede ser el fabricado).
+ *
+ * ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): una dirección vieja con `complete: false` (sin colonia, CP que
+ * no es de 5 o teléfono que no es de 10) no sirve para el retiro — el servidor responde
+ * `422 ADDRESS_INCOMPLETE {addressId, missing}`. La pantalla lo dice ANTES de pagar: CTA deshabilitado
+ * con motivo enlazado y «Completar dirección», que abre el formulario de la libreta sobre ESA dirección
+ * (mismo formulario, misma validación de colonia por CP). Si el `422` llega igual (caché vieja), manda el
+ * servidor: se marca esa dirección y se abre la misma salida.
  */
 export function ShipmentsView() {
   const t = useTranslations('shipments');
@@ -104,6 +117,22 @@ export function ShipmentsView() {
     // Solo al cambiar de dirección (o al descubrir que falta): no pisa lo que el usuario teclea.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAddress?.id, recipientMissing]);
+  // --- v1.81 · dirección incompleta (colonia / CP / teléfono) ------------------------------------
+  const [serverIncomplete, setServerIncomplete] = useState<{ id: string; missing: AddressIncompleteField[] } | null>(null);
+  const incomplete =
+    !!selectedAddress && (addressIncomplete(selectedAddress) || serverIncomplete?.id === selectedAddress.id);
+  const incompleteMissing: AddressIncompleteField[] = !selectedAddress
+    ? []
+    : serverIncomplete?.id === selectedAddress.id && serverIncomplete.missing.length > 0
+      ? serverIncomplete.missing
+      : addressMissingFields(selectedAddress);
+  const [completingAddress, setCompletingAddress] = useState(false);
+  // §43.18h.4: tras guardar, el bloque (y su botón) desaparecen ⇒ foco al radio de la dirección elegida
+  // y aviso `role="status"`. `focusRadioFor` = id de la dirección cuyo radio recibe el foco al re-pintarse.
+  const [addressSaved, setAddressSaved] = useState(false);
+  const [focusRadioFor, setFocusRadioFor] = useState<string | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const missingWords = useMissingText();
   const recipientClean = recipientDraft.trim();
   const recipientValid = recipientClean.length >= 1 && recipientClean.length <= RECIPIENT_MAX;
 
@@ -154,6 +183,18 @@ export function ShipmentsView() {
         setServerSaysMissing(detailId);
         void queryClient.invalidateQueries({ queryKey: ['addresses'] });
         setReqError(t('recipient.required'));
+      } else if (e instanceof ApiClientError && e.code === 'ADDRESS_INCOMPLETE') {
+        // v1.81: manda el servidor — se marca ESA dirección y se ofrece completarla (cero cobro).
+        const detailId = typeof e.details?.addressId === 'string' ? (e.details.addressId as string) : addressId;
+        const missing = Array.isArray(e.details?.missing)
+          ? (e.details.missing as unknown[]).filter(
+              (m): m is AddressIncompleteField => m === 'neighborhood' || m === 'postalCode' || m === 'phone',
+            )
+          : [];
+        setServerIncomplete({ id: detailId, missing });
+        void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+        // §43.18h.2: el bloque ya dice QUÉ falta; bajo el botón solo lo que el bloque no dice.
+        setReqError(t('addressIncomplete.notCharged'));
       } else {
         // Incluye 422 ITEM_NOT_SETTLED / ADDRESS_NOT_MX / 409 ITEM_IN_ANOTHER_SHIPMENT.
         setReqError(getMessage(e));
@@ -179,7 +220,27 @@ export function ShipmentsView() {
     router.push(VAULT_WITHDRAWALS_HREF);
   }
 
-  const canRequest = isMx && selected.length > 0 && !!addressId && !recipientMissing;
+  const canRequest = isMx && selected.length > 0 && !!addressId && !recipientMissing && !incomplete;
+  // §43.18 CA-5: las mismas palabras que la fila de la libreta (`addresses.incomplete.missing.*`).
+  const missingText = missingWords(incompleteMissing);
+  // §43.18h.3 (CA-4): el botón apagado apunta a TODOS los motivos visibles, no solo al primero.
+  const disabledReasons =
+    [
+      selectedAddress && isMx && recipientMissing ? 'recipient-required' : null,
+      selectedAddress && isMx && incomplete ? 'address-incomplete' : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined;
+
+  useEffect(() => {
+    if (!focusRadioFor || incomplete || selectedAddress?.id !== focusRadioFor) return;
+    const radio = Array.from(
+      asideRef.current?.querySelectorAll<HTMLInputElement>('input[type="radio"][name="shipping-address"]') ?? [],
+    ).find((r) => r.checked);
+    if (!radio) return;
+    radio.focus();
+    setFocusRadioFor(null);
+  }, [focusRadioFor, incomplete, selectedAddress?.id, addressesQuery.data]);
   const shipToName = recipientMissing ? '' : recipientOnFile;
 
   return (
@@ -255,9 +316,19 @@ export function ShipmentsView() {
           </QueryState>
         </div>
 
-        <aside className="gutter h-fit pb-12 pt-6 lg:px-10">
+        <aside ref={asideRef} className="gutter h-fit pb-12 pt-6 lg:px-10">
           {/* Picker real de direcciones (contrato §1). Reemplaza el selector de país + addr-mock. */}
-          <AddressManager selectable selectedId={addressId} onSelect={setAddressId} />
+          <AddressManager
+            selectable
+            selectedId={addressId}
+            onSelect={(id) => {
+              setAddressSaved(false);
+              setAddressId(id);
+            }}
+          />
+          <p role="status" className="mt-3 text-[13px] leading-[1.7] text-text empty:mt-0" data-testid="address-saved-status">
+            {addressSaved ? t('addressIncomplete.saved') : ''}
+          </p>
 
           {selectedAddress && !isMx && (
             <p className="rule-note mt-5 text-[13px] leading-[1.7] text-accent" role="alert">
@@ -294,6 +365,18 @@ export function ShipmentsView() {
                 }
               >
                 {t('recipient.save')}
+              </Button>
+            </div>
+          )}
+
+          {/* v1.81 · dirección incompleta: motivo + «Completar dirección» (formulario de la libreta). */}
+          {selectedAddress && isMx && incomplete && (
+            <div className="rule-note mt-5" data-testid="address-incomplete-block">
+              <p id="address-incomplete" className="font-mono text-[11px] leading-[1.6] text-accent">
+                {missingText ? t('addressIncomplete.required', { missing: missingText }) : t('addressIncomplete.generic')}
+              </p>
+              <Button variant="secondary" size="sm" className="mt-3" onClick={() => setCompletingAddress(true)}>
+                {t('addressIncomplete.cta')}
               </Button>
             </div>
           )}
@@ -339,7 +422,7 @@ export function ShipmentsView() {
             loading={creating}
             disabled={!canRequest}
             // §15.9: ningún control apagado y mudo — el motivo está enlazado cuando falta el destinatario.
-            aria-describedby={selectedAddress && isMx && recipientMissing ? 'recipient-required' : undefined}
+            aria-describedby={disabledReasons}
             onClick={requestWithdrawal}
             className="mt-6 w-full"
           >
@@ -347,6 +430,22 @@ export function ShipmentsView() {
           </Button>
         </aside>
       </div>
+
+      <AddressFormModal
+        open={completingAddress && !!selectedAddress}
+        address={selectedAddress}
+        focusField={incompleteMissing[0] ?? 'neighborhood'}
+        completeMissing={incompleteMissing}
+        onClose={() => setCompletingAddress(false)}
+        onSaved={(saved) => {
+          setCompletingAddress(false);
+          setServerIncomplete((cur) => (cur?.id === saved.id ? null : cur));
+          setReqError(null);
+          setAddressSaved(true);
+          setFocusRadioFor(saved.id);
+          void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+        }}
+      />
 
       <StripePaymentModal
         open={!!shipment}

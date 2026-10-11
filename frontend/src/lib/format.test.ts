@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoneyCents, formatSignedMoneyCents, formatDate, formatDateTimeMx } from './format';
+import {
+  formatMoneyCents,
+  formatSignedMoneyCents,
+  formatDate,
+  formatDateTimeMx,
+  formatTimeMx,
+  formatAge,
+} from './format';
 
 describe('formatMoneyCents', () => {
   it('converts cents to MXN units with MX$ symbol', () => {
@@ -101,5 +108,53 @@ describe('formatDateTimeMx', () => {
     expect(formatDateTimeMx(null)).toBe('');
     expect(formatDateTimeMx(undefined)).toBe('');
     expect(formatDateTimeMx('no-es-una-fecha')).toBe('');
+  });
+});
+
+/**
+ * `formatAge` — antigüedad de un pedido en la cola de «Pedidos a preparar» (CA #9). El reloj se
+ * INYECTA: una prueba de tiempo que dependa del momento de la corrida no mide nada.
+ */
+describe('formatAge', () => {
+  const now = new Date('2026-09-22T12:00:00.000Z');
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+
+  it('rinde la espera en días, en el idioma del operador', () => {
+    expect(formatAge(hoursAgo(24 * 3 + 1), 'es', now)).toBe('hace 3 días');
+    expect(formatAge(hoursAgo(24 * 3 + 1), 'en', now)).toBe('3 days ago');
+  });
+
+  it('TRUNCA, no redondea: 3 días y 23 horas siguen siendo «hace 3 días»', () => {
+    // Redondear exageraría la espera, y una cola que exagera empuja a saltarse el orden.
+    expect(formatAge(hoursAgo(24 * 3 + 23), 'es', now)).toBe('hace 3 días');
+  });
+
+  it('escalona minutos → horas → días, con «ahora»/«ayer»/«hoy» en vez de «hace 0 días»', () => {
+    expect(formatAge(hoursAgo(0), 'es', now)).toBe('ahora');
+    expect(formatAge(hoursAgo(5), 'es', now)).toBe('hace 5 horas');
+    expect(formatAge(hoursAgo(25), 'es', now)).toBe('ayer');
+  });
+
+  it('entrada ausente o inválida ⇒ cadena vacía, jamás una antigüedad inventada', () => {
+    expect(formatAge(null, 'es', now)).toBe('');
+    expect(formatAge(undefined, 'es', now)).toBe('');
+    expect(formatAge('no-es-una-fecha', 'es', now)).toBe('');
+  });
+});
+
+// ⭐ v1.80.9 (DESIGN_SYSTEM §42.5.3): hora del candado en CDMX, no en la zona del navegador.
+describe('formatTimeMx', () => {
+  it('pinta solo la hora en America/Mexico_City', () => {
+    // 18:00Z = 12:00 en CDMX (UTC-6, sin horario de verano desde 2022).
+    const es = formatTimeMx('2026-10-04T18:00:00.000Z', 'es');
+    expect(es).toMatch(/12:00/);
+    expect(es).not.toMatch(/2026|oct/i);
+    expect(formatTimeMx('2026-10-04T18:00:00.000Z', 'en')).toMatch(/12:00\s?PM/i);
+  });
+
+  it('entrada inválida ⇒ cadena vacía', () => {
+    expect(formatTimeMx(null)).toBe('');
+    expect(formatTimeMx(undefined)).toBe('');
+    expect(formatTimeMx('no-es-una-fecha')).toBe('');
   });
 });

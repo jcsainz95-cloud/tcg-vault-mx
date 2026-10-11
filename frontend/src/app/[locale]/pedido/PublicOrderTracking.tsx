@@ -6,12 +6,14 @@ import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestOrderTrackingDTO } from '@/types/contract';
 import { formatDate, formatMoneyCents } from '@/lib/format';
+import { energyBreakdown } from '@/lib/accessories';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { ListingSpec } from '@/components/domain/ListingSpec';
-import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
+import { SupportContact } from '@/components/domain/SupportContact';
 import {
   TRACKING_STATUS_KEY,
   TRACKING_STATUS_TONE,
@@ -54,6 +56,7 @@ export function PublicOrderTracking({
 }: PublicOrderTrackingProps) {
   const t = useTranslations('track');
   const tRoot = useTranslations();
+  const ta = useTranslations('accessories');
   const locale = useLocale() as AppLocale;
   const [copied, setCopied] = useState<'order' | 'tracking' | null>(null);
 
@@ -117,6 +120,8 @@ export function PublicOrderTracking({
                 };
               })}
             />
+            {/* ⭐ §43.11 (FS-10): movimientos bajo el estado (el título sigue siendo `publicStatus`). */}
+            <ShipmentTimeline events={data.shipping.timeline} className="mt-4" />
           </div>
         ) : (
           // Reembolsado / cancelado / en revisión: sin detalles del proceso (§15.6).
@@ -140,6 +145,8 @@ export function PublicOrderTracking({
             >
               {copied === 'tracking' ? t('copied') : t('copyTracking')}
             </Button>
+            {/* ⭐ §43.11: la liga VIENE del servidor o no existe (la regla de arriba sigue en pie). */}
+            <TrackingLink url={data.shipping.trackingUrl} labelKey="track.trackingLink" />
           </div>
         ) : (
           <p className="mt-3 font-mono text-[11px] uppercase tracking-label text-muted">
@@ -183,6 +190,26 @@ export function PublicOrderTracking({
             </li>
           ))}
         </ul>
+        {/* §AC.12 / §AC-UX.13: accesorios después de las cartas. ⛔ Sin costo ni ids internos. */}
+        {(data.accessoryLines?.length ?? 0) > 0 && (
+          <ul className="mt-2" data-testid="tracking-accessories" aria-label={t('accessories.label')}>
+            {data.accessoryLines!.map((l) => {
+              const total = formatMoneyCents(l.lineTotalCents, locale);
+              // v1.86.3 (§AC.19.6): `id` (llave de lista) y `kind` obligatorios; el paquete se reconoce por `kind`.
+              return (
+                <li key={l.id} className="flex flex-col gap-1 border-b border-border py-4">
+                  <p className="text-[15px] text-text">
+                    {l.kind === 'energy_bundle'
+                      ? t('accessories.bundleLine', { deck: l.deckName ?? l.name, total })
+                      : t('accessories.line', { name: l.name, n: l.quantity, total })}
+                  </p>
+                  {l.components.length > 0 && <p className="font-mono text-xs text-muted">{energyBreakdown(l.components, ta)}</p>}
+                  {l.refundedQty > 0 && <p className="font-mono text-xs text-muted">{t('accessories.refunded', { k: l.refundedQty })}</p>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       {/* 5 · Total pagado — el mismo desglose que recibió por correo, en solo lectura. */}
@@ -244,19 +271,17 @@ export function PublicOrderTracking({
         </p>
       )}
 
-      {/* Disputa / error de plataforma: por correo a soporte citando el nº de pedido
-          (criterio 56b). La página no abre disputas: no escribe en el pedido. */}
-      <section aria-labelledby="tracking-trouble" className="mt-10 border-t border-border pt-8">
-        <h2 id="tracking-trouble" className="eyebrow">
-          {t('troubleWithOrder')}
-        </h2>
-        <div className="mt-4">
-          <DisputeEvidenceContact
-            email={data.support.evidenceContact}
-            reference={data.orderNumber}
-          />
-        </div>
-      </section>
+      {/* §60.1 b · §PNL.1: «¿Problema con tu pedido? Escríbenos» SOLO con el pedido ENTREGADO
+          (antes no aparece). El correo sale de `support.evidenceContact` del propio DTO. La página
+          no abre nada: no escribe en el pedido. */}
+      {data.status === 'entregado' && (
+        <SupportContact
+          email={data.support.evidenceContact}
+          reference={data.orderNumber}
+          kind="order"
+          className="mt-10 pt-8"
+        />
+      )}
 
       {/* Reclamo (enlace secundario): NO prellena ni muestra el correo — la página no lo
           conoce en pantalla (§15.6 · 4). */}

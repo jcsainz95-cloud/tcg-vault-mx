@@ -68,7 +68,7 @@ const card: CardDTO = {
   supertype: 'Pokémon',
   subtypes: [],
   setId: 'base1',
-  setName: 'Base Set',
+  setName: 'Base Set', setPtcgoCode: null,
   imageSmallUrl: '',
   imageLargeUrl: '',
   availableFinishes: ['normal'],

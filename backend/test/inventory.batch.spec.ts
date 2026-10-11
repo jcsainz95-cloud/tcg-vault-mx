@@ -1,4 +1,4 @@
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
@@ -15,6 +15,7 @@ import {
   MAX_BATCH_QTY,
   MAX_LIST_PRICE_CENTS,
 } from '../src/modules/inventory/dto/inventory.dto';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * WS-E (v1.16-master-set, §4.17b) + endurecimiento WS-E — ESCRITURA POR LOTE:
@@ -47,6 +48,7 @@ function buildPricing(over: any = {}): PricingService {
       return m;
     }),
     // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -70,6 +72,7 @@ function buildPricing(over: any = {}): PricingService {
 }
 
 const settings = {
+  ...ivaDialsStub(),
   getNumber: jest.fn(async () => 70),
 } as unknown as SettingsService;
 
@@ -345,6 +348,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     const prisma = prismaWithItems(items);
     const pricing = buildPricing({
       // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no

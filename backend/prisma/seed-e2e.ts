@@ -38,9 +38,12 @@ import {
   E2E_LOCATIONS,
   E2E_ADDRESS_RECIPIENT,
   E2E_PICKUP_ADDRESS,
+  E2E_POSTAL_CODES,
+  E2E_SEALED_LISTED,
   E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
+  E2E_SPEI_FIXTURE,
   E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
@@ -54,6 +57,8 @@ const E2E_FIXTURE_EMAILS: string[] = [
   // paso 3 los alcance (misma razón que los de §4.47.10.4); su `KycProfile` lo restaura su propia
   // siembra (paso 12), que es más fuerte que un borrado: deja el estado EXACTO, no «vacío».
   ...Object.values(E2E_KYC_FIXTURES).map((u) => u.email),
+  // P-REL-3: el cliente de la cubeta SPEI (paso 13).
+  E2E_SPEI_FIXTURE.customer.email,
 ];
 
 function todayUtc(): Date {
@@ -148,6 +153,10 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await prisma.dispute.deleteMany({ where: { userId: { in: ids } } });
   await prisma.shipmentRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a ShipmentItem
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
+  // v1.79 (M-59): la colocación en bóveda cuelga de la orden con FK `Restrict` (y sus filas por carta
+  // de `OrderItem`, también `Restrict`) ⇒ se borran ANTES que las órdenes de los usuarios del fixture.
+  await prisma.vaultPlacementItem.deleteMany({ where: { placement: { order: { userId: { in: ids } } } } });
+  await prisma.vaultPlacement.deleteMany({ where: { order: { userId: { in: ids } } } });
   await prisma.order.deleteMany({ where: { userId: { in: ids } } }); // cascada a OrderItem
   await prisma.kycProfile.deleteMany({ where: { userId: { in: ids } } });
   // v1.67.1 (2026-09-11, medido): el perfil de facturación lleva `rfcEnc` cifrado con la clave PII
@@ -170,13 +179,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   //   - InventoryMovement de piezas de PLATAFORMA (settle/chargeback_return): se acumularían y
   //     el assert "settleMovements === 1" contaría 2+.
   // Se limpian aquí (idempotencia real, no solo dentro de una corrida).
+  // QA-2 (BACKEND_NOTES §84.cierre): la pieza SELLADA del fixture (`E2E_SEALED_LISTED`, v1.87.4) no está en `E2E_FOLIOS`
+  // (los candados que cuentan piezas por ese mapa no deben moverse) ⇒ su folio se suma AQUÍ, solo al reset de movimientos.
   const e2eItems = await prisma.inventoryItem.findMany({
-    where: { folio: { in: Object.values(E2E_FOLIOS) } },
+    where: { folio: { in: [...Object.values(E2E_FOLIOS), E2E_SEALED_LISTED.folio] } },
     select: { id: true },
   });
   await prisma.inventoryMovement.deleteMany({ where: { itemId: { in: e2eItems.map((i) => i.id) } } });
   await prisma.processedStripeEvent.deleteMany({
     where: { OR: [{ id: 'evt_e2e_succeeded_fixed' }, { id: { startsWith: 'evt_e2e' } }] },
+  });
+  // techlead-5 (BACKEND_NOTES §84.cierre): el «avísame» sin sesión de los E2E (`frontend/e2e/wishlist.spec.ts`) apunta
+  // correos únicos `…@e2e.local` que no cuelgan de ningún usuario ⇒ se acumulaban entre corridas (y cuentan contra
+  // `sealed_restock_max_pending_per_email` si se repite uno). Se purgan SOLO las de dominio `@e2e.local`, pendientes o no.
+  await prisma.sealedRestockSubscription.deleteMany({
+    where: { email: { endsWith: '@e2e.local', mode: 'insensitive' } },
   });
 
   // 4. Ubicaciones (una por zona).
@@ -209,7 +226,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   const set = await prisma.cardSet.upsert({
     where: { externalId: E2E_SET.externalId },
     create: { ...E2E_SET },
-    update: {},
+    // §83.seed: una BD sembrada antes de v1.86 tiene el set con `ptcgoCode` null ⇒ se CORRIGE, no se deja.
+    update: { ptcgoCode: E2E_SET.ptcgoCode },
   });
   // v1.22-variantes-orden (§4.22e): SEGUNDO set, dedicado al orden natural ("2" < "10" < "TG01").
   const orderSet = await prisma.cardSet.upsert({
@@ -335,6 +353,9 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
   // v2.1.7: mercado ABSURDO para una premium ⇒ la venta aterriza en el PISO (guardarraíl §4.36.5).
   priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+  // v1.89⟨bmk⟩ (§BMK.2): mercado de MX$2 para una premium ⇒ también la COMPRA cae al bin ⇒ `precio_pendiente`
+  // con mercado > 0 guardado. Es la carta que ejercita BMK-2 contra el stack vivo (BACKEND_NOTES §86).
+  priceRef(E2E_CARDS.binpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.binpremium.refNmCents);
   // v1.50.3-d (§4.38i.9) — la carta con raw publicado Y slab PSA 10 publicado. Las DOS filas son de la
   // MISMA carta y NO significan lo mismo: `raw:NM` es el mercado del single, y `graded:PSA:10` es la
   // referencia de mercado REAL del slab publicado — **no** un estimado del gancho, aunque sea la misma
@@ -353,6 +374,9 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // automático y el `isManual: false` del diagnóstico solo existían en unitarios con dobles: el
   // override manual escribe siempre manual y siempre con fecha de hoy.
   priceRef(E2E_CARDS.staleest.externalId, 'raw', 'raw:NM', E2E_CARDS.staleest.refNmCents);
+  // v1.86 (§83.seed) — las dos cartas del deck de energías de E2E: solo su raw NM (MX$50, la más barata).
+  priceRef(E2E_CARDS.deckember.externalId, 'raw', 'raw:NM', E2E_CARDS.deckember.refNmCents);
+  priceRef(E2E_CARDS.deckspark.externalId, 'raw', 'raw:NM', E2E_CARDS.deckspark.refNmCents);
   for (const e of E2E_STALE_ESTIMATES) {
     priceRefs.push({
       cardId: cardIds[E2E_CARDS.staleest.externalId],
@@ -391,6 +415,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   //
   //   · `no_market`        → `nopref` NO tiene `PriceReference` (ningún flujo se la da).
   //   · `premium_at_floor` → `floorpremium` es premium con mercado de MX$10: la venta cae al piso.
+  //     (v1.80.8.5, `M2-PF`: sigue retenida porque `Secret Rare` no está en el seed del dial
+  //     `premiumFloorSalePublish`; una `Double Rare`/`Rare Holo EX` en su lugar se publicaría al piso.)
   //
   // Estables durante la suite: el eje de COMPRA sí resuelve para `floorpremium`, pero desde v2.1.6
   // un cierre del eje de compra NO puede cerrar un `premium_at_floor` abierto por `inventory`
@@ -498,6 +524,37 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
 
+  // ⭐ v1.87.4⟨wishlist⟩ (WSH-F5) — la pieza SELLADA a la venta (ver `E2E_SEALED_LISTED`). Anclada a la carta `thirdraw`
+  // del set E2E (el sellado se ancla a una carta del set, `schema.prisma`); `GET /catalog/cards` no emite sellados (H9),
+  // así que la vitrina de singles no cambia. El reset devuelve estado, precio y MAPEO (un flujo puede desmapearla).
+  {
+    const sealedReset = {
+      ownerType: 'platform',
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: 'listed',
+      listPriceCents: E2E_SEALED_LISTED.listPriceCents,
+      tcgplayerProductId: E2E_SEALED_LISTED.tcgplayerProductId,
+      tcgplayerGroupId: E2E_SEALED_LISTED.tcgplayerGroupId,
+      sealedProductName: E2E_SEALED_LISTED.productName,
+      locationId: platformLoc.id,
+    };
+    await upsertItem(
+      E2E_SEALED_LISTED.folio,
+      {
+        cardId: cardIds[E2E_CARDS.thirdraw.externalId],
+        productType: 'sealed',
+        rawCondition: null,
+        sealedSubtype: E2E_SEALED_LISTED.sealedSubtype,
+        sealedCondition: E2E_SEALED_LISTED.sealedCondition,
+        acquisitionType: 'compra',
+        acquisitionCostCents: 300000,
+        ...sealedReset,
+      },
+      sealedReset,
+    );
+  }
+
   // v1.50.3-d (§4.38i.9) — las DOS piezas de la carta de INV-D, sobre la MISMA carta: el grupo raw
   // publicado y el slab PSA 10 publicado. Con las dos a la vez, `getPublishedSlabGradesBatch` devuelve
   // `['10']` para esa carta y por fin se puede ejercitar contra el stack vivo lo que hasta ahora solo
@@ -585,14 +642,39 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
 
+  // v1.86 (§83.seed) — DOS piezas `listed` de plataforma por carta del deck de energías de E2E (FRONTEND_NOTES
+  // §107.real). Se RESETEAN a plataforma/listed en cada corrida, como el resto de `E2E-LST-*`: un caso que dejó una
+  // apartada por una sesión de pago no contamina la siguiente corrida.
+  for (const [folio, cardExt] of [
+    [E2E_FOLIOS.listedDeckEmber1, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckEmber2, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckSpark1, E2E_CARDS.deckspark.externalId],
+    [E2E_FOLIOS.listedDeckSpark2, E2E_CARDS.deckspark.externalId],
+  ] as const) {
+    await upsertItem(
+      folio,
+      {
+        cardId: cardIds[cardExt],
+        productType: 'raw',
+        rawCondition: 'NM',
+        ownerType: 'platform',
+        status: 'listed',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 2000,
+        locationId: platformLoc.id,
+      },
+      { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+    );
+  }
+
   // ⚠️ v2.1.10 — LA ÚNICA PIEZA `in_stock` DEL FIXTURE: la que habita la COLA DE «LISTAS PARA
   // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.
   //
   // Reproduce el estado en que nace una pieza CONVERTIDA desde M5 (`convertToInventory`): plataforma,
-  // `in_stock`, `acquisitionType='buylist'`, costo = el bruto ofertado de la línea… y **SIN ubicación**,
-  // porque la conversión no la exige (atorar ahí atoraría el pago al vendedor). Resultado observable:
-  // `missing: ['location']` y un precio de venta que SÍ resuelve (la carta tiene referencia de
-  // mercado), que es exactamente el perfil de las filas reales de esta cola.
+  // `in_stock`, `acquisitionType='buylist'`, SIN ubicación (la conversión no la exige). ⭐ Errata SU-1
+  // (API_CONTRACT §M1-SU): la ubicación ya NO es requisito para publicar, así que una pieza con precio
+  // resoluble ya no habita la cola. Por eso la carta es `nopref` (SIN `PriceReference`): el precio NO
+  // resuelve ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`, `priceBasis: 'pending'`.
   //
   // ⚠️ **NO lleva `sourceSellRequestItemId`.** Esa FK es única y colgarla de una de las dos
   // `SellRequest` del ciclo marcaría esa línea como YA CONVERTIDA, rompiendo las pruebas del ciclo
@@ -606,17 +688,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await upsertItem(
     E2E_FOLIOS.pendingPublishNoLocation,
     {
-      cardId: cardIds[E2E_CARDS.common.externalId],
+      // SU-1: la carta SIN referencia de mercado ⇒ el precio de venta no resuelve (lo que le falta).
+      cardId: cardIds[E2E_CARDS.nopref.externalId],
       productType: 'raw',
       rawCondition: 'NM',
       ownerType: 'platform',
       status: 'in_stock',
       acquisitionType: 'buylist',
-      // La curva paga 50 % de los $50 de mercado del común: el BRUTO que se le ofertó al vendedor.
+      // El BRUTO que se le ofertó al vendedor (precio capturado a mano en M5: sin mercado no hay curva).
       acquisitionCostCents: 2500,
-      // locationId AUSENTE a propósito: es lo que le falta y lo que la cola existe para señalar.
+      // locationId AUSENTE: como nace una pieza convertida. Desde SU-1 no es lo que la retiene.
     },
     {
+      // SU-1: el reset también re-apunta la carta — una BD sembrada antes de SU-1 la tiene en `common` (con
+      // precio), y sin esto la pieza saldría de la cola en la primera corrida.
+      cardId: cardIds[E2E_CARDS.nopref.externalId],
       ownerType: 'platform',
       ownerUserId: null,
       ownershipStatus: null,
@@ -1058,12 +1144,223 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       });
     }
   }
+  // 12a. ⭐ v1.81 (M-64): el catálogo de CP del arnés (`E2E_POSTAL_CODES`). Idempotente (`@@unique([postalCode,
+  // neighborhood])` + `skipDuplicates`): re-sembrar no duplica ni pisa lo que un spec haya añadido.
+  await prisma.postalCode.createMany({ data: [...E2E_POSTAL_CODES], skipDuplicates: true });
+
   // 12b. Las DOS imágenes, EN EL BUCKET. Sin el objeto se mediría un marco vacío (`naturalWidth`
   // = 0), que es peor que no medir: el `<img>` existe y el test pasa por la forma.
   // **Best effort a propósito:** el seed corre también donde no hay object storage (`npm run
   // seed:synthetic` a secas). Si no hay, **avisa fuerte** y sigue — las filas quedan sembradas y lo
   // único que falla es lo que de verdad necesita el bucket.
   await seedIneObjects();
+
+  // 13. ⭐ P-REL-3 — LA CUBETA SPEI: dos `ManualRefund` `pending` con su caso `refunded` (ver `E2E_SPEI_FIXTURE`).
+  await seedSpeiBucket(prisma, {
+    adminId: userIds[E2E_USERS.admin.email],
+    operatorId: userIds[E2E_USERS.operator.email],
+    cardId: charizardId,
+    custodyLocationId: custodyLoc.id,
+  });
+}
+
+/**
+ * Paso 13 (P-REL-3). **Idempotente con IDs estables**: todo se encuentra por su clave única (`email`, `folio`,
+ * `orderNumber`, `orderId`, `orderItemId`, `placementItemId`, `idempotencyKey`) y se RESTAURA, no se recrea — el spec
+ * puede guardar ids entre corridas y una segunda siembra deja exactamente el mismo estado.
+ *
+ * Lo que el E2E puede mover y la siembra devuelve:
+ *  - `paid` / `cancelled` ⇒ la fila vuelve a `pending` con TODOS los sellos de pago y cancelación a `null`
+ *    (`paidAt`, `paidByUserId`, `speiReference`, `paidNote`, `paidClabeHmac`, `cancelled*`, `paidNotifiedAt`);
+ *  - `reissue` de la cancelada ⇒ la re-emisión (`reissue:<id>`, viva, mismo caso y canal) se BORRA **antes** de volver
+ *    la original a `pending` — si no, el índice único parcial `ManualRefund_live_per_case_source_key` lo impediría.
+ *    Se borra TODA fila del cliente que no sea una de las dos claves fijas (una re-emisión de re-emisión incluida),
+ *    soltando antes `reissuedFromId` (FK `Restrict` entre ellas);
+ *  - `PUT /users/me/kyc {clabe}` ⇒ se borra su `KycProfile` (sin CLABE; clave PII efímera, ver el paso 3).
+ */
+async function seedSpeiBucket(
+  prisma: PrismaClient,
+  ctx: { adminId: string; operatorId: string; cardId: string; custodyLocationId: string },
+): Promise<void> {
+  const F = E2E_SPEI_FIXTURE;
+  const passwordHash = await argon2.hash(F.customer.password);
+  const user = await prisma.user.upsert({
+    where: { email: F.customer.email },
+    create: {
+      email: F.customer.email,
+      passwordHash,
+      name: F.customer.name,
+      nameSource: 'user',
+      role: 'customer',
+      locale: 'es',
+      phone: F.customer.phone,
+      authProvider: 'local',
+      emailVerified: true,
+    },
+    update: {
+      passwordHash,
+      name: F.customer.name,
+      nameSource: 'user',
+      role: 'customer',
+      phone: F.customer.phone,
+      authProvider: 'local',
+      emailVerified: true,
+      status: 'active',
+      mustChangePassword: false,
+    },
+  });
+  await prisma.kycProfile.deleteMany({ where: { userId: user.id } });
+
+  // Re-emisiones y cualquier otra fila del cliente fuera de las dos claves fijas.
+  const fixedKeys = Object.values(F.rows).map((r) => r.idempotencyKey);
+  const stray = { customerUserId: user.id, idempotencyKey: { notIn: fixedKeys } };
+  await prisma.manualRefund.updateMany({ where: stray, data: { reissuedFromId: null } });
+  await prisma.manualRefund.deleteMany({ where: stray });
+
+  // La orden de bóveda `settled` (origen de los dos casos).
+  const orderData = {
+    userId: user.id,
+    fulfillmentMode: 'vault' as const,
+    status: 'settled' as const,
+    subtotalCents: F.order.subtotalCents,
+    shippingFeeCents: 0,
+    processingFeeCents: F.order.processingFeeCents,
+    ivaCents: F.order.ivaCents,
+    ivaRatePct: 16,
+    totalCents: F.order.totalCents,
+    priceConvention: 'IVA_INCLUSIVE' as const,
+    // M-50: toda orden `IVA_INCLUSIVE` archiva el dial con el que se derivaron sus precios (y viceversa;
+    // candado `iva-price-convention.e2e-spec.ts`). 100 = el default de `IVA_TRANSFER_PCT`.
+    ivaTransferPct: 100,
+    locale: 'es' as const,
+    createdAt: new Date(F.order.createdAt),
+    settledAt: new Date(F.order.settledAt),
+  };
+  const order = await prisma.order.upsert({
+    where: { orderNumber: F.order.orderNumber },
+    create: { orderNumber: F.order.orderNumber, ...orderData },
+    update: orderData,
+  });
+  const settledAt = new Date(F.order.settledAt);
+  const resolvedAt = new Date(F.order.resolvedAt);
+  const placementData = {
+    status: 'placed' as const,
+    createdAt: settledAt,
+    preparedAt: settledAt,
+    preparedByUserId: ctx.operatorId,
+    placedAt: settledAt,
+    placedByUserId: ctx.operatorId,
+    locationId: ctx.custodyLocationId,
+    cancelledAt: null,
+    cancelledByUserId: null,
+    cancelReason: null,
+  };
+  const placement = await prisma.vaultPlacement.upsert({
+    where: { orderId: order.id },
+    create: { orderId: order.id, ...placementData },
+    update: placementData,
+  });
+
+  for (const [k, r] of Object.entries(F.rows)) {
+    const missingReason = k === 'pay' ? ('not_found' as const) : ('damaged' as const);
+    // La pieza original, como la deja `originalToPlatform`: plataforma, `lost|damaged`, sin dueño.
+    const pieceState = {
+      ownerType: 'platform' as const,
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: missingReason === 'not_found' ? ('lost' as const) : ('damaged' as const),
+      locationId: null,
+      listPriceCents: null,
+    };
+    const piece = await prisma.inventoryItem.upsert({
+      where: { folio: r.folio },
+      create: {
+        folio: r.folio,
+        cardId: ctx.cardId,
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish: 'normal',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 20000,
+        ...pieceState,
+      },
+      update: pieceState,
+    });
+    const orderItem =
+      (await prisma.orderItem.findFirst({ where: { orderId: order.id, inventoryItemId: piece.id } })) ??
+      (await prisma.orderItem.create({
+        data: {
+          orderId: order.id,
+          inventoryItemId: piece.id,
+          cardSnapshot: { cardId: ctx.cardId, name: E2E_CARDS.charizard.name, setName: E2E_SET.name, number: E2E_CARDS.charizard.number, productType: 'raw', rawCondition: 'NM', gradingCompany: null, gradeValue: null },
+          unitPriceCents: r.unitPriceCents,
+          finish: 'normal',
+        },
+      }));
+    const vpiData = { prepStatus: 'missing' as const, prepMarkedAt: settledAt, prepMarkedByUserId: ctx.operatorId, missingReason };
+    const vpi = await prisma.vaultPlacementItem.upsert({
+      where: { orderItemId: orderItem.id },
+      create: { placementId: placement.id, orderItemId: orderItem.id, inventoryItemId: piece.id, ...vpiData },
+      update: vpiData,
+    });
+    const caseData = {
+      source: 'vault_purchase' as const,
+      status: 'refunded' as const,
+      customerUserId: user.id,
+      originalInventoryItemId: piece.id,
+      missingReason,
+      originOrderItemId: orderItem.id,
+      openedAt: settledAt,
+      openedByUserId: ctx.operatorId,
+      resolvedAt,
+      resolvedByUserId: ctx.adminId,
+      replacementInventoryItemId: null,
+      replacementShipmentItemId: null,
+      voidNote: null,
+      refundAmountCents: r.amountCents,
+      refundReason: r.refundReason,
+      refundPaidRefCents: r.unitPriceCents,
+      refundMarketRefCents: null,
+      refundMarketRefDate: null,
+      refundAboveRefConfirmed: false,
+    };
+    const kase = await prisma.replacementCase.upsert({
+      where: { placementItemId: vpi.id },
+      create: { placementItemId: vpi.id, ...caseData },
+      update: caseData,
+    });
+    const mrData = {
+      source: 'case_excess' as const,
+      status: 'pending' as const,
+      customerUserId: user.id,
+      replacementCaseId: kase.id,
+      paymentRefundId: null,
+      orderId: order.id,
+      amountCents: r.amountCents,
+      merchandiseCents: r.merchandiseCents,
+      merchandiseIvaCents: r.merchandiseIvaCents,
+      processingFeeCents: r.processingFeeCents,
+      compensationCents: r.compensationCents,
+      createdAt: resolvedAt,
+      createdByUserId: ctx.adminId,
+      paidAt: null,
+      paidByUserId: null,
+      speiReference: null,
+      paidNote: null,
+      paidClabeHmac: null,
+      cancelledAt: null,
+      cancelledByUserId: null,
+      cancelNote: null,
+      reissuedFromId: null,
+      announcedNotifiedAt: resolvedAt,
+      paidNotifiedAt: null,
+    };
+    await prisma.manualRefund.upsert({
+      where: { idempotencyKey: r.idempotencyKey },
+      create: { idempotencyKey: r.idempotencyKey, ...mrData },
+      update: mrData,
+    });
+  }
 }
 
 /**

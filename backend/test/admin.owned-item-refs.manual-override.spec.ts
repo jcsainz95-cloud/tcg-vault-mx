@@ -4,6 +4,8 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * §4.27f-2 (P47-2, v1.46) — la ficha 360° admin (`ownedItemRefs`) usa `isBetterRef`, NO «la primera
@@ -86,10 +88,14 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     const pricing = {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+      ...REAL_VALUATION_GATE,
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    return new AdminService(prisma as PrismaService, pricing, pii, {} as never);
+    return new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts());
   }
 
   it('muestra el precio MANUAL viejo, no la automática fresca (aunque la automática sea más reciente)', async () => {
@@ -137,5 +143,52 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     const service = buildService(refs);
     const res: any = await service.getUser('u1', Role.super_admin);
     expect(res.ownedItems[0].referenceValue.referenceMxnCents).toBe(AUTO_PRICE);
+  });
+
+  /**
+   * P-53 ALTO-4 (§4) — CANDADO de no-regresión F8: la ficha 360° admin mide la frescura por FRESCURA
+   * EFECTIVA `evidenceDate ?? capturedDate` (hereda `isBetterRef`, F2) y lee SIN cota. Con la primaria
+   * BUENA congelada por write-on-change (capturedDate viejo + evidenceDate=HOY) frente a un fallback de
+   * MENOR precedencia con capturedDate=HOY, la vista admin DEBE mostrar la primaria — no la automática
+   * peor «más reciente por capturedDate». Fija que este lector NO capa por `capturedDate` crudo.
+   */
+  it('P-53 ALTO-4: la primaria congelada (evidenceDate=HOY) gana al fallback fresco (no capar por capturedDate crudo)', async () => {
+    const OLD = new Date('2026-09-01T00:00:00Z');
+    const TODAY = new Date('2026-09-18T00:00:00Z');
+    const refs = [
+      priceRef({
+        source: 'tcgcsv_singles',
+        priceMxnCents: 100000,
+        capturedDate: OLD,
+        evidenceDate: TODAY, // el escritor congela capturedDate y solo avanza evidenceDate.
+        createdAt: OLD,
+      }),
+      priceRef({
+        source: 'pokemontcg_io',
+        priceMxnCents: 50000,
+        capturedDate: TODAY,
+        evidenceDate: null,
+        createdAt: TODAY,
+      }),
+    ];
+    const service = buildService(refs);
+    const res: any = await service.getUser('u1', Role.super_admin);
+    const item = res.ownedItems[0];
+    expect(item.referenceValue.status).toBe('priced');
+    expect(item.referenceValue.referenceMxnCents).toBe(100000);
+    expect(item.referenceValue.source).toBe('tcgcsv_singles');
+  });
+
+  it('P-53 ALTO-4 · gemelo CA-10: con evidenceDate=null en TODAS gana el fallback fresco — IDÉNTICO a hoy', async () => {
+    const OLD = new Date('2026-09-01T00:00:00Z');
+    const TODAY = new Date('2026-09-18T00:00:00Z');
+    const refs = [
+      priceRef({ source: 'tcgcsv_singles', priceMxnCents: 100000, capturedDate: OLD, evidenceDate: null, createdAt: OLD }),
+      priceRef({ source: 'pokemontcg_io', priceMxnCents: 50000, capturedDate: TODAY, evidenceDate: null, createdAt: TODAY }),
+    ];
+    const service = buildService(refs);
+    const res: any = await service.getUser('u1', Role.super_admin);
+    expect(res.ownedItems[0].referenceValue.referenceMxnCents).toBe(50000);
+    expect(res.ownedItems[0].referenceValue.source).toBe('pokemontcg_io');
   });
 });

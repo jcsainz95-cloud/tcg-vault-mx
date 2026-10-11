@@ -5,8 +5,8 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
 /**
  * Flujo: panel admin responsive (PROJECT §F / AC 24, 25, 27; contrato §10).
  * Dashboard de 8 tarjetas + enmascarado financiero para vault_operator, M1
- * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick), M8
- * (disputa por correo a soporte, sin comparador de fotos, v1.2).
+ * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick) y M8 retirado (F-26: solo la
+ * redirección a `/admin`).
  */
 test.describe('admin · dashboard', () => {
   /**
@@ -195,6 +195,55 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
     await expect(emit.first()).toBeDisabled();
     await expect(page.getByText(t('es', 'admin.m5.desk.totals.noLines'))).toBeVisible();
   });
+
+  /**
+   * **P-M5-DECLINE** (DESIGN_SYSTEM §25.8, D39; contrato «Qué ofrece M5 en cada estado»): el ciclo de cierre
+   * entero de una solicitud, como lo recorre el operador. `sr-3004` (cotizada) → emitir → `ofertada` →
+   * «Cancelar la oferta» → vuelve a «Por ofertar» → «Declinar» → sale de la fila y aparece en «Cerradas».
+   * Lo recorre el OPERADOR: el verbo es suyo (D39), no solo del súper-admin.
+   */
+  test('P-M5-DECLINE: emitir → cancelar la oferta → declinar, como operador', async ({ page }) => {
+    mockOnly('el ciclo sigue `sr-3004` del fixture y declinar es terminal (en real consumiría la `cotizada` del seed)');
+    const D = (key: string, vars?: Record<string, string | number>) => t('es', `admin.m5.desk.${key}`, vars);
+    await loginAs(page, 'operator');
+    await page.goto('/es/admin/m5');
+    await openM5Stage(page, t('es', 'admin.m5.tabs.por_ofertar'));
+    const card = page.getByTestId('m5-request-sr-3004');
+    await expect(card).toBeVisible();
+
+    // 1) Emitir la oferta desde la mesa (en el fixture cabe en el tope del operador: sale sola).
+    await card.getByRole('button', { name: D('open') }).click();
+    await card.getByRole('button', { name: D('totals.emit') }).click();
+    const confirmEmit = page.getByRole('dialog', { name: D('confirm.title') });
+    await confirmEmit.getByRole('button', { name: D('confirm.cta') }).click();
+    await expect(confirmEmit).toBeHidden();
+
+    // 2) En «Con el vendedor» la puerta es «Cancelar la oferta» (y NO «Declinar»).
+    await openM5Stage(page, t('es', 'admin.m5.tabs.con_vendedor'));
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('button', { name: D('decline.action'), exact: true })).toHaveCount(0);
+    await card.getByRole('button', { name: D('cancelOffer.action') }).click();
+    const cancelDialog = page.getByRole('dialog', { name: D('cancelOffer.title') });
+    await cancelDialog.getByLabel(D('cancelOffer.reasonLabel')).fill('número mal puesto');
+    await cancelDialog.getByRole('button', { name: D('cancelOffer.confirm') }).click();
+    await expect(page.getByTestId('m5-page-notice')).toContainText(D('cancelOffer.done', { id: 'sr-3004' }));
+
+    // 3) De vuelta en «Por ofertar»: «Declinar», con el diálogo de §25.8 y el motivo interno.
+    await openM5Stage(page, t('es', 'admin.m5.tabs.por_ofertar'));
+    await card.getByRole('button', { name: D('decline.action'), exact: true }).click();
+    const declineDialog = page.getByRole('dialog', { name: D('decline.title') });
+    await expect(declineDialog.getByText(D('decline.reasonHint'))).toBeVisible();
+    await declineDialog.getByLabel(D('decline.reasonLabel')).fill('no compramos esta colección');
+    await declineDialog.getByRole('button', { name: D('decline.confirm') }).click();
+    await expect(page.getByTestId('m5-page-notice')).toContainText(D('decline.done', { id: 'sr-3004' }));
+    await expect(card).toHaveCount(0);
+
+    // 4) Queda en «Cerradas» (lista propia, server-side), ya sin verbos de cierre.
+    await openM5Stage(page, t('es', 'admin.m5.tabs.cerradas'));
+    const closed = page.getByTestId('m5-closed-sr-3004');
+    await expect(closed).toBeVisible();
+    await expect(closed.getByRole('button', { name: D('decline.action'), exact: true })).toHaveCount(0);
+  });
 });
 
 /**
@@ -369,7 +418,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
-    await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
+    // `exact`: desde §60.5 c la fila también trae «Rechazar seleccionadas (k)» y «Rechazar todas (n)».
+    await page.getByRole('button', { name: t('es', 'admin.m5.reject'), exact: true }).first().click();
 
     // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.
     const dialog = page.getByRole('dialog', { name: t('es', 'admin.m5.rejectTitle') });
@@ -391,47 +441,20 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
   });
 });
 
-test.describe('admin · M8 disputas', () => {
-  test('disputa por correo a soporte, sin comparador de fotos (v1.2)', async ({ page }) => {
-    // `DisputeEvidenceContact` cuelga de la disputa ACTIVA (M8View:141): sin disputas no hay panel.
-    // Verificado contra el stack vivo: `GET /admin/disputes` → `total: 0`.
-    needsSeed('ninguna disputa sembrada (GET /admin/disputes → total 0)');
+/**
+ * F-26 (contrato §PNL.10.7 · `DESIGN_SYSTEM §60.8`) — M8 «Disputas» se retiró de la interfaz. Sustituye a los dos
+ * tests de M8 (ficha con evidencia y P-97 «nunca en blanco»): la pantalla ya no existe, así que el invariante pasa a
+ * ser «quien entra a `/es/admin/m8` acaba en el resumen, en su idioma, y el menú no ofrece Disputas». Corre en los dos
+ * modos: no depende de que haya disputas sembradas.
+ */
+test.describe('admin · M8 retirado (F-26)', () => {
+  test('@real /admin/m8 redirige al resumen conservando el idioma y el menú no tiene «Disputas»', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m8');
-    await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
-    // Panel de contacto de evidencia (correo del contrato, no hardcodeado en la UI).
-    await expect(page.getByText(t('es', 'dispute.evidenceTitle')).first()).toBeVisible();
-    await expect(page.getByTestId('evidence-email').first()).toBeVisible();
-    // Ya no existe comparador de fotos de ingreso/reclamo.
-    await expect(page.getByText('Comparador de fotos')).toHaveCount(0);
-  });
-
-  /**
-   * P-97 — el dueño entró a `/es/admin/m8` y vio **el título y nada más**. La pantalla estaba SANA
-   * (cero disputas) y se leía como ROTA, porque la lista se pintaba sin rama de vacío.
-   *
-   * Este test afirma el INVARIANTE, no el dato: *la pantalla nunca está en blanco*. Con disputas
-   * enseña la ficha (panel de evidencia); sin disputas enseña el estado vacío. Por eso corre en los
-   * DOS modos y **no lleva NINGUNA salvaguarda de salto**: el caso que rompía es justamente el que
-   * el seed real no siembra — el de arriba se salta con `total: 0`, y ése era el agujero por el que
-   * se coló P-97.
-   *
-   * ⚠️ La redacción anterior decía aquí el nombre del helper en prosa, y eso tenía un coste medido:
-   * `scripts/check-e2e-skip-census.sh` cuenta por PALABRA (`grep -rwo`), así que una frase que
-   * explica que NO hay salvaguarda se contaba como una salvaguarda. Medido 2026-09-14: el censo
-   * llevaba en ROJO desde `bb30997` (32 vs baseline 31) por esta línea y solo por ella.
-   * En mock hay fixtures ⇒ ejercita la rama con datos; en real (hoy `total: 0`) ejercita el vacío.
-   */
-  test('@real la pantalla nunca está en blanco: o ficha de disputa, o estado vacío', async ({
-    page,
-  }) => {
-    await loginAs(page, 'admin');
-    await page.goto('/es/admin/m8');
-    await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
-
-    const evidence = page.getByText(t('es', 'dispute.evidenceTitle')).first();
-    const empty = page.getByText(t('es', 'admin.m8.empty')).first();
-    await expect(evidence.or(empty)).toBeVisible();
+    await expect(page).toHaveURL(/\/es\/admin\/?$/);
+    await expect(page.locator('a[href$="/admin/m8"]')).toHaveCount(0);
+    await page.goto('/en/admin/m8');
+    await expect(page).toHaveURL(/\/en\/admin\/?$/);
   });
 });
 
@@ -447,12 +470,35 @@ test.describe('admin · M8 disputas', () => {
  * exista). El vínculo vacío ⇔ «usa el global» se afirma como bicondicional, sin asumir cuál de los
  * dos lados toca hoy.
  */
-test.describe('admin · M2 spreads del sellado (T-1)', () => {
+/*
+ * ⚠️ UBICACIÓN (2026-09-28/29, QA menor 6): el editor de spreads del sellado se MUDÓ de M2 a
+ * «Sellado» (M11), decisión D-2: `m11/sections/SealedDialsPanel.tsx` › 5.3 «Márgenes de venta»,
+ * dentro del acordeón «Ajustes avanzados» (plegado; solo `super_admin` — el `admin` del seed lo es).
+ * M2 conserva solo un deep-link (`M2View.tsx`, `sealedSpreads.movedToM11`). Lo que mide no cambia:
+ * la misma fila editable por UPC y Collection y el mismo bicondicional vacío ⇔ «usa el global», en la
+ * superficie donde vive hoy. Además fija la mudanza: en M2 ya no hay editor (un único editor,
+ * `M11-single-editor`) y el camino del dueño desde M2 lleva hasta él por el enlace.
+ */
+test.describe('admin · Sellado (M11) › spreads del sellado (T-1)', () => {
   test('@real hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
     page,
   }) => {
     await loginAs(page, 'admin');
+
+    // Un solo editor: en «Catálogo y precios» (M2) ya no está.
     await page.goto('/es/admin/m2');
+    await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.m2') })).toBeVisible();
+    await expect(
+      page.getByLabel(t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'UPC' })),
+    ).toHaveCount(0);
+
+    // El camino del dueño: quien busca los spreads en M2 encuentra el enlace a M11.
+    await page.getByRole('link', { name: t('es', 'admin.m2.sealedSpreads.movedToM11') }).click();
+    await expect(page).toHaveURL(/\/es\/admin\/m11$/);
+
+    // Vive en «Sellado» › «Ajustes avanzados» (acordeón plegado por defecto) › «Márgenes de venta».
+    await page.getByText(t('es', 'admin.m11.advanced.title'), { exact: true }).click();
+    await expect(page.getByRole('heading', { name: t('es', 'admin.m11.advanced.margins.title') })).toBeVisible();
 
     const usesGlobal = /Usa el global \(\d+(\.\d+)?%\)/;
     for (const subtype of ['UPC', 'Collection']) {

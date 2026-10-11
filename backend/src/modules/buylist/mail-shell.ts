@@ -45,15 +45,18 @@
  *   cortesía: sin folio, sin importe, sin plazo y sin enlace de acción.
  *
  * ## Dónde vive esto y por qué
- * El esqueleto es **de los ocho**, pero los correos 7 y 8 están en `mail/mail.templates.ts`, que es
- * de **otro work stream** («Cuentas y acceso») y **no se toca en este pase**. Por eso el fichero vive
- * en `buylist/` y no en `common/`: mover el esqueleto —y absorber el `layout()` duplicado, deuda
- * **BE-43**— es exactamente el **pase 2** de §31.15, y su disparador es que esa zona quede libre.
- * *No se adelanta aquí: un helper compartido colocado en la zona compartida por un stream que no la
- * tiene asignada es la forma educada de pisar a otro.*
+ * El esqueleto nació en `buylist/` porque el pase 1 de §31.15 era de ese stream. Desde P-MAIL-MARCA
+ * (2026-10-06, `7aa2c0ce`) lo consumen también los correos de cuenta (`mail/mail.templates.ts`: 7, 8 y
+ * 9), los de invitado (`orders/mail/guest-order.templates.ts`) y la reposición de sellado
+ * (`catalog/sealed-restock-notify.service.ts`): el `layout()` y el `escapeHtml` duplicados de `mail/`
+ * se borraron (mitad de **BE-43** pagada). ⚠️ Eso deja un **ciclo entre carpetas** —`mail/` importa de
+ * aquí y este fichero importa `mail/mail-env.util` y `mail/support-contact`— que es deuda **AV-D2**: el
+ * traslado a `backend/src/common/` está DECIDIDO (`ARCHITECTURE §4.56.3`) y va en su propio PR,
+ * serializado, porque `common/` es zona compartida.
  */
 
 import { envOr } from '../mail/mail-env.util';
+import { supportContact } from '../mail/support-contact';
 
 // =================================================================================================
 // TOKENS — §31.11 no crea NI UNO: son los mismos hex de §2.2/§17.2, aplanados (sin alfa, porque
@@ -106,8 +109,8 @@ export const BRAND_SITE = 'tcghunt.mx';
  * S15-B1 — escapa metacaracteres HTML de **todo** valor que entre a una plantilla (el `&` primero).
  * Vive aquí, y no en el llamador, a propósito: los builders de abajo reciben **texto plano** y no
  * aceptan HTML, así que ML-10 (un nombre `"><script>…`) no depende de que ocho plantillas se acuerden
- * de escapar. *La copia de `buylist-mail.templates.ts` importa ésta; la de `mail/` es BE-43 y es del
- * pase 2.*
+ * de escapar. *Es la ÚNICA copia: `buylist-mail.templates.ts` importa ésta, y la de `mail/` (BE-43) se
+ * borró en P-MAIL-MARCA al pasar los correos de cuenta a los builders del esqueleto.*
  */
 export function escapeHtml(value: string): string {
   return value
@@ -284,6 +287,12 @@ export function cardLineRows(line: {
   amount?: string | null;
   /** Nota sin dinero para la línea que no compramos («No entra en esta oferta»). */
   aside?: string | null;
+  /**
+   * rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.6, DESIGN_SYSTEM §WSH-UX.5 (d)) — miniatura OPCIONAL a la izquierda (56×78,
+   * `alt=""`). ⚠️ El llamador la pasa YA validada (`safeCardImageUrl` de `wishlist/`: https, host en lista cerrada, sin
+   * query ni fragmento); aquí solo se escapa. Ausente ⇒ la línea de siempre, byte a byte (sin celda ni hueco).
+   */
+  thumbUrl?: string | null;
 }): string {
   const izquierda =
     `<tr>${td(PAPER, `font-family:${SANS};font-size:15px;line-height:1.4;${LH};font-weight:bold;color:${INK}`, escapeHtml(line.title))}</tr>` +
@@ -300,7 +309,28 @@ export function cardLineRows(line: {
     line.amount ? escapeHtml(line.amount) : '&nbsp;',
     'align="right" valign="top" width="130"',
   );
-  return padded(table(`<tr>${td(PAPER, 'padding:0', table(izquierda), 'valign="top"')}${derecha}</tr>`));
+  const mini = line.thumbUrl
+    ? td(
+        PAPER,
+        'padding:0 12px 0 0',
+        `<img src="${escapeHtml(line.thumbUrl)}" width="56" height="78" alt="" style="display:block;border:0;width:56px;height:78px" />`,
+        'valign="top" width="68"',
+      )
+    : '';
+  return padded(table(`<tr>${mini}${td(PAPER, 'padding:0', table(izquierda), 'valign="top"')}${derecha}</tr>`));
+}
+
+/**
+ * rev v1.87⟨wishlist⟩ (DESIGN_SYSTEM §WSH-UX.5) — **enlace de acción secundaria** (13px, muted, subrayado): «Quitar esta
+ * carta de mi lista» / «Dejar de recibir estos avisos». Mismo acotado de esquema que {@link ctaRows}: con una URL que no
+ * sea http(s) se pinta el rótulo SIN `<a>` (⛔ nunca un `href` peligroso ni a medias).
+ */
+export function smallLinkRow(url: string, label: string): string {
+  const estilo = `font-family:${SANS};font-size:13px;line-height:1.5;${LH};color:${MUTED}`;
+  const contenido = isSafeMailUrl(url)
+    ? `<a href="${escapeHtml(url)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(label)}</a>`
+    : escapeHtml(label);
+  return padded(table(`<tr>${td(PAPER, estilo, contenido)}</tr>`));
 }
 
 /**
@@ -500,6 +530,62 @@ export function appUrl(path: string, locale?: string | null): string | undefined
   return rel ? `${origin}/${l}/${rel}` : `${origin}/${l}`;
 }
 
+/**
+ * ⭐ v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`) — **el enlace «Aviso de
+ * privacidad» del pie de TODOS los correos, decidido UNA vez.** Desde P-MAIL-MARCA (2026-10-06) lo
+ * consume un solo pie, el de {@link mailShell}: las plantillas de cuenta (`mail/mail.templates.ts`),
+ * las de invitado y el correo de reposición dejaron su `layout` a mano y van sobre el esqueleto.
+ * *Un correo que no pase por el shell es exactamente el correo que sale sin marca o sin aviso*: lo
+ * vigila `test/mail.privacy-footer.spec.ts` (PRIV-1 render, PRIV-4 barrido de `src/`, PRIV-7 firma del shell).
+ *
+ * **URL:** `<origen público>/es/privacidad`, literal del contrato (el aviso es un documento en español;
+ * el EN lleva la etiqueta traducida y el mismo destino). **Origen:** `APP_PUBLIC_URL` (vía {@link appUrl},
+ * la base de los avisos) y, si falta, el **primer** origen de `APP_BASE_URL` — la base de los enlaces de
+ * verificación/contraseña/invitado (`auth.service.ts`, `guest-order-mail.service.ts`). DEVOPS §35 exige
+ * que sean iguales; el respaldo hace que un correo legal no pierda el enlace porque falte el *override*.
+ * **Sin ninguno ⇒ `undefined`** y el pie dice la dirección como texto (⛔ jamás un `href` a medias).
+ */
+export function privacyNoticeUrl(): string | undefined {
+  const url =
+    appUrl('privacidad', 'es') ??
+    (() => {
+      const base = (process.env.APP_BASE_URL ?? '').split(',')[0].trim().replace(/\/+$/, '');
+      return base ? `${base}/es/privacidad` : undefined;
+    })();
+  return url && isSafeMailUrl(url) ? url : undefined;
+}
+
+/** La etiqueta del enlace (criterio 507: «Aviso de privacidad»). */
+export function privacyNoticeLabel(locale: 'es' | 'en'): string {
+  return locale === 'en' ? 'Privacy notice' : 'Aviso de privacidad';
+}
+
+/**
+ * El fragmento HTML del enlace, ya escapado: `<a href>` si hay origen; si no, la etiqueta y la
+ * dirección pública como texto (`tcghunt.mx/es/privacidad`). `style` lo pone cada pie (colores suyos).
+ */
+export function privacyNoticeHtml(locale: 'es' | 'en', style: string): string {
+  const label = escapeHtml(privacyNoticeLabel(locale));
+  const url = privacyNoticeUrl();
+  return url
+    ? `<a href="${escapeHtml(url)}" style="${style}">${label}</a>`
+    : `${label}: ${escapeHtml(`${BRAND_SITE}/es/privacidad`)}`;
+}
+
+/**
+ * La fila del aviso en el esqueleto de §31: letra chica sobre **papel**, justo encima de la banda de
+ * tinta. ⚠️ **No va DENTRO de la banda a propósito:** §31.6h prohíbe ahí todo lo que el lector
+ * necesite (es la superficie que degrada en modo oscuro) y el aviso es un deber legal, no adorno —
+ * candado N2 de `buylist.mail-shell.spec.ts` («el pie en tinta no lleva `<a `») intacto.
+ */
+function privacyRow(locale: 'es' | 'en'): string {
+  return padded(
+    table(
+      `<tr>${td(PAPER, `font-family:${SANS};font-size:12px;line-height:1.5;${LH};color:${MUTED}`, privacyNoticeHtml(locale, `color:${MUTED};text-decoration:underline`))}</tr>`,
+    ),
+  );
+}
+
 /** Letra chica: sans **13px** (§31.4: «letra chica» es una jerarquía, no un tamaño ilegible). */
 export function smallPrintRow(text: string): string {
   return padded(
@@ -553,6 +639,13 @@ export interface MailShellOptions {
   blocks: string[];
   /** §31.6h — **la única línea variable del pie**; el resto es idéntico en los ocho. */
   footerWhy: string;
+  /**
+   * v1.84.5 (`API_CONTRACT §14.18` E5-1/E5-2) — a quién va el correo. `'staff'` ⇒ **sin** la fila «Aviso de
+   * privacidad» (ni su `spacerRow(16)`): solo para correos cuyos destinatarios salen **por construcción** de cuentas
+   * de personal (hoy, únicamente AVG-1/2/3 de `spend-alert.mail.ts`; PRIV-6 lo vigila). ⛔ El defecto es
+   * `'customer'` a propósito: olvidar el campo deja el enlace legal puesto, nunca lo quita en silencio.
+   */
+  audience?: 'customer' | 'staff';
 }
 
 /**
@@ -585,11 +678,12 @@ export function footerDescriptor(locale: 'es' | 'en'): string {
  * cuerpo**. *Lo que es igual en los ocho lo pone el sitio que sabe que son ocho.*
  */
 export function mailShell(opts: MailShellOptions): string {
-  const contacto = `${BRAND_SITE} · ${supportEmail()}`;
+  const contacto = `${BRAND_SITE} · ${supportContact()}`;
   const cuerpo = table(
     brandRows() +
       opts.blocks.join('') +
       spacerRow(32) +
+      (opts.audience === 'staff' ? '' : privacyRow(opts.locale) + spacerRow(16)) +
       footerRows(footerDescriptor(opts.locale), contacto, opts.footerWhy),
     `width="600" style="width:100%;max-width:600px"`,
   );
@@ -612,7 +706,3 @@ export function mailShell(opts: MailShellOptions): string {
   );
 }
 
-/** El buzón vivo de soporte (misma cascada que las plantillas: env → contacto de disputas → default). */
-function supportEmail(): string {
-  return envOr(process.env.SUPPORT_EMAIL, envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'));
-}

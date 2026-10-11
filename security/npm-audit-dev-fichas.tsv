@@ -24,6 +24,7 @@
 #
 # FORMATO (TSV, una ficha por línea, tabuladores entre columnas):
 #   ghsa <TAB> app <TAB> paquete <TAB> dueño <TAB> revisar_antes_de <TAB> motivo
+#   (`ghsa` admite alias separados por coma — GHSA de npm y CVE de trivy del MISMO aviso, §76)
 #
 # `dueño` es quien tiene que ARREGLARLO, no quien lo anotó: `frontend/package.json`
 # y su lockfile son propiedad del rol frontend (CLAUDE.md), devops no los toca.
@@ -34,6 +35,12 @@
 # el trinquete pida podarlas — lo comprobé en la primera corrida, que es justo la
 # señal de que la tabla no puede afirmar más de lo que el audit dice.
 # =============================================================================
-GHSA-5xrq-8626-4rwp	frontend	vitest	frontend	2026-10-10	Crítica 9.8 pero NO alcanzable aquí: requiere el servidor `vitest --ui` ESCUCHANDO. Medido 2026-09-10: `frontend/package.json` corre `vitest run` y `--ui` no aparece en ningún script ni workflow. Fix = vitest 5 (major, rompedor) -> decisión del rol frontend.
-GHSA-fx2h-pf6j-xcff	frontend	vite	frontend	2026-10-10	Bypass de `server.fs.deny` en rutas alternativas de WINDOWS. Los runners y el equipo son Linux. Fix = vitest 5.
-GHSA-2883-xcg3-v3hh	frontend	js-yaml	frontend	2026-09-24	Alta 7.5 (DoS por CPU en merge keys). Llega por `eslint`/`@eslint/eslintrc`. `npm audit` da `fixAvailable: true` -> es un bump de LOCKFILE (js-yaml >= 4.3.2), sin cambio de API. Es el más barato de los tres y por eso tiene la fecha más corta.
+# PODA 2026-10-02 (devops, DEVOPS_NOTES §74): GHSA-5xrq-8626-4rwp (vitest), GHSA-fx2h-pf6j-xcff (vite) y
+# GHSA-2883-xcg3-v3hh (js-yaml) retiradas: el trinquete las daba por obsoletas con npm audit Y con trivy
+# (`audit-npm-dev.sh` y `trivy-dev-fichas.sh` sobre `git archive 8a10153e`, ambos «ya no aparece»).
+# Hoy no hay ninguna ficha activa: todo alto/crítico de devDependencies debe ARREGLARSE o fichar aquí.
+# ALTA 2026-10-04 (devops, DEVOPS_NOTES §76): braces@3.0.3 — «stack-exhaustion DoS through deeply nested patterns».
+# UN hecho, DOS identificadores: npm audit lo llama GHSA-vfj7-8cjw-p6xm y trivy CVE-2026-93687 (su DB no trae el GHSA
+# en References — medido con trivy sobre backend/package-lock.json). Por eso la 1ª columna lleva los DOS, separados por
+# coma (alias, §76): una ficha, una fecha; cada trinquete casa el ID que ve y ninguno pide podar en falso.
+GHSA-vfj7-8cjw-p6xm,CVE-2026-93687	backend,frontend	braces	backend,frontend	2026-11-03	SIN versión arreglada (rango <=3.0.3; 3.0.3 es la última publicada, npm view 2026-10-04) y micromatch@4.0.8 (la última) exige braces ^3.0.3. Medido 2026-10-04: `npm ls braces --omit=dev` VACÍO en backend y frontend. Solo lo traen herramientas de build/test: backend @nestjs/cli→chokidar (watch de `nest start --watch`) y jest→@jest/core→micromatch (globs de jest.config: collectCoverageFrom `src/**/*.(t|j)s`); frontend tailwindcss→chokidar/micromatch (`content: ['./src/**/*.{ts,tsx}']` de tailwind.config.ts). Todos los patrones son nuestros, fijos en el repo; ninguno viene de un usuario. Revisar: ¿salió braces arreglado, o micromatch/chokidar sin braces?

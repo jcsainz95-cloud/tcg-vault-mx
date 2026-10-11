@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ivaLabelRe, t } from './utils/i18n';
-import { mockOnly, needsSeed, realOnly, MONEY_RE } from './utils/auth';
+import { mockOnly, realOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: "Compra" (antes "Catálogo") — vitrina de inventario publicado CON precio
@@ -54,14 +54,16 @@ test.describe('Compra · listado y filtros', () => {
     ).toBeVisible();
   });
 
-  test('tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde» sin IVA', async ({
+  test('@real tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde» con su rótulo de IVA', async ({
     page,
   }) => {
-    // Verificado contra el stack vivo: `GET /catalog/sealed` → `total: 0`. No hay NADA sellado
-    // publicado en el seed, así que ni la teja ni el precio «desde» pueden existir.
-    needsSeed('ningún grupo sellado publicado (GET /catalog/sealed → total 0)');
+    // v1.87.4 (BACKEND_NOTES §84.v1.87.4): el seed ya publica UN sellado, «E2E Surging Sparks Booster Box»
+    // (`E2E_SEALED_LISTED`); el fixture de mock tiene «Surging Sparks Booster Box». La subcadena casa con los dos,
+    // así que el caso ya no espera al seed y mide en los dos mundos.
     await page.goto('/es/sellado');
-    await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
+    const tile = page.locator('a[href*="/sellado/"]').filter({ hasText: 'Surging Sparks Booster Box' }).first();
+    await expect(tile).toBeVisible();
+    await expect(tile.getByText(MONEY_RE).first()).toBeVisible();
     // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
     // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
     // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
@@ -246,10 +248,10 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
     await page.waitForURL(/\/es\/sellado\?.*sealedSubtype=box/, { timeout: 15_000 });
     // ⚠️ `exact: true` NO es cosmético. Sin él, `name: 'Sellado'` casa por SUBCADENA y engancha
     // DOS encabezados cuando la vitrina está vacía —el `h1` «Sellado» y el `h3` «Aún no hay
-    // **sellado** en stock»—, y el modo estricto de Playwright tumba el test. Medido en este
-    // entorno: `GET /catalog/sealed` ⇒ `total: 0`, así que el estado vacío SIEMPRE está ahí. El
-    // localizador era el defectuoso; la pantalla es correcta (el vacío es dato del seed, no un
-    // fallo — `sealed.emptyTitle` existe justo para eso).
+    // **sellado** en stock»—, y el modo estricto de Playwright tumba el test. Desde v1.87.4 el seed
+    // publica un sellado `box` (`E2E_SEALED_LISTED`), así que AQUÍ la vitrina ya no está vacía; el
+    // `exact` se queda porque el localizador debe valer con y sin existencias. El estado vacío se
+    // mide aparte, con un filtro que no casa con nada (caso «vitrina vacía» de abajo).
     await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
     // Se explica el salto de pantalla: cambiar la URL del usuario sin decir nada parece un fallo.
     await expect(page.getByRole('status')).toContainText(t('es', 'sealed.fromCatalog.body'));
@@ -288,5 +290,21 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
     expect(cards.filter((u) => /productType=sealed|sealedSubtype=/.test(u))).toEqual([]);
     // Y la consulta acaba donde el contrato dice que vive el sellado (§2-S).
     expect(sealed.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * El ESTADO VACÍO de la vitrina de sellado. Antes se medía «de rebote»: el seed no publicaba ningún sellado, así que
+ * cualquier visita a `/sellado` lo pintaba. Con el sellado del seed (v1.87.4) eso ya no pasa, y para no perder la medición
+ * se pide un filtro que no casa con nada en ninguno de los dos mundos: `tin` (el seed solo publica `box`; el fixture,
+ * `box` y `etb`). Agnóstico: no afirma ningún dato, solo que «sin resultados» se dice y no se pinta ninguna teja.
+ */
+test.describe('Sellado · vitrina vacía', () => {
+  test('@real un filtro sin resultados dice «Aún no hay sellado» y no pinta ninguna teja', async ({ page }) => {
+    await page.goto('/es/sellado?sealedSubtype=tin');
+    await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
+    await expect(page.getByLabel(t('es', 'sealed.filters.subtype'))).toHaveValue('tin');
+    await expect(page.getByText(t('es', 'sealed.emptyTitle'))).toBeVisible();
+    await expect(page.locator('a[href*="/sellado/"]')).toHaveCount(0);
   });
 });

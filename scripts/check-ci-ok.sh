@@ -52,9 +52,12 @@ declare -A PUNTERO=(
   [daemon-stdout-leak]="un script deja un daemon con el stdout del invocador (\`| tail\` se cuelga). DEVOPS_NOTES §46.2"
   [parity-gate-canary]="el candado de paridad I-PP5 no está vivo. DEVOPS_NOTES §48.1"
   [stripe-webhook-failclosed]="la firma del webhook de Stripe puede verificarse con una clave conocida (P-WH-1). DEVOPS_NOTES §49"
+  [stripe-webhook-events]="el backend maneja un evento de Stripe al que el endpoint no está suscrito (§M4-SHIP, charge.refund.updated). DEVOPS_NOTES §71.1"
   [workflow-cwd]="un script invocado desde un paso de CI no existe bajo su cwd (rc=127 silencioso). DEVOPS_NOTES §52"
   [db-pool-limit]="el \`connection_limit\` que hace visible el 500 de checkout (\`398c58a\`) dejó de estar escrito y vuelve a depender del runner. DEVOPS_NOTES §57"
-  [e2e-skip-census]="el censo de salvaguardas E2E (mockOnly/needsSeed/…) creció sin nota. DEVOPS_NOTES §56.9 (N7)"
+  [e2e-skip-census]="el censo de salvaguardas E2E (mockOnly/needsSeed/realOnly/…) creció sin nota. DEVOPS_NOTES §56.9 (N7) y §66"
+  [stack-kill-scope]="el apagado de \`stack-native.sh\` volvió a poder matar el stack de OTRA sesión (I-QA2). DEVOPS_NOTES §67"
+  [boot-no-geo]="un arranque (CMD, imagen, railway.json o compose) vuelve a cargar el catálogo de CP: con la tabla vacía la imagen no arrancaría (G-BOOT, §M4-SHIP.19.25.4). DEVOPS_NOTES §81"
 )
 
 CI_YML=".github/workflows/ci.yml"; SOLO_ESTATICO=0
@@ -84,7 +87,10 @@ for j in "${JOBS[@]}"; do
   if en_needs "$j"; then ok "job \`$j\` está en el needs de ci-ok"; else bad "job \`$j\` NO está en el needs de ci-ok: no se evalúa aquí ⇒ no gatea. Añádelo a needs (exigirá success salvo que lo declares OPCIONAL con motivo)."; fi
 done
 for o in "${!OPCIONALES[@]}"; do
-  printf '%s\n' "${JOBS[@]}" | grep -qx "$o" || bad "OPCIONALES lleva \`$o\`, que ya no es un job de $CI_YML: lista desfasada."
+  # here-string, NO tubería: con pipefail, `printf … | grep -q` da falso rojo cuando grep sale al
+  # primer acierto y printf (stdout de bash con búfer por línea) muere por SIGPIPE (141). Medido
+  # 3/2000 con load≈6–8 (QA: canario 1/6 rojo con load≈11). DEVOPS_NOTES §86.
+  grep -qx "$o" <<<"$(printf '%s\n' "${JOBS[@]}")" || bad "OPCIONALES lleva \`$o\`, que ya no es un job de $CI_YML: lista desfasada."
 done
 if [ "$SOLO_ESTATICO" -eq 1 ]; then
   [ "$FALLOS" -eq 0 ] && { echo; ok "estática OK (${#JOBS[@]} jobs, $(wc -w <<<"$NEEDS_STATIC") en needs, ${#OPCIONALES[@]} opcionales)"; exit 0; }

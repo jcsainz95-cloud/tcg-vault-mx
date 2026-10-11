@@ -1,6 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
   AcquisitionType,
   Finish,
   GradingCompany,
@@ -12,6 +17,15 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
+  ShippedRefundReason,
+  SpendAlertKind,
+  SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -24,9 +38,22 @@ import {
   SEALED_CONDITION_VALUES,
   SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
+  REPLACEMENT_CASE_SOURCE_VALUES,
+  MISSING_REASON_VALUES,
+  PREPARATION_ITEM_STATUS_VALUES,
+  PAYMENT_REFUND_KIND_VALUES,
+  PAYMENT_REFUND_STATUS_VALUES,
+  MANUAL_REFUND_STATUS_VALUES,
+  SPEND_ALERT_KIND_VALUES,
+  SPEND_ALERT_SEVERITY_VALUES,
+  ACCESSORY_CATEGORY_VALUES,
+  ENERGY_TYPE_VALUES,
+  ACCESSORY_LINE_KIND_VALUES,
+  ACCESSORY_LINE_STATUS_VALUES,
+  ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
-import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
+import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
 // `H3-d`: un candado de código mira CÓDIGO. Ver el docstring del helper.
 import { stripComments } from './helpers/strip-comments';
 
@@ -90,6 +117,53 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: ['no_market', 'premium_at_floor'],
   PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
   SealedGroupKind: ['promo_collection', 'set_main'],
+  // v1.80.1 (M-61, §M4-SHIP.15.8): filtro `?source=` de `GET /admin/replacement-cases` ⇒ clase E.
+  ReplacementCaseSource: ['vault_purchase', 'withdrawal'],
+  // ⭐ v1.80.7.1 (§4.37 «una sola declaración», QA IMP-2): los cinco que `src/` VALIDA y derivaba por su cuenta.
+  MissingReason: ['damaged', 'not_found'],
+  PreparationItemStatus: ['missing', 'pending', 'picked'],
+  // v1.82 (M-70, §PNL.2): + `item_delivered` — decisión del contrato (UNA carta de un directo YA ENTREGADO).
+  PaymentRefundKind: ['case_refund', 'item_delivered', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
+  PaymentRefundStatus: ['failed', 'requested', 'submitted', 'succeeded'],
+  ManualRefundStatus: ['cancelled', 'paid', 'pending'],
+  // 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2): `?kind=` / `?severity=` de `GET /admin/spend-alerts` — los 22 tipos (AG-1…AG-22).
+  // 💰 rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23 (23). Decidido al añadirlo (las tres preguntas de
+  // arriba): (1) sí entra al `?kind=` del panel (es un aviso más); (2) sin lista de negocio propia; (3) sin calibración.
+  SpendAlertKind: [
+    'buylist_guide_due',
+    'buylist_manual_price',
+    'cancel_refund_missing',
+    'carrier_extra_charge',
+    'chargeback',
+    'label_after_address_fix',
+    'label_cap_blocked',
+    'label_cap_warning',
+    'label_charge_drift',
+    'label_charged_unexplained',
+    'label_costly_choice',
+    'label_not_shipped',
+    'label_reissue_loop',
+    'operator_refund_cap',
+    'owner_account_changed',
+    'parcel_problem',
+    'parcel_returned',
+    'provider_balance_low',
+    'psa_credits',
+    'shrinkage',
+    'staff_control_by_non_owner',
+    'stuck_refund',
+    'super_admin_money_out',
+  ],
+  SpendAlertSeverity: ['digest', 'immediate'],
+  // 💰 AC-B2 (v1.86⟨accesorios⟩, M-73, API_CONTRACT §AC.1): los CINCO enums nuevos de accesorios. Decidido al añadirlos
+  // (las tres preguntas de arriba): (1) el dominio entero ES la regla — la tienda filtra por cualquier categoría, el
+  // panel captura cualquier tipo de energía y cualquier movimiento; (2) sin lista de negocio propia (el «solo invitado a
+  // domicilio» es una regla de RUTA, no un recorte de enum); (3) sin calibración de precio por valor.
+  AccessoryCategory: ['binders', 'deck_boxes', 'energy', 'other', 'playmats', 'sleeves', 'toploaders'],
+  EnergyType: ['darkness', 'fighting', 'fire', 'grass', 'lightning', 'metal', 'psychic', 'water'],
+  AccessoryLineKind: ['accessory', 'energy_bundle'],
+  AccessoryLineStatus: ['released', 'reserved', 'restocked', 'sold'],
+  AccessoryStockMovementKind: ['adjust', 'initial', 'receive', 'restock', 'sale', 'settle_recovery'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -104,6 +178,19 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   PendingPriceReason,
   PendingPriceContext,
   SealedGroupKind,
+  ReplacementCaseSource,
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
+  SpendAlertKind,
+  SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -118,6 +205,19 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: PENDING_PRICE_REASON_VALUES,
   PendingPriceContext: PENDING_PRICE_CONTEXT_VALUES,
   SealedGroupKind: SEALED_GROUP_KIND_VALUES,
+  ReplacementCaseSource: REPLACEMENT_CASE_SOURCE_VALUES,
+  MissingReason: MISSING_REASON_VALUES,
+  PreparationItemStatus: PREPARATION_ITEM_STATUS_VALUES,
+  PaymentRefundKind: PAYMENT_REFUND_KIND_VALUES,
+  PaymentRefundStatus: PAYMENT_REFUND_STATUS_VALUES,
+  ManualRefundStatus: MANUAL_REFUND_STATUS_VALUES,
+  SpendAlertKind: SPEND_ALERT_KIND_VALUES,
+  SpendAlertSeverity: SPEND_ALERT_SEVERITY_VALUES,
+  AccessoryCategory: ACCESSORY_CATEGORY_VALUES,
+  EnergyType: ENERGY_TYPE_VALUES,
+  AccessoryLineKind: ACCESSORY_LINE_KIND_VALUES,
+  AccessoryLineStatus: ACCESSORY_LINE_STATUS_VALUES,
+  AccessoryStockMovementKind: ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
@@ -166,6 +266,12 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
     expect(SEALED_SUBTYPE_VALUES).toHaveLength(7);
   });
 
+  it('AC-B2 · `AccessoryCategory` en el ORDEN de la tienda (§AC.1 «orden = orden de la tienda»), no solo el conjunto', () => {
+    // Las bandas de arriba comparan conjuntos (`sort()`); el orden de la pestaña sale de `Object.values`, que respeta el
+    // orden del schema. Reordenar el enum cambiaría la tienda en silencio: aquí se ve.
+    expect([...ACCESSORY_CATEGORY_VALUES]).toEqual(['sleeves', 'toploaders', 'binders', 'deck_boxes', 'playmats', 'energy', 'other']);
+  });
+
   it('el schema en DISCO es la fuente: se lee `schema.prisma` y se compara contra la lista', () => {
     // Cierra el hueco de que Prisma Client esté REGENERADO pero desfasado del schema en disco.
     const schema = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
@@ -175,6 +281,74 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
       .map((l) => l.replace(/\/\/.*$/, '').trim())
       .filter((l) => l.length > 0);
     expect(fromSchema.sort()).toEqual([...SEALED_SUBTYPE_VALUES].sort());
+  });
+});
+
+/**
+ * ⭐ v1.80.7.1 (§0 nota, §4.37; QA IMP-2 sobre `c20451f`) — **LA TERCERA BANDA ES UNIVERSAL.** La banda que falló
+ * (`VaultPlacementCancelReason` sin `full_refund`, `RefundBasis` fantasma, `ManualRefund*` y `MovementReason` sin
+ * línea) es schema ↔ CONTRATO, y esa NO depende de que el código derive el enum: corre sobre TODO `enum X {…}` de
+ * `schema.prisma`. Un enum sin línea canónica en §0 es rojo salvo que esté en `SIN_LINEA_CANONICA` con razón.
+ * Las bandas 1-2 (ancla humana + `enum-values.ts`) siguen solo sobre los que `src/` valida.
+ */
+describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canónica de §0 (v1.80.7.1)', () => {
+  /** Enums del schema que, por decisión del arquitecto (v1.80.7.1), NO tienen línea canónica en §0. */
+  const SIN_LINEA_CANONICA: readonly string[] = [
+    'NameSource',
+    'PriceConvention',
+    'PriceRefKind',
+    'CardProductKind',
+    'PendingPriceStatus',
+    'MetaDeckSource',
+    'MetaCardGroup',
+    'MetaMatchStatus',
+  ];
+  const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
+  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const LINES = CONTRACT.split('\n');
+
+  /** Todos los `enum X { … }` del schema EN DISCO, con sus valores (sin comentarios ni `@@`). */
+  function schemaEnums(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const m of SCHEMA.matchAll(/^enum\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
+      out[m[1]] = m[2]
+        .split('\n')
+        .map((l) => l.replace(/\/\/.*$/, '').trim())
+        .filter((l) => l.length > 0 && !l.startsWith('@@'));
+    }
+    return out;
+  }
+
+  /** La línea `X = a | b …` de §0, con sus continuaciones (`  | c | d`), o `null` si no existe. */
+  function contractLine(name: string): string[] | null {
+    const i = LINES.findIndex((l) => new RegExp(`^${name}\\s+=\\s+`).test(l));
+    if (i < 0) return null;
+    let text = LINES[i].replace(/^\w+\s+=\s+/, '');
+    for (let j = i + 1; j < LINES.length && /^\s+\|/.test(LINES[j]); j += 1) text += ` ${LINES[j]}`;
+    return text
+      .replace(/\/\/.*$/, '')
+      .split('|')
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+  }
+
+  const ENUMS = schemaEnums();
+  const NAMES = Object.keys(ENUMS).sort();
+
+  it('el schema tiene enums y el parser los ve todos (⛔ un parser vacío sería verde por omisión)', () => {
+    expect(NAMES.length).toBeGreaterThanOrEqual(50);
+    expect(ENUMS.SealedSubtype).toEqual(expect.arrayContaining(['upc', 'collection']));
+  });
+
+  it('los enums SIN línea canónica son EXACTAMENTE `SIN_LINEA_CANONICA` (ni uno más, ni uno menos)', () => {
+    const sinLinea = NAMES.filter((n) => contractLine(n) === null);
+    expect(sinLinea.sort()).toEqual([...SIN_LINEA_CANONICA].sort());
+  });
+
+  it.each(NAMES.filter((n) => !SIN_LINEA_CANONICA.includes(n)))('%s · la línea canónica de §0 == el enum del schema en disco', (name) => {
+    const fromContract = contractLine(name);
+    if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
+    expect(fromContract.sort()).toEqual([...ENUMS[name]].sort());
   });
 });
 
@@ -242,6 +416,34 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
       /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(stripComments(readFileSync(f, 'utf8'))),
     );
     expect(offenders.map((f) => f.replace(SRC, 'src'))).toEqual([]);
+  });
+});
+
+describe('CLASE R — `ShippedRefundReason` (💰 v1.80.8.6, M-62, §M4-SHIP.18.12): «solo no llegó o llegó en mala condición»', () => {
+  // PROJECT §S.11.4 / HECHOS 2026-10-02 (SSL-R1). La lista es la REGLA del dueño, no un espejo del enum.
+  it('lista EXACTA: `not_arrived` y `arrived_damaged`, y nada más', () => {
+    expect([...ACCEPTED_SHIPPED_REFUND_REASONS]).toEqual(['not_arrived', 'arrived_damaged']);
+  });
+
+  it('SUBCONJUNTO del enum de Prisma (la regla no acepta lo que la BD no sabe guardar)', () => {
+    const schemaValues = Object.values(ShippedRefundReason) as string[];
+    for (const v of ACCEPTED_SHIPPED_REFUND_REASONS) expect(schemaValues).toContain(v);
+    expect(ACCEPTED_SHIPPED_REFUND_REASONS.length).toBeLessThanOrEqual(schemaValues.length);
+  });
+
+  it('ningún DTO/servicio deriva el dominio del enum (`Object.values(ShippedRefundReason)` fuera de las pruebas)', () => {
+    const offenders: string[] = [];
+    const walkSrc = (dir: string): void => {
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, name.name);
+        if (name.isDirectory()) walkSrc(p);
+        else if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) {
+          if (/Object\.values\(\s*ShippedRefundReason\s*\)/.test(stripComments(readFileSync(p, 'utf8')))) offenders.push(p);
+        }
+      }
+    };
+    walkSrc(join(__dirname, '..', 'src'));
+    expect(offenders).toEqual([]);
   });
 });
 

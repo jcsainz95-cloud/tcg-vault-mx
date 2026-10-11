@@ -46,12 +46,15 @@ function address(recipientName: string | null): AddressDTO {
     id: 'addr-old',
     recipientName,
     line1: 'Calle Falsa 123',
+    neighborhood: 'Guadalajara Centro',
     city: 'Guadalajara',
     state: 'JAL',
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: true,
+    complete: true,
   };
 }
 
@@ -250,5 +253,116 @@ describe('ShipmentsView · destinatario del envío (F10)', () => {
 
     await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/vault?tab=retiros'));
     expect(window.sessionStorage.getItem('tcg.vault.withdrawalRequested')).toBe('1');
+  });
+});
+
+/**
+ * v1.81 (`API_CONTRACT §M4-SHIP.19.5`, criterio 235): una dirección con `complete:false` no sirve para
+ * el retiro. La pantalla lo dice ANTES de pagar y ofrece completarla con el formulario de la libreta;
+ * si el `422 ADDRESS_INCOMPLETE` llega igual, manda el servidor.
+ */
+describe('ShipmentsView · dirección incompleta (v1.81)', () => {
+  it('complete:false ⇒ CTA deshabilitado con motivo enlazado y «Completar dirección» abre la edición de ESA dirección', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([{ ...address('Ana'), neighborhood: null, complete: false }]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+
+    const block = await screen.findByTestId('address-incomplete-block');
+    // §43.18h.1: sin «no se cobró nada» (el bloque aparece ANTES de cualquier intento de pago).
+    expect(block).toHaveTextContent(
+      'A la dirección elegida le falta la colonia. Complétala para pagar el envío y solicitar el retiro.',
+    );
+    expect(block).not.toHaveTextContent(/cobr/);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-describedby', 'address-incomplete');
+
+    fireEvent.click(within(block).getByRole('button', { name: 'Completar dirección' }));
+    const dialog = await screen.findByRole('dialog');
+    // §43.18g: modo completar.
+    expect(within(dialog).getByRole('heading', { name: 'Completar dirección' })).toBeInTheDocument();
+    expect(within(dialog).getByTestId('address-complete-intro')).toHaveTextContent(
+      'A esta dirección le falta la colonia. Lo que guardes se queda en tu libreta de direcciones.',
+    );
+    expect(within(dialog).getByLabelText('Calle y número')).toHaveValue('Calle Falsa 123');
+  });
+
+  it('UX-ADR-4 · faltan destinatario Y dirección ⇒ botón apagado con LOS DOS motivos en aria-describedby', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([{ ...address(null), neighborhood: null, complete: false }]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByTestId('address-incomplete-block');
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    expect(button).toBeDisabled();
+    expect(button.getAttribute('aria-describedby')?.split(' ').sort()).toEqual(['address-incomplete', 'recipient-required']);
+    expect(button).toHaveAccessibleDescription(/nombre de quien recibe.*A la dirección elegida le falta la colonia/);
+  });
+
+  it('§43.18h.4 · al guardar en modo completar: foco al radio de la dirección elegida y status «Dirección completa…»', async () => {
+    asCustomer();
+    const incompleteRow = { ...address('Ana'), neighborhood: null, complete: false };
+    const fixed = { ...address('Ana'), neighborhood: 'Americana', complete: true };
+    vi.spyOn(api, 'listAddresses').mockResolvedValueOnce([incompleteRow]).mockResolvedValue([fixed]);
+    const update = vi.spyOn(api, 'updateAddress').mockResolvedValue(fixed);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const block = await screen.findByTestId('address-incomplete-block');
+    expect(screen.getByTestId('address-saved-status')).toHaveTextContent('');
+    fireEvent.click(within(block).getByRole('button', { name: 'Completar dirección' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByRole('option', { name: 'Americana' });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Colonia' }), { target: { value: 'Americana' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('address-incomplete-block')).toBeNull());
+    const radio = screen.getByRole('radio', { checked: true });
+    await waitFor(() => expect(radio).toHaveFocus());
+    expect(screen.getByTestId('address-saved-status')).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('address-saved-status')).toHaveTextContent(
+      'Dirección completa. Revisa el costo del envío y paga para solicitar el retiro.',
+    );
+  });
+
+  it('complete:true ⇒ sin bloqueo', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ana')]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(screen.queryByTestId('address-incomplete-block')).toBeNull();
+  });
+
+  it('422 ADDRESS_INCOMPLETE del servidor (caché vieja) ⇒ se marca ESA dirección con lo que dice `missing`', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ana')]);
+    createShipmentMock.mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'ADDRESS_INCOMPLETE',
+        message: 'x',
+        details: { addressId: 'addr-old', missing: ['neighborhood', 'phone'] },
+      }),
+    );
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+
+    const block = await screen.findByTestId('address-incomplete-block');
+    expect(block).toHaveTextContent('le falta la colonia y un teléfono de 10 dígitos');
+    expect(button).toBeDisabled();
+    // UX-ADR-4 / §43.18h.2: bajo el botón, lo que el bloque no dice; ⛔ no `error.ADDRESS_INCOMPLETE`.
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('No se solicitó el retiro ni se cobró nada: completa la dirección.');
+    expect(alert).not.toHaveTextContent(/le faltan datos para la guía/);
   });
 });

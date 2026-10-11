@@ -31,17 +31,40 @@ function buildPayments(opts: {
   const guestSent: string[] = [];
   const row: Record<string, unknown> = { ...(opts.order ?? {}) };
   const tx = {
-    order: { update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)) },
+    order: {
+      update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),
+      // v1.79.4 (§M4-VAULT.2-bis.1): el CAS del settle — evalúa el `status: { not }` del WHERE sobre
+      // la fila como lo haría Postgres (0 filas si ya está `settled`).
+      updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+        if (where?.status?.not !== undefined && row.status === where.status.not) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      }),
+    },
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     inventoryMovement: { create: jest.fn() },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma: any = {
     order: {
       findUnique: jest.fn().mockImplementation(async () => (opts.order ? { ...row } : null)),
       update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),
+      // ⭐ v1.80: `charge.refunded` escribe con el estado en el `WHERE` (`status: 'settled'`), como el settle.
+      updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+        if (where?.status !== undefined && typeof where.status === 'string' && row.status !== where.status) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      }),
     },
     user: { findUnique: jest.fn().mockResolvedValue(opts.user ?? null) },
     processedStripeEvent: { create: jest.fn(), delete: jest.fn() },
@@ -232,5 +255,62 @@ describe('⭐⭐ C-AV-10 — con el `MailPort` LANZANDO SIEMPRE, el dinero se ap
     delete (prisma as { user?: unknown }).user;
     await expect(svc.onPaymentSucceeded(PI(148000))).resolves.toBeUndefined();
     expect(row.status).toBe('settled');
+  });
+});
+
+// =================================================================================================
+/**
+ * ⭐ CTA de los avisos de pedido (cableado de `16a3170`; QA IMPORTANTE 2, B2 y B4). El botón lleva al
+ * detalle `orders/<Order.id>`, que EXIGE SESIÓN: el registrado lo recibe; el invitado ⛔ no (un botón
+ * a una pantalla de login con una cuenta que no tiene es un callejón). Antes de este bloque, quitar
+ * el `orderId` del AV-2 o dárselo al invitado en el reembolso **no ponía rojo nada**.
+ */
+describe('CTA — el botón al detalle del pedido solo para el registrado', () => {
+  // Sin `APP_PUBLIC_URL` no hay CTA para NADIE (appUrl ⇒ undefined), y la prueba del invitado
+  // pasaría por la razón equivocada: se fija un origen para que la ausencia signifique algo.
+  const savedOrigin = process.env.APP_PUBLIC_URL;
+  beforeAll(() => {
+    process.env.APP_PUBLIC_URL = 'https://tienda.example';
+  });
+  afterAll(() => {
+    if (savedOrigin === undefined) delete process.env.APP_PUBLIC_URL;
+    else process.env.APP_PUBLIC_URL = savedOrigin;
+  });
+  const charge = (amount: number, refunded: number) =>
+    ({ payment_intent: 'pi_1', amount, amount_refunded: refunded }) as unknown as Stripe.Charge;
+  const body = (m: MailMessage) => `${m.html}\n${m.text}`;
+
+  it('B4 — AV-2 (registrado) lleva el enlace a `orders/<Order.id>` (el id, no el folio)', async () => {
+    const { svc, sent } = buildPayments({
+      order: { ...BASE_ORDER, guestEmail: null, userId: 'u1' },
+      user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+    });
+    await svc.onPaymentSucceeded(PI(148000));
+    expect(sent).toHaveLength(1);
+    expect(body(sent[0])).toContain('orders/ord-1');
+    expect(body(sent[0])).not.toContain('orders/TCG-1001');
+  });
+
+  it('reembolso de REGISTRADO ⇒ con enlace a `orders/<Order.id>`', async () => {
+    const { svc, sent } = buildPayments({
+      order: { ...BASE_ORDER, status: 'settled', guestEmail: null, userId: 'u1' },
+      user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+    });
+    await svc.onChargeRefunded(charge(148000, 148000));
+    expect(body(sent[0])).toContain('orders/ord-1');
+  });
+
+  it.each([
+    ['invitado puro', null],
+    ['invitado que luego reclamó el pedido (userId presente)', 'u1'],
+  ])('B2 — reembolso de %s ⇒ ⛔ SIN enlace al detalle', async (_n, userId) => {
+    const { svc, sent } = buildPayments({
+      order: { ...BASE_ORDER, status: 'settled', guestEmail: 'guest@correo.mx', userId },
+      user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+    });
+    await svc.onChargeRefunded(charge(148000, 148000));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('guest@correo.mx');
+    expect(body(sent[0])).not.toContain('orders/');
   });
 });

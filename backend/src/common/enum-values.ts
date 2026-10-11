@@ -9,6 +9,19 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
+  SpendAlertKind,
+  SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 } from '@prisma/client';
 
 /**
@@ -127,3 +140,35 @@ export const PENDING_PRICE_CONTEXT_VALUES = Object.values(PendingPriceContext);
  * `enum SealedGroupKind` sobre columna persistida.
  */
 export const SEALED_GROUP_KIND_VALUES = Object.values(SealedGroupKind);
+
+/**
+ * v1.80.1 (M-61, §M4-SHIP.15.8) — `ReplacementCaseSource`, clase **E**: dominio de `?source=` de
+ * `GET /admin/replacement-cases`. Derivado del enum de Prisma; entra a la paridad a tres bandas.
+ */
+export const REPLACEMENT_CASE_SOURCE_VALUES = Object.values(ReplacementCaseSource);
+
+// ⭐ v1.80.7.1 (§4.37 «una sola declaración», QA IMP-2): los cinco enums de M-59/M-61 que `src/` VALIDA (cuerpos de
+// `prep-items` y del palomeo de colocación; filtros `?kind=`/`?status=` de `GET /admin/refunds` y `?status=` de
+// `GET /admin/manual-refunds`). Antes cada consumidor derivaba `Object.values(...)` por su cuenta. Tres bandas en
+// `test/enum-values-parity.spec.ts`.
+export const MISSING_REASON_VALUES = Object.values(MissingReason);
+export const PREPARATION_ITEM_STATUS_VALUES = Object.values(PreparationItemStatus);
+export const PAYMENT_REFUND_KIND_VALUES = Object.values(PaymentRefundKind);
+export const PAYMENT_REFUND_STATUS_VALUES = Object.values(PaymentRefundStatus);
+export const MANUAL_REFUND_STATUS_VALUES = Object.values(ManualRefundStatus);
+
+// 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2, §19.32.1): `?kind=` y `?severity=` de `GET /admin/spend-alerts` — clase **E**. El
+// dominio del filtro es el enum ENTERO (AG-1…AG-22, incluidos los reservados AG-14…AG-20: una fila de esos tipos que exista
+// tiene que poder filtrarse). Tres bandas en `test/enum-values-parity.spec.ts`.
+export const SPEND_ALERT_KIND_VALUES = Object.values(SpendAlertKind);
+export const SPEND_ALERT_SEVERITY_VALUES = Object.values(SpendAlertSeverity);
+
+// 💰 v1.86⟨accesorios⟩ (M-73, API_CONTRACT §AC.1, AC-B2): los CINCO enums de accesorios — clase **E** (el dominio entero
+// es la regla: filtro `?category=` de la tienda y del panel, tipo de energía, renglón, estado y movimiento de
+// existencias). Tres bandas en `test/enum-values-parity.spec.ts`.
+/** Categorías en el ORDEN de la pestaña de la tienda (`Object.values` respeta el orden del schema). */
+export const ACCESSORY_CATEGORY_VALUES = Object.values(AccessoryCategory);
+export const ENERGY_TYPE_VALUES = Object.values(EnergyType);
+export const ACCESSORY_LINE_KIND_VALUES = Object.values(AccessoryLineKind);
+export const ACCESSORY_LINE_STATUS_VALUES = Object.values(AccessoryLineStatus);
+export const ACCESSORY_STOCK_MOVEMENT_KIND_VALUES = Object.values(AccessoryStockMovementKind);

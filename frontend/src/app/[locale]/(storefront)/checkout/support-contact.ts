@@ -1,14 +1,12 @@
 /**
- * MOCK: pendiente de contrato — correo de soporte para las pantallas de invitado que NO
- * tienen un DTO donde leerlo.
+ * Buzón de soporte de RESPALDO (contrato v1.82 §PNL.1).
  *
- * El contrato expone `support.evidenceContact` **solo** dentro del `GuestOrderTrackingDTO`
- * (§4-G.3), es decir, después de canjear el token de seguimiento. La confirmación de compra
- * (§15.5) y el estado neutro de enlace (§15.7) necesitan el mismo dato ANTES de tener ese
- * DTO, y el sistema de diseño prohíbe hardcodearlo en el componente (§7.11).
+ * La fuente del correo en pantalla es `GET /support/contact` (hook `useSupportContact`, y en el
+ * seguimiento del invitado `support.evidenceContact`). Este valor fijo se usa **solo** cuando esa
+ * llamada falla (o en una página de servidor cuyo `fetch` falla). ⛔ Ninguna pantalla lo pinta
+ * mientras la llamada carga, y ningún texto del catálogo lo lleva escrito.
  *
- * Mientras el arquitecto no exponga un endpoint/campo público de configuración, se usa el
- * valor NORMATIVO que el propio contrato fija para ese campo, centralizado aquí para que
- * cambiarlo sea una sola línea. Solicitud registrada en docs/FRONTEND_NOTES.md.
+ * Es el mismo default que el resolutor único del backend (`supportContact()`,
+ * `backend/src/modules/mail/support-contact.ts`).
  */
 export const SUPPORT_CONTACT_FALLBACK = 'soporte@tcghunt.mx';

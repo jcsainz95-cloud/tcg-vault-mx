@@ -5,7 +5,9 @@ import { renderWithProviders } from '@/test/render';
 import { expectCreditsFigureQualified } from '@/test/grading';
 import * as api from '@/lib/api';
 import { mockSettings } from '@/lib/mock/fixtures';
-import { M10View } from './M10View';
+import { M10View, M10_LIST_DIAL_KEYS } from './M10View';
+import { WISHLIST_DIAL_KEYS } from './sections/WishlistDialsSection';
+import es from '../../../../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
 // Lo necesita el enlace a la lista de revisión del aviso de APAGADO del gancho (§22.13e).
@@ -32,13 +34,13 @@ describe('M10View · Config y bitácora', () => {
   it('carga los diales con el valor de la API (cents → pesos)', async () => {
     renderWithProviders(<M10View />, 'es');
     // shippingFeeCents 17500 → MX$175 mostrado en pesos.
-    const shipping = (await screen.findByLabelText(/Tarifa de envío/)) as HTMLInputElement;
+    const shipping = (await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/)) as HTMLInputElement;
     expect(shipping.value).toBe('175');
   });
 
   it('habilita guardar solo tras editar un dial (PUT parcial)', async () => {
     renderWithProviders(<M10View />, 'es');
-    const shipping = (await screen.findByLabelText(/Tarifa de envío/)) as HTMLInputElement;
+    const shipping = (await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/)) as HTMLInputElement;
     // Botón de guardar deshabilitado sin cambios.
     const saveBtn = screen.getByRole('button', { name: /Guardar 0/ });
     expect(saveBtn).toBeDisabled();
@@ -52,10 +54,41 @@ describe('M10View · Config y bitácora', () => {
     expect((await screen.findAllByText('order.refund')).length).toBeGreaterThan(0);
   });
 
+  /**
+   * Errata del contrato 2026-10-04: los eventos del sistema (p. ej. `auth.password_lock` disparado
+   * desde el login) llegan con `actorUserId` y `actorRole` en null. La celda de actor pinta «—»
+   * (no un hueco, no un Badge vacío, no «null») y el resto de la fila se pinta normal.
+   */
+  it('un evento del sistema sin actor (actorUserId/actorRole null) pinta «—» en Actor', async () => {
+    vi.spyOn(api, 'getAuditLog').mockResolvedValue({
+      data: [
+        { id: 'al-sys', actorUserId: null, actorRole: null, action: 'auth.password_lock', entityType: 'User', entityId: 'u-ana', createdAt: '2026-10-04T09:00:00Z' },
+        { id: 'al-hum', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'settings.update', entityType: 'ConfigSetting', entityId: 'shipping_fee_cents', createdAt: '2026-10-04T08:00:00Z' },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    renderWithProviders(<M10View />, 'es');
+    const lockCell = (await screen.findAllByText('auth.password_lock'))[0];
+    const table = lockCell.closest('table')!;
+    const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
+    const col = headers.indexOf('Actor');
+    expect(col).toBeGreaterThanOrEqual(0);
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const sysRow = rows.find((tr) => tr.textContent?.includes('auth.password_lock'))!;
+    const humRow = rows.find((tr) => tr.textContent?.includes('settings.update'))!;
+    expect(sysRow.querySelectorAll('td')[col].textContent?.trim()).toBe('—');
+    // La fila con actor humano sigue pintando id y rol.
+    expect(humRow.querySelectorAll('td')[col].textContent).toContain('u-admin');
+    expect(humRow.querySelectorAll('td')[col].textContent).toContain('super_admin');
+    expect(table.textContent).not.toMatch(/\bnull\b|\bundefined\b/);
+  });
+
   it('ya NO muestra el dial MUERTO de venta (salesMarkupPct)', async () => {
     renderWithProviders(<M10View />, 'es');
     // Espera a que carguen los diales.
-    await screen.findByLabelText(/Tarifa de envío/);
+    await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/);
     // salesMarkupPct: el precio de venta lo deriva la curva, no un markup global.
     expect(screen.queryByLabelText(/Markup de venta/)).not.toBeInTheDocument();
   });
@@ -309,5 +342,45 @@ describe('M10View · Config y bitácora', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guardar proveedor de ingesta/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ priceProvider: 'tcgcsv_singles' }));
     spy.mockRestore();
+  });
+
+  it('M11-single-editor: M10 YA NO dibuja el dial de proveedor del SELLADO (se editan en M11)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/);
+    // §diseño §4.1 (D-2): el editor del proveedor de referencia del sellado se mudó a M11. Que
+    // desaparezca aquí es parte de la norma: un solo editor por dial de dinero, no dos.
+    expect(screen.queryByLabelText(/Proveedor de referencia por-carta \(sellado\)/)).not.toBeInTheDocument();
+    // Pero los per-carta de raw/graded siguen aquí.
+    expect(screen.getByLabelText(/Proveedor de referencia por-carta \(raw\)/)).toBeInTheDocument();
+    // Y hay un deep-link a M11 para quien busque los controles del sellado aquí.
+    expect(screen.getByText(/se editan ahora en «Sellado»/)).toBeInTheDocument();
+  });
+
+  /**
+   * REL-S7-UX punto 2 (fusión accesorios + lista de deseos): cada dial se edita en UN solo bloque de M10.
+   * Los siete `wishlist*` viven solo en `<section id="wishlist">` (con su diálogo de encendido), nunca en el
+   * listado de diales de arriba; los de accesorios (§AC.11) se editan en el panel «Accesorios», no en M10.
+   */
+  it('REL-S7 · el listado genérico de M10 no edita ningún dial de la lista de deseos ni de accesorios', () => {
+    expect(WISHLIST_DIAL_KEYS).toHaveLength(7);
+    for (const k of WISHLIST_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
+    expect(M10_LIST_DIAL_KEYS.filter((k) => /^wishlist/.test(k))).toEqual([]);
+    for (const k of ['energyBundlePriceCents', 'accessorySuggestionCount']) {
+      expect(M10_LIST_DIAL_KEYS).not.toContain(k);
+    }
+  });
+
+  it('REL-S7 · ningún dial se pinta dos veces: los de la lista de deseos solo en su sección, los de accesorios fuera de M10', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const section = await screen.findByTestId('m10-wishlist');
+    const labels = es.admin.m10.wishlist.labels;
+    await within(section).findByLabelText(labels.wishlistEnabled);
+    for (const label of Object.values(labels)) {
+      expect(screen.getAllByLabelText(label)).toHaveLength(1);
+      expect(section).toContainElement(screen.getByLabelText(label));
+    }
+    const acc = es.admin.accessories.settings;
+    expect(screen.queryByLabelText(acc.bundlePrice)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(acc.suggestionCount)).not.toBeInTheDocument();
   });
 });

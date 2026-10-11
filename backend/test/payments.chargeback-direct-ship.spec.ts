@@ -31,6 +31,8 @@ function build(opts: {
     },
     shipmentRequest: {
       findFirst: jest.fn(async () => opts.shipment ?? null),
+      // ⭐ v1.81 (§M4-SHIP.19.8): `cancelProviderLabelIfAny` lee la guía del envío; sin guía de Skydropx ⇒ no-op.
+      findUnique: jest.fn(async () => null),
       update: jest.fn(async ({ where, data }: any) => {
         shipmentUpdates.push({ where, data });
         return {};

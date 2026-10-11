@@ -6,6 +6,7 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 
 /**
  * INV-1 — Prueba de propagación END-TO-END (backend, sin DB real):
@@ -26,6 +27,29 @@ import { ivaDialsStub } from './helpers/iva-dials';
 // ---- Store en memoria de ConfigSetting + PrismaService mock ----
 function makePrisma(item: any) {
   const configStore = new Map<string, unknown>();
+  const priceRefRows = [
+    {
+      // P-53 ALTO-4 (§3): la fila lleva la CLAVE completa (`cardId|productType|gradeKey|finish`) para que
+      // la resuelvan por igual el lote (`getReferencesBatch`) y `getReference` (que ahora DELEGA en él).
+      // Antes la fila iba sin clave y solo la resolvía el `getReference` por-pieza porque su `findMany`
+      // mock ignoraba el `where`; con la delegación ambos caminos casan por clave, como en la BD real.
+      cardId: 'c1',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      refKind: 'market',
+      evidenceDate: null,
+      priceMxnCents: 10000,
+      priceUsdCents: null,
+      fxRate: null,
+      fxBufferPct: null,
+      source: 'tcgcsv_singles',
+      isManualOverride: false,
+      cardProductId: null,
+      capturedDate: new Date('2026-08-24'),
+      id: 'pr1',
+    },
+  ];
   const prisma = {
     configSetting: {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
@@ -47,20 +71,11 @@ function makePrisma(item: any) {
     // v2.0: el precio SALE del mercado, así que el item necesita su `PriceReference` ($100 de mercado).
     priceReference: {
       findFirst: jest.fn(async () => null),
-      findMany: jest.fn(async () => [
-        {
-          priceMxnCents: 10000,
-          priceUsdCents: null,
-          fxRate: null,
-          fxBufferPct: null,
-          source: 'tcgcsv_singles',
-          isManualOverride: false,
-          cardProductId: null,
-          capturedDate: new Date('2026-08-24'),
-          id: 'pr1',
-        },
-      ]),
+      findMany: jest.fn(async () => priceRefRows),
     },
+    // H-PERF-1 / P-53 ALTO-4: la selección de mercado (lote y `getReference` delegado) se resuelve por
+    // la poda `$queryRaw`; la fila con clave completa casa `c1|raw|raw:NM|normal` y vale $100 de mercado.
+    $queryRaw: makeRefsRawQuery(priceRefRows),
     // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
     variantPriceOverride: { findMany: jest.fn(async () => []) },
     inventoryItem: { findMany: jest.fn(async () => [item]) },

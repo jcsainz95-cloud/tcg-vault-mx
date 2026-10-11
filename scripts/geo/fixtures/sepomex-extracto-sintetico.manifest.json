@@ -1,0 +1,19 @@
+{
+  "fileSha256": "ecf88df5c3f16a8b079792bc1ee17f4e8189e54f3f95702257cd215b122b0839",
+  "encoding": "latin1",
+  "derived": {
+    "rows": 10,
+    "postalCodes": 8,
+    "municipalities": 8,
+    "states": 5
+  },
+  "discarded": {
+    "cp_no_5_digitos": 0,
+    "campo_vacio": 0,
+    "caracter_ilegible": 0,
+    "separador_en_campo": 0
+  },
+  "duplicatesDropped": 1,
+  "setDigest": "0983397cf2c8a4dea7f5b11109e35bc2306d3ce6ccdee223f1a8a666d897e107",
+  "sourceNotice": "El Catálogo Nacional de Códigos Postales (EXTRACTO SINTÉTICO DE PRUEBA, escrito a mano en el formato de SEPOMEX; no es la fuente oficial)"
+}

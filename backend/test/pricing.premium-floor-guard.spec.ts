@@ -14,7 +14,10 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { ConfigService } from '@nestjs/config';
 import { ivaDialsStub } from './helpers/iva-dials';
 import {
+  BUY_PREMIUM_FLOOR_POLICY,
   DEFAULT_PRICING_CURVE,
+  DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
+  PremiumFloorPolicy,
   premiumFloorGuard,
   resolvePendingReason,
 } from '../src/common/pricing-curve';
@@ -33,31 +36,43 @@ import {
  *  - que NO dispara con override ni bounty (decisiones deliberadas del admin).
  */
 
-const CHASE = 'Special Illustration Rare'; // premium en el catálogo canónico
+const CHASE = 'Special Illustration Rare'; // premium en el catálogo canónico (el seed v1.80.8.5 NO la publica)
 const BULK = 'Common'; // NO premium
+// v1.80.8.5 (`M2-PF`): el guardarraíl se parametriza por la política. `NONE` conserva la aserción
+// original (retener toda premium en el piso); `SEED` es el valor sin fila del dial de VENTA.
+const NONE: PremiumFloorPolicy = { mode: 'none', rarities: [] };
+const SEED = DEFAULT_SALE_PREMIUM_FLOOR_POLICY;
 
 describe('E4 — veredicto puro (§4.36.5)', () => {
   it('premium + floor ⇒ premium_at_floor en los DOS ejes (pagar de menos = vender de menos)', () => {
-    expect(premiumFloorGuard(CHASE, 'floor')).toBe('premium_at_floor');
-    expect(resolvePendingReason('floor', CHASE)).toBe('premium_at_floor');
+    // Con la política de COMPRA (constante) y con `none`: la aserción original. Con el seed de VENTA,
+    // una SIR sigue retenida (no está en la lista).
+    for (const policy of [NONE, BUY_PREMIUM_FLOOR_POLICY, SEED]) {
+      expect(premiumFloorGuard(CHASE, 'floor', policy)).toBe('premium_at_floor');
+      expect(resolvePendingReason('floor', CHASE, policy)).toBe('premium_at_floor');
+    }
   });
 
   it('NO premium en el piso ⇒ se publica (una Common al piso es legítima)', () => {
-    expect(resolvePendingReason('floor', BULK)).toBeNull();
+    for (const policy of [NONE, SEED]) expect(resolvePendingReason('floor', BULK, policy)).toBeNull();
   });
 
   it('sin mercado ⇒ no_market para CUALQUIER rareza (el piso NO gana)', () => {
-    expect(resolvePendingReason('pending', BULK)).toBe('no_market');
-    expect(resolvePendingReason('pending', CHASE)).toBe('no_market');
+    for (const policy of [NONE, SEED]) {
+      expect(resolvePendingReason('pending', BULK, policy)).toBe('no_market');
+      expect(resolvePendingReason('pending', CHASE, policy)).toBe('no_market');
+    }
   });
 
   it('override y bounty NUNCA disparan el guardarraíl (§4.36.6)', () => {
-    expect(resolvePendingReason('override', CHASE)).toBeNull();
-    expect(resolvePendingReason('bounty', CHASE)).toBeNull();
+    for (const policy of [NONE, SEED]) {
+      expect(resolvePendingReason('override', CHASE, policy)).toBeNull();
+      expect(resolvePendingReason('bounty', CHASE, policy)).toBeNull();
+    }
   });
 
   it('market ⇒ se publica', () => {
-    expect(resolvePendingReason('market', CHASE)).toBeNull();
+    for (const policy of [NONE, SEED]) expect(resolvePendingReason('market', CHASE, policy)).toBeNull();
   });
 });
 
@@ -156,9 +171,12 @@ function harness(rarity: string | null) {
     priceReference: { findMany: jest.fn(async () => []) },
   } as unknown as PrismaService;
 
-  const settings = { getNumber: jest.fn(async () => 70), getRaw: jest.fn(async () => null) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70), getRaw: jest.fn(async () => null) } as unknown as SettingsService;
   const pricing = new PricingService(prisma, settings, {} as FxService, {} as never, {} as never, {} as never);
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  // v1.80.8.5 (`M2-PF`): el dial de VENTA en su seed (sin fila). Las chases de este ciclo son SIR ⇒
+  // retenidas igual que antes.
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,
@@ -251,6 +269,8 @@ describe('E4 — ciclo completo de la cola (§4.36.5c): escalar ⇒ mercado real
 function listingHarness(rarity: string | null, referenceMxnCents: number | null) {
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v1.80.8.5 (`M2-PF`): el dial de VENTA en su seed; CHASE (SIR) sigue retenida.
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
     // puede divergir de producción ni reimplementar la matemática.
@@ -408,8 +428,26 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
     expect(q.priceBasis).toBe('override');
   });
 
-  it('un BOUNTY también lo desactiva', async () => {
+  it('un BOUNTY sin tope desactiva el guardarraíl; TOPADO contra el bin en una chase ⇒ precio_pendiente (v1.80.2)', async () => {
+    // ⭐⭐ EXPECTATIVA INVERTIDA en v1.80.2 (API_CONTRACT §M2-B.11 punto 8, prueba BG-1; BACKEND_NOTES
+    // §0.57). Hasta v1.80.1 esta prueba afirmaba que una chase con mercado corrupto de MX$1 y bounty de
+    // MX$9,000 cotizaba **MX$1** (`basis bounty`): la lectura literal del tope, reportada al arquitecto
+    // en §0.55.3 (commit `c77ebc8`). La norma nueva: el bounty TOPADO paga el mercado, así que el
+    // guardarraíl evalúa el basis de la CURVA (aquí `floor`) ⇒ NO se cotiza.
     const { svc } = buylistFor(CHASE, 100, { bountyEnabled: true, bountyPriceCents: 900000 });
+    const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q.quote.status).toBe('precio_pendiente');
+    expect(q.quote.quotedPriceCents).toBeNull();
+    expect(q.priceBasis).toBe('pending');
+    // …y un bounty SIN tope (bounty 250 < mercado 300, curva aún en el bin) sigue exento: paga lo decidido.
+    const { svc: sinTope } = buylistFor(CHASE, 300, { bountyEnabled: true, bountyPriceCents: 250 });
+    const q2 = await sinTope.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q2.quote.quotedPriceCents).toBe(250);
+    expect(q2.priceBasis).toBe('bounty');
+  });
+
+  it('un BOUNTY sin mercado (curva pendiente) paga el bounty completo y no dispara el guardarraíl', async () => {
+    const { svc } = buylistFor(CHASE, null, { bountyEnabled: true, bountyPriceCents: 900000 });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.quote.quotedPriceCents).toBe(900000);
     expect(q.priceBasis).toBe('bounty');
@@ -484,6 +522,8 @@ describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)',
       referenceMxnCents: 1000,
       rarityCanonical: 'Special Illustration Rare',
       curve: DEFAULT_PRICING_CURVE,
+      // v1.80.8.5: el seed no publica SIR ⇒ sigue bloqueada (con `none` también).
+      premiumFloorPolicy: SEED,
     });
     expect(blocked.pendingReason).toBe('premium_at_floor');
     expect(blocked.priceCents).toBeNull();
@@ -495,7 +535,7 @@ describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)',
 
   it('criterio 84: la RAREZA no mueve el monto — solo puede suprimirlo', () => {
     const decide = PricingService.prototype.decideSalePrice;
-    const args = { referenceMxnCents: 100000, curve: DEFAULT_PRICING_CURVE };
+    const args = { referenceMxnCents: 100000, curve: DEFAULT_PRICING_CURVE, premiumFloorPolicy: SEED };
     const comun = decide({ ...args, rarityCanonical: 'Common' });
     const chase = decide({ ...args, rarityCanonical: 'Special Illustration Rare' });
     expect(chase.priceCents).toBe(comun.priceCents);

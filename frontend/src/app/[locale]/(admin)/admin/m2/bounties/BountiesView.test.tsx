@@ -58,7 +58,10 @@ vi.mock('@/i18n/navigation', () => ({
 // obedece y no deduce.
 // ---------------------------------------------------------------------------
 
-function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): VariantPricingDTO {
+function pricing(
+  over: Partial<NonNullable<VariantPricingDTO['bounty']>>,
+  buyOver: Partial<VariantPricingDTO['buy']> = {},
+): VariantPricingDTO {
   const face = {
     suggestedCents: null,
     overrideCents: null,
@@ -67,7 +70,7 @@ function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): Varia
     premiumAtFloor: false,
   };
   return {
-    buy: face,
+    buy: { ...face, ...buyOver },
     sell: face,
     bounty: {
       enabled: true,
@@ -77,6 +80,9 @@ function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): Varia
       completedAt: null,
       effective: false,
       curveQuoteCents: 95000,
+      // ⭐ v1.80 (§M2-B.11): aditivos. Por defecto «no paga» (no efectivo); cada test lo sobreescribe.
+      payoutCents: null,
+      cappedByMarket: false,
       ...over,
     },
   };
@@ -93,6 +99,11 @@ interface RowSpec {
   targetQty?: number | null;
   acquiredQty?: number;
   finish?: Finish;
+  // ⭐ §M2-B.11 punto 8: lo que se paga hoy (aditivo) y la cara de COMPRA que lo acompaña.
+  effective?: boolean;
+  payoutCents?: number | null;
+  cappedByMarket?: boolean;
+  buy?: Partial<VariantPricingDTO['buy']>;
 }
 
 function makeRow(spec: RowSpec): AdminBountyRowDTO {
@@ -114,14 +125,20 @@ function makeRow(spec: RowSpec): AdminBountyRowDTO {
       remainingQty: targetQty != null ? Math.max(0, targetQty - acquiredQty) : null,
     },
     updatedAt: '2026-09-01T12:00:00.000Z',
-    pricing: pricing({
-      enabled: spec.enabled ?? true,
-      priceCents: spec.priceCents === undefined ? 90000 : spec.priceCents,
-      curveQuoteCents: spec.curveQuoteCents === undefined ? 95000 : spec.curveQuoteCents,
-      completedAt: spec.completedAt ?? null,
-      targetQty,
-      acquiredQty,
-    }),
+    pricing: pricing(
+      {
+        enabled: spec.enabled ?? true,
+        priceCents: spec.priceCents === undefined ? 90000 : spec.priceCents,
+        curveQuoteCents: spec.curveQuoteCents === undefined ? 95000 : spec.curveQuoteCents,
+        completedAt: spec.completedAt ?? null,
+        targetQty,
+        acquiredQty,
+        ...(spec.effective !== undefined ? { effective: spec.effective } : {}),
+        ...(spec.payoutCents !== undefined ? { payoutCents: spec.payoutCents } : {}),
+        ...(spec.cappedByMarket !== undefined ? { cappedByMarket: spec.cappedByMarket } : {}),
+      },
+      spec.buy ?? {},
+    ),
   };
 }
 
@@ -132,7 +149,7 @@ function response(over: Partial<AdminBountyListResponse> = {}): AdminBountyListR
     page: 1,
     pageSize: 25,
     total: data.length,
-    counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+    counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
     truncated: false,
     ...over,
   };
@@ -165,7 +182,7 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 90000, curveQuoteCents: 95000 })],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -178,7 +195,7 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada', priceCents: 95000, curveQuoteCents: 95000 })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -194,7 +211,7 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
           makeRow({ id: 'c1', name: 'Mew ex', state: 'completada', enabled: false, completedAt: '2026-08-01T00:00:00.000Z', acquiredQty: 2 }),
           makeRow({ id: 'c2', name: 'Snorlax VMAX', state: 'apagada', enabled: false, priceCents: 60000, curveQuoteCents: 64000 }),
         ],
-        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 1, apagada: 1 },
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 1, apagada: 1, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -212,7 +229,7 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Gengar VMAX', state: 'zombi' })],
-        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -230,7 +247,7 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Gengar VMAX', state: 'zombi' })],
-        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -255,7 +272,7 @@ describe('⭐ la fila `invalida`: encendida, sin precio, y con dos puertas', () 
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Gengar VMAX', state: 'invalida', priceCents: null, curveQuoteCents: 78000 })],
-        counts: { activa: 0, rebasada: 0, invalida: 1, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 0, invalida: 1, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -310,7 +327,7 @@ describe('⭐ B-9/B-10 (espejo de cliente) — los chips cuentan el conjunto, no
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 12, rebasada: 3, invalida: 1, completada: 2, apagada: 4 },
+        counts: { activa: 12, rebasada: 3, invalida: 1, completada: 2, apagada: 4, despublicada: 0 },
         total: 22,
         pageSize: 1,
       }),
@@ -327,10 +344,10 @@ describe('⭐ B-9/B-10 (espejo de cliente) — los chips cuentan el conjunto, no
   });
 
   it('los CINCO chips existen y ninguno se esconde al llegar a cero (§28.5)', async () => {
-    serve(response({ data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })], counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 } }));
+    serve(response({ data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })], counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 } }));
     renderWithProviders(<BountiesView />, 'es');
     await screen.findByText('Charizard ex');
-    for (const s of ['rebasada', 'invalida', 'activa', 'completada', 'apagada'] as BountyState[]) {
+    for (const s of ['rebasada', 'invalida', 'activa', 'completada', 'apagada', 'despublicada'] as BountyState[]) {
       expect(chip(s)).toBeInTheDocument();
     }
   });
@@ -339,7 +356,7 @@ describe('⭐ B-9/B-10 (espejo de cliente) — los chips cuentan el conjunto, no
     const spy = serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 12, rebasada: 1, invalida: 0, completada: 2, apagada: 4 },
+        counts: { activa: 12, rebasada: 1, invalida: 0, completada: 2, apagada: 4, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -373,7 +390,7 @@ describe('⭐ B-4 (espejo de cliente) — `truncated: true` se declara en pantal
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 250000, curveQuoteCents: 210000 })],
-        counts: { activa: 40, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 40, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
         truncated: true,
       }),
     );
@@ -391,7 +408,7 @@ describe('⭐ B-4 (espejo de cliente) — `truncated: true` se declara en pantal
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa' })],
-        counts: { activa: 40, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 40, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
         truncated: true,
       }),
     );
@@ -410,7 +427,7 @@ describe('§28.5 — el panel DICE el cero (inversión deliberada de la vitrina)
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 250000, curveQuoteCents: 210000 })],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -423,7 +440,7 @@ describe('§28.5 — el panel DICE el cero (inversión deliberada de la vitrina)
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 250000, curveQuoteCents: 210000 })],
-        counts: { activa: 1, rebasada: 0, invalida: 2, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 2, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -469,7 +486,7 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
       return response({
         data,
         // `counts` RESPETA la identidad (y sigue ignorando el filtro de estado).
-        counts: { activa: data.length - rebasada, rebasada, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: data.length - rebasada, rebasada, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       });
     });
   }
@@ -527,7 +544,7 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
     serve(
       response({
         data: [PIKACHU],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -564,7 +581,7 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
       return response({
         data: states.length > 0 ? todas.filter((r) => states.includes(r.state)) : todas,
         // El conteo del sistema entero, sea cual sea el chip puesto.
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 1 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 1, despublicada: 0 },
       });
     });
     renderWithProviders(<BountiesView />, 'es');
@@ -604,7 +621,7 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
         page,
         pageSize: 1,
         total: 2, // dos páginas de una fila: lo mínimo para que exista un «Siguiente»
-        counts: { activa: 2, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 2, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       });
     });
     renderWithProviders(<BountiesView />, 'es');
@@ -636,7 +653,7 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
       const data = q && !PIKACHU.name.toLowerCase().includes(q) ? [] : [PIKACHU];
       return response({
         data,
-        counts: { activa: data.length, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: data.length, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       });
     });
     renderWithProviders(<BountiesView />, 'es');
@@ -667,7 +684,7 @@ describe('B-12 (espejo de cliente) — `—` en TARIFA VIGENTE significa UNA cos
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Snorlax VMAX', state: 'apagada', enabled: false, priceCents: 60000, curveQuoteCents: 64000 })],
-        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 1 },
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 1, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -681,7 +698,7 @@ describe('B-12 (espejo de cliente) — `—` en TARIFA VIGENTE significa UNA cos
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 90000, curveQuoteCents: null })],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -696,7 +713,7 @@ describe('B-12 (espejo de cliente) — `—` en TARIFA VIGENTE significa UNA cos
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', targetQty: null })],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -714,7 +731,7 @@ describe('⭐⭐ B-11 — el `PUT` que emite esta pantalla NO reenvía los overr
     serve(
       response({
         data: [makeRow({ id: 'card-1', name: 'Charizard ex', state: 'rebasada', priceCents: 90000, curveQuoteCents: 95000 })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue({
@@ -772,7 +789,7 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
           makeRow({ id: 'c2', name: 'Umbreon VMAX', state: 'rebasada' }),
           makeRow({ id: 'c3', name: 'Lugia V', state: 'rebasada' }),
         ],
-        counts: { activa: 0, rebasada: 3, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 3, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -794,9 +811,9 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
     const withDigits = screen
       .getAllByRole('button')
       .filter((b) => /\d/.test(b.textContent ?? ''));
-    const chipLabels = (['rebasada', 'invalida', 'activa', 'completada', 'apagada'] as BountyState[]).map(
-      (s) => T.counts[s].replace('{count}', '').trim(),
-    );
+    const chipLabels = (
+      ['rebasada', 'invalida', 'activa', 'completada', 'apagada', 'despublicada'] as BountyState[]
+    ).map((s) => T.counts[s].replace('{count}', '').trim());
     for (const b of withDigits) {
       expect(chipLabels.some((l) => (b.textContent ?? '').includes(l))).toBe(true);
     }
@@ -871,6 +888,9 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
       renderThreeOutbid();
       await screen.findByText('Charizard ex');
       const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue(putOk);
+      // ⭐ v2.2: el barrido también cuenta el `DELETE` — `deleteBounty` es la OTRA escritura de dinero
+      // de esta pantalla (§M2-B.9), y un borrado en lote la eludiría igual que un apagado en lote.
+      const del = vi.spyOn(api, 'deleteBounty').mockResolvedValue(putOk);
       const control = document.querySelectorAll(INTERACTIVOS)[i];
       const label = nombre(control);
 
@@ -887,11 +907,12 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
         await accionar(botones[botones.length - 1]);
       }
 
+      const gestureWrites = put.mock.calls.length + del.mock.calls.length;
       expect(
-        put.mock.calls.length,
+        gestureWrites,
         `el control «${label}» escribió sobre varias filas de un solo gesto`,
       ).toBeLessThanOrEqual(1);
-      writes.push(put.mock.calls.length);
+      writes.push(gestureWrites);
       cleanup();
     }
 
@@ -946,7 +967,7 @@ describe('§28.6 — la tabla en reposo no tiene formularios, y la fricción va 
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state, ...over })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1043,7 +1064,7 @@ describe('§28.6 — la tabla en reposo no tiene formularios, y la fricción va 
           makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' }),
           makeRow({ id: 'c2', name: 'Umbreon VMAX', state: 'rebasada' }),
         ],
-        counts: { activa: 0, rebasada: 2, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 2, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue({
@@ -1110,7 +1131,7 @@ describe('§28.8 — los tres estados obligatorios', () => {
 
   it('el vacío POR FILTRO ofrece limpiar, no explica el concepto', async () => {
     // Conjunto con un rebasado (el chip está vivo) pero la página que se pide viene vacía.
-    serve(response({ counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 } }));
+    serve(response({ counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 } }));
     renderWithProviders(<BountiesView />, 'es');
     await screen.findByText(T.empty.title);
     fireEvent.click(chip('rebasada'));
@@ -1139,7 +1160,7 @@ describe('§28.1 — `super_admin` únicamente; para `vault_operator` NO se rend
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<M2BountiesPage />, 'es');
@@ -1158,7 +1179,7 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
           makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' }),
           makeRow({ id: 'c2', name: 'Pikachu VMAX', state: 'activa', priceCents: 250000, curveQuoteCents: 210000 }),
         ],
-        counts: { activa: 1, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 1, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1178,7 +1199,7 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada', priceCents: 90000, curveQuoteCents: 95000 })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1214,7 +1235,7 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1236,7 +1257,7 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1265,7 +1286,7 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     }
   });
 
-  it('los CINCO rótulos de estado son distintos entre sí, en ES y en EN (§28.13 nº2)', () => {
+  it('los SEIS rótulos de estado son distintos entre sí, en ES y en EN (§28.13 nº2)', () => {
     for (const catalog of [T, T_EN]) {
       const labels = [
         catalog.state.activa,
@@ -1273,8 +1294,9 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
         catalog.state.invalida,
         catalog.state.completada,
         catalog.state.apagada,
+        catalog.state.despublicada,
       ];
-      expect(new Set(labels).size).toBe(5);
+      expect(new Set(labels).size).toBe(6);
     }
   });
 });
@@ -1290,7 +1312,7 @@ describe('§28.2a — el orden llega hecho y la pantalla no lo toca', () => {
           makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada', priceCents: 10000 }),
           makeRow({ id: 'c2', name: 'Umbreon VMAX', state: 'rebasada', priceCents: 900000 }),
         ],
-        counts: { activa: 0, rebasada: 2, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 2, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1303,7 +1325,7 @@ describe('§28.2a — el orden llega hecho y la pantalla no lo toca', () => {
     const spy = serve(
       response({
         data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
-        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
       }),
     );
     renderWithProviders(<BountiesView />, 'es');
@@ -1341,7 +1363,7 @@ describe('EN — la pantalla habla los dos idiomas', () => {
           makeRow({ id: 'c4', name: 'Mew ex', state: 'completada', enabled: false, completedAt: '2026-08-01T00:00:00.000Z' }),
           makeRow({ id: 'c5', name: 'Snorlax VMAX', state: 'apagada', enabled: false }),
         ],
-        counts: { activa: 1, rebasada: 1, invalida: 1, completada: 1, apagada: 1 },
+        counts: { activa: 1, rebasada: 1, invalida: 1, completada: 1, apagada: 1, despublicada: 0 },
         truncated: true,
       }),
     );
@@ -1356,5 +1378,324 @@ describe('EN — la pantalla habla los dos idiomas', () => {
     expect(
       screen.getByRole('button', { name: T_EN.row.setPriceAria.replace('{card}', 'Gengar VMAX') }),
     ).toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// ⭐⭐ v2.2 (Q2) — ELIMINAR un bounty (§M2-B.9): destructivo ⇒ confirmación obligatoria
+// ===========================================================================
+describe('⭐⭐ §M2-B.9 — la acción «Eliminar» es DESTRUCTIVA y exige confirmación', () => {
+  /** Un `VariantControlsResponse` de respuesta al `DELETE` (rama A borra: bounty ausente). */
+  const deletedResponse = {
+    cardId: 'card-1',
+    productType: 'raw' as const,
+    gradeKey: 'raw:NM' as const,
+    finish: 'holofoil' as Finish,
+    pricing: { ...pricing({}), bounty: null },
+  };
+
+  function renderOneOutbid() {
+    serve(
+      response({
+        data: [makeRow({ id: 'card-1', name: 'Charizard ex', state: 'rebasada' })],
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+  }
+
+  it('⭐ CANARIO — SIN confirmar NO se llama al DELETE (solo abre la ventana)', async () => {
+    renderOneOutbid();
+    const spy = vi.spyOn(api, 'deleteBounty').mockResolvedValue(deletedResponse);
+    fireEvent.click(
+      await screen.findByRole('button', { name: T.row.deleteAria.replace('{card}', 'Charizard ex') }),
+    );
+    // La ventana de confirmación se abre y NOMBRA la ramificación (borra vs despublica)…
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(T.delete.title)).toBeInTheDocument();
+    expect(within(dialog).getByText(T.delete.body)).toBeInTheDocument();
+    // …pero el `DELETE` NO ha viajado: un clic en «Eliminar» de la fila no borra nada.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('⭐ CANCELAR la ventana tampoco borra, y cierra la ventana', async () => {
+    renderOneOutbid();
+    const spy = vi.spyOn(api, 'deleteBounty').mockResolvedValue(deletedResponse);
+    fireEvent.click(
+      await screen.findByRole('button', { name: T.row.deleteAria.replace('{card}', 'Charizard ex') }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: es.common.cancel }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('⭐ al CONFIRMAR, llama `deleteBounty` con el `cardId`/`finish` correctos, UNA vez', async () => {
+    renderOneOutbid();
+    const spy = vi.spyOn(api, 'deleteBounty').mockResolvedValue(deletedResponse);
+    fireEvent.click(
+      await screen.findByRole('button', { name: T.row.deleteAria.replace('{card}', 'Charizard ex') }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: T.delete.cta }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0]).toBe('card-1');
+    expect(spy.mock.calls[0][1]).toBe('holofoil');
+  });
+
+  it('⭐ tras borrar (rama A) se re-lee la lista y el toast dice «eliminado»', async () => {
+    // El servidor falso: primera lectura trae la fila; tras el DELETE, la fila desapareció.
+    let deleted = false;
+    vi.spyOn(api, 'getAdminBounties').mockImplementation(async () =>
+      response({
+        data: deleted ? [] : [makeRow({ id: 'card-1', name: 'Charizard ex', state: 'rebasada' })],
+        counts: { activa: 0, rebasada: deleted ? 0 : 1, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
+      }),
+    );
+    vi.spyOn(api, 'deleteBounty').mockImplementation(async () => {
+      deleted = true;
+      return deletedResponse; // bounty ausente ⇒ `bountyDeleteOutcome` = 'deleted'
+    });
+    renderWithProviders(<BountiesView />, 'es');
+    fireEvent.click(
+      await screen.findByRole('button', { name: T.row.deleteAria.replace('{card}', 'Charizard ex') }),
+    );
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: T.delete.cta }),
+    );
+    // El toast de BORRADO (no el de despublicado), y la fila se fue de la tabla.
+    expect(
+      await screen.findByText(T.row.deletedToast.replace('{card}', 'Charizard ex')),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Charizard ex')).toBeNull());
+  });
+
+  it('⭐ borrar con historia (rama B) DESPUBLICA: el toast lo dice y conserva el registro', async () => {
+    // El DTO devuelto CONSERVA la historia (`acquiredQty > 0`) ⇒ el servidor despublicó, no borró.
+    vi.spyOn(api, 'getAdminBounties').mockImplementation(async () =>
+      response({
+        data: [makeRow({ id: 'card-1', name: 'Mew ex', state: 'completada', enabled: false, completedAt: '2026-08-01T00:00:00.000Z', acquiredQty: 2 })],
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 1, apagada: 0, despublicada: 0 },
+      }),
+    );
+    vi.spyOn(api, 'deleteBounty').mockResolvedValue({
+      cardId: 'card-1',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'holofoil',
+      pricing: pricing({ enabled: false, acquiredQty: 2, completedAt: '2026-08-01T00:00:00.000Z' }),
+    });
+    renderWithProviders(<BountiesView />, 'es');
+    fireEvent.click(
+      await screen.findByRole('button', { name: T.row.deleteAria.replace('{card}', 'Mew ex') }),
+    );
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: T.delete.cta }),
+    );
+    expect(
+      await screen.findByText(T.row.unpublishedToast.replace('{card}', 'Mew ex')),
+    ).toBeInTheDocument();
+  });
+
+  it('⛔ un `state` DESCONOCIDO NO ofrece «Eliminar» (no se actúa sobre lo que no se sabe leer)', async () => {
+    serve(
+      response({
+        data: [makeRow({ id: 'c1', name: 'Gengar VMAX', state: 'zombi' })],
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Gengar VMAX')).closest('tr')!;
+    expect(
+      within(row).queryByRole('button', { name: T.row.deleteAria.replace('{card}', 'Gengar VMAX') }),
+    ).toBeNull();
+  });
+});
+
+// ===========================================================================
+// ⭐ v2.2 (Q2) — VER las despublicadas: filtro `?state=despublicada`, badge y bloque propio
+// ===========================================================================
+describe('⭐ el estado `despublicada`: se puede ver con el filtro, con su badge y su bloque', () => {
+  const UNPUBLISHED = makeRow({
+    id: 'c9',
+    name: 'Latias ex',
+    state: 'despublicada',
+    enabled: false,
+    priceCents: 300000,
+    curveQuoteCents: 260000,
+    acquiredQty: 1,
+  });
+
+  /** Servidor falso: `data` EXCLUYE `despublicada` salvo que se pida; `counts` la trae SIEMPRE. */
+  function serveWithArchived() {
+    const activa = makeRow({ id: 'c1', name: 'Pikachu VMAX', state: 'activa', priceCents: 250000, curveQuoteCents: 210000 });
+    return vi.spyOn(api, 'getAdminBounties').mockImplementation(async (filters = {}) => {
+      const wantsArchived = (filters.states ?? []).includes('despublicada');
+      return response({
+        data: wantsArchived ? [UNPUBLISHED] : [activa],
+        // `counts` es el SELECTOR: reporta la despublicada aunque `data` la excluya por defecto.
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 1 },
+      });
+    });
+  }
+
+  it('⭐ el chip `DESPUBLICADOS` existe, cuenta desde el selector y NO sale en el tablero por defecto', async () => {
+    serveWithArchived();
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText('Pikachu VMAX');
+    // El chip trae su cuenta del `counts` (1) aunque el tablero por defecto no liste la fila.
+    expect(
+      screen.getByRole('button', { name: T.counts.despublicada.replace('{count}', '1') }),
+    ).toBeInTheDocument();
+    // Y por defecto la despublicada NO está a la vista.
+    expect(screen.queryByText('Latias ex')).toBeNull();
+  });
+
+  it('⭐ al pulsar el chip se pide `?state=despublicada` y la fila aparece con su badge', async () => {
+    const spy = serveWithArchived();
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText('Pikachu VMAX');
+
+    fireEvent.click(chip('despublicada'));
+
+    // La petición viaja con el estado archivado (la asimetría deliberada del filtro, §M2-B.1)…
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ states: ['despublicada'] })),
+    );
+    // …y la fila archivada aparece, con su BADGE de estado y su `aria-label` propio.
+    const row = (await screen.findByText('Latias ex')).closest('tr')!;
+    expect(within(row).getByText(T.state.despublicada)).toBeInTheDocument();
+    expect(within(row).getByLabelText(T.state.despublicadaAria)).toBeInTheDocument();
+    // Y su encabezado de bloque propio (no se funde con `APAGADOS`).
+    expect(screen.getByText(T.group.despublicada.replace('{count}', '1'))).toBeInTheDocument();
+  });
+
+  it('⛔ una fila `despublicada` NO ofrece «Eliminar» (ya está archivada: re-borrar es no-op)', async () => {
+    serveWithArchived();
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText('Pikachu VMAX');
+    fireEvent.click(chip('despublicada'));
+    const row = (await screen.findByText('Latias ex')).closest('tr')!;
+    expect(
+      within(row).queryByRole('button', { name: T.row.deleteAria.replace('{card}', 'Latias ex') }),
+    ).toBeNull();
+    // Sí ofrece re-publicarla (Encender): un `PUT enabled:true` limpia `bountyUnpublishedAt` (§M2-B.9).
+    expect(within(row).getByRole('button', { name: T.row.turnOn })).toBeInTheDocument();
+  });
+
+  it('el chip `DESPUBLICADOS` habla los dos idiomas', async () => {
+    serveWithArchived();
+    renderWithProviders(<BountiesView />, 'en');
+    await screen.findByText('Pikachu VMAX');
+    expect(
+      screen.getByRole('button', { name: T_EN.counts.despublicada.replace('{count}', '1') }),
+    ).toBeInTheDocument();
+  });
+});
+
+/**
+ * ⭐ §M2-B.11 punto 8 (v1.80 / v1.80.2) — la consola enseña LO QUE SE PAGA junto a lo configurado.
+ * `bounty.priceCents` sigue siendo lo configurado; `payoutCents`/`cappedByMarket` (aditivos) dicen lo
+ * que se paga hoy. El dueño tiene que ver: con bounty MX$1,200 y mercado MX$1,000 se pagan MX$1,000
+ * («topado por mercado»); y que una chase retenida por el guardarraíl está «pendiente».
+ */
+describe('⭐ §M2-B.11 punto 8 — PAGAMOS enseña lo que se paga, no solo lo configurado', () => {
+  it('bounty 120000 y mercado 100000: se pagan MX$1,000.00 y se dice «topado por mercado»', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-capped',
+            name: 'Charizard ex',
+            state: 'activa',
+            priceCents: 120000,
+            curveQuoteCents: 95000,
+            effective: true,
+            payoutCents: 100000,
+            cappedByMarket: true,
+            buy: { effectiveCents: 100000, source: 'bounty' },
+          }),
+        ],
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Charizard ex')).closest('tr')!;
+    // Lo configurado sigue a la vista…
+    expect(within(row).getByText('MX$1,200.00')).toBeInTheDocument();
+    // …y lo que se paga, con su razón.
+    expect(
+      within(row).getByText(T.row.payoutCapped.replace('{amount}', 'MX$1,000.00')),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByLabelText(
+        T.row.payoutCappedAria.replace('{price}', 'MX$1,200.00').replace('{amount}', 'MX$1,000.00'),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('bounty por debajo del mercado (no topado): NO se añade ninguna línea de tope', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-plain',
+            name: 'Pikachu ex',
+            state: 'activa',
+            priceCents: 120000,
+            effective: true,
+            payoutCents: 120000,
+            cappedByMarket: false,
+            buy: { effectiveCents: 120000, source: 'bounty' },
+          }),
+        ],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Pikachu ex')).closest('tr')!;
+    expect(within(row).getByText('MX$1,200.00')).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+    expect(within(row).queryByText(T.row.payoutRetained)).toBeNull();
+  });
+
+  it('chase RETENIDA por el guardarraíl (activa, payoutCents null, premiumAtFloor): «pendiente», no «se paga»', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-retained',
+            name: 'Umbreon VMAX',
+            state: 'activa',
+            priceCents: 900000,
+            curveQuoteCents: 100,
+            effective: true,
+            payoutCents: null,
+            cappedByMarket: false,
+            buy: { effectiveCents: null, source: 'pending', premiumAtFloor: true },
+          }),
+        ],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Umbreon VMAX')).closest('tr')!;
+    // Lo configurado se sigue viendo (es lo que ordena `price_desc`, §M2-B.11).
+    expect(within(row).getByText('MX$9,000.00')).toBeInTheDocument();
+    expect(within(row).getByText(T.row.payoutRetained)).toBeInTheDocument();
+    expect(within(row).getByLabelText(T.row.payoutRetainedAria)).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+  });
+
+  it('rebasado (no efectivo, payoutCents null): ni tope ni «pendiente» — el estado ya lo dice', async () => {
+    serve(
+      response({
+        data: [makeRow({ id: 'c-outbid', name: 'Gengar VMAX', state: 'rebasada', priceCents: 50000, effective: false })],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Gengar VMAX')).closest('tr')!;
+    expect(within(row).getByText(T.state.rebasada)).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+    expect(within(row).queryByText(T.row.payoutRetained)).toBeNull();
   });
 });

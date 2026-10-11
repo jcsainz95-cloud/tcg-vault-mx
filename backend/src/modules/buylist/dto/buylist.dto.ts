@@ -5,7 +5,6 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsObject,
   IsOptional,
   IsString,
   Matches,

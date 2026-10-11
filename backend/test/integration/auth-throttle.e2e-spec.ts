@@ -46,6 +46,10 @@ describe('E2E — Rate limiting real de /auth/login (SEC-C1)', () => {
 
     expect(limited).toBeDefined();
     expect(limited!.body.error.code).toBe('RATE_LIMITED');
+    // 🔒 v1.80.7 (§0 «429», norma de forma): `Retry-After: n` ∧ `details.retryAfterSeconds === n` (el mismo entero).
+    const retryAfter = Number(limited!.headers['retry-after']);
+    expect(Number.isInteger(retryAfter) && retryAfter > 0).toBe(true);
+    expect(limited!.body.error.details).toEqual({ retryAfterSeconds: retryAfter });
     // El límite es 5/min: los primeros intentos pasan al handler (401) antes del corte.
     expect(statuses.filter((s) => s === 401).length).toBeGreaterThanOrEqual(1);
     expect(statuses.indexOf(429)).toBeLessThanOrEqual(6);

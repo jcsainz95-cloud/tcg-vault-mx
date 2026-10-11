@@ -1,16 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
   Card,
   CardSet,
   Finish,
   MarketBracket,
+  MissingReason,
   MovementReason,
   Order,
   OrderItem,
+  PreparationItemStatus,
   Prisma,
+  ReplacementCaseStatus,
+  ShipmentRequest,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CurrentPiece, currentPiecesOf } from '../payments/refunds/origin';
+import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
@@ -20,21 +28,25 @@ import {
   ORDER_RESERVATION_TTL_MIN,
   RESERVATION_TX_OPTIONS,
   lockReservationGate,
+  failPendingOrder,
   releaseReservationData,
   reservationGuard,
   reservedUntilFrom,
 } from './reservation';
+import { lockReservedOfOrder, releaseReservedOfUnsettledRefund } from '../payments/refunds/release-unsettled-refund';
+import { accessoryReservedDrift, expiredAccessoryOrderIds, releaseAccessoryReservations, renewAccessoryReservations } from './accessory-stock';
 import {
   computeCartBreakdown,
   BreakdownDTO,
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
-  displayPriceCentsOf,
+  SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
+  manualSaleOf,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
-  hasManualPrice,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import {
   CARD_IMAGE_SELECT,
@@ -92,6 +104,16 @@ export type QuoteOwner = { userId: string } | { orderId: string };
  * datos de instrumentación que se congelan con él. El quinto dato de §N.8 (el precio final) ES
  * `unitPriceCents`.
  */
+/**
+ * 💰 v1.83 (§M11-SP.1, SP-3) — una pieza tal como la precia el checkout: con su carta **y el precio del dueño de su
+ * producto** (`SEALED_SALE_PRICE_INCLUDE`). `sealedProduct` es obligatoria en el tipo: una lectura que la olvide no
+ * llega a `resolveSaleDecision`.
+ */
+type SaleItem = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
+
 interface SaleDecision {
   /**
    * ⭐⭐ **`P` — el precio EXHIBIDO, con el IVA DENTRO** (`ARCHITECTURE §4.44.b`, criterio **194**).
@@ -106,6 +128,12 @@ interface SaleDecision {
    * sobre el exhibido. *Mezclarlos es cómo un margen se compara contra un precio con impuesto dentro.*
    */
   listPriceCents: number;
+  /**
+   * 💰 v1.83.1 (`API_CONTRACT §M11-SP.12.3`) — **`P` fijo del dueño** (precio del producto sellado, IVA dentro),
+   * o `null`. Con él, `derivedSaleDecision` cobra ESE entero tal cual (`saleDisplayCentsOf`) y `listPriceCents` es
+   * su `L` equivalente (solo para la instrumentación y las reglas sobre `L`). ⛔ Jamás `P` desde ese `L`.
+   */
+  fixedDisplayCents: number | null;
   priceBasis: PriceBasis;
   /** Mercado CRUDO en centavos que entró al cálculo. `null` = no lo hubo (jamás un 0 inventado). */
   marketMxnCents: number | null;
@@ -123,7 +151,7 @@ interface SaleDecision {
  * sí misma** — el mismo defecto que la columna de convención existe para impedir, un nivel más abajo.
  */
 interface PricedCart {
-  items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+  items: SaleItem[];
   /** `Σ P` — **suma exacta de enteros** (regla R1 ⇒ criterio 194 por construcción). */
   subtotalCents: number;
   lines: OrderLineData[];
@@ -219,13 +247,70 @@ export class OrdersService {
     private readonly settings: SettingsService,
     private readonly stripe: StripeService,
     private readonly catalog: CatalogService,
+    // ⭐ v1.80.2 (§M4-SHIP.16): lo que el CLIENTE ve de las transferencias SPEI de un caso reembolsado. `@Optional()`:
+    // los unitarios construyen el servicio a mano.
+    @Optional() private readonly manual?: ManualRefundService,
   ) {}
 
-  /** Resuelve el precio de venta de un item; lanza PRICE_PENDING si no vendible. */
-  private async salePriceOf(
-    item: InventoryItem & { card: Card & { set?: CardSet | null } },
-  ): Promise<number> {
-    return (await this.resolveSaleDecision(item)).unitPriceCents;
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `CustomerOrderShipmentDTO`: LISTA BLANCA (⛔ nunca un spread de la fila). Fuera, por
+   * contrato: costos, sellos de aviso, `stripePaymentIntentId`, `preparedBy*`, actores y el `addressSnapshot` crudo.
+   */
+  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[]; carrierEvents?: TimelineEventRow[] }) {
+    const a = (s.addressSnapshot ?? {}) as Partial<Record<'recipientName' | 'city' | 'state' | 'postalCode', string>>;
+    const trackingUrl = providerTrackingUrlOf(s);
+    return {
+      id: s.id,
+      status: s.status,
+      carrier: s.carrier,
+      trackingNumber: s.trackingNumber,
+      requestedAt: s.requestedAt.toISOString(),
+      pickingAt: s.pickingAt ? s.pickingAt.toISOString() : null,
+      shippedAt: s.shippedAt ? s.shippedAt.toISOString() : null,
+      deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
+      shipTo: { recipientName: a.recipientName ?? '', city: a.city ?? '', state: a.state ?? '', postalCode: a.postalCode ?? '' },
+      missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+      // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
+      ...(trackingUrl ? { trackingUrl } : {}),
+      timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
+    };
+  }
+
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `items[].replacement` del cliente: el caso MÁS RECIENTE con `originOrderItemId` = esa
+   * línea (compra a bóveda; y el retiro de una carta de esa compra), con lo que se le debe si se reembolsó. ⛔ Sin
+   * `reason` interno, sin CLABE, sin actor. UNA consulta de casos por los `OrderItem.id` de la orden.
+   */
+  private async replacementsByOrderItem(orderItemIds: string[]) {
+    const out = new Map<string, { status: ReplacementCaseStatus; reason: MissingReason; refund: { amountCents: number; byTransferCents: number; transferStatus: CustomerTransferView['transferStatus'] } | null }>();
+    if (orderItemIds.length === 0) return out;
+    const cases = await this.prisma.replacementCase.findMany({
+      where: { originOrderItemId: { in: orderItemIds } },
+      select: { id: true, originOrderItemId: true, status: true, missingReason: true, refundAmountCents: true, openedAt: true },
+      orderBy: [{ openedAt: 'desc' }, { id: 'desc' }],
+    });
+    const latest = new Map<string, (typeof cases)[number]>();
+    for (const c of cases) if (!latest.has(c.originOrderItemId as string)) latest.set(c.originOrderItemId as string, c);
+    const refundedIds = [...latest.values()].filter((c) => c.status === 'refunded').map((c) => c.id);
+    const transfers = refundedIds.length > 0 && this.manual ? await this.manual.customerTransferViews(this.prisma, refundedIds) : new Map<string, CustomerTransferView>();
+    for (const [oiId, c] of latest) {
+      const tv = transfers.get(c.id);
+      out.set(oiId, {
+        status: c.status,
+        reason: c.missingReason,
+        refund: c.status === 'refunded' ? { amountCents: c.refundAmountCents ?? 0, byTransferCents: tv?.byTransferCents ?? 0, transferStatus: tv?.transferStatus ?? null } : null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Resuelve el precio de venta (`L`, escala de lista) de un item; lanza PRICE_PENDING si no vendible. Su único uso
+   * es «¿resuelve?» (`sellableStatusFor`). v1.83.1: con precio del dueño es su `L` equivalente — por eso lee los
+   * diales (una lectura, este camino es de una pieza).
+   */
+  private async salePriceOf(item: SaleItem): Promise<number> {
+    return (await this.resolveSaleDecision(item, await this.settings.getIvaDials())).listPriceCents;
   }
 
   /**
@@ -243,7 +328,9 @@ export class OrdersService {
   private derivedSaleDecision(d: SaleDecision, dials: IvaDials): SaleDecision {
     return {
       ...d,
-      unitPriceCents: displayPriceCentsOf(d.listPriceCents, dials.ivaTransferPct, dials.ivaRatePct),
+      // 💰 v1.83.1 (E-3, §M11-SP.12.1): EL camino a `P`. Con precio del dueño ⇒ su `P` tal cual; si no ⇒ la
+      // derivación de siempre desde `L`. ⛔ Nunca `displayPriceCentsOf` directo aquí (SP-19).
+      unitPriceCents: saleDisplayCentsOf(d, dials),
     };
   }
 
@@ -255,44 +342,53 @@ export class OrdersService {
    * del MISMO cálculo que fijó `unitPriceCents`: reconstruirlos después sería medir otra cosa.
    * `salePriceOf` queda como envoltorio para los callers que solo quieren el monto.
    */
-  private async resolveSaleDecision(
-    item: InventoryItem & { card: Card & { set?: CardSet | null } },
-  ): Promise<SaleDecision> {
+  private async resolveSaleDecision(item: SaleItem, dials: IvaDials): Promise<SaleDecision> {
     // Sin mercado (override/bounty sin referencia, o pendiente): `marketMxnCents`/`marketBracket` van
     // en `null`. Honesto; jamás un 0 inventado (§4.36.7c).
-    const instrument = (listPriceCents: number, basis: PriceBasis, marketMxnCents: number | null): SaleDecision => ({
+    const instrument = (
+      listPriceCents: number,
+      basis: PriceBasis,
+      marketMxnCents: number | null,
+      fixedDisplayCents: number | null = null,
+    ): SaleDecision => ({
       // ⚠️ `unitPriceCents` sale IGUAL a `L` aquí y lo DERIVA `derivedSaleDecision` (el único sitio).
       // Se deja así, y no derivando en las cuatro ramas, porque cuatro derivaciones son cuatro
       // sitios donde una puede faltar — y la que falte cobra el precio sin IVA sin que nada falle.
       unitPriceCents: listPriceCents,
       listPriceCents,
+      fixedDisplayCents,
       priceBasis: basis,
       marketMxnCents,
       marketBracket: marketBracketOf(marketMxnCents),
       finish: item.finish,
     });
-    // H-1 (E5-bis): el MISMO predicado que los otros cinco seams. Este sitio ya exigía `> 0` a mano y
-    // era el único correcto; ahora la corrección vive en un cuerpo y no en la memoria de quien lea.
-    if (hasManualPrice(item)) {
-      // Peldaño 1 de la precedencia de VENTA: override POR PIEZA (§4.36.6) ⇒ basis `override`.
-      return instrument(item.listPriceCents, 'override', null);
+    // 💰 v1.83 (§M11-SP.1, SP-2): «tiene precio a mano» ⇔ `manualSaleOf(item) != null` — EL predicado único. En
+    // sellado, el precio del dueño del PRODUCTO va antes que el de la pieza: si existe, `manualSaleOf` devuelve
+    // `product` y la pieza (legado) queda sombreada. Antes este método cortaba con el override por pieza genérico
+    // ANTES del sellado ⇒ con un precio de producto, la sesión habría cobrado la pieza y la ficha el producto.
+    const manual = manualSaleOf(item);
+    if (manual?.origin === 'piece') {
+      // Peldaño 1 de la precedencia de VENTA (raw/graded) / peldaño 2 del sellado (legado): override POR PIEZA
+      // (§4.36.6) ⇒ basis `override`.
+      return instrument(manual.listCents, 'override', null);
     }
-    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por mercado×spread. H-1 (v1.24): resolver ÚNICO
-    // `resolveSealedSalePrice` (mismo cuerpo que catálogo/grid/bulk-publish, incluida la regla
-    // override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe, no se vende a precio basura).
+    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por el resolvedor ÚNICO `resolveSealedSalePrice` (mismo cuerpo
+    // que catálogo/grid/bulk-publish): precio del producto > mercado×spread > PRICE_PENDING (money-safe).
     // SEC-A1: todo server-side.
     if (item.productType === 'sealed') {
       const ctx = await this.pricing.loadSealedSpreads();
       const marketRef = await this.pricing.getSealedMarketRef(item);
-      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx);
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx, dials);
       // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. El
       // catálogo ya exige `> 0` para publicar; se alinea aquí para que ninguna session cobre $0.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
         throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
       }
-      // §4.36.7a: el SELLADO no cambia de matemática; su basis se DERIVA de `priceSource`.
-      const sealedMarket = this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
-      return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket);
+      // §4.36.7a: el SELLADO no cambia de matemática; su basis se DERIVA de `priceSource`. Con el precio del dueño
+      // el mercado no produjo el precio ⇒ `null` (como el override por pieza de siempre).
+      const sealedMarket =
+        sale.source === 'override' ? null : this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
+      return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket, sale.fixedDisplayCents);
     }
     // v1.53 (§4.40.4, **MONEY**) — CHECKOUT. La clave se pide con la TOLERANTE y su `null` se
     // convierte AQUÍ, explícitamente, en el rechazo que este método ya sabe emitir: `PRICE_PENDING`.
@@ -351,7 +447,7 @@ export class OrdersService {
   private async loadItems(ids: string[], db: Prisma.TransactionClient = this.prisma) {
     const items = await db.inventoryItem.findMany({
       where: { id: { in: ids } },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
     });
     if (items.length !== ids.length) {
       throw BusinessException.notFound('NOT_FOUND', 'One or more items not found');
@@ -375,7 +471,7 @@ export class OrdersService {
    * solo entran ítems ya validados).
    */
   private async buildLines(
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
+    items: SaleItem[],
     /**
      * ⭐ Los dos diales que derivan `P`, **izados una vez por petición**. Si se omite, se leen aquí
      * (uso single). ⛔ Nunca se leen **por ítem**: dos ítems del mismo carrito derivados con diales
@@ -387,7 +483,7 @@ export class OrdersService {
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of items) {
-      const d = this.derivedSaleDecision(await this.resolveSaleDecision(item), iva);
+      const d = this.derivedSaleDecision(await this.resolveSaleDecision(item, iva), iva);
       // R1: el subtotal es la SUMA EXACTA de los precios exhibidos (enteros ya redondeados por
       // unidad) ⇒ el criterio 194 (`Σ items[].unitPriceCents == subtotalCents`) se cumple **por
       // construcción**, no por cuidado del implementador.
@@ -526,7 +622,7 @@ export class OrdersService {
     const uniqueIds = [...new Set(inventoryItemIds)];
     const found = await this.prisma.inventoryItem.findMany({
       where: { id: { in: uniqueIds } },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
     });
     const byId = new Map(found.map((i) => [i.id, i]));
 
@@ -579,7 +675,7 @@ export class OrdersService {
       frozenOrder ? ownOrders[0].items.map((oi) => [oi.inventoryItemId, oi]) : [],
     );
 
-    const valid: (InventoryItem & { card: Card & { set?: CardSet | null } })[] = [];
+    const valid: SaleItem[] = [];
     const unavailableItems: UnavailableCartItemDTO[] = [];
     for (const id of uniqueIds) {
       const item = byId.get(id);
@@ -831,13 +927,28 @@ export class OrdersService {
   async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
     await this.prisma
       .$transaction(async (tx) => {
+        // 💰 v1.84 LIVE-4 (TD-4, §14.4): CAS `pending → failed` PRIMERO; si no casa, la orden ya la movió otro
+        // escritor (liquidada/reembolsada/contracargo) ⇒ ⛔ no se suelta nada.
+        if (!(await failPendingOrder(tx, orderId))) return;
         await tx.inventoryItem.updateMany({
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
-        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): los apartados de accesorio de la orden, en la MISMA tx (candado AC-B37).
+        await releaseAccessoryReservations(tx, orderId);
       })
-      .catch(() => undefined);
+      .catch((e: unknown) => {
+        // v1.84 LIVE-4 (C-2 (d) del techlead, D-2): conducta SIN cambiar — la compensación es best-effort y el barrido
+        // de reservas la reintenta —, pero ⛔ no en silencio: un fallo de BD aquí deja la reserva viva hasta el barrido.
+        this.logger.error(
+          JSON.stringify({
+            event: 'orders.release_reservation_failed',
+            orderId,
+            itemCount: itemIds.length,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      });
   }
 
   /**
@@ -938,6 +1049,8 @@ export class OrdersService {
       where: { reservedByOrderId: orderId, status: 'reserved' },
       data: { reservedUntil },
     });
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (3)): el reuso renueva también `reservedUntil` de los renglones de accesorio.
+    await renewAccessoryReservations(tx, orderId, reservedUntil);
     return reservedUntil;
   }
 
@@ -974,6 +1087,10 @@ export class OrdersService {
         );
       }
     }
+    // 💰 v1.84 LIVE-4 (TD-4, §14.4): CAS `pending → failed` PRIMERO. La lectura de la vieja fue SIN candado de fila y
+    // B3 (arriba) habla con Stripe entre medias: si otro escritor la movió, ⛔ no se suelta nada y no se lanza (la
+    // reserva nueva choca después con `ITEM_UNAVAILABLE` si las piezas ya no están libres).
+    if (!(await failPendingOrder(tx, order.id))) return;
     await tx.inventoryItem.updateMany({
       where: {
         id: { in: order.items.map((i) => i.inventoryItemId) },
@@ -981,7 +1098,8 @@ export class OrdersService {
       },
       data: releaseReservationData,
     });
-    await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+    // 💰 v1.86⟨accesorios⟩ (§AC.4 reuso, §AC.6 (2)): la sustitución suelta también los apartados de accesorio.
+    await releaseAccessoryReservations(tx, order.id);
   }
 
   /**
@@ -1087,15 +1205,33 @@ export class OrdersService {
       legacy += itemIds.length;
       byOrder.set(orderId, [...(byOrder.get(orderId) ?? []), ...itemIds]);
     }
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (3)) — SEGUNDA FUENTE: renglones de accesorio `reserved` vencidos en pedidos `pending`
+    // (un pedido SOLO de accesorios no tiene piezas que lo traigan aquí). Misma puerta: B3 primero, luego soltar.
+    for (const orderId of await expiredAccessoryOrderIds(this.prisma, now)) {
+      if (!byOrder.has(orderId)) byOrder.set(orderId, []);
+    }
     let swept = 0;
     let skipped = 0;
     let noop = 0;
     for (const [orderId, itemIds] of byOrder) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true },
+        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true, settledAt: true },
       });
       if (!order) continue;
+      // 💰 v1.80.8.6 (§M4-SHIP.18.12 (5)) — cierra el ruido de `SSL-R1`: orden `refunded` NUNCA liquidada. ⛔ Sin
+      // `closePaymentIntent` (el PI de un cargo reembolsado está `succeeded`: cancelar lanza — era el `error` perpetuo) y
+      // ⛔ sin `log error`. Mismo cuerpo de liberación que el reembolso total (`refund_release`).
+      if (order.status === 'refunded' && order.settledAt === null) {
+        const n = await this.releaseRefundedUnsettled(orderId);
+        if (n > 0) {
+          swept += 1;
+          this.logger.log(`order-reservation-sweep(refunded): ${n} piezas liberadas (pedido ${order.orderNumber ?? order.id}).`);
+        } else {
+          noop += 1;
+        }
+        continue;
+      }
       if (order.stripePaymentIntentId) {
         const closed = await this.closePaymentIntent(order.stripePaymentIntentId);
         if (!closed.closed) {
@@ -1115,14 +1251,18 @@ export class OrdersService {
       // vigila el barrido: no se puede distinguir «barrí 40 reservas» de «no había nada que barrer
       // 40 veces».
       const released = await this.prisma.$transaction(async (tx) => {
+        // 💰 v1.84 LIVE-4 (TD-4, §14.4): `order.status` se leyó FUERA de esta tx (y B3 habló con Stripe entre medias).
+        // Leída `pending` ⇒ CAS `pending → failed` PRIMERO; si no casa (liquidada/reembolsada/contracargo entre la
+        // lectura y aquí) ⇒ ⛔ nada se suelta. Leída en otro estado (p. ej. ya `failed` con piezas aún suyas) ⇒ no se
+        // escribe la orden y se suelta lo que siga reservado por ella, como antes.
+        if (order.status === 'pending' && !(await failPendingOrder(tx, orderId))) return 0;
         const { count } = await tx.inventoryItem.updateMany({
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
-        if (order.status === 'pending') {
-          await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
-        }
-        return count;
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(3)): mismo cuerpo de soltar, misma tx. Cuenta como liberado.
+        const acc = order.status === 'pending' ? await releaseAccessoryReservations(tx, orderId) : { lines: 0 };
+        return count + acc.lines;
       });
       if (released > 0) swept += 1;
       else noop += 1;
@@ -1130,13 +1270,14 @@ export class OrdersService {
     if (noop > 0) {
       this.logger.log(
         `order-reservation-sweep: ${noop} pedidos sin nada que liberar (otra ruta se les adelantó); ` +
-          'la orden `pending` sí quedó `failed`.',
+          'la orden `pending` quedó `failed` salvo que otro escritor la hubiera movido antes (TD-4: entonces no se toca).',
       );
     }
     if (skipped > 0) {
       this.logger.warn(`order-reservation-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
     }
     if (swept > 0) this.logger.log(`order-reservation-sweep: ${swept} reservas vencidas liberadas.`);
+    await this.auditAccessoryReservedDrift();
     if (legacy > 0) {
       // SEC-SB-1: se cuenta APARTE porque es una población que se AGOTA. Mientras este número no
       // sea 0 en una pasada, la rama `IS NULL` de `reservationGuard` NO se puede retirar (`RSV-L1`).
@@ -1146,6 +1287,41 @@ export class OrdersService {
       );
     }
     return { swept, skipped, legacy };
+  }
+
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.6 (6)) — conteo de reconciliación, en cada barrido: `reservedQty` de cada accesorio vs Σ
+   * de lo `reserved`. Si no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. ⛔ No corrige. Best-effort: un
+   * fallo aquí no tumba el barrido (que ya soltó lo vencido).
+   */
+  private async auditAccessoryReservedDrift(): Promise<void> {
+    try {
+      const drift = await accessoryReservedDrift(this.prisma);
+      for (const d of drift) {
+        this.logger.error(`accessory.reserved_drift: ${d.accessoryId} reservedQty=${d.reservedQty} ≠ Σ reserved=${d.countedQty}`);
+        await this.prisma.auditLog.create({
+          data: { actorUserId: null, actorRole: null, action: 'accessory.reserved_drift', entityType: 'Accessory', entityId: d.accessoryId, after: { reservedQty: d.reservedQty, countedQty: d.countedQty } },
+        });
+      }
+    } catch (e) {
+      this.logger.error(`accessory.reserved_drift: el conteo falló (${(e as Error).message})`);
+    }
+  }
+
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (5)) — la rama del barrido para una orden `refunded` NUNCA liquidada: en UNA tx, piezas
+   * `reservedByOrderId = orden` `FOR UPDATE` (id asc.) → `Order FOR UPDATE` → relee `refunded ∧ settledAt IS NULL` (si
+   * no, nada) → el cuerpo único de liberación (`trigger 'sweep'`, sin actor). Devuelve cuántas liberó.
+   */
+  private async releaseRefundedUnsettled(orderId: string): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockedReservedIds = await lockReservedOfOrder(tx, orderId);
+      const [row] = await tx.$queryRaw<{ status: string; settledAt: Date | null; orderNumber: string | null }[]>`
+        SELECT status::text AS status, "settledAt", "orderNumber" FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+      if (!row || row.status !== 'refunded' || row.settledAt !== null) return 0;
+      const released = await releaseReservedOfUnsettledRefund(tx, orderId, 'sweep', null, { lockedReservedIds, orderNumber: row.orderNumber });
+      return released.length;
+    });
   }
 
   /**
@@ -1469,6 +1645,7 @@ export class OrdersService {
     orderId: string,
     outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
     now = new Date(),
+    actorUserId?: string,
   ): Promise<{
     orderId: string;
     outcome: string;
@@ -1496,10 +1673,14 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
       if (!order) throw BusinessException.notFound();
-      if (order.fulfillmentMode !== 'direct_ship') {
+      // ⭐ v1.80.4/.5 (§M4-SHIP.18.7): también una orden `vault` `refunded` (cartas devueltas por el reembolso
+      // total, plataforma `picking` CONGELADAS). Es EL MISMO cuerpo que sobre un directo `refunded`; lo único
+      // que cambia es cómo se hallan los objetivos (abajo).
+      const isVaultRefunded = order.fulfillmentMode === 'vault' && order.status === 'refunded';
+      if (order.fulfillmentMode !== 'direct_ship' && !isVaultRefunded) {
         throw BusinessException.badRequest(
           'VALIDATION_ERROR',
-          'Only a direct_ship order can have a frozen piece from a chargeback',
+          'Only a direct_ship order (or a refunded vault order) can have a frozen piece',
         );
       }
 
@@ -1508,6 +1689,11 @@ export class OrdersService {
       // `count===0` ⇒ `409`, que ES la regla de idempotencia de §M3.
       // Si algo posterior lanza, la transacción REVIERTE y el flag vuelve a `true`: un desenlace
       // rechazado (p. ej. `reexpedir` sin disputa ganada) NO consume la decisión.
+      // 🔒 v1.80.7 (techlead, medido con PS-61b): en BÓVEDA las piezas se toman `FOR UPDATE` ANTES del claim sobre
+      // `Order` — el orden normativo de §M4-SHIP.18.2 (envíos → piezas → `Order`) que siguen `reclaim-vault` y
+      // `unprepare`. Con el claim primero, `reclaim-vault` (piezas → `Order`) contra este verbo (`Order` → piezas)
+      // interbloqueaba (`40P01` ⇒ `503`). El claim sigue siendo quien DECIDE (`count 1`); solo cambia el orden.
+      const vaultFrozen = isVaultRefunded ? await this.vaultReclaimTargets(tx, order.id) : null;
       const claimed = await tx.order.updateMany({
         where: { id: orderId, chargebackNeedsManual: true },
         data: { chargebackNeedsManual: false },
@@ -1519,15 +1705,22 @@ export class OrdersService {
         );
       }
 
-      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta.
-      const frozen = await tx.inventoryItem.findMany({
-        where: {
-          id: { in: order.items.map((oi) => oi.inventoryItemId) },
-          status: { in: ['picking', 'shipped'] },
-        },
-      });
+      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta. Bóveda (v1.80.6, SEC-SHIP-M6):
+      // las piezas plataforma `picking` con `refund_return` posterior al sello de ESTA orden y ningún movimiento
+      // posterior que cambie de estado (`isVaultReclaimTarget`), bajo `FOR UPDATE` (id asc.), tomadas ARRIBA.
+      const frozen = vaultFrozen
+        ? vaultFrozen
+        : await tx.inventoryItem.findMany({
+            where: {
+              id: { in: order.items.map((oi) => oi.inventoryItemId) },
+              status: { in: ['picking', 'shipped'] },
+            },
+          });
 
       if (outcome === 'reexpedir') {
+        if (isVaultRefunded) {
+          throw BusinessException.conflict('CONFLICT', 'A vault purchase has no shipment to re-ship');
+        }
         // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
         if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
           throw BusinessException.conflict(
@@ -1588,8 +1781,11 @@ export class OrdersService {
           // muestra una pieza sin precio — PROJECT §A). ⚠ I1: el veredicto viene del pre-escaneo de
           // FUERA de la transacción; aquí NO se toca `this.prisma`/`this.pricing` (segunda conexión).
           const toStatus = sellableStatusByItem.get(item.id) ?? 'in_stock';
+          // 🔒 v1.80.6 (PS-61): una objetivo YA en su estado de venta (la confirmó una pasada anterior: `recuperada`
+          // no escribe movimiento) se deja como está — cero movimientos, cero escrituras.
+          if (isVaultRefunded && item.status === toStatus) continue;
           const moved = await tx.inventoryItem.updateMany({
-            where: { id: item.id, status: item.status },
+            where: { id: item.id, status: isVaultRefunded ? 'picking' : item.status, ...(isVaultRefunded ? { ownerType: 'platform' } : {}) },
             data: {
               status: toStatus,
               ownerType: 'platform',
@@ -1597,16 +1793,25 @@ export class OrdersService {
               ownershipStatus: null,
             },
           });
-          if (moved.count !== 1) continue;
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: item.id,
-              fromStatus: item.status,
-              toStatus,
-              reason: MovementReason.chargeback_return,
-              note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
-            },
-          });
+          if (moved.count !== 1) {
+            // 🔒 v1.80.5 (§18.7): bajo FOR UPDATE, una objetivo que no esté plataforma `picking` es violación de
+            // invariante ⇒ 409 CONFLICT, rollback ENTERO (⛔ no «se omite»).
+            if (isVaultRefunded) throw BusinessException.conflict('CONFLICT', 'A frozen piece changed under lock');
+            continue;
+          }
+          // ⭐ v1.80.5: en bóveda `recuperada` NO escribe movimiento (publicar es visibilidad; la vuelta física ya
+          // quedó como `refund_return`, §M4-SHIP.17.1 (2)). En el directo sigue su `chargeback_return`.
+          if (!isVaultRefunded) {
+            await tx.inventoryMovement.create({
+              data: {
+                itemId: item.id,
+                fromStatus: item.status,
+                toStatus,
+                reason: MovementReason.chargeback_return,
+                note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
+              },
+            });
+          }
           recovered.push(item.id);
         }
         return {
@@ -1617,7 +1822,38 @@ export class OrdersService {
         };
       }
 
-      // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está (terminal de
+      // 🔒 v1.80.3/.5 (§M4-SHIP.17.2, §18.7) — `no_recuperada` de una orden `refunded` (este origen, no una
+      // disputa): cada pieza `picking` ⇒ `lost` + movimiento con actor (MERMA FIRMADA: las cartas nunca salieron
+      // del almacén; si no están, es merma con nombre, no una venta).
+      if (order.status === 'refunded') {
+        const lost: string[] = [];
+        for (const item of frozen) {
+          // (una objetivo ya `lost` la confirmó una pasada anterior; la que no está `picking` ni `lost` es CONFLICT abajo)
+          if (item.status === 'lost' || (!isVaultRefunded && item.status !== 'picking')) continue;
+          const moved = await tx.inventoryItem.updateMany({
+            where: { id: item.id, status: 'picking', ownerType: 'platform' },
+            data: { status: 'lost' },
+          });
+          if (moved.count !== 1) {
+            if (isVaultRefunded) throw BusinessException.conflict('CONFLICT', 'A frozen piece changed under lock');
+            continue;
+          }
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              fromStatus: 'picking',
+              toStatus: 'lost',
+              reason: MovementReason.lost,
+              actorUserId: actorUserId ?? null,
+              note: `reembolso total ${order.orderNumber ?? order.id} · no recuperada`,
+            },
+          });
+          lost.push(item.id);
+        }
+        return { orderId: order.id, outcome, inventoryItemIds: lost, chargebackNeedsManual: false as const };
+      }
+
+      // `no_recuperada` de una DISPUTA: SIN movimiento de inventario. La pieza se queda donde está (terminal de
       // venta). NO se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes.
       return {
         orderId: order.id,
@@ -1636,6 +1872,47 @@ export class OrdersService {
    *
    * Solo trabaja para `recuperada`: es el único desenlace que mueve inventario por precio.
    */
+  /**
+   * 🔒 v1.80.6 (§M4-SHIP.18.7, SEC-SHIP-M6) — `isVaultReclaimTarget(p, order)`: piezas de la compra (vigentes por
+   * la cadena) que son plataforma `picking` con un `refund_return` con `createdAt ≥ fullRefundClosedAt` y ningún
+   * movimiento posterior que cambie de estado (un `move` picking→picking NO la saca del conjunto). `FOR UPDATE`, id asc.
+   */
+  private async vaultReclaimTargets(tx: Prisma.TransactionClient, orderId: string) {
+    const order = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { fullRefundClosedAt: true, items: { select: { id: true, inventoryItemId: true } } },
+    });
+    if (!order.fullRefundClosedAt) return [];
+    const chains = await currentPiecesOf(tx, order.items);
+    const ids = [...chains.values()]
+      .filter((c): c is Extract<CurrentPiece, { kind: 'piece' }> => c.kind === 'piece')
+      .map((c) => c.inventoryItemId)
+      .sort();
+    if (ids.length === 0) return [];
+    await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
+    const [pieces, moves] = await Promise.all([
+      tx.inventoryItem.findMany({ where: { id: { in: ids } } }),
+      tx.inventoryMovement.findMany({ where: { itemId: { in: ids } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    ]);
+    const sealAt = order.fullRefundClosedAt.getTime();
+    // 🔒 v1.80.6 (§18.7, PS-61): el objetivo se elige por el ANCLA (`refund_return` ≥ sello, sin cambio de estado
+    // posterior), ⛔ NO por «está `picking`»: el `WHERE` del CAS es la garantía — una objetivo que alguien puso
+    // `in_stock` por fuera es violación de invariante (`409 CONFLICT`, rollback), no una pieza que se omite.
+    return pieces.filter((p) => {
+      if (p.ownerType !== 'platform') return false;
+      const list = moves.filter((m) => m.itemId === p.id);
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        if (list[i].reason === 'refund_return' && list[i].createdAt.getTime() >= sealAt) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) return false;
+      return !list.slice(idx + 1).some((m) => m.fromStatus !== m.toStatus);
+    });
+  }
+
   private async prescanSellableStatus(
     orderId: string,
     outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
@@ -1664,7 +1941,7 @@ export class OrdersService {
     try {
       const full = await this.prisma.inventoryItem.findUnique({
         where: { id: inventoryItemId },
-        include: { card: { include: { set: true } } },
+        include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       });
       if (!full) return 'in_stock';
       await this.salePriceOf(full);
@@ -1682,6 +1959,8 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
+        // ⭐ v1.80.2 (§M4-SHIP.16): los envíos y el libro de la página en la MISMA consulta (⛔ sin N+1).
+        include: { shipmentRequests: { orderBy: { requestedAt: 'desc' }, select: { status: true } }, refunds: { select: { status: true, amountCents: true } } },
       }),
       this.prisma.order.count({ where: { userId } }),
     ]);
@@ -1697,6 +1976,10 @@ export class OrdersService {
       createdAt: o.createdAt,
       settledAt: o.settledAt,
       orderNumber: o.orderNumber,
+      // ⭐ v1.80.2 (§M4-SHIP.16): el rótulo público (el MISMO cuerpo que el invitado) para que ninguna pantalla titule
+      // con el `status` crudo («LIQUIDADA» es un término interno de dinero).
+      fulfillmentMode: o.fulfillmentMode,
+      publicStatus: publicStatus(o.status, activeShipment(o.shipmentRequests ?? [])?.status, { refundedCents: refundedCentsOf(o.refunds ?? []), totalCents: o.totalCents }),
       ...(o.status === 'pending' && reservedUntil.has(o.id)
         ? { reservedUntil: reservedUntil.get(o.id) }
         : {}),
@@ -1758,10 +2041,20 @@ export class OrdersService {
   async getOrder(userId: string, orderId: string, isAdmin = false) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
+      include: {
+        items: { include: { refund: true } },
+        // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } }, carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
+        refunds: true,
+      },
     });
     if (!order) throw BusinessException.notFound();
     if (!isAdmin && order.userId !== userId) throw BusinessException.forbidden('FORBIDDEN');
+    // (`?? []`: los dobles de las suites legacy devuelven la fila sin relaciones.)
+    const shipment = order.fulfillmentMode === 'direct_ship' ? activeShipment(order.shipmentRequests ?? []) : undefined;
+    const refundedCents = refundedCentsOf(order.refunds ?? []);
+    const replacements = await this.replacementsByOrderItem(order.items.map((i) => i.id));
     const breakdown: BreakdownDTO = this.breakdownOf(order);
     // v1.68 (§4-R.5, ADITIVO): `reservedUntil` SOLO con `status:'pending'`.
     const reservedUntil =
@@ -1784,7 +2077,18 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
-      items: this.toHistoricItemPreviews(order.items, facts, cardsById),
+      // ⭐ v1.80.2 (§M4-SHIP.16): el cliente REGISTRADO ve su envío y titula con `publicStatus` (el MISMO cuerpo que
+      // el invitado). `shipment: null` ⇔ `vault`, o `direct_ship` aún sin envío (ventana webhook→creación).
+      fulfillmentMode: order.fulfillmentMode,
+      publicStatus: publicStatus(order.status, shipment?.status, { refundedCents, totalCents: order.totalCents }),
+      shipment: shipment ? this.toCustomerOrderShipment(shipment) : null,
+      // v1.80 (§M4-SHIP.10): lo devuelto por Stripe; por carta, la fila aceptada y el caso «Por reponer».
+      refundedCents,
+      items: this.toHistoricItemPreviews(order.items, facts, cardsById).map((p, idx) => ({
+        ...p,
+        refund: clientRefundOf(order.items[idx].refund),
+        replacement: replacements.get(order.items[idx].id) ?? null,
+      })),
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,

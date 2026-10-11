@@ -43,7 +43,8 @@ export type SeedRole =
   | 'admin'
   | 'operator'
   | 'customerTemp'
-  | 'operatorTemp';
+  | 'operatorTemp'
+  | 'speiCustomer';
 
 /** Actores cuya sesión nace con `mustChangePassword: true` (en mock se inyecta esa bandera). */
 export const TEMP_PASSWORD_ROLES: readonly SeedRole[] = ['customerTemp', 'operatorTemp'];
@@ -92,6 +93,17 @@ export const CREDENTIALS: Record<SeedRole, { email: string; password: string; ro
     email: process.env.E2E_TEMP_OPERATOR_EMAIL ?? 'temporal.operator@e2e.local',
     password: process.env.E2E_TEMP_OPERATOR_PASSWORD ?? 'Temporal123!',
     role: 'vault_operator',
+  },
+  /**
+   * P-REL-3 — el cliente de la cubeta SPEI (`backend/prisma/e2e-fixtures.ts` → `E2E_SPEI_FIXTURE.customer`,
+   * dd6fb1d7). Dueño de las dos `ManualRefund` sembradas (`e2e:mr-pay`, `e2e:mr-cancel`). Solo lo usa
+   * `m4-ship-spei-real.spec.ts` para registrar su CLABE por `PUT /users/me/kyc` (la semilla no la siembra: la
+   * clave PII es del proceso del servidor).
+   */
+  speiCustomer: {
+    email: process.env.E2E_SPEI_CUSTOMER_EMAIL ?? 'spei.refund@e2e.local',
+    password: process.env.E2E_SPEI_CUSTOMER_PASSWORD ?? 'SpeiRefund123!',
+    role: 'customer',
   },
 };
 

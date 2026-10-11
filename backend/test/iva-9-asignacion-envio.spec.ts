@@ -131,8 +131,11 @@ describe('⭐⭐ `IVA-9` — el envío absorbe el residuo, y la suma es EXACTA',
   it('⛔ POR LO NEGATIVO, sobre el CÓDIGO: nadie reparte con `round(E/(1+r))`', () => {
     // Ésa es **literalmente** la mutación que `IVA-9` declara roja, y es el cuerpo que `admin.service`
     // tenía antes del corte (`ARCHITECTURE §9 · D-IVA-11`). Rojo en cuanto reaparezca.
+    // 💰 §AN fase B: también `pnl-core.ts`, donde vive ahora el cuerpo del P&L.
     const admin = stripComments(
-      readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', 'admin.service.ts'), 'utf8'),
+      ['admin.service.ts', 'pnl-core.ts']
+        .map((f) => readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', f), 'utf8'))
+        .join('\n'),
     );
     expect(admin).not.toMatch(/shippingFeeCents\s*\/\s*\(?\s*1\s*\+/);
     // Y el helper del envío vive en `money.ts`, en UN solo sitio.
@@ -143,7 +146,9 @@ describe('⭐⭐ `IVA-9` — el envío absorbe el residuo, y la suma es EXACTA',
   it('⛔⛔ y NINGÚN camino RECALCULA `Order.ivaCents` desde las partes', () => {
     // La flecha, medida sobre el código: el P&L y el tablero leen `o.ivaCents`, ⛔ no lo escriben.
     const admin = stripComments(
-      readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', 'admin.service.ts'), 'utf8'),
+      ['admin.service.ts', 'pnl-core.ts']
+        .map((f) => readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', f), 'utf8'))
+        .join('\n'),
     );
     expect(admin).not.toMatch(/ivaCents\s*=\s*[^=]/);
   });

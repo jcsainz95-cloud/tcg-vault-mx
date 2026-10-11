@@ -2,10 +2,11 @@ import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { InventoryPublishPort } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51.19 — **§4.39m.8: la SEGUNDA ENTRADA del puerto, por VARIANTE.**
@@ -22,7 +23,7 @@ import * as path from 'path';
  *  5. **Solo `in_stock` de plataforma** entra al candidato.
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface P {
   id: string;
@@ -91,6 +92,7 @@ function build(rows: ReturnType<typeof piece>[]) {
     pendingPriceEntry: { findMany: jest.fn(async () => []) },
   };
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
@@ -287,11 +289,12 @@ describe('⚠️ (4) es un ADAPTADOR: mismas guardas, mismo cuerpo', () => {
     expect(rows[0].status).toBe('in_stock');
   });
 
-  it('sin ubicación NO publica, aunque la variante ya tenga precio', async () => {
+  it('⭐ SU-1 (§M1-SU): sin ubicación SÍ publica cuando la variante ya tiene precio — el mismo desenlace que por id', async () => {
     const { port, rows } = build([piece({ id: 'a', locationId: null })]);
     const res = await port.reevaluateVariantsForPublication([RAW_NM]);
-    expect(res.map((r) => r.outcome)).toEqual(['missing_location']);
-    expect(rows[0].status).toBe('in_stock');
+    expect(res.map((r) => r.outcome)).toEqual(['published']);
+    expect(rows[0].status).toBe('listed');
+    expect(rows[0].locationId).toBeNull();
   });
 
   it('sin precio resoluble NO publica y escala: el mismo desenlace que por id', async () => {

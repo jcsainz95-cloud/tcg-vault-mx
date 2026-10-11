@@ -1,4 +1,6 @@
+import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { SELL_REQUEST_LIVE_STATES } from '../../common/sell-request-states';
@@ -13,7 +15,6 @@ import {
   MarketBracket,
   OrderStatus,
   Prisma,
-  ProductType,
   Role,
   SellRequestStatus,
   UserStatus,
@@ -26,23 +27,29 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
-import {
-  netRevenueCents,
-  netShippingCostCents,
-  netShippingRevenueCents,
-  shipmentNetRevenueCents,
-} from '../../common/money';
+import { UsersService } from '../users/users.service';
+import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
+import { pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { PasswordAttemptsService } from '../auth/password-attempts.service';
+import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
+import { ShipmentPrepService } from '../shipments/shipment-prep.service';
+import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { DashboardShippingService } from './dashboard-shipping.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
+  checkUsername,
   isStrongPassword,
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
+import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -165,7 +172,9 @@ function kycDecisionFields(k: {
  */
 interface AdminUserRow {
   id: string;
-  email: string;
+  email: string | null;
+  // v1.80.9 (§M6-U.7): staff sin correo ⇒ `username`; los dos DTOs de la ficha lo llevan.
+  username: string | null;
   name: string;
   nameSource: NameSource;
   role: Role;
@@ -180,12 +189,16 @@ interface AdminUserRow {
   anonymizedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): para `isOwner` (misma derivación que el resto: `isOwnerAccount` de la fila).
+  isOwner: boolean;
 }
 
 function toAdminUserHeader(u: AdminUserRow) {
   return {
     id: u.id,
+    // v1.80.9 (§M6-U.7): `email: string | null` (clave siempre presente) + `username`.
     email: u.email,
+    username: u.username,
     name: u.name,
     // ⭐ v1.69 (P-78, §M6-K.3, BK-5) — **el campo que hace LEGIBLE el cotejo contra la INE**, y va a
     // los DOS DTOs (super_admin y vault_operator). Sin él, un nombre FABRICADO del correo (P-73,
@@ -202,6 +215,8 @@ function toAdminUserHeader(u: AdminUserRow) {
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): en los DOS DTOs de la ficha. ⛔ Nunca autoriza en el front (la base decide).
+    isOwner: isOwnerAccount(u),
     // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones) y `googleId`
     // — ninguno tiene por qué viajar en una ficha de back-office, y **ya no se leen de la BD**
     // (`ADMIN_USER_DETAIL_SELECT`).
@@ -500,6 +515,7 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
 const ADMIN_USER_DETAIL_SELECT = {
   id: true,
   email: true,
+  username: true,
   name: true,
   nameSource: true,
   role: true,
@@ -514,6 +530,7 @@ const ADMIN_USER_DETAIL_SELECT = {
   anonymizedAt: true,
   createdAt: true,
   updatedAt: true,
+  isOwner: true,
   kycProfile: {
     select: {
       ...ADMIN_KYC_SELECT,
@@ -537,7 +554,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       updatedAt: true,
     },
   },
-  // Las 11 columnas de `AddressDTO` (§11) — las MISMAS que `/users/me/addresses`.
+  // Las 12 columnas de `AddressDTO` (§11; v1.81: + `references`; `complete` se deriva) — las MISMAS que
+  // `/users/me/addresses` (`ADDRESS_ROW_KEYS`).
   addresses: {
     select: {
       id: true,
@@ -550,6 +568,7 @@ const ADMIN_USER_DETAIL_SELECT = {
       postalCode: true,
       country: true,
       phone: true,
+      references: true,
       isDefault: true,
     },
   },
@@ -589,6 +608,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       gradingCompany: true,
       gradeValue: true,
       ownershipStatus: true,
+      // v1.80.1 (SK-5): identidad de mercado del sellado — la valuación la necesita; ⛔ no viaja al DTO.
+      tcgplayerProductId: true,
       card: { include: { set: true } },
     },
   },
@@ -618,6 +639,25 @@ export class AdminService {
     // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
     // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // v1.80 (C7, §M6): el reset por admin LEVANTA el candado de intentos de la cuenta. Lo provee
+    // `AuthModule` (importado por `AdminModule`); lo prueba C7-8(b) por HTTP real y el arranque lo
+    // asevera `app.module.spec` («es el mismo singleton que usa AuthService»).
+    // SEC-C7-OPT (2026-09-29): SIN `@Optional()` — con él, sacar `AuthModule` de los imports
+    // compilaba y el reset dejaba de levantar el candado en silencio. El `?` de TypeScript queda
+    // solo porque va detrás de `mail?` (posición) y los unitarios construyen a mano; en DI es
+    // obligatorio, y `resetPassword` se niega a correr sin él (no hay rama muda).
+    private readonly passwordAttempts?: PasswordAttemptsService,
+    // ⭐ v1.80 (§M4-SHIP.11): `workQueue.toPrepare` (el MISMO cuerpo que `picking-list/summary`) y las cubetas de
+    // dinero del súper-admin. `@Optional()`: los unitarios construyen el servicio a mano.
+    @Optional() private readonly prep?: ShipmentPrepService,
+    @Optional() private readonly manualRefunds?: ManualRefundService,
+    // 🔒 v1.80.7 (punto 19): la CLABE la borra su módulo dueño (`UsersService.eraseClabe`, `C-CLABE-1`). `@Optional()`
+    // por el mismo motivo que los de arriba; `deleteUser` exige que esté.
+    @Optional() private readonly users?: UsersService,
+    // 💰 D2f (§19.13, §19.29.9): `workQueue.shipping` y `workQueue.spendControl` — leen DIALES, así que viven en su propio
+    // servicio (este ⛔ tiene el servicio de diales: candado IVA-11 (c-estructural)). `@Optional()` por los unitarios que
+    // construyen a mano; en DI siempre está (`AdminModule` lo provee).
+    @Optional() private readonly dashboardShipping?: DashboardShippingService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -639,6 +679,7 @@ export class AdminService {
    */
   async createUser(dto: {
     email?: unknown;
+    username?: unknown;
     name?: unknown;
     role?: unknown;
     password?: unknown;
@@ -647,7 +688,8 @@ export class AdminService {
   }): Promise<{
     user: {
       id: string;
-      email: string;
+      email: string | null;
+      username: string | null;
       name: string;
       role: Role;
       locale: string;
@@ -659,40 +701,72 @@ export class AdminService {
     tempPassword?: string;
     mustChangePassword: boolean;
   }> {
-    // --- Validación semántica → 422 VALIDATION_ERROR (contrato §M6) ---
-    // BE-9: reusa el validador compartido de credenciales (misma regla que /auth/register).
-    if (!isValidEmailFormat(dto.email)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid email');
-    }
-    // email se lowercasea antes de persistir/validar unicidad (paridad con /auth/register).
-    const email = normalizeEmail(dto.email);
-
+    // --- Validación semántica → 422 VALIDATION_ERROR con `details.field` (contrato §M6 / §M6-U.6) ---
+    // ⭐ v1.80.9 (§M6-U.6) — ORDEN NORMATIVO: 1) nombre y rol; 2) cliente ⇒ sin usuario, con correo válido;
+    // 3) equipo ⇒ SIN correo, con usuario canónico; 4) contraseña; 5) escritura; 6) unicidad por el índice.
     if (typeof dto.name !== 'string' || dto.name.trim().length === 0) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Name is required');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Name is required', { field: 'name' });
     }
     const name = dto.name.trim();
 
     const roles: Role[] = [Role.customer, Role.vault_operator, Role.super_admin];
     if (typeof dto.role !== 'string' || !roles.includes(dto.role as Role)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid role');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid role', { field: 'role' });
     }
     const role = dto.role as Role;
+    const isStaff = role !== Role.customer;
+
+    let email: string | null;
+    let username: string | null;
+    if (!isStaff) {
+      // 2. Cliente: el correo es su identificador y ⛔ nunca tiene usuario (CHECK `user_customer_has_email` + XOR).
+      if (dto.username !== undefined && dto.username !== null) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'A customer account has no username', {
+          field: 'username',
+          rule: 'customer_without_username',
+        });
+      }
+      // BE-9: reusa el validador compartido de credenciales (misma regla que /auth/register).
+      if (!isValidEmailFormat(dto.email)) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid email', { field: 'email' });
+      }
+      // email se lowercasea antes de persistir/validar unicidad (paridad con /auth/register).
+      email = normalizeEmail(dto.email);
+      username = null;
+    } else {
+      // 3. Equipo (HECHOS 2026-10-04 «Usuarios de back-office SIN correo»): ⛔ correo prohibido —presente, aun vacío—;
+      //    usuario obligatorio, guardado canónico (`checkUsername`, reglas en orden required→length→charset→start).
+      if (dto.email !== undefined && dto.email !== null) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'Staff accounts have no email; use a username', {
+          field: 'email',
+          rule: 'staff_without_email',
+        });
+      }
+      const u = checkUsername(dto.username);
+      if (!u.ok) {
+        throw BusinessException.validation('VALIDATION_ERROR', `Invalid username (${u.rule})`, {
+          field: 'username',
+          rule: u.rule,
+        });
+      }
+      email = null;
+      username = u.value;
+    }
 
     if (dto.locale !== undefined && dto.locale !== null) {
       if (typeof dto.locale !== 'string' || !['es', 'en'].includes(dto.locale)) {
-        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid locale');
+        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid locale', { field: 'locale' });
       }
     }
     const locale = (dto.locale as string | undefined) ?? 'es';
 
     if (dto.phone !== undefined && dto.phone !== null && typeof dto.phone !== 'string') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone', { field: 'phone' });
     }
     const phone = (dto.phone as string | undefined) ?? undefined;
 
-    // password: si se provee, política de /auth/register (MinLength 8). Si se omite, se
-    // autogenera una temporal de ALTA ENTROPÍA reusando el generador del reset M-15
-    // (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
+    // 4. password: si se provee, política de /auth/register (MinLength 8). Si se omite, se autogenera una temporal
+    // de ALTA ENTROPÍA (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
     let autogenerated = false;
     let plainPassword: string;
     if (dto.password === undefined || dto.password === null || dto.password === '') {
@@ -704,12 +778,14 @@ export class AdminService {
         throw BusinessException.validation(
           'VALIDATION_ERROR',
           `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+          { field: 'password' },
         );
       }
       plainPassword = dto.password;
     }
-    // mustChangePassword=true SOLO cuando la contraseña fue autogenerada (false si el admin la proveyó).
-    const mustChangePassword = autogenerated;
+    // ⭐ v1.80.9 (P-STF-6): equipo ⇒ `mustChangePassword` SIEMPRE (también con contraseña tecleada). Cliente ⇒ como
+    // antes: solo cuando se autogeneró.
+    const mustChangePassword = isStaff ? true : autogenerated;
 
     const passwordHash = await argon2.hash(plainPassword);
 
@@ -718,20 +794,27 @@ export class AdminService {
       user = await this.prisma.user.create({
         data: {
           email,
+          username,
           passwordHash,
           name,
           role,
           phone,
           locale: locale as never,
           authProvider: 'local',
-          // emailVerified=true para TODO rol creado por admin (staff como el seed; el customer
-          // porque el admin da fe de la identidad). NO se dispara correo de verificación.
-          emailVerified: true,
+          // Cliente: emailVerified=true (el admin da fe de la identidad; NO se dispara correo de verificación).
+          // ⭐ v1.80.9: equipo SIN correo ⇒ `false` (CHECK `user_no_email_unverified`: no hay correo que verificar).
+          emailVerified: email !== null,
           mustChangePassword,
         },
       });
     } catch (e) {
+      // 6. La unicidad la decide el ÍNDICE ÚNICO (también en la carrera, STF-6), no un `findFirst` previo.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = (e.meta as { target?: unknown } | undefined)?.target;
+        const fields = Array.isArray(target) ? target.map(String) : typeof target === 'string' ? [target] : [];
+        if (fields.some((f) => f.includes('username'))) {
+          throw BusinessException.conflict('USERNAME_TAKEN', 'Username already taken', { field: 'username' });
+        }
         throw BusinessException.conflict('EMAIL_TAKEN', 'Email already registered');
       }
       throw e;
@@ -742,6 +825,7 @@ export class AdminService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         name: user.name,
         role: user.role,
         locale: user.locale,
@@ -810,10 +894,15 @@ export class AdminService {
       and.push({ status: statusFilter });
     }
 
-    // `?q=` — el buscador por email/nombre. Su `OR` vive DENTRO de su cláusula, no en la raíz.
+    // `?q=` — el buscador por email/nombre y (v1.80.9, §M6-U.7) por nombre de usuario. Su `OR` vive DENTRO de su
+    // cláusula, no en la raíz. El usuario se guarda canónico ⇒ `contains` sobre `q` en minúsculas basta.
     if (q) {
       and.push({
-        OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }],
+        OR: [
+          { email: { contains: q, mode: 'insensitive' } },
+          { name: { contains: q, mode: 'insensitive' } },
+          { username: { contains: q.trim().toLowerCase() } },
+        ],
       });
     }
 
@@ -841,10 +930,14 @@ export class AdminService {
         select: {
           id: true,
           email: true,
+          username: true,
           name: true,
           role: true,
           status: true,
           createdAt: true,
+          // 🔒 D2g (§M4-SHIP.19.30.3): `isOwner` = `isOwnerAccount` de la fila (la marca + forma); `deletedAt` solo para eso.
+          isOwner: true,
+          deletedAt: true,
           kycProfile: { select: { kycStatus: true } },
         },
         skip: (page - 1) * pageSize,
@@ -854,9 +947,13 @@ export class AdminService {
       this.prisma.user.count({ where }),
     ]);
 
-    const data = rows.map((u) => ({
+    // v1.80.9 (§M6-U.7): el candado de cada fila de LA PÁGINA, leído del almacén (≤ 100 lecturas, en paralelo).
+    const locks = await this.lockedUntilOf(rows);
+    const data = rows.map((u, i) => ({
       id: u.id,
+      // ⛔ Siempre presente: `null` en el staff sin correo, nunca omitida ni `""`.
       email: u.email,
+      username: u.username,
       name: u.name,
       role: u.role,
       status: u.status,
@@ -865,9 +962,50 @@ export class AdminService {
       // `?? 'none'`. UN hecho, UNA regla, en las TRES superficies. ⛔ Ni `null` ni clave omitida:
       // «no tiene perfil» y «tiene perfil en none» son el mismo hecho para quien lee la cola.
       kycStatus: u.kycProfile?.kycStatus ?? KycStatus.none,
+      lockedUntil: locks.values[i],
+      // 🔒 D2g (§M4-SHIP.19.30.3): la MISMA derivación que las fichas y `GET /users/me`. El front la usa SOLO para mostrar u
+      // ocultar; ⛔ nunca autoriza (autoriza el servidor, `OWNER_ACCOUNT_PROTECTED`).
+      isOwner: isOwnerAccount(u),
     }));
 
-    return { data, page, pageSize, total };
+    return { data, page, pageSize, total, lockState: locks.state };
+  }
+
+  /**
+   * v1.80.9 (§M6-U.7, §4.58.5) — «bloqueado por intentos hasta…» de cada cuenta: ISO = ahora + `peekLockMs` del cubo
+   * de SU identificador; `null` sin candado. El almacén es la ÚNICA fuente (ni columna ni bitácora).
+   * ⭐ v1.80.9.1 (errata D-4 + TD-9, §M6-U.7, `ARCHITECTURE §4.58.9`) — falla en alto:
+   *  - solo `LoginAttemptStoreUnavailableError` (Redis degradado, caído o fuera de plazo) ⇒ `state:'unavailable'` y
+   *    TODAS `null` (⛔ ni un 500, ni una marca a medias);
+   *  - cualquier OTRA excepción (p. ej. `passwordAttemptKeysForUser` sin identificador = CHECK 1 roto, o un error de
+   *    programación) ⇒ se propaga: ⛔ no se disfraza de «almacén no disponible»;
+   *  - sin `PasswordAttemptsService` ⇒ lanza el error de cableado (SEC-C7-OPT: no hay rama muda).
+   */
+  private async lockedUntilOf(
+    users: { id: string; email: string | null; username: string | null }[],
+  ): Promise<{ state: 'ok' | 'unavailable'; values: (string | null)[] }> {
+    const attempts = this.requirePasswordAttempts('lockedUntilOf');
+    try {
+      const now = Date.now();
+      const ms = await Promise.all(users.map((u) => attempts.lockMsForUser(u)));
+      return { state: 'ok', values: ms.map((m) => (m > 0 ? new Date(now + m).toISOString() : null)) };
+    } catch (e) {
+      if (!(e instanceof LoginAttemptStoreUnavailableError)) throw e;
+      this.logger.warn(`lockedUntil: el almacén de intentos no contestó (${e.message})`);
+      return { state: 'unavailable', values: users.map(() => null) };
+    }
+  }
+
+  /**
+   * SEC-C7-OPT / TD-9: el `PasswordAttemptsService` es obligatorio en DI; sin él, se falla en seco con el MISMO texto
+   * de cableado en todos los que lo usan (reset y lectura del candado).
+   */
+  private requirePasswordAttempts(op: string): PasswordAttemptsService {
+    const attempts = this.passwordAttempts;
+    if (!attempts) {
+      throw new Error(`AdminService.${op}: PasswordAttemptsService is not wired (AdminModule must import AuthModule)`);
+    }
+    return attempts;
   }
 
   /**
@@ -893,6 +1031,12 @@ export class AdminService {
       select: ADMIN_USER_DETAIL_SELECT,
     });
     if (!user) throw BusinessException.notFound();
+    // v1.80.9 (§M6-U.7): «bloqueado por intentos hasta…», leído del ALMACÉN (única fuente). ⭐ v1.80.9.1 (A-1): la
+    // ficha gana `lockState` con la MISMA regla que el listado (misma función) — `'unavailable'` ⇒ `lockedUntil: null`;
+    // ⛔ la ficha no falla por el almacén (sí por una invariante rota, TD-9).
+    const lock = await this.lockedUntilOf([user]);
+    const lockedUntil = lock.values[0];
+    const lockState = lock.state;
 
     // Las relaciones ya vienen acotadas por el `select`, y cada una pasa además por SU proyector
     // (los del encabezado de este fichero). ⛔ Ni un SPREAD DE RESTO en esta función.
@@ -909,26 +1053,38 @@ export class AdminService {
     };
     // La CLABE vive CIFRADA en reposo: se descifra SOLO para enmascararla, y sale `****1234` también
     // para el `super_admin`. En claro únicamente por `GET /admin/buylist/:id/reveal-clabe`.
-    const clabeMasked = maskClabe(this.pii.decryptOptional(user.kycProfile?.clabeEnc));
+    // ⭐ Robustez PII (deuda M11): un campo que NO descifra (clave rotada / fila corrupta) DEGRADA su
+    // casilla (enmascarado a `undefined` + `piiUnavailable: true` en su DTO) en vez de tumbar la ficha
+    // entera con un 500. `piiUnavailable` es ADITIVO y SOLO viaja en el estado degradado, así que el
+    // candado de conjunto de claves (R-1) sigue verde en el camino feliz.
+    const clabe = this.pii.tryDecryptOptional(user.kycProfile?.clabeEnc);
+    const clabeMasked = maskClabe(clabe.value);
 
     if (role === Role.super_admin) {
+      const kycRfc = this.pii.tryDecryptOptional(user.kycProfile?.rfcEnc);
+      const billingRfc = this.pii.tryDecryptOptional(user.billingProfile?.rfcEnc);
       return {
         ...toAdminUserHeaderSuper(user),
+        lockedUntil,
+        lockState,
         ...comunes,
         // ⭐ v1.69 (P-78, §M6-K.3): SOLO aquí. El operador no recibe la clave (ni vacía): un perfil
         // de movimientos POR PERSONA no es de su rol.
         recentShipmentRecipients: user.shipmentRequests.map(toAdminShipmentRecipientRef),
         kycProfile: user.kycProfile
-          ? toAdminKycDetailDTO(user.kycProfile, {
-              clabeMasked,
-              rfcMasked: maskRfc(this.pii.decryptOptional(user.kycProfile.rfcEnc)),
-            })
+          ? {
+              ...toAdminKycDetailDTO(user.kycProfile, {
+                clabeMasked,
+                rfcMasked: maskRfc(kycRfc.value),
+              }),
+              ...(clabe.unavailable || kycRfc.unavailable ? { piiUnavailable: true } : {}),
+            }
           : null,
         billingProfile: user.billingProfile
-          ? toAdminBillingDTO(
-              user.billingProfile,
-              maskRfc(this.pii.decryptOptional(user.billingProfile.rfcEnc)),
-            )
+          ? {
+              ...toAdminBillingDTO(user.billingProfile, maskRfc(billingRfc.value)),
+              ...(billingRfc.unavailable ? { piiUnavailable: true } : {}),
+            }
           : null,
       };
     }
@@ -936,8 +1092,16 @@ export class AdminService {
     // Proyección reducida para `vault_operator` (y cualquier rol no `super_admin`), SEC-A4.
     return {
       ...toAdminUserHeader(user),
+      lockedUntil,
+      lockState,
       ...comunes,
-      kycProfile: user.kycProfile ? toAdminKycOperatorDTO(user.kycProfile, clabeMasked) : null,
+      kycProfile: user.kycProfile
+        ? {
+            ...toAdminKycOperatorDTO(user.kycProfile, clabeMasked),
+            // El operador solo ve la CLABE: su degradación es la única que puede marcarse aquí.
+            ...(clabe.unavailable ? { piiUnavailable: true } : {}),
+          }
+        : null,
       // SIEMPRE `null`, nunca «omitido»: el front pinta «sin acceso», no «sin datos» (§11).
       billingProfile: null,
     };
@@ -964,6 +1128,7 @@ export class AdminService {
       rawCondition: string | null;
       gradingCompany: string | null;
       gradeValue: string | null;
+      tcgplayerProductId: number | null;
       ownershipStatus: Prisma.InventoryItemGetPayload<object>['ownershipStatus'];
       card: Prisma.CardGetPayload<{ include: { set: true } }>;
     }[],
@@ -990,7 +1155,8 @@ export class AdminService {
     // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
     const pricedByCard = new Map<string, Set<Finish>>();
     for (const r of refs) {
-      const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
+      // D-1 (v1.80.2.2): productor y consumidor del `Map` con la MISMA `variantKey` (P-30 H2), nunca a mano.
+      const key = variantKey(r);
       const cur = latest.get(key);
       if (cur == null || isBetterRef(r, cur)) latest.set(key, r);
       if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
@@ -1006,22 +1172,27 @@ export class AdminService {
     // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
     // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
     const fx = await this.pricing.fxSnapshotSafe();
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     return items.map((item) => {
-      // v1.53 (§4.40.4b, MONEY) — LECTURA: sin identidad de slab no hay clave, y sin clave no hay
-      // referencia ⇒ `pending`. Antes la fila se resolvía como `graded:PSA:10` y el admin veía el
-      // valor del grado MÁS CARO para una pieza cuyo grado nunca se capturó.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      const r = gradeKey
-        ? latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`)
-        : undefined;
-      const referenceValue: PriceInfo = r
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
+      // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
+      //  - raw/graduada: la clave de siempre (v1.53 §4.40.4b: sin identidad de slab no hay clave ⇒
+      //    `pending`; antes se resolvía `graded:PSA:10`, el grado MÁS CARO).
+      //  - sellado: su `sealed:tcg:<id>` con el gate de dial; sin mapeo ⇒ `pending`. ⛔ Nunca `'sealed'`.
+      const key = this.pricing.valuationKeyFor(item);
+      const r = key ? latest.get(variantKey(key)) : undefined;
+      const ref: PriceInfo | undefined = r
         ? {
             status: 'priced',
             referenceMxnCents: this.pricing.liveMxnCents(r, fx),
             source: r.source as PriceInfo['source'],
             capturedDate: r.capturedDate.toISOString().slice(0, 10),
           }
-        : { status: 'pending' };
+        : undefined;
+      const referenceValue: PriceInfo =
+        ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null ? ref : { status: 'pending' };
       return {
         inventoryItemId: item.id,
         folio: item.folio,
@@ -1298,11 +1469,35 @@ export class AdminService {
    * consumidor recibe la forma que ya conoce.
    */
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
-    return this.prisma.user.update({
-      where: { id },
-      data: { status },
-      select: { id: true, email: true, name: true, role: true, status: true, createdAt: true },
-    });
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): la cuenta MARCADA como del dueño no se bloquea ni se reactiva por aquí — ⛔ ni por él
+    // mismo (un dueño bloqueado deja el sistema sin destinatario). La guarda va en el `where` de la escritura (`isOwner: false`,
+    // `where` único extendido): no hay lectura previa que una carrera pueda saltar. Sin fila que cumpla ⇒ se distingue «no
+    // existe» (`404`) de «es la del dueño» (`403 OWNER_ACCOUNT_PROTECTED`).
+    let u;
+    try {
+      u = await this.prisma.user.update({
+        where: { id, isOwner: false },
+        data: { status },
+        // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
+        select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2025') throw e;
+      const exists = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw BusinessException.notFound();
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
+    // §19.30.3: `AdminUserSummaryDTO` + `isOwner`. Por construcción es `false`: la escritura exigió `isOwner = false`.
+    return { ...u, isOwner: false };
+  }
+
+  /**
+   * 🔒 D2g (§19.30.2 (3)) — quién es el destino de un acto sobre una cuenta (para AG-22 y la bitácora del rechazo). Solo `id`,
+   * `name`, `role` e `isOwner` (la marca CRUDA: la protección de la cuenta del dueño se decide por la marca, falla cerrado).
+   */
+  async staffTargetOf(id: string): Promise<{ userId: string; name: string; role: Role; isOwner: boolean } | null> {
+    const u = await this.prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, isOwner: true } });
+    return u ? { userId: u.id, name: u.name, role: u.role, isOwner: u.isOwner } : null;
   }
 
   /**
@@ -1313,9 +1508,24 @@ export class AdminService {
    * SEGURIDAD: la contraseña temporal se devuelve UNA vez y NUNCA se persiste en claro ni se
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
-  async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
-    const user = await this.prisma.user.findUnique({ where: { id }, select: { id: true, status: true } });
+  async resetPassword(
+    id: string,
+    actorUserId?: string,
+  ): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
+    // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
+    // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
+    const attempts = this.requirePasswordAttempts('resetPassword');
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      // v1.80.9 (§M6-U.6): + `username`, para que `clearForUser` limpie el cubo de SU identificador.
+      // 🔒 D2g (§19.30.2 (2)): + `isOwner` — la cuenta del dueño no se restablece desde OTRA cuenta.
+      select: { id: true, status: true, email: true, username: true, isOwner: true },
+    });
     if (!user) throw BusinessException.notFound();
+    if (user.isOwner === true && actorUserId !== id) {
+      // El dueño se restablece por «olvidé mi contraseña» o con `prisma/reset-admin-password.ts`.
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
     if (user.status === 'deleted') {
       throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
     }
@@ -1323,14 +1533,22 @@ export class AdminService {
     const tempPassword = randomBytes(18).toString('base64url');
     const passwordHash = await argon2.hash(tempPassword);
     await this.prisma.user.update({
-      where: { id },
+      // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
+      where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
       data: {
         passwordHash,
         mustChangePassword: true,
         // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
         tokenVersion: { increment: 1 },
       },
+    }).catch((e: unknown) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+      }
+      throw e;
     });
+    // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
+    await attempts.clearForUser(user);
     return { userId: id, tempPassword, mustChangePassword: true };
   }
 
@@ -1381,6 +1599,10 @@ export class AdminService {
       include: { kycProfile: true },
     });
     if (!user) throw BusinessException.notFound();
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): primero `CANNOT_DELETE_SELF` (arriba, sin cambio); luego la cuenta del dueño ⇒ `403`.
+    if (user.isOwner === true) {
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
 
     // Idempotente: re-DELETE sobre una cuenta ya soft-deleted es no-op.
     if (user.status === 'deleted') {
@@ -1411,19 +1633,23 @@ export class AdminService {
             'deleting the row would leave them unreachable. Retry when object storage responds.',
         );
       }
-      // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot.
+      // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot (y, rev v1.87⟨wishlist⟩, la lista de
+      // deseos con sus avisos y correos). D-WSH-5: `SealedRestockSubscription.userId` es `SetNull` y CONSERVA el correo ⇒ las
+      // suscripciones de la cuenta y de su correo se borran antes (si el `delete` fallara después, quedan borradas: es PII, se acepta).
+      await this.prisma.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
       await this.prisma.user.delete({ where: { id } });
       return { userId: id, mode: 'hard' };
     }
 
     // SOFT delete: conserva filas económicas; anonimiza PII y revoca login.
+    if (!this.users) throw new Error('UsersService no disponible: el borrado suave anonimiza la CLABE por `eraseClabe`');
     await this.prisma.$transaction(async (tx) => {
       if (user.kycProfile) {
+        // 🔒 v1.80.7 (`C-CLABE-1`): la CLABE la anula su módulo dueño (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`).
+        await this.users!.eraseClabe(tx, id);
         await tx.kycProfile.update({
           where: { userId: id },
           data: {
-            clabeEnc: null,
-            clabeHmac: null,
             rfcEnc: null,
             legalName: null,
             // ⭐ `C20` — las keys se anulan **solo si el objeto SE BORRÓ**. Con el borrado fallido, el
@@ -1439,6 +1665,22 @@ export class AdminService {
       await tx.billingProfile.deleteMany({ where: { userId: id } });
       await tx.address.deleteMany({ where: { userId: id } });
       await tx.portfolioSnapshot.deleteMany({ where: { userId: id } });
+      // ⭐ v1.80.12.2 (API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los VALORES intermedios de las correcciones de dirección
+      // de SUS envíos — retiros (`ShipmentRequest.userId`) Y envíos directos (nacen con `userId: null`; su dueño es
+      // `order.userId`). Se borran (no se redactan): quién y cuándo siguen en la bitácora, que no lleva valores.
+      // ⛔ `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` se conservan (registro económico).
+      await tx.shipmentAddressRevision.deleteMany({
+        where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
+      });
+      // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
+      // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
+      await scrubInboundShipmentPii(tx, id);
+      // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Borrado de la cuenta», 817; D-WSH-5): la lista de deseos (los avisos caen en
+      // cascada), sus correos, y las suscripciones «avísame» de la cuenta Y de su correo PREVIO (el correo real se anonimiza
+      // abajo; sin esto seguiría recibiendo avisos de reposición).
+      await tx.wishlistItem.deleteMany({ where: { userId: id } });
+      await tx.wishlistMail.deleteMany({ where: { userId: id } });
+      await tx.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
       await tx.user.update({
         where: { id },
         data: {
@@ -1446,6 +1688,10 @@ export class AdminService {
           deletedAt: new Date(),
           anonymizedAt: new Date(),
           email: `deleted+${randomUUID()}@anon.invalid`,
+          // ⭐ v1.80.9 (§M6-U.1): con el correo anonimizado, el usuario se anula (CHECK `user_login_identity_xor`) y el
+          // aviso de panel también (CHECK `user_lock_notice_no_email`: solo cuentas sin correo lo llevan).
+          username: null,
+          lockNoticeAt: null,
           name: 'Usuario eliminado',
           phone: null,
           avatarUrl: null,
@@ -1484,79 +1730,46 @@ export class AdminService {
    * ⚠️ **Esta cifra del reporte SÍ cambia con este pase, y debe cambiar**: hoy falta un sumando.
    */
   async pnl(from?: string, to?: string) {
-    const createdAt = range(from, to);
-    const settledOrders = await this.prisma.order.findMany({
-      where: { status: 'settled', ...(createdAt ? { settledAt: createdAt } : {}) },
-      include: { items: { include: { inventoryItem: true } } },
-    });
-    let incomeCents = 0;
-    let stripeFeesCents = 0;
-    let cogsCents = 0;
-    // `D-IVA-5`: el ingreso de envío cobrado DENTRO de la orden (`direct_ship`). Se acumula aparte
-    // porque es INGRESO DE ENVÍO, no ingreso de mercancía: va a `shippingRevenueCents`, jamás a
-    // `incomeCents`. Se acota por `settledAt` (el mismo predicado del `findMany` de arriba), que es
-    // lo que el contrato dice: «órdenes settled del periodo».
-    let directShipShippingRevenueCents = 0;
-    for (const o of settledOrders) {
-      incomeCents += netRevenueCents(o);
-      stripeFeesCents += o.processingFeeCents;
-      if (o.fulfillmentMode === 'direct_ship') {
-        directShipShippingRevenueCents += netShippingRevenueCents(o);
-      }
-      for (const it of o.items) {
-        cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
-      }
-    }
-    // Fix correctness #3: los envíos también se acotan al periodo, por su fecha de
-    // liquidación (`pickingAt` = cuando payment_intent.succeeded los movió a picking).
-    const shipmentRange = range(from, to);
-    const shipments = await this.prisma.shipmentRequest.findMany({
-      where: {
-        status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
-        ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
-      },
-    });
-    // v1.4-finance: el envío separa INGRESO (shippingFeeCents, lo que paga el cliente) de
-    // COSTO (shippingCostCents, lo que la plataforma paga al carrier). Ambos se acotan al
-    // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
-    let shippingRevenueCents = directShipShippingRevenueCents;
-    let shippingCostCents = 0;
-    // ⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(b)` — **QUE EL `0` NO SIGNIFIQUE DOS COSAS.**
-    // `shippingCostCents` es `@default(0)`, así que «costó cero» y «no se capturó» son
-    // **indistinguibles** en las filas existentes. ⛔ No se hace nullable (exigiría un backfill que
-    // INVENTA la distinción): el contador la hace **visible** en vez de resolverla falsamente. *Es
-    // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
-    // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
-    let shippingCostMissingCount = 0;
-    for (const s of shipments) {
-      // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
-      // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
-      // devuelve `subtotalCents: shippingFeeCents`), así que la fila se lee con esa correspondencia.
-      // ⚠️ Helper PROPIO y no `netRevenueCents`: `ShipmentRequest` **no tiene `ivaRatePct`** y usar
-      // el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
-      shippingRevenueCents += shipmentNetRevenueCents(s);
-      // ⭐⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(a)` — **NETO contra NETO.** Sumar el costo **BRUTO**
-      // contra un ingreso **NETO** resta `2 800` de pérdida FANTASMA en cada envío, y evitar
-      // exactamente eso es lo que la decisión 68 del dueño dice (*«el costo de envío con el IVA que
-      // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
-      // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
-      shippingCostCents += netShippingCostCents(s);
-      if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
-      stripeFeesCents += s.processingFeeCents;
-    }
-    // ⛔ `profitCents` NO cambia de fórmula. Lo que cambia es que sus dos términos de envío están
-    // ahora en la **MISMA base (neta)**: antes uno era neto y el otro bruto, y eso restaba una
-    // pérdida que no existía.
-    const profitCents =
-      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents;
+    // 💰 §AN fase B (API_CONTRACT §15.8, ARCHITECTURE §4.64.4): el cuerpo vive en `pnl-core.ts` (`pnlBuckets`), partido en
+    // cubos para la analítica de ventas. M7 = UN cubo con el MISMO `range()` de hoy (`{gte, lte}`, D-AN-2 sin cambio,
+    // criterio 613). La paridad bit a bit la fija AN-B-13 (`sales-analytics-pnl-parity.e2e-spec.ts`, instantánea tomada
+    // antes del refactor). 💰 Desde la fusión con #78 el cubo trae además las cuatro filas del buylist (§BSD.16, B-4) al final
+    // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
+    const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
+    return buckets.get('all') ?? zeroPnl();
+  }
+
+  /**
+   * ⭐ v1.80…v1.80.3 (§M4-SHIP.11, .17.5) — `workQueue.toPrepare` (+ `toReplace`, `toReplaceOverdue`, `stuckRefunds`,
+   * el MISMO cuerpo que `GET /admin/shipments/picking-list/summary`), y SOLO para `super_admin`: `manualRefunds`
+   * (la cubeta SPEI) y `operatorRefunds` (24 h / 30 d de filas con `requestedByRole='vault_operator'`). Para
+   * `vault_operator` las dos van `null`.
+   */
+  private async workQueueAdditions(role: Role) {
+    if (!this.prep) return {};
+    const isSuperAdmin = role === Role.super_admin;
+    const now = new Date();
+    const summary = await this.prep.summary(role, now);
+    const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
+    // 💰 D2f (§19.13): `shipping` para los dos roles (el operador recibe `lowBalance`, ⛔ nunca la cifra).
+    const shipping = this.dashboardShipping ? await this.dashboardShipping.shipping() : null;
+    // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): `refundReviews` — `null` para `vault_operator` (como `manualRefunds`).
+    // 💰 D2f (§19.29.9): `spendControl` — `null` para `vault_operator` (GAS-1: la tarjeta no existe).
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null, shipping, spendControl: null };
+    const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
+    const [manualRefunds, last24h, last30d, reviews] = await Promise.all([
+      this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } }, _count: { _all: true }, _sum: { amountCents: true } }),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 3600 * 1000) } }, _sum: { amountCents: true } }),
+      this.prisma.order.aggregate({ where: REFUND_REVIEW_PENDING_WHERE, _count: { _all: true }, _min: { refundedAt: true } }),
+    ]);
     return {
-      incomeCents,
-      shippingRevenueCents,
-      cogsCents,
-      stripeFeesCents,
-      shippingCostCents,
-      shippingCostMissingCount,
-      profitCents,
+      toPrepare,
+      manualRefunds,
+      refundReviews: { pending: reviews._count._all, oldestRefundedAt: reviews._min.refundedAt ? reviews._min.refundedAt.toISOString() : null },
+      operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
+      shipping,
+      spendControl: this.dashboardShipping ? await this.dashboardShipping.spendControl(now) : null,
     };
   }
 
@@ -1570,9 +1783,12 @@ export class AdminService {
    * `pendingPriceCount` — nunca un 0 inventado):
    *  - raw/graded → referencia vigente del `(cardId, productType, gradeKey, finish)` del item
    *    (graded típicamente el override de MERCADO manual por grado, §M2 P-20);
-   *  - sealed → **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f) con
-   *    FALLBACK al gradeKey legacy `'sealed'` (override manual de mercado preexistente) para no
-   *    perder valuaciones capturadas antes de v1.19 — antes se valuaba SOLO por el legacy.
+   *  - sealed → **SOLO `sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f).
+   *    ⛔ v1.70 (P-83, API_CONTRACT §M2-SK **SK-2**): se RETIRA el fallback al gradeKey legacy
+   *    `'sealed'`. Esa llave es de COLA, no de PRECIO: no identifica al producto (un ETB y un blíster
+   *    anclados a la misma `Card` comparten fila), así que sumarla valuaba una caja con el precio de
+   *    otra. Sin clave de mercado (o sin referencia bajo ella) ⇒ `pendingPriceCount`, igual que la
+   *    graduada sin identidad de slab. Efecto declarado: el total baja y el contador de pendientes sube.
    * Rendimiento: referencias en UN lote (`getReferencesBatch`, cierra la deuda N+1 anotada en
    * ese método), no una query por pieza.
    */
@@ -1590,40 +1806,16 @@ export class AdminService {
         tcgplayerProductId: true,
       },
     });
-    // Claves de valuación por pieza (para sealed mapeado entran AMBAS: mercado + legacy fallback).
-    const keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] = [];
-    for (const item of items) {
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
-        keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: 'sealed', finish: 'normal' });
-      } else {
-        // v1.53 (§4.40.4b, MONEY) — LECTURA agregada: una graduada sin identidad de slab NO aporta
-        // clave al lote (mismo idioma que el sellado no mapeado, justo arriba). Abajo cae a
-        // `pendingPriceCount`, que es la verdad: no se puede valuar lo que no se sabe qué grado es.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        if (gk) {
-          keys.push({
-            cardId: item.cardId,
-            productType: item.productType,
-            gradeKey: gk,
-            finish: item.finish,
-          });
-        }
-      }
-    }
+    // v1.80.1 (API_CONTRACT §M2-SK **SK-5**) — claves por la ÚNICA puerta de valuación. Sellado: SOLO
+    // la de mercado (SK-2 — `'sealed'` jamás se pide); graduada sin identidad de slab: sin clave
+    // (§4.40.4b). Ambos casos caen abajo a `pendingPriceCount`, que es la verdad.
+    const keyOf = items.map((item) => this.pricing.valuationKeyFor(item));
+    const keys = keyOf.flatMap((k) => (k ? [k] : []));
     const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
-    const refCentsOf = (
-      cardId: string,
-      productType: string,
-      gradeKey: string,
-      finish: string,
-    ): number | null => {
-      const ref = refs.get(`${cardId}|${productType}|${gradeKey}|${finish}`);
-      return ref && ref.status === 'priced' && ref.referenceMxnCents != null
-        ? ref.referenceMxnCents
-        : null;
-    };
+    // SK-5 (efecto declarado en §4.50.1-bis): el sellado gana el gate de dial de `/vault/sealed` — la
+    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     const emptyBucket = () => ({
       atReferenceCents: 0,
@@ -1632,25 +1824,18 @@ export class AdminService {
       pendingPriceCount: 0,
     });
     const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
-    for (const item of items) {
+    items.forEach((item, i) => {
       const bucket = breakdown[item.productType];
       bucket.pieceCount += 1;
       bucket.atCostCents += item.acquisitionCostCents ?? 0;
-      let cents: number | null;
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        cents =
-          (gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null) ??
-          refCentsOf(item.cardId, 'sealed', 'sealed', 'normal');
-      } else {
-        // v1.6-finish: valúa contra la referencia del ACABADO del item.
-        // v1.53 (§4.40.4b): sin clave ⇒ `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        cents = gk ? refCentsOf(item.cardId, item.productType, gk, item.finish) : null;
-      }
+      const k = keyOf[i];
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const ref = k ? refs.get(variantKey(k)) : undefined;
+      // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
-    }
+    });
 
     // Top-level = Σ del breakdown (shape previo intacto; el breakdown es ADITIVO).
     const buckets = [breakdown.raw, breakdown.sealed, breakdown.graded];
@@ -1666,18 +1851,21 @@ export class AdminService {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'customer' },
     });
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     let totalCustodyValueCents = 0;
     for (const item of items) {
-      // v1.53 (§4.40.4b, MONEY) — VALOR DE CUSTODIA: sin identidad de slab la pieza no se valúa (no
-      // suma). Sumarla al precio de un PSA 10 inflaría el pasivo con el cliente por una carta cuyo
-      // grado nunca se preguntó; no sumarla es honesto y entra al censo §4.40.8.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      if (gradeKey == null) continue;
-      // v1.6-finish: valúa contra la referencia del ACABADO del item.
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
-      if (ref.status === 'priced' && ref.referenceMxnCents != null) {
-        totalCustodyValueCents += ref.referenceMxnCents;
-      }
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de
+      // valuación, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve.
+      //  - sin identidad de slab (v1.53 §4.40.4b) o sellado sin mapeo ⇒ sin clave ⇒ NO suma. Antes el
+      //    sellado sin mapeo sumaba la fila legada `'sealed'` — el precio de otra caja (P-83, medido).
+      //  - sellado mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed`.
+      const key = this.pricing.valuationKeyFor(item);
+      if (key == null) continue;
+      const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
+      if (cents != null) totalCustodyValueCents += cents;
     }
     return { totalCustodyValueCents };
   }
@@ -1701,7 +1889,9 @@ export class AdminService {
       settledAt: o.settledAt,
       status: o.status,
     }));
-    return { ivaCollectedCents, byOrder };
+    // ⭐ v1.80 (§M4-SHIP): el IVA que iba DENTRO de lo devuelto (libro por `submittedAt`, SPEI `paid` por `paidAt`).
+    const { ivaRefundedCents } = await refundsInPeriod(this.prisma, settledAt);
+    return { ivaCollectedCents, ivaRefundedCents, ivaNetCents: ivaCollectedCents - ivaRefundedCents, byOrder };
   }
 
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
@@ -1711,9 +1901,14 @@ export class AdminService {
       // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,profitCents\n' +
+        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        // 💰 §BSD.16: los cuatro del buylist, al final y en el orden del objeto.
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
-        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.profitCents}\n`
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents},` +
+        `${p.buylistShippingFeeRetainedCents},${p.buylistGuideCostCents},${p.buylistGuideMarginCents},${p.buylistGuideCostMissingCount}\n`
       );
     }
     if (report === 'iva') {
@@ -1751,7 +1946,7 @@ export class AdminService {
       this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
       this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
       this.prisma.shipmentRequest.count({
-        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+        where: { ...OUTBOUND_ONLY, status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
     // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
@@ -1925,7 +2120,8 @@ export class AdminService {
             priceConvention: true,
           },
         }),
-        this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
+        // rev BSD-1 (censo BSD-B23): el tablero cuenta envíos; la guía de ENTRADA se ve en M5.
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
         // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
@@ -1963,7 +2159,7 @@ export class AdminService {
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-        this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
     const periodFrom = period.gte?.toISOString();
@@ -2018,10 +2214,14 @@ export class AdminService {
         grossAmountCents: salesPeriod.grossAmountCents,
       },
       workQueue: {
+        // ⛔ `shipments` NO cambia de cifra (envíos vivos, no «por preparar»).
         shipments: shipmentsQueue,
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
+        ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
+        ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },
       dataHealth: {
@@ -2046,4 +2246,13 @@ export class AdminService {
     }
     return card;
   }
+}
+
+/**
+ * rev v1.87⟨wishlist⟩ (D-WSH-5) — las suscripciones «avísame» de una cuenta: por `userId` y por su correo (normalizado como lo
+ * guarda el alta: minúsculas, sin espacios). Una cuenta de staff sin correo ⇒ solo por `userId`.
+ */
+function restockSubscriptionsOf(userId: string, email: string | null): Prisma.SealedRestockSubscriptionWhereInput {
+  const norm = email?.trim().toLowerCase();
+  return { OR: [{ userId }, ...(norm ? [{ email: norm }] : [])] };
 }

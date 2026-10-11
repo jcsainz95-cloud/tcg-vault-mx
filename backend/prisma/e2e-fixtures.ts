@@ -108,6 +108,25 @@ export const E2E_PICKUP_ADDRESS = {
 } as const;
 
 /**
+ * ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5) — **el catálogo de CP del arnés.**
+ *
+ * En producción la tabla `PostalCode` la llena devops desde SEPOMEX (`scripts/geo/import-sepomex.ts`); la migración
+ * la deja VACÍA, y vacía ⇒ toda dirección nueva es `422 POSTAL_CODE_UNKNOWN`. El arnés siembra solo los CP que sus
+ * pruebas usan (backend y Playwright: 44100 en `guest-checkout`/`checkout-retry`, 06600 en `buylist`), con la forma
+ * de SEPOMEX (colonia, municipio/alcaldía, estado). ⛔ Son datos de PRUEBA escritos a mano, no una copia de SEPOMEX:
+ * nada de producción debe leerlos como fuente.
+ */
+export const E2E_POSTAL_CODES: readonly { postalCode: string; neighborhood: string; municipality: string; state: string }[] = [
+  { postalCode: '01000', neighborhood: 'San Ángel', municipality: 'Álvaro Obregón', state: 'Ciudad de México' },
+  { postalCode: '01000', neighborhood: 'Centro', municipality: 'Álvaro Obregón', state: 'Ciudad de México' },
+  { postalCode: '06600', neighborhood: 'Juárez', municipality: 'Cuauhtémoc', state: 'Ciudad de México' },
+  { postalCode: '06600', neighborhood: 'Roma Norte', municipality: 'Cuauhtémoc', state: 'Ciudad de México' },
+  { postalCode: '14210', neighborhood: 'Jardines de la Montaña', municipality: 'Tlalpan', state: 'Ciudad de México' },
+  { postalCode: '44100', neighborhood: 'Guadalajara Centro', municipality: 'Guadalajara', state: 'Jalisco' },
+  { postalCode: '64000', neighborhood: 'Monterrey Centro', municipality: 'Monterrey', state: 'Nuevo León' },
+];
+
+/**
  * ⚠️ v1.67 (`M-52`) — **QUIEN RECIBE en la dirección por defecto de los DOS customers.**
  *
  * **Por qué existe y no es una constante más:** `M-52` añadió `Address.recipientName` y la puerta
@@ -171,7 +190,13 @@ export const E2E_SELL_REQUESTS = {
   quoted: { folioHint: 'e2e-quoted' },
 } as const;
 
-export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09' } as const;
+/**
+ * v1.86 (§AC, BACKEND_NOTES §83.seed) — `ptcgoCode: 'EEB'`: el emparejador de decks (`deck-matcher.service.ts`)
+ * casa SOLO por `ptcgoCode` + número y no hay endpoint que escriba el código de un set. Sin él, los casos E2E del
+ * deck de energías (FRONTEND_NOTES §107.real, `DECK_SEED`) se saltan por dato del seed. 3 letras a propósito: los
+ * fixtures propios de `decks-meta-*.e2e-spec` usan códigos de 4, así que no pueden colisionar.
+ */
+export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09', ptcgoCode: 'EEB' } as const;
 
 /**
  * v1.22-variantes-orden (§4.22e) — SEGUNDO set sintético, dedicado al ORDEN NATURAL del número.
@@ -232,8 +257,26 @@ export const E2E_CARDS = {
    *   COMPRA: 1000 × 0.30 =  300 >  bin  100  ⇒ basis 'market' ⇒ SÍ se cotiza
    * Es además el escenario EXACTO de S48-M1 (las dos caras no resuelven juntas), así que la cola de
    * triage y su asimetría quedan cubiertas con datos de verdad y no solo en forma.
+   *
+   * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`): sigue RETENIDA en VENTA porque su rareza (`Rare Secret` ⇒
+   * canónica `Secret Rare`) NO está en el seed del dial `premiumFloorSalePublish` (`only` Double Rare /
+   * Rare Holo EX). ⚠️ Cambiarle la rareza a una de esas dos la PUBLICARÍA al piso y vaciaría su fila.
    */
   floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
+  /**
+   * v1.89⟨bmk⟩ (API_CONTRACT §BMK.2, BACKEND_NOTES §86, hallazgo de QA sobre `342f84dc`) — la carta del
+   * GUARDARRAÍL del eje de COMPRA. `floorpremium` cubre el de VENTA pero en COMPRA se cotiza (300 > bin),
+   * y antes de esta carta NINGUNA carta sembrada caía en «precio pendiente CON mercado > 0 guardado»:
+   * todas las pendientes eran pendientes por falta de mercado. Con el seed de la curva:
+   *   COMPRA: 200 × 0.30 =  60 <  bin  100  ⇒ basis 'floor'  ⇒ `premium_at_floor` ⇒ `precio_pendiente`,
+   *           `referencePrice = {status:"pending"}` aunque el mercado guardado (200) sea > 0 (BMK-2).
+   *   VENTA:  200 × 1.60 = 320 < piso 2500 ⇒ basis 'floor'  ⇒ retenida (`Secret Rare` fuera del dial).
+   * Número `100`: entra AL FINAL del orden natural del set (detrás de `99`), así que no desplaza a
+   * ninguna carta existente en el binder. Sin inventario y sin fila de cola sembrada: no toca ningún
+   * conteo de la cola de precio pendiente ni de catálogo publicado. ⚠️ Subirle el mercado a ~MX$3.34 o
+   * más (×0.30 ≥ bin) la saca del guardarraíl; cambiarle la rareza a una no-premium, también.
+   */
+  binpremium: { externalId: 'e2e-bin-premium', name: 'E2E Bin Premium', number: '100', rarity: 'Rare Secret', refNmCents: 200, availableFinishes: ['normal'] },
   /**
    * v1.50.3-d (§4.38i.9, petición de frontend vía arquitecto) — **la carta con grupo raw publicado Y
    * slab PSA 10 publicado del MISMO grado**. Es la ÚNICA situación que la API no puede fabricar sola
@@ -304,6 +347,17 @@ export const E2E_CARDS = {
    * Precio raw por debajo de todas las demás raw publicadas: entra al final del orden por precio.
    */
   staleest: { externalId: 'e2e-stale-est', name: 'E2E Stale Estimate', number: '33', rarity: 'Common', refNmCents: 25000, availableFinishes: ['normal'] },
+  /**
+   * v1.86 (§AC, BACKEND_NOTES §83.seed) — las DOS cartas del deck de energías de E2E (`frontend/e2e/utils/
+   * accessories-scenario.ts` `DECK_SEED`: `EEB 40` y `EEB 41`, dos copias cada una). El arnés cura el deck por API
+   * y el emparejador las casa por `ptcgoCode` + número; cada una lleva DOS piezas `listed` (`E2E_FOLIOS.deck*`)
+   * porque con Stripe de prueba la sesión de un idioma deja apartada una y la del otro usa la segunda.
+   *
+   * Precio NM **MX$50**, por debajo de TODAS las raw publicadas: el arnés de `grading.ts` ordena las raw por precio
+   * descendente y toma las primeras; entrando al final ese orden no se mueve. Ningún estimado ni estado propio.
+   */
+  deckember: { externalId: 'e2e-ac-deck-ember', name: 'E2E Deck Ember', number: '40', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
+  deckspark: { externalId: 'e2e-ac-deck-spark', name: 'E2E Deck Spark', number: '41', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -358,7 +412,9 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
 // v1.50.3-d: entran `30` (E2E Slab And Raw, la carta de INV-D) y `31` (la tercera raw publicada).
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '98', '99'] as const;
+// v1.86 (§83.seed): entran `40` y `41` (las cartas del deck de energías de E2E).
+// v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '40', '41', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
@@ -383,6 +439,11 @@ export const E2E_FOLIOS = {
   // carta de los estimados RANCIOS/AUTOMÁTICOS que la API del contrato no puede fabricar.
   listedFourthRaw: 'E2E-LST-0008',
   listedStaleEst: 'E2E-LST-0009',
+  // v1.86 (§83.seed): DOS piezas `listed` de plataforma por cada carta del deck de energías de E2E.
+  listedDeckEmber1: 'E2E-LST-0010',
+  listedDeckEmber2: 'E2E-LST-0011',
+  listedDeckSpark1: 'E2E-LST-0012',
+  listedDeckSpark2: 'E2E-LST-0013',
   /**
    * ⚠️ v2.1.10 — **LA PIEZA QUE HABITA LA COLA DE «LISTAS PARA PUBLICAR»** (§4.39m.1, criterio 125).
    *
@@ -394,15 +455,16 @@ export const E2E_FOLIOS = {
    * **preexistente** (el seed nunca sembró `in_stock`, ni una vez en toda su historia) y solo se vio
    * cuando la suite E2E completa corrió por primera vez contra el stack real.
    *
-   * **Por qué le falta la UBICACIÓN y no el precio.** Es el caso que ocurre de verdad: la conversión
-   * desde M5 **no exige ubicación a propósito** (§4.39m.3 — exigirla atoraría el pago al vendedor),
-   * así que la pieza nace en una caja que todavía no existe. El precio, en cambio, **resuelve**:
-   * contra el stack real todas las piezas de la cola tienen precio resoluble, y forzar lo contrario
-   * sería fabricar una coincidencia de fixture. Además así la fila ejercita el invariante de dinero
-   * de la cola —**jamás `MX$0.00` para «no resoluble»**, §7.3—: se pinta un importe REAL, y una
-   * regresión que resolviera cero se vería.
+   * **Por qué le falta el PRECIO (⭐ Errata SU-1, API_CONTRACT §M1-SU, 2026-10-07).** Hasta SU-1 era una
+   * raw SIN caja CON precio (`missing: ['location']`). Desde SU-1 la ubicación **no es requisito para
+   * publicar** (HECHOS «La ubicación (cajón) NO es requisito para publicar, por ahora»): esa pieza ya
+   * no le falta nada y saldría de la cola. Ahora es la carta `nopref` (sin `PriceReference`), **sin
+   * caja y sin precio** ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`, `priceBasis: 'pending'`.
+   * Así la fila ejercita el otro lado del invariante de dinero de la cola —**el «no resoluble» viaja
+   * como `null`, jamás como `MX$0.00`**, §7.3—. El nombre del folio se conserva (lo citan el contrato
+   * y otras suites): «NoLocation» sigue siendo verdad, solo dejó de ser la razón de estar en la cola.
    *
-   * ⚠️ **NO le pongas ubicación ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
+   * ⚠️ **NO le pongas precio ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
    * la auto-publicación la saca sola (sin botón, D10) y la cola vuelve a quedar vacía.
    */
   pendingPublishNoLocation: 'E2E-STK-0001',
@@ -414,6 +476,27 @@ export const E2E_LOCATIONS = {
 } as const;
 
 export const E2E_LIST_OVERRIDE_CENTS = 60000; // listPriceCents del common override
+
+/**
+ * ⭐ v1.87.4⟨wishlist⟩ (WSH-F5, petición de frontend) — UNA pieza SELLADA a la venta en el seed: plataforma, `listed`, con
+ * precio propio y MAPEADA a un `tcgplayerProductId`. Sin ella `GET /catalog/sealed` daba `total: 0` contra el stack y el
+ * «avísame» con el cuerpo de la pantalla `{ email, inventoryItemId }` no se podía medir de punta a punta (la ficha
+ * `/es/sellado/{id}` necesita un grupo publicado). Folio PROPIO (`E2E-SLD-*`, fuera de `E2E_FOLIOS`: ningún bucle de
+ * piezas del seed la recorre). Los ids son aleatorios: frontend la encuentra por NOMBRE — en pantalla, la teja de
+ * `/es/sellado` muestra `productName`; por API, `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid busca por el nombre
+ * de la CARTA ancla, `E2E_CARDS.thirdraw`, no por el del producto) y se filtra la teja por `productName`. El seed la RESETEA en cada corrida (estado, dueño,
+ * precio y mapeo), así que un flujo que la venda o la desmapee no envenena la siguiente.
+ * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+).
+ */
+export const E2E_SEALED_LISTED = {
+  folio: 'E2E-SLD-0001',
+  productName: 'E2E Surging Sparks Booster Box',
+  sealedSubtype: 'box' as const,
+  sealedCondition: 'mint' as const,
+  tcgplayerProductId: 610000001,
+  tcgplayerGroupId: 61001,
+  listPriceCents: 450000,
+} as const;
 
 /**
  * Diales M10 que el seed FIJA (update) para que la matemática del checkout sea
@@ -512,4 +595,77 @@ export const E2E_KYC_INE_IMAGES = {
   front: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAFElEQVR42mOQz99EEmIY1TA0NQAAGTvIAcHNKH4AAAAASUVORK5CYII=',
   back: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAFElEQVR42mPY5C9PEmIY1TA0NQAAq960AatE4Y4AAAAASUVORK5CYII=',
   contentType: 'image/png',
+} as const;
+
+/**
+ * ⭐ P-REL-3 (release s5) — **LA CUBETA SPEI SEMBRADA**: dos `ManualRefund` `pending` para el E2E realOnly de
+ * `GET /admin/manual-refunds` (pagar / cancelar). Sin esto, en local no existe forma de obtener una: la única vía del
+ * producto es el reembolso de un caso con Stripe (`case_excess`) o una fila de Stripe fallida (`stripe_failed`).
+ *
+ * **La cadena sembrada es la que el producto habría dejado** tras `POST /admin/replacement-cases/:id/refund` con todo
+ * el importe a SPEI: orden de bóveda `settled` del cliente (⇒ ⛔ nunca `422 origin_not_settled`) → su colocación
+ * `placed` → una línea `missing` por carta → `ReplacementCase` `vault_purchase` **`refunded`** con la captura completa →
+ * la pieza original pasada a **plataforma** (`lost`, como la deja `originalToPlatform`) → `ManualRefund` `case_excess`
+ * `pending`, ya anunciada (`announcedNotifiedAt` sellado ⇒ el seed no dispara `AV-14`).
+ *
+ * **Cliente PROPIO y desechable** (no el `customer` compartido): pagar escribe `paidClabeHmac` y la CLABE es de una
+ * persona; el reset por-usuario de `E2E_USERS` además borra `ShipmentRequest`/`Order` en cascada y chocaría con el
+ * `Restrict` de `ReplacementCase`. Vive aparte, como `E2E_KYC_FIXTURES`, y su propia siembra lo restaura.
+ *
+ * **Importes** — la identidad es la del CHECK `ManualRefund_amount_identity_chk`:
+ * `amountCents = merchandiseCents + processingFeeCents + compensationCents`, con el **IVA DENTRO de la mercancía**
+ * (`merchandiseIvaCents` es informativo: `IVA_INCLUSIVE`, `iva = m − floor(m / 1.16)`). Todos > 0.
+ *
+ * ⛔ **La CLABE NO se siembra**: `clabeEnc` se cifra con la clave PII del PROCESO (efímera por arranque en el stack
+ * nativo), así que la pone el spec con `PUT /users/me/kyc {clabe}` como este cliente. Cada siembra BORRA su
+ * `KycProfile` (vuelve a «sin CLABE»). Tras ponerla, `clabeUpdatedAt > createdAt` ⇒ `clabeChangedRecently: true` y
+ * `paid` exige `confirmRecentClabeChange: true` (si no, `422 MANUAL_REFUND_CONFIRMATION_REQUIRED
+ * {required:['recent_clabe_change']}`).
+ *
+ * Credenciales de FIXTURE de una BD sintética/efímera: no son secretos (misma doctrina que `E2E_USERS`).
+ */
+export const E2E_SPEI_FIXTURE = {
+  customer: {
+    email: 'spei.refund@e2e.local',
+    password: 'SpeiRefund123!',
+    /** Nombre tecleado (`nameSource='user'`): es el `beneficiaryName` de la cubeta mientras no haya `legalName`. */
+    name: 'Ana Transferencia E2E',
+    phone: '5511110011',
+  },
+  order: {
+    orderNumber: 'TCG-E2E-SPEI-0001',
+    subtotalCents: 80000,
+    processingFeeCents: 4617,
+    ivaCents: 11035, // 80000 − floor(80000 / 1.16)
+    totalCents: 84617,
+    createdAt: '2026-01-10T15:00:00Z',
+    settledAt: '2026-01-10T15:05:00Z',
+    resolvedAt: '2026-01-12T18:00:00Z',
+  },
+  rows: {
+    /** La que el spec PAGA. */
+    pay: {
+      idempotencyKey: 'e2e:mr-pay',
+      folio: 'E2E-SPEI-0001',
+      unitPriceCents: 50000,
+      merchandiseCents: 50000,
+      merchandiseIvaCents: 6897, // 50000 − floor(50000 / 1.16)
+      processingFeeCents: 1500,
+      compensationCents: 2000,
+      amountCents: 53500,
+      refundReason: 'E2E SPEI — carta no encontrada al colocar (pagar)',
+    },
+    /** La que el spec CANCELA (y puede re-emitir: la siembra borra la re-emisión). */
+    cancel: {
+      idempotencyKey: 'e2e:mr-cancel',
+      folio: 'E2E-SPEI-0002',
+      unitPriceCents: 30000,
+      merchandiseCents: 30000,
+      merchandiseIvaCents: 4138, // 30000 − floor(30000 / 1.16)
+      processingFeeCents: 900,
+      compensationCents: 600,
+      amountCents: 31500,
+      refundReason: 'E2E SPEI — carta dañada al colocar (cancelar)',
+    },
+  },
 } as const;

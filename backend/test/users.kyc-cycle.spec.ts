@@ -29,13 +29,27 @@ function buildService(existing: Record<string, unknown> | null, opts: { threshol
     state.row = state.row ? { ...state.row, ...update } : { ...create };
     return state.row;
   });
-  const prisma = {
+  // 🔒 v1.80.3 (SEC-SHIP-A3): `setClabe` corre dentro de `$transaction`, toma la fila `FOR UPDATE` y escribe la CLABE
+  // con `kycProfile.update` (el ÚNICO escritor, `C-CLABE-1`) + bitácora `kyc.clabe_changed`.
+  const update = jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    state.row = { ...(state.row ?? {}), ...data };
+    return state.row;
+  });
+  const auditCreate = jest.fn(async () => undefined);
+  const prisma: any = {
     kycProfile: {
       // `findUnique` sirve a las DOS lecturas del flujo (la previa del `PUT` y la del `getKyc`).
       findUnique: jest.fn(async () => state.row),
+      findUniqueOrThrow: jest.fn(async () => state.row ?? { clabeEnc: null, clabeHmac: null }),
       upsert,
+      update,
     },
+    auditLog: { create: auditCreate },
+    user: { findUnique: jest.fn(async () => ({ email: 'u1@example.com', locale: 'es', anonymizedAt: null })) },
+    $queryRaw: jest.fn(async () => []),
+    $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma)),
   };
+  const mailSend = jest.fn(async () => ({}));
   const settings = {
     getNumber: jest.fn().mockResolvedValue(opts.threshold ?? 300_000),
   } as unknown as SettingsService;
@@ -48,8 +62,9 @@ function buildService(existing: Record<string, unknown> | null, opts: { threshol
     settings,
     pii,
     { deleteObject, assertOwnedIneKeys } as unknown as UploadsService,
+    { send: mailSend } as never,
   );
-  return { svc, prisma, upsert, deleteObject, assertOwnedIneKeys, settings, state };
+  return { svc, prisma, upsert, update, auditCreate, mailSend, deleteObject, assertOwnedIneKeys, settings, state };
 }
 
 describe('K-8 · ⛔ NINGÚN dial de política llega al cliente (§M6-K.5, decisión (c) del dueño)', () => {
@@ -66,7 +81,8 @@ describe('K-8 · ⛔ NINGÚN dial de política llega al cliente (§M6-K.5, decis
       expect(res).not.toHaveProperty(prohibido);
     }
     // La forma queda CERRADA: cinco claves y ni una más (un campo nuevo se ve aquí).
-    expect(Object.keys(res).sort()).toEqual(['clabeMasked', 'clabeOnFile', 'ineOnFile', 'kycStatus']
+    // 🔒 v1.80.3 (SEC-SHIP-A3, §M4-SHIP.17.3): + `clabeUpdatedAt` («CLABE actualizada el …»; `null` = anterior a M-61).
+    expect(Object.keys(res).sort()).toEqual(['clabeMasked', 'clabeOnFile', 'clabeUpdatedAt', 'ineOnFile', 'kycStatus']
       .concat([])
       .sort());
   });
@@ -138,7 +154,7 @@ describe('K-6 · el motivo del rechazo LE LLEGA AL CLIENTE (decisión (b) del du
 
 describe('K-7 · el `PUT` mueve `kycStatus` SOLO si trae INE (defecto A6)', () => {
   it('⭐ partiendo de `verified`, un `PUT` SOLO con CLABE **NO** toca `kycStatus` ni el sello de revisión', async () => {
-    const { svc, upsert } = buildService({
+    const { svc, upsert, update } = buildService({
       kycStatus: KycStatus.verified,
       verifiedAt: new Date('2026-09-01T00:00:00Z'),
       verifiedBy: 'admin-1',
@@ -146,11 +162,15 @@ describe('K-7 · el `PUT` mueve `kycStatus` SOLO si trae INE (defecto A6)', () =
       ineBackKey: 'b',
     });
     const res = await svc.putKyc('u1', { clabe: CLABE });
-    const update = upsert.mock.calls[0][0].update;
-    expect(update).not.toHaveProperty('kycStatus');
-    expect(update).not.toHaveProperty('rejectionReason');
-    expect(update).not.toHaveProperty('reviewedAt');
-    expect(Object.keys(update).sort()).toEqual(['clabeEnc', 'clabeHmac']);
+    const upsertUpdate = upsert.mock.calls[0][0].update;
+    expect(upsertUpdate).not.toHaveProperty('kycStatus');
+    expect(upsertUpdate).not.toHaveProperty('rejectionReason');
+    expect(upsertUpdate).not.toHaveProperty('reviewedAt');
+    // 🔒 v1.80.3 (`C-CLABE-1`): el `upsert` ya NO lleva la CLABE; la escribe `setClabe` con `kycProfile.update`
+    // (cifrada + índice ciego + `clabeUpdatedAt`), y solo esas tres columnas.
+    expect(upsertUpdate).toEqual({});
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(update.mock.calls[0][0].data).sort()).toEqual(['clabeEnc', 'clabeHmac', 'clabeUpdatedAt']);
     expect(res.kycStatus).toBe(KycStatus.verified);
   });
 
@@ -281,5 +301,50 @@ describe('C17 / SEC-PII-3 · el SEGUNDO camino de escritura usa la MISMA rutina'
     });
     // Ni siquiera se leyó el perfil: la compuerta va PRIMERO.
     expect(prisma.kycProfile.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔒 PS-46 · `setClabe` es el único escritor: fecha, bitácora sin la CLABE y `AV-16` (§M4-SHIP.17.3)', () => {
+  const OTRA = '646180110400000007';
+
+  it('CLABE nueva ⇒ `clabeUpdatedAt`, UNA bitácora `kyc.clabe_changed` sin 18 dígitos seguidos y UN `AV-16` con las dos máscaras', async () => {
+    const { svc, update, auditCreate, mailSend, prisma } = buildService({ clabeEnc: pii.encrypt(CLABE), clabeHmac: pii.clabeBlindIndex(CLABE) });
+    await svc.putKyc('u1', { clabe: OTRA });
+    // La fila se toma `FOR UPDATE` dentro de la tx (serializa con `paid` de la cubeta SPEI).
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    const data = update.mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.clabeUpdatedAt).toBeInstanceOf(Date);
+    expect(pii.decrypt(data.clabeEnc as string)).toBe(OTRA);
+    expect(data.clabeHmac).toBe(pii.clabeBlindIndex(OTRA));
+    expect(auditCreate).toHaveBeenCalledTimes(1);
+    const audit = (auditCreate.mock.calls[0] as unknown[])[0] as { data: Record<string, unknown> };
+    expect(audit.data.action).toBe('kyc.clabe_changed');
+    expect(audit.data.entityType).toBe('User');
+    expect(JSON.stringify(audit.data)).not.toMatch(/\d{18}/);
+    expect(audit.data.after).toEqual({ previousMasked: '**************4567', newMasked: '**************0007' });
+    expect(mailSend).toHaveBeenCalledTimes(1);
+    const mail = (mailSend.mock.calls[0] as unknown[])[0] as { to: string; subject: string; text: string; html: string };
+    expect(mail.to).toBe('u1@example.com');
+    expect(mail.subject).toMatch(/CLABE/);
+    expect(mail.text).toContain('4567');
+    expect(mail.text).toContain('0007');
+    expect(mail.text + mail.html).not.toMatch(/\d{18}/);
+  });
+
+  it('la MISMA CLABE ⇒ cero escrituras, cero bitácora, cero avisos (el índice ciego hace idempotente el reintento)', async () => {
+    const { svc, update, auditCreate, mailSend } = buildService({ clabeEnc: pii.encrypt(CLABE), clabeHmac: pii.clabeBlindIndex(CLABE) });
+    await svc.putKyc('u1', { clabe: CLABE });
+    expect(update).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+    expect(mailSend).not.toHaveBeenCalled();
+  });
+
+  it('primera CLABE (no había) ⇒ `previousMasked: null` en la bitácora y en el aviso', async () => {
+    const { svc, auditCreate, mailSend } = buildService(null);
+    await svc.putKyc('u1', { clabe: CLABE });
+    const audit = (auditCreate.mock.calls[0] as unknown[])[0] as { data: { after: Record<string, unknown> } };
+    expect(audit.data.after).toEqual({ previousMasked: null, newMasked: '**************4567' });
+    expect(mailSend).toHaveBeenCalledTimes(1);
   });
 });

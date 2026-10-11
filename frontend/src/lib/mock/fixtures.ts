@@ -9,7 +9,20 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
+import { setMatchesQuery } from '../setCode';
 import type {
+  ConfirmVaultPlacementResponse,
+  CustomerDrawerRef,
+  CustomerPhysicalInventoryDTO,
+  PreparationItemStatus,
+  PrepareVaultPlacementResponse,
+  SetVaultPrepItemResponse,
+  UnprepareVaultPlacementResponse,
+  VaultPlacementDTO,
+  VaultPlacementItemResultDTO,
+  VaultPreparationItemDTO,
+  VaultPreparationOrderDTO,
+  VaultPreparationStateDTO,
   ClaimableOrderDTO,
   CardDTO,
   CardProductDTO,
@@ -48,7 +61,7 @@ import type {
   AdminBuylistDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
   DisputeDTO,
   ClientDisputeDTO,
   ShipmentDTO,
@@ -59,6 +72,8 @@ import type {
   PortfolioPointDTO,
   PortfolioRange,
   SetValueHistoryResponse,
+  SealedValueHistoryResponse,
+  SealedValuePointDTO,
   SetValuePointDTO,
   SetValueRange,
   KycInfoDTO,
@@ -154,7 +169,7 @@ function yearOf(releaseDate?: string): number | undefined {
  * La columna es `string | null` **requerida** (la fila siempre la tiene; el valor puede ser
  * nulo), para que ninguna fixture pueda nacer sin decidir si ese set tiene logo o no.
  */
-export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
+export type MockCardSetRow = CardSetDTO & { logoUrl: string | null; ptcgoCode: string | null };
 
 // v1.52 (M-47, ARCHITECTURE §4.41 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
 // PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
@@ -162,21 +177,27 @@ export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
 // página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
 // Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
 // hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
+//
+// v1.80 (P-71): `ptcgoCode` es otra COLUMNA de la fila (`CardSet.ptcgoCode`), con la misma doctrina: la
+// fila siempre la tiene y el valor puede ser `null`. Los dos casos conviven a propósito: CON código
+// (SSP, TWM, SVI, CEL, CLC, SSH) y SIN código (`base1` → `null`, el caso de un set que el proveedor no
+// codifica). Base Set es el set del cotizador en las pruebas: así el caso `#4` (sin código) queda
+// ejercitado en dev y en Playwright, y el caso «TWM 130» lo ejercitan los sets modernos.
 export const mockSets: MockCardSetRow[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
-  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png', ptcgoCode: 'SSP' },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png', ptcgoCode: 'TWM' },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png', ptcgoCode: 'SVI' },
   // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
   // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
   // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
   // §4.31f) para ejercer el separador por bloque.
-  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png' },
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png', ptcgoCode: 'CEL' },
   // `logoUrl: null` (clave PRESENTE, valor nulo) = lo que manda el backend cuando el proveedor no
   // publica logo. Nunca `""`, nunca una URL de marcador: un placeholder se pintaría como si fuera
   // un logo y rompería §24.5.
-  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null },
-  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
-  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null, ptcgoCode: 'CLC' },
+  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null, ptcgoCode: 'SSH' },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null, ptcgoCode: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
 
 /**
@@ -190,7 +211,8 @@ export const mockSets: MockCardSetRow[] = [
  * se **borra de verdad** aquí (mismo `Omit` por destructuring que `mockSellRequestDTO`).
  */
 export function mockCatalogSetDTO(row: MockCardSetRow): CardSetDTO {
-  const { logoUrl: _logoUrl, ...dto } = row;
+  // v1.80 (P-71): `GET /catalog/sets` tampoco emite `ptcgoCode` («dónde NO» del contrato).
+  const { logoUrl: _logoUrl, ptcgoCode: _ptcgoCode, ...dto } = row;
   return dto;
 }
 
@@ -297,6 +319,11 @@ export function foldSetsForDropdown<T extends CardSetDTO>(sets: T[]): T[] {
     });
 }
 
+/** v1.80 (P-71): `CardDTO.setPtcgoCode` sale de la MISMA fila del set que `setName` (proyección del mock). */
+function ptcgoCodeOfSet(setId: string): string | null {
+  return mockSets.find((s) => s.id === setId)?.ptcgoCode ?? null;
+}
+
 function card(
   id: string,
   name: string,
@@ -318,6 +345,7 @@ function card(
     subtypes,
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${img}/${number}.png`,
     imageLargeUrl: `${img}/${number}_hires.png`,
     // v1.6-finish: se sobre-escribe por CARD_FINISHES abajo; default seguro ["normal"].
@@ -379,6 +407,7 @@ function celebrationsCards(): CardDTO[] {
     subtypes: ['Basic'],
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${CEL}/${n}.png`,
     imageLargeUrl: `${CEL}/${n}_hires.png`,
     availableFinishes: ['holofoil'],
@@ -441,6 +470,9 @@ export const mockReferenceByCardId: Record<string, number | null> = {
 // ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
 export let mockSettings: SettingsDTO = {
   shippingFeeCents: 17500,
+  // §AC.11 (MOCK): diales de accesorios con sus defaults del contrato.
+  energyBundlePriceCents: 2000,
+  accessorySuggestionCount: 3,
   aportacionPct: 70,
   ivaPct: 16,
   salesMarkupPct: 10,
@@ -450,6 +482,17 @@ export let mockSettings: SettingsDTO = {
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,
   repoCapPerCardCents: 5000000,
+  // §M10 «DIEZ diales» del ciclo de buylist (defaults del contrato).
+  buylistOfferIssueDeadlineBusinessDays: 7,
+  buylistOfferAcceptDeadlineBusinessDays: 2,
+  buylistShipDeadlineBusinessDays: 3,
+  buylistMinimumRequestCents: 50000,
+  buylistShippingFeeCents: 18000,
+  buylistMinimumOfferNetCents: 20000,
+  buylistOperatorOfferCapCents: 150000,
+  buylistShipmentConfirmAlertBusinessDays: 5,
+  buylistOfferReissueAlertCount: 2,
+  buylistVariantPositionCap: 10,
   fxBufferPct: 3,
   // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
   // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
@@ -467,6 +510,52 @@ export let mockSettings: SettingsDTO = {
   // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
   // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
   gradingHookEnabled: 'on',
+  // 💰 v1.80.8.5 (§M2 `M2-PF`): MOCK con el seed del contrato (decisión del dueño 2026-10-04).
+  premiumFloorSalePublish: { mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] },
+  // ⭐ MOCK §M4-SHIP.19.19.12 — los diales de envío con su SEED del contrato (fail-closed: Skydropx
+  // apagado y compra `disabled`). Para ver la ventana de cuatro pasos en la demo se enciende en
+  // «Configuración › Envíos», como lo haría el dueño.
+  shippingProvider: 'off',
+  shippingLabelPurchase: 'disabled',
+  skydropxOriginAddressTemplateId: null,
+  shippingPreferredCarriers: ['ninetynineminutes'],
+  shippingDropoffPoints: {
+    ninetynineminutes: {
+      name: 'Punto99 · Periférico Sur 4249',
+      address: 'Av. Periférico Sur 4249, Jardines de la Montaña, 14210 CDMX',
+    },
+  },
+  shippingConsignmentNote: '49101600',
+  shippingPackageRuleBoxMinCards: 60,
+  // v1.80.12.9 (§19.29.8): seed MX$1,000 (`HECHOS.md:62`).
+  skydropxLowBalanceCents: 100000,
+  // 💰 Control del gasto (§19.29.8): seeds = `HECHOS.md:62` / `PROJECT §Z.3`.
+  operatorLabelCap24hCents: 250000,
+  shippingLabelReissueMaxPerShipment: 1,
+  spendAlertsDisabled: [],
+  spendAlertLabelCapWarnPct: 80,
+  spendAlertShipmentCancelCount: 2,
+  spendAlertPersonCancelCount24h: 3,
+  spendAlertChargeDriftImmediateCents: 2000,
+  spendAlertExtraChargeImmediateCents: 15000,
+  spendAlertCancelRefundDays: 3,
+  spendAlertLabelNotShippedDays: 3,
+  shippingTrackingPollMinutes: 60,
+  shippingInsuranceTiers: [
+    { coverageCents: 250000, costCents: 2500, measuredAt: '2026-10-04' },
+    { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
+  ],
+  shippingLabelFormat: 'standard',
+  // ⭐ v1.87⟨wishlist⟩ (§WSH.2). ⚠️ El seed REAL de `wishlist_enabled` es `off`; el DEMO la arranca `on` para poder
+  // recorrerla sin backend. El apagado se simula con `localStorage['tcg.mock.wishlistOff']='1'` (`mock/wishlist.ts`).
+  wishlistEnabled: 'on',
+  wishlistMaxPerAccount: 20,
+  wishlistMaxIvaMode: 'with_iva',
+  wishlistDailyMailCap: 3,
+  wishlistMailWindowMin: 30,
+  wishlistTargetMarginPct: 15,
+  wishlistMarginBasis: 'cost',
+  sealedRestockMaxPendingPerEmail: 5,
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,
@@ -638,7 +727,9 @@ const mockListingSeeds: MockListingSeed[] = [
     rawCondition: 'NM',
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
-    priceBasis: 'market' as const,
+    // §MIV (MIV-E1 paso c, criterio 864): la carta del simulador con PRECIO A MANO. La ficha no muestra
+    // mercado (ni con IVA ni sin él) aunque la referencia viaje — la UI obedece `priceBasis`.
+    priceBasis: 'override' as const,
     listPriceCents: 231000,
     sellable: true,
   },
@@ -850,6 +941,28 @@ export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
  * miente aquí. ⛔ Quien quite este `filter` reintroduce la mentira: la rejilla pintaría en
  * desarrollo dos productos que el backend nunca devuelve.
  */
+/**
+ * MOCK §MIV (v1.90⟨miv⟩, `API_CONTRACT §MIV.2`) — el mercado CON IVA de la ficha de carta, **ESCRITO**, no
+ * calculado: `M + round(M × 16 / 100)` hecho a mano para la tasa de fábrica del simulador (`ivaPct: 16`).
+ * Indexado por la pieza representativa del grupo. Lo emite el agrupador **solo** si el grupo es
+ * `market` con referencia (el `iff` de §MIV.2); una pieza que no esté aquí ⇒ clave ausente ⇒ la ficha
+ * no pinta el bloque (que es exactamente lo que el contrato pide ante un servidor sin §MIV).
+ *
+ * ⚠️ Si se cambia `ivaPct` en el panel simulado, estas cifras NO se mueven (son literales a propósito:
+ * la cuenta es del servidor, `marketDisplayCentsOf`). El criterio 862 se mide contra el backend.
+ */
+const MOCK_MARKET_DISPLAY_CENTS: Readonly<Record<string, number>> = {
+  'inv-1001': 5626000, // 4,850,000 neto
+  'inv-1002': 148480, // 128,000 neto
+  'inv-1002b': 148480,
+  'inv-1002c': 148480,
+  'inv-1003': 11020, // 9,500 neto
+  'inv-1004': 25520, // 22,000 neto
+  'inv-1005': 208800, // 180,000 neto
+  'inv-1006': 1102000, // 950,000 neto
+  // inv-1007 (Milotic) va por precio a mano (override): sin mercado en la ficha, sin cifra aquí.
+};
+
 export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   const singles = items.filter(
     (l) => l.sellable && l.displayPriceCents != null && (l.productType === 'raw' || l.productType === 'graded'),
@@ -884,6 +997,11 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       referenceValue: rep.referenceValue,
       currency: 'MXN',
     };
+    // §MIV.2: presente ⇔ basis `market` con referencia; la cifra es la ESCRITA arriba.
+    const marketDisplay = MOCK_MARKET_DISPLAY_CENTS[rep.inventoryItemId];
+    if (rep.priceBasis === 'market' && rep.referenceValue.referenceMxnCents != null && marketDisplay != null) {
+      group.referenceDisplayCents = marketDisplay;
+    }
     groups.push(group);
   }
   return groups;
@@ -900,7 +1018,12 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
  */
 export function groupMockSummaries(items: ListingDTO[]): GroupedListingSummaryDTO[] {
   return groupMockListings(items).map((g) => {
-    const { priceBasis: _priceBasis, referenceValue: _referenceValue, ...rest } = g;
+    const {
+      priceBasis: _priceBasis,
+      referenceValue: _referenceValue,
+      referenceDisplayCents: _referenceDisplayCents, // §MIV.2: ⛔ no entra en la rejilla.
+      ...rest
+    } = g;
     const summary: GroupedListingSummaryDTO = { ...rest };
     const highlight = mockGradingHighlightFor(summary);
     if (highlight) summary.gradingHighlight = highlight;
@@ -971,6 +1094,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -984,10 +1108,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
-    // Pending → no retirable (aún no liquidada), sin envío activo.
+    // Pending → no retirable (aún no liquidada), sin envío activo. v1.80.7: el motivo viaja con el flag.
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: false,
+    withdrawableReason: 'pending',
   },
   {
     inventoryItemId: 'inv-1008',
@@ -1009,6 +1134,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: 'enviado',
     activeShipmentId: 'shp-7001',
     withdrawable: false,
+    withdrawableReason: 'in_withdrawal',
   },
   {
     inventoryItemId: 'inv-1010',
@@ -1025,6 +1151,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
 ];
 
@@ -1301,6 +1428,9 @@ export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'> & {
   offerAcceptedAt?: string | null;
   /** v1.51.3 (D36/D37): snapshot de la dirección de ORIGEN. */
   pickupAddress?: PickupAddressSnapshotDTO | null;
+  /** 💰 rev BSD-1: la guía del vendedor (`SellRequest.shipmentCarrier/shipmentTrackingNumber`), que viaja en `offer`. */
+  offerCarrier?: string | null;
+  offerTrackingNumber?: string | null;
 };
 
 /**
@@ -1339,9 +1469,26 @@ export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
     offerAcceptDeadlineAt: _offerAcceptDeadlineAt,
     offerAcceptedAt: _offerAcceptedAt,
     pickupAddress: _pickupAddress,
+    offerCarrier: _offerCarrier,
+    offerTrackingNumber: _offerTrackingNumber,
     ...dto
   } = row;
+  // 💰 Espejo de `toCustomerSellRequestDTO` (v1.51.4 §6 + errata BSD-1.4 punto 8): en `expirada` + `no_offer`/`not_continued`
+  // el total y las cuatro cifras de cada línea viajan `null` EXPLÍCITO (la clave viaja, el valor no).
+  if (mockMoneyRedacted(row)) {
+    return {
+      ...dto,
+      isTerminal: true,
+      quotedTotalCents: null,
+      items: dto.items.map((i) => ({ ...i, quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null })),
+    };
+  }
   return { ...dto, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+}
+
+/** BSD-1.4 punto 8: el conjunto que redacta el servidor (`MONEY_REDACTED_EXPIRY`). */
+function mockMoneyRedacted(row: Pick<MockSellRequestRow, 'status' | 'expiredReason'>): boolean {
+  return row.status === 'expirada' && (row.expiredReason === 'no_offer' || row.expiredReason === 'not_continued');
 }
 
 /**
@@ -1385,8 +1532,8 @@ export function mockSellOffer(
     acceptedAt: row.offerAcceptedAt ?? null,
     shipDeadlineAt: null,
     sellerShippedDeclaredAt: null,
-    carrier: null,
-    trackingNumber: null,
+    carrier: row.offerCarrier ?? null,
+    trackingNumber: row.offerTrackingNumber ?? null,
     terms: mockOfferTerms(locale),
     lines: row.items,
   };
@@ -1403,7 +1550,8 @@ export function mockSellRequestDetailDTO(
 ): SellRequestDetailDTO {
   return {
     ...mockSellRequestDTO(row),
-    offer: mockSellOffer(row, locale),
+    // BSD-1.4 punto 8: en un cierre redactado la oferta NO viaja (sus cifras y su `terms`, que las lleva en prosa).
+    offer: mockMoneyRedacted(row) ? null : mockSellOffer(row, locale),
     pickupAddress: row.pickupAddress ?? null,
     lastOfferCancelledAt: null,
   };
@@ -1564,6 +1712,24 @@ function mockIsPayable(row: MockPayabilityRow): boolean {
 }
 
 /**
+ * v1.82.3 (contrato §PNL.12.1) — **las líneas que CUENTAN para cerrar la solicitud**: `offerDecision IS NULL OR
+ * offerDecision <> 'skip'`. En JS `!== 'skip'` conserva `null`/ausente (el `<>` de SQL no: por eso el backend lo escribe
+ * con `OR` explícito). Pre-ciclo toda línea es `null` ⇒ toda línea cuenta ⇒ conducta idéntica a la de antes.
+ */
+export function mockCountingItems<T extends Pick<SellItemDTO, 'offerDecision'>>(items: T[]): T[] {
+  return items.filter((it) => it.offerDecision !== 'skip');
+}
+
+/**
+ * v1.82.3 (§PNL.12.1) — **Regla C**: ∃ ≥1 línea que cuenta ∧ toda línea que cuenta está `rechazada`. Una sola copia en el
+ * servidor falso: la usan `isRejectable` (proyección) y la guarda de `POST …/reject` (`api.ts`).
+ */
+export function mockRuleC(row: Pick<AdminBuylistDTO, 'items'>): boolean {
+  const counting = mockCountingItems(row.items);
+  return counting.length > 0 && counting.every((it) => it.itemStatus === 'rechazada');
+}
+
+/**
  * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
  *
  * ⚠️ Las columnas ocultas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del
@@ -1581,6 +1747,8 @@ export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
     approvedTotalCents: row.approvedTotalCents ?? undefined,
     isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
     isPayable: mockIsPayable(row),
+    // v1.82.3 §PNL.12.1 d: `isTerminal === false ∧ Regla C`.
+    isRejectable: !MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) && mockRuleC(row),
     // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
     pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
   };
@@ -1646,6 +1814,54 @@ export const mockSellRequests: MockSellRequestRow[] = [
       { id: 'sri-off-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada', offerDecision: 'skip', offeredPriceCents: null },
     ],
   },
+  /**
+   * 💰 rev BSD-1 (§BSD-UX.4b) — `aceptada` con guía de ENTRADA de Skydropx viva: `labelPdfAvailable = true` (lo DERIVA el
+   * servidor; aquí es columna de la fila falsa). El portal pinta «Tu guía» y «Ventas» su enlace de descarga.
+   */
+  {
+    sellRequestId: 'sr-3004',
+    status: 'aceptada',
+    quotedTotalCents: 84000,
+    ineRequired: false,
+    createdAt: '2026-09-28T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-09-29T18:00:00Z',
+    offerGrossCents: 84000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 66000,
+    offerAcceptDeadlineAt: '2026-10-02T18:00:00Z',
+    offerAcceptedAt: '2026-09-30T10:00:00Z',
+    offerCarrier: 'Paquetexpress',
+    offerTrackingNumber: 'PQX123456789',
+    labelPdfAvailable: true,
+    items: [
+      { id: 'sri-lbl-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+    ],
+  },
+  /**
+   * 💰 rev BSD-1 (§BSD-UX.4a) — `expirada` + `not_continued`: «decidimos no continuar». La fila guarda la oferta; la
+   * PROYECCIÓN la redacta como el servidor real (BSD-1.4 punto 8: `offer: null` y cifras `null`). El peor caso —un servidor
+   * que no redacta— lo cubre `SellRequestDetailView.bsd.test.tsx`.
+   */
+  {
+    sellRequestId: 'sr-3005',
+    status: 'expirada',
+    expiredReason: 'not_continued',
+    quotedTotalCents: 84000,
+    ineRequired: false,
+    createdAt: '2026-09-20T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-09-21T18:00:00Z',
+    offerGrossCents: 84000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 66000,
+    offerAcceptDeadlineAt: '2026-09-24T18:00:00Z',
+    offerAcceptedAt: '2026-09-22T10:00:00Z',
+    labelPdfAvailable: false,
+    items: [
+      { id: 'sri-nc-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+    ],
+  },
 ];
 
 /**
@@ -1673,6 +1889,8 @@ export const mockKyc: KycInfoDTO = {
   // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
   clabeOnFile: false,
   ineOnFile: false,
+  // v1.80.7: clave siempre presente; `null` ⇔ fecha desconocida (o sin CLABE).
+  clabeUpdatedAt: null,
 };
 
 /**
@@ -1710,7 +1928,11 @@ export function mockApplyClientKycUpdate(input: {
   ineBackUploadKey?: string;
 }): KycInfoDTO {
   if (input.clabe) {
-    mockKyc.clabeMasked = `****${input.clabe.slice(-4)}`;
+    const nextMask = `****${input.clabe.slice(-4)}`;
+    // v1.80.7 (§M4-SHIP.17.3, `setClabe`): la fecha se sella SOLO cuando la CLABE cambia de verdad; repetir
+    // la misma es cero escrituras (PS-46). El mock solo ve la máscara, así que compara por ella.
+    if (!mockKyc.clabeOnFile || mockKyc.clabeMasked !== nextMask) mockKyc.clabeUpdatedAt = new Date().toISOString();
+    mockKyc.clabeMasked = nextMask;
     mockKyc.clabeOnFile = true;
   }
   const hasIneKey = !!(input.ineFrontUploadKey || input.ineBackUploadKey);
@@ -1784,7 +2006,10 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '06600',
     country: 'MX',
     phone: '5555123456',
+    references: null,
     isDefault: true,
+    // ⭐ v1.81: derivado por el servidor (colonia + CP de 5 + teléfono de 10).
+    complete: true,
   },
   {
     // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
@@ -1798,7 +2023,9 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: false,
+    complete: true,
   },
 ];
 
@@ -1919,6 +2146,29 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
     items: [{ inventoryItemId: 'inv-1001' }, { inventoryItemId: 'inv-1008' }],
   },
   {
+    // Envío DIRECTO de una orden (`fulfillmentMode='direct_ship'`): nace en `picking`, ya cobrado.
+    // Es el compañero de `shp-7004` en `mockPreparationQueue` (la hoja de «Pedidos a preparar»).
+    id: 'shp-7004',
+    userId: 'u-780',
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-13T16:45:00Z',
+    items: [{ inventoryItemId: 'inv-1012' }],
+  },
+  {
+    // Envío DIRECTO de un INVITADO (`userId: null`, contrato §M4 v1.21) con snapshot LEGADO de ocho
+    // campos: sin `recipientName` ⇒ su `customer.fullName` en la cola de preparación es **null**
+    // (§M4-PREP v1.78.1). Compañero de `shp-7005` en `mockPreparationQueue`.
+    id: 'shp-7005',
+    userId: null,
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-12T08:15:00Z',
+    items: [{ inventoryItemId: 'inv-1014' }],
+  },
+  {
     id: 'shp-7003',
     userId: 'u-779',
     status: 'solicitado',
@@ -1929,11 +2179,11 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
   },
 ];
 
-/** MOCK: lista de picking por ubicación (contrato §M4 · GET /admin/shipments/picking-list). */
-export const mockPickingList: PickingListEntryDTO[] = [
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1001', folio: 'INV-000101', location: 'C03-F02-S15' },
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1008', folio: 'INV-000108', location: 'C03-F02-S16' },
-];
+// MOCK §M4-SHIP: la cubeta ENVÍO de «Pedidos por preparar» (antes `mockPreparationQueue`, aquí) vive
+// ahora en `mock/m4-ship.ts` como SERVIDOR FALSO con estado (marcas, `preparation`, `refund` por carta,
+// casos «Por reponer», libro de reembolsos). Sus filas siguen siendo `shp-7004` (directo, Ash),
+// `shp-7002` (retiro, Misty) y `shp-7005` (directo de invitado sin nombre), más `shp-7006` (retiro preparado
+// con un caso abierto). `mockAdminShipments` sigue siendo la lista administrativa que las acompaña.
 
 export const mockDashboard: DashboardDTO = {
   profitPeriodCents: 1284000,
@@ -1963,9 +2213,13 @@ export const mockDashboard: DashboardDTO = {
 };
 
 export const mockLocations: VaultLocationDTO[] = [
-  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15' },
-  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16' },
-  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01' },
+  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  // §M4-VAULT: dos cajones de cliente más, para que la anomalía `multiple_drawers` y la elección del
+  // cliente nuevo tengan de dónde escoger en modo mocks.
+  { id: 'loc-4', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S02', label: 'C10-F01-S02', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-5', zone: 'customer_custody', box: 'C11', row: 'F01', slot: 'S01', label: 'C11-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
 ];
 
 export const mockInventory: InventoryItemDTO[] = [
@@ -2286,6 +2540,26 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
+    },
+  ],
+  // §M4-VAULT v1.79.3 (H-1): cuenta con el nombre FABRICADO del correo (`nameSource='derived'`,
+  // P-73) y una carta en bóveda ⇒ «Bóvedas de clientes» la sirve con `name: null`.
+  'u-780': [
+    {
+      inventoryItemId: 'inv-3101',
+      folio: 'INV-000311',
+      card: cardById('c-pikachu'),
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'normal',
+      ownershipStatus: 'settled',
+      status: 'in_custody',
+      referenceValue: { status: 'priced', referenceMxnCents: 9500, capturedDate: '2026-08-13' },
+      shipmentState: null,
+      activeShipmentId: null,
+      withdrawable: true,
+      withdrawableReason: null,
     },
   ],
 };
@@ -2456,6 +2730,9 @@ export function mockMasterSetIndex(
       // `MockCardSetRow.logoUrl` es `string | null` REQUERIDA, así que si desapareciera de la
       // fila esto NO compilaría — que es justo el candado que el `??` desactivaba.
       logoUrl: s.logoUrl,
+      // v1.80 (P-71): misma doctrina que `logoUrl` (columna requerida de la fila, sin `??`). La fila
+      // plegada de un combinado conserva el del PRINCIPAL (el pliegue de abajo no lo toca).
+      ptcgoCode: s.ptcgoCode,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
@@ -2507,7 +2784,8 @@ export function mockMasterSetIndex(
 
   if (params.q) {
     const q = params.q.toLowerCase();
-    summaries = summaries.filter((s) => s.name.toLowerCase().includes(q));
+    // v1.80 (P-71): por nombre O por código, «contiene» sin distinguir mayúsculas (contrato §M1).
+    summaries = summaries.filter((s) => setMatchesQuery(s.name, s.ptcgoCode, q));
   }
   summaries.sort((a, b) => {
     if (sort === 'completion_asc') return (a.variantCompletionPct ?? 0) - (b.variantCompletionPct ?? 0);
@@ -2629,11 +2907,13 @@ export function mockMasterSetBinder(
         isPrimary: id === group!.primary,
         order: idx,
         catalogCardCount: numberedCardsOfSet(id).length + (MASTER_SET_PROMO_CELLS[id]?.length ?? 0),
+        // v1.80 (P-71): el código de ESTA parte, no el del principal.
+        ptcgoCode: mockSets.find((s) => s.id === id)?.ptcgoCode ?? null,
       }))
     : undefined;
 
   return {
-    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate, ptcgoCode: set.ptcgoCode },
     printedTotal,
     catalogCardCount: cells.length,
     cells,
@@ -2651,7 +2931,8 @@ export function mockVaultOwnerOf(userId: string): VaultOwnerRefDTO {
   if (!u || !(userId in mockVaultHoldingsByUser)) {
     throw new ApiFixtureNotFound(`User ${userId} has no vault`);
   }
-  return { userId: u.id, name: u.name, email: u.email };
+  // Ref de CLIENTE: siempre con correo (I-STF-1, §M6-U.8 (b)); `?? ''` replica lo que emite el backend si la invariante se rompiera.
+  return { userId: u.id, name: mockCustomerDisplayName(u.id, u.name), email: u.email ?? '' };
 }
 
 /**
@@ -2679,7 +2960,7 @@ export function mockAdminVaults(params: {
     }
     return {
       userId,
-      name: user?.name ?? userId,
+      name: user ? mockCustomerDisplayName(userId, user.name) : null,
       email: user?.email ?? '',
       pieceCount: inVault.length,
       totalValueMxnCents,
@@ -2689,11 +2970,19 @@ export function mockAdminVaults(params: {
 
   if (params.q) {
     const q = params.q.toLowerCase();
-    rows = rows.filter((r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q));
+    rows = rows.filter(
+      (r) => (r.name ?? '').toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
+    );
   }
   rows.sort((a, b) => {
     if (sort === 'pieces_desc') return b.pieceCount - a.pieceCount;
-    if (sort === 'name_asc') return a.name.localeCompare(b.name);
+    // v1.79.3 (H-1, prueba 28): `null` al final, y entre ellos por correo.
+    if (sort === 'name_asc') {
+      if (a.name === null && b.name === null) return a.email < b.email ? -1 : a.email > b.email ? 1 : 0;
+      if (a.name === null) return 1;
+      if (b.name === null) return -1;
+      return a.name.localeCompare(b.name);
+    }
     return b.totalValueMxnCents - a.totalValueMxnCents; // value_desc default
   });
 
@@ -3051,7 +3340,7 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
  */
 export type MockAdminBuylistRow = Omit<
   AdminBuylistDTO,
-  'isTerminal' | 'isPayable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
+  'isTerminal' | 'isPayable' | 'isRejectable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
 > &
   MockPayabilityColumns;
 
@@ -3229,6 +3518,15 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9001', userId: 'u-777', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z', cfdiStatus: 'registrado' },
   { id: 'ord-9002', userId: 'u-778', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
+  // §M4-SHIP.18: compra a BÓVEDA ya reembolsada entera (por webhook) con una carta en caja y otra
+  // devuelta pendiente de confirmación física — alimenta `vaultPieces`, «Reclamar» y `chargeback-inventory`.
+  { id: 'ord-9004', userId: 'u-778', status: 'refunded', totalCents: 47400, createdAt: '2026-09-20T12:00:00Z', settledAt: '2026-09-20T12:02:00Z', cfdiStatus: 'registrado' },
+  // §M4-SHIP.18.12 (E2E `precios-s5.spec.ts`): directos de INVITADO — `ord-5006` enviado y liquidado (reembolso total
+  // CON motivo), `ord-5008` con guía sin salir (SIN motivo) y `ord-5007` reembolsado desde Stripe tras el envío sin
+  // motivo («Reembolso por revisar»). Estado vivo en `lib/mock/m4-ship`.
+  { id: 'ord-5006', status: 'settled', totalCents: 83886, createdAt: '2026-09-25T10:00:00Z', settledAt: '2026-09-25T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado2@example.com', fulfillmentMode: 'direct_ship' },
+  { id: 'ord-5008', status: 'settled', totalCents: 83886, createdAt: '2026-09-26T10:00:00Z', settledAt: '2026-09-26T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado4@example.com', fulfillmentMode: 'direct_ship' },
+  { id: 'ord-5007', status: 'refunded', totalCents: 83886, createdAt: '2026-09-24T10:00:00Z', settledAt: '2026-09-24T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado3@example.com', fulfillmentMode: 'direct_ship' },
 ];
 
 // MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
@@ -3568,6 +3866,25 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     sealedSubtype: 'blister',
     card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
   },
+  // §M2-SK: sellado SIN MAPEAR (`gradeKey === 'sealed'`, la constante legada = clave de COLA, nunca de
+  // precio). Es la pieza inv-1009 (sv06 ETB, sin `tcgplayerProductId`). M2 le ofrece DOS salidas —«Ligar
+  // a su presentación» y «Fijar el precio de esta pieza»— y NUNCA el «Fijar precio» de mercado, que el
+  // servidor (y el mock de `overridePrice`) rechaza con 422 SEALED_MARKET_KEY_REQUIRED (SK-3).
+  {
+    id: 'ppe-sealed-unmapped',
+    cardId: 'c-sealed-sv06-etb',
+    productType: 'sealed',
+    gradeKey: 'sealed',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    reason: 'no_market',
+    createdAt: '2026-09-20T09:00:00Z',
+    sealedProductId: null,
+    sealedProductName: 'Twilight Masquerade ETB',
+    sealedSubtype: 'etb',
+    card: { id: 'c-sealed-sv06-etb', name: 'Twilight Masquerade ETB', number: '', setName: 'Twilight Masquerade' },
+  },
 ];
 export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
@@ -3886,14 +4203,17 @@ export function mockPriceHistory(cardId: string): PriceHistoryEntryDTO[] {
 
 // ---- M6: Usuarios / KYC ----
 export const mockAdminUsers: AdminUserSummaryDTO[] = [
-  { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
-  { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
-  { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
+  { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-08-01T10:00:00Z' },
+  { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-08-05T14:30:00Z' },
+  { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', username: null, lockedUntil: null, createdAt: '2026-08-08T09:12:00Z' },
   // P-78: el caso que motiva la pantalla — INE subida, ESPERANDO revisión, y con el nombre
   // FABRICADO del correo (`nameSource='derived'`, P-73). Es el usuario contra el que se mide que
   // el aviso de «no cotejes con este nombre» aparece.
-  { id: 'u-780', email: 'jcsainz95@example.com', name: 'jcsainz95', role: 'customer', status: 'active', createdAt: '2026-09-02T11:05:00Z' },
-  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-780', email: 'jcsainz95@example.com', name: 'jcsainz95', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-09-02T11:05:00Z' },
+  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', username: null, lockedUntil: null, createdAt: '2026-07-20T08:00:00Z' },
+  // MOCK (v1.80.9, §M6-U): cuenta del equipo SIN correo — entra con su usuario. Con un candado por
+  // intentos vigente para que la marca «Bloqueado por intentos hasta HH:MM» se vea en mock.
+  { id: 'u-op2', email: null, username: 'luis.p', name: 'Luis Pérez', role: 'vault_operator', status: 'active', lockedUntil: new Date(Date.now() + 30 * 60_000).toISOString(), createdAt: '2026-10-04T09:00:00Z' },
 ];
 
 /**
@@ -4024,6 +4344,8 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
   return {
     ...base,
+    // ⭐ v1.80.9.1 A-1: la ficha trae su `lockState` (el servidor falso siempre contesta).
+    lockState: 'ok',
     locale: 'es',
     authProvider: id === 'u-778' ? 'google' : 'local',
     // ⭐ v1.69 (§M6-K.3): el origen del nombre va en la ficha SIEMPRE (los dos roles).
@@ -4047,12 +4369,12 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', references: null, isDefault: true, complete: false }]
         : id === 'u-780'
           ? [
-              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', isDefault: true },
+              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', references: null, isDefault: true, complete: true },
               // Fila anterior a M-52: sin destinatario. Se pinta «Sin destinatario», nunca el nombre.
-              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', isDefault: false },
+              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', references: null, isDefault: false, complete: false },
             ]
           : [],
     orders: base.id === 'u-777' ? mockOrders : [],
@@ -4241,7 +4563,10 @@ export const mockAuditLog: AuditLogDTO[] = [
 ];
 
 // ---- M7: Finanzas ----
-// P&L (v1.4-finance): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents = profitCents.
+// P&L (§M10-IVA.8 / §M4-SHIP.19.36.1): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents −
+// shippingCostCents − refundsCents − refundedFeesCents − compensationsCents = profitCents.
+// N-PNL-1 (DESIGN_SYSTEM §43.23.8): los cinco campos nuevos ≠ 0; ajustes y seguro MENORES que `shippingCostCents`
+// (están dentro de él) para que la pantalla de dev sea una pantalla posible.
 export const mockPnl: PnlDTO = {
   incomeCents: 1_250_000,
   shippingRevenueCents: 52_500,
@@ -4255,7 +4580,20 @@ export const mockPnl: PnlDTO = {
   // importe y ⛔ no una afirmación fiscal. En el fixture va `> 0` **a propósito**: el aviso es una
   // rama de render que, con un `0` clavado, nadie vería nunca en `dev`.
   shippingCostMissingCount: 2,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
+  // §19.36.1 — «Incluye…» de `shippingCostCents` (⛔ no entran en la resta: ya van dentro de los 31_800).
+  shippingAdjustmentsCents: 4_200,
+  shippingInsuranceCents: 2_500,
+  // §M10-IVA.8 (v1.80.7) — lo devuelto en el periodo; restan en la ganancia.
+  refundsCents: 35_000,
+  refundedFeesCents: 1_400,
+  compensationsCents: 12_000,
+  // 💰 rev BSD-1 (§BSD.16.2): tarifa retenida (suma) y guías para recibir cartas (resta); margen y contador informativos.
+  // El margen NO es la resta de los dos (se miden en días distintos): 1 517 con 18 000 y 21 552 (BSD-B34 / UX-BSD-13).
+  buylistShippingFeeRetainedCents: 18_000,
+  buylistGuideCostCents: 21_552,
+  buylistGuideMarginCents: 1_517,
+  buylistGuideCostMissingCount: 1,
+  profitCents: 1_250_000 + 52_500 - 640_000 + 18_000 - 21_552 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
 };
 
 // v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).
@@ -4333,6 +4671,8 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
+    // MOCK §MIV.2: el mercado CON IVA, escrito (305,000 + 16 % = 353,800), no calculado.
+    referenceDisplayCents: 353800,
     currency: 'MXN',
   },
   {
@@ -4350,6 +4690,8 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
+    // MOCK §MIV.2: escrito (98,000 + 16 % = 113,680).
+    referenceDisplayCents: 113680,
     currency: 'MXN',
   },
   {
@@ -4448,7 +4790,11 @@ export const mockVaultSealed: VaultSealedResponse = {
 /** Vista admin de la bóveda sellada de un cliente (GET /admin/vaults/:userId/sealed). */
 export function mockAdminVaultSealed(userId: string): VaultSealedResponse {
   const u = mockAdminUsers.find((x) => x.id === userId);
-  const owner: VaultOwnerRefDTO = { userId, name: u?.name ?? userId, email: u?.email };
+  const owner: VaultOwnerRefDTO = {
+    userId,
+    name: u ? mockCustomerDisplayName(userId, u.name) : null,
+    email: u?.email ?? undefined,
+  };
   if (userId === 'u-777') {
     return { ...mockVaultSealed, owner };
   }
@@ -4502,6 +4848,12 @@ export interface MockVariantControlsRow {
   bountyAcquiredQty: number;
   bountyCompletedAt: string | null;
   /**
+   * ⭐ v2.2 (Q2, M-58): espejo de `VariantPriceOverride.bountyUnpublishedAt`. `!= null` ⇒ el bounty
+   * se ELIMINÓ teniendo historia y está `despublicada` (§M2-B.0). Distingue `despublicada` de
+   * `apagada`; sin esta columna las dos serían indistinguibles.
+   */
+  bountyUnpublishedAt: string | null;
+  /**
    * `VariantPriceOverride.updatedAt` de la BD real: **por fila y distinto por fila**, porque es lo
    * que ordena `sort=updated_desc` y lo que desempata los otros dos órdenes de §M2-B.1. Una
    * constante compartida no es «un dato de menos»: hace que **una de las tres opciones del `<Select>`
@@ -4530,6 +4882,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-29T14:00:00.000Z',
     },
   ],
@@ -4563,6 +4916,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: null,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-30T08:45:00.000Z',
     },
   ],
@@ -4580,6 +4934,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-25T09:00:00.000Z',
     },
   ],
@@ -4595,6 +4950,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-27T09:00:00.000Z',
     },
   ],
@@ -4609,6 +4965,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 2,
       bountyCompletedAt: '2026-08-30T18:00:00.000Z',
+      bountyUnpublishedAt: null,
       updatedAt: '2026-09-04T11:00:00.000Z',
     },
   ],
@@ -4624,6 +4981,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-31T16:30:00.000Z',
     },
   ],
@@ -4676,12 +5034,39 @@ export function mockVariantPricing(
     row.bountyPriceCents > 0 &&
     (curveQuoteCents == null || row.bountyPriceCents > curveQuoteCents);
 
+  // ⭐ v1.80 (§M2-B.11): el bounty se paga TOPADO por el mercado — `payoutCents = min(bounty, mercado)`
+  // si hay mercado presente (> 0); sin mercado no hay tope y se paga el bounty (punto 2). `cappedByMarket`
+  // = efectivo ∧ payout < bounty. ⭐⭐ v1.80.2 (punto 8): si además se topó, la curva cayó al bin
+  // (`floor`) y la rareza es premium, el guardarraíl RETIENE la línea: `buy.source='pending'`,
+  // `premiumAtFloor=true`, `payoutCents=null`, `cappedByMarket=false` (el `state` sigue `activa`).
+  const marketCents = mockMarketReferenceForVariant(cardId, finish);
+  const rawPayout =
+    bountyEffective && row?.bountyPriceCents != null
+      ? marketCents != null && marketCents > 0
+        ? Math.min(row.bountyPriceCents, marketCents)
+        : row.bountyPriceCents
+      : null;
+  const cappedRaw = rawPayout != null && row?.bountyPriceCents != null && rawPayout < row.bountyPriceCents;
+  const bountyRetained = cappedRaw && premiumAtFloorFor(cardId, buySuggested.basis);
+  const payoutCents = bountyRetained ? null : rawPayout;
+  const cappedByMarket = bountyRetained ? false : cappedRaw;
+
   const buy: import('@/types/contract').VariantPricingDTO['buy'] = (() => {
     if (bountyEffective && row?.bountyPriceCents != null) {
+      if (bountyRetained) {
+        return {
+          suggestedCents: buySuggested.cents,
+          overrideCents: row.buyOverrideCents,
+          effectiveCents: null,
+          source: 'pending' as const,
+          premiumAtFloor: true,
+        };
+      }
       return {
         suggestedCents: buySuggested.cents,
         overrideCents: row.buyOverrideCents,
-        effectiveCents: row.bountyPriceCents,
+        // Se conserva: `buy.source === 'bounty'` ⇒ `bounty.payoutCents === buy.effectiveCents`.
+        effectiveCents: payoutCents,
         source: 'bounty' as const,
         premiumAtFloor: false,
       };
@@ -4739,6 +5124,8 @@ export function mockVariantPricing(
             completedAt: row.bountyCompletedAt,
             effective: bountyEffective,
             curveQuoteCents,
+            payoutCents,
+            cappedByMarket,
           },
         }
       : {}),
@@ -4762,6 +5149,7 @@ export function mockUpsertVariantControls(
     bountyTargetQty: null,
     bountyAcquiredQty: 0,
     bountyCompletedAt: null,
+    bountyUnpublishedAt: null,
     updatedAt: new Date().toISOString(),
   };
   // Campos omitidos NO se tocan; `null` explícito LIMPIA (contrato v1.28).
@@ -4774,6 +5162,14 @@ export function mockUpsertVariantControls(
       row.bountyEnabled = req.bounty.enabled;
       if (req.bounty.priceCents !== undefined) row.bountyPriceCents = req.bounty.priceCents;
       if (req.bounty.targetQty !== undefined) row.bountyTargetQty = req.bounty.targetQty;
+      // ⭐ v2.2 (§M2-B.9): RE-PUBLICAR (encender) limpia `bountyUnpublishedAt` —un bounty re-encendido
+      // ya no está `despublicada`— y, por el re-armado P-22, también `bountyCompletedAt`: vuelve a
+      // pagar, así que conservar el sello de «objetivo alcanzado» sería incoherente. ⚠️ NO reinicia
+      // `bountyAcquiredQty` (la historia de dinero se conserva, doctrina M-46).
+      if (req.bounty.enabled) {
+        row.bountyUnpublishedAt = null;
+        row.bountyCompletedAt = null;
+      }
     }
   }
   // `@updatedAt` de Prisma: toda escritura lo mueve. Es lo que hace que `sort=updated_desc` tenga
@@ -4822,6 +5218,7 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
       name: card.name,
       number: card.number,
       setName: card.setName,
+      setPtcgoCode: card.setPtcgoCode,
       imageSmallUrl: card.imageSmallUrl,
       rarity: card.rarity || undefined,
       finish: finish as Finish,
@@ -4855,7 +5252,9 @@ function mockBountyInScope(row: MockVariantControlsRow): boolean {
     row.bountyEnabled ||
     row.bountyPriceCents != null ||
     row.bountyCompletedAt != null ||
-    row.bountyAcquiredQty > 0
+    row.bountyAcquiredQty > 0 ||
+    // ⭐ v2.2: una fila DESPUBLICADA sigue en alcance (es un registro archivado, §M2-B.0).
+    row.bountyUnpublishedAt != null
   );
 }
 
@@ -4875,6 +5274,8 @@ const MOCK_ATTENTION_RANK: Record<import('@/types/contract').BountyState, number
   activa: 1,
   completada: 2,
   apagada: 3,
+  // ⭐ `despublicada` AL FINAL (§M2-B.1): solo aparece si se pide `?state=despublicada`.
+  despublicada: 4,
 };
 
 export function mockAdminBounties(
@@ -4913,22 +5314,33 @@ export function mockAdminBounties(
     const card = mockCards.find((c) => c.id === cardId)!;
     const pricing = mockVariantPricing(cardId, finish);
     if (!pricing.bounty) return [];
-    return [{ card, finish, row, pricing, state: mockDeriveBountyState(pricing.bounty) }];
+    // ⭐ `despublicada` DISCRIMINA PRIMERO (§M2-B.0), y sale de la COLUMNA `bountyUnpublishedAt`, no
+    // del DTO de precio (que no la lleva). El resto lo deriva el composer, igual que el binder.
+    const state: import('@/types/contract').BountyState =
+      row.bountyUnpublishedAt != null ? 'despublicada' : mockDeriveBountyState(pricing.bounty);
+    return [{ card, finish, row, pricing, state }];
   });
 
   // (3) CONTAR — sobre el conjunto clasificado ENTERO: ignora el filtro `state`, respeta identidad.
+  // ⚠️ Las SEIS cubetas, `despublicada` incluida: `counts` es el SELECTOR y la reporta SIEMPRE,
+  // aunque `data` la excluya por defecto (§M2-B.1).
   const counts: import('@/types/contract').AdminBountyCountsDTO = {
     activa: 0,
     rebasada: 0,
     invalida: 0,
     completada: 0,
     apagada: 0,
+    despublicada: 0,
   };
   for (const c of classified) counts[c.state] += 1;
 
   // (4) FILTRAR por `state` → (5) ORDENAR → (6) PAGINAR.
+  // ⭐ v2.2: sin filtro `state`, `data` excluye `despublicada` (registros archivados fuera del
+  // tablero de trabajo); solo aparecen si se piden EXPLÍCITAMENTE con `?state=despublicada` (§M2-B.1).
   const states = filters.states && filters.states.length > 0 ? filters.states : null;
-  const filtered = states ? classified.filter((c) => states.includes(c.state)) : classified;
+  const filtered = states
+    ? classified.filter((c) => states.includes(c.state))
+    : classified.filter((c) => c.state !== 'despublicada');
   // ⚠️ Los TRES órdenes de §M2-B.1 están implementados, con los mismos desempates que el servidor:
   //   · `attention_first` (default) → rango de atención, precio desc, `updatedAt` desc, id asc
   //   · `price_desc`                → precio desc, `updatedAt` desc, id asc
@@ -4979,6 +5391,60 @@ export function mockAdminBounties(
     total,
     counts,
     truncated,
+  };
+}
+
+/**
+ * ⭐ ELIMINAR un bounty (DELETE …/variant-controls/:cardId/:finish/bounty, §M2-B.9). **El SERVIDOR
+ * falso ramifica por la historia de compra**, igual que el de verdad — la pantalla no decide la rama:
+ *
+ * - **Rama A · BORRAR** (`bountyAcquiredQty === 0 ∧ bountyCompletedAt == null`): limpia TODOS los
+ *   campos de bounty; si a la fila no le quedan otros overrides (`sell`/`buy`), se **borra entera**
+ *   del store. Devuelve el DTO con el bounty ausente/limpio.
+ * - **Rama B · DESPUBLICAR** (`acquiredQty > 0 ∨ completedAt != null`): CONSERVA
+ *   `priceCents`/`targetQty`/`acquiredQty`/`completedAt`, pone `enabled=false` y
+ *   `bountyUnpublishedAt = now()`. Devuelve el DTO con la historia conservada ⇒ `state:"despublicada"`.
+ *
+ * ⛔ **No toca** `sellOverrideCents`/`buyOverrideCents` (§M2-B.9 / B-20). **Idempotente en la rama B**:
+ * un `DELETE` sobre una fila ya `despublicada` es no-op. `BOUNTY_NOT_FOUND` si la variante no tiene
+ * bounty en alcance.
+ */
+export function mockDeleteBounty(
+  cardId: string,
+  finish: Finish,
+): import('@/types/contract').VariantControlsResponse {
+  const key = variantControlsKey(cardId, 'raw', 'raw:NM', finish);
+  const row = mockVariantControlsStore.get(key);
+  if (!row || !mockBountyInScope(row)) {
+    throw new ApiFixtureError(404, 'BOUNTY_NOT_FOUND', 'variant has no bounty in scope');
+  }
+
+  const hasHistory = row.bountyAcquiredQty > 0 || row.bountyCompletedAt != null;
+  if (hasHistory) {
+    // Rama B · DESPUBLICAR. Idempotente: si ya estaba despublicada, no se re-sella la fecha.
+    row.bountyEnabled = false;
+    if (row.bountyUnpublishedAt == null) row.bountyUnpublishedAt = new Date().toISOString();
+    row.updatedAt = new Date().toISOString();
+    mockVariantControlsStore.set(key, row);
+  } else {
+    // Rama A · BORRAR. Limpia el bounty; si no quedan otros overrides, la fila desaparece entera.
+    row.bountyEnabled = false;
+    row.bountyPriceCents = null;
+    row.bountyTargetQty = null;
+    row.bountyUnpublishedAt = null;
+    row.updatedAt = new Date().toISOString();
+    if (row.sellOverrideCents == null && row.buyOverrideCents == null) {
+      mockVariantControlsStore.delete(key);
+    } else {
+      mockVariantControlsStore.set(key, row);
+    }
+  }
+  return {
+    cardId,
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish,
+    pricing: mockVariantPricing(cardId, finish, 'raw', 'raw:NM'),
   };
 }
 
@@ -5984,20 +6450,41 @@ export function deleteMockGradedEstimate(
   return { cardId, gradeValue, deletedCount: 1 };
 }
 
-/** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */
-export function generateSealedValueHistory(range: SetValueRange): SetValueHistoryResponse {
-  const base = generateFeaturedSetValueHistory(range);
-  // Escala a un rango de "una caja" (~MX$3,050) para que la gráfica se lea como un producto, no un set.
-  const scale = 305000 / 131920000;
+/**
+ * MOCK §MIV.3 (v1.90⟨miv⟩) — tendencia del sellado `inv-1008` (Surging Sparks Booster Box). Las cifras con
+ * IVA van **ESCRITAS** (`M + round(M × 16 / 100)` hecho a mano, tasa de fábrica del simulador), no
+ * calculadas: la cuenta es del servidor. Termina en el mercado de la ficha (305,000 neto ⇒ 353,800 con
+ * IVA), así que la cifra grande coincide con «Valor de mercado» de la ficha simulada (criterio 861).
+ * `5d` = los últimos 5 puntos; el resto de rangos, los 8 (el simulador no fabrica años de historia).
+ */
+const MOCK_SEALED_TREND_POINTS: SealedValuePointDTO[] = [
+  { date: '2026-08-07', valueMxnCents: 296000, displayValueMxnCents: 343360, pricedCardCount: 1 },
+  { date: '2026-08-08', valueMxnCents: 298500, displayValueMxnCents: 346260, pricedCardCount: 1 },
+  { date: '2026-08-09', valueMxnCents: 297000, displayValueMxnCents: 344520, pricedCardCount: 1 },
+  { date: '2026-08-10', valueMxnCents: 300000, displayValueMxnCents: 348000, pricedCardCount: 1 },
+  { date: '2026-08-11', valueMxnCents: 301500, displayValueMxnCents: 349740, pricedCardCount: 1 },
+  { date: '2026-08-12', valueMxnCents: 300500, displayValueMxnCents: 348580, pricedCardCount: 1 },
+  { date: '2026-08-13', valueMxnCents: 303000, displayValueMxnCents: 351480, pricedCardCount: 1 },
+  { date: '2026-08-14', valueMxnCents: 305000, displayValueMxnCents: 353800, pricedCardCount: 1 },
+];
+
+export function generateSealedValueHistory(range: SetValueRange): SealedValueHistoryResponse {
+  const product = { inventoryItemId: 'inv-1008', name: SEALED_BOX.name };
+  if (range === '5d') {
+    return {
+      product,
+      range,
+      points: MOCK_SEALED_TREND_POINTS.slice(-5).map((p) => ({ ...p })),
+      // 300,000 → 305,000 neto; 348,000 → 353,800 con IVA. Escrito.
+      change: { absMxnCents: 5000, pct: 1.67, direction: 'up', displayAbsMxnCents: 5800 },
+    };
+  }
   return {
-    set: { id: 'sealed:tcg:sv08-box', name: SEALED_BOX.name },
-    range: base.range,
-    points: base.points.map((p) => ({
-      date: p.date,
-      valueMxnCents: Math.round(p.valueMxnCents * scale),
-      pricedCardCount: 1,
-    })),
-    change: base.change,
+    product,
+    range,
+    points: MOCK_SEALED_TREND_POINTS.map((p) => ({ ...p })),
+    // 296,000 → 305,000 neto; 343,360 → 353,800 con IVA. Escrito.
+    change: { absMxnCents: 9000, pct: 3.04, direction: 'up', displayAbsMxnCents: 10440 },
   };
 }
 
@@ -6408,12 +6895,14 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       productType: 'raw',
       finish: 'holofoil',
       cardProductId: null,
+      // ⭐ Errata SU-1 (`API_CONTRACT §M1-SU` SU.2): sin cajón y CON precio ya no habita la cola (se publica sola);
+      // el servidor nunca emite `"location"`. Esta pieza sin cajón sigue aquí porque le falta el PRECIO.
       locationId: null,
       listPriceCents: null,
-      resolvedSalePriceCents: 120000,
-      priceBasis: 'market',
-      pendingPriceEntryId: null,
-      missing: ['location'],
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      pendingPriceEntryId: 'ppe-76',
+      missing: ['price'],
       acquisitionType: 'buylist',
       sourceSellRequestItemId: 'sri-desk-1',
       createdAt: '2026-08-30T18:00:00Z',
@@ -6448,11 +6937,603 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       resolvedSalePriceCents: null,
       priceBasis: null,
       pendingPriceEntryId: 'ppe-78',
-      missing: ['location', 'price'],
+      // Errata SU-1: sin cajón no es motivo; solo falta el precio.
+      missing: ['price'],
       acquisitionType: 'buylist',
       sourceSellRequestItemId: 'sri-desk-2',
       createdAt: '2026-08-30T18:10:00Z',
     },
+    // §39.3 (b) (E2E `precios-s5.spec.ts`): carta premium retenida por la regla de M10 — el MOTIVO lo dice el
+    // servidor (`pendingReason`), ⛔ la UI no lo deduce de la rareza.
+    {
+      inventoryItemId: 'inv-pub-4',
+      folio: 'INV-004204',
+      card: cardById('c-latias-sir'),
+      productType: 'raw',
+      finish: 'holofoil',
+      cardProductId: null,
+      locationId: 'loc-a1',
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: 'pending',
+      pendingPriceEntryId: 'ppe-79',
+      pendingReason: 'premium_at_floor',
+      missing: ['price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: null,
+      createdAt: '2026-08-30T18:15:00Z',
+    },
   ];
+  // §39.2 (E2E `precios-s5.spec.ts`): el sellado `inv-1009` (con ubicación, sin precio automático) está en la cola
+  // MIENTRAS siga `in_stock` sin precio final: «Guardar y publicar» lo saca (estado vivo de `mockInventory`).
+  const sealed = mockInventory.find((i) => i.id === 'inv-1009');
+  if (sealed && sealed.status === 'in_stock' && sealed.listPriceCents == null) {
+    rows.push({
+      inventoryItemId: sealed.id,
+      folio: sealed.folio,
+      card: sealed.card,
+      productType: 'sealed',
+      // §M11-SP.13.5: en `sealed` la clave viaja SIEMPRE (`string` = ligada, `null` = sin producto). inv-1009 es la
+      // ETB sv06 sin ligar (ver `ppe-sealed-unmapped`) ⇒ `null`. Sin la clave, `sealedPieceLinkOf` da 'unknown' y la
+      // fila queda en solo lectura (13.5.1, falla cerrado) — como lo manda el back (`inventory.service.ts`).
+      sealedProductId: null,
+      sealedProductName: sealed.card.name,
+      sealedSubtype: sealed.sealedSubtype,
+      finish: sealed.finish ?? 'normal',
+      cardProductId: null,
+      locationId: sealed.location?.id ?? null,
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: 'pending',
+      pendingPriceEntryId: null,
+      pendingReason: 'no_market',
+      missing: ['price'],
+      acquisitionType: 'compra',
+      sourceSellRequestItemId: null,
+      createdAt: '2026-08-30T18:20:00Z',
+    });
+  }
   return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+
+// =====================================================================================
+// MOCK · §M4-VAULT — «Para bóveda»: colocación, palomeo y vista «Qué debe haber» (v1.79.3)
+// =====================================================================================
+
+/**
+ * MOCK de `customerDisplayName` (§M4-VAULT.3 v1.79.3): `nameSource === 'derived' ? null :
+ * nullIfBlank(name)`. En los fixtures la única cuenta `derived` es `u-780` (misma regla que usa la
+ * ficha 360° mock, `nameSource: id === 'u-780' ? 'derived' : …`).
+ */
+export function mockCustomerDisplayName(userId: string, name: string): string | null {
+  if (userId === 'u-780') return null;
+  const trimmed = name.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+const MOCK_OPERATOR = { userId: 'u-op1', name: 'Operador Bóveda' };
+
+const drawerAna: CustomerDrawerRef = { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody', customerPieceCount: 4 };
+const drawerBrunoA: CustomerDrawerRef = { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody', customerPieceCount: 1 };
+const drawerBrunoB: CustomerDrawerRef = { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody', customerPieceCount: 2 };
+
+function vaultItem(
+  id: string,
+  over: Partial<VaultPreparationItemDTO> & Pick<VaultPreparationItemDTO, 'folio' | 'card'>,
+): VaultPreparationItemDTO {
+  return {
+    placementItemId: id,
+    orderItemId: `oi-${id}`,
+    inventoryItemId: `inv-${id}`,
+    quantity: 1,
+    currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
+    currentZone: 'platform_stock',
+    prepStatus: 'pending',
+    placeability: { kind: 'placeable' },
+    ...over,
+  };
+}
+
+/**
+ * Estado de preparación CALCULADO como lo hace el servidor (§M4-VAULT.10): `pending` cuenta solo
+ * colocables sin marcar; una bloqueada cuenta en `blocked` sea cual sea su marca.
+ */
+export function mockPreparationOf(
+  items: VaultPreparationItemDTO[],
+  sealed: { preparedAt: string; preparedBy: { userId: string; name: string | null } } | null,
+): VaultPreparationStateDTO {
+  const counts = { total: items.length, pending: 0, picked: 0, missing: 0, blocked: 0 };
+  for (const i of items) {
+    if (i.placeability.kind === 'blocked') counts.blocked += 1;
+    else if (i.prepStatus === 'pending') counts.pending += 1;
+    else if (i.prepStatus === 'picked') counts.picked += 1;
+    else counts.missing += 1;
+  }
+  return sealed ? { status: 'prepared', ...sealed, ...counts } : { status: 'in_progress', ...counts };
+}
+
+/** Semilla de la cubeta `vault`. Deliberadamente en desorden de `requestedAt` (el mock ordena). */
+function vaultPlacementSeed(): VaultPreparationOrderDTO[] {
+  const ana = [
+    vaultItem('vpi-8001-1', {
+      folio: 'INV-000201',
+      card: { name: 'Mewtwo', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: 'https://images.pokemontcg.io/base1/10.png' },
+      currentLocation: { kind: 'assigned', label: 'C03-F02-S16' },
+      prepStatus: 'picked',
+    }),
+    vaultItem('vpi-8001-2', {
+      folio: 'INV-000202',
+      card: { name: 'Alakazam', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'PSA 8', imageSmallUrl: 'https://images.pokemontcg.io/base1/1.png' },
+    }),
+    vaultItem('vpi-8001-3', {
+      folio: 'INV-000203',
+      card: { name: 'Gyarados', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      placeability: { kind: 'blocked', reason: 'in_withdrawal' },
+    }),
+  ];
+  const derived = [
+    vaultItem('vpi-8002-1', {
+      folio: 'INV-000204',
+      card: { name: 'Dragonite', setName: 'Fossil', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      currentLocation: { kind: 'unassigned' },
+      currentZone: null,
+    }),
+  ];
+  const brunoSealed = { preparedAt: '2026-09-24T17:20:00Z', preparedBy: MOCK_OPERATOR };
+  const bruno = [
+    vaultItem('vpi-8003-1', {
+      folio: 'INV-000205',
+      card: { name: 'Raichu', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'LP', imageSmallUrl: 'https://images.pokemontcg.io/base1/14.png' },
+      prepStatus: 'picked',
+    }),
+    vaultItem('vpi-8003-2', {
+      folio: 'INV-000206',
+      card: { name: 'Ninetales', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      prepStatus: 'missing',
+    }),
+  ];
+  return [
+    {
+      destination: 'vault',
+      placementId: 'vp-8001',
+      orderId: 'ord-6001',
+      orderNumber: 'TCG-000201',
+      requestedAt: '2026-08-12T15:00:00Z',
+      customer: { userId: 'u-777', email: 'ana@example.com', lastName: 'López', fullName: 'Ana López' },
+      suggestedLocation: { source: 'existing_customer_vault', location: drawerAna },
+      preparation: mockPreparationOf(ana, null),
+      items: ana,
+    },
+    {
+      // Cuenta `derived` ⇒ `fullName` null (§M4-VAULT.3 v1.79.2); cliente nuevo ⇒ `source:'none'`.
+      destination: 'vault',
+      placementId: 'vp-8002',
+      orderId: 'ord-6002',
+      orderNumber: 'TCG-000202',
+      requestedAt: '2026-08-14T10:00:00Z',
+      customer: { userId: 'u-780', email: 'jcsainz95@example.com', lastName: null, fullName: null },
+      suggestedLocation: { source: 'none' },
+      preparation: mockPreparationOf(derived, null),
+      items: derived,
+    },
+    {
+      // ANOMALÍA: dos cajones; ya preparado (paso 2).
+      destination: 'vault',
+      placementId: 'vp-8003',
+      orderId: 'ord-6003',
+      orderNumber: 'TCG-000203',
+      requestedAt: '2026-08-11T09:00:00Z',
+      customer: { userId: 'u-778', email: 'bruno@example.com', lastName: 'Díaz', fullName: 'Bruno Díaz' },
+      suggestedLocation: { source: 'multiple_drawers', locations: [drawerBrunoA, drawerBrunoB] },
+      preparation: mockPreparationOf(bruno, brunoSealed),
+      items: bruno,
+    },
+  ];
+}
+
+/** Estado vivo del servidor falso (los verbos lo mutan). Las pruebas lo reinician. */
+let mockVaultPlacements: VaultPreparationOrderDTO[] = vaultPlacementSeed();
+/** Sellos de colocación/cancelación de las que ya salieron de la cola (para el `409` y el idempotente). */
+const mockClosedPlacements = new Map<string, VaultPlacementDTO>();
+
+export function resetMockVaultPlacements(): void {
+  mockVaultPlacements = vaultPlacementSeed();
+  mockClosedPlacements.clear();
+}
+
+/** La cubeta `vault` pendiente (copia profunda: la vista nunca muta el estado del «servidor»). */
+export function mockVaultPreparationQueue(): VaultPreparationOrderDTO[] {
+  return structuredClone(mockVaultPlacements);
+}
+
+function placementDTOOf(o: VaultPreparationOrderDTO): VaultPlacementDTO {
+  const prepared = o.preparation.status === 'prepared' ? o.preparation : null;
+  return {
+    id: o.placementId,
+    orderId: o.orderId,
+    orderNumber: o.orderNumber,
+    status: 'pending',
+    createdAt: o.requestedAt,
+    preparedAt: prepared?.preparedAt ?? null,
+    preparedBy: prepared?.preparedBy ?? null,
+    placedAt: null,
+    placedBy: null,
+    location: null,
+    cancelledAt: null,
+    cancelReason: null,
+  };
+}
+
+/** `409 PLACEMENT_NOT_PENDING` o `404`, según si la colocación salió de la cola o nunca existió. */
+function notPendingOr404(placementId: string): never {
+  const closed = mockClosedPlacements.get(placementId);
+  if (!closed) throw new ApiFixtureNotFound(`VaultPlacement ${placementId} not found`);
+  const details =
+    closed.status === 'placed' && closed.location
+      ? { status: 'placed', location: closed.location }
+      : { status: 'cancelled', cancelReason: closed.cancelReason };
+  throw new ApiFixtureError(409, 'PLACEMENT_NOT_PENDING', `VaultPlacement ${placementId} is ${closed.status}`, details);
+}
+
+function findPending(placementId: string): VaultPreparationOrderDTO {
+  const o = mockVaultPlacements.find((p) => p.placementId === placementId);
+  if (!o) notPendingOr404(placementId);
+  return o;
+}
+
+/** MOCK de `PATCH …/prep-items/:placementItemId` (§M4-VAULT.10). */
+export function mockSetVaultPrepItem(
+  placementId: string,
+  placementItemId: string,
+  status: PreparationItemStatus,
+): SetVaultPrepItemResponse {
+  const o = findPending(placementId);
+  const item = o.items.find((i) => i.placementItemId === placementItemId);
+  if (!item) throw new ApiFixtureNotFound(`VaultPlacementItem ${placementItemId} not found`);
+  if (o.preparation.status === 'prepared') {
+    throw new ApiFixtureError(409, 'PREPARATION_CLOSED', 'Preparation is closed', {
+      preparedAt: o.preparation.preparedAt,
+    });
+  }
+  if (status !== 'pending' && item.placeability.kind === 'blocked') {
+    throw new ApiFixtureError(409, 'PREP_ITEM_BLOCKED', 'Item is blocked', { reason: item.placeability.reason });
+  }
+  const changed = item.prepStatus !== status;
+  item.prepStatus = status;
+  o.preparation = mockPreparationOf(o.items, null);
+  return structuredClone({ changed, item, preparation: o.preparation });
+}
+
+/** MOCK de `POST …/prepared`. */
+export function mockPrepareVaultPlacement(placementId: string): PrepareVaultPlacementResponse {
+  const o = findPending(placementId);
+  if (o.preparation.status === 'prepared') {
+    return structuredClone({ outcome: 'already_prepared', placement: placementDTOOf(o), preparation: o.preparation });
+  }
+  if (o.preparation.pending > 0) {
+    throw new ApiFixtureError(409, 'PREPARATION_INCOMPLETE', 'Preparation incomplete', {
+      pendingCount: o.preparation.pending,
+    });
+  }
+  o.preparation = mockPreparationOf(o.items, { preparedAt: new Date().toISOString(), preparedBy: MOCK_OPERATOR });
+  return structuredClone({ outcome: 'prepared', placement: placementDTOOf(o), preparation: o.preparation });
+}
+
+/** MOCK de `DELETE …/prepared` (v1.79.2). Las marcas por carta SE CONSERVAN. */
+export function mockUnprepareVaultPlacement(placementId: string): UnprepareVaultPlacementResponse {
+  const o = findPending(placementId);
+  const outcome = o.preparation.status === 'prepared' ? 'unprepared' : 'not_prepared';
+  o.preparation = mockPreparationOf(o.items, null);
+  return structuredClone({ outcome, placement: placementDTOOf(o), preparation: o.preparation });
+}
+
+/** MOCK de `POST …/confirm` (§M4-VAULT.5, v1.79.3 con `locationId` opcional). */
+export function mockConfirmVaultPlacement(
+  placementId: string,
+  body: { locationId?: string },
+  locations: { id: string; label: string; zone: string; isActive?: boolean }[],
+): ConfirmVaultPlacementResponse {
+  if (body.locationId !== undefined && (typeof body.locationId !== 'string' || body.locationId.trim() === '')) {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'locationId must be a non-blank string', { field: 'locationId' });
+  }
+  const closed = mockClosedPlacements.get(placementId);
+  if (closed?.status === 'placed' && closed.location && closed.location.id === body.locationId) {
+    return structuredClone({ outcome: 'already_placed', placement: closed });
+  }
+  const o = findPending(placementId);
+  if (o.preparation.status !== 'prepared') {
+    throw new ApiFixtureError(409, 'PLACEMENT_NOT_PREPARED', 'Placement is not prepared', { preparation: o.preparation });
+  }
+  const now = new Date().toISOString();
+  const picked = o.items.filter((i) => i.prepStatus === 'picked');
+  const results: VaultPlacementItemResultDTO[] = o.items.map((i) => {
+    if (i.prepStatus === 'missing') return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'missing' };
+    if (i.placeability.kind === 'blocked') {
+      return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'skipped', reason: i.placeability.reason };
+    }
+    if (i.prepStatus === 'pending') {
+      return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'skipped', reason: 'not_picked' };
+    }
+    return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'moved' };
+  });
+  const base = placementDTOOf(o);
+  const close = (placement: VaultPlacementDTO) => {
+    mockVaultPlacements = mockVaultPlacements.filter((p) => p.placementId !== placementId);
+    mockClosedPlacements.set(placementId, placement);
+  };
+  if (picked.length === 0) {
+    const placement: VaultPlacementDTO = { ...base, status: 'cancelled', cancelledAt: now, cancelReason: 'nothing_to_place' };
+    close(placement);
+    return structuredClone({ outcome: 'nothing_to_place', placement, items: results });
+  }
+  if (!body.locationId) {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'locationId required', {
+      reason: 'location_required',
+      pickedCount: picked.length,
+    });
+  }
+  const loc = locations.find((l) => l.id === body.locationId);
+  if (!loc) throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not found', { reason: 'not_found' });
+  if (loc.isActive === false) throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'inactive', { reason: 'inactive' });
+  if (loc.zone !== 'customer_custody') {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not customer custody', { reason: 'not_customer_custody' });
+  }
+  const s = o.suggestedLocation;
+  const drawers = s.source === 'existing_customer_vault' ? [s.location] : s.source === 'multiple_drawers' ? s.locations : [];
+  if (drawers.length > 0 && !drawers.some((d) => d.id === loc.id)) {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not customer drawer', {
+      reason: 'not_customer_drawer',
+      customerDrawers: drawers,
+    });
+  }
+  const placement: VaultPlacementDTO = {
+    ...base,
+    status: 'placed',
+    placedAt: now,
+    placedBy: MOCK_OPERATOR,
+    location: { id: loc.id, label: loc.label, zone: 'customer_custody' },
+  };
+  close(placement);
+  return structuredClone({ outcome: 'placed', placement, items: results });
+}
+
+/**
+ * MOCK de `GET /admin/vaults/:userId/physical-inventory` (§M4-VAULT.11). ⚠️ Estático: NO se
+ * recalcula con los verbos de la cola (un servidor falso que derivara la vista de su propia cola
+ * sería un segundo `physicalStateOf`; la regla es del servidor).
+ */
+export function mockPhysicalInventory(userId: string): CustomerPhysicalInventoryDTO {
+  const u = mockAdminUsers.find((x) => x.id === userId);
+  if (!u) throw new ApiFixtureNotFound(`User ${userId} not found`);
+  const owner = { userId, name: mockCustomerDisplayName(userId, u.name), email: u.email ?? '' }; // ref de cliente: I-STF-1
+  const card = (name: string, setName: string, conditionLabel = 'NM') => ({
+    name,
+    setName,
+    finish: 'holofoil' as const,
+    conditionLabel,
+    imageSmallUrl: null,
+  });
+  if (userId === 'u-777') {
+    return {
+      owner,
+      drawer: { kind: 'single', location: drawerAna },
+      counts: { total: 6, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 1 },
+      items: [
+        {
+          inventoryItemId: 'inv-pi-1', folio: 'INV-000191', card: card('Venusaur', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-7001', orderId: 'ord-5901', orderNumber: 'TCG-000181' },
+          physical: { state: 'missing', placementId: 'vp-7001', markedAt: '2026-08-20T12:00:00Z', markedBy: MOCK_OPERATOR },
+        },
+        {
+          inventoryItemId: 'inv-pi-2', folio: 'INV-000192', card: card('Clefairy', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S16' }, currentZone: 'platform_stock',
+          origin: null,
+          physical: { state: 'unlocated', reason: 'not_in_customer_drawer' },
+        },
+        {
+          inventoryItemId: 'inv-pi-3', folio: 'INV-000193', card: card('Charizard', 'Base Set', 'PSA 9'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody',
+          origin: { placementId: 'vp-7002', orderId: 'ord-5902', orderNumber: 'TCG-000182' },
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } },
+        },
+        {
+          inventoryItemId: 'inv-pi-4', folio: 'INV-000194', card: card('Hitmonchan', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody',
+          origin: { placementId: 'vp-7002', orderId: 'ord-5902', orderNumber: 'TCG-000182' },
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } },
+        },
+        {
+          inventoryItemId: 'inv-pi-5', folio: 'INV-000202', card: card('Alakazam', 'Base Set', 'PSA 8'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-8001', orderId: 'ord-6001', orderNumber: 'TCG-000201' },
+          physical: { state: 'pending_placement', placementId: 'vp-8001', prepStatus: 'pending', prepared: false },
+        },
+        {
+          inventoryItemId: 'inv-pi-6', folio: 'INV-000203', card: card('Gyarados', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-8001', orderId: 'ord-6001', orderNumber: 'TCG-000201' },
+          physical: { state: 'in_withdrawal', shipmentId: 'shp-7002', shipmentStatus: 'picking' },
+        },
+      ],
+    };
+  }
+  if (userId === 'u-778') {
+    return {
+      owner,
+      drawer: { kind: 'multiple', locations: [drawerBrunoA, drawerBrunoB] },
+      counts: { total: 3, inDrawer: 3, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 },
+      items: [
+        { inventoryItemId: 'inv-pi-7', folio: 'INV-000301', card: card('Pikachu', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } } },
+        { inventoryItemId: 'inv-pi-8', folio: 'INV-000302', card: card('Onix', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S02' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody' } } },
+        { inventoryItemId: 'inv-pi-9', folio: 'INV-000303', card: card('Vulpix', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S02' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody' } } },
+      ],
+    };
+  }
+  if (userId === 'u-780') {
+    return {
+      owner,
+      drawer: { kind: 'none' },
+      counts: { total: 1, inDrawer: 0, pendingPlacement: 1, missing: 0, inWithdrawal: 0, unlocated: 0 },
+      items: [
+        { inventoryItemId: 'inv-pi-10', folio: 'INV-000204', card: card('Dragonite', 'Fossil'),
+          currentLocation: { kind: 'unassigned' }, currentZone: null,
+          origin: { placementId: 'vp-8002', orderId: 'ord-6002', orderNumber: 'TCG-000202' },
+          physical: { state: 'pending_placement', placementId: 'vp-8002', prepStatus: 'pending', prepared: false } },
+      ],
+    };
+  }
+  return {
+    owner,
+    drawer: { kind: 'none' },
+    counts: { total: 0, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 },
+    items: [],
+  };
+}
+
+// ===== §M11-SP — servidor falso de la hoja «Precios del sellado» y del `PUT …/sale-price` =====
+// MOCK: pendiente de backend real en la demo. Las cifras de la primera fila son las del primer vector de §M11-SP.12.5
+// (`P 145000`, `avg 90000` ⇒ `N 125000`, margen `35000`, `2800` bps) con `(t, r) = (100, 16)`. Este fichero es
+// simulador del servidor (excepción argumentada de `frontend-never-multiplies.test.ts`): aquí SÍ se deriva `N`.
+type SheetRow = import('@/types/contract').SealedPriceSheetRowDTO;
+const SHEET_IVA = { ratePct: 16, transferPct: 100 };
+
+function sheetNet(displayCents: number | null): number | null {
+  if (displayCents == null) return null;
+  return Math.round((displayCents * 100) / (100 + SHEET_IVA.ratePct));
+}
+function sheetMargin(net: number | null, avg: number | null): { cents: number; bps: number } | null {
+  if (net == null || avg == null || net === 0) return null;
+  const cents = net - avg;
+  return { cents, bps: Math.round((cents * 10000) / net) };
+}
+function sheetRecompute(r: SheetRow): SheetRow {
+  const displayPriceCents = r.ownerDisplayPriceCents ?? r.automaticDisplayPriceCents;
+  const netPriceCents = sheetNet(displayPriceCents);
+  return {
+    ...r,
+    effectiveOrigin: r.ownerDisplayPriceCents != null ? 'product' : r.automaticDisplayPriceCents != null ? 'automatic' : 'pending',
+    displayPriceCents,
+    netPriceCents,
+    legacyPiecePrices: { ...r.legacyPiecePrices, shadowed: r.ownerDisplayPriceCents != null },
+    margin: sheetMargin(netPriceCents, r.cost.avgCents),
+  };
+}
+
+const mockSheetRows: SheetRow[] = [
+  sheetRecompute({
+    sealedProductId: 'sp-ssp-etb',
+    name: 'Surging Sparks Elite Trainer Box',
+    subtype: 'etb',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv08', name: 'Surging Sparks' },
+    pieces: { inStock: 3, listed: 3, reserved: 1 },
+    cost: { avgCents: 90000, minCents: 85000, maxCents: 95000, withoutCost: 1 },
+    ownerDisplayPriceCents: 145000,
+    automaticListPriceCents: 118320,
+    automaticDisplayPriceCents: 137251,
+    automaticSource: 'subtype_spread',
+    appliedSpreadPct: 16,
+    effectiveOrigin: 'product',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 102000, source: 'tcgcsv', capturedDate: '2026-10-03' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 127600, maxDisplayCents: 150800, shadowed: true },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-pre-bundle',
+    name: 'Prismatic Evolutions Booster Bundle',
+    subtype: 'bundle',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv8pt5', name: 'Prismatic Evolutions' },
+    pieces: { inStock: 2, listed: 0, reserved: 0 },
+    cost: { avgCents: null, minCents: null, maxCents: null, withoutCost: 2 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: null,
+    automaticDisplayPriceCents: null,
+    automaticSource: null,
+    appliedSpreadPct: null,
+    effectiveOrigin: 'pending',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: null,
+    legacyPiecePrices: { count: 0, minDisplayCents: null, maxDisplayCents: null, shadowed: false },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-scr-box',
+    name: 'Stellar Crown Booster Box',
+    subtype: 'box',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv07', name: 'Stellar Crown' },
+    pieces: { inStock: 1, listed: 2, reserved: 0 },
+    cost: { avgCents: 200000, minCents: 200000, maxCents: 200000, withoutCost: 0 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: 217000,
+    automaticDisplayPriceCents: 251720,
+    automaticSource: 'global_spread',
+    appliedSpreadPct: 22,
+    effectiveOrigin: 'automatic',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 177869, source: 'tcgcsv', capturedDate: '2026-10-04' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 116000, maxDisplayCents: 139200, shadowed: false },
+    margin: null,
+  }),
+];
+
+export function mockSealedPriceSheet(
+  params: { setId?: string; q?: string; scope?: 'on_hand' | 'all'; page?: number; pageSize?: number },
+  canEdit: boolean,
+): import('@/types/contract').SealedPriceSheetResponse {
+  const q = params.q?.trim().toLowerCase();
+  let data = mockSheetRows.filter((r) => (params.setId ? r.set.id === params.setId : true));
+  if (q) data = data.filter((r) => r.name.toLowerCase().includes(q));
+  if ((params.scope ?? 'on_hand') === 'on_hand') {
+    data = data.filter((r) => r.pieces.inStock + r.pieces.listed + r.pieces.reserved > 0);
+  }
+  const pageSize = params.pageSize ?? 50;
+  const page = params.page ?? 1;
+  return {
+    data: data.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    total: data.length,
+    unlinkedCount: 3,
+    canEdit,
+    iva: { ...SHEET_IVA },
+  };
+}
+
+export function mockSetSealedSalePrice(
+  id: string,
+  body: import('@/types/contract').SetSealedSalePriceRequest,
+): import('@/types/contract').SetSealedSalePriceResponse {
+  const idx = mockSheetRows.findIndex((r) => r.sealedProductId === id);
+  if (idx < 0) throw new ApiFixtureNotFound('SealedProduct not found');
+  const row = mockSheetRows[idx]!;
+  const current = row.ownerDisplayPriceCents;
+  const idempotent = body.displayPriceCents === current && body.expectedDisplayPriceCents === current;
+  if (!idempotent && body.expectedDisplayPriceCents !== current) {
+    throw new ApiFixtureError(409, 'CONFLICT', 'Sealed product price changed', { currentDisplayPriceCents: current });
+  }
+  const published = row.pieces.inStock;
+  const next = sheetRecompute({
+    ...row,
+    ownerDisplayPriceCents: body.displayPriceCents,
+    pieces: { ...row.pieces, inStock: 0, listed: row.pieces.listed + published },
+  });
+  mockSheetRows[idx] = next;
+  return { data: next, autoPublish: { published, missingLocation: 0, notPublished: 0 } };
 }

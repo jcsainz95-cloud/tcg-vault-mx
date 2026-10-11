@@ -1,0 +1,140 @@
+# =============================================================================
+# edge-xff-probe.yml — C6 (LIVE-11): ¿rotar X-Forwarded-For evade el tope de
+#                      entrada por IP en el edge de Railway de PRODUCCIÓN?
+# Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
+# =============================================================================
+# Norma y porqué: DEVOPS_NOTES §85.4 (sonda corregida) y §96.3 (este workflow).
+#
+# POR QUÉ UN WORKFLOW: el contenedor de los agentes NO llega a producción (el
+# proxy responde 403 al CONNECT hacia tcghunt.mx y …up.railway.app, medido
+# 2026-10-05 y 2026-10-10). Un runner de GitHub sí. Sin secretos: la URL del
+# backend es pública y la sonda solo manda logins con correos `@example.invalid`.
+#
+# PRESUPUESTO AUTORIZADO POR EL DUEÑO: 6 intentos de entrada fallidos
+# (HECHOS.md, fila 2026-10-05 «Listo para dinero real — respuestas del dueño»,
+# P-7/P-9). Por eso este workflow:
+#   · por defecto (input `control=false`): UNA ronda base = 6 peticiones con XFF
+#     rotatorio, sin `--rounds`.
+#   · con `control=true`: SOLO la ronda de control (`--control-only`) = 6 peticiones
+#     sin X-Forwarded-For. NO reenvía la base (ya gastada, run 38074439305), así que
+#     tampoco se pasa de 6. Autorizado por el dueño HOY (HECHOS 2026-10-10, «C6:
+#     AUTORIZA 6 peticiones más»). AMBOS modos gastan EXACTAMENTE 6; más peticiones
+#     (o `--with-control`, que son 12) exigen autorización nueva y otro cambio aquí.
+#   · SOLO a mano (`workflow_dispatch`) y con la frase de confirmación exacta.
+#   · `concurrency` sin cancelación: dos disparos no corren a la vez (el segundo
+#     espera); cada corrida completa gasta otros 6 intentos — NO repetir sin
+#     autorización.
+#   · efecto lateral: 6 líneas de login fallido en los registros del backend y,
+#     si el tope dispara, un 429 a la IP del runner durante ≤ 60 s. Ninguna
+#     cuenta existe ⇒ sin candado de cuenta, sin correo, sin bitácora.
+#
+# Los `push`/`pull_request` con filtro de rutas corren SOLO el canario local
+# (`check-edge-xff-probe-canary.sh`, sin red externa). Sirven además para que
+# GitHub registre el workflow: `main` no es la rama que avanza, y un workflow
+# que nunca corrió no se puede disparar a mano.
+#
+# CÓMO SE CORRE (el dueño o el orquestador):
+#   Actions → «C6 · sonda XFF (producción, manual)» → Run workflow → rama donde
+#   esté este fichero → confirmar = C6-6-INTENTOS.
+#   o: gh workflow run edge-xff-probe.yml --ref <rama> -f confirmar=C6-6-INTENTOS
+# Resultado: rc 0 «C6 CIERRA» · rc 1 «C6 FALLA» (arreglo de código: arquitecto →
+# backend) · rc 2 no concluyente (si pide `--with-control`, hace falta otra
+# autorización del dueño para 6 peticiones más). Se anota en §85.4.
+# =============================================================================
+
+name: "C6 · sonda XFF (producción, manual)"
+run-name: "C6 · sonda XFF · ${{ github.event_name }} · ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: "Escribe C6-6-INTENTOS: gasta los 6 intentos de entrada fallidos que autorizó el dueño (HECHOS 2026-10-05, P-9)."
+        type: string
+        required: true
+      objetivo:
+        description: "Base del backend de producción (https, sin ruta). Vacío = variable C6_TARGET_BASE_URL o el dominio de Railway."
+        type: string
+        default: ""
+      control:
+        description: "Ronda de CONTROL únicamente (--control-only): la ronda base ya se gastó (run 38074439305). Manda SOLO 6 peticiones sin X-Forwarded-For. Autorizado por el dueño HOY (HECHOS 2026-10-10, «C6: AUTORIZA 6 peticiones más»)."
+        type: boolean
+        default: false
+  push:
+    branches: ["claude/**", "devops/**"]
+    paths:
+      - "scripts/edge-xff-probe.sh"
+      - "scripts/check-edge-xff-probe-canary.sh"
+      - ".github/workflows/edge-xff-probe.yml"
+  pull_request:
+    paths:
+      - "scripts/edge-xff-probe.sh"
+      - "scripts/check-edge-xff-probe-canary.sh"
+      - ".github/workflows/edge-xff-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-xff-probe-${{ github.event_name == 'workflow_dispatch' && 'produccion' || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  canario:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Canario de la sonda (¿distingue cierre, bypass y sonda contaminada?)
+        run: ./scripts/check-edge-xff-probe-canary.sh 1
+
+  sonda:
+    runs-on: ubuntu-latest
+    needs: canario
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 5
+    steps:
+      - name: Confirmación del presupuesto (6 intentos)
+        env:
+          CONFIRMAR: ${{ inputs.confirmar }}
+        run: |
+          if [ "$CONFIRMAR" != "C6-6-INTENTOS" ]; then
+            echo "::error::Falta la confirmación exacta «C6-6-INTENTOS». No se manda ninguna petición."
+            exit 2
+          fi
+      - uses: actions/checkout@v5
+      - name: C6 contra producción (6 peticiones — base, o ronda de control)
+        env:
+          OBJETIVO: ${{ inputs.objetivo }}
+          C6_VAR: ${{ vars.C6_TARGET_BASE_URL }}
+          CONTROL: ${{ inputs.control }}
+        run: |
+          set +e -uo pipefail
+          T="${OBJETIVO:-${C6_VAR:-https://tcg-vault-mx-production.up.railway.app}}"
+          case "$T" in
+            https://*) ;;
+            *) echo "::error::el objetivo tiene que ser https:// (recibido: $T). No se manda ninguna petición."; exit 2 ;;
+          esac
+          # Ambos modos gastan EXACTAMENTE 6 peticiones. --control-only NO reenvía la
+          # ronda base (ya gastada en run 38074439305); manda solo la ronda de control.
+          FLAGS="--i-have-a-window"
+          if [ "$CONTROL" = "true" ]; then
+            FLAGS="$FLAGS --control-only"
+            MODO="ronda de CONTROL únicamente (--control-only) = 6 peticiones sin X-Forwarded-For; base NO reenviada (HECHOS 2026-10-10)"
+          else
+            MODO="ronda base = 6 peticiones, XFF rotatorio, sin control (HECHOS 2026-10-05, P-9)"
+          fi
+          echo "Objetivo: $T · modo: $MODO · fecha (UTC): $(date -u +%FT%TZ) · sha: $GITHUB_SHA"
+          TARGET_BASE_URL="$T" ./scripts/edge-xff-probe.sh $FLAGS 2>&1 | tee c6.log
+          rc=${PIPESTATUS[0]}
+          {
+            echo "## C6 · sonda XFF contra producción"
+            echo ""
+            echo "- objetivo: \`$T\` · fecha (UTC): $(date -u +%FT%TZ) · rc=$rc"
+            echo "- presupuesto: 6 peticiones — $MODO"
+            echo ""
+            echo '```'
+            cat c6.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

@@ -1,7 +1,7 @@
+import { OrderRefundService } from '../src/modules/orders/order-refund.service';
 import { AdminOrdersController } from '../src/modules/orders/admin-orders.controller';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { StripeService } from '../src/modules/payments/stripe.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 
@@ -35,9 +35,12 @@ describe('GET /admin/orders?needsManual', () => {
     const ctrl = new AdminOrdersController(
       {} as OrdersService,
       prisma as PrismaService,
-      {} as StripeService,
       { log: jest.fn() } as unknown as AuditService,
       {} as GuestOrderMailService,
+      {} as OrderRefundService,
+      // v1.80 (§M4-SHIP.10): el libro (`refunds`, `refundedCents`) y la cubeta SPEI del detalle — inertes aquí.
+      { toDtos: jest.fn(async () => []) } as never,
+      { dtosByIds: jest.fn(async () => []) } as never,
     );
     return { ctrl, prisma };
   }

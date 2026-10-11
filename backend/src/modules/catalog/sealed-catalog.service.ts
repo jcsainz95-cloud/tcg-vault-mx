@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '../pricing/pricing.service';
@@ -8,14 +8,17 @@ import { BusinessException } from '../../common/business.exception';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
+  SEALED_SALE_PRICE_INCLUDE,
   SealedSpreadSource,
-  displayPriceCentsOf,
   ivaIsIncluded,
+  marketDisplayCentsOf,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
+import { sealedIdentityKey } from './sealed-restock-notify.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 // P-89 (deuda H3): aquí vivía una copia VERBATIM del `validateEnum` de `catalog.service.ts`. El
 // validador es ahora UNO, en `common/`.
@@ -28,7 +31,22 @@ const SEALED_CONDITIONS: readonly SealedCondition[] = SEALED_CONDITION_VALUES;
 const SEALED_SUBTYPES: readonly SealedSubtype[] = SEALED_SUBTYPE_VALUES;
 const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
-type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+/**
+ * `EQ-D1` — dominio del ORDEN de `GET /catalog/sealed` (§0-Q punto 6, clase **L**: no hay enum de
+ * orden en `schema.prisma`; el dominio lo declara la línea del endpoint del contrato, §2-S).
+ * Antes: `?sort=zzz` caía al `else` y devolvía `newest` **sin decirlo** (clamp silencioso, prohibido
+ * por §0-Q punto 6). Ahora un token fuera de dominio ⇒ `400` con `field`+`allowed`.
+ */
+export const SEALED_LIST_SORT_VALUES = ['newest', 'price_asc', 'price_desc'] as const;
+export type SealedListSort = (typeof SEALED_LIST_SORT_VALUES)[number];
+/** El default declarado por el contrato (§2-S): vacío/ausente ⇒ `newest`, nunca `400`. */
+const SEALED_LIST_SORT_DEFAULT: SealedListSort = 'newest';
+
+// 💰 v1.83 (§M11-SP.1, SP-3): con el precio del dueño del producto (`SEALED_SALE_PRICE_INCLUDE`) — obligatorio.
+type ItemWithCard = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
 
 /**
  * `SealedGroupDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
@@ -96,13 +114,40 @@ export interface SealedGroupDTO {
    */
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * v1.90⟨miv⟩ (§MIV.2, ADITIVO) — el MERCADO **con IVA**; misma regla que en `GroupedListingDTO`: presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`), derivado del valor YA PROYECTADO.
+   * ⛔ No entra en `SealedGroupSummaryDTO` (rejilla).
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
+}
+
+/**
+ * v1.90⟨miv⟩ (§MIV.3) — `GET /catalog/sealed/:inventoryItemId/value-history`: la forma de `SetValueHistoryResponse`
+ * (con `product` en vez de `set`) más el mercado CON IVA por punto y en el cambio. Los netos (`valueMxnCents`,
+ * `absMxnCents`, `pct`, `direction`) siguen viajando sin cambio. ⛔ Las rutas de set no usan este tipo.
+ */
+export interface SealedValuePointDTO {
+  date: string;
+  valueMxnCents: number;
+  pricedCardCount: number;
+  displayValueMxnCents: number;
+}
+export interface SealedValueHistoryResponse {
+  product: { inventoryItemId: string; tcgplayerProductId: number; name: string };
+  range: string;
+  points: SealedValuePointDTO[];
+  change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat'; displayAbsMxnCents: number };
 }
 
 /** Una pieza sellada con su precio de venta YA resuelto (SEC-A1) y su referencia de mercado cruda. */
 interface PricedSealed {
   item: ItemWithCard;
+  /** `L` (escala de lista; con precio del dueño, su `L` equivalente). */
   salePriceCents: number;
+  /** 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño, o `null` (⇒ `P` se deriva de `salePriceCents`). */
+  fixedDisplayCents: number | null;
   source: SealedSpreadSource;
   /**
    * v2.0 (P-48) — se deriva AQUÍ, donde vive el `SealedSpreadResult` completo, y no en el builder del
@@ -123,6 +168,8 @@ interface PricedSealed {
  */
 @Injectable()
 export class SealedCatalogService {
+  private readonly logger = new Logger('SealedCatalogService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -133,10 +180,14 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // Precio del sellado en LOTE — resuelve override/mercado×spread por pieza (money-safe).
   // ---------------------------------------------------------------------------
-  private async loadPricedSealed(where: Prisma.InventoryItemWhereInput): Promise<PricedSealed[]> {
+  private async loadPricedSealed(
+    where: Prisma.InventoryItemWhereInput,
+    // 💰 v1.83.1: los diales que la petición YA izó (el `L` equivalente del precio del dueño sale con ellos).
+    dials: IvaDials,
+  ): Promise<PricedSealed[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: { createdAt: 'desc' },
     });
     if (items.length === 0) return [];
@@ -158,12 +209,13 @@ export class SealedCatalogService {
       const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
       // H-1 (v1.24): resolver ÚNICO (gate del mercado por dial + pura). Mismo cuerpo que
       // catálogo/Compra/bulk-publish, incluida la regla override=0.
-      const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed, dials);
       // Solo grupos con ≥1 pieza vendible (precio resuelto > 0). Money-safe: sin precio no se lista.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) continue;
       out.push({
         item,
         salePriceCents: sale.salePriceCents,
+        fixedDisplayCents: sale.fixedDisplayCents,
         source: sale.source,
         priceBasis: sealedPriceBasisOf(sale),
         marketRef: ref,
@@ -172,11 +224,13 @@ export class SealedCatalogService {
     return out;
   }
 
-  /** Clave de grupo: mapeado → `p:<productId>:<cond>`; no mapeado → `c:<cardId>:<subtype>:<cond>`. */
+  /**
+   * Clave de grupo: mapeado → `p:<productId>:<cond>`; no mapeado → `c:<cardId>:<subtype>:<cond>`.
+   * ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f) «Invariante»): UN solo cuerpo de la regla — la ficha agrupa con la
+   * MISMA función con la que el «avísame» empareja (`sealedIdentityKey`). Candado WSH-T42 (d).
+   */
   private groupKey(item: InventoryItem): string {
-    const cond = item.sealedCondition ?? 'mint';
-    if (item.tcgplayerProductId != null) return `p:${item.tcgplayerProductId}:${cond}`;
-    return `c:${item.cardId}:${item.sealedSubtype ?? ''}:${cond}`;
+    return sealedIdentityKey(item);
   }
 
   /**
@@ -186,13 +240,19 @@ export class SealedCatalogService {
    * le pasan (⛔ nunca leídos aquí dentro: el grid los iza una vez por petición).
    */
   private toGroupDTO(members: PricedSealed[], dials: IvaDials): SealedGroupDTO {
-    const sorted = [...members].sort((a, b) => a.salePriceCents - b.salePriceCents);
+    // 💰 v1.83.1 (§M11-SP.12.3): el representante es el de menor **`P`** (lo que paga el cliente), ⛔ no el de menor
+    // `L`: con un precio del dueño, `L` es un equivalente y comparar equivalentes contra `L` reales elegiría mal.
+    const sorted = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials));
     const cheapest = sorted[0];
     const item = cheapest.item;
     const referenceValue: PriceInfo =
       cheapest.marketRef && cheapest.marketRef.status === 'priced'
         ? cheapest.marketRef
         : { status: 'pending' };
+    // v2.1.9 (D2): la referencia TAL COMO SALE al cliente. ⛔ v1.90⟨miv⟩: `referenceDisplayCents` se deriva de ÉSTA,
+    // nunca de la cruda de arriba — con un precio a mano la cruda trae el mercado y lo publicaría (MIV-B3).
+    const publicReference = toPublicPriceInfo(referenceValue, cheapest.priceBasis);
+    const projectedMarketCents = publicReference.referenceMxnCents;
     return {
       representativeItemId: item.id,
       card: toCardDTO(item.card),
@@ -208,11 +268,8 @@ export class SealedCatalogService {
       // ⭐⭐ `P = round(L × (1 + t·r))` — la MISMA función que deriva el precio de una carta y el que
       // congela el checkout. *Si el sellado tuviera su propia derivación, la vitrina y el cobro
       // podrían separarse un centavo sin que nada fallara.*
-      fromPriceCents: displayPriceCentsOf(
-        cheapest.salePriceCents,
-        dials.ivaTransferPct,
-        dials.ivaRatePct,
-      ),
+      // 💰 v1.83.1 (E-3): con precio del dueño, SU `P` tal cual (`saleDisplayCentsOf`, SP-19).
+      fromPriceCents: this.displayOf(cheapest, dials),
       ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
       ivaRatePct: dials.ivaRatePct,
       priceSource: cheapest.source,
@@ -226,10 +283,20 @@ export class SealedCatalogService {
       // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
       // v2.1.9 (D2): y el NÚMERO de mercado viaja si y solo si `priceBasis === 'market'`. Este DTO es
       // el de la FICHA (`SealedGroupDetailResponse.group`); la rejilla usa `toGroupSummaryDTO`.
-      referenceValue: toPublicPriceInfo(referenceValue, cheapest.priceBasis),
+      referenceValue: publicReference,
+      // v1.90⟨miv⟩ (§MIV.2): el mercado CON IVA, con la tasa de la MISMA lectura de diales (`dials.ivaRatePct`, la
+      // del rótulo). Clave AUSENTE sin número proyectado (override/pendiente). ⛔ Nunca `ivaTransferPct` (P-MIV-5).
+      ...(projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) && projectedMarketCents >= 0
+        ? { referenceDisplayCents: marketDisplayCentsOf(projectedMarketCents, dials.ivaRatePct) }
+        : {}),
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
     };
+  }
+
+  /** 💰 v1.83.1 — `P` de una pieza preciada: EL camino único (`saleDisplayCentsOf`). */
+  private displayOf(p: PricedSealed, dials: IvaDials): number {
+    return saleDisplayCentsOf({ listPriceCents: p.salePriceCents, fixedDisplayCents: p.fixedDisplayCents }, dials);
   }
 
   /**
@@ -266,6 +333,9 @@ export class SealedCatalogService {
     pageSize: number;
     sort?: string;
   }) {
+    // `EQ-D1` — el ORDEN se valida ANTES de la lectura: un `400` por `?sort=` no debe costar una
+    // consulta. Vacío/ausente ⇒ el default declarado; token fuera de dominio ⇒ `400` (§0-Q punto 6).
+    const sort = parseEnumFilter('sort', q.sort, SEALED_LIST_SORT_VALUES) ?? SEALED_LIST_SORT_DEFAULT;
     const where: Prisma.InventoryItemWhereInput = {
       productType: 'sealed',
       status: 'listed',
@@ -284,7 +354,10 @@ export class SealedCatalogService {
     if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
     if (Object.keys(cardWhere).length) where.card = cardWhere;
 
-    const priced = await this.loadPricedSealed(where);
+    // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b) — antes de preciar (v1.83.1: el precio del dueño
+    // los necesita para su `L` equivalente).
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed(where, dials);
 
     // Agrupa en memoria (patrón set-value): una tarjeta por producto+condición.
     const groups = new Map<string, PricedSealed[]>();
@@ -295,16 +368,14 @@ export class SealedCatalogService {
       else groups.set(k, [p]);
     }
 
-    // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b).
-    const dials = await this.settings.getIvaDials();
     // v2.1.9 (D2): la REJILLA emite `SealedGroupSummaryDTO` — sin priceBasis/referenceValue/priceSource.
     const cards = [...groups.values()].map((members) => ({
       dto: this.toGroupSummaryDTO(members, dials),
       newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
     }));
 
-    if (q.sort === 'price_asc') cards.sort((a, b) => a.dto.fromPriceCents - b.dto.fromPriceCents);
-    else if (q.sort === 'price_desc') cards.sort((a, b) => b.dto.fromPriceCents - a.dto.fromPriceCents);
+    if (sort === 'price_asc') cards.sort((a, b) => a.dto.fromPriceCents - b.dto.fromPriceCents);
+    else if (sort === 'price_desc') cards.sort((a, b) => b.dto.fromPriceCents - a.dto.fromPriceCents);
     else cards.sort((a, b) => b.newestAt - a.newestAt); // 'newest' (default)
 
     const total = cards.length;
@@ -337,16 +408,16 @@ export class SealedCatalogService {
       groupWhere.cardId = rep.cardId;
       groupWhere.sealedSubtype = rep.sealedSubtype;
     }
-    const priced = await this.loadPricedSealed(groupWhere);
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed(groupWhere, dials);
     if (priced.length === 0) throw BusinessException.notFound(); // el grupo no tiene piezas vendibles
 
-    const dials = await this.settings.getIvaDials();
     const group = this.toGroupDTO(priced, dials);
     const sealedCtx = await this.pricing.loadSealedSpreads();
     // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`).
     const listings: ListingDTO[] = await Promise.all(
       [...priced]
-        .sort((a, b) => a.salePriceCents - b.salePriceCents)
+        .sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials))
         .map((p) =>
           // ⭐ Los diales se pasan izados: ⛔ una lectura por pieza sería N+1 **y** abriría la puerta
           // a que dos piezas de la misma ficha se derivaran con posiciones distintas del dial.
@@ -366,7 +437,7 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // GET /catalog/sealed/:inventoryItemId/value-history — FEATURE-FLAGGED sealed_value_trend.
   // ---------------------------------------------------------------------------
-  async sealedValueHistory(inventoryItemId: string, range: string) {
+  async sealedValueHistory(inventoryItemId: string, range: string): Promise<SealedValueHistoryResponse> {
     if ((await this.settings.getString(SettingKey.SEALED_VALUE_TREND)) !== 'on') {
       throw BusinessException.notFound('FEATURE_DISABLED', 'sealed value trend is disabled');
     }
@@ -397,13 +468,26 @@ export class SealedCatalogService {
     // Un punto por día (dedupe por fecha; con orden asc, la última vista gana).
     const byDate = new Map<string, number>();
     for (const r of rows) byDate.set(r.capturedDate.toISOString().slice(0, 10), r.priceMxnCents);
-    const points = [...byDate.entries()].map(([date, valueMxnCents]) => ({
+
+    // v1.90⟨miv⟩ (§MIV.3, P-MIV-6 «sí»): el mercado CON IVA por punto. La tasa se lee AQUÍ, después del interruptor
+    // (con `sealed_value_trend=off` la ruta responde 404 sin leer diales — MIV-B8), una vez por petición. ⛔ Solo
+    // `ivaRatePct`; `ivaTransferPct` no entra (P-MIV-5).
+    const { ivaRatePct } = await this.settings.getIvaDials();
+    const points: SealedValuePointDTO[] = [...byDate.entries()].map(([date, valueMxnCents]) => ({
       date,
       valueMxnCents,
       pricedCardCount: 1,
+      displayValueMxnCents: marketDisplayCentsOf(valueMxnCents, ivaRatePct),
     }));
 
-    const change = this.changeOf(points.map((p) => p.valueMxnCents));
+    // `pct` y `direction` siguen sobre el NETO (criterio 861: «el porcentaje no cambia»). El cambio en pesos con IVA
+    // es la RESTA DE DOS CIFRAS CON IVA (último − primero), ⛔ no `marketDisplayCentsOf(absMxnCents)`: difieren por
+    // redondeo (1 → 4: displays 1 → 5 ⇒ 4; la otra cuenta da 3). Serie vacía ⇒ 0.
+    const change = {
+      ...this.changeOf(points.map((p) => p.valueMxnCents)),
+      displayAbsMxnCents:
+        points.length === 0 ? 0 : points[points.length - 1].displayValueMxnCents - points[0].displayValueMxnCents,
+    };
     return {
       product: {
         inventoryItemId: item.id,
@@ -419,70 +503,64 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // POST /catalog/sealed/restock-subscriptions — FEATURE-FLAGGED sealed_restock_alerts.
   // ---------------------------------------------------------------------------
-  async subscribeRestock(
-    dto: {
-      email?: string;
-      tcgplayerProductId?: number;
-      cardId?: string;
-      sealedSubtype?: string;
-      sealedCondition?: string;
-    },
-    userId?: string,
-  ): Promise<{ subscribed: true }> {
+  async subscribeRestock(dto: { email: string; inventoryItemId: string }, userId?: string): Promise<{ subscribed: true }> {
     if ((await this.settings.getString(SettingKey.SEALED_RESTOCK_ALERTS)) !== 'on') {
       throw BusinessException.notFound('FEATURE_DISABLED', 'sealed restock alerts are disabled');
     }
-    const email = typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '';
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): con sesión el servidor IGNORA `dto.email` y usa el correo de la cuenta (cierra «apuntar
+    // un correo ajeno» para quien tiene cuenta). Una cuenta sin correo (staff) se trata como invitado.
+    const account = userId
+      ? await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+      : null;
+    const accountEmail = account?.email?.trim().toLowerCase() ?? null;
+    const email = accountEmail ?? (typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw BusinessException.validation('VALIDATION_ERROR', 'valid email is required', { field: 'email' });
     }
-    if (dto.tcgplayerProductId == null && (dto.cardId == null || dto.cardId === '')) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        'product identity required (tcgplayerProductId or cardId)',
-        { field: 'product' },
-      );
-    }
-    // ⚠️ Esto NO es §0-Q: es un campo del CUERPO, no un filtro de query. Su `details` es `{field}`
-    // (sin `allowed`) y su vacío es un ERROR, no un «no filtres» — por eso no usa el helper. Solo
-    // cambia de `Set.has` a `Array.includes` porque la lista pasó a `readonly SealedCondition[]`.
-    if (!dto.sealedCondition || !(SEALED_CONDITIONS as readonly string[]).includes(dto.sealedCondition)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'valid sealedCondition is required', {
-        field: 'sealedCondition',
-      });
-    }
+    const target = { email, userId: accountEmail ? (userId as string) : null };
 
-    // Resuelve el cardId ancla (FK requerida): explícito, o derivado de una pieza con ese productId.
-    let cardId = dto.cardId ?? null;
-    let sealedSubtype = (dto.sealedSubtype as SealedSubtype | undefined) ?? null;
-    if (cardId == null && dto.tcgplayerProductId != null) {
-      const anchor = await this.prisma.inventoryItem.findFirst({
-        where: { productType: 'sealed', tcgplayerProductId: dto.tcgplayerProductId },
-        select: { cardId: true, sealedSubtype: true },
-      });
-      if (anchor) {
-        cardId = anchor.cardId;
-        if (sealedSubtype == null) sealedSubtype = anchor.sealedSubtype;
-      }
+    // ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, §WSH.7 (f)): la identidad la DERIVA el servidor de la pieza que la persona miraba.
+    // CUALQUIER `status` y CUALQUIER `ownerType`: el caso que más importa es «se vendió la última mientras miraba» (la pieza
+    // ya no está `listed` y puede ser de otro dueño) y la identidad del producto no cambia. La respuesta es neutra, así que
+    // aceptar cualquier pieza sellada no revela nada que el `202` no oculte ya. ⇒ `sealedIdentityKey(fila) ===
+    // sealedIdentityKey(pieza)` por construcción (la clave del grupo de la ficha: `groupKey` llama a la misma función).
+    const piece = await this.prisma.inventoryItem.findUnique({
+      where: { id: dto.inventoryItemId },
+      select: { productType: true, cardId: true, sealedSubtype: true, sealedCondition: true, tcgplayerProductId: true },
+    });
+    // Respuesta NEUTRA (anti-enumeración, §4-G): pieza inexistente o no sellada ⇒ 202 sin fila.
+    if (!piece || piece.productType !== 'sealed') return { subscribed: true };
+    const cardId = piece.cardId;
+    const sealedSubtype = piece.sealedSubtype ?? null;
+    const tcgplayerProductId = piece.tcgplayerProductId ?? null;
+    const sealedCondition: SealedCondition = piece.sealedCondition ?? 'mint';
+
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b), D-WSH-3 capa 1), aplicado DESPUÉS de derivar y sobre las columnas derivadas: misma
+    // identidad ya pendiente para este correo ⇒ no se crea otra; y un correo con `sealed_restock_max_pending_per_email`
+    // pendientes ya no gana filas. Ambas, `202` NEUTRO. La capa que cuenta es la del envío (agrupa por correo): ésta tiene carrera.
+    const sameIdentity: Prisma.SealedRestockSubscriptionWhereInput =
+      tcgplayerProductId != null ? { tcgplayerProductId } : { tcgplayerProductId: null, cardId, sealedSubtype };
+    const already = await this.prisma.sealedRestockSubscription.count({
+      where: { email: target.email, notifiedAt: null, sealedCondition, ...sameIdentity },
+    });
+    const pendingForEmail = await this.prisma.sealedRestockSubscription.count({ where: { email: target.email, notifiedAt: null } });
+    const cap = await this.settings.getNumber(SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL);
+    if (already > 0) return { subscribed: true };
+    if (pendingForEmail >= cap) {
+      this.logger.warn(`restock-subscriptions: tope de ${cap} pendientes alcanzado para un correo; no se crea fila (202 neutro).`);
+      return { subscribed: true };
     }
-    // Respuesta NEUTRA (anti-enumeración, §4-G): si no podemos anclar a una Card real, NO revelamos
-    // que el producto no existe — devolvemos 202 igual, sin persistir (no hay FK que satisfacer).
-    if (cardId != null) {
-      const card = await this.prisma.card.findUnique({ where: { id: cardId }, select: { id: true } });
-      if (card) {
-        await this.prisma.sealedRestockSubscription.create({
-          data: {
-            email,
-            userId: userId ?? null,
-            cardId,
-            sealedSubtype,
-            tcgplayerProductId: dto.tcgplayerProductId ?? null,
-            sealedCondition: dto.sealedCondition as SealedCondition,
-            notifiedAt: null,
-          },
-        });
-      }
-    }
+    await this.prisma.sealedRestockSubscription.create({
+      data: {
+        email: target.email,
+        userId: target.userId,
+        cardId,
+        sealedSubtype,
+        tcgplayerProductId,
+        sealedCondition,
+        notifiedAt: null,
+      },
+    });
     return { subscribed: true };
   }
 

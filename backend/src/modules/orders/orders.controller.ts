@@ -9,6 +9,21 @@ import { OrdersService } from './orders.service';
 import { OrderClaimService } from './order-claim.service';
 import { QuoteDto, SessionDto } from './dto/orders.dto';
 import { ClaimOrdersDto } from './dto/guest-checkout.dto';
+import { BusinessException } from '../../common/business.exception';
+
+/**
+ * 💰 v1.86⟨accesorios⟩ (§AC.5, criterio 749, `D-AC-1`): con sesión NO se compran accesorios, energías ni paquete (F3:
+ * solo invitado con envío a domicilio). `accessoryLines` o `deckPulls` no vacíos ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP`
+ * ANTES de tocar el servicio: ⛔ ni pedido, ni apartado, ni PaymentIntent. ⛔ Se rechazan, no se ignoran.
+ */
+function rejectAccessoriesWithAccount(dto: { accessoryLines?: unknown[]; deckPulls?: unknown[] }): void {
+  if ((dto.accessoryLines?.length ?? 0) > 0 || (dto.deckPulls?.length ?? 0) > 0) {
+    throw BusinessException.validation(
+      'ACCESSORIES_REQUIRE_DIRECT_SHIP',
+      'Accessories and energy bundles are sold to guests with direct shipping only.',
+    );
+  }
+}
 
 @Controller()
 @Roles(Role.customer, Role.vault_operator, Role.super_admin)
@@ -21,6 +36,7 @@ export class OrdersController {
   @Post('checkout/quote')
   @HttpCode(200)
   quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto) {
+    rejectAccessoriesWithAccount(dto);
     // v1.68.1 (§4-R.5): el quote conoce la reserva PROPIA del cliente (por `userId`).
     return this.orders.quote(dto.inventoryItemIds, userId);
   }
@@ -36,6 +52,7 @@ export class OrdersController {
     @Body() dto: SessionDto,
     @Res({ passthrough: true }) res: Response,
   ) {
+    rejectAccessoriesWithAccount(dto);
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId);

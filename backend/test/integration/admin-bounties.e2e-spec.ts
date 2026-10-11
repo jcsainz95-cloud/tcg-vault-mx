@@ -266,7 +266,7 @@ describe('E2E — consola de bounties (`GET /admin/pricing/bounties`) contra bac
     it('INVARIANTE: sin filtro `state`, `total` == la suma de las CINCO claves', async () => {
       const body = await consola();
       const { activa, rebasada, invalida, completada, apagada } = body.counts;
-      expect(Object.keys(body.counts).sort()).toEqual(['activa', 'apagada', 'completada', 'invalida', 'rebasada']);
+      expect(Object.keys(body.counts).sort()).toEqual(['activa', 'apagada', 'completada', 'despublicada', 'invalida', 'rebasada']);
       expect(activa + rebasada + invalida + completada + apagada).toBe(body.total);
       expect(body.total).toBe(6); // las seis filas con historia de bounty del set
       expect(body.truncated).toBe(false);
@@ -305,7 +305,7 @@ describe('E2E — consola de bounties (`GET /admin/pricing/bounties`) contra bac
       // Y otro set no ve nada de éste.
       const otroSet = await h.api('GET', '/admin/pricing/bounties?setId=no-existe', { token: adminToken });
       expect(otroSet.body.total).toBe(0);
-      expect(otroSet.body.counts).toEqual({ activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 });
+      expect(otroSet.body.counts).toEqual({ activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 });
     });
   });
 

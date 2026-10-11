@@ -93,6 +93,19 @@ export function matchesWhere(row: Row, where: Row): boolean {
     if (k === 'AND') return comoLista(cond).every((w) => matchesWhere(row, w));
     if (k === 'OR') return comoLista(cond).some((w) => matchesWhere(row, w));
     if (k === 'NOT') return comoLista(cond).every((w) => !matchesWhere(row, w));
+    // v1.80 (M-61): filtro de RELACIÓN (`none`/`some`) sobre una relación que la fila modela como lista.
+    if (cond !== null && typeof cond === 'object' && !(cond instanceof Date) && ('none' in (cond as Row) || 'some' in (cond as Row))) {
+      if (!(k in row) || !Array.isArray(row[k])) {
+        throw new Error(
+          `el \`where\` filtra la relación '${k}' (none/some), que la fila del fake no modela como lista. ` +
+            'Añade la relación al fixture (p. ej. `replacementCases: []`).',
+        );
+      }
+      const list = row[k] as Row[];
+      const c = cond as Row;
+      if ('none' in c) return !list.some((el) => matchesWhere(el, c.none as Row));
+      return list.some((el) => matchesWhere(el, c.some as Row));
+    }
     if (!(k in row)) {
       throw new Error(
         `el \`where\` afirma sobre '${k}', que la fila del fake no modela. ` +

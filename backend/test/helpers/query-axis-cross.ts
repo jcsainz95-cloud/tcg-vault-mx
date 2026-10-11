@@ -121,6 +121,8 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/audit-log::action',
   'GET /admin/audit-log::entityType',
   'GET /admin/buylist::awaitingGuide',
+  // 💰 rev BSD-1.3 punto 4 (B-3): bandera `true` de las guías de entrada atascadas (clase L del contrato, como `offerReissueAlert`).
+  'GET /admin/buylist::inboundLabelAlert',
   'GET /admin/buylist::live',
   'GET /admin/buylist::offerReissueAlert',
   'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
@@ -191,6 +193,54 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // un `?ivaTransferPct=` en otro endpoint tendría que declararse de nuevo, y debe.
   'GET /admin/settings/iva-transfer/preview::ivaTransferPct',
   'GET /admin/settings/iva-transfer/preview::samplePriceCents',
+
+  // ⭐ §M4-SHIP (v1.80.x; QA BLOQ-2(a) sobre `c20451f`): fechas (`from`/`to`, «Borde de día»), un booleano (`overdue`)
+  // y un entero (`amountCents` de la vista previa del reembolso de un caso) — sin enum detrás, como sus vecinos.
+  'GET /admin/finance/shrinkage::from',
+  'GET /admin/finance/shrinkage::to',
+  'GET /admin/refunds::from',
+  'GET /admin/refunds::to',
+  'GET /admin/replacement-cases::overdue',
+  'GET /admin/replacement-cases/:id/refund-preview::amountCents',
+  // 💰 v1.80.12.12 (S-GAS-2, `API_CONTRACT.md:27916`): el folio del envío — un FORMATO (`^ENV-\d{6,}$`), igualdad exacta,
+  // fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}` (sin `allowed`). Medido en `parseFolioFilter`
+  // (`shipments.service.ts`) y por HTTP en `sdx-d2c-cierre.e2e-spec.ts`.
+  'GET /admin/shipments::folio',
+  // 💰 D2g (v1.80.12.13, §19.32.1: «`?subjectUserId=` (uuid) y `?from=&to=` ⛔ no son §0-Q»): la persona vigilada (uuid; fuera de
+  // forma ⇒ `400 {field:'subjectUserId'}`) y los días MX sobre `firstOccurredAt` (`YYYY-MM-DD`; fuera ⇒ `400 {field}`), en la
+  // lista y en el resumen (`spend-alerts-panel.service.ts`, `mx-day.ts`; medidos en `sdx-d2g-panel.e2e-spec.ts`).
+  'GET /admin/spend-alerts::subjectUserId',
+  'GET /admin/spend-alerts::from',
+  'GET /admin/spend-alerts::to',
+  'GET /admin/spend-alerts/summary::from',
+  'GET /admin/spend-alerts/summary::to',
+  // 💰 C2 (v1.80.12.14, §19.33.9): el tablero de salida de D2d — `?date=` es una FECHA `YYYY-MM-DD` (formato, ⛔ no tokens), como
+  // el `?date=` de «Pedidos a preparar» (`picking-list::date`, arriba). `admin-shipments.controller.ts` → `departure.service.ts`.
+  'GET /admin/shipments/departure::date',
+  // 💰 D2f (§19.22.3): la búsqueda de Carta Porte en M10 — `?description=` es TEXTO LIBRE (3..60 tras trim; fuera ⇒ `400
+  // {field:'description'}` sin `allowed`) que viaja tal cual a `GET /shipments/consignment_notes?description=` de Skydropx: ⛔ no
+  // es un dominio de tokens. `admin-shipping.controller.ts` → `shipping-config.ts` (`parseConsignmentDescription`).
+  'GET /admin/shipping/catalogs/consignment-notes::description',
+
+  // 💰 v1.82 (§PNL.3, `API_CONTRACT` «Previsualización — GET …/withdrawal-delivered/preview?shipmentItemId=…&amountCents=A»):
+  // un id de línea (`shipmentItemId`, abierto) y el MISMO entero que la vista previa del caso — sin enum detrás. ⚠️ El tope
+  // sube 44 → 46: pendiente de que el arquitecto lo ratifique (BACKEND_NOTES §58.6).
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::shipmentItemId',
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::amountCents',
+
+  // 💰 §AN (API_CONTRACT §15.2: «`C-EQ-1` gana … `from`/`to` en su lista de no-enums»): días de México `YYYY-MM-DD` de la
+  // analítica de ventas; fuera de forma o día imposible ⇒ `400 VALIDATION_ERROR {field}` sin `allowed` (`sales-period.ts`
+  // `readYmd`; medido en `test/sales-analytics.units.spec.ts` AN-B-14 y por HTTP en `sales-analytics.e2e-spec.ts`).
+  'GET /admin/reports/sales::from',
+  'GET /admin/reports/sales::to',
+  'GET /admin/reports/sales/export.csv::from',
+  'GET /admin/reports/sales/export.csv::to',
+
+  // 💰 rev v1.86⟨accesorios⟩ (BACKEND_NOTES §83.ceq1; ratificado en v1.86.5, `179d8163`: «⛔ no es §0-Q — formato, no
+  // tokens; punto 7»): `GET /accessories/suggestions::exclude` — CSV de ≤ 50 UUID; fuera de forma ⇒ `400 {field:'exclude'}`
+  // sin `allowed` (`parseExclude`, `accessories/accessory-input.ts`). ⛔ `?active=`/`?soldOut=` del panel ya NO van aquí:
+  // v1.86.5 los hace clase L `true|false` ⇒ `REGISTRO`.
+  'GET /accessories/suggestions::exclude',
 ];
 
 /**
@@ -214,23 +264,44 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
  * | `/catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 y §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo ⇒ `D-EQ-3`, **frontend primero** | Catálogo y precios |
  */
 export const SIN_CLASE_DECLARADA: readonly string[] = [
+  // DINERO (`?report=` ×2, `?reason=`): 3 gates aparte, NO en este lote.
   'GET /admin/finance/export.csv::report',
   'GET /admin/pricing/graded-estimates/review::reason',
   'GET /admin/reports/export.csv::report',
-  'GET /admin/shipments::kind',
-  'GET /admin/users/:id/audit::scope',
-  'GET /admin/inventory/master-sets::sort',
-  'GET /admin/vaults::sort',
-  'GET /admin/vaults/:userId/master-sets::sort',
+  // `D-EQ-3` — frontend primero (retirar el parámetro, no arreglarlo).
   'GET /catalog/cards::sealedSubtype',
-  'GET /catalog/cards::sort',
+  // `?range=` de `value-history` ×3 — stream `catalog` (otro work stream; este pase no lo toca).
   'GET /catalog/featured-set/value-history::range',
-  'GET /catalog/sealed::sort',
   'GET /catalog/sealed/:inventoryItemId/value-history::range',
   'GET /catalog/sets/:id/value-history::range',
-  'GET /vault/master-sets::sort',
-  'GET /vault/portfolio/history::range',
 ];
+
+/**
+ * ⭐ **`EQ-D1` (este pase) — CUATRO ejes salieron de la cola (16 → 12) al migrarse a
+ * `parseEnumFilter` y ganar su fila de §0-Q punto 4:**
+ *  - `GET /admin/shipments::kind` — clase R `{guest_direct_ship, vault_withdrawal}` (§M4). Antes se
+ *    ignoraba en silencio; ahora fuera de dominio ⇒ `400`.
+ *  - `GET /admin/users/:id/audit::scope` — clase R `{target, actor, both}` (§M6). Antes clampaba a
+ *    `target`; ahora fuera de dominio ⇒ `400`.
+ *  - `GET /catalog/sealed::sort` — ORDEN `{newest, price_asc, price_desc}` (§2-S). Antes clamp al
+ *    default; ahora ⇒ `400`.
+ *  - `GET /catalog/cards::sort` — ORDEN `{newest, price_asc, price_desc, grading_showcase}` (§2).
+ *    Ídem.
+ * ⭐ **`EQ-D1` LOTE 2 (este pase) — CINCO ejes MÁS salieron de la cola (12 → 7) al migrarse a
+ * `parseEnumFilter`. A diferencia de lote 1, su fila de §0-Q punto 4 NO existe todavía (son MODOS de
+ * la consulta, clase L/ORDEN sin enum en el schema), así que entran al `REGISTRO` como
+ * `PENDIENTE-ARQUITECTO` (regla 9), igual que la bóveda de `EQ-D0`:**
+ *  - `GET /admin/inventory/master-sets::sort` · `GET /admin/vaults/:userId/master-sets::sort` ·
+ *    `GET /vault/master-sets::sort` — un solo dominio `{release_desc, completion_asc, pieces_desc}`
+ *    (`master-set.service.ts` `sortSummaries`). Antes: clamp silencioso al default `release_desc`.
+ *  - `GET /admin/vaults::sort` — dominio `{value_desc, pieces_desc, name_asc}`
+ *    (`admin-vaults.service.ts` `sortRows`). Antes: clamp silencioso al default `value_desc`.
+ *  - `GET /vault/portfolio/history::range` — clase L `{5d,15d,1m,3m,6m,1y,ytd,all}`
+ *    (`vault.service.ts` `normalizeRange`). Antes: clamp silencioso al default `1m`.
+ * Los 7 que quedan son DINERO (`?report=` ×2 finanzas; `graded-estimates/review?reason=` pricing),
+ * `?sealedSubtype=` de `/catalog/cards` (retirar el param, `EQ-D3`) y `?range=` ×3 de `value-history`
+ * (stream `catalog` — otro work stream).
+ */
 
 /**
  * Los `@Query()` **sin nombre** (la query entera). El escáner no puede ver sus llaves, así que el

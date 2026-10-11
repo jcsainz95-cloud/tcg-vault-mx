@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
@@ -35,8 +37,12 @@ import {
   PublishAllRequestDto,
   SealedSetGroupLinkRequestDto,
   SealedSyncRequestDto,
+  SetMainGroupRequestDto,
   UpdateItemDto,
+  SetSealedSalePriceDto,
 } from './dto/inventory.dto';
+import { SEALED_PRICE_STATE_VALUES } from './sealed-product.service';
+import { SEALED_PRICE_SHEET_SCOPE_VALUES, SealedPriceService } from './sealed-price.service';
 import { AcquisitionType, Finish, ProductType } from '@prisma/client';
 
 /**
@@ -94,6 +100,8 @@ export class InventoryController {
     private readonly sealedCatalog?: SealedCatalogAdminService,
     // v1.39-sealed-product-module (M-39, P-38): catálogo persistido `SealedProduct` + sync + curación.
     private readonly sealedProduct?: SealedProductService,
+    // 💰 v1.83 (§M11-SP): hoja de precios del sellado + precio del dueño por producto.
+    private readonly sealedPrice?: SealedPriceService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -271,6 +279,128 @@ export class InventoryController {
     return res;
   }
 
+  /**
+   * M11 (§10) — GET /admin/inventory/sealed-price-status?q?=&state?=&page=&pageSize= — por SET de
+   * sellado, su estado de precio: `priced | mapped_unpriced | unmapped` (+ `reason`). `vault_operator+`
+   * (hereda el rol de la clase). **Read-only, sin red externa (O-17)**: lee estado persistido y clasifica
+   * con el gate H-1; NO llama a TCGCSV. NO se audita (es una LECTURA, misma doctrina que `pending-publish`).
+   * Separa lo que `sealed-sets.unmappedCount` funde («no mapeado» vs «mapeado sin precio»).
+   */
+  /**
+   * 💰 v1.83 / v1.83.1 (`API_CONTRACT §M11-SP.5` + `§M11-SP.12.4`) — `GET /admin/inventory/sealed-price-sheet`: la hoja
+   * de precios del sellado de M11 (`vault_operator+`, hereda el rol de la clase; el personal ve costo y margen,
+   * `HECHOS.md` 2026-10-05). `?scope=` clase **L** (`on_hand | all`, default `on_hand`). LECTURA: no se audita.
+   */
+  @Get('inventory/sealed-price-sheet')
+  sealedPriceSheet(
+    @CurrentUser() user: { id: string; role: Role },
+    @Query('setId') setId?: string,
+    @Query('q') q?: string,
+    @Query('scope') scope?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '50',
+  ) {
+    const scopeFilter = parseEnumFilter('scope', scope, SEALED_PRICE_SHEET_SCOPE_VALUES) ?? 'on_hand';
+    return this.sealedPrice!.priceSheet(
+      {
+        setId: setId && setId.trim() !== '' ? setId : undefined,
+        q,
+        scope: scopeFilter,
+        page: Math.max(1, parseInt(page, 10) || 1),
+        pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 50)),
+      },
+      user,
+    );
+  }
+
+  /**
+   * 💰 v1.83 / v1.83.1 (`API_CONTRACT §M11-SP.2` + `§M11-SP.12.4/12.6`) — `PUT
+   * /admin/inventory/sealed-products/:sealedProductId/sale-price`: el dueño escribe `P` (IVA dentro) del producto y se
+   * edita SIN retirar. `@Roles` de MÉTODO = `super_admin` (gana al de clase, `getAllAndOverride`) **y** el servicio
+   * llama a `canSetSealedSalePrice` (SP.3). CAS (`409 { currentDisplayPriceCents }`), bitácora y cierre de la cola en
+   * la misma tx; después, la auto-publicación (`autoPublish`).
+   */
+  @Put('inventory/sealed-products/:sealedProductId/sale-price')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  setSealedSalePrice(
+    @Param('sealedProductId') sealedProductId: string,
+    @Body() dto: SetSealedSalePriceDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.sealedPrice!.setSalePrice(sealedProductId, dto, user);
+  }
+
+  @Get('inventory/sealed-price-status')
+  sealedPriceStatus(
+    @Query('q') q?: string,
+    @Query('state') state?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    // `?state=` DERIVADO del enum de estados (§0-Q / clase L, fuente única): valor fuera del dominio ⇒
+    // 400 VALIDATION_ERROR con `details.field` + `details.allowed`; omitido/vacío ⇒ sin filtro de estado.
+    const stateFilter = parseEnumFilter('state', state, SEALED_PRICE_STATE_VALUES);
+    return this.sealedProduct!.sealedPriceStatus({
+      q,
+      state: stateFilter,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
+  }
+
+  /**
+   * M11 (§11.1) — PUT /admin/inventory/sealed-sets/:setId/set-main-group — fija/REEMPLAZA el grupo
+   * `set_main` del set aunque ya exista (escape de P-46; `linkGroup` sólo puebla si es null). `super_admin`.
+   * AUDITADO (`inventory.sealed_set_main_group_set`, con `before/after` del `tcgcsvGroupId` + el snapshot
+   * completo de `kind` de los grupos del set, SEC-M11-3 — I-4). Money-safe:
+   * fija de qué grupo saldrá el precio; NO fabrica precio (lo trae el job §9, gateado por el dial).
+   *
+   * SEC-M11-1/-2: el remap (degradar/promover/crear grupos + reescribir el espejo) y su bitácora
+   * COMMITEAN JUNTOS en una `$transaction` DENTRO del servicio (que recibe el `actor` para auditar en la
+   * misma tx). Un fallo a mitad ya no deja mapeo parcial ni bitácora huérfana.
+   */
+  @Put('inventory/sealed-sets/:setId/set-main-group')
+  @Roles(Role.super_admin)
+  async setMainGroup(
+    @Param('setId') setId: string,
+    @Body() dto: SetMainGroupRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.sealedProduct!.setMainGroup(setId, dto, { userId: user.id, role: user.role });
+    return res.group;
+  }
+
+  /**
+   * M11 (§11.2) — DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId — desenlaza un grupo mal
+   * asignado; si era el `set_main`, el set vuelve a «SIN emparejar» (`CardSet.tcgcsvGroupId=null`).
+   * `super_admin`. AUDITADO (`inventory.sealed_set_group_unlink`, con el `before` — I-4). Money-safe: NO
+   * borra `PriceReference` ya escritas (quedan stale/inocuas); sólo cambia de dónde saldrá el precio.
+   */
+  @Delete('inventory/sealed-sets/:setId/groups/:groupId')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  async unlinkSealedSetGroup(
+    @Param('setId') setId: string,
+    @Param('groupId') groupIdRaw: string,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    if (!/^\d+$/.test(groupIdRaw) || parseInt(groupIdRaw, 10) <= 0) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'groupId must be a positive integer');
+    }
+    const groupId = parseInt(groupIdRaw, 10);
+    const before = await this.sealedProduct!.unlinkGroup(setId, groupId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.sealed_set_group_unlink',
+      entityType: 'SealedSetGroup',
+      entityId: `${setId}:${groupId}`,
+      before,
+    });
+    return before;
+  }
+
   @Post('inventory/items/batch')
   @HttpCode(200)
   async batchCreate(
@@ -283,7 +413,7 @@ export class InventoryController {
     if (!batchKey || batchKey.trim() === '') {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'batchKey is required');
     }
-    const res = await this.inventory.batchCreate({ ...dto, batchKey }, user.id);
+    const res = await this.inventory.batchCreate({ ...dto, batchKey }, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -301,7 +431,7 @@ export class InventoryController {
     @Body() dto: BulkPublishRequest,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.inventory.bulkPublish(dto, user.id);
+    const res = await this.inventory.bulkPublish(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -358,7 +488,7 @@ export class InventoryController {
     @CurrentUser() user: { id: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const out = await this.inventory.adjust(dto, user.id);
+    const out = await this.inventory.adjust(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -455,7 +585,7 @@ export class InventoryController {
 
   @Post('inventory/items')
   async create(@Body() dto: CreateItemDto, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.inventory.createItem(dto, user.id);
+    const res = await this.inventory.createItem(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -513,6 +643,12 @@ export class InventoryController {
   pendingPublish(
     @Query('missing') missing?: string,
     @Query('acquisitionType') acquisitionType?: string,
+    // M11 (§M1) — eje ADITIVO `?productType=`: la cola de «Listas para publicar» de M11 se monta
+    // filtrada a `sealed`. Antes NO existía este parámetro, así que NestJS ignoraba el query
+    // desconocido y la cola devolvía TODO (una carta SUELTA aparecía en la cola «filtrada a
+    // sellado»). Misma CLASE de filtro de lectura ya establecida (como `finish`/`productType` del
+    // drill-down `:560` y el `productType` del export `:516`): validado contra el enum derivado.
+    @Query('productType') productType?: string,
     @Query('setId') setId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
@@ -531,9 +667,13 @@ export class InventoryController {
       acquisitionType,
       ACQUISITION_TYPE_FILTER_VALUES,
     );
+    // Mismo helper y mismo `details.field` que el drill-down (`:569`) y el export (`:521`): basura ⇒
+    // 400 con `details.{field,allowed}`. Ausente ⇒ cola entera (como hoy); `sealed` ⇒ solo sellado.
+    const productTypeFilter = parseEnumFilter('productType', productType, PRODUCT_TYPE_FILTER_VALUES);
     return this.inventory.pendingPublish({
       missing: missingFilter,
       acquisitionType: acquisitionTypeFilter,
+      productType: productTypeFilter,
       setId,
       page: Math.max(1, parseInt(page, 10) || 1),
       // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.
@@ -552,7 +692,7 @@ export class InventoryController {
     @Body() dto: UpdateItemDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.inventory.updateItem(id, dto);
+    const res = await this.inventory.updateItem(id, dto, user);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

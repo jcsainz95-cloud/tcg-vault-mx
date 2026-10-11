@@ -7,6 +7,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { gradeLabelFromKey } from '@/lib/gradeKey';
 import { getBadgeSpec } from '@/lib/status-map';
 import { formatMoneyCents } from '@/lib/format';
+import { retryAfterMinutes } from '@/lib/password-attempts';
 import { errorMessageKeys, resolveErrorAudience, type ErrorAudience } from '@/lib/error-audience';
 import type { AppLocale } from '@/i18n/routing';
 
@@ -29,6 +30,16 @@ export interface QueryStateProps {
  * operador lee «hay slabs publicados» y no sabe **cuántos** ni de **qué grado**; con ella, el
  * mensaje es el que §O.8 exige — «esta carta ya tiene N PSA 10 publicadas, eso es dinero real».
  */
+/** Los `reason` con rama propia en `error.LOCATION_NOT_AVAILABLE_WITH_DETAILS` (los dos catálogos). */
+const LOCATION_NOT_AVAILABLE_REASONS: readonly string[] = [
+  'not_platform_stock',
+  'not_customer_custody',
+  'not_customer_drawer',
+  'inactive',
+  'not_found',
+  'location_required',
+];
+
 const DETAILED_ERRORS: Record<
   string,
   (
@@ -103,6 +114,16 @@ const DETAILED_ERRORS: Record<
    *   ese número es de **otro instante** y puede estar rancio respecto del `422` recién recibido
    *   (§27.1.2). **El error trae su propia cuenta; el DTO alimenta el aviso preventivo.**
    */
+  /**
+   * `410 DISPUTES_DISCONTINUED` (contrato v1.82 §PNL.1 · `details: { supportContact }`): un frontend
+   * viejo en caché que aún llame `POST /disputes`. DESIGN_SYSTEM §60.1 c: el copy nombra el buzón
+   * que manda el servidor; sin él, la base (sin correo) — ⛔ nunca el valor fijo.
+   */
+  DISPUTES_DISCONTINUED: (d) => {
+    const contact = typeof d.supportContact === 'string' ? d.supportContact.trim() : '';
+    return contact ? { contact } : null;
+  },
+
   ITEMS_NOT_DECIDED: (d) => {
     const ids = d.pendingDecisionItemIds;
     if (!Array.isArray(ids) || ids.length === 0) return null;
@@ -125,7 +146,8 @@ const DETAILED_ERRORS: Record<
    * devuelve `null` y se pinta la base: **no se inventa un estado ni un verbo**.
    */
   INVALID_TRANSITION: (d, t) => {
-    const verb = d.verb === 'receive' || d.verb === 'verify' ? d.verb : null;
+    // v1.82 (§PNL.4): + `rejectItems` (`POST /admin/buylist/:id/reject-items`).
+    const verb = d.verb === 'receive' || d.verb === 'verify' || d.verb === 'rejectItems' ? d.verb : null;
     const label = (status: unknown): string | null => {
       if (typeof status !== 'string' || status === '') return null;
       const key = getBadgeSpec('sellRequest', status).i18nKey;
@@ -141,6 +163,26 @@ const DETAILED_ERRORS: Record<
     };
   },
 
+  /**
+   * `422 LOCATION_NOT_AVAILABLE` (contrato §M4-VAULT.5 para el `confirm` de colocación; y las
+   * guardas de `POST /admin/inventory/items/:id/move` en `item-location.rules.ts ·
+   * assertMoveDestination`). El motivo viaja en `details.reason`; el copy `_WITH_DETAILS` lo nombra
+   * con un `select` ICU (`not_platform_stock`, `not_customer_custody`, `not_customer_drawer`,
+   * `inactive`, `not_found`, `location_required`).
+   *
+   * QA (2026-09-29, sobre `4ca6c45`): el detalle de M1 pintaba «Location not available:
+   * not_platform_stock» — el inglés del servidor. Un `reason` desconocido (o ausente) devuelve
+   * `null` ⇒ base traducida: el `select` no recibe un valor que no tenga rama y no se inventa un
+   * motivo. Los seis `reason` son los de `LocationNotAvailableDetails` (contrato v1.79.6, que añade
+   * `not_platform_stock` para el `move`).
+   */
+  LOCATION_NOT_AVAILABLE: (d) => {
+    const reason = d.reason;
+    return typeof reason === 'string' && LOCATION_NOT_AVAILABLE_REASONS.includes(reason)
+      ? { reason }
+      : null;
+  },
+
   BUYLIST_LIMIT_EXCEEDED: (d, _t, locale) => {
     const cap = d.capCents;
     const wouldBe = d.wouldBeCents;
@@ -150,6 +192,16 @@ const DETAILED_ERRORS: Record<
       capAmount: formatMoneyCents(cap, locale),
       wouldBeAmount: formatMoneyCents(wouldBe, locale),
     };
+  },
+
+  /**
+   * `429 TOO_MANY_PASSWORD_ATTEMPTS` (v1.80, C7): `details.retryAfterSeconds` ⇒ minutos redondeados
+   * hacia arriba (fórmula del contrato en `retryAfterMinutes`). Lo usa el cambio de contraseña; el
+   * login tiene su propio copy con enlace a restablecer (`auth.login.rateLimited*`).
+   */
+  TOO_MANY_PASSWORD_ATTEMPTS: (d) => {
+    const minutes = retryAfterMinutes(d);
+    return minutes === null ? null : { minutes };
   },
 };
 

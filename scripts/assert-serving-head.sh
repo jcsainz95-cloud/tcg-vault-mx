@@ -144,7 +144,14 @@ while [ "$#" -gt 0 ]; do
     --url)         URL="${2:?--url necesita valor}"; shift 2 ;;
     --label)       LABEL="${2:?--label necesita valor}"; shift 2 ;;
     --stamp)       STAMP="${2:?--stamp necesita valor}"; shift 2 ;;
-    --sha)         EXPECT_SHA="${2:?--sha necesita valor}"; shift 2 ;;
+    # M-4: `--sha ""` llega cuando el llamador no sabe su HEAD (copia `git archive` sin
+    # .git). Antes moría con «--sha necesita valor», que no dice por qué ni qué hacer.
+    --sha)         [ "$#" -ge 2 ] && [ -n "$2" ] || {
+                     echo "assert-serving-head: --sha vino VACÍO: el llamador no sabe qué commit es su árbol" >&2
+                     echo "  (¿copia sin .git?). Pasa el sha de la copia: STACK_EXPECTED_SHA=<sha> con stack-native.sh," >&2
+                     echo "  o --sha <sha> aquí. Sin sha esperado no hay aserto de procedencia." >&2
+                     exit 2; }
+                   EXPECT_SHA="$2"; shift 2 ;;
     --newer-than)  NEWER_THAN="${2:?--newer-than necesita valor}"; shift 2 ;;
     --source)      SOURCES+=("${2:?--source necesita valor}"); shift 2 ;;
     --tolerance)   TOLERANCE="${2:?--tolerance necesita valor}"; shift 2 ;;

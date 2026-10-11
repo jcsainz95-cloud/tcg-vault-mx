@@ -123,6 +123,35 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     expect(screen.getByText('Sin sugerido — captura el precio pagado.')).toBeInTheDocument();
   });
 
+  it('SELLADO-M1(A): «Comprar» + precio VACÍO + sin mercado ⇒ el CTA está deshabilitado y DICE por qué (no silencio)', async () => {
+    // Reproduce el estado exacto del dueño (S3-SELLADO-M1, 2026-09-17): producto SIN PRECIO DE
+    // MERCADO (aportación bloqueada) + «Comprar» sin capturar precio pagado. Antes: el botón «Dar de
+    // alta al inventario» quedaba deshabilitado SIN explicación y el alta «no salía» en silencio.
+    const spy = vi.spyOn(api, 'batchCreateItems');
+    renderWithProviders(
+      <QuickAddSection
+        target={{ productType: 'sealed', finish: 'normal', sealedProductId: 'sp-bundle', sealedSubtype: 'bundle', sealedCondition: 'mint' }}
+        buyEffectiveCents={null}
+        buySource={null}
+        marketRefCents={null}
+      />,
+      'es',
+    );
+
+    // Aportación deshabilitada (sin mercado) ⇒ el único camino es «Comprar».
+    expect(screen.getByRole('radio', { name: /Aportación/ })).toBeDisabled();
+
+    const cta = screen.getByRole('button', { name: 'Dar de alta al inventario' });
+    expect(cta).toBeDisabled();
+    // El motivo del bloqueo es VISIBLE (no un botón muerto sin explicación).
+    expect(screen.getByText('Captura un precio mayor a cero.')).toBeInTheDocument();
+
+    // Y aunque se fuerce el clic, no se dispara ningún POST.
+    fireEvent.click(cta);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('respaldo P-4: un 422 PRICE_PENDING por línea se ancla como alerta con copy claro', async () => {
     vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
       batchKey: 'k',

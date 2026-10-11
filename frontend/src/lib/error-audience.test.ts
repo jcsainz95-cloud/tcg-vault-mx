@@ -9,6 +9,7 @@ import {
   DESIGN_SYSTEM_26_ERROR_CODES,
   DESIGN_SYSTEM_27_LOT1_ERROR_CODES,
   DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES,
+  DESIGN_SYSTEM_27_LOT2_WIRED_ERROR_CODES,
   ERROR_SCOPE_AUDIENCE,
   errorMessageKeys,
   resolveErrorAudience,
@@ -250,7 +251,11 @@ describe('§26/§27 · LITERALIDAD: el copy del catálogo es el que dice DESIGN_
     return cached;
   };
   /** Las que este release se comprometió a cablear: §26 entera + el LOTE 1 de §27. */
-  const WIRED = [...DESIGN_SYSTEM_26_ERROR_CODES, ...DESIGN_SYSTEM_27_LOT1_ERROR_CODES] as string[];
+  const WIRED = [
+    ...DESIGN_SYSTEM_26_ERROR_CODES,
+    ...DESIGN_SYSTEM_27_LOT1_ERROR_CODES,
+    ...DESIGN_SYSTEM_27_LOT2_WIRED_ERROR_CODES,
+  ] as string[];
   const isWired = (key: string) =>
     WIRED.some((code) => key === `error.${code}` || key.startsWith(`error.${code}_`));
 

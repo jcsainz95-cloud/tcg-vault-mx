@@ -45,6 +45,9 @@
 #   env -u VERCEL_GIT_COMMIT_REF          ./scripts/vercel-ignore-build.sh; echo $?  # → 1 construye
 #   O de golpe:  ./scripts/vercel-ignore-build.sh --self-test
 #
+# DESDE 2026-10-05 ES LA SEGUNDA CAPA: la primera es `git.deploymentEnabled`
+#   (`"claude/*": false`), que evita CREAR el despliegue y gastar cupo diario.
+#   Candado: scripts/check-vercel-deploy-branches.sh · DEVOPS_NOTES §78.
 # CÓMO SE REVIERTE EN 30 SEGUNDOS: DEVOPS_NOTES §40.4.
 # CÓMO SE FUERZA UNA VISTA PREVIA:  DEVOPS_NOTES §40.5.
 # =============================================================================

@@ -718,14 +718,21 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       expect(csv.status).toBe(200);
       const [, fila] = csv.text.trim().split('\n');
       // ⭐ D56 (§M10-IVA.8): el CSV gana `shippingCostMissingCount`, en el MISMO orden que el objeto.
+      // ⭐ v1.80.2 (§M4-SHIP.11): y las tres columnas de lo devuelto, ADITIVAS antes de `profitCents`.
+      // 💰 D2f (§19.11): + `shippingAdjustmentsCents`, `shippingInsuranceCents` tras `shippingCostMissingCount` (orden del objeto).
       expect(csv.text.trim().split('\n')[0]).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,profitCents',
+          'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+          // 💰 §BSD.16 (BSD-1.2): los cuatro del buylist, AL FINAL y en el orden del objeto.
+          'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount',
       );
       expect(fila).toBe(
         `pnl,${json.body.incomeCents},${json.body.shippingRevenueCents},${json.body.cogsCents},` +
           `${json.body.stripeFeesCents},${json.body.shippingCostCents},` +
-          `${json.body.shippingCostMissingCount},${json.body.profitCents}`,
+          `${json.body.shippingCostMissingCount},${json.body.shippingAdjustmentsCents},${json.body.shippingInsuranceCents},` +
+          `${json.body.refundsCents},${json.body.refundedFeesCents},${json.body.compensationsCents},${json.body.profitCents},` +
+          `${json.body.buylistShippingFeeRetainedCents},${json.body.buylistGuideCostCents},${json.body.buylistGuideMarginCents},` +
+          `${json.body.buylistGuideCostMissingCount}`,
       );
     });
 

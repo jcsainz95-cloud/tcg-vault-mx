@@ -95,12 +95,18 @@ for app in $APPS; do
 done
 
 # --- 2. Fichas declaradas ----------------------------------------------------
-declare -A FICHA_FECHA FICHA_DUENO FICHA_VISTA
+# La 1ª columna admite ALIAS separados por coma (§76): un mismo aviso puede
+# llegar como GHSA (npm audit) y como CVE (trivy, cuando su DB no trae el GHSA
+# en References). Una ficha = un hecho = una fecha; basta que CUALQUIER alias
+# aparezca para que la ficha cuente como vista (y no pida poda en falso).
+declare -A FICHA_FECHA FICHA_DUENO FICHA_VISTA ALIAS
 while IFS=$'\t' read -r ghsa app pkg dueno fecha motivo; do
   case "${ghsa:-}" in ''|'#'*) continue ;; esac
   FICHA_FECHA["$ghsa"]="$fecha"
   FICHA_DUENO["$ghsa"]="${dueno} (${app}/${pkg})"
   FICHA_VISTA["$ghsa"]=0
+  IFS=',' read -ra _ids <<< "$ghsa"
+  for _id in "${_ids[@]}"; do [ -n "$_id" ] && ALIAS["$_id"]="$ghsa"; done
 done < "$FICHAS"
 
 # --- 3. Veredicto ------------------------------------------------------------
@@ -108,16 +114,17 @@ ROJO=0
 SIN_FICHA=""; CADUCADAS=""; VIVAS=""
 while IFS=$'\t' read -r app ghsa pkg sev titulo; do
   [ -n "${ghsa:-}" ] || continue
-  if [ -z "${FICHA_FECHA[$ghsa]:-}" ]; then
+  k="${ALIAS[$ghsa]:-}"
+  if [ -z "$k" ]; then
     SIN_FICHA="${SIN_FICHA}  · ${sev^^} ${ghsa} — ${app}/${pkg}: ${titulo}"$'\n'
     ROJO=1
   else
-    FICHA_VISTA["$ghsa"]=1
-    if [[ "$HOY" > "${FICHA_FECHA[$ghsa]}" ]]; then
-      CADUCADAS="${CADUCADAS}  · ${ghsa} (${app}/${pkg}) — la ficha venció el ${FICHA_FECHA[$ghsa]}; dueño: ${FICHA_DUENO[$ghsa]}"$'\n'
+    FICHA_VISTA["$k"]=1
+    if [[ "$HOY" > "${FICHA_FECHA[$k]}" ]]; then
+      CADUCADAS="${CADUCADAS}  · ${ghsa} (${app}/${pkg}) — la ficha venció el ${FICHA_FECHA[$k]}; dueño: ${FICHA_DUENO[$k]}"$'\n'
       ROJO=1
     else
-      VIVAS="${VIVAS}  · ${ghsa} (${app}/${pkg}) — fichada hasta ${FICHA_FECHA[$ghsa]}; dueño: ${FICHA_DUENO[$ghsa]}"$'\n'
+      VIVAS="${VIVAS}  · ${ghsa} (${app}/${pkg}) — fichada hasta ${FICHA_FECHA[$k]}; dueño: ${FICHA_DUENO[$k]}"$'\n'
     fi
   fi
 done <<< "$HALLAZGOS"

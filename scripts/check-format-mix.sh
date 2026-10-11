@@ -38,7 +38,25 @@
 #     3. Si en HEAD sí es idéntico y en BASE no lo era -> ESTE cambio lo
 #        reformateó. Entonces se compara prettier(BASE) contra HEAD:
 #           · iguales   -> el cambio es EXACTAMENTE el reformateo -> OK.
-#           · distintos -> reformateo MEZCLADO con otra cosa      -> FALLA.
+#           · distintos -> se pregunta si de verdad se REFORMATEÓ algo:
+#               R = líneas que prettier ESCRIBE al formatear BASE
+#                   (las `+` de diff BASE -> prettier(BASE)).
+#               A = líneas que el cambio AÑADE (las `+` de diff BASE -> HEAD).
+#             · A ∩ R vacío -> ninguna línea de HEAD es «el mismo código
+#               reformateado»: el cambio BORRÓ o SUSTITUYÓ las únicas zonas
+#               sin formato. No hay reformateo en el diff -> OK (se lista).
+#             · A ∩ R no vacío -> reformateo MEZCLADO con otra cosa -> FALLA.
+#
+#   Por qué (3c) no debilita (§88): el riesgo que vigila BL-27 es una línea de
+#   lógica ESCONDIDA ENTRE líneas reformateadas. Si ninguna línea añadida es
+#   salida de prettier sobre la base, no hay líneas reformateadas en el diff
+#   donde esconder nada: todo lo que el diff añade es cambio real y se ve.
+#   Falso positivo que lo motivó: PR #76, backend/src/main.ts — se borró un
+#   `app.use(... json({verify…}))` mal formateado y se sustituyó por una
+#   llamada; HEAD quedó prettier-limpio «por accidente». El cotejo es por
+#   contenido exacto de línea (sin recortar espacios): una línea genérica que
+#   coincida (`);`, `},`, en blanco) cuenta como reformateo -> rojo. Ante la
+#   duda, el criterio sigue siendo el estricto.
 #
 #   Consecuencia sana: re-indentar a mano (envolver un bloque en un `if`, por
 #   ejemplo) NO dispara nada, porque el archivo no queda prettier-limpio.
@@ -104,26 +122,40 @@ fmt() { # fmt <ruta-para-resolver-config> < contenido
   $PRETTIER --stdin-filepath "$1" 2>/dev/null || return 1
 }
 
-mixed=(); formatted_only=(); evaluated=0
+mixed=(); formatted_only=(); no_reformat=(); evaluated=0
+# FORMAT_MIX_VERBOSE=1 -> una línea por archivo evaluado con su rama de decisión
+# (para comparar veredictos archivo a archivo; no cambia el resultado).
+verbose() { [ "${FORMAT_MIX_VERBOSE:-0}" = 1 ] && printf 'FMIX\t%s\t%s\n' "$1" "$2" >&2; return 0; }
 for f in "${CHANGED[@]}"; do
   is_candidate "$f" || continue
   git cat-file -e "$MERGE_BASE:$f" 2>/dev/null || continue
   evaluated=$((evaluated + 1))
 
-  git show "$HEAD_REF:$f" > "$TMP/head" 2>/dev/null || continue
-  fmt "$f" < "$TMP/head" > "$TMP/head.fmt" 2>/dev/null || continue   # sin parser -> se ignora
-  cmp -s "$TMP/head" "$TMP/head.fmt" || continue                     # (1) no quedó prettier-limpio
+  git show "$HEAD_REF:$f" > "$TMP/head" 2>/dev/null || { verbose "$f" "skip-sin-head"; continue; }
+  fmt "$f" < "$TMP/head" > "$TMP/head.fmt" 2>/dev/null || { verbose "$f" "skip-sin-parser"; continue; }   # sin parser -> se ignora
+  cmp -s "$TMP/head" "$TMP/head.fmt" || { verbose "$f" "1-head-sin-formato"; continue; }                  # (1) no quedó prettier-limpio
 
-  git show "$MERGE_BASE:$f" > "$TMP/base" 2>/dev/null || continue
-  fmt "$f" < "$TMP/base" > "$TMP/base.fmt" 2>/dev/null || continue
-  cmp -s "$TMP/base" "$TMP/base.fmt" && continue                     # (2) ya estaba formateado
+  git show "$MERGE_BASE:$f" > "$TMP/base" 2>/dev/null || { verbose "$f" "skip-sin-base"; continue; }
+  fmt "$f" < "$TMP/base" > "$TMP/base.fmt" 2>/dev/null || { verbose "$f" "skip-base-sin-parser"; continue; }
+  cmp -s "$TMP/base" "$TMP/base.fmt" && { verbose "$f" "2-base-ya-formateada"; continue; }               # (2) ya estaba formateado
 
   if cmp -s "$TMP/base.fmt" "$TMP/head"; then
     formatted_only+=("$f")                                           # (3a) SOLO reformateo -> OK
-  else
-    n="$(diff -u "$TMP/base.fmt" "$TMP/head" | grep -c '^[+-][^+-]' || true)"
-    mixed+=("$f|$n")                                                 # (3b) MEZCLA -> falla
+    verbose "$f" "3a-solo-reformateo"
+    continue
   fi
+  # (3c) ¿alguna línea añadida es la que prettier escribiría sobre BASE?
+  # `diff` sale 1 cuando hay diferencias: `|| true` para no tumbar `set -e`.
+  { diff "$TMP/base" "$TMP/base.fmt" || true; } | sed -n 's/^> //p' | LC_ALL=C sort -u > "$TMP/r"
+  { diff "$TMP/base" "$TMP/head"     || true; } | sed -n 's/^> //p' | LC_ALL=C sort -u > "$TMP/a"
+  if [ -z "$(LC_ALL=C comm -12 "$TMP/r" "$TMP/a")" ]; then
+    no_reformat+=("$f")                                              # (3c) solo borra/sustituye -> OK
+    verbose "$f" "3c-sin-lineas-reformateadas"
+    continue
+  fi
+  n="$(diff -u "$TMP/base.fmt" "$TMP/head" | grep -c '^[+-][^+-]' || true)"
+  mixed+=("$f|$n")                                                   # (3b) MEZCLA -> falla
+  verbose "$f" "3b-MEZCLA"
 done
 
 note "${DIM}base=$(git rev-parse --short "$MERGE_BASE")  head=$(git rev-parse --short "$HEAD_REF")  archivos evaluados=$evaluated${RST}"
@@ -131,6 +163,11 @@ note "${DIM}base=$(git rev-parse --short "$MERGE_BASE")  head=$(git rev-parse --
 if [ "${#formatted_only[@]}" -gt 0 ]; then
   note "${GRN}✔${RST} Reformateo LIMPIO (sin lógica mezclada) en ${#formatted_only[@]} archivo(s):"
   printf '    %s\n' "${formatted_only[@]}"
+fi
+
+if [ "${#no_reformat[@]}" -gt 0 ]; then
+  note "${GRN}✔${RST} Quedan prettier-limpios SIN reformateo en el diff (borran/sustituyen la única zona sin formato) en ${#no_reformat[@]} archivo(s):"
+  printf '    %s\n' "${no_reformat[@]}"
 fi
 
 if [ "${#mixed[@]}" -eq 0 ]; then

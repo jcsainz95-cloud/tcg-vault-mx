@@ -112,6 +112,25 @@ describe('PasswordForm · validación en submit y mapeo de errores', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Demasiados intentos. Espera un minuto.');
   });
 
+  it('v1.80 (C7) 429 TOO_MANY_PASSWORD_ATTEMPTS → «… en 3 min» (150 s ⇒ ceil), sin «bloquead» ni reintento', async () => {
+    const before = calls();
+    changePassword.mockRejectedValue(
+      new ApiClientError(429, {
+        code: 'TOO_MANY_PASSWORD_ATTEMPTS',
+        message: 'locked',
+        details: { retryAfterSeconds: 150 },
+      }),
+    );
+    renderForm();
+    fill('a-temporal', 'nueva-larga', 'nueva-larga');
+    submit();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Demasiados intentos. Vuelve a intentarlo en 3 min.');
+    expect(alert.textContent).not.toMatch(/bloquead/i);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls() - before).toBe(1);
+  });
+
   it('422 PASSWORD_NOT_SET → avisa a la página (cambia a «Crear») sin pintar error de campo', async () => {
     changePassword.mockRejectedValue(new ApiClientError(422, { code: 'PASSWORD_NOT_SET', message: 'none' }));
     const { onPasswordNotSet } = renderForm();

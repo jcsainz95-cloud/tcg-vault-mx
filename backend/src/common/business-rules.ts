@@ -1,4 +1,4 @@
-import { ProductType, RawCondition } from '@prisma/client';
+import { ProductType, RawCondition, ShippedRefundReason } from '@prisma/client';
 
 /**
  * business-rules.ts — **listas que son una DECISIÓN DE PRODUCTO, no un espejo del schema.**
@@ -42,6 +42,18 @@ import { ProductType, RawCondition } from '@prisma/client';
  * cartas que la política prohíbe — sin código nuevo y sin que ningún test lo notara.
  */
 export const ACCEPTED_RAW_CONDITIONS: readonly RawCondition[] = ['NM'];
+
+/**
+ * 💰 v1.80.8.6 (M-62, API_CONTRACT §M4-SHIP.18.12 (4)/(6), §Enums línea `ShippedRefundReason`) — **por qué se
+ * ACEPTA reembolsar entero un pedido que YA SALIÓ.** CLASE R: `PROJECT §S.11.4` / `HECHOS.md` 2026-10-02 «Cartas
+ * apartadas … (SSL-R1): depende de si el pedido ya salió» — *«solo sería porque no llegó o estaban en mala
+ * condición»*. Dominio del cuerpo de M3 `refund` (`shippedReason`) y de `POST /admin/orders/:id/shipped-refund-reason`
+ * (`reason`); fuera ⇒ `400 VALIDATION_ERROR {field, allowed}`.
+ *
+ * ⚠️ Hoy coincide con el enum entero — por la REGLA, no por derivación. Si el schema gana un tercer motivo, el
+ * ancla de `test/enum-values-parity.spec.ts` (lista exacta + subconjunto) rompe y obliga a decidirlo aquí.
+ */
+export const ACCEPTED_SHIPPED_REFUND_REASONS: readonly ShippedRefundReason[] = ['not_arrived', 'arrived_damaged'];
 
 /**
  * v1.53 (§4.40.3.1, **MONEY**) — **tipos de producto que el BUYLIST acepta: sólo `raw`.**

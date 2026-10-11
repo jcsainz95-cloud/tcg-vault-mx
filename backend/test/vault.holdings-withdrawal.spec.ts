@@ -1,7 +1,9 @@
 import { VaultService } from '../src/modules/vault/vault.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.17 — Ciclo de retiro visible en la bóveda (API_CONTRACT §3):
@@ -56,13 +58,17 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+      ...REAL_VALUATION_GATE,
       getReference: jest
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 12500, capturedDate: '2026-08-13' }),
       // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    const svc = new VaultService(prisma as PrismaService, pricing);
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricing);
     return { svc, prisma };
   }
 
@@ -144,7 +150,7 @@ describe('VaultService.costBasisCents — excluye withdrawn (v1.17)', () => {
     const prisma: any = {
       inventoryItem: { aggregate: jest.fn().mockResolvedValue({ _sum: { acquisitionCostCents: 400000 } }) },
     };
-    const svc = new VaultService(prisma as PrismaService, {} as PricingService);
+    const svc = new VaultService(prisma as PrismaService, { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService);
     const res = await svc.costBasisCents('u1');
     expect(res).toBe(400000);
     const where = prisma.inventoryItem.aggregate.mock.calls[0][0].where;

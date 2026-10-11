@@ -63,6 +63,22 @@ const nextConfig = {
   distDir,
   typescript: { tsconfigPath: tsconfigPathForDistDir(distDir) },
   reactStrictMode: true,
+  // SEC-HDR-1 (2026-09-29): anti-clickjacking. La sesión vive en localStorage, así que sin esto el
+  // panel admin se cargaría autenticado dentro de un iframe hostil. `frame-ancestors` restringe
+  // QUIÉN nos embebe, no a quién embebemos. Solo esa directiva de CSP: la completa es SEC-HDR-2.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      },
+    ];
+  },
   images: {
     // D-IMG-5 (ARCHITECTURE §5.3.4) — CERRADO. Aquí vivía `{ protocol: 'https', hostname: '**' }`,
     // un comodín que aceptaba CUALQUIER host. `remotePatterns` gobierna el optimizador

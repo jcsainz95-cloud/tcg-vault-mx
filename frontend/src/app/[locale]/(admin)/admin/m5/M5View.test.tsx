@@ -162,7 +162,7 @@ describe('M5View · Buylist admin end-to-end', () => {
   it('Aprobar un ítem llama a la decisión approve y confirma', async () => {
     const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue({
       id: 'sri-1',
-      card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
+      card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
       productType: 'raw',
       finish: 'holofoil',
       itemStatus: 'aprobada',
@@ -213,7 +213,7 @@ describe('M5View · Buylist admin end-to-end', () => {
   it('Rechazar abre el diálogo de motivo (obligatorio 3–500), envía reason y confirma (v1.18)', async () => {
     const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue({
       id: 'sri-1',
-      card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
+      card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
       productType: 'raw',
       finish: 'holofoil',
       itemStatus: 'rechazada',
@@ -469,7 +469,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('pestaña Piezas rechazadas: lista transversal con plazos, fases y SIN convertir a inventario', async () => {
     const DAY = 24 * 3600 * 1000;
-    const card: CardDTO = { id: 'c', externalId: 'c', name: 'Umbreon VMAX', number: '215', rarity: 'Rare Rainbow', supertype: 'Pokémon', subtypes: [], setId: 'swsh7', setName: 'Evolving Skies', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+    const card: CardDTO = { id: 'c', externalId: 'c', name: 'Umbreon VMAX', number: '215', rarity: 'Rare Rainbow', supertype: 'Pokémon', subtypes: [], setId: 'swsh7', setName: 'Evolving Skies', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
     const spy = vi.spyOn(api, 'getAdminRejectedBuylistItems').mockResolvedValue({
       data: [
         {
@@ -555,7 +555,7 @@ describe('M5View · Buylist admin end-to-end', () => {
  * Cierra la solicitud ATORADA en «Verificando» cuyos ítems ya están todos rechazados.
  */
 describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
-  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
   const rejectedItem = (id: string) => ({
     id,
     card,
@@ -712,7 +712,7 @@ describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
  * page, pageSize: 25, q, from, to, minCents, maxCents })` paginado. El buscador global alimenta `q`.
  */
 describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
-  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
   const closedReq = (id: string, status: 'pagada' | 'rechazada' | 'abandonada' | 'expirada') =>
     srv({
     id,
@@ -900,7 +900,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
  *    tenían pestaña.
  */
 describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
-  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
   const rejectedItem = (id: string) => ({
     id,
     card,
@@ -1166,7 +1166,7 @@ describe('M5View · §23.8a — la partición es TOTAL y los rótulos dicen de q
  * y metería `verifiedAt` en la lógica de una pantalla—: lo deriva el servidor en `isPayable`.
  */
 describe('M5View · `isPayable` gobierna el botón de pagar (v1.51.8)', () => {
-  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
   const row = (id: string, extra: Record<string, unknown>) => ({
     id,
     userId: 'u-910',

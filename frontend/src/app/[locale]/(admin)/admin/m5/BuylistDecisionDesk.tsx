@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { emitBuylistOffer, getBuylistDecisionTable } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
-import type { BuylistDecisionLineDTO, BuylistOfferLineInput } from '@/types/contract';
+import type { BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -219,6 +219,20 @@ export interface BuylistDecisionDeskProps {
   sellRequestId: string;
   /** El dueño cierra la mesa (M5 la abre por solicitud). */
   onClose: () => void;
+  /**
+   * §60.5 d · contrato v1.82 §PNL.4: «Declinar» DENTRO de la mesa en `cotizada`. Abre el MISMO diálogo y verbo que
+   * la fila (`openCloseAction('decline', id)` de M5) — ⛔ no se duplica el diálogo. Ausente ⇒ sin botón.
+   */
+  onDecline?: () => void;
+}
+
+/** §60.5 d — qué dice la mesa FUERA de `cotizada`: dónde está la acción, por estado (⛔ un único texto genérico). */
+function readOnlyKey(status: SellRequestStatus): string {
+  if (status === 'ofertada') return 'readOnlyByStatus.ofertada';
+  if (status === 'aceptada') return 'readOnlyByStatus.aceptada';
+  if (status === 'en_transito') return 'readOnlyByStatus.en_transito';
+  if (status === 'recibida' || status === 'verificacion') return 'readOnlyByStatus.review';
+  return 'readOnlyByStatus.done';
 }
 
 /**
@@ -231,7 +245,7 @@ export interface BuylistDecisionDeskProps {
  * Es la petición original del humano, y todo lo demás de esta pantalla existe para que esas cifras
  * se puedan leer sin marearse y sin que el sistema decida por el operador.
  */
-export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionDeskProps) {
+export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: BuylistDecisionDeskProps) {
   const t = useTranslations('admin.m5.desk');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
@@ -475,8 +489,21 @@ export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionD
                             inputMode="decimal"
                             step="0.01"
                             min={0}
+                            // ⚠️ PRE-LLENADO QUE NO ES OVERRIDE. Sin override el campo MUESTRA el
+                            // precio con que se cotizó (`derivedPriceCents`), para que el operador
+                            // CONFIRME/ajuste en vez de teclear en blanco (un campo vacío invita al
+                            // `0.01` fantasma). Es SOLO display: no se siembra un override — mientras
+                            // no toque, `overrides[itemId]` sigue sin existir, así que `isOverride`
+                            // da false, `lineAmountCents` resuelve al derivado y `buildPayload` NO
+                            // manda `overridePriceCents`. El pre-llenado se vuelve override únicamente
+                            // cuando el `onChange` de abajo escribe un monto DISTINTO al derivado.
+                            // Carta sin derivado (null / PRICE_PENDING) ⇒ vacío: no se inventa precio.
                             value={
-                              override?.amountCents != null ? String(override.amountCents / 100) : ''
+                              override?.amountCents != null
+                                ? String(override.amountCents / 100)
+                                : line.derivedPriceCents != null
+                                  ? String(line.derivedPriceCents / 100)
+                                  : ''
                             }
                             onChange={(e) => {
                               const raw = e.target.value.trim();
@@ -590,12 +617,23 @@ export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionD
                         pasar. El verbo lo decide `requiresAuthorization` DEL SERVIDOR. */}
                     {data.requiresAuthorization ? t('totals.emitForApproval') : t('totals.emit')}
                   </Button>
+                  {/* §60.5 d: «Declinar» a la derecha de «Emitir». ⛔ No se apaga con los bloqueos de emisión:
+                      declinar es justo la salida cuando no se puede ofertar. */}
+                  {onDecline && (
+                    <Button size="sm" variant="secondary" onClick={onDecline} data-testid="desk-decline">
+                      {t('decline.action')}
+                    </Button>
+                  )}
                   {data.requiresAuthorization && (
                     <p className="text-xs text-muted">{t('totals.authNote')}</p>
                   )}
                 </div>
               )}
-              {readOnly && <p className="text-xs text-muted">{t('readOnly')}</p>}
+              {readOnly && (
+                <p className="text-sm text-text" data-testid="desk-readonly">
+                  {t(readOnlyKey(data.status))}
+                </p>
+              )}
 
               {blockerMessage && (
                 <p id="desk-blocker" className="text-xs leading-[1.6] text-accent">

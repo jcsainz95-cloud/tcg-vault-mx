@@ -9,8 +9,10 @@ import { Prisma } from '@prisma/client';
  * PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock.
  *   at BuylistService.createRequest (buylist.service.ts:1679)   ⇒  500 INTERNAL en cara del cliente
  * ```
- * `AllExceptionsFilter` **no mapea nada de Prisma**, así que el error cae al `catch` final y sale
- * `500`. Y el `500` es **mentira**: no se rompió nada. El motor hizo **exactamente su trabajo**.
+ * En `f8c7040`, `AllExceptionsFilter` **no mapeaba nada de Prisma**, así que el error caía al `catch`
+ * final y salía `500`. Y el `500` era **mentira**: no se rompió nada. El motor hizo **exactamente su
+ * trabajo**. (Eso es la foto de 2026-09-14; lo que sale HOY al agotarse los intentos está en la
+ * sección «Lo que pasa cuando se agotan los intentos», al final de esta cabecera.)
  *
  * ## Por qué es un defecto NUESTRO y no de Postgres
  * En `SERIALIZABLE`, un conflicto de serialización (`40001`) **no es una avería: es el contrato del
@@ -53,24 +55,36 @@ import { Prisma } from '@prisma/client';
  * `TransactionIsolationLevel.Serializable` esté dentro de este fichero. Abrir una transacción
  * serializable a mano vuelve a ser posible el día que alguien quite ese candado, y no antes.
  *
- * ## ⚠️ Lo que queda ABIERTO y es del ARQUITECTO, no mío
- * Si los `INTENTOS` se agotan (carga patológica), hoy sigue saliendo **`500`** — igual que antes, ni
- * mejor ni peor. Lo correcto sería un código de contrato propio del estilo «vuelve a intentarlo»
- * (`503`), pero **eso es superficie de API** y `API_CONTRACT.md` no lo norma. ⇒ Se deja escrito y se
- * enruta. **Medido: con 4 altas simultáneas del mismo vendedor repetidas 12 rondas (48 altas), los
- * 5 intentos bastan — 8/8 corridas verdes, cero `5xx`. Con 3 intentos, 10/10 rojas.** ⛔ **NO MEDIDO**
- * qué pasa con ~50 a la vez; ahí volvería a salir el `500` de hoy.
+ * ## Lo que pasa cuando se agotan los intentos (comprobado sobre `3806fec`, 2026-09-25)
+ * Este helper propaga el error ORIGINAL (`P2034`/`40001`/`40P01`) y quien lo traduce es
+ * `AllExceptionsFilter` (§0-T, desde `a5aa07e`, 2026-09-14): **`503 BUSY_TRY_AGAIN`** con
+ * `Retry-After: 1` y `details` vacío — ya NO `500`. Lo decide con esta misma `isSerializationConflict`
+ * (`common/filters/all-exceptions.filter.ts`, `motivoTransitorio`), y lo sostiene
+ * `test/busy-try-again.spec.ts` (caso `P2034 ⇒ 503`). ⛔ **NO MEDIDO** qué pasa con ~50 altas
+ * simultáneas del mismo vendedor: ahí la proporción de `503` sería la que el presupuesto no cubra.
  */
 
 /**
  * Intentos TOTALES (el primero + los reintentos).
  *
- * ⚠️ **El 5 está MEDIDO, no elegido.** Con **3** y una presión de 4 altas simultáneas del mismo
- * vendedor repetida 12 rondas, `buylist-intake-concurrency.e2e-spec.ts` sale **roja 10/10**: los
- * reintentos se agotan y vuelve el `500`. Y es aritmética, no mala suerte — con N transacciones
+ * ## De dónde sale el 5 — una medición HISTÓRICA, no un candado vivo
+ * Medido el **2026-09-14** y registrado en `dd3522b` (el commit que introdujo este helper, en su
+ * mensaje y en esta cabecera; autor: backend), sobre la versión ANTERIOR de
+ * `test/integration/buylist-intake-concurrency.e2e-spec.ts`, la que disparaba
+ * **4 altas simultáneas del mismo vendedor × 12 rondas**: con **3** intentos, **roja 10/10** (N=10);
+ * con **5**, **verde 8/8** (N=8), cero `5xx`. Es aritmética, no mala suerte: con N transacciones
  * serializables compitiendo por el MISMO predicado, el SSI puede abortar a N−1 por ronda, y cada
- * reintento vuelve a entrar en la misma pelea. ⛔ Bajarlo reabre el defecto que este helper cierra;
- * subirlo sin medir convierte un `500` rápido en una espera larga.
+ * reintento vuelve a entrar en la misma pelea.
+ *
+ * ⚠️ **Hoy ningún candado de integración sostiene el 5.** Desde `c36b492` (2026-09-25,
+ * P-BUYLIST-CONC-FLAKE) esa prueba FUERZA el conflicto con barrera de fila y solo DOS contendientes:
+ * el perdedor reintenta sin rival y basta con 2 intentos. Por eso la prueba de 4×12 ya no existe y
+ * la medición de arriba no se puede repetir con la suite actual. Lo único que fija el literal es
+ * `test/serializable-retry.spec.ts` («el presupuesto es 5»), un candado BARATO: impide que se
+ * cambie sin que alguien lea esta nota, pero NO demuestra que 5 baste bajo carga. La prueba de
+ * estrés que lo demostraría está propuesta fuera del gate (`docs/TECH_DEBT.md`, «TD-1
+ * (arreglos-rápidos)»). ⛔ Bajarlo reabre la cola de `503`; subirlo sin medir convierte un `503`
+ * rápido en una espera larga.
  */
 export const SERIALIZABLE_ATTEMPTS = 5;
 

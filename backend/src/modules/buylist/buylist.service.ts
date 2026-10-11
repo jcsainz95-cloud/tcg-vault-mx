@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   BuyDecision,
   Card,
@@ -18,22 +19,28 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
 import { bountyRemainingQty } from '../pricing/bounty-progress';
-import { toCardDTO } from '../catalog/catalog.service';
+import { publicPtcgoCode, toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
-// precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
-import { CurvePriceResult, PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
+// precedencia (`quoteAcquisitionFromCurve`, dentro de `money.ts`) para quote, batch, createRequest y la
+// vitrina de bounties. v1.80.2.2 (BC-9): desde aquí SOLO se entra por `quoteAcquisitionWithGuard` —
+// las reglas puras del peldaño 1 (`bountyPayoutCents`, `bountyGuardBasis`) no se importan fuera de
+// `money.ts` (censo cerrado en `test/money.bounty-cap.spec.ts`).
+import { AcquisitionQuoteResult, PriceBasis, quoteAcquisitionWithGuard } from '../../common/money';
 import {
   MarketBracket as MarketBracketType,
   PendingReason,
   PricingCurve,
   isBountyEffective,
   marketBracketOf,
+  premiumFloorGuard,
   resolvePendingReason,
+  // v1.80.8.5 (`M2-PF`): el eje de COMPRA NO lee el dial de venta — constante de código.
+  BUY_PREMIUM_FLOOR_POLICY,
 } from '../../common/pricing-curve';
 // v1.53 (§4.40.3.1, MONEY): la lista blanca del buylist es una DECISIÓN DE PRODUCTO declarada
 // literal (`PROJECT.md` §E/§K LOCKED/criterio 61), NO un espejo de `PRODUCT_TYPE_VALUES`.
@@ -42,9 +49,11 @@ import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
   sellItemRejectedTemplate,
+  sellItemsRejectedTemplate,
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
+  sellRequestNotContinuedTemplate,
   buylistPortalUrl,
 } from './buylist-mail.templates';
 // v1.74 (§R.3) — los TRES avisos nuevos del ciclo: la guía al vendedor, el acuse de recibido y el
@@ -59,8 +68,12 @@ import {
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
+import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
 import {
   deriveRejectedReason,
+  closesAsRejected,
+  closesAsRejectedByWhere,
+  readClosureRule,
   rejectDeadlines,
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
   SELL_REQUEST_TERMINAL_STATES,
@@ -110,6 +123,26 @@ import {
   InventoryPositionPort,
   VariantPositionRef,
 } from '../inventory/inventory-position.port';
+import { guideNoticeSealWhere, writeSellRequestGuide } from './sell-request-guide';
+// 💰 rev BSD-1 (API_CONTRACT §BSD): la costura de B-1 (`closeInboundShipment`, I-BSD-1), el post-commit de la cancelación
+// automática de la guía, el reloj del cierre sin guía y la vista de la guía de entrada en M5.
+import { ModuleRef } from '@nestjs/core';
+import { closeInboundShipment, needsGuideCancelTask } from '../shipments/inbound-close';
+import { afterAutoCloseVia } from '../shipments/label-auto-close';
+import { GuideClockDials, guideDueFieldsOf } from './guide-clock';
+import { openGuideTaskIfCancelUnconfirmed } from './inbound-cancel-task';
+import { resyncInboundAddress } from './inbound-address-sync';
+import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
+import { ShipmentLabelService } from '../shipments/label-purchase.service';
+import type { LabelOptionsDTO } from '../shipments/label-view';
+import {
+  INBOUND_SHIPMENT_SELECT,
+  InboundShipmentRow,
+  buylistWorkQueueOf,
+  inboundLabelAlertSellRequestIds,
+  inboundOrphanSince,
+  toAdminInboundShipmentDTO,
+} from './inbound-view';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -224,6 +257,49 @@ type SellRequestCycleRow = Partial<{
  */
 const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } as const;
 
+/** Los diales que la proyección admin necesita, izados UNA vez por request (BL-29) — + los dos del cierre sin guía (BSD-1). */
+type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials };
+
+/**
+ * 💰 rev BSD-1 (§BSD.5) — lo que TODA relectura que alimenta `adminSellRequestDTO` incluye: sus líneas (§M5-V.5) y su fila de
+ * entrada (`inboundShipment`, `guideDueAt`, `declineAcceptedAllowed`). Una sola constante para las ocho relecturas: con un
+ * `include` a mano, la que se olvidara de la fila de entrada respondería `inboundShipment: null` sobre una guía viva.
+ */
+const ADMIN_DTO_INCLUDE = {
+  items: { select: VERDICT_ITEM_SELECT },
+  inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
+} as const;
+
+/**
+ * 💰 rev BSD-1 (§BSD.6) — **cuándo se puede «Declinar» una `aceptada`**: la guarda del `WHERE` de `decline-accepted` Y el
+ * derivado `declineAcceptedAllowed` del DTO salen de ESTE objeto (⛔ dos copias de la regla). Por eso es un objeto de
+ * igualdades y no una función: el `WHERE` lo esparce, el DTO lo compara campo a campo.
+ */
+const DECLINE_ACCEPTED_LEGAL = {
+  status: 'aceptada',
+  closedAt: null,
+  sellerShippedDeclaredAt: null,
+  shipmentConfirmedAt: null,
+} as const satisfies Prisma.SellRequestWhereInput;
+
+function declineAcceptedAllowedOf(r: Partial<Record<keyof typeof DECLINE_ACCEPTED_LEGAL, unknown>>): boolean {
+  return (Object.keys(DECLINE_ACCEPTED_LEGAL) as (keyof typeof DECLINE_ACCEPTED_LEGAL)[]).every(
+    (k) => (r[k] ?? null) === DECLINE_ACCEPTED_LEGAL[k],
+  );
+}
+
+/** El `reason` que nombra `409 DECLINE_NOT_ALLOWED` (§BSD.6), leído de la fila RELEÍDA. */
+function declineAcceptedBlockOf(r: {
+  status: SellRequestStatus;
+  closedAt: Date | null;
+  sellerShippedDeclaredAt: Date | null;
+  shipmentConfirmedAt: Date | null;
+}): 'status' | 'seller_declared_shipped' | 'shipment_confirmed' {
+  if (r.status !== 'aceptada' || r.closedAt != null) return 'status';
+  if (r.sellerShippedDeclaredAt != null) return 'seller_declared_shipped';
+  return 'shipment_confirmed';
+}
+
 /**
  * ⚠️ v1.61 · §M5-V — **el contrato de entrada de `adminSellRequestDTO`: la fila TRAE sus líneas.**
  *
@@ -233,7 +309,11 @@ const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } 
  * Con el campo requerido, **el compilador para la mutación antes de que llegue a producción.**
  */
 type VerdictItemRow = { id: string; offerDecision: BuyDecision | null; itemStatus: SellItemStatus };
-type VerdictItemsPayload = Prisma.SellRequestGetPayload<object> & { items: VerdictItemRow[] };
+type VerdictItemsPayload = Prisma.SellRequestGetPayload<object> & {
+  items: VerdictItemRow[];
+  // 💰 rev BSD-1: la fila de entrada viaja con `ADMIN_DTO_INCLUDE` (opcional en el TIPO solo por los mocks unitarios).
+  inboundShipment?: InboundShipmentRow | null;
+};
 
 /**
  * S49-M1 — **la proyección de `SellRequest` hacia una respuesta HTTP, en UN solo sitio.**
@@ -369,8 +449,24 @@ function lastOfferCancelledAtOf(r: SellRequestBaseRow & SellRequestCycleRow): Da
  * filtros `minCents`/`maxCents` de §M5. **El dato no se pierde; deja de salir por una puerta donde
  * solo puede hacer daño.**
  */
-function isNoOfferClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
-  return r.status === 'expirada' && (r.expiredReason ?? null) === SellRequestExpiryReason.no_offer;
+/**
+ * ⭐ Errata BSD-1.4 punto 8 (`API_CONTRACT §BSD.18`): el conjunto que redacta es `expiredReason ∈ {no_offer, not_continued}`
+ * con `status='expirada'` (sustituye «Alcance EXACTO: solo `no_offer`» de arriba). En `not_continued` **nosotros** decidimos
+ * no comprar y no se compró ninguna carta: una cifra junto a «decidimos no continuar» se lee como deuda — el mismo daño que
+ * motivó `no_offer` — y BSD-M1 también prohíbe montos (§BSD.8.1). La excepción de `not_shipped` (hubo oferta vinculante y el
+ * vendedor la incumplió: derecho al registro) NO aplica. La proyección admin no cambia.
+ *
+ * ⚠️ En `not_continued` SÍ hubo oferta, así que la redacción alcanza más claves que en `no_offer` (donde ya eran nulas por
+ * construcción): toda cifra `*Cents` del DTO de cliente viaja `null` (BSD-B41, recorrido recursivo) y `offer` viaja `null`
+ * (su `terms.rule` lleva los montos ya escritos en prosa). Ver `redactedItemMoney` (líneas) y `getMine` (`offer`).
+ */
+const MONEY_REDACTED_EXPIRY: readonly SellRequestExpiryReason[] = [SellRequestExpiryReason.no_offer, SellRequestExpiryReason.not_continued];
+
+/** BSD-1.4 punto 8: las cifras de una LÍNEA en un cierre redactado — todas `null` explícito (la clave viaja, el valor no). */
+const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null } as const;
+
+function isMoneyRedactedClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
+  return r.status === 'expirada' && r.expiredReason != null && MONEY_REDACTED_EXPIRY.includes(r.expiredReason);
 }
 
 /**
@@ -400,7 +496,7 @@ function isNoOfferClosure(r: { status: SellRequestStatus } & SellRequestCycleRow
  * `offerIssueDeadlineAt` (un SLA nuestro que a propósito no se comunica).
  */
 function toCustomerSellRequestDTO(r: SellRequestBaseRow & SellRequestCycleRow) {
-  const redactMoney = isNoOfferClosure(r);
+  const redactMoney = isMoneyRedactedClosure(r);
   return {
     ...toSellRequestBaseDTO(r),
     // ⚠️ La redacción va DESPUÉS del spread: es la última palabra sobre esta cifra.
@@ -572,8 +668,11 @@ interface BuyLineDecision {
   gradeKey: string;
   /** Valor de MERCADO que entró al cálculo (de la variante correcta: set_base o producto separado). */
   referenceMxnCents: number | null;
-  /** Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente). */
-  quote: CurvePriceResult;
+  /**
+   * Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente), con el
+   * `guardBasis` INTERNO que ve el guardarraíl (v1.80.2, §M2-B.11 punto 8) — ⛔ no viaja en ningún DTO.
+   */
+  quote: AcquisitionQuoteResult;
   /** `null` = se cotiza. No-null = bloqueada: `no_market` o el guardarraíl `premium_at_floor`. */
   pendingReason: PendingReason | null;
   /** Monto FINAL a pagar por la línea; `null` ⇔ bloqueada. */
@@ -629,6 +728,29 @@ interface DecisionLine {
 }
 
 
+/**
+ * 💰 v1.82.1 · §PNL.10.3 — señal INTERNA de `convertToInventory`: el CAS de la carta no casó. Se lanza dentro de la
+ * tx para deshacerla entera (pieza y movimiento) y se traduce fuera (idempotente o `409 CONCURRENT_UPDATE`).
+ */
+class ConvertCasMiss extends Error {
+  constructor(readonly fresh: { itemStatus: SellItemStatus; inventoryItemId: string | null } | null) {
+    super('convert-to-inventory CAS miss');
+  }
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.6) — el cuerpo de `POST …/decline-accepted`: `{ reason: string }` 3–500 tras `trim`; si no,
+ * `400 VALIDATION_ERROR {field:'reason'}`. Se valida ANTES de cualquier lectura (forma ⇒ 400 primero).
+ */
+export function parseDeclineAcceptedBody(raw: unknown): { reason: string } {
+  const b = (raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const r = typeof b.reason === 'string' ? b.reason.trim() : '';
+  if (r.length < 3 || r.length > 500) {
+    throw BusinessException.badRequest('VALIDATION_ERROR', 'reason must be 3..500 characters', { field: 'reason' });
+  }
+  return { reason: r };
+}
+
 @Injectable()
 export class BuylistService implements OnModuleInit {
   private readonly logger = new Logger(BuylistService.name);
@@ -656,6 +778,10 @@ export class BuylistService implements OnModuleInit {
     // la pieza **queda en `pending-publish`**, que es la red. (Contraste deliberado con el de
     // posición, justo encima, que **NO** es best-effort porque allí **no hay red**.)
     @Optional() @Inject(INVENTORY_PUBLISH_PORT) private readonly inventoryPublish?: InventoryPublishPort,
+    // 💰 rev BSD-1 (§BSD.4.8): el post-commit de la cancelación automática de la guía de entrada (`afterAutoCloseVia`, por
+    // token, sin importar `ShipmentsModule`). `@Optional()` por los unitarios que construyen a mano: sin él la guía queda
+    // SELLADA para cancelarse y la regla 10 del barrido abre la tarea a la hora.
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   /**
@@ -1114,12 +1240,20 @@ export class BuylistService implements OnModuleInit {
     // Precedencia NORMATIVA bounty VÁLIDO > override > curva > pendiente (un solo cuerpo, money.ts);
     // el bounty se revalida AQUÍ contra la curva vigente, no solo al crearlo (§4.36.6).
     // SEC-A1: mercado y acabado derivados server-side, jamás del DTO del cliente.
-    const quote = quoteAcquisitionFromCurve(referenceMxnCents, curve, effectiveOverride);
+    const quote = quoteAcquisitionWithGuard(referenceMxnCents, curve, effectiveOverride);
     // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL del eje de COMPRA: una rareza PREMIUM que aterriza en el BIN
     // NO se cotiza. Pagar de menos es la MISMA pérdida irreversible que vender de menos (§N.0), y que
     // una chase resuelva al bin solo puede significar que su dato de mercado está mal. NO dispara con
-    // override ni bounty (decisiones deliberadas del admin).
-    const pendingReason = resolvePendingReason(quote.basis, card.rarityCanonical ?? card.rarity);
+    // override ni con un bounty que paga lo que el admin decidió.
+    // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): el guardarraíl ve `guardBasis`, NO `basis`. Un bounty TOPADO paga
+    // el mercado ⇒ el guardarraíl evalúa el basis de la CURVA (chase + bin ⇒ `premium_at_floor`).
+    // `guardBasis === 'pending'` ⇔ `basis === 'pending'` (peldaño 1 topado ⇒ mercado presente ⇒ la
+    // curva resuelve), así que `no_market` sigue significando lo mismo.
+    const pendingReason = resolvePendingReason(
+      quote.guardBasis,
+      card.rarityCanonical ?? card.rarity,
+      BUY_PREMIUM_FLOOR_POLICY,
+    );
     const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
     return {
       finish: f,
@@ -1151,8 +1285,13 @@ export class BuylistService implements OnModuleInit {
         quotedPriceCents: line.quotedPriceCents,
         currency: 'MXN' as const,
       },
+      // v1.89⟨bmk⟩ (API_CONTRACT §BMK.2, ARCHITECTURE §4.BMK) — el mercado SOLO viaja si la línea está
+      // COTIZADA y el mercado es > 0. Lo que la UI tiene prohibido pintar no viaja (§4.36.7(b.2)):
+      // una carta en precio pendiente por guardarraíl no publica su mercado sospechoso (P-BMK-3), y un
+      // mercado <= 0 es «sin mercado» (H-1). Presentación pura: `decideBuyLine`/`createRequest` intactos
+      // (lo congelado en la solicitud no cambia, criterio 857).
       referencePrice:
-        line.referenceMxnCents != null
+        line.quotedPriceCents != null && line.referenceMxnCents != null && line.referenceMxnCents > 0
           ? { status: 'priced' as const, priceMxnCents: line.referenceMxnCents }
           : { status: 'pending' as const },
       paymentNotice: 'PAY_AFTER_RECEIPT' as const,
@@ -1234,7 +1373,8 @@ export class BuylistService implements OnModuleInit {
    * persiste, no escala pendientes, no mueve dinero). Solo bounties ACTIVOS
    * (`bountyEnabled=true` + `bountyPriceCents>0` — la regla de presencia money-safe H-1) y solo
    * `productType=raw` (defensa en profundidad: el write ya lo impone; la vitrina es de sueltas).
-   * Orden `bountyPriceCents desc`, cap 50, sin paginación ni query params. Un bounty
+   * Orden por lo que se paga desc (v1.80: `bountyPriceCents` publicado = `min(bounty, mercado)`,
+   * §M2-B.11), cap 50, sin paginación ni query params. Un bounty
    * completado/apagado DESAPARECE de la lista (quien ya cotizó conserva su monto snapshoteado).
    */
   async publicBounties(): Promise<{
@@ -1243,6 +1383,8 @@ export class BuylistService implements OnModuleInit {
       name: string;
       number: string;
       setName: string;
+      /** v1.80 (P-71): código corto del set de la carta; mismas reglas que `CardDTO.setPtcgoCode`. */
+      setPtcgoCode: string | null;
       imageSmallUrl?: string;
       rarity?: string;
       finish: Finish;
@@ -1253,12 +1395,17 @@ export class BuylistService implements OnModuleInit {
   }> {
     // v2.0 (P-48, §4.36.6, criterios 90/91) — SEAM «PUBLICAR» de la revalidación del bounty.
     // ORDEN DE OPERACIONES NORMATIVO (importa): seleccionar candidatos activos → resolver el mercado
-    // en LOTE → FILTRAR los no efectivos → ordenar `bountyPriceCents desc` → tomar el TOP 50.
+    // en LOTE → FILTRAR los no efectivos → calcular el PAGO (v1.80) → ordenar por el pago desc → TOP 50.
     // Filtrar DESPUÉS del cap dejaría huecos silenciosos en la vitrina.
-    // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto
-    // y es ESTRICTAMENTE mayor que la tarifa estándar de esa variante.
+    // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto.
+    // ⚠️ v1.80: «y es estrictamente mayor que la tarifa estándar» YA NO se cumple siempre — en cartas
+    // baratas donde el bin supera al mercado, un bounty efectivo paga el mercado, que es MENOS que la
+    // tarifa (§M2-B.11 filas 500/700; decisión del dueño 2026-09-28: «Pagar el mercado»).
     const candidates = await this.prisma.variantPriceOverride.findMany({
-      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+      // Q2 (§M2-B.9): una fila DESPUBLICADA (`bountyUnpublishedAt != null`) queda FUERA de la vitrina.
+      // Defensa en profundidad: ya está fuera por `bountyEnabled=false`, pero el filtro lo hace
+      // explícito e imposible de re-colar si algún día una fila quedara `enabled` con sello.
+      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null },
       // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
       orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
       // Cap de CANDIDATOS (no de la vitrina): el endpoint es público/anónimo y una lectura sin cota
@@ -1278,34 +1425,59 @@ export class BuylistService implements OnModuleInit {
         finish: r.finish,
       })),
     );
-    const rows = candidates.filter((r) => {
-      // P-30 H2 (§4.39e): misma fuente que el PRODUCTOR del map (`getReferencesBatch`).
-      const ref = refs.get(
-        variantKey({
-          cardId: r.cardId,
-          productType: r.productType,
-          gradeKey: r.gradeKey,
-          finish: r.finish,
-        }),
-      );
-      const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-      // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
-      const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
-      return isBountyEffective(r.bountyPriceCents, curveQuoteCents);
-    })
-      // Re-orden explícito tras el filtro (el `orderBy` del query ya lo daba; se conserva por claridad
-      // de que el ORDEN es parte del contrato de la vitrina) y CAP de la vitrina.
-      .sort((a, b) => (b.bountyPriceCents as number) - (a.bountyPriceCents as number))
+    // v1.80 (§M2-B.11): ORDEN NORMATIVO seleccionar → mercado en lote → COTIZAR cada fila → FILTRAR
+    // (no efectivas y retenidas) → ordenar POR EL PAGO desc → top 50. `bountyPriceCents` de la vitrina
+    // ES lo que se paga: el monto configurado por encima del mercado ⛔ no sale por esta ruta, y ningún
+    // campo dice que hubo tope.
+    //
+    // ⭐ v1.80.2.2 (§M2-B.11 punto 7 BC-9 y punto 8; errata D-3 del techlead): la vitrina es un
+    // «llamador de COMPRA con controles» y consume `quoteAcquisitionWithGuard(mercado, curva, fila)` —
+    // la MISMA puerta que `/buylist/quote`, `createRequest` y el composer. Antes re-montaba a mano el
+    // peldaño 1 (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + dos llamadas de dos
+    // argumentos a `quoteAcquisitionFromCurve`): línea a línea el cuerpo de la hermana copiado, y ya
+    // divergía en una cosa (la cotización clampa, `money.ts`; la vitrina no). Con UN compositor no
+    // puede divergir. Por fila: `basis === 'bounty'` ⇔ el bounty ganó el peldaño 1 (efectivo);
+    // `priceCents` = lo que se paga (ya clampeado, una sola vez); `guardBasis` ⇒ `premiumFloorGuard`.
+    const rows = candidates
+      .map((r) => {
+        // P-30 H2 (§4.39e): misma fuente que el PRODUCTOR del map (`getReferencesBatch`).
+        const ref = refs.get(
+          variantKey({
+            cardId: r.cardId,
+            productType: r.productType,
+            gradeKey: r.gradeKey,
+            finish: r.finish,
+          }),
+        );
+        const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+        // La fila M-30 (`VariantPriceOverride`) YA es un `VariantPriceControls`: misma fila, misma puerta.
+        return { r, q: quoteAcquisitionWithGuard(referenceMxnCents, curve, r) };
+      })
+      // Presente ⇔ el bounty ganó el peldaño 1 Y el guardarraíl no lo retiene. Un bounty rebasado (Q1)
+      // cae a los peldaños 2-4 y no es bounty. ⭐⭐ v1.80.2 (punto 8): una chase con bounty topado contra
+      // un mercado que cayó al bin cotizaría `precio_pendiente`, y criterio 91 prohíbe publicar un
+      // número que no se paga — mismo veredicto que `decideBuyLine` (`guardBasis` + `premiumFloorGuard`).
+      // El filtro va ANTES de ordenar/cortar para no dejar huecos silenciosos en la vitrina.
+      .filter(
+        ({ r, q }) =>
+          q.basis === 'bounty' && premiumFloorGuard(r.card.rarityCanonical ?? r.card.rarity, q.guardBasis, BUY_PREMIUM_FLOOR_POLICY) === 'ok',
+      )
+      .map(({ r, q }) => ({ r, payoutCents: q.priceCents as number }))
+      // Orden por LO QUE SE PAGA (el `orderBy` del query ordena por lo configurado y ya no basta);
+      // desempate estable: el orden del query (`updatedAt` desc), que `sort` conserva.
+      .sort((a, b) => b.payoutCents - a.payoutCents)
       .slice(0, BOUNTY_SHOWCASE_CAP);
-    const data = rows.map((r) => ({
+    const data = rows.map(({ r, payoutCents }) => ({
       cardId: r.cardId,
       name: r.card.name,
       number: r.card.number,
       setName: r.card.set.name,
+      // v1.80 (P-71, §4.57): la consulta ya carga `card.set` ⇒ cero queries nuevas. Clave SIEMPRE presente.
+      setPtcgoCode: publicPtcgoCode(r.card.set.ptcgoCode),
       ...(r.card.imageSmallUrl ? { imageSmallUrl: r.card.imageSmallUrl } : {}),
       ...(r.card.rarity ? { rarity: r.card.rarity } : {}),
       finish: r.finish,
-      bountyPriceCents: r.bountyPriceCents as number,
+      bountyPriceCents: payoutCents,
       targetQty: r.bountyTargetQty,
       // Dato motivacional, no compromiso contractual: target − acquired con PISO 0; null sin objetivo.
       // v1.62 (§M2-B.1): el CUERPO es compartido con el `progress` de la consola de bounties — el
@@ -1414,7 +1586,9 @@ export class BuylistService implements OnModuleInit {
     //    Sin CLABE en archivo → 422 CLABE_REQUIRED. La CLABE en claro NUNCA se loguea ni se devuelve.
     let effectiveClabe: string;
     // Solo cuando `clabe` viene en el body se (re)persiste en la KYC; el fallback ya está en archivo.
-    let kycClabeFields: { clabeEnc: string; clabeHmac: string } | null = null;
+    // 🔒 v1.80.3 (SEC-SHIP-A3): la CLABE que viene en el body se escribe por `users.setClabe` (el ÚNICO escritor,
+    // `C-CLABE-1`): sella `clabeUpdatedAt`, deja bitácora y manda `AV-16` si el índice ciego cambia.
+    let clabeToSet: string | null = null;
     if (clabe != null && clabe !== '') {
       if (!isValidClabe(clabe)) {
         throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
@@ -1427,7 +1601,7 @@ export class BuylistService implements OnModuleInit {
         );
       }
       effectiveClabe = clabe;
-      kycClabeFields = { clabeEnc: this.pii.encrypt(clabe), clabeHmac: incomingHmac };
+      clabeToSet = clabe;
     } else {
       // FALLBACK: CLABE del propio usuario en archivo (misma vía que revealClabe, buylist.service.ts).
       const onFile = this.pii.decryptOptional(kyc?.clabeEnc);
@@ -1646,10 +1820,32 @@ export class BuylistService implements OnModuleInit {
       throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {});
     }
 
+    // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+    // §M5-K, D51 reescrita) — EXCEPCIÓN ACOTADA A D51. Contigua a `INE_REQUIRED` y sobre el MISMO
+    // `ineRequired` (que ya incluye `|| hasPendingLine`, cierre C15): al/por encima del umbral INE,
+    // una identidad **rechazada** no puede crear la solicitud. Por DEBAJO del umbral, sin efecto
+    // (comportamiento actual intacto). Bloquea SOLO `rejected` (NO `none`/`pending`).
+    // · Reusa el `kyc` ya leído (arriba, por el `userId` autenticado): CERO queries nuevas, CERO PII de
+    //   otro usuario, y se gatea sobre `ineRequired` —no sobre `quotedTotalCents >= ineThreshold` a
+    //   secas— para no reabrir el bypass de «precio pendiente» que C15 cerró.
+    // · Va DESPUÉS de `INE_REQUIRED` (mensaje más accionable para el 99%: «sube tu INE») y ANTES del
+    //   `upsert` de KYC y de la tx serializable: si va a fallar, que falle antes de escribir nada y
+    //   antes de abrir la transacción de dinero. En la práctica excluyentes: un rechazado tiene keys
+    //   en archivo ⇒ `ineProvided=true` ⇒ no dispara `INE_REQUIRED`.
+    // · `details: {}` VACÍO: ni umbral ni PII (jamás `rejectionReason`). El motivo lo lee el propio
+    //   usuario por `GET /users/me/kyc`. Filas legacy `rejected` sin motivo se bloquean igual.
+    if (ineRequired && kyc?.kycStatus === 'rejected') {
+      throw BusinessException.validation(
+        'KYC_REJECTED',
+        'Identity was rejected; cannot sell at/above threshold',
+        {},
+      );
+    }
+
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
     // vigente al crear la solicitud aunque el usuario cambie luego su KYC. NUNCA en claro/logueada.
     const clabeEnc = this.pii.encrypt(effectiveClabe);
-    // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`kycClabeFields`);
+    // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`clabeToSet`, vía `setClabe`);
     // en el fallback ya está en archivo. El INE se actualiza si vienen keys nuevas.
     // ⭐⭐ **v1.70 (`C17` / `SEC-PII-3`) — EL SEGUNDO CAMINO USA LA MISMA RUTINA QUE EL PRIMERO.**
     // Este `upsert` era el **otro** escritor de INE, y rompía DOS invariantes de v1.69 a la vez:
@@ -1661,11 +1857,15 @@ export class BuylistService implements OnModuleInit {
     //    `verified` sobre **un documento que nadie revisó**. (Y la rama `create` hacía lo contrario:
     //    ponía `pending` **aunque no viniera ni una key** — una CLABE no es una identidad.)
     // Ahora las dos ramas se fusionan con `ineSubmission.data`, que decide **lo mismo** que el `PUT`.
-    await this.prisma.kycProfile.upsert({
-      where: { userId },
-      create: { userId, ...(kycClabeFields ?? {}), ...ineSubmission.data },
-      update: { ...(kycClabeFields ?? {}), ...ineSubmission.data },
+    const clabeChange = await this.prisma.$transaction(async (tx) => {
+      await tx.kycProfile.upsert({
+        where: { userId },
+        create: { userId, ...ineSubmission.data },
+        update: { ...ineSubmission.data },
+      });
+      return clabeToSet ? this.users.setClabe(tx, userId, clabeToSet, { id: userId, role: Role.customer }) : null;
     });
+    await this.users.notifyClabeChanged(clabeChange);
     // Y el borrado de la imagen SUSTITUIDA, que este camino nunca hizo. Va después de persistir.
     // (Sin keys sustituidas no hay nada que borrar: la lista viene vacía por construcción.)
     if (ineSubmission.supersededKeys.length > 0) {
@@ -1937,6 +2137,8 @@ export class BuylistService implements OnModuleInit {
       inventoryItemId: i.inventoryItemId ?? undefined,
       ...rejection,
       ...offer,
+      // La redacción va AL FINAL: es la última palabra sobre estas cifras (`offer` trae `offeredPriceCents`).
+      ...(opts?.redactQuotedPrice === true ? redactedItemMoney : {}),
     };
   }
 
@@ -1948,12 +2150,13 @@ export class BuylistService implements OnModuleInit {
     const rows = await this.prisma.sellRequest.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      include: { items: { include: { card: true } } },
+      // 💰 rev BSD-1.1 C-1: la fila de entrada en el MISMO `findMany` (⛔ N+1) para `labelPdfAvailable`.
+      include: { items: { include: { card: true } }, inboundShipment: { select: INBOUND_LABEL_SELECT } },
     });
     const data = rows.map((r) => {
       // ⚠️ v1.51.4 (§6) — la redacción `no_offer` aplica **también en la LISTA**: las dos son
       // proyección de cliente, y dejar la cifra aquí reproduciría el daño **una pantalla antes**.
-      const redactMoney = isNoOfferClosure(r);
+      const redactMoney = isMoneyRedactedClosure(r);
       return {
         sellRequestId: r.id,
         status: r.status,
@@ -1964,6 +2167,8 @@ export class BuylistService implements OnModuleInit {
         quotedTotalCents: redactMoney ? null : r.quotedTotalCents,
         ineRequired: r.ineRequired,
         createdAt: r.createdAt,
+        // 💰 rev BSD-1.1 C-1: campo PLANO, la MISMA regla que el detalle y que la guarda de `…/label.pdf` (`labelPdfAvailableOf`).
+        labelPdfAvailable: labelPdfAvailableOf(r, r.inboundShipment),
         // ⚠️ La LISTA no lleva `offer`, ni `expiredReason`, ni `pickupAddress`, ni
         // `lastOfferCancelledAt` (§6, tabla de alcance de v1.51.8): pertenecen a la ficha de UNA
         // solicitud. La lista muestra ESTADOS y dice qué fila sigue viva. Por eso `itemDTO` va aquí
@@ -1980,7 +2185,12 @@ export class BuylistService implements OnModuleInit {
       // v1.51 (§6): el `locale` del dueño alimenta `offer.terms`, que **renderiza el backend** con
       // la MISMA fuente que el correo — para que la pantalla y el correo no puedan decir cosas
       // distintas.
-      include: { items: { include: { card: true } }, user: { select: { locale: true } } },
+      include: {
+        items: { include: { card: true } },
+        user: { select: { locale: true } },
+        // 💰 rev BSD-1.1 C-1: para `labelPdfAvailable` (⛔ `labelUrl` no se lee).
+        inboundShipment: { select: INBOUND_LABEL_SELECT },
+      },
     });
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
@@ -1997,9 +2207,11 @@ export class BuylistService implements OnModuleInit {
     // ellos. `terms.rule` (el único que sí los necesita) sale de `offerPublicDTO`, que los tiene
     // congelados en la fila: *no se interpola dinero donde no hay dinero que interpolar.*
     const conditionLabel = offerTermsCopy(req.user?.locale ?? null).perLineConditionLabel;
-    const redactMoney = isNoOfferClosure(req);
+    const redactMoney = isMoneyRedactedClosure(req);
     return {
       ...toCustomerSellRequestDTO(req),
+      // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
+      labelPdfAvailable: labelPdfAvailableOf(req, req.inboundShipment),
       sellRequestId: req.id,
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, y se le muestra DESDE EL PRINCIPIO**, no
       // desde la aceptación, por dos razones: **(1) es SU dato** —lo capturó él— y **(2) es lo que
@@ -2033,7 +2245,8 @@ export class BuylistService implements OnModuleInit {
       // v1.51 (§6) — LA OFERTA COMO LA VE EL VENDEDOR. `null` salvo con `offerState='sent'`: una
       // oferta que espera autorización **no existe para él** (D13/D24), y una cancelada se limpió.
       // ⚠️ NUNCA lleva `offerState` ni ninguna cifra interna de la mesa.
-      offer: this.offerPublicDTO({ ...req, locale: req.user?.locale ?? null }, req.items),
+      // ⭐ BSD-1.4 punto 8: en un cierre redactado la oferta NO viaja (sus cifras y su `terms.rule`, que las lleva en prosa).
+      offer: redactMoney ? null : this.offerPublicDTO({ ...req, locale: req.user?.locale ?? null }, req.items),
     };
   }
 
@@ -2198,6 +2411,11 @@ export class BuylistService implements OnModuleInit {
        * Combinable con el resto (se **intersecta**), igual que `awaitingGuide`.
        */
       offerReissueAlert?: boolean;
+      /**
+       * 💰 rev BSD-1.3 punto 4 — `true` ⇒ solo las solicitudes cuya guía de ENTRADA está atascada (`inboundShipment.labelAlert
+       * ≠ null`: en vuelo, en proceso, cancelación sin confirmar o guía viva sobre una cerrada). Clase L: se intersecta.
+       */
+      inboundLabelAlert?: boolean;
     },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
@@ -2307,6 +2525,13 @@ export class BuylistService implements OnModuleInit {
         { offerReissueCount: { gte: dials.reissueAlertCount } },
       ];
     }
+    // 💰 rev BSD-1.3 punto 4 — el filtro de las guías de entrada atascadas: los ids salen del MISMO cuerpo que cuenta el
+    // tablero (`inboundLabelAlertSellRequestIds`, veredicto de `labelAlertOf`). Solo `true` filtra (tri-estado como los demás).
+    const now = new Date();
+    if (filters?.inboundLabelAlert === true) {
+      const ids = await inboundLabelAlertSellRequestIds(this.prisma, now);
+      where.AND = [...((where.AND as Prisma.SellRequestWhereInput[]) ?? []), { id: { in: ids } }];
+    }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
     // v1.25-buylist-orders-pagination (§M5): `q` contains case-insensitive OR sobre folio
@@ -2341,10 +2566,18 @@ export class BuylistService implements OnModuleInit {
         include: {
           items: { include: { card: true } },
           user: { select: { id: true, name: true, email: true, phone: true } },
+          // 💰 rev BSD-1 (§BSD.5): la fila de entrada en el MISMO `findMany` (⛔ N+1).
+          inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
         },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
+    // 💰 rev BSD-1: las huérfanas recientes de las filas de entrada de ESTA página, en UNA lectura (para `labelAlert`).
+    const orphanSince = await inboundOrphanSince(
+      this.prisma,
+      rows.flatMap((r) => (r.inboundShipment ? [r.inboundShipment.id] : [])),
+      now,
+    );
     // Los diales se izan UNA vez por request (no por fila): son los mismos para todas.
     const data = rows.map((r) => ({
       // ⚠️ v1.51.20 · **BL-29** — la fila del listado sale de **LA MISMA proyección** que el detalle
@@ -2352,7 +2585,13 @@ export class BuylistService implements OnModuleInit {
       // claves, y por eso arrastraba el mismo agujero que `adminGet`: **ninguno de los veintiún
       // campos del ciclo salía**. *Dos proyecciones de la misma entidad divergen; la pregunta no es
       // si, es cuándo* — es literalmente la forma que tomó S49-M2 en `AdminOrderSummaryDTO`.
-      ...this.adminSellRequestDTO(r, dials),
+      // ⚠️ La lista NO recibe actor (BL-17: la fila del listado es propiedad de la FILA) ⇒ `labelAlert.canRelease` va `false`
+      // aquí; el detalle (`adminGet`) lo calcula para el actor. Quién TIENE alerta no depende del rol.
+      ...this.adminSellRequestDTO(r, dials, {
+        actorRole: null,
+        orphanSince: r.inboundShipment ? (orphanSince.get(r.inboundShipment.id) ?? null) : null,
+        now,
+      }),
       seller: this.sellerRef(r.user),
       items: r.items.map((i) => this.itemDTO(i)),
       // ⚠️ **LO QUE ESTA COLA NO GANA, y es deliberado: `pickupAddress`.** Un LISTADO paginado de
@@ -2371,12 +2610,40 @@ export class BuylistService implements OnModuleInit {
    * es el mismo dial para todas las filas por definición: *un umbral que cambiara entre la fila 3 y
    * la 4 de la misma pantalla sería un bug, no una feature.*
    */
-  private async adminCycleDials(): Promise<{ offerIssueDays: number; reissueAlertCount: number }> {
-    const [offerIssueDays, reissueAlertCount] = await Promise.all([
+  private async adminCycleDials(): Promise<AdminCycleDials> {
+    const [offerIssueDays, reissueAlertCount, closeDays, warnDays] = await Promise.all([
       this.settings.getNumber(SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS),
       this.settings.getNumber(SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT),
+      // 💰 rev BSD-1 (§BSD.9): los del cierre sin guía, para `guideDueAt`/`guideDueSoon`/`guideDueInDays` (la MISMA lectura
+      // que el barrido).
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS),
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE),
     ]);
-    return { offerIssueDays, reissueAlertCount };
+    return { offerIssueDays, reissueAlertCount, guide: { closeDays, warnDays } };
+  }
+
+  /**
+   * 💰 rev BSD-1 (§BSD.5) — `inboundLabelOptions`: `ShipmentLabelService.labelOptionsFor` resuelto por `ModuleRef` con
+   * `strict: false` (`BuylistModule` no importa `ShipmentsModule`). Sin el servicio (unitarios) ⇒ `null`: la ventana no ofrece
+   * «Comprar guía» (fail-closed). Sin fila de entrada todavía, el límite de recompras no aplica (`''` no tiene guías pagadas).
+   */
+  private async inboundLabelOptionsFor(actor: { id: string; role: Role }, shipmentId: string | null): Promise<LabelOptionsDTO | null> {
+    try {
+      const labels = this.moduleRef?.get(ShipmentLabelService, { strict: false });
+      return labels ? await labels.labelOptionsFor(actor, shipmentId ?? '') : null;
+    } catch (e) {
+      this.logger.error(`inboundLabelOptions no disponible: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  /**
+   * 💰 rev BSD-1 (BSD-1.1 C-3, BSD-1.3 punto 4) — los dos contadores hermanos de `workQueue` para el tablero
+   * (`buylistGuideDueSoon`, `buylistInboundLabelAlert`), con los MISMOS diales y la MISMA regla que el DTO. Lectura pura.
+   */
+  async workQueueCounts(now: Date = new Date()): Promise<{ buylistGuideDueSoon: number; buylistInboundLabelAlert: number }> {
+    const { guide } = await this.adminCycleDials();
+    return buylistWorkQueueOf(this.prisma, guide, now);
   }
 
   /**
@@ -2413,8 +2680,13 @@ export class BuylistService implements OnModuleInit {
     r: SellRequestBaseRow &
       SellRequestCycleRow & { createdAt: Date } & {
         items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[];
+        // 💰 rev BSD-1 — viaja con `ADMIN_DTO_INCLUDE`; `undefined` solo en mocks unitarios (⇒ sin fila de entrada).
+        inboundShipment?: InboundShipmentRow | null;
+        inboundGuideClockStartedAt?: Date | null;
       },
-    dials: { offerIssueDays: number; reissueAlertCount: number },
+    dials: AdminCycleDials,
+    // 💰 rev BSD-1 — `labelAlert` de la fila de entrada: el rol del actor (solo decide `canRelease`) y su huérfana reciente.
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date } = {},
   ) {
     const reissueCount = r.offerReissueCount ?? 0;
     // ⚠️ v1.61 · §M5-V — el `?? []` es **solo por los mocks de las suites unitarias**, que construyen
@@ -2440,6 +2712,13 @@ export class BuylistService implements OnModuleInit {
       // set de estados «sin veredicto» **y** el filtro `buy`), y este proyecto ya borró cinco copias
       // de sets de estado por esa vía. **El servidor manda el número.**
       pendingDecisionItemCount: pendingDecisionItemIds.length,
+      // ⚠️ v1.82.3 · §PNL.12 (d) — **ADMIN-ONLY, DERIVADO**: ¿ofrece M5 «Rechazar solicitud»?
+      // `= (isTerminal === false) ∧ Regla C` — la MISMA función pura que `rejectedReason` (c) y la misma
+      // regla que el guard de `POST …/reject` (b), así que `isRejectable === true ⇒ reject no da 422`.
+      // El front ya no evalúa su copia (`every(itemStatus === 'rechazada')`, sin el filtro `skip`).
+      // 💰 rev BSD-1.3 punto 1: en `aceptada` NO se rechaza (las cartas no han llegado): `POST …/reject` da `422
+      // REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}` ⇒ el derivado tiene que decir `false` (cierre: «Declinar»).
+      isRejectable: !isTerminalSellRequestStatus(r.status) && r.status !== 'aceptada' && closesAsRejected(r.items ?? []),
       // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
       paidBy: r.paidBy,
       // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Solo vista admin.
@@ -2491,18 +2770,65 @@ export class BuylistService implements OnModuleInit {
       // Lo que SALIÓ por SPEI, sellado en la MISMA transacción que `pagada`. Fuente de la caja de M7,
       // distinta del acumulado de COMPROMISO que gobierna el tope mensual (que se mide en BRUTOS).
       payoutNetCents: r.payoutNetCents ?? null,
+      ...this.adminInboundFields(r, dials, bsd),
+    };
+  }
+
+  /**
+   * 💰 rev BSD-1 (§BSD.5, BSD-1.1 C-8, BSD-1.3 punto 4) — los campos de la guía de ENTRADA en `AdminBuylistDTO`, todos
+   * DERIVADOS (⛔ ninguno se persiste; `inboundGuideClockStartedAt` NO viaja):
+   *  - `inboundShipment` (con `labelAlert` por el MISMO `labelAlertOf` de M4);
+   *  - `guideDueAt` / `guideDueSoon` / `guideDueInDays` — el reloj del cierre sin guía (`guide-clock.ts`, la MISMA regla
+   *    que el barrido): el front ⛔ no calcula «en N días»;
+   *  - `declineAcceptedAllowed` — con `DECLINE_ACCEPTED_LEGAL`, el MISMO objeto que la guarda de `decline-accepted`.
+   * `inboundLabelOptions` (§BSD.5) va solo en el DETALLE (`adminGet`): es por actor (`inboundLabelOptionsFor`).
+   */
+  private adminInboundFields(
+    r: SellRequestCycleRow & {
+      status: SellRequestStatus;
+      closedAt: Date | null;
+      inboundShipment?: InboundShipmentRow | null;
+      inboundGuideClockStartedAt?: Date | null;
+    },
+    dials: AdminCycleDials,
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date },
+  ) {
+    const now = bsd.now ?? new Date();
+    const inbound = r.inboundShipment ?? null;
+    const due = guideDueFieldsOf(
+      {
+        status: r.status,
+        closedAt: r.closedAt ?? null,
+        guideSentAt: r.guideSentAt ?? null,
+        shipmentTrackingNumber: r.shipmentTrackingNumber ?? null,
+        sellerShippedDeclaredAt: r.sellerShippedDeclaredAt ?? null,
+        shipmentConfirmedAt: r.shipmentConfirmedAt ?? null,
+        inboundGuideClockStartedAt: r.inboundGuideClockStartedAt ?? null,
+        acceptedAt: r.acceptedAt ?? null,
+      },
+      inbound,
+      now,
+      dials.guide,
+    );
+    return {
+      inboundShipment: toAdminInboundShipmentDTO(inbound, now, bsd.actorRole ?? null, { orphanSince: bsd.orphanSince ?? null }),
+      guideDueAt: due.guideDueAt,
+      guideDueSoon: due.guideDueSoon,
+      guideDueInDays: due.guideDueInDays,
+      declineAcceptedAllowed: declineAcceptedAllowedOf(r),
     };
   }
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
   private sellerRef(
-    user: { id: string; name: string; email: string; phone?: string | null } | null | undefined,
+    user: { id: string; name: string; email: string | null; phone?: string | null } | null | undefined,
   ): { id: string; name: string; email: string; phone: string | null } | undefined {
     return user
       ? {
           id: user.id,
           name: user.name,
-          email: user.email,
+          // v1.80.9 (I-STF-1, §M6-U.8 (b)): el vendedor es cliente ⇒ siempre con correo; `null` ⇒ log + `""`.
+          email: customerEmailOrBlank(user.email, 'AdminSellerRef', user.id),
           // ⚠️ v1.51 · **BL-15** (D12, criterios 129/130) — **el teléfono viaja EN LA FILA**, para que
           // el operador **pueda llamar desde la solicitud sin ir a buscar al usuario**. Ése es el
           // requisito: *«que sepamos qué usuarios tienen cotizaciones abiertas»* y poder contactarlos.
@@ -2519,22 +2845,62 @@ export class BuylistService implements OnModuleInit {
       : undefined;
   }
 
-  async adminGet(id: string) {
+  async adminGet(id: string, actor?: { id: string; role: Role }) {
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
       include: {
         items: { include: { card: true } },
         // v1.18-buylist-rejects: mismo `seller: AdminSellerRef` que el listado (§M5).
         user: { select: { id: true, name: true, email: true, phone: true } },
+        // 💰 rev BSD-1 (§BSD.5): la fila de entrada (`inboundShipment`, `guideDueAt`, `labelAlert`).
+        inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
       },
     });
     if (!req) throw BusinessException.notFound();
+    const now = new Date();
+    const orphan = req.inboundShipment ? await inboundOrphanSince(this.prisma, [req.inboundShipment.id], now) : new Map<string, Date>();
+    // ⭐ Robustez PII (deuda M11 · MISMA clase que PR #43 en `getUser`/`getKyc`, pero en el DETALLE de
+    // solicitud que aquel commit no tocó): `clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del
+    // vendedor; se descifra SOLO para ENMASCARARLO (`****4567`) en la vista admin. Si el snapshot
+    // EXISTE y NO descifra —`PII_ENCRYPTION_KEY` rotada, clave efímera de un proceso anterior, o fila
+    // corrupta que el GCM no autentica— `decryptOptional` LANZA, y ese throw subiría sin capturar
+    // hasta el filtro global ⇒ **500 que tumba TODO el detalle**. Aquí es robustez de PRESENTACIÓN,
+    // NO de dinero: se DEGRADA SOLO esta casilla (`clabeMasked: undefined` + `piiUnavailable: true`,
+    // AMBOS ADITIVOS y SOLO en el estado degradado) y el resto del detalle se sirve intacto (200). El
+    // motivo se registra SIN el texto cifrado. ⛔ El reveal para pagar SPEI (`revealClabe`) NO se
+    // toca: ahí la CLABE es OBLIGATORIA para la operación y un fallo debe seguir siendo RUIDOSO.
+    // `piiUnavailable` solo aparece degradado, así que el candado de conjunto de claves sigue verde en
+    // el camino feliz. (Se resuelve local a `buylist` para no tocar la zona compartida
+    // `common/crypto/`; cuando #43 aporte `PiiCryptoService.tryDecryptOptional` a `production`, este
+    // try/catch puede reemplazarse por esa llamada sin cambiar el contrato de respuesta.)
+    let clabeMasked: string | undefined;
+    let clabeUnavailable = false;
+    try {
+      clabeMasked = maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc));
+    } catch (e) {
+      clabeUnavailable = true;
+      const cause = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `adminGet(${id}): CLABE snapshot decrypt failed — degrading clabeMasked to unavailable ` +
+          `(${cause}). Likely PII_ENCRYPTION_KEY was rotated (or an ephemeral per-process key from a ` +
+          'previous run) or the row is corrupt. NOT throwing: the rest of the sell-request detail is ' +
+          'served and piiUnavailable is flagged. Ciphertext is never logged.',
+      );
+    }
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
     // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
     // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
     // era un rest-destructuring (lista NEGRA de un solo campo).
     return {
-      ...this.adminSellRequestDTO(req, await this.adminCycleDials()),
+      ...this.adminSellRequestDTO(req, await this.adminCycleDials(), {
+        actorRole: actor?.role ?? null,
+        orphanSince: req.inboundShipment ? (orphan.get(req.inboundShipment.id) ?? null) : null,
+        now,
+      }),
+      // 💰 rev BSD-1 (§BSD.5): lo que la ventana necesita para no ofrecer un botón que dará 403/404 — calculado PARA EL ACTOR
+      // por el MISMO `labelOptionsFor` del motor (TG-2 de la fila de entrada si existe). Solo en el DETALLE (la lista no
+      // recibe actor, BL-17).
+      ...(actor ? { inboundLabelOptions: await this.inboundLabelOptionsFor(actor, req.inboundShipment?.id ?? null) } : {}),
       seller: this.sellerRef(req.user),
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, en el DETALLE y NO en el listado.** Es la
       // que el operador teclea a mano en el portal de la paquetería para comprar la etiqueta (D19).
@@ -2546,7 +2912,9 @@ export class BuylistService implements OnModuleInit {
       pickupAddress: req.pickupAddressSnapshot ?? null,
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
       items: (req.items ?? []).map((i) => this.itemDTO(i)),
-      clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
+      clabeMasked,
+      // ADITIVO y SOLO en el estado degradado (§ robustez PII de arriba).
+      ...(clabeUnavailable ? { piiUnavailable: true } : {}),
     };
   }
 
@@ -3287,7 +3655,12 @@ export class BuylistService implements OnModuleInit {
     const bountyActive =
       override?.bountyEnabled === true &&
       override.bountyCompletedAt == null &&
-      isBountyEffective(override.bountyPriceCents ?? null, decision?.quote.curveQuoteCents ?? null);
+      isBountyEffective(
+        override.bountyPriceCents ?? null,
+        decision?.quote.curveQuoteCents ?? null,
+        // Q1 (§M2-B.8): el mercado que entró a la curva viaja en la misma decisión de cotización.
+        decision?.quote.marketMxnCents ?? null,
+      );
 
     const bucket = positionKey == null ? null : (position?.get(positionKey) ?? null);
     if (position == null || bucket == null) {
@@ -4075,7 +4448,7 @@ export class BuylistService implements OnModuleInit {
       // PROJECTION-EXEMPT: se proyecta con `toAdminSellRequestDTO` fuera de la tx (la lista blanca
       // que excluye `clabeSnapshotEnc`).
       const after = await tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
       return { before, after, wasSent };
     });
@@ -4375,7 +4748,8 @@ export class BuylistService implements OnModuleInit {
    */
   private async sendOfferMail(
     req: Prisma.SellRequestGetPayload<{ include: { items: { include: { card: { include: { set: true } } } } } }>,
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -4428,7 +4802,7 @@ export class BuylistService implements OnModuleInit {
    * derecho a avisar exactamente así, con su motivo escrito: *«dos corridas concurrentes tampoco
    * pueden mandarlo dos veces»*.
    *
-   * - `sealField === null` ⇒ el aviso **no estrena columna** porque su «una sola vez» ya la da el
+   * - `seal === null` ⇒ el aviso **no estrena columna** porque su «una sola vez» ya la da el
    *   MOTOR (`AV-8`: `stepWhere('receive')` + `count === 1`; `AV-9`: el corto-circuito idempotente de
    *   `pay-spei`). ⛔ **Un sello por evento, jamás una marca global.**
    * - **Destinatario (§R.5):** `SellRequest.userId` es `NOT NULL` ⇒ **siempre** `user.email`; no hay
@@ -4441,7 +4815,11 @@ export class BuylistService implements OnModuleInit {
    */
   private async claimAndNotifySellRequest(
     id: string,
-    sealField: 'guideNoticeSentAt' | null,
+    /**
+     * ⭐ Errata BSD-1.4 punto 4 (AV-7): el sello `guideNoticeSentAt` lleva el NÚMERO que el correo anuncia, y su predicado es
+     * `guideNoticeSealWhere` (`sell-request-guide.ts`), el MISMO que el AV-7 de la guía de entrada. `null` ⇒ sin sello.
+     */
+    seal: { field: 'guideNoticeSentAt'; trackingNumber: string } | null,
     build: (user: {
       name: string | null;
       email: string;
@@ -4464,12 +4842,15 @@ export class BuylistService implements OnModuleInit {
         this.logger.warn(`buylist notice mail skipped for ${id}: no recipient email`);
         return;
       }
-      if (sealField) {
+      if (seal) {
         const sealed = await this.prisma.sellRequest.updateMany({
-          where: { id, [sealField]: null },
-          data: { [sealField]: new Date() },
+          // 💰 rev BSD-1 + BSD-1.4 punto 4: AV-7 («tu guía») solo a una solicitud que SIGUE aceptada y abierta Y cuyo número
+          // sigue siendo el que este correo anuncia. Si se cerró entre la guía y este post-commit, el vendedor recibe BSD-M1 y
+          // ⛔ no una guía cancelada; si el número se corrigió (A ⇒ B), el post-commit de A no casa y ⛔ no anuncia A.
+          where: guideNoticeSealWhere(id, seal.trackingNumber),
+          data: { [seal.field]: new Date() },
         });
-        if (sealed.count !== 1) return; // otra corrida ganó: NO se manda un segundo correo.
+        if (sealed.count !== 1) return; // otra corrida ganó (o cerrada, o número corregido): NO se manda.
       }
       const msg = build({ name: user.name, email: user.email, locale: user.locale });
       if (!msg) return;
@@ -4484,7 +4865,8 @@ export class BuylistService implements OnModuleInit {
   /** **CORREO 5 — cancelamos la oferta.** Mismo régimen best-effort post-commit. */
   private async sendOfferCancelledMail(
     req: { id: string; offerSentAt: Date | null },
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -4552,6 +4934,9 @@ export class BuylistService implements OnModuleInit {
       );
     }
     return {
+      // 💰 rev BSD-1 (§BSD.4.5 «copia al crear»): gana QUIÉN recibe y las referencias de la libreta — la guía de ENTRADA las
+      // necesita (`recipientName` es obligatorio para cotizarla). Solo hacia adelante: ⛔ sin relleno de las viejas.
+      ...(addr.recipientName ? { recipientName: addr.recipientName } : {}),
       line1: addr.line1,
       ...(addr.line2 ? { line2: addr.line2 } : {}),
       ...(addr.neighborhood ? { neighborhood: addr.neighborhood } : {}),
@@ -4562,6 +4947,7 @@ export class BuylistService implements OnModuleInit {
       // ⚠️ El teléfono de la ETIQUETA es el del domicilio, **no `User.phone`** (que es el nuestro,
       // para llamarle). Se parecen y no son el mismo dato.
       phone: addr.phone,
+      ...(addr.references ? { references: addr.references } : {}),
       capturedAt: new Date().toISOString(),
       // Trazabilidad de QUÉ fila se copió, sin que sea una FK viva.
       addressId: addr.id,
@@ -4605,7 +4991,11 @@ export class BuylistService implements OnModuleInit {
    * `buylist.pickup_address.update` con el id anterior y el nuevo, jamás el domicilio.
    */
   async updatePickupAddress(userId: string, id: string, addressId: string) {
+    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada (la compra de la guía toma el mismo orden).
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4614,10 +5004,17 @@ export class BuylistService implements OnModuleInit {
           closedAt: true,
           guideSentAt: true,
           pickupAddressSnapshot: true,
+          inboundShipment: { select: { labelProcessingSince: true } },
         },
       });
       // Anti-IDOR: ajena o inexistente ⇒ MISMA respuesta (no se confirma existencia).
       if (!before || before.userId !== userId) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con una compra de guía de entrada EN CURSO el origen no se mueve bajo sus pies.
+      if (before.inboundShipment?.labelProcessingSince != null) {
+        throw BusinessException.conflict('PICKUP_ADDRESS_LOCKED', 'A label purchase is in progress for this sell request', {
+          reason: 'label_in_progress',
+        });
+      }
       // La dirección se resuelve contra la libreta DEL PROPIO usuario autenticado.
       const snapshot = await this.resolvePickupAddressSnapshot(userId, addressId);
       const guard = await tx.sellRequest.updateMany({
@@ -4643,6 +5040,8 @@ export class BuylistService implements OnModuleInit {
           { status: before.status, guideSentAt: before.guideSentAt },
         );
       }
+      // 💰 rev BSD-1 (§BSD.4.5): la fila de entrada en `solicitado` toma la copia nueva (versión +1, revisión del vendedor).
+      await resyncInboundAddress(tx, id, snapshot, userId, now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: { id: true, pickupAddressSnapshot: true },
@@ -4716,9 +5115,18 @@ export class BuylistService implements OnModuleInit {
    * misma solicitud**. ⛔ **Prohibido el atajo de acumular (`+=`)**: convertiría *«el costo de la
    * etiqueta»* en *«la suma de los costos»* **sin cambiarle el nombre**.
    */
-  async adminUpdatePickupAddress(id: string, addressId: string) {
+  /**
+   * ⭐ Errata BSD-1.4 punto 10 (`API_CONTRACT §BSD.18`): `actorUserId` = el ADMIN que corrige (`@CurrentUser`, ⛔ nunca del
+   * cuerpo). La `ShipmentAddressRevision` de la fila de entrada se firma con él — la misma convención que
+   * `PUT /admin/shipments/:id/address` sobre esa misma fila. SEC-A1 sigue intacto: la regla es la FORMA del DTO (solo
+   * `addressId`) y ningún parámetro es un objeto de domicilio (candado reescrito en `test/buylist.pickup-address.spec.ts`).
+   */
+  async adminUpdatePickupAddress(id: string, addressId: string, actorUserId: string) {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4729,9 +5137,24 @@ export class BuylistService implements OnModuleInit {
           shipmentConfirmedAt: true,
           sellerShippedDeclaredAt: true,
           pickupAddressSnapshot: true,
+          inboundShipment: {
+            select: { id: true, labelSource: true, providerShipmentId: true, providerCanceledAt: true, labelProcessingSince: true },
+          },
         },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx VIVA primero se re-emite (`POST /admin/shipments/:id/label/cancel`); con
+      // una compra en curso, se espera. Corregir el papel no corrige una guía pagada en Skydropx.
+      const inb = before.inboundShipment;
+      if (inb && inb.labelSource === 'skydropx' && inb.providerShipmentId != null && inb.providerCanceledAt == null) {
+        throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Reissue the Skydropx label before correcting the pickup address', {
+          labelSource: 'skydropx',
+          shipmentId: inb.id,
+        });
+      }
+      if (inb && inb.labelProcessingSince != null) {
+        throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A Skydropx label purchase is in progress for this sell request');
+      }
       // La dirección se resuelve contra la libreta DEL VENDEDOR de esta solicitud, no del actor.
       const snapshot = await this.resolvePickupAddressSnapshot(before.userId, addressId);
       const hadGuide = before.guideSentAt != null;
@@ -4785,6 +5208,9 @@ export class BuylistService implements OnModuleInit {
           },
         );
       }
+      // 💰 rev BSD-1 (§BSD.4.5): como la del vendedor — la fila de entrada en `solicitado` toma la copia nueva. ⭐ BSD-1.4
+      // punto 10: la revisión la firma el ACTOR (quien la corrigió), no el vendedor dueño de la libreta (BSD-B42).
+      await resyncInboundAddress(tx, id, snapshot, actorUserId, now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4851,18 +5277,36 @@ export class BuylistService implements OnModuleInit {
     const days = await this.settings.getNumber(SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS);
     const now = new Date();
     const res = await this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud y después su fila de entrada — el mismo orden que la compra de la guía
+      // de entrada, que también escribe el par paquetería/número por `writeSellRequestGuide`.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
           status: true,
-          shipDeadlineAt: true,
           shipmentCarrier: true,
           shipmentTrackingNumber: true,
           guideCancellationPendingAt: true,
           guideCancellationDoneAt: true,
+          inboundShipment: {
+            select: { id: true, labelSource: true, providerShipmentId: true, providerCanceledAt: true, labelProcessingSince: true },
+          },
         },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5, criterios 539/549): la captura a mano NO pisa una guía de Skydropx viva (primero se re-emite
+      // o se cancela) ni una compra en curso. Una fila de entrada en `solicitado` sin reclamo NO estorba (queda inerte).
+      const inbound = before.inboundShipment;
+      if (inbound && inbound.labelSource === 'skydropx' && inbound.providerShipmentId != null && inbound.providerCanceledAt == null) {
+        throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'This sell request already has a Skydropx label', {
+          labelSource: 'skydropx',
+          shipmentId: inbound.id,
+        });
+      }
+      if (inbound && inbound.labelProcessingSince != null) {
+        throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A Skydropx label purchase is in progress for this sell request');
+      }
       if (
         before.guideCancellationPendingAt != null &&
         before.guideCancellationDoneAt == null
@@ -4878,56 +5322,12 @@ export class BuylistService implements OnModuleInit {
         );
       }
       // ⭐ v1.74 (§R.4.b) — **el ciclo del aviso `AV-7` se reinicia por VALOR, no por evento**, y se
-      // limpia **en la MISMA escritura** que cambia la etiqueta. `adminGuide` es re-capturable a
-      // propósito, así que sin esto una corrección de número mandaría un segundo correo idéntico —y
-      // un correo con un número de guía que ya no existe es peor que no haber mandado ninguno.
-      //
-      // ⭐⭐ **2026-09-14 — y la comparación la hace el MOTOR, no una lectura previa.** Esto era
-      // `labelChanged = before.shipmentCarrier !== carrier.trim() || …` calculado sobre el
-      // `findUnique` de arriba: un *comprobar-y-actuar*. **Medido con `N = 25` tiradas de `8`
-      // capturas simultáneas del MISMO número sobre una solicitud nueva: 6/25 mandaban 2 correos.**
-      // La transacción **no** lo salvaba: serializa las escrituras por el candado de fila, pero cada
-      // una sigue decidiendo con el valor que leyó **antes** de esperar, y el sello se reclama
-      // POST-COMMIT ⇒ el `guideNoticeSentAt: null` de la segunda aterriza **después** de que la
-      // primera reclamara, y vuelve a haber derecho a avisar. *(El pase anterior midió `5/5 verde`
-      // aquí y escribió que 5/5 no demuestra nada: tenía razón — con p≈0.24, cinco verdes seguidos
-      // salen el 25 % de las veces.)*
-      //
-      // La forma correcta es bajar la comparación al `WHERE`: bajo `READ COMMITTED` Postgres
-      // **re-evalúa la cualificación sobre la versión ya actualizada** de la fila (`EvalPlanQual`)
-      // ⇒ solo la petición que de verdad dejó la etiqueta distinta obtiene `count === 1`.
-      // ⚠️ Las ramas `: null` son obligatorias: Prisma traduce `{ not: v }` a `col <> v`, y en SQL
-      // `NULL <> 'x'` NO casa — y la primera captura tiene las dos columnas en `NULL`.
-      const labelWhere: Prisma.SellRequestWhereInput = {
-        OR: [
-          { shipmentCarrier: null },
-          { shipmentCarrier: { not: carrier.trim() } },
-          { shipmentTrackingNumber: null },
-          { shipmentTrackingNumber: { not: trackingNumber.trim() } },
-        ],
-      };
-      const data = {
-        shipmentCarrier: carrier.trim(),
-        shipmentTrackingNumber: trackingNumber.trim(),
-        guideSentAt: now,
-        // Solo se congela si NO había fecha: re-capturar corrige el número, no mueve el plazo.
-        ...(before.shipDeadlineAt == null ? { shipDeadlineAt: addBusinessDays(now, days) } : {}),
-      };
-      // La guarda de negocio es del MOTOR (patrón `count===1`), no un `if` sobre la lectura de
-      // arriba; y el reinicio del ciclo del aviso viaja DENTRO de ella, condicionado al valor viejo.
-      let guard = await tx.sellRequest.updateMany({
-        where: { id, status: 'aceptada', closedAt: null, ...labelWhere },
-        data: { ...data, guideNoticeSentAt: null },
-      });
-      if (guard.count !== 1) {
-        // No casó: o la etiqueta ya era ésta (re-captura idempotente ⇒ ⛔ NO se toca el sello), o la
-        // solicitud no admite guía. Lo segundo lo distingue este segundo intento sin la cláusula de
-        // etiqueta: si tampoco casa, es `409`.
-        guard = await tx.sellRequest.updateMany({
-          where: { id, status: 'aceptada', closedAt: null },
-          data,
-        });
-      }
+      // limpia **en la MISMA escritura** que cambia la etiqueta (2026-09-14: la comparación la hace el
+      // MOTOR en el `WHERE`, no una lectura previa — medido 6/25 con dos correos cuando era un `if`).
+      // 💰 rev BSD-1 (§BSD.4.7): el cuerpo vive en `writeSellRequestGuide`, extraído de aquí SIN cambiar
+      // su conducta, porque la compra de la guía de entrada (`persistLabeled`) lo usa también: UN
+      // escritor del par paquetería/número de la solicitud (I-BSD-2). Toda la explicación, allí.
+      const guard = await writeSellRequestGuide(tx, id, carrier, trackingNumber, now, 'manual', days);
       if (guard.count !== 1) {
         const current = await tx.sellRequest.findUnique({
           where: { id },
@@ -4963,7 +5363,9 @@ export class BuylistService implements OnModuleInit {
     // transacción de negocio: meterlo dentro haría que un fallo del correo pudiera revertir la
     // captura de una etiqueta que ya se pagó. *El aviso cuelga del hecho; el hecho no cuelga del
     // aviso.*
-    await this.claimAndNotifySellRequest(id, 'guideNoticeSentAt', (user) =>
+    // ⛔ Sin número no hay nada que anunciar ni que sellar (el DTO lo exige: inalcanzable hoy).
+    if (!res.shipmentTrackingNumber) return res;
+    await this.claimAndNotifySellRequest(id, { field: 'guideNoticeSentAt', trackingNumber: res.shipmentTrackingNumber }, (user) =>
       res.shipmentCarrier && res.shipmentTrackingNumber
         ? sellGuideTemplate(
             {
@@ -5017,11 +5419,26 @@ export class BuylistService implements OnModuleInit {
   ) {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
-        select: { status: true, guideSentAt: true },
+        select: {
+          status: true,
+          guideSentAt: true,
+          inboundShipment: { select: { labelSource: true, providerShipmentId: true, providerCanceledAt: true } },
+        },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx VIVA el costo lo da el proveedor (`shippingCostCents` de la fila de
+      // entrada) ⇒ ⛔ dos fuentes para un costo. Antes de cualquier escritura.
+      const inb = before.inboundShipment;
+      if (guideActualCostCents != null && inb && inb.labelSource === 'skydropx' && inb.providerShipmentId != null && inb.providerCanceledAt == null) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'The label cost of a Skydropx label comes from the provider', {
+          field: 'guideActualCostCents',
+          reason: 'provider_cost',
+        });
+      }
       const guard = await tx.sellRequest.updateMany({
         // Regla dura (criterio 114): **solo** `aceptada`. No existe secuencia que llegue a
         // `en_transito` sin pasar por `ofertada` y `aceptada`, y la guarda va en el `where`.
@@ -5045,6 +5462,9 @@ export class BuylistService implements OnModuleInit {
           { status: current?.status },
         );
       }
+      // 💰 rev BSD-1 (I-BSD-1, §BSD.4.5): la fila de entrada en `solicitado` (sin guía) queda `cancelado`; una en `guia` NO
+      // se toca (es la guía con la que viaja el paquete). Una compra en vuelo la resuelve `casZero` (fila ya `cancelado`).
+      await closeInboundShipment(tx, id, 'shipped', now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -5449,7 +5869,7 @@ export class BuylistService implements OnModuleInit {
       },
     });
     const after = await this.prisma.sellRequest.findUnique(
-      { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      { where: { id }, include: ADMIN_DTO_INCLUDE },
     );
     if (!after) throw BusinessException.notFound();
     if (guard.count !== 1) {
@@ -5536,7 +5956,7 @@ export class BuylistService implements OnModuleInit {
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       const after = await tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
       return { before, after };
     });
@@ -5551,10 +5971,103 @@ export class BuylistService implements OnModuleInit {
     return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials);
   }
 
+  /**
+   * 💰 rev BSD-1 · **`POST /admin/buylist/:id/decline-accepted` — «Declinar» en «Aceptada»** (API_CONTRACT §BSD.6).
+   *
+   * Le pone firma a lo que la regla 8 del barrido haría sola (mismo criterio que D39): `expirada` + `not_continued` +
+   * `closedAt` + `declinedBy = actor`. ⛔ No es `@MoneyOut`: no saca dinero; a lo sumo DEVUELVE saldo de Skydropx.
+   *
+   * Orden (I-BSD-4): el `updateMany` toma la solicitud; `closeInboundShipment` toma DESPUÉS la fila de entrada, la pasa a
+   * `cancelado` y sella la guía viva de Skydropx para cancelarla post-commit. La tarea «cancelar guía no usada» SOLO con guía
+   * manual o `live` (`needsGuideCancelTask`, §BSD.4.8). Post-commit: `afterAutoCloseVia` y después **BSD-M1** (best-effort).
+   * ⛔ Sin `200` idempotente: un segundo intento ⇒ `409 DECLINE_NOT_ALLOWED`. **No cuenta contra el vendedor** (§BSD.7.4).
+   *
+   * `reason` (3–500 tras `trim`) es INTERNO: lo audita el controlador (`buylist.request.decline_accepted`); ⛔ nunca al correo
+   * ni a un DTO de cliente — por eso este método NO lo recibe.
+   */
+  async adminDeclineAccepted(id: string, actor: { id: string; role: Role }) {
+    const now = new Date();
+    const dials = await this.adminCycleDials();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const exists = await tx.sellRequest.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw BusinessException.notFound();
+      const guard = await tx.sellRequest.updateMany({
+        // La guarda del MOTOR (⛔ un `if` sobre una lectura): el MISMO objeto que deriva `declineAcceptedAllowed`.
+        where: { id, ...DECLINE_ACCEPTED_LEGAL },
+        data: {
+          status: 'expirada',
+          expiredReason: SellRequestExpiryReason.not_continued,
+          closedAt: now,
+          declinedBy: actor.id,
+        },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, closedAt: true, sellerShippedDeclaredAt: true, shipmentConfirmedAt: true },
+        });
+        throw BusinessException.conflict('DECLINE_NOT_ALLOWED', 'Only an accepted sell request with no shipment signal can be declined', {
+          status: current?.status,
+          reason: current ? declineAcceptedBlockOf(current) : 'status',
+        });
+      }
+      // I-BSD-1: la fila de entrada sale con la solicitud, EN ESTA transacción.
+      const inbound = await closeInboundShipment(tx, id, 'close', now);
+      // Leída bajo el candado (el `updateMany` de arriba lo tomó): la etiqueta que hay que cancelar es ésta.
+      const sr = await tx.sellRequest.findUnique({
+        where: { id },
+        select: { shipmentTrackingNumber: true, guideCancellationDoneAt: true },
+      });
+      if (sr && needsGuideCancelTask(sr, inbound)) {
+        await tx.sellRequest.updateMany({ where: { id }, data: { guideCancellationPendingAt: now } });
+      }
+      const user = (await tx.sellRequest.findUnique({ where: { id }, select: { user: { select: { name: true, email: true, locale: true } } } }))?.user;
+      return { inbound, user };
+    });
+    if (outcome.inbound.outcome === 'sealed' && outcome.inbound.shipmentId) {
+      await afterAutoCloseVia(this.moduleRef, [outcome.inbound.shipmentId]);
+      // BSD-B14: Skydropx no confirmó la cancelación ⇒ la tarea con el número, ya (no a la hora de la regla 10).
+      await openGuideTaskIfCancelUnconfirmed(this.prisma, id, outcome.inbound.shipmentId, now);
+    }
+    // BSD-M1 — el MISMO correo que el cierre automático (regla 8). Uno por solicitud: lo garantiza el `count === 1`.
+    await this.sendNotContinuedMail(id, outcome.user);
+    // La respuesta se lee DESPUÉS del post-commit: así trae la tarea si Skydropx no confirmó la cancelación.
+    // PROJECTION-EXEMPT: fila cruda; se proyecta con la lista blanca admin.
+    const after = await this.prisma.sellRequest.findUnique({ where: { id }, include: ADMIN_DTO_INCLUDE });
+    if (!after) throw BusinessException.notFound();
+    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now });
+  }
+
+  /** **BSD-M1 — «no continuamos».** Best-effort post-commit; su fallo no revierte el cierre. */
+  private async sendNotContinuedMail(
+    id: string,
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist decline-accepted mail skipped for ${id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const msg = sellRequestNotContinuedTemplate(
+        { folio: id, portalUrl: buylistPortalUrl(id, user.locale) },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist decline-accepted mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   /** **CORREO 4 — «no procederemos».** Best-effort post-commit; su fallo no revierte el cierre. */
   private async sendNotPursuedMail(
     id: string,
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -5695,7 +6208,7 @@ export class BuylistService implements OnModuleInit {
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
       return tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
     });
     if (!row) throw BusinessException.notFound();
@@ -5737,7 +6250,7 @@ export class BuylistService implements OnModuleInit {
       });
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       return tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
     });
     if (!row) throw BusinessException.notFound();
@@ -6192,6 +6705,51 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * 💰 v1.82.1 · §PNL.10.2 (E-2) — el `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`. Un cuerpo para
+   * los dos llamadores (el pre-check y la relectura del rechazo). ⛔ Sin código nuevo: es un valor de
+   * `details.reason` del `409 CONFLICT` que ya existe (forma de `CONCURRENT_UPDATE`), §PNL.10.2.4.
+   */
+  private itemFinalConflict(itemId: string, itemStatus: SellItemStatus): BusinessException {
+    return BusinessException.conflict(
+      'CONFLICT',
+      'This card is already inventory or already paid: it can no longer be decided',
+      { itemId, itemStatus, reason: 'ITEM_FINAL' },
+    );
+  }
+
+  /**
+   * 💰 v1.82.1 · §PNL.10.2.2 — el PRE-CHECK `ITEM_FINAL` (el aviso honesto, sobre la lectura). Método propio para
+   * que BRJ-12 pueda apagarlo por inyección y medir que el `where` de `rejectItemWrite` sostiene la regla solo.
+   */
+  private assertItemNotFinal(item: { id: string; itemStatus: SellItemStatus }): void {
+    if (isItemFinal(item.itemStatus)) throw this.itemFinalConflict(item.id, item.itemStatus);
+  }
+
+  /**
+   * 💰 v1.82.1 · §PNL.10.2.3 — el `PATCH {reject}` cuyo `where` no casó: se RELEE. Solicitud terminal ⇒ lo de
+   * siempre (`throwTerminalConflict`, gana); carta en estado final ⇒ `409 … ITEM_FINAL`; cualquier otra cosa
+   * (la fila desapareció) ⇒ el `409` terminal de siempre, con su relectura.
+   */
+  private async throwRejectWriteConflict(
+    db: SellRequestReader & Pick<Prisma.TransactionClient, 'sellRequestItem'>,
+    itemId: string,
+    sellRequestId: string,
+  ): Promise<never> {
+    const current = await db.sellRequest.findUnique({
+      where: { id: sellRequestId },
+      select: { status: true },
+    });
+    // 💰 rev BSD-1.3 punto 1: la guarda del `where` excluye `aceptada` (la solicitud se aceptó entre la lectura y aquí).
+    if (current?.status === 'aceptada') throw this.rejectOnAcceptedError(sellRequestId);
+    // Mismo eje que el `where` del rechazo (`notTerminalWhere`: estado), para que la relectura diga lo que chocó.
+    if (current != null && !isTerminalSellRequestStatus(current.status)) {
+      const fresh = await db.sellRequestItem.findUnique({ where: { id: itemId }, select: { itemStatus: true } });
+      if (fresh && isItemFinal(fresh.itemStatus)) throw this.itemFinalConflict(itemId, fresh.itemStatus);
+    }
+    return this.throwTerminalConflict(db, sellRequestId);
+  }
+
+  /**
    * v1.51.20 · **BL-27** — el `409` del CICLO DE OFERTA, con el estado **releído** (y dentro de la
    * transacción, cuando la hay). Hermano exacto de `throwTerminalConflict`: mismo motivo para releer
    * —`details.status` tiene que decir el estado REAL contra el que se chocó— y misma forma que el
@@ -6384,6 +6942,9 @@ export class BuylistService implements OnModuleInit {
     parent: { id: string; receivedAt: Date | null },
     status: SellRequestStatus,
   ): void {
+    // 💰 rev BSD-1.3 punto 1 — en `aceptada` las cartas NO han llegado: rechazarlas mandaría el correo de cartas rechazadas,
+    // con su motivo y los relojes de devolución, sobre cartas que nunca recibimos. Cerrar una `aceptada` es «Declinar».
+    if (decision === 'reject' && status === 'aceptada') throw this.rejectOnAcceptedError(parent.id);
     if (decision !== 'approve' || parent.receivedAt != null) return;
     throw BusinessException.validation(
       'REQUEST_NOT_RECEIVED',
@@ -6391,6 +6952,19 @@ export class BuylistService implements OnModuleInit {
       // Nombra la SOLICITUD, no la línea, porque el remedio es sobre la solicitud: `POST …/receive`.
       // *El error nombra la palanca.*
       { sellRequestId: parent.id, status },
+    );
+  }
+
+  /**
+   * 💰 rev BSD-1.3 punto 1 — `422 REQUEST_NOT_RECEIVED {sellRequestId, status:'aceptada', remedy:'decline_accepted'}`: el
+   * código ya existe; lo nuevo es `remedy`, que nombra la palanca (§BSD.6). UN cuerpo para los tres sitios (aviso de la
+   * decisión por carta, aviso de `POST …/reject` y la relectura cuando la guarda del `WHERE` no casó).
+   */
+  private rejectOnAcceptedError(sellRequestId: string): BusinessException {
+    return BusinessException.validation(
+      'REQUEST_NOT_RECEIVED',
+      'This sell request is accepted and its cards have not arrived: decline it instead of rejecting',
+      { sellRequestId, status: 'aceptada', remedy: 'decline_accepted' },
     );
   }
 
@@ -6417,7 +6991,7 @@ export class BuylistService implements OnModuleInit {
     // `common/buylist-aml.ts`): la relectura de la LÍNEA solo la necesita este cuerpo, y ensanchar el
     // tipo común obligaría a proveer `sellRequestItem` a los tres acumulados AML que no lo usan.
     db: SellRequestReader & Pick<Prisma.TransactionClient, 'sellRequestItem'>,
-    item: { id: string; sellRequestId: string; offeredPriceCents: number | null },
+    item: { id: string; sellRequestId: string; offeredPriceCents: number | null; itemStatus: SellItemStatus },
     decision: 'approve' | 'adjust',
     approvedPriceCents?: number,
   ): Promise<never> {
@@ -6447,6 +7021,21 @@ export class BuylistService implements OnModuleInit {
         // ⚠️ v1.58 · §M5-R (BL-39) — **FUERA del ciclo la escalera del ciclo no corre, pero R sí**:
         // no es una regla del ciclo de oferta, es una afirmación sobre mercancía física. Mismo cuerpo.
         this.assertRequestReceived(decision, parent, current.status);
+      }
+      // ⚠️ v1.82 · PNL-4 (BRJ-8) — **la CARTA cambió bajo la decisión.** El `where` de abajo lleva
+      // `itemStatus` = el observado (CAS); si otra escritura la movió entre la lectura y la escritura
+      // (un `reject-items`, un rechazo por carta, una conversión), la solicitud sigue VIVA y decir
+      // «cerrada» (`NO_LIVE_ADJUSTMENT`) mentiría. Mismo código y forma que la carrera de §M5-S (I5).
+      const freshItem = await db.sellRequestItem.findUnique({
+        where: { id: item.id },
+        select: { itemStatus: true },
+      });
+      if (freshItem && freshItem.itemStatus !== item.itemStatus) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This card was modified by another operation; nothing was changed. Please retry.',
+          { itemId: item.id, itemStatus: freshItem.itemStatus, reason: 'CONCURRENT_UPDATE' },
+        );
       }
     }
     // Terminal (o cualquier otra desaparición de la fila): el `409` de siempre, con su relectura.
@@ -6582,6 +7171,12 @@ export class BuylistService implements OnModuleInit {
       );
     }
 
+    // 💰 v1.82.1 · §PNL.10.2 (E-2) — PELDAÑO `ITEM_FINAL`, en los TRES verbos: inmediatamente después de
+    // `NO_LIVE_ADJUSTMENT` (la solicitud cerrada gana a todo) y antes de cualquier otro, incluida la idempotencia
+    // del `reject` (`rechazada` no es final: no se solapan). Cero escrituras, correo, bitácora y recálculo.
+    // La guarda REAL del rechazo es el `where` de `rejectItemWrite`; la de `approve`/`adjust`, su CAS por estado.
+    this.assertItemNotFinal(item);
+
     // ⚠️ v1.51.20 · BL-27 — PRE-CHECK del CICLO DE OFERTA. Va DESPUÉS del de terminal (precedencia
     // normativa: `NO_LIVE_ADJUSTMENT` gana) y ANTES de cualquier escritura. La guarda REAL —la del
     // motor— está en el `where` de cada escritura de abajo.
@@ -6639,21 +7234,12 @@ export class BuylistService implements OnModuleInit {
       // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
       // v1.51.5 · BL-14: `updateMany` + `count === 1` con la guarda de terminal EN EL `where` — la
       // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
-      const guard = await this.prisma.sellRequestItem.updateMany({
-        // ⚠️ v1.51.20 · BL-27 — el eje del ciclo **NO** entra a este `where`, y es deliberado:
-        // `reject` es legal a los DOS lados del discriminador (D30: es el mecanismo del rechazo
-        // PARCIAL, «se rechaza carta por carta con el correo que YA EXISTE») y su escritura **no
-        // depende de ningún monto**. Meterlo aquí fabricaría un `409` por una carrera que no cambia
-        // nada de lo que se escribe. *Se guarda lo que el estado condiciona, no todo lo que se leyó.*
-        where: { id: itemId, sellRequest: this.notTerminalWhere() },
-        data: {
-          itemStatus: 'rechazada',
-          approvedPriceCents: null,
-          rejectedAt,
-          rejectionReason: trimmedReason,
-        },
-      });
-      if (guard.count !== 1) await this.throwTerminalConflict(this.prisma, item.sellRequestId);
+      // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
+      // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
+      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt);
+      // v1.82.1 · §PNL.10.2.3 — `count ≠ 1` se RELEE: solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta en
+      // estado final ⇒ `409 CONFLICT … ITEM_FINAL` (una conversión confirmó entre la lectura y aquí).
+      if (!written) await this.throwRejectWriteConflict(this.prisma, itemId, item.sellRequestId);
       // `updateMany` no devuelve filas: la relectura es la única forma de responder el estado ya
       // escrito (mismo motivo que en `respond`).
       const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
@@ -6736,6 +7322,12 @@ export class BuylistService implements OnModuleInit {
       const guard = await tx.sellRequestItem.updateMany({
         where: {
           id: itemId,
+          // ⚠️ v1.82 · PNL-4 (BRJ-8) — **CAS por estado de la carta.** Sin él, una aprobación que LEYÓ la
+          // carta en `verificacion` y ESCRIBE después de que `reject-items` la rechazara dejaba la fila
+          // `aprobada` con `rejectedAt`/`rejectionReason` puestos (el `if (item.itemStatus === 'rechazada')`
+          // de arriba decide la limpieza con la lectura vieja): **aprobada y rechazada a la vez**. Con el CAS,
+          // la decisión tomada sobre una vista vieja no escribe (`409 CONFLICT · CONCURRENT_UPDATE`).
+          itemStatus: item.itemStatus,
           sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere, ...receivedWhere },
         },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
@@ -6776,8 +7368,26 @@ export class BuylistService implements OnModuleInit {
    * approvedTotalCents" (el reject ya anula approvedPriceCents; esto lo blinda ante escrituras
    * futuras que olviden anular el monto). `quotedTotalCents` nunca se recalcula (snapshot).
    */
-  private async recomputeApprovedTotal(sellRequestId: string): Promise<void> {
-    const agg = await this.prisma.sellRequestItem.aggregate({
+  private async recomputeApprovedTotal(
+    sellRequestId: string,
+    // v1.82 · PNL-4: `reject-items` lo corre DENTRO de su tx, con la fila `SellRequest` ya tomada `FOR UPDATE`.
+    db?: Pick<Prisma.TransactionClient, 'sellRequestItem' | 'sellRequest'>,
+  ): Promise<void> {
+    if (!db) {
+      // ⚠️ v1.82 · PNL-4 (BRJ-8, MEDIDO) — **el recálculo suelto escribía un total VIEJO.** Leía el agregado y
+      // escribía después, sin candado: si entre las dos un `reject-items` rechazaba una carta y confirmaba,
+      // este `update` pisaba su total con el de ANTES — la carta quedaba `rechazada` y su precio seguía en
+      // `approvedTotalCents` (medido: 1 de 4 corridas de BRJ-8 (c), N = 12 rondas cada una: total 12000 con
+      // la carta rechazada). Ahora toma la fila `SellRequest` `FOR UPDATE` ANTES de agregar: serializa con
+      // `reject-items` (que la sostiene durante su tx) y con otro recálculo, y el agregado se lee DESPUÉS
+      // del candado ⇒ ve lo que el último confirmó.
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${sellRequestId} FOR UPDATE`;
+        await this.recomputeApprovedTotal(sellRequestId, tx);
+      });
+      return;
+    }
+    const agg = await db.sellRequestItem.aggregate({
       where: {
         sellRequestId,
         approvedPriceCents: { not: null },
@@ -6808,7 +7418,7 @@ export class BuylistService implements OnModuleInit {
     // ítem. El no-op ES el resultado correcto: sobre una fila cerrada el total ya no se recalcula
     // porque **el total congelado es exactamente el que se pagó**. Se registra para que la carrera
     // sea VISIBLE (§4.39k.1: se degrada lo que se muestra, nunca lo que se compromete).
-    const guard = await this.prisma.sellRequest.updateMany({
+    const guard = await db.sellRequest.updateMany({
       where: { id: sellRequestId, ...this.liveRequestWhere() },
       data: { approvedTotalCents },
     });
@@ -6838,27 +7448,237 @@ export class BuylistService implements OnModuleInit {
     // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
     // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
     // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
-    await runSerializable(
+    await runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
+      label: 'rejectAllItems',
+      logger: this.logger,
+    });
+  }
+
+  /**
+   * El cuerpo ÚNICO de la auto-transición (§4.18f): «¿queda alguna carta no-rechazada?» + «sella
+   * `rechazada`+`closedAt`», en la tx del llamador. Lo usan `maybeAutoRejectRequest` (rechazo por carta)
+   * y `rejectItems` (v1.82 · PNL-4, dentro de su tx con la solicitud `FOR UPDATE`).
+   * @returns `true` si ESTA llamada cerró la solicitud.
+   */
+  private async autoRejectIfAllRejectedTx(tx: Prisma.TransactionClient, sellRequestId: string): Promise<boolean> {
+    // ⚠️ v1.82.3 · §PNL.12 (a) — **Regla C**: cierra solo si hay ≥1 línea que CUENTA y todas las que
+    // cuentan están `rechazada` (convertida_inventario cuenta como viva). Las `skip` no cuentan: nada las
+    // rechaza (§M5-V.0), así que contarlas dejaba la solicitud en `verificacion` para siempre. Con 0
+    // líneas que cuentan NO se cierra. La `skip` no se escribe.
+    if (!closesAsRejectedByWhere(await readClosureRule(tx, sellRequestId))) return false;
+    // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
+    // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
+    // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
+    // `status`, luego obedece T; y llevaba **solo el de estado**, así que sobre la fila que P1
+    // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
+    // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
+    const res = await tx.sellRequest.updateMany({
+      // 💰 rev BSD-1.3 punto 1 — ⛔ `aceptada` en el `WHERE` (censo BSD-B25 (b), clase `excludes_aceptada`): rechazar todas las
+      // líneas de una `aceptada` NO la cierra `rechazada` (eso la sacaría de `aceptada` sin I-BSD-1). Ni por carrera.
+      where: { id: sellRequestId, ...this.liveRequestWhere(), NOT: { status: 'aceptada' } },
+      data: { status: 'rechazada', closedAt: new Date() },
+    });
+    return res.count === 1;
+  }
+
+  /**
+   * v1.82 · PNL-4 — **la escritura de UN rechazo de carta**, un cuerpo para `PATCH …/decision {reject}` y
+   * `POST …/reject-items` (§PNL.4 paso 5, «el mismo efecto»): `rechazada`, `approvedPriceCents = null`
+   * (BL-1: el rechazo SACA la carta del total), `rejectedAt` (ancla de los plazos +7 d / +30 d, que se
+   * derivan con `rejectDeadlines`) y el motivo. Guarda de terminal EN EL `where` (BL-14).
+   *
+   * ⚠️ v1.51.20 · BL-27 — el eje del ciclo **NO** entra a este `where`, y es deliberado: `reject` es legal a
+   * los DOS lados del discriminador (D30: es el mecanismo del rechazo PARCIAL) y su escritura **no depende
+   * de ningún monto**. *Se guarda lo que el estado condiciona, no todo lo que se leyó.*
+   *
+   * `expectedItemStatus` (solo `reject-items`): **CAS por estado de la carta** — el lote decidió con la
+   * carta en ese estado (no convertida, no pagada, no rechazada); si otra escritura la movió entre la
+   * lectura y aquí (una aprobación, una conversión), `count = 0` y el lote entero se deshace (BRJ-8).
+   * @returns `true` si escribió la fila.
+   */
+  private async rejectItemWrite(
+    db: Pick<Prisma.TransactionClient, 'sellRequestItem'>,
+    itemId: string,
+    trimmedReason: string,
+    rejectedAt: Date,
+    expectedItemStatus?: SellItemStatus,
+  ): Promise<boolean> {
+    const guard = await db.sellRequestItem.updateMany({
+      where: {
+        id: itemId,
+        // 💰 rev BSD-1.3 punto 1: ni en terminal ni en `aceptada` (las cartas no han llegado). En el `WHERE`, no solo en el aviso
+        // de `itemDecision`: una aceptación del vendedor entre la lectura y aquí no puede dejar una carta rechazada (con correo
+        // y relojes de devolución) sobre una solicitud cuyas cartas nunca recibimos.
+        // (Misma lista que `notTerminalWhere()` — la constante única — más `aceptada`.)
+        sellRequest: { status: { notIn: [...SELL_REQUEST_TERMINAL_STATES, 'aceptada'] } },
+        // 💰 v1.82.1 · §PNL.10.2.3 (E-2) — **SIEMPRE**, venga o no `expectedItemStatus`: una carta que ya es
+        // inventario (o ya se pagó) no se rechaza. Sin este término, el `PATCH {reject}` sin `if` la dejaba
+        // `rechazada` con su pieza `in_stock` y fuera del total que se le paga al vendedor (medido 1/1, §59.5).
+        AND: [
+          { itemStatus: { notIn: [...ITEM_FINAL_STATUSES] } },
+          ...(expectedItemStatus ? [{ itemStatus: expectedItemStatus }] : []),
+        ],
+      },
+      data: {
+        itemStatus: 'rechazada',
+        approvedPriceCents: null,
+        rejectedAt,
+        rejectionReason: trimmedReason,
+      },
+    });
+    return guard.count === 1;
+  }
+
+  /**
+   * v1.82 · **PNL-4 — `POST /admin/buylist/:id/reject-items`** (`API_CONTRACT §PNL.4`, `ARCHITECTURE §4.61.4`).
+   * Rechaza VARIAS cartas de una solicitud en `verificacion` con UN motivo, **todo o nada**, y manda **un**
+   * correo (correo 29). ⛔ No es dinero saliente (operador+), pero cambia lo que se le paga al vendedor:
+   * cada carta sale del total aprobado (BL-1) dentro de la misma tx.
+   *
+   * Orden normativo (§PNL.4): `400` de forma → tx con `SellRequest FOR UPDATE` → terminal o `closedAt` ⇒
+   * `409 CONFLICT {status, closedAt}` → `status ≠ verificacion` ⇒ `409 INVALID_TRANSITION {from, allowedFrom}`
+   * → algún id ajeno ⇒ `404` → alguna `skip` ⇒ `422 ITEM_NOT_OFFERED {itemIds}` → alguna no rechazable ⇒
+   * `409 CONFLICT {itemIds}` → por carta `rejectItemWrite` con CAS por estado → recálculo del total →
+   * auto-cierre si no queda ninguna viva. El correo va DESPUÉS del commit (best-effort, no deshace).
+   *
+   * **Serializable + `FOR UPDATE`**: el candado serializa con otro `reject-items`/`reject` sobre la misma
+   * solicitud; el CAS por carta cubre a quien no toma el candado (la decisión por carta, la conversión).
+   * Si el CAS falla, se lanza dentro de la tx ⇒ rollback de TODO lo escrito (todo o nada, BRJ-4/BRJ-8).
+   */
+  async rejectItems(
+    id: string,
+    body: unknown,
+  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string }> {
+    const { itemIds, reason } = parseRejectItemsBody(body);
+    const rejectedAt = new Date();
+    const outcome = await runSerializable(
       this.prisma,
       async (tx) => {
-        // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
-        const nonRejectedCount = await tx.sellRequestItem.count({
-          where: { sellRequestId, itemStatus: { not: 'rechazada' } },
+        const locked = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+        if (locked.length === 0) throw BusinessException.notFound();
+        const req = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, closedAt: true },
         });
-        if (nonRejectedCount > 0) return; // aún hay ítems no-rechazados → no se auto-rechaza.
-        // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
-        // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
-        // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
-        // `status`, luego obedece T; y llevaba **solo el de estado**, así que sobre la fila que P1
-        // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
-        // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
-        await tx.sellRequest.updateMany({
-          where: { id: sellRequestId, ...this.liveRequestWhere() },
-          data: { status: 'rechazada', closedAt: new Date() },
+        if (!req) throw BusinessException.notFound();
+        if (isTerminalSellRequestStatus(req.status) || req.closedAt !== null) {
+          throw this.requestClosedConflict(req);
+        }
+        if (req.status !== 'verificacion') {
+          throw BusinessException.conflict(
+            'INVALID_TRANSITION',
+            `This sell request is in '${req.status}'; rejecting several cards only applies from verificacion`,
+            { from: req.status, allowedFrom: ['verificacion'] },
+          );
+        }
+        const rows = await tx.sellRequestItem.findMany({
+          where: { id: { in: itemIds }, sellRequestId: id },
+          select: { id: true, itemStatus: true, offerDecision: true },
         });
+        // `404` ⇒ algún id no es de ESTA solicitud (o no existe): no se distingue cuál a propósito.
+        if (rows.length !== itemIds.length) throw BusinessException.notFound();
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const ordered = itemIds.map((i) => byId.get(i)!);
+        const notOffered = ordered.filter((r) => rejectItemsBlock(r) === 'not_offered').map((r) => r.id);
+        if (notOffered.length > 0) {
+          throw BusinessException.validation(
+            'ITEM_NOT_OFFERED',
+            'Some of these lines were not purchased (skip): they are not rejected',
+            { itemIds: notOffered },
+          );
+        }
+        const blocked = ordered.filter((r) => rejectItemsBlock(r) === 'not_rejectable').map((r) => r.id);
+        if (blocked.length > 0) {
+          throw BusinessException.conflict('CONFLICT', 'Some of these cards can no longer be rejected', {
+            itemIds: blocked,
+          });
+        }
+        for (const r of ordered) {
+          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus);
+          if (!written) {
+            // El CAS no casó: otra escritura movió la carta entre la lectura y aquí. ⛔ Nada queda escrito
+            // (el throw deshace la tx entera). Mismo `409 CONFLICT {itemIds}` que el pre-check.
+            this.logger.warn(
+              `PNL-4 · reject-items ${id}: la carta ${r.id} cambió de '${r.itemStatus}' bajo el lote; se deshace todo.`,
+            );
+            throw BusinessException.conflict('CONFLICT', 'Some of these cards can no longer be rejected', {
+              itemIds: [r.id],
+            });
+          }
+        }
+        await this.recomputeApprovedTotal(id, tx);
+        const requestClosed = await this.autoRejectIfAllRejectedTx(tx, id);
+        const updated = await tx.sellRequestItem.findMany({ where: { id: { in: itemIds } } });
+        const updatedById = new Map(updated.map((u) => [u.id, u]));
+        return { items: itemIds.map((i) => toAdminSellItemRow(updatedById.get(i)!)), requestClosed };
       },
-      { label: 'rejectAllItems', logger: this.logger },
+      { label: 'rejectItems', logger: this.logger },
     );
+    await this.sendItemsRejectedMail(id, itemIds, reason, rejectedAt, outcome.requestClosed);
+    return { ...outcome, itemIds, reason };
+  }
+
+  /**
+   * v1.82 · PNL-4 — el correo 29 (`sellItemsRejectedTemplate`), **UNO** por lote. BEST-EFFORT POST-COMMIT
+   * (patrón `sendItemRejectedMail`): todo —incluida la lectura de datos— dentro del `try`; un fallo se
+   * registra y ⛔ no deshace el rechazo. Minimización §4.18c: cartas (nombre/set/número/acabado), motivo y
+   * plazos — sin CLABE, sin montos, sin el estado de las demás cartas.
+   */
+  private async sendItemsRejectedMail(
+    sellRequestId: string,
+    itemIds: string[],
+    reason: string,
+    rejectedAt: Date,
+    requestClosed: boolean,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`buylist reject-items mail skipped for ${sellRequestId}: MAIL_PORT unavailable`);
+        return;
+      }
+      const req = await this.prisma.sellRequest.findUnique({
+        where: { id: sellRequestId },
+        select: { user: { select: { email: true, name: true, locale: true } } },
+      });
+      const user = req?.user;
+      if (!user?.email) {
+        this.logger.warn(`buylist reject-items mail skipped for ${sellRequestId}: no recipient email`);
+        return;
+      }
+      const items = await this.prisma.sellRequestItem.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, finish: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
+      });
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+      const msg = sellItemsRejectedTemplate(
+        {
+          folio: sellRequestId,
+          cards: itemIds.map((i) => {
+            const it = byId.get(i);
+            return {
+              cardName: it?.card?.name ?? '',
+              setName: it?.card?.set?.name ?? '',
+              cardNumber: it?.card?.number ?? '',
+              finish: it?.finish ?? 'normal',
+            };
+          }),
+          reason,
+          rejectedAt,
+          returnDeadlineAt: returnDeadlineAt!,
+          abandonDeadlineAt: abandonDeadlineAt!,
+          requestClosed,
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist reject-items mail failed for ${sellRequestId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**
@@ -6894,6 +7714,8 @@ export class BuylistService implements OnModuleInit {
         { status: req.status },
       );
     }
+    // 💰 rev BSD-1.3 punto 1 — el AVISO previo; la guarda REAL es el `WHERE` de abajo (`NOT: { status: 'aceptada' }`).
+    if (req.status === 'aceptada') throw this.rejectOnAcceptedError(id);
     // v1.24 (endurecimiento §4.18g): el guard de precondición (leer ítems vivos) y el sellado del
     // estado (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón que
     // `createRequest`/SEC-A2), para que "todos los ítems rechazados" y "solicitud rechazada" no
@@ -6901,17 +7723,26 @@ export class BuylistService implements OnModuleInit {
     const transitioned = await runSerializable(
       this.prisma,
       async (tx) => {
-        // Precondición (idéntica a la regla f): cierra SÓLO si TODOS los ítems ya están `rechazada`.
-        // Cualquier ítem vivo (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea el
-        // cierre → 422 con los status vivos encontrados.
-        const liveItems = await tx.sellRequestItem.findMany({
-          where: { sellRequestId: id, itemStatus: { not: 'rechazada' } },
-          select: { itemStatus: true },
-        });
-        if (liveItems.length > 0) {
-          const nonRejectedItemStatuses = Array.from(
-            new Set(liveItems.map((i) => i.itemStatus)),
-          ) as SellItemStatus[];
+        // Precondición (idéntica a la regla f): **Regla C** (v1.82.3 · §PNL.12 (b)) — cierra SÓLO si hay
+        // ≥1 línea que CUENTA y todas las que cuentan ya están `rechazada`. Cualquier línea que cuenta y
+        // sigue viva (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea → 422 con SUS
+        // estados (los de las `skip` no salen). Con 0 líneas que cuentan: 422 con los estados de TODAS
+        // (fail-closed: no hay nada comprado que rechazar). La `skip` no se escribe.
+        const rule = await readClosureRule(tx, id);
+        if (!closesAsRejectedByWhere(rule)) {
+          const nonRejectedItemStatuses =
+            rule.countingItems > 0
+              ? rule.nonRejectedItemStatuses
+              : (Array.from(
+                  new Set(
+                    (
+                      await tx.sellRequestItem.findMany({
+                        where: { sellRequestId: id },
+                        select: { itemStatus: true },
+                      })
+                    ).map((i) => i.itemStatus),
+                  ),
+                ) as SellItemStatus[]);
           throw BusinessException.validation(
             'REQUEST_HAS_NON_REJECTED_ITEMS',
             'Request still has non-rejected items; reject them per-item before closing the request',
@@ -6930,7 +7761,8 @@ export class BuylistService implements OnModuleInit {
         // fila sana los dos términos excluyen exactamente lo mismo, así que el `count === 0` llega a
         // la misma rama que hoy. Lo único nuevo es que la fila INCOHERENTE cae en el `409`.
         const res = await tx.sellRequest.updateMany({
-          where: { id, ...this.liveRequestWhere() },
+          // 💰 rev BSD-1.3 punto 1 — ⛔ `aceptada` en el `WHERE` (clase `excludes_aceptada` del censo BSD-B25 (b)).
+          where: { id, ...this.liveRequestWhere(), NOT: { status: 'aceptada' } },
           data: { status: 'rechazada', closedAt: new Date() },
         });
         // count===0 ⇒ una transición concurrente cerró la solicitud entre la lectura inicial y el
@@ -6941,6 +7773,8 @@ export class BuylistService implements OnModuleInit {
         if (res.count === 0) {
           const current = await tx.sellRequest.findUnique({ where: { id }, select: { status: true } });
           if (current?.status === 'rechazada') return false;
+          // 💰 rev BSD-1.3 punto 1: la guarda del `WHERE` la dejó en `aceptada` (se aceptó entre el aviso y aquí).
+          if (current?.status === 'aceptada') throw this.rejectOnAcceptedError(id);
           throw BusinessException.conflict(
             'CONFLICT',
             'Request is already in a terminal state and cannot be rejected',
@@ -6968,7 +7802,7 @@ export class BuylistService implements OnModuleInit {
       // soporte, y este correo es justo el que le pide escribir a soporte.
       sellRequestId: string;
       finish: Finish;
-      sellRequest?: { user?: { email: string; name: string; locale: string | null } | null } | null;
+      sellRequest?: { user?: { email: string | null; name: string; locale: string | null } | null } | null;
       card?: { name: string; number: string; set?: { name: string } | null } | null;
     },
     reason: string,
@@ -7154,10 +7988,25 @@ export class BuylistService implements OnModuleInit {
             note: `from sellRequestItem ${item.id}`,
           },
         });
-        await tx.sellRequestItem.update({
-          where: { id: itemId },
+        // 💰 v1.82.1 · §PNL.10.3 (E-3) — **CAS en la escritura de la carta**, dentro de la MISMA tx que crea la
+        // pieza y su movimiento. La guarda de arriba (`itemStatus === 'aprobada'`) es una LECTURA: un rechazo
+        // (`PATCH {reject}` o `reject-items`) que confirmara entre ella y aquí dejaba la carta
+        // `convertida_inventario` con `rejectedAt` y `approvedPriceCents = null` y una pieza `in_stock` — una carta
+        // rechazada, que no se le paga al vendedor, a la venta en nuestra tienda (MEDIDO con el defecto: BRJ-13 (b)
+        // 7/12 y 8/12 rondas mixtas, N = 12). Si el `where` no casa ⇒ se relee y se lanza DENTRO de la tx ⇒ rollback
+        // entero (ni pieza, ni movimiento). El índice único `sourceSellRequestItemId` (SEC-A3) sigue cubriendo
+        // conversión contra conversión; esto cubre conversión contra rechazo.
+        const guard = await tx.sellRequestItem.updateMany({
+          where: { id: itemId, itemStatus: 'aprobada', inventoryItemId: null },
           data: { itemStatus: 'convertida_inventario', inventoryItemId: inv.id },
         });
+        if (guard.count !== 1) {
+          const fresh = await tx.sellRequestItem.findUnique({
+            where: { id: itemId },
+            select: { itemStatus: true, inventoryItemId: true },
+          });
+          throw new ConvertCasMiss(fresh);
+        }
         return inv;
       });
       // ⚠️ **POST-COMMIT.** La conversión ya está escrita: el disparo no puede deshacerla ni
@@ -7170,6 +8019,26 @@ export class BuylistService implements OnModuleInit {
         pendingPublish: await this.triggerPublish(created.id),
       };
     } catch (e) {
+      // v1.82.1 · §PNL.10.3 — el CAS no casó (la tx ya se deshizo entera). `inventoryItemId` ya puesto ⇒ la
+      // respuesta idempotente de siempre; si no ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`.
+      // El folio de `nextFolio()` (fuera de la tx) se pierde, como en `P2002`.
+      if (e instanceof ConvertCasMiss) {
+        if (e.fresh?.inventoryItemId) {
+          return {
+            inventoryItemId: e.fresh.inventoryItemId,
+            alreadyConverted: true,
+            pendingPublish: await this.triggerPublish(e.fresh.inventoryItemId),
+          };
+        }
+        this.logger.warn(
+          `convert-to-inventory ${itemId}: la carta cambió a '${e.fresh?.itemStatus ?? 'desaparecida'}' bajo la conversión; se deshace (§PNL.10.3).`,
+        );
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This card was modified by another operation; nothing was changed. Please retry.',
+          { itemId, itemStatus: e.fresh?.itemStatus, reason: 'CONCURRENT_UPDATE' },
+        );
+      }
       // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const existing = await this.prisma.inventoryItem.findFirst({
@@ -7202,7 +8071,7 @@ export class BuylistService implements OnModuleInit {
    *
    * ⚠️ **El degradado NO inventa un estado bueno.** Sin puerto se responde `missing: []`… **no**: se
    * responde con lo que sabemos, que es *nada*, y por eso `missing` sale **vacío solo cuando el
-   * puerto confirmó que no falta nada**. Si el puerto no contesta, se dice `['location','price']`
+   * puerto confirmó que no falta nada**. Si el puerto no contesta, se dice `['price']` (SU-1, §M1-SU; antes `['location','price']`)
    * —*«no sé, revísalo»*— porque un `[]` inventado significaría **«ya está a la venta»** y sacaría la
    * pieza de la pantalla que existe para encontrarla. *Donde el flag solo hace VISIBLE, se falla
    * hacia visible.*
@@ -7210,7 +8079,9 @@ export class BuylistService implements OnModuleInit {
   private async triggerPublish(
     inventoryItemId: string,
   ): Promise<{ missing: ('location' | 'price')[]; pendingPriceEntryId?: string }> {
-    const unknown = { missing: ['location', 'price'] as ('location' | 'price')[] };
+    // ⭐ Errata SU-1 (§M1-SU, SU.2): «no sé» = todo lo que PODRÍA faltar, y desde SU-1 eso es solo el precio (la
+    // ubicación ya no es requisito para publicar). Antes `['location','price']`. ⛔ Nunca `[]`.
+    const unknown = { missing: ['price'] as ('location' | 'price')[] };
     if (!this.inventoryPublish) {
       this.logger.warn(
         `convert-to-inventory: INVENTORY_PUBLISH_PORT no disponible para ${inventoryItemId}; ` +
@@ -7249,7 +8120,7 @@ export class BuylistService implements OnModuleInit {
     // respuesta**: V-b se evalúa sobre ellas y el DTO publica `pendingDecisionItemCount`.
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
-      include: { items: { select: VERDICT_ITEM_SELECT } },
+      include: ADMIN_DTO_INCLUDE,
     });
     if (!req) throw BusinessException.notFound();
     // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
@@ -7520,7 +8391,7 @@ export class BuylistService implements OnModuleInit {
         await this.countBountyAcquisitionsTx(tx, id, paidBy);
         const row = await tx.sellRequest.findUnique({
           where: { id },
-          include: { items: { select: VERDICT_ITEM_SELECT } },
+          include: ADMIN_DTO_INCLUDE,
         });
         // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
@@ -7531,7 +8402,7 @@ export class BuylistService implements OnModuleInit {
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({
         where: { id },
-        include: { items: { select: VERDICT_ITEM_SELECT } },
+        include: ADMIN_DTO_INCLUDE,
       });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
       if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);

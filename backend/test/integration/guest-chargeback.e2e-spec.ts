@@ -22,6 +22,7 @@ import { ShipmentsService } from '../../src/modules/shipments/shipments.service'
 const RUN = Date.now().toString(36);
 const ADDRESS = {
   line1: 'Av. Reforma 100',
+  neighborhood: 'Juárez', // ⭐ v1.81 (M-64): obligatoria y de la lista del CP
   city: 'Ciudad de México',
   state: 'CDMX',
   postalCode: '06600',
@@ -313,10 +314,17 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
       expect(custSession.status).toBe(409);
       expect(custSession.body.error.code).toBe('ITEM_UNAVAILABLE');
 
-      // (d) y el operador ya no la ve en la cola de picking.
+      // (d) y el operador ya no la ve en la cola de «Pedidos a preparar».
+      // ⚠️ §M4-PREP (v1.78): la cola AGRUPA POR PEDIDO — `inventoryItemId` ya no vive en el renglón,
+      // vive en `items[]`. Buscarlo arriba daría `false` **siempre**, o sea un verde vacío.
       const picking = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
       expect(picking.status).toBe(200);
-      expect((picking.body.data as any[]).some((r) => r.inventoryItemId === o.itemId)).toBe(false);
+      const enCola = picking.body.data as any[];
+      // Ancla anti-verde-vacío: el renglón es un PEDIDO con sus cartas dentro.
+      expect(enCola.every((p) => Array.isArray(p.items))).toBe(true);
+      expect(enCola.flatMap((p) => p.items).some((i: any) => i.inventoryItemId === o.itemId)).toBe(
+        false,
+      );
     }, 60000);
   });
 

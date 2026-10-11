@@ -1,10 +1,12 @@
+import { computeSealedSalePrice } from '../src/common/money';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51 — **FASE 8: PUBLICAR.** *«Me gustaría saber también cómo la subimos a inventario, porque ahí
@@ -27,7 +29,7 @@ import { BusinessException } from '../src/common/business.exception';
  *     correcto y la cola existe precisamente para que esa pieza SE VEA.*
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface ItemOpts {
   id: string;
@@ -38,6 +40,11 @@ interface ItemOpts {
   createdAt?: Date;
   /** `true` ⇒ la variante tiene referencia de mercado (precio derivable). */
   priced?: boolean;
+  productType?: string;
+  /** v1.69.1 (P-79c) — snapshot del nombre del sellado (columna `InventoryItem.sealedProductName`). */
+  sealedProductName?: string | null;
+  /** M11 (§2.C) — subtipo del sellado (columna `InventoryItem.sealedSubtype`). */
+  sealedSubtype?: string | null;
 }
 
 function item(o: ItemOpts) {
@@ -55,7 +62,7 @@ function item(o: ItemOpts) {
       availableFinishes: ['normal'],
       set: { id: 's1', name: 'Base' },
     },
-    productType: 'raw',
+    productType: o.productType ?? 'raw',
     rawCondition: 'NM',
     finish: 'normal',
     ownerType: 'platform',
@@ -64,7 +71,8 @@ function item(o: ItemOpts) {
     listPriceCents: o.listPriceCents ?? null,
     cardProductId: null,
     sealedProductId: null,
-    sealedSubtype: null,
+    sealedProductName: o.sealedProductName ?? null,
+    sealedSubtype: o.sealedSubtype ?? null,
     tcgplayerProductId: null,
     acquisitionType: o.acquisitionType ?? 'buylist',
     acquisitionCostCents: 40000,
@@ -80,7 +88,34 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
   const rows = items;
   const prisma: any = {
     $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    // Guardas de `move` (`item-location.rules.ts`): `loc-*` son estantes de tienda activos y
+    // `drawer-*` cajones de custodia de cliente. La puerta del cliente es un no-op aquí.
+    $executeRaw: jest.fn(async () => 1),
+    vaultLocation: {
+      findUnique: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        label: where.id.toUpperCase(),
+        zone: String(where.id).startsWith('drawer-') ? 'customer_custody' : 'platform_stock',
+        isActive: true,
+      })),
+      findMany: jest.fn(async ({ where }: any) =>
+        where.id.in.map((id: string) => ({ id, label: id.toUpperCase(), zone: 'customer_custody' })),
+      ),
+    },
+    shipmentItem: { findMany: jest.fn(async () => []) },
     inventoryItem: {
+      // `customerDrawersOf`: cajones con ≥1 pieza del cliente en custodia liquidada.
+      groupBy: jest.fn(async ({ where }: any) => {
+        const out: any[] = [];
+        for (const r of rows as any[]) {
+          if (r.ownerType !== 'customer' || r.status !== 'in_custody' || r.ownershipStatus !== 'settled')
+            continue;
+          if (!where.ownerUserId.in.includes(r.ownerUserId)) continue;
+          if (!String(r.locationId ?? '').startsWith('drawer-')) continue;
+          out.push({ ownerUserId: r.ownerUserId, locationId: r.locationId, _count: { _all: 1 } });
+        }
+        return out;
+      }),
       findMany: jest.fn(async ({ where, select }: any) => {
         let out = rows;
         if (where?.id?.in) out = out.filter((r) => where.id.in.includes(r.id));
@@ -108,6 +143,14 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
       }),
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
+    // Bitácora del servicio (`inventory.item_updated`, `#M1-merge-rule`): se registra en `writes` para que
+    // la AUSENCIA en el camino publicante (§ (4b)) se lea contra un espía que sí la ve en el no publicante.
+    auditLog: {
+      create: jest.fn(async ({ data }: any) => {
+        writes.push(`audit:${data.action}`);
+        return data;
+      }),
+    },
     pendingPriceEntry: {
       findMany: jest.fn(async () => {
         writes.push('pendingPriceEntry.findMany');
@@ -116,6 +159,7 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
     },
   };
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
@@ -138,6 +182,19 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
     }),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    // ⭐ SU-1: las filas selladas de (1b) entran ahora por FALTA DE PRECIO (antes, precio manual + sin cajón), así que
+    // la derivación del sellado SÍ corre: sin `tcgplayerProductId` no hay clave de mercado (`null`) ⇒ `pending`.
+    sealedMarketGradeKeyForItem: jest.fn(() => null),
+    // El mismo doble que `inventory.sealed-final-price.spec.ts`: la función pura de precio del sellado.
+    resolveSealedSalePrice: jest.fn((i: any, ref: any, ctx: any) =>
+      computeSealedSalePrice(
+        i.listPriceCents,
+        i.sealedSubtype,
+        ref && ref.status === 'priced' ? ref.referenceMxnCents : null,
+        ctx.spreadPctBySubtype,
+        ctx.fallbackPct,
+      ),
+    ),
     settlePendingForVariant: jest.fn(async (reason: unknown) => {
       writes.push(reason == null ? 'pending.close' : 'pending.escalate');
       return reason == null ? undefined : 'ppe-new';
@@ -150,21 +207,20 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
 
 // =============================================================================================
 describe('⚠️ (1) la cola dice QUÉ LE FALTA', () => {
-  it('sin ubicación y sin precio ⇒ `missing: ["location","price"]`', async () => {
+  it('⭐ SU-1 (§M1-SU): sin ubicación y sin precio ⇒ `missing: ["price"]` — el cajón ya no se señala', async () => {
     const { svc } = build([item({ id: 'a' })]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(res.total).toBe(1);
-    expect(res.data[0].missing).toEqual(['location', 'price']);
+    expect(res.data[0].missing).toEqual(['price']);
     expect(res.data[0].resolvedSalePriceCents).toBeNull();
     expect(res.data[0].priceBasis).toBe('pending');
   });
 
-  it('con precio pero sin ubicación ⇒ solo `location`, y ENSEÑA el precio resuelto', async () => {
+  it('⭐ SU-1 (§M1-SU): con precio pero sin ubicación NO ENTRA a la cola — no le falta nada', async () => {
     const { svc } = build([item({ id: 'a', priced: true })]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
-    expect(res.data[0].missing).toEqual(['location']);
-    expect(res.data[0].resolvedSalePriceCents).toBeGreaterThan(0);
-    expect(res.data[0].priceBasis).not.toBe('pending');
+    expect(res.total).toBe(0);
+    expect(res.data).toEqual([]);
   });
 
   it('con ubicación pero sin precio ⇒ solo `price`', async () => {
@@ -195,20 +251,81 @@ describe('⚠️ (1) la cola dice QUÉ LE FALTA', () => {
 });
 
 // =============================================================================================
+describe('⚠️ (1b) P-79c — la proyección lleva el NOMBRE del sellado, no solo la carta ancla', () => {
+  /**
+   * El defecto medido en producción: un SELLADO dado de alta salía en la cola como el single ANCLA
+   * («Weedle — CHAOS RISING · 1 · NORMAL»). La pantalla no tenía con qué pintar la caja porque el DTO
+   * de esta cola **no llevaba** `sealedProductName`. Passthrough directo de la columna M-37 (como
+   * `toHoldingDTO`); `listPriceCents` manual evita la derivación de precio del sellado (no relevante).
+   */
+  it('sellado con snapshot ⇒ `sealedProductName` viaja en el DTO', async () => {
+    const { svc } = build([
+      item({
+        id: 'a',
+        productType: 'sealed',
+        sealedProductName: 'Charizard ex Super-Premium Collection',
+        // ⭐ SU-1 (§M1-SU): sin precio (ni producto ni `listPriceCents`) — la fila entra por `missing: ["price"]`;
+        // antes entraba por `["location"]` con un precio manual.
+      }),
+    ]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('sealed');
+    expect(res.data[0].sealedProductName).toBe('Charizard ex Super-Premium Collection');
+    expect(res.data[0].missing).toEqual(['price']);
+  });
+
+  it('single (raw) ⇒ `sealedProductName` null (no se inventa nombre de sellado)', async () => {
+    const { svc } = build([item({ id: 'a' })]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('raw');
+    expect(res.data[0].sealedProductName ?? null).toBeNull();
+  });
+
+  /**
+   * M11 (§2.C, hallazgo C) — la fila de sellado gana `sealedSubtype` (ADITIVO, display-only) para que
+   * la cola de M11 pinte «Bundle/Box/ETB…». Presente SOLO para `productType='sealed'`; ausente en
+   * raw/graded (no es «#4 · NORMAL» de la carta ancla). Proyección server-side desde
+   * `InventoryItem.sealedSubtype`; no toca dinero (alcance D10 «solo visibilidad»).
+   */
+  it('M11 §2.C — sellado ⇒ `sealedSubtype` viaja en el DTO (solo productType=sealed)', async () => {
+    const { svc } = build([
+      item({
+        id: 'a',
+        productType: 'sealed',
+        sealedProductName: 'PRE Elite Trainer Box',
+        sealedSubtype: 'etb',
+        // ⭐ SU-1: sin precio ⇒ entra por `missing: ["price"]` (antes, precio manual + sin cajón ⇒ `["location"]`).
+      }),
+    ]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('sealed');
+    expect(res.data[0].sealedSubtype).toBe('etb');
+  });
+
+  it('M11 §2.C — single (raw) ⇒ `sealedSubtype` AUSENTE (no la clave de la carta ancla)', async () => {
+    const { svc } = build([item({ id: 'a' })]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('raw');
+    expect('sealedSubtype' in res.data[0]).toBe(false);
+  });
+});
+
+// =============================================================================================
 describe('⚠️ (2) el `total` es el de la COLA, no el del superconjunto', () => {
   const mixed = [
     item({ id: 'a' }),
     item({ id: 'b', locationId: 'loc-1', priced: true }), // no entra
     item({ id: 'c', locationId: 'loc-1' }),
-    item({ id: 'd', priced: true }),
+    item({ id: 'd', priced: true }), // ⭐ SU-1 (§M1-SU): sin cajón y con precio — ya NO entra
+    item({ id: 'e' }),
   ];
 
   it('cuenta SOLO las pendientes', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
-    // *Una cola que dijera 4 cuando hay 3 sería peor que no tener cola.*
+    // *Una cola que dijera 5 cuando hay 3 sería peor que no tener cola.*
     expect(res.total).toBe(3);
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'd']);
+    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'e']);
   });
 
   it('pagina sobre la cola REAL y el total no cambia entre páginas', async () => {
@@ -224,17 +341,18 @@ describe('⚠️ (2) el `total` es el de la COLA, no el del superconjunto', () =
     expect(new Set(seen).size).toBe(3);
   });
 
-  it('`?missing=price` no cuenta las que solo esperan ubicación', async () => {
+  it('`?missing=price` cuenta las que esperan precio, con y sin cajón (y no la sin cajón con precio)', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20, missing: 'price' });
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c']);
-    expect(res.total).toBe(2);
+    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'e']);
+    expect(res.total).toBe(3);
   });
 
-  it('`?missing=location` no cuenta las que solo esperan precio', async () => {
+  it('⭐ SU-1 (§M1-SU, SU.2): `?missing=location` sigue siendo válido y no devuelve NADA — `data: []`, `total: 0`', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20, missing: 'location' });
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'd']);
+    expect(res.data).toEqual([]);
+    expect(res.total).toBe(0);
   });
 });
 
@@ -339,9 +457,11 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
     const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto);
     expect(res.status).toBe('listed');
     expect(rows[0].status).toBe('listed');
+    // 💰 v1.80.8.8 (SFP-10): el CAS del `PATCH` condiciona el `status` LEÍDO exacto (`in_stock`), más estricto que
+    // el conjunto publicable `{in_stock, listed}` de antes ⇒ la guarda anti-double-sell sigue excluyendo `reserved`.
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: { in: ['in_stock', 'listed'] } }),
+        where: expect.objectContaining({ status: 'in_stock' }),
       }),
     );
   });
@@ -373,6 +493,68 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
 });
 
 // =============================================================================================
+// 🔒 `#M1-merge-rule` (v1.80.7.2) — la bitácora `inventory.item_updated` (before/after) era SOLO del camino NO
+// publicante de `updateItem` (BACKEND_NOTES «Release s5» §6).
+// ⭐ v1.80.8.7 (API_CONTRACT §M1 `M1-SFP` punto 1, criterio 255; cierra `D-SFP-1`) — **ACTUALIZADAS a la forma
+// nueva** (el contrato manda actualizar, no borrar): el camino PUBLICANTE (`→ listed` desde un estado que no
+// era `listed`) TAMBIÉN escribe UNA fila con `before/after {status, listPriceCents}`, dentro de la tx de
+// `claimListed`. Los rechazos siguen sin fila. El `$transaction` de este arnés corre sobre el MISMO cliente,
+// así que el espía ve también las escrituras hechas dentro de una tx. (Detalle completo:
+// `inventory.sealed-final-price.spec.ts`.)
+describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) escribe UNA `inventory.item_updated` (v1.80.8.7)', () => {
+  const actor = { id: 'op-1', role: 'operador' } as any;
+
+  it('ancla: el MISMO arnés SÍ ve la bitácora en el camino NO publicante (`listed → in_stock`)', async () => {
+    const { svc, prisma, writes } = build([
+      item({ id: 'a', locationId: 'loc-1', priced: true, status: 'listed' }),
+    ]);
+    await svc.updateItem('a', { status: 'in_stock' } as UpdateItemDto, actor);
+    expect(writes).toContain('audit:inventory.item_updated');
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('`in_stock → listed` con precio resoluble: publica y escribe UNA fila (precio igual en los dos lados)', async () => {
+    const { svc, prisma, rows, writes } = build([item({ id: 'a', locationId: 'loc-1', priced: true })]);
+    const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto, actor);
+    expect(res.status).toBe('listed');
+    expect(rows[0].status).toBe('listed');
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: 'inventory.item_updated',
+      before: { status: 'in_stock', listPriceCents: null },
+      after: { status: 'listed', listPriceCents: null, fields: ['status'] },
+    });
+    expect(writes.filter((w) => w.startsWith('audit:'))).toEqual(['audit:inventory.item_updated']);
+  });
+
+  it('`in_stock → listed` con `listPriceCents` y campo de identidad: publica y escribe UNA fila', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const res: any = await svc.updateItem(
+      'a',
+      { status: 'listed', listPriceCents: 77_700, gradeValue: '9' } as UpdateItemDto,
+      actor,
+    );
+    expect(res.status).toBe('listed');
+    expect(rows[0]).toMatchObject({ status: 'listed', listPriceCents: 77_700 });
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      before: { status: 'in_stock', listPriceCents: null },
+      after: { status: 'listed', listPriceCents: 77_700, fields: ['gradeValue', 'listPriceCents', 'status'] },
+    });
+  });
+
+  it('`in_stock → listed` sin precio ⇒ `422 PRICE_PENDING` y tampoco bitácora', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const e = (await svc
+      .updateItem('a', { status: 'listed' } as UpdateItemDto, actor)
+      .catch((x) => x)) as BusinessException;
+    expect(e.code).toBe('PRICE_PENDING');
+    expect(rows[0].status).toBe('in_stock');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================================
 describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
   it('mover una pieza con precio a su caja la publica sola', async () => {
     const { svc, rows } = build([item({ id: 'a', priced: true })]);
@@ -383,9 +565,13 @@ describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
   });
 
   it('⚠️ y SALE de la cola: el drenaje no depende de que alguien apriete nada', async () => {
-    const { svc } = build([item({ id: 'a', priced: true })]);
+    // ⭐ SU-1 (§M1-SU): lo que la retiene es el precio, no la caja. El precio se vuelve resoluble SIN disparo y el
+    // `move` (disparador b) la encuentra completa: se publica y sale.
+    const { svc, rows } = build([item({ id: 'a' })]);
     expect((await svc.pendingPublish({ page: 1, pageSize: 20 })).total).toBe(1);
+    (rows[0] as Record<string, unknown>).__priced = true;
     await svc.moveItem('a', { toLocationId: 'loc-1' }, 'op-1');
+    expect(rows[0].status).toBe('listed');
     expect((await svc.pendingPublish({ page: 1, pageSize: 20 })).total).toBe(0);
   });
 
@@ -416,11 +602,20 @@ describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
     // `assertPublishableGuards` lanza `VALIDATION_ERROR` en inventario que **no es de plataforma**, y
     // las piezas de custodia **se mueven de caja todos los días**. Sin el catch, la bóveda no podría
     // reubicar la carta de un cliente. *Nunca se publica lo ajeno; tampoco se bloquea moverlo.*
-    const { svc, rows } = build([item({ id: 'a', priced: true })]);
-    (rows[0] as Record<string, unknown>).ownerType = 'customer';
-    (rows[0] as Record<string, unknown>).status = 'in_custody';
-    await expect(svc.moveItem('a', { toLocationId: 'loc-9' }, 'op-1')).resolves.toBeDefined();
-    expect(rows[0].locationId).toBe('loc-9');
+    // (Con las guardas de `move`, una pieza de cliente solo va a un cajón SUYO: aquí consolida la
+    // carta en el otro cajón donde el cliente ya tiene cartas — el caso real de todos los días.)
+    const { svc, rows } = build([
+      item({ id: 'a', priced: true, locationId: 'drawer-8' }),
+      item({ id: 'b', locationId: 'drawer-9' }),
+    ]);
+    for (const r of rows as Record<string, unknown>[]) {
+      r.ownerType = 'customer';
+      r.ownerUserId = 'u1';
+      r.ownershipStatus = 'settled';
+      r.status = 'in_custody';
+    }
+    await expect(svc.moveItem('a', { toLocationId: 'drawer-9' }, 'op-1')).resolves.toBeDefined();
+    expect(rows[0].locationId).toBe('drawer-9');
     expect(rows[0].status).toBe('in_custody');
   });
 

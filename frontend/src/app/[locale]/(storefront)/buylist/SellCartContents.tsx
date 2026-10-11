@@ -6,6 +6,7 @@ import type { AppLocale } from '@/i18n/routing';
 import type { BuylistQuoteResponse } from '@/types/contract';
 import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { formatMoneyCents } from '@/lib/format';
+import { visibleMarketCents } from '@/lib/sell-market';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
 import { Link } from '@/i18n/navigation';
@@ -20,6 +21,9 @@ import {
 import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
 import { minimumShortfallCents } from './useQuotePolicy';
+import { CartTotalFigure } from './CartTotalFigure';
+import { CardCode } from '@/components/domain/CardCode';
+import { displaySetCode } from '@/lib/setCode';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -70,7 +74,7 @@ export interface SellCartContentsProps {
    *
    * ⚠️ **La decisión NO se toma aquí y es deliberado:** la regla es *«exactamente una nota
    * visible por pantalla»*, y eso solo se puede decidir donde se conoce **el layout completo** —
-   * si el carrito es panel fijo, si el drawer está abierto, si el modal de crear está encima—.
+   * si el cajón está abierto, si el modal de crear está encima—.
    * Un componente que decidiera por su cuenta volvería a producir el caso de v2.3.7: dos párrafos
    * idénticos a 600px de distancia, que el vendedor no lee como énfasis sino como *«esta página
    * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.
@@ -112,6 +116,7 @@ export function SellCartContents({
   onRetryRequote,
 }: SellCartContentsProps) {
   const t = useTranslations('buylist');
+  const tSellPrice = useTranslations('buylist.sellPrice');
   const tSellCart = useTranslations('sellCart');
   /**
    * §33.11.2: «sin cotización fresca no hay cifra» y «no se envía con precios que la pantalla no
@@ -176,6 +181,10 @@ export function SellCartContents({
               const pending = l.quote.quote.status === 'precio_pendiente';
               const unitCents = l.quote.quote.quotedPriceCents ?? 0;
               const detailOpen = !!expandedLines[l.id];
+              // §BMK.3: la MISMA regla que la teja. Sobre la cotización guardada decide si la fila
+              // EXISTE; si no hay cotización fresca (§33.11.2), la fila se queda pero pinta «—»
+              // (DESIGN_SYSTEM §BMK.5) — ⛔ nunca la cifra vieja.
+              const marketCents = visibleMarketCents(l.quote);
               return (
                 <li key={l.id} className="border-b border-border py-3">
                   {/* FE-IMG: miniatura de la carta. El dato YA viajaba en la línea del carrito
@@ -216,17 +225,14 @@ export function SellCartContents({
                         </span>
                       </div>
                       <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
-                        <span className="text-muted">{t('cartItemEstimate')}:</span>
-                        {pending ? (
-                          <BuylistPendingLineLabel className="text-[10px]" />
-                        ) : noFreshPrice ? (
-                          <span className="tabular text-muted" data-testid="sell-cart-line-unit-dash">
-                            —
-                          </span>
-                        ) : (
-                          <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
+                        {/* v1.80 (P-71, §37.3c): «TWM 130» primero, solo si hay código (sin código la
+                            línea queda como antes: el número no se pintaba aquí). */}
+                        {displaySetCode(l.card.setPtcgoCode) && (
+                          <>
+                            <CardCode code={l.card.setPtcgoCode} number={l.card.number} />
+                            <span aria-hidden>·</span>
+                          </>
                         )}
-                        <span aria-hidden>·</span>
                         {/* P-14 (§18.5): FinishMark compartido (banda 3px + etiqueta mono)
                             en vez del texto plano del acabado — mismo lenguaje que la teja. */}
                         <FinishMark finish={l.finish} className="translate-y-[1px]" />
@@ -235,6 +241,48 @@ export function SellCartContents({
                           ×<span className="tabular">{l.quantity}</span>
                         </span>
                       </p>
+                      {/* §BMK.5 (DESIGN_SYSTEM): «Valor de mercado c/u» y «Te pagamos c/u» A LA VISTA,
+                          debajo de los metadatos (sustituyen a «Estimado c/u» y a la fila «Valor de
+                          referencia» de «Detalle»: un dato, un nombre, un sitio). Cifras a la derecha,
+                          en la columna del subtotal. ⛔ Nada compara ni combina las dos (§BMK.5). */}
+                      <dl data-testid="sell-cart-line-prices">
+                        {marketCents != null && (
+                          <div className="mt-1.5 flex items-baseline justify-between gap-3">
+                            <dt className="font-mono text-[10px] uppercase tracking-label text-muted">
+                              {tSellPrice('marketEach')}
+                            </dt>
+                            <dd className="tabular whitespace-nowrap font-mono text-[12px] text-muted">
+                              {noFreshPrice ? (
+                                <span data-testid="sell-cart-line-market-dash">—</span>
+                              ) : (
+                                formatMoneyCents(marketCents, locale)
+                              )}
+                            </dd>
+                          </div>
+                        )}
+                        <div
+                          className={
+                            marketCents != null
+                              ? 'flex items-baseline justify-between gap-3'
+                              : 'mt-1.5 flex items-baseline justify-between gap-3'
+                          }
+                        >
+                          <dt className="font-mono text-[10px] uppercase tracking-label text-muted">
+                            {tSellPrice('wePayEach')}
+                          </dt>
+                          <dd className="tabular whitespace-nowrap font-mono text-[12px] text-text">
+                            {pending ? (
+                              <BuylistPendingLineLabel className="text-[10px]" />
+                            ) : noFreshPrice ? (
+                              <span className="text-muted" data-testid="sell-cart-line-unit-dash">
+                                —
+                              </span>
+                            ) : (
+                              formatMoneyCents(unitCents, locale)
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
                       <div className="mt-2 flex items-center gap-4">
                         <div className="flex items-center gap-2">
                           <button
@@ -268,8 +316,8 @@ export function SellCartContents({
                             +
                           </button>
                         </div>
-                        {/* Detalle expandible: la transparencia de la cotización vive aquí
-                            (valor de referencia / regla aplicada / acabado / pendiente). */}
+                        {/* Detalle expandible: rareza, acabado y la nota de precio pendiente (§BMK.5:
+                            el mercado ya no vive aquí, va a la vista). */}
                         <button
                           type="button"
                           aria-expanded={detailOpen}
@@ -296,13 +344,9 @@ export function SellCartContents({
                         </QuoteRow>
                       )}
                       <QuoteRow label={tFinish('label')}>{tFinish(l.quote.finish)}</QuoteRow>
-                      {l.quote.referencePrice.status === 'priced' && (
-                        <QuoteRow label={t('referencePrice')}>
-                          <span className="tabular">
-                            {formatMoneyCents(l.quote.referencePrice.priceMxnCents ?? 0, locale)}
-                          </span>
-                        </QuoteRow>
-                      )}
+                      {/* §BMK.4: la fila «Valor de referencia» SE RETIRÓ (pintaba el mercado mirando
+                          solo `referencePrice.status`, también en líneas en precio pendiente —
+                          desviación (f)1 de ARCHITECTURE §4.BMK). El mercado vive a la vista, arriba. */}
                       {/* v2.0 (P-48): la fila «Regla aplicada» SE RETIRA — no hay reglas por
                           rareza/acabado, hay una curva. El monto lo deriva el backend (SEC-A1) y
                           esta superficie es del cliente: un rótulo interno de `priceBasis` aquí
@@ -333,23 +377,17 @@ export function SellCartContents({
               {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
                   (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
                   cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
-              {noFreshPrice ? (
-                /* §33.11.2: mientras se recotiza —o si la recotización falló— el total NO se afirma:
-                   «—», no la cifra vieja. Mismo predicado que apaga el CTA. */
-                <span
-                  className="tabular font-mono text-[26px] font-medium leading-none text-muted"
-                  data-testid="sell-cart-total-requoting"
-                  aria-label={tSellCart('requoting')}
-                >
-                  —
-                </span>
-              ) : totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                <BuylistPendingLineLabel className="text-[13px]" />
-              ) : (
-                <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
-                  {formatMoneyCents(totalEstimatedCents, locale)}
-                </span>
-              )}
+              {/* §37.1b (P-61): las tres ramas —«—» recotizando/fallida · versalita si TODO está
+                  pendiente · importe— viven en `CartTotalFigure`, la MISMA función que pinta la
+                  barra de escritorio. §33.11.2: «—», no la cifra vieja, con el mismo predicado
+                  que apaga el CTA. */}
+              <CartTotalFigure
+                noFreshPrice={noFreshPrice}
+                totalEstimatedCents={totalEstimatedCents}
+                pendingCardCount={pendingCardCount}
+                size="hero"
+                testIdScope="sell-cart"
+              />
             </div>
 
             {/* Faltante (criterio 132a): cuánto falta, con el número del servidor. Al cruzar el

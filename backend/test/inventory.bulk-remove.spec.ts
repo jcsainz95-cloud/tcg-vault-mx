@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { BulkRemoveRequestDto } from '../src/modules/inventory/dto/inventory.dto';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * P-29 — baja rápida por CANTIDAD (POST /admin/inventory/items/bulk-remove):
@@ -27,7 +28,7 @@ function buildPricing(): PricingService {
     getReferencesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
 }
-const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
 function buildPrisma(candidates: any[], over: any = {}) {
   const adjustments: any[] = [];

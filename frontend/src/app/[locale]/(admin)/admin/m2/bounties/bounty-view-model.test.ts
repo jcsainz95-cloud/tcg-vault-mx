@@ -5,6 +5,8 @@ import {
   BOUNTY_SORTS,
   BOUNTY_STATES,
   blockOfState,
+  bountyDeleteOutcome,
+  bountyPayout,
   bountyPremium,
   buildBountyControlsRequest,
   hasAttentionRows,
@@ -16,6 +18,7 @@ import {
   zeroStatement,
   hasIdentityFilter,
 } from './bounty-view-model';
+import type { VariantBountyDTO } from '@/types/contract';
 
 /**
  * # bounty-view-model.test.ts — la mitad de FRONTEND de la tabla `API_CONTRACT §M2-B.6`
@@ -39,6 +42,7 @@ const counts = (over: Partial<Record<BountyState, number>> = {}): Record<BountyS
   invalida: 0,
   completada: 0,
   apagada: 0,
+  despublicada: 0,
   ...over,
 });
 
@@ -66,25 +70,36 @@ function row(state: string): AdminBountyRowDTO {
         completedAt: null,
         effective: false,
         curveQuoteCents: 95000,
+        payoutCents: null,
+        cappedByMarket: false,
       },
     },
   };
 }
 
-describe('§M2-B.0 — el enum del contrato, con sus CINCO valores y sin vocabulario paralelo', () => {
-  it('conoce exactamente los cinco `state` del contrato, y ninguno más', () => {
+describe('§M2-B.0 — el enum del contrato, con sus SEIS valores y sin vocabulario paralelo', () => {
+  it('conoce exactamente los seis `state` del contrato, y ninguno más (⭐ v2.2: +`despublicada`)', () => {
     expect([...BOUNTY_STATES].sort()).toEqual(
-      ['activa', 'apagada', 'completada', 'invalida', 'rebasada'].sort(),
+      ['activa', 'apagada', 'completada', 'despublicada', 'invalida', 'rebasada'].sort(),
     );
+    // ⭐ El sexto es reconocido como estado propio (§M2-B.0/.9), no como un desconocido.
+    expect(isKnownBountyState('despublicada')).toBe(true);
     // ⛔ El vocabulario `outbid`/`active`/`off` NO existe en la API: traducir a rótulos es trabajo
     // de i18n, jamás un enum paralelo (§M2-B.7, petición 4).
-    for (const alien of ['outbid', 'active', 'off', 'completed']) {
+    for (const alien of ['outbid', 'active', 'off', 'completed', 'unpublished']) {
       expect(isKnownBountyState(alien)).toBe(false);
     }
   });
 
-  it('los CINCO chips van en el orden de la ATENCIÓN, no en el del enum (§28.2a)', () => {
-    expect(BOUNTY_CHIP_ORDER).toEqual(['rebasada', 'invalida', 'activa', 'completada', 'apagada']);
+  it('los SEIS chips van en el orden de la ATENCIÓN, con `despublicada` AL FINAL (§28.2a/§M2-B.1)', () => {
+    expect(BOUNTY_CHIP_ORDER).toEqual([
+      'rebasada',
+      'invalida',
+      'activa',
+      'completada',
+      'apagada',
+      'despublicada',
+    ]);
     // Ninguno se funde con otro: tantas cubetas como valores tiene el enum.
     expect(new Set(BOUNTY_CHIP_ORDER).size).toBe(BOUNTY_STATES.length);
   });
@@ -331,5 +346,195 @@ describe('§28.6b/c — sin cambios no se guarda, y la fricción va en la direcc
     expect(raisesSpend(stored, { ...stored, priceCents: 80000 })).toBe(false);
     expect(raisesSpend(stored, { ...stored, targetQty: 1 })).toBe(false);
     expect(raisesSpend(stored, { ...stored, enabled: false })).toBe(false);
+  });
+});
+
+// ===========================================================================
+// ⭐ v2.2 (Q2) — el sexto estado `despublicada` (§M2-B.0/.1/.9)
+// ===========================================================================
+describe('⭐ `despublicada`: el sexto estado ordena y rotula bien, y NO se funde con `apagada`', () => {
+  it('tiene su PROPIO bloque, al final, y no comparte el de `apagada` (§M2-B.0)', () => {
+    expect(blockOfState('despublicada')).toBe('despublicada');
+    // `apagada` es un *hold* reversible que sigue en el tablero; `despublicada` es un archivo.
+    // Fundirlos borraría el porqué dejó de pagarse, igual que fundir `completada` con `apagada`.
+    expect(blockOfState('despublicada')).not.toBe(blockOfState('apagada'));
+    expect(blockOfState('despublicada')).not.toBe(blockOfState('completada'));
+  });
+
+  it('el orden `attention_first` lo deja AL FINAL (fuera del grupo de atención)', () => {
+    // La partición respeta el orden del servidor: `despublicada` cierra la lista, detrás de todo.
+    const rows = ['rebasada', 'activa', 'completada', 'apagada', 'despublicada'].map(row);
+    const marked = withBlockHeaders(rows, true);
+    expect(marked.map((m) => m.startsBlock)).toEqual([
+      'attention',
+      'activa',
+      'completada',
+      'apagada',
+      'despublicada',
+    ]);
+    // No entra en el bloque ① de ATENCIÓN: no es una decisión pendiente, es un registro.
+    expect(hasAttentionRows(['despublicada'].map(row))).toBe(false);
+  });
+
+  it('es un estado CONOCIDO (se pinta con su rótulo, no como `SIN CLASIFICAR`)', () => {
+    expect(isKnownBountyState('despublicada')).toBe(true);
+    expect(BOUNTY_STATES).toContain('despublicada');
+  });
+
+  it('no paga: su PREMIUM es `off`, igual que `apagada`/`completada` (§28.4)', () => {
+    expect(bountyPremium('despublicada', 90000, 95000)).toEqual({ kind: 'off' });
+    expect(bountyPremium('despublicada', null, null)).toEqual({ kind: 'off' });
+  });
+});
+
+describe('⭐ los `counts` traen las SEIS cubetas, `despublicada` incluida (§M2-B.1)', () => {
+  it('el enum y el conteo cubren exactamente las seis, ni una de menos', () => {
+    expect(BOUNTY_STATES).toHaveLength(6);
+    // `counts()` es un `Record<BountyState, number>`: si al enum le faltara una cubeta, o si el
+    // conteo colapsara `despublicada` en otra, esto se cae.
+    const c = counts({ despublicada: 3 });
+    for (const s of BOUNTY_STATES) {
+      expect(c, `counts sin la cubeta «${s}»`).toHaveProperty(s);
+    }
+    expect(c.despublicada).toBe(3);
+    // ⚠️ El invariante de trabajo NO incluye `despublicada` (§M2-B.1: `total` == suma de las CINCO
+    // cubetas de trabajo; `despublicada` viaja aparte como selector).
+    const trabajo = (['activa', 'rebasada', 'invalida', 'completada', 'apagada'] as const).reduce(
+      (n, s) => n + c[s],
+      0,
+    );
+    expect(trabajo).toBe(0);
+  });
+});
+
+// ===========================================================================
+// ⭐ v2.2 (Q2) — ELIMINAR: la rama la LEE del DTO, no la recalcula (§M2-B.9)
+// ===========================================================================
+describe('⭐ `bountyDeleteOutcome`: borrado vs despublicado se LEE del DTO que devolvió el servidor', () => {
+  const bounty = (over: Partial<VariantBountyDTO>): VariantBountyDTO => ({
+    enabled: false,
+    priceCents: 90000,
+    targetQty: 2,
+    acquiredQty: 0,
+    completedAt: null,
+    effective: false,
+    curveQuoteCents: 95000,
+    payoutCents: null,
+    cappedByMarket: false,
+    ...over,
+  });
+
+  it('con historia de compra CONSERVADA (acquiredQty > 0) ⇒ `unpublished` (rama B)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 1 }))).toBe('unpublished');
+  });
+
+  it('con `completedAt` conservado ⇒ `unpublished` (la otra mitad de la condición de rama B)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 0, completedAt: '2026-08-01T00:00:00.000Z' }))).toBe(
+      'unpublished',
+    );
+  });
+
+  it('sin historia (bounty limpio) ⇒ `deleted` (rama A)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 0, completedAt: null, priceCents: null }))).toBe(
+      'deleted',
+    );
+  });
+
+  it('bounty AUSENTE del DTO (rama A borró la fila entera) ⇒ `deleted`', () => {
+    expect(bountyDeleteOutcome(null)).toBe('deleted');
+    expect(bountyDeleteOutcome(undefined)).toBe('deleted');
+  });
+});
+
+/**
+ * ⭐ §M2-B.11 punto 8 (v1.80 / v1.80.2) — `bounty.payoutCents` y `bounty.cappedByMarket` son ADITIVOS
+ * e INFORMATIVOS: `priceCents` sigue siendo lo CONFIGURADO; lo que se paga hoy es `payoutCents`.
+ * La pantalla NO recalcula el tope (no tiene el mercado): obedece los dos campos que llegaron.
+ *   · `pays`     — `payoutCents != null`; `capped` = `cappedByMarket` tal cual llegó.
+ *   · `retained` — bounty efectivo y `activa`, pero `payoutCents == null` con `buy.premiumAtFloor`:
+ *                  el guardarraíl retuvo la línea (§4.36.5). No se paga hasta corregir el mercado.
+ *   · `none`     — no efectivo / sin precio / apagado: no hay «lo que se paga» que enseñar.
+ */
+describe('⭐ §M2-B.11 punto 8 — bountyPayout: lo que se paga vs lo configurado', () => {
+  const buyFace = (over: Partial<AdminBountyRowDTO['pricing']['buy']> = {}) => ({
+    suggestedCents: 95000,
+    overrideCents: null,
+    effectiveCents: 95000,
+    source: 'market' as const,
+    premiumAtFloor: false,
+    ...over,
+  });
+  const rowWith = (
+    bountyOver: Partial<VariantBountyDTO>,
+    buyOver: Partial<AdminBountyRowDTO['pricing']['buy']> = {},
+    state: BountyState = 'activa',
+  ): AdminBountyRowDTO => ({
+    cardId: 'c-1',
+    setId: 'sv3',
+    setName: 'Obsidian Flames',
+    name: 'Charizard ex',
+    number: '125',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish: 'holofoil',
+    state,
+    progress: { targetQty: 2, acquiredQty: 0, remainingQty: 2 },
+    updatedAt: '2026-09-01T12:00:00.000Z',
+    pricing: {
+      buy: buyFace(buyOver),
+      sell: buyFace(),
+      bounty: {
+        enabled: true,
+        priceCents: 120000,
+        targetQty: 2,
+        acquiredQty: 0,
+        completedAt: null,
+        effective: true,
+        curveQuoteCents: 95000,
+        payoutCents: 120000,
+        cappedByMarket: false,
+        ...bountyOver,
+      },
+    },
+  });
+
+  it('bounty 120000 y mercado 100000 ⇒ se pagan 100000, topado por mercado', () => {
+    const row = rowWith(
+      { payoutCents: 100000, cappedByMarket: true },
+      { effectiveCents: 100000, source: 'bounty' },
+    );
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 100000, capped: true });
+  });
+
+  it('bounty por debajo del mercado ⇒ se paga lo configurado, sin tope', () => {
+    const row = rowWith({ payoutCents: 120000, cappedByMarket: false }, { effectiveCents: 120000, source: 'bounty' });
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 120000, capped: false });
+  });
+
+  it('chase RETENIDA por el guardarraíl (payoutCents null + premiumAtFloor, state activa) ⇒ retained', () => {
+    const row = rowWith(
+      { payoutCents: null, cappedByMarket: false },
+      { effectiveCents: null, source: 'pending', premiumAtFloor: true },
+    );
+    expect(bountyPayout(row)).toEqual({ kind: 'retained' });
+  });
+
+  it('no efectivo (rebasado) / sin precio / apagado ⇒ none: no se afirma «lo que se paga»', () => {
+    expect(bountyPayout(rowWith({ effective: false, payoutCents: null }, {}, 'rebasada'))).toEqual({ kind: 'none' });
+    expect(bountyPayout(rowWith({ priceCents: null, effective: false, payoutCents: null }, {}, 'invalida'))).toEqual({ kind: 'none' });
+    expect(bountyPayout(rowWith({ enabled: false, effective: false, payoutCents: null }, {}, 'apagada'))).toEqual({ kind: 'none' });
+  });
+
+  it('⛔ obedece `cappedByMarket` tal cual llega: NO lo deduce comparando cifras', () => {
+    // Un servidor que mande payout < price con cappedByMarket:false es contradictorio; la pantalla
+    // pinta lo que llegó (§28: obedece, no infiere) — el candado de coherencia vive en el servidor.
+    const row = rowWith({ payoutCents: 100000, cappedByMarket: false }, { effectiveCents: 100000, source: 'bounty' });
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 100000, capped: false });
+  });
+
+  it('sin `bounty` en el DTO ⇒ none', () => {
+    const row = rowWith({});
+    row.pricing.bounty = null;
+    expect(bountyPayout(row)).toEqual({ kind: 'none' });
   });
 });

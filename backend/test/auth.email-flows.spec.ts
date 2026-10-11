@@ -7,6 +7,7 @@ import { MailService } from '../src/modules/mail/mail.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GoogleTokenVerifier } from '../src/modules/auth/google-token-verifier';
+import { c7Args } from './helpers/auth-c7-deps';
 
 /**
  * v1.5 — Flujos de correo del AuthService:
@@ -40,7 +41,7 @@ function make(overrides: {
     ...overrides.mail,
   } as unknown as MailService;
   const audit = { log: jest.fn(async () => undefined), ...overrides.audit } as unknown as AuditService;
-  const svc = new AuthService(prisma as PrismaService, jwt, config, google, audit, tokens, mail);
+  const svc = new AuthService(prisma as PrismaService, jwt, config, google, audit, tokens, mail, ...c7Args());
   return { svc, prisma, tokens, mail, audit };
 }
 
@@ -76,12 +77,16 @@ describe('reset-password', () => {
   it('token válido → passwordHash nuevo, tokenVersion++, emailVerified=true, mustChangePassword=false', async () => {
     const prisma = {
       user: {
-        findUnique: jest.fn(async () => ({ id: 'u1', status: 'active' })),
+        findUnique: jest.fn(async () => ({ id: 'u1', email: 'u1@x.com', status: 'active' })),
         update: jest.fn(async () => ({})),
       },
     };
     const { svc } = make({ prisma, tokens: { consume: jest.fn(async () => 'u1') } });
-    await expect(svc.resetPassword('t', 'newStrongPass1')).resolves.toEqual({ ok: true });
+    // v1.80 (C7): el 200 trae además un `deviceToken` (sigue SIN sesión: ni access ni refresh).
+    await expect(svc.resetPassword('t', 'newStrongPass1')).resolves.toEqual({
+      ok: true,
+      deviceToken: expect.any(String),
+    });
     const data = (prisma.user.update as jest.Mock).mock.calls[0][0].data;
     expect(data.tokenVersion).toEqual({ increment: 1 });
     expect(data.emailVerified).toBe(true);

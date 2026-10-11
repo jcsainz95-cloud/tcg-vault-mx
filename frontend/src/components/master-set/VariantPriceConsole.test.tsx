@@ -49,6 +49,8 @@ const overriddenPricing: VariantPricingDTO = {
     completedAt: null,
     effective: false,
     curveQuoteCents: 87_500,
+    payoutCents: null,
+    cappedByMarket: false,
   },
 };
 
@@ -65,6 +67,8 @@ describe('VariantPricingCompact (§16.3a) · teja de solo-lectura', () => {
         completedAt: null,
         effective: true,
         curveQuoteCents: 87_500,
+        payoutCents: null,
+        cappedByMarket: false,
       },
     };
     renderWithProviders(<VariantPricingCompact pricing={pricing} marketRefCents={125_000} />, 'es');
@@ -347,6 +351,8 @@ describe('VariantPriceConsole · aviso de bounty rebasado (P-48, §21.9c-3)', ()
       completedAt: null,
       effective: false,
       curveQuoteCents: 95_000,
+      payoutCents: null,
+      cappedByMarket: false,
     },
   };
 

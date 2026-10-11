@@ -43,7 +43,7 @@ function fakeCard(i: number): CardDTO {
     supertype: 'Pokémon',
     subtypes: ['Basic'],
     setId: 'base1',
-    setName: 'Base Set',
+    setName: 'Base Set', setPtcgoCode: null,
     imageSmallUrl: `https://img.example/${i}.png`,
     imageLargeUrl: `https://img.example/${i}_hires.png`,
     availableFinishes: ['normal'],
@@ -185,7 +185,12 @@ describe('M1View · «Alta por lote» (modal P-5 existente, sin cambios funciona
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
 
     // El toast vive en un portal a <body>, visible por encima del modal.
-    expect(await screen.findByText('Pieza dada de alta · folio INV-000777.')).toBeInTheDocument();
+    // §SU-UX.6: con `status:"in_stock"` el aviso es la variante «aún no» (SU.8.3).
+    expect(
+      await screen.findByText(
+        'Pieza dada de alta · folio INV-000777. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar».',
+      ),
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-inventory'] }),
     );

@@ -37,6 +37,8 @@ test.describe('checkout · desglose y CFDI', () => {
     await expect(page.getByText(t('es', 'checkout.cfdiNotice'))).toBeVisible();
     // Titularidad pendiente hasta liquidar.
     await expect(page.getByText(t('es', 'checkout.afterPayment'))).toBeVisible();
+    // Una sola vez (B-3b): DESIGN_SYSTEM §15.3 fija tres notas y PROJECT 48b iguala los avisos del invitado.
+    await expect(page.getByText(t('es', 'checkout.afterPayment'))).toHaveCount(1);
 
     // Política de ventas finales visible + enlace a términos (decisión del humano).
     await expect(page.getByText(t('es', 'checkout.finalSaleNotice'))).toBeVisible();
@@ -118,11 +120,13 @@ test.describe('checkout · desglose y CFDI', () => {
     await expect(page).toHaveURL(/\/es\/terminos$/);
     await expect(page.getByRole('heading', { name: t('es', 'legal.title'), level: 1 })).toBeVisible();
     await expect(page.getByText(t('es', 'legal.refundBody'))).toBeVisible();
-    await expect(page.getByText(t('es', 'legal.disputeOutcome'))).toBeVisible();
+    await expect(page.getByText(t('es', 'legal.deliveryIssueOutcome'))).toBeVisible();
     // Aclaración: error de la plataforma (cobro duplicado / sin inventario) siempre se reembolsa.
     await expect(page.getByText(t('es', 'legal.platformErrorBody'))).toBeVisible();
-    // Aclaración: la ventana de 7 días cuenta desde la entrega.
-    await expect(page.getByText(t('es', 'legal.disputeWindowNote'))).toBeVisible();
+    // §60.1 d · HECHOS 2026-10-05: «Escríbenos», SIN plazo escrito y sin «disputa».
+    await expect(page.getByText(t('es', 'legal.deliveryIssueTitle'))).toBeVisible();
+    await expect(page.getByRole('main')).not.toContainText('7 días');
+    await expect(page.getByRole('main')).not.toContainText(/disputa/i);
     // Alcance: aplica a raw, sellado y gradeadas.
     await expect(page.getByText(t('es', 'legal.scopeNote'))).toBeVisible();
   });
@@ -131,9 +135,9 @@ test.describe('checkout · desglose y CFDI', () => {
     await page.goto('/en/terminos');
     await expect(page.getByRole('heading', { name: t('en', 'legal.title'), level: 1 })).toBeVisible();
     await expect(page.getByText(t('en', 'legal.refundBody'))).toBeVisible();
-    await expect(page.getByText(t('en', 'legal.disputeOutcome'))).toBeVisible();
+    await expect(page.getByText(t('en', 'legal.deliveryIssueOutcome'))).toBeVisible();
     await expect(page.getByText(t('en', 'legal.platformErrorBody'))).toBeVisible();
-    await expect(page.getByText(t('en', 'legal.disputeWindowNote'))).toBeVisible();
+    await expect(page.getByText(t('en', 'legal.deliveryIssueTitle'))).toBeVisible();
     await expect(page.getByText(t('en', 'legal.scopeNote'))).toBeVisible();
   });
 });

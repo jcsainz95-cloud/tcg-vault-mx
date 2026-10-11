@@ -4,6 +4,7 @@ import { AuthService } from '../src/modules/auth/auth.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GoogleTokenVerifier } from '../src/modules/auth/google-token-verifier';
+import { c7Args } from './helpers/auth-c7-deps';
 
 // Se envuelve `verify` en un jest.fn que delega en la implementación real: así se puede
 // contar cuántas veces se invoca (mitigación de temporización) sin perder el hashing real
@@ -46,7 +47,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
 
   it('usuario inexistente → 401 y AUN ASÍ ejecuta argon2.verify (contra hash dummy)', async () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) } };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail, ...c7Args());
     await expect(svc.login({ email: 'nobody@x.com', password: 'secret' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });
@@ -65,7 +66,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail, ...c7Args());
     await expect(svc.login({ email: 'g@x.com', password: 'whatever' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });
@@ -74,7 +75,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
 
   it('el hash dummy no coincide con ninguna contraseña (verify=false) → 401', async () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) } };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail, ...c7Args());
     const ok = await argon2.verify(
       '$argon2id$v=19$m=65536,t=3,p=4$IUuYDslaChUS0mrzV74+WQ$Q8BNcs3QrO7nyLYG3ZAMbE+f87icx9X+oRBRlyP0RrE',
       'anything',
@@ -100,7 +101,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail, ...c7Args());
     const res = await svc.login({ email: 'real@x.com', password: 'correct-horse' });
     expect(res.accessToken).toBeDefined();
     expect(res.user.id).toBe('u2');

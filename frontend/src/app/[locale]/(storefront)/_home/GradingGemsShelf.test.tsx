@@ -36,7 +36,7 @@ const gem = (id: string): GroupedListingSummaryDTO => ({
     supertype: 'Pokémon',
     subtypes: ['Stage 2'],
     setId: 'base1',
-    setName: 'Base Set',
+    setName: 'Base Set', setPtcgoCode: null,
     imageSmallUrl: 'https://img.example/s.png',
     imageLargeUrl: 'https://img.example/l.png',
     availableFinishes: ['normal'],

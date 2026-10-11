@@ -13,6 +13,8 @@
 #     - comprar -> orden                 (checkout.spec.ts)
 #     - comprar como INVITADO -> pedido  (guest-checkout.spec.ts)   <- añadido 2026-08-24
 #     - retirar -> envío                 (shipments.spec.ts)
+#     - comprar como INVITADO con CP fuera del catálogo -> paga
+#                                        (address-colonia.spec.ts)  <- añadido 2026-10-05
 #     - vender/buylist -> solicitud      (buylist.spec.ts)
 #
 # LOS TRES FLUJOS DE DINERO (2026-08-24, decisión del dueño — DEVOPS_NOTES §31):
@@ -96,7 +98,7 @@ on:
       smoke_specs:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
-        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts"
   # Invocable desde deploy.yml como gate previo a producción.
   workflow_call:
     inputs:
@@ -104,7 +106,7 @@ on:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
         required: false
-        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts"
       require_real_stripe:
         description: "Exigir STRIPE_TEST_SECRET_KEY real (sk_test_…). La ruta de PROMOCIÓN a prod lo pone en true."
         type: boolean
@@ -115,7 +117,7 @@ on:
       # de «verde sin gate de dinero» SIN leer logs. Hoy nadie lo consume: cablearlo
       # en deploy.yml es decisión del coordinador con el dueño (DEVOPS_NOTES §33.4).
       money_gate:
-        description: "on = los 3 smokes de dinero se ejecutaron; off = se saltaron por falta de credencial de Stripe."
+        description: "on = los 4 smokes de dinero se ejecutaron; off = se saltaron por falta de credencial de Stripe."
         value: ${{ jobs.e2e-real.outputs.money_gate }}
       skipped_specs:
         description: "Specs de dinero saltados por falta de credencial (vacío si money_gate=on)."
@@ -142,12 +144,15 @@ jobs:
       FRONTEND_URL: http://localhost:3010
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
       # Smoke por defecto (workflow_call/dispatch lo pueden sobreescribir).
-      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
+      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts' }}
       # Los specs que EXIGEN proveedor de pago real (abren el modal de Stripe). Fuente
       # única de verdad, leída por scripts/stripe-test-key-preflight.sh. NO es una lista
       # de "tests opcionales": es la lista de tests cuyo resultado depende de que exista
       # credencial. Si aparece un cuarto flujo de dinero, se añade aquí.
-      MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts"
+      # IMPORTANTE-2 (QA, release listo-real sobre c62621e6, 2026-10-05): el cuarto ya
+      # existe — `address-colonia.spec.ts:31`, invitado con un CP FUERA del catálogo que
+      # PAGA (abre el modal de Stripe). Sin credencial, se salta con los otros tres.
+      MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts"
       # ---------------------------------------------------------------------
       # INCAPACITACIÓN FRENTE AL PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
       #
@@ -364,6 +369,7 @@ jobs:
       # backend) y se ejecuta con node_modules/.bin en el PATH. Semántica idéntica,
       # incluido el "si no existe, se salta".
       - name: Seed sintético (datos deterministas para los flujos)
+        id: seed
         run: |
           SEED_CMD="$(docker compose -f "$COMPOSE" exec -T backend \
             node -e "process.stdout.write((require('./package.json').scripts||{})['seed:synthetic']||'')")"
@@ -374,6 +380,12 @@ jobs:
           echo "Seed sintético: $SEED_CMD"
           docker compose -f "$COMPOSE" exec -T backend \
             sh -c "export PATH=/app/node_modules/.bin:\$PATH; $SEED_CMD"
+          # El DUEÑO de la pila (§M4-SHIP.19.31.5 (5)): las pruebas que compran giran el
+          # dial como `isOwner`. M-68 corre en la migración, ANTES del seed, sobre una base
+          # vacía ⇒ nadie queda marcado (medido 2026-10-05). set-owner.ts es el único
+          # escritor admitido (C-OWN-1); el correo sale del fixture de backend, no de aquí.
+          docker compose -f "$COMPOSE" exec -T backend \
+            sh -c 'export PATH=/app/node_modules/.bin:$PATH; OWNER_EMAIL="$(ts-node -T -e "process.stdout.write(require(\"./prisma/e2e-fixtures\").E2E_USERS.admin.email)")" && [ -n "$OWNER_EMAIL" ] && OWNER_EMAIL="$OWNER_EMAIL" ts-node -T prisma/set-owner.ts'
 
       # -----------------------------------------------------------------------
       # PARIDAD DEL PROVEEDOR DE PRECIO (`I-PP5`, API_CONTRACT §M10-PP).
@@ -505,6 +517,58 @@ jobs:
           npm run test:e2e -- $EFFECTIVE_SMOKE_SPECS
 
       # -----------------------------------------------------------------------
+      # P-REL-3 — CUBETA SPEI CONTRA EL STACK REAL: DEBE CORRER, UNA VEZ, Y PASAR.
+      # (devops, 2026-09-29 · DEVOPS_NOTES §72)
+      #
+      # `frontend/e2e/m4-ship-spei-real.spec.ts` CONSUME las dos filas que siembra
+      # el paso 13 de `seed-e2e.ts` (`seedSpeiBucket`: `e2e:mr-pay`, `e2e:mr-cancel`),
+      # que aquí corre UNA vez en «Seed sintético» (`seed:synthetic` = seed-e2e.ts)
+      # sobre un Postgres recién creado. Sin fila `pending` sus casos se SALTAN.
+      # Por eso va en SU paso y no en `SMOKE_SPECS`:
+      #   · `--retries=0`: el config pone `retries: 2` en CI, y un reintento tras
+      #     consumir la fila se SALTA ⇒ Playwright lo cuenta `flaky` ⇒ rc=0. MEDIDO
+      #     (proyecto sintético, @playwright/test 1.56.0, N=5): 5/5 rc=0 con el caso
+      #     fallado. Ni `not-measured.ts` lo ve (filtra `outcome()==='skipped'`).
+      #   · una sola corrida por siembra: si alguien mete el spec en `smoke_specs`,
+      #     este paso aborta (la 2.ª corrida encontraría las filas consumidas).
+      #   · `E2E_EXPECT_NOT_MEASURED=0`: el reporter de frontend tumba la corrida
+      #     si algún caso quedó sin medir (el instrumento es suyo; cablearlo, mío).
+      #   · `check-e2e-must-run.sh`: sobre el JSON, exige ≥2 casos `expected` con UN
+      #     solo intento `passed`. Salto, flaky, reintento o 0 casos ⇒ ROJO.
+      #     Canario: `check-e2e-must-run-canary.sh` (en ci.yml, cada PR).
+      # Corre aunque el smoke de dinero haya fallado (mide otra cosa), pero solo si
+      # la siembra terminó bien: sin siembra, su rojo no hablaría del producto.
+      # -----------------------------------------------------------------------
+      - name: P-REL-3 cubeta SPEI (REAL) — debe ejecutarse y pasar en su único intento
+        id: spei
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: ${{ env.FRONTEND_URL }}
+          E2E_REAL: '1'
+          SPEI_SPEC: m4-ship-spei-real.spec.ts
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/frontend/test-results-spei/report.json
+          E2E_NOT_MEASURED_JSON: ${{ github.workspace }}/frontend/test-results-spei/not-measured.json
+          E2E_EXPECT_NOT_MEASURED: '0'
+        run: |
+          set -uo pipefail
+          case " ${EFFECTIVE_SMOKE_SPECS:-} " in
+            *" $SPEI_SPEC "*)
+              echo "::error title=P-REL-3::$SPEI_SPEC está también en smoke_specs: consume su semilla y ya corrió allí; esta segunda corrida se saltaría. Quítalo de smoke_specs (corre en este paso)."
+              exit 1 ;;
+          esac
+          mkdir -p test-results-spei
+          set +e
+          npm run test:e2e -- "$SPEI_SPEC" --retries=0 --output=test-results-spei/artifacts \
+            --reporter=list,github,json,./e2e/reporters/not-measured.ts
+          PW_RC=$?
+          echo "playwright rc=$PW_RC"
+          "$GITHUB_WORKSPACE/scripts/check-e2e-must-run.sh" \
+            --report test-results-spei/report.json --spec "$SPEI_SPEC" --min 2
+          CHK_RC=$?
+          [ "$PW_RC" -eq 0 ] && [ "$CHK_RC" -eq 0 ]
+
+      # -----------------------------------------------------------------------
       # VEREDICTO EN UNA LÍNEA, EN LA PÁGINA DEL RUN.
       # Requisito explícito: el estado «Stripe no configurado» tiene que ser de
       # primera clase y legible SIN abrir logs. Hoy había que bajar 2 000 líneas
@@ -515,6 +579,7 @@ jobs:
         if: always()
         env:
           PW_OUTCOME: ${{ steps.smoke.outcome }}
+          SPEI_OUTCOME: ${{ steps.spei.outcome }}
         run: |
           set -uo pipefail
           CORRIDOS=$(printf '%s' "${EFFECTIVE_SMOKE_SPECS:-}" | wc -w | tr -d ' ')
@@ -543,6 +608,12 @@ jobs:
             else
               echo "**El preflight abortó: no se ejecutó ningún smoke.** Ver el bloque de arriba."
             fi
+            echo ""
+            case "${SPEI_OUTCOME:-skipped}" in
+              success) echo "**P-REL-3 cubeta SPEI (real): EJECUTADA y PASÓ** (2 casos, un intento, 0 saltos — \`check-e2e-must-run.sh\`)." ;;
+              failure) echo "**P-REL-3 cubeta SPEI (real): ROJO** — falló, se saltó o se reintentó. Ver el paso y \`test-results-spei/\`." ;;
+              *)       echo "**P-REL-3 cubeta SPEI (real): NO CORRIÓ** (la siembra no terminó bien o el job murió antes). NO está medida." ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${MONEY_GATE:-}" = "off" ]; then
             echo "::warning title=Verde PARCIAL — $CORRIDOS $PLURAL corridos, $SALTADOS de dinero SALTADOS::Este run NO probó comprar, comprar-como-invitado ni retirar: no hay credencial de Stripe (ausencia deliberada, DEVOPS_NOTES 33.2). El verde de este workflow NO es un verde de dinero."
@@ -578,6 +649,7 @@ jobs:
             echo "  - comprar (checkout.spec.ts)"
             echo "  - comprar como invitado (guest-checkout.spec.ts)"
             echo "  - retirar / envíos (shipments.spec.ts)"
+            echo "  - comprar como invitado con CP fuera del catálogo (address-colonia.spec.ts)"
             echo
             echo "No se ejecutaron. **No están aprobados.** No hay evidencia de que funcionen."
             echo
@@ -617,6 +689,7 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+            frontend/test-results-spei
           if-no-files-found: ignore
           retention-days: 14
 

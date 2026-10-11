@@ -5,7 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -79,12 +79,15 @@ describe('PricingService.computeSalePriceForItem — SEAM ÚNICO de VENTA por la
   it('la CURVA se puede izar UNA vez por request y pasarse al seam (BE-25, sin releer settings)', async () => {
     const { pricing, settings } = realPricing();
     const curve = await pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA se iza igual que la curva.
+    const premiumFloorPolicy = await pricing.loadSalePremiumFloorPolicy();
     (settings.getRaw as jest.Mock).mockClear();
     const r = await pricing.computeSalePriceForItem({
       referenceMxnCents: 100000,
       rarityCanonical: 'comun',
       controls: null,
       curve,
+      premiumFloorPolicy,
     });
     expect(r.priceCents).toBe(115000);
     expect(settings.getRaw).not.toHaveBeenCalled();
@@ -131,6 +134,7 @@ function itemOf(over: Partial<Record<string, unknown>> = {}) {
 function pricingMock(referenceMxnCents: number | null): PricingService {
   const real = realPricing().pricing;
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, getDefaultNormalizer } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
 import type {
@@ -11,6 +12,7 @@ import type {
 } from '@/types/contract';
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
+import es from '../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
 // Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
@@ -198,7 +200,7 @@ describe('Master Set · Precio de mercado POR VARIANTE en el tile (P-15, v1.27)'
     // dato vive solo en el campo de celda. El tile debe seguir pintando ese valor durante la
     // ventana de deploy; el fallback se retira junto con el campo de celda (siguiente rev).
     vi.spyOn(api, 'getMasterSetBinder').mockResolvedValue({
-      set: { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999-01-09' },
+      set: { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999-01-09', ptcgoCode: null },
       printedTotal: 102,
       catalogCardCount: 1,
       scope: 'platform',
@@ -738,6 +740,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     name: 'Quoter Set',
     year: 2024,
     logoUrl: null,
+    ptcgoCode: null,
   };
 
   function mockOneSet() {
@@ -796,7 +799,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: 'https://images.pokemontcg.io/quoter/1.png',
       imageLargeUrl: 'https://images.pokemontcg.io/quoter/1_hires.png',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -816,12 +819,12 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     // Dos casillas independientes, cada una con su propio precio cotizado.
     expect(
       await screen.findByRole('button', {
-        name: 'Agregar Dual Finish Card (Normal) a la venta · MX$100.00',
+        name: 'Agregar Dual Finish Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', {
-        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$150.00',
       }),
     ).toBeInTheDocument();
   });
@@ -839,7 +842,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -871,7 +874,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: 'https://images.pokemontcg.io/quoter/2.png',
       imageLargeUrl: 'https://images.pokemontcg.io/quoter/2_hires.png',
       availableFinishes: ['normal'],
@@ -890,7 +893,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     expect(
       await screen.findByRole('button', {
-        name: 'Agregar Single Finish Card (Normal) a la venta · MX$100.00',
+        name: 'Agregar Single Finish Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
       }),
     ).toBeInTheDocument();
     expect(
@@ -915,7 +918,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Energy',
       subtypes: ['Special'],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['holofoil', 'reverse_holo'],
@@ -955,7 +958,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     supertype: 'Trainer',
     subtypes: [],
     setId: 'set-quoter',
-    setName: 'Quoter Set',
+    setName: 'Quoter Set', setPtcgoCode: null,
     imageSmallUrl: '',
     imageLargeUrl: '',
     availableFinishes: ['normal', 'reverse_holo'],
@@ -1096,7 +1099,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
         supertype: 'Pokémon',
         subtypes: [],
         setId: 'set-quoter',
-        setName: 'Quoter Set',
+        setName: 'Quoter Set', setPtcgoCode: null,
         imageSmallUrl: '',
         imageLargeUrl: '',
         availableFinishes: ['normal'],
@@ -1110,7 +1113,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
         supertype: 'Pokémon',
         subtypes: [],
         setId: 'set-quoter',
-        setName: 'Quoter Set',
+        setName: 'Quoter Set', setPtcgoCode: null,
         imageSmallUrl: '',
         imageLargeUrl: '',
         availableFinishes: ['normal'],
@@ -1151,14 +1154,16 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     // La otra línea cotiza y sigue siendo agregable (el lote NO se cayó)…
     const ok = await screen.findByRole('button', {
-      name: 'Agregar Quotable Card (Normal) a la venta · MX$100.00',
+      name: 'Agregar Quotable Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
     });
     fireEvent.click(ok);
     expect(onAdd).toHaveBeenCalledTimes(1);
 
     // …y la rechazada se marca SOLO a sí misma: sin precio inventado y con su «Agregar» inhábil.
+    // §BMK.4 (DESIGN_SYSTEM): el aria anuncia lo que la teja enseña — «No disponible», no «Precio
+    // pendiente» (antes el aria decía pendiente mientras la teja decía «No disponible»).
     const rejected = screen.getByRole('button', {
-      name: 'Agregar Rejected Card (Normal) a la venta · Precio pendiente',
+      name: 'Agregar Rejected Card (Normal) a la venta · No disponible',
     });
     expect(rejected).toBeDisabled();
     fireEvent.click(rejected);
@@ -1176,7 +1181,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal'],
@@ -1207,7 +1212,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -1227,7 +1232,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     fireEvent.click(
       await screen.findByRole('button', {
-        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$150.00',
       }),
     );
 
@@ -1253,7 +1258,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal'],
@@ -1310,8 +1315,14 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
       'cel25c',
     ]);
 
-    // Colisión de numeración entre partes: hay DOS "#1" (uno por bloque), desambiguados por el separador.
-    expect(screen.getAllByText('#1')).toHaveLength(2);
+    // Colisión de numeración entre partes: hay DOS "1" (uno por bloque), desambiguados por el separador.
+    // v1.80 (P-71): cada bloque hereda el código de SU parte — «CEL 1» y «CLC 1» (espacio no
+    // separable), nunca el del principal en las dos. El normalizador por defecto colapsaría el NBSP.
+    const keepNbsp = { normalizer: getDefaultNormalizer({ collapseWhitespace: false }) };
+    expect(screen.getAllByText('CEL\u00A01', keepNbsp)).toHaveLength(1);
+    expect(screen.getAllByText('CLC\u00A01', keepNbsp)).toHaveLength(1);
+    expect(within(principalSep.parentElement as HTMLElement).getByTestId('part-set-code')).toHaveTextContent('CEL');
+    expect(within(subsetSep.parentElement as HTMLElement).getByTestId('part-set-code')).toHaveTextContent('CLC');
     // Y una carta de cada parte, cada una bajo su nombre de bloque (texto exacto: "#1" ≠ "#10").
     expect(screen.getByText('Celebrations #1')).toBeInTheDocument();
     expect(screen.getByText('Classic Collection #1')).toBeInTheDocument();
@@ -1353,6 +1364,7 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
           series: 'Sword & Shield',
           year: 2021,
           logoUrl: null,
+          ptcgoCode: null,
           catalogCardCount: 25,
           distinctCardsOwned: 0,
           completionPct: 0,
@@ -1376,5 +1388,67 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Celebrations' })).toBeInTheDocument();
     expect(await screen.findByText('0/50 variantes · 0%')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'Classic Collection' })).toBeInTheDocument();
+  });
+});
+
+describe('SU-UX-10 · MasterSetPanel: el alta del carrito y la «encontrada» refrescan «Listas para publicar»', () => {
+  // Gate techlead D3 (sobre 2c516314): `invalidateAggregates` (MasterSetPanel) invalida `['pending-publish']` y
+  // ningún candado lo cubría. Mutación que debe morder: quitar esa línea.
+  const PENDING = { queryKey: ['pending-publish'] };
+
+  it('carrito: «Dar de alta al inventario» correcto ⇒ invalida la cola', async () => {
+    vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'b-su10',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000510'], inventoryItemIds: ['x10'] }],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(PENDING));
+  });
+
+  it('ajuste `encontrada` correcto ⇒ invalida la cola', async () => {
+    vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
+      adjustmentIds: ['adj-su10'],
+      reason: 'encontrada',
+      inventoryItemIds: ['inv-su10'],
+      folios: ['INV-000410'],
+      fromStatus: null,
+      toStatus: 'in_stock',
+      idempotentReplay: false,
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+    expect(await within(drawer).findByText('Ajuste registrado (INV-000410).')).toBeInTheDocument();
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(PENDING));
+  });
+});
+
+describe('Ubicación opcional · CellDrawer: la opción vacía dice «Sin ubicación» (no «Todos»)', () => {
+  // Gate QA sobre 2c516314 (misma clase que AddItemModal): la opción '' se rotulaba `common.all` («Todos») y
+  // enviaba la pieza SIN `locationId`. Lo que se ve debe ser lo que se envía.
+  it('sin elegir: se ve «Sin ubicación» y la línea viaja sin `locationId`', async () => {
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'b-loc',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000511'], inventoryItemIds: ['x11'] }],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const select = (await within(drawer).findByRole('combobox', { name: es.admin.m1.location })) as HTMLSelectElement;
+    expect(select.options[select.selectedIndex]?.textContent).toBe(es.admin.m1.locationNone);
+    expect(within(select).queryByRole('option', { name: es.common.all })).toBeNull();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items[0].locationId).toBeUndefined();
   });
 });

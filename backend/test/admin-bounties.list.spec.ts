@@ -1,7 +1,7 @@
 import { AdminBountiesService, ADMIN_BOUNTY_SERVER_CAP } from '../src/modules/pricing/admin-bounties.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { variantKey } from '../src/common/variant-key';
 
 /**
@@ -82,6 +82,7 @@ function svcOf(rows: ReturnType<typeof row>[]) {
   const findMany = jest.fn(async (_args: any) => rows);
   const prisma = { variantPriceOverride: { findMany } } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReferencesBatch: jest.fn(async (keys: { cardId: string; productType: any; gradeKey: string; finish: any }[]) => {
       const m = new Map<string, { status: 'priced' | 'pending'; referenceMxnCents?: number }>();
@@ -198,6 +199,8 @@ describe('§M2-B.1 — el ORDEN DE OPERACIONES: clasificar ANTES de filtrar, con
       { bountyPriceCents: { not: null } },
       { bountyCompletedAt: { not: null } },
       { bountyAcquiredQty: { gt: 0 } },
+      // v2.2 (Q2, §M2-B.0): una fila DESPUBLICADA sigue en alcance (es un registro archivado).
+      { bountyUnpublishedAt: { not: null } },
     ]);
     // `q` busca por nombre O número de la carta; el `state` NO viaja al motor (no es SQL-calculable).
     expect(args.where.card.OR).toHaveLength(2);
@@ -249,7 +252,7 @@ describe('§M2-B.1 — `counts`: la DISTRIBUCIÓN sobre el conjunto, no sobre la
     const res = await svc.list(query({ states: ['rebasada'] }));
     expect(res.data.map((d) => d.state)).toEqual(['rebasada']);
     expect(res.total).toBe(1); // `total` SÍ obedece a todos los filtros
-    expect(res.counts).toEqual({ activa: 1, rebasada: 1, invalida: 1, completada: 1, apagada: 1 });
+    expect(res.counts).toEqual({ activa: 1, rebasada: 1, invalida: 1, completada: 1, apagada: 1, despublicada: 0 });
   });
 
   it('B-10 — `invalida` tiene su PROPIA cubeta: no se funde en `activa`', async () => {
@@ -264,9 +267,12 @@ describe('§M2-B.1 — `counts`: la DISTRIBUCIÓN sobre el conjunto, no sobre la
     const { svc } = svcOf(CINCO);
     const res = await svc.list(query());
     const { activa, rebasada, invalida, completada, apagada } = res.counts;
+    // v2.2 (Q2): la sexta cubeta `despublicada` viaja SIEMPRE en `counts` (selector), pero NO entra al
+    // invariante de `total` (sale de `data` por defecto). Sin filtro, `total` == suma de las CINCO.
     expect(Object.keys(res.counts).sort()).toEqual(
-      ['activa', 'apagada', 'completada', 'invalida', 'rebasada'],
+      ['activa', 'apagada', 'completada', 'despublicada', 'invalida', 'rebasada'],
     );
+    expect(res.counts.despublicada).toBe(0);
     expect(activa + rebasada + invalida + completada + apagada).toBe(res.total);
   });
 
@@ -275,7 +281,7 @@ describe('§M2-B.1 — `counts`: la DISTRIBUCIÓN sobre el conjunto, no sobre la
     // comprueba es que los conteos se calculan sobre LO SELECCIONADO, no sobre un universo aparte.
     const { svc } = svcOf([CINCO[0]]);
     const res = await svc.list(query({ q: 'Carta a' }));
-    expect(res.counts).toEqual({ activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 });
+    expect(res.counts).toEqual({ activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 });
   });
 
   it('conjunto VACÍO ⇒ las cinco claves en 0 (el panel ENUNCIA el cero; una clave ausente no es un cero)', async () => {
@@ -285,7 +291,7 @@ describe('§M2-B.1 — `counts`: la DISTRIBUCIÓN sobre el conjunto, no sobre la
       data: [],
       total: 0,
       truncated: false,
-      counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
     });
   });
 });

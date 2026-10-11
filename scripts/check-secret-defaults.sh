@@ -622,6 +622,61 @@ elif [ "$F_MAL" -eq 0 ]; then
 fi
 
 # =============================================================================
+# (H) FORMA DE VALOR de Stripe live — en CUALQUIER fichero, `*.md` incluidos
+# =============================================================================
+# P-GL-2 / CL-2 (seguridad, 2026-10-05, §3.1): una `sk_live_` real pegada en una
+# guía de `docs/` pasaba los dos candados. gitleaks la eximía por ruta (ya no:
+# security/gitleaks.toml) y ESTE candado se salta todos los `*.md` en los bloques
+# de NOMBRE (`es_autoreferente`), con razón: la documentación enseña la forma
+# `VAR=valor` a propósito. Este bloque NO mira nombres: mira la FORMA DEL VALOR
+# de las tres credenciales que mueven dinero real (`sk_live_`, `rk_live_`,
+# `whsec_`, 24+ alfanuméricos, las mismas reglas del proyecto en gitleaks.toml).
+# Por eso no usa `es_autoreferente`: aquí un `.md` NO es excusa.
+#
+# Es una segunda red independiente de gitleaks: corre sin binario, sin red, y
+# sobre el árbol ENTERO (gitleaks en CI solo ve el rango del push).
+# Exclusión nominal y mínima: los dos canarios que plantan ficción por
+# construcción (los mismos dos que gitleaks exime por ruta). Medido el
+# 2026-10-05: fuera de ellos, 0 coincidencias en el árbol.
+# Nunca se imprime el valor: solo fichero:línea y el prefijo (el log de CI es
+# público).
+printf '\n\033[1m(H) Forma de valor Stripe live (sk_live_/rk_live_/whsec_) en cualquier fichero, *.md incluidos\033[0m\n'
+H_MAL=0
+RE_STRIPE_LIVE='(sk|rk)_live_[0-9A-Za-z]{24,}|whsec_[0-9A-Za-z]{24,}'
+h_excluido() {
+  case "$1" in
+    scripts/check-secret-defaults-canary.sh|scripts/check-stripe-webhook-failclosed-canary.sh) return 0 ;;
+  esac
+  return 1
+}
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  # `-co --exclude-standard`: lo versionado Y lo nuevo sin ignorar (se caza antes del commit).
+  mapfile -t HFILES < <(git ls-files -co --exclude-standard 2>/dev/null | grep -v '/node_modules/' || true)
+else
+  mapfile -t HFILES < <(find . -type f -not -path '*/node_modules/*' -not -path './.git/*' 2>/dev/null | sed 's|^\./||' || true)
+fi
+HMIRAR=()
+for f in "${HFILES[@]:-}"; do
+  [ -f "$f" ] || continue
+  h_excluido "$f" && continue
+  HMIRAR+=("$f")
+done
+H_MIRADOS=${#HMIRAR[@]}
+while IFS=: read -r f n val; do
+  [ -n "${n:-}" ] || continue
+  case "$val" in sk_live_*) pref=sk_live_ ;; rk_live_*) pref=rk_live_ ;; *) pref=whsec_ ;; esac
+  mal "$f:$n — valor con forma de \`${pref}…\` (Stripe live/webhook, ${#val} caracteres)."
+  nota "Una credencial que mueve dinero real no puede estar en un fichero de un repo PÚBLICO, tampoco en docs/."
+  nota "Si es ficción, que se delate: menos de 24 caracteres tras el prefijo, o \`…\`/\`<…>\`."
+  H_MAL=$((H_MAL+1))
+done < <( [ "$H_MIRADOS" -gt 0 ] && printf '%s\0' "${HMIRAR[@]}" | xargs -0 grep -IHonE "$RE_STRIPE_LIVE" 2>/dev/null || true )
+if [ "$H_MIRADOS" -eq 0 ]; then
+  mal "El bloque (H) no miró ningún fichero: se quedó sin blanco."
+elif [ "$H_MAL" -eq 0 ]; then
+  ok "$H_MIRADOS ficheros mirados (docs/*.md incluidos): ninguna sk_live_/rk_live_/whsec_ con forma real."
+fi
+
+# =============================================================================
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then
   printf '\033[1;31m✗ %s incumplimiento(s). La clase S-88-1 NO está cerrada.\033[0m\n' "$FALLOS"

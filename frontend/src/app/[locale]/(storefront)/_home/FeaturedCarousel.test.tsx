@@ -26,7 +26,7 @@ function card(id: string, name: string): CardDTO {
     supertype: 'Pokémon',
     subtypes: ['Stage 2'],
     setId: 'base1',
-    setName: 'Base Set',
+    setName: 'Base Set', setPtcgoCode: null,
     imageSmallUrl: `https://img.example/${id}-small.png`,
     imageLargeUrl: `https://img.example/${id}-large.png`,
     availableFinishes: ['normal', 'reverse_holo'],

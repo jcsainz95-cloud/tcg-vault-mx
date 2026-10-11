@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** Token opcional para un cliente Redis con método `ping()`. Hoy no hay ninguno
@@ -14,6 +15,21 @@ export interface HealthRedisClient {
 
 export type DependencyState = 'up' | 'down' | 'skipped';
 
+/** v1.84 (LIVE-7, API_CONTRACT §14.7): ¿la tienda cobra dinero real? Del PREFIJO de `STRIPE_SECRET_KEY`. */
+export type StripeMode = 'live' | 'test' | 'none';
+
+/**
+ * `sk_live_`/`rk_live_` ⇒ `live`; `sk_test_`/`rk_test_` ⇒ `test`; vacía o ausente ⇒ `none`. Un prefijo que no es
+ * ninguno de esos cuatro (no es una clave de Stripe) ⇒ `none` — el contrato no define un cuarto valor.
+ * ⛔ Devuelve SOLO la etiqueta: ni la clave ni un fragmento (HLT-1).
+ */
+export function stripeModeOf(secretKey: string | undefined | null): StripeMode {
+  const k = (secretKey ?? '').trim();
+  if (k.startsWith('sk_live_') || k.startsWith('rk_live_')) return 'live';
+  if (k.startsWith('sk_test_') || k.startsWith('rk_test_')) return 'test';
+  return 'none';
+}
+
 export interface HealthResult {
   ok: boolean;
   status: 'ok' | 'degraded';
@@ -21,6 +37,8 @@ export interface HealthResult {
   timestamp: string;
   db: DependencyState;
   redis: DependencyState;
+  /** v1.84 (LIVE-7): NO degrada la salud. */
+  stripeMode: StripeMode;
 }
 
 /**
@@ -34,6 +52,7 @@ export interface HealthResult {
 export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
     @Optional()
     @Inject(HEALTH_REDIS_CLIENT)
     private readonly redis?: HealthRedisClient,
@@ -54,6 +73,7 @@ export class HealthService {
       timestamp: new Date().toISOString(),
       db,
       redis,
+      stripeMode: stripeModeOf(this.config.get<string>('STRIPE_SECRET_KEY')),
     };
   }
 

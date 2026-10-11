@@ -30,13 +30,18 @@ REPORT_DIR="${ROOT_DIR}/security/reports"
 mkdir -p "${REPORT_DIR}"
 
 echo "→ ZAP FULL scan (activo) contra ${TARGET_URL} ..."
+# Imagen FIJADA por digest + política filtrada (solo IDs enteros) para ZAP: §96.7.
+# shellcheck source=security/scripts/dast-zap-lib.sh
+. "${SCRIPT_DIR}/dast-zap-lib.sh"
+ZAP_CONF_DIR="${REPORT_DIR}/zap-conf"
+zap_conf_for_zap "${ZAP_CONF_DIR}"
 docker run --rm \
-  -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
+  -v "${ZAP_CONF_DIR}:${ZAP_CONF_MOUNT}:ro" \
   -v "${REPORT_DIR}:/zap/wrk/out:rw" \
-  ghcr.io/zaproxy/zaproxy:stable \
+  "${ZAP_IMAGE}" \
   zap-full-scan.py \
     -t "${TARGET_URL}" \
-    -c /zap/wrk/conf/baseline.conf \
+    -c "${ZAP_CONF_MOUNT}/baseline.conf" \
     -r /zap/wrk/out/zap-full.html \
     -w /zap/wrk/out/zap-full.md \
     -J /zap/wrk/out/zap-full.json \

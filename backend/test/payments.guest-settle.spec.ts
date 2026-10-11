@@ -33,6 +33,13 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
         created.orderUpdates.push(data);
         return {};
       }),
+      // v1.79.4 (§M4-VAULT.2-bis.1): el settle escribe la orden con un CAS (`updateMany`, estado en
+      // el WHERE). Se registra en la MISMA lista: las aserciones sobre el `data` no cambian.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        created.orderWhere = where;
+        created.orderUpdates.push(data);
+        return { count: 1 };
+      }),
     },
     inventoryItem: {
       findUnique: jest.fn(async () => ({ id: 'item-1', ...itemState })),
@@ -66,6 +73,14 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
       }),
     },
     shipmentItem: { findFirst: jest.fn(async () => null) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma: any = {
     order: { findUnique: jest.fn(async () => opts.order ?? GUEST_ORDER), update: jest.fn() },

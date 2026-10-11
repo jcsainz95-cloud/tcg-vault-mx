@@ -25,9 +25,9 @@
  *      encontraría**;
  *   2. **ningún precio resuelto es CERO** — cero es un precio (§7.3): `MX$0.00` en esa columna
  *      significaría «vale nada», no «no sé»; el «no sé» viaja como `null`;
- *   3. y la pieza del fixture está ahí **por lo que se sembró** (`in_stock`, sin ubicación, con
- *      precio de venta resoluble), que es el perfil REAL de la cola: la conversión desde M5 no
- *      exige ubicación (§4.39m.3) y el precio sí resuelve.
+ *   3. y la pieza del fixture está ahí **por lo que se sembró** (`in_stock`, sin ubicación, SIN
+ *      precio de venta resoluble). ⭐ Errata SU-1 (API_CONTRACT §M1-SU): la ubicación ya no es
+ *      requisito para publicar, así que lo único que retiene una pieza en la cola es el precio.
  *
  * ⚠️ **No afirma `total === 1`.** La BD local de trabajo acumula piezas `in_stock` de corridas
  * previas y en CI la BD es efímera; fijar el tamaño de la cola haría fallar al entorno, no al
@@ -35,7 +35,7 @@
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_CARDS, E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
 interface PendingPublishRow {
   inventoryItemId: string;
@@ -45,6 +45,7 @@ interface PendingPublishRow {
   priceBasis: string | null;
   missing: string[];
   acquisitionType: string;
+  productType: string;
 }
 
 describe('E2E — la COLA «listas para publicar» tiene TRABAJO con el seed sintético (§4.39m.1)', () => {
@@ -112,7 +113,9 @@ describe('E2E — la COLA «listas para publicar» tiene TRABAJO con el seed sin
       offenders((r) => {
         if (r.missing.length === 0) return `${r.folio}: no dice qué le falta`;
         const unknown = r.missing.filter((w) => w !== 'location' && w !== 'price');
-        return unknown.length ? `${r.folio}: missing desconocido ${unknown.join()}` : null;
+        if (unknown.length) return `${r.folio}: missing desconocido ${unknown.join()}`;
+        // ⭐ SU-1 (§M1-SU, SU.2): `location` sigue en el vocabulario, pero el servidor ya no lo emite.
+        return r.missing.includes('location') ? `${r.folio}: emite 'location' (SU-1 lo durmió)` : null;
       }),
     ).toEqual([]);
   });
@@ -131,16 +134,15 @@ describe('E2E — la COLA «listas para publicar» tiene TRABAJO con el seed sin
     ).toEqual([]);
   });
 
-  it('(3) la pieza del fixture: `in_stock`, SIN ubicación y con precio de venta RESOLUBLE', async () => {
+  it('(3) la pieza del fixture: `in_stock`, SIN ubicación y SIN precio de venta resoluble (SU-B2 ii)', async () => {
     const [row] = rowsFor(E2E_FOLIOS.pendingPublishNoLocation);
     expect(row).toBeDefined();
-    // Lo que le falta, y SOLO eso: es el caso real (la conversión desde M5 no exige ubicación).
-    expect(row.missing).toEqual(['location']);
+    // ⭐ SU-1 (§M1-SU): lo que le falta es EXACTAMENTE el precio — sin cajón, el servidor ya no dice `location`.
+    expect(row.missing).toEqual(['price']);
     expect(row.locationId).toBeNull();
-    // El precio SÍ resuelve y es un importe de verdad ⇒ la columna de dinero de la UI pinta
-    // `MX$xx.xx`, no la etiqueta de «pendiente» ni un cero.
-    expect(row.resolvedSalePriceCents).toBeGreaterThan(0);
-    expect(row.priceBasis).toBe('market');
+    // El «no resoluble» viaja como `null` con el veredicto `pending`, jamás como `MX$0.00` (§7.3).
+    expect(row.resolvedSalePriceCents).toBeNull();
+    expect(row.priceBasis).toBe('pending');
     expect(row.acquisitionType).toBe('buylist');
 
     // Y en la BD sigue siendo lo que el seed prometió: la cola no la publicó por mirarla.
@@ -152,12 +154,130 @@ describe('E2E — la COLA «listas para publicar» tiene TRABAJO con el seed sin
     expect(item?.locationId).toBeNull();
   });
 
-  it('el filtro `?missing=location` la incluye (es el deep-link del back-office)', async () => {
+  it('SU-B2 (iii) · `?missing=location` sigue siendo válido y responde `200 { data: [], total: 0 }` (§M1-SU, SU.2)', async () => {
+    // La pieza del fixture NO tiene cajón: con la regla vieja salía aquí. El valor sigue en el eje (clase L), pero
+    // mientras rija la fila de HECHOS el servidor no lo emite.
     const path = '/admin/inventory/pending-publish?missing=location&pageSize=100';
     const res = await h.api('GET', path, { token: adminToken });
     expect(res.status).toBe(200);
     const body = res.body as { data: PendingPublishRow[]; total: number };
+    expect(body.data).toEqual([]);
+    expect(body.total).toBe(0);
+  });
+
+  it('`?missing=price` la incluye (es el deep-link del back-office)', async () => {
+    const path = '/admin/inventory/pending-publish?missing=price&pageSize=100';
+    const res = await h.api('GET', path, { token: adminToken });
+    expect(res.status).toBe(200);
+    const body = res.body as { data: PendingPublishRow[]; total: number };
     expect(body.total).toBeGreaterThan(0);
-    for (const row of body.data) expect(row.missing).toContain('location');
+    for (const row of body.data) expect(row.missing).toEqual(['price']);
+  });
+});
+
+/**
+ * ⭐⭐ **EL DEFECTO DE M11, POR HTTP: `?productType=sealed` NO puede devolver una carta SUELTA.**
+ * (backend, este pase; el dueño lo halló en la tienda.)
+ *
+ * ### El defecto, dicho con el dato
+ * `GET /admin/inventory/pending-publish` **no tenía** el parámetro `?productType=`. El frontend de M11
+ * monta la cola de «Listas para publicar» con `productType='sealed'` creyendo que el endpoint ya lo
+ * filtra — pero NestJS **ignora el query desconocido**, así que la cola devolvía **TODO** y una carta
+ * SUELTA (`raw`, p. ej. «Salamence ex» holofoil de aportación) aparecía en la cola «filtrada a
+ * sellado». Este spec siembra **una suelta y una sellada**, ambas en la cola (plataforma, `in_stock`,
+ * SIN precio resoluble ⇒ `missing:['price']`; ⭐ SU-1: sin cajón ya no basta para entrar), y exige que
+ * el filtro **discrimine de verdad**.
+ *
+ * ⛔ **Money-safe:** es una LECTURA. Siembra filas PROPIAS y efímeras (prefijo `PPPT-`), no toca
+ * dinero ni precios de nadie, y las limpia al terminar.
+ *
+ * ### Por qué falla contra el código SIN el arreglo
+ * Sin el `@Query('productType')` + el predicado en el `where`, `?productType=sealed` devuelve AMBAS
+ * piezas ⇒ `folios.not.toContain(RAW)` y `every(r => r.productType==='sealed')` se ponen ROJOS. Es la
+ * prueba que muerde exactamente el defecto reportado.
+ */
+describe('E2E — `?productType=` FILTRA la cola por tipo (defecto M11: una SUELTA en la cola de SELLADO)', () => {
+  let h2: E2EHarness;
+  let admin2: string;
+  const RAW_FOLIO = 'PPPT-RAW-0001'; // una carta SUELTA (raw), platform + in_stock + sin precio
+  const SEALED_FOLIO = 'PPPT-SEALED-0001'; // una pieza SELLADA, mismo perfil de cola
+
+  beforeAll(async () => {
+    h2 = await E2EHarness.create();
+    admin2 = await h2.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+    // SU-1 (§M1-SU): la carta SIN referencia de mercado del seed (`nopref`) ⇒ la suelta no tiene precio y SÍ entra
+    // a la cola. Con una carta cualquiera (con precio) la suelta saldría de la cola por no faltarle nada.
+    const card = await h2.prisma.card.findFirstOrThrow({ where: { externalId: E2E_CARDS.nopref.externalId }, select: { id: true } });
+    await h2.prisma.inventoryItem.deleteMany({ where: { folio: { in: [RAW_FOLIO, SEALED_FOLIO] } } });
+    await h2.prisma.inventoryItem.create({
+      data: {
+        folio: RAW_FOLIO, cardId: card.id, productType: 'raw', rawCondition: 'NM',
+        ownerType: 'platform', status: 'in_stock', acquisitionType: 'aportacion_en_especie',
+        // `nopref` sin precio ⇒ missing:['price'] ⇒ entra a la cola (sin cajón, que ya no cuenta).
+      },
+    });
+    await h2.prisma.inventoryItem.create({
+      data: {
+        folio: SEALED_FOLIO, cardId: card.id, productType: 'sealed', sealedSubtype: 'box',
+        sealedCondition: 'mint', sealedProductName: 'PPPT Caja de prueba',
+        ownerType: 'platform', status: 'in_stock', acquisitionType: 'compra',
+      },
+    });
+  }, 180000);
+
+  afterAll(async () => {
+    if (h2) {
+      await h2.prisma.inventoryItem.deleteMany({ where: { folio: { in: [RAW_FOLIO, SEALED_FOLIO] } } });
+      await h2.close();
+    }
+  });
+
+  /** La cola ENTERA con el filtro dado (paginada), como en el bloque de arriba: no dependemos de página. */
+  async function queueFor(productType?: string): Promise<PendingPublishRow[]> {
+    const filter = productType ? `productType=${productType}&` : '';
+    const pageSize = 100;
+    const rows: PendingPublishRow[] = [];
+    let page = 1;
+    for (;;) {
+      const res = await h2.api('GET', `/admin/inventory/pending-publish?${filter}page=${page}&pageSize=${pageSize}`, { token: admin2 });
+      expect(res.status).toBe(200);
+      const body = res.body as { data: PendingPublishRow[]; total: number };
+      rows.push(...body.data);
+      if (body.data.length < pageSize || rows.length >= body.total) break;
+      page += 1;
+    }
+    return rows;
+  }
+
+  it('`?productType=sealed` incluye la SELLADA y ⛔ NO la SUELTA (el defecto exacto de M11)', async () => {
+    const rows = await queueFor('sealed');
+    const folios = rows.map((r) => r.folio);
+    expect(folios).toContain(SEALED_FOLIO); // una SELLADA SÍ
+    expect(folios).not.toContain(RAW_FOLIO); // una SUELTA NO
+    // La aserción que muerde el defecto entero: cada fila devuelta es realmente sellado.
+    for (const r of rows) expect(r.productType).toBe('sealed');
+  });
+
+  it('`?productType=raw` incluye la SUELTA y ⛔ NO la SELLADA', async () => {
+    const rows = await queueFor('raw');
+    const folios = rows.map((r) => r.folio);
+    expect(folios).toContain(RAW_FOLIO);
+    expect(folios).not.toContain(SEALED_FOLIO);
+    for (const r of rows) expect(r.productType).toBe('raw');
+  });
+
+  it('sin filtro, la cola trae AMBAS (el eje es ADITIVO: ausente ⇒ cola entera, como hoy)', async () => {
+    const folios = (await queueFor()).map((r) => r.folio);
+    expect(folios).toContain(SEALED_FOLIO);
+    expect(folios).toContain(RAW_FOLIO);
+  });
+
+  it('basura ⇒ `400` con `details.{field,allowed}` (mismo patrón que el resto de ejes de enum)', async () => {
+    const res = await h2.api('GET', '/admin/inventory/pending-publish?productType=no_soy_un_tipo', { token: admin2 });
+    expect(res.status).toBe(400);
+    const body = res.body as { error: { code: string; details: { field: string; allowed: string[] } } };
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.details.field).toBe('productType');
+    expect(body.error.details.allowed).toEqual(expect.arrayContaining(['raw', 'sealed', 'graded']));
   });
 });

@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { InventoryAdjustmentRequestDto } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.20-master-set-everywhere (§4.20e) + v1.20.1-adjustments-clarify — POST /admin/inventory/adjustments:
@@ -42,7 +43,7 @@ function buildPricing(over: any = {}): PricingService {
   } as unknown as PricingService;
 }
 
-const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
 /** Error que imita el P2002 (unique constraint) de Prisma para el claim del InventoryBatch. */
 function p2002(): Error & { code: string } {

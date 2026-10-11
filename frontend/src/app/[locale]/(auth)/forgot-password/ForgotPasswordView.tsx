@@ -66,10 +66,17 @@ export function ForgotPasswordView() {
         </Banner>
       )}
 
+      {/*
+        ⭐ v1.80.9 (DESIGN_SYSTEM §42.2, criterio 262): `type="text"` para que el NAVEGADOR no rechace un
+        usuario con su propio mensaje (sería distinto del de un correo inexistente ⇒ señal). El servidor
+        responde `200 {ok:true}` igual (§M6-U.3). ⛔ Misma etiqueta «Correo»: la pantalla no menciona usuarios.
+      */}
       <Input
         label={t('email')}
         name="email"
-        type="email"
+        type="text"
+        inputMode="email"
+        autoCapitalize="none"
         autoComplete="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}

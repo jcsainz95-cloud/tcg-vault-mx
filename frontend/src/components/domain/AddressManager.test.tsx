@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import type { AddressDTO } from '@/types/contract';
+import { ApiClientError } from '@/lib/api-client';
 import { AddressManager, addressMissingRecipient } from './AddressManager';
 
 const listAddresses = vi.fn();
 const createAddress = vi.fn();
 const updateAddress = vi.fn();
 const deleteAddress = vi.fn();
+const getPostalCode = vi.fn();
 vi.mock('@/lib/api', () => ({
+  getPostalCode: (cp: string) => getPostalCode(cp),
   listAddresses: () => listAddresses(),
   createAddress: (...a: unknown[]) => createAddress(...a),
   updateAddress: (...a: unknown[]) => updateAddress(...a),
@@ -19,20 +22,36 @@ const withName: AddressDTO = {
   id: 'a-1',
   recipientName: 'Ana López',
   line1: 'Av. Reforma 222',
+  neighborhood: 'Juárez',
   city: 'CDMX',
   state: 'CDMX',
   postalCode: '06600',
   country: 'MX',
   phone: '5555123456',
+  references: null,
   isDefault: true,
+  complete: true,
 };
 const legacy: AddressDTO = { ...withName, id: 'a-old', recipientName: null, isDefault: false, line1: 'Calle Vieja 1' };
 
-function fillRequired() {
+/** Catálogo de CP del doble (`GET /geo/postal-codes/:cp`). */
+const CATALOG: Record<string, { state: string; municipality: string; neighborhoods: string[] }> = {
+  '06600': { state: 'Ciudad de México', municipality: 'Cuauhtémoc', neighborhoods: ['Juárez', 'Roma Norte'] },
+  '72000': { state: 'Puebla', municipality: 'Puebla', neighborhoods: ['Centro'] },
+};
+function postalCodeImpl(cp: string) {
+  const hit = CATALOG[cp];
+  if (!hit) {
+    return Promise.reject(new ApiClientError(404, { code: 'POSTAL_CODE_UNKNOWN', message: 'x', details: { postalCode: cp } }));
+  }
+  return Promise.resolve({ postalCode: cp, ...hit, source: 'local' as const });
+}
+
+async function fillRequired() {
   fireEvent.change(screen.getByLabelText('Calle y número'), { target: { value: 'Calle 5 de Mayo 10' } });
-  fireEvent.change(screen.getByLabelText('Ciudad'), { target: { value: 'Puebla' } });
-  fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'Puebla' } });
   fireEvent.change(screen.getByLabelText('Código postal'), { target: { value: '72000' } });
+  await screen.findByRole('option', { name: 'Centro' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Colonia' }), { target: { value: 'Centro' } });
   fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '2221234567' } });
 }
 
@@ -43,6 +62,8 @@ describe('AddressManager · recipientName, editar y filas sin destinatario', () 
     createAddress.mockReset();
     updateAddress.mockReset();
     deleteAddress.mockReset();
+    getPostalCode.mockReset();
+    getPostalCode.mockImplementation(postalCodeImpl);
   });
 
   it('addressMissingRecipient: null / vacío ⇒ true', () => {
@@ -70,7 +91,7 @@ describe('AddressManager · recipientName, editar y filas sin destinatario', () 
     // Orden: el destinatario va antes que «Calle y número» (§33.10a).
     const labels = Array.from(dialog.querySelectorAll('label')).map((l) => l.textContent);
     expect(labels.indexOf('Nombre de quien recibe')).toBeLessThan(labels.indexOf('Calle y número'));
-    fillRequired();
+    await fillRequired();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }));
     expect(await within(dialog).findAllByText('Campo requerido')).not.toHaveLength(0);
     expect(createAddress).not.toHaveBeenCalled();

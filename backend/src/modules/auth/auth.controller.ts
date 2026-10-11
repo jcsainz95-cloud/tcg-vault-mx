@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Ip, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Ip, Post, UseInterceptors } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -14,9 +14,12 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/auth.dto';
+import { PasswordAttemptsRetryAfterInterceptor } from './retry-after.interceptor';
 
 const HOUR_MS = 60 * 60 * 1000;
 
+// v1.80 (C7): `Retry-After` en `429 TOO_MANY_PASSWORD_ATTEMPTS` (login y change-password).
+@UseInterceptors(PasswordAttemptsRetryAfterInterceptor)
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -32,6 +35,8 @@ export class AuthController {
 
   // SEC-C1: login público sin lockout era el vector de toma de cuenta admin por fuerza
   // bruta. Se limita a 5 intentos/min por IP (los fallos también consumen cupo).
+  // v1.80 (C7): ADEMÁS, límite por CUENTA en el servicio (el tope por IP le cree al atacante
+  // desde dónde viene; el de cuenta no — `AuthService.login`, §4.57).
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Public()
   @Post('login')

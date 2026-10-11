@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -30,19 +31,29 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   let processedIds: Set<string>;
 
   const makeTx = () => ({
-    order: { update: jest.fn().mockResolvedValue({}) },
+    // v1.79.4 (§M4-VAULT.2-bis.1): el settle escribe la orden con `updateMany` (CAS); el resto de
+    // los flujos (fallo, contracargo…) siguen con `update`.
+    order: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue({ id: 'item1', status: 'in_custody', ownerType: 'customer' }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     // Fix 4: por defecto la carta NO tiene envío enviado/entregado (sigue en bóveda).
     shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
   });
 
   beforeEach(() => {
-    const tx = makeTx();
+    const tx = withM61Defaults(makeTx());
     processedIds = new Set<string>();
     prisma = {
       _tx: tx,
@@ -61,6 +72,8 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       order: {
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
+        // ⭐ v1.80: `charge.refunded` escribe `refunded` con el estado en el `WHERE`.
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       // `REL-B`/`REL-C`: las dos escrituras de envío del webhook llevan ahora su precondición de
       // estado en el `WHERE` (`updateMany` + `count`), no en el `if` sobre la lectura previa.
@@ -89,8 +102,12 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.onPaymentSucceeded(piOf('pi_1', 100000));
     const tx = prisma._tx;
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
+    // v1.79.4: el CAS del settle — estado en el WHERE.
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
+        data: expect.objectContaining({ status: 'settled' }),
+      }),
     );
     // v1.68 (§4-R.2 regla 2): la liquidación SOLO mueve la pieza reservada por ESTA orden (o legada)
     // y limpia dueño/vencimiento.
@@ -143,7 +160,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     expect(spy).toHaveBeenCalledTimes(1);
     // El transaccional de settled corre una sola vez.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma._tx.order.update).toHaveBeenCalledTimes(1);
+    expect(prisma._tx.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it('fix QA #1: handler failure deletes idempotency mark and rethrows (Stripe retries)', async () => {
@@ -172,9 +189,29 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.handleEvent(evt);
     expect(processedIds.has('evt_fail')).toBe(true);
-    expect(prisma._tx.order.update).toHaveBeenCalledWith(
+    expect(prisma._tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'settled' }) }),
     );
+  });
+
+  it('SEC-VLT-DL: si revertir la marca TAMBIÉN falla, se registra un error (antes: silencio) y se propaga el error ORIGINAL', async () => {
+    prisma.order.findUnique.mockRejectedValueOnce(new Error('DB down'));
+    prisma.processedStripeEvent.delete.mockRejectedValueOnce(new Error('delete failed'));
+    const logError = jest.spyOn((payments as any).logger, 'error').mockImplementation(() => undefined);
+    const evt = {
+      id: 'evt_lost',
+      type: 'charge.dispute.created',
+      data: { object: { object: 'dispute', payment_intent: 'pi_1' } },
+    } as any;
+
+    // Semántica sin cambio: el error que sube es el del HANDLER, no el del borrado.
+    await expect(payments.handleEvent(evt)).rejects.toThrow('DB down');
+    // La marca se quedó (el borrado falló) ⇒ el reintento se ignorará: eso es lo que ya no es silencioso.
+    expect(processedIds.has('evt_lost')).toBe(true);
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('evt_lost'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('charge.dispute.created'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('delete failed'));
   });
 
   it('already-settled order is not re-processed', async () => {
@@ -272,13 +309,19 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 40000 } as any);
     expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('M2/A1: reembolso TOTAL → refunded, SIN re-agregar item al inventario', async () => {
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'refunded' }) }),
+    // ⭐ v1.80 (REL-B, SEC-SHIP-M5): la transición lleva el estado en el `WHERE` (`updateMany`), ⛔ no `update` plano.
+    // 🔒💰 v1.80.8.3: el `WHERE` es `CHARGE_REFUNDED_SOURCE_STATUSES` (`pending`, `failed`, `settled`), ⛔ ya no solo `settled`.
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { in: ['pending', 'failed', 'settled'] } },
+        data: expect.objectContaining({ status: 'refunded' }),
+      }),
     );
     // A1: VENTAS FINALES → el item NO se revierte al inventario en el refund.
     expect(prisma._tx.inventoryItem.update).not.toHaveBeenCalled();
@@ -296,9 +339,11 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.onPaymentCanceled('pi_1');
     const tx = prisma._tx;
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: { status: 'failed' } }),
+    // 🔒💰 v1.80.8.3: CAS con el estado en el `WHERE` (⛔ nunca `update` por `id`: pisaría un `refunded` confirmado).
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
     );
+    expect(tx.order.update).not.toHaveBeenCalled();
     expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         // v1.68 (candado R-2): solo libera lo PROPIO (o legado).
@@ -310,6 +355,23 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
         data: expect.objectContaining({ status: 'listed', ownershipStatus: null, reservedByOrderId: null }),
       }),
     );
+  });
+
+  it('B5 (v1.80.8.3): el CAS a `failed` cuenta 0 (otro escritor ganó: `refunded`/`settled`) ⇒ ⛔ no libera ninguna pieza', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      fulfillmentMode: 'vault',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    const tx = prisma._tx;
+    tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
+    await payments.onPaymentCanceled('pi_1');
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
+    );
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledTimes(0);
+    expect(tx.order.update).not.toHaveBeenCalled();
   });
 
   it('B5: payment_intent.canceled de un envío solicitado → lo cancela (libera items)', async () => {
