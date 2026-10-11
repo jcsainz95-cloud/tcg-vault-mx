@@ -7710,6 +7710,8 @@
   | `GET /admin/pricing/bounties` (§M2-B.1) | `finish` | `Finish` | **E** |
   | `GET /admin/pricing/bounties` (§M2-B.1) | `sort` | **no es filtro: es ORDEN** — punto 6 | — |
   | `GET /admin/reports/pricing-brackets` (§M9) | `axis` | `sale \| buy` — canónico en **la línea del endpoint** | **L** |
+  | `GET /admin/pricing/review-queue` (§PRE.E) | `status` **(M-75)** | `PriceReviewStatus` (`open \| accepted \| kept \| manual \| superseded`) — canónico en **§PRE.E**. ⚠️ CLASE E con default propio: ausente/vacío ⇒ **solo `open`** (no «no filtra»); token inválido ⇒ `400 VALIDATION_ERROR` con `details.field`+`details.allowed` | **E** |
+  | `GET /admin/pricing/review-queue` (§PRE.E) | `axis` **(M-75)** | `PriceAxis` (`sell \| buy`) — canónico en **§PRE.E**; mismo patrón de validación que `status` | **E** |
   | `GET /catalog/cards` (§2) | `productType` | `ProductType` **menos `sealed`** — cláusula en **§2** (`/catalog/cards` es la rejilla de **SINGLES**; el sellado se sirve por §2-S) | **R** |
   | `GET /catalog/cards` (§2) | `finish` | `Finish` | **E** |
   | `GET /catalog/cards` (§2) | `condition` | `ACCEPTED_RAW_CONDITIONS` — cláusula `PROJECT §H` | **R** |
