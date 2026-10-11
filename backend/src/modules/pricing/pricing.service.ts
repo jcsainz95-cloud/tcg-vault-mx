@@ -2712,6 +2712,15 @@ export class PricingService {
       // Defensa en profundidad (§PRE.F): `accept` JAMÁS escribe tier-0. Eso es exclusivo de `manual`.
       throw new Error('promoteRobustReference: source no puede ser manual (accept no congela)');
     }
+    // ⭐ v1.91⟨precios⟩ errata E (techlead, money-safe) — DEFENSA EN PROFUNDIDAD: NUNCA una fila de
+    // mercado en $0. Es el único escritor de dinero que carecía de esta guarda (`applyManualOverride`
+    // exige `>0`, `persistGradedEstimateReference` descarta `<=0`): un `proposedMxnCents=0` (variante
+    // sin quotes frescas pero con base, `robust-market.ts` cand==null) aceptado escribiría precio-basura
+    // deflacionario que el storefront leería como $0, no como «pendiente». La puerta de `accept`
+    // (`price-review.resolve`) ya lo rechaza con 422; esto es el candado del escritor.
+    if (!(input.priceMxnCents > 0)) {
+      throw new Error(`promoteRobustReference: priceMxnCents debe ser > 0 (recibido ${input.priceMxnCents})`);
+    }
     const capturedDate = today();
     const cardProductId = null;
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (accept promueve la robusta), no

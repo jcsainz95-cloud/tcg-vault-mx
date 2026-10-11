@@ -10568,3 +10568,21 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
 - **Comprobación:** tras el refresh, `SELECT rate FROM "FxRate" WHERE base='EUR' ORDER BY "effectiveDate" DESC LIMIT 1`
   da ~20-22; y una Prismatic con tcgdex+cardmarket frescos publica automática (sin caso) en el barrido.
 - **Dueño:** backend (+ el humano para el token en el deploy).
+
+### TD-ORD-REFUND-CHK · P2 · 3 specs de accesorios rojos por deriva del CHECK de `PaymentRefund` (M-61↔M-73) — PRE-EXISTENTE, ajeno a §PRE (2026-10-11)
+- **Qué falla:** `accessories-prep-refunds.e2e-spec.ts`, `accessories-m73-migration.e2e-spec.ts`,
+  `accessories-m73-refund-shapes.e2e-spec.ts` — 22/146 pruebas rojas sobre el esquema **recién migrado** (Postgres
+  real, stack nativo). No es dato («BD sucia»): es una aserción de FORMA de los CHECK de `PaymentRefund` (p. ej.
+  `expect(constraints).toEqual(['PaymentRefund_item_delivered_shape_chk','PaymentRefund_item_missing_chk'])`), y la
+  violación en runtime es PG `23514`.
+- **Causa:** deriva M-61↔M-73. M-73 (accesorios) añadió CHECKs `payment_refund_accessory_*` y `payment_refund_card_xor_accessory`
+  a `PaymentRefund` que los specs escritos para M-61 no esperan ⇒ sus aserciones de conjunto exacto de constraints fallan.
+  Determinista por migración (no depende de datos).
+- **Por qué es PRE-EXISTENTE a §PRE (medido):** `git diff production..HEAD` = **0 ficheros** de refund/accesorios;
+  §PRE (M-75/M-76) sólo toca `PriceReference`/`PriceReviewCase`, **no** `PaymentRefund` ni sus migraciones. QA lo
+  confirmó en el re-gate. Verdict del stream §PRE: no es un defecto de §PRE y **no se arregla en esta rama**.
+- **Dueño:** backend, **WS «Órdenes y dinero»** (`orders`/`payments`/`disputes`), NO §PRE.
+- **Condición de release:** debe quedar **verde** (alinear los specs con los CHECK de M-73) **o** la desviación
+  **aceptada explícitamente** por QA/techlead en `docs/SECURITY_NOTES.md`/veredicto **antes del release**. §PRE no la
+  carga, pero queda registrada para que no se pierda.
+- **Comprobación:** `bash scripts/stack-native.sh test:integration "accessories-prep-refunds|accessories-m73-migration|accessories-m73-refund-shapes"` ⇒ 0 rojas; o la aceptación firmada.

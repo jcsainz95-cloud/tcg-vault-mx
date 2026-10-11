@@ -183,6 +183,33 @@ describe('resolve — guardas (§PRE.F)', () => {
     expect(res.status).toBe('manual');
     expect(pricing.applyManualOverride).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 250 }));
   });
+
+  it('💰 errata E · accept sobre caso con proposedMxnCents=0 ⇒ 422 y NO escribe fila de mercado $0', async () => {
+    const { svc, pricing, prisma } = makeService({
+      priceReviewCase: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'id1', status: 'open', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 0, baselineMxnCents: 184, quotesSnapshot: [] }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    await expect(svc.resolve('id1', 'accept', undefined, 'u1')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    // ⛔ money-safe: NO se promueve ninguna fila (ni se reclama el caso: la guarda va ANTES de la tx).
+    expect(pricing.promoteRobustReference).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.priceReviewCase.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('💰 errata E · keep SÍ es válido sobre un caso con proposedMxnCents=0 (conserva el último sano)', async () => {
+    const { svc, pricing } = makeService({
+      priceReviewCase: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'id1', status: 'open', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 0, baselineMxnCents: 184 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    });
+    const res = await svc.resolve('id1', 'keep', undefined, 'u1');
+    expect(res.status).toBe('kept');
+    expect(pricing.promoteRobustReference).not.toHaveBeenCalled();
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
+  });
 });
 
 describe('openCaseVariantKeys — qué variantes están bloqueadas', () => {

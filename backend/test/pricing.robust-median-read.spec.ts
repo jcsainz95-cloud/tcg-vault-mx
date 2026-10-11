@@ -68,3 +68,21 @@ describe('getReferencesBatch — árbitro de mediana (M-75 §PRE.B, DINERO)', ()
     expect(info.source).toBe('manual');
   });
 });
+
+describe('promoteRobustReference — candado money-safe (errata E): NUNCA una fila de mercado $0', () => {
+  it('priceMxnCents <= 0 ⇒ LANZA (defensa en profundidad del escritor de accept)', async () => {
+    const { svc } = build();
+    await expect(
+      svc.promoteRobustReference({ cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', priceMxnCents: 0, source: 'tcgdex' }),
+    ).rejects.toThrow(/> 0/);
+    await expect(
+      svc.promoteRobustReference({ cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', priceMxnCents: -5, source: 'tcgdex' }),
+    ).rejects.toThrow(/> 0/);
+  });
+  it('source "manual" ⇒ LANZA (accept no congela)', async () => {
+    const { svc } = build();
+    await expect(
+      svc.promoteRobustReference({ cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', priceMxnCents: 200, source: 'manual' }),
+    ).rejects.toThrow(/manual/);
+  });
+});

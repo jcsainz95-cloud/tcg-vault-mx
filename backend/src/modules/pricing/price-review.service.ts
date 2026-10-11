@@ -257,6 +257,19 @@ export class PriceReviewService {
     const theCase = await this.prisma.priceReviewCase.findUnique({ where: { id } });
     if (!theCase) throw BusinessException.notFound('NOT_FOUND', `El caso ${id} no existe.`);
 
+    // ⭐ v1.91⟨precios⟩ errata E (techlead, money-safe) — NO se puede ACEPTAR un caso sin precio de
+    // mercado. Un caso de «0 quotes frescas pero había base» se abre con `proposedMxnCents=0`
+    // (`recordArbiterDecision`, `robust-market` cand==null); aceptarlo publicaría una fila de mercado en
+    // $0 (precio-basura deflacionario). `keep` (conserva el último sano) y `manual` (exige `>0`) siguen
+    // válidos — son las salidas correctas para ese caso. Antes del `tx`: no se reclama ni se resuelve.
+    if (action === 'accept' && !(theCase.proposedMxnCents > 0)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'No se puede aceptar un caso sin precio de mercado (propuesto 0): usa «Conservar» o «Precio a mano».',
+        { field: 'proposedMxnCents' },
+      );
+    }
+
     const newStatus: PriceReviewStatus =
       action === 'accept'
         ? PriceReviewStatus.accepted
