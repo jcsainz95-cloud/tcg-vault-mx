@@ -32192,11 +32192,27 @@ bulk de pricing (el set es forma breve sin precios) ⇒ **1 llamada por carta** 
 c/u. El provider acota la concurrencia a 6 para no ahogar el barrido ni a TCGdex. Candado de FORMA (no semver)
 en vez de versión fija.
 
-**FX EUR (§PRE (e)):** `FxRate.base` es `String @default("USD")` (sin DDL, confirmado). `price-ingest`
-lee la serie EUR con `fxEurSnapshot()` (`base='EUR', quote='MXN', source='banxico'`, última por
-`effectiveDate`). **Hoy NO existe la serie EUR** (devops la cablea en `fx-refresh`): `fxEur=null` ⇒
-cardmarket NO vota ese barrido (degradación money-safe; tcgdex/tcgcsv siguen). **Dependencia de devops
-(§91/DEVOPS): añadir la serie EUR/MXN de Banxico en `fx-refresh`** (el host Banxico ya se usa).
+**FX EUR (§PRE (e)) — CONSTRUIDO EN BACKEND (ya NO es dependencia de devops):** `FxRate.base` es
+`String @default("USD")` (sin DDL). `FxService.refreshFromBanxico()` ahora, tras escribir la fila USD
+(`SF63528`), llama a `refreshEurFromBanxico()` (best-effort, aislado): obtiene la serie EUR/MXN y escribe
+`FxRate base='EUR', quote='MXN', source='banxico', id='banxico-eur-<fecha>'` con el colchón. `price-ingest`
+la lee con `fxEurSnapshot()` (`base='EUR'`). ⚠️ **El lector USD `BANXICO_FX_WHERE` ganó `base:'USD'`**
+(money-critical: sin él, la fila EUR —más fresca por `effectiveDate`— secuestraría la tasa que valúa el
+catálogo; las filas USD legadas tienen `base='USD'` por defecto ⇒ el filtro no excluye ninguna).
+- **ID de serie EUR — NO MEDIDO (sin token).** `FX_EUR_SERIES_ID_DEFAULT='SF46410'` (candidato
+  DOCUMENTADO), override por config `FX_EUR_SERIES_ID` (corregible sin redeploy). **No se pudo confirmar
+  contra la API SIE en vivo:** este contenedor NO tiene `BANXICO_SIE_TOKEN` y la SIE rechaza TODA petición
+  sin token de forma uniforme ⇒ no se puede sondear un id. **Debe confirmarse con el token** (en el deploy
+  o por quien lo tenga) para ACTIVAR el voto de cardmarket.
+- **El candado que lo hace money-safe NO es el id sino la BANDA EUR `[8,40]`** (`parseBanxicoEurRate`, más
+  estrecha que la USD `[1,1000]`): un id equivocado que devuelva otra magnitud (USD/EUR≈1.08, par
+  invertido≈0.047, etc.) cae FUERA de banda ⇒ NO se escribe fila EUR ⇒ cardmarket NO vota (degradación
+  money-safe; NUNCA una conversión plausible-pero-falsa). Probado: `test/fx.eur-series.spec.ts` (10).
+- **Degradación (§PRE):** sin serie EUR válida (id no confirmado, red, fuera de banda) ⇒ `fxEur=null` ⇒
+  cardmarket no vota ⇒ para Prismatic queda 1 familia ⇒ el candado manda a REVISIÓN (no publica inflado;
+  money-safe, pero la cola se llena). CON la serie EUR confirmada ⇒ 2 familias ⇒ consenso ⇒ **publica el
+  precio bueno automático** (lo que el dueño espera del barrido). La lógica con/sin EUR está probada en
+  `providers/tcgdex-archaludon-fix.spec.ts` (con EUR⇒publica; contra-prueba 1 familia⇒review).
 
 **B · Wiring vivo (verificado unit/servicio + regresión completa 475 suites / 8494 verdes):**
 - **Árbitro de mediana en las 4 rutas de lectura (§PRE.B):** `getReferencesBatch`,
