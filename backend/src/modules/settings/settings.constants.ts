@@ -54,6 +54,19 @@ import {
   isFxRateInBand,
 } from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+// v1.91⟨precios⟩ (M-75, §PRE.G): los seeds y validadores de los CINCO diales del árbitro viven en la zona
+// compartida `common/robust-market.ts` (pura), igual que la curva y el FX. Aquí solo se cablean.
+import {
+  DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS,
+  DEFAULT_PRICE_ARBITER_SOURCES,
+  DEFAULT_PRICE_CONSENSUS_TOLERANCE_PCT,
+  DEFAULT_PRICE_JUMP_FACTOR,
+  DEFAULT_PRICE_JUMP_FACTOR_BUY,
+  validatePriceArbiterFreshnessDays,
+  validatePriceArbiterSources,
+  validatePriceConsensusTolerancePct,
+  validatePriceJumpFactor,
+} from '../../common/robust-market';
 // ⭐💰 v1.81 (M-66 = `M-SDX-D`, §M4-SHIP.19.19.12): los diales de Skydropx — seeds y validadores PUROS en su fichero.
 import {
   DEFAULT_SHIPPING_DROPOFF_POINTS,
@@ -221,6 +234,23 @@ export const SettingKey = {
   OPERATOR_REFUND_CAP_24H_CENTS: 'operator_refund_cap_24h_cents',
   // v1.80.2 (§M4-SHIP.15.5, D-12): múltiplo `k` de la referencia por encima del cual un reembolso de caso se BLOQUEA.
   CASE_REFUND_HARD_MULTIPLIER: 'case_refund_hard_multiplier',
+  // ===== v1.91⟨precios⟩ (M-75, §PRE.G / ARCHITECTURE §4.PRE / criterio 882) — LOS CINCO DIALES DEL ÁRBITRO =====
+  // DATA/seed (sin DDL), expuestos en `GET/PUT /admin/settings` (el dueño los mueve sin redeploy). Un
+  // valor inválido ⇒ `422 VALIDATION_ERROR` como cualquier dial. Los lee `resolveRobustMarket()`/el candado.
+  // Dial del CANDADO en VENTA: factor de salto N (seed ×5, P-RP-1). Número ≥ 1.
+  PRICE_JUMP_FACTOR: 'price_jump_factor',
+  // Dial hermano del candado en COMPRA (seed ×5 = igual que venta, P-RP-1; existe por si el dueño endurece
+  // la compra después, criterio 874/875). Número ≥ 1.
+  PRICE_JUMP_FACTOR_BUY: 'price_jump_factor_buy',
+  // Ventana de obsolescencia del árbitro (seed 7 días, P-RP-5, criterio 881). SEPARADO de los
+  // `freshnessDays` de graded (30) para no moverlos. Entero ≥ 1.
+  PRICE_ARBITER_FRESHNESS_DAYS: 'price_arbiter_freshness_days',
+  // Tolerancia de consenso ±pct alrededor de la mediana (seed 25, P-RP). Entero [0,100].
+  PRICE_CONSENSUS_TOLERANCE_PCT: 'price_consensus_tolerance_pct',
+  // Fuentes ADMITIDAS que votan el árbitro, en orden de prioridad (seed `['tcgcsv_singles','tcgdex',
+  // 'cardmarket']`). Lista de `PriceSource` arbitro-elegibles; ⛔ `pokemontcg_io`/`pokemonpricetracker`
+  // NUNCA (aplanan, criterio 883) y `manual` es tier 0 (no vota).
+  PRICE_ARBITER_SOURCES: 'price_arbiter_sources',
   // ===== v1.51 (M-46, §4.39l / API_CONTRACT §M10) — LOS DIEZ DIALES DEL CICLO DE ADQUISICIÓN =====
   // `PROJECT.md` §P.10 es el ORIGEN ÚNICO de estos números. Todos viven en `ConfigSetting`, se editan
   // SIN REDEPLOY, quedan AUDITADOS y aplican a solicitudes NUEVAS. Los DIEZ se exponen en el DTO de
@@ -443,6 +473,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
   [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: 500000, // MX$5,000 — decisión del dueño D-3 (2026-09-29)
   [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: 5, // 5× la referencia ⇒ bloqueado — D-12 («Sí, así»)
+  // v1.91⟨precios⟩ (M-75, §PRE.G, criterio 882) — los CINCO diales del árbitro. Seeds de P-RP.
+  [SettingKey.PRICE_JUMP_FACTOR]: DEFAULT_PRICE_JUMP_FACTOR, // ×5 (venta)
+  [SettingKey.PRICE_JUMP_FACTOR_BUY]: DEFAULT_PRICE_JUMP_FACTOR_BUY, // ×5 (compra, igual que venta por ahora)
+  [SettingKey.PRICE_ARBITER_FRESHNESS_DAYS]: DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS, // 7 días
+  [SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT]: DEFAULT_PRICE_CONSENSUS_TOLERANCE_PCT, // ±25 %
+  [SettingKey.PRICE_ARBITER_SOURCES]: [...DEFAULT_PRICE_ARBITER_SOURCES], // copia mutable (el DTO serializa)
   // v2.0 (P-48, §4.36.2 / M-41.7): SEED = los diales de PROJECT §N.2 VERBATIM. NO se DERIVA de las
   // reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función
   // del mercado) son INCONMENSURABLES — cualquier «conversión» sería una interpretación inventada, y el
@@ -1204,6 +1240,12 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
   [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: (v) => (isInt(v) && v >= 2 && v <= 50 ? null : 'must be an integer in [2, 50]'),
+  // v1.91⟨precios⟩ (M-75, §PRE.G): los CINCO diales del árbitro. Validadores PUROS en `common/robust-market.ts`.
+  [SettingKey.PRICE_JUMP_FACTOR]: validatePriceJumpFactor,
+  [SettingKey.PRICE_JUMP_FACTOR_BUY]: validatePriceJumpFactor,
+  [SettingKey.PRICE_ARBITER_FRESHNESS_DAYS]: validatePriceArbiterFreshnessDays,
+  [SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT]: validatePriceConsensusTolerancePct,
+  [SettingKey.PRICE_ARBITER_SOURCES]: validatePriceArbiterSources,
   // ⭐💰 v1.81 (M-66, §19.19.12) — los doce de Skydropx (`shipping-dials.ts`).
   [SettingKey.SHIPPING_PROVIDER]: validateShippingProvider,
   [SettingKey.SHIPPING_LABEL_PURCHASE]: validateShippingLabelPurchase,
@@ -1286,6 +1328,12 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
   operatorRefundCap24hCents: SettingKey.OPERATOR_REFUND_CAP_24H_CENTS,
   caseRefundHardMultiplier: SettingKey.CASE_REFUND_HARD_MULTIPLIER,
+  // v1.91⟨precios⟩ (M-75, §PRE.G, criterio 882): los CINCO diales del árbitro, expuestos en GET y editables por PUT.
+  priceJumpFactor: SettingKey.PRICE_JUMP_FACTOR,
+  priceJumpFactorBuy: SettingKey.PRICE_JUMP_FACTOR_BUY,
+  priceArbiterFreshnessDays: SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
+  priceConsensusTolerancePct: SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT,
+  priceArbiterSources: SettingKey.PRICE_ARBITER_SOURCES,
   // v1.80.8.5 (`M2-PF`, MONEY): el dial de VENTA «premium en el piso» — editable sin redeploy, auditado.
   premiumFloorSalePublish: SettingKey.PREMIUM_FLOOR_SALE_PUBLISH,
   // v1.51 (M-46, §M10): los DIEZ diales del ciclo de adquisición del buylist. Se exponen en el GET y

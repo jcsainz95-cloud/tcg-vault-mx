@@ -363,6 +363,36 @@ enum PriceSource {
   // leído del `marketPrice` de TCGCSV por `subTypeName`. Distinto de `tcgcsv` (sellado, sub-tipo
   // Normal). PPT/pokemontcg.io quedan como FALLBACK. Ver ARCHITECTURE §4.27.
   tcgcsv_singles
+  // v1.91⟨precios⟩ (M-75, §PRE / ARCHITECTURE §4.PRE): las DOS fuentes NUEVAS que VOTAN el árbitro de
+  // mediana. `tcgdex` = precio por variante vía TCGdex, sub-feed TCGplayer (USD→MXN); familia `tcgplayer`
+  // (misma que `tcgcsv_singles`: son ECO, cuentan como UNA familia). `cardmarket` = precio por variante
+  // vía TCGdex, sub-feed Cardmarket (EUR→MXN); familia `cardmarket` (INDEPENDIENTE — el voto que da
+  // consenso al candado). Ambas FX-horneadas en `priceMxnCents`. ⛔ `pokemontcg_io`/`pokemonpricetracker`
+  // NO cambian de rol: NUNCA votan el árbitro (aplanan, §I-PP1/§4.35). Ver `resolveRobustMarket()`.
+  tcgdex
+  cardmarket
+}
+
+/// v1.91⟨precios⟩ (M-75, ARCHITECTURE §4.PRE (d) / API_CONTRACT §PRE.D) — estado de un `PriceReviewCase`
+/// (cola de revisión del candado anti-inflado). `open` = el candado detuvo un salto sin consenso y espera
+/// decisión del dueño. `accepted`/`kept`/`manual` = resuelto a mano (aceptar el propuesto / conservar el
+/// último sano / poner precio a mano). `superseded` = cerrado AUTOMÁTICO por el barrido cuando el mercado
+/// se asentó (el candidato ya no dispara) — «regla general» (HECHOS 2026-10-04). Espeja la línea canónica
+/// del contrato (§Enums). NO se cuelga de `PendingPriceReason` (que NO cambia).
+enum PriceReviewStatus {
+  open
+  accepted
+  kept
+  manual
+  superseded
+}
+
+/// v1.91⟨precios⟩ (M-75, ARCHITECTURE §4.PRE (c) / API_CONTRACT §PRE.D) — qué EJE disparó un caso de
+/// revisión. INFORMATIVO: el caso bloquea AMBOS ejes (venta y compra) hasta resolverse; `axis` solo dice
+/// cuál lo abrió. Espeja la línea canónica del contrato.
+enum PriceAxis {
+  sell
+  buy
 }
 
 /// v1.50.3-f (M-43, ARCHITECTURE §4.38l.4.2) — **NATURALEZA** de una `PriceReference`: qué AFIRMA el
@@ -1347,6 +1377,51 @@ model PendingPriceEntry {
   @@index([status])
   @@index([sealedProductId])
   @@index([reason])
+}
+
+// v1.91⟨precios⟩ (M-75, ARCHITECTURE §4.PRE (d) / API_CONTRACT §PRE.D) — cola de revisión del CANDADO
+// ANTI-INFLADO. Tabla NUEVA con SU superficie; ⛔ NO se cuelga de `PendingPriceEntry` (bandeja delgada sin
+// campos para el valor propuesto / base / cotizaciones / factor de salto) ni se añade razón a
+// `PendingPriceReason` (DDL sobre enum persistido e indexado, prohibido por §PRE / criterio 887).
+//
+// Un caso nace `open` cuando el árbitro de mediana produce un candidato que SALTA ≥N× contra la base sana
+// sin consenso de ≥2 familias (o sin base, fuente única). Mientras esté `open`, la variante NO publica el
+// candidato (conserva el último sano o `PRICE_PENDING`) y el cotizador de compra devuelve «precio pendiente».
+//
+// DEDUPE por `findFirst` SIN índice único (misma doctrina que `PendingPriceEntry`, §3.2): clave lógica
+// `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId, axis)` con `status='open'`.
+// `cardId` es columna plana (sin relación Prisma): el DTO resuelve nombre/set/número con un `findMany`
+// aparte (no vale la pena una relación inversa en `Card` para una cola de dinero de lectura).
+model PriceReviewCase {
+  id              String            @id @default(uuid())
+  cardId          String
+  productType     ProductType
+  gradeKey        String
+  finish          Finish            @default(normal)
+  cardProductId   String?
+  sealedProductId String?
+  // Qué eje disparó el caso (INFORMATIVO; bloquea ambos ejes). Ver `enum PriceAxis`.
+  axis            PriceAxis
+  // El robusto que el candado DETUVO (lo que NO se publicó). Centavos MXN enteros.
+  proposedMxnCents Int
+  // Último valor sano publicado contra el que se midió el salto; `null` si la variante no tenía base.
+  baselineMxnCents Int?
+  // Factor de salto ×1000 entero (×55 = 55000). ⛔ sin float (convención §3).
+  jumpFactorMilli Int
+  sourceCount     Int
+  familyCount     Int
+  consensus       Boolean
+  // `[{source, family, priceMxnCents, capturedDate, stale}]` — qué dijo cada fuente (criterio 876).
+  quotesSnapshot  Json
+  status          PriceReviewStatus @default(open)
+  // `accept | keep | manual` cuando se resolvió a mano; `null` mientras `open` o si lo cerró el barrido.
+  resolvedAction     String?
+  resolvedByUserId   String?
+  resolvedPriceRefId String?
+  createdAt       DateTime          @default(now())
+  resolvedAt      DateTime?
+
+  @@index([status])
 }
 
 model FxRate {

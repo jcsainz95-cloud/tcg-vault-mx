@@ -5,13 +5,16 @@ import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
 
 // v1.19-sealed-tcgcsv: += 'tcgcsv' (referencia de mercado del SELLADO, M-23).
 // v1.29 (M-31): += 'tcgcsv_singles' (PRIMARIO de precio de singles por variante, §4.27f).
+// v1.91⟨precios⟩ (M-75): += 'tcgdex' | 'cardmarket' (las dos que VOTAN el árbitro de mediana, §PRE.A).
 export type PriceSourceStr =
   | 'pokemontcg_io'
   | 'pokemonpricetracker'
   | 'poketrace'
   | 'manual'
   | 'tcgcsv'
-  | 'tcgcsv_singles';
+  | 'tcgcsv_singles'
+  | 'tcgdex'
+  | 'cardmarket';
 
 /**
  * v1.6-finish — mapeo Finish → llave de `tcgplayer.prices` (inverso de ARCHITECTURE §3.7).
