@@ -6,6 +6,21 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## Actualización 2026-10-11 (sesión 7→8) — §PRE «Precios Robustos» (rama `claude/precios-redundancia`, worktree `/home/user/tcg-precios`)
+
+> Reservas O-24: migración **M-75**, contrato **v1.91⟨precios⟩**, notas **BACKEND_NOTES §91**, criterios **870–889**. Rama desde `production` `599d41a6`; `production` es ancestro.
+> Origen: el dueño reportó precios inflados ~55× en Prismatic (Archaludon Holofoil MX$102.21 vs real ~MX$1.84; Noctowl MX$153.41). Causa raíz (backend `af24d85d`): residuo PPT/pokemontcg_io que aplana + hueco de cobertura de `tcgcsv_singles` en Prismatic + no había candado. Aprobado por el dueño «adelante, todas como recomiendas» (HECHOS 2026-10-11, las 7 decisiones P-RP).
+
+| # | Qué | Estado / Medido (orquestador) | Dueño / siguiente |
+|---|---|---|---|
+| **PRE-núcleo** | Árbitro de mediana por familia + candado ×5 + consenso + cola `PriceReviewCase` + endpoints + 5 diales + M-75 (schema). | ✅ **CONSTRUIDO Y VERIFICADO POR MÍ (O-9) sobre `8a1792ed`** (commits `5c023c1b`, `ff3b8a70`, `db86067e`, `8a1792ed`). Canario 889c: 21/21 verde intacto; **muerde** (quité la rama de revisión en copia del árbol entero ⇒ 1 roja `Expected "review" Received "publish"`); paridad de enums 163/163 (M-75 cierra la que estaba roja por contrato adelantado). `FxRate.base` es `String @default("USD")` (schema:1354) ⇒ EUR sin DDL. | — (hecho; falta el wiring de abajo) |
+| **PRE-provider** | Provider real de TCGdex (`tcgdex`+`cardmarket`): cliente HTTP + parser que escribe filas `PriceReference`. | ⛔ **DIFERIDO — BLOQUEADO.** Este contenedor NO alcanza `api.tcgdex.net` (curl y WebFetch: `ENOTFOUND`/403, medido 2026-10-11). Forma exacta de la API SIN CONFIRMAR (`holo` vs `holofoil`, dónde vive `marketPrice`, `tcgdexSetId` de Prismatic ≈`sv08.5`). Interfaz dejada en `providers/tcgdex.provider.interface.ts`. | **DUEÑO**: abrir `api.tcgdex.net` en la red del entorno (pedido 2026-10-11). Luego orquestador verifica forma+cobertura → backend construye provider. |
+| **PRE-wiring** | Envolver el árbitro en las 4 rutas de lectura (§PRE.B), enganche en `price-ingest`/`publish` (§PRE.6) + «final» tras el fan-out async, gate del cotizador de compra (§PRE.5). | ⛔ **DIFERIDO con el provider** (razón medida por backend: hoy sin filas tcgdex/cardmarket la mediana de una sola familia = lo que ya elige `isBetterRef`; wirearlo ahora rompe mocks posicionales y recalcula FX sin valor). ⚠️ Matiz del orquestador: para Prismatic SÍ cambia (isBetterRef toma el residuo PPT que el árbitro excluye ⇒ el wiring live mandaría a `PRICE_PENDING`). Hasta este wiring, los precios inflados siguen visibles en vivo. | backend, junto con el provider. |
+| **PRE-censo** | Filas espejo en el REGISTRO de `enum-query-axes.e2e-spec.ts` + fixtures `PriceReviewCase` (C-EQ-1). | Lado documental **CERRADO** (arquitecto, §0-Q, commit `d9f00293`). Falta el espejo en el test (verificable solo con corrida DB-backed = QA gate). | backend, junto con el provider+wiring. |
+
+**Paliativo ofrecido al dueño (2026-10-11):** precio a mano (tier 0, gana absoluto, se ve al instante) en las cartas ya detectadas, mientras conecta TCGdex. Pendiente su respuesta.
+**Gates que faltan (dinero, dos ejes ⇒ triple veredicto):** QA + techlead + seguridad, tras el provider+wiring, sobre el stack. Luego PR `claude/precios-redundancia` → `production` (el dueño fusiona).
+
 ## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
 
 > Pedido del dueño (2026-10-05): «sé muy cuidadoso de no pisarte». Cinco ramas vivas, cada una en su worktree, todas desde `production` = `3e09685a`.
