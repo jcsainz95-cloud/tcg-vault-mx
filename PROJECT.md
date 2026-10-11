@@ -10237,7 +10237,81 @@ Configuración, o con una lectura de la tabla de diales.)*
 
 - Criterios **860–869**. Preguntas **P-MIV-1…6** al final del documento.
 
+### Precios robustos: redundancia multi-fuente y candado anti-inflado (§PRE) ⭐ 2026-10-11 — BORRADOR
+
+> **Decisión del dueño (2026-10-11, por confirmar):** quiere **redundancia (varias fuentes de precio)** y
+> **refresco frecuente** —mencionó «cada 20 minutos»— para que los precios no salgan inflados y no haga falta un
+> «puente» frágil por set. *(SUPUESTO sobre el «cada 20 min»: se lee como «lo más fresco que la fuente de verdad
+> actualice», no como «refrescar un volcado diario cada 20 min»; ver §PRE.4 y P-RP-2.)* El resto de esta sección
+> es propuesta del product-owner para aprobación.
+
+#### PRE.0 El problema, medido hoy *(dar por cierto; viene del diagnóstico de backend del 2026-10-11)*
+- **Bug en producción:** cartas de **Prismatic Evolutions** salen con el **valor de mercado inflado ~55×**.
+  - Archaludon PRE 070/131 **Holofoil** → MERCADO **MX$102.21** (real ~MX$1.84).
+  - Noctowl PRE 078/131 **Holofoil** → MERCADO **MX$153.41** (real ~MX$1.49–4.97).
+- **Por qué importa (dinero en las dos direcciones):** infla el **precio de VENTA** (el cliente ve una carta de
+  ~MX$2 marcada en ~MX$100) **y** el **valor de COMPRA del buylist** (riesgo de **pagarle de más a un vendedor**
+  por una carta barata).
+- **Causa raíz (tres piezas):** (a) un **dato viejo de una fuente que aplana** (un solo precio por carta) ⇒ la holo
+  barata **hereda** el precio de la versión cara; (b) la fuente buena **por variante** (`tcgcsv_singles`/TCGplayer)
+  **no cubre** Prismatic: falta el «puente»/mapeo del set; (c) **no hay candado de cordura**: nada detecta un salto
+  ×55 antes de publicarlo.
+- **Descartado como fuente:** `pokemontcg.io` **aplana por diseño**; queda **solo como rollback**, nunca como fuente
+  de precio por variante ni de buylist.
+- **Fuentes candidatas por variante:** `tcgcsv_singles` (actual, primaria), **TCGdex** (gratis, por variante, trae
+  español), `pokemontcgapi.com`, **PokéWallet** (algunas de pago / en vivo).
+
+#### PRE.1 Objetivo en una frase
+Que **ningún precio** —de venta ni de compra— salga a la tienda desde un dato que aplana o que se dispara: cada
+variante (normal, holo, reverse holo…) se publica con un valor **sano**, respaldado por **más de una fuente**, y lo
+que no sea de fiar **se detiene antes de salir**, no después de cobrar o pagar.
+
+#### PRE.2 Qué significa «arreglado» (en lenguaje de negocio)
+1. **Nada que aplana publica un precio por variante.** Una fuente que da un solo precio por carta no fija el valor
+   de una holo, una reverse holo ni ninguna otra variante, y **nunca** alimenta el buylist.
+2. **Al menos dos fuentes por variante**, y un **árbitro** que elige el valor **sano** (ejemplo sugerido: la
+   **mediana**, **descartando los disparos**; el método exacto lo decide el arquitecto). Si las fuentes se
+   contradicen, gana el valor sano, **no** el más alto.
+3. **Candado anti-inflado.** Si el precio candidato de una variante se **dispara ×N** respecto a una base robusta
+   (su último valor sano, o lo que dicen las otras fuentes), **no se publica**: la variante conserva su último valor
+   sano, o queda en **«precio pendiente»** si no tenía, y el caso cae en una **cola de revisión** del dueño. El salto
+   ×55 de Prismatic es justo lo que este candado debe atrapar.
+4. **El buylist nunca cotiza sobre un valor no validado.** Mientras una variante esté en revisión o en «precio
+   pendiente», el cotizador no ofrece por ella (muestra «precio pendiente», como ya hace §BMK.3, criterio 854): así
+   no le pagamos de más a nadie.
+5. **Cobertura por variante para Prismatic y todo set nuevo**, sin depender de un «puente» manual frágil: un set que
+   ninguna fuente por variante cubre **no publica precio de mercado** (sus cartas quedan en «precio pendiente»), en
+   lugar de heredar un precio equivocado.
+
+#### PRE.3 La cola de revisión del dueño
+Reúne los casos que el candado detuvo. Por caso muestra, en lenguaje llano: la carta y su variante, el valor
+sospechoso, la base robusta con la que se comparó, qué dijo cada fuente y **cuántas veces** se disparó. El dueño
+(o quien él autorice) puede: **aceptar** el valor (se publica), **conservar** el valor sano, o **poner precio a
+mano**. Queda registrado quién y cuándo. *(SUPUESTO: reutiliza la cola de precio que el dueño ya usa para «premium
+en el piso» —`HECHOS.md` fila 2026-10-04—, no una pantalla nueva; lo confirma el arquitecto.)*
+
+#### PRE.4 El refresco va al ritmo REAL de cada fuente
+Los «20 minutos» del dueño aplican **solo a fuentes en vivo** (si se habilita una). `tcgcsv` es un **volcado diario**:
+refrescarlo cada 20 min no trae datos nuevos, solo gasta. Cada fuente se refresca a su ritmo real; el sistema no
+promete frescura que la fuente no da. *(La frecuencia real de cada fuente candidata es **NO MEDIDA** aquí; la mide
+el arquitecto/backend al elegir fuentes.)*
+
+#### PRE.5 Qué NO cambia *(fuera de alcance de §PRE)*
+- **Importes ya cobrados o ya pagados:** un pedido cobrado y una compra de buylist ya liquidada no se recalculan.
+- **El margen, el IVA, el piso de MX$25 y la convención de precio** (precio con IVA dentro, §Q) no se tocan: §PRE
+  solo cambia **de dónde sale el valor de mercado** y **qué se deja publicar**, no cómo se calcula el precio a partir
+  de él.
+- **El «precio final a mano»** (override por pieza y el del producto **sellado**, `HECHOS.md` 2026-10-04/05) sigue
+  mandando sobre cualquier fuente: si hay precio a mano, el candado no lo toca.
+- **Dónde se muestra el mercado** (§N.7, §MIV): §PRE no añade ni quita superficies; solo sanea el número.
+- **Elegir/pagar una fuente en vivo** y la cadencia de 20 min quedan sujetas a P-RP-2.
+
+- Criterios **870–889**. Preguntas **P-RP-1…7** al final del documento.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §PRE (precios robustos)** *(2026-10-11)*: recalcular importes ya cobrados o pagados; cambiar margen, IVA, piso
+  de MX$25 o la convención de precio; mover dónde se muestra el mercado; el «precio final a mano» (sigue mandando);
+  contratar o pagar una fuente en vivo y la cadencia de 20 min (P-RP-2). Detalle en **§PRE.5**.
 - **De §MIV (valor de mercado con IVA en la tienda)** *(2026-10-10)*: cambiar cualquier importe o el dato de mercado
   guardado; «Vender» (sigue sin IVA, §BMK); añadir el mercado donde hoy no aparece; Mi bóveda, estimados PSA y números
   de la lista de deseos (salvo respuesta a P-MIV-1…4); el panel; revivir «Valor de mercado · Set destacado»; cambiar la
@@ -14973,6 +15047,59 @@ Energy» (12 energías; sueltas = MX$60.00):*
    tendencia si está encendida); (e) entra a «Vender», cotiza esa misma carta y ve el mercado **sin** IVA; (f) repite
    (a) en inglés.
 
+870. **El bug medido desaparece** *(§PRE.0)*: en la tienda, Archaludon PRE 070/131 **Holofoil** y Noctowl PRE
+   078/131 **Holofoil** muestran un **valor de mercado y un precio de venta sanos** (del orden de ~MX$1.84 y
+   ~MX$1.49–4.97 respectivamente), **no** los ~MX$102.21 / ~MX$153.41 inflados. QA lo verifica en la ficha de cada una.
+871. **Nada que aplana publica por variante** *(§PRE.2.1)*: una fuente que da un solo precio por carta **no** fija el
+   valor de ninguna variante (holo, reverse holo, etc.); con un dato aplanado disponible, la holo barata **no** hereda
+   el precio de la versión cara. Verificable sembrando un dato aplanado y comprobando que no se publica.
+872. **≥2 fuentes por variante** *(§PRE.2.2)*: el sistema tiene configuradas al menos dos fuentes **por variante** y
+   el valor publicado de cada variante sale del árbitro sobre las fuentes disponibles, no de una sola fuente a ciegas.
+873. **El árbitro elige el valor sano** *(§PRE.2.2)*: sembrando tres fuentes para una variante —una inflada ×55 y dos
+   sanas— el valor publicado es el **sano** (la mediana / se descarta el disparo), nunca el más alto.
+874. 💰 **Candado anti-inflado en VENTA** *(§PRE.2.3)*: si el precio candidato de una variante se dispara **≥×N** (dial,
+   P-RP-1) respecto a la base robusta, **no se publica**: la variante conserva su último valor sano o queda en
+   «precio pendiente», y el caso entra en la cola de revisión. El precio de venta en la tienda **nunca** refleja el
+   valor disparado.
+875. 💰 **Candado anti-inflado en COMPRA (buylist)** *(§PRE.2.4)*: una variante en revisión o en «precio pendiente**
+   **no** se cotiza en el buylist/cotizador (muestra «precio pendiente», como §BMK.3 criterio 854); no es posible que
+   el sistema ofrezca pagar sobre un valor inflado. QA lo comprueba cotizando una carta cuyo mercado quedó retenido.
+876. **La cola de revisión muestra lo necesario** *(§PRE.3)*: cada caso retenido lista carta, variante, valor
+   sospechoso, base robusta, qué dijo cada fuente y el factor de disparo; mientras esté en la cola, **nada inflado**
+   aparece en la tienda ni en el cotizador.
+877. **Resolver un caso** *(§PRE.3)*: desde la cola, el dueño (o quien él autorice, P-RP-3) puede **aceptar** el valor
+   (se publica), **conservar** el valor sano, o **poner precio a mano**; queda registrado quién y cuándo.
+878. **Prismatic cubierto por variante** *(§PRE.2.5)*: cada variante publicada de Prismatic Evolutions tiene una fuente
+   **por variante**; ninguna hereda el precio de otra variante. QA muestrea varias cartas del set.
+879. **Set nuevo sin cobertura no publica inflado** *(§PRE.2.5)*: un set que ninguna fuente por variante cubre deja sus
+   cartas en «precio pendiente» en lugar de heredar un precio equivocado; no sale a la venta con un valor inventado.
+880. **Refresco al ritmo real** *(§PRE.4)*: una fuente de **volcado diario** (tcgcsv) se refresca ~una vez al día, no
+   cada 20 min; la cadencia de ~20 min (o casi en vivo) aplica **solo** a una fuente en vivo si se habilita (P-RP-2).
+881. **El dato viejo no gana** *(§PRE.2.3, P-RP-5)*: un dato de una fuente más antiguo que la ventana configurada no
+   fija un precio publicado por encima de un valor sano más fresco; una variante con solo datos viejos queda en
+   «precio pendiente» / revisión.
+882. **Los umbrales son diales** *(§PRE, P-RP-1/P-RP-5)*: el factor de disparo N, la ventana de «dato viejo» y la
+   prioridad de fuentes los cambia el dueño **sin tocar código**; QA verifica con diales fijados por él.
+883. **pokemontcg.io solo como rollback** *(§PRE.0)*: la fuente que aplana nunca fija un precio por variante ni un
+   valor de buylist; queda solo como respaldo a nivel carta si todo lo demás falla.
+884. **Variantes bien casadas** *(§PRE.2.1)*: el emparejamiento entre fuentes respeta la variante —una holo no toma el
+   precio de la normal ni al revés— aun cuando una fuente traiga nombres en español (TCGdex).
+885. **Sin «puente» frágil** *(§PRE.2.5, decisión del dueño)*: la cobertura de un set nuevo no depende de un mapeo
+   manual por set que haya que mantener a mano; añadir un set no exige un «puente» nuevo para que sus precios sean sanos.
+886. **Barrido del catálogo: cero inflados sin resolver** *(§PRE.2.3)*: un reporte sobre todo el catálogo publicado no
+   deja ninguna variante con precio **≥×N** sobre su base robusta sin estar en la cola; el número de precios inflados
+   vivos en la tienda es **0**.
+887. 💰 **Lo que NO cambia** *(§PRE.5)*: importes ya cobrados o pagados, el margen, el IVA, el piso de MX$25, la
+   convención de precio (IVA dentro) y el «precio final a mano» (sueltas override y sellado) dan **exactamente lo
+   mismo** que antes de §PRE (sus pruebas en verde sin editarlas).
+888. **Remediar lo ya publicado inflado** *(§PRE, P-RP-6)*: al entrar en vigor, las piezas hoy publicadas con precio
+   inflado (Prismatic y cualquier otra) se recalculan al valor sano o caen a la cola; ninguna se queda inflada en la
+   tienda «porque ya estaba».
+889. **De punta a punta** *(O-4)*: contra el stack corriendo, QA (a) abre la ficha de Archaludon/Noctowl Holofoil y ve
+   precio sano; (b) cotiza esas cartas en «Vender» y no ve oferta inflada; (c) siembra un dato de fuente inflado ×55
+   para una variante, refresca y comprueba que **no** sale en la tienda sino que aparece en la cola de revisión; (d)
+   lo resuelve desde la cola (acepta / conserva / precio a mano) y ve el resultado reflejado.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -19411,3 +19538,44 @@ ese frente:**
   gráfica con una cifra grande, p. ej. «MX$2,000 ▲ MX$100 (+5.26 %)». ¿Va también con IVA: «MX$2,320 ▲ MX$116
   (+5.26 %)»? **Por defecto: sí**: está en la misma ficha, y si no la misma pantalla diría MX$2,320 arriba y MX$2,000
   abajo. (Si esa gráfica está encendida hoy en tu tienda no lo hemos medido.) §MIV.2 A3, criterio 861.
+
+## Preguntas — precios robustos (§PRE, 2026-10-11, sesión 8) — ABIERTAS, cada una con su recomendación
+
+> Ya dijiste que quieres **varias fuentes de precio** y **refresco frecuente** («cada 20 min») para que los precios
+> no salgan inflados y no haga falta un «puente» frágil (`HECHOS.md` fila 2026-10-11, **por confirmar**). Lo de abajo
+> es lo que falta decidir. **Si no contestas, se construye con la recomendación de cada una.** Ninguna bloquea al
+> arquitecto para empezar el diseño.
+
+- **P-RP-1 · ¿Qué tan grande tiene que ser el salto para detener un precio?** El candado retiene una carta cuando su
+  precio se dispara más de **N veces** sobre lo que es sano. Ejemplo en pesos: la holo de Prismatic saltó de ~MX$1.84
+  a MX$102 (×55, se detiene con cualquier N razonable); pero una carta que pasa de MX$100 a MX$480 es ×4.8: con
+  **N = ×5** pasaría, con **N = ×10** también. **Recomendación: ×5** (atrapa más, y lo dudoso lo revisas tú; es un dial
+  que puedes subir). Pregunta aparte: ¿quieres un umbral **más estricto para la COMPRA** (buylist), donde pagar de más
+  duele más? **Recomendación: el mismo ×5 para ambos** al principio, y lo afinamos con datos. §PRE.2.3, criterio 874.
+- **P-RP-2 · ¿Pagamos por una fuente en vivo, o nos quedamos con las gratis?** Con **TCGdex (gratis, por variante)** +
+  el volcado diario de **tcgcsv** ya tienes redundancia sin costo, pero el precio se refresca **~una vez al día** (que
+  para cartas es suficiente: no se mueven cada 20 min). Una fuente **en vivo** (p. ej. PokéWallet de pago) daría el
+  «cada 20 min» que mencionaste, con un **costo mensual** aún no cotizado. **Recomendación: empezar GRATIS** (diario) y
+  medir si de verdad necesitas tiempo real antes de pagar. Si quieres, cotizamos la de pago y decides con el número
+  delante. §PRE.4, criterio 880.
+- **P-RP-3 · ¿A quién le llega la cola de revisión de precios?** Los casos retenidos caen en una cola para que alguien
+  decida. **Recomendación: solo a ti (y a quien tenga rol de administrador total)**, igual que ya pasa con «premium en
+  el piso», porque es una decisión de precio. ¿Quieres que el **personal (operador)** también la vea y la resuelva?
+  **Recomendación: no por ahora** (el precio lo decides tú). §PRE.3, criterio 877.
+- **P-RP-4 · ¿Qué hacemos cuando solo UNA fuente tiene esa variante?** Lo ideal son dos o más, pero habrá cartas que
+  solo una fuente por variante cubra. Opciones: **(a)** publicarla si pasa el candado contra su último valor sano;
+  **(b)** retenerla siempre hasta que haya una segunda fuente. **Recomendación: (a)** —publicar si es una fuente por
+  variante de fiar y no se dispara— para no dejar cartas sin precio por falta de una segunda fuente; si no tiene base
+  previa con la que comparar, va a revisión. §PRE.2.2, criterio 872.
+- **P-RP-5 · ¿Cuándo un dato es «demasiado viejo» para usarse?** Un precio rancio fue parte del bug. Recomendación:
+  un dato de una fuente de **volcado diario** de más de **7 días** no gana sobre un valor sano más fresco; si solo hay
+  datos viejos, la carta va a «precio pendiente» / revisión. Es un dial. ¿Te sirve 7 días o prefieres otro número?
+  **Recomendación: 7 días.** §PRE.2.3, criterio 881.
+- **P-RP-6 · ¿Qué hacemos con las cartas que HOY ya están publicadas infladas?** Prismatic (y quizá otras) ya están
+  en la tienda con precio inflado. **Recomendación: al entrar en vigor, recalcular todo**: lo que quede sano se corrige
+  solo, y lo dudoso cae a la cola; **ninguna se queda inflada «porque ya estaba»**. Así el cliente deja de ver la carta
+  de ~MX$2 en ~MX$100 desde el primer día. §PRE, criterio 888.
+- **P-RP-7 · ¿Cómo elige el árbitro el valor sano cuando las fuentes difieren?** Recomendación: la **mediana** de las
+  fuentes por variante que pasen el candado (si son dos, el promedio; si una, esa), descartando los disparos. Es
+  robusto y fácil de explicar. El método fino lo decide el arquitecto, pero quería que sepas la idea: **gana el valor
+  del medio, no el más alto**. §PRE.2.2, criterio 873.
