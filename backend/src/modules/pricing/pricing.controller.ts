@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
-import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
+import { Finish, PendingPriceContext, Prisma, PriceAxis, PriceRefKind, PriceReviewStatus, ProductType, Role } from '@prisma/client';
 import {
   FINISH_VALUES,
   PENDING_PRICE_CONTEXT_VALUES,
@@ -15,6 +15,8 @@ import { ErrorCode } from '../../common/error-codes';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
 import { isCanonicalGradeKey } from './pricing.types';
+// v1.91⟨precios⟩ (M-75, §PRE.E/F): la cola de revisión del candado anti-inflado.
+import { PriceReviewService, ReviewAction } from './price-review.service';
 // v1.51.19 (BL-25, §4.39m.8): disparador (c) — el override puede volver resoluble el precio de una
 // variante. El puerto es @Global; NO se importa `InventoryModule` (§4.39f).
 import {
@@ -62,6 +64,19 @@ import { VariantControlsService } from './variant-controls.service';
  */
 const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = PENDING_PRICE_CONTEXT_VALUES;
 const VALID_PENDING_REASONS: readonly PendingReason[] = PENDING_PRICE_REASON_VALUES;
+
+// v1.91⟨precios⟩ (M-75, §PRE.E): dominios de los filtros de `GET /admin/pricing/review-queue` — clase E,
+// DERIVADOS de la enum de Prisma (§0-Q punto 3), nunca transcritos. `?status=` vacío ⇒ solo `open`.
+const VALID_REVIEW_STATUSES: readonly PriceReviewStatus[] = Object.values(PriceReviewStatus);
+const VALID_REVIEW_AXES: readonly PriceAxis[] = Object.values(PriceAxis);
+
+/** Cuerpo de `POST /admin/pricing/review-queue/:id/resolve` (§PRE.F). */
+class ResolveReviewDto {
+  // El dominio exacto lo valida el servicio (422 `PRICE_REVIEW_INVALID_ACTION`); aquí solo se acota a string.
+  @IsString() action!: ReviewAction;
+  // `manual` lo exige entero > 0 (422 `VALIDATION_ERROR` en el servicio).
+  @IsOptional() @IsInt() @Min(1) manualPriceMxnCents?: number;
+}
 
 /**
  * v2.1 (§4.36.8a): cap de sondas del dry-run. La tabla de referencia del editor necesita los 10
@@ -216,6 +231,11 @@ export class PricingController {
     private readonly priceSync: PriceSyncJobService,
     private readonly priceIngest: PriceIngestService,
     private readonly variantControls: VariantControlsService,
+    // v1.91⟨precios⟩ (M-75, §PRE.E/F): la cola de revisión del candado anti-inflado. `@Optional()` por el
+    // MISMO motivo que `inventoryPublish` abajo: las pruebas unitarias construyen este controller de forma
+    // POSICIONAL; la DI real SIEMPRE lo inyecta (está en `PricingModule`). Los dos endpoints lo asumen presente.
+    @Optional()
+    private readonly priceReview?: PriceReviewService,
     // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c), productor «acto puntual»**: al fijar un
     // override, el precio de esa variante puede haberse vuelto resoluble.
     //
@@ -313,6 +333,44 @@ export class PricingController {
     // punto 2) — la cota que este `throw` no tenía y por la que 5 KB de query volvían íntegros.
     const parsedReason = parseEnumFilter('reason', reason, VALID_PENDING_REASONS);
     return this.pricing.pendingQueue(parsedContext, parsedReason);
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.E) — `GET /admin/pricing/review-queue` (super_admin, read-only, paginado).
+   * `?status=` (vacío ⇒ solo `open`, CLASE E; token inválido ⇒ `400` con `details.field`+`.allowed`),
+   * `?axis=`. Respuesta `{ data, total, counts: { open } }`. ⛔ El precio lo decide el dueño (super_admin).
+   */
+  @Get('review-queue')
+  async reviewQueue(
+    @Query('status') status?: string,
+    @Query('axis') axis?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    // §0-Q en el helper único. `status` vacío/omitido ⇒ default `open` (§PRE.E); inválido ⇒ 400.
+    const parsedStatus = parseEnumFilter('status', status, VALID_REVIEW_STATUSES) ?? PriceReviewStatus.open;
+    const parsedAxis = parseEnumFilter('axis', axis, VALID_REVIEW_AXES);
+    return this.priceReview!.getQueue({
+      status: parsedStatus,
+      axis: parsedAxis,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.F) — `POST /admin/pricing/review-queue/:id/resolve`. Body
+   * `{ action: accept|keep|manual, manualPriceMxnCents? }`. Guarda de estado (409 si ya no `open`),
+   * `manual` exige precio (422), delega en el override tier 0. Audita actor+fecha (criterio 877).
+   */
+  @Post('review-queue/:id/resolve')
+  @HttpCode(200)
+  async resolveReview(
+    @Param('id') id: string,
+    @Body() dto: ResolveReviewDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.priceReview!.resolve(id, dto.action, dto.manualPriceMxnCents, userId);
   }
 
   /**

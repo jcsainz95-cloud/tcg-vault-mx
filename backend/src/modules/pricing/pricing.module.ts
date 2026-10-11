@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PricingService } from './pricing.service';
+// v1.91⟨precios⟩ (M-75, §PRE.D/E/F): la cola de revisión del candado anti-inflado.
+import { PriceReviewService } from './price-review.service';
 // v1.28 (P-18/P-22, §4.26): consola de controles de precio por variante (M-30).
 import { VariantControlsService } from './variant-controls.service';
 // v1.62 (§4.42 / §M2-B): consola de BOUNTIES — UNA lectura nueva, cero superficie de escritura.
@@ -53,6 +55,7 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
   imports: [FinishReconcilerModule],
   providers: [
     PricingService,
+    PriceReviewService,
     VariantControlsService,
     AdminBountiesService,
     FxService,
@@ -88,6 +91,7 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
   ],
   exports: [
     PricingService,
+    PriceReviewService,
     FxService,
     PriceSyncJobService,
     FxRefreshJobService,
