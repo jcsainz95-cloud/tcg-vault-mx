@@ -1,0 +1,47 @@
+[
+ {
+  "id": "miscp",
+  "name": "Miscellaneous Promos",
+  "cardCount": {
+   "total": 1,
+   "official": 1
+  }
+ },
+ {
+  "id": "base1",
+  "name": "Base Set",
+  "logo": "https://assets.tcgdex.net/en/base/base1/logo",
+  "cardCount": {
+   "total": 102,
+   "official": 102
+  }
+ },
+ {
+  "id": "sv03.5",
+  "name": "151",
+  "logo": "https://assets.tcgdex.net/en/sv/sv03.5/logo",
+  "symbol": "https://assets.tcgdex.net/univ/sv/sv03.5/symbol",
+  "cardCount": {
+   "total": 207,
+   "official": 165
+  }
+ },
+ {
+  "id": "sv08",
+  "name": "Surging Sparks",
+  "logo": "https://assets.tcgdex.net/en/sv/sv08/logo",
+  "cardCount": {
+   "total": 252,
+   "official": 191
+  }
+ },
+ {
+  "id": "sv08.5",
+  "name": "Prismatic Evolutions",
+  "logo": "https://assets.tcgdex.net/en/sv/sv08.5/logo",
+  "cardCount": {
+   "total": 180,
+   "official": 131
+  }
+ }
+]

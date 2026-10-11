@@ -73,14 +73,16 @@ describe('E2E — PriceReference unicidad de 6 campos (M-33, Postgres real)', ()
   };
 
   function keyFor(cardProductId: string) {
+    // v1.91 errata (M-76): `source` entró a la clave única (7 campos). Mismo aserto con la clave nueva.
     return {
-      cardId_productType_gradeKey_finish_capturedDate_cardProductId: {
+      cardId_productType_gradeKey_finish_capturedDate_cardProductId_source: {
         cardId,
         productType: 'raw' as const,
         gradeKey: 'raw:NM',
         finish: 'holofoil' as const,
         capturedDate,
         cardProductId,
+        source: 'tcgcsv_singles' as const,
       },
     };
   }

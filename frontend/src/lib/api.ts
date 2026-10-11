@@ -152,6 +152,11 @@ import type {
   PendingPriceQueueResponse,
   PendingPriceReason,
   PendingPriceContext,
+  PriceReviewQueueResponse,
+  PriceReviewCaseDTO,
+  PriceReviewStatus,
+  PriceAxis,
+  PriceReviewResolveInput,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   CatalogSyncResponse,
@@ -6114,6 +6119,51 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
     }
   }
   return delay({ ok: true });
+}
+
+/**
+ * Cola de revisión del candado anti-inflado (contrato §PRE.E, `GET /admin/pricing/review-queue`,
+ * `super_admin`, read-only, paginado). CLASE E: `status` ausente ⇒ SOLO los casos `open` (no «todos»);
+ * `axis` opcional filtra por eje que disparó. Paginación (errata B): `page` (≥1, default 1) y `pageSize`
+ * (≥1, default 50, cap 100; fuera de rango ⇒ default, NO 400). La respuesta trae `{ data, total,
+ * counts: { open } }`, donde `total` es el total de filas que cumplen el filtro (no el tamaño de la
+ * página) ⇒ el frontend pagina con `ceil(total/pageSize)`; `counts.open` es independiente del filtro.
+ */
+export async function getPriceReviewQueue(
+  params: { status?: PriceReviewStatus; axis?: PriceAxis; page?: number; pageSize?: number } = {},
+): Promise<PriceReviewQueueResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PriceReviewQueueResponse>('/admin/pricing/review-queue', {
+      query: { status: params.status, axis: params.axis, page: params.page, pageSize: params.pageSize },
+    });
+  }
+  return delay(fx.getMockPriceReviewQueue(params.status, params.axis, params.page, params.pageSize));
+}
+
+/**
+ * Resuelve un caso de revisión (contrato §PRE.F, `POST /admin/pricing/review-queue/:id/resolve`,
+ * `super_admin`, auditado). `accept` publica el propuesto, `keep` conserva el último sano, `manual`
+ * delega en el override manual (EXIGE `manualPriceMxnCents` entero > 0). Errores a manejar:
+ * `409 CONFLICT` (el caso ya no está `open` ⇒ refrescar), `422 VALIDATION_ERROR` /
+ * `422 PRICE_REVIEW_INVALID_ACTION`.
+ */
+export async function resolvePriceReviewCase(
+  id: string,
+  input: PriceReviewResolveInput,
+): Promise<PriceReviewCaseDTO> {
+  if (!config.useMocks) {
+    return apiRequest<PriceReviewCaseDTO>(`/admin/pricing/review-queue/${id}/resolve`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  // MOCK: misma guarda de estado que el backend (409 si el caso ya no está `open`). Playwright corre
+  // en modo mocks, así que el candado de la doble resolución tiene que ser verificable de punta a punta.
+  try {
+    return await delay(fx.resolveMockPriceReviewCase(id, input.action));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /** Historial de precios por fecha/fuente (contrato GET /admin/pricing/card/:cardId). */

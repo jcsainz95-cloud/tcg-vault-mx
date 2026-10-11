@@ -188,7 +188,13 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   'VaultLocation','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
   'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun',
   -- v2.2: la foto del accesorio (catálogo), los deseos y los correos de deseos ya enviados
-  'AccessoryPhoto','WishlistItem','WishlistMail']) AS t;
+  'AccessoryPhoto','WishlistItem','WishlistMail',
+  -- v1.91⟨precios⟩ errata (M-75/§4.PRE (d)): la cola de revisión del candado anti-inflado es de la
+  -- familia de precios de CATÁLOGO (como PriceReference/FxRate/overrides): se CONSERVA. No tiene columna
+  -- de partición (su `axis` es informativo, no un eje de limpieza) y mientras está `open` BLOQUEA la
+  -- publicación/compra de un precio: borrar un caso `open` desbloquearía en silencio una decisión de
+  -- dinero — justo lo que la limpieza evita.
+  'PriceReviewCase']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

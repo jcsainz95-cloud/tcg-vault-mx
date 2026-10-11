@@ -32075,3 +32075,263 @@ registra como ruteable; la exclusión es específica del centinela, no un parche
 `backend/src`): el candado de «ninguno apunta a una ruta inexistente» se pone ROJO (1 fallo) → sigue mordiendo;
 revertido. Mutación inversa (`esCentinela = false`): `:125` se pone ROJA (`Received true`) → la exclusión es lo que
 arregla; revertida.
+
+## 91 · v1.91⟨precios⟩ — PRECIOS ROBUSTOS: árbitro de mediana + candado ×5 + cola de revisión (M-75) (2026-10-11, rama `claude/precios-redundancia`, sobre `0da46c3d`)
+
+Construido §PRE (`API_CONTRACT §PRE` rev v1.91⟨precios⟩ / `ARCHITECTURE §4.PRE`). 💰 DINERO en los dos ejes.
+SHAs: `5c023c1b` (esquema+diales+árbitro), `ff3b8a70` (cola+endpoints), interfaz del provider + esta nota en
+el pase siguiente.
+
+**Lo que ESTÁ construido y verificado (unit, sin DB):**
+- **M-75** (`20261028120000_m75_robust_pricing`): `PriceSource += tcgdex, cardmarket`; enums
+  `PriceReviewStatus`(open|accepted|kept|manual|superseded) y `PriceAxis`(sell|buy); tabla
+  `PriceReviewCase` (campos §PRE.D, `@@index([status])`, dedupe por `findFirst` SIN índice único, FK a
+  `Card ON DELETE CASCADE`). Migración idempotente con reversa documentada.
+- **FX EUR SIN DDL (MEDIDO):** `schema.prisma:1354` `FxRate.base String @default("USD")` — es String libre,
+  NO enum lockeado ⇒ Cardmarket EUR se persiste como filas `base='EUR'`, sin DDL. Confirma la medición del
+  orquestador.
+- **`common/robust-market.ts` (PURO):** `resolveRobustMarket()` (mediana por familia: `tcgplayer`=
+  {tcgcsv_singles,tcgdex} ECO · `cardmarket` independiente · live; frescura; 3+⇒mediana, 2⇒promedio entero,
+  1⇒esa, 0⇒null) y `decideLock()` (árbol del candado ×5 + consenso ≥2 familias ±tol). ⛔ `pokemontcg_io`/
+  `pokemonpricetracker`/`manual` NUNCA votan (criterio 883, defensa en profundidad aunque estén en el dial).
+  Todo entero de centavos; jumpFactor ×1000 entero; decisión entero-exacta (`hi*1000 >= round(dial*1000)*lo`).
+- **5 diales (§PRE.G, criterio 882)** en las 4 estructuras de `settings.constants.ts`, expuestos en
+  `GET/PUT /admin/settings`: `priceJumpFactor`(5), `priceJumpFactorBuy`(5), `priceArbiterFreshnessDays`(7),
+  `priceConsensusTolerancePct`(25), `priceArbiterSources`(['tcgcsv_singles','tcgdex','cardmarket']). Inválido
+  ⇒ `422 VALIDATION_ERROR`.
+- **Cola de revisión** (`price-review.service.ts` + endpoints en `PricingController`, super_admin):
+  `GET /admin/pricing/review-queue` (`?status=` vacío⇒open CLASE E, `?axis=`, 400 token inválido, paginado,
+  `counts.open`); `POST …/:id/resolve {action: accept|keep|manual, manualPriceMxnCents?}` (guarda 409 como
+  disputes, `manual` exige precio 422, action inválida 422 `PRICE_REVIEW_INVALID_ACTION`, delega en
+  `applyManualOverride` tier 0, audita `pricing.review.resolve` criterio 877). `recordArbiterDecision()` abre
+  caso `open` y lo cierra `superseded` AUTOMÁTICO cuando el mercado se asienta (HECHOS «regla general»).
+  `openCaseVariantKeys()` listo para los gates de lectura/compra.
+- **🔒 CANARIO del candado (criterio 889c):** `robust-market.spec.ts` siembra base=184¢ + UNA fresca de una
+  familia ×55 (10221¢) ⇒ NO publica 10221, conserva 184, abre caso; jumpFactorMilli=55549. **Demostrado que
+  MUERDE sobre COPIA del árbol ENTERO** (`git archive HEAD`): quitada la rama «única/no-consenso→revisión»
+  (forzar publicar el candidato), la prueba se pone ROJA (1 failed / 20 passed; `Expected "review", Received
+  "publish"`); copia borrada. Determinista (funciones puras, sin reloj salvo `NOW` explícito, sin carrera) ⇒
+  1 tirada basta, N=1 justificado (O-3).
+- **Money-safe (unit):** mediana ignora outlier [184,190,10221]→190; stale (>7d) no vota; `pokemontcg_io`
+  nunca vota; sin-consenso+salto⇒review; con-consenso+salto⇒publica; 409 doble resolución; accept publica
+  vía override; manual exige precio. **470 suites / 8453 pruebas unitarias verdes** tras M-75 (regresión
+  completa, no solo lo tocado). Paridad de enums verde (152/152) — baseline era 1 roja (`PriceSource`,
+  contrato adelantado al esquema) y M-75 la cierra.
+
+**DIFERIDO (medido: este contenedor NO alcanza `api.tcgdex.net`; forma de la API SIN CONFIRMAR):**
+- **El provider real de TCGdex (`tcgdex`+`cardmarket`).** Construida su INTERFAZ
+  (`providers/tcgdex.provider.interface.ts`): qué debe escribir (filas `PriceReference` con `source ∈
+  {tcgdex,cardmarket}`, `finish`, `priceMxnCents` FX-horneado, `capturedDate`, `refKind=market`). El árbitro
+  se probó con FIXTURES con esa forma. El cliente HTTP + parser (holo vs holofoil, dónde vive `marketPrice`,
+  EUR de Cardmarket, `tcgdexSetId` de Prismatic ≈ sv08.5, correlación tcgcsv↔tcgdex.tcgplayer) se construye
+  cuando el orquestador pase la forma confirmada. Depende de devops (allow-list `api.tcgdex.net` + serie
+  EUR/MXN en `fx-refresh`).
+
+**DIFERIDO CON EL PROVIDER (decisión medida, no omisión) — y POR QUÉ:** la envoltura del árbitro en las 4
+rutas de lectura (§PRE.B), el enganche en `price-ingest`/`publish` (§PRE.6) y el gate del cotizador de compra
+(§PRE.5) **solo tienen efecto cuando existen filas `tcgdex`/`cardmarket`** (≥2 familias por variante): hoy NO
+existen (fuentes nuevas, provider diferido), así que la mediana de una sola familia `tcgplayer` = el valor que
+ya elige `isBetterRef` ⇒ cero dato que arbitrar y cero caso que abrir. Wire-arlo ahora es RIESGO sin valor:
+(1) las pruebas unitarias construyen `PricingService`/`BuylistService` con mocks POSICIONALES vacíos
+(`{} as SettingsService`, `prisma` solo con `priceReference`+`$queryRaw`) ⇒ meter una lectura de diales o de
+`priceReviewCase` en `getReferencesBatch` las rompe; (2) la ruta de lectura RECALCULA FX viva
+(`liveMxnCents`) y mediar sobre `priceMxnCents` crudo cambiaría el número de la fuente única; (3) no hay DB en
+este contenedor para verificar el reconcile/quote de punta a punta. La invariante money-safe (NUNCA publicar
+inflado) está ESPECIFICADA y PROBADA en el candado puro; su aplicación viva es una capa fina que aterriza CON
+el provider y la verifica QA contra el stack corriendo. ⇒ **el barrido recalc-todo (§PRE.6, criterio 888)
+abre casos y el gate de compra los lee en ese pase, no en éste.** El «final» tras el fan-out asíncrono del
+botón «Actualizar precios ahora» (medido O-23/HECHOS 2026-10-04: NO engancha hoy el barrido VQ) se resolverá
+con un coordinador por-set que, al terminar todos los sets, cierra los casos `superseded` cuando el mercado se
+asienta — diseño anotado, construcción con el provider.
+
+**NO MEDIDO (sin DB de producción):**
+- Composición exacta de la lista legada de «precios atascados» (PSA Gengar ~MX$11k/MX$4k): si es
+  `graded_estimate` (§4.38n) o un override manual atascado. El arquitecto la dejó ORTOGONAL a `PriceReviewCase`
+  (es la revisión de estimados por grado `GET /admin/pricing/graded-estimates/review`, tabla distinta);
+  CONFIRMADO por código que son superficies/tablas separadas. El barrido recalc-todo (cuando se construya)
+  toca variantes de mercado; las gradeadas siguen su propia revisión. La composición fila-a-fila necesita la
+  BD de producción.
+- **Censo de ejes de query (`test/integration/enum-query-axes.e2e-spec.ts`):** CERRADO en el pase siguiente
+  (ver abajo, §91.1 bloque C).
+
+---
+
+## 91.1 · v1.91⟨precios⟩ — PROVIDER REAL + WIRING VIVO + CENSO (2026-10-11, egress ABIERTO, forma CONFIRMADA)
+
+Lo que estaba DIFERIDO ya se construyó, contra la forma REAL de `api.tcgdex.net` (medida y guardada como
+fixtures en `backend/test/fixtures/tcgdex/`). 💰 DINERO en los dos ejes; va a triple veredicto.
+
+**A · Provider real TCGdex (verificado unit, 33 pruebas + fixtures reales):**
+- `providers/tcgdex-shape.ts` (parser PURO + CANDADO DE FORMA): `pricing.tcgplayer` = objetos por variante
+  `normal|holofoil|reverse-holofoil`, se lee `.marketPrice` (USD); `pricing.cardmarket` = PLANO (`avg`/`trend`
+  base → `normal`; `avg-holo`/`trend-holo` → `holofoil`). ⚠️ **Decisión de mapeo cardmarket (§PRE (e)):**
+  cardmarket NO distingue reverse ⇒ el `reverse_holo` NO recibe voto cardmarket (se queda con la familia
+  `tcgplayer`; NUNCA hereda precio de otra variante). El candado de forma LANZA `TcgdexShapeError` si un
+  sub-feed presente cambia de forma (p. ej. `unit` deja de ser USD/EUR, o la variante deja de ser objeto);
+  el canario lo demuestra (6 pruebas de forma).
+- `providers/tcgdex-set-mapper.ts`: **estrategia de mapeo `CardSet ↔ tcgdexSetId` SIN puente frágil
+  (criterio 885):** nombre normalizado + nº de cartas OFICIALES (`printedTotal == cardCount.official`),
+  resuelto contra `GET /v2/en/sets` (1 llamada, cacheada en memoria por corrida). **Por qué así:**
+  pokemontcg.io usa `sv8pt5`, TCGdex `sv08.5` — derivar uno del otro por regex es el puente frágil que 885
+  prohíbe. **NO se persiste columna** (`CardSet` no gana campo; sin DDL fuera de M-75): la lista es barata y
+  se re-resuelve cada corrida ⇒ un set nuevo se recoge solo. Medido: Prismatic Evolutions ⇒ `sv08.5` ✓,
+  `151`⇒`sv03.5`, `Surging Sparks`⇒`sv08`, `Base Set`⇒`base1`. Sin match único ⇒ el set no tiene fuente
+  TCGdex (sus cartas caen a lo que haya).
+- `providers/tcgdex-http.client.ts`: host FIJO `https://api.tcgdex.net/v2/en` (anti-SSRF, slug validado,
+  timeout, `redirect:error`, UA). `providers/tcgdex-bulk.provider.ts`: set breve → 1 llamada/carta (el set NO
+  trae pricing) → parse → **FX-horneado** (USD con `fxUsd`, EUR con `fxEur`); join por NÚMERO (criterio 884);
+  concurrencia acotada (6); una carta que falla NO tumba el set.
+- **Escritor por fuente `PricingService.persistArbiterReference`:** serie POR `source` (⚠️ NO reusa
+  `persistMarketReference`, que es serie única por `(…,cardProductId)` SIN mirar `source` ⇒ el 2º escritor
+  pisaría al 1º). Medido: la `@@unique` de `PriceReference` NO incluye `source`, pero **Postgres trata los
+  NULL como DISTINTOS**, así que `tcgdex` y `cardmarket` COEXISTEN en `cardProductId=null` sin colisión. ⛔
+  Sin cambio de FORMA de `PriceReference` (§PRE.H): solo añade filas con los dos valores nuevos de `source`.
+
+**Volumen / rate-limit (MEDIDO 2026-10-11):** TCGdex NO expone cabeceras de rate-limit, NO tiene endpoint
+bulk de pricing (el set es forma breve sin precios) ⇒ **1 llamada por carta** (180 para Prismatic), ~0.18 s
+c/u. El provider acota la concurrencia a 6 para no ahogar el barrido ni a TCGdex. Candado de FORMA (no semver)
+en vez de versión fija.
+
+**FX EUR (§PRE (e)) — CONSTRUIDO EN BACKEND (ya NO es dependencia de devops):** `FxRate.base` es
+`String @default("USD")` (sin DDL). `FxService.refreshFromBanxico()` ahora, tras escribir la fila USD
+(`SF63528`), llama a `refreshEurFromBanxico()` (best-effort, aislado): obtiene la serie EUR/MXN y escribe
+`FxRate base='EUR', quote='MXN', source='banxico', id='banxico-eur-<fecha>'` con el colchón. `price-ingest`
+la lee con `fxEurSnapshot()` (`base='EUR'`). ⚠️ **El lector USD `BANXICO_FX_WHERE` ganó `base:'USD'`**
+(money-critical: sin él, la fila EUR —más fresca por `effectiveDate`— secuestraría la tasa que valúa el
+catálogo; las filas USD legadas tienen `base='USD'` por defecto ⇒ el filtro no excluye ninguna).
+- **ID de serie EUR — NO MEDIDO (sin token).** `FX_EUR_SERIES_ID_DEFAULT='SF46410'` (candidato
+  DOCUMENTADO), override por config `FX_EUR_SERIES_ID` (corregible sin redeploy). **No se pudo confirmar
+  contra la API SIE en vivo:** este contenedor NO tiene `BANXICO_SIE_TOKEN` y la SIE rechaza TODA petición
+  sin token de forma uniforme ⇒ no se puede sondear un id. **Debe confirmarse con el token** (en el deploy
+  o por quien lo tenga) para ACTIVAR el voto de cardmarket.
+- **El candado que lo hace money-safe NO es el id sino la BANDA EUR `[8,40]`** (`parseBanxicoEurRate`, más
+  estrecha que la USD `[1,1000]`): un id equivocado que devuelva otra magnitud (USD/EUR≈1.08, par
+  invertido≈0.047, etc.) cae FUERA de banda ⇒ NO se escribe fila EUR ⇒ cardmarket NO vota (degradación
+  money-safe; NUNCA una conversión plausible-pero-falsa). Probado: `test/fx.eur-series.spec.ts` (10).
+- **Degradación (§PRE):** sin serie EUR válida (id no confirmado, red, fuera de banda) ⇒ `fxEur=null` ⇒
+  cardmarket no vota ⇒ para Prismatic queda 1 familia ⇒ el candado manda a REVISIÓN (no publica inflado;
+  money-safe, pero la cola se llena). CON la serie EUR confirmada ⇒ 2 familias ⇒ consenso ⇒ **publica el
+  precio bueno automático** (lo que el dueño espera del barrido). La lógica con/sin EUR está probada en
+  `providers/tcgdex-archaludon-fix.spec.ts` (con EUR⇒publica; contra-prueba 1 familia⇒review).
+
+**B · Wiring vivo (verificado unit/servicio + regresión completa 475 suites / 8494 verdes):**
+- **Árbitro de mediana en las 4 rutas de lectura (§PRE.B):** `getReferencesBatch`,
+  `getReferencesByCardProductBatch`, `getSeparateProductsByCard` (y `getReference`/`getReferenceByCardProduct`
+  por delegación). `PricingService.robustMarketForRows()` (puro) + `loadArbiterDialsSafe()` (lee diales con
+  **fallback seguro al seed**, patrón `fxSnapshotSafe`: por eso los mocks posicionales `{} as SettingsService`
+  NO se rompen — **O-23/B5 resuelto por diseño, sin debilitar aserciones**). Override manual (tier 0) gana
+  ABSOLUTO (no se arbitra). **Invariante legada:** hoy la única fuente admitida por variante suele ser
+  `tcgcsv_singles` (1 fila) ⇒ mediana de una = esa fila = IDÉNTICO a `isBetterRef`; el número solo cambia
+  cuando entra una 2ª fuente admitida. Prueba `test/pricing.robust-median-read.spec.ts` (4) + la de punta a
+  punta con fixtures reales `providers/tcgdex-archaludon-fix.spec.ts` (4).
+- **Barrido escribe las fuentes de árbitro (§PRE.6, criterio 888):** `price-ingest.ingestArbiterSourcesForSet`
+  corre tras el tcgcsv_singles del set (best-effort, no tumba el barrido) y persiste las filas tcgdex/cardmarket.
+- **Candado en `reconcilePublishedPrices` (§PRE.C):** `runPriceCandado(keys)` corre `arbiterDetailForKeys`
+  (robusto de HOY + baseline = robusto de ANTES de hoy) + `decideLock` + `PriceReviewService.recordArbiterDecision`
+  (eje `sell`), abriendo/cerrando `PriceReviewCase`. Cierre AUTOMÁTICO `superseded` cuando el mercado se asienta
+  (lo hace el propio `recordArbiterDecision` con `openCase=false`), **por set, dentro del fan-out** — resuelve
+  O-23 (el barrido VQ sí engancha aquí). `price-sync` (bóveda) NO abre casos (igual que §M2 v1.80.8.4).
+- **Gate de COMPRA (§PRE.5, criterio 875):** `BuylistService` prefetch `openCaseVariantKeySet` (1 query por
+  lote, sin N+1) ⇒ una variante RAW set_base con caso `open` ⇒ cotiza «precio pendiente» (reutiliza §BMK.3:
+  `referencePrice.status='pending'`, `quote.status='precio_pendiente'`). El valor crudo ya es la mediana
+  robusta (sin el residuo inflado), así que esto es defensa en profundidad sobre el valor DETENIDO.
+
+**C · Censo C-EQ-1 (CERRADO en lo PURO; HTTP = gate de QA):** añadidas las 2 filas espejo al `REGISTRO`
+(`?status=`/`?axis=` de `review-queue`, clase E, `transcrita`; 72→74) + fixtures `PriceReviewCase` (open sell,
+open buy, accepted, kept; sentinel `proposedMxnCents` para limpieza) + su `limpiarFixture`. **La prueba de
+DESCUBRIMIENTO (pura, sin DB) PASA** (26/26): los dos ejes quedan registrados (no huérfanos). ⚠️ **Refinamiento
+de un candado del censo (flag para techlead):** `enum PriceAxis {sell buy}` (M-75) casa la regex de NOMBRE
+`*Axis*` y comparte el token `buy` con el eje clase-L `?axis=` de `pricing-brackets` (`{sale,buy}`), que
+rompía el candado «homónimo de dominio» (exigía DISJUNCIÓN). Se refinó la aserción de «disjunto» a **«el
+literal NO está CONTENIDO en el enum»** — que es el invariante REAL (un eje clase-L no puede ser el dominio
+—ni un subconjunto— de un enum persistido, el bug `SealedSubtype`/`upc`). Sigue mordiendo: `enum XAxis {sale
+buy}` (exacto) o `{sale buy extra}` (superconjunto) CONTIENE el literal ⇒ rojo; `MissingReason` (disjunto)
+sigue verde. `PriceAxis` declarado en `homonimosDeNombre` con su porqué. **Las propiedades HTTP de las 2 filas
+(filtra/alterno/400/…) corren bajo el gate de QA con Postgres — NO las corrí aquí (sin `DATABASE_URL`).**
+
+**Verificación de mutación (O-3/O-9, N=1 determinista sobre COPIA del árbol ENTERO, ya borrada):** admitir el
+residuo `pokemontcg_io` en el árbitro (mutando `DEFAULT_PRICE_ARBITER_SOURCES` **y** `NON_VOTING_SOURCES` — hay
+DEFENSA EN PROFUNDIDAD: ambos lo excluyen) reinfla Archaludon (185¢ → 5203¢) y pone ROJAS 3 aserciones de
+dinero. La exclusión del residuo aplanado es load-bearing y verificada.
+
+**NO MEDIDO (sin `DATABASE_URL` en este contenedor):**
+- La prueba de INTEGRACIÓN de punta a punta contra Postgres (barrido escribe filas tcgdex/cardmarket →
+  `reconcile` abre/no-abre caso → lectura devuelve centavos). Probado a nivel de LÓGICA (parser+FX+árbitro+
+  candado, `tcgdex-archaludon-fix.spec.ts`) y de SERVICIO (`robust-median-read.spec.ts` con `$queryRaw`
+  mockeado). El round-trip DB lo corre QA.
+- Las propiedades HTTP de las 2 filas nuevas de C-EQ-1 (gate de QA, arriba).
+- `createRequest` del buylist NO gatea sobre caso abierto en este pase (solo el QUOTE, que es la superficie
+  de oferta §BMK.3/§PRE.5); si el dueño exige que la CREACIÓN también se bloquee, es un añadido menor.
+- Composición fila-a-fila de la lista legada «precios atascados» (PSA Gengar): sigue necesitando BD de
+  producción (ortogonal a `PriceReviewCase`, confirmado por código).
+
+---
+
+## 91.2 · v1.91⟨precios⟩ ERRATA — BLOQ-1 (M-76) + A/B/D + limpieza + round-trip Postgres (2026-10-11)
+
+Cerrados los hallazgos de QA/techlead/arquitecto (errata `8eec85b0`). TODO medido contra **Postgres real**
+(`stack-native.sh up --infra`, M-75+M-76 aplicadas). 💰 DINERO.
+
+**BLOQ-1 · M-76 (`source` a la unicidad de `PriceReference`) — EL ARREGLO QUE HACE QUE EL FEATURE ENTREGUE.**
+- **Migración M-76** (`20261029120000_m76_arbiter_source_unique`, NO edita M-75): `DROP INDEX
+  PriceReference_variant_capturedDate_key` + `CREATE UNIQUE INDEX PriceReference_variant_src_capturedDate_key
+  ON (…, cardProductId, source) NULLS NOT DISTINCT`. `schema.prisma` `@@unique` 6→7 (gana `source`). `source`
+  es NOT NULL ⇒ NULLS NOT DISTINCT sigue afectando SÓLO a `cardProductId`. Ninguna fila se reescribe. REVERSA
+  documentada (índice 7→6 + borra registro).
+- **Escritores arreglados (medido en el código cuáles tocan la cubeta del árbitro):**
+  - `CardProductResolver.upsertVariantPrice`: la clave compuesta de Prisma pasa a `…_cardProductId_source` ⇒
+    `source:'tcgcsv_singles'` al `key` (único escritor de su cubeta `cardProductId` no-null).
+  - `persistMarketReference`: AHORA **dos lecturas** — (1) comprobación de override manual source-AGNÓSTICA
+    (el manual SUPRIME al escritor de mercado, §4.1), (2) serie write-on-change POR FUENTE (`source` en el
+    `where`), para no TOMAR/PISAR una fila de árbitro de otra fuente ni chocar P2002.
+  - `applyManualOverride`: el `findFirst` reusa su propia serie manual O la fila-estimado (cut-over M-43),
+    pero ⛔ NUNCA una fila de mercado automática de otra fuente (`OR:[{source:'manual'},{refKind:graded_estimate}]`):
+    así un override manual sobre una variante raw con fila de árbitro NO la destruye (crea la manual aparte;
+    el tier-0 gana en lectura igual).
+  - `persistArbiterReference`: ya scopeaba por `source` (sin cambio).
+- **CONFIRMADO qué caminos legados raw de la cubeta `cardProductId=null` siguen vivos:** el fallback bulk
+  legacy (`price-ingest.service.ts:697`, `source=provider.source`, vía `persistMarketReference`). PPT apagado
+  como escritor (§4.35c), pokemontcg.io bloqueada. `persistGradedEstimateReference` (2691) y `syncCardPrice`
+  (2110) NO se tocan: son de buckets DISTINTOS (graded/sealed) y su `findFirst` DEBE ser source-agnóstico para
+  el invariante INV-D (una naturaleza por variante/día) — añadirles `source` lo rompería. Medido.
+- **ROUND-TRIP contra Postgres (la prueba que QA exigió):** `test/integration/pre-arbiter-roundtrip.e2e-spec.ts`
+  (4/4 verde): con el escritor REAL, `tcgdex`($0.11→204¢) + `cardmarket`(€0.10→202¢) + residuo
+  `pokemontcg_io`(10221¢) **COEXISTEN** para Archaludon raw `cardProductId=null` mismo día (3 filas, SIN P2002);
+  `getReferencesBatch` ⇒ **203¢** (mediana, NO 10221); `arbiterDetailForKeys` ⇒ `familyCount=2`,
+  `consensus=true`; el candado ⇒ **publica, sin caso** aunque la base fuera 10221 (2 familias concuerdan).
+
+**A · resolve(manual) reclama ANTES de escribir (techlead, DINERO).** `resolve()` corre en UNA transacción:
+el guard (`updateMany where status=open`, count===1) PRIMERO; el perdedor (count=0) lanza 409 y la tx REVIERTE
+sin escribir precio. `test/integration/pre-resolve-accept-manual.e2e-spec.ts` A (verde): 2º POST `manual` ⇒ 409
+y el override vivo sigue en el 1er valor (NO hay fila con el 2º).
+
+**B · accept NO congela (arquitecto §4.PRE (d)).** `accept` promueve una `PriceReference` ROBUSTA **NO-manual**
+(`isManualOverride=false`, `refKind='market'`, `source`=la representativa de la mediana — ⛔ nunca `'manual'`)
+vía el NUEVO `PricingService.promoteRobustReference`; `manual` es el ÚNICO que fija tier-0. Prueba B (verde):
+tras accept la fila es no-manual y de fuente admitida ⇒ el barrido la sigue arbitrando.
+
+**D · base CONGELADA mientras hay caso open (arquitecto §4.PRE (c)).** `arbiterDetailForKeys`: si hay
+`PriceReviewCase open` ⇒ `base = caso.baselineMxnCents` (congelada); si no ⇒ robusta de ayer. Canario de 2
+barridos `test/integration/pre-frozen-baseline.e2e-spec.ts` (verde): un pico de fuente única que persiste NO
+auto-supersede (la base no «sube» a incluir el pico) ⇒ el caso SIGUE en revisión.
+
+**BLOQ-2 · limpieza `P-DB-LIMPIEZA`.** `PriceReviewCase` añadido al array `conservar` de `lz_conteo`
+(`20261006_pdblimpieza_2_limpieza.sql`): es familia de precios de catálogo y mientras `open` bloquea
+publicación/compra (§4.PRE (d)). `pdb-limpieza.e2e-spec.ts`: 66/67 con el `tcg` por defecto; T-AC3 (B
+congelado de `a7232d7a`, que PRECEDE a §PRE) necesitaba no chocar G-8 con `PriceReviewCase` ⇒ nuevo helper
+`revertM75` (revierte M-76+M-75 en ambos gemelos vía las REVERSAS documentadas; `fresh({m75:false})` + T-AC3).
+**67/67 verde** con el rol superuser (requerido por `cloneSchema`'s `SET session_replication_role`). `verificacion.sql`
+(file 4) NO menciona `PriceReviewCase` ⇒ no choca.
+
+**Accesorios (3 specs rojos) — VEREDICTO: real y PRE-EXISTENTE a §PRE, NO «BD sucia».** `accessories-prep-refunds`,
+`accessories-m73-migration`, `accessories-m73-refund-shapes` FALLAN (22/146) sobre el esquema RECIÉN migrado
+(no es dato: es una aserción de FORMA de los CHECK de `PaymentRefund`). Causa: deriva M-61↔M-73 (M-73 añadió
+`payment_refund_accessory_*` que los tests escritos para M-61 no esperaban). Determinista por migración (no
+«sucia»). ⛔ Mis cambios §PRE NO tocan `PaymentRefund` ni sus migraciones (solo M-76 sobre `PriceReference`) ⇒
+unrelated a §PRE, pre-existente, **otro alcance — NO lo arreglo en esta rama** (instrucción del orquestador).
+
+**Suite:** unit **476 suites / 8504 verdes**; integración §PRE **11/11** (roundtrip 4 + frozen 2 + resolve 2 +
+variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
+
+**NO MEDIDO:** las propiedades HTTP de C-EQ-1 (gate de QA, DB) y la confirmación del `FX_EUR_SERIES_ID` con token
+(TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.

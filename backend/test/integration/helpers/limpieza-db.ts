@@ -223,6 +223,26 @@ function psqlOk(schema: string, sql: string, what: string): void {
  * llevaría en silencio todo CHECK que las nombre). Antes borra las filas del libro que apuntan a un renglón de accesorio:
  * con ellas, reponer el CHECK de carta fallaría.
  */
+/**
+ * v1.91⟨precios⟩ errata — quita M-75 (precios robustos) y M-76 (source a la unicidad) de un esquema ya
+ * migrado, para la comparación con el B CONGELADO de `a7232d7a` (que PRECEDE a §PRE y por tanto no
+ * clasifica `PriceReviewCase` en su G-8). Aplica las REVERSAS documentadas en las cabeceras de M-76 y
+ * M-75 (en ese orden: índice primero, tabla/tipos después). Mismo patrón que `revertM73`/`revertM74`.
+ */
+export function revertM75(schema: string): void {
+  const run = (suffix: string, label: string) => {
+    const file = readdirSync(join(BACKEND_DIR, 'prisma', 'migrations')).find((m) => m.endsWith(suffix));
+    if (!file) throw new Error(`${label}: no encuentro la migración ${suffix}`);
+    const sql = readFileSync(join(BACKEND_DIR, 'prisma', 'migrations', file, 'migration.sql'), 'utf8');
+    const m = /^-- REVERSA:BEGIN[^\n]*\n([\s\S]*?)^-- REVERSA:END/m.exec(sql);
+    if (!m) throw new Error(`${label}: ${suffix} no trae el bloque REVERSA:BEGIN … REVERSA:END`);
+    const block = m[1].split('\n').map((l) => l.replace(/^--(?: |$)/, '')).join('\n');
+    psqlOk(schema, `BEGIN;\n${block}\nCOMMIT;\n`, label);
+  };
+  run('_m76_arbiter_source_unique', 'revertM76'); // índice 7→6 campos + borra su registro
+  run('_m75_robust_pricing', 'revertM75'); // DROP PriceReviewCase + enums + borra su registro
+}
+
 export function revertM73(schema: string): void {
   const file = readdirSync(join(BACKEND_DIR, 'prisma', 'migrations')).find((m) => m.endsWith('_m73_accessories'));
   if (!file) throw new Error('revertM73: no encuentro la migración M-73');

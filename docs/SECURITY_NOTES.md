@@ -16452,3 +16452,155 @@ fase de seguridad completa por release siguen gateando el DoD y la operación co
   no se re-auditó aquí (§9.6). Las condiciones de operación con dinero real del §8 siguen vigentes sin cambio.
 
 — SEGURIDAD (blue team / AppSec), 2026-10-10 · código `567be924` (rama `claude/mercado-iva`) · **APROBADO**
+
+# Pase §PRE «Precios Robustos» — veredicto de seguridad (blue team) · sha **`9cc26064`** (rama `claude/precios-redundancia`) · 2026-10-11
+
+> **Autoría:** agente **seguridad** (blue team / AppSec). **Insumo:** `docs/PENTEST_NOTES.md` §«Pase §PRE
+> «Precios Robustos» — red team (2026-10-11)» (red team atacó `dfda7d70`; `9cc26064` es idéntico en código y solo
+> añade esa sección de pentest). **Modo:** revisión de código white-box + consolidación de los hallazgos del red
+> team + verificación propia de cada guarda citada. `npm audit --omit=dev` corrido por mí en `backend/`. ⛔ No
+> levanté el stack en vivo (el contenedor no trae `BANXICO_SIE_TOKEN` — vive en CI — igual que el red team); los
+> vectores de autorización/carrera/SSRF/FX quedan **verificados por código** y **PoC-en-vivo-pendiente** (cierre
+> 100 % = `stack-native.sh up` con tokens de prueba en ventana autorizada, o el gate DAST de CI contra staging).
+> **Mi única escritura es esta sección.** No corrijo código; todo hallazgo se enruta a su rol dueño.
+
+## Alcance revisado (delta §PRE)
+Árbitro de mediana + candado ×5 (`common/robust-market.ts`), cola `PriceReviewCase` + endpoints `resolve`/
+`review-queue` (`price-review.service.ts`, `pricing.controller.ts`), provider TCGdex (`providers/tcgdex-http.client.ts`),
+serie EUR de Banxico (`fx.service.ts` + `common/fx-mode.ts`), migración M-76 (unicidad + `source`), y la
+pantalla/paginación/defensa-$0 del frontend (`m10/sections/PriceReviewSection.tsx`).
+
+## Resumen por severidad (consolidado)
+- **Críticas:** 0 · **Altas:** 0 · **Medias:** 1 (PRE-P3, **riesgo YA ACEPTADO** por el dueño) · **Bajas:** 2
+  (PRE-P1, PRE-P2) · **Info/dev-only:** 1 (PRE-P4).
+- **Nada bloquea el gate.** El corazón de riesgo (dinero en `resolve`/`accept`, SSRF, secuestro FX, inyección,
+  M-76) está **defendido** y lo verifiqué yo contra el código.
+
+## Corazón defendido — lo que verifiqué yo (confirma el red team §«Vectores NO vulnerables»)
+1. **Autz E/F solo `super_admin`.** `@Controller('admin/pricing')` + `@Roles(Role.super_admin)` a nivel de CLASE
+   (`pricing.controller.ts:220-221`); los dos endpoints `review-queue` (`:343` GET, `:366` POST) lo heredan.
+   `RolesGuard` (`common/guards/roles.guard.ts:24-27`): **401 UNAUTHENTICATED** si no hay user, **403 FORBIDDEN** si
+   el rol no incluye el requerido. operator/usuario/invitado ⇒ 403/401 real, no 200. *Code-verified; 403 en vivo
+   pendiente de HTTP.*
+2. **`manualPriceMxnCents` ≤0/decimal/ausente rechazado DOS veces.** DTO `@IsInt() @Min(1)` (`pricing.controller.ts:78`)
+   y servicio `Number.isInteger(x) && x>0` (`price-review.service.ts:249`). `manual` sin precio ⇒ 422 VALIDATION_ERROR.
+3. **`accept` sobre caso con propuesto $0 ⇒ 422 ANTES de la tx** (`price-review.service.ts:265-271`) **+** defensa en
+   profundidad en el escritor: `promoteRobustReference` lanza si `!(priceMxnCents>0)` y si `source==='manual'`
+   (`pricing.service.ts:~2716-2722`). NO escribe fila de mercado $0. El árbitro mismo filtra `priceMxnCents>0` antes
+   de votar (`robust-market.ts:167`).
+4. **Doble-resolve (carrera) ⇒ 409 sin escribir dinero.** `resolve` reclama en UNA tx: `updateMany({where:{id,status:open}})`
+   con `guard.count!==1 ⇒ CONFLICT` y rollback (`price-review.service.ts:287-299`); el override/promote corre DESPUÉS
+   del guard dentro de la misma tx (`:300-328`). El perdedor **nunca toca el precio**. *Code-verified; carrera N≥10 en
+   vivo pendiente.*
+5. **SSRF TCGdex cerrado.** Host FIJO `https://api.tcgdex.net/v2/en` no configurable, `assertSafeId` con slug
+   `/^[A-Za-z0-9][A-Za-z0-9._-]*$/`, `redirect:'error'` + timeout 15 s (`tcgdex-http.client.ts:19-47`). No redirige a
+   metadata interna; path-traversal imposible.
+6. **EUR no secuestra la tasa USD del catálogo.** `BANXICO_FX_WHERE = { source:'banxico', base:'USD' }`
+   (`fx-mode.ts:475`) con comentario-candado (`:468-473`); la fila EUR se escribe `base:'EUR'` (`fx.service.ts:573`),
+   así que la EUR más fresca NO gana el `orderBy desc` del lector USD.
+7. **Banda EUR `[8,40]`** (`fx.service.ts:108-109,122`): USD/EUR (~1.08), par invertido (~0.047) y magnitudes ajenas
+   caen fuera ⇒ no se escribe fila EUR ⇒ cardmarket simplemente no vota. Formato SIE estricto en `parseBanxicoRate`.
+8. **Filtros parametrizados, sin SQLi.** `page`/`pageSize` saturados a rango (`price-review.service.ts:206-207`),
+   enums por helper único (400 fuera de dominio). `git grep queryRawUnsafe|executeRawUnsafe` en
+   `backend/src/modules/pricing` ⇒ **0**. Todo va a `where` de Prisma parametrizado.
+9. **M-76 sin hueco.** Índice único 7 campos `(cardId,productType,gradeKey,finish,capturedDate,cardProductId,source)`
+   `NULLS NOT DISTINCT`; `source` es NOT NULL (enum) ⇒ `NULLS NOT DISTINCT` solo afecta a `cardProductId`, idéntico a
+   hoy. No reescribe ni borra filas. No hay vía NO-admin para escribir `PriceReference`.
+10. **Árbitro money-safe.** Mediana por familia; `≥2 FAMILIAS` para consenso (`tcgcsv_singles`+`tcgdex` = UNA familia
+    «tcgplayer», eco correlacionado; `cardmarket` = voto independiente); fuentes que aplanan
+    (`pokemontcg_io`/`pokemonpricetracker`/`manual`) excluidas DOS veces (`robust-market.ts:31,156`). Salto GRANDE sin
+    consenso ⇒ `review`, conserva el último sano, **nunca publica el disparado** (`decideLock:313-320`). Cierra el bug
+    Prismatic ×55.
+11. **Sin fugas de secretos.** Token Banxico desde env (`BANXICO_SIE_TOKEN`/`FX_API_KEY`, `fx.service.ts:473`), enviado
+    solo en header `Bmx-Token` al host fijo de Banxico; los warns dicen «sin token», no el valor. Sin credenciales en
+    el código §PRE.
+12. **Frontend defensa $0 + paginación.** `zeroProposed = proposedMxnCents === 0` deshabilita «Aceptar»
+    (`PriceReviewSection.tsx:349,441`), espejo del 422 del backend; paginación usa `total` del servidor
+    (`:134-135`), no solo los 50 de la primera página (criterio 889).
+
+## Hallazgos priorizados — estado y rol dueño
+
+### PRE-P3 — `@nestjs/core` advisory de inyección (moderate, runtime) — **Media** — **RIESGO YA ACEPTADO** — [devops]
+- **Medido por mí (2026-10-11, `9cc26064`):** `npm audit --omit=dev` en `backend/` ⇒ **exactamente 2 moderate**,
+  ambas de `@nestjs/core` ≤11.1.17 + `@nestjs/platform-express` (dependiente), GHSA-36xv-jgw5-4q75
+  («Improperly Neutralizes Special Elements… ('Injection')»). **0 high, 0 critical.** El fix es breaking
+  (`@nestjs/core@12`).
+- **Alcanzabilidad:** el advisory afecta una función **SSE**. `git grep "@Sse"` en `backend/src` (sin specs) ⇒ **0**:
+  no la usamos. No encontré ruta §PRE que la alcance.
+- **Estado:** **NO ES HALLAZGO NUEVO.** El dueño **ya aceptó este riesgo el 2026-10-10** (REL7-P1 / B3,
+  `HECHOS.md` línea 164, palabras: «acepto lo de la pieza del servidor»). Se le explicó: aviso en función no usada
+  (SSE, `@Sse`=0) y actualizar con prisa da más riesgo que el aviso. **Disparador registrado:** subir NestJS 10→11
+  con regresión completa más adelante, o el día que alguien añada un `@Sse` (lo que ocurra primero).
+- **Dueño:** devops (ejecuta la subida + re-corre SAST cuando toque). **No bloquea.**
+
+### PRE-P1 — Precio manual/override sin cota SUPERIOR de cordura — **Baja** — **ACEPTADO (deuda registrada)** — [backend]
+- **Confirmado en código:** `ResolveReviewDto.manualPriceMxnCents` = `@IsInt() @Min(1)` (`pricing.controller.ts:78`),
+  `OverrideDto.priceMxnCents` = `@IsInt() @Min(1)` (`:122`), servicio `Number.isInteger && >0`
+  (`price-review.service.ts:249`). **No hay `@Max`.** PREEXISTENTE (no lo introduce §PRE; lo hereda el nuevo `resolve`).
+- **Riesgo:** un precio absurdamente alto queda publicado como tier-0 manual. Acotado a `super_admin` (auto-infligido),
+  pero contrasta con la disciplina del resto del dinero (FX tiene banda, la curva valida V1–V8). Un token
+  `super_admin` robado podría clavar precios locos sin cota de cordura.
+- **Estado:** **ACEPTADO como deuda de seguridad** (riesgo bajo: solo lo alcanza `super_admin`; sin IDOR; auditado).
+  **Disparador:** enrutado a **backend** para añadir un `@Max` de cordura coherente con la banda FX; abordar cuando
+  backend toque este módulo o antes de ampliar el rol que llega al endpoint. No bloquea el gate.
+- **Dueño:** backend.
+
+### PRE-P2 — `refreshEurFromBanxico`/fetch USD sin `redirect:'error'` ni `assertSafeId` — **Baja** — **ACEPTADO (deuda registrada)** — [backend/devops]
+- **Confirmado en código:** `refreshEurFromBanxico` interpola `FX_EUR_SERIES_ID` (default `SF46410`) en la URL SIN
+  `assertSafeId()` y SIN `redirect:'error'` (`fx.service.ts:550-555`); el fetch USD tampoco pone `redirect:'error'`
+  (`:484-487`, aunque la serie USD `SF63528` es literal, sin interpolación). Contrasta con `tcgdex-http.client.ts:23-41`
+  que SÍ hace ambas cosas.
+- **Riesgo:** `FX_EUR_SERIES_ID` es variable de **ENTORNO** (devops), NO entrada de usuario por API, y el host está
+  fijo ⇒ **no explotable por un atacante remoto hoy**. Endurecimiento (defensa en profundidad): (a) un `seriesId`
+  con `../` haría path-traversal dentro del host de Banxico; (b) sin `redirect:'error'` un 30x seguido ciegamente
+  podría enviar el header `Bmx-Token` a un destino redirigido.
+- **Estado:** **ACEPTADO como deuda de seguridad** (env-only, host fijo). **Disparador:** enrutado a **backend**
+  (añadir `assertSafeId` + `redirect:'error'` a los dos fetch de Banxico) y **devops** (confirmar que el egress solo
+  permite el host de Banxico + `api.tcgdex.net`); abordar en el próximo toque de `fx.service.ts` o al endurecer egress.
+  No bloquea el gate.
+- **Dueño:** backend (código) + devops (egress).
+
+### PRE-P4 — `npm audit` frontend: 7 high (tooling de build) — **Info/dev-only** — **ACEPTADO** — [devops]
+- Cadena de **build/lint** (`tailwindcss→chokidar/fast-glob→micromatch→braces`, `eslint-config-next→…→fast-glob`).
+  **Ninguno** se sirve al cliente ni es alcanzable en runtime. No bloquea. El gate SAST/DAST de CI lo re-corre por PR.
+- **Dueño:** devops (subir cuando toque).
+
+## Deuda de seguridad aceptada (resumen, no bloqueante)
+| Id | Severidad | Por qué se acepta | Disparador para abordarla | Dueño |
+|---|---|---|---|---|
+| PRE-P3 | Media | Función SSE no usada (`@Sse`=0); fix breaking; **ya aceptada por el dueño (REL7-P1)** | NestJS 10→11 con regresión, o al añadir un `@Sse` | devops |
+| PRE-P1 | Baja | Solo `super_admin`; preexistente; auditado | Backend añade `@Max`; o antes de ampliar el rol del endpoint | backend |
+| PRE-P2 | Baja | Env-only, host fijo; no explotable remoto | Próximo toque de `fx.service.ts` / endurecer egress | backend+devops |
+| PRE-P4 | Info | Tooling de build, no runtime | Al actualizar dependencias de frontend | devops |
+
+## Lo que quedó SIN probar en vivo y por qué
+- **403/401 real por HTTP** en E/F para operator/usuario/invitado; **doble-resolve N≥10**; **TCGdex con JSON
+  malicioso real**; **Banxico EUR/USD contra la SIE viva**. No levanté el stack esta sesión (revisión white-box) y el
+  contenedor no tiene `BANXICO_SIE_TOKEN` (vive en CI) — la misma limitación que declaró el red team. Todos quedan
+  **verificados por código** (ruta de guarda/tx/host inequívoca) y **PoC-en-vivo-pendiente**: el cierre al 100 % es un
+  `stack-native.sh up` + tokens de prueba en ventana autorizada, o el gate DAST de CI contra staging.
+- **Alcanzabilidad de `api.tcgdex.net` desde el contenedor** y cobertura real de la fuente en vivo: NO MEDIDO; es
+  cuestión funcional, no afecta la postura de seguridad.
+
+## Banderas para el humano
+- Antes de operar con dinero real a mayor escala, sigue vigente la recomendación de **pentest de tercero + ventana de
+  DAST contra staging** (esta fase fue revisión interna white-box, sin fuego en vivo por falta de token/stack).
+- Las **condiciones de operación con dinero real** registradas en pases previos (p. ej. reembolso en disputa:
+  avisar + no pagar hasta cierre bancario, `HECHOS.md` 2026-10-10) siguen vigentes sin cambio.
+- PRE-P1 recuerda el riesgo de un **token `super_admin` robado**: una cota superior de cordura al precio manual es el
+  endurecimiento barato que lo acota; no urge, pero conviene antes de abrir ese rol a más gente.
+
+## VEREDICTO
+**APROBADO** sobre `9cc26064`.
+
+Regla del DoD: se RECHAZA solo si hay hallazgos **críticos o altos** abiertos. Conteo: **0 críticas · 0 altas · 1 media
+(PRE-P3, riesgo YA ACEPTADO por el dueño) · 2 bajas (PRE-P1, PRE-P2, aceptadas como deuda registrada con disparador) ·
+1 info (PRE-P4)**. Ningún hallazgo bloqueante abierto; los aceptados quedan registrados arriba con severidad, razón,
+disparador y rol dueño. El corazón de dinero (resolve/accept, árbitro, FX, M-76, SSRF, inyección) está defendido y
+verificado por código.
+
+**Mínimo para mantener el APROBADO:** que los riesgos aceptados (PRE-P1/P2/P3/P4) sigan registrados y que PRE-P3 no se
+agrave (no añadir `@Sse` sin subir NestJS). El cierre de los PoC-en-vivo-pendientes se cubre con el gate DAST de CI
+contra staging en el deploy (no bloquea este veredicto de código).
+
+— SEGURIDAD (blue team / AppSec), 2026-10-11 · código `9cc26064` (rama `claude/precios-redundancia`) · **APROBADO**
