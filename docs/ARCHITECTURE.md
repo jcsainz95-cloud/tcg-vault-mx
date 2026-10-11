@@ -4,6 +4,17 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: redundancia multi-fuente, árbitro de MEDIANA y candado anti-inflado ×5**
+> (2026-10-11, arquitecto, rama `claude/precios-redundancia` en `/home/user/tcg-precios`, base `1ba098a4` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §PRE` (rev v1.91⟨precios⟩); porqué, modelo y árbol
+> de decisión en **§4.PRE**. Fuente: `HECHOS.md` filas 2026-10-11 (§PRE + P-RP-1…7, «todas como recomiendas»);
+> `PROJECT §PRE`, criterios 870–889. 💰 **DINERO en venta y compra.** Migración **M-75** (tabla `PriceReviewCase` +
+> enums `PriceReviewStatus`/`PriceAxis` + `PriceSource += tcgdex, cardmarket`; EUR en `FxRate` condicional). Diales
+> nuevos (DATA): `priceJumpFactor` (×5), `priceJumpFactorBuy` (×5), `priceArbiterFreshnessDays` (7),
+> `priceConsensusTolerancePct` (25 %), `priceArbiterSources`. Decisión clave: **la mediana ENVUELVE al ranking**
+> `isBetterRef`/`sourceRank` (tier 0 manual intacto; tier 1 mercado = mediana de fuentes frescas por FAMILIA);
+> `pokemontcg_io` queda fuera del árbitro (§I-PP1). Egress NUEVO para devops: `api.tcgdex.net` (y EUR/MXN en Banxico);
+> `api.pokemontcg.io` sigue bloqueado. BACKEND_NOTES §91.
 > **Rev v1.90⟨miv⟩ — valor de mercado CON IVA en la tienda, con la nota «incluye IVA»** (2026-10-10, arquitecto, rama
 > `claude/mercado-iva` en `/home/user/tcg-iva`, base `7e395f0a` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma
 > en `API_CONTRACT §MIV`; porqué en **§4.MIV**. Fuente: `HECHOS.md:160` (2026-10-10). Sin schema, migración, endpoint,
@@ -29894,6 +29905,296 @@ tienda (`PROJECT §MIV.2` A7).
 **(i) Desviaciones detectadas:** ninguna nueva. El `'—'` de las dos fichas con basis `market` y sin cifra
 (`CardDetailView.tsx:262`, `SealedDetailView.tsx:180`) contradecía ya §21.8 («ni "—"»); §MIV lo retira de paso
 (MIV-F2).
+
+---
+
+### 4.PRE PRECIOS ROBUSTOS — redundancia multi-fuente, árbitro de mediana y candado anti-inflado (rev v1.91⟨precios⟩, 2026-10-11, NORMATIVO, 💰 **DINERO en los dos ejes: venta y compra**)
+
+**Norma:** `HECHOS.md` filas 2026-10-11 (§PRE autorizado y las 7 decisiones P-RP «todas como recomiendas»);
+`PROJECT §PRE`, criterios **870–889**, preguntas **P-RP-1…7**. Contrato: `API_CONTRACT §PRE` (rev **v1.91⟨precios⟩**).
+Migración **M-75**. Sección de notas de backend reservada: **BACKEND_NOTES §91**. Árbol `/home/user/tcg-precios`,
+rama `claude/precios-redundancia`, base `HEAD 1ba098a4` **según el orquestador; ⛔ sha NO MEDIDO por mí (sin Bash)**.
+
+> **El bug que esta sección mata (medido por backend `af24d85d`, dado por cierto §PRE.0).** Prismatic Evolutions sale
+> inflada ~55×: Archaludon 070/131 **Holofoil** MX$102.21 (real ~MX$1.84), Noctowl 078/131 **Holofoil** MX$153.41.
+> Tres piezas: (1) **filas residuales que aplanan** (PPT v2 / pokemontcg.io dan UN `market` por carta ⇒ la holo
+> barata hereda el precio de la variante cara); (2) **hueco de cobertura**: `tcgcsv_singles`, nuestra PRIMARIA por
+> variante, **no cubre** Prismatic (falta el puente set→group de TCGplayer); (3) **no hay candado**: nada frena el
+> salto. `pokemontcg_io` **aplana por diseño** (`§I-PP1`): queda LEGACY / solo-rollback y ⛔ **nunca** entra como
+> fuente de árbitro ni de buylist. §4.PRE ataca las tres: redundancia por variante (TCGdex llena el hueco),
+> árbitro de **mediana** que ignora el aplanado, y **candado ×5** que detiene lo que se dispara.
+
+#### (a) DECISIÓN CLAVE — la mediana ENVUELVE al ranking (`isBetterRef`/`sourceRank`), no lo reemplaza
+
+El sistema de hoy elige **UNA** fila `PriceReference` por `(carta, variante)` con la precedencia de LECTURA de
+`§4.27f` (`isManualOverride` > `tcgcsv_singles` > PPT > `pokemontcg_io` > «—»/`PRICE_PENDING`), vía `isBetterRef` /
+`sourceRank` (`§4.27f-2`/`(f-3)`). **Ése es exactamente el mecanismo que produjo el bug:** `sourceRank` corona a
+**una sola** fuente como verdad, y cuando la primaria tiene hueco, la verdad pasa a ser un **residuo aplanado**. Un
+único número manda; un único número puede estar podrido.
+
+**Dictamen: la mediana es el ÁRBITRO del tier de mercado AUTOMÁTICO; el ranking se CONSERVA para el tier manual y
+como desempate determinista. La mediana *envuelve* el ranking, no lo borra.** En concreto, la resolución de la
+referencia de mercado de `(carta, productType, gradeKey, finish[, cardProductId])` pasa a DOS tiers:
+
+- **Tier 0 — override manual (INTACTO).** Si existe una `PriceReference` con `isManualOverride=true` / `source='manual'`
+  para la clave, **gana en absoluto** (`§4.27f-2` paso 1, `§4.27f-3` candidata perenne). ⛔ El árbitro **no se
+  calcula**, el candado **no la toca**, no se abre caso de revisión. Es la garantía §K/§E.1, y §PRE **no la debilita**
+  (criterio 887, `§PRE.5`). El «precio final a mano» del sellado y el override por pieza (`InventoryItem.listPriceCents`)
+  mandan igual que hoy.
+- **Tier 1 — mercado robusto (NUEVO).** Sin override manual, el valor de mercado **ya no es** `priceMxnCents` de la
+  única fila top-ranked: es la **mediana** (`§PRE (b)`) de las cotizaciones **frescas** y **por variante** de las
+  fuentes **admitidas** (`tcgcsv_singles`, `tcgdex`, `cardmarket`, y una fuente en vivo si se habilita). `sourceRank`
+  **ya no corona** aquí; baja a desempate determinista (mediana de conteo par, orden de presentación) y sigue rigiendo
+  el split manual/no-manual del paso 1.
+
+**Por qué envolver y no reemplazar** (tres razones, en orden de peso): (1) **el tier manual es dinero gateado tres
+veces** (`§4.27f-2/3`, P47-2) y debe sobrevivir intacto — tirar `isBetterRef` tiraría esa garantía; (2) **la mediana
+es robusta por construcción** a UN outlier (el aplanado), que es el modo de fallo medido — `[1.84, 1.90, 102.21]` →
+mediana **1.90**, no el promedio ~35 (criterio 873, P-RP-7); (3) `pokemontcg_io` y el residuo aplanado **quedan FUERA
+del conjunto de entrada** del árbitro (nunca votan), así que el bug no puede re-entrar por el árbitro. El residuo
+legacy sobrevive **solo** como último recurso de LECTURA cuando no hay NINGUNA cotización fresca admitida (y entonces
+cae el candado/obsolescencia, nunca publica inflado — `§PRE (f)`).
+
+> ⚠️ **Compatibilidad de lectores legados.** Las cuatro rutas de resolución (`getReference`,
+> `getReferenceByCardProduct`, `getReferencesBatch`, `getSeparateProductsByCard`) siguen devolviendo una
+> `PriceInfo`/fila elegida. Con tier 1, el `priceMxnCents` que emiten pasa a ser el **mercado robusto** (mediana), no
+> el de la fila top-ranked. La forma del DTO **no cambia** (sigue siendo un entero MXN FX-horneado); cambia **de dónde
+> sale el número**. El `capturedDate` que acompaña = el **más reciente** de las cotizaciones que entraron a la mediana
+> (la más fresca manda la «edad» mostrada). El `source` representativo = el de la fila mediana (desempate `sourceRank`).
+
+#### (b) El resolvedor robusto `resolveRobustMarket()` — cómo se junta y se arbitra
+
+Por clave `(cardId, productType, gradeKey, finish[, cardProductId])`:
+
+1. **Reunir candidatas.** Todas las `PriceReference` de la clave de las **fuentes admitidas**
+   (`priceArbiterSources`, dial, seed `['tcgcsv_singles','tcgdex','cardmarket']`), cada una ya con su `priceMxnCents`
+   FX-horneado. ⛔ **Excluidas siempre:** `pokemontcg_io` (aplana, `§I-PP1`), y las filas manuales (son tier 0).
+   `pokemonpricetracker` **no entra al árbitro** (aplana la impresión primaria; §4.35(c) ya lo apagó como escritor);
+   queda solo como residuo de LECTURA de último recurso.
+2. **Filtrar por frescura.** Se descartan las cotizaciones con `capturedDate` más viejo que `priceArbiterFreshnessDays`
+   (dial, seed **7**, P-RP-5, criterio 881). Una fuente de **volcado diario** (`tcgcsv_singles`, `tcgdex`) refresca
+   ~1×/día ⇒ a los 7 días hay 7 lecturas de margen antes de considerarla rancia. **El dato viejo no vota** (criterio 881).
+3. **Agrupar por FAMILIA de mercado** para no confundir redundancia con eco (`§PRE (e)`): `tcgplayer` =
+   {`tcgcsv_singles`, `tcgdex` cuando expone precio de TCGplayer}, `cardmarket` = {`cardmarket`}, y cada fuente en vivo
+   su propia familia. Para la **mediana** vota cada cotización fresca; para el **conteo de independencia** (consenso y
+   «fuente única») cuenta el nº de **familias distintas**, no de filas.
+4. **Arbitrar (mediana) — P-RP-7, criterio 873:**
+   - **≥3 cotizaciones frescas** ⇒ **mediana** (valor del medio; conteo par ⇒ promedio entero `round((a+b)/2)` de las
+     dos centrales, desempate `sourceRank` para elegir cuáles son centrales ante empates de valor).
+   - **2 cotizaciones** ⇒ **promedio entero** de las dos (`round((a+b)/2)`).
+   - **1 cotización** ⇒ **esa** (sujeta al candado contra la base robusta, P-RP-4).
+   - **0 frescas admitidas** ⇒ **no hay mercado robusto** ⇒ `PRICE_PENDING` + caso de revisión si había pieza
+     publicada con precio (criterios 879, 881). El residuo legacy congelado NO se publica como robusto; a lo sumo se
+     conserva el último valor sano (`§PRE (f)`).
+
+   El resultado es `robustMarketMxnCents` (entero MXN). Todo en enteros de centavos; ⛔ sin float (convención §3).
+
+#### (c) Candado de cordura ×5 + regla de consenso — el árbol que decide publicar-auto vs revisión
+
+**«Referencia vigente» (la base contra la que se mide el salto)** = el **último valor de mercado SANO publicado** de
+esa variante, es decir el `robustMarketMxnCents` que hoy rige el precio vivo (persistido como la `PriceReference`
+aceptada que la tienda está usando). Si la variante nunca tuvo valor sano (set nuevo, Prismatic antes del fix) ⇒ **no
+hay base** ⇒ no se puede medir salto.
+
+**Factor de salto** `jumpFactor = max(candidato, base) / min(candidato, base)` — **simétrico** (atrapa tanto el disparo
+hacia arriba, MX$1.84→MX$102, como un colapso sospechoso MX$100→MX$2 que haría pagar/vender mal). El umbral `N` es el
+dial `priceJumpFactor` (seed **×5**, P-RP-1, criterio 882). P-RP-1 aprobó **el mismo ×5 para venta y compra**; el dial
+hermano `priceJumpFactorBuy` existe sembrado **igual a `priceJumpFactor`** por si el dueño quiere endurecer la compra
+después (criterio 874/875) — hoy ambos ×5.
+
+**«Las fuentes concuerdan» (consenso)** = hay **≥2 FAMILIAS** frescas y todas sus cotizaciones caen dentro de
+`±priceConsensusTolerancePct` de la mediana (dial, seed **25 %**). Una sola familia (aunque traiga 2 filas) **no** es
+consenso: es «fuente única». El outlier aplanado, al estar fuera de tolerancia, **rompe** el consenso — que es lo que
+queremos cuando una sola fuente se dispara.
+
+**Árbol de decisión (money-safe; el candado corre en VENTA y en COMPRA sobre el mismo `robustMarketMxnCents`):**
+
+```
+resolveRobustMarket() → robustMarketMxnCents, familyCount, consensus
+  ├─ 0 frescas admitidas                      → PRICE_PENDING; si había precio vivo, abrir caso (kept=último sano)
+  ├─ sin base (nunca tuvo valor sano)
+  │     ├─ familyCount ≥ 2 y consensus         → PUBLICA robusto (primer precio sano, nace con consenso)
+  │     └─ familyCount < 2  (fuente única)     → CASO DE REVISIÓN  (P-RP-4: sin base con que comparar ⇒ revisión)
+  ├─ jumpFactor <  N                           → PUBLICA robusto            (movimiento normal)
+  └─ jumpFactor ≥  N  (SALTO GRANDE)
+        ├─ familyCount ≥ 2 y consensus         → PUBLICA robusto            (el mercado de VERDAD se movió)
+        └─ fuente única  O  no-consenso        → CASO DE REVISIÓN
+              efecto: conserva el ÚLTIMO VALOR SANO (o PRICE_PENDING si no tenía); NUNCA publica el disparado
+```
+
+Correspondencia con la **regla de consenso** aprobada (`HECHOS.md` 2026-10-11): salto grande + fuentes concuerdan ⇒
+auto; salto grande + única/desacuerdo ⇒ revisión. Y con P-RP-4: una variante de una sola fuente **publica si pasa el
+candado** (rama `jumpFactor < N`), y va a revisión si se dispara o si no hay base.
+
+**Efecto en COMPRA (buylist), criterio 875.** Mientras una variante tenga **caso de revisión abierto** o esté en
+`PRICE_PENDING`, el cotizador **no ofrece** por ella: devuelve «precio pendiente» reutilizando la conducta de §BMK.3 /
+criterio 854 (`referencePrice.status="pending"`). El caso de revisión es **variante-ancho** (bloquea los dos ejes
+hasta resolverse); el campo `axis` del caso es informativo (dice cuál eje disparó). Así nunca se paga de más sobre un
+valor inflado, que es el lado irrecuperable del error (`§N.0`).
+
+> **🔒 CANARIO DEL CANDADO (criterio 889(c), obligatorio — DINERO).** Backend escribe una prueba que **siembra**
+> base = MX$1.84 y UNA cotización fresca de una sola familia = MX$102.21 (×55), corre la resolución y **asevera**: la
+> variante **NO** publica MX$102.21 (conserva MX$1.84 o `PRICE_PENDING`) **y** se abre un `PriceReviewCase open`. El
+> candado se **demuestra** quitándolo: si se elimina la rama «fuente única / no-consenso → revisión» (o se fuerza
+> publicar el candidato), la prueba **se pone roja**. ⛔ El modelo barato NO toca esta prueba (reparto de modelos). Se
+> corre con el ×5 del dial y con un dial fijado por QA (criterio 882). N veces si hay cualquier dependencia de orden
+> (O-3): la resolución es determinista, así que basta 1 tirada **si** backend demuestra que no hay carrera; si la hay,
+> se reporta la proporción.
+
+#### (d) Cola de revisión — tabla `PriceReviewCase`, estados y por qué NO se cuelga de `PendingPriceEntry`
+
+**Decisión: tabla NUEVA `PriceReviewCase` (M-75), con SU superficie, y el frontend la pinta en la MISMA pantalla de
+precios del dueño que «premium en el piso» (una pestaña, varias cubetas — el patrón que el dueño ya aprobó, `HECHOS.md`
+2026-10-02).** `PRE.3` pedía «reutilizar la cola»; se cumple a nivel de **pantalla**, no de tabla, y por una razón de
+mecanismo, no de estilo:
+
+- `PendingPriceEntry` es una bandeja **delgada** (`no_market | premium_at_floor`), sin campos para el **valor
+  propuesto**, la **base**, las **cotizaciones por fuente** ni el **factor de salto** que el criterio 876 exige
+  mostrar. Meter esos datos ahí es ensanchar una tabla de dinero caliente.
+- Añadir `price_outlier` a `PendingPriceReason` es **DDL sobre un enum persistido e indexado** que este contrato
+  marca una y otra vez como peligroso (§Enums `PendingPriceReason`, v1.73; §C de §M5-B). `§PRE` **no toca**
+  `PendingPriceReason` — se queda `no_market | premium_at_floor`, paridad schema↔contrato intacta.
+- El modelo de resolución es distinto: `PendingPriceEntry` se cierra **sola** cuando vuelve el mercado o por override;
+  `PriceReviewCase` necesita **tres acciones explícitas del dueño** (aceptar / conservar / precio a mano) con actor y
+  fecha (criterio 877).
+
+**`PriceReviewCase` (M-75) — campos:** `id`, `cardId`, `productType`, `gradeKey`, `finish Finish @default(normal)`,
+`cardProductId?`, `sealedProductId?`, `axis PriceAxis` (`sell | buy`, cuál disparó), `proposedMxnCents Int` (el robusto
+que el candado detuvo), `baselineMxnCents Int?` (último sano; `null` si no había base), `jumpFactorMilli Int` (salto
+×1000 entero: ×55 = `55000`; ⛔ sin float), `sourceCount Int`, `familyCount Int`, `consensus Boolean`,
+`quotesSnapshot Json` (`[{source, family, priceMxnCents, capturedDate, stale}]` — qué dijo cada fuente, criterio 876),
+`status PriceReviewStatus @default(open)`, `resolvedAction String?` (`accept|keep|manual`), `resolvedByUserId?`,
+`resolvedPriceRefId?`, `createdAt`, `resolvedAt?`. **Dedupe como la cola existente: por `findFirst`, SIN índice único
+de BD** (misma doctrina que `PendingPriceEntry`, `§3.2`): clave `(cardId, productType, gradeKey, finish, cardProductId,
+sealedProductId, axis)` con `status='open'`. Índice `@@index([status])`.
+
+**Estados y transiciones** (`PriceReviewStatus = open | accepted | kept | manual | superseded`):
+
+```
+                 candado dispara
+        (nada)  ─────────────────▶  open
+  open  ── dueño «aceptar»  ──▶ accepted   (publica proposedMxnCents como valor sano; resolvedPriceRefId = fila escrita)
+  open  ── dueño «conservar»──▶ kept       (deja el último sano; no cambia precio vivo)
+  open  ── dueño «precio a mano»▶ manual   (delega en POST /admin/pricing/override → override manual tier 0)
+  open  ── barrido: el candidato nuevo YA NO dispara (mercado se asentó) ─▶ superseded  (AUTOMÁTICO, HECHOS «regla general»)
+  open  ── llega un candidato nuevo que dispara distinto ─▶ el viejo open pasa a superseded, nace otro open
+```
+
+Automático primero (HECHOS 2026-10-04 «regla general»): un barrido posterior que ve el mercado asentado (el candidato
+ya no se dispara contra la base) **resuelve el caso solo** (`superseded`) y publica el robusto — el botón manual es el
+respaldo, no el camino. Todas las transiciones manuales registran `resolvedByUserId` + `resolvedAt` (criterio 877) en
+`AuditLog`.
+
+**Unificación con la lista legada de «precios atascados» (caso PSA Gengar ~MX$11k/MX$4k).** Esa lista es el enumerador
+read-only de **estimados por grado** `GET /admin/pricing/graded-estimates/review` (`§4.38n`) — precios de **gradeadas**,
+no de mercado raw. Es **ortogonal** a `PriceReviewCase` (que arbitra mercado `raw`/`sealed`). **No se fusionan las
+tablas**, pero el **barrido de recalcular-todo** (`§PRE (f)`) corre el árbitro+candado sobre **todas** las variantes
+publicadas, incluidas las que hoy están atascadas por residuo; las gradeadas siguen su propia revisión. ⛔ **NO MEDIDO**
+por mí (sin BD de producción): qué filas exactas componen hoy esa lista y si el caso Gengar es `graded_estimate` o un
+override manual atascado; lo mide backend antes de prometer que el barrido lo toca.
+
+#### (e) Cobertura de fuentes — TCGdex + tcgcsv; `pokemontcg.io` excluida; el riesgo de redundancia correlacionada
+
+- **`tcgcsv_singles` (PRIMARIA, ya existe, `§4.35`).** Precio por variante de **TCGplayer** (USD→MXN Banxico). Familia
+  `tcgplayer`. Cubre la mayoría de sets; **hueco medido en Prismatic**.
+- **TCGdex (NUEVA, gratis, por variante, multiidioma — P-RP-2).** API pública v2. **Endpoint FIJADO (O «dependencias
+  fijadas»):** base `https://api.tcgdex.net/v2/`, con el idioma en la ruta (`/v2/en/...`, `/v2/es/...`). Se consume por
+  **set** (`GET /v2/en/sets/{tcgdexSetId}`) y se lee, por carta, el objeto `pricing` con sub-feeds **`tcgplayer`** (USD,
+  por variante: `normal`/`holofoil`/`reverse-holofoil`) y **`cardmarket`** (EUR, por variante). ⚠️ **Dos fuentes de
+  precio en UNA llamada HTTP**: por eso añadir TCGdex trae redundancia barata. Versión: TCGdex no publica semver de API;
+  se fija por **contrato de forma** (un validador de la forma del `pricing`) y, si el proveedor lo ofrece, por digest de
+  respuesta cacheado — lo cablea backend/devops (candado que rompe si la forma cambia). **NO MEDIDO por mí:** que
+  `api.tcgdex.net` sea alcanzable desde el contenedor, que cubra Prismatic por variante, y que su `pricing.tcgplayer`
+  no sea **el mismo número** que `tcgcsv` (ver riesgo abajo).
+- **⚠️ RIESGO DE REDUNDANCIA CORRELACIONADA (lo mide y decide backend; aquí el diseño que lo neutraliza).** Si
+  `tcgcsv` y `tcgdex.pricing.tcgplayer` salen **ambos de TCGplayer**, promediarlos **no detecta** un error de origen
+  TCGplayer: son eco, no redundancia. Por eso el diseño cuenta **FAMILIAS** (`§PRE (b)` paso 3), no filas: ambos cuentan
+  como **una** familia `tcgplayer`. La **segunda familia independiente** es **`cardmarket`** (mercado europeo, EUR). ⇒
+  para `consensus` y «fuente única» del candado, lo que vale es tener **≥2 familias** (TCGplayer + Cardmarket), no ≥2
+  filas. Esto es lo que de verdad ataca el bug del dueño: cuando `tcgcsv` tiene hueco (Prismatic), `tcgdex.tcgplayer`
+  llena la cobertura **por variante** (fin del aplanado), y `cardmarket` da el **voto independiente** para el candado.
+- **`cardmarket` (vía TCGdex, EUR).** Familia `cardmarket`. Exige **FX EUR→MXN**: hoy `FxRate` es `base=USD` (`§3.2`,
+  I-FX5). **M-75 depende de EUR:** si `FxRate.base` es enum/locked a `USD`, M-75 lo abre a `USD|EUR` y el job
+  `fx-refresh` añade la serie EUR/MXN de Banxico; si `base` ya es `String` libre, es **solo datos** (filas `base=EUR`).
+  **NO MEDIDO por mí:** el tipo real de `FxRate.base`. Cada `PriceReference` de `cardmarket` persiste su `priceMxnCents`
+  ya convertido (el árbitro solo mira MXN).
+- **`pokemontcg_io`: EXCLUIDA del árbitro y del buylist, SIEMPRE (criterio 883, `§I-PP1`).** Aplana por diseño; queda
+  LEGACY / solo-rollback a nivel carta si todo lo demás falla. ⛔ No sube de rango, no vota la mediana, no fija compra.
+  El contenedor hoy **bloquea `api.pokemontcg.io`** y **así se queda** — el diseño no la necesita.
+- **Remediación de Prismatic, sin «puente» frágil (criterios 878, 885).** El mapeo carta↔fuente es por **set +
+  número + acabado**, independiente del idioma (TCGdex trae nombres en español; el join NO usa el nombre, criterio 884).
+  Nuestra `Card` ya tiene número y pertenece a un `CardSet`; se mapea el `CardSet` ↔ `tcgdexSetId` (Prismatic Evolutions
+  ≈ `sv08.5` en el esquema de TCGdex — **NO MEDIDO por mí**, lo confirma backend) y cada variante por su `Finish`. Un
+  set que **ninguna** fuente por variante cubre deja sus cartas en `PRICE_PENDING` (criterio 879), **no** hereda precio.
+  Añadir un set nuevo **no** exige un puente manual: si TCGdex o tcgcsv lo traen por variante, el barrido lo precia solo.
+
+**Egress (dependencia de DEVOPS — tratar como tal, O-6).** El diseño **no asume egress abierto**. Dominios que devops
+debe **permitir** (allow-list del contenedor/CI), fijados:
+- `api.tcgdex.net` — **NUEVO, requerido** (TCGdex v2: metadatos + `pricing.tcgplayer` + `pricing.cardmarket`).
+- `tcgcsv.com` (o el host real de TCGCSV que ya usa `tcgcsv_singles`/sellado) — **ya en uso; confirmar que sigue
+  permitido**. ⛔ **NO MEDIDO por mí** si está hoy en la allow-list.
+- Banxico SIE (el host que `fx-refresh` ya consume) — para la serie **EUR/MXN** además de USD/MXN. Confirmar host.
+- `api.pokemontcg.io` — **sigue BLOQUEADO** a propósito (legacy). No se abre.
+- Una fuente **en vivo de pago** (P-RP-2, p. ej. PokéWallet) añadiría su dominio — **diferida**: no entra en este
+  stream (costo/frecuencia NO MEDIDOS; el dueño decide con el número delante).
+
+#### (f) Obsolescencia 7 días + recalcular-todo-al-desplegar
+
+- **Stale (P-RP-5, criterio 881).** Dial `priceArbiterFreshnessDays` (seed **7**), **separado** de los
+  `freshnessDays`/`priceCoverage.freshnessDays` existentes (graded usa 30; `§4.38` y `catalogCutoff`) para no moverlos.
+  Una cotización más vieja que la ventana **no entra** al árbitro (`§PRE (b)` paso 2); si **todas** las de una variante
+  son stale ⇒ `PRICE_PENDING`/caso (nada rancio fija precio por encima de un sano más fresco).
+- **Recalcular TODO al entrar en vigor (P-RP-6, criterio 888).** El botón que el dueño ya usa 1–2×/día, **«Actualizar
+  precios ahora»** = `POST /admin/jobs/price-ingest` (barrido completo, fan-out por set, `§4.15c`/`§4.35`). §PRE
+  **engancha el árbitro+candado en la reconciliación por variante del barrido** (`reconcilePublishedPrices`,
+  `price-ingest`), de modo que cada corrida: (1) escribe las cotizaciones frescas de cada fuente admitida; (2) corre
+  `resolveRobustMarket()` + el árbol del candado sobre **las filas existentes**, **incluidas las residuales PPT /
+  pokemontcg.io que causan Prismatic** — como esas quedan **fuera** del conjunto de entrada, el robusto sale de
+  tcgcsv/tcgdex por variante y Prismatic recupera su ~MX$1.84; (3) lo que se dispara sin consenso cae a
+  `PriceReviewCase`, no a la tienda. La **entrada en vigor** = una corrida de barrido completo (criterio 888): ninguna
+  pieza se queda inflada «porque ya estaba».
+  > ⚠️ **Medido antes (HECHOS 2026-10-04 / O-23):** «Actualizar precios ahora» hace fan-out asíncrono y **no** engancha
+  > hoy el barrido VQ de la cola de venta. §PRE pide que el árbitro/candado corra **dentro** de la reconciliación
+  > por-set del `price-ingest` (que sí ve raw `listed`), y además en `publish`/`publish-all`. Que exista un «final»
+  > donde enganchar el cierre de casos tras el fan-out lo resuelve **backend** (coordinador o por-set), BACKEND_NOTES §91.
+- **`price-sync` (valuación de bóveda) NO abre casos** — igual que `§M2 v1.80.8.4`: refresca referencias, no escribe
+  colas. Los casos los abre la vía de precio de venta (barrido `price-ingest`, publicación) y la de compra (quote).
+
+#### (g) Migración M-75 — especificación (no implementación)
+
+DDL (lo escribe backend, dueño de `prisma/`; zona compartida ⇒ un solo stream, regla 9 ya satisfecha por esta sección):
+1. **Tabla nueva `PriceReviewCase`** con los campos de `§PRE (d)` + `@@index([status])`. **Sin** índice único (dedupe
+   por `findFirst`, doctrina de la casa).
+2. **Enums nuevos** `PriceReviewStatus = open | accepted | kept | manual | superseded` y `PriceAxis = sell | buy`.
+3. **`PriceSource += tcgdex, cardmarket`** (línea canónica `API_CONTRACT` §Enums 8559 / `schema.prisma`). `tcgdex` =
+   per-variante TCGplayer-origin vía TCGdex; `cardmarket` = per-variante EUR vía TCGdex. ⛔ `pokemontcg_io` y
+   `pokemonpricetracker` **no** cambian de rol.
+4. **FX EUR (condicional):** si `FxRate.base` está enum/locked a `USD`, abrirlo a `USD|EUR`; si es `String` libre,
+   **sin DDL** (solo filas `base='EUR'`). **NO MEDIDO por mí.**
+5. **Diales (ConfigSetting, DATA, sin DDL; criterio 882, expuestos en `GET/PUT /admin/settings`):** `priceJumpFactor`
+   (seed 5), `priceJumpFactorBuy` (seed 5), `priceArbiterFreshnessDays` (seed 7), `priceConsensusTolerancePct` (seed 25),
+   `priceArbiterSources` (seed `['tcgcsv_singles','tcgdex','cardmarket']`, prioridad/orden de fuentes).
+
+⛔ **NO toca:** `PendingPriceReason` (sigue `no_market | premium_at_floor`), `PriceReference` (su forma; solo gana dos
+valores de enum en `source`), la curva/piso/markup/IVA/convención (`§PRE.5`, criterio 887), el override manual (`§K`).
+
+#### (h) Reparto, desviaciones y lo que queda NO MEDIDO
+
+- **backend** (WS «Catálogo y precios», `modules/pricing` + `jobs/`, **BACKEND_NOTES §91**): M-75; providers TCGdex
+  (`tcgdex`, `cardmarket`) con su join por set+número+acabado y FX; `resolveRobustMarket()` (mediana por familia) y su
+  envoltura en las 4 rutas de lectura; el árbol del candado + `PriceReviewCase` + sus endpoints; enganche en
+  `price-ingest`/`publish`/`publish-all`; gate del buylist quote sobre casos abiertos; **el canario del candado** y las
+  pruebas money-safe (mediana ignora outlier; stale no vota; override manual intacto; `pokemontcg_io` nunca vota).
+  Mide y confirma: tipo de `FxRate.base`, cobertura TCGdex de Prismatic, correlación tcgcsv↔tcgdex.tcgplayer, forma de
+  la lista «precios atascados» legada. **Toca dinero en los dos ejes → triple veredicto + gate de seguridad por release.**
+- **devops** (allow-list egress `api.tcgdex.net` / confirmar tcgcsv y Banxico; EUR/MXN en `fx-refresh`; candado de
+  forma/digest de TCGdex; diales en staging→prod; orden del scheduler: `fx-refresh` (USD+EUR) → barrido con árbitro →
+  snapshot). Documenta en `DEVOPS_NOTES.md`.
+- **frontend** (una pantalla de «Precios por revisar» que compone las cubetas existentes + `PriceReviewCase`; detalle
+  del caso con valor propuesto, base, salto y qué dijo cada fuente; acciones aceptar/conservar/precio-a-mano).
+- **arquitecto** (esta sección + `API_CONTRACT §PRE`): dictamen, schema, contrato. Sin tocar código.
+- **Desviaciones detectadas:** ninguna nueva de código. Registro de lo pendiente de medir arriba (NO MEDIDO) y el
+  riesgo de redundancia correlacionada, que es de **diseño cubierto** (familias), no un defecto del árbol vivo.
 
 ---
 
