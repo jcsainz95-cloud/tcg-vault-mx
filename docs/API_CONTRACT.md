@@ -14,8 +14,14 @@
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
 > según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
 > las 7 decisiones **P-RP-1…7** «todas como recomiendas»); `PROJECT §PRE`, criterios **870–889**. 💰 **DINERO en los
-> dos ejes (venta y compra).** Porqué, modelo de resolución y árbol de decisión en `ARCHITECTURE §4.PRE`. Migración
-> **M-75**. Versión reservada por el orquestador (O-24). Norma entera abajo, anclada en **[§PRE](#PRE)**.
+> dos ejes (venta y compra).** Porqué, modelo de resolución y árbol de decisión en `ARCHITECTURE §4.PRE`. Migraciones
+> **M-75** + **M-76** (errata v1.91: BLOQ-1 de QA — `source` entra a la unicidad de `PriceReference`, §PRE.J). Versión
+> reservada por el orquestador (O-24). Norma entera abajo, anclada en **[§PRE](#PRE)**.
+> **Errata v1.91 (2026-10-11, arquitecto, rama `claude/precios-redundancia`, base `HEAD 6034b170` según el orquestador;
+> ⛔ sha NO MEDIDO):** cierra BLOQ-1 (§PRE.J, M-76) y tres cuestiones enrutadas por QA/techlead (regla 9): **B** (§PRE.F:
+> `accept` promueve robusta NO-manual, no congela; sólo `manual` fija tier-0), **C** (§PRE.E: `?page=`/`?pageSize=`
+> documentados, default 50 / cap 100 / `total`=total filtrado) y **D** (`ARCHITECTURE §4.PRE (c)`: baseline = último sano
+> PUBLICADO, congelado mientras hay caso `open`; no se re-mediana de ayer).
 >
 > | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
 > |---|---|---|---|---|
@@ -80,16 +86,29 @@
 >
 > **E. `GET /api/v1/admin/pricing/review-queue`** — `super_admin` (P-RP-3: solo el administrador total; `HECHOS.md`
 > «Solo la mía»). Read-only, paginado. Query opcional `?status=` (dominio `PriceReviewStatus`, CLASE E: vacío ⇒ solo
-> `open`; token inválido ⇒ `400 VALIDATION_ERROR` con `details.field`+`details.allowed`), `?axis=`. Respuesta
-> `{ data: PriceReviewCaseDTO[], total: number, counts: { open: number } }`. ⛔ Rol distinto a `operator` (el precio lo
-> decide el dueño).
+> `open`; token inválido ⇒ `400 VALIDATION_ERROR` con `details.field`+`details.allowed`), `?axis=`. **Paginación
+> (v1.91⟨precios⟩, errata B — el backend ya la implementa, `pricing.controller.ts:347-358`; aquí se NORMA para que el
+> frontend la envíe):** `?page=` (entero ≥ 1, default **1**) y `?pageSize=` (entero ≥ 1, default **50**, **cap 100** —
+> un valor mayor se satura a 100). Fuera de rango o no entero ⇒ se aplica el default (CLASE E laxa para paginación, no
+> `400`). Respuesta `{ data: PriceReviewCaseDTO[], total: number, counts: { open: number } }`, donde **`total` es el
+> número TOTAL de casos que cumplen el filtro `?status=`/`?axis=` (NO el tamaño de la página)**, de modo que el
+> frontend puede calcular `ceil(total/pageSize)` páginas y paginar más allá de los primeros 50; `data` trae a lo sumo
+> `pageSize` filas de la página pedida; `counts.open` es el total de casos `open` (independiente del filtro, para el
+> badge). ⛔ Rol distinto a `operator` (el precio lo decide el dueño).
 >
 > **F. `POST /api/v1/admin/pricing/review-queue/:id/resolve`** — `super_admin`. Body
 > `{ action: "accept" | "keep" | "manual", manualPriceMxnCents?: number }`.
 > - **Guarda de estado:** `status` debe ser `open` en el `where` (`count===1`); segunda resolución ⇒ **`409 CONFLICT`**
 >   `details: { status, resolvedAt }` (mismo patrón que `POST /admin/disputes/:id/resolve`, §M8).
-> - **`accept`** ⇒ publica `proposedMxnCents` como valor sano (escribe/promueve la `PriceReference` robusta);
->   `status='accepted'`, `resolvedPriceRefId` = fila resultante.
+> - **`accept`** ⇒ publica `proposedMxnCents` como el **valor de mercado sano vigente** de la variante, promoviendo una
+>   `PriceReference` robusta **NO-manual** (`isManualOverride = false`, ⛔ **NO** `source='manual'`): es la decisión
+>   «este salto es REAL, adóptalo como la nueva base sana». `status='accepted'`, `resolvedPriceRefId` = fila resultante.
+>   **Consecuencia NORMADA (errata v1.91, cuestión B — `ARCHITECTURE §4.PRE (d)`): aceptar NO congela la variante.** El
+>   barrido **sigue arbitrando** esa variante (la mediana/candado filtra `isManualOverride=false`, así que la vuelve a
+>   tocar): tras aceptar, la nueva base = `proposedMxnCents`, y un salto futuro **vuelve a disparar** el candado contra
+>   esa base. Fijar un precio de forma **permanente** (que el mercado ya no mueva) es exclusivo de **`manual`** — el
+>   único que escribe tier-0 (`source='manual'`, override perenne §4.27f-2/3, el barrido no lo toca). `accept` adopta el
+>   valor; `manual` lo clava.
 > - **`keep`** ⇒ conserva el último sano (no cambia precio vivo); `status='kept'`.
 > - **`manual`** ⇒ **exige `manualPriceMxnCents`** (entero `> 0`; ausente ⇒ **`422 VALIDATION_ERROR`**); delega en la
 >   vía existente de override (`POST /admin/pricing/override`, tier 0 manual, §4.27f-2) y marca `status='manual'`.
@@ -114,6 +133,25 @@
 > `tcgdex.pricing.tcgplayer` es el mismo número que `tcgcsv` (correlación — el diseño la neutraliza contando familias);
 > alcanzabilidad de `api.tcgdex.net` desde el contenedor; composición exacta de la lista legada de «precios atascados»
 > (caso PSA Gengar). Lo mide y cierra backend en **BACKEND_NOTES §91** antes de construir.
+>
+> **J. ⛔ BLOQ-1 (CRÍTICO, medido por QA contra Postgres — errata v1.91, migración M-76) — la unicidad de
+> `PriceReference` gana `source`, para que las fuentes del árbitro COEXISTAN.** La unicidad de datos de `PriceReference`
+> ES parte del contrato (de ella depende que el árbitro de mediana vea ≥2 familias). **Hoy** el índice único efectivo
+> `PriceReference_variant_capturedDate_key` es sobre **6** columnas `(cardId, productType, gradeKey, finish,
+> capturedDate, cardProductId)` **`NULLS NOT DISTINCT`**, **sin `source`** (migraciones `m31`/`m33`). Como `tcgdex` y
+> `cardmarket` se persisten ambos con `cardProductId=null`, mismo `productType/gradeKey/finish` y **mismo día**, el
+> índice los trata como la MISMA clave ⇒ la 2ª fuente lanza **P2002** y sólo sobrevive una ⇒ para singles raw sin
+> cobertura `tcgcsv` (Prismatic: Archaludon/Noctowl) el árbitro nunca alcanza `familyCount=2` ⇒ nunca consenso ⇒ el
+> ~MX$1.84 automático que pidió el dueño (criterios 870/872/873/878/886/888) **no se cumple de punta a punta**. (Esto
+> **refuta** `BACKEND_NOTES §91.1` y el comentario de `persistArbiterReference` que afirmaban coexistencia por NULL: en
+> esta BD el índice es `NULLS NOT DISTINCT`.)
+> - **Invariante de datos NUEVO (M-76):** a lo sumo **UNA** `PriceReference` por `(cardId, productType, gradeKey,
+>   finish, capturedDate, cardProductId, source)` — se añade **`source`** a los 6 campos (7 en total), conservando
+>   `NULLS NOT DISTINCT` para `cardProductId` (`source` es NOT NULL ⇒ `NULLS NOT DISTINCT` sigue afectando sólo a
+>   `cardProductId`, idéntico a hoy). Con `source` en la clave, `tcgdex` + `cardmarket` + `tcgcsv_singles` **coexisten**
+>   el mismo día por variante ⇒ `familyCount=2` posible para singles raw ⇒ consenso alcanzable. DDL y verificación de
+>   escritores/lectores en `ARCHITECTURE §4.PRE (i)`. ⛔ El `source='manual'` (override tier-0) sigue siendo otra serie
+>   que no vota (§4.PRE (a)/(b)); la forma de `PriceReference` no cambia (coherente con §PRE.H).
 >
 > **Rev v1.90⟨miv⟩ — VALOR DE MERCADO CON IVA EN LA TIENDA, CON LA NOTA «INCLUYE IVA» (2026-10-10, arquitecto, árbol
 > `/home/user/tcg-iva`, rama `claude/mercado-iva`, base `HEAD 7e395f0a` según el orquestador; ⛔ sha NO MEDIDO por mí:

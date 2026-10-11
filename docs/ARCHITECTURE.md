@@ -29912,8 +29912,10 @@ tienda (`PROJECT §MIV.2` A7).
 
 **Norma:** `HECHOS.md` filas 2026-10-11 (§PRE autorizado y las 7 decisiones P-RP «todas como recomiendas»);
 `PROJECT §PRE`, criterios **870–889**, preguntas **P-RP-1…7**. Contrato: `API_CONTRACT §PRE` (rev **v1.91⟨precios⟩**).
-Migración **M-75**. Sección de notas de backend reservada: **BACKEND_NOTES §91**. Árbol `/home/user/tcg-precios`,
-rama `claude/precios-redundancia`, base `HEAD 1ba098a4` **según el orquestador; ⛔ sha NO MEDIDO por mí (sin Bash)**.
+Migraciones **M-75** (tabla `PriceReviewCase` + enums + `PriceSource`) **y M-76** (errata v1.91: `source` entra a la
+unicidad de `PriceReference` — BLOQ-1 de QA, `§4.PRE (i)`). Sección de notas de backend reservada: **BACKEND_NOTES §91**.
+Árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4` **según el orquestador; ⛔ sha NO
+MEDIDO por mí (sin Bash)**. Base de esta errata: `HEAD 6034b170` (orquestador; ⛔ sha NO MEDIDO).
 
 > **El bug que esta sección mata (medido por backend `af24d85d`, dado por cierto §PRE.0).** Prismatic Evolutions sale
 > inflada ~55×: Archaludon 070/131 **Holofoil** MX$102.21 (real ~MX$1.84), Noctowl 078/131 **Holofoil** MX$153.41.
@@ -29991,10 +29993,28 @@ Por clave `(cardId, productType, gradeKey, finish[, cardProductId])`:
 
 #### (c) Candado de cordura ×5 + regla de consenso — el árbol que decide publicar-auto vs revisión
 
-**«Referencia vigente» (la base contra la que se mide el salto)** = el **último valor de mercado SANO publicado** de
-esa variante, es decir el `robustMarketMxnCents` que hoy rige el precio vivo (persistido como la `PriceReference`
-aceptada que la tienda está usando). Si la variante nunca tuvo valor sano (set nuevo, Prismatic antes del fix) ⇒ **no
-hay base** ⇒ no se puede medir salto.
+**«Referencia vigente» (la base contra la que se mide el salto) — DEFINICIÓN INEQUÍVOCA (errata v1.91, cuestión D, que
+techlead midió mal definida):** la base es **el último valor de mercado SANO que la tienda PUBLICÓ y sigue sirviendo**,
+NO una recomputación de las cotizaciones de ayer. En concreto:
+
+- **Si hay un `PriceReviewCase` `open` para la variante ⇒ `base = ese caso.baselineMxnCents` (CONGELADO).** Mientras un
+  caso está abierto, la tienda **retuvo** el salto y **no publicó nada nuevo**: el último valor sano publicado es,
+  exactamente, el `baselineMxnCents` que el caso guardó cuando se abrió. ⛔ **NO se re-mediana** `resolveRobustMarket`
+  sobre las cotizaciones `capturedDate < hoy`.
+- **Si NO hay caso `open` ⇒ `base = resolveRobustMarket(cotizaciones con capturedDate < hoy)`** (la robusta de ayer).
+  Esto es válido **sólo** aquí: sin caso abierto, la robusta de ayer **sí** fue la publicada y sana.
+- Si la variante nunca tuvo valor sano (set nuevo, Prismatic antes del fix) ⇒ **no hay base** ⇒ no se puede medir salto.
+
+**Por qué esta partición cierra el agujero que midió techlead.** El código previo (`arbiterDetailForKeys`) definía la
+base **siempre** como `resolveRobustMarket(cotizaciones < hoy)`. Falla así: un pico genuino de UNA sola fuente admitida
+que persiste **dos barridos** ⇒ el día 2 las cotizaciones de ayer YA incluyen el pico ⇒ `base ≈ pico` ⇒ `jumpFactor ≈ 1`
+⇒ **publica y auto-supersede** el caso que el día 1 retuvo — justo lo que el candado existe para frenar. Con la partición:
+el día 1 se abre el caso con `baselineMxnCents = 1.84` (robusta de ayer, pre-pico); el día 2, como el caso sigue `open`,
+`base = 1.84` (congelada), el candidato = pico, `jumpFactor` grande, fuente única ⇒ **sigue en revisión**. La base sólo
+AVANZA cuando el caso se **resuelve** (consenso de ≥2 familias ⇒ auto-supersede y publica; o `accept` ⇒ adopta el pico
+como nueva base; o `manual` ⇒ tier-0). **Prueba obligatoria (la escribe backend):** DOS barridos con un pico de fuente
+única persistente ⇒ el barrido 2 **mantiene** el caso `open` y **no** publica el pico (canario money-safe; `§PRE (c)`
+canario ×55 cubre 1 barrido, este cubre la persistencia entre barridos).
 
 **Factor de salto** `jumpFactor = max(candidato, base) / min(candidato, base)` — **simétrico** (atrapa tanto el disparo
 hacia arriba, MX$1.84→MX$102, como un colapso sospechoso MX$100→MX$2 que haría pagar/vender mal). El umbral `N` es el
@@ -30073,9 +30093,9 @@ sealedProductId, axis)` con `status='open'`. Índice `@@index([status])`.
 ```
                  candado dispara
         (nada)  ─────────────────▶  open
-  open  ── dueño «aceptar»  ──▶ accepted   (publica proposedMxnCents como valor sano; resolvedPriceRefId = fila escrita)
+  open  ── dueño «aceptar»  ──▶ accepted   (publica proposedMxnCents como nueva BASE sana, PriceReference NO-manual; el barrido SIGUE arbitrando)
   open  ── dueño «conservar»──▶ kept       (deja el último sano; no cambia precio vivo)
-  open  ── dueño «precio a mano»▶ manual   (delega en POST /admin/pricing/override → override manual tier 0)
+  open  ── dueño «precio a mano»▶ manual   (delega en POST /admin/pricing/override → override manual tier 0; CONGELA la variante)
   open  ── barrido: el candidato nuevo YA NO dispara (mercado se asentó) ─▶ superseded  (AUTOMÁTICO, HECHOS «regla general»)
   open  ── llega un candidato nuevo que dispara distinto ─▶ el viejo open pasa a superseded, nace otro open
 ```
@@ -30084,6 +30104,38 @@ Automático primero (HECHOS 2026-10-04 «regla general»): un barrido posterior 
 ya no se dispara contra la base) **resuelve el caso solo** (`superseded`) y publica el robusto — el botón manual es el
 respaldo, no el camino. Todas las transiciones manuales registran `resolvedByUserId` + `resolvedAt` (criterio 877) en
 `AuditLog`.
+
+**`accept` vs `manual` — la diferencia que techlead midió contradictoria (errata v1.91, cuestión B).** El código previo
+resolvía `accept` **y** `manual` por `applyManualOverride` (`isManualOverride:true, source:'manual'`), lo que **congela**
+la variante para siempre (el árbitro filtra `isManualOverride:false` y ya no la vuelve a tocar). Eso contradice §PRE.F
+(«`accept` promueve la `PriceReference` ROBUSTA»): aceptar una vez dejaba el precio clavado y el mercado no lo volvía a
+mover. **Dictamen (inequívoco):**
+- **`accept` promueve una `PriceReference` robusta NO-manual** (`isManualOverride = false`, `refKind='market'`,
+  `priceMxnCents = proposedMxnCents`, `source` = la fuente representativa de la mediana — ⛔ **nunca** `'manual'`). Es
+  «este salto es real, adóptalo como nueva base sana». El caso pasa a `accepted`, `resolvedPriceRefId` = fila escrita, y
+  esa fila se vuelve la **base** (`§PRE (c)`): al cerrarse el caso, el siguiente barrido ya **no** tiene caso `open`, así
+  que `base = robusta vigente = proposedMxnCents`, `jumpFactor ≈ 1` ⇒ publica sin re-abrir. **El barrido SIGUE
+  arbitrando** la variante: un salto FUTURO contra la nueva base vuelve a disparar el candado. Aceptar **no** es un
+  override.
+- **`manual` es el ÚNICO que fija tier-0:** delega en `POST /admin/pricing/override` (`isManualOverride:true,
+  source:'manual'`, §4.27f-2/3), que **congela** la variante hasta que el dueño quite el override — el árbitro no la
+  toca (tier 0 gana absoluto, `§PRE (a)`). Es la vía para «clavar» un precio contra el mercado.
+- **`keep`** no cambia el precio vivo (conserva el último sano); no promueve ni congela.
+
+Así `accept` ≠ `manual` sin ambigüedad: **`accept` adopta el valor dejando que el mercado lo siga moviendo; `manual` lo
+clava.** (Contrato: `API_CONTRACT §PRE.F`.)
+
+**Clasificación en la limpieza de BD `P-DB-LIMPIEZA` (errata v1.88.1 / G-8 — decisión del arquitecto, QA lo midió rojo:
+«la base tiene tabla(s) que el diseño no clasificó: `PriceReviewCase`»).** `PriceReviewCase` se clasifica **`conservar`**
+(array `conservar` de `lz_conteo` en `backend/prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`; lo añade backend
+—zona suya— con la categoría que fijo aquí). Razón: (1) NO tiene columna de **partición** como el `context` de
+`PendingPriceEntry` (que por eso es `ajustar`: borra inventory/portfolio, conserva catalog/buylist); el `axis` de
+`PriceReviewCase` es **informativo**, no un eje de limpieza. (2) Es cola de precios de **catálogo**, y mientras está
+`open` **bloquea la publicación** de un precio y la compra (`§PRE (c)`): borrar un caso `open` **desbloquearía en
+silencio una decisión de dinero** — exactamente lo que la limpieza evita. (3) La familia de precios de catálogo
+(`PriceReference`, `FxRate`, overrides) ya se **conserva**; `PriceReviewCase` es de esa familia. (Nota para backend, no
+para el arquitecto: la copia congelada de test `a7232d7a` y `verificacion.sql` (file 4) podrían toparse con G-8 también;
+backend lo revisa — fuera del alcance de esta sección.)
 
 **Unificación con la lista legada de «precios atascados» (caso PSA Gengar ~MX$11k/MX$4k).** Esa lista es el enumerador
 read-only de **estimados por grado** `GET /admin/pricing/graded-estimates/review` (`§4.38n`) — precios de **gradeadas**,
@@ -30174,9 +30226,16 @@ DDL (lo escribe backend, dueño de `prisma/`; zona compartida ⇒ un solo stream
 5. **Diales (ConfigSetting, DATA, sin DDL; criterio 882, expuestos en `GET/PUT /admin/settings`):** `priceJumpFactor`
    (seed 5), `priceJumpFactorBuy` (seed 5), `priceArbiterFreshnessDays` (seed 7), `priceConsensusTolerancePct` (seed 25),
    `priceArbiterSources` (seed `['tcgcsv_singles','tcgdex','cardmarket']`, prioridad/orden de fuentes).
+6. **⛔ M-76 (errata v1.91, CRÍTICA — SEPARADA de M-75 porque M-75 ya corrió en las BDs locales de los gates):** añade
+   `source` al índice único de `PriceReference` (6 → 7 campos, `NULLS NOT DISTINCT` para `cardProductId`). **Es
+   BLOQUEANTE de M-75:** sin ella, las fuentes del árbitro (`tcgdex`+`cardmarket`) no coexisten y el valor automático de
+   singles raw **nunca** se alcanza. DDL completo, cambios de escritor obligados y verificación de no-rotura en
+   **`§4.PRE (i)`**; contrato en `API_CONTRACT §PRE.J`.
 
-⛔ **NO toca:** `PendingPriceReason` (sigue `no_market | premium_at_floor`), `PriceReference` (su forma; solo gana dos
-valores de enum en `source`), la curva/piso/markup/IVA/convención (`§PRE.5`, criterio 887), el override manual (`§K`).
+⛔ **NO toca:** `PendingPriceReason` (sigue `no_market | premium_at_floor`), **la FORMA de `PriceReference`** (M-76 sólo
+amplía su índice único con una columna que ya existe; no añade/quita columnas), la curva/piso/markup/IVA/convención
+(`§PRE.5`, criterio 887), el override manual (`§K`). `source` ya ganó dos valores de enum (`tcgdex`,`cardmarket`) en el
+paso 3; M-76 lo mete al índice, no lo crea.
 
 #### (h) Reparto, desviaciones y lo que queda NO MEDIDO
 
@@ -30195,6 +30254,87 @@ valores de enum en `source`), la curva/piso/markup/IVA/convención (`§PRE.5`, c
 - **arquitecto** (esta sección + `API_CONTRACT §PRE`): dictamen, schema, contrato. Sin tocar código.
 - **Desviaciones detectadas:** ninguna nueva de código. Registro de lo pendiente de medir arriba (NO MEDIDO) y el
   riesgo de redundancia correlacionada, que es de **diseño cubierto** (familias), no un defecto del árbol vivo.
+
+#### (i) ⛔ BLOQ-1 (CRÍTICO, medido por QA contra Postgres) — M-76: `source` entra a la unicidad de `PriceReference`
+
+**El defecto, medido.** QA midió contra Postgres real (y el orquestador lo confirmó en el esquema) que el índice único
+efectivo de `PriceReference` —`PriceReference_variant_capturedDate_key`, creado en `m31` y mantenido por `m33`— es sobre
+**6** columnas `(cardId, productType, gradeKey, finish, capturedDate, cardProductId)` con **`NULLS NOT DISTINCT`**, y
+**NO incluye `source`** (verificado: `schema.prisma:1334` `@@unique` de 6 campos; `migrations/…m31…/migration.sql:86-88`
+`CREATE UNIQUE INDEX … NULLS NOT DISTINCT`). `persistArbiterReference` (`pricing.service.ts:2593`) escribe `tcgdex` y
+`cardmarket` **ambos con `cardProductId=null`**, mismo `productType/gradeKey/finish` y **mismo día** (TCGdex raspa ambos
+sub-feeds en una llamada). Como `source` no está en el índice y los NULL **no** son distintos, Postgres trata las dos
+filas como la MISMA clave ⇒ la 2ª fuente lanza **P2002** y sólo sobrevive `tcgdex` ⇒ para Prismatic raw sin cobertura
+`tcgcsv` (Archaludon/Noctowl) el árbitro ve `familyCount=1` ⇒ rama «sin base + fuente única ⇒ REVISIÓN» ⇒ `PRICE_PENDING`,
+**nunca el ~MX$1.84 automático** que pidió el dueño (criterios 870/872/873/878/886/888). ⚠️ **Esto REFUTA con dato** el
+comentario de `persistArbiterReference` (`pricing.service.ts:2581-2582`) y `BACKEND_NOTES §91.1`, que afirmaban que los
+NULL coexisten: en esta BD el índice es `NULLS NOT DISTINCT`, así que **no** coexisten sin `source` en la clave.
+*(⛔ NO MEDIDO por el arquitecto en runtime —sin Bash—: la P2002 concreta la midió QA contra Postgres; yo verifiqué el
+índice, los escritores y los lectores en el código, que la hacen una certeza.)*
+
+**La migración M-76 (reservada; M-75 NO se edita — ya corrió en las BDs locales de los gates).** La escribe backend
+(dueño de `prisma/`); aquí la ESPECIFICACIÓN:
+1. **Schema:** `@@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])` **→**
+   `@@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId, source])` (6 → **7** campos, añadiendo
+   `source`).
+2. **SQL (igual patrón que m31/m33, porque Prisma no expresa `NULLS NOT DISTINCT`):**
+   `DROP INDEX IF EXISTS "PriceReference_variant_capturedDate_key";` y
+   `CREATE UNIQUE INDEX "<nombre nuevo ≤63 chars>" ON "PriceReference"("cardId","productType","gradeKey","finish","capturedDate","cardProductId","source") NULLS NOT DISTINCT;`
+   (nombre p. ej. `PriceReference_variant_src_capturedDate_key`). **`source` es NOT NULL (enum `PriceSource`)**, así que
+   `NULLS NOT DISTINCT` sigue afectando **sólo** a `cardProductId` — comportamiento idéntico a hoy para graded/sealed
+   (un renglón por variante/día/source). ⛔ **Ninguna fila se reescribe ni se borra; ningún precio se mueve** (añadir una
+   columna existente a un índice no toca datos). Si el motor fuera < PG15, la misma nota de m31 aplica (índice normal +
+   invariante de upsert por app).
+3. **Invariante de datos resultante:** a lo sumo **UNA** `PriceReference` por `(cardId, productType, gradeKey, finish,
+   capturedDate, cardProductId, source)`. Esto es lo que hace que **contar FAMILIAS** (`§PRE (b)` paso 3) sea limpio: sin
+   `source` en la clave no podía haber dos fuentes el mismo día; con él, cada fuente guarda su serie y el árbitro ve la
+   redundancia real.
+
+**Verificación de que M-76 NO rompe a los ESCRITORES (medido en el código):**
+- **`CardProductResolver.upsertVariantPrice` (`card-product-resolver.service.ts:202-233`)** — escritor PRIMARIO
+  `tcgcsv_singles`, `cardProductId` **NO-null**. Usa `findUnique`/`upsert` por la clave compuesta de Prisma
+  `cardId_productType_gradeKey_finish_capturedDate_cardProductId`. **Cambio obligado por M-76:** el nombre de la clave
+  compuesta de Prisma pasa a `…_cardProductId_source` ⇒ backend añade `source:'tcgcsv_singles'` al objeto `key`. Es
+  **correcto e inocuo** (sólo `tcgcsv_singles` escribe en su cubeta `cardProductId` no-null). También lo consumen dos
+  pruebas (`test/card-product-resolver.spec.ts:165/175`, `test/integration/price-reference-variant-unique.e2e-spec.ts:77`):
+  backend actualiza el nombre de la clave (⛔ no es debilitar la prueba — es el mismo aserto con la clave nueva).
+- **`persistMarketReference` (`pricing.service.ts:2497`)** — `findFirst` por `(cardId, productType, gradeKey, finish,
+  cardProductId)` **SIN `source`**, write-on-change «último escritor gana». Para `tcgcsv_singles` (`cardProductId`
+  no-null) es inocuo (una sola fuente en la cubeta). **⚠️ Riesgo real para la cubeta `cardProductId=null`:** el camino de
+  *fallback* genérico (`price-ingest.service.ts:697`, `source=provider.source`) comparte cubeta `(raw, raw:NM, finish,
+  cardProductId=null)` con las filas de árbitro (`tcgdex`/`cardmarket`, también `null`); su `findFirst` sin `source`
+  podría **tomar y pisar** una fila de árbitro (reescribiéndole el `source`) o chocar P2002 en el `update`. **Dirección
+  obligada:** backend añade `source` al `where` del `findFirst` de `persistMarketReference` (y de cualquier escritor con
+  el patrón «findFirst por variante/día + create», p. ej. la ruta `getOrCreate…` de `pricing.service.ts:2110` y
+  `persistGradedEstimateReference:2691`), para que **cada fuente lleve su propia serie**. `persistArbiterReference` **ya
+  lo hace** (incluye `source` en el `where`, `:2619`) ⇒ es el patrón correcto a replicar. ⛔ **NO MEDIDO por el
+  arquitecto** cuáles de esos caminos legados siguen VIVOS para `raw` (PPT se apagó como escritor, §4.35(c); pokemontcg.io
+  está bloqueada): backend lo confirma en `BACKEND_NOTES §91` y acota el cambio a los que de verdad escriben.
+- **`persistArbiterReference` (`:2593`)** — ya scopea por `source`; con M-76, `tcgdex` + `cardmarket` dejan de chocar y
+  COEXISTEN ⇒ `persistArbiterReference` por fin **funciona como §91.1 lo diseñó** ⇒ `familyCount=2` posible ⇒ consenso
+  alcanzable para singles raw. Sin cambio de código (su `create` ya pone `source`).
+
+**Verificación de que M-76 NO rompe a los LECTORES, y NINGUNO cuenta doble (medido):**
+- **Las 4 rutas de resolución y los barridos** reducen candidatas por clave de variante con `isBetterRef`/`pickBestRef`
+  a **una** fila (`bestByKey`/`bestByPf`, p. ej. `pricing.service.ts:1071/1146/1249`) ⇒ más filas por `source` sólo dan
+  más candidatas que el `reduce` colapsa a una; **no suman**. El ranking sigue coronando el manual (tier 0) y desempatando
+  por `sourceRank` ⇒ money-safe intacto.
+- **El árbitro de mediana YA está escrito para la coexistencia por `source`.** `getReferencesBatch`
+  (`pricing.service.ts:1026-1089`) arma `rowsByKey` con **todas** las filas `market` al `max_auto_date` de la partición
+  `(cardId,productType,gradeKey,finish)` y se las pasa a `robustMarketForRows` (mediana por familia). Es decir: **el
+  LADO LECTOR ya asume varias filas por variante/día (una por fuente); BLOQ-1 es que el LADO ESCRITOR no podía
+  producirlas.** M-76 no «cambia» al lector: lo **habilita**. Y como el invariante garantiza ≤1 fila por `source`/día,
+  una familia nunca se cuenta dos veces por filas duplicadas de la misma fuente. **Confirmado explícito: ningún lector
+  cuenta doble.**
+- **El dedupe `findFirst` de los casos (`§PRE (d)`)** es por `(cardId, productType, gradeKey, finish, cardProductId,
+  sealedProductId, axis)` con `status='open'` — **no mira `source`** ⇒ M-76 no lo afecta (un caso es por variante, no por
+  fuente). Correcto.
+
+**Resumen BLOQ-1:** añadir `source` al índice único (M-76) es la dirección correcta, hace coexistir las fuentes del
+árbitro, **no toca ningún precio existente**, **no rompe lectores** (ya diseñados para la coexistencia; ninguno cuenta
+doble) y **obliga** a dos cambios de escritor acotados (clave compuesta de `CardProductResolver`; `source` en el
+`findFirst` de `persistMarketReference` y gemelos vivos de la cubeta `cardProductId=null`), que backend confirma y
+ejecuta en `BACKEND_NOTES §91`. Contrato: `API_CONTRACT §PRE.J`.
 
 ---
 
