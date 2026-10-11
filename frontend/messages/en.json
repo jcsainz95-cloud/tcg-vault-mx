@@ -4912,6 +4912,73 @@
           "none": "hold all"
         }
       },
+      "priceReview": {
+        "title": "Prices to review",
+        "intro": "When a new price jumps sharply and the sources don't agree, it isn't published on its own: it waits here for you to decide.",
+        "openCount": "{count, plural, =0 {No cases to review} one {# case to review} other {# cases to review}}",
+        "statusLabel": "Status",
+        "status": {
+          "open": "To review",
+          "accepted": "Accepted",
+          "kept": "Kept",
+          "manual": "By hand",
+          "superseded": "Settled"
+        },
+        "axisLabel": "Side",
+        "axisAll": "All",
+        "axis": {
+          "sell": "Sell",
+          "buy": "Buy"
+        },
+        "axisTag": {
+          "sell": "Triggered on sell",
+          "buy": "Triggered on buy"
+        },
+        "productType": {
+          "raw": "Card",
+          "sealed": "Sealed",
+          "graded": "Graded"
+        },
+        "proposed": "Proposed price",
+        "baseline": "Current price",
+        "noBaseline": "No previous price",
+        "jump": "Jump",
+        "consensus": {
+          "yes": "The sources agreed ({families, plural, one {# group} other {# groups}}).",
+          "no": "No clear agreement: {sources, plural, one {# source} other {# sources}} across {families, plural, one {# group} other {# groups}}. That's why it wasn't published automatically."
+        },
+        "quote": {
+          "source": "Source",
+          "family": "Group",
+          "price": "Price",
+          "date": "Date",
+          "stale": "Old"
+        },
+        "actions": {
+          "accept": "Accept",
+          "keep": "Keep",
+          "manual": "Set by hand",
+          "help": "Accept publishes {proposed}. Keep leaves the current price ({baseline}). Set by hand uses whatever amount you type.",
+          "helpNoBaseline": "Accept publishes {proposed}. This card had no previous healthy price. Set by hand uses whatever amount you type.",
+          "audit": "Who resolved it and when is recorded."
+        },
+        "resolved": "Resolved: {action} · by {who} · {when}",
+        "conflict": {
+          "title": "This case was already resolved",
+          "body": "Someone else, or the system itself, already closed this case. We reloaded it."
+        },
+        "empty": {
+          "open": "No prices to review. Everything is up to date.",
+          "other": "No cases with this status."
+        },
+        "manual": {
+          "title": "Set price by hand",
+          "help": "Type the price you want to publish for this card, in pesos.",
+          "priceLabel": "Price by hand",
+          "invalid": "Type an amount in pesos greater than zero.",
+          "save": "Save price"
+        }
+      },
       "shipping": {
         "title": "Shipping (Skydropx)",
         "subtitle": "Super admin only. Every change is logged.",

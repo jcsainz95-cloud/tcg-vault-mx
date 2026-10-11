@@ -89,6 +89,10 @@ import type {
   PendingPriceContext,
   PendingPriceQueueResponse,
   PendingPriceReason,
+  PriceReviewCaseDTO,
+  PriceReviewQueueResponse,
+  PriceReviewStatus,
+  PriceAxis,
   PriceBasis,
   PricingCurveDTO,
   RarityHealthResponse,
@@ -3910,6 +3914,114 @@ export function getMockPendingQueue(
   const counts = { no_market: 0, premium_at_floor: 0, unknown: 0 };
   for (const p of inQueue) counts[p.reason ?? 'unknown'] += 1;
   return { data: inQueue.filter((p) => !reason || p.reason === reason), counts };
+}
+
+// ==== §PRE (M-75): COLA DE REVISIÓN DEL CANDADO ANTI-INFLADO ====
+// Casos ilustrativos para el modo mocks (Playwright corre con mocks). El candado detiene un salto
+// grande sin consenso; cada caso trae lo que el dueño necesita para decidir (criterio 876).
+export const mockPriceReviewCases: PriceReviewCaseDTO[] = [
+  {
+    id: 'prc-1',
+    card: { id: 'c-gengar', name: 'Gengar VMAX', setName: 'Fusion Strike', number: '271' },
+    finish: 'holofoil',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    cardProductId: 'cp-gengar-nm',
+    axis: 'sell',
+    // Salto ×55: una sola fuente disparó, sin consenso (el caso PSA Gengar de §PRE.I).
+    proposedMxnCents: 5_500_00,
+    baselineMxnCents: 100_00,
+    jumpFactorMilli: 55_000,
+    sourceCount: 1,
+    familyCount: 1,
+    consensus: false,
+    quotes: [
+      { source: 'cardmarket', family: 'cardmarket', priceMxnCents: 5_500_00, capturedDate: '2026-10-11', stale: false },
+      // Una cotización vieja que NO votó (más allá de la ventana de frescura).
+      { source: 'tcgdex', family: 'tcgplayer', priceMxnCents: 98_00, capturedDate: '2026-09-20', stale: true },
+    ],
+    status: 'open',
+    createdAt: '2026-10-11T07:30:00Z',
+  },
+  {
+    id: 'prc-2',
+    card: { id: 'c-charizard', name: 'Charizard ex', setName: 'Obsidian Flames', number: '125' },
+    finish: 'normal',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    cardProductId: 'cp-charizard-nm',
+    axis: 'buy',
+    // Sin base previa: el candado no puede medir el salto, así que abre caso igualmente.
+    proposedMxnCents: 1_200_00,
+    baselineMxnCents: null,
+    jumpFactorMilli: 0,
+    sourceCount: 2,
+    familyCount: 2,
+    consensus: false,
+    quotes: [
+      { source: 'tcgdex', family: 'tcgplayer', priceMxnCents: 1_200_00, capturedDate: '2026-10-11', stale: false },
+      { source: 'cardmarket', family: 'cardmarket', priceMxnCents: 640_00, capturedDate: '2026-10-11', stale: false },
+    ],
+    status: 'open',
+    createdAt: '2026-10-11T06:10:00Z',
+  },
+  {
+    id: 'prc-3',
+    card: { id: 'c-etb-sv', name: 'Elite Trainer Box · Surging Sparks', setName: 'Surging Sparks', number: '—' },
+    finish: 'normal',
+    productType: 'sealed',
+    gradeKey: 'sealed:tcg:etb-surging',
+    sealedProductId: 'sp-etb-surging',
+    axis: 'sell',
+    proposedMxnCents: 4_200_00,
+    baselineMxnCents: 1_350_00,
+    jumpFactorMilli: 3_111,
+    sourceCount: 1,
+    familyCount: 1,
+    consensus: false,
+    quotes: [
+      { source: 'tcgcsv_singles', family: 'tcgplayer', priceMxnCents: 4_200_00, capturedDate: '2026-10-10', stale: false },
+    ],
+    // Ya resuelto: el dueño lo conservó. Sirve para la vista de los otros estados.
+    status: 'kept',
+    resolvedAction: 'keep',
+    resolvedBy: 'u-admin',
+    resolvedAt: '2026-10-11T08:00:00Z',
+    createdAt: '2026-10-10T22:00:00Z',
+  },
+];
+
+export function getMockPriceReviewQueue(
+  status?: PriceReviewStatus,
+  axis?: PriceAxis,
+): PriceReviewQueueResponse {
+  // CLASE E (contrato §PRE.E): `status` ausente ⇒ SOLO `open` (no «todos»).
+  const effectiveStatus: PriceReviewStatus = status ?? 'open';
+  const data = mockPriceReviewCases.filter(
+    (c) => c.status === effectiveStatus && (!axis || c.axis === axis),
+  );
+  const open = mockPriceReviewCases.filter((c) => c.status === 'open').length;
+  return { data, total: data.length, counts: { open } };
+}
+
+/** Resuelve un caso en el mock, con la MISMA guarda de estado que el backend (409 si no está `open`). */
+export function resolveMockPriceReviewCase(
+  id: string,
+  action: 'accept' | 'keep' | 'manual',
+): PriceReviewCaseDTO {
+  const c = mockPriceReviewCases.find((x) => x.id === id);
+  if (!c) throw new ApiFixtureError(404, 'NOT_FOUND', 'Price review case not found');
+  if (c.status !== 'open') {
+    throw new ApiFixtureError(409, 'CONFLICT', 'El caso ya no está abierto', {
+      status: c.status,
+      resolvedAt: c.resolvedAt ?? null,
+    });
+  }
+  c.status = action === 'accept' ? 'accepted' : action === 'keep' ? 'kept' : 'manual';
+  c.resolvedAction = action;
+  c.resolvedBy = 'u-admin';
+  c.resolvedAt = new Date().toISOString();
+  return { ...c };
 }
 
 // ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48) ====

@@ -146,7 +146,18 @@ export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'r
 // v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
 export type DisputeType = 'condition_raw' | 'condition_sealed';
 // v1.19: `tcgcsv` = referencia de mercado del SELLADO (TCGCSV, USD→MXN con FX+colchón).
-export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
+// M-75 (§PRE.A, línea canónica en §Enums del contrato): `tcgcsv_singles` (ingest masivo de singles),
+// `tcgdex` (sub-feed TCGplayer vía TCGdex, familia `tcgplayer`) y `cardmarket` (sub-feed Cardmarket
+// vía TCGdex, EUR→MXN, familia `cardmarket`) VOTAN el árbitro de mediana. `pokemontcg_io`/PPT ⛔ no votan.
+export type PriceSource =
+  | 'pokemontcg_io'
+  | 'pokemonpricetracker'
+  | 'poketrace'
+  | 'manual'
+  | 'tcgcsv'
+  | 'tcgcsv_singles'
+  | 'tcgdex'
+  | 'cardmarket';
 // v1.19/v1.41: valores del dial `sealedPriceSource` (§M10). NO es enum de BD; seed `off` (fail-closed).
 // Gatea `SealedProductDTO.effectiveMarketCents`: con `off` el mercado autoritativo del sellado es null.
 export type SealedPriceSource = 'tcgcsv' | 'off';
@@ -5313,6 +5324,71 @@ export interface PendingPriceQueueResponse {
   data: PendingPriceEntryDTO[];
   counts: PendingPriceCountsDTO;
 }
+
+// ==== §PRE (M-75, v1.91⟨precios⟩): COLA DE REVISIÓN DEL CANDADO ANTI-INFLADO ====
+// El candado de precios (ARCHITECTURE §4.PRE) detiene un salto grande sin consenso y abre un
+// `PriceReviewCase`. El DUEÑO (super_admin) lo resuelve con los datos delante (criterio 876/877).
+// Canónico en API_CONTRACT §PRE.D/E/F.
+//   * `PriceReviewStatus` espeja `enum PriceReviewStatus`; `superseded` lo cierra el barrido solo.
+//   * `PriceAxis` dice QUÉ eje disparó el caso (informativo): el caso bloquea AMBOS ejes.
+export type PriceReviewStatus = 'open' | 'accepted' | 'kept' | 'manual' | 'superseded';
+export type PriceAxis = 'sell' | 'buy';
+
+/** Qué dijo cada fuente que entró a la decisión (criterio 876: el POR QUÉ se detuvo). */
+export interface PriceReviewQuoteDTO {
+  source: PriceSource;
+  /** Familia del árbitro (`tcgplayer` | `cardmarket` | `live`): los votos se cuentan por familia. */
+  family: string;
+  priceMxnCents: number;
+  capturedDate: string;
+  /** La cotización es más vieja que `priceArbiterFreshnessDays` ⇒ NO votó. */
+  stale: boolean;
+}
+
+/** Un caso de la cola de revisión (`GET /admin/pricing/review-queue`, §PRE.D). Todo lectura salvo el resolve. */
+export interface PriceReviewCaseDTO {
+  id: string;
+  /** Para que el dueño reconozca la carta (criterio 876). */
+  card: { id: string; name: string; setName: string; number: string };
+  finish: Finish;
+  productType: ProductType;
+  gradeKey: string;
+  cardProductId?: string | null;
+  sealedProductId?: string | null;
+  axis: PriceAxis;
+  /** El robusto que el candado detuvo (lo que NO se publicó), en centavos MXN. */
+  proposedMxnCents: number;
+  /** Último valor sano; `null` si la variante no tenía base. */
+  baselineMxnCents: number | null;
+  /** Salto ×1000 entero (×55 = 55000); ⛔ sin float. */
+  jumpFactorMilli: number;
+  sourceCount: number;
+  familyCount: number;
+  consensus: boolean;
+  quotes: PriceReviewQuoteDTO[];
+  status: PriceReviewStatus;
+  resolvedAction?: 'accept' | 'keep' | 'manual' | null;
+  /** userId del resolutor; con nombre para display vía el patrón de M2. */
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PriceReviewQueueResponse {
+  data: PriceReviewCaseDTO[];
+  total: number;
+  /** Conteo de casos ABIERTOS, ignora `?status=`/paginación (criterio 876). */
+  counts: { open: number };
+}
+
+/**
+ * Body de `POST /admin/pricing/review-queue/:id/resolve` (§PRE.F).
+ * `manual` EXIGE `manualPriceMxnCents` (entero > 0); `accept`/`keep` NUNCA lo llevan. La unión
+ * discriminada obliga al compilador a exigir el precio en `manual`, igual que `PricingOverrideInput`.
+ */
+export type PriceReviewResolveInput =
+  | { action: 'accept' | 'keep' }
+  | { action: 'manual'; manualPriceMxnCents: number };
 
 // ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48; contrato §M2 + §DTOs) ====
 // ⛔ RETIRADOS por la curva: `PriceRuleSet`, `SalesPriceRuleSet`, `BuylistRarit*`, `SalesRarit*`,

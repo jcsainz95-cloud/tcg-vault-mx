@@ -33,6 +33,7 @@ import { IvaTransferSection } from './sections/IvaTransferSection';
 import { ShippingSection } from './sections/ShippingSection';
 import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
+import { PriceReviewSection } from './sections/PriceReviewSection';
 import { BuylistCycleSection } from './sections/BuylistCycleSection';
 import { WishlistDialsSection } from './sections/WishlistDialsSection';
 
@@ -511,6 +512,12 @@ export function M10View() {
           )}
         </QueryState>
       </section>
+
+      {/* 💰 §PRE (criterio 876/877) — «Precios por revisar»: la cola del candado anti-inflado. Sección
+          propia porque gobierna dinero (publica o retiene un precio de la tienda) y es la ÚNICA puerta
+          del dueño a los endpoints de la cola (O-4: sin pantalla el ciclo no existe). Va después de la
+          ingesta —que es donde el candado se dispara— y antes de la bitácora. */}
+      <PriceReviewSection />
 
       {/* Sección 2: bitácora */}
       <section className="flex flex-col gap-3">

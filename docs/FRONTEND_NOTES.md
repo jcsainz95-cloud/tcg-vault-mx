@@ -21582,3 +21582,32 @@ lo demás de §111 (cuándo se ve el bloque, de dónde sale la cifra, que nunca 
 
 HTML/texto determinista: N=1 basta (no es probabilístico). La E2E `miv-market-iva.spec.ts` NO se ejecutó aquí (necesita
 el stack levantado): NO MEDIDO por mí; su ejecución es del gate de QA.
+
+## §116 · 💰 **§PRE — pantalla «Precios por revisar» (cola del candado anti-inflado)** (2026-10-11, rama `claude/precios-redundancia`, base `3ea0fa5a`; `API_CONTRACT §PRE.D/E/F` v1.91⟨precios⟩ · `PROJECT §PRE`, criterios 876/877)
+
+**Qué faltaba (O-4):** el backend ya construyó `GET /admin/pricing/review-queue` y
+`POST …/:id/resolve`, pero sin pantalla el dueño no podía llegar a esos endpoints. El ciclo quedaba a medias.
+
+**Qué se construyó** — una sección nueva en M10 «Configuración», al lado de `PremiumFloorSection`:
+- `m10/sections/PriceReviewSection.tsx` — carga la cola, pinta cada caso como una tarjeta (carta · set · número ·
+  acabado; precio propuesto / precio actual / salto en «×N» desde `jumpFactorMilli/1000`; tabla de `quotes` con
+  fuente, grupo/familia, precio en pesos, fecha y marca «vieja» si `stale`; contador `counts.open`). Tres acciones
+  solo con `status==='open'`: «Aceptar» (`accept`), «Conservar» (`keep`), «Precio a mano» (modal de pesos →
+  `manual` + `manualPriceMxnCents`). Filtros por estado (CLASE E: por defecto `open`) y por eje.
+- Se engancha en `m10/M10View.tsx` entre la ingesta y la bitácora. Toda M10 va bajo `SuperAdminOnly` ⇒ la pantalla
+  es solo del dueño (contrato §PRE.E, `super_admin`). **Ruta:** `/admin/m10` → sección «Precios por revisar».
+- `lib/api.ts` — `getPriceReviewQueue({status?,axis?})` y `resolvePriceReviewCase(id, input)` con sus mocks.
+  `resolve` propaga el `409 CONFLICT` del backend (misma guarda que disputas): la UI muestra aviso y refresca.
+- `lib/mock/fixtures.ts` — `mockPriceReviewCases` + `getMockPriceReviewQueue` + `resolveMockPriceReviewCase` (409 si
+  el caso ya no está `open`, para que Playwright en modo mocks ejerza el candado de doble resolución).
+- `types/contract.ts` — `PriceReviewStatus`, `PriceAxis`, `PriceReviewCaseDTO`, `PriceReviewQuoteDTO`,
+  `PriceReviewQueueResponse`, `PriceReviewResolveInput` (unión que EXIGE `manualPriceMxnCents` en `manual`);
+  `PriceSource` extendido con `tcgcsv_singles | tcgdex | cardmarket` (línea canónica del contrato §Enums).
+- `messages/{es,en}.json` — `admin.m10.priceReview.*` (paridad verde).
+
+**Money-safe:** «Precio a mano» exige un monto entero de centavos > 0 (mismo `isSaveableRuleValue` + `pesosToCents`
+del override de M2); vacío o `0` ⇒ «Guardar» deshabilitado (no publica a MX$0).
+
+**Medido por mí (2026-10-11, sobre `node_modules` recién instalados):** `tsc --noEmit` limpio; `next lint` de los
+ficheros tocados sin avisos; `PriceReviewSection.test.tsx` 8/8; suite vitest completa **4316 passed | 10 skipped
+(332 files), exit 0**. La E2E con el stack levantado NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.
