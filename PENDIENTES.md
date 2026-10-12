@@ -3,23 +3,20 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
-> anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
+> Última limpieza: **2026-10-12** (orquestador, sesión 8, al preparar el traspaso a la sesión 9 tras fusionar §PRE
+> en `production` `0c52742f`). Antes: 2026-09-29 (sesión 4). Las secciones anteriores conservan sus cuerpos
+> **verbatim**; la de abajo manda sobre ellas.
 
-## Actualización 2026-10-11 (sesión 7→8) — §PRE «Precios Robustos» (rama `claude/precios-redundancia`, worktree `/home/user/tcg-precios`)
+## Actualización 2026-10-11/12 (sesión 8) — §PRE «Precios Robustos» ✅ FUSIONADO a `production`
 
-> Reservas O-24: migración **M-75**, contrato **v1.91⟨precios⟩**, notas **BACKEND_NOTES §91**, criterios **870–889**. Rama desde `production` `599d41a6`; `production` es ancestro.
-> Origen: el dueño reportó precios inflados ~55× en Prismatic (Archaludon Holofoil MX$102.21 vs real ~MX$1.84; Noctowl MX$153.41). Causa raíz (backend `af24d85d`): residuo PPT/pokemontcg_io que aplana + hueco de cobertura de `tcgcsv_singles` en Prismatic + no había candado. Aprobado por el dueño «adelante, todas como recomiendas» (HECHOS 2026-10-11, las 7 decisiones P-RP).
+> **CERRADO.** PR **#91** fusionada por el dueño a `production` en el merge **`0c52742f`** (2026-10-11 21:16) → Vercel/Railway desplegaron. Migración **M-75** (cola `PriceReviewCase` + árbitro de mediana + candado ×5 + enganche en las 4 rutas de lectura/`price-ingest`/compra + pantalla «Precios por revisar» en admin M10) y **M-76** (`source` entra a la unicidad de `PriceReference` para que las fuentes del árbitro coexistan). Contrato **v1.91⟨precios⟩** (`API_CONTRACT §PRE`), diseño `ARCHITECTURE §4.PRE`, notas `BACKEND_NOTES §91/§91.1/§91.2`. Tres veredictos: QA (verificó round-trip contra Postgres: Archaludon MX$102→centavos auto, y la mutación de M-76 muerde) + techlead (2×) + seguridad (0 críticos/altos). Origen y las 7 decisiones P-RP en `HECHOS.md` 2026-10-11.
 
-| # | Qué | Estado / Medido (orquestador) | Dueño / siguiente |
+| # | Pendiente residual | Estado / medición | Dueño / siguiente |
 |---|---|---|---|
-| **PRE-núcleo** | Árbitro de mediana por familia + candado ×5 + consenso + cola `PriceReviewCase` + endpoints + 5 diales + M-75 (schema). | ✅ **CONSTRUIDO Y VERIFICADO POR MÍ (O-9) sobre `8a1792ed`** (commits `5c023c1b`, `ff3b8a70`, `db86067e`, `8a1792ed`). Canario 889c: 21/21 verde intacto; **muerde** (quité la rama de revisión en copia del árbol entero ⇒ 1 roja `Expected "review" Received "publish"`); paridad de enums 163/163 (M-75 cierra la que estaba roja por contrato adelantado). `FxRate.base` es `String @default("USD")` (schema:1354) ⇒ EUR sin DDL. | — (hecho; falta el wiring de abajo) |
-| **PRE-provider** | Provider real de TCGdex (`tcgdex`+`cardmarket`): cliente HTTP + parser que escribe filas `PriceReference`. | ⛔ **DIFERIDO — BLOQUEADO.** Este contenedor NO alcanza `api.tcgdex.net` (curl y WebFetch: `ENOTFOUND`/403, medido 2026-10-11). Forma exacta de la API SIN CONFIRMAR (`holo` vs `holofoil`, dónde vive `marketPrice`, `tcgdexSetId` de Prismatic ≈`sv08.5`). Interfaz dejada en `providers/tcgdex.provider.interface.ts`. | **DUEÑO**: abrir `api.tcgdex.net` en la red del entorno (pedido 2026-10-11). Luego orquestador verifica forma+cobertura → backend construye provider. |
-| **PRE-wiring** | Envolver el árbitro en las 4 rutas de lectura (§PRE.B), enganche en `price-ingest`/`publish` (§PRE.6) + «final» tras el fan-out async, gate del cotizador de compra (§PRE.5). | ⛔ **DIFERIDO con el provider** (razón medida por backend: hoy sin filas tcgdex/cardmarket la mediana de una sola familia = lo que ya elige `isBetterRef`; wirearlo ahora rompe mocks posicionales y recalcula FX sin valor). ⚠️ Matiz del orquestador: para Prismatic SÍ cambia (isBetterRef toma el residuo PPT que el árbitro excluye ⇒ el wiring live mandaría a `PRICE_PENDING`). Hasta este wiring, los precios inflados siguen visibles en vivo. | backend, junto con el provider. |
-| **PRE-censo** | Filas espejo en el REGISTRO de `enum-query-axes.e2e-spec.ts` + fixtures `PriceReviewCase` (C-EQ-1). | Lado documental **CERRADO** (arquitecto, §0-Q, commit `d9f00293`). Falta el espejo en el test (verificable solo con corrida DB-backed = QA gate). | backend, junto con el provider+wiring. |
-
-**Paliativo ofrecido al dueño (2026-10-11):** precio a mano (tier 0, gana absoluto, se ve al instante) en las cartas ya detectadas, mientras conecta TCGdex. Pendiente su respuesta.
-**Gates que faltan (dinero, dos ejes ⇒ triple veredicto):** QA + techlead + seguridad, tras el provider+wiring, sobre el stack. Luego PR `claude/precios-redundancia` → `production` (el dueño fusiona).
+| **§PRE-EUR** | Confirmar en vivo que el auto-arreglo opera 100% (que cardmarket vote). | El dueño corre **«Actualizar precios ahora»** tras el deploy: si Prismatic baja a centavos solo ⇒ cierra; si cae a «Precios por revisar» ⇒ falta confirmar la serie EUR de Banxico (**TD-PRE-2** `FX_EUR_SERIES_ID`, candidato `SF46410`, token en Railway, ajuste por config sin re-publicar). Money-safe mientras tanto (banda `[8,40]`). ⛔ token NO por chat. | orquestador guía al dueño (medición post-deploy). |
+| **TD-PRE-1/2, PRE-P1, PRE-P2** | Follow-ups no bloqueantes registrados en `TECH_DEBT.md`. | TD-PRE-1 volumen provider TCGdex (1 llamada/carta); TD-PRE-2 (arriba); PRE-P1 `@Max` precio manual; PRE-P2 endurecer fetch FX (`redirect:'error'`+slug). | backend, cuando el dueño priorice. |
+| **TD-ORD-REFUND-CHK** | 3 specs accesorios (`accessories-prep-refunds`/`-m73-migration`/`-m73-refund-shapes`). | ⚠️ backend los marcó «reales/pre-existentes» sobre **BD local**, pero QA los midió **PASS en CI con BD limpia** (2026-10-11). Probable BD local sucia, no defecto. **Re-medir en BD limpia antes de enrutar (O-5).** `§PRE` diff=0 en PaymentRefund. | backend WS «Órdenes y dinero», solo si se reproduce en limpio. |
+| **3 hilos SAST** | Falsos positivos `path.join` en specs de TCGdex (nivel audit, no bloquean). | Respondidos en PR #91; abiertos para que el dueño los descarte en code-scanning si quiere. | dueño (opcional). |
 
 ## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
 

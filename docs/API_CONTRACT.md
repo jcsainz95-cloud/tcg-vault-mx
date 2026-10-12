@@ -10,6 +10,27 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.92⟨mkt⟩ — MEDICIÓN, SEO, GEO Y COOKIES: PÍXEL A (GA4 POR GTM + META PIXEL/CAPI, SOLO MEDICIÓN), UTM DE
+> PRIMER TOQUE, FICHAS INDEXABLES Y CONSENTIMIENTO (2026-10-12, arquitecto; árbol de `main`; ⛔ sha NO MEDIDO: sin
+> Bash).** Norma: `PROJECT §MKT`, criterios **900–948**, preguntas **P-MKT-1…9**; decisión del dueño: **píxel A**.
+> Porqué, modelo de datos, cookie, Consent Mode v2 y reparto en `ARCHITECTURE §4.MKT`. Migración **M-77** (reservada por
+> el orquestador tras M-75/M-76 de §PRE; ⛔ NO MEDIDO que no exista ya — `main` solo tiene `migration_lock.toml`): cuatro
+> columnas `firstUtm*` **aditivas, nullable, sin default, sin backfill** en `Order` y `SellRequest`. 🔒 **PII-sensible**
+> (cookies/terceros) pero **no toca ningún importe cobrado ni pagado**. ⛔ **Sin enum nuevo** ⇒ nada que añadir a la
+> paridad de enums (§0). Norma entera abajo, anclada en **[§MKT](#MKT)**.
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | MKT-1 | Atribución UTM | Cookie `th_first_utm` (primer toque, 90 d, `SameSite=Lax`, apex, **no HttpOnly**, estrictamente necesaria) + 4 columnas `firstUtm*` en `Order`/`SellRequest` (M-77) copiadas al crear orden/cotización | **Sí** (cookie + copia a BD) | backend + frontend |
+> | MKT-2 | Eventos | `dataLayer`→GTM→GA4+Meta; 5 eventos EXACTOS (`view_item`,`add_to_cart`,`purchase`,`generate_lead`,`click_contact`); `event_id` compartido; `first_utm_*` en todos; 10 dimensiones de evento | **Sí, frontend** | frontend |
+> | MKT-3 | Eventos de servidor | Módulo `measurement` (GA4 MP + Meta CAPI + Noop) para `purchase`/`generate_lead`; mismo `event_id`; `client_id` del navegador o efímero por orden; cola de reintento en `jobs/`; **⛔ sin tabla nueva** | **Sí, backend** | backend |
+> | MKT-4 | Consent Mode v2 | Default `denied` (4 señales) antes de todo tag; `update` al aceptar; `ad_personalization` se queda `denied` (solo medición); banner no bloqueante; elección 6 m en `th_consent` | **Sí, frontend** | frontend |
+> | MKT-5 | SEO fichas | Ruta de sellado `/[locale]/catalog/sealed/[representativeItemId]` (hoy 404; endpoint ya existe); `generateMetadata` carta+sellado; JSON-LD `Product/Offer/Organization/BreadcrumbList` en HTML inicial; **precio de VENTA con IVA + fecha**; SSR/ISR por `card_id` | **Sí, frontend** | frontend |
+> | MKT-6 | Indexación + GEO | `sitemap.ts`/`robots.ts`/`llms.txt` dinámicos; canonical absoluto; `hreflang` parametrizable (`SEO_HREFLANG_ENABLED`, default on); `/guias`+4, `/preguntas` (FAQPage), `/como-funciona` | **Sí, frontend** | frontend |
+> | MKT-7 | Aviso + dependencia dura | Reescribir `/privacidad` (GA4+Meta terceros, cookies, consentimiento) **en el mismo despliegue** que el bloque 1 (P-ANALYTICS-OPS); texto del dueño (P-MKT-1) | **Sí, frontend** | frontend |
+> | MKT-8 | devops | DNS `www`→apex 301; env (`GTM_CONTAINER_ID`, `GA4_MEASUREMENT_ID`, `GA4_MP_API_SECRET`, `META_PIXEL_ID`, `META_CAPI_TOKEN`, `GA4_SA_JSON`); CSP/egress para GTM/GA/Meta | — | devops |
+> | MKT-9 | Contactos (P-MKT-3) | **NO LOCALIZADOS** hoy (medido: sin WhatsApp/Instagram en el pie); `click_contact`/`sameAs`/`contactPoint` **parametrizados**; ⛔ no se inventa ningún canal | — | frontend (parametriza) + dueño (confirma) |
+> | MKT-10 | Lo que NO cambia | Ningún importe cobrado/pagado; el bloque «valor de mercado» (§4.MIV) y su `iff`; los endpoints de catálogo/buylist (salvo las 4 columnas de M-77); `PendingPriceReason`; la convención de IVA | No | — |
+>
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
 > según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
@@ -44733,3 +44754,208 @@ Paridad es/en con el control de paridad de textos (criterio 868).
 - **ux-ui:** MIV.6 (nota, posición, textos de lista de deseos y explicadores) antes de que frontend cierre los textos.
 - **Paralelo:** backend y frontend a la vez; la forma está fijada aquí y el front puede construir contra el simulador.
 - ⛔ No construye: devops (sin migración ni variable), product-owner (nada bloquea; P-MIV-1…6 siguen abiertas con su defecto).
+
+## <a id="MKT"></a>MKT. MEDICIÓN, SEO, GEO Y COOKIES — PÍXEL A (GA4 POR GTM + META PIXEL/CAPI, SOLO MEDICIÓN) (rev v1.92⟨mkt⟩, 2026-10-12, **NORMATIVA**; 🔒 **PII-sensible; ningún importe cambia**)
+
+**Norma (manda, citada):**
+- `PROJECT §MKT`, criterios **900–948** (líneas 10311–10515) y preguntas **P-MKT-1…9** (19787–19836). Decisión del dueño:
+  **píxel A** (GA4 + Meta Pixel + Conversions API **solo medición**). Porqué, arquitectura, cookie, Consent Mode v2 y
+  reparto: `ARCHITECTURE §4.MKT`.
+- ⛔ **Un solo cambio de schema** (M-77, aditivo); **sin enum nuevo**, sin código de error nuevo, sin endpoint nuevo de
+  negocio. **Ningún importe cobrado o pagado cambia.** Lo nuevo en superficie HTTP: dos rutas públicas de contenido/SEO
+  servidas por Next.js (no por la API `/api/v1`) y dos llamadas **salientes** del backend (GA4 MP + Meta CAPI).
+
+### MKT.0 Lo medido (lectura del árbol de `main`, 2026-10-12; ⛔ sha NO MEDIDO: sin Bash)
+- `GET /api/v1/catalog/sealed/:inventoryItemId` existe y sirve la ficha (`catalog.controller.ts:110-112`); la **ruta
+  pública** `/[locale]/catalog/sealed/<id>` no existe en el front (404). `GET /api/v1/catalog/cards/:cardId`
+  (`:134-142`). `POST /buylist/requests` crea la cotización (§4.39).
+- **Contactos públicos NO LOCALIZADOS:** sin WhatsApp ni Instagram en el pie (`(storefront)/layout.tsx:50-68`) ni en
+  `messages/es.json` (único canal: `soporte@tcghunt.mx`). ⇒ se **parametrizan** (MKT.6); ⛔ no se inventa ninguno.
+- Aviso `/privacidad` hoy niega analítica (`privacidad.es.ts:249`): dependencia dura P-ANALYTICS-OPS (MKT.7).
+
+### MKT.1 Schema — M-77 (ADITIVA, nullable, sin default, SIN backfill)
+Cuatro columnas en **`Order`** y las **mismas** cuatro en **`SellRequest`** (detalle y seguridad de migración en
+`ARCHITECTURE §4.MKT.2`):
+```
+firstUtmSource    String?
+firstUtmMedium    String?
+firstUtmCampaign  String?
+firstUtmContent   String?
+```
+- **Origen del dato:** cookie `th_first_utm` leída de la cabecera `Cookie` del request al **crear** la orden (cliente e
+  invitado) y la cotización. ⛔ **No** vienen del cuerpo del DTO. Un campo `firstUtm*` en el body ⇒ `400 VALIDATION_ERROR`
+  (pipe estricto, como el resto de rutas con `StrictBodyPipe`).
+- **En los DTO de salida:** `firstUtm*` **no** se exponen en DTOs de cliente (son atribución interna de marketing;
+  misma doctrina que `SellRequest.closedAt`, «no se expone en DTOs de cliente»). El analista los lee por GA4/BD.
+- ⛔ `landed_at` **no** es columna de BD (vive en la cookie; criterio 912). Sin enum ⇒ paridad de enums intacta.
+
+### MKT.2 Cookie `th_first_utm` (primer toque, estrictamente necesaria)
+`ARCHITECTURE §4.MKT.3` es la norma. Forma y atributos, para fijar el contrato navegador↔servidor:
+```
+Set-Cookie: th_first_utm=<urlencode(JSON)>; Max-Age=7776000; Path=/; Domain=.tcghunt.mx; SameSite=Lax; Secure
+JSON = { "s": source, "m": medium, "c": campaign, "n": content, "t": <landed_at ISO8601> }
+```
+- Cada valor ≤255 chars, saneado (solo `utm_source|utm_medium|utm_campaign|utm_content`). **Primer toque:** se escribe
+  solo si la cookie **falta** y la URL trae al menos un `utm_*`; **nunca** se sobrescribe (criterio 912).
+- **No `HttpOnly`** (el navegador adjunta `first_utm_*` a los eventos de cliente; el servidor la lee para los de
+  servidor). No contiene PII. Se **lista** en el aviso (criterio 936); carga **sin** consentimiento.
+- La escribe el **middleware** de Next.js, que preserva la query al redirigir `/`→`/es` (307), idioma, login y checkout
+  (criterio 913).
+
+### MKT.3 Eventos de medición — `dataLayer` → GTM → GA4 + Meta (criterios 900–916)
+Contador único en `dataLayer`; GTM reenvía a GA4 y a Meta. **Ningún** tag dispara sin pasar por Consent Mode (MKT.5).
+`value` en **pesos decimales con IVA**; `*_cents` enteros. `first_utm_*` en **todos** los eventos. ⛔ Jamás PII.
+
+| Evento (GA4, EXACTO) | Cuándo | Parámetros obligatorios | Equivalente Meta | `event_id` | ¿Servidor? |
+|---|---|---|---|---|---|
+| `view_item` | render ficha de **carta** y de **sellado** (MKT.5) | `currency:"MXN"`, `value` (precio venta c/IVA), `items:[{item_id:<card_id\|representativeItemId>, item_name, item_category:<set>, item_variant:"raw NM"\|"graded <empresa> <grado>"}]`, `first_utm_*` | `ViewContent` | `view:<card_id>:<ts_min>` | No |
+| `add_to_cart` | agregar al carrito | mismos `items`, `value`, `currency`, `first_utm_*` | `AddToCart` | `atc:<card_id>:<ts_min>` | No |
+| `purchase` | compra liquidada | `transaction_id:<order_id>`, `value` (total pagado c/IVA), `currency:"MXN"`, `shipping`, `tax`, `items[]`, `first_utm_*` | `Purchase(value,currency,content_ids,num_items)` | `purchase:<order_id>` | **Sí** (MKT.4) |
+| `generate_lead` | `POST /buylist/requests` con éxito (⛔ no el cálculo instantáneo) | `lead_type:"buylist_quote"`, `n_cards` (int), `quoted_value_cents` (int), `value` (pesos), `currency:"MXN"`, `quote_id`, `first_utm_*` | `Lead(value,currency,content_category:"buylist")` | `lead:<quote_id>` | **Sí** (MKT.4) |
+| `click_contact` | clic de WhatsApp o Instagram/DM | `contact_channel:"whatsapp"\|"dm"`, `page_path`, `first_utm_*` | `Contact` | `contact:<channel>:<ts_min>` | No |
+
+- **Conversiones en GA4 (907):** `purchase`, `generate_lead`, `click_contact`.
+- **Dimensiones de ámbito evento (908):** `card_id`, `external_id`, `set_name`, `product_type`, `lead_type`,
+  `contact_channel`, `first_utm_source`, `first_utm_medium`, `first_utm_campaign`, `first_utm_content`.
+- **CAPI de servidor (910):** `event_source_url`, `action_source:"website"`, `client_user_agent`, `fbp`/`fbc` si existen.
+- **Verificación (916, O-4):** una URL de prueba por evento, visible en **GA4 DebugView** y **Test events de Meta**;
+  cada evento **una sola vez** (sin duplicado navegador/servidor gracias al `event_id` compartido) con sus params y
+  `first_utm_*` cuando la URL llevó UTM.
+
+### MKT.4 Eventos de servidor — módulo `measurement` (criterios 937–938)
+`ARCHITECTURE §4.MKT.5` es la norma. Llamadas **salientes** (no endpoints entrantes):
+- **GA4 Measurement Protocol:** `POST https://www.google-analytics.com/mp/collect?measurement_id=<GA4_MEASUREMENT_ID>&api_secret=<GA4_MP_API_SECRET>`
+  con el mismo `event_id`, `source:"server"` y los params del evento. `client_id`: del `_ga` del navegador si hubo
+  consentimiento, si no un UUID **por orden** sin persistir identidad.
+- **Meta CAPI:** `POST https://graph.facebook.com/v<API>/<META_PIXEL_ID>/events` con `access_token=<META_CAPI_TOKEN>`,
+  mismo `event_id`, `action_source:"website"`, `event_source_url`, `client_user_agent`, `fbp`/`fbc` si existen.
+- **Cola de reintento** en `backend/src/jobs/` (BullMQ `measurement-dispatch`, backoff exponencial); fallo terminal a
+  log. ⛔ **Sin tabla nueva**: la orden/cotización ya es la fuente de verdad persistida.
+- **±2 % (938):** objetivo de verificación del analista (GA4 vs. BD), no mecanismo en caliente. La compra/cotización
+  cuenta por servidor **aunque el cliente rechace cookies**; la atribución UTM solo para quien aceptó.
+- **⚠️ Secretos que faltan en P-MKT-4:** `GA4_MEASUREMENT_ID` (`G-XXXX`, distinto del `GA4_PROPERTY_ID` numérico) y
+  `GA4_MP_API_SECRET`. Sin ellos los eventos de servidor por GA4 no emiten (los de navegador sí). Rebota al dueño
+  (MKT.9). El `NoopMeasurementAdapter` los deja apagados sin romper nada.
+
+### MKT.5 SEO — fichas (criterios 917–927)
+- **Ruta pública nueva** `/[locale]/catalog/sealed/[representativeItemId]`, alimentada por
+  `GET /api/v1/catalog/sealed/:inventoryItemId` (**sin cambio de backend**). Contenido: nombre, set, «desde MX$<precio> ·
+  IVA incluido · Precio al <fecha>», disponibilidad (texto «Disponible» solo si `availableCount>0`, **sin** cantidad;
+  `=0` ⇒ ficha existe, `OutOfStock`), foto ≥1000 px, botón de compra, migas.
+- **`generateMetadata` (carta + sellado):**
+  - `title`: «<Nombre> · <Set> <nº> · MX$<precio> IVA incluido | TCG HUNT». **Sin precio** si 0 vendibles: «<Nombre> ·
+    <Set> <nº> | TCG HUNT» (criterio 919).
+  - `description` ≤155: condición (NM/gradeada), «autenticidad y condición verificadas», «precio al <AAAA-MM-DD>», y
+    «envío a todo México» **solo si es cierto** (criterio 920).
+  - `og:image` ≥1200×630 (diseño de ux-ui, `DESIGN_SYSTEM`), `og:title`, `og:description`,
+    `twitter:card=summary_large_image` (criterio 918).
+  - **Precio = venta con IVA** (regla 1); formato `MX$` con miles, sin `.00`, «IVA incluido» (criterio 921).
+- **JSON-LD en el HTML inicial (SSR, criterios 922–923):**
+```
+Product { name, image[], description, sku:<card_id>, brand:"Pokémon TCG",
+  offers: Offer { priceCurrency:"MXN", price:<venta c/IVA>,
+    availability:"https://schema.org/InStock"|"OutOfStock",   // InStock ⇔ availableCount>0
+    priceValidUntil:<hoy+1 día>,
+    itemCondition:"https://schema.org/NewCondition"            // NM / sellado
+                 |"https://schema.org/UsedCondition",          // gradeada (grado en description)
+    seller: Organization "TCG HUNT", url:<canónica> } }
+Organization { name:"TCG HUNT", url:"https://tcghunt.mx", logo,
+  sameAs:[<instagram si existe>], areaServed:"MX",
+  contactPoint:[<solo canales reales — P-MKT-3; vacío hoy>] }   // ⛔ nunca canal inventado
+BreadcrumbList { … }                                            // fichas, catálogo, guías, preguntas
+```
+- ⛔ **Nada de JSON-LD `Event`** (Card Show) antes del 27 oct 2026 (regla 3).
+- **SSR/ISR:** HTML inicial con el contenido (no tras JS); revalidación por `card_id` al cambiar precio/stock (criterio
+  927). Mecanismo exacto: frontend (`FRONTEND_NOTES`).
+
+### MKT.6 SEO — indexación y GEO (criterios 924–933)
+- **`sitemap.xml`** (`app/sitemap.ts`, dinámico; índice si >~50 000 URLs): portada, catálogo, fichas de carta a la
+  venta, fichas de sellado, `/guias/*`, `/preguntas`, `/como-funciona`, con `lastmod`. ⛔ Sin Card Show.
+- **`robots.txt`** (`app/robots.ts`): declara el sitemap; bloquea **solo** cuenta/carrito/checkout/admin/API.
+- **`canonical`** absoluto `https://tcghunt.mx/es/...`. **`hreflang`** `es-MX`/`en`+`x-default` por
+  `metadata.alternates.languages`, **parametrizable** por `SEO_HREFLANG_ENABLED` (default **on**; `off` ⇒ sin hreflang,
+  P-MKT-2).
+- **`llms.txt`** (`app/llms.txt/route.ts`, Markdown): qué es TCG HUNT (1 línea), país/moneda, URLs clave
+  (`/es/catalog`, `/es/buylist`, `/guias`, `/preguntas`, `/como-funciona`), política de precios («precios finales con IVA
+  16 % incluido, en MXN, actualizados a diario»), condición que compramos («solo NM»), contacto público. ⛔ Sin Card
+  Show; cada dato citable con fecha.
+- **Contactos (P-MKT-3, MKT-9):** `click_contact`, `Organization.sameAs` y `contactPoint` se **parametrizan** (variables
+  de contenido/entorno). Hoy medido: **sin WhatsApp/Instagram** (`(storefront)/layout.tsx:50-68`, `messages/es.json` —
+  **NO LOCALIZADO**). Hasta que el dueño confirme, el canal ausente se **omite**; ⛔ no se inventa.
+- **GEO:**
+  - `/guias` + 4 guías (`/guias/que-es-nm`, `/guias/carta-pirata-5-senales`, `/guias/como-guardar-tus-cartas`,
+    `/guias/que-es-una-sir`): `Article` con `headline`, `datePublished`, `author:Organization`; imágenes de láminas
+    (PNG 2160×2700, fotos del catálogo, **nunca arte generado**); sin fuentes externas impresas; sin precios salvo con
+    fecha; cierra con enlace a catálogo/buylist **sin superlativos**.
+  - `/preguntas`: `FAQPage` con `Question`/`acceptedAnswer` **idénticos** al texto visible; ≤300 palabras/respuesta;
+    «Última revisión» visible; sin precios ni promesas. Arranca con las **6 FAQ** del brief §3.2 (criterio 932) hasta
+    que el community-manager entregue las suyas (P-MKT-5).
+  - `/como-funciona`: `WebPage`+`Organization`, `HowTo` opcional; «Última revisión: <fecha>»; ⛔ sin «inversión» ni «va
+    a subir».
+  - **Texto definitivo (P-MKT-5):** vive en módulos `frontend/src/content/mkt/*`; los componentes y el JSON-LD se generan
+    de ahí ⇒ el texto se sustituye **sin tocar el esquema**.
+
+### MKT.7 Cookies, aviso y Consent Mode v2 (criterios 934–936)
+`ARCHITECTURE §4.MKT.6` es la norma.
+- **Aviso `/privacidad` reescrito** (LFPDPPP): declara finalidades (venta, buylist, bóveda, envío, **medición de uso**),
+  cookies, terceros (**Google Analytics** y **Meta**), derechos ARCO y contacto. **Reemplaza** la frase medida hoy «No
+  usamos cookies de publicidad ni de analítica» (`privacidad.es.ts:249`). El **texto lo aprueba el dueño/abogado**
+  (P-MKT-1, DUEÑO); se apoya en §LEG.2 / §14.17 (modo provisional). ⛔ El gate de `legal-gate.ts` no se relaja; el texto
+  es contenido parametrizable.
+- **Banner** (aceptar/rechazar/configurar), **no bloqueante** (P-MKT-7). **Consent Mode v2** con defaults **`denied`**
+  para `analytics_storage`, `ad_storage`, `ad_user_data`, `ad_personalization` **antes** de cualquier tag; `update` al
+  aceptar (⚠️ `ad_personalization` se queda **denied** — solo medición). La elección se guarda **6 meses** en
+  `th_consent` (estrictamente necesaria). Cookies estrictamente necesarias (sesión, carrito, `th_first_utm`, `th_consent`)
+  cargan **sin** consentimiento y se listan.
+- **Dependencia dura P-ANALYTICS-OPS:** bloque 1 (eventos + UTM) y bloque 4 (aviso + banner + consent) salen en **el
+  mismo despliegue**.
+
+### MKT.8 Reparto y orden (resumen; detalle en `ARCHITECTURE §4.MKT.9`)
+- **backend:** M-77 (schema compartido, un solo stream); copia `th_first_utm`→`firstUtm*`; módulo `measurement` + job de
+  reintento. ⛔ La ficha de sellado no necesita backend (verificar imagen ≥1000 px — **NO MEDIDO** por el arquitecto).
+- **frontend:** GTM/GA4/Pixel + Consent Mode + banner; `dataLayer` y los 5 eventos; cookie UTM + preservación de query en
+  `middleware.ts`; `generateMetadata` + JSON-LD + ruta de sellado; `sitemap`/`robots`/`llms.txt`/`hreflang`/canonical;
+  `/guias`+`/preguntas`+`/como-funciona`; reescritura estructural de `/privacidad`.
+- **devops:** DNS `www`→apex 301; env (`GTM_CONTAINER_ID`, `GA4_MEASUREMENT_ID`, `GA4_MP_API_SECRET`, `META_PIXEL_ID`,
+  `META_CAPI_TOKEN`, `GA4_SA_JSON`); CSP/egress para `googletagmanager.com`, `google-analytics.com`, `connect.facebook.net`,
+  `graph.facebook.com`.
+- **Orden (criterio §MKT.6):** bloque 1+4 JUNTOS → bloque 2 (SEO) → bloque 3 (GEO) → eventos de servidor.
+
+### MKT.9 Preguntas que rebotan al dueño (vía orquestador)
+- **P-MKT-NEW-1 (DUEÑO):** GA4 Measurement Protocol necesita **`GA4_MEASUREMENT_ID` (`G-XXXX`)** y **`GA4_MP_API_SECRET`**,
+  ausentes de P-MKT-4; sin ellos los eventos de servidor por GA4 no emiten (los de navegador sí). Añadir ambos a la lista
+  de secretos que carga el dueño. ⛔ El arquitecto no pide valores (O-6): solo señala las dos variables que el mecanismo
+  del criterio 937 exige.
+- Resto: P-MKT-1…9 siguen con su default; ninguna otra bloquea al arquitecto.
+
+### MKT.10 Pruebas que deben fallar hoy (el plano que el modelo barato implementa; determinísticas salvo donde se diga)
+| ID | Rol | Afirma | Rojo hoy porque… | Mutación que la pone roja después |
+|---|---|---|---|---|
+| **MKT-B1** | backend | M-77: `Order` y `SellRequest` tienen `firstUtm{Source,Medium,Campaign,Content}` nullable; una fila vieja (sin las columnas) lee `null` en las cuatro | las columnas no existen | poner `@default("")` en cualquiera (rompe «NULL es la verdad») |
+| **MKT-B2** | backend | checkout de cliente/invitado con `Cookie: th_first_utm=<json>` ⇒ la orden guarda las cuatro marcas; sin la cookie ⇒ `null`; con `firstUtm*` en el **body** ⇒ `400 VALIDATION_ERROR` y 0 escritura | no se lee la cookie | leer `firstUtm*` del body en vez de la cookie |
+| **MKT-B3** | backend | `POST /buylist/requests` con la cookie ⇒ `SellRequest.firstUtm*` poblado; los `firstUtm*` **no** salen en el DTO de cliente de la cotización | campo/lectura ausente | exponer `firstUtm*` en el DTO de cliente |
+| **MKT-B4** | backend | `measurement`: al liquidar, se encola `purchase` con `event_id="purchase:<order_id>"`, `source:"server"`, `value` = total c/IVA; al crear cotización, `generate_lead` con `event_id="lead:<quote_id>"` | el módulo no existe | cambiar el `event_id` por otro esquema (dedup rota) |
+| **MKT-B5** | backend | `client_id`: con `_ga` presente se usa; sin él, UUID por orden (dos órdenes ⇒ dos `client_id` distintos) y **no** se persiste como identidad | sin módulo | reusar un `client_id` fijo ⇒ dos órdenes colisionan |
+| **MKT-B6** | backend | Con `GA4_MEASUREMENT_ID`/`GA4_MP_API_SECRET` ausentes, el adapter es `Noop` y la liquidación NO falla; con ellos, emite | sin módulo/Noop | que la ausencia de secreto tumbe la liquidación |
+| **MKT-F1** | frontend | middleware: `/?utm_source=instagram&utm_medium=social` sin cookie ⇒ `Set-Cookie: th_first_utm=…` con `s=instagram,m=social`, `SameSite=Lax`, `Max-Age=7776000`, `Domain=.tcghunt.mx`, **sin** `HttpOnly`; y el 307 a `/es` conserva la query | no hay middleware de UTM | sobrescribir la cookie si ya existe (rompe primer toque); perder la query en el redirect |
+| **MKT-F2** | frontend | segunda visita con otra `utm_*` y cookie ya puesta ⇒ la cookie **no cambia** | — | quitar la guarda «solo si ausente» |
+| **MKT-F3** | frontend | ficha de carta/sellado: `generateMetadata` emite `title` con «MX$<precio> IVA incluido», `description` ≤155, `og:*`, canonical absoluto; 0 vendibles ⇒ title sin precio | hoy la ficha no exporta metadatos; la de sellado da 404 | pintar el valor de mercado como precio; superar 155 chars |
+| **MKT-F4** | frontend | JSON-LD `Product/Offer` en el **HTML inicial** (sin JS): `price` = venta c/IVA, `priceValidUntil`=hoy+1, `availability` InStock⇔`availableCount>0`, `itemCondition` NM⇒New/gradeada⇒Used | ausente | derivar `price` del `referenceValue` (mercado) en vez de la venta |
+| **MKT-F5** | frontend | Consent Mode: antes de GTM, `gtag('consent','default',…)` con las 4 señales en `denied`; al aceptar, `update` con `ad_personalization` **denied**; con `denied` no dispara GA4/Meta | no hay Consent Mode | default `granted`; o `ad_personalization:'granted'` al aceptar |
+| **MKT-F6** | frontend | `dataLayer`: `view_item`/`add_to_cart`/`purchase`/`generate_lead`/`click_contact` con los params obligatorios y `first_utm_*`; `event_id` con el esquema de MKT.3 | no hay capa de eventos | omitir `first_utm_*`; renombrar un evento |
+| **MKT-F7** | frontend | `sitemap.xml` lista fichas vendibles + guías + preguntas + como-funciona y **ninguna** URL de Card Show; `robots.txt` bloquea solo cuenta/carrito/checkout/admin/API; `hreflang` desaparece con `SEO_HREFLANG_ENABLED=off` | no existen | listar admin en sitemap; no indexar el catálogo; hreflang fijo |
+| **MKT-F8** | frontend | `click_contact` y `Organization.sameAs/contactPoint`: con canal configurado emite; **sin** canal (hoy) **omite** el canal, ⛔ 0 números/cuentas inventados | — | hardcodear un WhatsApp/Instagram |
+| **MKT-E1** | frontend (Playwright), QA lo corre | De punta a punta (O-4): URL de prueba por evento visible en GA4 DebugView y Test events de Meta, **una sola vez** con `first_utm_*`; `/privacidad` reescrito enlazado; banner no bloquea la compra | — | — |
+
+⛔ **Sin censo de pruebas apagadas tocado**; las suites de dinero (checkout, buylist, P&L) siguen verdes **sin editar sus
+aserciones** (M-77 es aditiva). Canarios y proporciones probabilísticas (si alguna prueba de red/cola resultara
+intermitente) se miden N veces y se reportan con N (O-3); las de esta tabla son deterministas (N=1, dicho como tal).
+
+### MKT.11 Exposición (para pentester y seguridad)
+- `th_first_utm` **no** es `HttpOnly` **por diseño** (el navegador la lee para la medición): contiene solo marcas de
+  campaña, **cero PII**; saneada y acotada a 255 chars/valor. Un `utm_*` con `<script>` se escapa como cualquier query.
+- `firstUtm*` en BD es texto de la query del usuario ⇒ se trata como entrada no confiable (se escapa al renderizar en
+  cualquier informe; nunca se interpola en SQL — Prisma parametriza).
+- Secretos (`*_API_SECRET`, `META_CAPI_TOKEN`, etc.) solo en variables de entorno; ⛔ nunca en repo, chat ni registros
+  (`HECHOS.md:19`). CAPI ⛔ sin PII en claro (criterio 910); `em`/`ph` hasheados quedan fuera de alcance hoy.
+- CSP/egress se abren **solo** a los hosts de GTM/GA/Meta (MKT.8); el DAST de staging valida que no se filtre nada más.
