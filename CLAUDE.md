@@ -476,7 +476,14 @@ Un proyecto NO se declara listo hasta que se cumplan todos estos puntos. **devop
 - [ ] **devops desplegó** y dejó `docs/DEVOPS_NOTES.md` con despliegue y rollback documentados; el **gate de seguridad (SAST + DAST staging) y el harness E2E** están cableados en CI.
 - [ ] Sin **deuda técnica bloqueante** (la no bloqueante queda registrada y aceptada en `docs/TECH_DEBT.md`).
 
-## Ciclo de vida: un proyecto por carpeta
-Esta plantilla (`.claude/agents/` + `.claude/templates/` + `CLAUDE.md`) es **el equipo**. Entre proyectos cambia
-solo por O-22: cuando un error medido enseña algo, la regla entra aquí y en el fichero del rol, **en el proyecto
-donde se midió**, y el siguiente proyecto arranca con ella. Lo que cambia por proyecto es `PROJECT.md`, `docs/`, `backend/` y `frontend/`. Cada proyecto vive en su propia carpeta/repo autocontenido: al terminar (DoD cumplido) NO se vacía. Para el siguiente proyecto se arranca una carpeta nueva desde la plantilla con `scripts/new-project.sh` y el equipo empieza de cero desde **product-owner**.
+## Ciclo de vida: el equipo vive en su propio repositorio
+La plantilla del equipo (`.claude/agents/` + `.claude/templates/` + `CLAUDE.md` + `scripts/new-project.sh`) vive en el
+repositorio **`jcsainz95-cloud/Dev-team`** desde el 2026-10-12. Lo que hay en este repositorio es **la copia de este
+proyecto**: aquí se usa, no se mejora. Cuando un error medido aquí enseña algo (O-22), la regla se escribe aquí **y se
+lleva a `Dev-team`** en el mismo pase. El siguiente proyecto se arranca desde `Dev-team` con `./scripts/new-project.sh
+<carpeta-destino>`, nunca copiando este repositorio. Lo que cambia por proyecto es `PROJECT.md`, `docs/`, `backend/` y
+`frontend/`; cada proyecto vive en su propia carpeta/repo y al terminar (DoD cumplido) NO se vacía.
+
+> *De dónde viene:* esta tienda se construyó **encima** de la plantilla, en el mismo repositorio, y nunca se separaron:
+> cada mejora del equipo pasaba por el CI y el despliegue de la tienda, y `new-project.sh` copiaba el `PROJECT.md` vivo
+> de la tienda como «plantilla en blanco».
