@@ -10308,7 +10308,211 @@ el arquitecto/backend al elegir fuentes.)*
 
 - Criterios **870–889**. Preguntas **P-RP-1…7** al final del documento.
 
+### Medición, SEO, GEO y cookies de tcghunt.mx (§MKT) ⭐ 2026-10-12 — BORRADOR de product-owner
+
+> **Fuente:** BRIEF de `marketing-director` (repo de marketing, 2026-10-11, pegado verbatim en el encargo del
+> orquestador del 2026-10-12) + **decisión ya tomada por el dueño: píxel opción A** (GA4 **+** Meta Pixel +
+> Conversions API **solo medición**: sin campañas, sin audiencias, sin remarketing). Esta sección aterriza el brief
+> **completo, incluida la columna Meta**. ⚠️ **BORRADOR para aprobación del dueño**; las preguntas que lo necesitan
+> están marcadas **(DUEÑO)** en §MKT.9.
+>
+> **Letra y números:** **§MKT**; criterios **900–948** (medido por el product-owner el 2026-10-12: el número más alto
+> usado hoy es **889** de §PRE, `PROJECT.md:10309,15098`; 900–948 no chocan con 319–338 §Z, 400–418 panel, 500–511
+> §LEG, 850–867 §BMK/§MIV ni 870–889 §PRE). Preguntas **P-MKT-1…9** al final del documento.
+>
+> **⛔ Dependencia dura (P-ANALYTICS-OPS):** hoy la tienda **no carga analítica ni cookies de terceros, y el aviso lo
+> declara por escrito** — medido el 2026-10-12: `frontend/src/content/legal/privacidad.es.ts:249` dice literal
+> «**No usamos cookies de publicidad ni de analítica.**». Encender GA4/GTM/Meta **obliga** a reescribir `/privacidad`
+> (bloque 4) **en el mismo despliegue** que los eventos (bloque 1); sin aviso reescrito y banner, GA4 no se enciende.
+> Esto **revierte** una exclusión vigente: §LEG «Fuera de alcance» listaba «**banner de cookies**» como fuera de alcance
+> (`PROJECT.md:10334`); el dueño lo aprobó con el píxel A, así que §MKT lo **reincorpora** (ver §MKT.8).
+
+#### MKT.0 Estado medido hoy *(product-owner, 2026-10-12, sobre el árbol de trabajo; dar por cierto para construir)*
+- **Cero medición instalada.** `grep gtag|googletagmanager|dataLayer|fbq|connect.facebook|consent` en `frontend/src`
+  ⇒ ningún uso real (solo texto legal en `privacidad.es.ts` y pruebas). Confirma el estado externo del brief.
+- **Ficha de carta sin `generateMetadata`.** `catalog/[cardId]/page.tsx:1-10` solo renderiza el componente cliente
+  `CardDetailView`; no exporta metadatos. `title`/`og:` quedan en los genéricos del `layout`.
+- **No existe ruta pública de sellado.** `Glob frontend/src/app/**/sealed/**` ⇒ 0 ⇒ `/es/catalog/sealed/<id>` da 404,
+  aunque la API responde: `GET /api/v1/catalog/sealed/:inventoryItemId` → `sealedDetail` (`catalog.controller.ts:110-112`),
+  con DTO `representativeItemId`, `productName`, `imageUrl`, `availableCount`, `fromPriceCents` (**IVA dentro**,
+  `sealed-catalog.service.ts:73-104,257-317`). Ficha de carta: `GET /api/v1/catalog/cards/:cardId`
+  (`catalog.controller.ts:135`). Cotización: `POST /buylist/requests` (`buylist.controller.ts:112`).
+- **No hay `robots`/`sitemap`/`llms.txt`.** `Glob frontend/src/app/**/{robots,sitemap}.*` ⇒ 0; `frontend/public/` solo
+  tiene `branding/` (ningún `robots.txt`/`sitemap.xml`/`llms.txt`).
+- **El sitio sirve dos idiomas** `es`/`en` (`frontend/src/i18n/routing.ts:3`, `localePrefix:'always'`,
+  `localeDetection:false` ⇒ `/`→`/es` sin usar cookie de idioma), pero el aviso legal se muestra «solo en español»
+  (`privacidad/page.tsx:41`) ⇒ **/en es traducción PARCIAL**. Afecta a `hreflang` (P-MKT-2).
+
+#### MKT.1 Reglas de negocio que NO se negocian *(del brief + `HECHOS.md`; gobiernan todos los criterios de abajo)*
+1. **Precios SIEMPRE finales con IVA 16 % incluido y CON FECHA** en títulos, `og:`, JSON-LD (`priceValidUntil`),
+   fichas y `llms.txt`. Coherente con `HECHOS.md` fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA…»
+   y la convención «precio con IVA dentro» (§Q, §M10-IVA). El rótulo es «IVA incluido».
+2. **JAMÁS** se manda nombre, correo, teléfono o dirección como parámetro de evento (GA4 ni Meta). Si algún día se
+   usara `em`/`ph` en CAPI, hasheados SHA-256 y **solo** con consentimiento `ad_user_data`.
+3. **Nada del Card Show de diciembre antes del 27 oct 2026.** Ninguna página, JSON-LD `Event`, entrada de `sitemap`,
+   `llms.txt` ni perfil de Google lleva sede, fecha, patrocinador ni mención del evento antes del 27 oct (es secreto
+   hasta el 26 oct inclusive). *(Regla del dueño vía encargo del orquestador 2026-10-12; **NO LOCALIZADA** por el
+   product-owner como fila literal en `HECHOS.md` — `grep 'Card Show'|'27 oct'|'diciembre'` ⇒ 0 — se trata como regla
+   vigente del encargo, O-1.)*
+4. **«Disponible» solo con inventario y SIN imprimir la cantidad.** Texto «Disponible» únicamente si `availableCount>0`;
+   nunca se publica el número de piezas. `availableCount=0` ⇒ la ficha **sigue existiendo** sin «Disponible» y con
+   `availability: OutOfStock`.
+5. **Prohibidos los superlativos de precio en la copia de marca** («mejor precio», «pagamos más», «el más barato»):
+   no en títulos, descripciones, guías, FAQ ni `llms.txt`.
+6. **Sin publicidad (no Meta Ads).** El píxel A es **medición**: nada de audiencias, campañas ni conversiones
+   personalizadas de remarketing (`HECHOS.md` «nada de Meta Ads»; brief §1.2).
+
+#### MKT.2 Bloque 1 — Eventos de medición *(GA4 por GTM + Meta Pixel/CAPI)*
+- **900.** Se instala **un** contenedor web de Google Tag Manager y dentro **GA4**. Todo evento se empuja al `dataLayer`
+  y GTM lo reenvía a GA4 **y** a Meta. Ningún evento se dispara sin pasar por el estado de consentimiento (MKT.5).
+- **901. `view_item`** al renderizar la ficha de **carta** y la ficha de **sellado** (la nueva, criterio 917). Params:
+  `currency:"MXN"`, `value` = precio en pesos **con IVA**, decimal; `items:[{item_id:<card_id o representativeItemId>,
+  item_name, item_category:<set>, item_variant:"raw NM" | "graded <empresa> <grado>"}]`.
+- **902. `add_to_cart`** con los mismos `items`, `value` y `currency`.
+- **903. `purchase`**: `transaction_id:<order_id>`, `value` = total pagado **con IVA** en pesos, `currency:"MXN"`,
+  `shipping`, `tax`, `items[]`.
+- **904. `generate_lead`** = **cotización enviada** en `/es/buylist` (`POST /buylist/requests` con éxito), **no** el
+  cálculo instantáneo. Params: `lead_type:"buylist_quote"`, `n_cards` entero, `quoted_value_cents` entero (suma de
+  `quotedPriceCents`), `value` en pesos, `currency:"MXN"`, `quote_id`.
+- **905. `click_contact`** al clic de WhatsApp o Instagram/DM. Params: `contact_channel:"whatsapp"|"dm"`, `page_path`.
+- **906. Unidades:** `value` en pesos decimales (GA4); los `*_cents` enteros para informes. Se respeta MKT.1 regla 2
+  (nunca PII como parámetro).
+- **907. Conversiones en GA4:** se marcan `purchase`, `generate_lead` y `click_contact`.
+- **908. Dimensiones personalizadas (ámbito evento):** `card_id`, `external_id`, `set_name`, `product_type`,
+  `lead_type`, `contact_channel`, `first_utm_source`, `first_utm_medium`, `first_utm_campaign`, `first_utm_content`.
+- **909. Meta Pixel + Conversions API (opción A):** Pixel en el navegador vía GTM y los **mismos** eventos por CAPI
+  desde el servidor, con **`event_id` compartido** para deduplicar — `purchase:<order_id>`, `lead:<quote_id>`,
+  `view:<card_id>:<timestamp_min>`. Equivalentes Meta: `ViewContent`, `AddToCart`,
+  `Purchase(value,currency,content_ids,num_items)`, `Lead(value,currency,content_category:"buylist")`, `Contact`.
+  **Solo medición** (MKT.1 regla 6).
+- **910. CAPI de servidor:** incluye `event_source_url`, `action_source:"website"`, `client_user_agent`, y `fbp`/`fbc`
+  si existen. Nada de datos personales en claro.
+- **911. Secretos:** Pixel ID, token de CAPI y toda credencial viven en **variables de entorno**, nunca en el
+  repositorio, el chat ni los registros (`HECHOS.md` «El repositorio es PÚBLICO», `:19`).
+- **912. UTM de primera visita:** al primer `utm_*` visto, se guarda `{source,medium,campaign,content,landed_at}` en
+  una cookie propia **`th_first_utm`** (`SameSite=Lax`, 90 días, dominio apex) y **no se sobrescribe** (primer toque).
+  Es cookie **estrictamente necesaria** (se carga sin consentimiento; se lista en el aviso, MKT.5).
+- **913.** Ninguna redirección interna (307 `/`→`/es`, idioma, login, checkout) **pierde** la query: el `utm_*` se
+  reenvía intacto. *(Hoy `/`→`/es` existe por `localePrefix:'always'`, `routing.ts:9`; el criterio exige que conserve
+  la query.)*
+- **914.** Si el visitante crea cuenta o compra, los cuatro `first_utm_*` se copian a la **orden/cotización en BD**
+  (`first_utm_*`), para que `purchase` y `generate_lead` **de servidor** los lleven aunque la cookie muera.
+- **915.** `first_utm_*` se envía como parámetro en **todos** los eventos (navegador y servidor).
+- **916. Verificación (de punta a punta, O-4):** una URL de prueba por evento, visible en **GA4 DebugView** y en
+  **Test events de Meta**; cada evento aparece **una sola vez** (sin duplicado navegador/servidor) con sus params y
+  con `first_utm_*` cuando la URL llevó UTM.
+
+#### MKT.3 Bloque 2 — SEO
+- **917. Ficha pública de sellado** en `/es/catalog/sealed/<representativeItemId>` (hoy 404), alimentada por
+  `GET /api/v1/catalog/sealed/:inventoryItemId`. Muestra: nombre, set, «**desde MX$<precio> · IVA incluido · Precio al
+  <fecha>**», disponibilidad (texto «Disponible» **solo** si `availableCount>0`, **sin** cantidad — MKT.1 regla 4),
+  foto ≥1000 px, botón de compra y migas. Si `availableCount=0`, la ficha existe sin «Disponible» y con `OutOfStock`.
+- **918. Imagen social por producto:** `og:image` ≥1200×630 (foto sobre fondo de marca con nombre y precio con IVA; el
+  diseño del og:image es de ux-ui, ya referido en `docs/DESIGN_SYSTEM.md`), `og:title`, `og:description`,
+  `twitter:card=summary_large_image`. La lista `/es/catalog/sealed` enlaza a cada ficha.
+- **919. `generateMetadata` por ficha (carta y sellado).** `title`: «<Nombre> · <Set> <nº> · MX$<precio> IVA incluido
+  | TCG HUNT». **Sin precio en el title** cuando la carta no está a la venta (0 sellable): «<Nombre> · <Set> <nº> |
+  TCG HUNT». *(Hoy no existe: `catalog/[cardId]/page.tsx:1-10` no exporta metadatos.)*
+- **920. `meta description` ≤155 chars:** condición (NM/gradeada), «autenticidad y condición verificadas», «precio al
+  <AAAA-MM-DD>», y «envío a todo México» **solo si es cierto**.
+- **921. Formato de precio:** pesos con separador de miles, sin decimales si son `.00`, prefijo `MX$`, y siempre «IVA
+  incluido» (MKT.1 regla 1).
+- **922. JSON-LD en el HTML inicial** de la ficha de carta/sellado: `Product` { `name`, `image[]`, `description`,
+  `sku=card_id`, `brand:"Pokémon TCG"`, `offers: Offer` { `priceCurrency:"MXN"`, `price` con IVA, `availability`,
+  `priceValidUntil`=hoy+1 día, `itemCondition` (`NewCondition` para NM/sellado; gradeadas `UsedCondition` con el grado
+  en `description`), `seller: Organization` TCG HUNT, `url` canónica } }.
+- **923. `Organization`** en todas las páginas (`name`, `url:https://tcghunt.mx`, `logo`, `sameAs:[instagram]`,
+  `areaServed:MX`, `contactPoint` **solo canales reales**, P-MKT-3). **`BreadcrumbList`** en fichas, catálogo, guías y
+  preguntas. **⛔ Nada de JSON-LD `Event` antes del 27 oct 2026** (MKT.1 regla 3).
+- **924. `sitemap.xml`** (índice si hace falta) con portada, catálogo, fichas de carta a la venta, fichas de sellado,
+  `/guias/*`, `/preguntas`, `/como-funciona`, con `lastmod`. **`robots.txt`** que lo declara y bloquea solo
+  cuenta/carrito/checkout/admin/API. ⛔ El sitemap no lista ninguna URL del Card Show antes del 27 oct.
+- **925. `canonical`** absoluto a `https://tcghunt.mx/es/...`. **`hreflang`** `es-MX`/`en` + `x-default` **solo si
+  existe `/en` traducido** (P-MKT-2); si no, sin `hreflang`.
+- **926. DNS `www` → apex:** `www.tcghunt.mx` redirige 301 a `https://tcghunt.mx` (hoy `www` sin registro, estado
+  externo del brief; el alta del DNS es de devops).
+- **927. Contenido en el HTML inicial (SSR/ISR), no solo tras JS**; la ficha se revalida cuando cambie precio o stock
+  (ISR por `card_id`). Coherente con `HECHOS.md` 2026-10-04 (precio 1×/día; disponibilidad en vivo).
+- **928. `/guias`** con las 4 guías aprobadas (texto desde los captions de marketing que pasa el dueño, P-MKT-5): una
+  página por guía, `article` con `headline`, `datePublished`, `author:Organization`, imágenes de las láminas (PNG
+  2160×2700, fotos de carta del catálogo, **nunca arte generado**), sin fuentes externas impresas, sin precios salvo
+  con fecha. Rutas: `/guias/que-es-nm`, `/guias/carta-pirata-5-senales`, `/guias/como-guardar-tus-cartas`,
+  `/guias/que-es-una-sir`. Índice `/guias` enlazado desde el pie y las fichas; cada guía cierra con enlace a catálogo o
+  buylist **sin superlativos de precio** (MKT.1 regla 5).
+- **929. Google Business Profile** lo crea el dueño (no la tienda); la tienda **solo** lo enlaza en
+  `Organization.sameAs` cuando exista, **sin** dirección pública ni mención al Card Show antes del 27 oct.
+
+#### MKT.4 Bloque 3 — GEO
+- **930. `/como-funciona`:** una página, español MX, frases cortas comprobables, «**Última revisión: <fecha>**»
+  visible: bóveda; cotizador/buylist (solo compramos NM; lista→guía→autenticamos→transferimos); envío (zonas, plazos,
+  costo publicados); garantía «cada carta se revisa antes de publicarse: autenticidad y condición». ⛔ Sin «inversión»,
+  sin «va a subir». JSON-LD `WebPage` + `Organization`; `HowTo` opcional.
+- **931. `/preguntas`** con JSON-LD `FAQPage` cuyo `Question`/`acceptedAnswer` son **idénticos** al texto visible;
+  ≤300 palabras por respuesta; «Última revisión» visible; sin precios ni promesas.
+- **932. Arranque de `/preguntas` con estas 6 FAQ del brief §3.2** hasta que el community-manager entregue las suyas
+  (P-MKT-5): ¿Qué es NM y por qué solo compran NM? · ¿Cómo funciona la bóveda y cuándo se envía? · ¿Cómo sé que una
+  carta es original? · ¿Cómo vendo mis cartas (pasos y tiempos)? · ¿Qué métodos de pago y envío hay? · ¿Venden producto
+  sellado? (esta última solo si hay inventario de sellado).
+- **933. `llms.txt`** en `https://tcghunt.mx/llms.txt` (Markdown): qué es TCG HUNT (una línea), país y moneda, URLs
+  clave (`/es/catalog`, `/es/buylist`, `/guias`, `/preguntas`, `/como-funciona`), política de precios («precios finales
+  con IVA 16 % incluido, en MXN, actualizados a diario»), condición que compramos («solo NM»), contacto público. **Sin
+  datos del Card Show antes del 27 oct.** Cada dato citable lleva fecha en la página.
+
+#### MKT.5 Bloque 4 — Cookies, privacidad y medición de servidor
+- **934. Aviso de privacidad integral (LFPDPPP) reescrito** en `/privacidad`, enlazado en el pie de todas las páginas,
+  checkout y registro; aviso simplificado en los formularios. **Reemplaza** la frase medida hoy «No usamos cookies de
+  publicidad ni de analítica» (`privacidad.es.ts:249`): ahora declara las finalidades (venta, buylist, bóveda, envío,
+  **medición de uso**), las cookies y los terceros (**Google Analytics** y **Meta**, porque el píxel A los usa), los
+  derechos ARCO y el contacto. El **texto legal y la lista ARCO/contacto los redacta/aprueba el dueño** (su abogado);
+  la tienda lo publica (P-MKT-1). Se apoya en el borrador y el modo provisional de **§LEG.2 / §14.17**.
+- **935. Banner de consentimiento** (aceptar / rechazar / configurar) que **gobierna GTM**. **Consent Mode v2** con
+  defaults **`denied`** para `analytics_storage`, `ad_storage`, `ad_user_data`, `ad_personalization` **antes** de
+  cargar cualquier etiqueta; `update` al aceptar. GA4 y Meta respetan el estado. La elección se guarda 6 meses (cookie
+  propia).
+- **936. Cookies estrictamente necesarias** (sesión, carrito, **`th_first_utm`**) se cargan **sin** consentimiento y se
+  **listan** en el aviso. Ninguna etiqueta de analítica/publicidad carga con el estado en `denied`.
+- **937. Eventos de servidor (§4.3):** `purchase` y `generate_lead` también desde el backend al momento del éxito, por
+  **GA4 Measurement Protocol** (misma propiedad; `client_id` del navegador si llegó con consentimiento, si no un
+  `client_id` por orden sin persistir identidad) y por **Conversions API** con el **mismo `event_id`** del navegador
+  para deduplicar. Añaden `source:"server"`. Reintento con cola si no responden.
+- **938. Resultado medible (de punta a punta, O-4):** las compras y cotizaciones en GA4 **coinciden con la BD (±2 %)**
+  aunque el usuario rechace cookies; la atribución por UTM queda **solo** para quien aceptó.
+
+#### MKT.6 Dependencias y orden *(del brief; el orquestador decide los work streams)*
+1. **Bloque 1 (eventos + UTM) y bloque 4 (aviso + banner + Consent Mode) JUNTOS, en un mismo despliegue.** Es la
+   dependencia dura P-ANALYTICS-OPS: sin aviso reescrito y banner, GA4 no se enciende; y los eventos sin atribución no
+   sirven.
+2. **Bloque 2 (SEO):** fichas de carta y sellado con `og:`, JSON-LD y `sitemap.xml`; luego `/guias`.
+3. **Bloque 3 (GEO):** `/preguntas` y `/como-funciona` + `llms.txt`.
+4. **Eventos de servidor (§4.3 / criterios 937-938):** afinación, cuando 1 y 2 ya miden.
+
+#### MKT.7 Lo que marketing necesita de vuelta *(brief §5 — entregables, NO alcance a construir aquí)*
+- **Acceso de solo lectura al analista:** GA4 (cuenta de servicio, rol **Lector**) y Search Console (mismo correo como
+  **Usuario restringido** sobre la propiedad de dominio `tcghunt.mx`).
+- **IDs y secretos** (`GA4_PROPERTY_ID`, `GA4_SA_JSON`, `GTM_CONTAINER_ID`, Pixel ID, token CAPI): la tienda se los da al
+  **dueño**, que los carga como **secretos del entorno**. ⛔ **Nunca por chat ni en el repositorio** (`HECHOS.md:19`;
+  CLAUDE.md «Secretos»). El product-owner **no** pide credenciales (O-6).
+- **Una URL de prueba por evento** y la **fecha** desde la que los eventos están en producción.
+- **Confirmación por escrito** de: nombres de eventos tal cual §MKT.2; cookie `th_first_utm` y campos `first_utm_*` en
+  orden y cotización; rutas finales de §MKT.3/§MKT.4; fecha de publicación de `sitemap.xml` y `/privacidad`.
+
+#### MKT.8 Fuera de alcance de §MKT
+- **Campañas de Meta Ads, audiencias, remarketing y conversiones personalizadas** (el píxel A es solo medición).
+- **Hashear `em`/`ph` para CAPI** hoy: queda como regla para el día que se use (criterio 910), no se construye ahora.
+- **Reincorpora** el «banner de cookies» que §LEG dejó fuera (`PROJECT.md:10334`): a partir de §MKT **sí** está en
+  alcance (bloque 4), por decisión del dueño con el píxel A.
+- **El diseño del `og:image`**, el aviso legal definitivo y la arquitectura/contrato de eventos **no** se deciden aquí:
+  son de ux-ui, el dueño/abogado y el arquitecto, respectivamente.
+
+#### MKT.9 Preguntas abiertas — P-MKT-1…9 *(con default propuesto; las que necesitan al dueño van marcadas DUEÑO)*
+Están en la sección final **«Preguntas — medición, SEO, GEO y cookies (§MKT)»**: **P-MKT-1** a **P-MKT-9**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §MKT (medición, SEO, GEO y cookies)** *(2026-10-12)*: campañas/audiencias/remarketing/conversiones
+  personalizadas de Meta (el píxel A es solo medición); hashear `em`/`ph` para CAPI hoy (regla a futuro, criterio 910);
+  el diseño del `og:image` (ux-ui), el texto legal definitivo (dueño/abogado) y la arquitectura/contrato de eventos
+  (arquitecto). ⭐ **Nota:** §MKT **reincorpora** el «banner de cookies» que §LEG había dejado fuera (siguiente bullet):
+  por decisión del dueño con el píxel A, el banner **sí** entra. Detalle en **§MKT.8**.
 - **De §PRE (precios robustos)** *(2026-10-11)*: recalcular importes ya cobrados o pagados; cambiar margen, IVA, piso
   de MX$25 o la convención de precio; mover dónde se muestra el mercado; el «precio final a mano» (sigue mandando);
   contratar o pagar una fuente en vivo y la cadencia de 20 min (P-RP-2). Detalle en **§PRE.5**.
@@ -19579,3 +19783,54 @@ ese frente:**
   fuentes por variante que pasen el candado (si son dos, el promedio; si una, esa), descartando los disparos. Es
   robusto y fácil de explicar. El método fino lo decide el arquitecto, pero quería que sepas la idea: **gana el valor
   del medio, no el más alto**. §PRE.2.2, criterio 873.
+
+## Preguntas — medición, SEO, GEO y cookies (§MKT, 2026-10-12) — ABIERTAS, cada una con su valor por defecto
+
+> Lo que ya decidiste **no se pregunta**: **píxel opción A** (GA4 + Meta Pixel + Conversions API, **solo medición**,
+> sin campañas ni remarketing). Se aterriza el brief completo. **Si no contestas, se construye con el default de cada
+> una**, salvo las marcadas **(DUEÑO)**, que **bloquean** su pieza hasta que respondas (son texto legal o datos que
+> solo tú tienes). Referencia: §MKT, criterios 900–948.
+
+- **P-MKT-1 (DUEÑO) · El texto del aviso de privacidad reescrito y la lista de derechos ARCO/contacto.** Hoy tu aviso
+  dice por escrito «**No usamos cookies de publicidad ni de analítica**» (medido: `privacidad.es.ts:249`). Encender GA4
+  y Meta **obliga** a reescribirlo: hay que declarar **Google Analytics** y **Meta** como terceros que reciben datos,
+  la finalidad «medición de uso», y la sección de cookies y consentimiento. **El texto legal lo aprueba tu abogado**,
+  no el equipo. **Default:** partimos del borrador que ya tienes en **§LEG.2** (modo provisional, §14.17) y le
+  **añadimos** el párrafo de analítica/Meta y la sección de cookies; **no se publica hasta tu visto bueno**. ⚠️ Esto
+  bloquea el bloque 1 (los eventos no encienden sin el aviso reescrito y el banner). §MKT.5, criterio 934.
+- **P-MKT-2 (DUEÑO) · ¿Ponemos `hreflang` español/inglés?** Medimos que tu tienda **sirve las dos versiones** (`/es` y
+  `/en`, `routing.ts:3`), pero el **aviso legal se muestra «solo en español»** (`privacidad/page.tsx:41`) ⇒ el inglés
+  es **traducción parcial**. El `hreflang` le dice a Google «esta página tiene versión en inglés»; si el inglés no es
+  equivalente, confunde más que ayuda. **Default:** emitir `hreflang es-MX/en + x-default` porque ambos idiomas
+  existen; **si consideras que el `/en` no es contenido equivalente, lo omitimos** (el brief §2.4 lo permite). ¿Lo
+  dejamos puesto? §MKT.3, criterio 925.
+- **P-MKT-3 (DUEÑO) · ¿Qué canales de contacto son reales y públicos?** El evento `click_contact` y el bloque
+  `Organization` (JSON-LD) necesitan canales **ciertos**: ¿número de **WhatsApp**? ¿cuenta de **Instagram**? **Default:**
+  usamos únicamente los que ya aparecen en el pie/contacto de la tienda; **no inventamos ninguno** y no publicamos un
+  canal que no atiendas. Dinos cuáles van. §MKT.2 (criterio 905), §MKT.3 (criterio 923).
+- **P-MKT-4 (DUEÑO) · Los IDs y secretos de medición.** Para encender todo hacen falta: `GTM_CONTAINER_ID`,
+  `GA4_PROPERTY_ID`, el **Pixel ID** de Meta y el **token de CAPI** (y, para que el analista lea, `GA4_SA_JSON`). **Los
+  creas tú y los cargas como variables de entorno**; ⛔ **nunca nos los pases por chat ni los pongas en el repositorio**
+  (es público). No te pedimos ningún valor aquí: solo avísanos cuando estén cargados. §MKT.2 (criterio 911), §MKT.7.
+- **P-MKT-5 · El texto de las 4 guías y las FAQ definitivas.** Las **guías** salen de los captions que pasa tu equipo de
+  marketing; las **FAQ** las marca el community-manager. **Default:** arrancamos `/preguntas` con las **6 FAQ del brief
+  §3.2** (criterio 932) y `/guias` con las **4 rutas aprobadas** (criterio 928); cuando marketing entregue el texto
+  final, lo sustituimos. ¿Avanzamos así? §MKT.3, §MKT.4.
+- **P-MKT-6 · ¿Listamos a Meta en el aviso aunque sea «solo medición»?** Aunque no haya campañas, el píxel A usa estados
+  de consentimiento de publicidad (`ad_storage`, `ad_user_data`) y manda datos a Meta por CAPI. **Recomendación: sí**,
+  se lista a Meta como tercero en el aviso y el banner — es lo transparente y lo que pide Consent Mode v2. §MKT.5,
+  criterios 934–935.
+- **P-MKT-7 · ¿El banner de cookies bloquea la tienda hasta que el cliente elija?** **Recomendación: no bloquear.** La
+  tienda carga normal con Consent Mode v2 en **`denied`** por defecto (no se dispara ninguna etiqueta de analítica ni
+  Meta hasta que acepten); el banner es visible pero no tapa la compra, y las cookies estrictamente necesarias (sesión,
+  carrito, `th_first_utm`) funcionan sin consentimiento. Así no perdemos ventas por un banner. §MKT.5, criterios
+  935–936.
+- **P-MKT-8 · La cookie `th_first_utm` dura 90 días; ¿te sirve?** Guarda de dónde llegó el visitante (Instagram, etc.)
+  en su **primera** visita y **no se sobrescribe**, para atribuir una compra o cotización a esa campaña aunque pase
+  tiempo. **Recomendación: 90 días** (el estándar del brief §1.3). Es un dial; dinos si prefieres otro. §MKT.2,
+  criterio 912.
+- **P-MKT-9 · ¿Algo del brief choca con tu tienda hoy?** Dos cosas medidas que conviene que sepas, ninguna bloquea:
+  **(a)** la ficha de sellado `/es/catalog/sealed/<id>` **hoy da 404** aunque la API responde (`catalog.controller.ts:110`)
+  — la construimos (criterio 917); **(b)** este frente **revierte** una decisión previa: en §LEG habíamos dejado el
+  **banner de cookies «fuera de alcance»** (`PROJECT.md:10334`), y ahora **entra** porque tú aprobaste el píxel A. Si
+  esto último no es lo que querías, dilo y lo frenamos. §MKT.0, §MKT.8.
