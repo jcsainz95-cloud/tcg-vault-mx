@@ -22,11 +22,15 @@ export class ResendMailAdapter implements MailPort {
 
   async send(msg: MailMessage): Promise<{ id?: string }> {
     const { data, error } = await this.resend.emails.send({
-      from: this.from,
+      // ⭐ v1.93⟨cardshow⟩ (§CARDSHOW.9): `from` POR MENSAJE si viene (subdominio propio de la landing);
+      // si no, el `from` de construcción (el cuerpo de hoy, bit a bit).
+      from: msg.from && msg.from.trim().length > 0 ? msg.from : this.from,
       to: msg.to,
       subject: msg.subject,
       html: msg.html,
       text: msg.text,
+      // ⭐ v1.93⟨cardshow⟩ (§CARDSHOW.9): cabeceras extra (List-Unsubscribe + -Post) si vienen; si no, ninguna.
+      ...(msg.headers && Object.keys(msg.headers).length > 0 ? { headers: msg.headers } : {}),
       // ⭐ rev BSD-1 (§BSD.8.2): el SDK fijado (`resend` 4.8.0) acepta `attachments: { filename, content: Buffer, contentType }[]`
       // (leído en sus tipos, NM-5 por lectura; el correo de prueba a una cuenta del equipo sigue NO MEDIDO). Sin adjuntos ⇒ la
       // clave no viaja (el cuerpo de hoy, bit a bit).

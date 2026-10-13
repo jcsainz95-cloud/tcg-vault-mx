@@ -22,6 +22,11 @@ import {
   AccessoryLineKind,
   AccessoryLineStatus,
   AccessoryStockMovementKind,
+  CardShowLeadType,
+  CardShowLeadStatus,
+  CardShowLeadSource,
+  CardShowDay,
+  CardShowSignupStatus,
 } from '@prisma/client';
 
 /**
@@ -172,3 +177,14 @@ export const ENERGY_TYPE_VALUES = Object.values(EnergyType);
 export const ACCESSORY_LINE_KIND_VALUES = Object.values(AccessoryLineKind);
 export const ACCESSORY_LINE_STATUS_VALUES = Object.values(AccessoryLineStatus);
 export const ACCESSORY_STOCK_MOVEMENT_KIND_VALUES = Object.values(AccessoryStockMovementKind);
+
+// v1.93⟨cardshow⟩ (M-78, API_CONTRACT §CARDSHOW.1): los CINCO enums de la landing del Card Show — clase **E**
+// (el dominio entero es la regla: `type`/`source` del DTO, `day` del torneo, y los filtros `?status=`/`?type=`/
+// `?day=` del panel). ⚠️ El DEFECTO del filtro `?status=` ⛔ nunca incluye `pending` (§CARDSHOW.15), pero su
+// DOMINIO válido sí es el enum completo (una fila de cualquier estado tiene que poder filtrarse a propósito).
+// Tres bandas en `test/enum-values-parity.spec.ts`.
+export const CARD_SHOW_LEAD_TYPE_VALUES = Object.values(CardShowLeadType);
+export const CARD_SHOW_LEAD_STATUS_VALUES = Object.values(CardShowLeadStatus);
+export const CARD_SHOW_LEAD_SOURCE_VALUES = Object.values(CardShowLeadSource);
+export const CARD_SHOW_DAY_VALUES = Object.values(CardShowDay);
+export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus);

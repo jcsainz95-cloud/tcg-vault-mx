@@ -32,6 +32,8 @@ import { AccessoriesModule } from './modules/accessories/accessories.module';
 import { JobsModule } from './jobs/jobs.module';
 // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH): lista de deseos, aviso «ya la tenemos» y lista de compra del dueño.
 import { WishlistModule } from './modules/wishlist/wishlist.module';
+// v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW): landing del Card Show — captura pública, doble opt-in y anti-abuso.
+import { CardShowModule } from './modules/card-show/card-show.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
@@ -71,6 +73,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     AccessoriesModule,
     JobsModule,
     WishlistModule,
+    CardShowModule,
   ],
   providers: [
     // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero

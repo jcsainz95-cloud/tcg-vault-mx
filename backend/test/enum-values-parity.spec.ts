@@ -26,6 +26,11 @@ import {
   AccessoryLineKind,
   AccessoryLineStatus,
   AccessoryStockMovementKind,
+  CardShowLeadType,
+  CardShowLeadStatus,
+  CardShowLeadSource,
+  CardShowDay,
+  CardShowSignupStatus,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -51,6 +56,11 @@ import {
   ACCESSORY_LINE_KIND_VALUES,
   ACCESSORY_LINE_STATUS_VALUES,
   ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
+  CARD_SHOW_LEAD_TYPE_VALUES,
+  CARD_SHOW_LEAD_STATUS_VALUES,
+  CARD_SHOW_LEAD_SOURCE_VALUES,
+  CARD_SHOW_DAY_VALUES,
+  CARD_SHOW_SIGNUP_STATUS_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
@@ -164,6 +174,15 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   AccessoryLineKind: ['accessory', 'energy_bundle'],
   AccessoryLineStatus: ['released', 'reserved', 'restocked', 'sold'],
   AccessoryStockMovementKind: ['adjust', 'initial', 'receive', 'restock', 'sale', 'settle_recovery'],
+  // v1.93⟨cardshow⟩ (M-78, API_CONTRACT §CARDSHOW.1): los CINCO enums de la landing. Decidido al añadirlos
+  // (las tres preguntas): (1) el dominio entero ES la regla (DTO + filtros del panel); (2) sin lista de negocio
+  // propia (el DEFECTO del filtro que oculta `pending` es una regla de PRESENTACIÓN, no un recorte de enum);
+  // (3) sin calibración de precio por valor (no toca dinero).
+  CardShowLeadType: ['merchant', 'sponsor', 'visitor'],
+  CardShowLeadStatus: ['closed', 'contacted', 'discarded', 'new', 'pending'],
+  CardShowLeadSource: ['cta_hero', 'cta_mesas', 'cta_patrocinio', 'header'],
+  CardShowDay: ['sat', 'sun'],
+  CardShowSignupStatus: ['cancelled', 'checked_in', 'confirmed', 'pending', 'waitlist'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -191,6 +210,11 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   AccessoryLineKind,
   AccessoryLineStatus,
   AccessoryStockMovementKind,
+  CardShowLeadType,
+  CardShowLeadStatus,
+  CardShowLeadSource,
+  CardShowDay,
+  CardShowSignupStatus,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -218,6 +242,11 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   AccessoryLineKind: ACCESSORY_LINE_KIND_VALUES,
   AccessoryLineStatus: ACCESSORY_LINE_STATUS_VALUES,
   AccessoryStockMovementKind: ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
+  CardShowLeadType: CARD_SHOW_LEAD_TYPE_VALUES,
+  CardShowLeadStatus: CARD_SHOW_LEAD_STATUS_VALUES,
+  CardShowLeadSource: CARD_SHOW_LEAD_SOURCE_VALUES,
+  CardShowDay: CARD_SHOW_DAY_VALUES,
+  CardShowSignupStatus: CARD_SHOW_SIGNUP_STATUS_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {

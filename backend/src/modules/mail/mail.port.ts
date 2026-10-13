@@ -21,6 +21,17 @@ export interface MailMessage {
   html: string;
   text: string;
   attachments?: MailAttachment[];
+  /**
+   * ⭐ v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.9, C3): remitente POR MENSAJE. El Card Show manda desde
+   * su SUBDOMINIO de envío propio (`CARD_SHOW_MAIL_FROM`), distinto del `From` general de la tienda.
+   * Ausente ⇒ el adaptador usa su `from` de construcción (el cuerpo de hoy, bit a bit).
+   */
+  from?: string;
+  /**
+   * ⭐ v1.93⟨cardshow⟩ (§CARDSHOW.9): cabeceras extra (p. ej. `List-Unsubscribe` + `List-Unsubscribe-Post`,
+   * RFC 8058). Ausente ⇒ sin cabeceras extra (comportamiento previo, byte a byte).
+   */
+  headers?: Record<string, string>;
 }
 
 export interface MailPort {

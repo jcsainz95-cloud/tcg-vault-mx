@@ -835,6 +835,16 @@ export const ErrorCode = {
   WISHLIST_LIMIT_REACHED: 'WISHLIST_LIMIT_REACHED',
   // 404 — `POST /wishlist/mail-actions`: token que no cuadra o `id` inexistente (⛔ no distingue cuál). Sin `details`.
   WISHLIST_LINK_INVALID: 'WISHLIST_LINK_INVALID',
+
+  // ── v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW) — landing del Card Show ──────────────────────────────────────────────
+  // 413 — cuerpo del POST de la landing > 4 KB (§CARDSHOW.11.v). Sin `details`.
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+  // 400 — token de formulario caducado (> 2 h desde `iat`, §CARDSHOW.5). El front pide otro y reintenta una vez.
+  FORM_EXPIRED: 'FORM_EXPIRED',
+  // 410 — token de enlace (confirmar/cancelar/baja) YA usado (§CARDSHOW.6). ⛔ No distingue de inexistente.
+  LINK_ALREADY_USED: 'LINK_ALREADY_USED',
+  // 400 — token de enlace inválido / alterado / de otro propósito / id de otra fila (§CARDSHOW.6). Sin `details`.
+  LINK_INVALID: 'LINK_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

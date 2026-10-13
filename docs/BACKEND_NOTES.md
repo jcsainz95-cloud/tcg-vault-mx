@@ -32335,3 +32335,101 @@ variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
 
 **NO MEDIDO:** las propiedades HTTP de C-EQ-1 (gate de QA, DB) y la confirmación del `FX_EUR_SERIES_ID` con token
 (TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.
+
+---
+
+## §CARDSHOW — Landing del Card Show (v1.93⟨cardshow⟩, M-78) — backend Fase 1
+
+> Medido 2026-10-13, rama `feat/event-landing`. Contrato: `API_CONTRACT §CARDSHOW`. Diseño: `ARCHITECTURE §4.CARDSHOW`.
+> ⛔ SECRETO: ningún dato real del evento en el código (estructura, no valores). Los valores entran por entorno,
+> fuera del repo. PII · SIN DINERO · SIN Stripe.
+
+### Qué se construyó (`backend/src/modules/card-show/`)
+- **M-78** (`prisma/migrations/20261103120000_m78_card_show_landing/`): 3 tablas (`CardShowLead`,
+  `CardShowPlayerSignup`, `CardShowClick`) + 5 enums. **Solo CREATE.** El índice único **parcial**
+  `card_show_signup_player_day_active (playerId, day) WHERE status IN ('confirmed','waitlist','checked_in')` va
+  LITERAL en `migration.sql` (el DSL de Prisma no lo expresa). Numeración: la última en la rama era **M-76**
+  (`20261029120000`); **M-77 la reservó §MKT** (rama `claude/traspaso-s9`, sin fusionar) ⇒ M-78 no choca (Glob
+  2026-10-13). Reversa documentada (DROP de 3 tablas + 5 tipos), NO automática.
+- **Enums en paridad a 3 bandas**: añadidos a `schema.prisma`, derivados en `common/enum-values.ts`
+  (`CARD_SHOW_*_VALUES`) y registrados en `test/enum-values-parity.spec.ts`. Las líneas canónicas del contrato
+  (§Enums 8582-8586) ya existían ⇒ la banda-3-universal pasa sin tocar el contrato.
+- **Endpoints** (`card-show.controller.ts` público + `card-show-admin.controller.ts` super_admin): todos los de
+  §CARDSHOW.2. Throttle por IP (C7) en el controlador (necesita `req.ip` + `Retry-After`); el resto del
+  anti-abuso en servicios.
+- **Anti-abuso**: `card-show-ip.util.ts` (clave `req.ip`, IPv6 /64), `card-show-tokens.service.ts` (token de
+  formulario + token de enlace HMAC, secretos DISTINTOS, fail-closed en no-local + efímero por proceso en arnés),
+  `card-show-counter.store.ts` (Redis+memoria con reloj inyectable: throttle, presupuesto, topes, banderas),
+  `card-show-throttle.service.ts` (5/min+20/h+60/min global; 30/h form-token; 30/min confirm; fail-OPEN a la
+  segunda red), `card-show-budget.service.ts` (C1, 50 %/corte, **fail-CLOSED**, reinicio 00:00 CDMX),
+  `card-show-mailbox-caps.service.ts` (C2: 2/campaña ≥24h sin confirmar, 4/24h confirmado, 20/24h dominio,
+  ≤10/h internos, 4 playerId/buzón/día), `card-show-webhook.service.ts` (C6: firma Svix + corte ≥2 quejas/≥10
+  rebotes), `body-size.guard.ts` (413 > 4 KB), DTOs estrictos (`StrictBodyPipe`).
+- **Correo (C3)**: `card-show-mail.service.ts` con asunto fijo, Player ID solo «terminado en NNNN» (⛔ nunca
+  `playerName`), validación MX antes de enviar, `List-Unsubscribe(+Post)`.
+
+### Decisiones de implementación relevantes para otros roles
+- **`MailMessage` ganó `from?` y `headers?` (aditivos, opcionales)** en `mail/mail.port.ts` + `ResendMailAdapter`:
+  la landing manda desde su **subdominio propio** (`CARD_SHOW_MAIL_FROM`, variable de entorno, ⛔ no hardcodeado)
+  con `List-Unsubscribe`. Sin esos campos el cuerpo de los demás correos es **byte a byte el de hoy** (spread
+  condicional). **devops**: declarar `CARD_SHOW_MAIL_FROM`, SPF/DKIM/DMARC del subdominio y el webhook de Resend.
+- **`body-parsers.ts`** captura `rawBody` para `/api/v1/card-show/webhooks/resend` (igual que Stripe): la firma
+  Svix se verifica sobre el cuerpo EXACTO.
+- **Variables de entorno** (§CARDSHOW.16, las cablea devops): `CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET`
+  (⚠️ **DISTINTOS entre sí**, ⛔ nunca en el repo), `CARD_SHOW_CONFIRM_BUDGET_HOUR` (150), `..._DAY` (600),
+  `CARD_SHOW_ALERT_EMAIL`, `CARD_SHOW_SUPPRESS_UNTIL` (valor FUERA del repo), `TRUST_PROXY_HOPS` (1, ya en
+  `trust-proxy.ts`), `CARD_SHOW_MAIL_FROM`, `CARD_SHOW_PUBLIC_BASE_URL`, `CARD_SHOW_TOURNAMENT_CAP_PER_DAY`
+  (dato de Jakomi; vacío ⇒ sin cupo ⇒ no se recorta), `CARD_SHOW_RESEND_WEBHOOK_SECRET` (`whsec_…`).
+- **frontend**: el POST de los formularios manda el `formToken` (de `GET /card-show/form-token?purpose=leads|players`)
+  en el cuerpo; el honeypot es el campo opcional **`website`** (con valor ⇒ el backend descarta en silencio, 202);
+  `day='both'` en el cuerpo de `/players` ⇒ el backend crea 2 filas (sat+sun) y 1 envío. La página de
+  confirmar/cancelar/baja la sirve HOY el **backend** (API) con un botón que hace el POST (C4): el GET ⛔ no muta.
+
+### Pruebas (unitarias, corren con `npm test`, SIN base de datos) — proporción medida
+`npx jest test/card-show.*` + `test/enum-values-parity.spec.ts` ⇒ **244/244 verdes** (medido 2026-10-13):
+- mailbox (canonicalización C2), ip (/64, C7), tokens (formulario + enlace, 1 byte/propósito/caducidad),
+  throttle (5/min, 20/h, 60/min global, 30/h, 30/min — con reloj simulado), presupuesto (HOUR=10/DAY=20: 10
+  envíos + corte 11.º + 1 alerta 50 % + 1 corte; **fail-closed** con Redis que lanza), topes por buzón (t0,
+  t0+25h, t0+50h ⇒ **2 envíos**; 4/24h; 20/24h; ≤10/h; 4 playerId/buzón/día), cupo (assignOnConfirm), CSV
+  (anti-inyección de fórmulas, sin IP), validación (type=ADMIN/email 300/playerName dígitos·@·<·http/playerId
+  letras·13 dígitos/consent false·ausente/utm `<script>` ⇒ 400; honeypot y day=both ⇒ pasan), plantilla C3
+  (asunto fijo, 0 utm/wa.me/mailto, solo hrefs del dominio propio, Player ID last4, List-Unsubscribe), webhook
+  (firma Svix válida/alterada/sin secreto; corte ≥2 quejas/≥10 rebotes). `tsc` limpio; app arranca
+  (`app.module.spec` **verde**); PRIV-4 (pie de privacidad) **verde**.
+
+### Qué quedó FUERA de Fase 1 backend (necesita base de datos ⇒ gate de QA en integración)
+Los criterios §13 de **punta a punta contra Postgres** no se miden en la suite unitaria: el flujo completo
+`POST /leads`→PENDING→correo→`POST confirm`→`new`, la **reserva atómica del cupo** (2 CONFIRMED + 1 WAITLIST,
+nunca 3, bajo confirmaciones simultáneas — implementada con `$transaction` Serializable + índice único parcial;
+**NO MEDIDO** la proporción bajo carrera real, la mide QA), la respuesta neutra byte-a-byte **con tiempo**
+(mediana de 20, ≤100 ms), la caducidad que borra la fila (7 d/72 h — **no hay job de barrido todavía**, ver
+abajo), y el panel/CSV contra filas reales. Scaffolding listo; QA los ejecuta con el stack arriba.
+
+### Pendientes y HUECOS DEL CONTRATO para el arquitecto (regla 9 — ⛔ no los "arreglé")
+1. **C3 «⛔ Sin imágenes remotas» ↔ `mailShell` (§31/PRIV-4).** El esqueleto de marca compartido —que PRIV-4
+   OBLIGA a usar en todo HTML de correo y que trae el pie de aviso de privacidad legalmente requerido— **incluye
+   un logo remoto** (`MAIL_MIRA_URL`, dominio propio `tcghunt.mx`). No se puede cumplir «cero imágenes remotas»
+   **y** PRIV-4 a la vez. Resolví a favor de PRIV-4 + pie legal (el logo es del dominio propio, ⛔ no un píxel de
+   rastreo 1×1). **Decisión del arquitecto**: ¿variante del shell sin logo para la landing, o se acepta el logo
+   propio y se matiza C3 a «sin píxel de rastreo / sin terceros»?
+2. **«No fui yo» (supresión, §CARDSHOW.8) no tiene endpoint/propósito propio** en la tabla de §CARDSHOW.2 (solo
+   `confirm`/`cancel`/`unsubscribe`). Lo implementé sobre `POST /unsubscribe`: para un lead pone
+   `unsubscribedAt` + `suppressedUntil` (= supresión de buzón). La «baja» pura y la «supresión» quedan unificadas
+   en ese endpoint. ¿El arquitecto quiere un propósito `suppress` disjunto, o confirma esta unificación?
+3. **Supresión «guarda solo mailboxHmac» pero `CardShowLead.email` es NOT NULL.** Hoy conservo la fila del lead
+   con su `email` normalizado + `suppressedUntil` (no borro la fila). El contrato dice «borra la fila, guarda solo
+   mailboxHmac». Para cumplirlo literal haría falta o una tabla de supresión (solo `mailboxHmac`) o blanquear
+   `email`. ¿Tabla nueva en un M-79, o se acepta conservar la fila marcada `discarded`+`suppressedUntil`?
+4. **Caducidad 7 d/72 h que BORRA la fila PENDING**: requiere un **job de barrido** (scheduler). No está en Fase 1
+   (no hay cron nuevo). ¿Va en este stream o en uno de jobs? Lo dejo anotado; sin él, las PENDING caducadas
+   persisten (no cuentan en panel/CSV porque el filtro excluye `confirmedAt IS NULL`, así que el efecto visible
+   es nulo salvo el espacio).
+5. **Alertas del presupuesto (50 %/corte/fail-closed)**: en Fase 1 queda **1 `AuditLog` por evento**; el **correo**
+   a `CARD_SHOW_ALERT_EMAIL` lo dispara el monitor/operador a partir del AuditLog. ¿El arquitecto quiere el envío
+   del correo de alerta dentro del request (best-effort) o por el canal de observabilidad existente?
+6. **`guardianName` del tutor**: el formulario lo captura (RONDA_0 §6) pero el modelo del contrato
+   (`CardShowPlayerSignup`) ⛔ no tiene columna para él; el DTO lo acepta (validado) pero **no se persiste**.
+   ¿Se añade columna (M-79) o se confirma que no se guarda?
+
+### Numeración / rama
+HEAD base de la rama: `9947f91` (contrato+arquitectura del Card Show). Commits del backend a continuación.
