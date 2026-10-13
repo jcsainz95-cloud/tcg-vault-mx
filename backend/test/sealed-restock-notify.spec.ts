@@ -70,6 +70,9 @@ const sub = (over: any) => ({
 });
 const piece = (over: any) => ({
   id: 'i1',
+  // ⭐ v1.94.1⟨sellado-display⟩ (D-2): el `select` de piezas vendibles trae `productType` para el discriminante
+  // del resolutor único; la consulta real filtra `productType='sealed'`, así que la pieza del fixture lo es.
+  productType: 'sealed',
   tcgplayerProductId: 100,
   cardId: 'c1',
   sealedSubtype: 'box',

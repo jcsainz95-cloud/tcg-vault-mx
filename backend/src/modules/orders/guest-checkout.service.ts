@@ -870,7 +870,7 @@ export class GuestCheckoutService {
       items: order.items.map((oi) => ({
         // §4.34a.2 — para un sellado, el nombre es el del `SealedProduct` (resolutor único), NUNCA el
         // ancla. `number` es del ancla y el front NO lo muestra para sellado (contrato §4-G, forma
-        // del DTO sin cambio). La imagen se queda por join en vivo (clase P, §5.2.3).
+        // del DTO sin cambio).
         name: pieceDisplayIdentityOf(oi.inventoryItem).name,
         setName: oi.inventoryItem.card.set?.name ?? '',
         number: oi.inventoryItem.card.number,
@@ -880,7 +880,10 @@ export class GuestCheckoutService {
         sealedSubtype: oi.inventoryItem.sealedSubtype ?? undefined,
         gradingCompany: oi.inventoryItem.gradingCompany ?? undefined,
         gradeValue: oi.inventoryItem.gradeValue ?? undefined,
-        imageSmallUrl: oi.inventoryItem.card.imageSmallUrl ?? undefined,
+        // ⭐ v1.94.1⟨sellado-display⟩ (§4.34a.2(E) escape #2) — la IMAGEN también por el resolutor: un
+        // sellado con `sealedImageUrl` muestra el arte de la CAJA (→ ancla → null), no el del single.
+        // Imagen = clase P resuelta en lectura (§5.2.3); se conserva la convención «ausente, no null».
+        imageSmallUrl: pieceDisplayIdentityOf(oi.inventoryItem).imageSmallUrl ?? undefined,
         unitPriceCents: oi.unitPriceCents,
         // v1.80 (§M4-SHIP.10): la carta que no salió y se devolvió — solo filas aceptadas por Stripe. ⛔ Sin actor,
         // `failureCode` ni componentes.

@@ -24,6 +24,7 @@ import { MissingReason, PaymentRefund, PaymentRefundKind, Prisma, Role, ShippedR
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/business.exception';
 import { RefundComponents } from '../../../common/money';
+import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { MAIL_PORT, MailPort } from '../../mail/mail.port';
 import { StripeService } from '../stripe.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -519,7 +520,10 @@ export class RefundLedgerService {
           orderItem: { select: { cardSnapshot: true } },
           // 💰 v1.86⟨accesorios⟩ (§AC.10 (5)): el correo nombra el accesorio y la cantidad («Penny sleeves ×1»).
           orderAccessoryLine: { select: { kind: true, snapshot: true, deckName: true } },
-          replacementCase: { select: { customerUserId: true, originalInventoryItem: { select: { card: { select: { name: true, set: { select: { name: true } } } } } } } },
+          // ⭐ v1.94.1⟨sellado-display⟩ (§4.34a.2(E) escape #3) — se ensancha `originalInventoryItem` con las
+          // columnas de sellado (`productType`/`sealedProductId`/`sealedProductName`/`sealedImageUrl`) para que
+          // el resolutor único resuelva el nombre de un sellado y JAMÁS caiga al `card.name` del single ancla.
+          replacementCase: { select: { customerUserId: true, originalInventoryItem: { select: { productType: true, sealedProductId: true, sealedProductName: true, sealedImageUrl: true, card: { select: { name: true, imageSmallUrl: true, set: { select: { name: true } } } } } } } },
           order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true, createdAt: true } },
           shipmentRequest: { select: { id: true, userId: true } },
         },
@@ -549,11 +553,14 @@ export class RefundLedgerService {
           .filter((r) => AV12_CARD_KINDS.includes(r.kind))
           .map((r) => {
             const facts = r.orderItem ? readFrozenCardFacts(r.orderItem.cardSnapshot) : null;
-            const fromCase = r.replacementCase?.originalInventoryItem.card;
+            const fromCaseItem = r.replacementCase?.originalInventoryItem ?? null;
+            // §4.34a.2 — para un sellado, el nombre sale del `SealedProduct` (resolutor único), NUNCA del
+            // single ancla. `setName` sí sigue del set del ancla (pertenencia legítima). Forma de AV-12 sin cambio.
+            const fromCaseName = fromCaseItem ? pieceDisplayIdentityOf(fromCaseItem).name : null;
             const accessory = r.orderAccessoryLine ? accessoryRefundNameOf(r.orderAccessoryLine, r.accessoryQty ?? 1, recipient.locale) : null;
             return {
-              name: accessory ?? facts?.name ?? fromCase?.name ?? '',
-              setName: facts?.setName ?? fromCase?.set?.name ?? null,
+              name: accessory ?? facts?.name ?? fromCaseName ?? '',
+              setName: facts?.setName ?? fromCaseItem?.card?.set?.name ?? null,
               reason: r.missingReason ?? r.deliveredReason ?? null,
               amountCents: r.amountCents,
             };

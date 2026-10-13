@@ -13,6 +13,34 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-13 · stream «sellado-display» (errata v1.94.1⟨sellado-display⟩, rama `fix/sealed-display`)
+
+> Cierre del bug de display del sellado (ARCHITECTURE §4.34a.2, API_CONTRACT v1.94.1). Se unificaron las 4 copias
+> divergentes de la cascada de display al resolutor único `pieceDisplayIdentityOf` y se cerraron los 3 escapes
+> aliaseados que cazaron QA/techlead. **Dos cosas van en el registro: una CERRADA y una NO MEDIDA.**
+
+### SD-D1 · CERRADA (2026-10-13) · La cascada de display de sellado vivía COPIADA en 4 servicios (causa raíz, D-2)
+- **Qué era:** `vault.service.ts` (`resolveSealedDisplay`), `sealed-catalog.service.ts`, `sales-analytics.service.ts` y
+  `sealed-restock-notify.service.ts` repetían a mano `sealedProductName ?? card.name`, cayendo al `card.name` del single
+  **ancla** como último recurso del NOMBRE (dos de ellas de cara al cliente). Era la misma clase «regla copiada» que dejó
+  la zona de pedido fuera de la cascada y parió el bug «Exeggcute».
+- **Cómo se cerró:** las cuatro consumen ahora `pieceDisplayIdentityOf` (zona compartida, `common/`). Conducta normada:
+  sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla. Behavior-neutral en producción (esas superficies
+  siempre traen `sealedProductName`); solo se elimina el fallback latente. Canario: `vault.holdings-sealed-identity.spec.ts`
+  (reintroducir `?? card.name` lo pone rojo).
+- **Estado:** **ninguna deuda de divergencia de esta clase queda viva.** Se registra como CERRADA, no como pendiente.
+
+### SD-D2 · NO MEDIDO (owner: OPERACIÓN/CAPTURA, no backend) · Piezas selladas vivas sin identidad propia (§4.34a.1)
+- **Qué es:** el resolutor rinde «Sellado sin identificar» para una pieza `productType='sealed'` que no tiene **ni**
+  `sealedProductId` **ni** `sealedProductName` (ni vivo ni snapshot). Es la conducta SEGURA (⛔ jamás el ancla), pero si
+  hay piezas así, el operador/cliente ve el genérico en vez del nombre real de la caja.
+- **Cuántas hay: NO MEDIDO.** El conteo es el de §4.34a.1 (piezas selladas vivas con `sealedProductId IS NULL` **y**
+  `sealedProductName IS NULL`). **No es un defecto de software:** el resolutor hace lo correcto. El arreglo, si el conteo
+  da > 0, es **identidad TECLEADA en M1** (trabajo de captura/operación), no código.
+- **Dueño:** **operación/captura** (no backend). **Severidad:** baja; money-safe (solo display).
+- **Disparador:** correr el conteo de §4.34a.1; si > 0, enrutar esas piezas a captura para teclear su `SealedProduct`.
+  Backend no tiene nada que hacer aquí salvo, si se quisiera, exponer el conteo como una métrica de operación.
+
 ## Backend · 2026-10-05 · stream «Precio del sellado» — gate del techlead sobre `4f367aea` (rama `claude/precio-sellado`)
 
 > Deuda **no bloqueante** señalada por el techlead (APROBADO CON CONDICIONES; las condiciones están cerradas). Las

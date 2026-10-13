@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { UNIDENTIFIED_SEALED_NAME } from '../src/common/piece-display-identity';
 
 /**
  * v1.42 (BLOQ-2a, §4.34a) — `GET /vault/holdings` pinta el SELLADO con su identidad real (mata «Tropius»
@@ -96,14 +97,20 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
     expect(res.portfolio.totalValueMxnCents).toBe(92681);
   });
 
-  it('sellado legacy sin snapshot → cascada cae a Card.name/imagen ancla (nunca null en el nombre)', async () => {
+  // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — el resolutor único NUNCA cae al `card.name` del ancla para el NOMBRE:
+  // un sellado sin nombre resoluble pinta «Sellado sin identificar» (misma doctrina que §4.34a.1 — ante un «no
+  // sé» no se pinta un valor que parezca bueno). La IMAGEN sí tiene cola de ancla aceptada (clase P, §5.2.6):
+  // la caja no sale mal rotulada por no tener su foto, solo sin foto propia. Este `it` es ahora el CANARIO del
+  // resolutor: reintroducir `?? card.name` en el nombre lo pone rojo.
+  it('sellado sin snapshot → nombre «Sellado sin identificar» (JAMÁS el ancla); imagen cae al ancla (cola aceptada)', async () => {
     const { svc } = makeService([
       sealedItem({ sealedProductId: null, sealedProductName: null, sealedImageUrl: null }),
     ]);
     const h = (await svc.holdings('u1')).data[0] as any;
     expect(h.sealedProductId).toBeNull();
-    expect(h.sealedProductName).toBe('Tropius'); // fallback Card.name (NOT NULL)
-    expect(h.sealedImageUrl).toBe('http://img/tropius.png'); // fallback Card.imageSmallUrl
+    expect(h.sealedProductName).toBe(UNIDENTIFIED_SEALED_NAME); // ⛔ nunca «Tropius» (el ancla)
+    expect(h.sealedProductName).not.toBe('Tropius');
+    expect(h.sealedImageUrl).toBe('http://img/tropius.png'); // la IMAGEN del ancla SÍ es cola aceptada
   });
 
   it('un holding RAW NO trae los campos de sellado (ausentes)', async () => {

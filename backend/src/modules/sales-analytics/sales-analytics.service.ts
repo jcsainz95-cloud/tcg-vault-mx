@@ -34,6 +34,7 @@ import {
   Ymd,
 } from './sales-period';
 import { toMexicoCityDateKey } from '../../common/business-days';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import {
   addBuylist,
   allocateByWeight,
@@ -382,7 +383,10 @@ export class SalesAnalyticsService {
       s.netCents += net;
       sets.set(setId, s);
       if (inv.productType === 'sealed') {
-        const name = sp ? sp.name : inv.sealedProductName ?? inv.card.name;
+        // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — UNIFICADO al resolutor único (§4.34a.2(C)): nombre del
+        // `SealedProduct` (vivo→snapshot) y, sin nombre resoluble, «Sellado sin identificar» — JAMÁS el
+        // single ancla. Money-safe (solo agrupa/nombra; los `netCents` no cambian).
+        const name = pieceDisplayIdentityOf(inv).name;
         const key = inv.sealedProductId ?? `name:${name}`;
         const e = sealed.get(key) ?? { sealedProductId: inv.sealedProductId ?? null, name, setName, pieces: 0, netCents: 0 };
         e.pieces += 1;
