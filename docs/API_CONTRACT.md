@@ -29,6 +29,28 @@
 > - **Reparto:** backend implementa (`orders`, `shipments`, `vault`, `payments/refunds`, resolutor en `common/`); tres
 >   veredictos (QA + techlead + seguridad). Zonas compartidas: `orders/`, `shipments/`, `common/` — serializar.
 >
+> **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA (2026-10-13, arquitecto, rama `fix/sealed-display`; ⛔ sha
+> NO MEDIDO: sin Bash).** QA/techlead rechazaron `b70e272`: el resolutor único está bien, pero la enumeración se hizo por
+> `grep '\.card\.name'` y **no cazó los accesos ALIASEADOS** (`const card = x.inventoryItem.card; … card.name`), dejando
+> superficies **de cara al cliente** filtrando el ancla. Norma y tabla-veredicto por fichero:línea en
+> `ARCHITECTURE §4.34a.2(B)/(E)`. Cambios de contrato (aditivos/retrocompatibles):
+> - **`ClientShipmentItemDTO` (§5) — BLOQUEANTE resuelto.** `card.name` y `card.imageSmallUrl` pasan a **resolverse
+>   server-side** con el resolutor único (`SealedProduct` → snapshot → «Sellado sin identificar»; imagen
+>   `sealedImageUrl → sealedProduct?.imageUrl → card.imageSmallUrl → null`); el DTO **gana `productType`** para que el
+>   front oculte `number` en sellado (igual que `GuestTrackingItemDTO`); `card.imageSmallUrl` se declara **`string|null`**
+>   (lo que el resolutor y la columna ya rinden). Forma exacta abajo en §5.
+> - **`GuestTrackingItemDTO` (§4-G) — la IMAGEN de un sellado también se resuelve.** El NOMBRE ya se resolvió en v1.94;
+>   la imagen seguía cayendo al ancla (`guest-checkout.service.ts:883`). Se norma que el join vivo resuelva la **cascada
+>   de imagen de sellado**, no el arte del single. **Sin cambio de FORMA del DTO.** Cierra la parte de IMAGEN de **D-IMG-2**.
+> - **Correo de reembolso AV-12** (`refund-ledger`, §7/§Admin): el nombre resuelve por el resolutor. **Sin cambio de
+>   contrato** (la forma del aviso no cambia; es código backend + ensanchar un `include`).
+> - **D-2:** las 4 copias de la cascada que caían a `card.name` (holdings, grid público, reporte de ventas, restock) se
+>   **unifican al resolutor**. Grid público (`SealedGroupDTO`) y holdings (`HoldingDTO`) sin cambio de forma (solo deja
+>   de poder mostrar el ancla como último recurso del nombre). Detalle en `ARCHITECTURE §4.34a.2(B)`.
+> - **Reparto:** backend (`shipments`, `orders` [guest], `payments/refunds`, `vault`, `catalog`, `sales-analytics`) +
+>   frontend (`(storefront)` rastreo: ocultar `number` por `productType` en `ClientShipmentItemDTO`). Tres veredictos.
+>   Backend entrega además la suite integración/E2E del flujo de sellado (ARCHITECTURE §5.2.6-D).
+>
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
 > según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
@@ -11718,9 +11740,17 @@ GuestTrackingPaymentDTO = { brand?: string, last4?: string }   // "visa", "4242"
 >   `cardId`** — está en la lista cerrada de campos **prohibidos** de este DTO (identificadores internos, criterio 51).
 >   Esa prohibición es la razón estructural por la que **no puede** usar la resolución de §5.2.5: la unión de §5.2.5
 >   es **por `cardId`**, y aquí `cardId` no puede ni existir en la respuesta.
-> - **`imageSmallUrl` se resuelve por join en vivo desde `inventoryItem.card`, y así se queda.** Es clase (P): el join
+> - **`imageSmallUrl` se resuelve por join en vivo desde `inventoryItem`, y así se queda.** Es clase (P): el join
 >   es el camino correcto (§5.2.3). **No contradice §5.2.5**, cuya prohibición de pasar por `inventoryItemId` aplica
 >   al **acta de compra** (`GET /orders/:orderId`), no a esta vista de seguimiento de un envío en curso.
+>   > **⭐ v1.94.1⟨sellado-display⟩ — el join vivo resuelve la CASCADA DE IMAGEN DE SELLADO, no el arte del single.**
+>   > Medido en `b70e272` (`guest-checkout.service.ts:883`): el NOMBRE ya se resolvía por el resolutor único (`:874`) pero
+>   > la imagen leía `oi.inventoryItem.card.imageSmallUrl` **directo del ancla** ⇒ un sellado con `sealedImageUrl` propio
+>   > mostraba el arte de «Exeggcute». Se norma que la imagen salga de `pieceDisplayIdentityOf(oi.inventoryItem)`
+>   > (`sealedImageUrl → sealedProduct?.imageUrl → card.imageSmallUrl → null`), conservando la convención «ausente, no
+>   > null» (`?? undefined`). **Sin cambio de forma del DTO; sin query nueva.** Esto **cierra la parte de IMAGEN de
+>   > D-IMG-2** para esta superficie; lo que queda de D-IMG-2 es solo la *estabilidad de identidad ante re-sync* (join
+>   > vivo vs acta congelada), aceptada aquí porque es una vista de envío EN CURSO, no el acta de compra.
 > - **Ausente, no nulo:** aquí `imageSmallUrl` y las opcionales **se OMITEN** cuando no hay valor (`?? undefined`),
 >   al revés que en `OrderItemCardDTO`, donde `imageSmallUrl: null` con clave presente es obligatorio. **Las dos
 >   convenciones son correctas en su superficie**; unificarlas sería un cambio de forma en un DTO público y **pasa
@@ -12238,9 +12268,28 @@ ClientShipmentItemDTO = {
   inventoryItemId: string,
   folio: string,                        // INV-000123
   finish: Finish,
-  card: { id: string, name: string, setName: string, number: string, imageSmallUrl: string }
+  productType: ProductType,             // ⭐ v1.94.1⟨sellado-display⟩ — discriminante. El front OCULTA `card.number`
+                                        //   para productType='sealed' (espejo de GuestTrackingItemDTO §4-G). Aditivo.
+  card: {
+    id: string,                         // id de la Card ancla (sin cambio; no es identidad del sellado)
+    name: string,                       // ⭐ v1.94.1 — RESUELTO server-side (resolutor único §4.34a.2): para sellado es
+                                        //   SealedProduct(vivo→snapshot)→«Sellado sin identificar», JAMÁS el `card.name`
+                                        //   del single ancla. Para raw/graded = `card.name`, como siempre.
+    setName: string,                    // set de pertenencia del ancla (= set del sellado); legítimo
+    number: string,                     // del ancla; el front NO lo muestra para sellado (ver `productType`)
+    imageSmallUrl: string | null        // ⭐ v1.94.1 — RESUELTO server-side: sellado = sealedImageUrl → sealedProduct?.imageUrl
+                                        //   → card.imageSmallUrl → null. `null` es resultado legítimo (placeholder en el front).
+  }
 }
 ```
+> **⭐ v1.94.1⟨sellado-display⟩ — por qué así (bloqueante de QA sobre `b70e272`, `shipments.service.ts:713-728`).**
+> `toClientShipmentItem` leía el ancla aliaseado (`const card = si.inventoryItem.card`) y devolvía `name/number/
+> imageSmallUrl` del single para un sellado; el DTO **no llevaba `productType`**, así que el front no podía recuperar la
+> identidad. **Decisión: resolver en el SERVIDOR** (consistente con todas las demás superficies de §4.34a.2 y con
+> `GET /shipments/:id` de OPERADOR, que ya usa `preparationCardOf`), de modo que el front recibe el `name`/`imageSmallUrl`
+> **ya correctos** sin cambiar nada para esos dos campos. El único trabajo de front es ocultar `number` en sellado usando
+> el nuevo `productType` — exactamente lo que ya hace con `GuestTrackingItemDTO`. **Sin query nueva** (la lectura de
+> cliente ya incluye el `InventoryItem` completo). Money-safe: solo display.
 - **Mapeo etapa→texto (normativo; el LABEL traducido vive en i18n del FRONT, la API devuelve el enum):**
   | `status` | Texto cliente (ES) | Texto cliente (EN) |
   |---|---|---|
