@@ -51,6 +51,18 @@
 >   frontend (`(storefront)` rastreo: ocultar `number` por `productType` en `ClientShipmentItemDTO`). Tres veredictos.
 >   Backend entrega además la suite integración/E2E del flujo de sellado (ARCHITECTURE §5.2.6-D).
 >
+> **Errata v1.94.2⟨sellado-display⟩ — el CANDADO es el mecanismo que cierra la clase; se corrige la sobre-afirmación M-3
+> (2026-10-13, arquitecto, rama `fix/sealed-display`, árbol `dde121d`; ⛔ sha NO MEDIDO: sin Bash). SIN cambio de forma de
+> contrato ni de schema.** La v1.94.1 llamó a la re-enumeración «SEMÁNTICA» y dio por «cerrado el hueco» con una lista a
+> mano; **esa afirmación falló tres veces** (grep + dos relecturas humanas). La completitud de la doctrina «un sellado
+> nunca se pinta con el `card.name`/`card.number`/`card.imageSmallUrl` del ancla» **ya NO depende de ninguna enumeración**:
+> la garantiza el candado `backend/test/sealed-display-guard.spec.ts` (escaneo estático, caza acceso directo **y
+> aliaseado**, falla en CI, allowlist explícita con razón). Norma en `ARCHITECTURE §4.34a.2(F)`. Además se **ratifican por
+> diseño** (sin cambio de contrato) dos superficies admin que muestran la carta ANCLA junto a —no en vez de— la identidad
+> del sellado: **(a)** el export `.xlsx` de inventario (columnas «Carta»/«Número» del ancla; «Tipo» desambigua) y **(b)**
+> `PriceReviewCaseDTO.card` + la cola M2 (el bloque `card` del ancla es «para que el dueño reconozca la carta», §D/§M2; la
+> identidad del sellado viaja en `sealedProductName` resuelto). Ninguna es la clase «cascada `?? card.name` del NOMBRE».
+>
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
 > según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
@@ -103,7 +115,7 @@
 > ```
 > PriceReviewCaseDTO {
 >   id: string
->   card: { id, name, setName, number }           // para que el dueño reconozca la carta (criterio 876)
+>   card: { id, name, setName, number }           // para que el dueño reconozca la carta (criterio 876). 🔵 v1.94.2⟨sellado-display⟩: para un sellado es la carta ANCLA, mostrada JUNTO a —no en vez de— `sealedProductName`; correcto por diseño (§4.34a.2(F)(b)), no es leak
 >   finish: Finish                                 // variante exacta (criterio 884)
 >   productType: ProductType
 >   gradeKey: string
@@ -16079,6 +16091,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **Columnas (orden fijo, `INVENTORY_EXPORT_COLUMNS`):** Folio · Carta · Set · Número · Rareza · Tipo · Acabado ·
     Condición · Certificado · Cantidad (= 1) · Estado · Ubicación · Origen · Costo MXN · Precio mercado MXN · Precio
     compra MXN · Precio venta MXN.
+  - **🔵 v1.94.2⟨sellado-display⟩ — «Carta»/«Número» muestran la carta ANCLA también para piezas selladas; ACEPTABLE POR
+    DISEÑO (no leak, no deuda).** Para un sellado, «Carta» es el `card.name` del ancla (p. ej. «Exeggcute» para un ETB) y
+    «Número» su número; el dueño lo desambigua por la columna «Tipo» (`sealed`). Es un **volcado crudo del inventario del
+    propio dueño** (⛔ nunca cara al cliente), y «Carta»/«Número» son columnas hermanas que describen la carta-ancla de
+    forma uniforme para TODA fila. Por eso **NO** resuelve el `SealedProduct` aquí (romper esa uniformidad dejaría
+    «Número» apuntando a otra carta). Esta superficie queda en la allowlist del candado `sealed-display-guard.spec.ts`
+    con esa razón. Si se quisiera el nombre del `SealedProduct`, sería una **columna nueva** (cambio de contrato, vía
+    arquitecto), no re-semantizar «Carta». Norma en `ARCHITECTURE §4.34a.2(F)(a)`.
   - **Money-safe (todas las columnas de dinero son STORED, sin derivar ni inventar):** Costo = `acquisitionCostCents`;
     Precio mercado = `PriceReference` de la variante (MXN al FX vivo; ref `pending` ⇒ vacío); Precio compra = override
     de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, sin recomputar la regla del cotizador); Precio venta =

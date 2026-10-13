@@ -34,6 +34,26 @@
 > Único cambio de FORMA de contrato: `ClientShipmentItemDTO` gana `productType` y su `imageSmallUrl` pasa a `string|null`
 > (ambos aditivos/retrocompatibles). Lo demás es CÓDIGO (backend) sin cambio de contrato. Tres veredictos (dinero/fulfillment).
 > ---
+> **Errata v1.94.2⟨sellado-display⟩ — EL CANDADO MECÁNICO ES AHORA EL MECANISMO NORMATIVO; se corrige la sobre-afirmación
+> M-3 (QA/techlead)** (2026-10-13, arquitecto, rama `fix/sealed-display`, árbol `dde121d`; ⛔ sha NO MEDIDO: sin Bash).
+> **Esta errata NO cambia ninguna forma de contrato ni el schema; corrige doctrina y cierra el hallazgo M-3.**
+> - **M-3 corregido (sobre-afirmación medida 3 veces):** la v1.94.1 llamó a la re-enumeración «SEMÁNTICA» y afirmó que
+>   «cierra el hueco» / que la lista era «COMPLETA». **Eso era una afirmación de clase (B) escrita como (A)** (§0-B): una
+>   enumeración a mano —por grep, por directorio, o por lectura humana— es exhaustiva el día que se escribe y nunca más,
+>   y **falló tres veces** (grep en `b70e272`, y dos relecturas humanas que seguían dejando ofensores). La completitud
+>   **ya NO depende de ninguna enumeración**: la **garantiza el candado `backend/test/sealed-display-guard.spec.ts`**
+>   (escaneo estático que FALLA en CI ante cualquier lectura del `card.name`/`card.number`/`card.imageSmallUrl` del ancla
+>   —directa **o aliaseada**— para un sellado fuera de `pieceDisplayIdentityOf`, salvo allowlist explícita con razón).
+>   Las tablas de (B)/(E) pasan a ser **evidencia histórica de cómo se descubrió la clase, NO el inventario que la cierra**.
+> - **Ratificación:** el candado es el mecanismo normativo de la doctrina **«no se copia la cascada de display en ningún
+>   servicio»** (§4.34a.2(C)); el censo de allowlist (31 entradas, cada una con razón) es su contraparte auditable. El
+>   candado cazó 4 ofensores fuera del alcance normado (§4.34a.2(F)) que tres enumeraciones a mano no vieron.
+> - **Dos preguntas de política que backend rebotó (regla 9), resueltas en §4.34a.2(F):** (a) el export `.xlsx` de
+>   inventario muestra la **carta ancla** en «Carta»/«Número» para toda pieza incl. sellada → **ACEPTABLE por diseño**
+>   (volcado crudo del inventario del dueño; la columna «Tipo» desambigua), queda en la allowlist; (b) `PriceReviewCaseDTO.card`
+>   y la cola M2 → **CORRECTO por diseño** (🔵), el bloque `card` es la identidad del ancla por contrato y la del sellado
+>   viaja aparte (`sealedProductName` resuelto). Ninguna es la clase «cascada `?? card.name` del NOMBRE de un sellado».
+> ---
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: redundancia multi-fuente, árbitro de MEDIANA y candado anti-inflado ×5**
 > (2026-10-11, arquitecto, rama `claude/precios-redundancia` en `/home/user/tcg-precios`, base `1ba098a4` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §PRE` (rev v1.91⟨precios⟩); porqué, modelo y árbol
@@ -10604,8 +10624,12 @@ pedido/fulfillment nunca recibió esa cascada.*
 > entonces exige el resolutor) o no. Patrones auditados en la re-enumeración, uno por uno:
 > `\.card\.name`, `\.card\.set`, `\.card\.number`, `\.card\.imageSmallUrl`, `\.card\b` (acceso y alias),
 > `(const|let)\s+(card|\{…card…\})\s*=`, `inventoryItem\.card`, `originalInventoryItem\.card`,
-> y el rastreo de cada alias local hasta sus usos. **Lista COMPLETA abajo (tabla de 15) + los 3 escapes en §4.34a.2(E).**
-> Veredicto por fichero:línea de la re-enumeración en §4.34a.2(E).
+> y el rastreo de cada alias local hasta sus usos. Tablas abajo (la de 15 + los 3 escapes en §4.34a.2(E)).
+> ⚠️ **CORRECCIÓN M-3 (errata v1.94.2):** estas tablas describen **cómo se descubrió la clase**, NO son la garantía de
+> que esté cerrada. Una enumeración a mano —aunque sea «semántica»— es exhaustiva el día que se escribe y nunca más, y
+> este método **falló una tercera vez** (dos relecturas humanas dejaron ofensores que el grep tampoco vio). La
+> completitud la **garantiza el candado `backend/test/sealed-display-guard.spec.ts`** (§4.34a.2(F)): cualquier copia
+> nueva —directa o aliaseada— rompe CI. No se vuelve a confiar en una lista poblada a mano para esta clase.
 
 Tabla original (las 15 que el primer arreglo `b70e272` sí cubrió; líneas PRE-arreglo):
 
@@ -10694,7 +10718,10 @@ Ni el arquitecto ni otro rol tocan esos ficheros (regla 8).
 El primer arreglo (`b70e272`) construyó el resolutor único (`piece-display-identity.ts`) — **bien** — y lo cableó en
 15 superficies. **QA y techlead lo RECHAZARON** porque la enumeración de (B) se hizo con `grep '\.card\.name'`, que
 **no caza el acceso aliaseado**, y quedaron superficies filtrando el ancla —una **de cara al cliente**—. Esta errata
-re-enumera SEMÁNTICAMENTE (método en (B)) y cierra el hueco. **Todo lo de abajo es money-safe (display/identidad); no
+re-enumera a mano (método en (B)) y arregla los escapes que esa re-lectura encontró. ⚠️ **Pero re-enumerar a mano NO
+cierra la clase** (M-3, corregido en errata v1.94.2): esta misma re-enumeración volvió a dejar ofensores, cazados
+después por el candado mecánico (§4.34a.2(F)). Lo de abajo es el **registro de lo que esta re-lectura vio**, no la
+prueba de completitud; la prueba de completitud es el candado. **Todo lo de abajo es money-safe (display/identidad); no
 toca precio, importe ni valuación.**
 
 **Veredicto por fichero:línea de la re-enumeración (medido en `b70e272` por lectura directa; los números son de ESE
@@ -10756,6 +10783,60 @@ una afirmación de estado sin medición, O-1). **Frontend** (`(storefront)` rast
 `ClientShipmentItemDTO.productType === 'sealed'` para ocultar `card.number` (espejo de lo que ya hace el tracking de
 invitado). **Tres veredictos** otra vez (dinero/fulfillment). Zona compartida: `shipments/`, `orders/`, `common/`
 (`common/` no cambia — el resolutor ya existe) — serializar.
+
+#### 4.34a.2(F) Errata v1.94.2⟨sellado-display⟩ — EL CANDADO MECÁNICO cierra la clase (M-3); las dos preguntas de política
+
+**El problema de fondo (hallazgo M-3 de QA/techlead).** Las secciones (B) y (E) describieron la re-enumeración como
+«SEMÁNTICA» y afirmaron que «cierra el hueco» / que la lista era «COMPLETA». **Es una afirmación de clase (B) escrita
+como (A)** (§0-B): el estado «no queda ni un acceso al ancla» no es una decisión que se escribe, es un hecho que hay
+que **verificar contra el producto**. Una enumeración a mano lo verifica el día que se escribe y nunca más, y este
+caso lo probó **tres veces**: `grep '\.card\.name'` (en `b70e272`), y **dos relecturas humanas** que seguían dejando
+ofensores. La doctrina de §4.34a.2(C) («no se copia la cascada a mano en ningún servicio») era correcta pero **no
+tenía quién la hiciera cumplir**.
+
+**La corrección normativa: el candado es el mecanismo, no la lista.** `backend/test/sealed-display-guard.spec.ts`
+(backend, `docs/BACKEND_NOTES.md §0.60`) escanea el fuente de los módulos de display (`orders`, `shipments`, `vault`,
+`payments`, `catalog`, `pricing`, `inventory`, `wishlist`, `sales-analytics`, `accessories`, `mail`) y **FALLA en CI**
+ante cualquier lectura de `card.name` / `card.number` / `card.imageSmallUrl` del ancla —**directa o aliaseada**
+(`const x = …card; x.name`)— para un sellado, salvo que (a) pase por `pieceDisplayIdentityOf`, o (b) esté en la
+**ALLOWLIST explícita** (31 entradas, cada una con su razón de una línea; una entrada que ya no casa ⇒ rojo, el censo
+no acumula muertos). **Esto es lo que vuelve la clase imposible de reabrir en silencio**, y es lo que las tablas de
+(B)/(E) —útiles como registro histórico de cómo se descubrió la clase— nunca pudieron ser.
+
+- **Alcance y garantía medidos por backend (§0.60, autor backend, árbol `dde121d`, 2026-10-13):** el candado cazó **4
+  ofensores** que las tres enumeraciones a mano no vieron (`sealed-catalog` `sealedValueHistory` [público],
+  `sealed-graded` `sealedIndex`, `pricing` `pendingQueue`, `wishlist-demand` `sealedWaiting`), todos cerrados al
+  resolutor. **Mutación N=3/3 roja** (reinyección directa **y** aliaseada ⇒ el candado muerde ambas); escaneo estático
+  ⇒ determinista. **No lo medí yo (sin Bash); relayado de §0.60, autor backend.**
+- **Ratificación de doctrina:** §4.34a.2(C) sigue vigente («un solo resolutor `pieceDisplayIdentityOf`; no se copia la
+  cascada»), y **el candado es su cumplimiento mecánico**. Todo acceso nuevo al `card.*` del ancla en un módulo de
+  display es, por defecto, un rojo de CI hasta que pase por el resolutor o se justifique en la allowlist con razón.
+- **Las tablas de (B)/(E) pasan a ser históricas.** Ya no son «el inventario que cierra la clase». Si divergen del
+  código, **manda el candado + el resolutor**, no la tabla (§0-B: verificación contra el producto, no contra otro doc).
+
+**Las dos preguntas de política que backend rebotó (regla 9; `BACKEND_NOTES §0.60.4`). Decididas:**
+
+**(a) Export `.xlsx` de inventario (`inventory.service.ts:4058/4060`, `INVENTORY_EXPORT_COLUMNS`) — ACEPTABLE POR
+DISEÑO; NO bloqueante; queda en la allowlist.** Las columnas «Carta»/«Número» muestran la **carta ancla** para TODA
+pieza, incluida la sellada (p. ej. «Exeggcute» para un ETB). Decisión: es correcto por tres razones que se sostienen
+juntas: (1) es un **volcado crudo del inventario del propio dueño**, no una superficie de cara al cliente —un cliente
+JAMÁS ve este archivo—; (2) la columna **«Tipo» desambigua** (el operador lee `sealed` y sabe que «Carta» es la carta
+ancla de la pieza sellada, no un single); (3) «Carta»/«Número» son columnas **hermanas por contrato** que describen la
+carta-ancla de CUALQUIER fila de forma uniforme — resolver solo el nombre para las filas selladas rompería esa
+uniformidad y dejaría «Número» apuntando a una carta distinta del nombre. **No es la clase del bug**: aquí el ancla es
+el dato pedido, no un fallback que se cuela. Si en el futuro el dueño quiere que el export distinga el nombre del
+`SealedProduct`, es un **cambio de contrato** (columna nueva «Producto sellado», no re-semantizar «Carta») y pasa por
+el arquitecto; **no se registra como deuda** porque hoy no es un defecto.
+
+**(b) `PriceReviewCaseDTO.card` y la cola M2 (`pricing.service.ts` `pendingQueue`, `price-review`) — CORRECTO POR
+DISEÑO (🔵); queda documentado, sin cambio.** El bloque `card` es la **identidad de la carta ancla por contrato**
+(«para que el dueño reconozca la carta», API_CONTRACT §D / §M2), y la identidad del sellado **viaja aparte** en el
+mismo DTO (`sealedProductId` + `sealedProductName` ya resuelto por el resolutor). El dueño necesita VER la carta ancla
+para revisar el precio (es la referencia de mercado del single que ancla al sellado), y la tiene junto —no en lugar
+de— la identidad del sellado. **No es un leak del ancla** (misma categoría 🔵 que `HoldingDTO.card`, §4.34a.2(E)): el
+ancla viaja **además**, no **en vez de**. Se ratifica; sus accesos quedan en la allowlist con esta razón. Coherente con
+(a): en ambas superficies admin el ancla es un dato legítimo mostrado junto a la identidad del sellado, no un fallback
+que la suplanta.
 
 #### 4.34b Un set → **N grupos** TCGCSV (crítico: promos / colecciones, incl. Mega Evolution)
 
