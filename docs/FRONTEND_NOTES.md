@@ -21659,3 +21659,37 @@ habilitado). i18n es/en.
 sin avisos; `PriceReviewSection.test.tsx` **13/13** + `i18n-parity` **45/45**; suite vitest completa **4320 passed
 | 10 skipped (332 files), exit 0**; Playwright `price-review.spec.ts` en **modo mocks (dev server)**: **1 passed, 1
 skipped (el `@real`), exit 0**. El pase `@real` del 409 NO lo corrí aquí (no hay stack): es del gate de QA.
+
+### fix/sealed-display · rastreo del cliente oculta el `number` del ancla para sellado (§5 ClientShipmentItemDTO, §4-G GuestTrackingItemDTO; HEAD 3cf4a56)
+
+**Contexto.** Un producto sellado se mostraba con la identidad de su carta ancla («Exeggcute»). El backend ahora
+resuelve `name`/`imageSmallUrl` **server-side** (resolutor único, API_CONTRACT §4.34a.2) y el DTO del rastreo del
+cliente registrado (`ClientShipmentItemDTO`, §5) gana `productType: ProductType`. El front NO deriva identidad de
+sellado: todo viene resuelto del servidor. El único trabajo de UI es **ocultar `card.number`** (del single ancla)
+cuando `productType === 'sealed'`.
+
+**Qué cambió (display-only, money-safe).**
+- `ShipmentDetailView.tsx` (GET /shipments/:id, detalle del retiro): la línea de meta pasa de pintar siempre
+  `setName · number` a pintar **solo `setName`** cuando `productType === 'sealed'`; una carta suelta (raw/graded)
+  conserva `setName · number`. `name`/`imageSmallUrl` ya vienen resueltos ⇒ no se tocan.
+- `PublicOrderTracking.tsx` (rastreo de invitado, GuestTrackingItemDTO §4-G): la misma regla. Antes mostraba
+  `setName · #number` **incondicionalmente** incluso para sellado; ahora oculta `#number` en sellado (alineado al
+  patrón normado del contrato v1.94). `name`/`imageSmallUrl` ya resueltos server-side.
+- `WithdrawalsList.tsx` (GET /shipments, lista): NO renderiza `card.number` (solo `name`/`setName`) ⇒ sin cambio.
+
+**Patrón.** Mismo que el resto de superficies (`PendingQueueSection`, `PendingPublishQueue`): guard
+`productType !== 'sealed'` para el número. El `setName` se mantiene (set de pertenencia del ancla = set del
+sellado, legítimo por contrato §5).
+
+**Pruebas.** `ShipmentDetailView.sealed.test.tsx` (2): sellado oculta número y muestra nombre+set resueltos; raw
+conserva `setName · número`. `PublicOrderTracking.test.tsx` (+1): línea sellada sin `#número`, suelta con
+`Base Set · #2`. Canario verificado por mí (2026-10-13): revertir el guard en `ShipmentDetailView` deja la prueba
+de sellado **roja** (1 failed/2); restaurado ⇒ 2/2.
+
+**Medido por mí (2026-10-13, sobre 3cf4a56 + estos cambios):** `tsc --noEmit` limpio; `eslint` de los 4 ficheros
+tocados sin avisos; suites `shipments` + `WithdrawalsList` + `pedido` **57/57**; los 3 ficheros directamente
+tocados **15/15**.
+
+**Huecos de contrato: ninguno nuevo.** `ClientShipmentItemDTO.productType` ya está en el DTO (§5, v1.94.1) y en
+`frontend/src/types/contract.ts` (`ShipmentDTO.items[].productType?`). Queda vivo el hueco PREEXISTENTE ya
+registrado (`priceConvention`/`ivaIncluded` en `ShipmentDTO`, §M10-IVA.4) — ajeno a este arreglo.

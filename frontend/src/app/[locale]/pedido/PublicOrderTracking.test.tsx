@@ -162,4 +162,42 @@ describe('PublicOrderTracking · vista pública (criterios 50, 51)', () => {
     expect(screen.queryByTestId('support-contact')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/disputa/i);
   });
+
+  // v1.94⟨sellado-display⟩: `number` es del single ANCLA; para un sellado no identifica la pieza.
+  // El NOMBRE y la imagen vienen resueltos server-side (§4-G); el front solo oculta el número.
+  it('línea SELLADA: muestra nombre+set resueltos y OCULTA el número del ancla; una suelta lo conserva', () => {
+    renderTracking({
+      ...DTO,
+      items: [
+        {
+          name: 'Surging Sparks Booster Box',
+          setName: 'Surging Sparks',
+          number: '191', // del ancla; NO debe pintarse para sellado
+          finish: 'normal',
+          productType: 'sealed',
+          sealedSubtype: 'box',
+          imageSmallUrl: 'https://images.pokemontcg.io/sv8/sealed.png',
+          unitPriceCents: 250000,
+        },
+        {
+          name: 'Blastoise',
+          setName: 'Base Set',
+          number: '2',
+          finish: 'normal',
+          productType: 'raw',
+          rawCondition: 'NM',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png',
+          unitPriceCents: 140800,
+        },
+      ],
+    });
+    const metas = screen.getAllByTestId('tracking-item-meta');
+    // Sellado: solo el set, sin «#191».
+    expect(metas[0]).toHaveTextContent('Surging Sparks');
+    expect(metas[0]).not.toHaveTextContent('191');
+    expect(metas[0]!.textContent).not.toContain('#');
+    // Suelta: conserva set · #número.
+    expect(metas[1]).toHaveTextContent('Base Set · #2');
+    expect(screen.getByText('Surging Sparks Booster Box')).toBeInTheDocument();
+  });
 });
