@@ -30338,6 +30338,188 @@ ejecuta en `BACKEND_NOTES §91`. Contrato: `API_CONTRACT §PRE.J`.
 
 ---
 
+### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.93⟨cardshow⟩, 2026-10-13, NORMATIVO, **PII · SIN DINERO**)
+
+> ⛔ **SECRETO hasta el anuncio.** Este documento es público. Aquí se diseña **ESTRUCTURA**, nunca datos del evento.
+> Ningún valor real (fecha, sede, precios, medidas, patrocinador) aparece: entran **fuera del repo** en un commit
+> único el día del anuncio, en el archivo de datos del frontend. Donde haga falta ejemplificar, marcadores:
+> `FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`. Contrato: **`API_CONTRACT §CARDSHOW`** (forma exacta, endpoints, criterios).
+> Numeración reservada por el orquestador: **M-78** y contrato **v1.93⟨cardshow⟩** (⛔ no chocar con §MKT, que reservó
+> M-77 / v1.92⟨mkt⟩ en `claude/traspaso-s9`, sin fusionar).
+
+**Qué es.** Una landing pública, mobile-first, de un solo idioma (es-MX), compartible por un link, que (a) informa del
+evento y (b) **captura correos sin cuenta** con dos formularios: «Avísame» (lead: asistir / vender / patrocinar) y
+preinscripción al torneo. No mueve dinero, no toca Stripe, no crea cuentas. El riesgo que domina el diseño **no es el
+dinero sino el envío de correo**: el repo es público, el link será masivo el día del anuncio, y Resend es el **mismo
+equipo** que la tienda (decisión del dueño, opción B) ⇒ un abuso de la landing **quema la reputación de envío de la
+tienda**. Por eso el anti-abuso es el crux y está diseñado exacto en el contrato.
+
+#### 4.CARDSHOW.a La ruta `/card-show` sale del i18n — decisión del dueño, mecanismo medido
+
+El dueño fijó `/card-show` **canónica, fuera del middleware i18n** (un salto de redirección menos = link limpio para
+flyers/QR, mejor para compartir, un solo idioma). Lo medido hoy (confirmando RONDA_0):
+- El `matcher` del middleware (`frontend/src/middleware.ts:36`, `'/((?!api|_next|_vercel|.*\\..*).*)'`) **sí** captura
+  `/card-show` (no tiene punto ni es `api`/`_next`).
+- `routing.ts` va `localePrefix: 'always'` + `localeDetection: false` (`frontend/src/i18n/routing.ts:9,15`): una ruta sin
+  prefijo se **redirige** a `/es/...` (307). Por eso hoy `GET /card-show?...` haría 307 a `/es/card-show` (⚠️ el 307 lo
+  deduzco del mecanismo; **NO MEDIDO** por HTTP — lo cierra QA con `curl -sI`).
+
+**Diseño (lo decide el arquitecto, toca zona compartida `middleware.ts`/`routing.ts`):**
+- La página vive **fuera de `[locale]`** (p. ej. `frontend/src/app/card-show/page.tsx`), de modo que la ruta **existe** sin
+  prefijo de idioma. ⛔ No se pone dentro de `app/[locale]/`.
+- El middleware **sigue aplicando la CSP con nonce** a `/card-show` (la CSP es la red de seguridad, `middleware.ts:21-31`),
+  pero para esa ruta **no delega en `intlMiddleware`** (no redirige): devuelve `NextResponse.next()` con las cabeceras CSP
+  puestas. Es decir, el `/card-show` entra al matcher (para la CSP) pero se **cortocircuita antes del redirect de locale**.
+  La alternativa de sacarlo del matcher se descarta: perdería la CSP con nonce.
+- Criterios medibles que esto debe cumplir (del dueño; QA los verifica con el stack arriba):
+  `curl -sI "https://tcghunt.mx/card-show?utm_source=instagram&utm_medium=bio&utm_campaign=cardshow-dic26"` ⇒ **200 directo**
+  (⛔ sin 307, ⛔ sin `Set-Cookie: NEXT_LOCALE`, query **intacta**); `<link rel="canonical" href="https://tcghunt.mx/card-show">`;
+  `<html lang="es-MX">`.
+- Los endpoints cuelgan de **`/api/v1/card-show/*`** y el matcher ya excluye `api` ⇒ se llaman directo, **sin** `/es`
+  (consistente con el molde de captura ya existente). ⚠️ Hoy `GET /card-show/leads` haría 307 a `/es/...` por estar bajo
+  el matcher; el prefijo `/api/v1/card-show` lo evita porque `api` está excluido. **MEDIDO por exclusión del matcher.**
+
+#### 4.CARDSHOW.b Anti-abuso SIN Turnstile/captcha — **L0-SEG-06**, extensión EXPLÍCITA de §4.57 a la landing
+
+`ARCHITECTURE §4.57.2` (decisión #8) descartó CAPTCHA **para el LOGIN**, con tres razones: exige un **tercero**
+(Turnstile/hCaptcha), una **cuenta y llaves que crearía el dueño** (`O-6`: no se pide lo evitable), **cambiar la CSP** y
+una **dependencia externa más que puede caerse** — y una granja humana lo resuelve igual. Marketing midió bien que esa
+decisión estaba acotada al login; **L0-SEG-06 la extiende a la landing, y el porqué es MÁS fuerte aquí**: el formulario es
+`@Public()` y el link es masivo, así que un captcha no solo pediría cuenta/llaves y tocaría la CSP, sino que **un tercero
+en la ruta de captura es una pieza que un desconocido puede tumbar justo el día del anuncio** (la doctrina de dependencias
+fijadas de `CLAUDE.md`). La CSP de la landing **no gana** `challenges.cloudflare.com` ni ningún origen nuevo respecto a la
+tienda (criterio del checklist). El anti-abuso, en capas, **sin captcha**:
+1. **Throttle por IP en Redis** (C7) — tope duro por IP, resistente a réplicas y a cabeceras falsificadas.
+2. **Token de formulario firmado + tiempo mínimo** (L0-SEG-04) — un POST sin token válido / demasiado rápido / reusado
+   no tiene efecto. Sustituye el «prueba que eres un navegador» del captcha **sin** un tercero.
+3. **Honeypot** — campo oculto; con valor ⇒ respuesta idéntica, 0 filas, 0 envíos.
+4. **Doble opt-in** — el correo de confirmación filtra los correos falsos (nadie confirma un buzón que no controla).
+5. **Presupuesto global de envíos + tope por buzón + corte por quejas/rebotes** — aunque todo lo anterior se sorteara, el
+   gasto de correo está **acotado por arriba** y se **corta solo** ante abuso medible.
+
+Cada capa pide cero a terceros y cero al dueño que no esté ya en el stack (Redis, Resend, `@nestjs/throttler`, `AuditLog`).
+
+#### 4.CARDSHOW.c El throttle NO puede ser el `ThrottlerModule` en memoria — por qué Redis (C7)
+
+El `ThrottlerModule` global de hoy cuenta **en memoria, por instancia** (`backend/src/app.module.ts:47-49`, comentario
+propio: *«Storage in-memory (por instancia). En despliegue multi-instancia devops debe añadir storage compartido (Redis)»*).
+Railway corre `N ≥ 1` réplicas: un tope en memoria se multiplica por N y **miente**. Para la landing, el tope por IP vive
+en **Redis** (el mismo servicio ya en prod, cliente propio como el de §4.57 #9, ⛔ no el de BullMQ que exige
+`maxRetriesPerRequest: null`). Clave = `req.ip` con `TRUST_PROXY_HOPS=1` (el borde pone **un** hop de confianza; las
+cabeceras `X-Forwarded-For`/`X-Real-IP`/`Forwarded`/`CF-Connecting-IP`/`True-Client-IP` que mande el cliente **no** mueven
+el cubo). IPv6 se agrupa por **/64** (un atacante con un /64 no tiene millones de cubos). El `ThrottlerModule` en memoria se
+conserva como **segunda red** holgada, pero la compuerta de la landing es Redis. Forma exacta y cifras: `API_CONTRACT §CARDSHOW.4`.
+
+#### 4.CARDSHOW.d Respuesta neutra idéntica — el silencio no puede delatar
+
+Todo caso silencioso (alta nueva, repetida, honeypot, POST <2 s, token reusado, buzón de baja/suprimido, tope agotado,
+dominio sin MX, corte activo) devuelve **lo mismo**: mismo status, mismo cuerpo JSON **byte a byte**, mismo tiempo
+(mediana de 20, ±100 ms). Es el mismo principio anti-oráculo que §4.57 #5 (sin oráculo de existencia) y §4.50 (sobre neutro
+del invitado), aplicado a la captura: si el tiempo o el cuerpo difirieran, un atacante distinguiría «este correo ya estaba»
+o «este dominio existe». El trabajo fino está en que el **tiempo** no se escape (el corte por presupuesto no debe hacer el
+POST más rápido: §CARDSHOW.3 lo norma).
+
+#### 4.CARDSHOW.e La clave de buzón `mailboxHmac` — por qué HMAC y por qué canonicaliza Gmail
+
+Los topes por buzón (C2) se cuentan sobre `mailboxHmac`, **no** sobre el correo en claro ni sobre `email` tal cual. La
+clave se deriva de una **canonicalización del buzón**: minúsculas + trim, quitar `+etiqueta`, y para dominios tipo Gmail
+quitar los puntos de la parte local, y luego **HMAC** con `PII_HMAC_KEY` (el mismo `PiiCryptoService.blindIndex` de
+`common/crypto`, §4.57 #1). Dos diferencias deliberadas con §4.57 (que es por **cuenta**, no por buzón):
+- **Aquí SÍ se canonicaliza `+etiqueta` y puntos de Gmail**, al revés que §4.57. Allí la clave es de *cuenta* y
+  `a.b@gmail` vs `ab@gmail` son dos cuentas distintas; aquí el objetivo es exactamente **cerrar la evasión del tope**:
+  `victima+1@`, `victima+2@`, `v.ictima@gmail` y `victima@gmail` **comparten buzón** y por tanto comparten tope de envíos.
+- **`email` se guarda normalizado (lowercase/trim) para la UNICIDAD y el envío**, pero el **tope** mira `mailboxHmac`. Así
+  `email+a@dominio` y `email@dominio` son **filas distintas** (unicidad por `(email,type)`) pero **un solo buzón** para los
+  topes. Esta separación —fila por correo, tope por buzón— es la que el checklist mide.
+- HMAC y no el correo en claro porque Redis/BD los lee cualquiera con acceso y un correo es PII (§3.4); HMAC y no SHA-256 a
+  secas porque un hash sin llave se revierte con una lista de correos. Prefijo de propósito propio (`card-show-mbox:v1:`),
+  disjunto del de §4.57.
+
+#### 4.CARDSHOW.f Doble opt-in: el GET NUNCA cambia estado (C4), tokens de un solo uso con propósito
+
+El alta crea una fila **PENDING** y dispara **un** correo «Confirma tu registro». Confirmar/cancelar/darse de baja usan
+tokens **HMAC con propósito y de un solo uso** (`CARD_SHOW_LINK_SECRET`). **C4 es la decisión de forma clave:** los
+escáneres de enlaces (antivirus de correo, prefetch) hacen **GET** a cualquier link del correo; si el GET confirmara, los
+escáneres confirmarían solos (falsos positivos masivos) y, peor, un escáner podría **cancelar** la preinscripción de otro.
+Por eso: **el GET abre una página con un botón; el POST hace el cambio.** Un token usado ⇒ `410`. Caducidad: 7 d (leads) /
+72 h (torneo), y la fila se **borra** (la del torneo nunca restó cupo porque el cupo se asigna al confirmar). Es el mismo
+patrón «el GET no muta» que ya exige el proyecto para enlaces en correo.
+
+#### 4.CARDSHOW.g El presupuesto global de envíos (C1) falla CERRADO — Redis caído ⇒ ningún correo
+
+El gasto de correo está acotado por un presupuesto **global en Redis**, compartido por `/leads` y `/players`:
+`CARD_SHOW_CONFIRM_BUDGET_HOUR=150` y `..._DAY=600` (variables, ajustables). Al 50 % ⇒ alerta a
+`jsainz@tcghunt.mx` + `AuditLog`. Al 100 % se corta **el ENVÍO, no el registro**: la respuesta no cambia, la fila nace
+PENDING con `confirmationHeldAt`, y **no se reenvía sola** (la libera un `super_admin` o caduca). Decisión de dirección del
+fallo, **opuesta a §4.57 #11**: allí el login se degradaba a memoria (fail-open controlado) porque cerrar el login es
+«tienda cerrada para todos»; **aquí Redis caído ⇒ 0 correos** (fila PENDING + alerta), porque sin el contador compartido no
+hay forma de garantizar el tope y **un correo de más cuesta reputación de envío de la tienda entera**, mientras que un
+correo retenido no cuesta nada (se libera después). Fail-closed es lo correcto cuando lo que está en juego es el envío, no
+el acceso. Contadores reinician 00:00 **America/Mexico_City** (zona, no fecha).
+
+#### 4.CARDSHOW.h Corte por webhooks de Resend (C6) — obligatorio porque Resend es el mismo equipo
+
+Como Resend es el **mismo equipo** que la tienda (opción B del dueño), un abuso de la landing degrada la reputación con la
+que la tienda manda confirmaciones de compra. Por eso **C6 es obligatorio** (no opcional): un webhook de Resend que reporte
+**≥ 2 quejas** o **≥ 10 rebotes duros** en 24 h **corta** las confirmaciones del Card Show, y **solo un humano lo reabre**.
+Y por eso, además, la landing usa un **subdominio de envío propio** (SPF/DKIM/DMARC separados, lo prepara devops) aunque el
+equipo sea el mismo: aísla la reputación del evento de la de la tienda en lo posible, y el `From` de las confirmaciones vive
+ahí. El webhook se consume con el `resend` adapter ya integrado (`backend/src/modules/mail/resend-mail.adapter.ts`).
+
+#### 4.CARDSHOW.i Torneo: unicidad PARCIAL y cupo al confirmar — **L0-SEG-02** (corrección de seguridad)
+
+El riesgo propio del torneo: que una alta nueva **pise** una preinscripción ya confirmada de otro, o que alguien reserve
+cupo sin confirmar. La corrección (obligatoria):
+- Índice único **parcial** `(playerId, day)` **solo** sobre filas `confirmed | waitlist | checked_in`. Las `pending` y
+  `cancelled` **no** entran en la unicidad ⇒ varias personas pueden tener un alta PENDING del mismo Player ID/día, pero
+  **solo una** llega a confirmada.
+- Una alta nueva **nunca** modifica una confirmada (es `INSERT`, no `upsert` sobre la confirmada). Si B intenta el Player ID
+  que A ya confirmó, B obtiene respuesta idéntica y, si B confirma, una página «Este Player ID ya está preinscrito ese día»,
+  **0 cambios** sobre A.
+- El **cupo se asigna AL CONFIRMAR, por orden** (no al registrar): N altas PENDING no mueven el cupo; al confirmar se
+  reparten `CONFIRMED` hasta el cupo y el resto `WAITLIST`. Dos confirmaciones simultáneas por el último lugar ⇒ exactamente
+  1 CONFIRMED + 1 WAITLIST (reserva atómica, mismo patrón que §4.57 #2).
+- Topes de contención: **máx 4 `playerId` por buzón y día**; **máx 3 PENDING por `playerId`**.
+- **`playerName` NUNCA va en el correo** de confirmación (Player ID solo «terminado en NNNN»), ni en logs, ni a terceros
+  salvo el export del organizador. Es PII de un posible menor.
+Forma exacta y criterios: `API_CONTRACT §CARDSHOW.12`.
+
+#### 4.CARDSHOW.j Medición de primera parte (CardShowClick) — ⛔ no se mezcla con GA4
+
+La medición del Card Show es **de primera parte**: un contador propio `CardShowClick {ts, destino, mesa, utm_source,
+utm_content}`, **sin cookie y sin IP**, alimentado por `/card-show/ir/*` (redirección contada) o `sendBeacon`. ⛔ No usa
+GA4: GA4 es del otro frente (§MKT, en pausa) y no se mezcla aquí — una analítica sin cookie ni IP no necesita banner y no
+crea PII nueva.
+
+#### 4.CARDSHOW.k Migración M-78 — aditiva y segura
+
+`M-78` añade **3 tablas** (`CardShowLead`, `CardShowPlayerSignup`, `CardShowClick`) y **5 enums** (`CardShowLeadType`,
+`CardShowLeadStatus`, `CardShowLeadSource`, `CardShowDay`, `CardShowSignupStatus`). Por qué es segura:
+- **Solo `CREATE`**: tres tablas nuevas y cinco enums nuevos. ⛔ Ninguna columna nueva sobre una tabla con filas productivas,
+  ⛔ ningún `ADD COLUMN NOT NULL` sin default, ⛔ ninguna reescritura de CHECK existente. No toca `Order`, `User`, dinero ni
+  inventario. La advertencia de §11 («hay datos productivos, un `ADD COLUMN NOT NULL` sin backfill es fallo de release») no
+  aplica porque **no se añade ninguna columna a ninguna tabla existente**.
+- **Sin relleno**: las tablas nacen vacías; no hay backfill que medir.
+- **Reversa**: primero el código (apagar la landing), luego `DROP` de las tres tablas y los cinco enums. No borra nada de la
+  tienda.
+- **Carpeta**: `prisma/migrations/<fecha>_m78_card_show/`, posterior a la última en el árbol base (`production` `0c52742f`;
+  la fecha exacta de carpeta la fija backend al crearla y debe ser posterior a `m72`/último mergeado — **NO MEDIDO** cuál es
+  el último en `production` a esta fecha; backend lo mide con `Glob` antes de numerar).
+- **Zona compartida**: `schema.prisma` es de un solo stream a la vez; este corte es el único que la toca en su ventana.
+
+#### 4.CARDSHOW.l Los valores secretos viven FUERA del repo
+
+El archivo de datos `frontend/src/content/card-show.ts` (lo escribe **frontend**) nace **con marcadores**
+(`FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`, etc.). Los valores reales —precios con IVA y con fecha, medidas de mesa (sí se
+publican, decisión del dueño; premium sin medida; el plano SVG **sin cotas**), sede, fecha— entran en un **commit único el
+día del anuncio**. El patrocinador (**D4**) ⛔ **no aparece en ninguna parte**: ni nombre, ni logo, ni «presentado con», ni
+OG, ni JSON-LD, ni correos, ni data file, ni commits; Patrocinios muestra 3 niveles **sin** patrocinadores nombrados. Hay un
+grep de CI (lo cablea devops) que rompe el push si aparece cualquier término secreto; el aviso de privacidad del Card Show se
+commitea con marcadores igual que el resto (los candados `legal-gate.ts`/`publish-check.ts` ya ponen 404 si queda un marcador
+en producción, RONDA_0 §5).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist; ⭐ v1.80.2: y los **reembolsos manuales** de casos «Por reponer» que no caben en el cobro de Stripe, tabla `ManualRefund`, §4.57 (m)). Ninguna vista de usuario muestra saldo. El sistema **nunca** transfiere solo: todo SPEI lo ejecuta el súper-admin fuera y lo registra.
@@ -33822,6 +34004,25 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### rev v1.93⟨cardshow⟩ (**M-78**: landing del Card Show — **DDL ADITIVO Y SEGURO: 3 tablas nuevas + 5 enums nuevos; CERO columnas sobre tablas existentes, CERO relleno**, §4.CARDSHOW / `API_CONTRACT §CARDSHOW.1`)
+- **Número:** `M-78`, reservado por el orquestador (⛔ no chocar con `M-77` de §MKT, rama `claude/traspaso-s9` sin fusionar).
+- **Carpeta:** `prisma/migrations/<fecha>_m78_card_show/`, posterior a la última en `production` (base `0c52742f`). ⚠️ Cuál
+  es la última carpeta de migración en `production` a esta fecha: **NO MEDIDO** — backend lo mide con `Glob` antes de numerar
+  y re-fecha si hace falta (misma disciplina que M-73/M-74).
+- **Contenido:** 3 tablas (`CardShowLead`, `CardShowPlayerSignup`, `CardShowClick`) + 5 enums (`CardShowLeadType`,
+  `CardShowLeadStatus`, `CardShowLeadSource`, `CardShowDay`, `CardShowSignupStatus`). Forma normativa entera:
+  `API_CONTRACT §CARDSHOW.1`. Incluye el índice único **parcial** `(playerId, day)` sobre `confirmed|waitlist|checked_in`
+  (L0-SEG-02), `@@unique([email, type])` en `CardShowLead`, e índices por `mailboxHmac`, `confirmationHeldAt` y
+  `suppressedUntil`.
+- **Por qué es segura:** solo `CREATE`. ⛔ Ninguna columna nueva sobre una tabla con filas productivas, ⛔ ningún
+  `ADD COLUMN NOT NULL` sin default, ⛔ ninguna reescritura de CHECK existente. No toca `Order`, `User`, dinero ni inventario.
+  La advertencia de §11 (hay datos productivos) **no aplica**: no se añade ninguna columna a ninguna tabla existente.
+- **Sin relleno:** las tres tablas nacen vacías.
+- **Reversa:** primero el código (apagar la landing); luego `DROP` de las tres tablas y los cinco enums. No borra nada de la
+  tienda.
+- **Seeds:** ninguno obligatorio. Los topes y presupuestos son **variables de entorno** (`CARD_SHOW_CONFIRM_BUDGET_HOUR`,
+  `..._DAY`, `CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET`), no filas semilla.
 
 ### rev v1.87⟨wishlist⟩ (**M-74**: lista de deseos — **DDL ADITIVO: 3 tablas + 1 enum + 1 columna en `User` + 2 columnas y 1 índice en `SealedRestockSubscription` + 2 CHECK; sin relleno**, §4.WSH)
 - **Carpeta:** `prisma/migrations/20261027120000_m74_wishlist/`. El último en este árbol es `m72`
