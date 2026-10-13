@@ -2,6 +2,7 @@ import { VaultService, VAULT_SEALED_SORT_VALUES } from '../src/modules/vault/vau
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { UNIDENTIFIED_SEALED_NAME } from '../src/common/piece-display-identity';
 
 /**
  * v1.23-sealed-sales (§3 / §4.23g) — pestaña «Sellado» de la bóveda: agrega por producto+condición,
@@ -134,14 +135,18 @@ describe('VaultService.sealedTab — agregación + valuación de la bóveda sell
     expect(res.data[0].imageUrl).not.toBe('https://img/tropius.png');
   });
 
-  it('H-P38-1: sin snapshot (legacy) el grid de bóveda CAE a la Card ancla (fallback de cascada)', async () => {
+  // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — unificado al resolutor único: un sellado sin snapshot pinta
+  // «Sellado sin identificar» en el NOMBRE (⛔ nunca el `card.name` del single ancla, de cara al cliente);
+  // la IMAGEN sí cae al ancla (cola aceptada, clase P, §5.2.6). Inalcanzable en producción (siempre hay snapshot).
+  it('H-P38-1: sin snapshot el NOMBRE es «Sellado sin identificar» (nunca el ancla); la imagen cae al ancla', async () => {
     const items = [piece({ id: 'a', tcgplayerProductId: 100, sealedProductName: null, sealedImageUrl: null })];
     const refs = new Map<string, any>([
       ['c1|sealed|sealed:tcg:100|normal', { status: 'priced', referenceMxnCents: 100000 }],
     ]);
     const { svc } = build(items, refs);
     const res = await svc.sealedTab('u1', {});
-    expect(res.data[0].productName).toBe('Booster Box');
+    expect(res.data[0].productName).toBe(UNIDENTIFIED_SEALED_NAME);
+    expect(res.data[0].productName).not.toBe('Booster Box');
     expect(res.data[0].imageUrl).toBe('https://img/s.png');
   });
 

@@ -1,4 +1,5 @@
-import { Finish, InventoryItem, SealedCondition, VaultLocation } from '@prisma/client';
+import { Finish, InventoryItem, ProductType, SealedCondition, VaultLocation } from '@prisma/client';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 
 /**
  * preparation-view.ts — los ayudantes PUROS de proyección de «Pedidos a preparar» (§M4-PREP).
@@ -147,13 +148,24 @@ export function locationViewOf(location: VaultLocation | null): LocationView {
   return label === null ? { kind: 'unassigned' } : { kind: 'assigned', label };
 }
 
-/** Lo que `preparationCardOf` lee de la pieza: su carta (+set) y los tres ejes de condición. */
+/**
+ * Lo que `preparationCardOf` lee de la pieza: su carta (+set), los tres ejes de condición y la
+ * **identidad de sellado** (§4.34a.2). `productType` + el snapshot por-pieza `sealedProductName`/
+ * `sealedImageUrl` son **requeridos**: así el compilador obliga a cada `select` que alimenta esta
+ * vista a traerlos (un sellado sin esos campos pintaría «Sellado sin identificar», no el ancla, pero
+ * perdería su nombre real — por eso el tipo no los deja opcionales). `sealedProduct` vivo es opcional.
+ */
 export type PreparationCardSource = {
   finish: Finish;
   gradingCompany: InventoryItem['gradingCompany'];
   gradeValue: string | null;
   rawCondition: InventoryItem['rawCondition'];
   sealedCondition: SealedCondition | null;
+  productType: ProductType;
+  sealedProductId?: string | null;
+  sealedProductName?: string | null;
+  sealedImageUrl?: string | null;
+  sealedProduct?: { name: string; imageUrl: string | null } | null;
   card: { name: string; imageSmallUrl: string | null; set: { name: string } | null };
 };
 
@@ -172,17 +184,22 @@ export interface PreparationCardDTO {
  * (§M4-VAULT.3/.11: *«el MISMO objeto de §M4-PREP»*).
  */
 export function preparationCardOf(item: PreparationCardSource): PreparationCardDTO {
+  // §4.34a.2 — identidad por el resolutor ÚNICO. Para sellado rinde el `SealedProduct.name` (⛔ nunca
+  // el ancla; sin nombre, «Sellado sin identificar») y su imagen de sellado→ancla→null. Para
+  // no-sellado es `card.name`/`card.imageSmallUrl`, exactamente como antes.
+  const identity = pieceDisplayIdentityOf(item);
   return {
-    name: item.card.name,
+    name: identity.name,
     // El SET, prominente para ENVÍO: mapea a la carpeta por set del archivero.
     // ⭐ `nullIfBlank` — este campo es el que el orquestador cazó: mutar `?? null` a `?? ''`
     // **sobrevivía a las 5611 unitarias**. Es la misma clase que `B-1` sentada en el campo de al
     // lado, sin candado. Ahora la cierra el helper y la vigila el censo de blancos.
     setName: nullIfBlank(item.card.set?.name),
-    finish: item.finish,
+    // Un sellado NO tiene acabado del ancla: siempre `normal` (§4.34a.2; schema sealed→normal).
+    finish: item.productType === 'sealed' ? 'normal' : item.finish,
     conditionLabel: conditionLabelOf(item),
     // Una URL en blanco es una imagen que no existe, y se dice con la misma grafía que las
     // demás ausencias. (Antes pasaba directa: `null` desde el catálogo sí, `''` también.)
-    imageSmallUrl: nullIfBlank(item.card.imageSmallUrl),
+    imageSmallUrl: nullIfBlank(identity.imageSmallUrl),
   };
 }

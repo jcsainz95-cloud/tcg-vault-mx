@@ -20,6 +20,7 @@ import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { variantKey } from '../../common/variant-key';
+import { pieceDisplayIdentityOf, PieceDisplayIdentitySource } from '../../common/piece-display-identity';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -147,21 +148,18 @@ export interface HoldingDTO {
 }
 
 /**
- * v1.42 (BLOQ-2a / H-P38-1, §4.34a) — cascada de display del SELLADO, RESUELTA server-side: snapshot
- * congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. MISMO resolver que
- * usa `/vault/sealed` (`sealedTab`), el grid público y `sealed-sets` (no se duplica la regla). Mata el
- * patrón «Tropius»: la caja se pinta con su identidad real, no con la carta ancla. `name` nunca null (la
- * cascada termina en `Card.name`, NOT NULL); `imageUrl` puede ser null (honesto). Money-safe: solo display.
+ * v1.42 (BLOQ-2a / H-P38-1, §4.34a) — cascada de display del SELLADO, RESUELTA server-side.
+ *
+ * ⭐ v1.94.1⟨sellado-display⟩ (D-2) — UNIFICADO al resolutor único `pieceDisplayIdentityOf` (§4.34a.2(C)):
+ * ya no copia la cascada a mano. El cambio de conducta normado es que un sellado sin nombre resoluble
+ * (ni vivo ni snapshot) pinta «Sellado sin identificar», JAMÁS el `card.name` del single ancla — en la
+ * práctica inalcanzable en holdings/sealed-sets (siempre traen `sealedProductName`), así que es
+ * behavior-neutral en producción y solo elimina el fallback latente al ancla. `imageUrl` puede ser null
+ * (honesto). Money-safe: solo display.
  */
-function resolveSealedDisplay(item: {
-  sealedProductName?: string | null;
-  sealedImageUrl?: string | null;
-  card: { name: string; imageSmallUrl?: string | null };
-}): { name: string; imageUrl: string | null } {
-  return {
-    name: item.sealedProductName ?? item.card.name,
-    imageUrl: item.sealedImageUrl ?? item.card.imageSmallUrl ?? null,
-  };
+function resolveSealedDisplay(item: PieceDisplayIdentitySource): { name: string; imageUrl: string | null } {
+  const identity = pieceDisplayIdentityOf(item);
+  return { name: identity.name, imageUrl: identity.imageSmallUrl };
 }
 
 @Injectable()

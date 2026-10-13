@@ -13,6 +13,80 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-13 · stream «sellado-display» (errata v1.94.1⟨sellado-display⟩, rama `fix/sealed-display`)
+
+> Cierre del bug de display del sellado (ARCHITECTURE §4.34a.2, API_CONTRACT v1.94.1). **Tres cosas van en el registro:
+> una CERRADA sobre los módulos escaneados y vigilada con conteo (SD-D1), una NO MEDIDA (SD-D2) y los límites del escáner +
+> alcance de `MODULES` como deuda de bajo riesgo (SD-D4).**
+
+### SD-D1 · CERRADA (2026-10-13) · La clase «cascada de display de sellado COPIADA» — cerrada Y vigilada por candado
+- **Qué era:** la regla de display de un sellado (`SealedProduct` → snapshot → «Sellado sin identificar», ⛔ nunca el
+  `card.name` del single **ancla**) vivía COPIADA a mano en varios servicios, cayendo al ancla como último recurso del
+  NOMBRE. Es la clase que parió el bug «Exeggcute». Se cerró en DOS tandas:
+  - **Tanda 1 (b70e272 / 9bdcb18):** las 4 copias D-2 (`vault.service.ts`, `sealed-catalog.service.ts` grid,
+    `sales-analytics.service.ts`, `sealed-restock-notify.service.ts`) + los 3 escapes aliaseados (`toClientShipmentItem`,
+    imagen del tracking de invitado, correo AV-12) pasaron al resolutor único.
+  - **Tanda 2 (este pase, rama `fix/sealed-display`):** QA+techlead (sobre `9bdcb18`) cazaron **4 copias MÁS** fuera del
+    alcance enumerado a mano — porque la enumeración por grep/directorio/función deja pasar accesos aliaseados. Cerradas,
+    todas al resolutor: `catalog/sealed-catalog.service.ts` (serie de valor público), `inventory/sealed-graded.service.ts`
+    (pestaña Sellado, admin), `pricing/pricing.service.ts` (cola M2, admin) y `wishlist/wishlist-demand.service.ts`
+    (demanda de restock, admin). Conducta normada: sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla.
+- **Por qué está cerrada sobre los módulos escaneados — el candado mecánico:** la enumeración a mano falló **tres veces**,
+  así que la clase queda **VIGILADA por `backend/test/sealed-display-guard.spec.ts`**: escanea el código fuente de los
+  **11 módulos de display listados en `MODULES`** y **rompe CI** si aparece una lectura de
+  `card.name`/`card.number`/`card.imageSmallUrl` del ancla (incluidos los aliases locales por asignación) que no pase por
+  `pieceDisplayIdentityOf` ni esté en su allowlist explícita (con razón por entrada). Desde el endurecimiento **D-1**
+  (2026-10-13) el campo `lines` es **load-bearing**: el candado afirma que cada entrada casa con **exactamente `lines.length`**
+  accesos, de modo que una **copia con texto de línea idéntico a uno ya allowlisteado, en el mismo fichero** (que antes pasaba
+  con la regla «≥1») ahora sube el conteo y pone el candado **rojo**, forzando revisión.
+- **Alcance honesto, qué vigila y qué NO (para no sobre-afirmar):** la clase está **cerrada sobre los módulos de display
+  escaneados** (todos los ofensores conocidos pasan por el resolutor) **y vigilada contra copias dentro de ellos** por el
+  candado con conteo. **No afirmamos «no puede reabrirse en silencio» en absoluto**: el escáner es análisis estático y tiene
+  fronteras (destructuring con renombre, alias multilínea, parámetros con otro nombre) y un **alcance de módulos fijo**
+  (`disputes`/`buylist`/`decks-meta` no se escanean hoy). Esos residuos quedan registrados como **SD-D4** (abajo), de bajo
+  riesgo y money-safe. La afirmación medible es: **sobre los 11 módulos escaneados, ninguna copia directa, aliaseada por
+  asignación o línea-idéntica de la cascada puede reaparecer sin poner el candado rojo.**
+- **Verificado por mutación el 2026-10-13** (rama `fix/sealed-display`): (a) una copia directa `card.name` y una aliaseada
+  (`const X = item.card; X.name`) ⇒ candado rojo; (b) una copia **línea-idéntica** a una entrada de la allowlist en el mismo
+  fichero ⇒ test de conteo (D-1) **3/3 corridas rojas** mientras el test de violaciones queda verde (justo el caso que D-1
+  cierra); restaurado ⇒ verde.
+- **Estado:** la clase está **CERRADA sobre los módulos de display escaneados y vigilada con conteo**; ninguna deuda de
+  divergencia conocida de esta clase queda viva. Los límites del escáner y el alcance de `MODULES` son **deuda de bajo riesgo
+  registrada (SD-D4)**, no la clase reabierta. Medido: candado verde (3/3 tests) + suite unitaria/contrato 478/478 suites ·
+  8533/8533 pruebas + E2E `sealed-display-flow.e2e-spec.ts` 7/7 (2026-10-13, rama `fix/sealed-display`).
+
+### SD-D2 · NO MEDIDO (owner: OPERACIÓN/CAPTURA, no backend) · Piezas selladas vivas sin identidad propia (§4.34a.1)
+- **Qué es:** el resolutor rinde «Sellado sin identificar» para una pieza `productType='sealed'` que no tiene **ni**
+  `sealedProductId` **ni** `sealedProductName` (ni vivo ni snapshot). Es la conducta SEGURA (⛔ jamás el ancla), pero si
+  hay piezas así, el operador/cliente ve el genérico en vez del nombre real de la caja.
+- **Cuántas hay: NO MEDIDO.** El conteo es el de §4.34a.1 (piezas selladas vivas con `sealedProductId IS NULL` **y**
+  `sealedProductName IS NULL`). **No es un defecto de software:** el resolutor hace lo correcto. El arreglo, si el conteo
+  da > 0, es **identidad TECLEADA en M1** (trabajo de captura/operación), no código.
+- **Dueño:** **operación/captura** (no backend). **Severidad:** baja; money-safe (solo display).
+- **Disparador:** correr el conteo de §4.34a.1; si > 0, enrutar esas piezas a captura para teclear su `SealedProduct`.
+  Backend no tiene nada que hacer aquí salvo, si se quisiera, exponer el conteo como una métrica de operación.
+
+### SD-D4 · P3 · Bajo riesgo (2026-10-13) · Fronteras del escáner del candado y alcance de `MODULES`
+- **Qué es:** el candado `backend/test/sealed-display-guard.spec.ts` es análisis estático por regex; cierra la clase sobre
+  los módulos que escanea, pero tiene fronteras que **hoy ningún módulo escaneado cruza** (verificado 2026-10-13, es por lo
+  que son de bajo riesgo):
+  - **texto-idéntico-mismo-fichero** — *CERRADO* por D-1: un acceso con texto de línea idéntico a uno ya allowlisteado en el
+    mismo fichero ya pone el candado rojo (conteo `== lines.length`). Se lista aquí porque fue el hueco que D-1 tapó.
+  - **destructuring con renombre** — `const { card: c } = x; … c.name` no se caza (solo se rastrea el alias por asignación
+    `const X = ….card;`). Misma familia: **alias multilínea** (`const x =\n  a.b.card;`) y **parámetro/variable con nombre
+    ≠ `card`** que reciba la carta ancla sin una asignación `= ….card` detectable.
+  - **alcance de `MODULES`** — el candado escanea 11 módulos de display; `disputes`, `buylist` y `decks-meta` **no** se
+    escanean. QA verificó que hoy ninguno es superficie de sellado (`BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']`; `decks-meta`
+    pinta cartas sueltas). Un módulo nuevo que produzca display de pieza queda ciego hasta agregarse a `MODULES`.
+- **Por qué de bajo riesgo:** money-safe (solo display/identidad, ⛔ no toca precio/importe/valuación); las formas no cazadas
+  no se usan hoy en los módulos escaneados; y la conducta segura por defecto del resolutor es «Sellado sin identificar»,
+  nunca el ancla, dondequiera que SÍ se use `pieceDisplayIdentityOf`.
+- **Dueño:** **backend**. **Disparador:** al **añadir un módulo de display nuevo** (agregarlo a `MODULES`), al **añadir un
+  camino de sellado a `buylist`/`decks-meta`/`disputes`** (agregar ese módulo a `MODULES`), o si alguna superficie escaneada
+  empieza a usar destructuring-rename/alias-multilínea/parámetro-renombrado para el `card` del ancla (ampliar el escáner o
+  migrar al resolutor). Ref: header de `sealed-display-guard.spec.ts` (§Límites del escáner + §Alcance) y `BACKEND_NOTES.md`
+  §0.60.
+
 ## Backend · 2026-10-05 · stream «Precio del sellado» — gate del techlead sobre `4f367aea` (rama `claude/precio-sellado`)
 
 > Deuda **no bloqueante** señalada por el techlead (APROBADO CON CONDICIONES; las condiciones están cerradas). Las

@@ -89,6 +89,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
 import {
   resolveRobustMarket,
@@ -3228,12 +3229,18 @@ export class PricingService {
         setName: card.set.name,
       },
       // v1.42 (BLOQ-2b, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
-      // raw/graded). `sealedProductName` RESUELTO por la cascada (SealedProduct vivo → Card.name ancla) para
-      // que M2 muestre «ETB …», no «sealed» ambiguo. `sealedProductId`/`sealedSubtype` de la FK viva.
+      // raw/graded). `cardName`/`card` (arriba) son la identidad de la CARTA ancla (el set al que pertenece);
+      // el NOMBRE del producto sellado sale del resolutor único (§4.34a.2(C)): `SealedProduct` vivo → snapshot
+      // (ausente aquí) → «Sellado sin identificar». ⛔ v1.94.2: JAMÁS cae al `card.name` del ancla (era el bug
+      // del sellado-display). `sealedProductId`/`sealedSubtype` de la FK viva.
       ...(entry.productType === 'sealed'
         ? {
             sealedProductId: entry.sealedProductId ?? null,
-            sealedProductName: sealedProduct?.name ?? card.name,
+            sealedProductName: pieceDisplayIdentityOf({
+              productType: 'sealed',
+              card,
+              sealedProduct,
+            }).name,
             sealedSubtype: sealedProduct?.subtype ?? null,
           }
         : {}),

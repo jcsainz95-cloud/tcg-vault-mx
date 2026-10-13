@@ -248,8 +248,8 @@ const MIGRADOS: Record<string, Render> = {
       {
         orderNumber: PEDIDO,
         items: [
-          { name, setName: 'Darkness Ablaze', number: '020/189' },
-          { name: 'Snorlax V', setName: 'Sword & Shield', number: '141/202' },
+          { name, setName: 'Darkness Ablaze', number: '020/189', productType: 'raw' as const },
+          { name: 'Snorlax V', setName: 'Sword & Shield', number: '141/202', productType: 'raw' as const },
         ],
         totalCents: 102000,
         trackingUrl: SEGUIMIENTO_URL,

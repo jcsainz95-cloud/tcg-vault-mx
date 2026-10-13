@@ -10,8 +10,10 @@ import {
   spacerRow,
   totalsRows,
 } from '../../buylist/mail-shell';
+import { ProductType } from '@prisma/client';
 import { MailMessage } from '../../mail/mail.port';
 import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
+import { orderMailLineOf } from './order-notice.templates';
 
 /**
  * Plantillas LOCALES al módulo `orders` del correo del GUEST CHECKOUT (v1.21, ARCHITECTURE §4.21g).
@@ -55,6 +57,8 @@ export interface GuestOrderMailItem {
   name: string;
   setName: string;
   number: string;
+  /** §4.34a.2 — para omitir el `#número` del ancla en un sellado. */
+  productType: ProductType;
 }
 
 export interface GuestOrderMailParams {
@@ -122,7 +126,7 @@ const COPY = {
 } as const;
 
 function itemsText(items: GuestOrderMailItem[]): string {
-  return items.map((i) => `- ${i.name} — ${i.setName} #${i.number}`).join('\n');
+  return items.map((i) => `- ${orderMailLineOf(i)}`).join('\n');
 }
 
 /**
@@ -140,7 +144,7 @@ export function guestOrderConfirmationTemplate(
   const intro = t.confirmIntro(params.orderNumber);
   const total = formatMxn(params.totalCents, l);
   const lineas = [
-    ...params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`),
+    ...params.items.map(orderMailLineOf),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)),
   ];
   const html = mailShell({

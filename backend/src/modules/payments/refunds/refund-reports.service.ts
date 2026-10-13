@@ -7,6 +7,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../../common/customer-email';
+import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { customerDisplayName } from '../../vault/customer-display-name';
@@ -54,7 +55,8 @@ export class RefundReportsService {
         orderBy: { createdAt: 'desc' },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
-        include: { item: { select: { id: true, folio: true, ownerType: true, acquisitionCostCents: true, card: { select: { name: true } } } } },
+        // §4.34a.2 — + identidad de sellado para nombrar el SealedProduct, no el ancla.
+        include: { item: { select: { id: true, folio: true, ownerType: true, acquisitionCostCents: true, productType: true, sealedProductId: true, sealedProductName: true, card: { select: { name: true } } } } },
       }),
       this.prisma.inventoryMovement.count({ where }),
       this.prisma.inventoryMovement.findMany({ where, select: { item: { select: { acquisitionCostCents: true } } } }),
@@ -72,7 +74,7 @@ export class RefundReportsService {
         movementId: m.id,
         createdAt: m.createdAt.toISOString(),
         actor: m.actorUserId ? { userId: m.actorUserId, name: names.get(m.actorUserId) ?? null } : null,
-        item: { id: m.item.id, folio: m.item.folio, cardName: m.item.card.name, ownerTypeNow: m.item.ownerType },
+        item: { id: m.item.id, folio: m.item.folio, cardName: pieceDisplayIdentityOf(m.item).name, ownerTypeNow: m.item.ownerType },
         fromStatus: m.fromStatus,
         toStatus: m.toStatus,
         reason: m.reason,

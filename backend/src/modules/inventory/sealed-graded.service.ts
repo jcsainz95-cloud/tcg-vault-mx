@@ -5,6 +5,7 @@ import { BusinessException } from '../../common/business.exception';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { NOT_ON_HAND, SetRefDTO } from './master-set.service';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 
 /**
  * SealedGradedInventoryService — v1.28 (P-25 + P-20, ARCHITECTURE §4.26g/§4.26h · API_CONTRACT
@@ -327,12 +328,20 @@ export class SealedGradedInventoryService {
           ? refs.get(`${a.cardId}|sealed|${sealedMarketGradeKey(a.tcgplayerProductId)}|normal`)
           : undefined;
       const card = cardById.get(a.cardId);
+      // v1.94.2⟨sellado-display⟩ — nombre e imagen por el resolutor ÚNICO (§4.34a.2(C)): el nombre es el
+      // del `SealedProduct` (snapshot por-pieza `sealedProductName`) y, sin nombre resoluble, «Sellado sin
+      // identificar» — ⛔ JAMÁS el `card.name` del single ancla. La imagen conserva su cascada idéntica
+      // (`sealedImageUrl` → `card.imageSmallUrl` ancla → null; la imagen del ancla es cola ACEPTADA, §5.2.6).
+      const display = pieceDisplayIdentityOf({
+        productType: 'sealed' as ProductType,
+        card,
+        sealedProductName: a.sealedProductName,
+        sealedImageUrl: a.sealedImageUrl,
+      });
       return {
         cardId: a.cardId,
-        // BLOQ-2 (cascada §4.34a): snapshot del sellado → nombre/imagen de la Card ancla. MISMO patrón
-        // exacto que sealed-catalog.service.ts / vault.service.ts (`sealedProductName ?? card.name`).
-        productName: a.sealedProductName ?? card?.name ?? '',
-        imageSmallUrl: a.sealedImageUrl ?? card?.imageSmallUrl ?? null,
+        productName: display.name,
+        imageSmallUrl: display.imageSmallUrl,
         sealedSubtype: a.sealedSubtype,
         sealedCondition: a.sealedCondition,
         tcgplayerProductId: a.tcgplayerProductId,
