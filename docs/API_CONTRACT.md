@@ -10,6 +10,25 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.94⟨sellado-display⟩ — EL SELLADO SE PINTA COMO CARTA SUELTA EN PEDIDO/FULFILLMENT (2026-10-13, arquitecto,
+> rama `fix/sealed-display` desde `production`; base = último de `production` = rev v1.91⟨precios⟩; ⛔ sha NO MEDIDO: sin
+> Bash).** 🐞 **BUG DE PRODUCCIÓN, 💰 zona de dinero/fulfillment.** Primer pedido real: producto **sellado** cobrado al
+> precio de sellado correcto, pero «Pedidos por preparar · Junta y palomea» y el acta lo pintan como **carta suelta** (el
+> single ancla). **Es DISPLAY, no mala venta** (la pieza reservada es la sellada; evidencia en `ARCHITECTURE §4.34a.2(A)`).
+> ⛔ **La versión v1.94 la reserva ESTA rama;** NO confundir con `v1.92⟨mkt⟩`/`v1.93⟨cardshow⟩` de otras ramas sin fusionar.
+> **Norma y superficies afectadas (15) en `ARCHITECTURE §4.34a.2`; decisión del acta congelada y la prueba que falla en
+> `ARCHITECTURE §5.2.6`.** Cambios de contrato, todos **aditivos/retrocompatibles**:
+> - **`FrozenCardFacts` (y por tanto `OrderItemCardDTO`/`HistoricalOrderItemCardDTO`, §4) gana DOS claves, presentes SOLO
+>   para `productType='sealed'`:** `sealedProductId?: string | null` y `sealedProductName?: string`. Y el `name` que el acta
+>   congela para un sellado **deja de ser el ancla**: es el nombre del `SealedProduct` tal como se mostró al pagar (cascada
+>   §4.34a). Ver el bloque de §4 reescrito abajo. **SIN migración de BD** (`cardSnapshot` es columna `Json`): cambio de
+>   forma + cerrojos de tipo (`FROZEN_CARD_FACT_KEYS` + los dos `Equals` de `order-item-card.ts`). **Cero enums nuevos**.
+> - **`GuestTrackingItemDTO` (§4-G) y `ShipPreparationItemDTO.card` (§M4-SHIP) + reembolsos (§7/§Admin):** su `name` de un
+>   sellado resuelve por el **resolutor único** de §4.34a.2 (`SealedProduct` vivo → snapshot `sealedProductName` → ancla),
+>   nunca el `card.name` del single; el sellado no enseña `card.number` del ancla. Sin cambio de FORMA de esos DTO.
+> - **Reparto:** backend implementa (`orders`, `shipments`, `vault`, `payments/refunds`, resolutor en `common/`); tres
+>   veredictos (QA + techlead + seguridad). Zonas compartidas: `orders/`, `shipments/`, `common/` — serializar.
+>
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
 > según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
@@ -10900,7 +10919,12 @@ Err `401`.
 >   productType: ProductType,
 >   rawCondition: RawCondition | null,      // clave SIEMPRE presente; `null` fuera de raw (único valor "NM")
 >   gradingCompany: GradingCompany | null,  // clave SIEMPRE presente; `null` fuera de graded
->   gradeValue: string | null               // clave SIEMPRE presente; `null` fuera de graded
+>   gradeValue: string | null,              // clave SIEMPRE presente; `null` fuera de graded
+>   // v1.94⟨sellado-display⟩ — IDENTIDAD de sellado congelada, SOLO cuando productType='sealed' (ausentes en raw/graded).
+>   // Para un sellado, `name` (arriba) ES el nombre del SealedProduct tal como se mostró al pagar (cascada §4.34a),
+>   // NO el `card.name` del single ancla. `cardId` se conserva (pertenencia al set + cola de la cascada). ARCHITECTURE §5.2.6.
+>   sealedProductId?: string | null,        // ausente fuera de sellado; la identidad §4.34a
+>   sealedProductName?: string              // ausente fuera de sellado; el nombre congelado del SealedProduct
 > }
 >
 > // ---- (P) PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3) — NO se persiste.
@@ -10931,10 +10955,16 @@ Err `401`.
 >   `{ inventoryItemId: string, card: OrderItemCardDTO, unitPriceCents: number }`.
 > - **`OrderItemDTO`** (líneas de `GET /orders/:orderId`) queda definido como:
 >   `{ inventoryItemId: string, card: HistoricalOrderItemCardDTO, unitPriceCents: number }`.
-> - **Sellado (`productType='sealed'`): límite declarado.** El snapshot ancla `cardId`, no `sealedProductId` ⇒ la
->   imagen resuelta es la de la **carta ancla**, que es la **cola** de la cascada de §4.34a. Mostrar la caja en el
->   historial exigiría congelar identidad de sellado en la línea (clase F, DDL aditivo) y es **alcance de producto**:
->   pasa por el arquitecto (regla 9), no se compensa con un join a `InventoryItem`. Ver ARCHITECTURE §5.2.6.
+> - **Sellado (`productType='sealed'`): v1.94⟨sellado-display⟩ — RESUELTO para el NOMBRE (era un bug, no solo un
+>   límite).** La petición regla-9 que esta nota dejó enrutada **llegó** con el primer pedido real: el acta no solo perdía
+>   la imagen de la caja, sino que congelaba el **`name` del single ancla** («Exeggcute») como identidad de un pedido
+>   sellado — un hecho **equivocado**. Desde v1.94 el acta congela el `name` **correcto** del `SealedProduct` (cascada
+>   §4.34a, el mismo que la tienda mostró al pagar) y lleva `sealedProductId`/`sealedProductName` (arriba). NO viola la
+>   doctrina «el pedido dice lo que decía cuando se pagó»: se congela lo que el cliente vio, no el ancla. **La IMAGEN
+>   sigue siendo clase (P)**, resuelta en lectura por `cardId` (§5.2.3): para un sellado eso rinde la imagen del ancla
+>   (cola de la cascada §4.34a), que es un límite menor **aceptado** — ⛔ no se congela una URL de tercero, ni se abre un
+>   join oportunista a `InventoryItem`. Ver ARCHITECTURE §4.34a.2 (resolutor único + 15 superficies) y §5.2.6 (decisión
+>   del acta, sin migración de BD, y la prueba que debe fallar).
 >
 > **TOLERANCIA DEL HISTÓRICO — qué puede faltar y cómo reacciona el cliente (v1.51-c, NORMATIVA).**
 > `OrderItem.cardSnapshot` es una columna `Json`: la base **no valida su esquema** y el blob de un pedido de 2024 lo
@@ -11656,6 +11686,9 @@ GuestOrderTrackingDTO = {
   tokenExpiresAt: string                  // para que la UI avise "tu enlace caduca el …" y ofrezca reenvío
 }
 GuestTrackingItemDTO = {
+  // v1.94⟨sellado-display⟩: para productType='sealed', `name` es el del SealedProduct (resolutor único §4.34a.2:
+  // SealedProduct vivo → snapshot `sealedProductName` → ancla), NUNCA el `card.name` del single ancla. `number` es
+  // del ancla y el front NO lo muestra para sellado (misma regla que §4.34a.1). Sin cambio de FORMA del DTO.
   name: string, setName: string, number: string,       // identificación de la carta (datos de catálogo, públicos)
   finish: Finish, productType: ProductType,
   rawCondition?: RawCondition, sealedSubtype?: SealedSubtype,
@@ -23149,6 +23182,9 @@ export interface ShipPreparationOrderDTO {
   items: ShipPreparationItemDTO[];
 }
 
+// v1.94⟨sellado-display⟩: el `card` heredado (PreparationCardDTO, vía `preparationCardOf`) resuelve el NOMBRE/imagen de
+// un sellado por el resolutor único de ARCHITECTURE §4.34a.2 (SealedProduct vivo → snapshot `sealedProductName` → ancla),
+// NUNCA el `card.name` del single ancla; un sellado tampoco enseña el `card.number` del ancla. Sin cambio de FORMA del DTO.
 export interface ShipPreparationItemDTO extends PreparationItemDTO {   // conserva shipmentItemId, folio, card, currentLocation…
   prepStatus: PreparationItemStatus;                  // v1.80
   missingReason: MissingReason | null;                // ⇔ prepStatus==='missing'
