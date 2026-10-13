@@ -34,6 +34,14 @@ export type FrozenCardFacts = {
   rawCondition?: RawCondition | null;
   gradingCompany?: GradingCompany | null;
   gradeValue?: string | null;
+  // v1.94⟨sellado-display⟩ (ARCHITECTURE §5.2.6) — IDENTIDAD de sellado congelada, presente SOLO
+  // cuando `productType==='sealed'` (ausente en raw/graded). Para un sellado, `name` (arriba) ES el
+  // nombre del `SealedProduct` tal como se mostró al pagar (cascada §4.34a), NO el `card.name` del
+  // single ancla; `cardId` se conserva (pertenencia al set + cola de la cascada). Estas dos claves
+  // NO son presentación: son hechos de la compra (qué producto sellado se vendió), por eso viven en
+  // la clase (F) y se persisten. La IMAGEN sigue siendo clase (P), resuelta en lectura.
+  sealedProductId?: string | null;
+  sealedProductName?: string;
 };
 
 /**
@@ -163,6 +171,10 @@ export const FROZEN_CARD_FACT_KEYS = [
   'rawCondition',
   'gradingCompany',
   'gradeValue',
+  // v1.94⟨sellado-display⟩ — las dos claves de identidad de sellado (§5.2.6). El cerrojo
+  // `ALLOWLIST_IS_FROZEN_FACT_KEYS` no compila si esta lista y `FrozenCardFacts` divergen.
+  'sealedProductId',
+  'sealedProductName',
 ] as const;
 
 /**

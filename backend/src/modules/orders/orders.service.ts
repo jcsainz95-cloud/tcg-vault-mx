@@ -48,6 +48,7 @@ import {
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
+import { pieceDisplayIdentityOf, resolvedSealedName } from '../../common/piece-display-identity';
 import {
   CARD_IMAGE_SELECT,
   CardImageSource,
@@ -684,7 +685,19 @@ export class OrdersService {
       } else if (this.isSellable(item) || (item.status === 'reserved' && reservedByYou.has(id))) {
         valid.push(item);
       } else {
-        unavailableItems.push({ inventoryItemId: id, cardName: item.card.name });
+        // §4.34a.2 — un sellado no disponible se nombra por su identidad de sellado, no por el ancla.
+        // Se proyecta explícito (el `sealedProduct` unido aquí trae otra forma — solo precio); el
+        // nombre sale del snapshot por-pieza, que es lo que la cascada usa fuera del join de catálogo.
+        unavailableItems.push({
+          inventoryItemId: id,
+          cardName: pieceDisplayIdentityOf({
+            productType: item.productType,
+            card: item.card,
+            sealedProductId: item.sealedProductId,
+            sealedProductName: item.sealedProductName,
+            sealedImageUrl: item.sealedImageUrl,
+          }).name,
+        });
       }
     }
     // Precios: CONGELADOS de la orden propia si rige (§4-R.2 regla 5: lo que el PI cobra); si no, en
@@ -853,15 +866,28 @@ export class OrdersService {
   private cardSnapshot(
     item: InventoryItem & { card: Card & { set?: CardSet | null } },
   ): FrozenCardFacts {
-    return {
+    // §4.34a.2 / §5.2.6 — para un sellado, `name` es el del `SealedProduct` (resolutor único, el
+    // MISMO que mostró la tienda al pagar), NUNCA el `card.name` del ancla. `cardId`/`number`
+    // (del ancla) se conservan como hechos del set. Para raw/graded, el resolutor rinde `card.name`.
+    const name = pieceDisplayIdentityOf(item).name;
+    const base: FrozenCardFacts = {
       cardId: item.cardId,
-      name: item.card.name,
+      name,
       setName: item.card.set?.name,
       number: item.card.number,
       productType: item.productType,
       rawCondition: item.rawCondition,
       gradingCompany: item.gradingCompany,
       gradeValue: item.gradeValue,
+    };
+    if (item.productType !== 'sealed') return base;
+    // SOLO sellado: congela la identidad. `sealedProductName` se congela SOLO si hay un nombre real
+    // (⛔ nunca la copia «Sellado sin identificar», que es display, no un hecho de la compra).
+    const sealedName = resolvedSealedName(item);
+    return {
+      ...base,
+      sealedProductId: item.sealedProductId ?? null,
+      ...(sealedName != null ? { sealedProductName: sealedName } : {}),
     };
   }
 

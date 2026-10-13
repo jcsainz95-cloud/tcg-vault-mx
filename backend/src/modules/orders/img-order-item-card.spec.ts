@@ -627,7 +627,8 @@ describe('IMG-6 — la columna `Json` se PROYECTA por allowlist, no se sirve ver
     supplierId: 'prov-7',
   };
 
-  it('la allowlist son EXACTAMENTE los ocho hechos congelados, sin claves de más ni de menos', () => {
+  it('la allowlist son EXACTAMENTE los hechos congelados, sin claves de más ni de menos', () => {
+    // v1.94⟨sellado-display⟩ (§5.2.6): +`sealedProductId`/`sealedProductName`, presentes SOLO en sellado.
     expect([...FROZEN_CARD_FACT_KEYS].sort()).toEqual([
       'cardId',
       'gradeValue',
@@ -636,13 +637,18 @@ describe('IMG-6 — la columna `Json` se PROYECTA por allowlist, no se sirve ver
       'number',
       'productType',
       'rawCondition',
+      'sealedProductId',
+      'sealedProductName',
       'setName',
     ]);
   });
 
   it('★ el lector descarta lo que no está en la allowlist (costo interno, notas, proveedor…)', () => {
     const facts = readFrozenCardFacts(BLOB_SUCIO) as Record<string, unknown>;
-    expect(Object.keys(facts).sort()).toEqual([...FROZEN_CARD_FACT_KEYS].sort());
+    // La proyección copia SOLO las claves presentes de la allowlist (un blob raw no trae las de
+    // sellado): los nombres que salen son todos de la allowlist, y el ruido no cruza.
+    const allowed = new Set<string>([...FROZEN_CARD_FACT_KEYS]);
+    expect(Object.keys(facts).every((k) => allowed.has(k))).toBe(true);
     expect(facts).not.toHaveProperty('internalCostCents');
     expect(facts).not.toHaveProperty('__note');
     expect(facts).not.toHaveProperty('supplierId');

@@ -32335,3 +32335,71 @@ variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
 
 **NO MEDIDO:** las propiedades HTTP de C-EQ-1 (gate de QA, DB) y la confirmación del `FX_EUR_SERIES_ID` con token
 (TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.
+
+---
+
+## v1.94⟨sellado-display⟩ — el SELLADO deja de pintarse como su carta ancla (§4.34a.2 + §5.2.6)
+
+**El bug (dinero/fulfillment).** Un producto SELLADO se pintaba como su **single ancla** (p. ej. «Exeggcute»)
+en la preparación, el acta del pedido y el **correo de confirmación**, porque ~15 superficies de pedido leían
+`item.card.name` sin rama de sellado. La pieza reservada ES la sellada (`productType='sealed'`,
+`sealedProductId`/`sealedProductName` poblados): era **solo display**, no una mala venta.
+
+**Resolutor ÚNICO (una sola fuente, ⛔ no copiar la cascada).** `backend/src/common/piece-display-identity.ts`:
+`pieceDisplayIdentityOf(item) → { name, imageSmallUrl, isSealed }`. Puro, sin Prisma/Nest.
+- `isSealed = productType === 'sealed'` (⛔ nunca `!('rawCondition' in …)`).
+- **nombre sellado:** `sealedProduct?.name` (vivo, donde ya se une) → `sealedProductName` (snapshot por-pieza) →
+  **«Sellado sin identificar»**. ⛔ **El nombre JAMÁS cae al `card.name` del ancla** (doctrina §4.34a.1).
+- **imagen sellado:** `sealedImageUrl` → `sealedProduct?.imageUrl` → `card.imageSmallUrl` (ancla, cola aceptada
+  clase P §5.2.6) → `null`.
+- Un sellado NO expone `card.number` ni el `finish` del ancla: el resolutor NO devuelve número ni acabado, y
+  quien los emita los omite para sellado.
+- `resolvedSealedName(item)`: el nombre de sellado REAL (vivo→snapshot) o `null` — lo usa el acta para congelar
+  `sealedProductName` SOLO cuando hay nombre de verdad (⛔ nunca la copia «Sellado sin identificar»).
+- `firstNonBlank`: una fuente vacía (`''`/`'   '`) cuenta como ausente (misma doctrina `nullIfBlank`).
+
+**Las 15 superficies de §4.34a.2(B) + el correo, una por una (fichero:línea tras el cambio):**
+1. Preparación «Junta y palomea» — `shipments/preparation-view.ts:preparationCardOf` (usado por `shipment-prep.service.ts:~305`): `name`/`imageSmallUrl` por el resolutor, `finish` forzado `normal` para sellado.
+2. Contexto interno de línea de prep — `shipments/shipment-prep.service.ts:~327` `cardName: pieceDisplayIdentityOf(p).name`.
+3. Aviso casos «por reponer» (correo) — `shipments/shipment-prep.service.ts:~1013` + select ampliado (`productType`/`sealedProduct*`).
+4. DTO de envío — `shipments/shipments.service.ts:1531` vía `preparationCardOf` (modelo completo).
+5. «Por reponer» (replacement) — `vault/replacement-case.service.ts:375` vía `preparationCardOf`.
+6. Levantamiento físico de bóveda — `vault/vault-physical-inventory.service.ts:146,162` vía `preparationCardOf` (el sort `:189` lee el DTO ya resuelto, correcto).
+7. Preparación de bóveda — `vault/vault-preparation.view.ts:153` vía `preparationCardOf`.
+8. Tracking de invitado — `orders/guest-checkout.service.ts:~869` `name` por el resolutor; `number` sigue siendo del ancla y el front NO lo muestra para sellado (DTO sin cambio de forma). El tipo de `toTrackingDto` ganó `productType: ProductType` + los 3 campos de sellado.
+9. Acta congelada (snapshot) — `orders/orders.service.ts:cardSnapshot`: `name` por el resolutor; añade `sealedProductId` (null si legacy) y `sealedProductName` (SOLO si hay nombre real) cuando `productType='sealed'`; `cardId`/`number` del ancla se conservan.
+10. Historial `GET /orders/:id` — `orders/orders.service.ts:821,2036` `resolveOrderItemCard(...)`: LEE el acta ⇒ para pedidos NUEVOS ya trae el nombre correcto (cubierto por el snapshot). ⚠ Pedidos VIEJOS siguen con el ancla congelado (decisión del dueño, abajo).
+11. «No disponibles» del checkout — `orders/orders.service.ts:~687` resolutor con proyección explícita (el `sealedProduct` unido ahí trae otra forma — solo precio).
+12. Reembolsos total — `payments/refunds/full-refund.service.ts:~714,~728` + selects ampliados.
+13. Reembolsos aviso admin — `payments/refunds/admin-refunds.controller.ts:~108` + ambos selects ampliados.
+14. Reembolsos manual (retiro, correo) — `payments/refunds/manual-refund.service.ts:~804` + select ampliado; `:290,:300` ya usaban `preparationCardOf` (modelo completo).
+15. Reembolsos reportes — `payments/refunds/refund-reports.service.ts:~75` + select ampliado.
++ **CORREO de confirmación** (registrado y invitado) — `payments/payments.service.ts:~128` y `~658` leen `readFrozenCardFacts(cardSnapshot).name` ⇒ para pedidos NUEVOS muestran el nombre del sellado (cubierto por el snapshot). Las plantillas (`orders/mail/order-notice.templates.ts` + `guest-order.templates.ts`) ganaron `orderMailLineOf`: **omite el `#número` del ancla para sellado**. `OrderNoticeItem`/`GuestOrderMailItem` ganaron `productType`.
+
+**Snapshot sin migración (§5.2.6).** `OrderItem.cardSnapshot` es columna `Json`: añadir `sealedProductId?: string|null`
+y `sealedProductName?: string` a `FrozenCardFacts` + a `FROZEN_CARD_FACT_KEYS` (allowlist) es cambio de FORMA, no
+`ALTER TABLE`. Los cerrojos `Equals` (`RESOLVED_IS_CONTRACT_SHAPE`, `HISTORICAL_IS_RESOLVED_SHAPE`,
+`ALLOWLIST_IS_FROZEN_FACT_KEYS`) verifican la forma en compilación. **Cero enums** (`ProductType.sealed` ya existe).
+
+**⚠ Pedido real existente — NO lo toco (decisión del dueño).** Su acta ya congeló el ancla (se cobró antes del
+arreglo). La preparación se re-resuelve en vivo ⇒ se arregla sola; el historial y el correo leen el blob congelado
+⇒ seguirían mostrando «Exeggcute» para ESE pedido. La reparación puntual (`UPDATE jsonb_set` de UNA fila) la corre
+el dueño en prod (§5.2.6 opción a). **Backend no prepara ni ejecuta ningún UPDATE de datos.**
+
+**Pruebas (backend).** `test/sealed-display.be.spec.ts` (12/12): resolutor puro + `preparationCardOf` + `cardSnapshot`
+(vía reflexión, es puro) + allowlist. La prueba FALLÓ en rojo contra el código sin tocar (`preparationCardOf`
+devolvía «Exeggcute»); mutación verificada (abajo).
+
+**Para QA (BD/E2E).** Falta el camino de punta a punta contra el stack: checkout real de una pieza sellada ⇒ (iii)
+`GET /orders/:id` y el tracking de invitado devuelven el `SealedProduct.name`; (iv) el correo de confirmación
+(registrado e invitado) muestra el nombre del sellado y NO el `#número` del ancla; y que un pedido VIEJO (blob con
+el ancla) sigue mostrando el ancla hasta que el dueño corra el `UPDATE`. Candidatos de harness: `test/integration/
+guest-checkout.e2e-spec.ts`, `catalog-checkout-webhook.e2e-spec.ts`, `preparation-queue.e2e-spec.ts`.
+
+**Discrepancia menor para el arquitecto (no bloqueante).** §4.34a.2(C) dice que las **4 superficies ya-correctas**
+(`sealed-catalog.service.ts:263`, `vault.service.ts:162`, `sales-analytics:385`, `sealed-restock-notify:125`)
+deberían consumir el resolutor único, PERO su cascada actual cae a `card.name` (ancla) como último recurso y hay
+tests que lo fijan (`vault.holdings-sealed-identity.spec.ts:105` espera «Tropius» para sellado legacy sin nombre).
+Migrarlas al resolutor cambiaría ese fallback a «Sellado sin identificar» — cambio de conducta que rompe tests
+fijados. El task acotó el alcance a «las 15 superficies (B)», así que **NO toqué las 4**. Si el arquitecto quiere
+unificarlas, es una decisión de conducta aparte (regla 9).

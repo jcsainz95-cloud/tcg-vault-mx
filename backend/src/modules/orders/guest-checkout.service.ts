@@ -1,7 +1,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Locale, Order, OrderStatus, Prisma, ShipmentRequest, ShipmentStatus } from '@prisma/client';
+import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   shippingFeeDisplayCentsOf,
@@ -828,11 +829,16 @@ export class GuestCheckoutService {
         refund?: { status: string; amountCents: number; missingReason: string | null; submittedAt: Date | null; succeededAt: Date | null } | null;
         inventoryItem: {
           finish: string;
-          productType: string;
+          productType: ProductType;
           rawCondition: string | null;
           sealedSubtype: string | null;
           gradingCompany: string | null;
           gradeValue: string | null;
+          // §4.34a.2 — identidad de sellado (snapshot por-pieza), para que el resolutor único nombre
+          // el SealedProduct y no el ancla. El query `include` del modelo completo las trae.
+          sealedProductId: string | null;
+          sealedProductName: string | null;
+          sealedImageUrl: string | null;
           card: { name: string; number: string; imageSmallUrl: string | null; set: { name: string } | null };
         };
       }[];
@@ -862,7 +868,10 @@ export class GuestCheckoutService {
       // Confirma al comprador QUÉ correo usó, sin revelarlo (el enlace puede reenviarse).
       emailMasked: maskEmail(order.guestEmail),
       items: order.items.map((oi) => ({
-        name: oi.inventoryItem.card.name,
+        // §4.34a.2 — para un sellado, el nombre es el del `SealedProduct` (resolutor único), NUNCA el
+        // ancla. `number` es del ancla y el front NO lo muestra para sellado (contrato §4-G, forma
+        // del DTO sin cambio). La imagen se queda por join en vivo (clase P, §5.2.3).
+        name: pieceDisplayIdentityOf(oi.inventoryItem).name,
         setName: oi.inventoryItem.card.set?.name ?? '',
         number: oi.inventoryItem.card.number,
         finish: oi.inventoryItem.finish,

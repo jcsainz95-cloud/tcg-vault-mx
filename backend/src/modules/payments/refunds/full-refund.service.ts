@@ -38,6 +38,7 @@
  *     carrera; anotada para el arquitecto en BACKEND_NOTES §21.
  */
 import { restockAccessoriesOnFullRefund } from '../../orders/accessory-stock';
+import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma, ShippedRefundReason } from '@prisma/client';
 import { cancelProviderLabelIfAny } from '../../shipments/label-auto-close';
@@ -681,6 +682,10 @@ export class FullRefundService {
           ownerType: true,
           ownerUserId: true,
           ownershipStatus: true,
+          // §4.34a.2 — identidad de sellado para nombrar el SealedProduct, no el ancla.
+          productType: true,
+          sealedProductId: true,
+          sealedProductName: true,
           card: { select: { name: true } },
         },
       }),
@@ -704,14 +709,15 @@ export class FullRefundService {
       if (!chain || chain.kind !== 'piece') {
         const original = await tx.inventoryItem.findUnique({
           where: { id: oi.inventoryItemId },
-          select: { folio: true, card: { select: { name: true } } },
+          // §4.34a.2 — identidad de sellado para nombrar el SealedProduct, no el ancla.
+          select: { folio: true, productType: true, sealedProductId: true, sealedProductName: true, card: { select: { name: true } } },
         });
         this.logger.error(`reembolso total ${ctx.orderId}: cadena ambigua en la línea ${oi.id} (${chain?.kind === 'ambiguous' ? chain.reason : 'sin cadena'}).`);
         out.push({
           orderItemId: oi.id,
           inventoryItemId: oi.inventoryItemId,
           folio: original?.folio ?? '',
-          cardName: original?.card.name ?? '',
+          cardName: original ? pieceDisplayIdentityOf(original).name : '',
           state: 'ambiguous',
           pendingConfirmation: false,
           reclaimedNow: false,
@@ -725,7 +731,7 @@ export class FullRefundService {
         orderItemId: oi.id,
         inventoryItemId: chain.inventoryItemId,
         folio: p?.folio ?? '',
-        cardName: p?.card.name ?? '',
+        cardName: p ? pieceDisplayIdentityOf(p).name : '',
         pendingConfirmation: false,
         reclaimedNow: false,
         shipment: live ? { id: live.id, status: live.status, preparedAt: live.preparedAt } : null,
