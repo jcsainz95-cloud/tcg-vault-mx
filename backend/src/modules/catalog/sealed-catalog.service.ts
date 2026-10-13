@@ -502,7 +502,10 @@ export class SealedCatalogService {
       product: {
         inventoryItemId: item.id,
         tcgplayerProductId: item.tcgplayerProductId,
-        name: item.card.name,
+        // v1.94.2⟨sellado-display⟩ — serie de valor de UN sellado: el nombre sale del resolutor único
+        // (§4.34a.2(C)), JAMÁS el `card.name` del single ancla. Sin nombre resoluble ⇒ «Sellado sin
+        // identificar». `item` ya trae `productType`/`sealedProductName`/`sealedImageUrl` (sin query nueva).
+        name: pieceDisplayIdentityOf(item).name,
       },
       range: normalizedRange,
       points,

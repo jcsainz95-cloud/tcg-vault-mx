@@ -18,6 +18,7 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { demandRowMath, WishlistIvaMode, WishlistMarginBasis, WishlistPct } from '../../common/wishlist-math';
 import { readWishlistDials } from './wishlist-dials';
 import { keyOf, WishlistMarketService } from './wishlist-market.service';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import { listedPiecesForKeys } from './wishlist-pieces';
 
 export const WISHLIST_DEMAND_SORTS = ['wanted', 'ceiling', 'margin', 'market', 'normal', 'buyers', 'buylist'] as const;
@@ -181,12 +182,12 @@ export class WishlistDemandService {
   private async sealedWaiting(): Promise<WishlistDemandResponse['sealed']> {
     const subs = await this.prisma.sealedRestockSubscription.findMany({
       where: { notifiedAt: null },
-      select: { email: true, cardId: true, tcgplayerProductId: true, sealedSubtype: true, sealedCondition: true, card: { select: { name: true } } },
+      select: { email: true, cardId: true, tcgplayerProductId: true, sealedSubtype: true, sealedCondition: true },
     });
-    const groups = new Map<string, { productId: number | null; cardName: string; sub: SealedSubtype | null; cond: SealedCondition; emails: Set<string> }>();
+    const groups = new Map<string, { productId: number | null; sub: SealedSubtype | null; cond: SealedCondition; emails: Set<string> }>();
     for (const s of subs) {
       const k = s.tcgplayerProductId != null ? `p:${s.tcgplayerProductId}:${s.sealedCondition}` : `c:${s.cardId}:${s.sealedSubtype ?? ''}:${s.sealedCondition}`;
-      const g = groups.get(k) ?? { productId: s.tcgplayerProductId, cardName: s.card.name, sub: s.sealedSubtype, cond: s.sealedCondition, emails: new Set<string>() };
+      const g = groups.get(k) ?? { productId: s.tcgplayerProductId, sub: s.sealedSubtype, cond: s.sealedCondition, emails: new Set<string>() };
       g.emails.add(s.email);
       groups.set(k, g);
     }
@@ -202,7 +203,14 @@ export class WishlistDemandService {
     }
     return [...groups.values()]
       .map((g) => ({
-        productName: (g.productId != null ? names.get(g.productId) : undefined) ?? g.cardName,
+        // v1.94.2⟨sellado-display⟩ — nombre por el resolutor único (§4.34a.2(C)): `sealedProductName`
+        // (el último con ese productId) y, sin nombre resoluble, «Sellado sin identificar» — ⛔ JAMÁS el
+        // `card.name` del single ancla (era el bug del sellado-display). Es demanda de SELLADO.
+        productName: pieceDisplayIdentityOf({
+          productType: 'sealed',
+          card: null,
+          sealedProductName: g.productId != null ? names.get(g.productId) : undefined,
+        }).name,
         sealedSubtype: g.sub,
         sealedCondition: g.cond,
         waitingCount: g.emails.size,

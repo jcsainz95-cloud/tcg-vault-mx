@@ -28,6 +28,79 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.60 — ⭐⭐ **v1.94.2⟨sellado-display⟩: el CANDADO que cierra la clase entera del bug de sellado-display** (2026-10-13, rama `fix/sealed-display`, `ARCHITECTURE §4.34a.2`)
+
+> **Qué es:** el bug «un sellado se pinta como su carta ancla (Exeggcute)» es una CLASE («la cascada de display copiada a
+> mano cae al `card.name` del ancla»), no un sitio. La enumeración a mano falló **tres veces**: grep/directorio/función
+> dejan pasar accesos aliaseados. Este pase (a) añade un **candado mecánico** que vuelve la clase imposible de reabrir en
+> silencio, (b) cierra los 4 ofensores que el candado (= QA+techlead) encontró fuera del alcance normado, y (c) corrige un
+> falso positivo del E2E. **Todo es display/identidad; money-safe: ⛔ no toca precio, importe ni valuación.**
+
+### 0.60.1 — EL CANDADO (`backend/test/sealed-display-guard.spec.ts`) — cómo funciona
+- **Qué hace:** escanea el código fuente (comentarios/strings fuera, vía `test/helpers/strip-comments`) de los módulos que
+  producen display — `orders`, `shipments`, `vault`, `payments`, `catalog`, `pricing`, `inventory`, `wishlist`,
+  `sales-analytics`, `accessories`, `mail` — y **FALLA** si encuentra una lectura de un campo de display de la carta ancla
+  (`card.name` / `card.number` / `card.imageSmallUrl`, **incluidos los aliases locales**) que NO: (a) pase por
+  `pieceDisplayIdentityOf`, o (b) esté en la **ALLOWLIST explícita** del propio fichero, con razón de una línea.
+- **Cómo caza los aliases** (lo que el grep no vio): además del acceso directo `card?.name` / `x.card.name`, detecta
+  `const X = ….card;` con X≠`card` y marca todo `X.name/.number/.imageSmallUrl` posterior. Elegí **escaneo por regex sobre
+  fuente** (no ESLint): es suficiente para la forma que recurre (`?? card.name` y aliases locales), no añade infra, y su
+  límite lo cierra el canario de mutación (abajo). El match de la allowlist es por **contenido de línea**, no por número:
+  editar un fichero no rompe el candado por desplazamiento. Una entrada de allowlist que ya no casa con ningún acceso ⇒
+  rojo (el censo no acumula entradas muertas).
+- **Qué hay en la ALLOWLIST y por qué (31 accesos legítimos, cada uno con su razón en el fichero):**
+  - **NÚMERO del ancla** (el resolutor no lo produce): `guest-checkout:876`, `orders.service:877` (congelado como HECHO del
+    set, §5.2.6), `shipments:734`. El front oculta `number` para sellado vía `productType`.
+  - **IMAGEN del ancla** = cola ACEPTADA (§5.2.6): `order-item-card.ts:110` (`resolveOrderItemCard`).
+  - **Clave de ORDEN** sobre el nombre YA RESUELTO: `vault-physical-inventory:189`.
+  - **`CardDTO` de la carta ancla (🔵 por diseño)**: `catalog.service` `toCardDTO` (268/269/282) y la revisión GRADED
+    (1875/1877); la cola M2 (`pricing.service` 3224/3227/3228) y `price-review` (399/401) traen el bloque `card` del ancla
+    **por contrato** (`PriceReviewCaseDTO.card` = «para que el dueño reconozca la carta», API_CONTRACT §D) junto a la
+    identidad de sellado (`sealedProductId` / `sealedProductName` resuelto).
+  - **Superficies que NUNCA son sellado**: bounties RAW (`admin-bounties` 340-342), pestaña GRADED (`sealed-graded`
+    gradedIndex 425/426/428/452/453), wishlist de cartas (`wishlist-notify` 239/241/243, `wishlist.service:149`), rama
+    `else` no-sellado de analytics (`sales-analytics:400`), accesorio (`accessory-dto:107`).
+  - **Export `.xlsx` de inventario** (`inventory.service` 4058/4060): columna «Carta»/«Número» = la carta ANCLA
+    (hermanas por contrato, `INVENTORY_EXPORT_COLUMNS`). Ver política para el arquitecto (§0.60.4).
+
+### 0.60.2 — Los 4 ofensores que el candado encontró y cerré (todos al resolutor `pieceDisplayIdentityOf`)
+| Ofensor (fichero, método) | Superficie | Antes | Ahora |
+|---|---|---|---|
+| `catalog/sealed-catalog.service.ts` `sealedValueHistory` | serie de valor del sellado (**público**) | `name: item.card.name` | `pieceDisplayIdentityOf(item).name` |
+| `inventory/sealed-graded.service.ts` `sealedIndex` | pestaña «Sellado» (admin) | `a.sealedProductName ?? card?.name ?? ''` (+ comentario stale afirmando el patrón) | `const display = pieceDisplayIdentityOf({…}); display.name/.imageSmallUrl` (comentario corregido) |
+| `pricing/pricing.service.ts` `pendingQueue` | cola M2 (admin) | `sealedProductName: sealedProduct?.name ?? card.name` | `pieceDisplayIdentityOf({ productType:'sealed', card, sealedProduct }).name` |
+| `wishlist/wishlist-demand.service.ts` `sealedWaiting` | demanda de restock (admin) | `names.get(...) ?? g.cardName` (`cardName = s.card.name`) | `pieceDisplayIdentityOf({ productType:'sealed', card:null, sealedProductName:… }).name`; se quitó el `card.name`/select del ancla |
+- **Conducta normada:** sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla. No hizo falta ensanchar
+  ningún `include` (todas las fuentes ya traían `productType`/`sealedProductName`/`sealedImageUrl` o el `sealedProduct` vivo).
+- **Tests que fijaban el fallback al ancla — ACTUALIZADOS a la conducta segura (sin debilitar, ahora son canarios):**
+  `inventory.sealed-graded-tabs.spec.ts` (2 casos: productName «Sellado sin identificar», + aserción `not.toBe('Pikachu')`)
+  y `pricing.sealed-pending.spec.ts` (sellado legacy → «Sellado sin identificar», + `not.toBe('Tropius')`).
+
+### 0.60.3 — E2E (falso positivo corregido, NO debilitado) y verificación
+- **E2E `sealed-display-flow.e2e-spec.ts` caso B:** el retiro trae 2 piezas (sellada + single raw hermano anclado a la
+  MISMA carta ⇒ su `card.name` ES `anchorName`, legítimo). La aserción mapeaba TODA la fila y fallaba por el hermano. Ahora
+  **filtra la pieza sellada por `inventoryItemId`** (como A/C/D) y afirma «la línea sellada NO muestra el ancla» sobre esa
+  pieza. **E2E 7/7 verde** contra Postgres/Redis reales (`./scripts/stack-native.sh test:integration sealed-display-flow`).
+- **Mediciones (autor: backend, 2026-10-13, rama `fix/sealed-display`):**
+  - Candado: **3/3 pruebas verdes**. Suite unitaria + contrato: **478/478 suites · 8533/8533 pruebas**. `tsc --noEmit` y
+    `eslint` limpios.
+  - **Mutación (demuestra que el candado muerde):** reintroducir una copia directa (`name: item.card.name`) **y** una
+    aliaseada (`const sealedPiece = item.card; sealedPiece.name`) en `sealed-catalog.service.ts` ⇒ candado **3/3 corridas
+    rojas** (caza ambas: la directa y la del alias). Restaurado ⇒ verde. (Escaneo estático ⇒ determinista; N=3 confirma.)
+
+### 0.60.4 — ⚠️ Para el arquitecto (NO cambié el contrato; regla 9) — confirmación de política, NO bloqueante
+- **Dos superficies admin sellado-capaces muestran la carta ANCLA, hoy correctas POR CONTRATO; las dejé en la allowlist:**
+  1. **Export `.xlsx` de inventario** — columna «Carta» (y «Set»/«Número») = la carta ancla para TODA pieza, incl. sellada
+     (`INVENTORY_EXPORT_COLUMNS`, API_CONTRACT §export). El operador ve «Exeggcute» para un ETB sellado; lo distingue por la
+     columna «Tipo». Si se quiere que «Carta» resuelva el nombre del `SealedProduct` para filas selladas, es un cambio de
+     contrato (columna nueva o semántica nueva) — lo señalo, no lo invento.
+  2. **`PriceReviewCaseDTO.card` y la cola M2 (`pendingQueue`)** — el bloque `card` es la identidad de la carta ancla por
+     contrato («para que el dueño reconozca la carta», §D); la identidad del sellado viaja aparte (`sealedProductId` /
+     `sealedProductName` resuelto). Lo dejo como está (contrato manda). Si el arquitecto quiere unificar el criterio con el
+     export, decide él.
+- Ninguna de las dos es la clase «cascada `?? card.name` del NOMBRE de un sellado» (esa quedó cerrada y vigilada). Son el
+  bloque `card`-del-ancla-por-diseño (🔵, §4.34a.2(E)).
+
 ## 0.59 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
 
 > **Renumerada 2026-09-29 (TD-10 del techlead sobre `b8a3e4ce`):** esta sección se llamaba «§0.55», igual que la del

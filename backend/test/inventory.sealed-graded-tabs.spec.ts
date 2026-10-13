@@ -170,7 +170,9 @@ describe('sealedSetDetail (P-25)', () => {
     expect(res.groups).toHaveLength(1);
     expect(res.groups[0]).toMatchObject({
       cardId: 'c1',
-      productName: 'Pikachu',
+      // v1.94.2⟨sellado-display⟩: `g()` no trae `sealedProductName` ⇒ el resolutor único rinde «Sellado
+      // sin identificar», ⛔ JAMÁS el `card.name` del ancla («Pikachu»). Esta prueba fija los counts.
+      productName: 'Sellado sin identificar',
       sealedSubtype: 'etb',
       sealedCondition: 'mint',
       tcgplayerProductId: 777,
@@ -209,11 +211,14 @@ describe('sealedSetDetail (P-25)', () => {
     expect(res.groups[0].productName).not.toBe('Pikachu');
   });
 
-  // Sin snapshot (pieza legacy sin sealedProductName) → fallback money-safe a la Card ancla + imagen null.
-  it('cascada: sin snapshot cae a Card.name ancla e imagen null honesta', async () => {
+  // ⭐ v1.94.2⟨sellado-display⟩ — CANARIO del resolutor: sin snapshot NI nombre vivo, el sellado pinta
+  // «Sellado sin identificar», ⛔ JAMÁS el `card.name` del ancla (§4.34a.2(C); era el bug del sellado-
+  // display). La imagen cae a null honesta (el ancla sería cola ACEPTADA pero `g()` tampoco trae imagen).
+  it('cascada: sin snapshot → «Sellado sin identificar», NUNCA la Card.name ancla; imagen null honesta', async () => {
     const h = buildHarness([g()]); // g() no trae sealedProductName/sealedImageUrl
     const res = await h.svc.sealedSetDetail('set-1');
-    expect(res.groups[0]).toMatchObject({ productName: 'Pikachu', imageSmallUrl: null });
+    expect(res.groups[0]).toMatchObject({ productName: 'Sellado sin identificar', imageSmallUrl: null });
+    expect(res.groups[0].productName).not.toBe('Pikachu');
   });
 
   it('grupo NO mapeado: mapped=false, sealedMarketRef null y es un grupo SEPARADO (identidad §4.23)', async () => {

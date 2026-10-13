@@ -15,20 +15,30 @@
 
 ## Backend · 2026-10-13 · stream «sellado-display» (errata v1.94.1⟨sellado-display⟩, rama `fix/sealed-display`)
 
-> Cierre del bug de display del sellado (ARCHITECTURE §4.34a.2, API_CONTRACT v1.94.1). Se unificaron las 4 copias
-> divergentes de la cascada de display al resolutor único `pieceDisplayIdentityOf` y se cerraron los 3 escapes
-> aliaseados que cazaron QA/techlead. **Dos cosas van en el registro: una CERRADA y una NO MEDIDA.**
+> Cierre del bug de display del sellado (ARCHITECTURE §4.34a.2, API_CONTRACT v1.94.1). **Dos cosas van en el registro:
+> una CERRADA (SD-D1, la clase entera, ahora VIGILADA por un candado mecánico) y una NO MEDIDA (SD-D2).**
 
-### SD-D1 · CERRADA (2026-10-13) · La cascada de display de sellado vivía COPIADA en 4 servicios (causa raíz, D-2)
-- **Qué era:** `vault.service.ts` (`resolveSealedDisplay`), `sealed-catalog.service.ts`, `sales-analytics.service.ts` y
-  `sealed-restock-notify.service.ts` repetían a mano `sealedProductName ?? card.name`, cayendo al `card.name` del single
-  **ancla** como último recurso del NOMBRE (dos de ellas de cara al cliente). Era la misma clase «regla copiada» que dejó
-  la zona de pedido fuera de la cascada y parió el bug «Exeggcute».
-- **Cómo se cerró:** las cuatro consumen ahora `pieceDisplayIdentityOf` (zona compartida, `common/`). Conducta normada:
-  sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla. Behavior-neutral en producción (esas superficies
-  siempre traen `sealedProductName`); solo se elimina el fallback latente. Canario: `vault.holdings-sealed-identity.spec.ts`
-  (reintroducir `?? card.name` lo pone rojo).
-- **Estado:** **ninguna deuda de divergencia de esta clase queda viva.** Se registra como CERRADA, no como pendiente.
+### SD-D1 · CERRADA (2026-10-13) · La clase «cascada de display de sellado COPIADA» — cerrada Y vigilada por candado
+- **Qué era:** la regla de display de un sellado (`SealedProduct` → snapshot → «Sellado sin identificar», ⛔ nunca el
+  `card.name` del single **ancla**) vivía COPIADA a mano en varios servicios, cayendo al ancla como último recurso del
+  NOMBRE. Es la clase que parió el bug «Exeggcute». Se cerró en DOS tandas:
+  - **Tanda 1 (b70e272 / 9bdcb18):** las 4 copias D-2 (`vault.service.ts`, `sealed-catalog.service.ts` grid,
+    `sales-analytics.service.ts`, `sealed-restock-notify.service.ts`) + los 3 escapes aliaseados (`toClientShipmentItem`,
+    imagen del tracking de invitado, correo AV-12) pasaron al resolutor único.
+  - **Tanda 2 (este pase, rama `fix/sealed-display`):** QA+techlead (sobre `9bdcb18`) cazaron **4 copias MÁS** fuera del
+    alcance enumerado a mano — porque la enumeración por grep/directorio/función deja pasar accesos aliaseados. Cerradas,
+    todas al resolutor: `catalog/sealed-catalog.service.ts` (serie de valor público), `inventory/sealed-graded.service.ts`
+    (pestaña Sellado, admin), `pricing/pricing.service.ts` (cola M2, admin) y `wishlist/wishlist-demand.service.ts`
+    (demanda de restock, admin). Conducta normada: sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla.
+- **Por qué está cerrada DE VERDAD esta vez — el candado mecánico:** la enumeración a mano falló **tres veces**, así que
+  la clase queda **VIGILADA por `backend/test/sealed-display-guard.spec.ts`**: escanea el código fuente de todos los módulos
+  que producen display y **rompe CI** si aparece una lectura de `card.name`/`card.number`/`card.imageSmallUrl` del ancla
+  (incluidos los aliases locales) que no pase por `pieceDisplayIdentityOf` ni esté en su allowlist explícita (con razón por
+  entrada). **Cualquier reaparición de la cascada —copiada o aliaseada— pone el candado rojo.** Verificado por mutación el
+  2026-10-13 (reintroducir una copia directa y una aliaseada ⇒ **3/3 corridas rojas**; restaurado ⇒ verde).
+- **Estado:** **ninguna deuda de divergencia de esta clase queda viva, y la clase ya no puede reabrirse en silencio.**
+  CERRADA, no pendiente. Medido: candado verde (3/3 tests) + suite unitaria/contrato 478/478 suites · 8533/8533 pruebas +
+  E2E `sealed-display-flow.e2e-spec.ts` 7/7 (2026-10-13, rama `fix/sealed-display`).
 
 ### SD-D2 · NO MEDIDO (owner: OPERACIÓN/CAPTURA, no backend) · Piezas selladas vivas sin identidad propia (§4.34a.1)
 - **Qué es:** el resolutor rinde «Sellado sin identificar» para una pieza `productType='sealed'` que no tiene **ni**

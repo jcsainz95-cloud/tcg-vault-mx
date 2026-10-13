@@ -135,9 +135,14 @@ describe('E2E — identidad de SELLADO de punta a punta (§5.2.6-D, errata v1.94
     expect(q.status).toBe(200);
     const row = (q.body.data as any[]).find((r) => r.shipmentId === withdrawalId);
     expect(row).toBeTruthy();
-    const names = (row.items as any[]).map((i) => i.card.name);
-    expect(names).toContain(SEALED_NAME);
-    expect(names).not.toContain(anchorName);
+    // ⚠️ El retiro trae DOS piezas: la sellada y un single raw hermano anclado a la MISMA carta (su
+    // `card.name` ES `anchorName`, legítimamente). Filtramos a la pieza SELLADA por `inventoryItemId`
+    // (como A/C/D) y afirmamos que ESA línea pinta el nombre del sellado, ⛔ nunca el ancla — mapear toda
+    // la fila daba un falso positivo por el hermano legítimo.
+    const sealedLine = (row.items as any[]).find((i) => i.inventoryItemId === sealedItemId);
+    expect(sealedLine).toBeTruthy();
+    expect(sealedLine.card.name).toBe(SEALED_NAME);
+    expect(sealedLine.card.name).not.toBe(anchorName);
   });
 
   it('C · Acta `GET /orders/:id` — la línea congelada del sellado se lee como el SealedProduct, no el ancla', async () => {
