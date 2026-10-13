@@ -32,9 +32,12 @@
 
 > **Qué es:** el bug «un sellado se pinta como su carta ancla (Exeggcute)» es una CLASE («la cascada de display copiada a
 > mano cae al `card.name` del ancla»), no un sitio. La enumeración a mano falló **tres veces**: grep/directorio/función
-> dejan pasar accesos aliaseados. Este pase (a) añade un **candado mecánico** que vuelve la clase imposible de reabrir en
-> silencio, (b) cierra los 4 ofensores que el candado (= QA+techlead) encontró fuera del alcance normado, y (c) corrige un
-> falso positivo del E2E. **Todo es display/identidad; money-safe: ⛔ no toca precio, importe ni valuación.**
+> dejan pasar accesos aliaseados. Este pase (a) añade un **candado mecánico** que vigila la clase **sobre los 11 módulos de
+> display que escanea** (no «imposible de reabrir» en absoluto: ver sus límites de análisis estático y el alcance de
+> `MODULES` en SD-D4 de `TECH_DEBT.md`), (b) cierra los 4 ofensores que el candado (= QA+techlead) encontró fuera del alcance
+> normado, y (c) corrige un falso positivo del E2E. **Todo es display/identidad; money-safe: ⛔ no toca precio, importe ni
+> valuación.** **Endurecido D-1 (2026-10-13):** el campo `lines` de la allowlist es load-bearing (conteo exacto), de modo que
+> una copia línea-idéntica a una entrada ya allowlisteada en el mismo fichero también rompe el candado.
 
 ### 0.60.1 — EL CANDADO (`backend/test/sealed-display-guard.spec.ts`) — cómo funciona
 - **Qué hace:** escanea el código fuente (comentarios/strings fuera, vía `test/helpers/strip-comments`) de los módulos que
@@ -46,8 +49,19 @@
   `const X = ….card;` con X≠`card` y marca todo `X.name/.number/.imageSmallUrl` posterior. Elegí **escaneo por regex sobre
   fuente** (no ESLint): es suficiente para la forma que recurre (`?? card.name` y aliases locales), no añade infra, y su
   límite lo cierra el canario de mutación (abajo). El match de la allowlist es por **contenido de línea**, no por número:
-  editar un fichero no rompe el candado por desplazamiento. Una entrada de allowlist que ya no casa con ningún acceso ⇒
-  rojo (el censo no acumula entradas muertas).
+  editar un fichero no rompe el candado por desplazamiento.
+- **Conteo load-bearing (endurecimiento D-1, techlead):** el campo `lines` de cada entrada de la allowlist ES el nº de
+  accesos esperado. El candado afirma `nº de matches == lines.length` (no «≥1»), así que: (a) una entrada que ya no casa
+  (conteo 0) ⇒ rojo —el censo no acumula entradas muertas—, y (b) un acceso **nuevo con texto de línea idéntico** a uno ya
+  allowlisteado, **en el mismo fichero**, sube el conteo por encima de `lines.length` ⇒ rojo, forzando revisión (que es la
+  decisión humana: añadir su número a `lines` o migrarlo al resolutor). Antes era `≥1` y una copia línea-idéntica pasaba.
+- **Límites del escáner y alcance, dichos enteros (D-2 techlead + menores de QA):** es análisis estático, con fronteras que
+  **hoy ningún módulo escaneado cruza** (verificado 2026-10-13, money-safe): regex-vs-división en el stripper; destructuring
+  con renombre (`const { card: c } = x; c.name`); alias multilínea; parámetro/variable con nombre ≠ `card`. Y su **alcance**
+  es la lista `MODULES` (11 módulos): `disputes`/`buylist`/`decks-meta` NO se escanean (hoy ninguno es superficie de sellado:
+  `BUYLIST_ACCEPTED_PRODUCT_TYPES=['raw']`, `decks-meta` pinta sueltas). Un módulo de display nuevo —o un camino de sellado
+  añadido a esos tres— debe agregarse a `MODULES` o el candado queda ciego. Todo registrado en `TECH_DEBT.md` SD-D4 y en el
+  header del propio spec.
 - **Qué hay en la ALLOWLIST y por qué (31 accesos legítimos, cada uno con su razón en el fichero):**
   - **NÚMERO del ancla** (el resolutor no lo produce): `guest-checkout:876`, `orders.service:877` (congelado como HECHO del
     set, §5.2.6), `shipments:734`. El front oculta `number` para sellado vía `productType`.
@@ -87,6 +101,12 @@
   - **Mutación (demuestra que el candado muerde):** reintroducir una copia directa (`name: item.card.name`) **y** una
     aliaseada (`const sealedPiece = item.card; sealedPiece.name`) en `sealed-catalog.service.ts` ⇒ candado **3/3 corridas
     rojas** (caza ambas: la directa y la del alias). Restaurado ⇒ verde. (Escaneo estático ⇒ determinista; N=3 confirma.)
+  - **Mutación del endurecimiento D-1 (conteo load-bearing):** inyectar una copia **línea-idéntica** a una entrada ya
+    allowlisteada en el mismo fichero (p. ej. un segundo `name: card.name,` en `accessories/accessory-dto.ts`) ⇒ el test de
+    **violaciones queda VERDE** (está «cubierto») pero el test de **conteo rompe 3/3 corridas** (`esperado 1 · encontrado 2`).
+    Es justo el hueco que D-1 cierra (antes, con la regla `≥1`, pasaba). Medido sobre copia del árbol entero (O-9),
+    `HEAD a0d2ec8` + el spec de trabajo; restaurado ⇒ verde. El endurecimiento **no cambió ningún `lines`**: los conteos
+    existentes ya eran correctos (incl. `catalog.service.ts :: number: card.number,` con `lines=[269, 1877]`, conteo 2).
 
 ### 0.60.4 — ⚠️ Para el arquitecto (NO cambié el contrato; regla 9) — confirmación de política, NO bloqueante
 - **Dos superficies admin sellado-capaces muestran la carta ANCLA, hoy correctas POR CONTRATO; las dejé en la allowlist:**

@@ -29,17 +29,40 @@
  * ### Mantenible
  * Cada entrada de la allowlist trae `file`, `lines` (navegación humana) y `reason`. El match es por
  * **contenido de línea** (no por número): editar un fichero no rompe el candado por desplazamiento.
- * Un acceso NUEVO sin resolver ni allowlist ⇒ **rojo**, con el fichero:línea y el recordatorio de usar
- * `pieceDisplayIdentityOf`. Una entrada de allowlist que ya no casa con ningún acceso ⇒ **rojo**
- * (el censo no acumula entradas muertas).
+ * **El campo `lines` es LOAD-BEARING** (D-1 techlead, 2026-10-13): el candado afirma que cada entrada
+ * casa con **EXACTAMENTE `lines.length`** accesos reales — no «≥1». Así, un acceso NUEVO con **texto de
+ * línea idéntico** a uno ya allowlisteado, **en el mismo fichero**, sube el conteo por encima de
+ * `lines.length` ⇒ **rojo**, forzando revisión (añadir su número a `lines` es la decisión humana que
+ * el candado exige). Un acceso NUEVO sin resolver ni allowlist ⇒ **rojo**, con el fichero:línea y el
+ * recordatorio de usar `pieceDisplayIdentityOf`. Una entrada de allowlist que ya no casa (conteo 0) ⇒
+ * **rojo** (el censo no acumula entradas muertas).
  *
- * ### Límite (dicho, no escondido) y su canario
+ * ### Límites del escáner (dichos, no escondidos) y su canario
  * Es un escáner estático sobre código con comentarios/strings fuera (via `stripComments`). El match
  * directo caza `card.name`/`card?.name` (cualquier variable llamada `card`) y `x.card.name`; los
  * aliases con OTRO nombre se cazan detectando `const X = ….card;` y rastreando `X.name/.number/
- * .imageSmallUrl`. El canario de este candado es la **mutación** descrita en `BACKEND_NOTES.md`
- * (§sellado-display v1.94.2): reintroducir una copia de `card.name` en una superficie de display pone
- * esta prueba **roja**. ⛔ No decide conducta de producción; es un instrumento de pruebas.
+ * .imageSmallUrl`. Como todo análisis estático, tiene fronteras que **hoy ningún módulo escaneado
+ * cruza** (verificado 2026-10-13) y que son límite aceptable para esta superficie (money-safe, solo
+ * display):
+ *   1. **regex-vs-división** — `stripComments` no distingue `a / b` de `/re/`, así que un literal de
+ *      regex con `//` o apertura de bloque podría confundir el stripper (ver `strip-comments.ts`).
+ *   2. **destructuring con renombre** — `const { card: c } = x; … c.name` NO se caza (solo se rastrea
+ *      el alias por asignación `const X = ….card;`, no por patrón de desestructuración).
+ *   3. **asignación de alias multilínea** — `ALIAS_ASSIGN` casa en UNA línea; `const x =\n  a.b.card;`
+ *      partido en dos líneas no se detecta como alias.
+ *   4. **parámetro/variable con nombre ≠ `card`** que reciba la carta ancla y de la que no se detecte
+ *      la asignación `= ….card` (p. ej. un parámetro de función llamado `anchor`): su `.name` no suena.
+ * El canario de este candado es la **mutación** descrita en `BACKEND_NOTES.md` (§sellado-display): una
+ * copia directa `card.name` **y** una aliaseada (`const X = item.card; X.name`) en una superficie de
+ * display ponen esta prueba **roja**. Estos cuatro límites quedan registrados como deuda de bajo riesgo
+ * en `TECH_DEBT.md` (SD-D4). ⛔ No decide conducta de producción; es un instrumento de pruebas.
+ *
+ * ### Alcance: la lista `MODULES` ES la frontera del candado (menor de QA, 2026-10-13)
+ * El candado solo ve los módulos de `MODULES` (abajo). `disputes`, `buylist` y `decks-meta` **NO se
+ * escanean**: QA verificó que hoy ninguno es superficie de sellado (`BUYLIST_ACCEPTED_PRODUCT_TYPES =
+ * ['raw']`; `decks-meta` pinta cartas sueltas). ⚠️ **Un módulo NUEVO que produzca display de una pieza
+ * —o un camino de sellado añadido a `buylist`/`decks-meta`/`disputes`— DEBE agregarse a `MODULES`**, o
+ * el candado queda ciego sobre él sin avisar. (SD-D4 en `TECH_DEBT.md`.)
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -116,8 +139,12 @@ function scan(): Hit[] {
 
 /**
  * ALLOWLIST — EL CENSO EXHAUSTIVO de las lecturas del ancla que NO son fuga de sellado.
- * `file` = ruta relativa desde `src/modules`; `lines` = navegación humana (puede desplazarse al editar);
- * `reason` = por qué NO es fuga. El match es por `file` + `snippet` (contenido), no por número de línea.
+ * `file` = ruta relativa desde `src/modules`; `reason` = por qué NO es fuga. El match es por `file` +
+ * `snippet` (contenido), no por número de línea. **`lines` es LOAD-BEARING** (D-1): su longitud ES el
+ * nº de accesos que el candado espera para esa entrada, y lista las líneas donde viven (navegación
+ * humana). Si dos accesos distintos comparten el mismo texto de línea en el mismo fichero, `lines` trae
+ * ambos números y el conteo esperado es 2. Añadir un número a `lines` es la decisión humana que el
+ * candado exige cuando aparece un acceso idéntico nuevo.
  */
 type Allow = { file: string; snippet: string; lines: number[]; reason: string };
 
@@ -336,11 +363,21 @@ describe('candado sellado-display — ninguna superficie pinta el ancla de un se
     expect(violations).toEqual([]);
   });
 
-  it('la allowlist no acumula entradas muertas (cada entrada casa con ≥1 acceso real)', () => {
-    const dead = ALLOWLIST.filter(
-      (a) => !hits.some((h) => h.file === a.file && h.text === a.snippet),
-    );
-    expect(dead.map((d) => `${d.file} :: ${d.snippet}`)).toEqual([]);
+  it('cada entrada de la allowlist casa con EXACTAMENTE `lines.length` accesos reales (conteo load-bearing, D-1)', () => {
+    // `lines.length` es el nº de matches esperado (no «≥1»). Un acceso NUEVO con texto de línea idéntico
+    // a uno ya allowlisteado, en el MISMO fichero, sube el conteo por encima de `lines.length` ⇒ rojo:
+    // obliga a revisar y a subir el conteo esperado (añadir su número a `lines`). Y una entrada que ya no
+    // casa (conteo 0 ≠ lines.length≥1) también es rojo: el censo no acumula entradas muertas.
+    const mismatches = ALLOWLIST.map((a) => {
+      const count = hits.filter((h) => h.file === a.file && h.text === a.snippet).length;
+      return { a, count };
+    })
+      .filter(({ a, count }) => count !== a.lines.length)
+      .map(
+        ({ a, count }) =>
+          `  ${a.file} :: ${a.snippet}\n      esperado ${a.lines.length} (lines=[${a.lines.join(', ')}]) · encontrado ${count}`,
+      );
+    expect(mismatches).toEqual([]);
   });
 
   it('el escaneo cubre todos los módulos que producen display (sanidad del recorrido)', () => {
