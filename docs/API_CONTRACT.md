@@ -36889,11 +36889,27 @@ Un `charge.refunded`/`refund.updated` **sin** `metadata.paymentRefundId`, cuyo `
   (`pnl-core.ts:154`) resta el neto correcto y `ivaRefundedCents` recibe el IVA (alimenta `/finance/iva`).
 - **CHECK de forma:** la migración relaja el CHECK de `PaymentRefund` para admitir una fila `stripe_dashboard` con
   solo `orderId` (xor `shipmentRequestId`), **sin** líneas (`orderItemId`/`shipmentItemId`/accesorio). `requestedByUserId`/
-  `requestedByRole` = actor de SISTEMA (NO MEDIDO el id del actor de sistema — backend lo resuelve).
+  `requestedByRole` = actor de SISTEMA (NO MEDIDO el id del actor de sistema — backend lo resuelve). ⭐ **v1.95.1
+  (arquitecto, regla 9, 2026-10-14): BENDECIDO el centinela `requestedByUserId = 'system:stripe-dashboard'` +
+  `requestedByRole = super_admin`** (⛔ NO nullable: nullable ramificaría el DTO compartido `requestedBy` por cero
+  beneficio de dinero; el centinela no colisiona con un operador real — `TEXT` sin FK — ni cuenta contra el tope de
+  24 h). Id RESERVADO: ⛔ nunca se emite a un `User` real. Porqué entero: `ARCHITECTURE §4.44.f-quater` B1 (1).
 - **Candado `REF-DASH-1` — prueba que DEBE fallar hoy:** un `charge.refunded` parcial y uno total **sin**
   `paymentRefundId` ⇒ nace una fila `stripe_dashboard` `succeeded`, idempotente (segunda entrega = sin duplicado), y
   `GET /admin/finance/pnl` del periodo de ese evento sube `refundsCents` por el neto. Hoy: el parcial solo loguea
   (`payments.service.ts:785-791`) ⇒ rojo.
+- ⭐ **v1.95.1 (arquitecto, regla 9, 2026-10-14) — variante `ShipmentRequest` DIFERIDA (desviación `D-REF-SHIP-1`,
+  `ARCHITECTURE §4.44.f-quater`).** `reconcileStripeDashboardRefund` concilia SOLO cuando el PI resuelve a una `Order`;
+  un PI de RETIRO no crea fila (conducta segura, = pre-B1). `ShipmentRequest` NO tiene `ivaRatePct` (IVA-5 prohíbe
+  derivarlo) pero SÍ tiene money congelado. **Regla de salida cuando se construya:** TOTAL (`gross ==
+  shipmentRequest.totalCents`) ⇒ `shipmentFeeRefundComponents(shipmentRequest)` desde los totales CONGELADOS (sin
+  tasa); PARCIAL ⇒ prorrateo a decidir por **product-owner**, ⛔ no se adivina. El CHECK `shipment_fee_chk` ya quedó
+  relajado para admitir la forma (M-80), sin migración nueva.
+- ⭐ **v1.95.1 (arquitecto, 2026-10-14) — segundo sitio de `paymentRefund.create*` BENDECIDO (censo `C-REF-1`).**
+  `reconcileStripeDashboardRefund` crea una fila ya conciliada e IDEMPOTENTE (dos `@unique` + `skipDuplicates` =
+  `ON CONFLICT DO NOTHING`), invariante OPUESTO al de `createRows` (nace `requested`, SIN `skipDuplicates`, 409 en
+  duplicado). No es fuga del candado: la fila de panel nunca se ejecuta ni se reintenta ni cuenta el tope de operador.
+  Porqué entero: `ARCHITECTURE §4.44.f-quater` B1 (3). Un TERCER sitio sigue siendo decisión del arquitecto.
 
 **(B2) `D-AN-1` — la doble resta del reembolso TOTAL (real e INDEPENDIENTE del canal; ya documentado en `pnl-core.ts:30`).**
 Un reembolso total (app `order_full` o dashboard) pasa la orden a `refunded`; el filtro de ingreso
