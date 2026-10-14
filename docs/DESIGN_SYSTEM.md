@@ -32676,3 +32676,32 @@ en la celda/tendencia de **mercado** el rótulo dice **«incluye IVA» / «VAT i
 accesibles usan ese texto; en la celda de **precio** sigue exigiéndose **«IVA 16 % incluido» / «16 % VAT included»**, y
 las ramas «sin IVA» y «sin convención» de `IvaLabel` quedan intactas. `MIV-UX-4`, `MIV-UX-5` y `MIV-UX-6` (lista de
 deseos, estimados PSA, ausencia de cifra) **no cambian**.
+
+## PNL-IVA. Rótulo del costo de adquisición en la captura de inventario (M1 alta / M3 captura) — frente «P&L de Finanzas» (`API_CONTRACT §M10-IVA.8-bis (A)`, tabla «Rótulo de captura (M1/M3)» · `ARCHITECTURE §4.44.f-quater`, fila «Rótulo de M1/M3»)
+
+Esta sección **codifica** una norma ya decidida en el contrato y la arquitectura (no la rediseña). Es el patrón de **campos de dinero en la captura de inventario**: un campo que pide un importe debe decir, en su rótulo, **si lleva el IVA dentro o no** — porque *un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas*. El precedente vivo es el costo de envío de M4 (§4.44.f-ter, rótulo «importe TOTAL de la factura, IVA incluido»); este es su espejo para el costo de adquisición.
+
+### PNL-IVA.1 El texto del rótulo (verbatim) y cuándo aparece
+
+El campo es el **costo de adquisición** de la pieza (`InventoryItem.acquisitionCostCents`) en la pantalla de **alta de M1** y en la **captura de M3**. Su rótulo depende del tipo de adquisición (`acquisitionType`):
+
+| `acquisitionType` | ¿Lo teclea el operador? | Rótulo del campo de costo |
+|---|---|---|
+| **`compra`** (COMPRA FIRME) | Sí — es la cifra de la factura del distribuidor | **«costo TOTAL de la factura, IVA incluido»** |
+| **APORTACIÓN** | No — el costo es **derivado** (`mercado_neto × pct`, ya neto) | **sin rótulo de IVA** (el campo no se captura; no procede hablar de impuesto dentro) |
+
+- **Verbatim, para implementar tal cual en COMPRA FIRME:** el rótulo (o su texto de ayuda inmediato bajo el label) dice **«costo TOTAL de la factura, IVA incluido»**. Las palabras «TOTAL» y «IVA incluido» son las que cierran la ambigüedad; no se parafrasean ni se abrevian a «costo» a secas.
+- **El rótulo de IVA aparece SOLO en compra firme.** En aportación, el operador no teclea el costo (se deriva y se congela el IVA en `0`), así que **no** se muestra el rótulo de IVA: añadirlo ahí afirmaría un impuesto embebido que no existe en una cifra ya neta. Si la UI muestra el costo derivado como solo-lectura, se rotula de forma neutra («costo de adquisición»), sin «IVA incluido».
+- **Por qué este texto y no «neto» o «sin IVA»:** la cifra primaria es la de la factura (bruta, con IVA dentro); pedir al operador que reste el IVA antes de teclear es pedirle aritmética fiscal en cada captura, justo donde se cuela un error mudo. El neteo ocurre **al leer** el P&L, nunca al capturar (`ARCHITECTURE §4.44.f-quater`, fila «Neteo»).
+
+### PNL-IVA.2 Accesibilidad
+
+- **El rótulo y la ayuda se asocian al input por programa.** El `<label>` del campo de costo lleva `htmlFor` apuntando al `id` del input (o lo envuelve), de modo que «costo TOTAL de la factura, IVA incluido» sea el **nombre accesible** del campo. Si el texto «IVA incluido» viaja como pista separada bajo el label, el input lo referencia con `aria-describedby` apuntando al `id` de ese nodo — así el lector de pantalla lo anuncia junto al campo, no como texto suelto.
+- **El texto de IVA es visible, no solo de ayuda flotante:** no se esconde en un `title`/tooltip (que no es accesible por teclado ni táctil). Vive en el label o en una pista persistente bajo él.
+- **Foco visible** estándar del sistema (§accesibilidad de inputs ya definida) sin cambios; el rótulo no altera el orden de tabulación.
+- En aportación, como el campo no se teclea, no hay nombre accesible de captura que mantener; si se muestra solo-lectura, su nombre accesible es el rótulo neutro.
+
+### PNL-IVA.3 Alcance y lo que NO cambia
+
+- **Solo toca el rótulo/ayuda del campo de costo en M1 alta y M3 captura.** No cambia validaciones, formato de dinero (§9.3), ni el flujo de alta rápida (§16.5) más allá del texto del campo.
+- **Sin solicitudes de contrato:** el dato (`acquisitionCostCents`, `acquisitionType`) y la norma ya viajan en `API_CONTRACT §M10-IVA.8-bis (A)` y `ARCHITECTURE §4.44.f-quater`. Esta sección es su reflejo en el sistema de diseño; el frontend ya puede implementarla.
