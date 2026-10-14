@@ -8,42 +8,21 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { taxBaseCentsOf } from '../src/common/money';
 
 /**
- * 🔎 DIAGNÓSTICO (rama `fix/pnl-finanzas`) — **EL COGS DEL P&L NO SE NETEA DE IVA; EL INGRESO SÍ.**
+ * ⭐💰 CANDADO `IVA-15` (rama `fix/pnl-finanzas`, API_CONTRACT §M10-IVA.8-bis (A) / ARCHITECTURE §4.44.f-quater)
+ * — **EL COGS DEL P&L SE NETEA DE IVA POR RESTA DEL CRÉDITO CONGELADO, espejo exacto del costo de envío.**
  *
- * Reportado por el dueño: P&L 12–14 oct 2026 da **ganancia −67.81** con ingreso neto 1,594.83 y
- * **COGS 1,675.33** (el costo de lo vendido es mayor que el ingreso neto de mercancía).
+ * Nació como DIAGNÓSTICO (bloque A verde = la asimetría medida; bloque B rojo a propósito = la reconciliación
+ * pendiente de decisión del arquitecto). El arquitecto decidió (§4.44.f-quater): `InventoryItem` gana
+ * `acquisitionCostIvaCents` (IVA acreditable del costo, CONGELADO al capturar), y el P&L netea por RESTA al leer
+ * (`pnl-core.ts:244`: `cogs += (acquisitionCostCents ?? 0) − (acquisitionCostIvaCents ?? 0)`). Este spec EVOLUCIONA
+ * al candado definitivo con el fixture que fija la columna. ⛔ No se hace pasar debilitándolo.
  *
- * ### Lo MEDIDO en el código (no es opinión)
- *  - **Ingreso**: `pnl-core.ts:238` → `netRevenueCents(o)` → bajo `IVA_INCLUSIVE` devuelve
- *    `taxBaseCentsOf(subtotal, r)` (`common/money.ts:905-915`). El ingreso entra **NETO de IVA**.
- *  - **Costo de ENVÍO**: `pnl-core.ts:264` → `netShippingCostCents(s)` = `shippingCostCents −
- *    shippingCostIvaCents` (`common/money.ts:995-1000`). El costo de envío entra **NETO**, restando
- *    un **crédito de IVA congelado** en su propia columna (`ShipmentRequest.shippingCostIvaCents`).
- *  - **COGS (costo de lo vendido)**: `pnl-core.ts:244` → `b.cogsCents += it.inventoryItem
- *    .acquisitionCostCents ?? 0`. **Suma el valor CRUDO, sin ninguna resta de IVA**, y
- *    `InventoryItem` **no tiene** columna `acquisitionCostIvaCents` análoga a la del envío
- *    (`Grep acquisitionCostIvaCents backend/ = 0`).
- *
- * ⇒ **Asimetría medida:** de los tres términos, SOLO el COGS carece de neteo de IVA. Si una pieza se
- * capturó con el costo **con IVA** (hábito declarado del dueño — `API_CONTRACT.md:690` «yo lo voy a
- * meter con iva», y el precedente del costo de envío `:3269` «el costo de envío con el IVA que yo
- * pagué»), el P&L resta un costo BRUTO contra un ingreso NETO y hunde el margen por el IVA del costo.
- *
- * ### Lo NO MEDIDO (requiere datos de PRODUCCIÓN, inalcanzables desde aquí)
- * Si las piezas vendidas en 12–14 oct tienen `acquisitionCostCents` guardado **con IVA** (bruto) o
- * **sin IVA** (neto). La convención documentada del sistema es **NETO** (la aportación calcula el
- * costo = `mercado_neto × pct`, `inventory.service.ts:997`/`money.ts:86-88`; el margen de la hoja de
- * sellado es `L_neto − costo`, `API_CONTRACT.md:37318/37324`), pero **no hay mecanismo de captura ni
- * rótulo que FUERCE el neto** en la compra firme, a diferencia del envío (que captura bruto + crédito
- * congelado). Esa decisión de convención + su arreglo es de ZONA DE DINERO → diseño + 3 veredictos y
- * pasa por el ARQUITECTO (no se arregla aquí ni se toca el contrato).
- *
- * ### Qué cierra esta prueba
- * El bloque (A) es VERDE y FIJA la asimetría medida (hecho objetivo del código).
- * El bloque (B) está **ROJO A PROPÓSITO**: codifica la hipótesis de reconciliación (costo capturado
- * CON IVA ⇒ el margen debe ser neto-contra-neto). Se pone verde cuando el arquitecto decida la
- * convención y backend implemente el neteo del COGS (o se documente que el costo SIEMPRE se guarda
- * neto y el rojo se retira porque la premisa no aplica). ⛔ No lo haga pasar debilitándolo.
+ * ### Lo que fija (hecho objetivo del código, no opinión)
+ *  - **Ingreso**: `pnl-core.ts:238` → `netRevenueCents(o)` → bajo `IVA_INCLUSIVE` = `taxBaseCentsOf(subtotal, r)`.
+ *  - **COGS**: `pnl-core.ts:244` → `acquisitionCostCents − acquisitionCostIvaCents` (NETO por resta del crédito
+ *    congelado), **simétrico** con el costo de envío (`:264` = `shippingCostCents − shippingCostIvaCents`).
+ *  - **Amarre anti-mutación**: una pieza con `acquisitionCostIvaCents = 0` (aportación / histórica) aporta su costo
+ *    **ENTERO** — no se le resta un IVA que no tiene. Mata la mutación que ignore la columna o aplique una tasa global.
  */
 
 type OrdenFake = {
@@ -54,7 +33,7 @@ type OrdenFake = {
   priceConvention: 'IVA_EXCLUSIVE' | 'IVA_INCLUSIVE';
   fulfillmentMode: 'vault' | 'direct_ship';
   shippingFeeCents: number;
-  items: { inventoryItem: { acquisitionCostCents: number | null } }[];
+  items: { inventoryItem: { acquisitionCostCents: number | null; acquisitionCostIvaCents: number } }[];
 };
 
 const orden = (o: Partial<OrdenFake> = {}): OrdenFake => ({
@@ -65,7 +44,8 @@ const orden = (o: Partial<OrdenFake> = {}): OrdenFake => ({
   priceConvention: 'IVA_INCLUSIVE',
   fulfillmentMode: 'vault',
   shippingFeeCents: 0,
-  items: [{ inventoryItem: { acquisitionCostCents: 9280 } }],
+  // Pieza de COMPRA FIRME capturada con el BRUTO de la factura (9280) y su crédito de IVA congelado (1280).
+  items: [{ inventoryItem: { acquisitionCostCents: 9280, acquisitionCostIvaCents: 1280 } }],
   ...o,
 });
 
@@ -85,46 +65,53 @@ function servicio(ordenes: OrdenFake[]) {
 
 // Una pieza vendida IVA_INCLUSIVE a MX$116.00 (subtotal 11600) ⇒ ingreso neto = 10000.
 // Comprada a un distribuidor con factura: costo NETO MX$80.00 (8000) + IVA 16% (1280) = BRUTO 9280.
-// El dueño teclea el bruto (9280) porque es la cifra que trae el papel.
+// El dueño teclea el bruto (9280); la captura congela el crédito (1280). El COGS neto es la resta ⇒ 8000.
 const NET_INCOME = taxBaseCentsOf(11600, 16); // 10000
 const COST_NET = 8000;
 const IVA_ON_COST = 1280; // 8000 × 16%
 const COST_GROSS = COST_NET + IVA_ON_COST; // 9280
 
-describe('🔎 DIAGNÓSTICO P&L — el COGS no se netea de IVA (fix/pnl-finanzas)', () => {
-  // ===========================================================================================
-  // (A) VERDE — la ASIMETRÍA medida: el ingreso se netea, el COGS no.
-  // ===========================================================================================
-  describe('(A) hecho medido del código: ingreso NETO, COGS CRUDO', () => {
-    it('el ingreso de una orden IVA_INCLUSIVE entra NETO (taxBase), no el subtotal bruto', async () => {
-      const { service } = servicio([orden()]);
-      const p = await service.pnl();
-      expect(p.incomeCents).toBe(NET_INCOME); // 10000, no 11600
-      expect(p.incomeCents).not.toBe(11600);
-    });
-
-    it('el COGS entra CRUDO: `acquisitionCostCents` tal cual, sin restar IVA', async () => {
-      const { service } = servicio([orden()]);
-      const p = await service.pnl();
-      // Lo que hoy hace el código: suma el bruto 9280 sin tocarlo.
-      expect(p.cogsCents).toBe(COST_GROSS); // 9280
-    });
+describe('💰 IVA-15 — el COGS del P&L se netea de IVA por resta del crédito congelado (fix/pnl-finanzas)', () => {
+  it('ingreso NETO (taxBase), no el subtotal bruto', async () => {
+    const { service } = servicio([orden()]);
+    const p = await service.pnl();
+    expect(p.incomeCents).toBe(NET_INCOME); // 10000, no 11600
+    expect(p.incomeCents).not.toBe(11600);
   });
 
-  // ===========================================================================================
-  // (B) ROJO A PROPÓSITO — la hipótesis de reconciliación (costo capturado CON IVA).
-  //     Falla hoy por exactamente `IVA_ON_COST`. Cierra el arquitecto + el arreglo de backend.
-  // ===========================================================================================
-  describe('(B) ⛔ ROJO pendiente de decisión del arquitecto: margen neto-contra-neto', () => {
-    it('un costo capturado CON IVA debe netearse: margen = ingreso_neto − costo_neto', async () => {
-      const { service } = servicio([orden()]);
-      const p = await service.pnl();
-      // El margen económico real: el IVA del costo (1280) es crédito acreditable contra el IVA
-      // cobrado, no un gasto. Debe ser 10000 − 8000 = 2000.
-      expect(p.profitCents).toBe(NET_INCOME - COST_NET); // 2000
-      // Hoy da 10000 − 9280 = 720: subestimado EXACTAMENTE por el IVA del costo.
-      expect(NET_INCOME - COST_GROSS).toBe(720);
-      expect(p.profitCents + IVA_ON_COST).toBe(NET_INCOME - COST_NET);
-    });
+  it('⭐ COGS NETO = acquisitionCostCents − acquisitionCostIvaCents, y margen neto-contra-neto', async () => {
+    const { service } = servicio([orden()]);
+    const p = await service.pnl();
+    // El neteo por resta del crédito congelado: 9280 − 1280 = 8000 (NO el bruto 9280 de antes del arreglo).
+    expect(p.cogsCents).toBe(COST_NET); // 8000
+    expect(p.cogsCents).not.toBe(COST_GROSS); // ⛔ ya no es 9280
+    // Margen económico real: el IVA del costo (1280) es crédito acreditable, no gasto ⇒ 10000 − 8000 = 2000.
+    expect(p.profitCents).toBe(NET_INCOME - COST_NET); // 2000
+    // Antes del arreglo daba 10000 − 9280 = 720 (subestimado EXACTAMENTE por el IVA del costo).
+    expect(p.profitCents - IVA_ON_COST).toBe(720);
+  });
+
+  it('⭐ amarre anti-mutación: una pieza con acquisitionCostIvaCents=0 (aportación/histórica) aporta su costo ENTERO', async () => {
+    // Dos renglones en la MISMA orden: COMPRA FIRME (9280 bruto, crédito 1280) + APORTACIÓN (8000 ya NETO, crédito 0).
+    const { service } = servicio([
+      orden({
+        items: [
+          { inventoryItem: { acquisitionCostCents: 9280, acquisitionCostIvaCents: 1280 } }, // net 8000
+          { inventoryItem: { acquisitionCostCents: 8000, acquisitionCostIvaCents: 0 } }, // net 8000 (entero)
+        ],
+      }),
+    ]);
+    const p = await service.pnl();
+    // La aportación NO pierde IVA (no lo tiene): 8000 + (9280 − 1280) = 16000. Una mutación que restara un IVA
+    // global (p. ej. 16/116 de 8000 = 1103) daría 14897 ⇒ rojo. Y una que ignorara la columna daría 17280 ⇒ rojo.
+    expect(p.cogsCents).toBe(COST_NET + 8000); // 16000
+  });
+
+  it('CONTROL: un crédito nulo deja el COGS = bruto (dirección conservadora de las filas históricas)', async () => {
+    const { service } = servicio([
+      orden({ items: [{ inventoryItem: { acquisitionCostCents: 9280, acquisitionCostIvaCents: 0 } }] }),
+    ]);
+    const p = await service.pnl();
+    expect(p.cogsCents).toBe(9280); // net = bruto cuando no consta crédito
   });
 });

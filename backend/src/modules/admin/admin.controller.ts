@@ -514,7 +514,8 @@ export class AdminFinanceController {
 
   @Get('pnl')
   pnl(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.admin.pnl(from, to);
+    // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): campos planos SIN cambio + `statement` derivado (aditivo).
+    return this.admin.pnlReport(from, to);
   }
 
   @Get('inventory-value')

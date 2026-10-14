@@ -7,7 +7,7 @@
  *
  *   | componente                         | fecha que lo acota y lo pone en su cubo |
  *   |------------------------------------|------------------------------------------|
- *   | ingreso, comisión, costo de venta,  | `Order.settledAt` (órdenes `status: 'settled'`) |
+ *   | ingreso, comisión, costo de venta,  | `Order.settledAt` (órdenes `status IN {settled, refunded}`, §M4-SHIP.20 B2) |
  *   |   envío cobrado dentro de la orden |                                          |
  *   | envío (ingreso, costo, seguro, fee) | `ShipmentRequest.pickingAt`              |
  *   | ajustes de paquetería              | `ShipmentCostAdjustment.chargedAt`       |
@@ -27,8 +27,10 @@
  *
  * ⚠️ `range` es un `Prisma.DateTimeFilter` tal cual: M7 le pasa el `{gte, lte}` de `range()` de admin (D-AN-2, sin
  * cambio: criterio 613) y la analítica le pasa el semiabierto `{gte, lt}` de `mx-day.ts`.
- * ⚠️ Hereda D-AN-1: el ingreso es de órdenes que SIGUEN `settled` (la doble resta de un reembolso total). Se alinea sola
- * cuando §W 277/278 cambie ESTE fichero.
+ * ✅ v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B2) — D-AN-1 (la doble resta del reembolso total) CERRADA: el ingreso se acota por
+ * `settledAt ∈ periodo` con `status IN {settled, refunded}`, ⛔ no por el `status` vivo. Así una venta liquidada en el
+ * periodo cuenta su ingreso aunque luego se reembolse, y el reembolso resta una sola vez en su fecha. Esto cambia a propósito
+ * la instantánea de paridad AN-B-13 (§W 277/278): se regenera EN EL MISMO commit del cambio (ver ese spec).
  */
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -84,6 +86,85 @@ export function zeroPnl(): PnlComponents {
     buylistGuideCostCents: 0,
     buylistGuideMarginCents: 0,
     buylistGuideCostMissingCount: 0,
+  };
+}
+
+/**
+ * ⭐ v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis (C)) — el ESTADO DE RESULTADOS, ADITIVO a `GET /admin/finance/pnl`.
+ * Total ingresos → Margen bruto → EBITDA → IVA (MEMO) → Resultado neto. ⛔⛔ EL IVA ES UN MEMO, NO UN GASTO:
+ * el P&L ya entra NETO de IVA (ingreso, COGS y envío) ⇒ restarlo contaría el impuesto dos veces. Por eso
+ * `netResultCents ≡ ebitdaCents ≡ profitCents` EXACTO.
+ */
+export type PnlStatement = {
+  totalRevenueCents: number;
+  cogsCents: number;
+  grossMarginCents: number;
+  operatingExpenses: {
+    stripeFeesCents: number;
+    shippingCostCents: number;
+    refundsCents: number;
+    refundedFeesCents: number;
+    compensationsCents: number;
+    buylistGuideCostCents: number;
+    /** CRÉDITO: la tarifa retenida a los vendedores RESTA de los gastos. */
+    buylistShippingFeeRetainedCents: number;
+    totalCents: number;
+  };
+  ebitdaCents: number;
+  /** ⭐ MEMO fiscal — ⛔ NO se resta del resultado. `ivaCollectedCents` = MISMA fuente que `GET /admin/finance/iva`. */
+  iva: {
+    ivaCollectedCents: number;
+    ivaRefundedCents: number;
+    ivaNetCents: number;
+  };
+  netResultCents: number;
+};
+
+/**
+ * 💰 Deriva el `statement` POR CONSTRUCCIÓN de los campos planos (⛔ ninguna cifra nueva de otra fuente, salvo el
+ * bloque `iva` MEMO que el caller trae de la MISMA fuente que `GET /admin/finance/iva`). Identidades que son el
+ * candado (`statement` no puede desviar de lo plano): `grossMargin == totalRevenue − cogs`;
+ * `ebitda == grossMargin − opex.total`; y por álgebra `ebitda == profitCents` EXACTO ⇒ `netResult == profitCents`.
+ */
+export function buildStatement(
+  p: PnlComponents,
+  iva: { ivaCollectedCents: number; ivaRefundedCents: number; ivaNetCents: number },
+): PnlStatement {
+  const totalRevenueCents = p.incomeCents + p.shippingRevenueCents;
+  const cogsCents = p.cogsCents;
+  const grossMarginCents = totalRevenueCents - cogsCents;
+  const operatingExpenses = {
+    stripeFeesCents: p.stripeFeesCents,
+    shippingCostCents: p.shippingCostCents,
+    refundsCents: p.refundsCents,
+    refundedFeesCents: p.refundedFeesCents,
+    compensationsCents: p.compensationsCents,
+    buylistGuideCostCents: p.buylistGuideCostCents,
+    // CRÉDITO: la tarifa retenida RESTA del total de gastos.
+    buylistShippingFeeRetainedCents: p.buylistShippingFeeRetainedCents,
+    totalCents:
+      p.stripeFeesCents +
+      p.shippingCostCents +
+      p.refundsCents +
+      p.refundedFeesCents +
+      p.compensationsCents +
+      p.buylistGuideCostCents -
+      p.buylistShippingFeeRetainedCents,
+  };
+  const ebitdaCents = grossMarginCents - operatingExpenses.totalCents;
+  return {
+    totalRevenueCents,
+    cogsCents,
+    grossMarginCents,
+    operatingExpenses,
+    ebitdaCents,
+    iva: {
+      ivaCollectedCents: iva.ivaCollectedCents,
+      ivaRefundedCents: iva.ivaRefundedCents,
+      ivaNetCents: iva.ivaNetCents,
+    },
+    // ⛔ El IVA es MEMO: el resultado neto es el EBITDA tal cual (≡ profitCents).
+    netResultCents: ebitdaCents,
   };
 }
 
@@ -214,8 +295,15 @@ export async function pnlBuckets(
   // columnas persistidas, ⛔ jamás desde el dial vivo (criterio 190, candado IVA-5).
   // ⭐ v1.64 `D-IVA-5`: el envío cobrado DENTRO de la orden (`direct_ship`) es INGRESO DE ENVÍO, ⛔ no de mercancía, y se
   // acota por `settledAt` (el mismo predicado de la orden).
+  // ⭐⭐ v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B2, cierra D-AN-1) — el ingreso se acota por `settledAt ∈ periodo`
+  // (sello INMUTABLE de liquidación; MEDIDO: no se borra al pasar a `refunded`/`chargeback`), ⛔ NO por el
+  // `status` vivo. `status IN {settled, refunded}`: una venta liquidada en el periodo cuenta su ingreso
+  // AUNQUE luego se reembolse, y el reembolso resta UNA sola vez en su propia fecha (:287). ⛔ `chargeback`
+  // queda FUERA (su dinero se fue por contracargo y aquí no hay fila que lo reste; contarlo inflaría la
+  // ganancia — desviación D-PNL-1, ARCHITECTURE §9). `settledAt IS NOT NULL` siempre (un `refunded` nunca
+  // liquidado no tiene ingreso que contar).
   const settledOrders = await db.order.findMany({
-    where: { status: 'settled', ...(range ? { settledAt: range } : {}) },
+    where: { status: { in: ['settled', 'refunded'] }, settledAt: range ?? { not: null } },
     include: {
       items: { include: { inventoryItem: true } },
       // 💰 v1.86⟨accesorios⟩ (§AC.12, criterio 723): los renglones VENDIDOS con su costo congelado, su faltante y, en
@@ -240,8 +328,12 @@ export async function pnlBuckets(
     if (o.fulfillmentMode === 'direct_ship') {
       b.shippingRevenueCents += netShippingRevenueCents(o);
     }
+    // ⭐⭐ v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, IVA-15) — COGS NETO por RESTA del crédito congelado, espejo
+    // exacto de `netShippingCostCents` (:264). El costo de COMPRA FIRME se capturó BRUTO (IVA incluido) y su
+    // IVA acreditable vive congelado en `acquisitionCostIvaCents`; APORTACIÓN y filas históricas = 0 ⇒
+    // `net = bruto` (conservador). ⛔ Jamás una división al leer (rompería IVA-5: no hay `ivaRatePct` aquí).
     for (const it of o.items) {
-      b.cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
+      b.cogsCents += (it.inventoryItem.acquisitionCostCents ?? 0) - (it.inventoryItem.acquisitionCostIvaCents ?? 0);
     }
     b.cogsCents += accessoryCogsCents(o.accessoryLines ?? []);
   }
