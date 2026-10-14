@@ -23869,11 +23869,39 @@ el derivado. ⇒ **se guarda el bruto y su crédito de IVA congelado; el neto es
 - **Reparto:** backend (zona de dinero, modelo fuerte) escribe la columna, la derivación en captura y el neteo en
   `pnl-core`; ux-ui el rótulo. Candado **`IVA-15`** ([API_CONTRACT §M10-IVA.8-bis (A)](API_CONTRACT.md#M10-IVA8bis)).
 
-##### (C) El estado de resultados y (B) los reembolsos: el porqué vive en el contrato
+##### (C) El estado de resultados ESTÁNDAR DE E-COMMERCE (⭐ v1.95.2) y (B) los reembolsos: el porqué vive en el contrato
 
-**(C)** El `statement` aditivo de `GET /admin/finance/pnl` (Total ingresos → Margen bruto → EBITDA → IVA memo →
-Resultado neto) se **deriva por construcción** de los campos planos ⇒ `netResultCents ≡ profitCents` EXACTO, y **el
-IVA es un MEMO, no un gasto** (el P&L ya entra neto de IVA; restarlo contaría el impuesto dos veces). **(B)** medido:
+**(C) ⭐ v1.95.2 (arquitecto, regla 9, 2026-10-14) — el dueño (CFO) aprobó reestructurar el `statement` a un estado
+de resultados ESTÁNDAR DE E-COMMERCE.** La estructura v1.95 metía los reembolsos dentro de `operatingExpenses` y
+definía `grossMargin = totalRevenue − cogs`; eso NO es el formato que un CFO lee. El formato aprobado y su porqué:
+
+- **Las devoluciones y reembolsos son un CONTRA-INGRESO** (`returnsAndRefunds`, que sube **antes** del margen bruto),
+  no un gasto. Económicamente son dinero devuelto al cliente que **reduce la venta neta**, no un costo incurrido para
+  producir/cumplir las ventas completadas. Van los tres: `refundsCents` (mercancía+envío devueltos), `refundedFeesCents`
+  (comisión que le cobramos al cliente y le regresamos — mismo evento de reembolso, componente `processingFee` de la
+  `RefundRow`) y `compensationsCents` (`case_refund`: venta fallida que se reembolsa porque la carta se perdió — el
+  cliente pagó y recibió su dinero sin mercancía ⇒ es una devolución). **Rechazado:** tratar la compensación como
+  pérdida operativa/merma en el costo — no hay línea de pérdida en el formato aprobado, el `case_refund` se modela
+  como reembolso en el libro (no como merma de inventario), y el resultado neto es idéntico por el invariante; se
+  elige lo más explicable para el CFO.
+- **El COSTO DE VENTA** (`costOfSales`) agrupa `cogsCents + stripeFeesCents + shippingCostCents + buylistGuideCostCents
+  − buylistShippingFeeRetainedCents` (el último es CRÉDITO: la tarifa retenida a vendedores reduce el costo de guías),
+  de modo que el **margen bruto es un margen de contribución** limpio: solo el costo de producir y cumplir las ventas
+  que SÍ se completaron.
+- **NO hay opex fija** (nómina/renta/marketing no se modelan — no hay dato), **dicho explícito**, ⇒ el grupo
+  `operatingExpenses` DESAPARECE y **`ebitdaCents == grossMarginCents`**. Si algún día hay opex fija, el hueco es un
+  grupo entre margen bruto y EBITDA — preparado conceptualmente, NO construido.
+- **El IVA sigue siendo un MEMO, no un gasto** (el P&L ya entra neto de IVA; restarlo contaría el impuesto dos veces).
+  El bloque `iva` no cambia.
+- **⛔⛔ INVARIANTE DURO QUE NO SE ROMPE: `netResultCents == profitCents` EXACTO.** Reordenar los grupos NO cambia el
+  resultado final — `profitCents` del plano NO se toca y suma los mismos términos con los mismos signos; solo cambian
+  los subtotales intermedios. Se demuestra por álgebra: expandiendo `netResult = salesCents − returnsAndRefunds.total
+  − costOfSales.total` se obtienen exactamente los términos de `profitCents`. El candado de backend sigue probando la
+  igualdad **al centavo**, y `statement.iva.ivaCollectedCents` sigue atado a `GET /admin/finance/iva` (estilo
+  `IVA-10(b)`). **Se DERIVA por construcción de los campos planos** (⛔ ninguna cifra nueva); los campos PLANOS, el CSV
+  y los bloques (A)/(B1)/(B2) NO cambian. Estructura y candado completos: [API_CONTRACT §M10-IVA.8-bis (C)](API_CONTRACT.md#M10-IVA8bis).
+
+**(B)** medido:
 el flujo admin de la app **sí** crea fila contada (`refund-ledger.service.ts:143`→`:327-336` tarjeta;
 `manual-refund.service.ts:203` SPEI; contadas en `pnl-core.ts:140`/`:143-145`), así que **no hay subconteo del flujo
 app** — el único hueco es el reembolso hecho directo en el dashboard de Stripe (`payments.service.ts:785-791`/`:740-745`),

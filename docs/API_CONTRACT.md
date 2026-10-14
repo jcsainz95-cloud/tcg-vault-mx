@@ -43,10 +43,13 @@
 >   reembolso resta ⇒ **doble resta**. Arreglo: el ingreso se acota por `settledAt ∈ periodo`, no por `status` vivo.
 >   Norma: **[§M4-SHIP.20](#M4-SHIP20)**. Candados **`REF-DASH-1`** (B1 captura) y **`REF-DASH-2`** (B2 ingreso
 >   preservado). Migración `Mnn-B` + paridad de enum `PaymentRefundKind`.
-> - **(C) FEATURE — estado de resultados con SUBTOTALES.** `GET /admin/finance/pnl` gana un objeto ADITIVO `statement`:
->   Total ingresos → Costo de lo vendido → **Margen bruto** → gastos operativos → **EBITDA** → IVA (memo) → **Resultado
->   neto**. Derivado por construcción de los campos planos de hoy ⇒ `statement.netResultCents ≡ profitCents` EXACTO; el
->   IVA es MEMO (⛔ no se resta: el P&L ya es neto de IVA). CSV **sin cambio**. Norma: **[§M10-IVA.8-bis](#M10-IVA8bis)** (C).
+> - **(C) FEATURE — estado de resultados ESTÁNDAR DE E-COMMERCE (⭐ v1.95.2, aprobado por el dueño/CFO).** `GET
+>   /admin/finance/pnl` gana un objeto ADITIVO `statement`: Ventas → **(−) Devoluciones y reembolsos** (contra-ingreso)
+>   → **Ventas netas** → **(−) Costo de venta** (COGS + Stripe + envío + guías buylist) → **Margen bruto** (de
+>   contribución) → **EBITDA** (= margen bruto, sin opex fija) → IVA (memo) → **Resultado neto**. Derivado por
+>   construcción de los campos planos de hoy ⇒ `statement.netResultCents ≡ profitCents` EXACTO (reagrupar NO cambia el
+>   resultado); el IVA es MEMO (⛔ no se resta: el P&L ya es neto de IVA). CSV **sin cambio**. Norma:
+>   **[§M10-IVA.8-bis](#M10-IVA8bis)** (C).
 > - **(D) FEATURE — volumen y ticket promedio en Finanzas.** M7 **reusa** `GET /admin/reports/sales?preset=custom&from&to`
 >   y lee `totals.{orders, avgTicketCents, piecesPerOrder, pieces}` del MISMO rango. ⛔ Cero backend nuevo. Norma:
 >   **[§M10-IVA.8-bis](#M10-IVA8bis)** (D).
@@ -36784,10 +36787,19 @@ cuya reconciliación pone roja (bloque B).*
   = 0`) aporta su costo **entero** al COGS (no se le resta un IVA que no tiene). *El diagnóstico
   `pnl-cogs-iva.diagnostic.spec.ts` evoluciona a este candado con el fixture que fija la columna.*
 
-###### (C) FEATURE — el estado de resultados con SUBTOTALES (ADITIVO a `GET /admin/finance/pnl`)
+###### (C) FEATURE — el estado de resultados ESTÁNDAR DE E-COMMERCE (ADITIVO a `GET /admin/finance/pnl`) — ⭐ v1.95.2 (arquitecto, regla 9, 2026-10-14)
 
 El P&L de hoy es una **lista plana** (`PnlComponents`, `pnl-core.ts:48-66`). Gana un objeto **`statement`**, derivado
-**por construcción** de los campos planos existentes (⛔ ninguna cifra nueva de otra fuente; no puede derivar):
+**por construcción** de los campos planos existentes (⛔ ninguna cifra nueva de otra fuente; no puede derivar).
+
+> **⭐ v1.95.2 — REESTRUCTURACIÓN APROBADA POR EL DUEÑO (CFO, 2026-10-14): estado de resultados estándar de
+> e-commerce.** La estructura v1.95 metía los reembolsos dentro de `operatingExpenses` y definía
+> `grossMargin = totalRevenue − cogs`. El dueño aprobó el formato estándar: **las devoluciones y reembolsos son un
+> CONTRA-INGRESO que sube ANTES del margen bruto**, y el **costo de venta** agrupa COGS + comisiones + envío + guías
+> de buylist, de modo que el **margen bruto es un margen de contribución**. ⛔⛔ **El reordenamiento NO cambia el
+> resultado final**: `netResultCents == profitCents` EXACTO se conserva por álgebra (los mismos términos con los
+> mismos signos, solo reagrupados en subtotales distintos). Los campos PLANOS de `GET /admin/finance/pnl`, el CSV y
+> los bloques (A)/(B1)/(B2) NO cambian: el `statement` sigue siendo ADITIVO y solo-JSON, y se DERIVA de lo plano.
 
 ```ts
 // GET /api/v1/admin/finance/pnl — `super_admin`. Los campos planos de §M10-IVA.8 NO cambian (ni el CSV). ADITIVO:
@@ -36795,45 +36807,104 @@ El P&L de hoy es una **lista plana** (`PnlComponents`, `pnl-core.ts:48-66`). Gan
   // … todos los campos planos de hoy (incomeCents, shippingRevenueCents, cogsCents [AHORA NETO, ver (A)],
   //     stripeFeesCents, shippingCostCents, …, profitCents, buylist*) …
   statement: {
-    totalRevenueCents: number,      // = incomeCents + shippingRevenueCents  (mercancía neta + envío cobrado neto)
-    cogsCents: number,              // = cogsCents del plano (NETO tras (A))
-    grossMarginCents: number,       // = totalRevenueCents − cogsCents
-    operatingExpenses: {
+    // ── VENTAS (gross de devoluciones, NETO de IVA) ──────────────────────────────────────
+    salesCents: number,             // = incomeCents + shippingRevenueCents
+                                    //   (mercancía neta de IVA + envío cobrado neto de IVA, ANTES de devoluciones)
+                                    //   ⚠️ «sales», NO «gross»: en este proyecto «bruto» significa CON IVA
+                                    //      (dashboard grossAmountCents). Aquí es neto de IVA, gross de devoluciones.
+    // ── (−) DEVOLUCIONES Y REEMBOLSOS (CONTRA-INGRESO, sube antes del margen bruto) ───────
+    returnsAndRefunds: {
+      refundsCents: number,                 // mercancía + envío devueltos al cliente, NETOS de IVA
+      refundedFeesCents: number,            // comisión de plataforma devuelta al cliente
+      compensationsCents: number,           // compensaciones por carta perdida (case_refund), sin IVA
+      totalCents: number            // = refundsCents + refundedFeesCents + compensationsCents
+    },
+    // ── = VENTAS NETAS ───────────────────────────────────────────────────────────────────
+    netRevenueCents: number,        // = salesCents − returnsAndRefunds.totalCents
+    // ── (−) COSTO DE VENTA (hitea el margen bruto) ───────────────────────────────────────
+    costOfSales: {
+      cogsCents: number,                    // costo de lo vendido (mercancía), NETO de IVA tras (A)
       stripeFeesCents: number,              // comisiones Stripe (venta + envío)
       shippingCostCents: number,            // costo de envío NETO (incluye ajustes y seguro, §M10-IVA.8)
-      refundsCents: number,                 // mercancía + envío devueltos, NETOS
-      refundedFeesCents: number,            // comisión devuelta
-      compensationsCents: number,           // compensaciones (case_refund), sin IVA
-      buylistGuideCostCents: number,        // costo de guías de compra (buylist)
-      buylistShippingFeeRetainedCents: number, // CRÉDITO: tarifa retenida (RESTA de gastos)
-      totalCents: number            // = stripeFees + shippingCost + refunds + refundedFees + compensations
-                                    //   + buylistGuideCost − buylistShippingFeeRetained
+      buylistGuideCostCents: number,        // costo de guías de vendedores (buylist)
+      buylistShippingFeeRetainedCents: number, // CRÉDITO: tarifa de envío retenida (RESTA del costo)
+      totalCents: number            // = cogsCents + stripeFeesCents + shippingCostCents
+                                    //   + buylistGuideCostCents − buylistShippingFeeRetainedCents
     },
-    ebitdaCents: number,            // = grossMarginCents − operatingExpenses.totalCents
-    iva: {                          // ⭐ MEMO fiscal — ⛔ NO se resta del resultado (ver nota)
+    // ── = MARGEN BRUTO (margen de contribución) ──────────────────────────────────────────
+    grossMarginCents: number,       // = netRevenueCents − costOfSales.totalCents
+    // ── = EBITDA (= margen bruto: NO hay opex fija modelada) ─────────────────────────────
+    ebitdaCents: number,            // = grossMarginCents  (⛔ nómina/renta/marketing NO se modelan — ver nota)
+    // ── IVA (MEMO fiscal — ⛔ NO se resta del resultado, ver nota) ────────────────────────
+    iva: {                          // ⭐ bloque SIN CAMBIO respecto a v1.95
       ivaCollectedCents: number,    // IVA cobrado en el periodo (= GET /admin/finance/iva → ivaCollectedCents, MISMO rango)
       ivaRefundedCents: number,     // IVA dentro de lo devuelto (refundsInPeriod)
       ivaNetCents: number           // = ivaCollectedCents − ivaRefundedCents (lo que se entera al SAT)
     },
+    // ── = RESULTADO NETO ─────────────────────────────────────────────────────────────────
     netResultCents: number          // = ebitdaCents  (el IVA NO es gasto: el P&L ya es neto de IVA)
   }
 }
 ```
 
-- **⛔⛔ EL IVA ES UN MEMO, NO UN GASTO.** El P&L ya entra **neto de IVA** por diseño (ingreso, COGS y envío todos
-  netos). Restar `ivaNetCents` del EBITDA **contaría el impuesto dos veces** y subestimaría el resultado real. Por eso
-  `netResultCents ≡ ebitdaCents ≡ profitCents`, y el bloque `iva` se pinta aparte, rotulado **«IVA por enterar al SAT
-  — informativo, no es un gasto del negocio»**. *(Si el dueño esperaba «restar impuestos» pensando en ISR, ese
-  impuesto NO se modela aquí: no hay dato. Confirmación del dueño sobre el rótulo, sin bloquear.)*
-- **IDENTIDADES que son el candado (`statement` no puede desviar de lo plano):** `grossMarginCents == totalRevenueCents
-  − cogsCents`; `ebitdaCents == grossMarginCents − operatingExpenses.totalCents`; **`ebitdaCents == profitCents` EXACTO**
-  (álgebra: `profitCents = income + shipRev − cogs − stripeFees − shipCost − refunds − refundedFees − comps +
-  buylistRetained − buylistGuide` reordenado); **`netResultCents == profitCents` EXACTO**; y **`statement.iva.ivaCollectedCents
-  == GET /admin/finance/iva?from&to → ivaCollectedCents`** para el mismo rango (misma fuente, estilo `IVA-10(b)`).
+- **⛔ NO HAY GASTOS FIJOS (opex) EN EL MODELO, Y ESO SE DICE EXPLÍCITO.** Nómina, renta y marketing **NO se
+  modelan** (no hay dato en el sistema). Por eso **`ebitdaCents == grossMarginCents`**: entre el margen bruto y el
+  EBITDA no hay ningún gasto de operación que restar. El grupo `operatingExpenses` de v1.95 **DESAPARECE**: sus
+  conceptos se reparten entre el contra-ingreso (`returnsAndRefunds`) y el costo de venta (`costOfSales`), y no queda
+  nada fijo que agrupar. *Si algún día el negocio captura opex fija, el hueco es un grupo `operatingExpenses` entre
+  `grossMarginCents` y `ebitdaCents`, y la identidad crece a `ebitda = grossMargin − operatingExpenses.total` — se
+  deja PREPARADO conceptualmente, NO construido.*
+- **⭐ DECISIÓN (1) — `refundedFeesCents` y `compensationsCents` van al CONTRA-INGRESO, no al costo.** Los tres
+  conceptos de `returnsAndRefunds` son **dinero devuelto al cliente que reduce la venta neta**, no costos incurridos
+  para producir o entregar las ventas que SÍ se completaron. `refundsCents` (mercancía+envío devueltos) es la
+  devolución clásica; `refundedFeesCents` es la **comisión que le cobramos al cliente y le regresamos** (es el
+  componente `processingFee` de la `RefundRow`, parte del MISMO evento de reembolso — se mantiene junto a la
+  devolución que lo origina); `compensationsCents` (`case_refund`) es una **venta fallida que se le reembolsa al
+  cliente** porque no se entregó la carta (perdida) — económicamente el cliente pagó y recibió su dinero de vuelta
+  sin mercancía, que es una devolución. **Criterio:** `costOfSales` queda PURO —solo el costo de producir y cumplir
+  las ventas completadas— y el margen bruto se lee como **margen de contribución** limpio. *Alternativa considerada y
+  rechazada: tratar `compensationsCents` como pérdida operativa (merma de cumplimiento) en el costo. Se rechaza
+  porque (a) no hay línea de pérdida/opex en el formato aprobado, (b) el `case_refund` se modela como reembolso en el
+  libro, no como merma de inventario, y (c) el resultado neto es idéntico por el invariante — así que se elige el
+  agrupamiento más explicable para el CFO.*
+- **⭐ DECISIÓN (2) — agrupamiento y signos del COSTO DE VENTA, confirmados.** `costOfSales.totalCents =
+  cogsCents + stripeFeesCents + shippingCostCents + buylistGuideCostCents − buylistShippingFeeRetainedCents`. Los
+  cuatro primeros son **costos** (restan del margen); `buylistShippingFeeRetainedCents` es un **CRÉDITO** (la tarifa
+  de envío que retuvimos a los vendedores REDUCE nuestro costo de guías ⇒ se RESTA del total del grupo). Son los
+  mismos signos del plano.
+- **⭐ DECISIÓN (3) — `operatingExpenses` DESAPARECE como grupo** (ver primera viñeta). No se renombra: no queda
+  ningún concepto fijo. Los nombres nuevos del `statement` son los de arriba: `salesCents`, `returnsAndRefunds{…,
+  totalCents}`, `netRevenueCents`, `costOfSales{…, totalCents}`, `grossMarginCents`, `ebitdaCents`, `iva{…}` (igual),
+  `netResultCents`.
+- **⛔⛔ EL IVA ES UN MEMO, NO UN GASTO** (⭐ SIN CAMBIO respecto a v1.95). El P&L ya entra **neto de IVA** por diseño
+  (ingreso, COGS y envío todos netos). Restar `ivaNetCents` del EBITDA **contaría el impuesto dos veces** y
+  subestimaría el resultado real. Por eso `netResultCents ≡ ebitdaCents ≡ grossMarginCents` en cuanto a que ninguno
+  resta IVA, y el bloque `iva` se pinta aparte, rotulado **«IVA por enterar al SAT — informativo, no es un gasto del
+  negocio»**. *(Si el dueño esperaba «restar impuestos» pensando en ISR, ese impuesto NO se modela aquí: no hay dato.
+  Confirmación del dueño sobre el rótulo, sin bloquear.)*
+- **IDENTIDADES que son el candado (`statement` no puede desviar de lo plano) — ⭐ REESCRITAS para v1.95.2:**
+  - `netRevenueCents == salesCents − returnsAndRefunds.totalCents`
+  - `returnsAndRefunds.totalCents == refundsCents + refundedFeesCents + compensationsCents`
+  - `costOfSales.totalCents == cogsCents + stripeFeesCents + shippingCostCents + buylistGuideCostCents − buylistShippingFeeRetainedCents`
+  - `grossMarginCents == netRevenueCents − costOfSales.totalCents`
+  - **`ebitdaCents == grossMarginCents` EXACTO** (no hay opex)
+  - **`netResultCents == ebitdaCents` EXACTO**
+  - **`netResultCents == profitCents` EXACTO (INVARIANTE DURO QUE NO SE ROMPE)** — álgebra: expandiendo,
+    `netResult = (income + shipRev) − (refunds + refundedFees + comps) − (cogs + stripeFees + shipCost + buylistGuide
+    − buylistRetained) = income + shipRev − cogs − stripeFees − shipCost − refunds − refundedFees − comps
+    − buylistGuide + buylistRetained`, que son **exactamente los mismos términos y signos** de
+    `profitCents` del plano, solo reagrupados. **Reordenar los grupos NO cambia el resultado final; solo cambian los
+    subtotales intermedios.** El candado de backend debe seguir probando la igualdad **al centavo**.
+  - **`statement.iva.ivaCollectedCents == GET /admin/finance/iva?from&to → ivaCollectedCents`** para el mismo rango
+    (misma fuente, estilo `IVA-10(b)`) — ⭐ SIN CAMBIO.
 - **CSV sin cambio.** `statement` es solo-JSON; el CSV de `pnl` conserva su cabecera plana (`report,incomeCents,…,profitCents`
   + buylist). El estado de resultados es derivable de esas columnas ⇒ no se rompe el export.
-- **Reparto:** backend construye `statement` en `pnl-core`/`admin.service.ts` (ZONA DE DINERO, modelo fuerte);
-  frontend (M7View) lo pinta como estado de resultados. ⛔ Frontend no re-suma: pinta los subtotales que vienen.
+- **Reparto:** backend **reconstruye** `statement` en `pnl-core`/`admin.service.ts` (ZONA DE DINERO, modelo fuerte)
+  con los nuevos subtotales y actualiza su candado de identidades; frontend (M7View) **re-pinta** el estado de
+  resultados con el nuevo orden (Ventas → (−) Devoluciones → Ventas netas → (−) Costo de venta → Margen bruto →
+  EBITDA → IVA memo → Resultado neto). ⛔ Frontend no re-suma: pinta los subtotales que vienen. ⚠️ `DESIGN_SYSTEM`
+  (ux-ui) debe actualizar las rutas de campo de la tabla del P&L (cambian de `statement.operatingExpenses.*` /
+  `statement.totalRevenueCents` a `statement.returnsAndRefunds.*` / `statement.costOfSales.*` / `statement.salesCents`).
 
 ###### (D) FEATURE — volumen y ticket promedio en Finanzas (REUSO, cero backend nuevo)
 
