@@ -56,6 +56,14 @@ export function formatSignedMoneyCents(cents: number, locale: AppLocale = 'es'):
   return cents < 0 ? `−${abs}` : abs;
 }
 
+/**
+ * Conteo/entero localizado con separador de miles (es-MX / en-US, igual que `formatMoneyCents`).
+ * Admite hasta un decimal para «piezas por pedido» (§M10-IVA.8-bis D). ⛔ es-MX usa punto decimal, no coma.
+ */
+export function formatCount(n: number, locale: AppLocale = 'es'): string {
+  return new Intl.NumberFormat(localeTag[locale], { maximumFractionDigits: 1 }).format(n);
+}
+
 /** Fecha localizada corta: ES "13 ago 2026", EN "Aug 13, 2026". */
 export function formatDate(iso: string | undefined, locale: AppLocale = 'es'): string {
   if (!iso) return '';

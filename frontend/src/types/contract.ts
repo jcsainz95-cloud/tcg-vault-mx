@@ -6763,6 +6763,56 @@ export interface PnlDTO {
   buylistGuideMarginCents: number;
   /** Informativo: pagadas en el periodo con guía manual y sin costo capturado. */
   buylistGuideCostMissingCount: number;
+  /**
+   * §M10-IVA.8-bis (C) — estado de resultados con SUBTOTALES, **ADITIVO**. Lo construye el servidor por
+   * construcción de los campos planos de arriba (⛔ ninguna cifra de otra fuente). **Opcional en el tipo**:
+   * un servidor que aún no lo manda (backend sin fusionar) deja la pantalla degradar al P&L plano.
+   * ⛔ El cliente NO re-suma: pinta los subtotales tal cual (`netResultCents ≡ profitCents`).
+   */
+  statement?: PnlStatementDTO;
+}
+
+/** §M10-IVA.8-bis (C) — gastos de operación del estado de resultados; `totalCents` lo da el servidor. */
+export interface PnlStatementOperatingExpensesDTO {
+  stripeFeesCents: number;
+  shippingCostCents: number;
+  refundsCents: number;
+  refundedFeesCents: number;
+  compensationsCents: number;
+  buylistGuideCostCents: number;
+  /** CRÉDITO: tarifa de envío retenida a vendedores — RESTA del total de gastos (ya dentro de `totalCents`). */
+  buylistShippingFeeRetainedCents: number;
+  /** = stripe + envío + reembolsos + comisión devuelta + compensaciones + guías − tarifa retenida. */
+  totalCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C) — bloque IVA del estado de resultados. ⭐ **MEMO fiscal**: lo que se entera al SAT.
+ * ⛔ NO se resta del resultado (el P&L ya entra NETO de IVA; restarlo lo contaría dos veces).
+ */
+export interface PnlStatementIvaMemoDTO {
+  ivaCollectedCents: number;
+  ivaRefundedCents: number;
+  ivaNetCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C) — el estado de resultados: Total ingresos → (− COGS) → Margen bruto →
+ * (− Gastos de operación) → EBITDA → IVA (memo) → Resultado neto.
+ */
+export interface PnlStatementDTO {
+  /** = incomeCents + shippingRevenueCents (mercancía neta + envío cobrado neto). */
+  totalRevenueCents: number;
+  /** = cogsCents del plano (NETO tras (A)). */
+  cogsCents: number;
+  /** = totalRevenueCents − cogsCents. */
+  grossMarginCents: number;
+  operatingExpenses: PnlStatementOperatingExpensesDTO;
+  /** = grossMarginCents − operatingExpenses.totalCents. */
+  ebitdaCents: number;
+  iva: PnlStatementIvaMemoDTO;
+  /** = ebitdaCents ≡ profitCents (el IVA NO es gasto: el P&L ya es neto de IVA). */
+  netResultCents: number;
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.

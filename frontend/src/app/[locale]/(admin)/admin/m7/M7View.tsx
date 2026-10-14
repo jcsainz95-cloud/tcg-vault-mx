@@ -3,19 +3,20 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { DownloadCloud, TrendingUp, Boxes, Landmark, ReceiptText } from 'lucide-react';
+import { DownloadCloud, TrendingUp, Boxes, Landmark, ReceiptText, ShoppingBag, Receipt, Layers, Package } from 'lucide-react';
 import {
   getPnl,
   getInventoryValue,
   getCustodyValue,
   getIvaReport,
+  getSalesReport,
   exportFinanceCsv,
   type FinanceRange,
   type FinanceCsvReport,
 } from '@/lib/api';
 import type { IvaByOrderEntryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents, formatDate } from '@/lib/format';
+import { formatMoneyCents, formatDate, formatCount } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -57,6 +58,23 @@ function PnlIncluded({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * §M10-IVA.8-bis (C) — renglón de SUBTOTAL del estado de resultados (Margen bruto, EBITDA, …). ⛔ NO es `pnl-line` y su
+ * monto ⛔ NO es `pnl-amount`: el candado de la fórmula (UX-PNL-1) suma SOLO los `pnl-amount` dentro de los `pnl-line`, y
+ * un subtotal NO forma parte de esa suma (es un total de ellos). La cifra viene del servidor tal cual — ⛔ el cliente no re-suma.
+ */
+function PnlSubtotal({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div
+      data-testid="pnl-subtotal"
+      className={`flex items-start justify-between gap-3 border-t border-dashed border-border py-1.5 ${strong ? 'font-semibold' : 'font-medium'}`}
+    >
+      <span className="text-sm text-text">{label}</span>
+      <span data-testid="pnl-subtotal-amount" className="tabular text-text">{value}</span>
+    </div>
+  );
+}
+
 export function M7View() {
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
@@ -64,6 +82,8 @@ export function M7View() {
   const locale = useLocale() as AppLocale;
   const adds = t('pnl.signAdds');
   const subtracts = t('pnl.signSubtracts');
+  // §M10-IVA.8-bis (D) — «—» para el null de `avgTicketCents`/`piecesPerOrder` (orders=0). ⛔ nunca «MX$0.00».
+  const emptyValue = '—';
 
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -73,6 +93,19 @@ export function M7View() {
   const inventoryValue = useQuery({ queryKey: ['finance-inventory-value'], queryFn: getInventoryValue });
   const custodyValue = useQuery({ queryKey: ['finance-custody-value'], queryFn: getCustodyValue });
   const iva = useQuery({ queryKey: ['finance-iva', range], queryFn: () => getIvaReport(range) });
+
+  /*
+   * §M10-IVA.8-bis (D) — volumen y ticket para el MISMO rango que el P&L, reusando `GET /admin/reports/sales`
+   * (⛔ cero backend nuevo). `preset=custom` exige `from` y `to`, así que la consulta solo se habilita con un rango
+   * explícito; sin rango (P&L de todo el histórico) la sección invita a elegirlo. El caveat de borde de día MX
+   * (pnl inclusivo vs reports/sales semiabierto) se declara en pantalla; ⛔ no se inventa endpoint por él.
+   */
+  const hasRange = Boolean(from && to);
+  const sales = useQuery({
+    queryKey: ['finance-sales', from, to],
+    queryFn: () => getSalesReport({ preset: 'custom', from, to, groupBy: 'day' }),
+    enabled: hasRange,
+  });
 
   const exportMutation = useMutation({
     mutationFn: async (report: FinanceCsvReport) => {
@@ -199,10 +232,40 @@ export function M7View() {
                   </Banner>
                 </div>
               )}
+              {/*
+               * §M10-IVA.8-bis (C) — estado de resultados con SUBTOTALES. ADITIVO: solo se pinta si el servidor manda
+               * `statement` (backend sin fusionar ⇒ el P&L degrada a la lista plana de arriba, sin romperse). ⛔ El cliente
+               * NO re-suma: cada subtotal y el bloque IVA vienen del JSON tal cual. El IVA es MEMO (⛔ no resta del resultado).
+               */}
+              {pnl.data.statement && (
+                <div data-testid="pnl-statement" className="mt-1 flex flex-col gap-1 border-t border-border pt-3">
+                  <p className="eyebrow text-muted">{t('statement.title')}</p>
+                  <PnlSubtotal label={t('statement.totalRevenue')} value={formatMoneyCents(pnl.data.statement.totalRevenueCents, locale)} />
+                  <PnlSubtotal label={t('statement.grossMargin')} value={formatMoneyCents(pnl.data.statement.grossMarginCents, locale)} />
+                  <PnlSubtotal label={t('statement.operatingExpenses')} value={formatMoneyCents(pnl.data.statement.operatingExpenses.totalCents, locale)} />
+                  <PnlSubtotal label={t('statement.ebitda')} value={formatMoneyCents(pnl.data.statement.ebitdaCents, locale)} strong />
+                  {/* ⛔⛔ Bloque IVA: informativo, NO es un gasto. ⛔ Nunca se resta del EBITDA ni del resultado. */}
+                  <div data-testid="pnl-iva-memo" className="mt-2 flex flex-col gap-1 rounded-md border border-dashed border-border bg-surface-2/40 p-3">
+                    <p className="text-xs font-medium text-muted">{t('statement.ivaMemoTitle')}</p>
+                    <div className="flex items-start justify-between gap-3 text-xs">
+                      <span className="text-muted">{t('statement.ivaCollected')}</span>
+                      <span className="tabular text-text">{formatMoneyCents(pnl.data.statement.iva.ivaCollectedCents, locale)}</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 text-xs">
+                      <span className="text-muted">{t('statement.ivaRefunded')}</span>
+                      <span className="tabular text-text">{formatMoneyCents(pnl.data.statement.iva.ivaRefundedCents, locale)}</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 text-xs font-medium">
+                      <span className="text-text">{t('statement.ivaNet')}</span>
+                      <span data-testid="pnl-iva-net" className="tabular text-text">{formatMoneyCents(pnl.data.statement.iva.ivaNetCents, locale)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="mt-1 flex items-center justify-between border-t-2 border-border-strong pt-3">
                 <span className="flex items-center gap-2 font-semibold">
                   <TrendingUp size={18} className={pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'} />
-                  {t('pnl.profit')}
+                  {pnl.data.statement ? t('statement.netResult') : t('pnl.profit')}
                 </span>
                 {/* ⛔ GAS-4: `profitCents` del servidor, tal cual — nunca la suma de lo pintado (UX-PNL-3). */}
                 <span data-testid="pnl-profit" className={`tabular text-h2 font-bold ${pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'}`}>
@@ -222,6 +285,50 @@ export function M7View() {
             </div>
           )}
         </QueryState>
+      </section>
+
+      {/*
+       * §M10-IVA.8-bis (D) — volumen y ticket promedio para el MISMO rango que el P&L (reuso de `GET /admin/reports/sales`).
+       * Las cifras son lo PAGADO por el cliente (IVA + comisión + envío DENTRO), distinto del ingreso NETO del P&L. `null`
+       * (orders=0) ⇒ «—», ⛔ nunca «MX$0.00»/«NaN». `preset=custom` necesita rango explícito; sin él, se invita a elegirlo.
+       */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('volume.title')}</h2>
+        <p className="text-sm text-muted">{t('volume.subtitle')}</p>
+        {!hasRange ? (
+          <EmptyState title={t('volume.needsRange')} />
+        ) : (
+          <QueryState isLoading={sales.isLoading} isError={sales.isError} error={sales.error} onRetry={() => sales.refetch()}>
+            {sales.data && (
+              <>
+                <div data-testid="finance-volume" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <StatCard
+                    label={t('volume.orders')}
+                    value={formatCount(sales.data.totals.orders, locale)}
+                    icon={<ShoppingBag size={18} />}
+                  />
+                  <StatCard
+                    label={t('volume.avgTicket')}
+                    value={sales.data.totals.avgTicketCents != null ? formatMoneyCents(sales.data.totals.avgTicketCents, locale) : emptyValue}
+                    sub={t('volume.avgTicketHelp')}
+                    icon={<Receipt size={18} />}
+                  />
+                  <StatCard
+                    label={t('volume.piecesPerOrder')}
+                    value={sales.data.totals.piecesPerOrder != null ? formatCount(sales.data.totals.piecesPerOrder, locale) : emptyValue}
+                    icon={<Layers size={18} />}
+                  />
+                  <StatCard
+                    label={t('volume.pieces')}
+                    value={formatCount(sales.data.totals.pieces, locale)}
+                    icon={<Package size={18} />}
+                  />
+                </div>
+                <p className="text-xs text-muted">{t('volume.boundaryNote')}</p>
+              </>
+            )}
+          </QueryState>
+        )}
       </section>
 
       {/* Valor de inventario / bóveda / custodia */}

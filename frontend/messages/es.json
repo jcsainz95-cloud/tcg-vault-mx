@@ -5342,6 +5342,29 @@
         "pnl": "Exportar P&L (CSV)",
         "iva": "Exportar IVA (CSV)",
         "inventory": "Exportar inventario (CSV)"
+      },
+      "statement": {
+        "title": "Resumen",
+        "totalRevenue": "Total ingresos",
+        "grossMargin": "Margen bruto",
+        "operatingExpenses": "Gastos de operación",
+        "ebitda": "EBITDA",
+        "ivaMemoTitle": "IVA por enterar al SAT — informativo, no es un gasto del negocio",
+        "ivaCollected": "IVA cobrado",
+        "ivaRefunded": "IVA de reembolsos",
+        "ivaNet": "IVA neto por enterar",
+        "netResult": "Resultado neto"
+      },
+      "volume": {
+        "title": "Volumen y ticket",
+        "subtitle": "Mismo rango que el P&L. Son cifras de lo PAGADO por el cliente (IVA, comisión y envío dentro).",
+        "needsRange": "Elige un rango de fechas para ver el volumen y el ticket promedio.",
+        "orders": "Pedidos",
+        "avgTicket": "Ticket promedio",
+        "avgTicketHelp": "Cobrado ÷ pedidos: lo que paga un cliente por compra, con IVA, comisión y envío.",
+        "piecesPerOrder": "Piezas por pedido",
+        "pieces": "Piezas vendidas",
+        "boundaryNote": "En los bordes de día el total puede diferir del P&L por una orden."
       }
     },
     "m9": {
@@ -5808,7 +5831,7 @@
         "cert": "Número de certificado",
         "certHint": "Obligatorio para publicar la gradeada.",
         "certRequired": "Captura el número de certificado.",
-        "price": "Precio de compra (MXN)",
+        "price": "Costo TOTAL de la factura, IVA incluido (MXN)",
         "cta": "Dar de alta al inventario",
         "success": "Gradeada dada de alta · folio {folio}.",
         "successListed": "Gradeada dada de alta y a la venta · folio {folio}.",
@@ -5857,7 +5880,7 @@
       "buy": {
         "label": "Comprar",
         "sublabel": "Pagamos por pieza:",
-        "priceLabel": "Precio pagado (MXN)",
+        "priceLabel": "Costo TOTAL de la factura, IVA incluido (MXN)",
         "priceRequired": "Captura un precio mayor a cero.",
         "helper": {
           "rule": "Sugerido por regla",

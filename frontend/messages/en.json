@@ -5342,6 +5342,29 @@
         "pnl": "Export P&L (CSV)",
         "iva": "Export VAT (CSV)",
         "inventory": "Export inventory (CSV)"
+      },
+      "statement": {
+        "title": "Summary",
+        "totalRevenue": "Total revenue",
+        "grossMargin": "Gross margin",
+        "operatingExpenses": "Operating expenses",
+        "ebitda": "EBITDA",
+        "ivaMemoTitle": "VAT payable to the SAT — informational, not a business expense",
+        "ivaCollected": "VAT collected",
+        "ivaRefunded": "VAT on refunds",
+        "ivaNet": "Net VAT payable",
+        "netResult": "Net result"
+      },
+      "volume": {
+        "title": "Volume and ticket",
+        "subtitle": "Same range as the P&L. Figures are what the customer PAID (VAT, fees and shipping included).",
+        "needsRange": "Pick a date range to see volume and average order.",
+        "orders": "Orders",
+        "avgTicket": "Average order",
+        "avgTicketHelp": "Collected ÷ orders: what a customer pays per purchase, with VAT, fees and shipping.",
+        "piecesPerOrder": "Pieces per order",
+        "pieces": "Pieces sold",
+        "boundaryNote": "On day boundaries the total may differ from the P&L by one order."
       }
     },
     "m9": {
@@ -5808,7 +5831,7 @@
         "cert": "Certificate number",
         "certHint": "Required to publish the graded card.",
         "certRequired": "Enter the certificate number.",
-        "price": "Purchase price (MXN)",
+        "price": "TOTAL invoice cost, VAT included (MXN)",
         "cta": "Add to inventory",
         "success": "Graded card added · folio {folio}.",
         "successListed": "Graded card added and on sale · folio {folio}.",
@@ -5857,7 +5880,7 @@
       "buy": {
         "label": "Buy",
         "sublabel": "We pay per piece:",
-        "priceLabel": "Price paid (MXN)",
+        "priceLabel": "TOTAL invoice cost, VAT included (MXN)",
         "priceRequired": "Enter a price greater than zero.",
         "helper": {
           "rule": "Suggested by rule",
