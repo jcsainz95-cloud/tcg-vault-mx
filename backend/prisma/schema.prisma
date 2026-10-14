@@ -181,6 +181,7 @@ enum PaymentRefundKind {
   order_full // M3, súper-admin: el remanente de la orden (§M3)
   case_refund // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
   item_delivered // v1.82 (M-70, §PNL.2) — UNA carta de un envío directo YA ENTREGADO (súper-admin, motivo ShippedRefundReason)
+  stripe_dashboard // v1.95⟨pnl-finanzas⟩ (M-80, §M4-SHIP.20 B1) — reembolso hecho DIRECTO en el panel de Stripe (fuera de la app), reconciliado por webhook `charge.refunded`/`refund.updated` SIN `metadata.paymentRefundId`; solo `orderId` (xor `shipmentRequestId`), SIN líneas
 }
 
 // v1.80 (M-61, §M4-SHIP.7) — ciclo de una fila del libro. Clase E.

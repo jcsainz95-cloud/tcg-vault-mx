@@ -8,6 +8,9 @@
  *    caso (`ReplacementCaseService.refund`) y `closeWithdrawalIfEmpty` — y este último SOLO lo llaman `refund` y
  *    `void`, los dos `@MoneyOut()`. El reintento (`retry`) NO crea filas: re-ejecuta la misma. Stripe recibe
  *    `refunds.create` desde UN sitio (`StripeService.createRefund`) y ese sitio tiene UN llamador (`executeRefund`).
+ *    v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1): un SEGUNDO creador, `reconcileStripeDashboardRefund`, en el MISMO servicio
+ *    del libro, para el reembolso hecho directo en el panel de Stripe (nace conciliado, idempotente). El censo sigue
+ *    fijando que ningún OTRO módulo crea filas.
  *  - **`C-MREF-1`** — los creadores de `ManualRefund` son EXACTAMENTE tres (`…/replacement-cases/:id/refund`,
  *    `…/refunds/:id/to-manual`, `…/manual-refunds/:id/reissue`); los escritores de `status:'paid'|'cancelled'` son
  *    `paid` y `cancel`; todos `@MoneyOut()` (solo `super_admin`); y el único lector de `KycProfile.clabeEnc` que
@@ -72,8 +75,14 @@ function callSpans(text: string, re: RegExp): string[] {
 const text = (path: string) => FILES.find((f) => f.path === path)!.text;
 
 describe('C-REF-1 — quién crea filas del libro y quién habla con Stripe', () => {
-  it('`paymentRefund.create*` vive SOLO en `RefundLedgerService.createRows`', () => {
-    expect(census(/paymentRefund\.create(Many)?\(/g)).toEqual({ 'modules/payments/refunds/refund-ledger.service.ts': 1 });
+  it('`paymentRefund.create*` vive SOLO en `RefundLedgerService` (createRows + conciliación de panel), ningún otro fichero', () => {
+    // v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1, candado REF-DASH-1): DOS sitios creadores, AMBOS en el mismo servicio del
+    // libro. (1) `createRows` — el flujo de la app (nace `requested`, luego habla con Stripe). (2)
+    // `reconcileStripeDashboardRefund` — el reembolso hecho DIRECTO en el panel de Stripe que el contrato B1 nombra:
+    // nace YA conciliado (`succeeded|submitted|failed`, con `stripeRefundId`) e IDEMPOTENTE (`skipDuplicates`), un
+    // ciclo de vida que ⛔ NO cabe en `createRows` sin debilitar el creador único de la app. La invariante real
+    // (ningún OTRO módulo crea filas del libro) se conserva: el censo sigue fijando UN solo fichero.
+    expect(census(/paymentRefund\.create(Many)?\(/g)).toEqual({ 'modules/payments/refunds/refund-ledger.service.ts': 2 });
   });
 
   it('`createRows` tiene EXACTAMENTE los llamadores del contrato: preparado, M3 (total y una carta tras la entrega), reembolso del caso y `closeWithdrawalIfEmpty`', () => {
