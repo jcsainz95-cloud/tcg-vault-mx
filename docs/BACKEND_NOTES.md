@@ -32541,10 +32541,38 @@ fuerte, candado-que-falla→arreglo→muerde). B1 (`stripe_dashboard`/`REF-DASH-
   (controller lo llama) vía `buildStatement()` puro en `pnl-core.ts`. El bloque `iva` del statement sale de
   `this.ivaReport(from,to)` — la MISMA fuente que `GET /admin/finance/iva` para el mismo rango (garantiza
   `statement.iva.ivaCollectedCents == /finance/iva`), no una segunda cuenta.
-- ⛔⛔ **EL IVA ES MEMO**: `netResultCents == ebitdaCents == profitCents` EXACTO (no se resta el IVA).
+- ⭐ **v1.95.2 (arquitecto 2026-10-14) — RECONSTRUIDO a estado de resultados ESTÁNDAR DE E-COMMERCE.** El statement
+  dejó de ser `{totalRevenueCents, cogsCents, grossMarginCents, operatingExpenses{…}, ebitda, iva, netResult}`. Forma
+  nueva (los nombres viejos `totalRevenueCents` y `operatingExpenses` **DESAPARECEN**):
+  ```
+  Ventas            salesCents = incomeCents + shippingRevenueCents
+  (−) Devoluciones  returnsAndRefunds{ refundsCents, refundedFeesCents, compensationsCents,
+                                       totalCents = suma de los tres }   ← CONTRA-INGRESO (sube antes del margen)
+  = Ventas netas    netRevenueCents = salesCents − returnsAndRefunds.totalCents
+  (−) Costo venta   costOfSales{ cogsCents, stripeFeesCents, shippingCostCents, buylistGuideCostCents,
+                                 buylistShippingFeeRetainedCents,
+                                 totalCents = cogs+stripeFees+shipCost+buylistGuide − buylistRetained }  ← PURO
+  = Margen bruto    grossMarginCents = netRevenueCents − costOfSales.totalCents   (margen de contribución)
+  = EBITDA          ebitdaCents = grossMarginCents   (⛔ NO hay opex fija modelada)
+  IVA (memo)        iva{ ivaCollectedCents, ivaRefundedCents, ivaNetCents }   ← SIN CAMBIO
+  = Resultado neto  netResultCents = ebitdaCents
+  ```
+  Los reembolsos (refunds+refundedFees+comps) se movieron de `operatingExpenses` (costo) al **contra-ingreso**
+  `returnsAndRefunds` que resta ANTES del margen bruto. ⛔ El reordenamiento NO cambia el resultado final: mismos
+  términos y signos, solo reagrupados en subtotales distintos.
+- ⛔⛔ **EL IVA ES MEMO** y el invariante duro se conserva: `netResultCents == ebitdaCents == profitCents` EXACTO
+  (no se resta el IVA). **Matiz v1.95.2:** ahora además `ebitdaCents == grossMarginCents` (no hay opex fija entre
+  ellos) ⇒ la cadena completa es `netResultCents == ebitdaCents == grossMarginCents`, y los tres `== profitCents` al
+  centavo. (Antes `grossMargin = totalRevenue − cogs` quedaba ANTES de restar opex, así que `grossMargin != ebitda`;
+  con la reagrupación el margen bruto ya es de contribución y coincide con el EBITDA.)
 - `admin.pnl()` (usado por `exportCsv` y `launchMetrics`) se dejó PLANO: el **CSV no cambia** (statement es solo-JSON).
-- **Candado**: `test/pnl-statement.spec.ts` (identidades grossMargin/ebitda/opex.total, `ebitda==profit`,
-  `netResult==profit`, iva-misma-fuente, y que restar el IVA memo rompe la identidad).
+- **Candado**: `test/pnl-statement.spec.ts` — 7 identidades (`salesCents==income+shipRev`;
+  `returnsAndRefunds.totalCents==refunds+refundedFees+comps`; `netRevenueCents==sales−returns.total`;
+  `costOfSales.totalCents==cogs+stripeFees+shipCost+buylistGuide−buylistRetained`;
+  `grossMarginCents==netRevenue−costOfSales.total`; `ebitdaCents==grossMarginCents`;
+  `netResultCents==profitCents` EXACTO), iva-misma-fuente, y que restar el IVA memo rompe la identidad. Verificado
+  muerde al reintroducir la vieja agrupación (reembolsos en costo): N=1 determinista, caza `costOfSales.totalCents`
+  (13650≠8500) y el invariante duro (−8800≠−3650).
 
 ### (D) volumen/ticket — CERO backend (reuso de `GET /admin/reports/sales`). Trabajo de frontend.
 

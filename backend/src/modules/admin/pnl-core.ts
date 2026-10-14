@@ -90,26 +90,42 @@ export function zeroPnl(): PnlComponents {
 }
 
 /**
- * ⭐ v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis (C)) — el ESTADO DE RESULTADOS, ADITIVO a `GET /admin/finance/pnl`.
- * Total ingresos → Margen bruto → EBITDA → IVA (MEMO) → Resultado neto. ⛔⛔ EL IVA ES UN MEMO, NO UN GASTO:
- * el P&L ya entra NETO de IVA (ingreso, COGS y envío) ⇒ restarlo contaría el impuesto dos veces. Por eso
- * `netResultCents ≡ ebitdaCents ≡ profitCents` EXACTO.
+ * ⭐ v1.95.2⟨pnl-finanzas⟩ (§M10-IVA.8-bis (C), arquitecto 2026-10-14) — el ESTADO DE RESULTADOS ESTÁNDAR DE
+ * E-COMMERCE, ADITIVO a `GET /admin/finance/pnl`:
+ *   Ventas → (−) Devoluciones y reembolsos → Ventas netas → (−) Costo de venta → Margen bruto (de contribución)
+ *   → EBITDA (= margen bruto; ⛔ NO hay opex fija modelada) → IVA (MEMO) → Resultado neto.
+ * ⛔⛔ EL IVA ES UN MEMO, NO UN GASTO: el P&L ya entra NETO de IVA (ingreso, COGS y envío) ⇒ restarlo contaría el
+ * impuesto dos veces. Por eso `netResultCents ≡ ebitdaCents ≡ grossMarginCents` en cuanto a que ninguno resta IVA;
+ * y por álgebra (mismos términos y signos del `profitCents` plano, solo reagrupados) `netResultCents ≡ profitCents`
+ * EXACTO. El reordenamiento de v1.95→v1.95.2 (devoluciones son CONTRA-INGRESO, no opex) NO cambia el resultado.
  */
 export type PnlStatement = {
-  totalRevenueCents: number;
-  cogsCents: number;
-  grossMarginCents: number;
-  operatingExpenses: {
-    stripeFeesCents: number;
-    shippingCostCents: number;
+  /** Ventas = mercancía neta de IVA + envío cobrado neto de IVA, ANTES de devoluciones. */
+  salesCents: number;
+  /** (−) Contra-ingreso: dinero devuelto al cliente que reduce la venta neta (sube ANTES del margen bruto). */
+  returnsAndRefunds: {
     refundsCents: number;
     refundedFeesCents: number;
     compensationsCents: number;
-    buylistGuideCostCents: number;
-    /** CRÉDITO: la tarifa retenida a los vendedores RESTA de los gastos. */
-    buylistShippingFeeRetainedCents: number;
+    /** = refundsCents + refundedFeesCents + compensationsCents. */
     totalCents: number;
   };
+  /** = salesCents − returnsAndRefunds.totalCents. */
+  netRevenueCents: number;
+  /** (−) Costo de venta PURO (hitea el margen de contribución). */
+  costOfSales: {
+    cogsCents: number;
+    stripeFeesCents: number;
+    shippingCostCents: number;
+    buylistGuideCostCents: number;
+    /** CRÉDITO: la tarifa retenida a los vendedores RESTA del costo de venta. */
+    buylistShippingFeeRetainedCents: number;
+    /** = cogs + stripeFees + shippingCost + buylistGuideCost − buylistShippingFeeRetained. */
+    totalCents: number;
+  };
+  /** = netRevenueCents − costOfSales.totalCents (margen de contribución). */
+  grossMarginCents: number;
+  /** = grossMarginCents (⛔ nómina/renta/marketing NO se modelan: no hay opex fija que restar). */
   ebitdaCents: number;
   /** ⭐ MEMO fiscal — ⛔ NO se resta del resultado. `ivaCollectedCents` = MISMA fuente que `GET /admin/finance/iva`. */
   iva: {
@@ -117,46 +133,57 @@ export type PnlStatement = {
     ivaRefundedCents: number;
     ivaNetCents: number;
   };
+  /** = ebitdaCents (≡ profitCents EXACTO; el IVA NO es gasto: el P&L ya es neto de IVA). */
   netResultCents: number;
 };
 
 /**
  * 💰 Deriva el `statement` POR CONSTRUCCIÓN de los campos planos (⛔ ninguna cifra nueva de otra fuente, salvo el
  * bloque `iva` MEMO que el caller trae de la MISMA fuente que `GET /admin/finance/iva`). Identidades que son el
- * candado (`statement` no puede desviar de lo plano): `grossMargin == totalRevenue − cogs`;
- * `ebitda == grossMargin − opex.total`; y por álgebra `ebitda == profitCents` EXACTO ⇒ `netResult == profitCents`.
+ * candado (`statement` no puede desviar de lo plano):
+ *   `salesCents == income + shipRev`;
+ *   `returnsAndRefunds.totalCents == refunds + refundedFees + comps`;
+ *   `netRevenueCents == salesCents − returnsAndRefunds.totalCents`;
+ *   `costOfSales.totalCents == cogs + stripeFees + shipCost + buylistGuide − buylistRetained`;
+ *   `grossMarginCents == netRevenueCents − costOfSales.totalCents`;
+ *   `ebitdaCents == grossMarginCents`;
+ * y por álgebra `netResultCents == profitCents` EXACTO (INVARIANTE DURO).
  */
 export function buildStatement(
   p: PnlComponents,
   iva: { ivaCollectedCents: number; ivaRefundedCents: number; ivaNetCents: number },
 ): PnlStatement {
-  const totalRevenueCents = p.incomeCents + p.shippingRevenueCents;
-  const cogsCents = p.cogsCents;
-  const grossMarginCents = totalRevenueCents - cogsCents;
-  const operatingExpenses = {
-    stripeFeesCents: p.stripeFeesCents,
-    shippingCostCents: p.shippingCostCents,
+  const salesCents = p.incomeCents + p.shippingRevenueCents;
+  const returnsAndRefunds = {
     refundsCents: p.refundsCents,
     refundedFeesCents: p.refundedFeesCents,
     compensationsCents: p.compensationsCents,
+    totalCents: p.refundsCents + p.refundedFeesCents + p.compensationsCents,
+  };
+  const netRevenueCents = salesCents - returnsAndRefunds.totalCents;
+  const costOfSales = {
+    cogsCents: p.cogsCents,
+    stripeFeesCents: p.stripeFeesCents,
+    shippingCostCents: p.shippingCostCents,
     buylistGuideCostCents: p.buylistGuideCostCents,
-    // CRÉDITO: la tarifa retenida RESTA del total de gastos.
+    // CRÉDITO: la tarifa retenida RESTA del costo de venta.
     buylistShippingFeeRetainedCents: p.buylistShippingFeeRetainedCents,
     totalCents:
+      p.cogsCents +
       p.stripeFeesCents +
       p.shippingCostCents +
-      p.refundsCents +
-      p.refundedFeesCents +
-      p.compensationsCents +
       p.buylistGuideCostCents -
       p.buylistShippingFeeRetainedCents,
   };
-  const ebitdaCents = grossMarginCents - operatingExpenses.totalCents;
+  const grossMarginCents = netRevenueCents - costOfSales.totalCents;
+  // ⛔ NO hay opex fija modelada ⇒ EBITDA == margen bruto.
+  const ebitdaCents = grossMarginCents;
   return {
-    totalRevenueCents,
-    cogsCents,
+    salesCents,
+    returnsAndRefunds,
+    netRevenueCents,
+    costOfSales,
     grossMarginCents,
-    operatingExpenses,
     ebitdaCents,
     iva: {
       ivaCollectedCents: iva.ivaCollectedCents,

@@ -7,14 +7,19 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 
 /**
- * ⭐💰 CANDADO del `statement` (rama `fix/pnl-finanzas`, API_CONTRACT §M10-IVA.8-bis (C) / ARCHITECTURE §4.44.f-quater
- * (C)) — **EL ESTADO DE RESULTADOS SE DERIVA POR CONSTRUCCIÓN Y NO PUEDE DESVIAR DE LO PLANO.**
+ * ⭐💰 CANDADO del `statement` (rama `fix/pnl-finanzas`, API_CONTRACT §M10-IVA.8-bis (C) v1.95.2 / ARCHITECTURE
+ * §4.44.f-quater (C)) — **EL ESTADO DE RESULTADOS ESTÁNDAR DE E-COMMERCE SE DERIVA POR CONSTRUCCIÓN Y NO PUEDE
+ * DESVIAR DE LO PLANO.**
  *
- * Las IDENTIDADES son el candado:
- *  - `grossMargin == totalRevenue − cogs`;
- *  - `ebitda == grossMargin − operatingExpenses.total`;
- *  - **`ebitda == profitCents` EXACTO** (álgebra del `profitCents` plano reordenada);
- *  - **`netResult == profitCents` EXACTO** (⛔⛔ el IVA es MEMO, NO se resta: aunque `ivaNet != 0`, el resultado no cambia);
+ * Las 7 IDENTIDADES son el candado (⭐ REESCRITAS para v1.95.2):
+ *  - `salesCents == income + shipRev`;
+ *  - `returnsAndRefunds.totalCents == refunds + refundedFees + comps`;
+ *  - `netRevenueCents == salesCents − returnsAndRefunds.totalCents`;
+ *  - `costOfSales.totalCents == cogs + stripeFees + shipCost + buylistGuide − buylistRetained`;
+ *  - `grossMarginCents == netRevenueCents − costOfSales.totalCents`;
+ *  - **`ebitdaCents == grossMarginCents` EXACTO** (no hay opex fija modelada);
+ *  - **`netResultCents == profitCents` EXACTO** (⛔⛔ INVARIANTE DURO; el IVA es MEMO, NO se resta: aunque
+ *    `ivaNet != 0`, el resultado no cambia);
  *  - **`statement.iva.ivaCollectedCents == GET /admin/finance/iva` del MISMO rango** (misma fuente, estilo IVA-10(b)).
  */
 
@@ -65,30 +70,46 @@ function servicio() {
 }
 
 describe('💰 statement — estado de resultados derivado por construcción (fix/pnl-finanzas)', () => {
-  it('⭐ identidades: grossMargin, ebitda y opex.total cuadran con los campos planos', async () => {
+  it('⭐ identidades: sales, returns, netRevenue, costOfSales, grossMargin y ebitda cuadran con los campos planos', async () => {
     const { service } = servicio();
     const r = await service.pnlReport(...RANGE);
     const s = r.statement;
-    expect(s.totalRevenueCents).toBe(r.incomeCents + r.shippingRevenueCents);
-    expect(s.cogsCents).toBe(r.cogsCents);
-    expect(s.grossMarginCents).toBe(s.totalRevenueCents - s.cogsCents);
-    const opex = s.operatingExpenses;
-    expect(opex.totalCents).toBe(
-      r.stripeFeesCents +
+    // Ventas
+    expect(s.salesCents).toBe(r.incomeCents + r.shippingRevenueCents);
+    // (−) Devoluciones y reembolsos (CONTRA-INGRESO)
+    const rr = s.returnsAndRefunds;
+    expect(rr.totalCents).toBe(r.refundsCents + r.refundedFeesCents + r.compensationsCents);
+    expect(rr.refundsCents).toBe(r.refundsCents);
+    expect(rr.refundedFeesCents).toBe(r.refundedFeesCents);
+    expect(rr.compensationsCents).toBe(r.compensationsCents);
+    // = Ventas netas
+    expect(s.netRevenueCents).toBe(s.salesCents - rr.totalCents);
+    // (−) Costo de venta PURO
+    const cos = s.costOfSales;
+    expect(cos.cogsCents).toBe(r.cogsCents);
+    expect(cos.stripeFeesCents).toBe(r.stripeFeesCents);
+    expect(cos.shippingCostCents).toBe(r.shippingCostCents);
+    expect(cos.buylistGuideCostCents).toBe(r.buylistGuideCostCents);
+    expect(cos.buylistShippingFeeRetainedCents).toBe(r.buylistShippingFeeRetainedCents);
+    expect(cos.totalCents).toBe(
+      r.cogsCents +
+        r.stripeFeesCents +
         r.shippingCostCents +
-        r.refundsCents +
-        r.refundedFeesCents +
-        r.compensationsCents +
         r.buylistGuideCostCents -
         r.buylistShippingFeeRetainedCents,
     );
-    expect(s.ebitdaCents).toBe(s.grossMarginCents - opex.totalCents);
+    // = Margen bruto (de contribución)
+    expect(s.grossMarginCents).toBe(s.netRevenueCents - cos.totalCents);
+    // = EBITDA (== margen bruto: no hay opex fija)
+    expect(s.ebitdaCents).toBe(s.grossMarginCents);
   });
 
-  it('⭐ ebitda == profitCents EXACTO y netResult == profitCents EXACTO (el IVA NO se resta)', async () => {
+  it('⭐ ebitda == grossMargin, netResult == ebitda y netResult == profitCents EXACTO (el IVA NO se resta)', async () => {
     const { service } = servicio();
     const r = await service.pnlReport(...RANGE);
-    expect(r.statement.ebitdaCents).toBe(r.profitCents);
+    expect(r.statement.ebitdaCents).toBe(r.statement.grossMarginCents);
+    expect(r.statement.netResultCents).toBe(r.statement.ebitdaCents);
+    // ⛔⛔ INVARIANTE DURO: reordenar los grupos NO cambia el resultado final.
     expect(r.statement.netResultCents).toBe(r.profitCents);
     // ⛔⛔ El IVA es MEMO: aunque ivaNet != 0, el resultado neto NO baja por él.
     expect(r.statement.iva.ivaNetCents).not.toBe(0);
