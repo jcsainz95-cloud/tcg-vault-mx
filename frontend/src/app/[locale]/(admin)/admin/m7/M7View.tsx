@@ -75,6 +75,43 @@ function PnlSubtotal({ label, value, strong }: { label: string; value: string; s
   );
 }
 
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — encabezado de GRUPO del waterfall (VENTAS, DEVOLUCIONES Y REEMBOLSOS, COSTO DE VENTA).
+ * Solo rótulo (eyebrow); ⛔ sin monto y ⛔ sin `pnl-line`/`pnl-amount` (no forma parte de la suma de la fórmula, UX-PNL-1).
+ */
+function StmtGroup({ label }: { label: string }) {
+  return (
+    <p data-testid="stmt-group" className="eyebrow mt-2 text-muted first:mt-0">
+      {label}
+    </p>
+  );
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — renglón-concepto del waterfall (indentado bajo su grupo). Es **presentación**: ⛔ NO es
+ * `pnl-line` (el candado UX-PNL-1 suma SOLO los `pnl-line` de la lista plana de arriba; un concepto del `statement`
+ * duplicaría esa suma). `deduct` marca los que se muestran como **resta explícita** (devoluciones y tarifa retenida):
+ * glifo `−` `aria-hidden` + `sr-only` «resta», monto en `text-danger` y `data-sign="−"`. Los demás van sin signo.
+ */
+function StmtLine({ label, value, deduct, srSign }: { label: string; value: string; deduct?: boolean; srSign?: string }) {
+  return (
+    <div
+      data-testid="stmt-line"
+      {...(deduct ? { 'data-sign': '−' } : {})}
+      className="flex items-start justify-between gap-3 py-1 pl-4"
+    >
+      <span className="flex items-start gap-2 text-sm">
+        <span aria-hidden="true" className="w-4 shrink-0 tabular font-semibold text-danger">
+          {deduct ? '−' : ''}
+        </span>
+        {deduct && <span className="sr-only">{srSign}</span>}
+        <span className="text-muted">{label}</span>
+      </span>
+      <span data-testid="stmt-amount" className={`tabular font-medium ${deduct ? 'text-danger' : 'text-text'}`}>{value}</span>
+    </div>
+  );
+}
+
 export function M7View() {
   const t = useTranslations('admin.m7');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
@@ -240,10 +277,37 @@ export function M7View() {
               {pnl.data.statement && (
                 <div data-testid="pnl-statement" className="mt-1 flex flex-col gap-1 border-t border-border pt-3">
                   <p className="eyebrow text-muted">{t('statement.title')}</p>
-                  <PnlSubtotal label={t('statement.totalRevenue')} value={formatMoneyCents(pnl.data.statement.totalRevenueCents, locale)} />
+                  {/*
+                   * §M10-IVA.8-bis (C), v1.95.2 — estado de resultados estándar e-commerce, en WATERFALL:
+                   * VENTAS → (− devoluciones) → VENTAS NETAS → (− costo de venta) → MARGEN BRUTO → EBITDA → IVA (memo) →
+                   * RESULTADO NETO. Es PRESENTACIÓN: ⛔ el cliente NO re-suma — cada subtotal y la cifra del grupo vienen del
+                   * JSON tal cual. Los conceptos de VENTAS y de COSTO salen de los campos planos de `pnl.data`; los demás,
+                   * del `statement`. Devoluciones y la tarifa retenida (crédito que resta del costo) se pintan como resta.
+                   */}
+                  {/* ── VENTAS ─────────────────────────────────────────────────────────── */}
+                  <StmtGroup label={t('statement.salesGroup')} />
+                  <StmtLine label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
+                  <StmtLine label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
+                  <PnlSubtotal label={t('statement.salesGroup')} value={formatMoneyCents(pnl.data.statement.salesCents, locale)} />
+                  {/* ── (−) DEVOLUCIONES Y REEMBOLSOS (contra-ingreso) ─────────────────── */}
+                  <StmtGroup label={t('statement.returnsGroup')} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.refunds')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundsCents, locale)} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.refundedFees')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.refundedFeesCents, locale)} />
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.compensations')} value={formatMoneyCents(pnl.data.statement.returnsAndRefunds.compensationsCents, locale)} />
+                  <PnlSubtotal label={t('statement.netRevenue')} value={formatMoneyCents(pnl.data.statement.netRevenueCents, locale)} />
+                  {/* ── (−) COSTO DE VENTA ─────────────────────────────────────────────── */}
+                  <StmtGroup label={t('statement.costOfSalesGroup')} />
+                  <StmtLine label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.statement.costOfSales.cogsCents, locale)} />
+                  <StmtLine label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.statement.costOfSales.stripeFeesCents, locale)} />
+                  <StmtLine label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.shippingCostCents, locale)} />
+                  <StmtLine label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistGuideCostCents, locale)} />
+                  {/* CRÉDITO: la tarifa retenida RESTA del costo del grupo (§ DECISIÓN (2)); se pinta como resta explícita. */}
+                  <StmtLine deduct srSign={subtracts} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.statement.costOfSales.buylistShippingFeeRetainedCents, locale)} />
                   <PnlSubtotal label={t('statement.grossMargin')} value={formatMoneyCents(pnl.data.statement.grossMarginCents, locale)} />
-                  <PnlSubtotal label={t('statement.operatingExpenses')} value={formatMoneyCents(pnl.data.statement.operatingExpenses.totalCents, locale)} />
+                  {/* ── = EBITDA (= margen bruto: no hay opex fija modelada) ───────────── */}
                   <PnlSubtotal label={t('statement.ebitda')} value={formatMoneyCents(pnl.data.statement.ebitdaCents, locale)} strong />
+                  {/* Ayuda honesta: el margen bruto es margen de CONTRIBUCIÓN; ⛔ no incluye gastos fijos (no se modelan). */}
+                  <p data-testid="stmt-contribution-help" className="pt-1 text-xs text-muted">{t('statement.contributionHelp')}</p>
                   {/* ⛔⛔ Bloque IVA: informativo, NO es un gasto. ⛔ Nunca se resta del EBITDA ni del resultado. */}
                   <div data-testid="pnl-iva-memo" className="mt-2 flex flex-col gap-1 rounded-md border border-dashed border-border bg-surface-2/40 p-3">
                     <p className="text-xs font-medium text-muted">{t('statement.ivaMemoTitle')}</p>
