@@ -10,6 +10,58 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
+> ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
+> `production` `bad2692`; `HEAD 702b5c0` trae la prueba diagnóstica `backend/test/pnl-cogs-iva.diagnostic.spec.ts`).
+> ⛔ sha de corte NO MEDIDO por el arquitecto (sin Bash); lo fija el orquestador al commitear. Base = último de
+> `production` = rev **v1.91⟨precios⟩**. ⛔ **La versión v1.95 la reserva ESTA rama;** NO confundir con
+> `v1.92⟨mkt⟩`/`v1.93⟨cardshow⟩`/`v1.94⟨sellado-display⟩` de otras ramas sin fusionar. DOS defectos (A, B) y DOS
+> features (C, D), SEPARADOS a propósito:**
+>
+> - **(A) DEFECTO 💰 — el COGS del P&L entra CRUDO; el ingreso y el costo de envío entran NETOS de IVA.** Medido:
+>   `pnl-core.ts:238` netea el ingreso (`netRevenueCents`), `:264` netea el costo de envío (`netShippingCostCents`),
+>   pero `:244` suma `it.inventoryItem.acquisitionCostCents ?? 0` **sin restar IVA** e `InventoryItem` **no tiene**
+>   `acquisitionCostIvaCents` (grep=0). Un costo capturado CON IVA (hábito del dueño, `API_CONTRACT.md:690`) resta
+>   BRUTO contra ingreso NETO ⇒ hunde el margen. **Los −67.81 de la venta de ~2,272.70 son 100 % este defecto A**
+>   (confirmado por el orquestador 2026-10-14: el reembolso NO los explica — es de OTRO pedido). **Arreglo:** columna
+>   NUEVA `InventoryItem.acquisitionCostIvaCents Int @default(0)` **espejo de `ShipmentRequest.shippingCostIvaCents`**,
+>   el COGS del P&L pasa a NETO por resta, rótulo de captura «costo CON IVA». Norma: **[§M10-IVA.8-bis](#M10-IVA8bis)**
+>   (A). Candado **`IVA-15`**. Migración `Mnn-A` (número a confirmar; ver abajo).
+> - **(B) MEDICIÓN + hueco NARROW 💰 — un reembolso hecho DESDE NUESTRO PANEL SÍ se cuenta; solo el hecho FUERA de la
+>   app (dashboard de Stripe) es invisible.** Reencuadrado por el orquestador 2026-10-14 (el reembolso de ~227.59 es de
+>   OTRO pedido y sin fecha ⇒ no se resuelve por ventana). **Pregunta de código, medida:** el flujo admin de la app
+>   **crea y cuenta** la fila — tarjeta: `refund-ledger.service.ts:143` nace `requested` → `:327-336` Stripe acepta ⇒
+>   `submitted|succeeded` + `submittedAt`, contada en `pnl-core.ts:140`; SPEI: `manual-refund.service.ts:203` →
+>   `status:'paid'`+`paidAt`, contada en `pnl-core.ts:143-145`. ⇒ **NO hay subconteo del flujo app**: un reembolso del
+>   panel aparece en el periodo de su `submittedAt`/`paidAt`; su ausencia de un rango es **acotamiento de fecha, no
+>   bug**. El ÚNICO hueco real es el reembolso hecho DIRECTO en el dashboard de Stripe (sin pasar por la app):
+>   `payments.service.ts:785-791` (parcial solo loguea) y `:740-745` (la conciliación exige `metadata.paymentRefundId`
+>   que el dashboard no trae) ⇒ no nace fila ⇒ invisible. **(B1)** diseño para capturarlo (`PaymentRefundKind +=
+>   stripe_dashboard`), prioridad BAJA (solo importa si el dueño reembolsa fuera de la app). **(B2)** defecto
+>   INDEPENDIENTE y real `D-AN-1` (ya documentado en `pnl-core.ts:30`): un reembolso TOTAL pasa la orden a `refunded`
+>   y la saca del filtro `status:'settled'` (`pnl-core.ts:218`) ⇒ **se pierde su ingreso** mientras la fila de
+>   reembolso resta ⇒ **doble resta**. Arreglo: el ingreso se acota por `settledAt ∈ periodo`, no por `status` vivo.
+>   Norma: **[§M4-SHIP.20](#M4-SHIP20)**. Candados **`REF-DASH-1`** (B1 captura) y **`REF-DASH-2`** (B2 ingreso
+>   preservado). Migración `Mnn-B` + paridad de enum `PaymentRefundKind`.
+> - **(C) FEATURE — estado de resultados con SUBTOTALES.** `GET /admin/finance/pnl` gana un objeto ADITIVO `statement`:
+>   Total ingresos → Costo de lo vendido → **Margen bruto** → gastos operativos → **EBITDA** → IVA (memo) → **Resultado
+>   neto**. Derivado por construcción de los campos planos de hoy ⇒ `statement.netResultCents ≡ profitCents` EXACTO; el
+>   IVA es MEMO (⛔ no se resta: el P&L ya es neto de IVA). CSV **sin cambio**. Norma: **[§M10-IVA.8-bis](#M10-IVA8bis)** (C).
+> - **(D) FEATURE — volumen y ticket promedio en Finanzas.** M7 **reusa** `GET /admin/reports/sales?preset=custom&from&to`
+>   y lee `totals.{orders, avgTicketCents, piecesPerOrder, pieces}` del MISMO rango. ⛔ Cero backend nuevo. Norma:
+>   **[§M10-IVA.8-bis](#M10-IVA8bis)** (D).
+>
+> **Migraciones (números NO MEDIDOS contra ramas sin fusionar — O-18):** el último de `production`/este árbol es
+> **M-76** (`20261029120000_m76_arbiter_source_unique`); M-77/M-78 están tomadas por ramas sin fusionar según el
+> encargo. Backend confirma los DOS siguientes libres (propongo M-79 para A, M-80 para B) con timestamp posterior a
+> `20261029120000` antes de crear las carpetas.
+>
+> **Confirmaciones del dueño pendientes (no bloquean el diseño):** (1) la convención del costo en la compra firme
+> («lo tecleo CON IVA»); (2) el retroajuste de piezas ya capturadas (el diseño ⛔ NO backfillea en silencio —
+> doctrina `IVA-11(d)`); (3) si el reembolso de ~227.59 se hizo DESDE EL PANEL (⇒ ya se cuenta, solo fuera de rango)
+> o DIRECTO en el dashboard (⇒ hueco B1); (4) que P-DB-LIMPIEZA (separar prueba de real en prod) corrió — **toda cifra
+> es sospechosa hasta limpiar**.
+>
 > **Rev v1.94⟨sellado-display⟩ — EL SELLADO SE PINTA COMO CARTA SUELTA EN PEDIDO/FULFILLMENT (2026-10-13, arquitecto,
 > rama `fix/sealed-display` desde `production`; base = último de `production` = rev v1.91⟨precios⟩; ⛔ sha NO MEDIDO: sin
 > Bash).** 🐞 **BUG DE PRODUCCIÓN, 💰 zona de dinero/fulfillment.** Primer pedido real: producto **sellado** cobrado al
@@ -8610,7 +8662,7 @@ VaultPlacementStatus = pending | placed | cancelled  // v1.79 (M-59, §M4-VAULT)
 VaultPlacementCancelReason = chargeback | nothing_to_place | full_refund  // v1.79 (M-59, §M4-VAULT.5/.6): por qué una colocación terminó sin colocar. Clase E (espeja `schema.prisma:156-160`). ⭐ v1.80.4 (M-61): `full_refund` = la compra se reembolsó entera (§M4-SHIP.18.5). ⚠️ v1.80.7.1: entró al schema en `M-61` y esta línea se quedó atrás (IMP-2 de QA) — corregida; banda 3 universal (nota D4 arriba). Solo DTO (`cancelReason`), ⛔ sin filtro de query ⇒ bandas 1-2 no aplican.
 PreparationItemStatus = pending | picked | missing  // v1.79.1 (M-59 ampliada, §M4-VAULT.10): marca de preparación de UNA carta de un pedido de bóveda. Clase E (espeja `schema.prisma:163-167`). Dominio del CUERPO de `PATCH …/prep-items/:placementItemId` (fuera del dominio ⇒ `400 VALIDATION_ERROR`, `details:{field:'status', allowed}`). ⭐ v1.80: también lo usa `ShipmentItem.prepStatus` (§M4-SHIP) y el cuerpo de `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` — mismo enum, ⛔ no se duplica. ⚠️ v1.80.7.1: el código lo VALIDA (dos derivaciones locales, `vault-placement.service.ts:75` y `shipment-prep.service.ts:421`) ⇒ entra a las tres bandas y su derivada pasa a `enum-values.ts` (una sola declaración, §4.37).
 MissingReason       = not_found | damaged  // v1.80 (M-61, §M4-SHIP): por qué una carta de un ENVÍO no sale. Clase E (espeja `schema.prisma:171-174`). `not_found` ⇒ la pieza pasa a `lost`; `damaged` ⇒ a `damaged`. Dominio del cuerpo de `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` (`missingReason`). ⛔ Ningún filtro de query. ⭐ v1.80.1: UN SOLO modelo de motivo — también `VaultPlacementItem.missingReason` y el cuerpo de `PATCH /admin/vault-placements/:id/prep-items/:placementItemId` (§M4-SHIP.15.2). «Dañada» se trata exactamente igual que «faltante» en todo flujo (decisión del dueño 2026-09-29). ⚠️ v1.80.7.1: (a) HOMÓNIMO DE NOMBRE del eje L `?missing=location|price` de §M1 — NO de dominio: valores disjuntos; `C-EQ-1` lo declara como excepción nombrada con aserción de disjunción (changelog v1.80.7.1 punto 1). (b) El código lo valida en DOS sitios (`vault-placement.service.ts:77`, `shipment-prep.service.ts:426`) ⇒ una sola derivada en `enum-values.ts` y tres bandas.
-PaymentRefundKind   = item_missing | order_remaining | shipment_fee | order_full | case_refund | item_delivered  // 💰 v1.82 (M-70, §PNL.2): + `item_delivered` = UNA carta de un envío directo YA ENTREGADO, reembolsada por el súper-admin con motivo `ShippedRefundReason` (⚠️ hasta que `M-70` se construya, `enum-values-parity` queda en rojo: es la prueba que obliga al schema). v1.80 (M-61, §M4-SHIP.2): qué reembolsa una fila del libro. Clase E (espeja `schema.prisma:177-183`). ⭐ v1.80.1: + `case_refund` (reembolso que cierra un caso «Por reponer», §M4-SHIP.15.5). ⚠️ v1.80.7.1: SÍ es filtro de query — `?kind=` de `GET /admin/refunds` (§M4-SHIP.17.5; `admin-refunds.controller.ts:17,61`) ⇒ tres bandas, derivada en `enum-values.ts`. (La frase anterior «ningún filtro de query» era falsa.)
+PaymentRefundKind   = item_missing | order_remaining | shipment_fee | order_full | case_refund | item_delivered | stripe_dashboard  // 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1): + `stripe_dashboard` = reembolso hecho DIRECTO en el dashboard de Stripe (fuera de la app), reconciliado por webhook `charge.refunded`/`refund.updated` SIN `metadata.paymentRefundId`; `idempotencyKey = 'stripe-refund:'+refund.id`. ⚠️ hasta que se construya el schema, `enum-values-parity` queda en rojo (como el precedente `item_delivered`). 💰 v1.82 (M-70, §PNL.2): + `item_delivered` = UNA carta de un envío directo YA ENTREGADO, reembolsada por el súper-admin con motivo `ShippedRefundReason` (⚠️ hasta que `M-70` se construya, `enum-values-parity` queda en rojo: es la prueba que obliga al schema). v1.80 (M-61, §M4-SHIP.2): qué reembolsa una fila del libro. Clase E (espeja `schema.prisma:177-183`). ⭐ v1.80.1: + `case_refund` (reembolso que cierra un caso «Por reponer», §M4-SHIP.15.5). ⚠️ v1.80.7.1: SÍ es filtro de query — `?kind=` de `GET /admin/refunds` (§M4-SHIP.17.5; `admin-refunds.controller.ts:17,61`) ⇒ tres bandas, derivada en `enum-values.ts`. (La frase anterior «ningún filtro de query» era falsa.)
 // ~~RefundBasis = paid | market~~ ⛔ v1.80.2: ELIMINADO (§M4-SHIP.15.5: el monto de un `case_refund` lo captura el súper-admin; no hay base que elegir). No existe en `schema.prisma` (`rg 'enum RefundBasis'` ⇒ 0). La línea canónica sobrevivió hasta v1.80.7.1 (IMP-2 de QA): se retira. Cualquier `basis` en un cuerpo ⇒ `422 VALIDATION_ERROR` (clave desconocida).
 ReplacementCaseSource = withdrawal | vault_purchase  // v1.80.1 (M-61, §M4-SHIP.15.2): de dónde nació un caso «Por reponer». Clase E (espeja `schema.prisma:194-197`). Filtro `?source=` de `GET /admin/replacement-cases` ⇒ tres bandas (ya en `enum-values.ts`).
 ReplacementCaseStatus = open | replaced | found | refunded | voided  // v1.80.1 (M-61, §M4-SHIP.15.3): ciclo del caso. Clase E (espeja `schema.prisma:200-206`). ⛔ No es filtro: la lista filtra por `?state=open|closed` (clase L, computado: `closed` ⇔ `status ≠ open`). Solo DTO ⇒ banda 3 universal.
@@ -36635,6 +36687,7 @@ DirectShipBreakdownDTO = BreakdownDTO & { shippingFeeCents: number }  // shippin
 | **IVA-10** ⭐ *(v1.64(3) — D55(b), tablero)* | que el tablero y el P&L tengan **dos definiciones de «neto»**, o que la diferencia bruto↔neto deje de ser explicable | **El candado de la coherencia POR CONSTRUCCIÓN.** **(a)** ⭐⭐ **la identidad del puente, exacta:** `grossAmountCents == netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents`, sobre un periodo con **al menos una orden `vault` y una `direct_ship`**, y en las **dos** convenciones. **(b)** ⭐ **contra el P&L, como IGUALDAD y no como dos cálculos parecidos:** para el **mismo periodo**, `salesPeriod.netAmountCents == GET /admin/finance/pnl → incomeCents`. **Rojo si difieren en un centavo** — *es la mutación realista, porque son dos endpoints y dos ficheros*. **(c)** **`amountCents` YA NO EXISTE** en el DTO (se renombró a `grossAmountCents`): rojo si sobrevive, aunque valga lo mismo — *un «amount» que convive con otro «amount» distinto es la ambigüedad que este pase existe para matar*. **(d)** **`grossAmountCents == Σ Order.totalCents`** sigue siendo *«lo que el cliente pagó»*, con comisión y envío dentro: rojo si alguien lo netea |
 | **IVA-11** ⭐⭐ *(v1.64(4) — D55(c)+(d), preguntas 68 y 69)* | **comparar peras con manzanas en la línea de envío** —costo BRUTO contra ingreso NETO—, **o dejar que un `shippingCostCents = 0` pase por «costó cero»** | **El candado de la regla del dueño *«trátalo como si no hubiera margen»*, y son DOS mitades que miden cosas distintas.** ⭐ **(a) LA IDENTIDAD, exacta pero CONDICIONADA AL FIXTURE** *(⛔ **no es global y no debe serlo**: la tarifa se fija por tabla y el costo real del carrier varía por destino y peso ⇒ **un no-cero en producción es legítimo**. Asertarlo siempre sería `FX-20` otra vez: un candado que rechaza conducta correcta)*: envío `IVA_INCLUSIVE` con `shippingFeeCents = 20300` **y factura del carrier idéntica** (`shippingCostCents = 20300` **BRUTO**, `shippingCostIvaCents = 2800`) ⇒ **`netShippingRevenueCents − netShippingCostCents == 0` EXACTO** (`17500 − 17500`). **Rojo con `−2800`**, que es lo que sale si el costo se resta **bruto** contra ingreso **neto** — *la pérdida fantasma en cada envío, que es justo lo que la decisión 68 existe para evitar*. **(b)** ⭐⭐ **QUE EL `0` NO SIGNIFIQUE DOS COSAS:** dos envíos liquidados, uno con `shippingCostCents = 20300` y otro con **`0`** ⇒ **`shippingCostMissingCount == 1`**. **Rojo si es `0`** — *un cero silencioso convierte el ingreso de ese envío en ganancia fantasma, y `@default(0)` lo produce sin que nadie escriba nada*. ⛔ **No se aserta que el importe sea distinto: se asierta que el CONTADOR lo señala** — para las filas existentes «costó cero» y «no se capturó» son **indistinguibles**, y un candado que fingiera distinguirlas estaría midiendo un backfill inventado. **(c)** **el crédito se CAPTURA, no se deriva:** `netShippingCostCents == shippingCostCents − shippingCostIvaCents` **por resta**, ⛔ **sin ninguna división por `(1+r)` ni lectura del dial vivo** — *rojo si aparece, porque `ShipmentRequest` no tiene `ivaRatePct` y un P&L histórico cambiaría al mover `iva_pct`, incumpliendo `IVA-5`*. **(d)** **filas históricas:** `shippingCostIvaCents == 0` ⇒ `net == bruto` (**dirección conservadora**), y `SELECT count(*) FROM "ShipmentRequest" WHERE "shippingCostIvaCents" <> 0 AND <anterior al deploy>` **== 0** — *nadie backfilleó un crédito fiscal que nadie verificó* |
 | **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`*. **(f)** ⭐ *(v1.75, `N-IVA9-2`)* **POR AUSENCIA, sobre el JSON de `GET /admin/settings`: la llave `ivaTransferPct` NO EXISTE en el cuerpo** — ni con valor, ni en `null`, ni bajo otro nombre. **Rojo en cuanto aparezca, aunque sea «solo lectura»**, porque la llave en el DTO significa que la clave entró en `SETTING_DTO_MAP`, **y ese mapa es el que gobierna también el `PUT`**: la aparición en el `GET` es **la señal temprana de que (b) está a un `if` de caerse**. ⇒ *este e2e ya existe y ya asierta la ausencia; lo que v1.75 hace es volverlo NORMATIVO en vez de huérfano* |
+| **IVA-15** ⭐⭐ *(v1.95⟨pnl-finanzas⟩ — §M10-IVA.8-bis (A))* | **que el COGS del P&L entre CRUDO mientras el ingreso y el envío entran netos** — dejar `b.cogsCents += acquisitionCostCents` sin restar `acquisitionCostIvaCents`, o derivar el IVA del costo desde el dial vivo en vez de la columna congelada | **El candado de la ASIMETRÍA del costo, espejo de `IVA-11`.** Fixture: orden `IVA_INCLUSIVE` subtotal `11600` (ingreso neto `10000`), una pieza con `acquisitionCostCents = 9280` **y `acquisitionCostIvaCents = 1280`** ⇒ **`cogsCents == 8000`** y **`profitCents == 2000`**. **Rojo con `cogsCents 9280` / `profitCents 720`** (resta el bruto contra ingreso neto; subestima por exactamente el IVA del costo `1280`). **(b)** ⭐ una pieza de **APORTACIÓN** (`acquisitionCostIvaCents == 0`) aporta su costo **entero** al COGS — *rojo si se le resta un IVA que no tiene (su costo ya es neto, `inventory.service.ts:997`)*. **(c)** ⭐⭐ por lo negativo: `cogsNet = acquisitionCostCents − acquisitionCostIvaCents` **por RESTA de columna congelada**, ⛔ sin división por `(1+r)` ni dial vivo (`InventoryItem` no tiene `ivaRatePct`; derivar al leer rompería `IVA-5`). **(d)** filas históricas `acquisitionCostIvaCents == 0` ⇒ `net == bruto` (conservador), y `SELECT count(*) FROM "InventoryItem" WHERE "acquisitionCostIvaCents" <> 0 AND <anterior al deploy>` **== 0** — *nadie backfilleó un crédito que nadie verificó* |
 
 ##### §M10-IVA.8 — El P&L: el costo del envío se captura **BRUTO** y se netea **al leer** (v1.64(4), D55(c)+(d), **deploy 2**)
 
@@ -36687,6 +36740,185 @@ como si no hubiera margen»*. **Razón entera y la corrección de mi recomendaci
   existía.*
 - **Rótulo de captura (M4), obligación de ux-ui:** el campo debe decir **«importe TOTAL de la factura, IVA
   incluido»**. ⛔ *Un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas.*
+
+<a id="M10-IVA8bis"></a>
+##### §M10-IVA.8-bis — El P&L de Finanzas (M7) v1.95⟨pnl-finanzas⟩: COGS NETO, estado de resultados y volumen/ticket
+
+> **Zona de dinero. Base = v1.91. Rama `fix/pnl-finanzas`. Tres piezas: (A) defecto del COGS, (C) estado de
+> resultados, (D) volumen/ticket. El defecto (B) de reembolsos vive en [§M4-SHIP.20](#M4-SHIP20).**
+
+###### (A) 💰 DEFECTO — el costo de adquisición se captura **CON IVA** y el COGS se netea **al leer** (espejo de §4.44.f-ter)
+
+**El defecto, medido (hecho del código, no opinión):** de los tres términos del P&L, SOLO el COGS entra sin netear.
+`pnl-core.ts:238` netea el ingreso (`netRevenueCents`); `:264` netea el costo de envío (`netShippingCostCents` =
+`shippingCostCents − shippingCostIvaCents`); pero `:244` hace `b.cogsCents += it.inventoryItem.acquisitionCostCents
+?? 0` — **el valor CRUDO**, e `InventoryItem` **no tiene** `acquisitionCostIvaCents` (`grep = 0`). Si una pieza se
+capturó con el costo **con IVA** (hábito del dueño), el P&L resta un costo **BRUTO** contra un ingreso **NETO** y
+hunde el margen por el IVA del costo. *Es la asimetría que `pnl-cogs-iva.diagnostic.spec.ts` fija (bloque A verde) y
+cuya reconciliación pone roja (bloque B).*
+
+**La norma que queda — idéntica doctrina que `ShipmentRequest` (§4.44.f-ter), un nivel más abajo:**
+
+| | |
+|---|---|
+| **`InventoryItem.acquisitionCostCents`** | **BRUTO cuando viene de COMPRA FIRME — IVA INCLUIDO.** Es la cifra que trae la factura del distribuidor. Lo teclea el operador (`inventory.service.ts:917-918`). ⚠️ Cuando viene de **APORTACIÓN** ya es **NETO** (`inventory.service.ts:997` = `mercado_neto × pct`): ahí no hay IVA que restar |
+| **`InventoryItem.acquisitionCostIvaCents`** *(NUEVA, migración `Mnn-A`)* | El **IVA acreditable** de ese costo, **congelado al capturar**. `cogsNet = acquisitionCostCents − acquisitionCostIvaCents`. `@default(0)` honesto: la ausencia **de verdad** significa cero (filas históricas: «no consta crédito» ⇒ `net = bruto`, dirección CONSERVADORA). APORTACIÓN siempre escribe **0** (su costo ya es neto) |
+| **Derivación en COMPRA FIRME** | Al capturar: `acquisitionCostIvaCents = acquisitionCostCents − round(acquisitionCostCents / (1 + r))` con `r` = `iva_pct` **vigente al capturar**, **congelado** en la columna. ⛔ Nunca se re-deriva al leer el P&L (si no, un P&L histórico cambiaría al mover `iva_pct` — rompería `IVA-5`). Es la diferencia con el envío (allí el IVA se teclea del papel); aquí se deriva-y-congela porque el distribuidor no siempre desglosa, pero el **congelado** es idéntico |
+| **Neteo** | **Al LEER, en `pnl-core.ts:244`**: `b.cogsCents += (it.inventoryItem.acquisitionCostCents ?? 0) − (it.inventoryItem.acquisitionCostIvaCents ?? 0)`. ⛔ Nunca al capturar |
+| **Rótulo de captura (M1/M3, obligación de ux-ui)** | Debe decir **«costo TOTAL de la factura, IVA incluido»** en la compra firme — ⛔ *un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas*. En aportación el costo es derivado (no lo teclea el operador): sin rótulo de IVA |
+
+- **⛔ SIN backfill automático en la migración** (doctrina `IVA-11(d)`: *«nadie backfilleó un crédito fiscal que nadie
+  verificó»*). Las piezas históricas nacen con `acquisitionCostIvaCents = 0` ⇒ `net = bruto` = **exactamente el
+  comportamiento de hoy** (conservador, no infla). ⚠️ Esto significa que la venta ya reportada por el dueño **no
+  cambia sola**: se corrige al re-capturar o con un **retroajuste explícito, auditado y autorizado por el dueño**,
+  acotado a piezas de compra firme (`acquisitionType`), que deriva el crédito con `r` vigente. **Ese retroajuste es
+  decisión del dueño (confirmación pendiente); el diseño por defecto es NO tocar lo histórico.**
+- **Migración `Mnn-A`** (número NO MEDIDO contra ramas sin fusionar — backend confirma el siguiente libre tras M-76):
+  `ALTER TABLE "InventoryItem" ADD COLUMN "acquisitionCostIvaCents" INTEGER NOT NULL DEFAULT 0;` — espejo exacto de
+  `m50` punto 3-bis para `ShipmentRequest.shippingCostIvaCents`.
+- **Candado `IVA-15`** (fila en la tabla de candados IVA). **Prueba que DEBE fallar hasta el arreglo** (la escribe el
+  modelo fuerte; backend la hace pasar; ⛔ no debilitándola): una orden `IVA_INCLUSIVE` con subtotal `11600` (ingreso
+  neto `10000`) y una pieza con `acquisitionCostCents = 9280` **y `acquisitionCostIvaCents = 1280`** ⇒
+  `cogsCents == 8000` y `profitCents == 2000` (hoy da `cogsCents 9280`, `profitCents 720`; rojo por exactamente el IVA
+  del costo, `1280`). ⭐ Y el amarre que mata la mutación silenciosa: una pieza de **aportación** (`acquisitionCostIvaCents
+  = 0`) aporta su costo **entero** al COGS (no se le resta un IVA que no tiene). *El diagnóstico
+  `pnl-cogs-iva.diagnostic.spec.ts` evoluciona a este candado con el fixture que fija la columna.*
+
+###### (C) FEATURE — el estado de resultados con SUBTOTALES (ADITIVO a `GET /admin/finance/pnl`)
+
+El P&L de hoy es una **lista plana** (`PnlComponents`, `pnl-core.ts:48-66`). Gana un objeto **`statement`**, derivado
+**por construcción** de los campos planos existentes (⛔ ninguna cifra nueva de otra fuente; no puede derivar):
+
+```ts
+// GET /api/v1/admin/finance/pnl — `super_admin`. Los campos planos de §M10-IVA.8 NO cambian (ni el CSV). ADITIVO:
+{
+  // … todos los campos planos de hoy (incomeCents, shippingRevenueCents, cogsCents [AHORA NETO, ver (A)],
+  //     stripeFeesCents, shippingCostCents, …, profitCents, buylist*) …
+  statement: {
+    totalRevenueCents: number,      // = incomeCents + shippingRevenueCents  (mercancía neta + envío cobrado neto)
+    cogsCents: number,              // = cogsCents del plano (NETO tras (A))
+    grossMarginCents: number,       // = totalRevenueCents − cogsCents
+    operatingExpenses: {
+      stripeFeesCents: number,              // comisiones Stripe (venta + envío)
+      shippingCostCents: number,            // costo de envío NETO (incluye ajustes y seguro, §M10-IVA.8)
+      refundsCents: number,                 // mercancía + envío devueltos, NETOS
+      refundedFeesCents: number,            // comisión devuelta
+      compensationsCents: number,           // compensaciones (case_refund), sin IVA
+      buylistGuideCostCents: number,        // costo de guías de compra (buylist)
+      buylistShippingFeeRetainedCents: number, // CRÉDITO: tarifa retenida (RESTA de gastos)
+      totalCents: number            // = stripeFees + shippingCost + refunds + refundedFees + compensations
+                                    //   + buylistGuideCost − buylistShippingFeeRetained
+    },
+    ebitdaCents: number,            // = grossMarginCents − operatingExpenses.totalCents
+    iva: {                          // ⭐ MEMO fiscal — ⛔ NO se resta del resultado (ver nota)
+      ivaCollectedCents: number,    // IVA cobrado en el periodo (= GET /admin/finance/iva → ivaCollectedCents, MISMO rango)
+      ivaRefundedCents: number,     // IVA dentro de lo devuelto (refundsInPeriod)
+      ivaNetCents: number           // = ivaCollectedCents − ivaRefundedCents (lo que se entera al SAT)
+    },
+    netResultCents: number          // = ebitdaCents  (el IVA NO es gasto: el P&L ya es neto de IVA)
+  }
+}
+```
+
+- **⛔⛔ EL IVA ES UN MEMO, NO UN GASTO.** El P&L ya entra **neto de IVA** por diseño (ingreso, COGS y envío todos
+  netos). Restar `ivaNetCents` del EBITDA **contaría el impuesto dos veces** y subestimaría el resultado real. Por eso
+  `netResultCents ≡ ebitdaCents ≡ profitCents`, y el bloque `iva` se pinta aparte, rotulado **«IVA por enterar al SAT
+  — informativo, no es un gasto del negocio»**. *(Si el dueño esperaba «restar impuestos» pensando en ISR, ese
+  impuesto NO se modela aquí: no hay dato. Confirmación del dueño sobre el rótulo, sin bloquear.)*
+- **IDENTIDADES que son el candado (`statement` no puede desviar de lo plano):** `grossMarginCents == totalRevenueCents
+  − cogsCents`; `ebitdaCents == grossMarginCents − operatingExpenses.totalCents`; **`ebitdaCents == profitCents` EXACTO**
+  (álgebra: `profitCents = income + shipRev − cogs − stripeFees − shipCost − refunds − refundedFees − comps +
+  buylistRetained − buylistGuide` reordenado); **`netResultCents == profitCents` EXACTO**; y **`statement.iva.ivaCollectedCents
+  == GET /admin/finance/iva?from&to → ivaCollectedCents`** para el mismo rango (misma fuente, estilo `IVA-10(b)`).
+- **CSV sin cambio.** `statement` es solo-JSON; el CSV de `pnl` conserva su cabecera plana (`report,incomeCents,…,profitCents`
+  + buylist). El estado de resultados es derivable de esas columnas ⇒ no se rompe el export.
+- **Reparto:** backend construye `statement` en `pnl-core`/`admin.service.ts` (ZONA DE DINERO, modelo fuerte);
+  frontend (M7View) lo pinta como estado de resultados. ⛔ Frontend no re-suma: pinta los subtotales que vienen.
+
+###### (D) FEATURE — volumen y ticket promedio en Finanzas (REUSO, cero backend nuevo)
+
+Las cifras **ya existen** (`sales-figures.ts:125-157`, `SalesFigures`) y se exponen en `GET /admin/reports/sales`
+(§15). M7 las **reusa** para el **mismo rango** que el P&L:
+
+- M7 llama `GET /admin/reports/sales?preset=custom&from=<F>&to=<T>&groupBy=day` (mismo `super_admin`) y lee de `totals`:
+  **`orders`** (volumen de pedidos), **`avgTicketCents`** (ticket promedio = `round(chargedCents/orders)` = **lo PAGADO**,
+  con IVA+comisión+envío dentro; `null` si `orders=0`), **`piecesPerOrder`** y **`pieces`**.
+- ⚠️ **Caveat de frontera, declarado:** `GET /admin/finance/pnl` acota por `range()` de admin (`{gte, lte}` inclusivo,
+  `pnl-core.ts:28`) y `GET /admin/reports/sales` por día MX semiabierto (`{gte, lt}`, `mx-day.ts`). En los bordes de día
+  puede diferir por una orden; ambos usan día MX ⇒ aceptable para la lectura conjunta. ⛔ No se inventa un endpoint
+  nuevo por esto.
+- **Reparto:** ⛔ **cero backend** (endpoint y cálculo existen). Frontend compone las dos llamadas en la pantalla de
+  Finanzas y pinta volumen/ticket junto al P&L. (NO MEDIDO: si M7View ya llama `reports/sales` hoy — es trabajo de
+  frontend verificarlo.)
+
+<a id="M4-SHIP20"></a>
+##### §M4-SHIP.20 — (B) 💰 reembolsos: el flujo del PANEL ya se cuenta; el hueco es el dashboard de Stripe + la doble resta del total
+
+**La medición que reencuadra el defecto (orquestador 2026-10-14; el reembolso de ~227.59 es de OTRO pedido y sin
+fecha ⇒ la pregunta NO es de ventana sino de código):**
+
+- ⭐ **El flujo admin de la app SÍ crea una fila que `pnl-core` cuenta** (trazado, fichero:línea):
+  - **Tarjeta:** `refund-ledger.service.ts:143` nace `PaymentRefund` `requested` → al aceptar Stripe,
+    `:327-336` pasa a `submitted|succeeded` y **escribe `submittedAt`** → contada en `pnl-core.ts:140`
+    (`status IN {submitted, succeeded}` por `submittedAt`).
+  - **SPEI:** `manual-refund.service.ts:203` crea `ManualRefund` → al confirmar la transferencia pasa a `paid` con
+    `paidAt` → contada en `pnl-core.ts:143-145` (`status:'paid'` por `paidAt`).
+  - ⇒ **NO hay subconteo del flujo app.** Un reembolso del panel aparece en el periodo de su `submittedAt`/`paidAt`.
+    Su ausencia de un rango dado es **acotamiento de fecha correcto, no un bug**. Si el reembolso de ~227.59 se hizo
+    desde el panel, **ya está contado** en su propio periodo (confirmación del dueño pendiente sobre cómo lo hizo).
+- **El ÚNICO hueco de captura real — reembolso hecho DIRECTO en el dashboard de Stripe (sin pasar por la app):**
+  `payments.service.ts:785-791` (el parcial **solo loguea**, no crea fila) y `:740-745` (la conciliación por
+  `refund.updated` exige `metadata.paymentRefundId`, que un reembolso del dashboard **no trae**) ⇒ **no nace fila** ⇒
+  invisible al P&L; y si es TOTAL, `onChargeRefunded` pasa la orden a `refunded` y la saca del filtro `settled`.
+
+**(B1) Captura del reembolso de dashboard — prioridad BAJA (solo importa si el dueño reembolsa FUERA de la app).**
+Un `charge.refunded`/`refund.updated` **sin** `metadata.paymentRefundId`, cuyo `payment_intent` resuelve a una
+`Order` (o `ShipmentRequest`) conocida, crea una fila de libro conciliada:
+
+- `PaymentRefundKind += stripe_dashboard` (paridad: schema `enum` + `enum-values.ts` + línea canónica de §Enums; el
+  `enum-values-parity` queda rojo hasta construir el schema, como el precedente `item_delivered`).
+- `idempotencyKey = 'stripe-refund:' + refund.id`; `stripeRefundId = refund.id` (ya `@unique`) ⇒ **idempotente**: una
+  segunda entrega del webhook no duplica.
+- `status`: `succeeded` si el `Stripe.Refund` ya está `succeeded` (con `submittedAt = succeededAt = eventTime`); si
+  `pending` ⇒ `submitted`; `failed|canceled` ⇒ `failed`.
+- **Desglose money-safe (Stripe solo da el bruto `refund.amount`):** se atribuye a mercancía con el IVA derivado de la
+  **convención CONGELADA de la orden** (`ivaRatePct`, `priceConvention`), ⛔ nunca del dial vivo: bajo `IVA_INCLUSIVE`
+  `merchandiseCents = refund.amount`, `merchandiseIvaCents = refund.amount − round(refund.amount/(1+r))`,
+  `shippingCents = shippingIvaCents = compensationCents = 0`. **`processingFeeCents = 0`** (Stripe NO devuelve su
+  comisión en un reembolso ⇒ el fee ya es costo hundido contado en `stripeFeesCents`). Así `RefundRow.netCents`
+  (`pnl-core.ts:154`) resta el neto correcto y `ivaRefundedCents` recibe el IVA (alimenta `/finance/iva`).
+- **CHECK de forma:** la migración relaja el CHECK de `PaymentRefund` para admitir una fila `stripe_dashboard` con
+  solo `orderId` (xor `shipmentRequestId`), **sin** líneas (`orderItemId`/`shipmentItemId`/accesorio). `requestedByUserId`/
+  `requestedByRole` = actor de SISTEMA (NO MEDIDO el id del actor de sistema — backend lo resuelve).
+- **Candado `REF-DASH-1` — prueba que DEBE fallar hoy:** un `charge.refunded` parcial y uno total **sin**
+  `paymentRefundId` ⇒ nace una fila `stripe_dashboard` `succeeded`, idempotente (segunda entrega = sin duplicado), y
+  `GET /admin/finance/pnl` del periodo de ese evento sube `refundsCents` por el neto. Hoy: el parcial solo loguea
+  (`payments.service.ts:785-791`) ⇒ rojo.
+
+**(B2) `D-AN-1` — la doble resta del reembolso TOTAL (real e INDEPENDIENTE del canal; ya documentado en `pnl-core.ts:30`).**
+Un reembolso total (app `order_full` o dashboard) pasa la orden a `refunded`; el filtro de ingreso
+`pnl-core.ts:218` (`status:'settled'`) la excluye ⇒ **se pierde su ingreso** en el periodo de liquidación, mientras
+la fila de reembolso resta en el periodo de su `submittedAt` ⇒ la venta se resta **dos veces** (o se esfuma si no hay
+fila). **Arreglo:** el ingreso se acota por **`settledAt ∈ periodo`** (y `settledAt IS NOT NULL`), ⛔ no por el
+`status` vivo, de modo que una venta liquidada en el periodo **cuenta su ingreso aunque luego se reembolse**, y el
+reembolso resta una sola vez en su propia fecha.
+
+- ⚠️ **Decisión de alcance:** se incluyen las órdenes con `settledAt ∈ periodo` y `status IN {settled, refunded}`
+  (pasaron por liquidación). ⛔ **`chargeback` queda FUERA** (el dinero se fue por contracargo y el P&L no tiene fila
+  que lo reste; contarlo inflaría la ganancia). El tratamiento del contracargo en el P&L es un hueco preexistente
+  aparte (vive en `sales-analytics`, no en `pnl-core`) ⇒ **desviación `D-PNL-1`** en `ARCHITECTURE §9`, NO se abre
+  aquí.
+- ⚠️ **NO MEDIDO:** que `Order.settledAt` **no se borre** al pasar a `refunded`/`chargeback`. El diseño lo asume (es
+  la premisa de `pnl-core.ts:30`); **backend lo confirma** (`grep` de dónde se escribe/limpia `settledAt`) antes de
+  implementar. Si se borrara, el arreglo usa otro sello inmutable de liquidación.
+- **Candado `REF-DASH-2` — prueba que DEBE fallar hoy:** una orden liquidada en el periodo con ingreso neto `10000`,
+  luego **totalmente reembolsada** (fila `order_full` por `10000`), ⇒ `GET /admin/finance/pnl` del periodo de
+  liquidación da `incomeCents == 10000` y `profitCents == 10000 − 10000 − … == 0` (una sola resta). Hoy: el ingreso
+  cae a `0` **y** la fila resta ⇒ `profitCents == −10000` (doble resta) ⇒ rojo.
+
+**Zonas compartidas tocadas por (B):** `backend/src/modules/payments/` (webhook + ledger), `schema.prisma`
+(enum + CHECK), `pnl-core.ts` (filtro de ingreso), `common/money.ts` (reuso de `taxBaseCentsOf`). **Reparto:** todo
+backend (zona de dinero, modelo fuerte). Frontend: **nada** (B es invisible en la UI; el P&L ya pinta `refundsCents`).
 
 ##### §M10-IVA.7 — El tablero: **ventas brutas Y netas** (v1.64(3), D55(b), **deploy 2**)
 

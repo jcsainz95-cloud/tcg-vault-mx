@@ -23830,6 +23830,67 @@ shippingCostMissingCount   // nº de envíos LIQUIDADOS del periodo con `shippin
   a la factura del carrier**, la línea neta de envío da **exactamente 0**. Ésa es su regla, hecha verificable.
   Candado **`IVA-11`**.
 
+#### 4.44.f-quater ⭐ v1.95⟨pnl-finanzas⟩ — EL COSTO DE ADQUISICIÓN SE CAPTURA **CON IVA** Y EL COGS SE NETEA AL LEER
+
+**El defecto (A), medido, no opinión.** El P&L tiene **tres** términos que deberían estar todos en base NETA, y solo
+el COGS no lo está: `pnl-core.ts:238` netea el ingreso (`netRevenueCents`), `:264` netea el costo de envío
+(`netShippingCostCents`), pero `:244` suma `it.inventoryItem.acquisitionCostCents ?? 0` **crudo**, e `InventoryItem`
+**no tiene** columna `acquisitionCostIvaCents` (`grep = 0`). Un costo capturado **con IVA** (hábito del dueño) se
+resta **bruto** contra un ingreso **neto** y hunde el margen por el IVA del costo. *Es la asimetría que
+`backend/test/pnl-cogs-iva.diagnostic.spec.ts` fija (bloque A verde, bloque B rojo a propósito). Los −67.81 de la
+venta real son 100 % este defecto A — el reembolso NO los explica (orquestador 2026-10-14).*
+
+**Es el mismo problema que §4.44.f-ter resolvió para el envío, y lo resuelvo igual, un nivel más abajo.** El bruto es
+el **dato primario** (la cifra que trae la factura del distribuidor); el neto es **derivado**; `R3` dice que la
+flecha va primario → derivado, jamás al revés. Guardar el neto y perder el bruto sería reconstruir el primario desde
+el derivado. ⇒ **se guarda el bruto y su crédito de IVA congelado; el neto es una resta al LEER.**
+
+##### La norma que queda
+
+| | |
+|---|---|
+| **`InventoryItem.acquisitionCostCents`** | **BRUTO (IVA incluido) cuando viene de COMPRA FIRME** (lo teclea el operador, `inventory.service.ts:917-918`). **NETO cuando viene de APORTACIÓN** (`inventory.service.ts:997` = `mercado_neto × pct`): ahí no hay IVA embebido |
+| **`InventoryItem.acquisitionCostIvaCents`** *(NUEVA, migración `Mnn-A`)* | El **IVA acreditable** del costo, **congelado al capturar**. `cogsNet = acquisitionCostCents − acquisitionCostIvaCents`. En COMPRA FIRME = `acquisitionCostCents − round(acquisitionCostCents/(1+r))` con `r` = `iva_pct` vigente, **congelado**. En APORTACIÓN = **0** (el costo ya es neto) |
+| **Neteo** | **Al LEER, en `pnl-core.ts:244`.** ⛔ Nunca al capturar; ⛔ nunca re-derivando desde el dial vivo al leer (rompería `IVA-5`: `InventoryItem` no tiene `ivaRatePct`) |
+| **Rótulo de M1/M3 (ux-ui)** | COMPRA FIRME: **«costo TOTAL de la factura, IVA incluido»**. APORTACIÓN: sin rótulo (el costo es derivado, no tecleado) |
+
+- **⭐⭐ POR QUÉ UNA COLUMNA Y NO UNA DIVISIÓN AL LEER:** idéntico al envío — `InventoryItem` no tiene `ivaRatePct`, así
+  que netear con `costo/(1+r)` al leer obligaría al **dial vivo** y un P&L histórico cambiaría al mover `iva_pct`
+  (`IVA-5`). El crédito se **congela** al capturar. Diferencia con el envío: allí el IVA se teclea del papel; aquí se
+  **deriva-y-congela** del `iva_pct` vigente, porque el distribuidor no siempre desglosa — pero lo que se persiste es
+  el **congelado**, no la tasa.
+- **`@default(0)` es honesto** (misma doctrina que `shippingCostIvaCents`, §4.44.f-ter): la ausencia de verdad
+  significa cero. Filas históricas: `0` ⇒ `net = bruto` = **exactamente el comportamiento de hoy**, dirección
+  CONSERVADORA (subestima la ganancia, no la infla).
+- **⛔ SIN backfill automático** (doctrina `IVA-11(d)`). La venta ya reportada **no cambia sola**: se corrige al
+  re-capturar o con un **retroajuste explícito, auditado y autorizado por el dueño**, acotado a compra firme
+  (`acquisitionType`). **Decisión por defecto del diseño: NO tocar lo histórico.** El retroajuste es decisión del
+  dueño (confirmación pendiente).
+- **Reparto:** backend (zona de dinero, modelo fuerte) escribe la columna, la derivación en captura y el neteo en
+  `pnl-core`; ux-ui el rótulo. Candado **`IVA-15`** ([API_CONTRACT §M10-IVA.8-bis (A)](API_CONTRACT.md#M10-IVA8bis)).
+
+##### (C) El estado de resultados y (B) los reembolsos: el porqué vive en el contrato
+
+**(C)** El `statement` aditivo de `GET /admin/finance/pnl` (Total ingresos → Margen bruto → EBITDA → IVA memo →
+Resultado neto) se **deriva por construcción** de los campos planos ⇒ `netResultCents ≡ profitCents` EXACTO, y **el
+IVA es un MEMO, no un gasto** (el P&L ya entra neto de IVA; restarlo contaría el impuesto dos veces). **(B)** medido:
+el flujo admin de la app **sí** crea fila contada (`refund-ledger.service.ts:143`→`:327-336` tarjeta;
+`manual-refund.service.ts:203` SPEI; contadas en `pnl-core.ts:140`/`:143-145`), así que **no hay subconteo del flujo
+app** — el único hueco es el reembolso hecho directo en el dashboard de Stripe (`payments.service.ts:785-791`/`:740-745`),
+más la doble resta del total (`D-AN-1`, `pnl-core.ts:30`). Norma entera: [API_CONTRACT §M4-SHIP.20](API_CONTRACT.md#M4-SHIP20)
+y [§M10-IVA.8-bis (C)(D)](API_CONTRACT.md#M10-IVA8bis).
+
+##### Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+- **`D-PNL-1` (ARCHITECTURE §9) — el P&L no resta los CONTRACARGOS.** Al acotar el ingreso por `settledAt ∈ periodo`
+  (arreglo B2), una orden `chargeback` se **excluye** del ingreso (su dinero se fue y `pnl-core` no tiene fila que lo
+  reste; contarla inflaría la ganancia). El tratamiento del contracargo en el P&L es un hueco **preexistente** que
+  vive en `sales-analytics` (bloque `chargebacks`), no en `pnl-core`. ⛔ No se abre en esta rama; se registra para el
+  rol dueño (backend) con su fecha de medición (2026-10-14).
+- **Premisa NO MEDIDA que backend confirma antes de implementar B2:** que `Order.settledAt` **no se borra** al pasar a
+  `refunded`/`chargeback` (es la base de `pnl-core.ts:30`). Si se borrara, el arreglo usa otro sello inmutable de
+  liquidación.
+
 #### 4.44.g EL DIAL — uno solo, global, continuo, en fracción de traslación
 
 | | |
