@@ -3,7 +3,8 @@
 -- `InventoryItem` gana `acquisitionCostIvaCents` — el **IVA ACREDITABLE del costo de adquisición,
 -- CONGELADO al capturar**, para que el COGS del P&L sea una RESTA (`acquisitionCostCents −
 -- acquisitionCostIvaCents`) en vez de restar un costo BRUTO contra un ingreso NETO. Es el **espejo
--- exacto** de `ShipmentRequest.shippingCostIvaCents` (M-50 punto 3-bis, §4.44.f-ter), un nivel más abajo.
+-- exacto** de la columna análoga del IVA del costo de envío en `ShipmentRequest` (M-50 punto 3-bis,
+-- §4.44.f-ter), un nivel más abajo.
 --
 -- ⛔ SIN BACKFILL (doctrina IVA-11(d): «nadie backfillea un crédito fiscal que nadie verificó»). Las
 -- filas históricas nacen con `acquisitionCostIvaCents = 0` ⇒ `net = bruto` = EXACTAMENTE el
