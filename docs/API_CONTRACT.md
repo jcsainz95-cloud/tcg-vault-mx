@@ -44989,13 +44989,22 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
   siendo 5/min por IP (porque vive en Redis, no en memoria).
 
 ### CARDSHOW.5 Token de formulario firmado + tiempo mínimo — L0-SEG-04
-- `GET /card-show/form-token` emite un token firmado con `CARD_SHOW_FORM_SECRET` (en Railway): lleva `iat` y propósito
-  (`leads`/`players`). ⛔ Sin `Set-Cookie`, `Cache-Control: no-store`, ⛔ no refleja Origin ajeno, **30/h por IP** (⇒ `429`
-  en la 31.ª).
-- El POST exige el token en el body. **Firma inválida / 1 byte alterado / token de `players` usado en `leads` ⇒ `400`**,
+- `GET /card-show/form-token?purpose=leads|players` emite un token firmado con `CARD_SHOW_FORM_SECRET` (en Railway): lleva
+  `iat` y propósito (`leads`/`players`). ⛔ Sin `Set-Cookie`, `Cache-Control: no-store`, ⛔ no refleja Origin ajeno, **30/h
+  por IP** (⇒ `429` en la 31.ª).
+- **Forma de la respuesta (fija, fuente de verdad):** `200 { "formToken": string }` (`Cache-Control: no-store`). ⛔ **La clave
+  es `formToken`, NO `token`** (`card-show.controller.ts:52,61`). El cliente DEBE leer `formToken` de la respuesta; si lee otra
+  clave (p. ej. `token`) nunca emite el token y **se pierden todas las altas** (bug 2a).
+- El POST a `/card-show/leads` y `/card-show/players` exige ese `formToken` en el **CUERPO** bajo la clave **`formToken`** (ya
+  exigida por `CreateLeadDto`/`CreatePlayerDto`) — el mismo string que devolvió el GET. **Firma inválida / 1 byte alterado /
+  token de `players` usado en `leads` ⇒ `400`**,
   0 filas, 0 envíos. **POST <2 s** desde `iat` ⇒ **200 idéntico**, 0/0 (demasiado rápido para un humano). **Token reusado**
   (segundo POST con el mismo token) ⇒ **200 idéntico**, 0 filas nuevas, 0 envíos. **> 2 h** ⇒ `400 FORM_EXPIRED`; el
   frontend pide otro token y **reintenta una vez sin borrar lo tecleado**.
+- ⚠️ **Dos claves distintas, no confundir:** el token de este §CARDSHOW.5 (GET `/form-token`) viaja como **`formToken`** en el
+  cuerpo de `/leads` y `/players`. En cambio, los POST de **confirmar/cancelar/baja** de §CARDSHOW.6 usan la clave **`token`**
+  (de `LinkActionDto`, `{ "token": "…" }`). Son campos y propósitos **diferentes**: ⛔ no enviar `formToken` donde va `token` ni
+  al revés.
 - `git grep CARD_SHOW_FORM_SECRET` y `CARD_SHOW_LINK_SECRET` ⇒ solo **lecturas de config** (0 valores en el repo), **distintos
   entre sí**, solo en Railway.
 
