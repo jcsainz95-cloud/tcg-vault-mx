@@ -21813,3 +21813,67 @@ pasa por `test.use({ contextOptions: { reducedMotion: 'reduce' } })`. `npm run t
 - `npm run typecheck`: **limpio** (0 errores; ya no está el de `reducedMotion`).
 - `npm run lint`: sin avisos ni errores.
 - `LinkAction.test.tsx`: **8/8** verde. Suites `card-show` (app + lib): **28 passed** (3 ficheros).
+
+## Card Show v2 — datos REALES + salida del vendedor por WhatsApp (2026-10-16, feat/event-landing)
+
+**Decisión del dueño JC:** el evento sale HOY con datos reales (fecha/sede/precios ya públicos, van en el código).
+ÚNICO secreto que queda: los NOMBRES de patrocinador — el bloque de logos va oculto (`showSponsors:false`) y solo
+se nombran TCG HUNT y Jakomi.
+
+### `frontend/src/content/card-show.ts` — fuente única (reescrito)
+- Datos reales: `countdownTargetIso` (2026-12-05T11:00:00-06:00), hero (fecha/horario/sede/`presenta`), `numeros`,
+  `queEncontraras`, `torneo` (sin «oficial», sin cupo; días sáb 12–18 / dom 12–17, `inscripcion`, `notaHorarios`),
+  `comoLlegar` (dirección, pisos, transporte, `mapaUrl`, `mapaEmbedUrl`), `mesas`, `patrocinios`, FAQ (12 verbatim),
+  footer (colaboración Jakomi + teléfono).
+- **Modelo de mesas NUEVO (v2):** numerado. `mesas.tipos` = 3 tipos con `precio` y `numeros[]` (Premium $3,000 →
+  6,7,8,16,19 · Grande $2,500 → 15 mesas · Chica $1,800 → 3,4,5). ⛔ Se QUITÓ el campo `medida` y el tipo
+  `MesaEstado`/`MesaPlano`/`MesaTipo.medida` viejos. Disponibilidad vía `mesas.apartadas` (lista editable a mano
+  por JC; al 16-oct = [6,7,8,9,10,18,20]). Helpers: `mesaTipoDe`, `mesaDisponibilidad`, `mesasResueltas`,
+  `waApartarMesaUrl`, `mesaLabel`, `disponibilidadTexto`.
+- **WhatsApp** (`WHATSAPP`, URLs exactas del encargo): #1 con `{n}`, #2 genérico, #3 patrocinio, #4 dudas + número
+  visible `55 6489 3921`. **`MAILTO_PATROCINIO`** (URL exacta). **`LINKS`** (TCG HUNT/Jakomi/deck/convocatoria/aviso).
+- `patrocinios.showSponsors:false` + niveles Oro/Plata/Producto (⛔ sin marca) + `comunes` + `cta.href` = mailto.
+- Aviso de privacidad: apunta al live `https://tcghunt.mx/es/privacidad` (⛔ no se redactó uno nuevo; pendiente de
+  revisión con product-owner). Se eliminó el objeto `privacidad` con placeholders `[RAZÓN_SOCIAL]`, etc.
+
+### Componentes
+- `_components/Countdown.tsx` (nuevo, client): cuenta regresiva SSR-segura (estado `null` hasta montar → sin
+  mismatch de hidratación), aria-live discreto, marcador `--` antes de montar.
+- `_components/PlanoMesas.tsx` (reescrito): cuadrícula de 23 mesas. Disponible = `<a>` a WhatsApp `#1` con número
+  (cuenta el clic), nombre accesible «Mesa N, Tipo, Precio, Disponible», zona táctil ≥72×44, trama para apartada.
+  Apartada = no clicable, texto «Apartada». Tabla equivalente con columnas Mesa/Tipo/Precio/Estado (⛔ sin Medida).
+- `page.tsx` (reescrito): hero + countdown; torneo sin «oficial»/cupo; cómo llegar (enlace a Maps, SIN iframe — ver
+  abajo); CTAs de WhatsApp de vendedor (sección mesas + CTA FIJA sticky en móvil, `#2`); número visible; CTA de
+  patrocinio abre el MAILTO (NO scroll); bloque de logos condicionado a `showSponsors`; footer con dudas `#4`.
+- `TrackedLink.tsx`: + props opcionales `target`/`rel`/`aria-label` (para enlaces externos WhatsApp/Maps).
+- `PrivacyMini.tsx`: pointer corto al aviso live (sin placeholders inventados; solo TCG HUNT + Jakomi).
+- `AvisameForm.tsx` / `TorneoForm.tsx`: el enlace del aviso de privacidad ahora va al URL live (antes `/privacidad`
+  interno, inexistente en el árbol raíz de `/card-show`). Resto del comportamiento (doble opt-in) INTACTO.
+
+### Mapa: SIN iframe embebido (decisión medida)
+La CSP de la landing (`frontend/src/security/csp.ts`, de devops) tiene `frame-src` SIN `https://www.google.com`.
+Un `<iframe output=embed>` quedaría bloqueado. Se dejó el `mapaEmbedUrl` en los datos pero la UI enlaza a Google
+Maps (navegación de primer nivel, no afectada por `frame-src`). Si se quiere el embed, devops debe añadir
+`https://www.google.com` a `frame-src` (solicitud, no implementado por mí).
+
+### Tests tocados
+- `card-show.secrets.test.ts`: quitadas las aserciones TBD; mantiene el escaneo por `CARDSHOW_SECRET_TERMS`;
+  añade `showSponsors===false`, niveles === «Oro Plata Producto» y presencia de TCG HUNT/Jakomi.
+- `PlanoMesas.test.tsx`: reescrito al modelo numerado (enlaces disponibles, texto apartada, tabla sin Medida, 23 mesas).
+- `e2e/card-show.spec.ts`: el bloque del plano ahora comprueba enlaces a WhatsApp (antes botones con aria-pressed).
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: limpio. `npm run lint`: sin avisos ni errores.
+- Suites card-show (4 ficheros): **31 passed | 1 skipped** (el skip es el escaneo sin env).
+- Escaneo de secretos: sin env ⇒ skip + 3 aserciones de patrocinios; con env de términos inventados AUSENTES
+  («AcmeCorpXZ,FooSponsorQ,BarBrandW») ⇒ **6/6**; canario con «Jakomi» presente ⇒ **MUERDE** (1 fallo), confirma
+  que el candado detecta un nombre si se colara.
+- Cero nombres de patrocinador en el repo: no se me entregó ninguno y no introduje ninguno; las únicas marcas en el
+  contenido son TCG HUNT, Jakomi y Pokémon (nombre de juego).
+
+### Solicitudes al arquitecto / devops / product-owner
+- **devops:** si se quiere el iframe de Google Maps, añadir `https://www.google.com` a `frame-src` de la CSP.
+  También cablear `CARDSHOW_SECRET_TERMS` con los nombres de patrocinador (el escaneo ya los protege).
+- **product-owner:** revisar el aviso de privacidad simplificado (PrivacyMini) contra el aviso integral live.
+- **arquitecto:** el POST de leads de vendedor/patrocinador coexiste con los CTAs de WhatsApp/mailto; no hubo cambio
+  de contrato. Pendiente abierto previo (nombre del campo de `GET /form-token`) sigue igual.

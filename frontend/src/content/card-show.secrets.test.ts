@@ -1,18 +1,20 @@
 // @vitest-environment node
 /**
  * ⛔ SECRETO — guarda de repo público (complementa el grep de CI que cablea devops, §CARDSHOW.17).
- * Ningún valor real del evento puede vivir en el código del Card Show: fecha, sede/dirección,
- * precios ni las palabras clave del anuncio. Todo va como MARCADOR hasta el día del anuncio.
- * «Jakomi» sí se permite. Las MEDIDAS de mesa NO son secreto (decisión JC) y sí se muestran.
  *
- * Los términos prohibidos del anuncio NO viven en este archivo: se leen en RUNTIME de la variable
- * de entorno `CARDSHOW_SECRET_TERMS` (secreto de CI que cablea devops). Sin la env, ese escaneo se
- * salta; no hay fallback hardcodeado. Así ningún valor real del evento queda en el repo público.
+ * ESTADO (decisión JC 2026-10-16): el evento SALE con datos reales. Fecha, sede, precios y mesas YA
+ * SON PÚBLICOS y viven en el código (ya no son marcadores). El ÚNICO secreto que queda son los
+ * NOMBRES DE PATROCINADORES: no pueden aparecer en ningún fuente del Card Show y el bloque de logos
+ * va oculto (`patrocinios.showSponsors === false`). Solo se nombran TCG HUNT y Jakomi.
+ *
+ * Los términos prohibidos (nombres de patrocinador) NO viven en este archivo: se leen en RUNTIME de
+ * la variable de entorno `CARDSHOW_SECRET_TERMS` (secreto de CI que cablea devops). Sin la env, ese
+ * escaneo se salta; no hay fallback hardcodeado. Así ningún nombre de patrocinador queda en el repo.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CARD_SHOW, TBD } from './card-show';
+import { CARD_SHOW } from './card-show';
 
 const ROOT = join(__dirname, '../..');
 
@@ -61,40 +63,35 @@ if (FORBIDDEN.length > 0) {
   describe('secreto · términos del anuncio no aparecen en el código del Card Show', () => {
     const sources = cardShowSources();
     FORBIDDEN.forEach((re, i) => {
-      it(`término prohibido del anuncio #${i + 1} no aparece en ninguna fuente`, () => {
+      it(`nombre de patrocinador prohibido #${i + 1} no aparece en ninguna fuente`, () => {
         const hits = sources.filter((s) => re.test(s.text)).map((s) => s.file);
-        expect(hits, `un término prohibido del anuncio apareció en: ${hits.join(', ')}`).toEqual([]);
+        expect(hits, `un nombre de patrocinador apareció en: ${hits.join(', ')}`).toEqual([]);
       });
     });
   });
 } else {
-  describe('secreto · términos del anuncio (escaneo por env)', () => {
-    it.skip('CARDSHOW_SECRET_TERMS no definida; escaneo de términos del anuncio omitido', () => {
+  describe('secreto · nombres de patrocinador (escaneo por env)', () => {
+    it.skip('CARDSHOW_SECRET_TERMS no definida; escaneo de nombres de patrocinador omitido', () => {
       // Sin la env no hay términos que escanear y no existe fallback hardcodeado: se salta limpio.
     });
   });
 }
 
-describe('secreto · marcadores del evento en el código del Card Show', () => {
-  it('los datos del evento están como marcadores (fecha, sede, precio)', () => {
-    expect(CARD_SHOW.hero.fecha).toBe(TBD.fecha);
-    expect(CARD_SHOW.hero.sede).toBe(TBD.sede);
-    for (const t of CARD_SHOW.mesas.tipos) expect(t.precio).toBe(TBD.precio);
-    for (const n of CARD_SHOW.patrocinios.niveles) expect(n.precio).toBe(TBD.precio);
+describe('secreto · patrocinadores ocultos en el código del Card Show', () => {
+  it('el bloque de logos de patrocinadores va OCULTO (showSponsors === false)', () => {
+    expect(CARD_SHOW.patrocinios.showSponsors).toBe(false);
   });
 
-  it('las medidas de mesa SÍ se muestran (decisión JC: no son secreto)', () => {
-    const medidas = CARD_SHOW.mesas.tipos.map((t) => t.medida);
-    expect(medidas.length).toBeGreaterThan(0);
-    for (const m of medidas) {
-      expect(m).not.toBeNull();
-      expect(typeof m).toBe('string');
-      expect((m as string).length).toBeGreaterThan(0);
-    }
-  });
-
-  it('no hay patrocinador nombrado en la sección de patrocinios (solo niveles genéricos)', () => {
+  it('no hay patrocinador nombrado: la sección solo lista NIVELES (Oro/Plata/Producto)', () => {
     const nombres = CARD_SHOW.patrocinios.niveles.map((n) => n.nombre).join(' ');
-    expect(nombres).toBe('Bronce Plata Oro');
+    expect(nombres).toBe('Oro Plata Producto');
+  });
+
+  it('las únicas marcas nombradas en el contenido son TCG HUNT y Jakomi', () => {
+    // Serializa TODO el objeto de contenido y comprueba que no quedó ninguna otra marca evidente.
+    const blob = JSON.stringify(CARD_SHOW);
+    // Marcas permitidas (públicas). Cualquier otra se escanea vía CARDSHOW_SECRET_TERMS en CI.
+    expect(blob).toContain('TCG HUNT');
+    expect(blob).toContain('Jakomi');
   });
 });

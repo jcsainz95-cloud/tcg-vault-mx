@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import Link from 'next/link';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { CARD_SHOW } from '@/content/card-show';
 import { submitLead, type LeadSubmitBody } from '@/lib/card-show-api';
 import { PrivacyMini } from './PrivacyMini';
 import {
@@ -113,9 +113,14 @@ export function AvisameForm({ source = 'cta_hero' }: { source?: LeadSubmitBody['
 
       <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
         He leído el{' '}
-        <Link href="/privacidad" className="text-accent underline underline-offset-2">
+        <a
+          href={CARD_SHOW.footer.privacidadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent underline underline-offset-2"
+        >
           aviso de privacidad
-        </Link>{' '}
+        </a>{' '}
         y acepto recibir avisos del Card Show.
       </PrivacyCheckbox>
 

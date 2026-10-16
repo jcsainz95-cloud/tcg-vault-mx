@@ -84,16 +84,14 @@ test.describe('Card Show · prefers-reduced-motion', () => {
   });
 });
 
-test.describe('Card Show · plano navegable', () => {
-  test('las mesas son botones tabulables con nombre accesible y hay tabla equivalente', async ({ page }) => {
+test.describe('Card Show · plano de mesas (modelo numerado v2)', () => {
+  test('las mesas disponibles son enlaces a WhatsApp con nombre accesible y hay tabla equivalente', async ({ page }) => {
     await page.goto('/card-show#mesas');
-    const mesas = page.getByRole('button', { name: /^Mesa \d/ });
+    const mesas = page.getByRole('link', { name: /^Mesa \d/ });
     expect(await mesas.count()).toBeGreaterThan(0);
-    await mesas.first().focus();
-    await page.keyboard.press('Enter');
-    await expect(mesas.first()).toHaveAttribute('aria-pressed', 'true');
-    await page.keyboard.press('Escape');
-    await expect(mesas.first()).toHaveAttribute('aria-pressed', 'false');
+    const href = await mesas.first().getAttribute('href');
+    expect(href).toContain('wa.me/525564893921');
+    expect(href).toContain('%23'); // número de mesa prellenado
     await expect(page.getByRole('table')).toBeVisible();
   });
 });

@@ -1,146 +1,128 @@
 'use client';
 
-import { useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
-import { CARD_SHOW, mesaLabel, tipoNombre, type MesaEstado } from '@/content/card-show';
+import {
+  CARD_SHOW,
+  disponibilidadTexto,
+  mesaLabel,
+  mesasResueltas,
+  waApartarMesaUrl,
+  type MesaResuelta,
+} from '@/content/card-show';
 import { trackClick } from '@/lib/card-show-clicks';
 
 /**
- * Plano del salón (API_CONTRACT §CARDSHOW.2, RONDA_0 §8). SVG SIN COTAS (⛔ sin medidas en el
- * dibujo; las medidas de mesa se muestran en la tabla SOLO cuando el data file traiga valor).
+ * Plano de mesas del Card Show (API_CONTRACT §CARDSHOW.2, RONDA_0 §8). Modelo NUMERADO (v2, decisión
+ * JC): 23 mesas con tipo→precio y disponibilidad. ⛔ SIN medidas.
  *
- * Accesibilidad (§13 del encargo):
- *  - Mesas TABULABLES en orden 1→N (botones reales sobre el SVG decorativo).
- *  - Nombre accesible por mesa («Mesa N, tipo, estado»).
- *  - Enter/Espacio seleccionan; Esc deselecciona.
- *  - Zona táctil ≥ 44×44 (min-w/min-h en el botón).
- *  - Estado «Sin apartar / Apartada» NO por color solo: patrón de trama + etiqueta de texto.
- *  - Tabla equivalente debajo (alternativa no visual completa).
- *  - ⛔ Nunca la palabra «disponible»: el estado es «Sin apartar».
+ *  - Mesa DISPONIBLE ⇒ enlace real a WhatsApp con el número prellenado (#1). Cuenta el clic.
+ *  - Mesa APARTADA ⇒ no es clicable; se muestra «Apartada» (texto, no solo color).
+ *
+ * Accesibilidad (§13): cada mesa disponible es un enlace tabulable con nombre accesible
+ * («Mesa N, Tipo, Precio, Disponible»); las apartadas se anuncian por su texto. Zona táctil ≥44px.
+ * Tabla equivalente debajo (alternativa no visual completa) con la misma info y los mismos enlaces.
  */
-const VB_W = 100;
-const VB_H = 64;
-
-function estadoTexto(e: MesaEstado): string {
-  return e === 'apartada' ? 'Apartada' : 'Sin apartar';
+function MesaCell({ m }: { m: MesaResuelta }) {
+  const base =
+    'flex min-h-[72px] min-w-[44px] flex-col items-center justify-center gap-0.5 border px-2 py-2 text-center';
+  if (m.disponibilidad === 'apartada') {
+    return (
+      <div
+        className={cn(base, 'border-border bg-surface-2 text-muted')}
+        // Trama diagonal para distinguir «Apartada» sin depender del color.
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(45deg, transparent, transparent 4px, var(--color-border) 4px, var(--color-border) 5px)',
+        }}
+      >
+        <span className="font-mono text-sm tabular text-text">{m.numero}</span>
+        <span className="text-[11px] uppercase tracking-label">Apartada</span>
+      </div>
+    );
+  }
+  return (
+    <a
+      href={waApartarMesaUrl(m.numero)}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={mesaLabel(m.numero, m.tipo.nombre, m.tipo.precio, m.disponibilidad)}
+      onClick={() => trackClick({ destino: 'mesa', mesa: m.numero })}
+      className={cn(
+        base,
+        'border-border-strong bg-surface text-text transition-colors hover:border-accent hover:bg-surface-2',
+        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--color-accent)]',
+      )}
+    >
+      <span className="font-mono text-sm tabular">{m.numero}</span>
+      <span className="text-[10px] uppercase tracking-label text-muted">{m.tipo.nombre}</span>
+      <span className="font-mono text-[11px] tabular">{m.tipo.precio}</span>
+    </a>
+  );
 }
 
 export function PlanoMesas() {
-  const mesas = [...CARD_SHOW.mesas.plano].sort((a, b) => a.numero - b.numero);
-  const [selected, setSelected] = useState<number | null>(null);
-  const liveRef = useRef<HTMLParagraphElement>(null);
-
-  const sel = mesas.find((m) => m.numero === selected) ?? null;
-
-  function activate(numero: number) {
-    setSelected(numero);
-    trackClick({ destino: 'mesa', mesa: numero });
-  }
+  const mesas = mesasResueltas();
 
   return (
-    <div className="flex flex-col gap-6">
-      <div
-        className="relative w-full border border-border-strong bg-surface-2"
-        style={{ aspectRatio: `${VB_W} / ${VB_H}` }}
-      >
-        {/* Dibujo decorativo del salón. aria-hidden: la interacción vive en los botones de abajo. */}
-        <svg
-          viewBox={`0 0 ${VB_W} ${VB_H}`}
-          className="absolute inset-0 h-full w-full"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <defs>
-            {/* Trama diagonal para «Apartada»: distingue el estado sin depender del color. */}
-            <pattern id="cs-apartada" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="3" stroke="var(--color-border-strong)" strokeWidth="1" />
-            </pattern>
-          </defs>
-          {mesas.map((m) => (
-            <rect
-              key={m.numero}
-              x={m.x}
-              y={m.y}
-              width={m.w}
-              height={m.h}
-              fill={m.estado === 'apartada' ? 'url(#cs-apartada)' : 'var(--color-surface)'}
-              stroke={selected === m.numero ? 'var(--color-accent)' : 'var(--color-border-strong)'}
-              strokeWidth={selected === m.numero ? 1.2 : 0.6}
-            />
-          ))}
-        </svg>
-
-        {/* Capa interactiva: un botón real por mesa (teclado, foco, zona táctil ≥44px). */}
-        {mesas.map((m) => (
-          <button
-            key={m.numero}
-            type="button"
-            aria-pressed={selected === m.numero}
-            aria-label={mesaLabel(m.numero, tipoNombre(m.tipoId), m.estado)}
-            onClick={() => activate(m.numero)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                activate(m.numero);
-              } else if (e.key === 'Escape') {
-                setSelected(null);
-              }
-            }}
-            className={cn(
-              'absolute flex min-h-[44px] min-w-[44px] items-center justify-center font-mono text-xs text-text',
-              selected === m.numero && 'ring-2 ring-[color:var(--color-accent)]',
-            )}
-            style={{
-              left: `${m.x}%`,
-              top: `${(m.y / VB_H) * 100}%`,
-              width: `${m.w}%`,
-              height: `${(m.h / VB_H) * 100}%`,
-            }}
-          >
-            <span aria-hidden="true">{m.numero}</span>
-          </button>
+    <div className="flex flex-col gap-8">
+      {/* Leyenda de tipos/precios. */}
+      <ul className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-sm">
+        {CARD_SHOW.mesas.tipos.map((t) => (
+          <li key={t.id}>
+            <span className="eyebrow">{t.nombre}</span> <span className="tabular">{t.precio}</span>
+          </li>
         ))}
+      </ul>
+
+      {/* Plano: cuadrícula de mesas numeradas. Disponible ⇒ enlace a WhatsApp; apartada ⇒ no clicable. */}
+      <div>
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-6" aria-label="Plano de mesas del Card Show">
+          {mesas.map((m) => (
+            <li key={m.numero}>
+              <MesaCell m={m} />
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-[13px] text-muted">
+          Toca una mesa <strong className="text-text">disponible</strong> para apartarla por WhatsApp. Al fondo, en la
+          esquina lado Av. Revolución, está la zona de activación.
+        </p>
       </div>
 
-      {/* Detalle de la mesa seleccionada (región viva para lectores de pantalla). */}
-      <p ref={liveRef} role="status" aria-live="polite" className="min-h-[1.5rem] text-[13px] text-muted">
-        {sel ? (
-          <>
-            <strong className="text-text">Mesa {sel.numero}</strong> · {tipoNombre(sel.tipoId)} ·{' '}
-            {estadoTexto(sel.estado)}
-          </>
-        ) : (
-          'Elige una mesa del plano para ver su detalle.'
-        )}
-      </p>
-
-      {/* Tabla equivalente (alternativa accesible completa). Medidas solo si el data file las trae. */}
+      {/* Tabla equivalente (alternativa accesible completa). ⛔ SIN columna de medida (decisión JC v2). */}
       <table className="w-full border-collapse text-left text-[13px]">
-        <caption className="sr-only">Mesas del Card Show: número, tipo, precio, medida y estado.</caption>
+        <caption className="sr-only">Mesas del Card Show: número, tipo, precio y disponibilidad.</caption>
         <thead>
           <tr className="border-b border-border-strong">
             <th scope="col" className="eyebrow py-2 pr-4">Mesa</th>
             <th scope="col" className="eyebrow py-2 pr-4">Tipo</th>
             <th scope="col" className="eyebrow py-2 pr-4">Precio</th>
-            <th scope="col" className="eyebrow py-2 pr-4">Medida</th>
             <th scope="col" className="eyebrow py-2">Estado</th>
           </tr>
         </thead>
         <tbody>
-          {mesas.map((m) => {
-            const tipo = CARD_SHOW.mesas.tipos.find((t) => t.id === m.tipoId);
-            return (
-              <tr key={m.numero} className="border-b border-border">
-                <td className="py-3 pr-4 font-mono tabular">{m.numero}</td>
-                <td className="py-3 pr-4">{tipo?.nombre ?? 'Mesa'}</td>
-                <td className="py-3 pr-4 font-mono tabular">{tipo?.precio ?? '—'}</td>
-                {/* Medida: campo del data file; se muestra solo cuando haya valor (decisión JC). */}
-                <td className="py-3 pr-4 font-mono tabular">{tipo?.medida ?? '—'}</td>
-                <td className="py-3">{estadoTexto(m.estado)}</td>
-              </tr>
-            );
-          })}
+          {mesas.map((m) => (
+            <tr key={m.numero} className="border-b border-border">
+              <td className="py-3 pr-4 font-mono tabular">{m.numero}</td>
+              <td className="py-3 pr-4">{m.tipo.nombre}</td>
+              <td className="py-3 pr-4 font-mono tabular">{m.tipo.precio}</td>
+              <td className="py-3">
+                {m.disponibilidad === 'apartada' ? (
+                  <span className="text-muted">Apartada</span>
+                ) : (
+                  <a
+                    href={waApartarMesaUrl(m.numero)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => trackClick({ destino: 'mesa', mesa: m.numero })}
+                    className="text-accent underline underline-offset-4"
+                  >
+                    {disponibilidadTexto(m.disponibilidad)} · apartar
+                  </a>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

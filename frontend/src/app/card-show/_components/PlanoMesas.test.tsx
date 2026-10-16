@@ -1,69 +1,75 @@
 /**
- * §13 (plano) — el plano de mesas es navegable con teclado, tiene nombres accesibles en orden 1→N,
- * responde a Enter/Espacio/Esc, marca el estado con texto (no solo color) y trae tabla equivalente
+ * §13 (plano) v2 — modelo NUMERADO (decisión JC): 23 mesas con tipo→precio y disponibilidad, SIN
+ * medidas. Una mesa DISPONIBLE es un enlace a WhatsApp con el número prellenado; una APARTADA no es
+ * clicable y se marca «Apartada» en texto. Tabla equivalente con columnas Mesa/Tipo/Precio/Estado
  * (API_CONTRACT §CARDSHOW.2, RONDA_0 §8).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { CARD_SHOW } from '@/content/card-show';
+import { CARD_SHOW, mesasResueltas } from '@/content/card-show';
 import { PlanoMesas } from './PlanoMesas';
 
 vi.mock('@/lib/card-show-clicks', () => ({ trackClick: vi.fn(), trackedHref: (d: string) => `/ir/${d}` }));
 
-const totalMesas = CARD_SHOW.mesas.plano.length;
+const mesas = mesasResueltas();
+const totalMesas = mesas.length;
+const apartadas = mesas.filter((m) => m.disponibilidad === 'apartada');
+const disponibles = mesas.filter((m) => m.disponibilidad === 'disponible');
 
-describe('PlanoMesas · accesibilidad', () => {
-  it('cada mesa es un botón tabulable con nombre accesible, en orden 1→N', () => {
+describe('PlanoMesas · modelo numerado v2', () => {
+  it('el plano lista las 23 mesas, ordenadas 1→N', () => {
     render(<PlanoMesas />);
-    const mesaBtns = screen.getAllByRole('button', { name: /^Mesa \d/ });
-    expect(mesaBtns).toHaveLength(totalMesas);
-    const numeros = mesaBtns.map((b) => Number((b.getAttribute('aria-label') ?? '').match(/Mesa (\d+)/)![1]));
-    expect(numeros).toEqual([...numeros].sort((a, b) => a - b)); // 1→N
-    // Tabulable: botón nativo (tabIndex implícito 0), no un div con role.
-    for (const b of mesaBtns) expect(b.tagName).toBe('BUTTON');
+    const lista = screen.getByRole('list', { name: 'Plano de mesas del Card Show' });
+    const items = within(lista).getAllByRole('listitem');
+    expect(items).toHaveLength(totalMesas);
+    expect(totalMesas).toBe(CARD_SHOW.mesas.totalMesas);
   });
 
-  it('el nombre accesible incluye el estado en texto (no solo color): «Sin apartar» / «Apartada»', () => {
+  it('cada mesa DISPONIBLE es un enlace tabulable a WhatsApp con su número prellenado y nombre accesible', () => {
     render(<PlanoMesas />);
-    const names = screen.getAllByRole('button', { name: /^Mesa \d/ }).map((b) => b.getAttribute('aria-label'));
-    expect(names.some((n) => /Sin apartar$/.test(n ?? ''))).toBe(true);
-    expect(names.some((n) => /Apartada$/.test(n ?? ''))).toBe(true);
-    // ⛔ nunca la palabra «disponible»
-    expect(names.join(' ')).not.toMatch(/disponible/i);
+    // Solo los enlaces del PLANO llevan aria-label «Mesa N, …» (los de la tabla dicen «Disponible · apartar»).
+    const links = screen.getAllByRole('link', { name: /^Mesa \d/ });
+    expect(links).toHaveLength(disponibles.length);
+    for (const m of disponibles) {
+      const link = screen.getByRole('link', { name: new RegExp(`^Mesa ${m.numero},`) });
+      expect(link.tagName).toBe('A');
+      // Nombre accesible: «Mesa N, Tipo, Precio, Disponible».
+      expect(link.getAttribute('aria-label')).toBe(`Mesa ${m.numero}, ${m.tipo.nombre}, ${m.tipo.precio}, Disponible`);
+      // href a wa.me con el número prellenado (`%23{n}`).
+      expect(link.getAttribute('href')).toContain('wa.me/525564893921');
+      expect(link.getAttribute('href')).toContain(`%23${m.numero}.`);
+      expect(link.getAttribute('target')).toBe('_blank');
+    }
   });
 
-  it('Enter y Espacio seleccionan; Esc deselecciona (aria-pressed + región viva)', async () => {
-    const u = userEvent.setup();
+  it('cada mesa APARTADA NO es un enlace: se muestra «Apartada» en texto', () => {
     render(<PlanoMesas />);
-    const first = screen.getByRole('button', { name: /^Mesa 1,/ });
-    first.focus();
-    await u.keyboard('{Enter}');
-    expect(first).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('status').textContent).toMatch(/Mesa 1/);
-    await u.keyboard('{Escape}');
-    expect(first).toHaveAttribute('aria-pressed', 'false');
-
-    const second = screen.getByRole('button', { name: /^Mesa 2,/ });
-    second.focus();
-    await u.keyboard(' ');
-    expect(second).toHaveAttribute('aria-pressed', 'true');
+    expect(apartadas.length).toBeGreaterThan(0);
+    for (const m of apartadas) {
+      // No existe un enlace del plano para una mesa apartada.
+      expect(screen.queryByRole('link', { name: new RegExp(`^Mesa ${m.numero},`) })).toBeNull();
+    }
+    const lista = screen.getByRole('list', { name: 'Plano de mesas del Card Show' });
+    // Hay tantas celdas «Apartada» como mesas apartadas (en el plano).
+    const apartadaCells = within(lista).getAllByText('Apartada');
+    expect(apartadaCells).toHaveLength(apartadas.length);
   });
 
-  it('zona táctil ≥ 44×44 (min-w/min-h en el botón)', () => {
+  it('zona táctil ≥44×72 en los enlaces de mesa (min-h/min-w)', () => {
     render(<PlanoMesas />);
-    for (const b of screen.getAllByRole('button', { name: /^Mesa \d/ })) {
-      expect(b.className).toMatch(/min-h-\[44px\]/);
+    for (const b of screen.getAllByRole('link', { name: /^Mesa \d/ })) {
+      expect(b.className).toMatch(/min-h-\[72px\]/);
       expect(b.className).toMatch(/min-w-\[44px\]/);
     }
   });
 
-  it('tabla equivalente debajo: cabeceras Mesa/Tipo/Precio/Medida/Estado y una fila por mesa', () => {
+  it('tabla equivalente: cabeceras Mesa/Tipo/Precio/Estado (⛔ sin Medida) y una fila por mesa', () => {
     render(<PlanoMesas />);
     const table = screen.getByRole('table');
-    for (const h of ['Mesa', 'Tipo', 'Precio', 'Medida', 'Estado']) {
+    for (const h of ['Mesa', 'Tipo', 'Precio', 'Estado']) {
       expect(within(table).getByRole('columnheader', { name: h })).toBeInTheDocument();
     }
+    expect(within(table).queryByRole('columnheader', { name: 'Medida' })).toBeNull();
     // una fila de datos por mesa (+1 de cabecera)
     expect(within(table).getAllByRole('row')).toHaveLength(totalMesas + 1);
   });

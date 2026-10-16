@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CARD_SHOW, type CardShowDayId } from '@/content/card-show';
@@ -195,9 +194,14 @@ export function TorneoForm() {
 
       <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
         He leído el{' '}
-        <Link href="/privacidad" className="text-accent underline underline-offset-2">
+        <a
+          href={CARD_SHOW.footer.privacidadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent underline underline-offset-2"
+        >
           aviso de privacidad
-        </Link>{' '}
+        </a>{' '}
         y acepto el tratamiento de mis datos para la preinscripción.
       </PrivacyCheckbox>
 

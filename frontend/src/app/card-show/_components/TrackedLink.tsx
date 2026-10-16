@@ -12,16 +12,25 @@ export function TrackedLink({
   href,
   className,
   children,
+  target,
+  rel,
+  'aria-label': ariaLabel,
 }: {
   destino: string;
   href: string;
   className?: string;
   children: React.ReactNode;
+  target?: string;
+  rel?: string;
+  'aria-label'?: string;
 }) {
   return (
     <a
       href={href}
       className={className}
+      target={target}
+      rel={target === '_blank' ? (rel ?? 'noopener noreferrer') : rel}
+      aria-label={ariaLabel}
       onClick={() => trackClick({ destino })}
     >
       {children}
