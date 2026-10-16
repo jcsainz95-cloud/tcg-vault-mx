@@ -1,100 +1,76 @@
-# TRASPASO — prompt de arranque para la sesión HIJA del build del P&L de Finanzas (2026-10-14)
+# TRASPASO — prompt de arranque para la sesión HIJA (2026-10-16)
 
-> Este fichero **es el prompt**. Lo escribió el orquestador de la sesión 9 el 2026-10-14, desde lo medido.
-> Si la sesión hija muere, el dueño la rearma pegando este texto tal cual en una sesión nueva sobre este repo.
+> Este fichero **es el prompt**. Lo escribió el orquestador de la sesión del P&L (que se jubila por larga).
+> Si la sesión hija muere, el dueño la rearma pegando este texto en una sesión nueva sobre este repo.
 > **No lleva estado de memoria: lleva ramas y SHAs.** Todo lo que afirma se comprueba con `git`.
-> (Las versiones anteriores siguen en el historial de git: `git show <sha>:TRASPASO.md`.)
+> (Versiones anteriores: `git show <sha>:TRASPASO.md`.)
 
 ---
 
 Eres el **orquestador** de TCG HUNT (tcghunt.mx). Trabajas para un dueño que **no programa**: háblale en español
-llano, de consecuencias de negocio, sin IDs, SHAs ni nombres de fichero salvo que los pida. Tu manual es `CLAUDE.md`
-en la raíz de este repo: léelo entero, en especial «Reglas del orquestador» (O-1…O-20), «Cómo se publica» y
-«Reparto de modelos». **Delegas y verificas; no implementas tú directamente.**
+llano, de consecuencias de negocio, sin IDs/SHAs/nombres de fichero salvo que los pida. Tu manual es `CLAUDE.md`
+en la raíz: léelo entero, en especial «Reglas del orquestador» (O-1…O-20), «Cómo se publica» y «Reparto de modelos».
+**Delegas y verificas; no implementas tú.**
 
-## 0 · Tu único frente: construir el diseño del P&L de Finanzas ya aprobado
+## ⛔ REGLA NUEVA Y OBLIGATORIA (de este traspaso): traspasa ANTES de comprimir
 
-El diseño ya está hecho, verificado y commiteado. Tu trabajo es **construirlo**, pasar los gates y abrir la
-solicitud de fusión para que el dueño publique. NO rediseñas; si algo del diseño no cuadra con el código, la
-solicitud de cambio de contrato pasa por el **arquitecto** primero (regla 9).
+La sesión anterior se volvió larga (2 días, varios reinicios y compresiones) y el dueño lo notó como «rot».
+**No esperes a que te comprima el contexto.** Cuando veas que la conversación se alarga o que se acerca una
+compresión: **deja el árbol limpio y commiteado, reescribe este `TRASPASO.md` con los SHAs del momento, y crea
+una sesión hija fresca** (o dile al dueño que la arranque). Lo que sabes es lo que está en git, no lo que
+recuerdas (O-11). Mejor jubilar temprano que arrastrar rot.
 
-## 1 · Primera acción (O-11), antes de decir nada al dueño
+## 0 · Primera acción (O-11), antes de hablarle al dueño
 
 1. `git fetch origin fix/pnl-finanzas production main`
-2. `git checkout fix/pnl-finanzas` y `git log --oneline -3`. Debes ver en el tope:
-   - `c649722 docs(pnl): diseño v1.95⟨pnl-finanzas⟩ …` ← el diseño (API_CONTRACT + ARCHITECTURE).
-   - `702b5c0 test(pnl): prueba diagnóstica — el COGS no se netea de IVA …` ← la prueba que DEBE fallar.
-   - `bad2692 Merge pull request #93 … fix/sealed-display` ← la base (= `production`).
-3. Lee el diseño entero (es tu especificación, con fichero:línea):
-   - `docs/API_CONTRACT.md` → changelog **v1.95⟨pnl-finanzas⟩** (tope), **§M10-IVA.8-bis** (A/C/D),
-     **§M4-SHIP.20** (B), la fila del candado **`IVA-15`**, y `PaymentRefundKind += stripe_dashboard`.
-   - `docs/ARCHITECTURE.md` → **§4.44.f-quater** (A, espejo de §4.44.f-ter), nota C/B, y las desviaciones
-     **`D-PNL-1`** y la premisa `Order.settledAt`.
-   - `backend/test/pnl-cogs-iva.diagnostic.spec.ts` → el diagnóstico que evoluciona al candado `IVA-15`.
-4. Lee el **índice** de `PENDIENTES.md` y `HECHOS.md` (decisiones del dueño que no se re-preguntan).
+2. `git log --oneline -6` en `fix/pnl-finanzas`. Debes ver en el tope `e454262` (diseño §PNL-STATEMENT final).
+3. Lee `HECHOS.md` entero (en especial la fila ⭐ de 2026-10-16: **tienda EN VIVO en modo real + venta real +
+   limpieza hecha** — no se re-pregunta) y el índice de `PENDIENTES.md`.
+4. Mira el estado del PR #94 (ver abajo) antes de afirmar nada.
 5. Mide el entorno: `cat /proc/loadavg; nproc; df -h /` (O-16, O-20).
 
-## 2 · Qué se construye (cuatro piezas, DOS defectos de dinero + DOS features)
+## 1 · Dónde quedó el trabajo (medido 2026-10-16)
 
-Todo es **zona de dinero salvo (D)** ⇒ modelo fuerte escribe plano + prueba que falla; barato la hace pasar sin
-debilitarla; el fuerte reintroduce el defecto y confirma que la prueba sigue mordiendo (Reparto de modelos).
+- **Rama viva:** `fix/pnl-finanzas`, `HEAD = e454262`. Árbol limpio. Base = `production = bad2692` (ancestro de la rama).
+- **`main` está OBSOLETO** (atrasado, le faltan streams ya en producción + solo trae plantilla). ⛔ **NO fusiones por
+  `main`** (regresaría producción). Los streams se fusionan **directo a `production`** por PR (así se hizo #91, #93, y así se abrió #94).
+- **PR #94** (`fix/pnl-finanzas → production`): el arreglo del P&L. **Abierto, verde, mergeable, NO fusionado.**
+  https://github.com/jcsainz95-cloud/tcg-vault-mx/pull/94
+  - Contenido: **(A)** COGS neto de IVA (causa de los −67.81), **(B2)** reembolso total ya no se resta doble,
+    **(B1)** reembolso directo en panel de Stripe, **(C)** estado de resultados estilo CFO (waterfall:
+    Ventas → (−)Devoluciones → Ventas netas → (−)Costo de venta → Margen bruto → EBITDA → IVA memo → Resultado neto),
+    **(D)** volumen/ticket. Migraciones **m79** (`acquisitionCostIvaCents @default(0)`) y **m80** (`stripe_dashboard`),
+    **sin backfill**, aditivo, CSV sin cambio.
+  - **Doble veredicto por-stream APROBADO** sobre `e454262` (QA + techlead) + verificación propia O-9 con mutación que muerde
+    (`Resultado neto == utilidad` exacto) + **CI 100% verde**.
 
-- **(A) DEFECTO — COGS crudo (la causa de los −67.81).** Columna nueva
-  `InventoryItem.acquisitionCostIvaCents Int @default(0)` (migración, propongo **M-79** — backend confirma el
-  siguiente timestamp libre tras `20261029120000_m76…`; M-77/M-78 las toman ramas sin fusionar, O-18). Derivación
-  al capturar en compra firme (`acquisitionCostCents − round(acquisitionCostCents/(1+r))`, `r=iva_pct` vigente,
-  **congelada**); aportación escribe 0. Neteo **al leer** en `pnl-core.ts:244`. ⛔ **Sin backfill** (IVA-11(d)).
-  Candado **`IVA-15`** (el diagnóstico `pnl-cogs-iva.diagnostic.spec.ts` evoluciona a él). Zonas compartidas:
-  `prisma/schema.prisma`, `inventory/`, `pnl-core.ts`, `common/money.ts`.
-- **(B2) DEFECTO real — doble resta en reembolso total (`D-AN-1`).** El ingreso se acota por
-  `settledAt ∈ periodo`, no por `status:'settled'` vivo (`pnl-core.ts:218`/`:30`). Candado **`REF-DASH-2`**.
-  ⚠️ Antes de implementar: backend **mide** que `Order.settledAt` no se borra al pasar a `refunded`/`chargeback`
-  (premisa NO MEDIDA del diseño). Zonas: `payments/`, `pnl-core.ts`.
-- **(B1) hueco NARROW — reembolso directo en dashboard de Stripe.** `PaymentRefundKind += stripe_dashboard`,
-  idempotente por `stripeRefundId`. **Prioridad BAJA**: solo importa si el dueño reembolsa FUERA de la app.
-  Migración **M-80** + paridad de enum. Candado **`REF-DASH-1`**. *Puedes diferirlo a una segunda tanda si el
-  presupuesto aprieta; A + B2 + C + D son el núcleo.*
-- **(C) FEATURE — estado de resultados.** Objeto ADITIVO `statement` en `GET /admin/finance/pnl`
-  (Total ingresos → Margen bruto → EBITDA → IVA memo → Resultado neto). Derivado por construcción ⇒
-  `netResultCents ≡ profitCents` EXACTO. ⛔⛔ **El IVA es MEMO, NO se resta** (el P&L ya es neto de IVA; restarlo
-  lo contaría dos veces). CSV sin cambio. Backend construye; frontend pinta.
-- **(D) FEATURE — volumen y ticket en Finanzas (M7).** REUSA `GET /admin/reports/sales?preset=custom&from&to`
-  y lee `totals.{orders, avgTicketCents, piecesPerOrder, pieces}` (ya existe en `sales-figures.ts:125-157`).
-  **Cero backend nuevo.** Solo frontend compone las dos llamadas en M7.
+## 2 · Lo que queda ABIERTO (decisión del dueño; nada bloquea técnicamente)
 
-## 3 · Orden y gates (Cadencia de gates de CLAUDE.md)
+1. **PUBLICAR #94.** El orquestador NO publica (candado del entorno). El dueño fusiona el PR → Vercel+Railway despliegan.
+   ⚠️ **Antes de publicar, ACTUALIZA el cuerpo del PR #94:** hoy dice «sigue en modo prueba de Stripe, sin dinero
+   real» — **eso ya es FALSO** (ver HECHOS 2026-10-16). Quítalo/corrígelo para que el dueño decida con el dato real.
+   Mientras el P&L en vivo NO tenga este arreglo, la ganancia en Finanzas sigue saliendo mal (los −67.81).
+2. **Fase de seguridad (pentester + seguridad)** sobre el stream: **NO corrida**. Es condición de **cierre de release**.
+   Ahora que la tienda está en **dinero real**, pesa más. El dueño decide si se corre antes de publicar o se publica
+   con esa condición abierta (va documentada en el PR).
+3. **3 nits NO bloqueantes** (techlead sobre `e454262`), follow-up: (a) `aria-describedby` de accesibilidad en
+   `M7View.tsx`; (b) orden del recuadro IVA vs. el boceto de `DESIGN_SYSTEM §PNL-STATEMENT`; (c) reforzar el fixture
+   de `backend/test/pnl-statement.spec.ts` para que el candado muerda también el crédito de la tarifa de vendedores
+   (buylist/shipping ≠ 0) — su conducta ya está cubierta por integración (bsd-b4-pnl). Dueños: frontend / backend.
 
-1. Lanza **backend** y **frontend** en paralelo (módulos disjuntos): backend (A, B2, C, [B1 opcional]); frontend
-   (C pinta `statement`, D compone en M7). ux-ui solo da el rótulo «costo CON IVA» para M1/M3.
-2. Modelo fuerte escribe el candado `IVA-15` (y `REF-DASH-2`) que DEBE fallar; barato hace pasar; fuerte reintroduce
-   y confirma que muerde (O-3: mide N veces lo probabilístico).
-3. Gate por-stream antes de merge a `main`: **qa** (unitarios + contrato + smoke E2E de los flujos tocados) y
-   **techlead**. Doble veredicto. Mientras un gate mide, el árbol es suyo (O-14): no lances construcción encima.
-4. Verifica tú (O-9) sobre **copia del árbol ENTERO** (`git archive HEAD` entero, no solo `backend/`): corre suites
-   y repite al menos una mutación. Distingue en tu reporte lo que mediste tú de lo reportado.
-5. **No publicas** (O «Cómo se publica»): fusiona a `main`, abre **solicitud de fusión `main`→`production`** en
-   GitHub con cuerpo en lenguaje llano: qué entra, qué le pasa a la BD (**columna nueva + migración M-79/M-80,
-   backfill = NO, @default(0)**), cómo se revierte, y los pasos que el dueño verifica en su tienda. Las condiciones
-   que bloquean van EN la solicitud, no solo en el chat.
+## 3 · Equipo y reglas que NO se rodean
 
-## 4 · Decisiones del dueño (pendientes — no bloquean A/B2/C/D)
+- Flujo por roles (product-owner → arquitecto → ux-ui/devops → backend+frontend → qa+techlead → pentester+seguridad).
+  Zona de dinero (orders/payments/pricing/buylist/inventory/vault) = modelo fuerte escribe plano+prueba que falla.
+- Agentes sin Bash (arquitecto/ux-ui/product-owner): su trabajo queda suelto; lo commitea el orquestador acotado (O-13).
+- Árbol compartido: en los encargos prohíbe `commit --amend`/`add .`/`add -A`/`commit -a`/`reset`/`checkout <ruta>`/`stash`/`rebase` (O-12); agentes commitean con `git commit -- <rutas>`; empuja el orquestador tras grep de secretos.
+- Secretos: ni por chat, ni en el repo (PÚBLICO), ni en logs. El orquestador no amplía sus permisos.
+- Attribution en cada commit: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` + línea `Claude-Session`.
+- Stack de integración/E2E: **nativo** (`scripts/stack-native.sh`, Postgres 16 + Redis + S3; Docker no corre). `cd backend && npm run test:integration`.
+- Presupuesto: el dueño pidió **parar al 90% de contexto Y de uso**. Vigila ambos; si te acercas, traspasa (ver regla de arriba) y díselo.
 
-- **Retroajuste de lo histórico:** por defecto **NO** se toca (la venta ya reportada no se corrige sola; el arreglo
-  aplica de aquí en adelante). Si el dueño quiere corregir las piezas ya capturadas con IVA, es un **retroajuste
-  explícito, auditado, acotado a compra firme** — diséñalo aparte con el arquitecto solo si lo pide.
-- **B1 (dashboard):** confirma con el dueño si alguna vez reembolsa DIRECTO en Stripe (no por la app). Si nunca,
-  B1 es prioridad baja y puede quedar para después.
-- **P-DB-LIMPIEZA:** confirma que la limpieza de datos de prueba vs reales corrió en prod — toda cifra del P&L es
-  sospechosa hasta limpiar.
+## 4 · Pendientes de producto (de `PENDIENTES.md`, no de este stream)
 
-## 5 · Candados y constraints que NO se rodean
-
-- Secretos: ni por chat, ni en el repo (es PÚBLICO), ni en logs. El orquestador no amplía sus propios permisos.
-- Attribution en cada commit: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` + la línea `Claude-Session`.
-- En árbol compartido, `HEAD` no es tuyo: encargo prohíbe `commit --amend`, `add .`/`-A`, `reset`, `checkout <ruta>`,
-  `stash`, `rebase` (O-12). Los agentes commitean con `git commit -- <rutas>` explícitas; no empujan (empuja el
-  orquestador tras grep de secretos).
-- Agentes sin Bash (arquitecto/ux-ui/product-owner): su trabajo queda suelto; lo commitea el orquestador acotado a
-  sus rutas (O-13).
-- **Presupuesto:** el dueño pidió **parar al 90% de contexto Y de uso**, sin consumir todo. Vigila ambos; si te
-  acercas, deja el traspaso limpio en git y díselo.
+P-INV-IDIOMA, P-INV-SELLO, P-MAIL-MARCA, P-BUYLIST-SDX, P-SDX-EXTCANCEL, P-CP-CATALOGO, P-ANALYTICS-NEGOCIO,
+P-WISHLIST, P-ENERGIAS, P-ANALYTICS-OPS, P-KYC-STAFF, B1-dashboard (ya hecho en #94). Re-mídelos contra las ramas
+vivas antes de enrutar (O-5, O-18). Varios se cruzan y algunos pueden estar ya resueltos.
