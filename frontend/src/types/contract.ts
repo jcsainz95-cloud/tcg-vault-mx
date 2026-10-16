@@ -951,6 +951,33 @@ export interface GroupedListingDetailResponse {
    * trae; la ausencia se lee como apagado.
    */
   wishlistEnabled?: boolean;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`, RAÍZ de la ficha de carta) — fecha `YYYY-MM-DD`
+   * (America/Mexico_City) en la que el servidor resolvió el precio de ESTA respuesta. Misma semántica que
+   * `SealedGroupDTO.pricedAsOf`: alimenta «precio al <fecha>» (SSR/ISR) y `priceValidUntil` del JSON-LD. Opcional en
+   * el TIPO por resiliencia; el backend actual lo manda SIEMPRE.
+   */
+  pricedAsOf?: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`, RAÍZ) — URL ABSOLUTA de imagen para `og:image` (objetivo
+   * ≥1200×630 NO garantizado). `null` ⇒ el frontend omite `og:image`.
+   */
+  ogImageUrl?: string | null;
+}
+
+/**
+ * ⭐ v1.96⟨mkt-tienda⟩ (`API_CONTRACT §MKT.B`) — feed liviano (⛔ no paginado) de todo lo indexable, para que el
+ * frontend genere `sitemap.xml`. Una entrada por ficha a la venta (carta publicada + grupo de sellado publicado).
+ */
+export interface SitemapEntry {
+  type: 'card' | 'sealed';
+  id: string;
+  /** ISO date del `updatedAt` de la pieza (o `max(updatedAt, cambio de precio)` si fuese medible). */
+  lastmod: string;
+}
+export interface SitemapResponse {
+  items: SitemapEntry[];
+  generatedAt: string;
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
@@ -5563,6 +5590,20 @@ export interface SealedGroupDTO {
    * `SealedGroupSummaryDTO`.
    */
   referenceDisplayCents?: number;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`) — fecha `YYYY-MM-DD` (zona America/Mexico_City) en la que el
+   * SERVIDOR resolvió el precio de ESTA respuesta. Bajo SSR/ISR el HTML cacheado la pinta como «precio al <pricedAsOf>»
+   * y alimenta `priceValidUntil` del JSON-LD (§A4/§E3). ⛔ NO es `now()` del cliente. Opcional en el TIPO por
+   * resiliencia (un servidor anterior no lo emite) aunque el backend actual lo manda SIEMPRE en la ficha; el frontend
+   * cae a la fecha de hoy solo como último recurso honesto. ⛔ NO existe en `SealedGroupSummaryDTO` (rejilla).
+   */
+  pricedAsOf?: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`) — URL ABSOLUTA de la imagen apta para `og:image` (objetivo
+   * ≥1200×630, NO garantizado: hoy es la «large» de pokemontcg.io ~734×1024). `null` ⇒ el frontend OMITE `og:image`
+   * (⛔ nunca inventa arte). Opcional en el TIPO por resiliencia. ⛔ NO existe en `SealedGroupSummaryDTO`.
+   */
+  ogImageUrl?: string | null;
   currency: 'MXN';
 }
 // v2.1.9 (D2): el DTO de la REJILLA de sellado = `SealedGroupDTO` MENOS `priceBasis`,

@@ -1058,7 +1058,35 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
     listings,
     units,
     ...(estimates && estimates.length > 0 ? { gradedEstimates: estimates } : {}),
+    // MOCK §MKT.A: fecha de resolución del precio e imagen og absoluta (la grande de pokemontcg.io).
+    pricedAsOf: '2026-10-16',
+    ogImageUrl: card.imageLargeUrl,
   };
+}
+
+/**
+ * MOCK §MKT.B — feed de `GET /catalog/sitemap`: una entrada por ficha a la venta. Cartas: cardId
+ * distinto entre los listados vendibles raw/graded; sellado: una entrada por grupo (su
+ * `representativeItemId`, que abre `/sellado/<id>`). ⛔ No paginado.
+ */
+export function mockSitemap(): import('@/types/contract').SitemapResponse {
+  const generatedAt = '2026-10-16T12:00:00.000Z';
+  const cardIds = Array.from(
+    new Set(
+      mockListings
+        .filter((l) => l.sellable && (l.productType === 'raw' || l.productType === 'graded'))
+        .map((l) => l.card.id),
+    ),
+  );
+  const items: import('@/types/contract').SitemapEntry[] = [
+    ...cardIds.map((id) => ({ type: 'card' as const, id, lastmod: '2026-10-15' })),
+    ...mockSealedGroups.map((g) => ({
+      type: 'sealed' as const,
+      id: g.representativeItemId,
+      lastmod: '2026-10-15',
+    })),
+  ];
+  return { items, generatedAt };
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets) — sobre lo publicado. */
@@ -4823,6 +4851,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
     // MOCK §MIV.2: el mercado CON IVA, escrito (305,000 + 16 % = 353,800), no calculado.
     referenceDisplayCents: 353800,
+    // MOCK §MKT.A: fecha de resolución del precio e imagen og absoluta (la grande de pokemontcg.io).
+    pricedAsOf: '2026-10-16',
+    ogImageUrl: SEALED_BOX.imageLargeUrl,
     currency: 'MXN',
   },
   {
@@ -4842,6 +4873,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
     // MOCK §MIV.2: escrito (98,000 + 16 % = 113,680).
     referenceDisplayCents: 113680,
+    // MOCK §MKT.A.
+    pricedAsOf: '2026-10-16',
+    ogImageUrl: SEALED_ETB.imageLargeUrl,
     currency: 'MXN',
   },
   {
@@ -4861,6 +4895,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     priceSource: 'override',
     priceBasis: 'override',
     referenceValue: { status: 'pending' },
+    // MOCK §MKT.A: sin referencia de mercado, pero la ficha sigue teniendo precio (override) y og.
+    pricedAsOf: '2026-10-16',
+    ogImageUrl: SEALED_BOX.imageLargeUrl,
     currency: 'MXN',
   },
 ];

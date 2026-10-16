@@ -21775,12 +21775,104 @@ decisión D2=A del dueño (2026-10-16, HECHOS:65).
   alto). Por construcción, una barra `fixed bottom-0` queda pinada al pie del viewport con el precio y el
   CTA dentro. Lo verifica el gate (Playwright) y el evento `buy_button_visible` (§B2).
 
-### E2E que quedan en rojo por A1 (frontend owns `frontend/e2e/`, pero requieren stack levantado) — PENDIENTE
-- `frontend/e2e/catalog.spec.ts:136-140,172-174,220` (afirman que la celda «Valor de mercado» y
-  `referenceExplainerWithMarket` son VISIBLES en la ficha).
-- `frontend/e2e/miv-market-iva.spec.ts:299-301,358-360,400-402` (grupo accesible «Valor de mercado …»
-  visible en carta/sellado, es/en). Esta spec también cubre superficies de bóveda/buylist que A1 NO toca.
-- `frontend/e2e/pricing-curve.spec.ts:26-30,214-253` (regla de visibilidad del mercado en la ficha).
-Estas specs codifican §MIV (D2=B, mostrar con IVA), que D2=A revierte en la ficha pública. Su
-actualización/retiro necesita stack levantado para verificar y una decisión sobre el retiro de la parte de
-ficha de §MIV; se enruta al orquestador (no se tocó a ciegas).
+### E2E de ficha actualizados a D2=A (ABIERTO del A1 — RESUELTO 2026-10-16, OLA 1 SSR/SEO)
+Las aserciones de FICHA que afirmaban «valor de mercado»/`referenceExplainerWithMarket` VISIBLES se
+cambiaron **quirúrgicamente** a «no presente» (`toHaveCount(0)`), al comportamiento correcto de D2=A. ⛔ No
+se debilitó ni se borró ninguna parte ajena a la ficha (bóveda/buylist siguen intactas).
+- `catalog.spec.ts`: el `@real` «la ficha coincide consigo misma» pasó a «la ficha pública NO muestra valor
+  de mercado»: `catalog.marketValue` y `referenceExplainerWithMarket` → `toHaveCount(0)`, y
+  `referenceExplainerNoMarket` → **visible** (CardDetailView lo renderiza SIEMPRE ahora). El test
+  `distingue valor de mercado…` y el de inglés: mismos flips.
+- `miv-market-iva.spec.ts` (solo la **parte de ficha** del `@real MIV-E1`): pasos (a) carta, (d) sellado y
+  (f) inglés — el grupo accesible «Valor de mercado …» → `toHaveCount(0)`; se añadió que ni el neto ni el
+  mercado-con-IVA aparezcan en `main`. (d) **conserva** la verificación de la «Tendencia de valor» (sigue
+  viva con spread). ⛔ NO se tocó el paso (e) «Vender» (buylist) ni (b) carrito, ni las aserciones de API
+  (`sealedMarketCase` lee el DTO, que SÍ sigue trayendo `referenceValue`/`referenceDisplayCents`).
+- `pricing-curve.spec.ts`: el `@real` que exigía que ALGUNA ficha publicara el mercado se **invirtió** a
+  «NINGUNA lo publica» (block=false, explainer='no' en cada ficha; N>0 para no pasar en vacío). El test de
+  sellado por SPREAD: la celda `sealed.detail.marketValue` → `toHaveCount(0)`, la `sealed.trend.title`
+  sigue **visible**. El test de OVERRIDE (ya afirmaba ausencia) y `§21.8f` (tejas de Compra) quedan igual.
+  Se actualizó el doc del módulo para que no describa el bicondicional retirado.
+- **Verificación:** las aserciones reflejan el comportamiento que miden los tests de componente (ya verdes).
+  El VERDE total de estas specs `@real`/mock necesita Playwright + stack ⇒ lo corre **el gate QA**
+  (O-1: no lo afirmo como medido).
+
+---
+
+## §MKT tienda · §A3 ficha de sellado en SSR + §A4 og/title/JSON-LD + §E1 sitemap/robots/canonical (2026-10-16, rama `feat/mkt-tienda`, OLA 1)
+
+Fuente: brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A3/§A4/§E1/§E3; contrato `§MKT.A/.B`;
+backend `BACKEND_NOTES §MKT` (commit `2f93f36`, campos `pricedAsOf`/`ogImageUrl` + `GET /catalog/sitemap`).
+
+### §A3/§A4 — las DOS fichas pasan a SSR con `generateMetadata`
+- **Patrón de URL (decisión del arquitecto, §MKT.A):** se CONSERVA `/{locale}/sellado/<inventoryItemId>`
+  (ruta viva) y `/{locale}/catalog/<cardId>`. ⛔ No se creó `/{locale}/catalog/sealed/<id>` (el 404 de
+  marketing era esa ruta inexistente).
+- **Patrón adoptado:** `page.tsx` server-component con `generateMetadata` + render de JSON-LD; el cuerpo
+  sigue siendo la vista cliente (`SealedDetailView`/`CardDetailView`, react-query, carrito). El layout de
+  `[locale]` ya fuerza render por petición (lee `headers()`), así que la ruta es **SSR** (`ƒ Dynamic` en
+  `next build`, medido), no SSG. `generateMetadata` y la página comparten UNA sola lectura vía
+  `React.cache()` (`src/lib/catalog-ssr.ts`), tolerante a fallo: si el backend no responde, metadata
+  mínima (solo canonical) y el cuerpo cliente resuelve su propio estado — ⛔ la ruta no se cae.
+- Las fichas de carta ya eran clientes puros (sin SSR); ahora AMBAS tienen SSR, como pide A4.
+- «Disponible»/stock: sin cambio; nunca se imprime la cantidad. El JSON-LD usa `availability=InStock` solo
+  si `availableCount>0` (carta: suma de `stockCount` de los listados), si no `OutOfStock`.
+
+### §A4/§E3 — og/title/JSON-LD en el HTML del servidor (helpers puros en `src/lib/seo.ts`)
+- `<title>`/`og:title` = «<Nombre> · <Set> <nº> | TCG HUNT» (carta) / «<Producto> | TCG HUNT» (sellado).
+  **Sin precio** (las vistas previas cachean días).
+- `meta description`/`og:description` (≤155): condición + «desde MX$<precio> IVA <tasa> % incluido · precio
+  al <pricedAsOf>» + «Verificamos la condición». Sin precio/fecha ⇒ se omite el tramo de precio.
+- `og:image` = `ogImageUrl` (absoluta); si `null`, se **omite** og:image. ⛔ NO se afirma ≥1200×630 (hoy la
+  «large» de pokemontcg.io ~734×1024, §MKT.F — decisión de JC pendiente).
+- `og:url`=canonical absoluto, `og:site_name`=«TCG HUNT», `twitter:card=summary_large_image`.
+  `metadataBase` se fija a `SITE_URL` por página.
+- **JSON-LD** (`@graph`): `Product`+`Offer` (`priceCurrency:MXN`, `price`=precio con IVA en pesos,
+  `availability`, `priceValidUntil` = **`pricedAsOf` + 7 días**, `url`=canonical) · `Organization` (name
+  «TCG HUNT», url) · `BreadcrumbList` (Inicio → Compra/Sellado → ficha). Se inyecta con
+  `components/seo/JsonLd.tsx` (lleva el **nonce** de la petición, porque la CSP gobierna todo `<script>`; `<`
+  escapado).
+- **`Organization.sameAs` a Instagram: NO MEDIDO.** No hay handle de Instagram en el código del sitio
+  (`lib/brand.ts`, footer, legal — buscado 2026-10-16). `INSTAGRAM_URL=null` en `seo.ts` ⇒ el `sameAs` se
+  **omite** (⛔ no se inventa una URL). Solicitud al arquitecto/dueño abajo.
+
+### §E1 — sitemap.xml, robots.txt, canonical
+- `src/app/sitemap.ts` (App Router): páginas estáticas públicas existentes (portada, catálogo, sellado,
+  accesorios, meta-decks, cotizador, términos, privacidad) + una entrada por ficha a la venta desde
+  `GET /catalog/sitemap` (`getSitemap()` en `lib/api.ts`, con mock). ⛔ §E4/§E6 (`/como-funciona`,
+  `/preguntas`, `/guias`) NO se listan: no existen en esta ola. `revalidate=3600`; resiliente (si el backend
+  no responde, salen solo las estáticas). URLs con el locale por defecto `es` (canonical de cada ficha).
+- `src/app/robots.ts`: `allow:'/'` + `Sitemap:` → `<SITE_URL>/sitemap.xml`; bloquea SOLO cuenta, checkout/
+  compra, órdenes, envíos, bóveda, pedido-invitado, auth, admin y `/api/` (comodín de segmento para ambos
+  locales).
+- `canonical` absoluto añadido en portada (`(storefront)/page.tsx`, ahora envoltorio server de `HomeView`),
+  catálogo (`catalog/page.tsx`, canonical SIN query) y las dos fichas.
+
+### Config nueva
+- `NEXT_PUBLIC_SITE_URL` (opcional) gobierna la base absoluta de canonical/og/sitemap; por defecto
+  `https://tcghunt.mx` (dominio de producción). Lo puede fijar devops por entorno.
+
+### Tipos y mocks
+- `src/types/contract.ts`: `pricedAsOf?`/`ogImageUrl?` añadidos a `SealedGroupDTO` y a la RAÍZ de
+  `GroupedListingDetailResponse` (opcionales **por resiliencia** de tipo; el backend actual los manda
+  SIEMPRE en la ficha). Nuevo `SitemapResponse`/`SitemapEntry` (§MKT.B). ⛔ NO en las rejillas.
+- `src/lib/mock/fixtures.ts`: los 3 grupos de sellado y `mockGroupedDetail` ganan `pricedAsOf`/`ogImageUrl`;
+  nuevo `mockSitemap()` (cartas vendibles + grupos de sellado).
+
+### Medido por mí (2026-10-16)
+- `npx tsc --noEmit` ⇒ **limpio**.
+- `npx eslint` de los 16 ficheros tocados ⇒ **sin avisos**.
+- `npx vitest run` de `seo.test.ts` + `page.test.tsx` ⇒ **12/12**; `api.test.ts` + 4 suites de ficha ⇒
+  **110/110**.
+- `npx next build` ⇒ **OK**: `/[locale]/catalog/[cardId]` y `/[locale]/sellado/[inventoryItemId]` salen
+  `ƒ (Dynamic) server-rendered on demand` (SSR confirmado); `/robots.txt` y `/sitemap.xml` generados.
+- **NO MEDIDO por mí (lo hace el gate QA con stack+navegador):** `curl` 200 a 3 fichas de sellado con og
+  en el HTML; descripción con «IVA incluido»+«precio al <fecha>»; `curl /robots.txt` 200 con `Sitemap:`; el
+  sitemap lista ≥1 URL por ficha a la venta; Prueba de resultados enriquecidos de Google sin errores;
+  viewport §A2. (O-1: no lo afirmo como medido.)
+
+### Solicitud al arquitecto / dueño
+- **Handle de Instagram para `Organization.sameAs`**: no existe en el código del sitio (NO MEDIDO). Si el
+  dueño lo tiene, fijarlo (p. ej. `INSTAGRAM_URL` en `seo.ts` o una config) y el `sameAs` se publica solo.
+- **§MKT.F abierto (de JC):** variante de imagen ≥1200×630 para `og:image` (hoy ~734×1024). Mientras, se usa
+  la «large» tal cual (WhatsApp/Twitter degradan con gracia).

@@ -295,15 +295,15 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
     const shown = withIva(c.m, c.r);
 
     let price = '';
-    await test.step('(a) ficha de carta: mercado CON IVA + rótulo + precio; cifra = M + round(M·r/100)', async () => {
+    await test.step('(a) ficha de carta: SIN «valor de mercado» (D2=A); precio de venta con IVA, no el mercado', async () => {
       await page.goto(`/es/catalog/${c.cardId}`);
-      const group = page.getByRole('group', { name: marketGroupName('es', 'catalog.marketValue', shown), exact: true });
-      await expect(group).toBeVisible();
-      // El rótulo es texto visible, pegado a la cifra (criterio 863). vMIV-2: dice «incluye IVA», sin la tasa.
-      await expect(group.getByTestId('iva-label')).toBeVisible();
-      await expect(group.getByTestId('iva-label')).toHaveText(t('es', 'common.ivaIncludedBare'));
-      // ⛔ el neto no aparece en la ficha.
+      // D2=A (brief §A1): la ficha pública ya NO pinta la celda «Valor de mercado».
+      await expect(
+        page.getByRole('group', { name: marketGroupName('es', 'catalog.marketValue', shown), exact: true }),
+      ).toHaveCount(0);
+      // ⛔ ni el mercado con IVA (`shown`) ni el neto (`c.m`) aparecen en la ficha.
       await expect(page.getByRole('main')).not.toContainText(mx(c.m));
+      await expect(page.getByRole('main')).not.toContainText(mx(shown));
       price = await salePriceOf(page, 'es');
       if (c.priceCents != null) expect(price).toBe(mx(c.priceCents));
       expect(price).not.toBe(mx(shown));
@@ -349,15 +349,17 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
       for (const cents of hidden) await expect(page.getByRole('main')).not.toContainText(mx(cents));
     });
 
-    await test.step('(d) ficha de sellado por margen: mercado con IVA y su tendencia con IVA', async () => {
+    await test.step('(d) ficha de sellado por margen: SIN celda «valor de mercado» (D2=A), pero CON tendencia con IVA', async () => {
       const sc = await sealedMarketCase();
       const historyResponse = IS_REAL
         ? page.waitForResponse((res) => /\/catalog\/sealed\/[^/]+\/value-history/.test(new URL(res.url()).pathname))
         : null;
       await page.goto(`/es/sellado/${sc.itemId}`);
+      // D2=A (brief §A1): la ficha de sellado ya NO pinta la celda «Valor de mercado». La «Tendencia de
+      // valor» (gateada por `trendEnabled` + `priceBasis='market'`) SÍ se conserva (§MIV.3) y se verifica abajo.
       await expect(
         page.getByRole('group', { name: marketGroupName('es', 'sealed.detail.marketValue', sc.display), exact: true }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       // Tendencia: en los dos mundos está encendida (real: la encendió `sealedMarketCase`). Un 404 o una serie
       // vacía es un ROJO, no un «no medido» (techlead D-7).
       expect(sc.trendEnabled).toBe(true);
@@ -395,12 +397,14 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
       await expect(tile.getByTestId('sell-price-block')).not.toContainText(/IVA/);
     });
 
-    await test.step('(f) (a) en inglés: la misma cifra con «N % VAT included»', async () => {
+    await test.step('(f) (a) en inglés: la ficha pública tampoco muestra «valor de mercado» (D2=A)', async () => {
       await page.goto(`/en/catalog/${c.cardId}`);
+      // D2=A: igual que (a) pero en inglés — sin celda de mercado, ni el neto ni el mercado con IVA.
       await expect(
         page.getByRole('group', { name: marketGroupName('en', 'catalog.marketValue', shown), exact: true }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expect(page.getByRole('main')).not.toContainText(mx(c.m));
+      await expect(page.getByRole('main')).not.toContainText(mx(shown));
     });
   });
 });

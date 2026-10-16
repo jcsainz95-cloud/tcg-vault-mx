@@ -105,6 +105,7 @@ import type {
   SealedGroupDTO,
   SealedGroupListResponse,
   SealedGroupDetailResponse,
+  SitemapResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
   SealedSpreadsUpdateRequest,
@@ -806,6 +807,17 @@ export async function getSealedGroupDetail(
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+/**
+ * ⭐ v1.96⟨mkt-tienda⟩ `GET /catalog/sitemap` (`public`, contrato §MKT.B) — feed liviano de todo lo
+ * indexable (una entrada por ficha a la venta: carta publicada + grupo de sellado) para que
+ * `src/app/sitemap.ts` genere `sitemap.xml`. ⛔ No paginado. En modo MOCK se compone de las fixtures
+ * publicadas (cartas de `mockGroupedDetail` vía listados + grupos de sellado).
+ */
+export async function getSitemap(): Promise<SitemapResponse> {
+  if (!config.useMocks) return apiRequest<SitemapResponse>('/catalog/sitemap');
+  return delay(fx.mockSitemap());
 }
 
 /**
