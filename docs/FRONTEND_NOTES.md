@@ -21877,3 +21877,31 @@ Maps (navegación de primer nivel, no afectada por `frame-src`). Si se quiere el
 - **product-owner:** revisar el aviso de privacidad simplificado (PrivacyMini) contra el aviso integral live.
 - **arquitecto:** el POST de leads de vendedor/patrocinador coexiste con los CTAs de WhatsApp/mailto; no hubo cambio
   de contrato. Pendiente abierto previo (nombre del campo de `GET /form-token`) sigue igual.
+
+---
+
+## Card Show · recurso `.ics` del calendario (2026-10-16, rama `feat/event-landing`)
+
+El correo de bienvenida al visitante (backend C3-W) enlaza a
+`{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26`, que daba **404**.
+Lo sirve ahora el frontend como route handler del App Router **FUERA del i18n**
+(`frontend/src/app/card-show/card-show-cdmx.ics/route.ts`); el middleware ya cubre los subpaths de
+`/card-show/`. La carpeta se llama literalmente `card-show-cdmx.ics/` (el punto forma parte del segmento).
+
+- **Respuesta:** `Content-Type: text/calendar; charset=utf-8`, `Content-Disposition: attachment; filename="card-show-cdmx.ics"`,
+  `Cache-Control: public, max-age=3600, s-maxage=86400`. Cuerpo VCALENDAR con CRLF y plegado de líneas
+  (RFC 5545 §3.1, consciente de bytes UTF-8 por los acentos).
+- **Zona horaria:** `VTIMEZONE` de `America/Mexico_City` con offset fijo `-0600` (CDMX no tiene DST desde
+  2022-10-30), coherente con `countdownTargetIso`. Las dos citas usan `DTSTART;TZID=America/Mexico_City:...`
+  para que se muestren en hora local de CDMX a cualquier visitante.
+- **Dos VEVENT:** sáb 5 dic 2026 11:00–19:00 y dom 6 dic 2026 11:00–18:00. `SUMMARY`="Card Show CDMX",
+  `LOCATION`/`DESCRIPTION`/`URL` **importados** de `@/content/card-show` (no se duplican literales: sede =
+  `comoLlegar.direccion`, summary = `hero.titulo`+" CDMX", descripción = `hero.entrada`+`hero.presenta`, la
+  fecha del sábado se deriva de `countdownTargetIso`). UIDs estables `card-show-cdmx-2026-{sat,sun}@tcghunt.mx`,
+  `DTSTAMP` fijo (salida determinista/cacheable). Comas escapadas (`\,`). Sin datos de patrocinador.
+- **Medido por mí (O-9):** `npm run typecheck` limpio; `next lint` sobre los dos ficheros sin warnings/errores;
+  `vitest run route.test.ts` **5/5 corridas verdes, 9/9 pruebas** (estructura VCALENDAR, CRLF, 2 VEVENT
+  balanceados, fechas sáb/dom y coherencia DTEND>DTSTART, cabeceras, escapes, UIDs).
+- **Nota para arquitecto:** el endpoint `.ics` sigue SIN estar en `API_CONTRACT.md` (lo marcaba
+  `BACKEND_NOTES §CARDSHOW` como punto para devops/arquitecto). No es endpoint de API sino recurso estático
+  servido por el dominio del frontend; queda documentado aquí para que el arquitecto decida si lo refleja.
