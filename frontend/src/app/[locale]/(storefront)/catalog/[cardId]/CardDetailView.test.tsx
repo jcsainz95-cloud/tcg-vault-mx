@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { expectVisibleMicroNotice } from '@/test/grading';
 import { CardDetailView } from './CardDetailView';
@@ -327,18 +327,21 @@ describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
  * referencia porque alimenta superficies de admin y de valuación).
  */
 describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.8)', () => {
-  it('priceBasis="market": el bloque se muestra, con su fecha y la nota al pie que lo explica', async () => {
+  it('§A1 · priceBasis="market": AUN ASÍ no se muestra «Valor de mercado» en la ficha pública; solo el precio', async () => {
     mockDetail([grp()], [unit('inv-a')]);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    // §MIV.2: la cifra es la CON IVA (`referenceDisplayCents`), no el neto MX$1,280.00.
-    expect(screen.getByText('MX$1,484.80')).toBeInTheDocument();
-    expect(screen.queryByText('MX$1,280.00')).toBeNull();
-    // §MIV.6: el explicador con mercado se reescribió (ya no dice «con la que valuamos las cartas»).
+    // §A1 (D2=A, dueño 2026-10-16): el bloque NO se monta aunque el precio lo haya fijado el mercado.
+    expect(await screen.findByText('Precio de venta')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    expect(screen.queryByText('MX$1,484.80')).toBeNull(); // mercado con IVA
+    expect(screen.queryByText('MX$1,280.00')).toBeNull(); // neto
+    // La nota al pie NUNCA es el explicador de comparación «…para que los compares tal cual».
     expect(
-      screen.getByText(/El valor de mercado es la referencia del día y se muestra con IVA incluido/),
+      screen.getByText('El precio de venta es el precio publicado de esta carta.'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/para que los compares tal cual/i)).toBeNull();
+    expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
   });
 
   it('priceBasis="floor": el bloque NO ESTÁ EN EL DOM — ni en cero, ni tachado, ni «—»', async () => {
@@ -372,23 +375,23 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(screen.queryByText('Valor de mercado')).toBeNull();
   });
 
-  it('§21.8b: sin mercado la fila del dinero NO queda coja y el divisor es de la POSICIÓN', async () => {
-    // Con mercado: 4 hechos ⇒ la 2ª y la 4ª celda llevan divisor izquierdo.
-    const withMarket = mockDetail([grp()], [unit('inv-a')]);
-    void withMarket;
-    const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByText('Valor de mercado');
+  it('§A1/§21.8b: «Precio de venta» ocupa SIEMPRE la fila completa (sin «Valor de mercado») y el divisor es de la POSICIÓN', async () => {
     const cells = () =>
       Array.from(document.querySelectorAll('div.border-b.border-border.py-6')) as HTMLElement[];
-    expect(cells()).toHaveLength(4);
-    expect(cells()[0].className).not.toContain('sm:border-l');
-    expect(cells()[1].className).toContain('sm:border-l');
-    expect(cells()[2].className).not.toContain('sm:border-l');
-    expect(cells()[3].className).toContain('sm:border-l');
+
+    // Con mercado (priceBasis="market"): §A1 ya no añade la 4ª celda. Quedan 3 hechos y la celda de
+    // venta ocupa la fila completa, igual que sin mercado.
+    mockDetail([grp()], [unit('inv-a')]);
+    const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Precio de venta');
+    const cm = cells();
+    expect(cm).toHaveLength(3);
+    expect(cm[0].className).toContain('sm:col-span-2');
+    expect(cm[1].className).not.toContain('sm:border-l'); // «Condición» abre fila
+    expect(cm[2].className).toContain('sm:border-l'); // «Acabado» hereda el divisor
     unmount();
 
-    // Sin mercado: 3 hechos. La celda de venta ocupa la fila completa y el divisor lo hereda la
-    // celda que NO abre fila — «Acabado», no «Condición». (El bug era `sm:border-l` hardcodeado.)
+    // Sin mercado (floor): idéntico — 3 hechos, celda de venta a fila completa.
     mockDetail(
       [grp({ priceBasis: 'floor', displayPriceCents: 2500 })],
       [unit('inv-a', { priceBasis: 'floor', displayPriceCents: 2500 })],
@@ -431,5 +434,59 @@ describe('CardDetailView · P-71 código corto del set en la línea del set', ()
     const code = await screen.findByTestId('card-code');
     expect(code.parentElement?.textContent).toBe('Base Set · #4 · Rare Holo');
     expect(code.parentElement?.textContent).not.toMatch(/—|null|undefined/);
+  });
+});
+
+/**
+ * §A2 (MKT-26b) · barra de compra FIJA en móvil. El criterio real es de VIEWPORT (iPhone 13
+ * 390×664: borde inferior del botón ≤ 664px y precio con «IVA incluido» visible sin scroll), que se
+ * verifica con Playwright en el gate. Aquí se fija el CONTRATO del componente que lo hace posible:
+ * la barra existe, es `lg:hidden` + `fixed bottom-0` (⇒ pinada al pie del viewport móvil), lleva el
+ * precio «desde» con su rótulo de IVA y el CTA de compra, y solo aparece con ≥ 1 unidad a la venta.
+ */
+describe('CardDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () => {
+  it('con pieza a la venta: barra fija (fixed bottom-0 lg:hidden) con precio «desde», rótulo de IVA y CTA de compra', async () => {
+    mockDetail([grp()], [unit('inv-a')]); // priceBasis market, displayPriceCents 140800
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const bar = await screen.findByTestId('mobile-buy-bar');
+    // Pinada al pie del viewport móvil y oculta en escritorio.
+    expect(bar.className).toContain('fixed');
+    expect(bar.className).toContain('bottom-0');
+    expect(bar.className).toContain('lg:hidden');
+    // Precio «desde» con su rótulo de IVA (§M10-IVA.3) y el CTA de compra, todo dentro de la barra.
+    expect(within(bar).getByText('MX$1,408.00')).toBeInTheDocument();
+    expect(within(bar).getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    expect(within(bar).getByRole('button', { name: 'Añadir al carrito' })).toBeInTheDocument();
+  });
+
+  it('el CTA de la barra agrega la pieza más barata del grupo «desde» al carrito', async () => {
+    mockDetail([grp()], [unit('inv-a')]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const bar = await screen.findByTestId('mobile-buy-bar');
+    fireEvent.click(within(bar).getByRole('button', { name: 'Añadir al carrito' }));
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
+    // Con la única pieza ya en el carrito, el CTA de la barra pasa a «Ver carrito».
+    expect(await within(bar).findByRole('button', { name: 'Ver carrito' })).toBeInTheDocument();
+  });
+
+  it('sin pieza a la venta: no se pinta la barra (criterio A2: «≥ 1 unidad a la venta»)', async () => {
+    mockDetail(
+      [grp({ representativeInventoryItemId: 'inv-a', stockCount: 0 })],
+      [unit('inv-a', { sellable: false, displayPriceCents: undefined })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Precio de venta');
+    expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
+  });
+
+  it('el precio y su rótulo de IVA van ANTES del bloque PSA «si se gradea» y su nota legal en el DOM', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const price = await screen.findByText('Precio de venta');
+    const psa = screen.getByText('VALOR ESTIMADO SI SE GRADEA');
+    // El precio precede al bloque PSA (y a su nota legal, que vive dentro de ese bloque) en el DOM.
+    expect(price.compareDocumentPosition(psa) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

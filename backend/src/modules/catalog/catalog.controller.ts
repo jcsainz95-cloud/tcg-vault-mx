@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Optional, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Optional, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { OptionalSessionGuard } from './optional-session.guard';
@@ -76,6 +76,21 @@ export class CatalogController {
   @Get('facets')
   facets() {
     return this.catalog.facets();
+  }
+
+  // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.B / §13.3, E/SEO) — feed PÚBLICO y LIVIANO para que el frontend arme
+  // `sitemap.xml`: una entrada por ficha a la venta (cartas + sellado), ⛔ no paginado. `Cache-Control` corto
+  // (1 h): no es dato personal. ⛔ Ruta ESTÁTICA (`sitemap`), no colisiona con `cards/:cardId` ni
+  // `sealed/:inventoryItemId` (prefijos distintos). Las rutas estáticas del sitio las añade el frontend.
+  @Public()
+  @Header('Cache-Control', 'public, max-age=3600')
+  @Get('sitemap')
+  async sitemap() {
+    const [cards, sealed] = await Promise.all([
+      this.catalog.sitemapCardEntries(),
+      this.sealed.sitemapSealedEntries(),
+    ]);
+    return { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
   }
 
   // ===== v1.23-sealed-sales (§2-S) — ventana de tienda del PRODUCTO CERRADO =====

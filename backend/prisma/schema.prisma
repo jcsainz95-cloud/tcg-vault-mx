@@ -1554,6 +1554,19 @@ model Order {
   // «Revisar caja»: no cupo en ninguna. CHECK `order_shipping_box_review`: `true ⇒ shippingBoxSnapshot NOT NULL`.
   shippingBoxReview           Boolean              @default(false)
 
+  // ======================= v1.96⟨mkt-tienda⟩ (M-81, §MKT.C / ARCHITECTURE §13.1, B1 [PV-M2]) =======================
+  // Atribución de PRIMER-TOQUE UTM. Las cinco son NULLABLE y sin default. ADITIVAS, seguras con la app
+  // corriendo, SIN backfill (NULL es la verdad de toda fila previa). Validadas por `common/first-utm.ts`
+  // (`^[a-z0-9._-]{1,64}$`, minúsculas; sin `@`/`<>`/espacios/PII).
+  // ⚠️ OLA 1: se CREAN pero quedan NULL — ningún camino de escritura las puebla aún. Poblarlas exige el
+  //   consentimiento (banner/cookie `th_first_utm`), que es Fase 2 (v2 §D3). Estructura muerta a propósito
+  //   (dicho explícito, O-1 / §13.1), para que QA/seguridad no lo lea como defecto.
+  firstUtmSource              String?
+  firstUtmMedium              String?
+  firstUtmCampaign            String?
+  firstUtmContent             String?
+  firstUtmLandedAt            DateTime?
+
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
   reservedItems    InventoryItem[]    @relation("ReservedByOrder")
@@ -1574,6 +1587,9 @@ model Order {
   @@index([status])
   // v1.21 (M-25): sirve GET /orders/claimable y el reenvío por (email, orderNumber).
   @@index([guestEmail])
+  // v1.96⟨mkt-tienda⟩ (M-81, §13.1): el panel de Origen (OLA 2) agrupa por `utm_medium` sobre un periodo
+  // acotado. Solo este eje se indexa (los otros tres se agrupan en memoria, patrón sales-analytics).
+  @@index([firstUtmMedium])
 }
 
 model OrderItem {
@@ -2420,6 +2436,17 @@ model SellRequest {
   inboundGuideClockStartedAt DateTime?
   // Back-relation de `ShipmentRequest.sellRequestId` (a lo sumo una fila `buylist_inbound`).
   inboundShipment            ShipmentRequest?
+
+  // ======================= v1.96⟨mkt-tienda⟩ (M-81, §MKT.C / ARCHITECTURE §13.1, B1 [PV-M2]) =======================
+  // Primer-toque UTM de la solicitud de buylist — mismas cinco columnas NULLABLE que `Order`, misma regla y
+  // mismo validador (`common/first-utm.ts`). ADITIVAS, sin backfill. ⚠️ OLA 1: se CREAN pero quedan NULL
+  // (ningún camino las puebla; poblarlas exige el consentimiento de Fase 2). ⛔ Sin índice: §13.1 indexa solo
+  // `Order.firstUtmMedium` (el panel de Origen razona sobre pedidos; buylist no lo necesita hoy).
+  firstUtmSource             String?
+  firstUtmMedium             String?
+  firstUtmCampaign           String?
+  firstUtmContent            String?
+  firstUtmLandedAt           DateTime?
 
   items SellRequestItem[]
 

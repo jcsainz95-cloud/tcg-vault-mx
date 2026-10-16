@@ -92,6 +92,10 @@ export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   // v1.90⟨miv⟩ (§MIV.2, ADITIVO): el mercado CON IVA. OPCIONAL: viaja ⇔ `priceBasis === 'market'`.
   referenceDisplayCents: true,
   currency: true,
+  // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): los DOS campos nuevos de la FICHA (SSR/og). REQUERIDOS y SIEMPRE
+  // presentes (ogImageUrl puede ser `null` pero la clave viaja). ⛔ NO están en `SEALED_GROUP_SUMMARY_KEYS`.
+  pricedAsOf: true,
+  ogImageUrl: true,
 });
 
 /** `SealedGroupSummaryDTO` — el DTO de la **REJILLA** de sellado (v2.1.9 D2: sin las TRES señales). */

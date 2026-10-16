@@ -203,6 +203,12 @@ const ALLOWLIST: Allow[] = [
   },
   {
     file: 'src/modules/catalog/catalog.service.ts',
+    snippet: 'ogImageUrl: absoluteOgImageUrl(card.imageLargeUrl, card.imageSmallUrl),',
+    lines: [1615],
+    reason: 'v1.96⟨mkt-tienda⟩ §MKT.A: `ogImageUrl` de la FICHA de CARTA (`GET /catalog/cards/:cardId`); el `card` ES el sujeto de su propia ficha (single), NUNCA un ancla de sellado (🔵 por diseño). La ficha de SELLADO resuelve su og por `pieceDisplayIdentityOf` (display.imageSmallUrl), no por esta ruta.',
+  },
+  {
+    file: 'src/modules/catalog/catalog.service.ts',
     snippet: 'cardName: card.name,',
     lines: [1875],
     reason: 'GradedEstimateReviewItemDTO: revisión de estimaciones GRADED (PSA/CGC); graded nunca es sellado.',

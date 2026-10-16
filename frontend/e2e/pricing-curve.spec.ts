@@ -11,12 +11,14 @@ import { IS_REAL, MONEY_RE, loginAs, mockOnly } from './utils/auth';
  * propósito — la fórmula de dinero no se reimplementa en el cliente (ARCH §4.36.8a). Por eso los
  * smoke de mock NO afirman cifras del previsualizador: afirman la **estructura** y el **retiro**.
  *
- * Los tres tests **`@real`** de abajo son los que miran P-48 contra un backend VIVO. Existen por una
- * razón concreta: la regla de visibilidad de §21.8 depende de un campo que el servidor tiene que
- * EMITIR (`priceBasis`), y un fixture que lo hornea —como debe hacer un mock— no puede detectar que
- * el servidor no lo manda. Si `priceBasis` llegara `undefined`, `undefined === 'market'` es `false`
- * y el bloque «Valor de mercado» se suprimiría **en todas las fichas**: la regla quedaría invertida
- * y en verde. Eso es exactamente lo que estos tests cazan.
+ * Los tres tests **`@real`** de abajo miran P-48 contra un backend VIVO.
+ *
+ * ⚠️ **Actualizado por D2=A (dueño, 2026-10-16 · HECHOS:65; brief §A1):** la ficha pública ya NO pinta
+ * el bloque «Valor de mercado» en NINGÚN estado (ni carta ni sellado). La regla de §21.8 (bloque ⇔
+ * nota) deja de aplicar a la ficha: ahora la invariante es que el bloque NUNCA aparece y la nota es
+ * siempre `referenceExplainerNoMarket`. El backend puede seguir emitiendo `priceBasis`/`referenceValue`
+ * (alimentan admin/valuación y, en sellado, deciden si se muestra la «Tendencia de valor»), pero la
+ * ficha de venta no los pinta. Los tests de abajo verifican esa AUSENCIA.
  */
 /**
  * Estado de la regla de visibilidad en UNA ficha, leído del DOM. Se devuelve el par completo
@@ -122,35 +124,30 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
  * `E2E_REAL`), así que **descubren datos y afirman invariantes**, nunca montos de fixture.
  */
 test.describe('@real P-48 contra el stack vivo', () => {
-  test('@real la regla de §21.8 no está invertida: alguna ficha SÍ publica el valor de mercado', async ({
+  test('@real la ficha pública NUNCA publica «valor de mercado» (D2=A)', async ({
     page,
   }) => {
-    // ⚠️ Este es el test que caza «el servidor no emite `priceBasis`». No comprueba una ficha
-    // concreta —eso lo acoplaría al seed—: recorre las primeras fichas de la vitrina y exige que
-    // **al menos una** muestre el bloque. Con `priceBasis` ausente, `undefined === 'market'` es
-    // false en TODAS y el bloque desaparece del sitio entero: aquí se pone en rojo.
+    // D2=A (dueño, 2026-10-16 · HECHOS:65; brief §A1): la ficha pública de carta ya NO pinta el bloque
+    // «Valor de mercado» en NINGÚN estado, y la nota al pie es SIEMPRE `referenceExplainerNoMarket`.
+    // Antes este test exigía que ALGUNA ficha lo publicara (bicondicional §21.8); con D2=A la
+    // expectativa se INVIERTE: ninguna debe publicarlo. Recorre varias fichas para no acoplarse al seed;
+    // si el descubrimiento fallara, `states` quedaría vacío y el `every` no mediría nada ⇒ se exige N>0.
     const hrefs = await firstCardHrefs(page, 4);
     expect(hrefs.length).toBeGreaterThan(0);
 
     const states: { href: string; block: boolean; explainer: string }[] = [];
-    // El assert final es sobre `states`: si el descubrimiento fallara, `states` quedaría vacío y
-    // `some()` sería `false` ⇒ rojo. No hay forma de que este test pase sin haber mirado fichas.
     for (const href of hrefs) {
       await page.goto(href);
       await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
       const st = await marketBlockState(page);
       states.push({ href, ...st });
 
-      // §21.8d — bicondicional: el bloque y la nota al pie cuentan la MISMA historia. La variante
-      // «sin mercado» ni lo menciona; la «con mercado» lo explica. Nunca las dos, nunca ninguna.
-      expect(st.explainer).toBe(st.block ? 'with' : 'no');
+      // Cada ficha: sin bloque de mercado y con la nota «sin mercado» (nunca la variante «con mercado»).
+      expect(st.block, `la ficha ${href} publicó «Valor de mercado» (prohibido por D2=A)`).toBe(false);
+      expect(st.explainer).toBe('no');
     }
-
-    expect(
-      states.some((s) => s.block),
-      `Ninguna de las ${states.length} fichas visitadas publicó el valor de mercado. Si el backend ` +
-        'dejó de emitir `priceBasis`, la regla de §21.8 queda INVERTIDA y el bloque se suprime siempre.',
-    ).toBe(true);
+    expect(states.length).toBeGreaterThan(0);
+    expect(states.every((s) => !s.block)).toBe(true);
   });
 
   test('@real la vitrina y la ficha publican dinero con formato MXN, nunca «precio pendiente»', async ({
@@ -229,17 +226,18 @@ test.describe('§21.8 · «Valor de mercado» que desaparece', () => {
     await expect(page.getByText(t('es', 'sealed.trend.marketRefNote'))).toHaveCount(0);
   });
 
-  test('ficha de sellado con precio por SPREAD: el bloque y la tendencia SÍ se muestran', async ({
+  test('ficha de sellado con precio por SPREAD: la celda «valor de mercado» NO se muestra (D2=A), la tendencia SÍ', async ({
     page,
   }) => {
-    // Asimetría legítima: con precio derivado por spread SÍ hay mercado, y el mercado es justo lo
-    // que explica el precio. `exact` acota al rótulo de la celda (la nota de la tendencia es otra
-    // frase que también contiene «Valor de mercado»).
+    // D2=A (brief §A1): la ficha pública de sellado ya NO pinta la celda «Valor de mercado». Pero la
+    // «Tendencia de valor» (gateada por `trendEnabled` + `priceBasis='market'`) SÍ se conserva con el
+    // precio por spread (§MIV.3): es la asimetría legítima — override la apaga (test de arriba), spread
+    // la deja. `exact` acotaría la celda; aquí se exige que ni siquiera esté.
     mockOnly('pieza `inv-1008` del fixture (sellado con precio por spread)');
     await page.goto('/es/sellado/inv-1008');
     await expect(
       page.getByText(t('es', 'sealed.detail.marketValue'), { exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(page.getByText(t('es', 'sealed.trend.title'))).toBeVisible();
   });
 
