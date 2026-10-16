@@ -21764,3 +21764,52 @@ frontend (el candado backend NO se toca):
   cerrar el hueco (hoy era `{ token }` asumido en el cliente, de ahí el bug).
 - **Verificar con JC el mapeo de medidas** estándar/premium ↔ chica/grande (ver nota en la sección 2). No es
   secreto; es una decisión de etiqueta.
+
+## Doble opt-in Diseño A — 3 páginas de acción del frontend (2026-10-16, §CARDSHOW.2/.6, ARCHITECTURE §4.CARDSHOW.f)
+
+**Contexto:** el arquitecto decidió **Diseño A**: la página con botón del doble opt-in la sirve el FRONTEND
+(fuera del i18n, igual que la landing). El enlace del correo (`confirmUrl`/`notMeUrl`) apunta a
+`https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…` y hasta hoy daba **404** (las rutas no
+existían). Estas páginas cierran el bloqueo 2b.
+
+**Qué implementé (solo frontend):**
+- 3 rutas nuevas, **fuera de `[locale]`**, colgando del layout raíz de `/card-show` (hereda `<html lang="es-MX">`,
+  fuentes y CSP con nonce): `frontend/src/app/card-show/{confirm,cancel,unsubscribe}/page.tsx`. Cada `page.tsx` es
+  un **server component** que `await searchParams`, extrae `token` y lo pasa al cliente. `robots: noindex,nofollow`
+  (son páginas transaccionales con token, no deben indexarse).
+- Componente cliente compartido `frontend/src/app/card-show/_components/LinkActionClient.tsx`: página de marca
+  (eyebrow + `font-serif text-h1` + botón `bg-accent`, mismos tokens del sistema de diseño que la landing). **C4:**
+  el GET ⛔ NO muta — solo lee el token y espera el clic; el cambio de estado ocurre SOLO al pulsar el botón.
+- Helper `postLinkAction(action, token)` en `frontend/src/lib/card-show-api.ts`: `POST application/json { token }`
+  (⚠️ JSON, NO urlencoded) a `/api/v1/card-show/{action}`. Maneja:
+  - `200 { ok:true, state }` ⇒ éxito; copy por acción (confirmar/cancelar/baja) y por `state` (`waitlist` ⇒ copy de
+    lista de espera).
+  - `{ ok:false, message }` (torneo lleno / Player ID ya preinscrito, §CARDSHOW.12) ⇒ muestra el `message` tal cual
+    (venga en 2xx o 4xx).
+  - `410` ⇒ «Este enlace ya se usó o expiró.»
+  - `429` (lee `Retry-After`) ⇒ «Demasiados intentos, espera un momento…».
+  - `400`/resto ⇒ error genérico. Fallo de red ⇒ error genérico.
+  - Sin `token` en el query ⇒ página de marca con aviso «Este enlace no es válido…», **sin botón** (no se puede
+    POSTear nada).
+- Copy funcional/transaccional, marca **TCG HUNT**, ⛔ **sin datos del evento** (fecha/sede/precio): estas páginas
+  no los necesitan.
+- Prueba nueva `frontend/src/app/card-show/_components/LinkAction.test.tsx` (vitest + testing-library, `fetch`
+  mockeado): render de marca con botón, **C4** (0 llamadas al renderizar), POST en `application/json` con la clave
+  `token`, y los 5 casos de respuesta (200/410/400/429 + torneo lleno + waitlist). **8/8 verde.**
+
+**Tarea 2 — matcher del middleware (zona compartida, MEDIDO por mí 2026-10-16):** `frontend/src/middleware.ts` ya
+excluía del redirect de locale los **subpaths** vía `isCardShowPath()` →
+`pathname === '/card-show' || pathname.startsWith('/card-show/')` (líneas ~16-18). ⇒ `/card-show/confirm|cancel|
+unsubscribe` **ya** entran al matcher (para la CSP) y se cortocircuitan antes del redirect a `/es`. **NO requirió
+cambio.** (El matcher `'/((?!api|_next|_vercel|.*\\..*).*)'` captura esas rutas porque no tienen punto ni son
+`api`.) ⚠️ NO verificado por HTTP (`curl -sI`) — eso lo cierra QA con el stack arriba; lo verificado por mí es la
+lógica del `startsWith`.
+
+**Tarea 3 — typecheck preexistente (ARREGLADO):** `e2e/card-show.spec.ts:67` usaba `test.use({ reducedMotion:
+'reduce' })`; en Playwright 1.56 `reducedMotion` NO es opción de test directa sino de `BrowserContextOptions` ⇒ se
+pasa por `test.use({ contextOptions: { reducedMotion: 'reduce' } })`. `npm run typecheck` queda **limpio**.
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: **limpio** (0 errores; ya no está el de `reducedMotion`).
+- `npm run lint`: sin avisos ni errores.
+- `LinkAction.test.tsx`: **8/8** verde. Suites `card-show` (app + lib): **28 passed** (3 ficheros).

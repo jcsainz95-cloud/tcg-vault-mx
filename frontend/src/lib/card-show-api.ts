@@ -130,3 +130,65 @@ export function submitLead(body: LeadSubmitBody): Promise<void> {
 export function submitPlayer(body: PlayerSubmitBody): Promise<void> {
   return submit('/players', body);
 }
+
+/**
+ * Acciones del doble opt-in (Diseño A, §CARDSHOW.6 / ARCHITECTURE §4.CARDSHOW.f). La PÁGINA con
+ * botón la sirve el frontend fuera del i18n (`/card-show/{confirm|cancel|unsubscribe}`); el GET ⛔ NO
+ * muta (C4): el cambio de estado ocurre SOLO cuando el humano pulsa el botón y se dispara este POST.
+ */
+export type LinkAction = 'confirm' | 'cancel' | 'unsubscribe';
+
+/** Éxito: `200 { ok:true, state }` — `state` es el nuevo estado de la fila (§CARDSHOW.1/.6). */
+export interface LinkActionSuccess {
+  ok: true;
+  state?: string;
+}
+/**
+ * Rechazo con mensaje (torneo lleno / Player ID ya preinscrito ese día, §CARDSHOW.12): el backend
+ * devuelve `{ ok:false, message }` y la página muestra ESE `message` tal cual.
+ */
+export interface LinkActionRejected {
+  ok: false;
+  message: string;
+}
+export type LinkActionResult = LinkActionSuccess | LinkActionRejected;
+
+/**
+ * Ejecuta el cambio de estado del doble opt-in: `POST application/json { token }` a
+ * `/api/v1/card-show/{confirm|cancel|unsubscribe}` (⚠️ JSON, NO `x-www-form-urlencoded`; §CARDSHOW.2).
+ * Token de un solo uso (§CARDSHOW.6):
+ *  - `200 { ok:true, state }` ⇒ éxito.
+ *  - `200/4xx { ok:false, message }` ⇒ rechazo con mensaje a la vista (torneo lleno, §CARDSHOW.12).
+ *  - `410` (token usado o caducado) ⇒ `CardShowApiError(410, 'GONE')`.
+ *  - `429` ⇒ `CardShowApiError(429, 'RATE_LIMITED')` con `retryAfter` del `Retry-After`.
+ *  - `400`/resto ⇒ `CardShowApiError` genérico.
+ */
+export async function postLinkAction(action: LinkAction, token: string): Promise<LinkActionResult> {
+  const res = await fetch(url(`/${action}`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({ token }),
+  });
+
+  // Casos neutros por status (cuerpo irrelevante): token gastado/caducado y throttle.
+  if (res.status === 410) throw new CardShowApiError(410, 'GONE', 'enlace usado o caducado');
+  if (res.status === 429) {
+    throw new CardShowApiError(429, 'RATE_LIMITED', 'rate limited', undefined, parseRetryAfter(res));
+  }
+
+  const body = (await res.json().catch(() => null)) as
+    | { ok?: boolean; state?: string; message?: string; error?: { code?: string; message?: string; details?: Record<string, unknown> } }
+    | null;
+
+  // Rechazo con mensaje para la vista (torneo lleno / ya preinscrito): se muestra tal cual, venga en
+  // un 2xx o en un 4xx.
+  if (body && body.ok === false && typeof body.message === 'string') {
+    return { ok: false, message: body.message };
+  }
+  if (res.ok) return { ok: true, state: typeof body?.state === 'string' ? body.state : undefined };
+
+  // 400 u otro error de forma: código del contrato si viene, genérico si no.
+  const err = body?.error;
+  throw new CardShowApiError(res.status, err?.code ?? 'ERROR', err?.message ?? 'error', err?.details);
+}

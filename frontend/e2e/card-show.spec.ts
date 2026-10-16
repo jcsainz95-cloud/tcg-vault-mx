@@ -64,7 +64,9 @@ test.describe('Card Show · honeypot oculto', () => {
 });
 
 test.describe('Card Show · prefers-reduced-motion', () => {
-  test.use({ reducedMotion: 'reduce' });
+  // `reducedMotion` es opción del CONTEXTO del navegador (no opción de test directa en Playwright
+  // 1.56): se pasa vía `contextOptions` (BrowserContextOptions).
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
   test('con reduced-motion las animaciones quedan neutralizadas (globals.css)', async ({ page }) => {
     await page.goto('/card-show');
