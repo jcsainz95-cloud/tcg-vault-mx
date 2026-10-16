@@ -16,7 +16,7 @@ import {
   isEmail,
   isPlayerId,
   readAttribution,
-  withFormToken,
+  useFormTokens,
 } from './form-shared';
 
 type DaySel = CardShowDayId | 'both' | '';
@@ -35,6 +35,9 @@ type DaySel = CardShowDayId | 'both' | '';
  */
 export function TorneoForm() {
   const cerrado = CARD_SHOW.torneo.estado === 'cerrada';
+  // Pre-carga tokens al MONTAR (hasta 2: «los dos días» ⇒ 2 POST), para superar el min-age de 2 s
+  // del candado anti-bot (§CARDSHOW.5); cada POST consume su propio token de un solo uso.
+  const { withToken } = useFormTokens('players', 2);
   const [day, setDay] = useState<DaySel>('');
   const [playerName, setPlayerName] = useState('');
   const [playerId, setPlayerId] = useState('');
@@ -75,9 +78,9 @@ export function TorneoForm() {
     const attribution = readAttribution();
     try {
       for (const d of days) {
-        await withFormToken('players', (token) =>
+        await withToken((token) =>
           submitPlayer({
-            token,
+            formToken: token,
             day: d,
             playerName: playerName.trim(),
             playerId: playerId.trim(),

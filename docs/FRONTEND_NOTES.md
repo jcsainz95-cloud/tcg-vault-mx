@@ -21693,3 +21693,74 @@ tocados **15/15**.
 **Huecos de contrato: ninguno nuevo.** `ClientShipmentItemDTO.productType` ya está en el DTO (§5, v1.94.1) y en
 `frontend/src/types/contract.ts` (`ShipmentDTO.items[].productType?`). Queda vivo el hueco PREEXISTENTE ya
 registrado (`priceConvention`/`ivaIncluded` en `ShipmentDTO`, §M10-IVA.4) — ajeno a este arreglo.
+
+---
+
+## Card Show · secreto en test + medidas de mesa + bloqueo de formularios (2026-10-16, rama `feat/event-landing`)
+
+Tres arreglos del frente «landing del Card Show». Todo medido por mí sobre el árbol con estos cambios
+(`tsc`, `next lint`, `vitest`).
+
+### 1 · Secreto del anuncio fuera del repo (`card-show.secrets.test.ts`)
+Antes, el array `FORBIDDEN` del test escribía EN CLARO los términos reales del anuncio (sede, fecha, precios).
+Eso filtraba el secreto en el propio test de un repo público. Ahora los términos se leen en RUNTIME de la
+variable de entorno `CARDSHOW_SECRET_TERMS` (lista separada por comas; devops la cablea como **secreto de CI**).
+- Cada término se compila a `RegExp` case-insensitive **escapando los metacaracteres** de regex ⇒ se busca como
+  **subcadena literal** (robusto ante acentos/dígitos/signos; nunca rompe la compilación).
+- Con la env presente ⇒ corre el escaneo sobre `cardShowSources()` (contenido + cliente + componentes).
+- Sin la env ⇒ el bloque se **salta** (`it.skip`) con mensaje GENÉRICO, sin fallback hardcodeado.
+- Los nombres de prueba y el mensaje de fallo NO imprimen el término: solo las rutas de fichero donde apareció.
+- ⛔ Ningún valor real del evento vive en el repo. Verificado por grep (0 coincidencias en fuentes del Card Show).
+- Canario (2026-10-16): con `CARDSHOW_SECRET_TERMS="Jakomi"` (término público que SÍ aparece) el escaneo
+  **falla** nombrando solo ficheros ⇒ el escaneo muerde; con términos inventados ausentes, 6/6 verdes.
+
+### 2 · Medidas de mesa (decisión JC: SE muestran, no son secreto)
+`card-show.ts`: `mesas.tipos[].medida` pasa de `null` a valor real — estándar «1.20 m», premium «1.80–2.20 m».
+La tabla de `PlanoMesas.tsx` (columna «Medida») ya renderizaba `tipo.medida ?? '—'`, así que ahora se muestran.
+Se quitó la prohibición de «medidas» del comentario de cabecera de `card-show.ts` y del test de secretos; la
+aserción `toBeNull` se reemplazó por una que exige que las medidas estén presentes y no vacías.
+> **Mapeo asumido (no secreto, verificar con JC):** estándar = «chica» 1.20 m; premium = «grande» 1.80–2.20 m.
+> Si JC quiere el mapeo inverso o etiquetas «Grande/Chica» visibles, es un ajuste de una línea en `card-show.ts`.
+
+### 3 · Bloqueo 2a: los formularios no guardaban (dos defectos de contrato + uno de parseo)
+(a) **Clave del cuerpo `token` → `formToken`.** El DTO backend (`CreateLeadDto`/`CreatePlayerDto`) exige
+`formToken`; el cliente mandaba `token` ⇒ validación backend fallaba ⇒ se perdían TODAS las altas.
+`BaseSubmitBody.token` → `formToken` en `card-show-api.ts`; `AvisameForm`/`TorneoForm` mandan `formToken: token`.
+⚠️ Los POST de link-actions (confirmar/cancelar/baja, `LinkActionDto`) **siguen** usando `token` — no se tocaron.
+(a-bis) **Parseo del GET `/form-token`.** El backend responde `{ formToken }` (ver `card-show.controller.ts:52/61`),
+pero `getFormToken` leía `body.token` ⇒ lanzaba `FORM_TOKEN_ERROR` y ningún POST llegaba a emitirse. Corregido a
+`body.formToken`. Esto NO es cambio de contrato: alinea el cliente a lo que el backend ya implementa. (Nota al
+arquitecto más abajo: §CARDSHOW.5 no fija por escrito el nombre del campo de respuesta.)
+(b) **Descarte silencioso por token demasiado joven (`too_fast`, <2 s).** El backend descarta en silencio
+(200, 0 filas) cualquier POST cuyo token tenga <2 s (`FORM_TOKEN_MIN_AGE_MS`, candado anti-bot legítimo). El
+cliente pedía el token en el MISMO submit ⇒ token recién emitido ⇒ humanos rápidos perdían el alta. Arreglo 100%
+frontend (el candado backend NO se toca):
+- Nuevo hook `useFormTokens(purpose, poolSize)` en `form-shared.tsx` (reemplaza a `withFormToken`): al **montar**
+  el formulario PRE-CARGA un pool de tokens (hasta 3 en leads = 3 chips; 2 en players = «los dos días»). Al enviar,
+  los tokens ya pasaron los 2 s ⇒ no hay `too_fast`.
+- Cada POST consume **su propio token de un solo uso** (un chip = un POST; dos días = 2 POST).
+- `withToken(run)` garantiza ≥2 s de edad: si el pool está vacío (más POSTs que tokens o prefetch en vuelo), pide
+  uno en caliente y espera el min-age antes de usarlo.
+- Se conserva el reintento ante `FORM_EXPIRED` (TTL 30 min): pide un token **fresco** y vuelve a esperar el
+  min-age (2 s + holgura) antes de re-POSTear, para no caer en `too_fast` en el reintento.
+- `formTokenTiming` (export mutable) permite a las pruebas poner el min-age en 0 y no esperar de verdad; en
+  producción conserva 2 s + 150 ms de holgura.
+- Pruebas de componente (`CardShowForms.test.tsx`) actualizadas: muerden prefetch-al-montar, un token por POST
+  (tokens distintos), clave `formToken` en el cuerpo, reintento con token fresco, honeypot.
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: limpio salvo UN error **PREEXISTENTE y ajeno** en `e2e/card-show.spec.ts:67`
+  (`reducedMotion` no existe en el tipo de fixtures de Playwright; viene del commit `cb78f51`, fichero que no
+  toqué). Mis 7 ficheros no añaden ningún error de tipo.
+- `npm run lint`: sin avisos ni errores.
+- Suites tocadas: `CardShowForms.test.tsx` + `card-show.secrets.test.ts` ⇒ **18 passed, 1 skipped** (el skip es el
+  escaneo de términos sin env). Todas las suites `card-show`: **23 passed, 1 skipped**.
+- Escaneo de secretos: sin env ⇒ 3/3 marcadores + 1 skip; con env de términos inventados ausentes ⇒ 6/6; canario
+  con término presente ⇒ muerde.
+
+### Solicitudes al arquitecto
+- **§CARDSHOW.5 no fija el nombre del campo de respuesta de `GET /form-token`.** El backend implementa
+  `{ formToken }`; el cliente ya está alineado a eso. Conviene documentarlo explícitamente en el contrato para
+  cerrar el hueco (hoy era `{ token }` asumido en el cliente, de ahí el bug).
+- **Verificar con JC el mapeo de medidas** estándar/premium ↔ chica/grande (ver nota en la sección 2). No es
+  secreto; es una decisión de etiqueta.

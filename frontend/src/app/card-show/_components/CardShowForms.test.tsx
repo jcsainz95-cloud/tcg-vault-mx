@@ -1,15 +1,17 @@
 /**
  * §13 (formularios) — estados, validación y accesibilidad de los dos formularios del Card Show
  * (API_CONTRACT §CARDSHOW.3/.5/.6/.11/.12, RONDA_0 §6). Se mockean las llamadas HTTP; lo que se
- * prueba es la CONDUCTA del cliente: los 10 estados, el honeypot oculto y el reintento de token.
+ * prueba es la CONDUCTA del cliente: los 10 estados, el honeypot oculto, el reintento de token y el
+ * nuevo manejo de tokens (PRE-CARGA al montar + un token de un solo uso por POST, con clave
+ * `formToken` en el cuerpo).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CardShowApiError } from '@/lib/card-show-api';
 import { AvisameForm } from './AvisameForm';
 import { TorneoForm } from './TorneoForm';
-import { FORM_MESSAGES } from './form-shared';
+import { FORM_MESSAGES, formTokenTiming } from './form-shared';
 
 const { getFormToken, submitLead, submitPlayer } = vi.hoisted(() => ({
   getFormToken: vi.fn(),
@@ -23,12 +25,30 @@ vi.mock('@/lib/card-show-api', async (orig) => {
 });
 vi.mock('@/lib/card-show-clicks', () => ({ trackClick: vi.fn(), trackedHref: (d: string) => `/ir/${d}` }));
 
+// El pool al montar: tantos tokens como POSTs pueda hacer el formulario (3 chips leads, 2 días torneo).
+const LEADS_POOL = 3;
+const PLAYERS_POOL = 2;
+
+beforeEach(() => {
+  // Las pruebas no esperan de verdad el min-age del token anti-bot: se pone en 0 (prod = 2 s).
+  formTokenTiming.minAgeMs = 0;
+  formTokenTiming.slackMs = 0;
+});
+
 afterEach(() => {
   vi.clearAllMocks();
+  formTokenTiming.minAgeMs = 2_000;
+  formTokenTiming.slackMs = 150;
 });
 
 function expired() {
   return new CardShowApiError(400, 'FORM_EXPIRED', 'form expired');
+}
+
+/** Cada emisión devuelve un token distinto, para comprobar «un token de un solo uso por POST». */
+function mockUniqueTokens() {
+  let n = 0;
+  getFormToken.mockImplementation(() => Promise.resolve(`tok-${++n}`));
 }
 
 describe('AvisameForm · estados y validación (§CARDSHOW.3/.5/.6)', () => {
@@ -71,11 +91,12 @@ describe('AvisameForm · estados y validación (§CARDSHOW.3/.5/.6)', () => {
     expect(submitLead).not.toHaveBeenCalled();
   });
 
-  it('estado 5 (éxito) · alta válida ⇒ pantalla «revisa tu correo»; un POST por chip con token propio', async () => {
-    getFormToken.mockResolvedValue('tok');
+  it('estado 5 (éxito) · pre-carga tokens al montar; un POST por chip con token propio; body usa formToken', async () => {
+    mockUniqueTokens();
     submitLead.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<AvisameForm />);
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL)); // prefetch al montar
     await u.click(screen.getByRole('button', { name: 'Voy' }));
     await u.click(screen.getByRole('button', { name: 'Vender' }));
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
@@ -83,7 +104,10 @@ describe('AvisameForm · estados y validación (§CARDSHOW.3/.5/.6)', () => {
     await u.click(screen.getByRole('button', { name: 'Avísame' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     expect(submitLead).toHaveBeenCalledTimes(2); // dos chips ⇒ dos filas
-    expect(getFormToken).toHaveBeenCalledTimes(2); // token de un solo uso por POST
+    expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL); // sin fetch nuevo en submit: usa el pool
+    const tokens = submitLead.mock.calls.map((c) => c[0].formToken);
+    expect(new Set(tokens).size).toBe(2); // un token de un solo uso por POST
+    expect(tokens.every((t: unknown) => typeof t === 'string' && (t as string).length > 0)).toBe(true);
     expect(submitLead.mock.calls.map((c) => c[0].type).sort()).toEqual(['merchant', 'visitor']);
   });
 
@@ -114,18 +138,22 @@ describe('AvisameForm · estados y validación (§CARDSHOW.3/.5/.6)', () => {
     expect(await screen.findByText(FORM_MESSAGES.rateLimited)).toBeInTheDocument();
   });
 
-  it('estado 8 (token caducado, reintento OK) · FORM_EXPIRED ⇒ pide otro token y reintenta sin perder lo tecleado', async () => {
-    getFormToken.mockResolvedValueOnce('t1').mockResolvedValueOnce('t2');
+  it('estado 8 (token caducado, reintento OK) · FORM_EXPIRED ⇒ pide otro token FRESCO y reintenta sin perder lo tecleado', async () => {
+    mockUniqueTokens();
     submitLead.mockRejectedValueOnce(expired()).mockResolvedValueOnce(undefined);
     const u = userEvent.setup();
     render(<AvisameForm />);
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL));
     await u.click(screen.getByRole('button', { name: 'Voy' }));
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Avísame' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
-    expect(getFormToken).toHaveBeenCalledTimes(2);
-    expect(submitLead.mock.calls[1][0].token).toBe('t2');
+    expect(submitLead).toHaveBeenCalledTimes(2);
+    expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL + 1); // pool al montar + 1 fresco en el reintento
+    const t1 = submitLead.mock.calls[0][0].formToken;
+    const t2 = submitLead.mock.calls[1][0].formToken;
+    expect(t2).not.toBe(t1); // token fresco, distinto, en el reintento
     expect(submitLead.mock.calls[1][0].email).toBe('ana@correo.com'); // no se borró
   });
 
@@ -185,11 +213,12 @@ describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
     expect(submitPlayer).not.toHaveBeenCalled();
   });
 
-  it('«los dos días» ⇒ dos POST (sat + sun), cada uno con su token', async () => {
-    getFormToken.mockResolvedValue('tok');
+  it('«los dos días» ⇒ dos POST (sat + sun), cada uno con su token de un solo uso', async () => {
+    mockUniqueTokens();
     submitPlayer.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<TorneoForm />);
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(PLAYERS_POOL)); // prefetch al montar
     await u.click(screen.getByRole('radio', { name: 'Los dos días' }));
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Player ID'), '12345');
@@ -198,10 +227,12 @@ describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     expect(submitPlayer.mock.calls.map((c) => c[0].day).sort()).toEqual(['sat', 'sun']);
-    expect(getFormToken).toHaveBeenCalledTimes(2);
+    expect(getFormToken).toHaveBeenCalledTimes(PLAYERS_POOL); // usa el pool, sin fetch nuevo en submit
+    const tokens = submitPlayer.mock.calls.map((c) => c[0].formToken);
+    expect(new Set(tokens).size).toBe(2); // un token de un solo uso por POST
   });
 
-  it('menor CON consentimiento ⇒ envía guardianConsent=true', async () => {
+  it('menor CON consentimiento ⇒ envía guardianConsent=true y body con formToken', async () => {
     getFormToken.mockResolvedValue('tok');
     submitPlayer.mockResolvedValue(undefined);
     const u = userEvent.setup();
@@ -218,6 +249,7 @@ describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
     const body = submitPlayer.mock.calls[0][0];
     expect(body.isMinor).toBe(true);
     expect(body.guardianConsent).toBe(true);
+    expect(typeof body.formToken).toBe('string'); // el cuerpo lleva la clave del contrato
   });
 
   it('honeypot del torneo también oculto', () => {

@@ -44,9 +44,11 @@ function parseRetryAfter(res: Response): number | undefined {
 }
 
 /**
- * ⚠️ HUECO DE CONTRATO (para el arquitecto): §CARDSHOW.5 dice que `GET /card-show/form-token` emite
- * un token firmado con `iat` y propósito, pero NO fija el nombre del parámetro (`?purpose=`) ni la
- * forma exacta de la respuesta. Aquí se asume `?purpose=leads|players` y `{ token: string }`.
+ * `GET /card-show/form-token?purpose=leads|players` emite un token firmado (§CARDSHOW.5). El backend
+ * responde `{ formToken: string }` (ver `card-show.controller.ts`), NO `{ token }`: por eso se lee
+ * `formToken`. El parámetro de consulta es `?purpose=`.
+ * NOTA al arquitecto: §CARDSHOW.5 no fija por escrito el nombre del campo de respuesta; aquí se
+ * sigue la implementación del backend (`formToken`).
  */
 export async function getFormToken(purpose: FormPurpose): Promise<string> {
   const res = await fetch(url(`/form-token?purpose=${purpose}`), {
@@ -56,14 +58,15 @@ export async function getFormToken(purpose: FormPurpose): Promise<string> {
   });
   if (res.status === 429) throw new CardShowApiError(429, 'RATE_LIMITED', 'rate limited', undefined, parseRetryAfter(res));
   if (!res.ok) throw new CardShowApiError(res.status, 'FORM_TOKEN_ERROR', 'no se pudo emitir el token');
-  const body = (await res.json().catch(() => null)) as { token?: string } | null;
-  if (!body?.token) throw new CardShowApiError(res.status, 'FORM_TOKEN_ERROR', 'respuesta sin token');
-  return body.token;
+  const body = (await res.json().catch(() => null)) as { formToken?: string } | null;
+  if (!body?.formToken) throw new CardShowApiError(res.status, 'FORM_TOKEN_ERROR', 'respuesta sin token');
+  return body.formToken;
 }
 
 /** Cuerpo común a los dos formularios: token, consentimiento, honeypot y atribución. */
 export interface BaseSubmitBody {
-  token: string;
+  /** Token de formulario firmado (§CARDSHOW.5). El DTO del backend exige la clave `formToken`. */
+  formToken: string;
   consent: boolean;
   /**
    * ⚠️ HUECO DE CONTRATO: §CARDSHOW.13 pide honeypot pero no nombra el campo. Se usa `website`;

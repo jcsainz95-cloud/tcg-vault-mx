@@ -2,10 +2,10 @@
  * CARD SHOW — contenido de la landing (API_CONTRACT §CARDSHOW, ARCHITECTURE §4.CARDSHOW).
  *
  * ⛔ SECRETO HASTA EL ANUNCIO · ESTE REPOSITORIO ES PÚBLICO.
- * Ningún dato real del evento vive aquí: fecha, sede/dirección, precios, medidas de mesa, número de
- * mesas, horario, cupo y patrocinador entran **FUERA DEL REPO**, en un commit único el día del
- * anuncio. Mientras tanto todo va como MARCADOR (`FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`,
- * `MEDIDA_TBD`, `—`). «Jakomi» sí se permite (organizador del torneo, público).
+ * Ningún dato real del evento vive aquí: fecha, sede/dirección, precios, número de mesas, horario,
+ * cupo y patrocinador entran **FUERA DEL REPO**, en un commit único el día del anuncio. Mientras
+ * tanto todo va como MARCADOR (`FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`, `—`). Las MEDIDAS de mesa NO
+ * son secreto (decisión JC) y se muestran. «Jakomi» sí se permite (organizador del torneo, público).
  *
  * El candado de secreto del CI (devops) hace grep de los términos prohibidos sobre esta rama; si
  * algún valor real se cuela aquí, el grep lo caza antes del push. Por eso este fichero SOLO contiene
@@ -35,7 +35,7 @@ export interface MesaTipo {
   nombre: string;
   /** Precio con IVA incluido y con fecha (decisión JC). Marcador hasta el anuncio. */
   precio: string;
-  /** Medida de la mesa. `null` ⇒ no se muestra todavía (decisión JC: sin medidas por ahora). */
+  /** Medida de la mesa (decisión JC: SE muestra, no es dato secreto). `null` ⇒ no se muestra. */
   medida: string | null;
   estado: MesaEstado;
 }
@@ -125,8 +125,9 @@ export const CARD_SHOW = {
   mesas: {
     intro: 'Aparta tu mesa para vender en el Card Show. Precios con IVA incluido y vigentes a su fecha.',
     tipos: [
-      { id: 'estandar', nombre: 'Mesa estándar', precio: TBD.precio, medida: null, estado: 'sin_apartar' },
-      { id: 'premium', nombre: 'Mesa premium', precio: TBD.precio, medida: null, estado: 'sin_apartar' },
+      // Medidas (decisión JC, NO secreto): «chica» 1.20 m (estándar), «grande» 1.80–2.20 m (premium).
+      { id: 'estandar', nombre: 'Mesa estándar', precio: TBD.precio, medida: '1.20 m', estado: 'sin_apartar' },
+      { id: 'premium', nombre: 'Mesa premium', precio: TBD.precio, medida: '1.80–2.20 m', estado: 'sin_apartar' },
     ] as MesaTipo[],
     // Andamio de Fase 1: posiciones de ejemplo para que el plano sea navegable. El plano REAL
     // (número, posiciones, precios, medidas) llega con los datos del anuncio. NO es el conteo real.

@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useId } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useRef } from 'react';
 import { cn } from '@/lib/cn';
 import {
   CardShowApiError,
@@ -62,23 +62,89 @@ export function readAttribution(): Pick<
 }
 
 /**
- * Pide un token (§CARDSHOW.5), ejecuta `run(token)` y, si el token caducó (400 FORM_EXPIRED),
- * pide OTRO y reintenta UNA vez sin borrar lo tecleado. Si el reintento también caduca, lanza
- * `FORM_EXPIRED` para que la UI pinte el mensaje de «formulario caducado». El resto de errores
- * (429, 413, 400 de validación) se propagan tal cual para que la UI elija el texto.
+ * Tiempos del token anti-bot (§CARDSHOW.5). El backend descarta en silencio (`too_fast`) cualquier
+ * POST cuyo token tenga <2 s de edad (`FORM_TOKEN_MIN_AGE_MS`). Por eso NO pedimos el token en el
+ * submit (sería recién emitido), sino al MONTAR el formulario; para cuando el humano envía, el token
+ * ya pasó los 2 s. `slackMs` es el margen por encima de los 2 s al pedir uno en caliente.
+ *
+ * Se expone como objeto mutable SOLO para que las pruebas lo pongan en 0 y no esperen de verdad; en
+ * producción conserva los valores reales.
  */
-export async function withFormToken(purpose: FormPurpose, run: (token: string) => Promise<void>): Promise<void> {
+export const formTokenTiming = { minAgeMs: 2_000, slackMs: 150 };
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
+}
+
+/** Pide un token FRESCO y espera a que supere el min-age antes de devolverlo (evita `too_fast`). */
+async function freshAgedToken(purpose: FormPurpose): Promise<string> {
   const token = await getFormToken(purpose);
-  try {
-    await run(token);
-  } catch (e) {
-    if (e instanceof CardShowApiError && e.status === 400 && e.code === 'FORM_EXPIRED') {
-      const fresh = await getFormToken(purpose);
-      await run(fresh); // si vuelve a lanzar FORM_EXPIRED, sube a la UI → mensaje «caducado»
-      return;
-    }
-    throw e;
-  }
+  await sleep(formTokenTiming.minAgeMs + formTokenTiming.slackMs);
+  return token;
+}
+
+/**
+ * Hook de tokens de formulario. Al montar, PRE-CARGA un pool de hasta `poolSize` tokens (uno por
+ * cada POST que el formulario pueda hacer: p.ej. 3 chips en leads, 2 días en players). Cada token es
+ * de un solo uso (§CARDSHOW.5): un POST = un token.
+ *
+ * `withToken(run)` toma un token del pool (ya con ≥2 s de edad en el uso real), ejecuta `run(token)`
+ * y, si caducó (400 FORM_EXPIRED, TTL 30 min), pide UNO FRESCO —esperando de nuevo el min-age de 2 s
+ * para no caer en `too_fast`— y reintenta UNA vez sin borrar lo tecleado. Si el reintento también
+ * caduca, sube `FORM_EXPIRED` a la UI. Los demás errores (429, 413, 400 validación) se propagan.
+ */
+export function useFormTokens(purpose: FormPurpose, poolSize: number): {
+  withToken: (run: (token: string) => Promise<void>) => Promise<void>;
+} {
+  const poolRef = useRef<{ token: string; fetchedAt: number }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Rellena el pool al montar; si un prefetch falla, el submit lo pide en caliente.
+      while (!cancelled && poolRef.current.length < poolSize) {
+        try {
+          const token = await getFormToken(purpose);
+          if (cancelled) return;
+          poolRef.current.push({ token, fetchedAt: Date.now() });
+        } catch {
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [purpose, poolSize]);
+
+  // Devuelve un token con ≥2 s de edad garantizada: del pool (ya añejo en el uso real) o, si el pool
+  // está vacío (más POSTs que tokens o prefetch aún en vuelo), uno fresco esperando el min-age.
+  const takeAged = useCallback(async (): Promise<string> => {
+    const entry = poolRef.current.shift();
+    if (!entry) return freshAgedToken(purpose);
+    const age = Date.now() - entry.fetchedAt;
+    await sleep(formTokenTiming.minAgeMs - age + formTokenTiming.slackMs);
+    return entry.token;
+  }, [purpose]);
+
+  const withToken = useCallback(
+    async (run: (token: string) => Promise<void>): Promise<void> => {
+      const token = await takeAged();
+      try {
+        await run(token);
+      } catch (e) {
+        if (e instanceof CardShowApiError && e.status === 400 && e.code === 'FORM_EXPIRED') {
+          const fresh = await freshAgedToken(purpose);
+          await run(fresh); // si vuelve a caducar, sube a la UI → mensaje «caducado»
+          return;
+        }
+        throw e;
+      }
+    },
+    [purpose, takeAged],
+  );
+
+  return { withToken };
 }
 
 /** Traduce un error del alta al texto de pantalla (§CARDSHOW.5). */

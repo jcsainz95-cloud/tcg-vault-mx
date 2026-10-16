@@ -2,8 +2,12 @@
 /**
  * ⛔ SECRETO — guarda de repo público (complementa el grep de CI que cablea devops, §CARDSHOW.17).
  * Ningún valor real del evento puede vivir en el código del Card Show: fecha, sede/dirección,
- * precios, medidas ni las palabras clave del anuncio. Todo va como MARCADOR hasta el día del
- * anuncio. «Jakomi» sí se permite.
+ * precios ni las palabras clave del anuncio. Todo va como MARCADOR hasta el día del anuncio.
+ * «Jakomi» sí se permite. Las MEDIDAS de mesa NO son secreto (decisión JC) y sí se muestran.
+ *
+ * Los términos prohibidos del anuncio NO viven en este archivo: se leen en RUNTIME de la variable
+ * de entorno `CARDSHOW_SECRET_TERMS` (secreto de CI que cablea devops). Sin la env, ese escaneo se
+ * salta; no hay fallback hardcodeado. Así ningún valor real del evento queda en el repo público.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,32 +34,48 @@ function cardShowSources(): { file: string; text: string }[] {
   return files.map((f) => ({ file: f, text: readFileSync(join(ROOT, f), 'utf8') }));
 }
 
-// Términos prohibidos del anuncio (encargo). ⛔ No escribir el valor real; se buscan como patrón.
-const FORBIDDEN: RegExp[] = [
-  /alianza/i,
-  /revoluci[óo]n/i,
-  /castillo/i,
-  /insurgentes/i,
-  /mixcoac/i,
-  /san jos[ée]/i,
-  /\b5\s*(o|y)\s*6\s*de\s*diciembre/i,
-  /\b3000\b/,
-  /\b2500\b/,
-  /\b1800\b/,
-  /\b25000\b/,
-  /\b8500\b/,
-];
+/**
+ * Términos prohibidos del anuncio, leídos en RUNTIME de `CARDSHOW_SECRET_TERMS` (lista separada por
+ * comas; secreto de CI). ⛔ Ningún valor real vive en este repo. Cada término se compila a un RegExp
+ * case-insensitive ESCAPANDO los metacaracteres de regex, de modo que se busca como SUBCADENA
+ * LITERAL (robusto ante acentos, dígitos o signos en el valor; nunca rompe la compilación).
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-describe('secreto · ningún dato real del evento en el código del Card Show', () => {
-  const sources = cardShowSources();
+function forbiddenTermsFromEnv(): RegExp[] {
+  const raw = process.env.CARDSHOW_SECRET_TERMS;
+  if (!raw || raw.trim() === '') return [];
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .map((t) => new RegExp(escapeRegex(t), 'i'));
+}
 
-  for (const re of FORBIDDEN) {
-    it(`no aparece el patrón prohibido ${re}`, () => {
-      const hits = sources.filter((s) => re.test(s.text)).map((s) => s.file);
-      expect(hits, `patrón ${re} encontrado en: ${hits.join(', ')}`).toEqual([]);
+const FORBIDDEN = forbiddenTermsFromEnv();
+
+// ⛔ Mensajes y nombres de prueba GENÉRICOS: nunca imprimen el valor del término (solo ficheros).
+if (FORBIDDEN.length > 0) {
+  describe('secreto · términos del anuncio no aparecen en el código del Card Show', () => {
+    const sources = cardShowSources();
+    FORBIDDEN.forEach((re, i) => {
+      it(`término prohibido del anuncio #${i + 1} no aparece en ninguna fuente`, () => {
+        const hits = sources.filter((s) => re.test(s.text)).map((s) => s.file);
+        expect(hits, `un término prohibido del anuncio apareció en: ${hits.join(', ')}`).toEqual([]);
+      });
     });
-  }
+  });
+} else {
+  describe('secreto · términos del anuncio (escaneo por env)', () => {
+    it.skip('CARDSHOW_SECRET_TERMS no definida; escaneo de términos del anuncio omitido', () => {
+      // Sin la env no hay términos que escanear y no existe fallback hardcodeado: se salta limpio.
+    });
+  });
+}
 
+describe('secreto · marcadores del evento en el código del Card Show', () => {
   it('los datos del evento están como marcadores (fecha, sede, precio)', () => {
     expect(CARD_SHOW.hero.fecha).toBe(TBD.fecha);
     expect(CARD_SHOW.hero.sede).toBe(TBD.sede);
@@ -63,8 +83,14 @@ describe('secreto · ningún dato real del evento en el código del Card Show', 
     for (const n of CARD_SHOW.patrocinios.niveles) expect(n.precio).toBe(TBD.precio);
   });
 
-  it('ninguna medida de mesa se muestra todavía (decisión JC: sin medidas)', () => {
-    for (const t of CARD_SHOW.mesas.tipos) expect(t.medida).toBeNull();
+  it('las medidas de mesa SÍ se muestran (decisión JC: no son secreto)', () => {
+    const medidas = CARD_SHOW.mesas.tipos.map((t) => t.medida);
+    expect(medidas.length).toBeGreaterThan(0);
+    for (const m of medidas) {
+      expect(m).not.toBeNull();
+      expect(typeof m).toBe('string');
+      expect((m as string).length).toBeGreaterThan(0);
+    }
   });
 
   it('no hay patrocinador nombrado en la sección de patrocinios (solo niveles genéricos)', () => {

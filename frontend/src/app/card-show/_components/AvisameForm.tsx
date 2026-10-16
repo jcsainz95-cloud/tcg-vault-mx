@@ -15,7 +15,7 @@ import {
   errorMessage,
   isEmail,
   readAttribution,
-  withFormToken,
+  useFormTokens,
 } from './form-shared';
 
 type Interes = 'visitor' | 'merchant' | 'sponsor';
@@ -45,6 +45,9 @@ export function AvisameForm({ source = 'cta_hero' }: { source?: LeadSubmitBody['
   const [fieldErrors, setFieldErrors] = useState<{ interes?: string; email?: string; consent?: string }>({});
   const [errorText, setErrorText] = useState<string | null>(null);
   const liveRef = useRef<HTMLParagraphElement>(null);
+  // Pre-carga tokens al MONTAR (uno por chip posible), para que al enviar ya pasen los 2 s del
+  // candado anti-bot del backend (§CARDSHOW.5); cada POST consume su propio token de un solo uso.
+  const { withToken } = useFormTokens('leads', CHIPS.length);
 
   function toggle(v: Interes) {
     setInteres((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
@@ -66,10 +69,10 @@ export function AvisameForm({ source = 'cta_hero' }: { source?: LeadSubmitBody['
     setStatus('pending');
     const attribution = readAttribution();
     try {
-      // Un POST por chip seleccionado, cada uno con su token de un solo uso.
+      // Un POST por chip seleccionado, cada uno con su token de un solo uso (clave `formToken`).
       for (const type of interes) {
-        await withFormToken('leads', (token) =>
-          submitLead({ token, type, source, email: email.trim(), consent, website: hp, ...attribution }),
+        await withToken((token) =>
+          submitLead({ formToken: token, type, source, email: email.trim(), consent, website: hp, ...attribution }),
         );
       }
       setStatus('success');
