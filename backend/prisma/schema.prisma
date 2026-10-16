@@ -181,6 +181,7 @@ enum PaymentRefundKind {
   order_full // M3, súper-admin: el remanente de la orden (§M3)
   case_refund // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
   item_delivered // v1.82 (M-70, §PNL.2) — UNA carta de un envío directo YA ENTREGADO (súper-admin, motivo ShippedRefundReason)
+  stripe_dashboard // v1.95⟨pnl-finanzas⟩ (M-80, §M4-SHIP.20 B1) — reembolso hecho DIRECTO en el panel de Stripe (fuera de la app), reconciliado por webhook `charge.refunded`/`refund.updated` SIN `metadata.paymentRefundId`; solo `orderId` (xor `shipmentRequestId`), SIN líneas
 }
 
 // v1.80 (M-61, §M4-SHIP.7) — ciclo de una fila del libro. Clase E.
@@ -1080,7 +1081,26 @@ model InventoryItem {
   finish                  Finish           @default(normal)
   listPriceCents          Int?
   acquisitionType         AcquisitionType
+  // v1.64(4)/v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, decisión del dueño): cuando viene de COMPRA FIRME,
+  // `acquisitionCostCents` es **BRUTO** — el importe TOTAL de la factura del distribuidor, IVA INCLUIDO,
+  // tecleado por el operador. Cuando viene de APORTACIÓN ya es **NETO** (`inventory.service.ts:997` =
+  // `mercado_neto × pct`): ahí no hay IVA embebido. La semántica antes no estaba declarada y se podía
+  // capturar de las dos formas (mismo hueco que §9 · D-IVA-9 tuvo para el envío).
   acquisitionCostCents    Int?
+  // v1.95⟨pnl-finanzas⟩ (migración m79 punto A, §4.44.f-quater): el **IVA ACREDITABLE de ese costo,
+  // CONGELADO al capturar**, para que el COGS neto sea una RESTA (`acquisitionCostCents −
+  // acquisitionCostIvaCents`). Espejo exacto de `ShipmentRequest.shippingCostIvaCents` un nivel más abajo.
+  // ⛔ NUNCA una división por `(1+r)` al leer: esta tabla NO tiene `ivaRatePct` (solo `Order`), así que
+  // derivarlo obligaría a leer el DIAL VIVO y un P&L histórico cambiaría al mover `iva_pct` —
+  // incumpliendo `IVA-5`. Por eso se deriva-y-congela al capturar (COMPRA FIRME) con el `iva_pct`
+  // vigente, y en APORTACIÓN se escribe `0` (su costo ya es neto). Diferencia con el envío: allí el IVA
+  // se teclea del papel; aquí se deriva-y-congela porque el distribuidor no siempre lo desglosa — pero
+  // lo que se persiste es el **congelado**, no la tasa.
+  // ⭐ `@default(0)` SÍ es honesto aquí (misma doctrina que `shippingCostIvaCents`): la ausencia **de
+  // verdad significa cero** (en las filas históricas nunca se capturó el crédito de un costo) ⇒ `0` dice
+  // «no consta crédito» ⇒ `net = bruto`, que es la dirección CONSERVADORA (subestima la ganancia).
+  // ⛔ Sin backfill (doctrina `IVA-11(d)`): `costo × 16/116` inventaría un crédito fiscal que nadie verificó.
+  acquisitionCostIvaCents Int              @default(0)
   acquisitionPct          Int?
   // SEC-A3: unicidad para cerrar la doble conversión (convert-to-inventory) por carrera.
   // Dos conversiones concurrentes del mismo SellRequestItem colisionan aquí (P2002) y

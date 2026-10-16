@@ -94,11 +94,14 @@ describe('§AN fase A — cifras por día (Postgres real)', () => {
     expect(r.rows[1]).toMatchObject({ from: '2021-05-11', orders: 2, chargedCents: 34800 });
   });
 
-  it('AN-B-3 💰: cuadre con M7 al centavo — Σ netSales = pnl.income + Σ netRevenue(refunded|chargeback); Σ refunds.net = pnl.refunds', async () => {
+  it('AN-B-3 💰: cuadre con M7 al centavo — Σ netSales = pnl.income + Σ netRevenue(chargeback); Σ refunds.net = pnl.refunds', async () => {
     const r = await svc.report(P, NOW_MARCH);
     const pnl = await admin.pnl(mxDayStart(P.from).toISOString(), new Date(mxDayStart(nextYmd(P.to)).getTime() - 1).toISOString());
+    // B2 (§W 277/278): el ingreso del P&L se acota por `settledAt ∈ periodo` con `status IN {settled, refunded}`, así que
+    // O3 (reembolsada, liquidada en-rango) YA vive en `pnl.income`. El `gap` debe cubrir SOLO lo que el ingreso NO cuenta ⇒
+    // `chargeback` únicamente (D-PNL-1 lo mantiene fuera del ingreso). Meter aquí los `refunded` los DOBLE-contaría.
     const gap = await w.h.prisma.order.findMany({
-      where: { settledAt: { gte: mxDayStart(P.from), lt: mxDayStart(nextYmd(P.to)) }, status: { in: ['refunded', 'chargeback'] } },
+      where: { settledAt: { gte: mxDayStart(P.from), lt: mxDayStart(nextYmd(P.to)) }, status: { in: ['chargeback'] } },
       select: { subtotalCents: true, ivaRatePct: true, priceConvention: true },
     });
     const gapCents = gap.reduce((a, o) => a + netRevenueCents(o), 0);
@@ -107,8 +110,10 @@ describe('§AN fase A — cifras por día (Postgres real)', () => {
     expect(sum(r.rows, (f) => f.refunds.netCents)).toBe(pnl.refundsCents);
     // A mano (fixture): O1 10000 + O3 INCL ⌊11601/1.16⌉ 10001 + O2 INCL 20000 + O4 20000 + O5 5000 + O8 3000.
     expect(netSales).toBe(68001);
-    expect(pnl.incomeCents).toBe(53000);
-    expect(gapCents).toBe(10001 + 5000);
+    // B2: `pnl.income` ahora incluye el neto de O3 (reembolsada, settled en-rango): 53000 + 10001 = 63001.
+    expect(pnl.incomeCents).toBe(63001);
+    // `gap` = solo el chargeback O5 (5000); O3 ya no suma aquí (está en el ingreso) ⇒ el cuadre 68001 = 63001 + 5000 ata al centavo.
+    expect(gapCents).toBe(5000);
     expect(pnl.refundsCents).toBe(10001 + 6720 + 4200);
     // CONTROL: la fixture tiene IVA_INCLUSIVE donde la mutación m3 (subtotal en vez de neto) se nota.
     expect(sum(r.rows, (f) => f.chargedCents)).toBe(12100 + 12201 + 36300 + 24100 + 6100 + 3680);
@@ -272,7 +277,9 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
     expect(r.totals.shipping).toEqual({ chargedNetCents: 25000, costNetCents: 10000, costMissingCount: 1, adjustmentsCents: 2000, resultNetCents: 15000 });
     // 💰 Fusión con #78 (§BSD.16): 11 009 de la venta + 18 000 retenidos (SR1) − 15 000 (guía manual SR1) − 21 552 (guía de
     // Skydropx de entrada SR3, neta) − 7 000 (guía manual SR4 confirmada sin guía) = −14 543.
-    expect(r.totals.profitCents).toBe(11009 + 18000 - 15000 - 21552 - 7000);
+    // B2 (§W 277/278): O3 (reembolsada, liquidada en-rango) ahora cuenta su ingreso en el P&L, y con él su margen neto
+    // +2 401 ⇒ −12 142. Delta medido como la ÚNICA diferencia frente a −14 543 (O3 es el único cambio de la fixture por B2).
+    expect(r.totals.profitCents).toBe(11009 + 18000 - 15000 - 21552 - 7000 + 2401);
     expect(r.rows.find((x) => x.from === '2021-03-06')!.shipping.adjustmentsCents).toBe(2000);
     // ⛔ Las claves de #78 no viajan (ausentes, no 0).
     expect(r.totals.shipping).not.toHaveProperty('buylistRevenueCents');

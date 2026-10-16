@@ -1,3 +1,77 @@
+# VEREDICTO BLUE TEAM — «P&L Finanzas» · SHA **`e454262`** (rama `fix/pnl-finanzas`) · 2026-10-16
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `e454262` — **0 críticas · 0 altas · 0 medias · 2 bajas** (aceptadas como deuda registrada, no bloquean)
+>
+> Fase de seguridad del release del stream Finanzas/P&L (PR #94). **Sin hallazgos críticos ni altos abiertos** ⇒ por
+> el DoD, nada frena la publicación. Las 2 bajas (PNL-6, PNL-7) son **endurecimiento/defensa en profundidad** sobre
+> endpoints `super_admin` + Bearer: se **aceptan como deuda registrada** y se enrutan a **backend** (no son
+> condiciones bloqueantes; ver disparador en cada una). **No hay condición bloqueante para publicar la #94.**
+>
+> **Sobre qué medí (O-14):** código del release = `e454262`; HEAD de la rama = `183bb5b0` (dos commits SOLO
+> documentación encima: `9bb8c67`, `183bb5b0`). Árbol limpio en `fix/pnl-finanzas` (`git status --porcelain` vacío).
+> Revisión de **caja blanca sobre el delta**; no levanté stack (el pentester ya corrió la fase EN VIVO sobre `:3099`
+> sirviendo `9bb8c67d` = código `e454262`, con `cat /proc/loadavg`≈0 — relayo su N y autoría donde cito cifras suyas,
+> O-15). Mis verificaciones son lectura directa de `fichero:línea` sobre `e454262`.
+
+## Consolidación de los hallazgos del pentester (`docs/PENTEST_NOTES.md`, pase `e454262`)
+
+Crucé cada hallazgo del red team contra el código. **Confirmo los 2 Bajos y las 5 Info; no añado ni reclasifico
+ninguno hacia arriba.** Resumen del cruce:
+
+| ID | Sev pentester | Mi veredicto | Evidencia que medí yo |
+|---|---|---|---|
+| PNL-1 authz vertical de Finanzas | Info (correcta) | **Confirmada correcta** | `admin.controller.ts:491-493` — `@Controller('admin/finance')` + `@Roles(Role.super_admin)` a nivel de CLASE cubre `pnl`/`iva`/`inventory-value`/`custody-value`/`export.csv`. Guards globales `JwtAuthGuard→RolesGuard`. Un operador/cliente no lee ni exporta el P&L. |
+| PNL-2 forja del webhook B1 | Info (rechazada) | **Confirmada: falla CERRADO** | `webhooks.controller.ts:29` verifica firma (`verifyAndParse`→`constructEvent`, `stripe.service.ts:391-401`) **ANTES** de `handleEvent`; secreto ausente⇒503, firma mala⇒400. La ruta B1 (`reconcileStripeDashboardRefund`) corre dentro de `handleEvent` (`payments.service.ts:191-197,757,775`), DESPUÉS de la firma ⇒ un evento forjado nunca la alcanza. |
+| PNL-3 reembolso de panel (B1) money-safe/idempotente | Info | **Confirmada** | `refund-ledger.service.ts:470-544`: rechaza `amountCents<=0`/no-entero (:479), exige resolver `Order` por `stripePaymentIntentId` (:483-492), salta los reembolsos de la app (`metadata.paymentRefundId`, :478). Idempotencia **a prueba de carrera**: `createMany skipDuplicates` (:528) + `idempotencyKey @unique` **y** `stripeRefundId @unique` en `schema.prisma` (ambos @unique, verificados) = `ON CONFLICT DO NOTHING`; `count!==1`⇒no duplica ni audita (:531). ⛔ **No mueve dinero real** (Stripe ya lo movió); solo nace la fila de libro. |
+| PNL-4 invariante del estado de resultados | Info | **Confirmada** (statement derivado por construcción) | El `statement` es aditivo sobre los campos planos; el IVA es MEMO (no resta). Sin segunda fuente para el P&L. |
+| PNL-5 COGS neto de IVA (m79) / sin raw SQL / params | Info | **Confirmada** | `grep` de `$queryRaw`/`$executeRaw`/`Prisma.raw`/`$query`/`$execute` en `pnl-core.ts` y `admin.service.ts` ⇒ **0 coincidencias** (toda la agregación es `findMany`/`where` tipado). m79 añade columna `NOT NULL DEFAULT 0` sin backfill (`net=bruto` histórico, conservador). COGS por RESTA del crédito congelado, nunca por división. |
+| **PNL-6** falta `Cache-Control: no-store` en `/admin/finance/{pnl,iva,export.csv}` | **Baja** | **Confirmada · Baja** → deuda aceptada | `admin.controller.ts`: `pnl`(:515), `iva`(:531), `export.csv`(:536) **no** llevan `@Header('Cache-Control','no-store')`; sus hermanos SÍ (`shrinkage`:500-501, `sales`:563-564, `sales/export.csv`:580-581, `sales/today`:596-597). Inconsistencia de endurecimiento. |
+| **PNL-7** `Content-Disposition` arma `filename` con `report` sin sanear + fall-through a CSV de inventario | **Baja** | **Confirmada · Baja** → deuda aceptada | `admin.controller.ts:545` y gemelo `AdminReportsController:635`: `filename="${report}.csv"` refleja la `"` del atacante. `admin.service.ts:1909-1944`: `report` desconocido **cae a inventario** (:1931-1944) y devuelve **200**, nunca **400**. |
+
+**Verificados por el pentester, sin hallazgo (relayados, no re-medidos por mí):** rate-limit de login (5×401→429, N del pentester), CSV sin inyección de fórmulas (numérico/enum/cuid), relajación mínima del CHECK en m80, y el centinela `SYSTEM_REFUND_ACTOR_ID` que no contamina el tope de 24 h del operador. m80 lo confirmé en el SQL: `ADD VALUE IF NOT EXISTS` + relajación de UN solo CHECK (`shipment_fee_chk`), aditivo, sin backfill, cero dinero movido.
+
+## Hallazgos priorizados por severidad
+
+### Crítica — 0
+### Alta — 0
+### Media — 0
+
+### Baja — 2 (endurecimiento; aceptadas como deuda registrada, NO bloquean)
+
+**PNL-6 · Baja · Falta `Cache-Control: no-store` en los endpoints financieros de `/admin/finance`.**
+- **Ubicación:** `backend/src/modules/admin/admin.controller.ts` — `GET /admin/finance/pnl` (:515-519), `/iva` (:531-534), `/export.csv` (:536-547).
+- **Evidencia:** no llevan `@Header('Cache-Control','no-store')`; los hermanos de dinero sí (`shrinkage` :500-501, `sales`/`sales/export.csv`/`sales/today` :563-599).
+- **Impacto:** bajo. Acceso `super_admin` + token **Bearer en cabecera** (no cookie) ⇒ proxies compartidos no cachean respuestas autenticadas por defecto. Riesgo residual: caché de navegador/intermediario de datos financieros sensibles (estado de resultados, IVA, CSV). Es defensa en profundidad e inconsistencia con los hermanos.
+- **Rol dueño:** **backend** (añadir `@Header('Cache-Control','no-store')` a los tres, como ya tienen sus hermanos).
+
+**PNL-7 · Baja · `export.csv` arma `Content-Disposition` con el query `report` sin sanear y no valida `report` desconocido.**
+- **Ubicación:** `backend/src/modules/admin/admin.controller.ts:536-547` (`AdminFinanceController.exportCsv`) y gemelo `AdminReportsController` (:626-637); fall-through en `backend/src/modules/admin/admin.service.ts:1909-1944` (línea :1931).
+- **Evidencia:** `res.setHeader('Content-Disposition', \`attachment; filename="${report}.csv"\`)` refleja la `"` del atacante sin escapar; un `report` desconocido devuelve **200 con el CSV de INVENTARIO** (mislabeleado) en lugar de **400**.
+- **Impacto:** bajo. ⛔ **No es response-splitting** (Node rechaza CR/LF en cabeceras, `ERR_INVALID_CHAR`). ⛔ **No es CSRF-able** (`super_admin` + Bearer, no cookie). ⛔ **No es fuga entre roles ni escalada**: el CSV de inventario ya es exportable por el mismo `super_admin` vía `report=inventory`, así que el fall-through no expone nada que el llamador no pudiera ya obtener. Queda como robustez de entrada + etiquetado honesto del archivo.
+- **Rol dueño:** **backend** (whitelist de `report` a `{pnl,iva,inventory}`, `400 VALIDATION_ERROR` para lo desconocido, y `filename` constante/saneado — igual que el CSV de ventas, que usa `csv.filename` ya computado).
+
+## Deuda de seguridad aceptada (no bloqueante)
+
+Ambas Bajas se **aceptan como deuda registrada** y se enrutan a **backend**. No bloquean la #94 (endurecimiento sobre superficie `super_admin`+Bearer, sin crítico/alto). Registro:
+- **Aquí** (`docs/SECURITY_NOTES.md`, este veredicto) queda el registro de seguridad.
+- El asiento formal de deuda técnica va en `docs/TECH_DEBT.md`, que **lo escribe backend** (rol dueño del código anotado, a petición del techlead) — yo no escribo ahí (regla de oro de propiedad de archivos). **Bandera para el orquestador:** enrutar a backend el asiento de PNL-6 y PNL-7 en `TECH_DEBT.md`.
+- **Disparador (cuándo abordarlas):** en el **próximo work stream que toque `backend/src/modules/admin`** (son un cambio de ≤4 líneas por endpoint y un whitelist); o **antes** si se expone cualquier endpoint financiero fuera de `super_admin`+Bearer (p. ej. detrás de cookie de sesión o a un rol nuevo), momento en que PNL-6 (caché) y PNL-7 (CSRF del `Content-Disposition`) **suben de severidad** y pasarían a bloqueantes. Ese cambio de superficie es el candado del disparador: cualquier PR que añada un endpoint a `AdminFinanceController`/`AdminReportsController` fuera de `super_admin` debe traer primero estos dos arreglos.
+
+## Banderas para el humano
+
+1. **La tienda opera en MODO REAL de Stripe con venta real** (HECHOS 2026-10-16 ⭐). Este release toca el libro del dinero (reembolso de panel B1, COGS neto de IVA, estado de resultados). Verificado que B1 **no mueve dinero** (solo registra lo que Stripe ya movió) y es idempotente, pero recomiendo que el dueño confirme en su panel de Stripe real, tras publicar, que un reembolso hecho a mano DIRECTO en el panel aparece **una sola vez** en el P&L (es exactamente el hueco que B1 cierra).
+2. **Pentest de tercero + bug bounty antes de escalar volumen de dinero real.** Toda la fase de seguridad de este proyecto es de equipo propio (red team interno + este blue team) sobre **stack local** («no hay staging»). Para operación de dinero real sostenida, un pentest externo y un programa de divulgación responsable siguen siendo recomendables; es decisión del dueño cuándo.
+3. **Custodia/PII (INE/CLABE):** este release es financiero y no toca la superficie de PII directamente; no re-medí esa superficie en este pase. Las validaciones legales de custodia y tratamiento de PII siguen siendo responsabilidad del dueño y no las cierra este veredicto.
+
+## VEREDICTO final
+
+✅ **APROBADO** sobre `e454262` (rama `fix/pnl-finanzas`). **0 críticas · 0 altas · 0 medias · 2 bajas** (PNL-6, PNL-7),
+aceptadas como **deuda registrada** y enrutadas a **backend**, **sin condición bloqueante**. Por el DoD (sin hallazgos
+críticos/altos abiertos), **la fase de seguridad del release no frena la publicación de la #94**. El asiento de deuda
+en `TECH_DEBT.md` lo escribe backend (bandera para el orquestador arriba).
+
+---
+
 # VEREDICTO BLUE TEAM — **sellado-display (opción A, cierre de clase)** · SHA **`cb66e1f`** (rama `fix/sealed-display`) · 2026-10-13
 
 > ## VEREDICTO: ✅ **APROBADO focalizado** sobre `cb66e1f` — 0 críticas · 0 altas · 0 medias · 0 bajas nuevas

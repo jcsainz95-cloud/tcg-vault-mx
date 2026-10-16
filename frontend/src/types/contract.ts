@@ -6763,6 +6763,81 @@ export interface PnlDTO {
   buylistGuideMarginCents: number;
   /** Informativo: pagadas en el periodo con guía manual y sin costo capturado. */
   buylistGuideCostMissingCount: number;
+  /**
+   * §M10-IVA.8-bis (C) — estado de resultados con SUBTOTALES, **ADITIVO**. Lo construye el servidor por
+   * construcción de los campos planos de arriba (⛔ ninguna cifra de otra fuente). **Opcional en el tipo**:
+   * un servidor que aún no lo manda (backend sin fusionar) deja la pantalla degradar al P&L plano.
+   * ⛔ El cliente NO re-suma: pinta los subtotales tal cual (`netResultCents ≡ profitCents`).
+   */
+  statement?: PnlStatementDTO;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — CONTRA-INGRESO: devoluciones y reembolsos que bajan de VENTAS a VENTAS NETAS.
+ * ⛔ Son dinero devuelto al cliente (reducen la venta), NO costos. La pantalla los pinta como RESTA.
+ */
+export interface PnlStatementReturnsDTO {
+  /** Mercancía + envío devueltos al cliente, NETOS de IVA. */
+  refundsCents: number;
+  /** Comisión de plataforma (`processingFee`) devuelta al cliente. */
+  refundedFeesCents: number;
+  /** Compensaciones por carta perdida (`case_refund`), sin IVA. */
+  compensationsCents: number;
+  /** = refundsCents + refundedFeesCents + compensationsCents. */
+  totalCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — COSTO DE VENTA: el costo de producir y cumplir las ventas completadas.
+ * `totalCents` lo da el servidor. La tarifa retenida es un CRÉDITO (RESTA del grupo).
+ */
+export interface PnlStatementCostOfSalesDTO {
+  /** Costo de lo vendido (mercancía), NETO de IVA tras (A). */
+  cogsCents: number;
+  /** Comisiones Stripe (venta + envío). */
+  stripeFeesCents: number;
+  /** Costo de envío NETO (incluye ajustes y seguro, §M10-IVA.8). */
+  shippingCostCents: number;
+  /** Costo de guías de entrada de vendedores (buylist). */
+  buylistGuideCostCents: number;
+  /** CRÉDITO: tarifa de envío retenida a vendedores — RESTA del total del grupo (ya dentro de `totalCents`). */
+  buylistShippingFeeRetainedCents: number;
+  /** = cogs + stripe + envío + guías − tarifa retenida. */
+  totalCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C) — bloque IVA del estado de resultados. ⭐ **MEMO fiscal**: lo que se entera al SAT.
+ * ⛔ NO se resta del resultado (el P&L ya entra NETO de IVA; restarlo lo contaría dos veces).
+ */
+export interface PnlStatementIvaMemoDTO {
+  ivaCollectedCents: number;
+  ivaRefundedCents: number;
+  ivaNetCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — estado de resultados estándar e-commerce (waterfall):
+ * VENTAS → (− Devoluciones y reembolsos) → VENTAS NETAS → (− Costo de venta) → MARGEN BRUTO (contribución) →
+ * EBITDA (= margen bruto: no hay opex fija modelada) → IVA (memo) → RESULTADO NETO.
+ * ⛔ El cliente NO re-suma: pinta cada subtotal tal cual (`netResultCents ≡ profitCents`).
+ */
+export interface PnlStatementDTO {
+  /** = incomeCents + shippingRevenueCents (mercancía neta + envío cobrado neto, ANTES de devoluciones). */
+  salesCents: number;
+  /** Contra-ingreso: devoluciones y reembolsos (RESTA de VENTAS). */
+  returnsAndRefunds: PnlStatementReturnsDTO;
+  /** = salesCents − returnsAndRefunds.totalCents. */
+  netRevenueCents: number;
+  /** Costo de venta (RESTA de VENTAS NETAS). */
+  costOfSales: PnlStatementCostOfSalesDTO;
+  /** = netRevenueCents − costOfSales.totalCents (margen de contribución). */
+  grossMarginCents: number;
+  /** = grossMarginCents EXACTO (⛔ nómina/renta/marketing NO se modelan). */
+  ebitdaCents: number;
+  iva: PnlStatementIvaMemoDTO;
+  /** = ebitdaCents ≡ profitCents (el IVA NO es gasto: el P&L ya es neto de IVA). */
+  netResultCents: number;
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.

@@ -296,6 +296,60 @@ describe('InventoryService.batchCreate — alta por lote', () => {
   });
 });
 
+// ⭐💰 CANDADO IVA-15 (lado CAPTURA) — API_CONTRACT §M10-IVA.8-bis (A) / ARCHITECTURE §4.44.f-quater.
+// La DERIVACIÓN del crédito de IVA al capturar (lo que `pnl-core.ts:244` luego RESTA). El dial neutro de
+// `ivaDialsStub()` es `r = 16`. ⛔ Se CONGELA al capturar (no se re-deriva al leer). Espejo del envío.
+describe('InventoryService.batchCreate — IVA-15: acquisitionCostIvaCents se deriva y congela al capturar', () => {
+  it('COMPRA FIRME: bruto 9280 (r=16) ⇒ acquisitionCostIvaCents = 1280 (= 9280 − round(9280/1.16))', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await svc.batchCreate(
+      { batchKey: 'iva1', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra', acquisitionCostCents: 9280 }] },
+      'admin',
+    );
+    const data = prisma.__createdItems[0];
+    expect(data.acquisitionCostCents).toBe(9280); // bruto intacto (dato primario, R3)
+    expect(data.acquisitionCostIvaCents).toBe(1280); // crédito congelado
+    // El COGS neto que verá el P&L = 9280 − 1280 = 8000.
+    expect(data.acquisitionCostCents - data.acquisitionCostIvaCents).toBe(8000);
+  });
+
+  it('COMPRA FIRME con costo 0 (promo/regalo) ⇒ acquisitionCostIvaCents = 0', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await svc.batchCreate(
+      { batchKey: 'iva0', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra', acquisitionCostCents: 0 }] },
+      'admin',
+    );
+    expect(prisma.__createdItems[0].acquisitionCostIvaCents).toBe(0);
+  });
+
+  it('COMPRA FIRME SIN costo (acquisitionCostCents ausente/null) ⇒ acquisitionCostIvaCents = 0', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await svc.batchCreate(
+      { batchKey: 'ivaNull', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra' }] },
+      'admin',
+    );
+    expect(prisma.__createdItems[0].acquisitionCostCents ?? null).toBeNull();
+    expect(prisma.__createdItems[0].acquisitionCostIvaCents).toBe(0);
+  });
+
+  it('⭐ APORTACIÓN: el costo ya es NETO ⇒ acquisitionCostIvaCents = 0 (no se le resta IVA), aunque el costo > 0', async () => {
+    // getReference del mock = priced 10000; computeAportacionCostCents(10000, pct) > 0.
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await svc.batchCreate(
+      { batchKey: 'ivaApo', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'aportacion_en_especie', acquisitionPct: 70 }] },
+      'admin',
+    );
+    const data = prisma.__createdItems[0];
+    expect(data.acquisitionType).toBe('aportacion_en_especie');
+    expect(data.acquisitionCostCents).toBeGreaterThan(0); // costo NETO derivado (mercado × pct)
+    expect(data.acquisitionCostIvaCents).toBe(0); // ⛔ sin IVA que restar
+  });
+});
+
 describe('InventoryService.bulkPublish — publicar por lote', () => {
   function prismaWithItems(items: any[]) {
     return buildPrisma({

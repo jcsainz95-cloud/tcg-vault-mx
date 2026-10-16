@@ -15,6 +15,19 @@
  * `pnl()` de #78 SIN partir (`origin/claude/buylist-skydropx` `f5ef59b7`, `admin.service.ts` con `pnlBuylistGuides`) sobre la
  * fixture nueva; el código fusionado (`pnlBuckets` con el buylist por cubo) la iguala: sigue siendo «antes = después».
  *
+ * ⚠️⚠️ v1.95⟨pnl-finanzas⟩ / §W 277/278 (rama `fix/pnl-finanzas`, 2026-10-14) — **ESTA INSTANTÁNEA CAMBIA A PROPÓSITO y
+ * HAY QUE REGENERARLA.** El arreglo B2 (§M4-SHIP.20, cierra D-AN-1) acota el ingreso del P&L por `settledAt ∈ periodo`
+ * con `status IN {settled, refunded}` (ya no por `status:'settled'` vivo). La fixture tiene O3 (`refunded`, liquidada el
+ * 2021-03-01, DENTRO de los rangos): antes NO contaba su ingreso/COGS/comisión; ahora SÍ (el reembolso de O3 ya restaba en
+ * su fila, así que esto QUITA la doble resta). ⇒ los campos `pnl`/`csv` de los rangos que cubren el 2021-03-01 se mueven.
+ * Como es un cambio DELIBERADO de M7 (§W 277/278), la instantánea se regenera en el MISMO pase que el cambio:
+ * `AN_PARITY_WRITE=1 npm run test:integration -- sales-analytics-pnl-parity` (local, ⛔ no en CI), y se verifica a mano que
+ * el delta es SOLO el ingreso/COGS/comisión de O3 en esos rangos. ✅ REGENERADA el 2026-10-14 contra el stack NATIVO
+ * (`scripts/stack-native.sh test:integration`, Postgres/Redis/S3 reales): delta verificado línea por línea = SOLO O3
+ * (ingreso +10001 = ⌊11601/1.16⌉, COGS +7000, comisión +600, ganancia +2401) en los 3 rangos que cubren el 2021-03-01
+ * 18:00Z (`settledAt` de O3 = 03-01 12:00 MX); los otros 3 rangos y los campos `iva`/`byOrder`/`launch` NO se movieron
+ * (O3 es `refunded`, luego nunca entra en `launch.salesSettled`).
+ *
  * Rangos: los que M7/M9 reciben de verdad — fechas crudas `YYYY-MM-DD` (D-AN-2: `range()` las toma como medianoche UTC con
  * `lte`), instantes ISO y un rango que cubre toda la ventana. ⛔ Sin el «sin rango»: barrería las filas de otras suites.
  * Determinista (Postgres real, fixture fija): N=1 por corrida, dicho así.

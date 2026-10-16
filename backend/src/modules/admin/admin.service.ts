@@ -31,7 +31,7 @@ import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
 import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
-import { pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
+import { buildStatement, pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -1737,6 +1737,18 @@ export class AdminService {
     // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
     const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
     return buckets.get('all') ?? zeroPnl();
+  }
+
+  /**
+   * ⭐ v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis (C)) — lo que devuelve `GET /admin/finance/pnl` (`super_admin`): los campos
+   * PLANOS de `pnl()` SIN cambio (ni el CSV, que sigue leyendo `pnl()` plano) MÁS el objeto `statement` derivado por
+   * construcción. El bloque `iva` del `statement` viene de `ivaReport(from, to)` — la MISMA fuente que `GET
+   * /admin/finance/iva` para el MISMO rango (garantiza `statement.iva.ivaCollectedCents == /finance/iva`), no una
+   * segunda cuenta. ⛔ `statement` es solo-JSON: no toca `exportCsv`.
+   */
+  async pnlReport(from?: string, to?: string) {
+    const [p, iva] = await Promise.all([this.pnl(from, to), this.ivaReport(from, to)]);
+    return { ...p, statement: buildStatement(p, iva) };
   }
 
   /**
