@@ -10,6 +10,17 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.96⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM en pedido/solicitud, ficha pública de sellado con datos de
+> SSR/og/JSON-LD, feed de sitemap y panel de marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` =
+> `origin/production` HEAD `0dd2d7c`; ⛔ sha de corte NO MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta
+> `⟨mkt-tienda⟩` **a propósito distinta de `⟨mkt⟩`** (v1.92⟨mkt⟩ la reserva otra rama sin fusionar, ver arriba) y el
+> número **v1.96** evita el v1.95⟨pnl-finanzas⟩ de abajo. Fuente: brief de marketing
+> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Diseño y razones: **ARCHITECTURE §13**. Dos olas:
+> **OLA 1** (§MKT.A ficha/og + §MKT.B sitemap + §MKT.C columnas `firstUtm*`) y **OLA 2** (§MKT.D panel Fase 0 +
+> §MKT.E endpoint de agregados y exports). Schema: migraciones **m81** (OLA 1) y **m82** (OLA 2), especificadas en
+> ARCHITECTURE §13. Toca dinero (atribución de pedidos, panel que lee ventas): tres veredictos al cierre. La nueva
+> sección va al final del documento: **[§MKT](#MKT)**.
+>
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
 > `production` `bad2692`; `HEAD 702b5c0` trae la prueba diagnóstica `backend/test/pnl-cogs-iva.diagnostic.spec.ts`).
@@ -45157,3 +45168,129 @@ Paridad es/en con el control de paridad de textos (criterio 868).
 - **ux-ui:** MIV.6 (nota, posición, textos de lista de deseos y explicadores) antes de que frontend cierre los textos.
 - **Paralelo:** backend y frontend a la vez; la forma está fijada aquí y el front puede construir contra el simulador.
 - ⛔ No construye: devops (sin migración ni variable), product-owner (nada bloquea; P-MIV-1…6 siguen abiertas con su defecto).
+
+## <a id="MKT"></a>MKT. 💰 TIENDA DE MARKETING: ATRIBUCIÓN UTM, FICHA PÚBLICA/OG, SITEMAP Y PANEL DE MARKETING (rev v1.96⟨mkt-tienda⟩, 2026-10-16, arquitecto, **SOLO DISEÑO**)
+
+> Diseño y razones completas: **ARCHITECTURE §13**. Fuente: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`
+> (v2 §A/§B/§E, Panel §0/§2/§4/§5/§7). Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c` (⛔ sha NO MEDIDO).
+> **Cero DDL aplicado** (sin Bash): las migraciones **m81** (OLA 1) y **m82** (OLA 2) son especificación. Precio
+> **siempre final con IVA 16 % y con fecha, o sin precio**; «Disponible» **solo si `availableCount>0`**; **nunca** la
+> cantidad. El Card Show (v2 §E5) **no se contrata aquí**: su página usa solo datos ya anunciados.
+
+### MKT.A — OLA 1: ficha pública (sellado + carta) con datos de SSR/og/JSON-LD (A3/A4)
+
+**Patrón de URL de la ficha de sellado — DECISIÓN:** se **conserva** `/{locale}/sellado/<inventoryItemId>` (ruta viva;
+endpoint `GET /api/v1/catalog/sealed/:inventoryItemId`). ⛔ **No** se crea `/{locale}/catalog/sealed/<id>` (patrón que la
+v1 citaba y que hoy da 404 porque esa ruta no existe). **Marketing — patrón de vuelta:**
+`https://tcghunt.mx/es/sellado/<inventoryItemId>`. Razón en ARCHITECTURE §13.2.1.
+
+El backend **ya** devuelve, en las respuestas públicas de ficha, casi todo lo necesario:
+
+| Dato | Ficha de carta (`GET /catalog/cards/:cardId`) | Ficha de sellado (`GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`) | Estado |
+|---|---|---|---|
+| Nombre / set / número | `card.name` / `card.setName` / `card.number` | `productName` / `card.setName` / — | Ya viaja |
+| Precio final **con IVA** + tasa | `displayPriceCents` + `ivaRatePct` | `fromPriceCents` (IVA dentro) + `ivaRatePct` | Ya viaja |
+| `availableCount` (>0 ⇒ «Disponible») | `stockCount` del grupo | `availableCount` | Ya viaja |
+| Imagen | `imageUrl` | `imageUrl` | Viaja; ⛔ NO MEDIDO que sea absoluta ni ≥1200×630 |
+| Fecha de consulta del precio | **ausente** | **ausente** | **DELTA** |
+
+**Deltas (aditivos, retrocompatibles) — campos nuevos en el DTO de ficha de carta y en `SealedGroupDTO`:**
+```
+pricedAsOf   : string         // "YYYY-MM-DD", zona America/Mexico_City; fecha en que el servidor resolvió el precio
+                              // de ESTA respuesta (SSR/ISR ⇒ fecha honesta en el HTML cacheado). ⛔ NO es now() del cliente.
+ogImageUrl   : string | null  // URL ABSOLUTA de la imagen del catálogo apta para vista previa (objetivo ≥1200×630);
+                              // null ⇒ frontend omite og:image (⛔ nunca inventa arte).
+```
+- ⛔ **No** entran en las rejillas (`GroupedListingSummaryDTO`, `SealedGroupSummaryDTO`): solo en las **fichas**
+  (superficie de 1 ítem, no de cosecha masiva) — misma doctrina que `referenceDisplayCents` (§MIV / D2).
+- **Reglas de og/JSON-LD (las arma frontend con estos datos, v2 §A4):** `<title>`/`og:title` =
+  «<Nombre> · <Set> <nº> | TCG HUNT» (sellado: «<Producto> | TCG HUNT»), **sin precio** (la caché sobrevive días);
+  `og:description` (≤155) con condición + «MX$<precio> IVA incluido · precio al <pricedAsOf>»; `og:image` = `ogImageUrl`
+  (si no null) absoluta ≥1200×630, **sin precio en la imagen**; `og:url`=canonical absoluto; `twitter:card=summary_large_image`.
+  JSON-LD `Product`+`Offer`: `priceCurrency:"MXN"`, `price` = precio con IVA, `availability` = InStock **solo si**
+  `availableCount>0`, `priceValidUntil` lo calcula frontend desde `pricedAsOf` (ventana a confirmar con JC).
+- **A1** (quitar «valor de mercado» de la ficha) y **A2** (botón COMPRAR en primera pantalla móvil): **sin delta de
+  contrato** (frontend/ux-ui; el backend puede seguir emitiendo `referenceDisplayCents`).
+
+### MKT.B — OLA 1: feed de sitemap (E/SEO)
+
+- **`GET /api/v1/catalog/sitemap` — `public`.** Respuesta liviana con **todo lo indexable** en una sola llamada (⛔ no
+  paginada), para que el frontend genere `sitemap.xml`:
+```
+SitemapResponse = {
+  items: { type: 'card' | 'sealed', id: string, lastmod: string /* ISO date */ }[],
+  generatedAt: string  // ISO
+}
+```
+  - `items` = una entrada por **ficha a la venta**: carta publicada (`status=listed`, `sellable`, precio fijado) y
+    sellado publicado. `lastmod` = `updatedAt` de la pieza (o `max(updatedAt, último cambio de precio)` si es medible;
+    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod). Debe cuadrar en orden de magnitud con las **~884
+    publicaciones** del 16-oct (v2 §E1); el número exacto lo mide QA contra el stack.
+  - Las rutas **estáticas** (home, catálogo, guías, preguntas, cómo-funciona) las añade el **frontend**; backend solo da
+    las dinámicas. `robots.txt`, `canonical`, `www`→apex: frontend/devops (sin contrato).
+  - `Cache-Control` corto (p. ej. `max-age=3600`); no es dato personal.
+
+### MKT.C — OLA 1: columnas de atribución `firstUtm*` (B1) — migración `m81`
+
+- Cinco columnas **NULLABLE** en `Order` y en `SellRequest` (nombres confirmados a marketing):
+  `firstUtmSource`, `firstUtmMedium`, `firstUtmCampaign`, `firstUtmContent` (`String?`), `firstUtmLandedAt` (`DateTime?`).
+- **Se llenan SOLO con consentimiento** (mecanismo = Fase 2). En **OLA 1 quedan `NULL`** (ningún camino las puebla aún) —
+  dicho explícito. **Invitado incluido** (misma regla; `NULL` sin consentimiento).
+- **Validación (PV-M2):** cada `utm_*` se acepta solo si, en minúsculas, cumple `^[a-z0-9._-]{1,64}$`; si no, ese valor
+  se **descarta**. Se **ignora** todo parámetro que no sea `utm_source|utm_medium|utm_campaign|utm_content`. Helper puro
+  en `common/` (`parseFirstUtm`). Al mostrarlos en el admin, se **escapan**.
+- **Retención:** el plazo del pedido/solicitud que las contiene (PV-M5), declarado en el aviso (Fase 2).
+- **Marketing — de vuelta:** nombres de columna = los de arriba; cubre invitado; `NULL` sin consentimiento. ✅
+
+### MKT.D — OLA 2: autorización y modelos del panel (Fase 0) — migración `m82`
+
+> El panel vive en el admin (`/admin/marketing`, frontend `(admin)`). **Fase 0 = BD + conteos de servidor, sin GA4 ni
+> píxel.** Modelos y DDL en ARCHITECTURE §13.4. Resumen del contrato de autz:
+
+- **Permiso `marketing:read`** (enum `Permission.marketing_read` + tabla `UserPermission`): `super_admin` lo tiene
+  **implícito**; otro usuario, solo con fila explícita creada por el dueño. Sin permiso ⇒ **403** en la pestaña, exports,
+  botón semanal y rutas de datos. Guard nuevo `@RequirePermission(marketing_read)` + `PermissionGuard` (tras
+  `JwtAuthGuard`), no se mezcla con `@Roles`.
+- **Principal de servicio `marketing-reader`** (tabla `MarketingApiToken`): token aleatorio ≥256 bits, se guarda **solo
+  el hash**, comparación en **tiempo constante**; `Authorization: Bearer` sobre HTTPS, **nunca** en URL ni logs; caduca a
+  **12 meses**; revocable al momento (`revokedAt`) sin desplegar. Rate limit **60/h por token** (429) + **bloqueo de IP
+  tras 10 fallos/10 min**. El dueño lo carga como `TIENDA_PANEL_TOKEN` en el entorno de marketing.
+- **Conteos anónimos de servidor** (sin GA4): `MarketingBannerConsentCounter` (f1/f2: `(semana × respuesta ×
+  utm_medium × device)`, sin fila por visita ni cookie), `BuylistQuoteDailyCount` (d4: `(día × cardId)` desde
+  `POST /buylist/quote`, sin usuario ni IP), `SearchNoResultDaily` (c6: término normalizado+filtrado por día, umbral
+  N≥5 en ≥2 días en lectura, retención 30/90 d). c7 (pedidos por estado de envío) se **deriva** de `Order`
+  (`shippingAddressSnapshot` + `fulfillmentMode`), sin modelo nuevo.
+- **Registro de accesos** (`MarketingAccessLog`): cada export/descarga/llamada del endpoint ⇒ `{at, actorUserId? |
+  tokenId?, screen, filters(sin PII), format, rowCount}`, **sin contenido**, retención 12 meses.
+
+### MKT.E — OLA 2: endpoint de agregados, botón semanal y exports (P2=A+B)
+
+- **`GET /api/v1/admin/marketing/aggregates` — token `marketing-reader` (Bearer).** Solo lectura, JSON de agregados
+  (las mismas tablas que el export). Parámetros:
+  - `pantalla` — **lista blanca** `a|b|c|d|e|f|g|h` (y luego `codigos` en Fase 3). Fuera de la lista ⇒ **400** genérico.
+  - periodo — **una semana cerrada** (`?week=YYYY-Www` o `?weekStart=YYYY-MM-DD` lunes CDMX) **o un mes cerrado**
+    (`?month=YYYY-MM`). ⛔ **Nunca** rango libre ni día. Semana/mes **abiertos** o rango libre ⇒ **400** (evita restar
+    dos rangos solapados para despejar una celda oculta).
+  - **401** sin token o token inválido/revocado/caducado; **403** con token válido en **cualquier otra ruta** del admin;
+    **400** en rango no permitido o `pantalla` fuera de lista; **429** al pasar 60/h.
+  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas §MKT.D/§5.2 aplicadas** desde la
+    primera respuesta (N<5 ⇒ «< 5» sin MX$; supresión complementaria «Otros (< 5 c/u)»). **Ninguna fila por
+    pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
+- **Botón «Descargar Excel de la semana» (P2=B)** en `/admin/marketing`, visible solo con `marketing:read`: .xlsx de la
+  última semana cerrada (selector permite otra semana o un mes cerrado, ⛔ nunca rango libre ni día). **Mismas cifras**
+  que el endpoint para el mismo periodo (paridad A=B, diferencia 0 celda a celda, incluidas las «< 5»). Una hoja por
+  pantalla (a-h) + hoja «Info».
+- **Reglas de export (§4, PM-B1):** CSV con prefijo `'` en celdas que empiecen por `=`,`+`,`-`,`@`, tab o `\r`,
+  entrecomilladas; UTF-8 **con BOM**. XLSX: texto como **tipo texto** (nunca fórmula), montos MXN con IVA como número
+  `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition: attachment`, generado al vuelo. Nombre
+  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒
+  `MarketingAccessLog`.
+- **Reutiliza** `sales-analytics` (super_admin, §15/§AN) para las cifras de dinero (a1/a2/a3, d1) componiéndolo desde un
+  **nuevo** `marketing-analytics` (módulo `backend/src/modules/marketing/`). ⛔ El panel **no** modifica `sales-analytics`
+  ni escribe en GA4/Meta/tienda: solo lee.
+
+### MKT.F — Preguntas abiertas para JC (no se asume; regla de conflicto)
+
+Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
+publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna.
