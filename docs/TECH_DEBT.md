@@ -13,6 +13,33 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-16 · §MKT OLA 2 — Panel de Marketing Fase 0 (rama `feat/mkt-tienda`)
+
+> Deudas **no bloqueantes** del núcleo del Panel (Brief 2, API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5). Ninguna
+> toca dinero ni bloquea el DoD de Fase 0 (los indicadores afectados salen «NO MEDIDO» con motivo, no «0»).
+
+### MKT-TD1 · P2 · h1 «Anotaciones de fecha» sin modelo en m82
+- **Qué:** el Brief 2 §2 h1 pide anotaciones de fecha (texto, sin PII) visibles en gráficas y export. ARCHITECTURE §13.4
+  NO definió un modelo para ellas y m82 NO lo crea. Hoy la pantalla (h) y la hoja «Info» salen «NO MEDIDO — sin modelo
+  de anotaciones».
+- **Impacto:** marketing no puede marcar días de promoción/despliegue desde el panel todavía; lo suple con su propio
+  registro fuera de la tienda.
+- **Disparador:** cuando se construya la pantalla (h) con escritura. Requiere **decisión del arquitecto** sobre el modelo
+  (`MarketingDateAnnotation { day, label, kind }`, texto saneado PM-B1) — es cambio de contrato/schema (regla 9).
+
+### MKT-TD2 · P3 · c7 estado de envío derivado del JSON por consulta (sin columna denormalizada)
+- **Qué:** c7 parsea `Order.shippingAddressSnapshot.state` (texto libre) por consulta, como autoriza ARCHITECTURE §13.4.3.
+  Al volumen actual es aceptable; el estado es texto libre del checkout (sin normalizar a catálogo de 32 estados MX).
+- **Impacto:** agregación por «estado» agrupa por la cadena tal cual la escribió el cliente (p. ej. «CDMX» vs «Ciudad de
+  México» contarían aparte). Bajo al volumen de hoy.
+- **Disparador:** si c7 pesa en consultas o el agrupado por estado se vuelve ruidoso ⇒ denormalizar `shippingStateCode`
+  en `Order` (migración futura) y/o normalizar a catálogo. Seguridad debe confirmar la fiabilidad del snapshot (§13.6 Q4).
+
+### MKT-TD3 · P2 · 403 cross-route del token marketing-reader (pendiente de decisión del arquitecto)
+- **Qué:** el contrato pide 403 al usar el token en «cualquier otra ruta» del admin; el mecanismo (JwtAuthGuard) da 401.
+  Detalle y opciones en BACKEND_NOTES §MKT OLA 2. No se tocó `JwtAuthGuard` (auth compartida, regla 9).
+- **Disparador:** decisión del arquitecto (reconciliar contrato↔mecanismo, o aceptar 401 cross-route y ajustar el criterio).
+
 ## Backend · 2026-10-14 · stream «P&L de Finanzas» — gate del techlead sobre `be008b0` (rama `fix/pnl-finanzas`)
 
 > Tres deudas **no bloqueantes** señaladas por el techlead y **aceptadas por él como no bloqueantes sobre `be008b0`**.

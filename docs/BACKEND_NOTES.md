@@ -32763,3 +32763,90 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - Enganchar `parseFirstUtm` a la escritura de `Order`/`SellRequest` **solo con consentimiento** (banner + cookie
   `th_first_utm` + Consent Mode v2); poblar `firstUtm*` y `firstUtmLandedAt`. Hasta entonces, `NULL`.
 - Resolver con JC la variante de imagen ≥1200×630 para `og:image` (Q1 arriba / §MKT.F punto 1).
+
+---
+
+## §MKT OLA 2 — Panel de Marketing (Fase 0) · 2026-10-16 (rama `feat/mkt-tienda`)
+
+> Núcleo backend del Panel (Brief 2 «Panel de Marketing», API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5).
+> **Fase 0 = solo BD + conteos anónimos de servidor (sin GA4 ni píxel).** Módulo nuevo
+> `backend/src/modules/marketing/`. Verificación al final de esta sección.
+
+### Migración m82 (`20261104120000_m82_mkt_panel`) — 100% aditiva, cero dinero
+- Enums: `Permission { marketing_read }`, `BannerResponse { accept, necessary_only, no_response }`.
+- Tablas: `UserPermission` (@@unique userId+permission), `MarketingApiToken` (solo hash; `expiresAt`/`revokedAt`),
+  `MarketingBannerConsentCounter` (semana × respuesta × utm_medium × device), `BuylistQuoteDailyCount` (día × cardId),
+  `MarketingAccessLog` (at, actorUserId?/tokenId?, screen, filters, format, rowCount). Relación inversa
+  `User.marketingPermissions` (no altera columnas de `User`).
+- **`SearchNoResultDaily` (c6) NO se creó** — DIFERIDO a la pre-revisión de seguridad PM-M2 (puntos 1-4). Se añadirá en
+  una migración posterior cuando seguridad apruebe el filtro de PII.
+- `MarketingBannerConsentCounter` se crea **sin camino de escritura** (el banner es Fase 2, v2 §D3b). f1/f2 salen
+  «NO MEDIDO — banner en Fase 2» hasta que exista el banner.
+- `prisma validate` ⇒ valid; `prisma migrate diff` (schema-a-schema contra HEAD) ⇒ exactamente esta DDL.
+
+### Autorización fina (§MKT.D) — para QA/seguridad/frontend
+- **`@RequirePermission(Permission.marketing_read)` + `PermissionGuard`** (`common/guards/permission.guard.ts`), global
+  APP_GUARD **tras RolesGuard**. Sin la metadata, pasa (no opina). Regla: `super_admin` tiene el permiso **implícito**
+  (no consulta BD); otro rol pasa solo con fila `UserPermission` explícita; si no, **403**. No se mezcla con `@Roles`.
+- **Token `marketing-reader`** (`MarketingTokenService`): aleatorio 256 bits (`token-crypto.ts`), se guarda **solo** el
+  SHA-256; verificación con `crypto.timingSafeEqual` sobre los digest; caduca 12 meses; revocable con `revokedAt` sin
+  desplegar. Rate limit **60/h por token** (429) y **bloqueo de IP tras 10 fallos/10 min** (ventanas en memoria,
+  `rate-limiter.ts`; devops puede moverlas a Redis). El bearer **no se escribe en logs** (el servicio no loguea el valor).
+- **`MarketingApiTokenGuard`** se monta SOLO en `GET /admin/marketing/aggregates` (ruta `@Public()` para saltar JWT y
+  reautenticar por token). JC carga el token como `TIENDA_PANEL_TOKEN` en el entorno de marketing; la tienda nunca ve el claro.
+- ⚠️ **DISCREPANCIA 401-vs-403 cross-route (para el arquitecto):** el contrato (§MKT.E) y ARCHITECTURE §13.4.2 dicen
+  «token válido en **cualquier otra ruta** del admin ⇒ **403**». El mecanismo que la propia ARCHITECTURE describe
+  (las otras rutas usan `JwtAuthGuard`, «que el token no satisface») devuelve **401**, no 403: el token es una cadena
+  opaca que `jwt.verifyAsync` rechaza como 401. Honrar el 403 exigiría que `JwtAuthGuard` (auth compartida, adyacente a
+  dinero) reconozca tokens de marketing — cambio que **no hago sin el arquitecto** (regla 9). Implementado: la ruta de
+  agregados da 401/403/400/429 correctos; una **otra** ruta admin con el token da **401**. Ver resumen final.
+
+### Endpoint de agregados `GET /api/v1/admin/marketing/aggregates`
+- Token Bearer (NO sesión). `pantalla` ∈ lista blanca `a|b|c|d|e|f|g|h` (fuera ⇒ 400). Periodo: `?week=YYYY-Www` o
+  `?weekStart=YYYY-MM-DD` (lunes) o `?month=YYYY-MM`, **solo cerrados**; semana/mes abiertos, rango libre (`from/to/day/preset`)
+  o periodo ausente/duplicado ⇒ **400** genérico (`marketing-period.ts`). **401** sin token/inválido/revocado/caducado;
+  **429** rate limit/IP. `Cache-Control: no-store`. Cada llamada ⇒ `MarketingAccessLog` con `tokenId`.
+- **Indicadores de BD medidos (Fase 0):** a1 (pedidos pagados + MX$ con IVA, actual vs anterior — total exacto, reusa
+  `sales-analytics`), a2 (ticket medio, piezas/pedido), a3 (solicitudes enviadas + MX$ ofertado; aceptadas/pagadas con
+  «< 5» sin MX$ si N<5), d1 (unidades vendidas/MX$/stock hoy por carta, celdas pequeñas), d3 (agotado con demanda +
+  altas de lista de deseos, celdas pequeñas), d4 (conteo anónimo del cotizador por carta; **sin** supresión por ser
+  anónimo sin persona detrás), c7 (pedidos por estado de envío, **mínimo 4 semanas** ⇒ una semana cerrada sale
+  `measured:false`; «Otros estados» para N<5, «Recogida en persona» para bóveda; sin MX$, sin cruce).
+- **NO MEDIDO (no «0»):** a4/a5/c1-c6/c8-c10/d2/d6/d7 (GA4), e1 (Search Console), b1/g1 (requieren `first_utm_*`, NULL en
+  Fase 0), f1/f3 (banner Fase 2), **h1 anotaciones (sin modelo en m82 — ver TECH_DEBT)**. h2 (leyenda de fuente) va en
+  `sourceLegend` del payload.
+- **Definiciones (para marketing):** a3 «MX$ ofertado» = Σ `quotedTotalCents` de solicitudes **creadas** en el periodo
+  (= generate_lead); «aceptadas/pagadas» = solicitudes `status=pagada` con `paidAt` en el periodo, MX$ = Σ `payoutNetCents`.
+
+### Celdas pequeñas (§5.2) — candado de dinero
+- `small-cells.ts` (puro): N<5 ⇒ conteo centinela **«< 5»** y todo MX$/derivado de la fila en `null`; el conteo REAL
+  nunca viaja. **Supresión complementaria:** si queda UNA sola oculta, se agrupa con la más chica en «Otros (< 5 c/u)».
+  Totales sin dimensión (a1/a2) **exactos** (no pasan por aquí). `utm_medium=dm` se agregará solo por `utm_medium` cuando
+  se construya (b) en Fase 2.
+
+### Exports (§4) y botón Excel semanal (P2=B)
+- `MarketingExportService` construye CSV/XLSX del **mismo `ScreenPayload`** que devuelve el endpoint ⇒ **paridad A=B por
+  construcción** (diferencia 0 celda a celda, incluidas las «< 5»). Rutas: `GET export` (una pantalla, `format=xlsx|csv`),
+  `GET export/todo` (xlsx, una hoja por pantalla + «Info»), `GET weekly-excel` (botón: última semana cerrada por defecto,
+  selector valida semana/mes cerrados). Todas con sesión + `marketing:read`.
+- **Saneado de fórmula (PM-B1, candado `cell-safety.ts`):** CSV con BOM, celdas de texto entrecomilladas con `"`
+  escapadas y prefijo `'` si empiezan por `=`,`+`,`-`,`@`, tab o `\r`; XLSX escribe texto como celda de **texto** (nunca
+  fórmula) con el mismo prefijo. Montos como número con `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition:
+  attachment`, generado al vuelo. Hoja «Info»: periodo, corte, fuente por sigla, tablas NO MEDIDO, nota de celdas N<5.
+  Cada descarga/export ⇒ `MarketingAccessLog` con `actorUserId`.
+
+### d4 enganchado en el cotizador
+- `MarketingQuoteCounterService.increment(cardId)` lo llama `BuylistController.quote` **tras** calcular la cotización
+  (lógica de dinero intacta). `upsert` de `(día CDMX × cardId)` con `count+1`; **sin usuario, sin IP**; best-effort
+  (un fallo NO tumba la cotización). Solo en `POST /buylist/quote` (no en `quote/batch`).
+
+### Verificación (comandos y resultado, O-1/O-3/O-9)
+- `prisma validate` ⇒ *valid*; `prisma generate` ⇒ OK; `prisma migrate diff --from-schema-datamodel HEAD` ⇒ la DDL de m82.
+- `tsc --noEmit` ⇒ 0; `eslint` de los ficheros nuevos ⇒ 0.
+- Jest de los candados nuevos: `marketing-*.spec.ts` ⇒ **6 suites, 66 pruebas verde** (celdas pequeñas, saneado de
+  fórmula + paridad, periodo cerrado/400, token 401/403/429 + rate-limit, permiso 403, d4 suma-3-sin-PII). Candados
+  **demostrados mordiendo** con mutación (desactivar supresión / neutralización ⇒ 22 rojas; restaurado ⇒ verde). N=1
+  deterministas.
+- Suites de módulos tocados (`marketing-|buylist|sales-analytics`) ⇒ **67 suites, 1591 verde**, sin regresión.
+- **Única roja del repo:** el candado `enum-values-parity` exige que `API_CONTRACT §0` declare la línea canónica de
+  **todo** enum del schema. Faltan `Permission` y `BannerResponse` (las añade el **arquitecto**, no backend — ver resumen).
