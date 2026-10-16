@@ -36201,9 +36201,14 @@ model MarketingApiToken {
   min**. El contador de rate-limit puede vivir en memoria/Redis (devops define el store); no requiere tabla.
 - **Carga del token:** el dueño lo pone en los secretos del entorno **de marketing** como `TIENDA_PANEL_TOKEN`; **nunca**
   por chat, fichero ni repo. La tienda solo guarda el hash.
-- **Autorización del endpoint:** el token **solo** autoriza `GET` del endpoint de agregados (§13.5). Con el token en
-  **cualquier otra ruta** del admin ⇒ **403** (el `MarketingApiTokenGuard` solo se monta en esa ruta; las demás usan
-  `JwtAuthGuard`, que el token no satisface).
+- **Autorización del endpoint (DECISIÓN D-MKT-AUTZ, ver API_CONTRACT §MKT.E):** el token **solo** autoriza `GET` del
+  endpoint de agregados (§13.5). El `MarketingApiTokenGuard` se monta **solo** en esa ruta; las demás quedan en
+  `JwtAuthGuard`, **que el token opaco no satisface ⇒ 401** (no 403). Backend lo midió (BACKEND_NOTES §MKT OLA 2): el
+  token no es JWT, así que la auth compartida lo rechaza como **no autenticado**; un 403 literal exigiría acoplar
+  `JwtAuthGuard` (auth **compartida**, cerca de dinero) al principal de marketing — **no se hace**. La propiedad («el
+  `marketing-reader` no alcanza ninguna otra ruta») se cumple igual: **401 y 403 ambos deniegan**. El **403** se reserva
+  para la **sesión** de admin sin `marketing:read` (§13.4.1), que sí es «autenticado pero prohibido». ⚠️ Se **aparta**
+  del «403» literal del brief (Panel §6(1), §7.2); se relaya a marketing.
 
 #### 13.4.3 Contadores anónimos de servidor (Fase 0, sin GA4) — Panel §2 f1/f2, d4, c6, c7
 
@@ -36241,7 +36246,10 @@ model BuylistQuoteDailyCount {
 - El handler de `POST /buylist/quote` incrementa `(day, cardId)` tras calcular. **Nada** de quién cotizó. Se agrega a la
   semana/mes en lectura. Sin plazo (no personal).
 
-**(c6) Términos de búsqueda sin resultado** — Panel §2 c6 (PM-M2), con normalización + filtro PII + umbral N≥5 en ≥2 días:
+**(c6) Términos de búsqueda sin resultado** — Panel §2 c6 (PM-M2), con normalización + filtro PII + umbral N≥5 en ≥2 días.
+> ⚠️ **DIFERIDO — `SearchNoResultDaily` NO se creó en m82** (pre-revisión de seguridad PM-M2; confirmado contra
+> `schema.prisma`, 2026-10-16). El diseño de abajo queda vigente como ESPECIFICACIÓN para cuando seguridad apruebe el
+> filtro PII; backend lo implementará entonces en una migración propia (con su línea en §0 — es un modelo, no un enum).
 ```
 model SearchNoResultDaily {
   id              String   @id @default(uuid())
@@ -36307,6 +36315,60 @@ con vistas (d, dependen de GA4), cookies (f), Meta (g), búsquedas (c6), geograf
 servicio `marketing-analytics`** (módulo nuevo `backend/src/modules/marketing/`) que **compone** `sales-analytics` para
 las cifras de dinero y añade los agregados propios con las **celdas pequeñas** (§13.5). ⛔ El panel de marketing **no**
 cambia `sales-analytics` (es `super_admin`, otra superficie): lo invoca.
+
+#### 13.4.6 (h1) Anotaciones de fecha — `MarketingDateAnnotation` — migración `m83` (ESPECIFICACIÓN, no aplicada)
+
+> Panel §2(h) **h1**, nivel **Imprescindible v1**. m82 **no** la incluyó: backend la dejó como deuda **MKT-TD1** pidiendo
+> la decisión del arquitecto. Se especifica aquí. ⛔ **No es dinero, pero sí migración nueva**: no cabe en m82 (ya
+> reflejada en `schema.prisma`). **Migración siguiente libre = `m83`** (medido: el máximo en este árbol es **m82**
+> `20261104120000`; §13.0). Timestamp posterior: **`20261104130000_m83_mkt_date_annotations`**. **Backend la implementa
+> y aplica** (el arquitecto no tiene Bash). **100% aditivo**: enum + modelo nuevos + relación inversa en `User` (sin
+> columna nueva en `User`). **CERO dinero.**
+
+El admin marca días con una etiqueta (promoción del dueño y su destino; despliegues A1/A2/A4/GA4/píxel/aviso; Card Show)
+y las anotaciones aparecen en **todas las gráficas** (a, b, c) y en la hoja **«Info»** del export y del botón semanal,
+**escritas como texto** (saneado de fórmula, PM-B1). **Nunca** datos personales — ni nombre de cliente, ni @usuario
+(PM-B1 / §5).
+
+```
+enum MarketingAnnotationKind {
+  promocion     // promoción del dueño (su destino web va en `destino`)
+  despliegue    // A1/A2/A4/GA4/píxel/aviso de la v2 — cambio de la tienda cuya fecha marca el «antes/después»
+  evento        // p. ej. Card Show — evento externo con fecha
+}
+
+model MarketingDateAnnotation {
+  id              String                  @id @default(uuid())
+  date            DateTime                @db.Date   // día anotado (solo fecha, zona CDMX)
+  kind            MarketingAnnotationKind
+  label           String                  // texto corto ≤120; SIN PII; se ESCAPA al mostrar y va como TEXTO en el export
+  destino         String?                 // solo `promocion`: a dónde apunta (ruta/etiqueta ≤200, SIN PII); opcional
+  createdByUserId String?                 // admin autor (nullable solo para siembra; la API exige sesión)
+  createdBy       User?                   @relation("marketingAnnotations", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  @@index([date])
+}
+```
+(y en `User`: `marketingAnnotations MarketingDateAnnotation[] @relation("marketingAnnotations")`, relación inversa, **sin
+columna nueva**.)
+
+- **Validación de `label`/`destino` (PM-B1 / §5), en el servidor ANTES de guardar:** ≤120 / ≤200 chars; se **rechaza**
+  (`422 VALIDATION_ERROR`) si contiene `@`, correo, una racha de ≥7 dígitos o ≥10 dígitos en total, o encaja con CURP/RFC
+  — **mismo filtro PII que c6** (§13.4.3). Se **escapan** al mostrar en el admin y se escriben como **celda de tipo
+  texto** (XLSX) / con prefijo anti-fórmula (CSV) en la hoja «Info» (§13.5, PM-B1). Es texto de un admin **de confianza**,
+  pero el filtro cierra el error honesto; **seguridad lo revisa** (misma doctrina que los `utm_*`).
+- **Autorización:** las anotaciones las **crea/edita/borra** una **sesión** de admin con `marketing:read` (§13.4.1) —
+  **nunca** el token `marketing-reader` (GET-only; en estas rutas ⇒ **401**, D-MKT-AUTZ). Se **leen** embebidas en la
+  respuesta del endpoint de agregados y en la hoja «Info» (el token SÍ las ve ahí: **no son PII**), **no** por una ruta
+  aparte para el token.
+- **Sin celdas pequeñas:** una anotación **no es un conteo** ⇒ no aplica §5.2. Sí aplican las reglas de export (texto,
+  escape, no-fórmula) y de registro (`MarketingAccessLog`).
+- **Cuando backend implemente m83:** añade el enum al schema **y** su línea canónica a §0 del contrato
+  (`MarketingAnnotationKind = promocion | despliegue | evento`) **y** a `EXPECTED_ENUM_VALUES` / `enum-values.ts` si
+  `src/` lo valida, en el **mismo PR** — la **banda-3 universal** de `enum-values-parity.spec.ts` exige línea en §0 para
+  **todo** enum del schema. ⛔ **No** se añade a §0 **ahora** (el enum aún no existe en el schema; añadirlo rompería la
+  banda-3 al revés: «§0 declara un enum que el schema no tiene»).
 
 ---
 
