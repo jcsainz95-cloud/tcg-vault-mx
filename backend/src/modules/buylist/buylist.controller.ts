@@ -7,6 +7,8 @@ import { RequireEmailVerified } from '../../common/decorators/require-email-veri
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
+// v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo (día × cardId) del cotizador. ⛔ NO toca la cotización.
+import { MarketingQuoteCounterService } from '../marketing/marketing-quote-counter.service';
 import {
   BatchQuoteDto,
   CreateRequestDto,
@@ -23,6 +25,8 @@ export class BuylistController {
     // v1.51.3 (D36/D37): `PATCH …/pickup-address` se AUDITA (`buylist.pickup_address.update`), y la
     // bitácora la escribe el controller — misma disciplina que la ruta hermana de admin.
     private readonly audit: AuditService,
+    // v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo del cotizador. Best-effort, fuera del dinero.
+    private readonly quoteCounter: MarketingQuoteCounterService,
   ) {}
 
   // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
@@ -32,14 +36,19 @@ export class BuylistController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('quote')
   @HttpCode(200)
-  quote(@Body() dto: PublicQuoteDto) {
-    return this.buylist.publicQuote(
+  async quote(@Body() dto: PublicQuoteDto) {
+    // 💰 La cotización es la MISMA de siempre (lógica de dinero intacta).
+    const payload = await this.buylist.publicQuote(
       dto.cardId,
       dto.productType,
       dto.rawCondition,
       dto.finish,
       dto.productId,
     );
+    // d4 (§MKT.D): tras calcular, suma 1 al contador anónimo (día × cardId). SIN usuario, SIN IP.
+    // Best-effort: `increment` nunca lanza ⇒ un fallo del contador no afecta a la cotización.
+    await this.quoteCounter.increment(dto.cardId);
+    return payload;
   }
 
   // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y
