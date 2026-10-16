@@ -17,13 +17,16 @@ import {
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
-import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
+import { CardDTO, CatalogService, ListingDTO, SitemapItem, toCardDTO } from './catalog.service';
 import { sealedIdentityKey } from './sealed-restock-notify.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 // P-89 (deuda H3): aquí vivía una copia VERBATIM del `validateEnum` de `catalog.service.ts`. El
 // validador es ahora UNO, en `common/`.
 import { parseEnumFilter } from '../../common/enum-filter';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
+// v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX) + `ogImageUrl` (absoluta) de la FICHA.
+import { toMexicoCityDateKey } from '../../common/business-days';
+import { absoluteOgImageUrl } from '../../common/og-image';
 
 // v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí. CLASE E (§0-Q punto 3).
 // P-89: `readonly <Enum>[]` en vez de `Set<string>`, para que el genérico de `parseEnumFilter`
@@ -122,6 +125,18 @@ export interface SealedGroupDTO {
    */
   referenceDisplayCents?: number;
   currency: 'MXN';
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3, A3/A4) — fecha `YYYY-MM-DD` (zona `America/Mexico_City`) en que el
+   * SERVIDOR resolvió el precio de ESTA respuesta (SSR/ISR ⇒ «precio al <pricedAsOf>» honesto). ⛔ NO es
+   * `now()` del cliente. Money-safe: informativo. ⛔ NO entra en `SealedGroupSummaryDTO` (rejilla).
+   */
+  pricedAsOf: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3) — URL **ABSOLUTA** de la imagen para `og:image`; `null` ⇒ front
+   * omite `og:image` (⛔ nunca inventa arte). ⚠️ Tamaño ≥1200×630 NO garantizado (ver BACKEND_NOTES Q1). ⛔ NO
+   * entra en la rejilla.
+   */
+  ogImageUrl: string | null;
 }
 
 /**
@@ -301,6 +316,12 @@ export class SealedCatalogService {
         : {}),
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
+      // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A): fecha CDMX del render + imagen absoluta para og. El sellado solo tiene
+      // una imagen resuelta por el cascade de identidad (snapshot → SealedProduct → carta ancla pequeña); se
+      // pasa esa, y si no es absoluta ⇒ `null`. ⛔ Estos dos campos NO viajan a la rejilla (`toGroupSummaryDTO`
+      // los recorta por lista blanca).
+      pricedAsOf: toMexicoCityDateKey(new Date()),
+      ogImageUrl: absoluteOgImageUrl(display.imageSmallUrl),
     };
   }
 
@@ -392,6 +413,35 @@ export class SealedCatalogService {
     const start = (q.page - 1) * q.pageSize;
     const data = cards.slice(start, start + q.pageSize).map((c) => c.dto);
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.B / §13.3, E/SEO) — entradas de SELLADO para el sitemap: **una por GRUPO a la
+   * venta** (producto+condición), ⛔ no por pieza. Reusa `loadPricedSealed` + `groupKey` (la MISMA agrupación
+   * y la MISMA regla de «vendible» que la rejilla/ficha), así el sitemap nunca lista un grupo sin pieza
+   * comprable. El `id` es el `representativeItemId` (la pieza más barata del grupo, = la que resuelve la ficha
+   * `/es/sellado/<id>`). `lastmod` = `max(updatedAt)` de las piezas del grupo (mejor disponible; ver
+   * `CatalogService.sitemapCardEntries` para el porqué de `updatedAt`).
+   */
+  async sitemapSealedEntries(): Promise<SitemapItem[]> {
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed(
+      { productType: 'sealed', status: 'listed', ownerType: 'platform' },
+      dials,
+    );
+    const groups = new Map<string, PricedSealed[]>();
+    for (const p of priced) {
+      const k = this.groupKey(p.item);
+      const arr = groups.get(k);
+      if (arr) arr.push(p);
+      else groups.set(k, [p]);
+    }
+    return [...groups.values()].map((members) => {
+      // Representante = la pieza más barata (mismo criterio que `toGroupDTO`), la que abre la ficha.
+      const rep = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials))[0];
+      const lastmod = Math.max(...members.map((m) => m.item.updatedAt.getTime()));
+      return { type: 'sealed' as const, id: rep.item.id, lastmod: new Date(lastmod).toISOString() };
+    });
   }
 
   // ---------------------------------------------------------------------------

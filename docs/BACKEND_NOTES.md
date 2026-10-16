@@ -32678,3 +32678,88 @@ exacto de `ShipmentRequest.shippingCostIvaCents`»). Medido: mi árbol de B1 **n
 ya existía en `26ff05f`. No la arreglo (⛔ «no toques A/B2/C»). Fix trivial para el dueño de A: reformular el
 comentario de `m79` para no repetir el token exacto, o ampliar el censo para admitir una referencia documentada.
 Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roja es esta.
+
+---
+
+## §MKT — OLA 1 de backend (tienda-marketing, v1.96⟨mkt-tienda⟩, rama `feat/mkt-tienda`)
+
+> Contrato: `API_CONTRACT.md §MKT.A/.B/.C`; diseño: `ARCHITECTURE.md §13.1/§13.2/§13.3` (commit base `d55692d`).
+> Fuente de negocio: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md §A3/§A4/§B1/§E1/§E3`.
+> ⛔ **NADA de GA4/píxel/cookies/consentimiento** aquí (eso es Fase 2). Medido por mí el **2026-10-16**.
+
+### 1. Migración **m81** — columnas de atribución `firstUtm*` (§MKT.C / §13.1)
+- **`20261103120000_m81_mkt_first_utm_attribution`** (m81 estaba libre; el máximo previo era m80). Añade a
+  **`Order`** y a **`SellRequest`** cinco columnas **NULLABLE** sin default: `firstUtmSource/Medium/Campaign/Content`
+  (`TEXT`) + `firstUtmLandedAt` (`TIMESTAMP(3)`), y **UN** índice `Order_firstUtmMedium_idx`. ⛔ Sin índice en
+  `SellRequest`: §13.1 indexa solo `Order` (el panel de «Origen» de OLA 2 razona sobre pedidos).
+- **100% aditiva, sin backfill, sin DROP/enum/cambio de tipo, cero dinero.** `NULL` es la verdad de toda fila previa.
+- La SQL de la migración es **idéntica** a la que `prisma migrate diff` deriva del schema (verificado schema-a-schema,
+  sin BD: `--from-schema-datamodel <HEAD> --to-schema-datamodel <schema actual> --script`).
+- ⚠️ **OLA 1 = estructura muerta a propósito (O-1):** las columnas se crean pero **ningún camino de escritura las
+  puebla**; quedan `NULL` (invitado incluido). Poblarlas exige el consentimiento (banner/cookie `th_first_utm`), que es
+  **Fase 2**. Que QA/seguridad NO lo lea como defecto.
+- **Validación** en helper puro `backend/src/common/first-utm.ts` → **`parseFirstUtm`** (nombre del contrato §MKT.C) con
+  **alias `parseFutm`** (nombre del encargo; misma función, una sola implementación). Regla: solo
+  `utm_source|utm_medium|utm_campaign|utm_content`; cada valor a minúsculas y aceptado solo si cumple
+  `^[a-z0-9._-]{1,64}$` (si no, ESE valor se descarta); clave ajena ignorada. Casos probados: `utm_content=juan@correo.com`
+  y `<script>` ⇒ descartados; `CPC`⇒`cpc`; `session_id`/`fbclid`/`token` ignoradas; >64 descartado; acentos (`ñ`/`á`)
+  descartados; no-string descartado. **12/12 verde** (test escrito ANTES; falló por módulo inexistente, pasó tras
+  implementar). ⚠️ **El helper NO está enganchado** a la creación de pedido/solicitud en OLA 1 (ver arriba): solo existe
+  y está probado.
+
+### 2. +2 campos aditivos en las fichas públicas de carta y de sellado (§MKT.A / §13.2.3)
+Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetailResponse`, raíz) y en `SealedGroupDTO`
+(el `group` de la ficha de sellado). ⛔ **NO** entran en las rejillas (`GroupedListingSummaryDTO`,
+`SealedGroupSummaryDTO`: la lista blanca de `toGroupSummaryDTO` ya los recorta, verificado por el candado de forma
+`catalog.group-dto-shape.spec.ts` + `test/helpers/dto-keys.ts`).
+- **`pricedAsOf: string`** — fecha `YYYY-MM-DD` en zona `America/Mexico_City`, el momento en que el SERVIDOR resolvió el
+  precio de ESA respuesta (reusa `toMexicoCityDateKey(new Date())` de `common/business-days.ts`). ⛔ No es `now()` del
+  cliente; bajo SSR/ISR el HTML cacheado muestra «precio al <pricedAsOf>» honesto. Money-safe (informativo).
+- **`ogImageUrl: string | null`** — URL **ABSOLUTA** de imagen para `og:image`, vía helper puro
+  `common/og-image.ts` → `absoluteOgImageUrl(...candidatas)` (primera candidata `http(s)` absoluta; si ninguna ⇒ `null`
+  ⇒ frontend omite `og:image`). Carta: `absoluteOgImageUrl(card.imageLargeUrl, card.imageSmallUrl)` (prefiere la grande).
+  Sellado: `absoluteOgImageUrl(display.imageSmallUrl)` donde `display` = `pieceDisplayIdentityOf(item)` (cascade
+  snapshot→SealedProduct→carta ancla). El acceso directo a `card.image*` en la ficha de carta se anotó en la allowlist
+  de `sealed-display-guard.spec.ts` (es la carta single, su propio sujeto; 🔵 por diseño).
+
+**MEDICIÓN Q1 (duda del arquitecto) — imagen og:**
+- **¿`imageUrl` absoluta?** **SÍ (medido).** Las imágenes de carta vienen de pokemontcg.io: el sync persiste
+  `images.small`/`images.large` **tal cual** (`catalog-sync.service.ts:1477-1478` → `Card.imageSmallUrl`/`imageLargeUrl`,
+  schema `Card` líneas 920-921), que son URLs `https://images.pokemontcg.io/...` **absolutas**. El sellado usa su
+  snapshot (`SealedProduct.imageUrl`, schema:891) / cascade, también absoluto cuando existe. Por seguridad, el helper
+  **solo devuelve candidatas absolutas** y cae a `null` si la almacenada fuera relativa/ausente (honesto, no inventa).
+- **¿variante grande ≥1200×630?** **NO GARANTIZADO (medido parcialmente, O-1).** Existe `Card.imageLargeUrl` (variante
+  «large» de pokemontcg.io, típicamente ~**734×1024**), que es la mejor disponible y la que `ogImageUrl` prefiere para
+  cartas — pero **734 de ancho < 1200**, así que **NO cumple el objetivo ≥1200×630**. El backend **no descarga** la
+  imagen, de modo que no afirmo dimensiones exactas por recurso. **Devuelvo la mejor disponible (la grande) y declaro
+  aquí que el tamaño ≥1200×630 NO está garantizado.** Es la pregunta abierta a JC (§MKT.F / §13.6 punto 1): o se acepta
+  la grande de pokemontcg.io tal cual (WhatsApp/Twitter `summary_large_image` degradan con gracia a imágenes menores), o
+  hace falta un servicio de imágenes que entregue una variante ≥1200×630 (hoy no existe en el catálogo — medido).
+
+### 3. `GET /catalog/sitemap` — endpoint público nuevo (§MKT.B / §13.3)
+- **`@Public() @Get('sitemap')`** en `catalog.controller.ts`, con `Cache-Control: public, max-age=3600` (no es dato
+  personal). Ruta estática (`sitemap`): ⛔ no colisiona con `cards/:cardId` ni `sealed/:inventoryItemId` (prefijos
+  distintos). Respuesta: `{ items: { type:'card'|'sealed', id, lastmod }[], generatedAt }` (ISO).
+- **No paginado:** una entrada por **ficha a la venta**. Cartas: `CatalogService.sitemapCardEntries()` reusa
+  `fetchSellable(singlesPublishedWhere({}))` (la MISMA definición de «a la venta» que ficha/Compra), una entrada por
+  **cardId** (⛔ no por pieza). Sellado: `SealedCatalogService.sitemapSealedEntries()` reusa `loadPricedSealed` +
+  `groupKey`, una entrada por **grupo** con `id = representativeItemId` (pieza más barata, la que abre `/es/sellado/<id>`).
+- **MEDICIÓN lastmod (cita):** `InventoryItem.updatedAt` **existe** (schema:1156, `@updatedAt`) y `Card.updatedAt`
+  también (schema:1024). **No existe** un timestamp por-ítem del «último cambio de PRECIO» (el precio se deriva de la
+  curva/diales **globales**, sin sello por pieza), así que `lastmod = max(updatedAt de las piezas)` del ítem/grupo es el
+  mejor disponible y honesto — ⛔ no se inventa un lastmod. Declarado (§MKT.B lo permite explícitamente).
+- **Cuadre con «~884 publicaciones» (§E1):** criterio de orden de magnitud, no duro; el número exacto lo mide QA contra
+  el stack. El feed lista ≥1 URL por ficha a la venta (cartas publicadas + grupos de sellado).
+
+### Verificación (comandos y resultado, O-9)
+- `prisma validate` ⇒ *valid*; `prisma generate` ⇒ OK; `prisma migrate diff` (schema-a-schema) ⇒ SQL idéntica a m81.
+- `tsc --noEmit` ⇒ 0 errores. `eslint` de los ficheros tocados ⇒ 0.
+- Jest unitario COMPLETO: **485/485 suites, 8578/8578 pruebas verde** (incluye `first-utm.spec`, `og-image.spec`,
+  `catalog.mkt-tienda.spec` — 8 nuevas de §MKT.A/.B — y los candados `catalog.group-dto-shape` y `sealed-display-guard`,
+  este último con la nueva entrada de allowlist). No se debilitó ningún test existente. Ningún test nuevo intermitente
+  (deterministas; `pricedAsOf` se fija contra `toMexicoCityDateKey(new Date())`).
+
+### Pendiente para Fase 2 (fuera de esta OLA)
+- Enganchar `parseFirstUtm` a la escritura de `Order`/`SellRequest` **solo con consentimiento** (banner + cookie
+  `th_first_utm` + Consent Mode v2); poblar `firstUtm*` y `firstUtmLandedAt`. Hasta entonces, `NULL`.
+- Resolver con JC la variante de imagen ≥1200×630 para `og:image` (Q1 arriba / §MKT.F punto 1).

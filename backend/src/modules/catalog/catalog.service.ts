@@ -39,6 +39,9 @@ import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 // copia privada (`validateEnum`) y otra VERBATIM en `sealed-catalog.service.ts`.
 import { parseEnumFilter } from '../../common/enum-filter';
 import { FINISH_VALUES, PRODUCT_TYPE_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+// v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX honesta bajo ISR) y `ogImageUrl` (absoluta).
+import { toMexicoCityDateKey } from '../../common/business-days';
+import { absoluteOgImageUrl } from '../../common/og-image';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -488,6 +491,35 @@ export interface GroupedListingDetailResponse {
   /** Piezas por-pieza (add-to-cart por `inventoryItemId`, `certNumber` de cada slab). */
   units: ListingDTO[];
   gradedEstimates?: GradedEstimateDTO[];
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3, A3/A4) — fecha `YYYY-MM-DD` (zona `America/Mexico_City`) en que
+   * el SERVIDOR resolvió el precio de ESTA respuesta. Bajo SSR/ISR el HTML cacheado muestra «precio al
+   * <pricedAsOf>» honesto. ⛔ NO es `now()` del cliente. Money-safe: informativo, no entra en ninguna cuenta.
+   */
+  pricedAsOf: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3) — URL **ABSOLUTA** de la imagen apta para `og:image` (prefiere la
+   * grande sobre la pequeña). `null` ⇒ el frontend OMITE `og:image` (⛔ nunca inventa arte). ⚠️ NO se garantiza
+   * el tamaño ≥1200×630 (backend no descarga la imagen; ver `docs/BACKEND_NOTES.md` Q1).
+   */
+  ogImageUrl: string | null;
+}
+
+/**
+ * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.B / §13.3) — `SitemapResponse`: feed PÚBLICO y LIVIANO (⛔ no paginado) con todo
+ * lo indexable, para que el frontend genere `sitemap.xml`. Una entrada por FICHA a la venta: carta publicada
+ * (`type:'card'`, `id`=cardId) y grupo de sellado publicado (`type:'sealed'`, `id`=representativeItemId). Las
+ * rutas ESTÁTICAS (home, guías, etc.) las añade el frontend; aquí solo las dinámicas.
+ */
+export interface SitemapItem {
+  type: 'card' | 'sealed';
+  id: string;
+  /** ISO. `updatedAt` de la pieza/grupo (el mejor `lastmod` disponible; ver `sitemapCardEntries`). */
+  lastmod: string;
+}
+export interface SitemapResponse {
+  items: SitemapItem[];
+  generatedAt: string;
 }
 
 /**
@@ -1577,10 +1609,40 @@ export class CatalogService {
       card: toCardDTO(card, pricedByCard.get(cardId)),
       listings,
       units,
+      // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A): la fecha en que ESTE render resolvió el precio (CDMX) y la imagen
+      // absoluta para og. La grande (`imageLargeUrl`) antes que la pequeña; `null` ⇒ front omite og:image.
+      pricedAsOf: toMexicoCityDateKey(new Date()),
+      ogImageUrl: absoluteOgImageUrl(card.imageLargeUrl, card.imageSmallUrl),
       // Sin ningún grado que exponer ⇒ el campo se OMITE (nunca `[]`): el front no pinta NADA — ni
       // contenedor, ni skeleton, ni «—», ni $0, ni «pendiente» (criterio 102).
       ...(gradedEstimates.length > 0 ? { gradedEstimates } : {}),
     };
+  }
+
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.B / §13.3, E/SEO) — entradas de SINGLES para el sitemap: **una por CARTA a la
+   * venta** (⛔ no por pieza). Reusa `fetchSellable(singlesPublishedWhere)` — la MISMA definición de «a la venta»
+   * que la ficha y Compra (publicado de plataforma ∧ vendible ∧ precio resuelto): el sitemap jamás lista algo
+   * que la tienda no vende. El `id` es el `cardId` (la ruta pública `/es/catalog/<cardId>`).
+   *
+   * `lastmod` = `max(updatedAt)` de las piezas vendibles de esa carta. ⚠️ MEDIDO: no existe un timestamp
+   * por-ítem del «último cambio de PRECIO» (el precio se deriva de la curva/diales GLOBALES, sin sello por
+   * pieza); `updatedAt` del `InventoryItem` (bump en cualquier cambio de la fila) es el mejor disponible y
+   * honesto — ⛔ no se inventa un lastmod. Declarado en BACKEND_NOTES.
+   */
+  async sitemapCardEntries(): Promise<SitemapItem[]> {
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({}));
+    const lastmodByCard = new Map<string, number>();
+    for (const r of rows) {
+      const ts = r.item.updatedAt.getTime();
+      const prev = lastmodByCard.get(r.item.cardId);
+      if (prev == null || ts > prev) lastmodByCard.set(r.item.cardId, ts);
+    }
+    return [...lastmodByCard.entries()].map(([id, ts]) => ({
+      type: 'card' as const,
+      id,
+      lastmod: new Date(ts).toISOString(),
+    }));
   }
 
   /**
