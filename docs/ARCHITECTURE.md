@@ -30747,6 +30747,28 @@ Por eso: **el GET abre una página con un botón; el POST hace el cambio.** Un t
 72 h (torneo), y la fila se **borra** (la del torneo nunca restó cupo porque el cupo se asigna al confirmar). Es el mismo
 patrón «el GET no muta» que ya exige el proyecto para enlaces en correo.
 
+**Quién sirve la página — Diseño A (decidido 2026-10-16, arquitecto, rama `feat/event-landing`).** La página con botón vive en
+el **FRONTEND** (`/card-show/{confirm,cancel,unsubscribe}`, fuera del i18n como la landing), lee el token del query y, al
+pulsar, hace `POST application/json { token }` a `/api/v1/card-show/{…}`. El backend conserva **solo** los POST (JSON, ya
+montado) y **retira** los GET `actionPage`. Por qué A y no B (apuntar el correo al backend y montar un parser urlencoded para su
+`<form>`): (1) el enlace del correo ya apunta al dominio del frontend (`base = publicBase()`), así que A encaja **sin tocar
+`confirmUrl`**; (2) una página de marca consistente con la landing, no un HTML mínimo servido por la API; (3) no añade un parser
+`x-www-form-urlencoded` a la API (superficie que hoy no existe y que, si se montara global, afectaría a toda la API). C4 se
+mantiene: el GET lo atiende una página estática del frontend que no muta; solo el POST (token de un solo uso, 30/min) cambia estado.
+
+**Desviaciones detectadas (medidas 2026-10-16, pendientes de corrección por los roles dueños — ⛔ el arquitecto no corrige
+código):**
+- **DESV-CS-1 (backend, bloqueante):** el correo apuntaba `confirmUrl`/`notMeUrl` a `https://tcghunt.mx/card-show/confirm·unsubscribe`
+  (`card-show.service.ts:250-251,264-265`) — ruta del frontend que **no existe** (no hay `frontend/src/app/card-show/{confirm,…}/`)
+  ⇒ 404. Diseño A lo cierra creando esas páginas en frontend; `confirmUrl` queda correcto tal cual.
+- **DESV-CS-2 (backend, bloqueante):** la página `actionPage` del backend (`card-show.controller.ts:216-228`) servía un
+  `<form method="post">` que manda `x-www-form-urlencoded`, content-type que la API no parsea ⇒ 400. Diseño A la retira; la
+  página pasa a frontend y el POST va en JSON.
+- **DESV-CS-3 (backend, bloqueante de reputación):** `List-Unsubscribe` se emite **sin token** (`card-show.service.ts:247`
+  arma la URL sin `?token=`; `card-show-mail.service.ts:165` la pone tal cual), pero el servicio
+  (`card-show.service.ts:403-408`) espera un token de propósito `unsubscribe` ⇒ el one-click RFC 8058 no puede identificar el
+  buzón. El contrato ahora **exige** el token en el query (§CARDSHOW.6/.2); backend lo corrige.
+
 #### 4.CARDSHOW.g El presupuesto global de envíos (C1) falla CERRADO — Redis caído ⇒ ningún correo
 
 El gasto de correo está acotado por un presupuesto **global en Redis**, compartido por `/leads` y `/players`:

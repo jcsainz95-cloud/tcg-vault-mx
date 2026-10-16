@@ -44960,9 +44960,9 @@ M-78); paridad a tres bandas cuando el código los derive/valide (los de filtro 
   | `GET  /card-show/form-token` | `@Public` | Emite token de formulario firmado (§CARDSHOW.5). `Cache-Control: no-store`, ⛔ sin `Set-Cookie`, ⛔ sin reflejar Origin ajeno. 30/h por IP. |
   | `POST /card-show/leads` | `@Public` | Alta «Avísame» (§CARDSHOW.3/.4/.5). Respuesta **neutra**. |
   | `POST /card-show/players` | `@Public` | Alta preinscripción (§CARDSHOW.3/.4/.5/.12). Respuesta **neutra**. |
-  | `GET  /card-show/confirm` · `/cancel` · `/unsubscribe` | `@Public` | **Abre página con botón** (C4); ⛔ no cambia estado. |
-  | `POST /card-show/confirm` · `/cancel` · `/unsubscribe` | `@Public` | Ejecuta el cambio (§CARDSHOW.6). Token de un solo uso. 30/min por IP. |
-  | `POST /card-show/unsubscribe-oneclick` | `@Public` | Destino de `List-Unsubscribe-Post` (RFC 8058): `unsubscribedAt`, 0 envíos posteriores. |
+  | ~~`GET /card-show/confirm·cancel·unsubscribe`~~ **(RETIRADO — Diseño A)** | — | La **página con botón (C4)** la sirve el **FRONTEND** en `https://tcghunt.mx/card-show/{confirm\|cancel\|unsubscribe}?token=…` (fuera del i18n, igual que la landing; §CARDSHOW.6 y `ARCHITECTURE §4.CARDSHOW.f`). El backend ⛔ **ya no** sirve estos `GET` (se retira `actionPage`; un `GET` a `/api/v1/card-show/confirm·cancel·unsubscribe` responde `404`). |
+  | `POST /card-show/confirm` · `/cancel` · `/unsubscribe` | `@Public` | Ejecuta el cambio (§CARDSHOW.6). **Cuerpo `application/json`: `{ "token": "…" }`** (`StrictBodyPipe(LinkActionDto)`, parser JSON ya montado; ⛔ **NO** `x-www-form-urlencoded`). Token de un solo uso. 30/min por IP. |
+  | `POST /card-show/unsubscribe-oneclick?token=…` | `@Public` | Destino de `List-Unsubscribe-Post` (RFC 8058). **El token de un solo uso (propósito `unsubscribe`) viaja en el QUERY**, ⛔ no en el cuerpo: el cuerpo RFC 8058 es fijo (`List-Unsubscribe=One-Click`, `application/x-www-form-urlencoded`) y no lleva token. El backend lee el token del query y el cuerpo lo ignora (⛔ no lo parsea con `LinkActionDto`). Efecto: `unsubscribedAt`, 0 envíos posteriores. Silencioso/idempotente. |
   | `POST /card-show/webhooks/resend` | `@Public` (firma Resend) | Corte C6 (§CARDSHOW.10). Verifica firma del webhook. |
   | `GET  /card-show/ir/:destino` | `@Public` | Redirección contada (§CARDSHOW.13). `302` al destino; ⛔ sin cookie. |
   | `POST /card-show/click` | `@Public` | Alternativa `sendBeacon` del contador (§CARDSHOW.13). |
@@ -45004,13 +45004,25 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
 - Tokens **HMAC con propósito y de un solo uso** (`CARD_SHOW_LINK_SECRET`): propósitos disjuntos `confirm`/`cancel`/
   `unsubscribe`. **Usado ⇒ `410`.** Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ `400`/`410`,
   0 cambios, 0 envíos.
-- **C4:** el **GET** del enlace abre **página con botón**; el **POST** hace el cambio (los escáneres de enlaces hacen GET).
+- **C4 — Diseño A (la página la sirve el FRONTEND):** el enlace del correo apunta al **dominio del frontend**
+  (`https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…`, fuera del i18n). El **GET** a esa ruta sirve una
+  **página de marca con botón** (la sirve **frontend**, consistente con la landing); ⛔ **no cambia estado** (los escáneres de
+  enlaces hacen GET, y la página solo lee el token del query y lo deja en espera del clic). Al pulsar, el frontend hace
+  **`POST application/json { "token": "…" }`** a `/api/v1/card-show/{confirm|cancel|unsubscribe}`, que hace el cambio. La URL del
+  correo la arma el backend con `base = publicBase()` = dominio del frontend (`card-show.service.ts:250-251,264-265`) ⇒ Diseño A
+  **no cambia** `confirmUrl`/`notMeUrl`. El backend ⛔ **retira** los `GET confirm/cancel/unsubscribe` (§CARDSHOW.2).
   3 GET ⇒ `200` con página, fila **sigue PENDING**, 0 envíos. POST ⇒ `new` (leads) o `confirmed|waitlist` (torneo),
   `confirmedAt`, **1** confirmación por tipo, y para vendedor/patrocinador **1** aviso interno; aparece en admin **<5 s**.
 - **Caducidad:** 7 d (leads) / 72 h (torneo) ⇒ la fila se **borra**; la del torneo **nunca restó cupo** (cupo al confirmar).
 - **Mientras PENDING:** 0 en admin/CSV, no cuenta en hoy/7 días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en el
   resumen diario, 0 al export del organizador.
-- `List-Unsubscribe-Post` ⇒ `unsubscribedAt` + 0 envíos posteriores. «Cancelar mi preinscripción»: GET página sin cambio;
+- **`List-Unsubscribe` DEBE llevar token de un solo uso en el QUERY.** El encabezado es
+  `List-Unsubscribe: <https://tcghunt.mx/api/v1/card-show/unsubscribe-oneclick?token=…>` (+ `List-Unsubscribe-Post:
+  List-Unsubscribe=One-Click`, RFC 8058). El `token` es de propósito `unsubscribe`, un solo uso, firmado con
+  `CARD_SHOW_LINK_SECRET`, y referencia la fila del buzón; ⛔ **sin token el one-click no puede identificar a quién dar de baja**.
+  El backend lo lee del query (⛔ no del cuerpo fijo `List-Unsubscribe=One-Click`). A diferencia de confirmar/cancelar, el
+  one-click lo dispara el proveedor de correo (Gmail/Apple) máquina-a-máquina ⇒ **va directo al backend** (no pasa por una página
+  del frontend). `List-Unsubscribe-Post` ⇒ `unsubscribedAt` + 0 envíos posteriores. «Cancelar mi preinscripción»: GET página sin cambio;
   POST ⇒ baja / `cancelled` y el cupo restante **sube 1**. Repetir alta de un registro **ya confirmado** dentro de 24 h ⇒
   0 envíos. **31 peticiones/min por IP** a `/confirm`,`/unsubscribe`,`/cancel` ⇒ `429` desde la 31.ª.
 
@@ -45105,8 +45117,11 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
   corte C6 (§10), validación/MX (§11), torneo L0-SEG-02 (§12), contador de clics (§13), panel (§15). Toca
   **`backend/src/common/`** y **`schema.prisma`** (zonas compartidas, un stream a la vez). Notas en `docs/BACKEND_NOTES.md`.
 - **frontend**: ruta `/card-show` fuera del i18n (**`frontend/src/middleware.ts`**, zona compartida), los 2 formularios con sus
-  estados (RONDA_0 §6 + textos de estado), plano SVG **sin cotas**, aviso de privacidad reescrito (RONDA_0 §5), y el archivo de
-  datos **`frontend/src/content/card-show.ts` con marcadores**. Zonas compartidas: `components/`, `lib/`, `content/`,
+  estados (RONDA_0 §6 + textos de estado), plano SVG **sin cotas**, aviso de privacidad reescrito (RONDA_0 §5), el archivo de
+  datos **`frontend/src/content/card-show.ts` con marcadores**, y **(Diseño A, nuevo)** las **3 páginas de acción**
+  `/card-show/{confirm,cancel,unsubscribe}` (fuera del i18n, de marca): leen el token del query, muestran botón, y al pulsar hacen
+  `POST application/json { token }` a `/api/v1/card-show/{confirm|cancel|unsubscribe}` manejando `200`/`410`/`400`/`429` y el
+  cuerpo `{ ok:false, message }` del torneo ocupado (§CARDSHOW.12). Zonas compartidas: `components/`, `lib/`, `content/`,
   `messages/*.json`. Notas en `docs/FRONTEND_NOTES.md`.
 - **devops**: subdominio de envío en Resend (SPF/DKIM/DMARC) + webhooks de Resend; variables de §CARDSHOW.16; DNS `www`→apex;
   términos del **grep de CI** del secreto; **reportar el plan de Resend** (el Free de 100/día no aguanta el anuncio) en la
