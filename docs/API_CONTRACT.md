@@ -45022,6 +45022,11 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
   **no cambia** `confirmUrl`/`notMeUrl`. El backend ⛔ **retira** los `GET confirm/cancel/unsubscribe` (§CARDSHOW.2).
   3 GET ⇒ `200` con página, fila **sigue PENDING**, 0 envíos. POST ⇒ `new` (leads) o `confirmed|waitlist` (torneo),
   `confirmedAt`, **1** confirmación por tipo, y para vendedor/patrocinador **1** aviso interno; aparece en admin **<5 s**.
+- **Correo de BIENVENIDA tras confirmar (C3-W, §CARDSHOW.9):** al pasar un **lead** a `new`, el backend envía **exactamente 1**
+  correo de **bienvenida** (variante por `type`: `merchant`/`sponsor`/`visitor`), de contenido **rico** (permite `wa.me`,
+  `utm_*`, Drive, `mailto`, `.ics`, Maps) porque el buzón **ya está confirmado**. ⛔ Es un correo **distinto** del de
+  confirmación C3 (ese es estricto y se envió a la fila PENDING). La bienvenida ⛔ **nunca** se envía a una fila PENDING, se
+  dispara **una sola vez** (reenviar la confirmación de un lead ya `new` ⇒ 0 bienvenidas nuevas) y cuenta contra C1/C2.
 - **Caducidad:** 7 d (leads) / 72 h (torneo) ⇒ la fila se **borra**; la del torneo **nunca restó cupo** (cupo al confirmar).
 - **Mientras PENDING:** 0 en admin/CSV, no cuenta en hoy/7 días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en el
   resumen diario, 0 al export del organizador.
@@ -45059,12 +45064,40 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
 - Las filas por `+1`/`+2` existen separadas (unicidad por `(email,type)`), pero **retenidas sin correo** (un buzón).
   `Email@Dominio.MX` y `email@dominio.mx` ⇒ **misma** fila (email normalizado); `email+a@` ⇒ **otra** fila, mismo buzón.
 
-### CARDSHOW.9 Correo de confirmación — C3
-- Plantilla y **asunto fijos**. ⛔ **Ningún** valor tecleado (Player ID solo «terminado en NNNN»; ⛔ nunca `playerName`).
-  ⛔ **Ningún** enlace de marketing: ni `wa.me`, ni `mailto`, ni la tienda, ni `utm_*`. ⛔ Sin imágenes remotas.
-- Cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058). `From` en el **subdominio de envío propio** de la landing
-  (lo prepara devops: SPF/DKIM/DMARC). Los **únicos** enlaces son del dominio propio: confirmar, «No fui yo», aviso de
-  privacidad.
+### CARDSHOW.9 Correos de la landing — C3 (confirmación, ESTRICTO) · C3-W (bienvenida, RICO) · internos
+> **Decisión del dueño 2026-10-16 (rama `feat/event-landing`), ratificada por el arquitecto (regla 9):** hay **dos** correos
+> públicos en el ciclo de un lead, con reglas **distintas**, porque van a destinatarios de **riesgo distinto**. El correo de
+> **confirmación** va a buzones **NO verificados** (opt-in) ⇒ ESTRICTO, por entregabilidad/anti-spam. El correo de
+> **bienvenida** va SOLO a buzones **YA confirmados** (consentimiento verificado) ⇒ puede llevar contenido rico. La
+> restricción «sin `wa.me`/`utm_*`/`mailto`/Drive/calendario» de C3 aplica **solo al correo de CONFIRMACIÓN**, ⛔ **no** al de
+> bienvenida. Porqué: `ARCHITECTURE §4.CARDSHOW.m`.
+
+- **C3 — Correo de CONFIRMACIÓN (opt-in; se envía a la fila PENDING, a buzón NO verificado). ESTRICTO:**
+  - Plantilla y **asunto fijos**. ⛔ **Ningún** valor tecleado (Player ID solo «terminado en NNNN»; ⛔ nunca `playerName`).
+  - ⛔ **Ningún** enlace de marketing ni externo: ni `wa.me`, ni `mailto`, ni la tienda, ni `utm_*`, ni Google Drive/Maps, ni
+    «Agregar al calendario». ⛔ Sin imágenes remotas.
+  - Los **únicos** enlaces permitidos son del **dominio propio**: **confirmar**, **«No fui yo»**/baja, **aviso de privacidad**.
+  - Cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) con **token de un solo uso** en el query (§CARDSHOW.6).
+    `From` en el **subdominio de envío propio** de la landing (lo prepara devops: SPF/DKIM/DMARC).
+
+- **C3-W — Correo(s) de BIENVENIDA (NUEVO tipo; se envía SOLO tras confirmar, a un lead `new` — buzón YA confirmado). RICO:**
+  - Se dispara **una sola vez** en el POST de confirmación de un **lead** (§CARDSHOW.6), **después** de pasar a `new`. ⛔ **No**
+    se envía a filas PENDING. ⛔ **No** sustituye al aviso interno (§CARDSHOW.11) ni al correo de confirmación C3.
+  - **3 variantes por tipo de lead** (`CardShowLeadType`): `merchant` (vendedor), `sponsor` (patrocinador), `visitor`
+    (visitante). El backend elige la plantilla por el `type` de la fila confirmada.
+  - **Contenido rico PERMITIDO** (consentimiento verificado): enlaces `wa.me`, `utm_*` en enlaces propios, enlaces de **Google
+    Drive** (deck/convocatoria), `mailto:`, botón **«Agregar al calendario»** (adjunto/enlace `.ics`), **«Cómo llegar»**
+    (Google Maps). Los valores concretos (números de WhatsApp, URLs de Drive, fecha/sede para el `.ics`, coordenadas de Maps)
+    viven **FUERA del repo** en el archivo de datos del frontend / variables (§CARDSHOW.0, secreto hasta el anuncio); el
+    contrato fija la **estructura**, no los valores.
+  - **Sigue obligando:** `From` en el mismo subdominio de envío propio; cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post`
+    (RFC 8058) con **token de un solo uso** (el buzón confirmado puede darse de baja). ⛔ Nunca `playerName`. Cuenta contra el
+    presupuesto C1 (§CARDSHOW.7) y los topes por buzón C2 (§CARDSHOW.8) como cualquier envío.
+
+- **Correos INTERNOS (no sujetos a C3 de cara al público):** el **aviso interno** al staff en la confirmación de un
+  `merchant`/`sponsor` (§CARDSHOW.6/.11) y el **resumen diario** de visitantes van a **buzones del propio equipo**
+  (`CARD_SHOW_ALERT_EMAIL` y destinatarios internos), ⛔ no a público. No les aplica la restricción de enlaces de C3: pueden
+  llevar los datos operativos que el equipo necesite. Siguen acotados por **≤ 10/h** (§CARDSHOW.11).
 
 ### CARDSHOW.10 Corte por webhooks de Resend — C6 (obligatorio por Resend compartido)
 - `POST /card-show/webhooks/resend` (firma verificada). **≥ 2 quejas** (`complained`) **o ≥ 10 rebotes duros** (`bounced`)
@@ -45122,7 +45155,8 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
 
 ### CARDSHOW.17 Reparto y zonas compartidas
 - **backend** (modelo fuerte: PII + anti-abuso): M-78 (§CARDSHOW.1), endpoints (§CARDSHOW.2), respuesta neutra (§3), throttle
-  Redis (§4), token de formulario (§5), doble opt-in (§6), presupuesto Redis C1 (§7), topes por buzón C2 (§8), correo C3 (§9),
+  Redis (§4), token de formulario (§5), doble opt-in (§6), presupuesto Redis C1 (§7), topes por buzón C2 (§8), correos C3
+  (confirmación estricto) + **C3-W (bienvenida rico, 3 variantes, tras confirmar un lead)** + internos (§9),
   corte C6 (§10), validación/MX (§11), torneo L0-SEG-02 (§12), contador de clics (§13), panel (§15). Toca
   **`backend/src/common/`** y **`schema.prisma`** (zonas compartidas, un stream a la vez). Notas en `docs/BACKEND_NOTES.md`.
 - **frontend**: ruta `/card-show` fuera del i18n (**`frontend/src/middleware.ts`**, zona compartida), los 2 formularios con sus
@@ -45147,6 +45181,6 @@ Honeypot: con valor en ambos formularios ⇒ 200 idéntico, 0 filas, 0 envíos, 
 Token de formulario y tiempo mínimo: sin token / 1 byte alterado / token de player usado en leads ⇒ 400, 0 filas, 0 envíos. POST <2s ⇒ 200 idéntico 0/0; 2.º POST mismo token ⇒ 200 idéntico 0 filas nuevas/0 envíos. TTL reducido: token caducado ⇒ 400 FORM_EXPIRED, el front pide otro y reintenta una vez sin borrar lo tecleado. GET /form-token sin Set-Cookie, Cache-Control: no-store, sin reflejar Origin ajeno, 429 en la 31.ª/h por IP. git grep de CARD_SHOW_FORM_SECRET y CARD_SHOW_LINK_SECRET solo lecturas de config (0 valores), distintos, solo en Railway.
 Validación: body 5 KB ⇒ 413; email 300 chars ⇒ 400; type=ADMIN ⇒ 400; utm_source con <script> ⇒ 400; playerName con http:// @ < o dígitos ⇒ 400; playerId con letras o 13 dígitos ⇒ 400. consent=false/ausente ⇒ 400 y 0 filas. Dos POST simultáneos mismo (email,type) ⇒ 1 fila. Email@Dominio.MX y email@dominio.mx ⇒ misma fila; email+a@ ⇒ otra fila (mismo buzón para topes).
 Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, ≤100 ms) iguales para: alta nueva, repetida, honeypot, <2s, token reutilizado, buzón dado de baja, buzón suprimido, tope agotado, dominio sin MX, corte activo.
-[Doble opt-in] Alta ⇒ exactamente 1 envío, fila PENDING; en PENDING 0 en admin/CSV, no cuenta en hoy/7días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en resumen diario, 0 a Jakomi. En la fuente del correo solo enlaces del dominio propio (confirmar, «No fui yo», aviso); 0 wa.me/mailto/tienda/utm_; ningún valor tecleado (Player ID «terminado en NNNN»); asunto fijo; 0 imágenes remotas; List-Unsubscribe(+Post); From en subdominio de envío. 3 GET al enlace de confirmación ⇒ 200 con página y botón, fila sigue PENDING, 0 envíos; POST ⇒ NEW (leads) o CONFIRMED/WAITLIST (torneo), confirmedAt, 1 confirmación por tipo y (vendedor/patrocinador) 1 aviso interno; aparece en admin <5s. 2.º POST mismo token ⇒ 410, 0 cambios/0 envíos. Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ 400/410, 0 cambios/0 envíos. Reloj simulado: sin confirmar la fila desaparece a 7d (leads)/72h (torneo); la del torneo nunca restó cupo. POST de List-Unsubscribe-Post ⇒ unsubscribedAt y 0 envíos posteriores. Baja del cuerpo y «Cancelar mi preinscripción»: GET ⇒ página sin cambio; POST ⇒ baja/CANCELLED y el cupo restante sube 1. Repetir alta de un registro ya confirmado dentro de 24h ⇒ 0 envíos. 31 peticiones/min por IP a /confirm,/unsubscribe,/cancel ⇒ 429 desde la 31.ª.
+[Doble opt-in] Alta ⇒ exactamente 1 envío, fila PENDING; en PENDING 0 en admin/CSV, no cuenta en hoy/7días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en resumen diario, 0 a Jakomi. En la fuente del **correo de CONFIRMACIÓN (C3)** solo enlaces del dominio propio (confirmar, «No fui yo», aviso); 0 wa.me/mailto/tienda/utm_/Drive/Maps/calendario; ningún valor tecleado (Player ID «terminado en NNNN»); asunto fijo; 0 imágenes remotas; List-Unsubscribe(+Post) con token; From en subdominio de envío. 3 GET al enlace de confirmación ⇒ 200 con página y botón, fila sigue PENDING, 0 envíos; POST ⇒ NEW (leads) o CONFIRMED/WAITLIST (torneo), confirmedAt, 1 confirmación por tipo y (vendedor/patrocinador) 1 aviso interno; aparece en admin <5s. [Correo de BIENVENIDA C3-W] Al confirmar un lead (NEW) ⇒ exactamente 1 correo de bienvenida, variante por tipo (merchant/sponsor/visitor); este correo SÍ puede llevar wa.me/utm_/Drive/mailto/.ics/Maps (la restricción de C3 NO le aplica — buzón ya confirmado); sigue con From en subdominio de envío, List-Unsubscribe(+Post) con token y ⛔ sin playerName; cuenta contra C1/C2. ⛔ A una fila PENDING ⇒ 0 bienvenidas. Reenviar la confirmación de un lead ya NEW ⇒ 0 bienvenidas nuevas. Los correos internos (aviso al staff, resumen diario) NO están sujetos a la restricción de enlaces de C3. 2.º POST mismo token ⇒ 410, 0 cambios/0 envíos. Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ 400/410, 0 cambios/0 envíos. Reloj simulado: sin confirmar la fila desaparece a 7d (leads)/72h (torneo); la del torneo nunca restó cupo. POST de List-Unsubscribe-Post ⇒ unsubscribedAt y 0 envíos posteriores. Baja del cuerpo y «Cancelar mi preinscripción»: GET ⇒ página sin cambio; POST ⇒ baja/CANCELLED y el cupo restante sube 1. Repetir alta de un registro ya confirmado dentro de 24h ⇒ 0 envíos. 31 peticiones/min por IP a /confirm,/unsubscribe,/cancel ⇒ 429 desde la 31.ª.
 [Preinscripción al torneo, además] Cupo de prueba=2/día: 3 altas PENDING ⇒ cupo sigue 2; al confirmar las 3 ⇒ 2 CONFIRMED + 1 WAITLIST en orden; dos confirmaciones simultáneas por el último lugar ⇒ 1 CONFIRMED + 1 WAITLIST, nunca 3. Player ID 123 confirmado por correo A el sábado; desde correo B alta del 123 el sábado ⇒ 200 idéntico, fila de A sin cambios, 0 envíos a A; si B confirma ⇒ página «Este Player ID ya está preinscrito ese día», 0 cambios. Mismo correo+Player ID+día dos veces ⇒ 1 fila, 1 envío; «los dos» ⇒ 2 filas, 1 envío. Tutor con una confirmación pendiente preinscribe a un 2.º jugador ⇒ fila retenida, 0 envíos; al confirmar la 1.ª sale 1 correo para la 2.ª. 5.º playerId con el mismo buzón el mismo día ⇒ 200 idéntico, 0 filas; 4.ª PENDING del mismo playerId ⇒ 200 idéntico, 0 filas. Ni el nombre ni el Player ID completo en el correo, logs ni correos a terceros salvo el export de Jakomi.
 [Cabeceras y CSP] La CSP de la landing no contiene challenges.cloudflare.com ni ningún origen nuevo respecto a la tienda; git grep -i turnstile en la rama ⇒ 0.

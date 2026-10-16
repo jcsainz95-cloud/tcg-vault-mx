@@ -30842,6 +30842,33 @@ grep de CI (lo cablea devops) que rompe el push si aparece cualquier término se
 commitea con marcadores igual que el resto (los candados `legal-gate.ts`/`publish-check.ts` ya ponen 404 si queda un marcador
 en producción, RONDA_0 §5).
 
+#### 4.CARDSHOW.m Dos correos públicos, dos reglas: confirmación ESTRICTA, bienvenida RICA (dueño 2026-10-16)
+
+El doble opt-in del Card Show produce **dos** correos públicos en el ciclo de un lead, y **no pueden tener la misma regla**
+porque van a destinatarios de **riesgo distinto**:
+
+1. **Confirmación (C3) — a buzón NO verificado.** Se envía al dar de alta, a la fila **PENDING**. El buzón **todavía no probó
+   que es suyo** (cualquiera teclea el correo de otro). Un correo de opt-in que lleve `wa.me`, `utm_*`, `mailto`, enlaces de
+   Drive o botones de calendario parece **marketing no solicitado** a los filtros anti-spam y **quema la reputación** del
+   subdominio de envío — que, por ser Resend compartido con la tienda (§4.CARDSHOW.h), arrastra las confirmaciones de compra.
+   Por eso C3 es **estricto**: asunto fijo, **solo** enlaces del dominio propio (confirmar, «No fui yo», privacidad), sin
+   imágenes remotas, con `List-Unsubscribe` tokenizado. Esto **no cambia**.
+
+2. **Bienvenida (C3-W) — a buzón YA confirmado.** Se envía **una sola vez, después** de que el lead pasa a `new` (el clic en
+   confirmar probó el consentimiento). Aquí el riesgo es **mucho menor**: el destinatario pidió explícitamente seguir. Por eso
+   C3-W **puede** llevar el contenido rico que el dueño entregó —`wa.me`, `utm_*` en enlaces propios, deck/convocatoria en
+   Google Drive, `mailto`, «Agregar al calendario» (`.ics`), «Cómo llegar» (Google Maps)— en **3 variantes** por tipo de lead
+   (`merchant`/`sponsor`/`visitor`). Sigue obligando `From` del subdominio propio, `List-Unsubscribe` tokenizado y ⛔ nunca
+   `playerName`; cuenta contra el presupuesto C1 y los topes por buzón C2 como cualquier envío.
+
+La regla general del proyecto «el correo de la landing no lleva marketing» se **precisa**: aplica al correo que va a **buzones
+no verificados** (C3), no al que va a **buzones confirmados** (C3-W). Es la misma lógica de riesgo que gobierna el fail-closed
+del presupuesto (§4.CARDSHOW.g): el coste de equivocarse está en el envío a quien no lo pidió, no en el envío a quien ya dijo
+que sí. Los **correos internos** (aviso al staff en la confirmación de merchant/sponsor; resumen diario de visitantes) van a
+buzones del propio equipo y **nunca** estuvieron sujetos a C3 de cara al público. Valores concretos (números de WhatsApp,
+URLs de Drive, fecha/sede del `.ics`, coordenadas de Maps) viven **fuera del repo** (§4.CARDSHOW.l); el contrato fija la
+estructura. Forma exacta y criterios: `API_CONTRACT §CARDSHOW.9`.
+
 ---
 
 ## 5. Decisiones transversales
