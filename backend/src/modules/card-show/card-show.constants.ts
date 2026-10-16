@@ -62,6 +62,45 @@ export const MAILBOX = {
   CONFIRMED_READD_WINDOW_MS: 24 * 60 * 60 * 1000, // re-alta de confirmado dentro de 24 h ⇒ 0 envíos
 } as const;
 
+/**
+ * Dominios públicos masivos (freemail): un tope PLANO por dominio los convierte en un vector de DoS
+ * contra sus usuarios legítimos — 20 envíos a cualquier `@gmail.com` en 24 h retendrían al 21.º
+ * registro legítimo de Gmail. Se EXIMEN del tope por DOMINIO (C2, §CARDSHOW.8). Eximirlos es seguro:
+ * el abuso desde esos buzones sigue acotado por el tope por BUZÓN (`reserveUnconfirmedSend`, 2/campaña,
+ * con la clave canonicalizada que colapsa `+etiqueta` y puntos) y por el throttle por IP (C7). ⛔ El
+ * tope por dominio existe para dominios PROPIOS/pequeños, donde 20 correos a un mismo dominio sí es señal
+ * de abuso. Normalizados a minúsculas; incluye variantes `.com.mx` comunes en MX.
+ */
+export const PUBLIC_FREEMAIL_DOMAINS: ReadonlySet<string> = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'hotmail.com',
+  'hotmail.com.mx',
+  'outlook.com',
+  'outlook.com.mx',
+  'live.com',
+  'live.com.mx',
+  'msn.com',
+  'yahoo.com',
+  'yahoo.com.mx',
+  'ymail.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'proton.me',
+  'protonmail.com',
+  'aol.com',
+  'gmx.com',
+  'zoho.com',
+  'hey.com',
+  'prodigy.net.mx',
+]);
+
+/** ¿`domain` es un freemail público (exento del tope por dominio)? Normaliza a minúsculas + trim. */
+export function isPublicFreemailDomain(domain: string): boolean {
+  return PUBLIC_FREEMAIL_DOMAINS.has(domain.trim().toLowerCase());
+}
+
 // ── Torneo (L0-SEG-02, §CARDSHOW.12) ──
 export const TOURNAMENT = {
   MAX_PLAYERS_PER_MAILBOX_DAY: 4, // máx 4 playerId por buzón y día (el 5.º ⇒ 0 filas)

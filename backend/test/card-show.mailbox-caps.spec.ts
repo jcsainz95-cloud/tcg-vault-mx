@@ -34,11 +34,23 @@ describe('CARDSHOW · topes por buzón (C2)', () => {
     expect(await caps.reserveConfirmedSend('c')).toBe(false);
   });
 
-  it('dominio no masivo: 20 / 24 h (el 21.º no sale)', async () => {
+  it('dominio no masivo: 20 / 24 h (el 21.º no sale) — el tope SIGUE mordiendo', async () => {
     const store = new MemoryCardShowCounterStore(() => 1_700_000_000_000);
     const caps = new CardShowMailboxCapsService(store);
     for (let i = 0; i < 20; i += 1) expect(await caps.reserveDomainSend('dominio.mx')).toBe(true);
     expect(await caps.reserveDomainSend('dominio.mx')).toBe(false);
+  });
+
+  it('dominio PÚBLICO (freemail): EXENTO del tope por dominio — 20 a @gmail.com NO tumban al 21.º (anti-DoS)', async () => {
+    const store = new MemoryCardShowCounterStore(() => 1_700_000_000_000);
+    const caps = new CardShowMailboxCapsService(store);
+    // 21.º y siguientes a gmail.com siguen pasando: un tope plano aquí sería un DoS contra todo Gmail.
+    for (let i = 0; i < 25; i += 1) expect(await caps.reserveDomainSend('gmail.com')).toBe(true);
+    // variantes de la lista pública (mayúsculas / googlemail / .com.mx) también exentas.
+    expect(await caps.reserveDomainSend('GMAIL.COM')).toBe(true);
+    expect(await caps.reserveDomainSend('googlemail.com')).toBe(true);
+    expect(await caps.reserveDomainSend('hotmail.com.mx')).toBe(true);
+    expect(await caps.reserveDomainSend('outlook.com')).toBe(true);
   });
 
   it('avisos internos: ≤ 10/h', async () => {

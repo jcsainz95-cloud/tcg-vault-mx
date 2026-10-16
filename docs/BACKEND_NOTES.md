@@ -32524,6 +32524,36 @@ abajo), y el panel/CSV contra filas reales. Scaffolding listo; QA los ejecuta co
    (`CardShowPlayerSignup`) ⛔ no tiene columna para él; el DTO lo acepta (validado) pero **no se persiste**.
    ¿Se añade columna (M-79) o se confirma que no se guarda?
 
+### Arreglos de revisión — rama `feat/event-landing` (medido 2026-10-16)
+
+**2c · Anti-abuso: el tope por dominio EXIME a los freemail públicos (anti-DoS contra Gmail/Outlook).**
+`reserveDomainSend` aplicaba un tope plano de 20/24 h a CUALQUIER dominio
+(`card-show-mailbox-caps.service.ts:40-43`), sin eximir los freemail masivos ⇒ 20 envíos a cualquier
+`@gmail.com` en 24 h retenían al 21.º registro legítimo de Gmail (DoS a todo el dominio público). Arreglo:
+constante `PUBLIC_FREEMAIL_DOMAINS` + helper `isPublicFreemailDomain()` en `card-show.constants.ts`
+(gmail/googlemail, hotmail/outlook/live/msn, yahoo/ymail, icloud/me/mac, proton/protonmail, aol/gmx/zoho/hey,
+y variantes `.com.mx`: hotmail/outlook/live/yahoo/prodigy; normalizado a minúsculas+trim). En
+`reserveDomainSend`, si el dominio ∈ lista ⇒ `return true` (⛔ no consume cupo por dominio). **Eximir es
+seguro**: el abuso desde esos buzones sigue acotado por el tope por BUZÓN (`reserveUnconfirmedSend`,
+2/campaña, con la clave canonicalizada que colapsa `+etiqueta` y puntos) y por el throttle por IP (C7). El
+tope por dominio sigue mordiendo para dominios NO públicos (propios/pequeños, donde 20/24 h sí es abuso).
+Pruebas en `test/card-show.mailbox-caps.spec.ts`: el test del tope no masivo (20 ⇒ el 21.º `false`) **sigue
+mordiendo** y uno nuevo fija la exención (25 a `@gmail.com` todos `true`; variantes mayúsculas/googlemail/
+`.com.mx` exentas). Canario comprobado: con la exención comentada, el test nuevo cae roja en el 21.º.
+
+**2a · Candado de contrato e2e SIN mocks para el mismatch `token`↔`formToken`.** Nuevo spec
+`test/integration/card-show-contract.e2e-spec.ts` que levanta la app Nest REAL (mismo pipe/filtro/prefijo que
+`main.ts`) contra Postgres real y golpea por HTTP el contrato de `POST /card-show/leads` y `/players`:
+(A1/B1) cuerpo con el campo CORRECTO `formToken` (emitido por `GET /form-token`, respetando el min-age de 2 s
+con espera real) ⇒ 202 y UNA fila PERSISTIDA `status:"pending"`; (A2/B2 — **el candado**) cuerpo con el campo
+VIEJO `token` ⇒ 400 `VALIDATION_ERROR` y 0 filas. Caza la regresión que perdía TODAS las altas (el
+`StrictBodyPipe` rechaza `token` desconocido y exige `formToken`). ÚNICA sustitución = INFRA (`MX_RESOLVER`⇒
+`true`, para no depender de DNS en CI, igual que `e2e-app.ts` hace con Stripe); ⛔ no se mockea ni el pipe ni
+la persistencia. Lo corre QA con `npm run test:integration` (o `test:e2e`); requiere Postgres+Redis del stack.
+**Medido por backend localmente** (Postgres 16 + Redis efímeros): **4/4 verdes** (N=1 corrida verde tras
+corregir un dato de prueba; el `playerName` no admite dígitos por la lista blanca `dto:46`). `tsc` limpio;
+`test/card-show.mailbox-caps.spec.ts` **7/7**.
+
 ### Numeración / rama
 HEAD base de la rama: `9947f91` (contrato+arquitectura del Card Show). Commits del backend a continuación.
 

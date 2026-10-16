@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CARD_SHOW_COUNTER_STORE, CardShowCounterStore } from './card-show-counter.store';
-import { MAILBOX, TOURNAMENT } from './card-show.constants';
+import { isPublicFreemailDomain, MAILBOX, TOURNAMENT } from './card-show.constants';
 
 /**
  * card-show-mailbox-caps.service.ts — v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.8/.11/.12, C2).
@@ -36,8 +36,15 @@ export class CardShowMailboxCapsService {
     return r.allowed;
   }
 
-  /** Tope por dominio no masivo: 20 / 24 h (el 21.º no sale). */
+  /**
+   * Tope por dominio no masivo: 20 / 24 h (el 21.º no sale). Los freemail públicos (gmail/outlook/…)
+   * quedan EXENTOS: un tope plano por dominio sobre ellos es un DoS contra sus usuarios legítimos (20
+   * envíos a cualquier `@gmail.com` retendrían al 21.º registro legítimo). Eximirlos es seguro — el abuso
+   * sigue acotado por el tope por BUZÓN (`reserveUnconfirmedSend`) y el throttle por IP (C7). Ver
+   * `PUBLIC_FREEMAIL_DOMAINS` en `card-show.constants.ts`.
+   */
   async reserveDomainSend(domain: string): Promise<boolean> {
+    if (isPublicFreemailDomain(domain)) return true; // ⛔ no consume cupo por dominio (anti-DoS)
     const r = await this.store.reserve(`dom:${domain}`, MAILBOX.DOMAIN_MAX_PER_DAY, 24 * 60 * 60 * 1000);
     return r.allowed;
   }
