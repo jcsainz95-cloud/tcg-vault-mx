@@ -31,7 +31,8 @@ import { FORM_PURPOSES, FormPurpose, NEUTRAL_BODY, NEUTRAL_STATUS } from './card
  * El throttle por IP (C7) vive aquí porque necesita `req.ip` (clave del cubo, ⛔ no una cabecera) y la
  * cabecera `Retry-After`. La respuesta NEUTRA (202 `{ok:true}`) es idéntica para todo caso silencioso;
  * solo la validación de forma devuelve 400/413, el token caducado 400 FORM_EXPIRED y el throttle 429.
- * C4: el GET de confirm/cancel/unsubscribe abre una página con botón (⛔ no cambia estado); el POST actúa.
+ * C4 (Diseño A): la página con botón de confirm/cancel/unsubscribe la sirve el FRONTEND; el backend solo
+ * conserva los POST (JSON). El one-click de `List-Unsubscribe-Post` lee el token del QUERY (RFC 8058).
  */
 @Controller('card-show')
 export class CardShowController {
@@ -95,24 +96,9 @@ export class CardShowController {
     return NEUTRAL_BODY;
   }
 
-  // ── GET confirm/cancel/unsubscribe: ⛔ NO cambia estado, abre página con botón (C4) ───────────
-  @Public()
-  @Get('confirm')
-  confirmPage(@Query('token') token: string, @Res() res: Response): void {
-    this.actionPage(res, 'confirm', token, 'Confirmar mi registro');
-  }
-
-  @Public()
-  @Get('cancel')
-  cancelPage(@Query('token') token: string, @Res() res: Response): void {
-    this.actionPage(res, 'cancel', token, 'Cancelar mi preinscripción');
-  }
-
-  @Public()
-  @Get('unsubscribe')
-  unsubscribePage(@Query('token') token: string, @Res() res: Response): void {
-    this.actionPage(res, 'unsubscribe', token, 'No fui yo / Darme de baja');
-  }
+  // ── GET confirm/cancel/unsubscribe: RETIRADOS (Diseño A). La página con botón (C4) la sirve el
+  //    FRONTEND en `https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…`; el backend solo
+  //    conserva los POST en JSON (§CARDSHOW.2/.6, DESV-CS-2). Un GET a esas rutas ⇒ 404 (ruta inexistente).
 
   // ── POST confirm/cancel/unsubscribe: ejecuta el cambio (un solo uso) ──────────────────────────
   @Public()
@@ -160,11 +146,14 @@ export class CardShowController {
     return { ok: true };
   }
 
+  // RFC 8058: el destino de `List-Unsubscribe-Post` recibe un cuerpo FIJO `List-Unsubscribe=One-Click`
+  // (`x-www-form-urlencoded`) SIN token ⇒ el token de un solo uso viaja en el QUERY (§CARDSHOW.2/.6,
+  // DESV-CS-1). ⛔ No se parsea el cuerpo con `LinkActionDto` ni se exige JSON. Silencioso/idempotente.
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('unsubscribe-oneclick')
-  async unsubscribeOneClick(@Body(new StrictBodyPipe(LinkActionDto)) dto: Record<string, unknown>): Promise<{ ok: true }> {
-    await this.service.unsubscribeOneClick((dto as unknown as LinkActionDto).token);
+  async unsubscribeOneClick(@Query('token') token: string | undefined): Promise<{ ok: true }> {
+    await this.service.unsubscribeOneClick(token ?? '');
     return { ok: true };
   }
 
@@ -210,21 +199,5 @@ export class CardShowController {
   private deny(res: Response, retryAfterSeconds: number): undefined {
     res.setHeader('Retry-After', String(Math.max(1, retryAfterSeconds)));
     throw new BusinessException('RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS, 'rate limited', { retryAfterSeconds });
-  }
-
-  /** Página mínima con un BOTÓN que hace el POST (C4): un escáner que hace GET no cambia nada. */
-  private actionPage(res: Response, action: 'confirm' | 'cancel' | 'unsubscribe', token: string, label: string): void {
-    const safeToken = String(token ?? '').replace(/[^A-Za-z0-9._-]/g, '');
-    const html =
-      `<!doctype html><html lang="es-MX"><head><meta charset="utf-8">` +
-      `<meta name="viewport" content="width=device-width,initial-scale=1"><title>TCG HUNT</title></head>` +
-      `<body><main style="font-family:system-ui;max-width:28rem;margin:4rem auto;padding:1rem">` +
-      `<h1>TCG HUNT</h1><p>Pulsa el botón para continuar.</p>` +
-      `<form method="post" action="/api/v1/card-show/${action}">` +
-      `<input type="hidden" name="token" value="${safeToken}">` +
-      `<button type="submit">${label}</button></form></main></body></html>`;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(HttpStatus.OK).send(html);
   }
 }

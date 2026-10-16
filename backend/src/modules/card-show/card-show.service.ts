@@ -241,14 +241,16 @@ export class CardShowService {
       return;
     }
 
-    // Enlaces SOLO del dominio propio (confirmar / «No fui yo» / aviso).
+    // Enlaces SOLO del dominio propio (confirmar / «No fui yo» / aviso). El one-click (RFC 8058) DEBE
+    // llevar el token de un solo uso (propósito `unsubscribe`) en el QUERY, y ese token ata la FILA de
+    // cada rama (lead ⇒ `args.rowId`; torneo ⇒ `first.id`), por eso se arma dentro de cada rama (DESV-CS-3).
     const base = this.publicBase();
     const privacyUrl = `${base}/privacidad`;
-    const unsubOneClick = `${base}/api/v1/card-show/unsubscribe-oneclick`;
 
     if (args.kind === 'lead') {
       const confirmUrl = `${base}/card-show/confirm?token=${encodeURIComponent(this.tokens.issueLinkToken('lead', args.rowId, 'confirm', args.now))}`;
       const notMeUrl = `${base}/card-show/unsubscribe?token=${encodeURIComponent(this.tokens.issueLinkToken('lead', args.rowId, 'unsubscribe', args.now))}`;
+      const unsubOneClick = `${base}/api/v1/card-show/unsubscribe-oneclick?token=${encodeURIComponent(this.tokens.issueLinkToken('lead', args.rowId, 'unsubscribe', args.now))}`;
       await this.mail.sendConfirmation({ to: args.email, kind: 'lead', confirmUrl, notMeUrl, unsubscribeOneClickUrl: unsubOneClick, privacyUrl });
       return;
     }
@@ -263,6 +265,7 @@ export class CardShowService {
     if (!first) return;
     const confirmUrl = `${base}/card-show/confirm?token=${encodeURIComponent(this.tokens.issueLinkToken('signup', first.id, 'confirm', args.now))}`;
     const notMeUrl = `${base}/card-show/unsubscribe?token=${encodeURIComponent(this.tokens.issueLinkToken('signup', first.id, 'unsubscribe', args.now))}`;
+    const unsubOneClick = `${base}/api/v1/card-show/unsubscribe-oneclick?token=${encodeURIComponent(this.tokens.issueLinkToken('signup', first.id, 'unsubscribe', args.now))}`;
     await this.mail.sendConfirmation({
       to: args.email,
       kind: 'signup',

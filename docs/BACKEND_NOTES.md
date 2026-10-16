@@ -32476,7 +32476,27 @@ variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
 - **frontend**: el POST de los formularios manda el `formToken` (de `GET /card-show/form-token?purpose=leads|players`)
   en el cuerpo; el honeypot es el campo opcional **`website`** (con valor ⇒ el backend descarta en silencio, 202);
   `day='both'` en el cuerpo de `/players` ⇒ el backend crea 2 filas (sat+sun) y 1 envío. La página de
-  confirmar/cancelar/baja la sirve HOY el **backend** (API) con un botón que hace el POST (C4): el GET ⛔ no muta.
+  confirmar/cancelar/baja (C4) la sirve el **FRONTEND** (Diseño A, `API_CONTRACT §CARDSHOW.2/.6`); el backend solo
+  conserva los POST en JSON (ver «Diseño A» abajo).
+
+### Diseño A — doble opt-in: la página la sirve el frontend (DESV-CS-1/2/3, medido 2026-10-16)
+Decisión del arquitecto (`API_CONTRACT §CARDSHOW.2/.6`, `ARCHITECTURE §4.CARDSHOW.f`). Tres cambios en backend:
+- **DESV-CS-2 · GET retirados.** Se quitaron `GET /card-show/{confirm,cancel,unsubscribe}` y el helper
+  `actionPage` de `card-show.controller.ts` (antes servían un `<form>` urlencoded que la API ni parsea). La página
+  con botón (C4) ahora la sirve el **frontend** en `https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…`.
+  Un `GET` a esas rutas del API ⇒ **404** (ruta inexistente). Los **POST** en JSON (`StrictBodyPipe(LinkActionDto)`,
+  `{ "token": "…" }`) ⛔ no se tocaron. Ninguna prueba afirmaba que esos GET existían (grep `actionPage|confirmPage`
+  en `backend/test` ⇒ 0), así que no hubo prueba que actualizar.
+- **DESV-CS-3 · one-click con token.** `maybeSendConfirmation` (`card-show.service.ts`) ahora arma
+  `unsubscribeOneClickUrl = ${base}/api/v1/card-show/unsubscribe-oneclick?token=<issueLinkToken(kind,rowId,'unsubscribe')>`
+  **dentro de cada rama** (lead ⇒ `args.rowId` `:253`; torneo ⇒ `first.id` `:268`), porque el token ata la FILA de
+  esa rama. Antes se armaba una vez sin `?token=` ⇒ el one-click no podía identificar el buzón. `card-show-mail.service.ts:165`
+  lo pone en `List-Unsubscribe` sin cambios.
+- **DESV-CS-1 · POST one-click lee el QUERY.** `POST /card-show/unsubscribe-oneclick` (`card-show.controller.ts:155`)
+  lee el token de `@Query('token')`, ⛔ no del cuerpo: el destino de `List-Unsubscribe-Post` (RFC 8058) manda un
+  cuerpo FIJO `List-Unsubscribe=One-Click` (`x-www-form-urlencoded`) SIN token. El cuerpo se ignora (⛔ no se parsea
+  con `LinkActionDto`, ⛔ no se montó parser urlencoded global). Sigue silencioso/idempotente (token inválido/vacío ⇒
+  `unsubscribeOneClick` verifica propósito `unsubscribe` y sale sin delatar).
 
 ### Pruebas (unitarias, corren con `npm test`, SIN base de datos) — proporción medida
 `npx jest test/card-show.*` + `test/enum-values-parity.spec.ts` ⇒ **244/244 verdes** (medido 2026-10-13):
