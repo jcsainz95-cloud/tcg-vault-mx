@@ -149,11 +149,17 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
                         <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="p-1" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[15px] text-text" lang="en">
+                        <p className="truncate text-[15px] text-text" lang="en" data-testid="shipment-item-name">
                           {it.card.name}
                         </p>
-                        <p className="mt-1 truncate font-mono text-[11px] text-muted" lang="en">
-                          {it.card.setName} · {it.card.number}
+                        {/* v1.94.1⟨sellado-display⟩: `card.number` es el del SINGLE ANCLA; para un sellado
+                            NO identifica la pieza, así que se oculta (espejo de GuestTrackingItemDTO §4-G).
+                            `name`/`imageSmallUrl` YA vienen resueltos server-side (contrato §5): no se
+                            deriva identidad en el cliente. El `setName` (= set del sellado) sí es legítimo. */}
+                        <p className="mt-1 truncate font-mono text-[11px] text-muted" lang="en" data-testid="shipment-item-meta">
+                          {it.productType === 'sealed'
+                            ? it.card.setName
+                            : `${it.card.setName} · ${it.card.number}`}
                         </p>
                         {/* §37.7 / §37.8f: la carta que no salió o que se está reponiendo lo dice aquí. */}
                         <OrderItemStatusLine refund={it.refund} replacement={it.replacement} className="mt-1.5" />

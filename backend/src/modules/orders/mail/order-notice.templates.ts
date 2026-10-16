@@ -1,5 +1,14 @@
+import { ProductType } from '@prisma/client';
 import { MailMessage } from '../../mail/mail.port';
 import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
+
+/**
+ * §4.34a.2 — renglón de una línea en el correo. Un sellado NO enseña el `#número` del ancla (es de la
+ * carta ancla del set, no del producto sellado; `name` ya trae la identidad resuelta del SealedProduct).
+ */
+export function orderMailLineOf(i: { name: string; setName: string; number: string; productType: ProductType }): string {
+  return i.productType === 'sealed' ? `${i.name} — ${i.setName}` : `${i.name} — ${i.setName} #${i.number}`;
+}
 import {
   appUrl,
   ctaRows,
@@ -72,6 +81,8 @@ export interface OrderNoticeItem {
   name: string;
   setName: string;
   number: string;
+  /** §4.34a.2 — para omitir el `#número` del ancla en un sellado. */
+  productType: ProductType;
 }
 
 export interface OrderSettledParams {
@@ -123,7 +134,7 @@ export function orderSettledTemplate(
   const url = orderDetailUrl(params.orderId, l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const lineas = [
-    ...params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`),
+    ...params.items.map(orderMailLineOf),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => money(c, l)),
   ];
   const blocks = [

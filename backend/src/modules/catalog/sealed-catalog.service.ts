@@ -23,6 +23,7 @@ import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enu
 // P-89 (deuda H3): aquí vivía una copia VERBATIM del `validateEnum` de `catalog.service.ts`. El
 // validador es ahora UNO, en `common/`.
 import { parseEnumFilter } from '../../common/enum-filter';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 
 // v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí. CLASE E (§0-Q punto 3).
 // P-89: `readonly <Enum>[]` en vez de `Set<string>`, para que el genérico de `parseEnumFilter`
@@ -253,15 +254,24 @@ export class SealedCatalogService {
     // nunca de la cruda de arriba — con un precio a mano la cruda trae el mercado y lo publicaría (MIV-B3).
     const publicReference = toPublicPriceInfo(referenceValue, cheapest.priceBasis);
     const projectedMarketCents = publicReference.referenceMxnCents;
+    // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — UNIFICADO al resolutor único (§4.34a.2(C)): el grid pinta la
+    // identidad real del `SealedProduct` (snapshot por-pieza) y, sin nombre resoluble, «Sellado sin
+    // identificar» — JAMÁS el single ancla («Tropius»). El `sealedProduct` del join solo trae el precio
+    // del dueño (sin `name`/`imageUrl`) ⇒ la cascada de imagen es idéntica a la de antes. Money-safe.
+    // ⛔ `item.sealedProduct` del join SOLO trae el precio del dueño (sin `name`/`imageUrl`) ⇒ no se pasa al
+    // resolutor (sería un peldaño vivo vacío). La cascada usa el snapshot por-pieza, idéntica a la de antes.
+    const display = pieceDisplayIdentityOf({
+      productType: item.productType,
+      card: item.card,
+      sealedProductId: item.sealedProductId,
+      sealedProductName: item.sealedProductName,
+      sealedImageUrl: item.sealedImageUrl,
+    });
     return {
       representativeItemId: item.id,
       card: toCardDTO(item.card),
-      // H-P38-1 (§4.34a): el display de sellado resuelve en CASCADA la identidad real del `SealedProduct`
-      // → snapshot congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. El
-      // snapshot es fuente estable y money-safe (solo display; no toca precios); así el grid pinta
-      // «… Elite Trainer Box» con su imagen y NO el single ancla («Tropius»).
-      productName: item.sealedProductName ?? item.card.name,
-      imageUrl: item.sealedImageUrl ?? item.card.imageSmallUrl ?? null,
+      productName: display.name,
+      imageUrl: display.imageSmallUrl,
       sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
       sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
       availableCount: members.length,
@@ -492,7 +502,10 @@ export class SealedCatalogService {
       product: {
         inventoryItemId: item.id,
         tcgplayerProductId: item.tcgplayerProductId,
-        name: item.card.name,
+        // v1.94.2⟨sellado-display⟩ — serie de valor de UN sellado: el nombre sale del resolutor único
+        // (§4.34a.2(C)), JAMÁS el `card.name` del single ancla. Sin nombre resoluble ⇒ «Sellado sin
+        // identificar». `item` ya trae `productType`/`sealedProductName`/`sealedImageUrl` (sin query nueva).
+        name: pieceDisplayIdentityOf(item).name,
       },
       range: normalizedRange,
       points,

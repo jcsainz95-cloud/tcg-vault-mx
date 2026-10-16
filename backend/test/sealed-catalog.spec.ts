@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { computeSealedSalePrice } from '../src/common/money';
+import { UNIDENTIFIED_SEALED_NAME } from '../src/common/piece-display-identity';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -182,7 +183,11 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     expect(g.imageUrl).not.toBe('https://img/tropius.png');
   });
 
-  it('H-P38-1: sin snapshot (legacy) el display CAE a la Card ancla (fallback de cascada)', async () => {
+  // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — unificado al resolutor único: el NOMBRE de un sellado sin snapshot
+  // pinta «Sellado sin identificar», ⛔ JAMÁS el `card.name` del single ancla (aunque sea de cara al cliente).
+  // La IMAGEN sí tiene cola de ancla aceptada (clase P, §5.2.6). En producción este caso es inalcanzable (el
+  // grid siempre trae `sealedProductName`); la aserción fija que, si llegara, no se filtra el ancla.
+  it('H-P38-1: sin snapshot el NOMBRE es «Sellado sin identificar» (nunca el ancla); la imagen cae al ancla', async () => {
     const items = [
       sealedItem({
         id: 'a',
@@ -195,7 +200,8 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     ];
     const { svc } = build({ items });
     const res = await svc.listSealed({ page: 1, pageSize: 20 });
-    expect(res.data[0].productName).toBe('Booster Box');
+    expect(res.data[0].productName).toBe(UNIDENTIFIED_SEALED_NAME);
+    expect(res.data[0].productName).not.toBe('Booster Box');
     expect(res.data[0].imageUrl).toBe('https://img/bb.png');
   });
 

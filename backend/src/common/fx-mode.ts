@@ -427,7 +427,7 @@ export type FxReadHandle = FxRateReader & SettingRowReader;
 export interface FxRateReader {
   fxRate: {
     findFirst(args: {
-      where: { source: string };
+      where: { source: string; base?: string };
       orderBy: { effectiveDate: 'desc' };
     }): Promise<FxRateRowLike | null>;
   };
@@ -464,8 +464,15 @@ export function latestBanxicoFxRate(db: FxRateReader): Promise<FxRateRowLike | n
  * exactamente el defecto que I-FX5 vino a cerrar.
  *
  * ⛔ **Ningún lector de `FxRate` fuera de tests puede hacer `findFirst` sin este predicado.**
+ *
+ * ⭐ v1.91⟨precios⟩ (M-75, §PRE (e)) — **gana `base: 'USD'`.** Desde M-75 `fx-refresh` también escribe
+ * filas `base='EUR'` (serie EUR/MXN, para hornear cardmarket). Este lector es el del tipo de cambio
+ * USD/MXN que RIGE el catálogo; sin el filtro de `base`, una fila EUR más fresca por `effectiveDate`
+ * ganaría el `orderBy desc` y el catálogo entero se valuaría con la tasa del EURO. Las filas USD legadas
+ * tienen `base='USD'` (default de columna), así que el filtro no excluye ninguna. El lector EUR vive
+ * aparte (`PriceIngestService.fxEurSnapshot`, `base='EUR'`).
  */
-export const BANXICO_FX_WHERE = { source: 'banxico' } as const;
+export const BANXICO_FX_WHERE = { source: 'banxico', base: 'USD' } as const;
 
 /**
  * Y el ORDEN va con el predicado, porque **también es parte de la regla**: la fila que rige es la de

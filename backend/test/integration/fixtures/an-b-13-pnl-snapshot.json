@@ -1,10 +1,10 @@
 {
   "2021-02-01..2021-03-31": {
     "pnl": {
-      "incomeCents": 69000,
+      "incomeCents": 79001,
       "shippingRevenueCents": 25000,
-      "cogsCents": 36000,
-      "stripeFeesCents": 4650,
+      "cogsCents": 43000,
+      "stripeFeesCents": 5250,
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
@@ -12,7 +12,7 @@
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
-      "profitCents": -6393,
+      "profitCents": -3992,
       "buylistShippingFeeRetainedCents": 18000,
       "buylistGuideCostCents": 43552,
       "buylistGuideMarginCents": 3000,
@@ -73,7 +73,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,69000,25000,36000,4650,10000,1,2000,580,20921,2270,1000,-6393,18000,43552,3000,1\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,79001,25000,43000,5250,10000,1,2000,580,20921,2270,1000,-3992,18000,43552,3000,1\n",
     "launch": {
       "users": 3,
       "salesSettled": 6,
@@ -84,10 +84,10 @@
   },
   "2021-03-01..2021-03-07": {
     "pnl": {
-      "incomeCents": 50000,
+      "incomeCents": 60001,
       "shippingRevenueCents": 25000,
-      "cogsCents": 28000,
-      "stripeFeesCents": 3600,
+      "cogsCents": 35000,
+      "stripeFeesCents": 4200,
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
@@ -95,7 +95,7 @@
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
-      "profitCents": -9343,
+      "profitCents": -6942,
       "buylistShippingFeeRetainedCents": 18000,
       "buylistGuideCostCents": 36552,
       "buylistGuideMarginCents": 3000,
@@ -138,7 +138,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,50000,25000,28000,3600,10000,1,2000,580,20921,2270,1000,-9343,18000,36552,3000,1\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,60001,25000,35000,4200,10000,1,2000,580,20921,2270,1000,-6942,18000,36552,3000,1\n",
     "launch": {
       "users": 0,
       "salesSettled": 3,
@@ -183,10 +183,10 @@
   },
   "2021-03-01T06:00:00.000Z..2021-03-08T05:59:59.999Z": {
     "pnl": {
-      "incomeCents": 53000,
+      "incomeCents": 63001,
       "shippingRevenueCents": 25000,
-      "cogsCents": 29000,
-      "stripeFeesCents": 3800,
+      "cogsCents": 36000,
+      "stripeFeesCents": 4400,
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
@@ -194,7 +194,7 @@
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
-      "profitCents": -14543,
+      "profitCents": -12142,
       "buylistShippingFeeRetainedCents": 18000,
       "buylistGuideCostCents": 43552,
       "buylistGuideMarginCents": 3000,
@@ -243,7 +243,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,53000,25000,29000,3800,10000,1,2000,580,20921,2270,1000,-14543,18000,43552,3000,1\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,63001,25000,36000,4400,10000,1,2000,580,20921,2270,1000,-12142,18000,43552,3000,1\n",
     "launch": {
       "users": 0,
       "salesSettled": 4,

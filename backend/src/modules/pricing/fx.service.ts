@@ -87,6 +87,42 @@ export function parseBanxicoRate(
   return { ok: true, rate: n };
 }
 
+// ─────────────────── v1.91⟨precios⟩ (M-75, §PRE (e)) — SERIE EUR/MXN DE BANXICO ───────────────────
+/**
+ * ID por defecto de la serie EUR/MXN de Banxico (SIE). ⚠️ **NO MEDIDO contra la API en vivo** (este
+ * contenedor no tiene `BANXICO_SIE_TOKEN`; la SIE rechaza TODA petición sin token de forma uniforme ⇒
+ * no se puede sondear un id). `SF46410` es el candidato DOCUMENTADO para el tipo de cambio del euro;
+ * **debe confirmarse con el token** antes de que cardmarket entre al árbitro. Es override por config
+ * (`FX_EUR_SERIES_ID`) para corregirlo SIN redeploy. El candado real que protege el dinero NO es este
+ * id sino la BANDA EUR de abajo: un id equivocado que devuelva otra cosa (p. ej. USD/EUR ≈ 1.08, o el
+ * par invertido) cae FUERA de banda ⇒ no se escribe fila EUR ⇒ cardmarket simplemente NO vota
+ * (degradación money-safe, nunca una conversión equivocada).
+ */
+export const FX_EUR_SERIES_ID_DEFAULT = 'SF46410';
+/**
+ * Banda de cordura EUR/MXN, **más estrecha que la de USD** (`[1,1000]`) a propósito: el EUR/MXN real
+ * vive ~20-22, así que `[8, 40]` admite el valor sano y RECHAZA los modos de fallo de un id/serie
+ * equivocados — `USD/EUR` (~1.08), el par invertido (~0.047), o un número de otra magnitud. Un id
+ * equivocado NO puede, por esta banda, producir una conversión plausible-pero-falsa de cardmarket.
+ */
+export const FX_EUR_RATE_MIN = 8;
+export const FX_EUR_RATE_MAX = 40;
+export const FX_EUR_RATE_BAND_TEXT = `[${FX_EUR_RATE_MIN}, ${FX_EUR_RATE_MAX}]`;
+
+/** Igual que {@link parseBanxicoRate} pero con la BANDA EUR (money-safe ante un id de serie no confirmado). */
+export function parseBanxicoEurRate(
+  raw: unknown,
+): { ok: true; rate: number } | { ok: false; why: 'format' | 'out_of_band' } {
+  const base = parseBanxicoRate(raw);
+  // `parseBanxicoRate` ya validó FORMATO + banda ancha [1,1000]; aquí sólo se estrecha a la banda EUR.
+  if (!base.ok) {
+    // Un valor con formato válido pero fuera de [1,1000] ya es out_of_band; uno mal formado es format.
+    return base;
+  }
+  if (base.rate < FX_EUR_RATE_MIN || base.rate > FX_EUR_RATE_MAX) return { ok: false, why: 'out_of_band' };
+  return { ok: true, rate: base.rate };
+}
+
 /** Bloque `refresh` que `POST /admin/fx/refresh` añade al `FxStateDTO` (§M2-F.5). */
 export interface FxRefreshResult {
   outcome: FxRefreshOutcome;
@@ -488,11 +524,58 @@ export class FxService {
       create: { id: `banxico-${dateId}`, rate, bufferPct, effectiveDate: today(), source: 'banxico' },
       update: { rate, bufferPct, source: 'banxico' },
     });
+
+    // v1.91⟨precios⟩ (M-75, §PRE (e)) — SERIE EUR/MXN, best-effort e INDEPENDIENTE del USD. 💰 Un fallo
+    // de EUR (id de serie no confirmado, red, fuera de banda) NO toca el resultado USD de arriba: solo
+    // significa que cardmarket no vota ese barrido (degradación money-safe). ⛔ NUNCA escribe una fila
+    // EUR con un valor fuera de la banda EUR.
+    await this.refreshEurFromBanxico(token, bufferPct);
+
     return {
       outcome: previousRate != null && previousRate === rate ? 'unchanged' : 'updated',
       reason: null,
       fetchedRate: rate,
       at,
     };
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE (e)) — obtiene EUR/MXN de Banxico y escribe `FxRate base='EUR'`
+   * (`id='banxico-eur-<fecha>'`). **Best-effort y aislado**: cualquier fallo se loguea y NO se propaga
+   * (el refresco USD manda). El id de serie viene de `FX_EUR_SERIES_ID` (default `SF46410`, **no
+   * confirmado sin token** — ver `FX_EUR_SERIES_ID_DEFAULT`); la banda EUR es el candado que hace
+   * money-safe un id no confirmado. `FxRate.base` es `String` ⇒ sin DDL.
+   */
+  private async refreshEurFromBanxico(token: string, bufferPct: number): Promise<void> {
+    const seriesId = this.config.get<string>('FX_EUR_SERIES_ID') || FX_EUR_SERIES_ID_DEFAULT;
+    try {
+      const res = await fetch(
+        `https://www.banxico.org.mx/SieAPIRest/service/v1/series/${seriesId}/datos/oportuno`,
+        { headers: { 'Bmx-Token': token } },
+      );
+      if (!res.ok) {
+        this.logger.warn(`Banxico EUR (${seriesId}): HTTP ${res.status} ⇒ sin fila EUR (cardmarket no vota).`);
+        return;
+      }
+      const body = (await res.json()) as { bmx?: { series?: { datos?: { dato: string }[] }[] } };
+      const raw = body.bmx?.series?.[0]?.datos?.[0]?.dato;
+      const parsed = parseBanxicoEurRate(raw);
+      if (!parsed.ok) {
+        this.logger.warn(
+          `Banxico EUR (${seriesId}) ${parsed.why === 'out_of_band' ? `FUERA DE BANDA ${FX_EUR_RATE_BAND_TEXT}` : 'formato inválido'} ` +
+            `(${String(raw)}) ⇒ sin fila EUR (cardmarket no vota; posible id de serie equivocado — confirmar con token).`,
+        );
+        return;
+      }
+      const dateId = fxIsoDate(today());
+      await this.prisma.fxRate.upsert({
+        where: { id: `banxico-eur-${dateId}` },
+        create: { id: `banxico-eur-${dateId}`, base: 'EUR', quote: 'MXN', rate: parsed.rate, bufferPct, effectiveDate: today(), source: 'banxico' },
+        update: { base: 'EUR', quote: 'MXN', rate: parsed.rate, bufferPct, source: 'banxico' },
+      });
+      this.logger.log(`Banxico EUR (${seriesId}): ${parsed.rate} EUR/MXN escrito (base='EUR').`);
+    } catch (e) {
+      this.logger.warn(`Banxico EUR (${seriesId}) fetch falló: ${(e as Error).message} ⇒ sin fila EUR (cardmarket no vota).`);
+    }
   }
 }

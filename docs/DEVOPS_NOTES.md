@@ -15159,7 +15159,26 @@ de devops se mueven juntas. `report-only` con alguna en FAIL ⇒ rc 1; `enforce`
 `CSP_MODE='enforce'`; el candado de paridad exige revertir las dos cosas juntas (baseline.conf + csp.ts). No toca
 producción ni datos.
 
-## §99 · `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
+## §99 · El escáner de secretos conflaciona el prefijo `re_` de Resend con los ids de reembolso de Stripe (2026-10-14, rama `fix/pnl-finanzas`, devops)
+
+**Qué pasa.** `scripts/gen-published-secrets-manifest.sh:133` usa el patrón `re_[A-Za-z0-9_]{6,}` para detectar
+claves de **Resend**. Los **ids de reembolso de Stripe** (`re_…`) comparten ese prefijo, así que un id de reembolso
+usado como dato de prueba dispara el patrón y obliga a registrar su hash en `security/secretos-publicados.sha256`.
+El stream P&L añadió el id falso `re_partial` en `backend/test/pnl-refund-dashboard.spec.ts` (B1), lo que desfasó el
+manifiesto (bloque E de `check-secret-defaults.sh` en rojo) hasta regenerarlo. **No es un secreto real**: el bloque H
+del escáner confirmó 0 claves con forma `sk_live_/rk_live_/whsec_` en 2319 ficheros; es un falso positivo benigno.
+
+**Consecuencia operativa.** Cada nuevo id `re_…` que los tests de B1 (reembolso de dashboard) introduzcan volverá a
+desfasar el manifiesto y exigirá regenerarlo (`gen-published-secrets-manifest.sh` + commit acotado).
+
+**Mejora futura (NO hecha aquí).** Afinar el patrón del generador/escáner para distinguir claves Resend reales de los
+ids de reembolso de Stripe (p. ej. excluir `re_` dentro de rutas `backend/test/**` o reconocer el formato real de las
+API keys de Resend). Queda como observación; este cambio solo regenera el manifiesto.
+
+**Rollback.** `git revert` del commit de regeneración devuelve el manifiesto al estado anterior (volvería a quedar
+desfasado y el bloque E en rojo). No toca producción ni datos.
+
+## §100 · `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
 
 Estado vigente, no bitácora. El script arranca una carpeta nueva con **el equipo** (plantilla) y **ficheros de
 arranque en blanco**; no toca el proyecto en curso.

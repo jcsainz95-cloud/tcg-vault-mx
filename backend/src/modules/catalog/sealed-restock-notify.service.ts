@@ -6,6 +6,7 @@ import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { appUrl, cardLineRows, ctaRows, headingRow, mailShell, proseRow, ruleRow, spacerRow } from '../buylist/mail-shell';
 import { CatalogService } from './catalog.service';
 import { readWishlistDials } from '../wishlist/wishlist-dials';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import { SEALED_RESTOCK_NOTIFY_LOCK_KEY, systemWishlistClock, WISHLIST_CLOCK, WishlistClock } from '../wishlist/wishlist.constants';
 
 const JOB = 'sealed-restock-notify';
@@ -107,6 +108,8 @@ export class SealedRestockNotifyService {
       where: { productType: 'sealed', status: 'listed', ownerType: 'platform' },
       select: {
         id: true,
+        // ⭐ v1.94.1⟨sellado-display⟩ (D-2): `productType` para el discriminante del resolutor único.
+        productType: true,
         tcgplayerProductId: true,
         cardId: true,
         sealedSubtype: true,
@@ -122,7 +125,10 @@ export class SealedRestockNotifyService {
       if (P == null) continue;
       const k = sealedIdentityKey(l);
       const cur = best.get(k);
-      if (!cur || P < cur.price) best.set(k, { inventoryItemId: l.id, price: P, name: l.sealedProductName ?? l.card.name });
+      // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — UNIFICADO al resolutor único (§4.34a.2(C)): nombre del
+      // `SealedProduct` (snapshot) y, sin nombre resoluble, «Sellado sin identificar» — JAMÁS el single
+      // ancla, aun en un correo. Money-safe (solo el nombre del aviso).
+      if (!cur || P < cur.price) best.set(k, { inventoryItemId: l.id, price: P, name: pieceDisplayIdentityOf(l).name });
     }
 
     // (c) armar · (d) primera vista de vuelta.

@@ -28,6 +28,99 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.60 — ⭐⭐ **v1.94.2⟨sellado-display⟩: el CANDADO que cierra la clase entera del bug de sellado-display** (2026-10-13, rama `fix/sealed-display`, `ARCHITECTURE §4.34a.2`)
+
+> **Qué es:** el bug «un sellado se pinta como su carta ancla (Exeggcute)» es una CLASE («la cascada de display copiada a
+> mano cae al `card.name` del ancla»), no un sitio. La enumeración a mano falló **tres veces**: grep/directorio/función
+> dejan pasar accesos aliaseados. Este pase (a) añade un **candado mecánico** que vigila la clase **sobre los 11 módulos de
+> display que escanea** (no «imposible de reabrir» en absoluto: ver sus límites de análisis estático y el alcance de
+> `MODULES` en SD-D4 de `TECH_DEBT.md`), (b) cierra los 4 ofensores que el candado (= QA+techlead) encontró fuera del alcance
+> normado, y (c) corrige un falso positivo del E2E. **Todo es display/identidad; money-safe: ⛔ no toca precio, importe ni
+> valuación.** **Endurecido D-1 (2026-10-13):** el campo `lines` de la allowlist es load-bearing (conteo exacto), de modo que
+> una copia línea-idéntica a una entrada ya allowlisteada en el mismo fichero también rompe el candado.
+
+### 0.60.1 — EL CANDADO (`backend/test/sealed-display-guard.spec.ts`) — cómo funciona
+- **Qué hace:** escanea el código fuente (comentarios/strings fuera, vía `test/helpers/strip-comments`) de los módulos que
+  producen display — `orders`, `shipments`, `vault`, `payments`, `catalog`, `pricing`, `inventory`, `wishlist`,
+  `sales-analytics`, `accessories`, `mail` — y **FALLA** si encuentra una lectura de un campo de display de la carta ancla
+  (`card.name` / `card.number` / `card.imageSmallUrl`, **incluidos los aliases locales**) que NO: (a) pase por
+  `pieceDisplayIdentityOf`, o (b) esté en la **ALLOWLIST explícita** del propio fichero, con razón de una línea.
+- **Cómo caza los aliases** (lo que el grep no vio): además del acceso directo `card?.name` / `x.card.name`, detecta
+  `const X = ….card;` con X≠`card` y marca todo `X.name/.number/.imageSmallUrl` posterior. Elegí **escaneo por regex sobre
+  fuente** (no ESLint): es suficiente para la forma que recurre (`?? card.name` y aliases locales), no añade infra, y su
+  límite lo cierra el canario de mutación (abajo). El match de la allowlist es por **contenido de línea**, no por número:
+  editar un fichero no rompe el candado por desplazamiento.
+- **Conteo load-bearing (endurecimiento D-1, techlead):** el campo `lines` de cada entrada de la allowlist ES el nº de
+  accesos esperado. El candado afirma `nº de matches == lines.length` (no «≥1»), así que: (a) una entrada que ya no casa
+  (conteo 0) ⇒ rojo —el censo no acumula entradas muertas—, y (b) un acceso **nuevo con texto de línea idéntico** a uno ya
+  allowlisteado, **en el mismo fichero**, sube el conteo por encima de `lines.length` ⇒ rojo, forzando revisión (que es la
+  decisión humana: añadir su número a `lines` o migrarlo al resolutor). Antes era `≥1` y una copia línea-idéntica pasaba.
+- **Límites del escáner y alcance, dichos enteros (D-2 techlead + menores de QA):** es análisis estático, con fronteras que
+  **hoy ningún módulo escaneado cruza** (verificado 2026-10-13, money-safe): regex-vs-división en el stripper; destructuring
+  con renombre (`const { card: c } = x; c.name`); alias multilínea; parámetro/variable con nombre ≠ `card`. Y su **alcance**
+  es la lista `MODULES` (11 módulos): `disputes`/`buylist`/`decks-meta` NO se escanean (hoy ninguno es superficie de sellado:
+  `BUYLIST_ACCEPTED_PRODUCT_TYPES=['raw']`, `decks-meta` pinta sueltas). Un módulo de display nuevo —o un camino de sellado
+  añadido a esos tres— debe agregarse a `MODULES` o el candado queda ciego. Todo registrado en `TECH_DEBT.md` SD-D4 y en el
+  header del propio spec.
+- **Qué hay en la ALLOWLIST y por qué (31 accesos legítimos, cada uno con su razón en el fichero):**
+  - **NÚMERO del ancla** (el resolutor no lo produce): `guest-checkout:876`, `orders.service:877` (congelado como HECHO del
+    set, §5.2.6), `shipments:734`. El front oculta `number` para sellado vía `productType`.
+  - **IMAGEN del ancla** = cola ACEPTADA (§5.2.6): `order-item-card.ts:110` (`resolveOrderItemCard`).
+  - **Clave de ORDEN** sobre el nombre YA RESUELTO: `vault-physical-inventory:189`.
+  - **`CardDTO` de la carta ancla (🔵 por diseño)**: `catalog.service` `toCardDTO` (268/269/282) y la revisión GRADED
+    (1875/1877); la cola M2 (`pricing.service` 3224/3227/3228) y `price-review` (399/401) traen el bloque `card` del ancla
+    **por contrato** (`PriceReviewCaseDTO.card` = «para que el dueño reconozca la carta», API_CONTRACT §D) junto a la
+    identidad de sellado (`sealedProductId` / `sealedProductName` resuelto).
+  - **Superficies que NUNCA son sellado**: bounties RAW (`admin-bounties` 340-342), pestaña GRADED (`sealed-graded`
+    gradedIndex 425/426/428/452/453), wishlist de cartas (`wishlist-notify` 239/241/243, `wishlist.service:149`), rama
+    `else` no-sellado de analytics (`sales-analytics:400`), accesorio (`accessory-dto:107`).
+  - **Export `.xlsx` de inventario** (`inventory.service` 4058/4060): columna «Carta»/«Número» = la carta ANCLA
+    (hermanas por contrato, `INVENTORY_EXPORT_COLUMNS`). Ver política para el arquitecto (§0.60.4).
+
+### 0.60.2 — Los 4 ofensores que el candado encontró y cerré (todos al resolutor `pieceDisplayIdentityOf`)
+| Ofensor (fichero, método) | Superficie | Antes | Ahora |
+|---|---|---|---|
+| `catalog/sealed-catalog.service.ts` `sealedValueHistory` | serie de valor del sellado (**público**) | `name: item.card.name` | `pieceDisplayIdentityOf(item).name` |
+| `inventory/sealed-graded.service.ts` `sealedIndex` | pestaña «Sellado» (admin) | `a.sealedProductName ?? card?.name ?? ''` (+ comentario stale afirmando el patrón) | `const display = pieceDisplayIdentityOf({…}); display.name/.imageSmallUrl` (comentario corregido) |
+| `pricing/pricing.service.ts` `pendingQueue` | cola M2 (admin) | `sealedProductName: sealedProduct?.name ?? card.name` | `pieceDisplayIdentityOf({ productType:'sealed', card, sealedProduct }).name` |
+| `wishlist/wishlist-demand.service.ts` `sealedWaiting` | demanda de restock (admin) | `names.get(...) ?? g.cardName` (`cardName = s.card.name`) | `pieceDisplayIdentityOf({ productType:'sealed', card:null, sealedProductName:… }).name`; se quitó el `card.name`/select del ancla |
+- **Conducta normada:** sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla. No hizo falta ensanchar
+  ningún `include` (todas las fuentes ya traían `productType`/`sealedProductName`/`sealedImageUrl` o el `sealedProduct` vivo).
+- **Tests que fijaban el fallback al ancla — ACTUALIZADOS a la conducta segura (sin debilitar, ahora son canarios):**
+  `inventory.sealed-graded-tabs.spec.ts` (2 casos: productName «Sellado sin identificar», + aserción `not.toBe('Pikachu')`)
+  y `pricing.sealed-pending.spec.ts` (sellado legacy → «Sellado sin identificar», + `not.toBe('Tropius')`).
+
+### 0.60.3 — E2E (falso positivo corregido, NO debilitado) y verificación
+- **E2E `sealed-display-flow.e2e-spec.ts` caso B:** el retiro trae 2 piezas (sellada + single raw hermano anclado a la
+  MISMA carta ⇒ su `card.name` ES `anchorName`, legítimo). La aserción mapeaba TODA la fila y fallaba por el hermano. Ahora
+  **filtra la pieza sellada por `inventoryItemId`** (como A/C/D) y afirma «la línea sellada NO muestra el ancla» sobre esa
+  pieza. **E2E 7/7 verde** contra Postgres/Redis reales (`./scripts/stack-native.sh test:integration sealed-display-flow`).
+- **Mediciones (autor: backend, 2026-10-13, rama `fix/sealed-display`):**
+  - Candado: **3/3 pruebas verdes**. Suite unitaria + contrato: **478/478 suites · 8533/8533 pruebas**. `tsc --noEmit` y
+    `eslint` limpios.
+  - **Mutación (demuestra que el candado muerde):** reintroducir una copia directa (`name: item.card.name`) **y** una
+    aliaseada (`const sealedPiece = item.card; sealedPiece.name`) en `sealed-catalog.service.ts` ⇒ candado **3/3 corridas
+    rojas** (caza ambas: la directa y la del alias). Restaurado ⇒ verde. (Escaneo estático ⇒ determinista; N=3 confirma.)
+  - **Mutación del endurecimiento D-1 (conteo load-bearing):** inyectar una copia **línea-idéntica** a una entrada ya
+    allowlisteada en el mismo fichero (p. ej. un segundo `name: card.name,` en `accessories/accessory-dto.ts`) ⇒ el test de
+    **violaciones queda VERDE** (está «cubierto») pero el test de **conteo rompe 3/3 corridas** (`esperado 1 · encontrado 2`).
+    Es justo el hueco que D-1 cierra (antes, con la regla `≥1`, pasaba). Medido sobre copia del árbol entero (O-9),
+    `HEAD a0d2ec8` + el spec de trabajo; restaurado ⇒ verde. El endurecimiento **no cambió ningún `lines`**: los conteos
+    existentes ya eran correctos (incl. `catalog.service.ts :: number: card.number,` con `lines=[269, 1877]`, conteo 2).
+
+### 0.60.4 — ⚠️ Para el arquitecto (NO cambié el contrato; regla 9) — confirmación de política, NO bloqueante
+- **Dos superficies admin sellado-capaces muestran la carta ANCLA, hoy correctas POR CONTRATO; las dejé en la allowlist:**
+  1. **Export `.xlsx` de inventario** — columna «Carta» (y «Set»/«Número») = la carta ancla para TODA pieza, incl. sellada
+     (`INVENTORY_EXPORT_COLUMNS`, API_CONTRACT §export). El operador ve «Exeggcute» para un ETB sellado; lo distingue por la
+     columna «Tipo». Si se quiere que «Carta» resuelva el nombre del `SealedProduct` para filas selladas, es un cambio de
+     contrato (columna nueva o semántica nueva) — lo señalo, no lo invento.
+  2. **`PriceReviewCaseDTO.card` y la cola M2 (`pendingQueue`)** — el bloque `card` es la identidad de la carta ancla por
+     contrato («para que el dueño reconozca la carta», §D); la identidad del sellado viaja aparte (`sealedProductId` /
+     `sealedProductName` resuelto). Lo dejo como está (contrato manda). Si el arquitecto quiere unificar el criterio con el
+     export, decide él.
+- Ninguna de las dos es la clase «cascada `?? card.name` del NOMBRE de un sellado» (esa quedó cerrada y vigilada). Son el
+  bloque `card`-del-ancla-por-diseño (🔵, §4.34a.2(E)).
+
 ## 0.59 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
 
 > **Renumerada 2026-09-29 (TD-10 del techlead sobre `b8a3e4ce`):** esta sección se llamaba «§0.55», igual que la del
@@ -32075,3 +32168,513 @@ registra como ruteable; la exclusión es específica del centinela, no un parche
 `backend/src`): el candado de «ninguno apunta a una ruta inexistente» se pone ROJO (1 fallo) → sigue mordiendo;
 revertido. Mutación inversa (`esCentinela = false`): `:125` se pone ROJA (`Received true`) → la exclusión es lo que
 arregla; revertida.
+
+## 91 · v1.91⟨precios⟩ — PRECIOS ROBUSTOS: árbitro de mediana + candado ×5 + cola de revisión (M-75) (2026-10-11, rama `claude/precios-redundancia`, sobre `0da46c3d`)
+
+Construido §PRE (`API_CONTRACT §PRE` rev v1.91⟨precios⟩ / `ARCHITECTURE §4.PRE`). 💰 DINERO en los dos ejes.
+SHAs: `5c023c1b` (esquema+diales+árbitro), `ff3b8a70` (cola+endpoints), interfaz del provider + esta nota en
+el pase siguiente.
+
+**Lo que ESTÁ construido y verificado (unit, sin DB):**
+- **M-75** (`20261028120000_m75_robust_pricing`): `PriceSource += tcgdex, cardmarket`; enums
+  `PriceReviewStatus`(open|accepted|kept|manual|superseded) y `PriceAxis`(sell|buy); tabla
+  `PriceReviewCase` (campos §PRE.D, `@@index([status])`, dedupe por `findFirst` SIN índice único, FK a
+  `Card ON DELETE CASCADE`). Migración idempotente con reversa documentada.
+- **FX EUR SIN DDL (MEDIDO):** `schema.prisma:1354` `FxRate.base String @default("USD")` — es String libre,
+  NO enum lockeado ⇒ Cardmarket EUR se persiste como filas `base='EUR'`, sin DDL. Confirma la medición del
+  orquestador.
+- **`common/robust-market.ts` (PURO):** `resolveRobustMarket()` (mediana por familia: `tcgplayer`=
+  {tcgcsv_singles,tcgdex} ECO · `cardmarket` independiente · live; frescura; 3+⇒mediana, 2⇒promedio entero,
+  1⇒esa, 0⇒null) y `decideLock()` (árbol del candado ×5 + consenso ≥2 familias ±tol). ⛔ `pokemontcg_io`/
+  `pokemonpricetracker`/`manual` NUNCA votan (criterio 883, defensa en profundidad aunque estén en el dial).
+  Todo entero de centavos; jumpFactor ×1000 entero; decisión entero-exacta (`hi*1000 >= round(dial*1000)*lo`).
+- **5 diales (§PRE.G, criterio 882)** en las 4 estructuras de `settings.constants.ts`, expuestos en
+  `GET/PUT /admin/settings`: `priceJumpFactor`(5), `priceJumpFactorBuy`(5), `priceArbiterFreshnessDays`(7),
+  `priceConsensusTolerancePct`(25), `priceArbiterSources`(['tcgcsv_singles','tcgdex','cardmarket']). Inválido
+  ⇒ `422 VALIDATION_ERROR`.
+- **Cola de revisión** (`price-review.service.ts` + endpoints en `PricingController`, super_admin):
+  `GET /admin/pricing/review-queue` (`?status=` vacío⇒open CLASE E, `?axis=`, 400 token inválido, paginado,
+  `counts.open`); `POST …/:id/resolve {action: accept|keep|manual, manualPriceMxnCents?}` (guarda 409 como
+  disputes, `manual` exige precio 422, action inválida 422 `PRICE_REVIEW_INVALID_ACTION`, delega en
+  `applyManualOverride` tier 0, audita `pricing.review.resolve` criterio 877). `recordArbiterDecision()` abre
+  caso `open` y lo cierra `superseded` AUTOMÁTICO cuando el mercado se asienta (HECHOS «regla general»).
+  `openCaseVariantKeys()` listo para los gates de lectura/compra.
+- **🔒 CANARIO del candado (criterio 889c):** `robust-market.spec.ts` siembra base=184¢ + UNA fresca de una
+  familia ×55 (10221¢) ⇒ NO publica 10221, conserva 184, abre caso; jumpFactorMilli=55549. **Demostrado que
+  MUERDE sobre COPIA del árbol ENTERO** (`git archive HEAD`): quitada la rama «única/no-consenso→revisión»
+  (forzar publicar el candidato), la prueba se pone ROJA (1 failed / 20 passed; `Expected "review", Received
+  "publish"`); copia borrada. Determinista (funciones puras, sin reloj salvo `NOW` explícito, sin carrera) ⇒
+  1 tirada basta, N=1 justificado (O-3).
+- **Money-safe (unit):** mediana ignora outlier [184,190,10221]→190; stale (>7d) no vota; `pokemontcg_io`
+  nunca vota; sin-consenso+salto⇒review; con-consenso+salto⇒publica; 409 doble resolución; accept publica
+  vía override; manual exige precio. **470 suites / 8453 pruebas unitarias verdes** tras M-75 (regresión
+  completa, no solo lo tocado). Paridad de enums verde (152/152) — baseline era 1 roja (`PriceSource`,
+  contrato adelantado al esquema) y M-75 la cierra.
+
+**DIFERIDO (medido: este contenedor NO alcanza `api.tcgdex.net`; forma de la API SIN CONFIRMAR):**
+- **El provider real de TCGdex (`tcgdex`+`cardmarket`).** Construida su INTERFAZ
+  (`providers/tcgdex.provider.interface.ts`): qué debe escribir (filas `PriceReference` con `source ∈
+  {tcgdex,cardmarket}`, `finish`, `priceMxnCents` FX-horneado, `capturedDate`, `refKind=market`). El árbitro
+  se probó con FIXTURES con esa forma. El cliente HTTP + parser (holo vs holofoil, dónde vive `marketPrice`,
+  EUR de Cardmarket, `tcgdexSetId` de Prismatic ≈ sv08.5, correlación tcgcsv↔tcgdex.tcgplayer) se construye
+  cuando el orquestador pase la forma confirmada. Depende de devops (allow-list `api.tcgdex.net` + serie
+  EUR/MXN en `fx-refresh`).
+
+**DIFERIDO CON EL PROVIDER (decisión medida, no omisión) — y POR QUÉ:** la envoltura del árbitro en las 4
+rutas de lectura (§PRE.B), el enganche en `price-ingest`/`publish` (§PRE.6) y el gate del cotizador de compra
+(§PRE.5) **solo tienen efecto cuando existen filas `tcgdex`/`cardmarket`** (≥2 familias por variante): hoy NO
+existen (fuentes nuevas, provider diferido), así que la mediana de una sola familia `tcgplayer` = el valor que
+ya elige `isBetterRef` ⇒ cero dato que arbitrar y cero caso que abrir. Wire-arlo ahora es RIESGO sin valor:
+(1) las pruebas unitarias construyen `PricingService`/`BuylistService` con mocks POSICIONALES vacíos
+(`{} as SettingsService`, `prisma` solo con `priceReference`+`$queryRaw`) ⇒ meter una lectura de diales o de
+`priceReviewCase` en `getReferencesBatch` las rompe; (2) la ruta de lectura RECALCULA FX viva
+(`liveMxnCents`) y mediar sobre `priceMxnCents` crudo cambiaría el número de la fuente única; (3) no hay DB en
+este contenedor para verificar el reconcile/quote de punta a punta. La invariante money-safe (NUNCA publicar
+inflado) está ESPECIFICADA y PROBADA en el candado puro; su aplicación viva es una capa fina que aterriza CON
+el provider y la verifica QA contra el stack corriendo. ⇒ **el barrido recalc-todo (§PRE.6, criterio 888)
+abre casos y el gate de compra los lee en ese pase, no en éste.** El «final» tras el fan-out asíncrono del
+botón «Actualizar precios ahora» (medido O-23/HECHOS 2026-10-04: NO engancha hoy el barrido VQ) se resolverá
+con un coordinador por-set que, al terminar todos los sets, cierra los casos `superseded` cuando el mercado se
+asienta — diseño anotado, construcción con el provider.
+
+**NO MEDIDO (sin DB de producción):**
+- Composición exacta de la lista legada de «precios atascados» (PSA Gengar ~MX$11k/MX$4k): si es
+  `graded_estimate` (§4.38n) o un override manual atascado. El arquitecto la dejó ORTOGONAL a `PriceReviewCase`
+  (es la revisión de estimados por grado `GET /admin/pricing/graded-estimates/review`, tabla distinta);
+  CONFIRMADO por código que son superficies/tablas separadas. El barrido recalc-todo (cuando se construya)
+  toca variantes de mercado; las gradeadas siguen su propia revisión. La composición fila-a-fila necesita la
+  BD de producción.
+- **Censo de ejes de query (`test/integration/enum-query-axes.e2e-spec.ts`):** CERRADO en el pase siguiente
+  (ver abajo, §91.1 bloque C).
+
+---
+
+## 91.1 · v1.91⟨precios⟩ — PROVIDER REAL + WIRING VIVO + CENSO (2026-10-11, egress ABIERTO, forma CONFIRMADA)
+
+Lo que estaba DIFERIDO ya se construyó, contra la forma REAL de `api.tcgdex.net` (medida y guardada como
+fixtures en `backend/test/fixtures/tcgdex/`). 💰 DINERO en los dos ejes; va a triple veredicto.
+
+**A · Provider real TCGdex (verificado unit, 33 pruebas + fixtures reales):**
+- `providers/tcgdex-shape.ts` (parser PURO + CANDADO DE FORMA): `pricing.tcgplayer` = objetos por variante
+  `normal|holofoil|reverse-holofoil`, se lee `.marketPrice` (USD); `pricing.cardmarket` = PLANO (`avg`/`trend`
+  base → `normal`; `avg-holo`/`trend-holo` → `holofoil`). ⚠️ **Decisión de mapeo cardmarket (§PRE (e)):**
+  cardmarket NO distingue reverse ⇒ el `reverse_holo` NO recibe voto cardmarket (se queda con la familia
+  `tcgplayer`; NUNCA hereda precio de otra variante). El candado de forma LANZA `TcgdexShapeError` si un
+  sub-feed presente cambia de forma (p. ej. `unit` deja de ser USD/EUR, o la variante deja de ser objeto);
+  el canario lo demuestra (6 pruebas de forma).
+- `providers/tcgdex-set-mapper.ts`: **estrategia de mapeo `CardSet ↔ tcgdexSetId` SIN puente frágil
+  (criterio 885):** nombre normalizado + nº de cartas OFICIALES (`printedTotal == cardCount.official`),
+  resuelto contra `GET /v2/en/sets` (1 llamada, cacheada en memoria por corrida). **Por qué así:**
+  pokemontcg.io usa `sv8pt5`, TCGdex `sv08.5` — derivar uno del otro por regex es el puente frágil que 885
+  prohíbe. **NO se persiste columna** (`CardSet` no gana campo; sin DDL fuera de M-75): la lista es barata y
+  se re-resuelve cada corrida ⇒ un set nuevo se recoge solo. Medido: Prismatic Evolutions ⇒ `sv08.5` ✓,
+  `151`⇒`sv03.5`, `Surging Sparks`⇒`sv08`, `Base Set`⇒`base1`. Sin match único ⇒ el set no tiene fuente
+  TCGdex (sus cartas caen a lo que haya).
+- `providers/tcgdex-http.client.ts`: host FIJO `https://api.tcgdex.net/v2/en` (anti-SSRF, slug validado,
+  timeout, `redirect:error`, UA). `providers/tcgdex-bulk.provider.ts`: set breve → 1 llamada/carta (el set NO
+  trae pricing) → parse → **FX-horneado** (USD con `fxUsd`, EUR con `fxEur`); join por NÚMERO (criterio 884);
+  concurrencia acotada (6); una carta que falla NO tumba el set.
+- **Escritor por fuente `PricingService.persistArbiterReference`:** serie POR `source` (⚠️ NO reusa
+  `persistMarketReference`, que es serie única por `(…,cardProductId)` SIN mirar `source` ⇒ el 2º escritor
+  pisaría al 1º). Medido: la `@@unique` de `PriceReference` NO incluye `source`, pero **Postgres trata los
+  NULL como DISTINTOS**, así que `tcgdex` y `cardmarket` COEXISTEN en `cardProductId=null` sin colisión. ⛔
+  Sin cambio de FORMA de `PriceReference` (§PRE.H): solo añade filas con los dos valores nuevos de `source`.
+
+**Volumen / rate-limit (MEDIDO 2026-10-11):** TCGdex NO expone cabeceras de rate-limit, NO tiene endpoint
+bulk de pricing (el set es forma breve sin precios) ⇒ **1 llamada por carta** (180 para Prismatic), ~0.18 s
+c/u. El provider acota la concurrencia a 6 para no ahogar el barrido ni a TCGdex. Candado de FORMA (no semver)
+en vez de versión fija.
+
+**FX EUR (§PRE (e)) — CONSTRUIDO EN BACKEND (ya NO es dependencia de devops):** `FxRate.base` es
+`String @default("USD")` (sin DDL). `FxService.refreshFromBanxico()` ahora, tras escribir la fila USD
+(`SF63528`), llama a `refreshEurFromBanxico()` (best-effort, aislado): obtiene la serie EUR/MXN y escribe
+`FxRate base='EUR', quote='MXN', source='banxico', id='banxico-eur-<fecha>'` con el colchón. `price-ingest`
+la lee con `fxEurSnapshot()` (`base='EUR'`). ⚠️ **El lector USD `BANXICO_FX_WHERE` ganó `base:'USD'`**
+(money-critical: sin él, la fila EUR —más fresca por `effectiveDate`— secuestraría la tasa que valúa el
+catálogo; las filas USD legadas tienen `base='USD'` por defecto ⇒ el filtro no excluye ninguna).
+- **ID de serie EUR — NO MEDIDO (sin token).** `FX_EUR_SERIES_ID_DEFAULT='SF46410'` (candidato
+  DOCUMENTADO), override por config `FX_EUR_SERIES_ID` (corregible sin redeploy). **No se pudo confirmar
+  contra la API SIE en vivo:** este contenedor NO tiene `BANXICO_SIE_TOKEN` y la SIE rechaza TODA petición
+  sin token de forma uniforme ⇒ no se puede sondear un id. **Debe confirmarse con el token** (en el deploy
+  o por quien lo tenga) para ACTIVAR el voto de cardmarket.
+- **El candado que lo hace money-safe NO es el id sino la BANDA EUR `[8,40]`** (`parseBanxicoEurRate`, más
+  estrecha que la USD `[1,1000]`): un id equivocado que devuelva otra magnitud (USD/EUR≈1.08, par
+  invertido≈0.047, etc.) cae FUERA de banda ⇒ NO se escribe fila EUR ⇒ cardmarket NO vota (degradación
+  money-safe; NUNCA una conversión plausible-pero-falsa). Probado: `test/fx.eur-series.spec.ts` (10).
+- **Degradación (§PRE):** sin serie EUR válida (id no confirmado, red, fuera de banda) ⇒ `fxEur=null` ⇒
+  cardmarket no vota ⇒ para Prismatic queda 1 familia ⇒ el candado manda a REVISIÓN (no publica inflado;
+  money-safe, pero la cola se llena). CON la serie EUR confirmada ⇒ 2 familias ⇒ consenso ⇒ **publica el
+  precio bueno automático** (lo que el dueño espera del barrido). La lógica con/sin EUR está probada en
+  `providers/tcgdex-archaludon-fix.spec.ts` (con EUR⇒publica; contra-prueba 1 familia⇒review).
+
+**B · Wiring vivo (verificado unit/servicio + regresión completa 475 suites / 8494 verdes):**
+- **Árbitro de mediana en las 4 rutas de lectura (§PRE.B):** `getReferencesBatch`,
+  `getReferencesByCardProductBatch`, `getSeparateProductsByCard` (y `getReference`/`getReferenceByCardProduct`
+  por delegación). `PricingService.robustMarketForRows()` (puro) + `loadArbiterDialsSafe()` (lee diales con
+  **fallback seguro al seed**, patrón `fxSnapshotSafe`: por eso los mocks posicionales `{} as SettingsService`
+  NO se rompen — **O-23/B5 resuelto por diseño, sin debilitar aserciones**). Override manual (tier 0) gana
+  ABSOLUTO (no se arbitra). **Invariante legada:** hoy la única fuente admitida por variante suele ser
+  `tcgcsv_singles` (1 fila) ⇒ mediana de una = esa fila = IDÉNTICO a `isBetterRef`; el número solo cambia
+  cuando entra una 2ª fuente admitida. Prueba `test/pricing.robust-median-read.spec.ts` (4) + la de punta a
+  punta con fixtures reales `providers/tcgdex-archaludon-fix.spec.ts` (4).
+- **Barrido escribe las fuentes de árbitro (§PRE.6, criterio 888):** `price-ingest.ingestArbiterSourcesForSet`
+  corre tras el tcgcsv_singles del set (best-effort, no tumba el barrido) y persiste las filas tcgdex/cardmarket.
+- **Candado en `reconcilePublishedPrices` (§PRE.C):** `runPriceCandado(keys)` corre `arbiterDetailForKeys`
+  (robusto de HOY + baseline = robusto de ANTES de hoy) + `decideLock` + `PriceReviewService.recordArbiterDecision`
+  (eje `sell`), abriendo/cerrando `PriceReviewCase`. Cierre AUTOMÁTICO `superseded` cuando el mercado se asienta
+  (lo hace el propio `recordArbiterDecision` con `openCase=false`), **por set, dentro del fan-out** — resuelve
+  O-23 (el barrido VQ sí engancha aquí). `price-sync` (bóveda) NO abre casos (igual que §M2 v1.80.8.4).
+- **Gate de COMPRA (§PRE.5, criterio 875):** `BuylistService` prefetch `openCaseVariantKeySet` (1 query por
+  lote, sin N+1) ⇒ una variante RAW set_base con caso `open` ⇒ cotiza «precio pendiente» (reutiliza §BMK.3:
+  `referencePrice.status='pending'`, `quote.status='precio_pendiente'`). El valor crudo ya es la mediana
+  robusta (sin el residuo inflado), así que esto es defensa en profundidad sobre el valor DETENIDO.
+
+**C · Censo C-EQ-1 (CERRADO en lo PURO; HTTP = gate de QA):** añadidas las 2 filas espejo al `REGISTRO`
+(`?status=`/`?axis=` de `review-queue`, clase E, `transcrita`; 72→74) + fixtures `PriceReviewCase` (open sell,
+open buy, accepted, kept; sentinel `proposedMxnCents` para limpieza) + su `limpiarFixture`. **La prueba de
+DESCUBRIMIENTO (pura, sin DB) PASA** (26/26): los dos ejes quedan registrados (no huérfanos). ⚠️ **Refinamiento
+de un candado del censo (flag para techlead):** `enum PriceAxis {sell buy}` (M-75) casa la regex de NOMBRE
+`*Axis*` y comparte el token `buy` con el eje clase-L `?axis=` de `pricing-brackets` (`{sale,buy}`), que
+rompía el candado «homónimo de dominio» (exigía DISJUNCIÓN). Se refinó la aserción de «disjunto» a **«el
+literal NO está CONTENIDO en el enum»** — que es el invariante REAL (un eje clase-L no puede ser el dominio
+—ni un subconjunto— de un enum persistido, el bug `SealedSubtype`/`upc`). Sigue mordiendo: `enum XAxis {sale
+buy}` (exacto) o `{sale buy extra}` (superconjunto) CONTIENE el literal ⇒ rojo; `MissingReason` (disjunto)
+sigue verde. `PriceAxis` declarado en `homonimosDeNombre` con su porqué. **Las propiedades HTTP de las 2 filas
+(filtra/alterno/400/…) corren bajo el gate de QA con Postgres — NO las corrí aquí (sin `DATABASE_URL`).**
+
+**Verificación de mutación (O-3/O-9, N=1 determinista sobre COPIA del árbol ENTERO, ya borrada):** admitir el
+residuo `pokemontcg_io` en el árbitro (mutando `DEFAULT_PRICE_ARBITER_SOURCES` **y** `NON_VOTING_SOURCES` — hay
+DEFENSA EN PROFUNDIDAD: ambos lo excluyen) reinfla Archaludon (185¢ → 5203¢) y pone ROJAS 3 aserciones de
+dinero. La exclusión del residuo aplanado es load-bearing y verificada.
+
+**NO MEDIDO (sin `DATABASE_URL` en este contenedor):**
+- La prueba de INTEGRACIÓN de punta a punta contra Postgres (barrido escribe filas tcgdex/cardmarket →
+  `reconcile` abre/no-abre caso → lectura devuelve centavos). Probado a nivel de LÓGICA (parser+FX+árbitro+
+  candado, `tcgdex-archaludon-fix.spec.ts`) y de SERVICIO (`robust-median-read.spec.ts` con `$queryRaw`
+  mockeado). El round-trip DB lo corre QA.
+- Las propiedades HTTP de las 2 filas nuevas de C-EQ-1 (gate de QA, arriba).
+- `createRequest` del buylist NO gatea sobre caso abierto en este pase (solo el QUOTE, que es la superficie
+  de oferta §BMK.3/§PRE.5); si el dueño exige que la CREACIÓN también se bloquee, es un añadido menor.
+- Composición fila-a-fila de la lista legada «precios atascados» (PSA Gengar): sigue necesitando BD de
+  producción (ortogonal a `PriceReviewCase`, confirmado por código).
+
+---
+
+## 91.2 · v1.91⟨precios⟩ ERRATA — BLOQ-1 (M-76) + A/B/D + limpieza + round-trip Postgres (2026-10-11)
+
+Cerrados los hallazgos de QA/techlead/arquitecto (errata `8eec85b0`). TODO medido contra **Postgres real**
+(`stack-native.sh up --infra`, M-75+M-76 aplicadas). 💰 DINERO.
+
+**BLOQ-1 · M-76 (`source` a la unicidad de `PriceReference`) — EL ARREGLO QUE HACE QUE EL FEATURE ENTREGUE.**
+- **Migración M-76** (`20261029120000_m76_arbiter_source_unique`, NO edita M-75): `DROP INDEX
+  PriceReference_variant_capturedDate_key` + `CREATE UNIQUE INDEX PriceReference_variant_src_capturedDate_key
+  ON (…, cardProductId, source) NULLS NOT DISTINCT`. `schema.prisma` `@@unique` 6→7 (gana `source`). `source`
+  es NOT NULL ⇒ NULLS NOT DISTINCT sigue afectando SÓLO a `cardProductId`. Ninguna fila se reescribe. REVERSA
+  documentada (índice 7→6 + borra registro).
+- **Escritores arreglados (medido en el código cuáles tocan la cubeta del árbitro):**
+  - `CardProductResolver.upsertVariantPrice`: la clave compuesta de Prisma pasa a `…_cardProductId_source` ⇒
+    `source:'tcgcsv_singles'` al `key` (único escritor de su cubeta `cardProductId` no-null).
+  - `persistMarketReference`: AHORA **dos lecturas** — (1) comprobación de override manual source-AGNÓSTICA
+    (el manual SUPRIME al escritor de mercado, §4.1), (2) serie write-on-change POR FUENTE (`source` en el
+    `where`), para no TOMAR/PISAR una fila de árbitro de otra fuente ni chocar P2002.
+  - `applyManualOverride`: el `findFirst` reusa su propia serie manual O la fila-estimado (cut-over M-43),
+    pero ⛔ NUNCA una fila de mercado automática de otra fuente (`OR:[{source:'manual'},{refKind:graded_estimate}]`):
+    así un override manual sobre una variante raw con fila de árbitro NO la destruye (crea la manual aparte;
+    el tier-0 gana en lectura igual).
+  - `persistArbiterReference`: ya scopeaba por `source` (sin cambio).
+- **CONFIRMADO qué caminos legados raw de la cubeta `cardProductId=null` siguen vivos:** el fallback bulk
+  legacy (`price-ingest.service.ts:697`, `source=provider.source`, vía `persistMarketReference`). PPT apagado
+  como escritor (§4.35c), pokemontcg.io bloqueada. `persistGradedEstimateReference` (2691) y `syncCardPrice`
+  (2110) NO se tocan: son de buckets DISTINTOS (graded/sealed) y su `findFirst` DEBE ser source-agnóstico para
+  el invariante INV-D (una naturaleza por variante/día) — añadirles `source` lo rompería. Medido.
+- **ROUND-TRIP contra Postgres (la prueba que QA exigió):** `test/integration/pre-arbiter-roundtrip.e2e-spec.ts`
+  (4/4 verde): con el escritor REAL, `tcgdex`($0.11→204¢) + `cardmarket`(€0.10→202¢) + residuo
+  `pokemontcg_io`(10221¢) **COEXISTEN** para Archaludon raw `cardProductId=null` mismo día (3 filas, SIN P2002);
+  `getReferencesBatch` ⇒ **203¢** (mediana, NO 10221); `arbiterDetailForKeys` ⇒ `familyCount=2`,
+  `consensus=true`; el candado ⇒ **publica, sin caso** aunque la base fuera 10221 (2 familias concuerdan).
+
+**A · resolve(manual) reclama ANTES de escribir (techlead, DINERO).** `resolve()` corre en UNA transacción:
+el guard (`updateMany where status=open`, count===1) PRIMERO; el perdedor (count=0) lanza 409 y la tx REVIERTE
+sin escribir precio. `test/integration/pre-resolve-accept-manual.e2e-spec.ts` A (verde): 2º POST `manual` ⇒ 409
+y el override vivo sigue en el 1er valor (NO hay fila con el 2º).
+
+**B · accept NO congela (arquitecto §4.PRE (d)).** `accept` promueve una `PriceReference` ROBUSTA **NO-manual**
+(`isManualOverride=false`, `refKind='market'`, `source`=la representativa de la mediana — ⛔ nunca `'manual'`)
+vía el NUEVO `PricingService.promoteRobustReference`; `manual` es el ÚNICO que fija tier-0. Prueba B (verde):
+tras accept la fila es no-manual y de fuente admitida ⇒ el barrido la sigue arbitrando.
+
+**D · base CONGELADA mientras hay caso open (arquitecto §4.PRE (c)).** `arbiterDetailForKeys`: si hay
+`PriceReviewCase open` ⇒ `base = caso.baselineMxnCents` (congelada); si no ⇒ robusta de ayer. Canario de 2
+barridos `test/integration/pre-frozen-baseline.e2e-spec.ts` (verde): un pico de fuente única que persiste NO
+auto-supersede (la base no «sube» a incluir el pico) ⇒ el caso SIGUE en revisión.
+
+**BLOQ-2 · limpieza `P-DB-LIMPIEZA`.** `PriceReviewCase` añadido al array `conservar` de `lz_conteo`
+(`20261006_pdblimpieza_2_limpieza.sql`): es familia de precios de catálogo y mientras `open` bloquea
+publicación/compra (§4.PRE (d)). `pdb-limpieza.e2e-spec.ts`: 66/67 con el `tcg` por defecto; T-AC3 (B
+congelado de `a7232d7a`, que PRECEDE a §PRE) necesitaba no chocar G-8 con `PriceReviewCase` ⇒ nuevo helper
+`revertM75` (revierte M-76+M-75 en ambos gemelos vía las REVERSAS documentadas; `fresh({m75:false})` + T-AC3).
+**67/67 verde** con el rol superuser (requerido por `cloneSchema`'s `SET session_replication_role`). `verificacion.sql`
+(file 4) NO menciona `PriceReviewCase` ⇒ no choca.
+
+**Accesorios (3 specs rojos) — VEREDICTO: real y PRE-EXISTENTE a §PRE, NO «BD sucia».** `accessories-prep-refunds`,
+`accessories-m73-migration`, `accessories-m73-refund-shapes` FALLAN (22/146) sobre el esquema RECIÉN migrado
+(no es dato: es una aserción de FORMA de los CHECK de `PaymentRefund`). Causa: deriva M-61↔M-73 (M-73 añadió
+`payment_refund_accessory_*` que los tests escritos para M-61 no esperaban). Determinista por migración (no
+«sucia»). ⛔ Mis cambios §PRE NO tocan `PaymentRefund` ni sus migraciones (solo M-76 sobre `PriceReference`) ⇒
+unrelated a §PRE, pre-existente, **otro alcance — NO lo arreglo en esta rama** (instrucción del orquestador).
+
+**Suite:** unit **476 suites / 8504 verdes**; integración §PRE **11/11** (roundtrip 4 + frozen 2 + resolve 2 +
+variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
+
+**NO MEDIDO:** las propiedades HTTP de C-EQ-1 (gate de QA, DB) y la confirmación del `FX_EUR_SERIES_ID` con token
+(TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.
+
+---
+
+## v1.94⟨sellado-display⟩ — el SELLADO deja de pintarse como su carta ancla (§4.34a.2 + §5.2.6)
+
+**El bug (dinero/fulfillment).** Un producto SELLADO se pintaba como su **single ancla** (p. ej. «Exeggcute»)
+en la preparación, el acta del pedido y el **correo de confirmación**, porque ~15 superficies de pedido leían
+`item.card.name` sin rama de sellado. La pieza reservada ES la sellada (`productType='sealed'`,
+`sealedProductId`/`sealedProductName` poblados): era **solo display**, no una mala venta.
+
+**Resolutor ÚNICO (una sola fuente, ⛔ no copiar la cascada).** `backend/src/common/piece-display-identity.ts`:
+`pieceDisplayIdentityOf(item) → { name, imageSmallUrl, isSealed }`. Puro, sin Prisma/Nest.
+- `isSealed = productType === 'sealed'` (⛔ nunca `!('rawCondition' in …)`).
+- **nombre sellado:** `sealedProduct?.name` (vivo, donde ya se une) → `sealedProductName` (snapshot por-pieza) →
+  **«Sellado sin identificar»**. ⛔ **El nombre JAMÁS cae al `card.name` del ancla** (doctrina §4.34a.1).
+- **imagen sellado:** `sealedImageUrl` → `sealedProduct?.imageUrl` → `card.imageSmallUrl` (ancla, cola aceptada
+  clase P §5.2.6) → `null`.
+- Un sellado NO expone `card.number` ni el `finish` del ancla: el resolutor NO devuelve número ni acabado, y
+  quien los emita los omite para sellado.
+- `resolvedSealedName(item)`: el nombre de sellado REAL (vivo→snapshot) o `null` — lo usa el acta para congelar
+  `sealedProductName` SOLO cuando hay nombre de verdad (⛔ nunca la copia «Sellado sin identificar»).
+- `firstNonBlank`: una fuente vacía (`''`/`'   '`) cuenta como ausente (misma doctrina `nullIfBlank`).
+
+**Las 15 superficies de §4.34a.2(B) + el correo, una por una (fichero:línea tras el cambio):**
+1. Preparación «Junta y palomea» — `shipments/preparation-view.ts:preparationCardOf` (usado por `shipment-prep.service.ts:~305`): `name`/`imageSmallUrl` por el resolutor, `finish` forzado `normal` para sellado.
+2. Contexto interno de línea de prep — `shipments/shipment-prep.service.ts:~327` `cardName: pieceDisplayIdentityOf(p).name`.
+3. Aviso casos «por reponer» (correo) — `shipments/shipment-prep.service.ts:~1013` + select ampliado (`productType`/`sealedProduct*`).
+4. DTO de envío — `shipments/shipments.service.ts:1531` vía `preparationCardOf` (modelo completo).
+5. «Por reponer» (replacement) — `vault/replacement-case.service.ts:375` vía `preparationCardOf`.
+6. Levantamiento físico de bóveda — `vault/vault-physical-inventory.service.ts:146,162` vía `preparationCardOf` (el sort `:189` lee el DTO ya resuelto, correcto).
+7. Preparación de bóveda — `vault/vault-preparation.view.ts:153` vía `preparationCardOf`.
+8. Tracking de invitado — `orders/guest-checkout.service.ts:~869` `name` por el resolutor; `number` sigue siendo del ancla y el front NO lo muestra para sellado (DTO sin cambio de forma). El tipo de `toTrackingDto` ganó `productType: ProductType` + los 3 campos de sellado.
+9. Acta congelada (snapshot) — `orders/orders.service.ts:cardSnapshot`: `name` por el resolutor; añade `sealedProductId` (null si legacy) y `sealedProductName` (SOLO si hay nombre real) cuando `productType='sealed'`; `cardId`/`number` del ancla se conservan.
+10. Historial `GET /orders/:id` — `orders/orders.service.ts:821,2036` `resolveOrderItemCard(...)`: LEE el acta ⇒ para pedidos NUEVOS ya trae el nombre correcto (cubierto por el snapshot). ⚠ Pedidos VIEJOS siguen con el ancla congelado (decisión del dueño, abajo).
+11. «No disponibles» del checkout — `orders/orders.service.ts:~687` resolutor con proyección explícita (el `sealedProduct` unido ahí trae otra forma — solo precio).
+12. Reembolsos total — `payments/refunds/full-refund.service.ts:~714,~728` + selects ampliados.
+13. Reembolsos aviso admin — `payments/refunds/admin-refunds.controller.ts:~108` + ambos selects ampliados.
+14. Reembolsos manual (retiro, correo) — `payments/refunds/manual-refund.service.ts:~804` + select ampliado; `:290,:300` ya usaban `preparationCardOf` (modelo completo).
+15. Reembolsos reportes — `payments/refunds/refund-reports.service.ts:~75` + select ampliado.
++ **CORREO de confirmación** (registrado y invitado) — `payments/payments.service.ts:~128` y `~658` leen `readFrozenCardFacts(cardSnapshot).name` ⇒ para pedidos NUEVOS muestran el nombre del sellado (cubierto por el snapshot). Las plantillas (`orders/mail/order-notice.templates.ts` + `guest-order.templates.ts`) ganaron `orderMailLineOf`: **omite el `#número` del ancla para sellado**. `OrderNoticeItem`/`GuestOrderMailItem` ganaron `productType`.
+
+**Snapshot sin migración (§5.2.6).** `OrderItem.cardSnapshot` es columna `Json`: añadir `sealedProductId?: string|null`
+y `sealedProductName?: string` a `FrozenCardFacts` + a `FROZEN_CARD_FACT_KEYS` (allowlist) es cambio de FORMA, no
+`ALTER TABLE`. Los cerrojos `Equals` (`RESOLVED_IS_CONTRACT_SHAPE`, `HISTORICAL_IS_RESOLVED_SHAPE`,
+`ALLOWLIST_IS_FROZEN_FACT_KEYS`) verifican la forma en compilación. **Cero enums** (`ProductType.sealed` ya existe).
+
+**⚠ Pedido real existente — NO lo toco (decisión del dueño).** Su acta ya congeló el ancla (se cobró antes del
+arreglo). La preparación se re-resuelve en vivo ⇒ se arregla sola; el historial y el correo leen el blob congelado
+⇒ seguirían mostrando «Exeggcute» para ESE pedido. La reparación puntual (`UPDATE jsonb_set` de UNA fila) la corre
+el dueño en prod (§5.2.6 opción a). **Backend no prepara ni ejecuta ningún UPDATE de datos.**
+
+**Pruebas (backend).** `test/sealed-display.be.spec.ts` (12/12): resolutor puro + `preparationCardOf` + `cardSnapshot`
+(vía reflexión, es puro) + allowlist. La prueba FALLÓ en rojo contra el código sin tocar (`preparationCardOf`
+devolvía «Exeggcute»); mutación verificada (abajo).
+
+**Para QA (BD/E2E).** Falta el camino de punta a punta contra el stack: checkout real de una pieza sellada ⇒ (iii)
+`GET /orders/:id` y el tracking de invitado devuelven el `SealedProduct.name`; (iv) el correo de confirmación
+(registrado e invitado) muestra el nombre del sellado y NO el `#número` del ancla; y que un pedido VIEJO (blob con
+el ancla) sigue mostrando el ancla hasta que el dueño corra el `UPDATE`. Candidatos de harness: `test/integration/
+guest-checkout.e2e-spec.ts`, `catalog-checkout-webhook.e2e-spec.ts`, `preparation-queue.e2e-spec.ts`.
+
+**Discrepancia menor para el arquitecto (no bloqueante).** §4.34a.2(C) dice que las **4 superficies ya-correctas**
+(`sealed-catalog.service.ts:263`, `vault.service.ts:162`, `sales-analytics:385`, `sealed-restock-notify:125`)
+deberían consumir el resolutor único, PERO su cascada actual cae a `card.name` (ancla) como último recurso y hay
+tests que lo fijan (`vault.holdings-sealed-identity.spec.ts:105` espera «Tropius» para sellado legacy sin nombre).
+Migrarlas al resolutor cambiaría ese fallback a «Sellado sin identificar» — cambio de conducta que rompe tests
+fijados. El task acotó el alcance a «las 15 superficies (B)», así que **NO toqué las 4**. Si el arquitecto quiere
+unificarlas, es una decisión de conducta aparte (regla 9).
+
+---
+
+## v1.95⟨pnl-finanzas⟩ — COGS neto de IVA (A) + doble resta del reembolso (B2) + estado de resultados (C)
+
+Rama `fix/pnl-finanzas`. ZONA DE DINERO. Spec: `API_CONTRACT §M10-IVA.8-bis` (A/C/D) + `§M4-SHIP.20` (B2) +
+candado `IVA-15`; diseño en `ARCHITECTURE §4.44.f-quater` (+ espejo `§4.44.f-ter`). Construido por backend (modelo
+fuerte, candado-que-falla→arreglo→muerde). B1 (`stripe_dashboard`/`REF-DASH-1`) DIFERIDO: NO se tocó el enum.
+
+### (A) COGS NETO DE IVA — columna congelada, espejo del envío
+- **Migración `m79`** (`20261101120000_m79_inventory_acquisition_cost_iva`): `ALTER TABLE "InventoryItem" ADD
+  COLUMN "acquisitionCostIvaCents" INTEGER NOT NULL DEFAULT 0;`. Timestamp = siguiente libre tras
+  `m76` (`20261029120000`) SALTANDO los slots reservados de M-77/M-78 (ramas sin fusionar). ⛔ SIN backfill
+  (doctrina `IVA-11(d)`): filas históricas nacen con `0` ⇒ `net = bruto` = comportamiento de hoy (conservador).
+- **Derivación al CAPTURAR** (`inventory.service.ts`, `resolveCreation`): en COMPRA FIRME (`acquisitionType !=
+  aportacion_en_especie`) con costo no-null, `acquisitionCostIvaCents = acquisitionCostCents −
+  taxBaseCentsOf(acquisitionCostCents, r)` con `r = iva_pct` VIGENTE. **Dial MEDIDO:** `this.settings.getIvaDials()
+  .ivaRatePct` (el MISMO que usa el envío en `shipments.service.ts:424`; `SettingKey.IVA_PCT`). En APORTACIÓN y
+  sin costo = `0`. Se escribe en `buildItemData` (los 3 caminos de alta: single, lote, convert-to-inventory). ⛔ Se
+  CONGELA al capturar; jamás se re-deriva al leer (rompería `IVA-5`: `InventoryItem` no tiene `ivaRatePct`).
+- **Neteo al LEER** (`pnl-core.ts:244`): `cogsCents += (acquisitionCostCents ?? 0) − (acquisitionCostIvaCents ?? 0)`.
+- **Candado `IVA-15`**: `test/pnl-cogs-iva.diagnostic.spec.ts` (evolucionado del diagnóstico 702b5c0, conserva el
+  fixture + nombre por ser el que citan los docs) fija el neteo al leer (cogs 8000, profit 2000) y el amarre
+  anti-mutación (aportación con iva=0 aporta su costo entero). Lado CAPTURA: `test/inventory.batch.spec.ts`
+  (describe «IVA-15») fija la derivación/congelado (9280@16 ⇒ 1280; 0/null/aportación ⇒ 0).
+
+### (B2) DOBLE RESTA DEL REEMBOLSO TOTAL — filtro por settledAt
+- **Premisa MEDIDA (bloqueante, confirmada):** `grep settledAt backend/src` ⇒ NO existe NINGÚN `settledAt: null`.
+  Las transiciones a `refunded` (`refund-ledger.service.ts:351-352`, `payments.service.ts:799/814`) y `chargeback`
+  (`payments.service.ts:1007/1109/1167`) escriben SOLO `status`/`refundedAt`/`disputeOutcome`. `settledAt` se pone
+  a un valor no-null solo en `payments.service.ts:317/485/1158`. ⇒ es un sello INMUTABLE de liquidación: el arreglo
+  B2 es seguro.
+- **Arreglo** (`pnl-core.ts`): el ingreso se acota por `where: { status: { in: ['settled','refunded'] }, settledAt:
+  range ?? { not: null } }` (antes `status:'settled'`). Así una venta liquidada en el periodo cuenta su ingreso
+  aunque luego se reembolse, y la fila de reembolso resta UNA vez en su fecha. COGS/stripeFees/shippingRevenue de
+  una `refunded` siguen contándose (la venta ocurrió). ⛔ `chargeback` queda FUERA (desviación `D-PNL-1`, no se abre).
+- **Candado `REF-DASH-2`**: `test/pnl-refund-double-subtract.spec.ts`. El doble de `order.findMany` HONRA el
+  `where.status` (como Postgres) ⇒ falla de verdad con el filtro viejo (income 0 ⇒ profit −10000) y pasa con el
+  nuevo (income 10000 ⇒ profit 0).
+
+### (C) ESTADO DE RESULTADOS `statement` — aditivo, derivado por construcción
+- `GET /admin/finance/pnl` ahora devuelve `{ ...camposPlanos, statement }`. Construido en `admin.service.pnlReport()`
+  (controller lo llama) vía `buildStatement()` puro en `pnl-core.ts`. El bloque `iva` del statement sale de
+  `this.ivaReport(from,to)` — la MISMA fuente que `GET /admin/finance/iva` para el mismo rango (garantiza
+  `statement.iva.ivaCollectedCents == /finance/iva`), no una segunda cuenta.
+- ⭐ **v1.95.2 (arquitecto 2026-10-14) — RECONSTRUIDO a estado de resultados ESTÁNDAR DE E-COMMERCE.** El statement
+  dejó de ser `{totalRevenueCents, cogsCents, grossMarginCents, operatingExpenses{…}, ebitda, iva, netResult}`. Forma
+  nueva (los nombres viejos `totalRevenueCents` y `operatingExpenses` **DESAPARECEN**):
+  ```
+  Ventas            salesCents = incomeCents + shippingRevenueCents
+  (−) Devoluciones  returnsAndRefunds{ refundsCents, refundedFeesCents, compensationsCents,
+                                       totalCents = suma de los tres }   ← CONTRA-INGRESO (sube antes del margen)
+  = Ventas netas    netRevenueCents = salesCents − returnsAndRefunds.totalCents
+  (−) Costo venta   costOfSales{ cogsCents, stripeFeesCents, shippingCostCents, buylistGuideCostCents,
+                                 buylistShippingFeeRetainedCents,
+                                 totalCents = cogs+stripeFees+shipCost+buylistGuide − buylistRetained }  ← PURO
+  = Margen bruto    grossMarginCents = netRevenueCents − costOfSales.totalCents   (margen de contribución)
+  = EBITDA          ebitdaCents = grossMarginCents   (⛔ NO hay opex fija modelada)
+  IVA (memo)        iva{ ivaCollectedCents, ivaRefundedCents, ivaNetCents }   ← SIN CAMBIO
+  = Resultado neto  netResultCents = ebitdaCents
+  ```
+  Los reembolsos (refunds+refundedFees+comps) se movieron de `operatingExpenses` (costo) al **contra-ingreso**
+  `returnsAndRefunds` que resta ANTES del margen bruto. ⛔ El reordenamiento NO cambia el resultado final: mismos
+  términos y signos, solo reagrupados en subtotales distintos.
+- ⛔⛔ **EL IVA ES MEMO** y el invariante duro se conserva: `netResultCents == ebitdaCents == profitCents` EXACTO
+  (no se resta el IVA). **Matiz v1.95.2:** ahora además `ebitdaCents == grossMarginCents` (no hay opex fija entre
+  ellos) ⇒ la cadena completa es `netResultCents == ebitdaCents == grossMarginCents`, y los tres `== profitCents` al
+  centavo. (Antes `grossMargin = totalRevenue − cogs` quedaba ANTES de restar opex, así que `grossMargin != ebitda`;
+  con la reagrupación el margen bruto ya es de contribución y coincide con el EBITDA.)
+- `admin.pnl()` (usado por `exportCsv` y `launchMetrics`) se dejó PLANO: el **CSV no cambia** (statement es solo-JSON).
+- **Candado**: `test/pnl-statement.spec.ts` — 7 identidades (`salesCents==income+shipRev`;
+  `returnsAndRefunds.totalCents==refunds+refundedFees+comps`; `netRevenueCents==sales−returns.total`;
+  `costOfSales.totalCents==cogs+stripeFees+shipCost+buylistGuide−buylistRetained`;
+  `grossMarginCents==netRevenue−costOfSales.total`; `ebitdaCents==grossMarginCents`;
+  `netResultCents==profitCents` EXACTO), iva-misma-fuente, y que restar el IVA memo rompe la identidad. Verificado
+  muerde al reintroducir la vieja agrupación (reembolsos en costo): N=1 determinista, caza `costOfSales.totalCents`
+  (13650≠8500) y el invariante duro (−8800≠−3650).
+
+### (D) volumen/ticket — CERO backend (reuso de `GET /admin/reports/sales`). Trabajo de frontend.
+
+### Para QA / integración (NO lo pudo correr backend: su entorno no tiene Postgres/Redis/S3)
+- ⚠️⚠️ **`test/integration/sales-analytics-pnl-parity.e2e-spec.ts` (AN-B-13) HAY QUE REGENERARLA.** B2 (§W 277/278)
+  hace que O3 (fixture `refunded`, liquidada 2021-03-01, en-rango) cuente su ingreso/COGS/comisión (antes no) ⇒ los
+  campos `pnl`/`csv` de los rangos que cubren el 2021-03-01 se mueven a propósito. Regenerar con
+  `AN_PARITY_WRITE=1 npm run test:integration -- sales-analytics-pnl-parity` (local, ⛔ no CI) y verificar a mano que
+  el delta es SOLO O3. El header del spec ya documenta esto.
+- Specs de CSV-paridad del P&L (`bsd-b4-pnl.e2e-spec.ts` BSD-B36, `sdx-d2f-money.e2e-spec.ts`) se AJUSTARON para
+  excluir `statement` de la comparación columna⇄DTO (el CSV es plano por diseño). Confirmar en integración.
+- Los demás specs de pnl por HTTP leen campos sueltos (`.body.incomeCents`), no el body entero ⇒ el `statement`
+  aditivo no los rompe; los de refund (`full-refund-vault`) usan DELTAS ⇒ robustos a B2.
+
+---
+
+## v1.95⟨pnl-finanzas⟩ §PNL-B1 — captura del reembolso hecho DIRECTO en el panel de Stripe (`stripe_dashboard`)
+
+Rama `fix/pnl-finanzas`. ZONA DE DINERO + webhook. Spec: `API_CONTRACT §M4-SHIP.20 (B1)`, candado `REF-DASH-1`,
+línea canónica de `PaymentRefundKind` en §Enums. Construido por backend (modelo fuerte, candado-que-falla→arreglo→
+muerde). **B1 YA NO está diferido** (la nota de A/B2/C arriba decía «DIFERIDO: NO se tocó el enum»; este pase lo
+construye). El dueño confirmó (2026-10-14) que SÍ podría reembolsar directo en el panel de Stripe fuera de la app.
+
+### Qué nace
+Un `charge.refunded`/`refund.updated` **sin** `metadata.paymentRefundId` cuyo `payment_intent` resuelve a una
+`Order` conocida crea UNA fila de libro `stripe_dashboard` conciliada. `idempotencyKey = 'stripe-refund:'+refund.id`
+y `stripeRefundId = refund.id` (ambos `@unique`) ⇒ idempotente: la 2ª entrega del webhook (o el `charge.refunded`
+Y el `refund.updated` del mismo reembolso) NO duplica.
+
+- **Enum:** `PaymentRefundKind += stripe_dashboard` en `schema.prisma:184`. `enum-values.ts` NO se editó a mano:
+  `PAYMENT_REFUND_KIND_VALUES = Object.values(PaymentRefundKind)` lo deriva del cliente Prisma (basta `prisma
+  generate`). Ancla humana de `enum-values-parity.spec.ts` actualizada (precedente `item_delivered`). **enum-parity
+  ANTES: 2 rojas** (contrato trae `stripe_dashboard`, schema/cliente no) **→ DESPUÉS: 152/152 verde.**
+- **Migración M-80** (`20261102120000_m80_stripe_dashboard_refund`, siguiente libre tras `m79`): `ALTER TYPE
+  "PaymentRefundKind" ADD VALUE IF NOT EXISTS 'stripe_dashboard';` + relaja UN solo CHECK, `PaymentRefund_shipment_fee_chk`.
+  ⚠️ **MEDIDO:** una fila `stripe_dashboard` colgada SOLO de `orderId`, SIN líneas y con `compensationCents = 0`, YA
+  cumple TODOS los demás CHECK sin tocarlos (`one_charge`, `item_missing`, `case_refund*`, `item_delivered*`,
+  `amount_identity/positive`, `submitted_has_stripe_id`, los de accesorio…). El ÚNICO que la bloquea es
+  `shipment_fee_chk` y SOLO en la variante colgada de `shipmentRequestId`. Por eso se relaja ESE y nada más:
+  `CHECK (("kind"::text='shipment_fee') = ("shipmentRequestId" IS NOT NULL) OR "kind"::text='stripe_dashboard')` —
+  para todo otro `kind` la equivalencia original se conserva (`=` liga más que `OR`). `::text` (no el enum) porque
+  Postgres no deja USAR un valor recién añadido en la misma tx (patrón m70, medido).
+- **Desglose money-safe** (`common/money.ts` `stripeDashboardRefundComponents(gross, r)`): Stripe solo da el bruto
+  `refund.amount`. Bajo `IVA_INCLUSIVE`: `merchandiseCents = gross`, `merchandiseIvaCents = gross − taxBaseCentsOf(
+  gross, r)` (IVA por RESTA, R2), envío/compensación `0`. **`processingFeeCents = 0`** (Stripe NO devuelve su
+  comisión). `r` = `Order.ivaRatePct` **CONGELADA** de la orden, ⛔ nunca el dial vivo. `amount = merch+ship+fee+comp`
+  (identidad PS-3). `RefundRow.netCents` (`pnl-core.ts:235`) resta el neto e `ivaRefundedCents` recibe el IVA.
+- **Estado:** `succeeded` ⇒ `succeeded` (`submittedAt = succeededAt = refund.created`); `pending`/otros ⇒ `submitted`;
+  `failed|canceled` ⇒ `failed` (`failedAt`, `failureCode = 'stripe_'+status`).
+- **Reconciliación:** `refund-ledger.service.ts` `reconcileStripeDashboardRefund(...)`, llamada desde los DOS webhooks
+  en `payments.service.ts`: `onChargeRefunded` itera `charge.refunds.data` (corre en el PARCIAL **y** el TOTAL — antes
+  el parcial `:785-791` SOLO logueaba) y `onRefundUpdated` pasa `amount/payment_intent/created`. Inserta con
+  `createMany({ skipDuplicates })` = `ON CONFLICT DO NOTHING` (idempotente y a prueba de carrera); bitácora
+  `payment_refund.dashboard_reconciled` solo si `count === 1`.
+
+### ⚠️ Decisiones medidas que necesita saber el arquitecto (regla 9)
+
+1. **Actor de SISTEMA — NO existe para `PaymentRefund`; resuelto con centinela (señalar).** `requestedByUserId` es
+   `TEXT NOT NULL` **SIN FK** (migración m61:113) y `Role` no tiene `system` (`customer|vault_operator|super_admin`).
+   La convención de webhook del resto del código (`actorUserId/actorRole = null`, p.ej. `orphan-reconcile`,
+   `carrier-status`, `accessory-stock`) **no cabe** en columnas NOT NULL. El contrato delega («backend lo resuelve»).
+   Decisión: constante `SYSTEM_REFUND_ACTOR_ID = 'system:stripe-dashboard'` + `requestedByRole = super_admin` (el
+   dueño reembolsa en el panel como la empresa; `super_admin` es el único rol con salida de dinero arbitraria). La
+   **bitácora** de creación SÍ usa el actor `null` (convención de webhook). No cuelga de ninguna `User` (sin FK) y el
+   tope de 24 h del operador aggrega por `requestedByUserId` ⇒ el centinela nunca coincide con un operador real. El
+   DTO `requestedBy.userId` queda no-null (`'system:stripe-dashboard'`, nombre `null`) ⇒ **no rompe frontend**. Si el
+   arquitecto prefiere columnas nullables (espejo exacto del `null` de webhook), es cambio de schema + DTO.
+2. **Variante `ShipmentRequest` DIFERIDA (hueco del contrato).** El contrato dice «Order (o `ShipmentRequest`)», pero
+   `ShipmentRequest` **NO tiene `ivaRatePct` congelada** (el comentario del schema lo PROHÍBE derivar — IVA-5) y el
+   desglose money-safe del contrato nombra solo la convención de la ORDEN y atribuye a **mercancía** (un cargo de
+   envío no es mercancía). ⇒ un reembolso de panel cuyo PI resuelve a un `ShipmentRequest` (retiro) **solo loguea**,
+   NO nace fila (comportamiento de hoy). El CHECK ya quedó relajado por si se construye. **Falta regla money-safe
+   del contrato para esa variante** (atribuir a envío con el IVA congelado del retiro, no una tasa) ⇒ decisión del
+   arquitecto.
+3. **Candado `C-REF-1` (`refunds.candados.spec.ts`) actualizado, NO debilitado.** El censo `paymentRefund.create*`
+   pasó de **1 a 2 sitios**, AMBOS en `refund-ledger.service.ts` (`createRows` + `reconcileStripeDashboardRefund`).
+   La fila de panel nace YA conciliada (`succeeded`, con `stripeRefundId`) e idempotente — ciclo de vida que ⛔ NO
+   cabe en `createRows` (nace `requested`, sin `skipDuplicates`) sin debilitar el creador único de la app. La
+   invariante real (ningún OTRO módulo crea filas del libro) se conserva: el censo sigue fijando UN solo fichero. La
+   cabecera del spec avisa que un sitio nuevo es decisión del arquitecto ⇒ **lo señalo**.
+
+### Candado `REF-DASH-1` — `test/pnl-refund-dashboard.spec.ts` (unitario extremo-a-extremo, SIN BD)
+BD en memoria compartida entre el webhook (escribe) y el P&L (lee), HONRANDO los dos `@unique` y el `where`
+(status + `submittedAt`). 6 casos: parcial/total ⇒ fila `succeeded` con el desglose exacto; idempotente (2ª entrega
+= 1 fila, 1 bitácora); `refundsInPeriod` sube `refundsCents` por el neto (4310 de 5000@16) y `ivaRefundedCents` por
+690; fuera de periodo no cuenta; con `paymentRefundId` NO nace. **FALLA→VERDE→MUERDE:** verde 6/6; al reintroducir
+el defecto (comentar la llamada `reconcileDashboardRefundsOf` del parcial) **4/6 rojas** (las 2 verdes son los casos
+negativos, correcto); restaurado 6/6. Determinista (secuencial, sin carrera) ⇒ N=1 basta (O-3 solo exige N para lo
+probabilístico). **El candado faithful de BD es de QA** (ver abajo).
+
+### Para QA / integración (backend NO tiene Postgres/Redis en su entorno)
+- El candado de **extremo a extremo real** (webhook HTTP de Stripe `charge.refunded` sin `paymentRefundId` ⇒ fila en
+  BD ⇒ `GET /admin/finance/pnl` sube `refundsCents`) hay que correrlo con el stack. Candidato: nuevo
+  `test/integration/pnl-refund-dashboard.e2e-spec.ts` o extender `full-refund-vault.e2e-spec.ts`.
+- `test/integration/enum-query-axes.e2e-spec.ts`: `?kind=stripe_dashboard` de `GET /admin/refunds` ya es filtro
+  válido (derivado de `PAYMENT_REFUND_KIND_VALUES`); confirmar que una fila de ese kind se filtra.
+- Correr `prisma migrate deploy` (aplica M-80) antes de la suite de integración.
+
+### ⚠️ ROJO PRE-EXISTENTE (NO de B1 — de la A, m79) para enrutar al dueño de A
+`test/migration.m50-no-default.spec.ts` da **1 roja**: el censo «`shippingCostIvaCents` vive SOLO en M-50» se cae
+porque el COMENTARIO de `m79` (migración de A, commit `26ff05f`) contiene el literal `shippingCostIvaCents` («espejo
+exacto de `ShipmentRequest.shippingCostIvaCents`»). Medido: mi árbol de B1 **no toca** `m79` ni ese spec ⇒ la roja
+ya existía en `26ff05f`. No la arreglo (⛔ «no toques A/B2/C»). Fix trivial para el dueño de A: reformular el
+comentario de `m79` para no repetir el token exacto, o ampliar el censo para admitir una referencia documentada.
+Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roja es esta.

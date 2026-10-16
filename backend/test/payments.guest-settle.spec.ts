@@ -254,7 +254,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
         guestEmail: 'juan@example.com',
         locale: 'es',
         totalCents: 51812,
-        items: [{ name: 'Charizard', setName: 'Base', number: '4' }],
+        items: [{ name: 'Charizard', setName: 'Base', number: '4', productType: 'raw' }],
       }),
     );
   });

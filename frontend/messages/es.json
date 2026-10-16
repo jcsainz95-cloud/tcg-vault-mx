@@ -4912,6 +4912,79 @@
           "none": "retener todas"
         }
       },
+      "priceReview": {
+        "title": "Precios por revisar",
+        "intro": "Cuando un precio nuevo da un salto grande y las fuentes no coinciden, no se publica solo: queda aquí para que tú decidas.",
+        "openCount": "{count, plural, =0 {Sin casos por revisar} one {# caso por revisar} other {# casos por revisar}}",
+        "statusLabel": "Estado",
+        "status": {
+          "open": "Por revisar",
+          "accepted": "Aceptados",
+          "kept": "Conservados",
+          "manual": "A mano",
+          "superseded": "Ya al día"
+        },
+        "axisLabel": "Eje",
+        "axisAll": "Todos",
+        "axis": {
+          "sell": "Venta",
+          "buy": "Compra"
+        },
+        "axisTag": {
+          "sell": "Saltó en venta",
+          "buy": "Saltó en compra"
+        },
+        "productType": {
+          "raw": "Carta",
+          "sealed": "Sellado",
+          "graded": "Gradeada"
+        },
+        "proposed": "Precio propuesto",
+        "baseline": "Precio actual",
+        "noBaseline": "Sin precio previo",
+        "jump": "Salto",
+        "consensus": {
+          "yes": "Las fuentes coincidieron ({families, plural, one {# grupo} other {# grupos}}).",
+          "no": "Sin coincidencia clara: {sources, plural, one {# fuente} other {# fuentes}} en {families, plural, one {# grupo} other {# grupos}}. Por eso no se publicó solo."
+        },
+        "quote": {
+          "source": "Fuente",
+          "family": "Grupo",
+          "price": "Precio",
+          "date": "Fecha",
+          "stale": "Vieja"
+        },
+        "actions": {
+          "accept": "Aceptar",
+          "keep": "Conservar",
+          "manual": "Precio a mano",
+          "help": "Aceptar publica {proposed}. Conservar deja el precio actual ({baseline}). Precio a mano fija el valor que tú escribas.",
+          "helpNoBaseline": "Aceptar publica {proposed}. Esta carta no tenía un precio sano previo. Precio a mano fija el valor que tú escribas.",
+          "helpZeroProposed": "Sin precio de mercado (quedó en $0): usa «Conservar» o «Precio a mano». No se puede aceptar un precio de $0.",
+          "audit": "Queda registrado quién resolvió y cuándo."
+        },
+        "resolved": "Resuelto: {action} · por {who} · {when}",
+        "conflict": {
+          "title": "Este caso ya se resolvió",
+          "body": "Alguien más, o el propio sistema, ya cerró este caso. Lo volvimos a cargar."
+        },
+        "empty": {
+          "open": "No hay precios por revisar. Todo está al día.",
+          "other": "No hay casos con este estado."
+        },
+        "page": {
+          "showing": "Mostrando {from}–{to} de {total}",
+          "prev": "Anterior",
+          "next": "Siguiente"
+        },
+        "manual": {
+          "title": "Poner precio a mano",
+          "help": "Escribe el precio que quieres publicar para esta carta, en pesos.",
+          "priceLabel": "Precio a mano",
+          "invalid": "Escribe un monto en pesos mayor que cero.",
+          "save": "Guardar precio"
+        }
+      },
       "shipping": {
         "title": "Envíos (Skydropx)",
         "subtitle": "Solo el súper-admin. Cada cambio queda en la bitácora.",
@@ -5269,6 +5342,32 @@
         "pnl": "Exportar P&L (CSV)",
         "iva": "Exportar IVA (CSV)",
         "inventory": "Exportar inventario (CSV)"
+      },
+      "statement": {
+        "title": "Resumen",
+        "salesGroup": "Ventas",
+        "returnsGroup": "Devoluciones y reembolsos",
+        "netRevenue": "Ventas netas",
+        "costOfSalesGroup": "Costo de venta",
+        "grossMargin": "Margen bruto",
+        "ebitda": "EBITDA",
+        "contributionHelp": "El margen bruto es tu margen de contribución: lo que queda de las ventas después del costo de la mercancía, las comisiones, el envío y las devoluciones. No incluye gastos fijos (nómina, renta, marketing) porque el sistema no los tiene; por eso el EBITDA sale igual al margen bruto y el resultado real del negocio es menor que esta cifra.",
+        "ivaMemoTitle": "IVA por enterar al SAT — informativo, no es un gasto del negocio",
+        "ivaCollected": "IVA cobrado",
+        "ivaRefunded": "IVA de reembolsos",
+        "ivaNet": "IVA neto por enterar",
+        "netResult": "Resultado neto"
+      },
+      "volume": {
+        "title": "Volumen y ticket",
+        "subtitle": "Mismo rango que el P&L. Son cifras de lo PAGADO por el cliente (IVA, comisión y envío dentro).",
+        "needsRange": "Elige un rango de fechas para ver el volumen y el ticket promedio.",
+        "orders": "Pedidos",
+        "avgTicket": "Ticket promedio",
+        "avgTicketHelp": "Cobrado ÷ pedidos: lo que paga un cliente por compra, con IVA, comisión y envío.",
+        "piecesPerOrder": "Piezas por pedido",
+        "pieces": "Piezas vendidas",
+        "boundaryNote": "En los bordes de día el total puede diferir del P&L por una orden."
       }
     },
     "m9": {
@@ -5735,7 +5834,7 @@
         "cert": "Número de certificado",
         "certHint": "Obligatorio para publicar la gradeada.",
         "certRequired": "Captura el número de certificado.",
-        "price": "Precio de compra (MXN)",
+        "price": "Costo TOTAL de la factura, IVA incluido (MXN)",
         "cta": "Dar de alta al inventario",
         "success": "Gradeada dada de alta · folio {folio}.",
         "successListed": "Gradeada dada de alta y a la venta · folio {folio}.",
@@ -5784,7 +5883,7 @@
       "buy": {
         "label": "Comprar",
         "sublabel": "Pagamos por pieza:",
-        "priceLabel": "Precio pagado (MXN)",
+        "priceLabel": "Costo TOTAL de la factura, IVA incluido (MXN)",
         "priceRequired": "Captura un precio mayor a cero.",
         "helper": {
           "rule": "Sugerido por regla",

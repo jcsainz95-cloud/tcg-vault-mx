@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { BANXICO_FX_WHERE } from '../src/common/fx-mode';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -89,9 +90,11 @@ describe('⭐ dashboard.dataHealth.lastFxAt — la MISMA fila que rige, o nada',
     const { service, prisma } = build([{ source: 'banxico', effectiveDate: HOY, createdAt: HOY }]);
     await service.dashboard('vault_operator' as never);
     // Si alguien reintroduce un `findFirst` a secas, o cambia el orden, esta aserción cae. Es la
-    // mitad que impide que las dos superficies vuelvan a nombrar filas distintas.
+    // mitad que impide que las dos superficies vuelvan a nombrar filas distintas. ⭐ v1.91⟨precios⟩:
+    // se asevera contra la CONSTANTE canónica `BANXICO_FX_WHERE` (que ganó `base:'USD'` cuando M-75
+    // añadió la serie EUR), no contra un literal — así el predicado no puede volver a divergir.
     expect(prisma.fxRate.findFirst).toHaveBeenCalledWith({
-      where: { source: 'banxico' },
+      where: BANXICO_FX_WHERE,
       orderBy: { effectiveDate: 'desc' },
     });
   });

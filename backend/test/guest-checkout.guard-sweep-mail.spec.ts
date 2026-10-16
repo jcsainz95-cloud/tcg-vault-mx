@@ -238,7 +238,7 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
 describe('Plantillas de correo del invitado', () => {
   const params = {
     orderNumber: 'TCG-000123',
-    items: [{ name: 'Charizard', setName: 'Base Set', number: '4' }],
+    items: [{ name: 'Charizard', setName: 'Base Set', number: '4', productType: 'raw' as const }],
     totalCents: 51812,
     trackingUrl: 'https://tcghunt.mx/es/pedido?token=SECRET_TOKEN',
   };
@@ -272,7 +272,7 @@ describe('Plantillas de correo del invitado', () => {
 
   it('escapa el HTML de los valores dinámicos (S15-B1)', () => {
     const msg = guestOrderConfirmationTemplate(
-      { ...params, items: [{ name: '<script>alert(1)</script>', setName: 'Base', number: '4' }] },
+      { ...params, items: [{ name: '<script>alert(1)</script>', setName: 'Base', number: '4', productType: 'raw' as const }] },
       'es',
     );
     expect(msg.html).not.toContain('<script>');

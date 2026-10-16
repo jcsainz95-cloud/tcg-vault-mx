@@ -21582,3 +21582,134 @@ lo demás de §111 (cuándo se ve el bloque, de dónde sale la cifra, que nunca 
 
 HTML/texto determinista: N=1 basta (no es probabilístico). La E2E `miv-market-iva.spec.ts` NO se ejecutó aquí (necesita
 el stack levantado): NO MEDIDO por mí; su ejecución es del gate de QA.
+
+## §116 · 💰 **§PRE — pantalla «Precios por revisar» (cola del candado anti-inflado)** (2026-10-11, rama `claude/precios-redundancia`, base `3ea0fa5a`; `API_CONTRACT §PRE.D/E/F` v1.91⟨precios⟩ · `PROJECT §PRE`, criterios 876/877)
+
+**Qué faltaba (O-4):** el backend ya construyó `GET /admin/pricing/review-queue` y
+`POST …/:id/resolve`, pero sin pantalla el dueño no podía llegar a esos endpoints. El ciclo quedaba a medias.
+
+**Qué se construyó** — una sección nueva en M10 «Configuración», al lado de `PremiumFloorSection`:
+- `m10/sections/PriceReviewSection.tsx` — carga la cola, pinta cada caso como una tarjeta (carta · set · número ·
+  acabado; precio propuesto / precio actual / salto en «×N» desde `jumpFactorMilli/1000`; tabla de `quotes` con
+  fuente, grupo/familia, precio en pesos, fecha y marca «vieja» si `stale`; contador `counts.open`). Tres acciones
+  solo con `status==='open'`: «Aceptar» (`accept`), «Conservar» (`keep`), «Precio a mano» (modal de pesos →
+  `manual` + `manualPriceMxnCents`). Filtros por estado (CLASE E: por defecto `open`) y por eje.
+- Se engancha en `m10/M10View.tsx` entre la ingesta y la bitácora. Toda M10 va bajo `SuperAdminOnly` ⇒ la pantalla
+  es solo del dueño (contrato §PRE.E, `super_admin`). **Ruta:** `/admin/m10` → sección «Precios por revisar».
+- `lib/api.ts` — `getPriceReviewQueue({status?,axis?})` y `resolvePriceReviewCase(id, input)` con sus mocks.
+  `resolve` propaga el `409 CONFLICT` del backend (misma guarda que disputas): la UI muestra aviso y refresca.
+- `lib/mock/fixtures.ts` — `mockPriceReviewCases` + `getMockPriceReviewQueue` + `resolveMockPriceReviewCase` (409 si
+  el caso ya no está `open`, para que Playwright en modo mocks ejerza el candado de doble resolución).
+- `types/contract.ts` — `PriceReviewStatus`, `PriceAxis`, `PriceReviewCaseDTO`, `PriceReviewQuoteDTO`,
+  `PriceReviewQueueResponse`, `PriceReviewResolveInput` (unión que EXIGE `manualPriceMxnCents` en `manual`);
+  `PriceSource` extendido con `tcgcsv_singles | tcgdex | cardmarket` (línea canónica del contrato §Enums).
+- `messages/{es,en}.json` — `admin.m10.priceReview.*` (paridad verde).
+
+**Money-safe:** «Precio a mano» exige un monto entero de centavos > 0 (mismo `isSaveableRuleValue` + `pesosToCents`
+del override de M2); vacío o `0` ⇒ «Guardar» deshabilitado (no publica a MX$0).
+
+**Medido por mí (2026-10-11, sobre `node_modules` recién instalados):** `tsc --noEmit` limpio; `next lint` de los
+ficheros tocados sin avisos; `PriceReviewSection.test.tsx` 8/8; suite vitest completa **4316 passed | 10 skipped
+(332 files), exit 0**. La E2E con el stack levantado NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.
+
+### §116.1 · Paginación — la pantalla usaba `total` pero no paginaba (techlead; contrato §PRE.E errata B `8eec85b0`)
+
+**Hueco (techlead):** la primera versión mostraba a lo sumo 50 casos (el default del servidor) y **descartaba
+`total`** ⇒ el dueño quedaba ciego más allá de 50, y en la primera corrida del barrido puede haber >50.
+
+**Qué se hizo** (2026-10-11, sobre `8eec85b0`):
+- `getPriceReviewQueue` acepta y envía `page`/`pageSize` (contrato §PRE.E errata B: `page` ≥1 default 1; `pageSize`
+  ≥1 default 50, cap 100, fuera de rango ⇒ default, no 400). El mock `getMockPriceReviewQueue` pagina igual
+  (corta por `page`/`pageSize`, devuelve `total` = filas que cumplen el filtro, `counts.open` independiente del filtro).
+- `PriceReviewSection` manda `pageSize=50` y usa `total`: línea «Mostrando X–Y de N» (`price-review-page-info`) y
+  botones Anterior/Siguiente con `ceil(total/pageSize)`. Cambiar de estado/eje vuelve a la página 1. Controles solo
+  si hay más de una página. `counts.open` (badge) intacto.
+- i18n `admin.m10.priceReview.page.{showing,prev,next}` en es/en (paridad verde).
+
+**Medido por mí (2026-10-11, sobre `8eec85b0`):** `tsc --noEmit` limpio; `next lint` de los ficheros tocados sin
+avisos; `PriceReviewSection.test.tsx` **11/11** (incluye «pasa a la página 2 y llega al caso 51») + `i18n-parity`
+**45/45**. Suite vitest completa: **4318 passed | 10 skipped (332 files), exit 0**. La E2E con el stack levantado
+NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.
+
+### §116.2 · Defensa de la condición E (propuesto $0) + smoke Playwright del criterio 889 (techlead/QA; HEAD `579e9025`)
+
+**1. Condición E — money-safe (techlead).** Un `PriceReviewCase` puede llegar con `proposedMxnCents === 0` (la
+carta perdió todas sus cotizaciones frescas pero tenía precio previo). «Aceptar» escribiría un precio $0 en la
+tienda. El backend añade el candado en servidor (422); aquí la **defensa de UI**: en `PriceReviewSection.tsx` el
+botón «Aceptar» se **deshabilita cuando `proposedMxnCents === 0`** (`=== 0` exacto; un propuesto legítimo > 0 no
+se toca), con ayuda `actions.helpZeroProposed` («Sin precio de mercado… usa Conservar o Precio a mano»). Conservar
+y Precio a mano quedan vivos. Dos pruebas de componente lo cubren (propuesto 0 ⇒ deshabilitado; propuesto 1 ⇒
+habilitado). i18n es/en.
+
+**2. Smoke Playwright (criterio 889), `frontend/e2e/price-review.spec.ts`.** Reparto mock↔real, como `admin-fx` y
+`m4-preparation`:
+- **`mockOnly`** — el smoke completo del dueño: login `super_admin` → `/es/admin/m10` → sección «Precios por
+  revisar» → ve `prc-1` (Gengar, propuesto MX$5,500, base MX$100, salto ×55, fuente `cardmarket`, cotización
+  «vieja») → ve la defensa $0 (`prc-f-zero` con «Aceptar» deshabilitado) → **pagina** (Siguiente → `prc-f-49` en la
+  página 2, «Mostrando 51–51 de 51»; Anterior vuelve) → **resuelve** Aceptar + Conservar + Precio a mano (monto
+  > 0). Depende de la cola de `src/lib/mock/fixtures.ts`; en real las resoluciones escribirían precios.
+- **`@real` / `realOnly`** — el `409` de doble resolución: intercepta `GET …/review-queue` (un caso `open` canned,
+  sin depender del seed) y `POST …/resolve` → 409, y afirma el aviso «ya se resolvió». Va bajo `realOnly` **por la
+  misma razón que `m4-preparation` `PR-11..16`**: la corrida de mocks no emite red ⇒ no hay respuesta que
+  interceptar. La forma del 409 está cubierta determinista en el test de componente.
+- Para que exista una segunda página en modo mocks, `fixtures.ts` siembra **49 casos `open` de relleno** (con los 2
+  curados ⇒ 51 abiertos); uno (`prc-f-zero`) con propuesto $0 para ejercer la defensa. ⛔ No toca los 3 curados.
+
+**Medido por mí (2026-10-11, sobre `579e9025`):** `tsc --noEmit` limpio; `next lint` sin avisos; `eslint` del spec
+sin avisos; `PriceReviewSection.test.tsx` **13/13** + `i18n-parity` **45/45**; suite vitest completa **4320 passed
+| 10 skipped (332 files), exit 0**; Playwright `price-review.spec.ts` en **modo mocks (dev server)**: **1 passed, 1
+skipped (el `@real`), exit 0**. El pase `@real` del 409 NO lo corrí aquí (no hay stack): es del gate de QA.
+
+### fix/sealed-display · rastreo del cliente oculta el `number` del ancla para sellado (§5 ClientShipmentItemDTO, §4-G GuestTrackingItemDTO; HEAD 3cf4a56)
+
+**Contexto.** Un producto sellado se mostraba con la identidad de su carta ancla («Exeggcute»). El backend ahora
+resuelve `name`/`imageSmallUrl` **server-side** (resolutor único, API_CONTRACT §4.34a.2) y el DTO del rastreo del
+cliente registrado (`ClientShipmentItemDTO`, §5) gana `productType: ProductType`. El front NO deriva identidad de
+sellado: todo viene resuelto del servidor. El único trabajo de UI es **ocultar `card.number`** (del single ancla)
+cuando `productType === 'sealed'`.
+
+**Qué cambió (display-only, money-safe).**
+- `ShipmentDetailView.tsx` (GET /shipments/:id, detalle del retiro): la línea de meta pasa de pintar siempre
+  `setName · number` a pintar **solo `setName`** cuando `productType === 'sealed'`; una carta suelta (raw/graded)
+  conserva `setName · number`. `name`/`imageSmallUrl` ya vienen resueltos ⇒ no se tocan.
+- `PublicOrderTracking.tsx` (rastreo de invitado, GuestTrackingItemDTO §4-G): la misma regla. Antes mostraba
+  `setName · #number` **incondicionalmente** incluso para sellado; ahora oculta `#number` en sellado (alineado al
+  patrón normado del contrato v1.94). `name`/`imageSmallUrl` ya resueltos server-side.
+- `WithdrawalsList.tsx` (GET /shipments, lista): NO renderiza `card.number` (solo `name`/`setName`) ⇒ sin cambio.
+
+**Patrón.** Mismo que el resto de superficies (`PendingQueueSection`, `PendingPublishQueue`): guard
+`productType !== 'sealed'` para el número. El `setName` se mantiene (set de pertenencia del ancla = set del
+sellado, legítimo por contrato §5).
+
+**Pruebas.** `ShipmentDetailView.sealed.test.tsx` (2): sellado oculta número y muestra nombre+set resueltos; raw
+conserva `setName · número`. `PublicOrderTracking.test.tsx` (+1): línea sellada sin `#número`, suelta con
+`Base Set · #2`. Canario verificado por mí (2026-10-13): revertir el guard en `ShipmentDetailView` deja la prueba
+de sellado **roja** (1 failed/2); restaurado ⇒ 2/2.
+
+**Medido por mí (2026-10-13, sobre 3cf4a56 + estos cambios):** `tsc --noEmit` limpio; `eslint` de los 4 ficheros
+tocados sin avisos; suites `shipments` + `WithdrawalsList` + `pedido` **57/57**; los 3 ficheros directamente
+tocados **15/15**.
+
+**Huecos de contrato: ninguno nuevo.** `ClientShipmentItemDTO.productType` ya está en el DTO (§5, v1.94.1) y en
+`frontend/src/types/contract.ts` (`ShipmentDTO.items[].productType?`). Queda vivo el hueco PREEXISTENTE ya
+registrado (`priceConvention`/`ivaIncluded` en `ShipmentDTO`, §M10-IVA.4) — ajeno a este arreglo.
+
+## §117 · 💰 **P&L de Finanzas (M7): estado de resultados (C), volumen/ticket (D) y rótulo de captura con IVA (A)** (2026-10-14, rama `fix/pnl-finanzas`, base `d93f7d4`; `API_CONTRACT §M10-IVA.8-bis` (C)(D)(A) · `DESIGN_SYSTEM §PNL-IVA`)
+
+**Medido primero (grep/glob sobre el árbol `d93f7d4`):**
+- **M7 vive en** `frontend/src/app/[locale]/(admin)/admin/m7/M7View.tsx` (+ `page.tsx`).
+- **M7 NO llamaba `GET /admin/reports/sales` hoy** (grep de `reports/sales`/`getSalesReport` en `admin/m7/` = **0 coincidencias**). El diseño lo marcaba NO MEDIDO; ahora medido: era cero. `getSalesReport` ya existía en `lib/api.ts:7074` (lo usa la analítica §AN de M9).
+- **Captura de costo de adquisición (compra firme)** en **dos** sitios de M1, no en M3 (M3 no captura costo: grep de `acquisitionCostCents` en `admin/m3/` = 0): `m1/QuickAdd.tsx` (tarjeta «Comprar», `acquisitionType:'compra'` → `acquisitionCostCents`) y `m1/AddGradedModal.tsx` (`acquisitionType:'compra'` siempre). `m1/AddItemModal.tsx` **no** captura costo en compra (solo `acquisitionType`/`acquisitionPct`), así que no hay rótulo que tocar ahí.
+- i18n en `frontend/messages/{es,en}.json`.
+
+**(C) Estado de resultados con subtotales** — tipo `PnlStatementDTO` (+ `operatingExpenses`/`iva` memo) **aditivo** en `contract.ts`; `PnlDTO.statement?` **opcional**. En `M7View` el bloque `pnl-statement` se pinta **solo si `statement` viene**; si no (backend sin fusionar) el P&L **degrada** a la lista plana de 10 renglones intacta. Subtotales (`pnl-subtotal`) pintados **tal cual** del JSON (⛔ el cliente no re-suma, GAS-4): Total ingresos → Margen bruto → Gastos de operación → EBITDA. Bloque `pnl-iva-memo` rotulado **«IVA por enterar al SAT — informativo, no es un gasto del negocio»** y ⛔ **NO se resta** del resultado; el renglón final usa `profitCents` (≡ `netResultCents`) y cambia su rótulo a «Resultado neto» cuando hay `statement`. Los `pnl-subtotal-amount` **no** son `pnl-amount` dentro de `pnl-line`, así que el candado de la fórmula (UX-PNL-1, suma de `pnl-line`) no los toca.
+
+**(D) Volumen y ticket** — composición de **dos llamadas** en M7 (⛔ cero backend nuevo): `getSalesReport({preset:'custom', from, to, groupBy:'day'})` para el **mismo rango** que el P&L. Lee `totals.{orders, avgTicketCents, piecesPerOrder, pieces}`. La consulta se **habilita solo con rango explícito** (`preset=custom` exige `from`+`to`); sin rango (P&L de todo el histórico) la sección invita a elegirlo. `avgTicketCents`/`piecesPerOrder` **`null`** (orders=0) ⇒ **«—»**, ⛔ nunca «MX$0.00»/«NaN». Nota de borde de día MX declarada en pantalla (`volume.boundaryNote`). Conteos con `formatCount` NUEVO en `format.ts` (usa `es-MX`/`en-US` = punto decimal, igual que `formatMoneyCents`; ⛔ no `Intl('es')` que da coma).
+
+**(A) Rótulo de captura** — por `DESIGN_SYSTEM §PNL-IVA.1`, el campo de costo de adquisición en **compra firme** se rotula **«costo TOTAL de la factura, IVA incluido»** (verbatim, palabras «TOTAL» e «IVA incluido» sin parafrasear). Aplicado al label de `QuickAdd` (`admin.quickAdd.buy.priceLabel`) y `AddGradedModal` (`admin.inventory.addGraded.price`) en ES/EN; es el **nombre accesible** del input (§PNL-IVA.2). En aportación no hay campo tecleado ⇒ sin rótulo de IVA (ya era así). Tests actualizados: `QuickAdd.test.tsx`, `SealedAddFlow.test.tsx`.
+
+**Pruebas NUEVAS (frontend):** `M7View.statement.test.tsx` (3: subtotales tal cual; IVA memo rotulado y NO restado; degradación sin `statement`), `M7View.volume.test.tsx` (3: sin rango no llama; happy path con el mismo rango; orders=0 ⇒ «—»).
+
+**Medido por mí (2026-10-14, sobre `d93f7d4` + estos cambios):** `npm run typecheck` **limpio**; `eslint` de los ficheros tocados **sin avisos**; suite m7 **41/41** (incluye 6 nuevas); **suite completa 4329 passed / 10 skipped / 334 files** (los «Not implemented: navigation» de jsdom son avisos preexistentes de otras suites, no fallos). ⚠ **NO MEDIDO por mí:** el P&L con `statement` real del backend (otro agente lo construye en paralelo en `backend/`); mi path `statement` se midió con fixture inyectado. Lo cierra el E2E de QA contra el stack con backend mergeado.
+
+**Huecos de contrato: ninguno nuevo.** Todo el consumo (`statement` aditivo en `GET /admin/finance/pnl`; `totals` de `GET /admin/reports/sales`) está en el contrato `§M10-IVA.8-bis`. El rótulo de captura ya viajaba en `§M10-IVA.8-bis (A)` + `DESIGN_SYSTEM §PNL-IVA`.

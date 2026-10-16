@@ -327,7 +327,9 @@ describe('M-43 — reglas de ESCRITURA: la naturaleza la fija el escritor (§4.3
 
   it('`persistMarketReference` fija `market` en el `update` (no se apoya en el default de la columna)', async () => {
     const { svc, updated } = build([
-      refRow({ id: 'r-raw', productType: 'raw', gradeKey: 'raw:NM', refKind: 'market', isManualOverride: false }),
+      // v1.91 errata (M-76): persistMarketReference lleva serie POR `source` ⇒ la fila del día a REUSAR
+      // debe ser de la MISMA fuente que la escritura (`tcgcsv_singles`).
+      refRow({ id: 'r-raw', productType: 'raw', gradeKey: 'raw:NM', refKind: 'market', isManualOverride: false, source: 'tcgcsv_singles' }),
     ]);
     await svc.persistMarketReference(
       'card-fourth-raw',

@@ -110,12 +110,16 @@ describe('pendingQueue — display de identidad de sellado (cascada §4.34a)', (
     expect(row.sealedSubtype).toBe('etb');
   });
 
-  it('sellado legacy sin sealedProduct → nombre cae a Card.name (nunca null); sigue pendiente', async () => {
+  // ⭐ v1.94.2⟨sellado-display⟩ — CANARIO del resolutor: un sellado legacy sin `sealedProduct` vivo NI
+  // snapshot pinta «Sellado sin identificar», ⛔ JAMÁS el `card.name` del ancla («Tropius»; era el bug del
+  // sellado-display). Sigue pendiente igual; el nombre nunca es `null` (es la copia fija).
+  it('sellado legacy sin sealedProduct → «Sellado sin identificar», NUNCA la Card.name ancla; sigue pendiente', async () => {
     const legacy = { ...sealedRow, sealedProductId: null, sealedProduct: null };
     const { svc } = build([legacy]);
     const row = (await svc.pendingQueue()).data[0] as any;
     expect(row.sealedProductId).toBeNull();
-    expect(row.sealedProductName).toBe('Tropius'); // fallback Card.name
+    expect(row.sealedProductName).toBe('Sellado sin identificar');
+    expect(row.sealedProductName).not.toBe('Tropius');
     expect(row.sealedSubtype).toBeNull();
   });
 

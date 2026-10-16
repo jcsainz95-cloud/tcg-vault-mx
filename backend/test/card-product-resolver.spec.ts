@@ -162,17 +162,19 @@ describe('CardProductResolverService.resolveCardProductsForSet (§4.27d)', () =>
     // Dos upserts, ambos holofoil, misma carta — pero DISTINTO cardProductId en la clave de 6 campos.
     expect(priceUpserts).toHaveLength(2);
     for (const u of priceUpserts) {
-      const key = u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId;
-      // La CLAVE es la de 6 campos (no la vieja de 5): la propiedad existe y trae cardProductId.
+      const key = u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId_source;
+      // v1.91 errata (M-76): la CLAVE gana `source` (7 campos); trae cardProductId Y source.
       expect(key).toBeDefined();
       expect(key.finish).toBe('holofoil');
       expect(key.cardId).toBe('c-energy');
       expect(key.cardProductId).toBeDefined();
+      // v1.91 errata (M-76): `tcgcsv_singles` lleva su propia serie — `source` entró a la clave única.
+      expect(key.source).toBe('tcgcsv_singles');
       // Blindaje anti-regresión: NUNCA debe usarse la clave vieja de 5 campos.
       expect(u.where).not.toHaveProperty('cardId_productType_gradeKey_finish_capturedDate');
     }
     const cardProductIds = priceUpserts.map(
-      (u) => u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId.cardProductId,
+      (u) => u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId_source.cardProductId,
     );
     // Los dos productos generan claves DISTINTAS (difieren SOLO por cardProductId) ⇒ sin colisión.
     expect(new Set(cardProductIds).size).toBe(2);

@@ -146,7 +146,18 @@ export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'r
 // v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
 export type DisputeType = 'condition_raw' | 'condition_sealed';
 // v1.19: `tcgcsv` = referencia de mercado del SELLADO (TCGCSV, USD→MXN con FX+colchón).
-export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
+// M-75 (§PRE.A, línea canónica en §Enums del contrato): `tcgcsv_singles` (ingest masivo de singles),
+// `tcgdex` (sub-feed TCGplayer vía TCGdex, familia `tcgplayer`) y `cardmarket` (sub-feed Cardmarket
+// vía TCGdex, EUR→MXN, familia `cardmarket`) VOTAN el árbitro de mediana. `pokemontcg_io`/PPT ⛔ no votan.
+export type PriceSource =
+  | 'pokemontcg_io'
+  | 'pokemonpricetracker'
+  | 'poketrace'
+  | 'manual'
+  | 'tcgcsv'
+  | 'tcgcsv_singles'
+  | 'tcgdex'
+  | 'cardmarket';
 // v1.19/v1.41: valores del dial `sealedPriceSource` (§M10). NO es enum de BD; seed `off` (fail-closed).
 // Gatea `SealedProductDTO.effectiveMarketCents`: con `off` el mercado autoritativo del sellado es null.
 export type SealedPriceSource = 'tcgcsv' | 'off';
@@ -5314,6 +5325,71 @@ export interface PendingPriceQueueResponse {
   counts: PendingPriceCountsDTO;
 }
 
+// ==== §PRE (M-75, v1.91⟨precios⟩): COLA DE REVISIÓN DEL CANDADO ANTI-INFLADO ====
+// El candado de precios (ARCHITECTURE §4.PRE) detiene un salto grande sin consenso y abre un
+// `PriceReviewCase`. El DUEÑO (super_admin) lo resuelve con los datos delante (criterio 876/877).
+// Canónico en API_CONTRACT §PRE.D/E/F.
+//   * `PriceReviewStatus` espeja `enum PriceReviewStatus`; `superseded` lo cierra el barrido solo.
+//   * `PriceAxis` dice QUÉ eje disparó el caso (informativo): el caso bloquea AMBOS ejes.
+export type PriceReviewStatus = 'open' | 'accepted' | 'kept' | 'manual' | 'superseded';
+export type PriceAxis = 'sell' | 'buy';
+
+/** Qué dijo cada fuente que entró a la decisión (criterio 876: el POR QUÉ se detuvo). */
+export interface PriceReviewQuoteDTO {
+  source: PriceSource;
+  /** Familia del árbitro (`tcgplayer` | `cardmarket` | `live`): los votos se cuentan por familia. */
+  family: string;
+  priceMxnCents: number;
+  capturedDate: string;
+  /** La cotización es más vieja que `priceArbiterFreshnessDays` ⇒ NO votó. */
+  stale: boolean;
+}
+
+/** Un caso de la cola de revisión (`GET /admin/pricing/review-queue`, §PRE.D). Todo lectura salvo el resolve. */
+export interface PriceReviewCaseDTO {
+  id: string;
+  /** Para que el dueño reconozca la carta (criterio 876). */
+  card: { id: string; name: string; setName: string; number: string };
+  finish: Finish;
+  productType: ProductType;
+  gradeKey: string;
+  cardProductId?: string | null;
+  sealedProductId?: string | null;
+  axis: PriceAxis;
+  /** El robusto que el candado detuvo (lo que NO se publicó), en centavos MXN. */
+  proposedMxnCents: number;
+  /** Último valor sano; `null` si la variante no tenía base. */
+  baselineMxnCents: number | null;
+  /** Salto ×1000 entero (×55 = 55000); ⛔ sin float. */
+  jumpFactorMilli: number;
+  sourceCount: number;
+  familyCount: number;
+  consensus: boolean;
+  quotes: PriceReviewQuoteDTO[];
+  status: PriceReviewStatus;
+  resolvedAction?: 'accept' | 'keep' | 'manual' | null;
+  /** userId del resolutor; con nombre para display vía el patrón de M2. */
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PriceReviewQueueResponse {
+  data: PriceReviewCaseDTO[];
+  total: number;
+  /** Conteo de casos ABIERTOS, ignora `?status=`/paginación (criterio 876). */
+  counts: { open: number };
+}
+
+/**
+ * Body de `POST /admin/pricing/review-queue/:id/resolve` (§PRE.F).
+ * `manual` EXIGE `manualPriceMxnCents` (entero > 0); `accept`/`keep` NUNCA lo llevan. La unión
+ * discriminada obliga al compilador a exigir el precio en `manual`, igual que `PricingOverrideInput`.
+ */
+export type PriceReviewResolveInput =
+  | { action: 'accept' | 'keep' }
+  | { action: 'manual'; manualPriceMxnCents: number };
+
 // ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48; contrato §M2 + §DTOs) ====
 // ⛔ RETIRADOS por la curva: `PriceRuleSet`, `SalesPriceRuleSet`, `BuylistRarit*`, `SalesRarit*`,
 // `TierId`/`TieredRuleSet`/`TierMap*` y el 422 `PREMIUM_RARITY_FIXED_TIER`. No hay reglas por
@@ -6687,6 +6763,81 @@ export interface PnlDTO {
   buylistGuideMarginCents: number;
   /** Informativo: pagadas en el periodo con guía manual y sin costo capturado. */
   buylistGuideCostMissingCount: number;
+  /**
+   * §M10-IVA.8-bis (C) — estado de resultados con SUBTOTALES, **ADITIVO**. Lo construye el servidor por
+   * construcción de los campos planos de arriba (⛔ ninguna cifra de otra fuente). **Opcional en el tipo**:
+   * un servidor que aún no lo manda (backend sin fusionar) deja la pantalla degradar al P&L plano.
+   * ⛔ El cliente NO re-suma: pinta los subtotales tal cual (`netResultCents ≡ profitCents`).
+   */
+  statement?: PnlStatementDTO;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — CONTRA-INGRESO: devoluciones y reembolsos que bajan de VENTAS a VENTAS NETAS.
+ * ⛔ Son dinero devuelto al cliente (reducen la venta), NO costos. La pantalla los pinta como RESTA.
+ */
+export interface PnlStatementReturnsDTO {
+  /** Mercancía + envío devueltos al cliente, NETOS de IVA. */
+  refundsCents: number;
+  /** Comisión de plataforma (`processingFee`) devuelta al cliente. */
+  refundedFeesCents: number;
+  /** Compensaciones por carta perdida (`case_refund`), sin IVA. */
+  compensationsCents: number;
+  /** = refundsCents + refundedFeesCents + compensationsCents. */
+  totalCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — COSTO DE VENTA: el costo de producir y cumplir las ventas completadas.
+ * `totalCents` lo da el servidor. La tarifa retenida es un CRÉDITO (RESTA del grupo).
+ */
+export interface PnlStatementCostOfSalesDTO {
+  /** Costo de lo vendido (mercancía), NETO de IVA tras (A). */
+  cogsCents: number;
+  /** Comisiones Stripe (venta + envío). */
+  stripeFeesCents: number;
+  /** Costo de envío NETO (incluye ajustes y seguro, §M10-IVA.8). */
+  shippingCostCents: number;
+  /** Costo de guías de entrada de vendedores (buylist). */
+  buylistGuideCostCents: number;
+  /** CRÉDITO: tarifa de envío retenida a vendedores — RESTA del total del grupo (ya dentro de `totalCents`). */
+  buylistShippingFeeRetainedCents: number;
+  /** = cogs + stripe + envío + guías − tarifa retenida. */
+  totalCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C) — bloque IVA del estado de resultados. ⭐ **MEMO fiscal**: lo que se entera al SAT.
+ * ⛔ NO se resta del resultado (el P&L ya entra NETO de IVA; restarlo lo contaría dos veces).
+ */
+export interface PnlStatementIvaMemoDTO {
+  ivaCollectedCents: number;
+  ivaRefundedCents: number;
+  ivaNetCents: number;
+}
+
+/**
+ * §M10-IVA.8-bis (C), v1.95.2 — estado de resultados estándar e-commerce (waterfall):
+ * VENTAS → (− Devoluciones y reembolsos) → VENTAS NETAS → (− Costo de venta) → MARGEN BRUTO (contribución) →
+ * EBITDA (= margen bruto: no hay opex fija modelada) → IVA (memo) → RESULTADO NETO.
+ * ⛔ El cliente NO re-suma: pinta cada subtotal tal cual (`netResultCents ≡ profitCents`).
+ */
+export interface PnlStatementDTO {
+  /** = incomeCents + shippingRevenueCents (mercancía neta + envío cobrado neto, ANTES de devoluciones). */
+  salesCents: number;
+  /** Contra-ingreso: devoluciones y reembolsos (RESTA de VENTAS). */
+  returnsAndRefunds: PnlStatementReturnsDTO;
+  /** = salesCents − returnsAndRefunds.totalCents. */
+  netRevenueCents: number;
+  /** Costo de venta (RESTA de VENTAS NETAS). */
+  costOfSales: PnlStatementCostOfSalesDTO;
+  /** = netRevenueCents − costOfSales.totalCents (margen de contribución). */
+  grossMarginCents: number;
+  /** = grossMarginCents EXACTO (⛔ nómina/renta/marketing NO se modelan). */
+  ebitdaCents: number;
+  iva: PnlStatementIvaMemoDTO;
+  /** = ebitdaCents ≡ profitCents (el IVA NO es gasto: el P&L ya es neto de IVA). */
+  netResultCents: number;
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.

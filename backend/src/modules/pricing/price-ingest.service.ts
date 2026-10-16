@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CardSet, Finish } from '@prisma/client';
+import { CardSet, Finish, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -12,6 +12,12 @@ import {
 } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
+// v1.91⟨precios⟩ (M-75, §PRE.A/6): TCGdex (tcgdex+cardmarket) + cola de revisión del candado.
+import { TcgdexBulkProvider } from './providers/tcgdex-bulk.provider';
+import { PriceReviewService } from './price-review.service';
+import { PriceAxis } from '@prisma/client';
+import { decideLock, DEFAULT_PRICE_JUMP_FACTOR, validatePriceJumpFactor } from '../../common/robust-market';
+import { variantKey } from '../../common/variant-key';
 import { orderFinishes } from '../../common/card-order';
 // v1.51.19 (BL-25, §4.39m.8): disparador (c). El puerto es @Global; NO se importa `InventoryModule`.
 import {
@@ -360,6 +366,11 @@ export class PriceIngestService {
     @Optional()
     @Inject(INVENTORY_PUBLISH_PORT)
     private readonly inventoryPublish?: InventoryPublishPort,
+    // v1.91⟨precios⟩ (M-75, §PRE.A/6): provider REAL de TCGdex (fuentes nuevas `tcgdex`+`cardmarket` que
+    // VOTAN el árbitro) y la cola de revisión del candado. @Optional por el motivo de siempre (mocks
+    // posicionales) y porque el barrido NO puede fallar porque TCGdex no responda. En DI real se inyectan.
+    @Optional() private readonly tcgdexBulk?: TcgdexBulkProvider,
+    @Optional() private readonly priceReview?: PriceReviewService,
   ) {}
 
   /**
@@ -838,6 +849,12 @@ export class PriceIngestService {
         `Estructura NO re-resuelta (§4.35).`,
     );
 
+    // v1.91⟨precios⟩ (M-75, §PRE.A/6, criterio 888) — FUENTES DE ÁRBITRO (tcgdex USD + cardmarket EUR):
+    // llena el HUECO por variante (fin del aplanado) y da el 2º voto independiente al candado. Best-effort:
+    // TCGdex caído NO tumba el barrido (los precios tcgcsv YA se persistieron). Corre ANTES del reconcile,
+    // que re-lee la referencia (ahora ROBUSTA) y abre/cierra casos del candado.
+    await this.ingestArbiterSourcesForSet(set, fx);
+
     // ⚠️⚠️ v1.65 (QA IMPORTANTE-3) — **LA SEÑAL VISIBLE de «este set no se repreció».**
     //
     // El provider no pudo mapear el set a su grupo remoto ⇒ **NINGUNA** de sus cartas se ha
@@ -903,6 +920,113 @@ export class PriceIngestService {
       scope: 'full',
       dailyRemaining: null,
     };
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.A/6) — escribe las filas de las FUENTES DE ÁRBITRO (`tcgdex` USD +
+   * `cardmarket` EUR) del set, vía `persistArbiterReference` (serie POR fuente ⇒ coexisten con
+   * tcgcsv_singles y con el residuo). Best-effort: cualquier fallo se loguea y NO tumba el barrido.
+   *
+   * - Resuelve `tcgdexSetId` por nombre+cardCount (criterio 885, sin puente frágil). Sin match ⇒ no-op.
+   * - `fxEur`: tasa EUR→MXN de Banxico. Sin serie EUR todavía (devops la cablea en `fx-refresh`) ⇒
+   *   `null` ⇒ cardmarket NO vota este barrido (el provider ya lo respeta; degradación money-safe).
+   */
+  private async ingestArbiterSourcesForSet(set: CardSet, fxUsd: FxSnapshot): Promise<void> {
+    if (!this.tcgdexBulk) return; // no inyectado (mocks) ⇒ no-op.
+    try {
+      const tcgdexSetId = await this.tcgdexBulk.resolveTcgdexSetId({ name: set.name, printedTotal: set.printedTotal });
+      if (!tcgdexSetId) return; // TCGdex no cubre el set ⇒ sus cartas caen a lo que haya (no heredan).
+      const cards = await this.prisma.card.findMany({ where: { setId: set.id }, select: { id: true, number: true } });
+      if (cards.length === 0) return;
+      const fxEur = await this.fxEurSnapshot();
+      const rows = await this.tcgdexBulk.fetchSetPrices({
+        tcgdexSetId,
+        cards: cards.map((c) => ({ cardId: c.id, number: c.number })),
+        fxUsd,
+        fxEur,
+      });
+      let written = 0;
+      for (const row of rows) {
+        await this.pricing.persistArbiterReference({
+          source: row.source,
+          cardId: row.cardId,
+          finish: row.finish,
+          productType: row.productType,
+          gradeKey: row.gradeKey,
+          marketCents: row.marketCents,
+          currency: row.currency,
+          priceMxnCents: row.priceMxnCents,
+          capturedDate: row.capturedDate,
+          cardProductId: row.cardProductId ?? null,
+          fxRate: row.currency === 'USD' ? fxUsd.rate : fxEur?.rate ?? null,
+          fxBufferPct: row.currency === 'USD' ? fxUsd.bufferPct : fxEur?.bufferPct ?? null,
+        });
+        written++;
+      }
+      this.logger.log(
+        `price-ingest-set(${set.externalId}, tcgdex/${tcgdexSetId}): ${written} fila(s) de árbitro ` +
+          `(tcgdex USD + cardmarket EUR${fxEur ? '' : ' [sin serie EUR ⇒ cardmarket no vota]'}).`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `price-ingest-set(${set.externalId}): las fuentes de árbitro TCGdex fallaron ` +
+          `(${(e as Error).message}); los precios tcgcsv YA se persistieron. Sin voto nuevo este barrido.`,
+      );
+    }
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE (e)) — tasa EUR→MXN de Banxico para hornear cardmarket. Lee la fila
+   * `FxRate` más reciente con `base='EUR'`, `source='banxico'`. `null` si aún no existe (devops añade la
+   * serie EUR en `fx-refresh`) ⇒ cardmarket no vota. El colchón es el de la propia fila (si no, 0).
+   */
+  private async fxEurSnapshot(): Promise<FxSnapshot | null> {
+    try {
+      const row = await this.prisma.fxRate.findFirst({
+        where: { base: 'EUR', quote: 'MXN', source: 'banxico' },
+        orderBy: { effectiveDate: 'desc' },
+        select: { rate: true, bufferPct: true },
+      });
+      if (!row) return null;
+      const rate = Number(row.rate);
+      const bufferPct = Number(row.bufferPct);
+      if (!Number.isFinite(rate) || rate <= 0) return null;
+      return { rate, bufferPct: Number.isFinite(bufferPct) ? bufferPct : 0 };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.C/6) — corre el CANDADO sobre un conjunto de variantes RAW publicadas:
+   * árbitro + `decideLock` + abre/cierra `PriceReviewCase` (eje `sell`). Best-effort (no tumba el
+   * barrido). El `jumpFactor` es el dial `price_jump_factor` (seed ×5), con fallback seguro al seed.
+   */
+  private async runPriceCandado(keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[]): Promise<void> {
+    if (!this.priceReview || keys.length === 0) return;
+    try {
+      let jump = DEFAULT_PRICE_JUMP_FACTOR;
+      try {
+        const raw = await this.settings.getRaw(SettingKey.PRICE_JUMP_FACTOR);
+        if (validatePriceJumpFactor(raw) === null) jump = raw as number;
+      } catch {
+        /* seed */
+      }
+      const detail = await this.pricing.arbiterDetailForKeys(keys);
+      for (const key of keys) {
+        const d = detail.get(variantKey(key));
+        if (!d) continue; // sin fuente admitida ⇒ nada que arbitrar (lectura legada rige).
+        const decision = decideLock(d.result, d.baselineMxnCents, jump);
+        await this.priceReview.recordArbiterDecision(
+          { cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish, cardProductId: null, sealedProductId: null },
+          PriceAxis.sell,
+          d.result,
+          decision,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(`price-ingest: el candado de precios falló (${(e as Error).message}); los precios YA se persistieron.`);
+    }
   }
 
   /**
@@ -1044,6 +1168,15 @@ export class PriceIngestService {
         if (decision.pendingReason != null) opened++;
         else closed++;
       }
+
+      // v1.91⟨precios⟩ (M-75, §PRE.C/6 / ARCHITECTURE §4.PRE (c)) — EL CANDADO ANTI-INFLADO en el barrido:
+      // corre el árbitro + el árbol de decisión sobre cada variante publicada y ABRE/CIERRA el
+      // `PriceReviewCase` (eje `sell`). 💰 money-safe: un salto grande sin consenso NO publica — abre caso
+      // y conserva el último sano (la mediana robusta ya dejó fuera el residuo aplanado). Best-effort:
+      // un fallo del candado NO tumba el barrido (los precios YA se persistieron, la cola VQ ya se
+      // reconcilió). Automático (HECHOS «regla general»): el mercado asentado cierra el caso `superseded`.
+      await this.runPriceCandado(keys);
+
       if (opened > 0) {
         this.logger.warn(
           `price-ingest-set(${set.externalId}): ${opened} pieza(s) PUBLICADA(s) dejaron de resolver precio ` +

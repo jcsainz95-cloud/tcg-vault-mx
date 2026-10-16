@@ -170,8 +170,10 @@ export function PublicOrderTracking({
                 <p className="truncate font-serif text-[17px] font-medium leading-tight text-text" lang="en">
                   {item.name}
                 </p>
-                <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
-                  {item.setName} · #{item.number}
+                {/* v1.94⟨sellado-display⟩: `number` es del single ANCLA; para un sellado no identifica la
+                    pieza y no se pinta (§4-G). `name`/`imageSmallUrl` vienen resueltos server-side. */}
+                <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en" data-testid="tracking-item-meta">
+                  {item.productType === 'sealed' ? item.setName : `${item.setName} · #${item.number}`}
                 </p>
                 <ListingSpec
                   className="mt-1.5"

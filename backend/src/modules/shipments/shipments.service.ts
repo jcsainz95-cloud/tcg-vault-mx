@@ -38,6 +38,7 @@ import {
   shippingFeeDisplayCentsOf,
 } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // ⭐ v1.78.2 (§M4-PREP): la gramática de «date-only» es UNA en el repo; ⛔ no se escribe una tercera.
 import { DATE_ONLY_RE } from '../../common/admin-list-filters';
 import { runSerializable } from '../../common/serializable-retry';
@@ -712,6 +713,12 @@ export class ShipmentsService {
    */
   private toClientShipmentItem(si: EnrichedShipmentItem, transfers: Map<string, CustomerTransferView> = new Map()) {
     const card = si.inventoryItem.card;
+    // ⭐ v1.94.1⟨sellado-display⟩ (§4.34a.2(E) escape BLOQUEANTE) — `name`/`imageSmallUrl` se resuelven
+    // server-side por el resolutor ÚNICO: para un sellado rinden el `SealedProduct` (vivo→snapshot) o
+    // «Sellado sin identificar», JAMÁS el `card.name`/arte del single ancla. `productType` viaja al DTO
+    // para que el front oculte `card.number` del ancla en sellado (espejo de `GuestTrackingItemDTO`, §4-G).
+    // Sin query nueva: `EnrichedShipmentItem.inventoryItem` ya es el `InventoryItem` completo.
+    const identity = pieceDisplayIdentityOf(si.inventoryItem);
     const rf = si.refund && (si.refund.status === 'submitted' || si.refund.status === 'succeeded') ? si.refund : null;
     const cs = si.replacementCase ?? null;
     const tv = cs ? transfers.get(cs.id) : undefined;
@@ -719,12 +726,13 @@ export class ShipmentsService {
       inventoryItemId: si.inventoryItemId,
       folio: si.inventoryItem.folio,
       finish: si.inventoryItem.finish,
+      productType: si.inventoryItem.productType,
       card: {
         id: card.id,
-        name: card.name,
+        name: identity.name,
         setName: card.set?.name ?? null,
         number: card.number,
-        imageSmallUrl: card.imageSmallUrl,
+        imageSmallUrl: identity.imageSmallUrl,
       },
       refund: rf ? { amountCents: rf.amountCents, reason: rf.missingReason, refundedAt: (rf.succeededAt ?? rf.submittedAt)?.toISOString() ?? null } : null,
       replacement: cs

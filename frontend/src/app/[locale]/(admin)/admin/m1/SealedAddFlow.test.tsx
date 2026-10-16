@@ -290,7 +290,7 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
     expect(screen.getByText(/la aportación en especie no se puede registrar/)).toBeInTheDocument();
     // La COMPRA sí se da de alta (sin precio; §M11-SP.12.9).
     fireEvent.click(screen.getByRole('radio', { name: /Comprar/ }));
-    fireEvent.change(screen.getByLabelText('Precio pagado (MXN)'), { target: { value: '700' } });
+    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '700' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const item = spy.mock.calls[0][0].items[0];

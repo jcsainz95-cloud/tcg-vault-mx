@@ -84,6 +84,8 @@ import {
   OwnerType,
   PendingPriceContext,
   PendingPriceReason,
+  PriceAxis,
+  PriceReviewStatus,
   ProductType,
   SealedCondition,
   SealedGroupKind,
@@ -490,6 +492,13 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/pricing/pending', param: 'context', clazz: 'E', allowed: Object.values(PendingPriceContext), valid: 'catalog', alterno: 'inventory', auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE E derivada: `enum PendingPriceReason` sobre COLUMNA PERSISTIDA E INDEXADA.
   { route: 'GET /admin/pricing/pending', param: 'reason', clazz: 'E', allowed: Object.values(PendingPriceReason), valid: 'no_market', alterno: 'premium_at_floor', auth: 'admin', echoValue: false },
+  // ⭐ `C-EQ-1` v1.91⟨precios⟩ (M-75, §PRE.E) — los DOS ejes de la cola de revisión del candado. CLASE E,
+  //   dominio DERIVADO del enum. ⚠️ `?status=` es E con DEFAULT PROPIO (§0-Q punto 4, línea canónica):
+  //   ausente/vacío ⇒ SOLO `open` (no «no filtra»), así que `valid`/`alterno` se eligen DISTINTOS de `open`
+  //   para que `filtra` sea observable contra la base (= casos `open`). El fixture (p) siembra open(sell)+
+  //   open(buy)+accepted+kept. super_admin ⇒ `auth:'admin'` (el admin E2E es super_admin, e2e-fixtures.ts).
+  { route: 'GET /admin/pricing/review-queue', param: 'status', clazz: 'E', allowed: Object.values(PriceReviewStatus), valid: 'accepted', alterno: 'kept', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/pricing/review-queue', param: 'axis', clazz: 'E', allowed: Object.values(PriceAxis), valid: 'sell', alterno: 'buy', auth: 'admin', echoValue: false },
   {
     route: 'GET /admin/pricing/bounties',
     param: 'state',
@@ -847,6 +856,12 @@ const CEQ1_VAULT_CUSTOMER_EMAILS = ['ceq1-vault-aaa@ceq1.local', 'ceq1-vault-zzz
 //    días ⇒ `all`=3 puntos, `1m`=2, `5d`=1. Valores sentinela para barrer sin adivinar (⛔ el modelo
 //    no tiene campo de texto que marcar).
 const CEQ1_SNAPSHOT_CENTS = [990_010, 990_020, 990_030];
+// ⭐ `C-EQ-1` v1.91⟨precios⟩ (M-75, §PRE.E) — `GET /admin/pricing/review-queue?status=`/`?axis=`: CUATRO
+//   `PriceReviewCase` propios con `proposedMxnCents` sentinela (barrido por ese valor en `limpiarFixture`,
+//   sin tocar casos ajenos). open(sell)+open(buy) para que la base (status default = open) traiga dos y
+//   `?axis=sell|buy` discrimine; accepted+kept para que `?status=accepted|kept` difieran de la base y
+//   entre sí.
+const CEQ1_REVIEW_PROPOSED = [990_401, 990_402, 990_403, 990_404];
 
 /** ⭐ (h) §M4-SHIP — el helper del stream que sembró los siete ejes; se limpia por ids en `limpiarFixture`. */
 let prep: ShipPrepDb | null = null;
@@ -865,6 +880,8 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.order.deleteMany({ where: { orderNumber: { startsWith: 'CEQ1-' } } });
   // ⭐ `EQ-D1` · `?scope=` — filas de auditoría sembradas para medir `target` vs `actor`.
   await h.prisma.auditLog.deleteMany({ where: { action: { startsWith: 'CEQ1-' } } });
+  // ⭐ `C-EQ-1` v1.91⟨precios⟩ — los casos de revisión del candado, por `proposedMxnCents` sentinela.
+  await h.prisma.priceReviewCase.deleteMany({ where: { proposedMxnCents: { in: CEQ1_REVIEW_PROPOSED } } });
   await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
   // ⭐ `EQ-D1` LOTE 2 — cartas del índice master set: DESPUÉS de sus piezas (FK `cardId`), ANTES de sus
   //    sets (FK `setId`). Barrido por `externalId` prefijo `CEQ1-`.
@@ -1248,6 +1265,20 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   //     v1.86.5 · `?active=`/`?soldOut=` — un accesorio INACTIVO y AGOTADO (`stockQty` 0): el único de `active=false` y de
   //     `soldOut=true` en el fixture (el público no lo ve: solo lista activos).
   await h.prisma.accessory.create({ data: { name: 'CEQ1-acc carpeta inactiva', category: 'binders', active: false, stockQty: 0 } });
+
+  // (p) ⭐ `C-EQ-1` v1.91⟨precios⟩ (M-75, §PRE.E) — la COLA DE REVISIÓN del candado anti-inflado.
+  //     `?status=` default = `open` ⇒ la base trae los dos `open` (sell + buy); `?axis=sell|buy`
+  //     discrimina entre ellos; `?status=accepted|kept` difieren de la base y entre sí. `proposedMxnCents`
+  //     sentinela (`CEQ1_REVIEW_PROPOSED`) ⇒ `limpiarFixture` los barre sin tocar casos ajenos.
+  const quotesSnap = [{ source: 'tcgdex', family: 'tcgplayer', priceMxnCents: 198, capturedDate: '2026-10-11', stale: false }];
+  await h.prisma.priceReviewCase.createMany({
+    data: [
+      { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', axis: 'sell', proposedMxnCents: CEQ1_REVIEW_PROPOSED[0], baselineMxnCents: 184, jumpFactorMilli: 55_000, sourceCount: 1, familyCount: 1, consensus: false, quotesSnapshot: quotesSnap, status: 'open' },
+      { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo', axis: 'buy', proposedMxnCents: CEQ1_REVIEW_PROPOSED[1], baselineMxnCents: 200, jumpFactorMilli: 55_000, sourceCount: 1, familyCount: 1, consensus: false, quotesSnapshot: quotesSnap, status: 'open' },
+      { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', axis: 'sell', proposedMxnCents: CEQ1_REVIEW_PROPOSED[2], baselineMxnCents: 150, jumpFactorMilli: 20_000, sourceCount: 2, familyCount: 2, consensus: true, quotesSnapshot: quotesSnap, status: 'accepted', resolvedAction: 'accept', resolvedAt: new Date() },
+      { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'first_edition_holofoil', axis: 'sell', proposedMxnCents: CEQ1_REVIEW_PROPOSED[3], baselineMxnCents: 300, jumpFactorMilli: 10_000, sourceCount: 1, familyCount: 1, consensus: false, quotesSnapshot: quotesSnap, status: 'kept', resolvedAction: 'keep', resolvedAt: new Date() },
+    ],
+  });
 
   return { setId: set.id, userId: cliente.id };
 }
@@ -1640,7 +1671,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 18 + 0 (accesorios: entraron `transcrita`) + 4 (wishlist) = **22**.
     // ⭐ v1.88⟨release-s7⟩ — 72 fijo y 22 → **18**: el arquitecto escribió en §0-Q punto 4 las cuatro filas de `?sort=`/`?dir=`
     // de la lista de compra y de su CSV. Se pagó una deuda; no salió ningún eje.
-    expect(REGISTRO.length).toBe(72);
+    // ⭐ v1.91⟨precios⟩ (M-75, §PRE.E) — 72 → **74** y 18 fijo: `?status=`/`?axis=` de `GET /admin/pricing/review-queue`
+    // entran YA `transcrita` (el arquitecto escribió sus dos filas canónicas en §0-Q punto 4, commit d9f00293). Clase E,
+    // dominio DERIVADO de `PriceReviewStatus`/`PriceAxis`. No sube ningún pendiente.
+    expect(REGISTRO.length).toBe(74);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1824,6 +1858,14 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         // §M9, línea del endpoint: «`axis?` (`sale | buy`; omitido = ambos)»
         re: /`axis\?` \(`([a-z |]+)`; omitido = ambos\)/,
         enunciado: /enum\s+\w*[Aa]xis\w*\s*\{/,
+        // ⭐ v1.91⟨precios⟩ (M-75, §PRE): `enum PriceAxis { sell buy }` (la cola de revisión del candado)
+        // casa la regex de NOMBRE pero NO es el dominio de este eje: `PriceAxis` nombra el EJE QUE DISPARÓ
+        // un caso de revisión (venta/compra), mientras `?axis=` de pricing-brackets nombra qué COLUMNA del
+        // informe mirar (`sale|buy`). Comparten el token `buy` pero difieren en `sell`≠`sale`, así que
+        // `{sale,buy}` NO está contenido en `{sell,buy}` ⇒ NO es el enum que respalda el literal (no es
+        // clase E en disfraz). Homónimo de NOMBRE con aserción: el literal no es subconjunto del enum (ver
+        // el refinamiento de la aserción abajo). ⛔ No se renombra `PriceAxis` ni el eje del informe.
+        homonimosDeNombre: [{ enum: 'PriceAxis', porque: 'eje que disparó el caso de revisión (sell|buy), no la columna del informe de brackets (sale|buy); comparten "buy" pero el literal no está contenido en el enum' }],
       },
       {
         // ⭐ `EQ-D0` — el ORDEN de la bóveda. §3, línea del endpoint de `GET /vault/sealed`:
@@ -1885,8 +1927,16 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
       // Si existe la columna, existe la clase E y el literal es el bug de `SealedSubtype`/`upc`
       // esperando a repetirse (§4.37: «lo que L NO autoriza»). ⭐ v1.80.7.1: la regex de nombre es la heurística;
       // (a) todo enum que la case tiene que estar DECLARADO en `homonimosDeNombre` (⛔ la regex no cambia), y
-      // (b) los valores de cada declarado, leídos del schema EN DISCO, son disjuntos del literal — una excepción
-      // sin aserción sería una lista blanca. Mutación: añadir `location` a `enum MissingReason` en una copia ⇒ rojo.
+      // (b) el literal NO puede estar CONTENIDO en los valores de un declarado (leídos del schema EN DISCO).
+      // ⭐ v1.91⟨precios⟩ (M-75): el refinamiento de (b) de «disjunto» a «el literal NO es subconjunto del
+      // enum». El invariante REAL que protege §4.37 es *«el literal NO es el dominio (ni un subconjunto) de
+      // un enum persistido»* — eso es lo que haría al eje clase E en disfraz (`SealedSubtype`/`upc`). «Disjunto»
+      // era una sobre-aproximación que valía cuando el único homónimo (`MissingReason`) no compartía ningún
+      // token; `PriceAxis {sell,buy}` comparte `buy` con `{sale,buy}` pero NO lo contiene (`sale`∉) ⇒ NO es el
+      // enum que respalda el literal. La aserción sigue mordiendo el bug real: un `enum XAxis { sale buy }`
+      // (exacto) o `{ sale buy extra }` (superconjunto) CONTIENE el literal ⇒ ROJO. `MissingReason` sigue
+      // pasando (disjunto ⇒ no contiene). Mutación: `enum MissingReason { not_found damaged location price }`
+      // en una copia ⇒ contiene `{location,price}` ⇒ rojo.
       const declarados = (l.homonimosDeNombre ?? []).map((x) => x.enum);
       const casan = [...schema.matchAll(/^enum\s+(\w+)\s*\{/gm)].map((m) => m[1]).filter((name) => l.enunciado.test(`enum ${name} {`));
       expect(casan.filter((name) => !declarados.includes(name))).toEqual([]);
@@ -1894,7 +1944,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         const block = new RegExp(`^enum\\s+${name}\\s*\\{([\\s\\S]*?)^\\}`, 'm').exec(schema);
         if (!block) throw new Error(`homónimo declarado ${name} no existe en schema.prisma: retira la excepción`);
         const valores = block[1].split('\n').map((v) => v.replace(/\/\/.*$/, '').trim()).filter((v) => v.length > 0 && !v.startsWith('@@'));
-        expect(valores.filter((v) => (l.literal as readonly string[]).includes(v))).toEqual([]);
+        // El literal NO puede estar CONTENIDO en el enum (⇒ sería clase E/subconjunto-de-E en disfraz).
+        const literalContenido = (l.literal as readonly string[]).every((v) => valores.includes(v));
+        expect(literalContenido).toBe(false);
       }
     });
   });
