@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { formatMoneyCents } from '@/lib/format';
 import { SealedDetailView } from './SealedDetailView';
@@ -121,15 +121,20 @@ describe('SealedDetailView · sin stock', () => {
  * DERIVA de `priceSource`.
  */
 describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', () => {
-  it('precio derivado por SPREAD (priceBasis="market"): se muestran los dos hechos', async () => {
+  it('§A1 · priceBasis="market": AUN ASÍ no se muestra «Valor de mercado» en la ficha pública; queda una sola celda', async () => {
     mockDetail({ group: BOX_MINT });
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
 
-    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    // §MIV.2 (v1.90⟨miv⟩): la cifra es la CON IVA que manda el servidor (`referenceDisplayCents` 353,800
-    // del fixture), ya no el neto MX$3,050.00.
-    expect(screen.getByText('MX$3,538.00')).toBeInTheDocument();
-    expect(screen.queryByText('MX$3,050.00')).toBeNull();
+    // §A1 (D2=A, dueño 2026-10-16): la celda no se monta aunque el precio lo derive el mercado.
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    expect(screen.queryByText('MX$3,538.00')).toBeNull(); // mercado con IVA
+    expect(screen.queryByText('MX$3,050.00')).toBeNull(); // neto
+    const cells = Array.from(
+      document.querySelectorAll('div.border-b.border-border.py-6'),
+    ) as HTMLElement[];
+    expect(cells).toHaveLength(1);
+    expect(cells[0].className).toContain('sm:col-span-2');
   });
 
   it('la TENDENCIA de valor también obedece `priceBasis`: con override no se pinta', async () => {
@@ -235,5 +240,41 @@ describe('SealedDetailView · «avísame» (errata v1.87.3 B-1)', () => {
     expect(sub).toHaveBeenCalledTimes(1);
     expect(sub.mock.calls[0][0]).toEqual({ email: 'yo@ejemplo.com', inventoryItemId: BOX_MINT.representativeItemId });
     expect(Object.keys(sub.mock.calls[0][0]).sort()).toEqual(['email', 'inventoryItemId']);
+  });
+});
+
+/**
+ * §A2 (MKT-26b) · barra de compra FIJA en móvil. El criterio real es de VIEWPORT (iPhone 13
+ * 390×664), verificado con Playwright en el gate. Aquí se fija el CONTRATO del componente: barra
+ * `lg:hidden` + `fixed bottom-0` con el precio «desde», su rótulo de IVA y el CTA de compra, y solo
+ * con ≥ 1 unidad a la venta (`availableCount > 0`).
+ */
+describe('SealedDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () => {
+  it('con stock: barra fija (fixed bottom-0 lg:hidden) con precio «desde», rótulo de IVA y CTA de compra', async () => {
+    mockDetail({ group: BOX_MINT });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+
+    const bar = await screen.findByTestId('mobile-buy-bar');
+    expect(bar.className).toContain('fixed');
+    expect(bar.className).toContain('bottom-0');
+    expect(bar.className).toContain('lg:hidden');
+    expect(within(bar).getByText('MX$3,200.00')).toBeInTheDocument();
+    expect(within(bar).getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    expect(within(bar).getByRole('button', { name: 'Añadir al carrito' })).toBeInTheDocument();
+  });
+
+  it('el CTA de la barra agrega al carrito (la pieza más barata por defecto)', async () => {
+    mockDetail({ group: BOX_MINT });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    const bar = await screen.findByTestId('mobile-buy-bar');
+    fireEvent.click(within(bar).getByRole('button', { name: 'Añadir al carrito' }));
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
+  });
+
+  it('agotado (availableCount 0): no se pinta la barra', async () => {
+    mockDetail({ group: { ...BOX_MINT, availableCount: 0 }, listings: [] });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    expect(await screen.findByText('Agotado')).toBeInTheDocument();
+    expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
   });
 });

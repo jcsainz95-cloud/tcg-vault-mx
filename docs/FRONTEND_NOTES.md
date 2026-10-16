@@ -21713,3 +21713,74 @@ registrado (`priceConvention`/`ivaIncluded` en `ShipmentDTO`, §M10-IVA.4) — a
 **Medido por mí (2026-10-14, sobre `d93f7d4` + estos cambios):** `npm run typecheck` **limpio**; `eslint` de los ficheros tocados **sin avisos**; suite m7 **41/41** (incluye 6 nuevas); **suite completa 4329 passed / 10 skipped / 334 files** (los «Not implemented: navigation» de jsdom son avisos preexistentes de otras suites, no fallos). ⚠ **NO MEDIDO por mí:** el P&L con `statement` real del backend (otro agente lo construye en paralelo en `backend/`); mi path `statement` se midió con fixture inyectado. Lo cierra el E2E de QA contra el stack con backend mergeado.
 
 **Huecos de contrato: ninguno nuevo.** Todo el consumo (`statement` aditivo en `GET /admin/finance/pnl`; `totals` de `GET /admin/reports/sales`) está en el contrato `§M10-IVA.8-bis`. El rótulo de captura ya viajaba en `§M10-IVA.8-bis (A)` + `DESIGN_SYSTEM §PNL-IVA`.
+
+---
+
+## §MKT tienda · §A1 quitar «valor de mercado» de la ficha pública + §A2 botón COMPRAR en la primera pantalla móvil (2026-10-16, rama `feat/mkt-tienda`)
+
+Dos cambios de UI pura (sin cambio de contrato ni de tipos) en las DOS fichas públicas de storefront:
+`catalog/[cardId]/CardDetailView.tsx` y `sellado/[inventoryItemId]/SealedDetailView.tsx`. Fuente:
+brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A1 (MKT-26a) y §A2 (MKT-26b);
+decisión D2=A del dueño (2026-10-16, HECHOS:65).
+
+### §A1 — retirada de «Valor de mercado» (solo deja de renderizar; el DTO lo sigue trayendo)
+- **Carta:** se eliminó la celda `marketValue` de `FactGrid` (antes gateada por `priceBasis==='market' ∧
+  referenceDisplayCents entero > 0`), su nombre accesible (`role=group`/`aria-labelledby`) y la fecha de
+  captura. `Precio de venta` ocupa SIEMPRE la fila completa (`fullRow: true`). La nota al pie usa SIEMPRE
+  `card.referenceExplainerNoMarket`; nunca `referenceExplainerWithMarket` («…para que los compares tal
+  cual»). Se retiraron del componente: `referenceDisplayCents`, `showMarketValue`, `useId`, `formatDate`,
+  `captured`.
+- **Sellado:** se eliminó la celda «Valor de mercado» (rótulo `sealed.detail.marketValue`, cifra con IVA,
+  fecha, nombre accesible). «Desde» ocupa SIEMPRE la fila completa. Se CONSERVÓ el predicado
+  `showMarketValue`/`referenceDisplayCents` **solo para gobernar la «Tendencia de valor»** (gateada por
+  `trendEnabled`, §MIV.3) — la tendencia NO es parte de A1 y queda intacta. Se retiró `cn`, `useId`,
+  `formatDate`, `captured` del componente.
+- Las claves `card.referenceExplainerWithMarket`, `catalog.marketValue` y `sealed.detail.marketValue`
+  siguen en `messages/*.json` (su retiro de catálogo lo evalúa ux-ui; no es cambio de tienda).
+
+### §A2 — barra de compra FIJA en móvil (precio + «IVA incluido» + COMPRAR sin scroll)
+- Patrón elegido: **barra fija al pie** (`fixed inset-x-0 bottom-0 z-40 lg:hidden`, con
+  `pb-[max(0.75rem,env(safe-area-inset-bottom))]`), consistente con el FAB móvil del storefront
+  (`SellCartFab`, z-40) y el header (`sticky top-0 z-40`). Se descartó reordenar el DOM porque la imagen
+  de la carta llena el alto en móvil y porque mover «Ejemplares disponibles» arriba del bloque PSA
+  violaría `DESIGN_SYSTEM §22.3`.
+- Lleva el precio «desde» del grupo primario (`groups[0]` en carta; `fromPriceCents` en sellado), su
+  rótulo de IVA vía `IvaLabel` (único sitio que rotula la convención, §M10-IVA.3) y el CTA de compra.
+  Solo se pinta con ≥ 1 unidad a la venta (carta: el grupo primario tiene piezas `sellable`; sellado:
+  `availableCount > 0`). `data-testid="mobile-buy-bar"`.
+- La barra usa copy PROPIO para no colisionar —ni en pantalla ni para lector de pantalla— con los botones
+  del cuerpo: `catalog.addToCart` («Añadir al carrito») / `catalog.viewCart` («Ver carrito»), distintos de
+  los `buyNow`/`inCart` por variante (carta) y de `sealed.detail.addToCart`/`goToCart` (sellado). En ≥ lg
+  la barra se oculta: ahí el precio y el CTA ya entran arriba, a la derecha del arte.
+
+### Tests
+- Las suites §MIV de las dos fichas (`*.miv.test.tsx`) y los bloques §21.8 de las bases se reconvirtieron
+  en LOCKS de A1: con los mismos datos de servidor que antes encendían el mercado, ahora muerden que el
+  bloque **NO** se monta (es/en, raw/gradeada/sellado, market/floor/override). Se añadieron tests de §A2
+  (barra `fixed bottom-0 lg:hidden` con precio+IVA+CTA; agrega al carrito; no aparece sin stock; el precio
+  va antes del bloque PSA en el DOM).
+- `src/test/miv-locks.test.ts`: el lock «la ficha de carta lee `referenceDisplayCents`» se invirtió a «ya
+  NO lo lee» (A1); el sellado y la tendencia siguen leyéndolo.
+
+### Medido por mí (2026-10-16)
+- `npx tsc --noEmit` **limpio**; `eslint` de los 6 ficheros tocados **sin avisos**.
+- Vitest de las 4 suites de ficha: **47/47**. Directorios `catalog` + `sellado` + `src/test`: **234/234**.
+- **Criterio grep §A1** (`grep -i "valor de mercado" = 0` en el HTML de 3 fichas renderizadas): **NO
+  MEDIDO** por mí (no levanté la app). Fijado por tests de componente: el bloque no se monta. ⚠ El bloque
+  «Tendencia de valor» del sellado (feature-flag `trendEnabled`) **sí** rotula «valor de mercado de
+  referencia»; si está encendido en la ficha de sellado del grep, daría coincidencias — fuera del alcance
+  de A1 («quita solo ese bloque»); ver PROJECT §MIV.2 A3 / P-MIV-6. Lo mide el gate.
+- **Criterio viewport §A2** (iPhone 13 390×664: borde inferior del botón ≤ 664px; precio con «IVA
+  incluido» visible sin scroll): **NO MEDIDO** por mí (requiere Playwright con la app levantada, coste
+  alto). Por construcción, una barra `fixed bottom-0` queda pinada al pie del viewport con el precio y el
+  CTA dentro. Lo verifica el gate (Playwright) y el evento `buy_button_visible` (§B2).
+
+### E2E que quedan en rojo por A1 (frontend owns `frontend/e2e/`, pero requieren stack levantado) — PENDIENTE
+- `frontend/e2e/catalog.spec.ts:136-140,172-174,220` (afirman que la celda «Valor de mercado» y
+  `referenceExplainerWithMarket` son VISIBLES en la ficha).
+- `frontend/e2e/miv-market-iva.spec.ts:299-301,358-360,400-402` (grupo accesible «Valor de mercado …»
+  visible en carta/sellado, es/en). Esta spec también cubre superficies de bóveda/buylist que A1 NO toca.
+- `frontend/e2e/pricing-curve.spec.ts:26-30,214-253` (regla de visibilidad del mercado en la ficha).
+Estas specs codifican §MIV (D2=B, mostrar con IVA), que D2=A revierte en la ficha pública. Su
+actualización/retiro necesita stack levantado para verificar y una decisión sobre el retiro de la parte de
+ficha de §MIV; se enruta al orquestador (no se tocó a ciegas).
