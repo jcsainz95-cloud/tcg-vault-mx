@@ -30642,10 +30642,11 @@ ejecuta en `BACKEND_NOTES §91`. Contrato: `API_CONTRACT §PRE.J`.
 
 ### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.93⟨cardshow⟩, 2026-10-13, NORMATIVO, **PII · SIN DINERO**)
 
-> ⛔ **SECRETO hasta el anuncio.** Este documento es público. Aquí se diseña **ESTRUCTURA**, nunca datos del evento.
-> Ningún valor real (fecha, sede, precios, medidas, patrocinador) aparece: entran **fuera del repo** en un commit
-> único el día del anuncio, en el archivo de datos del frontend. Donde haga falta ejemplificar, marcadores:
-> `FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`. Contrato: **`API_CONTRACT §CARDSHOW`** (forma exacta, endpoints, criterios).
+> ⭐ **NORMA DE SECRETO v1.93.1 (dueño 2026-10-16) — ver §4.CARDSHOW.l.** Este documento es público y diseña
+> **ESTRUCTURA**, no datos del evento (higiene). ⛔ Pero los valores del evento (fecha, sede, precios, medidas de mesa)
+> **ya NO son secreto**: son **PÚBLICOS** y viven **en el repo** (`frontend/src/content/card-show.ts`). **El único secreto
+> son los NOMBRES de patrocinador** (único marcador: `PATROCINADOR_TBD`). Contrato: **`API_CONTRACT §CARDSHOW`** (forma
+> exacta, endpoints, criterios).
 > Numeración reservada por el orquestador: **M-78** y contrato **v1.93⟨cardshow⟩** (⛔ no chocar con §MKT, que reservó
 > M-77 / v1.92⟨mkt⟩ en `claude/traspaso-s9`, sin fusionar).
 
@@ -30831,16 +30832,21 @@ crea PII nueva.
   el último en `production` a esta fecha; backend lo mide con `Glob` antes de numerar).
 - **Zona compartida**: `schema.prisma` es de un solo stream a la vez; este corte es el único que la toca en su ventana.
 
-#### 4.CARDSHOW.l Los valores secretos viven FUERA del repo
+#### 4.CARDSHOW.l Los valores del evento son PÚBLICOS y viven EN el repo; el único secreto es el patrocinador (⭐ dueño 2026-10-16)
 
-El archivo de datos `frontend/src/content/card-show.ts` (lo escribe **frontend**) nace **con marcadores**
-(`FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`, etc.). Los valores reales —precios con IVA y con fecha, medidas de mesa (sí se
-publican, decisión del dueño; premium sin medida; el plano SVG **sin cotas**), sede, fecha— entran en un **commit único el
-día del anuncio**. El patrocinador (**D4**) ⛔ **no aparece en ninguna parte**: ni nombre, ni logo, ni «presentado con», ni
-OG, ni JSON-LD, ni correos, ni data file, ni commits; Patrocinios muestra 3 niveles **sin** patrocinadores nombrados. Hay un
-grep de CI (lo cablea devops) que rompe el push si aparece cualquier término secreto; el aviso de privacidad del Card Show se
-commitea con marcadores igual que el resto (los candados `legal-gate.ts`/`publish-check.ts` ya ponen 404 si queda un marcador
-en producción, RONDA_0 §5).
+⭐ **ENMIENDA v1.93.1 (decisión del dueño 2026-10-16, rama `feat/event-landing`, ratificada por el arquitecto — regla 9).**
+La versión original de esta sección decía que todos los valores eran «secreto hasta el anuncio» y entraban «fuera del repo en
+un commit único». **Ya no.** Los valores del evento —precios con IVA y con fecha, **medidas de mesa** (sí se publican; premium
+sin medida; el plano SVG **sigue sin cotas**), sede, fecha— son **PÚBLICOS** y viven **en el repo**, en el archivo de datos
+`frontend/src/content/card-show.ts` (lo escribe **frontend**). ⛔ Ya no hay marcadores `FECHA_TBD`/`SEDE_TBD`/`PRECIO_TBD` que
+esperen un commit del día del anuncio: esos valores se publican.
+
+**El ÚNICO secreto que queda son los NOMBRES de patrocinador (D4):** ⛔ no aparecen en ninguna parte —ni nombre, ni logo, ni
+«presentado con», ni OG, ni JSON-LD, ni correos, ni data file, ni commits; Patrocinios muestra 3 niveles **sin** patrocinadores
+nombrados (único marcador admitido: `PATROCINADOR_TBD`). El **grep de CI** (lo cablea devops) se **acota** a los términos de
+patrocinador (ya no vigila fecha/sede/precio). El aviso de privacidad del Card Show se commitea por su vía normal (los candados
+`legal-gate.ts`/`publish-check.ts` siguen poniendo 404 si queda un marcador en producción, RONDA_0 §5). Contrato: `API_CONTRACT
+§CARDSHOW.0/.9/.17`.
 
 #### 4.CARDSHOW.m Dos correos públicos, dos reglas: confirmación ESTRICTA, bienvenida RICA (dueño 2026-10-16)
 
@@ -30866,8 +30872,59 @@ no verificados** (C3), no al que va a **buzones confirmados** (C3-W). Es la mism
 del presupuesto (§4.CARDSHOW.g): el coste de equivocarse está en el envío a quien no lo pidió, no en el envío a quien ya dijo
 que sí. Los **correos internos** (aviso al staff en la confirmación de merchant/sponsor; resumen diario de visitantes) van a
 buzones del propio equipo y **nunca** estuvieron sujetos a C3 de cara al público. Valores concretos (números de WhatsApp,
-URLs de Drive, fecha/sede del `.ics`, coordenadas de Maps) viven **fuera del repo** (§4.CARDSHOW.l); el contrato fija la
+URLs de Drive, fecha/sede del `.ics`, coordenadas de Maps) viven **en el repo** (§4.CARDSHOW.l, públicos); el contrato fija la
 estructura. Forma exacta y criterios: `API_CONTRACT §CARDSHOW.9`.
+
+El **aviso interno al staff** (confirmación de merchant/sponsor) y el **resumen diario** de visitantes
+(`card-show-internal.templates.ts`) son correos **solo-staff**: llevan `audience: 'staff'` en `mailShell` (⇒ sin pie de
+privacidad, que es para correos a clientes) — mismo trato que los AVG de gasto. Es una **errata del arquitecto a §14.18 E5**
+(regla 9): el censo PRIV-6 pasa a admitir `card-show-internal.templates.ts` con **2** apariciones además de las 3 de
+`spend-alert.mail.ts`. Contrato: `API_CONTRACT §14.18 E5-2 (3)` / `E5-3 PRIV-6`.
+
+#### 4.CARDSHOW.n Clasificación de los `@Query` de M-78 en `C-EQ-1` (regla 9 — la decide el arquitecto)
+
+El descubrimiento `C-EQ-1` (`API_CONTRACT §0-Q`) exige que **todo** `@Query` tenga clase declarada en una de sus cinco
+listas. M-78 añadió **19** ejes sin clase (⚠️ el encargo citó «21»; **medidos 19** sobre los dos controllers — ver reporte;
+el escáner del gate es la autoridad y cualquier residual sigue la misma regla). Decisión del arquitecto:
+
+- **Dominio CERRADO (enum o subconjunto de enum) ⇒ al `REGISTRO` de §0-Q punto 4, con `400` fuera de dominio** (9 ejes):
+  `status`/`type` de `/admin/card-show/leads` (+ su `export.csv`), `status`/`day` de `/admin/card-show/players` (+ su
+  `export.csv`), y `purpose` de `/card-show/form-token`. `status` es **clase R** (subconjunto del enum **menos `pending`**,
+  cláusula §CARDSHOW.15 «PENDING no aparece»); `type`/`day` son **E** (enum completo); `purpose` es **L** (`leads|players`,
+  unión pura). ⚠️ **El código de M-78 hoy los ignora/clampa en silencio** (el defecto que §0-Q punto 1/6 prohíbe): backend
+  debe hacer que el valor fuera de dominio devuelva `400 {field, allowed}` al transcribir estas filas al `REGISTRO`.
+- **NO cerrado (fecha / entero acotado / token opaco) ⇒ a `NO_ENUM_POR_RUTA`** (10 ejes): los 8 `from`/`to` (fechas del
+  rango, como todos los `from`/`to` del contrato — deben `400` ante formato inválido, no ignorar), `mesa` de
+  `/card-show/ir/:destino` (entero acotado, como `samplePriceCents`) y `token` de `/card-show/unsubscribe-oneclick` (token
+  opaco firmado, validado por firma — su privacidad «one-click no delata» es conducta, no filtro). La exención es **de esa
+  ruta**, no del nombre (no van a `NO_ENUM_TRANSVERSAL`). Detalle y claves exactas: `API_CONTRACT §0-Q` nota `CEQ-CS-1`.
+
+#### 4.CARDSHOW.o Las 3 tablas de M-78 en la herramienta de limpieza (G-8) — precedente + 1 decisión de POLÍTICA para el dueño
+
+La herramienta de limpieza/rollback de BD (`docs/specs/LIMPIEZA_DB.md`, guion `…_2_limpieza.sql`) tiene una guarda **G-8**
+que **aborta cerrado** si existe una tabla que su diseño no clasificó (`borrar`/`ajustar`/`conservar`). M-78 añadió 3 tablas
+sin clasificar ⇒ la herramienta quedó inoperante. Clasificación siguiendo el **precedente** del propio spec (§14.13.1:
+`AuditLog`→borrar; `WishlistItem`/`WishlistMail`→conservar):
+
+- **`CardShowClick` ⇒ `borrar`.** Es telemetría de primera parte **sin PII** (`{ts, destino, mesa, utm}`; ⛔ sin email, sin
+  nombre, sin IP — §4.CARDSHOW.j); misma familia que `AuditLog`/`SpendAlert`/`PortfolioSnapshot`. **No es decisión de
+  política.**
+- **`CardShowLead` y `CardShowPlayerSignup` ⇒ `conservar` (default precedente).** Son **PII real con consentimiento** (email,
+  doble opt-in; el de jugadores incluye **menores** con consentimiento del tutor): misma familia que `User`/`WishlistItem`/
+  `WishlistMail`, que el precedente **conserva**. El default seguro de toda la limpieza es **nunca borrar PII real de más**
+  (R-1/R-14 del spec).
+
+⚠️ **DECISIÓN DE POLÍTICA PARA EL DUEÑO (JC) — no la inventa el arquitecto.** La premisa de la limpieza es «purgar datos de
+prueba antes de cobrar en real», y el dueño ya declaró `SellRequest` como «todo fake» (`HECHOS.md:79`). La landing es
+**pública desde 2026-10-16** y puede ya contener **registros reales** mezclados con los de prueba. La base **no distingue**
+prueba de real (sin `livemode`, sin marca de cuenta de prueba — mismo límite que la guarda G-9 de custodia). **No hay fila de
+`HECHOS.md` para card-show** (M-78 es nuevo; la decisión pública es posterior al diseño de limpieza). Por eso: **¿los leads /
+preinscripciones de card-show recabados hasta la limpieza son TODOS de prueba (⇒ vaciar) o incluyen registros reales (⇒
+conservar)?** Recomendación del arquitecto: **conservar** (el default de arriba). Si el dueño quiere vaciar los de prueba, el
+mecanismo correcto **no** es `borrar` toda la tabla a ciegas, sino una **guarda tipo G-9** (lista declarada por el dueño o
+cohorte por fecha), porque son tablas de PII real alimentadas por un formulario público y una incluye **datos de menores**.
+Esta pregunta se enruta a JC; mientras no conteste, rige el default `conservar` y la herramienta queda operativa. Instrucción
+exacta para backend (SQL + `LIMPIEZA_DB.md`): ver reporte del arquitecto.
 
 ---
 

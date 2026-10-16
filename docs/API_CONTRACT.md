@@ -7834,6 +7834,20 @@
   | `GET /admin/reports/wishlist-demand` (§WSH.8) | `dir` **(ORDEN, v1.88)** | `asc \| desc` — canónico en **§WSH.8**; default `desc` (punto 6) | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `sort` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `dir` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
+  | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93 M-78**) | `status` | `CardShowLeadStatus` **menos `pending`** = `new \| contacted \| closed \| discarded` — cláusula en **§CARDSHOW.15** («⛔ PENDING no aparece»). Subconjunto de un enum con cláusula citable; `pending` o fuera de dominio ⇒ `400 {field, allowed}`. ⛔ Ausente ⇒ default «no-pending» (no es «no filtra»: `confirmedAt IS NOT NULL`), NO silencio | **R** |
+  | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93**) | `type` | `CardShowLeadType` (`merchant \| sponsor \| visitor`) | **E** |
+  | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.93**) | `status` | `CardShowSignupStatus` **menos `pending`** = `confirmed \| waitlist \| cancelled \| checked_in` — misma cláusula **§CARDSHOW.15**; `pending`/fuera ⇒ `400 {field, allowed}` | **R** |
+  | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.93**) | `day` | `CardShowDay` (`sat \| sun`) | **E** |
+  | `GET /admin/card-show/leads/export.csv` (§CARDSHOW.15, **v1.93**) | `status` · `type` | **el mismo dominio y conducta** que la ruta JSON de `/leads` (`status` **R** menos `pending`; `type` **E**) | **R** · **E** |
+  | `GET /admin/card-show/players/export.csv` (§CARDSHOW.15, **v1.93**) | `status` · `day` | **el mismo dominio y conducta** que la ruta JSON de `/players` (`status` **R** menos `pending`; `day` **E**) | **R** · **E** |
+  | `GET /card-show/form-token` (§CARDSHOW.5, **v1.93**) | `purpose` | `leads \| players` (`FORM_PURPOSES`, `card-show.constants.ts:142`; unión pura, ⛔ sin enum en `schema.prisma`) — canónico en **la línea del propio endpoint**. Default `leads` en **ausente/vacío**; ⛔ un valor **no vacío fuera de dominio** ⇒ `400 {field:'purpose', allowed}` (⛔ no clamp silencioso a `leads`) | **L** |
+
+  > **⚠️ Nota CARDSHOW-EQ (v1.93, regla 9).** Las filas `status`/`type`/`day` de arriba (**8 ejes** en 6 filas: `status`×4, `type`×2, `day`×2) y `purpose` son dominios **cerrados** (enum, subconjunto de enum, o unión literal) y por eso §0-Q las gobierna con la conducta normal: fuera de dominio ⇒ `400 {field, allowed}`. **El código de M-78 hoy IGNORA en silencio** el valor fuera de dominio (cae al default; `card-show.service.ts:625,630,639,644`) y `form-token` **clampa** `purpose` a `leads` (`card-show.controller.ts:54-56`) — es el defecto que §0-Q punto 1/6 prohíbe. **Backend lo corrige** (parseo que `400`) al transcribir estas filas al `REGISTRO` de `C-EQ-1`. Los ejes `from`/`to` (fechas) y `mesa`/`token` de M-78 **no** son de dominio cerrado: van a `NO_ENUM_POR_RUTA` (punto 7), no a este registro — claves exactas en `CEQ-CS-1` abajo.
+
+  > **⚠️ `CEQ-CS-1` (v1.93, M-78) — las claves EXACTAS que backend transcribe a `C-EQ-1` (`test/helpers/query-axis-cross.ts`).** Medidas sobre los dos controllers de `card-show` (19 ejes huérfanos; `page`/`pageSize`/`q` ya exentos por `NO_ENUM_TRANSVERSAL`):
+  > - **Al `REGISTRO` (9 ejes, dominio cerrado, `400` fuera de dominio; nacen `transcrita` porque sus filas de §0-Q punto 4 YA existen arriba ⇒ ⛔ NO suben el conteo de pendientes `PENDIENTE-ARQUITECTO`):** `GET /admin/card-show/leads::status` (R), `GET /admin/card-show/leads::type` (E), `GET /admin/card-show/players::status` (R), `GET /admin/card-show/players::day` (E), `GET /admin/card-show/leads/export.csv::status` (R), `GET /admin/card-show/leads/export.csv::type` (E), `GET /admin/card-show/players/export.csv::status` (R), `GET /admin/card-show/players/export.csv::day` (E), `GET /card-show/form-token::purpose` (L). ⇒ `REGISTRO.length` **+9**; el literal del TRINQUETE sube 9 (pendientes **sin cambio**).
+  > - **A `NO_ENUM_POR_RUTA` (10 ejes, `toEqual` + tope; ⛔ no al `REGISTRO`):** `GET /admin/card-show/leads::from`, `GET /admin/card-show/leads::to`, `GET /admin/card-show/players::from`, `GET /admin/card-show/players::to`, `GET /admin/card-show/leads/export.csv::from`, `GET /admin/card-show/leads/export.csv::to`, `GET /admin/card-show/players/export.csv::from`, `GET /admin/card-show/players/export.csv::to`, `GET /card-show/ir/:destino::mesa`, `POST /card-show/unsubscribe-oneclick::token`. ⇒ subir el tope de `NO_ENUM_POR_RUTA` **+10**.
+  > - ⛔ `NO_ENUM_TRANSVERSAL` **no se toca** (las exenciones de M-78 son de ruta, no de nombre).
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -40620,8 +40634,15 @@ MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylis
    SDX-I-8), nunca lo quita en silencio.
 2. `spend-alert.mail.ts`: las **tres** llamadas a `mailShell` (`:141`, `:183`, `:242`) pasan `audience: 'staff'`.
    Nada más cambia en ese fichero (ni URLs, ni texto plano).
-3. ⛔ Ningún otro fichero de `src/` pasa `audience: 'staff'`. Ampliar la lista exige errata del arquitecto con la consulta de
-   destinatarios citada.
+3. ⛔ Ningún otro fichero de `src/` pasa `audience: 'staff'` **salvo los admitidos por errata del arquitecto con su consulta
+   de destinatarios citada**. Admitidos a la fecha:
+   - `modules/spend-alerts/spend-alert.mail.ts` — **3** apariciones (AVG-1/2/3).
+   - ⭐ **ERRATA v1.93.1 (regla 9, stream `feat/event-landing`): `modules/card-show/card-show-internal.templates.ts` — 2
+     apariciones** (`:85` aviso interno al staff en la confirmación de un `merchant`/`sponsor`; `:119` resumen diario de
+     visitantes). **Destinatarios citados:** buzones del **propio equipo** (`CARD_SHOW_ALERT_EMAIL` y destinatarios internos),
+     ⛔ nunca público — son los **correos INTERNOS** que §CARDSHOW.9 declara **exentos de la restricción C3** (no son correos a
+     clientes, por eso no llevan el pie de privacidad). Es el mismo caso que los AVG de gasto: correo solo-staff ⇒ `audience:
+     'staff'` legítimo.
 4. `privacyNoticeHtml`, `privacyNoticeUrl`, los pies a mano (`mail.templates.ts:43`, `guest-order.templates.ts:46`,
    `sealed-restock-notify.service.ts:121`): **sin cambio**.
 
@@ -40632,7 +40653,7 @@ MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylis
 | `integration/sdx-d2g-mail.e2e-spec.ts:227-234` (canarios por tipo de aviso) | **Ninguno.** Pasa a verde por E5-2 |
 | `mail.privacy-footer.spec.ts` PRIV-0…PRIV-4 | **Sin cambio de aserciones.** Solo la cabecera (`:17-29`) dice «todos los correos **a clientes**; los solo-staff, PRIV-5/6 (v1.84.5)» |
 | `mail.privacy-footer.spec.ts` **PRIV-5 (nueva)** | Renderiza los tres constructores de `spend-alert.mail.ts` (un AVG-1 de 🔴 de guías, un AVG-2, un AVG-3) con origen configurado **y** sin origen: el `html` y el `text` **no** contienen `privacidad` ni la etiqueta («Aviso de privacidad» / «Privacy notice»); CONTROL: el mismo `html` **sí** contiene el pie en tinta (`footerDescriptor(l)`), para que «no hay pie» no pase por «no hay nada» |
-| `mail.privacy-footer.spec.ts` **PRIV-6 (nueva)** | Barrido de `src/` (sin comentarios, con `stripComments`): los ficheros con `audience:\s*['"]staff['"]` son **exactamente** `[modules/spend-alerts/spend-alert.mail.ts]`, y en él hay **exactamente 3** apariciones (CONTROL: el barrido ve algo) |
+| `mail.privacy-footer.spec.ts` **PRIV-6** (⭐ v1.93.1: se AMPLÍA la aserción por errata del arquitecto E5-2 (3)) | Barrido de `src/` (sin comentarios, con `stripComments`): los ficheros con `audience:\s*['"]staff['"]` son **exactamente** `{ [modules/spend-alerts/spend-alert.mail.ts]: 3, [modules/card-show/card-show-internal.templates.ts]: 2 }` (CONTROL: el barrido ve algo). ⛔ Cualquier **tercer** fichero sigue siendo rojo hasta una errata nueva |
 
 #### E5-4 · Mutaciones que tienen que seguir mordiendo (deterministas: N=1 por mutación, dicho como tal)
 | # | Mutación (en una copia del árbol **entero**, O-9) | Rojas esperadas |
@@ -44846,14 +44867,26 @@ Paridad es/en con el control de paridad de textos (criterio 868).
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.93⟨cardshow⟩, 2026-10-13, **NORMATIVA**, PII · SIN DINERO)
 
-> ⛔ **SECRETO hasta el anuncio. Este contrato es público.** Aquí se fija **ESTRUCTURA**: campos, endpoints, forma de
-> respuesta y criterios. ⛔ Ningún valor real del evento (fecha, sede, precios, medidas, patrocinador) aparece: entran
-> **fuera del repo** en un commit único el día del anuncio, en el archivo de datos del frontend. Marcadores si hace falta
-> ejemplificar: `FECHA_TBD`, `SEDE_TBD`, `PRECIO_TBD`. Porqué y decisiones: **`ARCHITECTURE §4.CARDSHOW`**.
+> ⛔ **Este contrato es público y fija ESTRUCTURA**: campos, endpoints, forma de respuesta y criterios. ⛔ Ningún valor
+> real del evento aparece **aquí** (el contrato fija estructura, no datos) — pero eso es por higiene del contrato, **ya no
+> por secreto**.
+> **⭐ ENMIENDA v1.93.1 — decisión del dueño 2026-10-16 (`feat/event-landing`), ratificada por el arquitecto (regla 9):
+> los valores del evento (fecha, sede, precios con IVA, medidas de mesa) son PÚBLICOS y viven YA EN EL REPO** en el archivo
+> de datos del frontend (`frontend/src/content/card-show.ts`); **dejan de ser «secreto hasta el anuncio» y dejan de
+> esperar un commit único**. **El ÚNICO secreto que queda son los NOMBRES de patrocinador** (D4): ⛔ ni nombre, ni logo,
+> ni «presentado con», ni OG/JSON-LD, ni correos, ni data file, ni commits; el grep de CI (devops) vigila **solo** ya los
+> términos de patrocinador. El único marcador que puede quedar en el data file es `PATROCINADOR_TBD` (`FECHA_TBD`/
+> `SEDE_TBD`/`PRECIO_TBD` **dejan de aplicar**: esos valores se publican). El plano SVG sigue **sin cotas** (§CARDSHOW.17).
+> Porqué y decisiones: **`ARCHITECTURE §4.CARDSHOW`**.
 > **Versión reservada:** v1.93⟨cardshow⟩; migración **M-78**. ⛔ No toca la línea «Versión de API» de la cabecera. ⛔ No
 > choca con §MKT (M-77 / v1.92⟨mkt⟩, `claude/traspaso-s9`, sin fusionar). **No toca Stripe, no mueve dinero, no crea cuentas.**
 
 ### CARDSHOW.0 Alcance y norma de secreto
+- **⭐ Norma de secreto (v1.93.1, dueño 2026-10-16):** los valores del evento (fecha, sede, precios con IVA, medidas de
+  mesa) son **PÚBLICOS** y viven **en el repo** (archivo de datos del frontend `frontend/src/content/card-show.ts`); ⛔ ya
+  **no** son «secreto hasta el anuncio» ni esperan un commit único. **Lo ÚNICO secreto son los NOMBRES de patrocinador**
+  (D4), que no aparecen en ninguna parte (ni data file, ni OG/JSON-LD, ni correos, ni commits); el grep de CI solo vigila
+  esos términos. El contrato sigue fijando **estructura**, no valores (higiene, no secreto).
 - Dos formularios públicos sin cuenta: **«Avísame»** (lead) y **preinscripción al torneo**. Ambos con doble opt-in.
 - **Reusa lo que ya hay:** `@nestjs/throttler`, `AuditLog` (`schema.prisma:2534`), el `resend` adapter
   (`backend/src/modules/mail/resend-mail.adapter.ts`), `StrictBodyPipe`, `@Public`, helmet/CORS/`ValidationPipe`,
@@ -45088,7 +45121,8 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
   - **Contenido rico PERMITIDO** (consentimiento verificado): enlaces `wa.me`, `utm_*` en enlaces propios, enlaces de **Google
     Drive** (deck/convocatoria), `mailto:`, botón **«Agregar al calendario»** (adjunto/enlace `.ics`), **«Cómo llegar»**
     (Google Maps). Los valores concretos (números de WhatsApp, URLs de Drive, fecha/sede para el `.ics`, coordenadas de Maps)
-    viven **FUERA del repo** en el archivo de datos del frontend / variables (§CARDSHOW.0, secreto hasta el anuncio); el
+    viven **en el repo**, en el archivo de datos del frontend `frontend/src/content/card-show.ts` (⭐ v1.93.1: **públicos**,
+    §CARDSHOW.0 — ya **no** «fuera del repo» ni secretos; el único secreto es el **nombre de patrocinador**); el
     contrato fija la **estructura**, no los valores.
   - **Sigue obligando:** `From` en el mismo subdominio de envío propio; cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post`
     (RFC 8058) con **token de un solo uso** (el buzón confirmado puede darse de baja). ⛔ Nunca `playerName`. Cuenta contra el
@@ -45161,11 +45195,14 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
   **`backend/src/common/`** y **`schema.prisma`** (zonas compartidas, un stream a la vez). Notas en `docs/BACKEND_NOTES.md`.
 - **frontend**: ruta `/card-show` fuera del i18n (**`frontend/src/middleware.ts`**, zona compartida), los 2 formularios con sus
   estados (RONDA_0 §6 + textos de estado), plano SVG **sin cotas**, aviso de privacidad reescrito (RONDA_0 §5), el archivo de
-  datos **`frontend/src/content/card-show.ts` con marcadores**, y **(Diseño A, nuevo)** las **3 páginas de acción**
-  `/card-show/{confirm,cancel,unsubscribe}` (fuera del i18n, de marca): leen el token del query, muestran botón, y al pulsar hacen
-  `POST application/json { token }` a `/api/v1/card-show/{confirm|cancel|unsubscribe}` manejando `200`/`410`/`400`/`429` y el
-  cuerpo `{ ok:false, message }` del torneo ocupado (§CARDSHOW.12). Zonas compartidas: `components/`, `lib/`, `content/`,
-  `messages/*.json`. Notas en `docs/FRONTEND_NOTES.md`.
+  datos **`frontend/src/content/card-show.ts`** (⭐ v1.93.1: con los valores del evento **públicos**, §CARDSHOW.0; el único
+  marcador que puede quedar es `PATROCINADOR_TBD`), el **`.ics` del calendario** servido como **recurso estático** en
+  **`frontend/src/app/card-show/card-show-cdmx.ics/`** (es el `.ics` que enlaza/adjunta el correo de bienvenida C3-W, §CARDSHOW.9;
+  ⛔ **no es endpoint de API** — no cuelga de `/api/v1/` ni aparece en el registro de endpoints), y **(Diseño A, nuevo)** las
+  **3 páginas de acción** `/card-show/{confirm,cancel,unsubscribe}` (fuera del i18n, de marca): leen el token del query, muestran
+  botón, y al pulsar hacen `POST application/json { token }` a `/api/v1/card-show/{confirm|cancel|unsubscribe}` manejando
+  `200`/`410`/`400`/`429` y el cuerpo `{ ok:false, message }` del torneo ocupado (§CARDSHOW.12). Zonas compartidas:
+  `components/`, `lib/`, `content/`, `messages/*.json`. Notas en `docs/FRONTEND_NOTES.md`.
 - **devops**: subdominio de envío en Resend (SPF/DKIM/DMARC) + webhooks de Resend; variables de §CARDSHOW.16; DNS `www`→apex;
   términos del **grep de CI** del secreto; **reportar el plan de Resend** (el Free de 100/día no aguanta el anuncio) en la
   RONDA 1. Notas en `docs/DEVOPS_NOTES.md`.
