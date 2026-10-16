@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CardShowDay, CardShowSignupStatus, Prisma } from '@prisma/client';
+import { CardShowDay, CardShowLeadType, CardShowSignupStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { BusinessException } from '../../common/business.exception';
@@ -315,17 +315,99 @@ export class CardShowService {
     const lead = await this.prisma.cardShowLead.findUnique({ where: { id } });
     if (!lead) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'gone');
     if (lead.confirmedAt) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'already confirmed'); // un solo uso
-    await this.prisma.cardShowLead.update({
-      where: { id },
+
+    // ⭐ Transición PENDING→`new` ATÓMICA y de un solo uso: `updateMany … where confirmedAt IS NULL`
+    // ⇒ dos POST simultáneos del mismo token dan `count:1` en UNO solo. Ese UNO es el gatillo de la
+    // bienvenida C3-W y del aviso interno ⇒ ambos se disparan EXACTAMENTE una vez (§CARDSHOW.6/.9); el
+    // 2.º POST ve `count:0` ⇒ 410, 0 bienvenidas nuevas, 0 avisos nuevos.
+    const res = await this.prisma.cardShowLead.updateMany({
+      where: { id, confirmedAt: null },
       data: { confirmedAt: new Date(now), status: 'new', confirmationHeldAt: null },
     });
-    // Para vendedor/patrocinador: 1 aviso interno (≤ 10/h). (El correo real lo manda el monitor; aquí se registra.)
+    if (res.count !== 1) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'already confirmed');
+
+    // Bienvenida RICA (C3-W) a buzón YA confirmado: 1 sola vez, variante por tipo. Cuenta contra C1/C2.
+    await this.sendWelcome(lead, now);
+
+    // Para vendedor/patrocinador: 1 aviso interno (≤ 10/h), copy del dueño. (Además queda 1 AuditLog.)
     if (lead.type === 'merchant' || lead.type === 'sponsor') {
       if (await this.caps.reserveInternalNotice()) {
-        await this.audit.log({ action: 'card_show.internal_notice', entityType: 'CardShowLead', entityId: id, after: { type: lead.type } }).catch(() => undefined);
+        await this.mail
+          .sendInternalNotice({
+            type: lead.type,
+            name: null, // los leads no persisten nombre (⛔ nunca `playerName`) ⇒ «—»
+            email: lead.email,
+            utmSource: lead.utmSource,
+            utmMedium: lead.utmMedium,
+            utmCampaign: lead.utmCampaign,
+            createdAt: lead.createdAt,
+            adminLink: `${this.publicBase()}/admin/card-show/leads`,
+          })
+          .catch((e) => this.logger.error(`aviso interno: ${e}`));
+        await this.audit
+          .log({ action: 'card_show.internal_notice', entityType: 'CardShowLead', entityId: id, after: { type: lead.type } })
+          .catch(() => undefined);
       }
     }
     return { outcome: 'ok', state: 'new' };
+  }
+
+  /**
+   * Envía la BIENVENIDA C3-W (§CARDSHOW.9) a un lead recién confirmado. Gates: corte C6/C1, tope por
+   * dominio, tope por buzón CONFIRMADO (4/24 h) y presupuesto C1 — «cuenta contra C1/C2 como cualquier
+   * envío». Si algún gate no pasa ⇒ 0 bienvenidas (la fila ya quedó `new`; ⛔ no se retiene la bienvenida).
+   */
+  private async sendWelcome(
+    lead: { id: string; type: CardShowLeadType; email: string; mailboxHmac: string },
+    now: number,
+  ): Promise<void> {
+    if (await this.webhook.isCut()) return; // corte C6/C1 ⇒ 0 bienvenidas
+    const domain = emailDomain(lead.email);
+    if (!(await this.caps.reserveDomainSend(domain))) return; // tope por dominio (C2)
+    if (!(await this.caps.reserveConfirmedSend(lead.mailboxHmac))) return; // tope por buzón confirmado (C2)
+
+    const b = await this.budget.tryReserve(now); // presupuesto (C1)
+    if (b.crossed50) await this.alert('card_show.budget_50', { hour: b.hour, day: b.day });
+    if (b.cut) await this.alert('card_show.budget_cut', { hour: b.hour, day: b.day });
+    if (!b.allowed) {
+      if (b.failClosed) await this.alert('card_show.budget_fail_closed', {});
+      return; // 0 bienvenidas (sin reenvío automático)
+    }
+
+    const base = this.publicBase();
+    const unsubToken = this.tokens.issueLinkToken('lead', lead.id, 'unsubscribe', now);
+    const unsubscribeOneClickUrl = `${base}/api/v1/card-show/unsubscribe-oneclick?token=${encodeURIComponent(unsubToken)}`;
+    await this.mail
+      .sendWelcome({ to: lead.email, type: lead.type, unsubscribeOneClickUrl, base })
+      .catch((e) => this.logger.error(`bienvenida C3-W: ${e}`));
+  }
+
+  // ───────────────────────────── resumen diario de visitantes (interno, §CARDSHOW.9) ─────────────────────────────
+
+  /**
+   * Arma y envía el RESUMEN DIARIO de visitantes confirmados de un día (ventana `[from, to)`), con el
+   * total acumulado. ⚠️ El DISPARO (un job repetible ~08:00 America/Mexico_City) ⛔ NO está cableado aquí:
+   * el módulo Card Show no tiene scheduler propio. Devops lo engancha en la cola `tcg-daily` (S9) llamando
+   * a este método una vez al día. Ver `BACKEND_NOTES §CARDSHOW` (punto para devops/QA). Reserva 1 cupo de
+   * aviso interno (≤ 10/h) para no mezclarse con los avisos al staff.
+   */
+  async sendVisitorDailySummary(from: Date, to: Date): Promise<void> {
+    const [nuevos, totalAcumulado] = await Promise.all([
+      this.prisma.cardShowLead.findMany({
+        where: { type: 'visitor', confirmedAt: { gte: from, lt: to } },
+        orderBy: { confirmedAt: 'asc' },
+        select: { email: true, utmSource: true },
+      }),
+      this.prisma.cardShowLead.count({ where: { type: 'visitor', confirmedAt: { not: null } } }),
+    ]);
+    if (!(await this.caps.reserveInternalNotice())) return; // ≤ 10/h
+    await this.mail
+      .sendVisitorDailySummary({
+        date: from,
+        nuevos: nuevos.map((v) => ({ name: null, email: v.email, utmSource: v.utmSource })),
+        totalAcumulado,
+      })
+      .catch((e) => this.logger.error(`resumen diario: ${e}`));
   }
 
   /** Confirma una preinscripción asignando cupo AL CONFIRMAR, por orden, con reserva atómica (L0-SEG-02). */

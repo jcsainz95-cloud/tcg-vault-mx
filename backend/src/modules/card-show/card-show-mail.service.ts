@@ -3,8 +3,23 @@ import { ConfigService } from '@nestjs/config';
 import { promises as dns } from 'dns';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { ctaRows, headingRow, mailShell, proseRow, smallLinkRow, spacerRow } from '../buylist/mail-shell';
-import { CONFIRM_SUBJECT, ENV, LinkKind } from './card-show.constants';
+import {
+  CONFIRM_SUBJECT,
+  DEFAULT_INTERNAL_TO,
+  DEFAULT_MAIL_FROM,
+  DEFAULT_MAIL_REPLY_TO,
+  ENV,
+  INTERNAL_NOTICE_CC,
+  LinkKind,
+} from './card-show.constants';
 import { emailDomain } from './mailbox.util';
+import { renderWelcome, WelcomeParams } from './card-show-welcome.templates';
+import {
+  DailySummaryParams,
+  InternalNoticeParams,
+  renderInternalNotice,
+  renderVisitorDailySummary,
+} from './card-show-internal.templates';
 
 /**
  * card-show-mail.service.ts — v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.9, C3; §CARDSHOW.11 MX).
@@ -80,12 +95,22 @@ export class CardShowMailService {
     return this.mx.hasMailExchange(emailDomain(email));
   }
 
-  /** `From` del subdominio de envío propio — de entorno. Fallback al `MAIL_FROM` general si no se fijó. */
+  /** `From` del subdominio de envío propio — de entorno. Fallback al `MAIL_FROM` general y, al final, al default del dueño. */
   private from(): string {
     const own = (this.config.get<string>(ENV.MAIL_FROM) ?? '').trim();
     if (own) return own;
     const general = (this.config.get<string>('MAIL_FROM') ?? '').trim();
-    return general || 'no-reply@tcghunt.mx';
+    return general || DEFAULT_MAIL_FROM;
+  }
+
+  /** `Reply-To` de los correos de la landing (decisión del dueño: jsainz@tcghunt.mx). De entorno, con default. */
+  private replyTo(): string {
+    return (this.config.get<string>(ENV.MAIL_REPLY_TO) ?? '').trim() || DEFAULT_MAIL_REPLY_TO;
+  }
+
+  /** Destinatario interno principal (To) del aviso al staff / resumen diario. */
+  private internalTo(): string {
+    return (this.config.get<string>(ENV.INTERNAL_RECIPIENTS) ?? '').trim() || DEFAULT_INTERNAL_TO;
   }
 
   /**
@@ -166,6 +191,89 @@ export class CardShowMailService {
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };
+  }
+
+  // ───────────────────────────── C3-W: bienvenida RICA (tras confirmar un lead) ─────────────────────────────
+
+  /**
+   * Envía el correo de BIENVENIDA (C3-W) a un buzón YA confirmado. Rico (wa.me/utm/Drive/mailto/.ics/Maps).
+   * El llamador (CardShowService) ya decidió que toca enviar (una sola vez, tras PENDING→`new`, con topes/
+   * presupuesto reservados). Devuelve `true` si el transporte lo aceptó. ⛔ Nunca a una fila PENDING.
+   */
+  async sendWelcome(params: WelcomeParams): Promise<boolean> {
+    const r = renderWelcome(params);
+    try {
+      await this.mail.send({
+        to: r.to,
+        subject: r.subject,
+        html: r.html,
+        text: r.text,
+        from: this.from(),
+        headers: { ...r.headers, 'Reply-To': this.replyTo() },
+      });
+      return true;
+    } catch (e) {
+      this.logger.error(`Card Show: envío de bienvenida (C3-W) falló (${e instanceof Error ? e.message : String(e)}).`);
+      return false;
+    }
+  }
+
+  /** Expuesto para pruebas: render de la bienvenida C3-W (variante por tipo, enlaces ricos, 0 `playerName`). */
+  renderWelcome(params: WelcomeParams): { to: string; subject: string; html: string; text: string; headers: Record<string, string> } {
+    return renderWelcome(params);
+  }
+
+  // ───────────────────────────── correos INTERNOS (no sujetos a C3; ≤10/h lo gobierna el servicio) ─────────────────────────────
+
+  /**
+   * Envía el AVISO INTERNO al confirmar vendedor/patrocinador (copy del dueño). To = destinatario interno
+   * principal; CC fijo del equipo vía cabecera (⚠️ el CC real depende del adaptador — ver BACKEND_NOTES).
+   */
+  async sendInternalNotice(params: InternalNoticeParams): Promise<boolean> {
+    const r = renderInternalNotice(params);
+    try {
+      await this.mail.send({
+        to: this.internalTo(),
+        subject: r.subject,
+        html: r.html,
+        text: r.text,
+        from: this.from(),
+        headers: { 'Reply-To': this.replyTo(), Cc: INTERNAL_NOTICE_CC.join(', ') },
+      });
+      return true;
+    } catch (e) {
+      this.logger.error(`Card Show: aviso interno falló (${e instanceof Error ? e.message : String(e)}).`);
+      return false;
+    }
+  }
+
+  /** Expuesto para pruebas: render del aviso interno. */
+  renderInternalNotice(params: InternalNoticeParams): { subject: string; html: string; text: string } {
+    return renderInternalNotice(params);
+  }
+
+  /** Envía el RESUMEN DIARIO de visitantes (interno). To = destinatario interno principal. */
+  async sendVisitorDailySummary(params: DailySummaryParams): Promise<boolean> {
+    const r = renderVisitorDailySummary(params);
+    try {
+      await this.mail.send({
+        to: this.internalTo(),
+        subject: r.subject,
+        html: r.html,
+        text: r.text,
+        from: this.from(),
+        headers: { 'Reply-To': this.replyTo() },
+      });
+      return true;
+    } catch (e) {
+      this.logger.error(`Card Show: resumen diario falló (${e instanceof Error ? e.message : String(e)}).`);
+      return false;
+    }
+  }
+
+  /** Expuesto para pruebas: render del resumen diario. */
+  renderVisitorDailySummary(params: DailySummaryParams): { subject: string; html: string; text: string } {
+    return renderVisitorDailySummary(params);
   }
 
   from_(): string {

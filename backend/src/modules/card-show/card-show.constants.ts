@@ -15,6 +15,10 @@ export const ENV = {
   TRUST_PROXY_HOPS: 'TRUST_PROXY_HOPS',
   // El From/subdominio de envío propio de la landing (SPF/DKIM/DMARC lo prepara devops). ⛔ NUNCA hardcodeado.
   MAIL_FROM: 'CARD_SHOW_MAIL_FROM',
+  // Reply-To de los correos de la landing (decisión del dueño: jsainz@tcghunt.mx). Devops confirma el env.
+  MAIL_REPLY_TO: 'CARD_SHOW_MAIL_REPLY_TO',
+  // Destinatarios INTERNOS del aviso al staff / resumen diario (coma-separados). Default a `jsainz@tcghunt.mx`.
+  INTERNAL_RECIPIENTS: 'CARD_SHOW_INTERNAL_RECIPIENTS',
   // Base pública para construir los enlaces del correo (confirmar / «No fui yo» / aviso). Dominio propio.
   PUBLIC_BASE_URL: 'CARD_SHOW_PUBLIC_BASE_URL',
   // Cupo del torneo por día (dato de Jakomi; en staging = 2). Vacío ⇒ sin cupo conocido (no se recorta).
@@ -31,6 +35,16 @@ export const DEFAULT_BUDGET_HOUR = 150;
 export const DEFAULT_BUDGET_DAY = 600;
 export const DEFAULT_ALERT_EMAIL = 'jsainz@tcghunt.mx';
 export const DEFAULT_TRUST_PROXY_HOPS = 1;
+
+// ── Remitente de la landing (decisión del dueño 2026-10-16; devops confirma los env) ──
+/** `From` sensato por defecto si no hay `CARD_SHOW_MAIL_FROM` ni `MAIL_FROM`. */
+export const DEFAULT_MAIL_FROM = 'TCG HUNT <contacto@tcghunt.mx>';
+/** `Reply-To` por defecto de los correos de la landing. */
+export const DEFAULT_MAIL_REPLY_TO = 'jsainz@tcghunt.mx';
+/** Destinatario interno principal (To) del aviso al staff / resumen diario. */
+export const DEFAULT_INTERNAL_TO = 'jsainz@tcghunt.mx';
+/** CC fijo del aviso interno al staff (copy del dueño). El From/Reply-To se añaden aparte. */
+export const INTERNAL_NOTICE_CC = ['cardshow@jakomi.mx', 'scarranza@tcghunt.mx'];
 
 // ── Token de formulario (L0-SEG-04, §CARDSHOW.5) ──
 export const FORM_TOKEN_MIN_AGE_MS = 2_000; // POST < 2 s ⇒ demasiado rápido para un humano (silencioso 0/0)

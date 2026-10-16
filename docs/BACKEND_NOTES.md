@@ -28,6 +28,69 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.61 — ⭐⭐ **§CARDSHOW.9 C3-W: correo de BIENVENIDA RICO (3 variantes) + aviso interno + resumen diario** (2026-10-16, rama `feat/event-landing`, `ARCHITECTURE §4.CARDSHOW.m`)
+
+**Qué entró (solo `backend/`).** El doble opt-in del Card Show ya mandaba el correo de CONFIRMACIÓN
+C3 (estricto). Ahora, al **confirmar un lead** (transición PENDING→`new`), el backend manda **1** correo
+de **BIENVENIDA C3-W** (rico) y, si el lead es `merchant`/`sponsor`, el **aviso interno** al equipo.
+También queda lista la plantilla + el método del **resumen diario** de visitantes.
+
+**Ficheros:**
+- `backend/src/modules/card-show/card-show-content.ts` — **datos PÚBLICOS** del evento + enlaces ricos
+  (WhatsApp `525564893921`, Drive deck, Maps, mailto patrocinio, plano, `.ics`). Por decisión del dueño
+  (2026-10-16) estos datos **ya son públicos** y van en el código. ⛔ **Ningún nombre de patrocinador**
+  (los textos del dueño no los mencionan; este módulo tampoco).
+- `backend/src/modules/card-show/card-show-welcome.templates.ts` — `renderWelcome()` con **3 variantes**
+  por `CardShowLeadType` (merchant/sponsor/visitor), textos verbatim del dueño. Va sobre `mailShell` (§31)
+  pero con builders de CTA **locales** que admiten `mailto:` además de http(s) — el esqueleto estricto solo
+  admite http(s) por diseño (C3), así que C3-W no reusa su `ctaRows`/`smallLinkRow`.
+- `backend/src/modules/card-show/card-show-internal.templates.ts` — `renderInternalNotice()` (copy del
+  dueño) y `renderVisitorDailySummary()`. Van con `mailShell` audiencia `staff` (sin pie de privacidad).
+- `card-show-mail.service.ts` — `sendWelcome/sendInternalNotice/sendVisitorDailySummary` (+ sus `render*`
+  públicos para pruebas). `From` del remitente (env `CARD_SHOW_MAIL_FROM` → `MAIL_FROM` → default
+  `TCG HUNT <contacto@tcghunt.mx>`), `Reply-To` por cabecera (env `CARD_SHOW_MAIL_REPLY_TO`, default
+  `jsainz@tcghunt.mx`). C3 confirmación ⛔ **no se tocó** (sigue sin `Reply-To` extra, byte a byte).
+- `card-show.service.ts` — `confirmLead()` ahora hace la transición **atómica** (`updateMany … where
+  confirmedAt IS NULL`): el único que obtiene `count:1` dispara bienvenida + aviso interno ⇒ **exactamente
+  una vez** incluso con dos POST simultáneos; el 2.º POST da `410`, 0 bienvenidas/0 avisos nuevos.
+  `sendWelcome()` cuenta contra C1 (`budget.tryReserve`) y C2 (`reserveDomainSend` + `reserveConfirmedSend`,
+  tope de buzón **confirmado** 4/24 h) y respeta el corte C6/C1 — si algún gate no pasa ⇒ 0 bienvenidas
+  (la fila ya quedó `new`; ⛔ no se retiene la bienvenida).
+
+**Reglas honradas (medidas por prueba):** C3-W permite `wa.me`/`utm_*`/Drive/`mailto:`/`.ics`/Maps;
+C3 confirmación **sigue** sin ninguno de esos (prueba de contraste en `card-show.internal-mail.spec.ts`);
+⛔ sin `playerName` (los leads ni lo tienen); `List-Unsubscribe(+Post)` tokenizado en C3-W.
+
+**⚠️ Para DEVOPS / ARQUITECTO (NO cambié el contrato; regla 9):**
+1. **`.ics` «Agregar al calendario»**: el correo a visitante enlaza a
+   `{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26` (dominio
+   propio). **Hoy NO existe ese recurso** — lo sirve el **frontend** (ruta estática) o un endpoint nuevo;
+   el contrato no define un endpoint `.ics`. Si se prefiere endpoint backend, pasa por el arquitecto.
+2. **CC del aviso interno**: la copy pide `To: jsainz@tcghunt.mx · CC: cardshow@jakomi.mx,
+   scarranza@tcghunt.mx`. El puerto `MailMessage` **no tiene campo `cc`**; lo mando por cabecera `Cc`.
+   El `ResendMailAdapter` pasa `headers` tal cual, pero **Resend hace el CC real con su parámetro `cc`**,
+   no por cabecera arbitraria. **Pendiente devops/arquitecto:** o añadir `cc?` al puerto, o verificar que
+   Resend respeta la cabecera `Cc`. En `NoopMailAdapter` (dev/CI) solo se loguea. En no-local el To llega.
+3. **Resumen diario de visitantes**: dejé `CardShowService.sendVisitorDailySummary(from, to)` (consulta
+   visitantes confirmados en `[from, to)` + total acumulado y manda el correo interno, ≤10/h). **El
+   DISPARO no está cableado**: el módulo Card Show no tiene scheduler propio. **Pendiente devops:**
+   engancharlo como job repetible ~08:00 America/Mexico_City en la cola `tcg-daily` (S9), llamando a ese
+   método con la ventana del día anterior (CDMX).
+4. **Envs nuevos** (defaults sensatos en código; devops los fija en Railway): `CARD_SHOW_MAIL_REPLY_TO`
+   (default `jsainz@tcghunt.mx`), `CARD_SHOW_INTERNAL_RECIPIENTS` (To interno, default `jsainz@tcghunt.mx`).
+
+**Pruebas (autor: backend; 2026-10-16; `npx jest test/card-show` ⇒ 13 suites, 87 pruebas verdes, N=1 por
+caso):** `card-show.welcome-mail.spec.ts` (variantes + enlaces ricos + From/Reply-To),
+`card-show.internal-mail.spec.ts` (contraste C3 estricto vs C3-W + copy interna + resumen diario),
+`card-show.welcome-trigger.spec.ts` (disparo: 1 por confirmación, variante correcta, reconfirmar ⇒ 0,
+carrera perdida ⇒ 0). **Mutación (O-9):** quité el candado `if (res.count !== 1) throw` ⇒ la prueba
+«carrera perdida» se pone **roja** (resuelve `{outcome:'ok'}` en vez de 410 y dispararía bienvenida);
+restaurado y verde de nuevo. `npm run typecheck` limpio.
+
+**Para QA (necesita DB/stack real):** la exactitud **bajo concurrencia** de la transición atómica
+(dos POST simultáneos del mismo token ⇒ 1 bienvenida) se afirma por el `updateMany` guardado, pero mi
+prueba la modela con mock; conviene un caso E2E contra Postgres (N≥10) como los de torneo (§CARDSHOW.12).
+
 ## 0.60 — ⭐⭐ **v1.94.2⟨sellado-display⟩: el CANDADO que cierra la clase entera del bug de sellado-display** (2026-10-13, rama `fix/sealed-display`, `ARCHITECTURE §4.34a.2`)
 
 > **Qué es:** el bug «un sellado se pinta como su carta ancla (Exeggcute)» es una CLASE («la cascada de display copiada a
