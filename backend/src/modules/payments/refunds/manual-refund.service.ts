@@ -27,6 +27,7 @@ import { parseAdminListFilters } from '../../../common/admin-list-filters';
 import { parseEnumFilter } from '../../../common/enum-filter';
 import { MAIL_PORT, MailPort } from '../../mail/mail.port';
 import { PreparationCardDTO, nullIfBlank, preparationCardOf } from '../../shipments/preparation-view';
+import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { customerDisplayName } from '../../vault/customer-display-name';
 import { CLABE_RECENT_CHANGE_MS, REFUND_FAILURE_DISPUTE_CODES } from '../../vault/replacement-case.rules';
 import { manualRefundAnnouncedTemplate, manualRefundPaidTemplate } from './mail/refund-notice.templates';
@@ -778,7 +779,8 @@ export class ManualRefundService {
           paymentRefund: { select: { amountCents: true, status: true } },
           replacementCase: { select: { refund: { select: { amountCents: true, status: true } } } },
           // v1.82 (§PNL.3): la variante `withdrawal_delivered` nombra la carta y el retiro.
-          shipmentItem: { select: { shipmentRequestId: true, inventoryItem: { select: { card: { select: { name: true } } } } } },
+          // §4.34a.2 — + identidad de sellado para nombrar el SealedProduct, no el ancla.
+          shipmentItem: { select: { shipmentRequestId: true, inventoryItem: { select: { productType: true, sealedProductId: true, sealedProductName: true, card: { select: { name: true } } } } } },
         },
       });
       for (const r of rows) {
@@ -801,7 +803,7 @@ export class ManualRefundService {
               cardCents,
               clabeMasked: maskClabe(clabe) ?? null,
               ...(r.source === 'withdrawal_delivered' && r.shipmentItem
-                ? { withdrawal: { reference: r.shipmentItem.shipmentRequestId, cardName: r.shipmentItem.inventoryItem.card.name, reason: r.deliveredReason } }
+                ? { withdrawal: { reference: r.shipmentItem.shipmentRequestId, cardName: pieceDisplayIdentityOf(r.shipmentItem.inventoryItem).name, reason: r.deliveredReason } }
                 : {}),
             },
             user.locale,

@@ -47,7 +47,7 @@ type Render = (l: Locale) => Pick<MailMessage, 'html'>;
 
 const AT = new Date('2026-10-05T18:00:00-06:00');
 const PORTAL = 'https://tienda.example.test/es/buylist/requests/sr-1';
-const items = [{ name: 'Charizard VMAX', setName: 'Darkness Ablaze', number: '020/189' }];
+const items = [{ name: 'Charizard VMAX', setName: 'Darkness Ablaze', number: '020/189', productType: 'raw' as const }];
 
 const RENDERS: Record<string, Render> = {
   // Cuenta (verificación, restablecer contraseña) y el aviso de bloqueo, mismo pie.

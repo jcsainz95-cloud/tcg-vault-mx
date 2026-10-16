@@ -8,6 +8,7 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../../common/admin-list-filters';
 import { parseEnumFilter } from '../../../common/enum-filter';
+import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MoneyOut } from '../../../common/decorators/money-out.decorator';
 import { NON_FAILED, RefundLedgerService } from './refund-ledger.service';
@@ -86,8 +87,9 @@ export class AdminRefundsController {
         include: {
           order: { select: { id: true, orderNumber: true, userId: true, guestEmail: true } },
           shipmentRequest: { select: { id: true, userId: true } },
-          shipmentItem: { select: { shipmentRequestId: true, inventoryItem: { select: { folio: true, card: { select: { name: true } } } } } },
-          replacementCase: { select: { originalInventoryItem: { select: { folio: true, card: { select: { name: true } } } } } },
+          // §4.34a.2 — + identidad de sellado para nombrar el SealedProduct, no el ancla.
+          shipmentItem: { select: { shipmentRequestId: true, inventoryItem: { select: { folio: true, productType: true, sealedProductId: true, sealedProductName: true, card: { select: { name: true } } } } } },
+          replacementCase: { select: { originalInventoryItem: { select: { folio: true, productType: true, sealedProductId: true, sealedProductName: true, card: { select: { name: true } } } } } },
         },
       }),
       this.prisma.paymentRefund.count({ where }),
@@ -105,7 +107,7 @@ export class AdminRefundsController {
         order: r.order ? { id: r.order.id, orderNumber: r.order.orderNumber } : null,
         shipmentId: r.shipmentRequestId ?? r.shipmentItem?.shipmentRequestId ?? null,
         customer,
-        item: item ? { folio: item.folio, cardName: item.card.name } : null,
+        item: item ? { folio: item.folio, cardName: pieceDisplayIdentityOf(item).name } : null,
       });
     }
     return { data, page: f.page, pageSize: ps, total, sumCents: sum._sum.amountCents ?? 0 };

@@ -4,6 +4,56 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.94⟨sellado-display⟩ — EL SELLADO SE PINTA COMO CARTA SUELTA EN PEDIDO/FULFILLMENT: la cascada §4.34a
+> nunca llegó a la zona de órdenes, preparación, acta congelada, tracking y reembolsos** (2026-10-13, arquitecto, rama
+> `fix/sealed-display` desde `production`; ⛔ sha NO MEDIDO: sin Bash). 🐞 **BUG DE PRODUCCIÓN, zona de dinero/fulfillment.**
+> Origen: primer pedido real — el cliente compró un producto **sellado** («30th Celebration», tipo binder/poster), se
+> cobró el **precio de sellado correcto**, pero «Pedidos por preparar · Junta y palomea» y el acta lo pintan como carta
+> suelta («Exeggcute · 30th Celebration · NORMAL · Mint», folios INV-001281/INV-001276). **Causa raíz medida (NO es mala
+> venta, es display):** la pieza reservada ES la sellada (ver abajo); el ancla `cardId` (Exeggcute, §4.34a) se filtra en
+> toda superficie de pedido que pinta una pieza por su `card.name` sin rama de sellado. La tienda ya resuelve bien
+> (`sealed-catalog.service.ts:263` cascada `sealedProductName ?? card.name`); la **operación/pedido** nunca recibió esa
+> cascada (es la deuda D-IMG-2 de §9, elevada de «baja» a **bloqueante** por tocar dinero/fulfillment). Secciones:
+> **§4.34a.2 NUEVA** (regla única de identidad de display de una pieza, para TODAS las superficies de pedido) y **§5.2.6
+> ACTUALIZADA** (la petición regla-9 que §5.2.6 dejó enrutada **llega**: el acta congela ahora el nombre CORRECTO del
+> sellado). **Cero DDL, cero migración de BD** (`OrderItem.cardSnapshot` es columna JSON: `FrozenCardFacts` gana
+> `sealedProductId?`/`sealedProductName?` ⇒ cambio de forma + sus cerrojos de tipos, no `ALTER TABLE`; corrige la
+> imprecisión «DDL aditivo» que §5.2.6 arrastraba). **Cero enums nuevos** (`ProductType` ya trae `sealed`). Zona
+> compartida tocada por backend: `orders/`, `shipments/`, `common/` (serializar). Contrato **API_CONTRACT v1.94⟨sellado-display⟩**.
+> BACKEND implementa (modelo fuerte escribe el plano + la prueba que falla, §5.2.6-D); luego **QA + techlead + seguridad**.
+> ---
+> **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA tras el rechazo de QA/techlead a `b70e272`** (2026-10-13,
+> arquitecto, rama `fix/sealed-display`; ⛔ sha NO MEDIDO: sin Bash). El resolutor único de `b70e272` está bien, pero la
+> enumeración de superficies se hizo con `grep '\.card\.name'` y **dejó pasar accesos ALIASEADOS** (`const card =
+> x.inventoryItem.card; … card.name`), con **superficies de cara al cliente filtrando el ancla**. Esta errata re-enumera
+> SEMÁNTICAMENTE (toda lectura de la relación `InventoryItem.card`), cierra **3 escapes** (`toClientShipmentItem` §5 —
+> BLOQUEANTE; imagen del tracking de invitado §4-G; correo AV-12), **unifica las 4 copias divergentes de la cascada
+> (D-2)** al resolutor, **corrige D-4** (el nombre de un sellado JAMÁS cae al ancla — el doc se contradecía) y **exige la
+> suite de integración/E2E** (hoy inexistente pese a que `sealed-display.be.spec.ts:15-16` afirma que existe). Método,
+> tabla-veredicto por fichero:línea y reparto en **§4.34a.2(B)/(E)**; forma de `ClientShipmentItemDTO` en API_CONTRACT §5.
+> Único cambio de FORMA de contrato: `ClientShipmentItemDTO` gana `productType` y su `imageSmallUrl` pasa a `string|null`
+> (ambos aditivos/retrocompatibles). Lo demás es CÓDIGO (backend) sin cambio de contrato. Tres veredictos (dinero/fulfillment).
+> ---
+> **Errata v1.94.2⟨sellado-display⟩ — EL CANDADO MECÁNICO ES AHORA EL MECANISMO NORMATIVO; se corrige la sobre-afirmación
+> M-3 (QA/techlead)** (2026-10-13, arquitecto, rama `fix/sealed-display`, árbol `dde121d`; ⛔ sha NO MEDIDO: sin Bash).
+> **Esta errata NO cambia ninguna forma de contrato ni el schema; corrige doctrina y cierra el hallazgo M-3.**
+> - **M-3 corregido (sobre-afirmación medida 3 veces):** la v1.94.1 llamó a la re-enumeración «SEMÁNTICA» y afirmó que
+>   «cierra el hueco» / que la lista era «COMPLETA». **Eso era una afirmación de clase (B) escrita como (A)** (§0-B): una
+>   enumeración a mano —por grep, por directorio, o por lectura humana— es exhaustiva el día que se escribe y nunca más,
+>   y **falló tres veces** (grep en `b70e272`, y dos relecturas humanas que seguían dejando ofensores). La completitud
+>   **ya NO depende de ninguna enumeración**: la **garantiza el candado `backend/test/sealed-display-guard.spec.ts`**
+>   (escaneo estático que FALLA en CI ante cualquier lectura del `card.name`/`card.number`/`card.imageSmallUrl` del ancla
+>   —directa **o aliaseada**— para un sellado fuera de `pieceDisplayIdentityOf`, salvo allowlist explícita con razón).
+>   Las tablas de (B)/(E) pasan a ser **evidencia histórica de cómo se descubrió la clase, NO el inventario que la cierra**.
+> - **Ratificación:** el candado es el mecanismo normativo de la doctrina **«no se copia la cascada de display en ningún
+>   servicio»** (§4.34a.2(C)); el censo de allowlist (31 entradas, cada una con razón) es su contraparte auditable. El
+>   candado cazó 4 ofensores fuera del alcance normado (§4.34a.2(F)) que tres enumeraciones a mano no vieron.
+> - **Dos preguntas de política que backend rebotó (regla 9), resueltas en §4.34a.2(F):** (a) el export `.xlsx` de
+>   inventario muestra la **carta ancla** en «Carta»/«Número» para toda pieza incl. sellada → **ACEPTABLE por diseño**
+>   (volcado crudo del inventario del dueño; la columna «Tipo» desambigua), queda en la allowlist; (b) `PriceReviewCaseDTO.card`
+>   y la cola M2 → **CORRECTO por diseño** (🔵), el bloque `card` es la identidad del ancla por contrato y la del sellado
+>   viaja aparte (`sealedProductName` resuelto). Ninguna es la clase «cascada `?? card.name` del NOMBRE de un sellado».
+> ---
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: redundancia multi-fuente, árbitro de MEDIANA y candado anti-inflado ×5**
 > (2026-10-11, arquitecto, rama `claude/precios-redundancia` en `/home/user/tcg-precios`, base `1ba098a4` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §PRE` (rev v1.91⟨precios⟩); porqué, modelo y árbol
@@ -10535,6 +10585,258 @@ toca** (sigue leyendo solo `id` + estado, que es lo que mantiene acotada la memo
 Si sale **0**, el tercer caso es puro seguro de vida (una proyección degradada o un backend viejo) y no hay trabajo
 de curaduría; si sale **> 0**, esas piezas necesitan identidad tecleada en M1 — **trabajo de captura, no de
 software** (§4.34a: ninguna migración adivina qué presentación era).
+
+#### 4.34a.2 v1.94⟨sellado-display⟩ — la cascada §4.34a llega a PEDIDO/FULFILLMENT, con UN resolutor para todas las superficies
+
+*Primer pedido real: el cliente compró un producto **sellado** y «Pedidos por preparar · Junta y palomea» y el acta se
+lo enseñan al operador como **carta suelta** (el single ancla Exeggcute). §4.34a.1 arregló la cola de M1; la zona de
+pedido/fulfillment nunca recibió esa cascada.*
+
+**(A) Confirmado: es DISPLAY, no una mala venta** (medido, O-1, fichero:línea):
+
+1. El carrito viaja como **`inventoryItemId`s explícitos** (`orders.service.ts:680` `for (const id of uniqueIds)`), y el
+   checkout los **mira por id** (`:681` `byId.get(id)`) y reserva **esas mismas piezas** (`reserveItems`,
+   `orders.service.ts:892` — `updateMany` que solo transiciona `status→reserved` sobre los ids dados; ⛔ **no re-elige**
+   «otra carta del mismo nombre»). El representante del grid es ya la pieza sellada (`sealed-catalog.service.ts:257`
+   `representativeItemId: item.id`). ⇒ la pieza reservada **es** la sellada (su `sealedProductId`/`sealedProductName`
+   poblados; `productType='sealed'`), no una carta suelta.
+2. El precio cobrado fue el **de sellado** (dueño: «se le cobró el precio de sellado correcto»), que solo sale de la
+   derivación de sellado (`sealed-catalog.service.ts:298` `displayOf`/`saleDisplayCentsOf`). Si la pieza fuese una carta
+   suelta, el precio sería el del single.
+3. La «NORMAL · Mint» de la captura es el **acabado + condición de la propia pieza sellada** (sellado ⇒ `finish='normal'`,
+   `sealedCondition` default `mint`, schema `schema.prisma:1062,1080`), renderizados por el camino de carta — **consistente
+   con una pieza sellada mal rotulada**, no con un single.
+4. **Confirmación que corre el dueño** (no software; O-6, la correría en prod):
+   `SELECT "productType","sealedProductId","sealedProductName" FROM "InventoryItem" WHERE folio IN ('INV-001281','INV-001276');`
+   — esperado `sealed` + ids poblados. **NO MEDIDO por mí (sin Bash);** si saliera `normal`, entonces sí sería mala venta
+   y vuelve a backend como otro defecto. La hipótesis medida por líneas 1-3 es **display**.
+
+**(B) TODAS las superficies que filtran el ancla para un sellado de PEDIDO.**
+
+> ⚠️ **MÉTODO DE ENUMERACIÓN — CORREGIDO en la errata v1.94.1⟨sellado-display⟩ (lee esto antes de confiar en la tabla).**
+> La enumeración ORIGINAL se hizo con `grep '\.card\.name'` + los usos de `preparationCardOf`. **Ese método es
+> incompleto y dejó pasar superficies de cara al cliente** (QA/techlead rechazaron `b70e272` por ello): `grep
+> '\.card\.name'` **no caza el acceso aliaseado** — `const card = x.inventoryItem.card; … card.name`,
+> `const { card } = …`, `const fromCase = …originalInventoryItem.card; fromCase?.name`— ni los accesos a otras ramas
+> de la relación (`.card.set`, `.card.number`, `.card.imageSmallUrl`). **El método CORRECTO es SEMÁNTICO:** auditar
+> *toda lectura de la relación `InventoryItem.card`* en las superficies de display de `orders/`, `shipments/`, `vault/`,
+> `payments/refunds/` y los servicios que componen correo, y para cada una decidir si **pinta identidad de pieza** (y
+> entonces exige el resolutor) o no. Patrones auditados en la re-enumeración, uno por uno:
+> `\.card\.name`, `\.card\.set`, `\.card\.number`, `\.card\.imageSmallUrl`, `\.card\b` (acceso y alias),
+> `(const|let)\s+(card|\{…card…\})\s*=`, `inventoryItem\.card`, `originalInventoryItem\.card`,
+> y el rastreo de cada alias local hasta sus usos. Tablas abajo (la de 15 + los 3 escapes en §4.34a.2(E)).
+> ⚠️ **CORRECCIÓN M-3 (errata v1.94.2):** estas tablas describen **cómo se descubrió la clase**, NO son la garantía de
+> que esté cerrada. Una enumeración a mano —aunque sea «semántica»— es exhaustiva el día que se escribe y nunca más, y
+> este método **falló una tercera vez** (dos relecturas humanas dejaron ofensores que el grep tampoco vio). La
+> completitud la **garantiza el candado `backend/test/sealed-display-guard.spec.ts`** (§4.34a.2(F)): cualquier copia
+> nueva —directa o aliaseada— rompe CI. No se vuelve a confiar en una lista poblada a mano para esta clase.
+
+Tabla original (las 15 que el primer arreglo `b70e272` sí cubrió; líneas PRE-arreglo):
+
+| # | Superficie | Fichero:línea | Cómo filtra el ancla |
+|---|---|---|---|
+| 1 | **Preparación «Junta y palomea»** (la captura) | `shipments/shipment-prep.service.ts:300` vía `preparationCardOf(p)` | `preparation-view.ts:176` `name: item.card.name` |
+| 2 | Contexto interno de línea de prep (avisos/reembolso) | `shipments/shipment-prep.service.ts:320` | `cardName: p.card.name` |
+| 3 | Aviso de casos «por reponer» de un envío | `shipments/shipment-prep.service.ts:1013` | `c.originalInventoryItem.card.name` |
+| 4 | DTO de envío (cliente/operador) | `shipments/shipments.service.ts:1531` vía `preparationCardOf(item)` | ídem `preparation-view.ts:176` |
+| 5 | «Por reponer» (replacement case) | `vault/replacement-case.service.ts:375` vía `preparationCardOf(piece)` | ídem |
+| 6 | Levantamiento físico de bóveda | `vault/vault-physical-inventory.service.ts:146,162` vía `preparationCardOf` (y `:189` compara `card.name`) | ídem |
+| 7 | Preparación de bóveda (retiro) | `vault/vault-preparation.view.ts:153` vía `preparationCardOf(piece)` | ídem |
+| 8 | **Tracking de pedido invitado** | `orders/guest-checkout.service.ts:865` | `name: oi.inventoryItem.card.name` (vivo) |
+| 9 | **Acta congelada del pedido** (snapshot) | `orders/orders.service.ts:858` `cardSnapshot` | congela `item.card.name` → §5.2.6 |
+| 10 | **Historial del pedido** (`GET /orders/:id`) | `orders/orders.service.ts:821,2036` `resolveOrderItemCard(...)` | **lee** el acta congelada (9) ⇒ pinta lo que se congeló |
+| 11 | Lista «no disponibles» del checkout | `orders/orders.service.ts:687` | `cardName: item.card.name` |
+| 12 | Reembolsos — total | `payments/refunds/full-refund.service.ts:714,728` | `cardName: ...card.name` |
+| 13 | Reembolsos — aviso al admin | `payments/refunds/admin-refunds.controller.ts:108` | `cardName: item.card.name` |
+| 14 | Reembolsos — manual (retiro) | `payments/refunds/manual-refund.service.ts:804` | `cardName: ...inventoryItem.card.name` |
+| 15 | Reembolsos — reportes | `payments/refunds/refund-reports.service.ts:75` | `cardName: m.item.card.name` |
+
+**Las 4 copias divergentes de la cascada (D-2) — DECISIÓN v1.94.1⟨sellado-display⟩: SE UNIFICAN AL RESOLUTOR AHORA.**
+`vault/vault.service.ts:156-165` (`resolveSealedDisplay` → `HoldingDTO.sealedProductName`),
+`catalog/sealed-catalog.service.ts:263-264` (grid público `SealedGroupDTO.productName/imageUrl`),
+`sales-analytics/sales-analytics.service.ts:385` (reporte admin) y `catalog/sealed-restock-notify.service.ts:125`
+(aviso de reposición) — todas hacen `… sealedProductName ?? card.name` **cayendo al ancla como último recurso del
+NOMBRE**, en vez de a «Sellado sin identificar».
+
+**Por qué se unifican y no se dejan como deuda (decisión del arquitecto, regla 9):** la causa raíz de ESTE bug —y del
+re-rechazo— es que la cascada vivía **copiada**; §4.34a.2(C) ya lo normó («no se vuelve a copiar la cascada a mano en
+ningún servicio»). Dejar 4 copias con el peldaño inseguro `?? card.name` es exactamente el residuo que un cuarto
+audit volvería a cazar — y **dos de las cuatro son de cara al cliente** (grid público de sellado, `HoldingDTO` de la
+bóveda del cliente; una tercera, restock, puede llegar a un correo). Un cliente **jamás** debe ver «Exeggcute» por un
+sellado. Las cuatro pasan a consumir `pieceDisplayIdentityOf` y su regla única (nombre nunca-ancla; imagen
+`sealedImageUrl → sealedProduct?.imageUrl → card.imageSmallUrl → null`, idéntica a la que ya tenían salvo el peldaño
+vivo opcional, que ninguna une ⇒ **comportamiento de imagen idéntico**).
+
+**Cambio de conducta a NORMAR (y es la conducta correcta):** un sellado **sin** nombre vivo **ni** snapshot pasa de
+pintar el ancla a pintar **«Sellado sin identificar»**. En la práctica ese caso es inalcanzable en estas cuatro (un
+sellado en grid/holdings/restock/analytics siempre trae `sealedProductName`), por lo que la unificación es
+**behavior-neutral en producción** y solo elimina el fallback latente. **Backend actualiza el único test que fijaba el
+fallback al ancla —`vault/vault.holdings-sealed-identity.spec.ts:105`— para que afirme la regla SEGURA** (pasa a ser
+canario del resolutor, no del ancla); el modelo fuerte reintroduce `?? card.name` y confirma que el test se pone rojo.
+
+**TECH_DEBT.md (lo que anota backend):** **ninguna deuda de divergencia** queda viva tras esto (la clase «cascada
+copiada» se cierra; se puede registrar como entrada CERRADA con fecha). Lo ÚNICO que permanece abierto es el conteo
+**NO MEDIDO** de §4.34a.1 (piezas selladas vivas sin `sealedProductId` **y** sin `sealedProductName`): si la consulta
+de §4.34a.1 devuelve **> 0**, esas piezas necesitan **identidad tecleada en M1 — trabajo de captura, no de software**,
+y eso sí se anota en `TECH_DEBT.md` con su disparador (el conteo) y dueño (operación/captura, no backend).
+
+**(C) LA REGLA ÚNICA — «identidad de display de una pieza» (normativa).** Un **solo** resolutor puro, en zona compartida
+(`backend/src/common/`, p. ej. `piece-display-identity.ts`), que TODAS las superficies de (B) y las cuatro ya-correctas
+consumen. No se vuelve a copiar la cascada a mano en ningún servicio.
+
+- **Firma (pseudocódigo, no implementación):**
+  `pieceDisplayIdentityOf(item: { productType; card: {name;number;imageSmallUrl;set?}; sealedProductId?; sealedProductName?; sealedImageUrl?; sealedProduct?: {name;imageUrl} | null }) → { name: string; imageSmallUrl: string | null; isSealed: boolean }`
+- **Discriminante:** `isSealed = item.productType === 'sealed'` (equivalente observado: `sealedProductId != null`). ⛔ Nunca
+  `!('rawCondition' in …)` (ya avisado en contrato §4).
+- **Cascada (idéntica a §4.34a, ni un peldaño nuevo):**
+  - `name` sellado = `sealedProduct?.name` (vivo, si se unió por `sealedProductId`) → `sealedProductName` (snapshot
+    por-pieza) → **«Sellado sin identificar»** (`UNIDENTIFIED_SEALED_NAME`). ⛔ **El nombre JAMÁS cae al `card.name` del
+    ancla.** *(**Corrección D-4, errata v1.94.1⟨sellado-display⟩**: una versión anterior de este bullet decía «→
+    `card.name` (ancla, último recurso)», que contradecía al propio sub-bullet de abajo y a §4.34a.1. El código siguió
+    la regla SEGURA — `piece-display-identity.ts:80`, `firstNonBlank(sealedProduct?.name, sealedProductName) ??
+    UNIDENTIFIED_SEALED_NAME`. Este documento ahora norma UNA sola cosa: la segura. Caer al ancla **es** el bug que esta
+    sección vino a matar; el nombre no tiene cola de ancla, solo la imagen la tiene.)*
+  - `imageSmallUrl` sellado = `sealedImageUrl` (snapshot) → `card.imageSmallUrl` (ancla) → `null` honesto. *(El peldaño
+    vivo `sealedProduct.imageUrl` se usa donde ya se une el `SealedProduct`; no se abre un join oportunista solo por la
+    imagen — §5.2.5.)*
+  - **no-sellado** = `card.name` / `card.imageSmallUrl`, exactamente como hoy.
+- **`number` y `finish`:** un sellado **nunca** enseña `card.number` (es del ancla) y su `finish` es siempre `normal`
+  (misma regla que §4.34a.1 / `FinishBadge.tsx:21`). `preparationCardOf` (que compone `conditionLabel` y `setName`) pasa a
+  derivar `name`/`imageSmallUrl` del resolutor y a **omitir el número del ancla** para sellado.
+- **Sellado sin nombre resoluble** (ni vivo, ni snapshot) ⇒ el operador ve «sellado sin identificar», **jamás** el
+  `card.name` del ancla (misma doctrina que §4.34a.1: ante un «no sé» no se pinta un valor que parezca bueno). **NO
+  MEDIDO** cuántas piezas vivas caen aquí; lo cierra el conteo de §4.34a.1.
+- **Money-safe:** solo display/identidad; ⛔ no toca precio, importe ni valuación.
+
+**(D) Reparto / zonas compartidas.** Backend implementa en `orders/`, `shipments/`, `vault/`, `payments/refunds/` y crea
+el resolutor en `common/` (zona compartida: serializar, un stream a la vez, §CLAUDE «Zonas compartidas»). Es
+**dinero/fulfillment** ⇒ tras backend, **QA + techlead + seguridad** (tres veredictos). Prueba que debe fallar: §5.2.6-D.
+Ni el arquitecto ni otro rol tocan esos ficheros (regla 8).
+
+#### 4.34a.2(E) Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA tras el rechazo de QA/techlead a `b70e272`
+
+El primer arreglo (`b70e272`) construyó el resolutor único (`piece-display-identity.ts`) — **bien** — y lo cableó en
+15 superficies. **QA y techlead lo RECHAZARON** porque la enumeración de (B) se hizo con `grep '\.card\.name'`, que
+**no caza el acceso aliaseado**, y quedaron superficies filtrando el ancla —una **de cara al cliente**—. Esta errata
+re-enumera a mano (método en (B)) y arregla los escapes que esa re-lectura encontró. ⚠️ **Pero re-enumerar a mano NO
+cierra la clase** (M-3, corregido en errata v1.94.2): esta misma re-enumeración volvió a dejar ofensores, cazados
+después por el candado mecánico (§4.34a.2(F)). Lo de abajo es el **registro de lo que esta re-lectura vio**, no la
+prueba de completitud; la prueba de completitud es el candado. **Todo lo de abajo es money-safe (display/identidad); no
+toca precio, importe ni valuación.**
+
+**Veredicto por fichero:línea de la re-enumeración (medido en `b70e272` por lectura directa; los números son de ESE
+árbol, no PRE-arreglo).** Tres clases: ✅ ya resuelto, 🐞 escape (hay que arreglarlo), 🔵 no es identidad de pieza
+(no necesita resolutor).
+
+| Superficie | Fichero:línea | Lectura de `card` | Veredicto |
+|---|---|---|---|
+| Operador — prep «Junta y palomea» | `shipments/preparation-view.ts:190` (`preparationCardOf`) | `pieceDisplayIdentityOf(item)` | ✅ resuelto (name+imagen); `setName` = set del ancla (legítimo, pertenencia) |
+| Operador — contexto interno de línea | `shipments/shipment-prep.service.ts:323` | `pieceDisplayIdentityOf(p).name` | ✅ |
+| Operador — aviso casos «por reponer» | `shipments/shipment-prep.service.ts:1029` | `pieceDisplayIdentityOf(c.originalInventoryItem).name` | ✅ (name); `.card.set` = set del ancla (legítimo) |
+| **Cliente — DTO de envío (rastreo)** | `shipments/shipments.service.ts:713-728` (`toClientShipmentItem`) | **`const card = si.inventoryItem.card; card.name/number/imageSmallUrl`** | **🐞 ESCAPE BLOQUEANTE — alias local; name, imagen y number del ancla; el DTO no lleva `productType`** |
+| Operador — DTO de envío | `shipments/shipments.service.ts:1531` (`preparationCardOf`) | resuelto | ✅ (asimetría con la fila de arriba = el bug) |
+| Reemplazos — caso | `vault/replacement-case.service.ts:375` (`preparationCardOf`) | resuelto; `identityOf(piece)` es identidad **estructural** (`cardId`/`sealedProductId`…), no nombre | ✅ |
+| Levantamiento físico de bóveda | `vault/vault-physical-inventory.service.ts:146,162` (`preparationCardOf`); `:189` `codeUnits(a.card.name,…)` | `:189` ordena por el `card.name` **ya resuelto** (el DTO de `preparationCardOf`), no por el ancla | ✅ (`:189` es clave de ORDEN sobre el nombre resuelto; no pinta ni filtra el ancla) |
+| Preparación de bóveda (retiro) | `vault/vault-preparation.view.ts` (`preparationCardOf`) | resuelto | ✅ |
+| **Cliente — tracking de invitado** | `orders/guest-checkout.service.ts:874` name / **`:883` imagen** | `:874 pieceDisplayIdentityOf(...).name` ✅ · **`:883 oi.inventoryItem.card.imageSmallUrl`** | **🐞 ESCAPE — el NOMBRE se resolvió pero la IMAGEN sigue cayendo al ancla; un sellado con `sealedImageUrl` muestra el arte del single** |
+| Acta congelada del pedido | `orders/orders.service.ts:872` (`cardSnapshot`) | `pieceDisplayIdentityOf(item).name` + `resolvedSealedName` | ✅ (name resuelto; `:876 setName`/`:877 number` del ancla se congelan como **hechos del set**, §5.2.6) |
+| Historial `GET /orders/:id` | `orders/orders.service.ts:834,2062` (`resolveOrderItemCard`) | lee el acta congelada (name ya resuelto) | ✅ |
+| Lista «no disponibles» del checkout | `orders/orders.service.ts:693` | `pieceDisplayIdentityOf({...})` | ✅ |
+| Reembolsos — total | `payments/refunds/full-refund.service.ts:720,734` | `pieceDisplayIdentityOf(...).name` | ✅ |
+| Reembolsos — aviso admin | `payments/refunds/admin-refunds.controller.ts:110` (include `:92` trae `productType`/`sealedProductId`/`sealedProductName`) | `pieceDisplayIdentityOf(item).name` | ✅ |
+| Reembolsos — manual (retiro) | `payments/refunds/manual-refund.service.ts:291` (`preparationCardOf`), `:806` (resolutor) | resuelto | ✅ |
+| Reembolsos — reportes | `payments/refunds/refund-reports.service.ts:77` | `pieceDisplayIdentityOf(m.item).name` | ✅ |
+| **Correo de reembolso AV-12** | `payments/refunds/refund-ledger.service.ts:552-556` | **`const fromCase = r.replacementCase?.originalInventoryItem.card; … fromCase?.name`** | **🐞 ESCAPE BLOQUEANTE — alias local; nombre del ancla; el `include :522` ni siquiera carga las columnas de sellado** |
+| Holdings `HoldingDTO` (D-2) | `vault/vault.service.ts:156-165` (`resolveSealedDisplay`) | copia local `sealedProductName ?? card.name` | 🐞 D-2 → **unificar** (ver (B)) |
+| Grid público sellado (D-2) | `catalog/sealed-catalog.service.ts:263-264` | copia local `sealedProductName ?? card.name` | 🐞 D-2 → **unificar** |
+| Reporte de ventas sellado (D-2) | `sales-analytics/sales-analytics.service.ts:385` | copia local `sp?.name : sealedProductName ?? card.name` | 🐞 D-2 → **unificar** |
+| Aviso de reposición (D-2) | `catalog/sealed-restock-notify.service.ts:125` | copia local `sealedProductName ?? card.name` | 🐞 D-2 → **unificar** |
+| Guardarraíl de precio del checkout | `orders/orders.service.ts:434` `item.card.rarityCanonical ?? item.card.rarity` | insumo del veredicto de precio | 🔵 no es display de identidad — no toca |
+| `HoldingDTO.card` / catálogo de bóveda | `vault/vault.service.ts:284,531,609` (`toCardDTO(item.card)`) | el `card` ancla viaja **además** del bloque `sealed` (BLOQ-2a); el front usa los campos de sellado | 🔵 por diseño (DTO lleva ambos); no es leak |
+
+**Los TRES escapes que backend debe cerrar (además de los 4 de D-2):**
+
+1. **`toClientShipmentItem` (`shipments.service.ts:713-728`) — BLOQUEANTE, de cara al cliente** (`GET /shipments`,
+   `GET /shipments/:id`, `ClientShipmentItemDTO`, contrato §5). Resolver `name` e `imageSmallUrl` server-side con
+   `pieceDisplayIdentityOf(si.inventoryItem)` y **añadir `productType` al DTO** para que el front oculte `number` en
+   sellado (igual que su hermano `GuestTrackingItemDTO`, §4-G). **Sin query nueva:** `EnrichedShipmentItem.inventoryItem`
+   (`shipments.service.ts:316`, `CLIENT_SHIPMENT_INCLUDE:327`) ya es el `InventoryItem` completo ⇒ trae
+   `productType`/`sealedProductId`/`sealedProductName`/`sealedImageUrl`. Forma exacta en contrato §5 (abajo).
+2. **Imagen del tracking de invitado (`guest-checkout.service.ts:883`) — de cara al cliente.** Cambiar
+   `oi.inventoryItem.card.imageSmallUrl ?? undefined` por `pieceDisplayIdentityOf(oi.inventoryItem).imageSmallUrl ??
+   undefined` (se conserva la convención «ausente, no null» de ese DTO). El nombre ya se resolvió en `:874`; faltaba la
+   imagen. **Sin query nueva** (el name ya exige esas columnas). Esto **cierra la parte de IMAGEN-de-sellado de D-IMG-2**
+   para esta superficie; la parte de *estabilidad de identidad ante re-sync* (join vivo vs acta) se mantiene como está —
+   es una vista de **envío en curso**, no el acta de compra (§5.2.8 / §9).
+3. **Correo de reembolso AV-12 (`refund-ledger.service.ts:552-556`) — IMPORTANTE, de cara al cliente.** Resolver
+   `fromCase` con `pieceDisplayIdentityOf(...).name` y **ensanchar el `include` de `:522`** para que
+   `originalInventoryItem` seleccione `productType, sealedProductId, sealedProductName, sealedImageUrl` (hoy solo trae
+   `card.name`/`card.set.name`). **La FORMA del aviso AV-12 NO cambia** (`Av12Params.cards[].name` cambia de *valor*, no
+   de forma) ⇒ **es CÓDIGO (backend), sin cambio de contrato**. `setName` sigue del set del ancla (legítimo). La zona
+   tocada es `payments/refunds/` (no `prisma/` schema).
+
+**Reparto de la errata.** **Backend** (`shipments`, `orders` [guest], `payments/refunds`, `vault`, `catalog`,
+`sales-analytics`): los 3 escapes + unificar las 4 de D-2 al resolutor + actualizar
+`vault.holdings-sealed-identity.spec.ts:105` + **entregar el spec de integración/E2E de §5.2.6-D y QUITAR la afirmación
+falsa de `sealed-display.be.spec.ts:15-16`** (dice que esa suite «vive en la suite de integración» y **no existe** —
+una afirmación de estado sin medición, O-1). **Frontend** (`(storefront)` rastreo de pedidos): ramificar por
+`ClientShipmentItemDTO.productType === 'sealed'` para ocultar `card.number` (espejo de lo que ya hace el tracking de
+invitado). **Tres veredictos** otra vez (dinero/fulfillment). Zona compartida: `shipments/`, `orders/`, `common/`
+(`common/` no cambia — el resolutor ya existe) — serializar.
+
+#### 4.34a.2(F) Errata v1.94.2⟨sellado-display⟩ — EL CANDADO MECÁNICO cierra la clase (M-3); las dos preguntas de política
+
+**El problema de fondo (hallazgo M-3 de QA/techlead).** Las secciones (B) y (E) describieron la re-enumeración como
+«SEMÁNTICA» y afirmaron que «cierra el hueco» / que la lista era «COMPLETA». **Es una afirmación de clase (B) escrita
+como (A)** (§0-B): el estado «no queda ni un acceso al ancla» no es una decisión que se escribe, es un hecho que hay
+que **verificar contra el producto**. Una enumeración a mano lo verifica el día que se escribe y nunca más, y este
+caso lo probó **tres veces**: `grep '\.card\.name'` (en `b70e272`), y **dos relecturas humanas** que seguían dejando
+ofensores. La doctrina de §4.34a.2(C) («no se copia la cascada a mano en ningún servicio») era correcta pero **no
+tenía quién la hiciera cumplir**.
+
+**La corrección normativa: el candado es el mecanismo, no la lista.** `backend/test/sealed-display-guard.spec.ts`
+(backend, `docs/BACKEND_NOTES.md §0.60`) escanea el fuente de los módulos de display (`orders`, `shipments`, `vault`,
+`payments`, `catalog`, `pricing`, `inventory`, `wishlist`, `sales-analytics`, `accessories`, `mail`) y **FALLA en CI**
+ante cualquier lectura de `card.name` / `card.number` / `card.imageSmallUrl` del ancla —**directa o aliaseada**
+(`const x = …card; x.name`)— para un sellado, salvo que (a) pase por `pieceDisplayIdentityOf`, o (b) esté en la
+**ALLOWLIST explícita** (31 entradas, cada una con su razón de una línea; una entrada que ya no casa ⇒ rojo, el censo
+no acumula muertos). **Esto es lo que vuelve la clase imposible de reabrir en silencio**, y es lo que las tablas de
+(B)/(E) —útiles como registro histórico de cómo se descubrió la clase— nunca pudieron ser.
+
+- **Alcance y garantía medidos por backend (§0.60, autor backend, árbol `dde121d`, 2026-10-13):** el candado cazó **4
+  ofensores** que las tres enumeraciones a mano no vieron (`sealed-catalog` `sealedValueHistory` [público],
+  `sealed-graded` `sealedIndex`, `pricing` `pendingQueue`, `wishlist-demand` `sealedWaiting`), todos cerrados al
+  resolutor. **Mutación N=3/3 roja** (reinyección directa **y** aliaseada ⇒ el candado muerde ambas); escaneo estático
+  ⇒ determinista. **No lo medí yo (sin Bash); relayado de §0.60, autor backend.**
+- **Ratificación de doctrina:** §4.34a.2(C) sigue vigente («un solo resolutor `pieceDisplayIdentityOf`; no se copia la
+  cascada»), y **el candado es su cumplimiento mecánico**. Todo acceso nuevo al `card.*` del ancla en un módulo de
+  display es, por defecto, un rojo de CI hasta que pase por el resolutor o se justifique en la allowlist con razón.
+- **Las tablas de (B)/(E) pasan a ser históricas.** Ya no son «el inventario que cierra la clase». Si divergen del
+  código, **manda el candado + el resolutor**, no la tabla (§0-B: verificación contra el producto, no contra otro doc).
+
+**Las dos preguntas de política que backend rebotó (regla 9; `BACKEND_NOTES §0.60.4`). Decididas:**
+
+**(a) Export `.xlsx` de inventario (`inventory.service.ts:4058/4060`, `INVENTORY_EXPORT_COLUMNS`) — ACEPTABLE POR
+DISEÑO; NO bloqueante; queda en la allowlist.** Las columnas «Carta»/«Número» muestran la **carta ancla** para TODA
+pieza, incluida la sellada (p. ej. «Exeggcute» para un ETB). Decisión: es correcto por tres razones que se sostienen
+juntas: (1) es un **volcado crudo del inventario del propio dueño**, no una superficie de cara al cliente —un cliente
+JAMÁS ve este archivo—; (2) la columna **«Tipo» desambigua** (el operador lee `sealed` y sabe que «Carta» es la carta
+ancla de la pieza sellada, no un single); (3) «Carta»/«Número» son columnas **hermanas por contrato** que describen la
+carta-ancla de CUALQUIER fila de forma uniforme — resolver solo el nombre para las filas selladas rompería esa
+uniformidad y dejaría «Número» apuntando a una carta distinta del nombre. **No es la clase del bug**: aquí el ancla es
+el dato pedido, no un fallback que se cuela. Si en el futuro el dueño quiere que el export distinga el nombre del
+`SealedProduct`, es un **cambio de contrato** (columna nueva «Producto sellado», no re-semantizar «Carta») y pasa por
+el arquitecto; **no se registra como deuda** porque hoy no es un defecto.
+
+**(b) `PriceReviewCaseDTO.card` y la cola M2 (`pricing.service.ts` `pendingQueue`, `price-review`) — CORRECTO POR
+DISEÑO (🔵); queda documentado, sin cambio.** El bloque `card` es la **identidad de la carta ancla por contrato**
+(«para que el dueño reconozca la carta», API_CONTRACT §D / §M2), y la identidad del sellado **viaja aparte** en el
+mismo DTO (`sealedProductId` + `sealedProductName` ya resuelto por el resolutor). El dueño necesita VER la carta ancla
+para revisar el precio (es la referencia de mercado del single que ancla al sellado), y la tiene junto —no en lugar
+de— la identidad del sellado. **No es un leak del ancla** (misma categoría 🔵 que `HoldingDTO.card`, §4.34a.2(E)): el
+ancla viaja **además**, no **en vez de**. Se ratifica; sus accesos quedan en la allowlist con esta razón. Coherente con
+(a): en ambas superficies admin el ancla es un dato legítimo mostrado junto a la identidad del sellado, no un fallback
+que la suplanta.
 
 #### 4.34b Un set → **N grupos** TCGCSV (crítico: promos / colecciones, incl. Mega Evolution)
 
@@ -30753,10 +31055,70 @@ de la cascada normada en §4.34a (`SealedProduct.imageUrl` → snapshot `sealedI
 `null`). **Los dos primeros peldaños no están disponibles desde el acta de compra.**
 
 Lo declaro en vez de resolverlo a medias: **mostrar la caja del sellado en el historial de pedidos requeriría
-congelar identidad de sellado en la línea de orden (clase (F), DDL aditivo), y eso es alcance de producto, no una
+congelar identidad de sellado en la línea de orden (clase (F)), y eso es alcance de producto, no una
 corrección de lectura.** No lo decido por mi cuenta. Queda **enrutado**: si el dueño lo quiere, entra como petición
-al arquitecto (regla 9) y se diseña como campo (F) —identidad, no imagen—. Mientras tanto, es un límite conocido,
-no un bug, y **no** se compensa con un join oportunista a `InventoryItem` (prohibido por §5.2.5).
+al arquitecto (regla 9) y se diseña como campo (F) —identidad, no imagen—. Mientras tanto, es un límite conocido
+y **no** se compensa con un join oportunista a `InventoryItem` (prohibido por §5.2.5).
+
+> **v1.94⟨sellado-display⟩ — la petición regla-9 LLEGÓ, y el límite era además un BUG del NOMBRE, no solo de la imagen.**
+> El primer pedido real lo destapó (§4.34a.2): el acta no solo pierde la imagen de la caja — **congela el `name` del
+> single ancla** («Exeggcute») como identidad de un pedido sellado, que es un hecho **equivocado** en un registro
+> probatorio dinero-adyacente. Esto deja de ser «límite conocido» y pasa a **defecto a corregir**. Decisión:
+>
+> 1. **`FrozenCardFacts` gana dos campos, presentes SOLO en sellado:** `sealedProductId?: string | null` (la identidad,
+>    §4.34a) y `sealedProductName?: string` (el nombre tal como se mostró al pagar). Y **lo que el acta congela como
+>    `name` para un sellado deja de ser el ancla:** `cardSnapshot()` (`orders.service.ts:853`) resuelve el `name` por el
+>    resolutor único de §4.34a.2 (`sealedProduct?.name ?? sealedProductName ?? card.name`) **en el momento del cobro**.
+>    `cardId` ancla se **conserva** (§4.34a: pertenencia al set + cola de la cascada); `productType='sealed'` ya se
+>    congela. Esto NO viola §5.2.4 («el pedido dice lo que decía cuando se pagó»): se congela el nombre **correcto** que
+>    el cliente vio en la tienda al pagar (`sealed-catalog.service.ts:263` ya lo mostraba bien); el ancla era el bug, no
+>    la verdad de la compra. ⛔ La imagen sigue siendo clase (P), resuelta en lectura (§5.2.3) — no se congela una URL de
+>    tercero.
+> 2. **SIN migración de BD, y corrijo mi propia imprecisión (O-2):** v1.51-b/§5.2.6 decían «DDL aditivo». Es **falso**:
+>    `OrderItem.cardSnapshot` es **columna `Json`** (`schema.prisma`), no columnas tipadas. Añadir claves al blob es un
+>    **cambio de forma**, no `ALTER TABLE`. El cambio se cierra en TRES sitios de tipos, todos compile-enforced en
+>    `order-item-card.ts`, sin tocar Prisma: (a) el tipo `FrozenCardFacts` (+2 claves opcionales); (b) la allowlist
+>    `FROZEN_CARD_FACT_KEYS` (+2 claves, o su cerrojo `ALLOWLIST_IS_FROZEN_FACT_KEYS` no compila); (c) los dos cerrojos
+>    `Equals` (`RESOLVED_IS_CONTRACT_SHAPE`, `HISTORICAL_IS_RESOLVED_SHAPE`) y los DTO del contrato `OrderItemCardDTO`/
+>    `HistoricalOrderItemCardDTO`. **Cero enums** (`ProductType.sealed` ya existe) ⇒ **sin trabajo de paridad de enums**.
+> 3. **El pedido YA existente (el real) — DECISIÓN PARA EL DUEÑO, no la ejecuto yo.** Su acta ya tiene el ancla congelado
+>    (se cobró antes del arreglo). Reparto el efecto por superficie:
+>    - **Preparación «Junta y palomea» (la captura):** se **re-resuelve en vivo** (`preparationCardOf`, lee la pieza, no
+>      el acta). Arreglar §4.34a.2 **corrige esa pantalla para ESE pedido sin migración ni reparación de datos.**
+>    - **Historial (`GET /orders/:id`) y cualquier correo que lea el acta:** leen el **blob congelado** ⇒ seguirían
+>      mostrando «Exeggcute» para ESE pedido aunque el código nuevo esté desplegado.
+>    - **Opciones (el dueño elige; O-6, la correría él en prod):** **(a)** reparación puntual de UNA fila —
+>      `UPDATE "OrderItem" SET "cardSnapshot" = jsonb_set(... name, sealedProductId, sealedProductName ...) WHERE id = <esa línea>`
+>      restaurando lo que el acta **debió** decir (es corrección de un hecho que fue BUG, no reescritura de la verdad de la
+>      venta; afecta solo ese pedido sellado real); o **(b)** aceptarlo (el dueño ya sabe qué es: su primer pedido).
+>      **No preparo ni ejecuto el UPDATE** — es decisión del dueño + lo corre él. ⚠️ **MARCADO PARA EL DUEÑO.**
+> 4. **LA PRUEBA QUE DEBE FALLAR HOY (plano para backend; el modelo fuerte la escribe antes de implementar).** Dado un
+>    pedido liquidado cuya línea es una pieza **sellada** (`productType='sealed'`, `sealedProductId` poblado,
+>    `SealedProduct.name` = el nombre real del sellado, `card.name` del ancla = «Exeggcute»), se afirma **todo** esto, y
+>    **hoy falla** porque las tres superficies leen `card.name`:
+>    - (i) **Preparación:** `ShipPreparationItemDTO.card.name` (=`preparationCardOf`) devuelve el `SealedProduct.name`,
+>      **no** «Exeggcute», y **no** emite `card.number` del ancla.
+>    - (ii) **Acta congelada:** `cardSnapshot(sealedItem).name === SealedProduct.name` (no el ancla), y el blob lleva
+>      `sealedProductId` + `productType==='sealed'`.
+>    - (iii) **Lectura del pedido e invitado:** `GET /orders/:id` (`OrderItemCardDTO.name`/historical) y el tracking de
+>      invitado (`GuestTrackingItemDTO.name`) devuelven el `SealedProduct.name`, no el ancla.
+>    Mutación que el modelo fuerte reintroduce para confirmar que la prueba muerde: revertir el resolutor a `card.name`
+>    en cualquiera de las tres ⇒ la prueba correspondiente debe ponerse roja.
+>
+> **v1.94.1⟨sellado-display⟩ — la prueba PURA no basta: falta la suite de INTEGRACIÓN/E2E, y el spec miente sobre su
+> existencia.** El unitario `backend/test/sealed-display.be.spec.ts` fija el cuerpo PURO (`pieceDisplayIdentityOf`,
+> `preparationCardOf`), pero **sus líneas 15-16 afirman** que «las superficies de pedido/acta/correo e invitado … viven
+> en la suite de integración (QA las ejecuta)». **Esa suite NO existe** (afirmación de estado sin medición, O-1). El
+> re-rechazo lo probó: dos superficies de cara al cliente (`toClientShipmentItem`, imagen de invitado) y el correo AV-12
+> se escaparon **justo porque ninguna prueba cruzaba BD/HTTP** sobre ellas. Normativo para backend:
+> - **QUITAR la afirmación falsa** de `sealed-display.be.spec.ts:15-16` (o hacerla verdadera entregando la suite; no
+>   dejar el texto prometiendo lo que no está).
+> - **ENTREGAR un spec de integración/E2E del flujo de sellado de punta a punta** (backend escribe integración/E2E en
+>   `backend/`, CLAUDE «suites E2E»): checkout de un sellado → preparación → `GET /orders/:id` → **rastreo de cliente
+>   registrado (`GET /shipments/:id`, `ClientShipmentItemDTO`)** → **rastreo de invitado (`GuestTrackingItemDTO`, nombre
+>   e imagen)** → **correo AV-12** (`refund-ledger`). Cada aserción: el `SealedProduct.name`/imagen de sellado, **nunca**
+>   «Exeggcute» ni el arte/numero del single ancla. Esta suite es la que habría cazado los 3 escapes y la que impide un
+>   cuarto. QA la ejecuta en el gate (smoke E2E del flujo tocado por stream; completa en cierre de release).
 
 #### 5.2.7 Encargo por rol (D-1)
 
@@ -32688,7 +33050,7 @@ Riesgos técnicos:
   | # | Desviación | Evidencia | Dueño | Puerta |
   |---|---|---|---|---|
   | **D-IMG-1** | `OrdersService.cardSnapshot()` no proyecta `imageSmallUrl` aunque `item.card` viene cargado ⇒ hueco gris en carrito, checkout de invitado y detalle de pedido. **Omisión aislada, no criterio**: el mismo mapeo en `ShipmentsService.toClientShipmentItem()` sí la incluye | `orders.service.ts` (`cardSnapshot`) vs. `shipments.service.ts` (`toClientShipmentItem`) | backend | Ya enrutada (conformidad de contrato). Se implementa **en la proyección de lectura**, §5.2.5 |
-  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | **Severidad baja, NO bloqueante.** Alinear a §5.2.2 en el próximo trabajo sobre esos módulos; no justifica un pase propio. **RATIFICADA v1.51-c** tras revisión del techlead: `guest-checkout.service.ts:545` (`imageSmallUrl: … ?? undefined`, vía `inventoryItem.card`) **NO es regresión y NO contradice §5.2.5** — es otro DTO, plano, **sin `cardId`** (prohibido por criterio 51, así que la unión de §5.2.5 le es estructuralmente inaccesible) y de una vista de **envío en curso**, no del acta de compra. **Prohibido «uniformizarlo» por iniciativa propia**; declarado en `API_CONTRACT §4-G` |
+  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | ⚠️ **PARCIALMENTE CERRADA en v1.94/v1.94.1⟨sellado-display⟩ — la parte de SELLADO del nombre/imagen se resuelve ahora por el resolutor único** (`pieceDisplayIdentityOf`): el nombre ya no cae al ancla (v1.94) y la IMAGEN de sellado tampoco (v1.94.1: `guest-checkout.service.ts:883` y `shipments.service.ts:toClientShipmentItem` dejan de leer `card.imageSmallUrl` crudo). **Lo que QUEDA abierto de D-IMG-2 (baja, no bloqueante):** la *estabilidad de identidad ante re-sync* para **raw/graded** —el join vivo contra `inventoryItem.card` en una vista de **envío en curso**, no el acta—; se alinea a §5.2.2 en el próximo trabajo sobre esos módulos. **NO es regresión, NO contradice §5.2.5** (otro DTO, plano, sin `cardId`). Declarado en `API_CONTRACT §4-G` y §5 |
   | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
   | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
   | **D-IMG-5** | ~~`images.remotePatterns` incluye `hostname: '**'`~~ · ✅ **CERRADA (2026-09-08) — verificada en el árbol, no reportada**: `frontend/next.config.mjs:47-50` lleva hoy **dos entradas exactas** (`images.pokemontcg.io`, `images.scrydex.com`), ambas `protocol:'https'` y **`port: ''`** (que además cierra el bypass por puerto), y **el comodín ya no existe**. Sigue habiendo **cero `next/image`** en el árbol (los tres aciertos del grep son **un comentario** que dice que NO se usa, en `SetPlate.tsx:187`, y **un test**), así que el cierre se hizo **en la ventana barata**: antes de la primera línea de Nivel A, con riesgo funcional cero — exactamente como pedía el veredicto | `frontend/next.config.mjs:47-50` | frontend | ✅ **CERRADA.** Ver el aviso de citas, abajo |

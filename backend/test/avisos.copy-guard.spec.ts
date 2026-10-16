@@ -78,7 +78,7 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
       {
         orderNumber: 'TCG-1001',
         orderId: 'ord-1',
-        items: [{ name: 'Charizard VMAX', setName: 'Darkness Ablaze', number: '020' }],
+        items: [{ name: 'Charizard VMAX', setName: 'Darkness Ablaze', number: '020', productType: 'raw' as const }],
         totalCents: 148000,
       },
       l,

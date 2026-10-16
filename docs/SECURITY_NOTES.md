@@ -1,3 +1,47 @@
+# VEREDICTO BLUE TEAM — **sellado-display (opción A, cierre de clase)** · SHA **`cb66e1f`** (rama `fix/sealed-display`) · 2026-10-13
+
+> ## VEREDICTO: ✅ **APROBADO focalizado** sobre `cb66e1f` — 0 críticas · 0 altas · 0 medias · 0 bajas nuevas
+>
+> Revisión focalizada del cierre de la clase del bug de sellado-display. **Sustituye** (para esta clase) a mi
+> aprobación previa sobre `b70e272`/`9bdcb18`: aquello cerraba el ancla visible; esto cierra la **clase entera**
+> con un candado mecánico y 4 superficies más por el resolutor único. Es un cambio **solo de display** — no toca
+> dinero, permisos ni auth (medido: `git diff 9bdcb18..cb66e1f -- backend/src | grep -iE 'price|cents|amount|role|permission|auth|@Roles|super_admin'` = **0 líneas**).
+
+## SD-1. Los 4 cierres pasan por el resolutor único y no filtran campo interno
+
+Los 4 ofensores cerrados desde `9bdcb18` enrutan por `pieceDisplayIdentityOf` (`backend/src/common/piece-display-identity.ts`), que para un sellado **solo** emite `name` (vivo → snapshot → `«Sellado sin identificar»`, ⛔ JAMÁS `card.name` del single ancla) e `imageSmallUrl` (cascada con la imagen del ancla como cola ACEPTADA, §5.2.6). No devuelve `number` ni `finish` del ancla, y no abre joins oportunistas. Medido en el diff:
+- `sealed-catalog.service.ts:508` (público `sealedValueHistory`) — ver SD-2.
+- `inventory/sealed-graded.service.ts:328-345` — `productName`/`imageSmallUrl` por el resolutor; la pestaña GRADED (nunca sellado) queda en allowlist con razón.
+- `pricing/pricing.service.ts:3236` — `sealedProductName` por el resolutor; el bloque `card` del ancla viaja ADEMÁS por contrato (allowlist 🔵 por diseño).
+- `wishlist/wishlist-demand.service.ts:205` — `productName` por el resolutor; además **deja de pedir** `card:{name}` en el `select`, así que la demanda de sellado ya ni lee el ancla (menos exposición, no más).
+
+El objeto de salida de cada superficie conserva exactamente sus campos previos; el único cambio es el **valor** del nombre (y la imagen donde aplica). No se añade campo interno nuevo. ✅
+
+## SD-2. El endpoint público `sealedValueHistory` ya no emite el ancla
+
+`sealed-catalog.service.ts:452-514`: la consulta fuerza `where:{ productType:'sealed' }`, así que `item` es un registro sellado completo; el resolutor lee `.name` y rinde el nombre del `SealedProduct` (snapshot) o `«Sellado sin identificar»`, nunca el nombre del single ancla. El objeto `product` devuelto emite solo `inventoryItemId`, `tcgplayerProductId`, `name` — los **tres** campos que ya existían; no expone nada de más. ✅
+
+## SD-3. El candado y la allowlist no debilitan ninguna aserción
+
+- **Candado** `backend/test/sealed-display-guard.spec.ts`: escáner estático sobre 11 módulos; falla ante toda lectura de `.card.(name|number|imageSmallUrl)` (incluidos aliases locales) que no pase por el resolutor ni esté en la allowlist con razón. Tres pruebas: cobertura sin-resolver (rojo), allowlist sin entradas muertas, y sanidad del recorrido. La allowlist es un **censo con razón por entrada** (número del ancla ocultado aguas abajo por `productType`; imagen del ancla = cola aceptada; superficies single/graded/raw/accesorio que nunca son sellado; bloques `card` del ancla por contrato) — no debilita: cada entrada es un no-sellado justificado, y una entrada muerta pone el candado rojo.
+- **Tests actualizados** afirman conducta **más** segura, no menos: `inventory.sealed-graded-tabs.spec.ts` y `pricing.sealed-pending.spec.ts` antes fijaban el bug (`'Pikachu'`/`'Tropius'`, fallback al ancla) y ahora exigen `'Sellado sin identificar'` + `.not.toBe(<ancla>)`. El E2E `sealed-display-flow.e2e-spec.ts §B` corrigió un **falso positivo** (mapeaba también un single raw hermano legítimo anclado a la misma carta) filtrando a la pieza sellada por `inventoryItemId`; sigue afirmando que la línea sellada nunca pinta el ancla.
+
+**Mediciones propias (sobre `cb66e1f`, load 0.29):**
+- `npx jest` de las 5 suites de sellado-display: **54/54 verdes** (N=1, deterministas).
+- **Canario del candado (sobre copia `git archive cb66e1f` del árbol entero, borrada al terminar):** reintroduje una lectura del ancla en línea separada dentro de la rama de sellado (`sealed-graded.service.ts`, `productName: card?.name ?? display.name`) ⇒ el candado se puso **rojo** 1/1 nombrando `sealed-graded.service.ts:343`. El límite documentado (una lectura en la **misma** línea que `pieceDisplayIdentityOf` se da por segura) es aceptable: una reintroducción real del bug es un acceso separado, que sí caza.
+
+## SD-4. Superficies aceptadas por diseño (no bloqueantes)
+
+Dos lecturas del ancla quedan por diseño, ya en la allowlist del candado con razón:
+- Export `.xlsx` de inventario (`inventory.service.ts:4058/4060`): columna «Carta»/«Número» = la carta ancla, hermana de «Set»; fuera del alcance normado §4.34a.2. Marcada con ⚠️ confirmación de política al arquitecto (BACKEND_NOTES §P-1) — **deuda baja aceptada**, disparador: si el arquitecto decide que el export debe rotular el sellado, vuelve a backend.
+- Bloque `card` del DTO de precio / cola M2 (`pricing.service.ts:3224-3228`, `price-review.service.ts`): identidad de la CARTA ancla que viaja ADEMÁS del `sealedProductName` resuelto, por contrato (API_CONTRACT §D). No es fuga: el nombre del sellado va aparte y resuelto.
+
+## SD-5. Banderas para el humano (sin cambio por este fix)
+
+Las banderas de releases previos (pentest de tercero + bug bounty antes de operar con dinero real; validaciones legales de custodia/PII) **siguen vigentes**; este cambio de display no las toca ni añade nuevas.
+
+---
+
 # VEREDICTO BLUE TEAM — **P-DB-LIMPIEZA v2.1 «también se borra el inventario»** · SHA **`37f7a450`** (rama `claude/limpieza-db`) · 2026-10-07
 
 > ## VEREDICTO: ✅ **APROBADO** sobre `37f7a450` — 0 críticas · 0 altas · 0 medias abiertas · 3 bajas (aceptadas, abajo)

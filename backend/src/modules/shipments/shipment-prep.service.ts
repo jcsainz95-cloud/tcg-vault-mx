@@ -46,6 +46,7 @@ import {
 } from '../payments/refunds/refund-ledger.service';
 import { replacementPendingTemplate } from '../payments/refunds/mail/refund-notice.templates';
 import { customerDisplayName } from '../vault/customer-display-name';
+import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import { LocationView, lastNameOf, locationViewOf, nullIfBlank, preparationCardOf, PreparationCardDTO } from './preparation-view';
 import { REPLACEMENT_CASE_DUE_MS } from '../vault/replacement-case.rules';
 import { countUnseenImmediate } from '../spend-alerts/spend-control';
@@ -317,7 +318,9 @@ export class ShipmentPrepService {
         caseRow: cs ? { id: cs.id, status: cs.status } : null,
         origin,
         unitPriceCents: origin?.unitPriceCents ?? null,
-        cardName: p.card.name,
+        // §4.34a.2 — contexto interno de la línea (avisos/reembolso): un sellado se nombra por su
+        // identidad de sellado, no por el ancla.
+        cardName: pieceDisplayIdentityOf(p).name,
         setName: p.card.set?.name ?? null,
       };
     });
@@ -998,7 +1001,20 @@ export class ShipmentPrepService {
       if (claimed.count === 0) return;
       const cases = await this.prisma.replacementCase.findMany({
         where: { id: { in: caseIds }, customerNotifiedAt: now },
-        select: { customerUserId: true, missingReason: true, originalInventoryItem: { select: { card: { select: { name: true, set: { select: { name: true } } } } } } },
+        select: {
+          customerUserId: true,
+          missingReason: true,
+          // §4.34a.2 — + identidad de sellado para que el aviso nombre el SealedProduct, no el ancla.
+          originalInventoryItem: {
+            select: {
+              productType: true,
+              sealedProductId: true,
+              sealedProductName: true,
+              sealedImageUrl: true,
+              card: { select: { name: true, imageSmallUrl: true, set: { select: { name: true } } } },
+            },
+          },
+        },
       });
       if (cases.length === 0) return;
       const user = await this.prisma.user.findUnique({ where: { id: cases[0].customerUserId }, select: { email: true, locale: true, anonymizedAt: true } });
@@ -1010,7 +1026,7 @@ export class ShipmentPrepService {
       }
       await this.mail.send({
         ...replacementPendingTemplate(
-          { shipmentId, cards: cases.map((c) => ({ name: c.originalInventoryItem.card.name, setName: c.originalInventoryItem.card.set?.name ?? null, reason: c.missingReason })) },
+          { shipmentId, cards: cases.map((c) => ({ name: pieceDisplayIdentityOf(c.originalInventoryItem).name, setName: c.originalInventoryItem.card.set?.name ?? null, reason: c.missingReason })) },
           user.locale,
         ),
         to: user.email,

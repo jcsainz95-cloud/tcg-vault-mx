@@ -128,9 +128,12 @@ export class PaymentsService {
             items: order.items.map((oi) => {
               const snap = readFrozenCardFacts(oi.cardSnapshot);
               return {
+                // §4.34a.2 — `snap.name` ya es el del SealedProduct para un sellado (el acta lo
+                // congela resuelto). `productType` deja omitir el `#número` del ancla.
                 name: snap.name ?? '',
                 setName: snap.setName ?? '',
                 number: snap.number ?? '',
+                productType: snap.productType ?? 'raw',
               };
             }),
             totalCents: order.totalCents,
@@ -657,7 +660,9 @@ export class PaymentsService {
         // El correo NO lleva imagen: la clase (P) no entra aquí.
         items: order.items.map((oi) => {
           const snap = readFrozenCardFacts(oi.cardSnapshot);
-          return { name: snap.name ?? '', setName: snap.setName ?? '', number: snap.number ?? '' };
+          // §4.34a.2 — `snap.name` ya trae la identidad resuelta del sellado; `productType` deja
+          // omitir el `#número` del ancla en un sellado.
+          return { name: snap.name ?? '', setName: snap.setName ?? '', number: snap.number ?? '', productType: snap.productType ?? 'raw' };
         }),
       })
       .catch((e: unknown) =>
