@@ -388,6 +388,28 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   const bOpen = await db.variantPriceOverride.create({ data: { cardId: cards.A, bountyEnabled: true, bountyPriceCents: 800, bountyTargetQty: 5, bountyAcquiredQty: 2 } });
   const bSell = await db.variantPriceOverride.create({ data: { cardId: cards.B, sellOverrideCents: 1500 } });
 
+  // ---- v1.93⟨cardshow⟩ (§14.14, G-8): el Card Show. Telemetría de clics SIN PII ⇒ se BORRA (como SpendAlert);
+  //      leads «Avísame» y preinscripciones = PII REAL con consentimiento (y un MENOR, con consentimiento del tutor)
+  //      ⇒ se CONSERVAN. Rows con fechas fijas para que «idéntico» pruebe algo y el conteo > 0.
+  await db.cardShowClick.createMany({
+    data: [
+      { destino: 'mesas', mesa: 3, utmSource: 'ig', ts: d(2) },
+      { destino: 'patrocinio', utmSource: 'wa', ts: d(3) },
+    ],
+  });
+  await db.cardShowLead.create({
+    data: {
+      type: 'merchant', email: `lead.${run}@lz.local`, mailboxHmac: `lz-lead-hmac-${run}`, consentAt: d(-2),
+      privacyVersion: 'lz', source: 'cta_mesas', status: 'new', confirmedAt: d(-1), createdAt: d(-2),
+    },
+  });
+  await db.cardShowPlayerSignup.create({
+    data: {
+      day: 'sat', playerName: 'Menor LZ', playerId: '900000000001', email: `player.${run}@lz.local`, mailboxHmac: `lz-player-hmac-${run}`,
+      isMinor: true, guardianConsentAt: d(-2), consentAt: d(-2), privacyVersion: 'lz', status: 'confirmed', confirmedAt: d(-1), createdAt: d(-2),
+    },
+  });
+
   // ---- Aviso de gasto, portafolio, bitácora
   await db.spendAlert.create({
     data: { kind: 'label_charged_unexplained', severity: 'immediate', dedupKey: `ag9:${run}`, facts: {}, mailStatus: 'sent', shipmentRequestId: SR3.id },

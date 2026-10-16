@@ -1,9 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CardShowDay, CardShowLeadType, CardShowSignupStatus, Prisma } from '@prisma/client';
+import { CardShowDay, CardShowLeadStatus, CardShowLeadType, CardShowSignupStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { AuditService } from '../audit/audit.service';
 import { CardShowTokensService } from './card-show-tokens.service';
 import { CardShowBudgetService } from './card-show-budget.service';
@@ -31,6 +32,16 @@ import {
  * Todo caso SILENCIOSO devuelve `void` (el controlador responde el neutro 202 idéntico); los errores
  * de FORMA del cliente lanzan `BusinessException` (400/410/413).
  */
+
+/**
+ * ⭐ §0-Q punto 4 (C-EQ-1) — dominios de los filtros del panel. `status` es clase **R**: el panel
+ * NUNCA muestra `pending` (⛔ no confirmado), así que su dominio aceptado es el enum MENOS `pending`.
+ * `?status=pending` y cualquier otro valor fuera del subconjunto ⇒ `400 {field, allowed}` (ya NO se
+ * ignora en silencio). `type`/`day` son clase **E** (el enum entero, derivado de Prisma).
+ */
+export const CARD_SHOW_LEAD_STATUS_FILTER_VALUES = ['new', 'contacted', 'closed', 'discarded'] as const satisfies readonly CardShowLeadStatus[];
+export const CARD_SHOW_PLAYER_STATUS_FILTER_VALUES = ['confirmed', 'waitlist', 'cancelled', 'checked_in'] as const satisfies readonly CardShowSignupStatus[];
+
 @Injectable()
 export class CardShowService {
   private readonly logger = new Logger(CardShowService.name);
@@ -326,28 +337,38 @@ export class CardShowService {
     });
     if (res.count !== 1) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'already confirmed');
 
-    // Bienvenida RICA (C3-W) a buzón YA confirmado: 1 sola vez, variante por tipo. Cuenta contra C1/C2.
-    await this.sendWelcome(lead, now);
+    // ⭐ D1 (blindaje, techlead) — la fila YA quedó `new` (confirmación PERSISTIDA). La bienvenida y el
+    // aviso interno son best-effort por DISEÑO (gates C1/C2/C6 pueden dejar 0 envíos sin tumbar nada);
+    // sus gates leen Redis (`webhook.isCut`, `caps.reserve*`, `budget.tryReserve`), así que un parpadeo
+    // de Redis AQUÍ ⛔ NUNCA debe convertir una confirmación ya guardada en un `500` que pierda el aviso.
+    // Se envuelve TODO en try/catch que loguee y SIGA: la confirmación es el hecho que importa.
+    try {
+      // Bienvenida RICA (C3-W) a buzón YA confirmado: 1 sola vez, variante por tipo. Cuenta contra C1/C2.
+      await this.sendWelcome(lead, now);
 
-    // Para vendedor/patrocinador: 1 aviso interno (≤ 10/h), copy del dueño. (Además queda 1 AuditLog.)
-    if (lead.type === 'merchant' || lead.type === 'sponsor') {
-      if (await this.caps.reserveInternalNotice()) {
-        await this.mail
-          .sendInternalNotice({
-            type: lead.type,
-            name: null, // los leads no persisten nombre (⛔ nunca `playerName`) ⇒ «—»
-            email: lead.email,
-            utmSource: lead.utmSource,
-            utmMedium: lead.utmMedium,
-            utmCampaign: lead.utmCampaign,
-            createdAt: lead.createdAt,
-            adminLink: `${this.publicBase()}/admin/card-show/leads`,
-          })
-          .catch((e) => this.logger.error(`aviso interno: ${e}`));
-        await this.audit
-          .log({ action: 'card_show.internal_notice', entityType: 'CardShowLead', entityId: id, after: { type: lead.type } })
-          .catch(() => undefined);
+      // Para vendedor/patrocinador: 1 aviso interno (≤ 10/h), copy del dueño. (Además queda 1 AuditLog.)
+      if (lead.type === 'merchant' || lead.type === 'sponsor') {
+        if (await this.caps.reserveInternalNotice()) {
+          await this.mail
+            .sendInternalNotice({
+              type: lead.type,
+              name: null, // los leads no persisten nombre (⛔ nunca `playerName`) ⇒ «—»
+              email: lead.email,
+              utmSource: lead.utmSource,
+              utmMedium: lead.utmMedium,
+              utmCampaign: lead.utmCampaign,
+              createdAt: lead.createdAt,
+              adminLink: `${this.publicBase()}/admin/card-show/leads`,
+            })
+            .catch((e) => this.logger.error(`aviso interno: ${e}`));
+          await this.audit
+            .log({ action: 'card_show.internal_notice', entityType: 'CardShowLead', entityId: id, after: { type: lead.type } })
+            .catch(() => undefined);
+        }
       }
+    } catch (e) {
+      // Un gate best-effort cayó (p. ej. Redis). La fila ya está `new`; se registra y se SIGUE.
+      this.logger.error(`confirmLead post-persistencia (bienvenida/aviso best-effort): ${e}`);
     }
     return { outcome: 'ok', state: 'new' };
   }
@@ -621,13 +642,14 @@ export class CardShowService {
 
   private leadWhere(p: { status?: string; type?: string; q?: string; from?: string; to?: string }): Prisma.CardShowLeadWhereInput {
     const where: Prisma.CardShowLeadWhereInput = {};
-    // ⛔ PENDING nunca aparece por defecto: solo confirmados (o el estado EXPLÍCITO que no sea pending).
-    if (p.status && p.status !== 'pending' && (['new', 'contacted', 'closed', 'discarded'] as string[]).includes(p.status)) {
-      where.status = p.status as Prisma.CardShowLeadWhereInput['status'];
-    } else {
-      where.confirmedAt = { not: null };
-    }
-    if (p.type && (['merchant', 'sponsor', 'visitor'] as string[]).includes(p.type)) where.type = p.type as Prisma.CardShowLeadWhereInput['type'];
+    // ⛔ PENDING nunca aparece por defecto NI por petición: `?status=pending` (y cualquier valor fuera
+    // del subconjunto) ⇒ `400` (§0-Q punto 1: prohibido ignorar el filtro). Ausente/vacío ⇒ el default
+    // «solo confirmados». Clase R: el panel acepta a propósito el enum MENOS `pending`.
+    const status = parseEnumFilter('status', p.status, CARD_SHOW_LEAD_STATUS_FILTER_VALUES);
+    if (status) where.status = status;
+    else where.confirmedAt = { not: null };
+    const type = parseEnumFilter('type', p.type, Object.values(CardShowLeadType));
+    if (type) where.type = type;
     if (p.q) where.email = { contains: p.q.toLowerCase() };
     const range = this.dateRange(p.from, p.to);
     if (range) where.createdAt = range;
@@ -636,28 +658,36 @@ export class CardShowService {
 
   private playerWhere(p: { status?: string; day?: string; q?: string; from?: string; to?: string }): Prisma.CardShowPlayerSignupWhereInput {
     const where: Prisma.CardShowPlayerSignupWhereInput = {};
-    if (p.status && p.status !== 'pending' && (['confirmed', 'waitlist', 'cancelled', 'checked_in'] as string[]).includes(p.status)) {
-      where.status = p.status as Prisma.CardShowPlayerSignupWhereInput['status'];
-    } else {
-      where.confirmedAt = { not: null };
-    }
-    if (p.day && (['sat', 'sun'] as string[]).includes(p.day)) where.day = p.day as Prisma.CardShowPlayerSignupWhereInput['day'];
+    const status = parseEnumFilter('status', p.status, CARD_SHOW_PLAYER_STATUS_FILTER_VALUES);
+    if (status) where.status = status;
+    else where.confirmedAt = { not: null };
+    const day = parseEnumFilter('day', p.day, Object.values(CardShowDay));
+    if (day) where.day = day;
     if (p.q) where.email = { contains: p.q.toLowerCase() };
     const range = this.dateRange(p.from, p.to);
     if (range) where.createdAt = range;
     return where;
   }
 
+  /**
+   * Rango `[from, to]` sobre `createdAt`. §0-Q: una fecha MAL FORMADA ⇒ `400 {field}` (⛔ ya NO se
+   * ignora en silencio — ignorarla devolvía una lista distinta de la pedida sin avisar). Ausente/vacío
+   * (tras `trim()`) ⇒ no acota por esa punta.
+   */
   private dateRange(from?: string, to?: string): { gte?: Date; lte?: Date } | undefined {
+    const parse = (field: 'from' | 'to', raw?: string): Date | undefined => {
+      if (raw === undefined || raw === null || raw.trim() === '') return undefined;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} date`, { field });
+      }
+      return d;
+    };
     const r: { gte?: Date; lte?: Date } = {};
-    if (from) {
-      const d = new Date(from);
-      if (!Number.isNaN(d.getTime())) r.gte = d;
-    }
-    if (to) {
-      const d = new Date(to);
-      if (!Number.isNaN(d.getTime())) r.lte = d;
-    }
+    const gte = parse('from', from);
+    const lte = parse('to', to);
+    if (gte) r.gte = gte;
+    if (lte) r.lte = lte;
     return r.gte || r.lte ? r : undefined;
   }
 }

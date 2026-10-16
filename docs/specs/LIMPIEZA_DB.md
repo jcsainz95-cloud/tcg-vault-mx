@@ -1034,3 +1034,47 @@ después de publicar #84 **sin** haber corrido la de hoy. Sin respuesta: **(a)**
 congelada) · **nuevo** `backend/test/integration/fixtures/pdblimpieza_2_limpieza.a7232d7a.sql` · `docs/BACKEND_NOTES.md`
 (su sección; número reservado por el orquestador, O-24). **No** cambian: A (`…_1_censo.sql`), C (`…_3_folios.sql`),
 `schema.prisma` ni ninguna migración. Sin cambio de ruta, cuerpo ni esquema.
+
+### 14.14 Card Show (v1.93⟨cardshow⟩, C-EQ-1 · G-8)
+
+El Card Show (landing del evento, `src/modules/card-show/`) añadió **tres** tablas que el censo transversal G-8
+(`…_2_limpieza.sql:199-212`) exige clasificar: una tabla sin clasificar PARA toda la limpieza. Clasificación siguiendo
+el mismo criterio del dueño (§14, telemetría vs. dato real) y el **precedente §14.13.1** (`AuditLog`→borrar;
+`Wishlist*`→conservar): lo que es **telemetría sin PII** se borra; lo que es **PII real capturado con consentimiento**
+se conserva.
+
+#### 14.14.1 Clasificación de las 3 tablas
+
+| Tabla | Grupo | Por qué | FK / orden |
+|---|---|---|---|
+| `CardShowClick` | **borrar** | Telemetría de clics de la landing (§CARDSHOW.13): ⛔ **sin cookie, sin IP, sin user-agent** (`schema.prisma:3177-3187`). No identifica a nadie — es la misma familia que `AuditLog` (anterior a la limpieza) o `SpendAlert`. Se vacía en el paso 13 (`DELETE FROM "CardShowClick"`), junto a `SpendAlert`/`PortfolioSnapshot`. | Sin FK (nada la referencia) ⇒ `DELETE` directo, como `SpendAlert`. |
+| `CardShowLead` | **conservar** | PII **real**: un correo que una persona dejó en «Avísame» **con consentimiento** (doble opt-in, `consentAt`/`privacyVersion`). Borrarlo en una limpieza de «datos de prueba» tiraría registros legítimos de clientes. Mismo trato que `WishlistItem` (intención del usuario). | — |
+| `CardShowPlayerSignup` | **conservar** | PII **real** de una preinscripción al torneo, con consentimiento — y **puede incluir MENORES** (`isMinor`/`guardianConsentAt`). Un borrado a ciegas de datos de menores es exactamente lo que la limpieza debe evitar. | — |
+
+**Por qué `CardShowClick` se BORRA y los otros dos se CONSERVAN:** es el corte catálogo/telemetría vs. dato real de
+§14. `CardShowClick` no tiene a quién pertenecer (ningún campo lo ata a una persona); los otros dos **son** la persona
+(su correo, su nombre de jugador, su Player ID). El precedente lo fija §14.13.1: `WishlistNotice` (telemetría de un aviso)
+se borra, `WishlistItem`/`WishlistMail` (intención y enlace de baja del usuario) se conservan. Aquí el default **conservar**
+protege dato real con consentimiento; vaciar telemetría no borra nada de nadie.
+
+#### 14.14.2 Pregunta al dueño (no bloquea; tiene valor por defecto)
+
+**P-CS · Card Show: ¿la limpieza conserva o vacía los leads y las preinscripciones?**
+- **(a) Por defecto — CONSERVAR:** los leads «Avísame» y las preinscripciones al torneo **se quedan** (son clientes
+  reales que dieron su consentimiento). Solo se vacía la telemetría de clics (`CardShowClick`).
+- **(b)** Si el dueño pide **vaciarlos** (p. ej. al cerrar la campaña del evento), el mecanismo ⛔ **NO es un borrado a
+  ciegas**: es una **guarda por LISTA/COHORTE** (tipo G-9 — correos/ids explícitos, o la cohorte del evento), que nombra
+  exactamente qué se borra y para si algo no cuadra. ⚠️ **Incluye datos de MENORES** (`isMinor`): cualquier borrado debe
+  decirlo y confirmarse aparte. Pedir ese diseño al arquitecto antes de implementarlo.
+
+**Cuánto pesa hoy:** casi nada en producción (las tablas no existen hasta que se publique la landing). La pregunta cuenta
+para staging, copias locales y una limpieza posterior a la publicación. Sin respuesta: **(a) conservar**. El orquestador
+lleva P-CS al dueño; backend implementa el DEFAULT conservar (la herramienta queda operativa así).
+
+#### 14.14.3 Cambios en B y en las pruebas
+
+`…_2_limpieza.sql`: `lz_conteo` → `borrar` += `CardShowClick`; `conservar` += `CardShowLead`, `CardShowPlayerSignup`
+(G-8 `:199-212` **sin cambiar**). Paso 13: `DELETE FROM "CardShowClick"` (sin FK, como `SpendAlert`); G-5 lo cuenta
+(0 tras borrar, grupo `borrar`). `pdb-limpieza.e2e-spec.ts`: `EMPTIED` += `CardShowClick`; `KEY_KEPT` += `CardShowLead`,
+`CardShowPlayerSignup`. `limpieza-fixture.ts`: siembra 2 clics (borrar), 1 lead confirmado y 1 preinscripción de **menor**
+confirmada (conservar), con fechas fijas. **No** cambian A, C, D, `schema.prisma` ni ninguna migración.

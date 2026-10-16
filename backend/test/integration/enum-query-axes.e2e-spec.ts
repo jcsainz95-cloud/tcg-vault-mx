@@ -71,6 +71,8 @@ import { join } from 'node:path';
 import {
   AccessoryCategory,
   AcquisitionType,
+  CardShowDay,
+  CardShowLeadType,
   DisputeStatus,
   Finish,
   InventoryStatus,
@@ -142,6 +144,9 @@ import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } fro
 import { ACCESSORY_BOOLEAN_FILTER_VALUES } from '../../src/modules/accessories/accessory-input';
 // 💰 rev v1.87⟨wishlist⟩ (§WSH.8): `?sort=`/`?dir=` de la lista de compra del dueño (y su CSV).
 import { WISHLIST_DEMAND_DIRS, WISHLIST_DEMAND_SORTS } from '../../src/modules/wishlist/wishlist-demand.service';
+// ⭐ C-EQ-1 v1.93⟨cardshow⟩ (§CARDSHOW.15) — dominios R de los estados del panel (enum MENOS `pending`).
+import { CARD_SHOW_LEAD_STATUS_FILTER_VALUES, CARD_SHOW_PLAYER_STATUS_FILTER_VALUES } from '../../src/modules/card-show/card-show.service';
+import { FORM_PURPOSES } from '../../src/modules/card-show/card-show.constants';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -390,6 +395,33 @@ const OBS_WISHLIST: Obs = {
 const OBS_WISHLIST_CSV: Obs = {
   huella: (res) => res.text,
   hayDatos: (res) => res.text.trim().split('\n').length > 1,
+};
+/**
+ * ⭐ C-EQ-1 v1.93⟨cardshow⟩ — los CSV del panel (`leads/export.csv`, `players/export.csv`): el cuerpo es
+ * texto, ⛔ no `{total,data}` (`OBS_LISTA` daría `n=-1|null` para todo token ⇒ `filtra` verde por omisión).
+ * Se observa el texto entero; `confirmedAt`/`createdAt` del fixture son FIJOS ⇒ determinista.
+ */
+const OBS_CARDSHOW_CSV: Obs = {
+  huella: (res) => res.text,
+  hayDatos: (res) => res.text.trim().split('\n').length > 1,
+};
+/**
+ * ⭐ C-EQ-1 v1.93⟨cardshow⟩ — `GET /card-show/form-token?purpose=`: la respuesta es `{formToken}`, no una
+ * lista. El token es `b64url({p,t}).sig`, y `t` (el `iat`) CAMBIA cada ms ⇒ observar el token crudo sería
+ * no determinista (rompería la estabilidad de la huella). Se observa SOLO el propósito `p` del payload —
+ * que es lo que `?purpose=` decide— decodificando el primer segmento. ⛔ `t` se ignora a propósito.
+ */
+const OBS_FORM_TOKEN: Obs = {
+  huella: (res) => {
+    const tok = (res.body as unknown as { formToken?: string })?.formToken ?? '';
+    const payload = tok.split('.')[0] ?? '';
+    try {
+      return String((JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { p?: unknown }).p ?? '');
+    } catch {
+      return '';
+    }
+  },
+  hayDatos: (res) => !!(res.body as unknown as { formToken?: string })?.formToken,
 };
 
 /** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
@@ -783,6 +815,33 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/reports/wishlist-demand', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'sort', clazz: 'L', allowed: WISHLIST_DEMAND_SORTS, valid: 'market', alterno: 'wanted', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
+
+  // ==========================================================================================
+  // ⭐ C-EQ-1 v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.15 + §0-Q punto 4) — el PANEL del Card Show. NUEVE
+  // ejes de dominio cerrado que el escáner ve y que HASTA HOY se IGNORABAN en silencio (status/type/day) o
+  // se CLAMPABAN a `leads` (form-token). El arquitecto escribió sus filas en §0-Q punto 4 (contrato en
+  // `cb83a81`) ⇒ entran `transcrita` (el default) y ⛔ NO suben el conteo PENDIENTE-ARQUITECTO.
+  //
+  //  - `?status=` de leads/players es clase **R**: el panel NUNCA muestra `pending` ⇒ su dominio aceptado
+  //    es el enum MENOS `pending` (`CARD_SHOW_*_STATUS_FILTER_VALUES`). `?status=pending` ⇒ 400, como
+  //    cualquier otro valor fuera del subconjunto.
+  //  - `?type=` (E, `CardShowLeadType`) y `?day=` (E, `CardShowDay`) derivan su dominio del enum.
+  //  - `?purpose=` de form-token (L, `FORM_PURPOSES`) tiene DEFAULT propio `leads`: ausente/vacío ⇒ `leads`
+  //    (no «no filtra»), así que `valid`/`alterno` se eligen con `players` primero para que `filtra` sea
+  //    observable contra la base (= `leads`).
+  //  - Fixture (q): dos leads confirmados (merchant·new / sponsor·contacted) y dos players confirmados
+  //    (sat·confirmed / sun·waitlist). ⛔ sin `echoValue` (ejes nuevos, el público incluido).
+  //  - Los CSV se observan como TEXTO (`OBS_CARDSHOW_CSV`); el form-token por su propósito (`OBS_FORM_TOKEN`).
+  // ==========================================================================================
+  { route: 'GET /admin/card-show/leads', param: 'status', clazz: 'R', allowed: CARD_SHOW_LEAD_STATUS_FILTER_VALUES, valid: 'new', alterno: 'contacted', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/leads', param: 'type', clazz: 'E', allowed: Object.values(CardShowLeadType), valid: 'merchant', alterno: 'sponsor', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players', param: 'status', clazz: 'R', allowed: CARD_SHOW_PLAYER_STATUS_FILTER_VALUES, valid: 'confirmed', alterno: 'waitlist', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players', param: 'day', clazz: 'E', allowed: Object.values(CardShowDay), valid: 'sat', alterno: 'sun', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/leads/export.csv', param: 'status', clazz: 'R', allowed: CARD_SHOW_LEAD_STATUS_FILTER_VALUES, valid: 'new', alterno: 'contacted', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/leads/export.csv', param: 'type', clazz: 'E', allowed: Object.values(CardShowLeadType), valid: 'merchant', alterno: 'sponsor', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players/export.csv', param: 'status', clazz: 'R', allowed: CARD_SHOW_PLAYER_STATUS_FILTER_VALUES, valid: 'confirmed', alterno: 'waitlist', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players/export.csv', param: 'day', clazz: 'E', allowed: Object.values(CardShowDay), valid: 'sat', alterno: 'sun', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /card-show/form-token', param: 'purpose', clazz: 'L', allowed: FORM_PURPOSES, valid: 'players', alterno: 'leads', obs: OBS_FORM_TOKEN, auth: 'public', echoValue: false },
 ];
 
 /**
@@ -904,6 +963,10 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
   // (n) 💰 rev v1.86⟨accesorios⟩ — los accesorios del fixture (sin movimientos ni ventas: nada los referencia).
   await h.prisma.accessory.deleteMany({ where: { name: { startsWith: 'CEQ1-' } } });
+  // (q) ⭐ C-EQ-1 v1.93⟨cardshow⟩ — leads/players del panel. Barrido por prefijo de correo (sin tocar
+  //     filas de OTRAS suites de card-show). ⛔ Sin FK: borrado directo.
+  await h.prisma.cardShowLead.deleteMany({ where: { email: { startsWith: 'ceq1-cs-' } } });
+  await h.prisma.cardShowPlayerSignup.deleteMany({ where: { email: { startsWith: 'ceq1-csp-' } } });
 }
 
 /** Siembra y devuelve el contexto de rutas (`setId` propio + el `userId` del cliente del fixture). */
@@ -1277,6 +1340,30 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo', axis: 'buy', proposedMxnCents: CEQ1_REVIEW_PROPOSED[1], baselineMxnCents: 200, jumpFactorMilli: 55_000, sourceCount: 1, familyCount: 1, consensus: false, quotesSnapshot: quotesSnap, status: 'open' },
       { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', axis: 'sell', proposedMxnCents: CEQ1_REVIEW_PROPOSED[2], baselineMxnCents: 150, jumpFactorMilli: 20_000, sourceCount: 2, familyCount: 2, consensus: true, quotesSnapshot: quotesSnap, status: 'accepted', resolvedAction: 'accept', resolvedAt: new Date() },
       { cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'first_edition_holofoil', axis: 'sell', proposedMxnCents: CEQ1_REVIEW_PROPOSED[3], baselineMxnCents: 300, jumpFactorMilli: 10_000, sourceCount: 1, familyCount: 1, consensus: false, quotesSnapshot: quotesSnap, status: 'kept', resolvedAction: 'keep', resolvedAt: new Date() },
+    ],
+  });
+
+  // (q) ⭐ C-EQ-1 v1.93⟨cardshow⟩ (§CARDSHOW.15) — el PANEL de leads/preinscripciones. Los filtros del
+  //     panel (`?status=`/`?type=`/`?day=`) IGNORABAN en silencio el valor fuera de dominio; ahora ⇒ 400
+  //     (§0-Q punto 1). Para que `filtra` sea observable hacen falta filas CONFIRMADAS (⛔ PENDING no
+  //     aparece por defecto) en estados/tipos/días DISTINTOS. `createdAt` sentinela y distinto por fila ⇒
+  //     orden determinista (huella estable). Correos con prefijo `ceq1-cs-`/`ceq1-csp-` para el barrido.
+  const csConsent = new Date('2026-10-01T00:00:00Z');
+  await h.prisma.cardShowLead.createMany({
+    data: [
+      // L1 merchant·new·confirmado · L2 sponsor·contacted·confirmado ⇒ base(confirmados)={L1,L2};
+      // `?status=new|contacted` y `?type=merchant|sponsor` discriminan.
+      { type: 'merchant', email: 'ceq1-cs-merchant@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-1', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_mesas', status: 'new', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
+      { type: 'sponsor', email: 'ceq1-cs-sponsor@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-2', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_patrocinio', status: 'contacted', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
+    ],
+  });
+  await h.prisma.cardShowPlayerSignup.createMany({
+    data: [
+      // P1 sat·confirmed·confirmado · P2 sun·waitlist·confirmado ⇒ base(confirmados)={P1,P2};
+      // `?status=confirmed|waitlist` y `?day=sat|sun` discriminan. `playerId` distinto ⇒ sin choque con
+      // el índice único parcial `(playerId, day)`.
+      { day: 'sat', playerName: 'CEQ1 Jugador Uno', playerId: '100000000001', email: 'ceq1-csp-1@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-1', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
+      { day: 'sun', playerName: 'CEQ1 Jugador Dos', playerId: '100000000002', email: 'ceq1-csp-2@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-2', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'waitlist', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
     ],
   });
 
@@ -1674,7 +1761,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // ⭐ v1.91⟨precios⟩ (M-75, §PRE.E) — 72 → **74** y 18 fijo: `?status=`/`?axis=` de `GET /admin/pricing/review-queue`
     // entran YA `transcrita` (el arquitecto escribió sus dos filas canónicas en §0-Q punto 4, commit d9f00293). Clase E,
     // dominio DERIVADO de `PriceReviewStatus`/`PriceAxis`. No sube ningún pendiente.
-    expect(REGISTRO.length).toBe(74);
+    // ⭐ v1.93⟨cardshow⟩ (C-EQ-1, contrato en `cb83a81`) — 74 → **83** y 18 fijo: los NUEVE ejes del panel del
+    // Card Show entran YA `transcrita` (el arquitecto escribió sus nueve filas en §0-Q punto 4). `?status=`
+    // leads/players (R, enum MENOS `pending`), `?type=`/`?day=` (E) y sus gemelos de `export.csv`, más
+    // `?purpose=` de form-token (L, `FORM_PURPOSES`, default `leads`). No sube ningún pendiente.
+    expect(REGISTRO.length).toBe(83);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1736,7 +1827,12 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // pasaron a llaves con nombre, así que el censo ve cada eje (y por eso `?category=` sale al `REGISTRO`).
     // 💰 **62 → 60 (v1.86.5, `179d8163`):** `?active=`/`?soldOut=` del panel son clase L (`true|false`) ⇒ salen de aquí al
     // `REGISTRO`. `?exclude=` se queda, ratificado («⛔ no es §0-Q — formato, no tokens; punto 7»).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(60);
+    // ⭐ **60 → 70 (v1.93⟨cardshow⟩, C-EQ-1 contrato en `cb83a81`):** DIEZ ejes del panel del Card Show sin dominio de tokens:
+    // los `?from=`/`?to=` (días/fechas sobre `createdAt`; fuera de forma ⇒ `400 {field}` sin `allowed`) de `GET
+    // /admin/card-show/{leads,players}` y sus `export.csv` (8), más `GET /card-show/ir/:destino?mesa=` (entero de telemetría,
+    // conducta INTENCIONAL: se ignora fuera de forma) y `POST /card-show/unsubscribe-oneclick?token=` (token de enlace, ⛔ no
+    // un conjunto cerrado). ⛔ `NO_ENUM_TRANSVERSAL` NO se toca (`q`/`page`/`pageSize` del panel ya exentos por nombre).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(70);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

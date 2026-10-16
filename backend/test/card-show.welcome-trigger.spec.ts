@@ -19,7 +19,7 @@ type Lead = {
   utmCampaign: string | null;
 };
 
-function makeService(lead: Lead, opts?: { forceRaceLost?: boolean }) {
+function makeService(lead: Lead, opts?: { forceRaceLost?: boolean; throwIn?: 'isCut' | 'internalNotice' }) {
   const welcomeCalls: { type: CardShowLeadType }[] = [];
   const internalCalls: { type: string }[] = [];
 
@@ -41,7 +41,10 @@ function makeService(lead: Lead, opts?: { forceRaceLost?: boolean }) {
   const caps = {
     reserveDomainSend: async () => true,
     reserveConfirmedSend: async () => true,
-    reserveInternalNotice: async () => true,
+    reserveInternalNotice: async () => {
+      if (opts?.throwIn === 'internalNotice') throw new Error('redis blip (aviso interno)');
+      return true;
+    },
   };
   const mail = {
     sendWelcome: async (p: { type: CardShowLeadType }) => {
@@ -53,7 +56,12 @@ function makeService(lead: Lead, opts?: { forceRaceLost?: boolean }) {
       return true;
     },
   };
-  const webhook = { isCut: async () => false };
+  const webhook = {
+    isCut: async () => {
+      if (opts?.throwIn === 'isCut') throw new Error('redis blip (corte C6)');
+      return false;
+    },
+  };
   const audit = { log: async () => undefined };
   const config = { get: () => undefined };
 
@@ -121,6 +129,33 @@ describe('CARDSHOW · disparo de la bienvenida C3-W (PENDING→new)', () => {
     const { svc, welcomeCalls, internalCalls } = makeService(baseLead(), { forceRaceLost: true });
     await expect((svc as any).confirmLead('L1', Date.now())).rejects.toMatchObject({ code: 'LINK_ALREADY_USED' });
     expect(welcomeCalls).toHaveLength(0);
+    expect(internalCalls).toHaveLength(0);
+  });
+
+  // ⭐ D1 (blindaje, techlead) — la bienvenida y el aviso interno son best-effort: un parpadeo de Redis
+  // en sus gates (TRAS persistir la transición PENDING→`new`) ⛔ NUNCA debe tumbar la confirmación ya
+  // guardada con un `500`. Antes del try/catch, `webhook.isCut()` lanzando daba `500` y perdía el aviso.
+  it('D1 — gate de la bienvenida (webhook.isCut) LANZA tras persistir ⇒ confirmLead devuelve éxito (fila `new`), NO 500', async () => {
+    const lead = baseLead({ type: 'merchant' });
+    const { svc, welcomeCalls, internalCalls } = makeService(lead, { throwIn: 'isCut' });
+    const r = await (svc as any).confirmLead('L1', Date.now());
+    // La confirmación se respeta: la fila quedó `new` + `confirmedAt` set, y el POST devuelve éxito.
+    expect(r).toEqual({ outcome: 'ok', state: 'new' });
+    expect((lead as any).status).toBe('new');
+    expect(lead.confirmedAt).not.toBeNull();
+    // El envío no ocurrió (el gate cayó) — best-effort: 0 bienvenidas, pero ⛔ sin 500.
+    expect(welcomeCalls).toHaveLength(0);
+    expect(internalCalls).toHaveLength(0);
+  });
+
+  it('D1 — gate del aviso interno (caps.reserveInternalNotice) LANZA ⇒ confirmLead devuelve éxito, NO 500', async () => {
+    const lead = baseLead({ type: 'merchant' });
+    const { svc, welcomeCalls, internalCalls } = makeService(lead, { throwIn: 'internalNotice' });
+    const r = await (svc as any).confirmLead('L1', Date.now());
+    expect(r).toEqual({ outcome: 'ok', state: 'new' });
+    expect((lead as any).status).toBe('new');
+    // La bienvenida SÍ salió (su gate no cayó); el aviso interno cayó y se tragó sin tumbar la confirmación.
+    expect(welcomeCalls).toEqual([{ type: 'merchant' }]);
     expect(internalCalls).toHaveLength(0);
   });
 

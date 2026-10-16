@@ -411,7 +411,7 @@ function tailAfterLastSpacer32(html: string): string {
 }
 
 describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde el contrato lo permite', () => {
-  it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts`, con 3 apariciones', () => {
+  it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts` (3) y `card-show-internal.templates.ts` (2)', () => {
     const SRC = join(__dirname, '..', 'src');
     const hits: Record<string, number> = {};
     const walk = (d: string): void => {
@@ -425,7 +425,10 @@ describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde e
       }
     };
     walk(SRC);
-    expect(hits).toEqual({ [join('modules', 'spend-alerts', 'spend-alert.mail.ts')]: 3 });
+    expect(hits).toEqual({
+      [join('modules', 'spend-alerts', 'spend-alert.mail.ts')]: 3,
+      [join('modules', 'card-show', 'card-show-internal.templates.ts')]: 2,
+    });
   });
 });
 

@@ -15,6 +15,7 @@ import {
 import type { Request, Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 import { CardShowService, ConfirmResult } from './card-show.service';
 import { CardShowThrottleService } from './card-show-throttle.service';
@@ -51,9 +52,9 @@ export class CardShowController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ formToken: string } | undefined> {
-    const purpose: FormPurpose = (FORM_PURPOSES as readonly string[]).includes(purposeRaw ?? '')
-      ? (purposeRaw as FormPurpose)
-      : 'leads';
+    // §0-Q (C-EQ-1): ausente/vacío ⇒ default `leads`; un valor NO vacío fuera de `FORM_PURPOSES` ⇒
+    // `400 {field, allowed}` (⛔ ya NO se clampa en silencio a `leads`). Clase R (dominio cerrado).
+    const purpose: FormPurpose = parseEnumFilter('purpose', purposeRaw, FORM_PURPOSES) ?? 'leads';
     const ipKey = ipThrottleKey(req.ip);
     const d = await this.throttle.hitFormToken(ipKey);
     if (!d.allowed) return this.deny(res, d.retryAfterSeconds);

@@ -10660,3 +10660,35 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
   **aceptada explícitamente** por QA/techlead en `docs/SECURITY_NOTES.md`/veredicto **antes del release**. §PRE no la
   carga, pero queda registrada para que no se pierda.
 - **Comprobación:** `bash scripts/stack-native.sh test:integration "accessories-prep-refunds|accessories-m73-migration|accessories-m73-refund-shapes"` ⇒ 0 rojas; o la aceptación firmada.
+
+### TD-CS-D1 · RESUELTO (2026-10-16) · `confirmLead` tumbaba una confirmación persistida si un gate best-effort lanzaba
+- **Qué era:** en `confirmLead` (`card-show.service.ts`), tras persistir la transición PENDING→`new` (atómica, un solo
+  uso), las llamadas a `webhook.isCut()`, `caps.reserve*`, `budget.tryReserve` (dentro de `sendWelcome`) y el bloque del
+  aviso interno (`caps.reserveInternalNotice`) **no** estaban en try/catch. Un parpadeo de Redis TRAS dejar la fila `new`
+  daba `500` y perdía el aviso interno, con la fila **ya confirmada** ⇒ el POST fallaba aunque la confirmación fuera real.
+- **Arreglo (este commit):** todo `sendWelcome(...)` y el bloque de aviso interno van en try/catch que loguea y SIGUE; la
+  confirmación ya persistida NUNCA se tumba por un fallo de envío (son best-effort por diseño, §CARDSHOW.9).
+- **Prueba que muerde:** `card-show.welcome-trigger.spec.ts` — con `webhook.isCut`/`caps.reserveInternalNotice` lanzando,
+  `confirmLead` devuelve `{outcome:'ok', state:'new'}` (fila `new`, `confirmedAt` set), no 500. Mutación verificada: al
+  relanzar en el catch, 2/2 pruebas D1 rojas; restaurado, verdes.
+- **Dueño:** backend (card-show). **Estado: cerrado en este commit.**
+
+### TD-CS-D2 · P3 · Copys de WhatsApp/Drive/Maps/mailto duplicados entre backend y frontend (2026-10-16)
+- **Qué es:** los enlaces/copys del evento (WhatsApp, Google Drive, Maps, `mailto:`) viven a la vez en
+  `backend/src/modules/card-show/card-show-content.ts` y `frontend/src/content/card-show.ts` — **dos fuentes para un
+  mismo dato**. Si uno cambia y el otro no, la landing y los correos divergen sin que nada lo cace.
+- **Riesgo:** bajo (texto, no dinero); aceptable para un **evento único**. El coste de unificar (un paquete compartido o
+  un endpoint de contenido) no se justifica para una landing de un solo evento.
+- **Dirección:** si el evento se vuelve recurrente, unificar en una sola fuente (compartida o servida por el backend).
+- **Dueños:** backend + frontend (coordinados; cualquiera que toque un copy debe tocar los dos ficheros).
+- **Comprobación:** `grep` de los enlaces en ambos ficheros coincide; o, al unificar, una sola fuente.
+
+### TD-CS-D3 · P3 · `INTERNAL_NOTICE_CC` hardcodeado en `card-show.constants.ts` (2026-10-16)
+- **Qué es:** el CC fijo del aviso interno al staff es un literal en `card-show.constants.ts:47`
+  (`INTERNAL_NOTICE_CC = ['cardshow@jakomi.mx','scarranza@tcghunt.mx']`), ⛔ no una variable de entorno. Cambiar quién
+  recibe la copia exige tocar código y redeploy.
+- **Riesgo:** bajo (no es secreto ni dinero; son destinatarios internos). Aceptable para el evento.
+- **Dirección:** proponer `CARD_SHOW_INTERNAL_CC` (coma-separada), con el literal de hoy como default — igual que
+  `CARD_SHOW_INTERNAL_RECIPIENTS` ya hace para el To.
+- **Dueño:** backend (card-show).
+- **Comprobación:** `CARD_SHOW_INTERNAL_CC` existe en `ENV` y el servicio lo lee con fallback al default actual.

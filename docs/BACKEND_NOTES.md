@@ -32653,6 +32653,46 @@ corregir un dato de prueba; el `playerName` no admite dígitos por la lista blan
 ### Numeración / rama
 HEAD base de la rama: `9947f91` (contrato+arquitectura del Card Show). Commits del backend a continuación.
 
+### §CARDSHOW.censos — los 3 censos transversales del release (C-EQ-1, PRIV-6, G-8) + blindaje D1 (2026-10-16, sobre `cb83a81`)
+QA rechazó el gate por 3 censos transversales en rojo (el Card Show es módulo nuevo y sus ejes/tablas no estaban
+clasificados). El arquitecto decidió (contrato en `cb83a81`); backend aplicó EXACTO:
+
+- **PRIV-6 (`test/mail.privacy-footer.spec.ts:428`)**: el censo de `audience:'staff'` exige transcribir los usos
+  medidos. Son **2** en `card-show-internal.templates.ts` (líneas 85 y 119, medido) — el aviso al staff y el resumen
+  diario van sin pie de privacidad a propósito (correo interno). Aserción ampliada a `{spend-alert.mail.ts:3,
+  card-show-internal.templates.ts:2}`. Suite: **146/146**.
+- **C-EQ-1 (`test/integration/enum-query-axes.e2e-spec.ts` + `test/helpers/query-axis-cross.ts`)**: el Card Show añadió
+  **19 ejes `@Query`** huérfanos. Clasificación del arquitecto:
+  - **9 a `REGISTRO` (`transcrita`)** — dominio cerrado, 400 fuera de dominio: `GET /admin/card-show/{leads,players}`
+    y sus `export.csv` (`?status=` clase **R** = enum MENOS `pending`; `?type=`/`?day=` clase **E**) + `GET
+    /card-show/form-token?purpose=` (clase **L**, `FORM_PURPOSES`, default `leads`). `REGISTRO.length` 74→**83**;
+    pendientes **18 fijo** (sus filas de §0-Q ya existen). Fixture (q) nuevo: 2 leads + 2 players confirmados.
+  - **10 a `NO_ENUM_POR_RUTA`** (tope 60→**70**): los `?from=`/`?to=` (días sobre `createdAt`) de las 4 rutas admin
+    (8), `GET /card-show/ir/:destino?mesa=` (entero de telemetría, conducta INTENCIONAL) y `POST
+    /card-show/unsubscribe-oneclick?token=` (token opaco). ⛔ `NO_ENUM_TRANSVERSAL` no se toca.
+  - **CÓDIGO (era el defecto, no solo clasificación):** `leadWhere`/`playerWhere` IGNORABAN en silencio el valor fuera
+    de dominio y `form-token` CLAMPABA `purpose` a `leads`. Ahora usan `parseEnumFilter` (`common/enum-filter.ts`) ⇒
+    `400 {field, allowed}` fuera de dominio. `dateRange` ahora `400 {field}` ante fecha mal formada (antes la ignoraba).
+    Dominios R exportados: `CARD_SHOW_LEAD_STATUS_FILTER_VALUES`, `CARD_SHOW_PLAYER_STATUS_FILTER_VALUES`
+    (`card-show.service.ts`). Suite: **693/693**. Mutación (ignore-silencioso en `leadWhere`): **8/8 rojas** en
+    `leads::status` + su CSV; restaurado ⇒ verde.
+- **G-8 (`prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql` + `pdb-limpieza.e2e-spec.ts`)**: 3 tablas nuevas
+  clasificadas (precedente §14.13.1, default **conservar** para PII). `CardShowClick` → **borrar** (telemetría sin
+  cookie/IP/UA; `DELETE` en paso 13 como `SpendAlert`, G-5 lo cuenta 0). `CardShowLead`/`CardShowPlayerSignup` →
+  **conservar** (PII real con consentimiento, **incluye MENORES**). `EMPTIED` += `CardShowClick`; `KEY_KEPT` += los dos
+  leads/players; fixture siembra 2 clics + 1 lead + 1 preinscripción de menor. Doc: `docs/specs/LIMPIEZA_DB.md §14.14`
+  con la pregunta de política **P-CS** (default conservar; vaciar ⇒ guarda tipo G-9 por lista/cohorte, ⛔ nunca a
+  ciegas). ⚠️ El orquestador lleva P-CS a JC; backend implementó el DEFAULT conservar (la herramienta queda operativa).
+- **D1 (blindaje, techlead)**: `confirmLead` envuelve `sendWelcome(...)` y el aviso interno en try/catch que loguea y
+  SIGUE ⇒ un parpadeo de Redis TRAS persistir PENDING→`new` ya NO tumba la confirmación con un 500. Prueba que muerde
+  en `card-show.welcome-trigger.spec.ts` (2 casos: `webhook.isCut` y `caps.reserveInternalNotice` lanzando ⇒ éxito, no
+  500). Mutación (catch que relanza): **2/2 rojas**; restaurado ⇒ verde. Deuda registrada en `docs/TECH_DEBT.md`
+  (TD-CS-D1 RESUELTO; D2 copys duplicados backend↔frontend; D3 `INTERNAL_NOTICE_CC` hardcodeado ⇒ proponer
+  `CARD_SHOW_INTERNAL_CC`).
+
+> ⚠️ **Verificación local:** las suites de integración necesitan `--forceExit`: el AppModule deja *open handles*
+> (Redis/scheduler) que impiden que jest salga solo tras terminar los tests (no es regresión; el arranque mide 0.3 s).
+
 ## v1.94⟨sellado-display⟩ — el SELLADO deja de pintarse como su carta ancla (§4.34a.2 + §5.2.6)
 
 **El bug (dinero/fulfillment).** Un producto SELLADO se pintaba como su **single ancla** (p. ej. «Exeggcute»)

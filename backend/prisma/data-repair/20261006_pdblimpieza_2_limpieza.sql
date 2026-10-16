@@ -103,8 +103,11 @@
 -- v2.2 (§14.13 LZ-A1): ¿tiene tu base las tablas de accesorios (M-73) y de la lista de deseos (M-74)? Se mira AQUÍ,
 -- ANTES del BEGIN: fuera de la transacción no se toma la foto de abajo (C-4). Todo lo de accesorios y deseos va dentro
 -- de \if: sin esas tablas psql ni siquiera manda esas líneas a la base, y el resultado es el de siempre.
+-- v1.93⟨cardshow⟩ (§14.14): ¿tiene tu base la telemetría de clics del Card Show (M-78)? Su `DELETE` va dentro de \if,
+-- igual que accesorios/deseos: sin la tabla, psql ni manda esa línea (comparación con el B congelado pre-M-78, T-AC3).
 SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
-       to_regclass(format('%I', 'WishlistNotice')) IS NOT NULL AS lz_m74 \gset
+       to_regclass(format('%I', 'WishlistNotice')) IS NOT NULL AS lz_m74,
+       to_regclass(format('%I', 'CardShowClick')) IS NOT NULL AS lz_cs \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -122,6 +125,10 @@ LOCK TABLE "Accessory", "OrderAccessoryLine" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 \if :lz_m74
 LOCK TABLE "WishlistNotice" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- v1.93⟨cardshow⟩: la telemetría de clics (un contador que la landing escribe en vivo).
+\if :lz_cs
+LOCK TABLE "CardShowClick" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
@@ -176,7 +183,9 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   'InventoryItem','InventoryMovement','InventoryAdjustment','InventoryBatch',
   'SpendAlert','PortfolioSnapshot','AuditLog',
   -- v2.2 (§14.13): M-73 (renglones de pedido y de envío, paquete de energías, historial de existencias) y M-74 (avisos)
-  'OrderAccessoryLine','OrderEnergyBundleComponent','ShipmentAccessoryLine','AccessoryStockMovement','WishlistNotice']) AS t
+  'OrderAccessoryLine','OrderEnergyBundleComponent','ShipmentAccessoryLine','AccessoryStockMovement','WishlistNotice',
+  -- v1.93⟨cardshow⟩ (§14.14, G-8): telemetría de clics de la landing (⛔ sin cookie, sin IP, sin user-agent) ⇒ sin PII ⇒ borrar.
+  'CardShowClick']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -194,7 +203,12 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- de partición (su `axis` es informativo, no un eje de limpieza) y mientras está `open` BLOQUEA la
   -- publicación/compra de un precio: borrar un caso `open` desbloquearía en silencio una decisión de
   -- dinero — justo lo que la limpieza evita.
-  'PriceReviewCase']) AS t;
+  'PriceReviewCase',
+  -- v1.93⟨cardshow⟩ (§14.14, G-8, P-CS): leads «Avísame» y preinscripciones al torneo = PII REAL capturado con
+  -- CONSENTIMIENTO (y MENORES, con consentimiento del tutor). DEFAULT CONSERVAR: borrarlos a ciegas en una limpieza
+  -- de «datos de prueba» tiraría registros legítimos de clientes. Si el dueño pide vaciarlos (P-CS), el mecanismo es
+  -- una guarda por LISTA/COHORTE (tipo G-9), nunca borrado a ciegas.
+  'CardShowLead','CardShowPlayerSignup']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -425,6 +439,11 @@ INSERT INTO lz_cambio SELECT '12 PendingPriceEntry inventario', count(*) FROM x;
 
 -- 13 · Avisos de gasto, portafolios y bounties.
 WITH x AS (DELETE FROM "SpendAlert" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SpendAlert', count(*) FROM x;
+-- v1.93⟨cardshow⟩ (§14.14, G-8): telemetría de clics de la landing (sin PII, sin FK) ⇒ se vacía como SpendAlert. G-5 la
+-- cuenta (0 tras borrar). Dentro de \if :lz_cs: sin M-78 (comparación pre-M-78 de T-AC3) psql ni manda la línea.
+\if :lz_cs
+WITH x AS (DELETE FROM "CardShowClick" RETURNING 1) INSERT INTO lz_cambio SELECT '13 CardShowClick', count(*) FROM x;
+\endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (
   UPDATE "VariantPriceOverride" SET "bountyAcquiredQty" = 0, "bountyCompletedAt" = NULL, "updatedAt" = now()
