@@ -651,6 +651,9 @@ model User {
   wishlistItems              WishlistItem[]
   wishlistNotices            WishlistNotice[]
   wishlistMails              WishlistMail[]
+  // rev v1.96⟨mkt-tienda⟩ (M-82, §MKT.D, ARCHITECTURE §13.4.1): permisos finos concedidos a ESTA cuenta.
+  // `super_admin` NO necesita fila (tiene `marketing:read` implícito); cualquier otro rol sí.
+  marketingPermissions       UserPermission[]
 
   @@index([role])
   @@index([status])
@@ -3117,4 +3120,116 @@ model WishlistMail {
   notices   WishlistNotice[]
 
   @@index([userId, sentAt])
+}
+
+// ============================================================================================
+// rev v1.96⟨mkt-tienda⟩ — OLA 2 · Panel de Marketing (Fase 0). Migración M-82
+// (`20261104120000_m82_mkt_panel`). Diseño: ARCHITECTURE §13.4; contrato: API_CONTRACT §MKT.D/E.
+// 100% ADITIVO: enums y tablas nuevas, CERO cambio a modelos ajenos (solo la relación inversa
+// `User.marketingPermissions`, que no altera ninguna columna existente). CERO dinero.
+// ⚠️ `SearchNoResultDaily` (c6) queda DIFERIDO (pre-revisión de seguridad PM-M2); no se crea aquí.
+// ============================================================================================
+
+// §13.4.1 — permiso fino `marketing:read`. El sistema actual es solo por rol; este enum habilita
+// delegación sin tocar `Role`. Hoy solo existe `marketing_read`; crece aditivamente.
+enum Permission {
+  marketing_read
+}
+
+// §13.4.3 (f1/f2) — respuesta del visitante al banner de cookies (Fase 2 lo escribe; el modelo se
+// crea ahora). Agregado anónimo, NUNCA una fila por visita.
+enum BannerResponse {
+  accept
+  necessary_only
+  no_response
+}
+
+// §13.4.1 — concesión explícita de un permiso fino a una cuenta. `super_admin` NO necesita fila.
+model UserPermission {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission      Permission
+  // Quién lo concedió (el dueño). NULLABLE: una siembra o un script no siempre tiene actor.
+  grantedByUserId String?
+  grantedAt       DateTime   @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
+}
+
+// §13.4.2 — principal de servicio `marketing-reader`: token portador para que el analista lea el
+// endpoint de agregados SIN una sesión de admin. Se guarda SOLO el hash (nunca el claro).
+model MarketingApiToken {
+  id              String    @id @default(uuid())
+  // Nombre legible, p. ej. «marketing-reader». NO es secreto.
+  label           String
+  // SHA-256 (hex) del token claro. ⛔ NUNCA el claro. Comparación en tiempo constante en el servicio.
+  tokenHash       String    @unique
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  // createdAt + 12 meses (PV-B3). Un token caducado ⇒ 401.
+  expiresAt       DateTime
+  // Revocación inmediata SIN desplegar. No nulo ⇒ 401.
+  revokedAt       DateTime?
+  revokedByUserId String?
+  lastUsedAt      DateTime?
+
+  accessLogs MarketingAccessLog[]
+
+  @@index([tokenHash])
+}
+
+// §13.4.3 (f1/f2) — contador de aceptación del banner por `(semana × respuesta × utm_medium × device)`.
+// SIN fila por visita, SIN cookie. Agregado por semana, sin plazo (no es dato personal, PM-M4).
+// ⚠️ OLA 2: el modelo se CREA, pero NO tiene camino de escritura todavía (el banner es Fase 2).
+model MarketingBannerConsentCounter {
+  id        String         @id @default(uuid())
+  // Lunes CDMX de la semana (solo fecha).
+  weekStart DateTime       @db.Date
+  response  BannerResponse
+  // Uno de los 4 de U-1 (bio|story|paid|dm) o null; validado `^[a-z0-9._-]{1,64}$` al escribir (Fase 2).
+  utmMedium String?
+  // f2: móvil|escritorio|tableta (derivado del UA en el servidor, sin guardar el UA).
+  device    String?
+  count     Int            @default(0)
+
+  @@unique([weekStart, response, utmMedium, device])
+}
+
+// §13.4.3 (d4) — conteo anónimo de cálculos del cotizador por `(día × cardId)` desde
+// `POST /buylist/quote`. ⛔ SIN usuario, SIN IP. Sin plazo (no personal).
+model BuylistQuoteDailyCount {
+  id     String   @id @default(uuid())
+  // Día CDMX (solo fecha).
+  day    DateTime @db.Date
+  cardId String
+  count  Int      @default(0)
+
+  @@unique([day, cardId])
+  @@index([cardId])
+}
+
+// §13.4.4 — registro de accesos del panel (PM-M3). Cada export/descarga/llamada del endpoint deja
+// una fila. SIN contenido (ni filas, ni datos personales). Retención 12 meses (job futuro).
+// Un modelo dedicado (no `AuditLog`) porque el endpoint lo usa un principal de servicio SIN usuario.
+model MarketingAccessLog {
+  at          DateTime           @default(now())
+  id          String             @id @default(uuid())
+  // Exactamente uno poblado: sesión admin (export/botón) …
+  actorUserId String?
+  // … o token marketing-reader (endpoint).
+  tokenId     String?
+  token       MarketingApiToken? @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+  // Pantalla a-h (o 'todo' para «Exportar todo» / 'semana' para el botón).
+  screen      String
+  // Filtros aplicados, SIN contenido personal (los utm ya escapados; sin PII).
+  filters     Json?
+  // 'json' | 'xlsx' | 'csv'.
+  format      String?
+  rowCount    Int?
+
+  @@index([at])
+  @@index([actorUserId])
+  @@index([tokenId])
 }
