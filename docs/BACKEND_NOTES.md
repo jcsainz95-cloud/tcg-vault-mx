@@ -66,11 +66,16 @@ C3 confirmación **sigue** sin ninguno de esos (prueba de contraste en `card-sho
    `{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26` (dominio
    propio). **Hoy NO existe ese recurso** — lo sirve el **frontend** (ruta estática) o un endpoint nuevo;
    el contrato no define un endpoint `.ics`. Si se prefiere endpoint backend, pasa por el arquitecto.
-2. **CC del aviso interno**: la copy pide `To: jsainz@tcghunt.mx · CC: cardshow@jakomi.mx,
-   scarranza@tcghunt.mx`. El puerto `MailMessage` **no tiene campo `cc`**; lo mando por cabecera `Cc`.
-   El `ResendMailAdapter` pasa `headers` tal cual, pero **Resend hace el CC real con su parámetro `cc`**,
-   no por cabecera arbitraria. **Pendiente devops/arquitecto:** o añadir `cc?` al puerto, o verificar que
-   Resend respeta la cabecera `Cc`. En `NoopMailAdapter` (dev/CI) solo se loguea. En no-local el To llega.
+2. **CC del aviso interno — RESUELTO (2026-10-16).** La copy pide `To: jsainz@tcghunt.mx · CC:
+   cardshow@jakomi.mx, scarranza@tcghunt.mx`. Antes el `CC` iba por cabecera `Cc` arbitraria y **NO estaba
+   medido que Resend la honre** (Resend hace el CC real con su parámetro `cc` nativo, no por cabecera).
+   **Arreglo:** el puerto `MailMessage` ganó un campo **`cc?: string | string[]`** de primera clase
+   (aditivo/opcional, igual que `from?`/`headers?`); `ResendMailAdapter` lo mapea al parámetro **`cc`
+   nativo** de Resend con spread condicional (ausente ⇒ la clave NO viaja ⇒ el cuerpo de los demás correos
+   queda **byte a byte** igual); `NoopMailAdapter` lo loguea. `sendInternalNotice` ahora pasa
+   `cc: [...INTERNAL_NOTICE_CC]` y se **quitó el apaño de cabecera `Cc`**. ⛔ No toca el contrato ni el
+   schema (mecánica de correo interno, infra backend aditiva). `mail/mail.port.ts:36`,
+   `mail/resend-mail.adapter.ts:34`, `mail/noop-mail.adapter.ts:14`, `card-show-mail.service.ts:232`.
 3. **Resumen diario de visitantes**: dejé `CardShowService.sendVisitorDailySummary(from, to)` (consulta
    visitantes confirmados en `[from, to)` + total acumulado y manda el correo interno, ≤10/h). **El
    DISPARO no está cableado**: el módulo Card Show no tiene scheduler propio. **Pendiente devops:**
@@ -86,6 +91,14 @@ caso):** `card-show.welcome-mail.spec.ts` (variantes + enlaces ricos + From/Repl
 carrera perdida ⇒ 0). **Mutación (O-9):** quité el candado `if (res.count !== 1) throw` ⇒ la prueba
 «carrera perdida» se pone **roja** (resuelve `{outcome:'ok'}` en vez de 410 y dispararía bienvenida);
 restaurado y verde de nuevo. `npm run typecheck` limpio.
+
+**Addendum CC de primera clase (2026-10-16; autor backend):** dos pruebas nuevas en
+`card-show.internal-mail.spec.ts` con un `MailPort` que captura el `MailMessage`: (a) el aviso interno
+produce `to='jsainz@tcghunt.mx'` y `cc=['cardshow@jakomi.mx','scarranza@tcghunt.mx']` sin cabecera `Cc`;
+(b) la confirmación C3 (sin CC) **no** trae la clave `cc` (byte a byte). `npx jest test/card-show
+test/mail.service.spec.ts` ⇒ 14 suites, 98 pruebas verdes (N=1 por caso). **Mutación (O-9):** quité
+`cc: [...INTERNAL_NOTICE_CC]` de `sendInternalNotice` ⇒ la prueba (a) se pone **roja**
+(`msg.cc` → `undefined`), 1 fallida de 5; restaurado y verde de nuevo. `npm run typecheck` limpio.
 
 **Para QA (necesita DB/stack real):** la exactitud **bajo concurrencia** de la transición atómica
 (dos POST simultáneos del mismo token ⇒ 1 bienvenida) se afirma por el `updateMany` guardado, pero mi

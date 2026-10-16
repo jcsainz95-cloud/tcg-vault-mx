@@ -31,6 +31,9 @@ export class ResendMailAdapter implements MailPort {
       text: msg.text,
       // ⭐ v1.93⟨cardshow⟩ (§CARDSHOW.9): cabeceras extra (List-Unsubscribe + -Post) si vienen; si no, ninguna.
       ...(msg.headers && Object.keys(msg.headers).length > 0 ? { headers: msg.headers } : {}),
+      // ⭐ CC NATIVO de Resend (copia real, no cabecera arbitraria). Solo si viene y no está vacío; si no, la
+      // clave NO viaja (el cuerpo de los demás correos queda byte a byte igual).
+      ...(msg.cc && (Array.isArray(msg.cc) ? msg.cc.length > 0 : msg.cc.trim().length > 0) ? { cc: msg.cc } : {}),
       // ⭐ rev BSD-1 (§BSD.8.2): el SDK fijado (`resend` 4.8.0) acepta `attachments: { filename, content: Buffer, contentType }[]`
       // (leído en sus tipos, NM-5 por lectura; el correo de prueba a una cuenta del equipo sigue NO MEDIDO). Sin adjuntos ⇒ la
       // clave no viaja (el cuerpo de hoy, bit a bit).

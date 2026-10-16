@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { CardShowMailService, MxResolver } from '../src/modules/card-show/card-show-mail.service';
-import { MailPort } from '../src/modules/mail/mail.port';
+import { MailMessage, MailPort } from '../src/modules/mail/mail.port';
+import { DEFAULT_INTERNAL_TO, INTERNAL_NOTICE_CC } from '../src/modules/card-show/card-show.constants';
 
 /**
  * §CARDSHOW.9 — correos INTERNOS (aviso al staff + resumen diario) y el CONTRASTE con C3.
@@ -59,6 +60,61 @@ describe('CARDSHOW · aviso interno + resumen diario (internos, copy del dueño)
     expect(r.text).toContain('Nombre: —'); // los leads no persisten nombre
     expect(r.text).toContain('Ver en el admin: https://tcghunt.mx/admin/card-show/leads');
     expect(`${r.html}\n${r.text}`).not.toMatch(/Ash Ketchum/);
+  });
+
+  it('CC REAL del aviso interno: MailMessage.cc = [Jakomi, scarranza] y to = jsainz@tcghunt.mx', async () => {
+    // Puerto que captura el MailMessage exacto que recibe el adaptador (el CC de primera clase vive AQUÍ,
+    // no en el render: si se quita `cc:` de sendInternalNotice, esta prueba MUERDE).
+    const sent: MailMessage[] = [];
+    const capture: MailPort = {
+      send: async (m) => {
+        sent.push(m);
+        return { id: 'x' };
+      },
+    };
+    const captSvc = new CardShowMailService(capture, alwaysMx, config);
+    const ok = await captSvc.sendInternalNotice({
+      type: 'merchant',
+      name: null,
+      email: 'vendedor@dominio.mx',
+      utmSource: null,
+      utmMedium: null,
+      utmCampaign: null,
+      createdAt: new Date('2026-10-16T18:30:00Z'),
+      adminLink: 'https://tcghunt.mx/admin/card-show/leads',
+    });
+    expect(ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    const msg = sent[0];
+    expect(msg.to).toBe(DEFAULT_INTERNAL_TO); // jsainz@tcghunt.mx
+    expect(msg.to).toBe('jsainz@tcghunt.mx');
+    // CC de PRIMERA CLASE con los DOS destinatarios del equipo (no una cabecera `Cc` arbitraria).
+    expect(msg.cc).toEqual(INTERNAL_NOTICE_CC);
+    expect(msg.cc).toEqual(['cardshow@jakomi.mx', 'scarranza@tcghunt.mx']);
+    // ⛔ El CC ya NO va por cabecera (el apaño se quitó): sin clave `Cc` en headers.
+    expect(msg.headers ?? {}).not.toHaveProperty('Cc');
+  });
+
+  it('correo SIN cc (confirmación C3): el MailMessage NO trae la clave cc (byte a byte)', async () => {
+    const sent: MailMessage[] = [];
+    const capture: MailPort = {
+      send: async (m) => {
+        sent.push(m);
+        return { id: 'x' };
+      },
+    };
+    const captSvc = new CardShowMailService(capture, alwaysMx, config);
+    await captSvc.sendConfirmation({
+      to: 'pending@dominio.mx',
+      kind: 'lead',
+      confirmUrl: 'https://tcghunt.mx/card-show/confirm?token=abc',
+      notMeUrl: 'https://tcghunt.mx/card-show/unsubscribe?token=def',
+      unsubscribeOneClickUrl: 'https://tcghunt.mx/api/v1/card-show/unsubscribe-oneclick?token=ghi',
+      privacyUrl: 'https://tcghunt.mx/privacidad',
+    });
+    expect(sent).toHaveLength(1);
+    // La confirmación no lleva CC: la clave NO viaja (igual que from?/headers? aditivos).
+    expect(sent[0]).not.toHaveProperty('cc');
   });
 
   it('resumen diario: asunto con n + lista nombre·correo·fuente', () => {

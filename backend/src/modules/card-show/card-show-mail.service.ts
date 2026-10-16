@@ -227,7 +227,8 @@ export class CardShowMailService {
 
   /**
    * Envía el AVISO INTERNO al confirmar vendedor/patrocinador (copy del dueño). To = destinatario interno
-   * principal; CC fijo del equipo vía cabecera (⚠️ el CC real depende del adaptador — ver BACKEND_NOTES).
+   * principal (jsainz@tcghunt.mx); CC REAL del equipo (Jakomi/scarranza) vía el `cc` de PRIMERA CLASE del
+   * puerto → parámetro `cc` nativo de Resend (ya no una cabecera `Cc` arbitraria que Resend podría ignorar).
    */
   async sendInternalNotice(params: InternalNoticeParams): Promise<boolean> {
     const r = renderInternalNotice(params);
@@ -238,7 +239,8 @@ export class CardShowMailService {
         html: r.html,
         text: r.text,
         from: this.from(),
-        headers: { 'Reply-To': this.replyTo(), Cc: INTERNAL_NOTICE_CC.join(', ') },
+        headers: { 'Reply-To': this.replyTo() },
+        cc: [...INTERNAL_NOTICE_CC],
       });
       return true;
     } catch (e) {

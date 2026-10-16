@@ -32,6 +32,13 @@ export interface MailMessage {
    * RFC 8058). Ausente ⇒ sin cabeceras extra (comportamiento previo, byte a byte).
    */
   headers?: Record<string, string>;
+  /**
+   * ⭐ CC de PRIMERA CLASE (no cabecera arbitraria). El aviso interno del Card Show manda copia real al
+   * equipo (Jakomi/scarranza): `ResendMailAdapter` lo pasa al parámetro `cc` NATIVO de Resend — una cabecera
+   * `Cc` arbitraria NO garantiza la copia real. Ausente ⇒ la clave no viaja (el cuerpo de los demás correos
+   * queda byte a byte igual, como `from?`/`headers?`). Infra backend aditiva (⛔ no toca el contrato).
+   */
+  cc?: string | string[];
 }
 
 export interface MailPort {
