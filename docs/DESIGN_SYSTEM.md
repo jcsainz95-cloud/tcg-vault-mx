@@ -1639,6 +1639,7 @@ Estados:
   **Combobox** con búsqueda. Opciones con `role=option`, navegables por teclado, opción activa resaltada
   con `surface-2` y borde de foco.
 - Multi-select (filtros) muestra conteo ("Rareza · 2") en el trigger.
+- **Error de Select y de grupos radio/checkbox (`fieldset`):** patrón en CS-UX.3 (`aria-invalid`, `aria-describedby`, foco al primer error).
 
 ### 6.4 Checkbox, Radio, Switch
 - Área táctil 44px; control visual 20px. Estado checked usa `--color-primary`; focus con anillo.
@@ -2446,6 +2447,9 @@ Reglas derivadas:
 - El texto `subtle`/placeholder (`#6E695E`) no se usa para información esencial (solo pistas).
 - El logo "G" de Google sobre papel conserva sus colores oficiales (contraste suficiente; no se recolorea).
 - Verificar cualquier token nuevo antes de introducirlo; no bajar de AA sin un segundo canal (texto).
+- **Sobre `ink #1A1A18` rigen otros pares** (vCS-1): `#B31217` da 2.50:1 (prohibido), el rojo válido es `#E0353B`
+  (3.94:1, solo UI/foco/texto grande) y `text-muted` da 3.19:1 (prohibido; usar `on-ink-nav` 6.46:1 u `on-ink-muted`
+  4.75:1). Tabla completa y variantes de CTA en **CS-UX.1 y CS-UX.2** (fin del documento).
 
 ---
 
@@ -4101,6 +4105,7 @@ const brand = Montserrat({ subsets: ['latin'], weight: ['700'], variable: '--fon
 ```
 - `--font-brand` es **exclusiva del wordmark/lockup** (componente Logo, header de correo, OG). NO entra
   en la escala tipográfica de §3: los títulos siguen en Zen Old Mincho y la UI en Archivo. Un peso, un uso.
+  **Única excepción (vCS-1):** los títulos de `/card-show/**` van en Montserrat 700 por decisión del dueño; ver CS-UX.4.
 - Fallback declarado en el propio SVG: `Montserrat, Archivo, system-ui, sans-serif` (si la variable no
   está montada, Archivo 700 es visualmente cercana y digna).
 - **SVG fuera del DOM de Next** (favicon `.svg`, OG estático, correos): la fuente NO viaja → esos usos
@@ -32831,3 +32836,119 @@ Bajo el renglón «Resultado neto» (y su par «EBITDA»), una **pista corta y p
 - **Estado: FIRME — el frontend ya puede implementar §.1.** El arquitecto entregó la estructura definitiva del `statement` (`API_CONTRACT §M10-IVA.8-bis (C)`, v1.95.2): los reembolsos, la comisión de plataforma devuelta y las compensaciones son **contra-ingreso** (grupo `returnsAndRefunds`, restan de `salesCents` antes del margen bruto); COGS, Stripe, envío y guías son **costo de venta** (grupo `costOfSales`); el grupo `operatingExpenses` **desaparece** y `ebitdaCents ≡ grossMarginCents`. La tabla de §.1 ya codifica esas rutas. **Ya no hay solicitud bloqueante al arquitecto.** No se requiere ningún cambio adicional de contrato para implementar esta sección.
 - **Rutas del `statement` que usa el frontend (verbatim del contrato):** `salesCents`; `returnsAndRefunds.{refundsCents, refundedFeesCents, compensationsCents, totalCents}`; `netRevenueCents`; `costOfSales.{cogsCents, stripeFeesCents, shippingCostCents, buylistGuideCostCents, buylistShippingFeeRetainedCents, totalCents}`; `grossMarginCents`; `ebitdaCents`; `iva.{ivaCollectedCents, ivaRefundedCents, ivaNetCents}`; `netResultCents (≡ profitCents)`. Más los planos `incomeCents`, `shippingRevenueCents`, `shippingAdjustmentsCents`, `shippingInsuranceCents` para los conceptos y sub-renglones. Las claves de copy sugeridas son `admin.m7.pnl.ebitdaHelp` (§.4) y el rótulo verbatim del MEMO del IVA (§.3).
 - **Nota al arquitecto / product-owner (confirmación, no bloquea):** si el dueño esperaba un renglón de **impuestos (ISR)** entre EBITDA y Resultado neto, **ese dato no se modela** (no existe). Hoy `grossMarginCents ≡ ebitdaCents ≡ netResultCents` a propósito; la pista honesta (§.4) y el MEMO del IVA (§.3) lo explican. Modelar ISR o gastos fijos de operación (nómina, renta, marketing) es un cambio de contrato/alcance que pasa por el arquitecto (regla 9); el contrato ya dejó **preparado conceptualmente** (no construido) el hueco para un grupo `operatingExpenses` entre `grossMarginCents` y `ebitdaCents` si algún día se capturan.
+
+## CS-UX. Microsite Card Show — reglas de sistema sobre tinta, error de `Select`/grupos, excepción tipográfica y lockup móvil (vCS-1, 2026-10-17 · RONDA 2 de ux-review + marketing sobre `d9c156e`)
+
+> **Fuente:** mediciones de ux-review y marketing sobre `d9c156e` (relayadas por el orquestador; los ratios de
+> abajo los **recalculé yo** con la fórmula WCAG 2.1 a partir de los hex, ver CS-UX.1). Alcance: rutas
+> `/card-show` (landing) y `/card-show/confirm|cancel|unsubscribe`. Esta sección es **la fuente única** de estas
+> cinco reglas; §10 y §17.1e solo enlazan aquí. No se toca contrato.
+
+### CS-UX.1 Rojo sobre tinta — `hunt-red-on-ink #E0353B` (punto 1)
+
+**Regla:** sobre cualquier superficie `ink #1A1A18` (topbar de la landing, cuenta regresiva, banda oscura), el rojo de
+**texto grande, relleno de CTA, acento (reglas, bordes) y anillo de foco** es **`#E0353B`**, **nunca `#B31217`**.
+Token nuevo: `--hunt-red-on-ink: #E0353B` (Tailwind `hunt-red-on-ink`). Es el mismo valor que ux-review/marketing
+llaman «hunt-red-up»; ⚠ **no** es el `--hunt-red-up #F0685F` de §17.2 (extremo del degradado del logo oscuro): son dos
+tokens distintos, no confundir (el degradado conserva el suyo).
+
+| Par (luminancia WCAG, recalculada) | Ratio | Uso permitido |
+|---|---|---|
+| `#B31217` sobre tinta `#1A1A18` | **2.50:1** ⛔ | **Prohibido** sobre tinta: ni texto, ni borde, ni anillo de foco |
+| `#E0353B` sobre tinta `#1A1A18` | **3.94:1** | Anillo de foco, borde/regla, icono, texto **grande** (≥24px, o ≥18.66px en 700): AA. ⛔ **No** para texto normal/pequeño (<4.5:1) |
+| Papel `#F4F1EA` sobre `#E0353B` (etiqueta de CTA) | **3.92:1** | Solo etiqueta **700 ≥18.66px** (texto grande, AA). Para botones más chicos, ver variante B |
+| Tinta `#1A1A18` sobre `#E0353B` | 3.94:1 | Igual: solo texto grande |
+| Papel `#F4F1EA` sobre `#B31217` | 6.18:1 | AA texto normal (relleno B31217 con etiqueta papel) |
+| Papel `#F4F1EA` sobre tinta (anillo/borde alterno) | 15.5:1 | Contorno de separación |
+
+**CTA sobre tinta — dos variantes (elige por tamaño de etiqueta):**
+- **A (CTA principal, etiqueta ≥18.66px/700):** relleno `#E0353B`, etiqueta papel. Hover: `#EE5A5F` **no** (no verificado); hover = oscurecer 6% con `filter: brightness(.94)`, ratio papel/relleno ≥3.5:1 (**NO MEDIDO** exacto: lo cierra el probador de contraste del gate).
+- **B (CTA compacto/etiqueta <18.66px, p. ej. topbar móvil):** relleno `#B31217` (papel 6.18:1) **más** contorno de 2px papel `#F4F1EA` (el relleno solo no se separa de la tinta: 2.50:1, WCAG 1.4.11 se cumple con el contorno, 15.5:1).
+
+**Foco sobre tinta:** `outline: 2px solid #E0353B; outline-offset: 2px` (3.94:1 ≥ 3:1). Sustituye al anillo `--shadow-focus` de §8.2 solo sobre `ink`; sobre papel sigue el de §8.2. **Texto de error sobre tinta:** ver CS-UX.3 (usa papel, no rojo).
+
+### CS-UX.2 Eyebrow y etiquetas sobre tinta (punto 2)
+
+`.eyebrow` (§3.2) usa por defecto `text-muted #6E695E`. **Sobre `ink` da 3.19:1 y falla AA** (10px mono, texto pequeño).
+**Regla:** todo `eyebrow`, etiqueta o texto secundario que se pinte sobre `ink` **debe** usar la variante on-ink:
+
+| Variante sobre tinta | Hex | Ratio vs `#1A1A18` | Cuándo |
+|---|---|---|---|
+| `text-on-ink` | `#F4F1EA` | 15.5:1 | Cifras, titulares |
+| **`text-on-ink-nav`** | `#A39D91` | **6.46:1** | **Eyebrow y etiquetas de la cuenta regresiva (DÍAS/HRS/MIN/SEG, rótulos de bloque)** — por ser 10px, se elige la de mayor ratio |
+| `text-on-ink-muted` | `#8A857A` | 4.75:1 | Texto secundario ≥12px (letra chica, pies) |
+| ⛔ `text-muted` | `#6E695E` | **3.19:1** | **Prohibido** sobre tinta |
+
+Implementación: la clase `.eyebrow` no cambia de tamaño/tracking; el color lo fija el contexto. Mecanismo sugerido
+(decide frontend): variante `eyebrow-on-ink` o un contenedor `.on-ink .eyebrow { color: var(--color-on-ink-nav) }`.
+Candado sugerido: ningún `text-muted`/`text-subtle` dentro de un contenedor `bg-ink` (Grep de los componentes
+`CardShow*`).
+
+### CS-UX.3 Patrón de error: `Select`, grupos radio/checkbox (`fieldset`) (punto 3)
+
+Extiende §6.2 (Input) a los controles que no lo tenían. Un solo patrón:
+
+**Marcado**
+- **`Select`:** error ⇒ `aria-invalid="true"`, `aria-describedby="<id>-error"` (si además hay ayuda, `"<id>-help <id>-error"`); `aria-required="true"` si es obligatorio. Borde `--color-danger` 2px (en tinta: `#E0353B`, CS-UX.1). Opción inicial vacía `value=""` con texto «Elige una opción» (no válida).
+- **Grupo radio/checkbox:** `<fieldset>` + `<legend>` (la pregunta; sufijo textual «(obligatorio)», no solo `*`). El mensaje de error vive **dentro** del `fieldset`, justo bajo las opciones, con `id="<name>-error"`. Se asocia con `aria-describedby="<name>-error"` **en el `fieldset`** y también en **cada control** del grupo (más `aria-invalid="true"` en cada control): el `fieldset` solo no lo anuncian todos los lectores al enfocar un radio. Mientras no hay error, ninguno de los tres atributos de error está presente.
+- **Mensaje:** `text-sm`, icono de alerta (lucide `circle-alert`, `aria-hidden`) + texto, color `--color-danger` sobre papel (6.2:1). **Sobre tinta** el texto va en `text-on-ink` (15.5:1) con icono y regla izquierda de 2px en `#E0353B`: ⛔ nunca texto rojo pequeño sobre tinta (CS-UX.1). El color nunca es el único canal (icono + texto).
+- Redacción: dice **qué hacer**, no «inválido». Ejemplos (claves de frontend): «Elige un día.» / “Choose a day.”; «Elige una opción.» / “Choose an option.”. Sin tono de culpa.
+
+**Comportamiento**
+1. Se valida **al enviar** (no en `blur` para grupos). Si hay errores: el foco va **al primer control inválido en orden del DOM** (para un grupo: **el primer radio/checkbox** del grupo, no el `fieldset`, que no es enfocable) y se hace `scrollIntoView({block:'center'})` respetando `prefers-reduced-motion`.
+2. Se anuncia por foco + `aria-describedby` (el lector lee la etiqueta y luego el error). Un resumen opcional arriba (`role="alert"`, «Revisa N campos») no sustituye al error inline.
+3. El error se **retira** (y con él `aria-invalid`/`aria-describedby` de error) en el primer `change` del control/grupo.
+4. Estados `disabled`/`loading` y foco: como §6.2/§8.2.
+
+### CS-UX.4 Excepción tipográfica del microsite Card Show (punto 4)
+
+**Decisión del dueño** (aprobó el look Montserrat para la landing; el orquestador lo relaya — **la fila de
+`HECHOS.md` no la leí: NO MEDIDO**, el orquestador debe citarla en el encargo, O-17).
+§17.1e dice que `--font-brand` es exclusiva del wordmark y que los títulos van en Zen Old Mincho. **Excepción acotada:**
+
+| Superficie | Títulos (h1/h2/h3) | Cuerpo/UI | Cifras, eyebrow, folios |
+|---|---|---|---|
+| Wordmark/lockup (todo el sitio) | Montserrat 700 `--font-brand` (sin cambio) | — | — |
+| **`/card-show` (landing) y `/card-show/confirm\|cancel\|unsubscribe`** | **Montserrat 700** (`--font-brand`), tamaños de la escala de §3.2 (h1/h2/h3), `letter-spacing: -0.01em`, ⛔ sin `uppercase` ni tracking de wordmark | Archivo (sin cambio) | Mono (sin cambio) |
+| **Resto del sitio** (tienda, cuenta, panel, correos) | **Zen Old Mincho** (sin cambio) | Archivo | Mono |
+
+- **Un solo peso (700)**: `--font-brand` solo carga 700 (§17.1e). Si el diseño de la landing necesita 800/600, es
+  ampliar la carga de `next/font` (petición a frontend; no se usa peso sintetizado).
+- **Las tres páginas de acción dejan de usar Mincho**: sus títulos pasan a Montserrat 700 para ser coherentes con la
+  landing (hoy incoherentes). El alcance es por **ruta** (`/card-show/**`), no por componente: un componente compartido
+  (p. ej. `PageTitle`) hereda la fuente por un contexto/clase del layout del microsite, ⛔ sin cambiar el default global.
+- ⛔ La excepción no se extiende a otras campañas sin nueva decisión del dueño. Los correos de Card Show siguen §31 (Mincho/Arial).
+- Fallback: `Montserrat, Archivo, system-ui, sans-serif` (§17.1e).
+
+### CS-UX.5 Lockup «TCG HUNT × Jakomi» en móvil (punto 5)
+
+Problema medido (ux-review): bajo ~390px el wordmark se parte en dos líneas por el `tracking-wordmark`. **Reglas:**
+1. **El wordmark nunca se parte:** `white-space: nowrap` en «TCG HUNT» y en el lockup completo. Un lockup en dos líneas rompe la marca (§17.3).
+2. **Tracking responsivo.** ≥390px: el `tracking-wordmark` actual. <390px: tracking `0.04em` y tamaño del wordmark 15–16px (mínimo 14px); entre 320 y 359px: tracking `0.02em`, 14px. Nunca por debajo de 14px.
+3. **Orden y composición:** `[solo-mira 28px] TCG HUNT  ×  [Jakomi]`. La `×` es separador con `margin-inline: 8px` (6px <360px) y `aria-hidden`; el lockup completo lleva `aria-label="TCG HUNT por Jakomi"`/`"TCG HUNT by Jakomi"` (nombre accesible único).
+4. **Jakomi** mantiene su proporción oficial; si a 320px el lockup + CTA no caben, Jakomi baja a 12px de alto de logotipo (no menos), y el **CTA del topbar pasa a la variante B compacta** (CS-UX.1) o se oculta en <360px (el CTA principal vive en el hero). ⛔ No ocultar «Jakomi»: es la marca del evento.
+5. **Verificación (la hace ux-review/frontend; NO MEDIDO por mí, sin navegador):** capturas a 320, 360, 375 y 389px y a 390px: wordmark en **una** línea; sin scroll horizontal; objetivos táctiles ≥44px (el lockup es un solo enlace a home).
+
+### CS-UX.6 Lista para frontend y candados sugeridos
+
+| # | Qué |
+|---|---|
+| F-1 | Token `--hunt-red-on-ink: #E0353B`; focus sobre tinta y CTA según CS-UX.1; ningún `#B31217` dentro de `bg-ink` |
+| F-2 | Eyebrow/etiquetas sobre tinta con `on-ink-nav`; cuenta regresiva incluida |
+| F-3 | `Select` y grupos radio/checkbox con el patrón CS-UX.3; foco al primer error |
+| F-4 | Títulos de `/card-show/**` en `--font-brand` 700; resto sin cambio |
+| F-5 | Lockup `nowrap` + tracking/tamaño por breakpoint de CS-UX.5 |
+
+| Id | Afirma | Mutación que lo pone roja |
+|---|---|---|
+| UX-CS-1 | Ningún elemento con color computado `#B31217` dentro de un ancestro `bg-ink` en `/card-show` | usar `text-accent` en la cuenta regresiva |
+| UX-CS-2 | Eyebrow de la cuenta regresiva: ratio computado ≥4.5:1 | volver a `text-muted` |
+| UX-CS-3 | Envío con `Select`/grupo vacío ⇒ `aria-invalid="true"`, `aria-describedby` apunta a un nodo con el texto de error, y `document.activeElement` es el primer control inválido | quitar el `aria-describedby` o el `focus()` |
+| UX-CS-4 | `getComputedStyle(h1).fontFamily` incluye Montserrat en `/card-show`, `/card-show/confirm`, `/cancel`, `/unsubscribe`, y **no** en `/` | cargar Mincho en las páginas de acción |
+| UX-CS-5 | A 320/360/375/389px el alto del wordmark = una línea (`offsetHeight` ≈ `line-height`) | quitar `nowrap` |
+
+### CS-UX.7 Solicitudes y notas
+1. **orquestador:** citar en el encargo a frontend la fila de `HECHOS.md` de la decisión Montserrat (CS-UX.4), que yo no leí.
+2. **frontend:** el hover de CTA variante A queda **NO MEDIDO** (CS-UX.1); cerrar con un probador de contraste en el gate.
+3. **orquestador (O-22/tope):** `DESIGN_SYSTEM.md` mide **32 834 líneas** (`Read` aviso, 2026-10-17) frente al tope orientativo de ~2 000: está 16× rebasado. Compactarlo es un trabajo propio (borrar histórico por sección) que no cabe en este encargo y no hice; propongo encargarlo como stream aparte.
+4. Cero cambios de contrato. Changelog: **vCS-1 (2026-10-17):** §CS-UX nuevo (rojo sobre tinta, eyebrow on-ink, error de Select/fieldset, excepción Montserrat del microsite, lockup móvil).

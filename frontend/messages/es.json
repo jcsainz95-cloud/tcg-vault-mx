@@ -1396,7 +1396,8 @@
       "refunds": "Reembolsos",
       "spendAlerts": "Avisos de gasto",
       "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}",
-      "accessories": "Accesorios"
+      "accessories": "Accesorios",
+      "cardShow": "Card Show"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",

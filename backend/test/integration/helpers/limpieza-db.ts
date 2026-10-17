@@ -283,6 +283,30 @@ COMMIT;
 }
 
 /**
+ * §14.14 T-AC3 — quita M-78 (Card Show) de un esquema ya migrado, para la comparación con el B CONGELADO de `a7232d7a`
+ * (que PRECEDE a M-78 y por tanto no clasifica `CardShow*` en su G-8). Reversa documentada en M-78 (DROP de 3 tablas +
+ * 5 tipos, NO automática). Mismo patrón que `revertM74`. El índice único PARCIAL cae con su tabla.
+ */
+export function revertM78(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "CardShowClick";
+DROP TABLE IF EXISTS "CardShowPlayerSignup";
+DROP TABLE IF EXISTS "CardShowLead";
+DROP TYPE IF EXISTS "CardShowSignupStatus";
+DROP TYPE IF EXISTS "CardShowDay";
+DROP TYPE IF EXISTS "CardShowLeadSource";
+DROP TYPE IF EXISTS "CardShowLeadStatus";
+DROP TYPE IF EXISTS "CardShowLeadType";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261103120000_m78_card_show_landing';
+COMMIT;
+`,
+    'revertM78',
+  );
+}
+
+/**
  * §14.13.5 T-AC3 — deja `to` (ya migrado y con la MISMA forma que `from`) con el contenido EXACTO de `from`: todas las
  * tablas (también `_prisma_migrations`) y todas las secuencias. Así dos guiones se comparan sobre esquemas gemelos de
  * verdad (el fixture usa ids y marcas de tiempo aleatorias: sembrar dos veces no da dos bases iguales). Copia con

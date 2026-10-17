@@ -1,0 +1,28 @@
+-- M-85 — migración `v1.97⟨cardshow-shardbugs⟩` (API_CONTRACT §CARDSHOW.1a-ter; base M-84 §CARDSHOW.1/.12).
+-- Número elegido como el siguiente libre tras M-84 (`20261104120000_m84_card_show_leads`).
+--
+-- QUÉ: añade el 4.º juego `shardbugs` al enum `CardShowGame` (confirmado por el dueño JC 2026-10-17;
+-- Shard Bugs LLC, Origins Award 2026). Es PURAMENTE ADITIVO: no toca filas, no toca otras tablas, no
+-- cambia lógica. La regla «pokemon=FORMAL / resto=LIGERA» de §CARDSHOW.12 absorbe `shardbugs` como LIGERA
+-- (sin `playerId`, sin cupo/waitlist) SIN código nuevo. ⛔ Sin placeholder `tbd`/`other`.
+--
+-- ⚠️ TÉCNICA (§CARDSHOW.1a-ter, «Nota de técnica para backend»): `ALTER TYPE … ADD VALUE` falla con
+-- «ALTER TYPE … ADD cannot run inside a transaction block» SOLO si además se USA el valor nuevo en la
+-- MISMA transacción. Esta migración NO usa `shardbugs` en ningún statement posterior (no hay CHECK, ni
+-- UPDATE, ni índice que lo mencione), así que es segura dentro de la tx de `prisma migrate` en Postgres 16
+-- — patrón MEDIDO y ya en producción en M-61/M-62/M-70/M-80 (todas con el mismo único statement). Por eso
+-- NO se parte en varios archivos ni se necesita directiva de no-transacción: el statement es único y el
+-- valor no se consume aquí. IDEMPOTENTE (`IF NOT EXISTS`): aplicarla dos veces deja la BD idéntica.
+--
+-- SIN BACKFILL: toda fila existente tiene `game`/`gameInterest` en {pokemon, riftbound, lorcana}; añadir un
+-- valor al dominio no reescribe ninguna. ⛔ CERO dinero, inventario o cuentas tocados.
+--
+-- REVERSA (rollback de código; el valor del enum PUEDE QUEDARSE — como M-62/M-70/M-80): `ADD VALUE` no se
+-- quita con un `DROP` simple. La reversa documentada es DEJAR DE EMITIR/ACEPTAR `shardbugs` desde la
+-- aplicación (apagar el frontend y, si hiciera falta, recortar el dominio aceptado). Si nunca se usó no hay
+-- filas que migrar. Para volver al tipo de 3 valores habría que recrear el tipo entero (destructivo); ⛔ con
+-- filas `shardbugs` NO se borra nada.
+--   DELETE FROM "_prisma_migrations" WHERE migration_name = '20261105120000_m85_card_show_shardbugs';
+
+-- AlterEnum
+ALTER TYPE "CardShowGame" ADD VALUE IF NOT EXISTS 'shardbugs';

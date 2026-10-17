@@ -1,9 +1,20 @@
 import createMiddleware from 'next-intl/middleware';
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { routing } from './i18n/routing';
 import { CSP_MODE, NONCE_HEADER, buildCsp, cspEnvFromProcess, cspHeaderName, generateNonce } from './security/csp';
 
 const intlMiddleware = createMiddleware(routing);
+
+/**
+ * §CARDSHOW.2 / ARCHITECTURE §4.CARDSHOW.a — `/card-show` es canónica FUERA del i18n: la ruta
+ * existe sin prefijo de idioma y NO se redirige a `/es` (un salto de redirección menos = link
+ * limpio para flyers/QR). Entra al matcher SOLO para que se le aplique la CSP con nonce; se
+ * cortocircuita antes del redirect de locale de next-intl. Los endpoints `/api/v1/card-show/*` ya
+ * están fuera del matcher (`api` excluido) y se llaman directo, sin `/es`.
+ */
+function isCardShowPath(pathname: string): boolean {
+  return pathname === '/card-show' || pathname.startsWith('/card-show/');
+}
 
 /**
  * i18n (next-intl) + LIVE-3 · CSP con nonce por petición (API_CONTRACT §14.3).
@@ -25,6 +36,15 @@ export default function middleware(request: NextRequest) {
 
   request.headers.set(NONCE_HEADER, nonce);
   request.headers.set(header, policy);
+
+  // §CARDSHOW.2: `/card-show` se sirve con la CSP pero SIN el redirect de locale (200 directo, sin
+  // `Set-Cookie: NEXT_LOCALE`, query intacta). Se copia la petición (con el nonce ya fijado) para
+  // que el render lea el nonce igual que en el resto del sitio.
+  if (isCardShowPath(request.nextUrl.pathname)) {
+    const response = NextResponse.next({ request: { headers: request.headers } });
+    response.headers.set(header, policy);
+    return response;
+  }
 
   const response = intlMiddleware(request);
   response.headers.set(header, policy);

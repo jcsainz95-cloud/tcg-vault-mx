@@ -3091,3 +3091,138 @@ model WishlistMail {
 
   @@index([userId, sentAt])
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CARDSHOW (M-78, v1.93⟨cardshow⟩) — landing del Card Show: captura pública, doble opt-in y anti-abuso.
+// Contrato: docs/API_CONTRACT.md §CARDSHOW. Diseño: docs/ARCHITECTURE.md §4.CARDSHOW.
+// ⛔ SECRETO: ningún dato real del evento vive aquí (estructura, no valores). PII · SIN DINERO.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// §CARDSHOW.1 — tipo de interés de un lead («Avísame»). Clase E (espeja este schema). Valores en minúscula.
+enum CardShowLeadType {
+  merchant
+  sponsor
+  visitor
+}
+
+// §CARDSHOW.1 — ciclo operativo de un lead en el panel. Clase E. `pending` = aún no confirmó el doble opt-in.
+enum CardShowLeadStatus {
+  pending
+  new
+  contacted
+  closed
+  discarded
+}
+
+// §CARDSHOW.1 — desde qué CTA de la landing nació el lead. Clase E.
+enum CardShowLeadSource {
+  cta_hero
+  cta_mesas
+  cta_patrocinio
+  header
+}
+
+// §CARDSHOW.1/.12 — día del torneo de una preinscripción. Clase E.
+enum CardShowDay {
+  sat
+  sun
+}
+
+// §CARDSHOW.1/.12 — ciclo de una preinscripción. Clase E. El cupo se asigna AL CONFIRMAR, por orden (L0-SEG-02).
+enum CardShowSignupStatus {
+  pending
+  confirmed
+  waitlist
+  cancelled
+  checked_in
+}
+
+// §CARDSHOW.1/.12 (M-84) — juego de una preinscripción / interés de un visitante. Clase E (espeja este schema).
+// `pokemon` = torneo FORMAL (playerId obligatorio, cupo e índice único parcial); el resto = LIGERA (sin playerId,
+// sin cupo). ⭐M-85 (§CARDSHOW.1a-ter): `shardbugs` = 4.º juego (confirmado por JC 2026-10-17, Shard Bugs LLC),
+// aditivo con `ALTER TYPE … ADD VALUE`; LIGERA por la regla «pokemon=formal / resto=ligera», sin lógica nueva.
+// ⛔ Sin placeholder `tbd`/`other`.
+enum CardShowGame {
+  pokemon
+  riftbound
+  lorcana
+  shardbugs
+}
+
+// §CARDSHOW.1 — captura de «Avísame». ⛔ Sin IP ni user-agent; `referrerHost` guarda SOLO el host.
+model CardShowLead {
+  id                 String             @id @default(uuid())
+  type               CardShowLeadType
+  name               String // ⭐M-84 nombre o MARCA (todos los tipos, obligatorio). Lista blanca NAME_WHITELIST (§CARDSHOW.1b)
+  phone              String? // ⭐M-84 teléfono MX (solo dígitos). OBLIGATORIO merchant/sponsor; ⛔ PROHIBIDO visitor
+  email              String // normalizado lowercase/trim (unicidad y envío)
+  mailboxHmac        String // clave de BUZÓN (§CARDSHOW.8): quita +etiqueta y puntos de Gmail, HMAC
+  gameInterest       CardShowGame? // ⭐M-84 juego de interés. SOLO visitor (opcional); ⛔ PROHIBIDO merchant/sponsor
+  raffleOptIn        Boolean            @default(false) // ⭐M-84 participa en la rifa. SOLO visitor; ⛔ PROHIBIDO merchant/sponsor
+  raffleTermsVersion String? // ⭐M-84 versión de BASES de la rifa aceptada. NOT NULL ⇔ raffleOptIn=true
+  sellsWhat          String? // ⭐M-84 «¿qué vendes / qué marca?». OPCIONAL merchant/sponsor; ⛔ PROHIBIDO visitor
+  consentAt          DateTime
+  privacyVersion     String
+  confirmedAt        DateTime? // doble opt-in: NULL = PENDING
+  confirmationHeldAt DateTime? // el presupuesto (C1) cortó el ENVÍO; fila existe, correo retenido
+  unsubscribedAt     DateTime?
+  suppressedUntil    DateTime? // «No fui yo»: buzón suprimido hasta fin de campaña
+  utmSource          String?
+  utmMedium          String?
+  utmCampaign        String?
+  utmContent         String?
+  referrerHost       String? // solo el host, ⛔ sin query ni ruta
+  /// @deprecated M-84: modelo viejo de mesas/plano. ⛔ NO se escribe/lee/exporta. Drop diferido (§CARDSHOW.1a-bis).
+  mesaInteres        Int?
+  source             CardShowLeadSource
+  status             CardShowLeadStatus @default(pending)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([email, type]) // un correo puede ser lead de >1 tipo (fila por tipo)
+  @@index([mailboxHmac])
+  @@index([status])
+  @@index([confirmationHeldAt])
+  @@index([suppressedUntil])
+}
+
+// §CARDSHOW.1 — preinscripción al torneo. El índice único PARCIAL `(playerId, day)` va en migration.sql
+// (solo sobre `confirmed|waitlist|checked_in`; no expresable en el DSL de Prisma, L0-SEG-02).
+model CardShowPlayerSignup {
+  id                String               @id @default(uuid())
+  game              CardShowGame // ⭐M-84 pokemon=FORMAL (playerId obligatorio), resto=LIGERA (sin playerId/cupo)
+  day               CardShowDay
+  playerName        String // lista blanca de caracteres (§CARDSHOW.12); ⛔ NUNCA en el correo
+  playerId          String? // ⭐M-84 SOLO dígitos. NOT NULL ⇔ game='pokemon'; ⛔ game≠pokemon ⇒ NULL
+  email             String // normalizado lowercase/trim
+  mailboxHmac       String
+  isMinor           Boolean
+  guardianConsentAt DateTime? // obligatorio ⇔ isMinor === true
+  consentAt         DateTime
+  privacyVersion    String
+  confirmedAt       DateTime?
+  status            CardShowSignupStatus @default(pending)
+  utmSource         String?
+  utmMedium         String?
+  utmCampaign       String?
+  utmContent        String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([mailboxHmac, day])
+  @@index([mailboxHmac, game, day]) // ⭐M-84 dedupe/cap de la preinscripción LIGERA (§CARDSHOW.12)
+  @@index([status])
+}
+
+// §CARDSHOW.13 — contador de primera parte. ⛔ sin cookie, sin IP, sin user-agent.
+model CardShowClick {
+  id         String   @id @default(uuid())
+  ts         DateTime @default(now())
+  destino    String
+  mesa       Int?
+  utmSource  String?
+  utmContent String?
+
+  @@index([ts])
+  @@index([destino])
+}

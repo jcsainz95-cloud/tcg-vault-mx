@@ -4,6 +4,214 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-R5b · Bloqueantes móvil/legal/accesibilidad + datos del evento (2026-10-17, rama `fix/card-show-r5b-frontend`, base `release/card-show` sha `1315236`)
+
+**Estado vigente.** Lista RECORTADA por el dueño (solo bloqueantes + legal/privacidad + contenido del
+evento; lo cosmético menor va a fast-follow). Todo acotado a `/card-show`, el panel admin y componentes UI
+compartidos (`Select`). Cambios:
+- **BLOQ-1 éxito móvil** (`_components/form-shared.tsx` `SuccessPanel`): al sustituir al formulario mueve el
+  foco a sí mismo (`role="status"`, `tabIndex=-1`, `focus()` + `scrollIntoView({block:'center'})` respetando
+  reduced-motion; `scrollCenter` es no-op si el entorno no implementa `scrollIntoView` — jsdom). La CTA fija se
+  oculta al entrar a `#registro` (`StickyRegisterCta` observa `#hero` **y** `#registro`), lo que cubre el éxito.
+- **BLOQ-2 rifa M-89** (`LeadVisitorForm.tsx`): `raffleOptIn` nace **DESMARCADO** (`useState(false)`), casilla
+  PROPIA con enlace a bases (`<a href="#rifa">Ver bases de la rifa</a>`). La casilla de privacidad obligatoria
+  = SOLO privacidad (copy «…y acepto el tratamiento de mis datos», ya no «acepto las bases»). `raffleTermsVersion`
+  solo se envía si la rifa está marcada (lógica previa intacta).
+- **BLOQ-3 contraste/foco §CS-UX** (`globals.css`, `tailwind.config.ts`, `page.tsx`, `components/ui/Select.tsx`):
+  token `--hunt-red-on-ink: #E0353B` + color Tailwind `hunt-red-on-ink`. CTA hero/rifa sobre tinta → `btnRedOnInk`
+  (relleno `#E0353B`, etiqueta papel). Foco sobre tinta a `#E0353B` vía `.bg-ink :focus-visible{outline-color}`.
+  Eyebrow/rótulos de la cuenta regresiva a `on-ink-nav` vía `.bg-ink .eyebrow{color}`. Borde del teaser de rifa
+  del hero `border-l-accent`→`#E0353B`. `Select` gana `error`/`hint`/`required` (aria-invalid/describedby +
+  icono `circle-alert`); los tres formularios enfocan el **primer inválido** al enviar (`focusFirstInvalid`,
+  rAF tras `setFieldErrors`); el grupo de día lleva el error en el `fieldset` y `aria-invalid` en el primer radio.
+- **BLOQ-4 navegación** (`page.tsx`, `StickyRegisterCta.tsx`): `scroll-mt-[73px]` en toda sección con `id`
+  (header fijo 73px). La CTA fija se oculta en `#registro` (ver BLOQ-1).
+- **BLOQ-5 torneos + precio** (`content/card-show.ts`, `page.tsx`, `RegistrationForms.tsx`): CTA «Preinscríbete»
+  (`#preinscribete`) abre la pestaña de torneo y pone el foco en el primer campo (Select «Juego»). Copy
+  «preinscripción abierta; horarios por anunciar». Pestaña «Asistente / Jugador» → **«Asistente»**. Main Pokémon
+  = **MX$200** (campo `juegos[].precio`, igual que el correo); demás «Por anunciar».
+- **BLOQ-6 datos del evento** (`content/card-show.ts` `evento`, nueva sección `#cuando-donde` en `page.tsx`):
+  dirección completa (José del Castillo 3…), pisos (2 vendedores / 3 torneos+juego+comida), horarios (sáb 11–19,
+  dom 11–18; entrada libre), torneo Pokémon **preliminar** (sáb 12–18, dom 12–17, «horarios finales en los
+  próximos días»), montaje vie 4 dic, cómo llegar (Metro Mixcoac L7/L12, Metrobús L1 Río Churubusco), enlace a
+  Maps (externo, **no iframe** — CSP). Fuente única: `docs/specs/CARDSHOW_LANDING_ESTADO.md` «DATOS DEL EVENTO».
+  FAQ y `comoLlegar.direccion` (LOCATION del `.ics`) actualizados a la dirección pública.
+- **BLOQ-7 confirmación** (`LinkActionClient.tsx`): enlace de salida «← Volver al Card Show» siempre visible;
+  el 410 en `confirm` ya no se lee como error («Si ya confirmaste tu registro, no necesitas hacer nada más»).
+  ⛔ La tipografía Mincho→Montserrat de estas páginas queda como fast-follow (no se tocó).
+- **BLOQ-8 privacidad landing** (`PrivacyMini.tsx`): cubre nombre, teléfono (vendedores/patrocinadores) y la
+  rifa; **ya no menciona compartir datos con Jakomi**. (El aviso INTEGRAL `content/legal/privacidad.es.ts §5`
+  sigue mencionando el torneo→Jakomi; ver «Solicitud al arquitecto» abajo.)
+- **BLOQ-9 contacto accionable** (`page.tsx` footer, `content/card-show.ts`): WhatsApp → `wa.me/525564893921`,
+  correo → `mailto:`.
+- **BLOQ-10 OG** (`layout.tsx`): `metadataBase` + `openGraph.images` + `twitter` (summary_large_image). Imagen
+  placeholder de marca `public/card-show/og.png` (1200×630, papel/tinta). **Marketing la reemplaza.**
+- **BLOQ-11 panel admin** (`CardShowAdminView.tsx`, `app/[locale]/(admin)/admin/card-show`): muestra **total** +
+  **paginación** (`page`, `PAGE_SIZE=50`, usa la envoltura `{data,page,pageSize,total}`), **debounce** del
+  buscador (`useDebouncedValue`, 300 ms; cambio de filtro/búsqueda vuelve a página 1), enlaces `tel:`/`wa.me`/
+  `mailto:` en la tabla de leads. ⛔ NO se construyó «marcar Contactado/Cerrado» (descartado por el dueño; el
+  filtro por estado es solo lectura).
+- **BLOQ-12 copy éxito vendedor** (`MerchantSponsorForm.tsx`): «¡Gracias! Confirma tu correo para terminar»
+  (coherente con el doble opt-in; antes contradecía «revisa tu correo»).
+
+**Pruebas actualizadas** (frontend puede, no es `-lite`): `CardShowForms.test.tsx` (rifa desmarcada + enlace a
+bases; éxito marca la rifa; «sin rifa» ya no la toca; copy vendedor «Confirma tu correo»). El panel admin
+(`CardShowAdminView.test.tsx`) no cambió de conducta probada (total:1 ⇒ «1 resultado», sin paginación).
+
+**Verificación:** `npm run build` exit 0 (hornea typecheck). Detalle de Playwright en el informe de la rama.
+
+**Solicitud al arquitecto (BLOQ-8):** el aviso de privacidad INTEGRAL (`content/legal/privacidad.es.ts §5
+remisiones`) todavía dice que la preinscripción al torneo se comparte con Jakomi. El encargo R5b («backend quitó
+la PII a Jakomi») solo cubrió la landing; no toqué el aviso integral por ser texto legal (dueño product-owner/
+arquitecto) y porque la decisión JC-3 cerraba L2-SEG-01 sobre el correo interno de VENDEDOR, no explícitamente
+sobre el torneo. **Si Jakomi tampoco recibe ya los datos de preinscripción, hay que actualizar §5.** Marcado
+como pregunta, no modificado.
+
+## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `fade4e6`, §CARDSHOW.12 ⭐M-88, BLOQ-A frontend)
+
+**Estado vigente.** Parte frontend de BLOQ-A (el backend confirma AMBAS filas `sat`+`sun` del grupo y
+devuelve `days: { day, state }[]` ADITIVO sobre `ConfirmResult`). La página `/card-show/confirm` usa ese
+desglose para el copy:
+- **`frontend/src/lib/card-show-api.ts`**: nuevo `ConfirmDayResult { day:'sat'|'sun'; state:string }`;
+  `LinkActionSuccess` gana `days?: ConfirmDayResult[]`; `postLinkAction` parsea `body.days` con
+  `parseConfirmDays` (defensivo: solo `day ∈ {sat,sun}` + `state` string; vacío/ausente ⇒ `undefined`).
+- **`frontend/src/app/card-show/_components/LinkActionClient.tsx`**: `COPY.confirm.success(state, days)`.
+  Con `days.length ≥ 2` ⇒ `groupConfirmText`: ambos confirmados → «¡Listo! Quedaste preinscrito para
+  {días}.»; con un día en espera → «…preinscrito para {día} y en lista de espera para {día}; …»; `state`
+  distinto de `waitlist` cuenta como preinscrito. Labels de día desde `CARD_SHOW.torneos.dias` (un hecho,
+  un sitio — ⛔ no se hardcodea «sábado/domingo»). Con `days` ausente (leads) o 1 solo día ⇒ copy de un día
+  SIN cambios (comportamiento previo intacto).
+- **Candado+canario:** `LinkActionGroup.test.tsx` (3 casos: ambos confirmados nombran sat+sun; mixto nombra
+  por separado; 1 día no nombra día). Canary: con la rama de grupo desactivada, 2/3 fallan y el de 1 día
+  pasa. Verificado: `next build` exit 0; vitest `LinkActionGroup` + `LinkAction` **11/11**.
+
+## §CARDSHOW-MENOR · Nombre del premio visible + CTA fija que no tapa el hero (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `4288ca4`)
+
+**Estado vigente.** Dos mejoras menores de tester-e2e sobre `4288ca4`, acotadas a `/card-show`:
+- **MENOR-1 — nombre exacto del premio como TEXTO visible.** El `rifa.premio`
+  («Pokémon TCG — 30th Celebration Poster Collection», `content/card-show.ts:141`) antes solo vivía en el
+  `alt` de la imagen. Ahora la imagen de la rifa es un `<figure>` con `<figcaption>` que pinta
+  `c.rifa.premio` (eyebrow mono «El premio» + nombre en `font-brand` `text-on-ink`) — fuente de verdad única,
+  consumida del content, NO hardcodeada. El `alt` descriptivo se mantiene. Contraste on-ink sobre tinta (no
+  rompe el arreglo de títulos de R3).
+- **MENOR-3 — CTA fija móvil ya no tapa el botón del hero.** Nueva isla cliente
+  `_components/StickyRegisterCta.tsx`: `IntersectionObserver` sobre `#hero`; la barra fija permanece
+  `translate-y-full` (off-screen, `pointer-events-none`, `aria-hidden`) mientras el hero está en viewport y se
+  desliza a la vista solo tras dejarlo atrás. Pre-hidratación/sin JS: oculta (el hero ya trae su propio botón y
+  la sección Registro los formularios). `<main>` lleva `pb-[76px] sm:pb-0` para que la barra no tape la última
+  línea del footer. En `≥sm` sigue `sm:hidden`. Label/href salen de `c.hero.ctaPrimario` (antes hardcodeados).
+- **Verificado** (build real `next start` + Playwright Chromium): `next build` exit 0. 390×844 — premio
+  visible en figcaption (desktop y móvil); al tope de scroll la barra fija off-screen (y=857 ≥ 844, sin solape
+  con el botón del hero en y=744); tras scroll la barra visible (y=784). Escritorio 1280×800 — barra fija NO
+  visible, premio visible. Conducta determinista (estado del DOM tras `IntersectionObserver`, no carrera).
+
+## §CARDSHOW-IMP6 · Form-token PEREZOSO + copy 429 + rótulo buscador players (2026-10-17, rama `fix/card-show-r3-frontend`, §CARDSHOW.5 M-87)
+
+**Estado vigente.** Implementada la conducta que el arquitecto fijó en §CARDSHOW.5/M-87.
+- **Adquisición PEREZOSA del form-token** (`_components/form-shared.tsx::useFormTokens`): ⛔ la página ya
+  **NO pide ningún token al montar** (antes 4 GET al cargar: asistente 1 + torneo 2 + comercial 1, y a 30/h
+  por IP eso bloqueaba a visitantes tras un NAT de Wi-Fi compartida). El hook pasó de *eager pool* a *lazy*:
+  expone `prime()` (pide **1** token al primer foco/interacción y lo cachea; idempotente) cableado al
+  `onFocus` del `<form>` de los tres formularios, y `withToken()` que usa el cacheado (o lo pide en caliente
+  a más tardar al enviar), garantiza ≥2 s de edad (anti `too_fast`), lo consume en el POST exitoso y lo
+  re-pide solo tras `FORM_EXPIRED` (>2 h) o un envío exitoso. «Los dos días» (torneo) ⇒ 2 POST = 2 tokens de
+  un solo uso (1 primado + 1 en caliente). Firma: `useFormTokens(purpose)` (se retiró el 2.º arg `poolSize`).
+  **Medido** (build real, mock, Playwright interceptando `**/card-show/form-token*`): montar `/card-show` =
+  **0** GET; primer foco = **1** GET (`?purpose=leads`); enfocar más campos = sigue **1**.
+- **Copy del 429** (`FORM_MESSAGES.rateLimited`): la ventana del límite es 1 h, ⛔ ya NO dice «unos minutos».
+  Texto neutro ES: «Demasiados intentos desde esta red. Vuelve a intentarlo más tarde.» (ux-ui afina después).
+  El Card Show es microsite es-MX de un solo idioma ⇒ sin clave EN (si se internacionaliza, EN propuesto:
+  «Too many attempts from this network. Please try again later.»).
+- **Rótulo del buscador de Preinscritos** (`CardShowAdminView::PlayersPanel`): per M-86 `q` cubre nombre,
+  correo y Player ID ⇒ el label pasó de «Buscar (nombre o correo)» a «Buscar (nombre, correo o Player ID)».
+  (El de Leads sigue «nombre o correo»: los leads no tienen Player ID.)
+
+Medido IMP-6: `tsc --noEmit` exit 0; `next lint` sin avisos/errores; `vitest run` **4377 passed / 11 skipped
+(4388)** (+1 test nuevo de lazy, 2 tests de prefetch reescritos a lazy); `next build` exit 0; e2e
+`card-show.spec.ts` **6 passed** contra el build real.
+
+## §CARDSHOW-R3 · Arreglos R3 (bloqueantes visibles + spec e2e) (2026-10-17, rama `fix/card-show-r3-frontend`, base `release/card-show` HEAD `78f4abe`)
+
+**Estado vigente R3.** Cerrados 2 bloqueantes visibles medidos por tester-e2e y actualizado el spec e2e al pivote.
+- **BLOQ-1 — títulos invisibles (tinta sobre tinta).** La regla global de `globals.css`
+  `h1,h2,h3,h4 { color: var(--color-text) }` (selector de tipo) pisaba por herencia el color claro de los
+  contenedores oscuros/acento de la landing. Arreglo **acotado a `/card-show`** (no se toca la regla global):
+  color explícito de mayor especificidad por elemento — hero `h1` «Card Show» → `text-on-ink`; `h3` de cada
+  tarjeta de torneo → `text-inherit` (hereda `accent-fg` en la roja u `on-ink` en la tinta); `h2` de la rifa →
+  `text-on-ink`. Medido (estilos computados, build real): contraste hero 15.45:1, Pokémon TCG (sobre rojo)
+  6.17:1, Riftbound/Lorcana/Shard Bugs 15.45:1, rifa 15.45:1 — todos ≥ AA 4.5:1 (antes ~1:1).
+- **BLOQ-2 — Shard Bugs en el panel admin** (`CardShowAdminView.tsx`): añadido `shardbugs: 'Shard Bugs'` al
+  `GAME_LABEL` (columna «Juego» ya no sale vacía ni cruda) y la opción `shardbugs` al filtro «Juego» de
+  Preinscritos. Backend ya lo maneja; era solo la vista.
+- **IMP-4 — spec e2e desfasado** (`frontend/e2e/card-show.spec.ts`): (a) «sin JS» busca ahora
+  «Registrarme gratis» (antes «Avísame»); (b) retirado el `describe` «plano de mesas» (enlaces «Mesa N» a
+  WhatsApp eliminados por el pivote); (c) honeypot: `toBeHidden()` → medir caja fuera del viewport
+  (`boundingBox.x+width ≤ 0`), porque el señuelo está fuera de pantalla (`left:-9999px`, 1×1) y Playwright lo ve
+  «visible»; se conserva la aserción del contenedor `aria-hidden`.
+
+Medido R3: `tsc --noEmit` exit 0; `next lint` sin avisos/errores; `vitest run` **4376 passed / 11 skipped
+(4387)**; `next build` exit 0; spec e2e `card-show.spec.ts` contra el build real (mocks) **6 passed** (antes 7,
+uno retirado). Ninguna de las 3 de IMP-4 era defecto de producto: era el test viejo.
+
+## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.97 M-85, rama `release/card-show`)
+
+**Estado vigente.** La landing `/card-show` (fuera del i18n) pasó de «anuncio con datos» a **página de
+CAPTURA DE LEADS** que ⛔ no expone el modelo de negocio. **M-85/v1.97 (R2 FE, 2026-10-17):** se añadió
+el 4.º juego **Shard Bugs** (valor de enum `shardbugs`, nombre visible «Shard Bugs»; LIGERA, sin Player
+ID igual que Riftbound/Lorcana) y se alineó el hint de `pageSize` del cliente del panel a **20** (coincide
+con el backend; techlead). Medido R2 (rama `r2-fe-cardshow`, base `release/card-show` HEAD `4b51c68`):
+`tsc --noEmit` exit 0, `next lint` sin avisos ni errores, `vitest run` **4376 passed / 11 skipped (4387)**,
+`next build` exit 0.
+
+- **Contenido** (`frontend/src/content/card-show.ts`): QUITADOS precios de mesa, plano de 23 mesas,
+  montos de patrocinio y sus helpers (`mesasResueltas`/`mesaDisponibilidad`/`plano`/`WHATSAPP`/
+  `MAILTO_PATROCINIO`/`LINKS`/`queEsTcgHunt`). CONSERVADO: fecha «Sáb 5 y Dom 6 dic 2026», sede
+  (zona), entrada libre, `countdownTargetIso`; Jakomi (nombre + logo, **sin enlaces** a redes);
+  juegos (Pokémon principal, Riftbound, Lorcana, Shard Bugs — los cuatro valores del enum); copy de rifa informal (premio
+  = *30th Celebration Poster Collection*). Único secreto vivo: nombres de patrocinador (ninguno en el
+  repo); `patrocinios.showSponsors=false`.
+- **Página** (`frontend/src/app/card-show/page.tsx`): marca real papel/tinta, rojo `#b31217`,
+  Montserrat (`font-brand`) en títulos. Orden del preview aprobado: topbar (TCG HUNT × Jakomi) → hero
+  (countdown + CTA único «Regístrate» + secundario `#vendedores`) → colaborador Jakomi → qué
+  encontrarás → torneos por juego → registro → FAQ → **rifa AL FINAL** con la imagen del producto →
+  footer. CTA fija inferior en móvil. Accesibilidad: labels asociadas, foco visible, objetivos ≥44px,
+  `prefers-reduced-motion` (global en `globals.css`).
+- **Formularios** (reusan el *plumbing* de `_components/form-shared.tsx` — token/doble-opt-in/
+  honeypot/anti-abuso; ⛔ no reconstruido). Tres caminos en pestañas (`RegistrationForms.tsx`):
+  - `LeadVisitorForm` → `POST /card-show/leads` `type=visitor`: name, email, `gameInterest` (chips,
+    opcional, único `CardShowGame`), `raffleOptIn` (casilla PREMARCADA) + `raffleTermsVersion`
+    (`CARD_SHOW.raffleTermsVersion`, se envía ⇔ opt-in), consent.
+  - `TorneoForm` → `POST /card-show/players`: **Pokémon = FORMAL** (pide Player ID) / **demás juegos =
+    LIGERA** (⛔ sin Player ID). Día sat/sun/«los dos» (⇒ 2 POST), menor + tutor.
+  - `MerchantSponsorForm` → `POST /card-show/leads` `type=merchant|sponsor`: tipo, name (nombre o
+    marca), `phone`, email, `sellsWhat` (opcional), consent.
+- **Assets** en `frontend/public/card-show/`: `product_30th.jpg` (rifa) y `jakomi-logo.webp`
+  (aprobados; `rifa.imagen` en el content es fácil de sustituir si el dueño cambia la foto).
+- **Panel admin** `/admin/card-show` (super_admin, tras `SuperAdminOnly`; nav en «Administración»,
+  `hiddenUnlessSuperAdmin`): `CardShowAdminView` con dos listados — **Leads** (filtros tipo/estado +
+  búsqueda; columnas M-84 nombre/teléfono/juego/rifa/¿qué vende?) y **Preinscritos** (filtros
+  juego/día/estado + búsqueda; Player ID vacío en LIGERA) — cada uno con **«Descargar CSV»**
+  (`export.csv`, mismos filtros). ⛔ «PENDING no aparece»: lo excluye el backend; el front no lo pide.
+  Cliente: `frontend/src/lib/card-show-admin-api.ts`.
+
+**Cableado al contrato vs. lo que depende de backend.** El front consume ya (v1.96): `GET
+/card-show/form-token`, `POST /card-show/{leads,players,confirm,cancel,unsubscribe}`, y en el panel
+`GET /admin/card-show/{leads,players}` + `…/export.csv`. **Depende de que backend despliegue M-84**
+(migración + DTO condicional + columnas CSV): los campos nuevos (`name`/`phone`/`gameInterest`/
+`raffleOptIn`/`raffleTermsVersion`/`sellsWhat` en leads; `game`/`playerId` nullable en players) y las
+columnas nuevas del panel/CSV. Hasta entonces el panel pinta vacío (lista/`toPage` defensivos).
+
+**Solicitudes al arquitecto / huecos abiertos (no bloqueantes para el front):**
+1. §CARDSHOW.15 no fija por escrito el **envoltorio JSON** de los listados del panel; asumí la
+   convención de §0 `{ data, total, page, pageSize }` con parser defensivo (acepta también array
+   pelado). Confirmar/fijar el envoltorio.
+2. ✅ **RESUELTO (v1.97, §CARDSHOW.14).** El honeypot ya tiene nombre fijado en contrato: **`website`**
+   (fuente de verdad del nombre; ambos lados lo usan). El front ya enviaba `website`, no hubo cambio de
+   código; queda alineado con el contrato.
+3. `gameInterest` es un único `CardShowGame` (`pokemon|riftbound|lorcana|shardbugs`): el preview tenía
+   chips «Varios/Solo a comprar/4.º» que ⛔ no son valores del enum; se mapearon a «Aún no sé» (no envía
+   `gameInterest`). Si se quiere capturar esas intenciones hace falta un campo nuevo en el contrato.
+
 ## §66 · **§M4P-ORDER: por qué el «canario de locale» que el contrato ofrece NO se escribió** (2026-09-22, `API_CONTRACT §M4P-ORDER` v1.78.3)
 
 > **Esta entrada existe porque la decisión vivía solo en una conversación.** El contrato deja el
@@ -21694,6 +21902,217 @@ tocados **15/15**.
 `frontend/src/types/contract.ts` (`ShipmentDTO.items[].productType?`). Queda vivo el hueco PREEXISTENTE ya
 registrado (`priceConvention`/`ivaIncluded` en `ShipmentDTO`, §M10-IVA.4) — ajeno a este arreglo.
 
+---
+
+## Card Show · secreto en test + medidas de mesa + bloqueo de formularios (2026-10-16, rama `feat/event-landing`)
+
+Tres arreglos del frente «landing del Card Show». Todo medido por mí sobre el árbol con estos cambios
+(`tsc`, `next lint`, `vitest`).
+
+### 1 · Secreto del anuncio fuera del repo (`card-show.secrets.test.ts`)
+Antes, el array `FORBIDDEN` del test escribía EN CLARO los términos reales del anuncio (sede, fecha, precios).
+Eso filtraba el secreto en el propio test de un repo público. Ahora los términos se leen en RUNTIME de la
+variable de entorno `CARDSHOW_SECRET_TERMS` (lista separada por comas; devops la cablea como **secreto de CI**).
+- Cada término se compila a `RegExp` case-insensitive **escapando los metacaracteres** de regex ⇒ se busca como
+  **subcadena literal** (robusto ante acentos/dígitos/signos; nunca rompe la compilación).
+- Con la env presente ⇒ corre el escaneo sobre `cardShowSources()` (contenido + cliente + componentes).
+- Sin la env ⇒ el bloque se **salta** (`it.skip`) con mensaje GENÉRICO, sin fallback hardcodeado.
+- Los nombres de prueba y el mensaje de fallo NO imprimen el término: solo las rutas de fichero donde apareció.
+- ⛔ Ningún valor real del evento vive en el repo. Verificado por grep (0 coincidencias en fuentes del Card Show).
+- Canario (2026-10-16): con `CARDSHOW_SECRET_TERMS="Jakomi"` (término público que SÍ aparece) el escaneo
+  **falla** nombrando solo ficheros ⇒ el escaneo muerde; con términos inventados ausentes, 6/6 verdes.
+
+### 2 · Medidas de mesa (decisión JC: SE muestran, no son secreto)
+`card-show.ts`: `mesas.tipos[].medida` pasa de `null` a valor real — estándar «1.20 m», premium «1.80–2.20 m».
+La tabla de `PlanoMesas.tsx` (columna «Medida») ya renderizaba `tipo.medida ?? '—'`, así que ahora se muestran.
+Se quitó la prohibición de «medidas» del comentario de cabecera de `card-show.ts` y del test de secretos; la
+aserción `toBeNull` se reemplazó por una que exige que las medidas estén presentes y no vacías.
+> **Mapeo asumido (no secreto, verificar con JC):** estándar = «chica» 1.20 m; premium = «grande» 1.80–2.20 m.
+> Si JC quiere el mapeo inverso o etiquetas «Grande/Chica» visibles, es un ajuste de una línea en `card-show.ts`.
+
+### 3 · Bloqueo 2a: los formularios no guardaban (dos defectos de contrato + uno de parseo)
+(a) **Clave del cuerpo `token` → `formToken`.** El DTO backend (`CreateLeadDto`/`CreatePlayerDto`) exige
+`formToken`; el cliente mandaba `token` ⇒ validación backend fallaba ⇒ se perdían TODAS las altas.
+`BaseSubmitBody.token` → `formToken` en `card-show-api.ts`; `AvisameForm`/`TorneoForm` mandan `formToken: token`.
+⚠️ Los POST de link-actions (confirmar/cancelar/baja, `LinkActionDto`) **siguen** usando `token` — no se tocaron.
+(a-bis) **Parseo del GET `/form-token`.** El backend responde `{ formToken }` (ver `card-show.controller.ts:52/61`),
+pero `getFormToken` leía `body.token` ⇒ lanzaba `FORM_TOKEN_ERROR` y ningún POST llegaba a emitirse. Corregido a
+`body.formToken`. Esto NO es cambio de contrato: alinea el cliente a lo que el backend ya implementa. (Nota al
+arquitecto más abajo: §CARDSHOW.5 no fija por escrito el nombre del campo de respuesta.)
+(b) **Descarte silencioso por token demasiado joven (`too_fast`, <2 s).** El backend descarta en silencio
+(200, 0 filas) cualquier POST cuyo token tenga <2 s (`FORM_TOKEN_MIN_AGE_MS`, candado anti-bot legítimo). El
+cliente pedía el token en el MISMO submit ⇒ token recién emitido ⇒ humanos rápidos perdían el alta. Arreglo 100%
+frontend (el candado backend NO se toca):
+- Nuevo hook `useFormTokens(purpose, poolSize)` en `form-shared.tsx` (reemplaza a `withFormToken`): al **montar**
+  el formulario PRE-CARGA un pool de tokens (hasta 3 en leads = 3 chips; 2 en players = «los dos días»). Al enviar,
+  los tokens ya pasaron los 2 s ⇒ no hay `too_fast`.
+- Cada POST consume **su propio token de un solo uso** (un chip = un POST; dos días = 2 POST).
+- `withToken(run)` garantiza ≥2 s de edad: si el pool está vacío (más POSTs que tokens o prefetch en vuelo), pide
+  uno en caliente y espera el min-age antes de usarlo.
+- Se conserva el reintento ante `FORM_EXPIRED` (TTL 30 min): pide un token **fresco** y vuelve a esperar el
+  min-age (2 s + holgura) antes de re-POSTear, para no caer en `too_fast` en el reintento.
+- `formTokenTiming` (export mutable) permite a las pruebas poner el min-age en 0 y no esperar de verdad; en
+  producción conserva 2 s + 150 ms de holgura.
+- Pruebas de componente (`CardShowForms.test.tsx`) actualizadas: muerden prefetch-al-montar, un token por POST
+  (tokens distintos), clave `formToken` en el cuerpo, reintento con token fresco, honeypot.
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: limpio salvo UN error **PREEXISTENTE y ajeno** en `e2e/card-show.spec.ts:67`
+  (`reducedMotion` no existe en el tipo de fixtures de Playwright; viene del commit `cb78f51`, fichero que no
+  toqué). Mis 7 ficheros no añaden ningún error de tipo.
+- `npm run lint`: sin avisos ni errores.
+- Suites tocadas: `CardShowForms.test.tsx` + `card-show.secrets.test.ts` ⇒ **18 passed, 1 skipped** (el skip es el
+  escaneo de términos sin env). Todas las suites `card-show`: **23 passed, 1 skipped**.
+- Escaneo de secretos: sin env ⇒ 3/3 marcadores + 1 skip; con env de términos inventados ausentes ⇒ 6/6; canario
+  con término presente ⇒ muerde.
+
+### Solicitudes al arquitecto
+- **§CARDSHOW.5 no fija el nombre del campo de respuesta de `GET /form-token`.** El backend implementa
+  `{ formToken }`; el cliente ya está alineado a eso. Conviene documentarlo explícitamente en el contrato para
+  cerrar el hueco (hoy era `{ token }` asumido en el cliente, de ahí el bug).
+- **Verificar con JC el mapeo de medidas** estándar/premium ↔ chica/grande (ver nota en la sección 2). No es
+  secreto; es una decisión de etiqueta.
+
+## Doble opt-in Diseño A — 3 páginas de acción del frontend (2026-10-16, §CARDSHOW.2/.6, ARCHITECTURE §4.CARDSHOW.f)
+
+**Contexto:** el arquitecto decidió **Diseño A**: la página con botón del doble opt-in la sirve el FRONTEND
+(fuera del i18n, igual que la landing). El enlace del correo (`confirmUrl`/`notMeUrl`) apunta a
+`https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…` y hasta hoy daba **404** (las rutas no
+existían). Estas páginas cierran el bloqueo 2b.
+
+**Qué implementé (solo frontend):**
+- 3 rutas nuevas, **fuera de `[locale]`**, colgando del layout raíz de `/card-show` (hereda `<html lang="es-MX">`,
+  fuentes y CSP con nonce): `frontend/src/app/card-show/{confirm,cancel,unsubscribe}/page.tsx`. Cada `page.tsx` es
+  un **server component** que `await searchParams`, extrae `token` y lo pasa al cliente. `robots: noindex,nofollow`
+  (son páginas transaccionales con token, no deben indexarse).
+- Componente cliente compartido `frontend/src/app/card-show/_components/LinkActionClient.tsx`: página de marca
+  (eyebrow + `font-serif text-h1` + botón `bg-accent`, mismos tokens del sistema de diseño que la landing). **C4:**
+  el GET ⛔ NO muta — solo lee el token y espera el clic; el cambio de estado ocurre SOLO al pulsar el botón.
+- Helper `postLinkAction(action, token)` en `frontend/src/lib/card-show-api.ts`: `POST application/json { token }`
+  (⚠️ JSON, NO urlencoded) a `/api/v1/card-show/{action}`. Maneja:
+  - `200 { ok:true, state }` ⇒ éxito; copy por acción (confirmar/cancelar/baja) y por `state` (`waitlist` ⇒ copy de
+    lista de espera).
+  - `{ ok:false, message }` (torneo lleno / Player ID ya preinscrito, §CARDSHOW.12) ⇒ muestra el `message` tal cual
+    (venga en 2xx o 4xx).
+  - `410` ⇒ «Este enlace ya se usó o expiró.»
+  - `429` (lee `Retry-After`) ⇒ «Demasiados intentos, espera un momento…».
+  - `400`/resto ⇒ error genérico. Fallo de red ⇒ error genérico.
+  - Sin `token` en el query ⇒ página de marca con aviso «Este enlace no es válido…», **sin botón** (no se puede
+    POSTear nada).
+- Copy funcional/transaccional, marca **TCG HUNT**, ⛔ **sin datos del evento** (fecha/sede/precio): estas páginas
+  no los necesitan.
+- Prueba nueva `frontend/src/app/card-show/_components/LinkAction.test.tsx` (vitest + testing-library, `fetch`
+  mockeado): render de marca con botón, **C4** (0 llamadas al renderizar), POST en `application/json` con la clave
+  `token`, y los 5 casos de respuesta (200/410/400/429 + torneo lleno + waitlist). **8/8 verde.**
+
+**Tarea 2 — matcher del middleware (zona compartida, MEDIDO por mí 2026-10-16):** `frontend/src/middleware.ts` ya
+excluía del redirect de locale los **subpaths** vía `isCardShowPath()` →
+`pathname === '/card-show' || pathname.startsWith('/card-show/')` (líneas ~16-18). ⇒ `/card-show/confirm|cancel|
+unsubscribe` **ya** entran al matcher (para la CSP) y se cortocircuitan antes del redirect a `/es`. **NO requirió
+cambio.** (El matcher `'/((?!api|_next|_vercel|.*\\..*).*)'` captura esas rutas porque no tienen punto ni son
+`api`.) ⚠️ NO verificado por HTTP (`curl -sI`) — eso lo cierra QA con el stack arriba; lo verificado por mí es la
+lógica del `startsWith`.
+
+**Tarea 3 — typecheck preexistente (ARREGLADO):** `e2e/card-show.spec.ts:67` usaba `test.use({ reducedMotion:
+'reduce' })`; en Playwright 1.56 `reducedMotion` NO es opción de test directa sino de `BrowserContextOptions` ⇒ se
+pasa por `test.use({ contextOptions: { reducedMotion: 'reduce' } })`. `npm run typecheck` queda **limpio**.
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: **limpio** (0 errores; ya no está el de `reducedMotion`).
+- `npm run lint`: sin avisos ni errores.
+- `LinkAction.test.tsx`: **8/8** verde. Suites `card-show` (app + lib): **28 passed** (3 ficheros).
+
+## Card Show v2 — datos REALES + salida del vendedor por WhatsApp (2026-10-16, feat/event-landing)
+
+**Decisión del dueño JC:** el evento sale HOY con datos reales (fecha/sede/precios ya públicos, van en el código).
+ÚNICO secreto que queda: los NOMBRES de patrocinador — el bloque de logos va oculto (`showSponsors:false`) y solo
+se nombran TCG HUNT y Jakomi.
+
+### `frontend/src/content/card-show.ts` — fuente única (reescrito)
+- Datos reales: `countdownTargetIso` (2026-12-05T11:00:00-06:00), hero (fecha/horario/sede/`presenta`), `numeros`,
+  `queEncontraras`, `torneo` (sin «oficial», sin cupo; días sáb 12–18 / dom 12–17, `inscripcion`, `notaHorarios`),
+  `comoLlegar` (dirección, pisos, transporte, `mapaUrl`, `mapaEmbedUrl`), `mesas`, `patrocinios`, FAQ (12 verbatim),
+  footer (colaboración Jakomi + teléfono).
+- **Modelo de mesas NUEVO (v2):** numerado. `mesas.tipos` = 3 tipos con `precio` y `numeros[]` (Premium $3,000 →
+  6,7,8,16,19 · Grande $2,500 → 15 mesas · Chica $1,800 → 3,4,5). ⛔ Se QUITÓ el campo `medida` y el tipo
+  `MesaEstado`/`MesaPlano`/`MesaTipo.medida` viejos. Disponibilidad vía `mesas.apartadas` (lista editable a mano
+  por JC; al 16-oct = [6,7,8,9,10,18,20]). Helpers: `mesaTipoDe`, `mesaDisponibilidad`, `mesasResueltas`,
+  `waApartarMesaUrl`, `mesaLabel`, `disponibilidadTexto`.
+- **WhatsApp** (`WHATSAPP`, URLs exactas del encargo): #1 con `{n}`, #2 genérico, #3 patrocinio, #4 dudas + número
+  visible `55 6489 3921`. **`MAILTO_PATROCINIO`** (URL exacta). **`LINKS`** (TCG HUNT/Jakomi/deck/convocatoria/aviso).
+- `patrocinios.showSponsors:false` + niveles Oro/Plata/Producto (⛔ sin marca) + `comunes` + `cta.href` = mailto.
+- Aviso de privacidad: apunta al live `https://tcghunt.mx/es/privacidad` (⛔ no se redactó uno nuevo; pendiente de
+  revisión con product-owner). Se eliminó el objeto `privacidad` con placeholders `[RAZÓN_SOCIAL]`, etc.
+
+### Componentes
+- `_components/Countdown.tsx` (nuevo, client): cuenta regresiva SSR-segura (estado `null` hasta montar → sin
+  mismatch de hidratación), aria-live discreto, marcador `--` antes de montar.
+- `_components/PlanoMesas.tsx` (reescrito): cuadrícula de 23 mesas. Disponible = `<a>` a WhatsApp `#1` con número
+  (cuenta el clic), nombre accesible «Mesa N, Tipo, Precio, Disponible», zona táctil ≥72×44, trama para apartada.
+  Apartada = no clicable, texto «Apartada». Tabla equivalente con columnas Mesa/Tipo/Precio/Estado (⛔ sin Medida).
+- `page.tsx` (reescrito): hero + countdown; torneo sin «oficial»/cupo; cómo llegar (enlace a Maps, SIN iframe — ver
+  abajo); CTAs de WhatsApp de vendedor (sección mesas + CTA FIJA sticky en móvil, `#2`); número visible; CTA de
+  patrocinio abre el MAILTO (NO scroll); bloque de logos condicionado a `showSponsors`; footer con dudas `#4`.
+- `TrackedLink.tsx`: + props opcionales `target`/`rel`/`aria-label` (para enlaces externos WhatsApp/Maps).
+- `PrivacyMini.tsx`: pointer corto al aviso live (sin placeholders inventados; solo TCG HUNT + Jakomi).
+- `AvisameForm.tsx` / `TorneoForm.tsx`: el enlace del aviso de privacidad ahora va al URL live (antes `/privacidad`
+  interno, inexistente en el árbol raíz de `/card-show`). Resto del comportamiento (doble opt-in) INTACTO.
+
+### Mapa: SIN iframe embebido (decisión medida)
+La CSP de la landing (`frontend/src/security/csp.ts`, de devops) tiene `frame-src` SIN `https://www.google.com`.
+Un `<iframe output=embed>` quedaría bloqueado. Se dejó el `mapaEmbedUrl` en los datos pero la UI enlaza a Google
+Maps (navegación de primer nivel, no afectada por `frame-src`). Si se quiere el embed, devops debe añadir
+`https://www.google.com` a `frame-src` (solicitud, no implementado por mí).
+
+### Tests tocados
+- `card-show.secrets.test.ts`: quitadas las aserciones TBD; mantiene el escaneo por `CARDSHOW_SECRET_TERMS`;
+  añade `showSponsors===false`, niveles === «Oro Plata Producto» y presencia de TCG HUNT/Jakomi.
+- `PlanoMesas.test.tsx`: reescrito al modelo numerado (enlaces disponibles, texto apartada, tabla sin Medida, 23 mesas).
+- `e2e/card-show.spec.ts`: el bloque del plano ahora comprueba enlaces a WhatsApp (antes botones con aria-pressed).
+
+### Medido por mí (2026-10-16, sobre el árbol con estos cambios)
+- `npm run typecheck`: limpio. `npm run lint`: sin avisos ni errores.
+- Suites card-show (4 ficheros): **31 passed | 1 skipped** (el skip es el escaneo sin env).
+- Escaneo de secretos: sin env ⇒ skip + 3 aserciones de patrocinios; con env de términos inventados AUSENTES
+  («AcmeCorpXZ,FooSponsorQ,BarBrandW») ⇒ **6/6**; canario con «Jakomi» presente ⇒ **MUERDE** (1 fallo), confirma
+  que el candado detecta un nombre si se colara.
+- Cero nombres de patrocinador en el repo: no se me entregó ninguno y no introduje ninguno; las únicas marcas en el
+  contenido son TCG HUNT, Jakomi y Pokémon (nombre de juego).
+
+### Solicitudes al arquitecto / devops / product-owner
+- **devops:** si se quiere el iframe de Google Maps, añadir `https://www.google.com` a `frame-src` de la CSP.
+  También cablear `CARDSHOW_SECRET_TERMS` con los nombres de patrocinador (el escaneo ya los protege).
+- **product-owner:** revisar el aviso de privacidad simplificado (PrivacyMini) contra el aviso integral live.
+- **arquitecto:** el POST de leads de vendedor/patrocinador coexiste con los CTAs de WhatsApp/mailto; no hubo cambio
+  de contrato. Pendiente abierto previo (nombre del campo de `GET /form-token`) sigue igual.
+
+---
+
+## Card Show · recurso `.ics` del calendario (2026-10-16, rama `feat/event-landing`)
+
+El correo de bienvenida al visitante (backend C3-W) enlaza a
+`{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26`, que daba **404**.
+Lo sirve ahora el frontend como route handler del App Router **FUERA del i18n**
+(`frontend/src/app/card-show/card-show-cdmx.ics/route.ts`); el middleware ya cubre los subpaths de
+`/card-show/`. La carpeta se llama literalmente `card-show-cdmx.ics/` (el punto forma parte del segmento).
+
+- **Respuesta:** `Content-Type: text/calendar; charset=utf-8`, `Content-Disposition: attachment; filename="card-show-cdmx.ics"`,
+  `Cache-Control: public, max-age=3600, s-maxage=86400`. Cuerpo VCALENDAR con CRLF y plegado de líneas
+  (RFC 5545 §3.1, consciente de bytes UTF-8 por los acentos).
+- **Zona horaria:** `VTIMEZONE` de `America/Mexico_City` con offset fijo `-0600` (CDMX no tiene DST desde
+  2022-10-30), coherente con `countdownTargetIso`. Las dos citas usan `DTSTART;TZID=America/Mexico_City:...`
+  para que se muestren en hora local de CDMX a cualquier visitante.
+- **Dos VEVENT:** sáb 5 dic 2026 11:00–19:00 y dom 6 dic 2026 11:00–18:00. `SUMMARY`="Card Show CDMX",
+  `LOCATION`/`DESCRIPTION`/`URL` **importados** de `@/content/card-show` (no se duplican literales: sede =
+  `comoLlegar.direccion`, summary = `hero.titulo`+" CDMX", descripción = `hero.entrada`+`hero.presenta`, la
+  fecha del sábado se deriva de `countdownTargetIso`). UIDs estables `card-show-cdmx-2026-{sat,sun}@tcghunt.mx`,
+  `DTSTAMP` fijo (salida determinista/cacheable). Comas escapadas (`\,`). Sin datos de patrocinador.
+- **Medido por mí (O-9):** `npm run typecheck` limpio; `next lint` sobre los dos ficheros sin warnings/errores;
+  `vitest run route.test.ts` **5/5 corridas verdes, 9/9 pruebas** (estructura VCALENDAR, CRLF, 2 VEVENT
+  balanceados, fechas sáb/dom y coherencia DTEND>DTSTART, cabeceras, escapes, UIDs).
+- **Nota para arquitecto:** el endpoint `.ics` sigue SIN estar en `API_CONTRACT.md` (lo marcaba
+  `BACKEND_NOTES §CARDSHOW` como punto para devops/arquitecto). No es endpoint de API sino recurso estático
+  servido por el dominio del frontend; queda documentado aquí para que el arquitecto decida si lo refleja.
 ## §117 · 💰 **P&L de Finanzas (M7): estado de resultados (C), volumen/ticket (D) y rótulo de captura con IVA (A)** (2026-10-14, rama `fix/pnl-finanzas`, base `d93f7d4`; `API_CONTRACT §M10-IVA.8-bis` (C)(D)(A) · `DESIGN_SYSTEM §PNL-IVA`)
 
 **Medido primero (grep/glob sobre el árbol `d93f7d4`):**
