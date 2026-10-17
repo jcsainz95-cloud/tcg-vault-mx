@@ -25,7 +25,7 @@ modelo de negocio**. Decisiones medidas del chat de hoy:
 - **Fuera del público:** precios de mesa, plano de 23 mesas, montos de patrocinio. → quitar
   `mesaInteres`/mesa/plano del modelo y de la página.
 - **Captura — Asistente/consumidor:** nombre, email, juego de interés (opcional), participar en rifa
-  (sí/no, premarcada), consentimiento (privacidad + bases).
+  (sí/no, **DESMARCADA** — ⭐M-89 R5, casilla propia separada de privacidad + enlace a bases), consentimiento.
 - **Captura — Vendedor/Patrocinador:** tipo, **nombre o marca**, email, **teléfono**, «¿qué vendes/qué
   marca?» (opcional), consentimiento.
 - **Preinscripción a torneo:** **Pokémon = FORMAL con Player ID**; **demás juegos (Riftbound, Lorcana,
@@ -34,7 +34,7 @@ modelo de negocio**. Decisiones medidas del chat de hoy:
   «por anunciar».
 - **Rifa:** dinámica INFORMAL sin costo entre asistentes y registrados; **hay que estar presente para
   ganar, se elige en vivo**; premio = **Pokémon TCG 30th Celebration Poster Collection**. Casilla de
-  participación + aceptar bases. NO es sorteo formal.
+  participación **DESMARCADA** (⭐M-89 R5) con enlace a bases, separada de la casilla de privacidad. NO es sorteo formal. JC aceptó el riesgo legal (R5).
 - **Jakomi:** colaborador visible (logo + nombre «Jakomi», «organiza los torneos»), **SIN enlaces a sus
   redes**; co-branding arriba (TCG HUNT × Jakomi).
 - **Marca:** look & feel real de TCG HUNT (papel/tinta, rojo #b31217, Montserrat wordmark/títulos, Archivo
