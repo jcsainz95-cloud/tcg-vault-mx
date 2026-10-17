@@ -1353,8 +1353,8 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     data: [
       // L1 merchant·new·confirmado · L2 sponsor·contacted·confirmado ⇒ base(confirmados)={L1,L2};
       // `?status=new|contacted` y `?type=merchant|sponsor` discriminan.
-      { type: 'merchant', email: 'ceq1-cs-merchant@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-1', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_mesas', status: 'new', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
-      { type: 'sponsor', email: 'ceq1-cs-sponsor@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-2', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_patrocinio', status: 'contacted', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
+      { type: 'merchant', name: 'CEQ1 Tienda Merchant', email: 'ceq1-cs-merchant@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-1', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_mesas', status: 'new', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
+      { type: 'sponsor', name: 'CEQ1 Marca Sponsor', email: 'ceq1-cs-sponsor@ceq1.local', mailboxHmac: 'ceq1-cs-hmac-2', consentAt: csConsent, privacyVersion: 'ceq1', source: 'cta_patrocinio', status: 'contacted', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
     ],
   });
   await h.prisma.cardShowPlayerSignup.createMany({
@@ -1362,8 +1362,8 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       // P1 sat·confirmed·confirmado · P2 sun·waitlist·confirmado ⇒ base(confirmados)={P1,P2};
       // `?status=confirmed|waitlist` y `?day=sat|sun` discriminan. `playerId` distinto ⇒ sin choque con
       // el índice único parcial `(playerId, day)`.
-      { day: 'sat', playerName: 'CEQ1 Jugador Uno', playerId: '100000000001', email: 'ceq1-csp-1@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-1', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
-      { day: 'sun', playerName: 'CEQ1 Jugador Dos', playerId: '100000000002', email: 'ceq1-csp-2@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-2', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'waitlist', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
+      { day: 'sat', game: 'pokemon', playerName: 'CEQ1 Jugador Uno', playerId: '100000000001', email: 'ceq1-csp-1@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-1', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
+      { day: 'sun', game: 'pokemon', playerName: 'CEQ1 Jugador Dos', playerId: '100000000002', email: 'ceq1-csp-2@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-2', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'waitlist', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
     ],
   });
 

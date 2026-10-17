@@ -399,13 +399,13 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   });
   await db.cardShowLead.create({
     data: {
-      type: 'merchant', email: `lead.${run}@lz.local`, mailboxHmac: `lz-lead-hmac-${run}`, consentAt: d(-2),
+      type: 'merchant', name: 'LZ Tienda Demo', email: `lead.${run}@lz.local`, mailboxHmac: `lz-lead-hmac-${run}`, consentAt: d(-2),
       privacyVersion: 'lz', source: 'cta_mesas', status: 'new', confirmedAt: d(-1), createdAt: d(-2),
     },
   });
   await db.cardShowPlayerSignup.create({
     data: {
-      day: 'sat', playerName: 'Menor LZ', playerId: '900000000001', email: `player.${run}@lz.local`, mailboxHmac: `lz-player-hmac-${run}`,
+      day: 'sat', game: 'pokemon', playerName: 'Menor LZ', playerId: '900000000001', email: `player.${run}@lz.local`, mailboxHmac: `lz-player-hmac-${run}`,
       isMinor: true, guardianConsentAt: d(-2), consentAt: d(-2), privacyVersion: 'lz', status: 'confirmed', confirmedAt: d(-1), createdAt: d(-2),
     },
   });
