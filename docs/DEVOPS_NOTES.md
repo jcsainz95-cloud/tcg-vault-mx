@@ -15158,3 +15158,61 @@ de devops se mueven juntas. `report-only` con alguna en FAIL ⇒ rc 1; `enforce`
 **Rollback.** `git revert` de este commit devuelve 10038/10055 a FAIL. OJO: FAIL solo es coherente con
 `CSP_MODE='enforce'`; el candado de paridad exige revertir las dos cosas juntas (baseline.conf + csp.ts). No toca
 producción ni datos.
+
+## §99 · El escáner de secretos conflaciona el prefijo `re_` de Resend con los ids de reembolso de Stripe (2026-10-14, rama `fix/pnl-finanzas`, devops)
+
+**Qué pasa.** `scripts/gen-published-secrets-manifest.sh:133` usa el patrón `re_[A-Za-z0-9_]{6,}` para detectar
+claves de **Resend**. Los **ids de reembolso de Stripe** (`re_…`) comparten ese prefijo, así que un id de reembolso
+usado como dato de prueba dispara el patrón y obliga a registrar su hash en `security/secretos-publicados.sha256`.
+El stream P&L añadió el id falso `re_partial` en `backend/test/pnl-refund-dashboard.spec.ts` (B1), lo que desfasó el
+manifiesto (bloque E de `check-secret-defaults.sh` en rojo) hasta regenerarlo. **No es un secreto real**: el bloque H
+del escáner confirmó 0 claves con forma `sk_live_/rk_live_/whsec_` en 2319 ficheros; es un falso positivo benigno.
+
+**Consecuencia operativa.** Cada nuevo id `re_…` que los tests de B1 (reembolso de dashboard) introduzcan volverá a
+desfasar el manifiesto y exigirá regenerarlo (`gen-published-secrets-manifest.sh` + commit acotado).
+
+**Mejora futura (NO hecha aquí).** Afinar el patrón del generador/escáner para distinguir claves Resend reales de los
+ids de reembolso de Stripe (p. ej. excluir `re_` dentro de rutas `backend/test/**` o reconocer el formato real de las
+API keys de Resend). Queda como observación; este cambio solo regenera el manifiesto.
+
+**Rollback.** `git revert` del commit de regeneración devuelve el manifiesto al estado anterior (volvería a quedar
+desfasado y el bloque E en rojo). No toca producción ni datos.
+
+## §100 · `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
+
+Estado vigente, no bitácora. El script arranca una carpeta nueva con **el equipo** (plantilla) y **ficheros de
+arranque en blanco**; no toca el proyecto en curso.
+
+| Origen (en esta plantilla) | Destino (proyecto nuevo) | Qué es |
+|---|---|---|
+| `.claude/` entero (`agents/` + `templates/`) | `.claude/` | el equipo y sus plantillas en blanco |
+| `CLAUDE.md` | `CLAUDE.md` | reglas de coordinación |
+| `.claude/templates/PROJECT.md` | `PROJECT.md` | idea **en blanco** (29 líneas). **Nunca** el `PROJECT.md` de la raíz, que es el vivo de este proyecto |
+| `.claude/templates/{HECHOS,PENDIENTES,HISTORIAL,TRASPASO}.md` | raíz | ficheros de arranque/traspaso de sesión (O-11) |
+| `.claude/templates/DECISIONES.md` | `docs/DECISIONES.md` | historia de decisiones del humano |
+| `docs/team-overview.html` (si existe) | `docs/team-overview.html` | diagrama de referencia |
+
+**Candado previo:** si falta cualquier plantilla de `.claude/templates/` (o `.claude/agents/` o `CLAUDE.md`), el
+script sale **2** con la lista de lo que falta y **no crea el destino** — nada de copias a medias. Si el destino
+ya existe, sale **1** sin tocarlo. El mensaje final describe el flujo completo de `CLAUDE.md`, incluidos
+**tester-e2e, pentester y seguridad**, y recuerda que el orquestador arranca leyendo `HECHOS.md` y el índice de
+`PENDIENTES.md` (O-11).
+
+**Cómo se comprueba** (ninguno de los dos toca el árbol vivo: corren en `mktemp -d` y limpian al salir):
+
+- `./scripts/check-new-project.sh` — corre `new-project.sh` a un temporal y asserta: `PROJECT.md` del destino
+  `< 60` líneas e idéntico a la plantilla (y distinto del de la raíz); los cuatro ficheros de arranque en la raíz y
+  `docs/DECISIONES.md` idénticos a su plantilla; `.claude/` idéntico (`diff -r`, imprime conteo de agentes y
+  templates); `CLAUDE.md` idéntico; se niega sobre destino existente y sin argumentos. Medido 2026-10-10:
+  **14/14** sobre el árbol con 14 agentes y 6 templates.
+- `./scripts/check-new-project-canary.sh [N]` — sobre una copia mínima propia (con un `PROJECT.md` «vivo»
+  sintético de 100 líneas, para no depender del real), muta y exige rojo: volver a copiar el `PROJECT.md` de la
+  raíz, dejar de copiar `HECHOS.md`, dejar de copiar `docs/DECISIONES.md`, quitar la guarda de destino existente,
+  y borrar una plantilla (exige además `exit 2` y destino no creado). Medido 2026-10-10: **6/6**, cada mutación
+  **3/3** (deterministas).
+
+Ninguno de los dos está cableado a `ci.yml`: la plantilla cambia raras veces y la comprobación es manual, **antes
+de commitear** cualquier cambio en `scripts/new-project.sh` o en `.claude/templates/`. Si eso deja de ser verdad
+(p. ej. las plantillas empiezan a cambiar por sesión), cablearlo a `ci-ok` es un job de 10 segundos sin red.
+
+> **No medido aquí:** `shellcheck` no está instalado en este sandbox; los tres scripts pasaron solo `bash -n`.

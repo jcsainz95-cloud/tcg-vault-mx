@@ -209,8 +209,13 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
     const [header, row] = r.text.trim().split('\n');
     const cols = header.split(',');
     expect(cols.slice(-4)).toEqual([...NEW_KEYS]);
-    expect(cols.slice(1)).toEqual(Object.keys(after));
+    // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): el JSON gana `statement` (solo-JSON); el CSV NO cambia (sigue plano).
+    // Por eso la paridad columna⇄DTO se mide sobre los campos PLANOS, excluyendo `statement`.
+    const flatKeys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => k !== 'statement');
+    const flatVals = (o: Record<string, unknown>) =>
+      Object.entries(o).filter(([k]) => k !== 'statement').map(([, v]) => String(v));
+    expect(cols.slice(1)).toEqual(flatKeys(after));
     const now = await pnl();
-    expect(row.split(',')).toEqual(['pnl', ...Object.values(now).map(String)]);
+    expect(row.split(',')).toEqual(['pnl', ...flatVals(now)]);
   });
 });

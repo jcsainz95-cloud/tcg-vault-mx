@@ -1105,6 +1105,27 @@ export function itemRefundComponents(o: RefundOrderMoney, orderItem: { unitPrice
 }
 
 /**
+ * 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1) — `stripe_dashboard`: un reembolso hecho DIRECTO en el panel de Stripe,
+ * del que Stripe SOLO da el BRUTO (`refund.amount`). Se atribuye ENTERO a mercancía y se le deriva el IVA con la
+ * convención **CONGELADA de la orden** (`ivaRatePct`), ⛔ nunca del dial vivo. Bajo `IVA_INCLUSIVE`:
+ * `merchandiseCents = G`, `merchandiseIvaCents = G − taxBaseCentsOf(G, r)` (IVA por RESTA, R2), envío y
+ * compensación `0`. ⛔ `processingFeeCents = 0`: Stripe NO devuelve su comisión en un reembolso (ya es costo
+ * hundido en `stripeFeesCents`). `amountCents = G` ⇒ `amount = merch + ship + fee + comp` (identidad PS-3).
+ */
+export function stripeDashboardRefundComponents(grossAmountCents: number, ivaRatePct: number): RefundComponents {
+  const merchandise = grossAmountCents;
+  return {
+    amountCents: merchandise,
+    merchandiseCents: merchandise,
+    merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, ivaRatePct),
+    shippingCents: 0,
+    shippingIvaCents: 0,
+    processingFeeCents: 0,
+    compensationCents: 0,
+  };
+}
+
+/**
  * `order_remaining` (§M4-SHIP.4): un DIRECTO del que NO sale ninguna carta ⇒ `totalCents − Σ amountCents`
  * de las filas no fallidas. Mercancía `0` · envío `E` · IVA de envío = el RESIDUAL `ivaCents − Σ
  * merchandiseIvaCents` (§4.44.j.1: el envío absorbe el centavo) · comisión `amount − E`.

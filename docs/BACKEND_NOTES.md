@@ -32796,3 +32796,185 @@ tests que lo fijan (`vault.holdings-sealed-identity.spec.ts:105` espera «Tropiu
 Migrarlas al resolutor cambiaría ese fallback a «Sellado sin identificar» — cambio de conducta que rompe tests
 fijados. El task acotó el alcance a «las 15 superficies (B)», así que **NO toqué las 4**. Si el arquitecto quiere
 unificarlas, es una decisión de conducta aparte (regla 9).
+
+---
+
+## v1.95⟨pnl-finanzas⟩ — COGS neto de IVA (A) + doble resta del reembolso (B2) + estado de resultados (C)
+
+Rama `fix/pnl-finanzas`. ZONA DE DINERO. Spec: `API_CONTRACT §M10-IVA.8-bis` (A/C/D) + `§M4-SHIP.20` (B2) +
+candado `IVA-15`; diseño en `ARCHITECTURE §4.44.f-quater` (+ espejo `§4.44.f-ter`). Construido por backend (modelo
+fuerte, candado-que-falla→arreglo→muerde). B1 (`stripe_dashboard`/`REF-DASH-1`) DIFERIDO: NO se tocó el enum.
+
+### (A) COGS NETO DE IVA — columna congelada, espejo del envío
+- **Migración `m79`** (`20261101120000_m79_inventory_acquisition_cost_iva`): `ALTER TABLE "InventoryItem" ADD
+  COLUMN "acquisitionCostIvaCents" INTEGER NOT NULL DEFAULT 0;`. Timestamp = siguiente libre tras
+  `m76` (`20261029120000`) SALTANDO los slots reservados de M-77/M-78 (ramas sin fusionar). ⛔ SIN backfill
+  (doctrina `IVA-11(d)`): filas históricas nacen con `0` ⇒ `net = bruto` = comportamiento de hoy (conservador).
+- **Derivación al CAPTURAR** (`inventory.service.ts`, `resolveCreation`): en COMPRA FIRME (`acquisitionType !=
+  aportacion_en_especie`) con costo no-null, `acquisitionCostIvaCents = acquisitionCostCents −
+  taxBaseCentsOf(acquisitionCostCents, r)` con `r = iva_pct` VIGENTE. **Dial MEDIDO:** `this.settings.getIvaDials()
+  .ivaRatePct` (el MISMO que usa el envío en `shipments.service.ts:424`; `SettingKey.IVA_PCT`). En APORTACIÓN y
+  sin costo = `0`. Se escribe en `buildItemData` (los 3 caminos de alta: single, lote, convert-to-inventory). ⛔ Se
+  CONGELA al capturar; jamás se re-deriva al leer (rompería `IVA-5`: `InventoryItem` no tiene `ivaRatePct`).
+- **Neteo al LEER** (`pnl-core.ts:244`): `cogsCents += (acquisitionCostCents ?? 0) − (acquisitionCostIvaCents ?? 0)`.
+- **Candado `IVA-15`**: `test/pnl-cogs-iva.diagnostic.spec.ts` (evolucionado del diagnóstico 702b5c0, conserva el
+  fixture + nombre por ser el que citan los docs) fija el neteo al leer (cogs 8000, profit 2000) y el amarre
+  anti-mutación (aportación con iva=0 aporta su costo entero). Lado CAPTURA: `test/inventory.batch.spec.ts`
+  (describe «IVA-15») fija la derivación/congelado (9280@16 ⇒ 1280; 0/null/aportación ⇒ 0).
+
+### (B2) DOBLE RESTA DEL REEMBOLSO TOTAL — filtro por settledAt
+- **Premisa MEDIDA (bloqueante, confirmada):** `grep settledAt backend/src` ⇒ NO existe NINGÚN `settledAt: null`.
+  Las transiciones a `refunded` (`refund-ledger.service.ts:351-352`, `payments.service.ts:799/814`) y `chargeback`
+  (`payments.service.ts:1007/1109/1167`) escriben SOLO `status`/`refundedAt`/`disputeOutcome`. `settledAt` se pone
+  a un valor no-null solo en `payments.service.ts:317/485/1158`. ⇒ es un sello INMUTABLE de liquidación: el arreglo
+  B2 es seguro.
+- **Arreglo** (`pnl-core.ts`): el ingreso se acota por `where: { status: { in: ['settled','refunded'] }, settledAt:
+  range ?? { not: null } }` (antes `status:'settled'`). Así una venta liquidada en el periodo cuenta su ingreso
+  aunque luego se reembolse, y la fila de reembolso resta UNA vez en su fecha. COGS/stripeFees/shippingRevenue de
+  una `refunded` siguen contándose (la venta ocurrió). ⛔ `chargeback` queda FUERA (desviación `D-PNL-1`, no se abre).
+- **Candado `REF-DASH-2`**: `test/pnl-refund-double-subtract.spec.ts`. El doble de `order.findMany` HONRA el
+  `where.status` (como Postgres) ⇒ falla de verdad con el filtro viejo (income 0 ⇒ profit −10000) y pasa con el
+  nuevo (income 10000 ⇒ profit 0).
+
+### (C) ESTADO DE RESULTADOS `statement` — aditivo, derivado por construcción
+- `GET /admin/finance/pnl` ahora devuelve `{ ...camposPlanos, statement }`. Construido en `admin.service.pnlReport()`
+  (controller lo llama) vía `buildStatement()` puro en `pnl-core.ts`. El bloque `iva` del statement sale de
+  `this.ivaReport(from,to)` — la MISMA fuente que `GET /admin/finance/iva` para el mismo rango (garantiza
+  `statement.iva.ivaCollectedCents == /finance/iva`), no una segunda cuenta.
+- ⭐ **v1.95.2 (arquitecto 2026-10-14) — RECONSTRUIDO a estado de resultados ESTÁNDAR DE E-COMMERCE.** El statement
+  dejó de ser `{totalRevenueCents, cogsCents, grossMarginCents, operatingExpenses{…}, ebitda, iva, netResult}`. Forma
+  nueva (los nombres viejos `totalRevenueCents` y `operatingExpenses` **DESAPARECEN**):
+  ```
+  Ventas            salesCents = incomeCents + shippingRevenueCents
+  (−) Devoluciones  returnsAndRefunds{ refundsCents, refundedFeesCents, compensationsCents,
+                                       totalCents = suma de los tres }   ← CONTRA-INGRESO (sube antes del margen)
+  = Ventas netas    netRevenueCents = salesCents − returnsAndRefunds.totalCents
+  (−) Costo venta   costOfSales{ cogsCents, stripeFeesCents, shippingCostCents, buylistGuideCostCents,
+                                 buylistShippingFeeRetainedCents,
+                                 totalCents = cogs+stripeFees+shipCost+buylistGuide − buylistRetained }  ← PURO
+  = Margen bruto    grossMarginCents = netRevenueCents − costOfSales.totalCents   (margen de contribución)
+  = EBITDA          ebitdaCents = grossMarginCents   (⛔ NO hay opex fija modelada)
+  IVA (memo)        iva{ ivaCollectedCents, ivaRefundedCents, ivaNetCents }   ← SIN CAMBIO
+  = Resultado neto  netResultCents = ebitdaCents
+  ```
+  Los reembolsos (refunds+refundedFees+comps) se movieron de `operatingExpenses` (costo) al **contra-ingreso**
+  `returnsAndRefunds` que resta ANTES del margen bruto. ⛔ El reordenamiento NO cambia el resultado final: mismos
+  términos y signos, solo reagrupados en subtotales distintos.
+- ⛔⛔ **EL IVA ES MEMO** y el invariante duro se conserva: `netResultCents == ebitdaCents == profitCents` EXACTO
+  (no se resta el IVA). **Matiz v1.95.2:** ahora además `ebitdaCents == grossMarginCents` (no hay opex fija entre
+  ellos) ⇒ la cadena completa es `netResultCents == ebitdaCents == grossMarginCents`, y los tres `== profitCents` al
+  centavo. (Antes `grossMargin = totalRevenue − cogs` quedaba ANTES de restar opex, así que `grossMargin != ebitda`;
+  con la reagrupación el margen bruto ya es de contribución y coincide con el EBITDA.)
+- `admin.pnl()` (usado por `exportCsv` y `launchMetrics`) se dejó PLANO: el **CSV no cambia** (statement es solo-JSON).
+- **Candado**: `test/pnl-statement.spec.ts` — 7 identidades (`salesCents==income+shipRev`;
+  `returnsAndRefunds.totalCents==refunds+refundedFees+comps`; `netRevenueCents==sales−returns.total`;
+  `costOfSales.totalCents==cogs+stripeFees+shipCost+buylistGuide−buylistRetained`;
+  `grossMarginCents==netRevenue−costOfSales.total`; `ebitdaCents==grossMarginCents`;
+  `netResultCents==profitCents` EXACTO), iva-misma-fuente, y que restar el IVA memo rompe la identidad. Verificado
+  muerde al reintroducir la vieja agrupación (reembolsos en costo): N=1 determinista, caza `costOfSales.totalCents`
+  (13650≠8500) y el invariante duro (−8800≠−3650).
+
+### (D) volumen/ticket — CERO backend (reuso de `GET /admin/reports/sales`). Trabajo de frontend.
+
+### Para QA / integración (NO lo pudo correr backend: su entorno no tiene Postgres/Redis/S3)
+- ⚠️⚠️ **`test/integration/sales-analytics-pnl-parity.e2e-spec.ts` (AN-B-13) HAY QUE REGENERARLA.** B2 (§W 277/278)
+  hace que O3 (fixture `refunded`, liquidada 2021-03-01, en-rango) cuente su ingreso/COGS/comisión (antes no) ⇒ los
+  campos `pnl`/`csv` de los rangos que cubren el 2021-03-01 se mueven a propósito. Regenerar con
+  `AN_PARITY_WRITE=1 npm run test:integration -- sales-analytics-pnl-parity` (local, ⛔ no CI) y verificar a mano que
+  el delta es SOLO O3. El header del spec ya documenta esto.
+- Specs de CSV-paridad del P&L (`bsd-b4-pnl.e2e-spec.ts` BSD-B36, `sdx-d2f-money.e2e-spec.ts`) se AJUSTARON para
+  excluir `statement` de la comparación columna⇄DTO (el CSV es plano por diseño). Confirmar en integración.
+- Los demás specs de pnl por HTTP leen campos sueltos (`.body.incomeCents`), no el body entero ⇒ el `statement`
+  aditivo no los rompe; los de refund (`full-refund-vault`) usan DELTAS ⇒ robustos a B2.
+
+---
+
+## v1.95⟨pnl-finanzas⟩ §PNL-B1 — captura del reembolso hecho DIRECTO en el panel de Stripe (`stripe_dashboard`)
+
+Rama `fix/pnl-finanzas`. ZONA DE DINERO + webhook. Spec: `API_CONTRACT §M4-SHIP.20 (B1)`, candado `REF-DASH-1`,
+línea canónica de `PaymentRefundKind` en §Enums. Construido por backend (modelo fuerte, candado-que-falla→arreglo→
+muerde). **B1 YA NO está diferido** (la nota de A/B2/C arriba decía «DIFERIDO: NO se tocó el enum»; este pase lo
+construye). El dueño confirmó (2026-10-14) que SÍ podría reembolsar directo en el panel de Stripe fuera de la app.
+
+### Qué nace
+Un `charge.refunded`/`refund.updated` **sin** `metadata.paymentRefundId` cuyo `payment_intent` resuelve a una
+`Order` conocida crea UNA fila de libro `stripe_dashboard` conciliada. `idempotencyKey = 'stripe-refund:'+refund.id`
+y `stripeRefundId = refund.id` (ambos `@unique`) ⇒ idempotente: la 2ª entrega del webhook (o el `charge.refunded`
+Y el `refund.updated` del mismo reembolso) NO duplica.
+
+- **Enum:** `PaymentRefundKind += stripe_dashboard` en `schema.prisma:184`. `enum-values.ts` NO se editó a mano:
+  `PAYMENT_REFUND_KIND_VALUES = Object.values(PaymentRefundKind)` lo deriva del cliente Prisma (basta `prisma
+  generate`). Ancla humana de `enum-values-parity.spec.ts` actualizada (precedente `item_delivered`). **enum-parity
+  ANTES: 2 rojas** (contrato trae `stripe_dashboard`, schema/cliente no) **→ DESPUÉS: 152/152 verde.**
+- **Migración M-80** (`20261102120000_m80_stripe_dashboard_refund`, siguiente libre tras `m79`): `ALTER TYPE
+  "PaymentRefundKind" ADD VALUE IF NOT EXISTS 'stripe_dashboard';` + relaja UN solo CHECK, `PaymentRefund_shipment_fee_chk`.
+  ⚠️ **MEDIDO:** una fila `stripe_dashboard` colgada SOLO de `orderId`, SIN líneas y con `compensationCents = 0`, YA
+  cumple TODOS los demás CHECK sin tocarlos (`one_charge`, `item_missing`, `case_refund*`, `item_delivered*`,
+  `amount_identity/positive`, `submitted_has_stripe_id`, los de accesorio…). El ÚNICO que la bloquea es
+  `shipment_fee_chk` y SOLO en la variante colgada de `shipmentRequestId`. Por eso se relaja ESE y nada más:
+  `CHECK (("kind"::text='shipment_fee') = ("shipmentRequestId" IS NOT NULL) OR "kind"::text='stripe_dashboard')` —
+  para todo otro `kind` la equivalencia original se conserva (`=` liga más que `OR`). `::text` (no el enum) porque
+  Postgres no deja USAR un valor recién añadido en la misma tx (patrón m70, medido).
+- **Desglose money-safe** (`common/money.ts` `stripeDashboardRefundComponents(gross, r)`): Stripe solo da el bruto
+  `refund.amount`. Bajo `IVA_INCLUSIVE`: `merchandiseCents = gross`, `merchandiseIvaCents = gross − taxBaseCentsOf(
+  gross, r)` (IVA por RESTA, R2), envío/compensación `0`. **`processingFeeCents = 0`** (Stripe NO devuelve su
+  comisión). `r` = `Order.ivaRatePct` **CONGELADA** de la orden, ⛔ nunca el dial vivo. `amount = merch+ship+fee+comp`
+  (identidad PS-3). `RefundRow.netCents` (`pnl-core.ts:235`) resta el neto e `ivaRefundedCents` recibe el IVA.
+- **Estado:** `succeeded` ⇒ `succeeded` (`submittedAt = succeededAt = refund.created`); `pending`/otros ⇒ `submitted`;
+  `failed|canceled` ⇒ `failed` (`failedAt`, `failureCode = 'stripe_'+status`).
+- **Reconciliación:** `refund-ledger.service.ts` `reconcileStripeDashboardRefund(...)`, llamada desde los DOS webhooks
+  en `payments.service.ts`: `onChargeRefunded` itera `charge.refunds.data` (corre en el PARCIAL **y** el TOTAL — antes
+  el parcial `:785-791` SOLO logueaba) y `onRefundUpdated` pasa `amount/payment_intent/created`. Inserta con
+  `createMany({ skipDuplicates })` = `ON CONFLICT DO NOTHING` (idempotente y a prueba de carrera); bitácora
+  `payment_refund.dashboard_reconciled` solo si `count === 1`.
+
+### ⚠️ Decisiones medidas que necesita saber el arquitecto (regla 9)
+
+1. **Actor de SISTEMA — NO existe para `PaymentRefund`; resuelto con centinela (señalar).** `requestedByUserId` es
+   `TEXT NOT NULL` **SIN FK** (migración m61:113) y `Role` no tiene `system` (`customer|vault_operator|super_admin`).
+   La convención de webhook del resto del código (`actorUserId/actorRole = null`, p.ej. `orphan-reconcile`,
+   `carrier-status`, `accessory-stock`) **no cabe** en columnas NOT NULL. El contrato delega («backend lo resuelve»).
+   Decisión: constante `SYSTEM_REFUND_ACTOR_ID = 'system:stripe-dashboard'` + `requestedByRole = super_admin` (el
+   dueño reembolsa en el panel como la empresa; `super_admin` es el único rol con salida de dinero arbitraria). La
+   **bitácora** de creación SÍ usa el actor `null` (convención de webhook). No cuelga de ninguna `User` (sin FK) y el
+   tope de 24 h del operador aggrega por `requestedByUserId` ⇒ el centinela nunca coincide con un operador real. El
+   DTO `requestedBy.userId` queda no-null (`'system:stripe-dashboard'`, nombre `null`) ⇒ **no rompe frontend**. Si el
+   arquitecto prefiere columnas nullables (espejo exacto del `null` de webhook), es cambio de schema + DTO.
+2. **Variante `ShipmentRequest` DIFERIDA (hueco del contrato).** El contrato dice «Order (o `ShipmentRequest`)», pero
+   `ShipmentRequest` **NO tiene `ivaRatePct` congelada** (el comentario del schema lo PROHÍBE derivar — IVA-5) y el
+   desglose money-safe del contrato nombra solo la convención de la ORDEN y atribuye a **mercancía** (un cargo de
+   envío no es mercancía). ⇒ un reembolso de panel cuyo PI resuelve a un `ShipmentRequest` (retiro) **solo loguea**,
+   NO nace fila (comportamiento de hoy). El CHECK ya quedó relajado por si se construye. **Falta regla money-safe
+   del contrato para esa variante** (atribuir a envío con el IVA congelado del retiro, no una tasa) ⇒ decisión del
+   arquitecto.
+3. **Candado `C-REF-1` (`refunds.candados.spec.ts`) actualizado, NO debilitado.** El censo `paymentRefund.create*`
+   pasó de **1 a 2 sitios**, AMBOS en `refund-ledger.service.ts` (`createRows` + `reconcileStripeDashboardRefund`).
+   La fila de panel nace YA conciliada (`succeeded`, con `stripeRefundId`) e idempotente — ciclo de vida que ⛔ NO
+   cabe en `createRows` (nace `requested`, sin `skipDuplicates`) sin debilitar el creador único de la app. La
+   invariante real (ningún OTRO módulo crea filas del libro) se conserva: el censo sigue fijando UN solo fichero. La
+   cabecera del spec avisa que un sitio nuevo es decisión del arquitecto ⇒ **lo señalo**.
+
+### Candado `REF-DASH-1` — `test/pnl-refund-dashboard.spec.ts` (unitario extremo-a-extremo, SIN BD)
+BD en memoria compartida entre el webhook (escribe) y el P&L (lee), HONRANDO los dos `@unique` y el `where`
+(status + `submittedAt`). 6 casos: parcial/total ⇒ fila `succeeded` con el desglose exacto; idempotente (2ª entrega
+= 1 fila, 1 bitácora); `refundsInPeriod` sube `refundsCents` por el neto (4310 de 5000@16) y `ivaRefundedCents` por
+690; fuera de periodo no cuenta; con `paymentRefundId` NO nace. **FALLA→VERDE→MUERDE:** verde 6/6; al reintroducir
+el defecto (comentar la llamada `reconcileDashboardRefundsOf` del parcial) **4/6 rojas** (las 2 verdes son los casos
+negativos, correcto); restaurado 6/6. Determinista (secuencial, sin carrera) ⇒ N=1 basta (O-3 solo exige N para lo
+probabilístico). **El candado faithful de BD es de QA** (ver abajo).
+
+### Para QA / integración (backend NO tiene Postgres/Redis en su entorno)
+- El candado de **extremo a extremo real** (webhook HTTP de Stripe `charge.refunded` sin `paymentRefundId` ⇒ fila en
+  BD ⇒ `GET /admin/finance/pnl` sube `refundsCents`) hay que correrlo con el stack. Candidato: nuevo
+  `test/integration/pnl-refund-dashboard.e2e-spec.ts` o extender `full-refund-vault.e2e-spec.ts`.
+- `test/integration/enum-query-axes.e2e-spec.ts`: `?kind=stripe_dashboard` de `GET /admin/refunds` ya es filtro
+  válido (derivado de `PAYMENT_REFUND_KIND_VALUES`); confirmar que una fila de ese kind se filtra.
+- Correr `prisma migrate deploy` (aplica M-80) antes de la suite de integración.
+
+### ⚠️ ROJO PRE-EXISTENTE (NO de B1 — de la A, m79) para enrutar al dueño de A
+`test/migration.m50-no-default.spec.ts` da **1 roja**: el censo «`shippingCostIvaCents` vive SOLO en M-50» se cae
+porque el COMENTARIO de `m79` (migración de A, commit `26ff05f`) contiene el literal `shippingCostIvaCents` («espejo
+exacto de `ShipmentRequest.shippingCostIvaCents`»). Medido: mi árbol de B1 **no toca** `m79` ni ese spec ⇒ la roja
+ya existía en `26ff05f`. No la arreglo (⛔ «no toques A/B2/C»). Fix trivial para el dueño de A: reformular el
+comentario de `m79` para no repetir el token exacto, o ampliar el censo para admitir una referencia documentada.
+Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roja es esta.

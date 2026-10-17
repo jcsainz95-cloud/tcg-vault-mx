@@ -32676,3 +32676,158 @@ en la celda/tendencia de **mercado** el rótulo dice **«incluye IVA» / «VAT i
 accesibles usan ese texto; en la celda de **precio** sigue exigiéndose **«IVA 16 % incluido» / «16 % VAT included»**, y
 las ramas «sin IVA» y «sin convención» de `IvaLabel` quedan intactas. `MIV-UX-4`, `MIV-UX-5` y `MIV-UX-6` (lista de
 deseos, estimados PSA, ausencia de cifra) **no cambian**.
+
+## PNL-IVA. Rótulo del costo de adquisición en la captura de inventario (M1 alta / M3 captura) — frente «P&L de Finanzas» (`API_CONTRACT §M10-IVA.8-bis (A)`, tabla «Rótulo de captura (M1/M3)» · `ARCHITECTURE §4.44.f-quater`, fila «Rótulo de M1/M3»)
+
+Esta sección **codifica** una norma ya decidida en el contrato y la arquitectura (no la rediseña). Es el patrón de **campos de dinero en la captura de inventario**: un campo que pide un importe debe decir, en su rótulo, **si lleva el IVA dentro o no** — porque *un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas*. El precedente vivo es el costo de envío de M4 (§4.44.f-ter, rótulo «importe TOTAL de la factura, IVA incluido»); este es su espejo para el costo de adquisición.
+
+### PNL-IVA.1 El texto del rótulo (verbatim) y cuándo aparece
+
+El campo es el **costo de adquisición** de la pieza (`InventoryItem.acquisitionCostCents`) en la pantalla de **alta de M1** y en la **captura de M3**. Su rótulo depende del tipo de adquisición (`acquisitionType`):
+
+| `acquisitionType` | ¿Lo teclea el operador? | Rótulo del campo de costo |
+|---|---|---|
+| **`compra`** (COMPRA FIRME) | Sí — es la cifra de la factura del distribuidor | **«costo TOTAL de la factura, IVA incluido»** |
+| **APORTACIÓN** | No — el costo es **derivado** (`mercado_neto × pct`, ya neto) | **sin rótulo de IVA** (el campo no se captura; no procede hablar de impuesto dentro) |
+
+- **Verbatim, para implementar tal cual en COMPRA FIRME:** el rótulo (o su texto de ayuda inmediato bajo el label) dice **«costo TOTAL de la factura, IVA incluido»**. Las palabras «TOTAL» y «IVA incluido» son las que cierran la ambigüedad; no se parafrasean ni se abrevian a «costo» a secas.
+- **El rótulo de IVA aparece SOLO en compra firme.** En aportación, el operador no teclea el costo (se deriva y se congela el IVA en `0`), así que **no** se muestra el rótulo de IVA: añadirlo ahí afirmaría un impuesto embebido que no existe en una cifra ya neta. Si la UI muestra el costo derivado como solo-lectura, se rotula de forma neutra («costo de adquisición»), sin «IVA incluido».
+- **Por qué este texto y no «neto» o «sin IVA»:** la cifra primaria es la de la factura (bruta, con IVA dentro); pedir al operador que reste el IVA antes de teclear es pedirle aritmética fiscal en cada captura, justo donde se cuela un error mudo. El neteo ocurre **al leer** el P&L, nunca al capturar (`ARCHITECTURE §4.44.f-quater`, fila «Neteo»).
+
+### PNL-IVA.2 Accesibilidad
+
+- **El rótulo y la ayuda se asocian al input por programa.** El `<label>` del campo de costo lleva `htmlFor` apuntando al `id` del input (o lo envuelve), de modo que «costo TOTAL de la factura, IVA incluido» sea el **nombre accesible** del campo. Si el texto «IVA incluido» viaja como pista separada bajo el label, el input lo referencia con `aria-describedby` apuntando al `id` de ese nodo — así el lector de pantalla lo anuncia junto al campo, no como texto suelto.
+- **El texto de IVA es visible, no solo de ayuda flotante:** no se esconde en un `title`/tooltip (que no es accesible por teclado ni táctil). Vive en el label o en una pista persistente bajo él.
+- **Foco visible** estándar del sistema (§accesibilidad de inputs ya definida) sin cambios; el rótulo no altera el orden de tabulación.
+- En aportación, como el campo no se teclea, no hay nombre accesible de captura que mantener; si se muestra solo-lectura, su nombre accesible es el rótulo neutro.
+
+### PNL-IVA.3 Alcance y lo que NO cambia
+
+- **Solo toca el rótulo/ayuda del campo de costo en M1 alta y M3 captura.** No cambia validaciones, formato de dinero (§9.3), ni el flujo de alta rápida (§16.5) más allá del texto del campo.
+- **Sin solicitudes de contrato:** el dato (`acquisitionCostCents`, `acquisitionType`) y la norma ya viajan en `API_CONTRACT §M10-IVA.8-bis (A)` y `ARCHITECTURE §4.44.f-quater`. Esta sección es su reflejo en el sistema de diseño; el frontend ya puede implementarla.
+
+## PNL-STATEMENT. El bloque «Resumen» como estado de resultados (waterfall) en «Finanzas» (M7) — frente «P&L de Finanzas» (`API_CONTRACT §M10-IVA.8-bis (C)`, objeto `statement`)
+
+> ✅ **FIRME (2026-10-14).** El arquitecto fijó la estructura definitiva del estado de resultados (`API_CONTRACT §M10-IVA.8-bis (C)`, v1.95.2): los **REEMBOLSOS**, la **comisión de plataforma devuelta** y las **compensaciones por carta perdida** son **contra-ingreso** (grupo `returnsAndRefunds`, restan de ventas **ANTES** del margen bruto); **Stripe**, **costo de envío**, **COGS** y **guías de vendedores** son **costo de venta** (grupo `costOfSales`). El grupo `operatingExpenses` de v1.95 **desaparece**. La tabla de §.1 ya refleja esta estructura con las rutas nuevas del `statement`; **el frontend ya puede implementarla** (ver §.6).
+
+Esta sección **codifica** un objeto ya decidido en el contrato (`API_CONTRACT §M10-IVA.8-bis (C)`, el `statement` aditivo de `GET /admin/finance/pnl`): no rediseña la aritmética ni inventa cifras. El CFO pidió que el bloque «Resumen» del estado de resultados muestre el **desglose completo** —cada concepto de ingreso/costo agrupado y sumando a sus subtotales—. El `statement` ya trae **todos** los subtotales calculados por el servidor; la pantalla los **pinta**, ⛔ no los recalcula (GAS-4: una cifra, una fuente). Vecina de `§PNL-IVA`; manda sobre la **presentación plana** de `§43.23.1` y `§BSD-UX.11a` para la tarjeta «Resumen» (los mismos renglones, reagrupados en jerarquía). Las reglas de dinero (signos, campos, «la ganancia es `profitCents`») siguen fijadas por el contrato; aquí solo el aspecto, la jerarquía, los textos y la accesibilidad.
+
+### PNL-STATEMENT.1 Estructura jerárquica (grupos → conceptos → subtotales)
+
+Tres grupos, cada uno con **encabezado tenue** (`eyebrow` mono `uppercase tracking-[0.18em]` en `text-muted`, §3.2), sus **conceptos indentados** debajo (sangría `pl-6`, alineados bajo el rótulo del grupo), y un **subtotal** con **línea superior** (`border-t border-border`, `pt-1.5`) y **peso** que lo separa de los conceptos. Importes alineados a la derecha, tabulares (`.tabular` / `tabular-nums`, §9.3, `formatMoneyCents` tal cual llega).
+
+```
+ESTADO DE RESULTADOS (P&L)                                                      ← título (sin cambio)
+
+VENTAS                                                                          ← eyebrow muted (grupo)
+   Ingresos (ventas)                                                MX$12,000.00
+   Ingreso por envío (cobrado)                                         MX$900.00
+   ─────────────────────────────────────────────────────────────────────────── ← border-t
+   Ventas                                                            MX$12,900.00 ← subtotal salesCents, font-semibold
+
+DEVOLUCIONES Y REEMBOLSOS  (−) contra-ingreso: restan de las ventas             ← eyebrow muted (grupo)
+   Reembolsos                                                          MX$500.00  ← text-danger (resta de las ventas)
+   Comisión de plataforma devuelta                                      MX$30.00  ← text-danger
+   Compensaciones por carta perdida                                    MX$250.00  ← text-danger
+   ───────────────────────────────────────────────────────────────────────────
+   Ventas netas                                                      MX$12,120.00 ← subtotal netRevenueCents, font-semibold
+
+COSTO DE VENTA                                                                  ← eyebrow muted (grupo)
+   Costo de lo vendido                                               MX$7,000.00  ← text-danger
+   Comisiones Stripe                                                   MX$420.00  ← text-danger
+   Costo de envío (neto)                                               MX$780.00  ← text-danger
+      Incluye ajustes de paquetería                                    MX$120.00  ← solo si > 0; text-muted, sin signo
+      Incluye seguro del envío                                          MX$45.00  ← solo si > 0; text-muted, sin signo
+   Guías para recibir cartas de vendedores                             MX$495.17  ← text-danger
+   (−) Tarifa de envío descontada a vendedores                         MX$540.00  ← CRÉDITO: resta del costo (§.2)
+   ───────────────────────────────────────────────────────────────────────────
+   Margen bruto (contribución)                                        MX$3,964.83 ← subtotal grossMarginCents, font-semibold
+
+═══════════════════════════════════════════════════════════════════════════════ ← regla fuerte (como §43.23.1)
+EBITDA                                                                MX$3,964.83 ← font-bold (= margen bruto; sin gastos fijos)
+Resultado neto                                                        MX$3,964.83 ← font-bold (= profitCents)
+   Es margen de contribución: ventas netas − costo de venta.                     ← pista honesta (§.4)
+   EBITDA = margen bruto: no incluye nómina, renta ni marketing (no se modelan).
+
+┌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ┐  ← recuadro punteado (MEMO, §.3)
+╎ IVA por enterar al SAT — informativo, no es un gasto del negocio             ╎
+╎    IVA cobrado                                                    MX$2,064.00 ╎
+╎    IVA dentro de reembolsos                                          MX$80.00 ╎
+╎    IVA por enterar (neto)                                         MX$1,984.00 ╎
+└ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ╌ ┘
+
+[Exportar P&L (CSV)]                                                            ← sin cambio
+```
+
+| Jerarquía | Rótulo | Campo del `statement` (contrato) | Presentación |
+|---|---|---|---|
+| Grupo | **VENTAS** | — (encabezado) | `eyebrow` muted |
+| Concepto | Ingresos (ventas) | `incomeCents` (plano) | `pl-6`, monto `text-text` |
+| Concepto | Ingreso por envío (cobrado) | `shippingRevenueCents` (plano) | `pl-6`, monto `text-text` |
+| **Subtotal** | **Ventas** | `statement.salesCents` (`= incomeCents + shippingRevenueCents`) | `border-t`, `font-semibold` |
+| Grupo | **DEVOLUCIONES Y REEMBOLSOS** (contra-ingreso, **restan**) | — | `eyebrow` muted |
+| Concepto | Reembolsos | `statement.returnsAndRefunds.refundsCents` | `pl-6`, monto `text-danger` |
+| Concepto | Comisión de plataforma devuelta | `statement.returnsAndRefunds.refundedFeesCents` | `pl-6`, monto `text-danger` |
+| Concepto | Compensaciones por carta perdida | `statement.returnsAndRefunds.compensationsCents` | `pl-6`, monto `text-danger` |
+| **Subtotal** | **Ventas netas** | `statement.netRevenueCents` (`= salesCents − returnsAndRefunds.totalCents`) | `border-t`, `font-semibold` |
+| Grupo | **COSTO DE VENTA** | — | `eyebrow` muted |
+| Concepto | Costo de lo vendido | `statement.costOfSales.cogsCents` (neto, tras (A)) | `pl-6`, monto `text-danger` |
+| Concepto | Comisiones Stripe | `statement.costOfSales.stripeFeesCents` | `pl-6`, monto `text-danger` |
+| Concepto | Costo de envío (neto) | `statement.costOfSales.shippingCostCents` | `pl-6`, monto `text-danger` |
+| ↳ sub-renglón | Incluye ajustes de paquetería | `shippingAdjustmentsCents` (plano) | `pl-12`, `text-xs text-muted`, **sin signo**, solo si `> 0` (§43.23.2) |
+| ↳ sub-renglón | Incluye seguro del envío | `shippingInsuranceCents` (plano) | `pl-12`, `text-xs text-muted`, **sin signo**, solo si `> 0` |
+| Concepto | Guías para recibir cartas de vendedores | `statement.costOfSales.buylistGuideCostCents` | `pl-6`, monto `text-danger` |
+| Concepto (CRÉDITO) | (−) Tarifa de envío descontada a vendedores | `statement.costOfSales.buylistShippingFeeRetainedCents` | `pl-6`, prefijo «(−)», monto `text-text` (§.2) |
+| **Subtotal** | **Margen bruto (contribución)** | `statement.grossMarginCents` (`= netRevenueCents − costOfSales.totalCents`) | `border-t`, `font-semibold` |
+| **Subtotal fuerte** | **EBITDA** | `statement.ebitdaCents` (`≡ grossMarginCents`) | regla `════`, **`font-bold`** |
+| **Subtotal fuerte** | **Resultado neto** | `statement.netResultCents` (`≡ profitCents`) | **`font-bold`** |
+| MEMO | IVA por enterar al SAT | `statement.iva.*` | recuadro punteado, fuera de la aritmética (§.3) |
+
+- **GAS-4 — la pantalla no suma.** Cada subtotal (`salesCents`, `netRevenueCents`, `grossMarginCents`, `ebitdaCents`, `netResultCents`) **viene del servidor**; ⛔ el frontend no los calcula ni «comprueba» sumando los conceptos. Tampoco pinta `returnsAndRefunds.totalCents` ni `costOfSales.totalCents` como renglón positivo propio: el waterfall va directo del grupo a su subtotal neto (`netRevenueCents`, `grossMarginCents`) para que no se lea «una suma que luego resta». Si algún día no cuadran, lo que se ve es el número del servidor y la diferencia la caza la prueba de identidad del contrato (§M10-IVA.8-bis, «IDENTIDADES que son el candado»), no el usuario. `Resultado neto` se pinta de `statement.netResultCents`, que el contrato garantiza `≡ profitCents`.
+- **Por qué EBITDA y Resultado neto muestran la misma cifra:** el P&L entra **neto de IVA**, el **margen bruto es de contribución** y el modelo **no** incluye gastos fijos de operación (nómina, renta, marketing), ni depreciación, intereses ni ISR (no hay dato). Por construcción `grossMarginCents ≡ ebitdaCents ≡ netResultCents ≡ profitCents` (contrato): entre el margen bruto y el EBITDA no hay ningún gasto fijo que restar, y entre EBITDA y el resultado neto el IVA es memo, no gasto. Se pintan **los dos** renglones (lo pidió el CFO) para que el estado de resultados se lea completo; la pista honesta (§.4) y el MEMO del IVA (§.3) explican por qué no hay nada entre ellos. *(Nota de confirmación en §.6 por si el dueño esperaba «restar impuestos» pensando en ISR.)*
+- **Color del resultado:** `Resultado neto` (y `EBITDA`) en `text-success` si `≥ 0`, `text-danger` si `< 0` — el mismo trato que hoy da `§43.23.1` a la ganancia. `Margen bruto (contribución)` negativo también en `text-danger`. El color nunca es la única señal: el signo «−» que entrega `formatMoneyCents` viaja en la cifra.
+- **Orden de conceptos:** el del objeto `statement`. En **DEVOLUCIONES Y REEMBOLSOS**: reembolsos, comisión de plataforma devuelta, compensaciones (el orden de `returnsAndRefunds`). En **COSTO DE VENTA**: costo de lo vendido, Stripe, envío, guías de vendedores, (−) tarifa descontada (el orden de `costOfSales`, con el crédito al final). Los dos «Incluye…» van **inmediatamente** bajo «Costo de envío (neto)» (§43.23.2), con doble sangría respecto al concepto.
+
+### PNL-STATEMENT.2 Signos: el crédito resta, no se disfraza de suma
+
+- **Contra-ingreso (DEVOLUCIONES Y REEMBOLSOS).** Reembolsos, comisión de plataforma devuelta y compensaciones son dinero devuelto al cliente que **reduce la venta**: son magnitudes positivas en `text-danger` (dinero que sale), sin prefijo de signo por renglón, cuyo subtotal (`returnsAndRefunds.totalCents`) el contrato **resta** de `salesCents` para llegar a `netRevenueCents` («Ventas netas»). El encabezado del grupo porta la resta —**«DEVOLUCIONES Y REEMBOLSOS (−) contra-ingreso: restan de las ventas»**— para que el lector entienda que el grupo **baja** las ventas, no las engrosa. ⛔ No se pinta un subtotal positivo propio del grupo: el waterfall va del grupo directo a «Ventas netas» (§.1, GAS-4).
+- **Costo de venta (COSTO DE VENTA).** Costo de lo vendido, Stripe, envío y guías son **costos** (magnitudes que **suman** al subtotal del grupo): se pintan sin prefijo de signo, con monto en `text-danger`. El subtotal del grupo (`costOfSales.totalCents`) se **resta** de «Ventas netas» para llegar al «Margen bruto (contribución)».
+- La **«Tarifa de envío descontada a vendedores»** (`costOfSales.buylistShippingFeeRetainedCents`) es un **CRÉDITO** dentro del costo de venta: el contrato la **resta** del total del costo (`costOfSales.totalCents = … − buylistShippingFeeRetainedCents`). ⛔ **No** se mezcla como si sumara al costo. Se muestra **explícitamente como resta**: prefijo **«(−)»** (o el signo `−` U+2212) antes del rótulo, monto en `text-text` (no `text-danger`: no es un costo, es un abono que **baja** el costo). Lector de pantalla: el rótulo arranca con «resta del costo» (`sr-only`) o «menos» antes del concepto, de modo que se oiga que reduce el total, no que lo engrosa.
+- *Por qué «(−)» y no `text-success` en el crédito:* el verde queda reservado al resultado (y a «pagamos» del buylist, §16.7c); un crédito dentro de un bloque de costo se entiende por el signo de resta, no por color. El signo es portador; el color, apoyo. *(Distinción de colores: el crédito del costo va en `text-text` porque **nos conviene** —baja el costo—; los contra-ingresos de devoluciones van en `text-danger` porque es dinero que **sale** del negocio.)*
+- El resto de los signos de la fórmula plana (§43.23.4) **no cambian** si la pantalla conserva además la vista plana en otra pestaña/acordeón; esta sección rige el bloque **«Resumen»** agrupado.
+
+### PNL-STATEMENT.3 El IVA es un MEMO (recuadro punteado), fuera de la aritmética
+
+- El bloque `statement.iva` se pinta en un **recuadro punteado** (`border border-dashed border-border`, `rounded`, `p-3`), **después** del «Resultado neto» y **fuera** del `divide-y` de los renglones — el trazo punteado es el lenguaje del sistema para «no entra en el total verificable» (§22.2, §BSD-UX.11b). ⛔ **El IVA no resta del resultado:** el P&L ya es neto de IVA; restarlo contaría el impuesto dos veces (contrato §M10-IVA.8-bis, «EL IVA ES UN MEMO, NO UN GASTO»).
+- **Rótulo del recuadro (verbatim):** **«IVA por enterar al SAT — informativo, no es un gasto del negocio»** / **“VAT payable to the SAT — informational, not a business expense”**. Es el texto que fija el contrato; ⛔ no se parafrasea ni se abrevia a «IVA».
+- Tres renglones dentro, mismo formato tabular a la derecha: «IVA cobrado» (`ivaCollectedCents`), «IVA dentro de reembolsos» (`ivaRefundedCents`), «IVA por enterar (neto)» (`ivaNetCents`, en `font-medium` por ser el que importa). Todos en `text-muted` (es informativo): ⛔ nunca `text-danger` ni `text-success`, para que no se lea como un gasto ni como un logro.
+- El recuadro se pinta solo si llega `statement.iva`; sus cifras tal cual (`formatMoneyCents`), ⛔ sin recalcular.
+
+### PNL-STATEMENT.4 Ayuda honesta bajo «EBITDA / Resultado neto» (patrón `avgTicketHelp`)
+
+Bajo el renglón «Resultado neto» (y su par «EBITDA»), una **pista corta y persistente** (no tooltip), igual al patrón de ayuda ya usado en el sistema (`sales.card.avgTicketHelp`, §Reportes): `text-xs text-muted`, visible siempre, asociada a EBITDA/Resultado neto por `aria-describedby`.
+
+| Clave sugerida (`admin.m7.pnl.*`) | ES | EN |
+|---|---|---|
+| `ebitdaHelp` | El margen bruto es de contribución: ventas netas menos costo de venta. EBITDA es igual al margen bruto porque no incluye nómina, renta ni marketing (gastos fijos que el sistema no modela), ni depreciación, intereses ni ISR. | Gross margin is a contribution margin: net revenue minus cost of sales. EBITDA equals gross margin because it does not include payroll, rent or marketing (fixed costs the system does not model), nor depreciation, interest or income tax. |
+
+- *Por qué la pista:* sin ella, el dueño podría leer «EBITDA»/«Margen bruto» como la rentabilidad **total** del negocio y concluir una ganancia falsa. La honestidad (criterio de confianza del P&L) exige decir qué **no** entra: es un **margen de contribución** y **no hay gastos fijos de operación modelados**. El patrón es el de `avgTicketHelp`: una línea bajo la cifra que explica qué mide y qué no, siempre visible, nunca escondida en `title`.
+- ⛔ No es tooltip (M7 no tiene componente de tooltip; no se ve en el teléfono; añadiría una parada de tabulación). Va escrita bajo el renglón.
+
+### PNL-STATEMENT.5 Alineación, números y accesibilidad
+
+- **Importes a la derecha, tabulares.** Cada renglón es una fila con **rótulo a la izquierda** y **monto a la derecha** en `.tabular` (`font-variant-numeric: tabular-nums`, §9.3, §2.6) para que los dígitos alineen en columna y los subtotales se lean bajo sus conceptos. `formatMoneyCents(valor, locale)` tal cual llega.
+- **Cada renglón es par rótulo/valor legible por lector de pantalla.** El rótulo y su monto forman un **nombre accesible único** por renglón: el lector oye «Ventas, MX$12,900.00», «Ventas netas, MX$12,120.00», «EBITDA, MX$3,964.83», «(menos) Tarifa de envío descontada a vendedores, MX$540.00». Sugerencia de estructura: una tabla de datos (`<table>` con `<th scope="row">` rótulo y `<td>` monto) o una lista de pares `dt`/`dd`; ⛔ no dos columnas sueltas que el lector recorra por separado. Decisión de frontend (como §43.23.4), pero el **par** se mantiene.
+- **Jerarquía para el lector:** los encabezados de grupo (VENTAS, DEVOLUCIONES Y REEMBOLSOS, COSTO DE VENTA) van como encabezados reales (`<caption>`/`<th scope="colgroup">` o `role="rowgroup"` con rótulo), no como texto suelto; el grupo de devoluciones anuncia en su nombre accesible que **resta de las ventas** (contra-ingreso), de modo que no se oiga como una suma. Los subtotales llevan su rótulo completo («Ventas netas», no «Netas»; «Margen bruto (contribución)», no «Margen»), de modo que cada uno se entienda fuera de contexto.
+- **Peso y separación como señal doble:** los subtotales no dependen solo del peso tipográfico (`font-semibold`; `font-bold` en EBITDA y Resultado neto) sino **también** de la línea superior (`border-t` / regla `════`) — así la jerarquía se ve aunque el peso no se distinga (p. ej. en alto contraste forzado).
+- **Foco y tabulación:** sin elementos interactivos nuevos; el único foco de la tarjeta sigue siendo «Exportar P&L (CSV)». El orden de tabulación no cambia (§43.23.4).
+- **Móvil (≤ 390 px):** los rótulos largos («Comisión de plataforma devuelta», «Compensaciones por carta perdida», «(−) Tarifa de envío descontada a vendedores») se parten en dos líneas; el monto queda a la derecha y arriba; ⛔ nunca truncar con «…» un rótulo de dinero (§43.23.4).
+
+### PNL-STATEMENT.6 Tokens, contraste, alcance y estado (FIRME — el frontend ya puede implementar)
+
+- **Cero design tokens nuevos, cero pares de contraste nuevos.** Se reusan `text-text`, `text-muted`, `text-danger`, `text-success` sobre `bg-surface`/papel-pozo; `eyebrow` mono (§3.2); `.tabular` (§2.6); `divide-y divide-border`, `border-t border-border`, `border-dashed border-border`; pesos `font-semibold`/`font-bold`. Todos verificados en §10/§17.2 (claro). **No hay modo oscuro** (tema único claro, §2.3, §11.1): el contraste se verifica sobre **papel** `#F4F1EA` y **pozo** `#EFEBE2`; si algún día hay tema oscuro, esta sección necesita su tabla, hoy no hay nada que medir (precedente: AN-UX.0 punto 4).
+- **Verificación de contraste (claro):** `text-muted` sobre papel y sobre pozo (encabezados de grupo, pista honesta, memo del IVA) y `text-danger` sobre papel/pozo (conceptos de costo y resultado negativo) son los pares que la tarjeta de M7 **ya** usa (§43.23.7, verificados AA en §10/§17.2). El `text-text`/`text-success` del resultado, idem. ⛔ Sin color nuevo; el texto `sr-only` no tiene contraste que medir.
+- **Alcance:** solo la **presentación** del bloque «Resumen» de M7 (`(admin)/admin/m7/M7View.tsx`). No cambia el CSV (sigue plano, contrato §M10-IVA.8-bis (C): «CSV sin cambio»), ni los campos planos, ni la vista plana por renglón de §43.23.1/§BSD-UX.11a si el frontend decide conservarla en paralelo.
+- **Estado: FIRME — el frontend ya puede implementar §.1.** El arquitecto entregó la estructura definitiva del `statement` (`API_CONTRACT §M10-IVA.8-bis (C)`, v1.95.2): los reembolsos, la comisión de plataforma devuelta y las compensaciones son **contra-ingreso** (grupo `returnsAndRefunds`, restan de `salesCents` antes del margen bruto); COGS, Stripe, envío y guías son **costo de venta** (grupo `costOfSales`); el grupo `operatingExpenses` **desaparece** y `ebitdaCents ≡ grossMarginCents`. La tabla de §.1 ya codifica esas rutas. **Ya no hay solicitud bloqueante al arquitecto.** No se requiere ningún cambio adicional de contrato para implementar esta sección.
+- **Rutas del `statement` que usa el frontend (verbatim del contrato):** `salesCents`; `returnsAndRefunds.{refundsCents, refundedFeesCents, compensationsCents, totalCents}`; `netRevenueCents`; `costOfSales.{cogsCents, stripeFeesCents, shippingCostCents, buylistGuideCostCents, buylistShippingFeeRetainedCents, totalCents}`; `grossMarginCents`; `ebitdaCents`; `iva.{ivaCollectedCents, ivaRefundedCents, ivaNetCents}`; `netResultCents (≡ profitCents)`. Más los planos `incomeCents`, `shippingRevenueCents`, `shippingAdjustmentsCents`, `shippingInsuranceCents` para los conceptos y sub-renglones. Las claves de copy sugeridas son `admin.m7.pnl.ebitdaHelp` (§.4) y el rótulo verbatim del MEMO del IVA (§.3).
+- **Nota al arquitecto / product-owner (confirmación, no bloquea):** si el dueño esperaba un renglón de **impuestos (ISR)** entre EBITDA y Resultado neto, **ese dato no se modela** (no existe). Hoy `grossMarginCents ≡ ebitdaCents ≡ netResultCents` a propósito; la pista honesta (§.4) y el MEMO del IVA (§.3) lo explican. Modelar ISR o gastos fijos de operación (nómina, renta, marketing) es un cambio de contrato/alcance que pasa por el arquitecto (regla 9); el contrato ya dejó **preparado conceptualmente** (no construido) el hueco para un grupo `operatingExpenses` entre `grossMarginCents` y `ebitdaCents` si algún día se capturan.

@@ -156,8 +156,10 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
       const csv = await h.api('GET', `/admin/finance/export.csv?report=pnl&from=${P[0]}&to=${P[1]}`, { token: db.adminToken });
       const text = csv.text;
       const [head, line] = text.trim().split('\n');
-      expect(head.split(',')).toEqual(['report', ...Object.keys(after)]);
-      expect(line.split(',')).toEqual(['pnl', ...Object.values(after).map(String)]);
+      // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): el JSON gana `statement` (solo-JSON); el CSV NO cambia (plano).
+      const flatEntries = Object.entries(after).filter(([k]) => k !== 'statement');
+      expect(head.split(',')).toEqual(['report', ...flatEntries.map(([k]) => k)]);
+      expect(line.split(',')).toEqual(['pnl', ...flatEntries.map(([, v]) => String(v))]);
     });
   });
 

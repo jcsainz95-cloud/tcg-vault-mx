@@ -23,7 +23,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MissingReason, PaymentRefund, PaymentRefundKind, Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/business.exception';
-import { RefundComponents } from '../../../common/money';
+import { RefundComponents, stripeDashboardRefundComponents } from '../../../common/money';
 import { pieceDisplayIdentityOf } from '../../../common/piece-display-identity';
 import { MAIL_PORT, MailPort } from '../../mail/mail.port';
 import { StripeService } from '../stripe.service';
@@ -44,6 +44,17 @@ export const REFUND_ATTEMPT_LEASE_MS = 5 * 60 * 1000;
 export const STUCK_REFUND_AFTER_MS = 10 * 60 * 1000;
 /** Ventana rodante del tope del operador. */
 export const OPERATOR_CAP_WINDOW_MS = 24 * 3600 * 1000;
+
+/**
+ * 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1) — actor de SISTEMA de una fila `stripe_dashboard`. ⚠️ MEDIDO: NO existe un
+ * actor de sistema para `PaymentRefund` — `requestedByUserId` es `TEXT NOT NULL` SIN FK (m61) y `Role` no tiene
+ * `system`; la convención de webhook del resto del código (`actorUserId/actorRole = null`) no cabe en columnas
+ * NOT NULL. Sentinel documentado en BACKEND_NOTES §PNL-B1 (señalado al arquitecto). El `requestedByUserId` NO
+ * referencia ninguna `User` (sin FK), así que un centinela no cuelga de nadie; el 24 h del operador aggrega por
+ * `requestedByUserId` y este centinela nunca coincide con un operador real. La bitácora de creación SÍ usa el
+ * actor NULL del webhook.
+ */
+export const SYSTEM_REFUND_ACTOR_ID = 'system:stripe-dashboard';
 
 export type Tx = Prisma.TransactionClient;
 
@@ -441,6 +452,95 @@ export class RefundLedgerService {
         });
       });
     }
+  }
+
+  /**
+   * 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1, candado REF-DASH-1) — concilia un reembolso hecho DIRECTO en el panel
+   * de Stripe (fuera de la app): `charge.refunded`/`refund.updated` SIN `metadata.paymentRefundId`. Nace UNA fila
+   * `stripe_dashboard` con el BRUTO de Stripe atribuido a mercancía y el IVA derivado de la convención CONGELADA de
+   * la orden (`ivaRatePct`), ⛔ nunca del dial vivo. IDEMPOTENTE por `idempotencyKey = 'stripe-refund:'+refundId` y
+   * `stripeRefundId` (ambos @unique): una SEGUNDA entrega del webhook (o el `charge.refunded` y el `refund.updated`
+   * del mismo reembolso) NO duplica — `createMany({ skipDuplicates })` es `ON CONFLICT DO NOTHING`, a prueba de carrera.
+   *
+   *  - Con `metadata.paymentRefundId` ⇒ es un reembolso de la APP (lo concilia `onRefundUpdated`): no hace nada.
+   *  - PI que NO resuelve a una `Order` conocida ⇒ solo log. La variante `ShipmentRequest` (retiro) queda DIFERIDA:
+   *    esa tabla NO tiene `ivaRatePct` congelada (el comentario del schema lo prohíbe derivar — IVA-5) y el desglose
+   *    money-safe del contrato nombra solo la convención de la ORDEN (ver BACKEND_NOTES §PNL-B1, señalado al arquitecto).
+   */
+  async reconcileStripeDashboardRefund(input: {
+    refundId: string;
+    amountCents: number;
+    status: string | null;
+    paymentIntentId: string;
+    refundCreatedMs: number;
+    metadata?: Record<string, string> | null;
+  }): Promise<void> {
+    if (input.metadata?.paymentRefundId) return; // reembolso de la app, no de panel
+    if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
+      this.logger.warn(`stripe dashboard refund ${input.refundId}: amount no válido (${input.amountCents}); sin conciliar.`);
+      return;
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { stripePaymentIntentId: input.paymentIntentId },
+      select: { id: true, ivaRatePct: true },
+    });
+    if (!order) {
+      this.logger.log(
+        `stripe dashboard refund ${input.refundId} (PI ${input.paymentIntentId}) no resuelve a una Order: sin conciliar (variante ShipmentRequest diferida, §M4-SHIP.20 B1).`,
+      );
+      return;
+    }
+    const c = stripeDashboardRefundComponents(input.amountCents, order.ivaRatePct);
+    const at = new Date(input.refundCreatedMs);
+    // succeeded ⇒ succeeded (submittedAt=succeededAt=eventTime); pending/otros ⇒ submitted; failed|canceled ⇒ failed.
+    const s = input.status;
+    const mapped =
+      s === 'succeeded'
+        ? { status: 'succeeded' as const, submittedAt: at, succeededAt: at, failedAt: null, failureCode: null }
+        : s === 'failed' || s === 'canceled'
+          ? { status: 'failed' as const, submittedAt: null, succeededAt: null, failedAt: at, failureCode: `stripe_${s}` }
+          : { status: 'submitted' as const, submittedAt: at, succeededAt: null, failedAt: null, failureCode: null };
+    const idempotencyKey = `stripe-refund:${input.refundId}`;
+    await this.prisma.$transaction(async (tx) => {
+      const created = await tx.paymentRefund.createMany({
+        data: [
+          {
+            idempotencyKey,
+            kind: 'stripe_dashboard',
+            status: mapped.status,
+            orderId: order.id,
+            amountCents: c.amountCents,
+            merchandiseCents: c.merchandiseCents,
+            merchandiseIvaCents: c.merchandiseIvaCents,
+            shippingCents: c.shippingCents,
+            shippingIvaCents: c.shippingIvaCents,
+            processingFeeCents: c.processingFeeCents,
+            compensationCents: c.compensationCents,
+            requestedByUserId: SYSTEM_REFUND_ACTOR_ID,
+            requestedByRole: Role.super_admin,
+            stripeRefundId: input.refundId,
+            submittedAt: mapped.submittedAt,
+            succeededAt: mapped.succeededAt,
+            failedAt: mapped.failedAt,
+            failureCode: mapped.failureCode,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      // `count 0` ⇒ ya existía (segunda entrega / otro evento del mismo reembolso): sin duplicar, sin bitácora extra.
+      if (created.count !== 1) return;
+      const row = await tx.paymentRefund.findUniqueOrThrow({ where: { idempotencyKey } });
+      await tx.auditLog.create({
+        data: {
+          actorUserId: null,
+          actorRole: null,
+          action: 'payment_refund.dashboard_reconciled',
+          entityType: 'Order',
+          entityId: order.id,
+          after: { refundId: row.id, kind: row.kind, amountCents: row.amountCents, status: row.status, stripeRefundId: input.refundId },
+        },
+      });
+    });
   }
 
   // ================================================================ retry (§M4-SHIP.5)

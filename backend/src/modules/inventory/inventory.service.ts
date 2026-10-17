@@ -44,6 +44,7 @@ import {
   SEALED_SALE_PRICE_INCLUDE,
   SealedPriceOrigin,
   sealedPriceBasisOf,
+  taxBaseCentsOf,
 } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
 import { PendingReason, PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
@@ -869,6 +870,8 @@ export class InventoryService {
     finish: Finish;
     gradeKey: string;
     acquisitionCostCents: number | null;
+    // v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, IVA-15): el IVA acreditable del costo, CONGELADO al capturar.
+    acquisitionCostIvaCents: number;
     acquisitionPct: number | null;
     sealedNeedsEscalate: boolean;
     sealedMapping: SealedItemMapping;
@@ -997,12 +1000,27 @@ export class InventoryService {
       acquisitionCostCents = computeAportacionCostCents(referenceCents, pct);
     }
 
+    // ⭐💰 v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, candado IVA-15): el IVA ACREDITABLE del costo, CONGELADO
+    // al capturar, para que el COGS del P&L se netee por RESTA (`pnl-core.ts:244`), igual que el envío.
+    //  - COMPRA FIRME (`acquisitionType != aportacion_en_especie`): el operador teclea el BRUTO (IVA
+    //    incluido) ⇒ derivamos `bruto − round(bruto/(1+r))` con `r = iva_pct` VIGENTE al capturar (el
+    //    mismo dial que el envío: `settings.getIvaDials().ivaRatePct`) y lo CONGELAMOS en la columna.
+    //  - APORTACIÓN: `acquisitionCostCents` ya es NETO (`computeAportacionCostCents`) ⇒ 0 (sin IVA que restar).
+    //  - `acquisitionCostCents` null (sin costo) ⇒ 0.
+    // ⛔ Nunca se re-deriva al leer (rompería IVA-5: `InventoryItem` no tiene `ivaRatePct`).
+    let acquisitionCostIvaCents = 0;
+    if (dto.acquisitionType !== 'aportacion_en_especie' && acquisitionCostCents != null) {
+      const { ivaRatePct } = await this.settings.getIvaDials();
+      acquisitionCostIvaCents = acquisitionCostCents - taxBaseCentsOf(acquisitionCostCents, ivaRatePct);
+    }
+
     const sealedNeedsEscalate = dto.productType === 'sealed' && dto.listPriceCents == null;
     return {
       card,
       finish,
       gradeKey,
       acquisitionCostCents,
+      acquisitionCostIvaCents,
       acquisitionPct,
       sealedNeedsEscalate,
       sealedMapping,
@@ -1382,6 +1400,8 @@ export class InventoryService {
       card: Card;
       finish: Finish;
       acquisitionCostCents: number | null;
+      // v1.95⟨pnl-finanzas⟩ (§4.44.f-quater): IVA acreditable del costo, congelado al capturar.
+      acquisitionCostIvaCents: number;
       acquisitionPct: number | null;
       // v1.36 (P-35): mapeo TCGCSV + imagen/nombre de API ya resueltos/validados (null en raw/graded).
       sealedMapping: SealedItemMapping;
@@ -1412,6 +1432,9 @@ export class InventoryService {
       acquisitionType: dto.acquisitionType,
       acquisitionPct: r.acquisitionPct,
       acquisitionCostCents: r.acquisitionCostCents,
+      // v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, IVA-15): el crédito de IVA congelado al capturar (COMPRA
+      // FIRME = `bruto − bruto/(1+r)`; APORTACIÓN/sin costo = 0). El P&L lo RESTA al leer (`pnl-core.ts:244`).
+      acquisitionCostIvaCents: r.acquisitionCostIvaCents,
       sourceSellRequestItemId:
         'sourceSellRequestItemId' in dto ? dto.sourceSellRequestItemId : undefined,
       // v1.36-sealed-alta (M-37, P-35): la pieza NACE MAPEADA (columnas M-23 ya existentes) + imagen/

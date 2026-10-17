@@ -133,7 +133,8 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   MissingReason: ['damaged', 'not_found'],
   PreparationItemStatus: ['missing', 'pending', 'picked'],
   // v1.82 (M-70, §PNL.2): + `item_delivered` — decisión del contrato (UNA carta de un directo YA ENTREGADO).
-  PaymentRefundKind: ['case_refund', 'item_delivered', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
+  // v1.95⟨pnl-finanzas⟩ (M-80, §M4-SHIP.20 B1): + `stripe_dashboard` — decisión del contrato (reembolso hecho DIRECTO en el panel de Stripe, reconciliado por webhook).
+  PaymentRefundKind: ['case_refund', 'item_delivered', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee', 'stripe_dashboard'],
   PaymentRefundStatus: ['failed', 'requested', 'submitted', 'succeeded'],
   ManualRefundStatus: ['cancelled', 'paid', 'pending'],
   // 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2): `?kind=` / `?severity=` de `GET /admin/spend-alerts` — los 22 tipos (AG-1…AG-22).

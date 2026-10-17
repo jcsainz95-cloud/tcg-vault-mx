@@ -750,6 +750,37 @@ export class PaymentsService {
       status: refund.status ?? null,
       metadata: (refund.metadata ?? {}) as Record<string, string>,
     });
+    // 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1): si el reembolso NO trae `metadata.paymentRefundId`, se hizo en el panel
+    // de Stripe ⇒ nace una fila `stripe_dashboard` conciliada (idempotente con la rama de `charge.refunded`).
+    const pi = typeof refund.payment_intent === 'string' ? refund.payment_intent : refund.payment_intent?.id;
+    if (pi) {
+      await this.ledger.reconcileStripeDashboardRefund({
+        refundId: refund.id,
+        amountCents: refund.amount ?? 0,
+        status: refund.status ?? null,
+        paymentIntentId: pi,
+        refundCreatedMs: (refund.created ?? Math.floor(Date.now() / 1000)) * 1000,
+        metadata: (refund.metadata ?? {}) as Record<string, string>,
+      });
+    }
+  }
+
+  /**
+   * 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1) — por cada `Refund` del `charge.refunded` SIN `metadata.paymentRefundId`,
+   * concilia una fila `stripe_dashboard` (idempotente por `stripeRefundId`). El PI es el del cobro.
+   */
+  private async reconcileDashboardRefundsOf(charge: Stripe.Charge, paymentIntentId: string): Promise<void> {
+    if (!this.ledger) return;
+    for (const r of charge.refunds?.data ?? []) {
+      await this.ledger.reconcileStripeDashboardRefund({
+        refundId: r.id,
+        amountCents: r.amount ?? 0,
+        status: r.status ?? null,
+        paymentIntentId,
+        refundCreatedMs: (r.created ?? Math.floor(Date.now() / 1000)) * 1000,
+        metadata: (r.metadata ?? {}) as Record<string, string>,
+      });
+    }
   }
 
   /**
@@ -782,6 +813,10 @@ export class PaymentsService {
       await afterAutoCloseVia(this.moduleRef, pass?.closedShipmentIds ?? []);
       return;
     }
+    // 💰 v1.95⟨pnl-finanzas⟩ (§M4-SHIP.20 B1, candado REF-DASH-1): un reembolso hecho DIRECTO en el panel de Stripe
+    // (sin `metadata.paymentRefundId`) nace como fila `stripe_dashboard` conciliada — idempotente, corre tanto en el
+    // PARCIAL como en el TOTAL (⛔ ya no «solo loguea»). No afecta la transición de estado de abajo.
+    await this.reconcileDashboardRefundsOf(charge, pi);
     if (!fullyRefunded) {
       // M2: reembolso parcial → no cambia el estado terminal de la orden (queda registrado en Stripe; la
       // conciliación por fila es `charge.refund.updated`).

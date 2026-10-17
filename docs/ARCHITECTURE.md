@@ -23830,6 +23830,117 @@ shippingCostMissingCount   // nº de envíos LIQUIDADOS del periodo con `shippin
   a la factura del carrier**, la línea neta de envío da **exactamente 0**. Ésa es su regla, hecha verificable.
   Candado **`IVA-11`**.
 
+#### 4.44.f-quater ⭐ v1.95⟨pnl-finanzas⟩ — EL COSTO DE ADQUISICIÓN SE CAPTURA **CON IVA** Y EL COGS SE NETEA AL LEER
+
+**El defecto (A), medido, no opinión.** El P&L tiene **tres** términos que deberían estar todos en base NETA, y solo
+el COGS no lo está: `pnl-core.ts:238` netea el ingreso (`netRevenueCents`), `:264` netea el costo de envío
+(`netShippingCostCents`), pero `:244` suma `it.inventoryItem.acquisitionCostCents ?? 0` **crudo**, e `InventoryItem`
+**no tiene** columna `acquisitionCostIvaCents` (`grep = 0`). Un costo capturado **con IVA** (hábito del dueño) se
+resta **bruto** contra un ingreso **neto** y hunde el margen por el IVA del costo. *Es la asimetría que
+`backend/test/pnl-cogs-iva.diagnostic.spec.ts` fija (bloque A verde, bloque B rojo a propósito). Los −67.81 de la
+venta real son 100 % este defecto A — el reembolso NO los explica (orquestador 2026-10-14).*
+
+**Es el mismo problema que §4.44.f-ter resolvió para el envío, y lo resuelvo igual, un nivel más abajo.** El bruto es
+el **dato primario** (la cifra que trae la factura del distribuidor); el neto es **derivado**; `R3` dice que la
+flecha va primario → derivado, jamás al revés. Guardar el neto y perder el bruto sería reconstruir el primario desde
+el derivado. ⇒ **se guarda el bruto y su crédito de IVA congelado; el neto es una resta al LEER.**
+
+##### La norma que queda
+
+| | |
+|---|---|
+| **`InventoryItem.acquisitionCostCents`** | **BRUTO (IVA incluido) cuando viene de COMPRA FIRME** (lo teclea el operador, `inventory.service.ts:917-918`). **NETO cuando viene de APORTACIÓN** (`inventory.service.ts:997` = `mercado_neto × pct`): ahí no hay IVA embebido |
+| **`InventoryItem.acquisitionCostIvaCents`** *(NUEVA, migración `Mnn-A`)* | El **IVA acreditable** del costo, **congelado al capturar**. `cogsNet = acquisitionCostCents − acquisitionCostIvaCents`. En COMPRA FIRME = `acquisitionCostCents − round(acquisitionCostCents/(1+r))` con `r` = `iva_pct` vigente, **congelado**. En APORTACIÓN = **0** (el costo ya es neto) |
+| **Neteo** | **Al LEER, en `pnl-core.ts:244`.** ⛔ Nunca al capturar; ⛔ nunca re-derivando desde el dial vivo al leer (rompería `IVA-5`: `InventoryItem` no tiene `ivaRatePct`) |
+| **Rótulo de M1/M3 (ux-ui)** | COMPRA FIRME: **«costo TOTAL de la factura, IVA incluido»**. APORTACIÓN: sin rótulo (el costo es derivado, no tecleado) |
+
+- **⭐⭐ POR QUÉ UNA COLUMNA Y NO UNA DIVISIÓN AL LEER:** idéntico al envío — `InventoryItem` no tiene `ivaRatePct`, así
+  que netear con `costo/(1+r)` al leer obligaría al **dial vivo** y un P&L histórico cambiaría al mover `iva_pct`
+  (`IVA-5`). El crédito se **congela** al capturar. Diferencia con el envío: allí el IVA se teclea del papel; aquí se
+  **deriva-y-congela** del `iva_pct` vigente, porque el distribuidor no siempre desglosa — pero lo que se persiste es
+  el **congelado**, no la tasa.
+- **`@default(0)` es honesto** (misma doctrina que `shippingCostIvaCents`, §4.44.f-ter): la ausencia de verdad
+  significa cero. Filas históricas: `0` ⇒ `net = bruto` = **exactamente el comportamiento de hoy**, dirección
+  CONSERVADORA (subestima la ganancia, no la infla).
+- **⛔ SIN backfill automático** (doctrina `IVA-11(d)`). La venta ya reportada **no cambia sola**: se corrige al
+  re-capturar o con un **retroajuste explícito, auditado y autorizado por el dueño**, acotado a compra firme
+  (`acquisitionType`). **Decisión por defecto del diseño: NO tocar lo histórico.** El retroajuste es decisión del
+  dueño (confirmación pendiente).
+- **Reparto:** backend (zona de dinero, modelo fuerte) escribe la columna, la derivación en captura y el neteo en
+  `pnl-core`; ux-ui el rótulo. Candado **`IVA-15`** ([API_CONTRACT §M10-IVA.8-bis (A)](API_CONTRACT.md#M10-IVA8bis)).
+
+##### (C) El estado de resultados ESTÁNDAR DE E-COMMERCE (⭐ v1.95.2) y (B) los reembolsos: el porqué vive en el contrato
+
+**(C) ⭐ v1.95.2 (arquitecto, regla 9, 2026-10-14) — el dueño (CFO) aprobó reestructurar el `statement` a un estado
+de resultados ESTÁNDAR DE E-COMMERCE.** La estructura v1.95 metía los reembolsos dentro de `operatingExpenses` y
+definía `grossMargin = totalRevenue − cogs`; eso NO es el formato que un CFO lee. El formato aprobado y su porqué:
+
+- **Las devoluciones y reembolsos son un CONTRA-INGRESO** (`returnsAndRefunds`, que sube **antes** del margen bruto),
+  no un gasto. Económicamente son dinero devuelto al cliente que **reduce la venta neta**, no un costo incurrido para
+  producir/cumplir las ventas completadas. Van los tres: `refundsCents` (mercancía+envío devueltos), `refundedFeesCents`
+  (comisión que le cobramos al cliente y le regresamos — mismo evento de reembolso, componente `processingFee` de la
+  `RefundRow`) y `compensationsCents` (`case_refund`: venta fallida que se reembolsa porque la carta se perdió — el
+  cliente pagó y recibió su dinero sin mercancía ⇒ es una devolución). **Rechazado:** tratar la compensación como
+  pérdida operativa/merma en el costo — no hay línea de pérdida en el formato aprobado, el `case_refund` se modela
+  como reembolso en el libro (no como merma de inventario), y el resultado neto es idéntico por el invariante; se
+  elige lo más explicable para el CFO.
+- **El COSTO DE VENTA** (`costOfSales`) agrupa `cogsCents + stripeFeesCents + shippingCostCents + buylistGuideCostCents
+  − buylistShippingFeeRetainedCents` (el último es CRÉDITO: la tarifa retenida a vendedores reduce el costo de guías),
+  de modo que el **margen bruto es un margen de contribución** limpio: solo el costo de producir y cumplir las ventas
+  que SÍ se completaron.
+- **NO hay opex fija** (nómina/renta/marketing no se modelan — no hay dato), **dicho explícito**, ⇒ el grupo
+  `operatingExpenses` DESAPARECE y **`ebitdaCents == grossMarginCents`**. Si algún día hay opex fija, el hueco es un
+  grupo entre margen bruto y EBITDA — preparado conceptualmente, NO construido.
+- **El IVA sigue siendo un MEMO, no un gasto** (el P&L ya entra neto de IVA; restarlo contaría el impuesto dos veces).
+  El bloque `iva` no cambia.
+- **⛔⛔ INVARIANTE DURO QUE NO SE ROMPE: `netResultCents == profitCents` EXACTO.** Reordenar los grupos NO cambia el
+  resultado final — `profitCents` del plano NO se toca y suma los mismos términos con los mismos signos; solo cambian
+  los subtotales intermedios. Se demuestra por álgebra: expandiendo `netResult = salesCents − returnsAndRefunds.total
+  − costOfSales.total` se obtienen exactamente los términos de `profitCents`. El candado de backend sigue probando la
+  igualdad **al centavo**, y `statement.iva.ivaCollectedCents` sigue atado a `GET /admin/finance/iva` (estilo
+  `IVA-10(b)`). **Se DERIVA por construcción de los campos planos** (⛔ ninguna cifra nueva); los campos PLANOS, el CSV
+  y los bloques (A)/(B1)/(B2) NO cambian. Estructura y candado completos: [API_CONTRACT §M10-IVA.8-bis (C)](API_CONTRACT.md#M10-IVA8bis).
+
+**(B)** medido:
+el flujo admin de la app **sí** crea fila contada (`refund-ledger.service.ts:143`→`:327-336` tarjeta;
+`manual-refund.service.ts:203` SPEI; contadas en `pnl-core.ts:140`/`:143-145`), así que **no hay subconteo del flujo
+app** — el único hueco es el reembolso hecho directo en el dashboard de Stripe (`payments.service.ts:785-791`/`:740-745`),
+más la doble resta del total (`D-AN-1`, `pnl-core.ts:30`). Norma entera: [API_CONTRACT §M4-SHIP.20](API_CONTRACT.md#M4-SHIP20)
+y [§M10-IVA.8-bis (C)(D)](API_CONTRACT.md#M10-IVA8bis).
+
+##### B1 — dictámenes del arquitecto (regla 9), medidos 2026-10-14 por lectura de `fix/pnl-finanzas @0e943d1`
+
+Backend marcó TRES decisiones de contrato/schema para el arquitecto. Dictamen (⛔ no cambian conducta ya construida; ninguna es defecto de dinero — medido por lectura, ver abajo):
+
+- **(1) Actor de sistema de una fila `stripe_dashboard` — BENDIGO el centinela `requestedByUserId = 'system:stripe-dashboard'`, `requestedByRole = super_admin`** (`refund-ledger.service.ts:57,519-520`). ⛔ NO se vuelven nullables las columnas. Porqué, medido:
+  - El contrato ya delegó el id al backend (`API_CONTRACT §M4-SHIP.20` B1: «NO MEDIDO el id del actor de sistema — backend lo resuelve»). El centinela lo cumple SIN tocar schema ni DTO.
+  - Nullable obligaría a migrar `DROP NOT NULL` en dos columnas Y a volver nullable `PaymentRefundDTO.requestedBy` (`refund-ledger.service.ts:98`), lo que ramifica en `toDtos` (`:753`, el `Set` de ids) y en TODO lector del DTO — un cambio de la ZONA COMPARTIDA del contrato por cero beneficio de dinero. El centinela cuesta cero de eso.
+  - El centinela NO colisiona con un operador real: `requestedByUserId` es `TEXT NOT NULL` SIN FK (m61:113) y su forma (`'system:…'`) no es un id de `User`; el tope de 24 h agrega por `requestedByUserId` (`:210-216`) ⇒ la fila de panel NUNCA cuenta contra el tope de ningún operador (medido: para contar, un operador real tendría que TENER ese id, imposible). Además `assertOperatorCap` (`:231`) solo corre para `vault_operator` que CREA, y la conciliación de panel no lo llama.
+  - La bitácora de creación SÍ usa el `null` del webhook (`actorUserId/actorRole = null`, `:535-536`): las dos convenciones conviven correctas — la FILA (NOT NULL) lleva centinela, la AUDITORÍA (nullable) refleja «sin humano». `super_admin` es puramente de display/auditoría aquí: `stripe_dashboard ∉ SUPER_ADMIN_ONLY_RETRY_KINDS` (`:117`) y la fila nunca está `requested` ⇒ `retry`/`executeRefund` jamás la tocan. Un reembolso hecho en el panel de Stripe es, por naturaleza, acto del dueño/súper-admin.
+  - **Norma añadida:** `'system:stripe-dashboard'` es un id RESERVADO — ⛔ jamás se emite como id de un `User` real. Es constante exportada (`SYSTEM_REFUND_ACTOR_ID`).
+
+- **(2) Variante `ShipmentRequest` del reembolso de panel — RATIFICO el diferimiento (desviación `D-REF-SHIP-1`, abajo) y DEJO ESCRITA la regla de salida.** Medido: `ShipmentRequest` tiene money CONGELADO (`schema.prisma:1686,1706,1707,1708` — `shippingFeeCents`/`ivaCents`/`processingFeeCents`/`totalCents`) pero NO `ivaRatePct` (IVA-5 prohíbe derivarlo del dial vivo; el comentario `schema.prisma:1693-1696` lo dice). Conducta de HOY, SEGURA: `reconcileStripeDashboardRefund` solo resuelve `Order` por PI; un PI que resuelve a `ShipmentRequest` cae a `logger.log` y NO crea fila (`refund-ledger.service.ts:487-492`) ⇒ invisible al P&L, = estado pre-B1 para ese sub-caso; ⛔ cero dinero mal escrito. Regla de salida cuando se construya (el CHECK `shipment_fee_chk` ya quedó relajado por M-80, sin migración nueva):
+  - **TOTAL** (`gross == shipmentRequest.totalCents`) ⇒ componentes = `shipmentFeeRefundComponents(shipmentRequest)` (`common/money.ts:1154`) EXACTO, desde los totales congelados; NO hace falta tasa.
+  - **PARCIAL** (`gross < totalCents`) ⇒ NO hay partición money-safe desde los totales congelados sin una regla de prorrateo, e IVA-5 prohíbe derivar `ivaRatePct`. Decidir el prorrateo (envío-primero vs proporcional) es decisión de producto/dueño ⇒ se enruta a product-owner, ⛔ no se adivina. El diferimiento sigue hasta que haya demanda medida.
+
+- **(3) Censo `C-REF-1`: segundo sitio de `paymentRefund.create*` — BENDIGO el segundo sitio (`reconcileStripeDashboardRefund`, `refund-ledger.service.ts:505`).** NO es fuga del candado: codifica un invariante OPUESTO al de `createRows`:
+  - `createRows` (`:154`) = NACIMIENTO de un reembolso INICIADO POR LA APP que SE EJECUTARÁ contra Stripe: nace `requested`, con llave de negocio y componentes congelados, ⛔ SIN `skipDuplicates` (un duplicado bajo el candado del acto es un defecto ⇒ `P2002` ⇒ `409`).
+  - `reconcileStripeDashboardRefund` = PROYECCIÓN de un hecho de Stripe YA EJECUTADO (Stripe condujo; el webhook solo lo registra): nace `submitted|succeeded|failed` (⛔ nunca `requested`), IDEMPOTENTE por DOS `@unique` (`idempotencyKey` + `stripeRefundId`) con `createMany({ skipDuplicates })` = `ON CONFLICT DO NOTHING`, porque el webhook se re-entrega y `charge.refunded` + `refund.updated` disparan por el MISMO reembolso. Aquí un duplicado es ESPERADO y debe absorberse en silencio — exactamente lo CONTRARIO a `createRows`.
+  - Forzar la fila de panel por `createRows` exigiría (a) debilitarlo con `skipDuplicates` —REGRESIÓN DE DINERO: dos pasadas de preparado concurrentes que deben 409 dejarían caer una en silencio— o (b) ramificar `createRows` para exceptuar `stripe_dashboard` (sin ejecutar, con duplicados): mezclar dos invariantes en un cuerpo. Un segundo sitio limpio es mejor que cualquiera.
+  - El candado NO fuga: la fila de panel jamás llega a `executeRefund`/`retry`/tope-de-operador, y su idempotencia es MÁS fuerte (dos `@unique` + `ON CONFLICT DO NOTHING`), no más débil. **La cabecera del censo (BACKEND_NOTES, de backend) cita este dictamen; un TERCER sitio sigue siendo defecto / decisión del arquitecto.**
+
+##### Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+- **`D-REF-SHIP-1` (abierta, 💰, diferida; medida 2026-10-14 por lectura de `0e943d1`) — reembolso de panel atribuible a un `ShipmentRequest` no se captura.** `reconcileStripeDashboardRefund` solo concilia cuando el PI resuelve a una `Order`; un PI de RETIRO cae a `logger.log` sin fila (`refund-ledger.service.ts:487-492`) ⇒ el reembolso del cobro propio de un retiro hecho en el panel es invisible al P&L (= estado pre-B1 para ese sub-caso; prioridad BAJA, sub-conjunto raro de B1). Conducta SEGURA (cero dinero mal escrito). Regla de salida y cierre: dictamen B1 (2) arriba — TOTAL money-safe inmediato, PARCIAL a product-owner. Dueño: backend, cuando haya demanda medida.
+- **`D-PNL-1` (ARCHITECTURE §9) — el P&L no resta los CONTRACARGOS.** Al acotar el ingreso por `settledAt ∈ periodo`
+  (arreglo B2), una orden `chargeback` se **excluye** del ingreso (su dinero se fue y `pnl-core` no tiene fila que lo
+  reste; contarla inflaría la ganancia). El tratamiento del contracargo en el P&L es un hueco **preexistente** que
+  vive en `sales-analytics` (bloque `chargebacks`), no en `pnl-core`. ⛔ No se abre en esta rama; se registra para el
+  rol dueño (backend) con su fecha de medición (2026-10-14).
+- **Premisa NO MEDIDA que backend confirma antes de implementar B2:** que `Order.settledAt` **no se borra** al pasar a
+  `refunded`/`chargeback` (es la base de `pnl-core.ts:30`). Si se borrara, el arreglo usa otro sello inmutable de
+  liquidación.
+
 #### 4.44.g EL DIAL — uno solo, global, continuo, en fracción de traslación
 
 | | |

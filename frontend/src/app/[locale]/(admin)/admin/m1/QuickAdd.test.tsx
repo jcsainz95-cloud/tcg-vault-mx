@@ -44,7 +44,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
       'es',
     );
 
-    const price = screen.getByLabelText('Precio pagado (MXN)') as HTMLInputElement;
+    const price = screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)') as HTMLInputElement;
     expect(price.value).toBe('875');
     expect(screen.getByText('Sugerido por regla')).toBeInTheDocument();
     // SIN dropdown de acabado y SIN ubicación (la variante viene de la casilla picada).
@@ -119,7 +119,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     expect(screen.getByText('Precio pendiente')).toBeInTheDocument();
     expect(screen.getByText(/Sin valor de mercado/)).toBeInTheDocument();
     // Comprar sin sugerido: input vacío con helper de captura manual.
-    expect((screen.getByLabelText('Precio pagado (MXN)') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)') as HTMLInputElement).value).toBe('');
     expect(screen.getByText('Sin sugerido — captura el precio pagado.')).toBeInTheDocument();
   });
 

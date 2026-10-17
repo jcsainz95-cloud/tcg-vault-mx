@@ -13,6 +13,82 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-14 · stream «P&L de Finanzas» — gate del techlead sobre `be008b0` (rama `fix/pnl-finanzas`)
+
+> Tres deudas **no bloqueantes** señaladas por el techlead y **aceptadas por él como no bloqueantes sobre `be008b0`**.
+> Todas giran alrededor de §4.44.f-quater (IVA-15): desde `v1.95⟨pnl-finanzas⟩` el `acquisitionCostCents` de **COMPRA
+> FIRME** se captura **BRUTO** (IVA incluido) y el crédito acreditable vive **congelado** en `acquisitionCostIvaCents`;
+> el COGS del P&L netea por **resta** (`pnl-core.ts:336`, espejo de `netShippingCostCents`). Ninguna de las tres es un
+> defecto de dinero medido: son de **mantenibilidad / visibilidad de la decisión**. Líneas medidas sobre `be008b0`
+> (2026-10-14). ⛔ No se tocó código de producción en este pase.
+
+### PNL-D1 · P3 · Auditoría de lectores de `acquisitionCostCents` tras §4.44.f-quater — la elección bruto-vs-neto no es visible por sitio
+- **Qué es:** `acquisitionCostCents` ahora es **BRUTO** en compra firme, con el crédito congelado aparte
+  (`acquisitionCostIvaCents`). **Un solo lector netea**; todos los demás suman el campo **CRUDO**. La suma cruda es
+  **legítima** en casi todos (una valuación «lo que me costó» ES bruta), pero la decisión bruto-vs-neto **no está
+  marcada por sitio**, así que un lector nuevo no puede saber de un vistazo cuál quería. Lectores medidos
+  (fichero:línea real, `be008b0`):
+  - `backend/src/modules/admin/pnl-core.ts:336` — **COGS del P&L**. **ÚNICO que NETEA**
+    (`(acquisitionCostCents ?? 0) - (acquisitionCostIvaCents ?? 0)`). Correcto: es el renglón de **resultados**, donde el
+    IVA acreditable no es costo.
+  - `backend/src/modules/payments/refunds/refund-reports.service.ts:70` y `:99` (+ `:82`, el valor por-fila) —
+    totales de **costo de merma** (shrinkage). **BRUTO a propósito:** «cuánto me costó lo que se perdió» es una valuación
+    a costo, no un renglón de resultados.
+  - `backend/src/modules/admin/admin.service.ts:1842` — `inventoryValue()`, bucket `atCostCents` (**valor de inventario
+    a costo**). **BRUTO a propósito:** «lo que me costó el inventario en mano».
+  - `backend/src/modules/vault/vault.service.ts:345` — `costBasisCents()`, **base de costo del portafolio del cliente**
+    (`_sum.acquisitionCostCents`). **BRUTO a propósito:** lo que el cliente pagó (el cliente no acredita IVA).
+  - `backend/src/modules/inventory/sealed-graded.service.ts:301-302` (`costSum`/`costCount` del sellado) y `:441`
+    (`totalCostCents` de graduadas) — agregados `_sum.acquisitionCostCents` de las pestañas admin. **BRUTO a propósito:**
+    valuación a costo.
+- **Por qué NO bloquea:** todos los lectores no-P&L quieren el bruto **legítimamente** («lo que me costó»), y el único
+  renglón de resultados (COGS) **ya netea**. No hay dinero mal contado medido hoy. El riesgo es de **mantenibilidad**: la
+  elección no es explícita por sitio, así que un lector futuro podría sumar crudo creyendo que netea (o querer netear y no
+  tener cómo).
+- **Dirección sugerida:** extraer un helper nombrado **`netAcquisitionCostCents`** en `backend/src/common/money.ts`,
+  **espejo de `netShippingCostCents`** (`:995`). Los sitios de valuación-a-costo siguen usando el campo crudo **con un
+  comentario «bruto a propósito»**; solo el P&L (y futuros renglones de resultados) usan el helper. Así la elección queda
+  escrita en cada sitio.
+- **Dueño:** backend. **Fecha de medición:** 2026-10-14. **Disparador:** el próximo lector nuevo de
+  `acquisitionCostCents`, o el próximo sitio que alimente un renglón de resultados con el costo.
+- **Comprobación:** `grep -n acquisitionCostCents backend/src/modules` confirma que **solo** `pnl-core.ts:336` resta
+  `- …acquisitionCostIvaCents`; los demás lectores listados suman el campo crudo. Techlead la aceptó como **no
+  bloqueante sobre `be008b0`**.
+
+### PNL-D2 · P3 · Tercer camino de captura (buylist) frente a §4.44.f-quater — crédito de IVA en 0 **a propósito**
+- **Qué es:** `backend/src/modules/buylist/buylist.service.ts` → `convertToInventory` (función en `:7957`, escritura en
+  **`:8028-8029`**) escribe `acquisitionCostCents = offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0`
+  **SIN** escribir `acquisitionCostIvaCents` ⇒ cae al **default de schema `0`** (`backend/prisma/schema.prisma:1103`
+  `acquisitionCostIvaCents Int @default(0)`) ⇒ en `pnl-core.ts:336` el COGS de las piezas de buylist = **bruto**
+  (neto = bruto, crédito 0).
+- **Por qué es correcto / conservador:** el buylist compra a **particulares** (sin factura con IVA acreditable), así que
+  dejar el crédito en **0** es la dirección **conservadora** y probablemente la **fiscalmente correcta**.
+- **Por qué se registra (no es defecto):** la tabla de §4.44.f-quater solo enumera **COMPRA FIRME**
+  (`backend/src/modules/inventory/inventory.service.ts:1012-1014`, que **deriva** el IVA del bruto) y **APORTACIÓN**
+  (ya neto ⇒ 0). Buylist es un **TERCER camino de captura** que la tabla **no nombra**. Sin esta nota, un lector futuro
+  podría «arreglar» buylist **derivando IVA del bruto** e inflar un crédito que esa compra **no tiene**. La decisión es:
+  **buylist deja el crédito en 0 a propósito — NO derivar.**
+- **Por qué NO bloquea:** no hay dinero mal contado — `0` es el valor correcto para buylist.
+- **Dueño:** backend. **Fecha de medición:** 2026-10-14. **Disparador:** cualquier cambio a cómo buylist captura el
+  costo, o un flujo de buylist con factura (si alguna vez existiera, ahí sí habría crédito que derivar).
+- **Comprobación:** `grep -n acquisitionCostIvaCents backend/src/modules/buylist/buylist.service.ts` ⇒ **sin
+  coincidencias** (buylist nunca escribe el crédito); la escritura de `:8028-8029` pone solo `acquisitionCostCents`.
+  Techlead la aceptó como **no bloqueante sobre `be008b0`**.
+
+### PNL-D3 · P4 (menor/opcional) · Extraer `netAcquisitionCostCents` como espejo de `netShippingCostCents`
+- **Qué es:** el neteo del COGS es hoy una **resta inline** en `backend/src/modules/admin/pnl-core.ts:336`
+  (`(acquisitionCostCents ?? 0) - (acquisitionCostIvaCents ?? 0)`), mientras el neteo del envío ya tiene **helper
+  nombrado** `netShippingCostCents` (`backend/src/common/money.ts:995`). Asimetría puramente estructural.
+- **Dirección sugerida:** extraer
+  `netAcquisitionCostCents({ acquisitionCostCents, acquisitionCostIvaCents })` en `common/money.ts` y usarlo en
+  `pnl-core.ts`. **Converge con PNL-D1:** el mismo helper hace explícita la elección por sitio.
+- **Por qué NO bloquea:** cosmético / mantenibilidad; la resta inline es **correcta** y está documentada en el comentario
+  de `pnl-core.ts:331-334`.
+- **Dueño:** backend. **Fecha de medición:** 2026-10-14. **Disparador:** se cierra junto con PNL-D1 (el helper es el
+  mismo), o el próximo toque a la fórmula del COGS.
+- **Comprobación:** `grep -n netShippingCostCents backend/src/common/money.ts` existe (`:995`); `netAcquisitionCostCents`
+  **no existe aún**. Techlead la aceptó como **no bloqueante (menor) sobre `be008b0`**.
+
 ## Backend · 2026-10-13 · stream «sellado-display» (errata v1.94.1⟨sellado-display⟩, rama `fix/sealed-display`)
 
 > Cierre del bug de display del sellado (ARCHITECTURE §4.34a.2, API_CONTRACT v1.94.1). **Tres cosas van en el registro:

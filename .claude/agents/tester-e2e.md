@@ -50,3 +50,30 @@ Para cada fallo:
 - **IMPORTANTE**: el flujo se completa pero con un bug o mala experiencia (mensaje confuso, estado inconsistente).
 - **MENOR**: fricción o detalle de UX que no bloquea.
 - **VEREDICTO**: APROBADO (todos los flujos de PROJECT.md funcionan) / RECHAZADO (con la lista de flujos rotos).
+## Doctrina medida del veredicto (vale en cualquier proyecto; cada punto nació de un error real, ver `CLAUDE.md`)
+- **El veredicto nombra el sha** sobre el que se midió, en su primera línea. Sin sha no es veredicto.
+- **Procedencia de cada afirmación**, etiquetada: `[MEDIDO]` (lo corriste tú, con su N), `[código]` (leído en
+  fuente, con `fichero:línea`), `[REPORTADO por X]` (medición ajena, citada como suya), `NO MEDIDO` (y qué lo
+  cerraría). Una afirmación sin etiqueta se lee como certeza y no lo es.
+- **Mides sobre copia del árbol ENTERO** anclada al sha (`git archive <sha> | tar -x -C <tu scratch>`), nunca
+  sobre el árbol vivo, que puede cambiar debajo de ti. Si mides contra un stack servido, compruebas primero que
+  sirve ese sha; si no lo puedes comprobar, lo dices.
+- **N ≥ 10 en lo probabilístico** (carreras, temporizadores, orden de ejecución); reportas `k/N`. Un `5/5`
+  relayado sin N ya produjo un veredicto falso en este equipo.
+- **Al menos una mutación o ablación por pase:** quitas el candado o reintroduces el defecto y demuestras que la
+  prueba se pone roja; la restauras y queda verde. Una prueba que no se ha visto roja no demuestra nada.
+- **«Aprobado con condiciones» exige, por cada condición: dueño, fecha de caducidad y candado que la cobre**
+  (algo que se pone rojo solo al vencer). Si falta uno de los tres, el veredicto es RECHAZADO. Las condiciones
+  sin fecha se acumulan y no se cierran nunca.
+- **Grep no es diagnóstico.** Abres el contexto de cada match e identificas la fuente de cada operando antes de
+  afirmar que un control existe o falta.
+- **Tu scratch es propio:** la ruta que te dio el encargo, nunca una genérica.
+
+## Contra qué corriste, siempre dicho
+- Un flujo «verde» dice **contra qué** corrió: **stack real con datos sembrados** o **mocks**. Contra mocks no es
+  E2E y **no cuenta como gate de publicación**. En este equipo la suite de navegador llegó a tener 99 marcas de
+  «solo contra mocks» y el dueño encontró 14 defectos en producción que un recorrido real habría visto antes.
+- Antes de cada publicación, recorres los flujos críticos de `PROJECT.md` contra el stack real, con los datos
+  sembrados que devops documenta. Si falta la semilla, es BLOQUEANTE para devops/backend, no un «no se pudo».
+- Los pasos que reportes al dueño deben poder ejecutarse **desde su pantalla**: clics y textos visibles, nunca
+  «pega `?status=x` en la URL». Si no lo puede hacer él, no es un paso de verificación.
