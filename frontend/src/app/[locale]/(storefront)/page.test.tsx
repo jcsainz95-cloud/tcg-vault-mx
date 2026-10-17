@@ -20,11 +20,13 @@ vi.mock('@/lib/session', async (importOriginal) => {
   return { ...actual, useSession: () => ({ user: null, isAuthenticated: false, ready: true }) };
 });
 
-import HomePage from './page';
+// §E1/§E3: el `page.tsx` de la portada pasó a envoltorio de servidor (canonical) y el cuerpo vive
+// en `HomeView` ('use client'). El test de componente renderiza la vista cliente directamente.
+import { HomeView } from './HomeView';
 
 describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
   it('pinta el hero, el cotizador (hero lg + sección móvil) y la banda del buylist', async () => {
-    renderWithProviders(<HomePage />, 'es');
+    renderWithProviders(<HomeView />, 'es');
 
     // Hero: kicker mono + H1 + CTA negro al catálogo.
     expect(screen.getByText('Cartas Pokémon · México')).toBeInTheDocument();
@@ -69,7 +71,7 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
    * en escritorio no es una regla, y móvil es donde vende la mayoría.
    */
   it('la nota del envío se pinta en LAS DOS instancias del teaser (también en la de móvil, sin banda de confianza)', () => {
-    renderWithProviders(<HomePage />, 'es');
+    renderWithProviders(<HomeView />, 'es');
 
     // Con CERO cartas: es copy estático (§23.3k), no espera a ningún dato ni al carrito.
     const notes = screen.getAllByTestId('buylist-shipping-note');
@@ -85,7 +87,7 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
   });
 
   it('cotiza contra el server al añadir una carta: aparece la línea y el total «Valor de tus cartas»', async () => {
-    renderWithProviders(<HomePage />, 'es');
+    renderWithProviders(<HomeView />, 'es');
 
     // Escribe en el buscador del cotizador (primera instancia). El valor debounced
     // (300 ms) dispara GET /buylist/cards del mock.

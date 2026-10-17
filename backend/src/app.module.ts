@@ -34,10 +34,13 @@ import { JobsModule } from './jobs/jobs.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
 // v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW): landing del Card Show — captura pública, doble opt-in y anti-abuso.
 import { CardShowModule } from './modules/card-show/card-show.module';
+// rev v1.96⟨mkt-tienda⟩ (API_CONTRACT §MKT.D/E): Panel de Marketing Fase 0 (agregados, exports, token lector).
+import { MarketingModule } from './modules/marketing/marketing.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { PermissionGuard } from './common/guards/permission.guard';
 import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
 import { MoneyOutGuard } from './common/guards/money-out.guard';
 
@@ -74,6 +77,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
     WishlistModule,
     CardShowModule,
+    MarketingModule,
   ],
   providers: [
     // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero
@@ -91,6 +95,9 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PasswordChangeRequiredGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // v1.96⟨mkt-tienda⟩ (§13.4.1): permiso fino `@RequirePermission`, tras RolesGuard. Sin la
+    // metadata, pasa (no opina). El panel de marketing lo usa en vez de @Roles para delegación futura.
+    { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: EmailVerifiedGuard },
     { provide: APP_GUARD, useClass: MoneyOutGuard },
   ],

@@ -10,6 +10,27 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.96⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM en pedido/solicitud, ficha pública de sellado con datos de
+> SSR/og/JSON-LD, feed de sitemap y panel de marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` =
+> `origin/production` HEAD `0dd2d7c`; ⛔ sha de corte NO MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta
+> `⟨mkt-tienda⟩` **a propósito distinta de `⟨mkt⟩`** (v1.92⟨mkt⟩ la reserva otra rama sin fusionar, ver arriba) y el
+> número **v1.96** evita el v1.95⟨pnl-finanzas⟩ de abajo. Fuente: brief de marketing
+> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Diseño y razones: **ARCHITECTURE §13**. Dos olas:
+> **OLA 1** (§MKT.A ficha/og + §MKT.B sitemap + §MKT.C columnas `firstUtm*`) y **OLA 2** (§MKT.D panel Fase 0 +
+> §MKT.E endpoint de agregados y exports). Schema: migraciones **m81** (OLA 1) y **m82** (OLA 2), especificadas en
+> ARCHITECTURE §13. Toca dinero (atribución de pedidos, panel que lee ventas): tres veredictos al cierre. La nueva
+> sección va al final del documento: **[§MKT](#MKT)**.
+>
+> **Errata v1.96.1⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda` HEAD `f394ddf`; ⛔ sha de corte NO MEDIDO:
+> sin Bash).** Tres cierres que el backend dejó abiertos (regla 9: el contrato lo toca el arquitecto). **(1) BLOQUEO:**
+> §0 declara los dos enums de m82 — `Permission = marketing_read` y `BannerResponse = accept | necessary_only |
+> no_response` — que faltaban (3 rojas de `enum-values-parity.spec.ts`, banda-3 universal). **(2) DECISIÓN D-MKT-AUTZ
+> (§MKT.E):** el token `marketing-reader` en otra ruta del admin da **401** (opaco, no JWT), no el **403** literal del
+> brief; ambos deniegan, la propiedad es la denegación. **⚠️ Se aparta del brief Panel §6(1)/§7.2** — relayar a
+> marketing. **(3) h1 (§MKT.D/.E, §13.4.6):** modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind` como
+> ESPECIFICACIÓN de la **migración `m83`** (no aplicada; backend la implementa). c6 `SearchNoResultDaily` marcado
+> **DIFERIDO** (no está en m82).
+>
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
 > `production` `bad2692`; `HEAD 702b5c0` trae la prueba diagnóstica `backend/test/pnl-cogs-iva.diagnostic.spec.ts`).
@@ -8886,6 +8907,9 @@ AccessoryLineStatus = reserved | released | sold | restocked // v1.86 (M-73, §A
 AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settle_recovery // v1.86 (M-73, §AC.1). Clase E. Solo cambios de stockQty.
                     // v1.86.2: las cinco líneas faltaban en v1.86 (BACKEND_NOTES §83.4 (a)); espejan `schema.prisma` y
                     // `common/enum-values.ts` de `4e06c7e`.
+Permission          = marketing_read // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.1). Clase E. Permiso fino; `super_admin` lo tiene IMPLÍCITO. Crece aditivamente.
+BannerResponse      = accept | necessary_only | no_response // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita.
+MarketingAnnotationKind = promocion | despliegue | evento // v1.96⟨mkt-tienda⟩ (m83, §MKT.E / §13.4.6 h1). Clase E. Anotación de fecha del Panel; `promocion` lleva `destino`. Etiqueta SIN PII (filtro c6).
 ```
 
 ### DTOs base (compartidos)
@@ -45540,3 +45564,166 @@ Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, �
 [Doble opt-in] Alta ⇒ exactamente 1 envío, fila PENDING; en PENDING 0 en admin/CSV, no cuenta en hoy/7días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en resumen diario, 0 a Jakomi. En la fuente del **correo de CONFIRMACIÓN (C3)** solo enlaces del dominio propio (confirmar, «No fui yo», aviso); 0 wa.me/mailto/tienda/utm_/Drive/Maps/calendario; ningún valor tecleado (Player ID «terminado en NNNN»); asunto fijo; 0 imágenes remotas; List-Unsubscribe(+Post) con token; From en subdominio de envío. 3 GET al enlace de confirmación ⇒ 200 con página y botón, fila sigue PENDING, 0 envíos; POST ⇒ NEW (leads) o CONFIRMED/WAITLIST (torneo), confirmedAt, 1 confirmación por tipo y (vendedor/patrocinador) 1 aviso interno; aparece en admin <5s. [Correo de BIENVENIDA C3-W] Al confirmar un lead (NEW) ⇒ exactamente 1 correo de bienvenida, variante por tipo (merchant/sponsor/visitor); este correo SÍ puede llevar wa.me/utm_/Drive/mailto/.ics/Maps (la restricción de C3 NO le aplica — buzón ya confirmado); sigue con From en subdominio de envío, List-Unsubscribe(+Post) con token y ⛔ sin playerName; cuenta contra C1/C2. ⛔ A una fila PENDING ⇒ 0 bienvenidas. Reenviar la confirmación de un lead ya NEW ⇒ 0 bienvenidas nuevas. Los correos internos (aviso al staff, resumen diario) NO están sujetos a la restricción de enlaces de C3. 2.º POST mismo token ⇒ 410, 0 cambios/0 envíos. Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ 400/410, 0 cambios/0 envíos. Reloj simulado: sin confirmar la fila desaparece a 7d (leads)/72h (torneo); la del torneo nunca restó cupo. POST de List-Unsubscribe-Post ⇒ unsubscribedAt y 0 envíos posteriores. Baja del cuerpo y «Cancelar mi preinscripción»: GET ⇒ página sin cambio; POST ⇒ baja/CANCELLED y el cupo restante sube 1. Repetir alta de un registro ya confirmado dentro de 24h ⇒ 0 envíos. 31 peticiones/min por IP a /confirm,/unsubscribe,/cancel ⇒ 429 desde la 31.ª.
 [Preinscripción al torneo, además] Cupo de prueba=2/día: 3 altas PENDING ⇒ cupo sigue 2; al confirmar las 3 ⇒ 2 CONFIRMED + 1 WAITLIST en orden; dos confirmaciones simultáneas por el último lugar ⇒ 1 CONFIRMED + 1 WAITLIST, nunca 3. Player ID 123 confirmado por correo A el sábado; desde correo B alta del 123 el sábado ⇒ 200 idéntico, fila de A sin cambios, 0 envíos a A; si B confirma ⇒ página «Este Player ID ya está preinscrito ese día», 0 cambios. Mismo correo+Player ID+día dos veces ⇒ 1 fila, 1 envío; «los dos» ⇒ 2 filas, 1 envío. Tutor con una confirmación pendiente preinscribe a un 2.º jugador ⇒ fila retenida, 0 envíos; al confirmar la 1.ª sale 1 correo para la 2.ª. 5.º playerId con el mismo buzón el mismo día ⇒ 200 idéntico, 0 filas; 4.ª PENDING del mismo playerId ⇒ 200 idéntico, 0 filas. Ni el nombre ni el Player ID completo en el correo, logs ni correos a terceros salvo el export de Jakomi.
 [Cabeceras y CSP] La CSP de la landing no contiene challenges.cloudflare.com ni ningún origen nuevo respecto a la tienda; git grep -i turnstile en la rama ⇒ 0.
+
+## <a id="MKT"></a>MKT. 💰 TIENDA DE MARKETING: ATRIBUCIÓN UTM, FICHA PÚBLICA/OG, SITEMAP Y PANEL DE MARKETING (rev v1.96⟨mkt-tienda⟩, 2026-10-16, arquitecto, **SOLO DISEÑO**)
+
+> Diseño y razones completas: **ARCHITECTURE §13**. Fuente: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`
+> (v2 §A/§B/§E, Panel §0/§2/§4/§5/§7). Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c` (⛔ sha NO MEDIDO).
+> **Cero DDL aplicado** (sin Bash): las migraciones **m81** (OLA 1) y **m82** (OLA 2) son especificación. Precio
+> **siempre final con IVA 16 % y con fecha, o sin precio**; «Disponible» **solo si `availableCount>0`**; **nunca** la
+> cantidad. El Card Show (v2 §E5) **no se contrata aquí**: su página usa solo datos ya anunciados.
+
+### MKT.A — OLA 1: ficha pública (sellado + carta) con datos de SSR/og/JSON-LD (A3/A4)
+
+**Patrón de URL de la ficha de sellado — DECISIÓN:** se **conserva** `/{locale}/sellado/<inventoryItemId>` (ruta viva;
+endpoint `GET /api/v1/catalog/sealed/:inventoryItemId`). ⛔ **No** se crea `/{locale}/catalog/sealed/<id>` (patrón que la
+v1 citaba y que hoy da 404 porque esa ruta no existe). **Marketing — patrón de vuelta:**
+`https://tcghunt.mx/es/sellado/<inventoryItemId>`. Razón en ARCHITECTURE §13.2.1.
+
+El backend **ya** devuelve, en las respuestas públicas de ficha, casi todo lo necesario:
+
+| Dato | Ficha de carta (`GET /catalog/cards/:cardId`) | Ficha de sellado (`GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`) | Estado |
+|---|---|---|---|
+| Nombre / set / número | `card.name` / `card.setName` / `card.number` | `productName` / `card.setName` / — | Ya viaja |
+| Precio final **con IVA** + tasa | `displayPriceCents` + `ivaRatePct` | `fromPriceCents` (IVA dentro) + `ivaRatePct` | Ya viaja |
+| `availableCount` (>0 ⇒ «Disponible») | `stockCount` del grupo | `availableCount` | Ya viaja |
+| Imagen | `imageUrl` | `imageUrl` | Viaja; ⛔ NO MEDIDO que sea absoluta ni ≥1200×630 |
+| Fecha de consulta del precio | **ausente** | **ausente** | **DELTA** |
+
+**Deltas (aditivos, retrocompatibles) — campos nuevos en el DTO de ficha de carta y en `SealedGroupDTO`:**
+```
+pricedAsOf   : string         // "YYYY-MM-DD", zona America/Mexico_City; fecha en que el servidor resolvió el precio
+                              // de ESTA respuesta (SSR/ISR ⇒ fecha honesta en el HTML cacheado). ⛔ NO es now() del cliente.
+ogImageUrl   : string | null  // URL ABSOLUTA de la imagen del catálogo apta para vista previa (objetivo ≥1200×630);
+                              // null ⇒ frontend omite og:image (⛔ nunca inventa arte).
+```
+- ⛔ **No** entran en las rejillas (`GroupedListingSummaryDTO`, `SealedGroupSummaryDTO`): solo en las **fichas**
+  (superficie de 1 ítem, no de cosecha masiva) — misma doctrina que `referenceDisplayCents` (§MIV / D2).
+- **Reglas de og/JSON-LD (las arma frontend con estos datos, v2 §A4):** `<title>`/`og:title` =
+  «<Nombre> · <Set> <nº> | TCG HUNT» (sellado: «<Producto> | TCG HUNT»), **sin precio** (la caché sobrevive días);
+  `og:description` (≤155) con condición + «MX$<precio> IVA incluido · precio al <pricedAsOf>»; `og:image` = `ogImageUrl`
+  (si no null) absoluta ≥1200×630, **sin precio en la imagen**; `og:url`=canonical absoluto; `twitter:card=summary_large_image`.
+  JSON-LD `Product`+`Offer`: `priceCurrency:"MXN"`, `price` = precio con IVA, `availability` = InStock **solo si**
+  `availableCount>0`, `priceValidUntil` lo calcula frontend desde `pricedAsOf` (ventana a confirmar con JC).
+- **A1** (quitar «valor de mercado» de la ficha) y **A2** (botón COMPRAR en primera pantalla móvil): **sin delta de
+  contrato** (frontend/ux-ui; el backend puede seguir emitiendo `referenceDisplayCents`).
+
+### MKT.B — OLA 1: feed de sitemap (E/SEO)
+
+- **`GET /api/v1/catalog/sitemap` — `public`.** Respuesta liviana con **todo lo indexable** en una sola llamada (⛔ no
+  paginada), para que el frontend genere `sitemap.xml`:
+```
+SitemapResponse = {
+  items: { type: 'card' | 'sealed', id: string, lastmod: string /* ISO date */ }[],
+  generatedAt: string  // ISO
+}
+```
+  - `items` = una entrada por **ficha a la venta**: carta publicada (`status=listed`, `sellable`, precio fijado) y
+    sellado publicado. `lastmod` = `updatedAt` de la pieza (o `max(updatedAt, último cambio de precio)` si es medible;
+    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod). Debe cuadrar en orden de magnitud con las **~884
+    publicaciones** del 16-oct (v2 §E1); el número exacto lo mide QA contra el stack.
+  - Las rutas **estáticas** (home, catálogo, guías, preguntas, cómo-funciona) las añade el **frontend**; backend solo da
+    las dinámicas. `robots.txt`, `canonical`, `www`→apex: frontend/devops (sin contrato).
+  - `Cache-Control` corto (p. ej. `max-age=3600`); no es dato personal.
+
+### MKT.C — OLA 1: columnas de atribución `firstUtm*` (B1) — migración `m81`
+
+- Cinco columnas **NULLABLE** en `Order` y en `SellRequest` (nombres confirmados a marketing):
+  `firstUtmSource`, `firstUtmMedium`, `firstUtmCampaign`, `firstUtmContent` (`String?`), `firstUtmLandedAt` (`DateTime?`).
+- **Se llenan SOLO con consentimiento** (mecanismo = Fase 2). En **OLA 1 quedan `NULL`** (ningún camino las puebla aún) —
+  dicho explícito. **Invitado incluido** (misma regla; `NULL` sin consentimiento).
+- **Validación (PV-M2):** cada `utm_*` se acepta solo si, en minúsculas, cumple `^[a-z0-9._-]{1,64}$`; si no, ese valor
+  se **descarta**. Se **ignora** todo parámetro que no sea `utm_source|utm_medium|utm_campaign|utm_content`. Helper puro
+  en `common/` (`parseFirstUtm`). Al mostrarlos en el admin, se **escapan**.
+- **Retención:** el plazo del pedido/solicitud que las contiene (PV-M5), declarado en el aviso (Fase 2).
+- **Marketing — de vuelta:** nombres de columna = los de arriba; cubre invitado; `NULL` sin consentimiento. ✅
+
+### MKT.D — OLA 2: autorización y modelos del panel (Fase 0) — migración `m82`
+
+> El panel vive en el admin (`/admin/marketing`, frontend `(admin)`). **Fase 0 = BD + conteos de servidor, sin GA4 ni
+> píxel.** Modelos y DDL en ARCHITECTURE §13.4. Resumen del contrato de autz:
+
+- **Permiso `marketing:read`** (enum `Permission.marketing_read` + tabla `UserPermission`): `super_admin` lo tiene
+  **implícito**; otro usuario, solo con fila explícita creada por el dueño. Sin permiso ⇒ **403** en la pestaña, exports,
+  botón semanal y rutas de datos. Guard nuevo `@RequirePermission(marketing_read)` + `PermissionGuard` (tras
+  `JwtAuthGuard`), no se mezcla con `@Roles`.
+- **Principal de servicio `marketing-reader`** (tabla `MarketingApiToken`): token aleatorio ≥256 bits, se guarda **solo
+  el hash**, comparación en **tiempo constante**; `Authorization: Bearer` sobre HTTPS, **nunca** en URL ni logs; caduca a
+  **12 meses**; revocable al momento (`revokedAt`) sin desplegar. Rate limit **60/h por token** (429) + **bloqueo de IP
+  tras 10 fallos/10 min**. El dueño lo carga como `TIENDA_PANEL_TOKEN` en el entorno de marketing.
+- **Conteos anónimos de servidor** (sin GA4): `MarketingBannerConsentCounter` (f1/f2: `(semana × respuesta ×
+  utm_medium × device)`, sin fila por visita ni cookie), `BuylistQuoteDailyCount` (d4: `(día × cardId)` desde
+  `POST /buylist/quote`, sin usuario ni IP). **`SearchNoResultDaily` (c6) queda DIFERIDO** (pre-revisión de seguridad
+  PM-M2): **NO se crea en m82** (confirmado contra `schema.prisma`, 2026-10-16); su diseño sigue vivo en ARCHITECTURE
+  §13.4.3 para cuando seguridad apruebe el filtro PII. c7 (pedidos por estado de envío) se **deriva** de `Order`
+  (`shippingAddressSnapshot` + `fulfillmentMode`), sin modelo nuevo (MKT-TD2: seguridad revisa la fiabilidad del derivado).
+- **Registro de accesos** (`MarketingAccessLog`): cada export/descarga/llamada del endpoint ⇒ `{at, actorUserId? |
+  tokenId?, screen, filters(sin PII), format, rowCount}`, **sin contenido**, retención 12 meses.
+- **(h1) Anotaciones de fecha** (`MarketingDateAnnotation` + enum `MarketingAnnotationKind = promocion | despliegue |
+  evento`): el admin marca días con etiqueta, visibles en las gráficas (a/b/c) y en la hoja «Info» del export, **como
+  texto saneado** y **sin datos personales** (PM-B1). ⚠️ **No cabe en m82**: va en **migración `m83`** (ESPEC. en
+  ARCHITECTURE §13.4.6; backend la aplica). CRUD de **sesión** `marketing:read` (⛔ nunca el token). Endpoints en §MKT.E.
+
+### MKT.E — OLA 2: endpoint de agregados, botón semanal y exports (P2=A+B)
+
+- **`GET /api/v1/admin/marketing/aggregates` — token `marketing-reader` (Bearer).** Solo lectura, JSON de agregados
+  (las mismas tablas que el export). Parámetros:
+  - `pantalla` — **lista blanca** `a|b|c|d|e|f|g|h` (y luego `codigos` en Fase 3). Fuera de la lista ⇒ **400** genérico.
+  - periodo — **una semana cerrada** (`?week=YYYY-Www` o `?weekStart=YYYY-MM-DD` lunes CDMX) **o un mes cerrado**
+    (`?month=YYYY-MM`). ⛔ **Nunca** rango libre ni día. Semana/mes **abiertos** o rango libre ⇒ **400** (evita restar
+    dos rangos solapados para despejar una celda oculta).
+  - **401** sin token, token inválido/revocado/caducado, **o token válido en CUALQUIER OTRA ruta del admin** (ver
+    DECISIÓN **D-MKT-AUTZ** abajo — era «403» en el brief; se amenda a **401**); **400** en rango no permitido o
+    `pantalla` fuera de lista (genérico, sin detalle interno, Panel §7.2); **429** al pasar 60/h. El **403** del panel es
+    de **SESIÓN**: una cuenta admin **sin** `marketing:read` (§MKT.D / §13.4.1) ⇒ 403 en `/admin/marketing`, exports,
+    botón semanal y rutas de datos.
+  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas §MKT.D/§5.2 aplicadas** desde la
+    primera respuesta (N<5 ⇒ «< 5» sin MX$; supresión complementaria «Otros (< 5 c/u)»). **Ninguna fila por
+    pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
+
+> **DECISIÓN D-MKT-AUTZ (arquitecto, 2026-10-16, rev v1.96.1⟨mkt-tienda⟩) — «token `marketing-reader` en otra ruta del
+> admin ⇒ 401, no 403».** El brief pedía **403** para un token válido en cualquier otra ruta del admin (Panel §6 general
+> (1) y §7.2). **Medición de backend (BACKEND_NOTES §MKT OLA 2):** el token `marketing-reader` es **opaco** (no es JWT);
+> `JwtAuthGuard`, que gobierna el resto del admin, lo rechaza como **no autenticado ⇒ 401**. Lograr un 403 literal
+> exigiría que `JwtAuthGuard` —autenticación **COMPARTIDA**, adyacente a dinero— **reconozca** tokens de marketing para
+> poder decir «autenticado pero prohibido»: acoplaría la auth compartida al principal de marketing y **ensancharía
+> superficie cerca de dinero**. **Decisión: se amenda el contrato a 401.** La propiedad de seguridad que el criterio
+> quería —que el principal `marketing-reader` **no alcance ninguna otra ruta del admin**— se cumple **igual con 401**:
+> **ambos códigos DENIEGAN; la propiedad es la denegación, no el número.** El `MarketingApiTokenGuard` se monta **solo**
+> en `GET /admin/marketing/aggregates`; las demás rutas quedan en `JwtAuthGuard` **sin cambios**. El **403** se reserva
+> para el caso que SÍ es «autenticado pero prohibido»: una **sesión** admin sin `marketing:read` (§13.4.1). **Paridad que
+> lo vigila (QA/seguridad):** una prueba E2E que mande el token a ≥2 rutas del admin fuera de agregados y afirme **401**
+> (no 2xx) cierra la clase. **⚠️ Se APARTA del «403» literal del brief** (Panel §6(1), §7.2): se relaya a JC/marketing
+> como «lo que no se pudo hacer tal cual» (Panel §7 punto 6).
+- **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token:** migración `m83` (ESPEC., ver
+  ARCHITECTURE §13.4.6; backend la aplica). Modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind =
+  promocion | despliegue | evento` (backend registra su línea en §0 al implementar m83, ⛔ no ahora).
+  - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` — sesión `marketing:read`. Lista de
+    `{id, date, kind, label, destino?, createdAt}` del rango (para pintar las gráficas a/b/c del admin).
+  - `POST /api/v1/admin/marketing/annotations` — sesión `marketing:read`. Body `{date, kind, label, destino?}`;
+    valida/limpia PII (`422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC; §13.4.6) ⇒ **201** con la fila.
+  - `PATCH /…/annotations/:id` y `DELETE /…/annotations/:id` — sesión `marketing:read`; `404` si no existe.
+  - **El token `marketing-reader` en TODAS estas rutas ⇒ 401** (no son la de agregados; D-MKT-AUTZ). Una **sesión** sin
+    `marketing:read` ⇒ **403**.
+  - **Las anotaciones del periodo se EMBEBEN** en la respuesta de `GET …/aggregates` (campo `annotations: [{date, kind,
+    label, destino?}]`) y en la hoja **«Info»** del export y del botón semanal, **como texto saneado** (§4/§13.5, PM-B1).
+    No son PII ⇒ el token las ve ahí; ⛔ **sin** celdas pequeñas sobre ellas (no son conteo). Cada acceso ⇒
+    `MarketingAccessLog`.
+- **Botón «Descargar Excel de la semana» (P2=B)** en `/admin/marketing`, visible solo con `marketing:read`: .xlsx de la
+  última semana cerrada (selector permite otra semana o un mes cerrado, ⛔ nunca rango libre ni día). **Mismas cifras**
+  que el endpoint para el mismo periodo (paridad A=B, diferencia 0 celda a celda, incluidas las «< 5»). Una hoja por
+  pantalla (a-h) + hoja «Info».
+- **Reglas de export (§4, PM-B1):** CSV con prefijo `'` en celdas que empiecen por `=`,`+`,`-`,`@`, tab o `\r`,
+  entrecomilladas; UTF-8 **con BOM**. XLSX: texto como **tipo texto** (nunca fórmula), montos MXN con IVA como número
+  `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition: attachment`, generado al vuelo. Nombre
+  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒
+  `MarketingAccessLog`.
+- **Reutiliza** `sales-analytics` (super_admin, §15/§AN) para las cifras de dinero (a1/a2/a3, d1) componiéndolo desde un
+  **nuevo** `marketing-analytics` (módulo `backend/src/modules/marketing/`). ⛔ El panel **no** modifica `sales-analytics`
+  ni escribe en GA4/Meta/tienda: solo lee.
+
+### MKT.F — Preguntas abiertas para JC (no se asume; regla de conflicto)
+
+Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
+publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna.

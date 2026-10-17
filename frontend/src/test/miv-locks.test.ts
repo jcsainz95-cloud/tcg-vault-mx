@@ -40,8 +40,11 @@ describe('MIV-F7 · las superficies de §MIV no leen el neto ni cuentan', () => 
     });
   }
 
-  it('las dos fichas SÍ leen `referenceDisplayCents` y la tendencia `displayValueMxnCents`/`displayAbsMxnCents`', () => {
-    expect(codigoDe(VIEWS.CardDetailView)).toMatch(/\breferenceDisplayCents\b/);
+  it('la ficha de SELLADO y la tendencia leen `referenceDisplayCents`/`display*`; la de CARTA ya NO (§A1, MKT-26a)', () => {
+    // §A1 (D2=A, dueño 2026-10-16 · HECHOS:65): la ficha PÚBLICA de carta retiró la celda «Valor de
+    // mercado», así que ya no lee `referenceDisplayCents`. El sellado lo conserva porque el predicado
+    // de mercado sigue gobernando la «Tendencia de valor» (§MIV.3), aunque su celda también se fue.
+    expect(codigoDe(VIEWS.CardDetailView)).not.toMatch(/\breferenceDisplayCents\b/);
     expect(codigoDe(VIEWS.SealedDetailView)).toMatch(/\breferenceDisplayCents\b/);
     const trend = codigoDe(VIEWS.SealedValueTrend);
     expect(trend).toMatch(/\bdisplayValueMxnCents\b/);
