@@ -30751,7 +30751,12 @@ ejecuta en `BACKEND_NOTES §91`. Contrato: `API_CONTRACT §PRE.J`.
 
 ---
 
-### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.93⟨cardshow⟩, 2026-10-13, NORMATIVO, **PII · SIN DINERO**)
+### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, NORMATIVO, **PII · SIN DINERO**)
+
+> ⭐⭐ **PIVOTE A CAPTURA DE LEADS (dueño JC 2026-10-17) — ver §4.CARDSHOW.p–r.** La landing deja de ser «anuncio con datos» y
+> pasa a **captura que NO expone el modelo de negocio** (fuera del público: precios de mesa, plano de 23 mesas, montos de
+> patrocinio). Migración **M-84** (aditiva), contrato **v1.96⟨cardshow-leads⟩**. Fuente verbatim:
+> `docs/specs/CARDSHOW_LANDING_ESTADO.md §ESTADO VIGENTE 2026-10-17`. Contrato: `API_CONTRACT §CARDSHOW` (forma exacta).
 
 > ⭐ **NORMA DE SECRETO v1.93.1 (dueño 2026-10-16) — ver §4.CARDSHOW.l.** Este documento es público y diseña
 > **ESTRUCTURA**, no datos del evento (higiene). ⛔ Pero los valores del evento (fecha, sede, precios, medidas de mesa)
@@ -30942,6 +30947,10 @@ crea PII nueva.
   la fecha exacta de carpeta la fija backend al crearla y debe ser posterior a `m72`/último mergeado — **NO MEDIDO** cuál es
   el último en `production` a esta fecha; backend lo mide con `Glob` antes de numerar).
 - **Zona compartida**: `schema.prisma` es de un solo stream a la vez; este corte es el único que la toca en su ventana.
+- **⭐ M-84 (pivote, v1.96) es una migración POSTERIOR y distinta de M-78.** M-78 solo hizo `CREATE` (3 tablas, 5 enums). M-84
+  **sí añade columnas** a `CardShowLead` y `CardShowPlayerSignup` y recrea un índice — sigue siendo aditiva y segura, con la
+  única cautela de `name NOT NULL` (default transitorio + backfill + drop default) y **sin dropear** `mesaInteres` (drop
+  diferido). Detalle: `API_CONTRACT §CARDSHOW.1a/.1a-bis` y §4.CARDSHOW.p.
 
 #### 4.CARDSHOW.l Los valores del evento son PÚBLICOS y viven EN el repo; el único secreto es el patrocinador (⭐ dueño 2026-10-16)
 
@@ -31004,6 +31013,8 @@ el escáner del gate es la autoridad y cualquier residual sigue la misma regla).
   cláusula §CARDSHOW.15 «PENDING no aparece»); `type`/`day` son **E** (enum completo); `purpose` es **L** (`leads|players`,
   unión pura). ⚠️ **El código de M-78 hoy los ignora/clampa en silencio** (el defecto que §0-Q punto 1/6 prohíbe): backend
   debe hacer que el valor fuera de dominio devuelva `400 {field, allowed}` al transcribir estas filas al `REGISTRO`.
+  **⭐ M-84 añade `game`** a `GET /admin/card-show/players` (+ su `export.csv`): **clase E** (`CardShowGame` completo; fuera de
+  dominio ⇒ `400 {field, allowed}`), al `REGISTRO`, mismo trato que `type`/`day`.
 - **NO cerrado (fecha / entero acotado / token opaco) ⇒ a `NO_ENUM_POR_RUTA`** (10 ejes): los 8 `from`/`to` (fechas del
   rango, como todos los `from`/`to` del contrato — deben `400` ante formato inválido, no ignorar), `mesa` de
   `/card-show/ir/:destino` (entero acotado, como `samplePriceCents`) y `token` de `/card-show/unsubscribe-oneclick` (token
@@ -31036,6 +31047,82 @@ mecanismo correcto **no** es `borrar` toda la tabla a ciegas, sino una **guarda 
 cohorte por fecha), porque son tablas de PII real alimentadas por un formulario público y una incluye **datos de menores**.
 Esta pregunta se enruta a JC; mientras no conteste, rige el default `conservar` y la herramienta queda operativa. Instrucción
 exacta para backend (SQL + `LIMPIEZA_DB.md`): ver reporte del arquitecto.
+
+#### 4.CARDSHOW.p El pivote a captura de leads (M-84) — la página no expone el modelo de negocio
+
+⭐ **Decisión del dueño JC 2026-10-17 (`docs/specs/CARDSHOW_LANDING_ESTADO.md §ESTADO VIGENTE 2026-10-17`), ratificada por el
+arquitecto (regla 9).** La landing pasa de «anuncio con los datos del evento» a **página de captura** que **no revela el modelo
+de negocio**: salen de lo público los **precios de mesa**, el **plano de 23 mesas** y los **montos de patrocinio**. El efecto en
+el diseño de datos es **aditivo** (M-84, contrato v1.96) y el anti-abuso (§4.CARDSHOW.b–h) **no se toca**: solo cambian los
+campos que se capturan y cómo se leen.
+
+**Campos nuevos de `CardShowLead` (forma exacta y validación condicional: `API_CONTRACT §CARDSHOW.1/.1b`).** La captura se
+ramifica por tipo: el **visitante/consumidor** da nombre, correo, **juego de interés** (opcional) y **rifa** (opt-in + bases); el
+**vendedor/patrocinador** da **nombre o marca**, correo, **teléfono** y «**¿qué vendes / qué marca?**» (opcional). Por qué un
+**DTO único con reglas condicionales por `type`** y no dos DTO: el endpoint `POST /card-show/leads` ya es uno solo y la respuesta
+es **neutra** (§4.CARDSHOW.d) — partirlo en dos rutas daría un oráculo de tipo. Las reglas «campo prohibido para este tipo ⇒
+`400 {field}`» son **validación de forma** (§CARDSHOW.11.v), no caso silencioso: un vendedor que manda `gameInterest` o un
+visitante que manda `phone` está mandando basura de forma, y eso ya responde 400 en toda la landing. `name`/`phone`/`sellsWhat`
+son **PII** y heredan la misma regla que `playerName`: ⛔ nunca en el correo de confirmación C3, ⛔ nunca en logs.
+
+**`name` admite marca ⇒ lista blanca más laxa que `playerName`.** `playerName` prohíbe dígitos (es nombre de persona); `name`
+es «nombre **o marca**» y una marca lleva dígitos y `&` (`Tienda 3D & Cartas`). Decisión del arquitecto: `NAME_WHITELIST` =
+letras unicode + marcas + **dígitos** + espacio + `. , ' & / -`, conservando la propiedad de seguridad que importa (⛔ sin `<`,
+`>`, `@`, `http` ⇒ corta inyección de script y de enlace en los correos internos). Es una talla nueva **a propósito**, no un
+descuido de reusar `PLAYER_NAME_WHITELIST`.
+
+**`CardShowGame` SIN placeholder — el 4.º juego entra cuando JC lo confirme.** Torneos: Pokémon (principal), Riftbound, Lorcana y
+un **4.º por confirmar**. Decisión: el enum nace con **tres** valores (`pokemon|riftbound|lorcana`) y ⛔ **no** lleva `tbd`/
+`other`. Añadir un valor a un enum Postgres es **aditivo y barato** (`ALTER TYPE … ADD VALUE`); en cambio un placeholder
+contamina el dato: un `gameInterest=other` no se puede reportar y un `game=tbd` no sabe si es FORMAL o LIGERA. Cuando JC confirme
+el 4.º juego, una micro-migración lo añade. Paridad de enums a tres bandas (`schema.prisma` ↔ `common/enum-values.ts` ↔
+`API_CONTRACT §Enums`), **candado del proyecto** (`test/enum-values-parity.spec.ts`): `CardShowGame` añade su array y su fila.
+
+**Torneo FORMAL (Pokémon) vs LIGERA (resto) — una regla condicional, un índice recreado.** JC: «para pokemon lo pedimos [Player
+ID] para las demás ligero». Diseño: `CardShowPlayerSignup` gana `game` y `playerId` pasa a **NULLABLE**. `game=pokemon` ⇒
+`playerId` obligatorio y rige todo lo de §4.CARDSHOW.i (cupo al confirmar, waitlist, índice único parcial, topes por playerId).
+`game≠pokemon` ⇒ `playerId` **prohibido** (400 si viene) y la fila es **solo interés por día/juego**: sin cupo, sin waitlist, al
+confirmar pasa directo a `confirmed`. El riesgo era que las filas LIGERA (sin `playerId`) chocaran en el índice único parcial o
+lo rompieran; se cierra **recreando el índice acotado a `game='pokemon' AND playerId IS NOT NULL`** (SQL en `API_CONTRACT
+§CARDSHOW.12`). La contención de las ligeras es por `(mailboxHmac, game, day)` (dedupe + cap PENDING), análoga a los topes por
+playerId de Pokémon. `playerName`, menor/tutor, doble opt-in y anti-abuso son **iguales** para formal y ligera.
+
+**`mesaInteres` sale del uso, se dropea después (ruta segura).** El modelo viejo de mesas/plano desaparece de lo público, así que
+`CardShowLead.mesaInteres` deja de escribirse/leerse/exportarse y se marca `@deprecated`. **NO se dropea en M-84:** es **NO
+MEDIDO** si M-78 corre en producción con filas reales que la poblaron, y dropear una columna con dato real es irreversible. El
+drop se hace en una migración posterior **atada a la misma pregunta de política de §4.CARDSHOW.o** (¿los registros de card-show
+son todos de prueba?). `CardShowClick.mesa`/`ClickDto.mesa` quedan igualmente sin uso y se dropean en ese mismo pase diferido.
+Esto es la doctrina «aditiva primero» de §11: nunca se dropea a ciegas una columna con posible PII/dato real.
+
+#### 4.CARDSHOW.q El correo-resumen periódico (M-84) — conteos por correo, PII solo tras autenticación
+
+JC pidió, además del panel y el CSV, un **correo-resumen periódico** («dame el correo también»). Diseño como **job programado**
+(lo cablean backend + devops; es **entregable, ⛔ no gate**). La tentación es adjuntar el CSV; se **descarta** porque el CSV de
+`/players` contiene `playerName` de posibles **menores**, y §CARDSHOW.12 prohíbe que esos datos salgan a terceros salvo el export
+del organizador — y el correo **no es canal seguro** ni audita el acceso. Por eso el correo lleva **solo conteos agregados** (por
+tipo, por juego, por día, opt-ins de rifa; hoy/7 días/total) **+ un enlace de descarga autenticado** al `export.csv` detrás de la
+sesión super_admin: la PII solo se materializa tras autenticarse, igual que hoy. Es un **correo interno** (§4.CARDSHOW.m,
+`audience:'staff'`, sin pie de privacidad) acotado por el tope interno ≤ 10/h; respeta **solo confirmados** (⛔ sin PENDING) y
+**sin IP**. Cadencia sugerida: **diaria** a hora fija `America/Mexico_City`, unificable con el «resumen diario de visitantes» ya
+existente. Forma: `API_CONTRACT §CARDSHOW.15`.
+
+#### 4.CARDSHOW.r Rifa informal y privacidad (M-84) — las bases son un texto versionado, aparte del aviso
+
+**La rifa es una dinámica INFORMAL** (JC): sin costo, entre asistentes y registrados, **se elige en vivo / hay que estar
+presente**, premio = *Pokémon TCG 30th Celebration Poster Collection*. ⛔ **No es sorteo formal, no crea entidad legal ni permiso
+nuevo** — por eso en el modelo son **tres datos** y nada más: `raffleOptIn` (participa), `raffleTermsVersion` (versión de las
+**bases** aceptada) y el `consentAt`/`privacyVersion` de privacidad que ya existe. **Las bases van en campo propio, ⛔ no
+mezcladas con `privacyVersion`:** son **dos hechos distintos** (un cambio en las bases de la rifa no debe invalidar el
+consentimiento de privacidad ni al revés) — reusar `privacyVersion` sería la clase de ahorro que produce un campo que miente
+(mismo principio que `verifiedAt` vs `reviewedAt` del KYC). Las bases son un **texto versionado**, análogo a `privacyVersion`, y
+su texto vive en el repo (`frontend/src/content/card-show.ts`, público — §4.CARDSHOW.l). La casilla de participación va
+**premarcada** en la UI (decisión del dueño); el valor persistido es el que envíe el cliente.
+
+**Privacidad / aviso — el responsable y el mecanismo NO cambian.** Responsable sigue **TCG HUNT**; doble opt-in, anti-abuso,
+`mailboxHmac` y neutralidad se **reutilizan tal cual**. Lo único que cambia es el **texto** del aviso: ahora se recaba
+**teléfono** (vendedor/patrocinador) y la **rifa** tiene bases propias. **Enrutado a ux-ui/frontend:** el aviso de privacidad y el
+texto de **bases de la rifa** deben escribirse y versionarse antes de publicar; los candados `legal-gate.ts`/`publish-check.ts`
+siguen poniendo `404` si queda un marcador en producción. Forma: `API_CONTRACT §CARDSHOW.18`.
 
 ---
 
