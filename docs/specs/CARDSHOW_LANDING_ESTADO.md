@@ -1,4 +1,43 @@
-# Card Show — landing: estado (medido 2026-10-14, actualizado 2026-10-16 orquestador sesión 10)
+# Card Show — landing: estado (actualizado 2026-10-17, orquestador — PIVOTE A CAPTURA)
+
+## ESTADO VIGENTE 2026-10-17 — decisiones del dueño (JC, chat). Supersede lo de abajo.
+La landing deja de ser «anuncio con datos» y pasa a ser **página de CAPTURA DE LEADS** que **NO expone el
+modelo de negocio**. Decisiones medidas del chat de hoy:
+- **Fuera del público:** precios de mesa, plano de 23 mesas, montos de patrocinio. → quitar
+  `mesaInteres`/mesa/plano del modelo y de la página.
+- **Captura — Asistente/consumidor:** nombre, email, juego de interés (opcional), participar en rifa
+  (sí/no, premarcada), consentimiento (privacidad + bases).
+- **Captura — Vendedor/Patrocinador:** tipo, **nombre o marca**, email, **teléfono**, «¿qué vendes/qué
+  marca?» (opcional), consentimiento.
+- **Preinscripción a torneo:** **Pokémon = FORMAL con Player ID**; **demás juegos (Riftbound, Lorcana,
+  4.º) = LIGERA** (solo interés, sin Player ID). *(JC 2026-10-17: «para pokemon lo pedimos para las demas ligero».)*
+- **Torneos por juego:** Pokémon (principal), Riftbound, Lorcana, **4.º por confirmar**; horarios/costos
+  «por anunciar».
+- **Rifa:** dinámica INFORMAL sin costo entre asistentes y registrados; **hay que estar presente para
+  ganar, se elige en vivo**; premio = **Pokémon TCG 30th Celebration Poster Collection**. Casilla de
+  participación + aceptar bases. NO es sorteo formal.
+- **Jakomi:** colaborador visible (logo + nombre «Jakomi», «organiza los torneos»), **SIN enlaces a sus
+  redes**; co-branding arriba (TCG HUNT × Jakomi).
+- **Marca:** look & feel real de TCG HUNT (papel/tinta, rojo #b31217, Montserrat wordmark/títulos, Archivo
+  cuerpo, JetBrains mono) — medido en `frontend/src/app/globals.css` y `tailwind.config.ts:55-57`.
+- **Acceso del dueño a los registrados:** **pantalla «Card Show» en el panel super_admin** (lista
+  filtrable Leads + Torneo) + **Descargar CSV**, **Y ADEMÁS un correo-resumen periódico** con conteo y CSV
+  (JC 2026-10-17: «dame el correo también»). El API/CSV ya existe
+  (`/admin/card-show/leads|players[/export.csv]`, §CARDSHOW.15); falta la **pantalla**, las **columnas
+  nuevas** y el **correo-resumen** (job programado → devops/backend).
+- **Contador:** se queda.
+- **Reuso (ya hecho, no se rehace):** doble opt-in, anti-abuso (honeypot, topes por buzón, presupuesto),
+  clicks, mailbox caps.
+- **Preview de aprobación:** https://claude.ai/artifact/4cq1rzYiQmDP3WkuXztTfc (V8). Vive en scratchpad
+  `cardshow-preview-brand.html` — es mock, NO repo.
+- **Plan de build:** arquitecto (contrato §CARDSHOW: +nombre/teléfono/juego/rifa/qué-vendes, −mesa/plano;
+  torneo por juego con Player ID solo Pokémon; enum `CardShowGame`) → backend (migración + DTO + servicio +
+  columnas CSV) → frontend (reescribe `card-show.ts` sin precios + arma la página + pantalla admin) → gates
+  qa+techlead + tester-e2e/ux-review.
+
+---
+
+# Card Show — landing: estado ANTERIOR (medido 2026-10-14, actualizado 2026-10-16 orquestador sesión 10)
 
 > **DECISIÓN DEL DUEÑO 2026-10-16 (JC, verbatim en chat): «sí con todo hoy», «te los puedo pasar todos
 > esos datos son públicos».** Esto CAMBIA el estado anterior: el anuncio se ADELANTA a HOY (ya no el 27-oct),
