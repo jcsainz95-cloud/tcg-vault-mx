@@ -312,7 +312,7 @@ function PlayersPanel() {
         </div>
         <div className="min-w-[14rem] flex-1">
           <Input
-            label="Buscar (nombre o correo)"
+            label="Buscar (nombre, correo o Player ID)"
             value={filters.q ?? ''}
             onChange={(e) => patch({ q: e.target.value || undefined })}
           />

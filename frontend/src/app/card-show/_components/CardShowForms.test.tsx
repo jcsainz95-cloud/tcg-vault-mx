@@ -65,11 +65,25 @@ describe('LeadVisitorForm · asistente (type=visitor)', () => {
     expect(submitLead).not.toHaveBeenCalled();
   });
 
+  it('adquisición PEREZOSA (§CARDSHOW.5 M-87): 0 GET form-token al montar, 1 al primer foco', async () => {
+    const u = userEvent.setup();
+    render(<LeadVisitorForm />);
+    // Montar NO pide token (a 30/h por IP bloqueaba a visitantes tras un NAT compartido).
+    expect(getFormToken).not.toHaveBeenCalled();
+    // El primer foco en un campo (vía onFocus del <form>) pide EXACTAMENTE uno…
+    await u.click(screen.getByLabelText('Nombre'));
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(1));
+    // …y es idempotente: enfocar otros campos no dispara más GETs.
+    await u.click(screen.getByLabelText('Correo'));
+    await u.click(screen.getByRole('button', { name: 'Lorcana' }));
+    expect(getFormToken).toHaveBeenCalledTimes(1);
+  });
+
   it('éxito · envía UN lead visitor con gameInterest, raffleOptIn y raffleTermsVersion', async () => {
     submitLead.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<LeadVisitorForm />);
-    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(1)); // prefetch de 1 token
+    expect(getFormToken).not.toHaveBeenCalled(); // ⛔ nada al montar (lazy)
     await u.type(screen.getByLabelText('Nombre'), 'Ana López');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByRole('button', { name: 'Lorcana' }));
@@ -217,8 +231,8 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     submitPlayer.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<TorneoForm />);
-    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(2)); // prefetch de 2 (dos días)
-    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
+    expect(getFormToken).not.toHaveBeenCalled(); // ⛔ lazy: nada al montar
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon'); // primer foco ⇒ 1 GET
     await u.click(screen.getByRole('radio', { name: 'Los dos días' }));
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Player ID'), '12345');
@@ -228,7 +242,9 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     expect(submitPlayer.mock.calls.map((c) => c[0].day).sort()).toEqual(['sat', 'sun']);
     const tokens = submitPlayer.mock.calls.map((c) => c[0].formToken);
-    expect(new Set(tokens).size).toBe(2);
+    expect(new Set(tokens).size).toBe(2); // un token de un solo uso POR POST
+    // Dos POST ⇒ dos tokens: el primero cacheado al enfocar, el segundo pedido en caliente.
+    expect(getFormToken).toHaveBeenCalledTimes(2);
     expect(submitPlayer.mock.calls.every((c) => c[0].playerId === '12345')).toBe(true);
   });
 

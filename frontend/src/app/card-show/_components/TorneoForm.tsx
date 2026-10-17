@@ -34,7 +34,7 @@ type DaySel = CardShowDayId | 'both' | '';
  */
 export function TorneoForm() {
   const cerrado = CARD_SHOW.torneos.estado === 'cerrada';
-  const { withToken } = useFormTokens('players', 2);
+  const { prime, withToken } = useFormTokens('players');
   const [game, setGame] = useState<CardShowGame | ''>('');
   const [day, setDay] = useState<DaySel>('');
   const [playerName, setPlayerName] = useState('');
@@ -120,7 +120,7 @@ export function TorneoForm() {
   }
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} noValidate>
+    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <Select
         label="Juego"
         placeholder="Elige el juego"

@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useCallback, useEffect, useId, useRef } from 'react';
+import { forwardRef, useCallback, useId, useRef } from 'react';
 import { cn } from '@/lib/cn';
 import {
   CardShowApiError,
@@ -17,7 +17,8 @@ import {
 /** Mensajes de estado EXACTOS que pide marketing (§CARDSHOW.5 + encargo). */
 export const FORM_MESSAGES = {
   expired: 'Formulario caducado: La página lleva mucho rato abierta. Recarga la página e inténtalo otra vez.',
-  rateLimited: 'Hay demasiados intentos en este momento. Espera unos minutos y vuelve a intentarlo.',
+  // §CARDSHOW.5 M-87: la ventana del límite es 1 h, ⛔ NO «unos minutos». Texto neutro (ux-ui afina).
+  rateLimited: 'Demasiados intentos desde esta red. Vuelve a intentarlo más tarde.',
   generic: 'No pudimos procesar tu registro. Inténtalo de nuevo en un momento.',
   success: 'Revisa tu correo: te enviamos un enlace para confirmar tu registro. (Si no lo ves, revisa la carpeta de spam.)',
   needEmail: 'Escribe un correo válido.',
@@ -78,9 +79,10 @@ export function readAttribution(): Pick<
 
 /**
  * Tiempos del token anti-bot (§CARDSHOW.5). El backend descarta en silencio (`too_fast`) cualquier
- * POST cuyo token tenga <2 s de edad (`FORM_TOKEN_MIN_AGE_MS`). Por eso NO pedimos el token en el
- * submit (sería recién emitido), sino al MONTAR el formulario; para cuando el humano envía, el token
- * ya pasó los 2 s. `slackMs` es el margen por encima de los 2 s al pedir uno en caliente.
+ * POST cuyo token tenga <2 s de edad (`FORM_TOKEN_MIN_AGE_MS`). Como ahora el token se pide al PRIMER
+ * foco/interacción (ver `useFormTokens`), para cuando el humano termina de teclear y envía ya pasó de
+ * sobra los 2 s. Si por lo que sea el token se pide en caliente en el propio submit, `withToken`
+ * espera el min-age antes del POST. `slackMs` es el margen por encima de los 2 s.
  *
  * Se expone como objeto mutable SOLO para que las pruebas lo pongan en 0 y no esperen de verdad; en
  * producción conserva los valores reales.
@@ -99,67 +101,84 @@ async function freshAgedToken(purpose: FormPurpose): Promise<string> {
 }
 
 /**
- * Hook de tokens de formulario. Al montar, PRE-CARGA un pool de hasta `poolSize` tokens (uno por
- * cada POST que el formulario pueda hacer: p.ej. 3 chips en leads, 2 días en players). Cada token es
- * de un solo uso (§CARDSHOW.5): un POST = un token.
+ * Hook de tokens de formulario — adquisición PEREZOSA (§CARDSHOW.5, M-87).
  *
- * `withToken(run)` toma un token del pool (ya con ≥2 s de edad en el uso real), ejecuta `run(token)`
- * y, si caducó (400 FORM_EXPIRED, TTL 30 min), pide UNO FRESCO —esperando de nuevo el min-age de 2 s
- * para no caer en `too_fast`— y reintenta UNA vez sin borrar lo tecleado. Si el reintento también
- * caduca, sube `FORM_EXPIRED` a la UI. Los demás errores (429, 413, 400 validación) se propagan.
+ * ⛔ **NO se pide ningún token al MONTAR.** A 30/h por IP, pedir uno por formulario al cargar la
+ * página (4 GET) bloqueaba a visitantes detrás de un NAT de Wi-Fi compartida sin que nadie tocara
+ * nada. En su lugar:
+ *  - **`prime()`** pide UN token al primer foco/interacción con el formulario y lo cachea. Es
+ *    idempotente: no dispara GETs si ya hay token en caché o uno en vuelo. Se cablea al `onFocus`
+ *    del `<form>` (el foco de cualquier campo burbujea) ⇒ montar la página = 0 GET, enfocar un
+ *    formulario = 1 GET.
+ *  - **`withToken(run)`** usa el token cacheado; si el humano envía sin que `prime` haya corrido, lo
+ *    pide en caliente (a más tardar al enviar). Garantiza ≥2 s de edad antes del POST. Un token es de
+ *    un SOLO uso (un POST = un token): tras un POST **exitoso** la caché se vacía ⇒ el siguiente POST
+ *    del mismo envío («los dos días») pide otro fresco, y el siguiente envío vuelve a primar. Si el
+ *    POST **caduca** (`400 FORM_EXPIRED`, >2 h) pide uno fresco y reintenta UNA vez sin borrar lo
+ *    tecleado. Un fallo que NO consume el token (429, red) **conserva** la caché para el reintento
+ *    (sin GET nuevo) — el token solo se re-pide tras caducar o tras un envío exitoso.
  */
-export function useFormTokens(purpose: FormPurpose, poolSize: number): {
+export function useFormTokens(purpose: FormPurpose): {
+  prime: () => void;
   withToken: (run: (token: string) => Promise<void>) => Promise<void>;
 } {
-  const poolRef = useRef<{ token: string; fetchedAt: number }[]>([]);
+  const cacheRef = useRef<{ token: string; fetchedAt: number } | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // Rellena el pool al montar; si un prefetch falla, el submit lo pide en caliente.
-      while (!cancelled && poolRef.current.length < poolSize) {
-        try {
-          const token = await getFormToken(purpose);
-          if (cancelled) return;
-          poolRef.current.push({ token, fetchedAt: Date.now() });
-        } catch {
-          return;
-        }
+  // Pide UN token y lo deja en caché. Encapsula la bandera «en vuelo» para no duplicar GETs.
+  const fetchIntoCache = useCallback((): Promise<void> => {
+    const p = (async () => {
+      try {
+        const token = await getFormToken(purpose);
+        cacheRef.current = { token, fetchedAt: Date.now() };
+      } catch {
+        // silencio: el submit lo reintenta en caliente
+      } finally {
+        inFlightRef.current = null;
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [purpose, poolSize]);
-
-  // Devuelve un token con ≥2 s de edad garantizada: del pool (ya añejo en el uso real) o, si el pool
-  // está vacío (más POSTs que tokens o prefetch aún en vuelo), uno fresco esperando el min-age.
-  const takeAged = useCallback(async (): Promise<string> => {
-    const entry = poolRef.current.shift();
-    if (!entry) return freshAgedToken(purpose);
-    const age = Date.now() - entry.fetchedAt;
-    await sleep(formTokenTiming.minAgeMs - age + formTokenTiming.slackMs);
-    return entry.token;
+    inFlightRef.current = p;
+    return p;
   }, [purpose]);
+
+  // PRIME: un GET al primer foco/interacción. Idempotente (ya en caché o ya en vuelo ⇒ no hace nada).
+  const prime = useCallback(() => {
+    if (cacheRef.current || inFlightRef.current) return;
+    void fetchIntoCache();
+  }, [fetchIntoCache]);
+
+  // Devuelve un token con ≥2 s de edad SIN consumirlo (lo consume `withToken` al tener éxito): del
+  // caché si se primó, o uno fresco (pidiéndolo y cacheándolo) si el humano envió sin primar.
+  const peekAged = useCallback(async (): Promise<string> => {
+    if (inFlightRef.current) await inFlightRef.current; // espera un prime en vuelo (no duplica GET)
+    if (!cacheRef.current) await fetchIntoCache();
+    const entry = cacheRef.current;
+    if (!entry) return freshAgedToken(purpose); // el prefetch falló ⇒ pídelo fresco y añéjalo
+    await sleep(formTokenTiming.minAgeMs - (Date.now() - entry.fetchedAt) + formTokenTiming.slackMs);
+    return entry.token;
+  }, [purpose, fetchIntoCache]);
 
   const withToken = useCallback(
     async (run: (token: string) => Promise<void>): Promise<void> => {
-      const token = await takeAged();
+      const token = await peekAged();
       try {
         await run(token);
+        cacheRef.current = null; // consumido por un POST exitoso ⇒ el siguiente re-pide
       } catch (e) {
         if (e instanceof CardShowApiError && e.status === 400 && e.code === 'FORM_EXPIRED') {
+          cacheRef.current = null;
           const fresh = await freshAgedToken(purpose);
           await run(fresh); // si vuelve a caducar, sube a la UI → mensaje «caducado»
           return;
         }
+        // 429 / red / validación: el token no se consumió ⇒ se conserva para el reintento sin GET.
         throw e;
       }
     },
-    [purpose, takeAged],
+    [purpose, peekAged],
   );
 
-  return { withToken };
+  return { prime, withToken };
 }
 
 /** Traduce un error del alta al texto de pantalla (§CARDSHOW.5). */

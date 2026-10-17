@@ -39,7 +39,7 @@ export function LeadVisitorForm() {
   const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; email?: string; consent?: string }>({});
-  const { withToken } = useFormTokens('leads', 1);
+  const { prime, withToken } = useFormTokens('leads');
 
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
@@ -85,7 +85,7 @@ export function LeadVisitorForm() {
   }
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} noValidate>
+    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <div className="grid gap-6 sm:grid-cols-2">
         <Input
           label="Nombre"
