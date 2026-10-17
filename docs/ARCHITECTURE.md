@@ -31110,6 +31110,12 @@ sesión super_admin: la PII solo se materializa tras autenticarse, igual que hoy
 **sin IP**. Cadencia sugerida: **diaria** a hora fija `America/Mexico_City`, unificable con el «resumen diario de visitantes» ya
 existente. Forma: `API_CONTRACT §CARDSHOW.15`.
 
+**⭐M-89 (dueño JC 2026-10-17, cierra L2-SEG-01) — Jakomi es un TERCERO: solo tipo y conteo, nunca PII.** El aviso interno que se
+dispara al confirmar un `merchant`/`sponsor` lleva **nombre y teléfono reales** del lead ⇒ va **solo a buzones de TCG HUNT**
+(`jsainz`/`scarranza`); `cardshow@jakomi.mx` **sale del `CC`** de ese correo (hoy en `card-show.constants.ts:47`). Jakomi solo
+puede ser destinatario del **resumen agregado** (0 PII, tipo + conteo). El enlace del resumen exige sesión super_admin, así que
+la PII no viaja por correo. Regla normativa y aserción de cierre (backend + seguridad): `API_CONTRACT §CARDSHOW.9` + §13 [M-89].
+
 #### 4.CARDSHOW.r Rifa informal y privacidad (M-84) — las bases son un texto versionado, aparte del aviso
 
 **La rifa es una dinámica INFORMAL** (JC): sin costo, entre asistentes y registrados, **se elige en vivo / hay que estar
@@ -31119,8 +31125,12 @@ nuevo** — por eso en el modelo son **tres datos** y nada más: `raffleOptIn` (
 mezcladas con `privacyVersion`:** son **dos hechos distintos** (un cambio en las bases de la rifa no debe invalidar el
 consentimiento de privacidad ni al revés) — reusar `privacyVersion` sería la clase de ahorro que produce un campo que miente
 (mismo principio que `verifiedAt` vs `reviewedAt` del KYC). Las bases son un **texto versionado**, análogo a `privacyVersion`, y
-su texto vive en el repo (`frontend/src/content/card-show.ts`, público — §4.CARDSHOW.l). La casilla de participación va
-**premarcada** en la UI (decisión del dueño); el valor persistido es el que envíe el cliente.
+su texto vive en el repo (`frontend/src/content/card-show.ts`, público — §4.CARDSHOW.l). **⭐M-89 (dueño JC 2026-10-17; «Acepto
+ese riesgo»): el consentimiento se SEPARA.** La casilla de **privacidad** obligatoria consiente solo el aviso de privacidad y
+⛔ **no** bundlea las bases de la rifa; `raffleOptIn` es una casilla **propia, DESMARCADA por defecto** (`@default(false)`), con
+enlace a las bases; `raffleTermsVersion` solo se exige si `raffleOptIn=true`. El valor persistido es el que envíe el cliente
+(ausente ⇒ `false`). **Quién participa:** asistentes y registrados, hay que estar presente para ganar, se elige en vivo — bases
+y copy deben coincidir. No cambia el schema (campos ya existen, M-84); es UI/content (frontend). Forma: `API_CONTRACT §CARDSHOW.18`.
 
 **Privacidad / aviso — el responsable y el mecanismo NO cambian.** Responsable sigue **TCG HUNT**; doble opt-in, anti-abuso,
 `mailboxHmac` y neutralidad se **reutilizan tal cual**. Lo único que cambia es el **texto** del aviso: ahora se recaba
