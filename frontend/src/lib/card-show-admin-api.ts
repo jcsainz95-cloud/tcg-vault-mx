@@ -76,7 +76,7 @@ export interface PlayerListFilters {
 }
 
 /** Normaliza la respuesta a `Page<T>`: acepta `{ data, total, page, pageSize }` o un array pelado. */
-function toPage<T>(raw: unknown, pageHint = 1, pageSizeHint = 25): Page<T> {
+function toPage<T>(raw: unknown, pageHint = 1, pageSizeHint = 20): Page<T> {
   if (Array.isArray(raw)) {
     return { data: raw as T[], total: raw.length, page: pageHint, pageSize: pageSizeHint };
   }
@@ -102,21 +102,21 @@ const EMPTY = <T>(f: { page?: number; pageSize?: number }): Page<T> => ({
   data: [],
   total: 0,
   page: f.page ?? 1,
-  pageSize: f.pageSize ?? 25,
+  pageSize: f.pageSize ?? 20,
 });
 
 /** `GET /admin/card-show/leads` (§CARDSHOW.15). ⛔ PENDING excluido por el backend. */
 export async function listCardShowLeads(filters: LeadListFilters = {}): Promise<Page<CardShowLeadRow>> {
   if (config.useMocks) return EMPTY<CardShowLeadRow>(filters);
   const raw = await apiRequest<unknown>('/admin/card-show/leads', { query: leadQuery(filters) });
-  return toPage<CardShowLeadRow>(raw, filters.page ?? 1, filters.pageSize ?? 25);
+  return toPage<CardShowLeadRow>(raw, filters.page ?? 1, filters.pageSize ?? 20);
 }
 
 /** `GET /admin/card-show/players` (§CARDSHOW.15). ⛔ PENDING excluido por el backend. */
 export async function listCardShowPlayers(filters: PlayerListFilters = {}): Promise<Page<CardShowPlayerRow>> {
   if (config.useMocks) return EMPTY<CardShowPlayerRow>(filters);
   const raw = await apiRequest<unknown>('/admin/card-show/players', { query: playerQuery(filters) });
-  return toPage<CardShowPlayerRow>(raw, filters.page ?? 1, filters.pageSize ?? 25);
+  return toPage<CardShowPlayerRow>(raw, filters.page ?? 1, filters.pageSize ?? 20);
 }
 
 /** `GET /admin/card-show/leads/export.csv` (§CARDSHOW.15): MISMO dominio/filtros que la lista JSON. */

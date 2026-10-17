@@ -4,17 +4,21 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
-## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.96 M-84, rama `release/card-show`)
+## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.97 M-85, rama `release/card-show`)
 
 **Estado vigente.** La landing `/card-show` (fuera del i18n) pasó de «anuncio con datos» a **página de
-CAPTURA DE LEADS** que ⛔ no expone el modelo de negocio. Medido: `typecheck` + `lint` + `vitest`
-(4376/4376, 11 skip) + `next build` verdes sobre `release/card-show` (HEAD base `cbc4dfe`).
+CAPTURA DE LEADS** que ⛔ no expone el modelo de negocio. **M-85/v1.97 (R2 FE, 2026-10-17):** se añadió
+el 4.º juego **Shard Bugs** (valor de enum `shardbugs`, nombre visible «Shard Bugs»; LIGERA, sin Player
+ID igual que Riftbound/Lorcana) y se alineó el hint de `pageSize` del cliente del panel a **20** (coincide
+con el backend; techlead). Medido R2 (rama `r2-fe-cardshow`, base `release/card-show` HEAD `4b51c68`):
+`tsc --noEmit` exit 0, `next lint` sin avisos ni errores, `vitest run` **4376 passed / 11 skipped (4387)**,
+`next build` exit 0.
 
 - **Contenido** (`frontend/src/content/card-show.ts`): QUITADOS precios de mesa, plano de 23 mesas,
   montos de patrocinio y sus helpers (`mesasResueltas`/`mesaDisponibilidad`/`plano`/`WHATSAPP`/
   `MAILTO_PATROCINIO`/`LINKS`/`queEsTcgHunt`). CONSERVADO: fecha «Sáb 5 y Dom 6 dic 2026», sede
   (zona), entrada libre, `countdownTargetIso`; Jakomi (nombre + logo, **sin enlaces** a redes);
-  juegos (Pokémon principal, Riftbound, Lorcana, 4.º «por confirmar»); copy de rifa informal (premio
+  juegos (Pokémon principal, Riftbound, Lorcana, Shard Bugs — los cuatro valores del enum); copy de rifa informal (premio
   = *30th Celebration Poster Collection*). Único secreto vivo: nombres de patrocinador (ninguno en el
   repo); `patrocinios.showSponsors=false`.
 - **Página** (`frontend/src/app/card-show/page.tsx`): marca real papel/tinta, rojo `#b31217`,
@@ -52,10 +56,11 @@ columnas nuevas del panel/CSV. Hasta entonces el panel pinta vacío (lista/`toPa
 1. §CARDSHOW.15 no fija por escrito el **envoltorio JSON** de los listados del panel; asumí la
    convención de §0 `{ data, total, page, pageSize }` con parser defensivo (acepta también array
    pelado). Confirmar/fijar el envoltorio.
-2. §CARDSHOW.13 pide honeypot pero ⛔ no nombra el **campo**; el front sigue enviando `website` (hueco
-   heredado, ya anotado en `card-show-api.ts`). El backend debe leer ESE nombre.
-3. `gameInterest` es un único `CardShowGame` (`pokemon|riftbound|lorcana`): el preview tenía chips
-   «Varios/Solo a comprar/4.º» que ⛔ no son valores del enum; se mapearon a «Aún no sé» (no envía
+2. ✅ **RESUELTO (v1.97, §CARDSHOW.14).** El honeypot ya tiene nombre fijado en contrato: **`website`**
+   (fuente de verdad del nombre; ambos lados lo usan). El front ya enviaba `website`, no hubo cambio de
+   código; queda alineado con el contrato.
+3. `gameInterest` es un único `CardShowGame` (`pokemon|riftbound|lorcana|shardbugs`): el preview tenía
+   chips «Varios/Solo a comprar/4.º» que ⛔ no son valores del enum; se mapearon a «Aún no sé» (no envía
    `gameInterest`). Si se quiere capturar esas intenciones hace falta un campo nuevo en el contrato.
 
 ## §66 · **§M4P-ORDER: por qué el «canario de locale» que el contrato ofrece NO se escribió** (2026-09-22, `API_CONTRACT §M4P-ORDER` v1.78.3)

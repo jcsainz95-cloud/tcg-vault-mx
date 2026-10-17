@@ -80,8 +80,8 @@ export interface BaseSubmitBody {
   referrerHost?: string;
 }
 
-/** Juego del torneo / interés (enum `CardShowGame`, §Enums). */
-export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana';
+/** Juego del torneo / interés (enum `CardShowGame`, §Enums; +`shardbugs` M-85/v1.97). */
+export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs';
 
 /**
  * Cuerpo de `POST /card-show/leads` (§CARDSHOW.1/.1b, v1.96 M-84). DTO único; las reglas
@@ -114,7 +114,7 @@ export interface LeadSubmitBody extends BaseSubmitBody {
 /**
  * Cuerpo de `POST /card-show/players` (§CARDSHOW.1/.12, v1.96 M-84). `game` obligatorio:
  *  - `pokemon` = FORMAL ⇒ `playerId` OBLIGATORIO (solo dígitos).
- *  - `riftbound`/`lorcana` = LIGERA ⇒ `playerId` PROHIBIDO (no se envía).
+ *  - `riftbound`/`lorcana`/`shardbugs` = LIGERA ⇒ `playerId` PROHIBIDO (no se envía).
  */
 export interface PlayerSubmitBody extends BaseSubmitBody {
   game: CardShowGame;
