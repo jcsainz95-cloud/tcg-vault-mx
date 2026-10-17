@@ -113,6 +113,9 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
       { href: '/admin/m9', key: 'm9', superAdminOnly: true },
       { href: '/admin/m6', key: 'm6', superAdminOnly: true },
       { href: '/admin/m10', key: 'm10', superAdminOnly: true },
+      // Card Show (§CARDSHOW.15): captura de leads/preinscritos del evento. Súper-admin y solo él
+      // (PII); oculto para el operador (no le dice nada que pueda hacer).
+      { href: '/admin/card-show', key: 'cardShow', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
     ],
   },
 ];

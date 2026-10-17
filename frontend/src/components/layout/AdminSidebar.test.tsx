@@ -170,6 +170,8 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m9',
       '/admin/m6',
       '/admin/m10',
+      // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración».
+      '/admin/card-show',
     ]);
     expect(screen.queryByTestId('nav-badge-refunds')).toBeNull();
     expect(dash).not.toHaveBeenCalled();

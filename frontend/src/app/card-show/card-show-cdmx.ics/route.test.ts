@@ -59,7 +59,9 @@ describe('GET /card-show/card-show-cdmx.ics', () => {
   it('lleva SUMMARY, LOCATION y DESCRIPTION del contenido, con comas escapadas', () => {
     const body = buildCardShowIcs();
     expect(body).toContain('SUMMARY:Card Show CDMX');
-    expect(body).toContain('LOCATION:José del Castillo 3\\, esq. Av. Revolución');
+    // ⭐ PIVOTE A CAPTURA (JC 2026-10-17): la calle exacta ya NO es pública («la compartimos con tu
+    // registro»); el `.ics` lleva sólo la ZONA. La coma sigue escapándose (`\,`).
+    expect(body).toContain('LOCATION:San José Insurgentes\\, Benito Juárez\\, CDMX');
     expect(body).toContain('DESCRIPTION:Entrada libre. TCG HUNT × Jakomi');
   });
 
