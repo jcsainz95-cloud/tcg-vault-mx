@@ -44,8 +44,9 @@ test.describe('Card Show · hero y formulario sin JS', () => {
   test('con JS deshabilitado el hero y el formulario se pintan (nada de opacity:0 hasta hidratar)', async ({ page }) => {
     await page.goto('/card-show');
     await expect(page.getByRole('heading', { level: 1, name: 'Card Show' })).toBeVisible();
-    // El formulario «Avísame» y sus campos existen y se ven en el HTML inicial.
-    await expect(page.getByRole('button', { name: 'Avísame' }).first()).toBeVisible();
+    // Pivote JC 2026-10-17: el CTA del formulario de asistente es «Registrarme gratis»
+    // (antes «Avísame»). Existe y se ve en el HTML inicial.
+    await expect(page.getByRole('button', { name: 'Registrarme gratis' }).first()).toBeVisible();
     await expect(page.getByLabel('Correo').first()).toBeVisible();
   });
 });
@@ -55,7 +56,12 @@ test.describe('Card Show · honeypot oculto', () => {
     await page.goto('/card-show');
     const hp = page.locator('input[name="website"]').first();
     await expect(hp).toHaveCount(1);
-    await expect(hp).toBeHidden();
+    // El señuelo NO está en display:none (debe enviarse en el POST para que el bot lo llene),
+    // sino FUERA de la pantalla (form-shared.tsx: `left:-9999px`, 1×1). Playwright lo considera
+    // «visible» ⇒ `toBeHidden()` no aplica; medimos que su caja quede fuera del viewport.
+    const box = await hp.boundingBox();
+    expect(box).not.toBeNull();
+    expect((box!.x + box!.width)).toBeLessThanOrEqual(0); // completamente a la izquierda del viewport
     await expect(hp).toHaveAttribute('tabindex', '-1');
     await expect(hp).toHaveAttribute('autocomplete', 'off');
     // Envuelto por un contenedor aria-hidden ⇒ el lector no lo anuncia.
@@ -84,14 +90,6 @@ test.describe('Card Show · prefers-reduced-motion', () => {
   });
 });
 
-test.describe('Card Show · plano de mesas (modelo numerado v2)', () => {
-  test('las mesas disponibles son enlaces a WhatsApp con nombre accesible y hay tabla equivalente', async ({ page }) => {
-    await page.goto('/card-show#mesas');
-    const mesas = page.getByRole('link', { name: /^Mesa \d/ });
-    expect(await mesas.count()).toBeGreaterThan(0);
-    const href = await mesas.first().getAttribute('href');
-    expect(href).toContain('wa.me/525564893921');
-    expect(href).toContain('%23'); // número de mesa prellenado
-    await expect(page.getByRole('table')).toBeVisible();
-  });
-});
+// Pivote JC 2026-10-17: la landing ya NO expone el modelo de negocio (plano de mesas, enlaces
+// «Mesa N» a WhatsApp). El describe «plano de mesas» se retira con el pivote; la captura de
+// vendedores vive ahora en el formulario «Vendedor / Patrocinador» (sin precios ni mesas).

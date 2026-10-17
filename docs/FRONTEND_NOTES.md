@@ -4,6 +4,29 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-R3 · Arreglos R3 (bloqueantes visibles + spec e2e) (2026-10-17, rama `fix/card-show-r3-frontend`, base `release/card-show` HEAD `78f4abe`)
+
+**Estado vigente R3.** Cerrados 2 bloqueantes visibles medidos por tester-e2e y actualizado el spec e2e al pivote.
+- **BLOQ-1 — títulos invisibles (tinta sobre tinta).** La regla global de `globals.css`
+  `h1,h2,h3,h4 { color: var(--color-text) }` (selector de tipo) pisaba por herencia el color claro de los
+  contenedores oscuros/acento de la landing. Arreglo **acotado a `/card-show`** (no se toca la regla global):
+  color explícito de mayor especificidad por elemento — hero `h1` «Card Show» → `text-on-ink`; `h3` de cada
+  tarjeta de torneo → `text-inherit` (hereda `accent-fg` en la roja u `on-ink` en la tinta); `h2` de la rifa →
+  `text-on-ink`. Medido (estilos computados, build real): contraste hero 15.45:1, Pokémon TCG (sobre rojo)
+  6.17:1, Riftbound/Lorcana/Shard Bugs 15.45:1, rifa 15.45:1 — todos ≥ AA 4.5:1 (antes ~1:1).
+- **BLOQ-2 — Shard Bugs en el panel admin** (`CardShowAdminView.tsx`): añadido `shardbugs: 'Shard Bugs'` al
+  `GAME_LABEL` (columna «Juego» ya no sale vacía ni cruda) y la opción `shardbugs` al filtro «Juego» de
+  Preinscritos. Backend ya lo maneja; era solo la vista.
+- **IMP-4 — spec e2e desfasado** (`frontend/e2e/card-show.spec.ts`): (a) «sin JS» busca ahora
+  «Registrarme gratis» (antes «Avísame»); (b) retirado el `describe` «plano de mesas» (enlaces «Mesa N» a
+  WhatsApp eliminados por el pivote); (c) honeypot: `toBeHidden()` → medir caja fuera del viewport
+  (`boundingBox.x+width ≤ 0`), porque el señuelo está fuera de pantalla (`left:-9999px`, 1×1) y Playwright lo ve
+  «visible»; se conserva la aserción del contenedor `aria-hidden`.
+
+Medido R3: `tsc --noEmit` exit 0; `next lint` sin avisos/errores; `vitest run` **4376 passed / 11 skipped
+(4387)**; `next build` exit 0; spec e2e `card-show.spec.ts` contra el build real (mocks) **6 passed** (antes 7,
+uno retirado). Ninguna de las 3 de IMP-4 era defecto de producto: era el test viejo.
+
 ## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.97 M-85, rama `release/card-show`)
 
 **Estado vigente.** La landing `/card-show` (fuera del i18n) pasó de «anuncio con datos» a **página de

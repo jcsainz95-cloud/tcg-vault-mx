@@ -59,7 +59,7 @@ export default function CardShowPage() {
                 </span>
               ))}
             </p>
-            <h1 className="mt-4 font-brand text-[clamp(2.6rem,9vw,5rem)] font-bold leading-[1.05]">
+            <h1 className="mt-4 font-brand text-[clamp(2.6rem,9vw,5rem)] font-bold leading-[1.05] text-on-ink">
               {c.hero.titulo}
               <br />
               <span className="text-[color:var(--hunt-red-up)]">{c.hero.lineaDos}</span>
@@ -150,7 +150,9 @@ export default function CardShowPage() {
                       : 'flex items-center justify-between gap-3 bg-ink px-4 py-4 text-on-ink'
                   }
                 >
-                  <h3 className="font-brand font-bold">{g.nombre}</h3>
+                  {/* text-inherit vence al `h3 { color: var(--color-text) }` global y hereda el
+                      color del contenedor: accent-fg (tarjeta roja) u on-ink (tarjeta tinta). */}
+                  <h3 className="font-brand font-bold text-inherit">{g.nombre}</h3>
                   <span className="font-mono text-[10px] uppercase tracking-label">{g.pill}</span>
                 </div>
                 <p className="px-4 py-4 text-sm text-muted">{g.linea}</p>
@@ -199,7 +201,7 @@ export default function CardShowPage() {
               <p className="mb-3 font-mono text-[11px] uppercase tracking-label text-[color:var(--hunt-red-up)]">
                 {c.rifa.eyebrow}
               </p>
-              <h2 className="font-brand text-h1 font-bold">{c.rifa.titulo}</h2>
+              <h2 className="font-brand text-h1 font-bold text-on-ink">{c.rifa.titulo}</h2>
               <p className="mt-4 max-w-[40ch] text-on-ink">{c.rifa.lede}</p>
               <ol className="mt-6 flex flex-col gap-2.5">
                 {c.rifa.pasos.map((p, i) => (
