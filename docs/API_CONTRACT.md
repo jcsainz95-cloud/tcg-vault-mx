@@ -1585,6 +1585,15 @@
 > la errata **v1.80.11** (arriba) donde choque: `M-62`/`M-62a`/`M-62b` ⇒ `M-SDX-C`/`M-SDX-D`; «`ARCHITECTURE §4.58`» ⇒
 > §4.60; sandbox ⇒ producción sin gastar (`M-PRD`) y primera guía autorizada (`PG`).)*
 >
+> **Changelog v1.100⟨cardshow⟩ — M-89: (A) Jakomi (tercero) recibe SOLO tipo y conteo, nunca PII — el aviso interno CON
+> nombre/teléfono va solo a buzones TCG HUNT (`jsainz`/`scarranza`); `cardshow@jakomi.mx` sale del CC del aviso con PII y solo
+> puede ser destinatario del **resumen agregado** (0 PII) — cierra **L2-SEG-01**. (B) Consentimiento de la rifa SEPARADO: la
+> casilla de privacidad obligatoria no bundlea las bases; `raffleOptIn` es casilla **propia y DESMARCADA** (`default false`) con
+> enlace a bases; `raffleTermsVersion` solo si `raffleOptIn=true` (ya en el DTO). Reglas en §CARDSHOW.9 (A), §CARDSHOW.1b/.18 (B),
+> criterios en §CARDSHOW.§13 [M-89]; regla de negocio del precio del main de Pokémon = MX$200 anotada en §CARDSHOW.12 (content,
+> no contrato). Sin schema (`raffleOptIn`/`raffleTermsVersion` ya existen, M-84). Dueño JC 2026-10-17 (R5, `docs/specs/
+> CARDSHOW_LANDING_ESTADO.md`); «Acepto ese riesgo» (rifa). (2026-10-17, arquitecto; base v1.99⟨cardshow⟩).**
+>
 > **Changelog v1.99⟨cardshow⟩ — M-88: confirmar el correo «los dos días» confirma AMBAS filas (`sat`+`sun`) del grupo en una
 > acción (clave FORMAL `(mailboxHmac, pokemon, playerId)` / LIGERA `(mailboxHmac, game)`); cierra BLOQ-A (el domingo quedaba
 > `pending` colgado hasta caducar). Regla en §CARDSHOW.12 (⭐M-88) + criterio en §CARDSHOW.§13; desviación `D-CS-7`→backend
@@ -45321,8 +45330,8 @@ es un **DTO único** validado con `StrictBodyPipe`; las reglas **condicionales p
 | `name` | **obligatorio** | **obligatorio** | **obligatorio** | 1..80, lista blanca `NAME_WHITELIST` (letras unicode, marcas, **dígitos**, espacio, `. , ' & / -`); ⛔ sin `<`,`>`,`@`,`http`. Acepta marca; ⛔ más laxa que `playerName` a propósito (una marca lleva dígitos/&) |
 | `phone` | **obligatorio** | **obligatorio** | ⛔ prohibido (400) | MX: 10 dígitos tras normalizar; acepta `+52`/`52` opcional y separadores ` -()`. Se persiste **solo dígitos** (E.164 sin `+`, p. ej. `5215512345678`→`5512345678`). ≤ 20 chars de entrada |
 | `gameInterest` | ⛔ prohibido (400) | ⛔ prohibido (400) | **opcional** | `CardShowGame` (minúscula; fuera de dominio ⇒ 400) |
-| `raffleOptIn` | ⛔ prohibido (400) | ⛔ prohibido (400) | opcional, default `false` | boolean. La casilla va **premarcada** en la UI (frontend), pero el valor persistido es el que envía el cliente |
-| `raffleTermsVersion` | — | — | obligatorio **⇔** `raffleOptIn=true` | string ≤ 32; `raffleOptIn=true` sin él ⇒ 400; presente con `raffleOptIn=false/ausente` ⇒ 400 |
+| `raffleOptIn` | ⛔ prohibido (400) | ⛔ prohibido (400) | opcional, default `false` | boolean. ⭐M-89: casilla **propia y DESMARCADA por defecto** en la UI (frontend), **separada** de la casilla de privacidad obligatoria y con **enlace a las bases**; el valor persistido es el que envía el cliente (ausente ⇒ `false`) |
+| `raffleTermsVersion` | — | — | obligatorio **⇔** `raffleOptIn=true` | string ≤ 32; `raffleOptIn=true` sin él ⇒ 400; presente con `raffleOptIn=false/ausente` ⇒ 400. ⭐M-89: regla **confirmada** — solo se exige cuando el visitante marca la rifa |
 | `sellsWhat` | opcional | opcional | ⛔ prohibido (400) | ≤ 140, `NO_ANGLE` (⛔ sin `<`,`>`) |
 
 ⛔ **Un campo «prohibido» que llega ⇒ `400 {field}`**, 0 filas, 0 envíos (⛔ no se ignora en silencio: igual que el resto de
@@ -45560,10 +45569,21 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
     (RFC 8058) con **token de un solo uso** (el buzón confirmado puede darse de baja). ⛔ Nunca `playerName`. Cuenta contra el
     presupuesto C1 (§CARDSHOW.7) y los topes por buzón C2 (§CARDSHOW.8) como cualquier envío.
 
-- **Correos INTERNOS (no sujetos a C3 de cara al público):** el **aviso interno** al staff en la confirmación de un
-  `merchant`/`sponsor` (§CARDSHOW.6/.11) y el **resumen diario** de visitantes van a **buzones del propio equipo**
-  (`CARD_SHOW_ALERT_EMAIL` y destinatarios internos), ⛔ no a público. No les aplica la restricción de enlaces de C3: pueden
-  llevar los datos operativos que el equipo necesite. Siguen acotados por **≤ 10/h** (§CARDSHOW.11).
+- **Correos INTERNOS (no sujetos a C3 de cara al público):** van a buzones del propio equipo, ⛔ no a público; no les aplica la
+  restricción de enlaces de C3 y siguen acotados por **≤ 10/h** (§CARDSHOW.11). **⭐M-89 (dueño JC 2026-10-17, cierra L2-SEG-01):
+  hay dos clases, y el destinatario depende de si el correo lleva PII, porque `cardshow@jakomi.mx` es un TERCERO que ⛔ nunca debe
+  recibir datos personales del vendedor:**
+  - **Aviso interno CON PII** — al confirmar un `merchant`/`sponsor` (§CARDSHOW.6/.11); lleva **nombre y teléfono reales** del
+    lead (tras R4/IMP-3). Va **solo a buzones de TCG HUNT**: `CARD_SHOW_ALERT_EMAIL` (= `jsainz@tcghunt.mx`, §CARDSHOW.16) y
+    `scarranza@tcghunt.mx` si aplica. ⛔ **`cardshow@jakomi.mx` NO va en `To` ni `CC`** de este correo (sale del CC que hoy
+    fija el código, `card-show.constants.ts:47`). El equipo interno de TCG HUNT sí recibe los datos operativos que necesite.
+  - **Resumen AGREGADO (tipo + conteo, 0 PII)** — el **correo-resumen periódico** (§CARDSHOW.15) y el **resumen diario** de
+    visitantes: conteos por tipo/juego/día y opt-ins de rifa; ⛔ sin `name`/`phone`/`email`/`playerName`/`playerId`.
+    **`cardshow@jakomi.mx` SÍ puede ser destinatario de ESTE correo** (es tipo + conteo, lo único que Jakomi puede recibir),
+    junto con los buzones de TCG HUNT. Los destinatarios concretos los cablea devops (§CARDSHOW.16, reusa `CARD_SHOW_INTERNAL_RECIPIENTS`).
+  - **Aserción de cierre (backend + seguridad):** **todo correo cuyo destinatario (`To`/`CC`/`BCC`) incluya `cardshow@jakomi.mx`
+    ⇒ 0 apariciones de `name`/`phone`/`email`/`playerName` en asunto y cuerpo; solo cifras (y, como mucho, un enlace de descarga
+    autenticado).** Candado: ampliar el test de PII del correo a la rama cuyo destinatario es Jakomi (§CARDSHOW.§13 [M-89]).
 
 ### CARDSHOW.10 Corte por webhooks de Resend — C6 (obligatorio por Resend compartido)
 - `POST /card-show/webhooks/resend` (firma verificada). **≥ 2 quejas** (`complained`) **o ≥ 10 rebotes duros** (`bounced`)
@@ -45594,6 +45614,13 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
   contención LIGERA: **máx 1 fila activa por `(mailboxHmac, game, day)`** y **máx 3 PENDING por `(mailboxHmac, game, day)`**
   (la 4.ª PENDING ⇒ 200 idéntico, 0 filas). `playerName`, `isMinor`/`guardianConsent`, doble opt-in y anti-abuso: **iguales**
   que Pokémon (toda preinscripción, formal o ligera, exige nombre y consentimiento; menor ⇒ `guardianConsent`).
+
+**⭐M-89 — Regla de negocio (precio del torneo, dueño JC 2026-10-17; verbatim «es 200 para los mains de pokemon»).** El **main
+de Pokémon cuesta MX$200**. Es **content**, ⛔ no contrato de API: el importe vive en `frontend/src/content/card-show.ts` y lo
+usa el correo de bienvenida C3-W (§CARDSHOW.9). Se anota aquí **solo como regla**: **landing y correo deben mostrar el MISMO
+importe (MX$200)** — lo implementan frontend (landing) y backend (plantilla del correo). Los **demás juegos/eventos** siguen
+**«por anunciar»** hasta que JC confirme (⛔ no inventar precios). Fuente: `docs/specs/CARDSHOW_LANDING_ESTADO.md §DECISIONES JC
+2026-10-17 (R5) #2`.
 
 Lo que sigue **aplica a `game=pokemon`** (torneo FORMAL) salvo que se diga lo contrario:
 - Cupo de prueba (staging) = 2/día. **3 altas PENDING ⇒ cupo sigue 2** (no se reserva al registrar). Al **confirmar las 3**
@@ -45711,7 +45738,7 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
   (§CARDSHOW.1a-bis), columnas nuevas en panel/CSV y **correo-resumen** (§CARDSHOW.15 + `ARCHITECTURE §4.CARDSHOW.p`). Toca
   `schema.prisma` y `backend/src/common/` (zonas compartidas, un stream a la vez).
 - **⭐M-84 — frontend:** reescribe `frontend/src/content/card-show.ts` **sin precios de mesa / plano / montos de patrocinio**;
-  formularios nuevos (visitor: nombre, juego opcional, casilla de rifa **premarcada** + aceptar **bases**; merchant/sponsor:
+  formularios nuevos (visitor: nombre, juego opcional, casilla de rifa **propia y DESMARCADA** (⭐M-89) con enlace a **bases**, separada de la casilla de privacidad obligatoria; merchant/sponsor:
   nombre o marca, teléfono, «¿qué vendes?»); aviso de privacidad **con teléfono + bases de rifa** (§CARDSHOW.18); pantalla
   super_admin «Card Show» (lista Leads + Torneo con columnas nuevas, descargar CSV). Zonas compartidas: `components/`, `lib/`,
   `content/`, `messages/*.json`.
@@ -45752,6 +45779,17 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
   las **bases** aceptada) y el `consentAt`/`privacyVersion` de privacidad que ya existe. Las **bases** son un **texto versionado**
   análogo a `privacyVersion` (⛔ no se mezcla con él: dos hechos, dos campos — `ARCHITECTURE §4.CARDSHOW.q`). El valor del premio y
   el texto de las bases viven en el repo (`frontend/src/content/card-show.ts`, públicos — §CARDSHOW.0); el contrato fija estructura.
+- **⭐M-89 — Consentimiento de la rifa SEPARADO (dueño JC 2026-10-17; verbatim «Acepto ese riesgo» — acepta el riesgo legal de la
+  rifa, que se queda, pero el consentimiento se separa):**
+  1. La casilla de **privacidad** obligatoria consiente **solo** el aviso de privacidad. ⛔ **No** bundlea «aceptar las bases de
+     la rifa» (hoy lo hace, `LeadVisitorForm.tsx:137-148`; lo corrige **frontend**).
+  2. `raffleOptIn` es una casilla **propia, DESMARCADA por defecto** (`@default(false)`), con **enlace a las bases** (hoy viene
+     premarcada, `:36`; lo corrige **frontend**).
+  3. `raffleTermsVersion` se exige **solo si `raffleOptIn=true`** (ya es así en el DTO, §CARDSHOW.1b — **confirmado y documentado**).
+  4. **Quién participa** (para que bases y copy no se contradigan, JC): entre **asistentes y registrados**; hay que **estar
+     presente para ganar**; se elige **en vivo**. Las bases y el copy de la landing deben decir exactamente esto.
+  ⛔ **No cambia el schema** (`raffleOptIn`/`raffleTermsVersion` ya existen, M-84). Es cambio de **UI/content** (frontend) sobre
+  campos que ya valida backend. Fuente: `docs/specs/CARDSHOW_LANDING_ESTADO.md §DECISIONES JC 2026-10-17 (R5) #1`.
 - **Privacidad / aviso (⭐M-84):** el **responsable sigue siendo TCG HUNT** y el **mecanismo no cambia** (doble opt-in,
   anti-abuso, `mailboxHmac`, neutralidad). Pero el aviso de privacidad **debe reflejar los datos nuevos**: (1) se recaba
   **teléfono** de vendedores/patrocinadores; (2) la **rifa** tiene bases propias versionadas y consentimiento separado. **Para
@@ -45774,3 +45812,5 @@ Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, �
 [Pivote a leads — M-84, campos nuevos de CardShowLead] Paridad de enums: CardShowGame en las TRES bandas (schema.prisma, common/enum-values.ts CARD_SHOW_GAME_VALUES, §Enums) ⇒ enum-values-parity.spec verde; las TRES bandas listan los CUATRO valores (pokemon, riftbound, lorcana, shardbugs — M-85); game=POKEMON / game=SHARDBUGS (mayúscula) ⇒ 400; game=shardbugs (gameInterest en visitor y game en /players, torneo LIGERA) ⇒ 200. name ausente en cualquier tipo ⇒ 400; name con < > @ o "http" ⇒ 400; name con dígitos/& (p. ej. "Tienda 3D & Cartas") ⇒ 200 (acepta marca). phone en visitor ⇒ 400; phone ausente en merchant/sponsor ⇒ 400; phone "55 1234 5678" / "+52 1 55 1234 5678" ⇒ 200 y se persiste solo dígitos (10). gameInterest en merchant/sponsor ⇒ 400; gameInterest=pokemon en visitor ⇒ 200; gameInterest fuera de dominio ⇒ 400. raffleOptIn en merchant/sponsor ⇒ 400; raffleOptIn=true sin raffleTermsVersion ⇒ 400; raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400; visitor con raffleOptIn=true + raffleTermsVersion ⇒ 200. sellsWhat en visitor ⇒ 400; sellsWhat ≤140 NO_ANGLE en merchant/sponsor ⇒ 200. En el correo de confirmación C3 ⇒ 0 apariciones de name/phone/sellsWhat. mesaInteres en el cuerpo ⇒ 400 (campo desconocido/retirado del DTO); ninguna salida (panel/CSV) lo incluye. Migración M-84: name NOT NULL se añade con DEFAULT '' transitorio, backfill, DROP DEFAULT (0 filas rotas); mesaInteres NO se dropea.
 [Pivote — torneo por juego] game=pokemon sin playerId ⇒ 400; game=pokemon con playerId dígitos ⇒ 200 y rige cupo/waitlist/índice parcial. game=riftbound|lorcana con playerId ⇒ 400 {field:playerId}; sin playerId ⇒ 200, fila playerId=NULL, al confirmar pasa directo a confirmed (nunca waitlist). Dos filas LIGERA del mismo (buzón, juego, día) ⇒ 200 idéntico, 1 fila activa (dedupe); 4.ª PENDING del mismo (buzón, juego, día) ⇒ 200 idéntico, 0 filas. Índice único parcial recreado: SOLO cubre game='pokemon' AND playerId IS NOT NULL AND status activo ⇒ dos filas LIGERA sin playerId no colisionan. playerId vacío en el CSV de players para filas LIGERA.
 [Pivote — panel/CSV/correo-resumen] /leads y /players (JSON) responden con la envoltura de paginación de §0 { data, page, pageSize, total } (§CARDSHOW.15; total excluye PENDING); export.csv sin envoltura (CSV plano). /leads JSON y CSV incluyen name, phone, gameInterest, raffleOptIn, raffleTermsVersion, sellsWhat; /players incluye game; PENDING sigue sin aparecer en ninguna salida ni conteo. ?game= en /players: fuera de dominio ⇒ 400. [M-86 q IMP-3] /leads: sembrar un lead cuyo name casa q pero email NO ⇒ aparece; otro cuyo email casa q pero name NO ⇒ aparece; quitar la cláusula `name` de q ⇒ el 1.º desaparece (prueba roja); q insensible a mayúsculas (q=ana casa Ana); q NUNCA trae PENDING. /players: fila cuyo playerName casa q pero email NO ⇒ aparece; fila cuyo playerId (dígitos) casa q ⇒ aparece; fila LIGERA sin playerId no rompe y no casa por playerId; q no casa phone ni sellsWhat. Correo-resumen: cuerpo con 0 PII en claro (0 apariciones de name/phone/email/playerName/playerId), solo conteos + enlace autenticado; 0 filas PENDING en los conteos; sin IP; es correo interno (sin pie de privacidad, ≤10/h).
+[M-89 Jakomi tipo+conteo (A)] Confirmar un merchant/sponsor ⇒ el aviso interno CON nombre+teléfono reales va a buzones TCG HUNT (jsainz@/scarranza@) y ⛔ NO lista cardshow@jakomi.mx en To/CC/BCC. Todo correo cuyo destinatario (To/CC/BCC) incluya cardshow@jakomi.mx ⇒ 0 apariciones de name/phone/email/playerName en asunto y cuerpo (solo cifras y, como mucho, un enlace de descarga autenticado): vale para el aviso interno (⇒ Jakomi no es destinatario) y para el correo-resumen agregado (⇒ Jakomi SÍ puede serlo). Candado: el test de PII del correo se amplía a la rama cuyo destinatario es Jakomi (antes solo cubría C3). El enlace del resumen exige sesión super_admin (la PII no viaja en el correo).
+[M-89 consentimiento rifa separado (B)] raffleOptIn nace DESMARCADO: visitor con privacidad marcada y raffleOptIn ausente ⇒ 200 y raffleOptIn=false (⛔ no se infiere true de la privacidad). La casilla de privacidad obligatoria NO fuerza aceptar bases (privacidad marcada + raffle sin marcar ⇒ 200). raffleOptIn=true exige raffleTermsVersion (si no ⇒ 400); raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400 (ya en §CARDSHOW.1b, confirmado). Frontend: el DOM del formulario visitor tiene DOS casillas distintas (privacidad obligatoria; rifa opcional con enlace a bases), la de rifa con checked=false por defecto; el copy de las bases dice «asistentes y registrados, presente para ganar, se elige en vivo».
