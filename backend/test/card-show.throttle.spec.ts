@@ -55,10 +55,12 @@ describe('CARDSHOW · throttle por IP (C7)', () => {
     expect(denied).toBe(1);
   });
 
-  it('form-token: 31.ª/h ⇒ 429; confirm: 31.ª/min ⇒ 429', async () => {
-    for (let i = 0; i < 30; i += 1) expect((await svc.hitFormToken('1.1.1.1')).allowed).toBe(true);
-    expect((await svc.hitFormToken('1.1.1.1')).allowed).toBe(false);
+  // ⭐v1.98 M-87 (IMP-6, §CARDSHOW.5): el cupo de /form-token subió de 30/h a 120/h por IP ⇒ 429 en la
+  // 121.ª. Confirm sigue en 30/min (⇒ 429 en la 31.ª). El cupo vive en UN solo sitio (THROTTLE, constants).
+  it('form-token: 121.ª/h ⇒ 429 (⭐M-87, antes 31.ª); confirm: 31.ª/min ⇒ 429', async () => {
+    for (let i = 0; i < 120; i += 1) expect((await svc.hitFormToken('1.1.1.1')).allowed).toBe(true);
+    expect((await svc.hitFormToken('1.1.1.1')).allowed).toBe(false); // la 121.ª
     for (let i = 0; i < 30; i += 1) expect((await svc.hitConfirm('2.2.2.2')).allowed).toBe(true);
-    expect((await svc.hitConfirm('2.2.2.2')).allowed).toBe(false);
+    expect((await svc.hitConfirm('2.2.2.2')).allowed).toBe(false); // la 31.ª
   });
 });

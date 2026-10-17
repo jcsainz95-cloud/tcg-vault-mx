@@ -290,4 +290,101 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
       expect(csv.text).toContain(email);
     });
   });
+
+  // ⭐v1.98 — M-86 (IMP-3, §CARDSHOW.15): `q` casa `name`/`email` en /leads y `playerName`/`email`/`playerId`
+  // en /players (contains, INSENSIBLE a mayúsculas, parametrizado). CANDADO del hueco real: el panel decía
+  // «nombre o correo» pero el código solo casaba `email`. La aserción «name casa / email NO ⇒ aparece» es el
+  // CANARIO: si se quita la cláusula `name`/`playerName` del `OR`, esa fila desaparece y la prueba se pone roja.
+  describe('D — semántica de `q` (⭐M-86 IMP-3)', () => {
+    const base = {
+      consentAt: new Date(),
+      privacyVersion: 'provisional',
+      confirmedAt: new Date(), // confirmado ⇒ el panel lo muestra (⛔ PENDING no aparece)
+    };
+    // Marcadores únicos cuyo PREFIJO ("Zq…") NO aparece en ningún email sembrado (los emails llevan `lead-…`/
+    // `play-…`). Así q=marcador casa SOLO el campo bajo prueba, no colisiona con la cláusula `email`.
+    const NAME_ONLY = `Zqname${RUN}`; // casa `name`/`playerName`, ⛔ no el email
+    const EMAIL_ONLY = `qmail${RUN}`; // casa el email, ⛔ no el nombre
+    const MIXED_CASE = `AnaMarca${RUN}`; // casa `name` con q en minúsculas (insensibilidad)
+    const PENDING_NAME = `Zqpending${RUN}`; // nombre de una fila PENDING: q jamás debe traerla
+    const SELLS_MARK = `Zqsells${RUN}`; // va en sellsWhat: q ⛔ no debe casarlo
+    const PHONE_MARK = '5598765432'; // va en phone: q ⛔ no debe casarlo
+    const PLAYER_ID = String(100000 + Math.floor(Math.random() * 800000)); // solo dígitos (como B1/C2)
+
+    const names = (body: unknown) => (body as { data: { email: string; name?: string; playerName?: string }[] }).data;
+
+    it('leads: `name` casa q pero `email` NO ⇒ aparece (CANARIO); `email` casa pero `name` NO ⇒ aparece; insensible a mayúsculas; q NUNCA trae PENDING; ⛔ no casa phone/sellsWhat', async () => {
+      await h.prisma.cardShowLead.createMany({
+        data: [
+          { type: 'visitor', name: NAME_ONLY, email: `lead-a-${RUN}@e2e-cardshow.example`, mailboxHmac: `hmac-a-${RUN}`, source: 'cta_hero', status: 'new', ...base },
+          { type: 'visitor', name: 'Lead Sin Marca', email: `${EMAIL_ONLY}@e2e-cardshow.example`, mailboxHmac: `hmac-b-${RUN}`, source: 'cta_hero', status: 'new', ...base },
+          { type: 'visitor', name: MIXED_CASE, email: `lead-c-${RUN}@e2e-cardshow.example`, mailboxHmac: `hmac-c-${RUN}`, source: 'cta_hero', status: 'new', ...base },
+          // Fila PENDING cuyo nombre casa NAME_ONLY: q no debe traerla NUNCA (confirmedAt NULL).
+          { type: 'visitor', name: PENDING_NAME, email: `lead-pend-${RUN}@e2e-cardshow.example`, mailboxHmac: `hmac-pend-${RUN}`, source: 'cta_hero', status: 'pending', consentAt: base.consentAt, privacyVersion: base.privacyVersion },
+          // merchant con marcador en phone y sellsWhat: q ⛔ no debe casar ninguno de los dos.
+          { type: 'merchant', name: 'Comercio Neutro', phone: PHONE_MARK, sellsWhat: SELLS_MARK, email: `lead-m-${RUN}@e2e-cardshow.example`, mailboxHmac: `hmac-m-${RUN}`, source: 'cta_hero', status: 'new', ...base },
+        ],
+      });
+
+      // name casa, email NO ⇒ aparece. ← CANARIO (sin la cláusula `name` en el OR, esto se pone rojo).
+      const r1 = await h.api('GET', `/admin/card-show/leads?q=${NAME_ONLY}`, { token: adminToken });
+      expect(r1.status).toBe(200);
+      expect(names(r1.body).map((x) => x.name)).toContain(NAME_ONLY);
+
+      // email casa, name NO ⇒ aparece.
+      const r2 = await h.api('GET', `/admin/card-show/leads?q=${EMAIL_ONLY}`, { token: adminToken });
+      expect(names(r2.body).some((x) => x.email === `${EMAIL_ONLY}@e2e-cardshow.example`)).toBe(true);
+
+      // insensible a mayúsculas: q en minúsculas casa un `name` con mayúsculas.
+      const r3 = await h.api('GET', `/admin/card-show/leads?q=${MIXED_CASE.toLowerCase()}`, { token: adminToken });
+      expect(names(r3.body).map((x) => x.name)).toContain(MIXED_CASE);
+
+      // q NUNCA trae PENDING (aunque el nombre case).
+      const r4 = await h.api('GET', `/admin/card-show/leads?q=${PENDING_NAME}`, { token: adminToken });
+      expect(names(r4.body)).toHaveLength(0);
+
+      // ⛔ q no casa sellsWhat…
+      const r5 = await h.api('GET', `/admin/card-show/leads?q=${SELLS_MARK}`, { token: adminToken });
+      expect(names(r5.body)).toHaveLength(0);
+      // …ni phone.
+      const r6 = await h.api('GET', `/admin/card-show/leads?q=${PHONE_MARK}`, { token: adminToken });
+      expect(names(r6.body)).toHaveLength(0);
+    });
+
+    it('players: `playerName` casa pero `email` NO ⇒ aparece (CANARIO); `playerId` casa ⇒ aparece; fila LIGERA sin playerId no rompe ni casa por playerId; q NUNCA trae PENDING', async () => {
+      await h.prisma.cardShowPlayerSignup.createMany({
+        data: [
+          { game: 'pokemon', day: 'sat', playerName: NAME_ONLY, playerId: PLAYER_ID, email: `play-a-${RUN}@e2e-cardshow.example`, mailboxHmac: `phmac-a-${RUN}`, isMinor: false, status: 'confirmed', ...base },
+          { game: 'shardbugs', day: 'sun', playerName: `Zqligera${RUN}`, playerId: null, email: `play-b-${RUN}@e2e-cardshow.example`, mailboxHmac: `phmac-b-${RUN}`, isMinor: false, status: 'confirmed', ...base },
+          // PENDING cuyo nombre casa NAME_ONLY: q no debe traerla.
+          { game: 'pokemon', day: 'sat', playerName: NAME_ONLY, playerId: `${PLAYER_ID}9`, email: `play-pend-${RUN}@e2e-cardshow.example`, mailboxHmac: `phmac-pend-${RUN}`, isMinor: false, status: 'pending', consentAt: base.consentAt, privacyVersion: base.privacyVersion },
+        ],
+      });
+
+      // playerName casa, email NO ⇒ aparece. ← CANARIO.
+      const r1 = await h.api('GET', `/admin/card-show/players?q=${NAME_ONLY}`, { token: adminToken });
+      expect(r1.status).toBe(200);
+      const found1 = (r1.body as { data: { email: string }[] }).data;
+      expect(found1.some((x) => x.email === `play-a-${RUN}@e2e-cardshow.example`)).toBe(true);
+      // la fila PENDING con el mismo playerName NO aparece.
+      expect(found1.some((x) => x.email === `play-pend-${RUN}@e2e-cardshow.example`)).toBe(false);
+
+      // playerId (dígitos) casa ⇒ aparece; la fila LIGERA (playerId NULL) no rompe el OR y no casa por playerId.
+      const r2 = await h.api('GET', `/admin/card-show/players?q=${PLAYER_ID}`, { token: adminToken });
+      const found2 = (r2.body as { data: { email: string }[] }).data;
+      expect(found2.some((x) => x.email === `play-a-${RUN}@e2e-cardshow.example`)).toBe(true);
+      expect(found2.some((x) => x.email === `play-b-${RUN}@e2e-cardshow.example`)).toBe(false);
+
+      // la fila LIGERA SÍ casa por su playerName (prueba de que el OR con playerId NULL no la excluye).
+      const r3 = await h.api('GET', `/admin/card-show/players?q=Zqligera${RUN}`, { token: adminToken });
+      expect((r3.body as { data: { email: string }[] }).data.some((x) => x.email === `play-b-${RUN}@e2e-cardshow.example`)).toBe(true);
+    });
+
+    it('q > 200 chars ⇒ 400 {field:q} (gramática §0)', async () => {
+      const long = 'a'.repeat(201);
+      const r = await h.api('GET', `/admin/card-show/leads?q=${long}`, { token: adminToken });
+      expect(r.status).toBe(400);
+      expect(r.body?.error?.code).toBe('VALIDATION_ERROR');
+    });
+  });
 });

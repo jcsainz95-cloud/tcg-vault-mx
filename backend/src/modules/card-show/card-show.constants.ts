@@ -59,7 +59,7 @@ export const THROTTLE = {
   POST_PER_MIN: 5, // 5/min por IP en cada endpoint de POST
   POST_PER_HOUR: 20, // 20/h por IP en cada endpoint de POST
   GLOBAL_PER_MIN: 60, // 60/min global (todas las IP)
-  FORM_TOKEN_PER_HOUR: 30, // 30/h por IP en GET /form-token (⇒ 429 en la 31.ª)
+  FORM_TOKEN_PER_HOUR: 120, // ⭐v1.98 M-87 (IMP-6): 120/h por IP en GET /form-token (⇒ 429 en la 121.ª; antes 30/h). Holgura para IP compartida por NAT en Wi-Fi de evento; riesgo bajo (no crea filas ni correo). §CARDSHOW.5.
   CONFIRM_PER_MIN: 30, // 30/min por IP en /confirm,/unsubscribe,/cancel (⇒ 429 en la 31.ª)
 } as const;
 export const MIN_MS = 60_000;

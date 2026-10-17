@@ -78,10 +78,32 @@ export class CardShowService {
     return Number.isInteger(n) && n >= 0 ? n : null;
   }
 
+  /**
+   * ⭐v1.98 — IMP-5 (tester-e2e): instrumenta los DESCARTES SILENCIOSOS (los `return` sin efecto que el
+   * contrato manda responder con el 202 neutro). Un descarte silencioso sin log NO es diagnosticable —
+   * tester-e2e midió 1/14 «los dos días» LIGERA creando 1 sola fila (NO REPRODUCIDO) y no había rastro
+   * de por qué. El `debug` registra MOTIVO + PROPÓSITO (+ día + prefijo del `mailboxHmac` para
+   * correlacionar sin reconstruir el censo de buzones) ⛔ con 0 PII: ni email, ni name, ni phone, ni
+   * playerId, ni IP cruda. El `mailboxHmac` es un blindIndex HMAC (no reversible); se recorta a prefijo.
+   */
+  private logDiscard(
+    reason: 'honeypot' | 'too_fast' | 'suppressed' | 'no_mx' | 'dedupe' | 'tope',
+    purpose: 'leads' | 'players',
+    ctx?: { day?: CardShowDay; mailboxHmac?: string },
+  ): void {
+    const parts = [`reason=${reason}`, `purpose=${purpose}`];
+    if (ctx?.day) parts.push(`day=${ctx.day}`);
+    if (ctx?.mailboxHmac) parts.push(`mbox=${ctx.mailboxHmac.slice(0, 12)}`);
+    this.logger.debug(`cardshow discard ${parts.join(' ')}`);
+  }
+
   // ───────────────────────────── «Avísame» (lead) ─────────────────────────────
 
   async createLead(dto: CreateLeadDto, now: number = Date.now()): Promise<void> {
-    if (dto.website && dto.website.trim() !== '') return; // honeypot ⇒ silencioso
+    if (dto.website && dto.website.trim() !== '') {
+      this.logDiscard('honeypot', 'leads');
+      return; // honeypot ⇒ silencioso
+    }
 
     // ⭐M-84 (§CARDSHOW.1b) — validación condicional por tipo. Es ERROR DE FORMA (§CARDSHOW.11.v): va ANTES
     // del token/tiempo (que son gates silenciosos anti-bot) para que un campo prohibido/faltante SIEMPRE dé
@@ -91,23 +113,35 @@ export class CardShowService {
     const ft = this.tokens.verifyFormToken(dto.formToken, 'leads', now);
     if (ft.status === 'invalid') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid form token', { field: 'formToken' });
     if (ft.status === 'expired') throw BusinessException.badRequest('FORM_EXPIRED', 'form token expired');
-    if (ft.status === 'too_fast') return; // < 2 s ⇒ silencioso
+    if (ft.status === 'too_fast') {
+      this.logDiscard('too_fast', 'leads');
+      return; // < 2 s ⇒ silencioso
+    }
 
     const email = normalizeEmail(dto.email);
     const mailboxHmac = this.mailboxHmac(email);
     const domain = emailDomain(email);
 
     // Buzón suprimido («No fui yo») o dado de baja ⇒ 0 envíos / 0 fila nueva, respuesta idéntica.
-    if (await this.isSuppressedOrUnsubscribed(mailboxHmac, now)) return;
+    if (await this.isSuppressedOrUnsubscribed(mailboxHmac, now)) {
+      this.logDiscard('suppressed', 'leads', { mailboxHmac });
+      return;
+    }
 
     // Dominio sin MX ni A ⇒ 0 envío / 0 fila / 200 idéntico.
-    if (!(await this.mail.domainCanReceive(email))) return;
+    if (!(await this.mail.domainCanReceive(email))) {
+      this.logDiscard('no_mx', 'leads', { mailboxHmac });
+      return;
+    }
 
     const type = dto.type as Prisma.CardShowLeadCreateInput['type'];
     const existing = await this.prisma.cardShowLead.findUnique({ where: { email_type: { email, type } } });
 
     // Ya confirmado ⇒ no hay nada que confirmar; re-alta dentro de 24 h ⇒ 0 envíos.
-    if (existing?.confirmedAt) return;
+    if (existing?.confirmedAt) {
+      this.logDiscard('dedupe', 'leads', { mailboxHmac });
+      return;
+    }
 
     const lead =
       existing ??
@@ -177,7 +211,10 @@ export class CardShowService {
   // ───────────────────────────── preinscripción al torneo ─────────────────────────────
 
   async createPlayer(dto: CreatePlayerDto, now: number = Date.now()): Promise<void> {
-    if (dto.website && dto.website.trim() !== '') return; // honeypot
+    if (dto.website && dto.website.trim() !== '') {
+      this.logDiscard('honeypot', 'players');
+      return; // honeypot
+    }
 
     // ⭐M-84 (§CARDSHOW.12) — regla FORMAL (pokemon) vs LIGERA (resto) sobre `playerId`. Error de forma
     // (§CARDSHOW.11.v) ⇒ 400 {field:'playerId'}, ANTES del token/tiempo (gates silenciosos).
@@ -186,7 +223,10 @@ export class CardShowService {
     const ft = this.tokens.verifyFormToken(dto.formToken, 'players', now);
     if (ft.status === 'invalid') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid form token', { field: 'formToken' });
     if (ft.status === 'expired') throw BusinessException.badRequest('FORM_EXPIRED', 'form token expired');
-    if (ft.status === 'too_fast') return;
+    if (ft.status === 'too_fast') {
+      this.logDiscard('too_fast', 'players');
+      return;
+    }
 
     // Menor sin consentimiento del tutor ⇒ error de campo (⛔ no silencioso, §CARDSHOW.12).
     if (dto.isMinor && dto.guardianConsent !== true) {
@@ -199,16 +239,24 @@ export class CardShowService {
     const domain = emailDomain(email);
     const days: CardShowDay[] = dto.day === 'both' ? [CardShowDay.sat, CardShowDay.sun] : [dto.day as CardShowDay];
 
-    if (await this.isSuppressedOrUnsubscribedSignup(mailboxHmac, now)) return;
-    if (!(await this.mail.domainCanReceive(email))) return;
+    if (await this.isSuppressedOrUnsubscribedSignup(mailboxHmac, now)) {
+      this.logDiscard('suppressed', 'players', { mailboxHmac });
+      return;
+    }
+    if (!(await this.mail.domainCanReceive(email))) {
+      this.logDiscard('no_mx', 'players', { mailboxHmac });
+      return;
+    }
 
-    // «los dos» ⇒ 2 filas pero 1 envío (un correo cubre la preinscripción de ese buzón).
+    // «los dos» ⇒ 2 filas pero 1 envío (un correo cubre la preinscripción de ese buzón). Cada día que no
+    // crea fila ya dejó su log de descarte dentro de `insertPendingSignup` (motivo + día) ⇒ el caso
+    // «1/14: los dos días crearon 1 fila» (IMP-5) es ahora diagnosticable por día.
     let anyNewPending = false;
     for (const day of days) {
       const created = await this.insertPendingSignup(dto, game, email, mailboxHmac, day, now);
       if (created) anyNewPending = true;
     }
-    if (!anyNewPending) return; // nada nuevo (duplicado exacto / topes) ⇒ 0 envíos
+    if (!anyNewPending) return; // nada nuevo (duplicado exacto / topes) ⇒ 0 envíos (ya logueado por día)
 
     await this.maybeSendConfirmation({
       kind: 'signup',
@@ -260,16 +308,25 @@ export class CardShowService {
       const dup = await this.prisma.cardShowPlayerSignup.findFirst({
         where: { email, game, playerId: dto.playerId, day, status: { in: ['pending', 'confirmed', 'waitlist', 'checked_in'] } },
       });
-      if (dup) return false;
+      if (dup) {
+        this.logDiscard('dedupe', 'players', { day, mailboxHmac });
+        return false;
+      }
 
       // Máx 3 PENDING por playerId (la 4.ª ⇒ 0 filas).
       const pendingForPlayer = await this.prisma.cardShowPlayerSignup.count({
         where: { game, playerId: dto.playerId, day, status: 'pending' },
       });
-      if (pendingForPlayer >= TOURNAMENT.MAX_PENDING_PER_PLAYER) return false;
+      if (pendingForPlayer >= TOURNAMENT.MAX_PENDING_PER_PLAYER) {
+        this.logDiscard('tope', 'players', { day, mailboxHmac });
+        return false;
+      }
 
       // Máx 4 playerId por buzón y día (el 5.º ⇒ 0 filas).
-      if (!(await this.caps.reservePlayerPerMailboxDay(mailboxHmac, day))) return false;
+      if (!(await this.caps.reservePlayerPerMailboxDay(mailboxHmac, day))) {
+        this.logDiscard('tope', 'players', { day, mailboxHmac });
+        return false;
+      }
 
       await this.prisma.cardShowPlayerSignup.create({
         data: {
@@ -297,13 +354,19 @@ export class CardShowService {
     const active = await this.prisma.cardShowPlayerSignup.findFirst({
       where: { mailboxHmac, game, day, status: { in: ['confirmed', 'checked_in'] } },
     });
-    if (active) return false;
+    if (active) {
+      this.logDiscard('dedupe', 'players', { day, mailboxHmac });
+      return false;
+    }
 
     // Cap de contención LIGERA: máx 3 PENDING por (buzón, juego, día) (la 4.ª ⇒ 0 filas).
     const pendingLigera = await this.prisma.cardShowPlayerSignup.count({
       where: { mailboxHmac, game, day, status: 'pending' },
     });
-    if (pendingLigera >= TOURNAMENT.MAX_PENDING_PER_PLAYER) return false;
+    if (pendingLigera >= TOURNAMENT.MAX_PENDING_PER_PLAYER) {
+      this.logDiscard('tope', 'players', { day, mailboxHmac });
+      return false;
+    }
 
     await this.prisma.cardShowPlayerSignup.create({
       data: {
@@ -897,7 +960,17 @@ export class CardShowService {
     else where.confirmedAt = { not: null };
     const type = parseEnumFilter('type', p.type, Object.values(CardShowLeadType));
     if (type) where.type = type;
-    if (p.q) where.email = { contains: p.q.toLowerCase() };
+    // ⭐v1.98 — M-86 (IMP-3, §CARDSHOW.15): `q` casa `name` OR `email` (`contains`, insensible a
+    // mayúsculas, parametrizado). `name` cubre nombre y MARCA de vendedor/patrocinador. ⛔ No casa
+    // `phone` ni `sellsWhat`. El `OR` se combina (AND) con `confirmedAt/status` de arriba ⇒ `q` SOLO
+    // REDUCE el conjunto ya autorizado y ⛔ NUNCA trae PENDING.
+    const qq = this.normalizeQ(p.q);
+    if (qq) {
+      where.OR = [
+        { name: { contains: qq, mode: 'insensitive' } },
+        { email: { contains: qq, mode: 'insensitive' } },
+      ];
+    }
     const range = this.dateRange(p.from, p.to);
     if (range) where.createdAt = range;
     return where;
@@ -913,10 +986,34 @@ export class CardShowService {
     // ⭐M-84 filtro `?game=` (clase E, dominio entero; fuera de dominio ⇒ 400 {field, allowed}).
     const game = parseEnumFilter('game', p.game, CARD_SHOW_GAME_VALUES as CardShowGame[]);
     if (game) where.game = game;
-    if (p.q) where.email = { contains: p.q.toLowerCase() };
+    // ⭐v1.98 — M-86 (IMP-3, §CARDSHOW.15): `q` casa `playerName` OR `email` OR `playerId` (`contains`,
+    // insensible a mayúsculas, parametrizado). `playerId` es string de dígitos (⛔ nullable: las filas
+    // LIGERA sin `playerId` no casan por ese campo, sin romper). ⛔ No casa `phone` ni `sellsWhat`. El
+    // `OR` se combina (AND) con `confirmedAt/status` ⇒ `q` SOLO REDUCE y ⛔ NUNCA trae PENDING.
+    const qq = this.normalizeQ(p.q);
+    if (qq) {
+      where.OR = [
+        { playerName: { contains: qq, mode: 'insensitive' } },
+        { email: { contains: qq, mode: 'insensitive' } },
+        { playerId: { contains: qq, mode: 'insensitive' } },
+      ];
+    }
     const range = this.dateRange(p.from, p.to);
     if (range) where.createdAt = range;
     return where;
+  }
+
+  /**
+   * ⭐v1.98 — M-86 (§CARDSHOW.15): normaliza `q` con la gramática de §0 (igual que `/admin/shipments`):
+   * `trim`, vacío ≡ ausente (⇒ `undefined`), ≤ 200 chars o `400 {field:'q'}`. ⛔ Exento de §0-Q (no es
+   * enum transversal). No decide QUÉ campos cubre — eso lo hace cada `*Where`.
+   */
+  private normalizeQ(q?: string): string | undefined {
+    const qq = (q ?? '').trim();
+    if (qq.length > 200) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'q too long (max 200)', { field: 'q' });
+    }
+    return qq.length > 0 ? qq : undefined;
   }
 
   /**

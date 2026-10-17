@@ -7,8 +7,8 @@ import { HOUR_MS, MIN_MS, THROTTLE } from './card-show.constants';
  *
  * Throttle por IP en **Redis** (la compuerta de la landing; el `ThrottlerModule` en memoria es la
  * segunda red holgada). La clave es `ipKey` = `req.ip` normalizado (`ipThrottleKey`) — ⛔ no una
- * cabecera del cliente. Ventanas FIJAS: 5/min y 20/h por IP en cada POST, 60/min GLOBAL, 30/h en
- * `/form-token`, 30/min en `/confirm`·`/unsubscribe`·`/cancel`.
+ * cabecera del cliente. Ventanas FIJAS: 5/min y 20/h por IP en cada POST, 60/min GLOBAL, 120/h en
+ * `/form-token` (⭐v1.98 M-87 IMP-6, antes 30/h), 30/min en `/confirm`·`/unsubscribe`·`/cancel`.
  *
  * Al exceder ⇒ `allowed:false` con `retryAfterSeconds` **entero ≥ 1**. Si Redis falla, fail-OPEN
  * (deja pasar y loguea): el riesgo de la landing es el ENVÍO —acotado por el presupuesto fail-closed—
@@ -49,7 +49,7 @@ export class CardShowThrottleService {
     }
   }
 
-  /** GET /form-token: 30/h por IP (⇒ 429 en la 31.ª). */
+  /** GET /form-token: 120/h por IP (⇒ 429 en la 121.ª; ⭐v1.98 M-87 IMP-6, antes 30/h). */
   async hitFormToken(ipKey: string): Promise<ThrottleDecision> {
     return this.single(`t:form-token:h:${ipKey}`, HOUR_MS, THROTTLE.FORM_TOKEN_PER_HOUR);
   }

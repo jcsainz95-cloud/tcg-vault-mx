@@ -28,6 +28,27 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.65 — ⭐ **v1.98⟨cardshow⟩ R3b: `q` nombre+correo (M-86) + cupo form-token 120/h (M-87) + instrumentación de descartes (IMP-5)** (2026-10-17, rama `fix/card-show-r3b-backend` desde `release/card-show`@`0cbe558`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.15` (M-86), `§CARDSHOW.5` (M-87) y el §13 verbatim. Tres hallazgos de tester-e2e; el contrato ya los fijaba. Solo `backend/` + este doc.
+
+**Qué entró.**
+
+- **IMP-3 / M-86 — semántica de `q` en el panel** (`card-show.service.ts` `leadWhere`/`playerWhere` + `normalizeQ`). Antes `q` casaba **solo `email`** (`where.email = {contains: q.toLowerCase()}`) aunque el rótulo decía «nombre o correo». Ahora:
+  - `/admin/card-show/leads` (+ `export.csv`): `q` casa `name` **OR** `email` (`contains`, **`mode:'insensitive'`**, parametrizado vía Prisma — ⛔ sin SQL crudo). `name` cubre nombre y **marca**.
+  - `/admin/card-show/players` (+ `export.csv`): `q` casa `playerName` **OR** `email` **OR** `playerId` (string de dígitos, nullable ⇒ filas LIGERA sin `playerId` no casan por ese campo, sin romper el `OR`).
+  - El `OR` se combina (AND) con `confirmedAt/status` de arriba ⇒ `q` **solo REDUCE** el conjunto autorizado y **⛔ nunca trae PENDING**. ⛔ No casa `phone` ni `sellsWhat`.
+  - Gramática §0 vía `normalizeQ` (nuevo helper, patrón de `/admin/shipments`): `trim`, vacío ≡ ausente, **> 200 chars ⇒ `400 {field:'q'}`** (antes `q` iba sin validar longitud).
+- **IMP-6 / M-87 — cupo del `GET /card-show/form-token` 30/h → 120/h por IP** (⇒ `429` en la 121.ª). Un solo hecho, un solo sitio: `THROTTLE.FORM_TOKEN_PER_HOUR` (`card-show.constants.ts`); comentarios de `card-show-throttle.service.ts` alineados. ⛔ **NO** se tocaron las guardas reales del gasto (throttle del POST 5/min·20/h, presupuesto C1 Redis §7, topes por buzón C2 §8). La conducta perezosa del token (0 al montar) es de **frontend**.
+- **IMP-5 — instrumentación de los descartes silenciosos** (`card-show.service.ts` `logDiscard`). Cada `return` silencioso (que el contrato manda responder con el 202 neutro) emite ahora un `logger.debug` con **motivo** (`honeypot`/`too_fast`/`suppressed`/`no_mx`/`dedupe`/`tope`) + **propósito** (`leads`/`players`) + **día** (cuando aplica) + **prefijo (12 ch) del `mailboxHmac`** para correlacionar. **⛔ 0 PII**: ni email, ni name, ni phone, ni playerId, ni IP. El `mailboxHmac` es un blindIndex HMAC (no reversible); se recorta a prefijo. Instrumentados: honeypot, too_fast, suppressed/unsubscribed, dominio sin MX, re-alta de confirmado, y en `insertPendingSignup` el dedupe (dup formal / activa ligera) y los topes (3 PENDING/playerId, 4 playerId/buzón·día, 3 PENDING ligera) — estos últimos con `day`, que es lo que hace diagnosticable «los dos días».
+
+**Pruebas (candados del §13).**
+
+- `test/integration/card-show-contract.e2e-spec.ts` bloque **D** (3 pruebas): leads `name`-casa-email-no (CANARIO) / email-casa-name-no / insensible a mayúsculas / q nunca trae PENDING / ⛔ no casa phone·sellsWhat; players `playerName`-casa-email-no (CANARIO) / `playerId` casa / LIGERA sin playerId no rompe ni casa por playerId; `q>200 ⇒ 400`.
+- `test/card-show.throttle.spec.ts`: form-token **121.ª/h ⇒ 429** (antes 31.ª); confirm sigue 31.ª/min.
+
+**MEDIDO (sha `0cbe558` base; node_modules de la copia principal, TS 5.9.3).** `npm run typecheck` ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). **Unit** (`npx jest`) ⇒ **497 suites / 8710 pruebas VERDES**. **Integración** (`jest-integration` contra Postgres 16 local, migraciones aplicadas) ⇒ `card-show-contract` **11/11 VERDES** (incluidas las 3 de D). **Canario M-86 (N=1, determinista):** quitar la cláusula `name` del `OR` de `leadWhere` ⇒ la prueba de leads **ROJA** (`Expected "Zqname…"` / `Received []`); restaurada ⇒ **VERDE**. **IMP-5 re-medición N=20** del caso «los dos días» LIGERA (`createPlayer` directo contra servicio+BD reales, correo fresco por iteración, `now` > min-age): **20/20 crearon 2 filas, 0 misses, 0 descartes**. NO REPRODUCIDO (consistente con el 13/14 de tester-e2e); si alguna vez cae una fila, el `debug` ya dirá motivo+día. *(La N=20 se midió por el camino del servicio, no por HTTP: el 429 del throttle de POST por IP —5/min— no es el sospechoso de IMP-5 y por HTTP enmascararía la medición.)*
+
 ## 0.64 — ⭐ **M-85 / v1.97⟨cardshow-shardbugs⟩: 4.º juego `shardbugs` + candados R2 del Card Show** (2026-10-17, rama `r2-cardshow` desde `release/card-show`@`4b51c68`, PII · SIN DINERO)
 
 > Contrato: `API_CONTRACT §CARDSHOW.1a-ter` + `§Enums` línea `CardShowGame`. Aditivo sobre M-84; ⛔ no toca dinero, inventario ni cuentas.
