@@ -27,5 +27,5 @@
 - **Contenido público el día de salida: PENDIENTE** — ¿teaser + registro ("regístrate para enterarte", sin fecha/sede/precio), o ya con algún dato? El dueño dijo que los datos reales se cargan cerca del 27. NO se resolvió el 14-oct.
 
 ## Constraints que NO se rodean
-- SECRETO hasta 27-oct: términos prohibidos en grep de CI (alianza/patrocinador/fecha/sede/precio reales). Solo marcadores TBD en el repo público.
-- Secretos nunca por chat/repo/logs (repo público). El orquestador no publica ni amplía sus permisos.
+- ÚNICO secreto vivo (desde 2026-10-16): los NOMBRES DE PATROCINADOR. Los términos los guarda el secreto de CI `CARDSHOW_SECRET_TERMS` (nunca en el repo, ni como ejemplo). Fecha/sede/precios YA SON PÚBLICOS por decisión del dueño; `showSponsors:false` hasta que salgan los horarios de torneo.
+- Secretos nunca por chat/repo/logs. El orquestador no publica ni amplía sus permisos.
