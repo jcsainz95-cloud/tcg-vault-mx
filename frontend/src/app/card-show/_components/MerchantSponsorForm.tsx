@@ -56,7 +56,7 @@ export function MerchantSponsorForm() {
     return Object.keys(errs).length === 0;
   }
 
-  const { withToken } = useFormTokens('leads', 1);
+  const { prime, withToken } = useFormTokens('leads');
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,7 +91,7 @@ export function MerchantSponsorForm() {
   }
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} noValidate>
+    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <fieldset>
         <legend className="eyebrow">Me interesa como…</legend>
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Tipo de interés">

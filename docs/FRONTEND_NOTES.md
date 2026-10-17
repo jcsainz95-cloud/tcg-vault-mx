@@ -4,6 +4,54 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-IMP6 · Form-token PEREZOSO + copy 429 + rótulo buscador players (2026-10-17, rama `fix/card-show-r3-frontend`, §CARDSHOW.5 M-87)
+
+**Estado vigente.** Implementada la conducta que el arquitecto fijó en §CARDSHOW.5/M-87.
+- **Adquisición PEREZOSA del form-token** (`_components/form-shared.tsx::useFormTokens`): ⛔ la página ya
+  **NO pide ningún token al montar** (antes 4 GET al cargar: asistente 1 + torneo 2 + comercial 1, y a 30/h
+  por IP eso bloqueaba a visitantes tras un NAT de Wi-Fi compartida). El hook pasó de *eager pool* a *lazy*:
+  expone `prime()` (pide **1** token al primer foco/interacción y lo cachea; idempotente) cableado al
+  `onFocus` del `<form>` de los tres formularios, y `withToken()` que usa el cacheado (o lo pide en caliente
+  a más tardar al enviar), garantiza ≥2 s de edad (anti `too_fast`), lo consume en el POST exitoso y lo
+  re-pide solo tras `FORM_EXPIRED` (>2 h) o un envío exitoso. «Los dos días» (torneo) ⇒ 2 POST = 2 tokens de
+  un solo uso (1 primado + 1 en caliente). Firma: `useFormTokens(purpose)` (se retiró el 2.º arg `poolSize`).
+  **Medido** (build real, mock, Playwright interceptando `**/card-show/form-token*`): montar `/card-show` =
+  **0** GET; primer foco = **1** GET (`?purpose=leads`); enfocar más campos = sigue **1**.
+- **Copy del 429** (`FORM_MESSAGES.rateLimited`): la ventana del límite es 1 h, ⛔ ya NO dice «unos minutos».
+  Texto neutro ES: «Demasiados intentos desde esta red. Vuelve a intentarlo más tarde.» (ux-ui afina después).
+  El Card Show es microsite es-MX de un solo idioma ⇒ sin clave EN (si se internacionaliza, EN propuesto:
+  «Too many attempts from this network. Please try again later.»).
+- **Rótulo del buscador de Preinscritos** (`CardShowAdminView::PlayersPanel`): per M-86 `q` cubre nombre,
+  correo y Player ID ⇒ el label pasó de «Buscar (nombre o correo)» a «Buscar (nombre, correo o Player ID)».
+  (El de Leads sigue «nombre o correo»: los leads no tienen Player ID.)
+
+Medido IMP-6: `tsc --noEmit` exit 0; `next lint` sin avisos/errores; `vitest run` **4377 passed / 11 skipped
+(4388)** (+1 test nuevo de lazy, 2 tests de prefetch reescritos a lazy); `next build` exit 0; e2e
+`card-show.spec.ts` **6 passed** contra el build real.
+
+## §CARDSHOW-R3 · Arreglos R3 (bloqueantes visibles + spec e2e) (2026-10-17, rama `fix/card-show-r3-frontend`, base `release/card-show` HEAD `78f4abe`)
+
+**Estado vigente R3.** Cerrados 2 bloqueantes visibles medidos por tester-e2e y actualizado el spec e2e al pivote.
+- **BLOQ-1 — títulos invisibles (tinta sobre tinta).** La regla global de `globals.css`
+  `h1,h2,h3,h4 { color: var(--color-text) }` (selector de tipo) pisaba por herencia el color claro de los
+  contenedores oscuros/acento de la landing. Arreglo **acotado a `/card-show`** (no se toca la regla global):
+  color explícito de mayor especificidad por elemento — hero `h1` «Card Show» → `text-on-ink`; `h3` de cada
+  tarjeta de torneo → `text-inherit` (hereda `accent-fg` en la roja u `on-ink` en la tinta); `h2` de la rifa →
+  `text-on-ink`. Medido (estilos computados, build real): contraste hero 15.45:1, Pokémon TCG (sobre rojo)
+  6.17:1, Riftbound/Lorcana/Shard Bugs 15.45:1, rifa 15.45:1 — todos ≥ AA 4.5:1 (antes ~1:1).
+- **BLOQ-2 — Shard Bugs en el panel admin** (`CardShowAdminView.tsx`): añadido `shardbugs: 'Shard Bugs'` al
+  `GAME_LABEL` (columna «Juego» ya no sale vacía ni cruda) y la opción `shardbugs` al filtro «Juego» de
+  Preinscritos. Backend ya lo maneja; era solo la vista.
+- **IMP-4 — spec e2e desfasado** (`frontend/e2e/card-show.spec.ts`): (a) «sin JS» busca ahora
+  «Registrarme gratis» (antes «Avísame»); (b) retirado el `describe` «plano de mesas» (enlaces «Mesa N» a
+  WhatsApp eliminados por el pivote); (c) honeypot: `toBeHidden()` → medir caja fuera del viewport
+  (`boundingBox.x+width ≤ 0`), porque el señuelo está fuera de pantalla (`left:-9999px`, 1×1) y Playwright lo ve
+  «visible»; se conserva la aserción del contenedor `aria-hidden`.
+
+Medido R3: `tsc --noEmit` exit 0; `next lint` sin avisos/errores; `vitest run` **4376 passed / 11 skipped
+(4387)**; `next build` exit 0; spec e2e `card-show.spec.ts` contra el build real (mocks) **6 passed** (antes 7,
+uno retirado). Ninguna de las 3 de IMP-4 era defecto de producto: era el test viejo.
+
 ## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.97 M-85, rama `release/card-show`)
 
 **Estado vigente.** La landing `/card-show` (fuera del i18n) pasó de «anuncio con datos» a **página de

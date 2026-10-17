@@ -38,7 +38,7 @@ import {
  * es-MX literal: el Card Show es un microsite de un solo idioma.
  */
 
-const GAME_LABEL: Record<string, string> = { pokemon: 'Pokémon', riftbound: 'Riftbound', lorcana: 'Lorcana' };
+const GAME_LABEL: Record<string, string> = { pokemon: 'Pokémon', riftbound: 'Riftbound', lorcana: 'Lorcana', shardbugs: 'Shard Bugs' };
 const LEAD_TYPE_LABEL: Record<string, string> = { visitor: 'Asistente', merchant: 'Vendedor', sponsor: 'Patrocinador' };
 const LEAD_STATUS_LABEL: Record<string, string> = {
   new: 'Nuevo',
@@ -278,6 +278,7 @@ function PlayersPanel() {
               { value: 'pokemon', label: 'Pokémon' },
               { value: 'riftbound', label: 'Riftbound' },
               { value: 'lorcana', label: 'Lorcana' },
+              { value: 'shardbugs', label: 'Shard Bugs' },
             ]}
             value={filters.game ?? ''}
             onChange={(e) => patch({ game: (e.target.value || undefined) as PlayerListFilters['game'] })}
@@ -311,7 +312,7 @@ function PlayersPanel() {
         </div>
         <div className="min-w-[14rem] flex-1">
           <Input
-            label="Buscar (nombre o correo)"
+            label="Buscar (nombre, correo o Player ID)"
             value={filters.q ?? ''}
             onChange={(e) => patch({ q: e.target.value || undefined })}
           />
