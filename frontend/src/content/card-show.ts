@@ -73,6 +73,40 @@ export const CARD_SHOW = {
       '«Tu casa del TCG en Coyoacán». Tienda-café de cartas (Pokémon, Lorcana y Magic) que organiza los torneos del Card Show.',
   },
 
+  /**
+   * DATOS DEL EVENTO — fuente única: `docs/specs/CARDSHOW_LANDING_ESTADO.md` «DATOS DEL EVENTO» (JC
+   * 2026-10-17, públicos por decisión del dueño). La dirección exacta YA se publica. El mapa va como
+   * ENLACE externo (la CSP ⛔ no admite iframe de mapa). Horarios del torneo PRELIMINARES.
+   */
+  evento: {
+    eyebrow: 'Cuándo y dónde',
+    titulo: 'Dos días en San José Insurgentes',
+    entrada: 'Entrada libre — no necesitas registrarte para entrar.',
+    horarios: [
+      { dia: 'Sábado 5 de diciembre', horas: '11:00–19:00' },
+      { dia: 'Domingo 6 de diciembre', horas: '11:00–18:00' },
+    ] as { dia: string; horas: string }[],
+    direccion: {
+      calle: 'José del Castillo 3, esq. Av. Revolución',
+      colonia: 'Col. San José Insurgentes, Benito Juárez',
+      cp: '03900 CDMX',
+      pisos: [
+        'Piso 2 — vendedores',
+        'Piso 3 — torneos, juego libre y comida',
+      ],
+      mapsLabel: 'Ver en Google Maps',
+      mapsUrl:
+        'https://www.google.com/maps/search/?api=1&query=Jos%C3%A9+del+Castillo+3%2C+San+Jos%C3%A9+Insurgentes%2C+Benito+Ju%C3%A1rez%2C+CDMX',
+    },
+    torneoPokemon:
+      'Torneo de Pokémon (horarios preliminares): sábado 12:00–18:00 y domingo 12:00–17:00. Los horarios finales se anuncian en los próximos días.',
+    montaje: 'Montaje de vendedores: viernes 4 de diciembre (el horario se confirma al apartar la mesa).',
+    comoLlegar: [
+      'Metro Mixcoac (Líneas 7 y 12) + ~5 min caminando por Av. Revolución.',
+      'Metrobús Línea 1, estación Río Churubusco.',
+    ] as string[],
+  },
+
   queEncontraras: [
     {
       n: '01',
@@ -93,36 +127,45 @@ export const CARD_SHOW = {
 
   torneos: {
     intro:
-      'Cuatro juegos sobre la mesa. Horarios, formatos y costos se confirmarán pronto — regístrate y te avisamos primero.',
-    /** Una línea por juego; todo «por anunciar». Los cuatro son valores del enum `CardShowGame`. */
+      'Cuatro juegos sobre la mesa. Preinscripción abierta; los horarios se anuncian en los próximos días — regístrate y te avisamos primero.',
+    /**
+     * Una línea por juego. El main de Pokémon lleva precio MX$200 (decisión JC 2026-10-17, misma
+     * cifra que el correo); los demás juegos «por anunciar». Los horarios del torneo de Pokémon son
+     * PRELIMINARES (§CARDSHOW_LANDING_ESTADO «DATOS DEL EVENTO»). Los cuatro son valores del enum.
+     */
     juegos: [
       {
         id: 'pokemon' as CardShowGame,
         nombre: 'Pokémon TCG',
         pill: 'Torneo principal',
         principal: true,
-        linea: 'Los dos días. Horario, formato e inscripción — te avisamos primero si te registras.',
+        precio: 'MX$200',
+        linea:
+          'Torneo principal los dos días. Horarios preliminares: sáb 12:00–18:00, dom 12:00–17:00 (los finales se anuncian en los próximos días). Preinscripción abierta con tu Player ID.',
       },
       {
         id: 'riftbound' as CardShowGame,
         nombre: 'Riftbound',
         pill: 'Confirmado',
         principal: false,
-        linea: 'Horario, formato e inscripción por anunciar. Regístrate y te enteras primero.',
+        precio: 'Por anunciar',
+        linea: 'Preinscripción abierta; horarios por anunciar. Regístrate y te enteras primero.',
       },
       {
         id: 'lorcana' as CardShowGame,
         nombre: 'Lorcana',
         pill: 'Confirmado',
         principal: false,
-        linea: 'Horario, formato e inscripción por anunciar. Regístrate y te enteras primero.',
+        precio: 'Por anunciar',
+        linea: 'Preinscripción abierta; horarios por anunciar. Regístrate y te enteras primero.',
       },
       {
         id: 'shardbugs' as CardShowGame,
         nombre: 'Shard Bugs',
         pill: 'Confirmado',
         principal: false,
-        linea: 'Horario, formato e inscripción por anunciar. Regístrate y te enteras primero.',
+        precio: 'Por anunciar',
+        linea: 'Preinscripción abierta; horarios por anunciar. Regístrate y te enteras primero.',
       },
     ],
     cuarto: 'Cuatro juegos confirmados. Dinos en el registro cuál te gustaría jugar y te avisamos primero.',
@@ -157,11 +200,11 @@ export const CARD_SHOW = {
   faq: [
     {
       q: '¿Cuánto cuesta entrar?',
-      a: 'La entrada al Card Show CDMX es libre. Los torneos tienen inscripción propia, que anunciaremos pronto.',
+      a: 'La entrada al Card Show CDMX es libre: no necesitas registrarte para entrar. El torneo principal de Pokémon cuesta MX$200; los demás torneos tienen inscripción propia, que anunciaremos pronto.',
     },
     {
       q: '¿Dónde y cuándo es?',
-      a: 'Sábado 5 y domingo 6 de diciembre de 2026, en San José Insurgentes, CDMX. La dirección exacta la compartimos con tu registro.',
+      a: 'Sábado 5 (11:00–19:00) y domingo 6 (11:00–18:00) de diciembre de 2026, en José del Castillo 3, esq. Av. Revolución, Col. San José Insurgentes, Benito Juárez, 03900 CDMX. Piso 2 para vendedores; piso 3 para torneos, juego libre y comida.',
     },
     {
       q: '¿Qué juegos habrá?',
@@ -178,11 +221,11 @@ export const CARD_SHOW = {
   ] as FaqItem[],
 
   /**
-   * Dirección general (zona) — se usa para el `.ics` (LOCATION). ⛔ La calle exacta NO se publica en la
-   * página: «la dirección exacta la compartimos con tu registro» (FAQ).
+   * Dirección completa — se usa para el `.ics` (LOCATION) y ahora es PÚBLICA (JC 2026-10-17): se
+   * muestra en la sección «Cuándo y dónde» (ver `evento.direccion`). Una sola fuente del texto plano.
    */
   comoLlegar: {
-    direccion: 'San José Insurgentes, Benito Juárez, CDMX',
+    direccion: 'José del Castillo 3, esq. Av. Revolución, Col. San José Insurgentes, Benito Juárez, 03900 CDMX',
   },
 
   footer: {
@@ -190,7 +233,10 @@ export const CARD_SHOW = {
     wordmarkSub: 'tcghunt.mx/card-show',
     colaboracion: 'Organiza TCG HUNT en colaboración con Jakomi TCG Café.',
     whatsappDisplay: '55 6489 3921',
+    // Accionable: WhatsApp vía wa.me con lada MX (52 + 10 dígitos). ⛔ sin separadores en el href.
+    whatsappHref: 'https://wa.me/525564893921',
     contactoEmail: 'hola@tcghunt.mx',
+    contactoEmailHref: 'mailto:hola@tcghunt.mx',
     privacidadUrl: AVISO_PRIVACIDAD,
     legal:
       'Card Show CDMX · Organiza TCG HUNT en colaboración con Jakomi TCG Café. Entrada libre. Fechas, sede y dinámicas sujetas a confirmación. La rifa es una dinámica sin costo entre asistentes y registrados; es necesario estar presente para ganar. Pokémon y las demás marcas de juego pertenecen a sus respectivos titulares; TCG HUNT no está afiliado a ellos.',

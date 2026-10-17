@@ -92,10 +92,18 @@ const COPY: Record<LinkAction, ActionCopy> = {
   },
 };
 
-/** Traduce un error de la acción a un mensaje claro en español. */
-function errorText(e: unknown): string {
+/**
+ * Traduce un error de la acción a un mensaje claro en español. BLOQ-7: el 410 (enlace ya usado) NO se
+ * lee como error cuando la acción es `confirm` — lo normal es que ya hubieras confirmado; no hay nada
+ * que arreglar. Para `cancel`/`unsubscribe` sí es informativo pero neutro.
+ */
+function errorText(e: unknown, action: LinkAction): string {
   if (e instanceof CardShowApiError) {
-    if (e.status === 410) return 'Este enlace ya se usó o expiró.';
+    if (e.status === 410) {
+      return action === 'confirm'
+        ? 'Parece que este enlace ya se usó. Si ya confirmaste tu registro, no necesitas hacer nada más.'
+        : 'Este enlace ya se usó o expiró. Si ya completaste la acción, no necesitas hacer nada más.';
+    }
     if (e.status === 429) return 'Demasiados intentos, espera un momento y vuelve a intentarlo.';
   }
   return 'No pudimos completar la acción. Inténtalo de nuevo en un momento.';
@@ -124,7 +132,7 @@ export function LinkActionClient({ action, token }: { action: LinkAction; token?
         setPhase('rejected');
       }
     } catch (e) {
-      setMessage(errorText(e));
+      setMessage(errorText(e, action));
       setPhase('error');
     }
   }
@@ -177,6 +185,16 @@ export function LinkActionClient({ action, token }: { action: LinkAction; token?
             )}
           </>
         )}
+
+        {/* BLOQ-7: salida siempre disponible a la landing (no dejar al usuario en un callejón). */}
+        <p className="mt-10">
+          <a
+            href="/card-show"
+            className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.16em] text-accent underline underline-offset-4 hover:text-[color:var(--hunt-red-hover)]"
+          >
+            ← Volver al Card Show
+          </a>
+        </p>
       </div>
     </main>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CARD_SHOW } from '@/content/card-show';
@@ -13,6 +13,7 @@ import {
   PrivacyCheckbox,
   SuccessPanel,
   errorMessage,
+  focusFirstInvalid,
   isEmail,
   isPhone,
   readAttribution,
@@ -46,6 +47,8 @@ export function MerchantSponsorForm() {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string; email?: string; consent?: string }>({});
 
+  const formRef = useRef<HTMLFormElement>(null);
+
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
     if (name.trim() === '') errs.name = FORM_MESSAGES.needNameOrBrand;
@@ -53,6 +56,8 @@ export function MerchantSponsorForm() {
     if (!isEmail(email)) errs.email = FORM_MESSAGES.needEmail;
     if (!consent) errs.consent = FORM_MESSAGES.needConsent;
     setFieldErrors(errs);
+    // §CS-UX.3: foco al primer control inválido tras pintar los `aria-invalid`.
+    if (Object.keys(errs).length > 0) requestAnimationFrame(() => focusFirstInvalid(formRef.current));
     return Object.keys(errs).length === 0;
   }
 
@@ -86,12 +91,14 @@ export function MerchantSponsorForm() {
     }
   }
 
+  // BLOQ-12: coherente con el doble opt-in — el siguiente paso es confirmar el correo, no «te
+  // contactamos» (eso contradecía el cuerpo «revisa tu correo»). El contacto llega DESPUÉS de confirmar.
   if (status === 'success') {
-    return <SuccessPanel title="¡Gracias! Te contactamos pronto." />;
+    return <SuccessPanel title="¡Gracias! Confirma tu correo para terminar." />;
   }
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
+    <form ref={formRef} className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <fieldset>
         <legend className="eyebrow">Me interesa como…</legend>
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Tipo de interés">

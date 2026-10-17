@@ -12,11 +12,12 @@ export function PrivacyMini() {
     <p className="mt-4 text-[12px] leading-relaxed text-muted">
       <span className="eyebrow">Aviso de privacidad (resumen)</span>
       <br />
-      TCG HUNT usa los datos que nos das en este formulario —tu correo y, en la preinscripción al torneo, el nombre
-      del jugador, el Player ID y, si es menor, el consentimiento de su tutor— para avisarte del Card Show, gestionar
-      tu preinscripción y enviarte información del evento y de TCG HUNT. Para el torneo compartimos tus datos con{' '}
-      <strong>Jakomi</strong>. Puedes negarte a recibir información promocional sin afectar tu registro. Consulta el
-      aviso integral y cómo ejercer tus derechos ARCO en{' '}
+      TCG HUNT usa los datos que nos das en este formulario —tu nombre y correo; si eres vendedor o patrocinador,
+      también tu teléfono; si participas en la rifa, el registro de que aceptaste sus bases; y en la preinscripción al
+      torneo, el nombre del jugador, el Player ID y, si es menor, el consentimiento de su tutor— para avisarte del Card
+      Show, gestionar tu preinscripción y tu participación en la rifa, y enviarte información del evento y de TCG HUNT.
+      Puedes negarte a recibir información promocional sin afectar tu registro. Consulta el aviso integral y cómo
+      ejercer tus derechos ARCO en{' '}
       <a href={CARD_SHOW.footer.privacidadUrl} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">
         tcghunt.mx/es/privacidad
       </a>

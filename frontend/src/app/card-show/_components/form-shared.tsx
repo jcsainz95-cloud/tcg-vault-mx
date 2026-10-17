@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, useCallback, useId, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useRef } from 'react';
 import { cn } from '@/lib/cn';
 import {
   CardShowApiError,
@@ -181,6 +181,28 @@ export function useFormTokens(purpose: FormPurpose): {
   return { prime, withToken };
 }
 
+/**
+ * Tras validar al enviar (§CS-UX.3), mueve el foco al PRIMER control inválido en orden del DOM
+ * (`[aria-invalid="true"]`) y lo centra respetando `prefers-reduced-motion`. Para un grupo radio el
+ * primer radio lleva `aria-invalid` (el `fieldset` no es enfocable). Se llama en el frame siguiente
+ * al `setState` de errores, cuando React ya pintó los `aria-invalid`.
+ */
+export function focusFirstInvalid(form: HTMLFormElement | null): void {
+  if (!form) return;
+  const el = form.querySelector<HTMLElement>('[aria-invalid="true"]');
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  scrollCenter(el);
+}
+
+/** `scrollIntoView` centrado respetando `prefers-reduced-motion`; no-op si el entorno no lo implementa (jsdom). */
+function scrollCenter(el: HTMLElement): void {
+  if (typeof el.scrollIntoView !== 'function') return;
+  const reduce =
+    typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+}
+
 /** Traduce un error del alta al texto de pantalla (§CARDSHOW.5). */
 export function errorMessage(e: unknown): string {
   if (e instanceof CardShowApiError) {
@@ -277,10 +299,24 @@ export function Chip({
   );
 }
 
-/** Pantalla de éxito del doble opt-in: «revisa tu correo» (§CARDSHOW.6). */
+/**
+ * Pantalla de éxito del doble opt-in: «revisa tu correo» (§CARDSHOW.6).
+ *
+ * BLOQ-B-1 (móvil): al sustituir al formulario, mueve el FOCO aquí (`tabIndex=-1` + `focus()`) y hace
+ * `scrollIntoView` respetando `prefers-reduced-motion`, para que el mensaje «revisa tu correo» no quede
+ * fuera de pantalla. `role="status"` lo anuncia a lectores. La CTA fija inferior se oculta sola porque
+ * el panel vive dentro de `#registro` (ver `StickyRegisterCta`).
+ */
 export function SuccessPanel({ title }: { title: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    scrollCenter(el);
+  }, []);
   return (
-    <div role="status" className="rule-note py-3">
+    <div ref={ref} role="status" tabIndex={-1} className="rule-note py-3 outline-none">
       <p className="font-medium text-text">{title}</p>
       <p className="mt-2 text-[13px] leading-relaxed text-muted">{FORM_MESSAGES.success}</p>
     </div>

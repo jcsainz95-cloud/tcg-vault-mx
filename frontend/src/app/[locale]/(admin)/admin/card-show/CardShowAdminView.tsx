@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { DownloadCloud } from 'lucide-react';
@@ -13,6 +13,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatDateTimeMx } from '@/lib/format';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { AppLocale } from '@/i18n/routing';
 import {
   exportCardShowLeadsCsv,
@@ -118,23 +119,112 @@ function StatusTag({ label }: { label: string }) {
   return <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{label}</span>;
 }
 
+/** Tamaño de página por defecto del panel (§CARDSHOW.15: la envoltura trae `total` para paginar). */
+const PAGE_SIZE = 50;
+
+/**
+ * Pie de la tabla: total de resultados + control de paginación (para pasar de 50). El backend devuelve
+ * `{ data, page, pageSize, total }`; aquí se navega por `page`. Los botones se deshabilitan en los
+ * bordes y mientras hay una consulta en vuelo.
+ */
+function Pagination({
+  page,
+  pageSize,
+  total,
+  pending,
+  onPage,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  pending: boolean;
+  onPage: (p: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+      <p className="font-mono text-xs text-muted" data-testid="cs-total">
+        {total} resultado{total === 1 ? '' : 's'}
+        {total > 0 && ` · ${from}–${to}`}
+      </p>
+      {totalPages > 1 && (
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" size="sm" disabled={page <= 1 || pending} onClick={() => onPage(page - 1)}>
+            Anterior
+          </Button>
+          <span className="font-mono text-xs text-muted">
+            Página {page} de {totalPages}
+          </span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages || pending} onClick={() => onPage(page + 1)}>
+            Siguiente
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Correo como `mailto:` (accionable desde la tabla, BLOQ-11). */
+function EmailLink({ email }: { email: string }) {
+  return (
+    <a href={`mailto:${email}`} className="text-text underline underline-offset-2 hover:text-accent">
+      {email}
+    </a>
+  );
+}
+
+/**
+ * Teléfono accionable: `tel:` + enlace a WhatsApp (`wa.me`). El valor persistido son 10 dígitos
+ * (§CARDSHOW.1b); para `tel:`/`wa.me` se antepone la lada MX (+52 / 52).
+ */
+function PhoneLinks({ phone }: { phone: string | null }) {
+  if (!phone) return <>—</>;
+  const digits = phone.replace(/\D/g, '');
+  const intl = digits.length === 10 ? `52${digits}` : digits;
+  return (
+    <span className="flex flex-col gap-0.5">
+      <a href={`tel:+${intl}`} className="tabular text-text underline underline-offset-2 hover:text-accent">
+        {phone}
+      </a>
+      <a
+        href={`https://wa.me/${intl}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+      >
+        WhatsApp
+      </a>
+    </span>
+  );
+}
+
 function LeadsPanel() {
   const locale = useLocale() as AppLocale;
-  const [filters, setFilters] = useState<LeadListFilters>({});
+  const [type, setType] = useState<LeadListFilters['type']>(undefined);
+  const [status, setStatus] = useState<LeadListFilters['status']>(undefined);
+  const [qInput, setQInput] = useState('');
+  const q = useDebouncedValue(qInput.trim(), 300); // BLOQ-11: no una consulta por pulsación
+  const [page, setPage] = useState(1);
+  // Cualquier cambio de filtro o de búsqueda vuelve a la página 1.
+  useEffect(() => setPage(1), [type, status, q]);
+
+  const baseFilters: LeadListFilters = { type, status, q: q || undefined };
+  const filters: LeadListFilters = { ...baseFilters, page, pageSize: PAGE_SIZE };
   const query = useQuery({
     queryKey: ['cs-admin-leads', filters],
-    queryFn: () => listCardShowLeads({ ...filters, pageSize: 50 }),
+    queryFn: () => listCardShowLeads(filters),
     placeholderData: keepPreviousData,
     retry: false,
   });
   const rows = query.data?.data ?? [];
+  const total = query.data?.total ?? 0;
   const forbidden = asApiError(query.error)?.status === 403;
   const csv = useMutation({
-    mutationFn: () => exportCardShowLeadsCsv(filters),
+    mutationFn: () => exportCardShowLeadsCsv(baseFilters),
     onSuccess: ({ blob, filename }) => triggerBlobDownload(blob, filename ?? 'card-show-leads.csv'),
   });
-
-  const patch = (p: Partial<LeadListFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   if (forbidden) {
     return (
@@ -156,8 +246,8 @@ function LeadsPanel() {
               { value: 'merchant', label: 'Vendedor' },
               { value: 'sponsor', label: 'Patrocinador' },
             ]}
-            value={filters.type ?? ''}
-            onChange={(e) => patch({ type: (e.target.value || undefined) as LeadListFilters['type'] })}
+            value={type ?? ''}
+            onChange={(e) => setType((e.target.value || undefined) as LeadListFilters['type'])}
           />
         </div>
         <div className="min-w-[11rem]">
@@ -170,15 +260,15 @@ function LeadsPanel() {
               { value: 'closed', label: 'Cerrado' },
               { value: 'discarded', label: 'Descartado' },
             ]}
-            value={filters.status ?? ''}
-            onChange={(e) => patch({ status: (e.target.value || undefined) as LeadListFilters['status'] })}
+            value={status ?? ''}
+            onChange={(e) => setStatus((e.target.value || undefined) as LeadListFilters['status'])}
           />
         </div>
         <div className="min-w-[14rem] flex-1">
           <Input
             label="Buscar (nombre o correo)"
-            value={filters.q ?? ''}
-            onChange={(e) => patch({ q: e.target.value || undefined })}
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
           />
         </div>
         <CsvButton onClick={() => csv.mutate()} pending={csv.isPending} />
@@ -201,6 +291,7 @@ function LeadsPanel() {
           (rows.length === 0 ? (
             <EmptyState title="Sin leads" body="Ningún registro confirmado con estos filtros." />
           ) : (
+            <div className="flex flex-col gap-3">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm" data-testid="cs-leads-table">
                 <thead>
@@ -221,8 +312,8 @@ function LeadsPanel() {
                     <tr key={r.id} className="border-b border-border align-top" data-testid={`cs-lead-${r.id}`}>
                       <td className="py-3 pr-3 text-text">{r.name}</td>
                       <td className="py-3 pr-3">{LEAD_TYPE_LABEL[r.type] ?? r.type}</td>
-                      <td className="py-3 pr-3 tabular">{r.email}</td>
-                      <td className="py-3 pr-3 tabular">{r.phone ?? '—'}</td>
+                      <td className="py-3 pr-3 tabular"><EmailLink email={r.email} /></td>
+                      <td className="py-3 pr-3"><PhoneLinks phone={r.phone} /></td>
                       <td className="py-3 pr-3">{r.gameInterest ? GAME_LABEL[r.gameInterest] : '—'}</td>
                       <td className="py-3 pr-3">{r.raffleOptIn ? 'Sí' : 'No'}</td>
                       <td className="py-3 pr-3 text-muted">{r.sellsWhat ?? '—'}</td>
@@ -235,6 +326,8 @@ function LeadsPanel() {
                 </tbody>
               </table>
             </div>
+            <Pagination page={page} pageSize={PAGE_SIZE} total={total} pending={query.isFetching} onPage={setPage} />
+            </div>
           ))}
       </QueryState>
     </div>
@@ -243,21 +336,29 @@ function LeadsPanel() {
 
 function PlayersPanel() {
   const locale = useLocale() as AppLocale;
-  const [filters, setFilters] = useState<PlayerListFilters>({});
+  const [game, setGame] = useState<PlayerListFilters['game']>(undefined);
+  const [day, setDay] = useState<PlayerListFilters['day']>(undefined);
+  const [status, setStatus] = useState<PlayerListFilters['status']>(undefined);
+  const [qInput, setQInput] = useState('');
+  const q = useDebouncedValue(qInput.trim(), 300); // BLOQ-11
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [game, day, status, q]);
+
+  const baseFilters: PlayerListFilters = { game, day, status, q: q || undefined };
+  const filters: PlayerListFilters = { ...baseFilters, page, pageSize: PAGE_SIZE };
   const query = useQuery({
     queryKey: ['cs-admin-players', filters],
-    queryFn: () => listCardShowPlayers({ ...filters, pageSize: 50 }),
+    queryFn: () => listCardShowPlayers(filters),
     placeholderData: keepPreviousData,
     retry: false,
   });
   const rows = query.data?.data ?? [];
+  const total = query.data?.total ?? 0;
   const forbidden = asApiError(query.error)?.status === 403;
   const csv = useMutation({
-    mutationFn: () => exportCardShowPlayersCsv(filters),
+    mutationFn: () => exportCardShowPlayersCsv(baseFilters),
     onSuccess: ({ blob, filename }) => triggerBlobDownload(blob, filename ?? 'card-show-players.csv'),
   });
-
-  const patch = (p: Partial<PlayerListFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   if (forbidden) {
     return (
@@ -280,8 +381,8 @@ function PlayersPanel() {
               { value: 'lorcana', label: 'Lorcana' },
               { value: 'shardbugs', label: 'Shard Bugs' },
             ]}
-            value={filters.game ?? ''}
-            onChange={(e) => patch({ game: (e.target.value || undefined) as PlayerListFilters['game'] })}
+            value={game ?? ''}
+            onChange={(e) => setGame((e.target.value || undefined) as PlayerListFilters['game'])}
           />
         </div>
         <div className="min-w-[10rem]">
@@ -292,8 +393,8 @@ function PlayersPanel() {
               { value: 'sat', label: 'Sábado' },
               { value: 'sun', label: 'Domingo' },
             ]}
-            value={filters.day ?? ''}
-            onChange={(e) => patch({ day: (e.target.value || undefined) as PlayerListFilters['day'] })}
+            value={day ?? ''}
+            onChange={(e) => setDay((e.target.value || undefined) as PlayerListFilters['day'])}
           />
         </div>
         <div className="min-w-[11rem]">
@@ -306,15 +407,15 @@ function PlayersPanel() {
               { value: 'cancelled', label: 'Cancelado' },
               { value: 'checked_in', label: 'Registrado en sitio' },
             ]}
-            value={filters.status ?? ''}
-            onChange={(e) => patch({ status: (e.target.value || undefined) as PlayerListFilters['status'] })}
+            value={status ?? ''}
+            onChange={(e) => setStatus((e.target.value || undefined) as PlayerListFilters['status'])}
           />
         </div>
         <div className="min-w-[14rem] flex-1">
           <Input
             label="Buscar (nombre, correo o Player ID)"
-            value={filters.q ?? ''}
-            onChange={(e) => patch({ q: e.target.value || undefined })}
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
           />
         </div>
         <CsvButton onClick={() => csv.mutate()} pending={csv.isPending} />
@@ -337,6 +438,7 @@ function PlayersPanel() {
           (rows.length === 0 ? (
             <EmptyState title="Sin preinscritos" body="Ninguna preinscripción confirmada con estos filtros." />
           ) : (
+            <div className="flex flex-col gap-3">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm" data-testid="cs-players-table">
                 <thead>
@@ -365,6 +467,8 @@ function PlayersPanel() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <Pagination page={page} pageSize={PAGE_SIZE} total={total} pending={query.isFetching} onPage={setPage} />
             </div>
           ))}
       </QueryState>

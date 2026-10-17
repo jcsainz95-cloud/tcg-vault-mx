@@ -12,25 +12,49 @@ import { MerchantSponsorForm } from './MerchantSponsorForm';
  *  2. «Preinscríbete al torneo» → `POST /card-show/players` (Pokémon formal / resto ligera).
  *  3. «Vendedor / Patrocinador» → `POST /card-show/leads` (`type=merchant|sponsor`).
  *
- * El CTA secundario del hero («¿Vendes o patrocinas?») apunta a `#vendedores`: al llegar con ese hash
- * se abre la pestaña comercial. Tablist con roles ARIA, flechas ←/→, foco visible y objetivos ≥44px.
+ * CTAs que abren una pestaña por hash: `#vendedores` (CTA secundario del hero) → comercial;
+ * `#preinscribete`/`#torneo` (CTA «Preinscríbete» de la sección Torneos) → torneo, y además pone el
+ * FOCO en el primer campo del formulario. Tablist con roles ARIA, flechas ←/→, foco visible, ≥44px.
  */
 type TabKey = 'asistente' | 'torneo' | 'comercial';
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'asistente', label: 'Asistente / Jugador' },
+  { key: 'asistente', label: 'Asistente' },
   { key: 'torneo', label: 'Preinscríbete al torneo' },
   { key: 'comercial', label: 'Vendedor / Patrocinador' },
 ];
 
+/** Hash → pestaña que abre (los CTAs de la página apuntan a estos anclajes). */
+const HASH_TO_TAB: Record<string, TabKey> = {
+  '#vendedores': 'comercial',
+  '#preinscribete': 'torneo',
+  '#torneo': 'torneo',
+};
+
 export function RegistrationForms() {
   const [active, setActive] = useState<TabKey>('asistente');
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panelRefs = useRef<Record<TabKey, HTMLDivElement | null>>({
+    asistente: null,
+    torneo: null,
+    comercial: null,
+  });
 
-  // El hash #vendedores (CTA secundario del hero) abre la pestaña comercial.
+  // El hash abre la pestaña correspondiente; para la de torneo pone el foco en su primer campo.
   useEffect(() => {
     const sync = () => {
-      if (window.location.hash === '#vendedores') setActive('comercial');
+      const tab = HASH_TO_TAB[window.location.hash];
+      if (!tab) return;
+      setActive(tab);
+      if (tab === 'torneo') {
+        // Tras pintar el panel, foco en el primer control (el Select «Juego»).
+        requestAnimationFrame(() => {
+          const first = panelRefs.current.torneo?.querySelector<HTMLElement>(
+            'input, select, textarea, button',
+          );
+          first?.focus();
+        });
+      }
     };
     sync();
     window.addEventListener('hashchange', sync);
@@ -48,6 +72,7 @@ export function RegistrationForms() {
   return (
     <div>
       <span id="vendedores" aria-hidden className="sr-only" />
+      <span id="preinscribete" aria-hidden className="sr-only" />
       <div role="tablist" aria-label="Formularios de registro" className="flex flex-wrap gap-2">
         {TABS.map((t, i) => {
           const selected = active === t.key;
@@ -79,6 +104,9 @@ export function RegistrationForms() {
       {TABS.map((t) => (
         <div
           key={t.key}
+          ref={(el) => {
+            panelRefs.current[t.key] = el;
+          }}
           role="tabpanel"
           id={`cs-panel-${t.key}`}
           aria-labelledby={`cs-tab-${t.key}`}
@@ -87,7 +115,7 @@ export function RegistrationForms() {
         >
           {t.key === 'asistente' && (
             <>
-              <h3 className="font-brand text-h3 font-bold">Asistente y jugador</h3>
+              <h3 className="font-brand text-h3 font-bold">Asistente</h3>
               <p className="mb-6 mt-2 max-w-prose text-sm text-muted">
                 Para público general: entra a la rifa y entérate primero de todo.
               </p>
@@ -98,7 +126,8 @@ export function RegistrationForms() {
             <>
               <h3 className="font-brand text-h3 font-bold">Preinscríbete al torneo</h3>
               <p className="mb-6 mt-2 max-w-prose text-sm text-muted">
-                Elige tu juego y tu día. En Pokémon pedimos tu Player ID; en los demás juegos basta con tu interés.
+                Preinscripción abierta; los horarios se anuncian en los próximos días. Elige tu juego y tu día. En
+                Pokémon pedimos tu Player ID; en los demás juegos basta con tu interés.
               </p>
               <TorneoForm />
             </>
