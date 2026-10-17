@@ -168,10 +168,22 @@ export function submitPlayer(body: PlayerSubmitBody): Promise<void> {
  */
 export type LinkAction = 'confirm' | 'cancel' | 'unsubscribe';
 
-/** Éxito: `200 { ok:true, state }` — `state` es el nuevo estado de la fila (§CARDSHOW.1/.6). */
+/**
+ * Desglose POR DÍA de la confirmación de GRUPO «los dos días» (§CARDSHOW.12 ⭐M-88). `state` es un
+ * `CardShowSignupStatus` (`confirmed | waitlist | …`). ADITIVO sobre `ConfirmResult`: ausente para
+ * leads (no-torneo) y para la preinscripción de 1 solo día ⇒ en esos casos el copy no cambia.
+ */
+export interface ConfirmDayResult {
+  day: 'sat' | 'sun';
+  state: string;
+}
+
+/** Éxito: `200 { ok:true, state, days? }` — `state` es el nuevo estado de la fila (§CARDSHOW.1/.6). */
 export interface LinkActionSuccess {
   ok: true;
   state?: string;
+  /** Solo en `confirm` de un GRUPO de 2 días (§CARDSHOW.12 ⭐M-88); ausente en el resto. */
+  days?: ConfirmDayResult[];
 }
 /**
  * Rechazo con mensaje (torneo lleno / Player ID ya preinscrito ese día, §CARDSHOW.12): el backend
@@ -182,6 +194,22 @@ export interface LinkActionRejected {
   message: string;
 }
 export type LinkActionResult = LinkActionSuccess | LinkActionRejected;
+
+/**
+ * Normaliza el `days[]` del desglose por día (§CARDSHOW.12 ⭐M-88), defensivo ante formas inesperadas:
+ * solo conserva entradas con `day ∈ {sat, sun}` y `state` string. Array vacío o ausente ⇒ `undefined`
+ * (⇒ el copy de 1 día / leads no cambia).
+ */
+function parseConfirmDays(raw: unknown): ConfirmDayResult[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const days: ConfirmDayResult[] = [];
+  for (const d of raw) {
+    if (typeof d !== 'object' || d === null) continue;
+    const { day, state } = d as { day?: unknown; state?: unknown };
+    if ((day === 'sat' || day === 'sun') && typeof state === 'string') days.push({ day, state });
+  }
+  return days.length > 0 ? days : undefined;
+}
 
 /**
  * Ejecuta el cambio de estado del doble opt-in: `POST application/json { token }` a
@@ -208,7 +236,7 @@ export async function postLinkAction(action: LinkAction, token: string): Promise
   }
 
   const body = (await res.json().catch(() => null)) as
-    | { ok?: boolean; state?: string; message?: string; error?: { code?: string; message?: string; details?: Record<string, unknown> } }
+    | { ok?: boolean; state?: string; days?: unknown; message?: string; error?: { code?: string; message?: string; details?: Record<string, unknown> } }
     | null;
 
   // Rechazo con mensaje para la vista (torneo lleno / ya preinscrito): se muestra tal cual, venga en
@@ -216,7 +244,13 @@ export async function postLinkAction(action: LinkAction, token: string): Promise
   if (body && body.ok === false && typeof body.message === 'string') {
     return { ok: false, message: body.message };
   }
-  if (res.ok) return { ok: true, state: typeof body?.state === 'string' ? body.state : undefined };
+  if (res.ok) {
+    return {
+      ok: true,
+      state: typeof body?.state === 'string' ? body.state : undefined,
+      days: parseConfirmDays(body?.days),
+    };
+  }
 
   // 400 u otro error de forma: código del contrato si viene, genérico si no.
   const err = body?.error;
