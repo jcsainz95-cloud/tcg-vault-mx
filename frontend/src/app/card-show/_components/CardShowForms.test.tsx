@@ -49,9 +49,11 @@ describe('LeadVisitorForm · asistente (type=visitor)', () => {
     expect(container.querySelector('.opacity-0')).toBeNull();
   });
 
-  it('la casilla de la rifa nace PREMARCADA (§CARDSHOW.1b)', () => {
+  it('la casilla de la rifa nace DESMARCADA (⭐M-89: separada de privacidad, con enlace a bases)', () => {
     render(<LeadVisitorForm />);
-    expect(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ })).not.toBeChecked();
+    // El enlace a las bases vive en la propia casilla de rifa, no en la de privacidad.
+    expect(screen.getByRole('link', { name: /Ver bases de la rifa/ })).toHaveAttribute('href', '#rifa');
   });
 
   it('sin nombre / correo inválido / sin consentimiento ⇒ errores de campo, no hace POST', async () => {
@@ -87,6 +89,8 @@ describe('LeadVisitorForm · asistente (type=visitor)', () => {
     await u.type(screen.getByLabelText('Nombre'), 'Ana López');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByRole('button', { name: 'Lorcana' }));
+    // ⭐M-89: la rifa nace desmarcada; hay que marcarla para que raffleOptIn=true.
+    await u.click(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ }));
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
@@ -101,13 +105,13 @@ describe('LeadVisitorForm · asistente (type=visitor)', () => {
     expect('phone' in body ? body.phone : undefined).toBeUndefined();
   });
 
-  it('sin rifa ⇒ raffleOptIn=false y SIN raffleTermsVersion (§CARDSHOW.1b)', async () => {
+  it('sin rifa (casilla desmarcada por defecto) ⇒ raffleOptIn=false y SIN raffleTermsVersion (⭐M-89)', async () => {
     submitLead.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<LeadVisitorForm />);
     await u.type(screen.getByLabelText('Nombre'), 'Ana');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ })); // la desmarca
+    // ⭐M-89: NO se toca la casilla de rifa (nace desmarcada); solo se marca privacidad.
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
@@ -155,7 +159,7 @@ describe('MerchantSponsorForm · vendedor/patrocinador (type=merchant|sponsor)',
     await u.type(screen.getByLabelText(/Qué vendes/), 'Singles y sellado');
     await u.click(screen.getByLabelText(/Acepto que TCG HUNT/));
     await u.click(screen.getByRole('button', { name: 'Quiero que me contacten' }));
-    expect(await screen.findByText(/Te contactamos pronto/)).toBeInTheDocument();
+    expect(await screen.findByText(/Confirma tu correo/)).toBeInTheDocument();
     const body = submitLead.mock.calls[0][0];
     expect(body.type).toBe('merchant');
     expect(body.name).toBe('Mi Tienda');
@@ -173,7 +177,7 @@ describe('MerchantSponsorForm · vendedor/patrocinador (type=merchant|sponsor)',
     await u.type(screen.getByLabelText('Correo'), 'marca@correo.com');
     await u.click(screen.getByLabelText(/Acepto que TCG HUNT/));
     await u.click(screen.getByRole('button', { name: 'Quiero que me contacten' }));
-    expect(await screen.findByText(/Te contactamos pronto/)).toBeInTheDocument();
+    expect(await screen.findByText(/Confirma tu correo/)).toBeInTheDocument();
     expect(submitLead.mock.calls[0][0].type).toBe('sponsor');
   });
 });

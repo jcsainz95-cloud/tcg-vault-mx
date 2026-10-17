@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CARD_SHOW, CARD_SHOW_GAMES, type CardShowGame } from '@/content/card-show';
@@ -13,19 +13,23 @@ import {
   PrivacyCheckbox,
   SuccessPanel,
   errorMessage,
+  focusFirstInvalid,
   isEmail,
   readAttribution,
   useFormTokens,
 } from './form-shared';
 
 /**
- * Formulario «Asistente / Jugador» (API_CONTRACT §CARDSHOW.3/.5/.6, v1.96 M-84). Captura pública sin
- * cuenta ⇒ `POST /card-show/leads` con `type=visitor`: nombre + correo + juego de interés (chips,
- * opcional) + participar en la rifa (casilla PREMARCADA) + consentimiento (privacidad + bases).
+ * Formulario «Asistente» (API_CONTRACT §CARDSHOW.3/.5/.6/.18, v1.100 M-89). Captura pública sin cuenta
+ * ⇒ `POST /card-show/leads` con `type=visitor`: nombre + correo + juego de interés (chips, opcional) +
+ * participar en la rifa (casilla PROPIA y DESMARCADA, con enlace a bases) + consentimiento de privacidad.
+ *
+ * ⭐M-89: la casilla de privacidad obligatoria NO bundlea las bases de la rifa; `raffleOptIn` es una
+ * casilla SEPARADA y DESMARCADA por defecto, con enlace a las bases. Solo cuando el visitante marca la
+ * rifa se envía `raffleTermsVersion` (§CARDSHOW.1b: obligatorio ⇔ `raffleOptIn=true`).
  *
  * UN solo POST (un `type`). `gameInterest` es un `CardShowGame` (único) y opcional: si el visitante
- * no elige, no se envía. Cuando marca la rifa, se envía `raffleTermsVersion` (§CARDSHOW.1b:
- * obligatorio ⇔ `raffleOptIn=true`); el texto del consentimiento nombra las bases de la rifa.
+ * no elige, no se envía.
  *
  * Se pinta SIN JS (SSR): los campos existen en el HTML inicial, nada de `opacity:0` hasta hidratar.
  */
@@ -33,13 +37,14 @@ export function LeadVisitorForm() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [game, setGame] = useState<CardShowGame | ''>('');
-  const [raffle, setRaffle] = useState(true); // casilla PREMARCADA (§CARDSHOW.1b)
+  const [raffle, setRaffle] = useState(false); // ⭐M-89: casilla propia, DESMARCADA por defecto
   const [consent, setConsent] = useState(false);
   const [hp, setHp] = useState('');
   const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; email?: string; consent?: string }>({});
   const { prime, withToken } = useFormTokens('leads');
+  const formRef = useRef<HTMLFormElement>(null);
 
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
@@ -47,6 +52,8 @@ export function LeadVisitorForm() {
     if (!isEmail(email)) errs.email = FORM_MESSAGES.needEmail;
     if (!consent) errs.consent = FORM_MESSAGES.needConsent;
     setFieldErrors(errs);
+    // §CS-UX.3: foco al primer control inválido tras pintar los `aria-invalid`.
+    if (Object.keys(errs).length > 0) requestAnimationFrame(() => focusFirstInvalid(formRef.current));
     return Object.keys(errs).length === 0;
   }
 
@@ -85,7 +92,7 @@ export function LeadVisitorForm() {
   }
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
+    <form ref={formRef} className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <div className="grid gap-6 sm:grid-cols-2">
         <Input
           label="Nombre"
@@ -121,6 +128,7 @@ export function LeadVisitorForm() {
         </div>
       </fieldset>
 
+      {/* ⭐M-89: casilla de rifa PROPIA y DESMARCADA, con enlace a las bases (separada de privacidad). */}
       <label className="flex items-start gap-3 text-[13px] leading-relaxed text-text">
         <input
           type="checkbox"
@@ -130,10 +138,17 @@ export function LeadVisitorForm() {
         />
         <span>
           Quiero participar en la rifa (set 30.º aniversario Pokémon)
-          <span className="mt-0.5 block text-muted">Hay que estar presente el día del evento para ganar.</span>
+          <span className="mt-0.5 block text-muted">
+            Hay que estar presente el día del evento para ganar.{' '}
+            <a href="#rifa" className="text-accent underline underline-offset-2">
+              Ver bases de la rifa
+            </a>
+            .
+          </span>
         </span>
       </label>
 
+      {/* ⭐M-89: privacidad obligatoria = SOLO privacidad (⛔ no fuerza aceptar las bases de la rifa). */}
       <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
         He leído el{' '}
         <a
@@ -144,7 +159,7 @@ export function LeadVisitorForm() {
         >
           aviso de privacidad
         </a>{' '}
-        y acepto las bases de la rifa.
+        y acepto el tratamiento de mis datos.
       </PrivacyCheckbox>
 
       <Honeypot value={hp} onChange={setHp} />

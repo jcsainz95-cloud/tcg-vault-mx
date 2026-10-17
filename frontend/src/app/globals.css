@@ -90,6 +90,14 @@
   --color-on-ink-rule: rgba(244, 241, 234, 0.14);
 
   --color-focus-ring: #b31217;
+
+  /*
+   * Rojo SOBRE TINTA del microsite Card Show (DESIGN_SYSTEM §CS-UX.1, vCS-1). #B31217 sobre
+   * #1A1A18 da 2.50:1 (prohibido: ni texto, ni borde, ni anillo de foco). #E0353B da 3.94:1:
+   * sirve como anillo de foco (≥3:1), borde/regla/acento y relleno de CTA (etiqueta grande) sobre
+   * tinta. ⚠ NO es --hunt-red-up #f0685f (extremo del degradado del logo oscuro): son distintos.
+   */
+  --hunt-red-on-ink: #e0353b;
 }
 
 @layer base {
@@ -123,6 +131,15 @@
     outline-offset: 2px;
     box-shadow: none;
   }
+  /*
+   * Sobre tinta el anillo #B31217 (2.50:1) NO se ve: el foco de cualquier control dentro de una
+   * banda `.bg-ink` (hero, rifa, footer del Card Show) pasa a #E0353B (3.94:1 ≥ 3:1, §CS-UX.1).
+   * Sobre papel sigue el de §8.2.
+   */
+  .bg-ink :focus-visible,
+  .bg-ink:focus-visible {
+    outline-color: var(--hunt-red-on-ink);
+  }
 }
 
 @layer utilities {
@@ -138,6 +155,14 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-text-muted);
+  }
+  /*
+   * Sobre tinta `text-muted` #6E695E da 3.19:1 y falla AA (§CS-UX.2). Toda `.eyebrow`/etiqueta
+   * secundaria dentro de una banda `.bg-ink` (eyebrow del hero, rótulos de la cuenta regresiva)
+   * usa `on-ink-nav` #A39D91 (6.46:1).
+   */
+  .bg-ink .eyebrow {
+    color: var(--color-on-ink-nav);
   }
   /* Nota al margen: sustituye a los banners de color. */
   .rule-note {

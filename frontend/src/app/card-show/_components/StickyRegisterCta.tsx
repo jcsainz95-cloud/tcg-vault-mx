@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 
 /**
- * CTA fija inferior «Regístrate» — SOLO móvil (<sm). Se mantiene OCULTA mientras el hero está en
- * viewport para no tapar el botón «Regístrate gratis» del propio hero (MENOR-3, tester-e2e
- * 2026-10-17); se desliza hacia arriba en cuanto el usuario deja atrás el hero por completo.
+ * CTA fija inferior «Regístrate» — SOLO móvil (<sm). Se mantiene OCULTA:
+ *  - mientras el HERO está en viewport, para no tapar su propio botón (MENOR-3, tester-e2e 2026-10-17);
+ *  - mientras la sección REGISTRO está en viewport (BLOQ-4): si el usuario ya está en los formularios
+ *    —o viendo el panel de éxito, que vive dentro de `#registro`— la CTA sobra y estorba (BLOQ-1).
+ * Se desliza a la vista solo entre medias (contenido intermedio), cuando lleva al registro sirve.
  *
- * Progressive enhancement: antes de hidratar (y si no hay JS o no se encuentra el hero) permanece
- * fuera de pantalla, de modo que NUNCA solapa el hero en la primera pintura. El botón del hero y los
- * formularios de la sección «Registro» siguen disponibles sin JS.
+ * Progressive enhancement: antes de hidratar (y si no hay JS o no se encuentran las secciones)
+ * permanece fuera de pantalla, de modo que NUNCA solapa el hero en la primera pintura. El botón del
+ * hero y los formularios de la sección «Registro» siguen disponibles sin JS.
  */
 export function StickyRegisterCta({
   href,
@@ -22,6 +24,8 @@ export function StickyRegisterCta({
 }) {
   // `null` = aún sin medir (SSR / pre-hidratación): off-screen. `true` = hero ya fuera de viewport.
   const [pastHero, setPastHero] = useState<boolean | null>(null);
+  // `true` = la sección de registro está (al menos en parte) en viewport ⇒ ocultar la CTA.
+  const [registroVisible, setRegistroVisible] = useState(false);
 
   useEffect(() => {
     const hero = document.getElementById('hero');
@@ -34,7 +38,15 @@ export function StickyRegisterCta({
     return () => io.disconnect();
   }, []);
 
-  const shown = pastHero === true;
+  useEffect(() => {
+    const registro = document.getElementById('registro');
+    if (!registro || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => setRegistroVisible(entry.isIntersecting), { threshold: 0 });
+    io.observe(registro);
+    return () => io.disconnect();
+  }, []);
+
+  const shown = pastHero === true && !registroVisible;
 
   return (
     <div

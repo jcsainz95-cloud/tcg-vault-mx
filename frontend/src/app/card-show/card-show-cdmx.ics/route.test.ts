@@ -59,9 +59,10 @@ describe('GET /card-show/card-show-cdmx.ics', () => {
   it('lleva SUMMARY, LOCATION y DESCRIPTION del contenido, con comas escapadas', () => {
     const body = buildCardShowIcs();
     expect(body).toContain('SUMMARY:Card Show CDMX');
-    // ⭐ PIVOTE A CAPTURA (JC 2026-10-17): la calle exacta ya NO es pública («la compartimos con tu
-    // registro»); el `.ics` lleva sólo la ZONA. La coma sigue escapándose (`\,`).
-    expect(body).toContain('LOCATION:San José Insurgentes\\, Benito Juárez\\, CDMX');
+    // ⭐ R5b (JC 2026-10-17): la dirección exacta YA es pública (DATOS DEL EVENTO); el `.ics` lleva la
+    // calle completa. La coma se escapa (`\,`) y la línea larga se pliega (RFC 5545), por eso se
+    // comprueba un prefijo contiguo anterior al primer pliegue.
+    expect(body).toContain('LOCATION:José del Castillo 3\\, esq. Av. Revolución');
     expect(body).toContain('DESCRIPTION:Entrada libre. TCG HUNT × Jakomi');
   });
 

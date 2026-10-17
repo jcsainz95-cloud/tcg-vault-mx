@@ -4,6 +4,69 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-R5b · Bloqueantes móvil/legal/accesibilidad + datos del evento (2026-10-17, rama `fix/card-show-r5b-frontend`, base `release/card-show` sha `1315236`)
+
+**Estado vigente.** Lista RECORTADA por el dueño (solo bloqueantes + legal/privacidad + contenido del
+evento; lo cosmético menor va a fast-follow). Todo acotado a `/card-show`, el panel admin y componentes UI
+compartidos (`Select`). Cambios:
+- **BLOQ-1 éxito móvil** (`_components/form-shared.tsx` `SuccessPanel`): al sustituir al formulario mueve el
+  foco a sí mismo (`role="status"`, `tabIndex=-1`, `focus()` + `scrollIntoView({block:'center'})` respetando
+  reduced-motion; `scrollCenter` es no-op si el entorno no implementa `scrollIntoView` — jsdom). La CTA fija se
+  oculta al entrar a `#registro` (`StickyRegisterCta` observa `#hero` **y** `#registro`), lo que cubre el éxito.
+- **BLOQ-2 rifa M-89** (`LeadVisitorForm.tsx`): `raffleOptIn` nace **DESMARCADO** (`useState(false)`), casilla
+  PROPIA con enlace a bases (`<a href="#rifa">Ver bases de la rifa</a>`). La casilla de privacidad obligatoria
+  = SOLO privacidad (copy «…y acepto el tratamiento de mis datos», ya no «acepto las bases»). `raffleTermsVersion`
+  solo se envía si la rifa está marcada (lógica previa intacta).
+- **BLOQ-3 contraste/foco §CS-UX** (`globals.css`, `tailwind.config.ts`, `page.tsx`, `components/ui/Select.tsx`):
+  token `--hunt-red-on-ink: #E0353B` + color Tailwind `hunt-red-on-ink`. CTA hero/rifa sobre tinta → `btnRedOnInk`
+  (relleno `#E0353B`, etiqueta papel). Foco sobre tinta a `#E0353B` vía `.bg-ink :focus-visible{outline-color}`.
+  Eyebrow/rótulos de la cuenta regresiva a `on-ink-nav` vía `.bg-ink .eyebrow{color}`. Borde del teaser de rifa
+  del hero `border-l-accent`→`#E0353B`. `Select` gana `error`/`hint`/`required` (aria-invalid/describedby +
+  icono `circle-alert`); los tres formularios enfocan el **primer inválido** al enviar (`focusFirstInvalid`,
+  rAF tras `setFieldErrors`); el grupo de día lleva el error en el `fieldset` y `aria-invalid` en el primer radio.
+- **BLOQ-4 navegación** (`page.tsx`, `StickyRegisterCta.tsx`): `scroll-mt-[73px]` en toda sección con `id`
+  (header fijo 73px). La CTA fija se oculta en `#registro` (ver BLOQ-1).
+- **BLOQ-5 torneos + precio** (`content/card-show.ts`, `page.tsx`, `RegistrationForms.tsx`): CTA «Preinscríbete»
+  (`#preinscribete`) abre la pestaña de torneo y pone el foco en el primer campo (Select «Juego»). Copy
+  «preinscripción abierta; horarios por anunciar». Pestaña «Asistente / Jugador» → **«Asistente»**. Main Pokémon
+  = **MX$200** (campo `juegos[].precio`, igual que el correo); demás «Por anunciar».
+- **BLOQ-6 datos del evento** (`content/card-show.ts` `evento`, nueva sección `#cuando-donde` en `page.tsx`):
+  dirección completa (José del Castillo 3…), pisos (2 vendedores / 3 torneos+juego+comida), horarios (sáb 11–19,
+  dom 11–18; entrada libre), torneo Pokémon **preliminar** (sáb 12–18, dom 12–17, «horarios finales en los
+  próximos días»), montaje vie 4 dic, cómo llegar (Metro Mixcoac L7/L12, Metrobús L1 Río Churubusco), enlace a
+  Maps (externo, **no iframe** — CSP). Fuente única: `docs/specs/CARDSHOW_LANDING_ESTADO.md` «DATOS DEL EVENTO».
+  FAQ y `comoLlegar.direccion` (LOCATION del `.ics`) actualizados a la dirección pública.
+- **BLOQ-7 confirmación** (`LinkActionClient.tsx`): enlace de salida «← Volver al Card Show» siempre visible;
+  el 410 en `confirm` ya no se lee como error («Si ya confirmaste tu registro, no necesitas hacer nada más»).
+  ⛔ La tipografía Mincho→Montserrat de estas páginas queda como fast-follow (no se tocó).
+- **BLOQ-8 privacidad landing** (`PrivacyMini.tsx`): cubre nombre, teléfono (vendedores/patrocinadores) y la
+  rifa; **ya no menciona compartir datos con Jakomi**. (El aviso INTEGRAL `content/legal/privacidad.es.ts §5`
+  sigue mencionando el torneo→Jakomi; ver «Solicitud al arquitecto» abajo.)
+- **BLOQ-9 contacto accionable** (`page.tsx` footer, `content/card-show.ts`): WhatsApp → `wa.me/525564893921`,
+  correo → `mailto:`.
+- **BLOQ-10 OG** (`layout.tsx`): `metadataBase` + `openGraph.images` + `twitter` (summary_large_image). Imagen
+  placeholder de marca `public/card-show/og.png` (1200×630, papel/tinta). **Marketing la reemplaza.**
+- **BLOQ-11 panel admin** (`CardShowAdminView.tsx`, `app/[locale]/(admin)/admin/card-show`): muestra **total** +
+  **paginación** (`page`, `PAGE_SIZE=50`, usa la envoltura `{data,page,pageSize,total}`), **debounce** del
+  buscador (`useDebouncedValue`, 300 ms; cambio de filtro/búsqueda vuelve a página 1), enlaces `tel:`/`wa.me`/
+  `mailto:` en la tabla de leads. ⛔ NO se construyó «marcar Contactado/Cerrado» (descartado por el dueño; el
+  filtro por estado es solo lectura).
+- **BLOQ-12 copy éxito vendedor** (`MerchantSponsorForm.tsx`): «¡Gracias! Confirma tu correo para terminar»
+  (coherente con el doble opt-in; antes contradecía «revisa tu correo»).
+
+**Pruebas actualizadas** (frontend puede, no es `-lite`): `CardShowForms.test.tsx` (rifa desmarcada + enlace a
+bases; éxito marca la rifa; «sin rifa» ya no la toca; copy vendedor «Confirma tu correo»). El panel admin
+(`CardShowAdminView.test.tsx`) no cambió de conducta probada (total:1 ⇒ «1 resultado», sin paginación).
+
+**Verificación:** `npm run build` exit 0 (hornea typecheck). Detalle de Playwright en el informe de la rama.
+
+**Solicitud al arquitecto (BLOQ-8):** el aviso de privacidad INTEGRAL (`content/legal/privacidad.es.ts §5
+remisiones`) todavía dice que la preinscripción al torneo se comparte con Jakomi. El encargo R5b («backend quitó
+la PII a Jakomi») solo cubrió la landing; no toqué el aviso integral por ser texto legal (dueño product-owner/
+arquitecto) y porque la decisión JC-3 cerraba L2-SEG-01 sobre el correo interno de VENDEDOR, no explícitamente
+sobre el torneo. **Si Jakomi tampoco recibe ya los datos de preinscripción, hay que actualizar §5.** Marcado
+como pregunta, no modificado.
+
 ## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `fade4e6`, §CARDSHOW.12 ⭐M-88, BLOQ-A frontend)
 
 **Estado vigente.** Parte frontend de BLOQ-A (el backend confirma AMBAS filas `sat`+`sun` del grupo y

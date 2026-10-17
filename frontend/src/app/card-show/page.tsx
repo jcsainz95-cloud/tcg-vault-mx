@@ -17,6 +17,10 @@ import { StickyRegisterCta } from './_components/StickyRegisterCta';
 
 const btnRed =
   'inline-flex min-h-[48px] items-center justify-center bg-accent px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
+// CTA sobre TINTA (§CS-UX.1): relleno #E0353B (no #B31217, 2.50:1), etiqueta papel. El relleno
+// #E0353B sobre tinta separa a 3.94:1 (WCAG 1.4.11) y el hover oscurece un 6%.
+const btnRedOnInk =
+  'inline-flex min-h-[48px] items-center justify-center bg-hunt-red-on-ink px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:brightness-95';
 const btnGhostInk =
   'inline-flex min-h-[48px] items-center justify-center border border-on-ink-rule px-7 font-mono text-xs uppercase leading-none tracking-label text-on-ink hover:border-on-ink';
 
@@ -51,7 +55,7 @@ export default function CardShowPage() {
       {/* pb en móvil reserva el alto de la CTA fija para que no tape la última línea del footer. */}
       <main className="pb-[76px] sm:pb-0">
         {/* HERO */}
-        <section id="hero" className="bg-ink text-on-ink">
+        <section id="hero" className="scroll-mt-[73px] bg-ink text-on-ink">
           <div className="gutter py-14 sm:py-20">
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs uppercase tracking-label text-on-ink-nav">
               {c.hero.tier.map((t, i) => (
@@ -79,7 +83,7 @@ export default function CardShowPage() {
 
             <a
               href="#rifa"
-              className="mt-6 inline-flex items-center gap-2 border border-on-ink-rule border-l-2 border-l-accent px-3.5 py-2.5 font-mono text-sm text-on-ink hover:border-accent"
+              className="mt-6 inline-flex items-center gap-2 border border-on-ink-rule border-l-2 border-l-[color:var(--hunt-red-on-ink)] px-3.5 py-2.5 font-mono text-sm text-on-ink hover:border-[color:var(--hunt-red-on-ink)]"
             >
               <span className="font-bold text-[color:var(--hunt-red-up)]">
                 Rifa: set del 30.º aniversario de Pokémon
@@ -88,7 +92,7 @@ export default function CardShowPage() {
             </a>
 
             <div className="mt-7 flex flex-wrap gap-3">
-              <a href={c.hero.ctaPrimario.href} className={btnRed}>
+              <a href={c.hero.ctaPrimario.href} className={btnRedOnInk}>
                 {c.hero.ctaPrimario.label}
               </a>
               <a href="#vendedores" className={btnGhostInk}>
@@ -119,6 +123,66 @@ export default function CardShowPage() {
           </div>
         </section>
 
+        {/* CUÁNDO Y DÓNDE (datos del evento, públicos) */}
+        <section id="cuando-donde" className="gutter scroll-mt-[73px] border-b border-border py-16">
+          <Eyebrow>{c.evento.eyebrow}</Eyebrow>
+          <h2 className="font-brand text-h2 font-bold">{c.evento.titulo}</h2>
+          <div className="mt-9 grid gap-8 md:grid-cols-2">
+            {/* Fechas, horarios y entrada */}
+            <div className="flex flex-col gap-5">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-label text-accent">Fechas y horario</p>
+                <dl className="mt-3 flex flex-col gap-1.5">
+                  {c.evento.horarios.map((h) => (
+                    <div key={h.dia} className="flex flex-wrap justify-between gap-x-4 border-b border-dashed border-border pb-1.5 text-sm">
+                      <dt className="text-text">{h.dia}</dt>
+                      <dd className="tabular text-muted">{h.horas}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-3 text-sm text-text">{c.evento.entrada}</p>
+              </div>
+              <p className="rule-note py-2 text-sm text-muted">{c.evento.torneoPokemon}</p>
+              <p className="text-sm text-muted">{c.evento.montaje}</p>
+            </div>
+
+            {/* Dirección, pisos, cómo llegar */}
+            <div className="flex flex-col gap-5">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-label text-accent">Dirección</p>
+                <address className="mt-3 not-italic text-sm leading-relaxed text-text">
+                  {c.evento.direccion.calle}
+                  <br />
+                  {c.evento.direccion.colonia}
+                  <br />
+                  {c.evento.direccion.cp}
+                </address>
+                <ul className="mt-3 flex flex-col gap-1 text-sm text-muted">
+                  {c.evento.direccion.pisos.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+                <a
+                  href={c.evento.direccion.mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex items-center gap-2 border border-border-strong px-3.5 py-2 font-mono text-xs uppercase tracking-label text-text hover:border-text"
+                >
+                  {c.evento.direccion.mapsLabel} →
+                </a>
+              </div>
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-label text-accent">Cómo llegar</p>
+                <ul className="mt-3 flex flex-col gap-1.5 text-sm text-muted">
+                  {c.evento.comoLlegar.map((via) => (
+                    <li key={via}>{via}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* QUÉ VAS A ENCONTRAR */}
         <section className="gutter border-b border-border py-16">
           <Eyebrow>Qué vas a encontrar</Eyebrow>
@@ -138,7 +202,7 @@ export default function CardShowPage() {
         </section>
 
         {/* TORNEOS POR JUEGO */}
-        <section id="torneos" className="gutter border-b border-border py-16">
+        <section id="torneos" className="gutter scroll-mt-[73px] border-b border-border py-16">
           <Eyebrow>Torneos</Eyebrow>
           <h2 className="font-brand text-h2 font-bold">Compite en tu juego</h2>
           <p className="mt-3 max-w-[60ch] text-muted">{c.torneos.intro}</p>
@@ -157,15 +221,25 @@ export default function CardShowPage() {
                   <h3 className="font-brand font-bold text-inherit">{g.nombre}</h3>
                   <span className="font-mono text-[10px] uppercase tracking-label">{g.pill}</span>
                 </div>
-                <p className="px-4 py-4 text-sm text-muted">{g.linea}</p>
+                <div className="flex flex-col gap-2 px-4 py-4">
+                  <p className="flex items-baseline justify-between gap-3">
+                    <span className="font-mono text-[11px] uppercase tracking-label text-muted">Inscripción</span>
+                    <span className="font-brand font-bold text-text">{g.precio}</span>
+                  </p>
+                  <p className="text-sm text-muted">{g.linea}</p>
+                </div>
               </div>
             ))}
           </div>
           <p className="mt-5 border-t border-dashed border-border pt-4 font-mono text-sm text-muted">{c.torneos.cuarto}</p>
+          {/* Abre la pestaña «Preinscríbete al torneo» y pone el foco en el primer campo (#CARDSHOW.3). */}
+          <a href="#preinscribete" className={`${btnRed} mt-6`}>
+            Preinscríbete
+          </a>
         </section>
 
         {/* REGISTRO (3 formularios) */}
-        <section id="registro" className="gutter border-b border-border bg-surface-2 py-16">
+        <section id="registro" className="gutter scroll-mt-[73px] border-b border-border bg-surface-2 py-16">
           <Eyebrow>Regístrate</Eyebrow>
           <h2 className="font-brand text-h2 font-bold">Déjanos tus datos</h2>
           <p className="mt-3 max-w-[60ch] text-muted">
@@ -178,7 +252,7 @@ export default function CardShowPage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="gutter border-b border-border py-16">
+        <section id="faq" className="gutter scroll-mt-[73px] border-b border-border py-16">
           <Eyebrow>Preguntas frecuentes</Eyebrow>
           <h2 className="font-brand text-h2 font-bold">Lo esencial</h2>
           <div className="mt-7 max-w-[760px] divide-y divide-border border-y border-border">
@@ -197,7 +271,7 @@ export default function CardShowPage() {
         </section>
 
         {/* RIFA (AL FINAL, con la imagen del producto) */}
-        <section id="rifa" className="bg-ink text-on-ink">
+        <section id="rifa" className="scroll-mt-[73px] bg-ink text-on-ink">
           <div className="gutter grid items-center gap-10 py-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div>
               <p className="mb-3 font-mono text-[11px] uppercase tracking-label text-[color:var(--hunt-red-up)]">
@@ -216,7 +290,7 @@ export default function CardShowPage() {
               <p className="mt-6 border border-on-ink-rule px-3.5 py-3 font-mono text-xs leading-relaxed text-on-ink-nav">
                 {c.rifa.bases}
               </p>
-              <a href={c.rifa.cta.href} className={`${btnRed} mt-6`}>
+              <a href={c.rifa.cta.href} className={`${btnRedOnInk} mt-6`}>
                 {c.rifa.cta.label}
               </a>
             </div>
@@ -266,8 +340,17 @@ export default function CardShowPage() {
             </nav>
             <div className="flex flex-col gap-1.5 text-sm">
               <p className="mb-1 font-mono text-[11px] uppercase tracking-label text-on-ink-nav">Contacto</p>
-              <p>WhatsApp: {c.footer.whatsappDisplay}</p>
-              <p>{c.footer.contactoEmail}</p>
+              <a
+                href={c.footer.whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[color:var(--hunt-red-up)]"
+              >
+                WhatsApp: {c.footer.whatsappDisplay}
+              </a>
+              <a href={c.footer.contactoEmailHref} className="hover:text-[color:var(--hunt-red-up)]">
+                {c.footer.contactoEmail}
+              </a>
               <a
                 href={c.footer.privacidadUrl}
                 target="_blank"

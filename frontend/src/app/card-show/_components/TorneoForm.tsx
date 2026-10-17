@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -13,6 +13,7 @@ import {
   PrivacyCheckbox,
   SuccessPanel,
   errorMessage,
+  focusFirstInvalid,
   isEmail,
   isPlayerId,
   readAttribution,
@@ -57,6 +58,7 @@ export function TorneoForm() {
   }>({});
 
   const isPokemon = game === 'pokemon';
+  const formRef = useRef<HTMLFormElement>(null);
 
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
@@ -69,6 +71,8 @@ export function TorneoForm() {
     if (isMinor && !guardian) errs.guardian = FORM_MESSAGES.needGuardian;
     if (!consent) errs.consent = FORM_MESSAGES.needConsent;
     setFieldErrors(errs);
+    // §CS-UX.3: foco al primer control inválido tras pintar los `aria-invalid`.
+    if (Object.keys(errs).length > 0) requestAnimationFrame(() => focusFirstInvalid(formRef.current));
     return Object.keys(errs).length === 0;
   }
 
@@ -119,21 +123,27 @@ export function TorneoForm() {
     return <SuccessPanel title="¡Listo! Casi terminas tu preinscripción." />;
   }
 
+  // §CS-UX.3: el error del grupo de día se asocia al fieldset y a CADA radio; el primer radio lleva
+  // `aria-invalid` (el fieldset no es enfocable) para que `focusFirstInvalid` caiga ahí.
+  const dayError = fieldErrors.day;
+  const dayDescribedBy = dayError ? 'cs-day-error' : undefined;
+
   return (
-    <form className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
+    <form ref={formRef} className="flex flex-col gap-6" onSubmit={onSubmit} onFocus={prime} noValidate>
       <Select
         label="Juego"
-        placeholder="Elige el juego"
+        placeholder="Elige una opción"
+        required
         value={game}
         onChange={(e) => setGame(e.target.value as CardShowGame | '')}
         options={CARD_SHOW_GAMES.map((g) => ({ value: g.id, label: g.label }))}
+        error={fieldErrors.game}
       />
-      {fieldErrors.game && <p className="-mt-3 font-mono text-xs text-accent">{fieldErrors.game}</p>}
 
-      <fieldset>
-        <legend className="eyebrow">Día del torneo</legend>
+      <fieldset aria-describedby={dayDescribedBy}>
+        <legend className="eyebrow">Día del torneo (obligatorio)</legend>
         <div className="mt-3 flex flex-col gap-2">
-          {CARD_SHOW.torneos.dias.map((d) => (
+          {CARD_SHOW.torneos.dias.map((d, i) => (
             <label key={d.id} className="flex items-center gap-3 text-[13px] text-text">
               <input
                 type="radio"
@@ -142,6 +152,8 @@ export function TorneoForm() {
                 checked={day === d.id}
                 onChange={() => setDay(d.id)}
                 className="h-5 w-5 accent-[color:var(--color-accent)]"
+                aria-invalid={dayError && i === 0 ? true : undefined}
+                aria-describedby={dayDescribedBy}
               />
               {d.label}
             </label>
@@ -154,11 +166,16 @@ export function TorneoForm() {
               checked={day === 'both'}
               onChange={() => setDay('both')}
               className="h-5 w-5 accent-[color:var(--color-accent)]"
+              aria-describedby={dayDescribedBy}
             />
             Los dos días
           </label>
         </div>
-        {fieldErrors.day && <p className="mt-2 font-mono text-xs text-accent">{fieldErrors.day}</p>}
+        {dayError && (
+          <p id="cs-day-error" className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
+            {dayError}
+          </p>
+        )}
       </fieldset>
 
       <Input
