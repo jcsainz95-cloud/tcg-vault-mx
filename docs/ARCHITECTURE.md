@@ -31997,6 +31997,17 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-CS-7` (🔴 ABIERTA, dueño backend; medida 2026-10-17 por tester-e2e sobre `release/card-show` @ `4288ca4`, contra el stack
+> real con BD; BLOQ-A).** La preinscripción Pokémon «los dos días» deja el **domingo `pending` colgado para siempre**: el correo
+> lleva el token de **`rows[0]`** (la fila `sat`, `card-show.service.ts:447-460`) y `confirmSignup` confirma **una** fila por id
+> (`:692-727`), sin job que reenvíe las `pending` del grupo ⇒ la fila `sun` caduca a 72 h sin que el usuario pueda hacer nada.
+> **Contrato (manda): `API_CONTRACT §CARDSHOW.12 ⭐M-88`** — confirmar el único correo confirma **todas** las filas `pending` del
+> **grupo** (clave FORMAL `(mailboxHmac, pokemon, playerId)` / LIGERA `(mailboxHmac, game)`), en la misma tx serializable, con
+> cupo/waitlist por día (FORMAL) o `confirmed` directo (LIGERA). **La corrige backend** (⛔ ningún otro rol, regla 8); ⛔ no toca
+> `schema.prisma` (clave derivada de las filas, no columna nueva). **Paridad que la vigila:** candado `c-torneo.mjs` check
+> «Pokemon 2 filas (sat+sun) activas» (+ gemelo LIGERA) y el criterio `[M-88 confirmación de grupo]` de `API_CONTRACT §CARDSHOW.§13`
+> (alta «los dos días» + confirmar ⇒ 2 filas `confirmed`, 0 `pending`).
+>
 > **v1.86⟨accesorios⟩ — medidas el 2026-10-07 por lectura en `/home/user/tcg-accesorios` (sha NO MEDIDO). Ninguna es
 > de código: son choques entre `PROJECT.md §AC` y `HECHOS.md:90` (F3), posterior. El contrato sigue a F3. Se enrutan a
 > product-owner; el arquitecto no las corrige.**
