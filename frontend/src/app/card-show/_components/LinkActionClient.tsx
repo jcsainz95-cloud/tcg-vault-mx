@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { CARD_SHOW } from '@/content/card-show';
 import { CardShowApiError, type ConfirmDayResult, type LinkAction, postLinkAction } from '@/lib/card-show-api';
 
@@ -188,12 +189,12 @@ export function LinkActionClient({ action, token }: { action: LinkAction; token?
 
         {/* BLOQ-7: salida siempre disponible a la landing (no dejar al usuario en un callejón). */}
         <p className="mt-10">
-          <a
+          <Link
             href="/card-show"
             className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.16em] text-accent underline underline-offset-4 hover:text-[color:var(--hunt-red-hover)]"
           >
             ← Volver al Card Show
-          </a>
+          </Link>
         </p>
       </div>
     </main>

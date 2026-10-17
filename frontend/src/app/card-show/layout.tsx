@@ -63,19 +63,33 @@ const brand = localFont({
   adjustFontFallback: false,
 });
 
+const OG_DESCRIPTION =
+  'Card Show CDMX · 5 y 6 de diciembre de 2026 · San José Insurgentes. Entrada libre, torneos y la mejor compra-venta de cartas. TCG HUNT × Jakomi.';
+// Imagen de compartir (BLOQ-10): placeholder de marca; marketing la reemplaza (ver FRONTEND_NOTES).
+const OG_IMAGE = { url: '/card-show/og.png', width: 1200, height: 630, alt: 'Card Show CDMX · TCG HUNT × Jakomi' };
+
 export const metadata: Metadata = {
+  // Resuelve URLs relativas de OG/twitter a absolutas (lo exige Next para `openGraph.images`).
+  metadataBase: new URL(CARD_SHOW.homeUrl),
   title: 'Card Show — TCG HUNT',
-  description: 'El punto de encuentro del Pokémon TCG en México. Avísame y preinscríbete al torneo.',
+  description: 'El punto de encuentro del Pokémon TCG en México. Regístrate y preinscríbete al torneo.',
   // `<link rel="canonical" href="https://tcghunt.mx/card-show">` (§CARDSHOW.2).
   alternates: { canonical: CARD_SHOW.canonicalUrl },
   robots: { index: true, follow: true },
   openGraph: {
     siteName: 'TCG HUNT',
-    title: 'Card Show — TCG HUNT',
-    description: 'El punto de encuentro del Pokémon TCG en México.',
+    title: 'Card Show CDMX — TCG HUNT × Jakomi',
+    description: OG_DESCRIPTION,
     type: 'website',
     locale: 'es_MX',
     url: CARD_SHOW.canonicalUrl,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Card Show CDMX — TCG HUNT × Jakomi',
+    description: OG_DESCRIPTION,
+    images: [OG_IMAGE.url],
   },
 };
 

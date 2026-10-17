@@ -82,14 +82,18 @@ describe('secreto · patrocinadores ocultos en el código del Card Show', () => 
     expect(CARD_SHOW.patrocinios.showSponsors).toBe(false);
   });
 
-  // ⭐ PIVOTE A CAPTURA (JC 2026-10-17): se RETIRAN los niveles/montos de patrocinio de la página
-  // (ya no se listan Oro/Plata/Producto ni precios). El contacto comercial es ahora un formulario
-  // privado (`type=merchant|sponsor`). La guarda que queda viva: ⛔ ningún patrocinador NOMBRADO.
+  // ⭐ R5b (JC 2026-10-17): se RETIRARON los niveles/montos de patrocinio de la página; el contacto
+  // comercial es un formulario privado (`type=merchant|sponsor`). La guarda que queda viva: ⛔ ningún
+  // rótulo de nivel de patrocinio (Oro/Plata/Producto) y ⛔ ningún monto EXCEPTO el precio PÚBLICO del
+  // main de Pokémon (MX$200, decisión JC — misma cifra que el correo). Cualquier OTRO `$cifra` sería
+  // un monto de patrocinio filtrado.
   it('no quedó ninguna estructura de niveles/montos de patrocinio en el contenido', () => {
     expect('niveles' in CARD_SHOW.patrocinios).toBe(false);
     const blob = JSON.stringify(CARD_SHOW);
-    // Ni montos de patrocinio ni rótulos de nivel: el contacto es privado, sin precios públicos.
-    expect(/Oro|Plata|Producto|\$\s?\d/.test(blob)).toBe(false);
+    expect(/Oro|Plata|Producto/.test(blob)).toBe(false);
+    // El ÚNICO monto admitido es el precio público del torneo (MX$200).
+    const amounts = (blob.match(/\$\s?\d[\d,]*/g) ?? []).map((a) => a.replace(/\s/g, ''));
+    expect(amounts.every((a) => a === '$200')).toBe(true);
   });
 
   it('las únicas marcas nombradas en el contenido son TCG HUNT y Jakomi', () => {
