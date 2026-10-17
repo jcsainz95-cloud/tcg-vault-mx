@@ -5,6 +5,7 @@
  */
 import type { SuppressedCount } from './small-cells';
 import type { MarketingScreen } from './marketing-period';
+import type { EmbeddedAnnotation } from './marketing-annotations.service';
 
 /** Una celda ya saneada: número, centinela «< 5», texto (etiqueta), o null (dato oculto / NO MEDIDO). */
 export type Cell = number | SuppressedCount | string | null;
@@ -43,6 +44,11 @@ export interface ScreenPayload {
   /** Leyenda de fuente por sigla (h2). */
   sourceLegend: Record<string, string>;
   tables: AggTable[];
+  /**
+   * Anotaciones de fecha del periodo (h1, §MKT.E / §13.4.6), EMBEBIDAS para pintar las gráficas a/b/c
+   * y la hoja «Info» del export. TEXTO saneado al exportar (PM-B1); ⛔ sin celdas pequeñas (no son conteo).
+   */
+  annotations: EmbeddedAnnotation[];
   /** Avisos de pantalla (cobertura de consentimiento, Fase 0…). */
   notes?: string[];
 }

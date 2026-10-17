@@ -32813,8 +32813,8 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
   anónimo sin persona detrás), c7 (pedidos por estado de envío, **mínimo 4 semanas** ⇒ una semana cerrada sale
   `measured:false`; «Otros estados» para N<5, «Recogida en persona» para bóveda; sin MX$, sin cruce).
 - **NO MEDIDO (no «0»):** a4/a5/c1-c6/c8-c10/d2/d6/d7 (GA4), e1 (Search Console), b1/g1 (requieren `first_utm_*`, NULL en
-  Fase 0), f1/f3 (banner Fase 2), **h1 anotaciones (sin modelo en m82 — ver TECH_DEBT)**. h2 (leyenda de fuente) va en
-  `sourceLegend` del payload.
+  Fase 0), f1/f3 (banner Fase 2). h2 (leyenda de fuente) va en `sourceLegend` del payload.
+  **h1 anotaciones: IMPLEMENTADO en m83** (ver «§MKT OLA 2 · h1» abajo); la pantalla `h` ya mide (tabla de anotaciones).
 - **Definiciones (para marketing):** a3 «MX$ ofertado» = Σ `quotedTotalCents` de solicitudes **creadas** en el periodo
   (= generate_lead); «aceptadas/pagadas» = solicitudes `status=pagada` con `paidAt` en el periodo, MX$ = Σ `payoutNetCents`.
 
@@ -32850,3 +32850,52 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - Suites de módulos tocados (`marketing-|buylist|sales-analytics`) ⇒ **67 suites, 1591 verde**, sin regresión.
 - **Única roja del repo:** el candado `enum-values-parity` exige que `API_CONTRACT §0` declare la línea canónica de
   **todo** enum del schema. Faltan `Permission` y `BannerResponse` (las añade el **arquitecto**, no backend — ver resumen).
+  *(Resuelto: el arquitecto las añadió en `220779f`; con m83 se cierra también `MarketingAnnotationKind` — ver abajo.)*
+
+## §MKT OLA 2 · h1 — Anotaciones de fecha (migración m83) · 2026-10-17 (rama `feat/mkt-tienda`)
+
+> Contrato: `API_CONTRACT §MKT.D (h1)/§MKT.E (h1)`; diseño: `ARCHITECTURE §13.4.6`. Cierra la deuda **MKT-TD1**
+> (h1 quedó fuera de m82 pidiendo decisión del arquitecto; él la especificó en §13.4.6). 100% aditivo, cero dinero.
+
+### Migración m83 (`20261104130000_m83_mkt_date_annotations`) — siguiente libre tras m82
+- Enum `MarketingAnnotationKind { promocion, despliegue, evento }`.
+- Modelo `MarketingDateAnnotation { id, date @db.Date, kind, label (≤120), destino String? (≤200, solo promocion),
+  createdByUserId String?, createdBy User? @relation("marketingAnnotations", onDelete: SetNull), createdAt, updatedAt,
+  @@index([date]) }`. Relación inversa `User.marketingAnnotations` (⛔ sin columna nueva en `User`).
+- Solo `CREATE TYPE/TABLE/INDEX/FK` sobre tabla nueva. `prisma validate` ⇒ valid; `migrate diff` schema-a-schema
+  (HEAD→árbol) ⇒ **exactamente** esta DDL (CreateEnum + CreateTable + CreateIndex + AddForeignKey, cero DROP/ALTER ajeno).
+- **Paridad de enums (banda-3 universal):** `API_CONTRACT §0` gana la línea canónica
+  `MarketingAnnotationKind = promocion | despliegue | evento` (en el **mismo commit** que el schema). `kind` se valida con
+  `@IsEnum(MarketingAnnotationKind)` (enum de Prisma, ⛔ sin lista literal) ⇒ NO entra a `EXPECTED_ENUM_VALUES`/`enum-values.ts`
+  (igual que `Permission`/`BannerResponse`: solo línea §0). `enum-values-parity.spec.ts` ⇒ **155/155 verde**.
+
+### Filtro PII server-side (OBLIGATORIO, candado fail-first)
+- Helper **compartido** `marketing-pii-filter.ts` → `containsPii(x)`: rechaza si hay `@`/correo, racha ≥7 dígitos, ≥10
+  dígitos en total (tras quitar espacios/`.`/`-`/`/`), CURP `[a-z]{4}\d{6}[hm][a-z]{5}[a-z0-9]\d` o RFC
+  `[a-z&ñ]{3,4}\d{6}[a-z0-9]{3}`. **Mismo filtro que c6** (§13.4.3) — una sola definición para que no diverjan; cuando
+  seguridad apruebe c6, reusa este helper. El servicio valida `label`/`destino` **antes** de guardar ⇒ `422 VALIDATION_ERROR`
+  y NO escribe (candado `marketing-annotations.service.spec.ts`). ⚠️ Admin de confianza; el filtro cierra el **error honesto**
+  (false-positive aceptado: etiqueta con muchas cifras se rechaza, el admin reescribe).
+
+### CRUD `/api/v1/admin/marketing/annotations` (§MKT.E) — SESIÓN, nunca el token (D-MKT-AUTZ)
+- `GET ?from&to` (lista del rango), `POST` (201), `PATCH :id`, `DELETE :id` (204); `404` en PATCH/DELETE de id inexistente.
+- Controller `MarketingAnnotationsController` con `@RequirePermission(marketing_read)` a nivel de clase, **sin** `@Public()`.
+  ⇒ el token opaco `marketing-reader` cae en `JwtAuthGuard` = **401** (solo vale en `GET …/aggregates`); una **sesión** admin
+  sin `marketing:read` = **403**. Candado `marketing-annotations.routes.spec.ts` lee el grafo real de `AppModule` y lo fija.
+- `destino` **solo** en `kind=promocion` (otro kind con destino no vacío ⇒ 422); al cambiar de kind se limpia. Cada acceso ⇒
+  `MarketingAccessLog` (screen `h`).
+
+### Lectura embebida (gráficas + export)
+- `ScreenPayload.annotations: [{date, kind, label, destino?}]` del periodo, embebido en **toda** pantalla de
+  `GET …/aggregates` (pinta a/b/c). Pantalla `h` (h1) las rinde como tabla (sin celdas pequeñas: no es conteo).
+- Hoja **«Info»** del export/botón semanal: mini-tabla (Fecha/Tipo/Etiqueta/Destino) con **texto saneado de fórmula**
+  (reusa `cell-safety.ts`: `label`/`destino` como celda de texto, prefijo `'` si empieza peligroso). Candado en
+  `marketing-export-parity.spec.ts`.
+
+### Verificación (O-1/O-9-parcial; load < 2×CPU al correr)
+- `prisma validate` ⇒ valid; `prisma generate` ⇒ OK; `migrate diff` schema-a-schema ⇒ DDL idéntica a m83.
+- `tsc --noEmit` ⇒ 0; `eslint` de los ficheros nuevos/tocados ⇒ 0.
+- Jest: `marketing-* + enum-values-parity` ⇒ **10 suites, 255 verde**. Candados **demostrados mordiendo**:
+  (1) debilitar `containsPii` ⇒ 10 casos PII + servicio **rojos**; restaurado ⇒ 28/28 verde.
+  (2) borrar la línea §0 ⇒ banda-3 universal **2 rojas** (`MarketingAnnotationKind` sin línea canónica); restaurado ⇒ 155/155.
+  N deterministas (N=1).

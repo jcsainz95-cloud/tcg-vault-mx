@@ -8890,6 +8890,7 @@ AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settl
                     // `common/enum-values.ts` de `4e06c7e`.
 Permission          = marketing_read // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.1). Clase E. Permiso fino; `super_admin` lo tiene IMPLÍCITO. Crece aditivamente.
 BannerResponse      = accept | necessary_only | no_response // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita.
+MarketingAnnotationKind = promocion | despliegue | evento // v1.96⟨mkt-tienda⟩ (m83, §MKT.E / §13.4.6 h1). Clase E. Anotación de fecha del Panel; `promocion` lleva `destino`. Etiqueta SIN PII (filtro c6).
 ```
 
 ### DTOs base (compartidos)

@@ -37,6 +37,12 @@ const payload: ScreenPayload = {
       measured: true,
     },
   ],
+  // h1 (§MKT.E): anotaciones embebidas. La primera lleva una inyección de fórmula para probar el saneado
+  // en la hoja «Info»; la segunda es una promoción con destino.
+  annotations: [
+    { date: '2026-10-06', kind: 'evento', label: '=cmd|peligro' },
+    { date: '2026-10-08', kind: 'promocion', label: 'Promo de otoño', destino: '/es/promos/otono' },
+  ],
 };
 
 describe('MarketingExportService — paridad y saneado', () => {
@@ -83,6 +89,29 @@ describe('MarketingExportService — paridad y saneado', () => {
     const texto = JSON.stringify(info.getSheetValues());
     expect(texto).toContain('2026-10-05');
     expect(texto).toContain('N<5');
+  });
+
+  it('la hoja «Info» embebe las anotaciones del periodo como TEXTO saneado (⛔ nunca fórmula)', async () => {
+    const buf = await svc.workbook([payload], NOW);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const info = wb.getWorksheet('Info')!;
+    // Busca la fila de la anotación con inyección: su detalle debe estar neutralizado con apóstrofo.
+    let saneada: ExcelJS.Cell | undefined;
+    let promo = false;
+    info.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (typeof cell.value === 'string') {
+          if (cell.value.includes('=cmd|peligro')) saneada = cell;
+          if (cell.value.includes('/es/promos/otono')) promo = true;
+        }
+      });
+    });
+    expect(saneada).toBeDefined();
+    expect((saneada!.value as string)[0]).toBe("'"); // neutralizada
+    expect(saneada!.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(saneada!.formula).toBeUndefined();
+    expect(promo).toBe(true); // la promoción con destino también aparece
   });
 
   it('rowCount cuenta las filas de datos de todas las tablas', () => {

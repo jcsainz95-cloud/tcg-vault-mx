@@ -654,6 +654,9 @@ model User {
   // rev v1.96⟨mkt-tienda⟩ (M-82, §MKT.D, ARCHITECTURE §13.4.1): permisos finos concedidos a ESTA cuenta.
   // `super_admin` NO necesita fila (tiene `marketing:read` implícito); cualquier otro rol sí.
   marketingPermissions       UserPermission[]
+  // rev v1.96⟨mkt-tienda⟩ (M-83, §MKT.E, ARCHITECTURE §13.4.6): anotaciones de fecha del Panel que creó
+  // esta cuenta (relación inversa; SIN columna nueva en User). `onDelete: SetNull` conserva la anotación.
+  marketingAnnotations       MarketingDateAnnotation[]  @relation("marketingAnnotations")
 
   @@index([role])
   @@index([status])
@@ -3144,6 +3147,15 @@ enum BannerResponse {
   no_response
 }
 
+// §13.4.6 (h1) — tipo de anotación de fecha del Panel. `promocion` lleva `destino` (web del dueño);
+// `despliegue` marca un cambio de la tienda (A1/A2/A4/GA4/píxel/aviso) cuya fecha fija el «antes/después»;
+// `evento` es externo con fecha (p. ej. Card Show). ⛔ NUNCA datos personales en la etiqueta.
+enum MarketingAnnotationKind {
+  promocion
+  despliegue
+  evento
+}
+
 // §13.4.1 — concesión explícita de un permiso fino a una cuenta. `super_admin` NO necesita fila.
 model UserPermission {
   id              String     @id @default(uuid())
@@ -3232,4 +3244,26 @@ model MarketingAccessLog {
   @@index([at])
   @@index([actorUserId])
   @@index([tokenId])
+}
+
+// §13.4.6 (h1, m83) — anotaciones de fecha del Panel: el admin marca un día con una etiqueta y aparece
+// en las gráficas (a/b/c) y en la hoja «Info» del export, como TEXTO saneado (PM-B1). ⛔ NUNCA PII (nombre
+// de cliente, @usuario, correo, dígitos largos, CURP/RFC): validación server-side obligatoria (mismo
+// filtro que c6, §13.4.3) ANTES de guardar. 100% aditivo; CERO dinero.
+model MarketingDateAnnotation {
+  id              String                  @id @default(uuid())
+  // Día anotado (solo fecha, zona CDMX).
+  date            DateTime                @db.Date
+  kind            MarketingAnnotationKind
+  // Texto corto ≤120, SIN PII; se ESCAPA al mostrar y va como TEXTO en el export.
+  label           String
+  // Solo `promocion`: a dónde apunta (ruta/etiqueta ≤200, SIN PII); opcional.
+  destino         String?
+  // Admin autor (nullable solo para siembra; la API exige sesión con marketing:read).
+  createdByUserId String?
+  createdBy       User?                   @relation("marketingAnnotations", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([date])
 }

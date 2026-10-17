@@ -14,6 +14,7 @@ import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.servic
 import { daysBetween, mxRange } from '../sales-analytics/sales-period';
 import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import { applySmallCells, SMALL_CELL_SENTINEL, type DimensionRow } from './small-cells';
+import { MarketingAnnotationsService, type EmbeddedAnnotation } from './marketing-annotations.service';
 import type { MarketingPeriod, MarketingScreen } from './marketing-period';
 import type { AggTable, Cell, ScreenPayload } from './marketing-aggregates.types';
 
@@ -45,14 +46,18 @@ export class MarketingAnalyticsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sales: SalesAnalyticsService,
+    private readonly annotations: MarketingAnnotationsService,
   ) {}
 
   /** Punto de entrada: arma el payload de UNA pantalla para un periodo cerrado. */
   async screen(screen: MarketingScreen, period: MarketingPeriod, now: Date): Promise<ScreenPayload> {
+    // Anotaciones del periodo: EMBEBIDAS en toda pantalla (pintan a/b/c y la hoja «Info»), h1/§13.4.6.
+    const annotations = await this.annotations.forPeriod(period.from, period.to);
     const base = {
       screen,
       period: { kind: period.kind, from: period.from, to: period.to, label: period.label, timezone: 'America/Mexico_City' as const },
       sourceLegend: SOURCE_LEGEND,
+      annotations,
     };
     switch (screen) {
       case 'a':
@@ -63,10 +68,11 @@ export class MarketingAnalyticsService {
         return { ...base, tables: await this.screenD(period) };
       case 'f':
         return { ...base, tables: this.screenFbannerPending() };
+      case 'h':
+        return { ...base, tables: this.screenH(annotations) };
       case 'b':
       case 'e':
       case 'g':
-      case 'h':
         return { ...base, tables: this.screenNotMeasured(screen) };
     }
   }
@@ -404,7 +410,32 @@ export class MarketingAnalyticsService {
     ];
   }
 
-  /** (b)(e)(g)(h): dependen de GA4/SC/atribución (Fase 2) o de modelo aún no creado. */
+  // ──────────────────────────────── Pantalla (h) Anotaciones de fecha ────────────────────────────────
+
+  /**
+   * h1 (§13.4.6) — las anotaciones del periodo como tabla (día, tipo, etiqueta, destino). Es TEXTO del
+   * admin (saneado al exportar, PM-B1); ⛔ NO es un conteo ⇒ no aplica §5.2 (celdas pequeñas).
+   */
+  private screenH(annotations: EmbeddedAnnotation[]): AggTable[] {
+    return [
+      {
+        id: 'h1',
+        title: 'Anotaciones de fecha (promociones, despliegues, eventos)',
+        source: 'BD',
+        columns: [
+          { key: 'date', labelEs: 'Fecha', kind: 'text' },
+          { key: 'kind', labelEs: 'Tipo', kind: 'text' },
+          { key: 'label', labelEs: 'Etiqueta', kind: 'text' },
+          { key: 'destino', labelEs: 'Destino (solo promoción)', kind: 'text' },
+        ],
+        rows: annotations.map((a) => ({ date: a.date, kind: a.kind, label: a.label, destino: a.destino ?? null })),
+        measured: true,
+        notes: ['Texto del admin, SIN datos personales (validado en el servidor). No es un conteo ⇒ sin supresión de celda pequeña.'],
+      },
+    ];
+  }
+
+  /** (b)(e)(g): dependen de GA4/SC/atribución (Fase 2) o de modelo aún no creado. */
   private screenNotMeasured(screen: MarketingScreen): AggTable[] {
     switch (screen) {
       case 'b':
@@ -413,10 +444,6 @@ export class MarketingAnalyticsService {
         return [this.notMeasured('e1', 'Consultas de Google', 'SC', SC_OFF)];
       case 'g':
         return [this.notMeasured('g1', 'Compras atribuidas a promociones (utm_medium=paid)', 'BD', 'NO MEDIDO — first_utm_* = NULL en Fase 0 (se puebla con consentimiento en Fase 2)')];
-      case 'h':
-        return [
-          this.notMeasured('h1', 'Anotaciones de fecha', 'BD', 'NO MEDIDO — sin modelo de anotaciones en m82 (deuda enrutada; ver TECH_DEBT)'),
-        ];
       default:
         return [];
     }

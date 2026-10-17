@@ -142,6 +142,19 @@ export class MarketingExportService {
     ws.addRow([]);
     this.writeTextRow(ws, ['Columnas / tablas NO MEDIDO', 'Motivo']);
     for (const p of payloads) for (const t of p.tables) if (!t.measured) put(`[${p.screen}] ${t.id} ${t.title}`, t.notMeasuredReason ?? 'NO MEDIDO');
+
+    // Anotaciones de fecha del periodo (h1, §MKT.E): cada campo en su propia celda de TEXTO saneado
+    // (⛔ nunca fórmula — `label`/`destino` vienen de un humano), SIN datos personales (validado al crear).
+    // Todas las pantallas del libro comparten periodo ⇒ basta la 1ª.
+    ws.addRow([]);
+    this.writeTextRow(ws, ['Anotaciones de fecha', '', '', '']);
+    this.writeTextRow(ws, ['Fecha', 'Tipo', 'Etiqueta', 'Destino (solo promoción)']);
+    const annotations = first?.annotations ?? [];
+    if (annotations.length === 0) {
+      this.writeTextRow(ws, ['(sin anotaciones en el periodo)']);
+    } else {
+      for (const a of annotations) this.writeTextRow(ws, [a.date, a.kind, a.label, a.destino ?? '']);
+    }
   }
 
   /** Nº de filas de datos exportadas (para el access-log `rowCount`). */

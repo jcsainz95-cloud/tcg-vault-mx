@@ -7,7 +7,9 @@
 import { Module } from '@nestjs/common';
 import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module';
 import { MarketingController } from './marketing.controller';
+import { MarketingAnnotationsController } from './marketing-annotations.controller';
 import { MarketingAnalyticsService } from './marketing-analytics.service';
+import { MarketingAnnotationsService } from './marketing-annotations.service';
 import { MarketingTokenService } from './marketing-token.service';
 import { MarketingAccessLogService } from './marketing-access-log.service';
 import { MarketingQuoteCounterService } from './marketing-quote-counter.service';
@@ -15,9 +17,10 @@ import { MarketingExportService } from './export/marketing-export.service';
 
 @Module({
   imports: [SalesAnalyticsModule],
-  controllers: [MarketingController],
+  controllers: [MarketingController, MarketingAnnotationsController],
   providers: [
     MarketingAnalyticsService,
+    MarketingAnnotationsService,
     MarketingTokenService,
     MarketingAccessLogService,
     MarketingQuoteCounterService,
