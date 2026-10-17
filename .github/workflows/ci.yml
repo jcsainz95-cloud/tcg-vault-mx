@@ -672,6 +672,33 @@ jobs:
         run: ./scripts/check-secret-defaults-canary.sh
 
   # ---------------------------------------------------------------------------
+  # ⛔🔒 CARDSHOW-SCAN — NINGÚN NOMBRE DE PATROCINADOR DEL CARD SHOW VIVE EN EL REPO.
+  # (condición de seguridad, marketing RONDA 2, 2026-10-17; CARDSHOW_LANDING_ESTADO §77)
+  #
+  # El guard que había (frontend/src/content/card-show.secrets.test.ts) era inerte:
+  # (1) SIEMPRE se saltaba porque CI nunca le pasaba la env CARDSHOW_SECRET_TERMS, y
+  # (2) aunque la recibiera, SOLO escaneaba frontend/. Un nombre filtrado en backend/
+  # o en docs/ pasaba. Este job es el arreglo de raíz: escanea los TRES árboles con el
+  # secreto del repo y FALLA el job si un término aparece (rc=1) o si el secreto no está
+  # cableado (rc=2, falla cerrado — no se salta). El canario planta un término INVENTADO
+  # en cada árbol y exige ROJO, y en blanco exige fallo cerrado. DEVOPS_NOTES §CARDSHOW-SCAN.
+  #
+  # ⚠️ El dueño tiene que crear el secreto de repo CARDSHOW_SECRET_TERMS (nombres de
+  # patrocinador, separados por comas). Sin él, este job queda ROJO A PROPÓSITO.
+  # ---------------------------------------------------------------------------
+  cardshow-secret-terms:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ningún nombre de patrocinador del Card Show aparece en backend/ docs/ frontend/
+        env:
+          CARDSHOW_SECRET_TERMS: ${{ secrets.CARDSHOW_SECRET_TERMS }}
+        run: ./scripts/check-cardshow-secret-terms.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-cardshow-secret-terms-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 💰🔒 PS-99 (d) / C-SDX-8 — ningún workflow, compose ni plantilla reparte las
   # llaves de Skydropx; la pila E2E corre con el adaptador doble. El canario
   # planta cada forma de fuga en una copia y exige ROJO. DEVOPS_NOTES §78.
