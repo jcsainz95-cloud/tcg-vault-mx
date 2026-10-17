@@ -13,15 +13,19 @@
  */
 
 /** Juego del torneo / interés (enum `CardShowGame`, §Enums). Pokémon = formal; resto = ligera. */
-export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana';
+export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs';
 export type CardShowDayId = 'sat' | 'sun';
 export type TorneoEstado = 'abierta' | 'cerrada';
 
-/** Los tres juegos del enum del contrato, con etiqueta de pantalla. El 4.º NO es un valor del enum. */
+/**
+ * Los CUATRO juegos del enum del contrato, con etiqueta de pantalla (§Enums, M-85/v1.97). El valor de
+ * enum es `shardbugs` (minúscula); el nombre visible «Shard Bugs» (dos palabras) lo pone el frontend.
+ */
 export const CARD_SHOW_GAMES: { id: CardShowGame; label: string }[] = [
   { id: 'pokemon', label: 'Pokémon TCG' },
   { id: 'riftbound', label: 'Riftbound' },
   { id: 'lorcana', label: 'Lorcana' },
+  { id: 'shardbugs', label: 'Shard Bugs' },
 ];
 
 export interface FaqItem {
@@ -73,7 +77,7 @@ export const CARD_SHOW = {
     {
       n: '01',
       titulo: 'Torneos por juego',
-      texto: 'Pokémon como torneo principal, más Riftbound, Lorcana y un cuarto juego. Formatos y premios por anunciar.',
+      texto: 'Pokémon como torneo principal, más Riftbound, Lorcana y Shard Bugs. Formatos y premios por anunciar.',
     },
     {
       n: '02',
@@ -90,7 +94,7 @@ export const CARD_SHOW = {
   torneos: {
     intro:
       'Cuatro juegos sobre la mesa. Horarios, formatos y costos se confirmarán pronto — regístrate y te avisamos primero.',
-    /** Una línea por juego; todo «por anunciar». El 4.º es «por confirmar» (⛔ no es un valor del enum). */
+    /** Una línea por juego; todo «por anunciar». Los cuatro son valores del enum `CardShowGame`. */
     juegos: [
       {
         id: 'pokemon' as CardShowGame,
@@ -113,8 +117,15 @@ export const CARD_SHOW = {
         principal: false,
         linea: 'Horario, formato e inscripción por anunciar. Regístrate y te enteras primero.',
       },
+      {
+        id: 'shardbugs' as CardShowGame,
+        nombre: 'Shard Bugs',
+        pill: 'Confirmado',
+        principal: false,
+        linea: 'Horario, formato e inscripción por anunciar. Regístrate y te enteras primero.',
+      },
     ],
-    cuarto: '+ Un cuarto juego por confirmar. Dinos en el registro qué te gustaría jugar.',
+    cuarto: 'Cuatro juegos confirmados. Dinos en el registro cuál te gustaría jugar y te avisamos primero.',
     /** Días de la preinscripción (texto de pantalla; el cupo ⛔ no se muestra). */
     dias: [
       { id: 'sat' as CardShowDayId, label: 'Sábado 5 de diciembre' },
@@ -154,7 +165,7 @@ export const CARD_SHOW = {
     },
     {
       q: '¿Qué juegos habrá?',
-      a: 'Pokémon TCG como torneo principal, además de Riftbound, Lorcana y un cuarto juego por confirmar.',
+      a: 'Pokémon TCG como torneo principal, además de Riftbound, Lorcana y Shard Bugs.',
     },
     {
       q: '¿Cómo entro a la rifa?',
