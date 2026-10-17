@@ -121,3 +121,81 @@ export function renderVisitorDailySummary(p: DailySummaryParams): { subject: str
   const text = `${encabezado}\n\n${listaLineas.length ? listaLineas.join('\n') : 'Sin visitantes nuevos este día.'}\n`;
   return { subject, html, text };
 }
+
+// ───────────────────────────── ⭐M-84 Correo-resumen periódico (§CARDSHOW.15) ─────────────────────────────
+
+/**
+ * Conteos AGREGADOS de una ventana temporal. ⛔ 0 PII: solo cifras (nunca `name`/`phone`/`email`/`playerName`).
+ */
+export interface SummaryWindowCounts {
+  leadsByType: Record<string, number>; // merchant/sponsor/visitor
+  gameInterest: Record<string, number>; // juego de interés de visitantes
+  raffleOptIns: number; // visitantes con raffleOptIn=true
+  playersByGame: Record<string, number>;
+  playersByDay: Record<string, number>; // sat/sun
+  leadsTotal: number;
+  playersTotal: number;
+}
+
+export interface LeadsSummaryParams {
+  generatedAt: Date;
+  today: SummaryWindowCounts;
+  last7d: SummaryWindowCounts;
+  total: SummaryWindowCounts;
+  /** Enlace de descarga AUTENTICADO (detrás de sesión super_admin) al export de leads. ⛔ NO se adjunta CSV. */
+  leadsCsvUrl: string;
+  /** Enlace de descarga AUTENTICADO al export del torneo (contiene PII de posibles menores ⇒ nunca en el cuerpo). */
+  playersCsvUrl: string;
+}
+
+/** Representa un objeto de conteos `{clave: n}` como `clave=a: 1 · clave=b: 2` (orden estable). */
+function countsLine(label: string, counts: Record<string, number>): string {
+  const keys = Object.keys(counts).sort();
+  const body = keys.length ? keys.map((k) => `${k}: ${counts[k]}`).join(' · ') : '—';
+  return `${label}: ${body}`;
+}
+
+function windowBlock(title: string, w: SummaryWindowCounts): string[] {
+  return [
+    `— ${title} —`,
+    `Leads confirmados: ${w.leadsTotal}`,
+    countsLine('  por tipo', w.leadsByType),
+    countsLine('  interés de juego (visitantes)', w.gameInterest),
+    `  opt-ins de rifa: ${w.raffleOptIns}`,
+    `Preinscripciones confirmadas: ${w.playersTotal}`,
+    countsLine('  por juego', w.playersByGame),
+    countsLine('  por día', w.playersByDay),
+  ];
+}
+
+/**
+ * ⭐M-84 (§CARDSHOW.15, ARCHITECTURE §4.CARDSHOW.q) — Resumen periódico INTERNO: SOLO conteos + enlaces de
+ * descarga autenticados. ⛔ 0 PII en el cuerpo (ni `name`/`phone`/`email`/`playerName`/`playerId`) — el CSV de
+ * players contiene nombres de posibles MENORES, que §CARDSHOW.12 prohíbe enviar a terceros: por eso ⛔ no se
+ * adjunta y la PII solo se materializa tras autenticarse. Solo filas CONFIRMADAS (⛔ sin PENDING), sin IP.
+ */
+export function renderLeadsSummary(p: LeadsSummaryParams): { subject: string; html: string; text: string } {
+  const fecha = cdmxDate(p.generatedAt);
+  const subject = `[Card Show] Resumen ${fecha}: ${p.today.leadsTotal} leads + ${p.today.playersTotal} preinscritos hoy`;
+  const lineas = [
+    ...windowBlock('Hoy', p.today),
+    '',
+    ...windowBlock('Últimos 7 días', p.last7d),
+    '',
+    ...windowBlock('Total acumulado', p.total),
+    '',
+    `Descargar CSV de leads (requiere sesión): ${p.leadsCsvUrl}`,
+    `Descargar CSV del torneo (requiere sesión): ${p.playersCsvUrl}`,
+  ];
+  const blocks = [proseRow('Resumen del Card Show (solo confirmados). Los datos personales viven tras tu sesión del panel: descárgalos con los enlaces de abajo.'), ...lineas.map((l) => (l === '' ? proseRow(' ') : monoRow(l)))];
+  const html = mailShell({
+    locale: 'es',
+    title: subject,
+    preheader: `Resumen del Card Show al ${fecha} (solo conteos; PII tras autenticación).`,
+    blocks,
+    footerWhy: 'Resumen periódico interno del equipo TCG HUNT (landing del Card Show).',
+    audience: 'staff',
+  });
+  const text = `${lineas.join('\n')}\n`;
+  return { subject, html, text };
+}

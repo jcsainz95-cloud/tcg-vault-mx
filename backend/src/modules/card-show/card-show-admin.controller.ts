@@ -36,13 +36,14 @@ export class CardShowAdminController {
   listPlayers(
     @Query('status') status?: string,
     @Query('day') day?: string,
+    @Query('game') game?: string, // ⭐M-84 filtro por juego (CardShowGame; fuera de dominio ⇒ 400)
     @Query('q') q?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
-    return this.service.listPlayers({ status, day, q, from, to, ...this.paging(page, pageSize) });
+    return this.service.listPlayers({ status, day, game, q, from, to, ...this.paging(page, pageSize) });
   }
 
   @Post('leads/:id/release')
@@ -78,11 +79,12 @@ export class CardShowAdminController {
     @Res() res: Response,
     @Query('status') status?: string,
     @Query('day') day?: string,
+    @Query('game') game?: string, // ⭐M-84 mismo dominio/conducta que la ruta JSON de /players
     @Query('q') q?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ): Promise<void> {
-    const csv = await this.service.exportPlayersCsv({ status, day, q, from, to });
+    const csv = await this.service.exportPlayersCsv({ status, day, game, q, from, to });
     await this.audit.log({ actorUserId: userId, action: 'card_show.export_players_csv', entityType: 'CardShow' });
     this.sendCsv(res, 'card-show-players.csv', csv);
   }

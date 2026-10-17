@@ -17,7 +17,9 @@ import { renderWelcome, WelcomeParams } from './card-show-welcome.templates';
 import {
   DailySummaryParams,
   InternalNoticeParams,
+  LeadsSummaryParams,
   renderInternalNotice,
+  renderLeadsSummary,
   renderVisitorDailySummary,
 } from './card-show-internal.templates';
 
@@ -276,6 +278,30 @@ export class CardShowMailService {
   /** Expuesto para pruebas: render del resumen diario. */
   renderVisitorDailySummary(params: DailySummaryParams): { subject: string; html: string; text: string } {
     return renderVisitorDailySummary(params);
+  }
+
+  /** ⭐M-84 Envía el RESUMEN PERIÓDICO (interno): solo conteos + enlaces autenticados. ⛔ 0 PII en el cuerpo. */
+  async sendLeadsSummary(params: LeadsSummaryParams): Promise<boolean> {
+    const r = renderLeadsSummary(params);
+    try {
+      await this.mail.send({
+        to: this.internalTo(),
+        subject: r.subject,
+        html: r.html,
+        text: r.text,
+        from: this.from(),
+        headers: { 'Reply-To': this.replyTo() },
+      });
+      return true;
+    } catch (e) {
+      this.logger.error(`Card Show: resumen periódico falló (${e instanceof Error ? e.message : String(e)}).`);
+      return false;
+    }
+  }
+
+  /** Expuesto para pruebas: render del resumen periódico. */
+  renderLeadsSummary(params: LeadsSummaryParams): { subject: string; html: string; text: string } {
+    return renderLeadsSummary(params);
   }
 
   from_(): string {
