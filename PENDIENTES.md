@@ -1110,3 +1110,28 @@ que ve el comprador (NO MEDIDO); confirmaciones de privacidad (0 fugas, 0 evento
 
 ### Siguiente: Panel de Marketing Fase 0 (Brief 2) — EN CURSO
 Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable ahora (Brief 2 §3): permiso `marketing:read`+control de acceso, principal `marketing-reader`+`TIENDA_PANEL_TOKEN` (hash, Bearer, rate-limit), endpoint de agregados (semana/mes cerrados, celdas pequeñas §5.2, 401/403/400/429, no-store), export .xlsx/.csv + botón Excel semanal, indicadores de BD (a1/a2/a3 ventas/MX$/buylist, d1/d3/d4 stock/cotizador), c7 pedidos por estado (P5=B, del snapshot), h1/h2. **DIFERIDO:** c6 términos de búsqueda (necesita pre-revisión de **seguridad** de PM-M2 puntos 1-4 antes de construir); f1/f2 aceptación del banner (se pueblan en Fase 2, cuando exista el banner). Columnas GA4/SC ⇒ «NO MEDIDO — GA4 sin encender».
+
+### Hito 2026-10-17 — Panel de Marketing Fase 0 (BACKEND) FUSIONADO a `main`
+- **Doble veredicto sobre `9d0ed99`:** QA **APROBADO** (suite backend 8681 verde, paridad 155/155, ablaciones fórmula/PII/celdas-pequeñas **muerden**) · techlead **APROBADO CON DEUDA**. Cierre `c0257bf`: candado de ensamblaje de `MarketingAnalyticsService` (canario 2/13), ledger sincronizado. Verificación O-9 del orquestador sobre `c0257bf`: 268/268 verde + mutación small-cells 6/6 rojo.
+- **Fusionado:** `main` = `66f10ca`; `feat/mkt-tienda` = `af638be` (sincronizada). **NO desplegado.** El Panel NO es usable de punta a punta todavía (ver MKT-TL3/TL4).
+- Construido: m82 (`Permission`/`BannerResponse`/`UserPermission`/`MarketingApiToken`/contadores/`MarketingAccessLog`) + m83 (`MarketingDateAnnotation`); módulo `backend/src/modules/marketing/` (endpoint agregados token-only, export .xlsx/.csv + Excel semanal, anotaciones CRUD por sesión, d4 en `POST /buylist/quote`). Diferidos: c6 (pre-revisión seguridad), f1/f2 (Fase 2).
+
+## §MKT TIENDA — CONTINUACIÓN (traspaso, 2026-10-17)
+> **SHAs:** `main`=`66f10ca`, `feat/mkt-tienda`=`af638be`, `production`=`bda0c0d`. **Brief (fuente de verdad):** repo `jcsainz95-cloud/tcg-hunt-marketing` (adjuntar con `add_repo` si el contenedor se recicló), `briefs/PAQUETE_TIENDA_2026-10-16.md`. ⛔ Secreto Card Show (patrocinador/sede/fecha/precio) NUNCA en este repo.
+
+**HECHO y en `main`:** OLA 1 (A1 quitar valor de mercado, A2 COMPRAR móvil, A3 ficha sellado SSR, A4 og/title/JSON-LD, E1/E3 sitemap/robots/canonical, B1 columnas firstUtm m81) + Panel backend (m82/m83, endpoint/export/anotaciones).
+
+**FASE 1 — lo que falta:**
+- **Stream UI del Panel:** (1) **MKT-TL3** arquitecto decide/contrata un **endpoint de datos por SESIÓN** para `/admin/marketing` (hoy solo `GET aggregates` es token-only; la pantalla usa sesión) → backend lo implementa; (2) **frontend** pantalla `(admin)/admin/marketing` (dashboard a-h, botón Excel semanal, CRUD de anotaciones h1), gateada por `marketing:read` (403 si no); (3) **MKT-TL4** backend: camino de operador para **emitir/revocar** el token del analista (hoy `issue()/revoke()` sin llamador) — sin esto el endpoint del analista no es alcanzable. Luego gate QA+techlead del stream UI.
+- **SEO contenido:** E4 (/como-funciona, /preguntas FAQPage), E5 (Card Show — solo datos del anuncio 14-oct, patrocinador FUERA), E6 (/guias), E7 (llms.txt). Necesitan textos de marketing (`plan/RESPUESTAS.md`, `copy.md`). E2 (www→apex 301) = devops.
+- **Deuda OLA 1:** [frontend] doble lectura por ficha (initialData); [arquitecto] evaluar si el DTO público deja de emitir `referenceValue`; [frontend] Instagram `sameAs` (falta handle de JC); [backend] og:image <1200×630.
+- **Deuda Panel (docs/TECH_DEBT.md):** MKT-TL1 (rate-limiter sin cota por IP), MKT-TL2 (invariante celdas pequeñas sin candado), MKT-TD2 (c7 del snapshot — seguridad revisa), MKT-COV1 (paridad cifras vs BD real + pipeline HTTP e2e).
+
+**FASE 2 (construir, NO encender hasta aviso de privacidad del abogado):** §C/§D cookies banner + Consent Mode v2 (D3b diseño del banner) + GA4 + Meta Pixel/CAPI; poblar firstUtm con consentimiento; contadores f1/f2; eventos de servidor §B4; acceso lectura GA4/SC para pantallas del panel. ⛔ va en el MISMO despliegue que el aviso.
+
+**FASE 3 (construir, NO publicar código hasta que JC apruebe condiciones):** Brief 3 códigos de descuento (Q1=A público por campaña/pieza, tope de usos, solo primera compra con correo verificado CD-A1; ningún código a una sola persona). Necesita ficha sellado (ya hecha, A3). c6 search-no-result necesita pre-revisión de seguridad.
+
+**RELEASE (antes de main→production):** fase de seguridad completa (pentester + seguridad — clave: datos personales/píxel/cookies) + suite E2E completa. El orquestador abre PR `main`→`production` con el cuerpo en llano (qué entra, BD, rollback, pasos de JC); **JC aprieta el botón**.
+
+**DECISIONES ABIERTAS DE JC:** (a) og:image ≥1200×630 (plantilla de marca o aceptar la de carta ~734px); (b) @usuario de Instagram para `sameAs`; (c) «Tendencia de valor» del sellado (hoy off) vs D2=A; (d) D-MKT-AUTZ: el token en otra ruta da **401 no 403** (relayar a marketing como «no se pudo tal cual»); (e) sticker legado a `/catalog/sealed/<id>` ⇒ ¿301?
+**LE DEBE JC:** re-pegar enlace de bio (`utm_medium=bio&utm_campaign=perfil`); crear píxel en Meta + pasar ID antes de Fase 2; llevar aviso de privacidad al abogado y mandarlo (desbloquea Fase 2).
