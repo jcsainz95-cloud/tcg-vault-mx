@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CardShowDay, CardShowLeadStatus, CardShowLeadType, CardShowSignupStatus, Prisma } from '@prisma/client';
+import { CardShowDay, CardShowGame, CardShowLeadStatus, CardShowLeadType, CardShowSignupStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { BusinessException } from '../../common/business.exception';
@@ -13,9 +13,13 @@ import { CardShowMailService } from './card-show-mail.service';
 import { CardShowWebhookService } from './card-show-webhook.service';
 import { CreateLeadDto, CreatePlayerDto } from './dto/card-show.dto';
 import { assignOnConfirm, playerIdLast4 } from './tournament.util';
+import { normalizeMxPhone } from './phone.util';
 import { canonicalizeMailbox, emailDomain, normalizeEmail } from './mailbox.util';
+import { CARD_SHOW_GAME_VALUES } from '../../common/enum-values';
+import type { LeadsSummaryParams, SummaryWindowCounts } from './card-show-internal.templates';
 import { runSerializable } from '../../common/serializable-retry';
 import {
+  DAY_MS,
   ENV,
   LINK_TTL_LEAD_MS,
   LINK_TTL_SIGNUP_MS,
@@ -79,6 +83,11 @@ export class CardShowService {
   async createLead(dto: CreateLeadDto, now: number = Date.now()): Promise<void> {
     if (dto.website && dto.website.trim() !== '') return; // honeypot ⇒ silencioso
 
+    // ⭐M-84 (§CARDSHOW.1b) — validación condicional por tipo. Es ERROR DE FORMA (§CARDSHOW.11.v): va ANTES
+    // del token/tiempo (que son gates silenciosos anti-bot) para que un campo prohibido/faltante SIEMPRE dé
+    // `400 {field}` y ⛔ nunca lo trague el gate silencioso `too_fast`. El honeypot sigue primero (silencio).
+    const phone = this.validateLeadFields(dto);
+
     const ft = this.tokens.verifyFormToken(dto.formToken, 'leads', now);
     if (ft.status === 'invalid') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid form token', { field: 'formToken' });
     if (ft.status === 'expired') throw BusinessException.badRequest('FORM_EXPIRED', 'form token expired');
@@ -105,8 +114,14 @@ export class CardShowService {
       (await this.prisma.cardShowLead.create({
         data: {
           type,
+          name: dto.name,
+          phone, // ⭐M-84 solo dígitos (o null); validado/normalizado en validateLeadFields
           email,
           mailboxHmac,
+          gameInterest: (dto.gameInterest as CardShowGame | undefined) ?? null,
+          raffleOptIn: dto.raffleOptIn === true,
+          raffleTermsVersion: dto.raffleTermsVersion ?? null,
+          sellsWhat: dto.sellsWhat ?? null,
           consentAt: new Date(now),
           privacyVersion: this.privacyVersion(),
           source: dto.source as Prisma.CardShowLeadCreateInput['source'],
@@ -115,17 +130,58 @@ export class CardShowService {
           utmCampaign: dto.utmCampaign,
           utmContent: dto.utmContent,
           referrerHost: dto.referrerHost,
-          mesaInteres: dto.mesaInteres,
+          // ⛔ `mesaInteres` RETIRADO (§CARDSHOW.1a-bis): no se escribe.
         },
       }));
 
     await this.maybeSendConfirmation({ kind: 'lead', rowId: lead.id, email, mailboxHmac, domain, now });
   }
 
+  /**
+   * ⭐M-84 (§CARDSHOW.1b) — valida los campos de `CardShowLead` SEGÚN el tipo. Violación ⇒ `400 {field}`
+   * (⛔ no silencioso: es error de forma, §CARDSHOW.11.v). Devuelve el `phone` NORMALIZADO (solo dígitos) o
+   * `null` cuando no aplica. ⛔ No persiste nada: solo decide.
+   */
+  private validateLeadFields(dto: CreateLeadDto): string | null {
+    const bad = (field: string): never => {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} for lead type`, { field });
+    };
+    const isVisitor = dto.type === 'visitor';
+    const isSeller = dto.type === 'merchant' || dto.type === 'sponsor';
+
+    // phone: OBLIGATORIO merchant/sponsor; ⛔ PROHIBIDO visitor.
+    let phone: string | null = null;
+    if (isVisitor) {
+      if (dto.phone !== undefined) bad('phone');
+    } else if (isSeller) {
+      if (dto.phone === undefined || dto.phone.trim() === '') bad('phone');
+      phone = normalizeMxPhone(dto.phone as string);
+      if (phone === null) bad('phone'); // no reduce a 10 dígitos MX
+    }
+
+    // gameInterest / raffleOptIn: SOLO visitor; ⛔ PROHIBIDO merchant/sponsor.
+    if (isSeller && dto.gameInterest !== undefined) bad('gameInterest');
+    if (isSeller && dto.raffleOptIn !== undefined) bad('raffleOptIn');
+
+    // raffleTermsVersion ⇔ raffleOptIn=true.
+    const optIn = dto.raffleOptIn === true;
+    if (optIn && (dto.raffleTermsVersion === undefined || dto.raffleTermsVersion.trim() === '')) bad('raffleTermsVersion');
+    if (!optIn && dto.raffleTermsVersion !== undefined) bad('raffleTermsVersion');
+
+    // sellsWhat: opcional merchant/sponsor; ⛔ PROHIBIDO visitor.
+    if (isVisitor && dto.sellsWhat !== undefined) bad('sellsWhat');
+
+    return phone;
+  }
+
   // ───────────────────────────── preinscripción al torneo ─────────────────────────────
 
   async createPlayer(dto: CreatePlayerDto, now: number = Date.now()): Promise<void> {
     if (dto.website && dto.website.trim() !== '') return; // honeypot
+
+    // ⭐M-84 (§CARDSHOW.12) — regla FORMAL (pokemon) vs LIGERA (resto) sobre `playerId`. Error de forma
+    // (§CARDSHOW.11.v) ⇒ 400 {field:'playerId'}, ANTES del token/tiempo (gates silenciosos).
+    this.validatePlayerFields(dto);
 
     const ft = this.tokens.verifyFormToken(dto.formToken, 'players', now);
     if (ft.status === 'invalid') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid form token', { field: 'formToken' });
@@ -137,6 +193,7 @@ export class CardShowService {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'guardian consent required for a minor', { field: 'guardianConsent' });
     }
 
+    const game = dto.game as CardShowGame;
     const email = normalizeEmail(dto.email);
     const mailboxHmac = this.mailboxHmac(email);
     const domain = emailDomain(email);
@@ -148,7 +205,7 @@ export class CardShowService {
     // «los dos» ⇒ 2 filas pero 1 envío (un correo cubre la preinscripción de ese buzón).
     let anyNewPending = false;
     for (const day of days) {
-      const created = await this.insertPendingSignup(dto, email, mailboxHmac, day, now);
+      const created = await this.insertPendingSignup(dto, game, email, mailboxHmac, day, now);
       if (created) anyNewPending = true;
     }
     if (!anyNewPending) return; // nada nuevo (duplicado exacto / topes) ⇒ 0 envíos
@@ -160,11 +217,28 @@ export class CardShowService {
       mailboxHmac,
       domain,
       now,
-      playerIdLast4: playerIdLast4(dto.playerId),
+      playerIdLast4: dto.playerId ? playerIdLast4(dto.playerId) : undefined,
       signupToken: true,
+      game,
       playerId: dto.playerId,
       days,
     });
+  }
+
+  /**
+   * ⭐M-84 (§CARDSHOW.12) — `game=pokemon` ⇒ `playerId` OBLIGATORIO (solo dígitos); `game≠pokemon` (LIGERA) ⇒
+   * `playerId` PROHIBIDO (si viene ⇒ `400 {field:'playerId'}`, ⛔ no silencioso). El formato del playerId ya
+   * lo validó el DTO (`PLAYER_ID`); aquí solo la regla condicional por juego.
+   */
+  private validatePlayerFields(dto: CreatePlayerDto): void {
+    const isPokemon = dto.game === 'pokemon';
+    const hasPlayerId = dto.playerId !== undefined && dto.playerId !== null && dto.playerId !== '';
+    if (isPokemon && !hasPlayerId) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'playerId required for pokemon', { field: 'playerId' });
+    }
+    if (!isPokemon && hasPlayerId) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'playerId forbidden for non-pokemon game', { field: 'playerId' });
+    }
   }
 
   /**
@@ -174,31 +248,69 @@ export class CardShowService {
    */
   private async insertPendingSignup(
     dto: CreatePlayerDto,
+    game: CardShowGame,
     email: string,
     mailboxHmac: string,
     day: CardShowDay,
     now: number,
   ): Promise<boolean> {
-    // Duplicado exacto (mismo correo+playerId+día, aún vivo) ⇒ 1 fila, no crea otra.
-    const dup = await this.prisma.cardShowPlayerSignup.findFirst({
-      where: { email, playerId: dto.playerId, day, status: { in: ['pending', 'confirmed', 'waitlist', 'checked_in'] } },
-    });
-    if (dup) return false;
+    if (game === CardShowGame.pokemon) {
+      // ───── FORMAL (Pokémon): cupo/waitlist/índice por (playerId, día) ─────
+      // Duplicado exacto (mismo correo+playerId+día, aún vivo) ⇒ 1 fila, no crea otra.
+      const dup = await this.prisma.cardShowPlayerSignup.findFirst({
+        where: { email, game, playerId: dto.playerId, day, status: { in: ['pending', 'confirmed', 'waitlist', 'checked_in'] } },
+      });
+      if (dup) return false;
 
-    // Máx 3 PENDING por playerId (la 4.ª ⇒ 0 filas).
-    const pendingForPlayer = await this.prisma.cardShowPlayerSignup.count({
-      where: { playerId: dto.playerId, day, status: 'pending' },
-    });
-    if (pendingForPlayer >= TOURNAMENT.MAX_PENDING_PER_PLAYER) return false;
+      // Máx 3 PENDING por playerId (la 4.ª ⇒ 0 filas).
+      const pendingForPlayer = await this.prisma.cardShowPlayerSignup.count({
+        where: { game, playerId: dto.playerId, day, status: 'pending' },
+      });
+      if (pendingForPlayer >= TOURNAMENT.MAX_PENDING_PER_PLAYER) return false;
 
-    // Máx 4 playerId por buzón y día (el 5.º ⇒ 0 filas).
-    if (!(await this.caps.reservePlayerPerMailboxDay(mailboxHmac, day))) return false;
+      // Máx 4 playerId por buzón y día (el 5.º ⇒ 0 filas).
+      if (!(await this.caps.reservePlayerPerMailboxDay(mailboxHmac, day))) return false;
+
+      await this.prisma.cardShowPlayerSignup.create({
+        data: {
+          game,
+          day,
+          playerName: dto.playerName,
+          playerId: dto.playerId,
+          email,
+          mailboxHmac,
+          isMinor: dto.isMinor,
+          guardianConsentAt: dto.isMinor ? new Date(now) : null,
+          consentAt: new Date(now),
+          privacyVersion: this.privacyVersion(),
+          utmSource: dto.utmSource,
+          utmMedium: dto.utmMedium,
+          utmCampaign: dto.utmCampaign,
+          utmContent: dto.utmContent,
+        },
+      });
+      return true;
+    }
+
+    // ───── LIGERA (resto): solo interés por (buzón, juego, día). Sin cupo/waitlist/índice. ─────
+    // Dedupe: una re-alta ACTIVA del mismo (buzón, juego, día) ⇒ 0 filas (máx 1 activa). §CARDSHOW.12.
+    const active = await this.prisma.cardShowPlayerSignup.findFirst({
+      where: { mailboxHmac, game, day, status: { in: ['confirmed', 'checked_in'] } },
+    });
+    if (active) return false;
+
+    // Cap de contención LIGERA: máx 3 PENDING por (buzón, juego, día) (la 4.ª ⇒ 0 filas).
+    const pendingLigera = await this.prisma.cardShowPlayerSignup.count({
+      where: { mailboxHmac, game, day, status: 'pending' },
+    });
+    if (pendingLigera >= TOURNAMENT.MAX_PENDING_PER_PLAYER) return false;
 
     await this.prisma.cardShowPlayerSignup.create({
       data: {
+        game,
         day,
         playerName: dto.playerName,
-        playerId: dto.playerId,
+        playerId: null, // ⭐M-84 LIGERA ⇒ sin playerId (no entra al índice único parcial)
         email,
         mailboxHmac,
         isMinor: dto.isMinor,
@@ -230,6 +342,7 @@ export class CardShowService {
     now: number;
     playerIdLast4?: string;
     signupToken?: boolean;
+    game?: CardShowGame;
     playerId?: string;
     days?: CardShowDay[];
   }): Promise<void> {
@@ -266,9 +379,16 @@ export class CardShowService {
       return;
     }
 
-    // Torneo: un token de confirmación por buzón+día del grupo recién creado (el POST confirma por fila).
+    // Torneo: un token de confirmación por buzón+(juego)+día del grupo recién creado (el POST confirma por
+    // fila). ⭐M-84: se acota por `game` (y por `playerId` solo en el FORMAL; la LIGERA tiene playerId NULL).
     const rows = await this.prisma.cardShowPlayerSignup.findMany({
-      where: { mailboxHmac: args.mailboxHmac, playerId: args.playerId, status: 'pending', ...(args.days ? { day: { in: args.days } } : {}) },
+      where: {
+        mailboxHmac: args.mailboxHmac,
+        status: 'pending',
+        ...(args.game ? { game: args.game } : {}),
+        ...(args.game === CardShowGame.pokemon ? { playerId: args.playerId } : {}),
+        ...(args.days ? { day: { in: args.days } } : {}),
+      },
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -431,6 +551,80 @@ export class CardShowService {
       .catch((e) => this.logger.error(`resumen diario: ${e}`));
   }
 
+  // ───────────────────────────── ⭐M-84 resumen periódico (interno, §CARDSHOW.15) ─────────────────────────────
+
+  /**
+   * Medianoche de hoy en `America/Mexico_City` como instante UTC. Sin DST en CDMX desde 2023 ⇒ offset fijo
+   * −6 h (DECIDIDO; si CDMX recupera DST habría que leer la zona). Base de la ventana «hoy».
+   */
+  private cdmxMidnight(now: number): number {
+    const MX_OFFSET_MS = 6 * 60 * 60 * 1000;
+    const shifted = new Date(now - MX_OFFSET_MS);
+    shifted.setUTCHours(0, 0, 0, 0);
+    return shifted.getTime() + MX_OFFSET_MS;
+  }
+
+  /**
+   * ⭐M-84 (§CARDSHOW.15, ARCHITECTURE §4.CARDSHOW.q) — arma los CONTEOS agregados del resumen (hoy / 7 días /
+   * total), SOLO sobre filas CONFIRMADAS (⛔ PENDING fuera), sin IP y ⛔ sin PII (solo cifras). Carga las filas
+   * confirmadas una vez (volumen de un card show) y reparte por ventana en memoria. Expuesto para pruebas.
+   */
+  async buildLeadsSummaryData(now: number = Date.now()): Promise<LeadsSummaryParams> {
+    const [leads, players] = await Promise.all([
+      this.prisma.cardShowLead.findMany({
+        where: { confirmedAt: { not: null } },
+        select: { type: true, gameInterest: true, raffleOptIn: true, confirmedAt: true },
+      }),
+      this.prisma.cardShowPlayerSignup.findMany({
+        where: { confirmedAt: { not: null } },
+        select: { game: true, day: true, confirmedAt: true },
+      }),
+    ]);
+
+    const todayStart = this.cdmxMidnight(now);
+    const last7dStart = now - 7 * DAY_MS;
+    const window = (start: number): SummaryWindowCounts => {
+      const l = leads.filter((r) => (r.confirmedAt ? r.confirmedAt.getTime() >= start : false));
+      const p = players.filter((r) => (r.confirmedAt ? r.confirmedAt.getTime() >= start : false));
+      const leadsByType: Record<string, number> = {};
+      const gameInterest: Record<string, number> = {};
+      let raffleOptIns = 0;
+      for (const r of l) {
+        leadsByType[r.type] = (leadsByType[r.type] ?? 0) + 1;
+        if (r.gameInterest) gameInterest[r.gameInterest] = (gameInterest[r.gameInterest] ?? 0) + 1;
+        if (r.raffleOptIn) raffleOptIns += 1;
+      }
+      const playersByGame: Record<string, number> = {};
+      const playersByDay: Record<string, number> = {};
+      for (const r of p) {
+        playersByGame[r.game] = (playersByGame[r.game] ?? 0) + 1;
+        playersByDay[r.day] = (playersByDay[r.day] ?? 0) + 1;
+      }
+      return { leadsByType, gameInterest, raffleOptIns, playersByGame, playersByDay, leadsTotal: l.length, playersTotal: p.length };
+    };
+
+    const base = this.publicBase();
+    return {
+      generatedAt: new Date(now),
+      today: window(todayStart),
+      last7d: window(last7dStart),
+      total: window(0),
+      leadsCsvUrl: `${base}/admin/card-show/leads/export.csv`,
+      playersCsvUrl: `${base}/admin/card-show/players/export.csv`,
+    };
+  }
+
+  /**
+   * ⭐M-84 — envía el resumen periódico interno. Reserva 1 cupo de aviso interno (≤ 10/h, §CARDSHOW.11) igual
+   * que el resumen diario. ⚠️ El DISPARO (job programado) ⛔ NO vive aquí: lo cablea devops (ver BACKEND_NOTES
+   * §CARDSHOW M-84 — cadencia sugerida diaria a hora fija America/Mexico_City). Entregable, ⛔ no gate.
+   */
+  async sendLeadsSummary(now: number = Date.now()): Promise<void> {
+    const data = await this.buildLeadsSummaryData(now);
+    if (!(await this.caps.reserveInternalNotice())) return; // ≤ 10/h
+    await this.mail.sendLeadsSummary(data).catch((e) => this.logger.error(`resumen periódico: ${e}`));
+  }
+
   /** Confirma una preinscripción asignando cupo AL CONFIRMAR, por orden, con reserva atómica (L0-SEG-02). */
   private async confirmSignup(id: string, now: number): Promise<ConfirmResult> {
     const cap = this.tournamentCap();
@@ -444,10 +638,17 @@ export class CardShowService {
           if (!row) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'gone');
           if (row.confirmedAt) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'already confirmed');
 
-          // ¿El Player ID ya está activo ese día por OTRA fila? ⇒ página «ya preinscrito», 0 cambios.
+          // ⭐M-84 LIGERA (game≠pokemon): ⛔ sin cupo, sin waitlist, sin índice — pasa DIRECTO a `confirmed`.
+          if (row.game !== CardShowGame.pokemon) {
+            await tx.cardShowPlayerSignup.update({ where: { id }, data: { confirmedAt: new Date(now), status: CardShowSignupStatus.confirmed } });
+            return { outcome: 'ok' as const, state: CardShowSignupStatus.confirmed };
+          }
+
+          // FORMAL (Pokémon): ¿el Player ID ya está activo ese día por OTRA fila? ⇒ «ya preinscrito», 0 cambios.
           const activeOther = await tx.cardShowPlayerSignup.findFirst({
             where: {
               id: { not: id },
+              game: CardShowGame.pokemon,
               playerId: row.playerId,
               day: row.day,
               status: { in: ['confirmed', 'waitlist', 'checked_in'] },
@@ -456,7 +657,7 @@ export class CardShowService {
           if (activeOther) return { outcome: 'occupied' as const };
 
           const confirmedCount = await tx.cardShowPlayerSignup.count({
-            where: { day: row.day, status: 'confirmed' },
+            where: { game: CardShowGame.pokemon, day: row.day, status: 'confirmed' },
           });
           const state = assignOnConfirm(confirmedCount, cap);
           await tx.cardShowPlayerSignup.update({ where: { id }, data: { confirmedAt: new Date(now), status: state } });
@@ -571,15 +772,32 @@ export class CardShowService {
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
-        // ⛔ sin IP (el modelo no la guarda); el correo es el único PII del lead.
-        select: { id: true, type: true, email: true, status: true, source: true, confirmedAt: true, unsubscribedAt: true, confirmationHeldAt: true, createdAt: true },
+        // ⛔ sin IP (el modelo no la guarda). ⭐M-84: columnas nuevas (name/phone/gameInterest/raffle*/sellsWhat);
+        // son PII ⇒ solo super_admin (ya el rol del controller). ⛔ `mesaInteres` @deprecated, NO se expone.
+        select: {
+          id: true,
+          type: true,
+          name: true,
+          phone: true,
+          email: true,
+          gameInterest: true,
+          raffleOptIn: true,
+          raffleTermsVersion: true,
+          sellsWhat: true,
+          status: true,
+          source: true,
+          confirmedAt: true,
+          unsubscribedAt: true,
+          confirmationHeldAt: true,
+          createdAt: true,
+        },
       }),
       this.prisma.cardShowLead.count({ where }),
     ]);
     return { data, total, page: params.page, pageSize: params.pageSize };
   }
 
-  async listPlayers(params: { status?: string; day?: string; q?: string; from?: string; to?: string; page: number; pageSize: number }) {
+  async listPlayers(params: { status?: string; day?: string; game?: string; q?: string; from?: string; to?: string; page: number; pageSize: number }) {
     const where = this.playerWhere(params);
     const [data, total] = await Promise.all([
       this.prisma.cardShowPlayerSignup.findMany({
@@ -587,7 +805,8 @@ export class CardShowService {
         orderBy: { createdAt: 'desc' },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
-        select: { id: true, day: true, playerName: true, playerId: true, email: true, isMinor: true, status: true, confirmedAt: true, createdAt: true },
+        // ⭐M-84 + `game`; `playerId` viene NULL en las filas LIGERA.
+        select: { id: true, game: true, day: true, playerName: true, playerId: true, email: true, isMinor: true, status: true, confirmedAt: true, createdAt: true },
       }),
       this.prisma.cardShowPlayerSignup.count({ where }),
     ]);
@@ -599,12 +818,39 @@ export class CardShowService {
     const rows = await this.prisma.cardShowLead.findMany({
       where: this.leadWhere(params),
       orderBy: { createdAt: 'desc' },
-      select: { type: true, email: true, status: true, source: true, confirmedAt: true, createdAt: true },
+      // ⭐M-84 columnas nuevas (name/phone/gameInterest/raffle*/sellsWhat). ⛔ `mesaInteres` @deprecated, fuera.
+      select: {
+        type: true,
+        name: true,
+        phone: true,
+        email: true,
+        gameInterest: true,
+        raffleOptIn: true,
+        raffleTermsVersion: true,
+        sellsWhat: true,
+        status: true,
+        source: true,
+        confirmedAt: true,
+        createdAt: true,
+      },
     });
     const { csvDocument } = await import('./csv.util');
     return csvDocument(
-      ['type', 'email', 'status', 'source', 'confirmedAt', 'createdAt'],
-      rows.map((r) => [r.type, r.email, r.status, r.source, r.confirmedAt?.toISOString() ?? '', r.createdAt.toISOString()]),
+      ['type', 'name', 'phone', 'email', 'gameInterest', 'raffleOptIn', 'raffleTermsVersion', 'sellsWhat', 'status', 'source', 'confirmedAt', 'createdAt'],
+      rows.map((r) => [
+        r.type,
+        r.name,
+        r.phone ?? '',
+        r.email,
+        r.gameInterest ?? '',
+        String(r.raffleOptIn),
+        r.raffleTermsVersion ?? '',
+        r.sellsWhat ?? '',
+        r.status,
+        r.source,
+        r.confirmedAt?.toISOString() ?? '',
+        r.createdAt.toISOString(),
+      ]),
     );
   }
 
@@ -612,16 +858,17 @@ export class CardShowService {
    * CSV para el ORGANIZADOR del torneo (Jakomi): ÚNICO destino autorizado de `playerName`/`playerId`.
    * ⛔ PENDING fuera, ⛔ sin IP, anti-inyección de fórmulas.
    */
-  async exportPlayersCsv(params: { status?: string; day?: string; q?: string; from?: string; to?: string }): Promise<string> {
+  async exportPlayersCsv(params: { status?: string; day?: string; game?: string; q?: string; from?: string; to?: string }): Promise<string> {
     const rows = await this.prisma.cardShowPlayerSignup.findMany({
       where: this.playerWhere(params),
       orderBy: [{ day: 'asc' }, { createdAt: 'asc' }],
-      select: { day: true, playerName: true, playerId: true, email: true, isMinor: true, status: true, confirmedAt: true },
+      // ⭐M-84 + `game`; `playerId` viene VACÍO en las filas LIGERA (no lo tienen).
+      select: { game: true, day: true, playerName: true, playerId: true, email: true, isMinor: true, status: true, confirmedAt: true },
     });
     const { csvDocument } = await import('./csv.util');
     return csvDocument(
-      ['day', 'playerName', 'playerId', 'email', 'isMinor', 'status', 'confirmedAt'],
-      rows.map((r) => [r.day, r.playerName, r.playerId, r.email, String(r.isMinor), r.status, r.confirmedAt?.toISOString() ?? '']),
+      ['game', 'day', 'playerName', 'playerId', 'email', 'isMinor', 'status', 'confirmedAt'],
+      rows.map((r) => [r.game, r.day, r.playerName, r.playerId ?? '', r.email, String(r.isMinor), r.status, r.confirmedAt?.toISOString() ?? '']),
     );
   }
 
@@ -656,13 +903,16 @@ export class CardShowService {
     return where;
   }
 
-  private playerWhere(p: { status?: string; day?: string; q?: string; from?: string; to?: string }): Prisma.CardShowPlayerSignupWhereInput {
+  private playerWhere(p: { status?: string; day?: string; game?: string; q?: string; from?: string; to?: string }): Prisma.CardShowPlayerSignupWhereInput {
     const where: Prisma.CardShowPlayerSignupWhereInput = {};
     const status = parseEnumFilter('status', p.status, CARD_SHOW_PLAYER_STATUS_FILTER_VALUES);
     if (status) where.status = status;
     else where.confirmedAt = { not: null };
     const day = parseEnumFilter('day', p.day, Object.values(CardShowDay));
     if (day) where.day = day;
+    // ⭐M-84 filtro `?game=` (clase E, dominio entero; fuera de dominio ⇒ 400 {field, allowed}).
+    const game = parseEnumFilter('game', p.game, CARD_SHOW_GAME_VALUES as CardShowGame[]);
+    if (game) where.game = game;
     if (p.q) where.email = { contains: p.q.toLowerCase() };
     const range = this.dateRange(p.from, p.to);
     if (range) where.createdAt = range;

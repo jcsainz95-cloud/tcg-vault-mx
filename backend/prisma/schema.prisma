@@ -3137,12 +3137,27 @@ enum CardShowSignupStatus {
   checked_in
 }
 
+// §CARDSHOW.1/.12 (M-84) — juego de una preinscripción / interés de un visitante. Clase E (espeja este schema).
+// `pokemon` = torneo FORMAL (playerId obligatorio, cupo e índice único parcial); el resto = LIGERA (sin playerId,
+// sin cupo). ⛔ Sin placeholder `tbd`/`other`: el 4.º juego entra con `ALTER TYPE … ADD VALUE` cuando JC lo confirme.
+enum CardShowGame {
+  pokemon
+  riftbound
+  lorcana
+}
+
 // §CARDSHOW.1 — captura de «Avísame». ⛔ Sin IP ni user-agent; `referrerHost` guarda SOLO el host.
 model CardShowLead {
   id                 String             @id @default(uuid())
   type               CardShowLeadType
+  name               String // ⭐M-84 nombre o MARCA (todos los tipos, obligatorio). Lista blanca NAME_WHITELIST (§CARDSHOW.1b)
+  phone              String? // ⭐M-84 teléfono MX (solo dígitos). OBLIGATORIO merchant/sponsor; ⛔ PROHIBIDO visitor
   email              String // normalizado lowercase/trim (unicidad y envío)
   mailboxHmac        String // clave de BUZÓN (§CARDSHOW.8): quita +etiqueta y puntos de Gmail, HMAC
+  gameInterest       CardShowGame? // ⭐M-84 juego de interés. SOLO visitor (opcional); ⛔ PROHIBIDO merchant/sponsor
+  raffleOptIn        Boolean            @default(false) // ⭐M-84 participa en la rifa. SOLO visitor; ⛔ PROHIBIDO merchant/sponsor
+  raffleTermsVersion String? // ⭐M-84 versión de BASES de la rifa aceptada. NOT NULL ⇔ raffleOptIn=true
+  sellsWhat          String? // ⭐M-84 «¿qué vendes / qué marca?». OPCIONAL merchant/sponsor; ⛔ PROHIBIDO visitor
   consentAt          DateTime
   privacyVersion     String
   confirmedAt        DateTime? // doble opt-in: NULL = PENDING
@@ -3154,6 +3169,7 @@ model CardShowLead {
   utmCampaign        String?
   utmContent         String?
   referrerHost       String? // solo el host, ⛔ sin query ni ruta
+  /// @deprecated M-84: modelo viejo de mesas/plano. ⛔ NO se escribe/lee/exporta. Drop diferido (§CARDSHOW.1a-bis).
   mesaInteres        Int?
   source             CardShowLeadSource
   status             CardShowLeadStatus @default(pending)
@@ -3171,9 +3187,10 @@ model CardShowLead {
 // (solo sobre `confirmed|waitlist|checked_in`; no expresable en el DSL de Prisma, L0-SEG-02).
 model CardShowPlayerSignup {
   id                String               @id @default(uuid())
+  game              CardShowGame // ⭐M-84 pokemon=FORMAL (playerId obligatorio), resto=LIGERA (sin playerId/cupo)
   day               CardShowDay
   playerName        String // lista blanca de caracteres (§CARDSHOW.12); ⛔ NUNCA en el correo
-  playerId          String // SOLO dígitos (longitud acotada, §CARDSHOW.12)
+  playerId          String? // ⭐M-84 SOLO dígitos. NOT NULL ⇔ game='pokemon'; ⛔ game≠pokemon ⇒ NULL
   email             String // normalizado lowercase/trim
   mailboxHmac       String
   isMinor           Boolean
@@ -3190,6 +3207,7 @@ model CardShowPlayerSignup {
   updatedAt         DateTime             @updatedAt
 
   @@index([mailboxHmac, day])
+  @@index([mailboxHmac, game, day]) // ⭐M-84 dedupe/cap de la preinscripción LIGERA (§CARDSHOW.12)
   @@index([status])
 }
 

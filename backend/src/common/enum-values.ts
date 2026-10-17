@@ -27,6 +27,7 @@ import {
   CardShowLeadSource,
   CardShowDay,
   CardShowSignupStatus,
+  CardShowGame,
 } from '@prisma/client';
 
 /**
@@ -188,3 +189,10 @@ export const CARD_SHOW_LEAD_STATUS_VALUES = Object.values(CardShowLeadStatus);
 export const CARD_SHOW_LEAD_SOURCE_VALUES = Object.values(CardShowLeadSource);
 export const CARD_SHOW_DAY_VALUES = Object.values(CardShowDay);
 export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus);
+
+// ⭐ v1.96⟨cardshow-leads⟩ (M-84, API_CONTRACT §CARDSHOW.1/.12): el juego de una preinscripción / interés de un
+// visitante — clase **E** (el dominio entero es la regla: `game` del DTO del torneo, `gameInterest` del DTO del
+// lead y el filtro `?game=` del panel). Decidido al añadirlo (las tres preguntas): (1) el dominio entero ES la
+// regla; (2) sin lista de negocio propia (formal/ligera es una regla de SERVICIO, no un recorte de enum); (3) sin
+// calibración de precio (no toca dinero). Tres bandas en `test/enum-values-parity.spec.ts`.
+export const CARD_SHOW_GAME_VALUES = Object.values(CardShowGame);

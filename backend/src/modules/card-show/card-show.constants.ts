@@ -133,6 +133,11 @@ export const MAX_BODY_BYTES = 4 * 1024; // > 4 KB ⇒ 413
 export const MAX_EMAIL_LEN = 254; // > 254 ⇒ 400
 export const MAX_PLAYER_ID_DIGITS = 12; // 13 dígitos ⇒ 400
 export const MAX_PLAYER_NAME_LEN = 80;
+// ⭐M-84 (§CARDSHOW.1b) — tallas de los campos nuevos de `CardShowLead`.
+export const MAX_NAME_LEN = 80; // `name` 1..80 (nombre o marca)
+export const MAX_PHONE_INPUT_LEN = 20; // teléfono de ENTRADA (se persisten 10 dígitos tras normalizar)
+export const MAX_RAFFLE_TERMS_LEN = 32; // `raffleTermsVersion` ≤ 32
+export const MAX_SELLS_WHAT_LEN = 140; // `sellsWhat` ≤ 140, NO_ANGLE
 
 // Propósitos disjuntos de los tokens de enlace (§CARDSHOW.6).
 export const LINK_PURPOSES = ['confirm', 'cancel', 'unsubscribe'] as const;

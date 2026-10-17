@@ -31,6 +31,7 @@ import {
   CardShowLeadSource,
   CardShowDay,
   CardShowSignupStatus,
+  CardShowGame,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -61,6 +62,7 @@ import {
   CARD_SHOW_LEAD_SOURCE_VALUES,
   CARD_SHOW_DAY_VALUES,
   CARD_SHOW_SIGNUP_STATUS_VALUES,
+  CARD_SHOW_GAME_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
@@ -184,6 +186,10 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   CardShowLeadSource: ['cta_hero', 'cta_mesas', 'cta_patrocinio', 'header'],
   CardShowDay: ['sat', 'sun'],
   CardShowSignupStatus: ['cancelled', 'checked_in', 'confirmed', 'pending', 'waitlist'],
+  // v1.96⟨cardshow-leads⟩ (M-84, §CARDSHOW.1/.12): juego de la preinscripción / interés del visitante. Decidido al
+  // añadirlo (las tres preguntas): (1) el dominio entero ES la regla (DTO + filtro `?game=`); (2) formal/ligera es
+  // regla de SERVICIO, no un recorte de enum; (3) sin calibración de precio. ⛔ Sin `tbd`/`other` (4.º juego por JC).
+  CardShowGame: ['lorcana', 'pokemon', 'riftbound'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -216,6 +222,7 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   CardShowLeadSource,
   CardShowDay,
   CardShowSignupStatus,
+  CardShowGame,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -248,6 +255,7 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   CardShowLeadSource: CARD_SHOW_LEAD_SOURCE_VALUES,
   CardShowDay: CARD_SHOW_DAY_VALUES,
   CardShowSignupStatus: CARD_SHOW_SIGNUP_STATUS_VALUES,
+  CardShowGame: CARD_SHOW_GAME_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
