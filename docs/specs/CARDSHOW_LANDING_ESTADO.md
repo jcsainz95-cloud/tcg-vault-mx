@@ -87,3 +87,6 @@ modelo de negocio**. Decisiones medidas del chat de hoy:
 ## Constraints que NO se rodean
 - ÚNICO secreto vivo (desde 2026-10-16): los NOMBRES DE PATROCINADOR. Los términos los guarda el secreto de CI `CARDSHOW_SECRET_TERMS` (nunca en el repo, ni como ejemplo). Fecha/sede/precios YA SON PÚBLICOS por decisión del dueño; `showSponsors:false` hasta que salgan los horarios de torneo.
 - Secretos nunca por chat/repo/logs. El orquestador no publica ni amplía sus permisos.
+
+### Confirmación JC 2026-10-17 (R5, cierre) — Jakomi y datos del torneo
+JC confirma: **Jakomi SÍ recibe los datos de preinscripción al TORNEO** (los organiza) ⇒ el aviso de privacidad INTEGRAL §5 (`frontend/src/content/legal/privacidad.es.ts`) que lo declara queda CORRECTO, NO se cambia. La decisión JC-3 (Jakomi solo tipo+conteo) aplica SOLO al correo interno de vendedor/patrocinador (ahí Jakomi ya no ve PII, R5b). Dos flujos distintos. JC urge salir live.
