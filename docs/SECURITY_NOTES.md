@@ -1,3 +1,110 @@
+# VEREDICTO BLUE TEAM — **Card Show RELEASE M-84..M-89** (§CARDSHOW) · SHA **`7cc18db`** (rama `release/card-show`; código del Card Show = `40c8b97`) · 2026-10-17 · seguridad
+
+> ## VEREDICTO: ✅ **APROBADO CON CONDICIONES** sobre `7cc18db`
+> **0 críticas · 0 altas · 0 medias nuevas · 2 bajas (heredadas, aceptadas) · 2 info · + 1 media de disclosure (historia de `main`) y 1 gap de cableado de CI.**
+> El gate de DoD (**sin hallazgos críticos/altos abiertos**) **SE CUMPLE** ⇒ el incremento M-84–M-89 puede publicarse.
+> Las **3 condiciones formales** de abajo (C-SEC-1/2/3) traen **dueño + fecha de caducidad + candado** cada una (doctrina del proyecto); si una vence sin cerrarse, su candado pone CI en rojo. Las 2 bajas quedan como **deuda aceptada registrada**.
+
+## Procedencia (O-9 / SEC-OPS-1 / O-14) — sobre qué medí
+- **Veredicto emitido sobre `7cc18db`** (HEAD de `origin/release/card-show`); código del Card Show = `40c8b97`. El pentester midió su pase sobre `eac5911`/`40c8b97`; el delta `eac5911`→`7cc18db` es el merge del propio pase de PENTEST_NOTES (verificado: `7cc18db` = «merge: pentester R5»). El árbol de código del Card Show es el mismo.
+- **Worktree anclado** a `7cc18db` (`git rev-parse HEAD = 7cc18db…`), árbol ENTERO. `npm ci` en `backend/` (exit 0) para poder correr candados. `cat /proc/loadavg` al cargar = **0.98** (O-16, holgado; hay otro gate corriendo, no saturé — no levanté navegador).
+- **[MEDIDO] candado + ablación (M-89/L2-SEG-01, lo más sensible):** `npx jest card-show.jakomi-pii card-show.internal-mail` ⇒ **8/8 verde**. Ablación mía (reintroduje el defecto `INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx', 'cardshow@jakomi.mx']`) ⇒ **4/8 ROJO** (invariantes A y B muerden); restaurado (`cp` del backup, árbol limpio `git diff --stat` vacío) ⇒ **8/8 verde**. El candado bite de verdad; coincide con el 4/8 del pentester.
+- **[MEDIDO] cableado de CI:** `./scripts/check-ci-ok.sh --static` ⇒ **rc=1 (ROJO)** por un hallazgo propio (C-SEC-1, abajo).
+- Lo marcado `[REPORTADO por pentester]` es medición suya (su pase vivo sobre `eac5911`); yo confirmo la ruta de código que la sostiene con `fichero:línea`. ⛔ No levanté stack HTTP propio (otro gate activo); los PoC en vivo son del red team.
+
+## Consolidación de hallazgos (rojo + revisión propia)
+
+| ID | Sev | Estado | Qué es | Dueño | Verificación propia |
+|---|---|---|---|---|---|
+| M-89 / L2-SEG-01 | — | **CERRADO (medido)** | Jakomi (tercero) jamás recibe PII del aviso interno de vendedor/patrocinador | — | candado 8/8 + ablación 4/8 **[MEDIDO por mí]** |
+| CS-RT-1 | Media | **CERRADO (medido)** | Webhook Resend sin dedup por `svix-id` | backend | `webhook.service.ts:70-74` SETNX `claimOnce` **[código, confirmado]** |
+| CS-RT-2 | **Baja** | aceptado (deuda registrada) | `gmail.com`↔`googlemail.com` no se unifican ⇒ techo de bombing por víctima ×2 | backend | `mailbox.util.ts:49-50` **[código, confirmado]** |
+| CS-RT-3 | **Baja** | aceptado (deuda registrada) | `GET /ir/:destino` y `POST /click` sin throttle propio ni token; GET sin acotar longitud de `destino` | backend | `controller.ts:184-197` + `schema.prisma:3221` sin `@db.VarChar` **[código, confirmado]** |
+| CS-RT-5 | Info | aceptado (sin acción) | `resolveMx` DNS de dominios arbitrarios (no SSRF HTTP) | backend | `card-show-mail.service.ts` **[código]** |
+| CS-RT-4 | Info | aceptado (no medido) | Timing-side-channel en `/leads`·`/players`; cuerpo YA neutro | backend | **NO MEDIDO** (relayado del red team) |
+| SEC-CS-C | **Media** | **CONDICIÓN / decisión JC** | El nombre de patrocinador vive en la historia pública de `release/card-show` (commits `cb78f51`, `1e49a70`) y el escaneo de CI NO cubre historia | JC decide; devops ejecuta | ancestría **[MEDIDO]**; ver C-SEC-2 y §SEC-CS-C |
+| SEC-CS-D | **—** | **CONDICIÓN (cableado CI)** | `cardshow-secret-terms` existe con canario pero NO está en `needs` de `ci-ok` ⇒ el escaneo no gatea por mérito propio | devops | `check-ci-ok.sh --static` rc=1 **[MEDIDO]**; ver C-SEC-1 |
+| SEC-CS-E | Baja/Info | hardening (no bloqueante) | `internalTo()` lee `INTERNAL_RECIPIENTS` (default seguro `jsainz@tcghunt.mx`); el destino «To» del aviso con PII depende de esa env | backend/devops | `card-show-mail.service.ts:114-115` **[código]** |
+
+---
+
+## Revisión por superficie (confirmo o refuto al pentester con lectura propia)
+
+### 1. Frontera Jakomi / PII a terceros (M-89 · L2-SEG-01) — **CERRADO, lo verifiqué yo**
+- **[código]** `card-show.constants.ts:52` → `INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx']` (SOLO TCG HUNT). `card-show-mail.service.ts:237-254` (`sendInternalNotice`): `to = internalTo()` (default `jsainz@tcghunt.mx`), `cc = [...INTERNAL_NOTICE_CC]`, **sin `bcc`**. `cardshow@jakomi.mx` ⛔ no aparece en To/CC/BCC. El cuerpo SÍ lleva PII (nombre/teléfono/correo) ⇒ por eso el destino cerrado importa.
+- **[MEDIDO por mí]** candado `card-show.jakomi-pii` + `card-show.internal-mail` = **8/8**; ablación (Jakomi en CC) = **4/8 rojo**; restaurado = **8/8**. Invariante (A) «cualquier correo con Jakomi en destinatario ⇒ 0 PII en asunto+cuerpo» y (B) «aviso interno ⇒ Jakomi no en To/CC/BCC» muerden.
+- **[código] frontera legítima (no es fuga):** el **CSV del torneo** a Jakomi (organizador) SÍ lleva `playerName`/`playerId` — es el flujo declarado en el aviso de privacidad §5 (`privacidad.es.ts`), confirmado por JC (R5, `CARDSHOW_LANDING_ESTADO.md:91-92`). Requiere sesión `super_admin` (`exportPlayersCsv`, controller `@Roles(super_admin)`). Correcto: dos flujos distintos (aviso interno con PII = solo TCG HUNT; export de torneo = Jakomi legítimo).
+- **[código] `mailto` del patrocinador:** `card-show-content.ts:36` prellena `mailto:jsainz@tcghunt.mx?cc=cardshow@jakomi.mx` en un BOTÓN del correo de bienvenida; lo compone el propio patrocinador en su cliente (dato suyo, por su mano). El servidor no exfiltra. Sin acción (decisión del dueño).
+
+### 2. Consentimiento de rifa (M-84 / ⭐M-89) — **CORRECTO, lo verifiqué yo**
+- **[código]** `LeadVisitorForm.tsx:40` → `const [raffle, setRaffle] = useState(false)` (casilla **DESMARCADA** por defecto), `:41` `consent` también `false` (ambas exigen clic activo). La casilla de rifa es **propia y separada** de la de privacidad (`:136` vs `:152`); `raffleTermsVersion` solo se envía si `raffleOptIn=true` (`:75`, §CARDSHOW.1b). `MerchantSponsorForm.tsx:36`: vendedor/patrocinador ⛔ no envían `raffleOptIn`. El test `CardShowForms.test.tsx` cubre ambos caminos (marcada ⇒ `true`; desmarcada ⇒ `false` y sin versión). Cumple la decisión JC-1 (R5).
+
+### 3. Control de acceso del panel (M-84/M-86) — **CORRECTO**
+- **[código]** `card-show-admin.controller.ts:15-16` → `@Controller('admin/card-show')` + `@Roles(Role.super_admin)` a nivel de **clase** ⇒ cubre `leads`, `players`, `*/export.csv`, `reopen-sending`. PENDING ⛔ no se lista/exporta. `[REPORTADO por pentester, en vivo]`: anónimo⇒401, `customer`/`vault_operator`⇒403, `super_admin`⇒200; `?status=pending`⇒400; `pageSize` recortado a 200. Consistente con el código.
+
+### 4. Doble opt-in / tokens / webhook — **CERRADO (CS-RT-1 incluido)**
+- **[código]** Dedup del webhook (CS-RT-1, antes MEDIA): `card-show-webhook.service.ts:70-74` — `handleEvent` reclama `wh:evt:<svixId>` con `claimOnce` (SETNX, TTL = ventana del corte) **antes** de contar; id ya visto ⇒ `{cutNow:false}` sin tocar contadores. Cierra el replay/retry que disparaba el corte global C6. Confirmado por lectura; el PoC de replay idempotente es del pentester `[REPORTADO]`.
+- **[código]** Tokens HMAC-SHA256, secretos **disjuntos** form/link/webhook (`card-show.constants.ts:9,10,27`), `timingSafeEqual`; **fail-closed en prod**: `card-show-tokens.service.ts:66-71` lanza si falta el secreto fuera de harness (⛔ no firma con fallback derivable). Es la base del candado de la condición C-SEC-3.
+
+### 5. Validación / inyección / CSV — **CERRADO**
+- **[REPORTADO por pentester, en vivo]** XSS/SQLi en `name`⇒400; mass-assignment (`StrictBodyPipe`)⇒400; cuerpo>4KB⇒413; CSV con `-1337poc=cmd` ⇒ celda neutralizada `'-1337poc=cmd` + BOM UTF-8 + `nosniff`. **[código]** coherente: `csv.util.ts` prefija `'`, whitelist de entrada corta `= + @ <`. Prisma parametriza (sin `$queryRaw` en el módulo).
+
+---
+
+## CONDICIONES FORMALES (cada una: dueño + fecha de caducidad + candado)
+
+### C-SEC-1 · **Cablear `cardshow-secret-terms` en el `needs` de `ci-ok`** — *(hallazgo propio SEC-CS-D)*
+- **Qué:** el job `cardshow-secret-terms` (`.github/workflows/ci.yml:689-699`) escanea backend+docs+frontend por nombres de patrocinador y trae su canario (`check-cardshow-secret-terms-canary.sh`). **PERO no está en el `needs:` de `ci-ok`** (`ci.yml:935`) ⇒ su resultado no se evalúa por mérito propio. Lo que SÍ ocurre hoy: la **estática de `ci-ok` lo detecta** y pone el gate en rojo.
+- **[MEDIDO]** `./scripts/check-ci-ok.sh --static` ⇒ **rc=1**: «job `cardshow-secret-terms` NO está en el needs de ci-ok». Los otros 27 jobs sí están.
+- **Dueño:** devops. **Fecha de caducidad:** **2026-11-07**. **Candado:** `ci-ok` / `scripts/check-ci-ok.sh --static` (ya ROJO, medido; se pone verde solo al añadir el job a `needs`). **Bloquea la promoción a prod** mientras no se cierre (el gate `ci-ok` es required check).
+
+### C-SEC-2 · **El dueño (JC) crea el secreto de repo `CARDSHOW_SECRET_TERMS`**
+- **Qué:** sin el secreto, `cardshow-secret-terms` falla cerrado (rc=2 — no se salta, `ci.yml:682-687`). Es la lista de nombres de patrocinador (separados por comas), **nunca** en el repo. Petición al humano justificada por medición (O-6): el job ya está escrito y el canario demuestra que muerde; falta solo el valor del secreto, que por política (`CLAUDE.md` «Secretos») solo lo pone el dueño.
+- **Dueño:** JC (crea el secreto en GitHub repo settings). **Fecha de caducidad:** **antes de publicar / 2026-11-07**. **Candado:** el propio job `cardshow-secret-terms` (rc=2 fail-closed sin secreto), una vez cumplido C-SEC-1. **Esta petición es ejecutable por JC desde la UI de GitHub** (Settings → Secrets → New repository secret).
+
+### C-SEC-3 · **Secretos del Card Show en Railway + documentarlos en DEVOPS_NOTES**
+- **Qué:** el deploy exige en Railway `REDIS_URL` (jobs/throttle/budget) + los 3 secretos del Card Show: `CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET`, `CARD_SHOW_RESEND_WEBHOOK_SECRET`. **[MEDIDO] gap de documentación:** `grep` en `docs/DEVOPS_NOTES.md` ⇒ los 3 secretos del Card Show **NO** están ahí; sí están en `BACKEND_NOTES.md:32684-32688` (§CARDSHOW.16) y `API_CONTRACT.md`. `REDIS_URL` sí está en DEVOPS_NOTES. La afirmación del encargo «devops documentó la lista en DEVOPS_NOTES» **no se cumple como está escrita** (O-1).
+- **NO MEDIDO:** no tengo acceso a Railway ⇒ no verifico que los valores estén puestos. Lo que lo cerraría: que devops confirme en la ventana de deploy que las 4 variables resuelven (y pegue el checklist del runbook).
+- **Dueño:** devops. **Fecha de caducidad:** **ventana de deploy / 2026-11-07**. **Candado:** fail-closed en runtime — `card-show-tokens.service.ts:66-71` **lanza** sin `CARD_SHOW_FORM_SECRET`/`LINK_SECRET` en prod; el webhook rechaza sin su secreto; el presupuesto C1 falla-cerrado sin Redis. Un secreto faltante tumba el arranque/los endpoints del Card Show, no degrada en silencio. (Consolidar la lista en DEVOPS_NOTES es trabajo de devops, no mío — ⛔ no escribo fuera de SECURITY_NOTES.)
+
+---
+
+## SEC-CS-C · **Media · Nombre de patrocinador en la historia pública de `release/card-show`** — bandera para el humano + decisión de JC
+- **[MEDIDO]** `git merge-base --is-ancestor cb78f51 7cc18db` ⇒ **ANCESTRO**; `1e49a70` ⇒ **ANCESTRO**. (Aún NO en `origin/main`, que está en `66f10ca`; entran a `main`/`production` al fusionar el release.) ⚠️ No reproduje el término literal aquí a propósito: este repo es **público** y `SECURITY_NOTES.md` no debe filtrar el secreto. La presencia del nombre la **[REPORTA marketing RONDA 2 / pentester]**; yo confirmo que esos commits son alcanzables desde `7cc18db`.
+- **Impacto / severidad: MEDIA (no crítica/alta).** Es un secreto de **negocio/timing** (patrocinador aún no anunciado, `showSponsors:false`), ⛔ no PII, ⛔ no credenciales, ⛔ no dinero. En un repo público ya es, de facto, divulgado a quien lea la historia. **Límite real del control C-SEC-1/2:** el escaneo `cardshow-secret-terms` mira el **árbol de trabajo**, NO la **historia** ⇒ puede dar verde y el término seguir en `cb78f51`/`1e49a70`. No bloquea el gate de DoD (no es crítica/alta).
+- **Decisión de JC (bandera):** (a) **reescribir historia** (eliminar el término de los commits alcanzables) — es publicar historia reescrita, decisión del dueño, la ejecuta **devops** con merge/replace, no force-push a historia publicada sin su visto bueno; o (b) **aceptar el riesgo** (el término ya es público; el patrocinador se anunciará). Si JC elige (a), el candado que lo cierra es un check de CI que escanea la **historia alcanzable** (`git log -p`) por `CARDSHOW_SECRET_TERMS` — **no existe hoy**; lo escribiría devops. Si JC elige (b), queda como **riesgo aceptado registrado** aquí, fecha **2026-11-07**.
+- **Por qué no vuelca el veredicto a RECHAZADO:** la doctrina «condición sin candado ⇒ RECHAZO» aplica a condiciones que yo impongo como gate; esto es una **decisión del dueño** sobre un hallazgo MEDIA (no crítico/alto), que el gate de DoD no bloquea. Lo dejo como bandera explícita, no como condición-gate sin candado.
+
+## SEC-CS-E · **Baja/Info · `internalTo()` depende de env `INTERNAL_RECIPIENTS`** — hardening
+- **[código]** `card-show-mail.service.ts:114-115`: el «To» del aviso interno CON PII = `config.get('INTERNAL_RECIPIENTS')` o default `jsainz@tcghunt.mx`. El CC está clavado a TCG HUNT (`INTERNAL_NOTICE_CC`), pero el «To» es configurable por entorno. Si alguien pusiera `INTERNAL_RECIPIENTS=cardshow@jakomi.mx`, la PII saldría a Jakomi por el «To» (fuera del alcance del candado M-89, que solo cubre el CC clavado y el cuerpo).
+- **Severidad: baja** (misconfiguración de ops, default seguro, env controlada por TCG HUNT). **Dueño:** backend/devops. Hardening sugerido (no bloqueante): que el candado M-89 cubra también el «To» (dominio `@tcghunt.mx` en `internalTo()`), o documentar en DEVOPS_NOTES que `INTERNAL_RECIPIENTS` solo admite buzones TCG HUNT. Sin fecha-gate (no bloqueante); disparador: si se añade un segundo destinatario interno o se externaliza el aviso.
+
+---
+
+## Deuda de seguridad aceptada (no bloqueante, registrada)
+- **CS-RT-2 (Baja)** · gmail↔googlemail sin unificar · dueño **backend** · **disparador:** monitoreo detecta bombing real por alias de dominio de Google, o se añaden más proveedores con alias de dominio · fix trivial (mapear `googlemail.com`→`gmail.com` antes de canonicalizar, `mailbox.util.ts:49`). Acotada ×2, gobernada por presupuesto C1 (fail-closed) + throttle IP (429 verificado).
+- **CS-RT-3 (Baja)** · `/ir/:destino` y `/click` sin throttle/token propio; GET sin acotar longitud · dueño **backend** · **disparador:** crecimiento anómalo de `CardShowClick` o si la analítica pasa a dato sensible · fix: `@db.VarChar(n)` + validación de longitud en el GET + throttle propio. No es inyección (Prisma) ni open-redirect (fragmento del mismo origen, verificado).
+- **CS-RT-5 (Info)** · DNS de dominios arbitrarios al validar MX · dueño **backend** · sin acción (no es SSRF HTTP; acotado por throttle IP).
+- **CS-RT-4 (Info)** · timing-side-channel teórico · dueño **backend** · **NO MEDIDO**; cuerpo ya neutro byte-a-byte. Medición que lo cerraría: P50/P95 suprimido vs nuevo MX-válido, N≥500.
+
+## Banderas para el humano (JC)
+1. **SEC-CS-C (arriba):** decidir reescribir historia vs aceptar el nombre de patrocinador ya en historia pública. Caduca **2026-11-07**.
+2. **C-SEC-2:** crear el secreto de repo `CARDSHOW_SECRET_TERMS` (nombres de patrocinador) — solo lo pone el dueño. Antes de publicar.
+3. **Antes de operar con PII real a escala:** este módulo capta PII (nombre/teléfono/correo; preinscripciones que pueden incluir MENORES con consentimiento del tutor). Recomendación estándar antes de campaña grande: validación legal del aviso de privacidad (responsable sin razón social/RFC aún — `CARDSHOW_LANDING_ESTADO.md:83`) y de la rifa (JC ya aceptó el riesgo de permiso de Gobernación, R5). No bloquea el gate técnico; es diligencia de negocio.
+
+## Mínimo necesario para pasar a VERDE (quitar las condiciones)
+1. **C-SEC-1** (devops): añadir `cardshow-secret-terms` al `needs` de `ci-ok` ⇒ `check-ci-ok.sh --static` pasa a rc=0.
+2. **C-SEC-2** (JC): crear el secreto `CARDSHOW_SECRET_TERMS` ⇒ el job deja de fallar cerrado (rc=2→0 en limpio).
+3. **C-SEC-3** (devops): fijar `REDIS_URL` + los 3 secretos del Card Show en Railway y consolidar la lista en DEVOPS_NOTES.
+4. **SEC-CS-C** (JC): decisión registrada (reescribir historia o aceptar el riesgo).
+Hechos 1–3, CI pasa a verde por sí solo (candados ya medidos). Sin crítico/alto abierto, el DoD de seguridad queda cerrado.
+
+---
+
+> _Changelog:_ 2026-10-17 · pase M-84–M-89 sobre `7cc18db`: APROBADO CON CONDICIONES (0 crit/0 alta; M-89 cerrado con candado+ablación propios; CS-RT-1 cerrado; 3 condiciones con dueño/fecha/candado; +hallazgo propio del cableado de CI).
+
+---
+
 # VEREDICTO BLUE TEAM — **Card Show landing / captación de PII** (§CARDSHOW) · SHA **`f0c038b`** (rama `feat/event-landing`) · 2026-10-17
 
 > ## VEREDICTO: ✅ **APROBADO-CON-CONDICIONES** sobre `f0c038b`
