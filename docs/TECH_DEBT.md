@@ -10804,9 +10804,9 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
 - **Comprobación:** `grep` de los enlaces en ambos ficheros coincide; o, al unificar, una sola fuente.
 
 ### TD-CS-D3 · P3 · `INTERNAL_NOTICE_CC` hardcodeado en `card-show.constants.ts` (2026-10-16)
-- **Qué es:** el CC fijo del aviso interno al staff es un literal en `card-show.constants.ts:47`
-  (`INTERNAL_NOTICE_CC = ['cardshow@jakomi.mx','scarranza@tcghunt.mx']`), ⛔ no una variable de entorno. Cambiar quién
-  recibe la copia exige tocar código y redeploy.
+- **Qué es:** el CC fijo del aviso interno al staff es un literal en `card-show.constants.ts:52`
+  (`INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx']` tras M-89, que retiró el tercero `cardshow@jakomi.mx`),
+  ⛔ no una variable de entorno. Cambiar quién recibe la copia sigue exigiendo tocar código y redeploy.
 - **Riesgo:** bajo (no es secreto ni dinero; son destinatarios internos). Aceptable para el evento.
 - **Dirección:** proponer `CARD_SHOW_INTERNAL_CC` (coma-separada), con el literal de hoy como default — igual que
   `CARD_SHOW_INTERNAL_RECIPIENTS` ya hace para el To.
