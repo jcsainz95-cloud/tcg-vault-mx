@@ -30751,7 +30751,7 @@ ejecuta en `BACKEND_NOTES §91`. Contrato: `API_CONTRACT §PRE.J`.
 
 ---
 
-### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, NORMATIVO, **PII · SIN DINERO**)
+### 4.CARDSHOW LANDING DEL CARD SHOW — captura pública, doble opt-in y anti-abuso SIN captcha (rev v1.97⟨cardshow-shardbugs⟩: 4.º juego Shard Bugs, M-85, §4.CARDSHOW.p; base v1.96⟨cardshow-leads⟩, 2026-10-17, NORMATIVO, **PII · SIN DINERO**)
 
 > ⭐⭐ **PIVOTE A CAPTURA DE LEADS (dueño JC 2026-10-17) — ver §4.CARDSHOW.p–r.** La landing deja de ser «anuncio con datos» y
 > pasa a **captura que NO expone el modelo de negocio** (fuera del público: precios de mesa, plano de 23 mesas, montos de
@@ -31071,12 +31071,16 @@ letras unicode + marcas + **dígitos** + espacio + `. , ' & / -`, conservando la
 `>`, `@`, `http` ⇒ corta inyección de script y de enlace en los correos internos). Es una talla nueva **a propósito**, no un
 descuido de reusar `PLAYER_NAME_WHITELIST`.
 
-**`CardShowGame` SIN placeholder — el 4.º juego entra cuando JC lo confirme.** Torneos: Pokémon (principal), Riftbound, Lorcana y
-un **4.º por confirmar**. Decisión: el enum nace con **tres** valores (`pokemon|riftbound|lorcana`) y ⛔ **no** lleva `tbd`/
-`other`. Añadir un valor a un enum Postgres es **aditivo y barato** (`ALTER TYPE … ADD VALUE`); en cambio un placeholder
-contamina el dato: un `gameInterest=other` no se puede reportar y un `game=tbd` no sabe si es FORMAL o LIGERA. Cuando JC confirme
-el 4.º juego, una micro-migración lo añade. Paridad de enums a tres bandas (`schema.prisma` ↔ `common/enum-values.ts` ↔
-`API_CONTRACT §Enums`), **candado del proyecto** (`test/enum-values-parity.spec.ts`): `CardShowGame` añade su array y su fila.
+**`CardShowGame` — cuatro juegos; el enum nunca llevó placeholder.** Torneos: Pokémon (principal), Riftbound, Lorcana y
+**Shard Bugs** (4.º, confirmado por el dueño JC 2026-10-17 — TCG real de Shard Bugs LLC, Origins Award 2026). Decisión: el enum
+nació con **tres** valores (`pokemon|riftbound|lorcana`) sin `tbd`/`other`, y el 4.º entra **cuando se confirma, por su valor
+real**, no por placeholder — añadir un valor a un enum Postgres es **aditivo y barato** (`ALTER TYPE … ADD VALUE`), mientras que
+un `gameInterest=other` no se puede reportar y un `game=tbd` no sabe si es FORMAL o LIGERA. `shardbugs` se añade así, en la
+micro-migración **M-85** (`API_CONTRACT §CARDSHOW.1a-ter`; ⚠️ `ADD VALUE` **no corre dentro de transacción** — backend usa la
+técnica correcta) y entra como **LIGERA** sin lógica nueva (la regla «pokemon=FORMAL / resto=LIGERA» ya lo cubre). Valor de enum
+en minúscula `shardbugs`; nombre visible «Shard Bugs» lo pone el frontend. Paridad de enums a tres bandas (`schema.prisma` ↔
+`common/enum-values.ts` ↔ `API_CONTRACT §Enums`), **candado del proyecto** (`test/enum-values-parity.spec.ts`): `CardShowGame`
+lista los **cuatro** valores.
 
 **Torneo FORMAL (Pokémon) vs LIGERA (resto) — una regla condicional, un índice recreado.** JC: «para pokemon lo pedimos [Player
 ID] para las demás ligero». Diseño: `CardShowPlayerSignup` gana `game` y `playerId` pasa a **NULLABLE**. `game=pokemon` ⇒
