@@ -90,3 +90,8 @@ modelo de negocio**. Decisiones medidas del chat de hoy:
 
 ### Confirmación JC 2026-10-17 (R5, cierre) — Jakomi y datos del torneo
 JC confirma: **Jakomi SÍ recibe los datos de preinscripción al TORNEO** (los organiza) ⇒ el aviso de privacidad INTEGRAL §5 (`frontend/src/content/legal/privacidad.es.ts`) que lo declara queda CORRECTO, NO se cambia. La decisión JC-3 (Jakomi solo tipo+conteo) aplica SOLO al correo interno de vendedor/patrocinador (ahí Jakomi ya no ve PII, R5b). Dos flujos distintos. JC urge salir live.
+
+### Confirmación JC 2026-10-17 (cierre) — patrocinadores
+- **NO se muestran patrocinadores en la landing** (ya era así: `showSponsors:false`, sin logos/nombres/niveles). Se mantiene el formulario de reclutamiento «Vendedor/Patrocinador» (captación, no exhibición) — JC no pidió quitarlo.
+- **NO hay nombre de patrocinador confidencial** (JC). ⇒ Se RETIRÓ todo el aparato del secreto `CARDSHOW_SECRET_TERMS`: job de CI `cardshow-secret-terms` + 2 scripts (revert de 1af7467). Ya NO hay que crear ese secreto (C-SEC-2 anulada) ni cablearlo (C-SEC-1 anulada). SEC-CS-C (nombre en commits viejos) deja de ser hallazgo: los nombres no son secretos.
+- Fast-follow (no bloquea): limpiar el comentario «único secreto = nombres de patrocinador» en `frontend/src/content/card-show.ts` y el guard `card-show.secrets.test.ts` (hoy no-op sin la env; no falla).
