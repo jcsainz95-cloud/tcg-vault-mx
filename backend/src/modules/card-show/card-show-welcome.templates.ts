@@ -17,7 +17,6 @@
 
 import { ACCENT, escapeHtml, INK, mailShell, MONO, MUTED, PAPER, SANS, SERIF, spacerRow } from '../buylist/mail-shell';
 import {
-  CARD_SHOW_DECK_URL,
   CARD_SHOW_MAPS_URL,
   CARD_SHOW_MERCHANT_WA_URL,
   CARD_SHOW_SPONSOR_MAILTO,
@@ -127,31 +126,31 @@ function merchantVariant(name: string | null | undefined): Variant {
   };
 }
 
+// ⭐M-89 (dueño JC 2026-10-17) — SIN cifras ni copy heredado: ⛔ nada de $25,000/$8,500, «presented by»,
+// «prize partner» ni «deck». El correo invita a PEDIR LA PROPUESTA de patrocinio (los niveles y montos van
+// en la propuesta privada, no en el correo público).
 function sponsorVariant(name: string | null | undefined): Variant {
   const s = saludo(name);
   const lines = [
     `${s} Gracias por tu interés en patrocinar el Card Show CDMX, el 5 y 6 de diciembre en San José Insurgentes, CDMX, con entrada libre y foco en Pokémon TCG.`,
-    'Tres niveles: Oro — $25,000 (único: "presented by" y stand) · Plata — $8,500 (mesa a elegir en el piso de vendedores y exclusividad) · Producto — en especie. Todos incluyen activación, presencia digital, señalética y ser prize partner de los torneos.',
+    'Tenemos varios niveles de patrocinio con activación, presencia en el evento y en digital. Cuéntanos qué marca representas y te enviamos la propuesta de patrocinio con los detalles.',
   ];
   const cierre =
     'Respóndenos este correo y te buscamos para platicarlo. Juan Carlos Sainz · TCG HUNT × Jakomi TCG Café · tcghunt.mx · WhatsApp 55 6489 3921';
   return {
-    subject: 'Patrocinio Card Show CDMX · te mandamos el deck',
-    preheader: 'El deck de patrocinio del Card Show CDMX, 5 y 6 de diciembre.',
+    subject: 'Patrocinio del Card Show CDMX · pide la propuesta',
+    preheader: 'Gracias por tu interés en patrocinar el Card Show CDMX, 5 y 6 de diciembre.',
     blocks: [
-      headingRow('Patrocinio Card Show CDMX'),
+      headingRow('Patrocinio del Card Show CDMX'),
       ...lines.map(proseRow),
       spacerRow(8),
-      ctaRow(CARD_SHOW_DECK_URL, 'Ver el deck de patrocinio', 'accent'),
-      spacerRow(8),
-      ctaRow(CARD_SHOW_SPONSOR_MAILTO, 'Escríbenos', 'ink'),
+      ctaRow(CARD_SHOW_SPONSOR_MAILTO, 'Pide la propuesta de patrocinio', 'accent'),
       spacerRow(8),
       proseRow(cierre),
     ],
     text:
       `${lines.join('\n\n')}\n\n` +
-      `Ver el deck de patrocinio: ${CARD_SHOW_DECK_URL}\n` +
-      `Escríbenos: ${CARD_SHOW_SPONSOR_MAILTO}\n\n` +
+      `Pide la propuesta de patrocinio: ${CARD_SHOW_SPONSOR_MAILTO}\n\n` +
       `${cierre}\n`,
   };
 }
@@ -163,7 +162,7 @@ function visitorVariant(name: string | null | undefined, base: string): Variant 
     `${s} Ya estás registrado. Te esperamos en el Card Show CDMX.`,
     'Sábado 5 de diciembre, 11:00–19:00 · Domingo 6 de diciembre, 11:00–18:00',
     'José del Castillo 3, esq. Av. Revolución, San José Insurgentes, CDMX · Entrada libre',
-    'Vas a encontrar vendedores de singles y sellado, un torneo de Pokémon cada día (inscripción desde $200), mesas libres para jugar e intercambiar y comida. Llega en Metro a Mixcoac (Líneas 7 y 12), a 5 minutos caminando.',
+    'Vas a encontrar vendedores de singles y sellado, el torneo main de Pokémon cada día (inscripción MX$200; la puedes pagar por adelantado o en sitio), mesas libres para jugar e intercambiar y comida. Llega en Metro a Mixcoac (Líneas 7 y 12), a 5 minutos caminando.',
   ];
   const cierre = 'Los horarios finales del torneo salen en los próximos días en @tcghunt.mx. TCG HUNT × Jakomi TCG Café · tcghunt.mx';
   return {

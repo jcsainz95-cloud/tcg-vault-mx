@@ -46,23 +46,34 @@ describe('CARDSHOW · bienvenida C3-W (RICA, tras confirmar un lead)', () => {
     expect(r.html).toMatch(/href="https:\/\/wa\.me\/525564893921/);
   });
 
-  it('sponsor: asunto del dueño + Drive + mailto como enlace REAL (href)', () => {
+  it('sponsor (⭐M-89): «pide la propuesta» por mailto REAL, ⛔ SIN cifras ni copy heredado', () => {
     const r = svc.renderWelcome({ ...base, type: 'sponsor' });
-    expect(r.subject).toBe('Patrocinio Card Show CDMX · te mandamos el deck');
+    expect(r.subject).toBe('Patrocinio del Card Show CDMX · pide la propuesta');
     const blob = `${r.html}\n${r.text}`;
-    expect(blob).toMatch(/drive\.google\.com\/file\/d\//);
     expect(blob).toMatch(/mailto:jsainz@tcghunt\.mx/);
     // El mailto DEBE ser un href real (C3 lo prohibiría; C3-W lo permite).
     expect(r.html).toMatch(/href="mailto:jsainz@tcghunt\.mx/);
+    // CTA de pedir la propuesta.
+    expect(blob).toMatch(/[Pp]ide la propuesta de patrocinio/);
+    // ⛔ CANARIO M-89: fuera las cifras y el copy heredado.
+    expect(blob).not.toContain('25,000');
+    expect(blob).not.toContain('8,500');
+    expect(blob).not.toMatch(/presented by/i);
+    expect(blob).not.toMatch(/prize partner/i);
+    expect(blob).not.toMatch(/deck/i);
+    expect(blob).not.toMatch(/drive\.google\.com/); // el «deck» de Drive se retiró
   });
 
-  it('visitor: asunto del dueño + .ics del dominio propio + Maps', () => {
+  it('visitor (⭐M-89): asunto del dueño + .ics + Maps + main de Pokémon MX$200 (precio final)', () => {
     const r = svc.renderWelcome({ ...base, type: 'visitor' });
     expect(r.subject).toBe('¡Nos vemos en el Card Show CDMX! · 5 y 6 de diciembre');
     const blob = `${r.html}\n${r.text}`;
     expect(blob).toMatch(/card-show-cdmx\.ics/);
     expect(blob).toMatch(/www\.google\.com\/maps\/search/);
     expect(r.html).toMatch(/href="https:\/\/www\.google\.com\/maps\/search/);
+    // ⭐M-89: el main de Pokémon es MX$200 (precio final), igual que la landing. ⛔ ya no «desde $200».
+    expect(blob).toMatch(/MX\$200/);
+    expect(blob).not.toMatch(/desde \$200/);
   });
 
   it('todas las variantes: List-Unsubscribe(+Post) con token, y el saludo sin nombre es «Hola:»', () => {
