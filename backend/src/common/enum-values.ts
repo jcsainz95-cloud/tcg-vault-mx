@@ -194,5 +194,7 @@ export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus
 // visitante — clase **E** (el dominio entero es la regla: `game` del DTO del torneo, `gameInterest` del DTO del
 // lead y el filtro `?game=` del panel). Decidido al añadirlo (las tres preguntas): (1) el dominio entero ES la
 // regla; (2) sin lista de negocio propia (formal/ligera es una regla de SERVICIO, no un recorte de enum); (3) sin
-// calibración de precio (no toca dinero). Tres bandas en `test/enum-values-parity.spec.ts`.
+// calibración de precio (no toca dinero). ⭐ v1.97⟨cardshow-shardbugs⟩ (M-85, §CARDSHOW.1a-ter): 4.º juego
+// `shardbugs` (aditivo, LIGERA por la misma regla de servicio; sin lógica nueva). DERIVADO de Prisma, así que el
+// array recoge los CUATRO valores por construcción. Tres bandas en `test/enum-values-parity.spec.ts`.
 export const CARD_SHOW_GAME_VALUES = Object.values(CardShowGame);

@@ -13,6 +13,50 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-17 · stream «Card Show R2» (M-84 pivote a leads + M-85 `shardbugs`, rama `r2-cardshow`)
+
+> Dos deudas **no bloqueantes** del Card Show tras M-84 (pivote a captura de leads) y M-85 (4.º juego
+> `shardbugs`). **PII, SIN DINERO.** Dueño del código anotado: **backend**. Medidas sobre `r2-cardshow`
+> (base `release/card-show` `4b51c68`).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| D-A | Drop DIFERIDO de `mesaInteres` (y `CardShowClick.mesa` / `ClickDto.mesa`): columnas del plano viejo de mesas, `@deprecated`, sin uso | backend | 2026-10-17 | `ALTER TABLE … DROP COLUMN` aplicado en migración posterior **+** `grep -rn 'mesaInteres\|\.mesa\b' backend/src backend/prisma/schema.prisma` ⇒ 0 **+** fuera de `schema.prisma`. Disparador: fin de campaña / resuelta la pregunta de política de §4.CARDSHOW.o |
+| D-B | Dos patrones de correo interno conviven: `renderVisitorDailySummary` mete email/PII en el cuerpo vs `renderLeadsSummary` 0-PII + enlace autenticado | backend | 2026-10-17 | O converger al patrón 0-PII+enlace (que `renderInternalNotice`/`renderVisitorDailySummary` dejen de materializar PII en el cuerpo), O dejar escrita la razón explícita por la que el aviso inmediato/diario sí la lleva. Candado: un test que afirme la elección por plantilla |
+
+### D-A · P3 · Drop diferido de `mesaInteres` (y `CardShowClick.mesa`/`ClickDto.mesa`) — columnas del plano viejo, `@deprecated` y sin uso
+- **Qué es:** M-84 pivotó el Card Show de «mesas» a captura de **leads**. La columna `CardShowLead.mesaInteres`
+  (`backend/prisma/schema.prisma:3175-3176`, `/// @deprecated M-84`) **permanece en la BD** pero sale del DTO, del
+  servicio, del CSV y del panel (⛔ nadie la escribe ni la lee — `createLead` no la pone,
+  `card-show.service.ts:133`). Lo mismo pasa con `CardShowClick.mesa` (`schema.prisma:3222`) y `ClickDto.mesa`:
+  telemetría del plano retirado, **sin uso**.
+- **Por qué NO bloquea:** una columna nullable sin lectores no corrompe nada; el `StrictBodyPipe` ya rechaza
+  `mesaInteres` en el cuerpo (`400` campo desconocido, §CARDSHOW.1a-bis), así que ⛔ no entra dato nuevo.
+- **Por qué NO se dropea ya (§CARDSHOW.1a-bis):** **NO MEDIDO** si M-78 corrió en producción con filas reales que
+  la poblaron; dropear una columna con dato real es destructivo e irreversible. El drop va atado a la misma pregunta
+  de política de §4.CARDSHOW.o (¿los registros de card-show hasta la limpieza son todos de prueba?).
+- **Dueño:** backend. **Fecha de medición:** 2026-10-17. **Disparador:** fin de campaña / resuelta esa pregunta por JC.
+- **Comprobación de cierre:** `ALTER TABLE … DROP COLUMN` aplicado en una migración posterior **+**
+  `grep -rn 'mesaInteres\|\.mesa\b' backend/src backend/prisma/schema.prisma` ⇒ 0 **+** las columnas fuera del schema.
+
+### D-B · P3 · Dos patrones de correo interno del Card Show conviven: uno mete PII en el cuerpo, otro es 0-PII + enlace
+- **Qué es:** en `backend/src/modules/card-show/card-show-internal.templates.ts` hay **tres** plantillas solo-staff
+  (`audience:'staff'`), y usan **dos criterios distintos de PII**:
+  - `renderInternalNotice` (`:69`) y `renderVisitorDailySummary` (`:106`) escriben **el correo (y el nombre) del
+    visitante/vendedor DIRECTAMENTE en el cuerpo** (`:77`, `:111`).
+  - `renderLeadsSummary` (M-84, `:177`) es **0-PII**: solo cifras agregadas y **enlaces de descarga AUTENTICADOS** al
+    CSV (`:128`, `:173-175`); la PII solo se materializa tras autenticarse.
+- **Por qué NO bloquea:** los tres son **solo-staff** (`audience:'staff'`, verificado por `PRIV-6` en
+  `test/mail.privacy-footer.spec.ts`) y ninguno lleva PII de cliente a un buzón externo no autorizado; el aviso
+  inmediato/diario es a la dueña. No hay fuga medida hoy.
+- **Riesgo:** **mantenibilidad / minimización de datos** — dos patrones para el mismo tipo de correo acaban
+  divergiendo, y el que mete PII en el cuerpo la expone en cualquier reenvío/archivado del buzón del staff.
+- **Dueño:** backend. **Fecha de medición:** 2026-10-17. **Disparador:** el próximo correo interno nuevo, o una
+  revisión de minimización de datos.
+- **Comprobación de cierre:** O los tres convergen al patrón 0-PII+enlace de `renderLeadsSummary` (un test afirma que
+  `renderInternalNotice`/`renderVisitorDailySummary` ⛔ no contienen `email`/`name` en el cuerpo), O queda escrita en
+  la plantilla la razón explícita por la que el aviso inmediato/diario sí los lleva.
+
 ## Backend · 2026-10-14 · stream «P&L de Finanzas» — gate del techlead sobre `be008b0` (rama `fix/pnl-finanzas`)
 
 > Tres deudas **no bloqueantes** señaladas por el techlead y **aceptadas por él como no bloqueantes sobre `be008b0`**.

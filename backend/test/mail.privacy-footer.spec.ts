@@ -411,7 +411,7 @@ function tailAfterLastSpacer32(html: string): string {
 }
 
 describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde el contrato lo permite', () => {
-  it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts` (3) y `card-show-internal.templates.ts` (2)', () => {
+  it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts` (3) y `card-show-internal.templates.ts` (3)', () => {
     const SRC = join(__dirname, '..', 'src');
     const hits: Record<string, number> = {};
     const walk = (d: string): void => {
@@ -427,7 +427,9 @@ describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde e
     walk(SRC);
     expect(hits).toEqual({
       [join('modules', 'spend-alerts', 'spend-alert.mail.ts')]: 3,
-      [join('modules', 'card-show', 'card-show-internal.templates.ts')]: 2,
+      // ⭐M-84 `renderLeadsSummary` (resumen periódico interno 0-PII, §CARDSHOW.15) es la 3.ª plantilla
+      // solo-staff del Card Show, junto a `renderInternalNotice` y `renderVisitorDailySummary`.
+      [join('modules', 'card-show', 'card-show-internal.templates.ts')]: 3,
     });
   });
 });

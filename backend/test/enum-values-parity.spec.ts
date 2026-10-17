@@ -188,8 +188,10 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   CardShowSignupStatus: ['cancelled', 'checked_in', 'confirmed', 'pending', 'waitlist'],
   // v1.96⟨cardshow-leads⟩ (M-84, §CARDSHOW.1/.12): juego de la preinscripción / interés del visitante. Decidido al
   // añadirlo (las tres preguntas): (1) el dominio entero ES la regla (DTO + filtro `?game=`); (2) formal/ligera es
-  // regla de SERVICIO, no un recorte de enum; (3) sin calibración de precio. ⛔ Sin `tbd`/`other` (4.º juego por JC).
-  CardShowGame: ['lorcana', 'pokemon', 'riftbound'],
+  // regla de SERVICIO, no un recorte de enum; (3) sin calibración de precio. ⭐ v1.97⟨cardshow-shardbugs⟩ (M-85,
+  // §CARDSHOW.1a-ter): + `shardbugs` = 4.º juego confirmado por JC 2026-10-17 (Shard Bugs LLC); aditivo, LIGERA por
+  // la misma regla de servicio. ⛔ Sigue sin `tbd`/`other`.
+  CardShowGame: ['lorcana', 'pokemon', 'riftbound', 'shardbugs'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */

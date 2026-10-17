@@ -28,6 +28,21 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.64 — ⭐ **M-85 / v1.97⟨cardshow-shardbugs⟩: 4.º juego `shardbugs` + candados R2 del Card Show** (2026-10-17, rama `r2-cardshow` desde `release/card-show`@`4b51c68`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.1a-ter` + `§Enums` línea `CardShowGame`. Aditivo sobre M-84; ⛔ no toca dinero, inventario ni cuentas.
+
+**Qué entró (solo `backend/` + `schema.prisma` + `common/enum-values.ts` + 3 candados + `docs/`).**
+
+- **`shardbugs` = 4.º juego** (confirmado por JC 2026-10-17; Shard Bugs LLC). Añadido al `enum CardShowGame` (`schema.prisma`), a las TRES bandas del candado de paridad y al cliente de Prisma regenerado. **LIGERA sin lógica nueva**: la regla «pokemon=FORMAL / resto=LIGERA» de M-84 (§CARDSHOW.12) lo absorbe (sin `playerId`, sin cupo/waitlist, confirma directo a `confirmed`). `CARD_SHOW_GAME_VALUES` es `Object.values(CardShowGame)` ⇒ recoge los 4 por construcción (no se transcribe nada).
+- **Migración `prisma/migrations/20261105120000_m85_card_show_shardbugs/`.** Número **M-85**, prefijo posterior a M-84 `20261104120000` (medido con `ls` del árbol). Único statement: `ALTER TYPE "CardShowGame" ADD VALUE IF NOT EXISTS 'shardbugs';`. **Técnica (MEDIDO vs la Nota del contrato):** el error «ALTER TYPE … ADD cannot run inside a transaction block» solo salta si además se **USA** el valor nuevo en la misma tx; esta migración NO lo usa (sin CHECK/UPDATE/índice que lo mencione), así que es segura dentro de la tx de `prisma migrate` en PG16 — **patrón idéntico y ya en producción** en M-61/M-62/M-70/M-80 (todos `ADD VALUE IF NOT EXISTS` como único statement). Por eso ⛔ NO se parte en archivos ni hace falta directiva de no-transacción. Reversa: dejar de emitir/aceptar `shardbugs` (el valor del enum se queda, como M-62/M-70/M-80).
+- **Candado PRIV-6** (`test/mail.privacy-footer.spec.ts`): conteo `card-show-internal.templates.ts` **2→3** — M-84 añadió `renderLeadsSummary` (0-PII) como 3.ª plantilla `audience:'staff'`.
+- **Candado contract-e2e** (`test/integration/card-show-contract.e2e-spec.ts`): A1 gana `name`, B1 gana `game:'pokemon'` (ambos requeridos tras M-84). **Camino feliz ampliado contra stack** (bloque C): crea → **confirma** (POST /confirm, token de enlace emitido por el `CardShowTokensService` real) → panel + CSV (super_admin), con un caso FORMAL (pokemon, playerId) y dos LIGERA (`shardbugs`, playerId NULL) — cierra el hueco que QA señaló (antes solo cobertura unitaria mockeada de la aceptación/persistencia).
+
+**MEDIDO (jest, worktree `r2-cardshow`, client regenerado con `shardbugs`).** `npm run typecheck` (`tsc -p tsconfig.json`, incluye `test/`) ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). `jest enum-values-parity mail.privacy-footer card-show` ⇒ **17 suites / 456 pruebas VERDES**. Canarios (deterministas, N=1): (1) ancla de paridad de `CardShowGame` a 3 valores ⇒ **banda 1 ROJA** (bandas 2/3 verdes: prisma y contrato ya traen 4) ⇒ el ancla obliga a decidir; restaurado ⇒ verde. (2) quitar `audience:'staff'` de `renderLeadsSummary` (conteo 3→2) ⇒ **PRIV-6 ROJA**; restaurado ⇒ verde.
+
+**⚠️ NO MEDIDO — contract-e2e NO se ejecutó contra Postgres aquí** (sin `DATABASE_URL`; Redis/MinIO abajo — la suite de integración exige infra completa, **es gate de QA**, `npm run test:integration`). El spec **compila** (`tsc` incluye `test/`, 0 errores). **Cierre:** QA corre `prisma migrate deploy` (aplica M-85) + la suite con Postgres+Redis; el bloque C queda VERDE y prueba que un lead/player M-84/M-85 válido se acepta, confirma y persiste. ⚠️ El bloque B3/C3 usa `shardbugs` ⇒ exige M-85 aplicada en la BD de prueba.
+
 ## 0.63 — ⭐⭐ **M-84 / v1.96⟨cardshow-leads⟩: pivote del Card Show a captura de LEADS** (2026-10-17, rama `m84-cardshow-leads` desde `release/card-show`@`cbc4dfe`, PII · SIN DINERO)
 
 > Contrato: `API_CONTRACT §CARDSHOW.1/.1a/.1a-bis/.1b/.12/.15` + `§Enums` línea `CardShowGame`. Diseño: `ARCHITECTURE §4.CARDSHOW.p/.q/.r`.

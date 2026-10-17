@@ -3139,11 +3139,14 @@ enum CardShowSignupStatus {
 
 // §CARDSHOW.1/.12 (M-84) — juego de una preinscripción / interés de un visitante. Clase E (espeja este schema).
 // `pokemon` = torneo FORMAL (playerId obligatorio, cupo e índice único parcial); el resto = LIGERA (sin playerId,
-// sin cupo). ⛔ Sin placeholder `tbd`/`other`: el 4.º juego entra con `ALTER TYPE … ADD VALUE` cuando JC lo confirme.
+// sin cupo). ⭐M-85 (§CARDSHOW.1a-ter): `shardbugs` = 4.º juego (confirmado por JC 2026-10-17, Shard Bugs LLC),
+// aditivo con `ALTER TYPE … ADD VALUE`; LIGERA por la regla «pokemon=formal / resto=ligera», sin lógica nueva.
+// ⛔ Sin placeholder `tbd`/`other`.
 enum CardShowGame {
   pokemon
   riftbound
   lorcana
+  shardbugs
 }
 
 // §CARDSHOW.1 — captura de «Avísame». ⛔ Sin IP ni user-agent; `referrerHost` guarda SOLO el host.
