@@ -1049,8 +1049,9 @@ roles) y **¿cómo le llama a M5?**.
 > **Rama:** `feat/mkt-tienda` desde `origin/production` `0dd2d7c` (production es ancestro). **Fuente de verdad:** brief
 > final de JC en el repo de marketing: `/home/user/tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` (tres briefs:
 > v2 medición/búsqueda, Panel de Marketing, Códigos de descuento). **NO se copia el brief a este repo.**
-> ⛔ **Secreto Card Show:** nombre de patrocinador «Bodegas Alianza», sede, precio/fecha exactos NUNCA van a este repo
-> (grep de CI). E5 (página del evento) usa solo lo ya anunciado el 14-oct. Patrocinador fuera mientras MKT-11 siga abierta.
+> ⛔ **Secreto Card Show:** el/los NOMBRE(S) DE PATROCINADOR (definidos en el secreto de CI `CARDSHOW_SECRET_TERMS`, ⛔ nunca
+> escritos aquí, ni como ejemplo) NUNCA van a este repo (grep de CI). Patrocinador fuera mientras MKT-11 siga abierta.
+> (Fecha/sede/precios ya son públicos desde la decisión del dueño 2026-10-16.)
 
 ### Fases (decisión de JC 2026-10-16, respétalas)
 - **FASE 1 (empieza ya, sin deps):** A1 quitar «valor de mercado» de ficha · A2 COMPRAR en 1ª pantalla móvil · A3 ficha
