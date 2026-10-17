@@ -3,7 +3,8 @@
  * con los dos días del evento en America/Mexico_City. Verifica estructura, cabeceras y coherencia de fechas.
  */
 import { describe, expect, it } from 'vitest';
-import { GET, buildCardShowIcs } from './route';
+import { GET } from './route';
+import { buildCardShowIcs } from './ics-builder';
 
 describe('GET /card-show/card-show-cdmx.ics', () => {
   it('responde 200 con cabeceras de calendario', async () => {
