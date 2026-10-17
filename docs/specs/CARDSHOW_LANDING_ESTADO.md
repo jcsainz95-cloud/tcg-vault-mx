@@ -1,5 +1,13 @@
 # Card Show — landing: estado (actualizado 2026-10-17, orquestador — PIVOTE A CAPTURA)
 
+## DECISIONES JC 2026-10-17 (R5 — tras ux-review RECHAZADO + marketing RONDA 2). Verbatim del chat.
+Estas cuatro las respondió JC hoy; mandan sobre lo de abajo donde choquen. Pendientes de integrar en el brief de marketing (product-owner) y en el aviso de privacidad.
+1. **Rifa — JC ACEPTA EL RIESGO LEGAL (verbatim: «Acepto ese riesgo»).** Cierra la condición de marketing «JC no ha aceptado por escrito el riesgo de permiso de Gobernación». La rifa se queda. Igual hay que **arreglar el consentimiento** (casilla de rifa propia y DESMARCADA, con enlace a las bases; la casilla de privacidad NO debe forzar aceptar bases; aclarar quién participa).
+2. **Precio de torneo = MX$200 para los MAINS de Pokémon** (verbatim: «es 200 para los mains de pokemon»). Landing y correo deben coincidir: el main de Pokémon dice **$200**; los demás juegos/eventos siguen «por anunciar» hasta que JC confirme. (No estaba en HECHOS; esta línea es la fuente.)
+3. **Datos a Jakomi = SOLO tipo y conteo** (sin datos personales). El aviso interno NO debe copiar a `cardshow@jakomi.mx` el nombre/teléfono/correo del vendedor; eso solo va a TCG HUNT (`jsainz@tcghunt.mx`). Revierte parte de IMP-3 de R4 respecto a la copia a Jakomi. Cierra L2-SEG-01.
+4. **Correo a patrocinador = SIN cifras**: quitar $25,000/$8,500 y el copy heredado («presented by», «prize partner», «deck»); decir «pide la propuesta de patrocinio».
+
+
 ## ESTADO VIGENTE 2026-10-17 — decisiones del dueño (JC, chat). Supersede lo de abajo.
 La landing deja de ser «anuncio con datos» y pasa a ser **página de CAPTURA DE LEADS** que **NO expone el
 modelo de negocio**. Decisiones medidas del chat de hoy:
