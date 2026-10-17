@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { CARD_SHOW, type CardShowDayId } from '@/content/card-show';
+import { Select } from '@/components/ui/Select';
+import { CARD_SHOW, CARD_SHOW_GAMES, type CardShowDayId, type CardShowGame } from '@/content/card-show';
 import { submitPlayer } from '@/lib/card-show-api';
 import { PrivacyMini } from './PrivacyMini';
 import {
@@ -21,22 +22,20 @@ import {
 type DaySel = CardShowDayId | 'both' | '';
 
 /**
- * Formulario de PREINSCRIPCIÓN al torneo (RONDA_0 §6.B, API_CONTRACT §CARDSHOW.3/.5/.6/.12).
- * Día (sat/sun/«los dos»), nombre del jugador, Player ID (solo dígitos), correo, menor +
- * consentimiento del tutor, casilla de privacidad, honeypot. POST neutro a `/card-show/players`;
- * doble opt-in por correo.
+ * Formulario de PREINSCRIPCIÓN al torneo (API_CONTRACT §CARDSHOW.3/.5/.6/.12, v1.96 M-84).
  *
- * «los dos» ⇒ DOS filas (§CARDSHOW.12): dos POST (sat y sun), cada uno con su propio token de un
- * solo uso; el backend manda UN solo correo de confirmación por buzón.
+ * ⭐ `game` decide la forma (decisión del dueño 2026-10-17):
+ *  - **Pokémon = FORMAL** ⇒ pide **Player ID** (solo dígitos, obligatorio).
+ *  - **Riftbound/Lorcana = LIGERA** ⇒ ⛔ sin Player ID (sólo interés por día/juego).
  *
- * Si el torneo está CERRADO (cupo lleno o pasó el cierre) ⇒ no acepta envíos y lo dice (⛔ nunca
- * «disponible»). El estado real llega con los datos de Jakomi; hoy se lee de `content/card-show.ts`.
+ * Día (sat/sun/«los dos»), nombre del jugador, correo, menor + consentimiento del tutor, casilla de
+ * privacidad, honeypot. POST neutro a `/card-show/players`; doble opt-in por correo. «los dos» ⇒ DOS
+ * filas (§CARDSHOW.12): dos POST, cada uno con su propio token de un solo uso.
  */
 export function TorneoForm() {
-  const cerrado = CARD_SHOW.torneo.estado === 'cerrada';
-  // Pre-carga tokens al MONTAR (hasta 2: «los dos días» ⇒ 2 POST), para superar el min-age de 2 s
-  // del candado anti-bot (§CARDSHOW.5); cada POST consume su propio token de un solo uso.
+  const cerrado = CARD_SHOW.torneos.estado === 'cerrada';
   const { withToken } = useFormTokens('players', 2);
+  const [game, setGame] = useState<CardShowGame | ''>('');
   const [day, setDay] = useState<DaySel>('');
   const [playerName, setPlayerName] = useState('');
   const [playerId, setPlayerId] = useState('');
@@ -48,6 +47,7 @@ export function TorneoForm() {
   const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
+    game?: string;
     day?: string;
     playerName?: string;
     playerId?: string;
@@ -56,11 +56,15 @@ export function TorneoForm() {
     consent?: string;
   }>({});
 
+  const isPokemon = game === 'pokemon';
+
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
+    if (game === '') errs.game = FORM_MESSAGES.needGame;
     if (day === '') errs.day = FORM_MESSAGES.needDay;
-    if (playerName.trim() === '') errs.playerName = FORM_MESSAGES.needName;
-    if (!isPlayerId(playerId)) errs.playerId = FORM_MESSAGES.needPlayerId;
+    if (playerName.trim() === '') errs.playerName = FORM_MESSAGES.needPlayerName;
+    // Player ID SÓLO es obligatorio (y sólo se valida) para Pokémon (FORMAL).
+    if (isPokemon && !isPlayerId(playerId)) errs.playerId = FORM_MESSAGES.needPlayerId;
     if (!isEmail(email)) errs.email = FORM_MESSAGES.needEmail;
     if (isMinor && !guardian) errs.guardian = FORM_MESSAGES.needGuardian;
     if (!consent) errs.consent = FORM_MESSAGES.needConsent;
@@ -80,9 +84,11 @@ export function TorneoForm() {
         await withToken((token) =>
           submitPlayer({
             formToken: token,
+            game: game as CardShowGame,
             day: d,
             playerName: playerName.trim(),
-            playerId: playerId.trim(),
+            // ⛔ Player ID SÓLO para Pokémon; para los demás juegos no se envía (§CARDSHOW.12).
+            playerId: isPokemon ? playerId.trim() : undefined,
             email: email.trim(),
             isMinor,
             guardianConsent: isMinor ? guardian : undefined,
@@ -115,10 +121,19 @@ export function TorneoForm() {
 
   return (
     <form className="flex flex-col gap-6" onSubmit={onSubmit} noValidate>
+      <Select
+        label="Juego"
+        placeholder="Elige el juego"
+        value={game}
+        onChange={(e) => setGame(e.target.value as CardShowGame | '')}
+        options={CARD_SHOW_GAMES.map((g) => ({ value: g.id, label: g.label }))}
+      />
+      {fieldErrors.game && <p className="-mt-3 font-mono text-xs text-accent">{fieldErrors.game}</p>}
+
       <fieldset>
         <legend className="eyebrow">Día del torneo</legend>
         <div className="mt-3 flex flex-col gap-2">
-          {CARD_SHOW.torneo.dias.map((d) => (
+          {CARD_SHOW.torneos.dias.map((d) => (
             <label key={d.id} className="flex items-center gap-3 text-[13px] text-text">
               <input
                 type="radio"
@@ -154,15 +169,18 @@ export function TorneoForm() {
         error={fieldErrors.playerName}
       />
 
-      <Input
-        label="Player ID"
-        inputMode="numeric"
-        autoComplete="off"
-        hint="Solo dígitos."
-        value={playerId}
-        onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ''))}
-        error={fieldErrors.playerId}
-      />
+      {/* Player ID SÓLO para Pokémon (FORMAL); los demás juegos son preinscripción LIGERA sin ID. */}
+      {isPokemon && (
+        <Input
+          label="Player ID"
+          inputMode="numeric"
+          autoComplete="off"
+          hint="Solo dígitos. Lo pide el torneo de Pokémon."
+          value={playerId}
+          onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ''))}
+          error={fieldErrors.playerId}
+        />
+      )}
 
       <Input
         label="Correo"

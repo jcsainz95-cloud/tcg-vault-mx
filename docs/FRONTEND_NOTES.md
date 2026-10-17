@@ -4,6 +4,60 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-LEADS · Landing del Card Show reescrita a CAPTURA + panel admin (2026-10-17, `API_CONTRACT §CARDSHOW` v1.96 M-84, rama `release/card-show`)
+
+**Estado vigente.** La landing `/card-show` (fuera del i18n) pasó de «anuncio con datos» a **página de
+CAPTURA DE LEADS** que ⛔ no expone el modelo de negocio. Medido: `typecheck` + `lint` + `vitest`
+(4376/4376, 11 skip) + `next build` verdes sobre `release/card-show` (HEAD base `cbc4dfe`).
+
+- **Contenido** (`frontend/src/content/card-show.ts`): QUITADOS precios de mesa, plano de 23 mesas,
+  montos de patrocinio y sus helpers (`mesasResueltas`/`mesaDisponibilidad`/`plano`/`WHATSAPP`/
+  `MAILTO_PATROCINIO`/`LINKS`/`queEsTcgHunt`). CONSERVADO: fecha «Sáb 5 y Dom 6 dic 2026», sede
+  (zona), entrada libre, `countdownTargetIso`; Jakomi (nombre + logo, **sin enlaces** a redes);
+  juegos (Pokémon principal, Riftbound, Lorcana, 4.º «por confirmar»); copy de rifa informal (premio
+  = *30th Celebration Poster Collection*). Único secreto vivo: nombres de patrocinador (ninguno en el
+  repo); `patrocinios.showSponsors=false`.
+- **Página** (`frontend/src/app/card-show/page.tsx`): marca real papel/tinta, rojo `#b31217`,
+  Montserrat (`font-brand`) en títulos. Orden del preview aprobado: topbar (TCG HUNT × Jakomi) → hero
+  (countdown + CTA único «Regístrate» + secundario `#vendedores`) → colaborador Jakomi → qué
+  encontrarás → torneos por juego → registro → FAQ → **rifa AL FINAL** con la imagen del producto →
+  footer. CTA fija inferior en móvil. Accesibilidad: labels asociadas, foco visible, objetivos ≥44px,
+  `prefers-reduced-motion` (global en `globals.css`).
+- **Formularios** (reusan el *plumbing* de `_components/form-shared.tsx` — token/doble-opt-in/
+  honeypot/anti-abuso; ⛔ no reconstruido). Tres caminos en pestañas (`RegistrationForms.tsx`):
+  - `LeadVisitorForm` → `POST /card-show/leads` `type=visitor`: name, email, `gameInterest` (chips,
+    opcional, único `CardShowGame`), `raffleOptIn` (casilla PREMARCADA) + `raffleTermsVersion`
+    (`CARD_SHOW.raffleTermsVersion`, se envía ⇔ opt-in), consent.
+  - `TorneoForm` → `POST /card-show/players`: **Pokémon = FORMAL** (pide Player ID) / **demás juegos =
+    LIGERA** (⛔ sin Player ID). Día sat/sun/«los dos» (⇒ 2 POST), menor + tutor.
+  - `MerchantSponsorForm` → `POST /card-show/leads` `type=merchant|sponsor`: tipo, name (nombre o
+    marca), `phone`, email, `sellsWhat` (opcional), consent.
+- **Assets** en `frontend/public/card-show/`: `product_30th.jpg` (rifa) y `jakomi-logo.webp`
+  (aprobados; `rifa.imagen` en el content es fácil de sustituir si el dueño cambia la foto).
+- **Panel admin** `/admin/card-show` (super_admin, tras `SuperAdminOnly`; nav en «Administración»,
+  `hiddenUnlessSuperAdmin`): `CardShowAdminView` con dos listados — **Leads** (filtros tipo/estado +
+  búsqueda; columnas M-84 nombre/teléfono/juego/rifa/¿qué vende?) y **Preinscritos** (filtros
+  juego/día/estado + búsqueda; Player ID vacío en LIGERA) — cada uno con **«Descargar CSV»**
+  (`export.csv`, mismos filtros). ⛔ «PENDING no aparece»: lo excluye el backend; el front no lo pide.
+  Cliente: `frontend/src/lib/card-show-admin-api.ts`.
+
+**Cableado al contrato vs. lo que depende de backend.** El front consume ya (v1.96): `GET
+/card-show/form-token`, `POST /card-show/{leads,players,confirm,cancel,unsubscribe}`, y en el panel
+`GET /admin/card-show/{leads,players}` + `…/export.csv`. **Depende de que backend despliegue M-84**
+(migración + DTO condicional + columnas CSV): los campos nuevos (`name`/`phone`/`gameInterest`/
+`raffleOptIn`/`raffleTermsVersion`/`sellsWhat` en leads; `game`/`playerId` nullable en players) y las
+columnas nuevas del panel/CSV. Hasta entonces el panel pinta vacío (lista/`toPage` defensivos).
+
+**Solicitudes al arquitecto / huecos abiertos (no bloqueantes para el front):**
+1. §CARDSHOW.15 no fija por escrito el **envoltorio JSON** de los listados del panel; asumí la
+   convención de §0 `{ data, total, page, pageSize }` con parser defensivo (acepta también array
+   pelado). Confirmar/fijar el envoltorio.
+2. §CARDSHOW.13 pide honeypot pero ⛔ no nombra el **campo**; el front sigue enviando `website` (hueco
+   heredado, ya anotado en `card-show-api.ts`). El backend debe leer ESE nombre.
+3. `gameInterest` es un único `CardShowGame` (`pokemon|riftbound|lorcana`): el preview tenía chips
+   «Varios/Solo a comprar/4.º» que ⛔ no son valores del enum; se mapearon a «Aún no sé» (no envía
+   `gameInterest`). Si se quiere capturar esas intenciones hace falta un campo nuevo en el contrato.
+
 ## §66 · **§M4P-ORDER: por qué el «canario de locale» que el contrato ofrece NO se escribió** (2026-09-22, `API_CONTRACT §M4P-ORDER` v1.78.3)
 
 > **Esta entrada existe porque la decisión vivía solo en una conversación.** El contrato deja el

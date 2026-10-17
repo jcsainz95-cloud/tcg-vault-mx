@@ -1,349 +1,281 @@
-import { CARD_SHOW, MAILTO_PATROCINIO, WHATSAPP, LINKS } from '@/content/card-show';
-import { AvisameForm } from './_components/AvisameForm';
-import { TorneoForm } from './_components/TorneoForm';
-import { PlanoMesas } from './_components/PlanoMesas';
+import { CARD_SHOW } from '@/content/card-show';
 import { Countdown } from './_components/Countdown';
-import { TrackedLink } from './_components/TrackedLink';
+import { RegistrationForms } from './_components/RegistrationForms';
 
 /**
- * Landing del Card Show — datos REALES (decisión JC 2026-10-16). Orden: Hero (+ cuenta regresiva) →
- * Números → Qué vas a encontrar → Torneos+preinscripción → Cómo llegar → Regístrate → franja →
- * Mesas (plano + WhatsApp) → Patrocinios (mailto) → Qué es TCG HUNT → FAQ → Footer. CTA fija de
- * WhatsApp en móvil.
+ * Landing del Card Show — PÁGINA DE CAPTURA DE LEADS (pivote del dueño JC 2026-10-17). ⛔ No expone el
+ * modelo de negocio: nada de precios de mesa, plano ni montos de patrocinio. Orden (preview aprobado
+ * por el dueño, `scratchpad/cardshow-preview-brand.html`, traducido al sistema de diseño):
+ * Topbar → Hero (countdown + CTA único «Regístrate» + secundario a vendedor) → Colaborador (Jakomi,
+ * sin enlaces) → Qué vas a encontrar → Torneos por juego → Registro (3 formularios) → FAQ →
+ * Rifa (AL FINAL, con la imagen del producto) → Footer. CTA fija de «Regístrate» en móvil.
  *
- * ⛔ Único secreto: los NOMBRES de patrocinador. El bloque de logos va oculto (`showSponsors:false`).
- * Server Component: todo el contenido se pinta en el HTML inicial, sin `opacity:0` hasta hidratar.
+ * Server Component: todo el contenido se pinta en el HTML inicial (los formularios y el countdown son
+ * islas de cliente). Marca real: papel/tinta, rojo #b31217, Montserrat (`font-brand`) en títulos.
  */
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="eyebrow mb-4">{children}</p>;
-}
+const btnRed =
+  'inline-flex min-h-[48px] items-center justify-center bg-accent px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
+const btnGhostInk =
+  'inline-flex min-h-[48px] items-center justify-center border border-on-ink-rule px-7 font-mono text-xs uppercase leading-none tracking-label text-on-ink hover:border-on-ink';
 
-const btnAccent =
-  'inline-flex min-h-[48px] items-center bg-accent px-8 text-xs uppercase leading-none tracking-[0.16em] text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
-const btnOutline =
-  'inline-flex min-h-[48px] items-center border border-text px-8 text-xs uppercase leading-none tracking-[0.16em] text-text hover:bg-text hover:text-primary-fg';
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <p className="eyebrow mb-3">{children}</p>;
+}
 
 export default function CardShowPage() {
   const c = CARD_SHOW;
   return (
-    <main className="pb-20 sm:pb-0">
-      {/* 1 · HERO — se pinta sin JS */}
-      <section className="gutter border-b border-border-strong py-16 sm:py-24">
-        <p className="font-brand text-sm uppercase tracking-wordmark text-accent">{c.hero.presenta}</p>
-        <h1 className="mt-6 font-serif text-display leading-[1.05] sm:text-[3.25rem]">{c.hero.titulo}</h1>
-        <p className="mt-4 max-w-2xl text-lg text-muted">{c.hero.subtitulo}</p>
-        <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-3 font-mono text-sm">
-          <div>
-            <dt className="eyebrow">Fecha</dt>
-            <dd className="tabular">{c.hero.fecha}</dd>
+    <>
+      {/* TOPBAR */}
+      <header className="sticky top-0 z-20 border-b border-border bg-[color:rgba(244,241,234,0.9)] backdrop-blur">
+        <div className="gutter flex items-center justify-between gap-3 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="font-brand text-base font-bold uppercase tracking-wordmark text-text">TCG HUNT</span>
+            <span className="text-muted">×</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={c.colaborador.logo}
+              alt={c.colaborador.nombre}
+              className="h-7 w-auto border border-border bg-white px-1.5 py-0.5"
+            />
+            <span className="font-brand text-base font-bold">Jakomi</span>
           </div>
-          <div>
-            <dt className="eyebrow">Horario</dt>
-            <dd className="tabular">{c.hero.horario}</dd>
-          </div>
-          <div>
-            <dt className="eyebrow">Sede</dt>
-            <dd className="tabular">{c.hero.sede}</dd>
-          </div>
-          <div>
-            <dt className="eyebrow">Entrada</dt>
-            <dd>{c.hero.entrada}</dd>
-          </div>
-          <div>
-            <dt className="eyebrow">Torneo</dt>
-            <dd>{c.hero.chipTorneo}</dd>
-          </div>
-        </dl>
-        <div className="mt-10">
-          <Countdown targetIso={c.countdownTargetIso} />
-        </div>
-        <div className="mt-10 flex flex-wrap gap-4">
-          <a href={c.hero.ctaPrimario.href} className={btnAccent}>
-            {c.hero.ctaPrimario.label}
-          </a>
-          <a href={c.hero.ctaSecundario.href} className={btnOutline}>
-            {c.hero.ctaSecundario.label}
+          <a href="#registro" className={`${btnRed} px-4`}>
+            Regístrate
           </a>
         </div>
-      </section>
+      </header>
 
-      {/* 2 · NÚMEROS */}
-      <section className="gutter border-b border-border-strong py-12">
-        <dl className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-          {c.numeros.map((n) => (
-            <div key={n.label}>
-              <dt className="eyebrow">{n.label}</dt>
-              <dd className="mt-2 font-serif text-h2 tabular">{n.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      <main>
+        {/* HERO */}
+        <section className="bg-ink text-on-ink">
+          <div className="gutter py-14 sm:py-20">
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs uppercase tracking-label text-on-ink-nav">
+              {c.hero.tier.map((t, i) => (
+                <span key={t} className={i === 1 ? 'text-[color:var(--hunt-red-up)]' : undefined}>
+                  {t}
+                  {i < c.hero.tier.length - 1 && <span className="ml-3 text-on-ink-rule">·</span>}
+                </span>
+              ))}
+            </p>
+            <h1 className="mt-4 font-brand text-[clamp(2.6rem,9vw,5rem)] font-bold leading-[1.05]">
+              {c.hero.titulo}
+              <br />
+              <span className="text-[color:var(--hunt-red-up)]">{c.hero.lineaDos}</span>
+            </h1>
+            <p className="mt-5 max-w-[44ch] text-lg text-on-ink">{c.hero.lede}</p>
 
-      {/* 3 · QUÉ VAS A ENCONTRAR */}
-      <section id="que-vas-a-encontrar" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Qué vas a encontrar</Eyebrow>
-        <div className="grid gap-10 sm:grid-cols-2">
-          {c.queEncontraras.map((b) => (
-            <div key={b.titulo}>
-              <h3 className="font-serif text-h3">{b.titulo}</h3>
-              <p className="mt-2 text-muted">{b.texto}</p>
-            </div>
-          ))}
-        </div>
-        <a href="#registrate" className="mt-10 inline-block text-accent underline underline-offset-4">
-          Avísame
-        </a>
-      </section>
-
-      {/* 4 · TORNEOS + PREINSCRIPCIÓN (⛔ sin «oficial», sin cupo) */}
-      <section id="torneo" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>{c.torneo.titulo}</Eyebrow>
-        <div className="grid gap-12 lg:grid-cols-2">
-          <div>
-            <p className="max-w-prose text-muted">{c.torneo.descripcion}</p>
-            <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-3 font-mono text-sm">
-              {c.torneo.dias.map((d) => (
-                <div key={d.id}>
-                  <dt className="eyebrow">{d.label.split(' · ')[0]}</dt>
-                  <dd className="tabular">{d.label.split(' · ')[1] ?? ''}</dd>
+            <dl className="mt-7 flex flex-wrap gap-2">
+              {c.hero.facts.map((f) => (
+                <div key={f.k} className="border border-on-ink-rule px-3.5 py-2.5">
+                  <dt className="font-mono text-[11px] uppercase tracking-label text-on-ink-nav">{f.k}</dt>
+                  <dd className="mt-0.5 font-brand font-bold">{f.v}</dd>
                 </div>
               ))}
-              <div>
-                <dt className="eyebrow">Inscripción</dt>
-                <dd className="tabular">{c.torneo.inscripcion}</dd>
-              </div>
             </dl>
-            <p className="mt-4 text-[13px] text-muted">{c.torneo.notaHorarios}</p>
-          </div>
-          <div>
-            <h3 className="font-serif text-h3">Preinscríbete</h3>
-            <div className="mt-6">
-              <TorneoForm />
+
+            <a
+              href="#rifa"
+              className="mt-6 inline-flex items-center gap-2 border border-on-ink-rule border-l-2 border-l-accent px-3.5 py-2.5 font-mono text-sm text-on-ink hover:border-accent"
+            >
+              <span className="font-bold text-[color:var(--hunt-red-up)]">
+                Rifa: set del 30.º aniversario de Pokémon
+              </span>
+              — sin costo. Regístrate y participa.
+            </a>
+
+            <div className="mt-7 flex flex-wrap gap-3">
+              <a href={c.hero.ctaPrimario.href} className={btnRed}>
+                {c.hero.ctaPrimario.label}
+              </a>
+              <a href="#vendedores" className={btnGhostInk}>
+                {c.hero.ctaSecundario.label} →
+              </a>
+            </div>
+
+            <div className="mt-8">
+              <Countdown targetIso={c.countdownTargetIso} />
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* 5 · CÓMO LLEGAR */}
-      <section id="como-llegar" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Cómo llegar</Eyebrow>
-        <p className="font-mono text-sm tabular">{c.comoLlegar.direccion}</p>
-        <p className="mt-4 max-w-prose text-muted">{c.comoLlegar.pisos}</p>
-        <p className="mt-4 max-w-prose text-muted">{c.comoLlegar.indicaciones}</p>
-        <ul className="mt-4 max-w-prose list-disc space-y-1 pl-5 text-[13px] text-muted">
-          {c.comoLlegar.transporte.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
-        {/* ⛔ Sin iframe de mapa: la CSP de la landing (frame-src, de devops) no admite google.com; un
-            embed quedaría bloqueado. Se enlaza a Google Maps (navegación de primer nivel, permitida). */}
-        <TrackedLink
-          destino="mapa"
-          href={c.comoLlegar.mapaUrl}
-          target="_blank"
-          className="mt-8 inline-block text-accent underline underline-offset-4"
-        >
-          Abrir en Google Maps
-        </TrackedLink>
-      </section>
+        {/* COLABORADOR (Jakomi · SIN enlaces a sus redes) */}
+        <section className="gutter border-b border-border bg-surface-2 py-10">
+          <p className="font-mono text-[11px] uppercase tracking-label text-muted">{c.colaborador.label}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={c.colaborador.logo}
+              alt={c.colaborador.nombre}
+              className="h-20 w-20 border border-border bg-white object-contain p-2"
+            />
+            <div className="min-w-0">
+              <h2 className="font-brand text-h3 font-bold">{c.colaborador.nombre}</h2>
+              <p className="mt-1 max-w-[48ch] text-sm text-muted">{c.colaborador.descripcion}</p>
+            </div>
+          </div>
+        </section>
 
-      {/* 6 · REGÍSTRATE (captura pública) */}
-      <section id="registrate" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Regístrate</Eyebrow>
-        <div className="grid gap-12 lg:grid-cols-2">
-          <div>
-            <h2 className="font-serif text-h2">Avísame del Card Show</h2>
-            <p className="mt-4 max-w-prose text-muted">
-              Déjanos tu correo y te avisamos de los horarios finales y los detalles del torneo. Dinos también si
-              quieres vender o patrocinar.
+        {/* QUÉ VAS A ENCONTRAR */}
+        <section className="gutter border-b border-border py-16">
+          <Eyebrow>Qué vas a encontrar</Eyebrow>
+          <h2 className="font-brand text-h2 font-bold">Un fin de semana completo para la comunidad TCG</h2>
+          <p className="mt-3 max-w-[60ch] text-muted">
+            Pensado para jugadores y coleccionistas: compite, completa tu colección y conoce a la comunidad en persona.
+          </p>
+          <div className="mt-9 grid gap-4 md:grid-cols-3">
+            {c.queEncontraras.map((b) => (
+              <div key={b.n} className="border border-border p-6">
+                <p className="font-mono text-xs tracking-label text-accent">{b.n}</p>
+                <h3 className="mt-2 font-brand text-h3 font-bold">{b.titulo}</h3>
+                <p className="mt-2 text-sm text-muted">{b.texto}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* TORNEOS POR JUEGO */}
+        <section id="torneos" className="gutter border-b border-border py-16">
+          <Eyebrow>Torneos</Eyebrow>
+          <h2 className="font-brand text-h2 font-bold">Compite en tu juego</h2>
+          <p className="mt-3 max-w-[60ch] text-muted">{c.torneos.intro}</p>
+          <div className="mt-9 grid gap-4 md:grid-cols-3">
+            {c.torneos.juegos.map((g) => (
+              <div key={g.id} className="border border-border">
+                <div
+                  className={
+                    g.principal
+                      ? 'flex items-center justify-between gap-3 bg-accent px-4 py-4 text-accent-fg'
+                      : 'flex items-center justify-between gap-3 bg-ink px-4 py-4 text-on-ink'
+                  }
+                >
+                  <h3 className="font-brand font-bold">{g.nombre}</h3>
+                  <span className="font-mono text-[10px] uppercase tracking-label">{g.pill}</span>
+                </div>
+                <p className="px-4 py-4 text-sm text-muted">{g.linea}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 border-t border-dashed border-border pt-4 font-mono text-sm text-muted">{c.torneos.cuarto}</p>
+        </section>
+
+        {/* REGISTRO (3 formularios) */}
+        <section id="registro" className="gutter border-b border-border bg-surface-2 py-16">
+          <Eyebrow>Regístrate</Eyebrow>
+          <h2 className="font-brand text-h2 font-bold">Déjanos tus datos</h2>
+          <p className="mt-3 max-w-[60ch] text-muted">
+            Elige tu perfil. Te escribimos con los detalles del evento — y si eres vendedor o patrocinador, nos
+            ponemos en contacto directo.
+          </p>
+          <div className="mt-8">
+            <RegistrationForms />
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="gutter border-b border-border py-16">
+          <Eyebrow>Preguntas frecuentes</Eyebrow>
+          <h2 className="font-brand text-h2 font-bold">Lo esencial</h2>
+          <div className="mt-7 max-w-[760px] divide-y divide-border border-y border-border">
+            {c.faq.map((f) => (
+              <details key={f.q} className="py-4">
+                <summary className="flex cursor-pointer items-center justify-between gap-4 font-brand font-bold text-text marker:text-accent">
+                  {f.q}
+                  <span aria-hidden className="text-accent">
+                    +
+                  </span>
+                </summary>
+                <p className="mt-3 max-w-[68ch] text-muted">{f.a}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        {/* RIFA (AL FINAL, con la imagen del producto) */}
+        <section id="rifa" className="bg-ink text-on-ink">
+          <div className="gutter grid items-center gap-10 py-16 lg:grid-cols-[1.1fr_0.9fr]">
+            <div>
+              <p className="mb-3 font-mono text-[11px] uppercase tracking-label text-[color:var(--hunt-red-up)]">
+                {c.rifa.eyebrow}
+              </p>
+              <h2 className="font-brand text-h1 font-bold">{c.rifa.titulo}</h2>
+              <p className="mt-4 max-w-[40ch] text-on-ink">{c.rifa.lede}</p>
+              <ol className="mt-6 flex flex-col gap-2.5">
+                {c.rifa.pasos.map((p, i) => (
+                  <li key={p} className="flex items-start gap-3 text-sm">
+                    <span className="w-5 shrink-0 font-mono font-bold text-[color:var(--hunt-red-up)]">{i + 1}</span>
+                    <span>{p}</span>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-6 border border-on-ink-rule px-3.5 py-3 font-mono text-xs leading-relaxed text-on-ink-nav">
+                {c.rifa.bases}
+              </p>
+              <a href={c.rifa.cta.href} className={`${btnRed} mt-6`}>
+                {c.rifa.cta.label}
+              </a>
+            </div>
+            <div className="flex justify-center">
+              {/* Imagen del PRODUCTO aprobada; fácil de sustituir (cambia `rifa.imagen` en content/card-show.ts). */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={c.rifa.imagen}
+                alt={c.rifa.imagenAlt}
+                className="w-full max-w-[360px] border border-on-ink-rule bg-white p-3 object-contain"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* FOOTER */}
+        <footer className="bg-ink text-on-ink">
+          <div className="gutter flex flex-wrap justify-between gap-7 py-12">
+            <div>
+              <p className="font-brand text-base font-bold uppercase tracking-wordmark">{c.footer.marca}</p>
+              <p className="mt-1 font-mono text-[11px] uppercase tracking-label text-on-ink-nav">{c.footer.wordmarkSub}</p>
+            </div>
+            <nav aria-label="Evento" className="flex flex-col gap-1.5 text-sm">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-label text-on-ink-nav">Evento</p>
+              <a href="#torneos" className="hover:text-[color:var(--hunt-red-up)]">
+                Torneos
+              </a>
+              <a href="#rifa" className="hover:text-[color:var(--hunt-red-up)]">
+                Rifa
+              </a>
+              <a href="#registro" className="hover:text-[color:var(--hunt-red-up)]">
+                Registro
+              </a>
+              <a href="#faq" className="hover:text-[color:var(--hunt-red-up)]">
+                Preguntas
+              </a>
+            </nav>
+            <div className="flex flex-col gap-1.5 text-sm">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-label text-on-ink-nav">Contacto</p>
+              <p>WhatsApp: {c.footer.whatsappDisplay}</p>
+              <p>{c.footer.contactoEmail}</p>
+              <a
+                href={c.footer.privacidadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[color:var(--hunt-red-up)]"
+              >
+                Aviso de privacidad
+              </a>
+            </div>
+            <p className="w-full border-t border-on-ink-rule pt-5 text-xs leading-relaxed text-on-ink-nav">
+              {c.footer.legal}
             </p>
           </div>
-          <div>
-            <AvisameForm source="cta_hero" />
-          </div>
-        </div>
-      </section>
+        </footer>
+      </main>
 
-      {/* 7 · FRANJA ¿Vendes o patrocinas? */}
-      <section className="gutter border-b border-border-strong bg-surface-2 py-12">
-        <h2 className="font-serif text-h3">¿Vendes o patrocinas?</h2>
-        <div className="mt-6 flex flex-wrap gap-4">
-          <a href="#mesas" className="text-accent underline underline-offset-4">
-            Aparta tu mesa
-          </a>
-          {/* ⛔ Abre el MAILTO de patrocinio (NO scroll al formulario). */}
-          <a href={MAILTO_PATROCINIO} className="text-accent underline underline-offset-4">
-            Pide la propuesta de patrocinio
-          </a>
-        </div>
-      </section>
-
-      {/* 8 · MESAS (plano + WhatsApp) */}
-      <section id="mesas" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Mesas</Eyebrow>
-        <p className="max-w-prose text-muted">{c.mesas.intro}</p>
-        <p className="mt-2 max-w-prose text-[13px] text-muted">{c.mesas.nota}</p>
-        <p className="mt-1 max-w-prose text-[13px] text-muted">{c.mesas.montaje}</p>
-
-        <div className="mt-8">
-          <h3 className="eyebrow mb-3">Incluye</h3>
-          <ul className="flex flex-wrap gap-x-6 gap-y-1 text-[13px] text-text">
-            {c.mesas.incluye.map((i) => (
-              <li key={i}>· {i}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="mt-10">
-          <PlanoMesas />
-        </div>
-
-        <div className="mt-10 flex flex-wrap items-center gap-4">
-          <TrackedLink destino="whatsapp_mesas" href={WHATSAPP.apartarMesaGenerico} target="_blank" className={btnAccent}>
-            Aparta tu mesa por WhatsApp
-          </TrackedLink>
-          <p className="font-mono text-sm tabular text-muted">
-            WhatsApp <span className="text-text">{WHATSAPP.numeroDisplay}</span>
-          </p>
-        </div>
-        <p className="mt-4 text-[13px] text-muted">
-          <TrackedLink
-            destino="convocatoria"
-            href={c.mesas.convocatoriaUrl}
-            target="_blank"
-            className="text-accent underline underline-offset-4"
-          >
-            Ver la convocatoria de vendedores
-          </TrackedLink>
-        </p>
-      </section>
-
-      {/* 9 · PATROCINIOS (3 niveles, ⛔ SIN patrocinador nombrado, logos ocultos) */}
-      <section id="patrocinios" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Patrocinios</Eyebrow>
-        <p className="max-w-prose text-muted">{c.patrocinios.intro}</p>
-        <div className="mt-10 grid gap-8 sm:grid-cols-3">
-          {c.patrocinios.niveles.map((n) => (
-            <div key={n.id} className="border-t-2 border-text pt-4">
-              <h3 className="font-serif text-h3">{n.nombre}</h3>
-              <p className="mt-1 font-mono text-sm tabular text-muted">{n.precio}</p>
-              <ul className="mt-4 space-y-2 text-[13px] text-muted">
-                {n.beneficios.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-        <div className="mt-8">
-          <h3 className="eyebrow mb-3">Todos los niveles incluyen</h3>
-          <ul className="flex flex-wrap gap-x-6 gap-y-1 text-[13px] text-text">
-            {c.patrocinios.comunes.map((b) => (
-              <li key={b}>· {b}</li>
-            ))}
-          </ul>
-        </div>
-
-        {/* ⛔ Logos de patrocinadores OCULTOS hasta nuevo aviso (nombres secretos). */}
-        {c.patrocinios.showSponsors && (
-          <div className="mt-10" aria-label="Patrocinadores">
-            {/* Bloque de logos: se activa cuando JC autorice nombrar a los patrocinadores. */}
-          </div>
-        )}
-
-        <div className="mt-10 flex flex-wrap items-center gap-6">
-          {/* (d) El CTA abre el MAILTO, no hace scroll. */}
-          <a href={c.patrocinios.cta.href} className={btnAccent}>
-            {c.patrocinios.cta.label}
-          </a>
-          <TrackedLink
-            destino="whatsapp_patrocinio"
-            href={WHATSAPP.patrocinio}
-            target="_blank"
-            className="text-accent underline underline-offset-4"
-          >
-            O escríbenos por WhatsApp
-          </TrackedLink>
-          <TrackedLink
-            destino="deck"
-            href={c.patrocinios.deckUrl}
-            target="_blank"
-            className="text-accent underline underline-offset-4"
-          >
-            Ver el deck
-          </TrackedLink>
-        </div>
-      </section>
-
-      {/* 10 · QUÉ ES TCG HUNT (copy B) */}
-      <section className="gutter border-b border-border-strong py-16">
-        <Eyebrow>{c.queEsTcgHunt.titulo}</Eyebrow>
-        <p className="font-serif text-h2">{c.queEsTcgHunt.lema}</p>
-        <p className="mt-4 max-w-prose text-muted">{c.queEsTcgHunt.parrafo}</p>
-        <ul className="mt-6 flex flex-wrap gap-x-8 gap-y-2 font-mono text-sm text-text">
-          {c.queEsTcgHunt.puntos.map((p) => (
-            <li key={p}>· {p}</li>
-          ))}
-        </ul>
-        <TrackedLink
-          destino="home"
-          href={c.queEsTcgHunt.cta.href}
-          target="_blank"
-          className="mt-8 inline-block text-accent underline underline-offset-4"
-        >
-          {c.queEsTcgHunt.cta.label}
-        </TrackedLink>
-      </section>
-
-      {/* 11 · FAQ (expandible, funciona sin JS con <details>) */}
-      <section id="faq" className="gutter border-b border-border-strong py-16">
-        <Eyebrow>Preguntas frecuentes</Eyebrow>
-        <div className="divide-y divide-border">
-          {c.faq.map((f) => (
-            <details key={f.q} className="py-4">
-              <summary className="cursor-pointer font-medium text-text marker:text-accent">{f.q}</summary>
-              <p className="mt-2 max-w-prose text-muted">{f.a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-
-      {/* 12 · FOOTER */}
-      <footer className="gutter py-12 text-sm text-muted">
-        <p className="font-brand text-sm uppercase tracking-wordmark text-text">{c.footer.marca}</p>
-        <p className="mt-2">{c.footer.colaboracion}</p>
-        <p className="mt-1 text-[13px]">{c.footer.jakomiDireccion}</p>
-        <p className="mt-4 font-mono text-sm tabular">
-          ¿Dudas? WhatsApp <span className="text-text">{WHATSAPP.numeroDisplay}</span>
-        </p>
-        <nav className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
-          <TrackedLink destino="whatsapp_dudas" href={WHATSAPP.dudas} target="_blank" className="hover:text-text">
-            Escríbenos por WhatsApp
-          </TrackedLink>
-          <a href={c.footer.privacidadUrl} target="_blank" rel="noopener noreferrer" className="hover:text-text">
-            Aviso de privacidad
-          </a>
-          <TrackedLink destino="ig_tcghunt" href={LINKS.tcgHuntIg} target="_blank" className="hover:text-text">
-            Instagram TCG HUNT
-          </TrackedLink>
-          <TrackedLink destino="ig_jakomi" href={LINKS.jakomiIg} target="_blank" className="hover:text-text">
-            Instagram Jakomi
-          </TrackedLink>
-        </nav>
-      </footer>
-
-      {/* CTA FIJA en móvil: WhatsApp genérico (#2). Oculta en ≥sm. */}
+      {/* CTA FIJA en móvil: «Regístrate». Oculta en ≥sm. */}
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border-strong bg-bg p-3 sm:hidden">
-        <TrackedLink
-          destino="whatsapp_sticky"
-          href={WHATSAPP.apartarMesaGenerico}
-          target="_blank"
-          className={`${btnAccent} w-full justify-center`}
-        >
-          Aparta tu mesa por WhatsApp
-        </TrackedLink>
+        <a href="#registro" className={`${btnRed} w-full`}>
+          Regístrate gratis
+        </a>
       </div>
-    </main>
+    </>
   );
 }

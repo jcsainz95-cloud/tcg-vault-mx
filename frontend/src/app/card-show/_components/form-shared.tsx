@@ -24,8 +24,13 @@ export const FORM_MESSAGES = {
   needConsent: 'Marca la casilla del aviso de privacidad para continuar.',
   needInteres: 'Elige al menos una opción.',
   needDay: 'Elige el día.',
-  needName: 'Escribe el nombre del jugador.',
+  needName: 'Escribe tu nombre.',
+  needNameOrBrand: 'Escribe tu nombre o el de tu marca.',
+  needPlayerName: 'Escribe el nombre del jugador.',
   needPlayerId: 'El Player ID debe tener solo dígitos.',
+  needPhone: 'Escribe un teléfono válido (10 dígitos).',
+  needGame: 'Elige el juego del torneo.',
+  needRaffleTerms: 'Para entrar a la rifa, acepta las bases.',
   needGuardian: 'Si el jugador es menor de edad, el padre/madre o tutor debe dar su consentimiento.',
 } as const;
 
@@ -37,6 +42,16 @@ export function isEmail(v: string): boolean {
 /** Player ID: SOLO dígitos, longitud acotada (§CARDSHOW.12). */
 export function isPlayerId(v: string): boolean {
   return /^\d{1,12}$/.test(v.trim());
+}
+
+/**
+ * Teléfono MX válido a grandes rasgos (el backend normaliza y valida, §CARDSHOW.1b): 10 dígitos tras
+ * quitar `+52`/`52` y separadores ` -()`. Entrada ≤ 20 chars.
+ */
+export function isPhone(v: string): boolean {
+  if (v.trim().length > 20) return false;
+  const digits = v.replace(/[\s\-()]/g, '').replace(/^\+?52/, '');
+  return /^\d{10}$/.test(digits);
 }
 
 /** Lee los `utm_*` y el host del referer SIN query ni ruta (§CARDSHOW.1), para la atribución. */

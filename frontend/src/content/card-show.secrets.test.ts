@@ -82,9 +82,14 @@ describe('secreto · patrocinadores ocultos en el código del Card Show', () => 
     expect(CARD_SHOW.patrocinios.showSponsors).toBe(false);
   });
 
-  it('no hay patrocinador nombrado: la sección solo lista NIVELES (Oro/Plata/Producto)', () => {
-    const nombres = CARD_SHOW.patrocinios.niveles.map((n) => n.nombre).join(' ');
-    expect(nombres).toBe('Oro Plata Producto');
+  // ⭐ PIVOTE A CAPTURA (JC 2026-10-17): se RETIRAN los niveles/montos de patrocinio de la página
+  // (ya no se listan Oro/Plata/Producto ni precios). El contacto comercial es ahora un formulario
+  // privado (`type=merchant|sponsor`). La guarda que queda viva: ⛔ ningún patrocinador NOMBRADO.
+  it('no quedó ninguna estructura de niveles/montos de patrocinio en el contenido', () => {
+    expect('niveles' in CARD_SHOW.patrocinios).toBe(false);
+    const blob = JSON.stringify(CARD_SHOW);
+    // Ni montos de patrocinio ni rótulos de nivel: el contacto es privado, sin precios públicos.
+    expect(/Oro|Plata|Producto|\$\s?\d/.test(blob)).toBe(false);
   });
 
   it('las únicas marcas nombradas en el contenido son TCG HUNT y Jakomi', () => {

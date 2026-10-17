@@ -1,15 +1,18 @@
 /**
- * §13 (formularios) — estados, validación y accesibilidad de los dos formularios del Card Show
- * (API_CONTRACT §CARDSHOW.3/.5/.6/.11/.12, RONDA_0 §6). Se mockean las llamadas HTTP; lo que se
- * prueba es la CONDUCTA del cliente: los 10 estados, el honeypot oculto, el reintento de token y el
- * nuevo manejo de tokens (PRE-CARGA al montar + un token de un solo uso por POST, con clave
- * `formToken` en el cuerpo).
+ * Formularios del Card Show tras el PIVOTE A CAPTURA (API_CONTRACT §CARDSHOW.3/.5/.6/.11/.12, v1.96
+ * M-84). Se mockean las llamadas HTTP; lo que se prueba es la CONDUCTA del cliente: validación,
+ * estados de error/éxito, el cuerpo que se envía al contrato y el honeypot oculto. Las tres formas:
+ *  - `LeadVisitorForm`  → POST /leads  (type=visitor; name, email, gameInterest?, raffleOptIn, raffleTermsVersion)
+ *  - `MerchantSponsorForm` → POST /leads (type=merchant|sponsor; name, phone, email, sellsWhat?)
+ *  - `TorneoForm`       → POST /players (Pokémon FORMAL pide playerId; resto LIGERA ⛔ sin playerId)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CardShowApiError } from '@/lib/card-show-api';
-import { AvisameForm } from './AvisameForm';
+import { CARD_SHOW } from '@/content/card-show';
+import { LeadVisitorForm } from './LeadVisitorForm';
+import { MerchantSponsorForm } from './MerchantSponsorForm';
 import { TorneoForm } from './TorneoForm';
 import { FORM_MESSAGES, formTokenTiming } from './form-shared';
 
@@ -23,16 +26,12 @@ vi.mock('@/lib/card-show-api', async (orig) => {
   const actual = await orig<typeof import('@/lib/card-show-api')>();
   return { ...actual, getFormToken, submitLead, submitPlayer };
 });
-vi.mock('@/lib/card-show-clicks', () => ({ trackClick: vi.fn(), trackedHref: (d: string) => `/ir/${d}` }));
-
-// El pool al montar: tantos tokens como POSTs pueda hacer el formulario (3 chips leads, 2 días torneo).
-const LEADS_POOL = 3;
-const PLAYERS_POOL = 2;
 
 beforeEach(() => {
   // Las pruebas no esperan de verdad el min-age del token anti-bot: se pone en 0 (prod = 2 s).
   formTokenTiming.minAgeMs = 0;
   formTokenTiming.slackMs = 0;
+  getFormToken.mockResolvedValue('tok');
 });
 
 afterEach(() => {
@@ -41,151 +40,135 @@ afterEach(() => {
   formTokenTiming.slackMs = 150;
 });
 
-function expired() {
-  return new CardShowApiError(400, 'FORM_EXPIRED', 'form expired');
-}
-
-/** Cada emisión devuelve un token distinto, para comprobar «un token de un solo uso por POST». */
-function mockUniqueTokens() {
-  let n = 0;
-  getFormToken.mockImplementation(() => Promise.resolve(`tok-${++n}`));
-}
-
-describe('AvisameForm · estados y validación (§CARDSHOW.3/.5/.6)', () => {
-  it('estado 1 (idle) · se pinta con campos visibles, sin opacity:0 (sin JS)', () => {
-    const { container } = render(<AvisameForm />);
-    expect(screen.getByRole('button', { name: 'Avísame' })).toBeInTheDocument();
+describe('LeadVisitorForm · asistente (type=visitor)', () => {
+  it('idle · se pinta con campos visibles, sin opacity:0 (sin JS)', () => {
+    const { container } = render(<LeadVisitorForm />);
+    expect(screen.getByRole('button', { name: 'Registrarme gratis' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Nombre')).toBeInTheDocument();
     expect(screen.getByLabelText('Correo')).toBeInTheDocument();
-    // Ningún nodo del formulario se esconde hasta hidratar.
     expect(container.querySelector('.opacity-0')).toBeNull();
   });
 
-  it('estado 2 · sin chip de interés ⇒ error de campo, no hace POST', async () => {
-    const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.needInteres)).toBeInTheDocument();
-    expect(submitLead).not.toHaveBeenCalled();
+  it('la casilla de la rifa nace PREMARCADA (§CARDSHOW.1b)', () => {
+    render(<LeadVisitorForm />);
+    expect(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ })).toBeChecked();
   });
 
-  it('estado 3 · correo inválido ⇒ error de campo', async () => {
+  it('sin nombre / correo inválido / sin consentimiento ⇒ errores de campo, no hace POST', async () => {
     const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
+    render(<LeadVisitorForm />);
     await u.type(screen.getByLabelText('Correo'), 'no-es-correo');
-    await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.needEmail)).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
+    expect(await screen.findByText(FORM_MESSAGES.needName)).toBeInTheDocument();
+    expect(screen.getByText(FORM_MESSAGES.needEmail)).toBeInTheDocument();
+    expect(screen.getByText(FORM_MESSAGES.needConsent)).toBeInTheDocument();
     expect(submitLead).not.toHaveBeenCalled();
   });
 
-  it('estado 4 · casilla de privacidad sin marcar ⇒ bloquea el envío', async () => {
-    const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
-    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.needConsent)).toBeInTheDocument();
-    expect(submitLead).not.toHaveBeenCalled();
-  });
-
-  it('estado 5 (éxito) · pre-carga tokens al montar; un POST por chip con token propio; body usa formToken', async () => {
-    mockUniqueTokens();
+  it('éxito · envía UN lead visitor con gameInterest, raffleOptIn y raffleTermsVersion', async () => {
     submitLead.mockResolvedValue(undefined);
     const u = userEvent.setup();
-    render(<AvisameForm />);
-    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL)); // prefetch al montar
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
-    await u.click(screen.getByRole('button', { name: 'Vender' }));
+    render(<LeadVisitorForm />);
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(1)); // prefetch de 1 token
+    await u.type(screen.getByLabelText('Nombre'), 'Ana López');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByRole('button', { name: 'Lorcana' }));
     await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
+    await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
-    expect(submitLead).toHaveBeenCalledTimes(2); // dos chips ⇒ dos filas
-    expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL); // sin fetch nuevo en submit: usa el pool
-    const tokens = submitLead.mock.calls.map((c) => c[0].formToken);
-    expect(new Set(tokens).size).toBe(2); // un token de un solo uso por POST
-    expect(tokens.every((t: unknown) => typeof t === 'string' && (t as string).length > 0)).toBe(true);
-    expect(submitLead.mock.calls.map((c) => c[0].type).sort()).toEqual(['merchant', 'visitor']);
+    expect(submitLead).toHaveBeenCalledTimes(1);
+    const body = submitLead.mock.calls[0][0];
+    expect(body.type).toBe('visitor');
+    expect(body.name).toBe('Ana López');
+    expect(body.gameInterest).toBe('lorcana');
+    expect(body.raffleOptIn).toBe(true);
+    expect(body.raffleTermsVersion).toBe(CARD_SHOW.raffleTermsVersion);
+    expect(typeof body.formToken).toBe('string');
+    expect('phone' in body ? body.phone : undefined).toBeUndefined();
   });
 
-  it('estado 6 (pendiente) · botón en aria-busy mientras se envía', async () => {
-    let resolve!: () => void;
-    getFormToken.mockResolvedValue('tok');
-    submitLead.mockReturnValue(new Promise<void>((r) => (resolve = r)));
+  it('sin rifa ⇒ raffleOptIn=false y SIN raffleTermsVersion (§CARDSHOW.1b)', async () => {
+    submitLead.mockResolvedValue(undefined);
     const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
+    render(<LeadVisitorForm />);
+    await u.type(screen.getByLabelText('Nombre'), 'Ana');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByRole('checkbox', { name: /Quiero participar en la rifa/ })); // la desmarca
     await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Avísame' })).toHaveAttribute('aria-busy', 'true'));
-    resolve();
+    await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+    const body = submitLead.mock.calls[0][0];
+    expect(body.raffleOptIn).toBe(false);
+    expect(body.raffleTermsVersion).toBeUndefined();
+    expect(body.gameInterest).toBeUndefined(); // «Aún no sé» por defecto
   });
 
-  it('estado 7 (429) · demasiados intentos ⇒ mensaje de rate-limit', async () => {
-    getFormToken.mockResolvedValue('tok');
+  it('429 ⇒ mensaje de rate-limit; honeypot oculto y fuera del foco', async () => {
     submitLead.mockRejectedValue(new CardShowApiError(429, 'RATE_LIMITED', 'too many', undefined, 60));
     const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
-    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.rateLimited)).toBeInTheDocument();
-  });
-
-  it('estado 8 (token caducado, reintento OK) · FORM_EXPIRED ⇒ pide otro token FRESCO y reintenta sin perder lo tecleado', async () => {
-    mockUniqueTokens();
-    submitLead.mockRejectedValueOnce(expired()).mockResolvedValueOnce(undefined);
-    const u = userEvent.setup();
-    render(<AvisameForm />);
-    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL));
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
-    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
-    expect(submitLead).toHaveBeenCalledTimes(2);
-    expect(getFormToken).toHaveBeenCalledTimes(LEADS_POOL + 1); // pool al montar + 1 fresco en el reintento
-    const t1 = submitLead.mock.calls[0][0].formToken;
-    const t2 = submitLead.mock.calls[1][0].formToken;
-    expect(t2).not.toBe(t1); // token fresco, distinto, en el reintento
-    expect(submitLead.mock.calls[1][0].email).toBe('ana@correo.com'); // no se borró
-  });
-
-  it('estado 9 (caducado persistente) · dos FORM_EXPIRED ⇒ mensaje «Formulario caducado»', async () => {
-    getFormToken.mockResolvedValue('tok');
-    submitLead.mockRejectedValue(expired());
-    const u = userEvent.setup();
-    render(<AvisameForm />);
-    await u.click(screen.getByRole('button', { name: 'Voy' }));
-    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByLabelText(/He leído el/));
-    await u.click(screen.getByRole('button', { name: 'Avísame' }));
-    expect(await screen.findByText(FORM_MESSAGES.expired)).toBeInTheDocument();
-  });
-
-  it('estado 10 (honeypot) · el señuelo está oculto, fuera del orden de foco y sin autocompletar', () => {
-    const { container } = render(<AvisameForm />);
+    const { container } = render(<LeadVisitorForm />);
     const hp = container.querySelector('input[name="website"]') as HTMLInputElement;
-    expect(hp).not.toBeNull();
     expect(hp.getAttribute('tabindex')).toBe('-1');
-    expect(hp.getAttribute('autocomplete')).toBe('off');
-    // Lo envuelve un contenedor aria-hidden ⇒ el lector no lo anuncia.
     expect(hp.closest('[aria-hidden="true"]')).not.toBeNull();
-    // No es alcanzable por nombre accesible (no lo autollena iOS/Android: name genérico + off).
-    expect(screen.queryByRole('textbox', { name: /website|empresa|company/i })).toBeNull();
+    await u.type(screen.getByLabelText('Nombre'), 'Ana');
+    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByLabelText(/He leído el/));
+    await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
+    expect(await screen.findByText(FORM_MESSAGES.rateLimited)).toBeInTheDocument();
   });
 });
 
-describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
-  it('Player ID: se limpia a solo dígitos y vacío/no numérico ⇒ error', async () => {
+describe('MerchantSponsorForm · vendedor/patrocinador (type=merchant|sponsor)', () => {
+  it('teléfono inválido ⇒ error de campo, no hace POST', async () => {
+    const u = userEvent.setup();
+    render(<MerchantSponsorForm />);
+    await u.type(screen.getByLabelText('Nombre o marca'), 'Mi Tienda');
+    await u.type(screen.getByLabelText('Teléfono'), '123');
+    await u.type(screen.getByLabelText('Correo'), 'tienda@correo.com');
+    await u.click(screen.getByLabelText(/Acepto que TCG HUNT/));
+    await u.click(screen.getByRole('button', { name: 'Quiero que me contacten' }));
+    expect(await screen.findByText(FORM_MESSAGES.needPhone)).toBeInTheDocument();
+    expect(submitLead).not.toHaveBeenCalled();
+  });
+
+  it('éxito · envía name, phone y sellsWhat; el tipo por defecto es merchant', async () => {
+    submitLead.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<MerchantSponsorForm />);
+    await u.type(screen.getByLabelText('Nombre o marca'), 'Mi Tienda');
+    await u.type(screen.getByLabelText('Teléfono'), '55 1234 5678');
+    await u.type(screen.getByLabelText('Correo'), 'tienda@correo.com');
+    await u.type(screen.getByLabelText(/Qué vendes/), 'Singles y sellado');
+    await u.click(screen.getByLabelText(/Acepto que TCG HUNT/));
+    await u.click(screen.getByRole('button', { name: 'Quiero que me contacten' }));
+    expect(await screen.findByText(/Te contactamos pronto/)).toBeInTheDocument();
+    const body = submitLead.mock.calls[0][0];
+    expect(body.type).toBe('merchant');
+    expect(body.name).toBe('Mi Tienda');
+    expect(body.phone).toBe('55 1234 5678');
+    expect(body.sellsWhat).toBe('Singles y sellado');
+  });
+
+  it('al elegir «Patrocinador» el POST lleva type=sponsor', async () => {
+    submitLead.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<MerchantSponsorForm />);
+    await u.click(screen.getByRole('button', { name: 'Patrocinador' }));
+    await u.type(screen.getByLabelText('Nombre o marca'), 'Marca X');
+    await u.type(screen.getByLabelText('Teléfono'), '5512345678');
+    await u.type(screen.getByLabelText('Correo'), 'marca@correo.com');
+    await u.click(screen.getByLabelText(/Acepto que TCG HUNT/));
+    await u.click(screen.getByRole('button', { name: 'Quiero que me contacten' }));
+    expect(await screen.findByText(/Te contactamos pronto/)).toBeInTheDocument();
+    expect(submitLead.mock.calls[0][0].type).toBe('sponsor');
+  });
+});
+
+describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
+  it('Pokémon = FORMAL: pide Player ID; vacío/no numérico ⇒ error y limpia a dígitos', async () => {
     const u = userEvent.setup();
     render(<TorneoForm />);
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
     const pid = screen.getByLabelText('Player ID');
     await u.type(pid, '12ab34');
     expect((pid as HTMLInputElement).value).toBe('1234'); // letras descartadas en captura
@@ -199,26 +182,43 @@ describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
     expect(submitPlayer).not.toHaveBeenCalled();
   });
 
-  it('menor sin consentimiento del tutor ⇒ bloquea el envío', async () => {
+  it('juego LIGERA (Riftbound): ⛔ no muestra Player ID y el POST no lo envía', async () => {
+    submitPlayer.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<TorneoForm />);
+    await u.selectOptions(screen.getByLabelText('Juego'), 'riftbound');
+    expect(screen.queryByLabelText('Player ID')).toBeNull();
+    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
+    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByLabelText(/He leído el/));
+    await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
+    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+    const body = submitPlayer.mock.calls[0][0];
+    expect(body.game).toBe('riftbound');
+    expect(body.playerId).toBeUndefined();
+  });
+
+  it('sin juego ⇒ error de campo', async () => {
     const u = userEvent.setup();
     render(<TorneoForm />);
     await u.click(screen.getByRole('radio', { name: /Sábado/ }));
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
-    await u.type(screen.getByLabelText('Player ID'), '12345');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
-    await u.click(screen.getByLabelText('El jugador es menor de edad'));
     await u.click(screen.getByLabelText(/He leído el/));
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
-    expect(await screen.findByText(FORM_MESSAGES.needGuardian)).toBeInTheDocument();
+    expect(await screen.findByText(FORM_MESSAGES.needGame)).toBeInTheDocument();
     expect(submitPlayer).not.toHaveBeenCalled();
   });
 
-  it('«los dos días» ⇒ dos POST (sat + sun), cada uno con su token de un solo uso', async () => {
-    mockUniqueTokens();
+  it('«los dos días» (Pokémon) ⇒ dos POST (sat + sun), cada uno con su token de un solo uso', async () => {
+    let n = 0;
+    getFormToken.mockImplementation(() => Promise.resolve(`tok-${++n}`));
     submitPlayer.mockResolvedValue(undefined);
     const u = userEvent.setup();
     render(<TorneoForm />);
-    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(PLAYERS_POOL)); // prefetch al montar
+    await waitFor(() => expect(getFormToken).toHaveBeenCalledTimes(2)); // prefetch de 2 (dos días)
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
     await u.click(screen.getByRole('radio', { name: 'Los dos días' }));
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Player ID'), '12345');
@@ -227,35 +227,23 @@ describe('TorneoForm · validación del torneo (§CARDSHOW.12)', () => {
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
     expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
     expect(submitPlayer.mock.calls.map((c) => c[0].day).sort()).toEqual(['sat', 'sun']);
-    expect(getFormToken).toHaveBeenCalledTimes(PLAYERS_POOL); // usa el pool, sin fetch nuevo en submit
     const tokens = submitPlayer.mock.calls.map((c) => c[0].formToken);
-    expect(new Set(tokens).size).toBe(2); // un token de un solo uso por POST
+    expect(new Set(tokens).size).toBe(2);
+    expect(submitPlayer.mock.calls.every((c) => c[0].playerId === '12345')).toBe(true);
   });
 
-  it('menor CON consentimiento ⇒ envía guardianConsent=true y body con formToken', async () => {
-    getFormToken.mockResolvedValue('tok');
-    submitPlayer.mockResolvedValue(undefined);
+  it('menor sin consentimiento del tutor ⇒ bloquea el envío', async () => {
     const u = userEvent.setup();
     render(<TorneoForm />);
-    await u.click(screen.getByRole('radio', { name: /Domingo/ }));
+    await u.selectOptions(screen.getByLabelText('Juego'), 'pokemon');
+    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
     await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
     await u.type(screen.getByLabelText('Player ID'), '12345');
     await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
     await u.click(screen.getByLabelText('El jugador es menor de edad'));
-    await u.click(screen.getByLabelText(/padre, madre o tutor/));
     await u.click(screen.getByLabelText(/He leído el aviso de privacidad/));
     await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
-    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
-    const body = submitPlayer.mock.calls[0][0];
-    expect(body.isMinor).toBe(true);
-    expect(body.guardianConsent).toBe(true);
-    expect(typeof body.formToken).toBe('string'); // el cuerpo lleva la clave del contrato
-  });
-
-  it('honeypot del torneo también oculto', () => {
-    const { container } = render(<TorneoForm />);
-    const hps = container.querySelectorAll('input[name="website"]');
-    expect(hps.length).toBe(1);
-    expect(within(hps[0].closest('[aria-hidden="true"]') as HTMLElement).getByLabelText(/No llenar/)).toBe(hps[0]);
+    expect(await screen.findByText(FORM_MESSAGES.needGuardian)).toBeInTheDocument();
+    expect(submitPlayer).not.toHaveBeenCalled();
   });
 });

@@ -80,18 +80,48 @@ export interface BaseSubmitBody {
   referrerHost?: string;
 }
 
+/** Juego del torneo / interés (enum `CardShowGame`, §Enums). */
+export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana';
+
+/**
+ * Cuerpo de `POST /card-show/leads` (§CARDSHOW.1/.1b, v1.96 M-84). DTO único; las reglas
+ * condicionales por `type` las valida el backend (⇒ `400 {field}` si se violan). El frontend sólo
+ * envía los campos que corresponden al tipo:
+ *  - `visitor`: `name`, `email`, `gameInterest?`, `raffleOptIn?` (+ `raffleTermsVersion` ⇔ opt-in).
+ *    ⛔ `phone`/`sellsWhat` PROHIBIDOS.
+ *  - `merchant`/`sponsor`: `name` (nombre o marca), `phone`, `email`, `sellsWhat?`.
+ *    ⛔ `gameInterest`/`raffleOptIn`/`raffleTermsVersion` PROHIBIDOS.
+ */
 export interface LeadSubmitBody extends BaseSubmitBody {
-  /** Un chip ⇒ una fila (§CARDSHOW.1): el body lleva UN tipo; varios chips ⇒ varios POST. */
+  /** Un tipo ⇒ una fila (§CARDSHOW.1). */
   type: 'merchant' | 'sponsor' | 'visitor';
   source: 'cta_hero' | 'cta_mesas' | 'cta_patrocinio' | 'header';
+  /** Nombre o MARCA — obligatorio en todos los tipos (§CARDSHOW.1b). */
+  name: string;
   email: string;
-  mesaInteres?: number;
+  /** Teléfono MX — SOLO merchant/sponsor (⛔ prohibido visitor). */
+  phone?: string;
+  /** Juego de interés — SOLO visitor, opcional (⛔ prohibido merchant/sponsor). */
+  gameInterest?: CardShowGame;
+  /** Participa en la rifa — SOLO visitor (⛔ prohibido merchant/sponsor). */
+  raffleOptIn?: boolean;
+  /** Versión de BASES de la rifa — obligatorio ⇔ `raffleOptIn=true`. */
+  raffleTermsVersion?: string;
+  /** «¿Qué vendes / qué marca?» — opcional merchant/sponsor (⛔ prohibido visitor). */
+  sellsWhat?: string;
 }
 
+/**
+ * Cuerpo de `POST /card-show/players` (§CARDSHOW.1/.12, v1.96 M-84). `game` obligatorio:
+ *  - `pokemon` = FORMAL ⇒ `playerId` OBLIGATORIO (solo dígitos).
+ *  - `riftbound`/`lorcana` = LIGERA ⇒ `playerId` PROHIBIDO (no se envía).
+ */
 export interface PlayerSubmitBody extends BaseSubmitBody {
+  game: CardShowGame;
   day: 'sat' | 'sun';
   playerName: string;
-  playerId: string;
+  /** Solo cuando `game==='pokemon'`; ⛔ ausente para los demás juegos (§CARDSHOW.12). */
+  playerId?: string;
   email: string;
   isMinor: boolean;
   /** Obligatorio ⇔ isMinor === true (§CARDSHOW.12). */
