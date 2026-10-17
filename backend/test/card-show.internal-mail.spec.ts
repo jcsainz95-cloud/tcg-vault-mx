@@ -69,7 +69,7 @@ describe('CARDSHOW · aviso interno + resumen diario (internos, copy del dueño)
     expect(`${r.html}\n${r.text}`).not.toMatch(/Ash Ketchum/);
   });
 
-  it('CC REAL del aviso interno: MailMessage.cc = [Jakomi, scarranza] y to = jsainz@tcghunt.mx', async () => {
+  it('⭐M-89: CC del aviso interno = SOLO TCG HUNT (scarranza); Jakomi NO; to = jsainz@tcghunt.mx', async () => {
     // Puerto que captura el MailMessage exacto que recibe el adaptador (el CC de primera clase vive AQUÍ,
     // no en el render: si se quita `cc:` de sendInternalNotice, esta prueba MUERDE).
     const sent: MailMessage[] = [];
@@ -95,9 +95,9 @@ describe('CARDSHOW · aviso interno + resumen diario (internos, copy del dueño)
     const msg = sent[0];
     expect(msg.to).toBe(DEFAULT_INTERNAL_TO); // jsainz@tcghunt.mx
     expect(msg.to).toBe('jsainz@tcghunt.mx');
-    // CC de PRIMERA CLASE con los DOS destinatarios del equipo (no una cabecera `Cc` arbitraria).
+    // ⭐M-89 (cierra L2-SEG-01): CC de PRIMERA CLASE SOLO al buzón de TCG HUNT. Jakomi (tercero) FUERA.
     expect(msg.cc).toEqual(INTERNAL_NOTICE_CC);
-    expect(msg.cc).toEqual(['cardshow@jakomi.mx', 'scarranza@tcghunt.mx']);
+    expect(msg.cc).toEqual(['scarranza@tcghunt.mx']);
     // ⛔ El CC ya NO va por cabecera (el apaño se quitó): sin clave `Cc` en headers.
     expect(msg.headers ?? {}).not.toHaveProperty('Cc');
   });
