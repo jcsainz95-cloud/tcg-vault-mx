@@ -36,16 +36,15 @@ export const CARD_SHOW_SPONSOR_MAILTO =
   'mailto:jsainz@tcghunt.mx?cc=cardshow@jakomi.mx&subject=Patrocinio%20Card%20Show%20CDMX';
 
 /**
- * WhatsApp para APARTAR MESA: base verbatim del dueño (texto prellenado) + `utm_source=email`. Como la
+ * WhatsApp para VENDEDORES: pivote a captura de interés (decisión del dueño). ⛔ NO promete «mesa #» ni
+ * plano (el plano se retiró: no existe `id="plano"` en la landing); el texto prellenado es GENÉRICO —
+ * el vendedor manifiesta interés y el contacto de mesas es PRIVADO, como dice la landing («te
+ * contactamos en privado con las opciones de mesa, sin precios públicos»). + `utm_source=email`; como la
  * base ya trae `?text=…`, el utm se añade con `&`.
  */
-export const CARD_SHOW_RESERVE_TABLE_WA_URL =
-  `https://wa.me/${CARD_SHOW_WHATSAPP_E164}?text=Hola%2C%20quiero%20apartar%20una%20mesa%20para%20el%20Card%20Show%20CDMX%20(5%E2%80%936%20dic).%20Me%20interesa%20la%20mesa%20%23` +
+export const CARD_SHOW_MERCHANT_WA_URL =
+  `https://wa.me/${CARD_SHOW_WHATSAPP_E164}?text=Hola%2C%20quiero%20vender%20en%20el%20Card%20Show%20CDMX%20(5%E2%80%936%20dic).%20%C2%BFMe%20pasan%20las%20opciones%20de%20mesa%3F` +
   '&utm_source=email';
-
-/** «Ver el plano de mesas» en la landing, con utm propios (enlace de dominio propio + utm permitido en C3-W). */
-export const CARD_SHOW_PLANO_URL =
-  'https://tcghunt.mx/card-show#plano?utm_source=email&utm_campaign=cardshow-dic26';
 
 /**
  * «Agregar al calendario» (.ics con los dos días, America/Mexico_City). El `.ics` lo sirve el **dominio

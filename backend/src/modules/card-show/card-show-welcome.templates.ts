@@ -19,8 +19,7 @@ import { ACCENT, escapeHtml, INK, mailShell, MONO, MUTED, PAPER, SANS, SERIF, sp
 import {
   CARD_SHOW_DECK_URL,
   CARD_SHOW_MAPS_URL,
-  CARD_SHOW_PLANO_URL,
-  CARD_SHOW_RESERVE_TABLE_WA_URL,
+  CARD_SHOW_MERCHANT_WA_URL,
   CARD_SHOW_SPONSOR_MAILTO,
   cardShowCalendarIcsUrl,
   WelcomeVariant,
@@ -97,33 +96,33 @@ interface Variant {
   text: string;
 }
 
+// ⭐IMP-1 — pivote a CAPTURA DE INTERÉS: el correo de bienvenida de vendedor ⛔ NO promete «plano» ni
+// «mesa #» (se retiraron del producto). Alinea con la landing: «te contactamos en privado con las
+// opciones de mesa, sin precios públicos». CTA = WhatsApp con texto GENÉRICO (quiero vender), no apartar
+// una mesa concreta.
 function merchantVariant(name: string | null | undefined): Variant {
   const s = saludo(name);
   const lines = [
-    `${s} Gracias por registrarte como vendedor en el Card Show CDMX.`,
+    `${s} Gracias por tu interés en vender en el Card Show CDMX.`,
     'Sábado 5 de diciembre, 11:00–19:00 · Domingo 6 de diciembre, 11:00–18:00',
     'José del Castillo 3, esq. Av. Revolución, San José Insurgentes, CDMX',
-    'Mesas: Premium $3,000 · Grande $2,500 · Chica $1,800. Todas incluyen mantel, 2 sillas, luz, WiFi para terminal, seguridad en el acceso, montaje el viernes 4 y difusión en redes.',
-    'Elige tu número de mesa y escríbenos por WhatsApp para apartarla. La mesa se aparta con el pago completo.',
+    'Te contactamos en privado con las opciones de mesa y la logística (montaje, luz, WiFi para terminal y seguridad en el acceso). Cuéntanos qué vendes y resolvemos el espacio contigo por WhatsApp.',
   ];
   const cierre = 'Nos vemos en diciembre, TCG HUNT × Jakomi TCG Café · tcghunt.mx · @tcghunt.mx';
   return {
-    subject: 'Tu mesa en el Card Show CDMX · 5 y 6 de diciembre',
-    preheader: 'Tu mesa en el Card Show CDMX, 5 y 6 de diciembre — así la apartas.',
+    subject: 'Tu interés de venta en el Card Show CDMX · 5 y 6 de diciembre',
+    preheader: 'Gracias por tu interés en vender en el Card Show CDMX, 5 y 6 de diciembre — te contactamos.',
     blocks: [
-      headingRow('Tu mesa en el Card Show CDMX'),
+      headingRow('Vender en el Card Show CDMX'),
       ...lines.map(proseRow),
       spacerRow(8),
-      ctaRow(CARD_SHOW_RESERVE_TABLE_WA_URL, 'Apartar por WhatsApp', 'accent'),
-      spacerRow(8),
-      ctaRow(CARD_SHOW_PLANO_URL, 'Ver el plano de mesas', 'ink'),
+      ctaRow(CARD_SHOW_MERCHANT_WA_URL, 'Escríbenos por WhatsApp', 'accent'),
       spacerRow(8),
       proseRow(cierre),
     ],
     text:
       `${lines.join('\n\n')}\n\n` +
-      `Apartar por WhatsApp: ${CARD_SHOW_RESERVE_TABLE_WA_URL}\n` +
-      `Ver el plano de mesas: ${CARD_SHOW_PLANO_URL}\n\n` +
+      `Escríbenos por WhatsApp: ${CARD_SHOW_MERCHANT_WA_URL}\n\n` +
       `${cierre}\n`,
   };
 }

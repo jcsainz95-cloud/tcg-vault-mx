@@ -54,8 +54,10 @@ const TIPO_LABEL: Record<'merchant' | 'sponsor', string> = { merchant: 'Vendedor
 
 export interface InternalNoticeParams {
   type: 'merchant' | 'sponsor';
-  /** Nombre del lead si lo hubiera (hoy los leads no persisten nombre ⇒ «—»). ⛔ nunca `playerName`. */
+  /** ⭐M-84 nombre o MARCA del lead (desde M-84 SÍ se persiste y es obligatorio ⇒ se muestra el real). ⛔ nunca `playerName`. */
   name?: string | null;
+  /** ⭐M-84 teléfono MX del lead (obligatorio merchant/sponsor; «—» si faltara). Correo INTERNO al staff ⇒ puede llevarlo. */
+  phone?: string | null;
   email: string;
   utmSource?: string | null;
   utmMedium?: string | null;
@@ -69,12 +71,13 @@ export interface InternalNoticeParams {
 export function renderInternalNotice(p: InternalNoticeParams): { subject: string; html: string; text: string } {
   const tipo = TIPO_LABEL[p.type];
   const nombre = (p.name ?? '').trim() || '—';
+  const telefono = (p.phone ?? '').trim() || '—';
   const quien = (p.name ?? '').trim() || p.email;
   const fuente = `${p.utmSource ?? '—'}/${p.utmMedium ?? '—'}/${p.utmCampaign ?? '—'}`;
   const fecha = cdmxDateTime(p.createdAt);
   const subject = `[Card Show] Nuevo ${tipo.toLowerCase()}: ${quien}`;
   const cuerpo =
-    `Nuevo registro en la landing del Card Show. Tipo: ${tipo} · Nombre: ${nombre} · Correo: ${p.email} · ` +
+    `Nuevo registro en la landing del Card Show. Tipo: ${tipo} · Nombre: ${nombre} · Teléfono: ${telefono} · Correo: ${p.email} · ` +
     `Fuente: ${fuente} · Fecha: ${fecha} · Ver en el admin: ${p.adminLink}`;
   const html = mailShell({
     locale: 'es',
