@@ -4,6 +4,44 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `fade4e6`, §CARDSHOW.12 ⭐M-88, BLOQ-A frontend)
+
+**Estado vigente.** Parte frontend de BLOQ-A (el backend confirma AMBAS filas `sat`+`sun` del grupo y
+devuelve `days: { day, state }[]` ADITIVO sobre `ConfirmResult`). La página `/card-show/confirm` usa ese
+desglose para el copy:
+- **`frontend/src/lib/card-show-api.ts`**: nuevo `ConfirmDayResult { day:'sat'|'sun'; state:string }`;
+  `LinkActionSuccess` gana `days?: ConfirmDayResult[]`; `postLinkAction` parsea `body.days` con
+  `parseConfirmDays` (defensivo: solo `day ∈ {sat,sun}` + `state` string; vacío/ausente ⇒ `undefined`).
+- **`frontend/src/app/card-show/_components/LinkActionClient.tsx`**: `COPY.confirm.success(state, days)`.
+  Con `days.length ≥ 2` ⇒ `groupConfirmText`: ambos confirmados → «¡Listo! Quedaste preinscrito para
+  {días}.»; con un día en espera → «…preinscrito para {día} y en lista de espera para {día}; …»; `state`
+  distinto de `waitlist` cuenta como preinscrito. Labels de día desde `CARD_SHOW.torneos.dias` (un hecho,
+  un sitio — ⛔ no se hardcodea «sábado/domingo»). Con `days` ausente (leads) o 1 solo día ⇒ copy de un día
+  SIN cambios (comportamiento previo intacto).
+- **Candado+canario:** `LinkActionGroup.test.tsx` (3 casos: ambos confirmados nombran sat+sun; mixto nombra
+  por separado; 1 día no nombra día). Canary: con la rama de grupo desactivada, 2/3 fallan y el de 1 día
+  pasa. Verificado: `next build` exit 0; vitest `LinkActionGroup` + `LinkAction` **11/11**.
+
+## §CARDSHOW-MENOR · Nombre del premio visible + CTA fija que no tapa el hero (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `4288ca4`)
+
+**Estado vigente.** Dos mejoras menores de tester-e2e sobre `4288ca4`, acotadas a `/card-show`:
+- **MENOR-1 — nombre exacto del premio como TEXTO visible.** El `rifa.premio`
+  («Pokémon TCG — 30th Celebration Poster Collection», `content/card-show.ts:141`) antes solo vivía en el
+  `alt` de la imagen. Ahora la imagen de la rifa es un `<figure>` con `<figcaption>` que pinta
+  `c.rifa.premio` (eyebrow mono «El premio» + nombre en `font-brand` `text-on-ink`) — fuente de verdad única,
+  consumida del content, NO hardcodeada. El `alt` descriptivo se mantiene. Contraste on-ink sobre tinta (no
+  rompe el arreglo de títulos de R3).
+- **MENOR-3 — CTA fija móvil ya no tapa el botón del hero.** Nueva isla cliente
+  `_components/StickyRegisterCta.tsx`: `IntersectionObserver` sobre `#hero`; la barra fija permanece
+  `translate-y-full` (off-screen, `pointer-events-none`, `aria-hidden`) mientras el hero está en viewport y se
+  desliza a la vista solo tras dejarlo atrás. Pre-hidratación/sin JS: oculta (el hero ya trae su propio botón y
+  la sección Registro los formularios). `<main>` lleva `pb-[76px] sm:pb-0` para que la barra no tape la última
+  línea del footer. En `≥sm` sigue `sm:hidden`. Label/href salen de `c.hero.ctaPrimario` (antes hardcodeados).
+- **Verificado** (build real `next start` + Playwright Chromium): `next build` exit 0. 390×844 — premio
+  visible en figcaption (desktop y móvil); al tope de scroll la barra fija off-screen (y=857 ≥ 844, sin solape
+  con el botón del hero en y=744); tras scroll la barra visible (y=784). Escritorio 1280×800 — barra fija NO
+  visible, premio visible. Conducta determinista (estado del DOM tras `IntersectionObserver`, no carrera).
+
 ## §CARDSHOW-IMP6 · Form-token PEREZOSO + copy 429 + rótulo buscador players (2026-10-17, rama `fix/card-show-r3-frontend`, §CARDSHOW.5 M-87)
 
 **Estado vigente.** Implementada la conducta que el arquitecto fijó en §CARDSHOW.5/M-87.

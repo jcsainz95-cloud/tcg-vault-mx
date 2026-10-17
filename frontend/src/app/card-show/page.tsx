@@ -1,6 +1,7 @@
 import { CARD_SHOW } from '@/content/card-show';
 import { Countdown } from './_components/Countdown';
 import { RegistrationForms } from './_components/RegistrationForms';
+import { StickyRegisterCta } from './_components/StickyRegisterCta';
 
 /**
  * Landing del Card Show — PÁGINA DE CAPTURA DE LEADS (pivote del dueño JC 2026-10-17). ⛔ No expone el
@@ -47,9 +48,10 @@ export default function CardShowPage() {
         </div>
       </header>
 
-      <main>
+      {/* pb en móvil reserva el alto de la CTA fija para que no tape la última línea del footer. */}
+      <main className="pb-[76px] sm:pb-0">
         {/* HERO */}
-        <section className="bg-ink text-on-ink">
+        <section id="hero" className="bg-ink text-on-ink">
           <div className="gutter py-14 sm:py-20">
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs uppercase tracking-label text-on-ink-nav">
               {c.hero.tier.map((t, i) => (
@@ -219,13 +221,23 @@ export default function CardShowPage() {
               </a>
             </div>
             <div className="flex justify-center">
-              {/* Imagen del PRODUCTO aprobada; fácil de sustituir (cambia `rifa.imagen` en content/card-show.ts). */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={c.rifa.imagen}
-                alt={c.rifa.imagenAlt}
-                className="w-full max-w-[360px] border border-on-ink-rule bg-white p-3 object-contain"
-              />
+              {/* Imagen del PRODUCTO aprobada; fácil de sustituir (cambia `rifa.imagen` en content/card-show.ts).
+                  El NOMBRE EXACTO del premio (`rifa.premio`) va como TEXTO visible en el figcaption —
+                  fuente de verdad única, no se hardcodea (MENOR-1, tester-e2e 2026-10-17). */}
+              <figure className="flex w-full max-w-[360px] flex-col items-center gap-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={c.rifa.imagen}
+                  alt={c.rifa.imagenAlt}
+                  className="w-full border border-on-ink-rule bg-white p-3 object-contain"
+                />
+                <figcaption className="text-center">
+                  <span className="block font-mono text-[11px] uppercase tracking-label text-on-ink-nav">
+                    El premio
+                  </span>
+                  <span className="mt-1 block font-brand font-bold text-on-ink">{c.rifa.premio}</span>
+                </figcaption>
+              </figure>
             </div>
           </div>
         </section>
@@ -272,12 +284,13 @@ export default function CardShowPage() {
         </footer>
       </main>
 
-      {/* CTA FIJA en móvil: «Regístrate». Oculta en ≥sm. */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border-strong bg-bg p-3 sm:hidden">
-        <a href="#registro" className={`${btnRed} w-full`}>
-          Regístrate gratis
-        </a>
-      </div>
+      {/* CTA FIJA en móvil: «Regístrate». Oculta en ≥sm y mientras el hero sigue en viewport
+          (no tapa el botón del hero — MENOR-3). */}
+      <StickyRegisterCta
+        href={c.hero.ctaPrimario.href}
+        label={c.hero.ctaPrimario.label}
+        anchorClassName={`${btnRed} w-full`}
+      />
     </>
   );
 }
