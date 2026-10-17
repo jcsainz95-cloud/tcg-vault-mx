@@ -10692,3 +10692,40 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
   `CARD_SHOW_INTERNAL_RECIPIENTS` ya hace para el To.
 - **Dueño:** backend (card-show).
 - **Comprobación:** `CARD_SHOW_INTERNAL_CC` existe en `ENV` y el servicio lo lee con fallback al default actual.
+
+## Card Show · 2026-10-17 · fase de seguridad (deuda ACEPTADA no bloqueante, rama `feat/event-landing`)
+
+> Hallazgos del equipo rojo/azul (pentester + seguridad) sobre la landing del Card Show, **aceptados como no
+> bloqueantes** para publicar, cada uno con su **disparador** (cuándo hay que abordarlo). El bloqueante recomendado
+> de esa misma fase —CS-RT-1, idempotencia del webhook de Resend por `svix-id`— **NO está aquí: ya se corrigió**
+> con prueba que muerde (ver `docs/BACKEND_NOTES.md §CARDSHOW`).
+
+### CS-RT-2 · baja · `gmail.com`/`googlemail.com` no comparten tope por buzón
+- **Qué es:** la canonicalización de buzón (`card-show/mailbox.util.ts:39-50`) no colapsa `googlemail.com` sobre
+  `gmail.com`, así que una misma víctima de Google alcanzable por ambos dominios tiene **dos** cubos de tope por
+  buzón ⇒ el techo de email-bombing por víctima sube de 2 a 4.
+- **Riesgo:** bajo (el throttle por IP C7 y el tope por buzón siguen acotando; el salto es 2→4, no ilimitado).
+- **Disparador:** si se observa abuso cross-dominio de Google, canonicalizar `googlemail.com` → `gmail.com` en la util.
+- **Dueño:** backend (card-show).
+
+### CS-RT-3 · baja · `/card-show/ir/:destino` y `POST /card-show/click` sin token ni throttle propio
+- **Qué es:** el contador de clics (`card-show.controller.ts:180-195`) no exige token ni tiene throttle propio, y
+  `GET /ir/:destino` no valida la longitud de `destino` (persistido en `CardShowClick`, `schema.prisma:3177`).
+- **Riesgo:** bajo (la redirección es a un ancla de la propia landing, ⛔ no open-redirect; el throttle global por IP
+  sigue aplicando). El único coste es almacenamiento de filas `CardShowClick` infladas.
+- **Disparador:** si crece el almacenamiento de `CardShowClick`, acotar la longitud de `destino` + throttle propio.
+- **Dueño:** backend (card-show).
+
+### CS-RT-4 · info · posible timing side-channel en `/card-show/leads` (NO MEDIDO)
+- **Qué es:** sospecha de canal lateral por latencia en `/leads`; **no medido**. La respuesta ya es neutra
+  byte-a-byte (mismo 202 `{ok:true}` para todo caso silencioso), de modo que el canal de contenido está cerrado.
+- **Riesgo:** informativo; sin medición que lo confirme.
+- **Disparador:** si se mide una diferencia de latencia explotable entre caso existente/inexistente.
+- **Dueño:** backend (card-show).
+
+### SEC-CS-A · baja · `POST /card-show/unsubscribe-oneclick` sin throttle propio
+- **Qué es:** el one-click de `List-Unsubscribe-Post` (`card-show.controller.ts:153-159`) no tiene throttle propio.
+- **Riesgo:** bajo: es **idempotente** y solo da de baja al propio titular del token (RFC 8058, sin efecto lateral
+  sobre terceros). El throttle global por IP sigue aplicando.
+- **Disparador:** si se observa abuso del endpoint.
+- **Dueño:** backend (card-show).

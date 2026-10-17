@@ -34,8 +34,8 @@ describe('CARDSHOW · webhook de Resend (C6)', () => {
   it('≥ 2 complained en 24 h ⇒ corta; solo un humano reabre', async () => {
     const store = new MemoryCardShowCounterStore(() => now);
     const svc = new CardShowWebhookService(store, config);
-    expect((await svc.handleEvent('email.complained', now)).cutNow).toBe(false); // 1.ª
-    const second = await svc.handleEvent('email.complained', now); // 2.ª ⇒ corte
+    expect((await svc.handleEvent('email.complained', 'id_a', now)).cutNow).toBe(false); // 1.ª
+    const second = await svc.handleEvent('email.complained', 'id_b', now); // 2.ª ⇒ corte
     expect(second.cutNow).toBe(true);
     expect(await svc.isCut()).toBe(true);
     await svc.reopen();
@@ -46,7 +46,7 @@ describe('CARDSHOW · webhook de Resend (C6)', () => {
     const store = new MemoryCardShowCounterStore(() => now);
     const svc = new CardShowWebhookService(store, config);
     let cut = false;
-    for (let i = 0; i < 10; i += 1) cut = (await svc.handleEvent('email.bounced', now)).cutNow || cut;
+    for (let i = 0; i < 10; i += 1) cut = (await svc.handleEvent('email.bounced', `b_${i}`, now)).cutNow || cut;
     expect(cut).toBe(true);
     expect(await svc.isCut()).toBe(true);
   });
@@ -54,7 +54,30 @@ describe('CARDSHOW · webhook de Resend (C6)', () => {
   it('eventos benignos (delivered) ⛔ no cortan', async () => {
     const store = new MemoryCardShowCounterStore(() => now);
     const svc = new CardShowWebhookService(store, config);
-    expect((await svc.handleEvent('email.delivered', now)).cutNow).toBe(false);
+    expect((await svc.handleEvent('email.delivered', 'id_d', now)).cutNow).toBe(false);
     expect(await svc.isCut()).toBe(false);
+  });
+
+  // ── CS-RT-1 · idempotencia por svix-id (un reintento legítimo/replay NO cuenta dos veces) ──
+  it('MISMO svix-id POSTeado 2× ⇒ cuenta 1 sola vez y NO dispara el corte', async () => {
+    const store = new MemoryCardShowCounterStore(() => now);
+    const svc = new CardShowWebhookService(store, config);
+    // El corte de complained es ≥ 2; si el duplicado contara, el 2.º POST dispararía el corte.
+    const first = await svc.handleEvent('email.complained', 'msg_dup', now);
+    const replay = await svc.handleEvent('email.complained', 'msg_dup', now); // mismo id ⇒ dedup
+    expect(first.cutNow).toBe(false);
+    expect(replay.cutNow).toBe(false);
+    expect(await svc.isCut()).toBe(false); // el duplicado NO cuenta ⇒ sigue en 1 < 2 ⇒ sin corte
+    // Un tercer POST con un svix-id DISTINTO sí es el 2.º evento real ⇒ ahora sí corta.
+    const distinct = await svc.handleEvent('email.complained', 'msg_other', now);
+    expect(distinct.cutNow).toBe(true);
+    expect(await svc.isCut()).toBe(true);
+  });
+
+  it('dos svix-id DISTINTOS ⇒ cuentan los dos (el dedup no colapsa eventos legítimos)', async () => {
+    const store = new MemoryCardShowCounterStore(() => now);
+    const svc = new CardShowWebhookService(store, config);
+    expect((await svc.handleEvent('email.complained', 'd1', now)).cutNow).toBe(false); // 1.º real
+    expect((await svc.handleEvent('email.complained', 'd2', now)).cutNow).toBe(true); // 2.º real ⇒ corte
   });
 });

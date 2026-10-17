@@ -549,8 +549,8 @@ export class CardShowService {
 
   // ───────────────────────────── webhook de Resend (C6) ─────────────────────────────
 
-  async handleWebhook(type: string, now: number = Date.now()): Promise<void> {
-    const { cutNow } = await this.webhook.handleEvent(type, now);
+  async handleWebhook(type: string, svixId: string, now: number = Date.now()): Promise<void> {
+    const { cutNow } = await this.webhook.handleEvent(type, svixId, now);
     if (cutNow) {
       await this.audit.log({ action: 'card_show.sending_cut', entityType: 'CardShow', after: { reason: type } }).catch(() => undefined);
     }

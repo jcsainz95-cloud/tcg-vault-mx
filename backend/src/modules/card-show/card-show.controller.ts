@@ -172,7 +172,8 @@ export class CardShowController {
     const ok = this.webhook.verifySignature(raw, { id: svixId, timestamp: svixTs, signature: svixSig });
     if (!ok) throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid webhook signature');
     const type = typeof (req.body as { type?: unknown })?.type === 'string' ? (req.body as { type: string }).type : '';
-    await this.service.handleWebhook(type);
+    // CS-RT-1: el mismo `svix-id` ya verificado se usa para deduplicar el conteo (idempotencia).
+    await this.service.handleWebhook(type, svixId);
     return { ok: true };
   }
 

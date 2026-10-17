@@ -28,6 +28,44 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.62 — ⭐⭐ **§CARDSHOW.10 CS-RT-1: webhook de Resend IDEMPOTENTE por `svix-id`** (2026-10-17, rama `feat/event-landing`, condición recomendada del equipo azul antes de publicar)
+
+**Qué era (MEDIDO, pentester+seguridad).** `POST /api/v1/card-show/webhooks/resend` verificaba la firma Svix
+(fail-closed) pero **no deduplicaba por `svix-id`**: `card-show-webhook.service.ts:handleEvent` incrementaba el
+contador C6 sin registrar el id, y el controlador no lo propagaba (`card-show.controller.ts:175` llamaba
+`handleWebhook(type)` sin pasar el `svixId` que ya tenía en mano para verificar la firma). Consecuencia: un
+reintento **legítimo** de Resend/Svix —o un replay con una firma válida capturada— contaba el MISMO evento dos
+veces y podía disparar el **corte global de envíos C6** (≥2 `complained` / ≥10 `bounced` en 24 h), dejando la
+landing sin correos de confirmación hasta un `reopen-sending` manual. En operación normal, sin atacante.
+
+**Qué entró (solo `backend/`).** El manejo del webhook es ahora **idempotente por `svix-id`**:
+- El controlador propaga el `svix-id` ya verificado: `handleWebhook(type, svixId)` → `handleEvent(type, svixId, now)`.
+- Antes de contar, `handleEvent` reclama el id con `store.claimOnce('wh:evt:<svix-id>', WEBHOOK_CUT.WINDOW_MS)`
+  (SETNX en Redis con TTL = **24 h**, la ventana del corte C6). Si el id **ya se vio** ⇒ devuelve
+  `{ cutNow: false }` **sin tocar los contadores**: el controlador responde 200 (ack para que Resend no reintente
+  infinitamente) pero el evento **no cuenta dos veces ni puede disparar el corte** por un duplicado.
+- La verificación de firma (fail-closed, `verifySignature`) queda **intacta** y ocurre antes; aquí solo se
+  deduplica lo ya verificado. Se reutiliza `card-show-counter.store.ts` (`claimOnce`, con reloj inyectable en la
+  implementación de memoria para las pruebas).
+
+**Ficheros.** `card-show-webhook.service.ts:63-83` (dedup en `handleEvent`, nueva firma `(type, svixId, now)`);
+`card-show.service.ts:552-553` (`handleWebhook(type, svixId, now)`); `card-show.controller.ts:174-175` (propaga
+`svixId`). El `svixId` ya se leía de la cabecera `svix-id` (`card-show.controller.ts:167`).
+
+**Prueba que muerde** (`test/card-show.webhook.spec.ts`): el MISMO `svix-id` POSTeado 2× ⇒ el contador sube 1 sola
+vez y NO se dispara el corte (un 3.º con id distinto sí corta); dos `svix-id` distintos ⇒ cuentan los dos. Los
+casos de conteo preexistentes se ajustaron para pasar ids únicos.
+
+**Verificación (O-9).** `npm run typecheck` limpio. `npx jest test/card-show` ⇒ **13 suites, 93/93** (incluye las 2
+pruebas nuevas de dedup). Mutación: deshabilitar el `claimOnce`/return ⇒ la prueba del doble-conteo **roja 5/5**
+(la de ids distintos queda verde, como debe); restaurado ⇒ **verde 5/5** (N=5 cada dirección, determinista, reloj
+fijo en `MemoryCardShowCounterStore`).
+
+**Nota para QA (Redis real).** Las pruebas usan `MemoryCardShowCounterStore` (cuyo `claimOnce` es un `Map` con
+reloj inyectable). En producción el dedup vive en Redis vía `RedisCardShowCounterStore.claimOnce` (SET `NX PX`),
+clave `cardshow:once:wh:evt:<svix-id>`. Un E2E de integración con Redis real confirmaría la atomicidad SETNX de
+punta a punta, pero el comportamiento del dedup ya queda cubierto por las pruebas unitarias.
+
 ## 0.61 — ⭐⭐ **§CARDSHOW.9 C3-W: correo de BIENVENIDA RICO (3 variantes) + aviso interno + resumen diario** (2026-10-16, rama `feat/event-landing`, `ARCHITECTURE §4.CARDSHOW.m`)
 
 **Qué entró (solo `backend/`).** El doble opt-in del Card Show ya mandaba el correo de CONFIRMACIÓN

@@ -59,8 +59,19 @@ export class CardShowWebhookService {
   /**
    * Procesa un evento ya verificado. Devuelve `{ cutNow }` = si ESTE evento disparó el corte (para la
    * alerta + AuditLog del llamador). Cuenta por tipo en ventanas de 24 h.
+   *
+   * IDEMPOTENTE por `svix-id` (CS-RT-1): un reintento LEGÍTIMO de Resend/Svix —o un replay con una firma
+   * válida ya capturada— trae el MISMO `svix-id`. Antes de contar, lo reclamamos con `claimOnce` (SETNX
+   * en Redis) y TTL = ventana del corte (24 h). Si el id YA se vio, devolvemos `{ cutNow: false }` sin
+   * tocar los contadores: el llamador responde 200 (ack para que Resend no reintente infinitamente) pero
+   * el evento NO cuenta dos veces ni puede disparar el corte global C6 por un duplicado. La verificación
+   * de firma (fail-closed) ocurre antes, en el controlador; aquí solo se deduplica lo ya verificado.
    */
-  async handleEvent(type: string, _now: number = Date.now()): Promise<{ cutNow: boolean }> {
+  async handleEvent(type: string, svixId: string, _now: number = Date.now()): Promise<{ cutNow: boolean }> {
+    if (svixId) {
+      const fresh = await this.store.claimOnce(`wh:evt:${svixId}`, WEBHOOK_CUT.WINDOW_MS);
+      if (!fresh) return { cutNow: false }; // id ya visto ⇒ ack 200, ⛔ no vuelve a contar
+    }
     let n = 0;
     let threshold = 0;
     if (type === 'email.complained') {
