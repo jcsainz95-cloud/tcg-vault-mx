@@ -116,7 +116,9 @@ export class CardShowController {
     if (result.outcome === 'occupied') {
       return { ok: false, message: 'Este Player ID ya está preinscrito ese día' };
     }
-    return { ok: true, state: result.state };
+    // ⭐M-88 (§CARDSHOW.12): `days` es ADITIVO (torneo «los dos días»); solo viaja si el servicio lo pobló.
+    // El frontend lo usa para nombrar sábado Y domingo; el shape existente (`{ ok, state }`) no cambia.
+    return result.days ? { ok: true, state: result.state, days: result.days } : { ok: true, state: result.state };
   }
 
   @Public()

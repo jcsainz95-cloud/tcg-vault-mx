@@ -42,23 +42,30 @@ describe('CARDSHOW · la confirmación C3 sigue ESTRICTA aunque exista C3-W', ()
 });
 
 describe('CARDSHOW · aviso interno + resumen diario (internos, copy del dueño)', () => {
-  it('aviso interno: asunto y cuerpo con tipo/correo/fuente/fecha/enlace, 0 playerName', () => {
+  it('aviso interno (⭐IMP-3): muestra el NOMBRE y TELÉFONO reales del lead (M-84 los persiste), 0 playerName', () => {
     const r = svc.renderInternalNotice({
       type: 'merchant',
-      name: null,
+      name: 'Tienda Pikachu', // ⭐M-84: nombre/MARCA real (antes se mandaba `null` ⇒ «—»)
+      phone: '5512345678', // ⭐M-84: teléfono real (obligatorio merchant/sponsor)
       email: 'vendedor@dominio.mx',
       utmSource: 'instagram',
       utmMedium: 'social',
       utmCampaign: 'cardshow-dic26',
       createdAt: new Date('2026-10-16T18:30:00Z'),
-      adminLink: 'https://tcghunt.mx/admin/card-show/leads',
+      adminLink: 'https://tcghunt.mx/es/admin/card-show?tab=leads',
     });
-    expect(r.subject).toBe('[Card Show] Nuevo vendedor: vendedor@dominio.mx');
+    // Con nombre, el asunto usa el nombre de contacto (no el correo).
+    expect(r.subject).toBe('[Card Show] Nuevo vendedor: Tienda Pikachu');
     expect(r.text).toContain('Tipo: Vendedor');
     expect(r.text).toContain('Correo: vendedor@dominio.mx');
     expect(r.text).toContain('Fuente: instagram/social/cardshow-dic26');
-    expect(r.text).toContain('Nombre: —'); // los leads no persisten nombre
-    expect(r.text).toContain('Ver en el admin: https://tcghunt.mx/admin/card-show/leads');
+    // ⭐IMP-3 CANARIO: el nombre y el teléfono REALES viajan (ya no «Nombre: —»).
+    expect(r.text).toContain('Nombre: Tienda Pikachu');
+    expect(r.text).toContain('Teléfono: 5512345678');
+    expect(r.text).not.toContain('Nombre: —');
+    // ⭐IMP-2: enlace a la ruta REAL del panel (localizada, pestaña Leads); `/admin/card-show/leads` daba 404.
+    expect(r.text).toContain('Ver en el admin: https://tcghunt.mx/es/admin/card-show?tab=leads');
+    expect(r.text).not.toMatch(/\/admin\/card-show\/leads\b/); // ⛔ la ruta 404 vieja ya no aparece
     expect(`${r.html}\n${r.text}`).not.toMatch(/Ash Ketchum/);
   });
 

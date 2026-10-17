@@ -31,10 +31,11 @@
  * de Prisma.
  */
 import { randomBytes } from 'crypto';
+import { ConfigService } from '@nestjs/config';
 import { E2EHarness } from './helpers/e2e-app';
 import { MX_RESOLVER } from '../../src/modules/card-show/card-show-mail.service';
 import { CardShowTokensService } from '../../src/modules/card-show/card-show-tokens.service';
-import { FORM_TOKEN_MIN_AGE_MS } from '../../src/modules/card-show/card-show.constants';
+import { ENV, FORM_TOKEN_MIN_AGE_MS } from '../../src/modules/card-show/card-show.constants';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
 jest.setTimeout(60_000);
@@ -385,6 +386,165 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
       const r = await h.api('GET', `/admin/card-show/leads?q=${long}`, { token: adminToken });
       expect(r.status).toBe(400);
       expect(r.body?.error?.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  // ⭐M-88 (§CARDSHOW.12, BLOQ-A / D-CS-7) — Confirmación de GRUPO «los dos días». El alta `day:'both'`
+  // crea 2 filas (`sat`+`sun`, `pending`) y UN solo correo con el token de `rows[0]` (=`sat`). Antes de
+  // M-88, confirmar ese correo confirmaba SOLO `sat` y `sun` quedaba `pending` colgado hasta caducar a
+  // 72 h (lo midió tester-e2e sobre el stack real). Estas pruebas MUERDEN ese defecto: contra el código
+  // anterior, (a)/(b)/(c) dejaban una fila `pending` colgada y (a)/(b) devolvían 1 sola fila confirmed.
+  describe('E — M-88 confirmación de grupo «los dos días» (torneo)', () => {
+    /** Devuelve las filas del grupo (por email) ordenadas por `createdAt` (igual que el servicio). */
+    const groupRows = (email: string) =>
+      h.prisma.cardShowPlayerSignup.findMany({ where: { email }, orderBy: { createdAt: 'asc' } });
+    /** El token que viaja por correo = el de `rows[0]` (la fila `sat`), como arma `sendConfirmation`. */
+    const confirmGroupByFirstRow = async (email: string) => {
+      const rows = await groupRows(email);
+      const first = rows[0]; // createdAt asc ⇒ `sat`
+      const linkToken = tokens.issueLinkToken('signup', first.id, 'confirm');
+      return h.api('POST', '/card-show/confirm', { json: { token: linkToken } });
+    };
+
+    it('(a) FORMAL pokemon `both` + cupo libre ⇒ 2 filas `confirmed`, 0 `pending` colgada; `days[]` nombra sat y sun', async () => {
+      const email = `grupo-pkmn-${RUN}@e2e-cardshow.example`;
+      const playerId = String(100000 + Math.floor(Math.random() * 800000));
+      await postPlayer(email, { game: 'pokemon', day: 'both', playerName: 'Entrenador Doble', playerId, isMinor: false, consent: true });
+
+      const before = await groupRows(email);
+      expect(before).toHaveLength(2);
+      expect(before.map((r) => r.day)).toEqual(['sat', 'sun']); // rows[0]=sat lleva el token
+      expect(before.every((r) => r.status === 'pending')).toBe(true);
+
+      const res = await confirmGroupByFirstRow(email);
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.state).toBe('confirmed'); // estado de la fila del token (sat)
+      // ⭐ Desglose por día ADITIVO (§0): el frontend lo usa para nombrar sábado Y domingo.
+      expect(res.body.days).toEqual([
+        { day: 'sat', state: 'confirmed' },
+        { day: 'sun', state: 'confirmed' },
+      ]);
+
+      const after = await groupRows(email);
+      expect(after.filter((r) => r.status === 'confirmed')).toHaveLength(2); // ⛔ 0 pending colgada
+      expect(after.some((r) => r.status === 'pending')).toBe(false);
+      expect(after.every((r) => r.confirmedAt !== null)).toBe(true);
+    });
+
+    it('(b) LIGERA shardbugs `both` + confirmar ⇒ 2 filas `confirmed` (sin cupo/waitlist), 0 `pending`', async () => {
+      const email = `grupo-shard-${RUN}@e2e-cardshow.example`;
+      await postPlayer(email, { game: 'shardbugs', day: 'both', playerName: 'Jugadora Doble Ligera', isMinor: false, consent: true });
+
+      const before = await groupRows(email);
+      expect(before).toHaveLength(2);
+      expect(before.every((r) => r.status === 'pending' && r.playerId === null)).toBe(true);
+
+      const res = await confirmGroupByFirstRow(email);
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.state).toBe('confirmed');
+      expect(res.body.days).toEqual([
+        { day: 'sat', state: 'confirmed' },
+        { day: 'sun', state: 'confirmed' },
+      ]);
+
+      const after = await groupRows(email);
+      expect(after.filter((r) => r.status === 'confirmed')).toHaveLength(2);
+      expect(after.some((r) => r.status === 'pending')).toBe(false);
+    });
+
+    it('(c) FORMAL pokemon `both` con `sun` lleno (cupo agotado) ⇒ `sat confirmed` + `sun waitlist`, 0 `pending`', async () => {
+      const email = `grupo-wl-${RUN}@e2e-cardshow.example`;
+      const playerId = String(100000 + Math.floor(Math.random() * 800000));
+      await postPlayer(email, { game: 'pokemon', day: 'both', playerName: 'Entrenador WL', playerId, isMinor: false, consent: true });
+
+      // Cupo determinista pese a la BD compartida: cap = (confirmados en sat ahora) + 1 ⇒ sat (satNow) < cap
+      // ⇒ confirmed; y sembramos `sun` hasta `confirmados(sun) >= cap` ⇒ el `sun` del grupo waitlist.
+      const config = h.app.get(ConfigService);
+      const satNow = await h.prisma.cardShowPlayerSignup.count({ where: { game: 'pokemon', day: 'sat', status: 'confirmed' } });
+      const sunNow = await h.prisma.cardShowPlayerSignup.count({ where: { game: 'pokemon', day: 'sun', status: 'confirmed' } });
+      const cap = satNow + 1;
+      const needed = Math.max(0, cap - sunNow);
+      // Base de playerId SOLO dígitos y única por corrida (evita chocar con el índice único parcial
+      // `(playerId, day)` de otras corridas que compartan la BD de integración).
+      const fillBase = 10_000_000 + Math.floor(Math.random() * 80_000_000);
+      if (needed > 0) {
+        await h.prisma.cardShowPlayerSignup.createMany({
+          data: Array.from({ length: needed }, (_, i) => ({
+            game: 'pokemon' as const,
+            day: 'sun' as const,
+            playerName: `Relleno Sun ${i}`,
+            playerId: String(fillBase + i),
+            email: `relleno-sun-${i}-${RUN}@e2e-cardshow.example`,
+            mailboxHmac: `fill-hmac-${i}-${RUN}`,
+            isMinor: false,
+            status: 'confirmed' as const,
+            confirmedAt: new Date(),
+            consentAt: new Date(),
+            privacyVersion: 'provisional',
+          })),
+        });
+      }
+      config.set(ENV.TOURNAMENT_CAP_PER_DAY, String(cap));
+      try {
+        const res = await confirmGroupByFirstRow(email);
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(res.body.state).toBe('confirmed'); // fila del token (sat) sí entra
+        expect(res.body.days).toEqual([
+          { day: 'sat', state: 'confirmed' },
+          { day: 'sun', state: 'waitlist' },
+        ]);
+      } finally {
+        config.set(ENV.TOURNAMENT_CAP_PER_DAY, ''); // '' ⇒ cupo desconocido (null) para el resto de la suite
+      }
+
+      const after = await groupRows(email);
+      const byDay = Object.fromEntries(after.map((r) => [r.day, r.status]));
+      expect(byDay).toEqual({ sat: 'confirmed', sun: 'waitlist' });
+      expect(after.some((r) => r.status === 'pending')).toBe(false); // ⛔ 0 pending colgada
+    });
+
+    it('(d) idempotencia: reusar el token tras confirmar el grupo ⇒ 410 LINK_ALREADY_USED, ⛔ sin 500', async () => {
+      const email = `grupo-idem-${RUN}@e2e-cardshow.example`;
+      const playerId = String(100000 + Math.floor(Math.random() * 800000));
+      await postPlayer(email, { game: 'pokemon', day: 'both', playerName: 'Entrenador Idem', playerId, isMinor: false, consent: true });
+
+      const first = await confirmGroupByFirstRow(email);
+      expect(first.status).toBe(200);
+      expect((await groupRows(email)).filter((r) => r.status === 'confirmed')).toHaveLength(2);
+
+      // El token de `rows[0]` (sat) ya quedó usado (confirmedAt) ⇒ el 2.º uso es 410, nunca 500.
+      const reuse = await confirmGroupByFirstRow(email);
+      expect(reuse.status).toBe(410);
+      expect(reuse.body?.error?.code).toBe('LINK_ALREADY_USED');
+    });
+
+    it('(e) TUTOR: otro `playerId` en el MISMO buzón es OTRO grupo ⇒ confirmar el 1.º ⛔ NO auto-confirma al 2.º', async () => {
+      const email = `grupo-tutor-${RUN}@e2e-cardshow.example`;
+      const playerA = String(100000 + Math.floor(Math.random() * 400000));
+      const playerB = String(500000 + Math.floor(Math.random() * 400000));
+      await postPlayer(email, { game: 'pokemon', day: 'sat', playerName: 'Jugador A', playerId: playerA, isMinor: false, consent: true });
+      await postPlayer(email, { game: 'pokemon', day: 'sat', playerName: 'Jugador B', playerId: playerB, isMinor: false, consent: true });
+
+      const rows = await groupRows(email);
+      const rowA = rows.find((r) => r.playerId === playerA)!;
+      const rowB = rows.find((r) => r.playerId === playerB)!;
+      expect(rowA.status).toBe('pending');
+      expect(rowB.status).toBe('pending');
+
+      // Confirmar el token del jugador A: su grupo es (buzón, pokemon, playerA); B (playerB) queda fuera.
+      const linkTokenA = tokens.issueLinkToken('signup', rowA.id, 'confirm');
+      const res = await h.api('POST', '/card-show/confirm', { json: { token: linkTokenA } });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+
+      const rowAafter = await h.prisma.cardShowPlayerSignup.findUniqueOrThrow({ where: { id: rowA.id } });
+      const rowBafter = await h.prisma.cardShowPlayerSignup.findUniqueOrThrow({ where: { id: rowB.id } });
+      expect(rowAafter.status).toBe('confirmed');
+      expect(rowBafter.status).toBe('pending'); // ⛔ el 2.º jugador NO se auto-confirma (otro grupo)
+      expect(rowBafter.confirmedAt).toBeNull();
     });
   });
 });

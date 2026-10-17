@@ -29,13 +29,18 @@ const base = {
 };
 
 describe('CARDSHOW · bienvenida C3-W (RICA, tras confirmar un lead)', () => {
-  it('merchant: asunto del dueño + wa.me (con utm) + plano, y 0 playerName', () => {
+  it('merchant (⭐IMP-1 captura de interés): wa.me genérico (con utm), ⛔ SIN «#plano» ni «mesa #», y 0 playerName', () => {
     const r = svc.renderWelcome({ ...base, type: 'merchant' });
-    expect(r.subject).toBe('Tu mesa en el Card Show CDMX · 5 y 6 de diciembre');
+    // El pivote eliminó plano/precios: el asunto ya ⛔ no promete «Tu mesa».
+    expect(r.subject).toBe('Tu interés de venta en el Card Show CDMX · 5 y 6 de diciembre');
     const blob = `${r.html}\n${r.text}`;
     expect(blob).toMatch(/wa\.me\/525564893921/);
     expect(blob).toMatch(/utm_source=email/);
-    expect(blob).toMatch(/tcghunt\.mx\/card-show#plano/);
+    // ⛔ CANARIO IMP-1: el plano se retiró (no existe `id="plano"` en la landing) ⇒ 0 enlaces al plano…
+    expect(blob).not.toMatch(/#plano/);
+    // …y el WhatsApp prellenado ya ⛔ no dice «Me interesa la mesa #» (ni su forma URL-encoded `mesa %23`).
+    expect(blob).not.toMatch(/Me interesa la mesa/);
+    expect(blob).not.toMatch(/mesa%20%23/);
     expect(blob).not.toMatch(/Ash Ketchum/);
     // wa.me va como <a href> real (buzón confirmado ⇒ C3-W es rico).
     expect(r.html).toMatch(/href="https:\/\/wa\.me\/525564893921/);

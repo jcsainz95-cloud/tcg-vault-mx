@@ -98,11 +98,18 @@ describe('CARDSHOW M-84 · validación por juego del torneo (§CARDSHOW.12)', ()
 });
 
 describe('CARDSHOW M-84 · confirmación FORMAL vs LIGERA (§CARDSHOW.12)', () => {
-  function confirmService(row: Record<string, unknown>, deps: { confirmedCount?: number; activeOther?: unknown; cap?: string } = {}) {
+  // ⭐M-88: `confirmSignup` deriva la CLAVE DE GRUPO desde la fila del token y confirma TODAS sus `pending`
+  // (`findMany` ordenado por `createdAt`) en la misma tx. Para un alta de UN solo día el grupo es de UNA
+  // fila (`groupRows ?? [row]`), y el resultado conserva el shape `{ outcome, state }` de hoy (sin `days`).
+  function confirmService(
+    row: Record<string, unknown>,
+    deps: { confirmedCount?: number; activeOther?: unknown; cap?: string; groupRows?: Record<string, unknown>[] } = {},
+  ) {
     const update = jest.fn().mockResolvedValue({});
     const tx = {
       cardShowPlayerSignup: {
         findUnique: jest.fn().mockResolvedValue(row),
+        findMany: jest.fn().mockResolvedValue(deps.groupRows ?? [row]),
         findFirst: jest.fn().mockResolvedValue(deps.activeOther ?? null),
         count: jest.fn().mockResolvedValue(deps.confirmedCount ?? 0),
         update,
@@ -133,6 +140,55 @@ describe('CARDSHOW M-84 · confirmación FORMAL vs LIGERA (§CARDSHOW.12)', () =
   it('FORMAL (pokemon) con cupo libre ⇒ confirmed', async () => {
     const { svcC } = confirmService({ id: 'R1', game: 'pokemon', day: 'sat', playerId: '1', confirmedAt: null }, { cap: '2', confirmedCount: 1 });
     expect(await svcC.confirm('tok')).toEqual({ outcome: 'ok', state: 'confirmed' });
+  });
+
+  // ⭐M-88 (BLOQ-A / D-CS-7): confirmar el token de UNA fila del grupo «los dos días» confirma AMBAS
+  // (`sat`+`sun`) en la misma tx, y la respuesta incluye el desglose por día `days[]` (aditivo).
+  it('M-88 GRUPO FORMAL pokemon «los dos días» + cupo libre ⇒ 2 filas confirmed + days[sat,sun]', async () => {
+    const satRow = { id: 'R1', game: 'pokemon', day: 'sat', playerId: '7', mailboxHmac: 'mbox1', confirmedAt: null };
+    const sunRow = { id: 'R2', game: 'pokemon', day: 'sun', playerId: '7', mailboxHmac: 'mbox1', confirmedAt: null };
+    // El token llega por la fila `sat` (`findUnique` ⇒ R1); el grupo (`findMany`) trae ambas en orden createdAt.
+    const { svcC, update, tx } = confirmService(satRow, { cap: '', confirmedCount: 0, groupRows: [satRow, sunRow] });
+    const res = await svcC.confirm('tok');
+    expect(res).toEqual({
+      outcome: 'ok',
+      state: 'confirmed', // estado de la fila del token (sat)
+      days: [
+        { day: 'sat', state: 'confirmed' },
+        { day: 'sun', state: 'confirmed' },
+      ],
+    });
+    // Ambas filas se actualizaron a confirmed (⛔ ninguna queda pending colgada).
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'R1' }, data: expect.objectContaining({ status: 'confirmed' }) }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'R2' }, data: expect.objectContaining({ status: 'confirmed' }) }));
+    // La clave de grupo FORMAL ata (mailboxHmac, pokemon, playerId) en la consulta del grupo.
+    expect(tx.cardShowPlayerSignup.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ mailboxHmac: 'mbox1', game: 'pokemon', playerId: '7', status: 'pending' }) }),
+    );
+  });
+
+  // ⭐M-88 LIGERA «los dos días»: ambas filas ⇒ confirmed directo (sin cupo/waitlist), con days[].
+  it('M-88 GRUPO LIGERA (shardbugs) «los dos días» ⇒ 2 filas confirmed + days[sat,sun]', async () => {
+    const satRow = { id: 'R1', game: 'shardbugs', day: 'sat', playerId: null, mailboxHmac: 'mbox2', confirmedAt: null };
+    const sunRow = { id: 'R2', game: 'shardbugs', day: 'sun', playerId: null, mailboxHmac: 'mbox2', confirmedAt: null };
+    const { svcC, update, tx } = confirmService(satRow, { cap: '2', confirmedCount: 9, groupRows: [satRow, sunRow] });
+    const res = await svcC.confirm('tok');
+    expect(res).toEqual({
+      outcome: 'ok',
+      state: 'confirmed',
+      days: [
+        { day: 'sat', state: 'confirmed' },
+        { day: 'sun', state: 'confirmed' },
+      ],
+    });
+    expect(update).toHaveBeenCalledTimes(2);
+    // ⛔ LIGERA no mira cupo aunque esté «lleno»: no cuenta confirmados.
+    expect(tx.cardShowPlayerSignup.count).not.toHaveBeenCalled();
+    // Clave de grupo LIGERA: (mailboxHmac, game) con playerId NULL.
+    expect(tx.cardShowPlayerSignup.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ mailboxHmac: 'mbox2', game: 'shardbugs', playerId: null, status: 'pending' }) }),
+    );
   });
 });
 

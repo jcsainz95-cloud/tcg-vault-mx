@@ -535,13 +535,15 @@ export class CardShowService {
           await this.mail
             .sendInternalNotice({
               type: lead.type,
-              name: null, // los leads no persisten nombre (⛔ nunca `playerName`) ⇒ «—»
+              name: lead.name, // ⭐M-84: nombre/MARCA real del lead (ya se persiste; ⛔ nunca `playerName`)
+              phone: lead.phone, // ⭐M-84: teléfono real (obligatorio merchant/sponsor); correo INTERNO al staff
               email: lead.email,
               utmSource: lead.utmSource,
               utmMedium: lead.utmMedium,
               utmCampaign: lead.utmCampaign,
               createdAt: lead.createdAt,
-              adminLink: `${this.publicBase()}/admin/card-show/leads`,
+              // IMP-2: ruta REAL del panel (localizada) + pestaña Leads. `/admin/card-show/leads` daba 404.
+              adminLink: `${this.publicBase()}/es/admin/card-show?tab=leads`,
             })
             .catch((e) => this.logger.error(`aviso interno: ${e}`));
           await this.audit
@@ -688,7 +690,21 @@ export class CardShowService {
     await this.mail.sendLeadsSummary(data).catch((e) => this.logger.error(`resumen periódico: ${e}`));
   }
 
-  /** Confirma una preinscripción asignando cupo AL CONFIRMAR, por orden, con reserva atómica (L0-SEG-02). */
+  /**
+   * ⭐M-88 (§CARDSHOW.12) — Confirma una preinscripción del TORNEO recorriendo TODO el GRUPO del token.
+   *
+   * El alta «los dos días» crea 2 filas (`sat`+`sun`, ambas `pending`) y manda UN solo correo con el token
+   * de `rows[0]`; confirmar ese correo debe confirmar AMBAS (antes de M-88, `sun` quedaba `pending` colgado
+   * hasta caducar a 72 h — BLOQ-A / `D-CS-7`). Al recibir el token de UNA fila, derivamos la CLAVE DE GRUPO
+   * y confirmamos todas sus `pending` en orden `createdAt`, dentro de la MISMA tx serializable (la reserva
+   * de cupo por día sigue siendo atómica):
+   *   - Clave FORMAL `(mailboxHmac, game=pokemon, playerId)`; LIGERA `(mailboxHmac, game)` con `playerId=NULL`.
+   *   - FORMAL: cupo/waitlist POR DÍA; un día ya activo por OTRA fila/otro correo ⇒ «ya preinscrito» (0 cambios
+   *     en ESE día) y los DEMÁS días del grupo SÍ se confirman.
+   *   - LIGERA: todas las filas del grupo ⇒ `confirmed` directo (⛔ sin cupo/waitlist).
+   *   - ⛔ Otro `playerId` o `game` distinto = OTRO grupo (TUTOR): su fila sigue retenida y recibe su propio
+   *     correo; ⛔ no se auto-confirma (la clave de grupo no la alcanza).
+   */
   private async confirmSignup(id: string, now: number): Promise<ConfirmResult> {
     const cap = this.tournamentCap();
     try {
@@ -701,30 +717,65 @@ export class CardShowService {
           if (!row) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'gone');
           if (row.confirmedAt) throw new BusinessException('LINK_ALREADY_USED', HttpStatus.GONE, 'already confirmed');
 
-          // ⭐M-84 LIGERA (game≠pokemon): ⛔ sin cupo, sin waitlist, sin índice — pasa DIRECTO a `confirmed`.
-          if (row.game !== CardShowGame.pokemon) {
-            await tx.cardShowPlayerSignup.update({ where: { id }, data: { confirmedAt: new Date(now), status: CardShowSignupStatus.confirmed } });
-            return { outcome: 'ok' as const, state: CardShowSignupStatus.confirmed };
+          // Clave de GRUPO derivada de la fila del token (⛔ sin columna nueva — misma consulta que arma el
+          // correo, `card-show.service.ts` `sendConfirmation`): FORMAL ata `playerId`; LIGERA lo deja NULL.
+          const isFormal = row.game === CardShowGame.pokemon;
+          const groupKey = isFormal
+            ? { mailboxHmac: row.mailboxHmac, game: CardShowGame.pokemon, playerId: row.playerId }
+            : { mailboxHmac: row.mailboxHmac, game: row.game, playerId: null };
+
+          // TODAS las `pending` del grupo, en orden `createdAt` (incluye la fila del token: `confirmedAt` es
+          // NULL por el guard de arriba). ⛔ Otro `playerId`/`game` queda fuera por la clave ⇒ no se toca.
+          const groupRows = await tx.cardShowPlayerSignup.findMany({
+            where: { ...groupKey, status: CardShowSignupStatus.pending },
+            orderBy: { createdAt: 'asc' },
+          });
+
+          // Resultado por fila: estado nuevo si cambió, o `null` = «ya preinscrito ese día» (0 cambios).
+          const results: { id: string; day: CardShowDay; state: CardShowSignupStatus | null }[] = [];
+          for (const r of groupRows) {
+            // ⭐M-84 LIGERA (game≠pokemon): ⛔ sin cupo, sin waitlist, sin índice — DIRECTO a `confirmed`.
+            if (!isFormal) {
+              await tx.cardShowPlayerSignup.update({ where: { id: r.id }, data: { confirmedAt: new Date(now), status: CardShowSignupStatus.confirmed } });
+              results.push({ id: r.id, day: r.day, state: CardShowSignupStatus.confirmed });
+              continue;
+            }
+
+            // FORMAL: ¿el Player ID ya está activo ESE día por OTRA fila (otro correo)? ⇒ «ya preinscrito», 0 cambios.
+            const activeOther = await tx.cardShowPlayerSignup.findFirst({
+              where: {
+                id: { not: r.id },
+                game: CardShowGame.pokemon,
+                playerId: r.playerId,
+                day: r.day,
+                status: { in: ['confirmed', 'waitlist', 'checked_in'] },
+              },
+            });
+            if (activeOther) {
+              results.push({ id: r.id, day: r.day, state: null });
+              continue;
+            }
+
+            const confirmedCount = await tx.cardShowPlayerSignup.count({
+              where: { game: CardShowGame.pokemon, day: r.day, status: 'confirmed' },
+            });
+            const state = assignOnConfirm(confirmedCount, cap);
+            await tx.cardShowPlayerSignup.update({ where: { id: r.id }, data: { confirmedAt: new Date(now), status: state } });
+            results.push({ id: r.id, day: r.day, state });
           }
 
-          // FORMAL (Pokémon): ¿el Player ID ya está activo ese día por OTRA fila? ⇒ «ya preinscrito», 0 cambios.
-          const activeOther = await tx.cardShowPlayerSignup.findFirst({
-            where: {
-              id: { not: id },
-              game: CardShowGame.pokemon,
-              playerId: row.playerId,
-              day: row.day,
-              status: { in: ['confirmed', 'waitlist', 'checked_in'] },
-            },
-          });
-          if (activeOther) return { outcome: 'occupied' as const };
+          // Nada cambió (todos los días ya activos por otras filas) ⇒ «ya preinscrito» (shape de hoy, sin `days`).
+          const changed = results.filter((r): r is { id: string; day: CardShowDay; state: CardShowSignupStatus } => r.state !== null);
+          if (changed.length === 0) return { outcome: 'occupied' as const };
 
-          const confirmedCount = await tx.cardShowPlayerSignup.count({
-            where: { game: CardShowGame.pokemon, day: row.day, status: 'confirmed' },
-          });
-          const state = assignOnConfirm(confirmedCount, cap);
-          await tx.cardShowPlayerSignup.update({ where: { id }, data: { confirmedAt: new Date(now), status: state } });
-          return { outcome: 'ok' as const, state };
+          // `state` top-level = estado de la fila del TOKEN si cambió; si quedó «ya preinscrito», el del 1.º que sí cambió.
+          const tokenResult = results.find((r) => r.id === id);
+          const state = tokenResult && tokenResult.state !== null ? tokenResult.state : changed[0].state;
+          // `days` es ADITIVO y SOLO viaja en la confirmación de GRUPO «los dos días» (groupRows > 1): el
+          // frontend lo usa para nombrar sábado Y domingo. Un alta de UN solo día conserva el shape `{state}`
+          // de hoy (⛔ no rompe C2/C3 ni al frontend que ya lo parsea).
+          if (groupRows.length <= 1) return { outcome: 'ok' as const, state };
+          return { outcome: 'ok' as const, state, days: changed.map((r) => ({ day: r.day, state: r.state })) };
         },
         { label: 'card-show.confirm-signup' },
       );
@@ -1039,6 +1090,15 @@ export class CardShowService {
   }
 }
 
+/**
+ * Resultado de un `POST /card-show/confirm`.
+ *
+ * ⭐M-88 (§CARDSHOW.12): `days` es ADITIVO — presente solo en el torneo (confirmación de GRUPO «los dos
+ * días»). Lista, en orden `createdAt`, el estado resultante de CADA fila del grupo que SÍ cambió
+ * (confirmed/waitlist). ⛔ No incluye los días que quedaron «ya preinscrito» (0 cambios). El `state`
+ * top-level se conserva (shape que el frontend ya parsea): es el estado de la fila del TOKEN, o —si esa
+ * fila quedó «ya preinscrito»— el de la primera fila del grupo que sí cambió.
+ */
 export type ConfirmResult =
-  | { outcome: 'ok'; state: 'new' | CardShowSignupStatus }
+  | { outcome: 'ok'; state: 'new' | CardShowSignupStatus; days?: { day: CardShowDay; state: CardShowSignupStatus }[] }
   | { outcome: 'occupied' };
