@@ -7,6 +7,17 @@ Estas cuatro las respondió JC hoy; mandan sobre lo de abajo donde choquen. Pend
 3. **Datos a Jakomi = SOLO tipo y conteo** (sin datos personales). El aviso interno NO debe copiar a `cardshow@jakomi.mx` el nombre/teléfono/correo del vendedor; eso solo va a TCG HUNT (`jsainz@tcghunt.mx`). Revierte parte de IMP-3 de R4 respecto a la copia a Jakomi. Cierra L2-SEG-01.
 4. **Correo a patrocinador = SIN cifras**: quitar $25,000/$8,500 y el copy heredado («presented by», «prize partner», «deck»); decir «pide la propuesta de patrocinio».
 
+### DATOS DEL EVENTO (JC, 2026-10-17 chat — verbatim; fuente única para la landing, va a `frontend/src/content/card-show.ts`)
+- **Nombre:** Card Show CDMX · TCG HUNT × Jakomi TCG Café.
+- **Dirección:** José del Castillo 3, esq. Av. Revolución, Col. San José Insurgentes, Benito Juárez, 03900 CDMX.
+  - Piso 2: vendedores. Piso 3: torneos, juego libre y comida.
+- **Horarios (entrada libre):** Sábado 5 dic 11:00–19:00; Domingo 6 dic 11:00–18:00.
+- **Torneo de Pokémon (PRELIMINAR; horarios finales en los próximos días):** Sáb 12:00–18:00; Dom 12:00–17:00.
+- **Montaje de vendedores:** viernes 4 dic (horario se confirma al apartar la mesa).
+- **Cómo llegar:** Metro Mixcoac (Líneas 7 y 12) + ~5 min caminando por Av. Revolución; Metrobús Línea 1 estación Río Churubusco.
+- **Maps:** https://www.google.com/maps/search/?api=1&query=Jos%C3%A9+del+Castillo+3%2C+San+Jos%C3%A9+Insurgentes%2C+Benito+Ju%C3%A1rez%2C+CDMX (enlace externo; la CSP no admite iframe de mapa — va como enlace).
+- *Nota:* el torneo de Pokémon es el main de MX$200 (decisión 2 arriba). Los horarios del torneo son PRELIMINARES ⇒ el copy debe decirlo.
+
 
 ## ESTADO VIGENTE 2026-10-17 — decisiones del dueño (JC, chat). Supersede lo de abajo.
 La landing deja de ser «anuncio con datos» y pasa a ser **página de CAPTURA DE LEADS** que **NO expone el
