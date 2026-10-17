@@ -18,14 +18,18 @@
 > Deudas **no bloqueantes** del núcleo del Panel (Brief 2, API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5). Ninguna
 > toca dinero ni bloquea el DoD de Fase 0 (los indicadores afectados salen «NO MEDIDO» con motivo, no «0»).
 
-### MKT-TD1 · P2 · h1 «Anotaciones de fecha» sin modelo en m82
-- **Qué:** el Brief 2 §2 h1 pide anotaciones de fecha (texto, sin PII) visibles en gráficas y export. ARCHITECTURE §13.4
-  NO definió un modelo para ellas y m82 NO lo crea. Hoy la pantalla (h) y la hoja «Info» salen «NO MEDIDO — sin modelo
+### MKT-TD1 · ✅ CERRADA (2026-10-17, sobre `9d0ed99`) · h1 «Anotaciones de fecha» sin modelo en m82
+- **Qué era:** el Brief 2 §2 h1 pide anotaciones de fecha (texto, sin PII) visibles en gráficas y export. ARCHITECTURE §13.4
+  NO definió un modelo para ellas y m82 NO lo creaba. La pantalla (h) y la hoja «Info» salían «NO MEDIDO — sin modelo
   de anotaciones».
-- **Impacto:** marketing no puede marcar días de promoción/despliegue desde el panel todavía; lo suple con su propio
-  registro fuera de la tienda.
-- **Disparador:** cuando se construya la pantalla (h) con escritura. Requiere **decisión del arquitecto** sobre el modelo
-  (`MarketingDateAnnotation { day, label, kind }`, texto saneado PM-B1) — es cambio de contrato/schema (regla 9).
+- **Cómo se cerró:** el arquitecto definió `MarketingDateAnnotation { date, kind, label, destino? }` (cambio de schema/contrato,
+  regla 9) y m83 lo implementa: modelo + `marketing-annotations.service.ts`/`.controller.ts` (CRUD con validación PII PM-B1,
+  `destino` solo en `kind=promocion`) + pantalla (h) `screenH()` que mide la tabla de anotaciones y las embebe en todo
+  `ScreenPayload`.
+- **Comprobación:** la pantalla (h) devuelve la tabla `h1` con filas de anotaciones (`marketing-analytics.service.ts:screenH`);
+  candados `backend/test/marketing-annotations.service.spec.ts` (PII fail-first, CRUD, 404) y
+  `backend/test/marketing-annotations.routes.spec.ts`. El candado de ensamblaje `marketing-analytics.service.spec.ts` fija
+  que a4/a5/b/e/g/f siguen «NO MEDIDO» y que (h) ya no lo está.
 
 ### MKT-TD2 · P3 · c7 estado de envío derivado del JSON por consulta (sin columna denormalizada)
 - **Qué:** c7 parsea `Order.shippingAddressSnapshot.state` (texto libre) por consulta, como autoriza ARCHITECTURE §13.4.3.
@@ -35,10 +39,67 @@
 - **Disparador:** si c7 pesa en consultas o el agrupado por estado se vuelve ruidoso ⇒ denormalizar `shippingStateCode`
   en `Order` (migración futura) y/o normalizar a catálogo. Seguridad debe confirmar la fiabilidad del snapshot (§13.6 Q4).
 
-### MKT-TD3 · P2 · 403 cross-route del token marketing-reader (pendiente de decisión del arquitecto)
-- **Qué:** el contrato pide 403 al usar el token en «cualquier otra ruta» del admin; el mecanismo (JwtAuthGuard) da 401.
-  Detalle y opciones en BACKEND_NOTES §MKT OLA 2. No se tocó `JwtAuthGuard` (auth compartida, regla 9).
-- **Disparador:** decisión del arquitecto (reconciliar contrato↔mecanismo, o aceptar 401 cross-route y ajustar el criterio).
+### MKT-TD3 · ✅ RESUELTA (2026-10-17, sobre `9d0ed99`) · 403 cross-route del token marketing-reader
+- **Qué era:** el contrato pedía 403 al usar el token en «cualquier otra ruta» del admin; el mecanismo (JwtAuthGuard) da 401.
+  No se tocó `JwtAuthGuard` (auth compartida, regla 9).
+- **Cómo se resolvió:** decisión del arquitecto **D-MKT-AUTZ** — 401 consistente (el token no autentica fuera de su ruta ⇒
+  401, no 403); el contrato se amendó a token-only con 401/400/429 (sin 403). No hay cambio de código pendiente.
+- **Comprobación:** docstring de `marketing.controller.ts#aggregates` corregido a «401/400/429 … NUNCA 403 (D-MKT-AUTZ)»;
+  §MKT.E del contrato ya no lista 403 para `aggregates`.
+
+### MKT-TL1 · P2 · El limitador en memoria crece sin cota por IP (vector de memoria/DoS)
+- **Qué:** `rate-limiter.ts` mantiene `Map perIpFails` que **solo se poda al re-tocar la clave** (una IP que no vuelve nunca
+  no se borra). Un atacante que rota IP de origen hace crecer el `Map` sin cota ⇒ presión de memoria / DoS lento.
+- **Impacto:** acotado al proceso del API; no toca dinero ni datos. Escala con IPs distintas vistas entre reinicios.
+- **Comprobación de cierre:** prueba que inyecta N IP distintas y afirma que el `Map` queda **acotado** tras la ventana
+  (poda periódica o LRU + cota superior). Fail-first: sin poda, el tamaño crece con N.
+- **Dueño:** backend. **Disparador:** antes de exponer el panel a tráfico no confiable / endurecimiento de seguridad.
+- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+
+### MKT-TL2 · P3 · Invariante NO escrito de la supresión complementaria (`small-cells.ts`)
+- **Qué:** la supresión complementaria de `small-cells.ts` descansa en un invariante tácito: una tabla con dimensión NO
+  emite además el total exacto en la misma pantalla (si lo hiciera, el total menos las visibles despejaría la celda
+  oculta). Hoy se cumple por construcción, pero es frágil si una pantalla futura emite total exacto junto a tabla
+  dimensionada.
+- **Impacto:** riesgo de reidentificación (PM-A1) SOLO si una pantalla nueva rompe el invariante; las de hoy no lo hacen.
+- **Comprobación de cierre:** documentar el invariante en `small-cells.ts` + candado que **falle** si un `ScreenPayload`
+  emite un total exacto junto a una tabla dimensionada con celdas suprimidas.
+- **Dueño:** backend. **Disparador:** al añadir una pantalla que combine total sin dimensión con tabla dimensionada.
+- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+
+### MKT-TL3 · P2 · Falta ruta de DATOS por SESIÓN para la pantalla de admin
+- **Qué:** hoy solo `GET /admin/marketing/aggregates` sirve JSON de agregados, y es **token-only** (token marketing-reader).
+  La pantalla `(admin)` del Panel usa **sesión** admin con `marketing:read`; no hay endpoint de agregados JSON por sesión que
+  consuma (solo export binario .xlsx/.csv por sesión).
+- **Impacto:** la pantalla de admin no tiene de dónde leer las cifras por sesión sin reusar el camino de token (que no es
+  suyo) ⇒ bloquea el render del Panel en `(admin)`.
+- **Comprobación de cierre:** endpoint `GET` JSON de agregados por **sesión + `marketing:read`**, consumido por `(admin)`,
+  con **paridad de cifras** contra el export (mismo `ScreenPayload`).
+- **Dueño:** **arquitecto** (decide/contrata el endpoint, regla 9) → backend (implementa). **Disparador:** arranque del stream
+  de UI del Panel.
+- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+
+### MKT-TL4 · P2 · No hay camino de operador para emitir/revocar el token marketing-reader
+- **Qué:** `MarketingTokenService.issue()/revoke()` existen pero **sin llamador de producción**: ningún endpoint ni script
+  documentado los invoca. No hay forma de que un operador emita el token (y vea el claro una vez) ni lo revoque.
+- **Impacto:** el panel por token no se puede operar en prod (no se puede emitir el primer token ni rotar/revocar uno
+  filtrado) sin desplegar código ad-hoc.
+- **Comprobación de cierre:** endpoint o script **documentado** que invoque `issue()/revoke()` y entregue el claro UNA sola
+  vez; prueba de que **revocar deja el token en 401 sin desplegar**.
+- **Dueño:** backend (+ arquitecto si se expone por HTTP, regla 9). **Disparador:** antes de que el panel se use en prod.
+- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+
+### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
+- **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
+  NO la paridad de cifras **contra BD real** (diferencia 0, Brief 2 §6(a)) ni el **pipeline HTTP e2e**: 401/400/429 en el
+  cable, `Cache-Control: no-store` servido, fila escrita en `MarketingAccessLog`, y grep **PII=0** sobre los .xlsx/.csv
+  generados. Todo eso necesita Postgres/Redis/MinIO levantados (no hay aquí).
+- **Impacto:** un error que solo aparezca en la integración (query Prisma mal filtrada, header que no llega, PII que se cuela
+  en el binario) no lo atrapa el unitario de ensamblaje.
+- **Comprobación de cierre:** suite de integración con infra que mida diferencia 0 endpoint↔export↔BD y el pipeline HTTP
+  completo (status, `no-store`, access-log, PII=0 en artefactos).
+- **Dueño:** backend. **Disparador:** stream de UI del Panel (cuando haya infra de integración).
+- **Medido:** 2026-10-17 (QA + techlead, sobre `9d0ed99`).
 
 ## Backend · 2026-10-14 · stream «P&L de Finanzas» — gate del techlead sobre `be008b0` (rama `fix/pnl-finanzas`)
 

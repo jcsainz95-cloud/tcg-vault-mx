@@ -2,7 +2,8 @@
  * marketing.controller.ts — Panel de Marketing Fase 0 (API_CONTRACT §MKT.E; Brief 2 §4/§7).
  *
  *  - `GET /admin/marketing/aggregates` — token `marketing-reader` (Bearer). JSON de agregados de UNA
- *    pantalla, periodo semana/mes CERRADO. 401/403/400/429 según §MKT.E. `Cache-Control: no-store`.
+ *    pantalla, periodo semana/mes CERRADO. 401/400/429 según §MKT.E (token-only ⇒ NUNCA 403, D-MKT-AUTZ).
+ *    `Cache-Control: no-store`.
  *  - `GET /admin/marketing/export` — sesión admin con `marketing:read`: .xlsx/.csv de UNA pantalla.
  *  - `GET /admin/marketing/export/todo` — .xlsx con una hoja por pantalla (a-h) + «Info».
  *  - `GET /admin/marketing/weekly-excel` — botón «Descargar Excel de la semana» (P2=B): .xlsx de la
