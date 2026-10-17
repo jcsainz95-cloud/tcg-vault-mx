@@ -228,9 +228,11 @@ export class CardShowMailService {
   // ───────────────────────────── correos INTERNOS (no sujetos a C3; ≤10/h lo gobierna el servicio) ─────────────────────────────
 
   /**
-   * Envía el AVISO INTERNO al confirmar vendedor/patrocinador (copy del dueño). To = destinatario interno
-   * principal (jsainz@tcghunt.mx); CC REAL del equipo (Jakomi/scarranza) vía el `cc` de PRIMERA CLASE del
-   * puerto → parámetro `cc` nativo de Resend (ya no una cabecera `Cc` arbitraria que Resend podría ignorar).
+   * Envía el AVISO INTERNO al confirmar vendedor/patrocinador (copy del dueño). Lleva nombre+teléfono
+   * REALES del lead ⇒ es correo CON PII. To = destinatario interno principal (jsainz@tcghunt.mx); CC =
+   * SOLO buzones de TCG HUNT (`INTERNAL_NOTICE_CC` = scarranza@tcghunt.mx) vía el `cc` de PRIMERA CLASE
+   * del puerto → parámetro `cc` nativo de Resend. ⭐M-89 (cierra L2-SEG-01): `cardshow@jakomi.mx` (tercero)
+   * ⛔ NUNCA va en To/CC/BCC de este correo — Jakomi solo recibe el resumen agregado (0 PII).
    */
   async sendInternalNotice(params: InternalNoticeParams): Promise<boolean> {
     const r = renderInternalNotice(params);

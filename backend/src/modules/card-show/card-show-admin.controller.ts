@@ -5,6 +5,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
 import { CardShowService } from './card-show.service';
+import { withBom } from './csv.util';
 
 /**
  * card-show-admin.controller.ts — v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.15). Panel SOLO `super_admin`.
@@ -97,8 +98,9 @@ export class CardShowAdminController {
   }
 
   private sendCsv(res: Response, filename: string, csv: string): void {
+    // BOM de UTF-8 para que Excel (Windows) no rompa los acentos — §CARDSHOW.15. No cambia columnas.
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.status(200).send(csv);
+    res.status(200).send(withBom(csv));
   }
 }

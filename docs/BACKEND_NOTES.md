@@ -28,6 +28,25 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.9 ⭐M-89` (correos internos en dos clases) + `§CARDSHOW.12 ⭐M-89` (precio del main) + criterios `§CARDSHOW.§13 [M-89 (A)]`. Decisiones JC en `docs/specs/CARDSHOW_LANDING_ESTADO.md` (DECISIONES JC 2026-10-17, R5). Solo `backend/` + este doc. ⛔ No toca `schema.prisma`.
+
+**Qué entró (fichero:línea).**
+
+- **(BLOQUEANTE privacidad, cierra L2-SEG-01) — Jakomi SOLO tipo+conteo** (`card-show.constants.ts:51` `INTERNAL_NOTICE_CC`). Pasa de `['cardshow@jakomi.mx','scarranza@tcghunt.mx']` a **`['scarranza@tcghunt.mx']`**. El aviso interno merchant/sponsor (`card-show-mail.service.ts` `sendInternalNotice`) lleva **nombre+teléfono reales** (PII, tras R4/IMP-3) ⇒ Jakomi (tercero) ⛔ ya no va en `To/CC/BCC`. Jakomi solo puede recibir el **resumen agregado** (0 PII): `sendVisitorDailySummary`/`sendLeadsSummary` siguen yendo solo a `internalTo()`; **si devops quiere a Jakomi en el resumen, lo cablea por `CARD_SHOW_INTERNAL_RECIPIENTS`** (§CARDSHOW.16) — el backend ⛔ no lo hardcodea.
+  - **Candado nuevo `test/card-show.jakomi-pii.spec.ts`:** (A) todo `MailMessage` con `cardshow@jakomi.mx` en To/CC/BCC ⇒ 0 PII (nombre/teléfono/correo/playerName) en asunto+cuerpo; (B) aviso interno merchant Y sponsor ⇒ Jakomi fuera de To/CC/BCC. **Rojo 10/10** con el defecto reintroducido (las 3 aserciones muerden), **verde 10/10** con el fix (determinista). `card-show.internal-mail.spec.ts` actualizado al nuevo CC.
+- **Correo visitante: main de Pokémon MX$200 (precio final)** (`card-show-welcome.templates.ts` `visitorVariant`, línea del cuerpo). Antes «inscripción desde $200»; ahora «MX$200; la puedes pagar por adelantado o en sitio», igual que la landing (regla §CARDSHOW.12: landing y correo mismo importe). Demás juegos «por anunciar» (⛔ no se inventan precios).
+- **Correo patrocinador: sin cifras ni copy heredado** (`card-show-welcome.templates.ts` `sponsorVariant`). Se quitan `$25,000`/`$8,500`, «presented by», «prize partner» y «deck» (asunto, cuerpo, CTA y el enlace al deck de Drive `CARD_SHOW_DECK_URL` — ya no se importa). CTA nuevo: **«Pide la propuesta de patrocinio»** vía `CARD_SHOW_SPONSOR_MAILTO`. Canarios en `welcome-mail.spec.ts`.
+- **BOM UTF-8 en el CSV servido** (`csv.util.ts` `CSV_BOM`/`withBom`; `card-show-admin.controller.ts` `sendCsv`). Los export `/admin/card-show/leads|players/export.csv` se sirven con `U+FEFF` (EF BB BF) al frente ⇒ Excel (Windows) ya no rompe acentos. El BOM se añade **en el serve**, ⛔ no en `csvDocument` (queda puro; el test de documento lo exige), sin cambiar columnas. `withBom` idempotente. Tests en `tournament-csv.spec.ts`.
+
+**Verificación (sha `7c7a504`, sobre `node_modules` symlinkeado del checkout principal — el worktree no trae deps).**
+
+- `npx tsc -p tsconfig.json --noEmit` ⇒ **0 errores**.
+- `npx jest card-show enum-values-parity mail.privacy-footer` ⇒ **18 suites, 463/463 verdes** (incluye el candado Jakomi nuevo y PRIV-6 2→3 intacto).
+- **⚠️ `prisma generate` NO se corrió:** no toqué `schema.prisma` ⇒ el cliente generado del checkout es válido. El `npx prisma` del entorno resuelve a un shim 8.0-rc que no reconoce `generate`; irrelevante aquí.
+- **Integración vs Postgres:** no corre en el worktree (sin `DATABASE_URL`); la cierra CI/orquestador. Tests unitarios escritos y verdes.
+
 ## 0.66 — ⭐ **v1.99⟨cardshow⟩ R4: confirmación de GRUPO «los dos días» (M-88 / BLOQ-A / D-CS-7) + correos a vendedor/staff (IMP-1/2/3)** (2026-10-17, rama `fix/card-show-r4-backend` desde `release/card-show`@`fade4e6`, PII · SIN DINERO)
 
 > Contrato: `API_CONTRACT §CARDSHOW.12 ⭐M-88` + criterio verbatim `[M-88 confirmación de grupo]` en `§CARDSHOW.§13`; desviación `D-CS-7` (`ARCHITECTURE §9`). Cuatro hallazgos de tester-e2e sobre el stack real; el contrato ya los fijaba. Solo `backend/` + este doc. ⛔ No toca `schema.prisma` (la clave de grupo se DERIVA de las filas, sin columna nueva).
@@ -184,7 +203,7 @@ C3 confirmación **sigue** sin ninguno de esos (prueba de contraste en `card-sho
    `{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26` (dominio
    propio). **Hoy NO existe ese recurso** — lo sirve el **frontend** (ruta estática) o un endpoint nuevo;
    el contrato no define un endpoint `.ics`. Si se prefiere endpoint backend, pasa por el arquitecto.
-2. **CC del aviso interno — RESUELTO (2026-10-16).** La copy pide `To: jsainz@tcghunt.mx · CC:
+2. **CC del aviso interno — RESUELTO (2026-10-16); ⚠️ SUPERSEDido por §0.67 (M-89, 2026-10-17):** el CC ya NO incluye `cardshow@jakomi.mx` (Jakomi es tercero y el aviso lleva PII) ⇒ `INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx']`. El mecanismo de `cc` de primera clase de abajo sigue vigente; solo cambió la LISTA. La copy pide `To: jsainz@tcghunt.mx · CC:
    cardshow@jakomi.mx, scarranza@tcghunt.mx`. Antes el `CC` iba por cabecera `Cc` arbitraria y **NO estaba
    medido que Resend la honre** (Resend hace el CC real con su parámetro `cc` nativo, no por cabecera).
    **Arreglo:** el puerto `MailMessage` ganó un campo **`cc?: string | string[]`** de primera clase

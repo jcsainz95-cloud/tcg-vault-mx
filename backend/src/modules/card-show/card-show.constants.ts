@@ -43,8 +43,13 @@ export const DEFAULT_MAIL_FROM = 'TCG HUNT <contacto@tcghunt.mx>';
 export const DEFAULT_MAIL_REPLY_TO = 'jsainz@tcghunt.mx';
 /** Destinatario interno principal (To) del aviso al staff / resumen diario. */
 export const DEFAULT_INTERNAL_TO = 'jsainz@tcghunt.mx';
-/** CC fijo del aviso interno al staff (copy del dueño). El From/Reply-To se añaden aparte. */
-export const INTERNAL_NOTICE_CC = ['cardshow@jakomi.mx', 'scarranza@tcghunt.mx'];
+/**
+ * CC del aviso interno CON PII (vendedor/patrocinador). ⭐M-89 (dueño JC 2026-10-17, cierra L2-SEG-01):
+ * SOLO buzones de TCG HUNT. `cardshow@jakomi.mx` es un TERCERO y el aviso lleva nombre+teléfono reales ⇒
+ * ⛔ Jakomi NUNCA va en el To/CC/BCC de este correo. Jakomi solo puede recibir el RESUMEN AGREGADO
+ * (tipo + conteo, 0 PII), cuyos destinatarios cablea devops por entorno (§CARDSHOW.9, §CARDSHOW.16).
+ */
+export const INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx'];
 
 // ── Token de formulario (L0-SEG-04, §CARDSHOW.5) ──
 export const FORM_TOKEN_MIN_AGE_MS = 2_000; // POST < 2 s ⇒ demasiado rápido para un humano (silencioso 0/0)
