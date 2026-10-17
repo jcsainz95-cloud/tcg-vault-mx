@@ -27,8 +27,21 @@ export function csvRow(cells: unknown[]): string {
   return cells.map(csvCell).join(',');
 }
 
-/** Documento CSV completo: cabecera + filas, terminado en `\n`. */
+/** Documento CSV completo: cabecera + filas, terminado en `\n`. ⛔ Sin BOM (lo añade el serve, ver `withBom`). */
 export function csvDocument(header: string[], rows: unknown[][]): string {
   const lines = [csvRow(header), ...rows.map(csvRow)];
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * BOM de UTF-8 (`U+FEFF` → bytes EF BB BF). Excel en Windows asume la codificación local (Windows-1252)
+ * si el archivo no trae BOM y rompe los acentos (á, é, í, ñ…). Prefijar el BOM hace que Excel/Sheets
+ * detecten UTF-8 y los rendericen bien. Se añade SOLO al servir el export (§CARDSHOW.15), no en
+ * `csvDocument`, para no contaminar el contenido que afirman las pruebas de celda/documento.
+ */
+export const CSV_BOM = '﻿';
+
+/** Prefija el BOM de UTF-8 a un CSV ya armado (idempotente: no duplica si ya lo trae). */
+export function withBom(csv: string): string {
+  return csv.startsWith(CSV_BOM) ? csv : CSV_BOM + csv;
 }
