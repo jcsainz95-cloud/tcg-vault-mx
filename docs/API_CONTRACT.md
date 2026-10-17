@@ -45393,7 +45393,7 @@ bandas (los de filtro `?status=`/`?game=` entran a `enum-values.ts`).
 - **Endpoints bajo `/api/v1/card-show/*`** (el matcher ya excluye `api` ⇒ sin `/es`):
   | Método · Ruta | Rol | Qué hace |
   |---|---|---|
-  | `GET  /card-show/form-token` | `@Public` | Emite token de formulario firmado (§CARDSHOW.5). `Cache-Control: no-store`, ⛔ sin `Set-Cookie`, ⛔ sin reflejar Origin ajeno. 30/h por IP. |
+  | `GET  /card-show/form-token` | `@Public` | Emite token de formulario firmado (§CARDSHOW.5). `Cache-Control: no-store`, ⛔ sin `Set-Cookie`, ⛔ sin reflejar Origin ajeno. Cupo por IP: **el que fija §CARDSHOW.5** (único lugar del hecho). |
   | `POST /card-show/leads` | `@Public` | Alta «Avísame» (§CARDSHOW.3/.4/.5). Respuesta **neutra**. |
   | `POST /card-show/players` | `@Public` | Alta preinscripción (§CARDSHOW.3/.4/.5/.12). Respuesta **neutra**. |
   | ~~`GET /card-show/confirm·cancel·unsubscribe`~~ **(RETIRADO — Diseño A)** | — | La **página con botón (C4)** la sirve el **FRONTEND** en `https://tcghunt.mx/card-show/{confirm\|cancel\|unsubscribe}?token=…` (fuera del i18n, igual que la landing; §CARDSHOW.6 y `ARCHITECTURE §4.CARDSHOW.f`). El backend ⛔ **ya no** sirve estos `GET` (se retira `actionPage`; un `GET` a `/api/v1/card-show/confirm·cancel·unsubscribe` responde `404`). |
@@ -45426,8 +45426,31 @@ respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`4
 
 ### CARDSHOW.5 Token de formulario firmado + tiempo mínimo — L0-SEG-04
 - `GET /card-show/form-token?purpose=leads|players` emite un token firmado con `CARD_SHOW_FORM_SECRET` (en Railway): lleva
-  `iat` y propósito (`leads`/`players`). ⛔ Sin `Set-Cookie`, `Cache-Control: no-store`, ⛔ no refleja Origin ajeno, **30/h
-  por IP** (⇒ `429` en la 31.ª).
+  `iat` y propósito (`leads`/`players`). ⛔ Sin `Set-Cookie`, `Cache-Control: no-store`, ⛔ no refleja Origin ajeno, **120/h
+  por IP** (⇒ `429` en la 121.ª; ⭐v1.98 M-87 IMP-6, antes 30/h — razón y conducta perezosa abajo). `Retry-After` entero ≥1
+  refleja la ventana de **1 h**.
+- **⭐v1.98 — M-87 (IMP-6) — adquisición PEREZOSA del token + cupo con holgura para IP compartida (NAT).** Una landing pensada
+  para multitud en Wi-Fi de evento (oficina, escuela, evento) comparte **una** IP por NAT; el montaje de `/card-show` pedía **4**
+  `GET /form-token` (asistente 1 + torneo 2 + comercial 1), de modo que con el cupo viejo de 30/h la **8.ª carga/hora** de esa IP
+  ya devolvía `429` a **visitantes legítimos** — justo el público del evento. Decisión (combina «pedir al interactuar» + «subir el
+  cupo», ⛔ sin tocar el camino que crea filas/correo):
+  - **FRONTEND (conducta):** la página **⛔ NO** pide ningún `form-token` al **montar**. Pide **1** token **al primer
+    foco/interacción** con un formulario (a más tardar al pulsar «enviar»), **uno por formulario realmente usado** y por su
+    `purpose` (`leads`/`players`). El token se **cachea** en cliente mientras vive ese formulario y se **re-pide** solo tras
+    `FORM_EXPIRED` (>2 h, §CARDSHOW.5) o tras un envío exitoso. ⇒ **navegar sin tocar formularios = 0 tokens**; llenar un
+    formulario = **1** token.
+  - **BACKEND (cupo):** el tope del `GET /card-show/form-token` sube de **30/h** a **120/h por IP**. Es de **riesgo bajo**: no crea
+    filas ni envía correo; los guardas reales del gasto siguen intactos (throttle de POST §CARDSHOW.3/§13, presupuesto C1 Redis §7,
+    topes por buzón C2 §8).
+  - **COPY (frontend/ux-ui, es/en):** el mensaje del `429` del `form-token` ⛔ **no** dice «unos minutos» (la ventana es **1 h**).
+    Usa el `Retry-After` (redondeo a minutos hacia arriba) o un texto neutro. Sugerido — **ES:** «Demasiados intentos desde esta
+    red. Vuelve a intentarlo más tarde.» / **EN:** «Too many attempts from this network. Please try again later.» (el texto final
+    lo fija ux-ui; §DESIGN_SYSTEM).
+  - ⚠️ **Fuera de alcance de esta decisión, se nombra para que no sorprenda (NO MEDIDO con tráfico real de evento):** el **throttle
+    del POST** a `/card-show/leads`·`/players` (21/<1 h por IP ⇒ `429`, §CARDSHOW.3/§13) **también** limita a una IP NAT a ~20
+    **altas**/hora, y **no** se cambia aquí: es el camino que crea filas y envía correo (anti-abuso deliberado). Si el evento lo
+    exige, se decide por separado (arquitecto, regla 9) tras medir el riesgo de abuso — no se baja el guarda del dinero en el mismo
+    pase que un endpoint sin filas.
 - **Forma de la respuesta (fija, fuente de verdad):** `200 { "formToken": string }` (`Cache-Control: no-store`). ⛔ **La clave
   es `formToken`, NO `token`** (`card-show.controller.ts:52,61`). El cliente DEBE leer `formToken` de la respuesta; si lee otra
   clave (p. ej. `token`) nunca emite el token y **se pierden todas las altas** (bug 2a).
@@ -45600,9 +45623,23 @@ pedir nada a terceros ni al dueño.
 
 ### CARDSHOW.15 Panel (super_admin)
 - `GET /admin/card-show/leads` y `/players`: listados con filtros `?status=`, `?type=`/`?day=` **+ `?game=` (⭐M-84, `/players`,
-  `CardShowGame`; fuera de dominio ⇒ 400)**, `q`, `from`/`to` (convención de §0). ⛔ **PENDING no aparece** en el listado por
-  defecto ni en los conteos (hoy/7 días/total), ni en el export CSV. El export del organizador del torneo **sí** incluye
-  `playerName`/`playerId` (único destino autorizado de esos datos).
+  `CardShowGame`; fuera de dominio ⇒ 400)**, `q` (campos exactos abajo, ⭐M-86), `from`/`to` (convención de §0). ⛔ **PENDING no
+  aparece** en el listado por defecto ni en los conteos (hoy/7 días/total), ni en el export CSV. El export del organizador del
+  torneo **sí** incluye `playerName`/`playerId` (único destino autorizado de esos datos).
+- **⭐v1.98 — M-86 (IMP-3) — semántica EXACTA de `q` (cierra el hueco: el rótulo del panel decía «nombre o correo» pero el código
+  solo casaba `email` — `card-show.service.ts:900,916`).** `q` sigue la **gramática de §0** (igual que el `q` de §M3 /
+  `/admin/shipments`: `trim`, vacío ≡ ausente, ≤ 200 chars ⇒ si no `400`; sigue **exento de §0-Q** por `NO_ENUM_TRANSVERSAL`, ⛔ no
+  entra al `REGISTRO` de `C-EQ-1`). **Qué campos cubre** (`contains` **insensible a mayúsculas**, SIEMPRE **parametrizado** — ⛔ SQL
+  crudo concatenado):
+  - **`GET /admin/card-show/leads`** (+ `export.csv`): `q` casa `CardShowLead.name` **OR** `CardShowLead.email`. El rótulo «Buscar
+    (nombre o correo)» describe ESTA conducta; `name` cubre nombre y **marca** de vendedor/patrocinador.
+  - **`GET /admin/card-show/players`** (+ `export.csv`): `q` casa `CardShowPlayerSignup.playerName` **OR** `.email` **OR**
+    `.playerId` (`playerId` es string de dígitos; `contains` sobre él es válido; filas LIGERA sin `playerId` no casan por ese campo,
+    sin romper). `playerName`/`playerId` ya son visibles al `super_admin` en este panel ⇒ `q` sobre ellos **no amplía** la
+    exposición que §CARDSHOW.12 ya autoriza.
+  - `q` **solo REDUCE** el conjunto ya autorizado por rol (⛔ sin IDOR/enumeración nueva) y **⛔ nunca incluye PENDING** (como el
+    resto de §CARDSHOW.15). ⛔ **No** casa `phone` ni `sellsWhat` (no es lo que el operador busca; `phone` es PII que no se indexa
+    por texto libre).
 - **⭐v1.97 — Forma de respuesta de `GET /admin/card-show/leads` y `/players` (JSON):** siguen la **convención de paginación de
   §0** — `200 { data, page, pageSize, total }` (`?page=`/`?pageSize=` de entrada). La única particularidad del panel: **`total`
   cuenta solo las filas que el panel muestra, es decir ⛔ EXCLUYE PENDING** (igual que el resto de §CARDSHOW.15). El backend ya la
@@ -45664,6 +45701,14 @@ El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura de
 - **devops**: subdominio de envío en Resend (SPF/DKIM/DMARC) + webhooks de Resend; variables de §CARDSHOW.16; DNS `www`→apex;
   términos del **grep de CI** del secreto; **reportar el plan de Resend** (el Free de 100/día no aguanta el anuncio) en la
   RONDA 1. Notas en `docs/DEVOPS_NOTES.md`.
+- **⭐v1.98 — IMP-3 / IMP-6 (los levantó tester-e2e sobre `release/card-show` @ `78f4abe`; sin migración, sin cambio de
+  `schema.prisma`):**
+  - **M-86 (IMP-3, `q`):** lo corrige **backend** (amplía el `where` de `q` a `name` OR `email` en `/leads`, y
+    `playerName` OR `email` OR `playerId` en `/players`; `card-show.service.ts:900,916`). **frontend** no cambia el rótulo de
+    `/leads` (ya dice «nombre o correo», ahora cierto); sí **verifica** que el campo de búsqueda de `/players` rotule
+    nombre/correo/Player ID. Vigila la paridad la prueba de §13 [M-86 q IMP-3].
+  - **M-87 (IMP-6, form-token):** **frontend** implementa la adquisición perezosa (token al primer foco, 0 al montar) + el copy
+    es/en del `429`; **backend** sube el cupo de `GET /form-token` a 120/h. Vigila la prueba de §13 [M-87 adquisición perezosa].
 - Cualquier cambio de contrato o de `schema.prisma` pasa por el **arquitecto** (regla 9).
 
 ### CARDSHOW.18 Rifa informal y privacidad (⭐M-84)
@@ -45686,7 +45731,7 @@ Throttle por IP: 6 POST válidos/60s desde 1 IP (token nuevo y correo distinto c
 Topes por buzón (silenciosos, 200 idéntico): victima@ , Victima@…TEST, victima+1@, victima+2@ en los 3 tipos y torneo, y v.ictima@gmail vs victima@gmail ⇒ 1 envío por buzón, respuestas idénticas, filas separadas para +1/+2 retenidas sin correo. Reloj simulado: buzón que nunca confirma, altas t0, t0+25h, t0+50h ⇒ 2 envíos. Buzón confirmado ⇒ máx 4/24h; el 5.º no sale. «No fui yo» ⇒ fila desaparece, guarda solo mailboxHmac, nuevas altas de ese buzón 0 envíos/200 idéntico. 21 buzones de un dominio no masivo/24h ⇒ 20 envíos. Dominio sin MX ni A ⇒ 0 envíos/0 filas/200 idéntico.
 Presupuesto global (staging HOUR=10, DAY=20): 11 altas válidas/1h (IP y buzones distintos, sumando ambos formularios) ⇒ 10 envíos; la 11.ª 200 idéntico, PENDING con confirmationHeldAt, 0 envíos; 1 alerta al 5.º envío y 1 al corte, fila en AuditLog c/u. En la hora siguiente la 11.ª no sale sola; sale con acción de super_admin; si nadie la libera, caduca (7d/72h). 21 altas/día ⇒ corte diario a las 20; contador reinicia 00:00 CDMX. Redis caído ⇒ 200 idéntico, PENDING, 0 envíos, alerta. (Resend compartido) 2 a complained@resend.dev/24h ⇒ corte+alerta; 10 a bounced@resend.dev ⇒ mismo corte; solo reabre un humano. Con corte activo, respuesta y tiempo del POST no cambian.
 Honeypot (campo oculto `website`, §CARDSHOW.14): con valor en ambos formularios ⇒ 200 idéntico, 0 filas, 0 envíos, no consume tope ni presupuesto; con VoiceOver/TalkBack no se anuncia ni recibe foco; el autocompletar no lo rellena.
-Token de formulario y tiempo mínimo: sin token / 1 byte alterado / token de player usado en leads ⇒ 400, 0 filas, 0 envíos. POST <2s ⇒ 200 idéntico 0/0; 2.º POST mismo token ⇒ 200 idéntico 0 filas nuevas/0 envíos. TTL reducido: token caducado ⇒ 400 FORM_EXPIRED, el front pide otro y reintenta una vez sin borrar lo tecleado. GET /form-token sin Set-Cookie, Cache-Control: no-store, sin reflejar Origin ajeno, 429 en la 31.ª/h por IP. git grep de CARD_SHOW_FORM_SECRET y CARD_SHOW_LINK_SECRET solo lecturas de config (0 valores), distintos, solo en Railway.
+Token de formulario y tiempo mínimo: sin token / 1 byte alterado / token de player usado en leads ⇒ 400, 0 filas, 0 envíos. POST <2s ⇒ 200 idéntico 0/0; 2.º POST mismo token ⇒ 200 idéntico 0 filas nuevas/0 envíos. TTL reducido: token caducado ⇒ 400 FORM_EXPIRED, el front pide otro y reintenta una vez sin borrar lo tecleado. GET /form-token sin Set-Cookie, Cache-Control: no-store, sin reflejar Origin ajeno, 429 en la 121.ª/h por IP (⭐M-87 IMP-6, antes 31.ª), Retry-After entero ≥1 reflejando ventana de 1 h. [M-87 adquisición perezosa] Montar /card-show ⇒ 0 GET /form-token; primer foco/interacción en un formulario ⇒ 1 GET para su purpose; un formulario reusa su token cacheado hasta FORM_EXPIRED o envío exitoso; el copy del 429 del form-token NO contiene «unos minutos». git grep de CARD_SHOW_FORM_SECRET y CARD_SHOW_LINK_SECRET solo lecturas de config (0 valores), distintos, solo en Railway.
 Validación: body 5 KB ⇒ 413; email 300 chars ⇒ 400; type=ADMIN ⇒ 400; utm_source con <script> ⇒ 400; playerName con http:// @ < o dígitos ⇒ 400; playerId con letras o 13 dígitos ⇒ 400. consent=false/ausente ⇒ 400 y 0 filas. Dos POST simultáneos mismo (email,type) ⇒ 1 fila. Email@Dominio.MX y email@dominio.mx ⇒ misma fila; email+a@ ⇒ otra fila (mismo buzón para topes).
 Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, ≤100 ms) iguales para: alta nueva, repetida, honeypot, <2s, token reutilizado, buzón dado de baja, buzón suprimido, tope agotado, dominio sin MX, corte activo.
 [Doble opt-in] Alta ⇒ exactamente 1 envío, fila PENDING; en PENDING 0 en admin/CSV, no cuenta en hoy/7días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en resumen diario, 0 a Jakomi. En la fuente del **correo de CONFIRMACIÓN (C3)** solo enlaces del dominio propio (confirmar, «No fui yo», aviso); 0 wa.me/mailto/tienda/utm_/Drive/Maps/calendario; ningún valor tecleado (Player ID «terminado en NNNN»); asunto fijo; 0 imágenes remotas; List-Unsubscribe(+Post) con token; From en subdominio de envío. 3 GET al enlace de confirmación ⇒ 200 con página y botón, fila sigue PENDING, 0 envíos; POST ⇒ NEW (leads) o CONFIRMED/WAITLIST (torneo), confirmedAt, 1 confirmación por tipo y (vendedor/patrocinador) 1 aviso interno; aparece en admin <5s. [Correo de BIENVENIDA C3-W] Al confirmar un lead (NEW) ⇒ exactamente 1 correo de bienvenida, variante por tipo (merchant/sponsor/visitor); este correo SÍ puede llevar wa.me/utm_/Drive/mailto/.ics/Maps (la restricción de C3 NO le aplica — buzón ya confirmado); sigue con From en subdominio de envío, List-Unsubscribe(+Post) con token y ⛔ sin playerName; cuenta contra C1/C2. ⛔ A una fila PENDING ⇒ 0 bienvenidas. Reenviar la confirmación de un lead ya NEW ⇒ 0 bienvenidas nuevas. Los correos internos (aviso al staff, resumen diario) NO están sujetos a la restricción de enlaces de C3. 2.º POST mismo token ⇒ 410, 0 cambios/0 envíos. Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ 400/410, 0 cambios/0 envíos. Reloj simulado: sin confirmar la fila desaparece a 7d (leads)/72h (torneo); la del torneo nunca restó cupo. POST de List-Unsubscribe-Post ⇒ unsubscribedAt y 0 envíos posteriores. Baja del cuerpo y «Cancelar mi preinscripción»: GET ⇒ página sin cambio; POST ⇒ baja/CANCELLED y el cupo restante sube 1. Repetir alta de un registro ya confirmado dentro de 24h ⇒ 0 envíos. 31 peticiones/min por IP a /confirm,/unsubscribe,/cancel ⇒ 429 desde la 31.ª.
@@ -45694,4 +45739,4 @@ Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, �
 [Cabeceras y CSP] La CSP de la landing no contiene challenges.cloudflare.com ni ningún origen nuevo respecto a la tienda; git grep -i turnstile en la rama ⇒ 0.
 [Pivote a leads — M-84, campos nuevos de CardShowLead] Paridad de enums: CardShowGame en las TRES bandas (schema.prisma, common/enum-values.ts CARD_SHOW_GAME_VALUES, §Enums) ⇒ enum-values-parity.spec verde; las TRES bandas listan los CUATRO valores (pokemon, riftbound, lorcana, shardbugs — M-85); game=POKEMON / game=SHARDBUGS (mayúscula) ⇒ 400; game=shardbugs (gameInterest en visitor y game en /players, torneo LIGERA) ⇒ 200. name ausente en cualquier tipo ⇒ 400; name con < > @ o "http" ⇒ 400; name con dígitos/& (p. ej. "Tienda 3D & Cartas") ⇒ 200 (acepta marca). phone en visitor ⇒ 400; phone ausente en merchant/sponsor ⇒ 400; phone "55 1234 5678" / "+52 1 55 1234 5678" ⇒ 200 y se persiste solo dígitos (10). gameInterest en merchant/sponsor ⇒ 400; gameInterest=pokemon en visitor ⇒ 200; gameInterest fuera de dominio ⇒ 400. raffleOptIn en merchant/sponsor ⇒ 400; raffleOptIn=true sin raffleTermsVersion ⇒ 400; raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400; visitor con raffleOptIn=true + raffleTermsVersion ⇒ 200. sellsWhat en visitor ⇒ 400; sellsWhat ≤140 NO_ANGLE en merchant/sponsor ⇒ 200. En el correo de confirmación C3 ⇒ 0 apariciones de name/phone/sellsWhat. mesaInteres en el cuerpo ⇒ 400 (campo desconocido/retirado del DTO); ninguna salida (panel/CSV) lo incluye. Migración M-84: name NOT NULL se añade con DEFAULT '' transitorio, backfill, DROP DEFAULT (0 filas rotas); mesaInteres NO se dropea.
 [Pivote — torneo por juego] game=pokemon sin playerId ⇒ 400; game=pokemon con playerId dígitos ⇒ 200 y rige cupo/waitlist/índice parcial. game=riftbound|lorcana con playerId ⇒ 400 {field:playerId}; sin playerId ⇒ 200, fila playerId=NULL, al confirmar pasa directo a confirmed (nunca waitlist). Dos filas LIGERA del mismo (buzón, juego, día) ⇒ 200 idéntico, 1 fila activa (dedupe); 4.ª PENDING del mismo (buzón, juego, día) ⇒ 200 idéntico, 0 filas. Índice único parcial recreado: SOLO cubre game='pokemon' AND playerId IS NOT NULL AND status activo ⇒ dos filas LIGERA sin playerId no colisionan. playerId vacío en el CSV de players para filas LIGERA.
-[Pivote — panel/CSV/correo-resumen] /leads y /players (JSON) responden con la envoltura de paginación de §0 { data, page, pageSize, total } (§CARDSHOW.15; total excluye PENDING); export.csv sin envoltura (CSV plano). /leads JSON y CSV incluyen name, phone, gameInterest, raffleOptIn, raffleTermsVersion, sellsWhat; /players incluye game; PENDING sigue sin aparecer en ninguna salida ni conteo. ?game= en /players: fuera de dominio ⇒ 400. Correo-resumen: cuerpo con 0 PII en claro (0 apariciones de name/phone/email/playerName/playerId), solo conteos + enlace autenticado; 0 filas PENDING en los conteos; sin IP; es correo interno (sin pie de privacidad, ≤10/h).
+[Pivote — panel/CSV/correo-resumen] /leads y /players (JSON) responden con la envoltura de paginación de §0 { data, page, pageSize, total } (§CARDSHOW.15; total excluye PENDING); export.csv sin envoltura (CSV plano). /leads JSON y CSV incluyen name, phone, gameInterest, raffleOptIn, raffleTermsVersion, sellsWhat; /players incluye game; PENDING sigue sin aparecer en ninguna salida ni conteo. ?game= en /players: fuera de dominio ⇒ 400. [M-86 q IMP-3] /leads: sembrar un lead cuyo name casa q pero email NO ⇒ aparece; otro cuyo email casa q pero name NO ⇒ aparece; quitar la cláusula `name` de q ⇒ el 1.º desaparece (prueba roja); q insensible a mayúsculas (q=ana casa Ana); q NUNCA trae PENDING. /players: fila cuyo playerName casa q pero email NO ⇒ aparece; fila cuyo playerId (dígitos) casa q ⇒ aparece; fila LIGERA sin playerId no rompe y no casa por playerId; q no casa phone ni sellsWhat. Correo-resumen: cuerpo con 0 PII en claro (0 apariciones de name/phone/email/playerName/playerId), solo conteos + enlace autenticado; 0 filas PENDING en los conteos; sin IP; es correo interno (sin pie de privacidad, ≤10/h).

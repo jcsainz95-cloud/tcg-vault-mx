@@ -31128,6 +31128,32 @@ su texto vive en el repo (`frontend/src/content/card-show.ts`, público — §4.
 texto de **bases de la rifa** deben escribirse y versionarse antes de publicar; los candados `legal-gate.ts`/`publish-check.ts`
 siguen poniendo `404` si queda un marcador en producción. Forma: `API_CONTRACT §CARDSHOW.18`.
 
+#### 4.CARDSHOW.s Dos hallazgos de tester-e2e (release/card-show @ `78f4abe`): la búsqueda que mentía y el cupo que bloqueaba a la multitud
+
+**IMP-3 — `q` del panel solo casaba `email` aunque el rótulo dice «nombre o correo».** El código buscaba
+`where.email = { contains }` (`card-show.service.ts:900,916`): buscar por nombre devolvía «Sin leads». No era un hueco de
+mecanismo sino de **contrato**: §CARDSHOW.15 decía «`q` (convención de §0)» sin fijar **qué campos** cubre, y el panel es,
+precisamente, para que el dueño encuentre un lead por su **nombre o marca**. Decisión (arquitecto, regla 9): `q` cubre
+`name` **OR** `email` en `/leads`, y `playerName` **OR** `email` **OR** `playerId` en `/players`, con la misma gramática que el
+`q` de §M3/`/admin/shipments` (contains insensible, parametrizado, solo REDUCE, ⛔ nunca PENDING). `playerName`/`playerId` ya
+son visibles al super_admin en este panel, así que indexarlos por texto **no amplía** la exposición de §CARDSHOW.12. `q` sigue
+**exento de §0-Q** (`NO_ENUM_TRANSVERSAL`): no es dominio cerrado, no entra al `REGISTRO` de `C-EQ-1` (coherente con
+§4.CARDSHOW.n). Lo corrige **backend**; la prueba de paridad la fija §13 ([M-86 q IMP-3], estilo STF-27: quitar la cláusula
+`name` ⇒ roja). Forma normativa: `API_CONTRACT §CARDSHOW.15`.
+
+**IMP-6 — 4 tokens de formulario por carga vs. 30/h en IP compartida.** `/card-show` pedía **4** `GET /form-token` al montar
+(asistente + torneo×2 + comercial); a 30/h, la **8.ª carga/hora** de una IP daba `429`. En una landing para **multitud en Wi-Fi
+de evento** (NAT ⇒ una IP), esto bloquea **visitantes legítimos** — el peor sitio para un falso positivo anti-bot. La clave del
+diseño: el `GET /form-token` **no crea filas ni envía correo** (riesgo bajo); los guardas reales del gasto son el throttle del
+POST, el presupuesto C1 Redis (§4.CARDSHOW.g) y los topes por buzón C2 (§4.CARDSHOW.e). Por eso la decisión **no** relaja el
+camino protegido, sino el barato: **(a)** frontend pide el token **al interactuar**, no al montar (navegar = 0 tokens; llenar
+un formulario = 1); **(b)** el cupo del `GET /form-token` sube (valor vigente **solo** en `API_CONTRACT §CARDSHOW.5`, para no
+duplicar el hecho). El mensaje del `429` dejaba de ser cierto
+(«unos minutos» con ventana de 1 h): se corrige el copy (es/en). ⚠️ Queda **nombrado, no cambiado**: el throttle del POST
+(≈20 altas/h por IP) también limita una IP NAT; es el camino del dinero y su ajuste, si el evento lo exige, es una decisión
+aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de evento). Forma normativa y reparto:
+`API_CONTRACT §CARDSHOW.5` y `§CARDSHOW.17`.
+
 ---
 
 ## 5. Decisiones transversales
