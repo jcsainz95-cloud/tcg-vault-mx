@@ -66,13 +66,15 @@
   will-change: opacity;
 }
 .cs-ring {
+  /* Onda de choque TENUE (RONDA 3 I-2): aro FINO y grande con escala moderada, en vez de un cuadro
+   * pequeño escalado ×26 (leía como glitch a 1280). Borde 1.5px + escala ~2.4–3 ⇒ el trazo queda fino. */
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 40px;
-  height: 40px;
-  margin: -20px 0 0 -20px;
-  border: 2px solid #e0353b; /* §CS-UX.1: rojo sobre tinta = #E0353B, ⛔ nunca #B31217 */
+  width: 160px;
+  height: 160px;
+  margin: -80px 0 0 -80px;
+  border: 1.5px solid #e0353b; /* §CS-UX.1: rojo sobre tinta = #E0353B, ⛔ nunca #B31217. Esquinas 0 (sin radius). */
   will-change: transform, opacity;
 }
 .cs-debris {
@@ -125,6 +127,22 @@
   .cs-burst {
     display: none;
   }
+}
+
+/* --- Foco visible de la barra de anuncio (RONDA 3 I-4) ---
+ * La barra es rojo de marca (#B31217) y el foco global es rojo (#B31217) ⇒ invisible sobre rojo. Anillo
+ * en PAPEL (`--color-accent-fg` = #F4F1EA, 6.18:1 sobre #B31217) e INSET (offset negativo) para que lea
+ * dentro de la banda, sin depender del outline global. Es el PRIMER tab stop de la página. */
+.cs-announce:focus-visible {
+  outline: 2px solid var(--color-accent-fg);
+  outline-offset: -4px;
+}
+
+/* --- Foco visible del mapa embebido (RONDA 3 M-5) ---
+ * El `<iframe>` recibe foco al tabular; sin indicador no se ve. Anillo de marca sobre papel. */
+.cs-map-frame:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
 }
 
 /* --- Tira horizontal de torneos (scroll-snap, sin barra visible) --- */
