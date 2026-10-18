@@ -241,6 +241,22 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // sin `allowed` (`parseExclude`, `accessories/accessory-input.ts`). ⛔ `?active=`/`?soldOut=` del panel ya NO van aquí:
   // v1.86.5 los hace clase L `true|false` ⇒ `REGISTRO`.
   'GET /accessories/suggestions::exclude',
+
+  // ⭐ C-EQ-1 v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.15, contrato en `cb83a81`): los ejes del panel SIN
+  // dominio de tokens. `?from=`/`?to=` son días/fechas sobre `createdAt` (fuera de forma ⇒ `400 {field}`
+  // SIN `allowed`, medido en `dateRange`, `card-show.service.ts`), no un conjunto cerrado. `?mesa=` es un
+  // ENTERO de telemetría cuya conducta es INTENCIONAL (se ignora fuera de forma; ⛔ no cambia, decisión del
+  // arquitecto) y `?token=` del one-click es un token de enlace opaco, ⛔ no un conjunto de tokens.
+  'GET /admin/card-show/leads::from',
+  'GET /admin/card-show/leads::to',
+  'GET /admin/card-show/leads/export.csv::from',
+  'GET /admin/card-show/leads/export.csv::to',
+  'GET /admin/card-show/players::from',
+  'GET /admin/card-show/players::to',
+  'GET /admin/card-show/players/export.csv::from',
+  'GET /admin/card-show/players/export.csv::to',
+  'GET /card-show/ir/:destino::mesa',
+  'POST /card-show/unsubscribe-oneclick::token',
 ];
 
 /**

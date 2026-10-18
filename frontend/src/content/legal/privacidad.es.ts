@@ -76,9 +76,9 @@ export const PROVISIONAL_FISCAL_TEXT =
   'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.4-provisional-2026-10-07',
+  version: '0.5-provisional-2026-10-13',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
-  updatedAt: '7 de octubre de 2026',
+  updatedAt: '13 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
@@ -109,6 +109,7 @@ export const privacyNoticeEs: LegalDocument = {
             '**Si pides factura:** RFC, nombre o razón social, régimen fiscal, uso de CFDI, código postal y correo de facturación.',
             '**Si nos vendes cartas:** tu **CLABE** interbancaria y tu **nombre legal** (para pagarte a tu nombre) y, cuando el monto lo requiere, **imagen de tu INE por ambos lados**.',
             '**Si pides que te avisemos cuando un producto vuelva:** tu correo.',
+            '**Si te registras para el Card Show o te preinscribes a un torneo:** tu correo y tu tipo de interés (asistir, vender o patrocinar); y, para la preinscripción al torneo, el nombre del jugador, el Player ID y, si el jugador es menor de edad, el consentimiento de su padre, madre o tutor.',
             '**De forma automática:** dirección IP en algunas acciones registradas por seguridad, e información que tu navegador guarda para mantener tu sesión y tu carrito (ver punto 8).',
           ],
         },
@@ -149,9 +150,18 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            '**Hoy no usamos tus datos para finalidades secundarias** (no enviamos ' +
-            'publicidad ni compartimos datos con fines comerciales). Si algún día lo hacemos, actualizaremos este aviso y te ' +
-            'daremos un medio para negarte **antes** de usarlos así; negarte nunca afectará tus compras ni tus ventas.',
+            '**Marketing del Card Show.** Si te registras en la landing del Card Show o te preinscribes a un torneo y lo ' +
+            'aceptas, usamos tu correo para enviarte información del evento y de TCG HUNT. Es una finalidad **secundaria**: ' +
+            'puedes negarte sin que afecte tu registro ni tu preinscripción. Cada correo lleva un enlace para **darte de ' +
+            'baja** y, si no reconoces el registro, un enlace de **«No fui yo»** que suprime tu correo de estos envíos hasta ' +
+            'el fin de la campaña.',
+        },
+        {
+          type: 'p',
+          text:
+            'Fuera de esto, **no usamos tus datos para otras finalidades secundarias** (no compartimos datos con fines ' +
+            'comerciales). Si algún día ampliamos estos usos, actualizaremos este aviso y te daremos un medio para negarte ' +
+            '**antes** de usarlos así; negarte nunca afectará tus compras ni tus ventas.',
         },
       ],
     },
@@ -180,6 +190,12 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
+            'Cuando te preinscribes al torneo del Card Show, compartimos tus datos de preinscripción (nombre del jugador, ' +
+            'Player ID y día) con **Jakomi**, organizador del torneo, para que gestione tu participación.',
+        },
+        {
+          type: 'p',
+          text:
             'Algunos de estos proveedores pueden guardar datos **fuera de México**. Además, entregamos datos a **autoridades** ' +
             '(por ejemplo, el SAT) cuando la ley lo exige. **No vendemos tus datos.**',
         },
@@ -195,6 +211,7 @@ export const privacyNoticeEs: LegalDocument = {
             '**Imagen de la INE:** la borramos **180 días** después de que se cierre tu última venta con nosotros, si no tienes otra abierta.',
             '**Datos de tu cuenta:** mientras tengas cuenta. Si pides borrarla, la eliminamos; si ya hiciste operaciones, **anonimizamos** tus datos de contacto y borramos tus direcciones, datos de factura, CLABE e INE, y **conservamos** solo los registros de tus compras y ventas (incluida la dirección de entrega, datos fiscales y la CLABE cifrada de esas operaciones) **por el plazo que exigen las disposiciones fiscales aplicables**.',
             '**Pedidos sin cuenta y solicitudes que no se cerraron:** los conservamos mientras sean necesarios para atender aclaraciones y cumplir obligaciones legales; publicaremos aquí el plazo concreto.',
+            '**Card Show y torneo:** el correo del registro de avisos lo conservamos hasta que te des de baja; los datos de preinscripción al torneo, el tiempo necesario para gestionar tu participación y cumplir obligaciones legales (publicaremos aquí el plazo concreto).',
           ],
         },
       ],

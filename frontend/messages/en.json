@@ -1396,7 +1396,8 @@
       "refunds": "Refunds",
       "spendAlerts": "Spending alerts",
       "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}",
-      "accessories": "Accessories"
+      "accessories": "Accessories",
+      "cardShow": "Card Show"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",

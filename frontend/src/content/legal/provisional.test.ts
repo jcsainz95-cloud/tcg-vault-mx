@@ -102,9 +102,12 @@ describe('LEG-P1 · el aviso real (provisional y coherente) se publica en produc
   // ✏ 2026-10-06: sube con el cambio de fondo de PROJECT §LEG.2 punto 5 (el vendedor como remitente a Skydropx y a la
   // paquetería). Sigue fijando versión y fecha EXACTAS: una versión vieja con texto nuevo vuelve a poner esto rojo.
   // ✏ 2026-10-07: sube otra vez con el párrafo «Lista de deseos» (PROJECT §WSH.5, criterio 824).
-  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5; §WSH.5)', () => {
-    expect(privacyNoticeEs.version).toBe('0.4-provisional-2026-10-07');
-    expect(privacyNoticeEs.updatedAt).toBe('7 de octubre de 2026');
+  // ✏ 2026-10-13: sube con el bloque Card Show (§CARDSHOW): finalidad secundaria de marketing del
+  //    evento + baja/«No fui yo» (§4), captura del registro/preinscripción (§2), transferencia a
+  //    Jakomi (§5) y conservación (§6). Sigue fijando versión y fecha EXACTAS.
+  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5; §WSH.5; §CARDSHOW)', () => {
+    expect(privacyNoticeEs.version).toBe('0.5-provisional-2026-10-13');
+    expect(privacyNoticeEs.updatedAt).toBe('13 de octubre de 2026');
   });
 });
 

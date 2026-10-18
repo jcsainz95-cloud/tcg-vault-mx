@@ -116,6 +116,10 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // v1.82 · PNL-4: SIETE — `BuylistService.rejectItems` (`reject-items`). Auditado: su cuerpo solo toca la BD
     // (y `logger.warn`); el correo 29 sale DESPUÉS del commit, fuera del callback, así que un reintento no
     // lo duplica.
-    expect(sitios).toHaveLength(7);
+    // v1.93⟨cardshow⟩ · OCHO — `CardShowService.confirmSignup` (`card-show.confirm-signup`, §CARDSHOW.12 /
+    // L0-SEG-02): la reserva atómica del cupo del torneo (cuenta CONFIRMED del día + asigna confirmed/waitlist).
+    // Auditado: su cuerpo SOLO toca la BD; el correo del torneo se manda al REGISTRAR (createPlayer), ⛔ no al
+    // confirmar, así que un reintento del 40001 no duplica ningún envío.
+    expect(sitios).toHaveLength(8);
   });
 });

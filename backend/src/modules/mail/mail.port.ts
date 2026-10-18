@@ -21,6 +21,24 @@ export interface MailMessage {
   html: string;
   text: string;
   attachments?: MailAttachment[];
+  /**
+   * ⭐ v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.9, C3): remitente POR MENSAJE. El Card Show manda desde
+   * su SUBDOMINIO de envío propio (`CARD_SHOW_MAIL_FROM`), distinto del `From` general de la tienda.
+   * Ausente ⇒ el adaptador usa su `from` de construcción (el cuerpo de hoy, bit a bit).
+   */
+  from?: string;
+  /**
+   * ⭐ v1.93⟨cardshow⟩ (§CARDSHOW.9): cabeceras extra (p. ej. `List-Unsubscribe` + `List-Unsubscribe-Post`,
+   * RFC 8058). Ausente ⇒ sin cabeceras extra (comportamiento previo, byte a byte).
+   */
+  headers?: Record<string, string>;
+  /**
+   * ⭐ CC de PRIMERA CLASE (no cabecera arbitraria). El aviso interno del Card Show manda copia real al
+   * equipo (Jakomi/scarranza): `ResendMailAdapter` lo pasa al parámetro `cc` NATIVO de Resend — una cabecera
+   * `Cc` arbitraria NO garantiza la copia real. Ausente ⇒ la clave no viaja (el cuerpo de los demás correos
+   * queda byte a byte igual, como `from?`/`headers?`). Infra backend aditiva (⛔ no toca el contrato).
+   */
+  cc?: string | string[];
 }
 
 export interface MailPort {
