@@ -2,8 +2,7 @@
  * marketing-token.service.ts — 🔒 principal de servicio `marketing-reader` (Brief 2 §7.2, PM-M1/PV-B3;
  * ARCHITECTURE §13.4.2; API_CONTRACT §MKT.D/E). LEE/valida tokens; NO mueve dinero.
  *
- * - `issue(label, by)` crea un token: aleatorio ≥256 bits, guarda SOLO el hash, caduca a 12 meses.
- *   Devuelve el claro UNA vez (para que el dueño lo cargue como `TIENDA_PANEL_TOKEN`); nunca se guarda.
+ * - Emitir / listar / revocar: `marketing-token-admin.service.ts` (§MKT.G.6). Este servicio es SOLO la puerta.
  * - `verify(bearer, ip, now)` valida: 401 si falta/ inválido/ revocado/ caducado; 429 si la IP está
  *   bloqueada (10 fallos/10min) o el token pasó 60/h. Comparación en tiempo constante. Actualiza
  *   `lastUsedAt` best-effort. ⛔ El bearer NUNCA se escribe en logs (el servicio no loguea el valor).
@@ -11,7 +10,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { constantTimeHexEqual, generateClearToken, hashToken } from './token-crypto';
+import { constantTimeHexEqual, hashToken } from './token-crypto';
 import { SlidingWindowCounter } from './rate-limiter';
 
 /** Token validado que el guard adjunta a la petición. ⛔ NUNCA incluye el claro ni el hash. */
@@ -20,7 +19,6 @@ export interface VerifiedMarketingToken {
   label: string;
 }
 
-const TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class MarketingTokenService {
@@ -30,26 +28,6 @@ export class MarketingTokenService {
   private readonly perIpFails = new SlidingWindowCounter(10 * 60 * 1000, 10);
 
   constructor(private readonly prisma: PrismaService) {}
-
-  /** Crea un token nuevo. Devuelve el CLARO (solo aquí y ahora) + el id. Caduca en 12 meses. */
-  async issue(label: string, createdByUserId: string | null, now = new Date()): Promise<{ id: string; token: string; expiresAt: Date }> {
-    const token = generateClearToken();
-    const tokenHash = hashToken(token);
-    const expiresAt = new Date(now.getTime() + TWELVE_MONTHS_MS);
-    const row = await this.prisma.marketingApiToken.create({
-      data: { label, tokenHash, createdByUserId, expiresAt },
-      select: { id: true, expiresAt: true },
-    });
-    return { id: row.id, token, expiresAt: row.expiresAt };
-  }
-
-  /** Revoca al momento (sin desplegar). Idempotente. */
-  async revoke(id: string, revokedByUserId: string | null, now = new Date()): Promise<void> {
-    await this.prisma.marketingApiToken.updateMany({
-      where: { id, revokedAt: null },
-      data: { revokedAt: now, revokedByUserId },
-    });
-  }
 
   private fail(ip: string, nowMs: number, message: string): never {
     this.perIpFails.record(ip, nowMs);

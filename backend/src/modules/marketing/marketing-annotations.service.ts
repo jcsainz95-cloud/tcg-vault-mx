@@ -53,14 +53,14 @@ export class MarketingAnnotationsService {
    */
   private assertClean(label: string | undefined, destino: string | null | undefined, kind: MarketingAnnotationKind | undefined): void {
     if (label !== undefined && containsPii(label)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'label no puede contener datos personales (correo, @usuario, teléfono, CURP/RFC)');
+      throw BusinessException.validation('VALIDATION_ERROR', 'label no puede contener datos personales (correo, @usuario, teléfono, CURP/RFC)', { field: 'label' });
     }
     if (destino !== undefined && destino !== null && destino !== '' && containsPii(destino)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'destino no puede contener datos personales (correo, @usuario, teléfono, CURP/RFC)');
+      throw BusinessException.validation('VALIDATION_ERROR', 'destino no puede contener datos personales (correo, @usuario, teléfono, CURP/RFC)', { field: 'destino' });
     }
     // `destino` SOLO en promoción (§13.4.6). En otro `kind`, un destino no vacío es un error de forma.
     if (kind !== undefined && kind !== MarketingAnnotationKind.promocion && destino !== undefined && destino !== null && destino !== '') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'destino solo aplica a kind=promocion');
+      throw BusinessException.validation('VALIDATION_ERROR', 'destino solo aplica a kind=promocion', { field: 'destino' });
     }
   }
 

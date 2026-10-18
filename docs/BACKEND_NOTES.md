@@ -33298,3 +33298,73 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
   (1) debilitar `containsPii` ⇒ 10 casos PII + servicio **rojos**; restaurado ⇒ 28/28 verde.
   (2) borrar la línea §0 ⇒ banda-3 universal **2 rojas** (`MarketingAnnotationKind` sin línea canónica); restaurado ⇒ 155/155.
   N deterministas (N=1).
+
+## §MKT.G — Pantalla del panel por SESIÓN, periodos y acceso del analista (v1.101 + v1.103) · 2026-10-18
+
+> **Estado vigente.** Contrato: API_CONTRACT §MKT.G (v1.103⟨mkt-panel-exacto⟩). Cierra MKT-TL1, MKT-TL3, MKT-TL4 y la
+> desviación D-MKT-1 (ARCHITECTURE §9; la marca de cerrada la pone el arquitecto). Sin migración. Integración por HTTP:
+> escrita (`test/integration/marketing-panel.e2e-spec.ts`), **NO MEDIDA** (sin Postgres en el entorno de backend).
+
+**Rutas (todas bajo `/api/v1/admin/marketing`).**
+
+| Ruta | Autz | Fichero |
+|---|---|---|
+| `GET panel?pantalla=&week|weekStart|month` | sesión + `marketing:read` | `marketing.controller.ts` `panel()` |
+| `GET periods` | sesión + `marketing:read` | `marketing.controller.ts` `periods()` → `marketing-period.ts` `marketingPeriodOptions()` |
+| `GET tokens` · `POST tokens` · `POST tokens/:id/revoke` | `@Roles(super_admin)` | `marketing-tokens.controller.ts` → `marketing-token-admin.service.ts` |
+
+**Para frontend.**
+- `ScreenPayload.privacy` dice el régimen aplicado: sesión `super_admin` ⇒ `'exact'` (valores reales, sin «< 5», sin
+  «oculta», sin fila «Otros»); cualquier otra sesión ⇒ `'small_cells'`. Lo decide `panelPrivacy()` por ROL; no hay query.
+- Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por la supresión coherente de un MES, §MKT.G.10), texto o `null`.
+- Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran).
+- `notes` de TODA pantalla trae la línea de cobertura literal de §MKT.G.4 (`COVERAGE_NOTE`); también va a la hoja «Info».
+- Motivos `notMeasuredReason`: empiezan por «NO MEDIDO — » y no llevan códigos internos (PM-…, Fase N) — candado en
+  `marketing-panel.spec.ts`. ⚠️ La línea de cobertura SÍ dice «Fase 2» y `first_utm_*` porque el contrato la fija literal.
+- Dinero (`kind:'money'`): **pesos con IVA, 2 decimales** (`centsToPesos`), confirmado (DESIGN_SYSTEM §MKT-UX.17 petición 6).
+- 422 de anotaciones y de `label` de token: `details.field` (`'label'` | `'destino'`).
+- Tokens: el claro (`token`) solo en la respuesta del POST (`no-store`); ninguna otra respuesta lleva `token`/`tokenHash`.
+
+**Cómo está construido (para QA/techlead/seguridad).**
+- Un solo cálculo: `MarketingAnalyticsService.screen(screen, period, now, privacy)` — `privacy` obligatorio, sin valor por
+  defecto. `aggregates`, `export`, `export/todo`, `weekly-excel` pasan `'small_cells'` literal; solo `panelPrivacy()` produce
+  `'exact'` (candado estático en `marketing-panel-privacy.spec.ts`).
+- Celdas: `small-cells.ts` `applySmallCells(rows, privacy, forcedHidden)` y `hiddenKeys(rows)` comparten el mismo plan.
+  `safeRows()` del servicio: en un MES `small_cells`, recalcula la MISMA función de filas para cada semana que toca el mes
+  (`weeksTouchingMonth`) y fuerza `'oculta'` en toda clave oculta en alguna semana. Aplica a d1, d3, d4b y a3 (pagadas).
+  c7 no lo necesita (una semana nunca es medida en c7).
+- Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
+  puede salir 400 los primeros días del mes (p. ej. `2026-10` hasta el lunes 2-nov).
+- d4b: solicitudes DISTINTAS (no líneas) creadas en el periodo que incluyen la carta; sin MX$.
+- Emitir/revocar escriben `AuditLog` en la misma transacción que el cambio; revocar es idempotente (solo la primera
+  revocación cambia la fila y deja bitácora). `verify()` sin caché ⇒ la siguiente llamada da 401.
+- Limitador (MKT-TL1): barrido una vez por ventana + cota dura 10 000 claves.
+
+**Abierto, con medición.**
+- MKT-TL2 (docs/TECH_DEBT.md): c7 (mes) y a1 (mes) cuentan la misma población; a1 − filas visibles de c7 despeja la suma
+  oculta de c7 cuando solo hay una celda oculta. Medido por lectura 2026-10-18; pide regla del arquitecto/seguridad.
+- `weekly-excel` con `from/to` y sin semana IGNORA los prohibidos (usa la última semana) en vez de 400; el panel no. No lo
+  cambié (fuera de encargo y el contrato de `weekly-excel` no fija el código).
+
+**Verificación (sha y números en el informe de entrega; mutaciones sobre copia `git archive HEAD` del árbol entero).**
+- Suite completa sobre copia del árbol entero en `374647c6`: **515/515 suites, 8936/8936 pruebas**. `tsc` 0 errores;
+  `eslint` 0 errores (2 avisos previos ajenos: `fx.eur-series.spec.ts:57`, `price-review.service.spec.ts:130`).
+- Fail-first: las suites nuevas (`marketing-panel*.spec.ts`, `marketing-tokens.spec.ts`, las 2 de TL1) rojas antes de implementar.
+- Ablación, N=10 por mutación (deterministas, con mocks); lote 1 sobre `89b469d4`, lote 2 sobre `374647c6`:
+
+| Mutación | Candado | Rojo |
+|---|---|---|
+| control sin mutación (lote 1 / lote 2) | — | 0/10 · 0/10 |
+| `panelPrivacy` siempre `exact` | G.9 (1) paridad + (8) | 10/10 |
+| el panel altera el periodo | G.9 (1) paridad | 10/10 |
+| `screen()` ignora el régimen ⇒ `exact` (canario) | G.9 (9) | 10/10 |
+| sin supresión coherente (canario) | G.9 (10) | 10/10 |
+| mes cerrado al día siguiente (regla vieja) | G.9 (11) | 10/10 |
+| revocar no escribe `revokedAt` | G.9 (4) | 10/10 |
+| la vista selecciona `tokenHash` y copia la fila | G.9 (5) | 10/10 |
+| panel sin `surface:'panel'` | G.9 (7) | 10/10 |
+| d4b cuenta líneas (re-medida tras arreglar la prueba; antes 0/10) | d4b | 10/10 |
+| limitador sin barrido / sin cota | MKT-TL1 | 10/10 · 10/10 |
+| 422 de anotación sin `details.field` | anotaciones | 10/10 |
+| `label` de token sin filtro PII | G.6 | 10/10 |
+| solo seleccionar `tokenHash` / solo copiar la fila | G.9 (5) | 0/10 · 0/10 — mutantes equivalentes (cada uno solo no filtra nada) |

@@ -87,47 +87,45 @@
 - **Comprobación:** docstring de `marketing.controller.ts#aggregates` corregido a «401/400/429 … NUNCA 403 (D-MKT-AUTZ)»;
   §MKT.E del contrato ya no lista 403 para `aggregates`.
 
-### MKT-TL1 · P2 · El limitador en memoria crece sin cota por IP (vector de memoria/DoS)
-- **Qué:** `rate-limiter.ts` mantiene `Map perIpFails` que **solo se poda al re-tocar la clave** (una IP que no vuelve nunca
-  no se borra). Un atacante que rota IP de origen hace crecer el `Map` sin cota ⇒ presión de memoria / DoS lento.
-- **Impacto:** acotado al proceso del API; no toca dinero ni datos. Escala con IPs distintas vistas entre reinicios.
-- **Comprobación de cierre:** prueba que inyecta N IP distintas y afirma que el `Map` queda **acotado** tras la ventana
-  (poda periódica o LRU + cota superior). Fail-first: sin poda, el tamaño crece con N.
-- **Dueño:** backend. **Disparador:** antes de exponer el panel a tráfico no confiable / endurecimiento de seguridad.
-- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+### MKT-TL1 · ✅ CERRADA (2026-10-18, backend, rama `worktree-agent-aaeb6e9ff92812407`) · El limitador en memoria crecía sin cota por IP
+- **Qué era:** `rate-limiter.ts` solo podaba una clave al re-tocarla; una IP que no volvía nunca se quedaba en el `Map`.
+- **Cómo se cerró:** `SlidingWindowCounter` barre TODAS las claves caducadas como mucho una vez por ventana y tiene cota
+  dura `maxKeys` (10 000 por defecto; expulsa la de actividad más vieja). Riesgo aceptado y escrito en el docstring: con miles
+  de IPs distintas dentro de la ventana, la expulsión puede olvidar los fallos de una IP vieja (quien rota IPs ya esquiva el
+  bloqueo por IP; lo que ya no puede es crecer la memoria sin cota).
+- **Comprobación (verificada):** `backend/test/marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas). Canario en BACKEND_NOTES §MKT.G.
+- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`); cerrada 2026-10-18.
 
-### MKT-TL2 · P3 · Invariante NO escrito de la supresión complementaria (`small-cells.ts`)
-- **Qué:** la supresión complementaria de `small-cells.ts` descansa en un invariante tácito: una tabla con dimensión NO
-  emite además el total exacto en la misma pantalla (si lo hiciera, el total menos las visibles despejaría la celda
-  oculta). Hoy se cumple por construcción, pero es frágil si una pantalla futura emite total exacto junto a tabla
-  dimensionada.
-- **Impacto:** riesgo de reidentificación (PM-A1) SOLO si una pantalla nueva rompe el invariante; las de hoy no lo hacen.
-- **Comprobación de cierre:** documentar el invariante en `small-cells.ts` + candado que **falle** si un `ScreenPayload`
-  emite un total exacto junto a una tabla dimensionada con celdas suprimidas.
-- **Dueño:** backend. **Disparador:** al añadir una pantalla que combine total sin dimensión con tabla dimensionada.
-- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — ESCRITO, sin candado; con un caso medido
+- **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA
+  población que la tabla suprimida (total − visibles despeja la suma de lo oculto).
+- **Estado 2026-10-18 (backend):** el invariante está escrito en `small-cells.ts` (cabecera). **Medido por lectura:** c7 (pedidos
+  por estado, mes) y a1 (pedidos pagados del mes, exacto) cuentan la misma población (`settledAt` en el periodo, estados
+  `settled|refunded|chargeback`, `marketing-analytics.service.ts` c7 y `sales-analytics.service.ts:117-129`) ⇒ a1 − filas
+  visibles de c7 despeja la suma de «Otros estados» + «Recogida» cuando solo una de las dos sale «< 5». No identifica un estado
+  (ya vienen agrupados) pero rompe el invariante. La supresión coherente mes↔semanas (§MKT.G.10) NO lo cubre (es otro eje).
+- **Comprobación de cierre:** decisión del arquitecto/seguridad sobre c7 (p. ej. supresión complementaria entre «Otros estados» y
+  «Recogida», o aceptar el riesgo por escrito) + candado que falle si una pantalla con celdas suprimidas convive con el total exacto
+  de la misma población.
+- **Dueño:** backend (+ arquitecto/seguridad para la regla de c7). **Medido:** 2026-10-17 (techlead, `9d0ed99`); caso c7↔a1 medido 2026-10-18.
 
-### MKT-TL3 · P2 · Falta ruta de DATOS por SESIÓN para la pantalla de admin
-- **Qué:** hoy solo `GET /admin/marketing/aggregates` sirve JSON de agregados, y es **token-only** (token marketing-reader).
-  La pantalla `(admin)` del Panel usa **sesión** admin con `marketing:read`; no hay endpoint de agregados JSON por sesión que
-  consuma (solo export binario .xlsx/.csv por sesión).
-- **Impacto:** la pantalla de admin no tiene de dónde leer las cifras por sesión sin reusar el camino de token (que no es
-  suyo) ⇒ bloquea el render del Panel en `(admin)`.
-- **Comprobación de cierre:** endpoint `GET` JSON de agregados por **sesión + `marketing:read`**, consumido por `(admin)`,
-  con **paridad de cifras** contra el export (mismo `ScreenPayload`).
-- **Dueño:** **arquitecto** (decide/contrata el endpoint, regla 9) → backend (implementa). **Disparador:** arranque del stream
-  de UI del Panel.
-- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+### MKT-TL3 · ✅ CERRADA (2026-10-18, backend) · Faltaba ruta de DATOS por SESIÓN para la pantalla de admin
+- **Cómo se cerró:** `GET /api/v1/admin/marketing/panel` (API_CONTRACT §MKT.G.2, v1.101 + v1.103) en `marketing.controller.ts`
+  (`panel()`), sesión + `marketing:read`, `no-store`, `MarketingAccessLog` con `surface:'panel'` y `privacy`; y
+  `GET …/periods` (§MKT.G.3). Mismo `MarketingAnalyticsService.screen()` que `aggregates` y los exports.
+- **Comprobación (verificada):** `backend/test/marketing-panel.spec.ts` (paridad panel = aggregates en régimen `small_cells`,
+  catálogo, registro) y `backend/test/marketing-panel.routes.spec.ts` (metadatos de ruta). E2E por HTTP:
+  `backend/test/integration/marketing-panel.e2e-spec.ts` (escrita; **NO MEDIDA** aquí, sin Postgres).
+- **Medido:** 2026-10-17 (techlead, `9d0ed99`); cerrada 2026-10-18.
 
-### MKT-TL4 · P2 · No hay camino de operador para emitir/revocar el token marketing-reader
-- **Qué:** `MarketingTokenService.issue()/revoke()` existen pero **sin llamador de producción**: ningún endpoint ni script
-  documentado los invoca. No hay forma de que un operador emita el token (y vea el claro una vez) ni lo revoque.
-- **Impacto:** el panel por token no se puede operar en prod (no se puede emitir el primer token ni rotar/revocar uno
-  filtrado) sin desplegar código ad-hoc.
-- **Comprobación de cierre:** endpoint o script **documentado** que invoque `issue()/revoke()` y entregue el claro UNA sola
-  vez; prueba de que **revocar deja el token en 401 sin desplegar**.
-- **Dueño:** backend (+ arquitecto si se expone por HTTP, regla 9). **Disparador:** antes de que el panel se use en prod.
-- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`).
+### MKT-TL4 · ✅ CERRADA (2026-10-18, backend) · No había camino de operador para emitir/revocar el token marketing-reader
+- **Cómo se cerró:** `GET/POST /api/v1/admin/marketing/tokens` y `POST /tokens/:id/revoke` (API_CONTRACT §MKT.G.6),
+  `marketing-tokens.controller.ts` + `marketing-token-admin.service.ts`, `@Roles(super_admin)`. El claro sale una vez en el POST;
+  `AuditLog` `marketing.token.issue/revoke` en la misma transacción; revocación idempotente; `verify()` lee la fila en cada
+  llamada ⇒ 401 en la siguiente.
+- **Comprobación (verificada):** `backend/test/marketing-tokens.spec.ts` §MKT.G.9 (4) emitir ⇒ guard de `aggregates` pasa ⇒
+  revocar ⇒ 401, mismo proceso; (5) sin `token`/`tokenHash`. E2E en `marketing-panel.e2e-spec.ts` (**NO MEDIDA** aquí).
+- **Medido:** 2026-10-17 (techlead, `9d0ed99`); cerrada 2026-10-18.
 
 ### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
 - **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
