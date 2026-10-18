@@ -10,6 +10,19 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.101⟨mkt-panel⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, medido sobre `b8197420`;
+> base v1.100⟨cardshow⟩ + v1.96.1⟨mkt-tienda⟩).** La pantalla del Panel de Marketing por sesión: **[§MKT.G](#MKT-G)** —
+> `GET /admin/marketing/panel` (JSON por sesión + `marketing:read`, mismo `ScreenPayload` que `aggregates`, cierra MKT-TL3),
+> `GET /admin/marketing/periods` (opciones de semana/mes cerrados), y `GET|POST /admin/marketing/tokens` +
+> `POST …/tokens/:id/revoke` (solo `super_admin`, cierra MKT-TL4); Fase 0 sin ruta de concesión de `marketing:read`; catálogo de
+> tablas por pantalla. Aditivo, sin migración, sin enum ni código de error nuevos. Razones: ARCHITECTURE §13.7. Pedido por el
+> orquestador (stream de UI del panel).
+>
+> ⚠️ **Dos revisiones distintas llevan el número v1.96:** **v1.96⟨mkt-tienda⟩** (2026-10-16, §MKT, migraciones m81-m83) y
+> **v1.96⟨cardshow-leads⟩** (2026-10-17, §CARDSHOW, M-84). Se distinguen por la etiqueta entre ⟨⟩; ninguna sustituye a la otra.
+> v1.97-v1.100 son todas del Card Show (⟨cardshow⟩ / ⟨cardshow-shardbugs⟩). Desde v1.101 el número no se repite: la siguiente revisión, de
+> cualquier sección, es v1.102.
+>
 > **Rev v1.96⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM en pedido/solicitud, ficha pública de sellado con datos de
 > SSR/og/JSON-LD, feed de sitemap y panel de marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` =
 > `origin/production` HEAD `0dd2d7c`; ⛔ sha de corte NO MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta
@@ -45225,7 +45238,7 @@ Paridad es/en con el control de paridad de textos (criterio 868).
 - **Paralelo:** backend y frontend a la vez; la forma está fijada aquí y el front puede construir contra el simulador.
 - ⛔ No construye: devops (sin migración ni variable), product-owner (nada bloquea; P-MIV-1…6 siguen abiertas con su defecto).
 
-## <a id="MKT"></a>MKT. 💰 TIENDA DE MARKETING: ATRIBUCIÓN UTM, FICHA PÚBLICA/OG, SITEMAP Y PANEL DE MARKETING (rev v1.96⟨mkt-tienda⟩, 2026-10-16, arquitecto, **SOLO DISEÑO**)
+## <a id="MKT"></a>MKT. 💰 TIENDA DE MARKETING: ATRIBUCIÓN UTM, FICHA PÚBLICA/OG, SITEMAP Y PANEL DE MARKETING (rev v1.96⟨mkt-tienda⟩, 2026-10-16, arquitecto; + **v1.101⟨mkt-panel⟩**, 2026-10-18: §MKT.G)
 
 > Diseño y razones completas: **ARCHITECTURE §13**. Fuente: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`
 > (v2 §A/§B/§E, Panel §0/§2/§4/§5/§7). Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c` (⛔ sha NO MEDIDO).
@@ -45321,8 +45334,10 @@ SitemapResponse = {
   tokenId?, screen, filters(sin PII), format, rowCount}`, **sin contenido**, retención 12 meses.
 - **(h1) Anotaciones de fecha** (`MarketingDateAnnotation` + enum `MarketingAnnotationKind = promocion | despliegue |
   evento`): el admin marca días con etiqueta, visibles en las gráficas (a/b/c) y en la hoja «Info» del export, **como
-  texto saneado** y **sin datos personales** (PM-B1). ⚠️ **No cabe en m82**: va en **migración `m83`** (ESPEC. en
-  ARCHITECTURE §13.4.6; backend la aplica). CRUD de **sesión** `marketing:read` (⛔ nunca el token). Endpoints en §MKT.E.
+  texto saneado** y **sin datos personales** (PM-B1). Va en la **migración `m83`**
+  (`20261104130000_m83_mkt_date_annotations`, existe en el árbol; diseño en ARCHITECTURE §13.4.6). CRUD de **sesión**
+  `marketing:read` (⛔ nunca el token). Endpoints en §MKT.E.
+- **La pantalla** (`/admin/marketing`) lee por sesión: datos, periodos y gestión de tokens en **§MKT.G**.
 
 ### MKT.E — OLA 2: endpoint de agregados, botón semanal y exports (P2=A+B)
 
@@ -45355,9 +45370,9 @@ SitemapResponse = {
 > lo vigila (QA/seguridad):** una prueba E2E que mande el token a ≥2 rutas del admin fuera de agregados y afirme **401**
 > (no 2xx) cierra la clase. **⚠️ Se APARTA del «403» literal del brief** (Panel §6(1), §7.2): se relaya a JC/marketing
 > como «lo que no se pudo hacer tal cual» (Panel §7 punto 6).
-- **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token:** migración `m83` (ESPEC., ver
-  ARCHITECTURE §13.4.6; backend la aplica). Modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind =
-  promocion | despliegue | evento` (backend registra su línea en §0 al implementar m83, ⛔ no ahora).
+- **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token:** migración `m83` (ver
+  ARCHITECTURE §13.4.6). Modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind =
+  promocion | despliegue | evento` (línea en §0).
   - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` — sesión `marketing:read`. Lista de
     `{id, date, kind, label, destino?, createdAt}` del rango (para pintar las gráficas a/b/c del admin).
   - `POST /api/v1/admin/marketing/annotations` — sesión `marketing:read`. Body `{date, kind, label, destino?}`;
@@ -45386,7 +45401,219 @@ SitemapResponse = {
 
 Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
 publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
-puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna.
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. (5) **Nueva, v1.101:** ¿la pantalla del
+dueño necesita ya en Fase 0 cifras exactas (sin «< 5») y rango libre / detalle por día, o basta con semanas y meses cerrados
+hasta Fase 2? (§MKT.G.8).
+
+### <a id="MKT-G"></a>MKT.G — La pantalla del panel por SESIÓN: datos JSON, periodos y acceso del analista (rev v1.101⟨mkt-panel⟩, 2026-10-18, arquitecto, **NORMATIVA**)
+
+> Cierra el diseño de **MKT-TL3** (no había ruta JSON por sesión) y **MKT-TL4** (`issue()`/`revoke()` sin llamador) de
+> `docs/TECH_DEBT.md`. Razones: **ARCHITECTURE §13.7**. Medido sobre `b8197420` (2026-10-18, lectura de código). **Aditivo:**
+> cuatro rutas nuevas (más una de revocación), **sin migración** (los modelos ya existen en m82/m83), **sin enum nuevo**, **sin
+> código de error nuevo** (todos los de abajo existen en `backend/src/common/error-codes.ts:6-11`). Nada cambia en
+> `GET …/aggregates`, los exports ni las anotaciones (§MKT.E).
+
+#### MKT.G.1 Quién usa la pantalla en Fase 0 — DECISIÓN D-MKT-PANEL-1
+
+- **En Fase 0 la pantalla la usa solo `super_admin`** (permiso `marketing:read` implícito, `permission.guard.ts:37`). **No se
+  contrata** ruta para conceder o quitar `marketing:read`. Medido: el único acceso de código a `UserPermission` es la
+  **lectura** de `permission.guard.ts:39`; no hay escritura en `backend/src/`, `frontend/src/` ni `scripts/` (Grep
+  `userPermission|UserPermission`, 2026-10-18). El brief no la necesita: el analista lee por **token** (§MKT.E), no por sesión, y
+  el brief pide confirmar «`marketing:read` solo para el dueño» (Panel §5.3, §7 punto 4).
+- Una cuenta `vault_operator` (o cualquiera sin fila) que abra `/admin/marketing` recibe **403** de cada ruta de datos; la pantalla
+  pinta «No tienes acceso a Marketing» (sin cifras).
+- **Si algún día se contrata la concesión** (delta propio, no ahora), son condiciones: la concede **solo `super_admin`**; solo a
+  una cuenta **`vault_operator` activa** (un `customer` ⇒ `422 VALIDATION_ERROR`; hoy `PermissionGuard` no mira el rol de quien
+  tiene fila, `permission.guard.ts:37-46`, y por eso la condición vive en quien concede); bitácora `marketing.permission.grant` /
+  `marketing.permission.revoke`; y esa cuenta ve las celdas pequeñas (ya es así para todos, MKT.G.2).
+
+#### MKT.G.2 `GET /api/v1/admin/marketing/panel` — sesión + `marketing:read`
+
+Devuelve los datos de **una** pantalla para pintarla. ⛔ No es `@Public()`: pasa por `JwtAuthGuard` + `PermissionGuard` como los
+exports (`marketing.controller.ts:73-75`).
+
+- **Query:**
+  - `pantalla` — obligatorio, lista blanca `a|b|c|d|e|f|g|h` (mismo `parseScreen` que `aggregates`); fuera ⇒ **400**.
+  - periodo — **como mucho uno** de `week=YYYY-Www`, `weekStart=YYYY-MM-DD` (lunes CDMX) o `month=YYYY-MM`, **cerrado**. **Sin
+    periodo ⇒ la última semana cerrada** (mismo valor por defecto que el botón semanal, `marketing.controller.ts:138-141`). Semana o
+    mes abiertos, dos formas a la vez, o cualquier `from`/`to`/`day`/`preset` ⇒ **400** (misma validación que `aggregates`,
+    `marketing-period.ts:79-125`).
+- **200:** `ScreenPayload` (MKT.G.5). **Paridad:** para la misma `pantalla` y el mismo periodo, el cuerpo es **igual en
+  profundidad** al de `GET …/aggregates` y sus filas son las del export de esa pantalla (las tres salidas se construyen del mismo
+  `MarketingAnalyticsService.screen()`).
+- **Celdas pequeñas para TODOS, `super_admin` incluido (DECISIÓN D-MKT-PANEL-2).** En Fase 0 la pantalla enseña las **mismas**
+  celdas que el endpoint y el Excel. La vista exacta del dueño que permite el brief (Panel §5.2) queda fuera de Fase 0 (MKT.G.8).
+- **Cabecera:** `Cache-Control: no-store`.
+- **Errores:** **401** `UNAUTHENTICATED` sin sesión — y también con el token `marketing-reader` (no es JWT; D-MKT-AUTZ);
+  **403** `FORBIDDEN` con sesión sin `marketing:read`; **400** `VALIDATION_ERROR` genérico (periodo o pantalla); **429**
+  `RATE_LIMITED` solo por el throttler global de la app (esta ruta no tiene cupo propio; los números del throttler global para
+  admin: NO MEDIDO).
+- **Registro:** cada llamada ⇒ una fila de `MarketingAccessLog` `{actorUserId, tokenId: null, screen: <pantalla>, format: 'json',
+  filters: {period: <label>, kind: 'week'|'month', surface: 'panel'}, rowCount: <suma de filas>}`. Igual de best-effort que el resto
+  (`marketing-access-log.service.ts:33-47`): si falla la escritura, la respuesta sale igual.
+
+#### MKT.G.3 `GET /api/v1/admin/marketing/periods` — sesión + `marketing:read`
+
+Las opciones del selector de periodo (pantalla, botón semanal y exports), calculadas con el reloj del servidor en zona de México,
+para que el selector **no ofrezca nunca** una semana o un mes abiertos (Panel §6 criterio 8) y el navegador no recalcule la zona.
+
+```
+MarketingPeriodsResponse = {
+  timezone: 'America/Mexico_City',
+  lastClosedWeek: MarketingWeekOption,            // = closedWeeks[0]; es la que usa el panel sin periodo
+  closedWeeks:  MarketingWeekOption[],            // las 26 más recientes, de la más nueva a la más vieja
+  closedMonths: { month: string /* YYYY-MM */, from: string, to: string }[]   // los 12 más recientes, desc
+}
+MarketingWeekOption = { weekStart: string /* lunes YYYY-MM-DD */, from: string, to: string /* domingo */ }
+```
+- Cada opción, enviada como `weekStart=` o `month=`, la acepta `resolveMarketingPeriod` en ese momento. No trae datos de negocio ⇒
+  **sin** fila de `MarketingAccessLog`. `Cache-Control: no-store`. Errores: **401**, **403** como MKT.G.2.
+
+#### MKT.G.4 Tablas de cada pantalla en Fase 0 — CATÁLOGO NORMATIVO
+
+`tables[]` trae, **en este orden**, estas tablas. Una tabla que no se puede medir **viaja igual**, con `measured: false` y
+`notMeasuredReason` que empieza por «NO MEDIDO — » (la pantalla pinta el motivo, ⛔ nunca «0»). Solo entran las de nivel **I**
+del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» es lo medido en `marketing-analytics.service.ts` sobre `b8197420`.
+
+| Pantalla | `id` | Qué | Fuente | Fase 0 | Hoy |
+|---|---|---|---|---|---|
+| a | `a1` | Ventas (pedidos pagados, MX$ con IVA) vs periodo anterior — total exacto | BD | medida | ✅ `:89-102` |
+| a | `a2` | Ticket medio y piezas por pedido — total exacto | BD | medida | ✅ `:109-122` |
+| a | `a3` | Cotizaciones de buylist (enviadas, MX$ ofertado; aceptadas y pagado con «< 5») | BD | medida | ✅ `:157-171` |
+| a | `a4` | Visitas y de dónde (5 grupos) | GA4 | NO MEDIDO — GA4 sin encender | ✅ `:127` |
+| a | `a5` | Embudo sesiones → compra | GA4+BD | NO MEDIDO — GA4 sin encender | ✅ `:128` |
+| b | `b1` | Origen por `utm_*` | GA4+BD | NO MEDIDO (GA4 apagado; `first_utm_*` NULL) | ✅ `:442` |
+| b | `b2` | Instagram por puerta (bio/story/paid/dm) | GA4+BD | NO MEDIDO (ídem b1) | ❌ falta |
+| b | `b3` | Por pieza (`utm_content`; `dm` no) | GA4+BD | NO MEDIDO (ídem b1) | ❌ falta |
+| b | `b4` | Google orgánico, directo, referencias, IA | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c1` | Páginas y fichas más vistas | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c2` | Dónde pasan más tiempo | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c3` | Dónde abandonan | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c4` | % de fichas donde el botón COMPRAR se ve | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c5` | Dispositivo y navegador de Instagram | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| c | `c6` | Búsquedas sin resultado | Srv | NO MEDIDO — pendiente de la revisión de seguridad (PM-M2); el registro no existe | ❌ falta |
+| c | `c7` | Pedidos por estado de envío (sin MX$; mínimo 4 semanas) | BD | medida con mes; con semana, `measured:false` | ✅ `:344-401` |
+| c | `c8` | Página de aterrizaje de Instagram | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| d | `d1` | Cartas más vistas vs más vendidas (vistas = NO MEDIDO en la celda) | GA4+BD | medida (ventas/stock) | ✅ `:228-247` |
+| d | `d2` | Vistas sin venta | GA4+BD | NO MEDIDO — GA4 sin encender | ❌ falta |
+| d | `d3` | Agotado con demanda (stock 0 + lista de deseos) | BD | medida | ✅ `:263-301` |
+| d | `d4` | Buylist más cotizadas (cálculos del cotizador, anónimo) | Srv | medida | ✅ `:305-335` |
+| d | `d4b` | Buylist más **solicitadas**: cartas en solicitudes **enviadas** en el periodo (mismo criterio de «enviada» que `a3`), conteo por carta, «< 5» si N<5 con supresión complementaria, **sin MX$** | BD | medida | ❌ falta |
+| e | `e1` | Consultas de Google | SC | NO MEDIDO — Search Console sin verificar | ✅ `:444` |
+| e | `e3` | Referencias de asistentes de IA | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
+| f | `f1` | Aceptación del banner | Srv | NO MEDIDO — banner en Fase 2 | ✅ `:408` |
+| f | `f3` | Cobertura: % de pedidos con origen | BD | NO MEDIDO — `first_utm_*` NULL hasta Fase 2 | ✅ `:409` |
+| g | `g1` | Compras atribuidas a promociones (`paid`) | BD | NO MEDIDO — `first_utm_*` NULL hasta Fase 2 | ✅ `:446` |
+| h | `h1` | Anotaciones de fecha del periodo | BD | medida (texto, sin celdas pequeñas) | ✅ `:419-435` |
+
+- **h2** (leyenda de fuente) no es tabla: es `sourceLegend` + `tables[].source`; la pantalla la pinta al pasar el cursor.
+- **Cobertura arriba de cada pantalla (Panel §2 convenciones):** en Fase 0 el `notes` de **toda** `ScreenPayload` incluye la línea
+  «Cobertura: GA4 sin encender; origen de pedidos NO MEDIDO (first_utm_* vacío hasta Fase 2).» La pantalla la pinta arriba; el
+  export la lleva en «Info». Hoy el payload no trae `notes` de pantalla (`marketing-analytics.service.ts:56-61`) ⇒ falta.
+- Las filas ❌ son la desviación **D-MKT-1** (ARCHITECTURE §9). Ninguna bloquea pintar la pantalla: el frontend pinta lo que
+  llegue en `tables[]`.
+
+#### MKT.G.5 Forma de `ScreenPayload` (la de `panel` y `aggregates`)
+
+Fuente en código: `backend/src/modules/marketing/marketing-aggregates.types.ts:11-54`. ⛔ El frontend **no** toma nada de otro
+sitio.
+```
+ScreenPayload = {
+  screen: 'a'|'b'|'c'|'d'|'e'|'f'|'g'|'h',
+  period: { kind: 'week'|'month', from: string, to: string, label: string, timezone: 'America/Mexico_City' },
+  previousPeriod?: { from: string, to: string },     // solo pantallas con comparación (hoy: a)
+  sourceLegend: Record<'BD'|'GA4'|'SC'|'Srv', string>,
+  tables: AggTable[],                                // catálogo y orden: MKT.G.4
+  annotations: { date: string, kind: MarketingAnnotationKind, label: string, destino?: string }[],
+  notes?: string[]
+}
+AggTable = {
+  id: string, title: string, source: 'BD'|'GA4'|'SC'|'Srv'|'mixed',
+  columns: { key: string, labelEs: string, tech?: string, kind: 'text'|'count'|'money'|'pct'|'number' }[],
+  rows: Record<string, Cell>[],                      // ⛔ nunca una fila por pedido o solicitud
+  notes?: string[], measured: boolean, notMeasuredReason?: string
+}
+Cell = number | '< 5' | string | null                // '< 5' = conteo oculto; null = MX$ oculto o dato ausente
+```
+- **Montos:** `kind: 'money'` viaja en **pesos con IVA**, número con 2 decimales (no centavos; `marketing-analytics.service.ts:34-35`).
+  La pantalla formatea `$#,##0.00`.
+- **Escape:** `label`, `destino`, `utm_*` y todo `string` de celda se pintan como **texto** (sin HTML).
+- **Anotaciones:** en Fase 0 no hay gráficas por día; la pantalla pinta `annotations` como **franja del periodo** encima de las
+  tablas de a, b y c, y la pestaña h las lista y las edita (§MKT.E).
+
+#### MKT.G.6 Acceso del analista: tokens `marketing-reader` — solo `super_admin` (DECISIÓN D-MKT-PANEL-3)
+
+Tres rutas con `@Roles(super_admin)` (el `RolesGuard` de siempre), **no** con `marketing:read`. ⛔ No son `@Public()`.
+
+- **`GET /api/v1/admin/marketing/tokens`** → **200** `{ items: MarketingApiTokenView[] }`, del más nuevo al más viejo, sin paginar.
+- **`POST /api/v1/admin/marketing/tokens`** — body `{ label: string }` → **201** `MarketingApiTokenIssued`. `Cache-Control: no-store`.
+  `label`: recortado, 1-60 caracteres de `[A-Za-z0-9 ._-]`, y sin rachas de ≥7 dígitos (mismo filtro PII que las anotaciones,
+  §13.4.6); si no ⇒ **422** `VALIDATION_ERROR`. Caduca a los 12 meses (`marketing-token.service.ts:23,38`).
+- **`POST /api/v1/admin/marketing/tokens/:id/revoke`** — sin body → **200** `MarketingApiTokenView` con `status: 'revoked'`.
+  **Idempotente:** ya revocado ⇒ 200 con el mismo `revokedAt` y **sin** nueva bitácora. Id inexistente ⇒ **404** `NOT_FOUND`.
+  **Efecto inmediato:** `verify()` lee la fila en cada llamada, sin caché (`marketing-token.service.ts:74-81`) ⇒ la siguiente
+  llamada con ese token da **401**, sin desplegar ni reiniciar.
+
+```
+MarketingApiTokenView = {
+  id: string, label: string, status: 'active' | 'revoked' | 'expired',   // revoked si revokedAt; expired si expiresAt ≤ ahora
+  createdAt: string, createdByUserId: string | null, expiresAt: string,
+  revokedAt: string | null, revokedByUserId: string | null, lastUsedAt: string | null
+}
+MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt: string, expiresAt: string }
+```
+- **El claro (`token`) viaja UNA vez**, en la respuesta del `POST`. ⛔ Ninguna otra respuesta lleva `token` ni `tokenHash` (ni un
+  prefijo). ⛔ El servidor no lo escribe en logs ni en la bitácora. El frontend lo enseña con «Copiar» y el aviso «Guárdalo ahora
+  en los secretos de marketing como `TIENDA_PANEL_TOKEN`; no se vuelve a mostrar», y **no** lo guarda en URL, `localStorage`,
+  `sessionStorage`, caché persistente de consultas ni reportes de error; al cerrar el aviso lo descarta.
+- **Errores:** **401** sin sesión o con el token `marketing-reader` (D-MKT-AUTZ); **403** `FORBIDDEN` a cualquier rol que no sea
+  `super_admin`, **aunque tenga `marketing:read`**; **404**; **422**.
+- **Bitácora (`AuditLog`, la de siempre):** `marketing.token.issue` `{entityType: 'MarketingApiToken', entityId, after: {label,
+  expiresAt}}` y `marketing.token.revoke` `{entityType: 'MarketingApiToken', entityId, after: {revokedAt}}`, con `actorUserId` e
+  `ip`. ⛔ Nunca el claro ni el hash. Estas rutas **no** escriben `MarketingAccessLog` (no leen datos del panel).
+
+#### MKT.G.7 Qué pinta la pantalla y de dónde sale (Fase 0)
+
+| Elemento de `/admin/marketing` | Fuente |
+|---|---|
+| Pestañas a-h con sus tablas, motivo «NO MEDIDO — …», notas y cobertura | `GET …/panel` (MKT.G.2/.4/.5) |
+| Selector de periodo (semana por defecto; otras semanas; meses) | `GET …/periods` (MKT.G.3) |
+| Leyenda de fuente (h2) | `sourceLegend` + `tables[].source` |
+| Franja de anotaciones en a, b, c | `annotations` del payload |
+| Pestaña h: listar / crear / editar / borrar anotaciones | `…/annotations` (§MKT.E) |
+| «Descargar Excel de la semana» | `GET …/weekly-excel` (§MKT.E) |
+| «Exportar .xlsx / .csv» de la pantalla y «Exportar todo» | `GET …/export`, `GET …/export/todo` (§MKT.E) |
+| Bloque «Acceso del analista» (solo `super_admin`): lista, emitir, revocar | `…/tokens` (MKT.G.6) |
+
+- **Descargas:** la sesión viaja en `Authorization: Bearer` (`frontend/src/lib/api-client.ts:340`) ⇒ el frontend descarga los
+  ficheros con `fetch` + blob y el nombre de `Content-Disposition`; ⛔ nunca pone el JWT en la URL de un enlace.
+- **Pestaña en el menú:** visible solo para `super_admin` en Fase 0 (MKT.G.1). Un 403 de cualquier ruta pinta «No tienes acceso».
+
+#### MKT.G.8 Fuera de Fase 0 (declarado, no olvidado)
+
+- **Rango libre y detalle por día en pantalla** (Panel §2 convenciones) y **cifras exactas para el dueño** (Panel §5.2; criterios
+  (b) y (g)): no se contratan aún. En Fase 0 las tablas con dimensión de b y g son NO MEDIDO, así que la vista exacta no cambiaría
+  nada visible; las de a3, c7, d1, d3, d4b sí. Pregunta (5) de §MKT.F. Si el dueño la quiere, va en un delta propio con revisión de
+  seguridad (el detalle diario es justo lo que §13.5 saca fuera de pantalla).
+- **Gráficas por día con las anotaciones encima** (criterio (h) «aparece en las gráficas de a, b y c»): sin detalle diario no hay
+  gráfica; en Fase 0 la anotación sale en la franja del periodo de a, b y c y en «Info». Se relaya a marketing (Panel §7 punto 6).
+- **Interruptor pagado/orgánico:** no se pinta en Fase 0 (`first_utm_*` vacío).
+- **Exportar por tabla:** en Fase 0 el export es por pantalla (`…/export`, una hoja por pantalla) y «Exportar todo» es de todas las
+  pantallas; el brief pide por tabla. No se contrata en Fase 0.
+
+#### MKT.G.9 Pruebas que lo vigilan (las escribe backend; QA las ejecuta)
+
+1. **Paridad A=B en el panel:** para cada pantalla y un periodo fijo, `panel` y `aggregates` dan cuerpos iguales en profundidad.
+2. **Metadatos de ruta:** `panel` y `periods` llevan `@RequirePermission(marketing_read)` y **no** `@Public()`; las tres de `tokens`
+   llevan `@Roles(super_admin)` y **no** `@Public()`; `MarketingApiTokenGuard` sigue montado **solo** en `aggregates`.
+3. **Cruce de principales (E2E):** el token `marketing-reader` en `panel`, `periods` y `tokens` ⇒ **401**; una sesión
+   `vault_operator` con fila `marketing_read` en `tokens` ⇒ **403**.
+4. **Revocar sin desplegar (cierra MKT-TL4):** emitir ⇒ `aggregates` 200 con ese token ⇒ revocar ⇒ `aggregates` **401** en el mismo
+   proceso.
+5. **El claro una sola vez:** el JSON de `GET …/tokens` y de `…/revoke` no tiene las claves `token` ni `tokenHash`; la fila de
+   `AuditLog` tampoco.
+6. **Catálogo:** los `tables[].id` de cada pantalla son los de MKT.G.4, en ese orden.
+7. **Registro:** cada `GET …/panel` deja una fila `MarketingAccessLog` con `actorUserId` y `filters.surface = 'panel'`.
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 

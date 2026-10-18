@@ -32022,6 +32022,14 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-MKT-1` (🟡 ABIERTA, dueño backend; medida 2026-10-18 por el arquitecto, lectura sobre `b8197420`; no bloquea pintar
+> la pantalla).** Los `ScreenPayload` **omiten** tablas de nivel I en vez de mandarlas como `measured:false` con «NO MEDIDO —
+> …»: la pantalla c trae solo `c7` (`marketing-analytics.service.ts:339-341`; faltan c1-c6 y c8); b, e y g traen una tabla
+> cada una (`:439-450`; faltan b2, b3, b4 y e3); d no trae `d2` ni `d4b` «más solicitadas» (`:305-335`; `d4b` sí es medible
+> con la BD); y ningún payload trae la línea de cobertura en `notes` (`:56-61`). **Contrato (manda): `API_CONTRACT §MKT.G.4`**
+> (catálogo de tablas y orden). **La corrige backend** (⛔ ningún otro rol). **Prueba que la vigila:** §MKT.G.9 punto 6 (los
+> `tables[].id` de cada pantalla = el catálogo, en orden); para `d4b`, una solicitud enviada con 1 carta ⇒ «< 5» sin MX$.
+>
 > **`D-CS-7` (🔴 ABIERTA, dueño backend; medida 2026-10-17 por tester-e2e sobre `release/card-show` @ `4288ca4`, contra el stack
 > real con BD; BLOQ-A).** La preinscripción Pokémon «los dos días» deja el **domingo `pending` colgado para siempre**: el correo
 > lleva el token de **`rows[0]`** (la fila `sat`, `card-show.service.ts:447-460`) y `confirmSignup` confirma **una** fila por id
@@ -36422,7 +36430,7 @@ después de no-ex nombrada»; medido leyendo el spec). La de `Basic Box ⇒ tera
   listas manuales. Cambiarlo es decisión del dueño (orden de reglas), no de esta rev.
 - `imageCardId` editable por `PUT /:id` (ver §12.4.5).
 
-## 13. §MKT tienda — atribución, ficha pública, SEO y panel de marketing (rev v1.95⟨mkt-tienda⟩, 2026-10-16, arquitecto)
+## 13. §MKT tienda — atribución, ficha pública, SEO y panel de marketing (rev v1.96⟨mkt-tienda⟩, 2026-10-16, + v1.101⟨mkt-panel⟩ 2026-10-18 §13.7, arquitecto)
 
 > **SOLO DISEÑO.** Contrato de endpoints/DTO: **API_CONTRACT §MKT**. Fuente: brief de marketing
 > `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c`
@@ -36442,7 +36450,7 @@ después de no-ex nombrada»; medido leyendo el spec). La de `Basic Box ⇒ tera
 | El endpoint público de ficha de sellado ya devuelve `imageUrl`, `availableCount`, `fromPriceCents` (IVA dentro), `ivaRatePct` | `GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO` (`backend/src/modules/catalog/sealed-catalog.service.ts:90`, campos `:94/:97/:105/:109`) |
 | Hay listados públicos paginados de catálogo | `GET /catalog/cards` (`catalog.controller.ts:38`, `@Public`) y `GET /catalog/sealed` (`:87`, `@Public`); ficha de carta `GET /catalog/cards/:cardId` (`:135`) |
 | El módulo `sales-analytics` existe y es reutilizable para a1/a2/a3 del panel | `backend/src/modules/sales-analytics/sales-analytics.service.ts` (`report`/`csv`/`today`; lee `Order`, `SellRequest`, `OrderItem`; helpers `common/money.ts`; periodo semana/mes en `sales-period.ts`). HOY es `super_admin` (contrato §15/§AN) |
-| Número de migración más alto existente = **m80** | `backend/prisma/migrations/20261102120000_m80_stripe_dashboard_refund` (Glob, 2026-10-16); `m77`,`m78`,`m81`,`m82` **no existen** (Grep). Siguiente libre = **m81**, luego **m82** |
+| Número de migración más alto existente = **m85** (2026-10-18; el 2026-10-16 era m80) | Glob `backend/prisma/migrations/**/migration.sql` sobre `b8197420`: m81, m82, m83 (§MKT) y m84, m85 (Card Show) existen; el último es `20261105120000_m85_card_show_shardbugs`. Siguiente libre = **m86**. §13.7 no necesita migración |
 | Existe `AuditLog` (genérico, con `ip`), pero no modela un principal de servicio sin usuario ni `rowCount`/`format` | `schema.prisma:2554` |
 
 ---
@@ -36761,7 +36769,7 @@ servicio `marketing-analytics`** (módulo nuevo `backend/src/modules/marketing/`
 las cifras de dinero y añade los agregados propios con las **celdas pequeñas** (§13.5). ⛔ El panel de marketing **no**
 cambia `sales-analytics` (es `super_admin`, otra superficie): lo invoca.
 
-#### 13.4.6 (h1) Anotaciones de fecha — `MarketingDateAnnotation` — migración `m83` (ESPECIFICACIÓN, no aplicada)
+#### 13.4.6 (h1) Anotaciones de fecha — `MarketingDateAnnotation` — migración `m83` (`20261104130000_m83_mkt_date_annotations`, existe en `b8197420`; cerró MKT-TD1)
 
 > Panel §2(h) **h1**, nivel **Imprescindible v1**. m82 **no** la incluyó: backend la dejó como deuda **MKT-TD1** pidiendo
 > la decisión del arquitecto. Se especifica aquí. ⛔ **No es dinero, pero sí migración nueva**: no cabe en m82 (ya
@@ -36809,11 +36817,8 @@ columna nueva**.)
   aparte para el token.
 - **Sin celdas pequeñas:** una anotación **no es un conteo** ⇒ no aplica §5.2. Sí aplican las reglas de export (texto,
   escape, no-fórmula) y de registro (`MarketingAccessLog`).
-- **Cuando backend implemente m83:** añade el enum al schema **y** su línea canónica a §0 del contrato
-  (`MarketingAnnotationKind = promocion | despliegue | evento`) **y** a `EXPECTED_ENUM_VALUES` / `enum-values.ts` si
-  `src/` lo valida, en el **mismo PR** — la **banda-3 universal** de `enum-values-parity.spec.ts` exige línea en §0 para
-  **todo** enum del schema. ⛔ **No** se añade a §0 **ahora** (el enum aún no existe en el schema; añadirlo rompería la
-  banda-3 al revés: «§0 declara un enum que el schema no tiene»).
+- **Enum:** `MarketingAnnotationKind` está en `schema.prisma:3153` y su línea canónica en §0 del contrato
+  (banda-3 de `enum-values-parity.spec.ts`).
 
 ---
 
@@ -36856,3 +36861,64 @@ columna nueva**.)
 3. **`priceValidUntil` del JSON-LD:** ¿ventana fija (p. ej. fin del día de `pricedAsOf`, o +7 días)? Dato de producto.
 4. **c7 estado de envío:** confirmar que basta derivar el estado de `shippingAddressSnapshot` (sin denormalizar columna);
    seguridad revisa que el snapshot tenga el estado de forma fiable.
+5. **Vista del dueño (v1.101):** ¿necesita ya en Fase 0 cifras exactas (sin «< 5») y rango libre / detalle por día en
+   pantalla, o bastan semanas y meses cerrados hasta Fase 2? (§13.7, D-MKT-PANEL-2).
+
+---
+
+### 13.7 La pantalla del panel por sesión (rev v1.101⟨mkt-panel⟩, 2026-10-18) — decisiones y razones
+
+> Contrato: **API_CONTRACT §MKT.G**. Cierra el diseño de MKT-TL3 y MKT-TL4 (`docs/TECH_DEBT.md`). Medido por lectura sobre
+> `b8197420`. Sin migración, sin enum, sin código de error nuevo.
+
+**Estado medido (2026-10-18):**
+
+| Afirmación | Evidencia |
+|---|---|
+| La única ruta JSON del panel es `aggregates`, y es solo para el token | `marketing.controller.ts:51-69` (`@Public()` + `MarketingApiTokenGuard`) |
+| Exports, «Exportar todo» y botón semanal son de sesión + `marketing:read` | `marketing.controller.ts:73-154` |
+| `PermissionGuard` es global y va después de `RolesGuard` | `app.module.ts:97-100` |
+| `super_admin` tiene `marketing:read` sin fila; los demás necesitan fila; el guard no mira qué rol tiene la fila | `permission.guard.ts:37-46` |
+| Nada escribe `UserPermission` | Grep `userPermission\|UserPermission` en todo el repo menos `docs/`: solo lectura en `permission.guard.ts:39`, el schema, m82 y pruebas |
+| `issue()`/`revoke()` existen y nadie los llama | `marketing-token.service.ts:35-52`; el módulo no tiene otro controller (`marketing.module.ts:20`) |
+| Revocar surte efecto en la siguiente llamada: `verify()` lee la fila cada vez | `marketing-token.service.ts:74-81` |
+| Las pantallas c, d, b, e omiten tablas de nivel I en vez de marcarlas NO MEDIDO | `marketing-analytics.service.ts:339-341` (c solo c7), `:439-450` (b/e/g una tabla cada una) — D-MKT-1 |
+| No existe ninguna página del panel en el frontend | Glob `frontend/src/app/[locale]/(admin)/admin/marketing/**` ⇒ 0 ficheros |
+| La sesión del frontend viaja como `Authorization: Bearer` | `frontend/src/lib/api-client.ts:340` |
+
+**D-MKT-PANEL-0 — una ruta de datos con `pantalla=`, no una por pantalla.** `GET /admin/marketing/panel?pantalla=` usa los
+mismos parámetros que `aggregates` y `export`, la misma validación (`parseScreen`, `resolveMarketingPeriod`) y el mismo
+`MarketingAnalyticsService.screen()`. Así la paridad A=B sale de construcción: tres salidas, un solo cálculo. Ocho rutas
+(una por pantalla) habrían sido ocho sitios donde puede divergir la autorización. La única diferencia con `aggregates` es que el
+periodo es **opcional** (sin él, la última semana cerrada), como en el botón semanal, para que la pantalla abra sin elegir nada.
+`GET /admin/marketing/periods` existe para que el **servidor** diga qué semanas y meses están cerrados: el navegador no tiene que
+recalcular la zona de México, y el selector no puede ofrecer un periodo abierto. No trae datos de negocio, así que no deja fila en
+el registro de accesos; `panel` sí la deja (`surface: 'panel'`) aunque el brief solo lo exige para exports y endpoint: es lectura
+de las mismas cifras por otra puerta.
+
+**D-MKT-PANEL-1 — Fase 0: solo `super_admin`, sin ruta de concesión.** El brief asigna `marketing:read` «por defecto solo al
+dueño» y pide confirmarlo (Panel §5.3, §7.4). El analista entra por token, no por sesión. Una ruta de concesión sería superficie
+nueva sin usuario hoy. Queda escrito qué condiciones tendría (API_CONTRACT §MKT.G.1), sobre todo una: `PermissionGuard` deja pasar
+a quien tenga la fila **sea cual sea su rol** (incluido `customer`), así que quien conceda debe aceptar solo `vault_operator`.
+Hoy no hay riesgo, porque no hay filas.
+
+**D-MKT-PANEL-2 — celdas pequeñas también para el dueño en pantalla (Fase 0).** El brief permite que el dueño vea cifras exactas
+en pantalla (deuda aceptada PM.4). En Fase 0 no se construye: (1) la paridad pantalla = endpoint = Excel queda trivial y comprobable;
+(2) las tablas donde la vista exacta se nota de verdad (b, g: una fila por pieza o promoción) son NO MEDIDO hasta Fase 2; (3) una
+segunda forma del payload, solo para un rol, merece su propia revisión de seguridad. Pasa lo mismo con el rango libre y el detalle
+por día, que §13.5 permite solo en pantalla: es justo lo que se saca de fuera de pantalla para que nadie reste dos rangos y despeje
+una celda oculta. Pregunta 5 de §13.6.
+
+**D-MKT-PANEL-3 — emitir y revocar tokens: solo `super_admin`, no `marketing:read`.** Leer el panel y crear una credencial para
+leerlo desde fuera no son el mismo poder. Un token: (a) vale 12 meses; (b) se usa fuera de la tienda, sin sesión y sin la vida corta
+del JWT; (c) saca las cifras a otro entorno (el de marketing). Si un delegado con
+`marketing:read` pudiera emitirlo, podría darle a un tercero un acceso que dura más que su propia cuenta y que no muere cuando se le
+quita el permiso. Y revocar es respuesta a un incidente: es del dueño. Se usa `@Roles(super_admin)` (el `RolesGuard` de siempre)
+para no mezclar el permiso fino con algo que no es lectura. La revocación es una ruta `POST …/:id/revoke` y no un `DELETE`
+porque la fila se queda: el registro de accesos la referencia (`MarketingAccessLog.tokenId`) y el historial de quién emitió y
+quién revocó debe sobrevivir. La bitácora va a `AuditLog`, que es lo que ya se usa para acciones de admin; `MarketingAccessLog`
+es para lecturas de datos.
+
+**Qué pinta la pantalla y de dónde sale:** tabla en API_CONTRACT §MKT.G.7. **Lo que no entra en Fase 0** (gráficas por día,
+interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de diseño no tiene aún sección del panel**
+(`DESIGN_SYSTEM.md`: ninguna mención del panel de marketing, Grep 2026-10-18): la pantalla necesita a ux-ui antes que a frontend.
