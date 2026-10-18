@@ -4,7 +4,13 @@
  */
 import { BusinessException } from '../src/common/business.exception';
 import { addDays, isoWeekday } from '../src/modules/sales-analytics/sales-period';
-import { parseScreen, resolveMarketingPeriod } from '../src/modules/marketing/marketing-period';
+import {
+  MARKETING_EXPORT_FORMATS,
+  MARKETING_SCREENS,
+  parseExportFormat,
+  parseScreen,
+  resolveMarketingPeriod,
+} from '../src/modules/marketing/marketing-period';
 
 // 2026-10-16 (viernes) 12:00 CDMX.
 const NOW = new Date('2026-10-16T18:00:00.000Z');
@@ -85,5 +91,35 @@ describe('parseScreen (lista blanca a-h)', () => {
     expect(status(() => parseScreen('z'))).toBe(400);
     expect(status(() => parseScreen('codigos'))).toBe(400);
     expect(status(() => parseScreen(undefined))).toBe(400);
+  });
+});
+
+/** El cuerpo del 400 (lo que el filtro global serializa en `error.details`). */
+const details = (fn: () => unknown): Record<string, unknown> | undefined => {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof BusinessException) return (e.getResponse() as { details?: Record<string, unknown> }).details;
+    throw e;
+  }
+  return undefined;
+};
+
+describe('v1.104 — `pantalla` y `format` son SELECTOR (§0-Q punto 6-bis): 400 {field, allowed}, sin value', () => {
+  it.each([
+    ['pantalla', parseScreen, MARKETING_SCREENS, 'a'],
+    ['format', parseExportFormat, MARKETING_EXPORT_FORMATS, 'csv'],
+  ] as const)('%s: ausente, vacío, espacios, basura y token sin normalizar ⇒ 400 con field+allowed', (field, parse, allowed, valid) => {
+    expect(parse(valid)).toBe(valid);
+    for (const raw of [undefined, '', ' ', '\t', 'zzz', ` ${valid}`, `${valid},${valid}`, 'A'.repeat(5000)]) {
+      expect([field, raw === undefined ? 'undef' : raw.slice(0, 8), status(() => parse(raw))]).toEqual([field, raw === undefined ? 'undef' : raw.slice(0, 8), 400]);
+      const d = details(() => parse(raw));
+      expect(d).toEqual({ field, allowed: [...allowed] });
+    }
+  });
+
+  it('`format` = el literal exportado `[xlsx, csv]` (dominio del contrato §MKT.E)', () => {
+    expect([...MARKETING_EXPORT_FORMATS]).toEqual(['xlsx', 'csv']);
+    expect(parseExportFormat('xlsx')).toBe('xlsx');
   });
 });

@@ -72,6 +72,7 @@ import {
   AccessoryCategory,
   AcquisitionType,
   CardShowDay,
+  CardShowGame,
   CardShowLeadType,
   DisputeStatus,
   Finish,
@@ -147,6 +148,8 @@ import { WISHLIST_DEMAND_DIRS, WISHLIST_DEMAND_SORTS } from '../../src/modules/w
 // ⭐ C-EQ-1 v1.93⟨cardshow⟩ (§CARDSHOW.15) — dominios R de los estados del panel (enum MENOS `pending`).
 import { CARD_SHOW_LEAD_STATUS_FILTER_VALUES, CARD_SHOW_PLAYER_STATUS_FILTER_VALUES } from '../../src/modules/card-show/card-show.service';
 import { FORM_PURPOSES } from '../../src/modules/card-show/card-show.constants';
+// ⭐ C-EQ-1 v1.104⟨ceq1-mkt⟩ (§0-Q punto 6-bis, nota `CEQ-MKT-1`) — los dos SELECTOR del Panel de Marketing.
+import { MARKETING_EXPORT_FORMATS, MARKETING_SCREENS, marketingPeriodOptions } from '../../src/modules/marketing/marketing-period';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -162,8 +165,13 @@ interface AxisRow {
   readonly param: string;
   /** `details.field` esperado. Por defecto `param` (⚠️ `zone`, no `location.zone` — §0-Q punto 2). */
   readonly field?: string;
-  /** Clase declarada (§0-Q punto 3 / §4.37). `ORDEN` = §0-Q punto 6 (no es filtro, es orden). */
-  readonly clazz: 'E' | 'R' | 'L' | 'ORDEN';
+  /**
+   * Clase declarada (§0-Q punto 3 / §4.37). `ORDEN` = §0-Q punto 6 (no es filtro, es orden). `SELECTOR` = §0-Q punto
+   * 6-bis (v1.104): elige QUÉ recurso se produce, sin «sin filtrar» ni default ⇒ ausente/vacío/`%20` ⇒ `400 {field,
+   * allowed}`, y `filtra` se mide como «`valid` y `alterno` dan `200` con huellas distintas» (no hay base). Su dominio
+   * de tokens sigue siendo E/R/L (los dos de hoy, L).
+   */
+  readonly clazz: 'E' | 'R' | 'L' | 'ORDEN' | 'SELECTOR';
   /** El dominio DECLARADO: derivado del enum (E/R) o el literal junto al call-site (L/ORDEN). */
   readonly allowed: readonly string[];
   /**
@@ -198,7 +206,8 @@ interface AxisRow {
    * es la llave del cruce con el censo de código y tiene que seguir siendo la del escáner.
    */
   readonly path?: (ctx: Ctx) => string;
-  readonly auth: 'admin' | 'public' | 'customer';
+  /** `marketing` = token opaco `marketing-reader` (Bearer), el ÚNICO que abre `GET /admin/marketing/aggregates` (D-MKT-AUTZ). */
+  readonly auth: 'admin' | 'public' | 'customer' | 'marketing';
   /**
    * ⭐ **¿Esta fila TRANSCRIBE §0-Q punto 4, o solo mide una conducta que ya conforma?**
    *
@@ -423,6 +432,29 @@ const OBS_FORM_TOKEN: Obs = {
   },
   hayDatos: (res) => !!(res.body as unknown as { formToken?: string })?.formToken,
 };
+
+/**
+ * ⭐ C-EQ-1 v1.104 — el Panel de Marketing. `ScreenPayload` JSON (`aggregates`/`panel`): sin `now()` en el cuerpo
+ * (periodo fijo de la fila) ⇒ determinista; se observa entero. El CSV de `export` (con `format=csv` fijo): el texto.
+ * `?format=` decide el TIPO de archivo: se observa su `Content-Type` (el XLSX no es estable byte a byte, ver `OBS_XLSX`).
+ */
+const OBS_MKT_SCREEN: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => (((res.body as unknown as { tables?: unknown[] })?.tables?.length) ?? 0) > 0,
+};
+const OBS_MKT_CSV: Obs = {
+  huella: (res) => res.text,
+  hayDatos: (res) => res.text.trim().length > 0,
+};
+const OBS_MKT_FORMAT: Obs = {
+  huella: (res) => String((res as unknown as { headers?: Record<string, unknown> }).headers?.['content-type'] ?? ''),
+  hayDatos: (res) => res.text.length > 0,
+};
+/**
+ * Periodo FIJO de las filas de marketing: la última semana cerrada según el reloj del servidor (el mismo cálculo que
+ * `GET …/periods`), para que `pantalla`/`format` se midan con un periodo válido y el `400` sea SOLO del selector.
+ */
+const MKT_PERIOD = () => `weekStart=${marketingPeriodOptions(new Date()).lastClosedWeek.weekStart}`;
 
 /** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
 type Extra = { base?: ApiRes; alterno?: ApiRes };
@@ -842,6 +874,22 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/card-show/players/export.csv', param: 'status', clazz: 'R', allowed: CARD_SHOW_PLAYER_STATUS_FILTER_VALUES, valid: 'confirmed', alterno: 'waitlist', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/card-show/players/export.csv', param: 'day', clazz: 'E', allowed: Object.values(CardShowDay), valid: 'sat', alterno: 'sun', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /card-show/form-token', param: 'purpose', clazz: 'L', allowed: FORM_PURPOSES, valid: 'players', alterno: 'leads', obs: OBS_FORM_TOKEN, auth: 'public', echoValue: false },
+
+  // ==========================================================================================
+  // ⭐ C-EQ-1 v1.104⟨ceq1-mkt⟩ (§0-Q punto 4 filas v1.104 + nota `CEQ-MKT-1`, ARCHITECTURE §4.37.1-b, `D-EQ-5`) — los
+  // seis huérfanos de dominio cerrado que midió QA. Todos `transcrita` (sus filas existen en §0-Q punto 4).
+  //  - `?pantalla=` ×3 y `?format=`: SELECTOR (punto 6-bis), clase L, dominio = el literal junto al call-site
+  //    (`MARKETING_SCREENS`, `MARKETING_EXPORT_FORMATS`), con su paridad contrato↔literal abajo. Periodo fijo
+  //    (`MKT_PERIOD`). `aggregates` con el token `marketing-reader` (sesión ⇒ 401); `panel`/`export` con sesión.
+  //  - `?game=` de `/admin/card-show/players` y de su CSV: clase E (`CardShowGame`), fila desde v1.96 M-84 que nadie
+  //    transcribió. Fixture (q): el jugador LIGERO P3 (`shardbugs`) ⇒ `shardbugs` ≠ base ≠ `pokemon`.
+  // ==========================================================================================
+  { route: 'GET /admin/marketing/aggregates', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_SCREEN, extra: MKT_PERIOD, auth: 'marketing', echoValue: false },
+  { route: 'GET /admin/marketing/panel', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_SCREEN, extra: MKT_PERIOD, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/marketing/export', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_CSV, extra: () => `format=csv&${MKT_PERIOD()}`, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/marketing/export', param: 'format', clazz: 'SELECTOR', allowed: MARKETING_EXPORT_FORMATS, valid: 'csv', alterno: 'xlsx', obs: OBS_MKT_FORMAT, extra: () => `pantalla=a&${MKT_PERIOD()}`, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/card-show/players/export.csv', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
 ];
 
 /**
@@ -1364,6 +1412,9 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       // el índice único parcial `(playerId, day)`.
       { day: 'sat', game: 'pokemon', playerName: 'CEQ1 Jugador Uno', playerId: '100000000001', email: 'ceq1-csp-1@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-1', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-02T00:00:00Z'), createdAt: new Date('2026-10-02T00:00:00Z') },
       { day: 'sun', game: 'pokemon', playerName: 'CEQ1 Jugador Dos', playerId: '100000000002', email: 'ceq1-csp-2@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-2', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'waitlist', confirmedAt: new Date('2026-10-03T00:00:00Z'), createdAt: new Date('2026-10-03T00:00:00Z') },
+      // ⭐ v1.104 (`CEQ-MKT-1`): P3 LIGERO (`shardbugs`, ⛔ sin `playerId`) sat·confirmed ⇒ `?game=shardbugs` = {P3} ≠
+      // base {P1,P2,P3} ≠ `?game=pokemon` {P1,P2}. No rompe `?day=`/`?status=`: sat={P1,P3}≠sun={P2}, confirmed≠waitlist.
+      { day: 'sat', game: 'shardbugs', playerName: 'CEQ1 Jugador Tres', playerId: null, email: 'ceq1-csp-3@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-3', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-04T00:00:00Z'), createdAt: new Date('2026-10-04T00:00:00Z') },
     ],
   });
 
@@ -1375,6 +1426,9 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   let adminToken: string;
   /** `/vault/sealed` es del CLIENTE: se mide con sesión de cliente, que es como la vive quien la sufre. */
   let clienteToken: string;
+  /** Token opaco `marketing-reader` de `GET /admin/marketing/aggregates` (v1.104); se borra en `afterAll`. */
+  let marketingToken: string;
+  let marketingTokenId: string | undefined;
   let ctx: Ctx;
 
   beforeAll(async () => {
@@ -1388,26 +1442,54 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     clienteToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
     ctx = await sembrarFixture(h);
+    const mk = await h.api<{ id: string; token: string }>('POST', '/admin/marketing/tokens', { token: adminToken, json: { label: 'ceq1 marketing-reader' } });
+    expect(mk.status).toBe(201);
+    marketingToken = mk.body.token;
+    marketingTokenId = mk.body.id;
   }, 180000);
 
   afterAll(async () => {
+    if (h && marketingTokenId) {
+      await h.prisma.marketingAccessLog.deleteMany({ where: { tokenId: marketingTokenId } });
+      await h.prisma.auditLog.deleteMany({ where: { entityType: 'MarketingApiToken', entityId: marketingTokenId } });
+      await h.prisma.marketingApiToken.deleteMany({ where: { id: marketingTokenId } });
+    }
     if (h) await limpiarFixture(h);
     await h?.close();
   });
 
   const tokenDe = (row: AxisRow): Record<string, string> =>
-    row.auth === 'admin' ? { token: adminToken } : row.auth === 'customer' ? { token: clienteToken } : {};
+    row.auth === 'admin'
+      ? { token: adminToken }
+      : row.auth === 'customer'
+        ? { token: clienteToken }
+        : row.auth === 'marketing'
+          ? { token: marketingToken }
+          : {};
 
   const get = (row: AxisRow, value: string): Promise<ApiRes> =>
     h.api<ErrorBody>('GET', url(row, ctx, value), tokenDe(row)) as Promise<ApiRes>;
 
+  /**
+   * ⭐ v1.104 — la fila 1 del SELECTOR (§0-Q punto 6-bis): `400 VALIDATION_ERROR` con la forma del punto 2 —
+   * `field` = el param, `allowed` = el dominio declarado, ⛔ sin `details.value`.
+   */
+  const selector400 = (row: AxisRow, res: ApiRes) => {
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details.field).toBe(row.field ?? row.param);
+    expect([...(res.body.error.details.allowed as string[])].sort()).toEqual([...row.allowed].sort());
+    expect(res.body.error.details.value).toBeUndefined();
+  };
+
   /** La aserción conforme de cada propiedad, en UN sitio: la excepción usa la misma llave. */
   const CONFORME: Record<Propiedad, (row: AxisRow, res: ApiRes, extra: Extra) => void> = {
     // Punto 1 fila 1 — vacío ≡ ausente ⇒ `200`. En un `?sort=` (punto 6): el DEFAULT, también `200`.
-    vacio: (_row, res) => expect(res.status).toBe(200),
+    // ⭐ v1.104 — en un SELECTOR (punto 6-bis) sin default declarado: `400 {field, allowed}` (no hay «todos»).
+    vacio: (row, res) => (row.clazz === 'SELECTOR' ? selector400(row, res) : expect(res.status).toBe(200)),
     // ⚠️ Las dos mitades, no una: `if (x)` deja pasar `' '` (un espacio es truthy) y `raw === ''` no
     // lo atrapa (un espacio no es la cadena vacía).
-    espacios: (_row, res) => expect(res.status).toBe(200),
+    espacios: (row, res) => (row.clazz === 'SELECTOR' ? selector400(row, res) : expect(res.status).toBe(200)),
     /**
      * ⭐⭐ **Punto 1 fila 2 — y es la propiedad que `QA-M3` demostró VACÍA.**
      *
@@ -1431,6 +1513,17 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
      */
     filtra: (row, res, extra) => {
       expect(res.status).toBe(200);
+      if (row.clazz === 'SELECTOR') {
+        // ⭐ v1.104 (punto 6-bis): un selector no tiene base «sin filtrar» (vacío ⇒ 400). Lo que se mide es que el
+        // token PRODUCE un recurso (hay datos) y que dos tokens producen recursos DISTINTOS — la mutación «el
+        // selector se ignora / clampa a un recurso fijo» da huellas iguales ⇒ ROJO.
+        const obsS = row.obs ?? OBS_LISTA;
+        expect(`${idOf(row)} · hay datos`).toBe(obsS.hayDatos(res) ? `${idOf(row)} · hay datos` : `${idOf(row)} · RECURSO VACÍO`);
+        const alt = extra.alterno!;
+        expect(alt.status).toBe(200);
+        expect(distanciaDe(obsS)(obsS.huella(res), obsS.huella(alt))).toBeGreaterThan(ruidoDe(obsS));
+        return;
+      }
       const base = extra.base!;
       expect(base.status).toBe(200);
       const obs = row.obs ?? OBS_LISTA;
@@ -1514,7 +1607,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     p !== 'filtra'
       ? {}
       : {
-          base: await get(row, ''),
+          // Un SELECTOR no tiene base (vacío ⇒ 400): no se pide.
+          ...(row.clazz === 'SELECTOR' ? {} : { base: await get(row, '') }),
           ...(row.alterno !== undefined ? { alterno: await get(row, row.alterno) } : {}),
         };
 
@@ -1637,6 +1731,25 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       expect(distanciaDe(obs)(obs.huella(a), obs.huella(b))).toBeLessThanOrEqual(ruidoDe(obs));
     },
   );
+
+  /**
+   * ⭐ v1.104 (punto 6-bis) — el SELECTOR AUSENTE (la llave no viaja) también es `400 {field, allowed}`: las propiedades
+   * de arriba solo mandan `?x=` (vacío) y `?x=%20`; ésta cierra la tercera entrada de la fila 1.
+   */
+  const selectores = REGISTRO.filter((r) => r.clazz === 'SELECTOR');
+  it('⭐ hay filas SELECTOR (si no, el bloque de abajo no mide nada)', () => {
+    expect(selectores.map(idOf).sort()).toEqual([
+      'GET /admin/marketing/aggregates?pantalla=',
+      'GET /admin/marketing/export?format=',
+      'GET /admin/marketing/export?pantalla=',
+      'GET /admin/marketing/panel?pantalla=',
+    ]);
+  });
+  it.each(selectores.map((r) => [idOf(r), r] as const))('%s AUSENTE ⇒ 400 {field, allowed} (SELECTOR sin default)', async (_id, row) => {
+    const extra = row.extra ? row.extra(ctx) : '';
+    const res = (await h.api<ErrorBody>('GET', `${pathOf(row, ctx)}${extra ? `?${extra}` : ''}`, tokenDe(row))) as ApiRes;
+    selector400(row, res);
+  });
 
   it('⛔ `D-EQ-3` (frontend primero) — `/catalog/cards?productType=sealed` HOY devuelve `200`', async () => {
     const row = REGISTRO.find((r) => r.route === 'GET /catalog/cards' && r.param === 'productType')!;
@@ -1765,7 +1878,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Card Show entran YA `transcrita` (el arquitecto escribió sus nueve filas en §0-Q punto 4). `?status=`
     // leads/players (R, enum MENOS `pending`), `?type=`/`?day=` (E) y sus gemelos de `export.csv`, más
     // `?purpose=` de form-token (L, `FORM_PURPOSES`, default `leads`). No sube ningún pendiente.
-    expect(REGISTRO.length).toBe(83);
+    // ⭐ v1.104⟨ceq1-mkt⟩ (nota `CEQ-MKT-1`, `D-EQ-5`) — 83 → **89** y 18 fijo: `?pantalla=` ×3 y `?format=` del Panel de
+    // Marketing (SELECTOR, L) y `?game=` de `/admin/card-show/players` y de su CSV (E, `CardShowGame`), todos `transcrita`.
+    expect(REGISTRO.length).toBe(89);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1832,7 +1947,12 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // /admin/card-show/{leads,players}` y sus `export.csv` (8), más `GET /card-show/ir/:destino?mesa=` (entero de telemetría,
     // conducta INTENCIONAL: se ignora fuera de forma) y `POST /card-show/unsubscribe-oneclick?token=` (token de enlace, ⛔ no
     // un conjunto cerrado). ⛔ `NO_ENUM_TRANSVERSAL` NO se toca (`q`/`page`/`pageSize` del panel ya exentos por nombre).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(70);
+    // ⭐ **70 → 107 (v1.104⟨ceq1-mkt⟩, nota `CEQ-MKT-1`: «Autorizado: tope +37, con este coste a la vista»):** las llaves
+    // de periodo de los cinco handlers del Panel de Marketing — `week`/`weekStart`/`month` (FORMATOS) y los PROHIBIDOS
+    // `from`/`to`/`day`/`preset` (dominio aceptado vacío: cualquier valor ⇒ 400) — en `aggregates`, `panel`, `export`,
+    // `export/todo` y `weekly-excel` (35), más `from`/`to` de `GET /admin/marketing/annotations` (días, 2). Salieron del
+    // `@Query()` entero (ARCHITECTURE §4.37.1-b): ⛔ `QUERY_SIN_NOMBRE` NO sube.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(107);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
@@ -2001,6 +2121,21 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         literal: ACCESSORY_BOOLEAN_FILTER_VALUES,
         re: /`active` y `soldOut` clase \*\*L\*\*, dominio canónico `([a-z \\|]+)`/,
         enunciado: /enum\s+\w*(AccessoryActive|SoldOut|AccessoryFilter)\w*\s*\{/,
+      },
+      // ⭐ v1.104⟨ceq1-mkt⟩ — los dos SELECTOR del Panel de Marketing, clase L. Línea canónica: §MKT.E («`pantalla` —
+      // DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `a|b|…`»; ídem `format`). La regex ancla en el NOMBRE
+      // del eje y en la clase (misma razón que `destination`). `MarketingAccessLog.screen` es `String` (sin enum).
+      {
+        param: 'pantalla',
+        literal: MARKETING_SCREENS,
+        re: /`pantalla` — DOMINIO CANÓNICO \(clase L, SELECTOR de §0-Q punto 6-bis\): `([a-z|]+)`/,
+        enunciado: /enum\s+\w*(Screen|Pantalla)\w*\s*\{/,
+      },
+      {
+        param: 'format',
+        literal: MARKETING_EXPORT_FORMATS,
+        re: /`format` — DOMINIO CANÓNICO \(clase L, SELECTOR de §0-Q punto 6-bis\): `([a-z|]+)`/,
+        enunciado: /enum\s+\w*(ExportFormat|FileFormat|Format)\w*\s*\{/,
       },
     ];
 

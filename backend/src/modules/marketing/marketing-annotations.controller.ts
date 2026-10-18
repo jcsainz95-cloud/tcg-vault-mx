@@ -19,7 +19,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { MarketingAnnotationsService, type AnnotationView } from './marketing-annotations.service';
 import { MarketingAccessLogService } from './marketing-access-log.service';
-import { CreateAnnotationDto, ListAnnotationsQueryDto, UpdateAnnotationDto } from './dto/annotations.dto';
+import { CreateAnnotationDto, UpdateAnnotationDto, parseAnnotationDay } from './dto/annotations.dto';
 
 @Controller('admin/marketing/annotations')
 @UseGuards(PermissionGuard)
@@ -31,9 +31,16 @@ export class MarketingAnnotationsController {
   ) {}
 
   @Get()
-  async list(@CurrentUser() user: { id: string }, @Query() q: ListAnnotationsQueryDto): Promise<AnnotationView[]> {
-    const rows = await this.annotations.list(q.from, q.to);
-    await this.accessLog.record({ actorUserId: user.id, screen: 'h', format: 'json', filters: { from: q.from ?? null, to: q.to ?? null }, rowCount: rows.length });
+  async list(
+    @CurrentUser() user: { id: string },
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+  ): Promise<AnnotationView[]> {
+    // v1.104 (`CEQ-MKT-1`): una llave por `@Query('<nombre>')`; fuera de forma ⇒ 400 VALIDATION_ERROR.
+    const from = parseAnnotationDay('from', fromRaw);
+    const to = parseAnnotationDay('to', toRaw);
+    const rows = await this.annotations.list(from, to);
+    await this.accessLog.record({ actorUserId: user.id, screen: 'h', format: 'json', filters: { from: from ?? null, to: to ?? null }, rowCount: rows.length });
     return rows;
   }
 

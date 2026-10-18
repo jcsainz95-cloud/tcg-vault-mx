@@ -28,6 +28,7 @@ import { MarketingAccessLogService } from './marketing-access-log.service';
 import {
   MARKETING_SCREENS,
   marketingPeriodOptions,
+  parseExportFormat,
   parseScreen,
   resolveMarketingPeriod,
   resolvePanelPeriod,
@@ -37,7 +38,17 @@ import {
 } from './marketing-period';
 import type { ScreenPayload } from './marketing-aggregates.types';
 import type { CellPrivacy, ExactPrivacy } from './small-cells';
-import { BusinessException } from '../../common/business.exception';
+
+/** Los siete parámetros de periodo, en el orden de los handlers: week, weekStart, month y los prohibidos from, to, day, preset. */
+type PeriodParams = [
+  week?: string,
+  weekStart?: string,
+  month?: string,
+  from?: string,
+  to?: string,
+  day?: string,
+  preset?: string,
+];
 
 @Controller('admin/marketing')
 export class MarketingController {
@@ -47,9 +58,16 @@ export class MarketingController {
     private readonly accessLog: MarketingAccessLogService,
   ) {}
 
-  /** Pasa los parámetros de periodo (week|weekStart|month y los prohibidos) tal cual a la validación. */
-  private periodQuery(q: Record<string, unknown>): MarketingPeriodQuery {
-    return { week: q.week, weekStart: q.weekStart, month: q.month, from: q.from, to: q.to, day: q.day, preset: q.preset };
+  /**
+   * Junta los parámetros de periodo (week|weekStart|month y los PROHIBIDOS from|to|day|preset) tal cual llegan, para la
+   * validación de `resolveMarketingPeriod`/`resolvePanelPeriod`. ⭐ v1.104 (§0-Q punto 4 «Cómo se declara un eje», nota
+   * `CEQ-MKT-1`): cada llave se declara con `@Query('<nombre>')` en el handler — ⛔ ni `@Query()` entero, ni DTO, ni
+   * `req.query`, ni decorador propio: el descubrimiento de `C-EQ-1` solo ve el literal del decorador. Los prohibidos se
+   * declaran TAMBIÉN, para que lleguen a la validación y den `400` (⛔ ignorarlos rompería §MKT.G.2).
+   */
+  private periodQuery(...p: PeriodParams): MarketingPeriodQuery {
+    const [week, weekStart, month, from, to, day, preset] = p;
+    return { week, weekStart, month, from, to, day, preset };
   }
 
   // ─────────────────────────── Endpoint de agregados (token marketing-reader) ───────────────────────────
@@ -58,10 +76,20 @@ export class MarketingController {
   @UseGuards(MarketingApiTokenGuard)
   @Get('aggregates')
   @Header('Cache-Control', 'no-store')
-  async aggregates(@Req() req: Request, @Query() q: Record<string, unknown>): Promise<ScreenPayload> {
+  async aggregates(
+    @Req() req: Request,
+    @Query('pantalla') pantalla?: string,
+    @Query('week') week?: string,
+    @Query('weekStart') weekStart?: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('day') day?: string,
+    @Query('preset') preset?: string,
+  ): Promise<ScreenPayload> {
     const now = new Date();
-    const screen = parseScreen(q.pantalla);
-    const period = resolveMarketingPeriod(this.periodQuery(q), now);
+    const screen = parseScreen(pantalla);
+    const period = resolveMarketingPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
     const payload = await this.analytics.screen(screen, period, now, 'small_cells');
     const token = (req as unknown as { marketingToken?: { id: string } }).marketingToken;
     await this.accessLog.record({
@@ -84,10 +112,20 @@ export class MarketingController {
   @Get('panel')
   @RequirePermission(Permission.marketing_read)
   @Header('Cache-Control', 'no-store')
-  async panel(@CurrentUser() user: { id: string; role?: Role }, @Query() q: Record<string, unknown>): Promise<ScreenPayload> {
+  async panel(
+    @CurrentUser() user: { id: string; role?: Role },
+    @Query('pantalla') pantalla?: string,
+    @Query('week') week?: string,
+    @Query('weekStart') weekStart?: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('day') day?: string,
+    @Query('preset') preset?: string,
+  ): Promise<ScreenPayload> {
     const now = new Date();
-    const screen = parseScreen(q.pantalla);
-    const period = resolvePanelPeriod(this.periodQuery(q), now);
+    const screen = parseScreen(pantalla);
+    const period = resolvePanelPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
     const privacy = this.panelPrivacy(user);
     const payload = await this.analytics.screen(screen, period, now, privacy);
     await this.accessLog.record({
@@ -126,14 +164,22 @@ export class MarketingController {
   @Header('Cache-Control', 'no-store')
   async export(
     @CurrentUser() user: { id: string },
-    @Query() q: Record<string, unknown>,
     @Res() res: Response,
+    @Query('pantalla') pantalla?: string,
+    @Query('format') formatRaw?: string,
+    @Query('week') week?: string,
+    @Query('weekStart') weekStart?: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('day') day?: string,
+    @Query('preset') preset?: string,
   ): Promise<void> {
     const now = new Date();
-    const screen = parseScreen(q.pantalla);
-    const period = resolveMarketingPeriod(this.periodQuery(q), now);
-    const format = q.format === 'csv' ? 'csv' : q.format === 'xlsx' ? 'xlsx' : undefined;
-    if (!format) throw BusinessException.badRequest('VALIDATION_ERROR', 'format must be xlsx or csv');
+    const screen = parseScreen(pantalla);
+    const period = resolveMarketingPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
+    // SELECTOR (§0-Q punto 6-bis): ausente/vacío/basura ⇒ 400 {field:'format', allowed} (v1.104).
+    const format = parseExportFormat(formatRaw);
     const payload = await this.analytics.screen(screen, period, now, 'small_cells');
 
     await this.accessLog.record({
@@ -158,11 +204,17 @@ export class MarketingController {
   @Header('Cache-Control', 'no-store')
   async exportAll(
     @CurrentUser() user: { id: string },
-    @Query() q: Record<string, unknown>,
     @Res() res: Response,
+    @Query('week') week?: string,
+    @Query('weekStart') weekStart?: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('day') day?: string,
+    @Query('preset') preset?: string,
   ): Promise<void> {
     const now = new Date();
-    const period = resolveMarketingPeriod(this.periodQuery(q), now);
+    const period = resolveMarketingPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
     const payloads = await this.allScreens(period, now);
     await this.accessLog.record({
       actorUserId: user.id,
@@ -181,13 +233,19 @@ export class MarketingController {
   @Header('Cache-Control', 'no-store')
   async weeklyExcel(
     @CurrentUser() user: { id: string },
-    @Query() q: Record<string, unknown>,
     @Res() res: Response,
+    @Query('week') week?: string,
+    @Query('weekStart') weekStart?: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('day') day?: string,
+    @Query('preset') preset?: string,
   ): Promise<void> {
     const now = new Date();
     // Sin selector ⇒ última semana cerrada; con selector, valida semana/mes cerrados como el resto. Los prohibidos
     // (`from`/`to`/`day`/`preset`) llegan SIEMPRE a la validación ⇒ 400, nunca se ignoran (misma regla que el panel).
-    const period = resolvePanelPeriod(this.periodQuery(q), now);
+    const period = resolvePanelPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
     const payloads = await this.allScreens(period, now);
     await this.accessLog.record({
       actorUserId: user.id,

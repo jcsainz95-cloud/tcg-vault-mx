@@ -20,6 +20,7 @@ import { MarketingExportService } from '../src/modules/marketing/export/marketin
 import { MARKETING_SCREENS, marketingPeriodOptions, resolveMarketingPeriod } from '../src/modules/marketing/marketing-period';
 import { OTROS_LABEL, SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
 import type { AggTable, ScreenPayload } from '../src/modules/marketing/marketing-aggregates.types';
+import { exportArgs, periodArgs, screenArgs } from './helpers/marketing-query';
 
 const card = (name: string, number: string) => ({ name, number, set: { name: 'Set MX' } });
 
@@ -206,8 +207,8 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
   it('d1 (N=3, MX$ 600) y a3 (pagadas N=3, MX$ 4560): exact para super_admin, ocultas para la delegada', async () => {
     const { ctrl } = build(SALES_W41);
     const q = { week: '2026-W41' };
-    const dOwner = await ctrl.panel(SUPER, { pantalla: 'd', ...q });
-    const dDeleg = await ctrl.panel(DELEGADA, { pantalla: 'd', ...q });
+    const dOwner = await ctrl.panel(SUPER, ...screenArgs({ pantalla: 'd', ...q }));
+    const dDeleg = await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'd', ...q }));
     expect(dOwner.privacy).toBe('exact');
     expect(dDeleg.privacy).toBe('small_cells');
 
@@ -218,8 +219,8 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
     expect(d1Deleg.rows.some((r) => r.unidadesVendidas === 3 || r.mxn === 600)).toBe(false);
     expect(d1Deleg.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
 
-    const aOwner = await ctrl.panel(SUPER, { pantalla: 'a', ...q });
-    const aDeleg = await ctrl.panel(DELEGADA, { pantalla: 'a', ...q });
+    const aOwner = await ctrl.panel(SUPER, ...screenArgs({ pantalla: 'a', ...q }));
+    const aDeleg = await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'a', ...q }));
     expect(tbl(aOwner, 'a3').rows[1]).toMatchObject({ n: 3, mxn: 4560 });
     expect(tbl(aDeleg, 'a3').rows[1]).toMatchObject({ n: SMALL_CELL_SENTINEL, mxn: null });
   });
@@ -227,8 +228,8 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
   it('exact: mismas tablas, mismas columnas; filas = las de small_cells sin «Otros»; ningún «< 5» ni «oculta»', async () => {
     const { ctrl } = build(SALES_W41);
     for (const s of MARKETING_SCREENS) {
-      const owner = await ctrl.panel(SUPER, { pantalla: s, week: '2026-W41' });
-      const deleg = await ctrl.panel(DELEGADA, { pantalla: s, week: '2026-W41' });
+      const owner = await ctrl.panel(SUPER, ...screenArgs({ pantalla: s, week: '2026-W41' }));
+      const deleg = await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: s, week: '2026-W41' }));
       expect(owner.tables.map((t) => t.id)).toEqual(deleg.tables.map((t) => t.id));
       for (const t of owner.tables) {
         const d = tbl(deleg, t.id);
@@ -254,18 +255,18 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
     const q = { pantalla: 'd', week: '2026-W41' };
     for (const format of ['csv', 'xlsx']) {
       const res = fakeRes();
-      await ctrl.export(SUPER, { ...q, format }, res as never);
+      await ctrl.export(SUPER, res as never, ...exportArgs({ ...q, format }));
       await expectFileSuppressed(`export ${format}`, res.body, false);
     }
     const todo = fakeRes();
-    await ctrl.exportAll(SUPER, { week: '2026-W41' }, todo as never);
+    await ctrl.exportAll(SUPER, todo as never, ...periodArgs({ week: '2026-W41' }));
     await expectFileSuppressed('export/todo', todo.body, true);
     // Sin selector ⇒ última semana cerrada al 14-oct-2026 = W41 (los mismos datos).
     const semana = fakeRes();
-    await ctrl.weeklyExcel(SUPER, {}, semana as never);
+    await ctrl.weeklyExcel(SUPER, semana as never, ...periodArgs({}));
     await expectFileSuppressed('weekly-excel', semana.body, true);
 
-    const agg = await ctrl.aggregates(tokenReq, { ...q });
+    const agg = await ctrl.aggregates(tokenReq, ...screenArgs({ ...q }));
     expect(agg.privacy).toBe('small_cells');
     expect(JSON.stringify(agg)).toContain(SMALL_CELL_SENTINEL);
   });
@@ -360,7 +361,7 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
       }
     };
     walk(dir);
-    expect(escapes).toEqual(['marketing.controller.ts:66']);
+    expect(escapes).toEqual(['marketing.controller.ts:94']); // v1.104: se movió de :66 al declarar las llaves con nombre
   });
 });
 
@@ -383,11 +384,11 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
 
   it('semana 1: K «< 5» (en «Otros» con M). Mes: K y M «oculta» con MX$ null; L visible', async () => {
     const { ctrl } = build(SALES_FEB);
-    const w1 = tbl(await ctrl.aggregates(tokenReq, { pantalla: 'd', weekStart: '2027-02-01' }), 'd1');
+    const w1 = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', weekStart: '2027-02-01' })), 'd1');
     expect(w1.rows.some((r) => r.carta === K || r.carta === M)).toBe(false);
     expect(w1.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
 
-    const mes = tbl(await ctrl.aggregates(tokenReq, { pantalla: 'd', month: '2027-02' }), 'd1');
+    const mes = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', month: '2027-02' })), 'd1');
     expect(mes.rows.find((r) => r.carta === K)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: null });
     expect(mes.rows.find((r) => r.carta === M)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: null });
     expect(mes.rows.find((r) => r.carta === L)).toMatchObject({ unidadesVendidas: 40, mxn: 4000 });
@@ -397,9 +398,9 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
     const { ctrl } = build(SALES_FEB);
     const files: AggTable[] = [];
     for (const ws of ['2027-02-01', '2027-02-08', '2027-02-15', '2027-02-22']) {
-      files.push(tbl(await ctrl.aggregates(tokenReq, { pantalla: 'd', weekStart: ws }), 'd1'));
+      files.push(tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', weekStart: ws })), 'd1'));
     }
-    const mes = tbl(await ctrl.aggregates(tokenReq, { pantalla: 'd', month: '2027-02' }), 'd1');
+    const mes = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', month: '2027-02' })), 'd1');
     // Para despejar la semana 1 de K hace falta el total del mes de K como número: no está.
     expect(typeof mes.rows.find((r) => r.carta === K)?.unidadesVendidas).not.toBe('number');
     // Y el mes de M tampoco (si no, M_mes − M_sem2..4 = M_sem1 y Otros_sem1 − M_sem1 sería K… aunque Otros no es número).
@@ -411,7 +412,7 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
 
   it('el régimen exacto (dueño) enseña los 21 reales en el mes: la supresión coherente NO aplica en exact', async () => {
     const { ctrl } = build(SALES_FEB);
-    const mes = tbl(await ctrl.panel(SUPER, { pantalla: 'd', month: '2027-02' }), 'd1');
+    const mes = tbl(await ctrl.panel(SUPER, ...screenArgs({ pantalla: 'd', month: '2027-02' })), 'd1');
     expect(mes.rows.find((r) => r.carta === K)).toMatchObject({ unidadesVendidas: 21, mxn: 2100 });
   });
 
@@ -426,7 +427,7 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
       const n = days > 7 ? 21 : r.gte.getTime() === w1.getTime() ? 3 : 6;
       return Promise.resolve({ _count: { _all: n }, _sum: { payoutNetCents: n * 100000 } });
     });
-    const a3 = tbl(await ctrl.aggregates(tokenReq, { pantalla: 'a', month: '2027-02' }), 'a3');
+    const a3 = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'a', month: '2027-02' })), 'a3');
     expect(a3.rows[1]).toMatchObject({ n: SMALL_CELL_HIDDEN, mxn: null });
   });
 });
@@ -450,7 +451,7 @@ describe('§MKT.G.9 (11) — mes cerrado = su última semana cerrada', () => {
     expect(ofrecido).toBe(esperado === 200);
     // Y la ruta del panel aplica la MISMA regla.
     const { ctrl } = build([]);
-    const r = ctrl.panel(SUPER, { pantalla: 'h', month: '2026-10' });
+    const r = ctrl.panel(SUPER, ...screenArgs({ pantalla: 'h', month: '2026-10' }));
     if (esperado === 200) await expect(r).resolves.toMatchObject({ period: { kind: 'month', label: '2026-10' } });
     else await expect(r).rejects.toMatchObject({ status: 400 });
   });
