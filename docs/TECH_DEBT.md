@@ -58,6 +58,21 @@
 > Deudas **no bloqueantes** del núcleo del Panel (Brief 2, API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5). Ninguna
 > toca dinero ni bloquea el DoD de Fase 0 (los indicadores afectados salen «NO MEDIDO» con motivo, no «0»).
 
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| MKT-TD1 ✅ | h1 «Anotaciones de fecha» sin modelo | backend | 2026-10-17 | `marketing-annotations.service.spec.ts` + pantalla (h) con la tabla `h1` medida |
+| MKT-TD2 | c7 lee `shippingAddressSnapshot.state` (texto libre) en cada consulta | backend (+ arquitecto: migración) | 2026-10-18 | columna `Order.shippingStateCode` (catálogo de 32 estados MX) en una migración **+** `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (hoy ⇒ 2, en `c7Dims`) |
+| MKT-TD3 ✅ | 403 cross-route del token | arquitecto (D-MKT-AUTZ) | 2026-10-17 | §MKT.E de `aggregates` sin 403 |
+| MKT-TL1 ✅ | limitador en memoria sin cota | backend | 2026-10-18 | `marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas) |
+| MKT-TL2 | complementaria frente a un total exacto de la misma población: caso c7↔a1 cerrado en código; candado general abierto | backend (+ arquitecto/seguridad) | 2026-10-18 | candado que recorra las tablas con dimensión y falle si alguna puede dejar UNA sola celda oculta frente a un total exacto publicado de su población (hoy solo está el caso c7) **o** residuo aceptado por escrito en `docs/SECURITY_NOTES.md` |
+| MKT-TL3 ✅ | sin ruta de datos por sesión | backend | 2026-10-18 | `marketing-panel.spec.ts` + `marketing-panel.routes.spec.ts` |
+| MKT-TL4 ✅ | sin camino para emitir/revocar el token | backend | 2026-10-18 | `marketing-tokens.spec.ts` §MKT.G.9 (4)(5) |
+| MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
+| MKT-TL6 ✅ | `weekly-excel` ignoraba `from/to/day/preset` sin semana | backend | 2026-10-18 | `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0; `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400) |
+| MKT-TL7 ✅ (residuo) | candado de `'exact'` solo léxico; notas «< 5» falsas en exact | backend | 2026-10-18 | `@ts-expect-error` de «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`; «notas de régimen» en `marketing-analytics.service.spec.ts` |
+| MKT-TL8 ✅ | `YYYY-W53` inexistente se aceptaba (el comentario lo negaba) | backend | 2026-10-18 | `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` ⇒ 400; `2026-W53` válida) |
+| MKT-COV1 | paridad de cifras contra BD real + pipeline HTTP e2e | backend | 2026-10-17 | suite de integración con infra: diferencia 0 endpoint↔export↔BD, `no-store`, registro de acceso, PII=0 en los ficheros |
+
 ### MKT-TD1 · ✅ CERRADA (2026-10-17, sobre `9d0ed99`) · h1 «Anotaciones de fecha» sin modelo en m82
 - **Qué era:** el Brief 2 §2 h1 pide anotaciones de fecha (texto, sin PII) visibles en gráficas y export. ARCHITECTURE §13.4
   NO definió un modelo para ellas y m82 NO lo creaba. La pantalla (h) y la hoja «Info» salían «NO MEDIDO — sin modelo
@@ -78,6 +93,10 @@
   México» contarían aparte). Bajo al volumen de hoy.
 - **Disparador:** si c7 pesa en consultas o el agrupado por estado se vuelve ruidoso ⇒ denormalizar `shippingStateCode`
   en `Order` (migración futura) y/o normalizar a catálogo. Seguridad debe confirmar la fiabilidad del snapshot (§13.6 Q4).
+- **Comprobación de cierre:** migración con `Order.shippingStateCode` (catálogo de 32 estados MX, escrito en el checkout) **+**
+  `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (medido 2026-10-18 sobre
+  `d0f6c648`: 2 líneas, las dos en `c7Dims`). Necesita al arquitecto (schema, regla 9).
+- **Dueño:** backend (+ arquitecto). **Medido:** 2026-10-18.
 
 ### MKT-TD3 · ✅ RESUELTA (2026-10-17, sobre `9d0ed99`) · 403 cross-route del token marketing-reader
 - **Qué era:** el contrato pedía 403 al usar el token en «cualquier otra ruta» del admin; el mecanismo (JwtAuthGuard) da 401.
@@ -96,18 +115,25 @@
 - **Comprobación (verificada):** `backend/test/marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas). Canario en BACKEND_NOTES §MKT.G.
 - **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`); cerrada 2026-10-18.
 
-### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — ESCRITO, sin candado; con un caso medido
+### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — caso c7↔a1 cerrado en código; candado general abierto
 - **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA
-  población que la tabla suprimida (total − visibles despeja la suma de lo oculto).
-- **Estado 2026-10-18 (backend):** el invariante está escrito en `small-cells.ts` (cabecera). **Medido por lectura:** c7 (pedidos
-  por estado, mes) y a1 (pedidos pagados del mes, exacto) cuentan la misma población (`settledAt` en el periodo, estados
-  `settled|refunded|chargeback`, `marketing-analytics.service.ts` c7 y `sales-analytics.service.ts:117-129`) ⇒ a1 − filas
-  visibles de c7 despeja la suma de «Otros estados» + «Recogida» cuando solo una de las dos sale «< 5». No identifica un estado
-  (ya vienen agrupados) pero rompe el invariante. La supresión coherente mes↔semanas (§MKT.G.10) NO lo cubre (es otro eje).
-- **Comprobación de cierre:** decisión del arquitecto/seguridad sobre c7 (p. ej. supresión complementaria entre «Otros estados» y
-  «Recogida», o aceptar el riesgo por escrito) + candado que falle si una pantalla con celdas suprimidas convive con el total exacto
-  de la misma población.
-- **Dueño:** backend (+ arquitecto/seguridad para la regla de c7). **Medido:** 2026-10-17 (techlead, `9d0ed99`); caso c7↔a1 medido 2026-10-18.
+  población que la tabla suprimida mientras esta deja UNA sola celda oculta (total − visibles la despeja).
+- **Caso medido (c7↔a1):** c7 (pedidos por estado, mes) y a1 (pedidos pagados del mes, exacto) cuentan la misma población
+  (`settledAt` en el periodo, estados `settled|refunded|chargeback`). Antes del 2026-10-18, a1 − filas visibles de c7 despejaba
+  «Otros estados» o «Recogida» cuando solo una de las dos salía «< 5».
+- **Cerrado en código (2026-10-18, `d0f6c648`, MKT-TL5):** c7 pasa por `safeRows` ⇒ la complementaria de `small-cells.ts`
+  agrupa la celda sola con la siguiente más chica en «Otros (< 5 c/u)»; a1 − visibles despeja la suma de ≥ 2 celdas, nunca una.
+  Candado: `marketing-analytics.service.spec.ts` «c7 (mes): …una sola celda oculta…» y «…nunca UNA celda oculta» (cuenta las
+  celdas reales que no salen visibles y exige que no sea 1).
+- **Sigue abierto:** (1) no hay candado GENERAL: una tabla nueva con dimensión que conviva con un total exacto no la vigila nadie
+  si no se le escribe su caso; (2) una tabla con UNA sola fila, oculta y sin ninguna visible, no se puede complementar (`plan()` no
+  tiene pareja) y su valor es el total exacto; en c7 esa fila ya es un agregado («Otros estados» o «Recogida»), no un estado, pero
+  a1 la despeja; (3) la suma de las ≥ 2 ocultas sí sale (a1 − visibles): es lo que admite la regla de complementaria, pero lo
+  acepta o no seguridad.
+- **Comprobación de cierre:** candado que recorra todas las tablas con dimensión y falle si alguna puede dejar UNA sola celda oculta
+  frente a un total exacto publicado de su población, **o** residuo (1)-(3) aceptado por escrito en `docs/SECURITY_NOTES.md`.
+- **Dueño:** backend (+ arquitecto/seguridad para aceptar el residuo). **Medido:** 2026-10-17 (techlead, `9d0ed99`); caso c7↔a1
+  medido y cerrado en código el 2026-10-18.
 
 ### MKT-TL3 · ✅ CERRADA (2026-10-18, backend) · Faltaba ruta de DATOS por SESIÓN para la pantalla de admin
 - **Cómo se cerró:** `GET /api/v1/admin/marketing/panel` (API_CONTRACT §MKT.G.2, v1.101 + v1.103) en `marketing.controller.ts`
@@ -138,6 +164,42 @@
   completo (status, `no-store`, access-log, PII=0 en artefactos).
 - **Dueño:** backend. **Disparador:** stream de UI del Panel (cuando haya infra de integración).
 - **Medido:** 2026-10-17 (QA + techlead, sobre `9d0ed99`).
+
+### MKT-TL5 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · c7 era un segundo camino de celdas pequeñas
+- **Qué era:** `c7ByState` agrupaba y ocultaba por su cuenta (`>= 5` literal, `SMALL_CELL_SENTINEL`, rama `privacy === 'exact'`
+  propia) ⇒ sin complementaria y con un umbral que no seguía a `SMALL_CELL_THRESHOLD`.
+- **Cómo se cerró:** `c7Dims` devuelve `DimensionRow[]` ya agrupados (estados ≥ umbral, «Otros estados», «Recogida en persona») y
+  `c7ByState` pasa por `safeRows`. Con menos de 4 semanas `c7Dims` devuelve `[]`: c7 semanal no se publica, así que la coherencia
+  mes↔semanas (§MKT.G.10) no hereda ocultas que no protegen nada. En `exact`, c7 lleva las mismas claves que en `small_cells` sin
+  «Otros (< 5 c/u)» (§MKT.G.9 (8)); antes daba un estado por fila (ver BACKEND_NOTES §MKT.G, «Para el arquitecto»).
+- **Comprobación (verificada):** `marketing-analytics.service.spec.ts` «estático (D1)» (el cuerpo de `c7ByState` sin centinela,
+  sin `privacy === 'exact'`, sin `[<>]=? 5` y con `this.safeRows(`) y las 4 pruebas de conducta de c7.
+- **Medido:** 2026-10-18 (techlead, `afd12b82`); cerrada el 2026-10-18.
+
+### MKT-TL6 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · `weekly-excel` descartaba `from/to/day/preset` en silencio
+- **Cómo se cerró:** `weeklyExcel` usa `resolvePanelPeriod` (la misma regla que el panel): sin semana ⇒ la última cerrada; los
+  prohibidos llegan siempre a la validación ⇒ 400.
+- **Comprobación (verificada):** `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0;
+  `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400, sin fila de registro).
+- **Medido:** 2026-10-18 (techlead, `afd12b82`); cerrada el 2026-10-18.
+
+### MKT-TL7 · ✅ CERRADA con residuo (2026-10-18, backend, `d0f6c648`) · El candado de `'exact'` era léxico; notas falsas en exact
+- **Cómo se cerró:** `ExactPrivacy = 'exact' & { [OWNER_EXACT]: true }` (`small-cells.ts`) y `CellPrivacy = 'small_cells' |
+  ExactPrivacy`. El literal `'exact'` ya no compila como régimen; el único productor es `panelPrivacy()`, con un cast explícito.
+  Las notas de a3/d1/d3/d4b dicen «< 5» solo en `small_cells`; en `exact` llevan `EXACT_CELLS_NOTE`.
+- **Comprobación (verificada):** `marketing-panel-privacy.spec.ts` «tipo (D3)» (`@ts-expect-error`: si vuelve el literal, TS2578)
+  y «estático (D3)» (un solo `as ExactPrivacy|CellPrivacy` en el módulo, en el controller); `marketing-analytics.service.spec.ts`
+  «notas de régimen».
+- **Residuo (no bloqueante):** un `as never` o `as unknown as …` todavía puede fabricar el régimen; el candado estático solo cuenta
+  `as ExactPrivacy|CellPrivacy`. Cerrarlo del todo pediría que `ExactPrivacy` solo se pudiera construir dentro del controller, y
+  hoy no compensa. **Dueño:** backend. **Medido:** 2026-10-18.
+
+### MKT-TL8 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · `YYYY-W53` inexistente se aceptaba
+- **Qué era:** el comentario de `mondayOfIsoWeek` decía que se rechazaba la semana 53 inexistente, pero ningún código lo hacía
+  (`2025-W53` resolvía al lunes 2025-12-29, que es `2026-W01`, con la etiqueta equivocada).
+- **Cómo se cerró:** una semana ISO pertenece al año de su jueves; si el jueves cae en otro año ⇒ 400.
+- **Comprobación (verificada):** `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` y `2025-W00` ⇒ 400; `2026-W53` = 28-dic-2026 →
+  3-ene-2027). **Medido:** 2026-10-18.
 
 ## Backend · 2026-10-17 · stream «Card Show R2» (M-84 pivote a leads + M-85 `shardbugs`, rama `r2-cardshow`)
 
