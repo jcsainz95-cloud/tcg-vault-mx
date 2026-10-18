@@ -60,7 +60,9 @@ final de `src/types/contract.ts`.
   que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
-- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`).
+- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`). El enlace del menú se busca por `href` dentro de `aside nav`, no
+  por nombre: el nombre accesible del súper-admin es «MarketingSúper» y el nombre exacto daba 0 a los dos roles (QA).
+  Positivo en el súper-admin, negativo en el operador con testigo `/admin/m4`; muerde en mocks 3/3 en cada sentido.
 - **Desviaciones conscientes del diseño:** el `h1`/menú salen de `admin.modules.marketing` (candado P66-2), no de
   `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
   ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
