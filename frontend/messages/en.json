@@ -1397,7 +1397,8 @@
       "spendAlerts": "Spending alerts",
       "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}",
       "accessories": "Accessories",
-      "cardShow": "Card Show"
+      "cardShow": "Card Show",
+      "marketing": "Marketing"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -6876,6 +6877,206 @@
         "countRange": "Enter a number from 0 to 6."
       },
       "energyPricesDiffer": "Not all energy cards have the same price."
+    },
+    "marketing": {
+      "lede": "How the store is doing and where people come from. For now only the store's own data is measured.",
+      "tabs": {
+        "label": "Panel screens",
+        "select": "Screen",
+        "a": "Summary",
+        "b": "Sources",
+        "c": "Behavior",
+        "d": "Catalog",
+        "e": "Search & AI",
+        "f": "Cookies",
+        "g": "Promotions",
+        "h": "Notes",
+        "access": "Analyst access"
+      },
+      "period": {
+        "group": "Period type",
+        "week": "Week",
+        "month": "Month",
+        "label": "Period",
+        "range": "{from} to {to} · Mexico City time",
+        "compare": "Compared with: {from} to {to}",
+        "updating": "Updating…",
+        "invalid": "That period is not valid or has not closed yet. Pick another."
+      },
+      "source": {
+        "BD": "store database",
+        "GA4": "Google Analytics 4",
+        "SC": "Search Console",
+        "Srv": "anonymous server count",
+        "mixed": "several sources",
+        "prefix": "Source: {fuente}"
+      },
+      "coverage": {
+        "title": "Coverage"
+      },
+      "cells": {
+        "small": "fewer than 5, hidden for privacy",
+        "hidden": "Hidden",
+        "hiddenSr": "hidden for privacy",
+        "notMeasured": "Not measured yet",
+        "notMeasuredSr": "not measured yet: {motivo}",
+        "none": "no data",
+        "others": "Others (< 5 each)",
+        "smallN": "Small N, no verdict",
+        "footnote": "< 5 means fewer than 5. The amount for those rows is hidden so no one can be identified."
+      },
+      "table": {
+        "notMeasuredTitle": "Not measured yet",
+        "notMeasuredBody": "This is not zero: there is no data yet.",
+        "notMeasuredGroup": "{titulo}: not measured yet",
+        "empty": "No records in this period.",
+        "emptyHint": "That is data too: there were none.",
+        "scrollLabel": "Table: {titulo}",
+        "seeAll": "See all"
+      },
+      "screen": {
+        "empty": "There was no activity in this period. Try another week.",
+        "e": {
+          "pending": "This screen will fill in once Google Search Console is switched on."
+        }
+      },
+      "help": {
+        "title": "How to read the cells",
+        "zero": "Zero: there were none; that is data.",
+        "small": "< 5: fewer than 5; shown this way so no one can be identified.",
+        "hidden": "Hidden: the amount of a row with fewer than 5.",
+        "notMeasured": "Not measured: the source does not exist yet.",
+        "none": "—: not applicable.",
+        "rule": "Zero is data; Not measured means the source does not exist yet."
+      },
+      "notes": {
+        "summary": "Notes for {periodo} ({n})",
+        "manage": "Manage"
+      },
+      "download": {
+        "week": "Download weekly Excel",
+        "month": "Download monthly Excel",
+        "preparing": "Preparing the Excel…",
+        "done": "{archivo} was downloaded.",
+        "exportGroup": "Export this screen",
+        "xlsx": ".xlsx",
+        "csv": ".csv",
+        "helpAlways": "The Excel has no personal data and hides amounts below 5.",
+        "exactNotice": "Here you see the exact figures. The Excel and exports have no personal data and hide amounts below 5, so those rows may not match the screen.",
+        "helpShare": "Share it only with whoever needs it.",
+        "errorClosed": "That period has not closed yet. Pick an earlier one.",
+        "errorGeneric": "The Excel could not be prepared. Try again."
+      },
+      "state": {
+        "loading": "Loading the panel…",
+        "error": "The figures could not be loaded. Try again.",
+        "retry": "Retry"
+      },
+      "forbidden": {
+        "title": "This account does not have permission to view the Marketing panel.",
+        "body": "If you need it, ask the store owner to turn it on.",
+        "back": "Back to dashboard"
+      },
+      "ann": {
+        "title": "Notes",
+        "lede": "Mark the days that explain a change: a promotion of yours, a release, an event.",
+        "pii": {
+          "title": "Do not write personal data",
+          "body": "No customer names, @handles, emails, phone numbers, CURP or RFC. The store rejects anything that looks like personal data."
+        },
+        "show": {
+          "group": "Show",
+          "period": "This period",
+          "all": "All"
+        },
+        "new": "New note",
+        "editTitle": "Edit note",
+        "edit": "Edit",
+        "delete": "Delete",
+        "col": {
+          "date": "Date",
+          "type": "Type",
+          "label": "Label",
+          "dest": "Destination",
+          "actions": "Actions"
+        },
+        "kind": {
+          "promocion": "Promotion",
+          "despliegue": "Release",
+          "evento": "Event"
+        },
+        "field": {
+          "date": "Date",
+          "kind": "Type",
+          "label": "Label",
+          "dest": "Destination",
+          "labelHelp": "What happened that day, in a few words.",
+          "destHelp": "Where it led: a card page, the catalog, your profile…",
+          "counter": "{n} / {max}"
+        },
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel",
+        "saved": "Note saved.",
+        "errRequired": "This field is required.",
+        "errPii": "Remove the personal data (email, @handle, phone, CURP or RFC) and try again.",
+        "errDest": "Destination only applies to promotions.",
+        "errGone": "That note no longer exists. The list was refreshed.",
+        "errGeneric": "It could not be saved. Try again.",
+        "delTitle": "Delete this note?",
+        "delConfirm": "Delete note",
+        "deleting": "Deleting…",
+        "deleted": "Note deleted.",
+        "emptyPeriod": "There are no notes in this period yet.",
+        "emptyAll": "You have not marked any day yet."
+      },
+      "access": {
+        "lede": "The marketing analyst reads each week's figures with a key, without signing in to your account. The key only reads the figures summary: it opens nothing else in the panel.",
+        "none": "Nobody has access right now.",
+        "create": "Create key",
+        "submit": "Create",
+        "creating": "Creating…",
+        "name": "Key name",
+        "nameHelp": "Only to recognize it, for example: Marketing analyst. Do not write personal data.",
+        "errName": "Use only plain letters, numbers, spaces, dot, hyphen or underscore (up to 60), with no personal data.",
+        "errGeneric": "It could not be completed. Try again.",
+        "created": "Created on {fecha}",
+        "expires": "Expires on {fecha}",
+        "lastUsed": "Last used: {fecha}",
+        "neverUsed": "Last used: never",
+        "status": {
+          "active": "Active",
+          "revoked": "Revoked",
+          "expired": "Expired"
+        },
+        "expiresSoon": "This key expires in {n} days. Create a new one and load it in the analyst's environment before then.",
+        "dead": "The previous key no longer works: {motivo} on {fecha}.",
+        "reason": {
+          "expired": "expired",
+          "revoked": "was revoked"
+        },
+        "new": {
+          "title": "Your new key",
+          "once": "Copy it now. It is shown only ONCE.",
+          "why": "The store keeps only a fingerprint; if you lose it, it cannot be recovered: you will have to create another.",
+          "field": "Your key (shown only once)",
+          "where": "It goes in the marketing environment's secrets, named TIENDA_PANEL_TOKEN. Do not paste it in chats, emails or files.",
+          "copy": "Copy",
+          "copied": "Copied",
+          "copiedSr": "Key copied to the clipboard.",
+          "copyFail": "Could not copy. Select it and copy it by hand.",
+          "confirm": "I copied it and saved it",
+          "done": "Done",
+          "lost": "The key could not be shown. Revoke the one that was created and create another."
+        },
+        "revokeCta": "Revoke key",
+        "revokeDialog": {
+          "title": "Revoke the analyst's key?",
+          "body": "It will stop working immediately. The analyst will not be able to read figures until you create another key and get it to them."
+        },
+        "revoking": "Revoking…",
+        "revoked": "Key revoked."
+      }
     }
   },
   "locale": {
