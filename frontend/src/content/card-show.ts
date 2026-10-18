@@ -69,6 +69,9 @@ export const CARD_SHOW = {
     label: 'En colaboración con',
     nombre: 'Jakomi TCG Café',
     logo: '/card-show/jakomi-logo.webp',
+    // Mascota SOLA (axolotl, recortada del lockup vertical): para el topbar, donde el lockup completo
+    // dejaba el nombre a ~5px ilegible. En el topbar va la mascota chica + «Jakomi» en texto (RONDA 3 I-1).
+    mascota: '/card-show/jakomi-mascota.webp',
     descripcion:
       '«Tu casa del TCG en Coyoacán». Tienda-café de cartas (Pokémon, Lorcana y Magic) que organiza los torneos del Card Show.',
   },
@@ -195,6 +198,8 @@ export const CARD_SHOW = {
     strip: 'Rifa: set del 30.º aniversario de Pokémon — sin costo. Regístrate y participa.',
     // Barra de anuncio superior (gancho ARRIBA DEL TODO, decisión JC 2026-10-18 «que jale gente»).
     anuncio: 'Rifa en vivo · Pokémon 30th Celebration Poster Collection — regístrate y participa',
+    // Variante CORTA para <640px (RONDA 3 I-3): evita que la barra caiga a 3 líneas con la «→» huérfana.
+    anuncioCorto: 'Rifa en vivo · Pokémon 30th — regístrate y participa',
     lede:
       'Entre todos los asistentes y registrados rifamos la Poster Collection del 30.º aniversario de Pokémon — 3 sobres, póster gigante y cartas promo. Sin costo: con registrarte ya participas.',
     pasos: [
