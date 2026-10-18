@@ -99,6 +99,7 @@
 | MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
 | MKT-TL6 ✅ | `weekly-excel` ignoraba `from/to/day/preset` sin semana | backend | 2026-10-18 | `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0; `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400) |
 | MKT-TL7 ✅ (residuo) | candado de `'exact'` solo léxico; notas «< 5» falsas en exact | backend | 2026-10-18 | `@ts-expect-error` de «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`; «notas de régimen» en `marketing-analytics.service.spec.ts` |
+| MKT-TL7r ✅ | residuo de D3: `as never` / `as unknown as` podían fabricar el régimen exacto sin que el candado lo viera | backend | 2026-10-18 | `marketing-panel-privacy.spec.ts` «estático (MKT-TL7r)»: la lista de `as never` + `as unknown as` en `src/modules/marketing` es exactamente `['marketing.controller.ts:66']` (canarios `as never` en `allScreens` y `as unknown as` en `export`: 10/10 rojo cada uno) |
 | MKT-TL8 ✅ | `YYYY-W53` inexistente se aceptaba (el comentario lo negaba) | backend | 2026-10-18 | `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` ⇒ 400; `2026-W53` válida) |
 | MKT-COV1 | paridad de cifras contra BD real + pipeline HTTP e2e | backend | 2026-10-17 | suite de integración con infra: diferencia 0 endpoint↔export↔BD, `no-store`, registro de acceso, PII=0 en los ficheros |
 
@@ -219,9 +220,10 @@
 - **Comprobación (verificada):** `marketing-panel-privacy.spec.ts` «tipo (D3)» (`@ts-expect-error`: si vuelve el literal, TS2578)
   y «estático (D3)» (un solo `as ExactPrivacy|CellPrivacy` en el módulo, en el controller); `marketing-analytics.service.spec.ts`
   «notas de régimen».
-- **Residuo (no bloqueante):** un `as never` o `as unknown as …` todavía puede fabricar el régimen; el candado estático solo cuenta
-  `as ExactPrivacy|CellPrivacy`. Cerrarlo del todo pediría que `ExactPrivacy` solo se pudiera construir dentro del controller, y
-  hoy no compensa. **Dueño:** backend. **Medido:** 2026-10-18.
+- **Residuo → MKT-TL7r ✅ (2026-10-18):** un `as never` o `as unknown as …` podía fabricar el régimen y el candado solo contaba
+  `as ExactPrivacy|CellPrivacy`. Ahora «estático (MKT-TL7r)» cuenta ambas formas en todo `src/modules/marketing` y exige como
+  único caso `marketing.controller.ts:66` (lectura de `req.marketingToken`, no toca el régimen). Si esa línea se mueve, la prueba
+  se actualiza a sabiendas. Lo que NO cubre: un cast fuera del módulo que llame a `screen()`, o un `any` explícito.
 
 ### MKT-TL8 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · `YYYY-W53` inexistente se aceptaba
 - **Qué era:** el comentario de `mondayOfIsoWeek` decía que se rechazaba la semana 53 inexistente, pero ningún código lo hacía
