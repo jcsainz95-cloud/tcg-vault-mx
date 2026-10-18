@@ -8,12 +8,15 @@
  *  - `GET /admin/marketing/export/todo` — .xlsx con una hoja por pantalla (a-h) + «Info».
  *  - `GET /admin/marketing/weekly-excel` — botón «Descargar Excel de la semana» (P2=B): .xlsx de la
  *    última semana cerrada (o la del selector), una hoja por pantalla + «Info».
+ *  - `GET /admin/marketing/panel` — sesión con `marketing:read`: el MISMO `ScreenPayload` que `aggregates` para la
+ *    pantalla del admin (§MKT.G.2). `GET /admin/marketing/periods` — periodos cerrados del selector (§MKT.G.3).
+ *  - Tokens del analista: `marketing-tokens.controller.ts` (§MKT.G.6, solo `super_admin`).
  *
  * Cada salida deja una fila en `MarketingAccessLog` (PM-M3). Las mismas cifras en endpoint y Excel
  * para el mismo periodo (paridad A=B) por construir ambos del mismo `ScreenPayload`.
  */
 import { Controller, Get, Header, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { Permission } from '@prisma/client';
+import { Permission, Role } from '@prisma/client';
 import { Request, Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -25,12 +28,16 @@ import { MarketingAccessLogService } from './marketing-access-log.service';
 import {
   lastClosedWeekStart,
   MARKETING_SCREENS,
+  marketingPeriodOptions,
   parseScreen,
   resolveMarketingPeriod,
+  resolvePanelPeriod,
   type MarketingPeriodQuery,
+  type MarketingPeriodsResponse,
   type MarketingScreen,
 } from './marketing-period';
 import type { ScreenPayload } from './marketing-aggregates.types';
+import type { CellPrivacy } from './small-cells';
 import { BusinessException } from '../../common/business.exception';
 
 @Controller('admin/marketing')
@@ -66,6 +73,49 @@ export class MarketingController {
       rowCount: payload.tables.reduce((m, t) => m + t.rows.length, 0),
     });
     return payload;
+  }
+
+  // ─────────────────────────── Pantalla del panel (sesión admin con marketing:read) ───────────────────────────
+
+  /**
+   * `GET /admin/marketing/panel` (API_CONTRACT §MKT.G.2) — los datos de UNA pantalla para pintarla. Mismo
+   * `parseScreen` y misma validación de periodo que `aggregates` (sin periodo ⇒ última semana cerrada) y el
+   * MISMO `analytics.screen()` ⇒ paridad A=B por construcción. ⛔ No es `@Public()`: el token opaco no es JWT ⇒ 401.
+   */
+  @Get('panel')
+  @RequirePermission(Permission.marketing_read)
+  @Header('Cache-Control', 'no-store')
+  async panel(@CurrentUser() user: { id: string; role?: Role }, @Query() q: Record<string, unknown>): Promise<ScreenPayload> {
+    const now = new Date();
+    const screen = parseScreen(q.pantalla);
+    const period = resolvePanelPeriod(this.periodQuery(q), now);
+    const payload = await this.analytics.screen(screen, period, now, this.panelPrivacy(user));
+    await this.accessLog.record({
+      actorUserId: user.id,
+      tokenId: null,
+      screen,
+      format: 'json',
+      filters: { period: period.label, kind: period.kind, surface: 'panel' },
+      rowCount: payload.tables.reduce((m, t) => m + t.rows.length, 0),
+    });
+    return payload;
+  }
+
+  /**
+   * Régimen de celdas de la pantalla. API_CONTRACT v1.101 D-MKT-PANEL-2: celdas pequeñas para TODOS, `super_admin`
+   * incluido. ÚNICO punto que decide el régimen del panel: si el contrato abre la vista exacta del dueño, cambia
+   * aquí (el cálculo ya recibe el régimen como parámetro; `aggregates` y los exports no lo pasan ⇒ siempre celdas).
+   */
+  private panelPrivacy(_user: { role?: Role }): CellPrivacy {
+    return 'small_cells';
+  }
+
+  /** `GET /admin/marketing/periods` (§MKT.G.3) — selector de periodos cerrados. Sin datos de negocio ⇒ sin registro. */
+  @Get('periods')
+  @RequirePermission(Permission.marketing_read)
+  @Header('Cache-Control', 'no-store')
+  periods(): MarketingPeriodsResponse {
+    return marketingPeriodOptions(new Date());
   }
 
   // ─────────────────────────── Exports (sesión admin con marketing:read) ───────────────────────────

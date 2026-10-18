@@ -145,3 +145,62 @@ export function parseScreen(raw: unknown): MarketingScreen {
   }
   return raw as MarketingScreen;
 }
+
+/** Una semana cerrada ofrecida al selector (API_CONTRACT §MKT.G.3). */
+export interface MarketingWeekOption {
+  weekStart: Ymd;
+  from: Ymd;
+  to: Ymd;
+}
+
+/** `GET /admin/marketing/periods` (API_CONTRACT §MKT.G.3). */
+export interface MarketingPeriodsResponse {
+  timezone: 'America/Mexico_City';
+  lastClosedWeek: MarketingWeekOption;
+  closedWeeks: MarketingWeekOption[];
+  closedMonths: { month: string; from: Ymd; to: Ymd }[];
+}
+
+/** Nº de semanas y meses cerrados que ofrece el selector (§MKT.G.3). */
+export const PERIOD_OPTIONS_WEEKS = 26;
+export const PERIOD_OPTIONS_MONTHS = 12;
+
+/**
+ * Opciones del selector de periodo con el reloj del servidor en zona de México (§MKT.G.3). ⛔ Nunca ofrece una
+ * semana o un mes abiertos: cada opción, enviada como `weekStart=` o `month=`, la acepta `resolveMarketingPeriod`
+ * con el mismo `now` (candado `test/marketing-panel.spec.ts`). PURO.
+ */
+export function marketingPeriodOptions(now: Date): MarketingPeriodsResponse {
+  const lastMonday = lastClosedWeekStart(now);
+  const closedWeeks: MarketingWeekOption[] = [];
+  for (let i = 0; i < PERIOD_OPTIONS_WEEKS; i++) {
+    const from = addDays(lastMonday, -7 * i);
+    closedWeeks.push({ weekStart: from, from, to: addDays(from, 6) });
+  }
+  // El mes en curso nunca está cerrado; el anterior siempre lo está (su último día ya pasó en CDMX).
+  const today = todayMx(now);
+  let year = Number(today.slice(0, 4));
+  let month = Number(today.slice(5, 7));
+  const closedMonths: MarketingPeriodsResponse['closedMonths'] = [];
+  for (let i = 0; i < PERIOD_OPTIONS_MONTHS; i++) {
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+    const label = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+    closedMonths.push({ month: label, from: `${label}-01`, to: lastDayOfMonth(year, month) });
+  }
+  return { timezone: 'America/Mexico_City', lastClosedWeek: closedWeeks[0], closedWeeks, closedMonths };
+}
+
+/**
+ * Periodo de la pantalla del panel (§MKT.G.2): como `aggregates`, pero SIN periodo ⇒ la última semana cerrada.
+ * Los parámetros prohibidos (`from`/`to`/`day`/`preset`) se pasan SIEMPRE a la validación ⇒ 400 aunque falte la
+ * semana (⛔ no se ignoran en silencio).
+ */
+export function resolvePanelPeriod(q: MarketingPeriodQuery, now: Date): MarketingPeriod {
+  const has = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '');
+  const hasPeriod = has(q.week) || has(q.weekStart) || has(q.month);
+  return resolveMarketingPeriod(hasPeriod ? q : { ...q, weekStart: lastClosedWeekStart(now) }, now);
+}

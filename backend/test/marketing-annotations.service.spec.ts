@@ -97,6 +97,19 @@ describe('MarketingAnnotationsService — validación PII (fail-first) y CRUD', 
     expect(marketingDateAnnotation.create).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['label con correo', { kind: MarketingAnnotationKind.evento, label: 'avisar a prueba@correo.com' }, 'label'],
+    ['destino con teléfono', { kind: MarketingAnnotationKind.promocion, label: 'Promo', destino: 'whatsapp 5512345678' }, 'destino'],
+    ['destino fuera de promoción', { kind: MarketingAnnotationKind.evento, label: 'Evento', destino: '/es/algo' }, 'destino'],
+  ])('422 %s ⇒ details.field = %s (DESIGN_SYSTEM §MKT-UX.17 petición 11)', async (_n, dto, field) => {
+    const { prisma } = mockPrisma();
+    const svc = new MarketingAnnotationsService(prisma);
+    await expect(svc.create({ date: '2026-10-06', ...dto } as never, USER)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field },
+    });
+  });
+
   it('forPeriod devuelve la forma embebida {date, kind, label, destino?}', async () => {
     const { prisma } = mockPrisma();
     const svc = new MarketingAnnotationsService(prisma);

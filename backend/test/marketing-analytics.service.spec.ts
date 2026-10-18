@@ -118,6 +118,8 @@ function build(): { svc: MarketingAnalyticsService; m: Mocks } {
   };
   const prisma = {
     sellRequest: { aggregate: m.sellRequestAggregate },
+    // d4b (§MKT.G.4): solicitudes enviadas por carta; sin filas en estos casos.
+    sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
     orderItem: { findMany: m.orderItemFindMany },
     inventoryItem: { groupBy: m.inventoryItemGroupBy },
     wishlistItem: { groupBy: m.wishlistItemGroupBy },

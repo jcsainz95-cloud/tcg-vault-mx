@@ -11,17 +11,20 @@ import { MarketingAnnotationsController } from './marketing-annotations.controll
 import { MarketingAnalyticsService } from './marketing-analytics.service';
 import { MarketingAnnotationsService } from './marketing-annotations.service';
 import { MarketingTokenService } from './marketing-token.service';
+import { MarketingTokenAdminService } from './marketing-token-admin.service';
+import { MarketingTokensController } from './marketing-tokens.controller';
 import { MarketingAccessLogService } from './marketing-access-log.service';
 import { MarketingQuoteCounterService } from './marketing-quote-counter.service';
 import { MarketingExportService } from './export/marketing-export.service';
 
 @Module({
   imports: [SalesAnalyticsModule],
-  controllers: [MarketingController, MarketingAnnotationsController],
+  controllers: [MarketingController, MarketingAnnotationsController, MarketingTokensController],
   providers: [
     MarketingAnalyticsService,
     MarketingAnnotationsService,
     MarketingTokenService,
+    MarketingTokenAdminService,
     MarketingAccessLogService,
     MarketingQuoteCounterService,
     MarketingExportService,

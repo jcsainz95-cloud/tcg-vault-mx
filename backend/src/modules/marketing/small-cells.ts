@@ -11,7 +11,21 @@
  *
  * ⛔ El conteo real de una fila oculta NUNCA viaja: se reemplaza por el centinela «< 5».
  * ⛔ Los TOTALES SIN DIMENSIÓN (a1/a2 de la semana) NO pasan por aquí: se muestran exactos.
+ *
+ * 🔒 INVARIANTE (MKT-TL2, aún SIN candado) — la supresión complementaria solo protege si **ninguna salida del
+ * mismo periodo publica el TOTAL exacto de la MISMA población** que la tabla suprimida: con ese total,
+ * total − visibles despeja la suma de lo oculto. ⚠️ Medido 2026-10-18: c7 (pedidos por estado, mes) y a1
+ * (pedidos pagados del mes, exacto) cuentan la MISMA población (`settledAt` en el periodo, estados cobrados)
+ * ⇒ a1 − filas visibles de c7 despeja «Otros estados» + «Recogida» cuando solo una de las dos sale «< 5».
+ * No identifica un estado (ya vienen agrupados), pero rompe el invariante; ver docs/TECH_DEBT.md MKT-TL2.
+ *
+ * Régimen (`CellPrivacy`): `'small_cells'` aplica la regla; `'exact'` la salta (cifras reales). El régimen es
+ * un PARÁMETRO del mismo cálculo, no un segundo camino de código. Hoy TODAS las salidas usan `'small_cells'`
+ * (API_CONTRACT §MKT.G.2 D-MKT-PANEL-2); ningún llamador de producción pasa `'exact'` todavía.
  */
+
+/** Régimen de privacidad de las celdas de una salida del panel. */
+export type CellPrivacy = 'small_cells' | 'exact';
 
 /** Umbral de la regla: por debajo de 5 se oculta (PM-A1). */
 export const SMALL_CELL_THRESHOLD = 5;
@@ -57,7 +71,9 @@ const blankMoney = (money: Record<string, number | null>): Record<string, number
  *
  * ⚠️ El llamador decide QUÉ tablas tienen dimensión. Los totales sin dimensión no se pasan por aquí.
  */
-export function applySmallCells(rows: DimensionRow[]): SafeRow[] {
+export function applySmallCells(rows: DimensionRow[], privacy: CellPrivacy = 'small_cells'): SafeRow[] {
+  // Régimen exacto: cifras reales, sin centinela ni agrupación (mismo orden de entrada).
+  if (privacy === 'exact') return rows.map((r) => ({ key: r.key, count: r.count, money: { ...r.money } }));
   // Paso 1 — ocultar toda fila con N < 5 (conteo centinela + dinero en null).
   const safe: SafeRow[] = rows.map((r) =>
     r.count < SMALL_CELL_THRESHOLD
