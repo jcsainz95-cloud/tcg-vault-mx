@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { ShieldCheck, BadgeCheck } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
-import { fetchSupportContactForServer } from './support-contact-server';
+import { fetchSupportContactForServer } from '@/lib/support-contact-server';
 
 export async function generateMetadata({
   params,

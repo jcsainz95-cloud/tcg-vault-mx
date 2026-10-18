@@ -107,6 +107,43 @@ describe('UX-MKT-16 · la llave se ve una vez y no se guarda', () => {
     await waitFor(() => expect(api.listMarketingTokens).toHaveBeenCalledTimes(2));
   });
 
+  it('D6: mientras se emite la llave, «Cancelar», `Esc`, clic fuera y la X no cierran; al terminar, sí', async () => {
+    let resolveIssue!: (v: unknown) => void;
+    api.issueMarketingToken.mockImplementationOnce(() => new Promise((r) => (resolveIssue = r)));
+    const u = userEvent.setup();
+    renderPanel();
+    await screen.findByText('Nadie tiene acceso ahora.');
+    await u.click(screen.getByTestId('mkt-access-create'));
+    const dlg = screen.getByTestId('mkt-createkey-dialog');
+    await u.type(within(dlg).getByLabelText('Nombre de la llave'), 'Analista');
+    await u.click(screen.getByTestId('mkt-createkey-submit'));
+
+    const cancel = screen.getByTestId('mkt-createkey-cancel');
+    await waitFor(() => expect(cancel).toBeDisabled());
+    fireEvent.click(cancel);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(dlg.parentElement as HTMLElement); // clic fuera
+    expect(within(dlg).queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.getByTestId('mkt-createkey-dialog')).toBeInTheDocument();
+
+    resolveIssue({ id: 't9', label: 'Analista', token: SECRET, createdAt: 'x', expiresAt: '2027-10-18T00:00:00Z' });
+    expect(await screen.findByTestId('mkt-newkey-dialog')).toBeInTheDocument();
+    expect(api.issueMarketingToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('D6: sin petición en curso, «Cancelar» y `Esc` sí cierran el diálogo de crear', async () => {
+    const u = userEvent.setup();
+    renderPanel();
+    await screen.findByText('Nadie tiene acceso ahora.');
+    await u.click(screen.getByTestId('mkt-access-create'));
+    expect(screen.getByTestId('mkt-createkey-cancel')).toBeEnabled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('mkt-createkey-dialog')).toBeNull());
+    await u.click(screen.getByTestId('mkt-access-create'));
+    await u.click(screen.getByTestId('mkt-createkey-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('mkt-createkey-dialog')).toBeNull());
+  });
+
   it('«Copiar» usa el portapapeles y lo anuncia; si falla, lo dice', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

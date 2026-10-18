@@ -288,12 +288,15 @@ export function NewKeyDialog({ onClose }: { onClose: () => void }) {
   return (
     <MktDialog
       open
+      // D6 (techlead, 2026-10-18): mientras la llave se emite, ni «Cancelar» ni `Esc` ni clic fuera cierran: si el
+      // diálogo se desmontara a mitad del `POST`, la llave quedaría emitida en el servidor y su claro, perdido.
+      dismissible={!pending}
       onClose={onClose}
       title={t('create')}
       testId="mkt-createkey-dialog"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={pending} data-testid="mkt-createkey-cancel">
             {/* mismo texto que «Cancelar» de anotaciones */}
             <CancelLabel />
           </Button>

@@ -15,7 +15,10 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   `como-funciona.es.ts` solo COMPONE FAQ por id (marketing no tiene texto propio de esa página).
 - **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ (mensual ⇒ 2026-11-11; P19 ⇒ 2026-11-05). Al vencer,
   la FAQ sale de la página, del `FAQPage`, de `/como-funciona`, del sitemap y de `llms.txt` (`lib/seo-content.ts`,
-  `revalidate = 3600`, fecha en CDMX). ⚠️ Si nadie copia la revisión del 11-nov, `/preguntas` queda vacía el 12-nov.
+  `revalidate = 3600`, fecha en CDMX). **Aviso (R1):** `seo-content.test.ts` «⏳ R1» usa el reloj real y se pone ROJO
+  7 días antes del `validThrough` más cercano (`faqsExpiringSoon`); con los datos de hoy, el **2026-10-29** (P19). Se
+  apaga re-midiendo la FAQ, no tocando la prueba. Una **guía que cita una FAQ vencida se retira entera** (404, fuera
+  del índice, del sitemap y de `llms.txt`; `guideCitationsLive`), p. ej. `que-es-nm` sin P7 desde el 12-nov.
 - **JSON-LD:** `/preguntas` `FAQPage` (mismo arreglo que se pinta) · `/como-funciona` y `/guias` `WebPage` · cada guía
   `Article` · todas `Organization` + `BreadcrumbList`; catálogo ganó `BreadcrumbList`. Canonical siempre `/es/…`
   (solo hay español; `/en/…` sirve el mismo texto con «available in Spanish only», sin hreflang).
@@ -23,8 +26,9 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   `messages`). Sin «16 %»: la tasa de IVA viaja por publicación (`ivaRatePct`).
 - **Candados:** `lib/seo-content.test.ts` (frases prohibidas en contenido y trinquete en `messages/`, vigencia, sitemap),
   `_content/content-pages.test.tsx` (DOM = JSON-LD renderizando la página real), `app/sitemap-robots.test.ts`,
-  `lib/llms-txt.test.ts`. Trinquete con 2 infractoras PREVIAS (`home.sellBody`, `buylist.subtitle`: «nosotros
-  autenticamos»), fuera del namespace `seo.*` de este encargo.
+  `lib/llms-txt.test.ts`. Trinquete con 2 infractoras PREVIAS ×2 idiomas (`home.sellBody`, `buylist.subtitle`:
+  «nosotros autenticamos»), copy que decide el dueño: `KNOWN_OFFENDERS` con dueño, medición y caducidad 2026-11-18,
+  y cada excepción debe seguir ofendiendo (ficha `TECH_DEBT.md` FE-MKT-D4a).
 - **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
   (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
 
@@ -33,7 +37,9 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
 **Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
 (`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
 `frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
-`src/lib/mock/marketing.ts` (modo demo/e2e de mocks); tipos aditivos `Marketing*` al final de `src/types/contract.ts`.
+`src/lib/mock/marketing.ts` (modo demo/e2e de mocks; textos = copia literal del servicio real, cobrada por
+`mock/marketing.parity.test.ts` contra `marketing-analytics.service.ts` y §MKT.G.4); tipos aditivos `Marketing*` al
+final de `src/types/contract.ts`.
 **Contra el stack real: NO CORRIDO** (el backend de §MKT.G se construía en paralelo).
 - **Menú:** «Marketing» en Administración, `superAdminOnly` + `hiddenUnlessSuperAdmin` (§MKT.G.1/.G.7). Sin
   `SuperAdminOnly` en la página: quien no tiene permiso recibe `403` del servidor y ve el aviso neutro (§MKT-UX.11).
@@ -45,7 +51,8 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   dato. Aviso de descargas: `exactNotice` **sustituye** a `helpAlways` con `exact`; ninguno mientras carga. El payload
   vive solo en la caché en memoria de TanStack (sin persistencia en este proyecto).
 - **Llave del analista:** el claro va de la respuesta del `POST` al `useState` del diálogo **sin `useMutation`**: su
-  `data` quedaba en la `MutationCache` mientras el diálogo estaba abierto (lo cazó el candado UX-MKT-16).
+  `data` quedaba en la `MutationCache` mientras el diálogo estaba abierto (lo cazó el candado UX-MKT-16). Mientras el
+  `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6).
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
 - **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (72 pruebas) + `e2e/marketing-panel.spec.ts` (sin `@real`).
@@ -20148,7 +20155,7 @@ entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en l
 2. **`useSupportContact`**: `['support-contact']`, 5 min; mientras carga `contact = null` ⇒ `Skeleton` y «Copiar» apagado
    (⛔ nunca el respaldo antes de tiempo); error ⇒ `SUPPORT_CONTACT_FALLBACK`. Los contactos neutros (confirmación de
    invitado, enlace caducado, pie de `/pedido`) pintan su frase cuando el correo ya llegó. Términos (servidor): `fetch`
-   con `revalidate: 300` en `terminos/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra).
+   con `revalidate: 300` en `lib/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra; movido desde `terminos/` el 2026-10-18, D7, porque `/llms.txt` también lo usa).
    ⚠️ **Siguen con el valor fijo** (fuera de la lista F-9, zonas de buylist/reclamo): `ClaimableOrdersNotice.tsx:118` y
    `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
 3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de

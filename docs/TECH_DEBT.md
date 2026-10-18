@@ -7,6 +7,32 @@
 
 ---
 
+## Frontend · 2026-10-18 · §MKT tienda + Panel — rechazo del techlead sobre `afd12b82` (R1, D4a, D5, D6, D7)
+
+> Dueño del código anotado: **frontend**. Sin dinero. Medido el 2026-10-18 sobre `afd12b82` + este pase.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| FE-MKT-R1 | CERRADA · FAQ caducaban sin aviso; guía `que-es-nm` se publicaba sin P7 | frontend | 2026-10-18 | `seo-content.test.ts` «⏳ R1» (reloj real, rojo desde 7 días antes del `validThrough` más cercano) + «guía con FAQ vencida» + `content-pages.test.tsx` «R1: … 404» verdes; rojo esperado el **2026-10-29** (P19) |
+| FE-MKT-D4a | ABIERTA · Copy «nosotros autenticamos / we authenticate» en `home.sellBody` y `buylist.subtitle` (es+en) | dueño decide el texto → frontend lo aplica | 2026-10-18 | `KNOWN_OFFENDERS` vacío en `seo-content.test.ts`. Caduca **2026-11-18** (la prueba «caducidad vigente» se pone roja ese día con el reloj real); corregir una cadena sin sacarla de la lista también pone rojo |
+| FE-MKT-D5 | CERRADA · Mock del Panel desviado del servidor (c7 y más) | frontend | 2026-10-18 | `lib/mock/marketing.parity.test.ts` verde (32 casos: 8 pantallas × semana/mes × exact/small_cells) |
+| FE-MKT-D6 | CERRADA · «Cancelar»/`Esc` cerraban el diálogo de crear llave a mitad del `POST` | frontend | 2026-10-18 | `AnalystAccessPanel.test.tsx` «D6: mientras se emite la llave…» verde |
+| FE-MKT-D7 | CERRADA · `llms.txt` importaba un helper desde `terminos/` | frontend | 2026-10-18 | `grep -rn "terminos/support-contact-server" frontend/src` ⇒ 0 |
+| FE-DOC-1 | ABIERTA · `docs/FRONTEND_NOTES.md` tiene 22 450 líneas (tope ~1 500) | frontend | 2026-10-18 | `wc -l docs/FRONTEND_NOTES.md` ≤ 1 500 (compactar por release; lo histórico a git) |
+
+- **D5, `| string` de `MarketingCell` (`types/contract.ts`)**: NO se quita. Dato: el propio contrato lo define así
+  (`API_CONTRACT.md §MKT.G.5`: `Cell = number | '< 5' | 'oculta' | string | null`) y el servidor también
+  (`marketing-aggregates.types.ts:11`): las columnas `text` (carta, estado, periodo) viajan como `string`. Quitarlo
+  rompería el tipo de las filas de texto y divergiría del contrato. Si se quiere estrechar, es cambio de contrato
+  (arquitecto, regla 9).
+- **D5, alcance real de la deriva**: no era solo c7. Medido contra el servicio (diff del mock en `afd12b82` contra este pase): 14 títulos distintos (más `d4b` y `h1`, que faltaban), 5 motivos
+  «NO MEDIDO», la leyenda de fuentes, la nota de cobertura, y las columnas de a3/d1/d3/d4.
+- **R1, decisión aplicada**: guía que cita una FAQ vencida ⇒ se retira entera (404 en su página, fuera del índice,
+  del sitemap y de `llms.txt`); vuelve sola al re-medir la FAQ. Citar una FAQ inexistente o retenida pone rojo
+  `seo-content.test.ts` («toda FAQ citada por una guía existe»).
+
+---
+
 ## Frontend · 2026-10-18 · stream «Card Show R3 (rediseño landing)» (rama `feat/cardshow-landing-redesign`)
 
 > Deuda anotada a petición del techlead durante la RONDA 3 del rediseño de `/card-show`. Dueño del código

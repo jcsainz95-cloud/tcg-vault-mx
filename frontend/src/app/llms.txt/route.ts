@@ -1,5 +1,5 @@
 import { buildLlmsTxt } from '@/lib/llms-txt';
-import { fetchSupportContactForServer } from '../[locale]/(storefront)/terminos/support-contact-server';
+import { fetchSupportContactForServer } from '@/lib/support-contact-server';
 
 /**
  * ⭐ §MKT tienda §E7 — `GET /llms.txt` (brief v1 §3.3), público, `text/markdown`. Fuera del i18n y del

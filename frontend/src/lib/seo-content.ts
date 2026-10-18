@@ -141,9 +141,45 @@ export function guideDescription(guide: Guide, now: Date = new Date()): string {
   return first.length > 155 ? `${first.slice(0, 152).trimEnd()}…` : first;
 }
 
-/** Guías publicables HOY: todas las que tienen al menos un bloque con texto. */
+/**
+ * Una guía que CITA una FAQ (bloque `faq`) solo se publica si TODAS sus FAQ citadas están vigentes hoy.
+ * Decisión (techlead R1, 2026-10-18): una guía con una cita vencida se RETIRA ENTERA —sale de su página (404), del
+ * índice `/guias`, del sitemap y de `llms.txt`— en vez de publicarse sin la definición que la sostiene (p. ej.
+ * `que-es-nm` sin P7 serían 4 viñetas sin decir qué es NM). Vuelve sola cuando se re-mide la FAQ y se mueve su
+ * `validThrough`. Candado: `seo-content.test.ts` («guía con FAQ vencida»).
+ */
+export function guideCitationsLive(guide: Guide, now: Date = new Date()): boolean {
+  return guide.blocks.every((b) => b.kind !== 'faq' || (!!b.faqId && faqAnswer(b.faqId, now) !== undefined));
+}
+
+/** Guías publicables HOY: con todas sus FAQ citadas vigentes y al menos un bloque con texto. */
 export function publishedGuides(now: Date = new Date()): Guide[] {
-  return GUIDES.filter((g) => guideTexts(g, now).length > 0);
+  return GUIDES.filter((g) => guideCitationsLive(g, now) && guideTexts(g, now).length > 0);
+}
+
+/** Días de aviso antes del `validThrough` más cercano (techlead R1, 2026-10-18). */
+export const FAQ_EXPIRY_WARN_DAYS = 7;
+
+/** Días de calendario entre dos fechas `YYYY-MM-DD` (b − a). */
+function daysBetweenYmd(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * FAQ cuyo `validThrough` cae dentro del aviso (≤ `FAQ_EXPIRY_WARN_DAYS` días desde hoy en CDMX) o ya pasó, la más
+ * próxima primero. Vacío ⇒ ninguna vence en la ventana. Lo cobra `seo-content.test.ts` con el RELOJ REAL (mismo
+ * patrón que `scripts/check-dast-report-only-expiry.sh`: `now` inyectable solo para el canario).
+ */
+export function faqsExpiringSoon(
+  now: Date = new Date(),
+  faqs: readonly PublicFaq[] = PUBLIC_FAQS,
+  warnDays: number = FAQ_EXPIRY_WARN_DAYS,
+): { id: string; validThrough: string; daysLeft: number }[] {
+  const today = todayInMexico(now);
+  return faqs
+    .map((f) => ({ id: f.id, validThrough: f.validThrough, daysLeft: daysBetweenYmd(today, f.validThrough) }))
+    .filter((f) => f.daysLeft <= warnDays)
+    .sort((a, b) => a.daysLeft - b.daysLeft || a.id.localeCompare(b.id));
 }
 
 /**
