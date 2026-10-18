@@ -1,3 +1,36 @@
+# VEREDICTO BLUE TEAM — **Delta CSP mapa Card Show** (§CARDSHOW) · SHA **`5049a34`** (rama `feat/cardshow-landing-redesign`) · 2026-10-18 · seguridad
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `5049a34`
+> **0 críticas · 0 altas · 0 medias · 0 bajas nuevas de código · 1 bandera legal/privacidad (no bloqueante, con disparador).**
+> El delta CSP autorizado por JC (2026-10-18) es el **mínimo** para el embed del mapa, **ningún otro directivo cambió**, el candado `csp.test.ts` sigue en **igualdad estricta** y **muerde** (medido con ablación), y los componentes nuevos (iframe del mapa, `HeroExplosion`, formularios) **no introducen sink peligroso ni fuga de datos**. El gate de DoD (sin críticos/altos abiertos) **SE CUMPLE** para este cambio. Sin condiciones bloqueantes ⇒ no hay triple dueño/fecha/candado que exigir.
+
+## Procedencia (O-9 / O-14) — sobre qué medí
+- **Veredicto emitido sobre `5049a34`** (`git rev-parse 5049a34 = 5049a341c15e…`), HEAD de `origin/feat/cardshow-landing-redesign`. La sesión está en `release/card-show` (`858e908`); **medí sobre copia del árbol ENTERO anclada al sha** con `git archive 5049a34 | tar -x` en mi scratch (`…/scratchpad/tree-5049a34`). `cat /proc/loadavg` = **0.44** (O-16, holgado; no levanté navegador).
+- **[MEDIDO] delta CSP:** `git diff origin/production...origin/feat/cardshow-landing-redesign -- frontend/src/security/csp.ts` ⇒ **un solo hunk**: 3 líneas de comentario + **una** entrada `'https://www.google.com'` dentro del array `frame` (`csp.ts:112-121`), que alimenta `frame-src` (`csp.ts:142`). Ningún otro directivo tocado.
+- **[MEDIDO] candado + ablación:** `vitest run src/security/csp.test.ts` sobre la copia ⇒ **24/24 verde**. Ablación mía (inserté `'https://evil.example.com'` en `frame-src`) ⇒ **1 ROJO** (el `toEqual` de lista cerrada muerde); restaurado ⇒ **24/24 verde**.
+- **[MEDIDO] barrido de sinks:** `grep` de `innerHTML|dangerouslySetInnerHTML|eval|new Function|document.write|fetch(|localStorage|sessionStorage|document.cookie` en `app/card-show/**`, `security/**`, `content/card-show.ts`, `HeroExplosion.tsx` y los tres formularios ⇒ **cero** coincidencias accionables.
+
+## Hallazgos (revisión por el pliego del encargo)
+
+| # | Qué revisé | Resultado | Procedencia |
+|---|---|---|---|
+| 1 | Delta CSP = mínimo para el embed | **OK** — solo `frame-src += https://www.google.com` (host exacto del iframe, sin ruta ni comodín). Es el mínimo: el embed carga en un `<iframe>`, que `frame-src` gobierna. | `[MEDIDO]` git diff |
+| 1b | Ningún otro directivo cambió | **OK** — `script-src`/`img-src`/`connect-src`/`style-src`/`default-src`/`font-src`/`worker-src`/`object-src`/`base-uri`/`form-action` **intactos**. El comentario del delta lo afirma y el diff lo confirma. | `[MEDIDO]` git diff + `[código]` csp.ts:104-148 |
+| 1c | `frame-ancestors` / clickjacking NO tocado | **OK** — `frame-ancestors 'none'` (`csp.ts:147`) sigue igual; el delta toca `frame-src` (lo que NOSOTROS incrustamos), **no** `frame-ancestors` (quién nos incrusta). Antiframing intacto. | `[código]` csp.ts:147 |
+| 2 | iframe del mapa | **OK** — sin API key (`mapsEmbedUrl = https://www.google.com/maps?q=…&output=embed`), con `title`, `src`, `loading="lazy"`, `referrerPolicy="no-referrer-when-downgrade"`; el `<a>` externo lleva `rel="noopener noreferrer"`. | `[código]` page.tsx:285-300, card-show.ts:104-107 |
+| 2b | Privacidad del embed | **BANDERA** (no bloqueante) — al cargar el mapa el visitante solicita contenido a Google (IP/cookies a Google). `FRONTEND_NOTES §CARDSHOW-MOTION` lo reconoce. El **aviso de privacidad INTEGRAL** (`content/legal/privacidad.es.ts §5`) **NO** menciona embeds de terceros / Google Maps. Ver banderas. | `[código]` FRONTEND_NOTES:58-65,137-142 |
+| 3 | `csp.test.ts` en igualdad estricta | **OK** — `toEqual` de lista cerrada incluyendo `https://www.google.com` (`csp.test.ts:110-116`); la ablación demuestra que muerde ante cualquier origen extra. El candado **no se debilitó**: sigue cerrado. | `[MEDIDO]` ablación 1/1 rojo→verde |
+| 4 | `HeroExplosion.tsx` + formularios | **OK** — `HeroExplosion` es canvas 2D decorativo (`getContext('2d')`, `requestAnimationFrame`, `matchMedia`); sin `innerHTML`/`eval`/red/almacenamiento. Formularios envían por `submitLead → POST /card-show/leads`; sin log de PII en cliente, sin sink. | `[MEDIDO]` grep + `[código]` HeroExplosion.tsx:56-188, LeadVisitorForm.tsx:7,24 |
+
+## Bandera para el humano (legal/privacidad) — deuda aceptada, NO bloqueante
+- **El aviso de privacidad integral no refleja el embed de Google Maps.** Impacto: al incrustar el mapa, el navegador del visitante contacta a Google (IP, posibles cookies) sin que el aviso (`content/legal/privacidad.es.ts §5`) lo declare. Riesgo bajo (landing pública, el embed no transmite PII capturada por nosotros; es la exposición inherente a cualquier mapa de Google embebido). **Dueño: product-owner + arquitecto** (dueños del texto legal; la landing es texto, no lo toca seguridad ni frontend). **Disparador para abordarlo:** antes de pasar la CSP a `enforce` para tráfico real sostenido, o si una revisión legal/INAI (LFPDPPP) lo exige, se añade al §5 la mención de contenido embebido de terceros. No bloquea la publicación de este delta. Este punto ya está anotado como pregunta al arquitecto en `FRONTEND_NOTES:137-142` (BLOQ-8), relacionado pero distinto (aquel es sobre Jakomi/torneo).
+
+## Enrutado de hallazgos
+- Ningún hallazgo bloqueante. La única acción pendiente (actualizar §5 del aviso) se enruta a **product-owner/arquitecto**, no es gate de este cambio.
+- Nota de higiene documental (no de seguridad): `docs/SECURITY_NOTES.md` = 16 975+ líneas, muy por encima del tope ~1 500 (CLAUDE.md). La compactación corresponde al dueño del doc (seguridad) en un pase propio; no se hace dentro de este gate para no reescribir historia que otros veredictos citan.
+
+---
+
 # VEREDICTO BLUE TEAM — **Card Show RELEASE M-84..M-89** (§CARDSHOW) · SHA **`7cc18db`** (rama `release/card-show`; código del Card Show = `40c8b97`) · 2026-10-17 · seguridad
 
 > ## VEREDICTO: ✅ **APROBADO CON CONDICIONES** sobre `7cc18db`
