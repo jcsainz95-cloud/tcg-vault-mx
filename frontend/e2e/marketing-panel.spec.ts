@@ -1,6 +1,16 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { IS_REAL, loginAs } from './utils/auth';
+
+/**
+ * Enlace «Marketing» del menú lateral, por `href` y acotado al `<aside>` del menú.
+ *
+ * ⛔ NO por nombre exacto: el nombre accesible del enlace del súper-admin es «MarketingSúper» (lleva la etiqueta
+ * `admin.superAdminTag` dentro del `<a>`), así que `getByRole('link', { name: 'Marketing', exact: true })` daba 0
+ * para los DOS roles y la aserción negativa del operador no podía ponerse roja (QA, contra el stack real). Por `href`
+ * (`$=` para no depender del prefijo de locale; sin `?query`, que es lo que llevan las pestañas de la pantalla).
+ */
+const menuLink = (page: Page, path: string) => page.locator(`aside nav a[href$="${path}"]`);
 
 /**
  * Flujo del Panel de Marketing (`DESIGN_SYSTEM §MKT-UX`; contrato §MKT.E/§MKT.G): abrir el panel, cambiar de pantalla y
@@ -15,6 +25,9 @@ test.describe('admin · Marketing', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/marketing');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(t('es', 'admin.modules.marketing'));
+    // Positivo del menú (pareja del negativo del operador): el súper-admin SÍ ve «Marketing».
+    await expect(menuLink(page, '/admin/marketing')).toHaveCount(1);
+    await expect(menuLink(page, '/admin/marketing')).toContainText(t('es', 'admin.modules.marketing'));
 
     const tabs = page.getByRole('tablist', { name: t('es', 'admin.marketing.tabs.label') });
     await expect(tabs.getByRole('tab', { name: t('es', 'admin.marketing.tabs.a') })).toHaveAttribute('aria-selected', 'true');
@@ -66,6 +79,8 @@ test.describe('admin · Marketing', () => {
     await page.goto('/es/admin/marketing');
     await expect(page.getByTestId('mkt-forbidden')).toBeVisible();
     await expect(page.getByRole('tab')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: t('es', 'admin.modules.marketing'), exact: true })).toHaveCount(0);
+    // Testigo: el menú está pintado para el operador (si no, el 0 de abajo sería vacuo).
+    await expect(menuLink(page, '/admin/m4')).toHaveCount(1);
+    await expect(menuLink(page, '/admin/marketing')).toHaveCount(0);
   });
 });
