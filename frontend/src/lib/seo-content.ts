@@ -14,6 +14,21 @@ import { HOW_IT_WORKS_SECTIONS } from '@/content/seo/como-funciona.es';
 import { GUIDES, type Guide } from '@/content/seo/guides.es';
 import { organizationJsonLd, siteAbsoluteUrl } from '@/lib/seo';
 
+/**
+ * Origen del contenido. Por defecto, el contenido VIVO (`content/seo/*`); las pruebas de vigencia y sus canarios
+ * inyectan un fixture con fechas fijas (FE-MKT-T1) para que la renovación mensual de las FAQ no las reescriba.
+ */
+export interface ContentSource {
+  faqs: readonly PublicFaq[];
+  guides: readonly Guide[];
+  howItWorks: readonly { group: FaqGroup; faqIds: readonly string[] }[];
+}
+export const LIVE_CONTENT: ContentSource = {
+  faqs: PUBLIC_FAQS,
+  guides: GUIDES,
+  howItWorks: HOW_IT_WORKS_SECTIONS,
+};
+
 /** Zona horaria de las fechas de vigencia (la tienda opera en CDMX). */
 const TZ = 'America/Mexico_City';
 
@@ -51,17 +66,22 @@ export function groupFaqs(faqs: readonly PublicFaq[]): { group: FaqGroup; faqs: 
 /** Secciones de `/como-funciona` con las FAQ vigentes de cada una (vencidas fuera). */
 export function howItWorksSections(
   now: Date = new Date(),
+  src: ContentSource = LIVE_CONTENT,
 ): { group: FaqGroup; faqs: PublicFaq[] }[] {
-  const live = new Map(publishedFaqs(now).map((f) => [f.id, f]));
-  return HOW_IT_WORKS_SECTIONS.map((s) => ({
+  const live = new Map(publishedFaqs(now, src.faqs).map((f) => [f.id, f]));
+  return src.howItWorks.map((s) => ({
     group: s.group,
     faqs: s.faqIds.map((id) => live.get(id)).filter((f): f is PublicFaq => !!f),
   })).filter((s) => s.faqs.length > 0);
 }
 
 /** Texto de una FAQ pública por id (para guías que la citan); `undefined` si no está vigente. */
-export function faqAnswer(id: string, now: Date = new Date()): string | undefined {
-  return publishedFaqs(now).find((f) => f.id === id)?.answer;
+export function faqAnswer(
+  id: string,
+  now: Date = new Date(),
+  faqs: readonly PublicFaq[] = PUBLIC_FAQS,
+): string | undefined {
+  return publishedFaqs(now, faqs).find((f) => f.id === id)?.answer;
 }
 
 /** URL canónica (siempre `/es`: el contenido solo existe en español). */
@@ -126,11 +146,15 @@ export function articleJsonLd(guide: Guide): Record<string, unknown> {
 }
 
 /** Texto plano de los bloques de una guía (resuelve las FAQ citadas por id). */
-export function guideTexts(guide: Guide, now: Date = new Date()): string[] {
+export function guideTexts(
+  guide: Guide,
+  now: Date = new Date(),
+  faqs: readonly PublicFaq[] = PUBLIC_FAQS,
+): string[] {
   return guide.blocks.flatMap((b) => {
     if (b.kind === 'p') return b.text ? [b.text] : [];
     if (b.kind === 'ol') return [...(b.items ?? [])];
-    const answer = b.faqId ? faqAnswer(b.faqId, now) : undefined;
+    const answer = b.faqId ? faqAnswer(b.faqId, now, faqs) : undefined;
     return answer ? [answer] : [];
   });
 }
@@ -148,13 +172,17 @@ export function guideDescription(guide: Guide, now: Date = new Date()): string {
  * `que-es-nm` sin P7 serían 4 viñetas sin decir qué es NM). Vuelve sola cuando se re-mide la FAQ y se mueve su
  * `validThrough`. Candado: `seo-content.test.ts` («guía con FAQ vencida»).
  */
-export function guideCitationsLive(guide: Guide, now: Date = new Date()): boolean {
-  return guide.blocks.every((b) => b.kind !== 'faq' || (!!b.faqId && faqAnswer(b.faqId, now) !== undefined));
+export function guideCitationsLive(
+  guide: Guide,
+  now: Date = new Date(),
+  faqs: readonly PublicFaq[] = PUBLIC_FAQS,
+): boolean {
+  return guide.blocks.every((b) => b.kind !== 'faq' || (!!b.faqId && faqAnswer(b.faqId, now, faqs) !== undefined));
 }
 
 /** Guías publicables HOY: con todas sus FAQ citadas vigentes y al menos un bloque con texto. */
-export function publishedGuides(now: Date = new Date()): Guide[] {
-  return GUIDES.filter((g) => guideCitationsLive(g, now) && guideTexts(g, now).length > 0);
+export function publishedGuides(now: Date = new Date(), src: ContentSource = LIVE_CONTENT): Guide[] {
+  return src.guides.filter((g) => guideCitationsLive(g, now, src.faqs) && guideTexts(g, now, src.faqs).length > 0);
 }
 
 /** Días de aviso antes del `validThrough` más cercano (techlead R1, 2026-10-18). */
@@ -188,14 +216,15 @@ export function faqsExpiringSoon(
  */
 export function contentSitemapPaths(
   now: Date = new Date(),
+  src: ContentSource = LIVE_CONTENT,
 ): { path: string; lastModified: string }[] {
   const out: { path: string; lastModified: string }[] = [];
-  const faqs = publishedFaqs(now);
+  const faqs = publishedFaqs(now, src.faqs);
   if (faqs.length > 0) out.push({ path: '/preguntas', lastModified: FAQ_LAST_REVIEW });
-  if (howItWorksSections(now).length > 0) {
+  if (howItWorksSections(now, src).length > 0) {
     out.push({ path: '/como-funciona', lastModified: FAQ_LAST_REVIEW });
   }
-  const guides = publishedGuides(now);
+  const guides = publishedGuides(now, src);
   if (guides.length > 0) {
     const latest = guides.map((g) => g.datePublished).sort().at(-1)!;
     out.push({ path: '/guias', lastModified: latest });

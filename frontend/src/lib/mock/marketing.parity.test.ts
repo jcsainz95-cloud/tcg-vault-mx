@@ -91,14 +91,16 @@ const CASES = SCREENS.flatMap((screen) => VARIANTS.map((v) => [`${screen} · ${v
 /**
  * Rótulos ESTRUCTURALES de fila (no datos de demo) y de DÓNDE salen en el servidor. c7 agrupa con su propio
  * literal («Otros estados», PM-B2); d1 con el de la supresión complementaria (`small-cells.ts OTROS_LABEL`):
- * confundirlos fue justo la deriva de c7.
+ * confundirlos fue justo la deriva de c7. Desde 2026-10-18 c7 pasa también por `safeRows` → `applySmallCells`
+ * (`marketing-analytics.service.ts c7ByState`), así que en `small_cells` puede emitir legítimamente `OTROS_LABEL`
+ * además de sus propios literales: c7 acepta los dos y ninguno más.
  */
 const inService = (v: string) => SERVICE.includes(`'${v}'`);
 const STRUCTURAL_TEXT: Record<string, { applies: (value: string) => boolean; ok: (value: string) => boolean }> = {
   a1: { applies: () => true, ok: inService },
   a2: { applies: () => true, ok: inService },
   a3: { applies: () => true, ok: inService },
-  c7: { applies: (v) => /^(Otros|Recogida)/.test(v), ok: inService },
+  c7: { applies: (v) => /^(Otros|Recogida)/.test(v), ok: (v) => inService(v) || v === SERVER_OTROS },
   d1: { applies: (v) => v.startsWith('Otros'), ok: (v) => v === SERVER_OTROS },
 };
 
@@ -114,6 +116,18 @@ describe('D5 · las fuentes se leyeron (si no, la paridad sería vacía)', () =>
     expect(SERVER_COVERAGE).toBeTruthy();
     expect(SERVER_OTROS).toBeTruthy();
     for (const [id, e] of SERVER) expect(e.titles.size, `${id} con un solo título en el servidor`).toBe(1);
+  });
+});
+
+describe('D5 · rótulos estructurales de c7', () => {
+  it('c7 acepta «Otros estados», «Recogida en persona» y OTROS_LABEL; rechaza cualquier otro «Otros …»', () => {
+    const c7 = STRUCTURAL_TEXT.c7;
+    for (const v of ['Otros estados', 'Recogida en persona', SERVER_OTROS!]) {
+      expect(c7.applies(v), v).toBe(true);
+      expect(c7.ok(v), v).toBe(true);
+    }
+    expect(c7.ok('Otros (< 3 c/u)')).toBe(false);
+    expect(c7.ok('Otros')).toBe(false);
   });
 });
 

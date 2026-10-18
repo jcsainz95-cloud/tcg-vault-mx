@@ -19,6 +19,7 @@ import {
   todayInMexico,
 } from './seo-content';
 import { buildLlmsTxt } from './llms-txt';
+import { FIXTURE_CONTENT as FIX, FX_NOW } from './seo-content.fixture';
 
 /** Un día dentro de la vigencia de la primera publicación (manual v5). */
 const NOW = new Date('2026-10-18T18:00:00Z');
@@ -53,13 +54,18 @@ describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v5)', () => {
     for (const h of HELD_FAQS) expect(ids).not.toContain(h.id);
   });
 
-  it('vigencia: hoy se publican las 23; P19 sale el 2026-11-06 (hora CDMX); todas salen tras el 2026-11-11', () => {
+  it('hoy (NOW) se publican las 23 FAQ vivas', () => {
     expect(publishedFaqs(NOW)).toHaveLength(23);
-    // 2026-11-06 05:59Z = 2026-11-05 23:59 en CDMX ⇒ P19 aún vigente.
-    expect(publishedFaqs(new Date('2026-11-06T05:59:00Z')).map((f) => f.id)).toContain('P19');
-    expect(publishedFaqs(new Date('2026-11-06T06:00:00Z')).map((f) => f.id)).not.toContain('P19');
-    expect(publishedFaqs(new Date('2026-11-11T23:00:00Z'))).toHaveLength(22);
-    expect(publishedFaqs(new Date('2026-11-12T07:00:00Z'))).toHaveLength(0);
+  });
+
+  // FE-MKT-T1: la regla de vigencia se prueba sobre el fixture (fechas fijas), no sobre las FAQ vivas.
+  it('vigencia (fixture): FX1 sale el 2030-01-06 (hora CDMX); todas salen tras el 2030-01-20', () => {
+    expect(publishedFaqs(FX_NOW, FIX.faqs)).toHaveLength(3);
+    // 2030-01-06 05:59Z = 2030-01-05 23:59 en CDMX ⇒ FX1 aún vigente.
+    expect(publishedFaqs(new Date('2030-01-06T05:59:00Z'), FIX.faqs).map((f) => f.id)).toContain('FX1');
+    expect(publishedFaqs(new Date('2030-01-06T06:00:00Z'), FIX.faqs).map((f) => f.id)).not.toContain('FX1');
+    expect(publishedFaqs(new Date('2030-01-10T23:00:00Z'), FIX.faqs).map((f) => f.id)).toEqual(['FX2', 'FX3']);
+    expect(publishedFaqs(new Date('2030-01-21T07:00:00Z'), FIX.faqs)).toHaveLength(0);
   });
 
   it('todayInMexico usa la fecha de CDMX, no la UTC', () => {
@@ -104,21 +110,21 @@ describe('⏳ R1 · caducidad de FAQ con el reloj real', () => {
     expect(soon, `FAQ por caducar: ${msg}. Re-medir en RESPUESTAS.md y copiar la revisión a faq.es.ts.`).toEqual([]);
   });
 
-  // Canario: la misma función, con el día inyectado, muerde exactamente en el borde.
-  it('canario: verde a 8 días de P19, rojo a 7, a 0 y ya vencida', () => {
-    expect(faqsExpiringSoon(new Date('2026-10-28T18:00:00Z'))).toEqual([]);
-    expect(faqsExpiringSoon(new Date('2026-10-29T18:00:00Z'))).toEqual([
-      { id: 'P19', validThrough: '2026-11-05', daysLeft: 7 },
-    ]);
-    expect(faqsExpiringSoon(new Date('2026-11-05T18:00:00Z'))[0]).toEqual({ id: 'P19', validThrough: '2026-11-05', daysLeft: 0 });
-    // 2026-11-04: P19 a 1 día y las 22 mensuales a 7 ⇒ todas en la ventana, la más próxima primero.
-    expect(faqsExpiringSoon(new Date('2026-11-04T18:00:00Z'))).toHaveLength(23);
-    expect(faqsExpiringSoon(new Date('2026-11-03T18:00:00Z')).map((f) => f.id)).toEqual(['P19']);
-    // Día CDMX, no UTC: 2026-10-29 03:00Z sigue siendo 2026-10-28 en CDMX ⇒ verde.
-    expect(faqsExpiringSoon(new Date('2026-10-29T03:00:00Z'))).toEqual([]);
-    const late = faqsExpiringSoon(new Date('2026-11-06T18:00:00Z'));
-    expect(late[0]).toEqual({ id: 'P19', validThrough: '2026-11-05', daysLeft: -1 });
-    expect(late).toHaveLength(23); // las 22 mensuales (2026-11-11) entran en la ventana con P19
+  // Canario: la misma función, con el día inyectado y el FIXTURE (FE-MKT-T1: fechas que no se renuevan), muerde
+  // exactamente en el borde.
+  it('canario (fixture): verde a 8 días de FX1, rojo a 7, a 0 y ya vencida', () => {
+    const soon = (iso: string) => faqsExpiringSoon(new Date(iso), FIX.faqs);
+    expect(soon('2029-12-28T18:00:00Z')).toEqual([]);
+    expect(soon('2029-12-29T18:00:00Z')).toEqual([{ id: 'FX1', validThrough: '2030-01-05', daysLeft: 7 }]);
+    expect(soon('2030-01-05T18:00:00Z')[0]).toEqual({ id: 'FX1', validThrough: '2030-01-05', daysLeft: 0 });
+    // 2030-01-03: FX1 a 2 días y FX2 a 7 ⇒ ambas en la ventana, la más próxima primero; FX3 (a 17) fuera.
+    expect(soon('2030-01-03T18:00:00Z').map((f) => f.id)).toEqual(['FX1', 'FX2']);
+    expect(soon('2030-01-02T18:00:00Z').map((f) => f.id)).toEqual(['FX1']);
+    // Día CDMX, no UTC: 2029-12-29 03:00Z sigue siendo 2029-12-28 en CDMX ⇒ verde.
+    expect(soon('2029-12-29T03:00:00Z')).toEqual([]);
+    const late = soon('2030-01-06T18:00:00Z');
+    expect(late[0]).toEqual({ id: 'FX1', validThrough: '2030-01-05', daysLeft: -1 });
+    expect(late.map((f) => f.id)).toEqual(['FX1', 'FX2']);
   });
 });
 
@@ -166,25 +172,24 @@ describe('§E6 guías', () => {
 
   /*
    * R1 (techlead, 2026-10-18): una guía que cita una FAQ VENCIDA se retira ENTERA, no se publica a medias.
-   * 2026-11-12 (CDMX) = P7 ya vencida (validThrough 2026-11-11) ⇒ `que-es-nm` fuera de la lista, del sitemap y de
-   * `llms.txt`; las otras 3 (sin citas) siguen.
+   * FE-MKT-T1: sobre el fixture. 2030-01-11 (CDMX) = FX2 ya vencida ⇒ `fx-cita` fuera de la lista, del sitemap y
+   * de `llms.txt`; `fx-sola` (sin citas) sigue, y FX3 mantiene `/preguntas` vivo.
    */
-  it('guía con FAQ vencida: sale entera de la lista, del sitemap y de llms.txt', () => {
-    const after = new Date('2026-11-12T18:00:00Z');
-    expect(guideCitationsLive(GUIDES[0], NOW)).toBe(true);
-    expect(guideCitationsLive(GUIDES[0], after)).toBe(false);
-    expect(publishedGuides(after).map((g) => g.slug)).toEqual([
-      'carta-pirata-5-senales',
-      'como-guardar-tus-cartas',
-      'que-es-una-sir',
-    ]);
-    const paths = contentSitemapPaths(after).map((p) => p.path);
-    expect(paths).not.toContain('/guias/que-es-nm');
-    expect(paths).toContain('/guias/que-es-una-sir');
-    const llms = buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: after });
-    expect(llms).not.toContain('/guias/que-es-nm');
-    expect(llms).not.toContain(GUIDES[0].headline);
-    expect(llms).toContain('/guias/que-es-una-sir');
+  it('guía con FAQ vencida (fixture): sale entera de la lista, del sitemap y de llms.txt', () => {
+    const after = new Date('2030-01-11T18:00:00Z');
+    const [cita] = FIX.guides;
+    expect(guideCitationsLive(cita, FX_NOW, FIX.faqs)).toBe(true);
+    expect(guideCitationsLive(cita, after, FIX.faqs)).toBe(false);
+    expect(publishedGuides(FX_NOW, FIX).map((g) => g.slug)).toEqual(['fx-cita', 'fx-sola']);
+    expect(publishedGuides(after, FIX).map((g) => g.slug)).toEqual(['fx-sola']);
+    const paths = contentSitemapPaths(after, FIX).map((p) => p.path);
+    expect(paths).toContain('/preguntas');
+    expect(paths).not.toContain('/guias/fx-cita');
+    expect(paths).toContain('/guias/fx-sola');
+    const llms = buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: after, src: FIX });
+    expect(llms).not.toContain('/guias/fx-cita');
+    expect(llms).not.toContain(cita.headline);
+    expect(llms).toContain('/guias/fx-sola');
   });
 });
 
@@ -274,9 +279,10 @@ describe('§E1 rutas de contenido para el sitemap', () => {
     for (const p of paths) expect(p.lastModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('una página sin FAQ vigentes sale del sitemap', () => {
-    const paths = contentSitemapPaths(new Date('2026-11-12T07:00:00Z')).map((p) => p.path);
+  it('una página sin FAQ vigentes sale del sitemap (fixture)', () => {
+    const paths = contentSitemapPaths(new Date('2030-01-21T07:00:00Z'), FIX).map((p) => p.path);
     expect(paths).not.toContain('/preguntas');
     expect(paths).not.toContain('/como-funciona');
+    expect(paths).toContain('/guias/fx-sola');
   });
 });

@@ -19,6 +19,9 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   7 días antes del `validThrough` más cercano (`faqsExpiringSoon`); con los datos de hoy, el **2026-10-29** (P19). Se
   apaga re-midiendo la FAQ, no tocando la prueba. Una **guía que cita una FAQ vencida se retira entera** (404, fuera
   del índice, del sitemap y de `llms.txt`; `guideCitationsLive`), p. ej. `que-es-nm` sin P7 desde el 12-nov.
+  Las pruebas de la REGLA (vigencia, canario, guía con cita vencida, sitemap, `llms.txt`) corren sobre
+  `lib/seo-content.fixture.ts` (fechas fijas, inyectado como `ContentSource`); solo «⏳ R1» mira los datos vivos.
+  Renovar las FAQ cada mes no obliga a tocar pruebas (FE-MKT-T1).
 - **JSON-LD:** `/preguntas` `FAQPage` (mismo arreglo que se pinta) · `/como-funciona` y `/guias` `WebPage` · cada guía
   `Article` · todas `Organization` + `BreadcrumbList`; catálogo ganó `BreadcrumbList`. Canonical siempre `/es/…`
   (solo hay español; `/en/…` sirve el mismo texto con «available in Spanish only», sin hreflang).
@@ -52,10 +55,12 @@ final de `src/types/contract.ts`.
   vive solo en la caché en memoria de TanStack (sin persistencia en este proyecto).
 - **Llave del analista:** el claro va de la respuesta del `POST` al `useState` del diálogo **sin `useMutation`**: su
   `data` quedaba en la `MutationCache` mientras el diálogo estaba abierto (lo cazó el candado UX-MKT-16). Mientras el
-  `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6).
+  `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6), y un segundo
+  envío (Enter, botón, «Reintentar») no emite otra llave: guarda síncrona `inFlight` (ref, no el estado `pending`,
+  que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
-- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (72 pruebas) + `e2e/marketing-panel.spec.ts` (sin `@real`).
+- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`).
 - **Desviaciones conscientes del diseño:** el `h1`/menú salen de `admin.modules.marketing` (candado P66-2), no de
   `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
   ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —

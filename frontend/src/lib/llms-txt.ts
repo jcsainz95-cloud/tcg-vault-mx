@@ -12,14 +12,15 @@
  */
 import es from '../../messages/es.json';
 import { siteAbsoluteUrl } from '@/lib/seo';
-import { publishedGuides, contentSitemapPaths } from '@/lib/seo-content';
+import { publishedGuides, contentSitemapPaths, LIVE_CONTENT, type ContentSource } from '@/lib/seo-content';
 
 /** Fecha de la última revisión del texto de `llms.txt`. */
 export const LLMS_LAST_REVIEW = '2026-10-18';
 
-export function buildLlmsTxt(opts: { supportContact: string; now?: Date }): string {
+export function buildLlmsTxt(opts: { supportContact: string; now?: Date; src?: ContentSource }): string {
   const now = opts.now ?? new Date();
-  const live = new Set(contentSitemapPaths(now).map((c) => c.path));
+  const src = opts.src ?? LIVE_CONTENT;
+  const live = new Set(contentSitemapPaths(now, src).map((c) => c.path));
   const url = (p: string) => siteAbsoluteUrl(`/es${p}`);
   const links: string[] = [
     `- [Catálogo](${url('/catalog')}): cartas Pokémon a la venta.`,
@@ -29,7 +30,7 @@ export function buildLlmsTxt(opts: { supportContact: string; now?: Date }): stri
   if (live.has('/preguntas')) links.push(`- [Preguntas frecuentes](${url('/preguntas')})`);
   if (live.has('/guias')) {
     links.push(`- [Guías](${url('/guias')})`);
-    for (const g of publishedGuides(now)) links.push(`  - [${g.headline}](${url(`/guias/${g.slug}`)})`);
+    for (const g of publishedGuides(now, src)) links.push(`  - [${g.headline}](${url(`/guias/${g.slug}`)})`);
   }
   return [
     '# TCG HUNT',
