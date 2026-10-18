@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 import { routing } from '@/i18n/routing';
 import { getSitemap } from '@/lib/api';
 import { siteAbsoluteUrl } from '@/lib/seo';
+import { contentSitemapPaths } from '@/lib/seo-content';
 
 /**
  * ⭐ v1.96⟨mkt-tienda⟩ (§E1) — `sitemap.xml` del App Router. Lista:
@@ -10,8 +11,9 @@ import { siteAbsoluteUrl } from '@/lib/seo';
  *  - una entrada por ficha A LA VENTA (carta y sellado) desde `GET /catalog/sitemap` (§MKT.B).
  *
  * Todas con `lastmod`. Las URL usan el locale por defecto (`es`), que es el canonical de cada ficha
- * (`localePrefix: 'always'`). ⛔ Las páginas de §E4/§E6 (`/como-funciona`, `/preguntas`, `/guias`) NO
- * se listan aún: no existen en esta ola (necesitan contenido de marketing).
+ * (`localePrefix: 'always'`). Las páginas de contenido de §E4/§E6 (`/preguntas`, `/como-funciona`,
+ * `/guias`, `/guias/<slug>`) salen de `contentSitemapPaths()` (`lib/seo-content.ts`) con su fecha de
+ * revisión/publicación como `lastmod`; una página sin contenido vigente (FAQ vencidas) NO se lista.
  *
  * Resiliente: si el backend no responde, se devuelven al menos las estáticas (nunca un 500 que deje
  * sin sitemap). Como el feed no es dato personal y cambia poco, se revalida cada hora.
@@ -39,6 +41,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: path === '' || path === '/catalog' || path === '/sellado' ? 'daily' : 'weekly',
   }));
 
+  const contentEntries: MetadataRoute.Sitemap = contentSitemapPaths(now).map((c) => ({
+    url: siteAbsoluteUrl(`/${locale}${c.path}`),
+    lastModified: c.lastModified,
+    changeFrequency: 'monthly',
+  }));
+
   let dynamicEntries: MetadataRoute.Sitemap = [];
   try {
     const feed = await getSitemap();
@@ -55,5 +63,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     dynamicEntries = [];
   }
 
-  return [...staticEntries, ...dynamicEntries];
+  return [...staticEntries, ...contentEntries, ...dynamicEntries];
 }

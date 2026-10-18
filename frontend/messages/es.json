@@ -6878,6 +6878,34 @@
       "energyPricesDiffer": "Las energías no tienen todas el mismo precio."
     }
   },
+  "seo": {
+    "nav": {
+      "faq": "Preguntas",
+      "howItWorks": "Cómo funciona",
+      "guides": "Guías"
+    },
+    "lastReview": "Última revisión: {date} · manual {version}",
+    "spanishOnly": "Este contenido está en español.",
+    "faq": {
+      "title": "Preguntas frecuentes",
+      "description": "Respuestas de TCG HUNT sobre compras, bóveda, envíos, venta de cartas y condición NM.",
+      "empty": "Estamos revisando estas respuestas. Vuelve pronto."
+    },
+    "howItWorks": {
+      "title": "Cómo funciona",
+      "description": "Cómo se compra, se guarda en la bóveda, se envía y se vende en TCG HUNT.",
+      "empty": "Estamos revisando esta página. Vuelve pronto."
+    },
+    "guides": {
+      "title": "Guías",
+      "description": "Guías del coleccionista de TCG HUNT: condición NM, cartas piratas, cómo guardar tus cartas y rarezas.",
+      "published": "Publicada: {date}",
+      "readGuide": "Leer la guía",
+      "ctaCatalog": "Ver el catálogo",
+      "ctaBuylist": "Cotiza la tuya",
+      "empty": "Estamos preparando las guías. Vuelve pronto."
+    }
+  },
   "locale": {
     "label": "Idioma",
     "es": "ES",

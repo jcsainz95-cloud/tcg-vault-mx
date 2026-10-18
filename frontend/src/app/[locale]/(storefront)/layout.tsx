@@ -50,6 +50,7 @@ function SkipLink() {
 function Footer() {
   const t = useTranslations('common');
   const tn = useTranslations('nav');
+  const ts = useTranslations('seo');
   // Footer legal (§17.3): «TCG HUNT · tcghunt.mx · © {año} [razón social]» en mono.
   // El dominio va SIEMPRE en minúsculas (§17.4) — se exceptúa del uppercase del bloque.
   // La razón social está abierta con el humano (P-21): `footer.legalEntity` data-driven.
@@ -65,6 +66,16 @@ function Footer() {
         {legalEntity ? ` ${legalEntity}` : ''}
       </p>
       <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {/* §MKT tienda §E4/§E6: páginas de contenido (guías enlazadas desde el pie, v1 §2.5). */}
+        <Link href="/como-funciona" className="text-text hover:text-accent">
+          {ts('nav.howItWorks')}
+        </Link>
+        <Link href="/preguntas" className="text-text hover:text-accent">
+          {ts('nav.faq')}
+        </Link>
+        <Link href="/guias" className="text-text hover:text-accent">
+          {ts('nav.guides')}
+        </Link>
         <Link href="/terminos" className="text-text hover:text-accent">
           {tn('terms')}
         </Link>

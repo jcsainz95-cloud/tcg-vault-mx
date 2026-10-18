@@ -6878,6 +6878,34 @@
       "energyPricesDiffer": "Not all energy cards have the same price."
     }
   },
+  "seo": {
+    "nav": {
+      "faq": "FAQ",
+      "howItWorks": "How it works",
+      "guides": "Guides"
+    },
+    "lastReview": "Last reviewed: {date} · manual {version}",
+    "spanishOnly": "This content is available in Spanish only.",
+    "faq": {
+      "title": "Frequently asked questions",
+      "description": "TCG HUNT answers about buying, the vault, shipping, selling your cards and NM condition.",
+      "empty": "We are reviewing these answers. Check back soon."
+    },
+    "howItWorks": {
+      "title": "How it works",
+      "description": "How buying, vault storage, shipping and selling work at TCG HUNT.",
+      "empty": "We are reviewing this page. Check back soon."
+    },
+    "guides": {
+      "title": "Guides",
+      "description": "TCG HUNT collector guides: NM condition, counterfeit cards, how to store your cards and rarities.",
+      "published": "Published: {date}",
+      "readGuide": "Read the guide",
+      "ctaCatalog": "Browse the catalog",
+      "ctaBuylist": "Get a quote for yours",
+      "empty": "We are preparing the guides. Check back soon."
+    }
+  },
   "locale": {
     "label": "Language",
     "es": "ES",
