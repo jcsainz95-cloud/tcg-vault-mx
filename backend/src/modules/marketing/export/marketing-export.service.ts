@@ -136,6 +136,7 @@ export class MarketingExportService {
     put('Fecha y hora de corte (UTC)', now.toISOString());
     put('Granularidad', 'Solo semana cerrada o mes cerrado (sin rango libre ni detalle por día) — PM-A1');
     put('Nota de privacidad', 'Celdas con N<5 ocultas: conteo «< 5» y sin MX$ (§5.2). Ninguna fila por pedido o solicitud.');
+    put('«oculta»', 'En un mes: cifra de 5 o más ocultada porque en alguna de sus semanas salió «< 5» (así el mes y sus semanas no se restan para despejarla).');
     // Notas de pantalla (la línea de cobertura de §MKT.G.4 incluida), sin repetir entre pantallas del libro.
     for (const note of [...new Set(payloads.flatMap((p) => p.notes ?? []))]) put('Nota', note);
     ws.addRow([]);
