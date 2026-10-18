@@ -138,9 +138,11 @@
   outline-offset: -4px;
 }
 
-/* --- Foco visible del mapa embebido (RONDA 3 M-5) ---
- * El `<iframe>` recibe foco al tabular; sin indicador no se ve. Anillo de marca sobre papel. */
-.cs-map-frame:focus-visible {
+/* --- Foco visible del mapa embebido (RONDA 4 IMPORTANTE-1, reemplaza al M-5 de R3) ---
+ * Un `<iframe>` enfocado NO casa `:focus-visible` en Chromium (ni `:focus-within` del padre), así que
+ * el anillo lo activa la isla `MapFocusRing` poniendo `.cs-map-focus` en el `<figure>` cuando el foco
+ * entra al iframe. Anillo de marca sobre papel, alrededor del marco. */
+.cs-map-focus .cs-map-frame {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }

@@ -5,6 +5,7 @@ import { Countdown } from './_components/Countdown';
 import { RegistrationForms } from './_components/RegistrationForms';
 import { StickyRegisterCta } from './_components/StickyRegisterCta';
 import { CardShowMotion } from './_components/CardShowMotion';
+import { MapFocusRing } from './_components/MapFocusRing';
 import { HeroTicket } from './_components/HeroTicket';
 import { HeroExplosion, type BurstChip } from './_components/HeroExplosion';
 
@@ -50,17 +51,23 @@ const BURST_CHIPS: readonly BurstChip[] = [
 
 const btnRed =
   'inline-flex min-h-[48px] items-center justify-center bg-accent px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
-// CTA sobre TINTA (§CS-UX.1 variante A): relleno #E0353B (no #B31217, 2.50:1), etiqueta papel. El
-// relleno #E0353B sobre tinta separa a 3.94:1 (WCAG 1.4.11) y el hover oscurece un 6%.
+// CTA sobre TINTA (§CS-UX.1 variante B): etiqueta mono pequeña (text-xs = 12px, <18.66px/700) ⇒ NO
+// aplica la variante A de relleno #E0353B (solo 3.93:1 de texto, reservada para etiquetas ≥18.66px/700).
+// Como el CTA del topbar: relleno #B31217 (`bg-accent`) MÁS contorno de 2px papel (`border-on-ink`),
+// que separa el texto papel a 6.18:1 (AA) sobre la tinta. ⛔ No usar #E0353B como relleno de botón chico.
 const btnRedOnInk =
-  'inline-flex min-h-[48px] items-center justify-center bg-hunt-red-on-ink px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:brightness-95';
+  'inline-flex min-h-[48px] items-center justify-center border-2 border-on-ink bg-accent px-7 font-mono text-xs uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
 const btnGhostInk =
   'inline-flex min-h-[48px] items-center justify-center border border-on-ink-rule px-7 font-mono text-xs uppercase leading-none tracking-label text-on-ink hover:border-on-ink';
 // CTA compacto del topbar sobre TINTA (§CS-UX.1 variante B): etiqueta mono pequeña ⇒ relleno #B31217
 // (papel 6.18:1) MÁS contorno de 2px papel (el relleno solo da 2.50:1 contra la tinta; el contorno
-// separa a 15.5:1, WCAG 1.4.11). Se oculta en <360px: el CTA principal vive en el hero (§CS-UX.5).
+// separa a 15.5:1, WCAG 1.4.11). Se oculta en móvil (<sm, 640px): el lockup «TCG HUNT × Jakomi» mide
+// ~225–265px y, con los gutters + gap + este CTA (~117px), desborda la fila en 360–413px (scroll
+// horizontal + «Jakomi» tapado, regresión R3 I-1). El CTA principal vive en el hero y hay una CTA
+// fija móvil (`StickyRegisterCta`, visible justo <sm): aparece exactamente cuando esta se oculta, así
+// que en móvil el visitante nunca se queda sin «Regístrate». A ≥sm el lockup + CTA caben de sobra.
 const btnTopbarInk =
-  'hidden min-[360px]:inline-flex min-h-[44px] items-center justify-center border-2 border-on-ink bg-accent px-4 font-mono text-[11px] uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
+  'hidden sm:inline-flex min-h-[44px] items-center justify-center border-2 border-on-ink bg-accent px-4 font-mono text-[11px] uppercase leading-none tracking-label text-accent-fg hover:bg-[color:var(--hunt-red-hover)]';
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <p className="eyebrow mb-3">{children}</p>;
@@ -512,6 +519,9 @@ export default function CardShowPage() {
 
       {/* Motor de movimiento (reveals al scroll). No pinta nada; respeta reduced-motion y PE. */}
       <CardShowMotion />
+
+      {/* Foco visible del mapa embebido (el iframe no casa :focus-visible). No pinta nada. */}
+      <MapFocusRing />
     </div>
   );
 }
