@@ -172,6 +172,18 @@ services:
       JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:?falta STAGING_JWT_REFRESH_SECRET (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      # Card Show (módulo card-show): DOS secretos de firma HMAC, DISTINTOS entre
+      # sí (nunca el mismo, §CARDSHOW.5). card-show-tokens.service.ts los exige
+      # fail-closed en no-local (NODE_ENV=production, como staging): si falta
+      # cualquiera, el bootstrap de Nest lanza y el backend entra en crash-loop
+      # (medido: run 39088336351, el merge #95 no llegó a prod por esto). Aquí van
+      # como variables REQUERIDAS (forma :? ) SIN literal (repo PUBLICO). En local/CI
+      # los resuelve secrets-preflight.sh con un valor EFÍMERO por corrida (sufijo `_SECRET`
+      # cae al ramal genérico `azar_hex 48`); en el staging/prod real los inyecta
+      # el gestor de secretos (Railway). Catálogo del contenedor:
+      # security/secretos-exigidos-contenedor.txt. DEVOPS_NOTES, estado vigente.
+      CARD_SHOW_FORM_SECRET: "${CARD_SHOW_FORM_SECRET:?falta CARD_SHOW_FORM_SECRET (repo PUBLICO, sin literal). Resuelvela con ./scripts/secrets-preflight.sh env-file .env (te da uno efimero) o cargala del gestor de secretos. Genera con openssl rand -base64 32.}"
+      CARD_SHOW_LINK_SECRET: "${CARD_SHOW_LINK_SECRET:?falta CARD_SHOW_LINK_SECRET (repo PUBLICO, sin literal, DISTINTA de CARD_SHOW_FORM_SECRET). Resuelvela con ./scripts/secrets-preflight.sh env-file .env (te da uno efimero) o cargala del gestor de secretos. Genera con openssl rand -base64 32.}"
       # Stripe en modo TEST siempre en staging (nunca claves live).
       STRIPE_SECRET_KEY: ${STRIPE_TEST_SECRET_KEY:?falta STRIPE_TEST_SECRET_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_TEST_PUBLISHABLE_KEY:-pk_test_staging_dummy}
