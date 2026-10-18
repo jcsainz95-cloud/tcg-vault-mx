@@ -6,6 +6,20 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-10-18 — Card Show CDMX **PUBLICADO** (landing + rediseño dinámico). Pendientes post-lanzamiento.
+
+> Estado completo y verbatim en `docs/specs/CARDSHOW_LANDING_ESTADO.md` (sección «CIERRE 2026-10-18»). La landing
+> está VIVA en `tcghunt.mx/card-show` y **capta registros** (verificado: `POST /card-show/leads` → 202). Entró por
+> #97 (rediseño) + #98 (secretos backend); secretos reales en Railway; #96 cerrado.
+
+| # | Qué | Medido 2026-10-18 | Dueño / siguiente |
+|---|---|---|---|
+| CS-OG | `og.png` de WhatsApp/IG sigue siendo el PLACEHOLDER | medido en vivo (sirve el marcador) | marketing hace la final 1200×630 → JC elige A/B → frontend commitea en `frontend/public/card-show/og.png` |
+| CS-PRIV | Mapa de Google + fuentes de Google cargan al abrir (cookies/IP a Google) vs aviso «no usamos cookies de analítica» | lo marcaron seguridad + marketing | product-owner/arquitecto (texto del aviso) + frontend (mapa click-to-load). Hacer ANTES de pasar CSP a enforce sostenido |
+| CS-POLISH | JSON-LD Event; meta fuera de `<body>`; ~18 toques <44px; axe (`.cs-rail`); WhatsApp/mailto sin prellenado; 37 CSP-reports + `/telemetry/csp` CORS | reporte automático de marketing sobre la página viva | frontend/devops (fast-follow) |
+| CS-COPY | ¿«Torneo oficial Play! Pokémon» en la landing? (JC lo decidió el 13-oct) | pregunta de marketing | **JC** confirma |
+| CS-CI | `backend-e2e` flaky (choca Postgres entre runs ⇒ `e2e-ok` rojo); P-WH-1 (`stripe-webhook-failclosed` rojo estructural, repo público) | medido en runs #97/#98 | devops. No es defecto de la tienda |
+
 ## Actualización 2026-10-11 (sesión 7→8) — §PRE «Precios Robustos» (rama `claude/precios-redundancia`, worktree `/home/user/tcg-precios`)
 
 > Reservas O-24: migración **M-75**, contrato **v1.91⟨precios⟩**, notas **BACKEND_NOTES §91**, criterios **870–889**. Rama desde `production` `599d41a6`; `production` es ancestro.
