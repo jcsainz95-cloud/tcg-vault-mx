@@ -55,6 +55,23 @@ describe('SlidingWindowCounter', () => {
     // 1500ms después, los de t≤500 caducan.
     expect(w.count('k', 1500)).toBe(0);
   });
+  it('MKT-TL1 — IPs que no vuelven se podan al pasar la ventana (el Map no crece con IPs viejas)', () => {
+    const w = new SlidingWindowCounter(1000, 10);
+    for (let i = 0; i < 5000; i++) w.record(`ip-${i}`, i % 1000); // 5000 IPs distintas dentro de la 1ª ventana
+    expect(w.size()).toBe(5000);
+    // Pasada la ventana, una sola petición nueva barre lo caducado.
+    w.record('ip-nueva', 5000);
+    expect(w.size()).toBe(1);
+  });
+
+  it('MKT-TL1 — cota dura: con N IPs distintas DENTRO de la ventana, el Map no pasa de maxKeys', () => {
+    const w = new SlidingWindowCounter(60_000, 10, 1000);
+    for (let i = 0; i < 20_000; i++) w.record(`ip-${i}`, i);
+    expect(w.size()).toBeLessThanOrEqual(1000);
+    // Las más recientes siguen contando (se expulsan las más viejas).
+    expect(w.count('ip-19999', 20_000)).toBe(1);
+  });
+
   it('recordAndExceeded marca true al superar el límite', () => {
     const w = new SlidingWindowCounter(1000, 2);
     expect(w.recordAndExceeded('k', 0)).toBe(false);
