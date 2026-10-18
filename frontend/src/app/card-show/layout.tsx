@@ -5,6 +5,7 @@ import { headers } from 'next/headers';
 import { NONCE_HEADER } from '@/security/csp';
 import { CARD_SHOW } from '@/content/card-show';
 import '../globals.css';
+import './card-show.css';
 
 /**
  * Layout RAÍZ de `/card-show` (API_CONTRACT §CARDSHOW.2, ARCHITECTURE §4.CARDSHOW.a).

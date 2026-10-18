@@ -1,0 +1,63 @@
+/*
+ * Movimiento del microsite Card Show (restyle 2026-10-18, decisión del dueño JC: landing más
+ * dinámica en las TRANSICIONES, manteniendo la línea TCG HUNT y §CS-UX). Fuente única de las reglas
+ * de MOTION de la landing; los tokens de color/tipografía siguen en `globals.css` y §CS-UX (no se
+ * duplican aquí).
+ *
+ * PROGRESSIVE ENHANCEMENT (gate de ux-review + e2e «sin JS»): el contenido se pinta VISIBLE por
+ * defecto. El estado «oculto antes de revelar» SOLO existe cuando el JS arma el motor poniendo
+ * `data-cs-motion` en el contenedor raíz (`[data-cs-root]`). Sin JS ⇒ sin `data-cs-motion` ⇒ todo
+ * visible, sin `opacity:0`. Con `prefers-reduced-motion: reduce` el motor ni se arma y, por si acaso,
+ * la media query de abajo neutraliza cualquier resto.
+ */
+
+/* Scroll suave de los anclajes (#registro, #torneos…), solo si el usuario no pidió menos movimiento. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* --- Reveal al entrar en viewport (lo dispara el island `CardShowMotion`) --- */
+[data-cs-root][data-cs-motion] .cs-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform;
+}
+[data-cs-root][data-cs-motion] .cs-reveal.cs-in {
+  opacity: 1;
+  transform: none;
+}
+/* Escalonado suave de hijos directos marcados (bloques de una misma fila). */
+[data-cs-root][data-cs-motion] .cs-reveal.cs-delay-1 {
+  transition-delay: 0.08s;
+}
+[data-cs-root][data-cs-motion] .cs-reveal.cs-delay-2 {
+  transition-delay: 0.16s;
+}
+
+/* El reveal nunca esconde contenido si el usuario pidió menos movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  [data-cs-root][data-cs-motion] .cs-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* --- Tira horizontal de torneos (scroll-snap, sin barra visible) --- */
+.cs-rail {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.cs-rail::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+.cs-rail > .cs-rail-item {
+  scroll-snap-align: start;
+}
