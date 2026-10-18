@@ -21,7 +21,13 @@
 > ⚠️ **Dos revisiones distintas llevan el número v1.96:** **v1.96⟨mkt-tienda⟩** (2026-10-16, §MKT, migraciones m81-m83) y
 > **v1.96⟨cardshow-leads⟩** (2026-10-17, §CARDSHOW, M-84). Se distinguen por la etiqueta entre ⟨⟩; ninguna sustituye a la otra.
 > v1.97-v1.100 son todas del Card Show (⟨cardshow⟩ / ⟨cardshow-shardbugs⟩). Desde v1.101 el número no se repite: la siguiente revisión, de
-> cualquier sección, es v1.104.
+> cualquier sección, es v1.105.
+>
+> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, leído sobre `e0cce11b`).**
+> Clase de los huérfanos de `C-EQ-1` que midió QA: §0-Q gana el **punto 6-bis (ejes SELECTOR)** y la regla «cómo se declara un
+> eje» (punto 4); cuatro filas nuevas en el registro (`pantalla` ×3, `format`) y la nota `CEQ-MKT-1` con las claves exactas;
+> §MKT.E declara la query de los exports y las anotaciones, y `pantalla`/`format` responden `400 {field, allowed}`. Sin migración,
+> sin enum. Razones: ARCHITECTURE §4.37.1-b. Pedido por el orquestador (rojo de QA en el stream del panel).
 >
 > **Rev v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, leído sobre `5524bd69`).**
 > El dueño ve cifras exactas en SU pantalla (`HECHOS.md:172`): `GET …/panel` con `super_admin` ⇒ `privacy:'exact'`; el resto de
@@ -7959,6 +7965,10 @@
   | `GET /admin/card-show/leads/export.csv` (§CARDSHOW.15, **v1.93**) | `status` · `type` | **el mismo dominio y conducta** que la ruta JSON de `/leads` (`status` **R** menos `pending`; `type` **E**) | **R** · **E** |
   | `GET /admin/card-show/players/export.csv` (§CARDSHOW.15, **v1.93**/**v1.96 M-84** para `game`) | `status` · `day` · `game` | **el mismo dominio y conducta** que la ruta JSON de `/players` (`status` **R** menos `pending`; `day` **E**; `game` **E**) | **R** · **E** · **E** |
   | `GET /card-show/form-token` (§CARDSHOW.5, **v1.93**) | `purpose` | `leads \| players` (`FORM_PURPOSES`, `card-show.constants.ts:142`; unión pura, ⛔ sin enum en `schema.prisma`) — canónico en **la línea del propio endpoint**. Default `leads` en **ausente/vacío**; ⛔ un valor **no vacío fuera de dominio** ⇒ `400 {field:'purpose', allowed}` (⛔ no clamp silencioso a `leads`) | **L** |
+  | `GET /admin/marketing/aggregates` (§MKT.E, **v1.104**) | `pantalla` **(SELECTOR, punto 6-bis)** | `a \| b \| c \| d \| e \| f \| g \| h` — canónico en **§MKT.E** («`pantalla` — DOMINIO CANÓNICO»). Sin default: ausente/vacío ⇒ `400 {field, allowed}`. Unión pura, ⛔ sin enum (`MarketingAccessLog.screen` es `String`) | **L** |
+  | `GET /admin/marketing/panel` (§MKT.G.2, **v1.104**) | `pantalla` **(SELECTOR)** | el mismo dominio y conducta que `aggregates` — canónico en **§MKT.E** | **L** |
+  | `GET /admin/marketing/export` (§MKT.E, **v1.104**) | `pantalla` **(SELECTOR)** | el mismo dominio y conducta que `aggregates` — canónico en **§MKT.E** | **L** |
+  | `GET /admin/marketing/export` (§MKT.E, **v1.104**) | `format` **(SELECTOR)** | `xlsx \| csv` — canónico en **§MKT.E** («`format` — DOMINIO CANÓNICO»). Sin default: ausente/vacío ⇒ `400 {field, allowed}`. Unión pura, ⛔ sin enum | **L** |
 
   > **⚠️ Nota CARDSHOW-EQ (v1.93, regla 9).** Las filas `status`/`type`/`day` de arriba (**8 ejes** en 6 filas: `status`×4, `type`×2, `day`×2) y `purpose` son dominios **cerrados** (enum, subconjunto de enum, o unión literal) y por eso §0-Q las gobierna con la conducta normal: fuera de dominio ⇒ `400 {field, allowed}`. **El código de M-78 hoy IGNORA en silencio** el valor fuera de dominio (cae al default; `card-show.service.ts:625,630,639,644`) y `form-token` **clampa** `purpose` a `leads` (`card-show.controller.ts:54-56`) — es el defecto que §0-Q punto 1/6 prohíbe. **Backend lo corrige** (parseo que `400`) al transcribir estas filas al `REGISTRO` de `C-EQ-1`. Los ejes `from`/`to` (fechas) y `mesa`/`token` de M-78 **no** son de dominio cerrado: van a `NO_ENUM_POR_RUTA` (punto 7), no a este registro — claves exactas en `CEQ-CS-1` abajo.
 
@@ -7966,6 +7976,15 @@
   > - **Al `REGISTRO` (9 ejes, dominio cerrado, `400` fuera de dominio; nacen `transcrita` porque sus filas de §0-Q punto 4 YA existen arriba ⇒ ⛔ NO suben el conteo de pendientes `PENDIENTE-ARQUITECTO`):** `GET /admin/card-show/leads::status` (R), `GET /admin/card-show/leads::type` (E), `GET /admin/card-show/players::status` (R), `GET /admin/card-show/players::day` (E), `GET /admin/card-show/leads/export.csv::status` (R), `GET /admin/card-show/leads/export.csv::type` (E), `GET /admin/card-show/players/export.csv::status` (R), `GET /admin/card-show/players/export.csv::day` (E), `GET /card-show/form-token::purpose` (L). ⇒ `REGISTRO.length` **+9**; el literal del TRINQUETE sube 9 (pendientes **sin cambio**).
   > - **A `NO_ENUM_POR_RUTA` (10 ejes, `toEqual` + tope; ⛔ no al `REGISTRO`):** `GET /admin/card-show/leads::from`, `GET /admin/card-show/leads::to`, `GET /admin/card-show/players::from`, `GET /admin/card-show/players::to`, `GET /admin/card-show/leads/export.csv::from`, `GET /admin/card-show/leads/export.csv::to`, `GET /admin/card-show/players/export.csv::from`, `GET /admin/card-show/players/export.csv::to`, `GET /card-show/ir/:destino::mesa`, `POST /card-show/unsubscribe-oneclick::token`. ⇒ subir el tope de `NO_ENUM_POR_RUTA` **+10**.
   > - ⛔ `NO_ENUM_TRANSVERSAL` **no se toca** (las exenciones de M-78 son de ruta, no de nombre).
+
+  > **⚠️ `CEQ-MKT-1` (v1.104) — las claves EXACTAS de los huérfanos de `C-EQ-1` medidos por QA (rojo en `enum-query-axes.e2e-spec.ts`, «ningún `@Query` fuera de las CINCO listas»).** Leídas en el árbol de trabajo; HEAD `e0cce11b` según el orquestador (sin Bash: sha NO MEDIDO por el arquitecto).
+  > - **Primero, cómo se declaran (marketing):** los seis handlers con `@Query()` entero (`aggregates`, `panel`, `export`, `export/todo`, `weekly-excel` en `marketing.controller.ts`; `GET /admin/marketing/annotations` con `ListAnnotationsQueryDto` en `marketing-annotations.controller.ts`) pasan a **un `@Query('<nombre>')` por llave**. ⛔ **No** a `QUERY_SIN_NOMBRE` (techo 2, solo baja). Un DTO **no** sirve: el escáner solo ve el literal del decorador y cualquier `@Query()` sin literal es `::<sin nombre>`. Regla en el punto 4 («Cómo se declara un eje»). `GET /admin/marketing/periods` y `GET|POST /admin/marketing/tokens` **no tienen** `@Query`: no entran.
+  > - **Al `REGISTRO` (6 ejes; nacen `transcrita`: sus filas YA están arriba ⇒ pendientes `PENDIENTE-ARQUITECTO` **sin cambio**):** `GET /admin/marketing/aggregates::pantalla`, `GET /admin/marketing/panel::pantalla`, `GET /admin/marketing/export::pantalla` (L, SELECTOR), `GET /admin/marketing/export::format` (L, SELECTOR), y los dos de card-show cuya fila existe desde v1.96 M-84 y nadie transcribió: `GET /admin/card-show/players::game`, `GET /admin/card-show/players/export.csv::game` (**E**, `CardShowGame`). ⇒ `REGISTRO.length` **+6**.
+  > - **A `NO_ENUM_POR_RUTA` (37 ejes; ⛔ no al `REGISTRO`). Autorizado: tope +37, con este coste a la vista.** Ninguno es un conjunto de tokens:
+  >   - `week` (`YYYY-Www`), `weekStart` (`YYYY-MM-DD`, lunes) y `month` (`YYYY-MM`) son **formatos**: ⇒ `GET /admin/marketing/{aggregates,panel,export,export/todo,weekly-excel}::{week,weekStart,month}` (15).
+  >   - `from`, `to`, `day` y `preset` son parámetros **PROHIBIDOS** en estas cinco rutas: no aceptan **ningún** valor; cualquier valor no vacío ⇒ `400 VALIDATION_ERROR` (§MKT.E). Su dominio aceptado es el conjunto vacío, ⛔ no un conjunto de tokens. Se declaran con nombre **para que lleguen a la validación** (⛔ ignorarlos rompería §MKT.G.2) ⇒ `GET /admin/marketing/{aggregates,panel,export,export/todo,weekly-excel}::{from,to,day,preset}` (20).
+  >   - `GET /admin/marketing/annotations::from` y `::to`: días `YYYY-MM-DD`; fuera de forma ⇒ `400 VALIDATION_ERROR` (2).
+  > - ⛔ `NO_ENUM_TRANSVERSAL` **no se toca**: ninguna de estas llaves es de las 14 y ninguna se exime por nombre. ⛔ `SIN_CLASE_DECLARADA` y `QUERY_SIN_NOMBRE` **tampoco**.
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -8012,6 +8031,7 @@
   El estado de conformidad vive en **una sola suite del backend**, que es su **única autoridad**. La suite tiene que hacer **dos** cosas, y la segunda es la que impide que el problema vuelva:
   1. **Ejercitar, por HTTP y por cada fila de esta tabla, las tres conductas del punto 1 y la forma del punto 2** (`field` obligatorio, `allowed` = el dominio declarado, `400` y no `422`, y el `value` **solo** donde el punto 2 lo declara). Un eje que se desalinee pone la suite en rojo **el día que se desalinea**, no tres días después cuando alguien relee un párrafo.
   2. **⭐ DESCUBRIR los ejes que nadie registró.** Es lo que faltaba: *una suite no puede fallar por un parámetro que nunca le contaron.* La suite **enumera los `@Query(...)` de los controllers** y los cruza contra **dos listas explícitas**: los ejes de dominio cerrado (esta tabla) y los que **no** lo son (`q`, `from`, `to`, `page`, `setId`, …). Un `@Query` que no esté en ninguna de las dos ⇒ **rojo**, con el mensaje *«eje de query nuevo: decide su clase con el arquitecto o decláralo como no-enum»*. *Los tres ejes que `P-84` y `P-89` se saltaron —`?context=`, `?reason=`, `?axis=`— se saltaron porque **no estaban en el censo**, y un censo escrito a mano no puede enterarse de lo que no le contaron.* Precedente vivo de la técnica en este mismo proyecto: el censo congelado de call-sites de `echoValue` en `enum-filter.spec.ts`, que mira **código** (`stripComments`) y no texto.
+  - **⭐ Cómo se declara un eje (v1.104, NORMATIVO).** Cada parámetro de query se declara con **`@Query('<nombre>')`**. ⛔ Un `@Query()` entero, un DTO de query (`@Query() q: XDto`), leer `req.query` o un decorador de parámetro propio **esconden las llaves al descubrimiento**: el escáner solo ve el literal del decorador, y lo que no ve no puede ponerse rojo. La única salida para leer la query entera es `QUERY_SIN_NOMBRE` (con motivo del tipo `D-A5-3`), que tiene techo y **solo baja**. Razones: ARCHITECTURE §4.37.1-b.
   - **Cómo se lee el resultado:** *«¿cumple `GET /x?y=` con §0-Q?»* se contesta **corriendo `C-EQ-1`**. Si alguien lo contesta citando este documento, está contestando una pregunta de clase (B) con una fuente de clase (A) — que es, literalmente, el error que v1.73 vino a cerrar.
 
   **5 · Ejes CSV: qué se recorta y qué no (v1.73 — normaliza la asimetría que techlead levantó).**
@@ -8038,6 +8058,16 @@
   | Cualquier otra cosa | ⛔ **`400 VALIDATION_ERROR`** con **la misma forma del punto 2** (`field` + `allowed`) |
 
   ⛔ **Prohibido el *clamp* silencioso** (caer al default ante un valor inválido): devuelve una lista distinta de la pedida y el operador creería estar en otro sitio — misma familia que ignorar un filtro. El dominio de un `?sort=` es **clase L** salvo que exista un enum detrás.
+
+  **6-bis · Ejes SELECTOR: eligen QUÉ recurso se produce, y no tienen «sin filtrar» (v1.104).** Un selector (`?pantalla=` del panel de marketing, `?format=` de su export) **no es un filtro ni un orden**: no hay respuesta «para todos los valores», así que la fila 1 del punto 1 no tiene sentido. Su dominio sigue siendo de **tokens** (clase E/R/L del punto 3, normalmente **L**) y por eso **sí es §0-Q** —⛔ no va a la lista de no-enums—:
+
+  | Entrada | Conducta |
+  |---|---|
+  | Ausente / vacía / **solo espacios** (tras `trim()`) | **El default declarado del endpoint**, si lo declara (entonces es como el punto 6). **Sin default declarado ⇒ `400 VALIDATION_ERROR`** con la forma del punto 2 (`field` + `allowed`) |
+  | Token del dominio | Ese recurso. Dos tokens distintos producen respuestas distintas |
+  | Cualquier otra cosa | ⛔ **`400 VALIDATION_ERROR`** con **la forma del punto 2** (`field` + `allowed`; ⛔ sin `details.value`) |
+
+  ⛔ **Prohibido el *clamp*** (caer a otro recurso ante un valor inválido): devuelve **otro** informe del pedido (el defecto vivo de `?report=` de finanzas, que sigue en la cola de `C-EQ-1`). Las filas del registro (punto 4) lo marcan **(SELECTOR)** junto al nombre del param, igual que **(ORDEN)**.
 
   **7 · Lo que §0-Q NO norma** *(se dice para que no se sobre-aplique)*:
   - **Llaves de query DESCONOCIDAS.** Rechazarlas sigue siendo doctrina **acotada a `GET /admin/users`** (`D-A5-3`, que lo declara ⛔ «no se convierte en regla global»). §0-Q norma **el valor de un parámetro conocido**. ⚠️ **Matiz v1.73:** el **descubrimiento** de `C-EQ-1` (punto 4) **no** contradice esto — inventariar los parámetros en una **prueba** para que ninguno se quede sin clase declarada no es lo mismo que **rechazarlos en tiempo de petición**.
@@ -45358,13 +45388,16 @@ SitemapResponse = {
 
 - **`GET /api/v1/admin/marketing/aggregates` — token `marketing-reader` (Bearer).** Solo lectura, JSON de agregados
   (las mismas tablas que el export). Parámetros:
-  - `pantalla` — **lista blanca** `a|b|c|d|e|f|g|h` (y luego `codigos` en Fase 3). Fuera de la lista ⇒ **400** genérico.
+  - `pantalla` — DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `a|b|c|d|e|f|g|h` (`codigos` entra en Fase 3,
+    con rev). Obligatorio, sin default. Ausente, vacío o fuera de la lista ⇒ **400** `VALIDATION_ERROR` con
+    `details.{field:'pantalla', allowed}` (v1.104; ⛔ sin `details.value`, ⛔ sin detalle interno).
   - periodo — **una semana cerrada** (`?week=YYYY-Www` o `?weekStart=YYYY-MM-DD` lunes CDMX) **o un mes cerrado**
     (`?month=YYYY-MM`). ⛔ **Nunca** rango libre ni día. Semana/mes **abiertos** o rango libre ⇒ **400** (evita restar
     dos rangos solapados para despejar una celda oculta).
   - **401** sin token, token inválido/revocado/caducado, **o token válido en CUALQUIER OTRA ruta del admin** (ver
-    DECISIÓN **D-MKT-AUTZ** abajo — era «403» en el brief; se amenda a **401**); **400** en rango no permitido o
-    `pantalla` fuera de lista (genérico, sin detalle interno, Panel §7.2); **429** al pasar 60/h. El **403** del panel es
+    DECISIÓN **D-MKT-AUTZ** abajo — era «403» en el brief; se amenda a **401**); **400** en rango no permitido (genérico,
+    sin detalle interno, Panel §7.2) o `pantalla` fuera de lista (con `field`+`allowed`, que es la lista blanca pública de
+    arriba, ⛔ no detalle interno — v1.104); **429** al pasar 60/h. El **403** del panel es
     de **SESIÓN**: una cuenta admin **sin** `marketing:read` (§MKT.D / §13.4.1) ⇒ 403 en `/admin/marketing`, exports,
     botón semanal y rutas de datos.
   - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas §MKT.D/§5.2 aplicadas** desde la
@@ -45403,6 +45436,15 @@ SitemapResponse = {
   última semana cerrada (selector permite otra semana o un mes cerrado, ⛔ nunca rango libre ni día). **Mismas cifras**
   que el endpoint para el mismo periodo (paridad A=B, diferencia 0 celda a celda, incluidas las «< 5»). Una hoja por
   pantalla (a-h) + hoja «Info».
+- **Query de las rutas de sesión que descargan (v1.104; antes solo vivía en el código).** Periodo = la misma regla que
+  `aggregates` (`week` | `weekStart` | `month`, uno, cerrado; `from`/`to`/`day`/`preset` ⇒ **400**):
+  - `GET /admin/marketing/export?pantalla=&format=&<periodo>` — `pantalla` como `aggregates`. Periodo **obligatorio**.
+  - `format` — DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `xlsx|csv`. Obligatorio, sin default; ausente,
+    vacío o fuera ⇒ **400** `VALIDATION_ERROR` con `details.{field:'format', allowed}`.
+  - `GET /admin/marketing/export/todo?<periodo>` — sin `pantalla` ni `format` (siempre `.xlsx`). Periodo **obligatorio**.
+  - `GET /admin/marketing/weekly-excel?<periodo>` — periodo **opcional**: sin él, la última semana cerrada (como `panel`).
+  - `GET /admin/marketing/annotations?from=&to=` — días `YYYY-MM-DD`, opcionales; fuera de forma ⇒ **400** `VALIDATION_ERROR`.
+  - Clase de cada llave en `C-EQ-1`: §0-Q punto 4, nota `CEQ-MKT-1`.
 - **Reglas de export (§4, PM-B1):** CSV con prefijo `'` en celdas que empiecen por `=`,`+`,`-`,`@`, tab o `\r`,
   entrecomilladas; UTF-8 **con BOM**. XLSX: texto como **tipo texto** (nunca fórmula), montos MXN con IVA como número
   `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition: attachment`, generado al vuelo. Nombre
@@ -45448,7 +45490,7 @@ Devuelve los datos de **una** pantalla para pintarla. ⛔ No es `@Public()`: pas
 exports (`marketing.controller.ts:73-75`).
 
 - **Query:**
-  - `pantalla` — obligatorio, lista blanca `a|b|c|d|e|f|g|h` (mismo `parseScreen` que `aggregates`); fuera ⇒ **400**.
+  - `pantalla` — obligatorio; dominio y error como `aggregates` (§MKT.E: SELECTOR, `400 {field, allowed}`; mismo `parseScreen`).
   - periodo — **como mucho uno** de `week=YYYY-Www`, `weekStart=YYYY-MM-DD` (lunes CDMX) o `month=YYYY-MM`, **cerrado**. **Sin
     periodo ⇒ la última semana cerrada** (mismo valor por defecto que el botón semanal, `marketing.controller.ts:138-141`). Semana o
     mes abiertos, dos formas a la vez, o cualquier `from`/`to`/`day`/`preset` ⇒ **400** (misma validación que `aggregates`,
@@ -45470,7 +45512,8 @@ exports (`marketing.controller.ts:73-75`).
   - `aggregates`, `export`, `export/todo` y `weekly-excel` son **siempre** `small_cells`, **aunque** los pida una sesión `super_admin`.
 - **Cabecera:** `Cache-Control: no-store`.
 - **Errores:** **401** `UNAUTHENTICATED` sin sesión — y también con el token `marketing-reader` (no es JWT; D-MKT-AUTZ);
-  **403** `FORBIDDEN` con sesión sin `marketing:read`; **400** `VALIDATION_ERROR` genérico (periodo o pantalla); **429**
+  **403** `FORBIDDEN` con sesión sin `marketing:read`; **400** `VALIDATION_ERROR` (periodo: genérico; `pantalla`: con
+  `field`+`allowed`, §MKT.E); **429**
   `RATE_LIMITED` solo por el throttler global de la app (esta ruta no tiene cupo propio; los números del throttler global para
   admin: NO MEDIDO).
 - **Registro:** cada llamada ⇒ una fila de `MarketingAccessLog` `{actorUserId, tokenId: null, screen: <pantalla>, format: 'json',

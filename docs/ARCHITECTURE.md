@@ -4,6 +4,10 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, misma rama, leído sobre `e0cce11b`, sin Bash).** **§4.37.1-b NUEVA:** un eje
+> de query se declara con `@Query('<nombre>')` y el SELECTOR es §0-Q. **§9:** `D-EQ-5` (huérfanos de `C-EQ-1`, backend).
+> Contrato: API_CONTRACT §0-Q puntos 4 y 6-bis, §MKT.E.
+> ---
 > **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`,
 > leído sobre `5524bd69`, sin Bash).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta Pixel y CAPI),
 > construida **apagada** tras dos variables y una puerta de build que exige el aviso nuevo; sin GTM; eventos de servidor por cola
@@ -16692,6 +16696,28 @@ y la lista **siempre actual** es la salida en rojo de `C-EQ-1`. La diferencia pr
 se midió** (O-5); uno de `C-EQ-1` **se mide al leerlo**. Ninguno de los dos puede afirmar, con autoridad normativa, un
 estado que nadie comprobó.
 
+#### 4.37.1-b — Un eje se declara con nombre, y el SELECTOR es §0-Q (v1.104, NORMATIVO)
+
+**Por qué con nombre.** El descubrimiento lee el literal de `@Query('x')` y nada más
+(`backend/test/helpers/query-axis-census.ts:69-73` y `:157-164`): un `@Query()` sin literal sale como `::<sin nombre>`,
+**con DTO o sin él**. Un DTO, `req.query` o un decorador propio dejan el eje fuera del inventario: un `@IsEnum` nuevo en ese
+DTO **no pondría nada rojo** (es la ficha `EQ-D4` de `TECH_DEBT.md`). `QUERY_SIN_NOMBRE` tiene techo 2 y solo baja
+(`enum-query-axes.e2e-spec.ts:1788`). Precedente: accesorios pasó sus tres `@Query()` enteros a llaves con nombre
+(`BACKEND_NOTES.md` §83.ceq1). El marketing de §MKT.E/§MKT.G hace lo mismo (`API_CONTRACT §0-Q`, nota `CEQ-MKT-1`).
+⚠️ Coste aceptado: los parámetros **prohibidos** (`from`/`to`/`day`/`preset`) se declaran también, para que lleguen a la
+validación que da `400`. Cada uno es una fila de `NO_ENUM_POR_RUTA` (dominio aceptado vacío, no de tokens).
+
+**Por qué el SELECTOR entra en §0-Q y no en la lista de no-enums.** `?pantalla=` y `?format=` tienen dominio cerrado de
+tokens: meterlos en `NO_ENUM_POR_RUTA` sería afirmar que su dominio es abierto, y esa lista dice expresamente que eso es
+mentir (`enum-query-axes.e2e-spec.ts:50-53`). Tampoco van a la cola `SIN_CLASE_DECLARADA`: la cola es para lo que nadie ha
+decidido, y esto queda decidido aquí. Lo que no encajaba era la fila 1 del punto 1 («vacío ⇒ sin filtrar»): un selector no
+tiene «todos». Por eso §0-Q punto 6-bis le da su propia fila 1, igual que el punto 6 se la dio al `?sort=`. El resto
+(`400` con `field` + `allowed`, sin `value`, cota del eco) es la norma de siempre.
+**Lo que exige al candado (backend):** `C-EQ-1` gana la clase de fila `SELECTOR` con su conformidad propia, ⛔ no con
+`excepciones` (su censo, `enum-query-axes.e2e-spec.ts:1875-1885`, sigue en 5). Ausente, vacío y `%20` ⇒ `400 {field,
+allowed}`; `valid` y `alterno` ⇒ `200` con huellas distintas; basura, valor sin normalizar y cota como cualquier fila.
+Segundo cliente futuro de la clase: `?report=` de finanzas, hoy en la cola (DINERO, otro stream; no se toca aquí).
+
 ---
 
 **Lo que esta convención NO es.** ⛔ No es la regla de **llaves de query desconocidas**, que sigue **acotada a
@@ -32028,6 +32054,15 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
+> `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
+> huérfanas: seis `::<sin nombre>` de marketing (`marketing.controller.ts:61,87,129,161,184`;
+> `marketing-annotations.controller.ts:34`) y `::game` de `GET /admin/card-show/players` y de su `export.csv`
+> (`card-show-admin.controller.ts:40,83`; su fila de §0-Q existe desde v1.96 M-84). **Contrato (manda): `API_CONTRACT §0-Q`
+> punto 4 (filas v1.104 y nota `CEQ-MKT-1`), punto 6-bis y §MKT.E.** **La corrige backend** (⛔ ningún otro rol; ⛔ no
+> `backend-lite`: toca candados). **Prueba que la vigila:** el propio `C-EQ-1` —descubrimiento sin huérfanos, conformidad
+> HTTP de las seis filas nuevas, trinquete con los literales nuevos— y su canario `enum-query-census-canary.spec.ts`.
+>
 > **`D-MKT-1` (🟡 ABIERTA, dueño backend; medida 2026-10-18 por el arquitecto, lectura sobre `b8197420`; no bloquea pintar
 > la pantalla).** Los `ScreenPayload` **omiten** tablas de nivel I en vez de mandarlas como `measured:false` con «NO MEDIDO —
 > …»: la pantalla c trae solo `c7` (`marketing-analytics.service.ts:339-341`; faltan c1-c6 y c8); b, e y g traen una tabla
