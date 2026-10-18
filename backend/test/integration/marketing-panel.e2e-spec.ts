@@ -121,11 +121,16 @@ describe('E2E — §MKT.G panel por sesión + tokens del analista', () => {
     tokenIds.push(issued.body.id);
     const t = issued.body.token as string;
 
-    expect((await h.api('GET', '/admin/marketing/aggregates?pantalla=h', { token: t })).status).toBe(200);
+    // `aggregates` EXIGE periodo (§MKT.E: sin periodo ⇒ 400). Se usa la última semana cerrada que da el
+    // propio servidor, para que el 200 y el 401 de abajo midan el TOKEN y no la validación del periodo.
+    const periods = await h.api('GET', '/admin/marketing/periods', { token: adminJwt });
+    expect(periods.status).toBe(200);
+    const aggPath = `/admin/marketing/aggregates?pantalla=h&weekStart=${periods.body.lastClosedWeek.weekStart}`;
+    expect((await h.api('GET', aggPath, { token: t })).status).toBe(200);
     const rev = await h.api('POST', `/admin/marketing/tokens/${issued.body.id}/revoke`, { token: adminJwt });
     expect(rev.status).toBe(200);
     expect(rev.body.status).toBe('revoked');
-    expect((await h.api('GET', '/admin/marketing/aggregates?pantalla=h', { token: t })).status).toBe(401);
+    expect((await h.api('GET', aggPath, { token: t })).status).toBe(401);
 
     const again = await h.api('POST', `/admin/marketing/tokens/${issued.body.id}/revoke`, { token: adminJwt });
     expect(again.status).toBe(200);
