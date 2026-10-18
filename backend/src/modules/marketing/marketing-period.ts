@@ -10,6 +10,7 @@
  * Reutiliza la zona de México y los helpers de `sales-period.ts` (lunes = isoWeekday 1).
  */
 import { BusinessException } from '../../common/business.exception';
+import { assertEnumFilter } from '../../common/enum-filter';
 import { addDays, isoWeekday, todayMx, type Ymd } from '../sales-analytics/sales-period';
 
 export type MarketingPeriodKind = 'week' | 'month';
@@ -172,12 +173,31 @@ export function lastClosedWeekStart(now: Date): Ymd {
 export const MARKETING_SCREENS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
 export type MarketingScreen = (typeof MARKETING_SCREENS)[number];
 
-/** Valida `pantalla` contra la lista blanca, o 400 genérico. */
-export function parseScreen(raw: unknown): MarketingScreen {
-  if (typeof raw !== 'string' || !MARKETING_SCREENS.includes(raw as MarketingScreen)) {
-    bad('invalid screen');
+/** Dominio de `?format=` de `GET /admin/marketing/export` (API_CONTRACT §MKT.E, clase L, SELECTOR; v1.104). */
+export const MARKETING_EXPORT_FORMATS = ['xlsx', 'csv'] as const;
+export type MarketingExportFormat = (typeof MARKETING_EXPORT_FORMATS)[number];
+
+/**
+ * ⭐ Eje SELECTOR de §0-Q punto 6-bis (v1.104): elige QUÉ recurso se produce y no tiene «sin filtrar» ni default.
+ * Ausente, vacío o solo espacios ⇒ `400 VALIDATION_ERROR {field, allowed}`; token del dominio ⇒ ese recurso;
+ * cualquier otra cosa (incluido `' a'`: el `trim()` solo decide si está vacío) ⇒ el mismo `400`, por el helper único
+ * `assertEnumFilter` (eco acotado, ⛔ sin `details.value`). ⛔ Nunca clamp a otro recurso.
+ */
+function parseSelector<T extends string>(field: string, raw: unknown, allowed: readonly T[]): T {
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw BusinessException.badRequest('VALIDATION_ERROR', `${field} is required`, { field, allowed: [...allowed] });
   }
-  return raw as MarketingScreen;
+  return assertEnumFilter(field, raw, allowed);
+}
+
+/** `?pantalla=` (SELECTOR, §MKT.E): `a|…|h`, obligatorio ⇒ si no, `400 {field:'pantalla', allowed}`. */
+export function parseScreen(raw: unknown): MarketingScreen {
+  return parseSelector('pantalla', raw, MARKETING_SCREENS);
+}
+
+/** `?format=` (SELECTOR, §MKT.E): `xlsx|csv`, obligatorio ⇒ si no, `400 {field:'format', allowed}`. */
+export function parseExportFormat(raw: unknown): MarketingExportFormat {
+  return parseSelector('format', raw, MARKETING_EXPORT_FORMATS);
 }
 
 /** Una semana cerrada ofrecida al selector (API_CONTRACT §MKT.G.3). */

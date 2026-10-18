@@ -257,6 +257,49 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/card-show/players/export.csv::to',
   'GET /card-show/ir/:destino::mesa',
   'POST /card-show/unsubscribe-oneclick::token',
+
+  // ⭐ C-EQ-1 v1.104⟨ceq1-mkt⟩ (API_CONTRACT §0-Q nota `CEQ-MKT-1`, §MKT.E; ARCHITECTURE §4.37.1-b) — 37 llaves del Panel de
+  // Marketing que salieron del `@Query()` entero, ninguna un conjunto de tokens. `week` (`YYYY-Www`), `weekStart`
+  // (`YYYY-MM-DD`, lunes) y `month` (`YYYY-MM`) son FORMATOS; `from`/`to`/`day`/`preset` son PROHIBIDOS en estas cinco
+  // rutas (dominio aceptado VACÍO: cualquier valor no vacío ⇒ `400`) y se declaran con nombre solo para que lleguen a la
+  // validación. Las dos de `annotations` son días `YYYY-MM-DD`. Autorizado: tope +37 (70 → 107).
+  'GET /admin/marketing/aggregates::week',
+  'GET /admin/marketing/aggregates::weekStart',
+  'GET /admin/marketing/aggregates::month',
+  'GET /admin/marketing/aggregates::from',
+  'GET /admin/marketing/aggregates::to',
+  'GET /admin/marketing/aggregates::day',
+  'GET /admin/marketing/aggregates::preset',
+  'GET /admin/marketing/panel::week',
+  'GET /admin/marketing/panel::weekStart',
+  'GET /admin/marketing/panel::month',
+  'GET /admin/marketing/panel::from',
+  'GET /admin/marketing/panel::to',
+  'GET /admin/marketing/panel::day',
+  'GET /admin/marketing/panel::preset',
+  'GET /admin/marketing/export::week',
+  'GET /admin/marketing/export::weekStart',
+  'GET /admin/marketing/export::month',
+  'GET /admin/marketing/export::from',
+  'GET /admin/marketing/export::to',
+  'GET /admin/marketing/export::day',
+  'GET /admin/marketing/export::preset',
+  'GET /admin/marketing/export/todo::week',
+  'GET /admin/marketing/export/todo::weekStart',
+  'GET /admin/marketing/export/todo::month',
+  'GET /admin/marketing/export/todo::from',
+  'GET /admin/marketing/export/todo::to',
+  'GET /admin/marketing/export/todo::day',
+  'GET /admin/marketing/export/todo::preset',
+  'GET /admin/marketing/weekly-excel::week',
+  'GET /admin/marketing/weekly-excel::weekStart',
+  'GET /admin/marketing/weekly-excel::month',
+  'GET /admin/marketing/weekly-excel::from',
+  'GET /admin/marketing/weekly-excel::to',
+  'GET /admin/marketing/weekly-excel::day',
+  'GET /admin/marketing/weekly-excel::preset',
+  'GET /admin/marketing/annotations::from',
+  'GET /admin/marketing/annotations::to',
 ];
 
 /**

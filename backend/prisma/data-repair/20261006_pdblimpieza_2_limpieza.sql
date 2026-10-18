@@ -208,7 +208,14 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- CONSENTIMIENTO (y MENORES, con consentimiento del tutor). DEFAULT CONSERVAR: borrarlos a ciegas en una limpieza
   -- de «datos de prueba» tiraría registros legítimos de clientes. Si el dueño pide vaciarlos (P-CS), el mecanismo es
   -- una guarda por LISTA/COHORTE (tipo G-9), nunca borrado a ciegas.
-  'CardShowLead','CardShowPlayerSignup']) AS t;
+  'CardShowLead','CardShowPlayerSignup',
+  -- v1.103⟨mkt-panel⟩ (M-82/M-83, G-8; clasificación CONSERVADORA de backend, a ratificar por el arquitecto en
+  -- LIMPIEZA_DB §14): permisos delegados y token del analista (decisiones/credenciales del dueño: borrarlos revocaría
+  -- accesos en silencio, sin el rastro de su propia ruta), registro de accesos al panel (rastro de seguridad PM-M3),
+  -- contadores agregados sin PII (consentimiento del banner, cotizaciones por día) y las anotaciones de fecha del dueño.
+  -- Ninguna referencia a una tabla que se borra (FK solo a `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
+  'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingBannerConsentCounter','BuylistQuoteDailyCount',
+  'MarketingDateAnnotation']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

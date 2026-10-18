@@ -6,23 +6,7 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { applyTrustProxy } from './trust-proxy';
 import { applyBodyParsers } from './body-parsers';
-
-/**
- * Orígenes permitidos por CORS (S-M2). Se toma de `APP_BASE_URL` (lista separada por comas
- * si hay varios orígenes válidos). Nunca se refleja un origin arbitrario (`origin: true`).
- * Fallback seguro si `APP_BASE_URL` no está seteada: solo orígenes de desarrollo local
- * (`http://localhost:3000`, `http://localhost:5173`) — jamás un comodín. En staging/prod
- * `APP_BASE_URL` DEBE fijarse (ver docs/BACKEND_NOTES.md).
- */
-function resolveCorsOrigins(): string[] {
-  const raw = process.env.APP_BASE_URL;
-  const origins = (raw ?? '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter((o) => o.length > 0);
-  if (origins.length > 0) return origins;
-  return ['http://localhost:3000', 'http://localhost:5173'];
-}
+import { buildCorsOptions, resolveCorsOrigins } from './cors';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
@@ -57,7 +41,7 @@ async function bootstrap() {
 
   // S-M2: allow-list de orígenes desde `APP_BASE_URL` (nunca `origin: true` con credenciales).
   const corsOrigins = resolveCorsOrigins();
-  app.enableCors({ origin: corsOrigins, credentials: true });
+  app.enableCors(buildCorsOptions(corsOrigins)); // opciones en `cors.ts` (las prueba `cors.spec.ts`)
   new Logger('Bootstrap').log(`CORS allow-list: ${corsOrigins.join(', ')}`);
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;

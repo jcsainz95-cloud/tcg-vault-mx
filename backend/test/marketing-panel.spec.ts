@@ -21,6 +21,7 @@ import { MARKETING_SCREENS, resolveMarketingPeriod, type MarketingScreen } from 
 import { SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
 import type { AggTable, ScreenPayload } from '../src/modules/marketing/marketing-aggregates.types';
 import { BusinessException } from '../src/common/business.exception';
+import { periodArgs, screenArgs } from './helpers/marketing-query';
 
 // Miércoles 14-oct-2026 12:00 UTC (06:00 CDMX). Última semana cerrada = lun 5 – dom 11 oct (2026-W41).
 const NOW = new Date('2026-10-14T12:00:00.000Z');
@@ -132,8 +133,8 @@ describe('§MKT.G.9 (1) — paridad A=B (small_cells): panel de sesión delegada
   it.each(MARKETING_SCREENS.map((s) => [s]))('pantalla %s, semana cerrada fija', async (s) => {
     const { ctrl } = build();
     const q = { pantalla: s, week: '2026-W41' };
-    const viaToken = await ctrl.aggregates(tokenReq, { ...q });
-    const viaSesion = await ctrl.panel(DELEGADA, { ...q });
+    const viaToken = await ctrl.aggregates(tokenReq, ...screenArgs({ ...q }));
+    const viaSesion = await ctrl.panel(DELEGADA, ...screenArgs({ ...q }));
     expect(viaSesion).toEqual(viaToken);
     expect(viaSesion.privacy).toBe('small_cells');
   });
@@ -141,8 +142,8 @@ describe('§MKT.G.9 (1) — paridad A=B (small_cells): panel de sesión delegada
   it('pantalla d, mes cerrado: también iguales (y trae celdas «< 5», la paridad no es trivial)', async () => {
     const { ctrl } = build();
     const q = { pantalla: 'd', month: '2026-09' };
-    const viaToken = await ctrl.aggregates(tokenReq, { ...q });
-    const viaSesion = await ctrl.panel(DELEGADA, { ...q });
+    const viaToken = await ctrl.aggregates(tokenReq, ...screenArgs({ ...q }));
+    const viaSesion = await ctrl.panel(DELEGADA, ...screenArgs({ ...q }));
     expect(viaSesion).toEqual(viaToken);
     expect(JSON.stringify(viaSesion)).toContain(SMALL_CELL_SENTINEL);
   });
@@ -151,14 +152,14 @@ describe('§MKT.G.9 (1) — paridad A=B (small_cells): panel de sesión delegada
 describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en orden', () => {
   it.each(MARKETING_SCREENS.map((s) => [s]))('pantalla %s', async (s) => {
     const { ctrl } = build();
-    const p = (await ctrl.panel(SUPER, { pantalla: s, week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(SUPER, ...screenArgs({ pantalla: s, week: '2026-W41' }))) as ScreenPayload;
     expect(p.tables.map((t) => t.id)).toEqual(CATALOGO[s as MarketingScreen]);
   });
 
   it('toda tabla NO medida trae motivo que empieza por «NO MEDIDO — », sin filas, y sin códigos internos', async () => {
     const { ctrl } = build();
     for (const s of MARKETING_SCREENS) {
-      const p = (await ctrl.panel(SUPER, { pantalla: s, week: '2026-W41' })) as ScreenPayload;
+      const p = (await ctrl.panel(SUPER, ...screenArgs({ pantalla: s, week: '2026-W41' }))) as ScreenPayload;
       for (const t of p.tables.filter((x: AggTable) => !x.measured)) {
         expect(t.notMeasuredReason).toMatch(/^NO MEDIDO — /);
         expect(t.rows).toEqual([]);
@@ -171,14 +172,14 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
   it('la línea de cobertura va en `notes` de TODA pantalla (MKT.G.4)', async () => {
     const { ctrl } = build();
     for (const s of MARKETING_SCREENS) {
-      const p = (await ctrl.panel(SUPER, { pantalla: s, week: '2026-W41' })) as ScreenPayload;
+      const p = (await ctrl.panel(SUPER, ...screenArgs({ pantalla: s, week: '2026-W41' }))) as ScreenPayload;
       expect(p.notes).toContain(COBERTURA);
     }
   });
 
   it('d4b: solicitudes enviadas por carta (distintas), N<5 ⇒ «< 5» con supresión complementaria, sin MX$', async () => {
     const { ctrl, m } = build();
-    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'd', week: '2026-W41' }))) as ScreenPayload;
     const d4b = p.tables.find((t) => t.id === 'd4b')!;
     expect(d4b.measured).toBe(true);
     expect(d4b.source).toBe('BD');
@@ -202,7 +203,7 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
       { cardId: 'A', sellRequestId: 'sr0', card: card('Carta A', '001') },
       ...Array.from({ length: 8 }, (_, i) => ({ cardId: 'C', sellRequestId: `sc${i}`, card: card('Carta C', '003') })),
     ]);
-    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'd', week: '2026-W41' }))) as ScreenPayload;
     const d4b = p.tables.find((t) => t.id === 'd4b')!;
     // Sin celdas ocultas ⇒ ambas visibles, ordenadas de más a menos solicitudes.
     expect(d4b.rows).toEqual([
@@ -214,7 +215,7 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
   it('d4b: una sola solicitud con 1 carta ⇒ «< 5» sin MX$ (ARCHITECTURE §9 D-MKT-1)', async () => {
     const { ctrl, m } = build();
     m.sellRequestItemFindMany.mockResolvedValue([{ cardId: 'B', sellRequestId: 'sr1', card: card('Carta B', '002') }]);
-    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'd', week: '2026-W41' }))) as ScreenPayload;
     const d4b = p.tables.find((t) => t.id === 'd4b')!;
     expect(d4b.rows).toHaveLength(1);
     expect(d4b.rows[0].solicitudes).toBe(SMALL_CELL_SENTINEL);
@@ -227,7 +228,7 @@ describe('§MKT.G.9 (7) — registro de accesos del panel', () => {
     ['delegada', DELEGADA, 'small_cells'],
   ] as const)('sesión %s: UNA fila con actorUserId, tokenId null, format json, surface=panel y privacy=%s', async (_n, user, privacy) => {
     const { ctrl, accessLog } = build();
-    const p = (await ctrl.panel(user, { pantalla: 'a', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(user, ...screenArgs({ pantalla: 'a', week: '2026-W41' }))) as ScreenPayload;
     expect(accessLog.record).toHaveBeenCalledTimes(1);
     expect(accessLog.record).toHaveBeenCalledWith({
       actorUserId: user.id,
@@ -243,7 +244,7 @@ describe('§MKT.G.9 (7) — registro de accesos del panel', () => {
 describe('§MKT.G.2 — periodo del panel', () => {
   it('sin periodo ⇒ la última semana cerrada (lun 5 – dom 11 oct 2026)', async () => {
     const { ctrl } = build();
-    const p = (await ctrl.panel(SUPER, { pantalla: 'h' })) as ScreenPayload;
+    const p = (await ctrl.panel(SUPER, ...screenArgs({ pantalla: 'h' }))) as ScreenPayload;
     expect(p.period).toMatchObject({ kind: 'week', from: '2026-10-05', to: '2026-10-11' });
   });
 
@@ -257,13 +258,13 @@ describe('§MKT.G.2 — periodo del panel', () => {
     ['dos formas a la vez', { week: '2026-W41', month: '2026-09' }],
   ])('%s ⇒ 400 VALIDATION_ERROR', async (_n, extra) => {
     const { ctrl, accessLog } = build();
-    await expect(ctrl.panel(SUPER, { pantalla: 'a', ...extra })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+    await expect(ctrl.panel(SUPER, ...screenArgs({ pantalla: 'a', ...extra }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
     expect(accessLog.record).not.toHaveBeenCalled();
   });
 
   it('pantalla fuera de lista ⇒ 400', async () => {
     const { ctrl } = build();
-    await expect(ctrl.panel(SUPER, { pantalla: 'z', week: '2026-W41' })).rejects.toBeInstanceOf(BusinessException);
+    await expect(ctrl.panel(SUPER, ...screenArgs({ pantalla: 'z', week: '2026-W41' }))).rejects.toBeInstanceOf(BusinessException);
   });
 });
 
@@ -279,7 +280,7 @@ describe('§MKT.E — weekly-excel: los parámetros prohibidos NO se ignoran en 
   ])('weekly-excel con %s ⇒ 400 VALIDATION_ERROR y sin fila de registro', async (_n, q) => {
     const { ctrl, accessLog } = build();
     const res = { setHeader: jest.fn(), send: jest.fn() };
-    await expect(ctrl.weeklyExcel(SUPER, q, res as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+    await expect(ctrl.weeklyExcel(SUPER, res as never, ...periodArgs(q))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
     expect(res.send).not.toHaveBeenCalled();
     expect(accessLog.record).not.toHaveBeenCalled();
   });
