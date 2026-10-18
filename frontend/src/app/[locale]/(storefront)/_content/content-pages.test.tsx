@@ -44,8 +44,14 @@ function node(graph: Graph, type: string): Record<string, unknown> | undefined {
   return graph['@graph'].find((n) => n['@type'] === type);
 }
 
-const params = (locale: string, extra: Record<string, string> = {}) =>
-  Promise.resolve({ locale, ...extra });
+function params(locale: string): Promise<{ locale: string }>;
+function params<E extends Record<string, string>>(
+  locale: string,
+  extra: E,
+): Promise<{ locale: string } & E>;
+function params(locale: string, extra: Record<string, string> = {}) {
+  return Promise.resolve({ locale, ...extra });
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
