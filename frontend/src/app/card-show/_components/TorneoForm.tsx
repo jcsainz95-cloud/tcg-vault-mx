@@ -129,8 +129,9 @@ export function TorneoForm() {
     return <SuccessPanel title="¡Listo! Casi terminas tu preinscripción." />;
   }
 
-  // §CS-UX.3: el error del grupo de día se asocia al fieldset y a CADA radio; el primer radio lleva
-  // `aria-invalid` (el fieldset no es enfocable) para que `focusFirstInvalid` caiga ahí.
+  // §CS-UX.3: el error del grupo de día se asocia al fieldset y a CADA radio, y `aria-invalid="true"`
+  // va en LOS TRES radios (no solo el primero); el fieldset no es enfocable, así que `focusFirstInvalid`
+  // cae en el primero por orden del DOM.
   const dayError = fieldErrors.day;
   const dayDescribedBy = dayError ? 'cs-day-error' : undefined;
 
@@ -152,7 +153,7 @@ export function TorneoForm() {
       <fieldset aria-describedby={dayDescribedBy}>
         <legend className="eyebrow">Día del torneo (obligatorio)</legend>
         <div className="mt-3 flex flex-col gap-2">
-          {CARD_SHOW.torneos.dias.map((d, i) => (
+          {CARD_SHOW.torneos.dias.map((d) => (
             <label key={d.id} className="flex items-center gap-3 text-[13px] text-text">
               <input
                 type="radio"
@@ -164,7 +165,7 @@ export function TorneoForm() {
                   clearFieldError('day');
                 }}
                 className="h-5 w-5 accent-[color:var(--color-accent)]"
-                aria-invalid={dayError && i === 0 ? true : undefined}
+                aria-invalid={dayError ? true : undefined}
                 aria-describedby={dayDescribedBy}
               />
               {d.label}
@@ -181,6 +182,7 @@ export function TorneoForm() {
                 clearFieldError('day');
               }}
               className="h-5 w-5 accent-[color:var(--color-accent)]"
+              aria-invalid={dayError ? true : undefined}
               aria-describedby={dayDescribedBy}
             />
             Los dos días
