@@ -4,6 +4,30 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
+
+**Estado vigente.** Brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §E4/§E6/§E7 (+ v1 §2.3–2.5, §3.1–3.3).
+Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
+- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual v5 (23 de 24; **P8 retenida**:
+  dice «No autenticamos…» y el brief retira «autenticamos»; vuelve al manual, `HELD_FAQS`). `guides.es.ts` = sección
+  «Caption» de cada `copy.md` (sin emojis ni líneas solo de Instagram, anotadas en `omitted`); la guía NM usa la
+  historia aprobada del 8-oct + P7 porque el carrusel `que-es-nm` está `pendiente-de-aprobación`.
+  `como-funciona.es.ts` solo COMPONE FAQ por id (marketing no tiene texto propio de esa página).
+- **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ (mensual ⇒ 2026-11-11; P19 ⇒ 2026-11-05). Al vencer,
+  la FAQ sale de la página, del `FAQPage`, de `/como-funciona`, del sitemap y de `llms.txt` (`lib/seo-content.ts`,
+  `revalidate = 3600`, fecha en CDMX). ⚠️ Si nadie copia la revisión del 11-nov, `/preguntas` queda vacía el 12-nov.
+- **JSON-LD:** `/preguntas` `FAQPage` (mismo arreglo que se pinta) · `/como-funciona` y `/guias` `WebPage` · cada guía
+  `Article` · todas `Organization` + `BreadcrumbList`; catálogo ganó `BreadcrumbList`. Canonical siempre `/es/…`
+  (solo hay español; `/en/…` sirve el mismo texto con «available in Spanish only», sin hreflang).
+- **`/llms.txt`** = `app/llms.txt/route.ts` + `lib/llms-txt.ts` (contacto = `GET /support/contact`, tagline de
+  `messages`). Sin «16 %»: la tasa de IVA viaja por publicación (`ivaRatePct`).
+- **Candados:** `lib/seo-content.test.ts` (frases prohibidas en contenido y trinquete en `messages/`, vigencia, sitemap),
+  `_content/content-pages.test.tsx` (DOM = JSON-LD renderizando la página real), `app/sitemap-robots.test.ts`,
+  `lib/llms-txt.test.ts`. Trinquete con 2 infractoras PREVIAS (`home.sellBody`, `buylist.subtitle`: «nosotros
+  autenticamos»), fuera del namespace `seo.*` de este encargo.
+- **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
+  (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
+
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
 **Estado vigente.** Restyle + reflow + motion de la landing EXISTENTE `/card-show` (decisión del dueño JC,
@@ -22360,8 +22384,8 @@ backend `BACKEND_NOTES §MKT` (commit `2f93f36`, campos `pricedAsOf`/`ogImageUrl
 ### §E1 — sitemap.xml, robots.txt, canonical
 - `src/app/sitemap.ts` (App Router): páginas estáticas públicas existentes (portada, catálogo, sellado,
   accesorios, meta-decks, cotizador, términos, privacidad) + una entrada por ficha a la venta desde
-  `GET /catalog/sitemap` (`getSitemap()` en `lib/api.ts`, con mock). ⛔ §E4/§E6 (`/como-funciona`,
-  `/preguntas`, `/guias`) NO se listan: no existen en esta ola. `revalidate=3600`; resiliente (si el backend
+  `GET /catalog/sitemap` (`getSitemap()` en `lib/api.ts`, con mock). §E4/§E6 (`/como-funciona`,
+  `/preguntas`, `/guias`): ver §MKT-SEO-GEO arriba (2026-10-18). `revalidate=3600`; resiliente (si el backend
   no responde, salen solo las estáticas). URLs con el locale por defecto `es` (canonical de cada ficha).
 - `src/app/robots.ts`: `allow:'/'` + `Sitemap:` → `<SITE_URL>/sitemap.xml`; bloquea SOLO cuenta, checkout/
   compra, órdenes, envíos, bóveda, pedido-invitado, auth, admin y `/api/` (comodín de segmento para ambos
