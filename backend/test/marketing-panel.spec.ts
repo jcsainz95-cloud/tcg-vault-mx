@@ -191,8 +191,24 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
     const counts = d4b.rows.map((r) => r.solicitudes);
     // A=6 visible, B=1 sola oculta ⇒ supresión complementaria: ninguna celda exacta deja despejar a B.
     expect(counts).not.toContain(1);
-    expect(counts).not.toContain(7); // la solicitud repetida sr0 cuenta UNA vez
+    // (la cuenta de solicitudes DISTINTAS la fija la prueba siguiente: aquí A cae en «Otros» y no se ve)
     expect(counts.every((c) => c === SMALL_CELL_SENTINEL)).toBe(true);
+  });
+
+  it('d4b: cuenta solicitudes DISTINTAS, no líneas (la carta A va 2 veces en sr0 y cuenta 6, no 7)', async () => {
+    const { ctrl, m } = build();
+    m.sellRequestItemFindMany.mockResolvedValue([
+      ...Array.from({ length: 6 }, (_, i) => ({ cardId: 'A', sellRequestId: `sr${i}`, card: card('Carta A', '001') })),
+      { cardId: 'A', sellRequestId: 'sr0', card: card('Carta A', '001') },
+      ...Array.from({ length: 8 }, (_, i) => ({ cardId: 'C', sellRequestId: `sc${i}`, card: card('Carta C', '003') })),
+    ]);
+    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const d4b = p.tables.find((t) => t.id === 'd4b')!;
+    // Sin celdas ocultas ⇒ ambas visibles, ordenadas de más a menos solicitudes.
+    expect(d4b.rows).toEqual([
+      { carta: 'Carta C · Set MX 003', solicitudes: 8 },
+      { carta: 'Carta A · Set MX 001', solicitudes: 6 },
+    ]);
   });
 
   it('d4b: una sola solicitud con 1 carta ⇒ «< 5» sin MX$ (ARCHITECTURE §9 D-MKT-1)', async () => {
