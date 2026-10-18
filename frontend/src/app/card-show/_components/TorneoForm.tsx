@@ -60,6 +60,11 @@ export function TorneoForm() {
   const isPokemon = game === 'pokemon';
   const formRef = useRef<HTMLFormElement>(null);
 
+  // §CS-UX.3 (comportamiento 3): retira el error de un campo/grupo en su primer `change`.
+  function clearFieldError(field: keyof typeof fieldErrors) {
+    setFieldErrors((prev) => (prev[field] === undefined ? prev : { ...prev, [field]: undefined }));
+  }
+
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
     if (game === '') errs.game = FORM_MESSAGES.needGame;
@@ -135,7 +140,10 @@ export function TorneoForm() {
         placeholder="Elige una opción"
         required
         value={game}
-        onChange={(e) => setGame(e.target.value as CardShowGame | '')}
+        onChange={(e) => {
+          setGame(e.target.value as CardShowGame | '');
+          clearFieldError('game');
+        }}
         options={CARD_SHOW_GAMES.map((g) => ({ value: g.id, label: g.label }))}
         error={fieldErrors.game}
       />
@@ -150,7 +158,10 @@ export function TorneoForm() {
                 name="cs-day"
                 value={d.id}
                 checked={day === d.id}
-                onChange={() => setDay(d.id)}
+                onChange={() => {
+                  setDay(d.id);
+                  clearFieldError('day');
+                }}
                 className="h-5 w-5 accent-[color:var(--color-accent)]"
                 aria-invalid={dayError && i === 0 ? true : undefined}
                 aria-describedby={dayDescribedBy}
@@ -164,7 +175,10 @@ export function TorneoForm() {
               name="cs-day"
               value="both"
               checked={day === 'both'}
-              onChange={() => setDay('both')}
+              onChange={() => {
+                setDay('both');
+                clearFieldError('day');
+              }}
               className="h-5 w-5 accent-[color:var(--color-accent)]"
               aria-describedby={dayDescribedBy}
             />
@@ -182,7 +196,10 @@ export function TorneoForm() {
         label="Nombre del jugador"
         autoComplete="name"
         value={playerName}
-        onChange={(e) => setPlayerName(e.target.value)}
+        onChange={(e) => {
+          setPlayerName(e.target.value);
+          clearFieldError('playerName');
+        }}
         error={fieldErrors.playerName}
       />
 
@@ -194,7 +211,10 @@ export function TorneoForm() {
           autoComplete="off"
           hint="Solo dígitos. Lo pide el torneo de Pokémon."
           value={playerId}
-          onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ''))}
+          onChange={(e) => {
+            setPlayerId(e.target.value.replace(/\D/g, ''));
+            clearFieldError('playerId');
+          }}
           error={fieldErrors.playerId}
         />
       )}
@@ -206,7 +226,10 @@ export function TorneoForm() {
         autoComplete="email"
         placeholder="tu@correo.com"
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          clearFieldError('email');
+        }}
         error={fieldErrors.email}
       />
 
@@ -221,13 +244,27 @@ export function TorneoForm() {
           El jugador es menor de edad
         </label>
         {isMinor && (
-          <PrivacyCheckbox checked={guardian} onChange={setGuardian} error={fieldErrors.guardian}>
+          <PrivacyCheckbox
+            checked={guardian}
+            onChange={(v) => {
+              setGuardian(v);
+              clearFieldError('guardian');
+            }}
+            error={fieldErrors.guardian}
+          >
             Soy el padre, madre o tutor del jugador y doy mi consentimiento para su preinscripción.
           </PrivacyCheckbox>
         )}
       </div>
 
-      <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
+      <PrivacyCheckbox
+        checked={consent}
+        onChange={(v) => {
+          setConsent(v);
+          clearFieldError('consent');
+        }}
+        error={fieldErrors.consent}
+      >
         He leído el{' '}
         <a
           href={CARD_SHOW.footer.privacidadUrl}

@@ -143,7 +143,10 @@ export function LinkActionClient({ action, token }: { action: LinkAction; token?
       <div className="max-w-xl">
         <p className="font-brand text-sm uppercase tracking-wordmark text-accent">{CARD_SHOW.footer.marca}</p>
         <p className="eyebrow mt-6">{copy.eyebrow}</p>
-        <h1 className="mt-3 font-serif text-h1 leading-[1.1]">{copy.title}</h1>
+        {/* §CS-UX.4 (vCS-1): los títulos de `/card-show/**` van en Montserrat 700 (`font-brand`),
+            no en Zen Old Mincho — coherente con la landing. Alcance por ruta del microsite (estas
+            páginas de acción), ⛔ sin tocar el default global de `globals.css` (h1 = font-serif). */}
+        <h1 className="mt-3 font-brand text-h1 font-bold leading-[1.1] tracking-[-0.01em]">{copy.title}</h1>
 
         {phase === 'success' && (
           <div role="status" className="rule-note mt-8 py-3">
