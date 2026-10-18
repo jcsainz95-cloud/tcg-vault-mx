@@ -4,6 +4,42 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
+
+**Estado vigente.** Restyle + reflow + motion de la landing EXISTENTE `/card-show` (decisión del dueño JC,
+preview aprobado `scratchpad/cardshow-preview-motion.html`). ⛔ Solo `frontend/`; ⛔ sin tocar backend, contrato ni
+`/admin/card-show`. Toda la conducta gateada se conserva (doble opt-in, anti-abuso, rifa separada/desmarcada M-89,
+TorneoForm, MerchantSponsorForm, StickyRegisterCta, páginas de acción, §CS-UX.3): los formularios y sus pruebas no
+se tocaron. Contenido = `content/card-show.ts` tal cual (reacomodado, sin copy nuevo).
+
+- **Librería de motion:** `motion@14.3.0` (pin exacto, `package.json`), **bundleada** (⛔ nada de CDN: la CSP es
+  `script-src 'self' 'nonce' 'strict-dynamic' https:`, `security/csp.ts` — un CDN se bloquea). Se usa en
+  `HeroTicket.tsx` (parallax sutil del ticket del hero vía `useScroll`/`useTransform`, apagado con
+  `useReducedMotion`).
+- **Reveals al scroll:** CSS en `app/card-show/card-show.css` + isla `CardShowMotion.tsx` (IntersectionObserver).
+  **Progressive enhancement:** el estado «oculto» solo existe bajo `[data-cs-root][data-cs-motion]`, atributo que
+  pone el JS en cliente SOLO si no hay `prefers-reduced-motion`. Sin JS ⇒ todo visible (⛔ sin `opacity-0`; pasa el
+  e2e «sin JS» y los unitarios de forma). Sin parpadeo above-the-fold (marca `cs-in` lo ya-visible antes de armar,
+  mismo bloque síncrono). Solo anima `opacity`/`transform` ⇒ sin CLS.
+- **reduced-motion:** doble candado — la isla ni se arma, y la media query de `card-show.css` neutraliza cualquier
+  resto (+ el global de `globals.css`). `scroll-behavior:smooth` solo bajo `no-preference`.
+- **Superficies (alternan tinta↔papel):** hero/torneos/rifa/footer en tinta; colaborador/cuándo-dónde/qué/registro/
+  faq en papel. Rojo sobre tinta = `#E0353B` fills/bordes/foco (§CS-UX.1) y `--hunt-red-up #F0685F` solo en TEXTO
+  rojo sobre tinta (≈5.6:1 AA, ya era el baseline gateado); ⛔ `#B31217` nunca sobre tinta. `SectionIndex` cambia de
+  tono por superficie (⛔ el rojo claro y `on-ink-nav` no leen sobre papel).
+- **Reflow (del preview):** agenda = línea de tiempo de 2 días (no rejilla); torneos = **tira horizontal**
+  scroll-snap (`.cs-rail`, sangra al borde); cómo llegar = lista numerada con reglas. Countdown en mono/tabular.
+- **Topbar (tinta):** lockup «TCG HUNT × Jakomi» con LOGO real (§CS-UX.5) = `LogoTcgHunt` `mark-dark` 30px + wordmark
+  Montserrat `nowrap` con tracking responsivo (0.02em <360 / 0.04em / `wordmark` ≥390) + `×` (aria-hidden) + logo
+  Jakomi (20–24px, ⛔ nunca oculto). CTA del topbar = variante B (relleno `#B31217` + contorno 2px papel), oculto
+  <360px (el CTA principal vive en el hero).
+- **«Invertir ◐» (opcional): NO incluido.** Una inversión global correcta exige remapear varios tokens de marca y
+  AUN así deja texto de acento pequeño (eyebrows 11px con `text-accent`) bajo AA sobre la superficie invertida
+  (#E0353B 3.94:1 < 4.5 para texto chico), lo que viola §CS-UX.1/.2. El dueño condicionó el botón a «si no complica
+  accesibilidad»; complica ⇒ se omite. Follow-up posible con sistema de doble token por escena.
+- **Verificado (sha de la rama):** `lint` ✓, `typecheck` ✓, `test` 4380/4380 (11 skip pre-existentes, 0 tocadas),
+  `build` ✓ (`/card-show` 59 kB · first load 172 kB). E2E Playwright NO corrido aquí (lo corre qa/tester-e2e).
+
 ## §CARDSHOW-R5b · Bloqueantes móvil/legal/accesibilidad + datos del evento (2026-10-17, rama `fix/card-show-r5b-frontend`, base `release/card-show` sha `1315236`)
 
 **Estado vigente.** Lista RECORTADA por el dueño (solo bloqueantes + legal/privacidad + contenido del
