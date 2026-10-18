@@ -1,0 +1,162 @@
+/*
+ * Movimiento del microsite Card Show (restyle 2026-10-18, decisión del dueño JC: landing más
+ * dinámica en las TRANSICIONES, manteniendo la línea TCG HUNT y §CS-UX). Fuente única de las reglas
+ * de MOTION de la landing; los tokens de color/tipografía siguen en `globals.css` y §CS-UX (no se
+ * duplican aquí).
+ *
+ * PROGRESSIVE ENHANCEMENT (gate de ux-review + e2e «sin JS»): el contenido se pinta VISIBLE por
+ * defecto. El estado «oculto antes de revelar» SOLO existe cuando el JS arma el motor poniendo
+ * `data-cs-motion` en el contenedor raíz (`[data-cs-root]`). Sin JS ⇒ sin `data-cs-motion` ⇒ todo
+ * visible, sin `opacity:0`. Con `prefers-reduced-motion: reduce` el motor ni se arma y, por si acaso,
+ * la media query de abajo neutraliza cualquier resto.
+ */
+
+/* Scroll suave de los anclajes (#registro, #torneos…), solo si el usuario no pidió menos movimiento. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* --- Reveal al entrar en viewport (lo dispara el island `CardShowMotion`) --- */
+[data-cs-root][data-cs-motion] .cs-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: opacity, transform;
+}
+[data-cs-root][data-cs-motion] .cs-reveal.cs-in {
+  opacity: 1;
+  transform: none;
+}
+/* Escalonado suave de hijos directos marcados (bloques de una misma fila). */
+[data-cs-root][data-cs-motion] .cs-reveal.cs-delay-1 {
+  transition-delay: 0.08s;
+}
+[data-cs-root][data-cs-motion] .cs-reveal.cs-delay-2 {
+  transition-delay: 0.16s;
+}
+
+/* El reveal nunca esconde contenido si el usuario pidió menos movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  [data-cs-root][data-cs-motion] .cs-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* --- Explosión del hero (isla `HeroExplosion`; realce DECORATIVO, aria-hidden) ---
+ * Las capas nacen con opacity:0 (inline) ⇒ sin JS quedan invisibles y el hero se ve armado. La isla
+ * las anima con `motion`. Con reduced-motion la isla no anima y, por candado, la capa se oculta. */
+.cs-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cs-flash {
+  position: absolute;
+  inset: 0;
+  background: #f4f1ea;
+  mix-blend-mode: screen;
+  will-change: opacity;
+}
+.cs-ring {
+  /* Onda de choque TENUE (RONDA 3 I-2): aro FINO y grande con escala moderada, en vez de un cuadro
+   * pequeño escalado ×26 (leía como glitch a 1280). Borde 1.5px + escala ~2.4–3 ⇒ el trazo queda fino. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 160px;
+  margin: -80px 0 0 -80px;
+  border: 1.5px solid #e0353b; /* §CS-UX.1: rojo sobre tinta = #E0353B, ⛔ nunca #B31217. Esquinas 0 (sin radius). */
+  will-change: transform, opacity;
+}
+.cs-debris {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 118px;
+  height: 160px;
+  margin: -80px 0 0 -59px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid rgba(244, 241, 234, 0.16);
+  background: #201d26;
+  color: #f4f1ea;
+  will-change: transform, opacity;
+}
+.cs-debris-paper {
+  background: #f4f1ea;
+  color: #1a1a18;
+  border-color: transparent;
+}
+.cs-debris-red {
+  background: #e0353b; /* §CS-UX.1 */
+  color: #f4f1ea;
+  border-color: transparent;
+}
+.cs-debris-k {
+  font-family: var(--font-mono), ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.cs-debris-b {
+  font-family: var(--font-brand), var(--font-sans), system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+.cs-confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Candado reduced-motion: el realce de la explosión no existe (sin ráfaga, flash ni shake). */
+@media (prefers-reduced-motion: reduce) {
+  .cs-burst {
+    display: none;
+  }
+}
+
+/* --- Foco visible de la barra de anuncio (RONDA 3 I-4) ---
+ * La barra es rojo de marca (#B31217) y el foco global es rojo (#B31217) ⇒ invisible sobre rojo. Anillo
+ * en PAPEL (`--color-accent-fg` = #F4F1EA, 6.18:1 sobre #B31217) e INSET (offset negativo) para que lea
+ * dentro de la banda, sin depender del outline global. Es el PRIMER tab stop de la página. */
+.cs-announce:focus-visible {
+  outline: 2px solid var(--color-accent-fg);
+  outline-offset: -4px;
+}
+
+/* --- Foco visible del mapa embebido (RONDA 4 IMPORTANTE-1, reemplaza al M-5 de R3) ---
+ * Un `<iframe>` enfocado NO casa `:focus-visible` en Chromium (ni `:focus-within` del padre), así que
+ * el anillo lo activa la isla `MapFocusRing` poniendo `.cs-map-focus` en el `<figure>` cuando el foco
+ * entra al iframe. Anillo de marca sobre papel, alrededor del marco. */
+.cs-map-focus .cs-map-frame {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Tira horizontal de torneos (scroll-snap, sin barra visible) --- */
+.cs-rail {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.cs-rail::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+.cs-rail > .cs-rail-item {
+  scroll-snap-align: start;
+}

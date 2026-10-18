@@ -67,6 +67,20 @@ describe('LeadVisitorForm · asistente (type=visitor)', () => {
     expect(submitLead).not.toHaveBeenCalled();
   });
 
+  it('§CS-UX.3 clear-on-change: el error de un campo DESAPARECE al corregirlo (solo ese)', async () => {
+    const u = userEvent.setup();
+    render(<LeadVisitorForm />);
+    await u.click(screen.getByRole('button', { name: 'Registrarme gratis' }));
+    // Al enviar vacío salen los tres errores de campo.
+    expect(await screen.findByText(FORM_MESSAGES.needName)).toBeInTheDocument();
+    expect(screen.getByText(FORM_MESSAGES.needConsent)).toBeInTheDocument();
+    // Teclear en Nombre retira SU error (clearFieldError en onChange, §CS-UX.3 punto 3)…
+    await u.type(screen.getByLabelText('Nombre'), 'A');
+    await waitFor(() => expect(screen.queryByText(FORM_MESSAGES.needName)).toBeNull());
+    // …y no borra los demás de golpe: el de consentimiento sigue hasta corregirse.
+    expect(screen.getByText(FORM_MESSAGES.needConsent)).toBeInTheDocument();
+  });
+
   it('adquisición PEREZOSA (§CARDSHOW.5 M-87): 0 GET form-token al montar, 1 al primer foco', async () => {
     const u = userEvent.setup();
     render(<LeadVisitorForm />);

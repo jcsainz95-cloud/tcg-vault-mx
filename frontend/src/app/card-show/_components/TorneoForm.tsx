@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -59,6 +60,11 @@ export function TorneoForm() {
 
   const isPokemon = game === 'pokemon';
   const formRef = useRef<HTMLFormElement>(null);
+
+  // §CS-UX.3 (comportamiento 3): retira el error de un campo/grupo en su primer `change`.
+  function clearFieldError(field: keyof typeof fieldErrors) {
+    setFieldErrors((prev) => (prev[field] === undefined ? prev : { ...prev, [field]: undefined }));
+  }
 
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
@@ -123,8 +129,9 @@ export function TorneoForm() {
     return <SuccessPanel title="¡Listo! Casi terminas tu preinscripción." />;
   }
 
-  // §CS-UX.3: el error del grupo de día se asocia al fieldset y a CADA radio; el primer radio lleva
-  // `aria-invalid` (el fieldset no es enfocable) para que `focusFirstInvalid` caiga ahí.
+  // §CS-UX.3: el error del grupo de día se asocia al fieldset y a CADA radio, y `aria-invalid="true"`
+  // va en LOS TRES radios (no solo el primero); el fieldset no es enfocable, así que `focusFirstInvalid`
+  // cae en el primero por orden del DOM.
   const dayError = fieldErrors.day;
   const dayDescribedBy = dayError ? 'cs-day-error' : undefined;
 
@@ -135,7 +142,10 @@ export function TorneoForm() {
         placeholder="Elige una opción"
         required
         value={game}
-        onChange={(e) => setGame(e.target.value as CardShowGame | '')}
+        onChange={(e) => {
+          setGame(e.target.value as CardShowGame | '');
+          clearFieldError('game');
+        }}
         options={CARD_SHOW_GAMES.map((g) => ({ value: g.id, label: g.label }))}
         error={fieldErrors.game}
       />
@@ -143,16 +153,19 @@ export function TorneoForm() {
       <fieldset aria-describedby={dayDescribedBy}>
         <legend className="eyebrow">Día del torneo (obligatorio)</legend>
         <div className="mt-3 flex flex-col gap-2">
-          {CARD_SHOW.torneos.dias.map((d, i) => (
+          {CARD_SHOW.torneos.dias.map((d) => (
             <label key={d.id} className="flex items-center gap-3 text-[13px] text-text">
               <input
                 type="radio"
                 name="cs-day"
                 value={d.id}
                 checked={day === d.id}
-                onChange={() => setDay(d.id)}
+                onChange={() => {
+                  setDay(d.id);
+                  clearFieldError('day');
+                }}
                 className="h-5 w-5 accent-[color:var(--color-accent)]"
-                aria-invalid={dayError && i === 0 ? true : undefined}
+                aria-invalid={dayError ? true : undefined}
                 aria-describedby={dayDescribedBy}
               />
               {d.label}
@@ -164,8 +177,12 @@ export function TorneoForm() {
               name="cs-day"
               value="both"
               checked={day === 'both'}
-              onChange={() => setDay('both')}
+              onChange={() => {
+                setDay('both');
+                clearFieldError('day');
+              }}
               className="h-5 w-5 accent-[color:var(--color-accent)]"
+              aria-invalid={dayError ? true : undefined}
               aria-describedby={dayDescribedBy}
             />
             Los dos días
@@ -173,6 +190,7 @@ export function TorneoForm() {
         </div>
         {dayError && (
           <p id="cs-day-error" className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
+            <CircleAlert size={14} aria-hidden className="shrink-0" />
             {dayError}
           </p>
         )}
@@ -182,7 +200,10 @@ export function TorneoForm() {
         label="Nombre del jugador"
         autoComplete="name"
         value={playerName}
-        onChange={(e) => setPlayerName(e.target.value)}
+        onChange={(e) => {
+          setPlayerName(e.target.value);
+          clearFieldError('playerName');
+        }}
         error={fieldErrors.playerName}
       />
 
@@ -194,7 +215,10 @@ export function TorneoForm() {
           autoComplete="off"
           hint="Solo dígitos. Lo pide el torneo de Pokémon."
           value={playerId}
-          onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ''))}
+          onChange={(e) => {
+            setPlayerId(e.target.value.replace(/\D/g, ''));
+            clearFieldError('playerId');
+          }}
           error={fieldErrors.playerId}
         />
       )}
@@ -206,7 +230,10 @@ export function TorneoForm() {
         autoComplete="email"
         placeholder="tu@correo.com"
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          clearFieldError('email');
+        }}
         error={fieldErrors.email}
       />
 
@@ -221,13 +248,27 @@ export function TorneoForm() {
           El jugador es menor de edad
         </label>
         {isMinor && (
-          <PrivacyCheckbox checked={guardian} onChange={setGuardian} error={fieldErrors.guardian}>
+          <PrivacyCheckbox
+            checked={guardian}
+            onChange={(v) => {
+              setGuardian(v);
+              clearFieldError('guardian');
+            }}
+            error={fieldErrors.guardian}
+          >
             Soy el padre, madre o tutor del jugador y doy mi consentimiento para su preinscripción.
           </PrivacyCheckbox>
         )}
       </div>
 
-      <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
+      <PrivacyCheckbox
+        checked={consent}
+        onChange={(v) => {
+          setConsent(v);
+          clearFieldError('consent');
+        }}
+        error={fieldErrors.consent}
+      >
         He leído el{' '}
         <a
           href={CARD_SHOW.footer.privacidadUrl}

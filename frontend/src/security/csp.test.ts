@@ -104,12 +104,15 @@ describe('LIVE-3 · política objetivo (§14.3), producción', () => {
     expect(directives({ ...PROD, vercelEnv: 'preview' })['style-src']).toEqual(s);
   });
 
-  it('frame-src: Stripe (3DS incluido) y Google', () => {
+  it('frame-src: Stripe (3DS incluido), Google Identity y el mapa embebido del Card Show (www.google.com)', () => {
+    // El embed del mapa (JC 2026-10-18) añade EXACTAMENTE `https://www.google.com` a frame-src; la
+    // igualdad estricta sigue mordiendo si entra cualquier otro origen (sigue siendo lista cerrada).
     expect(directives()['frame-src']).toEqual([
       'https://js.stripe.com',
       'https://*.js.stripe.com',
       'https://hooks.stripe.com',
       'https://accounts.google.com',
+      'https://www.google.com',
     ]);
   });
 

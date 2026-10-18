@@ -48,11 +48,11 @@ export function Countdown({ targetIso }: { targetIso: string }) {
     return (
       <div>
         <p className="eyebrow mb-2">Faltan</p>
-        <div className="flex gap-4" aria-hidden="true">
+        <div className="flex gap-3 sm:gap-5" aria-hidden="true">
           {UNITS.map((u) => (
-            <div key={u.key} className="min-w-[3.5rem]">
-              <span className="block font-serif text-h2 tabular leading-none">--</span>
-              <span className="eyebrow mt-1 block">{u.label}</span>
+            <div key={u.key} className="min-w-[3.25rem]">
+              <span className="block font-mono text-[clamp(1.75rem,6vw,2.5rem)] font-bold tabular leading-none">--</span>
+              <span className="eyebrow mt-2 block">{u.label}</span>
             </div>
           ))}
         </div>
@@ -73,11 +73,13 @@ export function Countdown({ targetIso }: { targetIso: string }) {
   return (
     <div>
       <p className="eyebrow mb-2">Faltan</p>
-      <div className="flex gap-4" aria-hidden="true">
+      <div className="flex gap-3 sm:gap-5" aria-hidden="true">
         {UNITS.map((u) => (
-          <div key={u.key} className="min-w-[3.5rem]">
-            <span className="block font-serif text-h2 tabular leading-none">{String(t[u.key]).padStart(2, '0')}</span>
-            <span className="eyebrow mt-1 block">{u.label}</span>
+          <div key={u.key} className="min-w-[3.25rem]">
+            <span className="block font-mono text-[clamp(1.75rem,6vw,2.5rem)] font-bold tabular leading-none">
+              {String(t[u.key]).padStart(2, '0')}
+            </span>
+            <span className="eyebrow mt-2 block">{u.label}</span>
           </div>
         ))}
       </div>

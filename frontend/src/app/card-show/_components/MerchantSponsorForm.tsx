@@ -49,6 +49,11 @@ export function MerchantSponsorForm() {
 
   const formRef = useRef<HTMLFormElement>(null);
 
+  // §CS-UX.3 (comportamiento 3): retira el error del campo en su primer `change`.
+  function clearFieldError(field: keyof typeof fieldErrors) {
+    setFieldErrors((prev) => (prev[field] === undefined ? prev : { ...prev, [field]: undefined }));
+  }
+
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
     if (name.trim() === '') errs.name = FORM_MESSAGES.needNameOrBrand;
@@ -116,7 +121,10 @@ export function MerchantSponsorForm() {
           autoComplete="organization"
           placeholder="Tu nombre o tu tienda"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            clearFieldError('name');
+          }}
           error={fieldErrors.name}
         />
         <Input
@@ -126,7 +134,10 @@ export function MerchantSponsorForm() {
           autoComplete="tel"
           placeholder="55 0000 0000"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            clearFieldError('phone');
+          }}
           error={fieldErrors.phone}
         />
       </div>
@@ -138,7 +149,10 @@ export function MerchantSponsorForm() {
         autoComplete="email"
         placeholder="contacto@tumarca.com"
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          clearFieldError('email');
+        }}
         error={fieldErrors.email}
       />
 
@@ -149,7 +163,14 @@ export function MerchantSponsorForm() {
         placeholder="Singles, sellado, accesorios, tu marca…"
       />
 
-      <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
+      <PrivacyCheckbox
+        checked={consent}
+        onChange={(v) => {
+          setConsent(v);
+          clearFieldError('consent');
+        }}
+        error={fieldErrors.consent}
+      >
         Acepto que TCG HUNT me contacte por este medio y he leído el{' '}
         <a
           href={CARD_SHOW.footer.privacidadUrl}

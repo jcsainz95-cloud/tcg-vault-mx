@@ -46,6 +46,13 @@ export function LeadVisitorForm() {
   const { prime, withToken } = useFormTokens('leads');
   const formRef = useRef<HTMLFormElement>(null);
 
+  // §CS-UX.3 (comportamiento 3): el error de un campo se retira en su PRIMER `change` (y con él
+  // `aria-invalid`/`aria-describedby`, que el `Input`/`PrivacyCheckbox` dejan de pintar cuando `error`
+  // es undefined). No revalida: solo limpia el error ya mostrado del campo que el usuario corrige.
+  function clearFieldError(field: keyof typeof fieldErrors) {
+    setFieldErrors((prev) => (prev[field] === undefined ? prev : { ...prev, [field]: undefined }));
+  }
+
   function validate(): boolean {
     const errs: typeof fieldErrors = {};
     if (name.trim() === '') errs.name = FORM_MESSAGES.needName;
@@ -99,7 +106,10 @@ export function LeadVisitorForm() {
           autoComplete="name"
           placeholder="Tu nombre"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            clearFieldError('name');
+          }}
           error={fieldErrors.name}
         />
         <Input
@@ -109,7 +119,10 @@ export function LeadVisitorForm() {
           autoComplete="email"
           placeholder="tu@correo.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            clearFieldError('email');
+          }}
           error={fieldErrors.email}
         />
       </div>
@@ -149,7 +162,14 @@ export function LeadVisitorForm() {
       </label>
 
       {/* ⭐M-89: privacidad obligatoria = SOLO privacidad (⛔ no fuerza aceptar las bases de la rifa). */}
-      <PrivacyCheckbox checked={consent} onChange={setConsent} error={fieldErrors.consent}>
+      <PrivacyCheckbox
+        checked={consent}
+        onChange={(v) => {
+          setConsent(v);
+          clearFieldError('consent');
+        }}
+        error={fieldErrors.consent}
+      >
         He leído el{' '}
         <a
           href={CARD_SHOW.footer.privacidadUrl}

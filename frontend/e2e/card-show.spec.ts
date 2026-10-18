@@ -93,3 +93,46 @@ test.describe('Card Show · prefers-reduced-motion', () => {
 // Pivote JC 2026-10-17: la landing ya NO expone el modelo de negocio (plano de mesas, enlaces
 // «Mesa N» a WhatsApp). El describe «plano de mesas» se retira con el pivote; la captura de
 // vendedores vive ahora en el formulario «Vendedor / Patrocinador» (sin precios ni mesas).
+
+test.describe('Card Show · foco del mapa EN PANTALLA (WCAG 2.4.7, RONDA 5)', () => {
+  // RONDA 5: al tabular hasta el `<iframe>` del mapa, `MapFocusRing` ponía el anillo pero NO
+  // desplazaba la página ⇒ el mapa quedaba ~1.7 pantallas abajo, fuera del viewport (foco por
+  // teclado invisible). El arreglo hace `scrollIntoView` sobre el `<figure>`. Aquí tabulamos hasta
+  // que el iframe sea `activeElement` y afirmamos que su caja entra al viewport y el figure trae
+  // `cs-map-focus`.
+  // Enfocamos el iframe con `.focus()` en vez de tabular: en headless sin red el contenido
+  // cross-origin del mapa no carga y Chromium NO incluye el iframe en el anillo de Tab (medido:
+  // el foco cicla por los enlaces/botones y nunca cae en el IFRAME). `.focus()` ejerce EXACTAMENTE
+  // el mismo handler de `MapFocusRing` (la ventana hace `blur` y `document.activeElement` pasa a ser
+  // el iframe), que es lo que el visitante con teclado dispara en un navegador real.
+  test('al enfocar el iframe por teclado la página se desplaza y el mapa entra al viewport', async ({ page }) => {
+    await page.goto('/card-show');
+    const iframe = page.locator('.cs-map-frame');
+    await expect(iframe).toHaveCount(1);
+
+    // El mapa arranca fuera del viewport (~1.7 pantallas abajo): nadie ha hecho scroll.
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+    expect(scrollBefore).toBe(0);
+
+    await iframe.focus();
+
+    // El figure recibe la clase del anillo…
+    const figure = page.locator('figure', { has: iframe });
+    await expect(figure).toHaveClass(/cs-map-focus/);
+
+    // …y, sobre todo, el elemento queda DENTRO del viewport tras el scrollIntoView (WCAG 2.4.7).
+    await expect
+      .poll(async () =>
+        iframe.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const vh = window.innerHeight;
+          const vw = window.innerWidth;
+          return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+        }),
+      )
+      .toBe(true);
+
+    const scrollAfter = await page.evaluate(() => window.scrollY);
+    expect(scrollAfter, 'la página debe haberse desplazado al enfocar el mapa').toBeGreaterThan(0);
+  });
+});

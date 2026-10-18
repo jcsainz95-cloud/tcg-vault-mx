@@ -1,6 +1,7 @@
 'use client';
 
 import { forwardRef, useCallback, useEffect, useId, useRef } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import {
   CardShowApiError,
@@ -183,9 +184,10 @@ export function useFormTokens(purpose: FormPurpose): {
 
 /**
  * Tras validar al enviar (§CS-UX.3), mueve el foco al PRIMER control inválido en orden del DOM
- * (`[aria-invalid="true"]`) y lo centra respetando `prefers-reduced-motion`. Para un grupo radio el
- * primer radio lleva `aria-invalid` (el `fieldset` no es enfocable). Se llama en el frame siguiente
- * al `setState` de errores, cuando React ya pintó los `aria-invalid`.
+ * (`[aria-invalid="true"]`) y lo centra respetando `prefers-reduced-motion`. En un grupo radio los
+ * radios llevan todos `aria-invalid` (el `fieldset` no es enfocable); `querySelector` devuelve el
+ * primero por orden del DOM, así que el foco cae ahí. Se llama en el frame siguiente al `setState` de
+ * errores, cuando React ya pintó los `aria-invalid`.
  */
 export function focusFirstInvalid(form: HTMLFormElement | null): void {
   if (!form) return;
@@ -266,7 +268,9 @@ export function PrivacyCheckbox({
         <span>{children}</span>
       </label>
       {error && (
-        <p id={`${id}-err`} className="mt-2 font-mono text-xs text-accent">
+        // §CS-UX.3: icono + texto (nunca solo color), igual que Input/Select/fieldset.
+        <p id={`${id}-err`} className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
+          <CircleAlert size={14} aria-hidden className="shrink-0" />
           {error}
         </p>
       )}
