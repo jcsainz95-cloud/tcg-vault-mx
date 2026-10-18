@@ -5,10 +5,13 @@ import { HELD_FAQS, PUBLIC_FAQS, FAQ_GROUP_ORDER } from '@/content/seo/faq.es';
 import { HOW_IT_WORKS_SECTIONS } from '@/content/seo/como-funciona.es';
 import { GUIDES } from '@/content/seo/guides.es';
 import {
+  FAQ_EXPIRY_WARN_DAYS,
   FORBIDDEN_PHRASES,
   contentSitemapPaths,
+  faqsExpiringSoon,
   faqPageJsonLd,
   groupFaqs,
+  guideCitationsLive,
   guideTexts,
   howItWorksSections,
   publishedFaqs,
@@ -80,6 +83,45 @@ describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v5)', () => {
   });
 });
 
+/*
+ * ⏳ R1 (techlead, 2026-10-18) — las FAQ caducan SOLAS (salen de la web el día siguiente a `validThrough`), y eso no
+ * puede pasar sin aviso. Este bloque usa el RELOJ REAL (no `NOW`): se pone ROJO desde
+ * `FAQ_EXPIRY_WARN_DAYS` (7) días antes del `validThrough` más cercano. Mismo patrón que
+ * `scripts/check-dast-report-only-expiry.sh` (job `dast-report-only-expiry`): la fecha vive en el dato, la
+ * comprobación usa el día de hoy y el canario inyecta el día. Con los datos de 2026-10-18 se pone rojo el
+ * **2026-10-29** (P19 vence el 2026-11-05): es el aviso esperado, no un defecto.
+ *
+ * Cómo se apaga el rojo (y ninguna otra forma): marketing re-mide la(s) FAQ en `plan/RESPUESTAS.md` y se copia la
+ * revisión a `content/seo/faq.es.ts` con su `validThrough` nuevo; o se decide retirarla y sale de `PUBLIC_FAQS`.
+ * ⛔ No se sube `FAQ_EXPIRY_WARN_DAYS` ni se fija el reloj aquí para «ponerlo verde».
+ */
+describe('⏳ R1 · caducidad de FAQ con el reloj real', () => {
+  it(`ninguna FAQ publicada vence en los próximos ${FAQ_EXPIRY_WARN_DAYS} días (hora CDMX)`, () => {
+    const soon = faqsExpiringSoon(); // ⛔ sin `now`: reloj real
+    const msg = soon
+      .map((f) => `${f.id} vence ${f.validThrough} (${f.daysLeft < 0 ? 'YA VENCIDA' : `quedan ${f.daysLeft} días`})`)
+      .join('; ');
+    expect(soon, `FAQ por caducar: ${msg}. Re-medir en RESPUESTAS.md y copiar la revisión a faq.es.ts.`).toEqual([]);
+  });
+
+  // Canario: la misma función, con el día inyectado, muerde exactamente en el borde.
+  it('canario: verde a 8 días de P19, rojo a 7, a 0 y ya vencida', () => {
+    expect(faqsExpiringSoon(new Date('2026-10-28T18:00:00Z'))).toEqual([]);
+    expect(faqsExpiringSoon(new Date('2026-10-29T18:00:00Z'))).toEqual([
+      { id: 'P19', validThrough: '2026-11-05', daysLeft: 7 },
+    ]);
+    expect(faqsExpiringSoon(new Date('2026-11-05T18:00:00Z'))[0]).toEqual({ id: 'P19', validThrough: '2026-11-05', daysLeft: 0 });
+    // 2026-11-04: P19 a 1 día y las 22 mensuales a 7 ⇒ todas en la ventana, la más próxima primero.
+    expect(faqsExpiringSoon(new Date('2026-11-04T18:00:00Z'))).toHaveLength(23);
+    expect(faqsExpiringSoon(new Date('2026-11-03T18:00:00Z')).map((f) => f.id)).toEqual(['P19']);
+    // Día CDMX, no UTC: 2026-10-29 03:00Z sigue siendo 2026-10-28 en CDMX ⇒ verde.
+    expect(faqsExpiringSoon(new Date('2026-10-29T03:00:00Z'))).toEqual([]);
+    const late = faqsExpiringSoon(new Date('2026-11-06T18:00:00Z'));
+    expect(late[0]).toEqual({ id: 'P19', validThrough: '2026-11-05', daysLeft: -1 });
+    expect(late).toHaveLength(23); // las 22 mensuales (2026-11-11) entran en la ventana con P19
+  });
+});
+
 describe('§E4 /como-funciona compone FAQ públicas por id', () => {
   it('cada id existe en PUBLIC_FAQS', () => {
     const ids = new Set(PUBLIC_FAQS.map((f) => f.id));
@@ -114,6 +156,36 @@ describe('§E6 guías', () => {
     const p7 = PUBLIC_FAQS.find((f) => f.id === 'P7')!;
     expect(guideTexts(GUIDES[0], NOW)).toContain(p7.answer);
   });
+
+  it('toda FAQ citada por una guía existe en PUBLIC_FAQS (citar una retenida o inexistente rompe la prueba)', () => {
+    const ids = new Set(PUBLIC_FAQS.map((f) => f.id));
+    const cited = GUIDES.flatMap((g) => g.blocks.filter((b) => b.kind === 'faq').map((b) => `${g.slug}:${b.faqId}`));
+    expect(cited.length).toBeGreaterThan(0);
+    expect(cited.filter((c) => !ids.has(c.split(':')[1]))).toEqual([]);
+  });
+
+  /*
+   * R1 (techlead, 2026-10-18): una guía que cita una FAQ VENCIDA se retira ENTERA, no se publica a medias.
+   * 2026-11-12 (CDMX) = P7 ya vencida (validThrough 2026-11-11) ⇒ `que-es-nm` fuera de la lista, del sitemap y de
+   * `llms.txt`; las otras 3 (sin citas) siguen.
+   */
+  it('guía con FAQ vencida: sale entera de la lista, del sitemap y de llms.txt', () => {
+    const after = new Date('2026-11-12T18:00:00Z');
+    expect(guideCitationsLive(GUIDES[0], NOW)).toBe(true);
+    expect(guideCitationsLive(GUIDES[0], after)).toBe(false);
+    expect(publishedGuides(after).map((g) => g.slug)).toEqual([
+      'carta-pirata-5-senales',
+      'como-guardar-tus-cartas',
+      'que-es-una-sir',
+    ]);
+    const paths = contentSitemapPaths(after).map((p) => p.path);
+    expect(paths).not.toContain('/guias/que-es-nm');
+    expect(paths).toContain('/guias/que-es-una-sir');
+    const llms = buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: after });
+    expect(llms).not.toContain('/guias/que-es-nm');
+    expect(llms).not.toContain(GUIDES[0].headline);
+    expect(llms).toContain('/guias/que-es-una-sir');
+  });
 });
 
 describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
@@ -123,20 +195,53 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
 
   /*
    * Trinquete sobre TODO `messages/` (ES y EN): ninguna cadena nueva puede traer una frase prohibida.
-   * Las dos de abajo YA estaban en `5524bd69` (home y cotizador dicen «nosotros autenticamos») y no
-   * son de este encargo (namespaces ajenos: el encargo solo permite añadir en `seo.*`); se reportan al
-   * orquestador. Al corregirlas, esta lista se vacía y el trinquete queda absoluto.
+   * Excepciones CONOCIDAS (ya estaban en `5524bd69`: home y cotizador dicen «nosotros autenticamos» / «we
+   * authenticate»). Son COPY de namespaces ajenos a §MKT-SEO: la corrección la decide el dueño (no frontend).
+   * D4a (techlead, 2026-10-18): cada excepción lleva dueño, fecha de medición y caducidad, y TIENE QUE SEGUIR
+   * OFENDIENDO: si alguien corrige la cadena, la excepción sale de esta lista (si no, la prueba se pone roja) y el
+   * trinquete queda absoluto para esa clave. Al vencer `expires` sin corregir, rojo con el reloj real.
    */
-  const KNOWN_OFFENDERS = ['home.sellBody', 'buylist.subtitle'];
+  const KNOWN_OFFENDERS: readonly {
+    locale: 'es' | 'en';
+    key: string;
+    owner: string;
+    measuredOn: string;
+    expires: string;
+  }[] = [
+    { locale: 'es', key: 'home.sellBody', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
+    { locale: 'es', key: 'buylist.subtitle', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
+    { locale: 'en', key: 'home.sellBody', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
+    { locale: 'en', key: 'buylist.subtitle', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
+  ];
+  const CATALOGS = { es, en } as const;
+  const badKeys = (catalog: unknown) =>
+    stringEntries(catalog)
+      .filter(([, v]) => FORBIDDEN_PHRASES.some((p) => p.test(v)))
+      .map(([k]) => k);
+
   it.each([
     ['es', es],
     ['en', en],
-  ])('%s: ninguna frase prohibida fuera de las 2 ya conocidas', (_l, catalog) => {
-    const bad = stringEntries(catalog)
-      .filter(([, v]) => FORBIDDEN_PHRASES.some((p) => p.test(v)))
-      .map(([k]) => k)
-      .filter((k) => !KNOWN_OFFENDERS.includes(k));
-    expect(bad).toEqual([]);
+  ] as const)('%s: ninguna frase prohibida fuera de las excepciones conocidas', (locale, catalog) => {
+    const allowed = KNOWN_OFFENDERS.filter((o) => o.locale === locale).map((o) => o.key);
+    expect(badKeys(catalog).filter((k) => !allowed.includes(k))).toEqual([]);
+  });
+
+  it('cada excepción SIGUE ofendiendo (corregida ⇒ se borra de KNOWN_OFFENDERS)', () => {
+    const stale = KNOWN_OFFENDERS.filter((o) => !badKeys(CATALOGS[o.locale]).includes(o.key)).map(
+      (o) => `${o.locale}:${o.key}`,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it('cada excepción tiene dueño, fecha de medición y caducidad vigente (reloj real)', () => {
+    const today = todayInMexico();
+    for (const o of KNOWN_OFFENDERS) {
+      expect(o.owner.trim(), `${o.locale}:${o.key}`).not.toBe('');
+      expect(o.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(o.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(today <= o.expires, `${o.locale}:${o.key} caducó el ${o.expires}: corregir la copia o renovar con decisión del dueño`).toBe(true);
+    }
   });
 
   it('el namespace seo.* existe en ES y EN con las mismas claves', () => {

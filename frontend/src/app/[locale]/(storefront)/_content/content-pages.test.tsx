@@ -144,6 +144,15 @@ describe('/guias (§E6)', () => {
     },
   );
 
+  it('R1: con P7 vencida, `que-es-nm` da 404 y sale del índice (se retira entera, no a medias)', async () => {
+    vi.setSystemTime(new Date('2026-11-12T18:00:00Z'));
+    await expect(GuiaPage({ params: params('es', { slug: 'que-es-nm' }) })).rejects.toThrow('NEXT_NOT_FOUND');
+    const { container } = render(await GuiasPage({ params: params('es') }));
+    const hrefs = [...container.querySelectorAll('h2 a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).not.toContain('/guias/que-es-nm');
+    expect(hrefs).toHaveLength(3);
+  });
+
   it('un slug que no es de las 4 ⇒ 404', async () => {
     await expect(GuiaPage({ params: params('es', { slug: 'inventada' }) })).rejects.toThrow(
       'NEXT_NOT_FOUND',

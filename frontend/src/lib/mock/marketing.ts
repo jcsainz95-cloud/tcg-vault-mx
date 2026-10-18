@@ -84,9 +84,28 @@ function resolvePeriod(q: MockPeriodQuery) {
   return { kind: 'week' as const, from: w.from, to: w.to, label: w.weekStart };
 }
 
+/*
+ * Títulos, etiquetas de columna, motivos «NO MEDIDO — …», leyenda de fuentes, nota de cobertura y rótulos de fila:
+ * COPIA LITERAL de `backend/src/modules/marketing/marketing-analytics.service.ts` (el servidor real); ids y orden:
+ * §MKT.G.4. ⛔ No se redactan aquí: la paridad la cobra `mock/marketing.parity.test.ts` (D5, techlead 2026-10-18).
+ * Lo único propio del mock son las CIFRAS y los nombres de carta de demo.
+ */
 const GA4_OFF = 'NO MEDIDO — GA4 sin encender';
 const SC_OFF = 'NO MEDIDO — Search Console sin verificar';
-const UTM_OFF = 'NO MEDIDO — el origen de los pedidos todavía no se guarda';
+const ORIGIN_OFF = 'NO MEDIDO — el origen de los pedidos aún no se registra (requiere el aviso de cookies con consentimiento)';
+const GA4_AND_ORIGIN_OFF = 'NO MEDIDO — GA4 sin encender y el origen de los pedidos aún no se registra';
+const BANNER_OFF = 'NO MEDIDO — el aviso de cookies todavía no está publicado';
+const SEARCH_LOG_OFF =
+  'NO MEDIDO — pendiente de la revisión de seguridad; el registro de búsquedas sin resultado no existe todavía';
+const C7_MIN_PERIOD = 'NO MEDIDO — esta tabla necesita un periodo de al menos 4 semanas; elige un mes cerrado';
+const COVERAGE_NOTE = 'Cobertura: GA4 sin encender; origen de pedidos NO MEDIDO (first_utm_* vacío hasta Fase 2).';
+const OTROS_LABEL = 'Otros (< 5 c/u)';
+const SOURCE_LEGEND: Record<string, string> = {
+  BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
+  GA4: 'GA4 Data API (solo sesiones que aceptaron analítica) — Fase 2',
+  SC: 'Search Console API — Fase 2',
+  Srv: 'Conteo anónimo del servidor de la tienda',
+};
 
 function notMeasured(id: string, title: string, source: MarketingAggTable['source'], reason: string): MarketingAggTable {
   return { id, title, source, columns: [], rows: [], measured: false, notMeasuredReason: reason };
@@ -112,8 +131,8 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
           source: 'BD',
           columns: [
             { key: 'periodo', labelEs: 'Periodo', kind: 'text' },
-            { key: 'pedidos', labelEs: 'Pedidos', kind: 'count' },
-            { key: 'mxn', labelEs: 'Monto MXN (IVA incluido)', kind: 'money' },
+            { key: 'pedidos', labelEs: 'Pedidos', tech: 'orders', kind: 'count' },
+            { key: 'mxn', labelEs: 'Monto MXN (IVA incluido)', tech: 'chargedCents', kind: 'money' },
           ],
           rows: [
             { periodo: 'Periodo actual', pedidos: orders, mxn: orders * 412.5 },
@@ -127,8 +146,8 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
           source: 'BD',
           columns: [
             { key: 'periodo', labelEs: 'Periodo', kind: 'text' },
-            { key: 'ticket', labelEs: 'Ticket medio MXN (IVA incluido)', kind: 'money' },
-            { key: 'piezasPorPedido', labelEs: 'Piezas por pedido', kind: 'number' },
+            { key: 'ticket', labelEs: 'Ticket medio MXN (IVA incluido)', tech: 'avgTicketCents', kind: 'money' },
+            { key: 'piezasPorPedido', labelEs: 'Piezas por pedido', tech: 'piecesPerOrder', kind: 'number' },
           ],
           rows: [
             { periodo: 'Periodo actual', ticket: 412.5, piezasPorPedido: 2.4 },
@@ -141,50 +160,63 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
           title: 'Cotizaciones de buylist',
           source: 'BD',
           columns: [
-            { key: 'etapa', labelEs: 'Etapa', kind: 'text' },
-            { key: 'solicitudes', labelEs: 'Solicitudes', kind: 'count' },
-            { key: 'mxn', labelEs: 'MX$', kind: 'money' },
+            { key: 'concepto', labelEs: 'Concepto', kind: 'text' },
+            { key: 'n', labelEs: 'Nº', kind: 'count' },
+            { key: 'mxn', labelEs: 'MX$ (IVA incluido)', kind: 'money' },
           ],
           rows: [
-            { etapa: 'Enviadas', solicitudes: 12, mxn: 8450 },
-            { etapa: 'Ofertas aceptadas y pagadas', solicitudes: small(3), mxn: exact ? 1890 : null },
+            { concepto: 'Solicitudes enviadas (generate_lead)', n: 12, mxn: 8450 },
+            { concepto: 'Ofertas aceptadas / pagadas', n: small(3), mxn: exact ? 1890 : null },
           ],
           measured: true,
         },
-        notMeasured('a4', 'Visitas y de dónde llegan', 'GA4', GA4_OFF),
-        notMeasured('a5', 'Embudo de visitas a compra', 'mixed', GA4_OFF),
+        notMeasured('a4', 'Visitas y de dónde (5 grupos)', 'GA4', GA4_OFF),
+        notMeasured('a5', 'Embudo sesiones → compra', 'GA4', GA4_OFF),
       ];
     case 'b':
       return [
-        notMeasured('b1', 'Origen por utm_*', 'mixed', UTM_OFF),
-        notMeasured('b2', 'Instagram por puerta', 'mixed', UTM_OFF),
-        notMeasured('b3', 'Por pieza', 'mixed', UTM_OFF),
+        notMeasured('b1', 'Origen por utm_*', 'mixed', GA4_AND_ORIGIN_OFF),
+        notMeasured('b2', 'Instagram por puerta (bio, story, promoción, mensaje directo)', 'mixed', GA4_AND_ORIGIN_OFF),
+        notMeasured('b3', 'Por pieza (utm_content)', 'mixed', GA4_AND_ORIGIN_OFF),
         notMeasured('b4', 'Google orgánico, directo, referencias e IA', 'GA4', GA4_OFF),
       ];
     case 'c': {
-      const ga = (['c1', 'c2', 'c3', 'c4', 'c5'] as const).map((id) => notMeasured(id, `Comportamiento ${id}`, 'GA4', GA4_OFF));
+      const c7Title = 'Nº de pedidos por estado de envío';
+      const c7Columns: MarketingAggTable['columns'] = [
+        { key: 'estado', labelEs: 'Estado', kind: 'text' },
+        { key: 'pedidos', labelEs: 'Pedidos', kind: 'count' },
+      ];
       const c7: MarketingAggTable =
         kind === 'month'
           ? {
               id: 'c7',
-              title: 'Pedidos por estado de envío',
+              title: c7Title,
               source: 'BD',
-              columns: [
-                { key: 'estado', labelEs: 'Estado', kind: 'text' },
-                { key: 'pedidos', labelEs: 'Pedidos', kind: 'count' },
-              ],
-              rows: [
-                { estado: 'Jalisco', pedidos: 14 },
-                { estado: 'Ciudad de México', pedidos: 9 },
-                // `exact` (§MKT.G.2): ⛔ ni «< 5» ni fila «Otros»; cada estado con su valor real.
-                exact ? { estado: 'Nuevo León', pedidos: 3 } : { estado: 'Otros (< 5 c/u)', pedidos: '< 5' },
-              ],
+              columns: c7Columns,
+              // `exact` (§MKT.G.2): cada estado con su valor real, sin agrupar. `small_cells`: N<5 ⇒ «Otros estados».
+              rows: exact
+                ? [
+                    { estado: 'Jalisco', pedidos: 14 },
+                    { estado: 'Ciudad de México', pedidos: 9 },
+                    { estado: 'Nuevo León', pedidos: 3 },
+                    { estado: 'Recogida en persona', pedidos: 2 },
+                  ]
+                : [
+                    { estado: 'Jalisco', pedidos: 14 },
+                    { estado: 'Ciudad de México', pedidos: 9 },
+                    { estado: 'Otros estados', pedidos: '< 5' },
+                    { estado: 'Recogida en persona', pedidos: '< 5' },
+                  ],
               measured: true,
             }
-          : notMeasured('c7', 'Pedidos por estado de envío', 'BD', 'NO MEDIDO — se necesita un periodo de al menos 4 semanas (elige un mes)');
+          : { id: 'c7', title: c7Title, source: 'BD', columns: c7Columns, rows: [], measured: false, notMeasuredReason: C7_MIN_PERIOD };
       return [
-        ...ga,
-        notMeasured('c6', 'Búsquedas sin resultado', 'Srv', 'NO MEDIDO — pendiente de la revisión de seguridad'),
+        notMeasured('c1', 'Páginas y fichas más vistas', 'GA4', GA4_OFF),
+        notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', GA4_OFF),
+        notMeasured('c3', 'Dónde abandonan', 'GA4', GA4_OFF),
+        notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', GA4_OFF),
+        notMeasured('c5', 'Dispositivo y navegador de Instagram', 'GA4', GA4_OFF),
+        notMeasured('c6', 'Búsquedas sin resultado', 'Srv', SEARCH_LOG_OFF),
         c7,
         notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', GA4_OFF),
       ];
@@ -193,43 +225,69 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
       return [
         {
           id: 'd1',
-          title: 'Cartas más vendidas',
+          title: 'Cartas más vistas vs más vendidas',
           source: 'mixed',
           columns: [
             { key: 'carta', labelEs: 'Carta', kind: 'text' },
-            { key: 'vendidas', labelEs: 'Vendidas', kind: 'count' },
-            { key: 'mxn', labelEs: 'MX$', kind: 'money' },
-            { key: 'stock', labelEs: 'Stock', kind: 'count' },
+            { key: 'vistas', labelEs: 'Fichas vistas', tech: 'view_item (GA4)', kind: 'count' },
+            { key: 'unidadesVendidas', labelEs: 'Unidades vendidas', kind: 'count' },
+            { key: 'mxn', labelEs: 'MX$ vendido (IVA incluido)', kind: 'money' },
+            { key: 'aLaVentaHoy', labelEs: 'Unidades a la venta hoy', kind: 'count' },
           ],
           rows: [
-            { carta: 'Charizard ex <script>alert(1)</script>', vendidas: 7, mxn: 3150, stock: 0 },
-            { carta: 'Pikachu', vendidas: small(2), mxn: exact ? 240 : null, stock: 4 },
+            {
+              carta: 'Charizard ex <script>alert(1)</script> · Obsidian Flames 125',
+              vistas: GA4_OFF,
+              unidadesVendidas: 7,
+              mxn: 3150,
+              aLaVentaHoy: 0,
+            },
+            ...(exact
+              ? [
+                  { carta: 'Pikachu · 151 25', vistas: GA4_OFF, unidadesVendidas: 2, mxn: 240, aLaVentaHoy: 4 },
+                  { carta: 'Eevee · 151 133', vistas: GA4_OFF, unidadesVendidas: 1, mxn: 90, aLaVentaHoy: 1 },
+                ]
+              : [{ carta: OTROS_LABEL, vistas: GA4_OFF, unidadesVendidas: '< 5', mxn: null, aLaVentaHoy: null }]),
             // §MKT.G.10: en un mes `small_cells`, una clave oculta en alguna de sus semanas sale `'oculta'` aunque N≥5.
-            ...(kind === 'month' && !exact ? [{ carta: 'Mewtwo', vendidas: 'oculta', mxn: null, stock: 2 }] : []),
+            ...(kind === 'month' && !exact
+              ? [{ carta: 'Mewtwo · 151 150', vistas: GA4_OFF, unidadesVendidas: 'oculta', mxn: null, aLaVentaHoy: 2 }]
+              : []),
           ],
           measured: true,
         },
         notMeasured('d2', 'Vistas sin venta', 'mixed', GA4_OFF),
         {
           id: 'd3',
-          title: 'Agotado con demanda',
-          source: 'BD',
+          title: 'Agotado con demanda (stock 0 + lista de deseos)',
+          source: 'mixed',
           columns: [
             { key: 'carta', labelEs: 'Carta', kind: 'text' },
-            { key: 'deseos', labelEs: 'En listas de deseos', kind: 'count' },
+            { key: 'aLaVentaHoy', labelEs: 'Unidades a la venta hoy', kind: 'count' },
+            { key: 'listaDeseos', labelEs: 'Altas lista de deseos', kind: 'count' },
           ],
           rows: [],
           measured: true,
         },
         {
           id: 'd4',
-          title: 'Buylist más cotizadas',
+          title: 'Buylist más cotizadas (nº de cálculos del cotizador)',
           source: 'Srv',
           columns: [
             { key: 'carta', labelEs: 'Carta', kind: 'text' },
-            { key: 'cotizaciones', labelEs: 'Cotizaciones', kind: 'count' },
+            { key: 'calculos', labelEs: 'Cálculos del cotizador', kind: 'count' },
           ],
-          rows: [{ carta: 'Mew', cotizaciones: 0 }],
+          rows: [{ carta: 'Mew · 151 151', calculos: 0 }],
+          measured: true,
+        },
+        {
+          id: 'd4b',
+          title: 'Buylist más solicitadas (cartas en solicitudes enviadas)',
+          source: 'BD',
+          columns: [
+            { key: 'carta', labelEs: 'Carta', kind: 'text' },
+            { key: 'solicitudes', labelEs: 'Solicitudes enviadas que la incluyen', kind: 'count' },
+          ],
+          rows: [{ carta: 'Mew · 151 151', solicitudes: small(2) }],
           measured: true,
         },
       ];
@@ -237,13 +295,28 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
       return [notMeasured('e1', 'Consultas de Google', 'SC', SC_OFF), notMeasured('e3', 'Referencias de asistentes de IA', 'GA4', GA4_OFF)];
     case 'f':
       return [
-        notMeasured('f1', 'Tasa de aceptación del banner', 'Srv', 'NO MEDIDO — el aviso de cookies todavía no cuenta respuestas'),
-        notMeasured('f3', 'Cobertura: % de pedidos con origen', 'BD', UTM_OFF),
+        notMeasured('f1', 'Tasa de aceptación del banner', 'Srv', BANNER_OFF),
+        notMeasured('f3', 'Cobertura: % de pedidos con origen', 'BD', ORIGIN_OFF),
       ];
     case 'g':
-      return [notMeasured('g1', 'Compras atribuidas a promociones', 'BD', UTM_OFF)];
+      return [notMeasured('g1', 'Compras atribuidas a promociones (utm_medium=paid)', 'BD', ORIGIN_OFF)];
     case 'h':
-      return [];
+      // h1 = las anotaciones del periodo como tabla (mismas filas que `annotations` del payload).
+      return [
+        {
+          id: 'h1',
+          title: 'Anotaciones de fecha (promociones, despliegues, eventos)',
+          source: 'BD',
+          columns: [
+            { key: 'date', labelEs: 'Fecha', kind: 'text' },
+            { key: 'kind', labelEs: 'Tipo', kind: 'text' },
+            { key: 'label', labelEs: 'Etiqueta', kind: 'text' },
+            { key: 'destino', labelEs: 'Destino (solo promoción)', kind: 'text' },
+          ],
+          rows: [],
+          measured: true,
+        },
+      ];
   }
 }
 
@@ -252,15 +325,22 @@ export function mockMarketingPanel(screen: MarketingScreen, q: MockPeriodQuery):
   const period = resolvePeriod(q);
   const exact = !(typeof window !== 'undefined' && window.localStorage.getItem('tcg.mktPrivacy') === 'small_cells');
   const days = Math.round((Date.parse(period.to) - Date.parse(period.from)) / DAY) + 1;
+  const embedded = annotations
+    .filter((a) => a.date >= period.from && a.date <= period.to)
+    .map(({ date, kind, label, destino }) => ({ date, kind, label, ...(destino ? { destino } : {}) }));
+  // h1 = las anotaciones del periodo como tabla, igual que `screenH` del servidor.
+  const tables = tablesFor(screen, period.kind, period.from, exact).map((t) =>
+    t.id === 'h1'
+      ? { ...t, rows: embedded.map((a) => ({ date: a.date, kind: a.kind, label: a.label, destino: a.destino ?? null })) }
+      : t,
+  );
   const payload: MarketingScreenPayload = {
     screen,
     period: { ...period, timezone: 'America/Mexico_City' },
-    sourceLegend: { BD: 'Base de datos', GA4: 'Google Analytics 4', SC: 'Search Console', Srv: 'Conteo anónimo del servidor' },
-    tables: tablesFor(screen, period.kind, period.from, exact),
-    annotations: annotations
-      .filter((a) => a.date >= period.from && a.date <= period.to)
-      .map(({ date, kind, label, destino }) => ({ date, kind, label, ...(destino ? { destino } : {}) })),
-    notes: ['Cobertura: Google Analytics 4 sin encender; el origen de los pedidos todavía no se mide.'],
+    sourceLegend: SOURCE_LEGEND,
+    tables,
+    annotations: embedded,
+    notes: [COVERAGE_NOTE],
     privacy: exact ? 'exact' : 'small_cells',
   };
   if (screen === 'a') payload.previousPeriod = { from: addDays(period.from, -days), to: addDays(period.from, -1) };
