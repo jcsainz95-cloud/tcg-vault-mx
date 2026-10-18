@@ -26,7 +26,6 @@ import { MarketingAnalyticsService } from './marketing-analytics.service';
 import { MarketingExportService } from './export/marketing-export.service';
 import { MarketingAccessLogService } from './marketing-access-log.service';
 import {
-  lastClosedWeekStart,
   MARKETING_SCREENS,
   marketingPeriodOptions,
   parseScreen,
@@ -37,7 +36,7 @@ import {
   type MarketingScreen,
 } from './marketing-period';
 import type { ScreenPayload } from './marketing-aggregates.types';
-import type { CellPrivacy } from './small-cells';
+import type { CellPrivacy, ExactPrivacy } from './small-cells';
 import { BusinessException } from '../../common/business.exception';
 
 @Controller('admin/marketing')
@@ -109,7 +108,7 @@ export class MarketingController {
    * las cifras exactas. ÚNICO productor de `'exact'` en el módulo (candado `marketing-panel-privacy.spec.ts`).
    */
   private panelPrivacy(user: { role?: Role }): CellPrivacy {
-    return user.role === Role.super_admin ? 'exact' : 'small_cells';
+    return user.role === Role.super_admin ? ('exact' as ExactPrivacy) : 'small_cells';
   }
 
   /** `GET /admin/marketing/periods` (§MKT.G.3) — selector de periodos cerrados. Sin datos de negocio ⇒ sin registro. */
@@ -186,12 +185,9 @@ export class MarketingController {
     @Res() res: Response,
   ): Promise<void> {
     const now = new Date();
-    // Sin selector ⇒ última semana cerrada; con selector, valida semana/mes cerrados como el resto.
-    const hasPeriod = q.week !== undefined || q.weekStart !== undefined || q.month !== undefined;
-    const period = resolveMarketingPeriod(
-      hasPeriod ? this.periodQuery(q) : { weekStart: lastClosedWeekStart(now) },
-      now,
-    );
+    // Sin selector ⇒ última semana cerrada; con selector, valida semana/mes cerrados como el resto. Los prohibidos
+    // (`from`/`to`/`day`/`preset`) llegan SIEMPRE a la validación ⇒ 400, nunca se ignoran (misma regla que el panel).
+    const period = resolvePanelPeriod(this.periodQuery(q), now);
     const payloads = await this.allScreens(period, now);
     await this.accessLog.record({
       actorUserId: user.id,

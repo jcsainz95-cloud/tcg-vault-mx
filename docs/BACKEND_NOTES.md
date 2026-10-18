@@ -33317,7 +33317,9 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - `ScreenPayload.privacy` dice el régimen aplicado: sesión `super_admin` ⇒ `'exact'` (valores reales, sin «< 5», sin
   «oculta», sin fila «Otros»); cualquier otra sesión ⇒ `'small_cells'`. Lo decide `panelPrivacy()` por ROL; no hay query.
 - Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por la supresión coherente de un MES, §MKT.G.10), texto o `null`.
-- Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran).
+- Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran). Vale igual para
+  `weekly-excel` desde `d0f6c648` (MKT-TL6). `week=YYYY-W53` en un año de 52 semanas ⇒ 400 (MKT-TL8).
+- c7 (pedidos por estado, mes) puede traer la fila «Otros (< 5 c/u)» como cualquier otra tabla con dimensión (MKT-TL5).
 - `notes` de TODA pantalla trae la línea de cobertura literal de §MKT.G.4 (`COVERAGE_NOTE`); también va a la hoja «Info».
 - Motivos `notMeasuredReason`: empiezan por «NO MEDIDO — » y no llevan códigos internos (PM-…, Fase N) — candado en
   `marketing-panel.spec.ts`. ⚠️ La línea de cobertura SÍ dice «Fase 2» y `first_utm_*` porque el contrato la fija literal.
@@ -33328,11 +33330,13 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 **Cómo está construido (para QA/techlead/seguridad).**
 - Un solo cálculo: `MarketingAnalyticsService.screen(screen, period, now, privacy)` — `privacy` obligatorio, sin valor por
   defecto. `aggregates`, `export`, `export/todo`, `weekly-excel` pasan `'small_cells'` literal; solo `panelPrivacy()` produce
-  `'exact'` (candado estático en `marketing-panel-privacy.spec.ts`).
+  el régimen exacto. `CellPrivacy = 'small_cells' | ExactPrivacy` (tipo marcado, MKT-TL7): `'exact'` a pelo no compila; candados
+  «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
 - Celdas: `small-cells.ts` `applySmallCells(rows, privacy, forcedHidden)` y `hiddenKeys(rows)` comparten el mismo plan.
   `safeRows()` del servicio: en un MES `small_cells`, recalcula la MISMA función de filas para cada semana que toca el mes
-  (`weeksTouchingMonth`) y fuerza `'oculta'` en toda clave oculta en alguna semana. Aplica a d1, d3, d4b y a3 (pagadas).
-  c7 no lo necesita (una semana nunca es medida en c7).
+  (`weeksTouchingMonth`) y fuerza `'oculta'` en toda clave oculta en alguna semana. Aplica a d1, d3, d4b, a3 (pagadas) y c7.
+  c7 (`c7Dims`) da filas ya agrupadas (estados ≥ umbral, «Otros estados», «Recogida en persona») y devuelve `[]` para menos de
+  4 semanas: c7 semanal no se publica, así que el mes no hereda ocultas de semanas.
 - Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
   puede salir 400 los primeros días del mes (p. ej. `2026-10` hasta el lunes 2-nov).
 - d4b: solicitudes DISTINTAS (no líneas) creadas en el periodo que incluyen la carta; sin MX$.
@@ -33341,10 +33345,14 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - Limitador (MKT-TL1): barrido una vez por ventana + cota dura 10 000 claves.
 
 **Abierto, con medición.**
-- MKT-TL2 (docs/TECH_DEBT.md): c7 (mes) y a1 (mes) cuentan la misma población; a1 − filas visibles de c7 despeja la suma
-  oculta de c7 cuando solo hay una celda oculta. Medido por lectura 2026-10-18; pide regla del arquitecto/seguridad.
-- `weekly-excel` con `from/to` y sin semana IGNORA los prohibidos (usa la última semana) en vez de 400; el panel no. No lo
-  cambié (fuera de encargo y el contrato de `weekly-excel` no fija el código).
+- MKT-TL2 (docs/TECH_DEBT.md): el caso c7↔a1 está cerrado en código (c7 por `safeRows` ⇒ nunca una sola celda oculta); falta
+  el candado general y que seguridad acepte el residuo. Medido 2026-10-18.
+
+**Para el arquitecto (2026-10-18, `d0f6c648`).** Con `exact`, c7 daba antes un estado por fila (Colima 2, Nayarit 1…); ahora da
+las mismas claves que `small_cells` sin «Otros (< 5 c/u)»: estados ≥ 5, «Otros estados» con su número real y «Recogida». Lo
+hice así porque §MKT.G.9 (8) pide «el conjunto de claves de fila es el de `small_cells` sin la fila «Otros»» y la versión
+anterior no lo cumplía. Si el dueño debe ver cada estado en su pantalla, es un cambio de contrato (regla 9) y se cambia en
+`c7Dims`, no en un camino aparte.
 
 **Verificación (sha y números en el informe de entrega; mutaciones sobre copia `git archive HEAD` del árbol entero).**
 - Suite completa sobre copia del árbol entero en `374647c6`: **515/515 suites, 8936/8936 pruebas**. `tsc` 0 errores;

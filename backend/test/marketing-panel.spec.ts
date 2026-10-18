@@ -267,6 +267,24 @@ describe('§MKT.G.2 — periodo del panel', () => {
   });
 });
 
+describe('§MKT.E — weekly-excel: los parámetros prohibidos NO se ignoran en silencio (techlead D2, 2026-10-18)', () => {
+  // Antes, `weeklyExcel` solo miraba week/weekStart/month: con `from=` sin semana caía a la última semana cerrada y
+  // devolvía 200 con OTRO periodo del que se pidió. Ahora comparte `resolvePanelPeriod` con el panel.
+  it.each([
+    ['rango libre sin periodo', { from: '2026-10-01', to: '2026-10-07' }],
+    ['solo from', { from: '2026-10-01' }],
+    ['día suelto sin periodo', { day: '2026-10-05' }],
+    ['preset sin periodo', { preset: 'last7' }],
+    ['rango libre junto a una semana', { week: '2026-W41', from: '2026-10-01' }],
+  ])('weekly-excel con %s ⇒ 400 VALIDATION_ERROR y sin fila de registro', async (_n, q) => {
+    const { ctrl, accessLog } = build();
+    const res = { setHeader: jest.fn(), send: jest.fn() };
+    await expect(ctrl.weeklyExcel(SUPER, q, res as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+    expect(res.send).not.toHaveBeenCalled();
+    expect(accessLog.record).not.toHaveBeenCalled();
+  });
+});
+
 describe('§MKT.G.3 — GET …/periods', () => {
   it('26 semanas y 12 meses cerrados, desc; cada opción la acepta resolveMarketingPeriod; zona de México', () => {
     const { ctrl, accessLog } = build();

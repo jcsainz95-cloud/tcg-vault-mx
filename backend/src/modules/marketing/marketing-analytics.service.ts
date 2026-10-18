@@ -16,7 +16,6 @@ import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import {
   applySmallCells,
   hiddenKeys,
-  SMALL_CELL_SENTINEL,
   SMALL_CELL_THRESHOLD,
   type CellPrivacy,
   type DimensionRow,
@@ -38,6 +37,11 @@ const BANNER_OFF = 'NO MEDIDO — el aviso de cookies todavía no está publicad
 const SEARCH_LOG_OFF =
   'NO MEDIDO — pendiente de la revisión de seguridad; el registro de búsquedas sin resultado no existe todavía';
 const C7_MIN_PERIOD = 'NO MEDIDO — esta tabla necesita un periodo de al menos 4 semanas; elige un mes cerrado';
+/** c7: mínimo de días del periodo (4 semanas, Brief 2 c7). */
+const C7_MIN_DAYS = 28;
+const c7Measurable = (p: DayRange): boolean => daysBetween(p.from, p.to) + 1 >= C7_MIN_DAYS;
+const C7_OTHER_STATES = 'Otros estados';
+const C7_PICKUP = 'Recogida en persona';
 const C7_NOTE_SOURCE =
   'Derivado del estado de la dirección de envío y del modo de entrega. Sin montos y sin cruce con carta, origen ni puerta.';
 
@@ -68,6 +72,12 @@ type SoldByCard = Map<string, { cardId: string; key: string; units: number; mxnC
 /** d1: filas crudas por carta (unidades vendidas, MX$ con IVA). */
 const d1Dims = (byCard: SoldByCard): DimensionRow[] =>
   [...byCard.values()].map((e) => ({ key: e.key, count: e.units, money: { mxn: centsToPesos(e.mxnCents) } }));
+
+/** Nota de régimen en exact (vista del dueño): las notas «N<umbral ⇒ «< 5»» solo son verdad en `small_cells`. */
+export const EXACT_CELLS_NOTE = 'Vista del dueño: cifras exactas. Fuera de esta pantalla (exports, analista) las celdas pequeñas se ocultan.';
+/** La nota de celdas pequeñas de una tabla, o la de cifras exactas si el régimen es el del dueño (techlead D3). */
+const cellsNote = (privacy: CellPrivacy, smallCellsText: string): string =>
+  privacy === 'small_cells' ? smallCellsText : EXACT_CELLS_NOTE;
 
 const SOURCE_LEGEND: Record<string, string> = {
   BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
@@ -203,7 +213,10 @@ export class MarketingAnalyticsService {
         { concepto: 'Ofertas aceptadas / pagadas', n: paidRow.count as Cell, mxn: (paidRow.money.pagadoMxn ?? null) as Cell },
       ],
       measured: true,
-      notes: ['«MX$ ofertado» = suma de lo cotizado al enviar; «pagado» = payout neto de las solicitudes pagadas en el periodo. N<5 en pagadas ⇒ «< 5» sin MX$ (PM-A1).'],
+      notes: [
+        '«MX$ ofertado» = suma de lo cotizado al enviar; «pagado» = payout neto de las solicitudes pagadas en el periodo.',
+        cellsNote(privacy, `Pagadas con menos de ${SMALL_CELL_THRESHOLD} ⇒ «< 5» sin MX$ (PM-A1).`),
+      ],
     };
   }
 
@@ -293,7 +306,10 @@ export class MarketingAnalyticsService {
         aLaVentaHoy: r.otros ? null : (stockByKey.get(r.key) ?? 0),
       })),
       measured: true,
-      notes: ['«Fichas vistas» y carritos salen de GA4 (Fase 2). Unidades vendidas < 5 ⇒ «< 5» sin MX$ (§5.2).'],
+      notes: [
+        '«Fichas vistas» y carritos salen de GA4 (Fase 2).',
+        cellsNote(privacy, `Unidades vendidas menos de ${SMALL_CELL_THRESHOLD} ⇒ «< 5» sin MX$ (§5.2).`),
+      ],
     };
   }
 
@@ -339,11 +355,13 @@ export class MarketingAnalyticsService {
       ],
       rows: safe.map((r) => ({ carta: r.key, aLaVentaHoy: r.otros ? null : 0, listaDeseos: r.count as Cell })),
       measured: true,
-      notes: [
+      notes:
         main.length === 0
-          ? 'Sin altas de lista de deseos en el periodo. «Vistas de ficha agotada» salen de GA4 (Fase 2).'
-          : 'Cartas con 0 unidades a la venta hoy y altas de lista de deseos en el periodo. Conteo de deseos < 5 ⇒ «< 5» (§5.2).',
-      ],
+          ? ['Sin altas de lista de deseos en el periodo. «Vistas de ficha agotada» salen de GA4 (Fase 2).']
+          : [
+              'Cartas con 0 unidades a la venta hoy y altas de lista de deseos en el periodo.',
+              cellsNote(privacy, `Conteo de deseos menor que ${SMALL_CELL_THRESHOLD} ⇒ «< 5» (§5.2).`),
+            ],
     };
   }
 
@@ -421,7 +439,7 @@ export class MarketingAnalyticsService {
       ],
       rows: safe.map((r) => ({ carta: r.key, solicitudes: r.count as Cell })),
       measured: true,
-      notes: [`Cuenta solicitudes distintas por carta (no piezas). Menos de ${SMALL_CELL_THRESHOLD} ⇒ «< 5»; sin montos.`],
+      notes: ['Cuenta solicitudes distintas por carta (no piezas); sin montos.', cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} ⇒ «< 5».`)],
     };
   }
 
@@ -461,14 +479,17 @@ export class MarketingAnalyticsService {
     ];
   }
 
-  /** c7 (P5=B, PM-B2) — nº de pedidos por estado de envío. SIN MX$, sin cruce. Mínimo 4 semanas. */
+  /**
+   * c7 (P5=B, PM-B2) — nº de pedidos por estado de envío. SIN MX$, sin cruce. Mínimo 4 semanas.
+   * Pasa por `safeRows` como toda tabla con dimensión (techlead D1, 2026-10-18): hereda umbral, régimen y supresión
+   * complementaria de `small-cells.ts` — ⛔ sin camino propio de celdas pequeñas.
+   */
   private async c7ByState(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
     const columns = [
       { key: 'estado', labelEs: 'Estado', kind: 'text' as const },
       { key: 'pedidos', labelEs: 'Pedidos', kind: 'count' as const },
     ];
-    const days = daysBetween(period.from, period.to) + 1;
-    if (days < 28) {
+    if (!c7Measurable(period)) {
       return {
         id: 'c7',
         title: 'Nº de pedidos por estado de envío',
@@ -479,12 +500,34 @@ export class MarketingAnalyticsService {
         notMeasuredReason: C7_MIN_PERIOD,
       };
     }
-    const range = mxRange(period.from, period.to);
+    const safe = await this.safeRows(period, privacy, (p) => this.c7Dims(p));
+    return {
+      id: 'c7',
+      title: 'Nº de pedidos por estado de envío',
+      source: 'BD',
+      columns,
+      rows: safe.map((r) => ({ estado: r.key, pedidos: r.count as Cell })),
+      measured: true,
+      notes: [
+        C7_NOTE_SOURCE,
+        `Estados con menos de ${SMALL_CELL_THRESHOLD} pedidos agrupados en «Otros estados». «Recogida en persona» = pedidos de bóveda/recogida.`,
+      ],
+    };
+  }
+
+  /**
+   * c7 (dimensión «estado»): filas YA agrupadas — estados con N≥umbral, «Otros estados» (suma de los estados con
+   * N<umbral, PM-B2: nunca un estado solo) y «Recogida en persona». La agrupación es ESTRUCTURA de c7 (vale también
+   * en `exact`, API_CONTRACT §MKT.G.2 «lo que exact NO levanta»); el umbral de la fila y la complementaria los pone
+   * `safeRows`. Para un rango de menos de 4 semanas devuelve `[]`: c7 semanal no se publica (NO MEDIDO), así que la
+   * coherencia mes↔semanas (§MKT.G.10) no tiene semana que restar y no hereda ocultas de ahí.
+   */
+  private async c7Dims(p: DayRange): Promise<DimensionRow[]> {
+    if (!c7Measurable(p)) return [];
     const orders = await this.prisma.order.findMany({
-      where: { settledAt: range, status: { in: SOLD_STATUSES } },
+      where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES } },
       select: { fulfillmentMode: true, shippingAddressSnapshot: true },
     });
-
     let pickup = 0;
     const byState = new Map<string, number>();
     for (const o of orders) {
@@ -496,33 +539,16 @@ export class MarketingAnalyticsService {
       const state = typeof snap.state === 'string' && snap.state.trim() !== '' ? snap.state.trim() : 'Sin estado';
       byState.set(state, (byState.get(state) ?? 0) + 1);
     }
-
-    // Estados con N<5 ⇒ «Otros estados» (agrupación propia de c7, PM-B2), para no dejar un estado solo.
-    const rows: Record<string, Cell>[] = [];
-    const sorted = [...byState.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    if (privacy === 'exact') {
-      // Régimen exacto: cada estado con su número real, sin agrupar (mismo cálculo, otro régimen).
-      for (const [state, n] of sorted) rows.push({ estado: state, pedidos: n });
-      if (pickup > 0) rows.push({ estado: 'Recogida en persona', pedidos: pickup });
-      return { id: 'c7', title: 'Nº de pedidos por estado de envío', source: 'BD', columns, rows, measured: true, notes: [C7_NOTE_SOURCE] };
-    }
+    const rows: DimensionRow[] = [];
     let otros = 0;
+    const sorted = [...byState.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     for (const [state, n] of sorted) {
       if (n < SMALL_CELL_THRESHOLD) otros += n;
-      else rows.push({ estado: state, pedidos: n });
+      else rows.push({ key: state, count: n, money: {} });
     }
-    if (otros > 0) rows.push({ estado: 'Otros estados', pedidos: otros >= 5 ? otros : SMALL_CELL_SENTINEL });
-    if (pickup > 0) rows.push({ estado: 'Recogida en persona', pedidos: pickup >= 5 ? pickup : SMALL_CELL_SENTINEL });
-
-    return {
-      id: 'c7',
-      title: 'Nº de pedidos por estado de envío',
-      source: 'BD',
-      columns,
-      rows,
-      measured: true,
-      notes: [C7_NOTE_SOURCE, 'Estados con menos de 5 pedidos agrupados en «Otros estados». «Recogida en persona» = pedidos de bóveda/recogida.'],
-    };
+    if (otros > 0) rows.push({ key: C7_OTHER_STATES, count: otros, money: {} });
+    if (pickup > 0) rows.push({ key: C7_PICKUP, count: pickup, money: {} });
+    return rows;
   }
 
   // ──────────────────────────────── Pantallas sin BD en Fase 0 ────────────────────────────────
