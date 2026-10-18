@@ -6,6 +6,33 @@
 > **techlead aprobó** (doble veredicto). Único ítem del DoD legítimamente **pendiente**: el
 > **deploy real**, bloqueado por falta de credenciales de producción (ver §11). Runbook listo.
 >
+> **⇒ ESTADO VIGENTE 2026-10-18 (fix/cardshow-deploy-secrets — DOS SECRETOS DE CARD SHOW,
+> fail-closed en prod):** el módulo `card-show` exige DOS secretos HMAC al arrancar en
+> NODE_ENV=production, DISTINTOS entre sí (`card-show-tokens.service.ts`): **`CARD_SHOW_FORM_SECRET`**
+> (tokens de formulario) y **`CARD_SHOW_LINK_SECRET`** (tokens de enlace). Si falta cualquiera, el
+> bootstrap de Nest LANZA → crash-loop. **Causa del incidente:** el merge #95 (Card Show) NO llegó al
+> backend de producción porque faltaban de TODA la configuración de despliegue; el stack efímero del
+> DAST (`dast-release`, run 39088336351) entró en crash-loop, `promote-production-backend` quedó
+> SKIPPED (su `if` exige `blocking == 'false'`) y Railway siguió sirviendo código viejo sin la API del
+> Card Show (la landing de Vercel posteaba a `/card-show/*` → 404). El preflight de contenedor NO lo
+> cazó porque los dos nombres NO estaban en el catálogo.
+> **Dónde se cablean (todo en rutas de devops; backend NO se tocó, el código es correcto):**
+>   · `docker-compose.staging.yml` (servicio `backend`, el que arranca Nest): `${CARD_SHOW_FORM_SECRET:?}`
+>     y `${CARD_SHOW_LINK_SECRET:?}`, sin literal (repo PÚBLICO).
+>   · Catálogos `security/secretos-exigidos.txt` (host) y `security/secretos-exigidos-contenedor.txt`
+>     (contenedor): regenerados con `./scripts/gen-published-secrets-manifest.sh` (NO a mano). Ahora el
+>     preflight de arranque (`secrets-preflight.sh assert`, dentro de la imagen) los exige fail-closed y
+>     RUIDOSO en cualquier entorno, incluido Railway.
+>   · `.env.example`: documentadas, vacías (OBLIGATORIAS en no-local; en local el arnés deriva efímeros).
+> **En CI/local NO hay que crear ningún secret:** `security-dast.yml` y `e2e-real.yml` resuelven el stack
+> efímero con `secrets-preflight.sh github-env`, y `dast-ephemeral.sh up` con `env-file`; ambos derivan el
+> catálogo de los `${VAR:?}` del compose y GENERAN un valor efímero por corrida (sufijo `_SECRET` → ramal
+> genérico `azar_hex 48`, 96 chars). No se añadió ningún secret de GitHub ni se editó ningún workflow.
+> **LOS VALORES REALES los pone el humano en Railway** (servicio `backend`, entornos **production** Y
+> **staging**): `CARD_SHOW_FORM_SECRET` y `CARD_SHOW_LINK_SECRET`, cada una con `openssl rand -base64 32`,
+> **distintas entre sí**. **Rollback:** sin estos valores en Railway el backend no arranca (fail-closed);
+> no hay rollback «quitándolos». Para revertir la feature entera se despliega el commit anterior a #95.
+>
 > **Actualización 2026-08-17 (v1.14 — WS-A CERRADO: ingest de precios con proveedor de paga):** WS-A
 > recibió **triple veredicto** (qa+techlead+seguridad) y backend cerró 3 follow-ups; estado ya reflejado
 > aquí. (1) El job **`price-ingest`** (ingest masivo por set vía **PokemonPriceTracker**, pluggable por el
