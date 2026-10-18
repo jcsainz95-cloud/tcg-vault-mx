@@ -33331,7 +33331,10 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - Un solo cálculo: `MarketingAnalyticsService.screen(screen, period, now, privacy)` — `privacy` obligatorio, sin valor por
   defecto. `aggregates`, `export`, `export/todo`, `weekly-excel` pasan `'small_cells'` literal; solo `panelPrivacy()` produce
   el régimen exacto. `CellPrivacy = 'small_cells' | ExactPrivacy` (tipo marcado, MKT-TL7): `'exact'` a pelo no compila; candados
-  «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
+  «tipo (D3)», «estático (D3)» y «estático (MKT-TL7r)» (`as never`/`as unknown as` del módulo = solo `marketing.controller.ts:66`)
+  en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
+- §MKT.G.9 (9) sobre ficheros: la prueba lee las FILAS de la hoja `pantalla_<s>` (o del CSV), nunca «Info», que trae «< 5» en su
+  nota de privacidad también en `exact` (techlead R3 sobre `62e8250b`: con `fileText()` sobre todo el libro, xlsx en `exact` seguía verde).
 - Celdas: `small-cells.ts` `applySmallCells(rows, privacy, forcedHidden)` y `hiddenKeys(rows)` comparten el mismo plan.
   `safeRows()` del servicio: en un MES `small_cells`, recalcula la MISMA función de filas para cada semana que toca el mes
   (`weeksTouchingMonth`) y fuerza `'oculta'` en toda clave oculta en alguna semana. Aplica a d1, d3, d4b, a3 (pagadas) y c7.
@@ -33376,3 +33379,17 @@ anterior no lo cumplía. Si el dueño debe ver cada estado en su pantalla, es un
 | 422 de anotación sin `details.field` | anotaciones | 10/10 |
 | `label` de token sin filtro PII | G.6 | 10/10 |
 | solo seleccionar `tokenHash` / solo copiar la fila | G.9 (5) | 0/10 · 0/10 — mutantes equivalentes (cada uno solo no filtra nada) |
+
+- Lote 3 (R3 + MKT-TL7r), copia `git archive f63dbd8e` del árbol entero, N=10 por mutación. Todas compilan (`tsc` exit 0 en
+  cada una): el rojo es de la ASERCIÓN (`marketing-panel-privacy.spec.ts:173`, d1 trae «Carta A», «Carta B» y no «Otros»), no del
+  compilador. «Prueba vieja» = la de `62e8250b` (`fileText()` sobre todo el libro), corrida sobre el mismo mutante.
+
+| Mutación (tipos válidos: `user: { id; role?: Role }` + `this.panelPrivacy(user)`) | Prueba nueva | Prueba vieja |
+|---|---|---|
+| control sin mutación | 0/10 | 0/10 |
+| `export` usa `panelPrivacy` solo en xlsx | 10/10 | **0/10** (el defecto R3) |
+| `export` usa `panelPrivacy` solo en csv | 10/10 | 10/10 |
+| `allScreens(…, privacy)` y `exportAll` pasa `panelPrivacy` | 10/10 | **0/10** |
+| `allScreens(…, privacy)` y `weeklyExcel` pasa `panelPrivacy` | 10/10 | **0/10** |
+| `'small_cells' as never` en `allScreens` (canario MKT-TL7r) | 10/10 | — |
+| `'small_cells' as unknown as 'small_cells'` en `export` (canario MKT-TL7r) | 10/10 | — |
