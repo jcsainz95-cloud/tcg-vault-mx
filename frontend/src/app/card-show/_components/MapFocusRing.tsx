@@ -31,6 +31,11 @@ export function MapFocusRing() {
       window.setTimeout(() => {
         if (document.activeElement === iframe) {
           figure.classList.add('cs-map-focus', 'cs-in');
+          // WCAG 2.4.7: el foco por teclado debe quedar EN PANTALLA. El iframe puede estar fuera del
+          // viewport (~1.7 pantallas abajo), así que desplazamos el `<figure>` a la vista. Respetamos
+          // `prefers-reduced-motion`: sin animación de scroll si el visitante la pidió reducir.
+          const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          figure.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
         }
       }, 0);
     };
