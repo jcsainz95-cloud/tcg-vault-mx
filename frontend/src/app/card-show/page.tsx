@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { CARD_SHOW } from '@/content/card-show';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { Countdown } from './_components/Countdown';
@@ -65,21 +66,6 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return <p className="eyebrow mb-3">{children}</p>;
 }
 
-/**
- * Índice mono de sección (NN / Nombre). Los tonos cambian por superficie para cumplir contraste
- * (§CS-UX.1/.2): sobre PAPEL rojo de marca #B31217 (6.2:1) + muted (4.55:1); sobre TINTA
- * hunt-red-up (5.6:1) + on-ink-nav (6.46:1). ⛔ el rojo claro y el nav NO leen sobre papel.
- */
-function SectionIndex({ n, label, tone }: { n: string; label: string; tone: 'ink' | 'paper' }) {
-  const nCls = tone === 'ink' ? 'text-[color:var(--hunt-red-up)]' : 'text-accent';
-  const labelCls = tone === 'ink' ? 'text-on-ink-nav' : 'text-muted';
-  return (
-    <span className={`font-mono text-xs tracking-label ${nCls}`}>
-      {n} <span className={labelCls}>/ {label}</span>
-    </span>
-  );
-}
-
 export default function CardShowPage() {
   const c = CARD_SHOW;
   return (
@@ -89,21 +75,28 @@ export default function CardShowPage() {
           topbar y se va al bajar. Enlace completo a #registro. Copy en `content/card-show.ts`. */}
       <a
         href="#registro"
-        className="block bg-[#B31217] px-4 py-2 text-center font-mono text-[11px] uppercase leading-snug tracking-label text-[#F4F1EA] hover:brightness-95"
+        className="cs-announce block bg-[#B31217] px-4 py-2 text-center font-mono text-[11px] uppercase leading-snug tracking-label text-[#F4F1EA] hover:brightness-95"
       >
-        {c.rifa.anuncio} <span aria-hidden>→</span>
+        {/* I-3: copy corto en <640px (evita 3 líneas con «→» huérfana); `&nbsp;` ata la flecha al texto. */}
+        <span className="sm:hidden">{c.rifa.anuncioCorto}</span>
+        <span className="hidden sm:inline">{c.rifa.anuncio}</span>
+        {' '}
+        <span aria-hidden>→</span>
       </a>
 
-      {/* TOPBAR (tinta) — lockup «TCG HUNT × Jakomi» con el LOGO real (§CS-UX.5): solo-mira + wordmark
-          nowrap con tracking responsivo + logo Jakomi. Jakomi a ≥36px de alto (RECONOCIBLE, no el
-          cuadrito ilegible de 20–24px — hallazgo tester-e2e; a ≥32–40px ya se lee). El alto de la fila
-          lo fija la CTA (min-h-44), así subir Jakomi a 36–44px no cambia el alto del topbar (~73px,
-          `scroll-mt-[73px]`). ⛔ nowrap, Jakomi nunca oculto, `×` presente, ≥12px (§CS-UX.5). */}
+      {/* TOPBAR (tinta) — lockup «TCG HUNT × Jakomi» (§CS-UX.5). El lockup Jakomi oficial es VERTICAL y a
+          44px deja el nombre a ~5px (ilegible, RONDA 2 I-1); por decisión de JC (2026-10-18 «mascota +
+          ‹Jakomi› en texto») aquí va la MASCOTA (axolotl recortado) a tamaño chico + «Jakomi» escrito en
+          `font-brand` (Montserrat) a tamaño legible. El alto de la fila lo fija la CTA (min-h-44). El
+          lockup completo es UN enlace a home (`<Link href="/">` de next/link — `<a>` crudo a `/` lo veta el
+          lint `no-html-link-for-pages`; M-4: ⛔ no un `<div aria-label>`, ARIA ignora aria-label en genérico)
+          con `aria-label` único. ⛔ nowrap, Jakomi nunca oculto, `×` presente, sin scroll 320–1280 (§CS-UX.5). */}
       <header className="sticky top-0 z-30 border-b border-on-ink-rule bg-ink text-on-ink">
         <div className="gutter flex items-center justify-between gap-3 py-3">
-          <div
+          <Link
+            href="/"
+            aria-label="TCG HUNT por Jakomi — inicio"
             className="flex items-center gap-2 whitespace-nowrap sm:gap-2.5"
-            aria-label="TCG HUNT por Jakomi"
           >
             <LogoTcgHunt variant="mark-dark" size={30} decorative className="shrink-0" />
             <span className="font-brand font-bold uppercase leading-none tracking-[0.02em] text-[14px] text-on-ink min-[360px]:tracking-[0.04em] min-[390px]:tracking-wordmark min-[390px]:text-base">
@@ -112,13 +105,19 @@ export default function CardShowPage() {
             <span aria-hidden className="mx-1.5 font-mono text-sm text-[color:var(--hunt-red-up)] min-[360px]:mx-2">
               ×
             </span>
+            {/* Mascota de Jakomi en un chip papel (la línea café lee claro sobre blanco, no sobre tinta).
+                Decorativa: el nombre accesible lo porta el `aria-label` del enlace. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={c.colaborador.logo}
-              alt={c.colaborador.nombre}
-              className="h-9 w-auto shrink-0 border border-on-ink-rule bg-white px-1 py-0.5 min-[390px]:h-10 sm:h-11"
+              src={c.colaborador.mascota}
+              alt=""
+              aria-hidden
+              className="h-7 w-auto shrink-0 border border-on-ink-rule bg-white p-0.5 min-[390px]:h-8 sm:h-9"
             />
-          </div>
+            <span className="font-brand font-bold leading-none text-on-ink text-[13px] min-[360px]:text-sm min-[390px]:text-base">
+              Jakomi
+            </span>
+          </Link>
           <a href="#registro" className={btnTopbarInk}>
             Regístrate
           </a>
@@ -220,7 +219,6 @@ export default function CardShowPage() {
               <Eyebrow>{c.evento.eyebrow}</Eyebrow>
               <h2 className="font-brand text-h2 font-bold">{c.evento.titulo}</h2>
             </div>
-            <SectionIndex n="01" label="Agenda" tone="paper" />
           </div>
 
           {/* Línea de tiempo: dos días, no rejilla de tarjetas. */}
@@ -287,7 +285,7 @@ export default function CardShowPage() {
               src={c.evento.direccion.mapsEmbedUrl}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              className="h-[320px] w-full border border-border"
+              className="cs-map-frame h-[320px] w-full border border-border"
             />
             <figcaption className="mt-3">
               <a
@@ -331,7 +329,6 @@ export default function CardShowPage() {
                 <p className="eyebrow mb-3">Torneos</p>
                 <h2 className="font-brand text-h2 font-bold text-on-ink">Compite en tu juego</h2>
               </div>
-              <SectionIndex n="02" label="Juego" tone="ink" />
             </div>
             <p className="cs-reveal mt-6 max-w-[60ch] text-on-ink-muted">{c.torneos.intro}</p>
           </div>
