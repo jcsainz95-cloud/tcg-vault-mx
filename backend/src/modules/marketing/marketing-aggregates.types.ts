@@ -3,11 +3,11 @@
  * exports (xlsx/csv) se construyen de ESTA MISMA estructura ⇒ paridad A=B por construcción
  * (Brief 2 §6 criterio 8; ARCHITECTURE §13.5). PURO (sin IO).
  */
-import type { SuppressedCount } from './small-cells';
+import type { CellPrivacy, SuppressedCount } from './small-cells';
 import type { MarketingScreen } from './marketing-period';
 import type { EmbeddedAnnotation } from './marketing-annotations.service';
 
-/** Una celda ya saneada: número, centinela «< 5», texto (etiqueta), o null (dato oculto / NO MEDIDO). */
+/** Una celda ya saneada: número, centinela «< 5» u «oculta» (§MKT.G.10), texto (etiqueta), o null (dato oculto / NO MEDIDO). */
 export type Cell = number | SuppressedCount | string | null;
 
 export type ColumnKind = 'text' | 'count' | 'money' | 'pct' | 'number';
@@ -51,4 +51,9 @@ export interface ScreenPayload {
   annotations: EmbeddedAnnotation[];
   /** Avisos de pantalla (cobertura de consentimiento, Fase 0…). */
   notes?: string[];
+  /**
+   * Régimen APLICADO (API_CONTRACT v1.103 §MKT.G.2/.5): `exact` solo en la pantalla del dueño; `aggregates` y los
+   * exports, siempre `small_cells`.
+   */
+  privacy: CellPrivacy;
 }

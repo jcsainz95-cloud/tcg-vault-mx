@@ -72,6 +72,37 @@ const lastDayOfMonth = (year: number, month1to12: number): Ymd => {
   return d.toISOString().slice(0, 10);
 };
 
+/** Domingo de la semana (lunes-domingo) que contiene `day`. */
+const sundayOfWeek = (day: Ymd): Ymd => addDays(day, 7 - isoWeekday(day));
+
+/**
+ * ¿Mes cerrado? (API_CONTRACT v1.103 §MKT.G.3, D-MKT-PANEL-4): el domingo de la semana de su ÚLTIMO día ya pasó
+ * en CDMX. Ej.: oct-2026 acaba en sábado 31 ⇒ su última semana acaba el domingo 1-nov ⇒ cerrado desde el lunes 2-nov.
+ * UNA sola regla para periods, panel, aggregates, export, export/todo y weekly-excel.
+ */
+function isMonthClosed(year: number, month1to12: number, today: Ymd): boolean {
+  return sundayOfWeek(lastDayOfMonth(year, month1to12)) < today;
+}
+
+/** Rango de días civiles CDMX (inclusive). */
+export interface DayRange {
+  from: Ymd;
+  to: Ymd;
+}
+
+/**
+ * Semanas (lunes-domingo) que tocan un mes, de la que contiene el día 1 a la que contiene el último (4 a 6).
+ * Con el mes cerrado (`isMonthClosed`), todas están cerradas. Para la supresión coherente (§MKT.G.10).
+ */
+export function weeksTouchingMonth(month: DayRange): DayRange[] {
+  const out: DayRange[] = [];
+  const lastMonday = addDays(month.to, 1 - isoWeekday(month.to));
+  for (let mon = addDays(month.from, 1 - isoWeekday(month.from)); mon <= lastMonday; mon = addDays(mon, 7)) {
+    out.push({ from: mon, to: addDays(mon, 6) });
+  }
+  return out;
+}
+
 /**
  * Resuelve la query a un periodo CERRADO, o lanza 400. `now` es el reloj del servidor (zona fijada en
  * `todayMx`). Exactamente UNA forma de periodo; cualquier `from/to/day/preset` ⇒ 400 (rango libre).
@@ -97,8 +128,9 @@ export function resolveMarketingPeriod(q: MarketingPeriodQuery, now: Date): Mark
     if (mon < 1 || mon > 12) bad('month must be YYYY-MM');
     const from: Ymd = `${m[1]}-${m[2]}-01`;
     const to = lastDayOfMonth(year, mon);
-    // Cerrado: el último día del mes ya pasó (hoy CDMX es posterior al último día).
-    if (to >= today) bad('month is not closed yet');
+    // Cerrado (v1.103, §MKT.G.3/.10): cuando está cerrada la semana que contiene su último día (su domingo ya
+    // pasó en CDMX). Si no, el mes saldría antes de conocer la semana que lo cruza (supresión coherente).
+    if (!isMonthClosed(year, mon, today)) bad('month is not closed yet');
     const prevTo = addDays(from, -1); // último día del mes anterior
     const prevFrom: Ymd = `${prevTo.slice(0, 7)}-01`;
     return { kind: 'month', from, to, prev: { from: prevFrom, to: prevTo }, label: month };
@@ -177,19 +209,21 @@ export function marketingPeriodOptions(now: Date): MarketingPeriodsResponse {
     const from = addDays(lastMonday, -7 * i);
     closedWeeks.push({ weekStart: from, from, to: addDays(from, 6) });
   }
-  // El mes en curso nunca está cerrado; el anterior siempre lo está (su último día ya pasó en CDMX).
+  // Del mes en curso hacia atrás, solo los que `isMonthClosed` acepta (el anterior puede no estarlo aún: §MKT.G.3).
   const today = todayMx(now);
   let year = Number(today.slice(0, 4));
   let month = Number(today.slice(5, 7));
   const closedMonths: MarketingPeriodsResponse['closedMonths'] = [];
-  for (let i = 0; i < PERIOD_OPTIONS_MONTHS; i++) {
+  while (closedMonths.length < PERIOD_OPTIONS_MONTHS) {
+    if (isMonthClosed(year, month, today)) {
+      const label = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+      closedMonths.push({ month: label, from: `${label}-01`, to: lastDayOfMonth(year, month) });
+    }
     month -= 1;
     if (month === 0) {
       month = 12;
       year -= 1;
     }
-    const label = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
-    closedMonths.push({ month: label, from: `${label}-01`, to: lastDayOfMonth(year, month) });
   }
   return { timezone: 'America/Mexico_City', lastClosedWeek: closedWeeks[0], closedWeeks, closedMonths };
 }

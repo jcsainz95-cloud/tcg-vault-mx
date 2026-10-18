@@ -13,9 +13,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
 import { daysBetween, mxRange } from '../sales-analytics/sales-period';
 import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
-import { applySmallCells, SMALL_CELL_SENTINEL, SMALL_CELL_THRESHOLD, type CellPrivacy, type DimensionRow } from './small-cells';
+import {
+  applySmallCells,
+  hiddenKeys,
+  SMALL_CELL_SENTINEL,
+  SMALL_CELL_THRESHOLD,
+  type CellPrivacy,
+  type DimensionRow,
+  type SafeRow,
+} from './small-cells';
 import { MarketingAnnotationsService, type EmbeddedAnnotation } from './marketing-annotations.service';
-import type { MarketingPeriod, MarketingScreen } from './marketing-period';
+import { weeksTouchingMonth, type DayRange, type MarketingPeriod, type MarketingScreen } from './marketing-period';
 import type { AggTable, Cell, ScreenPayload } from './marketing-aggregates.types';
 
 /*
@@ -52,6 +60,15 @@ const SINGLE_CARD_PRODUCT_TYPES: readonly ProductType[] = PRODUCT_TYPE_VALUES.fi
 const centsToPesos = (cents: number | null): number | null =>
   cents === null ? null : Math.round(cents) / 100;
 
+/** Clave de la fila «pagadas» de a3 (también es la clave de cruce mes↔semanas). */
+const A3_PAID_KEY = 'Ofertas aceptadas y pagadas';
+
+type SoldByCard = Map<string, { cardId: string; key: string; units: number; mxnCents: number }>;
+
+/** d1: filas crudas por carta (unidades vendidas, MX$ con IVA). */
+const d1Dims = (byCard: SoldByCard): DimensionRow[] =>
+  [...byCard.values()].map((e) => ({ key: e.key, count: e.units, money: { mxn: centsToPesos(e.mxnCents) } }));
+
 const SOURCE_LEGEND: Record<string, string> = {
   BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
   GA4: 'GA4 Data API (solo sesiones que aceptaron analítica) — Fase 2',
@@ -69,15 +86,11 @@ export class MarketingAnalyticsService {
 
   /**
    * Punto de entrada ÚNICO: arma el payload de UNA pantalla para un periodo cerrado. Lo usan `aggregates`, `panel`
-   * y los exports (paridad por construcción, §MKT.G.2). `privacy` es el régimen de celdas (`small_cells` por
-   * defecto, el de toda salida hoy): un parámetro del MISMO cálculo, no un segundo camino.
+   * y los exports (paridad por construcción, §MKT.G.2). `privacy` es el régimen de celdas, **obligatorio y sin
+   * valor por defecto** (API_CONTRACT v1.103 §MKT.G.2 / ARCHITECTURE §13.7 D-MKT-PANEL-2): una salida nueva no
+   * puede nacer exacta por olvido. Es un parámetro del MISMO cálculo, no un segundo camino.
    */
-  async screen(
-    screen: MarketingScreen,
-    period: MarketingPeriod,
-    now: Date,
-    privacy: CellPrivacy = 'small_cells',
-  ): Promise<ScreenPayload> {
+  async screen(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<ScreenPayload> {
     // Anotaciones del periodo: EMBEBIDAS en toda pantalla (pintan a/b/c y la hoja «Info»), h1/§13.4.6.
     const annotations = await this.annotations.forPeriod(period.from, period.to);
     const base = {
@@ -86,6 +99,7 @@ export class MarketingAnalyticsService {
       sourceLegend: SOURCE_LEGEND,
       annotations,
       notes: [COVERAGE_NOTE],
+      privacy,
     };
     // Catálogo y ORDEN de tablas: API_CONTRACT §MKT.G.4 (candado `marketing-panel.spec.ts`, §MKT.G.9 (6)).
     switch (screen) {
@@ -164,26 +178,16 @@ export class MarketingAnalyticsService {
   /** a3 — buylist: solicitudes ENVIADAS + MX$ ofertado (exacto); aceptadas/pagadas con celdas pequeñas. */
   private async a3Buylist(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
     const range = mxRange(period.from, period.to);
-    const [submitted, paid] = await Promise.all([
-      // generate_lead = solicitud enviada (POST /buylist/requests) ⇒ creada en el periodo.
-      this.prisma.sellRequest.aggregate({
-        where: { createdAt: range },
-        _count: { _all: true },
-        _sum: { quotedTotalCents: true },
-      }),
-      // Ofertas aceptadas y MX$ PAGADO a clientes: status pagada con paidAt en el periodo.
-      this.prisma.sellRequest.aggregate({
-        where: { status: 'pagada', paidAt: range },
-        _count: { _all: true },
-        _sum: { payoutNetCents: true },
-      }),
-    ]);
+    // generate_lead = solicitud enviada (POST /buylist/requests) ⇒ creada en el periodo.
+    const submitted = await this.prisma.sellRequest.aggregate({
+      where: { createdAt: range },
+      _count: { _all: true },
+      _sum: { quotedTotalCents: true },
+    });
 
     // Las pagadas son sensibles (una sola venta a la tienda = monto pagado a UNA persona, PM-A1):
-    // pasan por celdas pequeñas aunque no tengan otra dimensión.
-    const [paidRow] = applySmallCells([
-      { key: 'Ofertas aceptadas y pagadas', count: paid._count._all, money: { pagadoMxn: centsToPesos(paid._sum.payoutNetCents ?? 0) } },
-    ], privacy);
+    // pasan por celdas pequeñas aunque no tengan otra dimensión (y por la coherencia mes↔semanas).
+    const [paidRow] = await this.safeRows(period, privacy, (p) => this.a3PaidDims(p));
 
     return {
       id: 'a3',
@@ -203,6 +207,40 @@ export class MarketingAnalyticsService {
     };
   }
 
+  /** a3 (dimensión «pagadas»): ofertas aceptadas y MX$ PAGADO a clientes, status pagada con `paidAt` en el rango. */
+  private async a3PaidDims(p: DayRange): Promise<DimensionRow[]> {
+    const paid = await this.prisma.sellRequest.aggregate({
+      where: { status: 'pagada', paidAt: mxRange(p.from, p.to) },
+      _count: { _all: true },
+      _sum: { payoutNetCents: true },
+    });
+    return [{ key: A3_PAID_KEY, count: paid._count._all, money: { pagadoMxn: centsToPesos(paid._sum.payoutNetCents ?? 0) } }];
+  }
+
+  // ──────────────────────────────── Régimen de celdas (una sola función) ────────────────────────────────
+
+  /**
+   * Aplica el régimen a una tabla con dimensión. `dimsOf` es LA función que calcula las filas crudas de un rango
+   * de días; se llama para el periodo y, en un MES con `small_cells`, para cada semana cerrada que lo toca
+   * (API_CONTRACT §MKT.G.10, D-MKT-PANEL-4): toda clave oculta en alguna semana sale «oculta» en el mes.
+   * En `exact` no aplica ni la regla ni la coherencia.
+   */
+  private async safeRows(
+    period: MarketingPeriod,
+    privacy: CellPrivacy,
+    dimsOf: (p: DayRange) => Promise<DimensionRow[]>,
+    /** Filas del periodo ya calculadas por el llamador (evita repetir la consulta). */
+    mainDims?: DimensionRow[],
+  ): Promise<SafeRow[]> {
+    const dims = mainDims ?? (await dimsOf(period));
+    if (privacy === 'exact') return applySmallCells(dims, privacy);
+    const forced = new Set<string>();
+    if (period.kind === 'month') {
+      for (const w of weeksTouchingMonth(period)) for (const k of hiddenKeys(await dimsOf(w))) forced.add(k);
+    }
+    return applySmallCells(dims, privacy, forced);
+  }
+
   // ──────────────────────────────── Pantalla (d) Catálogo ────────────────────────────────
 
   private async screenD(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable[]> {
@@ -217,28 +255,7 @@ export class MarketingAnalyticsService {
 
   /** d1 — por carta: unidades vendidas / MX$ (celdas pequeñas) / unidades a la venta hoy. Vistas=GA4. */
   private async d1Cards(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
-    const range = mxRange(period.from, period.to);
-    const items = await this.prisma.orderItem.findMany({
-      where: {
-        order: { settledAt: range, status: { in: SOLD_STATUSES } },
-        inventoryItem: { productType: { in: [...SINGLE_CARD_PRODUCT_TYPES] } },
-      },
-      select: {
-        unitPriceCents: true,
-        inventoryItem: { select: { cardId: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } } },
-      },
-    });
-
-    // Agregar por carta (sumando acabados): unidades vendidas y MX$ (display, IVA incluido).
-    const byCard = new Map<string, { cardId: string; key: string; units: number; mxnCents: number }>();
-    for (const it of items) {
-      const inv = it.inventoryItem;
-      const key = `${inv.card.name} · ${inv.card.set.name} ${inv.card.number}`;
-      const e = byCard.get(inv.cardId) ?? { cardId: inv.cardId, key, units: 0, mxnCents: 0 };
-      e.units += 1;
-      e.mxnCents += it.unitPriceCents;
-      byCard.set(inv.cardId, e);
-    }
+    const byCard = await this.d1Sold(period);
 
     // Unidades a la venta HOY por carta (plataforma, status listed) — solo para las cartas vendidas.
     const cardIds = [...byCard.keys()];
@@ -254,12 +271,7 @@ export class MarketingAnalyticsService {
     const stockByKey = new Map<string, number>();
     for (const e of byCard.values()) stockByKey.set(e.key, onSaleBy.get(e.cardId) ?? 0);
 
-    const dims: DimensionRow[] = [...byCard.values()].map((e) => ({
-      key: e.key,
-      count: e.units,
-      money: { mxn: centsToPesos(e.mxnCents) },
-    }));
-    const safe = applySmallCells(dims, privacy);
+    const safe = await this.safeRows(period, privacy, async (p) => d1Dims(await this.d1Sold(p)), d1Dims(byCard));
 
     return {
       id: 'd1',
@@ -285,45 +297,37 @@ export class MarketingAnalyticsService {
     };
   }
 
-  /** d3 — agotado con demanda: stock 0 + conteo de lista de deseos por carta (celdas pequeñas). */
-  private async d3SoldOut(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
-    // Altas de lista de deseos en el periodo, por carta (la demanda que SÍ está en BD).
-    const range = mxRange(period.from, period.to);
-    const wish = await this.prisma.wishlistItem.groupBy({
-      by: ['cardId'],
-      where: { createdAt: range },
-      _count: { _all: true },
+  /** d1 (dimensión «carta»): unidades vendidas y MX$ (con IVA) por carta suelta, pedidos cobrados en el rango. */
+  private async d1Sold(p: DayRange): Promise<SoldByCard> {
+    const range = mxRange(p.from, p.to);
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        order: { settledAt: range, status: { in: SOLD_STATUSES } },
+        inventoryItem: { productType: { in: [...SINGLE_CARD_PRODUCT_TYPES] } },
+      },
+      select: {
+        unitPriceCents: true,
+        inventoryItem: { select: { cardId: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } } },
+      },
     });
-    const cardIds = wish.map((w) => w.cardId);
-    if (cardIds.length === 0) {
-      return {
-        id: 'd3',
-        title: 'Agotado con demanda (stock 0 + lista de deseos)',
-        source: 'mixed',
-        columns: [
-          { key: 'carta', labelEs: 'Carta', kind: 'text' },
-          { key: 'aLaVentaHoy', labelEs: 'Unidades a la venta hoy', kind: 'count' },
-          { key: 'listaDeseos', labelEs: 'Altas lista de deseos', kind: 'count' },
-        ],
-        rows: [],
-        measured: true,
-        notes: ['Sin altas de lista de deseos en el periodo. «Vistas de ficha agotada» salen de GA4 (Fase 2).'],
-      };
-    }
-    const [cards, onSale] = await Promise.all([
-      this.prisma.card.findMany({ where: { id: { in: cardIds } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }),
-      this.prisma.inventoryItem.groupBy({ by: ['cardId'], where: { cardId: { in: cardIds }, ownerType: 'platform', status: 'listed' }, _count: { _all: true } }),
-    ]);
-    const cardBy = new Map(cards.map((c) => [c.id, c]));
-    const onSaleBy = new Map(onSale.map((r) => [r.cardId, r._count._all]));
 
-    // «Agotado con demanda» = 0 unidades a la venta hoy.
-    const soldOut = wish.filter((w) => (onSaleBy.get(w.cardId) ?? 0) === 0);
-    const dims: DimensionRow[] = soldOut.map((w) => {
-      const c = cardBy.get(w.cardId);
-      return { key: c ? `${c.name} · ${c.set.name} ${c.number}` : w.cardId, count: w._count._all, money: {} };
-    });
-    const safe = applySmallCells(dims, privacy);
+    // Agregar por carta (sumando acabados): unidades vendidas y MX$ (display, IVA incluido).
+    const byCard: SoldByCard = new Map();
+    for (const it of items) {
+      const inv = it.inventoryItem;
+      const key = `${inv.card.name} · ${inv.card.set.name} ${inv.card.number}`;
+      const e = byCard.get(inv.cardId) ?? { cardId: inv.cardId, key, units: 0, mxnCents: 0 };
+      e.units += 1;
+      e.mxnCents += it.unitPriceCents;
+      byCard.set(inv.cardId, e);
+    }
+    return byCard;
+  }
+
+  /** d3 — agotado con demanda: stock 0 HOY + altas de lista de deseos por carta en el periodo (celdas pequeñas). */
+  private async d3SoldOut(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
+    const main = await this.d3Dims(period);
+    const safe = await this.safeRows(period, privacy, (p) => this.d3Dims(p), main);
     return {
       id: 'd3',
       title: 'Agotado con demanda (stock 0 + lista de deseos)',
@@ -335,8 +339,36 @@ export class MarketingAnalyticsService {
       ],
       rows: safe.map((r) => ({ carta: r.key, aLaVentaHoy: r.otros ? null : 0, listaDeseos: r.count as Cell })),
       measured: true,
-      notes: ['Cartas con 0 unidades a la venta hoy y altas de lista de deseos en el periodo. Conteo de deseos < 5 ⇒ «< 5» (§5.2).'],
+      notes: [
+        main.length === 0
+          ? 'Sin altas de lista de deseos en el periodo. «Vistas de ficha agotada» salen de GA4 (Fase 2).'
+          : 'Cartas con 0 unidades a la venta hoy y altas de lista de deseos en el periodo. Conteo de deseos < 5 ⇒ «< 5» (§5.2).',
+      ],
     };
+  }
+
+  /** d3 (dimensión «carta agotada»): altas de lista de deseos en el rango, solo cartas con 0 a la venta HOY. */
+  private async d3Dims(p: DayRange): Promise<DimensionRow[]> {
+    const wish = await this.prisma.wishlistItem.groupBy({
+      by: ['cardId'],
+      where: { createdAt: mxRange(p.from, p.to) },
+      _count: { _all: true },
+    });
+    const cardIds = wish.map((w) => w.cardId);
+    if (cardIds.length === 0) return [];
+    const [cards, onSale] = await Promise.all([
+      this.prisma.card.findMany({ where: { id: { in: cardIds } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }),
+      this.prisma.inventoryItem.groupBy({ by: ['cardId'], where: { cardId: { in: cardIds }, ownerType: 'platform', status: 'listed' }, _count: { _all: true } }),
+    ]);
+    const cardBy = new Map(cards.map((c) => [c.id, c]));
+    const onSaleBy = new Map(onSale.map((r) => [r.cardId, r._count._all]));
+
+    // «Agotado con demanda» = 0 unidades a la venta hoy.
+    const soldOut = wish.filter((w) => (onSaleBy.get(w.cardId) ?? 0) === 0);
+    return soldOut.map((w) => {
+      const c = cardBy.get(w.cardId);
+      return { key: c ? `${c.name} · ${c.set.name} ${c.number}` : w.cardId, count: w._count._all, money: {} };
+    });
   }
 
   /** d4 — nº de cálculos del cotizador por carta (conteo anónimo de servidor; sin usuario ni IP). */
@@ -378,24 +410,7 @@ export class MarketingAnalyticsService {
    * ⛔ Sin MX$. N<5 ⇒ «< 5» con supresión complementaria.
    */
   private async d4bRequested(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
-    const items = await this.prisma.sellRequestItem.findMany({
-      where: { sellRequest: { createdAt: mxRange(period.from, period.to) } },
-      select: {
-        cardId: true,
-        sellRequestId: true,
-        card: { select: { name: true, number: true, set: { select: { name: true } } } },
-      },
-    });
-    const byCard = new Map<string, { key: string; requests: Set<string> }>();
-    for (const it of items) {
-      const e = byCard.get(it.cardId) ?? { key: `${it.card.name} · ${it.card.set.name} ${it.card.number}`, requests: new Set<string>() };
-      e.requests.add(it.sellRequestId);
-      byCard.set(it.cardId, e);
-    }
-    const dims: DimensionRow[] = [...byCard.values()]
-      .map((e) => ({ key: e.key, count: e.requests.size, money: {} }))
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-    const safe = applySmallCells(dims, privacy);
+    const safe = await this.safeRows(period, privacy, (p) => this.d4bDims(p));
     return {
       id: 'd4b',
       title: 'Buylist más solicitadas (cartas en solicitudes enviadas)',
@@ -408,6 +423,27 @@ export class MarketingAnalyticsService {
       measured: true,
       notes: [`Cuenta solicitudes distintas por carta (no piezas). Menos de ${SMALL_CELL_THRESHOLD} ⇒ «< 5»; sin montos.`],
     };
+  }
+
+  /** d4b (dimensión «carta solicitada»): solicitudes distintas creadas en el rango que incluyen la carta. */
+  private async d4bDims(p: DayRange): Promise<DimensionRow[]> {
+    const items = await this.prisma.sellRequestItem.findMany({
+      where: { sellRequest: { createdAt: mxRange(p.from, p.to) } },
+      select: {
+        cardId: true,
+        sellRequestId: true,
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+      },
+    });
+    const byCard = new Map<string, { key: string; requests: Set<string> }>();
+    for (const it of items) {
+      const e = byCard.get(it.cardId) ?? { key: `${it.card.name} · ${it.card.set.name} ${it.card.number}`, requests: new Set<string>() };
+      e.requests.add(it.sellRequestId);
+      byCard.set(it.cardId, e);
+    }
+    return [...byCard.values()]
+      .map((e) => ({ key: e.key, count: e.requests.size, money: {} }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
   }
 
   // ──────────────────────────────── Pantalla (c) Comportamiento ────────────────────────────────

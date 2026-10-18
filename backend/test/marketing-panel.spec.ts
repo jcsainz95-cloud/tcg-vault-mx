@@ -117,6 +117,8 @@ function build(): Built {
 }
 
 const SUPER = { id: 'u-owner', role: 'super_admin' } as const;
+/** Sesión delegada: vault_operator con fila marketing_read (régimen small_cells, v1.103). */
+const DELEGADA = { id: 'u-op', role: 'vault_operator' } as const;
 const tokenReq = { marketingToken: { id: 'tok-1', label: 'marketing-reader' } } as never;
 
 beforeAll(() => {
@@ -126,20 +128,21 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
-describe('§MKT.G.9 (1) — paridad A=B: panel = aggregates, en profundidad, pantalla a pantalla', () => {
+describe('§MKT.G.9 (1) — paridad A=B (small_cells): panel de sesión delegada = aggregates, en profundidad', () => {
   it.each(MARKETING_SCREENS.map((s) => [s]))('pantalla %s, semana cerrada fija', async (s) => {
     const { ctrl } = build();
     const q = { pantalla: s, week: '2026-W41' };
     const viaToken = await ctrl.aggregates(tokenReq, { ...q });
-    const viaSesion = await ctrl.panel(SUPER, { ...q });
+    const viaSesion = await ctrl.panel(DELEGADA, { ...q });
     expect(viaSesion).toEqual(viaToken);
+    expect(viaSesion.privacy).toBe('small_cells');
   });
 
   it('pantalla d, mes cerrado: también iguales (y trae celdas «< 5», la paridad no es trivial)', async () => {
     const { ctrl } = build();
     const q = { pantalla: 'd', month: '2026-09' };
     const viaToken = await ctrl.aggregates(tokenReq, { ...q });
-    const viaSesion = await ctrl.panel(SUPER, { ...q });
+    const viaSesion = await ctrl.panel(DELEGADA, { ...q });
     expect(viaSesion).toEqual(viaToken);
     expect(JSON.stringify(viaSesion)).toContain(SMALL_CELL_SENTINEL);
   });
@@ -175,7 +178,7 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
 
   it('d4b: solicitudes enviadas por carta (distintas), N<5 ⇒ «< 5» con supresión complementaria, sin MX$', async () => {
     const { ctrl, m } = build();
-    const p = (await ctrl.panel(SUPER, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
     const d4b = p.tables.find((t) => t.id === 'd4b')!;
     expect(d4b.measured).toBe(true);
     expect(d4b.source).toBe('BD');
@@ -195,7 +198,7 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
   it('d4b: una sola solicitud con 1 carta ⇒ «< 5» sin MX$ (ARCHITECTURE §9 D-MKT-1)', async () => {
     const { ctrl, m } = build();
     m.sellRequestItemFindMany.mockResolvedValue([{ cardId: 'B', sellRequestId: 'sr1', card: card('Carta B', '002') }]);
-    const p = (await ctrl.panel(SUPER, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(DELEGADA, { pantalla: 'd', week: '2026-W41' })) as ScreenPayload;
     const d4b = p.tables.find((t) => t.id === 'd4b')!;
     expect(d4b.rows).toHaveLength(1);
     expect(d4b.rows[0].solicitudes).toBe(SMALL_CELL_SENTINEL);
@@ -203,16 +206,19 @@ describe('§MKT.G.9 (6) — catálogo de tablas de cada pantalla (MKT.G.4), en o
 });
 
 describe('§MKT.G.9 (7) — registro de accesos del panel', () => {
-  it('cada GET …/panel deja UNA fila con actorUserId, tokenId null, format json y filters.surface=panel', async () => {
+  it.each([
+    ['super_admin', SUPER, 'exact'],
+    ['delegada', DELEGADA, 'small_cells'],
+  ] as const)('sesión %s: UNA fila con actorUserId, tokenId null, format json, surface=panel y privacy=%s', async (_n, user, privacy) => {
     const { ctrl, accessLog } = build();
-    const p = (await ctrl.panel(SUPER, { pantalla: 'a', week: '2026-W41' })) as ScreenPayload;
+    const p = (await ctrl.panel(user, { pantalla: 'a', week: '2026-W41' })) as ScreenPayload;
     expect(accessLog.record).toHaveBeenCalledTimes(1);
     expect(accessLog.record).toHaveBeenCalledWith({
-      actorUserId: 'u-owner',
+      actorUserId: user.id,
       tokenId: null,
       screen: 'a',
       format: 'json',
-      filters: { period: '2026-W41', kind: 'week', surface: 'panel' },
+      filters: { period: '2026-W41', kind: 'week', surface: 'panel', privacy },
       rowCount: p.tables.reduce((n, t) => n + t.rows.length, 0),
     });
   });

@@ -15,6 +15,7 @@ const INJECTION = '=HYPERLINK("https://example.com","x")';
 
 const payload: ScreenPayload = {
   screen: 'd',
+  privacy: 'small_cells',
   period: { kind: 'week', from: '2026-10-05', to: '2026-10-11', label: '2026-W41', timezone: 'America/Mexico_City' },
   sourceLegend: { BD: 'Base de datos', GA4: 'GA4', SC: 'Search Console', Srv: 'Servidor' },
   tables: [

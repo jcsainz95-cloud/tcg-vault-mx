@@ -63,7 +63,7 @@ export class MarketingController {
     const now = new Date();
     const screen = parseScreen(q.pantalla);
     const period = resolveMarketingPeriod(this.periodQuery(q), now);
-    const payload = await this.analytics.screen(screen, period, now);
+    const payload = await this.analytics.screen(screen, period, now, 'small_cells');
     const token = (req as unknown as { marketingToken?: { id: string } }).marketingToken;
     await this.accessLog.record({
       tokenId: token?.id ?? null,
@@ -89,25 +89,27 @@ export class MarketingController {
     const now = new Date();
     const screen = parseScreen(q.pantalla);
     const period = resolvePanelPeriod(this.periodQuery(q), now);
-    const payload = await this.analytics.screen(screen, period, now, this.panelPrivacy(user));
+    const privacy = this.panelPrivacy(user);
+    const payload = await this.analytics.screen(screen, period, now, privacy);
     await this.accessLog.record({
       actorUserId: user.id,
       tokenId: null,
       screen,
       format: 'json',
-      filters: { period: period.label, kind: period.kind, surface: 'panel' },
+      filters: { period: period.label, kind: period.kind, surface: 'panel', privacy },
       rowCount: payload.tables.reduce((m, t) => m + t.rows.length, 0),
     });
     return payload;
   }
 
   /**
-   * Régimen de celdas de la pantalla. API_CONTRACT v1.101 D-MKT-PANEL-2: celdas pequeñas para TODOS, `super_admin`
-   * incluido. ÚNICO punto que decide el régimen del panel: si el contrato abre la vista exacta del dueño, cambia
-   * aquí (el cálculo ya recibe el régimen como parámetro; `aggregates` y los exports no lo pasan ⇒ siempre celdas).
+   * Régimen de celdas de la pantalla (API_CONTRACT v1.103 §MKT.G.2, D-MKT-PANEL-2; dueño 2026-10-18 «si cifras
+   * exactas»). Lo decide el SERVIDOR por ROL, ⛔ nunca la query: `super_admin` ⇒ `exact`; cualquier otra sesión con
+   * `marketing:read` ⇒ `small_cells`. Atado al rol (no a la fila `UserPermission`): delegar el permiso nunca delega
+   * las cifras exactas. ÚNICO productor de `'exact'` en el módulo (candado `marketing-panel-privacy.spec.ts`).
    */
-  private panelPrivacy(_user: { role?: Role }): CellPrivacy {
-    return 'small_cells';
+  private panelPrivacy(user: { role?: Role }): CellPrivacy {
+    return user.role === Role.super_admin ? 'exact' : 'small_cells';
   }
 
   /** `GET /admin/marketing/periods` (§MKT.G.3) — selector de periodos cerrados. Sin datos de negocio ⇒ sin registro. */
@@ -133,7 +135,7 @@ export class MarketingController {
     const period = resolveMarketingPeriod(this.periodQuery(q), now);
     const format = q.format === 'csv' ? 'csv' : q.format === 'xlsx' ? 'xlsx' : undefined;
     if (!format) throw BusinessException.badRequest('VALIDATION_ERROR', 'format must be xlsx or csv');
-    const payload = await this.analytics.screen(screen, period, now);
+    const payload = await this.analytics.screen(screen, period, now, 'small_cells');
 
     await this.accessLog.record({
       actorUserId: user.id,
@@ -205,7 +207,7 @@ export class MarketingController {
 
   private async allScreens(period: ReturnType<typeof resolveMarketingPeriod>, now: Date): Promise<ScreenPayload[]> {
     const out: ScreenPayload[] = [];
-    for (const s of MARKETING_SCREENS) out.push(await this.analytics.screen(s as MarketingScreen, period, now));
+    for (const s of MARKETING_SCREENS) out.push(await this.analytics.screen(s as MarketingScreen, period, now, 'small_cells'));
     return out;
   }
 

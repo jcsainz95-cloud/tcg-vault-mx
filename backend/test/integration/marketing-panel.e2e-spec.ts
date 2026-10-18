@@ -5,7 +5,7 @@
  *
  * | §MKT.G.9 | Qué fija |
  * |---|---|
- * | 1 | `panel` (sesión) y `aggregates` (token) dan el MISMO cuerpo para la misma pantalla y periodo |
+ * | 1 | `panel` con sesión delegada (`small_cells`) y `aggregates` (token) dan el MISMO cuerpo; `super_admin` recibe `privacy:'exact'` (v1.103) |
  * | 3 | token `marketing-reader` en `panel`, `periods` y `tokens` ⇒ 401; sesión `vault_operator` CON fila `marketing_read` en `tokens` ⇒ 403 (y en `panel` ⇒ 200) |
  * | 4 | emitir ⇒ `aggregates` 200 con ese token ⇒ revocar ⇒ `aggregates` 401, mismo proceso |
  * | 5 | `GET …/tokens`, `…/revoke` y la fila de `AuditLog` sin `token`/`tokenHash` |
@@ -58,18 +58,23 @@ describe('E2E — §MKT.G panel por sesión + tokens del analista', () => {
     await h.close();
   });
 
-  it('(1) panel = aggregates para cada pantalla, mes cerrado fijo; no-store', async () => {
+  it('(1) panel de sesión DELEGADA (small_cells) = aggregates para cada pantalla, mes cerrado fijo; no-store', async () => {
     // Un mes cerrado seguro: dos meses antes del mes en curso.
     const d = new Date();
     d.setUTCDate(1);
     d.setUTCMonth(d.getUTCMonth() - 2);
     const month = d.toISOString().slice(0, 7);
     for (const s of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
-      const viaSesion = await h.api('GET', `/admin/marketing/panel?pantalla=${s}&month=${month}`, { token: adminJwt });
+      const viaSesion = await h.api('GET', `/admin/marketing/panel?pantalla=${s}&month=${month}`, { token: operatorJwt });
       const viaToken = await h.api('GET', `/admin/marketing/aggregates?pantalla=${s}&month=${month}`, { token: analystToken });
       expect([s, viaSesion.status, viaToken.status]).toEqual([s, 200, 200]);
       expect(viaSesion.headers['cache-control']).toBe('no-store');
       expect(viaSesion.body).toEqual(viaToken.body);
+      expect(viaSesion.body.privacy).toBe('small_cells');
+      // v1.103: el dueño ve su régimen exacto en la misma ruta.
+      const owner = await h.api('GET', `/admin/marketing/panel?pantalla=${s}&month=${month}`, { token: adminJwt });
+      expect(owner.body.privacy).toBe('exact');
+      expect(owner.text).not.toContain('"< 5"');
     }
   });
 
@@ -106,7 +111,7 @@ describe('E2E — §MKT.G panel por sesión + tokens del analista', () => {
     expect(r.status).toBe(200);
     const rows = await h.prisma.marketingAccessLog.findMany({ where: { actorUserId: adminId, screen: 'f', at: { gte: before } } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ tokenId: null, format: 'json', filters: expect.objectContaining({ surface: 'panel', kind: 'week' }) });
+    expect(rows[0]).toMatchObject({ tokenId: null, format: 'json', filters: expect.objectContaining({ surface: 'panel', kind: 'week', privacy: 'exact' }) });
     await h.prisma.marketingAccessLog.deleteMany({ where: { id: rows[0].id } });
   });
 

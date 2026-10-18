@@ -152,7 +152,7 @@ describe('MarketingAnalyticsService — a1/a2 delega en sales-analytics y propag
       }),
     );
 
-    const payload = await svc.screen('a', weekPeriod, NOW);
+    const payload = await svc.screen('a', weekPeriod, NOW, 'small_cells');
 
     // a1 — delega exactamente con el periodo del Panel.
     expect(m.report).toHaveBeenCalledTimes(1);
@@ -181,7 +181,7 @@ describe('MarketingAnalyticsService — a1/a2 delega en sales-analytics y propag
         comparison: { orders: delta(2, 200), chargedCents: delta(40000, 400) },
       }),
     );
-    const payload = await svc.screen('a', weekPeriod, NOW);
+    const payload = await svc.screen('a', weekPeriod, NOW, 'small_cells');
     const a1 = tableById(payload.tables, 'a1');
     expect(a1.rows[0]).toMatchObject({ pedidos: 3, mxn: 500.0 }); // ⛔ NO «< 5», NO null
     expect(a1.rows[1]).toMatchObject({ pedidos: 1, mxn: 100.0 });
@@ -204,7 +204,7 @@ describe('MarketingAnalyticsService — a3 buylist: enviado exacto, pagado con c
       // 2ª llamada: pagadas (status pagada) — N<5 ⇒ sensible.
       .mockResolvedValueOnce({ _count: { _all: 3 }, _sum: { payoutNetCents: 456000 } });
 
-    const payload = await svc.screen('a', weekPeriod, NOW);
+    const payload = await svc.screen('a', weekPeriod, NOW, 'small_cells');
     const a3 = tableById(payload.tables, 'a3');
 
     // Enviadas: conteo y MX$ ofertado EXACTOS (no es cifra de persona única).
@@ -219,7 +219,7 @@ describe('MarketingAnalyticsService — a3 buylist: enviado exacto, pagado con c
     m.sellRequestAggregate
       .mockResolvedValueOnce({ _count: { _all: 20 }, _sum: { quotedTotalCents: 1000000 } })
       .mockResolvedValueOnce({ _count: { _all: 7 }, _sum: { payoutNetCents: 350000 } });
-    const payload = await svc.screen('a', weekPeriod, NOW);
+    const payload = await svc.screen('a', weekPeriod, NOW, 'small_cells');
     const a3 = tableById(payload.tables, 'a3');
     expect(a3.rows[1]).toMatchObject({ n: 7, mxn: 3500.0 });
   });
@@ -242,7 +242,7 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
     m.orderItemFindMany.mockResolvedValue(items);
     m.inventoryItemGroupBy.mockResolvedValue([{ cardId: 'A', _count: { _all: 2 } }]);
 
-    const payload = await svc.screen('d', weekPeriod, NOW);
+    const payload = await svc.screen('d', weekPeriod, NOW, 'small_cells');
     const d1 = tableById(payload.tables, 'd1');
 
     const rowA = d1.rows.find((r) => String(r.carta).includes('Carta A'));
@@ -269,7 +269,7 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
     // Ninguna a la venta hoy (stock 0) ⇒ todas «agotado con demanda».
     m.inventoryItemGroupBy.mockResolvedValue([]);
 
-    const payload = await svc.screen('d', weekPeriod, NOW);
+    const payload = await svc.screen('d', weekPeriod, NOW, 'small_cells');
     const d3 = tableById(payload.tables, 'd3');
     const rowA = d3.rows.find((r) => String(r.carta).includes('Carta A'));
     const rowB = d3.rows.find((r) => String(r.carta).includes('Carta B'));
@@ -285,7 +285,7 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
 describe('MarketingAnalyticsService — c7 por estado de envío', () => {
   it('c7: una semana (<4 semanas) ⇒ NO MEDIDO con motivo, sin filas', async () => {
     const { svc, m } = build();
-    const payload = await svc.screen('c', weekPeriod, NOW);
+    const payload = await svc.screen('c', weekPeriod, NOW, 'small_cells');
     const c7 = tableById(payload.tables, 'c7');
     expect(c7.measured).toBe(false);
     expect(c7.notMeasuredReason).toContain('4 semanas');
@@ -304,7 +304,7 @@ describe('MarketingAnalyticsService — c7 por estado de envío', () => {
     ];
     m.orderFindMany.mockResolvedValue(orders);
 
-    const payload = await svc.screen('c', monthPeriod, NOW);
+    const payload = await svc.screen('c', monthPeriod, NOW, 'small_cells');
     const c7 = tableById(payload.tables, 'c7');
     expect(c7.measured).toBe(true);
 
@@ -326,7 +326,7 @@ describe('MarketingAnalyticsService — columnas sin fuente salen «NO MEDIDO»,
   it('a4/a5 (GA4): measured=false con motivo «NO MEDIDO», sin filas 0', async () => {
     const { svc, m } = build();
     m.report.mockResolvedValue(reportDto({ totals: figures({}), previousTotals: figures({}), comparison: {} }));
-    const payload = await svc.screen('a', weekPeriod, NOW);
+    const payload = await svc.screen('a', weekPeriod, NOW, 'small_cells');
     for (const id of ['a4', 'a5']) {
       const t = tableById(payload.tables, id);
       expect(t.measured).toBe(false);
@@ -342,7 +342,7 @@ describe('MarketingAnalyticsService — columnas sin fuente salen «NO MEDIDO»,
     ['f', 'f1'],
   ])('pantalla %s ⇒ %s measured=false y motivo «NO MEDIDO», nunca «0»', async (screen, id) => {
     const { svc } = build();
-    const payload = await svc.screen(screen as 'b' | 'e' | 'g' | 'f', weekPeriod, NOW);
+    const payload = await svc.screen(screen as 'b' | 'e' | 'g' | 'f', weekPeriod, NOW, 'small_cells');
     const t = tableById(payload.tables, id);
     expect(t.measured).toBe(false);
     expect(t.notMeasuredReason).toMatch(/^NO MEDIDO/);
