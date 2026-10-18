@@ -33,6 +33,8 @@ const config: Config = {
         'on-ink-muted': 'var(--color-on-ink-muted)',
         'on-ink-nav': 'var(--color-on-ink-nav)',
         'on-ink-rule': 'var(--color-on-ink-rule)',
+        // Rojo sobre tinta del microsite Card Show (§CS-UX.1): #E0353B, 3.94:1 sobre #1A1A18.
+        'hunt-red-on-ink': 'var(--hunt-red-on-ink)',
       },
       // Sin esquinas redondeadas: el sistema se apoya en reglas, no en cajas.
       borderRadius: {

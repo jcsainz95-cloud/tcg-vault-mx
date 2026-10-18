@@ -28,6 +28,219 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.9 ⭐M-89` (correos internos en dos clases) + `§CARDSHOW.12 ⭐M-89` (precio del main) + criterios `§CARDSHOW.§13 [M-89 (A)]`. Decisiones JC en `docs/specs/CARDSHOW_LANDING_ESTADO.md` (DECISIONES JC 2026-10-17, R5). Solo `backend/` + este doc. ⛔ No toca `schema.prisma`.
+
+**Qué entró (fichero:línea).**
+
+- **(BLOQUEANTE privacidad, cierra L2-SEG-01) — Jakomi SOLO tipo+conteo** (`card-show.constants.ts:51` `INTERNAL_NOTICE_CC`). Pasa de `['cardshow@jakomi.mx','scarranza@tcghunt.mx']` a **`['scarranza@tcghunt.mx']`**. El aviso interno merchant/sponsor (`card-show-mail.service.ts` `sendInternalNotice`) lleva **nombre+teléfono reales** (PII, tras R4/IMP-3) ⇒ Jakomi (tercero) ⛔ ya no va en `To/CC/BCC`. Jakomi solo puede recibir el **resumen agregado** (0 PII): `sendVisitorDailySummary`/`sendLeadsSummary` siguen yendo solo a `internalTo()`; **si devops quiere a Jakomi en el resumen, lo cablea por `CARD_SHOW_INTERNAL_RECIPIENTS`** (§CARDSHOW.16) — el backend ⛔ no lo hardcodea.
+  - **Candado nuevo `test/card-show.jakomi-pii.spec.ts`:** (A) todo `MailMessage` con `cardshow@jakomi.mx` en To/CC/BCC ⇒ 0 PII (nombre/teléfono/correo/playerName) en asunto+cuerpo; (B) aviso interno merchant Y sponsor ⇒ Jakomi fuera de To/CC/BCC. **Rojo 10/10** con el defecto reintroducido (las 3 aserciones muerden), **verde 10/10** con el fix (determinista). `card-show.internal-mail.spec.ts` actualizado al nuevo CC.
+- **Correo visitante: main de Pokémon MX$200 (precio final)** (`card-show-welcome.templates.ts` `visitorVariant`, línea del cuerpo). Antes «inscripción desde $200»; ahora «MX$200; la puedes pagar por adelantado o en sitio», igual que la landing (regla §CARDSHOW.12: landing y correo mismo importe). Demás juegos «por anunciar» (⛔ no se inventan precios).
+- **Correo patrocinador: sin cifras ni copy heredado** (`card-show-welcome.templates.ts` `sponsorVariant`). Se quitan `$25,000`/`$8,500`, «presented by», «prize partner» y «deck» (asunto, cuerpo, CTA y el enlace al deck de Drive `CARD_SHOW_DECK_URL` — ya no se importa). CTA nuevo: **«Pide la propuesta de patrocinio»** vía `CARD_SHOW_SPONSOR_MAILTO`. Canarios en `welcome-mail.spec.ts`.
+- **BOM UTF-8 en el CSV servido** (`csv.util.ts` `CSV_BOM`/`withBom`; `card-show-admin.controller.ts` `sendCsv`). Los export `/admin/card-show/leads|players/export.csv` se sirven con `U+FEFF` (EF BB BF) al frente ⇒ Excel (Windows) ya no rompe acentos. El BOM se añade **en el serve**, ⛔ no en `csvDocument` (queda puro; el test de documento lo exige), sin cambiar columnas. `withBom` idempotente. Tests en `tournament-csv.spec.ts`.
+
+**Verificación (sha `7c7a504`, sobre `node_modules` symlinkeado del checkout principal — el worktree no trae deps).**
+
+- `npx tsc -p tsconfig.json --noEmit` ⇒ **0 errores**.
+- `npx jest card-show enum-values-parity mail.privacy-footer` ⇒ **18 suites, 463/463 verdes** (incluye el candado Jakomi nuevo y PRIV-6 2→3 intacto).
+- **⚠️ `prisma generate` NO se corrió:** no toqué `schema.prisma` ⇒ el cliente generado del checkout es válido. El `npx prisma` del entorno resuelve a un shim 8.0-rc que no reconoce `generate`; irrelevante aquí.
+- **Integración vs Postgres:** no corre en el worktree (sin `DATABASE_URL`); la cierra CI/orquestador. Tests unitarios escritos y verdes.
+
+## 0.66 — ⭐ **v1.99⟨cardshow⟩ R4: confirmación de GRUPO «los dos días» (M-88 / BLOQ-A / D-CS-7) + correos a vendedor/staff (IMP-1/2/3)** (2026-10-17, rama `fix/card-show-r4-backend` desde `release/card-show`@`fade4e6`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.12 ⭐M-88` + criterio verbatim `[M-88 confirmación de grupo]` en `§CARDSHOW.§13`; desviación `D-CS-7` (`ARCHITECTURE §9`). Cuatro hallazgos de tester-e2e sobre el stack real; el contrato ya los fijaba. Solo `backend/` + este doc. ⛔ No toca `schema.prisma` (la clave de grupo se DERIVA de las filas, sin columna nueva).
+
+**Qué entró (fichero:línea).**
+
+- **BLOQ-A / D-CS-7 — `confirmSignup` confirma TODO el GRUPO del token** (`card-show.service.ts` `confirmSignup`, ~`:703-775`). El alta Pokémon `day:'both'` crea 2 filas (`sat`+`sun`, `pending`) y manda **1 solo correo** con el token de `rows[0]` (`sat`); antes confirmar ese correo confirmaba **solo `sat`** y `sun` quedaba `pending` colgado hasta caducar a 72 h. Ahora, al recibir el token de UNA fila, se **deriva la clave de grupo** y se confirman **todas las `pending` del grupo** en orden `createdAt`, en la **misma tx serializable** (la reserva de cupo por día sigue atómica):
+  - Clave **FORMAL** `(mailboxHmac, game=pokemon, playerId)`; **LIGERA** `(mailboxHmac, game)` con `playerId=NULL`.
+  - FORMAL: cupo/waitlist **por día** (día con cupo ⇒ `confirmed`, lleno ⇒ `waitlist`; día ya activo por otra fila/otro correo ⇒ «ya preinscrito», 0 cambios en ESE día, y los demás días SÍ se confirman). LIGERA: todas ⇒ `confirmed` directo.
+  - ⛔ **TUTOR intacto:** otro `playerId` o `game` distinto = otro grupo (la clave no lo alcanza) ⇒ su fila sigue retenida/`pending`, ⛔ no se auto-confirma.
+  - **Idempotencia:** la fila del token queda `confirmedAt` en el mismo pase ⇒ reusar el token ⇒ `410 LINK_ALREADY_USED`, ⛔ sin `500`. Si NADA cambió (todos los días ya activos por otras filas) ⇒ `occupied` (shape de hoy).
+- **Respuesta ADITIVA `days: {day, state}[]`** (`ConfirmResult` ~`:1049`; controller `confirm` ~`:116`). **Solo** viaja cuando el grupo tiene **> 1 fila** («los dos días»): lista en orden `createdAt` las filas que SÍ cambiaron (`confirmed`/`waitlist`); un alta de UN solo día conserva el shape `{ ok, state }` de hoy (⛔ no rompe C2/C3 ni al frontend que ya lo parsea). El `state` top-level sigue siendo el de la fila del token. **El frontend** usa `days[]` para nombrar sábado Y domingo (eso NO lo hace backend).
+- **IMP-1 — bienvenida de VENDEDOR sin plano ni «mesa #»** (`card-show-content.ts`: se retira `CARD_SHOW_PLANO_URL`, `CARD_SHOW_RESERVE_TABLE_WA_URL`→`CARD_SHOW_MERCHANT_WA_URL` con texto genérico «quiero vender…»; `card-show-welcome.templates.ts` `merchantVariant`). Pivote a captura de interés alineado con la landing («te contactamos en privado, sin precios públicos»): el correo ya ⛔ no promete plano (no existe `id="plano"` en frontend) ni «Me interesa la mesa #». Asunto nuevo: «Tu interés de venta en el Card Show CDMX…». (Sponsor ya usaba deck/mailto; no promete plano/mesa, sin cambios.)
+- **IMP-2 — enlace del aviso interno a la ruta REAL** (`card-show.service.ts` `confirmLead` ~`:544`): `…/admin/card-show/leads` daba **404** ⇒ ahora `…/es/admin/card-show?tab=leads` (ruta localizada; `?tab=leads` es el default del panel, pestaña Leads).
+- **IMP-3 — nombre y teléfono REALES del lead en el aviso interno** (`card-show-internal.templates.ts` `InternalNoticeParams`+`renderInternalNotice`; caller en `confirmLead`): desde M-84 `name`/`phone` SÍ se persisten ⇒ el aviso pasaba `name:null` («Nombre: —»). Ahora muestra `Nombre: <real>` y añade `Teléfono: <real>`. Correo INTERNO a super_admin/`CARD_SHOW_INTERNAL_RECIPIENTS` (no sujeto a la restricción de enlaces de C3; respeta PII interna).
+
+**Pruebas (candados del §13).**
+
+- `test/integration/card-show-contract.e2e-spec.ts` bloque **E** (5 pruebas, ESCRITO, typechea; lo corre el orquestador contra Postgres real — ver «MEDIDO»): (a) pokemon `both`+cupo libre ⇒ 2 `confirmed`, 0 `pending`, `days[sat,sun]`; (b) LIGERA shardbugs `both` ⇒ 2 `confirmed`; (c) `sun` lleno (cupo determinista via `ConfigService.set` del cap + relleno de `sun`) ⇒ `sat confirmed`+`sun waitlist`, 0 `pending`; (d) reusar token ⇒ `410`, sin `500`; (e) tutor (otro `playerId`, mismo buzón) ⇒ NO se auto-confirma.
+- `test/card-show.leads-fields.spec.ts`: 2 pruebas unitarias nuevas de `confirmSignup` de GRUPO (tx mockeada) — FORMAL y LIGERA «los dos días» ⇒ 2 `update` a `confirmed` + `days[sat,sun]`, y la clave de grupo correcta en `findMany`. El mock de `confirmService` gana `findMany` (grupo de 1 por defecto, retrocompatible).
+- `test/card-show.welcome-mail.spec.ts` (merchant): CANARIO IMP-1 — `blob` ⛔ sin `#plano` ni «Me interesa la mesa»/`mesa%20%23`; asunto nuevo.
+- `test/card-show.internal-mail.spec.ts`: CANARIO IMP-2/3 — `Nombre: <real>` + `Teléfono: <real>`, ⛔ sin «Nombre: —», enlace `…/es/admin/card-show?tab=leads` y ⛔ sin la ruta 404 vieja.
+
+**MEDIDO (sha `fade4e6` base; `node_modules` de la copia principal enlazado al worktree, TS 5.9.3).** `tsc --noEmit -p tsconfig.json` (config CON tests, no `tsconfig.build.json`) ⇒ **0 errores**. **Unit** `jest card-show enum-values-parity mail.privacy-footer` ⇒ **17 suites / 458 pruebas VERDES**. **Canario BLOQ-A (N=1, determinista):** mutar el bucle de grupo a `groupRows.slice(0,1)` (= defecto viejo, confirma 1 fila) ⇒ las 2 pruebas de GRUPO de `leads-fields` **ROJAS (2/2)**; restaurado ⇒ **VERDES (24/24)**. **Integración bloque E: NO CORRIDA por mí** — el `node_modules` del worktree está enlazado al compartido, así que ⛔ no puedo `prisma generate` sin pisar a otros agentes ni garantizar que el cliente case con el schema de `fade4e6`. La dejo ESCRITA y typecheada; **el orquestador la corre** (Postgres 16 + redis ARRIBA, creds en `.native-stack/secrets.env`): `cd backend && DATABASE_URL=postgresql://tcg:$NATIVE_DB_PASSWORD@localhost:5432/tcg_marketplace?schema=public REDIS_URL=redis://localhost:6379 npx prisma generate && npx prisma migrate deploy && npx jest --config test/jest-integration.config.js test/integration/card-show-contract.e2e-spec.ts --runInBand`.
+
+## 0.65 — ⭐ **v1.98⟨cardshow⟩ R3b: `q` nombre+correo (M-86) + cupo form-token 120/h (M-87) + instrumentación de descartes (IMP-5)** (2026-10-17, rama `fix/card-show-r3b-backend` desde `release/card-show`@`0cbe558`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.15` (M-86), `§CARDSHOW.5` (M-87) y el §13 verbatim. Tres hallazgos de tester-e2e; el contrato ya los fijaba. Solo `backend/` + este doc.
+
+**Qué entró.**
+
+- **IMP-3 / M-86 — semántica de `q` en el panel** (`card-show.service.ts` `leadWhere`/`playerWhere` + `normalizeQ`). Antes `q` casaba **solo `email`** (`where.email = {contains: q.toLowerCase()}`) aunque el rótulo decía «nombre o correo». Ahora:
+  - `/admin/card-show/leads` (+ `export.csv`): `q` casa `name` **OR** `email` (`contains`, **`mode:'insensitive'`**, parametrizado vía Prisma — ⛔ sin SQL crudo). `name` cubre nombre y **marca**.
+  - `/admin/card-show/players` (+ `export.csv`): `q` casa `playerName` **OR** `email` **OR** `playerId` (string de dígitos, nullable ⇒ filas LIGERA sin `playerId` no casan por ese campo, sin romper el `OR`).
+  - El `OR` se combina (AND) con `confirmedAt/status` de arriba ⇒ `q` **solo REDUCE** el conjunto autorizado y **⛔ nunca trae PENDING**. ⛔ No casa `phone` ni `sellsWhat`.
+  - Gramática §0 vía `normalizeQ` (nuevo helper, patrón de `/admin/shipments`): `trim`, vacío ≡ ausente, **> 200 chars ⇒ `400 {field:'q'}`** (antes `q` iba sin validar longitud).
+- **IMP-6 / M-87 — cupo del `GET /card-show/form-token` 30/h → 120/h por IP** (⇒ `429` en la 121.ª). Un solo hecho, un solo sitio: `THROTTLE.FORM_TOKEN_PER_HOUR` (`card-show.constants.ts`); comentarios de `card-show-throttle.service.ts` alineados. ⛔ **NO** se tocaron las guardas reales del gasto (throttle del POST 5/min·20/h, presupuesto C1 Redis §7, topes por buzón C2 §8). La conducta perezosa del token (0 al montar) es de **frontend**.
+- **IMP-5 — instrumentación de los descartes silenciosos** (`card-show.service.ts` `logDiscard`). Cada `return` silencioso (que el contrato manda responder con el 202 neutro) emite ahora un `logger.debug` con **motivo** (`honeypot`/`too_fast`/`suppressed`/`no_mx`/`dedupe`/`tope`) + **propósito** (`leads`/`players`) + **día** (cuando aplica) + **prefijo (12 ch) del `mailboxHmac`** para correlacionar. **⛔ 0 PII**: ni email, ni name, ni phone, ni playerId, ni IP. El `mailboxHmac` es un blindIndex HMAC (no reversible); se recorta a prefijo. Instrumentados: honeypot, too_fast, suppressed/unsubscribed, dominio sin MX, re-alta de confirmado, y en `insertPendingSignup` el dedupe (dup formal / activa ligera) y los topes (3 PENDING/playerId, 4 playerId/buzón·día, 3 PENDING ligera) — estos últimos con `day`, que es lo que hace diagnosticable «los dos días».
+
+**Pruebas (candados del §13).**
+
+- `test/integration/card-show-contract.e2e-spec.ts` bloque **D** (3 pruebas): leads `name`-casa-email-no (CANARIO) / email-casa-name-no / insensible a mayúsculas / q nunca trae PENDING / ⛔ no casa phone·sellsWhat; players `playerName`-casa-email-no (CANARIO) / `playerId` casa / LIGERA sin playerId no rompe ni casa por playerId; `q>200 ⇒ 400`.
+- `test/card-show.throttle.spec.ts`: form-token **121.ª/h ⇒ 429** (antes 31.ª); confirm sigue 31.ª/min.
+
+**MEDIDO (sha `0cbe558` base; node_modules de la copia principal, TS 5.9.3).** `npm run typecheck` ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). **Unit** (`npx jest`) ⇒ **497 suites / 8710 pruebas VERDES**. **Integración** (`jest-integration` contra Postgres 16 local, migraciones aplicadas) ⇒ `card-show-contract` **11/11 VERDES** (incluidas las 3 de D). **Canario M-86 (N=1, determinista):** quitar la cláusula `name` del `OR` de `leadWhere` ⇒ la prueba de leads **ROJA** (`Expected "Zqname…"` / `Received []`); restaurada ⇒ **VERDE**. **IMP-5 re-medición N=20** del caso «los dos días» LIGERA (`createPlayer` directo contra servicio+BD reales, correo fresco por iteración, `now` > min-age): **20/20 crearon 2 filas, 0 misses, 0 descartes**. NO REPRODUCIDO (consistente con el 13/14 de tester-e2e); si alguna vez cae una fila, el `debug` ya dirá motivo+día. *(La N=20 se midió por el camino del servicio, no por HTTP: el 429 del throttle de POST por IP —5/min— no es el sospechoso de IMP-5 y por HTTP enmascararía la medición.)*
+
+## 0.64 — ⭐ **M-85 / v1.97⟨cardshow-shardbugs⟩: 4.º juego `shardbugs` + candados R2 del Card Show** (2026-10-17, rama `r2-cardshow` desde `release/card-show`@`4b51c68`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.1a-ter` + `§Enums` línea `CardShowGame`. Aditivo sobre M-84; ⛔ no toca dinero, inventario ni cuentas.
+
+**Qué entró (solo `backend/` + `schema.prisma` + `common/enum-values.ts` + 3 candados + `docs/`).**
+
+- **`shardbugs` = 4.º juego** (confirmado por JC 2026-10-17; Shard Bugs LLC). Añadido al `enum CardShowGame` (`schema.prisma`), a las TRES bandas del candado de paridad y al cliente de Prisma regenerado. **LIGERA sin lógica nueva**: la regla «pokemon=FORMAL / resto=LIGERA» de M-84 (§CARDSHOW.12) lo absorbe (sin `playerId`, sin cupo/waitlist, confirma directo a `confirmed`). `CARD_SHOW_GAME_VALUES` es `Object.values(CardShowGame)` ⇒ recoge los 4 por construcción (no se transcribe nada).
+- **Migración `prisma/migrations/20261105120000_m85_card_show_shardbugs/`.** Número **M-85**, prefijo posterior a M-84 `20261104120000` (medido con `ls` del árbol). Único statement: `ALTER TYPE "CardShowGame" ADD VALUE IF NOT EXISTS 'shardbugs';`. **Técnica (MEDIDO vs la Nota del contrato):** el error «ALTER TYPE … ADD cannot run inside a transaction block» solo salta si además se **USA** el valor nuevo en la misma tx; esta migración NO lo usa (sin CHECK/UPDATE/índice que lo mencione), así que es segura dentro de la tx de `prisma migrate` en PG16 — **patrón idéntico y ya en producción** en M-61/M-62/M-70/M-80 (todos `ADD VALUE IF NOT EXISTS` como único statement). Por eso ⛔ NO se parte en archivos ni hace falta directiva de no-transacción. Reversa: dejar de emitir/aceptar `shardbugs` (el valor del enum se queda, como M-62/M-70/M-80).
+- **Candado PRIV-6** (`test/mail.privacy-footer.spec.ts`): conteo `card-show-internal.templates.ts` **2→3** — M-84 añadió `renderLeadsSummary` (0-PII) como 3.ª plantilla `audience:'staff'`.
+- **Candado contract-e2e** (`test/integration/card-show-contract.e2e-spec.ts`): A1 gana `name`, B1 gana `game:'pokemon'` (ambos requeridos tras M-84). **Camino feliz ampliado contra stack** (bloque C): crea → **confirma** (POST /confirm, token de enlace emitido por el `CardShowTokensService` real) → panel + CSV (super_admin), con un caso FORMAL (pokemon, playerId) y dos LIGERA (`shardbugs`, playerId NULL) — cierra el hueco que QA señaló (antes solo cobertura unitaria mockeada de la aceptación/persistencia).
+
+**MEDIDO (jest, worktree `r2-cardshow`, client regenerado con `shardbugs`).** `npm run typecheck` (`tsc -p tsconfig.json`, incluye `test/`) ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). `jest enum-values-parity mail.privacy-footer card-show` ⇒ **17 suites / 456 pruebas VERDES**. Canarios (deterministas, N=1): (1) ancla de paridad de `CardShowGame` a 3 valores ⇒ **banda 1 ROJA** (bandas 2/3 verdes: prisma y contrato ya traen 4) ⇒ el ancla obliga a decidir; restaurado ⇒ verde. (2) quitar `audience:'staff'` de `renderLeadsSummary` (conteo 3→2) ⇒ **PRIV-6 ROJA**; restaurado ⇒ verde.
+
+**⚠️ NO MEDIDO — contract-e2e NO se ejecutó contra Postgres aquí** (sin `DATABASE_URL`; Redis/MinIO abajo — la suite de integración exige infra completa, **es gate de QA**, `npm run test:integration`). El spec **compila** (`tsc` incluye `test/`, 0 errores). **Cierre:** QA corre `prisma migrate deploy` (aplica M-85) + la suite con Postgres+Redis; el bloque C queda VERDE y prueba que un lead/player M-84/M-85 válido se acepta, confirma y persiste. ⚠️ El bloque B3/C3 usa `shardbugs` ⇒ exige M-85 aplicada en la BD de prueba.
+
+## 0.63 — ⭐⭐ **M-84 / v1.96⟨cardshow-leads⟩: pivote del Card Show a captura de LEADS** (2026-10-17, rama `m84-cardshow-leads` desde `release/card-show`@`cbc4dfe`, PII · SIN DINERO)
+
+> Contrato: `API_CONTRACT §CARDSHOW.1/.1a/.1a-bis/.1b/.12/.15` + `§Enums` línea `CardShowGame`. Diseño: `ARCHITECTURE §4.CARDSHOW.p/.q/.r`.
+
+**Qué entró (solo `backend/` + `schema.prisma` + `common/enum-values.ts`).** Aditivo sobre M-78; ⛔ no toca anti-abuso, dinero ni cuentas.
+
+- **Migración `prisma/migrations/20261104120000_m84_card_show_leads/`.** Número **M-84** del contrato, libre (la última en el árbol base era `20261103120000_m78_card_show_landing`; medido con `Glob`). Enum nuevo `CardShowGame (pokemon|riftbound|lorcana)`. `CardShowLead` +`name`(NOT NULL vía DEFAULT '' transitorio→DROP DEFAULT, patrón §11), +`phone`/`gameInterest`/`raffleTermsVersion`/`sellsWhat` (nullable), +`raffleOptIn`(bool default false). `CardShowPlayerSignup` +`game`(NOT NULL, default transitorio `pokemon`→DROP DEFAULT), `playerId`→**nullable**, +`@@index([mailboxHmac,game,day])`, **índice único parcial RECREADO** acotado a `status IN (confirmed,waitlist,checked_in) AND game='pokemon' AND playerId IS NOT NULL`. **`mesaInteres` @deprecated, NO se dropea** (drop diferido, §CARDSHOW.1a-bis).
+- **Paridad de enums** (candado `test/enum-values-parity.spec.ts`): `CARD_SHOW_GAME_VALUES` en `common/enum-values.ts` + fila `CardShowGame` en las tres bandas. La banda 3 universal recoge el enum nuevo automáticamente (el contrato ya trae la línea canónica).
+- **DTO** (`dto/card-show.dto.ts`): `CreateLeadDto` gana los campos nuevos con `NAME_WHITELIST` (más laxa que `playerName`: dígitos/`&`, ⛔ sin `<`,`>`,`@`,`http`); `mesaInteres` **retirado** ⇒ en el cuerpo da 400 (campo desconocido). `CreatePlayerDto` gana `game`; `playerId` pasa a opcional en el DTO. Validación **condicional por tipo/juego** en el SERVICIO (`validateLeadFields`/`validatePlayerFields`) ⇒ `400 {field}` (⛔ no silencioso); corre ANTES del token/tiempo para que un campo prohibido/faltante nunca lo trague el gate silencioso `too_fast` (honeypot sigue primero). Teléfono MX normalizado a 10 dígitos (`phone.util.ts`).
+- **Torneo FORMAL vs LIGERA** (`card-show.service.ts`): `game=pokemon` ⇒ playerId obligatorio, cupo/waitlist/índice como M-78. `game≠pokemon` ⇒ playerId prohibido, fila `playerId=NULL`, sin cupo/waitlist, al confirmar pasa **directo a `confirmed`**; dedupe/cap por `(mailboxHmac,game,day)` (máx 1 activa, máx 3 PENDING). El conteo de cupo y el check «ya preinscrito» se acotaron a `game='pokemon'`.
+- **Panel** (`card-show-admin.controller.ts` + service): columnas nuevas en JSON+CSV de `/leads` (name/phone/gameInterest/raffleOptIn/raffleTermsVersion/sellsWhat) y de `/players` (`game`; `playerId` vacío en LIGERA); filtro `?game=` en `/players` y su `export.csv`. PENDING sigue fuera; sin IP; auditoría intacta.
+- **Correo-resumen** (`renderLeadsSummary` + `CardShowService.sendLeadsSummary`/`buildLeadsSummaryData`): conteos por tipo/juego/día/opt-ins de rifa (hoy/7d/total) + enlaces de descarga AUTENTICADOS a los `export.csv`. ⛔ 0 PII en el cuerpo (⛔ no adjunta CSV: players lleva nombres de menores). Solo confirmados, sin IP, ≤10/h (reserva `reserveInternalNotice`).
+
+**⚠️ PENDIENTE DEVOPS — cablear el CRON del correo-resumen (entregable, ⛔ no gate).** El DISPARO ⛔ NO vive en el módulo (sin scheduler propio). Programar un job **diario a hora fija `America/Mexico_City`** que llame `CardShowService.sendLeadsSummary()` una vez al día (unificable con el resumen diario de visitantes de §0.61, misma cola `tcg-daily`). ⛔ Sin variables nuevas obligatorias (reusa `CARD_SHOW_INTERNAL_RECIPIENTS` / `CARD_SHOW_PUBLIC_BASE_URL`).
+
+**MEDIDO (jest, sha de trabajo).** `enum-values-parity` + 15 suites `card-show` ⇒ **16 suites / 310 pruebas verdes**. `tsc -p tsconfig.build.json --noEmit` ⇒ 0 errores. Mutaciones (deterministas, N=1): (1) quitar `riftbound` del ancla de paridad ⇒ banda 1 ROJA; restaurado ⇒ verde. (2) LIGERA confirma a `waitlist` en vez de `confirmed` ⇒ `card-show.leads-fields` ROJA; restaurado ⇒ verde.
+
+**⚠️ NO MEDIDO — la migración NO se aplicó contra Postgres en este entorno** (sin docker daemon; `initdb` rehúsa como root; el harness bloquea `su`/`sudo` para bajar al usuario `postgres`). Verificado por inspección + `prisma validate` (schema válido, client regenerado con `CardShowGame`) + el SQL replica el patrón probado de M-78 y el bloque del índice parcial es **verbatim** del contrato §CARDSHOW.12. **Cierre de la medición:** QA/devops corre `prisma migrate deploy` contra un Postgres con las filas de M-78 y confirma 0 filas rotas (`name` backfill, `game` backfill a `pokemon`, playerId nullable, índice recreado).
+
+## 0.62 — ⭐⭐ **§CARDSHOW.10 CS-RT-1: webhook de Resend IDEMPOTENTE por `svix-id`** (2026-10-17, rama `feat/event-landing`, condición recomendada del equipo azul antes de publicar)
+
+**Qué era (MEDIDO, pentester+seguridad).** `POST /api/v1/card-show/webhooks/resend` verificaba la firma Svix
+(fail-closed) pero **no deduplicaba por `svix-id`**: `card-show-webhook.service.ts:handleEvent` incrementaba el
+contador C6 sin registrar el id, y el controlador no lo propagaba (`card-show.controller.ts:175` llamaba
+`handleWebhook(type)` sin pasar el `svixId` que ya tenía en mano para verificar la firma). Consecuencia: un
+reintento **legítimo** de Resend/Svix —o un replay con una firma válida capturada— contaba el MISMO evento dos
+veces y podía disparar el **corte global de envíos C6** (≥2 `complained` / ≥10 `bounced` en 24 h), dejando la
+landing sin correos de confirmación hasta un `reopen-sending` manual. En operación normal, sin atacante.
+
+**Qué entró (solo `backend/`).** El manejo del webhook es ahora **idempotente por `svix-id`**:
+- El controlador propaga el `svix-id` ya verificado: `handleWebhook(type, svixId)` → `handleEvent(type, svixId, now)`.
+- Antes de contar, `handleEvent` reclama el id con `store.claimOnce('wh:evt:<svix-id>', WEBHOOK_CUT.WINDOW_MS)`
+  (SETNX en Redis con TTL = **24 h**, la ventana del corte C6). Si el id **ya se vio** ⇒ devuelve
+  `{ cutNow: false }` **sin tocar los contadores**: el controlador responde 200 (ack para que Resend no reintente
+  infinitamente) pero el evento **no cuenta dos veces ni puede disparar el corte** por un duplicado.
+- La verificación de firma (fail-closed, `verifySignature`) queda **intacta** y ocurre antes; aquí solo se
+  deduplica lo ya verificado. Se reutiliza `card-show-counter.store.ts` (`claimOnce`, con reloj inyectable en la
+  implementación de memoria para las pruebas).
+
+**Ficheros.** `card-show-webhook.service.ts:63-83` (dedup en `handleEvent`, nueva firma `(type, svixId, now)`);
+`card-show.service.ts:552-553` (`handleWebhook(type, svixId, now)`); `card-show.controller.ts:174-175` (propaga
+`svixId`). El `svixId` ya se leía de la cabecera `svix-id` (`card-show.controller.ts:167`).
+
+**Prueba que muerde** (`test/card-show.webhook.spec.ts`): el MISMO `svix-id` POSTeado 2× ⇒ el contador sube 1 sola
+vez y NO se dispara el corte (un 3.º con id distinto sí corta); dos `svix-id` distintos ⇒ cuentan los dos. Los
+casos de conteo preexistentes se ajustaron para pasar ids únicos.
+
+**Verificación (O-9).** `npm run typecheck` limpio. `npx jest test/card-show` ⇒ **13 suites, 93/93** (incluye las 2
+pruebas nuevas de dedup). Mutación: deshabilitar el `claimOnce`/return ⇒ la prueba del doble-conteo **roja 5/5**
+(la de ids distintos queda verde, como debe); restaurado ⇒ **verde 5/5** (N=5 cada dirección, determinista, reloj
+fijo en `MemoryCardShowCounterStore`).
+
+**Nota para QA (Redis real).** Las pruebas usan `MemoryCardShowCounterStore` (cuyo `claimOnce` es un `Map` con
+reloj inyectable). En producción el dedup vive en Redis vía `RedisCardShowCounterStore.claimOnce` (SET `NX PX`),
+clave `cardshow:once:wh:evt:<svix-id>`. Un E2E de integración con Redis real confirmaría la atomicidad SETNX de
+punta a punta, pero el comportamiento del dedup ya queda cubierto por las pruebas unitarias.
+
+## 0.61 — ⭐⭐ **§CARDSHOW.9 C3-W: correo de BIENVENIDA RICO (3 variantes) + aviso interno + resumen diario** (2026-10-16, rama `feat/event-landing`, `ARCHITECTURE §4.CARDSHOW.m`)
+
+**Qué entró (solo `backend/`).** El doble opt-in del Card Show ya mandaba el correo de CONFIRMACIÓN
+C3 (estricto). Ahora, al **confirmar un lead** (transición PENDING→`new`), el backend manda **1** correo
+de **BIENVENIDA C3-W** (rico) y, si el lead es `merchant`/`sponsor`, el **aviso interno** al equipo.
+También queda lista la plantilla + el método del **resumen diario** de visitantes.
+
+**Ficheros:**
+- `backend/src/modules/card-show/card-show-content.ts` — **datos PÚBLICOS** del evento + enlaces ricos
+  (WhatsApp `525564893921`, Drive deck, Maps, mailto patrocinio, plano, `.ics`). Por decisión del dueño
+  (2026-10-16) estos datos **ya son públicos** y van en el código. ⛔ **Ningún nombre de patrocinador**
+  (los textos del dueño no los mencionan; este módulo tampoco).
+- `backend/src/modules/card-show/card-show-welcome.templates.ts` — `renderWelcome()` con **3 variantes**
+  por `CardShowLeadType` (merchant/sponsor/visitor), textos verbatim del dueño. Va sobre `mailShell` (§31)
+  pero con builders de CTA **locales** que admiten `mailto:` además de http(s) — el esqueleto estricto solo
+  admite http(s) por diseño (C3), así que C3-W no reusa su `ctaRows`/`smallLinkRow`.
+- `backend/src/modules/card-show/card-show-internal.templates.ts` — `renderInternalNotice()` (copy del
+  dueño) y `renderVisitorDailySummary()`. Van con `mailShell` audiencia `staff` (sin pie de privacidad).
+- `card-show-mail.service.ts` — `sendWelcome/sendInternalNotice/sendVisitorDailySummary` (+ sus `render*`
+  públicos para pruebas). `From` del remitente (env `CARD_SHOW_MAIL_FROM` → `MAIL_FROM` → default
+  `TCG HUNT <contacto@tcghunt.mx>`), `Reply-To` por cabecera (env `CARD_SHOW_MAIL_REPLY_TO`, default
+  `jsainz@tcghunt.mx`). C3 confirmación ⛔ **no se tocó** (sigue sin `Reply-To` extra, byte a byte).
+- `card-show.service.ts` — `confirmLead()` ahora hace la transición **atómica** (`updateMany … where
+  confirmedAt IS NULL`): el único que obtiene `count:1` dispara bienvenida + aviso interno ⇒ **exactamente
+  una vez** incluso con dos POST simultáneos; el 2.º POST da `410`, 0 bienvenidas/0 avisos nuevos.
+  `sendWelcome()` cuenta contra C1 (`budget.tryReserve`) y C2 (`reserveDomainSend` + `reserveConfirmedSend`,
+  tope de buzón **confirmado** 4/24 h) y respeta el corte C6/C1 — si algún gate no pasa ⇒ 0 bienvenidas
+  (la fila ya quedó `new`; ⛔ no se retiene la bienvenida).
+
+**Reglas honradas (medidas por prueba):** C3-W permite `wa.me`/`utm_*`/Drive/`mailto:`/`.ics`/Maps;
+C3 confirmación **sigue** sin ninguno de esos (prueba de contraste en `card-show.internal-mail.spec.ts`);
+⛔ sin `playerName` (los leads ni lo tienen); `List-Unsubscribe(+Post)` tokenizado en C3-W.
+
+**⚠️ Para DEVOPS / ARQUITECTO (NO cambié el contrato; regla 9):**
+1. **`.ics` «Agregar al calendario»**: el correo a visitante enlaza a
+   `{publicBase}/card-show/card-show-cdmx.ics?utm_source=email&utm_campaign=cardshow-dic26` (dominio
+   propio). **Hoy NO existe ese recurso** — lo sirve el **frontend** (ruta estática) o un endpoint nuevo;
+   el contrato no define un endpoint `.ics`. Si se prefiere endpoint backend, pasa por el arquitecto.
+2. **CC del aviso interno — RESUELTO (2026-10-16); ⚠️ SUPERSEDido por §0.67 (M-89, 2026-10-17):** el CC ya NO incluye `cardshow@jakomi.mx` (Jakomi es tercero y el aviso lleva PII) ⇒ `INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx']`. El mecanismo de `cc` de primera clase de abajo sigue vigente; solo cambió la LISTA. La copy pide `To: jsainz@tcghunt.mx · CC:
+   cardshow@jakomi.mx, scarranza@tcghunt.mx`. Antes el `CC` iba por cabecera `Cc` arbitraria y **NO estaba
+   medido que Resend la honre** (Resend hace el CC real con su parámetro `cc` nativo, no por cabecera).
+   **Arreglo:** el puerto `MailMessage` ganó un campo **`cc?: string | string[]`** de primera clase
+   (aditivo/opcional, igual que `from?`/`headers?`); `ResendMailAdapter` lo mapea al parámetro **`cc`
+   nativo** de Resend con spread condicional (ausente ⇒ la clave NO viaja ⇒ el cuerpo de los demás correos
+   queda **byte a byte** igual); `NoopMailAdapter` lo loguea. `sendInternalNotice` ahora pasa
+   `cc: [...INTERNAL_NOTICE_CC]` y se **quitó el apaño de cabecera `Cc`**. ⛔ No toca el contrato ni el
+   schema (mecánica de correo interno, infra backend aditiva). `mail/mail.port.ts:36`,
+   `mail/resend-mail.adapter.ts:34`, `mail/noop-mail.adapter.ts:14`, `card-show-mail.service.ts:232`.
+3. **Resumen diario de visitantes**: dejé `CardShowService.sendVisitorDailySummary(from, to)` (consulta
+   visitantes confirmados en `[from, to)` + total acumulado y manda el correo interno, ≤10/h). **El
+   DISPARO no está cableado**: el módulo Card Show no tiene scheduler propio. **Pendiente devops:**
+   engancharlo como job repetible ~08:00 America/Mexico_City en la cola `tcg-daily` (S9), llamando a ese
+   método con la ventana del día anterior (CDMX).
+4. **Envs nuevos** (defaults sensatos en código; devops los fija en Railway): `CARD_SHOW_MAIL_REPLY_TO`
+   (default `jsainz@tcghunt.mx`), `CARD_SHOW_INTERNAL_RECIPIENTS` (To interno, default `jsainz@tcghunt.mx`).
+
+**Pruebas (autor: backend; 2026-10-16; `npx jest test/card-show` ⇒ 13 suites, 87 pruebas verdes, N=1 por
+caso):** `card-show.welcome-mail.spec.ts` (variantes + enlaces ricos + From/Reply-To),
+`card-show.internal-mail.spec.ts` (contraste C3 estricto vs C3-W + copy interna + resumen diario),
+`card-show.welcome-trigger.spec.ts` (disparo: 1 por confirmación, variante correcta, reconfirmar ⇒ 0,
+carrera perdida ⇒ 0). **Mutación (O-9):** quité el candado `if (res.count !== 1) throw` ⇒ la prueba
+«carrera perdida» se pone **roja** (resuelve `{outcome:'ok'}` en vez de 410 y dispararía bienvenida);
+restaurado y verde de nuevo. `npm run typecheck` limpio.
+
+**Addendum CC de primera clase (2026-10-16; autor backend):** dos pruebas nuevas en
+`card-show.internal-mail.spec.ts` con un `MailPort` que captura el `MailMessage`: (a) el aviso interno
+produce `to='jsainz@tcghunt.mx'` y `cc=['cardshow@jakomi.mx','scarranza@tcghunt.mx']` sin cabecera `Cc`;
+(b) la confirmación C3 (sin CC) **no** trae la clave `cc` (byte a byte). `npx jest test/card-show
+test/mail.service.spec.ts` ⇒ 14 suites, 98 pruebas verdes (N=1 por caso). **Mutación (O-9):** quité
+`cc: [...INTERNAL_NOTICE_CC]` de `sendInternalNotice` ⇒ la prueba (a) se pone **roja**
+(`msg.cc` → `undefined`), 1 fallida de 5; restaurado y verde de nuevo. `npm run typecheck` limpio.
+
+**Para QA (necesita DB/stack real):** la exactitud **bajo concurrencia** de la transición atómica
+(dos POST simultáneos del mismo token ⇒ 1 bienvenida) se afirma por el `updateMany` guardado, pero mi
+prueba la modela con mock; conviene un caso E2E contra Postgres (N≥10) como los de torneo (§CARDSHOW.12).
+
 ## 0.60 — ⭐⭐ **v1.94.2⟨sellado-display⟩: el CANDADO que cierra la clase entera del bug de sellado-display** (2026-10-13, rama `fix/sealed-display`, `ARCHITECTURE §4.34a.2`)
 
 > **Qué es:** el bug «un sellado se pinta como su carta ancla (Exeggcute)» es una CLASE («la cascada de display copiada a
@@ -32430,6 +32643,192 @@ variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
 (TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.
 
 ---
+
+## §CARDSHOW — Landing del Card Show (v1.93⟨cardshow⟩, M-78) — backend Fase 1
+
+> Medido 2026-10-13, rama `feat/event-landing`. Contrato: `API_CONTRACT §CARDSHOW`. Diseño: `ARCHITECTURE §4.CARDSHOW`.
+> ⛔ SECRETO: ningún dato real del evento en el código (estructura, no valores). Los valores entran por entorno,
+> fuera del repo. PII · SIN DINERO · SIN Stripe.
+
+### Qué se construyó (`backend/src/modules/card-show/`)
+- **M-78** (`prisma/migrations/20261103120000_m78_card_show_landing/`): 3 tablas (`CardShowLead`,
+  `CardShowPlayerSignup`, `CardShowClick`) + 5 enums. **Solo CREATE.** El índice único **parcial**
+  `card_show_signup_player_day_active (playerId, day) WHERE status IN ('confirmed','waitlist','checked_in')` va
+  LITERAL en `migration.sql` (el DSL de Prisma no lo expresa). Numeración: la última en la rama era **M-76**
+  (`20261029120000`); **M-77 la reservó §MKT** (rama `claude/traspaso-s9`, sin fusionar) ⇒ M-78 no choca (Glob
+  2026-10-13). Reversa documentada (DROP de 3 tablas + 5 tipos), NO automática.
+- **Enums en paridad a 3 bandas**: añadidos a `schema.prisma`, derivados en `common/enum-values.ts`
+  (`CARD_SHOW_*_VALUES`) y registrados en `test/enum-values-parity.spec.ts`. Las líneas canónicas del contrato
+  (§Enums 8582-8586) ya existían ⇒ la banda-3-universal pasa sin tocar el contrato.
+- **Endpoints** (`card-show.controller.ts` público + `card-show-admin.controller.ts` super_admin): todos los de
+  §CARDSHOW.2. Throttle por IP (C7) en el controlador (necesita `req.ip` + `Retry-After`); el resto del
+  anti-abuso en servicios.
+- **Anti-abuso**: `card-show-ip.util.ts` (clave `req.ip`, IPv6 /64), `card-show-tokens.service.ts` (token de
+  formulario + token de enlace HMAC, secretos DISTINTOS, fail-closed en no-local + efímero por proceso en arnés),
+  `card-show-counter.store.ts` (Redis+memoria con reloj inyectable: throttle, presupuesto, topes, banderas),
+  `card-show-throttle.service.ts` (5/min+20/h+60/min global; 30/h form-token; 30/min confirm; fail-OPEN a la
+  segunda red), `card-show-budget.service.ts` (C1, 50 %/corte, **fail-CLOSED**, reinicio 00:00 CDMX),
+  `card-show-mailbox-caps.service.ts` (C2: 2/campaña ≥24h sin confirmar, 4/24h confirmado, 20/24h dominio,
+  ≤10/h internos, 4 playerId/buzón/día), `card-show-webhook.service.ts` (C6: firma Svix + corte ≥2 quejas/≥10
+  rebotes), `body-size.guard.ts` (413 > 4 KB), DTOs estrictos (`StrictBodyPipe`).
+- **Correo (C3)**: `card-show-mail.service.ts` con asunto fijo, Player ID solo «terminado en NNNN» (⛔ nunca
+  `playerName`), validación MX antes de enviar, `List-Unsubscribe(+Post)`.
+
+### Decisiones de implementación relevantes para otros roles
+- **`MailMessage` ganó `from?` y `headers?` (aditivos, opcionales)** en `mail/mail.port.ts` + `ResendMailAdapter`:
+  la landing manda desde su **subdominio propio** (`CARD_SHOW_MAIL_FROM`, variable de entorno, ⛔ no hardcodeado)
+  con `List-Unsubscribe`. Sin esos campos el cuerpo de los demás correos es **byte a byte el de hoy** (spread
+  condicional). **devops**: declarar `CARD_SHOW_MAIL_FROM`, SPF/DKIM/DMARC del subdominio y el webhook de Resend.
+- **`body-parsers.ts`** captura `rawBody` para `/api/v1/card-show/webhooks/resend` (igual que Stripe): la firma
+  Svix se verifica sobre el cuerpo EXACTO.
+- **Variables de entorno** (§CARDSHOW.16, las cablea devops): `CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET`
+  (⚠️ **DISTINTOS entre sí**, ⛔ nunca en el repo), `CARD_SHOW_CONFIRM_BUDGET_HOUR` (150), `..._DAY` (600),
+  `CARD_SHOW_ALERT_EMAIL`, `CARD_SHOW_SUPPRESS_UNTIL` (valor FUERA del repo), `TRUST_PROXY_HOPS` (1, ya en
+  `trust-proxy.ts`), `CARD_SHOW_MAIL_FROM`, `CARD_SHOW_PUBLIC_BASE_URL`, `CARD_SHOW_TOURNAMENT_CAP_PER_DAY`
+  (dato de Jakomi; vacío ⇒ sin cupo ⇒ no se recorta), `CARD_SHOW_RESEND_WEBHOOK_SECRET` (`whsec_…`).
+- **frontend**: el POST de los formularios manda el `formToken` (de `GET /card-show/form-token?purpose=leads|players`)
+  en el cuerpo; el honeypot es el campo opcional **`website`** (con valor ⇒ el backend descarta en silencio, 202);
+  `day='both'` en el cuerpo de `/players` ⇒ el backend crea 2 filas (sat+sun) y 1 envío. La página de
+  confirmar/cancelar/baja (C4) la sirve el **FRONTEND** (Diseño A, `API_CONTRACT §CARDSHOW.2/.6`); el backend solo
+  conserva los POST en JSON (ver «Diseño A» abajo).
+
+### Diseño A — doble opt-in: la página la sirve el frontend (DESV-CS-1/2/3, medido 2026-10-16)
+Decisión del arquitecto (`API_CONTRACT §CARDSHOW.2/.6`, `ARCHITECTURE §4.CARDSHOW.f`). Tres cambios en backend:
+- **DESV-CS-2 · GET retirados.** Se quitaron `GET /card-show/{confirm,cancel,unsubscribe}` y el helper
+  `actionPage` de `card-show.controller.ts` (antes servían un `<form>` urlencoded que la API ni parsea). La página
+  con botón (C4) ahora la sirve el **frontend** en `https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…`.
+  Un `GET` a esas rutas del API ⇒ **404** (ruta inexistente). Los **POST** en JSON (`StrictBodyPipe(LinkActionDto)`,
+  `{ "token": "…" }`) ⛔ no se tocaron. Ninguna prueba afirmaba que esos GET existían (grep `actionPage|confirmPage`
+  en `backend/test` ⇒ 0), así que no hubo prueba que actualizar.
+- **DESV-CS-3 · one-click con token.** `maybeSendConfirmation` (`card-show.service.ts`) ahora arma
+  `unsubscribeOneClickUrl = ${base}/api/v1/card-show/unsubscribe-oneclick?token=<issueLinkToken(kind,rowId,'unsubscribe')>`
+  **dentro de cada rama** (lead ⇒ `args.rowId` `:253`; torneo ⇒ `first.id` `:268`), porque el token ata la FILA de
+  esa rama. Antes se armaba una vez sin `?token=` ⇒ el one-click no podía identificar el buzón. `card-show-mail.service.ts:165`
+  lo pone en `List-Unsubscribe` sin cambios.
+- **DESV-CS-1 · POST one-click lee el QUERY.** `POST /card-show/unsubscribe-oneclick` (`card-show.controller.ts:155`)
+  lee el token de `@Query('token')`, ⛔ no del cuerpo: el destino de `List-Unsubscribe-Post` (RFC 8058) manda un
+  cuerpo FIJO `List-Unsubscribe=One-Click` (`x-www-form-urlencoded`) SIN token. El cuerpo se ignora (⛔ no se parsea
+  con `LinkActionDto`, ⛔ no se montó parser urlencoded global). Sigue silencioso/idempotente (token inválido/vacío ⇒
+  `unsubscribeOneClick` verifica propósito `unsubscribe` y sale sin delatar).
+
+### Pruebas (unitarias, corren con `npm test`, SIN base de datos) — proporción medida
+`npx jest test/card-show.*` + `test/enum-values-parity.spec.ts` ⇒ **244/244 verdes** (medido 2026-10-13):
+- mailbox (canonicalización C2), ip (/64, C7), tokens (formulario + enlace, 1 byte/propósito/caducidad),
+  throttle (5/min, 20/h, 60/min global, 30/h, 30/min — con reloj simulado), presupuesto (HOUR=10/DAY=20: 10
+  envíos + corte 11.º + 1 alerta 50 % + 1 corte; **fail-closed** con Redis que lanza), topes por buzón (t0,
+  t0+25h, t0+50h ⇒ **2 envíos**; 4/24h; 20/24h; ≤10/h; 4 playerId/buzón/día), cupo (assignOnConfirm), CSV
+  (anti-inyección de fórmulas, sin IP), validación (type=ADMIN/email 300/playerName dígitos·@·<·http/playerId
+  letras·13 dígitos/consent false·ausente/utm `<script>` ⇒ 400; honeypot y day=both ⇒ pasan), plantilla C3
+  (asunto fijo, 0 utm/wa.me/mailto, solo hrefs del dominio propio, Player ID last4, List-Unsubscribe), webhook
+  (firma Svix válida/alterada/sin secreto; corte ≥2 quejas/≥10 rebotes). `tsc` limpio; app arranca
+  (`app.module.spec` **verde**); PRIV-4 (pie de privacidad) **verde**.
+
+### Qué quedó FUERA de Fase 1 backend (necesita base de datos ⇒ gate de QA en integración)
+Los criterios §13 de **punta a punta contra Postgres** no se miden en la suite unitaria: el flujo completo
+`POST /leads`→PENDING→correo→`POST confirm`→`new`, la **reserva atómica del cupo** (2 CONFIRMED + 1 WAITLIST,
+nunca 3, bajo confirmaciones simultáneas — implementada con `$transaction` Serializable + índice único parcial;
+**NO MEDIDO** la proporción bajo carrera real, la mide QA), la respuesta neutra byte-a-byte **con tiempo**
+(mediana de 20, ≤100 ms), la caducidad que borra la fila (7 d/72 h — **no hay job de barrido todavía**, ver
+abajo), y el panel/CSV contra filas reales. Scaffolding listo; QA los ejecuta con el stack arriba.
+
+### Pendientes y HUECOS DEL CONTRATO para el arquitecto (regla 9 — ⛔ no los "arreglé")
+1. **C3 «⛔ Sin imágenes remotas» ↔ `mailShell` (§31/PRIV-4).** El esqueleto de marca compartido —que PRIV-4
+   OBLIGA a usar en todo HTML de correo y que trae el pie de aviso de privacidad legalmente requerido— **incluye
+   un logo remoto** (`MAIL_MIRA_URL`, dominio propio `tcghunt.mx`). No se puede cumplir «cero imágenes remotas»
+   **y** PRIV-4 a la vez. Resolví a favor de PRIV-4 + pie legal (el logo es del dominio propio, ⛔ no un píxel de
+   rastreo 1×1). **Decisión del arquitecto**: ¿variante del shell sin logo para la landing, o se acepta el logo
+   propio y se matiza C3 a «sin píxel de rastreo / sin terceros»?
+2. **«No fui yo» (supresión, §CARDSHOW.8) no tiene endpoint/propósito propio** en la tabla de §CARDSHOW.2 (solo
+   `confirm`/`cancel`/`unsubscribe`). Lo implementé sobre `POST /unsubscribe`: para un lead pone
+   `unsubscribedAt` + `suppressedUntil` (= supresión de buzón). La «baja» pura y la «supresión» quedan unificadas
+   en ese endpoint. ¿El arquitecto quiere un propósito `suppress` disjunto, o confirma esta unificación?
+3. **Supresión «guarda solo mailboxHmac» pero `CardShowLead.email` es NOT NULL.** Hoy conservo la fila del lead
+   con su `email` normalizado + `suppressedUntil` (no borro la fila). El contrato dice «borra la fila, guarda solo
+   mailboxHmac». Para cumplirlo literal haría falta o una tabla de supresión (solo `mailboxHmac`) o blanquear
+   `email`. ¿Tabla nueva en un M-79, o se acepta conservar la fila marcada `discarded`+`suppressedUntil`?
+4. **Caducidad 7 d/72 h que BORRA la fila PENDING**: requiere un **job de barrido** (scheduler). No está en Fase 1
+   (no hay cron nuevo). ¿Va en este stream o en uno de jobs? Lo dejo anotado; sin él, las PENDING caducadas
+   persisten (no cuentan en panel/CSV porque el filtro excluye `confirmedAt IS NULL`, así que el efecto visible
+   es nulo salvo el espacio).
+5. **Alertas del presupuesto (50 %/corte/fail-closed)**: en Fase 1 queda **1 `AuditLog` por evento**; el **correo**
+   a `CARD_SHOW_ALERT_EMAIL` lo dispara el monitor/operador a partir del AuditLog. ¿El arquitecto quiere el envío
+   del correo de alerta dentro del request (best-effort) o por el canal de observabilidad existente?
+6. **`guardianName` del tutor**: el formulario lo captura (RONDA_0 §6) pero el modelo del contrato
+   (`CardShowPlayerSignup`) ⛔ no tiene columna para él; el DTO lo acepta (validado) pero **no se persiste**.
+   ¿Se añade columna (M-79) o se confirma que no se guarda?
+
+### Arreglos de revisión — rama `feat/event-landing` (medido 2026-10-16)
+
+**2c · Anti-abuso: el tope por dominio EXIME a los freemail públicos (anti-DoS contra Gmail/Outlook).**
+`reserveDomainSend` aplicaba un tope plano de 20/24 h a CUALQUIER dominio
+(`card-show-mailbox-caps.service.ts:40-43`), sin eximir los freemail masivos ⇒ 20 envíos a cualquier
+`@gmail.com` en 24 h retenían al 21.º registro legítimo de Gmail (DoS a todo el dominio público). Arreglo:
+constante `PUBLIC_FREEMAIL_DOMAINS` + helper `isPublicFreemailDomain()` en `card-show.constants.ts`
+(gmail/googlemail, hotmail/outlook/live/msn, yahoo/ymail, icloud/me/mac, proton/protonmail, aol/gmx/zoho/hey,
+y variantes `.com.mx`: hotmail/outlook/live/yahoo/prodigy; normalizado a minúsculas+trim). En
+`reserveDomainSend`, si el dominio ∈ lista ⇒ `return true` (⛔ no consume cupo por dominio). **Eximir es
+seguro**: el abuso desde esos buzones sigue acotado por el tope por BUZÓN (`reserveUnconfirmedSend`,
+2/campaña, con la clave canonicalizada que colapsa `+etiqueta` y puntos) y por el throttle por IP (C7). El
+tope por dominio sigue mordiendo para dominios NO públicos (propios/pequeños, donde 20/24 h sí es abuso).
+Pruebas en `test/card-show.mailbox-caps.spec.ts`: el test del tope no masivo (20 ⇒ el 21.º `false`) **sigue
+mordiendo** y uno nuevo fija la exención (25 a `@gmail.com` todos `true`; variantes mayúsculas/googlemail/
+`.com.mx` exentas). Canario comprobado: con la exención comentada, el test nuevo cae roja en el 21.º.
+
+**2a · Candado de contrato e2e SIN mocks para el mismatch `token`↔`formToken`.** Nuevo spec
+`test/integration/card-show-contract.e2e-spec.ts` que levanta la app Nest REAL (mismo pipe/filtro/prefijo que
+`main.ts`) contra Postgres real y golpea por HTTP el contrato de `POST /card-show/leads` y `/players`:
+(A1/B1) cuerpo con el campo CORRECTO `formToken` (emitido por `GET /form-token`, respetando el min-age de 2 s
+con espera real) ⇒ 202 y UNA fila PERSISTIDA `status:"pending"`; (A2/B2 — **el candado**) cuerpo con el campo
+VIEJO `token` ⇒ 400 `VALIDATION_ERROR` y 0 filas. Caza la regresión que perdía TODAS las altas (el
+`StrictBodyPipe` rechaza `token` desconocido y exige `formToken`). ÚNICA sustitución = INFRA (`MX_RESOLVER`⇒
+`true`, para no depender de DNS en CI, igual que `e2e-app.ts` hace con Stripe); ⛔ no se mockea ni el pipe ni
+la persistencia. Lo corre QA con `npm run test:integration` (o `test:e2e`); requiere Postgres+Redis del stack.
+**Medido por backend localmente** (Postgres 16 + Redis efímeros): **4/4 verdes** (N=1 corrida verde tras
+corregir un dato de prueba; el `playerName` no admite dígitos por la lista blanca `dto:46`). `tsc` limpio;
+`test/card-show.mailbox-caps.spec.ts` **7/7**.
+
+### Numeración / rama
+HEAD base de la rama: `9947f91` (contrato+arquitectura del Card Show). Commits del backend a continuación.
+
+### §CARDSHOW.censos — los 3 censos transversales del release (C-EQ-1, PRIV-6, G-8) + blindaje D1 (2026-10-16, sobre `cb83a81`)
+QA rechazó el gate por 3 censos transversales en rojo (el Card Show es módulo nuevo y sus ejes/tablas no estaban
+clasificados). El arquitecto decidió (contrato en `cb83a81`); backend aplicó EXACTO:
+
+- **PRIV-6 (`test/mail.privacy-footer.spec.ts:428`)**: el censo de `audience:'staff'` exige transcribir los usos
+  medidos. Son **2** en `card-show-internal.templates.ts` (líneas 85 y 119, medido) — el aviso al staff y el resumen
+  diario van sin pie de privacidad a propósito (correo interno). Aserción ampliada a `{spend-alert.mail.ts:3,
+  card-show-internal.templates.ts:2}`. Suite: **146/146**.
+- **C-EQ-1 (`test/integration/enum-query-axes.e2e-spec.ts` + `test/helpers/query-axis-cross.ts`)**: el Card Show añadió
+  **19 ejes `@Query`** huérfanos. Clasificación del arquitecto:
+  - **9 a `REGISTRO` (`transcrita`)** — dominio cerrado, 400 fuera de dominio: `GET /admin/card-show/{leads,players}`
+    y sus `export.csv` (`?status=` clase **R** = enum MENOS `pending`; `?type=`/`?day=` clase **E**) + `GET
+    /card-show/form-token?purpose=` (clase **L**, `FORM_PURPOSES`, default `leads`). `REGISTRO.length` 74→**83**;
+    pendientes **18 fijo** (sus filas de §0-Q ya existen). Fixture (q) nuevo: 2 leads + 2 players confirmados.
+  - **10 a `NO_ENUM_POR_RUTA`** (tope 60→**70**): los `?from=`/`?to=` (días sobre `createdAt`) de las 4 rutas admin
+    (8), `GET /card-show/ir/:destino?mesa=` (entero de telemetría, conducta INTENCIONAL) y `POST
+    /card-show/unsubscribe-oneclick?token=` (token opaco). ⛔ `NO_ENUM_TRANSVERSAL` no se toca.
+  - **CÓDIGO (era el defecto, no solo clasificación):** `leadWhere`/`playerWhere` IGNORABAN en silencio el valor fuera
+    de dominio y `form-token` CLAMPABA `purpose` a `leads`. Ahora usan `parseEnumFilter` (`common/enum-filter.ts`) ⇒
+    `400 {field, allowed}` fuera de dominio. `dateRange` ahora `400 {field}` ante fecha mal formada (antes la ignoraba).
+    Dominios R exportados: `CARD_SHOW_LEAD_STATUS_FILTER_VALUES`, `CARD_SHOW_PLAYER_STATUS_FILTER_VALUES`
+    (`card-show.service.ts`). Suite: **693/693**. Mutación (ignore-silencioso en `leadWhere`): **8/8 rojas** en
+    `leads::status` + su CSV; restaurado ⇒ verde.
+- **G-8 (`prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql` + `pdb-limpieza.e2e-spec.ts`)**: 3 tablas nuevas
+  clasificadas (precedente §14.13.1, default **conservar** para PII). `CardShowClick` → **borrar** (telemetría sin
+  cookie/IP/UA; `DELETE` en paso 13 como `SpendAlert`, G-5 lo cuenta 0). `CardShowLead`/`CardShowPlayerSignup` →
+  **conservar** (PII real con consentimiento, **incluye MENORES**). `EMPTIED` += `CardShowClick`; `KEY_KEPT` += los dos
+  leads/players; fixture siembra 2 clics + 1 lead + 1 preinscripción de menor. Doc: `docs/specs/LIMPIEZA_DB.md §14.14`
+  con la pregunta de política **P-CS** (default conservar; vaciar ⇒ guarda tipo G-9 por lista/cohorte, ⛔ nunca a
+  ciegas). ⚠️ El orquestador lleva P-CS a JC; backend implementó el DEFAULT conservar (la herramienta queda operativa).
+- **D1 (blindaje, techlead)**: `confirmLead` envuelve `sendWelcome(...)` y el aviso interno en try/catch que loguea y
+  SIGUE ⇒ un parpadeo de Redis TRAS persistir PENDING→`new` ya NO tumba la confirmación con un 500. Prueba que muerde
+  en `card-show.welcome-trigger.spec.ts` (2 casos: `webhook.isCut` y `caps.reserveInternalNotice` lanzando ⇒ éxito, no
+  500). Mutación (catch que relanza): **2/2 rojas**; restaurado ⇒ verde. Deuda registrada en `docs/TECH_DEBT.md`
+  (TD-CS-D1 RESUELTO; D2 copys duplicados backend↔frontend; D3 `INTERNAL_NOTICE_CC` hardcodeado ⇒ proponer
+  `CARD_SHOW_INTERNAL_CC`).
+
+> ⚠️ **Verificación local:** las suites de integración necesitan `--forceExit`: el AppModule deja *open handles*
+> (Redis/scheduler) que impiden que jest salga solo tras terminar los tests (no es regresión; el arranque mide 0.3 s).
 
 ## v1.94⟨sellado-display⟩ — el SELLADO deja de pintarse como su carta ancla (§4.34a.2 + §5.2.6)
 

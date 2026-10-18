@@ -29,6 +29,17 @@ export function applyBodyParsers(app: INestApplication): void {
     }),
   );
 
+  // ⭐ v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.10): el webhook de Resend firma con Svix sobre el cuerpo
+  // EXACTO recibido. Capturamos `rawBody` igual que Stripe para verificar la firma sin re-serializar.
+  app.use(
+    '/api/v1/card-show/webhooks/resend',
+    json({
+      verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+
   const cspText = text({ type: () => true, limit: CSP_REPORT_MAX_BYTES });
   app.use(CSP_REPORT_PATH, (req: Request, res: Response, next: NextFunction) => {
     cspText(req, res, (err?: unknown) => {

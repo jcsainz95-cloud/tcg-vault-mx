@@ -7,6 +7,46 @@
 
 ---
 
+## Frontend · 2026-10-18 · stream «Card Show R3 (rediseño landing)» (rama `feat/cardshow-landing-redesign`)
+
+> Deuda anotada a petición del techlead durante la RONDA 3 del rediseño de `/card-show`. Dueño del código
+> anotado: **frontend**. **SIN DINERO** (landing de captura). Medidas sobre `feat/cardshow-landing-redesign`
+> (base `6ac5500`).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| FE-CS-A | Hex de marca sueltos donde ya hay token: barra de anuncio en `page.tsx` (`bg-[#B31217]`, `text-[#F4F1EA]`) y las capas del burst en `card-show.css` (`.cs-flash`/`.cs-ring`/`.cs-debris*`: `#e0353b`, `#f4f1ea`, `#1a1a18`) | frontend | 2026-10-18 | `grep -rniE '#(B31217|E0353B|F4F1EA|1A1A18)' frontend/src/app/card-show/page.tsx frontend/src/app/card-show/card-show.css` **sin contar comentarios ni el array `CONFETTI_COLORS`** ⇒ 0 (todo migrado a `var(--color-accent)`/`--color-accent-fg`/`--hunt-red-on-ink`/`--color-ink`). Disparador: próximo retoque de la landing |
+| FE-CS-B | CERRADA (2026-10-18) · Fuga de animación al desmontar `HeroExplosion` durante la ráfaga | frontend | 2026-10-18 | Cerrada en este pase: ver abajo |
+
+### FE-CS-A · P3 · Hex de marca sueltos en la barra de anuncio y en las capas del burst (hay token)
+- **Qué es:** la barra de anuncio (`page.tsx`) usa `bg-[#B31217]` + `text-[#F4F1EA]` en vez de los tokens
+  `--color-accent` / `--color-accent-fg`; y las capas decorativas del burst en `card-show.css` (`.cs-flash`,
+  `.cs-ring`, `.cs-debris`/`-paper`/`-red`) repiten `#f4f1ea`, `#e0353b`, `#1a1a18` en vez de
+  `--color-accent-fg` / `--hunt-red-on-ink` / `--color-ink`.
+- **Por qué NO bloquea:** los valores son correctos (coinciden con los tokens y con §CS-UX.1); es deuda de
+  **mantenibilidad** (un cambio de paleta habría que hacerlo en dos sitios).
+- **Por qué NO se migra ya:** R3 es un pase acotado a los hallazgos de ux-review; tocar `.cs-debris`* obliga a
+  re-verificar contraste del burst. Los anillos de foco que añadió R3 (I-4/M-5) **sí** usan tokens
+  (`var(--color-accent-fg)` / `var(--color-focus-ring)`), no suman al hueco.
+- **Nota sobre `CONFETTI_COLORS`** (`HeroExplosion.tsx`): el canvas pinta con `fillStyle` (string de color),
+  no admite `var(--…)`; ese array **queda exento** de la comprobación.
+- **Dueño:** frontend. **Fecha de medición:** 2026-10-18. **Disparador:** próximo retoque de la landing.
+- **Comprobación de cierre:** el `grep` de la tabla ⇒ 0 (fuera de comentarios y de `CONFETTI_COLORS`).
+
+### FE-CS-B · ✅ CERRADA en este pase (2026-10-18) · Fuga de animación al desmontar `HeroExplosion`
+- **Qué era:** la versión R2 arrancaba la flotación perpetua de las cartas en `c.finished?.then(() => run(…))`;
+  si el componente se **desmontaba durante** la salida (~0.55 s), el `.then` corría DESPUÉS del cleanup y creaba
+  una animación `repeat:Infinity` que ya no estaba en `controls` ⇒ nunca se detenía (fuga).
+- **Cómo se cerró (B-1):** R3 eliminó la flotación perpetua (las cartas se **desvanecen y se retiran** con un
+  solo keyframe, sin `.finished.then`), así que estructuralmente ya no puede nacer una animación tras el
+  desmontaje. Además se añadió una bandera **`cancelled`** que el cleanup pone a `true` y que el único trabajo
+  diferido restante (el bucle de confeti con `requestAnimationFrame`) **comprueba antes de reprogramarse o
+  dibujar**. No queda `.then` diferido que cree animaciones.
+- **Comprobación de cierre (verificada):** `grep -n '\.finished' frontend/src/app/card-show/_components/HeroExplosion.tsx`
+  ⇒ 0 (ya no hay encadenado diferido de animación; el campo `finished` salió del tipo `Controls`) **+** el
+  `return () => { cancelled = true; … }` del `useEffect` detiene los `controls` y cancela el `raf`, y el `loop`
+  abre con `if (cancelled) return;`.
+
 ## Backend (dueño: backend)
 
 > Los 3 hallazgos de correctness de dinero marcados como gate de go-live (reserva de checkout atómica,
@@ -100,6 +140,50 @@
   completo (status, `no-store`, access-log, PII=0 en artefactos).
 - **Dueño:** backend. **Disparador:** stream de UI del Panel (cuando haya infra de integración).
 - **Medido:** 2026-10-17 (QA + techlead, sobre `9d0ed99`).
+
+## Backend · 2026-10-17 · stream «Card Show R2» (M-84 pivote a leads + M-85 `shardbugs`, rama `r2-cardshow`)
+
+> Dos deudas **no bloqueantes** del Card Show tras M-84 (pivote a captura de leads) y M-85 (4.º juego
+> `shardbugs`). **PII, SIN DINERO.** Dueño del código anotado: **backend**. Medidas sobre `r2-cardshow`
+> (base `release/card-show` `4b51c68`).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| D-A | Drop DIFERIDO de `mesaInteres` (y `CardShowClick.mesa` / `ClickDto.mesa`): columnas del plano viejo de mesas, `@deprecated`, sin uso | backend | 2026-10-17 | `ALTER TABLE … DROP COLUMN` aplicado en migración posterior **+** `grep -rn 'mesaInteres\|\.mesa\b' backend/src backend/prisma/schema.prisma` ⇒ 0 **+** fuera de `schema.prisma`. Disparador: fin de campaña / resuelta la pregunta de política de §4.CARDSHOW.o |
+| D-B | Dos patrones de correo interno conviven: `renderVisitorDailySummary` mete email/PII en el cuerpo vs `renderLeadsSummary` 0-PII + enlace autenticado | backend | 2026-10-17 | O converger al patrón 0-PII+enlace (que `renderInternalNotice`/`renderVisitorDailySummary` dejen de materializar PII en el cuerpo), O dejar escrita la razón explícita por la que el aviso inmediato/diario sí la lleva. Candado: un test que afirme la elección por plantilla |
+
+### D-A · P3 · Drop diferido de `mesaInteres` (y `CardShowClick.mesa`/`ClickDto.mesa`) — columnas del plano viejo, `@deprecated` y sin uso
+- **Qué es:** M-84 pivotó el Card Show de «mesas» a captura de **leads**. La columna `CardShowLead.mesaInteres`
+  (`backend/prisma/schema.prisma:3175-3176`, `/// @deprecated M-84`) **permanece en la BD** pero sale del DTO, del
+  servicio, del CSV y del panel (⛔ nadie la escribe ni la lee — `createLead` no la pone,
+  `card-show.service.ts:133`). Lo mismo pasa con `CardShowClick.mesa` (`schema.prisma:3222`) y `ClickDto.mesa`:
+  telemetría del plano retirado, **sin uso**.
+- **Por qué NO bloquea:** una columna nullable sin lectores no corrompe nada; el `StrictBodyPipe` ya rechaza
+  `mesaInteres` en el cuerpo (`400` campo desconocido, §CARDSHOW.1a-bis), así que ⛔ no entra dato nuevo.
+- **Por qué NO se dropea ya (§CARDSHOW.1a-bis):** **NO MEDIDO** si M-78 corrió en producción con filas reales que
+  la poblaron; dropear una columna con dato real es destructivo e irreversible. El drop va atado a la misma pregunta
+  de política de §4.CARDSHOW.o (¿los registros de card-show hasta la limpieza son todos de prueba?).
+- **Dueño:** backend. **Fecha de medición:** 2026-10-17. **Disparador:** fin de campaña / resuelta esa pregunta por JC.
+- **Comprobación de cierre:** `ALTER TABLE … DROP COLUMN` aplicado en una migración posterior **+**
+  `grep -rn 'mesaInteres\|\.mesa\b' backend/src backend/prisma/schema.prisma` ⇒ 0 **+** las columnas fuera del schema.
+
+### D-B · P3 · Dos patrones de correo interno del Card Show conviven: uno mete PII en el cuerpo, otro es 0-PII + enlace
+- **Qué es:** en `backend/src/modules/card-show/card-show-internal.templates.ts` hay **tres** plantillas solo-staff
+  (`audience:'staff'`), y usan **dos criterios distintos de PII**:
+  - `renderInternalNotice` (`:69`) y `renderVisitorDailySummary` (`:106`) escriben **el correo (y el nombre) del
+    visitante/vendedor DIRECTAMENTE en el cuerpo** (`:77`, `:111`).
+  - `renderLeadsSummary` (M-84, `:177`) es **0-PII**: solo cifras agregadas y **enlaces de descarga AUTENTICADOS** al
+    CSV (`:128`, `:173-175`); la PII solo se materializa tras autenticarse.
+- **Por qué NO bloquea:** los tres son **solo-staff** (`audience:'staff'`, verificado por `PRIV-6` en
+  `test/mail.privacy-footer.spec.ts`) y ninguno lleva PII de cliente a un buzón externo no autorizado; el aviso
+  inmediato/diario es a la dueña. No hay fuga medida hoy.
+- **Riesgo:** **mantenibilidad / minimización de datos** — dos patrones para el mismo tipo de correo acaban
+  divergiendo, y el que mete PII en el cuerpo la expone en cualquier reenvío/archivado del buzón del staff.
+- **Dueño:** backend. **Fecha de medición:** 2026-10-17. **Disparador:** el próximo correo interno nuevo, o una
+  revisión de minimización de datos.
+- **Comprobación de cierre:** O los tres convergen al patrón 0-PII+enlace de `renderLeadsSummary` (un test afirma que
+  `renderInternalNotice`/`renderVisitorDailySummary` ⛔ no contienen `email`/`name` en el cuerpo), O queda escrita en
+  la plantilla la razón explícita por la que el aviso inmediato/diario sí los lleva.
 
 ## Backend · 2026-10-14 · stream «P&L de Finanzas» — gate del techlead sobre `be008b0` (rama `fix/pnl-finanzas`)
 
@@ -10824,3 +10908,72 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
   **aceptada explícitamente** por QA/techlead en `docs/SECURITY_NOTES.md`/veredicto **antes del release**. §PRE no la
   carga, pero queda registrada para que no se pierda.
 - **Comprobación:** `bash scripts/stack-native.sh test:integration "accessories-prep-refunds|accessories-m73-migration|accessories-m73-refund-shapes"` ⇒ 0 rojas; o la aceptación firmada.
+
+### TD-CS-D1 · RESUELTO (2026-10-16) · `confirmLead` tumbaba una confirmación persistida si un gate best-effort lanzaba
+- **Qué era:** en `confirmLead` (`card-show.service.ts`), tras persistir la transición PENDING→`new` (atómica, un solo
+  uso), las llamadas a `webhook.isCut()`, `caps.reserve*`, `budget.tryReserve` (dentro de `sendWelcome`) y el bloque del
+  aviso interno (`caps.reserveInternalNotice`) **no** estaban en try/catch. Un parpadeo de Redis TRAS dejar la fila `new`
+  daba `500` y perdía el aviso interno, con la fila **ya confirmada** ⇒ el POST fallaba aunque la confirmación fuera real.
+- **Arreglo (este commit):** todo `sendWelcome(...)` y el bloque de aviso interno van en try/catch que loguea y SIGUE; la
+  confirmación ya persistida NUNCA se tumba por un fallo de envío (son best-effort por diseño, §CARDSHOW.9).
+- **Prueba que muerde:** `card-show.welcome-trigger.spec.ts` — con `webhook.isCut`/`caps.reserveInternalNotice` lanzando,
+  `confirmLead` devuelve `{outcome:'ok', state:'new'}` (fila `new`, `confirmedAt` set), no 500. Mutación verificada: al
+  relanzar en el catch, 2/2 pruebas D1 rojas; restaurado, verdes.
+- **Dueño:** backend (card-show). **Estado: cerrado en este commit.**
+
+### TD-CS-D2 · P3 · Copys de WhatsApp/Drive/Maps/mailto duplicados entre backend y frontend (2026-10-16)
+- **Qué es:** los enlaces/copys del evento (WhatsApp, Google Drive, Maps, `mailto:`) viven a la vez en
+  `backend/src/modules/card-show/card-show-content.ts` y `frontend/src/content/card-show.ts` — **dos fuentes para un
+  mismo dato**. Si uno cambia y el otro no, la landing y los correos divergen sin que nada lo cace.
+- **Riesgo:** bajo (texto, no dinero); aceptable para un **evento único**. El coste de unificar (un paquete compartido o
+  un endpoint de contenido) no se justifica para una landing de un solo evento.
+- **Dirección:** si el evento se vuelve recurrente, unificar en una sola fuente (compartida o servida por el backend).
+- **Dueños:** backend + frontend (coordinados; cualquiera que toque un copy debe tocar los dos ficheros).
+- **Comprobación:** `grep` de los enlaces en ambos ficheros coincide; o, al unificar, una sola fuente.
+
+### TD-CS-D3 · P3 · `INTERNAL_NOTICE_CC` hardcodeado en `card-show.constants.ts` (2026-10-16)
+- **Qué es:** el CC fijo del aviso interno al staff es un literal en `card-show.constants.ts:52`
+  (`INTERNAL_NOTICE_CC = ['scarranza@tcghunt.mx']` tras M-89, que retiró el tercero `cardshow@jakomi.mx`),
+  ⛔ no una variable de entorno. Cambiar quién recibe la copia sigue exigiendo tocar código y redeploy.
+- **Riesgo:** bajo (no es secreto ni dinero; son destinatarios internos). Aceptable para el evento.
+- **Dirección:** proponer `CARD_SHOW_INTERNAL_CC` (coma-separada), con el literal de hoy como default — igual que
+  `CARD_SHOW_INTERNAL_RECIPIENTS` ya hace para el To.
+- **Dueño:** backend (card-show).
+- **Comprobación:** `CARD_SHOW_INTERNAL_CC` existe en `ENV` y el servicio lo lee con fallback al default actual.
+
+## Card Show · 2026-10-17 · fase de seguridad (deuda ACEPTADA no bloqueante, rama `feat/event-landing`)
+
+> Hallazgos del equipo rojo/azul (pentester + seguridad) sobre la landing del Card Show, **aceptados como no
+> bloqueantes** para publicar, cada uno con su **disparador** (cuándo hay que abordarlo). El bloqueante recomendado
+> de esa misma fase —CS-RT-1, idempotencia del webhook de Resend por `svix-id`— **NO está aquí: ya se corrigió**
+> con prueba que muerde (ver `docs/BACKEND_NOTES.md §CARDSHOW`).
+
+### CS-RT-2 · baja · `gmail.com`/`googlemail.com` no comparten tope por buzón
+- **Qué es:** la canonicalización de buzón (`card-show/mailbox.util.ts:39-50`) no colapsa `googlemail.com` sobre
+  `gmail.com`, así que una misma víctima de Google alcanzable por ambos dominios tiene **dos** cubos de tope por
+  buzón ⇒ el techo de email-bombing por víctima sube de 2 a 4.
+- **Riesgo:** bajo (el throttle por IP C7 y el tope por buzón siguen acotando; el salto es 2→4, no ilimitado).
+- **Disparador:** si se observa abuso cross-dominio de Google, canonicalizar `googlemail.com` → `gmail.com` en la util.
+- **Dueño:** backend (card-show).
+
+### CS-RT-3 · baja · `/card-show/ir/:destino` y `POST /card-show/click` sin token ni throttle propio
+- **Qué es:** el contador de clics (`card-show.controller.ts:180-195`) no exige token ni tiene throttle propio, y
+  `GET /ir/:destino` no valida la longitud de `destino` (persistido en `CardShowClick`, `schema.prisma:3177`).
+- **Riesgo:** bajo (la redirección es a un ancla de la propia landing, ⛔ no open-redirect; el throttle global por IP
+  sigue aplicando). El único coste es almacenamiento de filas `CardShowClick` infladas.
+- **Disparador:** si crece el almacenamiento de `CardShowClick`, acotar la longitud de `destino` + throttle propio.
+- **Dueño:** backend (card-show).
+
+### CS-RT-4 · info · posible timing side-channel en `/card-show/leads` (NO MEDIDO)
+- **Qué es:** sospecha de canal lateral por latencia en `/leads`; **no medido**. La respuesta ya es neutra
+  byte-a-byte (mismo 202 `{ok:true}` para todo caso silencioso), de modo que el canal de contenido está cerrado.
+- **Riesgo:** informativo; sin medición que lo confirme.
+- **Disparador:** si se mide una diferencia de latencia explotable entre caso existente/inexistente.
+- **Dueño:** backend (card-show).
+
+### SEC-CS-A · baja · `POST /card-show/unsubscribe-oneclick` sin throttle propio
+- **Qué es:** el one-click de `List-Unsubscribe-Post` (`card-show.controller.ts:153-159`) no tiene throttle propio.
+- **Riesgo:** bajo: es **idempotente** y solo da de baja al propio titular del token (RFC 8058, sin efecto lateral
+  sobre terceros). El throttle global por IP sigue aplicando.
+- **Disparador:** si se observa abuso del endpoint.
+- **Dueño:** backend (card-show).

@@ -76,6 +76,8 @@ import { RefundsView } from './refunds/RefundsView';
 import { parseRefundsTab } from './refunds/tabs';
 // eslint-disable-next-line import/first
 import { SpendAlertsView } from './spend-alerts/SpendAlertsView';
+// eslint-disable-next-line import/first
+import { CardShowAdminView } from './card-show/CardShowAdminView';
 
 /**
  * Fusión release-s5: `m4/page.tsx` pasó a componente de SERVIDOR asíncrono (lee `?tab=`), que el render
@@ -94,6 +96,15 @@ function RefundsPage() {
 /** v4.20 (§43.19.8): `spend-alerts/page.tsx` también es de servidor asíncrono (lee los filtros); se mide sin ellos. */
 function SpendAlertsPage() {
   return <SpendAlertsView />;
+}
+
+/** §CARDSHOW.15: `card-show/page.tsx` es de servidor asíncrono (lee `?tab=`) y va tras `SuperAdminOnly`; se mide así. */
+function CardShowPage() {
+  return (
+    <SuperAdminOnly>
+      <CardShowAdminView />
+    </SuperAdminOnly>
+  );
 }
 
 /** v4.12 (§40.3 b): `m3/page.tsx` también es de servidor asíncrono (lee `?refundReview=`); se mide sin el parámetro. */
@@ -129,6 +140,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/vaults': VaultsPage,
   '/admin/refunds': RefundsPage,
   '/admin/spend-alerts': SpendAlertsPage,
+  '/admin/card-show': CardShowPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -184,6 +196,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Administración', '/admin/m9', 'Reportes', 'Reports', true],
     ['Administración', '/admin/m6', 'Usuarios', 'Users', true],
     ['Administración', '/admin/m10', 'Configuración', 'Settings', true],
+    // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración» (captura de leads/preinscritos, PII).
+    ['Administración', '/admin/card-show', 'Card Show', 'Card Show', true],
   ];
 
   it('el orden de las entradas es el de la tabla de §37.2b', () => {
@@ -214,8 +228,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     renderWithProviders(<AdminSidebar />, 'es');
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
-    // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17.
-    expect(hrefs).toHaveLength(17);
+    // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17. §CARDSHOW.15 añade «Card Show» ⇒ 18.
+    expect(hrefs).toHaveLength(18);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);

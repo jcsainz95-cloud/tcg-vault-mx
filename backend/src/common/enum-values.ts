@@ -22,6 +22,12 @@ import {
   AccessoryLineKind,
   AccessoryLineStatus,
   AccessoryStockMovementKind,
+  CardShowLeadType,
+  CardShowLeadStatus,
+  CardShowLeadSource,
+  CardShowDay,
+  CardShowSignupStatus,
+  CardShowGame,
 } from '@prisma/client';
 
 /**
@@ -172,3 +178,23 @@ export const ENERGY_TYPE_VALUES = Object.values(EnergyType);
 export const ACCESSORY_LINE_KIND_VALUES = Object.values(AccessoryLineKind);
 export const ACCESSORY_LINE_STATUS_VALUES = Object.values(AccessoryLineStatus);
 export const ACCESSORY_STOCK_MOVEMENT_KIND_VALUES = Object.values(AccessoryStockMovementKind);
+
+// v1.93⟨cardshow⟩ (M-78, API_CONTRACT §CARDSHOW.1): los CINCO enums de la landing del Card Show — clase **E**
+// (el dominio entero es la regla: `type`/`source` del DTO, `day` del torneo, y los filtros `?status=`/`?type=`/
+// `?day=` del panel). ⚠️ El DEFECTO del filtro `?status=` ⛔ nunca incluye `pending` (§CARDSHOW.15), pero su
+// DOMINIO válido sí es el enum completo (una fila de cualquier estado tiene que poder filtrarse a propósito).
+// Tres bandas en `test/enum-values-parity.spec.ts`.
+export const CARD_SHOW_LEAD_TYPE_VALUES = Object.values(CardShowLeadType);
+export const CARD_SHOW_LEAD_STATUS_VALUES = Object.values(CardShowLeadStatus);
+export const CARD_SHOW_LEAD_SOURCE_VALUES = Object.values(CardShowLeadSource);
+export const CARD_SHOW_DAY_VALUES = Object.values(CardShowDay);
+export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus);
+
+// ⭐ v1.96⟨cardshow-leads⟩ (M-84, API_CONTRACT §CARDSHOW.1/.12): el juego de una preinscripción / interés de un
+// visitante — clase **E** (el dominio entero es la regla: `game` del DTO del torneo, `gameInterest` del DTO del
+// lead y el filtro `?game=` del panel). Decidido al añadirlo (las tres preguntas): (1) el dominio entero ES la
+// regla; (2) sin lista de negocio propia (formal/ligera es una regla de SERVICIO, no un recorte de enum); (3) sin
+// calibración de precio (no toca dinero). ⭐ v1.97⟨cardshow-shardbugs⟩ (M-85, §CARDSHOW.1a-ter): 4.º juego
+// `shardbugs` (aditivo, LIGERA por la misma regla de servicio; sin lógica nueva). DERIVADO de Prisma, así que el
+// array recoge los CUATRO valores por construcción. Tres bandas en `test/enum-values-parity.spec.ts`.
+export const CARD_SHOW_GAME_VALUES = Object.values(CardShowGame);

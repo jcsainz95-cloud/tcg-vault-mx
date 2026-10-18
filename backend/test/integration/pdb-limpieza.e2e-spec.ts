@@ -44,6 +44,7 @@ import {
   revertM73,
   revertM74,
   revertM75,
+  revertM78,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -69,6 +70,8 @@ const EMPTIED = [
   'InventoryItem', 'InventoryMovement', 'InventoryAdjustment', 'InventoryBatch',
   // v2.2 (§14.13): M-73 y M-74
   'OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement', 'WishlistNotice',
+  // v1.93⟨cardshow⟩ (§14.14, G-8): telemetría de clics de la landing (sin PII) ⇒ se vacía.
+  'CardShowClick',
 ];
 /** Tablas que la limpieza toca EN PARTE (se comprueban por separado); todas las demás: contenido idéntico. */
 const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog', 'Accessory'];
@@ -77,6 +80,8 @@ const KEY_KEPT = [
   'User', 'Card', 'CardSet', 'SealedProduct', 'PriceReference', 'VaultLocation', 'ConfigSetting',
   // v2.2: `Accessory` se conserva (fila) pero se ajusta (existencias): está también en PARTIAL y se compara aparte.
   'Accessory', 'AccessoryPhoto', 'WishlistItem', 'WishlistMail',
+  // v1.93⟨cardshow⟩ (§14.14, G-8, P-CS): leads «Avísame» y preinscripciones = PII REAL con consentimiento (y menores) ⇒ CONSERVAR.
+  'CardShowLead', 'CardShowPlayerSignup',
 ];
 
 interface Env {
@@ -1056,6 +1061,9 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // v1.91⟨precios⟩: el B congelado de a7232d7a PRECEDE a §PRE (M-75/M-76) ⇒ no clasifica `PriceReviewCase`
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
+    // v1.93⟨cardshow⟩: el B congelado de a7232d7a PRECEDE a M-78 (Card Show) ⇒ su G-8 no clasifica `CardShow*` y
+    // abortaría al verlas. Ambos gemelos se revierten a esa era (M-78 fuera) para comparar como iguales.
+    revertM78(a.schema);
     // El aviso de sellado ENCENDIDO con una suscripción pendiente: el B de a7232d7a no tiene G-10, así que el nuevo
     // tampoco puede pararse aquí (sin M-74 no se evalúa; M-W10d).
     await setDial(a, 'sealed_restock_alerts', 'on');
@@ -1066,6 +1074,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     revertM75(twin);
     revertM74(twin);
     revertM73(twin);
+    revertM78(twin);
     const b: Env = { schema: twin, db: new PrismaClient({ datasources: { db: { url: schemaUrl(twin) } } }), fx: a.fx };
     live.push(b);
     await cloneSchema(admin, a.schema, twin);

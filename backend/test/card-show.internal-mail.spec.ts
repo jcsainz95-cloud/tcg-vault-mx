@@ -1,0 +1,141 @@
+import { ConfigService } from '@nestjs/config';
+import { CardShowMailService, MxResolver } from '../src/modules/card-show/card-show-mail.service';
+import { MailMessage, MailPort } from '../src/modules/mail/mail.port';
+import { DEFAULT_INTERNAL_TO, INTERNAL_NOTICE_CC } from '../src/modules/card-show/card-show.constants';
+
+/**
+ * §CARDSHOW.9 — correos INTERNOS (aviso al staff + resumen diario) y el CONTRASTE con C3.
+ *
+ * Dos invariantes que MUERDEN:
+ *  (1) la bienvenida C3-W SÍ lleva enlaces ricos, pero la confirmación C3 ⛔ NO (sigue estricta);
+ *  (2) el aviso interno lleva la copy del dueño, 0 `playerName` y 0 nombre de patrocinador.
+ */
+const noMail: MailPort = { send: async () => ({ id: 'x' }) };
+const alwaysMx: MxResolver = { hasMailExchange: async () => true };
+const config = {
+  get: (k: string) => (k === 'CARD_SHOW_MAIL_FROM' ? 'TCG HUNT <contacto@envio.tcghunt.mx>' : undefined),
+} as unknown as ConfigService;
+const svc = new CardShowMailService(noMail, alwaysMx, config);
+
+describe('CARDSHOW · la confirmación C3 sigue ESTRICTA aunque exista C3-W', () => {
+  it('C3 confirmación: 0 wa.me / mailto / utm_ / Drive / Maps / .ics', () => {
+    const r = svc.renderConfirmation({
+      to: 'pending@dominio.mx',
+      kind: 'lead',
+      confirmUrl: 'https://tcghunt.mx/card-show/confirm?token=abc',
+      notMeUrl: 'https://tcghunt.mx/card-show/unsubscribe?token=def',
+      unsubscribeOneClickUrl: 'https://tcghunt.mx/api/v1/card-show/unsubscribe-oneclick?token=ghi',
+      privacyUrl: 'https://tcghunt.mx/privacidad',
+    });
+    const blob = `${r.html}\n${r.text}`;
+    expect(blob).not.toMatch(/wa\.me/);
+    expect(blob).not.toMatch(/mailto:/);
+    expect(blob).not.toMatch(/utm_/);
+    expect(blob).not.toMatch(/drive\.google\.com/);
+    expect(blob).not.toMatch(/maps\/search/);
+    expect(blob).not.toMatch(/\.ics/);
+    // Solo enlaces del dominio propio.
+    const urls = [...r.html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every((u) => u.startsWith('https://tcghunt.mx/'))).toBe(true);
+  });
+});
+
+describe('CARDSHOW · aviso interno + resumen diario (internos, copy del dueño)', () => {
+  it('aviso interno (⭐IMP-3): muestra el NOMBRE y TELÉFONO reales del lead (M-84 los persiste), 0 playerName', () => {
+    const r = svc.renderInternalNotice({
+      type: 'merchant',
+      name: 'Tienda Pikachu', // ⭐M-84: nombre/MARCA real (antes se mandaba `null` ⇒ «—»)
+      phone: '5512345678', // ⭐M-84: teléfono real (obligatorio merchant/sponsor)
+      email: 'vendedor@dominio.mx',
+      utmSource: 'instagram',
+      utmMedium: 'social',
+      utmCampaign: 'cardshow-dic26',
+      createdAt: new Date('2026-10-16T18:30:00Z'),
+      adminLink: 'https://tcghunt.mx/es/admin/card-show?tab=leads',
+    });
+    // Con nombre, el asunto usa el nombre de contacto (no el correo).
+    expect(r.subject).toBe('[Card Show] Nuevo vendedor: Tienda Pikachu');
+    expect(r.text).toContain('Tipo: Vendedor');
+    expect(r.text).toContain('Correo: vendedor@dominio.mx');
+    expect(r.text).toContain('Fuente: instagram/social/cardshow-dic26');
+    // ⭐IMP-3 CANARIO: el nombre y el teléfono REALES viajan (ya no «Nombre: —»).
+    expect(r.text).toContain('Nombre: Tienda Pikachu');
+    expect(r.text).toContain('Teléfono: 5512345678');
+    expect(r.text).not.toContain('Nombre: —');
+    // ⭐IMP-2: enlace a la ruta REAL del panel (localizada, pestaña Leads); `/admin/card-show/leads` daba 404.
+    expect(r.text).toContain('Ver en el admin: https://tcghunt.mx/es/admin/card-show?tab=leads');
+    expect(r.text).not.toMatch(/\/admin\/card-show\/leads\b/); // ⛔ la ruta 404 vieja ya no aparece
+    expect(`${r.html}\n${r.text}`).not.toMatch(/Ash Ketchum/);
+  });
+
+  it('⭐M-89: CC del aviso interno = SOLO TCG HUNT (scarranza); Jakomi NO; to = jsainz@tcghunt.mx', async () => {
+    // Puerto que captura el MailMessage exacto que recibe el adaptador (el CC de primera clase vive AQUÍ,
+    // no en el render: si se quita `cc:` de sendInternalNotice, esta prueba MUERDE).
+    const sent: MailMessage[] = [];
+    const capture: MailPort = {
+      send: async (m) => {
+        sent.push(m);
+        return { id: 'x' };
+      },
+    };
+    const captSvc = new CardShowMailService(capture, alwaysMx, config);
+    const ok = await captSvc.sendInternalNotice({
+      type: 'merchant',
+      name: null,
+      email: 'vendedor@dominio.mx',
+      utmSource: null,
+      utmMedium: null,
+      utmCampaign: null,
+      createdAt: new Date('2026-10-16T18:30:00Z'),
+      adminLink: 'https://tcghunt.mx/admin/card-show/leads',
+    });
+    expect(ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    const msg = sent[0];
+    expect(msg.to).toBe(DEFAULT_INTERNAL_TO); // jsainz@tcghunt.mx
+    expect(msg.to).toBe('jsainz@tcghunt.mx');
+    // ⭐M-89 (cierra L2-SEG-01): CC de PRIMERA CLASE SOLO al buzón de TCG HUNT. Jakomi (tercero) FUERA.
+    expect(msg.cc).toEqual(INTERNAL_NOTICE_CC);
+    expect(msg.cc).toEqual(['scarranza@tcghunt.mx']);
+    // ⛔ El CC ya NO va por cabecera (el apaño se quitó): sin clave `Cc` en headers.
+    expect(msg.headers ?? {}).not.toHaveProperty('Cc');
+  });
+
+  it('correo SIN cc (confirmación C3): el MailMessage NO trae la clave cc (byte a byte)', async () => {
+    const sent: MailMessage[] = [];
+    const capture: MailPort = {
+      send: async (m) => {
+        sent.push(m);
+        return { id: 'x' };
+      },
+    };
+    const captSvc = new CardShowMailService(capture, alwaysMx, config);
+    await captSvc.sendConfirmation({
+      to: 'pending@dominio.mx',
+      kind: 'lead',
+      confirmUrl: 'https://tcghunt.mx/card-show/confirm?token=abc',
+      notMeUrl: 'https://tcghunt.mx/card-show/unsubscribe?token=def',
+      unsubscribeOneClickUrl: 'https://tcghunt.mx/api/v1/card-show/unsubscribe-oneclick?token=ghi',
+      privacyUrl: 'https://tcghunt.mx/privacidad',
+    });
+    expect(sent).toHaveLength(1);
+    // La confirmación no lleva CC: la clave NO viaja (igual que from?/headers? aditivos).
+    expect(sent[0]).not.toHaveProperty('cc');
+  });
+
+  it('resumen diario: asunto con n + lista nombre·correo·fuente', () => {
+    const r = svc.renderVisitorDailySummary({
+      date: new Date('2026-12-01T18:00:00Z'),
+      nuevos: [
+        { name: null, email: 'a@dominio.mx', utmSource: 'instagram' },
+        { name: null, email: 'b@gmail.com', utmSource: null },
+      ],
+      totalAcumulado: 42,
+    });
+    expect(r.subject).toMatch(/^\[Card Show\] Visitantes del \d{4}-\d{2}-\d{2}: 2 nuevos$/);
+    expect(r.text).toContain('Total acumulado de visitantes confirmados: 42');
+    expect(r.text).toContain('— · a@dominio.mx · instagram');
+    expect(r.text).toContain('— · b@gmail.com · —');
+  });
+});

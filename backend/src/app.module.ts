@@ -34,6 +34,8 @@ import { JobsModule } from './jobs/jobs.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
 // rev v1.96⟨mkt-tienda⟩ (API_CONTRACT §MKT.D/E): Panel de Marketing Fase 0 (agregados, exports, token lector).
 import { MarketingModule } from './modules/marketing/marketing.module';
+// v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW): landing del Card Show — captura pública, doble opt-in y anti-abuso.
+import { CardShowModule } from './modules/card-show/card-show.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
@@ -75,6 +77,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
     WishlistModule,
     MarketingModule,
+    CardShowModule,
   ],
   providers: [
     // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero

@@ -1606,6 +1606,21 @@
 > la errata **v1.80.11** (arriba) donde choque: `M-62`/`M-62a`/`M-62b` ⇒ `M-SDX-C`/`M-SDX-D`; «`ARCHITECTURE §4.58`» ⇒
 > §4.60; sandbox ⇒ producción sin gastar (`M-PRD`) y primera guía autorizada (`PG`).)*
 >
+> **Changelog v1.100⟨cardshow⟩ — M-89: (A) Jakomi (tercero) recibe SOLO tipo y conteo, nunca PII — el aviso interno CON
+> nombre/teléfono va solo a buzones TCG HUNT (`jsainz`/`scarranza`); `cardshow@jakomi.mx` sale del CC del aviso con PII y solo
+> puede ser destinatario del **resumen agregado** (0 PII) — cierra **L2-SEG-01**. (B) Consentimiento de la rifa SEPARADO: la
+> casilla de privacidad obligatoria no bundlea las bases; `raffleOptIn` es casilla **propia y DESMARCADA** (`default false`) con
+> enlace a bases; `raffleTermsVersion` solo si `raffleOptIn=true` (ya en el DTO). Reglas en §CARDSHOW.9 (A), §CARDSHOW.1b/.18 (B),
+> criterios en §CARDSHOW.§13 [M-89]; regla de negocio del precio del main de Pokémon = MX$200 anotada en §CARDSHOW.12 (content,
+> no contrato). Sin schema (`raffleOptIn`/`raffleTermsVersion` ya existen, M-84). Dueño JC 2026-10-17 (R5, `docs/specs/
+> CARDSHOW_LANDING_ESTADO.md`); «Acepto ese riesgo» (rifa). (2026-10-17, arquitecto; base v1.99⟨cardshow⟩).**
+>
+> **Changelog v1.99⟨cardshow⟩ — M-88: confirmar el correo «los dos días» confirma AMBAS filas (`sat`+`sun`) del grupo en una
+> acción (clave FORMAL `(mailboxHmac, pokemon, playerId)` / LIGERA `(mailboxHmac, game)`); cierra BLOQ-A (el domingo quedaba
+> `pending` colgado hasta caducar). Regla en §CARDSHOW.12 (⭐M-88) + criterio en §CARDSHOW.§13; desviación `D-CS-7`→backend
+> (`ARCHITECTURE §9`). Aditivo (`days[]` en la respuesta de `POST /card-show/confirm`), sin schema (2026-10-17, arquitecto;
+> base v1.98⟨cardshow⟩/v1.81.1).**
+>
 > **Changelog v1.81.1 — 🔒💰 ERRATA DE §M4-SHIP.19 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.81 (`SECURITY_NOTES`,
 > sección final sobre `62d0c46`, APROBADO con cinco MEDIAS que entran al contrato antes de construir la fase D —
 > SEC-SDX-1…5 — y ocho BAJAS decididas aquí — SEC-SDX-6…13) (2026-09-29, arquitecto; base v1.81, vigente entera salvo
@@ -7910,6 +7925,21 @@
   | `GET /admin/reports/wishlist-demand` (§WSH.8) | `dir` **(ORDEN, v1.88)** | `asc \| desc` — canónico en **§WSH.8**; default `desc` (punto 6) | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `sort` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `dir` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
+  | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93 M-78**) | `status` | `CardShowLeadStatus` **menos `pending`** = `new \| contacted \| closed \| discarded` — cláusula en **§CARDSHOW.15** («⛔ PENDING no aparece»). Subconjunto de un enum con cláusula citable; `pending` o fuera de dominio ⇒ `400 {field, allowed}`. ⛔ Ausente ⇒ default «no-pending» (no es «no filtra»: `confirmedAt IS NOT NULL`), NO silencio | **R** |
+  | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93**) | `type` | `CardShowLeadType` (`merchant \| sponsor \| visitor`) | **E** |
+  | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.93**) | `status` | `CardShowSignupStatus` **menos `pending`** = `confirmed \| waitlist \| cancelled \| checked_in` — misma cláusula **§CARDSHOW.15**; `pending`/fuera ⇒ `400 {field, allowed}` | **R** |
+  | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.93**) | `day` | `CardShowDay` (`sat \| sun`) | **E** |
+  | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.96 M-84**; **v1.97 M-85** `shardbugs`) | `game` | `CardShowGame` (`pokemon \| riftbound \| lorcana \| shardbugs`); fuera de dominio ⇒ `400 {field, allowed}` | **E** |
+  | `GET /admin/card-show/leads/export.csv` (§CARDSHOW.15, **v1.93**) | `status` · `type` | **el mismo dominio y conducta** que la ruta JSON de `/leads` (`status` **R** menos `pending`; `type` **E**) | **R** · **E** |
+  | `GET /admin/card-show/players/export.csv` (§CARDSHOW.15, **v1.93**/**v1.96 M-84** para `game`) | `status` · `day` · `game` | **el mismo dominio y conducta** que la ruta JSON de `/players` (`status` **R** menos `pending`; `day` **E**; `game` **E**) | **R** · **E** · **E** |
+  | `GET /card-show/form-token` (§CARDSHOW.5, **v1.93**) | `purpose` | `leads \| players` (`FORM_PURPOSES`, `card-show.constants.ts:142`; unión pura, ⛔ sin enum en `schema.prisma`) — canónico en **la línea del propio endpoint**. Default `leads` en **ausente/vacío**; ⛔ un valor **no vacío fuera de dominio** ⇒ `400 {field:'purpose', allowed}` (⛔ no clamp silencioso a `leads`) | **L** |
+
+  > **⚠️ Nota CARDSHOW-EQ (v1.93, regla 9).** Las filas `status`/`type`/`day` de arriba (**8 ejes** en 6 filas: `status`×4, `type`×2, `day`×2) y `purpose` son dominios **cerrados** (enum, subconjunto de enum, o unión literal) y por eso §0-Q las gobierna con la conducta normal: fuera de dominio ⇒ `400 {field, allowed}`. **El código de M-78 hoy IGNORA en silencio** el valor fuera de dominio (cae al default; `card-show.service.ts:625,630,639,644`) y `form-token` **clampa** `purpose` a `leads` (`card-show.controller.ts:54-56`) — es el defecto que §0-Q punto 1/6 prohíbe. **Backend lo corrige** (parseo que `400`) al transcribir estas filas al `REGISTRO` de `C-EQ-1`. Los ejes `from`/`to` (fechas) y `mesa`/`token` de M-78 **no** son de dominio cerrado: van a `NO_ENUM_POR_RUTA` (punto 7), no a este registro — claves exactas en `CEQ-CS-1` abajo.
+
+  > **⚠️ `CEQ-CS-1` (v1.93, M-78) — las claves EXACTAS que backend transcribe a `C-EQ-1` (`test/helpers/query-axis-cross.ts`).** Medidas sobre los dos controllers de `card-show` (19 ejes huérfanos; `page`/`pageSize`/`q` ya exentos por `NO_ENUM_TRANSVERSAL`):
+  > - **Al `REGISTRO` (9 ejes, dominio cerrado, `400` fuera de dominio; nacen `transcrita` porque sus filas de §0-Q punto 4 YA existen arriba ⇒ ⛔ NO suben el conteo de pendientes `PENDIENTE-ARQUITECTO`):** `GET /admin/card-show/leads::status` (R), `GET /admin/card-show/leads::type` (E), `GET /admin/card-show/players::status` (R), `GET /admin/card-show/players::day` (E), `GET /admin/card-show/leads/export.csv::status` (R), `GET /admin/card-show/leads/export.csv::type` (E), `GET /admin/card-show/players/export.csv::status` (R), `GET /admin/card-show/players/export.csv::day` (E), `GET /card-show/form-token::purpose` (L). ⇒ `REGISTRO.length` **+9**; el literal del TRINQUETE sube 9 (pendientes **sin cambio**).
+  > - **A `NO_ENUM_POR_RUTA` (10 ejes, `toEqual` + tope; ⛔ no al `REGISTRO`):** `GET /admin/card-show/leads::from`, `GET /admin/card-show/leads::to`, `GET /admin/card-show/players::from`, `GET /admin/card-show/players::to`, `GET /admin/card-show/leads/export.csv::from`, `GET /admin/card-show/leads/export.csv::to`, `GET /admin/card-show/players/export.csv::from`, `GET /admin/card-show/players/export.csv::to`, `GET /card-show/ir/:destino::mesa`, `POST /card-show/unsubscribe-oneclick::token`. ⇒ subir el tope de `NO_ENUM_POR_RUTA` **+10**.
+  > - ⛔ `NO_ENUM_TRANSVERSAL` **no se toca** (las exenciones de M-78 son de ruta, no de nombre).
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -8708,6 +8738,12 @@ SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_bl
 SpendAlertSeverity  = immediate | digest  // v1.80.12.9 (M-68, §19.29.2): 🔴 inmediato / 🟡 resumen (Z.2). Clase E (espeja `schema.prisma:1802-1805`). Filtro `?severity=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SpendAlertMailStatus = not_applicable | pending | sending | sent | batched | batch_sent | failed | failed_unknown | no_recipient  // v1.80.12.9 (M-68, §19.29.5): estado del correo de un aviso (outbox). Clase E (espeja `schema.prisma:1808-1818`). Solo DTO (`SpendAlertDTO.mail.status`) ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 WishlistNoticeStatus = pending | sent | suppressed | skipped  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): estado de un aviso «ya la tenemos» por (cuenta, pieza). `pending` = detectado, sin enviar; `sent` = salió en un `WishlistMail`; `suppressed` = la pieza ya estaba a la venta cuando se agregó el deseo (criterio 812); `skipped` = no se envía (motivo en `skipReason`). Clase E (espeja `schema.prisma` tras M-74). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ Hasta que M-74 se construya, la banda 3 no tiene enum contra el que comparar (precedente `PaymentRefundKind` / M-70).
+CardShowLeadType    = merchant | sponsor | visitor  // v1.93⟨cardshow⟩ (M-78, §CARDSHOW.1): tipo de interés de un `CardShowLead` (asistir/vender/patrocinar; uno o varios chips ⇒ una fila por tipo). Clase E (espeja `schema.prisma` tras M-78). Dominio del campo `type` del cuerpo de POST /card-show/leads y parte de la unicidad `@@unique([email, type])`. ⚠️ Hasta que M-78 se construya, la banda 3 no tiene enum contra el que comparar (precedente `PaymentRefundKind`/M-70). ⛔ Valores en minúscula (convención del schema, §4.CARDSHOW): `type=ADMIN`/`MERCHANT` ⇒ `400 VALIDATION_ERROR`.
+CardShowLeadStatus  = pending | new | contacted | closed | discarded  // v1.93⟨cardshow⟩ (M-78, §CARDSHOW.1): ciclo operativo de un lead en el panel. `pending` = aún no confirmó el doble opt-in (⛔ no cuenta, no se exporta, no recibe avisos — §CARDSHOW.6). Al confirmar (POST del link) ⇒ `new`. Clase E (espeja `schema.prisma` tras M-78). Filtro `?status=` de `GET /admin/card-show/leads` (§CARDSHOW.15) ⇒ tres bandas cuando `src/` lo valide; defecto del filtro ⛔ nunca incluye `pending`.
+CardShowLeadSource  = cta_hero | cta_mesas | cta_patrocinio | header  // v1.93⟨cardshow⟩ (M-78, §CARDSHOW.1): desde qué CTA de la landing nació el lead. Clase E (espeja `schema.prisma` tras M-78). Solo DTO/interno ⇒ banda 3 universal.
+CardShowDay         = sat | sun  // v1.93⟨cardshow⟩ (M-78, §CARDSHOW.1/.12): día del torneo de un `CardShowPlayerSignup`. «los dos» = DOS filas (una por día, §CARDSHOW.12). Clase E (espeja `schema.prisma` tras M-78). Dominio del campo `day` del cuerpo de POST /card-show/players y parte del índice único parcial `(playerId, day)` (L0-SEG-02).
+CardShowSignupStatus = pending | confirmed | waitlist | cancelled | checked_in  // v1.93⟨cardshow⟩ (M-78, §CARDSHOW.1/.12): ciclo de una preinscripción. El cupo se asigna AL CONFIRMAR, por orden (L0-SEG-02); el índice único parcial `(playerId, day)` cubre SOLO `confirmed|waitlist|checked_in` **y SOLO `game='pokemon'`** (rev v1.96⟨cardshow-leads⟩, M-84). Clase E (espeja `schema.prisma` tras M-78/M-84). Filtro `?status=` de `GET /admin/card-show/players` (§CARDSHOW.15) ⇒ tres bandas cuando `src/` lo valide.
+CardShowGame        = pokemon | riftbound | lorcana | shardbugs  // rev v1.97⟨cardshow-shardbugs⟩ (M-85; base M-84, §CARDSHOW.1/.12/.1a-ter): juego de una preinscripción (`CardShowPlayerSignup.game`) y del interés de un visitante (`CardShowLead.gameInterest`). **Pokémon = torneo FORMAL (playerId obligatorio); los demás (riftbound/lorcana/shardbugs) = LIGERA (sin playerId)** — la regla «pokemon=formal / resto=ligera» cubre `shardbugs` sin lógica nueva. **`shardbugs` = cuarto juego, confirmado por el dueño JC 2026-10-17** (TCG real de Shard Bugs LLC, Origins Award 2026); valor de enum en minúscula `shardbugs`, nombre visible «Shard Bugs» (lo pone el frontend). ⛔ Sigue sin placeholder `tbd`/`other`. Clase E (espeja `schema.prisma` tras M-84/M-85; array `CARD_SHOW_GAME_VALUES` en `common/enum-values.ts`). Valores en minúscula: `game=POKEMON`/`game=SHARDBUGS` ⇒ `400 VALIDATION_ERROR`. Paridad a tres bandas en `test/enum-values-parity.spec.ts` (candado del proyecto). ⚠️ Hasta que M-84/M-85 se construyan, la banda 3 no tiene enum contra el que comparar (precedente `PaymentRefundKind`/M-70).
 SellRequestStatus   = cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada
                     | rechazada | abandonada | expirada
                     // ⚠️ v1.51 (M-46, PROJECT §P.1 / criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
@@ -40958,8 +40994,15 @@ MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylis
    SDX-I-8), nunca lo quita en silencio.
 2. `spend-alert.mail.ts`: las **tres** llamadas a `mailShell` (`:141`, `:183`, `:242`) pasan `audience: 'staff'`.
    Nada más cambia en ese fichero (ni URLs, ni texto plano).
-3. ⛔ Ningún otro fichero de `src/` pasa `audience: 'staff'`. Ampliar la lista exige errata del arquitecto con la consulta de
-   destinatarios citada.
+3. ⛔ Ningún otro fichero de `src/` pasa `audience: 'staff'` **salvo los admitidos por errata del arquitecto con su consulta
+   de destinatarios citada**. Admitidos a la fecha:
+   - `modules/spend-alerts/spend-alert.mail.ts` — **3** apariciones (AVG-1/2/3).
+   - ⭐ **ERRATA v1.93.1 (regla 9, stream `feat/event-landing`): `modules/card-show/card-show-internal.templates.ts` — 2
+     apariciones** (`:85` aviso interno al staff en la confirmación de un `merchant`/`sponsor`; `:119` resumen diario de
+     visitantes). **Destinatarios citados:** buzones del **propio equipo** (`CARD_SHOW_ALERT_EMAIL` y destinatarios internos),
+     ⛔ nunca público — son los **correos INTERNOS** que §CARDSHOW.9 declara **exentos de la restricción C3** (no son correos a
+     clientes, por eso no llevan el pie de privacidad). Es el mismo caso que los AVG de gasto: correo solo-staff ⇒ `audience:
+     'staff'` legítimo.
 4. `privacyNoticeHtml`, `privacyNoticeUrl`, los pies a mano (`mail.templates.ts:43`, `guest-order.templates.ts:46`,
    `sealed-restock-notify.service.ts:121`): **sin cambio**.
 
@@ -40970,7 +41013,7 @@ MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylis
 | `integration/sdx-d2g-mail.e2e-spec.ts:227-234` (canarios por tipo de aviso) | **Ninguno.** Pasa a verde por E5-2 |
 | `mail.privacy-footer.spec.ts` PRIV-0…PRIV-4 | **Sin cambio de aserciones.** Solo la cabecera (`:17-29`) dice «todos los correos **a clientes**; los solo-staff, PRIV-5/6 (v1.84.5)» |
 | `mail.privacy-footer.spec.ts` **PRIV-5 (nueva)** | Renderiza los tres constructores de `spend-alert.mail.ts` (un AVG-1 de 🔴 de guías, un AVG-2, un AVG-3) con origen configurado **y** sin origen: el `html` y el `text` **no** contienen `privacidad` ni la etiqueta («Aviso de privacidad» / «Privacy notice»); CONTROL: el mismo `html` **sí** contiene el pie en tinta (`footerDescriptor(l)`), para que «no hay pie» no pase por «no hay nada» |
-| `mail.privacy-footer.spec.ts` **PRIV-6 (nueva)** | Barrido de `src/` (sin comentarios, con `stripComments`): los ficheros con `audience:\s*['"]staff['"]` son **exactamente** `[modules/spend-alerts/spend-alert.mail.ts]`, y en él hay **exactamente 3** apariciones (CONTROL: el barrido ve algo) |
+| `mail.privacy-footer.spec.ts` **PRIV-6** (⭐ v1.93.1: se AMPLÍA la aserción por errata del arquitecto E5-2 (3)) | Barrido de `src/` (sin comentarios, con `stripComments`): los ficheros con `audience:\s*['"]staff['"]` son **exactamente** `{ [modules/spend-alerts/spend-alert.mail.ts]: 3, [modules/card-show/card-show-internal.templates.ts]: 2 }` (CONTROL: el barrido ve algo). ⛔ Cualquier **tercer** fichero sigue siendo rojo hasta una errata nueva |
 
 #### E5-4 · Mutaciones que tienen que seguir mordiendo (deterministas: N=1 por mutación, dicho como tal)
 | # | Mutación (en una copia del árbol **entero**, O-9) | Rojas esperadas |
@@ -45344,3 +45387,617 @@ SitemapResponse = {
 Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
 publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
 puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna.
+
+## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
+
+> ⭐⭐ **PIVOTE A CAPTURA DE LEADS — decisión del dueño (JC) 2026-10-17, ratificada por el arquitecto (regla 9).** La landing
+> deja de ser «anuncio con datos» y pasa a ser **página de CAPTURA que NO expone el modelo de negocio**. Fuente: decisiones
+> verbatim en `docs/specs/CARDSHOW_LANDING_ESTADO.md §ESTADO VIGENTE 2026-10-17`. Qué cambia en ESTE contrato (todo
+> **aditivo**, migración nueva **M-84**, versión **v1.96⟨cardshow-leads⟩**):
+> - `CardShowLead`: **+`name`** (nombre o marca, todos los tipos), **+`phone`** (merchant/sponsor), **+`gameInterest`**
+>   (visitor, enum `CardShowGame`), **+`raffleOptIn`/`raffleTermsVersion`** (visitor, rifa informal), **+`sellsWhat`**
+>   (merchant/sponsor). Se **deja de usar** `mesaInteres` (@deprecated; drop diferido — §CARDSHOW.1).
+> - **Enum `CardShowGame`** (`pokemon | riftbound | lorcana | shardbugs`; `shardbugs` confirmado JC 2026-10-17, aditivo M-85 — §CARDSHOW.1a-ter). Paridad a tres bandas (§Enums, clase E).
+> - `CardShowPlayerSignup`: **+`game`**. **Pokémon = FORMAL** (playerId obligatorio, cupo e índice único parcial siguen);
+>   **demás juegos = LIGERA** (playerId prohibido; sin cupo/waitlist).
+> - CSV/JSON del panel: **+columnas nuevas**; **+correo-resumen periódico** (job, `ARCHITECTURE §4.CARDSHOW.p`).
+> - ⛔ **No toca** el anti-abuso (throttle/token/honeypot/doble opt-in/presupuesto/tope/corte), ni Stripe, ni dinero, ni cuentas.
+> **Versión reservada:** v1.96⟨cardshow-leads⟩; migración **M-84** (M-78 ya reservó v1.93⟨cardshow⟩; P&L reservó
+> M-79/M-80/M-82/M-83). ⛔ No toca la línea «Versión de API» de la cabecera.
+
+> ⛔ **Este contrato es público y fija ESTRUCTURA**: campos, endpoints, forma de respuesta y criterios. ⛔ Ningún valor
+> real del evento aparece **aquí** (el contrato fija estructura, no datos) — pero eso es por higiene del contrato, **ya no
+> por secreto**.
+> **⭐ ENMIENDA v1.93.1 — decisión del dueño 2026-10-16 (`feat/event-landing`), ratificada por el arquitecto (regla 9):
+> los valores del evento (fecha, sede, precios con IVA, medidas de mesa) son PÚBLICOS y viven YA EN EL REPO** en el archivo
+> de datos del frontend (`frontend/src/content/card-show.ts`); **dejan de ser «secreto hasta el anuncio» y dejan de
+> esperar un commit único**. **El ÚNICO secreto que queda son los NOMBRES de patrocinador** (D4): ⛔ ni nombre, ni logo,
+> ni «presentado con», ni OG/JSON-LD, ni correos, ni data file, ni commits; el grep de CI (devops) vigila **solo** ya los
+> términos de patrocinador. El único marcador que puede quedar en el data file es `PATROCINADOR_TBD` (`FECHA_TBD`/
+> `SEDE_TBD`/`PRECIO_TBD` **dejan de aplicar**: esos valores se publican). El plano SVG sigue **sin cotas** (§CARDSHOW.17).
+> Porqué y decisiones: **`ARCHITECTURE §4.CARDSHOW`**.
+> **Versión reservada:** v1.93⟨cardshow⟩; migración **M-78**. ⛔ No toca la línea «Versión de API» de la cabecera. ⛔ No
+> choca con §MKT (M-77 / v1.92⟨mkt⟩, `claude/traspaso-s9`, sin fusionar). **No toca Stripe, no mueve dinero, no crea cuentas.**
+
+### CARDSHOW.0 Alcance y norma de secreto
+- **⭐ Norma de secreto (v1.93.1, dueño 2026-10-16):** los valores del evento (fecha, sede, precios con IVA, medidas de
+  mesa) son **PÚBLICOS** y viven **en el repo** (archivo de datos del frontend `frontend/src/content/card-show.ts`); ⛔ ya
+  **no** son «secreto hasta el anuncio» ni esperan un commit único. **Lo ÚNICO secreto son los NOMBRES de patrocinador**
+  (D4), que no aparecen en ninguna parte (ni data file, ni OG/JSON-LD, ni correos, ni commits); el grep de CI solo vigila
+  esos términos. El contrato sigue fijando **estructura**, no valores (higiene, no secreto).
+- Dos formularios públicos sin cuenta: **«Avísame»** (lead) y **preinscripción al torneo**. Ambos con doble opt-in.
+- **Reusa lo que ya hay:** `@nestjs/throttler`, `AuditLog` (`schema.prisma:2534`), el `resend` adapter
+  (`backend/src/modules/mail/resend-mail.adapter.ts`), `StrictBodyPipe`, `@Public`, helmet/CORS/`ValidationPipe`,
+  `trust proxy`, Redis 7 + BullMQ (ya en prod), `PiiCryptoService.blindIndex` (`common/crypto`).
+- El riesgo que manda el diseño es la **reputación de envío** (Resend es el mismo equipo que la tienda, decisión del dueño),
+  no el dinero. Por eso el anti-abuso (§CARDSHOW.4–§CARDSHOW.11) es el crux.
+
+### CARDSHOW.1 Modelo de datos (M-78 — aditivo y seguro; zona compartida `schema.prisma`)
+
+**`CardShowLead`** — captura de «Avísame» (**M-84 añade `name`/`phone`/`gameInterest`/`raffleOptIn`/`raffleTermsVersion`/
+`sellsWhat`; `mesaInteres` queda @deprecated**).
+```
+model CardShowLead {
+  id                 String             @id @default(uuid())
+  type               CardShowLeadType                       // merchant | sponsor | visitor (un chip ⇒ una fila)
+  name               String                                 // ⭐M-84 nombre o MARCA (TODOS los tipos, obligatorio). Lista blanca §CARDSHOW.1b
+  phone              String?                                // ⭐M-84 teléfono MX. OBLIGATORIO merchant/sponsor; ⛔ PROHIBIDO visitor (400 si viene)
+  email              String                                 // normalizado lowercase/trim (para unicidad y envío)
+  mailboxHmac        String                                 // clave de BUZÓN (§CARDSHOW.8): quita +etiqueta y puntos de Gmail, HMAC
+  gameInterest       CardShowGame?                          // ⭐M-84 juego de interés. SOLO visitor (opcional); ⛔ PROHIBIDO merchant/sponsor (400)
+  raffleOptIn        Boolean            @default(false)      // ⭐M-84 participa en la rifa. SOLO visitor; ⛔ PROHIBIDO merchant/sponsor (400)
+  raffleTermsVersion String?                                // ⭐M-84 versión de BASES de la rifa aceptada. NOT NULL ⇔ raffleOptIn=true (si no, 400)
+  sellsWhat          String?                                // ⭐M-84 «¿qué vendes / qué marca?». OPCIONAL merchant/sponsor; ⛔ PROHIBIDO visitor (400). Texto corto NO_ANGLE
+  consentAt          DateTime                               // casilla de privacidad marcada (consent === true)
+  privacyVersion     String                                 // versión del aviso vigente al consentir
+  confirmedAt        DateTime?                              // doble opt-in: NULL = PENDING
+  confirmationHeldAt DateTime?                              // el presupuesto (C1) cortó el ENVÍO; fila existe, correo retenido
+  unsubscribedAt     DateTime?                              // baja (List-Unsubscribe-Post o «Cancelar»)
+  suppressedUntil    DateTime?                              // «No fui yo»: buzón suprimido hasta fin de campaña (CARD_SHOW_SUPPRESS_UNTIL)
+  utmSource          String?
+  utmMedium          String?
+  utmCampaign        String?
+  utmContent         String?
+  referrerHost       String?                                // solo el host, ⛔ sin query ni ruta
+  mesaInteres        Int?                                   // ⛔@deprecated (M-84): modelo viejo de mesas/plano. NO se escribe ni se lee ni se exporta. Drop diferido (§CARDSHOW.1a)
+  source             CardShowLeadSource                     // cta_hero | cta_mesas | cta_patrocinio | header
+  status             CardShowLeadStatus @default(pending)   // pending | new | contacted | closed | discarded
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([email, type])                                   // un correo puede ser lead de >1 tipo (fila por tipo)
+  @@index([mailboxHmac])
+  @@index([status])
+  @@index([confirmationHeldAt])
+  @@index([suppressedUntil])
+}
+```
+⛔ **Sin IP ni user-agent.** El `referrerHost` guarda solo el host (nunca la URL completa).
+
+**§CARDSHOW.1a — Migración M-84 (aditiva y segura; zona compartida `schema.prisma`).** Añade a `CardShowLead` las columnas
+`name` (NOT NULL — ver nota de backfill), `phone`/`gameInterest`/`raffleTermsVersion`/`sellsWhat` (**NULLABLE, sin default**) y
+`raffleOptIn` (NOT NULL `@default(false)` ⇒ seguro sobre filas existentes); añade `game` a `CardShowPlayerSignup` (ver
+§CARDSHOW.1); crea el enum `CardShowGame`; y **recrea** el índice único parcial del torneo (§CARDSHOW.12). ⛔ No toca ninguna
+otra tabla, ni dinero, ni inventario. **`name` NOT NULL sobre tabla con posibles filas productivas:** se añade con `DEFAULT ''`
+**transitorio** en la misma migración, el backfill escribe `''` en las filas existentes y acto seguido se **retira el default**
+(`ALTER COLUMN name DROP DEFAULT`) para que toda fila nueva lo exija desde la aplicación — patrón de §11 (⛔ nunca `ADD COLUMN
+NOT NULL` sin default sobre datos productivos). **`mesaInteres` NO se dropea en M-84** (ver §CARDSHOW.1a-bis). Reversa: apagar
+código, `DROP` de columnas nuevas + `DROP TYPE CardShowGame` + restaurar el índice parcial previo. Carpeta y fecha: las fija
+backend (`prisma/migrations/<fecha>_m84_card_show_leads/`, posterior a la última en el árbol base — backend lo mide con `Glob`
+antes de numerar; **NO MEDIDO** aquí cuál es la última).
+
+**§CARDSHOW.1a-bis — Baja segura de `mesaInteres` (@deprecated → drop diferido).** La columna `mesaInteres` **permanece en la
+BD** tras M-84, pero **sale del DTO, del servicio, del CSV y del panel** (nadie la escribe ni la lee). Se marca `@deprecated` en
+`schema.prisma`. Motivo de no dropear ya: **NO MEDIDO** si M-78 corre en producción con filas reales que la pobla(ro)n; dropear
+una columna con dato real es destructivo e irreversible. El **drop** se hace en una migración posterior, **atado a la misma
+pregunta de política que §4.CARDSHOW.o** (¿los registros de card-show hasta la limpieza son todos de prueba?): resuelta esa
+pregunta por JC, backend dropea la columna. `CardShowClick.mesa`/`ClickDto.mesa` quedan igualmente **sin uso** (telemetría del
+plano retirado); no se tocan en M-84 (sin PII, sin coste) y se dropean en el mismo pase diferido.
+
+**§CARDSHOW.1a-ter — Migración M-85 (aditiva: 4.º juego `shardbugs`; zona compartida `schema.prisma` / enum `CardShowGame`).**
+Añade el valor `shardbugs` al enum `CardShowGame` (4.º juego, confirmado por el dueño JC 2026-10-17; Shard Bugs LLC, Origins
+Award 2026). Es **puramente aditivo**: no toca filas, no toca otras tablas, no cambia lógica — la regla «pokemon=FORMAL / resto=
+LIGERA» de §CARDSHOW.12 absorbe `shardbugs` como LIGERA (sin `playerId`, sin cupo/waitlist) **sin código nuevo**. ⚠️ **Nota de
+técnica para backend:** en Postgres se añade con `ALTER TYPE "CardShowGame" ADD VALUE 'shardbugs'`, y `ADD VALUE` **no corre
+dentro de una transacción** en `prisma migrate` (falla con *«ALTER TYPE … ADD cannot run inside a transaction block»*) — backend
+usa la técnica correcta (migración que no envuelve el statement en `BEGIN`/`COMMIT`). Mantener la **paridad a tres bandas**:
+`schema.prisma` (`enum CardShowGame`), `CARD_SHOW_GAME_VALUES` en `common/enum-values.ts` y §Enums deben listar los **cuatro**
+valores (candado `test/enum-values-parity.spec.ts`). Carpeta y fecha: las fija backend
+(`prisma/migrations/<fecha>_m85_card_show_shardbugs/`, posterior a M-84 `20261104120000` — backend lo confirma con `Glob` antes
+de numerar; **NO MEDIDO** aquí la fecha exacta del prefijo, **DECIDIDO** el número **M-85** como siguiente libre tras M-84).
+Reversa: `ADD VALUE` no se quita con un `DROP` simple; la reversa documentada es **dejar de emitir/aceptar `shardbugs` desde la
+aplicación** (si nunca se usó no hay filas que migrar). ⛔ No toca dinero, inventario ni cuentas.
+
+**§CARDSHOW.1b — Validación condicional por tipo de los campos de `CardShowLead` (M-84).** El cuerpo de `POST /card-show/leads`
+es un **DTO único** validado con `StrictBodyPipe`; las reglas **condicionales por `type`** las aplica el servicio y violarlas ⇒
+`400 VALIDATION_ERROR {field}` (⛔ no silencioso — es error de forma, §CARDSHOW.11.v):
+
+| Campo | merchant | sponsor | visitor | Forma |
+|---|---|---|---|---|
+| `name` | **obligatorio** | **obligatorio** | **obligatorio** | 1..80, lista blanca `NAME_WHITELIST` (letras unicode, marcas, **dígitos**, espacio, `. , ' & / -`); ⛔ sin `<`,`>`,`@`,`http`. Acepta marca; ⛔ más laxa que `playerName` a propósito (una marca lleva dígitos/&) |
+| `phone` | **obligatorio** | **obligatorio** | ⛔ prohibido (400) | MX: 10 dígitos tras normalizar; acepta `+52`/`52` opcional y separadores ` -()`. Se persiste **solo dígitos** (E.164 sin `+`, p. ej. `5215512345678`→`5512345678`). ≤ 20 chars de entrada |
+| `gameInterest` | ⛔ prohibido (400) | ⛔ prohibido (400) | **opcional** | `CardShowGame` (minúscula; fuera de dominio ⇒ 400) |
+| `raffleOptIn` | ⛔ prohibido (400) | ⛔ prohibido (400) | opcional, default `false` | boolean. ⭐M-89: casilla **propia y DESMARCADA por defecto** en la UI (frontend), **separada** de la casilla de privacidad obligatoria y con **enlace a las bases**; el valor persistido es el que envía el cliente (ausente ⇒ `false`) |
+| `raffleTermsVersion` | — | — | obligatorio **⇔** `raffleOptIn=true` | string ≤ 32; `raffleOptIn=true` sin él ⇒ 400; presente con `raffleOptIn=false/ausente` ⇒ 400. ⭐M-89: regla **confirmada** — solo se exige cuando el visitante marca la rifa |
+| `sellsWhat` | opcional | opcional | ⛔ prohibido (400) | ≤ 140, `NO_ANGLE` (⛔ sin `<`,`>`) |
+
+⛔ **Un campo «prohibido» que llega ⇒ `400 {field}`**, 0 filas, 0 envíos (⛔ no se ignora en silencio: igual que el resto de
+§CARDSHOW.11.v, un dato fuera de su tipo es error del cliente, no caso silencioso). `name`/`phone`/`sellsWhat` son **PII**: ⛔
+nunca viajan en el correo de confirmación C3 (§CARDSHOW.9), ⛔ nunca en logs; viven en el panel super_admin y el CSV (§CARDSHOW.15).
+
+**`CardShowPlayerSignup`** — preinscripción al torneo (**M-84 añade `game`; `playerId` pasa a NULLABLE**).
+```
+model CardShowPlayerSignup {
+  id                 String               @id @default(uuid())
+  game               CardShowGame                           // ⭐M-84 pokemon | riftbound | lorcana (+shardbugs M-85). pokemon=FORMAL, resto=LIGERA
+  day                CardShowDay                            // sat | sun («los dos» = DOS filas)
+  playerName         String                                 // lista blanca de caracteres (§CARDSHOW.12); ⛔ NUNCA en el correo
+  playerId           String?                                // ⭐M-84 SOLO dígitos. NOT NULL ⇔ game='pokemon'; ⛔ game≠pokemon ⇒ NULL (400 si viene)
+  email              String                                 // normalizado lowercase/trim
+  mailboxHmac        String
+  isMinor            Boolean
+  guardianConsentAt  DateTime?                              // obligatorio ⇔ isMinor === true
+  consentAt          DateTime
+  privacyVersion     String
+  confirmedAt        DateTime?
+  status             CardShowSignupStatus @default(pending) // pending | confirmed | waitlist | cancelled | checked_in
+  utmSource          String?
+  utmMedium          String?
+  utmCampaign        String?
+  utmContent         String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([mailboxHmac, day])
+  @@index([mailboxHmac, game, day])                         // ⭐M-84 dedupe LIGERA (§CARDSHOW.12)
+  @@index([status])
+}
+```
+**L0-SEG-02 — índice único PARCIAL (va en `migration.sql`, no expresable en el DSL de Prisma). ⭐M-84 lo RECREA acotándolo a
+Pokémon** (las filas LIGERA no tienen `playerId` ⇒ no deben entrar a la unicidad por `playerId`):
+```
+-- M-84: reemplaza el índice de M-78. Cubo del cupo FORMAL (Pokémon) solamente.
+DROP INDEX IF EXISTS card_show_signup_player_day_active;
+CREATE UNIQUE INDEX card_show_signup_player_day_active
+  ON "CardShowPlayerSignup" ("playerId", "day")
+  WHERE status IN ('confirmed','waitlist','checked_in')
+    AND game = 'pokemon' AND "playerId" IS NOT NULL;
+```
+⇒ varias filas `pending`/`cancelled` del mismo `(playerId, day)` coexisten; **solo una** llega a activa. Una alta nueva es
+`INSERT` (⛔ nunca `upsert` sobre una fila activa de otro). Cupo **al confirmar, por orden** — **SOLO Pokémon** (§CARDSHOW.12).
+Las filas LIGERA (`game≠pokemon`, `playerId=NULL`) **no entran** a este índice y **no tienen cupo/waitlist** (§CARDSHOW.12).
+
+**`CardShowClick`** — contador de primera parte (§CARDSHOW.13).
+```
+model CardShowClick {
+  id         String   @id @default(uuid())
+  ts         DateTime @default(now())
+  destino    String                                        // a dónde iba el clic (ancla/CTA/mapa)
+  mesa       Int?                                          // si el clic es de una mesa concreta
+  utmSource  String?
+  utmContent String?
+  // ⛔ sin cookie, sin IP, sin user-agent
+  @@index([ts])
+  @@index([destino])
+}
+```
+
+**Enums (paridad de enums, líneas canónicas en §Enums):** `CardShowLeadType`, `CardShowLeadStatus`, `CardShowLeadSource`,
+`CardShowDay`, `CardShowSignupStatus` (M-78) **+ `CardShowGame` (M-84)**. Valores en **minúscula** (convención del schema).
+Clase **E** (espejan el schema); paridad a tres bandas (`schema.prisma` ↔ `common/enum-values.ts` ↔ este §Enums) — **candado
+`test/enum-values-parity.spec.ts` del proyecto**: `CardShowGame` añade un array `CARD_SHOW_GAME_VALUES` y una fila a las tres
+bandas (los de filtro `?status=`/`?game=` entran a `enum-values.ts`).
+
+### CARDSHOW.2 Ruta y endpoints
+- **`/card-show` canónica, FUERA del i18n** (decisión del dueño; mecanismo en `ARCHITECTURE §4.CARDSHOW.a`). Página fuera de
+  `app/[locale]/`; el middleware aplica la CSP con nonce pero ⛔ no redirige a `/es`. Criterios: `200` directo (sin 307, sin
+  `Set-Cookie: NEXT_LOCALE`, query intacta), `<link rel="canonical" href="https://tcghunt.mx/card-show">`, `lang="es-MX"`.
+- **Endpoints bajo `/api/v1/card-show/*`** (el matcher ya excluye `api` ⇒ sin `/es`):
+  | Método · Ruta | Rol | Qué hace |
+  |---|---|---|
+  | `GET  /card-show/form-token` | `@Public` | Emite token de formulario firmado (§CARDSHOW.5). `Cache-Control: no-store`, ⛔ sin `Set-Cookie`, ⛔ sin reflejar Origin ajeno. Cupo por IP: **el que fija §CARDSHOW.5** (único lugar del hecho). |
+  | `POST /card-show/leads` | `@Public` | Alta «Avísame» (§CARDSHOW.3/.4/.5). Respuesta **neutra**. |
+  | `POST /card-show/players` | `@Public` | Alta preinscripción (§CARDSHOW.3/.4/.5/.12). Respuesta **neutra**. |
+  | ~~`GET /card-show/confirm·cancel·unsubscribe`~~ **(RETIRADO — Diseño A)** | — | La **página con botón (C4)** la sirve el **FRONTEND** en `https://tcghunt.mx/card-show/{confirm\|cancel\|unsubscribe}?token=…` (fuera del i18n, igual que la landing; §CARDSHOW.6 y `ARCHITECTURE §4.CARDSHOW.f`). El backend ⛔ **ya no** sirve estos `GET` (se retira `actionPage`; un `GET` a `/api/v1/card-show/confirm·cancel·unsubscribe` responde `404`). |
+  | `POST /card-show/confirm` · `/cancel` · `/unsubscribe` | `@Public` | Ejecuta el cambio (§CARDSHOW.6). **Cuerpo `application/json`: `{ "token": "…" }`** (`StrictBodyPipe(LinkActionDto)`, parser JSON ya montado; ⛔ **NO** `x-www-form-urlencoded`). Token de un solo uso. 30/min por IP. |
+  | `POST /card-show/unsubscribe-oneclick?token=…` | `@Public` | Destino de `List-Unsubscribe-Post` (RFC 8058). **El token de un solo uso (propósito `unsubscribe`) viaja en el QUERY**, ⛔ no en el cuerpo: el cuerpo RFC 8058 es fijo (`List-Unsubscribe=One-Click`, `application/x-www-form-urlencoded`) y no lleva token. El backend lee el token del query y el cuerpo lo ignora (⛔ no lo parsea con `LinkActionDto`). Efecto: `unsubscribedAt`, 0 envíos posteriores. Silencioso/idempotente. |
+  | `POST /card-show/webhooks/resend` | `@Public` (firma Resend) | Corte C6 (§CARDSHOW.10). Verifica firma del webhook. |
+  | `GET  /card-show/ir/:destino` | `@Public` | Redirección contada (§CARDSHOW.13). `302` al destino; ⛔ sin cookie. |
+  | `POST /card-show/click` | `@Public` | Alternativa `sendBeacon` del contador (§CARDSHOW.13). |
+  | `GET  /admin/card-show/leads` · `/players` | `super_admin` | Panel (§CARDSHOW.15). ⛔ PENDING no aparece. |
+  | `POST /admin/card-show/leads/:id/release` | `super_admin` | Libera una fila con `confirmationHeldAt` (§CARDSHOW.7). |
+  | `POST /admin/card-show/reopen-sending` | `super_admin` | Reabre tras un corte C6/C1 (§CARDSHOW.10). Auditado. |
+  | `GET  /admin/card-show/leads/export.csv` · `/players/export.csv` | `super_admin` | Export (§CARDSHOW.15). |
+
+### CARDSHOW.3 Respuesta NEUTRA idéntica (anti-oráculo)
+Todo caso **silencioso** devuelve lo mismo — **status**, **cuerpo JSON byte a byte** y **tiempo** (mediana de 20, ≤100 ms de
+diferencia): alta nueva, alta repetida, honeypot con valor, POST <2 s, token reutilizado, buzón de baja, buzón suprimido,
+tope por buzón agotado, dominio sin MX, corte (C1/C6) activo. Cuerpo neutro sugerido (⛔ ningún dato de estado):
+`202 { "ok": true }` — mismo código que el molde de captura (`catalog.controller.ts:123`). El corte por presupuesto ⛔ **no
+puede** hacer el POST más rápido (si no manda correo igual tarda lo mismo: el envío es `fireAndForget`, fuera del tiempo de
+respuesta). ⛔ Validación de forma (§CARDSHOW.11.v) **sí** responde `400`/`413` (es error del cliente, no un caso silencioso).
+
+### CARDSHOW.4 Throttle por IP en Redis — C7 (⛔ no el throttler en memoria)
+- Clave = `req.ip` con `TRUST_PROXY_HOPS=1`. ⛔ `X-Forwarded-For`/`X-Real-IP`/`Forwarded`/`CF-Connecting-IP`/`True-Client-IP`
+  del **cliente** no mueven el cubo (caen en el mismo cubo que sin cabecera). IPv6 agrupado por **/64**.
+- Topes: **5/min y 20/h por IP** en cada endpoint de POST; **60/min global**. El `ThrottlerModule` en memoria
+  (`app.module.ts:47-49`) se conserva como segunda red holgada; la **compuerta** es Redis (`ARCHITECTURE §4.CARDSHOW.c`).
+- Al exceder ⇒ **`429`** con `Retry-After` **entero ≥ 1** (segundos). ⛔ La petición rechazada no crea fila ni manda correo.
+- Prueba unitaria exigida: la clave es `req.ip` con `TRUST_PROXY_HOPS=1` (no una cabecera). Con réplicas `N>1` el tope sigue
+  siendo 5/min por IP (porque vive en Redis, no en memoria).
+
+### CARDSHOW.5 Token de formulario firmado + tiempo mínimo — L0-SEG-04
+- `GET /card-show/form-token?purpose=leads|players` emite un token firmado con `CARD_SHOW_FORM_SECRET` (en Railway): lleva
+  `iat` y propósito (`leads`/`players`). ⛔ Sin `Set-Cookie`, `Cache-Control: no-store`, ⛔ no refleja Origin ajeno, **120/h
+  por IP** (⇒ `429` en la 121.ª; ⭐v1.98 M-87 IMP-6, antes 30/h — razón y conducta perezosa abajo). `Retry-After` entero ≥1
+  refleja la ventana de **1 h**.
+- **⭐v1.98 — M-87 (IMP-6) — adquisición PEREZOSA del token + cupo con holgura para IP compartida (NAT).** Una landing pensada
+  para multitud en Wi-Fi de evento (oficina, escuela, evento) comparte **una** IP por NAT; el montaje de `/card-show` pedía **4**
+  `GET /form-token` (asistente 1 + torneo 2 + comercial 1), de modo que con el cupo viejo de 30/h la **8.ª carga/hora** de esa IP
+  ya devolvía `429` a **visitantes legítimos** — justo el público del evento. Decisión (combina «pedir al interactuar» + «subir el
+  cupo», ⛔ sin tocar el camino que crea filas/correo):
+  - **FRONTEND (conducta):** la página **⛔ NO** pide ningún `form-token` al **montar**. Pide **1** token **al primer
+    foco/interacción** con un formulario (a más tardar al pulsar «enviar»), **uno por formulario realmente usado** y por su
+    `purpose` (`leads`/`players`). El token se **cachea** en cliente mientras vive ese formulario y se **re-pide** solo tras
+    `FORM_EXPIRED` (>2 h, §CARDSHOW.5) o tras un envío exitoso. ⇒ **navegar sin tocar formularios = 0 tokens**; llenar un
+    formulario = **1** token.
+  - **BACKEND (cupo):** el tope del `GET /card-show/form-token` sube de **30/h** a **120/h por IP**. Es de **riesgo bajo**: no crea
+    filas ni envía correo; los guardas reales del gasto siguen intactos (throttle de POST §CARDSHOW.3/§13, presupuesto C1 Redis §7,
+    topes por buzón C2 §8).
+  - **COPY (frontend/ux-ui, es/en):** el mensaje del `429` del `form-token` ⛔ **no** dice «unos minutos» (la ventana es **1 h**).
+    Usa el `Retry-After` (redondeo a minutos hacia arriba) o un texto neutro. Sugerido — **ES:** «Demasiados intentos desde esta
+    red. Vuelve a intentarlo más tarde.» / **EN:** «Too many attempts from this network. Please try again later.» (el texto final
+    lo fija ux-ui; §DESIGN_SYSTEM).
+  - ⚠️ **Fuera de alcance de esta decisión, se nombra para que no sorprenda (NO MEDIDO con tráfico real de evento):** el **throttle
+    del POST** a `/card-show/leads`·`/players` (21/<1 h por IP ⇒ `429`, §CARDSHOW.3/§13) **también** limita a una IP NAT a ~20
+    **altas**/hora, y **no** se cambia aquí: es el camino que crea filas y envía correo (anti-abuso deliberado). Si el evento lo
+    exige, se decide por separado (arquitecto, regla 9) tras medir el riesgo de abuso — no se baja el guarda del dinero en el mismo
+    pase que un endpoint sin filas.
+- **Forma de la respuesta (fija, fuente de verdad):** `200 { "formToken": string }` (`Cache-Control: no-store`). ⛔ **La clave
+  es `formToken`, NO `token`** (`card-show.controller.ts:52,61`). El cliente DEBE leer `formToken` de la respuesta; si lee otra
+  clave (p. ej. `token`) nunca emite el token y **se pierden todas las altas** (bug 2a).
+- El POST a `/card-show/leads` y `/card-show/players` exige ese `formToken` en el **CUERPO** bajo la clave **`formToken`** (ya
+  exigida por `CreateLeadDto`/`CreatePlayerDto`) — el mismo string que devolvió el GET. **Firma inválida / 1 byte alterado /
+  token de `players` usado en `leads` ⇒ `400`**,
+  0 filas, 0 envíos. **POST <2 s** desde `iat` ⇒ **200 idéntico**, 0/0 (demasiado rápido para un humano). **Token reusado**
+  (segundo POST con el mismo token) ⇒ **200 idéntico**, 0 filas nuevas, 0 envíos. **> 2 h** ⇒ `400 FORM_EXPIRED`; el
+  frontend pide otro token y **reintenta una vez sin borrar lo tecleado**.
+- ⚠️ **Dos claves distintas, no confundir:** el token de este §CARDSHOW.5 (GET `/form-token`) viaja como **`formToken`** en el
+  cuerpo de `/leads` y `/players`. En cambio, los POST de **confirmar/cancelar/baja** de §CARDSHOW.6 usan la clave **`token`**
+  (de `LinkActionDto`, `{ "token": "…" }`). Son campos y propósitos **diferentes**: ⛔ no enviar `formToken` donde va `token` ni
+  al revés.
+- `git grep CARD_SHOW_FORM_SECRET` y `CARD_SHOW_LINK_SECRET` ⇒ solo **lecturas de config** (0 valores en el repo), **distintos
+  entre sí**, solo en Railway.
+
+### CARDSHOW.6 Doble opt-in — C4: el GET nunca cambia estado
+- Alta ⇒ fila **PENDING** + **exactamente 1** correo «Confirma tu registro». `confirmedAt` al confirmar.
+- Tokens **HMAC con propósito y de un solo uso** (`CARD_SHOW_LINK_SECRET`): propósitos disjuntos `confirm`/`cancel`/
+  `unsubscribe`. **Usado ⇒ `410`.** Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ `400`/`410`,
+  0 cambios, 0 envíos.
+- **C4 — Diseño A (la página la sirve el FRONTEND):** el enlace del correo apunta al **dominio del frontend**
+  (`https://tcghunt.mx/card-show/{confirm|cancel|unsubscribe}?token=…`, fuera del i18n). El **GET** a esa ruta sirve una
+  **página de marca con botón** (la sirve **frontend**, consistente con la landing); ⛔ **no cambia estado** (los escáneres de
+  enlaces hacen GET, y la página solo lee el token del query y lo deja en espera del clic). Al pulsar, el frontend hace
+  **`POST application/json { "token": "…" }`** a `/api/v1/card-show/{confirm|cancel|unsubscribe}`, que hace el cambio. La URL del
+  correo la arma el backend con `base = publicBase()` = dominio del frontend (`card-show.service.ts:250-251,264-265`) ⇒ Diseño A
+  **no cambia** `confirmUrl`/`notMeUrl`. El backend ⛔ **retira** los `GET confirm/cancel/unsubscribe` (§CARDSHOW.2).
+  3 GET ⇒ `200` con página, fila **sigue PENDING**, 0 envíos. POST ⇒ `new` (leads) o `confirmed|waitlist` (torneo),
+  `confirmedAt`, **1** confirmación por tipo, y para vendedor/patrocinador **1** aviso interno; aparece en admin **<5 s**.
+- **Correo de BIENVENIDA tras confirmar (C3-W, §CARDSHOW.9):** al pasar un **lead** a `new`, el backend envía **exactamente 1**
+  correo de **bienvenida** (variante por `type`: `merchant`/`sponsor`/`visitor`), de contenido **rico** (permite `wa.me`,
+  `utm_*`, Drive, `mailto`, `.ics`, Maps) porque el buzón **ya está confirmado**. ⛔ Es un correo **distinto** del de
+  confirmación C3 (ese es estricto y se envió a la fila PENDING). La bienvenida ⛔ **nunca** se envía a una fila PENDING, se
+  dispara **una sola vez** (reenviar la confirmación de un lead ya `new` ⇒ 0 bienvenidas nuevas) y cuenta contra C1/C2.
+- **Caducidad:** 7 d (leads) / 72 h (torneo) ⇒ la fila se **borra**; la del torneo **nunca restó cupo** (cupo al confirmar).
+- **Mientras PENDING:** 0 en admin/CSV, no cuenta en hoy/7 días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en el
+  resumen diario, 0 al export del organizador.
+- **`List-Unsubscribe` DEBE llevar token de un solo uso en el QUERY.** El encabezado es
+  `List-Unsubscribe: <https://tcghunt.mx/api/v1/card-show/unsubscribe-oneclick?token=…>` (+ `List-Unsubscribe-Post:
+  List-Unsubscribe=One-Click`, RFC 8058). El `token` es de propósito `unsubscribe`, un solo uso, firmado con
+  `CARD_SHOW_LINK_SECRET`, y referencia la fila del buzón; ⛔ **sin token el one-click no puede identificar a quién dar de baja**.
+  El backend lo lee del query (⛔ no del cuerpo fijo `List-Unsubscribe=One-Click`). A diferencia de confirmar/cancelar, el
+  one-click lo dispara el proveedor de correo (Gmail/Apple) máquina-a-máquina ⇒ **va directo al backend** (no pasa por una página
+  del frontend). `List-Unsubscribe-Post` ⇒ `unsubscribedAt` + 0 envíos posteriores. «Cancelar mi preinscripción»: GET página sin cambio;
+  POST ⇒ baja / `cancelled` y el cupo restante **sube 1**. Repetir alta de un registro **ya confirmado** dentro de 24 h ⇒
+  0 envíos. **31 peticiones/min por IP** a `/confirm`,`/unsubscribe`,`/cancel` ⇒ `429` desde la 31.ª.
+
+### CARDSHOW.7 Presupuesto global de envíos en Redis — C1 (compartido por /leads y /players)
+- Variables: `CARD_SHOW_CONFIRM_BUDGET_HOUR=150`, `CARD_SHOW_CONFIRM_BUDGET_DAY=600` (ajustables). Contadores **globales** en
+  Redis, compartidos por los dos formularios. Reinician **00:00 America/Mexico_City**.
+- Al **50 %** ⇒ 1 alerta a `jsainz@tcghunt.mx` (configurable) + 1 `AuditLog`. Al **100 %** se corta **el ENVÍO, no el
+  registro**: respuesta **idéntica**, fila **PENDING** con `confirmationHeldAt`, **0 envíos**; ⛔ no se reenvía sola. 1
+  `AuditLog` al corte. La libera un `super_admin` (`POST /admin/card-show/leads/:id/release`) o **caduca** (7 d/72 h).
+- **Redis caído ⇒ fail-CLOSED:** 200 idéntico, fila PENDING, **0 envíos**, 1 alerta. (Opuesto a §4.57 #11: aquí lo que está
+  en juego es el envío, no el acceso; `ARCHITECTURE §4.CARDSHOW.g`.)
+- Con el corte activo, **respuesta y tiempo del POST no cambian** (§CARDSHOW.3).
+
+### CARDSHOW.8 Tope por buzón — C2 (vía `mailboxHmac`)
+- `mailboxHmac` = `blindIndex("card-show-mbox:v1:" + canonicalizeMailbox(email))`, donde `canonicalizeMailbox` = minúsculas +
+  trim + quitar `+etiqueta` + quitar puntos de la parte local en dominios tipo Gmail. ⇒ `victima+1@`, `victima+2@`,
+  `v.ictima@gmail` y `victima@gmail` **comparten** `mailboxHmac`. (⚠️ Distinto de §4.57 #1, que ⛔ no canonicaliza, porque allí
+  la clave es de *cuenta*; aquí el objetivo es cerrar la evasión del tope — `ARCHITECTURE §4.CARDSHOW.e`.)
+- **Buzón NO confirmado:** máx **2** confirmaciones en toda la campaña, separadas **≥ 24 h**. Con una pendiente, altas nuevas
+  de ese buzón quedan **retenidas sin correo** (fila existe, 0 envío). Reloj simulado: altas en t0, t0+25 h, t0+50 h ⇒ **2**
+  envíos.
+- **Buzón confirmado:** máx **4** correos / 24 h; el 5.º no sale.
+- **«No fui yo»:** borra la fila, guarda **solo** `mailboxHmac`, y **suprime** el buzón hasta `CARD_SHOW_SUPPRESS_UNTIL`
+  (`suppressedUntil`; fin de campaña, valor fuera del repo). Altas nuevas de un buzón suprimido ⇒ 0 envíos / 200 idéntico.
+- Las filas por `+1`/`+2` existen separadas (unicidad por `(email,type)`), pero **retenidas sin correo** (un buzón).
+  `Email@Dominio.MX` y `email@dominio.mx` ⇒ **misma** fila (email normalizado); `email+a@` ⇒ **otra** fila, mismo buzón.
+
+### CARDSHOW.9 Correos de la landing — C3 (confirmación, ESTRICTO) · C3-W (bienvenida, RICO) · internos
+> **Decisión del dueño 2026-10-16 (rama `feat/event-landing`), ratificada por el arquitecto (regla 9):** hay **dos** correos
+> públicos en el ciclo de un lead, con reglas **distintas**, porque van a destinatarios de **riesgo distinto**. El correo de
+> **confirmación** va a buzones **NO verificados** (opt-in) ⇒ ESTRICTO, por entregabilidad/anti-spam. El correo de
+> **bienvenida** va SOLO a buzones **YA confirmados** (consentimiento verificado) ⇒ puede llevar contenido rico. La
+> restricción «sin `wa.me`/`utm_*`/`mailto`/Drive/calendario» de C3 aplica **solo al correo de CONFIRMACIÓN**, ⛔ **no** al de
+> bienvenida. Porqué: `ARCHITECTURE §4.CARDSHOW.m`.
+
+- **C3 — Correo de CONFIRMACIÓN (opt-in; se envía a la fila PENDING, a buzón NO verificado). ESTRICTO:**
+  - Plantilla y **asunto fijos**. ⛔ **Ningún** valor tecleado (Player ID solo «terminado en NNNN»; ⛔ nunca `playerName`).
+  - ⛔ **Ningún** enlace de marketing ni externo: ni `wa.me`, ni `mailto`, ni la tienda, ni `utm_*`, ni Google Drive/Maps, ni
+    «Agregar al calendario». ⛔ Sin imágenes remotas.
+  - Los **únicos** enlaces permitidos son del **dominio propio**: **confirmar**, **«No fui yo»**/baja, **aviso de privacidad**.
+  - Cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) con **token de un solo uso** en el query (§CARDSHOW.6).
+    `From` en el **subdominio de envío propio** de la landing (lo prepara devops: SPF/DKIM/DMARC).
+
+- **C3-W — Correo(s) de BIENVENIDA (NUEVO tipo; se envía SOLO tras confirmar, a un lead `new` — buzón YA confirmado). RICO:**
+  - Se dispara **una sola vez** en el POST de confirmación de un **lead** (§CARDSHOW.6), **después** de pasar a `new`. ⛔ **No**
+    se envía a filas PENDING. ⛔ **No** sustituye al aviso interno (§CARDSHOW.11) ni al correo de confirmación C3.
+  - **3 variantes por tipo de lead** (`CardShowLeadType`): `merchant` (vendedor), `sponsor` (patrocinador), `visitor`
+    (visitante). El backend elige la plantilla por el `type` de la fila confirmada.
+  - **Contenido rico PERMITIDO** (consentimiento verificado): enlaces `wa.me`, `utm_*` en enlaces propios, enlaces de **Google
+    Drive** (deck/convocatoria), `mailto:`, botón **«Agregar al calendario»** (adjunto/enlace `.ics`), **«Cómo llegar»**
+    (Google Maps). Los valores concretos (números de WhatsApp, URLs de Drive, fecha/sede para el `.ics`, coordenadas de Maps)
+    viven **en el repo**, en el archivo de datos del frontend `frontend/src/content/card-show.ts` (⭐ v1.93.1: **públicos**,
+    §CARDSHOW.0 — ya **no** «fuera del repo» ni secretos; el único secreto es el **nombre de patrocinador**); el
+    contrato fija la **estructura**, no los valores.
+  - **Sigue obligando:** `From` en el mismo subdominio de envío propio; cabeceras `List-Unsubscribe` + `List-Unsubscribe-Post`
+    (RFC 8058) con **token de un solo uso** (el buzón confirmado puede darse de baja). ⛔ Nunca `playerName`. Cuenta contra el
+    presupuesto C1 (§CARDSHOW.7) y los topes por buzón C2 (§CARDSHOW.8) como cualquier envío.
+
+- **Correos INTERNOS (no sujetos a C3 de cara al público):** van a buzones del propio equipo, ⛔ no a público; no les aplica la
+  restricción de enlaces de C3 y siguen acotados por **≤ 10/h** (§CARDSHOW.11). **⭐M-89 (dueño JC 2026-10-17, cierra L2-SEG-01):
+  hay dos clases, y el destinatario depende de si el correo lleva PII, porque `cardshow@jakomi.mx` es un TERCERO que ⛔ nunca debe
+  recibir datos personales del vendedor:**
+  - **Aviso interno CON PII** — al confirmar un `merchant`/`sponsor` (§CARDSHOW.6/.11); lleva **nombre y teléfono reales** del
+    lead (tras R4/IMP-3). Va **solo a buzones de TCG HUNT**: `CARD_SHOW_ALERT_EMAIL` (= `jsainz@tcghunt.mx`, §CARDSHOW.16) y
+    `scarranza@tcghunt.mx` si aplica. ⛔ **`cardshow@jakomi.mx` NO va en `To` ni `CC`** de este correo (sale del CC que hoy
+    fija el código, `card-show.constants.ts:47`). El equipo interno de TCG HUNT sí recibe los datos operativos que necesite.
+  - **Resumen AGREGADO (tipo + conteo, 0 PII)** — el **correo-resumen periódico** (§CARDSHOW.15) y el **resumen diario** de
+    visitantes: conteos por tipo/juego/día y opt-ins de rifa; ⛔ sin `name`/`phone`/`email`/`playerName`/`playerId`.
+    **`cardshow@jakomi.mx` SÍ puede ser destinatario de ESTE correo** (es tipo + conteo, lo único que Jakomi puede recibir),
+    junto con los buzones de TCG HUNT. Los destinatarios concretos los cablea devops (§CARDSHOW.16, reusa `CARD_SHOW_INTERNAL_RECIPIENTS`).
+  - **Aserción de cierre (backend + seguridad):** **todo correo cuyo destinatario (`To`/`CC`/`BCC`) incluya `cardshow@jakomi.mx`
+    ⇒ 0 apariciones de `name`/`phone`/`email`/`playerName` en asunto y cuerpo; solo cifras (y, como mucho, un enlace de descarga
+    autenticado).** Candado: ampliar el test de PII del correo a la rama cuyo destinatario es Jakomi (§CARDSHOW.§13 [M-89]).
+
+### CARDSHOW.10 Corte por webhooks de Resend — C6 (obligatorio por Resend compartido)
+- `POST /card-show/webhooks/resend` (firma verificada). **≥ 2 quejas** (`complained`) **o ≥ 10 rebotes duros** (`bounced`)
+  en 24 h ⇒ se **cortan** las confirmaciones (mismo efecto que C1 al 100 %: fila PENDING, 0 envíos, respuesta idéntica).
+  **Solo un humano lo reabre** (`POST /admin/card-show/reopen-sending`, auditado). Con el corte activo, respuesta y tiempo del
+  POST no cambian.
+
+### CARDSHOW.11 Validación de dominio y topes por dominio — L0-SEG-04 extras · y validación de forma
+- **(v) Validación de forma ⇒ `400`/`413` (no silencioso):** body **> 4 KB ⇒ `413`** (`StrictBodyPipe`); `email` > 254 chars
+  ⇒ `400`; `type` fuera de dominio (`ADMIN`, `MERCHANT`…) ⇒ `400` (§0-Q, `details.field`); `utm_*` con `<script>` ⇒ `400`;
+  `playerName` con `http://`, `@`, `<` o dígitos ⇒ `400` (lista blanca); `playerId` con letras o longitud fuera de rango ⇒
+  `400`; `consent` `false`/ausente ⇒ `400` y 0 filas. Dos POST simultáneos del mismo `(email,type)` ⇒ **1 fila**.
+- **MX del dominio:** antes de enviar se valida que el dominio tenga registro **MX** (o A, según §13). Dominio **sin MX ni A**
+  ⇒ **0 envío, 0 fila, 200 idéntico**.
+- **Tope por dominio no masivo:** **20 / 24 h** por dominio (⇒ el 21.º no sale). Los avisos **internos** (a vendedor/
+  patrocinador/`jsainz@`) ⛔ **≤ 10/h**.
+
+### CARDSHOW.12 Preinscripción al torneo — L0-SEG-02 (además de lo anterior)
+
+**⭐M-84 — dimensión `game` (pokemon=FORMAL, resto=LIGERA).** El cuerpo de `POST /card-show/players` lleva `game`
+(`CardShowGame`, obligatorio) y el servicio aplica **reglas condicionales**:
+- **`game=pokemon` (FORMAL):** `playerId` **obligatorio** (solo dígitos, ≤12, como hoy). Rige **todo** lo de abajo: cupo al
+  confirmar, waitlist, índice único parcial `(playerId, day)`, máx 4 `playerId` por buzón/día, máx 3 PENDING por `playerId`.
+- **`game≠pokemon` (LIGERA, Riftbound/Lorcana/Shard Bugs):** `playerId` **prohibido** ⇒ si viene ⇒ `400 {field:"playerId"}`
+  (⛔ no silencioso); la fila nace con `playerId=NULL`. Es **solo interés por día/juego**: ⛔ **sin cupo, sin waitlist** — al
+  confirmar la fila pasa **directo a `confirmed`** (nunca `waitlist`). No entra al índice único parcial. Dedupe por
+  **`(mailboxHmac, game, day)`**: una re-alta activa del mismo buzón+juego+día ⇒ **200 idéntico, 0 filas nuevas**. Cap de
+  contención LIGERA: **máx 1 fila activa por `(mailboxHmac, game, day)`** y **máx 3 PENDING por `(mailboxHmac, game, day)`**
+  (la 4.ª PENDING ⇒ 200 idéntico, 0 filas). `playerName`, `isMinor`/`guardianConsent`, doble opt-in y anti-abuso: **iguales**
+  que Pokémon (toda preinscripción, formal o ligera, exige nombre y consentimiento; menor ⇒ `guardianConsent`).
+
+**⭐M-89 — Regla de negocio (precio del torneo, dueño JC 2026-10-17; verbatim «es 200 para los mains de pokemon»).** El **main
+de Pokémon cuesta MX$200**. Es **content**, ⛔ no contrato de API: el importe vive en `frontend/src/content/card-show.ts` y lo
+usa el correo de bienvenida C3-W (§CARDSHOW.9). Se anota aquí **solo como regla**: **landing y correo deben mostrar el MISMO
+importe (MX$200)** — lo implementan frontend (landing) y backend (plantilla del correo). Los **demás juegos/eventos** siguen
+**«por anunciar»** hasta que JC confirme (⛔ no inventar precios). Fuente: `docs/specs/CARDSHOW_LANDING_ESTADO.md §DECISIONES JC
+2026-10-17 (R5) #2`.
+
+Lo que sigue **aplica a `game=pokemon`** (torneo FORMAL) salvo que se diga lo contrario:
+- Cupo de prueba (staging) = 2/día. **3 altas PENDING ⇒ cupo sigue 2** (no se reserva al registrar). Al **confirmar las 3**
+  ⇒ **2 `confirmed` + 1 `waitlist`** en orden. Dos confirmaciones **simultáneas** por el último lugar ⇒ **1 `confirmed` + 1
+  `waitlist`**, ⛔ nunca 3 (reserva atómica).
+- Player ID 123 **confirmado** por correo A el sábado; alta del 123 desde correo B el sábado ⇒ **200 idéntico**, fila de A
+  **sin cambios**, 0 envíos a A. Si B confirma ⇒ página **«Este Player ID ya está preinscrito ese día»**, 0 cambios.
+- Mismo `correo+Player ID+día` dos veces ⇒ **1 fila, 1 envío**. **«los dos días» ⇒ 2 filas** (`sat`+`sun`, ambas `pending`),
+  **1 solo envío** (el correo lleva el token de `rows[0]` = la fila `sat`).
+- **⭐M-88 — Confirmación de GRUPO «los dos días»** (cierra BLOQ-A: con 1 solo envío, confirmar sólo confirmaba la fila `sat` y la
+  de `sun` quedaba `pending` colgada hasta caducar a 72 h). Como el alta «los dos» manda **1 solo correo**, **confirmar ese correo
+  confirma TODAS las filas `pending` del mismo GRUPO** en una sola acción:
+  - **Clave de grupo** (sin columna nueva — es la MISMA consulta que ya arma el correo, `card-show.service.ts:447-457`): FORMAL
+    `(mailboxHmac, game=pokemon, playerId)`; LIGERA `(mailboxHmac, game)` con `playerId=NULL`. `confirmSignup`, al recibir el
+    token de **una** fila del grupo, deriva la clave desde esa fila y confirma **todas sus `pending`** en orden `createdAt`,
+    dentro de la **misma tx serializable** (la reserva de cupo por día sigue siendo atómica, como arriba).
+  - **FORMAL (`pokemon`):** aplica a **cada día** el cupo/waitlist ya definido arriba (día con cupo ⇒ `confirmed`, lleno ⇒
+    `waitlist`); un día cuyo `playerId` ya esté activo por **otra** fila / otro correo ⇒ ese día queda **«ya preinscrito»**
+    (0 cambios) y los **demás días del grupo sí** se confirman.
+  - **LIGERA (resto):** todas las filas del grupo ⇒ **`confirmed` directo** (⛔ sin cupo/waitlist).
+  - **Estado observable con cupo libre:** «los dos días» ⇒ **ambas filas `confirmed`** (FORMAL: `confirmed`+`waitlist` sólo si el
+    cupo del día lo obliga), **ninguna `pending` colgada**.
+  - **Idempotencia/reconfirm:** la fila del token (`sat`) queda con `confirmedAt` en el mismo pase ⇒ **reusar el token ⇒
+    `410 LINK_ALREADY_USED`** («ya se usó»), ⛔ sin `500` (como hoy).
+  - **⛔ No confunde con el TUTOR:** un 2.º jugador tiene **otro `playerId`** ⇒ **otro grupo** ⇒ su fila sigue **retenida** y
+    recibe su propio correo (línea de abajo); igual un `game` distinto ⇒ otro grupo (su fila retenida de §CARDSHOW.8 recibe su
+    correo al confirmar la 1.ª, ⛔ no se auto-confirma).
+  - **Respuesta + copy:** el `POST /card-show/confirm` del torneo devuelve, además del `state`, el **desglose por día**
+    (`days: { day, state }[]`, forma de §0; **aditivo** sobre `ConfirmResult`). La **página `/card-show/confirm`** (la sirve
+    frontend, §CARDSHOW.6) usa ese desglose para decir que quedó inscrito **sábado Y domingo** — cadena canónica en
+    `frontend/src/app/card-show/_components/LinkActionClient.tsx` (`COPY.confirm.success`; **un hecho, un sitio**). P.ej.:
+    «¡Listo! Quedaste preinscrito para **sábado y domingo**.»; con un día en espera: «…preinscrito para [día] y en **lista de
+    espera** para [día]; si se libera un lugar te avisamos por correo».
+  - **Desviación de código (`D-CS-7`, dueño backend; `ARCHITECTURE §9`):** hoy el correo usa `rows[0]` (`:447-460`) y
+    `confirmSignup` confirma **una** fila por id (`:692-727`) ⇒ domingo `pending` colgado. **Backend** implementa la
+    confirmación de grupo; ⛔ ningún otro rol lo corrige (regla 8). Paridad: candado `c-torneo.mjs` (criterio en §CARDSHOW.§13).
+- Tutor (buzón) con una confirmación **pendiente** preinscribe a un 2.º jugador (**otro `playerId`**) ⇒ fila **retenida, 0
+  envíos**; al confirmar la 1.ª sale **1** correo para la 2.ª.
+- Máx **4 `playerId` por buzón y día** (el 5.º ⇒ 200 idéntico, 0 filas); máx **3 PENDING por `playerId`** (la 4.ª PENDING ⇒
+  200 idéntico, 0 filas).
+- Menor (`isMinor=true`) **sin** `guardianConsent` ⇒ bloquea el envío (error de campo). ⛔ Ni `playerName` ni el `playerId`
+  completo en el correo, logs ni correos a terceros, salvo el export del organizador.
+
+### CARDSHOW.13 Contador de clics de primera parte (`CardShowClick`)
+- `GET /card-show/ir/:destino` cuenta y responde `302` al destino; o `POST /card-show/click` vía `sendBeacon`. ⛔ Sin cookie,
+  sin IP, sin user-agent. ⛔ No es GA4 (§MKT es otro frente; `ARCHITECTURE §4.CARDSHOW.j`). Guarda `{ts, destino, mesa,
+  utm_source, utm_content}`.
+
+### CARDSHOW.14 Anti-abuso SIN captcha — L0-SEG-06
+Extensión explícita de `ARCHITECTURE §4.57.2` (#8, CAPTCHA descartado para login) a la landing. **La CSP de la landing no
+contiene `challenges.cloudflare.com` ni ningún origen nuevo respecto a la tienda; `git grep -i turnstile` en la rama ⇒ 0.**
+Las capas (throttle Redis + token de formulario + honeypot + doble opt-in + presupuesto/tope/corte) sustituyen al captcha sin
+pedir nada a terceros ni al dueño.
+- **Campo honeypot = `website`** (⭐v1.97 — fuente de verdad del nombre del campo; ambos lados, backend y frontend, lo usan). Es
+  un campo **oculto** del cuerpo de `POST /card-show/leads` y `/card-show/players`; un cliente humano lo deja vacío, un bot lo
+  rellena. **Con valor no vacío ⇒ respuesta NEUTRA idéntica** (§CARDSHOW.3), **0 filas, 0 envíos**, y ⛔ no consume throttle
+  (§CARDSHOW.4), tope por buzón (§CARDSHOW.8) ni presupuesto (§CARDSHOW.7). Accesibilidad (criterio verbatim §CARDSHOW.§13): ⛔ no
+  se anuncia en lectores de pantalla ni recibe foco, y el autocompletar no lo rellena. *(v1.97 cierra el «HUECO DE CONTRATO» que
+  el código ya marcaba: el comportamiento del honeypot estaba documentado — §CARDSHOW.3/.§13 — pero el **nombre** `website` no
+  estaba fijado por escrito.)*
+
+### CARDSHOW.15 Panel (super_admin)
+- `GET /admin/card-show/leads` y `/players`: listados con filtros `?status=`, `?type=`/`?day=` **+ `?game=` (⭐M-84, `/players`,
+  `CardShowGame`; fuera de dominio ⇒ 400)**, `q` (campos exactos abajo, ⭐M-86), `from`/`to` (convención de §0). ⛔ **PENDING no
+  aparece** en el listado por defecto ni en los conteos (hoy/7 días/total), ni en el export CSV. El export del organizador del
+  torneo **sí** incluye `playerName`/`playerId` (único destino autorizado de esos datos).
+- **⭐v1.98 — M-86 (IMP-3) — semántica EXACTA de `q` (cierra el hueco: el rótulo del panel decía «nombre o correo» pero el código
+  solo casaba `email` — `card-show.service.ts:900,916`).** `q` sigue la **gramática de §0** (igual que el `q` de §M3 /
+  `/admin/shipments`: `trim`, vacío ≡ ausente, ≤ 200 chars ⇒ si no `400`; sigue **exento de §0-Q** por `NO_ENUM_TRANSVERSAL`, ⛔ no
+  entra al `REGISTRO` de `C-EQ-1`). **Qué campos cubre** (`contains` **insensible a mayúsculas**, SIEMPRE **parametrizado** — ⛔ SQL
+  crudo concatenado):
+  - **`GET /admin/card-show/leads`** (+ `export.csv`): `q` casa `CardShowLead.name` **OR** `CardShowLead.email`. El rótulo «Buscar
+    (nombre o correo)» describe ESTA conducta; `name` cubre nombre y **marca** de vendedor/patrocinador.
+  - **`GET /admin/card-show/players`** (+ `export.csv`): `q` casa `CardShowPlayerSignup.playerName` **OR** `.email` **OR**
+    `.playerId` (`playerId` es string de dígitos; `contains` sobre él es válido; filas LIGERA sin `playerId` no casan por ese campo,
+    sin romper). `playerName`/`playerId` ya son visibles al `super_admin` en este panel ⇒ `q` sobre ellos **no amplía** la
+    exposición que §CARDSHOW.12 ya autoriza.
+  - `q` **solo REDUCE** el conjunto ya autorizado por rol (⛔ sin IDOR/enumeración nueva) y **⛔ nunca incluye PENDING** (como el
+    resto de §CARDSHOW.15). ⛔ **No** casa `phone` ni `sellsWhat` (no es lo que el operador busca; `phone` es PII que no se indexa
+    por texto libre).
+- **⭐v1.97 — Forma de respuesta de `GET /admin/card-show/leads` y `/players` (JSON):** siguen la **convención de paginación de
+  §0** — `200 { data, page, pageSize, total }` (`?page=`/`?pageSize=` de entrada). La única particularidad del panel: **`total`
+  cuenta solo las filas que el panel muestra, es decir ⛔ EXCLUYE PENDING** (igual que el resto de §CARDSHOW.15). El backend ya la
+  devuelve así y el frontend la parsea; esta línea solo **documenta** que estos dos endpoints usan la envoltura de §0 (cierra el
+  hueco de contrato — la forma vivía en código pero §CARDSHOW.15 no la citaba). Los `export.csv` ⛔ **no** usan esta envoltura
+  (devuelven CSV plano con las columnas de abajo).
+- **⭐M-84 — columnas nuevas en JSON y CSV** (solo filas confirmadas; PENDING sigue excluido):
+  - `/leads` (+ `export.csv`): **`name`, `phone`, `gameInterest`, `raffleOptIn`, `raffleTermsVersion`, `sellsWhat`** (además de
+    las existentes). `phone`/`name`/`sellsWhat` son PII ⇒ solo super_admin (ya el rol del controller).
+  - `/players` (+ `export.csv`): **`game`** (además de `playerName`/`playerId`/`day`/`status`). `playerId` viene **vacío** en las
+    filas LIGERA (no tienen).
+- `POST /admin/card-show/leads/:id/release`: libera una fila con `confirmationHeldAt` (reintenta el envío si hay presupuesto).
+- `POST /admin/card-show/reopen-sending`: reabre tras un corte C1/C6. Auditado (`AuditLog`).
+- **⭐M-84 — Correo-resumen periódico (NUEVO, entregable; ⛔ no es gate).** Job programado (lo cablea devops + backend;
+  diseño en `ARCHITECTURE §4.CARDSHOW.p`) que envía a los destinatarios **internos** (`CARD_SHOW_INTERNAL_RECIPIENTS` /
+  super_admin) un resumen con **conteos agregados** (por tipo, por juego, por día, opt-ins de rifa; hoy / 7 días / total) **+ un
+  enlace de descarga AUTENTICADO** al `export.csv` (detrás de la sesión super_admin). ⛔ **El cuerpo del correo NO lleva PII en
+  claro** (ni `name`, ni `phone`, ni `email`, ni `playerName`/`playerId`): solo cifras y el enlace — porque el CSV de `/players`
+  contiene `playerName` de posibles **menores**, que §CARDSHOW.12 prohíbe enviar a terceros salvo el export del organizador, y el
+  correo no es canal seguro. Respeta las mismas reglas de privacidad del panel: **solo confirmados** (⛔ sin PENDING), **sin IP**.
+  Cadencia **sugerida: diaria** a hora fija `America/Mexico_City` (configurable; puede unificarse con el «resumen diario de
+  visitantes» ya existente de §CARDSHOW.9). Es un **correo interno** (§CARDSHOW.9): no sujeto a la restricción de enlaces de C3,
+  pero sí al tope interno ≤ 10/h.
+
+### CARDSHOW.16 Variables de entorno (las declara/cablea devops; valores en Railway)
+`CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET` (distintos entre sí, ⛔ nunca en el repo ni en logs),
+`CARD_SHOW_CONFIRM_BUDGET_HOUR` (150), `CARD_SHOW_CONFIRM_BUDGET_DAY` (600), `CARD_SHOW_ALERT_EMAIL`
+(`jsainz@tcghunt.mx`), `CARD_SHOW_SUPPRESS_UNTIL` (fin de campaña, **valor fuera del repo**), `TRUST_PROXY_HOPS` (1).
+El subdominio de envío (SPF/DKIM/DMARC) y el webhook de Resend los configura devops.
+
+### CARDSHOW.17 Reparto y zonas compartidas
+- **⭐M-84 (pivote a leads) — backend:** migración M-84 (§CARDSHOW.1a), `CardShowGame` + `CARD_SHOW_GAME_VALUES` (paridad de
+  enums), campos nuevos de `CardShowLead` con validación condicional por tipo (§CARDSHOW.1b), `game` en `CardShowPlayerSignup`
+  con regla formal/ligera e índice único recreado (§CARDSHOW.12), `mesaInteres` @deprecated fuera de DTO/servicio/CSV
+  (§CARDSHOW.1a-bis), columnas nuevas en panel/CSV y **correo-resumen** (§CARDSHOW.15 + `ARCHITECTURE §4.CARDSHOW.p`). Toca
+  `schema.prisma` y `backend/src/common/` (zonas compartidas, un stream a la vez).
+- **⭐M-84 — frontend:** reescribe `frontend/src/content/card-show.ts` **sin precios de mesa / plano / montos de patrocinio**;
+  formularios nuevos (visitor: nombre, juego opcional, casilla de rifa **propia y DESMARCADA** (⭐M-89) con enlace a **bases**, separada de la casilla de privacidad obligatoria; merchant/sponsor:
+  nombre o marca, teléfono, «¿qué vendes?»); aviso de privacidad **con teléfono + bases de rifa** (§CARDSHOW.18); pantalla
+  super_admin «Card Show» (lista Leads + Torneo con columnas nuevas, descargar CSV). Zonas compartidas: `components/`, `lib/`,
+  `content/`, `messages/*.json`.
+- **⭐M-84 — devops:** cablea el **job del correo-resumen** (§CARDSHOW.15) y su cadencia; sin nuevas variables obligatorias
+  (reusa `CARD_SHOW_INTERNAL_RECIPIENTS`).
+- **backend** (modelo fuerte: PII + anti-abuso): M-78 (§CARDSHOW.1), endpoints (§CARDSHOW.2), respuesta neutra (§3), throttle
+  Redis (§4), token de formulario (§5), doble opt-in (§6), presupuesto Redis C1 (§7), topes por buzón C2 (§8), correos C3
+  (confirmación estricto) + **C3-W (bienvenida rico, 3 variantes, tras confirmar un lead)** + internos (§9),
+  corte C6 (§10), validación/MX (§11), torneo L0-SEG-02 (§12), contador de clics (§13), panel (§15). Toca
+  **`backend/src/common/`** y **`schema.prisma`** (zonas compartidas, un stream a la vez). Notas en `docs/BACKEND_NOTES.md`.
+- **frontend**: ruta `/card-show` fuera del i18n (**`frontend/src/middleware.ts`**, zona compartida), los 2 formularios con sus
+  estados (RONDA_0 §6 + textos de estado), plano SVG **sin cotas**, aviso de privacidad reescrito (RONDA_0 §5), el archivo de
+  datos **`frontend/src/content/card-show.ts`** (⭐ v1.93.1: con los valores del evento **públicos**, §CARDSHOW.0; el único
+  marcador que puede quedar es `PATROCINADOR_TBD`), el **`.ics` del calendario** servido como **recurso estático** en
+  **`frontend/src/app/card-show/card-show-cdmx.ics/`** (es el `.ics` que enlaza/adjunta el correo de bienvenida C3-W, §CARDSHOW.9;
+  ⛔ **no es endpoint de API** — no cuelga de `/api/v1/` ni aparece en el registro de endpoints), y **(Diseño A, nuevo)** las
+  **3 páginas de acción** `/card-show/{confirm,cancel,unsubscribe}` (fuera del i18n, de marca): leen el token del query, muestran
+  botón, y al pulsar hacen `POST application/json { token }` a `/api/v1/card-show/{confirm|cancel|unsubscribe}` manejando
+  `200`/`410`/`400`/`429` y el cuerpo `{ ok:false, message }` del torneo ocupado (§CARDSHOW.12). Zonas compartidas:
+  `components/`, `lib/`, `content/`, `messages/*.json`. Notas en `docs/FRONTEND_NOTES.md`.
+- **devops**: subdominio de envío en Resend (SPF/DKIM/DMARC) + webhooks de Resend; variables de §CARDSHOW.16; DNS `www`→apex;
+  términos del **grep de CI** del secreto; **reportar el plan de Resend** (el Free de 100/día no aguanta el anuncio) en la
+  RONDA 1. Notas en `docs/DEVOPS_NOTES.md`.
+- **⭐v1.98 — IMP-3 / IMP-6 (los levantó tester-e2e sobre `release/card-show` @ `78f4abe`; sin migración, sin cambio de
+  `schema.prisma`):**
+  - **M-86 (IMP-3, `q`):** lo corrige **backend** (amplía el `where` de `q` a `name` OR `email` en `/leads`, y
+    `playerName` OR `email` OR `playerId` en `/players`; `card-show.service.ts:900,916`). **frontend** no cambia el rótulo de
+    `/leads` (ya dice «nombre o correo», ahora cierto); sí **verifica** que el campo de búsqueda de `/players` rotule
+    nombre/correo/Player ID. Vigila la paridad la prueba de §13 [M-86 q IMP-3].
+  - **M-87 (IMP-6, form-token):** **frontend** implementa la adquisición perezosa (token al primer foco, 0 al montar) + el copy
+    es/en del `429`; **backend** sube el cupo de `GET /form-token` a 120/h. Vigila la prueba de §13 [M-87 adquisición perezosa].
+- Cualquier cambio de contrato o de `schema.prisma` pasa por el **arquitecto** (regla 9).
+
+### CARDSHOW.18 Rifa informal y privacidad (⭐M-84)
+- **Rifa = dinámica INFORMAL** (dueño JC 2026-10-17): sin costo, entre asistentes y registrados, **se elige en vivo / hay que
+  estar presente para ganar**. ⛔ **No es sorteo formal, ⛔ no crea entidad legal ni permiso nuevo.** En el contrato la rifa se
+  reduce a **tres datos** de `CardShowLead` (solo `visitor`): `raffleOptIn` (participa sí/no), `raffleTermsVersion` (versión de
+  las **bases** aceptada) y el `consentAt`/`privacyVersion` de privacidad que ya existe. Las **bases** son un **texto versionado**
+  análogo a `privacyVersion` (⛔ no se mezcla con él: dos hechos, dos campos — `ARCHITECTURE §4.CARDSHOW.q`). El valor del premio y
+  el texto de las bases viven en el repo (`frontend/src/content/card-show.ts`, públicos — §CARDSHOW.0); el contrato fija estructura.
+- **⭐M-89 — Consentimiento de la rifa SEPARADO (dueño JC 2026-10-17; verbatim «Acepto ese riesgo» — acepta el riesgo legal de la
+  rifa, que se queda, pero el consentimiento se separa):**
+  1. La casilla de **privacidad** obligatoria consiente **solo** el aviso de privacidad. ⛔ **No** bundlea «aceptar las bases de
+     la rifa» (hoy lo hace, `LeadVisitorForm.tsx:137-148`; lo corrige **frontend**).
+  2. `raffleOptIn` es una casilla **propia, DESMARCADA por defecto** (`@default(false)`), con **enlace a las bases** (hoy viene
+     premarcada, `:36`; lo corrige **frontend**).
+  3. `raffleTermsVersion` se exige **solo si `raffleOptIn=true`** (ya es así en el DTO, §CARDSHOW.1b — **confirmado y documentado**).
+  4. **Quién participa** (para que bases y copy no se contradigan, JC): entre **asistentes y registrados**; hay que **estar
+     presente para ganar**; se elige **en vivo**. Las bases y el copy de la landing deben decir exactamente esto.
+  ⛔ **No cambia el schema** (`raffleOptIn`/`raffleTermsVersion` ya existen, M-84). Es cambio de **UI/content** (frontend) sobre
+  campos que ya valida backend. Fuente: `docs/specs/CARDSHOW_LANDING_ESTADO.md §DECISIONES JC 2026-10-17 (R5) #1`.
+- **Privacidad / aviso (⭐M-84):** el **responsable sigue siendo TCG HUNT** y el **mecanismo no cambia** (doble opt-in,
+  anti-abuso, `mailboxHmac`, neutralidad). Pero el aviso de privacidad **debe reflejar los datos nuevos**: (1) se recaba
+  **teléfono** de vendedores/patrocinadores; (2) la **rifa** tiene bases propias versionadas y consentimiento separado. **Para
+  ux-ui/frontend:** el texto del aviso de privacidad y el texto de **bases de la rifa** deben escribirse/versionarse antes de
+  publicar; los candados `legal-gate.ts`/`publish-check.ts` siguen poniendo `404` si queda un marcador en producción (RONDA_0 §5).
+
+### CARDSHOW.§13 CRITERIOS DE ACEPTACIÓN (verbatim — lo que miden pentester y qa; ⛔ no resumir)
+
+[Endpoint y antiabuso — POST /api/v1/card-show/leads y /players]
+Throttle por IP: 6 POST válidos/60s desde 1 IP (token nuevo y correo distinto c/u) ⇒ 5×200 + 1×429 con Retry-After entero ≥1; la 6.ª 0 filas/0 envíos; 21/<1h ⇒ 429 desde la 21.ª; igual en ambos endpoints. Repetir la 6.ª con X-Forwarded-For/X-Real-IP/Forwarded/CF-Connecting-IP/True-Client-IP falsificados ⇒ 429 (mismo cubo); prueba unitaria de que la clave es req.ip con TRUST_PROXY_HOPS=1. IPv6: dos dirs del mismo /64 comparten cubo (o evidencia curl -6). Réplicas Railway N>1: tope sigue 5/min por IP. 61 POST/60s desde ≥13 IP ⇒ 429 desde la 61.ª, rechazadas 0 filas/0 envíos.
+Topes por buzón (silenciosos, 200 idéntico): victima@ , Victima@…TEST, victima+1@, victima+2@ en los 3 tipos y torneo, y v.ictima@gmail vs victima@gmail ⇒ 1 envío por buzón, respuestas idénticas, filas separadas para +1/+2 retenidas sin correo. Reloj simulado: buzón que nunca confirma, altas t0, t0+25h, t0+50h ⇒ 2 envíos. Buzón confirmado ⇒ máx 4/24h; el 5.º no sale. «No fui yo» ⇒ fila desaparece, guarda solo mailboxHmac, nuevas altas de ese buzón 0 envíos/200 idéntico. 21 buzones de un dominio no masivo/24h ⇒ 20 envíos. Dominio sin MX ni A ⇒ 0 envíos/0 filas/200 idéntico.
+Presupuesto global (staging HOUR=10, DAY=20): 11 altas válidas/1h (IP y buzones distintos, sumando ambos formularios) ⇒ 10 envíos; la 11.ª 200 idéntico, PENDING con confirmationHeldAt, 0 envíos; 1 alerta al 5.º envío y 1 al corte, fila en AuditLog c/u. En la hora siguiente la 11.ª no sale sola; sale con acción de super_admin; si nadie la libera, caduca (7d/72h). 21 altas/día ⇒ corte diario a las 20; contador reinicia 00:00 CDMX. Redis caído ⇒ 200 idéntico, PENDING, 0 envíos, alerta. (Resend compartido) 2 a complained@resend.dev/24h ⇒ corte+alerta; 10 a bounced@resend.dev ⇒ mismo corte; solo reabre un humano. Con corte activo, respuesta y tiempo del POST no cambian.
+Honeypot (campo oculto `website`, §CARDSHOW.14): con valor en ambos formularios ⇒ 200 idéntico, 0 filas, 0 envíos, no consume tope ni presupuesto; con VoiceOver/TalkBack no se anuncia ni recibe foco; el autocompletar no lo rellena.
+Token de formulario y tiempo mínimo: sin token / 1 byte alterado / token de player usado en leads ⇒ 400, 0 filas, 0 envíos. POST <2s ⇒ 200 idéntico 0/0; 2.º POST mismo token ⇒ 200 idéntico 0 filas nuevas/0 envíos. TTL reducido: token caducado ⇒ 400 FORM_EXPIRED, el front pide otro y reintenta una vez sin borrar lo tecleado. GET /form-token sin Set-Cookie, Cache-Control: no-store, sin reflejar Origin ajeno, 429 en la 121.ª/h por IP (⭐M-87 IMP-6, antes 31.ª), Retry-After entero ≥1 reflejando ventana de 1 h. [M-87 adquisición perezosa] Montar /card-show ⇒ 0 GET /form-token; primer foco/interacción en un formulario ⇒ 1 GET para su purpose; un formulario reusa su token cacheado hasta FORM_EXPIRED o envío exitoso; el copy del 429 del form-token NO contiene «unos minutos». git grep de CARD_SHOW_FORM_SECRET y CARD_SHOW_LINK_SECRET solo lecturas de config (0 valores), distintos, solo en Railway.
+Validación: body 5 KB ⇒ 413; email 300 chars ⇒ 400; type=ADMIN ⇒ 400; utm_source con <script> ⇒ 400; playerName con http:// @ < o dígitos ⇒ 400; playerId con letras o 13 dígitos ⇒ 400. consent=false/ausente ⇒ 400 y 0 filas. Dos POST simultáneos mismo (email,type) ⇒ 1 fila. Email@Dominio.MX y email@dominio.mx ⇒ misma fila; email+a@ ⇒ otra fila (mismo buzón para topes).
+Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, ≤100 ms) iguales para: alta nueva, repetida, honeypot, <2s, token reutilizado, buzón dado de baja, buzón suprimido, tope agotado, dominio sin MX, corte activo.
+[Doble opt-in] Alta ⇒ exactamente 1 envío, fila PENDING; en PENDING 0 en admin/CSV, no cuenta en hoy/7días/total, 0 avisos internos, 0 confirmaciones por tipo, 0 en resumen diario, 0 a Jakomi. En la fuente del **correo de CONFIRMACIÓN (C3)** solo enlaces del dominio propio (confirmar, «No fui yo», aviso); 0 wa.me/mailto/tienda/utm_/Drive/Maps/calendario; ningún valor tecleado (Player ID «terminado en NNNN»); asunto fijo; 0 imágenes remotas; List-Unsubscribe(+Post) con token; From en subdominio de envío. 3 GET al enlace de confirmación ⇒ 200 con página y botón, fila sigue PENDING, 0 envíos; POST ⇒ NEW (leads) o CONFIRMED/WAITLIST (torneo), confirmedAt, 1 confirmación por tipo y (vendedor/patrocinador) 1 aviso interno; aparece en admin <5s. [Correo de BIENVENIDA C3-W] Al confirmar un lead (NEW) ⇒ exactamente 1 correo de bienvenida, variante por tipo (merchant/sponsor/visitor); este correo SÍ puede llevar wa.me/utm_/Drive/mailto/.ics/Maps (la restricción de C3 NO le aplica — buzón ya confirmado); sigue con From en subdominio de envío, List-Unsubscribe(+Post) con token y ⛔ sin playerName; cuenta contra C1/C2. ⛔ A una fila PENDING ⇒ 0 bienvenidas. Reenviar la confirmación de un lead ya NEW ⇒ 0 bienvenidas nuevas. Los correos internos (aviso al staff, resumen diario) NO están sujetos a la restricción de enlaces de C3. 2.º POST mismo token ⇒ 410, 0 cambios/0 envíos. Token con 1 bit alterado / id de otra fila / caducado / de otro propósito ⇒ 400/410, 0 cambios/0 envíos. Reloj simulado: sin confirmar la fila desaparece a 7d (leads)/72h (torneo); la del torneo nunca restó cupo. POST de List-Unsubscribe-Post ⇒ unsubscribedAt y 0 envíos posteriores. Baja del cuerpo y «Cancelar mi preinscripción»: GET ⇒ página sin cambio; POST ⇒ baja/CANCELLED y el cupo restante sube 1. Repetir alta de un registro ya confirmado dentro de 24h ⇒ 0 envíos. 31 peticiones/min por IP a /confirm,/unsubscribe,/cancel ⇒ 429 desde la 31.ª.
+[Preinscripción al torneo, además] Cupo de prueba=2/día: 3 altas PENDING ⇒ cupo sigue 2; al confirmar las 3 ⇒ 2 CONFIRMED + 1 WAITLIST en orden; dos confirmaciones simultáneas por el último lugar ⇒ 1 CONFIRMED + 1 WAITLIST, nunca 3. Player ID 123 confirmado por correo A el sábado; desde correo B alta del 123 el sábado ⇒ 200 idéntico, fila de A sin cambios, 0 envíos a A; si B confirma ⇒ página «Este Player ID ya está preinscrito ese día», 0 cambios. Mismo correo+Player ID+día dos veces ⇒ 1 fila, 1 envío; «los dos» ⇒ 2 filas, 1 envío. [M-88 confirmación de grupo] alta Pokémon «los dos días» + confirmar el único correo (cupo libre) ⇒ 2 filas confirmed, 0 pending colgada; alta LIGERA «los dos días» + confirmar ⇒ 2 filas confirmed; con sun lleno ⇒ sat confirmed + sun waitlist, 0 pending; reusar el token tras confirmar el grupo ⇒ 410, sin 500; la página de confirmación nombra sábado Y domingo. Candado de paridad c-torneo.mjs check «Pokemon 2 filas (sat+sun) activas» (+ gemelo LIGERA). Tutor con una confirmación pendiente preinscribe a un 2.º jugador (otro playerId) ⇒ fila retenida, 0 envíos; al confirmar la 1.ª sale 1 correo para la 2.ª (⛔ no se auto-confirma: otro grupo). 5.º playerId con el mismo buzón el mismo día ⇒ 200 idéntico, 0 filas; 4.ª PENDING del mismo playerId ⇒ 200 idéntico, 0 filas. Ni el nombre ni el Player ID completo en el correo, logs ni correos a terceros salvo el export de Jakomi.
+[Cabeceras y CSP] La CSP de la landing no contiene challenges.cloudflare.com ni ningún origen nuevo respecto a la tienda; git grep -i turnstile en la rama ⇒ 0.
+[Pivote a leads — M-84, campos nuevos de CardShowLead] Paridad de enums: CardShowGame en las TRES bandas (schema.prisma, common/enum-values.ts CARD_SHOW_GAME_VALUES, §Enums) ⇒ enum-values-parity.spec verde; las TRES bandas listan los CUATRO valores (pokemon, riftbound, lorcana, shardbugs — M-85); game=POKEMON / game=SHARDBUGS (mayúscula) ⇒ 400; game=shardbugs (gameInterest en visitor y game en /players, torneo LIGERA) ⇒ 200. name ausente en cualquier tipo ⇒ 400; name con < > @ o "http" ⇒ 400; name con dígitos/& (p. ej. "Tienda 3D & Cartas") ⇒ 200 (acepta marca). phone en visitor ⇒ 400; phone ausente en merchant/sponsor ⇒ 400; phone "55 1234 5678" / "+52 1 55 1234 5678" ⇒ 200 y se persiste solo dígitos (10). gameInterest en merchant/sponsor ⇒ 400; gameInterest=pokemon en visitor ⇒ 200; gameInterest fuera de dominio ⇒ 400. raffleOptIn en merchant/sponsor ⇒ 400; raffleOptIn=true sin raffleTermsVersion ⇒ 400; raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400; visitor con raffleOptIn=true + raffleTermsVersion ⇒ 200. sellsWhat en visitor ⇒ 400; sellsWhat ≤140 NO_ANGLE en merchant/sponsor ⇒ 200. En el correo de confirmación C3 ⇒ 0 apariciones de name/phone/sellsWhat. mesaInteres en el cuerpo ⇒ 400 (campo desconocido/retirado del DTO); ninguna salida (panel/CSV) lo incluye. Migración M-84: name NOT NULL se añade con DEFAULT '' transitorio, backfill, DROP DEFAULT (0 filas rotas); mesaInteres NO se dropea.
+[Pivote — torneo por juego] game=pokemon sin playerId ⇒ 400; game=pokemon con playerId dígitos ⇒ 200 y rige cupo/waitlist/índice parcial. game=riftbound|lorcana con playerId ⇒ 400 {field:playerId}; sin playerId ⇒ 200, fila playerId=NULL, al confirmar pasa directo a confirmed (nunca waitlist). Dos filas LIGERA del mismo (buzón, juego, día) ⇒ 200 idéntico, 1 fila activa (dedupe); 4.ª PENDING del mismo (buzón, juego, día) ⇒ 200 idéntico, 0 filas. Índice único parcial recreado: SOLO cubre game='pokemon' AND playerId IS NOT NULL AND status activo ⇒ dos filas LIGERA sin playerId no colisionan. playerId vacío en el CSV de players para filas LIGERA.
+[Pivote — panel/CSV/correo-resumen] /leads y /players (JSON) responden con la envoltura de paginación de §0 { data, page, pageSize, total } (§CARDSHOW.15; total excluye PENDING); export.csv sin envoltura (CSV plano). /leads JSON y CSV incluyen name, phone, gameInterest, raffleOptIn, raffleTermsVersion, sellsWhat; /players incluye game; PENDING sigue sin aparecer en ninguna salida ni conteo. ?game= en /players: fuera de dominio ⇒ 400. [M-86 q IMP-3] /leads: sembrar un lead cuyo name casa q pero email NO ⇒ aparece; otro cuyo email casa q pero name NO ⇒ aparece; quitar la cláusula `name` de q ⇒ el 1.º desaparece (prueba roja); q insensible a mayúsculas (q=ana casa Ana); q NUNCA trae PENDING. /players: fila cuyo playerName casa q pero email NO ⇒ aparece; fila cuyo playerId (dígitos) casa q ⇒ aparece; fila LIGERA sin playerId no rompe y no casa por playerId; q no casa phone ni sellsWhat. Correo-resumen: cuerpo con 0 PII en claro (0 apariciones de name/phone/email/playerName/playerId), solo conteos + enlace autenticado; 0 filas PENDING en los conteos; sin IP; es correo interno (sin pie de privacidad, ≤10/h).
+[M-89 Jakomi tipo+conteo (A)] Confirmar un merchant/sponsor ⇒ el aviso interno CON nombre+teléfono reales va a buzones TCG HUNT (jsainz@/scarranza@) y ⛔ NO lista cardshow@jakomi.mx en To/CC/BCC. Todo correo cuyo destinatario (To/CC/BCC) incluya cardshow@jakomi.mx ⇒ 0 apariciones de name/phone/email/playerName en asunto y cuerpo (solo cifras y, como mucho, un enlace de descarga autenticado): vale para el aviso interno (⇒ Jakomi no es destinatario) y para el correo-resumen agregado (⇒ Jakomi SÍ puede serlo). Candado: el test de PII del correo se amplía a la rama cuyo destinatario es Jakomi (antes solo cubría C3). El enlace del resumen exige sesión super_admin (la PII no viaja en el correo).
+[M-89 consentimiento rifa separado (B)] raffleOptIn nace DESMARCADO: visitor con privacidad marcada y raffleOptIn ausente ⇒ 200 y raffleOptIn=false (⛔ no se infiere true de la privacidad). La casilla de privacidad obligatoria NO fuerza aceptar bases (privacidad marcada + raffle sin marcar ⇒ 200). raffleOptIn=true exige raffleTermsVersion (si no ⇒ 400); raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400 (ya en §CARDSHOW.1b, confirmado). Frontend: el DOM del formulario visitor tiene DOS casillas distintas (privacidad obligatoria; rifa opcional con enlace a bases), la de rifa con checked=false por defecto; el copy de las bases dice «asistentes y registrados, presente para ganar, se elige en vivo».
