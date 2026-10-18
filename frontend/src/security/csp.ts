@@ -114,6 +114,10 @@ export function buildCsp(nonce: string, env: CspEnv, mode: CspMode = CSP_MODE): 
     'https://*.js.stripe.com',
     'https://hooks.stripe.com',
     'https://accounts.google.com',
+    // Mapa EMBEBIDO del Card Show (iframe `www.google.com/maps?...&output=embed`, autorizado por el
+    // dueño JC 2026-10-18). ⛔ Solo el host del embed; no se abre nada en script/img/connect. El
+    // visitante carga contenido de Google (nota de privacidad en FRONTEND_NOTES §CARDSHOW-MOTION).
+    'https://www.google.com',
   ];
 
   if (preview) {
