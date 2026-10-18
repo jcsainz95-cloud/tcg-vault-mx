@@ -48,6 +48,85 @@
   }
 }
 
+/* --- Explosión del hero (isla `HeroExplosion`; realce DECORATIVO, aria-hidden) ---
+ * Las capas nacen con opacity:0 (inline) ⇒ sin JS quedan invisibles y el hero se ve armado. La isla
+ * las anima con `motion`. Con reduced-motion la isla no anima y, por candado, la capa se oculta. */
+.cs-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cs-flash {
+  position: absolute;
+  inset: 0;
+  background: #f4f1ea;
+  mix-blend-mode: screen;
+  will-change: opacity;
+}
+.cs-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 2px solid #e0353b; /* §CS-UX.1: rojo sobre tinta = #E0353B, ⛔ nunca #B31217 */
+  will-change: transform, opacity;
+}
+.cs-debris {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 118px;
+  height: 160px;
+  margin: -80px 0 0 -59px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid rgba(244, 241, 234, 0.16);
+  background: #201d26;
+  color: #f4f1ea;
+  will-change: transform, opacity;
+}
+.cs-debris-paper {
+  background: #f4f1ea;
+  color: #1a1a18;
+  border-color: transparent;
+}
+.cs-debris-red {
+  background: #e0353b; /* §CS-UX.1 */
+  color: #f4f1ea;
+  border-color: transparent;
+}
+.cs-debris-k {
+  font-family: var(--font-mono), ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.cs-debris-b {
+  font-family: var(--font-brand), var(--font-sans), system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+.cs-confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Candado reduced-motion: el realce de la explosión no existe (sin ráfaga, flash ni shake). */
+@media (prefers-reduced-motion: reduce) {
+  .cs-burst {
+    display: none;
+  }
+}
+
 /* --- Tira horizontal de torneos (scroll-snap, sin barra visible) --- */
 .cs-rail {
   scroll-snap-type: x mandatory;

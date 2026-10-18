@@ -5,6 +5,25 @@ import { RegistrationForms } from './_components/RegistrationForms';
 import { StickyRegisterCta } from './_components/StickyRegisterCta';
 import { CardShowMotion } from './_components/CardShowMotion';
 import { HeroTicket } from './_components/HeroTicket';
+import { HeroExplosion, type BurstChip } from './_components/HeroExplosion';
+
+/**
+ * «Cartas» de la ráfaga del hero (realce DECORATIVO, aria-hidden). Datos derivados de los facts
+ * públicos del evento (precio del main, rifa, juegos, entrada, pisos, fechas, sede); una sola fuente
+ * conceptual con `CARD_SHOW`. ⛔ Rojo sobre tinta = #E0353B (§CS-UX.1), nunca #B31217.
+ */
+const BURST_CHIPS: readonly BurstChip[] = [
+  { k: 'Pokémon · Main', b: 'MX$200', tone: 'red' },
+  { k: 'Rifa en vivo', b: '30th', tone: 'paper' },
+  { k: 'Riftbound', b: 'Torneo' },
+  { k: 'Lorcana', b: 'Torneo' },
+  { k: 'Shard Bugs', b: 'Torneo' },
+  { k: 'Entrada', b: 'Libre', tone: 'red' },
+  { k: 'Vendedores', b: 'Piso 2', tone: 'paper' },
+  { k: 'Torneos', b: 'Piso 3' },
+  { k: 'Sáb + Dom', b: '5·6 Dic', tone: 'paper' },
+  { k: 'Sede', b: 'CDMX' },
+];
 
 /**
  * Landing del Card Show — PÁGINA DE CAPTURA DE LEADS (pivote del dueño JC 2026-10-17) con RESTYLE
@@ -65,10 +84,23 @@ export default function CardShowPage() {
   const c = CARD_SHOW;
   return (
     <div data-cs-root>
+      {/* BARRA DE ANUNCIO (gancho ARRIBA DEL TODO, decisión JC 2026-10-18 «que jale gente»): relleno
+          #B31217 + texto papel (6.18:1 AA para texto normal, §CS-UX.1). No es sticky: queda sobre el
+          topbar y se va al bajar. Enlace completo a #registro. Copy en `content/card-show.ts`. */}
+      <a
+        href="#registro"
+        className="block bg-[#B31217] px-4 py-2 text-center font-mono text-[11px] uppercase leading-snug tracking-label text-[#F4F1EA] hover:brightness-95"
+      >
+        {c.rifa.anuncio} <span aria-hidden>→</span>
+      </a>
+
       {/* TOPBAR (tinta) — lockup «TCG HUNT × Jakomi» con el LOGO real (§CS-UX.5): solo-mira + wordmark
-          nowrap con tracking responsivo + logo Jakomi (≥12px, ⛔ nunca oculto). */}
+          nowrap con tracking responsivo + logo Jakomi. Jakomi a ≥36px de alto (RECONOCIBLE, no el
+          cuadrito ilegible de 20–24px — hallazgo tester-e2e; a ≥32–40px ya se lee). El alto de la fila
+          lo fija la CTA (min-h-44), así subir Jakomi a 36–44px no cambia el alto del topbar (~73px,
+          `scroll-mt-[73px]`). ⛔ nowrap, Jakomi nunca oculto, `×` presente, ≥12px (§CS-UX.5). */}
       <header className="sticky top-0 z-30 border-b border-on-ink-rule bg-ink text-on-ink">
-        <div className="gutter flex items-center justify-between gap-3 py-3.5">
+        <div className="gutter flex items-center justify-between gap-3 py-3">
           <div
             className="flex items-center gap-2 whitespace-nowrap sm:gap-2.5"
             aria-label="TCG HUNT por Jakomi"
@@ -84,7 +116,7 @@ export default function CardShowPage() {
             <img
               src={c.colaborador.logo}
               alt={c.colaborador.nombre}
-              className="h-5 w-auto shrink-0 border border-on-ink-rule bg-white px-1 py-0.5 min-[390px]:h-6"
+              className="h-9 w-auto shrink-0 border border-on-ink-rule bg-white px-1 py-0.5 min-[390px]:h-10 sm:h-11"
             />
           </div>
           <a href="#registro" className={btnTopbarInk}>
@@ -95,30 +127,35 @@ export default function CardShowPage() {
 
       {/* pb en móvil reserva el alto de la CTA fija para que no tape la última línea del footer. */}
       <main className="pb-[76px] sm:pb-0">
-        {/* HERO (tinta) */}
-        <section id="hero" className="bg-ink text-on-ink scroll-mt-[73px]">
-          <div className="gutter grid items-end gap-x-14 gap-y-10 py-14 sm:py-20 lg:grid-cols-[1.25fr_0.75fr]">
+        {/* HERO (tinta) — `relative overflow-hidden` para que la ráfaga decorativa se recorte al salir
+            (sin CLS). `data-cs-hero` lo localiza la isla; el contenido va en una capa `z-10` sobre el
+            burst (`z-0`). */}
+        <section
+          id="hero"
+          data-cs-hero
+          className="relative overflow-hidden bg-ink text-on-ink scroll-mt-[73px]"
+        >
+          {/* Explosión AL CARGAR (realce; aria-hidden). PE: el hero se lee sin esto; reduced-motion y
+              sin-JS ⇒ sin ráfaga. */}
+          <HeroExplosion chips={BURST_CHIPS} />
+          <div
+            data-cs-hero-shake
+            className="gutter relative z-10 grid items-end gap-x-14 gap-y-10 py-14 sm:py-20 lg:grid-cols-[1.25fr_0.75fr]"
+          >
             <div className="cs-reveal">
               <div className="mb-5 flex items-center gap-4">
                 <p className="eyebrow">{c.hero.fecha}</p>
                 <span aria-hidden className="h-px flex-1 bg-[color:var(--hunt-red-up)] opacity-60" />
               </div>
-              <h1 className="font-brand text-[clamp(2.9rem,11vw,5.6rem)] font-bold leading-[0.95] tracking-[-0.01em] text-on-ink">
+              <h1
+                data-cs-hero-title
+                className="font-brand text-[clamp(2.9rem,11vw,5.6rem)] font-bold leading-[0.95] tracking-[-0.01em] text-on-ink"
+              >
                 {c.hero.titulo}
                 <br />
                 <span className="text-[color:var(--hunt-red-up)]">{c.hero.lineaDos}</span>
               </h1>
               <p className="mt-5 max-w-[44ch] text-lg text-on-ink">{c.hero.lede}</p>
-
-              <a
-                href="#rifa"
-                className="mt-6 inline-flex items-center gap-2 border border-on-ink-rule border-l-2 border-l-[color:var(--hunt-red-on-ink)] px-3.5 py-2.5 font-mono text-sm text-on-ink hover:border-[color:var(--hunt-red-on-ink)]"
-              >
-                <span className="font-bold text-[color:var(--hunt-red-up)]">
-                  Rifa: set del 30.º aniversario de Pokémon
-                </span>
-                — sin costo. Regístrate y participa.
-              </a>
 
               <div className="mt-7 flex flex-wrap gap-3">
                 <a href={c.hero.ctaPrimario.href} className={btnRedOnInk}>
@@ -132,6 +169,20 @@ export default function CardShowPage() {
               <div className="mt-9 border-t border-on-ink-rule pt-7">
                 <Countdown targetIso={c.countdownTargetIso} />
               </div>
+
+              {/* Mención de rifa BAJO la cuenta regresiva con REGLA IZQUIERDA ROJA (decisión JC: gancho
+                  arriba). Copy de `content/card-show.ts`; §CS-UX.1 rojo sobre tinta = #E0353B. */}
+              <a
+                href="#rifa"
+                className="mt-7 flex items-start gap-3 border-l-2 border-[color:var(--hunt-red-on-ink)] pl-4 font-mono text-sm text-on-ink hover:text-[color:var(--hunt-red-up)]"
+              >
+                <span>
+                  <span className="font-bold text-[color:var(--hunt-red-up)]">
+                    Rifa: set del 30.º aniversario de Pokémon
+                  </span>{' '}
+                  — sin costo. Regístrate y participa.
+                </span>
+              </a>
             </div>
 
             {/* Ticket del evento con parallax sutil (isla de cliente). */}
@@ -146,11 +197,13 @@ export default function CardShowPage() {
           <div className="cs-reveal">
             <p className="font-mono text-[11px] uppercase tracking-label text-muted">{c.colaborador.label}</p>
             <div className="mt-4 flex flex-wrap items-center gap-5">
+              {/* El lockup Jakomi es VERTICAL (200×241); en «en colaboración con» va a ~96px de alto
+                  para que SE LEA claro (tester-e2e: ~80px ya es legible), no un cuadrito. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={c.colaborador.logo}
                 alt={c.colaborador.nombre}
-                className="h-20 w-20 border border-border bg-white object-contain p-2"
+                className="h-24 w-auto border border-border bg-white object-contain p-2.5"
               />
               <div className="min-w-0">
                 <h2 className="font-brand text-h3 font-bold">{c.colaborador.nombre}</h2>
@@ -210,14 +263,6 @@ export default function CardShowPage() {
                   <li key={p}>{p}</li>
                 ))}
               </ul>
-              <a
-                href={c.evento.direccion.mapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex items-center gap-2 border border-border-strong px-3.5 py-2 font-mono text-xs uppercase tracking-label text-text hover:border-text"
-              >
-                {c.evento.direccion.mapsLabel} →
-              </a>
             </div>
             <div>
               <p className="font-mono text-[11px] uppercase tracking-label text-accent">Cómo llegar</p>
@@ -231,6 +276,30 @@ export default function CardShowPage() {
               </ol>
             </div>
           </div>
+
+          {/* MAPA EMBEBIDO (decisión JC 2026-10-18: autorizó añadir `frame-src https://www.google.com`).
+              Forma SIN API key; el visitante carga contenido de Google (nota de privacidad en
+              FRONTEND_NOTES). `loading=lazy` ⇒ no pesa en el above-the-fold. El enlace externo queda
+              debajo como alternativa accesible. */}
+          <figure className="cs-reveal mt-8">
+            <iframe
+              title={c.evento.direccion.mapsEmbedTitle}
+              src={c.evento.direccion.mapsEmbedUrl}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="h-[320px] w-full border border-border"
+            />
+            <figcaption className="mt-3">
+              <a
+                href={c.evento.direccion.mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 border border-border-strong px-3.5 py-2 font-mono text-xs uppercase tracking-label text-text hover:border-text"
+              >
+                {c.evento.direccion.mapsLabel} →
+              </a>
+            </figcaption>
+          </figure>
         </section>
 
         {/* QUÉ VAS A ENCONTRAR (papel) */}

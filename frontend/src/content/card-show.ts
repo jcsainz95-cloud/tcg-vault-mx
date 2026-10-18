@@ -75,8 +75,10 @@ export const CARD_SHOW = {
 
   /**
    * DATOS DEL EVENTO — fuente única: `docs/specs/CARDSHOW_LANDING_ESTADO.md` «DATOS DEL EVENTO» (JC
-   * 2026-10-17, públicos por decisión del dueño). La dirección exacta YA se publica. El mapa va como
-   * ENLACE externo (la CSP ⛔ no admite iframe de mapa). Horarios del torneo PRELIMINARES.
+   * 2026-10-17, públicos por decisión del dueño). La dirección exacta YA se publica. El mapa va
+   * EMBEBIDO (iframe de Google Maps sin API key, `mapsEmbedUrl`) — la CSP lo admite desde que el dueño
+   * autorizó añadir `frame-src https://www.google.com` (JC 2026-10-18, `security/csp.ts`); además queda
+   * el ENLACE externo `mapsUrl` («Abrir en Google Maps»). Horarios del torneo PRELIMINARES.
    */
   evento: {
     eyebrow: 'Cuándo y dónde',
@@ -94,9 +96,15 @@ export const CARD_SHOW = {
         'Piso 2 — vendedores',
         'Piso 3 — torneos, juego libre y comida',
       ],
-      mapsLabel: 'Ver en Google Maps',
+      mapsLabel: 'Abrir en Google Maps',
       mapsUrl:
         'https://www.google.com/maps/search/?api=1&query=Jos%C3%A9+del+Castillo+3%2C+San+Jos%C3%A9+Insurgentes%2C+Benito+Ju%C3%A1rez%2C+CDMX',
+      // Iframe SIN API key (forma `?q=<dir>&output=embed`); host `www.google.com` (único dominio añadido
+      // a `frame-src`). Dirección urlencoded = la misma `comoLlegar.direccion` (fuente única del texto plano).
+      mapsEmbedUrl:
+        'https://www.google.com/maps?q=Jos%C3%A9%20del%20Castillo%203%2C%20San%20Jos%C3%A9%20Insurgentes%2C%20Benito%20Ju%C3%A1rez%2C%2003900%20CDMX&output=embed',
+      mapsEmbedTitle:
+        'Mapa de Google: José del Castillo 3, Col. San José Insurgentes, Benito Juárez, 03900 CDMX',
     },
     torneoPokemon:
       'Torneo de Pokémon (horarios preliminares): sábado 12:00–18:00 y domingo 12:00–17:00. Los horarios finales se anuncian en los próximos días.',
@@ -185,6 +193,8 @@ export const CARD_SHOW = {
     imagen: '/card-show/product_30th.jpg',
     imagenAlt: 'Premio de la rifa: Pokémon TCG 30th Celebration Poster Collection',
     strip: 'Rifa: set del 30.º aniversario de Pokémon — sin costo. Regístrate y participa.',
+    // Barra de anuncio superior (gancho ARRIBA DEL TODO, decisión JC 2026-10-18 «que jale gente»).
+    anuncio: 'Rifa en vivo · Pokémon 30th Celebration Poster Collection — regístrate y participa',
     lede:
       'Entre todos los asistentes y registrados rifamos la Poster Collection del 30.º aniversario de Pokémon — 3 sobres, póster gigante y cartas promo. Sin costo: con registrarte ya participas.',
     pasos: [
