@@ -63,7 +63,9 @@ function mondayOfIsoWeek(year: number, week: number): Ymd {
   const jan4: Ymd = `${String(year).padStart(4, '0')}-01-04`;
   const mondayOfWeek1 = addDays(jan4, 1 - isoWeekday(jan4));
   const monday = addDays(mondayOfWeek1, (week - 1) * 7);
-  // La semana 53 puede no existir en algunos años: si el lunes cayó en otro año ISO, se rechaza.
+  // La semana 53 no existe en todos los años: una semana ISO pertenece al año de su JUEVES. Si el jueves cae en el
+  // año siguiente, «YYYY-W53» sería en realidad la W01 del año siguiente ⇒ 400 (candado `marketing-period.spec.ts`).
+  if (addDays(monday, 3).slice(0, 4) !== String(year).padStart(4, '0')) bad('invalid week');
   return monday;
 }
 
@@ -229,7 +231,8 @@ export function marketingPeriodOptions(now: Date): MarketingPeriodsResponse {
 }
 
 /**
- * Periodo de la pantalla del panel (§MKT.G.2): como `aggregates`, pero SIN periodo ⇒ la última semana cerrada.
+ * Periodo de la pantalla del panel (§MKT.G.2) y del botón `weekly-excel`: como `aggregates`, pero SIN periodo ⇒ la
+ * última semana cerrada.
  * Los parámetros prohibidos (`from`/`to`/`day`/`preset`) se pasan SIEMPRE a la validación ⇒ 400 aunque falte la
  * semana (⛔ no se ignoran en silencio).
  */

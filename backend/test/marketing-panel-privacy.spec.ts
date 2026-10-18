@@ -207,13 +207,50 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
       lines.forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
         if (!code.includes("'exact'")) return;
-        // Comparaciones (=== / !==) y tipos (`'small_cells' | 'exact'`) no PRODUCEN el régimen.
-        const stripped = code.replace(/[!=]==\s*'exact'/g, '').replace(/\|\s*'exact'/g, '').replace(/'exact'\s*\|/g, '');
+        // Comparaciones (=== / !==) y tipos (`'small_cells' | 'exact'`, `'exact' & { marca }`) no PRODUCEN el régimen.
+        const stripped = code
+          .replace(/[!=]==\s*'exact'/g, '')
+          .replace(/\|\s*'exact'/g, '')
+          .replace(/'exact'\s*\|/g, '')
+          .replace(/=\s*'exact'\s*&/g, '');
         if (stripped.includes("'exact'")) producers.push(`${path.relative(dir, f)}:${i + 1}`);
       });
     }
     expect(producers.length).toBe(1);
     expect(producers[0]).toMatch(/^marketing\.controller\.ts:\d+$/);
+  });
+
+  it('tipo (D3): el régimen exacto es un tipo MARCADO — `screen()` no acepta el literal \'exact\' a pelo', () => {
+    const { ctrl } = build([]);
+    const svc = (ctrl as unknown as { analytics: MarketingAnalyticsService }).analytics;
+    const period = resolveMarketingPeriod({ week: '2026-W41' }, new Date());
+    // El candado es el COMPILADOR (ts-jest y `tsc --noEmit` comprueban tipos): si `CellPrivacy` vuelve a admitir el
+    // literal, esta directiva queda sin error que esperar y la compilación de este fichero cae (TS2578).
+    // @ts-expect-error — 'exact' no es asignable a CellPrivacy; solo `panelPrivacy()` fabrica `ExactPrivacy`.
+    const call = () => svc.screen('h', period, new Date(), 'exact');
+    expect(typeof call).toBe('function');
+  });
+
+  it('estático (D3): el único cast a `ExactPrivacy`/`CellPrivacy` del módulo está en el manejador del panel', () => {
+    const dir = path.join(__dirname, '../src/modules/marketing');
+    const casts: string[] = [];
+    const walk = (d: string) => {
+      for (const f of fs.readdirSync(d)) {
+        const p = path.join(d, f);
+        if (fs.statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith('.ts')) {
+          fs.readFileSync(p, 'utf8')
+            .split('\n')
+            .forEach((line, i) => {
+              const code = line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
+              if (/\bas\s+(ExactPrivacy|CellPrivacy)\b/.test(code)) casts.push(`${path.relative(dir, p)}:${i + 1}`);
+            });
+        }
+      }
+    };
+    walk(dir);
+    expect(casts).toHaveLength(1);
+    expect(casts[0]).toMatch(/^marketing\.controller\.ts:\d+$/);
   });
 });
 

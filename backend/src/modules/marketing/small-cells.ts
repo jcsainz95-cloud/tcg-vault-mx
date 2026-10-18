@@ -14,20 +14,28 @@
  * ⛔ El conteo real de una fila oculta NUNCA viaja: se reemplaza por el centinela.
  * ⛔ Los TOTALES SIN DIMENSIÓN (a1/a2 de la semana) NO pasan por aquí: se muestran exactos.
  *
- * 🔒 INVARIANTE (MKT-TL2, aún SIN candado) — la supresión complementaria solo protege si **ninguna salida del
- * mismo periodo publica el TOTAL exacto de la MISMA población** que la tabla suprimida: con ese total,
- * total − visibles despeja la suma de lo oculto. ⚠️ Medido 2026-10-18: c7 (pedidos por estado, mes) y a1
- * (pedidos pagados del mes, exacto) cuentan la MISMA población (`settledAt` en el periodo, estados cobrados)
- * ⇒ a1 − filas visibles de c7 despeja «Otros estados» + «Recogida» cuando solo una de las dos sale «< 5».
- * No identifica un estado (ya vienen agrupados), pero rompe el invariante; ver docs/TECH_DEBT.md MKT-TL2.
+ * 🔒 INVARIANTE (MKT-TL2) — la supresión complementaria solo protege si **ninguna salida del mismo periodo publica
+ * el TOTAL exacto de la MISMA población** que la tabla suprimida, salvo que la tabla nunca deje UNA sola celda oculta:
+ * con ese total, total − visibles despeja la SUMA de lo oculto. c7 (pedidos por estado, mes) y a1 (pedidos pagados
+ * del mes, exacto) son la misma población; desde 2026-10-18 c7 pasa por aquí (`safeRows`) ⇒ nunca queda una sola
+ * celda oculta y a1 − visibles despeja la suma de ≥ 2 (candado `marketing-analytics.service.spec.ts` «c7»). Lo que
+ * sigue abierto (candado general entre pantallas, tabla con una sola fila): docs/TECH_DEBT.md MKT-TL2.
  *
  * Régimen (`CellPrivacy`, API_CONTRACT v1.103 §MKT.G.2): `'small_cells'` aplica todo lo anterior; `'exact'` lo
  * salta (cifras reales, sin «Otros»). Es un PARÁMETRO del mismo cálculo, no un segundo camino. Solo la pantalla
  * del dueño (`GET …/panel` con sesión `super_admin`) usa `'exact'`; toda salida fuera de pantalla, `'small_cells'`.
  */
 
+declare const OWNER_EXACT: unique symbol;
+/**
+ * Régimen exacto como tipo MARCADO (techlead D3, 2026-10-18): el literal `'exact'` a pelo NO es asignable a
+ * `CellPrivacy`, así que una salida no puede nacer exacta por escribir la palabra. El único productor es
+ * `MarketingController.panelPrivacy()` (cast explícito, vigilado por `test/marketing-panel-privacy.spec.ts`).
+ * En ejecución sigue siendo la cadena `'exact'` (viaja así en `ScreenPayload.privacy`).
+ */
+export type ExactPrivacy = 'exact' & { readonly [OWNER_EXACT]: true };
 /** Régimen de privacidad de las celdas de una salida del panel. */
-export type CellPrivacy = 'small_cells' | 'exact';
+export type CellPrivacy = 'small_cells' | ExactPrivacy;
 
 /** Umbral de la regla: por debajo de 5 se oculta (PM-A1). */
 export const SMALL_CELL_THRESHOLD = 5;

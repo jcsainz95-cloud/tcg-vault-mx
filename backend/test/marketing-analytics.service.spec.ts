@@ -12,7 +12,9 @@
  *  - columnas GA4/SC/atribución (a4/a5/b/e/g/f): salen «NO MEDIDO — …» con motivo, NUNCA «0».
  */
 import { MarketingAnalyticsService } from '../src/modules/marketing/marketing-analytics.service';
-import { SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
+import * as fs from 'fs';
+import * as path from 'path';
+import { OTROS_LABEL, SMALL_CELL_SENTINEL, type CellPrivacy } from '../src/modules/marketing/small-cells';
 import type { MarketingPeriod } from '../src/modules/marketing/marketing-period';
 import type { AggTable } from '../src/modules/marketing/marketing-aggregates.types';
 import type { SalesFigures, Delta } from '../src/modules/sales-analytics/sales-figures';
@@ -91,6 +93,12 @@ const monthPeriod: MarketingPeriod = {
 };
 
 const NOW = new Date('2026-10-14T12:00:00.000Z');
+
+/**
+ * El régimen exacto en una prueba: solo `panelPrivacy()` lo produce en `src/` (tipo marcado `ExactPrivacy`, D3).
+ * Las pruebas lo fabrican con este cast EXPLÍCITO, para que se lea que nadie más lo hace a pelo.
+ */
+const ownerExact = (): CellPrivacy => 'exact' as CellPrivacy;
 
 interface Mocks {
   report: jest.Mock;
@@ -293,30 +301,128 @@ describe('MarketingAnalyticsService — c7 por estado de envío', () => {
     expect(m.orderFindMany).not.toHaveBeenCalled(); // no consulta si no llega al mínimo
   });
 
-  it('c7 (mes, ≥4 semanas): estados N<5 ⇒ «Otros estados»; bóveda ⇒ «Recogida en persona» aparte', async () => {
+  const shipTo = (state: string, at = new Date('2026-09-10T18:00:00.000Z')) => ({
+    fulfillmentMode: 'direct_ship',
+    shippingAddressSnapshot: { state },
+    settledAt: at,
+  });
+  const pickupAt = (at = new Date('2026-09-10T18:00:00.000Z')) => ({ fulfillmentMode: 'vault', shippingAddressSnapshot: null, settledAt: at });
+  /** El mock filtra por el rango que pide el servicio (como haría Prisma), para medir el mes Y las semanas. */
+  const ordersIn = (all: { settledAt: Date }[]) => ({ where }: { where: { settledAt: { gte: Date; lt: Date } } }) =>
+    Promise.resolve(all.filter((o) => o.settledAt >= where.settledAt.gte && o.settledAt < where.settledAt.lt));
+
+  /**
+   * TL2 (caso c7↔a1): a1 publica EXACTO el total de la misma población. Con `grupos` = las celdas reales de c7
+   * (estados ≥5, «Otros estados», «Recogida»), a1 − filas visibles despeja la suma de las ocultas ⇒ nunca debe
+   * quedar UNA sola celda oculta (0 ó ≥2).
+   */
+  const hiddenGroups = (c7: AggTable, grupos: Record<string, number>): string[] =>
+    Object.keys(grupos).filter((g) => !c7.rows.some((r) => r.estado === g && r.pedidos === grupos[g]));
+
+  it('c7 (mes): estados N<5 ⇒ «Otros estados»; una sola celda oculta ⇒ supresión complementaria con la siguiente más chica', async () => {
     const { svc, m } = build();
-    const shipTo = (state: string) => ({ fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { state } });
     const orders = [
       ...Array.from({ length: 10 }, () => shipTo('Jalisco')), // visible
-      ...Array.from({ length: 2 }, () => shipTo('Colima')), // <5 ⇒ Otros
-      ...Array.from({ length: 1 }, () => shipTo('Nayarit')), // <5 ⇒ Otros
-      ...Array.from({ length: 6 }, () => ({ fulfillmentMode: 'vault', shippingAddressSnapshot: null })), // recogida
+      ...Array.from({ length: 2 }, () => shipTo('Colima')), // <5 ⇒ Otros estados
+      ...Array.from({ length: 1 }, () => shipTo('Nayarit')), // <5 ⇒ Otros estados
+      ...Array.from({ length: 6 }, () => pickupAt()), // recogida (6)
     ];
-    m.orderFindMany.mockResolvedValue(orders);
+    m.orderFindMany.mockImplementation(ordersIn(orders));
 
-    const payload = await svc.screen('c', monthPeriod, NOW, 'small_cells');
-    const c7 = tableById(payload.tables, 'c7');
+    const c7 = tableById((await svc.screen('c', monthPeriod, NOW, 'small_cells')).tables, 'c7');
     expect(c7.measured).toBe(true);
-
-    const jalisco = c7.rows.find((r) => r.estado === 'Jalisco');
-    const otros = c7.rows.find((r) => r.estado === 'Otros estados');
-    const recogida = c7.rows.find((r) => r.estado === 'Recogida en persona');
-    expect(jalisco).toMatchObject({ pedidos: 10 });
-    // Colima(2) + Nayarit(1) = 3 (<5) ⇒ se agrupan y el conteo del grupo también se oculta.
-    expect(otros).toMatchObject({ pedidos: SMALL_CELL_SENTINEL });
-    expect(recogida).toMatchObject({ pedidos: 6 });
+    expect(c7.rows.find((r) => r.estado === 'Jalisco')).toMatchObject({ pedidos: 10 });
+    // «Otros estados»=3 sale «< 5» y era la ÚNICA oculta ⇒ va a «Otros (< 5 c/u)» con «Recogida» (6): a1 − 10 = 9
+    // ya no despeja ninguna de las dos.
+    expect(c7.rows.find((r) => r.estado === OTROS_LABEL)).toMatchObject({ pedidos: SMALL_CELL_SENTINEL });
+    expect(c7.rows.some((r) => r.pedidos === 6 || r.pedidos === 3)).toBe(false);
+    expect(hiddenGroups(c7, { Jalisco: 10, 'Otros estados': 3, 'Recogida en persona': 6 })).toHaveLength(2);
     // ⛔ Ni Colima ni Nayarit aparecen como fila propia.
     expect(c7.rows.some((r) => r.estado === 'Colima' || r.estado === 'Nayarit')).toBe(false);
+  });
+
+  it('c7 (mes): «Otros estados» visible y otra celda sola oculta (Sonora no, Recogida 2) ⇒ nunca UNA celda oculta', async () => {
+    const { svc, m } = build();
+    const orders = [
+      ...Array.from({ length: 10 }, () => shipTo('Jalisco')),
+      ...Array.from({ length: 7 }, () => shipTo('Sonora')),
+      ...Array.from({ length: 3 }, () => shipTo('Colima')),
+      ...Array.from({ length: 2 }, () => shipTo('Nayarit')), // Otros estados = 5 ⇒ visible
+      ...Array.from({ length: 2 }, () => pickupAt()), // Recogida = 2 ⇒ «< 5», sola
+    ];
+    m.orderFindMany.mockImplementation(ordersIn(orders));
+    const c7 = tableById((await svc.screen('c', monthPeriod, NOW, 'small_cells')).tables, 'c7');
+    const hidden = hiddenGroups(c7, { Jalisco: 10, Sonora: 7, 'Otros estados': 5, 'Recogida en persona': 2 });
+    expect(hidden).toHaveLength(2);
+    // El umbral es el de `small-cells.ts`: «Otros estados» con N=5 exacto NO se oculta por umbral (sale por la pareja).
+    expect(hidden.sort()).toEqual(['Otros estados', 'Recogida en persona']);
+    expect(c7.rows.find((r) => r.estado === 'Jalisco')).toMatchObject({ pedidos: 10 });
+    expect(c7.rows.find((r) => r.estado === 'Sonora')).toMatchObject({ pedidos: 7 });
+  });
+
+  it('c7 (mes, exact): mismas claves que small_cells sin «Otros (< 5 c/u)», con los valores reales', async () => {
+    const { svc, m } = build();
+    const orders = [
+      ...Array.from({ length: 10 }, () => shipTo('Jalisco')),
+      ...Array.from({ length: 2 }, () => shipTo('Colima')),
+      ...Array.from({ length: 1 }, () => shipTo('Nayarit')),
+      ...Array.from({ length: 6 }, () => pickupAt()),
+    ];
+    m.orderFindMany.mockImplementation(ordersIn(orders));
+    const exact = tableById((await svc.screen('c', monthPeriod, NOW, ownerExact())).tables, 'c7');
+    // §MKT.G.9 (8): mismas filas que small_cells ANTES de ocultar. La agrupación de estados N<5 en «Otros estados»
+    // es ESTRUCTURA de c7 (PM-B2), no umbral ⇒ también en exact.
+    expect(exact.rows).toEqual([
+      { estado: 'Jalisco', pedidos: 10 },
+      { estado: 'Otros estados', pedidos: 3 },
+      { estado: 'Recogida en persona', pedidos: 6 },
+    ]);
+  });
+
+  it('c7 (mes): la supresión coherente NO usa semanas (c7 semanal no se publica: NO MEDIDO) ⇒ no sobre-oculta', async () => {
+    const { svc, m } = build();
+    // Jalisco: 10 en septiembre, ≤ 3 por semana. Si el mes heredara las semanas, Jalisco saldría «oculta».
+    const days = ['2026-09-02', '2026-09-09', '2026-09-16', '2026-09-23', '2026-09-29'];
+    const orders = [
+      ...days.flatMap((d) => Array.from({ length: 2 }, () => shipTo('Jalisco', new Date(`${d}T18:00:00.000Z`)))),
+      ...Array.from({ length: 6 }, () => pickupAt()),
+      ...Array.from({ length: 8 }, () => shipTo('Sonora')),
+    ];
+    m.orderFindMany.mockImplementation(ordersIn(orders));
+    const c7 = tableById((await svc.screen('c', monthPeriod, NOW, 'small_cells')).tables, 'c7');
+    expect(c7.rows).toEqual([
+      { estado: 'Jalisco', pedidos: 10 },
+      { estado: 'Sonora', pedidos: 8 },
+      { estado: 'Recogida en persona', pedidos: 6 },
+    ]);
+  });
+
+  it('estático (D1): c7 NO tiene camino propio de celdas pequeñas — sin centinela, sin rama exact, sin umbral literal', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../src/modules/marketing/marketing-analytics.service.ts'), 'utf8');
+    const start = src.indexOf('private async c7ByState(');
+    expect(start).toBeGreaterThan(0);
+    const end = src.indexOf('\n  // ────', start);
+    const body = src.slice(start, end > 0 ? end : undefined);
+    expect(body).not.toContain('SMALL_CELL_SENTINEL');
+    expect(body).not.toMatch(/privacy\s*===\s*'exact'/);
+    expect(body).not.toMatch(/[<>]=?\s*5\b/);
+    expect(body).toContain('this.safeRows(');
+  });
+});
+
+describe('MarketingAnalyticsService — notas de régimen (techlead D3, 2026-10-18)', () => {
+  it('exact: ninguna nota de tabla dice «< 5» (a3, d1, d3, d4b); small_cells: sí, con el umbral', async () => {
+    const { svc, m } = build();
+    m.report.mockResolvedValue(reportDto({ totals: figures({}), previousTotals: figures({}), comparison: {} }));
+    m.wishlistItemGroupBy.mockResolvedValue([{ cardId: 'X', _count: { _all: 2 } }]);
+    for (const [screen, ids] of [['a', ['a3']], ['d', ['d1', 'd3', 'd4b']]] as const) {
+      const exact = await svc.screen(screen, weekPeriod, NOW, ownerExact());
+      const small = await svc.screen(screen, weekPeriod, NOW, 'small_cells');
+      for (const id of ids) {
+        expect([id, (tableById(exact.tables, id).notes ?? []).some((n) => n.includes('< 5'))]).toEqual([id, false]);
+        expect([id, (tableById(small.tables, id).notes ?? []).some((n) => n.includes('< 5'))]).toEqual([id, true]);
+      }
+    }
   });
 });
 

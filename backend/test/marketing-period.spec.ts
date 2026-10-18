@@ -60,6 +60,17 @@ describe('resolveMarketingPeriod', () => {
     expect(status(() => resolveMarketingPeriod({ preset: 'last7' }, NOW))).toBe(400);
   });
 
+  it('400 — semana ISO 53 que NO existe en ese año (2025 tiene 52); 2026-W53 sí existe', () => {
+    // 2025 empieza en miércoles y no es bisiesto ⇒ 52 semanas ISO. Sin el rechazo, «2025-W53» resolvía al
+    // lunes 2025-12-29, que es 2026-W01: una etiqueta falsa para otra semana (marketing-period.ts mondayOfIsoWeek).
+    expect(status(() => resolveMarketingPeriod({ week: '2025-W53' }, NOW))).toBe(400);
+    expect(status(() => resolveMarketingPeriod({ week: '2025-W00' }, NOW))).toBe(400);
+    // 2026 empieza en jueves ⇒ 53 semanas; su W53 (28-dic-2026 → 3-ene-2027) es válida una vez cerrada.
+    const p = resolveMarketingPeriod({ week: '2026-W53' }, new Date('2027-01-06T18:00:00.000Z'));
+    expect(p).toMatchObject({ kind: 'week', from: '2026-12-28', to: '2027-01-03', label: '2026-W53' });
+    expect(resolveMarketingPeriod({ week: '2025-W52' }, NOW)).toMatchObject({ from: '2025-12-22', to: '2025-12-28' });
+  });
+
   it('400 — más de un periodo a la vez, o ninguno', () => {
     expect(status(() => resolveMarketingPeriod({ week: '2026-W40', month: '2026-09' }, NOW))).toBe(400);
     expect(status(() => resolveMarketingPeriod({}, NOW))).toBe(400);
