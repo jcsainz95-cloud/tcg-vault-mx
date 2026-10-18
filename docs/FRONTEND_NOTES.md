@@ -7,15 +7,29 @@
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
 **Estado vigente.** Restyle + reflow + motion de la landing EXISTENTE `/card-show` (decisión del dueño JC,
-preview aprobado `scratchpad/cardshow-preview-motion.html`). ⛔ Solo `frontend/`; ⛔ sin tocar backend, contrato ni
-`/admin/card-show`. Toda la conducta gateada se conserva (doble opt-in, anti-abuso, rifa separada/desmarcada M-89,
-TorneoForm, MerchantSponsorForm, StickyRegisterCta, páginas de acción, §CS-UX.3): los formularios y sus pruebas no
-se tocaron. Contenido = `content/card-show.ts` tal cual (reacomodado, sin copy nuevo).
+preview aprobado `scratchpad/cardshow-preview-motion.html` + hero `scratchpad/cardshow-hero-explosion.html`).
+⛔ Solo `frontend/`; ⛔ sin tocar backend, contrato ni `/admin/card-show`. Toda la conducta gateada se conserva
+(doble opt-in, anti-abuso, rifa separada/desmarcada M-89, TorneoForm, MerchantSponsorForm, StickyRegisterCta,
+páginas de acción, §CS-UX.3, PE sin-JS, sin CLS, reduced-motion). Contenido = `content/card-show.ts` reacomodado
+(sin copy nuevo salvo `rifa.anuncio` = rearme de la rifa, y campos del embed del mapa). **R2 (2026-10-18):** lo que
+aprobó JC en los mocks (explosión del hero, rifa como gancho ARRIBA, mapa embebido) + 3 arreglos que midió
+tester-e2e (§CS-UX.4 títulos de páginas de acción, §CS-UX.3 limpiar error al corregir, legibilidad del lockup).
 
 - **Librería de motion:** `motion@14.3.0` (pin exacto, `package.json`), **bundleada** (⛔ nada de CDN: la CSP es
   `script-src 'self' 'nonce' 'strict-dynamic' https:`, `security/csp.ts` — un CDN se bloquea). Se usa en
   `HeroTicket.tsx` (parallax sutil del ticket del hero vía `useScroll`/`useTransform`, apagado con
-  `useReducedMotion`).
+  `useReducedMotion`) y en `HeroExplosion.tsx` (API imperativa `animate` de `motion`, ⛔ no GSAP).
+- **Explosión del hero AL CARGAR (`HeroExplosion.tsx` + `.cs-burst` en `card-show.css`):** capa DECORATIVA
+  (`aria-hidden`, `absolute`, `z-0`) sobre el hero (`[data-cs-hero]`, `relative overflow-hidden`): flash breve,
+  2 anillos de choque que escalan desde el centro, ~10 «cartas» (datos públicos del evento) disparadas lejos y
+  girando con flotación suave, sacudida corta del contenido (`[data-cs-hero-shake]`), golpe con overshoot del
+  título (`[data-cs-hero-title]`, `scale:[1,1.06,0.99,1]`) y confeti canvas (#e0353b/#b31217/#f4f1ea/#1a1a18).
+  **PE/flicker/CLS:** las capas nacen `opacity:0` (sin JS quedan invisibles, el hero se lee armado); el golpe del
+  título arranca DESDE EL REPOSO (nunca se oculta ⇒ sin parpadeo above-the-fold); solo `transform`/`opacity` ⇒
+  sin CLS. **reduced-motion:** doble candado — la isla no anima y `@media (prefers-reduced-motion:reduce){.cs-burst{display:none}}`
+  oculta el realce (hero estático, sin ráfaga/flash/shake). Confeti y animaciones se cancelan al desmontar.
+  ⛔ Rojo del burst sobre tinta = `#E0353B`, nunca `#B31217` (§CS-UX.1); el `#b31217` del confeti son píxeles de
+  canvas, no un elemento con `color`.
 - **Reveals al scroll:** CSS en `app/card-show/card-show.css` + isla `CardShowMotion.tsx` (IntersectionObserver).
   **Progressive enhancement:** el estado «oculto» solo existe bajo `[data-cs-root][data-cs-motion]`, atributo que
   pone el JS en cliente SOLO si no hay `prefers-reduced-motion`. Sin JS ⇒ todo visible (⛔ sin `opacity-0`; pasa el
@@ -29,16 +43,40 @@ se tocaron. Contenido = `content/card-show.ts` tal cual (reacomodado, sin copy n
   tono por superficie (⛔ el rojo claro y `on-ink-nav` no leen sobre papel).
 - **Reflow (del preview):** agenda = línea de tiempo de 2 días (no rejilla); torneos = **tira horizontal**
   scroll-snap (`.cs-rail`, sangra al borde); cómo llegar = lista numerada con reglas. Countdown en mono/tabular.
+- **Barra de anuncio (gancho ARRIBA DEL TODO, R2 · decisión JC «que jale gente»):** `<a href="#registro">` con
+  relleno `#B31217` + texto papel `#F4F1EA` (6.18:1 AA texto normal, §CS-UX.1), copy `rifa.anuncio`. NO es sticky
+  (queda sobre el topbar y se va al bajar). También hay una **mención de rifa en el hero bajo la cuenta regresiva**
+  con regla izquierda roja (`border-l-2` `#E0353B`).
 - **Topbar (tinta):** lockup «TCG HUNT × Jakomi» con LOGO real (§CS-UX.5) = `LogoTcgHunt` `mark-dark` 30px + wordmark
   Montserrat `nowrap` con tracking responsivo (0.02em <360 / 0.04em / `wordmark` ≥390) + `×` (aria-hidden) + logo
-  Jakomi (20–24px, ⛔ nunca oculto). CTA del topbar = variante B (relleno `#B31217` + contorno 2px papel), oculto
-  <360px (el CTA principal vive en el hero).
+  Jakomi. **Legibilidad (R2, hallazgo tester-e2e):** `jakomi-logo.webp` es un lockup VERTICAL 200×241; a 20–24px se
+  volvía un cuadrito. Ahora va a **h-9 (36px) móvil / h-10 (40px) ≥390 / h-11 (44px) ≥640** — RECONOCIBLE (tester-e2e:
+  ~80px legible, ≥32–40px ya se lee), ⛔ nunca oculto, ≥12px (§CS-UX.5) de sobra. El alto de la fila lo fija la CTA
+  (`min-h-44`), así subir Jakomi NO cambia el alto del topbar (~73px, `scroll-mt-[73px]` intacto). En «en colaboración
+  con» Jakomi va a ~96px (`h-24`) para leerse claro. CTA del topbar = variante B (`#B31217` + contorno 2px papel),
+  oculto <360px (el CTA principal vive en el hero).
+- **Mapa EMBEBIDO en «Cómo llegar» (R2 · JC autorizó cambiar la CSP):** `<iframe>` de Google Maps SIN API key
+  (`evento.direccion.mapsEmbedUrl` = `https://www.google.com/maps?q=<dir>&output=embed`), con `title`, `loading="lazy"`,
+  `referrerPolicy="no-referrer-when-downgrade"`; debajo queda el `<a>` «Abrir en Google Maps →» y arriba la lista
+  Metro/Metrobús. **Delta CSP (`security/csp.ts`): +`https://www.google.com` en `frame-src` y NADA más** (ni
+  script/img/connect). **Privacidad:** al cargar el mapa el visitante solicita contenido a Google (cookies/IP a
+  Google); `loading="lazy"` difiere la carga hasta que la sección entra en viewport. Candado `csp.test.ts`
+  («frame-src … www.google.com») actualizado a la lista exacta autorizada (sigue siendo igualdad estricta, no se
+  debilitó). El cambio de CSP lo revisa el gate de SEGURIDAD.
+- **Arreglos tester-e2e (R2):** §CS-UX.4 — los `h1` de `/card-show/confirm|cancel|unsubscribe` (`LinkActionClient.tsx`)
+  pasan de `font-serif` (Mincho) a `font-brand` 700 `tracking-[-0.01em]`, alcance por ruta del microsite, ⛔ sin
+  tocar el default global. §CS-UX.3 (comportamiento 3) — `LeadVisitorForm`/`TorneoForm`/`MerchantSponsorForm` ahora
+  **retiran el error del campo en su primer `change`** (`clearFieldError`), que al poner `error=undefined` quita
+  `aria-invalid`/`aria-describedby`; la validación al enviar y el foco al primer inválido no cambian.
 - **«Invertir ◐» (opcional): NO incluido.** Una inversión global correcta exige remapear varios tokens de marca y
   AUN así deja texto de acento pequeño (eyebrows 11px con `text-accent`) bajo AA sobre la superficie invertida
   (#E0353B 3.94:1 < 4.5 para texto chico), lo que viola §CS-UX.1/.2. El dueño condicionó el botón a «si no complica
   accesibilidad»; complica ⇒ se omite. Follow-up posible con sistema de doble token por escena.
-- **Verificado (sha de la rama):** `lint` ✓, `typecheck` ✓, `test` 4380/4380 (11 skip pre-existentes, 0 tocadas),
-  `build` ✓ (`/card-show` 59 kB · first load 172 kB). E2E Playwright NO corrido aquí (lo corre qa/tester-e2e).
+- **Verificado R2 (sha de la rama):** `lint` ✓, `typecheck` ✓, `test` 4380/4380 (341 archivos, 11 skip
+  pre-existentes; `csp.test.ts` y `CardShowForms.test.tsx` siguen verdes — se tocó SOLO el candado de `frame-src`
+  para listar el dominio autorizado, sin debilitarlo), `build` ✓ (`/card-show` 66.5 kB · first load 180 kB; subió
+  ~7 kB por `HeroExplosion` + `animate` imperativo). E2E Playwright y verificación con navegador (lockup a
+  320/390/1280, embed del mapa, reduced-motion, sin-JS) NO corridas aquí — las corren qa/tester-e2e/ux-review.
 
 ## §CARDSHOW-R5b · Bloqueantes móvil/legal/accesibilidad + datos del evento (2026-10-17, rama `fix/card-show-r5b-frontend`, base `release/card-show` sha `1315236`)
 
