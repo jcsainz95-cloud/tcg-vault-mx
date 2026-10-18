@@ -33507,3 +33507,357 @@ Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-r
 ### MKT-UX.18 Changelog
 
 **vMKT-1 (2026-10-18):** §MKT-UX nueva: página `/admin/marketing` (pestañas a–h + acceso del analista, selector de semana/mes cerrados, tablas con vocabulario «< 5 / Oculto / No medido / —», anotaciones, descarga de Excel, 403/carga/error/vacío, móvil, claves ES/EN, 18 candados). Cero tokens y cero pares de contraste nuevos. 13 peticiones de contrato (MKT-UX.17).
+
+---
+
+## MKT2-UX. Fase 2 de marketing — banner de cookies, segunda capa, enlace para cambiar la elección, rótulo del build bloqueado y aviso de «cifras exactas» del Panel (vMKT2-1, 2026-10-18 · `API_CONTRACT §MKT.H` rev v1.102⟨mkt-fase2⟩ y `§MKT.G.2` rev v1.103⟨mkt-panel-exacto⟩ · `ARCHITECTURE §14` · brief de marketing `PAQUETE_TIENDA_2026-10-16.md` §D)
+
+### MKT2-UX.0 Fuente, alcance y reglas duras
+
+**Qué se leyó (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`, HEAD `c492b0e4` dado por el orquestador; ux-ui sin Bash, sha NO MEDIDO por mí):** brief `PAQUETE_TIENDA_2026-10-16.md:206-262` (§D, con §D3b en `:229-246`; fuente de negocio, solo lectura); `API_CONTRACT.md:45687-45934` (§MKT.H: modo `:45697`, `banner-response` `:45742-45754`, cookies `:45876-45885`, candados `:45906-45927`) y `:45445-45478` (§MKT.G.2, `privacy`); `ARCHITECTURE.md:36954-37091` (§14.0-§14.4); `HECHOS.md:172` (dueño, 2026-10-18, «si cifras exactas»); `frontend/src/app/[locale]/(storefront)/layout.tsx:23,41-47,50-77` (`#main`, skip-link, pie), `…/catalog/[cardId]/CardDetailView.tsx:474,504` (barra de COMPRAR: `fixed inset-x-0 bottom-0 z-40 … lg:hidden`), `…/buylist/SellCartBar.tsx:67` (`fixed … bottom-0 z-40 hidden h-16 … lg:flex`), `frontend/src/components/ui/Toast.tsx:139` (`z-[60]`); `frontend/messages/es.json:7489-7496` (`privacy.link`, `privacy.opensInNewTab`); y de este documento §2.3, §4.3, §6.1, §6.4, §7.5, §7.6, §80 y MKT-UX.9/.13/.14. **No existe** un espacio `consent.*` en `messages/es.json` (Grep, 2026-10-18). **No medido** en navegador: ningún número de altura de esta sección (son aritmética de diseño, MKT2-UX.4).
+
+**Cero tokens visuales nuevos, cero pares de contraste nuevos, cero componentes de dominio fuera de los de MKT2-UX.9.** Dos variables CSS de layout nuevas (`--sticky-bottom-h`, `--consent-banner-h`), del mismo tipo que `--app-header-h` (§4.5): contrato de layout, no token.
+
+**Reglas duras (se revisan en el PR):**
+- **CK-1 · Con `NEXT_PUBLIC_MEASUREMENT_MODE=off` no existe nada de esto:** ni banner, ni enlace «Preferencias de cookies», ni segunda capa, ni llamada a `banner-response` (`ARCHITECTURE.md:36990`, `API_CONTRACT.md:45697`). Lo mismo con `on` pero sin ninguna etiqueta con ID válido (`ARCHITECTURE.md:37019-37020`: «no se pide permiso para algo que no existe»).
+- **CK-2 · Sin muro.** Quien no responde usa la tienda entera (brief `:239`). Sin capa oscura, sin `aria-modal`, sin bloqueo de scroll, sin trampa de foco **en el banner** (la trampa de foco es solo de la segunda capa, que es un diálogo que el visitante abre a propósito).
+- **CK-3 · Ningún patrón oscuro.** (a) «Aceptar» y «Solo lo necesario» están **los dos** en la primera capa, a **un** toque, ambos `<button>` reales con texto, ambos ≥ 44 px de alto, misma tipografía; (b) ningún interruptor viene encendido; (c) ningún texto culpabiliza o lisonjea («No quiero ayudar», «Sí, quiero lo mejor»); (d) ningún color engañoso (ni el bermellón ni el gris apagado para el botón de rechazo); (e) rechazar no cuesta más pasos que aceptar; (f) cerrar con `Esc` o tocar fuera de la segunda capa **no es una respuesta**: no escribe `th_consent` ni cuenta en el contador.
+- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **las revisa el abogado con el aviso** (MKT2-UX.13, duda 3).
+- **CK-5 · El banner no decide qué se mide.** Pinta la elección y la escribe donde manda ARCHITECTURE §14.3; ⛔ no decide rutas ni eventos (§14.4) ni calcula la tasa de aceptación (la cuenta el servidor, `API_CONTRACT.md:45744-45753`).
+- **P66-3:** ⛔ ningún código interno en pantalla («MKT», «Fase 2», «D3b», «Consent Mode», «`th_consent`», «GA4», «CAPI»).
+
+---
+
+### MKT2-UX.1 Decisión del dueño que contradice una línea del encargo — léela primero
+
+El encargo de ux-ui dice «Aceptar y Solo necesarias deben tener el mismo peso visual». La decisión del dueño, literal en el brief, dice lo contrario:
+
+> «deja solo el de aceptar más grande haz este cambio y se lo paso a orquestador» (`PAQUETE_TIENDA_2026-10-16.md:230`); «**Botón primario "Aceptar".** Grande y destacado: color de marca, ancho completo en móvil, el elemento más visible del banner» (`:235`); «**Secundario "Solo lo necesario".** Visible en la primera capa, sin abrir menús, como botón o enlace más pequeño y de menor contraste (no oculto, no gris ilegible, no detrás de "Configurar")» (`:236`).
+
+No lo resuelvo en silencio. **Decisión de diseño: gana la decisión del dueño (`:230-236`), con el daño de «menor peso» acotado a lo que ella pide** y nada más:
+
+| Atributo | «Aceptar» | «Solo lo necesario» | ¿Lo pide el dueño? |
+|---|---|---|---|
+| Relleno | tinta (`primary`) | papel con **borde de tinta de 1 px** y texto de tinta | Sí: «menor contraste» (`:236`) |
+| Alto | 48 px (`lg`) | 44 px (`md` con área táctil de 44) | Sí: «más pequeño» (`:236`) |
+| Ancho en móvil | completo | **completo** | «Aceptar» completo (`:235`); el otro no se achica más |
+| Tipografía y tamaño de letra | la misma (13 px, 600) | la misma | No: igual a propósito |
+| Posición | primera | inmediatamente después, a la vista | `:236` «visible en la primera capa» |
+| Texto legible | papel sobre tinta 15.45:1 | tinta sobre papel 15.45:1 | `:236` «no gris ilegible» |
+
+Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO** (misma bandera LFPDPPP 2025 del brief `:208-211`; lo cierra la asesoría legal del dueño, no el diseño).
+
+---
+
+### MKT2-UX.2 Máquina de estados de la elección (qué ve el visitante en cada caso)
+
+| Estado de `th_consent` (`API_CONTRACT.md:45880`, `ARCHITECTURE.md:37059-37061`) | Banner | Enlace «Preferencias de cookies» (pie y aviso) | Etiquetas |
+|---|---|---|---|
+| `off` (modo apagado) o sin ninguna etiqueta con ID válido | **No existe** | **No existe** | ninguna |
+| `on`, sin cookie, o cookie de **otra versión del aviso** | **Visible** hasta que responda (o salga de la pestaña: `no_response`) | Existe | ninguna |
+| `on`, cookie vigente `{a,m}` | No se monta | Existe | las que `a`/`m` permitan |
+| `on`, no se pudo escribir la cookie (navegador que la bloquea) | Se cierra para esa pestaña (la elección vive en memoria); **no** reaparece en cada página de la sesión | Existe | las de la elección en memoria |
+
+- **Hidratación sin parpadeo:** el servidor **no** pinta el banner (no puede leer la cookie al renderizar de forma estática); el cliente lo monta tras leer `th_consent`. Un navegador sin JavaScript no ve banner **ni** carga etiquetas: consistente.
+- **Dónde se monta (supuesto de diseño, petición 2):** solo en las rutas de la lista blanca de medición (`ARCHITECTURE.md:37076-37078`); en cuenta, bóveda, admin, vender, restablecer y `/pedido?token=` no se pide permiso para algo que ahí no corre. El **enlace del pie** existe en todo lugar donde se pinta el pie de la tienda.
+- **Una pregunta no se repite en la misma visita:** tras responder, el banner no vuelve hasta que caduque la cookie (180 días) o cambie la versión del aviso. Sin respuesta, el banner sigue en las páginas siguientes de la sesión (no se vuelve más insistente: sin animación, sin ampliarse).
+
+---
+
+### MKT2-UX.3 Primera capa — el banner
+
+**Anatomía (DOM en este orden; el orden de tabulación es el del DOM):**
+
+```
+móvil (< md) · 390×664, apilado                    escritorio (≥ md), una fila
+┌────────────────────────────────────────┐          ┌──────────────────────────────────────────────────────────────┐
+│ Usamos cookies para saber qué          │          │ Usamos cookies para saber qué publicaciones   [ Aceptar ] [ Solo lo necesario ] │
+│ publicaciones te traen y mejorar la    │          │ te traen y mejorar la tienda. Aviso de        Configurar                         │
+│ tienda. Aviso de privacidad ↗          │          │ privacidad ↗                                                                      │
+│ [          Aceptar  (tinta, 48)      ] │          └──────────────────────────────────────────────────────────────┘
+│ [ Solo lo necesario (borde tinta, 44) ]│
+│ Configurar                             │
+└────────────────────────────────────────┘
+```
+
+| Elemento | Decisión |
+|---|---|
+| Contenedor | `<div role="region" aria-label="{consent.region}">`. **No** `role="dialog"`, **no** `aria-modal`. Fondo `--color-surface-2` (pozo), regla superior `--color-border-strong` 1 px, **sin sombra** (§4.3), radio 0 (§4.2). Gutter de página (§4.1). Padding vertical `pt-3 pb-2` (12/8 px) en móvil; `py-3` en ≥ `md` |
+| Posición | `fixed inset-x-0 z-40`, `bottom: var(--sticky-bottom-h, 0px)` (MKT2-UX.5): **encima** de la barra de COMPRAR, nunca la cubre (brief `:238`). Sin barra, `bottom: 0` y `padding-bottom: max(0.5rem, env(safe-area-inset-bottom))` |
+| Dónde está en el DOM | **justo después del skip-link y antes del resto del shell.** Es visualmente lo último de la pantalla, pero así el visitante de teclado o de lector lo encuentra **sin recorrer toda la página**. Desviación consciente del «orden de tabulación = orden visual» de MKT-UX.2: el banner es un aviso que se resuelve una vez, no contenido de lectura |
+| Texto | `consent.text` (13–14 px, tinta, `leading-[1.5]`), seguido, en la misma frase, del `PrivacyNoticeLink` variante **`inline`** de §80 (pestaña nueva, subrayado, icono y texto «(se abre en otra pestaña)» ya existentes: `privacy.link`, `privacy.opensInNewTab`). Es el **octavo** sitio de §80; ⛔ no se hace un enlace nuevo ni una clave nueva para «Aviso de privacidad» (§80.0.1 y .5). Sin título visible: «nada más en la primera capa» (brief `:234`) |
+| «Aceptar» | `Button` `primary` `lg`, **ancho completo en móvil** (`w-full`), ancho automático con `min-w-[10rem]` en ≥ `md`. Concede analítica **y** publicidad (brief `:235`) |
+| «Solo lo necesario» | `<button>` con borde de tinta 1 px (`border-text`), fondo papel, texto de tinta; `h-11` (44 px), ancho completo en móvil. **No** es un `<a>`, **no** está detrás de «Configurar» ni de un menú. Todo en `denied` (brief `:236`) |
+| «Configurar» | `<button>` con aspecto de enlace (§6.1 `link`: tinta, subrayado `underline underline-offset-4`, 13 px), `min-h-9` (36 px): en móvil, bajo los dos botones, alineado a la izquierda; en escritorio, a la derecha de «Solo lo necesario». Abre la segunda capa (MKT2-UX.7). **Desviación consciente de los 44 px de §6.1**, para no pasar el presupuesto de altura de brief `:238`; cumple los 24 px de WCAG 2.5.8 y deja ≥ 8 px a sus vecinos |
+| Foco inicial | **El banner no roba el foco** al aparecer (no es un diálogo). El visitante de teclado llega a él con el primer `Tab` tras el skip-link |
+| `Esc` | **No hace nada** (CK-3 f): no es una respuesta |
+| Movimiento | Ninguno (sin animación de entrada; `prefers-reduced-motion` no tiene qué desactivar) |
+
+**Estados de los botones** (§6.1): hover (tinta → `--color-primary-hover` en «Aceptar»; fondo `surface-2` en «Solo lo necesario»), `focus-visible` (anillo global bermellón 2 px con offset 2 px; ⛔ `outline-none`), `active` (`scale-[.98]`). No hay `loading`: la elección se escribe en el momento (cookie local) y el envío a `banner-response` es **best-effort y no espera** (`API_CONTRACT.md:45748`, `ARCHITECTURE.md:37056`): un fallo de red no se le muestra al visitante ni retrasa el cierre.
+
+**Al responder (cualquiera de las tres salidas):** el banner se desmonta; el foco **pasa a `#main`** (`tabindex="-1"`, el mismo destino del skip-link, `(storefront)/layout.tsx:23,42`) para que un visitante de teclado no quede en `<body>`; y un `role="status"` (región viva **montada de antemano**, `aria-live="polite"`) anuncia «{consent.saved}». Sin toast visible: la desaparición del banner es la confirmación visual.
+
+---
+
+### MKT2-UX.4 Presupuesto de altura (móvil 390×664, brief `:238` y `:241`)
+
+El brief pide «lo menor posible (orientativo ≤ ~30 % del viewport; propuesta, ajustable)» (`:238`) y, en la captura del criterio 1, ver los dos botones sin scroll y el precio «IVA incluido» y COMPRAR sin tapar (`:241`).
+
+| Pieza (ES, 390 px de ancho, texto en 2 líneas) | px |
+|---|---|
+| Padding superior | 12 |
+| Texto con el enlace al aviso (2 líneas × 20) | 40 |
+| Hueco | 8 |
+| «Aceptar» | 48 |
+| Hueco | 8 |
+| «Solo lo necesario» | 44 |
+| «Configurar» | 36 |
+| Padding inferior | 8 |
+| **Total** | **204** (30.7 % de 664) |
+
+- **Aritmética de diseño, no medida en navegador (NO MEDIDO).** Rebasa el ≈ 30 % orientativo en ~1 punto; el brief lo llama «ajustable». **Techo duro para el candado: 232 px (35 % de 664)** en ES y en EN (el texto de EN puede pasar a 3 líneas: 224 px). Si C-F12 lo mide por encima, la palanca es subir «Configurar» a la misma fila que el enlace al aviso, no achicar los botones.
+- **Con la barra de COMPRAR debajo** (≈ 72 px, `CardDetailView.tsx:504`: `py-3` + contenido; altura real **NO MEDIDA**), lo fijo ocupa ~276 px (≈ 42 %) y quedan ~388 px de contenido. El precio «desde» + IVA + COMPRAR viven **dentro** de la barra (`CardDetailView.test.tsx:448`), así que siguen a la vista por construcción; que el bloque de precio **de la página** también se vea sin scroll depende del layout de la ficha: **NO MEDIDO** (lo cierra la captura del criterio 1).
+- **Escritorio:** una fila de ~84–96 px; sin presupuesto en el brief.
+
+---
+
+### MKT2-UX.5 «No tapar el botón COMPRAR»: el contrato de layout
+
+D3b: «el banner va encima de ella o la empuja, nunca la cubre» (`:238`). **Decisión: el banner va encima.** La barra de COMPRAR no se mueve (el pulgar la encuentra siempre en el mismo sitio y no hay salto cuando el banner desaparece).
+
+| | Regla |
+|---|---|
+| **Nombre** | `--sticky-bottom-h` (px), contrato de layout (no token; no se mapea en `tailwind.config`; se consume con valor arbitrario), gemela de `--app-header-h` (§4.5) |
+| **Quién la define** | **Cada barra fija inferior**, y solo ella, en `document.documentElement`, con un único hook compartido (p. ej. `useStickyBottomBar(ref)`; nombre libre de frontend) que mide `offsetHeight` **con** su padding de área segura (`pb-[max(0.75rem,env(safe-area-inset-bottom))]`) con `ResizeObserver` y **la limpia al desmontar**. Hoy: la barra de `CardDetailView.tsx:504`, la de `SealedDetailView` (mismo patrón, `SealedDetailView.test.tsx:253`) y `SellCartBar.tsx:67`. Cualquier barra fija inferior que se cree después usa el mismo hook; si hay más de una a la vez, el valor es la mayor (no la suma). Barra de pago del checkout y `SellCartFab`: **NO MEDIDO** si existen como fijas inferiores; el frontend las inspecciona antes de dar el trabajo por terminado |
+| **Quién la consume** | Solo el banner (`bottom: var(--sticky-bottom-h, 0px)`) |
+| **Fallback** | `0px` siempre |
+| **Prohibición** | ⛔ Nunca se hardcodea la altura de una barra dentro del banner (`bottom-[72px]`); ⛔ nunca se baja el `z-index` de la barra para «meter» el banner debajo |
+| `--consent-banner-h` | La define **el banner** en `document.documentElement` (misma técnica) y la consume el contenedor del shell del storefront como `padding-bottom`, para que el pie y su último renglón no queden **tapados** mientras el banner siga sin respuesta. Se limpia al desmontar. El cambio de padding ocurre bajo el pliegue: no cuenta como salto de diseño visible |
+| `z-index` | Banner `z-40` como las barras (no se solapan por construcción). La segunda capa usa el `Modal` de §7.6 (por encima). El `Toast` (`z-[60]`, `Toast.tsx:139`) queda por encima del banner a propósito |
+
+**Zona compartida:** el hook toca tres componentes de módulos distintos (`catalog`, `sellado`, `buylist` del mapa de módulos de `CLAUDE.md`) y `frontend/src/hooks/`. Es una petición de **serialización al orquestador** (MKT2-UX.13, petición 5), no de contrato.
+
+---
+
+### MKT2-UX.6 Texto del banner (decisión de copy)
+
+El texto de brief `:234` («Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.» + «Aviso de privacidad») se adopta **tal cual** y se marca **provisional hasta que el dueño lo valide con su asesoría legal** (el propio brief lo dice, `:234` y `:293`). Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
+
+Si la tasa de aceptación sale < 50 % con N ≥ 100, marketing propone un A/B **de texto** (brief `:245`): por eso el texto vive en una clave y **ningún** otro atributo del banner depende de su longitud (el candado de altura C-F12 es el que avisa si un texto nuevo lo rompe).
+
+---
+
+### MKT2-UX.7 Segunda capa — «Preferencias de cookies» («custom»)
+
+**Qué es:** un diálogo (`Modal` §7.6: centrado en escritorio, *bottom sheet* en móvil; radio 0; scrim de tinta; **foco atrapado**; `Esc` y «Cancelar» cierran **sin guardar**). Se abre desde **dos** sitios: «Configurar» del banner y el enlace persistente (MKT2-UX.8). Es la separación que exige el brief: analítica sin publicidad (`:237`, `:225`).
+
+```
+PREFERENCIAS DE COOKIES                                                  ← h2 del diálogo (aria-labelledby)
+Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.
+
+─ Necesarias ──────────────────────────────────────── Siempre activas
+  Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.
+─ Analítica ───────────────────────────────── [ Switch ] Desactivada
+  Nos dice qué páginas y publicaciones llevan a compras (Google Analytics).
+─ Publicidad ──────────────────────────────── [ Switch ] Desactivada
+  Mide qué publicaciones y anuncios llevan a compras (Meta).
+─────────────────────────────────────────────────────────────────────
+Más detalle en el Aviso de privacidad ↗
+
+                                     [ Cancelar ]  [ Guardar mi elección ]
+```
+
+| Elemento | Decisión |
+|---|---|
+| Filas | Una por finalidad, separadas por **regla** (`--color-border`), sin cajas de color (§2.1). Título en 13 px 600; descripción en 13 px `muted` (4.85:1 sobre papel; **el diálogo va sobre papel**, no sobre pozo, para no bajar a 4.60:1: MKT-UX.13) |
+| «Necesarias» | **Texto «Siempre activas»**, no un interruptor deshabilitado (un `switch` deshabilitado se anuncia como una opción que no se puede cambiar y confunde al lector) |
+| Interruptores | `Switch` de §6.4 (`role="switch"`, `aria-checked`, área táctil 44 px). Etiqueta = título de la fila; la descripción va en `aria-describedby`. **Texto de estado visible** «Activada» / «Desactivada» al lado (el estado no depende del color, §6.4) |
+| **Valores iniciales** | Sin `th_consent` vigente: **los dos apagados** (brief `:237` «ambos apagados por defecto»). Con `th_consent` vigente (se abrió desde el pie): reflejan la elección guardada. Tras un cambio de versión del aviso: apagados (se vuelve a preguntar de cero) |
+| «Guardar mi elección» | `Button` `primary` `md`. Guarda `{a,m}` tal cual estén los interruptores —**también si los dos están apagados**— |
+| «Cancelar» | `Button` `secondary` `md`. Cierra sin escribir nada. Sin respuesta contada |
+| Foco | Al abrir: al título del diálogo (o a su primer control; lo decide el `Modal` de §7.6). Al cerrar con «Cancelar»/`Esc`: **vuelve al disparador** (§7.6) si sigue en pantalla («Configurar» del banner; el enlace del pie). Al guardar desde el banner: a `#main` (MKT2-UX.3) |
+| Enlace al aviso | `PrivacyNoticeLink` `inline` (§80), clave `consent.layer.more` con la etiqueta `<privacy>…</privacy>` |
+| Lo que **no** hay | Sin tercer botón «Aceptar todo» (ya existe en el banner; en el diálogo añadiría un camino más ancho que los otros), sin lista de cookies por nombre ni plazos (eso es del aviso, CK-4) |
+
+**Al guardar:**
+- La elección se escribe en `th_consent` (`API_CONTRACT.md:45880`) con el efecto de `ARCHITECTURE.md:37062-37072`.
+- **Si se QUITÓ algún consentimiento que estaba concedido**, la tienda recarga la página (`ARCHITECTURE.md:37067-37069`): no hay mensaje (la recarga lo borraría); el visitante ve la página recargada sin las etiquetas. Es el único caso con recarga.
+- **Si solo se concedió o no cambió nada:** el diálogo se cierra, `role="status"` anuncia «{consent.saved}» y, además, un `Toast` de §7.5 (4–6 s) lo confirma a la vista. Sin recarga.
+- **Desde el banner** (primera respuesta): se manda `POST /measurement/banner-response` con `custom` (`API_CONTRACT.md:45746,45753`). **Desde el enlace del pie** (cambio posterior) **no se manda nada**: el contador es de respuestas **al banner**, y un cambio no es una respuesta nueva. Es un supuesto mío (petición 1).
+- «Guardar» con los dos apagados cuenta como `custom`, no como `necessary_only` (el contrato dice «`custom` = guardó la segunda capa», `:45753`). Petición 3 por si el arquitecto prefiere lo contrario.
+
+---
+
+### MKT2-UX.8 Enlace persistente «Preferencias de cookies»
+
+| | Decisión |
+|---|---|
+| Texto | «Preferencias de cookies» / “Cookie preferences” (`consent.footerLink`; es el rótulo de `ARCHITECTURE.md:37067`) |
+| Sitio 1: pie de la tienda | En la fila de enlaces del pie, **junto a «Aviso de privacidad»** (`(storefront)/layout.tsx:67-74`), con las **mismas clases que su vecino** (`text-text hover:text-accent`, mono 11 px versalitas). Es un `<button type="button">` con el aspecto de ese enlace (abre un diálogo, no navega: ⛔ no un `<a href="#">`) |
+| Sitio 2: el aviso | En `/privacidad`, en el apartado de cookies, como **enlace dentro de la frase** (variante inline, subrayado, mismo color que los enlaces del cuerpo del aviso): `<button>` con aspecto de enlace. El texto del aviso es del abogado/dueño; esta pieza solo dice **dónde** va el botón (brief `:214`, `ARCHITECTURE.md:37067`) |
+| Visible cuando | `on` con alguna etiqueta válida (MKT2-UX.2 fila 2-4). Con `off`: ⛔ no se pinta ni un hueco |
+| Abre | La segunda capa (MKT2-UX.7) con los interruptores en la elección guardada. Si el visitante aún no respondió, también funciona (es otra puerta a la misma capa) |
+| Teclado/lector | `<button>` nativo: Enter y Espacio; el nombre accesible es el texto visible; al cerrar, el foco vuelve al botón |
+| El pie de `pedido/layout.tsx` | **No lleva** el enlace (esa ruta está excluida de la medición, `ARCHITECTURE.md:37080`) |
+
+---
+
+### MKT2-UX.9 Componentes: qué se reutiliza y qué es nuevo
+
+| Pieza | Estado | Nota |
+|---|---|---|
+| `Button` (`primary` `lg`, `secondary`, `link`), `Switch` (§6.4), `Modal`/*bottom sheet* con foco atrapado (§7.6), `Toast` (§7.5), `PrivacyNoticeLink` `inline` (§80) | Reutiliza | — |
+| `ConsentBanner` | **Nuevo** | Primera capa; se monta solo en las rutas de la lista blanca y solo con `on` |
+| `ConsentPreferencesDialog` | **Nuevo** | Segunda capa; lo abren el banner y el enlace |
+| `CookiePreferencesLink` | **Nuevo** | Botón con aspecto de enlace del pie y del aviso |
+| Hook de barra fija inferior | **Nuevo** (en `frontend/src/hooks/`) | MKT2-UX.5 |
+| Región viva `role="status"` del consentimiento | **Nueva**, montada de antemano en el proveedor | MKT2-UX.3 |
+
+Los nombres son orientativos; la lógica de cookies y Consent Mode es de frontend/arquitectura (`ARCHITECTURE.md §14.3`), no de este documento.
+
+---
+
+### MKT2-UX.10 Accesibilidad (resumen verificable)
+
+- **Banner:** `role="region"` con nombre accesible; no es diálogo; no roba foco; `Esc` no responde; llegar a él = primer `Tab` tras el skip-link; orden de tabulación = «Aviso de privacidad» (en la frase) → «Aceptar» → «Solo lo necesario» → «Configurar».
+- **Segunda capa:** diálogo con `aria-labelledby`, foco atrapado, `Esc` cierra sin guardar, foco de regreso; interruptores con estado en texto.
+- **Tras responder:** foco a `#main` + anuncio «Tu elección se guardó.».
+- **Zoom/tamaño de letra:** a 200 % de zoom o con letra grande, el banner puede superar el 35 % del viewport; en ese caso el contenedor lleva `max-h-[60vh] overflow-y-auto` (el texto y los dos botones siguen primero en el DOM y a la vista). ⛔ Nunca recortar los botones.
+- **Contraste (cálculo a mano con la fórmula WCAG 2.1 desde los hex de §2.3; sin herramienta, lo confirma el probador del gate):**
+
+  | Par | Ratio | Uso | ¿AA? |
+  |---|---|---|---|
+  | tinta `#1A1A18` sobre pozo `#EFEBE2` | **14.65:1** | texto del banner, «Configurar», borde de «Solo lo necesario» | Sí (texto y componente ≥ 3:1) |
+  | papel `#F4F1EA` sobre tinta (texto de «Aceptar») | **15.45:1** | «Aceptar» | Sí |
+  | tinta sobre papel | **15.45:1** | texto de «Solo lo necesario» | Sí |
+  | `muted` `#6E695E` sobre papel | **4.85:1** | descripciones del diálogo (sobre papel) | Sí |
+  | anillo de foco `#B44B3A` sobre pozo | **4.40:1** | foco en el banner (no es texto: pide 3:1) | Sí |
+
+  ⛔ Ningún texto `muted` ni bermellón **sobre el pozo del banner** (4.60:1 y 4.40:1: MKT-UX.13). El borde de «Solo lo necesario» es de **tinta** y no `border-strong` (que da ~1.96:1 sobre pozo, bajo los 3:1 de WCAG 1.4.11).
+
+---
+
+### MKT2-UX.11 Textos visibles (claves i18n, propiedad de frontend)
+
+Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN obligatoria**. «Aviso de privacidad» **no** tiene clave aquí: se usa `privacy.link` (una sola fuente, §80.0.5).
+
+| Clave | ES | EN |
+|---|---|---|
+| `consent.region` | Aviso de cookies | Cookie notice |
+| `consent.text` | Usamos cookies para saber qué publicaciones te traen y mejorar la tienda. | We use cookies to learn which posts bring you here and to improve the store. |
+| `consent.accept` | Aceptar | Accept |
+| `consent.necessary` | Solo lo necesario | Necessary only |
+| `consent.customize` | Configurar | Customize |
+| `consent.saved` | Tu elección se guardó. | Your choice was saved. |
+| `consent.footerLink` | Preferencias de cookies | Cookie preferences |
+| `consent.layer.title` | Preferencias de cookies | Cookie preferences |
+| `consent.layer.intro` | Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página. | You decide what we measure. You can change this at any time from the page footer. |
+| `consent.layer.necessary.title` | Necesarias | Necessary |
+| `consent.layer.necessary.body` | Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección. | They keep your session, your cart and your language, and remember this choice. |
+| `consent.layer.necessary.always` | Siempre activas | Always on |
+| `consent.layer.analytics.title` | Analítica | Analytics |
+| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). | Tells us which pages and posts lead to purchases (Google Analytics). |
+| `consent.layer.ads.title` | Publicidad | Advertising |
+| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a compras (Meta). | Measures which posts and ads lead to purchases (Meta). |
+| `consent.layer.stateOn` / `stateOff` | Activada / Desactivada | On / Off |
+| `consent.layer.more` | Más detalle en el <privacy>Aviso de privacidad</privacy>. | More detail in the <privacy>Privacy notice</privacy>. |
+| `consent.layer.save` | Guardar mi elección | Save my choice |
+| `consent.layer.cancel` | Cancelar | Cancel |
+
+Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor; **el abogado los valida con el aviso** (CK-4, duda 3).
+
+---
+
+### MKT2-UX.12 Rótulo del build bloqueado por falta de aviso (encargo 2)
+
+**Aplica, y es solo un rótulo para registros de CI/Vercel** (nadie lo ve en la tienda; no hay pantalla ni clave i18n). Contexto: con `NEXT_PUBLIC_MEASUREMENT_MODE=on` y `legalPublishProblems` con `{measurement:'on'}` devolviendo problemas, el build **falla** (`ARCHITECTURE.md:37000-37009`, candado C-D1 en `API_CONTRACT.md:45917`). Los registros del proyecto están en español y llevan un código estable al inicio de línea, como `MEASUREMENT_DESTINATION_DISABLED destination=… reason=…` (`ARCHITECTURE.md:37017-37018`) y las líneas de `publish-check.ts:33-53`.
+
+**Rótulo (primera línea = código greppable; las demás, para el humano que lee el registro):**
+
+```
+MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
+  El build NO se publica: la medición está encendida (NEXT_PUBLIC_MEASUREMENT_MODE=on) y el aviso de privacidad no la declara.
+  - <problema 1>
+  - <problema n>
+  Para publicar: (a) publica el aviso revisado (measurementDisclosure con versión y fechas) o (b) pon NEXT_PUBLIC_MEASUREMENT_MODE=off.
+  El sitio en línea no cambia con este build.
+```
+
+**Texto de cada problema (los tres de `ARCHITECTURE.md:37004-37005`):**
+1. `measurementDisclosure es null: el aviso no declara la medición`
+2. `el aviso aún dice «No usamos cookies de publicidad ni de analítica»`
+3. `el aviso no nombra: <lista exacta de lo que falta, de: Google Analytics, Meta, _fbp, _fbc, th_first_utm, th_consent, retención de 14 meses>`
+
+**Cuando pasa**, una sola línea: `MEASUREMENT_NOTICE_OK mode=on version=<measurementDisclosure.version>`. **Con `off`**: `MEASUREMENT_NOTICE_OK mode=off` (así el registro de cada build deja dicho en qué modo se publicó, sin buscar la variable).
+
+⛔ El rótulo nunca imprime valores de variables secretas ni IDs (`GA4_*`, `META_*`): solo el modo, el conteo y los problemas de texto. Candado C-F17.
+
+---
+
+### MKT2-UX.13 Peticiones, dudas y desviaciones
+
+**Peticiones (numeradas para enrutar):**
+1. **arquitecto — ¿el cambio posterior de elección cuenta en `banner-response`?** Mi diseño: **no** (solo la primera respuesta al banner; el enlace del pie no manda nada, MKT2-UX.7). Si se quiere contar los cambios hace falta otro valor o un campo, no `custom` repetido (inflaría el denominador de `accept / total`, `API_CONTRACT.md:45889`).
+2. **arquitecto — dónde se monta el banner.** `ARCHITECTURE.md:37039-37041` dice «Visita ► banner» sin restringir rutas. Mi supuesto: solo en la lista blanca de medición (`:37076-37078`) y el enlace del pie en todo el storefront. Confirmar o corregir.
+3. **arquitecto — `custom` con los dos interruptores apagados:** cuenta como `custom` (literal, `:45753`) o como `necessary_only`. Afecta a f1/f2, no al diseño.
+4. **arquitecto — texto del aviso (apartado de cookies, §8 de `privacidad.es.ts`)** debe dejar el hueco del enlace «Preferencias de cookies» (MKT2-UX.8 sitio 2); es contenido del aviso, no de este documento.
+5. **orquestador — serialización de la zona compartida:** el hook de barra fija inferior (MKT2-UX.5) toca `CardDetailView`, `SealedDetailView`, `SellCartBar` (módulos de catálogo/sellado/buylist) y `frontend/src/hooks/`. Debe serializarse con el stream que lleve esos módulos.
+6. **orquestador — al fusionar `MKT-UX`:** retirar de MKT-UX la clave `download.helpExact`, el texto de apoyo n.º 2 de MKT-UX.9 y la línea del esquema de MKT-UX.2 que dicen lo mismo que MKT2-UX.14 (para que el hecho viva en **un** sitio). No lo toco yo: esa sección está en construcción en otro *worktree*.
+7. **orquestador — tamaño:** `DESIGN_SYSTEM.md` llegaba a la línea 33 509 antes de esta sección (tope orientativo ~2 000); la compactación sigue pendiente (ya pedida en CS-UX.7 punto 3 y MKT-UX.17). Riesgo de merge: esta sección se añade al final, justo debajo de MKT-UX; si el otro *worktree* también añade al final habrá conflicto de texto, no de contenido: se conservan ambos bloques, MKT-UX primero.
+
+**Dudas para el dueño (con recomendación):**
+1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; si la asesoría legal dice que hace falta igualarlos, es un cambio de dos atributos.)
+2. **¿El aviso de cookies aparece solo donde se mide, o en toda la tienda?** (Solo donde se mide: no pedimos permiso en tu cuenta ni al vender.)
+3. **Los rótulos «Analítica» y «Publicidad» con «(Google Analytics)» y «(Meta)» en la segunda capa:** ¿los revisa tu asesor junto con el aviso? (Sí: son lo más cercano a texto legal que hay en la pantalla.)
+4. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
+
+**Desviaciones conscientes y lo que no pude medir:** (a) «Configurar» de 36 px y no 44 (por el presupuesto de altura); (b) banner primero en el DOM aunque va abajo; (c) alturas de 204–224 px y de la barra de COMPRAR (~72 px): **NO MEDIDAS** en navegador (las cierra la captura 390×664 de C-F3 y el candado C-F12); (d) contrastes calculados a mano; (e) si hay barra de pago fija o FAB en el checkout y en el carrito de venta: **NO MEDIDO** (comando que lo cierra: `Grep "fixed .*bottom-0" frontend/src --glob "*.tsx"` y revisar cada resultado).
+
+---
+
+### MKT2-UX.14 Aviso de «cifras exactas» del Panel (encargo 3, pedido del arquitecto)
+
+**Por qué:** con `privacy: 'exact'` (decisión del dueño, `HECHOS.md:172`; régimen en `API_CONTRACT.md:45461-45470`) la pantalla del dueño trae conteos reales y el Excel, los exports y el endpoint del analista siguen ocultando lo menor a 5. Sin un aviso a la vista, el dueño verá `3` en pantalla y «< 5» en el archivo y creerá que el Excel está mal.
+
+**Clave y texto (reemplaza a `download.helpAlways` mientras `privacy === 'exact'`; y reemplaza a `download.helpExact` de MKT-UX.14, que no debe construirse):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.marketing.download.exactNotice` | Aquí ves las cifras exactas. El Excel y las exportaciones salen sin datos personales y con las cantidades menores a 5 ocultas, así que esas filas pueden no coincidir con la pantalla. | Here you see the exact figures. The Excel and exports have no personal data and hide amounts below 5, so those rows may not match the screen. |
+
+**Ubicación y conducta:**
+- **Dónde:** inmediatamente **debajo del grupo de botones de descarga** (el principal «Descargar Excel de la semana/del mes» y «Exportar esta pantalla»: MKT-UX.9), en la misma posición del primer texto de apoyo; `text-xs`, `muted` sobre **papel** (4.85:1). Le sigue `download.helpShare` («Compártelo solo con quien lo necesite.»), que no cambia.
+- **Cuándo:** solo si el payload de la pantalla trae `privacy === 'exact'` (`API_CONTRACT.md:45463`). Con `small_cells`, se pinta `download.helpAlways` como hoy y **no** esta frase. Mientras el payload carga, ni una ni otra se adivinan (⛔ no se decide por el rol del navegador ni por la sesión: lo dice el servidor, MKT-3).
+- **Texto, no color ni tooltip** (MKT-2): párrafo visible, no `title`, no icono solo. Si se pinta el icono ⓘ del esquema de MKT-UX.2, va `aria-hidden` y el texto es el portador.
+- **Lector de pantalla:** el texto lleva un `id` y los tres botones de descarga lo referencian con `aria-describedby`, para que el aviso se oiga al enfocar el botón y no solo al leer la página.
+- **Ancho:** en móvil, bajo el botón de ancho completo, se parte en las líneas que haga falta (sin truncar).
+- **No es un `Banner`** (§7.5): es una nota fija de apoyo, no una alerta; un recuadro de color en cada visita le quitaría fuerza a los avisos reales.
+
+---
+
+### MKT2-UX.15 Candados sugeridos para frontend (cada uno con la mutación que lo pone rojo)
+
+Numeración nueva **C-F8…** para no chocar con C-F1…C-F7 del contrato (`API_CONTRACT.md:45910-45916`). Las pruebas las escribe frontend; QA las ejecuta. Playwright en 390×664 salvo que se diga.
+
+| Id | Afirma | Mutación que lo pone rojo |
+|---|---|---|
+| **C-F8** | Banner accesible: `role="region"` con nombre; sin `aria-modal` ni `role="dialog"`; es el primer elemento enfocable tras el skip-link; orden de `Tab` = enlace al aviso → «Aceptar» → «Solo lo necesario» → «Configurar»; `Esc` **no** escribe `th_consent` ni llama a `banner-response`; no recibe foco al montarse | añadir un manejador de `Esc` que guarde «solo necesario», o `autoFocus` al banner |
+| **C-F9** | Sin patrones oscuros: «Aceptar» y «Solo lo necesario» son `<button>`, ambos con alto ≥ 44 px, misma `font-size`, **ambos dentro del viewport sin scroll** y a un toque; «Solo lo necesario» no está dentro de «Configurar» ni del diálogo; en la segunda capa los dos interruptores nacen `aria-checked="false"` | mover «Solo lo necesario» a la segunda capa; o bajarlo a 24 px de alto; o nacer con «Analítica» encendida |
+| **C-F10** | Sin muro: con el banner abierto se puede hacer scroll, abrir el catálogo y una ficha, agregar al carrito y llegar al checkout; no existe un elemento con `inset-0` + fondo oscuro, ni `aria-modal`, ni `overflow:hidden` en `body`/`html` | añadir un *scrim* de pantalla completa al banner |
+| **C-F11** | No tapa COMPRAR: en la ficha de carta y en la de sellado, con el banner abierto, `banner.bottom ≤ barra.top` y `document.elementFromPoint(centro de COMPRAR)` devuelve el propio botón; igual en `lg` con `SellCartBar` si el banner se monta ahí | quitar la llamada al hook de la barra (la variable queda en 0) o poner `bottom-0` fijo al banner |
+| **C-F12** | Altura: con el banner abierto en 390×664, `banner.height ≤ 232` px en **ES y EN** (objetivo 204); a 1280×720 una sola fila (`≤ 120` px) | añadir una tercera línea de padding o apilar «Configurar» en un renglón propio de 44 px |
+| **C-F13** | Segunda capa: foco atrapado, `Esc` y «Cancelar» cierran **sin** escribir cookie ni llamar a `banner-response`; el foco vuelve al disparador; «Guardar» con solo «Analítica» ⇒ `th_consent {a:1,m:0}` y 0 hosts de Meta (se apoya en C-F3); desde el enlace del pie, «Guardar» **no** llama a `banner-response` | hacer que «Cancelar» guarde; o llamar a `banner-response` desde el pie |
+| **C-F14** | Enlace persistente: con `on` y elección guardada, «Preferencias de cookies» existe en el pie y en `/privacidad` y abre la capa con los interruptores en lo guardado; con `off` **no existe** (ni en `/privacidad`); con `on` sin ID válido, ni banner ni enlace | pintar el enlace con `off`; o con `on` sin ID mostrar el banner |
+| **C-F15** | i18n: `consent.*` tiene las mismas claves en ES y EN; ninguna cadena contiene `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents`, `gtag/js`, «LFPDPPP», «Consent Mode», `th_consent` | meter `googletagmanager.com` en una cadena (el grep de C-F1 se pondría rojo con ella) |
+| **C-F16** | Aviso de «cifras exactas»: con `privacy:'exact'` se pinta `download.exactNotice`, **no** `download.helpAlways`, y los botones de descarga lo referencian con `aria-describedby`; con `small_cells`, al revés; con el payload cargando, ninguno de los dos. Paridad ES/EN | pintar el aviso siempre; o decidirlo por `role === 'super_admin'` en el navegador |
+| **C-F17** | Rótulo de build (prueba unitaria del formateador): con N problemas, la primera línea es `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N`; incluye cada problema, las dos salidas (a)/(b) y «NO se publica»; con modo `off` o sin problemas, una sola línea `MEASUREMENT_NOTICE_OK …`; ninguna línea contiene un ID ni un secreto | quitar la línea de salidas; o imprimir `process.env` |
+| **C-F18** | Tras cada una de las tres respuestas del banner: el banner ya no está, `document.activeElement` es `#main` y la región `role="status"` dice «Tu elección se guardó.» | desmontar el banner sin mover el foco (`activeElement === body`) |
+| **C-F19** | Zoom: a 200 % de zoom (viewport efectivo 195×332) el banner tiene `max-height ≤ 60vh`, scroll interno, y «Aceptar» y «Solo lo necesario» siguen alcanzables | quitar el `max-h` (el banner ocuparía más del 60 %) |
+
+Los candados de contrato de §MKT.H.11 (C-F1…C-F7, C-D1) **no se repiten** aquí: C-F2 cubre «`off` ⇒ sin banner», C-F3 los cuatro caminos de red y las capturas 390×664.
+
+**Cómo se verifica lo que no es de CI:** las capturas 390×664 del criterio 1 de brief `:241` (portada y una ficha con el banner abierto) las toma el probador en C-F3 y se pegan en el PR; el dueño no tiene que hacer nada para esto.
+
+### MKT2-UX.16 Changelog
+
+**vMKT2-1 (2026-10-18):** §MKT2-UX nueva: banner de cookies de primera capa (D3b del dueño, con «Aceptar» más grande que «Solo lo necesario» y la contradicción con el encargo explicada), segunda capa «custom», enlace persistente «Preferencias de cookies», contrato de layout `--sticky-bottom-h` para no tapar COMPRAR, claves `consent.*`, rótulo `MEASUREMENT_NOTICE_REQUIRED`, aviso `admin.marketing.download.exactNotice` y 12 candados (C-F8…C-F19). Cero tokens y cero pares de contraste nuevos. 7 peticiones y 4 dudas (MKT2-UX.13).
