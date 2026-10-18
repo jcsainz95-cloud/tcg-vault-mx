@@ -78,6 +78,10 @@ import { parseRefundsTab } from './refunds/tabs';
 import { SpendAlertsView } from './spend-alerts/SpendAlertsView';
 // eslint-disable-next-line import/first
 import { CardShowAdminView } from './card-show/CardShowAdminView';
+// eslint-disable-next-line import/first
+import { MarketingView } from './marketing/MarketingView';
+// eslint-disable-next-line import/first
+import { parseMktUrl } from './marketing/url-state';
 
 /**
  * Fusión release-s5: `m4/page.tsx` pasó a componente de SERVIDOR asíncrono (lee `?tab=`), que el render
@@ -105,6 +109,11 @@ function CardShowPage() {
       <CardShowAdminView />
     </SuperAdminOnly>
   );
+}
+
+/** §MKT-UX.1: `marketing/page.tsx` es de servidor asíncrono (lee `?pantalla=`…); se mide sin parámetros. */
+function MarketingPage() {
+  return <MarketingView initial={parseMktUrl({})} />;
 }
 
 /** v4.12 (§40.3 b): `m3/page.tsx` también es de servidor asíncrono (lee `?refundReview=`); se mide sin el parámetro. */
@@ -141,6 +150,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/refunds': RefundsPage,
   '/admin/spend-alerts': SpendAlertsPage,
   '/admin/card-show': CardShowPage,
+  '/admin/marketing': MarketingPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -198,6 +208,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Administración', '/admin/m10', 'Configuración', 'Settings', true],
     // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración» (captura de leads/preinscritos, PII).
     ['Administración', '/admin/card-show', 'Card Show', 'Card Show', true],
+    // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin, tras «Card Show».
+    ['Administración', '/admin/marketing', 'Marketing', 'Marketing', true],
   ];
 
   it('el orden de las entradas es el de la tabla de §37.2b', () => {
@@ -229,7 +241,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
     // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17. §CARDSHOW.15 añade «Card Show» ⇒ 18.
-    expect(hrefs).toHaveLength(18);
+    // §MKT-UX.1 añade «Marketing» ⇒ 19.
+    expect(hrefs).toHaveLength(19);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);

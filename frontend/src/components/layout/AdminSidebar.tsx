@@ -116,6 +116,9 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
       // Card Show (§CARDSHOW.15): captura de leads/preinscritos del evento. Súper-admin y solo él
       // (PII); oculto para el operador (no le dice nada que pueda hacer).
       { href: '/admin/card-show', key: 'cardShow', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
+      // §MKT-UX.1 / API_CONTRACT §MKT.G.1+G.7: «Marketing», visible SOLO para súper-admin en Fase 0 (único con
+      // `marketing:read`); oculto, ⛔ ni bloqueado, para el operador. La URL a mano llega al 403 neutro de la pantalla.
+      { href: '/admin/marketing', key: 'marketing', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
     ],
   },
 ];

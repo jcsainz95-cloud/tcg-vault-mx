@@ -28,6 +28,33 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
 - **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
   (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
 
+## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
+
+**Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
+(`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
+`frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
+`src/lib/mock/marketing.ts` (modo demo/e2e de mocks); tipos aditivos `Marketing*` al final de `src/types/contract.ts`.
+**Contra el stack real: NO CORRIDO** (el backend de §MKT.G se construía en paralelo).
+- **Menú:** «Marketing» en Administración, `superAdminOnly` + `hiddenUnlessSuperAdmin` (§MKT.G.1/.G.7). Sin
+  `SuperAdminOnly` en la página: quien no tiene permiso recibe `403` del servidor y ve el aviso neutro (§MKT-UX.11).
+- **Periodos:** solo los de `GET …/periods` (semana por defecto = `closedWeeks[0]`). La URL guarda `week=YYYY-Www`
+  (semana ISO calculada del `weekStart` del servidor, aritmética de calendario sin reloj) o `month=YYYY-MM`; al
+  servidor se manda `weekStart=`/`month=` tomado de la lista. Un valor de URL que no está en la lista se ignora.
+- **Régimen de celdas:** `ScreenPayload.privacy` (ausente ⇒ `small_cells`). `CellValue` es la única pieza que decide
+  «< 5» / «Oculto» (`null` monetario en fila con `'< 5'`/`'oculta'`, solo en `small_cells`; `'oculta'` siempre) / «—» /
+  dato. Aviso de descargas: `exactNotice` **sustituye** a `helpAlways` con `exact`; ninguno mientras carga. El payload
+  vive solo en la caché en memoria de TanStack (sin persistencia en este proyecto).
+- **Llave del analista:** el claro va de la respuesta del `POST` al `useState` del diálogo **sin `useMutation`**: su
+  `data` quedaba en la `MutationCache` mientras el diálogo estaba abierto (lo cazó el candado UX-MKT-16).
+- **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
+  `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
+- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (72 pruebas) + `e2e/marketing-panel.spec.ts` (sin `@real`).
+- **Desviaciones conscientes del diseño:** el `h1`/menú salen de `admin.modules.marketing` (candado P66-2), no de
+  `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
+  ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
+  no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
+
+
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
 **Estado vigente.** Restyle + reflow + motion de la landing EXISTENTE `/card-show` (decisión del dueño JC,
