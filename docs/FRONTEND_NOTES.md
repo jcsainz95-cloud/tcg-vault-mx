@@ -15,6 +15,33 @@ páginas de acción, §CS-UX.3, PE sin-JS, sin CLS, reduced-motion). Contenido =
 aprobó JC en los mocks (explosión del hero, rifa como gancho ARRIBA, mapa embebido) + 3 arreglos que midió
 tester-e2e (§CS-UX.4 títulos de páginas de acción, §CS-UX.3 limpiar error al corregir, legibilidad del lockup).
 
+**R3 (2026-10-18, corrige R2 — gate ux-review RECHAZÓ R2).** Decisiones de JC aplicadas; estas líneas MANDAN
+sobre los bullets de R2 que las contradigan:
+- **Hero en reposo LIMPIO (B-1, «que se desvanezcan»).** La explosión es un golpe de ENTRADA de una sola vez:
+  las cartas salen disparadas y luego **se desvanecen (opacity→0) y se retiran** ⇒ ⛔ NO quedan sobre el texto y
+  ⛔ NO hay `repeat:Infinity` detrás (se eliminó la «flotación suave perpetua» de R2, WCAG 2.2.2). Estado final
+  del hero = composición legible, idéntica a la vista `reduced-motion`. Cierra la deuda **FE-CS-B** (fuga al
+  desmontar): sin encadenado al fin de la animación + bandera `cancelled` que el bucle de confeti comprueba.
+- **Explosión 1×/sesión (I-2).** `sessionStorage['cs-hero-burst-seen']` (try/catch); si ya se vio ⇒ hero limpio
+  directo sin ráfaga/flash. Anillos **más tenues** (aro fino 160px, `border 1.5px`, escala ~2.4–3; ⛔ ya no el
+  cuadro ×26 que leía como glitch a 1280; esquinas 0).
+- **Topbar «TCG HUNT × Jakomi» = mascota + texto (I-1, decisión JC).** El lockup oficial es VERTICAL y a 44px
+  dejaba «Jakomi» a ~5px (ilegible). Ahora: `LogoTcgHunt mark-dark 30px` + «TCG HUNT» + `×` + **mascota sola**
+  (`/card-show/jakomi-mascota.webp`, axolotl recortado del lockup, en chip papel) **+ «Jakomi» en `font-brand`**
+  (13px <360 / `text-sm` ≥360 / `text-base` ≥390). El lockup completo es **un `<Link href="/">`** (M-4: ⛔ no
+  `<div aria-label>`) con `aria-label="TCG HUNT por Jakomi — inicio"`. `nowrap`, Jakomi nunca oculto (§CS-UX.5).
+  En «en colaboración con» el `jakomi-logo.webp` sigue a ~96px (ahí se lee).
+- **Barra de anuncio:** foco visible en papel INSET (`.cs-announce:focus-visible` `outline var(--color-accent-fg)`
+  `offset -4px`, 6.18:1 sobre el rojo; I-4, ⛔ ya no el foco rojo global invisible sobre rojo) + copy corto
+  `rifa.anuncioCorto` en <640px con `&nbsp;` antes de la «→» (I-3, evita la flecha huérfana).
+- **Patrón de error unificado (M-1, §CS-UX.3 / §6.2):** icono `CircleAlert` + texto en TODOS los errores de campo
+  — `Input` (`components/ui/Input.tsx`, antes solo texto; la §6.2 ya lo exigía), fieldset de día (`TorneoForm`) y
+  la casilla de privacidad (`PrivacyCheckbox` en `form-shared.tsx`). El `Select` ya lo tenía.
+- **Índice de sección (M-3):** se RETIRÓ `SectionIndex` (estaba solo en 2 de 6 secciones) ⇒ consistencia «en
+  ninguna». Mapa (M-5): foco visible `.cs-map-frame:focus-visible`.
+- **Test añadido (§CS-UX.3 clear-on-change, antes sin cobertura):** en `CardShowForms.test.tsx`, afirma que el
+  error de un campo DESAPARECE al teclear y que no borra los demás de golpe.
+
 - **Librería de motion:** `motion@14.3.0` (pin exacto, `package.json`), **bundleada** (⛔ nada de CDN: la CSP es
   `script-src 'self' 'nonce' 'strict-dynamic' https:`, `security/csp.ts` — un CDN se bloquea). Se usa en
   `HeroTicket.tsx` (parallax sutil del ticket del hero vía `useScroll`/`useTransform`, apagado con
@@ -22,7 +49,8 @@ tester-e2e (§CS-UX.4 títulos de páginas de acción, §CS-UX.3 limpiar error a
 - **Explosión del hero AL CARGAR (`HeroExplosion.tsx` + `.cs-burst` en `card-show.css`):** capa DECORATIVA
   (`aria-hidden`, `absolute`, `z-0`) sobre el hero (`[data-cs-hero]`, `relative overflow-hidden`): flash breve,
   2 anillos de choque que escalan desde el centro, ~10 «cartas» (datos públicos del evento) disparadas lejos y
-  girando con flotación suave, sacudida corta del contenido (`[data-cs-hero-shake]`), golpe con overshoot del
+  girando que luego **se desvanecen y se retiran** (R3 B-1; ⛔ ya NO flotan en bucle), sacudida corta del
+  contenido (`[data-cs-hero-shake]`), golpe con overshoot del
   título (`[data-cs-hero-title]`, `scale:[1,1.06,0.99,1]`) y confeti canvas (#e0353b/#b31217/#f4f1ea/#1a1a18).
   **PE/flicker/CLS:** las capas nacen `opacity:0` (sin JS quedan invisibles, el hero se lee armado); el golpe del
   título arranca DESDE EL REPOSO (nunca se oculta ⇒ sin parpadeo above-the-fold); solo `transform`/`opacity` ⇒
@@ -39,22 +67,19 @@ tester-e2e (§CS-UX.4 títulos de páginas de acción, §CS-UX.3 limpiar error a
   resto (+ el global de `globals.css`). `scroll-behavior:smooth` solo bajo `no-preference`.
 - **Superficies (alternan tinta↔papel):** hero/torneos/rifa/footer en tinta; colaborador/cuándo-dónde/qué/registro/
   faq en papel. Rojo sobre tinta = `#E0353B` fills/bordes/foco (§CS-UX.1) y `--hunt-red-up #F0685F` solo en TEXTO
-  rojo sobre tinta (≈5.6:1 AA, ya era el baseline gateado); ⛔ `#B31217` nunca sobre tinta. `SectionIndex` cambia de
-  tono por superficie (⛔ el rojo claro y `on-ink-nav` no leen sobre papel).
+  rojo sobre tinta (≈5.6:1 AA, ya era el baseline gateado); ⛔ `#B31217` nunca sobre tinta. (R3: `SectionIndex`
+  retirado — ver bloque R3.)
 - **Reflow (del preview):** agenda = línea de tiempo de 2 días (no rejilla); torneos = **tira horizontal**
   scroll-snap (`.cs-rail`, sangra al borde); cómo llegar = lista numerada con reglas. Countdown en mono/tabular.
 - **Barra de anuncio (gancho ARRIBA DEL TODO, R2 · decisión JC «que jale gente»):** `<a href="#registro">` con
   relleno `#B31217` + texto papel `#F4F1EA` (6.18:1 AA texto normal, §CS-UX.1), copy `rifa.anuncio`. NO es sticky
   (queda sobre el topbar y se va al bajar). También hay una **mención de rifa en el hero bajo la cuenta regresiva**
   con regla izquierda roja (`border-l-2` `#E0353B`).
-- **Topbar (tinta):** lockup «TCG HUNT × Jakomi» con LOGO real (§CS-UX.5) = `LogoTcgHunt` `mark-dark` 30px + wordmark
-  Montserrat `nowrap` con tracking responsivo (0.02em <360 / 0.04em / `wordmark` ≥390) + `×` (aria-hidden) + logo
-  Jakomi. **Legibilidad (R2, hallazgo tester-e2e):** `jakomi-logo.webp` es un lockup VERTICAL 200×241; a 20–24px se
-  volvía un cuadrito. Ahora va a **h-9 (36px) móvil / h-10 (40px) ≥390 / h-11 (44px) ≥640** — RECONOCIBLE (tester-e2e:
-  ~80px legible, ≥32–40px ya se lee), ⛔ nunca oculto, ≥12px (§CS-UX.5) de sobra. El alto de la fila lo fija la CTA
-  (`min-h-44`), así subir Jakomi NO cambia el alto del topbar (~73px, `scroll-mt-[73px]` intacto). En «en colaboración
-  con» Jakomi va a ~96px (`h-24`) para leerse claro. CTA del topbar = variante B (`#B31217` + contorno 2px papel),
-  oculto <360px (el CTA principal vive en el hero).
+- **Topbar (tinta):** lockup «TCG HUNT × Jakomi» (§CS-UX.5) = `LogoTcgHunt` `mark-dark` 30px + wordmark Montserrat
+  `nowrap` con tracking responsivo (0.02em <360 / 0.04em / `wordmark` ≥390) + `×` (aria-hidden) + **mascota + «Jakomi»
+  en texto** (R3 I-1 — ver bloque R3; sustituye al `jakomi-logo.webp` vertical de R2, ilegible a 44px). El alto de la
+  fila lo fija la CTA (`min-h-44`), topbar ~73px (`scroll-mt-[73px]` intacto). CTA del topbar = variante B (`#B31217`
+  + contorno 2px papel), oculto <360px (el CTA principal vive en el hero).
 - **Mapa EMBEBIDO en «Cómo llegar» (R2 · JC autorizó cambiar la CSP):** `<iframe>` de Google Maps SIN API key
   (`evento.direccion.mapsEmbedUrl` = `https://www.google.com/maps?q=<dir>&output=embed`), con `title`, `loading="lazy"`,
   `referrerPolicy="no-referrer-when-downgrade"`; debajo queda el `<a>` «Abrir en Google Maps →» y arriba la lista
@@ -72,11 +97,14 @@ tester-e2e (§CS-UX.4 títulos de páginas de acción, §CS-UX.3 limpiar error a
   AUN así deja texto de acento pequeño (eyebrows 11px con `text-accent`) bajo AA sobre la superficie invertida
   (#E0353B 3.94:1 < 4.5 para texto chico), lo que viola §CS-UX.1/.2. El dueño condicionó el botón a «si no complica
   accesibilidad»; complica ⇒ se omite. Follow-up posible con sistema de doble token por escena.
-- **Verificado R2 (sha de la rama):** `lint` ✓, `typecheck` ✓, `test` 4380/4380 (341 archivos, 11 skip
-  pre-existentes; `csp.test.ts` y `CardShowForms.test.tsx` siguen verdes — se tocó SOLO el candado de `frame-src`
-  para listar el dominio autorizado, sin debilitarlo), `build` ✓ (`/card-show` 66.5 kB · first load 180 kB; subió
-  ~7 kB por `HeroExplosion` + `animate` imperativo). E2E Playwright y verificación con navegador (lockup a
-  320/390/1280, embed del mapa, reduced-motion, sin-JS) NO corridas aquí — las corren qa/tester-e2e/ux-review.
+- **Verificado R3 (rama `feat/cardshow-landing-redesign`):** `lint` ✓ (0 warnings), `typecheck` ✓, `test`
+  **4381 passed | 11 skipped** (340 archivos; +1 sobre R2 = el test clear-on-change que añadí; el resto sin delta),
+  `build` ✓ (`/card-show` 66.5 kB · first load 183 kB). Las líneas `Not implemented: navigation` en stderr son
+  ruido pre-existente de jsdom (todos los tests pasan). **NO MEDIDO aquí (lo rehacen ux-review + tester-e2e desde
+  navegador):** el juicio visual final — hero en reposo limpio, desvanecido de las cartas, lockup a 320/360/390/1280,
+  anillo tenue a 1280, foco de la barra de anuncio, 1×/sesión, E2E Playwright.
+- **Verificado R2 (histórico):** `test` 4380/4380; se tocó SOLO el candado de `frame-src` de `csp.test.ts` (sin
+  debilitarlo). Detalle en git.
 
 ## §CARDSHOW-R5b · Bloqueantes móvil/legal/accesibilidad + datos del evento (2026-10-17, rama `fix/card-show-r5b-frontend`, base `release/card-show` sha `1315236`)
 
