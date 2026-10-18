@@ -45,6 +45,7 @@ import {
   revertM74,
   revertM75,
   revertM78,
+  revertM82M83,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -83,6 +84,26 @@ const KEY_KEPT = [
   // v1.93⟨cardshow⟩ (§14.14, G-8, P-CS): leads «Avísame» y preinscripciones = PII REAL con consentimiento (y menores) ⇒ CONSERVAR.
   'CardShowLead', 'CardShowPlayerSignup',
 ];
+/**
+ * v1.103⟨mkt-panel⟩ (M-82/M-83, G-8): las seis tablas del Panel de Marketing se CONSERVAN (clasificación conservadora,
+ * pendiente de ratificar por el arquitecto en `docs/specs/LIMPIEZA_DB.md §14`). Se siembran filas en el fixture para que
+ * «contenido IDÉNTICO tras la limpieza» pruebe algo (ver `seedMarketing`).
+ */
+const MKT_KEPT = ['UserPermission', 'MarketingApiToken', 'MarketingAccessLog', 'MarketingBannerConsentCounter', 'BuylistQuoteDailyCount', 'MarketingDateAnnotation'];
+
+/** Una fila en cada tabla de `MKT_KEPT` (dueño: el `staff` del fixture; la carta A del fixture para el contador). */
+async function seedMarketing(e: Env): Promise<void> {
+  const staff = { id: e.fx.staff };
+  const card = await e.db.card.findFirstOrThrow({ select: { id: true } });
+  await e.db.userPermission.create({ data: { userId: staff.id, permission: 'marketing_read', grantedByUserId: staff.id } });
+  const tok = await e.db.marketingApiToken.create({
+    data: { label: 'lz analista', tokenHash: `lz-hash-${RUN}-${n}`, createdByUserId: staff.id, expiresAt: new Date('2027-01-01T00:00:00Z') },
+  });
+  await e.db.marketingAccessLog.create({ data: { tokenId: tok.id, screen: 'a', format: 'json', filters: { period: '2026-W40' }, rowCount: 3 } });
+  await e.db.marketingBannerConsentCounter.create({ data: { weekStart: new Date('2026-09-28T00:00:00Z'), response: 'accept', utmMedium: 'bio', device: 'mobile', count: 7 } });
+  await e.db.buylistQuoteDailyCount.create({ data: { day: new Date('2026-10-01T00:00:00Z'), cardId: card.id, count: 4 } });
+  await e.db.marketingDateAnnotation.create({ data: { date: new Date('2026-10-01T00:00:00Z'), kind: 'promocion', label: 'lz promo', createdByUserId: staff.id } });
+}
 
 interface Env {
   schema: string;
@@ -228,6 +249,7 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
 
   it('§9.2 la CORRIDA vacía lo transaccional y el inventario ENTERO (plataforma, custodia, sellado, lotes, cola inventory/portfolio) y conserva el CONTENIDO de lo demás', async () => {
     const e = await fresh();
+    await seedMarketing(e); // v1.103⟨mkt-panel⟩: las seis de M-82/M-83 con filas, para que «idéntico» pruebe algo
     const before = await snapshot(admin, e.schema);
     const pBefore = await partial(e.schema);
     // Lo que se va a borrar EXISTE (si fuera 0, «queda en 0» no probaría nada): los tres tipos y los dos dueños.
@@ -246,7 +268,7 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
 
     // Todo lo que no se vacía ni se toca en parte: CONTENIDO idéntico (md5 de cada fila), no solo el conteo.
     const kept = Object.keys(before.tables).filter((t) => !EMPTIED.includes(t) && !PARTIAL.includes(t));
-    for (const t of KEY_KEPT) {
+    for (const t of [...KEY_KEPT, ...MKT_KEPT]) {
       const conservada = kept.includes(t) || (PARTIAL.includes(t) && after.tables[t].n === before.tables[t].n);
       expect({ t, conservada, conFilas: before.tables[t].n > 0 }).toEqual({ t, conservada: true, conFilas: true });
     }
@@ -1064,6 +1086,8 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // v1.93⟨cardshow⟩: el B congelado de a7232d7a PRECEDE a M-78 (Card Show) ⇒ su G-8 no clasifica `CardShow*` y
     // abortaría al verlas. Ambos gemelos se revierten a esa era (M-78 fuera) para comparar como iguales.
     revertM78(a.schema);
+    // v1.103⟨mkt-panel⟩: ídem M-82/M-83 (Panel de Marketing) — el B congelado no clasifica sus seis tablas en su G-8.
+    revertM82M83(a.schema);
     // El aviso de sellado ENCENDIDO con una suscripción pendiente: el B de a7232d7a no tiene G-10, así que el nuevo
     // tampoco puede pararse aquí (sin M-74 no se evalúa; M-W10d).
     await setDial(a, 'sealed_restock_alerts', 'on');
@@ -1075,6 +1099,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     revertM74(twin);
     revertM73(twin);
     revertM78(twin);
+    revertM82M83(twin);
     const b: Env = { schema: twin, db: new PrismaClient({ datasources: { db: { url: schemaUrl(twin) } } }), fx: a.fx };
     live.push(b);
     await cloneSchema(admin, a.schema, twin);
