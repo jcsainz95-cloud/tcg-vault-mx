@@ -33302,8 +33302,26 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 ## §MKT.G — Pantalla del panel por SESIÓN, periodos y acceso del analista (v1.101 + v1.103) · 2026-10-18
 
 > **Estado vigente.** Contrato: API_CONTRACT §MKT.G (v1.103⟨mkt-panel-exacto⟩). Cierra MKT-TL1, MKT-TL3, MKT-TL4 y la
-> desviación D-MKT-1 (ARCHITECTURE §9; la marca de cerrada la pone el arquitecto). Sin migración. Integración por HTTP:
-> escrita (`test/integration/marketing-panel.e2e-spec.ts`), **NO MEDIDA** (sin Postgres en el entorno de backend).
+> desviación D-MKT-1 (ARCHITECTURE §9; la marca de cerrada la pone el arquitecto). Sin migración. Integración por HTTP
+> (`test/integration/marketing-panel.e2e-spec.ts`): **verde contra Postgres 16** el 2026-10-18 sobre `961eb757` (5/5).
+>
+> **v1.104⟨ceq1-mkt⟩ (2026-10-18, cierra `D-EQ-5` y los rojos de QA sobre `afd12b82`).**
+> - **Query con nombre.** Los cinco handlers de `marketing.controller.ts` declaran cada llave con `@Query('<nombre>')`
+>   (`pantalla`, `format`, `week`, `weekStart`, `month` y los prohibidos `from`/`to`/`day`/`preset`, que siguen dando 400).
+>   `annotations` lee `@Query('from')`/`@Query('to')` con `parseAnnotationDay` (fuera de forma ⇒ 400). Las pruebas unitarias
+>   llaman a los handlers con `test/helpers/marketing-query.ts` (`screenArgs`/`exportArgs`/`periodArgs`).
+> - **`pantalla` y `format` son SELECTOR** (§0-Q punto 6-bis): ausente, vacío, espacios o basura ⇒ `400 VALIDATION_ERROR`
+>   con `details.{field, allowed}` (⛔ sin `value`); `allowed` sale de `MARKETING_SCREENS` y `MARKETING_EXPORT_FORMATS`
+>   (`marketing-period.ts`). **Para frontend:** un 400 por pantalla/format ahora trae `field`; los del periodo siguen genéricos.
+> - **CORS expone `Content-Disposition`** (`src/cors.ts`, prueba `test/cors.spec.ts`): el front ya puede leer el nombre del
+>   archivo de cualquier descarga con `requestBlob`.
+> - **C-EQ-1** gana la clase `SELECTOR`, 6 filas (pantalla ×3, format, `players::game` y su CSV), REGISTRO 89 y tope de
+>   `NO_ENUM_POR_RUTA` 107 (las 37 llaves de `CEQ-MKT-1`). Con Postgres no salieron más huérfanos que los 8 de QA.
+> - **Limpieza (G-8):** las seis tablas de M-82/M-83 van a `conservar` (clasificación conservadora; ratificación pendiente
+>   del arquitecto en `docs/specs/LIMPIEZA_DB.md §14`, que es suyo). `T-AC3` revierte M-82/M-83 con `revertM82M83`.
+> - **Pruebas de integración que QA vio rojas por la prueba, no por el producto:** `marketing-panel` (4)(5) ahora manda
+>   `weekStart`; `card-show-contract` manda una IP distinta por alta (`X-Forwarded-For`), en vez de 6+ POST/min desde
+>   127.0.0.1 contra el throttle real de 5/min.
 
 **Rutas (todas bajo `/api/v1/admin/marketing`).**
 
