@@ -1110,3 +1110,20 @@ que ve el comprador (NO MEDIDO); confirmaciones de privacidad (0 fugas, 0 evento
 
 ### Siguiente: Panel de Marketing Fase 0 (Brief 2) — EN CURSO
 Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable ahora (Brief 2 §3): permiso `marketing:read`+control de acceso, principal `marketing-reader`+`TIENDA_PANEL_TOKEN` (hash, Bearer, rate-limit), endpoint de agregados (semana/mes cerrados, celdas pequeñas §5.2, 401/403/400/429, no-store), export .xlsx/.csv + botón Excel semanal, indicadores de BD (a1/a2/a3 ventas/MX$/buylist, d1/d3/d4 stock/cotizador), c7 pedidos por estado (P5=B, del snapshot), h1/h2. **DIFERIDO:** c6 términos de búsqueda (necesita pre-revisión de **seguridad** de PM-M2 puntos 1-4 antes de construir); f1/f2 aceptación del banner (se pueblan en Fase 2, cuando exista el banner). Columnas GA4/SC ⇒ «NO MEDIDO — GA4 sin encender».
+
+## §MKT TIENDA — sesión «sesiones pendientes» (rama `claude/sesiones-pendientes-alcances-cznucn`, medido 2026-10-18)
+> Retoma la continuación de `feat/mkt-tienda` (`3d3b738`, ver `git show 3d3b738:PENDIENTES.md`). Rama = `main` 66f10ca
+> + `production` b40b244 fusionado (`b819742`; backend 511/511 · 8859/8859, frontend 4392 verdes, medido por el orquestador).
+> Brief: repo `tcg-hunt-marketing` `briefs/PAQUETE_TIENDA_2026-10-16.md` (solo lectura). ⛔ Secreto Card Show nunca aquí.
+
+| # | Qué | Estado (medido 2026-10-18) | Comprobación |
+|---|---|---|---|
+| MKT-PANEL | Panel `/admin/marketing` (pantalla + `GET panel/periods`, tokens del analista, régimen exacto para super_admin — HECHOS 2026-10-18) | ✅ construido y fusionado en la rama (`eb0b995` backend, `093d823` frontend). Orquestador O-9: backend 515/515 · 8936/8936, mutación «panel siempre exact» 3/3 rojo; frontend tsc 0, vitest 4499 verdes, mutación «privacy ausente ⇒ exact» 3/3 rojo. **Integración y E2E contra stack: NO MEDIDOS.** Falta gate QA + techlead. | `git log --oneline eb0b995 093d823` |
+| MKT-SEO | §E4 `/preguntas` (FAQPage), `/como-funciona`, §E6 `/guias`, §E7 `llms.txt`, sitemap | ✅ fusionado (`506c1a6`). Orquestador: tsc 0 (tras arreglo `e36aca3`), vitest 4425, mutación «envío gratis» 3/3 rojo. P8 retenida (dice «autenticamos»). | `curl /llms.txt` y `/es/preguntas` en el stack |
+| MKT-AUTENTICAMOS | `home.sellBody` y `buylist.subtitle` (ES/EN) dicen «nosotros autenticamos»; el brief exige «verificamos la condición NM» | Abierto, medido por frontend-SEO en `5524bd6` (`es.json:302`, `:922`); el trinquete de `seo-content.test.ts` los tolera como excepción | vaciar la lista de excepciones del trinquete |
+| MKT-FAQ-CADUCA | Las FAQ caducan el 2026-11-11 (P19 el 11-05) por regla del manual de marketing; sin copia de la revisión, `/preguntas` queda vacía el 12-nov | Abierto; dueño: orquestador avisa a marketing | `lib/seo-content.ts` `validThrough` |
+| MKT-E2 | `www.tcghunt.mx` → 301 a apex | Nada en código (`vercel.json`, `next.config.mjs`, `middleware.ts`); devops/DNS | `curl -I https://www.tcghunt.mx/es` |
+| MKT-E5 | JSON-LD `Event` del Card Show | No existe (grep 0 en `frontend/src/app/card-show/`) | — |
+| MKT-TL2 | Supresión complementaria: c7 por mes ↔ a1 por mes puede despejar una celda (backend, lectura de código) | Abierto; necesita regla de arquitecto/seguridad | `docs/TECH_DEBT.md` MKT-TL2 |
+| MKT-FASE2 | Cookies/Consent Mode/GA4/Pixel/CAPI, **construir apagado** | Diseñado: API_CONTRACT §MKT.H v1.102 + ARCHITECTURE §14 (`c492b0e`), banner MKT2-UX (`31e510b`). Sin construir. ⚠️ `BannerResponse.custom` en §0 entra en el MISMO commit que m86. Le debe JC: ID del píxel, token CAPI en el almacén del proveedor, aviso del abogado. 6+3 preguntas al dueño con defecto (chat 2026-10-18). | — |
+| MKT-FASE3 | Códigos de descuento (Brief 3) | Sin empezar; no se publica hasta que JC apruebe condiciones | — |
