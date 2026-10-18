@@ -1,6 +1,7 @@
 'use client';
 
 import { forwardRef, useId } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -53,7 +54,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         {suffix && <span className="shrink-0 font-mono text-sm text-muted">{suffix}</span>}
       </div>
       {error ? (
-        <p id={`${inputId}-err`} className="mt-2 font-mono text-xs text-accent">
+        // §6.2 / §CS-UX.3: el error nunca es solo color — icono de alerta + texto (como `Select`).
+        <p id={`${inputId}-err`} className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
+          <CircleAlert size={14} aria-hidden className="shrink-0" />
           {error}
         </p>
       ) : hint ? (

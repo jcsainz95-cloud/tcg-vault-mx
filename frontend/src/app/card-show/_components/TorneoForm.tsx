@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -187,6 +188,7 @@ export function TorneoForm() {
         </div>
         {dayError && (
           <p id="cs-day-error" className="mt-2 flex items-center gap-1.5 font-mono text-xs text-accent">
+            <CircleAlert size={14} aria-hidden className="shrink-0" />
             {dayError}
           </p>
         )}
