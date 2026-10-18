@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`,
+> leído sobre `5524bd69`, sin Bash).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta Pixel y CAPI),
+> construida **apagada** tras dos variables y una puerta de build que exige el aviso nuevo; sin GTM; eventos de servidor por cola
+> post-commit que no toca el pago; migración **m86**. **§13.7:** D-MKT-PANEL-2 pasa a «el dueño ve cifras exactas en su pantalla»
+> (`HECHOS.md:172`) y nace D-MKT-PANEL-4 (supresión coherente mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
+> ---
 > **Rev v1.95⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM, ficha pública de sellado con SSR/og, datos de SEO y panel de
 > marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c`; ⛔ sha NO
 > MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta `⟨mkt-tienda⟩` **a propósito distinta de `⟨mkt⟩`** (reservada por otra
@@ -36861,12 +36867,12 @@ columna nueva**.)
 3. **`priceValidUntil` del JSON-LD:** ¿ventana fija (p. ej. fin del día de `pricedAsOf`, o +7 días)? Dato de producto.
 4. **c7 estado de envío:** confirmar que basta derivar el estado de `shippingAddressSnapshot` (sin denormalizar columna);
    seguridad revisa que el snapshot tenga el estado de forma fiable.
-5. **Vista del dueño (v1.101):** ¿necesita ya en Fase 0 cifras exactas (sin «< 5») y rango libre / detalle por día en
-   pantalla, o bastan semanas y meses cerrados hasta Fase 2? (§13.7, D-MKT-PANEL-2).
+5. **Vista del dueño — resuelta 2026-10-18:** cifras exactas en su pantalla (`HECHOS.md:172`) ⇒ D-MKT-PANEL-2 (§13.7).
+   Preguntas de Fase 2: §14.10.
 
 ---
 
-### 13.7 La pantalla del panel por sesión (rev v1.101⟨mkt-panel⟩, 2026-10-18) — decisiones y razones
+### 13.7 La pantalla del panel por sesión (rev v1.101⟨mkt-panel⟩ + v1.103⟨mkt-panel-exacto⟩, 2026-10-18) — decisiones y razones
 
 > Contrato: **API_CONTRACT §MKT.G**. Cierra el diseño de MKT-TL3 y MKT-TL4 (`docs/TECH_DEBT.md`). Medido por lectura sobre
 > `b8197420`. Sin migración, sin enum, sin código de error nuevo.
@@ -36902,12 +36908,34 @@ nueva sin usuario hoy. Queda escrito qué condiciones tendría (API_CONTRACT §M
 a quien tenga la fila **sea cual sea su rol** (incluido `customer`), así que quien conceda debe aceptar solo `vault_operator`.
 Hoy no hay riesgo, porque no hay filas.
 
-**D-MKT-PANEL-2 — celdas pequeñas también para el dueño en pantalla (Fase 0).** El brief permite que el dueño vea cifras exactas
-en pantalla (deuda aceptada PM.4). En Fase 0 no se construye: (1) la paridad pantalla = endpoint = Excel queda trivial y comprobable;
-(2) las tablas donde la vista exacta se nota de verdad (b, g: una fila por pieza o promoción) son NO MEDIDO hasta Fase 2; (3) una
-segunda forma del payload, solo para un rol, merece su propia revisión de seguridad. Pasa lo mismo con el rango libre y el detalle
-por día, que §13.5 permite solo en pantalla: es justo lo que se saca de fuera de pantalla para que nadie reste dos rangos y despeje
-una celda oculta. Pregunta 5 de §13.6.
+**D-MKT-PANEL-2 (v1.103) — el dueño ve cifras exactas en SU pantalla; todo lo que sale de la pantalla lleva celdas pequeñas.**
+Decisión del dueño 2026-10-18 (`HECHOS.md:172`, «si cifras exactas»), dentro de lo que el brief ya permitía (Panel §5.2, deuda
+aceptada PM.4: el dueño ya tiene la base de datos). Cómo se construye, y por qué así:
+- **El régimen lo decide el servidor por rol, no la petición.** `GET …/panel` calcula `privacy = role === super_admin ? 'exact' :
+  'small_cells'` y lo pasa a `MarketingAnalyticsService.screen()` como argumento **obligatorio, sin valor por defecto**. Un
+  parámetro de query sería una puerta para que cualquier delegado pidiera `exact`; un valor por defecto haría que una salida nueva
+  naciera exacta por olvido. `aggregates`, los exports y el botón semanal pasan `'small_cells'` literal.
+- **Por qué no la fila `UserPermission`:** el brief limita la vista exacta al dueño. `marketing:read` se puede delegar algún día
+  (MKT.G.1); `super_admin` no. Atar `exact` al rol hace que delegar el permiso nunca delegue las cifras exactas.
+- **`exact` solo quita los umbrales**, no las reglas de forma: sin filas por pedido, c7 sin MX$ por estado, `dm` solo por medio,
+  umbral propio de c6. Esas reglas no protegen contra «pocos casos», protegen contra «una fila es una persona», y el dueño no las pidió.
+- **El payload dice qué régimen se aplicó** (`privacy`, lo pidió ux-ui): la pantalla avisa al dueño de que su Excel no dirá lo mismo
+  que su pantalla, y una prueba lo puede afirmar.
+- **La paridad cambia de forma, no desaparece:** `small_cells` sigue siendo panel = aggregates = Excel; `exact` es «mismas tablas y
+  filas, valores reales». Pruebas 1, 8 y 9 de API_CONTRACT §MKT.G.9.
+- **Rango libre y día siguen fuera** (MKT.G.8): con `exact` no costarían privacidad al dueño, pero piden validación, selector y
+  gráficas propias; no es trivial y nadie lo ha pedido aún.
+
+**D-MKT-PANEL-4 (v1.103) — supresión coherente entre mes y semanas, y mes cerrado = su última semana cerrada.** Atiende la nota de
+seguridad del brief (Panel §5.2: «si combinar un mes con sus semanas permite despejar una celda oculta…»). Caso (razonado sobre el
+código, no ejecutado): febrero 2027 empieza en lunes y acaba en domingo, así que el mes es exactamente la suma de sus cuatro semanas; con `k` = `[3,6,6,6]`,
+`small-cells.ts:60-90` deja el 3 como «< 5» en la semana y enseña 21 en el mes ⇒ `21 − 18 = 3`. **La fuga existe hoy por lectura de
+`small-cells.ts` y `marketing-period.ts:92-104`** (el mes se calcula solo, sin mirar sus semanas, y cuenta como cerrado al día
+siguiente de acabar). Regla en API_CONTRACT §MKT.G.10: una clave oculta en cualquier semana que toque el mes sale `'oculta'` en el
+mes; y un mes no se acepta hasta que cierra la semana que contiene su último día. Alternativas descartadas: (a) ruido o redondeo a
+múltiplos de 5 — cambia cifras que el analista cuadra contra pedidos reales (Panel §6 criterio 8, paridad 0 celda a celda);
+(b) sacar los meses fuera de pantalla — el brief pide mes y semana (P2=A+B). Riesgo residual (cambios retroactivos por reembolsos):
+anotado en §MKT.G.10 para seguridad.
 
 **D-MKT-PANEL-3 — emitir y revocar tokens: solo `super_admin`, no `marketing:read`.** Leer el panel y crear una credencial para
 leerlo desde fuera no son el mismo poder. Un token: (a) vale 12 meses; (b) se usa fuera de la tienda, sin sesión y sin la vida corta
@@ -36922,3 +36950,281 @@ es para lecturas de datos.
 **Qué pinta la pantalla y de dónde sale:** tabla en API_CONTRACT §MKT.G.7. **Lo que no entra en Fase 0** (gráficas por día,
 interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de diseño no tiene aún sección del panel**
 (`DESIGN_SYSTEM.md`: ninguna mención del panel de marketing, Grep 2026-10-18): la pantalla necesita a ux-ui antes que a frontend.
+
+## 14. §MKT Fase 2 — medición con consentimiento: banner, GA4, píxel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto)
+
+> **SOLO DISEÑO. Se construye apagado.** Contrato: **API_CONTRACT §MKT.H**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel
+> f1/f2/f3/g1 (`tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`). Decisión del dueño (`PENDIENTES.md:1059-1060`, 2026-10-16):
+> Fase 2 se construye pero **no se enciende** hasta que llegue el aviso de privacidad revisado por el abogado, y el aviso va en el
+> **mismo despliegue** que GA4 y el píxel. Medido por lectura sobre `5524bd69` (sin Bash: ningún comando ejecutado). Migración
+> **m86**. Toca `orders`, `payments` y `buylist` (dinero) solo para encolar después del commit: tres veredictos.
+
+### 14.0 Estado medido (O-1)
+
+| Afirmación | Evidencia |
+|---|---|
+| Hoy no hay ningún script de Google Analytics, GTM ni Meta en el frontend | `csp.ts:108-121`: `connect-src` solo trae API, Stripe, `accounts.google.com` y el origen de subida; ningún host de medición. Que no haya un `<script>` de medición en otro sitio: **NO MEDIDO** con grep del artefacto (lo cierra el candado C-F1) |
+| La CSP está en **report-only**: hoy **no bloquea nada** | `csp.ts:37` (`CSP_MODE = 'report-only'`) |
+| `script-src` usa `'strict-dynamic'`: un script con nonce puede insertar otros scripts de cualquier host | `csp.ts:9-11,104`. ⇒ la CSP no sirve para impedir que cargue `gtag.js`; solo `connect-src`/`img-src` podrían frenar envíos, y `img-src` ya admite `https:` entero (`csp.ts:139`) |
+| Google ya carga en el checkout por el botón de Google Identity | `checkout/InlineAuthPanel.tsx` usa `GoogleSignInButton`; `csp.ts:110,116` abre `accounts.google.com`. Y el Card Show embebe `www.google.com` (`csp.ts:117-120`). ⇒ «0 peticiones a Google» se mide sobre hosts **de medición**, no sobre todo Google (§14.8) |
+| Las columnas `firstUtm*` existen y nadie las escribe | `schema.prisma:1570` (`Order`) y `:2451` (`SellRequest`); `common/first-utm.ts:48` (`parseFirstUtm`) existe sin llamador (m81 `migration.sql:20`) |
+| `MarketingBannerConsentCounter` existe; nadie lo incrementa | m82; Grep `bannerConsent` (sin distinguir mayúsculas) en `backend/src` ⇒ 0 coincidencias (2026-10-18) |
+| El pago se confirma en el webhook de Stripe, con idempotencia por `event.id` | `payments.service.ts:165-230` (`handleEvent`), `:233` (`onPaymentSucceeded`), avisos post-commit best-effort en `:377` (`notifyOrderSettled`) y rama `direct_ship` `:296-298` |
+| Hay una cola BullMQ con trabajos periódicos | `jobs/scheduler.service.ts:30,178` (`tcg-daily`) |
+| El retorno del 3DS de invitado va a `/pedido?token=…` y el de cuenta a `/orders` | `GuestCheckoutView.tsx:705`, `CheckoutView.tsx:431`. Stripe usa `redirect:'if_required'` (`StripePaymentModal.tsx:16,89`): con tarjeta sin 3DS no hay redirección |
+| El aviso de privacidad es código del frontend, con su texto en un módulo de datos | Texto: `frontend/src/content/legal/privacidad.es.ts`; la frase vieja está en `:266` («**No usamos cookies de publicidad ni de analítica.**»). Vista: `(storefront)/privacidad/PrivacyNoticeView.tsx` |
+| Ya existe una puerta de publicación del aviso (LIVE-8) | `content/legal/publish-check.ts:30` (`legalPublishProblems(mode, …)`, modos `provisional`/`final`), marcadores en `legal-gate.ts:10-46`; la usa `publish-ready.test.ts` (`npm run check:legal[:provisional]`, según el comentario de `publish-check.ts:8`). Si ese script corre hoy en el build de Vercel: **NO MEDIDO** |
+| Siguiente migración libre: **m86** | Glob `backend/prisma/migrations/*` sobre `5524bd69`: la última es `20261105120000_m85_card_show_shardbugs`; no hay `m86`-`m89`. Ramas y worktrees en paralelo: **NO MEDIDO** |
+
+### 14.1 El interruptor: dos variables, apagado por defecto, y una puerta de build que exige el aviso
+
+**Decisión D-MKT2-0.** Fase 2 tiene **un** interruptor lógico con **dos** variables, porque son dos despliegues (Vercel y Railway):
+
+| Variable | Dónde | Valores | Si falta o no es válida |
+|---|---|---|---|
+| `NEXT_PUBLIC_MEASUREMENT_MODE` | Vercel (se hornea en el build) | `off` \| `on` | `off` |
+| `MEASUREMENT_MODE` | Railway (backend) | `off` \| `on` | `off` |
+
+El resto de variables (IDs y secretos) está en API_CONTRACT §MKT.H.1; esta sección no las repite.
+
+**Apagado (`off`) significa, en el frontend:** no hay banner, no hay cookie `th_consent` ni `th_first_utm`, no se envía el objeto
+`measurement` en ninguna petición, no se llama a `POST /measurement/banner-response` y **el código del cargador no está en el
+artefacto**: el módulo que inyecta `gtag.js`/`fbevents.js` se importa solo dentro de `if (MEASUREMENT_MODE === 'on')` con la
+constante horneada, así que el compilador lo elimina. Así el candado C-F1 puede ser un grep del artefacto, que es más fuerte que
+mirar peticiones: lo que no está en el bundle no puede ejecutarse por ninguna ruta, ni por una que el E2E no recorra.
+
+**Apagado, en el backend:** el objeto `measurement` se **acepta y se ignora** (no escribe consentimiento, ni `firstUtm*`, ni
+contexto), no se crea ninguna fila de cola, el drenador no sale a la red, y `banner-response` responde 204 sin escribir. Se acepta
+en vez de rechazarlo para que el orden de despliegue entre Vercel y Railway no rompa el checkout.
+
+**Encender exige el aviso nuevo — puerta de build (D-MKT2-0b).** El aviso es un módulo de datos
+(`content/legal/privacidad.es.ts`) y ya tiene una puerta de publicación (`publish-check.ts:30`). **Se extiende esa puerta, no se
+escribe otra:** `LegalDocument` gana `measurementDisclosure: null | { version: string, approvedByOwnerOn: 'AAAA-MM-DD',
+legalReviewOn: 'AAAA-MM-DD' }`, y `legalPublishProblems` gana un tercer argumento `{ measurement: 'off' | 'on' }`. Con `on`
+añade estos problemas: `measurementDisclosure === null`; el aviso aún contiene «No usamos cookies de publicidad ni de analítica»;
+o el aviso no nombra «Google Analytics», «Meta», `_fbp`, `_fbc`, `th_first_utm`, `th_consent` y la retención de 14 meses. Devops
+corre esa comprobación **como paso del build de Vercel** con el valor real de `NEXT_PUBLIC_MEASUREMENT_MODE`, y un problema hace
+fallar el build. Así **no existe** un despliegue encendido con el aviso viejo: Vercel no publica un build fallido. La versión del
+aviso que se guarda en `th_consent` y en el pedido es `measurementDisclosure.version`. El aviso nuevo puede salir **antes** con el modo apagado (el
+brief lo permite: «antes o a la vez», §D5.4); el encendido es un cambio de variable más un redeploy, sin código.
+
+*Por qué no basta una variable:* una variable sola no sabe qué dice el aviso. La puerta mira el texto que se va a publicar, en el
+mismo build que se publica. *Por qué no en el backend:* el backend no sirve el aviso; ponerle una copia de la versión sería una
+segunda fuente para un hecho.
+
+**Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
+su forma (API_CONTRACT §MKT.H.1). GA4 sin `GA4_MEASUREMENT_ID` o sin `GA4_MP_API_SECRET` ⇒ no se encola nada para GA4. Meta sin
+`META_PIXEL_ID` o sin `META_CAPI_TOKEN` ⇒ no se encola nada para Meta. Al arrancar se escribe **una** línea de log por destino
+deshabilitado (`MEASUREMENT_DESTINATION_DISABLED destination=meta_capi reason=missing_config`), **sin** valores. El arranque no
+falla: que falte el token de Meta no debe tumbar la tienda. **Fail-closed en el frontend:** con `on` pero sin un ID con forma
+válida, esa etiqueta no carga; si no carga ninguna, el banner tampoco se muestra (no se pide permiso para algo que no existe).
+
+### 14.2 Sin GTM: las etiquetas viven en el repositorio (D-MKT2-1, se aparta del brief)
+
+El brief dice «vía GTM» (§B2, §C). **Se cargan `gtag.js` y `fbevents.js` directamente, desde código propio, sin contenedor GTM.**
+Razones:
+1. Las reglas de privacidad del brief (§D2: rutas excluidas, URL reescrita, sin `page_view` automático, coincidencia avanzada y
+   eventos automáticos apagados) pasan a ser **código con pruebas**. En GTM serían configuración de una consola que cambia sin
+   despliegue, sin revisión y sin candado: cualquiera con acceso al contenedor podría añadir una etiqueta en `/cuenta` mañana.
+   Es la regla del proyecto «toda dependencia externa va fijada», aplicada a la configuración.
+2. El brief pide que seguridad revise el contenedor y la configuración del píxel antes de publicar (PV.3 bandera 2). Sin GTM,
+   revisa un diff.
+3. Evita cargar el contenedor antes del banner (§D3), sin tener que declararlo en el aviso.
+
+Coste: marketing no podrá añadir etiquetas por su cuenta (es justo lo que se evita) y el `GTM_CONTAINER_ID` que marketing pedía
+(«de vuelta» 3) no existe. Se relaya a marketing como «lo que no se pudo hacer tal cual» y es la pregunta 1 de §14.10.
+
+### 14.3 Flujo de consentimiento (D3 modo básico, D3b diseño)
+
+```
+Visita ─► ¿modo on y alguna etiqueta configurada? ── no ─► nada (sin banner, sin cookies)
+              │ sí
+              ▼
+        ¿cookie th_consent válida y de la versión vigente del aviso? ── sí ─► aplicar elección
+              │ no
+              ▼
+        banner abajo, sin muro (D3b). utm_* válidos de la URL ─► memoria de la pestaña (sin cookie, sin storage)
+              │
+   ┌──────────┼────────────────────┬─────────────────────────────┐
+ «Aceptar»  «Solo lo necesario»   «Configurar» (2.ª capa)        sin respuesta al salir de la pestaña
+ analítica+publicidad  todo denied  analítica / publicidad por separado   beacon no_response (1 por pestaña)
+   │          │                    │
+   ▼          ▼                    ▼
+ th_consent {a:1,m:1}  th_consent {a:0,m:0}  th_consent {a,m}
+ th_first_utm (si a)   borra utm de memoria  th_first_utm si a
+ carga gtag (si a), fbevents (si m)
+ POST /measurement/banner-response {accept|necessary_only|custom, utmMedium}
+```
+
+- **`th_consent`** es la cookie que **guarda la elección** (estrictamente necesaria para respetarla): primera parte, 180 días,
+  `SameSite=Lax`, `Secure`, `Path=/`, legible por JS. Contenido: versión del formato, `a` (analítica), `m` (publicidad), versión del
+  aviso, fecha. Si la versión del aviso cambia, se vuelve a preguntar. Va declarada en el aviso.
+- **Consent Mode v2 básico:** antes de cargar `gtag.js` se fija `consent default` con los cuatro `denied`; al aceptar analítica,
+  `update` de `analytics_storage` a `granted`. `ad_storage`, `ad_user_data` y `ad_personalization` quedan `denied` para Google
+  siempre: GA4 aquí solo mide. **Nada de Google ni de Meta se descarga antes de la elección**, ni un ping sin cookies.
+- **Publicidad = Meta.** `m=1` es lo único que carga `fbevents.js` y lo único que habilita CAPI. Aceptar solo analítica no
+  enciende Meta (D3, PV-A1).
+- **Revocar:** enlace «Preferencias de cookies» en el pie y en el aviso ⇒ abre la segunda capa. Al quitar un consentimiento se
+  borran las cookies propias de esa finalidad que la tienda puede borrar en su dominio (`th_first_utm`, `_ga*`, `_fbp`, `_fbc`), se
+  manda `consent update` y se **recarga** la página, para que el código de terceros ya cargado salga del documento.
+- **`th_first_utm`** (§B1): se escribe solo con `a=1`, con los `utm_*` que pasaron `parseFirstUtm` (misma regla que
+  `common/first-utm.ts`, espejo en el frontend), 90 días, sin sobrescribir. Si los UTM llegaron antes de aceptar y la pestaña no
+  se recargó, se toman de la memoria de la pestaña; si se recargó, se pierden (se acepta: sin storage antes del consentimiento).
+
+### 14.4 Dónde se carga: lista blanca de rutas y navegación dura a las rutas sensibles (§D2.1)
+
+- **Lista blanca, no lista negra.** El cargador y `track()` solo actúan en: portada, catálogo, ficha de carta, lista y ficha de
+  sellado, carrito, checkout (con cuenta e invitado), guías, preguntas, cómo funciona. **Toda ruta nueva nace excluida.** La lista
+  exacta de rutas la escribe frontend en un módulo único; la ruta real de cada página: **NO MEDIDO** aquí.
+- **Excluidas a propósito:** cuenta y perfil, bóveda, admin, vender/buylist con CLABE o INE, restablecer contraseña, verificar
+  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos, **y la landing del Card Show** (tiene formularios con nombre
+  y teléfono y su medición propia sin cookie, §4.CARDSHOW.j; pregunta 3 de §14.10).
+- **Navegación dura (D-MKT2-2).** Next navega sin recargar: un `gtag`/`fbq` cargado en la ficha seguiría vivo en `/cuenta`. Por
+  eso, si hay código de medición cargado en el documento y la navegación va a una ruta excluida, **se hace navegación completa del
+  documento** (recarga), que llega sin terceros porque el cargador no actúa allí. Propiedad que vigila el candado C-F5: **nunca
+  hay un campo de contraseña, CLABE, INE, correo de cuenta o token en un documento donde existan `window.gtag`, `window.fbq` o un
+  `<script>` de `googletagmanager.com`/`connect.facebook.net`.** El checkout de invitado es la excepción que el brief admite (§D2.1:
+  «en checkout solo los eventos de §B2»): ahí se teclean correo y dirección con las etiquetas cargadas; mitigación: sin coincidencia
+  avanzada, sin eventos automáticos, sin `page_view` automático. Seguridad lo revisa.
+- **URL que sale (§D2.2):** `page_location`, `page_referrer` y la URL que ve el píxel se reescriben con una sola función:
+  origen + ruta + solo los `utm_*` que pasan `parseFirstUtm`. Se borra todo lo demás (`token`, `session_id`,
+  `payment_intent_client_secret`, `email`, `code`, el fragmento `#…`).
+
+### 14.5 Eventos del navegador (§B2) y sus desvíos
+
+Un único `track(evento, params)` con **lista cerrada de parámetros por evento** (API_CONTRACT §MKT.H.4). Se aparta del brief en dos
+eventos, porque su página está excluida (§14.4):
+
+| Evento | Brief | Aquí | Por qué |
+|---|---|---|---|
+| `purchase` | página de gracias **y** servidor | navegador: en el checkout, cuando `confirmPayment` vuelve con `succeeded` sin redirección; servidor: siempre (§14.6) | la página de gracias es `/pedido?token=` (invitado) u `/orders` (cuenta): excluidas. Con 3DS que redirige, solo cuenta el servidor |
+| `generate_lead` | al enviar la solicitud | solo servidor | el formulario de venta lleva CLABE e INE (§D2.1 lo excluye) |
+
+El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `begin_checkout`, `add_payment_info`,
+`click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. Se relaya a marketing.
+
+### 14.6 Eventos de servidor: cola en base de datos, después del commit, sin poder tocar el pago (§B4, §C)
+
+```
+POST /checkout/session | /checkout/guest/session | /buylist/requests
+   │  (en la tx de siempre: firstUtm* + consentimiento en la fila Order/SellRequest — datos ya saneados, no pueden fallar)
+   ▼  commit
+   └─► best-effort, fuera de la tx: MeasurementContext {gaClientId?, fbp?, fbc?, sourcePath}   (try/catch, nunca lanza)
+
+webhook payment_intent.succeeded ─► onPaymentSucceeded ─► tx de liquidación (SIN CAMBIOS) ─► commit
+   └─► después de notifyOrderSettled, best-effort: measurement.enqueuePurchase(order.id)   (try/catch, nunca lanza)
+           └─► MeasurementOutbox: 1 fila por destino habilitado y consentido; @@unique(destination,eventId) ⇒ reentrega = no-op
+
+POST /buylist/requests (201) ─► post-commit best-effort: measurement.enqueueLead(sellRequest.id)
+
+job measurement-drain (cada 1 min, BullMQ tcg-daily) ─► lee filas con nextAttemptAt ≤ now
+   ├─ construye el cuerpo AL ENVIAR desde Order/SellRequest + MeasurementContext (constructor puro con lista cerrada de claves)
+   ├─ POST a GA4 Measurement Protocol / Meta CAPI, timeout 5 s
+   ├─ 2xx ⇒ borra la fila   ·   error ⇒ attempts+1, backoff (1, 5, 30 min, 2 h, 12 h)   ·   4xx de forma ⇒ borra y cuenta
+   └─ purga: filas de cola y de contexto con más de 7 días ⇒ borradas
+```
+
+**Por qué así (D-MKT2-3):**
+- **Nada de medición dentro de una transacción de dinero.** La única escritura dentro de la tx del checkout son columnas de la
+  propia fila (`firstUtm*`, consentimiento), con valores ya validados por funciones puras que no lanzan. Todo lo demás va después
+  del commit con `try/catch` que registra y sigue, igual que `notifyOrderSettled` (`payments.service.ts:377`). Si la cola falla, el
+  pedido se liquida igual y el webhook devuelve 200; si Meta tarda 30 s, el webhook no se entera: la red solo la toca el drenador.
+- **Cola en Postgres, no en Redis.** El encolado debe sobrevivir a un reinicio y ser idempotente por clave única; la fila es
+  barata y el drenador corre en la cola BullMQ que ya existe (`scheduler.service.ts:178`) como un trabajo periódico más.
+- **El cuerpo no se guarda.** La fila de cola solo lleva `destino`, `eventId`, `subjectId` e intentos; el cuerpo se arma al
+  enviar. Así no hay cuerpos en reposo que filtrar, y «los cuerpos no se escriben en logs» (§B4) se cumple porque solo existen en
+  memoria durante el envío. Los errores registran destino, código HTTP e intento, nunca cuerpo, URL con `api_secret` ni token.
+- **Idempotencia y deduplicación con un `event_id` determinista:** `p_<Order.id>` para la compra y `l_<SellRequest.id>` para la
+  solicitud. El navegador lo calcula igual (conoce `orderId` por la respuesta de la sesión), así que no hace falta guardarlo y
+  Meta deduplica navegador + servidor. GA4 deduplica `purchase` por `transaction_id = Order.id` (comportamiento de GA4 con
+  eventos de navegador y de Measurement Protocol en la misma propiedad: **NO VERIFICADO**).
+- **Cuándo se envía a quién** (consentimiento guardado con la fila en el momento de crear el pedido o la solicitud):
+
+| Consentimiento en la fila | GA4 (Measurement Protocol) | Meta (CAPI) |
+|---|---|---|
+| `NULL` (modo off al crear) | nada | nada |
+| analítica no, publicidad no | `purchase`/`generate_lead` con `client_id` **aleatorio por evento**, sin `first_utm_*`, sin `user_id`, sin IP | **nada** |
+| analítica sí | con `client_id` del navegador (`gaClientId`) y `first_utm_*` de la fila | según publicidad |
+| publicidad sí | según analítica | evento con `event_id`, `fbp`/`fbc`; si no hay ni `fbp` ni `fbc`, **nada** (no hay con qué casar) |
+
+- **Reembolsos, contracargos y cancelaciones** no generan eventos (el brief no los pide). Pregunta 6 de §14.10.
+
+### 14.7 Qué sale hacia Google y Meta, y qué no sale nunca (§D2, PV-A1, PV-B2)
+
+**Sale (lista cerrada; el detalle de cada clave está en API_CONTRACT §MKT.H.4-.6):** nombres de evento de §B2; ids internos
+opacos (`Order.id`, `SellRequest.id`, `cardId`, id de sellado) como `transaction_id`/`item_id`/`content_ids`; nombre y set de la
+carta o del producto; montos en MXN con IVA; número de piezas; `shipping_cents`; método de pago elegido (`card`, etc.); los cuatro
+`first_utm_*` validados y solo con analítica; ruta de la página sin query salvo `utm_*`; `client_id` de GA4; `fbp`/`fbc` solo con
+publicidad. Inevitable con etiquetas de navegador: la IP y el agente de usuario del visitante viajan en la propia petición a
+Google/Meta tras aceptar (deuda aceptada por seguridad, §D3 «Deuda aceptada»).
+
+**No sale nunca, ni en claro ni con hash, ni del navegador ni del servidor:** nombre, correo (también `guestEmail`), teléfono,
+dirección o CP, CLABE, INE/CURP/RFC, IP (el servidor **no** pone `client_ip_address` ni `ip_override`), `@usuario`, tarjeta o sus
+últimos 4, texto libre, `orderNumber` (`TCG-000123` no es un secreto pero sí un folio que el cliente comparte), tokens
+(`checkoutToken`, `OrderAccessToken`, sesión, `client_secret`), `user_id` de GA4, `external_id`, `em`, `ph`, `fn`, `ln`, `ct`, `st`,
+`zp`, `country`, `db`, `ge`. **Agente de usuario por CAPI: no se envía** hasta que el dueño decida (pregunta 2 de §14.10).
+
+**Ajustes que no son código (los hace el dueño en las consolas, lista en API_CONTRACT §MKT.H.10):** GA4 sin Google Signals, sin
+personalización de anuncios, sin «datos proporcionados por el usuario», retención de eventos 14 meses; píxel con coincidencia
+avanzada automática y configuración automática de eventos apagadas, sin audiencias ni conversiones personalizadas. En código se
+fija lo que se puede fijar: `fbq('set','autoConfig',false,…)` antes de `init`, `fbq.disablePushState = true`, `send_page_view:
+false`, `allow_google_signals: false`, `allow_ad_personalization_signals: false`.
+
+### 14.8 CSP con medición: orígenes solo si está encendido
+
+`buildCsp` (`csp.ts:98`) recibe el modo. Con `on`, `connect-src` añade los orígenes de medición de API_CONTRACT §MKT.H.1 (lista
+única). Con `off`, **ninguno**. Hoy la CSP es report-only (`csp.ts:37`), así que esto no bloquea nada aún; deja escrito qué
+orígenes se esperan para que, cuando pase a `enforce`, un host de medición nuevo salga como violación en vez de pasar callado.
+**Hosts de medición** (los que vigilan C-F1/C-F2): `googletagmanager.com`, `google-analytics.com`, `analytics.google.com`,
+`doubleclick.net`, `connect.facebook.net`, `facebook.com`, `facebook.net`. **No** son de medición y están permitidos donde ya se
+usan: `accounts.google.com` (botón de Google en login y checkout) y `www.google.com` (mapa del Card Show).
+
+### 14.9 Panel: f1/f2/f3/g1 y lectura de GA4 y Search Console (b, c, e, g)
+
+- **f1/f2** salen de `MarketingBannerConsentCounter`, que alimenta `POST /measurement/banner-response` (§MKT.H.3). Se añade la
+  respuesta `custom` (segunda capa) al enum `BannerResponse` en m86: contar una elección mixta como «aceptar» inflaría la tasa y
+  contarla como «solo lo necesario» la hundiría. Tasa de aceptación = `accept / (accept + necessary_only + custom + no_response)`;
+  la pantalla enseña las cuatro.
+- **f3** (cobertura: % de pedidos con origen) y **g1** (compras `paid`) pasan a medidos cuando haya filas con consentimiento:
+  `measurementConsentAnalytics = true` es el denominador honesto de «aceptó», `firstUtmSource IS NOT NULL` el numerador.
+- **Lectura de GA4 Data API y Search Console** desde el backend de la tienda, con una **cuenta de servicio propia de la tienda**
+  (no la de marketing; cada entorno con su llave, revocables por separado), rol Lector en GA4 y usuario restringido en Search
+  Console. Un adaptador por fuente en `backend/src/modules/marketing/` con caché por `(pantalla, periodo)` de 6 h (los periodos
+  son cerrados). Sin credenciales o si la API falla ⇒ la tabla viaja `measured:false` con «NO MEDIDO — GA4 sin conectar» o
+  «NO MEDIDO — Search Console sin conectar»; ⛔ nunca «0». Las celdas pequeñas y la supresión coherente (§MKT.G.10) se aplican
+  también a las tablas de GA4 con dimensión, en el régimen `small_cells`.
+- **Search Console no depende del aviso.** Leer consultas de búsqueda no recoge nada del visitante ni pone cookies; su lectura
+  (e1) se puede encender en cuanto el dueño dé acceso, sin esperar al abogado. **GA4 sí:** sin GA4 encendido no hay datos que leer.
+
+### 14.10 Preguntas para el dueño (no se asume; regla de conflicto)
+
+1. **Sin GTM (§14.2).** ¿Aceptas que GA4 y el píxel se carguen desde el código de la tienda, sin contenedor GTM? Consecuencia: para
+   añadir o cambiar una etiqueta hace falta un cambio revisado de la tienda, no un clic en GTM. *Recomendación: sí.*
+2. **Agente de usuario a Meta por CAPI.** Meta lo usa para casar el evento; no está en la lista prohibida del brief, pero ayuda a
+   identificar el navegador. ¿Se envía (solo con publicidad aceptada) o no? *Por defecto: no.* Si sin él Meta rechaza o casa muy
+   poco (NO VERIFICADO), se mide en «Eventos de prueba» y se vuelve a preguntar.
+3. **Landing del Card Show.** ¿Se mide con GA4/píxel o se queda solo con su contador propio sin cookie? *Por defecto: excluida*
+   (tiene formularios con nombre y teléfono).
+4. **`client_id` de GA4 en el servidor para quien aceptó.** Guardarlo 7 días junto al pedido une la compra del servidor con la
+   visita; no guardarlo (siempre aleatorio) es más privado y la compra se cuenta igual, pero sin la visita que la trajo. *Por
+   defecto: se guarda, solo con analítica aceptada, y se borra a los 7 días.*
+5. **Volver a preguntar** al cambiar la versión del aviso: *por defecto sí*. Y la duración de la elección: 6 meses (brief v1 §4.2).
+6. **Reembolsos en GA4** (evento `refund`): el brief no lo pide; sin él, las compras de GA4 no restan los reembolsos. *Por
+   defecto: no se envía.*
+
+### 14.11 Reparto
+
+- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`): m86; módulo `backend/src/modules/measurement/` (config,
+  saneador del objeto `measurement`, constructores puros de cuerpos, encolado, drenador, purga); enganche post-commit en
+  `onPaymentSucceeded` (las dos ramas) y en `POST /buylist/requests`; escritura de `firstUtm*` y consentimiento en la creación de
+  `Order`/`SellRequest`; `POST /measurement/banner-response`; adaptadores GA4 Data API y Search Console del panel; régimen `exact`
+  y supresión coherente (§13.7). Pruebas C-B1…C-B9 y P-G (API_CONTRACT §MKT.H.11 y §MKT.G.9).
+- **frontend:** `frontend/src/lib/measurement/` (config, consentimiento, rutas, saneador de URL, `track`, cargador), banner y
+  segunda capa (con ux-ui), enlace «Preferencias de cookies», objeto `measurement` en las tres peticiones, metadatos del aviso,
+  `buildCsp` con modo, panel con `privacy`. Pruebas C-F1…C-F7.
+- **ux-ui:** banner (D3b) y segunda capa en `DESIGN_SYSTEM.md`; aviso «cifras exactas» del panel.
+- **devops:** variables de §MKT.H.1 en Vercel y Railway (en `off`), puerta de prebuild del aviso (C-D1), job de E2E con el modo
+  encendido y peticiones a terceros interceptadas (nada sale a Google/Meta desde CI), regla de gitleaks para los secretos de Meta y
+  GA4 (C-D2), procedimiento de encendido y de apagado en `DEVOPS_NOTES.md`.
+- **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
+  cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.
