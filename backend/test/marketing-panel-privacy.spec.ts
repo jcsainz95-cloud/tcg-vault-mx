@@ -1,7 +1,8 @@
 /**
  * 🔒 CANDADO — régimen de celdas del panel y supresión coherente mes↔semanas (API_CONTRACT v1.103 §MKT.G.2/.3/.5/.10,
  * §MKT.G.9 (8)(9)(10)(11); D-MKT-PANEL-2 y D-MKT-PANEL-4). Sin BD: `MarketingAnalyticsService` y `MarketingExportService`
- * REALES; Prisma y `sales-analytics` mockeados. Los ficheros (.csv/.xlsx) se leen de verdad (ExcelJS) para buscar «< 5».
+ * REALES; Prisma y `sales-analytics` mockeados. Los ficheros (.csv/.xlsx) se leen de verdad (ExcelJS) y se
+ * afirma sobre las FILAS de sus hojas de datos `pantalla_*`, nunca sobre «Info» (que trae «< 5» siempre; R3).
  *
  * | §MKT.G.9 | Qué fija |
  * |---|---|
@@ -84,21 +85,104 @@ function fakeRes() {
   });
 }
 
-/** Todas las celdas de texto de un .xlsx o de un .csv. */
-async function fileText(body: unknown): Promise<string> {
-  if (typeof body === 'string') return body;
+/** Celda leída de un fichero, como texto ('' si vacía). Números como `String(n)` (igual en .xlsx y .csv). */
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object' && 'richText' in (v as object)) {
+    return (v as { richText: { text: string }[] }).richText.map((t) => t.text).join('');
+  }
+  return String(v);
+}
+
+/** Separa una línea CSV del export (texto siempre entrecomillado con `""`; números sin comillas). */
+function csvCells(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') {
+      out.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Filas (celdas como texto) de la HOJA DE DATOS `pantalla_<screen>` de un .xlsx, o del .csv de una pantalla.
+ * ⛔ Nunca la hoja «Info»: lleva el literal «< 5» en su nota de privacidad SIEMPRE, también en `exact`, y una
+ * aserción sobre ella no puede ponerse roja (techlead R3 sobre `62e8250b`). Las filas vacías salen como `[]`.
+ */
+async function dataSheetRows(body: unknown, screen: string): Promise<string[][]> {
+  if (typeof body === 'string') {
+    return body
+      .replace(/^﻿/, '')
+      .split('\r\n')
+      .map((l) => (l === '' ? [] : csvCells(l)));
+  }
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(body as ExcelJS.Buffer);
-  const out: string[] = [];
-  wb.eachSheet((ws) =>
-    ws.eachRow((row) =>
-      row.eachCell((c) => {
-        const v = c.value as unknown;
-        out.push(typeof v === 'object' && v !== null && 'richText' in (v as object) ? JSON.stringify(v) : String(v));
-      }),
-    ),
-  );
-  return out.join('\n');
+  const ws = wb.getWorksheet(`pantalla_${screen}`);
+  if (!ws) throw new Error(`el libro no trae la hoja pantalla_${screen}`);
+  const rows: string[][] = [];
+  for (let i = 1; i <= ws.rowCount; i++) {
+    const vals = ws.getRow(i).values as unknown[]; // índice 0 vacío por convenio de exceljs
+    const cells = Array.isArray(vals) ? Array.from(vals.slice(1), cellText) : [];
+    while (cells.length && cells[cells.length - 1] === '') cells.pop();
+    rows.push(cells);
+  }
+  return rows;
+}
+
+/**
+ * Las filas de la tabla `tableId` de una hoja de datos, como objetos por `labelEs`. Bloque = fila `[id] título`,
+ * cabecera, fila técnica y filas de datos hasta la primera vacía o «Nota: …».
+ */
+function fileTable(sheet: string[][], tableId: string): Record<string, string>[] {
+  const start = sheet.findIndex((r) => (r[0] ?? '').startsWith(`[${tableId}] `));
+  if (start < 0) throw new Error(`la hoja de datos no trae la tabla ${tableId}`);
+  const header = sheet[start + 1];
+  const out: Record<string, string>[] = [];
+  for (let i = start + 3; i < sheet.length; i++) {
+    const r = sheet[i];
+    if (r.length === 0 || (r[0] ?? '').startsWith('Nota: ')) break;
+    out.push(Object.fromEntries(header.map((h, j) => [h, r[j] ?? ''])));
+  }
+  return out;
+}
+
+/**
+ * §MKT.G.9 (9) sobre el FICHERO, semana W41. d1: Carta B (N=3, MX$ 600) no aparece ni como fila ni como cifra (ningún
+ * 3 en «Unidades vendidas» ni 600 en «MX$»), su pareja Carta A tampoco, y la fila «Otros» lleva «< 5» con MX$ vacío.
+ * En `exact` el fichero traería A 6/600, B 3/600 y ninguna fila «Otros» ⇒ rojo. Con `withA3`, la fila de pagadas de
+ * a3 (N=3, MX$ 4560) lleva «< 5» y MX$ vacío (en `exact`: 3 y 4560).
+ */
+async function expectFileSuppressed(label: string, body: unknown, withA3: boolean): Promise<void> {
+  const UNI = 'Unidades vendidas';
+  const MXN = 'MX$ vendido (IVA incluido)';
+  const d1 = fileTable(await dataSheetRows(body, 'd'), 'd1');
+  expect([label, d1.map((r) => r.Carta)]).toEqual([label, ['Carta C · Set MX 003', OTROS_LABEL]]);
+  expect([label, d1.some((r) => r[UNI] === '3' || r[MXN] === '600')]).toEqual([label, false]);
+  expect([label, d1.find((r) => r.Carta === OTROS_LABEL)]).toEqual([
+    label,
+    expect.objectContaining({ [UNI]: SMALL_CELL_SENTINEL, [MXN]: '' }),
+  ]);
+  if (withA3) {
+    const a3 = fileTable(await dataSheetRows(body, 'a'), 'a3');
+    expect([label, a3[1]]).toEqual([
+      label,
+      { Concepto: 'Ofertas aceptadas / pagadas', 'Nº': SMALL_CELL_SENTINEL, 'MX$ (IVA incluido)': '' },
+    ]);
+  }
 }
 
 const tbl = (p: ScreenPayload, id: string): AggTable => p.tables.find((t) => t.id === id)!;
@@ -165,20 +249,21 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
 describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
   beforeEach(() => clock('2026-10-14T12:00:00.000Z'));
 
-  it('sesión super_admin: export csv/xlsx, export/todo y weekly-excel llevan «< 5»; aggregates también', async () => {
+  it('sesión super_admin: export csv/xlsx, export/todo y weekly-excel suprimen EN LAS FILAS de datos; aggregates también', async () => {
     const { ctrl } = build(SALES_W41);
     const q = { pantalla: 'd', week: '2026-W41' };
     for (const format of ['csv', 'xlsx']) {
       const res = fakeRes();
       await ctrl.export(SUPER, { ...q, format }, res as never);
-      expect([format, (await fileText(res.body)).includes(SMALL_CELL_SENTINEL)]).toEqual([format, true]);
+      await expectFileSuppressed(`export ${format}`, res.body, false);
     }
     const todo = fakeRes();
     await ctrl.exportAll(SUPER, { week: '2026-W41' }, todo as never);
-    expect((await fileText(todo.body)).includes(SMALL_CELL_SENTINEL)).toBe(true);
+    await expectFileSuppressed('export/todo', todo.body, true);
+    // Sin selector ⇒ última semana cerrada al 14-oct-2026 = W41 (los mismos datos).
     const semana = fakeRes();
     await ctrl.weeklyExcel(SUPER, {}, semana as never);
-    expect((await fileText(semana.body)).includes(SMALL_CELL_SENTINEL)).toBe(true);
+    await expectFileSuppressed('weekly-excel', semana.body, true);
 
     const agg = await ctrl.aggregates(tokenReq, { ...q });
     expect(agg.privacy).toBe('small_cells');
@@ -251,6 +336,31 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
     walk(dir);
     expect(casts).toHaveLength(1);
     expect(casts[0]).toMatch(/^marketing\.controller\.ts:\d+$/);
+  });
+
+  it('estático (MKT-TL7r): `as never` / `as unknown as` (saltan el tipo marcado) — único caso, el token de `aggregates`', () => {
+    // Residuo de D3: `screen(…, x as never)` o `as unknown as CellPrivacy` fabrican el régimen exacto sin pasar por
+    // `panelPrivacy()` y el compilador no lo ve. Único caso admitido: leer `req.marketingToken` (no toca el régimen).
+    // Si se mueve esa línea, se actualiza aquí a sabiendas: el candado exige la ubicación EXACTA.
+    const dir = path.join(__dirname, '../src/modules/marketing');
+    const escapes: string[] = [];
+    const walk = (d: string) => {
+      for (const f of fs.readdirSync(d)) {
+        const p = path.join(d, f);
+        if (fs.statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith('.ts')) {
+          fs.readFileSync(p, 'utf8')
+            .split('\n')
+            .forEach((line, i) => {
+              const code = line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
+              const n = (code.match(/\bas\s+never\b/g) ?? []).length + (code.match(/\bas\s+unknown\s+as\b/g) ?? []).length;
+              for (let k = 0; k < n; k++) escapes.push(`${path.relative(dir, p)}:${i + 1}`);
+            });
+        }
+      }
+    };
+    walk(dir);
+    expect(escapes).toEqual(['marketing.controller.ts:66']);
   });
 });
 
