@@ -188,7 +188,12 @@ export function NewKeyDialog({ onClose }: { onClose: () => void }) {
   // 🔒 Sin `useMutation`: su `data` viviría en la MutationCache del QueryClient mientras el diálogo está abierto
   // (medido por UX-MKT-16). La respuesta va directa del `fetch` al estado local y a ningún otro sitio.
   const [pending, setPending] = useState(false);
+  // R4 (techlead, 2026-10-18): el estado `pending` no basta como guarda — dos `submit` en el mismo tick leen el mismo
+  // `false` antes del repintado. La ref se pone síncrona y garantiza UNA emisión por diálogo en vuelo; si no, el segundo
+  // `setSecret` pisaría al primero y quedaría viva en el servidor una llave cuyo claro nadie vio.
+  const inFlight = useRef(false);
   async function issue(name: string) {
+    inFlight.current = true;
     setPending(true);
     try {
       const res = await issueMarketingToken(name);
@@ -200,6 +205,7 @@ export function NewKeyDialog({ onClose }: { onClose: () => void }) {
       if (err?.status === 422 || err?.status === 400) setNameError(t('errName'));
       else setFailed('generic');
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   }
@@ -227,6 +233,7 @@ export function NewKeyDialog({ onClose }: { onClose: () => void }) {
 
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
+    if (inFlight.current) return; // R4: ⛔ segunda emisión mientras la primera está en vuelo
     setFailed(null);
     if (!label.trim()) return setNameError(t('errName'));
     setNameError(undefined);
@@ -328,6 +335,7 @@ export function NewKeyDialog({ onClose }: { onClose: () => void }) {
           maxLength={60}
           autoComplete="off"
           onChange={(e) => setLabel(e.target.value)}
+          readOnly={pending}
           hint={t('nameHelp')}
           error={nameError}
         />

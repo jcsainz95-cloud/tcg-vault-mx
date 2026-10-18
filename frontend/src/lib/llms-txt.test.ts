@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildLlmsTxt, LLMS_LAST_REVIEW } from './llms-txt';
+import { FIXTURE_CONTENT } from './seo-content.fixture';
 
 describe('llms.txt (§E7, brief v1 §3.3)', () => {
   const now = new Date('2026-10-18T18:00:00Z');
@@ -21,8 +22,9 @@ describe('llms.txt (§E7, brief v1 §3.3)', () => {
     }
   });
 
-  it('no enlaza páginas sin contenido vigente (FAQ vencidas)', () => {
-    const later = buildLlmsTxt({ supportContact: 'x@y.mx', now: new Date('2026-11-12T18:00:00Z') });
+  // FE-MKT-T1: sobre el fixture (fechas fijas), no sobre las FAQ vivas que se renuevan cada mes.
+  it('no enlaza páginas sin contenido vigente (FAQ vencidas, fixture)', () => {
+    const later = buildLlmsTxt({ supportContact: 'x@y.mx', now: new Date('2030-01-21T07:00:00Z'), src: FIXTURE_CONTENT });
     expect(later).not.toContain('/es/preguntas');
     expect(later).toContain('/es/guias');
   });

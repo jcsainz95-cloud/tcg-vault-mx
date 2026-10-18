@@ -27,12 +27,25 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
+import { PUBLIC_FAQS } from '@/content/seo/faq.es';
 import PreguntasPage from '../preguntas/page';
 import ComoFuncionaPage from '../como-funciona/page';
 import GuiasPage from '../guias/page';
 import GuiaPage, { generateStaticParams } from '../guias/[slug]/page';
 
 type Graph = { '@graph': Record<string, unknown>[] };
+
+/*
+ * FE-MKT-T1: el día «ya vencida» se DERIVA de los datos vivos (mediodía CDMX del día siguiente al `validThrough`), no
+ * se escribe a mano: renovar las FAQ cada mes mueve la fecha y estas pruebas siguen midiendo lo mismo sin reescribirse.
+ */
+function dayAfter(ymd: string): Date {
+  const d = new Date(`${ymd}T18:00:00Z`); // 12:00 en CDMX
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+const ALL_FAQS_GONE = dayAfter(PUBLIC_FAQS.map((f) => f.validThrough).sort().at(-1)!);
+const P7_GONE = dayAfter(PUBLIC_FAQS.find((f) => f.id === 'P7')!.validThrough);
 
 function jsonLdOf(container: HTMLElement): Graph {
   const scripts = container.querySelectorAll('script[type="application/ld+json"]');
@@ -94,7 +107,7 @@ describe('/preguntas (§E4)', () => {
   });
 
   it('con todas las FAQ vencidas: estado vacío y SIN FAQPage', async () => {
-    vi.setSystemTime(new Date('2026-11-12T18:00:00Z'));
+    vi.setSystemTime(ALL_FAQS_GONE);
     const { container, getByRole } = render(await PreguntasPage({ params: params('es') }));
     expect(getByRole('status')).toHaveTextContent('Estamos revisando estas respuestas.');
     expect(node(jsonLdOf(container), 'FAQPage')).toBeUndefined();
@@ -145,7 +158,7 @@ describe('/guias (§E6)', () => {
   );
 
   it('R1: con P7 vencida, `que-es-nm` da 404 y sale del índice (se retira entera, no a medias)', async () => {
-    vi.setSystemTime(new Date('2026-11-12T18:00:00Z'));
+    vi.setSystemTime(P7_GONE);
     await expect(GuiaPage({ params: params('es', { slug: 'que-es-nm' }) })).rejects.toThrow('NEXT_NOT_FOUND');
     const { container } = render(await GuiasPage({ params: params('es') }));
     const hrefs = [...container.querySelectorAll('h2 a')].map((a) => a.getAttribute('href'));

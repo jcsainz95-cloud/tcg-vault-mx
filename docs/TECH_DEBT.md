@@ -7,17 +7,20 @@
 
 ---
 
-## Frontend · 2026-10-18 · §MKT tienda + Panel — rechazo del techlead sobre `afd12b82` (R1, D4a, D5, D6, D7)
+## Frontend · 2026-10-18 · §MKT tienda + Panel — rechazos del techlead sobre `afd12b82` (R1, D4a, D5, D6, D7) y `62e8250b` (R4, T1, c7)
 
-> Dueño del código anotado: **frontend**. Sin dinero. Medido el 2026-10-18 sobre `afd12b82` + este pase.
+> Dueño del código anotado: **frontend**. Sin dinero. Medido el 2026-10-18 sobre `afd12b82`, `62e8250b` y sus pases.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
 | FE-MKT-R1 | CERRADA · FAQ caducaban sin aviso; guía `que-es-nm` se publicaba sin P7 | frontend | 2026-10-18 | `seo-content.test.ts` «⏳ R1» (reloj real, rojo desde 7 días antes del `validThrough` más cercano) + «guía con FAQ vencida» + `content-pages.test.tsx` «R1: … 404» verdes; rojo esperado el **2026-10-29** (P19) |
 | FE-MKT-D4a | ABIERTA · Copy «nosotros autenticamos / we authenticate» en `home.sellBody` y `buylist.subtitle` (es+en) | dueño decide el texto → frontend lo aplica | 2026-10-18 | `KNOWN_OFFENDERS` vacío en `seo-content.test.ts`. Caduca **2026-11-18** (la prueba «caducidad vigente» se pone roja ese día con el reloj real); corregir una cadena sin sacarla de la lista también pone rojo |
-| FE-MKT-D5 | CERRADA · Mock del Panel desviado del servidor (c7 y más) | frontend | 2026-10-18 | `lib/mock/marketing.parity.test.ts` verde (32 casos: 8 pantallas × semana/mes × exact/small_cells) |
+| FE-MKT-D5 | CERRADA · Mock del Panel desviado del servidor (c7 y más) | frontend | 2026-10-18 | `lib/mock/marketing.parity.test.ts` verde (32 casos: 8 pantallas × semana/mes × exact/small_cells; 34 pruebas en el fichero) |
 | FE-MKT-D6 | CERRADA · «Cancelar»/`Esc` cerraban el diálogo de crear llave a mitad del `POST` | frontend | 2026-10-18 | `AnalystAccessPanel.test.tsx` «D6: mientras se emite la llave…» verde |
 | FE-MKT-D7 | CERRADA · `llms.txt` importaba un helper desde `terminos/` | frontend | 2026-10-18 | `grep -rn "terminos/support-contact-server" frontend/src` ⇒ 0 |
+| FE-MKT-R4 | CERRADA · Un segundo Enter durante el `POST` emitía dos llaves (`submit()` sin guarda; el segundo `setSecret` pisaba el primero) | frontend | 2026-10-18 | `AnalystAccessPanel.test.tsx` «R4: dos envíos (Enter)…» y «R4: … MISMO tick» verdes (una sola llamada a `issueMarketingToken`); sin la guarda `inFlight`, ambas rojas |
+| FE-MKT-T1 | CERRADA · Canarios y pruebas de vigencia de `seo-content.test.ts` usaban las FAQ vivas (cada renovación mensual obligaba a reescribirlos). Fecha límite 2026-10-18 | frontend | 2026-10-18 | `grep -n "faqsExpiringSoon(" frontend/src/lib/seo-content.test.ts` ⇒ solo la ⏳ R1 sin argumentos (reloj real, datos vivos) y el canario con `FIX.faqs`; vigencia/guía/sitemap/llms sobre `lib/seo-content.fixture.ts`; `content-pages.test.tsx` deriva «ya vencida» de `validThrough` (sin fechas a mano). Canario: renovar todas las `validThrough` un mes ⇒ 41/41 verdes en seo-content + llms-txt + content-pages + sitemap-robots (antes, 2 rojas en content-pages) |
+| FE-MKT-C7 | CERRADA · Paridad c7 rechazaba `OTROS_LABEL`, que c7 emite legítimamente desde que pasa por `safeRows` | frontend | 2026-10-18 | `marketing.parity.test.ts` «c7 acepta … OTROS_LABEL; rechaza cualquier otro «Otros …»» verde |
 | FE-DOC-1 | ABIERTA · `docs/FRONTEND_NOTES.md` tiene 22 450 líneas (tope ~1 500) | frontend | 2026-10-18 | `wc -l docs/FRONTEND_NOTES.md` ≤ 1 500 (compactar por release; lo histórico a git) |
 
 - **D5, `| string` de `MarketingCell` (`types/contract.ts`)**: NO se quita. Dato: el propio contrato lo define así

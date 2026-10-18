@@ -4,7 +4,7 @@
  * pedir. «Listo» deshabilitado hasta la casilla; `Esc` y clic fuera no cierran antes. Más listar y revocar.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NextIntlClientProvider } from 'next-intl';
@@ -128,6 +128,42 @@ describe('UX-MKT-16 · la llave se ve una vez y no se guarda', () => {
 
     resolveIssue({ id: 't9', label: 'Analista', token: SECRET, createdAt: 'x', expiresAt: '2027-10-18T00:00:00Z' });
     expect(await screen.findByTestId('mkt-newkey-dialog')).toBeInTheDocument();
+    expect(api.issueMarketingToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('R4: dos envíos (Enter) durante el POST pendiente ⇒ UNA sola llamada a issueMarketingToken', async () => {
+    let resolveIssue!: (v: unknown) => void;
+    api.issueMarketingToken.mockImplementationOnce(() => new Promise((r) => (resolveIssue = r)));
+    const u = userEvent.setup();
+    renderPanel();
+    await screen.findByText('Nadie tiene acceso ahora.');
+    await u.click(screen.getByTestId('mkt-access-create'));
+    const dlg = screen.getByTestId('mkt-createkey-dialog');
+    await u.type(within(dlg).getByLabelText('Nombre de la llave'), 'Analista');
+    const form = dlg.querySelector('form') as HTMLFormElement;
+
+    fireEvent.submit(form); // primer Enter
+    fireEvent.submit(form); // segundo Enter, con el POST aún en curso
+    expect(api.issueMarketingToken).toHaveBeenCalledTimes(1);
+
+    resolveIssue({ id: 't9', label: 'Analista', token: SECRET, createdAt: 'x', expiresAt: '2027-10-18T00:00:00Z' });
+    expect(await screen.findByTestId('mkt-newkey-dialog')).toBeInTheDocument();
+    expect(api.issueMarketingToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('R4: dos envíos en el MISMO tick (antes de que React repinte `pending`) ⇒ UNA sola llamada', async () => {
+    api.issueMarketingToken.mockImplementationOnce(() => new Promise(() => {}));
+    const u = userEvent.setup();
+    renderPanel();
+    await screen.findByText('Nadie tiene acceso ahora.');
+    await u.click(screen.getByTestId('mkt-access-create'));
+    const dlg = screen.getByTestId('mkt-createkey-dialog');
+    await u.type(within(dlg).getByLabelText('Nombre de la llave'), 'Analista');
+    const form = dlg.querySelector('form') as HTMLFormElement;
+    act(() => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
     expect(api.issueMarketingToken).toHaveBeenCalledTimes(1);
   });
 
