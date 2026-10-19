@@ -1355,82 +1355,13 @@ aparece, con la bandera SÍ).
   Ruta: `frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx` (+ tejas de singles homólogas).
 
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
-- **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo
-  (no es regresión de Ronda C): **2 tests fallaban / 348 pasaban**. Verde en local/qa.
-- **Causa raíz:** CI levanta un contenedor Redis y **exporta `REDIS_URL`**. Dos suites afirmaban
-  comportamiento "sin Redis" leyendo la variable con `ConfigService.get('REDIS_URL')`, que **cae a
-  `process.env`** → fuga de entorno. Afectadas: `test/health-redis.provider.spec.ts` («sin REDIS_URL:
-  resuelve a null») y `test/scheduler.spec.ts` («sin REDIS_URL: onModuleInit es no-op», gating BE-5/v15-D1).
-- **Fix:** aislar `process.env.REDIS_URL` (guardar/borrar en `beforeEach`, restaurar en `afterEach`) en el
-  bloque que ejerce el caso "sin REDIS_URL". Sin tocar `health-redis.provider.ts` ni `scheduler.service.ts`
-  (el bug estaba en el test, no en el gating). Verificado con y sin `REDIS_URL`: **56 suites / 350 tests
-  verdes** en ambos; `lint`/`typecheck`/`build` verdes. Detalle en `BACKEND_NOTES.md §28`.
-- **Nota de alcance:** los workflows **Security SAST**, **E2E** y **deploy.yml** siguen fallando por causas
-  de **infra/secrets separadas** (dueño **devops/humano**) — fuera del alcance de este fix de backend.
+- backend · fuga de `process.env.REDIS_URL` en `health-redis.provider.spec.ts` y `scheduler.spec.ts`; se aísla en `beforeEach`/`afterEach`. Comprobación: ambas suites verdes con y sin `REDIS_URL` (`BACKEND_NOTES.md §28`). Texto completo en git.
 
-### E2E-1 · Seed E2E no idempotente (doble siembra + estado no reseteado) — RESUELTO (2026-08-16)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo `backend/prisma/seed-e2e.ts` + `backend/package.json`;
-  producción intacta, ningún endpoint tocado).
-- **Síntoma:** el gate **backend-e2e** (`npm run test:integration`) fallaba. Postgres del runner registraba
-  `duplicate key ... "ProcessedStripeEvent_pkey" (id)=(evt_e2e_succeeded_fixed)` y
-  `... "User_email_key" (email)=(customer@e2e.local)` **durante** el `jest`.
-- **Causa raíz — dos capas:**
-  1. **Doble siembra:** `test:integration` corría `npm run seed:synthetic` **standalone** ANTES de `jest`, y
-     además **cada** uno de los 5 `*.e2e-spec.ts` vuelve a llamar `seedE2E()` en su `beforeAll` → 6 siembras
-     por corrida (redundancia). Los dos `ERROR` de Postgres citados son, en una corrida única, **P2002
-     capturados por diseño**: `auth.service.ts:111` (test "rechaza email duplicado" → 409 `EMAIL_TAKEN`) y
-     `payments.service.ts:44` (guard de idempotencia del webhook, test "es IDEMPOTENTE reenvía event.id") —
-     benignos, no son el fallo.
-  2. **Idempotencia CROSS-RUN rota (fallo real):** `seed-e2e.ts` reseteaba estado transaccional **por
-     userId** (orders/shipments/sellRequests/disputes/kyc) pero **NO** el estado E2E que no cuelga de userId:
-     `ProcessedStripeEvent` (id `evt_e2e_succeeded_fixed`) ni `InventoryMovement` de piezas de **plataforma**.
-     En una **2ª corrida** sobre la misma DB, `evt_e2e_succeeded_fixed` ya existía → el webhook hacía no-op →
-     la orden **no** liquidaba (test "el webhook FIRMADO liquida la orden" fallaba); y los movimientos `settle`
-     previos hacían que el assert `settleMovements === 1` contara 2+.
-- **Fix:**
-  1. Se quitó la siembra **standalone** redundante de `test:integration` (ahora `prisma migrate deploy && jest
-     ...`); la siembra queda como **única fuente** en el `beforeAll` de cada spec (`seedE2E`). El script
-     `seed:synthetic` (usado por `scripts/seed-synthetic.sh`/CI staging) **se conserva**.
-  2. `seedE2E` ahora es **idempotente cross-run**: además del reset por-usuario, borra en el paso 3b los
-     `InventoryMovement` de los ítems E2E (por `folio IN E2E_FOLIOS`) y los `ProcessedStripeEvent`
-     (`evt_e2e_succeeded_fixed` + prefijo `evt_e2e`). Todos los fixtures con clave única ya usaban `upsert`
-     (revisado el seed completo: ConfigSetting, User, VaultLocation, CardSet, Card, PriceReference,
-     InventoryItem; Address ya iba con guard `findFirst`). Correr `test:integration` DOS veces seguidas sobre
-     la misma DB ya no rompe.
-- **Verificación (gates sin infra):** `lint` OK, `typecheck` OK, `build` OK, `npm test` **57 suites / 372
-  tests** verdes. El **verde de E2E lo confirma el runner** (egress local bloquea el pull de imágenes Docker
-  de los services). Detalle en `docs/BACKEND_NOTES.md`.
-
-#### E2E-1-bis · La idempotencia de 2026-08-16 era **intra-día**: dos agujeros más — RESUELTOS (2026-08-29, v1.50.3-e)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo `backend/prisma/seed-e2e.ts` + suites; producción intacta).
-- **Por qué se reabre la entrada:** el fix de E2E-1 afirmaba «correr `test:integration` DOS veces seguidas
-  sobre la misma DB ya no rompe», y era cierto **el mismo día**. QA (BLOQ-A, gate de v1.50.3-d) encontró dos
-  casos que el criterio no cubría, y los dos hacen que **el arnés se rompa por su propia operación**:
-  1. **Entre DÍAS:** la `@@unique` de `PriceReference` incluye `capturedDate` y el seed «actualizaba la fila
-     del día» ⇒ sembrar hoy sobre una BD sembrada ayer **insertaba** una segunda fila de la misma clave
-     lógica (el fixture del slab acababa con dos `graded:PSA:10` y el criterio 8 fallaba en la 2ª corrida).
-  2. **Estado sin `userId`:** los **pedidos de invitado** (v1.21/M-25) no los alcanzaba ningún reset
-     por-usuario y se acumulaban sin límite; al pasar de 100 envíos `picking` históricos, el tope duro de
-     paginación de `GET /admin/shipments` dejó fuera al envío recién creado y el caso de la cola de M4 de
-     `guest-checkout.e2e-spec` empezó a fallar solo en máquinas con historial.
-- **Fix:** `PriceReference` de las cartas del fixture pasa a **borra-y-declara transaccional**, y el seed
-  resetea pedidos/envíos de invitado del dominio reservado `@example.com`. Detalle en
-  `docs/BACKEND_NOTES.md` §0.9.
-- **Lección que sí es deuda de PROCESO (no de código):** en CI la BD es **efímera**, así que esta familia
-  entera sale **verde siempre** y solo muerde a quien verifica en local. Por eso ahora existe un test que la
-  vigila explícitamente: `backend/test/integration/seed-idempotency.e2e-spec.ts`. Cualquier estado nuevo del
-  arnés que **no cuelgue de `userId`** o que dependa de **la fecha** debe entrar ahí a la vez que al seed.
+### E2E-1 / E2E-1-bis · Seed E2E no idempotente (doble siembra, estado sin `userId`, entre días) — RESUELTO (2026-08-16; bis 2026-08-29, v1.50.3-e)
+- backend · `seedE2E` es la única siembra (en el `beforeAll` de cada spec) y es idempotente cross-run y entre días (borra `ProcessedStripeEvent`/movimientos E2E, `PriceReference` borra-y-declara, pedidos de invitado `@example.com`). Comprobación: `test/integration/seed-idempotency.e2e-spec.ts`; todo estado nuevo del arnés sin `userId` o dependiente de la fecha entra ahí a la vez que al seed (`BACKEND_NOTES.md §0.9`). Texto completo en git.
 
 ### BE-1 · La recompra de disputa no ejecuta reembolso Stripe real — RESUELTA/OBSOLETA
-- **Dónde:** `src/modules/disputes/disputes.service.ts` → `resolve(resolution='repurchase')`.
-- **Estado actual (2026-08-13):** **resuelta.** Con la política de **VENTAS FINALES**, la recompra por
-  disputa **ya NO revierte el item al inventario** — el cliente **conserva la carta**. El remedio ahora
-  **compensa dinero al cliente** (money-out) por el precio de recompra y queda **auditado**, con
-  idempotencia; ya no se mueve a mano ni queda solo como texto en `resolution`.
-- **Nota:** entrada conservada como registro histórico. El supuesto original ("revierte el item al
-  inventario" + "solo registra el remedio, sin mover dinero") es **obsoleto**: la política correcta ya
-  está implementada. Ya no aplica como deuda técnica.
+- backend · con VENTAS FINALES la recompra compensa dinero al cliente (auditado, idempotente) y no revierte el item; el supuesto original ya no aplica (`disputes.service.ts#resolve`).
 
 ### BE-2 · TOCTOU en operaciones que aún no son atómicas
 - **Dónde:** `buylist.service.ts` → `convertToInventory` (check `inventoryItemId` + create), asignación de
@@ -1469,15 +1400,7 @@ aparece, con la bandera SÍ).
   y map en memoria, o una vista materializada de "última referencia por combinación".
 
 ### BE-5 · Scheduling BullMQ de los jobs — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/jobs/scheduler.service.ts` + `src/jobs/admin-jobs.controller.ts`.
-- **Estado:** **resuelta.** El scheduler ahora programa **los 7 jobs diarios** repetibles BullMQ
-  (`fx-refresh`, `price-sync`, `portfolio-snapshot`, `ine-retention`, `buylist-sweep`, `dispute-deadline`,
-  `auth-token-sweep`) con `repeat`+`jobId` single-flight y conexión a `REDIS_URL` (sin Redis queda
-  deshabilitado, jobs disparables a mano). Los 4 barridos también son **disparables manualmente** por
-  `POST /admin/jobs/*` (super_admin, auditado). Cubierto con tests (`test/scheduler.spec.ts` mockea
-  bullmq/ioredis; `test/admin-jobs.controller.spec.ts`). Detalle: `docs/BACKEND_NOTES.md §18.1/§18.2`.
-- **Nota:** BE-3 (conversión a inventario del abandono a 30 días en `buylist-sweep`) **sigue diferida** como
-  deuda propia; este pase cableó el `run()` **actual** (7d/30d) sin cambiar su comportamiento.
+- backend · `scheduler.service.ts` programa los 7 jobs diarios (single-flight, sin Redis queda deshabilitado) y los barridos son disparables por `POST /admin/jobs/*`. Comprobación: `test/scheduler.spec.ts`, `test/admin-jobs.controller.spec.ts` (`BACKEND_NOTES.md §18.1/§18.2`). BE-3 sigue abierta aparte.
 
 ### BE-6 · Providers de precio graded/sealed son stubs
 - **Dónde:** `src/modules/pricing/providers/graded-sealed.providers.ts`.
@@ -1509,12 +1432,7 @@ aparece, con la bandera SÍ).
   expiración de reservas `pending` sin PI tras N minutos.
 
 ### BE-8 · CORS `origin: true` en `main.ts` — RESUELTA/OBSOLETA
-- **Dónde:** `src/main.ts` → `enableCors`.
-- **Estado:** **resuelta.** Ya **no** usa `origin: true`. `resolveCorsOrigins()` construye una **allow-list**
-  desde `APP_BASE_URL` (lista separada por comas) con `credentials: true`; fallback seguro a orígenes de dev
-  local (`http://localhost:3000`, `:5173`) — **nunca** un comodín ni reflejo de origen arbitrario. En
-  staging/prod `APP_BASE_URL` DEBE fijarse (coordinado con devops). Entrada conservada como registro
-  histórico; ya no aplica como deuda.
+- backend · `resolveCorsOrigins()` usa allow-list desde `APP_BASE_URL` con `credentials: true`; nunca comodín ni reflejo de origen.
 
 ### Deuda del pase v1.1 (hallazgos QA/techlead sobre alcance v1.1)
 
@@ -1557,19 +1475,10 @@ aparece, con la bandera SÍ).
   memoria, reutilizado por `holdings()` y el job.
 
 ### D4 · Exponer `stripeFeeIvaPct` en el DTO de settings — RESUELTA (pase v1.1)
-- **Dónde:** `src/modules/settings/settings.constants.ts` → `SETTING_DTO_MAP`.
-- **Estado:** **resuelta.** El contrato §M10 ya listaba `stripeFeeIvaPct` en el DTO de `GET/PUT
-  /admin/settings`, pero faltaba en `SETTING_DTO_MAP`. Se añadió con su validador de rango (fracción
-  `[0,1)`) y se cubrió con tests (`test/settings.validation.spec.ts`: lectura vía `getAllDto` +
-  actualización). Ya no es deuda.
+- backend · añadido a `SETTING_DTO_MAP` con validador `[0,1)`. Comprobación: `test/settings.validation.spec.ts`.
 
 ### D5 · Enumeración por temporización en login — RESUELTA (pase v1.1)
-- **Dónde:** `src/modules/auth/auth.service.ts` → `login`.
-- **Estado:** **resuelta.** Antes retornaba temprano (401) si el usuario no existía o si `passwordHash`
-  era null, dejando un canal de temporización (el comentario prometía una mitigación ausente). Ahora se
-  ejecuta **siempre** `argon2.verify` — contra un **hash dummy fijo precomputado** cuando no hay
-  usuario/`passwordHash` null — para igualar la latencia; se mantiene `401 INVALID_CREDENTIALS` y el caso
-  Google intacto. Cubierto con tests (`test/auth.login-timing.spec.ts`). Ya no es deuda.
+- backend · `login` corre siempre `argon2.verify` (hash dummy si no hay usuario/`passwordHash`). Comprobación: `test/auth.login-timing.spec.ts`.
 
 ### Deuda del pase correo v1.5 (hallazgos seguridad — Baja, aceptada)
 
@@ -1579,13 +1488,7 @@ aparece, con la bandera SÍ).
 > autorizó a diferir. IDs prefijados `v15-` para no colisionar con la D1–D3 del pase v1.1 (arriba).
 
 ### v15-D1 · `auth-token-sweep` sin disparador automático — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/jobs/auth-token-sweep.service.ts` + `src/jobs/scheduler.service.ts`.
-- **Estado:** **resuelta.** `auth-token-sweep` (junto con `buylist-sweep`, `dispute-deadline`,
-  `ine-retention`) ya está cableado como job repetible BullMQ en el scheduler (`repeat` + `case` en el worker,
-  cron diario `15 8 * * *`) y también es disparable a mano por `POST /admin/jobs/auth-token-sweep`
-  (super_admin, auditado). La tabla `AuthToken` ya se poda sola cuando hay `REDIS_URL`. Ver BE-5 arriba y
-  `docs/BACKEND_NOTES.md §18`. Nota v15-D2 (claim-luego-lectura no transaccional en `consume`) sigue como
-  deuda propia: al activarse el sweep conviene envolver claim+lectura en tx (ver v15-D2).
+- backend · cableado como job repetible (`15 8 * * *`) y disparable por `POST /admin/jobs/auth-token-sweep`; ver BE-5. v15-D2 sigue abierta aparte.
 
 ### v15-D2 · `AuthTokenService.consume`/`ownerOf`: claim-luego-lectura no transaccional
 - **Dónde:** `src/modules/auth/auth-token.service.ts:53-65` (`consume`) y `:68-75` (`ownerOf`).
@@ -1644,31 +1547,13 @@ aparece, con la bandera SÍ).
 > **no** figura como deuda. Lo de abajo es la deuda no bloqueante que el techlead autorizó a diferir.
 
 ### BE-9 · `createUser` reimplementa a mano la validación de email/password — CERRADA (v1.8-ronda-c)
-- **Dónde:** `src/modules/admin/admin.service.ts` → `createUser` vs. `src/modules/auth` (`RegisterDto` /
-  `ResetPasswordDto`).
-- **Estado (2026-08-16):** **cerrada.** Se centralizaron las reglas en `src/common/validation/credentials.ts`
-  (`MIN_PASSWORD_LENGTH`, `EMAIL_REGEX`, `normalizeEmail`, `isValidEmailFormat`, `isStrongPassword`).
-  `createUser` consume el helper; las DTOs de `auth` usan la constante compartida `MIN_PASSWORD_LENGTH` en
-  sus `@MinLength`. Fuente única → sin riesgo de divergencia. Entrada conservada como registro histórico.
+- backend · reglas centralizadas en `src/common/validation/credentials.ts`, que consumen `createUser` y las DTOs de `auth`.
 
 ### BE-10 · `AdminUserOwnedItemRef` sin `finish` ni `referenceValue` — CERRADA (v1.8-ronda-c)
-- **Dónde:** contrato `docs/API_CONTRACT.md §M6` (`AdminUserOwnedItemRef`); backend `admin.service.ts` →
-  `getUser().ownedItems` / `ownedItemRefs`.
-- **Estado (2026-08-16):** **cerrada.** El arquitecto eligió la opción (a) — enriquecer el ref — en el
-  contrato v1.8-ronda-c. El backend implementó: cada `AdminUserOwnedItemRef` trae `finish` + `productType`
-  + `referenceValue: PriceInfo`, reusando la valuación por-acabado del `HoldingDTO`. Anti N+1 con lectura
-  batch de `PriceReference` por `cardId IN (...)`. Items sin precio → `referenceValue.status="pending"`
-  (no se excluyen: vista 360°). Cubierto en `test/admin.pii.spec.ts`. Entrada conservada como histórico.
+- backend · el ref trae `finish` + `productType` + `referenceValue` (lectura batch de `PriceReference`; sin precio ⇒ `pending`). Comprobación: `test/admin.pii.spec.ts`.
 
 ### B-4 / S-B5 · `approvedPriceCents` sin tope (dinero saliente arbitrario) — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/modules/buylist/dto/buylist.dto.ts` (`ItemDecisionDto`) + `buylist.service.ts` (`itemDecision`).
-- **Estado:** **resuelta.** Hallazgo B-4 del pentest: `approvedPriceCents` tenía `@IsInt @Min(0)` **sin cota
-  superior** → un `vault_operator` podía aprobar un monto SPEI arbitrario (PoC `99999999`). Defensa en dos
-  capas: (1) DTO `@Max(1_000_000)` (MX$10,000, cota dura de sanidad → 400); (2) server-side
-  `assertApprovedPriceWithinCap`: monto efectivo ≤ **min(`quotedPriceCents` × 2, tope por solicitud
-  `buylist_cap_per_request_cents`)**; excede → `APPROVED_PRICE_CAP_EXCEEDED` (422). No rompe SEC-A1 ni el
-  flujo de aprobación normal (aprobar el cotizado o ajuste ≤ 2× pasa). Cubierto con
-  `test/buylist.approved-price-cap.spec.ts`. Ver `docs/BACKEND_NOTES.md §18.3`.
+- backend · DTO `@Max(1_000_000)` + `assertApprovedPriceWithinCap` (≤ min(cotizado × 2, `buylist_cap_per_request_cents`) ⇒ si no, 422 `APPROVED_PRICE_CAP_EXCEEDED`). Comprobación: `test/buylist.approved-price-cap.spec.ts` (`BACKEND_NOTES.md §18.3`).
 
 ### Delta rama `claude/git-repo-review-c67xyk` — review techlead (2026-08-17, no bloqueante)
 
