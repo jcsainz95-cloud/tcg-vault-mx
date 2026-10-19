@@ -104,11 +104,17 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
     expect(measurementGateProblems('off', declaredNotice(), [ONE])).toEqual([]);
   });
 
-  it('por defecto usa ENCENDER_BLOCKERS: con on, uno por entrada además de los del aviso', () => {
-    expect(ENCENDER_BLOCKERS.length).toBeGreaterThan(0);
-    expect(measurementGateProblems('on', declaredNotice())).toEqual(
-      ENCENDER_BLOCKERS.map((b) => `bloqueo de encendido abierto: ${b.id} (${b.owner}) — ${b.what}`),
-    );
+  it('por defecto usa ENCENDER_BLOCKERS: hoy vacía ⇒ con on y aviso válido, verde', () => {
+    expect(ENCENDER_BLOCKERS).toEqual([]);
+    expect(measurementGateProblems('on', declaredNotice())).toEqual([]);
+  });
+
+  it('canario: con DOS bloqueos inyectados la puerta da dos problemas, en orden', () => {
+    const TWO: EncenderBlocker[] = [ONE, { ...ONE, id: 'X2', owner: 'devops', what: 'otra cosa abierta' }];
+    expect(measurementGateProblems('on', declaredNotice(), TWO)).toEqual([
+      'bloqueo de encendido abierto: X1 (backend) — algo sin cerrar',
+      'bloqueo de encendido abierto: X2 (devops) — otra cosa abierta',
+    ]);
   });
 
   it('cada entrada tiene id único, qué, dueño válido y la prueba que la cierra', () => {
@@ -121,8 +127,8 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
     }
   });
 
-  it('D4 (parche del router) salió de la lista: lo cierra ConsentBanner.test.tsx «D4 · sin parche del router…»', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain('D4');
+  it('D4, R4 y D2 salieron (13cf3653): sus pruebas de cierre están en la cabecera de ENCENDER_BLOCKERS', () => {
+    for (const id of ['D4', 'R4', 'D2']) expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain(id);
   });
 });
 
