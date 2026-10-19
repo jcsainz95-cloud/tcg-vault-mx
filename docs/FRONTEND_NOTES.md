@@ -33,13 +33,12 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `on` propio en `.next-e2e-mkt-on`, terceros interceptados). Unidad: `ConsentBanner.test.tsx` (C-F8/9/13/14/18),
   `track.test.ts` (C-F6), `utm.test.ts` (C-F4), `csp.measurement.test.ts` (C-F7), `measurement-gate.test.ts`
   (C-D1/C-F17), `consent-i18n.test.ts` (C-F15). C-F16 ya existía (`MarketingView.test.tsx`).
-- **Decisiones de frontend (para el arquitecto si no valen):** (1) sin respuesta al banner ⇒ el objeto `measurement`
-  NO viaja (el pedido queda `NULL` = «nada»); (2) `no_response` una vez por pestaña con una marca en
-  `sessionStorage` (`th_banner_no_response`, sin identificador); (3) «Guardar» con los dos apagados desde el banner
-  cuenta `custom`; desde el pie, nada (MKT2-UX.13 pet. 1 y 3); (4) `page_view` solo a GA4 (el píxel no lleva
-  `PageView`: no está en la lista de §MKT.H.4); (5) sin `measurementDisclosure` el proveedor queda inactivo aunque el
-  modo sea `on`, salvo en bundles de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION` (solo E2E);
-  (6) hueco del aviso: un párrafo con el botón al final del apartado `cookies` (no dentro de la frase del abogado).
+- **Decisiones (v1.105, §MKT.H.13):** (1) sin respuesta al banner el objeto `measurement` NO viaja; (2) `no_response`
+  una vez por DOCUMENTO, marca solo en memoria (nada en storage antes de elegir); (3) respuesta por resultado, también
+  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); desde el
+  pie, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
+  de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso va en párrafo propio al final del
+  apartado `cookies` (definitivo); la puerta C-D1 exige ese apartado.
 - **Eventos cableados:** `page_view`, `view_item` (carta y sellado), `add_to_cart` (fichas), `begin_checkout` (las dos
   cotizaciones), `purchase` (los dos checkouts, solo `succeeded`; `StripePaymentModal.onConfirmed(status)`).
   **Sin cablear:** `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (TECH_DEBT

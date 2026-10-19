@@ -13,9 +13,9 @@
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| FE-MKT2-1 | ABIERTA · `no_response` «una vez por pestaña» usa una marca en `sessionStorage` (`th_banner_no_response`, booleano sin identificador) antes de la elección; ARCHITECTURE §14.3 dice «sin storage» para los UTM, no para esto. Lo decide el arquitecto/seguridad | frontend (tras decisión) | 2026-10-19 | Decisión escrita en `API_CONTRACT §MKT.H.3`; si es «sin storage», `grep -n "sessionStorage" frontend/src/components/consent/MeasurementProvider.tsx` ⇒ 0 |
+| FE-MKT2-1 | CERRADA (v1.105, §MKT.H.13) · `no_response` usaba `sessionStorage`; ahora marca en memoria, una vez por documento | frontend | 2026-10-19 | `source-lock.test.ts` «la medición no usa sessionStorage» y `ConsentBanner.test.tsx` «sin escribir en storage» verdes |
 | FE-MKT2-2 | ABIERTA · Eventos de §MKT.H.4 sin cablear: `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (la lista cerrada de `track.ts` ya los admite) | frontend | 2026-10-19 | `grep -rnE "track\\('(select_content|buy_button_visible|add_payment_info|click_contact|search)'" frontend/src --include=*.tsx` ⇒ ≥ 1 por evento, con su caso en `measurement-on.spec.ts` |
-| FE-MKT2-3 | ABIERTA · El botón «Preferencias de cookies» del aviso va en un párrafo propio al final del apartado `cookies`, no dentro de la frase (el texto lo trae el abogado; MKT2-UX.8 sitio 2) | frontend | 2026-10-19 | Con el aviso nuevo: el botón dentro de la frase del apartado `cookies` y `CookiePreferencesNoticeSlot` retirado |
+| FE-MKT2-3 | CERRADA (v1.105, §MKT.H.13) · El párrafo propio al final del apartado `cookies` es el diseño definitivo; C-D1 exige el apartado | frontend | 2026-10-19 | `measurement-gate.test.ts` «el aviso sin apartado `cookies` ⇒ problema» verde |
 
 ---
 

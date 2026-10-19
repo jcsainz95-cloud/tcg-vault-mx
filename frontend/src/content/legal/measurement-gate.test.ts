@@ -62,6 +62,14 @@ describe('C-D1 · puerta del aviso de medición', () => {
     expect(measurementNoticeProblems(doc)).toEqual(['el aviso no nombra: Meta, _fbc, th_first_utm, retención de 14 meses']);
   });
 
+  it('MKT.H.13 · el aviso sin apartado `cookies` ⇒ problema (ahí va el botón «Preferencias de cookies»)', () => {
+    const doc = declaredNotice();
+    const cookies = doc.sections.find((s) => s.id === 'cookies')!;
+    doc.sections = doc.sections.filter((s) => s.id !== 'cookies');
+    doc.sections[0].blocks.push(...cookies.blocks); // el texto sigue nombrando todo, solo falta el apartado
+    expect(measurementNoticeProblems(doc)).toEqual(['el aviso no tiene apartado `cookies` (ahí va «Preferencias de cookies»)']);
+  });
+
   it('measurementDisclosure con forma inválida ⇒ problema', () => {
     const doc = declaredNotice();
     doc.measurementDisclosure = { version: 'con espacio', approvedByOwnerOn: 'ayer', legalReviewOn: '2026-10-30' };

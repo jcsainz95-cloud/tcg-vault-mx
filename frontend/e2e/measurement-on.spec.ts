@@ -50,6 +50,21 @@ test.describe('C-F3 · cuatro caminos de red', () => {
     await settle(page);
     expect(log.measurement).toEqual([]);
     expect(await measurementCookies(context)).toEqual([]);
+    // MKT.H.13 (v1.105): ocultar la pestaña sin responder ⇒ UN `no_response` por documento y 0 escrituras de
+    // medición en storage. (`page.goto` ya pudo contar uno del documento anterior: se cuenta desde aquí.)
+    const sentBefore = log.bannerResponses.length;
+    const storage = await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      const keys = (s: Storage) => Array.from({ length: s.length }, (_, i) => s.key(i) ?? '');
+      return [...keys(window.sessionStorage), ...keys(window.localStorage)].filter((k) => /^th_|consent|banner|measurement/i.test(k));
+    });
+    expect(storage).toEqual([]);
+    await expect.poll(() => log.bannerResponses.slice(sentBefore).map((b) => (b.body as { response: string }).response)).toEqual([
+      'no_response',
+    ]);
+    expect(log.bannerResponses.every((b) => (b.body as { response: string }).response === 'no_response')).toBe(true);
   });
 
   test('«Solo lo necesario» ⇒ 0 peticiones y solo th_consent', async ({ page, context }) => {

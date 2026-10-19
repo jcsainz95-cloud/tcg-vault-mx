@@ -57,6 +57,11 @@ export function measurementNoticeProblems(doc: LegalDocument): string[] {
     if (!DATE_RE.test(d.legalReviewOn ?? '')) bad.push('legalReviewOn');
     if (bad.length > 0) problems.push(`measurementDisclosure mal formado: ${bad.join(', ')}`);
   }
+  // MKT.H.13 (v1.105): el botón «Preferencias de cookies» va en un párrafo propio al final del apartado
+  // `cookies` (`CookiePreferencesNoticeSlot`), fuera del texto del abogado. Sin ese apartado no tiene sitio.
+  if (!doc.sections.some((s) => s.id === 'cookies')) {
+    problems.push('el aviso no tiene apartado `cookies` (ahí va «Preferencias de cookies»)');
+  }
   const text = plainText(doc);
   if (text.includes(OLD_NO_MEASUREMENT_SENTENCE)) {
     problems.push(`el aviso aún dice «${OLD_NO_MEASUREMENT_SENTENCE}»`);

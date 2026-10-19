@@ -298,8 +298,9 @@ describe('C-F14 · enlace persistente', () => {
   });
 });
 
-describe('§MKT.H.3 no_response', () => {
-  it('se manda UNA vez por pestaña al ocultarse si el banner se vio y no se respondió', async () => {
+describe('§MKT.H.3 no_response (v1.105: una vez por DOCUMENTO, marca solo en memoria)', () => {
+  it('se manda UNA vez al ocultarse si el banner se vio y no se respondió, sin escribir en storage', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
     setup();
     await screen.findByTestId('consent-banner');
     const hide = () => {
@@ -309,6 +310,37 @@ describe('§MKT.H.3 no_response', () => {
     hide();
     hide();
     expect(bannerCalls()).toEqual([{ response: 'no_response' }]);
+    // Antes de elegir no se escribe nada en el dispositivo (MKT.H.13, cierra FE-MKT2-1).
+    expect(setItem).not.toHaveBeenCalled();
+    expect(window.sessionStorage.length).toBe(0);
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  });
+});
+
+describe('§MKT.H.13 · la respuesta del banner es la del RESULTADO (también desde la 2.ª capa)', () => {
+  async function saveFromLayer(toggle: string[]) {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Configurar' }));
+    const dialog = screen.getByRole('dialog');
+    for (const name of toggle) await user.click(within(dialog).getByRole('switch', { name }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar mi elección' }));
+  }
+
+  it('Guardar con los dos apagados ⇒ necessary_only', async () => {
+    await saveFromLayer([]);
+    expect(consentCookie()).toMatchObject({ a: 0, m: 0 });
+    expect(bannerCalls()).toEqual([{ response: 'necessary_only' }]);
+  });
+
+  it('Guardar con los dos encendidos ⇒ accept', async () => {
+    await saveFromLayer(['Analítica', 'Publicidad']);
+    expect(consentCookie()).toMatchObject({ a: 1, m: 1 });
+    expect(bannerCalls()).toEqual([{ response: 'accept' }]);
+  });
+
+  it('Guardar con solo Publicidad ⇒ custom', async () => {
+    await saveFromLayer(['Publicidad']);
+    expect(bannerCalls()).toEqual([{ response: 'custom' }]);
   });
 });

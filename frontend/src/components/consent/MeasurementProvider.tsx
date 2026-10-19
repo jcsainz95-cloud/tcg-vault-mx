@@ -54,7 +54,16 @@ function noticeVersionForBuild(): string | null {
   return e2e ? e2e : null;
 }
 
-const NO_RESPONSE_FLAG = 'th_banner_no_response';
+
+/**
+ * API_CONTRACT §MKT.H.13 (v1.105): la respuesta que cuenta es la del RESULTADO, venga del botón o de la
+ * segunda capa — los dos sí ⇒ `accept`, los dos no ⇒ `necessary_only`, mixta ⇒ `custom`.
+ */
+export function bannerResponseFor(choice: ConsentChoice): BannerResponse {
+  if (choice.analytics && choice.ads) return 'accept';
+  if (!choice.analytics && !choice.ads) return 'necessary_only';
+  return 'custom';
+}
 
 /** ¿Hay código de medición de terceros en ESTE documento? (C-F5). */
 export function measurementLoadedInDocument(): boolean {
@@ -95,6 +104,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
   const landedAt = useRef<Date>(new Date());
   const answered = useRef(false);
   const bannerShown = useRef(false);
+  const noResponseSent = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const lastHref = useRef<string>('');
 
@@ -226,19 +236,14 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
     if (bannerVisible) bannerShown.current = true;
   }, [bannerVisible]);
 
-  // §MKT.H.3 `no_response`: una vez por pestaña, al ocultarse, si el banner se vio y no se respondió.
+  // §MKT.H.3 `no_response` (v1.105, MKT.H.13): una vez por DOCUMENTO, al ocultarse, si el banner se vio y no
+  // se respondió. La marca vive solo en memoria: antes de elegir no se escribe nada en el dispositivo.
   useEffect(() => {
     if (!active) return;
     function onHide() {
       if (document.visibilityState !== 'hidden') return;
-      if (!bannerShown.current || answered.current) return;
-      try {
-        if (window.sessionStorage.getItem(NO_RESPONSE_FLAG) === '1') return;
-        window.sessionStorage.setItem(NO_RESPONSE_FLAG, '1');
-      } catch {
-        /* sin storage: una vez por documento */
-      }
-      bannerShown.current = false;
+      if (!bannerShown.current || answered.current || noResponseSent.current) return;
+      noResponseSent.current = true;
       sendBannerResponse('no_response', tabUtm.current.medium);
     }
     document.addEventListener('visibilitychange', onHide);
@@ -317,7 +322,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
             }, 0);
           }}
           onSave={(choice) =>
-            save(choice, dialogOrigin === 'banner' && !answered.current ? 'custom' : null, {
+            save(choice, dialogOrigin === 'banner' && !answered.current ? bannerResponseFor(choice) : null, {
               focus: dialogOrigin === 'banner' ? 'main' : 'trigger',
               toast: true,
             })

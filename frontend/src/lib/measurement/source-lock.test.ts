@@ -57,6 +57,14 @@ describe('C-F1 (fuente) · los hosts de medición no salen del cargador', () => 
     expect(depth).toBeGreaterThanOrEqual(0);
   });
 
+  it('MKT.H.13 · la medición no usa sessionStorage (nada en el dispositivo antes de elegir; cierra FE-MKT2-1)', () => {
+    const offenders = files
+      .filter((f) => !isTest(f.rel) && (f.rel.startsWith('src/lib/measurement/') || f.rel.startsWith('src/components/consent/')))
+      .filter((f) => /sessionStorage/.test(f.src))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('measurement-origins.mjs solo lo importa next.config.mjs (y pruebas)', () => {
     const importers = files.filter(
       (f) => !isTest(f.rel) && /(from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*measurement-origins/.test(f.src),
