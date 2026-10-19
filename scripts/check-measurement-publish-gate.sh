@@ -23,31 +23,29 @@
 #   E2  `npm run check:measurement` con el modo SIN definir ⇒ rc 0 (apagado por defecto).
 #   E3  … con `off` ⇒ rc 0.     E4  … con `ON` (mayúsculas, inválido ⇒ off) ⇒ rc 0.
 #   E5  … con `on`:  si el aviso es el VIEJO (frase «No usamos cookies de publicidad ni de analítica»
-#       o `measurementDisclosure: null`) ⇒ tiene que ser rc ≠ 0 — si sale 0, LA PUERTA NO MUERDE ⇒ ROJO.
+#       o la divulgación de medición en `null`, sea literal en el aviso o en la constante
+#       `MEASUREMENT_DISCLOSURE` de content/legal/measurement-disclosure.ts) ⇒ tiene que ser rc ≠ 0 — si sale 0, LA PUERTA NO MUERDE ⇒ ROJO.
 #       Si el aviso ya es el nuevo ⇒ tiene que ser rc 0 (y si no, ROJO con los problemas que imprimió).
 #
-# MIENTRAS FRONTEND NO HA ENTREGADO (excepción con dueño, caducidad y candado — scripts/mkt-fase2-dependencia.env)
-#   Si NO existe ninguna de las dos piezas (lógica de medición en publish-check.ts y el script
-#   `check:measurement`), sale 0 con ::warning «PENDIENTE frontend» hasta la fecha de caducidad, y ROJO
-#   después. Si existe UNA sin la otra, ROJO siempre (entrega a medias).
+# Si falta una pieza (lógica en publish-check.ts o `check:measurement`) ⇒ ROJO. La excepción
+# «PENDIENTE frontend» se retiró el 2026-10-19 al existir las dos (D6 del techlead, DEVOPS_NOTES §101.7).
+# Si no sé leer el valor de `measurementDisclosure` ⇒ rc 2 (no concluyente), nunca se adivina.
 #
-# Uso:  ./scripts/check-measurement-publish-gate.sh [--frontend DIR] [--today AAAA-MM-DD]
+# Uso:  ./scripts/check-measurement-publish-gate.sh [--frontend DIR]
 # Sale 0 verde · 1 rojo · 2 no concluyente (no se pudo ejecutar npm / faltan ficheros).
 # Canario: scripts/check-measurement-publish-gate-canary.sh
 # =============================================================================
 set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FE="$ROOT_DIR/frontend"; HOY="$(date -u +%F)"
+FE="$ROOT_DIR/frontend"
 while [ $# -gt 0 ]; do
   case "$1" in
     --frontend) FE="$(cd "$2" && pwd)"; shift 2 ;;
-    --today)    HOY="$2"; shift 2 ;;
     *) echo "::error::argumento desconocido: $1"; exit 2 ;;
   esac
 done
-# shellcheck source=mkt-fase2-dependencia.env
-. "$ROOT_DIR/scripts/mkt-fase2-dependencia.env"
 PKG="$FE/package.json"; CHECK_TS="$FE/src/content/legal/publish-check.ts"; AVISO="$FE/src/content/legal/privacidad.es.ts"
+DISC_TS="$FE/src/content/legal/measurement-disclosure.ts"
 for f in "$PKG" "$CHECK_TS" "$AVISO"; do [ -f "$f" ] || { echo "::error::C-D1: falta $f (NO concluyente)."; exit 2; }; done
 
 ROJOS=0
@@ -59,17 +57,8 @@ printf '\n\033[1m== C-D1 · con la medición encendida, el build exige el aviso 
 TIENE_LOGICA=0; grep -q 'measurement' "$CHECK_TS" && TIENE_LOGICA=1
 SCRIPT="$(script_de check:measurement)"; TIENE_SCRIPT=0; [ -n "$SCRIPT" ] && TIENE_SCRIPT=1
 
-if [ "$TIENE_LOGICA" = 0 ] && [ "$TIENE_SCRIPT" = 0 ]; then
-  if [[ "$HOY" < "$MKT_FASE2_FRONTEND_EXPIRY" ]]; then
-    echo "::warning title=C-D1 PENDIENTE frontend::Ni publish-check.ts conoce el modo de medición ni existe \`npm run check:measurement\`. La puerta aún no existe; con el modo en off no hay riesgo hoy. Caduca el $MKT_FASE2_FRONTEND_EXPIRY (scripts/mkt-fase2-dependencia.env): desde ese día esto es ROJO. Dueño: frontend."
-    printf '  · PENDIENTE frontend (hoy %s < caducidad %s). NO es verde de la puerta: es la excepción declarada.\n' "$HOY" "$MKT_FASE2_FRONTEND_EXPIRY"
-    exit 0
-  fi
-  bad "la puerta del aviso no existe y la excepción caducó el $MKT_FASE2_FRONTEND_EXPIRY (hoy $HOY). Dueño: frontend."
-  exit 1
-fi
-[ "$TIENE_LOGICA" = 1 ] || bad "existe \`check:measurement\` pero publish-check.ts no menciona la medición: el script no puede estar comprobando el aviso de medición. Dueño: frontend."
-[ "$TIENE_SCRIPT" = 1 ]  || bad "publish-check.ts conoce la medición pero no existe \`npm run check:measurement\` que la corra. Dueño: frontend."
+[ "$TIENE_LOGICA" = 1 ] || bad "publish-check.ts no menciona la medición: ninguna puerta puede estar comprobando el aviso de medición. Dueño: frontend."
+[ "$TIENE_SCRIPT" = 1 ]  || bad "no existe \`npm run check:measurement\`: nada corre la puerta del aviso. Dueño: frontend."
 [ "$ROJOS" -eq 0 ] || exit 1
 
 # E1 — Vercel la correría.
@@ -92,7 +81,17 @@ done
 # E5 — con `on`, muerde con el aviso viejo.
 VIEJO=0; MOTIVO=""
 if grep -q 'No usamos cookies de publicidad ni de analítica' "$AVISO"; then VIEJO=1; MOTIVO="la frase vieja sigue en privacidad.es.ts"; fi
-if grep -Eq 'measurementDisclosure:[[:space:]]*null' "$AVISO"; then VIEJO=1; MOTIVO="${MOTIVO:+$MOTIVO; }measurementDisclosure: null"; fi
+# ¿Qué vale `measurementDisclosure`? Literal en el aviso, o la constante MEASUREMENT_DISCLOSURE
+# (privacidad.es.ts la referencia desde ddcfca49). Cualquier otra forma ⇒ no concluyente.
+DISC=""
+if grep -Eq 'measurementDisclosure:[[:space:]]*null' "$AVISO"; then DISC=null
+elif grep -Eq 'measurementDisclosure:[[:space:]]*\{' "$AVISO"; then DISC=objeto
+elif grep -Eq 'measurementDisclosure:[[:space:]]*MEASUREMENT_DISCLOSURE[[:space:]]*,' "$AVISO" && [ -f "$DISC_TS" ]; then
+  if grep -Eq '^export const MEASUREMENT_DISCLOSURE\b[^=]*=[[:space:]]*null[[:space:]]*;' "$DISC_TS"; then DISC=null
+  elif grep -Eq '^export const MEASUREMENT_DISCLOSURE\b[^=]*=[[:space:]]*\{' "$DISC_TS"; then DISC=objeto; fi
+fi
+[ -n "$DISC" ] || { echo "::error::C-D1: no sé leer el valor de measurementDisclosure (ni literal en privacidad.es.ts ni MEASUREMENT_DISCLOSURE en measurement-disclosure.ts). NO concluyente: actualiza este lector."; exit 2; }
+if [ "$DISC" = null ]; then VIEJO=1; MOTIVO="${MOTIVO:+$MOTIVO; }measurementDisclosure = null"; fi
 correr on; rc=$?
 if [ "$VIEJO" = 1 ]; then
   if [ "$rc" -ne 0 ]; then ok "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc $rc: el build se pone ROJO, como debe"

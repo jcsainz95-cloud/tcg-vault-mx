@@ -110,24 +110,38 @@ if [ -n "$REF" ]; then
       echo "::error::no puedo leer la ref $REF (¿fetch-depth?). La comparación de umbrales NO es concluyente."; exit 2
     fi
   else
-    # Re-medición DECLARADA (una vez, 2026-10-19, DEVOPS_NOTES §101.5): el baseline nombra con
-    # `# base-sha: <sha>` el árbol del que salen sus valores. Una subida solo se admite si ese sha es
-    # NUEVO respecto a la ref, es ANCESTRO de la ref (el crecimiento ya estaba en la rama base: no lo
-    # trae este cambio) y el umbral subido es EXACTAMENTE `wc -l` del documento en ese sha.
+    # Re-medición DECLARADA (DEVOPS_NOTES §101.5). Una subida de umbral respecto a la ref solo se
+    # admite si se cumplen LAS CUATRO:
+    #   1. el baseline declara `# base-sha: <sha>` y la ref NO declaraba ninguno: la re-medición se
+    #      gasta UNA vez; con un base-sha ya en la ref, cualquier cambio de base-sha es rojo;
+    #   2. ese sha es ancestro (o igual) de la ref;
+    #   3. el umbral nuevo es exactamente `wc -l` del documento en ese sha;
+    #   4. y no supera `wc -l` del documento EN LA REF. Ésta es la que cierra la puerta trasera (R3
+    #      del techlead): un ancestro anterior a una compactación tendría el wc viejo, pero la ref ya
+    #      tiene el compactado, así que volver a subir es rojo. La subida admitida es solo la de un
+    #      texto que YA está en la rama base, nunca la de uno que trae el cambio.
+    # Se eligió (4) y no «sha = merge-base» porque mide la propiedad que importa (el texto ya
+    # existe en la base) sin depender de cómo se calcule la base en cada evento de CI.
     base_sha() { grep -oE '^# base-sha: [0-9a-f]{7,40}$' | head -1 | awk '{print $3}'; }
     SHA_NUEVO="$(base_sha < "$BASELINE")"; SHA_VIEJO="$(base_sha <<< "$VIEJO")"
     REMEDIDA=0
-    if [ -n "$SHA_NUEVO" ] && [ "$SHA_NUEVO" != "$SHA_VIEJO" ] \
+    if [ -n "$SHA_VIEJO" ] && [ "$SHA_NUEVO" != "$SHA_VIEJO" ]; then
+      ROJOS=$((ROJOS+1))
+      printf '\033[1;31m  ✗ base-sha cambió (%s → %s): la re-medición ya se usó una vez y no se repite.\033[0m\n' "${SHA_VIEJO:0:10}" "${SHA_NUEVO:0:10}"
+      echo "::error file=$BASELINE_REL::DOC-SIZE: base-sha cambió de $SHA_VIEJO a ${SHA_NUEVO:-ninguno}; la re-medición declarada solo vale una vez."
+    elif [ -n "$SHA_NUEVO" ] && [ -z "$SHA_VIEJO" ] \
        && git -C "$ROOT_DIR" merge-base --is-ancestor "$SHA_NUEVO" "$REF" 2>/dev/null; then REMEDIDA=1; fi
     while IFS=$'\t' read -r n f; do
       [[ -z "${n:-}" || "$n" == \#* ]] && continue
       nu="${UMBRAL[$f]:-}"
       if [ -n "$nu" ] && [ "$nu" -gt "$n" ] && [ "$REMEDIDA" = 1 ]; then
         enbase="$(git -C "$ROOT_DIR" show "$SHA_NUEVO:$f" 2>/dev/null | wc -l | tr -d ' ')"
-        if [ "$nu" = "$enbase" ]; then
-          echo "  · $f: umbral $n → $nu por re-medición declarada sobre ${SHA_NUEVO:0:10} (wc -l en ese sha = $enbase; ya estaba en $REF)."
+        enref="$(git -C "$ROOT_DIR" show "$REF:$f" 2>/dev/null | wc -l | tr -d ' ')"
+        if [ "$nu" = "$enbase" ] && [ "$nu" -le "$enref" ]; then
+          echo "  · $f: umbral $n → $nu por re-medición declarada sobre ${SHA_NUEVO:0:10} (wc en ese sha = $enbase; en $REF = $enref)."
           continue
         fi
+        echo "  · $f: re-medición NO admitida (umbral $nu; wc en ${SHA_NUEVO:0:10} = $enbase; en la ref = $enref)."
       fi
       if [ -n "$nu" ] && [ "$nu" -gt "$n" ]; then
         ROJOS=$((ROJOS+1))

@@ -8,18 +8,19 @@
 #   M1  sin `prebuild` ⇒ rc 1 «E1» (Vercel construiría sin la puerta).
 #   M2  `check:measurement` = `true` (una puerta que no muerde) con el aviso viejo ⇒ rc 1 «NO MUERDE».
 #   M3  `check:measurement` = `exit 1` (una puerta que tumba todo) ⇒ rc 1 «tumbaría el build» (off estorba).
-#   M4  entrega a medias: lógica sin `check:measurement` ⇒ rc 1.
+#   M4  entrega a medias: lógica sin `check:measurement` ⇒ rc 1 · M4b sin ninguna de las dos ⇒ rc 1.
+#   M5  la frase vieja quitada pero MEASUREMENT_DISCLOSURE = null, con puerta `true` ⇒ rc 1 «NO MUERDE»
+#       (prueba que el lector de la constante está vivo: el regex viejo, muerto, lo daba por aviso nuevo).
+#   M6  MEASUREMENT_DISCLOSURE con una forma que no sé leer ⇒ rc 2 (no concluyente, no adivina).
+#   M7  frase quitada y MEASUREMENT_DISCLOSURE = { … }, puerta `true` ⇒ rc 0 (el lector ve «objeto»).
 # El lado VERDE con el aviso nuevo no se simula aquí (fabricar un aviso «válido» sería adivinar las
 # reglas de frontend): lo mide C0 el día que el aviso del abogado entre en el árbol, y las pruebas
 # unitarias de frontend sobre publish-check.ts.
-# Si frontend aún no entregó (excepción de scripts/mkt-fase2-dependencia.env): mide la EXCEPCIÓN
-# (antes de caducar ⇒ rc 0 con PENDIENTE; el día de caducidad ⇒ rc 1) y lo dice.
 # Uso: ./scripts/check-measurement-publish-gate-canary.sh   (requiere npm ci en frontend/)
 # =============================================================================
 set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK="$ROOT_DIR/scripts/check-measurement-publish-gate.sh"
-. "$ROOT_DIR/scripts/mkt-fase2-dependencia.env"
 BASE="$(mktemp -d -t cd1-canario-XXXXXX)"; trap 'rm -rf "$BASE"' EXIT
 FALLOS=0; PASADAS=0
 ok()  { PASADAS=$((PASADAS+1)); printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
@@ -44,25 +45,24 @@ caso() { # <rc esperado> <nombre> <dir> [texto] [args]
 
 printf '\n\033[1m== C-D1 canario ==\033[0m\n'
 FE0="$(copia)"
-if ! grep -q 'measurement' "$FE0/src/content/legal/publish-check.ts" && \
-   ! node -e 'process.exit((require(process.argv[1]+"/package.json").scripts||{})["check:measurement"]?0:1)' "$FE0"; then
-  printf '  · frontend aún no entregó la puerta: se mide la EXCEPCIÓN (caduca %s).\n' "$MKT_FASE2_FRONTEND_EXPIRY"
-  caso 0 "pendiente, antes de caducar ⇒ verde con aviso" "$FE0" "PENDIENTE" --today 2026-10-19
-  caso 1 "pendiente, el día de caducidad ⇒ ROJO" "$FE0" "caducó" --today "$MKT_FASE2_FRONTEND_EXPIRY"
-  d="$(copia)"; script_set "$d" check:measurement 'echo hola'
-  caso 1 "M4' · script sin lógica de medición en publish-check.ts ⇒ ROJO (entrega a medias)" "$d" "no menciona la medición"
-else
-  [ -d "$ROOT_DIR/frontend/node_modules" ] || { echo "✗ falta frontend/node_modules (npm ci): el canario no puede ejecutar la puerta. NO es verde."; exit 2; }
-  caso 0 "C0 · control: el árbol real" "$FE0" "VERDE"
-  d="$(copia)"; script_set "$d" prebuild __borrar__;              caso 1 "M1 · sin prebuild" "$d" "E1"
-  d="$(copia)"; script_set "$d" check:measurement 'exit 1';        caso 1 "M3 · la puerta tumba también con off" "$d" "tumbaría el build"
-  d="$(copia)"; script_set "$d" check:measurement __borrar__;      caso 1 "M4 · lógica sin check:measurement" "$d" "no existe"
-  if grep -q 'No usamos cookies de publicidad ni de analítica' "$FE0/src/content/legal/privacidad.es.ts"; then
-    d="$(copia)"; script_set "$d" check:measurement 'true';        caso 1 "M2 · puerta que no muerde, con el aviso viejo" "$d" "NO MUERDE"
-  else
-    printf '  · M2 no aplica: el aviso real ya no lleva la frase vieja (el caso «aviso nuevo» lo mide C0).\n'
-  fi
+[ -d "$ROOT_DIR/frontend/node_modules" ] || { echo "✗ falta frontend/node_modules (npm ci): el canario no puede ejecutar la puerta. NO es verde."; exit 2; }
+L=src/content/legal
+sin_frase() { sed -i 's/No usamos cookies de publicidad ni de analítica\./Usamos medición con tu consentimiento./' "$1/$L/privacidad.es.ts"; }
+disc() { sed -i -E "s/^(export const MEASUREMENT_DISCLOSURE\b[^=]*=).*$/\1 $2/" "$1/$L/measurement-disclosure.ts"; }
+caso 0 "C0 · control: el árbol real" "$FE0" "VERDE"
+d="$(copia)"; script_set "$d" prebuild __borrar__;              caso 1 "M1 · sin prebuild" "$d" "E1"
+d="$(copia)"; script_set "$d" check:measurement 'exit 1';        caso 1 "M3 · la puerta tumba también con off" "$d" "tumbaría el build"
+d="$(copia)"; script_set "$d" check:measurement __borrar__;      caso 1 "M4 · lógica sin check:measurement" "$d" "no existe"
+d="$(copia)"; script_set "$d" check:measurement __borrar__; sed -i 's/measurement/medicion/g' "$d/$L/publish-check.ts"
+caso 1 "M4b · sin lógica ni script (ya no hay excepción PENDIENTE)" "$d" "no menciona la medición"
+if grep -q 'No usamos cookies de publicidad ni de analítica' "$FE0/$L/privacidad.es.ts"; then
+  d="$(copia)"; script_set "$d" check:measurement 'true';        caso 1 "M2 · puerta que no muerde, con el aviso viejo" "$d" "NO MUERDE"
 fi
+d="$(copia)"; sin_frase "$d"; disc "$d" 'null;'; script_set "$d" check:measurement 'true'
+caso 1 "M5 · sin la frase pero MEASUREMENT_DISCLOSURE = null, puerta que no muerde" "$d" "measurementDisclosure = null"
+d="$(copia)"; disc "$d" 'construirDivulgacion();'; caso 2 "M6 · forma de MEASUREMENT_DISCLOSURE ilegible" "$d" "no sé leer"
+d="$(copia)"; sin_frase "$d"; disc "$d" "{ version: 'canario' } as MeasurementDisclosure | null;"; script_set "$d" check:measurement 'true'
+caso 0 "M7 · sin la frase y MEASUREMENT_DISCLOSURE = { … } ⇒ el lector lo ve como aviso nuevo" "$d" "pasa con el aviso nuevo"
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then printf '\033[1;31mROJO: %s/%s casos del canario de C-D1 fallaron.\033[0m\n' "$FALLOS" "$((FALLOS+PASADAS))"; exit 1; fi
 printf '\033[1;32mVERDE: %s/%s casos: C-D1 muerde.\033[0m\n' "$PASADAS" "$PASADAS"

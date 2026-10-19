@@ -934,7 +934,7 @@ jobs:
             echo "::warning title=DOC-SIZE sin base::rama nueva o base ilegible ($BASE_SHA): se mide el tamaño, no la subida de umbrales."
             ./scripts/check-doc-size.sh
           fi
-      - name: Y el trinquete sabe morder (canario, 15 casos × 2)
+      - name: Y el trinquete sabe morder (canario, 22 casos × 2)
         if: ${{ !cancelled() }}
         run: ./scripts/check-doc-size-canary.sh 2
 
@@ -942,9 +942,9 @@ jobs:
   # 🍪 FASE 2 DE MARKETING, APAGADA (API_CONTRACT §MKT.H.11). C-D1: con la
   # medición en `on`, el build exige el aviso de privacidad nuevo — se demuestra
   # aquí sin publicar nada (prebuild existe, off no estorba, on muerde con el
-  # aviso viejo). C-F1: canario del grep del artefacto. Mientras frontend no
-  # entregue su parte, C-D1 dice PENDIENTE hasta la caducidad de
-  # scripts/mkt-fase2-dependencia.env y rojo después. DEVOPS_NOTES §101.
+  # aviso viejo). C-F1: canario del grep del artefacto. Si falta una pieza de
+  # frontend (puerta o specs E2E), rojo: sin excepción PENDIENTE desde el
+  # 2026-10-19 (D6). DEVOPS_NOTES §101.
   # ---------------------------------------------------------------------------
   measurement-gates:
     runs-on: ubuntu-latest
@@ -967,6 +967,9 @@ jobs:
       - name: C-F1 · el grep del artefacto muerde en off y ve en on (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-measurement-artifact-canary.sh 2
+      - name: E2E de medición · borrar un spec es rojo, no un aviso (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-measurement-e2e-specs-canary.sh 2
 
   # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho

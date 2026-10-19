@@ -85,6 +85,19 @@ for ((r=1;r<=N;r++)); do
   ( "${G[@]}" add -A && "${G[@]}" commit -qm C ) >/dev/null 2>&1; C="$(git -C "$d" rev-parse HEAD)"
   lineas_de 40 > "$d/docs/API_CONTRACT.md"; remedir "$B" 40
   caso 1 "segunda subida con el MISMO base-sha que ya tenía la ref" "$d" "SUBIÓ de 35 a 40" --against-ref "$C"
+  # R3 (techlead, 2026-10-19) (b): segunda re-medición con OTRO sha — la ref C ya declaraba base-sha B.
+  # D: en la rama base el documento llegó a 38 con el baseline (base-sha B, 35) intacto. Una segunda
+  # re-medición sobre D cumpliría todo lo demás (D ancestro de la ref, 38 = wc en D = wc en la ref).
+  lineas_de 38 > "$d/docs/API_CONTRACT.md"; remedir "$B" 35
+  ( "${G[@]}" add -A && "${G[@]}" commit -qm D ) >/dev/null 2>&1; D="$(git -C "$d" rev-parse HEAD)"
+  remedir "$D" 38; caso 1 "segunda re-medición con otro sha (D) cuando la ref ya declaraba B" "$d" "base-sha cambió" --against-ref "$D"
+  # R3 (a): ancestro ANTERIOR a una compactación. P0: 30 · P1: creció a 60 · P2: compactado a 20.
+  d="$(arbol)"; G=(git -C "$d" -c user.email=c@c -c user.name=c)
+  ( "${G[@]}" init -q . && "${G[@]}" add -A && "${G[@]}" commit -qm P0 ) >/dev/null 2>&1
+  lineas_de 60 > "$d/docs/API_CONTRACT.md"; ( "${G[@]}" add -A && "${G[@]}" commit -qm P1 ) >/dev/null 2>&1; P1="$(git -C "$d" rev-parse HEAD)"
+  lineas_de 20 > "$d/docs/API_CONTRACT.md"; ( "${G[@]}" add -A && "${G[@]}" commit -qm P2 ) >/dev/null 2>&1; P2="$(git -C "$d" rev-parse HEAD)"
+  remedir "$P1" 60; caso 1 "re-medición sobre un ancestro previo a la compactación (60 > 20 en la ref)" "$d" "SUBIÓ de 30 a 60" --against-ref "$P2"
+  remedir "$P1" 20; caso 0 "control: con base-sha declarado, BAJAR al compactado sigue verde" "$d" "VERDE" --against-ref "$P2"
 done
 
 printf '\n'

@@ -15129,7 +15129,7 @@ analítica» o `measurementDisclosure: null`) ⇒ rc ≠ 0, y con el aviso nuevo
 medias ⇒ rojo. **Medido (devops, 2026-10-19)** sobre una copia del árbol entero con una implementación de prueba
 de frontend escrita por mí en el scratchpad (no commiteada): check verde con el aviso viejo (E5 rc 1) y verde
 con un aviso nuevo simulado (E5 rc 0); canario **5/5 casos, N=3 corridas, 3/3 verdes**; mutación «E5 acepta
-rc 0» ⇒ canario rojo (1/1, determinista). Sobre el árbol real de hoy: **PENDIENTE frontend** (§101.7).
+rc 0» ⇒ canario rojo (1/1, determinista). Sobre el árbol real: verde con la puerta de frontend (§101.7).
 **NO MEDIDO:** que el *Build Command* del proyecto de Vercel sea el de serie (`npm run build`); si alguien lo
 cambió a `next build`, `prebuild` no corre. Lo cierra la primera línea `> prebuild` en el registro de build de
 Vercel después de que frontend lo entregue.
@@ -15168,14 +15168,13 @@ placeholder auto-delator en nombres `…TOKEN`/`…SECRET`.
 
 ### 101.5 DOC-SIZE (ficha D8)
 
-`scripts/check-doc-size.sh` + `scripts/doc-size.baseline` (job `doc-size` de `ci.yml`). Ningún fichero de `docs/`
-(recursivo) ni `PROJECT.md` supera su umbral; el rojo dice qué documento y cuánto creció. Documento nuevo ⇒ tope
-de su clase en `CLAUDE.md`. **Solo bajan:** `--update` escribe min(umbral, actual) y en CI `--against-ref <base>`
-pone rojo si un umbral sube. **Línea base = `wc -l` sobre `aed3ca0d`** (el árbol donde el candado entra en la rama;
-`# base-sha:` en el baseline). Se rehízo **una vez**: la primera, de `b95fbbac`, daba 2 rojos falsos por texto que
-entró antes de la fusión (CARDSHOW_LANDING_ESTADO 97→147, PR #99; LIMPIEZA_DB 1080→1137, `3d696335`/`0dd35b6f`).
-Una subida solo pasa si el `base-sha` es nuevo, ancestro de la ref y el umbral = `wc -l` en ese sha. Canario
-19 casos × N=3: 57/57; mutación «sin exigir ancestro» ⇒ 3/57 rojos. Cada rol compacta lo suyo antes de añadir.
+`check-doc-size.sh` + `doc-size.baseline` (job `doc-size`): ningún fichero de `docs/` ni `PROJECT.md` supera su umbral
+(el rojo dice cuál y cuánto); nuevo ⇒ tope de `CLAUDE.md`. Solo bajan (`--update`; en CI `--against-ref`). Base =
+`wc -l` sobre `aed3ca0d` (`# base-sha:`), rehecha **una vez**: la de `b95fbbac` daba 2 rojos falsos por texto previo
+a la fusión (CARDSHOW_LANDING_ESTADO 97→147, PR #99; LIMPIEZA_DB 1080→1137, `3d696335`/`0dd35b6f`). Subida admitida solo
+si la ref no declaraba `base-sha`, el sha es ancestro de la ref y el umbral = `wc -l` en ese sha **y ≤ en la ref** (R3:
+un ancestro previo a una compactación no reabre el umbral). En la PR a `main` no se activa (`aed3ca0d` no es ancestro
+de `789b8788`; `main` sin baseline). Canario 22×3 = 66/66; mutaciones «sin `≤ ref`» y «re-medir otra vez» ⇒ 3/66 c/u.
 
 ### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
 
@@ -15187,11 +15186,11 @@ Una subida solo pasa si el `base-sha` es nuevo, ancestro de la ref y el umbral =
 
 ### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
 
-Mientras frontend no entregue, C-D1 y `measurement-e2e` dicen **PENDIENTE frontend** en `::warning` y no
-miden: **no es un verde de privacidad**. Dueño: frontend. Caducidad: `MKT_FASE2_FRONTEND_EXPIRY` en
-`scripts/mkt-fase2-dependencia.env` (**2026-10-26**), única fuente. Candado: los dos scripts leen esa fecha y a
-partir de ella la falta es ROJO (medido con `--today 2026-10-26`: rc 1 en los dos). Entrega a medias (una pieza
-sin la otra) es rojo siempre. Esa fecha no se mueve sin escribir aquí quién, por qué y hasta cuándo.
+**Retirada el 2026-10-19 (D6 del techlead):** la excepción «PENDIENTE frontend» (y `mkt-fase2-dependencia.env`)
+sobraba al existir la puerta y los dos specs, y dejaba que borrar los specs fuera un `::warning`. Ahora falta una
+pieza ⇒ rojo; canario `check-measurement-e2e-specs-canary.sh` 5×3 = 15/15, mutación «volver a PENDIENTE» 3/3 rojo.
+C-D1 lee `measurementDisclosure` literal o vía `MEASUREMENT_DISCLOSURE` (`measurement-disclosure.ts`), y una forma
+desconocida es rc 2; canario 9/9, mutación «ignorar la constante» ⇒ M5 rojo 3/3. TD-HND-1: de backend.
 
 ### 101.8 Encender y apagar
 
