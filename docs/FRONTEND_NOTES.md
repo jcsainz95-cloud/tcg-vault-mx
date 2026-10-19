@@ -24,6 +24,13 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
   imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
   version=…`. `npx next build` directo solo pasa la mínima de `next.config.mjs` (D7).
+  **Límite aceptado (QA menor 1, 2026-10-19):** la mínima mira SOLO la declaración (`measurement-disclosure.ts`); un aviso
+  con declaración bien formada que aún diga «No usamos cookies…» pasa `npx next build`. No se copia la lista de términos:
+  la mínima lee ficheros como texto (un `.mjs` no importa `.ts`) y el aviso es TS con concatenaciones e importaciones, así
+  que medir términos ahí sería una segunda implementación frágil de `measurementNoticeProblems` (falsos verdes/rojos) y
+  tampoco cubriría `ENCENDER_BLOCKERS`. Lo que publica pasa por `npm run build` ⇒ `prebuild` ⇒ puerta completa: Vercel
+  (`vercel build`) y `Dockerfile.frontend:70`, vigilado por devops (`scripts/check-measurement-publish-gate.sh` E1). El
+  único `npx next build` del repo es `scripts/stack-native.sh` (stack local de gates, no publica).
 - **E2E:** `e2e/measurement-off.spec.ts` (C-F2 + C-F1, suite normal, `@real`) y `e2e/measurement-on.spec.ts` (C-F3,
   C-F5, C-F10, C-F11, C-F12, C-F19) con `npx playwright test -c playwright.measurement-on.config.ts` (bundle de mocks
   `on` propio en `.next-e2e-mkt-on`, terceros interceptados). Unidad: `ConsentBanner.test.tsx` (C-F8/9/13/14/18),
@@ -41,8 +48,11 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   R4): `lib/measurement/item.ts` `measurementItemOf` (`c_`/`s_`/`sc_`), C-F8 = `item.test.ts` (tabla del contrato); paridad con el servidor: `item.cross.test.ts`.
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
-  (exento: mocks). `ENCENDER_BLOCKERS` (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto (vacía desde `13cf3653`).
-  Panel: `null` = «—»; compat pre-v1.106 `LEGACY_NULL_HIDDEN_COMPAT` (FE-MKT2-4); «Cobertura:» se quita al pintar (QA M3).
+  (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend, TL-MKT2b-f).
+  `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
+  Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
+  `sealHiddenRows` del servidor; «Cobertura:» se quita al pintar (QA M3).
 
 ## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
 

@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { setStoredUser } from '@/lib/session';
-import type { CheckoutSessionResponse, GuestCheckoutSessionResponse, UserDTO } from '@/types/contract';
+import type { CheckoutSessionResponse, GuestCheckoutSessionResponse, OrderItemPreview, UserDTO } from '@/types/contract';
 
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
@@ -205,5 +205,71 @@ describe('TL R1 · checkout de invitado: gtag/fbq lanzando no cuelgan el pago', 
     await usr.click(within(dialog).getByRole('button', { name: /\(simulado\)/ }));
     await waitFor(() => expect(at).not.toBeNull(), { timeout: 4000 });
     expect(at).toEqual({ token: null, cart: [] });
+  });
+});
+
+/**
+ * TL-MKT2b-a + QA menor 2 (2026-10-19) — un dato roto DENTRO de la medición (no en la etiqueta del tercero):
+ * una línea con `card: null` hace lanzar a `measurementItemOf` en `itemsFromQuote`. Antes eso se evaluaba
+ * fuera de `neverThrow` y salía de `onConfirmed`/`handleMockPay` como rechazo sin capturar. La cotización no
+ * puede PINTAR `card: null` (lee `item.card.name`), así que la línea se añade en la frontera de medición: el
+ * `trackPurchase` REAL recibe la cotización de verdad más esa línea.
+ * Muerde con: quitar el `neverThrow` de `trackPurchase` (ecommerce.ts) **o** hacer que `neverThrow` relance (track.ts).
+ */
+const NULL_CARD_LINE = { inventoryItemId: 'inv-null', card: null, unitPriceCents: 500 } as unknown as OrderItemPreview;
+
+async function purchaseWithNullCard(): Promise<{ ran: () => boolean }> {
+  const real = await vi.importActual<typeof import('@/lib/measurement/ecommerce')>('@/lib/measurement/ecommerce');
+  let ran = false;
+  vi.mocked(trackPurchase).mockImplementationOnce((orderId, breakdown, items) => {
+    ran = true;
+    real.trackPurchase(orderId, breakdown, [...(items ?? []), NULL_CARD_LINE]);
+  });
+  return { ran: () => ran };
+}
+
+describe('TL-MKT2b-a · `card: null` en la medición no deja un rechazo sin capturar en el pago', () => {
+  let rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  beforeEach(() => {
+    rejections = [];
+    process.on('unhandledRejection', onRejection);
+  });
+  afterEach(() => {
+    process.off('unhandledRejection', onRejection);
+  });
+  /** El rechazo de `handleMockPay` se notifica tras vaciar las microtareas: se le da un turno al bucle. */
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it('con cuenta: el pago termina, carrito vacío, y ningún rechazo sin capturar', async () => {
+    setStoredUser(user);
+    const probe = await purchaseWithNullCard();
+    const usr = userEvent.setup();
+    vi.mocked(createCheckoutSession).mockResolvedValue(customerSession());
+    renderWithProviders(<CheckoutView />, 'es');
+    await usr.click(await screen.findByRole('button', { name: /Pagar/ }));
+    const dialog = await screen.findByRole('dialog');
+    await usr.click(within(dialog).getByRole('button', { name: /\(simulado\)/ }));
+    expect(await screen.findByText('Pago en proceso', {}, { timeout: 4000 })).toBeInTheDocument();
+    await settle();
+    expect(probe.ran()).toBe(true);
+    expect(storedIds()).toEqual([]);
+    expect(rejections).toEqual([]);
+  });
+
+  it('invitado: el pago termina, token borrado, y ningún rechazo sin capturar', async () => {
+    const probe = await purchaseWithNullCard();
+    const usr = userEvent.setup();
+    vi.mocked(createGuestCheckoutSession).mockResolvedValue(guestSession());
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await fillGuestForm(usr);
+    await usr.click(screen.getByRole('button', { name: /Pagar/ }));
+    const dialog = await screen.findByRole('dialog');
+    await usr.click(within(dialog).getByRole('button', { name: /\(simulado\)/ }));
+    expect(await screen.findByTestId('guest-order-number', {}, { timeout: 4000 })).toHaveTextContent('TCG-000123');
+    await settle();
+    expect(probe.ran()).toBe(true);
+    expect(window.sessionStorage.getItem(GUEST_RETRY_TOKEN_KEY)).toBeNull();
+    expect(rejections).toEqual([]);
   });
 });

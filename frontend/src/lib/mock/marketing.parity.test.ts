@@ -207,3 +207,29 @@ describe('D5 · mock ↔ servidor ↔ §MKT.G.4', () => {
     }
   });
 });
+
+/**
+ * C-P1 (v1.106) · TL-MKT2b-c (2026-10-19): la pantalla ya no adivina «Oculto» por vecindad (FE-MKT2-4 cerrada), así que
+ * el mock tiene que servir la forma del servidor (`sealHiddenRows`): ninguna fila con «< 5»/«oculta» lleva `null` en una
+ * columna no texto. Muerde si se quita `.map(sealHiddenRows)` de `mockMarketingPanel`.
+ */
+describe('C-P1 · el mock sirve las filas suprimidas selladas, como el servidor', () => {
+  it('ninguna fila con «< 5»/«oculta» lleva null en una columna no texto (8 pantallas × semana/mes × régimen)', () => {
+    let suppressedRows = 0;
+    const leaks: string[] = [];
+    for (const [name, screen, v] of CASES) {
+      for (const t of mockPayload(screen, v).tables as MarketingAggTable[]) {
+        if (!t.measured) continue;
+        const nonText = t.columns.filter((c) => c.kind !== 'text').map((c) => c.key);
+        for (const row of t.rows) {
+          if (!Object.values(row).some((c) => c === '< 5' || c === 'oculta')) continue;
+          suppressedRows++;
+          for (const k of nonText) if (row[k] === null || row[k] === undefined) leaks.push(`${name} ${t.id}.${k}`);
+        }
+      }
+    }
+    // No vacía: el mock sí emite filas suprimidas en `small_cells` (si dejara de hacerlo, esta prueba no mediría nada).
+    expect(suppressedRows).toBeGreaterThan(0);
+    expect(leaks).toEqual([]);
+  });
+});

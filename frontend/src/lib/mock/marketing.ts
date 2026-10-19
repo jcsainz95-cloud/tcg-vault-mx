@@ -328,6 +328,25 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
   }
 }
 
+/**
+ * C-P1 (API_CONTRACT v1.106 §MKT.G.5), espejo de `sealHiddenRows` del servidor (`marketing-analytics.service.ts`): en una
+ * fila con un conteo oculto (`'< 5'` u `'oculta'`), toda celda no `text` que quedara `null` sale `'oculta'`. Así el mock
+ * sirve la MISMA forma que el servidor y la pantalla no tiene que adivinar (TL-MKT2b-c). Candado: `marketing.parity.test.ts` «C-P1».
+ */
+function sealHiddenRows(t: MarketingAggTable): MarketingAggTable {
+  if (!t.measured) return t;
+  const nonText = t.columns.filter((c) => c.kind !== 'text').map((c) => c.key);
+  return {
+    ...t,
+    rows: t.rows.map((r) => {
+      if (!Object.values(r).some((v) => v === '< 5' || v === 'oculta')) return r;
+      const out = { ...r };
+      for (const k of nonText) if (out[k] === null || out[k] === undefined) out[k] = 'oculta';
+      return out;
+    }),
+  };
+}
+
 export function mockMarketingPanel(screen: MarketingScreen, q: MockPeriodQuery): MarketingScreenPayload {
   requireMarketingRead();
   const period = resolvePeriod(q);
@@ -337,11 +356,13 @@ export function mockMarketingPanel(screen: MarketingScreen, q: MockPeriodQuery):
     .filter((a) => a.date >= period.from && a.date <= period.to)
     .map(({ date, kind, label, destino }) => ({ date, kind, label, ...(destino ? { destino } : {}) }));
   // h1 = las anotaciones del periodo como tabla, igual que `screenH` del servidor.
-  const tables = tablesFor(screen, period.kind, period.from, exact).map((t) =>
-    t.id === 'h1'
-      ? { ...t, rows: embedded.map((a) => ({ date: a.date, kind: a.kind, label: a.label, destino: a.destino ?? null })) }
-      : t,
-  );
+  const tables = tablesFor(screen, period.kind, period.from, exact)
+    .map((t) =>
+      t.id === 'h1'
+        ? { ...t, rows: embedded.map((a) => ({ date: a.date, kind: a.kind, label: a.label, destino: a.destino ?? null })) }
+        : t,
+    )
+    .map(sealHiddenRows);
   const payload: MarketingScreenPayload = {
     screen,
     period: { ...period, timezone: 'America/Mexico_City' },
