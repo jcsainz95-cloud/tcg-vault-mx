@@ -73,6 +73,18 @@ for ((r=1;r<=N;r++)); do
   sed -i 's/^31\t/29\t/' "$d/scripts/doc-size.baseline"; lineas_de 29 > "$d/docs/API_CONTRACT.md"
   caso 0 "--against-ref con un umbral bajado (30→29) y el documento compactado" "$d" "VERDE" --against-ref "$REF"
   caso 2 "--against-ref con una ref que no existe" "$d" "NO es concluyente" --against-ref "0000000000000000000000000000000000000001"
+  # Re-medición declarada (`# base-sha:`, §101.5): A = baseline 30; B = el documento creció a 35 en la
+  # rama base ANTES de que el candado la midiera.
+  d="$(arbol)"; G=(git -C "$d" -c user.email=c@c -c user.name=c)
+  ( "${G[@]}" init -q . && "${G[@]}" add -A && "${G[@]}" commit -qm A ) >/dev/null 2>&1; A="$(git -C "$d" rev-parse HEAD)"
+  lineas_de 35 > "$d/docs/API_CONTRACT.md"; ( "${G[@]}" add -A && "${G[@]}" commit -qm B ) >/dev/null 2>&1; B="$(git -C "$d" rev-parse HEAD)"
+  remedir() { printf '# base-sha: %s\n%s\t%s\n%s\t%s\n%s\t%s\n' "$1" 10 PROJECT.md "$2" docs/API_CONTRACT.md 5 docs/specs/A.md > "$d/scripts/doc-size.baseline"; }
+  remedir "$B" 35; caso 0 "re-medición declarada sobre B (35 = wc en B, B ancestro de la ref)" "$d" "re-medición declarada" --against-ref "$B"
+  remedir "$B" 36; caso 1 "re-medición que sube MÁS que wc en el sha declarado (36 ≠ 35)" "$d" "SUBIÓ de 30 a 36" --against-ref "$B"
+  remedir "$B" 35; caso 1 "re-medición con un sha que NO es ancestro de la ref (crecimiento traído por el cambio)" "$d" "SUBIÓ de 30 a 35" --against-ref "$A"
+  ( "${G[@]}" add -A && "${G[@]}" commit -qm C ) >/dev/null 2>&1; C="$(git -C "$d" rev-parse HEAD)"
+  lineas_de 40 > "$d/docs/API_CONTRACT.md"; remedir "$B" 40
+  caso 1 "segunda subida con el MISMO base-sha que ya tenía la ref" "$d" "SUBIÓ de 35 a 40" --against-ref "$C"
 done
 
 printf '\n'

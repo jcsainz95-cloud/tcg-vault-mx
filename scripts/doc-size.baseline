@@ -1,25 +1,26 @@
 # scripts/doc-size.baseline — umbral de líneas por documento (wc -l). SOLO PUEDE BAJAR.
 # Lo mide y lo baja ./scripts/check-doc-size.sh --update; nunca se sube a mano (CI lo comprueba
 # con --against-ref). Formato: <líneas><TAB><ruta>. Ficha DOC-SIZE (D8); DEVOPS_NOTES §101.5.
-# Valores iniciales medidos con `wc -l` sobre b95fbbac (2026-10-19), salvo DEVOPS_NOTES.md, que ya
-# baja en el mismo commit que crea el trinquete (compactación de devops).
+# Línea base medida con `wc -l` sobre aed3ca0d (2026-10-19), el árbol en el que el candado entra en la
+# rama. Se rehízo UNA vez: la primera (b95fbbac) no veía lo que entró antes de la fusión del candado.
+# base-sha: aed3ca0d9f0c8cda1bcc34e00067bed43d5c8082
 19581	PROJECT.md
-46591	docs/API_CONTRACT.md
-37265	docs/ARCHITECTURE.md
-33413	docs/BACKEND_NOTES.md
+46589	docs/API_CONTRACT.md
+37263	docs/ARCHITECTURE.md
+33221	docs/BACKEND_NOTES.md
 33863	docs/DESIGN_SYSTEM.md
 139	docs/DEVOPS_NOTES-24-railway-deploy-gate.md
 15220	docs/DEVOPS_NOTES.md
-22464	docs/FRONTEND_NOTES.md
+22420	docs/FRONTEND_NOTES.md
 2987	docs/PENTEST_NOTES.md
 17008	docs/SECURITY_NOTES.md
-11073	docs/TECH_DEBT.md
-97	docs/specs/CARDSHOW_LANDING_ESTADO.md
+10991	docs/TECH_DEBT.md
+147	docs/specs/CARDSHOW_LANDING_ESTADO.md
 501	docs/specs/DECKS_META_ARCH.md
 454	docs/specs/DECKS_META_F2_AUTOFETCH.md
 282	docs/specs/DECKS_META_V1.md
 148	docs/specs/EQ_D1_FILTER_CLASS_DRAFT.md
-1080	docs/specs/LIMPIEZA_DB.md
+1137	docs/specs/LIMPIEZA_DB.md
 354	docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md
 332	docs/specs/SKYDROPX_API_PROD_RESULTADOS.md
 375	docs/specs/SKYDROPX_API_REFERENCIA.md

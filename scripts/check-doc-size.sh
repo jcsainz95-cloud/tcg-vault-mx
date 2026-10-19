@@ -65,9 +65,8 @@ mapfile -t DOCS < <(cd "$ROOT_DIR" && { [ -f PROJECT.md ] && echo PROJECT.md; fi
 if [ "$MODO" = update ]; then
   TMP="$(mktemp)"
   {
-    echo "# scripts/doc-size.baseline — umbral de líneas por documento (wc -l). SOLO PUEDE BAJAR."
-    echo "# Lo mide y lo baja ./scripts/check-doc-size.sh --update; nunca se sube a mano (CI lo comprueba"
-    echo "# con --against-ref). Formato: <líneas><TAB><ruta>. Ficha DOC-SIZE (D8); DEVOPS_NOTES §101.5."
+    # Conserva los comentarios del baseline (incluida `# base-sha:`): --update solo baja números.
+    grep '^#' "$BASELINE" || echo "# scripts/doc-size.baseline — umbral de líneas por documento (wc -l). SOLO PUEDE BAJAR."
     for f in "${DOCS[@]}"; do
       a="$(lineas "$f")"; u="${UMBRAL[$f]:-}"
       if [ -z "$u" ]; then t="$(tope_clase "$f")"; u=$(( a > t ? a : t )); fi   # nuevo: lo que permita su clase o lo medido
@@ -111,9 +110,25 @@ if [ -n "$REF" ]; then
       echo "::error::no puedo leer la ref $REF (¿fetch-depth?). La comparación de umbrales NO es concluyente."; exit 2
     fi
   else
+    # Re-medición DECLARADA (una vez, 2026-10-19, DEVOPS_NOTES §101.5): el baseline nombra con
+    # `# base-sha: <sha>` el árbol del que salen sus valores. Una subida solo se admite si ese sha es
+    # NUEVO respecto a la ref, es ANCESTRO de la ref (el crecimiento ya estaba en la rama base: no lo
+    # trae este cambio) y el umbral subido es EXACTAMENTE `wc -l` del documento en ese sha.
+    base_sha() { grep -oE '^# base-sha: [0-9a-f]{7,40}$' | head -1 | awk '{print $3}'; }
+    SHA_NUEVO="$(base_sha < "$BASELINE")"; SHA_VIEJO="$(base_sha <<< "$VIEJO")"
+    REMEDIDA=0
+    if [ -n "$SHA_NUEVO" ] && [ "$SHA_NUEVO" != "$SHA_VIEJO" ] \
+       && git -C "$ROOT_DIR" merge-base --is-ancestor "$SHA_NUEVO" "$REF" 2>/dev/null; then REMEDIDA=1; fi
     while IFS=$'\t' read -r n f; do
       [[ -z "${n:-}" || "$n" == \#* ]] && continue
       nu="${UMBRAL[$f]:-}"
+      if [ -n "$nu" ] && [ "$nu" -gt "$n" ] && [ "$REMEDIDA" = 1 ]; then
+        enbase="$(git -C "$ROOT_DIR" show "$SHA_NUEVO:$f" 2>/dev/null | wc -l | tr -d ' ')"
+        if [ "$nu" = "$enbase" ]; then
+          echo "  · $f: umbral $n → $nu por re-medición declarada sobre ${SHA_NUEVO:0:10} (wc -l en ese sha = $enbase; ya estaba en $REF)."
+          continue
+        fi
+      fi
       if [ -n "$nu" ] && [ "$nu" -gt "$n" ]; then
         ROJOS=$((ROJOS+1))
         printf '\033[1;31m  ✗ el umbral de %s SUBIÓ de %s a %s. El trinquete solo baja.\033[0m\n' "$f" "$n" "$nu"

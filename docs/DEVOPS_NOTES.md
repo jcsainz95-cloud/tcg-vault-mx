@@ -15169,13 +15169,13 @@ placeholder auto-delator en nombres `…TOKEN`/`…SECRET`.
 ### 101.5 DOC-SIZE (ficha D8)
 
 `scripts/check-doc-size.sh` + `scripts/doc-size.baseline` (job `doc-size` de `ci.yml`). Ningún fichero de `docs/`
-(recursivo) ni `PROJECT.md` puede superar su umbral; el rojo dice qué documento y cuántas líneas creció. Umbrales
-= `wc -l` sobre `b95fbbac`; documento nuevo ⇒ tope de su clase en `CLAUDE.md`. **Solo bajan:** `--update` escribe
-min(umbral, actual), y en CI `--against-ref <base de la PR o commit anterior>` pone rojo si alguien sube uno a
-mano. Holgura ⇒ aviso para bajar el umbral. Canario 15 casos × N=3: 45/45. **Efecto inmediato:** las ramas que
-hoy añaden texto a cualquier documento (p. ej. las notas de backend y frontend de esta misma Fase 2) se pondrán
-rojas al fusionar si crecen: cada rol compacta lo suyo antes de añadir, como manda `CLAUDE.md`. Este documento
-bajó de 15 245 a lo que fija el baseline en el mismo commit.
+(recursivo) ni `PROJECT.md` supera su umbral; el rojo dice qué documento y cuánto creció. Documento nuevo ⇒ tope
+de su clase en `CLAUDE.md`. **Solo bajan:** `--update` escribe min(umbral, actual) y en CI `--against-ref <base>`
+pone rojo si un umbral sube. **Línea base = `wc -l` sobre `aed3ca0d`** (el árbol donde el candado entra en la rama;
+`# base-sha:` en el baseline). Se rehízo **una vez**: la primera, de `b95fbbac`, daba 2 rojos falsos por texto que
+entró antes de la fusión (CARDSHOW_LANDING_ESTADO 97→147, PR #99; LIMPIEZA_DB 1080→1137, `3d696335`/`0dd35b6f`).
+Una subida solo pasa si el `base-sha` es nuevo, ancestro de la ref y el umbral = `wc -l` en ese sha. Canario
+19 casos × N=3: 57/57; mutación «sin exigir ancestro» ⇒ 3/57 rojos. Cada rol compacta lo suyo antes de añadir.
 
 ### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
 
