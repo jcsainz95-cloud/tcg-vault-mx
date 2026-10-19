@@ -36,6 +36,16 @@ describe('D7 · measurementDisclosureProblem (texto de measurement-disclosure.ts
 
   it('on en bundle de MOCKS (E2E, no se publica) ⇒ exento', () => {
     expect(measurementDisclosureProblem({ ...ON, NEXT_PUBLIC_USE_MOCKS: 'true' }, decl('null'))).toBeNull();
+    expect(measurementDisclosureProblem({ ...ON, NEXT_PUBLIC_USE_MOCKS: 'true', VERCEL_ENV: 'development' }, decl('null'))).toBeNull();
+  });
+
+  // TL-MKT2b-e (2026-10-19): la exención de MOCKS no vale en un despliegue de Vercel.
+  it('on + MOCKS en Vercel production o preview ⇒ problema (la exención no aplica)', () => {
+    for (const VERCEL_ENV of ['production', 'preview']) {
+      expect(measurementDisclosureProblem({ ...ON, NEXT_PUBLIC_USE_MOCKS: 'true', VERCEL_ENV }, decl('null')), VERCEL_ENV).toMatch(/null/);
+    }
+    // Y con la declaración completa, sin problema: la puerta mide el aviso, no castiga los mocks.
+    expect(measurementDisclosureProblem({ ...ON, NEXT_PUBLIC_USE_MOCKS: 'true', VERCEL_ENV: 'production' }, GOOD)).toBeNull();
   });
 
   it('el fichero REAL hoy (null) con on ⇒ problema', () => {
@@ -58,6 +68,12 @@ describe('D7 · cargar next.config.mjs (lo que hace `next build`)', () => {
 
   it('on con el aviso de hoy ⇒ lanza MEASUREMENT_NOTICE_REQUIRED (rc ≠ 0)', () => {
     const r = load({ NEXT_PUBLIC_MEASUREMENT_MODE: 'on' });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('MEASUREMENT_NOTICE_REQUIRED mode=on (next.config)');
+  });
+
+  it('TL-MKT2b-e · on + MOCKS + VERCEL_ENV=production con el aviso de hoy ⇒ lanza (rc ≠ 0)', () => {
+    const r = load({ NEXT_PUBLIC_MEASUREMENT_MODE: 'on', NEXT_PUBLIC_USE_MOCKS: 'true', VERCEL_ENV: 'production' });
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('MEASUREMENT_NOTICE_REQUIRED mode=on (next.config)');
   });

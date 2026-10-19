@@ -258,7 +258,6 @@ function Panel({ initial, isSuperAdmin }: { initial: MktUrlState; isSuperAdmin: 
               <ScreenBody
                 screen={view}
                 data={data}
-                privacy={privacy}
                 loading={!data && (periods.isPending || panel.isFetching)}
                 error={panel.isError && !isForbidden(panel.error) && asApiError(panel.error)?.status !== 400}
                 onRetry={() => panel.refetch()}
@@ -360,7 +359,6 @@ function PeriodPicker({
 function ScreenBody({
   screen,
   data,
-  privacy,
   loading,
   error,
   onRetry,
@@ -370,7 +368,6 @@ function ScreenBody({
 }: {
   screen: MarketingScreen;
   data: MarketingScreenPayload | undefined;
-  privacy: MarketingPrivacy;
   loading: boolean;
   error: boolean;
   onRetry: () => void;
@@ -467,7 +464,7 @@ function ScreenBody({
         </details>
       )}
       {data.tables.map((tb) => (
-        <MarketingTable key={tb.id} table={tb} privacy={privacy} />
+        <MarketingTable key={tb.id} table={tb} />
       ))}
       <details>
         <summary className="min-h-[44px] cursor-pointer py-2 text-sm text-text">{t('help.title')}</summary>

@@ -84,12 +84,30 @@ export interface EncenderBlocker {
 }
 
 /**
- * VACÍA desde 2026-10-19 (merge `13cf3653`). Salieron: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
- * `backend/test/measurement.item.spec.ts` y la paridad entre las dos `lib/measurement/item.cross.test.ts`) y D2
- * (`DRAIN_BUDGET_MS`, `backend/test/measurement.drain.spec.ts` «… la corrida no pasa de DRAIN_BUDGET_MS …»).
- * Un bloqueo nuevo entra aquí con su `closedBy`; la puerta lo cuenta solo (prueba con lista inyectada).
+ * Abiertos (TL-MKT2b-f, 2026-10-19). Salieron antes: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
+ * `backend/test/measurement.item.spec.ts` y la paridad `lib/measurement/item.cross.test.ts`) y D2 (`DRAIN_BUDGET_MS`,
+ * `backend/test/measurement.drain.spec.ts`), merge `13cf3653`.
+ * El formato (ARCHITECTURE §14.1 D-MKT2-0c) no tiene estado «cumplida»: una entrada sale en el mismo commit que
+ * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 tiene la medición de QA
+ * del 2026-10-19 sobre `47eb1dea` (psql: `23514` en los dos casos inválidos; reversa + `migrate deploy` rc 0
+ * sin `resolve`; CI `backend-e2e` 144/144), pero su ficha (backend) sigue ABIERTA: sale cuando backend la cierre.
  */
-export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [];
+export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
+  {
+    id: 'MKT-F2-3',
+    what: "META_GRAPH_API_VERSION ('v21.0') sin verificar vigente para la fecha de encendido",
+    owner: 'backend',
+    closedBy:
+      'evento de prueba de Meta aceptado (2xx) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, anotado con fecha en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
+  },
+  {
+    id: 'MKT-F2-4',
+    what: 'CHECK de m86 (23514) y ciclo migrar ⇒ reversa ⇒ redeploy de m86 contra Postgres sin cerrar en su ficha',
+    owner: 'backend',
+    closedBy:
+      'backend/test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y prisma migrate deploy verde tras la reversa de m86, con el sha (TECH_DEBT MKT-F2-4)',
+  },
+];
 
 /** Problemas según el modo: con `off`, ninguno. Con `on`, los del aviso + uno por bloqueo abierto. */
 export function measurementGateProblems(

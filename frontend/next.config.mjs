@@ -86,7 +86,10 @@ export const measurementBuildEnv = (env = process.env) => {
  * `npm run build`; esta corre con CUALQUIER `next build` (y `next dev`/`start`). Modo `on` + declaración
  * nula o incompleta en `measurement-disclosure.ts` ⇒ la configuración lanza y el build falla.
  * Se lee el fichero como TEXTO (un `.mjs` no importa `.ts`). Exención única: bundles de MOCKS
- * (`NEXT_PUBLIC_USE_MOCKS=true`, E2E con `on`), que no se publican y hornean su versión de prueba.
+ * (`NEXT_PUBLIC_USE_MOCKS=true`, E2E con `on`) FUERA de Vercel (`VERCEL_ENV` ni `production` ni `preview`,
+ * TL-MKT2b-e), que no se publican y hornean su versión de prueba.
+ * Alcance (QA menor 1, límite aceptado): solo la DECLARACIÓN (`measurement-disclosure.ts`); los términos del texto
+ * los mide la puerta completa (`prebuild`), que es por donde pasan Vercel y `Dockerfile.frontend`. Ver FRONTEND_NOTES.
  * Devuelve el problema o `null`. Candado: `src/lib/next-config-measurement-gate.test.ts`.
  *
  * @param {Record<string, string | undefined>} [env]
@@ -97,7 +100,10 @@ export function measurementDisclosureProblem(
   source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'src/content/legal/measurement-disclosure.ts'), 'utf8'),
 ) {
   if (measurementModeOf(env.NEXT_PUBLIC_MEASUREMENT_MODE) !== 'on') return null;
-  if (env.NEXT_PUBLIC_USE_MOCKS === 'true') return null;
+  // TL-MKT2b-e (2026-10-19): la exención de MOCKS vale solo FUERA de un despliegue de Vercel. Un build de Vercel
+  // (`production` o `preview`, ambos con URL pública) con `USE_MOCKS=true` no es un E2E: pasa por la puerta.
+  const vercelDeploy = env.VERCEL_ENV === 'production' || env.VERCEL_ENV === 'preview';
+  if (env.NEXT_PUBLIC_USE_MOCKS === 'true' && !vercelDeploy) return null;
   const decl = source.match(/export const MEASUREMENT_DISCLOSURE\b[^=]*=\s*([^;]*);/);
   if (!decl) return 'no se encontró `export const MEASUREMENT_DISCLOSURE` en measurement-disclosure.ts';
   const value = decl[1].trim();

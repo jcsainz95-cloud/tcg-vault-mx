@@ -45,7 +45,7 @@ const C1: MarketingAggTable = {
 
 describe('v1.105 · a5 (pct) y c1 (tiempoMedio) se pintan con su unidad', () => {
   it('a5: 12.5 puntos ⇒ «12.5 %»; el pct null del primer paso ⇒ «—», nunca 0', () => {
-    renderWithProviders(<MarketingTable table={A5} privacy="exact" />);
+    renderWithProviders(<MarketingTable table={A5} />);
     const rows = desktop('a5').getAllByRole('row');
     const first = [...rows[1].querySelectorAll('[data-cell]')].map((c) => c.textContent?.replace(/\s/g, ' '));
     const second = [...rows[2].querySelectorAll('[data-cell]')].map((c) => c.textContent?.replace(/\s/g, ' '));
@@ -56,7 +56,7 @@ describe('v1.105 · a5 (pct) y c1 (tiempoMedio) se pintan con su unidad', () => 
   });
 
   it('c1: tiempoMedio 37.4 (s) ⇒ «37.4», sin moneda ni %', () => {
-    renderWithProviders(<MarketingTable table={C1} privacy="exact" />);
+    renderWithProviders(<MarketingTable table={C1} />);
     const d = desktop('c1');
     expect(d.getAllByRole('columnheader').map((h) => h.textContent)).toContain('Tiempo medio por vista (s)');
     const cells = [...d.getAllByRole('row')[1].querySelectorAll('[data-cell]')].map((c) => c.textContent ?? '');

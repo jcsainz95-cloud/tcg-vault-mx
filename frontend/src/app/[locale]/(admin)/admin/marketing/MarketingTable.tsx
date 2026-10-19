@@ -3,16 +3,15 @@
 import { useLocale, useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { MarketingAggTable, MarketingCell, MarketingColumn, MarketingPrivacy } from '@/types/contract';
+import type { MarketingAggTable, MarketingCell, MarketingColumn } from '@/types/contract';
 import { formatNumber, formatPct, formatPesos } from './mkt-format';
 
 /**
  * `MarketingTable` + `CellValue` + `NotMeasuredBlock` (`DESIGN_SYSTEM §MKT-UX.5`). Pinta una `AggTable` TAL CUAL llega
  * (MKT-3: ⛔ no suma, no reordena, no recalcula, no adivina una celda oculta).
  *
- * Régimen de celdas (`privacy`, §MKT.G.2/.G.5 v1.103; decisión del dueño «si cifras exactas», HECHOS 2026-10-18):
- * `small_cells` (también si el campo faltara) o `exact` (solo la sesión del dueño). En `exact` nada se oculta, así que un
- * `null` NUNCA se lee «Oculto»: es «—».
+ * El régimen de celdas (`privacy`, §MKT.G.2/.G.5; `exact` solo para la sesión del dueño, HECHOS 2026-10-18) lo aplica
+ * el SERVIDOR: aquí no cambia nada, porque la celda trae su significado (`'< 5'`, `'oculta'`, `null` = «—»).
  */
 
 /** Centinela del servidor para un conteo menor a 5 (`backend/.../small-cells.ts SMALL_CELL_SENTINEL`). */
@@ -25,40 +24,19 @@ export const OTROS_LABEL = 'Otros (< 5 c/u)';
 export type CellMeaning = 'small' | 'hidden' | 'none' | 'value';
 
 /**
- * COMPATIBILIDAD con el servidor anterior a v1.106 (MX$ `null` en fila suprimida). Se pone en `false` y se borra
- * la rama cuando C-P1 del backend (`'oculta'`, nunca `null`) esté en PRODUCCIÓN: ficha FE-MKT2-4 de TECH_DEBT.
- */
-export const LEGACY_NULL_HIDDEN_COMPAT = true;
-
-/**
  * ÚNICA pieza que decide qué dice una celda (§MKT-UX.5 «las cinco cosas»; «No medido» va a nivel de tabla).
  * - `'< 5'` ⇒ cantidad pequeña.
- * - `'oculta'` ⇒ «Oculto» (conteo ocultado por supresión coherente, §MKT.G.10), en texto visible.
- * - `null` ⇒ «—» (SIN DATO), siempre y en todo `kind` (API_CONTRACT §MKT.G.5, v1.106, C-P1).
+ * - `'oculta'` ⇒ «Oculto» (conteo ocultado por supresión coherente §MKT.G.10, o celda de una fila suprimida), en texto visible.
+ * - `null` ⇒ «—» (SIN DATO), siempre, en todo `kind` y en todo régimen (API_CONTRACT §MKT.G.5, v1.106, C-P1).
  * - cualquier número (también `0`) o texto ⇒ el dato.
- * Única excepción, de COMPATIBILIDAD (`LEGACY_NULL_HIDDEN_COMPAT`): un servidor anterior a v1.106 manda `null` en el
- * MX$/% de una fila suprimida; con `small_cells` y algún `'< 5'`/`'oculta'` en la fila, ese `null` se lee «Oculto».
- * Con el servidor v1.106 una fila suprimida no lleva `null` (lleva `'oculta'`), así que la excepción no se activa.
+ * El servidor (`sealHiddenRows`, C-P1) ya convierte en `'oculta'` toda celda no texto `null` de una fila suprimida: aquí
+ * no se adivina nada por vecindad (TL-MKT2b-c cerró FE-MKT2-4, la compatibilidad pre-v1.106, el 2026-10-19).
  */
-export function cellMeaning(
-  cell: MarketingCell | undefined,
-  column: MarketingColumn,
-  rowHasSmall: boolean,
-  privacy: MarketingPrivacy,
-): CellMeaning {
+export function cellMeaning(cell: MarketingCell | undefined): CellMeaning {
   if (cell === SMALL) return 'small';
   if (cell === OCULTA) return 'hidden';
-  if (cell === null || cell === undefined) {
-    if (!LEGACY_NULL_HIDDEN_COMPAT) return 'none';
-    const amount = column.kind === 'money' || column.kind === 'pct';
-    return amount && rowHasSmall && privacy === 'small_cells' ? 'hidden' : 'none';
-  }
+  if (cell === null || cell === undefined) return 'none';
   return 'value';
-}
-
-/** ¿La fila tiene algún conteo oculto (`'< 5'` u `'oculta'`)? Entonces su MX$ `null` es «Oculto», no «—». */
-export function rowHasSmallCell(row: Record<string, MarketingCell>): boolean {
-  return Object.values(row).some((c) => c === SMALL || c === OCULTA);
 }
 
 function formatValue(cell: number | string, column: MarketingColumn, locale: AppLocale): string {
@@ -75,20 +53,10 @@ function formatValue(cell: number | string, column: MarketingColumn, locale: App
   }
 }
 
-export function CellValue({
-  cell,
-  column,
-  rowHasSmall,
-  privacy,
-}: {
-  cell: MarketingCell | undefined;
-  column: MarketingColumn;
-  rowHasSmall: boolean;
-  privacy: MarketingPrivacy;
-}) {
+export function CellValue({ cell, column }: { cell: MarketingCell | undefined; column: MarketingColumn }) {
   const t = useTranslations('admin.marketing.cells');
   const locale = useLocale() as AppLocale;
-  const meaning = cellMeaning(cell, column, rowHasSmall, privacy);
+  const meaning = cellMeaning(cell);
   if (meaning === 'small') {
     return (
       <span data-cell="small">
@@ -146,14 +114,13 @@ export function NotMeasuredBlock({ title, reason }: { title: string; reason?: st
 }
 
 /** ¿La tabla muestra alguna celda «< 5» u «Oculto» (incluida `'oculta'`)? (decide la nota al pie, UX-MKT-5). */
-export function tableHasSuppressed(table: MarketingAggTable, privacy: MarketingPrivacy): boolean {
-  return table.rows.some((row) => {
-    const small = rowHasSmallCell(row);
-    return table.columns.some((c) => {
-      const m = cellMeaning(row[c.key], c, small, privacy);
+export function tableHasSuppressed(table: MarketingAggTable): boolean {
+  return table.rows.some((row) =>
+    table.columns.some((c) => {
+      const m = cellMeaning(row[c.key]);
       return m === 'small' || m === 'hidden';
-    });
-  });
+    }),
+  );
 }
 
 function isOthersRow(row: Record<string, MarketingCell>): boolean {
@@ -163,13 +130,13 @@ function isOthersRow(row: Record<string, MarketingCell>): boolean {
 const CARD_KEY_COLUMNS = 3;
 const CARD_COLLAPSE_OVER = 8;
 
-export function MarketingTable({ table, privacy }: { table: MarketingAggTable; privacy: MarketingPrivacy }) {
+export function MarketingTable({ table }: { table: MarketingAggTable }) {
   const t = useTranslations('admin.marketing');
   const locale = useLocale();
   const serverLang = locale === 'es' ? undefined : 'es';
   const titleId = `mkt-table-${table.id}`;
   const cols = table.columns;
-  const footnote = table.measured && tableHasSuppressed(table, privacy);
+  const footnote = table.measured && tableHasSuppressed(table);
 
   const header = (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -204,7 +171,6 @@ export function MarketingTable({ table, privacy }: { table: MarketingAggTable; p
     </tr>
   ) : (
     table.rows.map((row, i) => {
-      const small = rowHasSmallCell(row);
       return (
         <tr key={i} className={cn('border-b border-border', isOthersRow(row) && 'border-t border-t-border-strong')}>
           {cols.map((c, j) => {
@@ -218,7 +184,7 @@ export function MarketingTable({ table, privacy }: { table: MarketingAggTable; p
                   c.kind === 'text' ? 'text-left' : 'tabular text-right tabular-nums',
                 )}
               >
-                <CellValue cell={row[c.key]} column={c} rowHasSmall={small} privacy={privacy} />
+                <CellValue cell={row[c.key]} column={c} />
               </Tag>
             );
           })}
@@ -267,8 +233,7 @@ export function MarketingTable({ table, privacy }: { table: MarketingAggTable; p
           </div>
         ) : (
           table.rows.map((row, i) => {
-            const small = rowHasSmallCell(row);
-            const [head, ...rest] = cols;
+                  const [head, ...rest] = cols;
             const collapse = cols.length > CARD_COLLAPSE_OVER;
             const shown = collapse ? rest.slice(0, CARD_KEY_COLUMNS - 1) : rest;
             const more = collapse ? rest.slice(CARD_KEY_COLUMNS - 1) : [];
@@ -278,7 +243,7 @@ export function MarketingTable({ table, privacy }: { table: MarketingAggTable; p
                   {c.labelEs}
                 </dt>
                 <dd className="tabular text-right text-sm text-text">
-                  <CellValue cell={row[c.key]} column={c} rowHasSmall={small} privacy={privacy} />
+                  <CellValue cell={row[c.key]} column={c} />
                 </dd>
               </div>
             );
@@ -286,7 +251,7 @@ export function MarketingTable({ table, privacy }: { table: MarketingAggTable; p
               <article key={i} className="border-b border-border pb-2">
                 {head && (
                   <h3 className="text-sm font-medium text-text">
-                    <CellValue cell={row[head.key]} column={head} rowHasSmall={small} privacy={privacy} />
+                    <CellValue cell={row[head.key]} column={head} />
                   </h3>
                 )}
                 <dl>{shown.map(pair)}</dl>
