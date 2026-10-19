@@ -46,6 +46,7 @@ import {
   revertM75,
   revertM78,
   revertM82M83,
+  revertM86,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -75,9 +76,11 @@ const EMPTIED = [
   'CardShowClick',
   // v2.3 (LIMPIEZA_DB §14.2.1): contadores del Panel de Marketing sin PII (mezclan tráfico de prueba con real) ⇒ se vacían.
   'BuylistQuoteDailyCount', 'MarketingBannerConsentCounter',
+  // v1.102⟨mkt-fase2⟩ (M-86): cola de medición y contexto de navegador (vida corta, prueba mezclada con real) ⇒ se vacían.
+  'MeasurementOutbox', 'MeasurementContext',
 ];
 /** v2.3 (§14.2.1): las dos del Panel que se vacían; `seedMarketing` les pone filas y §9.2 lo afirma antes del commit. */
-const MKT_EMPTIED = ['BuylistQuoteDailyCount', 'MarketingBannerConsentCounter'];
+const MKT_EMPTIED = ['BuylistQuoteDailyCount', 'MarketingBannerConsentCounter', 'MeasurementOutbox', 'MeasurementContext'];
 /** Tablas que la limpieza toca EN PARTE (se comprueban por separado); todas las demás: contenido idéntico. */
 const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog', 'Accessory'];
 /** Las conservadas que el encargo nombra: deben tener filas en el fixture, o «idéntico» no probaría nada. */
@@ -107,6 +110,10 @@ async function seedMarketing(e: Env): Promise<void> {
   await e.db.marketingBannerConsentCounter.create({ data: { weekStart: new Date('2026-09-28T00:00:00Z'), response: 'accept', utmMedium: 'bio', device: 'mobile', count: 7 } });
   await e.db.buylistQuoteDailyCount.create({ data: { day: new Date('2026-10-01T00:00:00Z'), cardId: card.id, count: 4 } });
   await e.db.marketingDateAnnotation.create({ data: { date: new Date('2026-10-01T00:00:00Z'), kind: 'promocion', label: 'lz promo', createdByUserId: staff.id } });
+  // v1.102⟨mkt-fase2⟩ (M-86): una fila en la cola y otra de contexto (sin FK), para que «queda en 0» pruebe algo.
+  const exp = new Date('2026-10-08T00:00:00Z');
+  await e.db.measurementOutbox.create({ data: { kind: 'purchase', destination: 'ga4_mp', subjectId: `lz-${RUN}`, eventId: `p_lz-${RUN}`, expiresAt: exp } });
+  await e.db.measurementContext.create({ data: { orderId: `lz-${RUN}`, gaClientId: '1.2', expiresAt: exp } });
 }
 
 interface Env {
@@ -1093,6 +1100,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // abortaría al verlas. Ambos gemelos se revierten a esa era (M-78 fuera) para comparar como iguales.
     revertM78(a.schema);
     // v1.103⟨mkt-panel⟩: ídem M-82/M-83 (Panel de Marketing) — el B congelado no clasifica sus seis tablas en su G-8.
+    revertM86(a.schema); // v1.102⟨mkt-fase2⟩: M-86 tampoco la conoce el B congelado.
     revertM82M83(a.schema);
     // El aviso de sellado ENCENDIDO con una suscripción pendiente: el B de a7232d7a no tiene G-10, así que el nuevo
     // tampoco puede pararse aquí (sin M-74 no se evalúa; M-W10d).
@@ -1105,6 +1113,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     revertM74(twin);
     revertM73(twin);
     revertM78(twin);
+    revertM86(twin); // v1.102⟨mkt-fase2⟩: M-86 tampoco la conoce el B congelado.
     revertM82M83(twin);
     const b: Env = { schema: twin, db: new PrismaClient({ datasources: { db: { url: schemaUrl(twin) } } }), fx: a.fx };
     live.push(b);

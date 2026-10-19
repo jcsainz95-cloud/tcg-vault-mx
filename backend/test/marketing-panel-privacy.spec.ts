@@ -339,10 +339,10 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
     expect(casts[0]).toMatch(/^marketing\.controller\.ts:\d+$/);
   });
 
-  it('estático (MKT-TL7r): `as never` / `as unknown as` (saltan el tipo marcado) — único caso, el token de `aggregates`', () => {
+  it('estático (MKT-TL7r): `as never` / `as unknown as` (saltan el tipo marcado) — ninguno en el módulo', () => {
     // Residuo de D3: `screen(…, x as never)` o `as unknown as CellPrivacy` fabrican el régimen exacto sin pasar por
-    // `panelPrivacy()` y el compilador no lo ve. Único caso admitido: leer `req.marketingToken` (no toca el régimen).
-    // Si se mueve esa línea, se actualiza aquí a sabiendas: el candado exige la ubicación EXACTA.
+    // `panelPrivacy()` y el compilador no lo ve. TL-MKT-9 (2026-10-18): la última excepción (leer `req.marketingToken`)
+    // se cerró tipando la petición con `MarketingTokenRequest` (exportado por `marketing-token.guard.ts`) ⇒ cero.
     const dir = path.join(__dirname, '../src/modules/marketing');
     const escapes: string[] = [];
     const walk = (d: string) => {
@@ -361,7 +361,7 @@ describe('§MKT.G.9 (9) — fuera de la pantalla nunca es exacto', () => {
       }
     };
     walk(dir);
-    expect(escapes).toEqual(['marketing.controller.ts:94']); // v1.104: se movió de :66 al declarar las llaves con nombre
+    expect(escapes).toEqual([]);
   });
 });
 

@@ -20,6 +20,16 @@ export interface MarketingAccessEntry {
   rowCount?: number | null;
 }
 
+/** Retención del registro de accesos: 12 meses (ARCHITECTURE §13.4.4, PM-M3). */
+export const MARKETING_ACCESS_LOG_RETENTION_MONTHS = 12;
+
+/** Corte de retención: el mismo instante de hace 12 meses (calendario UTC). Lo anterior se borra. */
+export function accessLogRetentionCutoff(now: Date): Date {
+  const d = new Date(now.getTime());
+  d.setUTCMonth(d.getUTCMonth() - MARKETING_ACCESS_LOG_RETENTION_MONTHS);
+  return d;
+}
+
 @Injectable()
 export class MarketingAccessLogService {
   private readonly logger = new Logger(MarketingAccessLogService.name);
@@ -45,5 +55,15 @@ export class MarketingAccessLogService {
     } catch (e) {
       this.logger.warn(`marketing access-log no escrito (${(e as Error).message})`);
     }
+  }
+
+  /**
+   * Job `marketing-access-log-retention` (diario, cola `tcg-daily`): borra las filas con más de 12 meses (§13.4.4). Sin el
+   * job, el plazo solo garantizaba «como mínimo» 12 meses (LIMPIEZA_DB §14.2.1, «Fuera de la limpieza»). Devuelve cuántas.
+   */
+  async purgeExpired(now = new Date()): Promise<number> {
+    const { count } = await this.prisma.marketingAccessLog.deleteMany({ where: { at: { lt: accessLogRetentionCutoff(now) } } });
+    this.logger.log(`marketing-access-log-retention: ${count} fila(s) de más de ${MARKETING_ACCESS_LOG_RETENTION_MONTHS} meses borradas`);
+    return count;
   }
 }

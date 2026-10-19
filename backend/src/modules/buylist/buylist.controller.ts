@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Logger, Optional, Param, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
@@ -9,6 +9,8 @@ import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 // v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo (día × cardId) del cotizador. ⛔ NO toca la cotización.
 import { MarketingQuoteCounterService } from '../marketing/marketing-quote-counter.service';
+// v1.102⟨mkt-fase2⟩ (§MKT.H.2/.6): consentimiento en la solicitud y `generate_lead` SOLO de servidor, post-commit.
+import { MeasurementService } from '../measurement/measurement.service';
 import {
   BatchQuoteDto,
   CreateRequestDto,
@@ -27,7 +29,11 @@ export class BuylistController {
     private readonly audit: AuditService,
     // v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo del cotizador. Best-effort, fuera del dinero.
     private readonly quoteCounter: MarketingQuoteCounterService,
+    // v1.102⟨mkt-fase2⟩: `@Optional()` por las pruebas que construyen el controller a mano.
+    @Optional() private readonly measurement?: MeasurementService,
   ) {}
+
+  private readonly logger = new Logger(BuylistController.name);
 
   // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
   // (`buylist-catalog.controller.ts`). El cotizador por-carta es anónimo (@Public) y READ-ONLY;
@@ -120,11 +126,23 @@ export class BuylistController {
   @RequireEmailVerified()
   @Post('requests')
   @HttpCode(201)
-  create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {
+  async create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
+    const m = this.measurement?.prepare(dto.measurement);
     // ⚠️ v1.51.3 (D36/D37) — `addressId` viaja al servicio. Sin esta línea el campo se recibe y se
     // tira: era el defecto BL-1 (toda solicitud nacía sin snapshot de origen y, por tanto,
     // inofertable). El `422 PICKUP_ADDRESS_REQUIRED` lo emite el servicio, no el pipe.
-    return this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId);
+    const created = await this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId, m?.columns);
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): tras el 201, post-commit y best-effort. ⛔ Un fallo no cambia la respuesta.
+    if (this.measurement) {
+      try {
+        if (m?.context) await this.measurement.saveContext({ sellRequestId: created.sellRequestId }, m.context);
+        await this.measurement.enqueueLead(created.sellRequestId);
+      } catch {
+        this.logger.warn(`measurement: solicitud ${created.sellRequestId} no encolada (best-effort)`);
+      }
+    }
+    return created;
   }
 
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)

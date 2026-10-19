@@ -110,7 +110,9 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        to_regclass(format('%I', 'CardShowClick')) IS NOT NULL AS lz_cs,
        -- v2.3 (LIMPIEZA_DB §14.2.1): ¿tiene tu base los contadores del Panel de Marketing (M-82)? Sus `DELETE` van en un
        -- bloque condicional, igual que `CardShowClick`: sin M-82 (p. ej. `production` hoy) psql ni manda esas líneas.
-       to_regclass(format('%I', 'BuylistQuoteDailyCount')) IS NOT NULL AS lz_mkt \gset
+       to_regclass(format('%I', 'BuylistQuoteDailyCount')) IS NOT NULL AS lz_mkt,
+       -- v1.102⟨mkt-fase2⟩ (M-86): ¿tiene tu base la cola de medición (GA4/Meta)? Mismo patrón condicional.
+       to_regclass(format('%I', 'MeasurementOutbox')) IS NOT NULL AS lz_m86 \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -138,6 +140,10 @@ LOCK TABLE "CardShowClick" IN SHARE ROW EXCLUSIVE MODE;
 -- tumbar la cotización.
 \if :lz_mkt
 LOCK TABLE "BuylistQuoteDailyCount", "MarketingBannerConsentCounter" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto los escriben el webhook de pago y el drenador en vivo.
+\if :lz_m86
+LOCK TABLE "MeasurementOutbox", "MeasurementContext" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
@@ -197,7 +203,11 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   'CardShowClick',
   -- v2.3 (LIMPIEZA_DB §14.2.1, G-8): contadores del Panel de Marketing sin PII que mezclan tráfico de prueba con real
   -- (cotizaciones por día y respuestas al banner) ⇒ borrar, como `CardShowClick`.
-  'BuylistQuoteDailyCount','MarketingBannerConsentCounter']) AS t
+  'BuylistQuoteDailyCount','MarketingBannerConsentCounter',
+  -- v1.102⟨mkt-fase2⟩ (M-86, G-8; clasificación de backend a ratificar por el arquitecto en LIMPIEZA_DB §14.2): cola de
+  -- eventos de servidor (sin cuerpo) y los identificadores de navegador de pedidos/solicitudes que esta limpieza borra.
+  -- Telemetría de vida corta (7 días) que mezcla prueba con real y solo tiene sentido junto a filas que se borran ⇒ borrar.
+  'MeasurementOutbox','MeasurementContext']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -467,6 +477,11 @@ WITH x AS (DELETE FROM "CardShowClick" RETURNING 1) INSERT INTO lz_cambio SELECT
 \if :lz_mkt
 WITH x AS (DELETE FROM "BuylistQuoteDailyCount" RETURNING 1) INSERT INTO lz_cambio SELECT '13 BuylistQuoteDailyCount', count(*) FROM x;
 WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MarketingBannerConsentCounter', count(*) FROM x;
+\endif
+-- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto (sin FK; G-5 los cuenta en `borrar`).
+\if :lz_m86
+WITH x AS (DELETE FROM "MeasurementOutbox" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MeasurementOutbox', count(*) FROM x;
+WITH x AS (DELETE FROM "MeasurementContext" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MeasurementContext', count(*) FROM x;
 \endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (

@@ -17,11 +17,11 @@
  */
 import { Controller, Get, Header, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Permission, Role } from '@prisma/client';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { MarketingApiTokenGuard } from './marketing-token.guard';
+import { MarketingApiTokenGuard, type MarketingTokenRequest } from './marketing-token.guard';
 import { MarketingAnalyticsService } from './marketing-analytics.service';
 import { MarketingExportService } from './export/marketing-export.service';
 import { MarketingAccessLogService } from './marketing-access-log.service';
@@ -77,7 +77,7 @@ export class MarketingController {
   @Get('aggregates')
   @Header('Cache-Control', 'no-store')
   async aggregates(
-    @Req() req: Request,
+    @Req() req: MarketingTokenRequest,
     @Query('pantalla') pantalla?: string,
     @Query('week') week?: string,
     @Query('weekStart') weekStart?: string,
@@ -91,7 +91,7 @@ export class MarketingController {
     const screen = parseScreen(pantalla);
     const period = resolveMarketingPeriod(this.periodQuery(week, weekStart, month, from, to, day, preset), now);
     const payload = await this.analytics.screen(screen, period, now, 'small_cells');
-    const token = (req as unknown as { marketingToken?: { id: string } }).marketingToken;
+    const token = req.marketingToken;
     await this.accessLog.record({
       tokenId: token?.id ?? null,
       screen,
