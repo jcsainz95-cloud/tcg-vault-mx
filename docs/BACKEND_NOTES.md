@@ -33080,224 +33080,78 @@ Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roj
 
 ---
 
-## §MKT — OLA 1 de backend (tienda-marketing, v1.96⟨mkt-tienda⟩, rama `feat/mkt-tienda`)
+## §MKT — Tienda de marketing y Panel: estado vigente (Fase 0 + Fase 2 apagada) · 2026-10-18
 
-> Contrato: `API_CONTRACT.md §MKT.A/.B/.C`; diseño: `ARCHITECTURE.md §13.1/§13.2/§13.3` (commit base `d55692d`).
-> Fuente de negocio: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md §A3/§A4/§B1/§E1/§E3`.
-> ⛔ **NADA de GA4/píxel/cookies/consentimiento** aquí (eso es Fase 2). Medido por mí el **2026-10-16**.
+> Contrato: API_CONTRACT §MKT.A–§MKT.H (manda; aquí solo lo que el contrato no dice). Diseño: ARCHITECTURE §13–§14.
+> Histórico de OLA 1/OLA 2/h1 (mediciones de m81–m83, verificaciones por pase): `git log -- docs/BACKEND_NOTES.md` antes
+> de `b95fbbac`.
 
-### 1. Migración **m81** — columnas de atribución `firstUtm*` (§MKT.C / §13.1)
-- **`20261103120000_m81_mkt_first_utm_attribution`** (m81 estaba libre; el máximo previo era m80). Añade a
-  **`Order`** y a **`SellRequest`** cinco columnas **NULLABLE** sin default: `firstUtmSource/Medium/Campaign/Content`
-  (`TEXT`) + `firstUtmLandedAt` (`TIMESTAMP(3)`), y **UN** índice `Order_firstUtmMedium_idx`. ⛔ Sin índice en
-  `SellRequest`: §13.1 indexa solo `Order` (el panel de «Origen» de OLA 2 razona sobre pedidos).
-- **100% aditiva, sin backfill, sin DROP/enum/cambio de tipo, cero dinero.** `NULL` es la verdad de toda fila previa.
-- La SQL de la migración es **idéntica** a la que `prisma migrate diff` deriva del schema (verificado schema-a-schema,
-  sin BD: `--from-schema-datamodel <HEAD> --to-schema-datamodel <schema actual> --script`).
-- ⚠️ **OLA 1 = estructura muerta a propósito (O-1):** las columnas se crean pero **ningún camino de escritura las
-  puebla**; quedan `NULL` (invitado incluido). Poblarlas exige el consentimiento (banner/cookie `th_first_utm`), que es
-  **Fase 2**. Que QA/seguridad NO lo lea como defecto.
-- **Validación** en helper puro `backend/src/common/first-utm.ts` → **`parseFirstUtm`** (nombre del contrato §MKT.C) con
-  **alias `parseFutm`** (nombre del encargo; misma función, una sola implementación). Regla: solo
-  `utm_source|utm_medium|utm_campaign|utm_content`; cada valor a minúsculas y aceptado solo si cumple
-  `^[a-z0-9._-]{1,64}$` (si no, ESE valor se descarta); clave ajena ignorada. Casos probados: `utm_content=juan@correo.com`
-  y `<script>` ⇒ descartados; `CPC`⇒`cpc`; `session_id`/`fbclid`/`token` ignoradas; >64 descartado; acentos (`ñ`/`á`)
-  descartados; no-string descartado. **12/12 verde** (test escrito ANTES; falló por módulo inexistente, pasó tras
-  implementar). ⚠️ **El helper NO está enganchado** a la creación de pedido/solicitud en OLA 1 (ver arriba): solo existe
-  y está probado.
+**Migraciones.** m81 (`firstUtm*` en `Order`/`SellRequest`), m82 (permisos, token, contadores, registro de accesos), m83
+(anotaciones), **m86** (Fase 2, ver abajo). Todas aditivas; reversa en la cabecera de cada `migration.sql`.
 
-### 2. +2 campos aditivos en las fichas públicas de carta y de sellado (§MKT.A / §13.2.3)
-Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetailResponse`, raíz) y en `SealedGroupDTO`
-(el `group` de la ficha de sellado). ⛔ **NO** entran en las rejillas (`GroupedListingSummaryDTO`,
-`SealedGroupSummaryDTO`: la lista blanca de `toGroupSummaryDTO` ya los recorta, verificado por el candado de forma
-`catalog.group-dto-shape.spec.ts` + `test/helpers/dto-keys.ts`).
-- **`pricedAsOf: string`** — fecha `YYYY-MM-DD` en zona `America/Mexico_City`, el momento en que el SERVIDOR resolvió el
-  precio de ESA respuesta (reusa `toMexicoCityDateKey(new Date())` de `common/business-days.ts`). ⛔ No es `now()` del
-  cliente; bajo SSR/ISR el HTML cacheado muestra «precio al <pricedAsOf>» honesto. Money-safe (informativo).
-- **`ogImageUrl: string | null`** — URL **ABSOLUTA** de imagen para `og:image`, vía helper puro
-  `common/og-image.ts` → `absoluteOgImageUrl(...candidatas)` (primera candidata `http(s)` absoluta; si ninguna ⇒ `null`
-  ⇒ frontend omite `og:image`). Carta: `absoluteOgImageUrl(card.imageLargeUrl, card.imageSmallUrl)` (prefiere la grande).
-  Sellado: `absoluteOgImageUrl(display.imageSmallUrl)` donde `display` = `pieceDisplayIdentityOf(item)` (cascade
-  snapshot→SealedProduct→carta ancla). El acceso directo a `card.image*` en la ficha de carta se anotó en la allowlist
-  de `sealed-display-guard.spec.ts` (es la carta single, su propio sujeto; 🔵 por diseño).
+**Lo que existe (fichero de entrada).**
+- Ficha pública: `pricedAsOf` (día CDMX del servidor) y `ogImageUrl` (`common/og-image.ts`, solo URLs absolutas; la grande
+  de pokemontcg.io ronda 734×1024 ⇒ ≥1200×630 **no garantizado**, pregunta abierta al dueño §MKT.F).
+- `GET /catalog/sitemap` (una entrada por ficha a la venta; `lastmod = max(updatedAt)` de las piezas, no hay sello de precio).
+- `parseFirstUtm` (`common/first-utm.ts`): desde m86 lo usa el saneador de `measurement` (abajo).
+- Autorización fina: `@RequirePermission(marketing_read)` + `PermissionGuard` (tras `RolesGuard`; `super_admin` implícito).
+  Token `marketing-reader`: solo SHA-256 en BD, 60/h por token, bloqueo de IP tras 10 fallos/10 min, válido SOLO en
+  `GET …/aggregates` (en otra ruta ⇒ 401, D-MKT-AUTZ). La petición tras el guard se tipa `MarketingTokenRequest`
+  (`marketing-token.guard.ts`, TL-MKT-9).
+- Exports: mismo `ScreenPayload` que el endpoint (paridad por construcción); saneado de fórmula en `cell-safety.ts`.
+- d4: `MarketingQuoteCounterService.increment` tras `POST /buylist/quote` (best-effort, sin usuario ni IP).
+- h1: CRUD `/admin/marketing/annotations` por sesión; filtro PII compartido `marketing-pii-filter.ts`.
+- Retención 12 meses de `MarketingAccessLog`: job diario `marketing-access-log-retention` (`MarketingAccessLogService.
+  purgeExpired`, corte = mismo instante de hace 12 meses UTC; cron `MARKETING_ACCESS_LOG_RETENTION_CRON`, def. `45 8 * * *`).
+- Limpieza de datos de prueba (LIMPIEZA_DB §14.2.1): conservar `UserPermission`, `MarketingApiToken`, `MarketingAccessLog`,
+  `MarketingDateAnnotation`; borrar `BuylistQuoteDailyCount`, `MarketingBannerConsentCounter` y (m86, **a ratificar por
+  el arquitecto en §14.2**) `MeasurementOutbox`, `MeasurementContext`: telemetría de 7 días sin sentido sin los pedidos
+  y solicitudes que la limpieza borra.
 
-**MEDICIÓN Q1 (duda del arquitecto) — imagen og:**
-- **¿`imageUrl` absoluta?** **SÍ (medido).** Las imágenes de carta vienen de pokemontcg.io: el sync persiste
-  `images.small`/`images.large` **tal cual** (`catalog-sync.service.ts:1477-1478` → `Card.imageSmallUrl`/`imageLargeUrl`,
-  schema `Card` líneas 920-921), que son URLs `https://images.pokemontcg.io/...` **absolutas**. El sellado usa su
-  snapshot (`SealedProduct.imageUrl`, schema:891) / cascade, también absoluto cuando existe. Por seguridad, el helper
-  **solo devuelve candidatas absolutas** y cae a `null` si la almacenada fuera relativa/ausente (honesto, no inventa).
-- **¿variante grande ≥1200×630?** **NO GARANTIZADO (medido parcialmente, O-1).** Existe `Card.imageLargeUrl` (variante
-  «large» de pokemontcg.io, típicamente ~**734×1024**), que es la mejor disponible y la que `ogImageUrl` prefiere para
-  cartas — pero **734 de ancho < 1200**, así que **NO cumple el objetivo ≥1200×630**. El backend **no descarga** la
-  imagen, de modo que no afirmo dimensiones exactas por recurso. **Devuelvo la mejor disponible (la grande) y declaro
-  aquí que el tamaño ≥1200×630 NO está garantizado.** Es la pregunta abierta a JC (§MKT.F / §13.6 punto 1): o se acepta
-  la grande de pokemontcg.io tal cual (WhatsApp/Twitter `summary_large_image` degradan con gracia a imágenes menores), o
-  hace falta un servicio de imágenes que entregue una variante ≥1200×630 (hoy no existe en el catálogo — medido).
+## §MKT.H — Fase 2 de medición, construida APAGADA (v1.102⟨mkt-fase2⟩, m86) · 2026-10-18
 
-### 3. `GET /catalog/sitemap` — endpoint público nuevo (§MKT.B / §13.3)
-- **`@Public() @Get('sitemap')`** en `catalog.controller.ts`, con `Cache-Control: public, max-age=3600` (no es dato
-  personal). Ruta estática (`sitemap`): ⛔ no colisiona con `cards/:cardId` ni `sealed/:inventoryItemId` (prefijos
-  distintos). Respuesta: `{ items: { type:'card'|'sealed', id, lastmod }[], generatedAt }` (ISO).
-- **No paginado:** una entrada por **ficha a la venta**. Cartas: `CatalogService.sitemapCardEntries()` reusa
-  `fetchSellable(singlesPublishedWhere({}))` (la MISMA definición de «a la venta» que ficha/Compra), una entrada por
-  **cardId** (⛔ no por pieza). Sellado: `SealedCatalogService.sitemapSealedEntries()` reusa `loadPricedSealed` +
-  `groupKey`, una entrada por **grupo** con `id = representativeItemId` (pieza más barata, la que abre `/es/sellado/<id>`).
-- **MEDICIÓN lastmod (cita):** `InventoryItem.updatedAt` **existe** (schema:1156, `@updatedAt`) y `Card.updatedAt`
-  también (schema:1024). **No existe** un timestamp por-ítem del «último cambio de PRECIO» (el precio se deriva de la
-  curva/diales **globales**, sin sello por pieza), así que `lastmod = max(updatedAt de las piezas)` del ítem/grupo es el
-  mejor disponible y honesto — ⛔ no se inventa un lastmod. Declarado (§MKT.B lo permite explícitamente).
-- **Cuadre con «~884 publicaciones» (§E1):** criterio de orden de magnitud, no duro; el número exacto lo mide QA contra
-  el stack. El feed lista ≥1 URL por ficha a la venta (cartas publicadas + grupos de sellado).
+> Contrato: API_CONTRACT §MKT.H (variables, cuerpos, candados C-B1…C-B9). Diseño: ARCHITECTURE §14. Se enciende con
+> `MEASUREMENT_MODE=on` en Railway, en el mismo despliegue que el aviso del abogado (PENDIENTES §MKT, MKT-FASE2).
 
-### Verificación (comandos y resultado, O-9)
-- `prisma validate` ⇒ *valid*; `prisma generate` ⇒ OK; `prisma migrate diff` (schema-a-schema) ⇒ SQL idéntica a m81.
-- `tsc --noEmit` ⇒ 0 errores. `eslint` de los ficheros tocados ⇒ 0.
-- Jest unitario COMPLETO: **485/485 suites, 8578/8578 pruebas verde** (incluye `first-utm.spec`, `og-image.spec`,
-  `catalog.mkt-tienda.spec` — 8 nuevas de §MKT.A/.B — y los candados `catalog.group-dto-shape` y `sealed-display-guard`,
-  este último con la nueva entrada de allowlist). No se debilitó ningún test existente. Ningún test nuevo intermitente
-  (deterministas; `pricedAsOf` se fija contra `toMexicoCityDateKey(new Date())`).
+**Dónde vive.** `src/modules/measurement/` (`@Global`): `measurement.config.ts` (interruptor y fail-closed, puro),
+`measurement-input.ts` (saneador del objeto `measurement`, puro, nunca lanza), `measurement-bodies.ts` (cuerpos MP/CAPI,
+lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchase / enqueueLead), `measurement-drain.service.ts`
+(job), `banner-response.service.ts` + `measurement.controller.ts`, `measurement-http.ts` (único camino a la red, inyectable).
 
-### Pendiente para Fase 2 (fuera de esta OLA)
-- Enganchar `parseFirstUtm` a la escritura de `Order`/`SellRequest` **solo con consentimiento** (banner + cookie
-  `th_first_utm` + Consent Mode v2); poblar `firstUtm*` y `firstUtmLandedAt`. Hasta entonces, `NULL`.
-- Resolver con JC la variante de imagen ≥1200×630 para `og:image` (Q1 arriba / §MKT.F punto 1).
+**Comportamiento que el contrato no fija y decidí (para el arquitecto si no le vale).**
+- `measurement` sin `consent` de dos booleanos o sin `noticeVersion` válido ⇒ se ignora ENTERO (columnas NULL, como `off`).
+- `value` de `purchase` = `Order.totalCents` (lo cobrado: cartas + envío + IVA + comisión); `shipping_cents` aparte.
+- `item_name` de carta = `nombre · set`; sellado = nombre del producto; accesorio = nombre del snapshot. `item_id` = `cardId`,
+  `sealedProductId` o `accessoryId`.
+- `event_source_url` = primer origen de `APP_BASE_URL` + `/checkout` (compra) o `/buylist` (solicitud): `MeasurementInput`
+  no trae `sourcePath`, así que `MeasurementContext.sourcePath` queda NULL siempre (ver informe al arquitecto).
+- Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`): **NO VERIFICADO** que siga vigente al
+  encender; se revisa con «Eventos de prueba» de Meta.
+- f3/g1 se miden solo con `on`; con `off` siguen NO MEDIDO. f1 lleva f2 como columnas por dispositivo (`móvil|escritorio|
+  tableta|sin dato`), sin id de tabla nuevo (el catálogo G.4 no tiene `f2`).
+- e1 (Search Console) se lee con credenciales en cualquier modo; sin ellas o con error ⇒ «NO MEDIDO — Search Console sin
+  conectar». GA4: `off` ⇒ «sin encender»; `on` sin credenciales ⇒ «sin conectar»; `on` con credenciales ⇒ «la consulta de
+  esta tabla todavía no está definida» — el contrato no define dimensiones/métricas por tabla (a4, a5, b*, c*, d2, e3).
+  `MarketingExternalSources.ga4Report` existe y está probado con dobles; ninguna tabla lo llama aún.
+- Contador del banner: la `@@unique` de m82 incluye columnas NULLABLE ⇒ incremento con candado consultivo por celda
+  (`BANNER_COUNTER_LOCK_NAMESPACE`) + `updateMany`/`create`, no `upsert`.
+- Drenador: reclama cada fila con CAS sobre `nextAttemptAt` (+10 min) antes de enviar; tras el 5.º reintento sigue cada
+  12 h hasta caducar. Cron `MEASUREMENT_DRAIN_CRON` (def. `* * * * *`).
 
----
+**Para frontend.** `measurement` opcional en las tres peticiones; nunca da 400. `POST /measurement/banner-response` exige
+`Content-Type: application/json` (un `sendBeacon` con cadena va como `text/plain` y da 400: mandar un `Blob` JSON).
+`utmMedium` fuera de `bio|story|paid|dm` se cuenta como NULL. El `event_id` del píxel es `p_<orderId>` (`orderId` de la
+respuesta de la sesión).
 
-## §MKT OLA 2 — Panel de Marketing (Fase 0) · 2026-10-16 (rama `feat/mkt-tienda`)
+**Para devops.** Variables de §MKT.H.1 (nombres exactos ahí). Además: `MEASUREMENT_DRAIN_CRON`,
+`MARKETING_ACCESS_LOG_RETENTION_CRON` (opcionales). Al arrancar: `MEASUREMENT_MODE=<off|on>` y, con `on`, una línea
+`MEASUREMENT_DESTINATION_DISABLED destination=<…> reason=<missing_config|invalid_config>` por destino incompleto.
+Ningún log lleva URL, cuerpo, token ni `api_secret`.
 
-> Núcleo backend del Panel (Brief 2 «Panel de Marketing», API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5).
-> **Fase 0 = solo BD + conteos anónimos de servidor (sin GA4 ni píxel).** Módulo nuevo
-> `backend/src/modules/marketing/`. Verificación al final de esta sección.
-
-### Migración m82 (`20261104120000_m82_mkt_panel`) — 100% aditiva, cero dinero
-- Enums: `Permission { marketing_read }`, `BannerResponse { accept, necessary_only, no_response }`.
-- Tablas: `UserPermission` (@@unique userId+permission), `MarketingApiToken` (solo hash; `expiresAt`/`revokedAt`),
-  `MarketingBannerConsentCounter` (semana × respuesta × utm_medium × device), `BuylistQuoteDailyCount` (día × cardId),
-  `MarketingAccessLog` (at, actorUserId?/tokenId?, screen, filters, format, rowCount). Relación inversa
-  `User.marketingPermissions` (no altera columnas de `User`).
-- **`SearchNoResultDaily` (c6) NO se creó** — DIFERIDO a la pre-revisión de seguridad PM-M2 (puntos 1-4). Se añadirá en
-  una migración posterior cuando seguridad apruebe el filtro de PII.
-- `MarketingBannerConsentCounter` se crea **sin camino de escritura** (el banner es Fase 2, v2 §D3b). f1/f2 salen
-  «NO MEDIDO — banner en Fase 2» hasta que exista el banner.
-- `prisma validate` ⇒ valid; `prisma migrate diff` (schema-a-schema contra HEAD) ⇒ exactamente esta DDL.
-
-### Autorización fina (§MKT.D) — para QA/seguridad/frontend
-- **`@RequirePermission(Permission.marketing_read)` + `PermissionGuard`** (`common/guards/permission.guard.ts`), global
-  APP_GUARD **tras RolesGuard**. Sin la metadata, pasa (no opina). Regla: `super_admin` tiene el permiso **implícito**
-  (no consulta BD); otro rol pasa solo con fila `UserPermission` explícita; si no, **403**. No se mezcla con `@Roles`.
-- **Token `marketing-reader`** (`MarketingTokenService`): aleatorio 256 bits (`token-crypto.ts`), se guarda **solo** el
-  SHA-256; verificación con `crypto.timingSafeEqual` sobre los digest; caduca 12 meses; revocable con `revokedAt` sin
-  desplegar. Rate limit **60/h por token** (429) y **bloqueo de IP tras 10 fallos/10 min** (ventanas en memoria,
-  `rate-limiter.ts`; devops puede moverlas a Redis). El bearer **no se escribe en logs** (el servicio no loguea el valor).
-- **`MarketingApiTokenGuard`** se monta SOLO en `GET /admin/marketing/aggregates` (ruta `@Public()` para saltar JWT y
-  reautenticar por token). JC carga el token como `TIENDA_PANEL_TOKEN` en el entorno de marketing; la tienda nunca ve el claro.
-- ⚠️ **DISCREPANCIA 401-vs-403 cross-route (para el arquitecto):** el contrato (§MKT.E) y ARCHITECTURE §13.4.2 dicen
-  «token válido en **cualquier otra ruta** del admin ⇒ **403**». El mecanismo que la propia ARCHITECTURE describe
-  (las otras rutas usan `JwtAuthGuard`, «que el token no satisface») devuelve **401**, no 403: el token es una cadena
-  opaca que `jwt.verifyAsync` rechaza como 401. Honrar el 403 exigiría que `JwtAuthGuard` (auth compartida, adyacente a
-  dinero) reconozca tokens de marketing — cambio que **no hago sin el arquitecto** (regla 9). Implementado: la ruta de
-  agregados da 401/403/400/429 correctos; una **otra** ruta admin con el token da **401**. Ver resumen final.
-
-### Endpoint de agregados `GET /api/v1/admin/marketing/aggregates`
-- Token Bearer (NO sesión). `pantalla` ∈ lista blanca `a|b|c|d|e|f|g|h` (fuera ⇒ 400). Periodo: `?week=YYYY-Www` o
-  `?weekStart=YYYY-MM-DD` (lunes) o `?month=YYYY-MM`, **solo cerrados**; semana/mes abiertos, rango libre (`from/to/day/preset`)
-  o periodo ausente/duplicado ⇒ **400** genérico (`marketing-period.ts`). **401** sin token/inválido/revocado/caducado;
-  **429** rate limit/IP. `Cache-Control: no-store`. Cada llamada ⇒ `MarketingAccessLog` con `tokenId`.
-- **Indicadores de BD medidos (Fase 0):** a1 (pedidos pagados + MX$ con IVA, actual vs anterior — total exacto, reusa
-  `sales-analytics`), a2 (ticket medio, piezas/pedido), a3 (solicitudes enviadas + MX$ ofertado; aceptadas/pagadas con
-  «< 5» sin MX$ si N<5), d1 (unidades vendidas/MX$/stock hoy por carta, celdas pequeñas), d3 (agotado con demanda +
-  altas de lista de deseos, celdas pequeñas), d4 (conteo anónimo del cotizador por carta; **sin** supresión por ser
-  anónimo sin persona detrás), c7 (pedidos por estado de envío, **mínimo 4 semanas** ⇒ una semana cerrada sale
-  `measured:false`; «Otros estados» para N<5, «Recogida en persona» para bóveda; sin MX$, sin cruce).
-- **NO MEDIDO (no «0»):** a4/a5/c1-c6/c8-c10/d2/d6/d7 (GA4), e1 (Search Console), b1/g1 (requieren `first_utm_*`, NULL en
-  Fase 0), f1/f3 (banner Fase 2). h2 (leyenda de fuente) va en `sourceLegend` del payload.
-  **h1 anotaciones: IMPLEMENTADO en m83** (ver «§MKT OLA 2 · h1» abajo); la pantalla `h` ya mide (tabla de anotaciones).
-- **Definiciones (para marketing):** a3 «MX$ ofertado» = Σ `quotedTotalCents` de solicitudes **creadas** en el periodo
-  (= generate_lead); «aceptadas/pagadas» = solicitudes `status=pagada` con `paidAt` en el periodo, MX$ = Σ `payoutNetCents`.
-
-### Celdas pequeñas (§5.2) — candado de dinero
-- `small-cells.ts` (puro): N<5 ⇒ conteo centinela **«< 5»** y todo MX$/derivado de la fila en `null`; el conteo REAL
-  nunca viaja. **Supresión complementaria:** si queda UNA sola oculta, se agrupa con la más chica en «Otros (< 5 c/u)».
-  Totales sin dimensión (a1/a2) **exactos** (no pasan por aquí). `utm_medium=dm` se agregará solo por `utm_medium` cuando
-  se construya (b) en Fase 2.
-
-### Exports (§4) y botón Excel semanal (P2=B)
-- `MarketingExportService` construye CSV/XLSX del **mismo `ScreenPayload`** que devuelve el endpoint ⇒ **paridad A=B por
-  construcción** (diferencia 0 celda a celda, incluidas las «< 5»). Rutas: `GET export` (una pantalla, `format=xlsx|csv`),
-  `GET export/todo` (xlsx, una hoja por pantalla + «Info»), `GET weekly-excel` (botón: última semana cerrada por defecto,
-  selector valida semana/mes cerrados). Todas con sesión + `marketing:read`.
-- **Saneado de fórmula (PM-B1, candado `cell-safety.ts`):** CSV con BOM, celdas de texto entrecomilladas con `"`
-  escapadas y prefijo `'` si empiezan por `=`,`+`,`-`,`@`, tab o `\r`; XLSX escribe texto como celda de **texto** (nunca
-  fórmula) con el mismo prefijo. Montos como número con `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition:
-  attachment`, generado al vuelo. Hoja «Info»: periodo, corte, fuente por sigla, tablas NO MEDIDO, nota de celdas N<5.
-  Cada descarga/export ⇒ `MarketingAccessLog` con `actorUserId`.
-
-### d4 enganchado en el cotizador
-- `MarketingQuoteCounterService.increment(cardId)` lo llama `BuylistController.quote` **tras** calcular la cotización
-  (lógica de dinero intacta). `upsert` de `(día CDMX × cardId)` con `count+1`; **sin usuario, sin IP**; best-effort
-  (un fallo NO tumba la cotización). Solo en `POST /buylist/quote` (no en `quote/batch`).
-
-### Verificación (comandos y resultado, O-1/O-3/O-9)
-- `prisma validate` ⇒ *valid*; `prisma generate` ⇒ OK; `prisma migrate diff --from-schema-datamodel HEAD` ⇒ la DDL de m82.
-- `tsc --noEmit` ⇒ 0; `eslint` de los ficheros nuevos ⇒ 0.
-- Jest de los candados nuevos: `marketing-*.spec.ts` ⇒ **6 suites, 66 pruebas verde** (celdas pequeñas, saneado de
-  fórmula + paridad, periodo cerrado/400, token 401/403/429 + rate-limit, permiso 403, d4 suma-3-sin-PII). Candados
-  **demostrados mordiendo** con mutación (desactivar supresión / neutralización ⇒ 22 rojas; restaurado ⇒ verde). N=1
-  deterministas.
-- Suites de módulos tocados (`marketing-|buylist|sales-analytics`) ⇒ **67 suites, 1591 verde**, sin regresión.
-- **Única roja del repo:** el candado `enum-values-parity` exige que `API_CONTRACT §0` declare la línea canónica de
-  **todo** enum del schema. Faltan `Permission` y `BannerResponse` (las añade el **arquitecto**, no backend — ver resumen).
-  *(Resuelto: el arquitecto las añadió en `220779f`; con m83 se cierra también `MarketingAnnotationKind` — ver abajo.)*
-
-## §MKT OLA 2 · h1 — Anotaciones de fecha (migración m83) · 2026-10-17 (rama `feat/mkt-tienda`)
-
-> Contrato: `API_CONTRACT §MKT.D (h1)/§MKT.E (h1)`; diseño: `ARCHITECTURE §13.4.6`. Cierra la deuda **MKT-TD1**
-> (h1 quedó fuera de m82 pidiendo decisión del arquitecto; él la especificó en §13.4.6). 100% aditivo, cero dinero.
-
-### Migración m83 (`20261104130000_m83_mkt_date_annotations`) — siguiente libre tras m82
-- Enum `MarketingAnnotationKind { promocion, despliegue, evento }`.
-- Modelo `MarketingDateAnnotation { id, date @db.Date, kind, label (≤120), destino String? (≤200, solo promocion),
-  createdByUserId String?, createdBy User? @relation("marketingAnnotations", onDelete: SetNull), createdAt, updatedAt,
-  @@index([date]) }`. Relación inversa `User.marketingAnnotations` (⛔ sin columna nueva en `User`).
-- Solo `CREATE TYPE/TABLE/INDEX/FK` sobre tabla nueva. `prisma validate` ⇒ valid; `migrate diff` schema-a-schema
-  (HEAD→árbol) ⇒ **exactamente** esta DDL (CreateEnum + CreateTable + CreateIndex + AddForeignKey, cero DROP/ALTER ajeno).
-- **Paridad de enums (banda-3 universal):** `API_CONTRACT §0` gana la línea canónica
-  `MarketingAnnotationKind = promocion | despliegue | evento` (en el **mismo commit** que el schema). `kind` se valida con
-  `@IsEnum(MarketingAnnotationKind)` (enum de Prisma, ⛔ sin lista literal) ⇒ NO entra a `EXPECTED_ENUM_VALUES`/`enum-values.ts`
-  (igual que `Permission`/`BannerResponse`: solo línea §0). `enum-values-parity.spec.ts` ⇒ **155/155 verde**.
-
-### Filtro PII server-side (OBLIGATORIO, candado fail-first)
-- Helper **compartido** `marketing-pii-filter.ts` → `containsPii(x)`: rechaza si hay `@`/correo, racha ≥7 dígitos, ≥10
-  dígitos en total (tras quitar espacios/`.`/`-`/`/`), CURP `[a-z]{4}\d{6}[hm][a-z]{5}[a-z0-9]\d` o RFC
-  `[a-z&ñ]{3,4}\d{6}[a-z0-9]{3}`. **Mismo filtro que c6** (§13.4.3) — una sola definición para que no diverjan; cuando
-  seguridad apruebe c6, reusa este helper. El servicio valida `label`/`destino` **antes** de guardar ⇒ `422 VALIDATION_ERROR`
-  y NO escribe (candado `marketing-annotations.service.spec.ts`). ⚠️ Admin de confianza; el filtro cierra el **error honesto**
-  (false-positive aceptado: etiqueta con muchas cifras se rechaza, el admin reescribe).
-
-### CRUD `/api/v1/admin/marketing/annotations` (§MKT.E) — SESIÓN, nunca el token (D-MKT-AUTZ)
-- `GET ?from&to` (lista del rango), `POST` (201), `PATCH :id`, `DELETE :id` (204); `404` en PATCH/DELETE de id inexistente.
-- Controller `MarketingAnnotationsController` con `@RequirePermission(marketing_read)` a nivel de clase, **sin** `@Public()`.
-  ⇒ el token opaco `marketing-reader` cae en `JwtAuthGuard` = **401** (solo vale en `GET …/aggregates`); una **sesión** admin
-  sin `marketing:read` = **403**. Candado `marketing-annotations.routes.spec.ts` lee el grafo real de `AppModule` y lo fija.
-- `destino` **solo** en `kind=promocion` (otro kind con destino no vacío ⇒ 422); al cambiar de kind se limpia. Cada acceso ⇒
-  `MarketingAccessLog` (screen `h`).
-
-### Lectura embebida (gráficas + export)
-- `ScreenPayload.annotations: [{date, kind, label, destino?}]` del periodo, embebido en **toda** pantalla de
-  `GET …/aggregates` (pinta a/b/c). Pantalla `h` (h1) las rinde como tabla (sin celdas pequeñas: no es conteo).
-- Hoja **«Info»** del export/botón semanal: mini-tabla (Fecha/Tipo/Etiqueta/Destino) con **texto saneado de fórmula**
-  (reusa `cell-safety.ts`: `label`/`destino` como celda de texto, prefijo `'` si empieza peligroso). Candado en
-  `marketing-export-parity.spec.ts`.
-
-### Verificación (O-1/O-9-parcial; load < 2×CPU al correr)
-- `prisma validate` ⇒ valid; `prisma generate` ⇒ OK; `migrate diff` schema-a-schema ⇒ DDL idéntica a m83.
-- `tsc --noEmit` ⇒ 0; `eslint` de los ficheros nuevos/tocados ⇒ 0.
-- Jest: `marketing-* + enum-values-parity` ⇒ **10 suites, 255 verde**. Candados **demostrados mordiendo**:
-  (1) debilitar `containsPii` ⇒ 10 casos PII + servicio **rojos**; restaurado ⇒ 28/28 verde.
-  (2) borrar la línea §0 ⇒ banda-3 universal **2 rojas** (`MarketingAnnotationKind` sin línea canónica); restaurado ⇒ 155/155.
-  N deterministas (N=1).
+**Candados (QA los ejecuta).** C-B1 `measurement.config/service/drain.spec.ts` + `integration/measurement.e2e-spec.ts`;
+C-B2 `measurement.payment-isolation.spec.ts` + e2e; C-B3/C-B4 `measurement.bodies.spec.ts`, `measurement.input.spec.ts`;
+C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec.ts` + e2e; C-B9 `measurement.banner.spec.ts`
++ e2e (429 real); panel `marketing-fase2-panel.spec.ts`. Números y mutaciones con su N: informe de entrega del sha.
 
 ## §MKT.G — Pantalla del panel por SESIÓN, periodos y acceso del analista (v1.101 + v1.103) · 2026-10-18
 
@@ -33349,7 +33203,7 @@ Campos nuevos, **REQUERIDOS**, en el DTO de ficha de carta (`GroupedListingDetai
 - Un solo cálculo: `MarketingAnalyticsService.screen(screen, period, now, privacy)` — `privacy` obligatorio, sin valor por
   defecto. `aggregates`, `export`, `export/todo`, `weekly-excel` pasan `'small_cells'` literal; solo `panelPrivacy()` produce
   el régimen exacto. `CellPrivacy = 'small_cells' | ExactPrivacy` (tipo marcado, MKT-TL7): `'exact'` a pelo no compila; candados
-  «tipo (D3)», «estático (D3)» y «estático (MKT-TL7r)» (`as never`/`as unknown as` del módulo = solo `marketing.controller.ts:66`)
+  «tipo (D3)», «estático (D3)» y «estático (MKT-TL7r)» (`as never`/`as unknown as` en el módulo: ninguno desde TL-MKT-9)
   en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
 - §MKT.G.9 (9) sobre ficheros: la prueba lee las FILAS de la hoja `pantalla_<s>` (o del CSV), nunca «Info», que trae «< 5» en su
   nota de privacidad también en `exact` (techlead R3 sobre `62e8250b`: con `fileText()` sobre todo el libro, xlsx en `exact` seguía verde).
@@ -33375,39 +33229,6 @@ hice así porque §MKT.G.9 (8) pide «el conjunto de claves de fila es el de `sm
 anterior no lo cumplía. Si el dueño debe ver cada estado en su pantalla, es un cambio de contrato (regla 9) y se cambia en
 `c7Dims`, no en un camino aparte.
 
-**Verificación (sha y números en el informe de entrega; mutaciones sobre copia `git archive HEAD` del árbol entero).**
-- Suite completa sobre copia del árbol entero en `374647c6`: **515/515 suites, 8936/8936 pruebas**. `tsc` 0 errores;
-  `eslint` 0 errores (2 avisos previos ajenos: `fx.eur-series.spec.ts:57`, `price-review.service.spec.ts:130`).
-- Fail-first: las suites nuevas (`marketing-panel*.spec.ts`, `marketing-tokens.spec.ts`, las 2 de TL1) rojas antes de implementar.
-- Ablación, N=10 por mutación (deterministas, con mocks); lote 1 sobre `89b469d4`, lote 2 sobre `374647c6`:
-
-| Mutación | Candado | Rojo |
-|---|---|---|
-| control sin mutación (lote 1 / lote 2) | — | 0/10 · 0/10 |
-| `panelPrivacy` siempre `exact` | G.9 (1) paridad + (8) | 10/10 |
-| el panel altera el periodo | G.9 (1) paridad | 10/10 |
-| `screen()` ignora el régimen ⇒ `exact` (canario) | G.9 (9) | 10/10 |
-| sin supresión coherente (canario) | G.9 (10) | 10/10 |
-| mes cerrado al día siguiente (regla vieja) | G.9 (11) | 10/10 |
-| revocar no escribe `revokedAt` | G.9 (4) | 10/10 |
-| la vista selecciona `tokenHash` y copia la fila | G.9 (5) | 10/10 |
-| panel sin `surface:'panel'` | G.9 (7) | 10/10 |
-| d4b cuenta líneas (re-medida tras arreglar la prueba; antes 0/10) | d4b | 10/10 |
-| limitador sin barrido / sin cota | MKT-TL1 | 10/10 · 10/10 |
-| 422 de anotación sin `details.field` | anotaciones | 10/10 |
-| `label` de token sin filtro PII | G.6 | 10/10 |
-| solo seleccionar `tokenHash` / solo copiar la fila | G.9 (5) | 0/10 · 0/10 — mutantes equivalentes (cada uno solo no filtra nada) |
-
-- Lote 3 (R3 + MKT-TL7r), copia `git archive f63dbd8e` del árbol entero, N=10 por mutación. Todas compilan (`tsc` exit 0 en
-  cada una): el rojo es de la ASERCIÓN (`marketing-panel-privacy.spec.ts:173`, d1 trae «Carta A», «Carta B» y no «Otros»), no del
-  compilador. «Prueba vieja» = la de `62e8250b` (`fileText()` sobre todo el libro), corrida sobre el mismo mutante.
-
-| Mutación (tipos válidos: `user: { id; role?: Role }` + `this.panelPrivacy(user)`) | Prueba nueva | Prueba vieja |
-|---|---|---|
-| control sin mutación | 0/10 | 0/10 |
-| `export` usa `panelPrivacy` solo en xlsx | 10/10 | **0/10** (el defecto R3) |
-| `export` usa `panelPrivacy` solo en csv | 10/10 | 10/10 |
-| `allScreens(…, privacy)` y `exportAll` pasa `panelPrivacy` | 10/10 | **0/10** |
-| `allScreens(…, privacy)` y `weeklyExcel` pasa `panelPrivacy` | 10/10 | **0/10** |
-| `'small_cells' as never` en `allScreens` (canario MKT-TL7r) | 10/10 | — |
-| `'small_cells' as unknown as 'small_cells'` en `export` (canario MKT-TL7r) | 10/10 | — |
+**Verificación de §MKT.G.** Última suite completa propia: `374647c6` (515/515 suites, 8936/8936); lotes de ablación
+N=10 sobre `89b469d4`, `374647c6` y `f63dbd8e` (todas las mutaciones 10/10 rojo, controles 0/10). Tablas detalladas en la
+versión de este fichero de `f63dbd8e`.

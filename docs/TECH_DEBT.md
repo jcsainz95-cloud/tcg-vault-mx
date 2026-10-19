@@ -99,25 +99,17 @@
 | MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
 | MKT-TL6 ✅ | `weekly-excel` ignoraba `from/to/day/preset` sin semana | backend | 2026-10-18 | `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0; `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400) |
 | MKT-TL7 ✅ (residuo) | candado de `'exact'` solo léxico; notas «< 5» falsas en exact | backend | 2026-10-18 | `@ts-expect-error` de «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`; «notas de régimen» en `marketing-analytics.service.spec.ts` |
-| MKT-TL7r ✅ | residuo de D3: `as never` / `as unknown as` podían fabricar el régimen exacto sin que el candado lo viera | backend | 2026-10-18 | `marketing-panel-privacy.spec.ts` «estático (MKT-TL7r)»: la lista de `as never` + `as unknown as` en `src/modules/marketing` es exactamente `['marketing.controller.ts:94']` (era `:66`; se movió el 2026-10-18 al declarar las llaves con nombre, v1.104) (canarios `as never` en `allScreens` y `as unknown as` en `export`: 10/10 rojo cada uno) |
+| MKT-TL7r ✅ | residuo de D3: `as never` / `as unknown as` podían fabricar el régimen exacto sin que el candado lo viera | backend | 2026-10-18 | `marketing-panel-privacy.spec.ts` «estático (MKT-TL7r)»: la lista de `as never` + `as unknown as` en `src/modules/marketing` es `[]` desde TL-MKT-9 |
 | MKT-TL8 ✅ | `YYYY-W53` inexistente se aceptaba (el comentario lo negaba) | backend | 2026-10-18 | `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` ⇒ 400; `2026-W53` válida) |
 | MKT-EQ1 ✅ | `D-EQ-5`: 8 llaves huérfanas de `C-EQ-1` (6 `@Query()` enteros de marketing, `?game=` de card-show ×2) | backend | 2026-10-18 | `enum-query-axes.e2e-spec.ts` verde contra Postgres («ningún `@Query` fuera de las CINCO listas» ⇒ `[]`; REGISTRO 89; filas SELECTOR); canarios clamp-en-vacío (12 rojas) e ignorar-`pantalla` en `panel` (1 roja) |
 | MKT-QA1 ✅ | CORS sin `exposedHeaders`: el navegador ocultaba `Content-Disposition` y el Excel bajaba con nombre por defecto | backend | 2026-10-18 | `test/cors.spec.ts` «expone Content-Disposition» (rojo sin `exposedHeaders` en `src/cors.ts`) |
 | MKT-QA2 ✅ | G-8 de la limpieza abortaba con las 6 tablas de M-82/M-83 sin clasificar | backend (+ arquitecto ratifica en LIMPIEZA_DB §14) | 2026-10-18 | `pdb-limpieza.e2e-spec.ts` contra Postgres: 66/67, G-8 ya no aborta; §9.2 siembra una fila en cada una (`MKT_KEPT`) y exige contenido idéntico. La 67.ª (T-AC3) cae en `cloneSchema` por `SET session_replication_role` sin superusuario, igual que en `production` b40b244 (QA): entorno, no producto |
 | MKT-COV1 | paridad de cifras contra BD real + pipeline HTTP e2e | backend | 2026-10-17 | suite de integración con infra: diferencia 0 endpoint↔export↔BD, `no-store`, registro de acceso, PII=0 en los ficheros |
-
-### MKT-TD1 · ✅ CERRADA (2026-10-17, sobre `9d0ed99`) · h1 «Anotaciones de fecha» sin modelo en m82
-- **Qué era:** el Brief 2 §2 h1 pide anotaciones de fecha (texto, sin PII) visibles en gráficas y export. ARCHITECTURE §13.4
-  NO definió un modelo para ellas y m82 NO lo creaba. La pantalla (h) y la hoja «Info» salían «NO MEDIDO — sin modelo
-  de anotaciones».
-- **Cómo se cerró:** el arquitecto definió `MarketingDateAnnotation { date, kind, label, destino? }` (cambio de schema/contrato,
-  regla 9) y m83 lo implementa: modelo + `marketing-annotations.service.ts`/`.controller.ts` (CRUD con validación PII PM-B1,
-  `destino` solo en `kind=promocion`) + pantalla (h) `screenH()` que mide la tabla de anotaciones y las embebe en todo
-  `ScreenPayload`.
-- **Comprobación:** la pantalla (h) devuelve la tabla `h1` con filas de anotaciones (`marketing-analytics.service.ts:screenH`);
-  candados `backend/test/marketing-annotations.service.spec.ts` (PII fail-first, CRUD, 404) y
-  `backend/test/marketing-annotations.routes.spec.ts`. El candado de ensamblaje `marketing-analytics.service.spec.ts` fija
-  que a4/a5/b/e/g/f siguen «NO MEDIDO» y que (h) ya no lo está.
+| TL-MKT-9 ✅ | `marketing.controller.ts:94` leía `req.marketingToken` con `as unknown as` (la única excepción del candado MKT-TL7r) | backend | 2026-10-18 | `MarketingTokenRequest` exportado por `marketing-token.guard.ts` tipa `@Req()`; «estático (MKT-TL7r)» exige `toEqual([])` (rojo con la línea vieja: `['marketing.controller.ts:94']`) |
+| MKT-RET1 ✅ | la retención de 12 meses de `MarketingAccessLog` (ARCHITECTURE §13.4.4) no tenía job: el plazo era mínimo, no máximo | backend | 2026-10-18 | `integration/measurement.e2e-spec.ts` «§13.4.4 · retención»: fila de 13 meses y de 11 ⇒ queda la de 11; job `marketing-access-log-retention` en `scheduler.service.ts` |
+| MKT-F2-1 | GA4 Data API: el contrato no define dimensiones/métricas por tabla (a4, a5, b*, c*, d2, e3); con credenciales salen «NO MEDIDO — … consulta … no está definida» | arquitecto (define) → backend (cablea `ga4Report`) | 2026-10-18 | cada tabla GA4 de §MKT.G.4 llama a `MarketingExternalSources.ga4Report` y `grep -c GA4_NO_QUERY backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 1 (solo la declaración) |
+| MKT-F2-2 | `MeasurementInput` no trae `sourcePath`: `MeasurementContext.sourcePath` queda NULL y `event_source_url` usa `/checkout` o `/buylist` fijos | arquitecto (contrato §MKT.H.2) → backend | 2026-10-18 | `sourcePath` en §MKT.H.2 **+** `grep -n "DEFAULT_PATH" backend/src/modules/measurement/measurement-drain.service.ts` solo como respaldo, con prueba que lo cubra |
+| MKT-F2-3 | `META_GRAPH_API_VERSION = 'v21.0'` NO VERIFICADO vigente para la fecha de encendido | backend (+ dueño mide en «Eventos de prueba» de Meta) | 2026-10-18 | evento de prueba aceptado (2xx) con la versión fijada, anotado con fecha en BACKEND_NOTES §MKT.H; caduca al encender (PENDIENTES MKT-FASE2) |
 
 ### MKT-TD2 · P3 · c7 estado de envío derivado del JSON por consulta (sin columna denormalizada)
 - **Qué:** c7 parsea `Order.shippingAddressSnapshot.state` (texto libre) por consulta, como autoriza ARCHITECTURE §13.4.3.
@@ -130,23 +122,6 @@
   `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (medido 2026-10-18 sobre
   `d0f6c648`: 2 líneas, las dos en `c7Dims`). Necesita al arquitecto (schema, regla 9).
 - **Dueño:** backend (+ arquitecto). **Medido:** 2026-10-18.
-
-### MKT-TD3 · ✅ RESUELTA (2026-10-17, sobre `9d0ed99`) · 403 cross-route del token marketing-reader
-- **Qué era:** el contrato pedía 403 al usar el token en «cualquier otra ruta» del admin; el mecanismo (JwtAuthGuard) da 401.
-  No se tocó `JwtAuthGuard` (auth compartida, regla 9).
-- **Cómo se resolvió:** decisión del arquitecto **D-MKT-AUTZ** — 401 consistente (el token no autentica fuera de su ruta ⇒
-  401, no 403); el contrato se amendó a token-only con 401/400/429 (sin 403). No hay cambio de código pendiente.
-- **Comprobación:** docstring de `marketing.controller.ts#aggregates` corregido a «401/400/429 … NUNCA 403 (D-MKT-AUTZ)»;
-  §MKT.E del contrato ya no lista 403 para `aggregates`.
-
-### MKT-TL1 · ✅ CERRADA (2026-10-18, backend, rama `worktree-agent-aaeb6e9ff92812407`) · El limitador en memoria crecía sin cota por IP
-- **Qué era:** `rate-limiter.ts` solo podaba una clave al re-tocarla; una IP que no volvía nunca se quedaba en el `Map`.
-- **Cómo se cerró:** `SlidingWindowCounter` barre TODAS las claves caducadas como mucho una vez por ventana y tiene cota
-  dura `maxKeys` (10 000 por defecto; expulsa la de actividad más vieja). Riesgo aceptado y escrito en el docstring: con miles
-  de IPs distintas dentro de la ventana, la expulsión puede olvidar los fallos de una IP vieja (quien rota IPs ya esquiva el
-  bloqueo por IP; lo que ya no puede es crecer la memoria sin cota).
-- **Comprobación (verificada):** `backend/test/marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas). Canario en BACKEND_NOTES §MKT.G.
-- **Medido:** 2026-10-17 (techlead, sobre `9d0ed99`); cerrada 2026-10-18.
 
 ### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — caso c7↔a1 cerrado en código; candado general abierto
 - **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA
@@ -168,24 +143,6 @@
 - **Dueño:** backend (+ arquitecto/seguridad para aceptar el residuo). **Medido:** 2026-10-17 (techlead, `9d0ed99`); caso c7↔a1
   medido y cerrado en código el 2026-10-18.
 
-### MKT-TL3 · ✅ CERRADA (2026-10-18, backend) · Faltaba ruta de DATOS por SESIÓN para la pantalla de admin
-- **Cómo se cerró:** `GET /api/v1/admin/marketing/panel` (API_CONTRACT §MKT.G.2, v1.101 + v1.103) en `marketing.controller.ts`
-  (`panel()`), sesión + `marketing:read`, `no-store`, `MarketingAccessLog` con `surface:'panel'` y `privacy`; y
-  `GET …/periods` (§MKT.G.3). Mismo `MarketingAnalyticsService.screen()` que `aggregates` y los exports.
-- **Comprobación (verificada):** `backend/test/marketing-panel.spec.ts` (paridad panel = aggregates en régimen `small_cells`,
-  catálogo, registro) y `backend/test/marketing-panel.routes.spec.ts` (metadatos de ruta). E2E por HTTP:
-  `backend/test/integration/marketing-panel.e2e-spec.ts` (escrita; **NO MEDIDA** aquí, sin Postgres).
-- **Medido:** 2026-10-17 (techlead, `9d0ed99`); cerrada 2026-10-18.
-
-### MKT-TL4 · ✅ CERRADA (2026-10-18, backend) · No había camino de operador para emitir/revocar el token marketing-reader
-- **Cómo se cerró:** `GET/POST /api/v1/admin/marketing/tokens` y `POST /tokens/:id/revoke` (API_CONTRACT §MKT.G.6),
-  `marketing-tokens.controller.ts` + `marketing-token-admin.service.ts`, `@Roles(super_admin)`. El claro sale una vez en el POST;
-  `AuditLog` `marketing.token.issue/revoke` en la misma transacción; revocación idempotente; `verify()` lee la fila en cada
-  llamada ⇒ 401 en la siguiente.
-- **Comprobación (verificada):** `backend/test/marketing-tokens.spec.ts` §MKT.G.9 (4) emitir ⇒ guard de `aggregates` pasa ⇒
-  revocar ⇒ 401, mismo proceso; (5) sin `token`/`tokenHash`. E2E en `marketing-panel.e2e-spec.ts` (**NO MEDIDA** aquí).
-- **Medido:** 2026-10-17 (techlead, `9d0ed99`); cerrada 2026-10-18.
-
 ### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
 - **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
   NO la paridad de cifras **contra BD real** (diferencia 0, Brief 2 §6(a)) ni el **pipeline HTTP e2e**: 401/400/429 en el
@@ -197,43 +154,6 @@
   completo (status, `no-store`, access-log, PII=0 en artefactos).
 - **Dueño:** backend. **Disparador:** stream de UI del Panel (cuando haya infra de integración).
 - **Medido:** 2026-10-17 (QA + techlead, sobre `9d0ed99`).
-
-### MKT-TL5 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · c7 era un segundo camino de celdas pequeñas
-- **Qué era:** `c7ByState` agrupaba y ocultaba por su cuenta (`>= 5` literal, `SMALL_CELL_SENTINEL`, rama `privacy === 'exact'`
-  propia) ⇒ sin complementaria y con un umbral que no seguía a `SMALL_CELL_THRESHOLD`.
-- **Cómo se cerró:** `c7Dims` devuelve `DimensionRow[]` ya agrupados (estados ≥ umbral, «Otros estados», «Recogida en persona») y
-  `c7ByState` pasa por `safeRows`. Con menos de 4 semanas `c7Dims` devuelve `[]`: c7 semanal no se publica, así que la coherencia
-  mes↔semanas (§MKT.G.10) no hereda ocultas que no protegen nada. En `exact`, c7 lleva las mismas claves que en `small_cells` sin
-  «Otros (< 5 c/u)» (§MKT.G.9 (8)); antes daba un estado por fila (ver BACKEND_NOTES §MKT.G, «Para el arquitecto»).
-- **Comprobación (verificada):** `marketing-analytics.service.spec.ts` «estático (D1)» (el cuerpo de `c7ByState` sin centinela,
-  sin `privacy === 'exact'`, sin `[<>]=? 5` y con `this.safeRows(`) y las 4 pruebas de conducta de c7.
-- **Medido:** 2026-10-18 (techlead, `afd12b82`); cerrada el 2026-10-18.
-
-### MKT-TL6 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · `weekly-excel` descartaba `from/to/day/preset` en silencio
-- **Cómo se cerró:** `weeklyExcel` usa `resolvePanelPeriod` (la misma regla que el panel): sin semana ⇒ la última cerrada; los
-  prohibidos llegan siempre a la validación ⇒ 400.
-- **Comprobación (verificada):** `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0;
-  `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400, sin fila de registro).
-- **Medido:** 2026-10-18 (techlead, `afd12b82`); cerrada el 2026-10-18.
-
-### MKT-TL7 · ✅ CERRADA con residuo (2026-10-18, backend, `d0f6c648`) · El candado de `'exact'` era léxico; notas falsas en exact
-- **Cómo se cerró:** `ExactPrivacy = 'exact' & { [OWNER_EXACT]: true }` (`small-cells.ts`) y `CellPrivacy = 'small_cells' |
-  ExactPrivacy`. El literal `'exact'` ya no compila como régimen; el único productor es `panelPrivacy()`, con un cast explícito.
-  Las notas de a3/d1/d3/d4b dicen «< 5» solo en `small_cells`; en `exact` llevan `EXACT_CELLS_NOTE`.
-- **Comprobación (verificada):** `marketing-panel-privacy.spec.ts` «tipo (D3)» (`@ts-expect-error`: si vuelve el literal, TS2578)
-  y «estático (D3)» (un solo `as ExactPrivacy|CellPrivacy` en el módulo, en el controller); `marketing-analytics.service.spec.ts`
-  «notas de régimen».
-- **Residuo → MKT-TL7r ✅ (2026-10-18):** un `as never` o `as unknown as …` podía fabricar el régimen y el candado solo contaba
-  `as ExactPrivacy|CellPrivacy`. Ahora «estático (MKT-TL7r)» cuenta ambas formas en todo `src/modules/marketing` y exige como
-  único caso `marketing.controller.ts:66` (lectura de `req.marketingToken`, no toca el régimen). Si esa línea se mueve, la prueba
-  se actualiza a sabiendas. Lo que NO cubre: un cast fuera del módulo que llame a `screen()`, o un `any` explícito.
-
-### MKT-TL8 · ✅ CERRADA (2026-10-18, backend, `d0f6c648`) · `YYYY-W53` inexistente se aceptaba
-- **Qué era:** el comentario de `mondayOfIsoWeek` decía que se rechazaba la semana 53 inexistente, pero ningún código lo hacía
-  (`2025-W53` resolvía al lunes 2025-12-29, que es `2026-W01`, con la etiqueta equivocada).
-- **Cómo se cerró:** una semana ISO pertenece al año de su jueves; si el jueves cae en otro año ⇒ 400.
-- **Comprobación (verificada):** `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` y `2025-W00` ⇒ 400; `2026-W53` = 28-dic-2026 →
-  3-ene-2027). **Medido:** 2026-10-18.
 
 ## Backend · 2026-10-17 · stream «Card Show R2» (M-84 pivote a leads + M-85 `shardbugs`, rama `r2-cardshow`)
 
