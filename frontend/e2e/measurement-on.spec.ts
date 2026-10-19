@@ -133,9 +133,18 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     test(`router.push a ${target} sin recargar ⇒ documento sin etiquetas y 0 peticiones después`, async ({ page, context }) => {
       const { log } = await acceptOnCard(page, context);
       const before = log.measurement.length;
-      await page.evaluate((url) => (window as unknown as { next: { router: { push: (u: string) => void } } }).next.router.push(url), target);
+      // Marca en el documento de la ficha: si la navegación NO es dura, la marca sobrevive.
+      await page.evaluate(() => ((window as unknown as { __cf5?: number }).__cf5 = 1));
+      await page
+        .evaluate((url) => (window as unknown as { next: { router: { push: (u: string) => void } } }).next.router.push(url), target)
+        .catch(() => undefined); // el documento puede irse a mitad de la llamada (es lo que se busca)
       // (Una ruta protegida puede redirigir a /login: también excluida; lo que importa es salir de la ficha.)
       await page.waitForURL((u) => !u.pathname.startsWith('/es/catalog'));
+      await expect
+        .poll(() => page.evaluate(() => (window as unknown as { __cf5?: number }).__cf5 ?? 0).catch(() => -1), {
+          message: 'el documento de la ficha sigue vivo en la ruta excluida (navegación sin recarga)',
+        })
+        .toBe(0);
       await settle(page);
       await expectCleanDocument(page);
       expect(log.measurement.slice(before)).toEqual([]);

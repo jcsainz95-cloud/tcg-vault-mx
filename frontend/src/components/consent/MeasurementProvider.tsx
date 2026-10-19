@@ -179,7 +179,43 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('click', onClick, true);
   }, [active]);
 
-  // C-F5 (2/2): navegación por código (`router.push`, redirecciones): al llegar, recarga el documento.
+  // C-F5 (2/3): navegación por código. `useRouter()` (también el de next-intl) devuelve el MISMO
+  // objeto que `window.next.router`; se envuelven `push`/`replace` para que una ruta excluida se pida
+  // como documento nuevo ANTES de pintarse (sin esto, la ruta excluida llegaba a renderizarse un
+  // instante con las etiquetas vivas: medido con N=10, 60/60 rojos en el E2E de C-F5).
+  useEffect(() => {
+    if (!active) return;
+    type Nav = (href: string, options?: unknown) => void;
+    const router = (window as unknown as { next?: { router?: { push?: Nav; replace?: Nav } } }).next?.router;
+    if (!router?.push || !router.replace) return;
+    const origPush = router.push;
+    const origReplace = router.replace;
+    const hardTarget = (href: string): string | null => {
+      try {
+        const url = new URL(href, window.location.href);
+        if (url.origin !== window.location.origin || isMeasuredPath(url.pathname)) return null;
+        return measurementLoadedInDocument() ? url.href : null;
+      } catch {
+        return null;
+      }
+    };
+    router.push = (href, options) => {
+      const target = hardTarget(href);
+      if (target) window.location.assign(target);
+      else origPush(href, options);
+    };
+    router.replace = (href, options) => {
+      const target = hardTarget(href);
+      if (target) window.location.replace(target);
+      else origReplace(href, options);
+    };
+    return () => {
+      router.push = origPush;
+      router.replace = origReplace;
+    };
+  }, [active]);
+
+  // C-F5 (3/3): red de seguridad (p. ej. una redirección del servidor): al llegar, recarga el documento.
   useEffect(() => {
     if (!active || measured) return;
     if (measurementLoadedInDocument()) window.location.reload();
