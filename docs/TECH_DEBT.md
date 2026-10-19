@@ -9462,16 +9462,9 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   deshabilita el verbo). Candado estático: `rg -n "function (Confirm(Modal|Dialog)|FxConfirmDialog)" frontend/src/app`
   ⇒ **0** (hoy 3).
 
-### PS5-FE-D8 · ✅ CERRADA en este pase (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
-- **Dónde era:** `m1/SealedFinalPrice.tsx` exportaba la cota desde un componente `'use client'` y tenía DOS listas de
-  claves a invalidar: tras guardar (6 claves) y en «Recargar» (3, sin `sealed-sets`/`sealed-set-detail`/
-  `sealed-price-status`) ⇒ «Recargar» tras un `409/422` no refrescaba el panel de «Sellado», justo donde el editor vive
-  con `layout='panel'`.
-- **Cierre:** `m1/sealed-final-price.ts` con `MAX_LIST_PRICE_CENTS` y `SEALED_FINAL_PRICE_INVALIDATES` (una lista, los
-  dos momentos). Candados: `SealedFinalPrice.test.tsx` «techlead D-8» (mutación: devolver «Recargar» a las 3 claves ⇒
-  rojo) y `sealed-final-price.test.ts` (la cota ↔ la cifra que cita `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
-- **Pendiente fuera de frontend:** el contrato no declara la cota de `listPriceCents` (solicitud al arquitecto en
-  `FRONTEND_NOTES` §85).
+### PS5-FE-D8 · ✅ CERRADA (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
+- **Cierre:** `m1/sealed-final-price.ts` (`MAX_LIST_PRICE_CENTS` + una sola `SEALED_FINAL_PRICE_INVALIDATES`). Candados:
+  `SealedFinalPrice.test.tsx` «techlead D-8» y `sealed-final-price.test.ts`. Cota sin contrato: `FRONTEND_NOTES` §85.
 
 ## Frontend · 2026-09-29 · release s5 (7b9c196e)
 
