@@ -623,12 +623,9 @@ jobs:
         mode: ["off", "on"]
     env:
       NEXT_PUBLIC_MEASUREMENT_MODE: ${{ matrix.mode }}
-      # IDs de FICCIÓN con forma válida (§MKT.H.1); no son secretos y no existen en
-      # Google/Meta. Solo con `on`: con `off` van vacíos, como en producción hoy.
-      NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${{ matrix.mode == 'on' && 'G-CI0E2E0000' || '' }}
-      NEXT_PUBLIC_META_PIXEL_ID: ${{ matrix.mode == 'on' && '1000000000000001' || '' }}
-      E2E_MOCK_DIST_DIR: .next-e2e-measurement-${{ matrix.mode }}
-      E2E_MOCK_PORT: "3000"
+      # Config, carpeta de build e IDs de ficción los fija CADA config de Playwright
+      # (`on`: playwright.measurement-on.config.ts); el paso los elige con
+      # scripts/measurement-e2e-run.sh (B2 de QA, run 39202758169).
       STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
       POKEMONPRICETRACKER_API_KEY: ''
       E2E_GRADING_PROVIDER_INCAPACITATED: '1'
@@ -670,13 +667,19 @@ jobs:
         run: |
           sudo ./scripts/measurement-egress-sinkhole.sh apply
           ./scripts/measurement-egress-sinkhole.sh verify
+      # `off` con la config por defecto; `on` con -c playwright.measurement-on.config.ts
+      # (la por defecto IGNORA ese spec: así salió «No tests found» y C-F3/C-F5 no
+      # corrieron nunca). Lista antes de correr: 0 pruebas ⇒ rojo con motivo.
       - name: E2E de medición (${{ matrix.mode }})
+        id: mkt_e2e
         if: steps.specs.outputs.run == 'true'
-        working-directory: frontend
-        run: npx playwright test "e2e/measurement-${{ matrix.mode }}.spec.ts"
+        run: |
+          # Corre `npx playwright test -c <config del modo>` dentro del script; esta línea deja que
+          # check-e2e-provider-incapacitation.sh siga descubriendo el job como E2E.
+          ./scripts/measurement-e2e-run.sh "${{ matrix.mode }}"
       - name: C-F1 · el artefacto ${{ matrix.mode }} (mismo build que acaba de medirse)
-        if: steps.specs.outputs.run == 'true' && !cancelled()
-        run: ./scripts/check-measurement-artifact.sh "frontend/.next-e2e-measurement-${{ matrix.mode }}" "${{ matrix.mode }}"
+        if: steps.specs.outputs.run == 'true' && steps.mkt_e2e.outputs.dist != '' && !cancelled()
+        run: ./scripts/check-measurement-artifact.sh "${{ steps.mkt_e2e.outputs.dist }}" "${{ matrix.mode }}"
       - name: Subir reporte Playwright
         if: always() && steps.specs.outputs.run == 'true'
         uses: actions/upload-artifact@v6

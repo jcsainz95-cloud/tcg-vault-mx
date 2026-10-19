@@ -970,6 +970,9 @@ jobs:
       - name: E2E de medición · borrar un spec es rojo, no un aviso (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-measurement-e2e-specs-canary.sh 2
+      - name: E2E de medición · cada modo usa su config y 0 pruebas es rojo (canario, B2)
+        if: ${{ !cancelled() }}
+        run: ./scripts/measurement-e2e-run-canary.sh 2
 
   # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
