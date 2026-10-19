@@ -20,7 +20,7 @@
 > - v1.103⟨mkt-panel-exacto⟩ · 2026-10-18 · §MKT.G.2/.3/.5/.9/.10: cifras exactas del dueño, supresión coherente · dueño (`HECHOS.md:172`).
 > - v1.104⟨ceq1-mkt⟩ · 2026-10-18 · §0-Q 6-bis (SELECTOR), `CEQ-MKT-1`, query con nombre en §MKT.E · QA.
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
-> - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8).
+> - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2).
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -8915,7 +8915,7 @@ AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settl
                     // v1.86.2: las cinco líneas faltaban en v1.86 (BACKEND_NOTES §83.4 (a)); espejan `schema.prisma` y
                     // `common/enum-values.ts` de `4e06c7e`.
 Permission          = marketing_read // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.1). Clase E. Permiso fino; `super_admin` lo tiene IMPLÍCITO. Crece aditivamente.
-BannerResponse      = accept | necessary_only | no_response | custom // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita. v1.102⟨mkt-fase2⟩: m86 añade custom (segunda capa, §MKT.H.3/.7); entra en esta línea en el mismo commit que m86 (cambio pre-decidido por el arquitecto).
+BannerResponse      = accept | necessary_only | no_response | custom // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita. v1.102⟨mkt-fase2⟩: m86 añade custom (respuesta mixta, §MKT.H.3/.7). Escritura DELEGADA: la añadió backend en `10f8a1df` con autorización del orquestador (paridad de enums en el mismo commit que m86); ratificada por el arquitecto en v1.106.1.
 MarketingAnnotationKind = promocion | despliegue | evento // v1.96⟨mkt-tienda⟩ (m83, §MKT.E / §13.4.6 h1). Clase E. Anotación de fecha del Panel; `promocion` lleva `destino`. Etiqueta SIN PII (filtro c6).
 MeasurementEventKind   = purchase | generate_lead // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Evento de servidor encolado.
 MeasurementDestination = ga4_mp | meta_capi      // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Destino de la cola de medición.
@@ -45826,7 +45826,7 @@ Item = { item_id: string /* MKT.H.4 */, item_name: string /* MKT.H.4 */, item_ca
 ```prisma
 enum MeasurementEventKind   { purchase  generate_lead }
 enum MeasurementDestination { ga4_mp  meta_capi }
-// BannerResponse (m82) gana el valor `custom`:  ALTER TYPE "BannerResponse" ADD VALUE 'custom';
+// BannerResponse (m82) gana el valor `custom`:  ALTER TYPE "BannerResponse" ADD VALUE IF NOT EXISTS 'custom';  (v1.106.1, I1)
 
 // En Order y en SellRequest (las dos), NULLABLE, sin default — NULL = creado con el modo apagado o antes de m86:
 measurementConsentAnalytics Boolean?
@@ -45863,10 +45863,10 @@ model MeasurementOutbox {            // ⛔ sin cuerpo: se arma al enviar
 ```
 - Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE` + el CHECK `num_nonnulls("orderId","sellRequestId") = 1` dentro del `CREATE
   TABLE "MeasurementContext"` (D8, v1.106: tabla nueva y vacía ⇒ no valida filas; Prisma no lo modela; que su paridad de schema no lo lea como deriva: NO MEDIDO). Sin
-  backfill. ⚠️ `ALTER TYPE … ADD VALUE` no se usa en la misma transacción que lo crea: ninguna sentencia de m86 usa `'custom'`.
-- **Reversa:** apagar (`MEASUREMENT_MODE=off`), desplegar el código anterior, `DROP` de las dos tablas, de las seis columnas y de
-  los dos enums nuevos. `custom` se queda en `BannerResponse` (Postgres no quita valores de un enum; es inocuo).
-- Líneas nuevas en §0 (enums): `MeasurementEventKind`, `MeasurementDestination` y el valor `custom` de `BannerResponse`.
+  backfill. ⚠️ `ADD VALUE` no se usa en la transacción que lo crea (ninguna sentencia de m86 usa `'custom'`) y va con `IF NOT EXISTS`.
+- **Reversa:** `MEASUREMENT_MODE=off`, código anterior, `DROP` de las dos tablas, las seis columnas y los dos enums nuevos, y
+  `prisma migrate resolve --rolled-back` de m86. `custom` se queda en `BannerResponse` (Postgres no quita valores): por eso m86 usa
+  `IF NOT EXISTS`; sin él, redesplegar m86 tras la reversa falla con P3018/42710 (medido por QA, I1). Enums en §0 (`BannerResponse` incluido).
 
 #### MKT.H.8 Cookies que pone la tienda (para el aviso; fuente única de nombres y plazos)
 
