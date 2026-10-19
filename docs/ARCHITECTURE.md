@@ -36996,20 +36996,15 @@ interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de di
 
 ### 14.0 Estado medido (O-1)
 
-| Afirmación | Evidencia |
-|---|---|
-| Hoy no hay ningún script de Google Analytics, GTM ni Meta en el frontend | `csp.ts:108-121`: `connect-src` solo trae API, Stripe, `accounts.google.com` y el origen de subida; ningún host de medición. Que no haya un `<script>` de medición en otro sitio: **NO MEDIDO** con grep del artefacto (lo cierra el candado C-F1) |
-| La CSP está en **report-only**: hoy **no bloquea nada** | `csp.ts:37` (`CSP_MODE = 'report-only'`) |
-| `script-src` usa `'strict-dynamic'`: un script con nonce puede insertar otros scripts de cualquier host | `csp.ts:9-11,104`. ⇒ la CSP no sirve para impedir que cargue `gtag.js`; solo `connect-src`/`img-src` podrían frenar envíos, y `img-src` ya admite `https:` entero (`csp.ts:139`) |
-| Google ya carga en el checkout por el botón de Google Identity | `checkout/InlineAuthPanel.tsx` usa `GoogleSignInButton`; `csp.ts:110,116` abre `accounts.google.com`. Y el Card Show embebe `www.google.com` (`csp.ts:117-120`). ⇒ «0 peticiones a Google» se mide sobre hosts **de medición**, no sobre todo Google (§14.8) |
-| Las columnas `firstUtm*` existen y nadie las escribe | `schema.prisma:1570` (`Order`) y `:2451` (`SellRequest`); `common/first-utm.ts:48` (`parseFirstUtm`) existe sin llamador (m81 `migration.sql:20`) |
-| `MarketingBannerConsentCounter` existe; nadie lo incrementa | m82; Grep `bannerConsent` (sin distinguir mayúsculas) en `backend/src` ⇒ 0 coincidencias (2026-10-18) |
-| El pago se confirma en el webhook de Stripe, con idempotencia por `event.id` | `payments.service.ts:165-230` (`handleEvent`), `:233` (`onPaymentSucceeded`), avisos post-commit best-effort en `:377` (`notifyOrderSettled`) y rama `direct_ship` `:296-298` |
-| Hay una cola BullMQ con trabajos periódicos | `jobs/scheduler.service.ts:30,178` (`tcg-daily`) |
-| El retorno del 3DS de invitado va a `/pedido?token=…` y el de cuenta a `/orders` | `GuestCheckoutView.tsx:705`, `CheckoutView.tsx:431`. Stripe usa `redirect:'if_required'` (`StripePaymentModal.tsx:16,89`): con tarjeta sin 3DS no hay redirección |
-| El aviso de privacidad es código del frontend, con su texto en un módulo de datos | Texto: `frontend/src/content/legal/privacidad.es.ts`; la frase vieja está en `:266` («**No usamos cookies de publicidad ni de analítica.**»). Vista: `(storefront)/privacidad/PrivacyNoticeView.tsx` |
-| Ya existe una puerta de publicación del aviso (LIVE-8) | `content/legal/publish-check.ts:30` (`legalPublishProblems(mode, …)`, modos `provisional`/`final`), marcadores en `legal-gate.ts:10-46`; la usa `publish-ready.test.ts` (`npm run check:legal[:provisional]`, según el comentario de `publish-check.ts:8`). Si ese script corre hoy en el build de Vercel: **NO MEDIDO** |
-| Siguiente migración libre: **m86** | Glob `backend/prisma/migrations/*` sobre `5524bd69`: la última es `20261105120000_m85_card_show_shardbugs`; no hay `m86`-`m89`. Ramas y worktrees en paralelo: **NO MEDIDO** |
+- **Construido y apagado, sin fusionar** (leído en los worktrees el 2026-10-19; sha por `refs/heads/worktree-agent-*`, sin
+  Bash): backend `d3af1d77` (BACKEND_NOTES §MKT.H), frontend `dad4a316` (FRONTEND_NOTES §MKT2), devops `4dec5465`
+  (DEVOPS_NOTES §101). Qué hace cada pieza vive en esas notas; que el árbol de cada worktree sea igual a su sha: **NO MEDIDO**.
+- **Hechos de la base que sostienen el diseño** (sobre `5524bd69`): CSP en report-only (`csp.ts:37`) y `script-src` con
+  `'strict-dynamic'` (`csp.ts:9-11,104`) ⇒ la CSP no impide cargar `gtag.js`; Google ya carga en login/checkout
+  (`accounts.google.com`) y en el Card Show (`www.google.com`) ⇒ C-F2 mide hosts de medición, no todo Google (§14.8); el pago
+  se confirma en el webhook (`payments.service.ts:233`, avisos post-commit `:377`); el retorno de 3DS va a `/pedido?token=` y
+  `/orders` (`GuestCheckoutView.tsx:705`, `CheckoutView.tsx:431`) y Stripe usa `redirect:'if_required'`
+  (`StripePaymentModal.tsx:16,89`); el aviso es un módulo de datos con puerta de publicación (`publish-check.ts:30`).
 
 ### 14.1 El interruptor: dos variables, apagado por defecto, y una puerta de build que exige el aviso
 
@@ -37078,18 +37073,30 @@ Visita ─► ¿modo on y alguna etiqueta configurada? ── no ─► nada (si
         ¿cookie th_consent válida y de la versión vigente del aviso? ── sí ─► aplicar elección
               │ no
               ▼
-        banner abajo, sin muro (D3b). utm_* válidos de la URL ─► memoria de la pestaña (sin cookie, sin storage)
+        ¿ruta de la lista blanca (§14.4)? ── no ─► sin banner (el enlace del pie sí está)
+              │ sí
+        banner abajo, sin muro (D3b). utm_* válidos de la URL ─► memoria del documento (sin cookie, sin storage)
               │
    ┌──────────┼────────────────────┬─────────────────────────────┐
- «Aceptar»  «Solo lo necesario»   «Configurar» (2.ª capa)        sin respuesta al salir de la pestaña
- analítica+publicidad  todo denied  analítica / publicidad por separado   beacon no_response (1 por pestaña)
-   │          │                    │
+ «Aceptar»  «Solo lo necesario»   «Configurar» (2.ª capa)        sin respuesta al ocultarse la página
+ analítica+publicidad  todo denied  analítica / publicidad por separado   beacon no_response (1 por documento)
    ▼          ▼                    ▼
- th_consent {a:1,m:1}  th_consent {a:0,m:0}  th_consent {a,m}
- th_first_utm (si a)   borra utm de memoria  th_first_utm si a
+ th_consent {a:1,m:1}  th_consent {a:0,m:0}  th_consent {a,m}; th_first_utm si a
  carga gtag (si a), fbevents (si m)
- POST /measurement/banner-response {accept|necessary_only|custom, utmMedium}
+ POST /measurement/banner-response: respuesta = la ELECCIÓN que quedó (D-MKT2-5), no el botón
 ```
+
+**D-MKT2-5 (2026-10-19, v1.105) — qué se cuenta y qué viaja sin elección.** Razón común: f1 mide qué consienten los
+visitantes, y antes de la elección no se escribe nada en el dispositivo.
+- **Respuesta por resultado:** `{a:1,m:1}` ⇒ `accept` aunque se guarde desde la 2.ª capa; `{a:0,m:0}` ⇒ `necessary_only`;
+  mixta ⇒ `custom`. Contar «guardé con todo apagado» como `custom` partiría a los que rechazan en dos filas y f1 dejaría de
+  decir cuántos rechazan. Solo cuenta **la primera** respuesta del banner; cambiar después desde el pie o el aviso no manda nada
+  (MKT2-UX.13 pet. 1): contar cambios inflaría el denominador.
+- **`no_response` una vez por documento, en memoria** (⛔ ni `sessionStorage`): la regla «nada en el dispositivo antes de la
+  elección» vale para todo, no solo para los UTM. Coste aceptado: una recarga sin responder vuelve a contar (sobrecuenta el
+  denominador; f1 lo dice en su nota).
+- **Sin elección, el objeto `measurement` no viaja**: el pedido queda con consentimiento `NULL` y ningún destino recibe nada
+  (tabla de §14.6). No se infiere un «no» de un silencio.
 
 - **`th_consent`** es la cookie que **guarda la elección** (estrictamente necesaria para respetarla): primera parte, 180 días,
   `SameSite=Lax`, `Secure`, `Path=/`, legible por JS. Contenido: versión del formato, `a` (analítica), `m` (publicidad), versión del
@@ -37099,7 +37106,9 @@ Visita ─► ¿modo on y alguna etiqueta configurada? ── no ─► nada (si
   siempre: GA4 aquí solo mide. **Nada de Google ni de Meta se descarga antes de la elección**, ni un ping sin cookies.
 - **Publicidad = Meta.** `m=1` es lo único que carga `fbevents.js` y lo único que habilita CAPI. Aceptar solo analítica no
   enciende Meta (D3, PV-A1).
-- **Revocar:** enlace «Preferencias de cookies» en el pie y en el aviso ⇒ abre la segunda capa. Al quitar un consentimiento se
+- **Revocar:** «Preferencias de cookies» en el pie de todo el storefront y en el aviso ⇒ abre la segunda capa. En el aviso va
+  como **párrafo propio al final del apartado de cookies**, fuera del texto del abogado (D-MKT2-6: el texto legal queda como
+  dato puro y el botón no depende de su redacción; la puerta C-D1 exige que el apartado exista). Al quitar un consentimiento se
   borran las cookies propias de esa finalidad que la tienda puede borrar en su dominio (`th_first_utm`, `_ga*`, `_fbp`, `_fbc`), se
   manda `consent update` y se **recarga** la página, para que el código de terceros ya cargado salga del documento.
 - **`th_first_utm`** (§B1): se escribe solo con `a=1`, con los `utm_*` que pasaron `parseFirstUtm` (misma regla que
@@ -37136,7 +37145,8 @@ eventos, porque su página está excluida (§14.4):
 | `generate_lead` | al enviar la solicitud | solo servidor | el formulario de venta lleva CLABE e INE (§D2.1 lo excluye) |
 
 El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `begin_checkout`, `add_payment_info`,
-`click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. Se relaya a marketing.
+`click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. `page_view` va **solo a GA4**: el píxel
+no manda `PageView` (Meta casa la compra por `event_id`, y una visita por página es justo la audiencia que no se quiere).
 
 ### 14.6 Eventos de servidor: cola en base de datos, después del commit, sin poder tocar el pago (§B4, §C)
 
@@ -37144,7 +37154,7 @@ El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `b
 POST /checkout/session | /checkout/guest/session | /buylist/requests
    │  (en la tx de siempre: firstUtm* + consentimiento en la fila Order/SellRequest — datos ya saneados, no pueden fallar)
    ▼  commit
-   └─► best-effort, fuera de la tx: MeasurementContext {gaClientId?, fbp?, fbc?, sourcePath}   (try/catch, nunca lanza)
+   └─► best-effort, fuera de la tx: MeasurementContext {gaClientId?, fbp?, fbc?}   (try/catch, nunca lanza)
 
 webhook payment_intent.succeeded ─► onPaymentSucceeded ─► tx de liquidación (SIN CAMBIOS) ─► commit
    └─► después de notifyOrderSettled, best-effort: measurement.enqueuePurchase(order.id)   (try/catch, nunca lanza)
@@ -37177,7 +37187,7 @@ job measurement-drain (cada 1 min, BullMQ tcg-daily) ─► lee filas con nextAt
 
 | Consentimiento en la fila | GA4 (Measurement Protocol) | Meta (CAPI) |
 |---|---|---|
-| `NULL` (modo off al crear) | nada | nada |
+| `NULL` (modo off al crear, o sin elección del visitante) | nada | nada |
 | analítica no, publicidad no | `purchase`/`generate_lead` con `client_id` **aleatorio por evento**, sin `first_utm_*`, sin `user_id`, sin IP | **nada** |
 | analítica sí | con `client_id` del navegador (`gaClientId`) y `first_utm_*` de la fila | según publicidad |
 | publicidad sí | según analítica | evento con `event_id`, `fbp`/`fbc`; si no hay ni `fbp` ni `fbc`, **nada** (no hay con qué casar) |
@@ -37216,20 +37226,18 @@ usan: `accounts.google.com` (botón de Google en login y checkout) y `www.google
 
 ### 14.9 Panel: f1/f2/f3/g1 y lectura de GA4 y Search Console (b, c, e, g)
 
-- **f1/f2** salen de `MarketingBannerConsentCounter`, que alimenta `POST /measurement/banner-response` (§MKT.H.3). Se añade la
-  respuesta `custom` (segunda capa) al enum `BannerResponse` en m86: contar una elección mixta como «aceptar» inflaría la tasa y
-  contarla como «solo lo necesario» la hundiría. Tasa de aceptación = `accept / (accept + necessary_only + custom + no_response)`;
-  la pantalla enseña las cuatro.
-- **f3** (cobertura: % de pedidos con origen) y **g1** (compras `paid`) pasan a medidos cuando haya filas con consentimiento:
-  `measurementConsentAnalytics = true` es el denominador honesto de «aceptó», `firstUtmSource IS NOT NULL` el numerador.
-- **Lectura de GA4 Data API y Search Console** desde el backend de la tienda, con una **cuenta de servicio propia de la tienda**
-  (no la de marketing; cada entorno con su llave, revocables por separado), rol Lector en GA4 y usuario restringido en Search
-  Console. Un adaptador por fuente en `backend/src/modules/marketing/` con caché por `(pantalla, periodo)` de 6 h (los periodos
-  son cerrados). Sin credenciales o si la API falla ⇒ la tabla viaja `measured:false` con «NO MEDIDO — GA4 sin conectar» o
-  «NO MEDIDO — Search Console sin conectar»; ⛔ nunca «0». Las celdas pequeñas y la supresión coherente (§MKT.G.10) se aplican
-  también a las tablas de GA4 con dimensión, en el régimen `small_cells`.
-- **Search Console no depende del aviso.** Leer consultas de búsqueda no recoge nada del visitante ni pone cookies; su lectura
-  (e1) se puede encender en cuanto el dueño dé acceso, sin esperar al abogado. **GA4 sí:** sin GA4 encendido no hay datos que leer.
+Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H.9. Aquí, el porqué:
+- **f1** (con f2 como columnas por dispositivo) cuenta `accept`, `necessary_only`, `custom` (solo mixta, D-MKT2-5) y
+  `no_response`; tasa = `accept / total`. Sin `custom` una elección mixta inflaría o hundiría la tasa.
+- **f3/g1:** `firstUtmSource IS NOT NULL` es el numerador; `measurementConsentAnalytics = true` el denominador honesto de
+  «aceptó». `NULL` mezcla «no respondió» y «antes de encender»: la fila no sabe cuál y no se inventa. f1, f3 y g1 se miden con
+  el modo `on` **o** si el periodo ya tiene datos de medición (apagar no debe esconder semanas que sí se midieron).
+- **GA4 Data API y Search Console** se leen con una **cuenta de servicio propia de la tienda** (no la de marketing), rol Lector
+  en GA4 y usuario restringido en SC, adaptador en `modules/marketing/` con caché de 6 h por `(pantalla, periodo)`. Fase 2 solo
+  lee dimensiones y métricas **estándar** de GA4: las de evento propias (`first_utm_*`, `seconds_to_visible`) exigen
+  registrarlas en la consola, que es configuración fuera del repositorio (la razón de §14.2). Lo que no sale con estándar
+  queda `measured:false` con motivo propio; ⛔ nunca «0». Celdas pequeñas y §MKT.G.10 también en las tablas de GA4.
+- **Search Console no depende del aviso** (no toca al visitante): e1 se enciende en cuanto el dueño dé acceso.
 
 ### 14.10 Preguntas para el dueño (no se asume; regla de conflicto)
 
@@ -37249,17 +37257,7 @@ usan: `accounts.google.com` (botón de Google en login y checkout) y `www.google
 
 ### 14.11 Reparto
 
-- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`): m86; módulo `backend/src/modules/measurement/` (config,
-  saneador del objeto `measurement`, constructores puros de cuerpos, encolado, drenador, purga); enganche post-commit en
-  `onPaymentSucceeded` (las dos ramas) y en `POST /buylist/requests`; escritura de `firstUtm*` y consentimiento en la creación de
-  `Order`/`SellRequest`; `POST /measurement/banner-response`; adaptadores GA4 Data API y Search Console del panel; régimen `exact`
-  y supresión coherente (§13.7). Pruebas C-B1…C-B9 y P-G (API_CONTRACT §MKT.H.11 y §MKT.G.9).
-- **frontend:** `frontend/src/lib/measurement/` (config, consentimiento, rutas, saneador de URL, `track`, cargador), banner y
-  segunda capa (con ux-ui), enlace «Preferencias de cookies», objeto `measurement` en las tres peticiones, metadatos del aviso,
-  `buildCsp` con modo, panel con `privacy`. Pruebas C-F1…C-F7.
-- **ux-ui:** banner (D3b) y segunda capa en `DESIGN_SYSTEM.md`; aviso «cifras exactas» del panel.
-- **devops:** variables de §MKT.H.1 en Vercel y Railway (en `off`), puerta de prebuild del aviso (C-D1), job de E2E con el modo
-  encendido y peticiones a terceros interceptadas (nada sale a Google/Meta desde CI), regla de gitleaks para los secretos de Meta y
-  GA4 (C-D2), procedimiento de encendido y de apagado en `DEVOPS_NOTES.md`.
+- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0.
+  Los ajustes que salen de v1.105 están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
 - **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
   cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.

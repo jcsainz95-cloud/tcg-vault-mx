@@ -10,58 +10,16 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
-> **Rev v1.101⟨mkt-panel⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, medido sobre `b8197420`;
-> base v1.100⟨cardshow⟩ + v1.96.1⟨mkt-tienda⟩).** La pantalla del Panel de Marketing por sesión: **[§MKT.G](#MKT-G)** —
-> `GET /admin/marketing/panel` (JSON por sesión + `marketing:read`, mismo `ScreenPayload` que `aggregates`, cierra MKT-TL3),
-> `GET /admin/marketing/periods` (opciones de semana/mes cerrados), y `GET|POST /admin/marketing/tokens` +
-> `POST …/tokens/:id/revoke` (solo `super_admin`, cierra MKT-TL4); Fase 0 sin ruta de concesión de `marketing:read`; catálogo de
-> tablas por pantalla. Aditivo, sin migración, sin enum ni código de error nuevos. Razones: ARCHITECTURE §13.7. Pedido por el
-> orquestador (stream de UI del panel).
->
-> ⚠️ **Dos revisiones distintas llevan el número v1.96:** **v1.96⟨mkt-tienda⟩** (2026-10-16, §MKT, migraciones m81-m83) y
-> **v1.96⟨cardshow-leads⟩** (2026-10-17, §CARDSHOW, M-84). Se distinguen por la etiqueta entre ⟨⟩; ninguna sustituye a la otra.
-> v1.97-v1.100 son todas del Card Show (⟨cardshow⟩ / ⟨cardshow-shardbugs⟩). Desde v1.101 el número no se repite: la siguiente revisión, de
-> cualquier sección, es v1.105.
->
-> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, leído sobre `e0cce11b`).**
-> Clase de los huérfanos de `C-EQ-1` que midió QA: §0-Q gana el **punto 6-bis (ejes SELECTOR)** y la regla «cómo se declara un
-> eje» (punto 4); cuatro filas nuevas en el registro (`pantalla` ×3, `format`) y la nota `CEQ-MKT-1` con las claves exactas;
-> §MKT.E declara la query de los exports y las anotaciones, y `pantalla`/`format` responden `400 {field, allowed}`. Sin migración,
-> sin enum. Razones: ARCHITECTURE §4.37.1-b. Pedido por el orquestador (rojo de QA en el stream del panel).
->
-> **Rev v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`, leído sobre `5524bd69`).**
-> El dueño ve cifras exactas en SU pantalla (`HECHOS.md:172`): `GET …/panel` con `super_admin` ⇒ `privacy:'exact'`; el resto de
-> cuentas y todo lo que sale de la pantalla siguen con celdas pequeñas (§MKT.G.2/.5). Supresión coherente mes↔semanas y «mes cerrado
-> = su última semana cerrada» (§MKT.G.10, §MKT.G.3). Pruebas 8-11 en §MKT.G.9. Sin migración ni enum; `Cell` gana `'oculta'`.
-> Razones: ARCHITECTURE §13.7 (D-MKT-PANEL-2, D-MKT-PANEL-4). Pedido por el orquestador con la decisión del dueño.
->
-> **Rev v1.102⟨mkt-fase2⟩ (2026-10-18, arquitecto, misma rama y base).** Fase 2 de marketing, **se construye apagada**:
-> **[§MKT.H](#MKT-H)** — variables e interruptor, objeto `measurement` en `POST /checkout/session`, `/checkout/guest/session` y
-> `/buylist/requests` (aditivo, opcional, nunca rompe la compra), `POST /measurement/banner-response`, eventos de navegador y de
-> servidor (GA4 Measurement Protocol y Meta CAPI) con lista cerrada de claves, cola post-commit, migración **m86**, candados C-F/C-D/C-B.
-> Enums nuevos `MeasurementEventKind`, `MeasurementDestination` en §0; `BannerResponse` gana `custom` con m86. Razones:
-> ARCHITECTURE §14. Pedido por el orquestador (PENDIENTES §MKT, Fase 2).
->
-> **Rev v1.96⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM en pedido/solicitud, ficha pública de sellado con datos de
-> SSR/og/JSON-LD, feed de sitemap y panel de marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` =
-> `origin/production` HEAD `0dd2d7c`; ⛔ sha de corte NO MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta
-> `⟨mkt-tienda⟩` **a propósito distinta de `⟨mkt⟩`** (v1.92⟨mkt⟩ la reserva otra rama sin fusionar, ver arriba) y el
-> número **v1.96** evita el v1.95⟨pnl-finanzas⟩ de abajo. Fuente: brief de marketing
-> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Diseño y razones: **ARCHITECTURE §13**. Dos olas:
-> **OLA 1** (§MKT.A ficha/og + §MKT.B sitemap + §MKT.C columnas `firstUtm*`) y **OLA 2** (§MKT.D panel Fase 0 +
-> §MKT.E endpoint de agregados y exports). Schema: migraciones **m81** (OLA 1) y **m82** (OLA 2), especificadas en
-> ARCHITECTURE §13. Toca dinero (atribución de pedidos, panel que lee ventas): tres veredictos al cierre. La nueva
-> sección va al final del documento: **[§MKT](#MKT)**.
->
-> **Errata v1.96.1⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda` HEAD `f394ddf`; ⛔ sha de corte NO MEDIDO:
-> sin Bash).** Tres cierres que el backend dejó abiertos (regla 9: el contrato lo toca el arquitecto). **(1) BLOQUEO:**
-> §0 declara los dos enums de m82 — `Permission = marketing_read` y `BannerResponse = accept | necessary_only |
-> no_response` — que faltaban (3 rojas de `enum-values-parity.spec.ts`, banda-3 universal). **(2) DECISIÓN D-MKT-AUTZ
-> (§MKT.E):** el token `marketing-reader` en otra ruta del admin da **401** (opaco, no JWT), no el **403** literal del
-> brief; ambos deniegan, la propiedad es la denegación. **⚠️ Se aparta del brief Panel §6(1)/§7.2** — relayar a
-> marketing. **(3) h1 (§MKT.D/.E, §13.4.6):** modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind` como
-> ESPECIFICACIÓN de la **migración `m83`** (no aplicada; backend la implementa). c6 `SearchNoResultDaily` marcado
-> **DIFERIDO** (no está en m82).
+> **Revisiones de [§MKT](#MKT) (una línea cada una; el detalle vive en su sección, la historia en git).** ⚠️ Hay dos v1.96
+> distintas, ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 el número no se repite: la
+> siguiente revisión, de cualquier sección, es **v1.106**.
+> - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
+> - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
+> - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
+> - v1.102⟨mkt-fase2⟩ · 2026-10-18 · §MKT.H: Fase 2 apagada, `measurement`, `banner-response`, MP/CAPI, m86 · orquestador.
+> - v1.103⟨mkt-panel-exacto⟩ · 2026-10-18 · §MKT.G.2/.3/.5/.9/.10: cifras exactas del dueño, supresión coherente · dueño (`HECHOS.md:172`).
+> - v1.104⟨ceq1-mkt⟩ · 2026-10-18 · §0-Q 6-bis (SELECTOR), `CEQ-MKT-1`, query con nombre en §MKT.E · QA.
+> - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -45572,17 +45530,16 @@ del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» es lo medido en `
 | d | `d3` | Agotado con demanda (stock 0 + lista de deseos) | BD | medida | ✅ `:263-301` |
 | d | `d4` | Buylist más cotizadas (cálculos del cotizador, anónimo) | Srv | medida | ✅ `:305-335` |
 | d | `d4b` | Buylist más **solicitadas**: cartas en solicitudes **enviadas** en el periodo (mismo criterio de «enviada» que `a3`), conteo por carta, «< 5» si N<5 con supresión complementaria, **sin MX$** | BD | medida | ❌ falta |
-| e | `e1` | Consultas de Google | SC | NO MEDIDO — Search Console sin verificar | ✅ `:444` |
+| e | `e1` | Consultas de Google | SC | NO MEDIDO — Search Console sin conectar | ✅ `:444` |
 | e | `e3` | Referencias de asistentes de IA | GA4 | NO MEDIDO — GA4 sin encender | ❌ falta |
-| f | `f1` | Aceptación del banner | Srv | NO MEDIDO — banner en Fase 2 | ✅ `:408` |
+| f | `f1` | Aceptación del banner; f2 (por dispositivo) va como columnas de f1, sin `id` propio | Srv | NO MEDIDO — banner en Fase 2 | ✅ `:408` |
 | f | `f3` | Cobertura: % de pedidos con origen | BD | NO MEDIDO — `first_utm_*` NULL hasta Fase 2 | ✅ `:409` |
 | g | `g1` | Compras atribuidas a promociones (`paid`) | BD | NO MEDIDO — `first_utm_*` NULL hasta Fase 2 | ✅ `:446` |
 | h | `h1` | Anotaciones de fecha del periodo | BD | medida (texto, sin celdas pequeñas) | ✅ `:419-435` |
 
 - **h2** (leyenda de fuente) no es tabla: es `sourceLegend` + `tables[].source`; la pantalla la pinta al pasar el cursor.
-- **Cobertura arriba de cada pantalla (Panel §2 convenciones):** en Fase 0 el `notes` de **toda** `ScreenPayload` incluye la línea
-  «Cobertura: GA4 sin encender; origen de pedidos NO MEDIDO (first_utm_* vacío hasta Fase 2).» La pantalla la pinta arriba; el
-  export la lleva en «Info». Hoy el payload no trae `notes` de pantalla (`marketing-analytics.service.ts:56-61`) ⇒ falta.
+- **Cobertura arriba de cada pantalla (Panel §2 convenciones):** el `notes` de **toda** `ScreenPayload` incluye una línea de
+  cobertura; su texto literal depende del modo y está en §MKT.H.9. La pantalla la pinta arriba; el export la lleva en «Info».
 - Las filas ❌ son la desviación **D-MKT-1** (ARCHITECTURE §9). Ninguna bloquea pintar la pantalla: el frontend pinta lo que
   llegue en `tables[]`.
 
@@ -45772,13 +45729,14 @@ MeasurementInput = {
 - **Nunca rompe la compra.** El DTO lo declara como objeto opcional (lo admite `StrictBodyPipe`); dentro, un saneador puro lo
   lee **campo a campo y descarta lo que no cumpla**, sin lanzar: un `measurement` mal formado da **la misma respuesta** que sin él
   (⛔ nunca 400 por este campo). Claves desconocidas dentro ⇒ se ignoran.
-- **`MEASUREMENT_MODE=off` ⇒ se ignora entero**: nada se escribe.
+- **Se ignora entero** (nada se escribe; columnas `NULL`) con `MEASUREMENT_MODE=off`, o si `consent` no son dos booleanos, o si
+  `noticeVersion` no cumple su forma: sin saber qué se consintió y sobre qué aviso, ningún campo es utilizable.
+- **El navegador no lo manda si el visitante no eligió** (ARCHITECTURE D-MKT2-5): `NULL` = sin elección o antes de encender.
 - **Con `on`:** `consent.analytics=false` ⇒ se descartan `firstUtm` y `gaClientId` aunque vengan; `consent.ads=false` ⇒ se
   descartan `fbp`/`fbc`. Cada `utm` pasa `parseFirstUtm` (`common/first-utm.ts:48`, §MKT.C); `landedAt` futuro o de hace más de 90
   días ⇒ se descarta.
 - **Qué se escribe:** en la **misma** escritura que crea `Order`/`SellRequest`: `firstUtm*` y las tres columnas de consentimiento
-  (MKT.H.7). **Después del commit**, best-effort: una fila `MeasurementContext` con `gaClientId`/`fbp`/`fbc`/`sourcePath` si hay
-  alguno.
+  (MKT.H.7). **Después del commit**, best-effort: una fila `MeasurementContext` con `gaClientId`/`fbp`/`fbc` si hay alguno.
 - **Reintentos:** si `POST /checkout/guest/session` o `/checkout/session` **reusa** una orden (§4-R), se conserva lo que ya tenía;
   el `measurement` nuevo se ignora.
 
@@ -45792,8 +45750,11 @@ BannerResponseRequest = { response: 'accept' | 'necessary_only' | 'custom' | 'no
 - Con `on`: incrementa `(weekStart CDMX, response, utmMedium, device)`. `utmMedium` se guarda solo si es `bio|story|paid|dm`;
   cualquier otro valor ⇒ `null`. `device` (valores de ARCHITECTURE §13.4.3) se deriva del `User-Agent` **en el servidor**; ⛔ el UA no se
   guarda. ⛔ Sin cookie, sin IP guardada, sin fila por visita.
-- `no_response`: lo manda el navegador **una vez por pestaña**, al ocultarse la página (`sendBeacon`), si el banner se mostró y no
-  se respondió en esa pestaña. `custom` = guardó la segunda capa.
+- **Qué manda el navegador (D-MKT2-5):** la **primera** respuesta al banner, por la elección que quedó: `{a,m}` ambos sí ⇒
+  `accept`, ambos no ⇒ `necessary_only` (también desde la 2.ª capa), mixta ⇒ `custom`. Cambiar después (pie, aviso) no manda
+  nada. `no_response`: **una vez por documento**, en memoria (⛔ ni cookie ni `sessionStorage`), al ocultarse la página
+  (`sendBeacon` con un `Blob` `application/json`), si el banner se mostró y no se respondió. El banner solo se monta en rutas de
+  la lista blanca (ARCHITECTURE §14.4); el enlace «Preferencias de cookies», en el pie de todo el storefront.
 - Errores: **400** `VALIDATION_ERROR` (body sin forma), **429** `RATE_LIMITED` (30/h por IP).
 
 #### MKT.H.4 Eventos del navegador (`track`) — lista cerrada de parámetros
@@ -45802,7 +45763,7 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 
 | Evento | Cuándo | Parámetros (⛔ ninguno más) |
 |---|---|---|
-| `page_view` (manual) | carga de ruta permitida, ⛔ no en checkout | `page_location`, `page_referrer` saneados |
+| `page_view` (manual, **solo GA4**; el píxel no manda `PageView`) | carga de ruta permitida, ⛔ no en checkout | `page_location`, `page_referrer` saneados |
 | `view_item` | ficha de carta o sellado | `items[{item_id, item_name, item_category: 'card'\|'sealed', price}]`, `value`, `currency:'MXN'`, `market_value_shown`, `price_vs_market_pct` |
 | `select_content` | clic hacia una ficha | `content_type: 'card'\|'sealed'\|'guide'`, `item_id`, `page_path` |
 | `buy_button_visible` | botón COMPRAR en pantalla, una vez por página | `card_id`, `seconds_to_visible` |
@@ -45814,7 +45775,8 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 | `search` | búsqueda | `results_count` (⛔ nunca el término) |
 
 - Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`.
-- `value` en pesos con IVA (2 decimales); `*_cents` enteros. `item_id` = `cardId` o id de sellado; ⛔ nunca `orderNumber`.
+- `value` en pesos con IVA (2 decimales); `*_cents` enteros. En `purchase` (navegador, MP y CAPI) `value = Order.totalCents/100`,
+  lo cobrado (envío incluido). `item_id` = `cardId`, id de sellado o de accesorio; ⛔ nunca `orderNumber`.
 - **`generate_lead` no sale del navegador** (la página de venta lleva CLABE/INE): solo servidor (MKT.H.5).
 - Píxel: mismos nombres en su forma estándar (`ViewContent`, `AddToCart`, `InitiateCheckout`, `AddPaymentInfo`, `Purchase`,
   `Contact`; `Lead` solo servidor). `fbq('set','autoConfig',false,PIXEL_ID)` **antes** de `init`; `fbq.disablePushState = true`;
@@ -45844,7 +45806,7 @@ Item = { item_id: string, item_name: string, item_category: 'card' | 'sealed' | 
 `access_token`):
 ```ts
 { data: [{ event_name: 'Purchase' | 'Lead', event_time: number /* epoch s */, event_id: 'p_<Order.id>' | 'l_<SellRequest.id>',
-           action_source: 'website', event_source_url: string /* origen + sourcePath saneado */,
+           action_source: 'website', event_source_url: string /* 1.er origen de APP_BASE_URL + '/checkout' | '/buylist' */,
            user_data: { fbp?: string, fbc?: string },
            custom_data: { currency: 'MXN', value: number, content_ids?: string[], content_type?: 'product', num_items?: number } }] }
 ```
@@ -45887,8 +45849,7 @@ model MeasurementContext {           // identificadores de navegador de vida cor
   sellRequestId String?  @unique     // exactamente uno de los dos
   gaClientId    String?              // solo con analytics
   fbp           String?              // solo con ads
-  fbc           String?              // solo con ads
-  sourcePath    String?              // ruta saneada (sin query salvo utm_* válidos), ≤300
+  fbc           String?              // solo con ads (v1.105: sin `sourcePath`; la URL de CAPI es fija, MKT.H.5)
   createdAt     DateTime @default(now())
   expiresAt     DateTime             // createdAt + 7 días
   @@index([expiresAt])
@@ -45929,12 +45890,37 @@ Todas `Secure`, `SameSite=Lax`, dominio apex, `Path=/`.
 
 #### MKT.H.9 Panel con Fase 2
 
-- **f1/f2:** de `MarketingBannerConsentCounter`, con `custom` como cuarta respuesta; tasa = `accept / total de respuestas`.
-- **f3 cobertura:** numerador `firstUtmSource IS NOT NULL`, denominador pedidos pagados del periodo; aparte, cuántos tenían
-  `measurementConsentAnalytics = true`. Pedidos con consentimiento `NULL` se cuentan como «antes de Fase 2».
-- **b, c, d (vistas), e3, g:** desde GA4 Data API; **e1** desde Search Console. Sin credenciales o con error ⇒ `measured:false`
-  con «NO MEDIDO — GA4 sin conectar» / «NO MEDIDO — Search Console sin conectar». Celdas pequeñas y MKT.G.10 en `small_cells`.
-- **Search Console no espera al aviso** (no toca al visitante): e1 se puede encender en cuanto el dueño dé acceso.
+Razones: ARCHITECTURE §14.9. Celdas pequeñas y MKT.G.10 en `small_cells` para toda tabla con dimensión, también las de GA4.
+- **Cuándo se miden f1, f3, g1 y las columnas de BD de b1-b3:** con `MEASUREMENT_MODE=on`, **o** con `off` si el periodo ya tiene
+  datos (f1: alguna fila del contador; el resto: algún pedido pagado con `measurementConsentAnalytics IS NOT NULL`). Si no, Fase 0.
+- **f1** (f2 = columnas `móvil|escritorio|tableta|sin dato`): `accept`, `necessary_only`, `custom` (solo mixta), `no_response`;
+  tasa = `accept / total`. Nota: `no_response` se cuenta una vez por documento (una recarga sin responder vuelve a contar).
+- **f3:** pagados del periodo; con origen (`firstUtmSource IS NOT NULL`); aceptaron analítica (`true`); la rechazaron (`false`);
+  «Sin elección registrada (no respondió al aviso, o pedido anterior a la medición)» (`NULL`). Totales sin dimensión: exactos.
+- **e1** (Search Console) en cualquier modo; no espera al aviso. Sin credenciales o con error ⇒ «NO MEDIDO — Search Console sin conectar».
+- **Motivo de una tabla GA4:** `off` ⇒ «NO MEDIDO — GA4 sin encender»; `on` sin credenciales o si la consulta falla ⇒
+  «NO MEDIDO — GA4 sin conectar»; las diferidas, el suyo (abajo). Los motivos no llevan códigos internos ni «Fase N».
+- **Línea de cobertura (literal):** `off` ⇒ «Cobertura: GA4 sin encender; el origen de los pedidos aún no se registra.»;
+  `on` ⇒ «Cobertura: GA4 y el origen de los pedidos solo cuentan a quien aceptó la analítica; la proporción está en f3.»
+
+**Consultas de GA4** (Data API `runReport` sobre `MKT_GA4_PROPERTY_ID`, el periodo del panel, solo dimensiones y métricas
+**estándar**; nombres de la API **NO VERIFICADOS** contra `properties/<id>/metadata`: lo cierra backend con credenciales reales al
+encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «sin conectar», no la pantalla.
+
+| Tabla | Dimensiones | Métricas | Cálculo en la tienda (función pura) |
+|---|---|---|---|
+| a4, b4 | `sessionSource`, `sessionMedium`, `sessionDefaultChannelGroup` | `sessions` | a4: 5 grupos — Instagram orgánico (source `instagram`/`ig`/`l.instagram.com`, medium ≠ `paid`), Instagram pagado (medium `paid`), Google orgánico (canal `Organic Search`, source `google`), Asistentes de IA (lista de e3), Directo/otros. b4: Google orgánico, Directo, Referencias por dominio (medium `referral`), Asistentes de IA |
+| a5 | `eventName` ∈ {`view_item`, `add_to_cart`, `begin_checkout`, `add_payment_info`, `purchase`} | `eventCount`; `sessions` sin dimensión | pasos en orden con % sobre el anterior + fila «Compras (BD)» para cuadrar; un paso sin evento cableado ⇒ celda `null` con nota |
+| c1 | `pagePath` | `screenPageViews`, `totalUsers`, `userEngagementDuration` | 50 primeras; tiempo medio = duración / vistas; ficha ⇒ nombre y set desde BD por el id de la ruta, si no la ruta |
+| c5 | `deviceCategory`, `browser` | `sessions` | tal cual (que GA4 distinga el navegador de Instagram: NO VERIFICADO) |
+| d1 (vistas), d2 | `itemId` | `itemsViewed`, `itemsAddedToCart` | d1 rellena «vistas»; d2 = ≥ 20 vistas y 0 ventas en BD, con % carrito/vista |
+| e3 | `sessionSource`, `landingPage` (source en la lista) | `sessions` | lista fija en código: `chatgpt.com`, `perplexity.ai`, `gemini.google.com`, `copilot.microsoft.com`, `claude.ai` |
+
+- **b1, b2, b3:** solo columnas de BD (pedidos y MX$, solicitudes y MX$ ofertado por `first_utm_*`; `dm` en una sola fila). Sesiones
+  por primer origen exigirían dimensiones de evento propias en la consola de GA4 (ARCHITECTURE §14.9): no entran; nota en la tabla.
+- **Diferidas** (`measured:false`): c2 y c8 «NO MEDIDO — la clasificación por tipo de página no está definida todavía» (el mapa
+  ruta→tipo solo existe en `frontend/…/measurement/routes.ts`; copiarlo sería otra fuente); c3 «NO MEDIDO — la consulta de abandono
+  no está definida todavía»; c4 «NO MEDIDO — el evento del botón COMPRAR todavía no se envía» (TECH_DEBT FE-MKT2-2).
 
 #### MKT.H.10 Lo que hace el dueño (no lo puede hacer la tienda)
 
@@ -45975,6 +45961,18 @@ Las pruebas del panel (régimen `exact`, supresión coherente, mes cerrado) son 
 
 Las seis de ARCHITECTURE §14.10: (1) sin GTM; (2) agente de usuario a Meta por CAPI; (3) Card Show medido o excluido; (4) guardar
 el `client_id` de GA4 7 días; (5) volver a preguntar al cambiar el aviso; (6) evento `refund` a GA4.
+
+#### MKT.H.13 Qué cambia cada rol con v1.105 (respuesta a las preguntas de la construcción de v1.102)
+
+| Rol | Cambio (sobre lo construido en el worktree) | Prueba que lo vigila |
+|---|---|---|
+| backend (`d3af1d77`) | quitar `sourcePath` de `MeasurementContext` en `schema.prisma` y en el SQL de m86 **antes de fusionar** (no aplicada en ningún entorno: NO MEDIDO, lo cierra `prisma migrate status` en staging) y de su reversa; cierra MKT-F2-2 | paridad de schema y `measurement.service.spec.ts` sin la clave |
+| backend | consultas GA4 de MKT.H.9 y columnas BD de b1-b3; diferidas con su motivo; cierra MKT-F2-1 | `marketing-fase2-panel.spec.ts`: forma de cada `runReport` (doble) y motivo de cada diferida |
+| backend | f1/f3/g1 medidos también con `off` si el periodo tiene datos; f3 con las filas `false` y «Sin elección registrada»; cobertura por modo | canario: con `off` y un pedido con consentimiento ⇒ f3 `measured:true` |
+| frontend (`dad4a316`) | respuesta por resultado (ambos no ⇒ `necessary_only`, ambos sí ⇒ `accept`) también desde la 2.ª capa | `ConsentBanner.test.tsx`: «Guardar con los dos apagados ⇒ `necessary_only`» |
+| frontend | `no_response` sin `sessionStorage` (marca en memoria); cierra FE-MKT2-1 | grep `sessionStorage` en `MeasurementProvider.tsx` = 0 + E2E «sin responder ⇒ 0 escrituras en storage» |
+| frontend | `CookiePreferencesNoticeSlot` (párrafo al final del apartado `cookies`) es el diseño definitivo; la puerta C-D1 añade «el aviso no tiene apartado `cookies`»; cierra FE-MKT2-3 | `measurement-gate.test.ts` con un aviso sin ese apartado ⇒ problema |
+| frontend | mock del panel con los textos nuevos de cobertura y motivos | `mock/marketing.parity.test.ts` |
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 
