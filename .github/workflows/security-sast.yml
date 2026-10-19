@@ -167,6 +167,16 @@ jobs:
       - name: Canario de gitleaks — la clave de prueba real es roja; los canarios pasan por su ruta
         if: ${{ !cancelled() }}
         run: ./security/scripts/sast-gitleaks-canary.sh
+      # -----------------------------------------------------------------------
+      # C-D2 (API_CONTRACT §MKT.H.11, Fase 2 de marketing): las reglas de
+      # security/gitleaks.toml para el token de Meta CAPI y el `api_secret` de
+      # GA4 MP muerden (7 rojos, en dir y en git) y no ladran a las referencias
+      # (`${VAR:-}`, `process.env…`, vacíos). Mismo binario, misma config.
+      # DEVOPS_NOTES §101.3.
+      # -----------------------------------------------------------------------
+      - name: C-D2 · Meta CAPI y GA4 MP son rojos; sus referencias, verdes (canario)
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/sast-gitleaks-measurement-canary.sh 2
 
   # ---------------------------------------------------------------------------
   # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).

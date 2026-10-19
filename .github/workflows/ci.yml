@@ -236,6 +236,8 @@ jobs:
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci_dummy
       NEXT_PUBLIC_DEFAULT_LOCALE: es
       NEXT_TELEMETRY_DISABLED: "1"
+      # Fase 2 de marketing APAGADA (API_CONTRACT §MKT.H.1): explícito, no por omisión.
+      NEXT_PUBLIC_MEASUREMENT_MODE: "off"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -253,6 +255,12 @@ jobs:
         run: npm test --if-present
       - name: Build
         run: npm run build --if-present
+      # C-F1 (API_CONTRACT §MKT.H.11): el artefacto APAGADO no lleva el cargador de
+      # medición (grep de .next/static y .next/server). La mitad `on` corre en
+      # e2e.yml > measurement-e2e. DEVOPS_NOTES §101.4.
+      - name: C-F1 · el build con medición en off no contiene hosts de medición
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/check-measurement-artifact.sh frontend/.next off
 
   # ---------------------------------------------------------------------------
   # BL-27 — «un diff no mezcla reformateo con lógica» (norma del arquitecto).
@@ -888,11 +896,77 @@ jobs:
       - name: E-8 · la sonda de TTFB distingue antes/después y sabe ponerse roja (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-ttfb-probe-canary.sh
+      # §102 (2026-10-19): backend-e2e colgado 6 h salía «cancelled» mudo. Ejecuta
+      # los run: REALES de e2e.yml con un npm de mentira: cuelgue ⇒ suite-colgada
+      # con motivo, distinto de suite-roja e infra-muerta; e2e-ok lo nombra.
+      - name: §102 · una suite colgada es rojo con motivo, no un cancelled mudo (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-suite-hang-canary.sh 2
+      - name: MKT-E2 · la sonda www→apex acepta 301/308 y rechaza temporales (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-www-apex-canary.sh
       - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
         if: ${{ !cancelled() }}
         run: |
           ( cd scripts/s3-local && npm ci --no-audit --no-fund )
           ./scripts/check-s3-local-clone-canary.sh 3
+
+  # ---------------------------------------------------------------------------
+  # 📏 DOC-SIZE (ficha D8, techlead 2026-10-18): ningún documento de docs/ ni
+  # PROJECT.md crece por encima de su umbral medido, y los umbrales solo bajan
+  # (rojo si alguien sube uno respecto al commit anterior / la base de la PR).
+  # El rojo nombra el documento y cuánto creció. DEVOPS_NOTES §101.5.
+  # ---------------------------------------------------------------------------
+  doc-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # --against-ref lee el baseline del commit base
+      - name: Ningún documento creció y ningún umbral subió
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "${BASE_SHA:-}" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            ./scripts/check-doc-size.sh --against-ref "$BASE_SHA"
+          else
+            echo "::warning title=DOC-SIZE sin base::rama nueva o base ilegible ($BASE_SHA): se mide el tamaño, no la subida de umbrales."
+            ./scripts/check-doc-size.sh
+          fi
+      - name: Y el trinquete sabe morder (canario, 15 casos × 2)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-doc-size-canary.sh 2
+
+  # ---------------------------------------------------------------------------
+  # 🍪 FASE 2 DE MARKETING, APAGADA (API_CONTRACT §MKT.H.11). C-D1: con la
+  # medición en `on`, el build exige el aviso de privacidad nuevo — se demuestra
+  # aquí sin publicar nada (prebuild existe, off no estorba, on muerde con el
+  # aviso viejo). C-F1: canario del grep del artefacto. Mientras frontend no
+  # entregue su parte, C-D1 dice PENDIENTE hasta la caducidad de
+  # scripts/mkt-fase2-dependencia.env y rojo después. DEVOPS_NOTES §101.
+  # ---------------------------------------------------------------------------
+  measurement-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: C-D1 · con medición on, el build exige el aviso nuevo
+        run: ./scripts/check-measurement-publish-gate.sh
+      - name: C-D1 · y la comprobación sabe ponerse roja (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-measurement-publish-gate-canary.sh
+      - name: C-F1 · el grep del artefacto muerde en off y ve en on (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-measurement-artifact-canary.sh 2
 
   # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
@@ -905,7 +979,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates]
     if: always()
     runs-on: ubuntu-latest
     steps:

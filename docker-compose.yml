@@ -284,6 +284,13 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
+      # Fase 2 de marketing (API_CONTRACT §MKT.H.1; DEVOPS_NOTES §101): APAGADA por defecto.
+      # Secretos con `:-` vacío (fail-closed por destino, C-B7: sin ellos no se envía nada).
+      MEASUREMENT_MODE: ${MEASUREMENT_MODE:-off}
+      GA4_MEASUREMENT_ID: ${GA4_MEASUREMENT_ID:-}
+      GA4_MP_API_SECRET: ${GA4_MP_API_SECRET:-}
+      META_PIXEL_ID: ${META_PIXEL_ID:-}
+      META_CAPI_TOKEN: ${META_CAPI_TOKEN:-}
     ports:
       - "3001:3001"
 
@@ -303,6 +310,10 @@ services:
         NEXT_PUBLIC_USE_MOCKS: ${NEXT_PUBLIC_USE_MOCKS:-false}
         # Login con Google (v1.2): mismo OAuth Client ID que el backend (GOOGLE_CLIENT_ID).
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        # Fase 2 de marketing: APAGADA por defecto (se hornea en el build). §MKT.H.1.
+        NEXT_PUBLIC_MEASUREMENT_MODE: ${NEXT_PUBLIC_MEASUREMENT_MODE:-off}
+        NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${NEXT_PUBLIC_GA4_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_META_PIXEL_ID: ${NEXT_PUBLIC_META_PIXEL_ID:-}
     restart: unless-stopped
     depends_on:
       - backend
