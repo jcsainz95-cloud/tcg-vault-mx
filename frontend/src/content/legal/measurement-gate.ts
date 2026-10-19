@@ -83,20 +83,13 @@ export interface EncenderBlocker {
   closedBy: string;
 }
 
-export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
-  {
-    id: 'R4',
-    what: 'identidad canónica de ítem en el servidor: measurementItemOf del backend (purchaseFact del drenador, d1/d2); la del navegador ya la cierra C-F8',
-    owner: 'backend',
-    closedBy: 'C-B10 (API_CONTRACT §MKT.H.11) verde; C-F8 = frontend/src/lib/measurement/item.test.ts ya verde',
-  },
-  {
-    id: 'D2',
-    what: 'presupuesto de tiempo del drenador de medición (una corrida no puede exceder su ventana)',
-    owner: 'backend',
-    closedBy: 'prueba del presupuesto en backend/test/measurement.drain.spec.ts (la nombra backend al cerrarla)',
-  },
-];
+/**
+ * VACÍA desde 2026-10-19 (merge `13cf3653`). Salieron: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
+ * `backend/test/measurement.item.spec.ts` y la paridad entre las dos `lib/measurement/item.cross.test.ts`) y D2
+ * (`DRAIN_BUDGET_MS`, `backend/test/measurement.drain.spec.ts` «… la corrida no pasa de DRAIN_BUDGET_MS …»).
+ * Un bloqueo nuevo entra aquí con su `closedBy`; la puerta lo cuenta solo (prueba con lista inyectada).
+ */
+export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [];
 
 /** Problemas según el modo: con `off`, ninguno. Con `on`, los del aviso + uno por bloqueo abierto. */
 export function measurementGateProblems(

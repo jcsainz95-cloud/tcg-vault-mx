@@ -39,9 +39,9 @@ describe('C-F8 · measurementItemOf = la tabla de §MKT.H.4', () => {
     });
   }
 
-  it('sin cardId la línea no viaja', () => {
+  it('carta sin cardId, o sellado sin ligar y sin ancla: la línea no viaja', () => {
     expect(measurementItemOf({ name: 'x', productType: 'raw' })).toBeNull();
-    expect(measurementItemOf({ cardId: '', name: 'x', productType: 'sealed', sealedProductId: 'sp-1' })).toBeNull();
+    expect(measurementItemOf({ cardId: '', name: 'x', productType: 'sealed', sealedProductId: null })).toBeNull();
   });
 });
 

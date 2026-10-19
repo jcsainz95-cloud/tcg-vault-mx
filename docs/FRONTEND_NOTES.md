@@ -38,10 +38,10 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   **al final** de `onConfirmed`, tras sesión/carrito/token/`paid`). Sin cablear: FE-MKT2-2. **La medición nunca lanza**
   (v1.106, TL R1): `trackWith`/`track`/`flushPendingEvents`/`loadMeasurement`/`measurementForRequest` con barrera
   (`callVendorSafely`, `neverThrow`); candado `checkout/CheckoutMeasurementBarrier.test.tsx`. **Identidad de ítem** (§MKT.H.4,
-  R4): `lib/measurement/item.ts` `measurementItemOf` (`c_`/`s_`/`sc_`), C-F8 = `item.test.ts` (lee la tabla del contrato).
+  R4): `lib/measurement/item.ts` `measurementItemOf` (`c_`/`s_`/`sc_`), C-F8 = `item.test.ts` (tabla del contrato); paridad con el servidor: `item.cross.test.ts`.
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
-  (exento: mocks). `ENCENDER_BLOCKERS` (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto (hoy R4, D2).
+  (exento: mocks). `ENCENDER_BLOCKERS` (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto (vacía desde `13cf3653`).
   Panel: `null` = «—»; compat pre-v1.106 `LEGACY_NULL_HIDDEN_COMPAT` (FE-MKT2-4); «Cobertura:» se quita al pintar (QA M3).
 
 ## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
