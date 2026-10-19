@@ -30,13 +30,16 @@ function build(opts: { mode?: string; sc?: boolean; ga4?: boolean; port?: Google
     { response: 'no_response', device: null, _sum: { count: 4 } },
   ];
   const orderCount = jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+    const c = where.measurementConsentAnalytics as unknown;
+    if (c && typeof c === 'object') return 0; // v1.105: «¿el periodo tiene datos de medición?» ⇒ no (Fase 0 con off)
+    if (c === false) return 1;
     if ('firstUtmSource' in where) return 3;
     if (where.measurementConsentAnalytics === true) return 4;
     if (where.measurementConsentAnalytics === null) return 2;
     return 10;
   });
   const prisma = {
-    marketingBannerConsentCounter: { groupBy: jest.fn(async () => counters) },
+    marketingBannerConsentCounter: { groupBy: jest.fn(async () => counters), count: jest.fn(async () => 0) },
     order: { count: orderCount, aggregate: jest.fn(async () => ({ _count: { _all: 3 }, _sum: { totalCents: 300000 } })) },
   };
   const env = fullEnv({
@@ -82,7 +85,7 @@ describe('f3/g1 · desde las columnas de consentimiento', () => {
   it('on ⇒ f3 con pagados, con origen, con analítica y «antes de Fase 2»; g1 con N<5 ⇒ «< 5» sin MX$', async () => {
     const { svc } = build({ mode: 'on' });
     const f3 = by((await svc.screen('f', week, NOW, 'small_cells')).tables, 'f3');
-    expect(f3.rows.map((r) => [r.pedidos, r.pct])).toEqual([[10, 100], [3, 30], [4, 40], [2, 20]]);
+    expect(f3.rows.map((r) => [r.pedidos, r.pct])).toEqual([[10, 100], [3, 30], [4, 40], [1, 10], [2, 20]]);
     const g1 = by((await svc.screen('g', week, NOW, 'small_cells')).tables, 'g1');
     expect(g1.rows).toEqual([{ concepto: expect.any(String), pedidos: SMALL_CELL_SENTINEL, mxn: null }]);
   });
@@ -140,7 +143,7 @@ describe('GA4 · motivo según estado, nunca «0»', () => {
     ['on', false, 'NO MEDIDO — GA4 sin conectar'],
   ])('modo %s, credenciales %p ⇒ %s en a4/a5/c1/e3', async (mode, ga4, reason) => {
     const { svc } = build({ mode, ga4 });
-    for (const [screen, id] of [['c', 'c1'], ['e', 'e3'], ['b', 'b4']] as const) {
+    for (const [screen, id] of [['c', 'c1'], ['c', 'c5'], ['e', 'e3']] as const) {
       const t = by((await svc.screen(screen, week, NOW, 'small_cells')).tables, id);
       expect([t.measured, t.notMeasuredReason, t.rows]).toEqual([false, reason, []]);
     }

@@ -67,7 +67,7 @@ async function capture(opts: { order?: Record<string, unknown>; lead?: Record<st
   const d = measurementPrismaDouble({
     orders: opts.order ? [opts.order] : [],
     sellRequests: opts.lead ? [opts.lead] : [],
-    contexts: opts.ctx ? [{ ...subject, sourcePath: null, ...opts.ctx }] : [],
+    contexts: opts.ctx ? [{ ...subject, ...opts.ctx }] : [],
     outbox: [
       { kind, destination: 'ga4_mp', subjectId, eventId },
       { kind, destination: 'meta_capi', subjectId, eventId },

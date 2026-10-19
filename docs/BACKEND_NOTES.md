@@ -33123,16 +33123,11 @@ lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchas
 - `value` de `purchase` = `Order.totalCents` (lo cobrado: cartas + envío + IVA + comisión); `shipping_cents` aparte.
 - `item_name` de carta = `nombre · set`; sellado = nombre del producto; accesorio = nombre del snapshot. `item_id` = `cardId`,
   `sealedProductId` o `accessoryId`.
-- `event_source_url` = primer origen de `APP_BASE_URL` + `/checkout` (compra) o `/buylist` (solicitud): `MeasurementInput`
-  no trae `sourcePath`, así que `MeasurementContext.sourcePath` queda NULL siempre (ver informe al arquitecto).
 - Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`): **NO VERIFICADO** que siga vigente al
   encender; se revisa con «Eventos de prueba» de Meta.
-- f3/g1 se miden solo con `on`; con `off` siguen NO MEDIDO. f1 lleva f2 como columnas por dispositivo (`móvil|escritorio|
-  tableta|sin dato`), sin id de tabla nuevo (el catálogo G.4 no tiene `f2`).
-- e1 (Search Console) se lee con credenciales en cualquier modo; sin ellas o con error ⇒ «NO MEDIDO — Search Console sin
-  conectar». GA4: `off` ⇒ «sin encender»; `on` sin credenciales ⇒ «sin conectar»; `on` con credenciales ⇒ «la consulta de
-  esta tabla todavía no está definida» — el contrato no define dimensiones/métricas por tabla (a4, a5, b*, c*, d2, e3).
-  `MarketingExternalSources.ga4Report` existe y está probado con dobles; ninguna tabla lo llama aún.
+- Panel (v1.105, §MKT.H.9 manda): consultas GA4 en `marketing-ga4.ts` (specs + cálculo puro); b4 excluye Instagram de
+  «Referencias» (va en a4/b1-b3); b1-b3 cuentan pedidos + solicitudes por fila para la celda pequeña; d2 sin coherencia
+  mes↔semanas (no es conteo de personas). `COVERAGE_NOTE` (off) y `COVERAGE_NOTE_ON` (on) se exportan del servicio.
 - Contador del banner: la `@@unique` de m82 incluye columnas NULLABLE ⇒ incremento con candado consultivo por celda
   (`BANNER_COUNTER_LOCK_NAMESPACE`) + `updateMany`/`create`, no `upsert`.
 - Drenador: reclama cada fila con CAS sobre `nextAttemptAt` (+10 min) antes de enviar; tras el 5.º reintento sigue cada

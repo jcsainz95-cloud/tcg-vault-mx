@@ -3251,8 +3251,6 @@ model MeasurementContext {
   // solo con publicidad
   fbp           String?
   fbc           String?
-  // ruta saneada (sin query salvo utm_* válidos), ≤300
-  sourcePath    String?
   createdAt     DateTime @default(now())
   // createdAt + 7 días
   expiresAt     DateTime

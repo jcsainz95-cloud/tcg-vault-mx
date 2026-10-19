@@ -43,7 +43,7 @@ const CLAIM_MS = 10 * 60_000;
 const GA4_MP_URL = 'https://www.google-analytics.com/mp/collect';
 const META_GRAPH_URL = 'https://graph.facebook.com';
 
-/** Rutas de la página que crea el hecho (no hay `sourcePath` en `MeasurementInput`; ver `eventSourceUrl`). */
+/** `event_source_url` = `APP_BASE_URL` + la página que crea el hecho (API_CONTRACT v1.105 §MKT.H.13; sin `sourcePath`). */
 const DEFAULT_PATH = { purchase: '/checkout', generate_lead: '/buylist' } as const;
 
 export interface DrainResult {
@@ -140,7 +140,7 @@ export class MeasurementDrainService {
         return { url: this.ga4Url(cfg.ga4.measurementId, cfg.ga4.apiSecret), body: buildGa4Purchase(fact, ids, now) };
       }
       if (row.destination === 'meta_capi' && cfg.meta.enabled) {
-        const body = buildCapiPurchase(fact, ids, eventSourceUrl(this.measurement.origin, ids.sourcePath ?? DEFAULT_PATH.purchase));
+        const body = buildCapiPurchase(fact, ids, eventSourceUrl(this.measurement.origin, DEFAULT_PATH.purchase));
         return { url: this.metaUrl(cfg.meta.pixelId), body: { ...body, access_token: cfg.meta.token } };
       }
       return null;
@@ -152,7 +152,7 @@ export class MeasurementDrainService {
       return { url: this.ga4Url(cfg.ga4.measurementId, cfg.ga4.apiSecret), body: buildGa4Lead(fact, ids, now) };
     }
     if (row.destination === 'meta_capi' && cfg.meta.enabled) {
-      const body = buildCapiLead(fact, ids, eventSourceUrl(this.measurement.origin, ids.sourcePath ?? DEFAULT_PATH.generate_lead));
+      const body = buildCapiLead(fact, ids, eventSourceUrl(this.measurement.origin, DEFAULT_PATH.generate_lead));
       return { url: this.metaUrl(cfg.meta.pixelId), body: { ...body, access_token: cfg.meta.token } };
     }
     return null;
@@ -166,10 +166,10 @@ export class MeasurementDrainService {
     return `${META_GRAPH_URL}/${META_GRAPH_API_VERSION}/${encodeURIComponent(pixelId)}/events`;
   }
 
-  private async ids(where: { orderId: string } | { sellRequestId: string }): Promise<BrowserIds & { sourcePath?: string | null }> {
+  private async ids(where: { orderId: string } | { sellRequestId: string }): Promise<BrowserIds> {
     const ctx = await this.prisma.measurementContext.findFirst({
       where,
-      select: { gaClientId: true, fbp: true, fbc: true, sourcePath: true },
+      select: { gaClientId: true, fbp: true, fbc: true },
     });
     return ctx ?? {};
   }

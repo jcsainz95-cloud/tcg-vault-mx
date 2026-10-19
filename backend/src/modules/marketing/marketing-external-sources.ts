@@ -56,9 +56,13 @@ export interface SearchConsoleRow {
 }
 
 export interface Ga4ReportSpec {
-  dimensions: string[];
-  metrics: string[];
+  dimensions: readonly string[];
+  metrics: readonly string[];
   limit?: number;
+  /** Filtro `inListFilter` sobre una dimensión (a5: los cinco eventos; e3: la lista de asistentes). */
+  inList?: { dimension: string; values: readonly string[] };
+  /** Orden descendente por una métrica (c1: por vistas). */
+  orderByMetricDesc?: string;
 }
 export interface Ga4Row {
   dimensions: string[];
@@ -132,10 +136,7 @@ export class MarketingExternalSources {
     });
   }
 
-  /**
-   * GA4 Data API `runReport` genérico. ⚠️ El contrato no fija todavía la consulta de cada tabla GA4 (dimensiones y
-   * métricas de a4, a5, b*, c*, d2, e3): ninguna tabla lo llama hasta que el arquitecto las defina.
-   */
+  /** GA4 Data API `runReport`. Las consultas de cada tabla viven en `marketing-ga4.ts` (API_CONTRACT v1.105 §MKT.H.9). */
   async ga4Report(spec: Ga4ReportSpec, from: string, to: string, now = new Date()): Promise<SourceResult<Ga4Row>> {
     if (!this.key || !this.ga4Property) return { ok: false };
     const key = this.key;
@@ -147,6 +148,10 @@ export class MarketingExternalSources {
         dimensions: spec.dimensions.map((name) => ({ name })),
         metrics: spec.metrics.map((name) => ({ name })),
         limit: spec.limit ?? 50,
+        ...(spec.inList
+          ? { dimensionFilter: { filter: { fieldName: spec.inList.dimension, inListFilter: { values: [...spec.inList.values] } } } }
+          : {}),
+        ...(spec.orderByMetricDesc ? { orderBys: [{ metric: { metricName: spec.orderByMetricDesc }, desc: true }] } : {}),
       })) as { rows?: { dimensionValues?: { value?: unknown }[]; metricValues?: { value?: unknown }[] }[] };
       return (data?.rows ?? []).map((r) => ({
         dimensions: (r.dimensionValues ?? []).map((d) => (typeof d.value === 'string' ? d.value : '')),

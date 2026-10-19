@@ -64,7 +64,8 @@ function build(sales: Sale[], opts: { paid?: { n: number; cents: number } } = {}
     wishlistItem: { groupBy: jest.fn().mockResolvedValue([]) },
     card: { findMany: jest.fn().mockResolvedValue([]) },
     buylistQuoteDailyCount: { groupBy: jest.fn().mockResolvedValue([]) },
-    order: { findMany: jest.fn().mockResolvedValue([]) },
+    order: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },
   } as never;
   const analytics = new MarketingAnalyticsService(prisma, { report: m.report } as never, { forPeriod: jest.fn().mockResolvedValue([]) } as never);
   const exporter = new MarketingExportService();

@@ -51,7 +51,6 @@ CREATE TABLE "MeasurementContext" (
     "gaClientId" TEXT,
     "fbp" TEXT,
     "fbc" TEXT,
-    "sourcePath" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
 

@@ -180,9 +180,8 @@ export function buildCapiLead(f: LeadFact, ids: BrowserIds, eventSourceUrl: stri
 }
 
 /**
- * `event_source_url` = origen + ruta. ⚠️ El contrato no da un `sourcePath` en `MeasurementInput` (§MKT.H.2), así que
- * la ruta es la de la página que crea el hecho: `/checkout` (compra) o `/buylist` (solicitud). Solo origen + ruta:
- * ⛔ sin query ni fragmento.
+ * `event_source_url` = origen de `APP_BASE_URL` + la página que crea el hecho: `/checkout` (compra) o `/buylist`
+ * (solicitud) — API_CONTRACT v1.105 §MKT.H.13 (sin `sourcePath`). Solo origen + ruta: ⛔ sin query ni fragmento.
  */
 export function eventSourceUrl(origin: string, path: string): string {
   let o = origin.trim().replace(/\/+$/, '');

@@ -2,6 +2,9 @@
  * `MeasurementService` — C-B1 (off), C-B4 (qué destino se encola según consentimiento), C-B5 (idempotencia y `event_id`),
  * C-B7 (destino deshabilitado ⇒ 0 filas). API_CONTRACT §MKT.H.6/.11; tabla de ARCHITECTURE §14.6.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { Prisma } from '@prisma/client';
 import { MeasurementService } from '../src/modules/measurement/measurement.service';
 import { FBC, FBP, GA_CLIENT, fakeConfig, fullEnv, type Env } from './helpers/measurement-fixtures';
 import { measurementPrismaDouble } from './helpers/measurement-prisma-double';
@@ -87,5 +90,17 @@ describe('§MKT.H.2 · saveContext es best-effort', () => {
     const { d, svc } = world(fullEnv(), { a: true, m: true }, null);
     d.prisma.measurementContext.createMany.mockRejectedValueOnce(new Error(`dup ${FBP}`));
     await expect(svc.saveContext({ orderId: 'o1' }, { fbp: FBP }, NOW)).resolves.toBeUndefined();
+  });
+});
+
+describe('v1.105 §MKT.H.13 · MeasurementContext sin `sourcePath` (cierra MKT-F2-2)', () => {
+  it('el modelo generado y el SQL de m86 no tienen la columna; saveContext no la escribe', async () => {
+    const model = Prisma.dmmf.datamodel.models.find((m) => m.name === 'MeasurementContext')!;
+    expect(model.fields.map((f) => f.name)).not.toContain('sourcePath');
+    const sql = readFileSync(join(__dirname, '../prisma/migrations/20261106120000_m86_mkt_measurement/migration.sql'), 'utf8');
+    expect(sql).not.toMatch(/sourcePath/);
+    const { d, svc } = world(fullEnv(), { a: true, m: true }, null);
+    await svc.saveContext({ orderId: 'o1' }, { fbp: FBP }, NOW);
+    expect(Object.keys(d.prisma.measurementContext.createMany.mock.calls[0][0].data[0]).sort()).toEqual(['expiresAt', 'fbc', 'fbp', 'gaClientId', 'orderId']);
   });
 });
