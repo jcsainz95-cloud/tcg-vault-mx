@@ -73,7 +73,11 @@ const EMPTIED = [
   'OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement', 'WishlistNotice',
   // v1.93⟨cardshow⟩ (§14.14, G-8): telemetría de clics de la landing (sin PII) ⇒ se vacía.
   'CardShowClick',
+  // v2.3 (LIMPIEZA_DB §14.2.1): contadores del Panel de Marketing sin PII (mezclan tráfico de prueba con real) ⇒ se vacían.
+  'BuylistQuoteDailyCount', 'MarketingBannerConsentCounter',
 ];
+/** v2.3 (§14.2.1): las dos del Panel que se vacían; `seedMarketing` les pone filas y §9.2 lo afirma antes del commit. */
+const MKT_EMPTIED = ['BuylistQuoteDailyCount', 'MarketingBannerConsentCounter'];
 /** Tablas que la limpieza toca EN PARTE (se comprueban por separado); todas las demás: contenido idéntico. */
 const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog', 'Accessory'];
 /** Las conservadas que el encargo nombra: deben tener filas en el fixture, o «idéntico» no probaría nada. */
@@ -85,13 +89,13 @@ const KEY_KEPT = [
   'CardShowLead', 'CardShowPlayerSignup',
 ];
 /**
- * v1.103⟨mkt-panel⟩ (M-82/M-83, G-8): las seis tablas del Panel de Marketing se CONSERVAN (clasificación conservadora,
- * pendiente de ratificar por el arquitecto en `docs/specs/LIMPIEZA_DB.md §14`). Se siembran filas en el fixture para que
- * «contenido IDÉNTICO tras la limpieza» pruebe algo (ver `seedMarketing`).
+ * v2.3 (M-82/M-83, G-8; clasificación de `docs/specs/LIMPIEZA_DB.md §14.2.1`): cuatro tablas del Panel de Marketing se
+ * CONSERVAN (permisos, token del analista, registro de accesos y anotaciones del dueño); los dos contadores van en
+ * `EMPTIED`. Se siembran filas en el fixture para que «contenido IDÉNTICO tras la limpieza» pruebe algo (ver `seedMarketing`).
  */
-const MKT_KEPT = ['UserPermission', 'MarketingApiToken', 'MarketingAccessLog', 'MarketingBannerConsentCounter', 'BuylistQuoteDailyCount', 'MarketingDateAnnotation'];
+const MKT_KEPT = ['UserPermission', 'MarketingApiToken', 'MarketingAccessLog', 'MarketingDateAnnotation'];
 
-/** Una fila en cada tabla de `MKT_KEPT` (dueño: el `staff` del fixture; la carta A del fixture para el contador). */
+/** Una fila en cada una de las seis tablas de M-82/M-83 (`MKT_KEPT` + `MKT_EMPTIED`) (dueño: el `staff` del fixture; la carta A del fixture para el contador). */
 async function seedMarketing(e: Env): Promise<void> {
   const staff = { id: e.fx.staff };
   const card = await e.db.card.findFirstOrThrow({ select: { id: true } });
@@ -259,6 +263,8 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
     expect(await e.db.inventoryItem.count({ where: { ownerType: 'platform' } })).toBeGreaterThan(0);
     expect(pBefore.ppeGone.n).toBe(4);
     expect(pBefore.ppeKept.n).toBe(2);
+    // v2.3 (§14.2.1): los dos contadores del Panel que se vacían TIENEN filas antes (si no, «queda en 0» no probaría nada).
+    for (const t of MKT_EMPTIED) expect({ t, n: before.tables[t].n > 0 }).toEqual({ t, n: true });
 
     commit(e);
     const after = await snapshot(admin, e.schema);

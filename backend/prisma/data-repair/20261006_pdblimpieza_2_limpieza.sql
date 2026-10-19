@@ -107,7 +107,10 @@
 -- igual que accesorios/deseos: sin la tabla, psql ni manda esa línea (comparación con el B congelado pre-M-78, T-AC3).
 SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        to_regclass(format('%I', 'WishlistNotice')) IS NOT NULL AS lz_m74,
-       to_regclass(format('%I', 'CardShowClick')) IS NOT NULL AS lz_cs \gset
+       to_regclass(format('%I', 'CardShowClick')) IS NOT NULL AS lz_cs,
+       -- v2.3 (LIMPIEZA_DB §14.2.1): ¿tiene tu base los contadores del Panel de Marketing (M-82)? Sus `DELETE` van en un
+       -- bloque condicional, igual que `CardShowClick`: sin M-82 (p. ej. `production` hoy) psql ni manda esas líneas.
+       to_regclass(format('%I', 'BuylistQuoteDailyCount')) IS NOT NULL AS lz_mkt \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -129,6 +132,12 @@ LOCK TABLE "WishlistNotice" IN SHARE ROW EXCLUSIVE MODE;
 -- v1.93⟨cardshow⟩: la telemetría de clics (un contador que la landing escribe en vivo).
 \if :lz_cs
 LOCK TABLE "CardShowClick" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- v2.3 (LIMPIEZA_DB §14.2.1): los dos contadores del Panel. El de cotizaciones se escribe en vivo (`POST /buylist/quote`):
+-- sin el candado, una cotización a mitad haría saltar G-5 por error. Su `upsert` es best-effort: espera o falla sin
+-- tumbar la cotización.
+\if :lz_mkt
+LOCK TABLE "BuylistQuoteDailyCount", "MarketingBannerConsentCounter" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
@@ -185,7 +194,10 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v2.2 (§14.13): M-73 (renglones de pedido y de envío, paquete de energías, historial de existencias) y M-74 (avisos)
   'OrderAccessoryLine','OrderEnergyBundleComponent','ShipmentAccessoryLine','AccessoryStockMovement','WishlistNotice',
   -- v1.93⟨cardshow⟩ (§14.14, G-8): telemetría de clics de la landing (⛔ sin cookie, sin IP, sin user-agent) ⇒ sin PII ⇒ borrar.
-  'CardShowClick']) AS t
+  'CardShowClick',
+  -- v2.3 (LIMPIEZA_DB §14.2.1, G-8): contadores del Panel de Marketing sin PII que mezclan tráfico de prueba con real
+  -- (cotizaciones por día y respuestas al banner) ⇒ borrar, como `CardShowClick`.
+  'BuylistQuoteDailyCount','MarketingBannerConsentCounter']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -209,13 +221,12 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- de «datos de prueba» tiraría registros legítimos de clientes. Si el dueño pide vaciarlos (P-CS), el mecanismo es
   -- una guarda por LISTA/COHORTE (tipo G-9), nunca borrado a ciegas.
   'CardShowLead','CardShowPlayerSignup',
-  -- v1.103⟨mkt-panel⟩ (M-82/M-83, G-8; clasificación CONSERVADORA de backend, a ratificar por el arquitecto en
-  -- LIMPIEZA_DB §14): permisos delegados y token del analista (decisiones/credenciales del dueño: borrarlos revocaría
-  -- accesos en silencio, sin el rastro de su propia ruta), registro de accesos al panel (rastro de seguridad PM-M3),
-  -- contadores agregados sin PII (consentimiento del banner, cotizaciones por día) y las anotaciones de fecha del dueño.
-  -- Ninguna referencia a una tabla que se borra (FK solo a `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
-  'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingBannerConsentCounter','BuylistQuoteDailyCount',
-  'MarketingDateAnnotation']) AS t;
+  -- v2.3 (M-82/M-83, G-8; clasificación de LIMPIEZA_DB §14.2.1): permisos delegados y token del analista
+  -- (decisiones/credenciales del dueño: borrarlos revocaría accesos en silencio, sin el rastro de su propia ruta), registro
+  -- de accesos al panel (rastro de seguridad PM-M3, retención 12 meses; P-MKT por defecto (a)) y las anotaciones de fecha
+  -- del dueño. Los dos contadores sin PII van arriba, en `borrar`. Ninguna referencia a una tabla que se borra (FK solo a
+  -- `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
+  'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -450,6 +461,12 @@ WITH x AS (DELETE FROM "SpendAlert" RETURNING 1) INSERT INTO lz_cambio SELECT '1
 -- cuenta (0 tras borrar). Dentro de \if :lz_cs: sin M-78 (comparación pre-M-78 de T-AC3) psql ni manda la línea.
 \if :lz_cs
 WITH x AS (DELETE FROM "CardShowClick" RETURNING 1) INSERT INTO lz_cambio SELECT '13 CardShowClick', count(*) FROM x;
+\endif
+-- v2.3 (LIMPIEZA_DB §14.2.1): los dos contadores del Panel (sin PII, sin FK) ⇒ se vacían como `CardShowClick`. G-5 los
+-- cuenta (grupo `borrar`, 0 tras borrar). Dentro de \if :lz_mkt: sin M-82, psql ni manda las líneas.
+\if :lz_mkt
+WITH x AS (DELETE FROM "BuylistQuoteDailyCount" RETURNING 1) INSERT INTO lz_cambio SELECT '13 BuylistQuoteDailyCount', count(*) FROM x;
+WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MarketingBannerConsentCounter', count(*) FROM x;
 \endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (
