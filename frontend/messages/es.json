@@ -299,7 +299,7 @@
       "step3Body": "Todo lo que acumulaste sale junto, en un solo envío."
     },
     "sellTitle": "Convierte tus repetidas en dinero",
-    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros verificamos la condición NM y te transferimos.",
     "sellCta": "Cotizar mi lista gratis",
     "featuredSet": {
       "label": "Valor de mercado · Set destacado",
@@ -919,7 +919,7 @@
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
-    "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
+    "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros verificamos la condición NM y te pagamos por SPEI.",
     "sellPrice": {
       "market": "Valor de mercado",
       "wePay": "Te pagamos",

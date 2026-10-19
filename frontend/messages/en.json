@@ -299,7 +299,7 @@
       "step3Body": "Everything you've stacked up ships together, in a single shipment."
     },
     "sellTitle": "Turn your doubles into cash",
-    "sellBody": "We quote your list using the day's market value as the reference. You ship, we authenticate and transfer.",
+    "sellBody": "We quote your list using the day's market value as the reference. You ship, we verify the NM condition and transfer.",
     "sellCta": "Quote my list free",
     "featuredSet": {
       "label": "Market value · Featured set",
@@ -919,7 +919,7 @@
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
-    "subtitle": "We quote your list at today's market value. You ship, we authenticate and pay you by SPEI.",
+    "subtitle": "We quote your list at today's market value. You ship, we verify the NM condition and pay you by SPEI.",
     "sellPrice": {
       "market": "Market value",
       "wePay": "We pay you",

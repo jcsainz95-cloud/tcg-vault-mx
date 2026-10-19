@@ -200,11 +200,12 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
 
   /*
    * Trinquete sobre TODO `messages/` (ES y EN): ninguna cadena nueva puede traer una frase prohibida.
-   * Excepciones CONOCIDAS (ya estaban en `5524bd69`: home y cotizador dicen «nosotros autenticamos» / «we
-   * authenticate»). Son COPY de namespaces ajenos a §MKT-SEO: la corrección la decide el dueño (no frontend).
-   * D4a (techlead, 2026-10-18): cada excepción lleva dueño, fecha de medición y caducidad, y TIENE QUE SEGUIR
-   * OFENDIENDO: si alguien corrige la cadena, la excepción sale de esta lista (si no, la prueba se pone roja) y el
-   * trinquete queda absoluto para esa clave. Al vencer `expires` sin corregir, rojo con el reloj real.
+   * Excepciones CONOCIDAS: hoy NINGUNA. Las cuatro de D4a (`home.sellBody` y `buylist.subtitle`, es+en, «nosotros
+   * autenticamos» / «we authenticate») se corrigieron el 2026-10-19 con el texto que decidió el dueño («verificamos la
+   * condición NM», HECHOS.md 2026-10-19) y salieron de la lista: el trinquete es absoluto.
+   * D4a (techlead, 2026-10-18): toda excepción futura lleva dueño, fecha de medición y caducidad, y TIENE QUE SEGUIR
+   * OFENDIENDO: si alguien corrige la cadena, la excepción sale de esta lista (si no, la prueba se pone roja). Al
+   * vencer `expires` sin corregir, rojo con el reloj real.
    */
   const KNOWN_OFFENDERS: readonly {
     locale: 'es' | 'en';
@@ -212,12 +213,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     owner: string;
     measuredOn: string;
     expires: string;
-  }[] = [
-    { locale: 'es', key: 'home.sellBody', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
-    { locale: 'es', key: 'buylist.subtitle', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
-    { locale: 'en', key: 'home.sellBody', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
-    { locale: 'en', key: 'buylist.subtitle', owner: 'dueño (copy) → frontend aplica', measuredOn: '2026-10-18', expires: '2026-11-18' },
-  ];
+  }[] = [];
   const CATALOGS = { es, en } as const;
   const badKeys = (catalog: unknown) =>
     stringEntries(catalog)

@@ -69,9 +69,8 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   `messages`). Sin «16 %»: la tasa de IVA viaja por publicación (`ivaRatePct`).
 - **Candados:** `lib/seo-content.test.ts` (frases prohibidas en contenido y trinquete en `messages/`, vigencia, sitemap),
   `_content/content-pages.test.tsx` (DOM = JSON-LD renderizando la página real), `app/sitemap-robots.test.ts`,
-  `lib/llms-txt.test.ts`. Trinquete con 2 infractoras PREVIAS ×2 idiomas (`home.sellBody`, `buylist.subtitle`:
-  «nosotros autenticamos»), copy que decide el dueño: `KNOWN_OFFENDERS` con dueño, medición y caducidad 2026-11-18,
-  y cada excepción debe seguir ofendiendo (ficha `TECH_DEBT.md` FE-MKT-D4a).
+  `lib/llms-txt.test.ts`. Trinquete absoluto: `KNOWN_OFFENDERS` vacío desde el 2026-10-19 (D4a cerrada,
+  «verificamos la condición NM»); toda excepción futura lleva dueño, medición, caducidad y debe seguir ofendiendo.
 - **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
   (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
 
