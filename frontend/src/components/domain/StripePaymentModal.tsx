@@ -45,7 +45,7 @@ export interface StripePaymentModalProps {
    * Llamado tras un `confirmPayment` exitoso (o `processing`). El pago NO es final (webhook):
    * el padre debe limpiar estado (p. ej. cart.clear) y rutear a "procesando".
    */
-  onConfirmed: () => void;
+  onConfirmed: (status: 'succeeded' | 'processing') => void;
 }
 
 export function StripePaymentModal(props: StripePaymentModalProps) {
@@ -98,7 +98,8 @@ function RealPaymentForm({ returnUrl, amountLabel, onConfirmed }: StripePaymentM
     // Sin redirección: succeeded o processing. En ambos casos el pago quedó autorizado; el
     // backend lo asienta por webhook. NO tratamos el pago como final aquí.
     if (paymentIntent && (paymentIntent.status === 'succeeded' || paymentIntent.status === 'processing')) {
-      onConfirmed();
+      // §MKT.H.4: el padre distingue `succeeded` (evento `purchase` del navegador) de `processing`.
+      onConfirmed(paymentIntent.status);
       return;
     }
     // Estados que requieren más acción (requires_action que no redirigió, etc.).
@@ -139,7 +140,7 @@ function MockPaymentBody({ amountLabel, onConfirmed }: StripePaymentModalProps) 
   async function handleMockPay() {
     setSubmitting(true);
     await new Promise((r) => setTimeout(r, 700));
-    onConfirmed();
+    onConfirmed('succeeded');
   }
 
   return (

@@ -8939,7 +8939,7 @@ AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settl
                     // v1.86.2: las cinco líneas faltaban en v1.86 (BACKEND_NOTES §83.4 (a)); espejan `schema.prisma` y
                     // `common/enum-values.ts` de `4e06c7e`.
 Permission          = marketing_read // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.1). Clase E. Permiso fino; `super_admin` lo tiene IMPLÍCITO. Crece aditivamente.
-BannerResponse      = accept | necessary_only | no_response // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita. ⚠️ v1.102⟨mkt-fase2⟩: m86 añade el valor custom (§MKT.H.3/.7). Esta línea NO lo lleva aún a propósito: la banda 3 de enum-values-parity.spec.ts compara contra el schema EN DISCO y se pondría roja antes de m86. El valor entra en esta línea en el mismo commit que m86 (cambio pre-decidido aquí; lo escribe el arquitecto).
+BannerResponse      = accept | necessary_only | no_response | custom // v1.96⟨mkt-tienda⟩ (m82, §MKT.D / §13.4.3 f1/f2). Clase E. Respuesta al banner de cookies; agregado anónimo, NUNCA una fila por visita. v1.102⟨mkt-fase2⟩: m86 añade custom (segunda capa, §MKT.H.3/.7); entra en esta línea en el mismo commit que m86 (cambio pre-decidido por el arquitecto).
 MarketingAnnotationKind = promocion | despliegue | evento // v1.96⟨mkt-tienda⟩ (m83, §MKT.E / §13.4.6 h1). Clase E. Anotación de fecha del Panel; `promocion` lleva `destino`. Etiqueta SIN PII (filtro c6).
 MeasurementEventKind   = purchase | generate_lead // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Evento de servidor encolado.
 MeasurementDestination = ga4_mp | meta_capi      // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Destino de la cola de medición.

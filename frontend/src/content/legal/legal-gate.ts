@@ -28,7 +28,8 @@ function sectionTexts(s: LegalSection): string[] {
   return out;
 }
 
-function textsOf(doc: LegalDocument): string[] {
+/** Todo el texto publicable del documento (título, fecha y cada bloque de cada apartado). */
+export function textsOf(doc: LegalDocument): string[] {
   return [doc.title, doc.updatedAt, ...doc.sections.flatMap(sectionTexts)];
 }
 

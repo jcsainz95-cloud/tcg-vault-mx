@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
@@ -28,6 +28,8 @@ import { GradingFootnoteBoundary } from '../../_shared/grading/GradingFootnote';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
+import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { centsToValue, track } from '@/lib/measurement/track';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
@@ -104,6 +106,13 @@ export function CardDetailView({ cardId }: { cardId: string }) {
             onAdd={(u) => {
               cart.add(u.inventoryItemId);
               setAddedSignal(Date.now());
+              // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada).
+              const price = centsToValue(u.displayPriceCents ?? 0);
+              track('add_to_cart', {
+                items: [{ item_id: query.data!.card.id, item_name: query.data!.card.name, item_category: 'card', price }],
+                value: price,
+                currency: 'MXN',
+              });
             }}
           />
           <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
@@ -210,6 +219,20 @@ function Detail({
   const tWishlist = useTranslations('wishlist');
   const locale = useLocale() as AppLocale;
   const primary = groups[0];
+
+  // §MKT.H.4 `view_item`: una vez por carta, con el precio «desde» del grupo primario. La ficha ya
+  // no pinta el mercado (§A1) ⇒ `market_value_shown: false`. Con el modo `off`, `track` no hace nada.
+  const primaryPriceCents = primary?.displayPriceCents ?? null;
+  useEffect(() => {
+    if (primaryPriceCents == null) return;
+    const price = centsToValue(primaryPriceCents);
+    track('view_item', {
+      items: [{ item_id: card.id, item_name: card.name, item_category: 'card', price }],
+      value: price,
+      currency: 'MXN',
+      market_value_shown: false,
+    });
+  }, [card.id, card.name, primaryPriceCents]);
 
   // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
   const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);
@@ -487,6 +510,8 @@ function MobileBuyBar({
   const tcat = useTranslations('catalog');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
+  // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`) para que el banner de cookies no la tape.
+  const buyBarRef = useStickyBottomBar<HTMLDivElement>();
 
   const sellableUnits = groupUnits.filter((u) => u.sellable);
   const nextUnit = sellableUnits.find((u) => !cartIds.includes(u.inventoryItemId));
@@ -499,6 +524,7 @@ function MobileBuyBar({
   // además no se confunde con ellos para lector de pantalla.
   return (
     <div
+      ref={buyBarRef}
       data-testid="mobile-buy-bar"
       aria-label={tcat('addToCart')}
       className="gutter fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-border bg-bg py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"

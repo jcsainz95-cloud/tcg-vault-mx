@@ -7914,5 +7914,36 @@
       "working": "Un momento…",
       "goToList": "Ir a mi lista de deseos"
     }
+  },
+  "consent": {
+    "region": "Aviso de cookies",
+    "text": "Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.",
+    "accept": "Aceptar",
+    "necessary": "Solo lo necesario",
+    "customize": "Configurar",
+    "saved": "Tu elección se guardó.",
+    "footerLink": "Preferencias de cookies",
+    "layer": {
+      "title": "Preferencias de cookies",
+      "intro": "Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.",
+      "necessary": {
+        "title": "Necesarias",
+        "body": "Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.",
+        "always": "Siempre activas"
+      },
+      "analytics": {
+        "title": "Analítica",
+        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics)."
+      },
+      "ads": {
+        "title": "Publicidad",
+        "body": "Mide qué publicaciones y anuncios llevan a compras (Meta)."
+      },
+      "stateOn": "Activada",
+      "stateOff": "Desactivada",
+      "more": "Más detalle en el <privacy>Aviso de privacidad</privacy>.",
+      "save": "Guardar mi elección",
+      "cancel": "Cancelar"
+    }
   }
 }

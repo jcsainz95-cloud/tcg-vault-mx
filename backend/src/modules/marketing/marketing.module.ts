@@ -16,6 +16,8 @@ import { MarketingTokensController } from './marketing-tokens.controller';
 import { MarketingAccessLogService } from './marketing-access-log.service';
 import { MarketingQuoteCounterService } from './marketing-quote-counter.service';
 import { MarketingExportService } from './export/marketing-export.service';
+// v1.102⟨mkt-fase2⟩ (§MKT.H.9): lectura de GA4 Data API / Search Console (fail-closed sin credenciales).
+import { GOOGLE_READ_PORT, MarketingExternalSources, googleAuthReadPort } from './marketing-external-sources';
 
 @Module({
   imports: [SalesAnalyticsModule],
@@ -28,8 +30,11 @@ import { MarketingExportService } from './export/marketing-export.service';
     MarketingAccessLogService,
     MarketingQuoteCounterService,
     MarketingExportService,
+    MarketingExternalSources,
+    { provide: GOOGLE_READ_PORT, useValue: googleAuthReadPort },
   ],
-  // `MarketingQuoteCounterService` lo usa el controller de buylist (d4); el resto es interno.
-  exports: [MarketingQuoteCounterService],
+  // `MarketingQuoteCounterService` lo usa el controller de buylist (d4); `MarketingAccessLogService` lo usa el
+  // planificador (retención de 12 meses, §13.4.4); el resto es interno.
+  exports: [MarketingQuoteCounterService, MarketingAccessLogService],
 })
 export class MarketingModule {}

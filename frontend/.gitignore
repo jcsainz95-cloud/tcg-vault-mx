@@ -14,6 +14,10 @@
 #   NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1 npx next build && npx next start -p 3010
 #   E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e
 /.next-e2e-real
+# §MKT.H Fase 2: bundle de MOCKS con el modo de medición ENCENDIDO (playwright.measurement-on.config.ts)
+# y builds de canario de C-F1 (`NEXT_DIST_DIR=.next-mkt-*`).
+/.next-e2e-mkt-on
+/.next-mkt-*
 /out
 /build
 next-env.d.ts

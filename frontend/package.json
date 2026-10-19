@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3000",
+    "prebuild": "npm run check:measurement",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
@@ -14,6 +15,7 @@
     "test": "vitest run",
     "check:legal": "LEGAL_PUBLISH_CHECK=1 vitest run src/content/legal/publish-ready.test.ts",
     "check:legal:provisional": "LEGAL_PUBLISH_CHECK=provisional vitest run src/content/legal/publish-ready.test.ts",
+    "check:measurement": "node scripts/measurement-notice-gate.mjs",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report"
   },

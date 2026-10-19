@@ -4,6 +4,46 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §MKT2 · Fase 2 de marketing (banner, Consent Mode básico, GA4, píxel) — construida y APAGADA (2026-10-19, base `b95fbbac`)
+
+**Estado vigente.** Norma: `API_CONTRACT §MKT.H` (v1.102), `ARCHITECTURE §14`, `DESIGN_SYSTEM §MKT2-UX`. Con
+`NEXT_PUBLIC_MEASUREMENT_MODE` ausente o distinto de `on` (hoy, en todos los entornos) no hay banner, ni enlace, ni
+cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está en el artefacto** (C-F1).
+- **Interruptor:** `next.config.mjs` (`measurementBuildEnv`) hornea SIEMPRE el modo normalizado (`off`|`on`), los IDs
+  (solo con `on`) y `TH_MEASUREMENT_CSP_CONNECT` (orígenes de `connect-src`, solo con `on`). Cada sitio que decide si
+  entra código de medición compara el literal `process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on'`: el compilador
+  evalúa la rama muerta y no la recorre. Una constante exportada NO sirve (entre módulos no se pliega).
+- **Hosts de etiquetas:** solo en `lib/measurement/loader.ts` (importado con `import()` bajo la guarda, único
+  importador `components/consent/MeasurementProvider.tsx`) y `security/measurement-origins.mjs` (solo lo importa
+  `next.config.mjs`; los `.map` del middleware copian el fuente entero, por eso la lista no vive en `csp.ts`).
+  Candado de fuente `lib/measurement/source-lock.test.ts`; de artefacto, `e2e/measurement-off.spec.ts` (C-F1).
+- **Módulos:** `lib/measurement/{mode,routes,utm,consent,track,request,ecommerce,loader}.ts`;
+  `components/consent/{MeasurementProvider,ConsentBanner,ConsentPreferencesDialog,CookiePreferencesLink}.tsx`;
+  `hooks/useStickyBottomBar.ts` (`--sticky-bottom-h`, aplicado a `CardDetailView`, `SealedDetailView`, `SellCartBar`).
+  Lista blanca única de rutas: `routes.ts` (toda ruta nueva nace excluida).
+- **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
+  `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
+  escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
+  espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
+  `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
+  imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
+  version=…`. `npx next build` directo (E2E) no pasa por la puerta: no publica.
+- **E2E:** `e2e/measurement-off.spec.ts` (C-F2 + C-F1, suite normal, `@real`) y `e2e/measurement-on.spec.ts` (C-F3,
+  C-F5, C-F10, C-F11, C-F12, C-F19) con `npx playwright test -c playwright.measurement-on.config.ts` (bundle de mocks
+  `on` propio en `.next-e2e-mkt-on`, terceros interceptados). Unidad: `ConsentBanner.test.tsx` (C-F8/9/13/14/18),
+  `track.test.ts` (C-F6), `utm.test.ts` (C-F4), `csp.measurement.test.ts` (C-F7), `measurement-gate.test.ts`
+  (C-D1/C-F17), `consent-i18n.test.ts` (C-F15). C-F16 ya existía (`MarketingView.test.tsx`).
+- **Decisiones (v1.105, §MKT.H.13):** (1) sin respuesta al banner el objeto `measurement` NO viaja; (2) `no_response`
+  una vez por DOCUMENTO, marca solo en memoria (nada en storage antes de elegir); (3) respuesta por resultado, también
+  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); desde el
+  pie, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
+  de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso va en párrafo propio al final del
+  apartado `cookies` (definitivo); la puerta C-D1 exige ese apartado.
+- **Eventos cableados:** `page_view`, `view_item` (carta y sellado), `add_to_cart` (fichas), `begin_checkout` (las dos
+  cotizaciones), `purchase` (los dos checkouts, solo `succeeded`; `StripePaymentModal.onConfirmed(status)`).
+  **Sin cablear:** `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (TECH_DEBT
+  FE-MKT2-2).
+
 ## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
 
 **Estado vigente.** Brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §E4/§E6/§E7 (+ v1 §2.3–2.5, §3.1–3.3).
@@ -19314,66 +19354,8 @@ deterministas: 22/22 rojas en su prueba objetivo** (FP-1…5, PF-UI-1…4, LP-1,
 Playwright no corrido (encargo). Ruido previo, no tocado: `mockAdminOrderRowAdditions` pisa `status` con `undefined`
 en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3View.test`.
 
-## §85 · **Gate de QA y techlead sobre `4d994c55`**: IMPORTANTE-1 (`MX$NaN` en M3), IMPORTANTE-2 (E2E de §39/§40), MENOR-3, D-7/D-8 (2026-10-04, rama `claude/precios-s5`, base `1b1ab19a`)
+## §85 · Gate de QA y techlead sobre `4d994c55` (2026-10-04) — compactado 2026-10-19: el detalle es histórico (historial del repo, rama `claude/precios-s5`); los arreglos viven en el código y sus pruebas.
 
-**IMPORTANTE-1 — `MX$NaN` en producción (detalle M3 y diálogo de reembolso total).** El detalle (`GET /admin/orders/:id`,
-contrato §11 `AdminOrderDetailDTO`, y errata v1.80.10 F-1) pone el total **solo** en `breakdown.totalCents`; la vista
-leía `o.totalCents` (`M3OrderDetailView.tsx:219`) y el diálogo `detail.data.totalCents` (`RefundOrderDialog.tsx:91`).
-- **Por qué tsc no lo veía:** `AdminOrderDetailDTO extends Omit<AdminOrderDTO,'settledAt'>` heredaba el `totalCents` de
-  `OrderSummaryDTO` (que es de la **fila** de la lista). Ahora el tipo se declara a mano desde el contrato, sin herencia y
-  con `breakdown: BreakdownDTO` obligatorio. Al quitar la herencia tsc marcó **exactamente 3 lectores** (los dos de arriba y
-  el paso `order={o}` del detalle al diálogo) y el mock — no había más.
-- **Lectores:** cabecera ⇒ `o.breakdown.totalCents` (`data-testid="m3-total"`); diálogo ⇒ `breakdown.totalCents −
-  refundedCents`; el detalle pasa al diálogo `refundDialogOrderOfDetail(o)` (proyección con el total del desglose). La fila
-  de la lista sigue leyendo `totalCents` de primer nivel (correcto: la lista sí lo trae).
-- **Mock:** `getAdminOrder` esparcía la fila de la lista (`...order`) ⇒ en local había `totalCents` en la raíz y el defecto
-  no se veía. Ahora proyecta **explícitamente** la forma del contrato; `mockAdminOrderDetailAdditions` aporta el
-  `breakdown` real de cada origen de `m4-ship`. De paso, `definedOnly` evita que un parcial sin origen pise `status` con
-  `undefined` (el ruido `status.order.undefined` que §84 dejó anotado, ya no sale en `M3View.test`).
-- **Mismo patrón en otros sitios (medido con tsc + `rg "\.totalCents" src`):** ninguno. El detalle del cliente
-  (`OrderDetailDTO`) nunca tuvo `totalCents` de primer nivel; los demás lectores son de filas de lista (`OrdersView`,
-  `M3View`, `M6View`, `ClaimableOrdersNotice`) o de retiros, y el contrato sí lo trae ahí.
-- **Prueba que falla con la forma real:** `m3/DetailTotal.test.tsx` sirve un detalle literal del contrato (sin `totalCents`
-  en la raíz): DT-1 cabecera, DT-2 diálogo (`MX$NaN` ⇒ rojo), DT-3 proyección, DT-4 el mock tiene la forma del contrato.
-  **Mutaciones (copia del árbol, deterministas, N=1):** volver a leer la raíz ⇒ **DT-1 y DT-2 rojas** (vitest) y, en un
-  navegador con build de producción, **las 2 specs de §40.2 rojas** con `m3-total` = «MX$NaN»; con la lectura sin
-  `as`, `tsc` da 2 errores TS2339; mock con `...order` ⇒ **DT-4 roja**.
-
-**IMPORTANTE-2 — `e2e/precios-s5.spec.ts`** (10 casos). Censo: `@real` agnósticos — dial de M10 (en real lee la regla
-vigente por API y la **restaura** en `finally`), «ninguna fila ofrece precio final fuera del sellado», tarjeta+filtro de
-«Reembolso por revisar»; `realOnly` — `400` del filtro, `403 MONEY_OUT_FORBIDDEN` del operador, `404`; `mockOnly` — cola
-con motivo (`INV-004204` premium retenida, `INV-000109` sellado), precio final del sellado (⛔ $0, confirmación, sale de
-la cola), reembolso total no enviado (`ord-5008`, sin motivo, total `MX$838.86`) y enviado (`ord-5006`, motivo
-obligatorio sin preselección, nota, motivo a la vista), «Reembolso por revisar» de punta a punta como el dueño (tablero →
-filtro → marca → formulario → confirmar → registro único: formulario y marca desaparecen) y la vista del operador.
-- **Fixtures nuevos (MOCK, marcados en el código):** `ord-5006/5007/5008` (directos de invitado; envíos `shp-7008/7009`
-  `enviado` y `shp-7010` `guia`, ⛔ fuera de la cola de preparar), `ord-5007` con `fullRefundAfterShipment` sin motivo,
-  `workQueue.refundReviews` del tablero (`mockRefundReviewsCounter`, `null` al operador), fila `inv-pub-4`
-  `premium_at_floor` y el sellado `inv-1009` en la cola mientras siga `in_stock` sin precio final.
-- **Hueco declarado, no escondido:** los recorridos de dinero de §40.2/§40.3 **no** tienen versión real: el seed no
-  siembra un directo liquidado con envío `enviado`/`guia` ni un reembolso total tras el envío sin motivo (QA los fabricó
-  con SQL y un `charge.refunded` firmado). Ver solicitudes abajo. Los `needsSeed` vacíos se quitaron: el censo
-  (`e2e-harness.test.ts`) prohíbe un `@real` que se salta solo, y un caso vacío en mock sería un verde que no mide nada.
-- **Corridas (mocks, build de producción, :3471):** el spec solo **9 passed / 1 skipped** (el `realOnly`); con los specs
-  vecinos que leen los mismos fixtures (`admin`, `m4-ship`, `m4-preparation`, `m4-vault-placement`,
-  `admin-m2-sealed-unmapped`, `orders-resume` + el nuevo) **71 passed / 3 skipped**, 0 rojos. **Contra backend real: NO
-  MEDIDO** — `scripts/stack-native.sh` guarda su estado en `.native-stack/` del árbol y reinicia el backend que no sirva
-  el árbol actual; con el agente backend trabajando en este mismo árbol, levantarlo podía tumbar su stack.
-
-**MENOR-3.** SR-UI-1 asevera ahora «nota escrita y SIN motivo ⇒ apagado» antes de «motivo sin nota ⇒ apagado».
-Mutación (quitar `(!shipped || shippedReason !== null)` de `canSubmit`) ⇒ **SR-UI-1 y SR-UI-3 rojas** (N=1, determinista).
-
-**Techlead D-8 (cerrada) / D-7 (deuda).** `m1/sealed-final-price.ts`: `MAX_LIST_PRICE_CENTS` fuera del componente y
-`SEALED_FINAL_PRICE_INVALIDATES`, **una** lista para «tras guardar» y «Recargar» (antes «Recargar» invalidaba 3 de 6
-claves y no refrescaba el panel de «Sellado»). Candados: «techlead D-8» en `SealedFinalPrice.test.tsx` (mutación: lista
-vieja en «Recargar» ⇒ rojo) y `sealed-final-price.test.ts` (cota ↔ `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
-⚠️ No tuve el texto literal de D-8; lo cerré por lo que el código medía (dos listas divergentes y la cota en un componente
-cliente sin ancla). D-7 ⇒ `TECH_DEBT` PS5-FE-D7 (`components/ui` es zona compartida).
-
-**Solicitudes.** (1) **Arquitecto:** declarar en §M1 la cota de `UpdateItemDto.listPriceCents` (`@Max 100_000_000`,
-`backend/src/modules/inventory/dto/inventory.dto.ts:57`); hoy solo la cita `DESIGN_SYSTEM §39`. (2) **Backend (seed
-E2E):** un directo `settled` con envío `enviado`, otro con `guia`, y uno `refunded` con `fullRefundAfterShipment=true` sin
-motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 ## §86 · **Equipo sin correo — `DESIGN_SYSTEM §42` (v4.14) contra el contrato errata v1.80.9 `§M6-U`** (2026-10-04, rama `claude/staff-sin-correo`, base `fe44901e`; código en `5ec85f64`)
 
 > Fuente: `PROJECT §U` (criterios 256–270), `HECHOS.md` 2026-10-04 (c) «misma pantalla de login». Backend **no existía**
@@ -20306,33 +20288,7 @@ mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 
 **Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
 2640/2640**.
 
-## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (SP-F-8b, solo textos) — 2026-10-05
-
-Rama `claude/hotfix-texto-sellado` desde `production` `3e09685a`. El editor del sellado escribe `listPriceCents`
-(`L`, antes de IVA) y la tienda cobra `P` (IVA trasladado encima); los textos decían «Precio final» y «Se publica en la
-tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DESIGN_SYSTEM §70.5`, rama de sellado) en
-`es.json` y `en.json`. **Sin cambio de conducta**: `{price}` sigue siendo el `L` tecleado y el JSX no se toca.
-
-- **Fuera a propósito:** `storePrice` («En la tienda: {price}») — necesita `resolvedDisplayPriceCents` del servidor,
-  que en `production` no existe; y el sufijo «antes de IVA» en la lectura de la cola / solo lectura
-  (`SealedFinalPrice.tsx:208-212`, `:234-240`), que es JSX, no texto. Ambos van con el stream de sellado.
-- **Cola «Listas para publicar» (`admin.m1.publishQueue.*`, `es.json:1554/1557/1565` y pares `en`)**, cerrada en
-  el mismo hotfix a petición del orquestador: `note` «…un precio a mano, antes de IVA» / «…a hand-set price here,
-  before VAT»; `basis.manual` (va junto a la cifra) «a mano, antes de IVA» / «set by hand, before VAT»;
-  `reason.sealedNoPrice` «…ponle precio.» / «…set a price.». Redacción de frontend con el léxico de D-SP-5;
-  pendiente de que ux-ui la ratifique. Ya no queda «precio final»/«final price» en ninguno de los dos catálogos.
-- **Candado UX-SP-18** (`src/lib/i18n-sealed-final-price-iva.test.ts`): ningún valor de `admin.sealedFinalPrice.*`
-  ni de `admin.m1.publishQueue.*` (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
-  «antes de IVA»/«before VAT». `SealedFinalPrice.test.tsx` actualizada solo en los textos que fijaba; las comprobaciones
-  de ausencia (`/precio final/i`) pasan a los rótulos nuevos (`/^(Poner|Cambiar) precio de /i`, `/Antes de IVA/`)
-  para no quedar vacías.
-- **Mediciones (2026-10-05, árbol vivo):** `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **212/212
-  ficheros, 2551/2551 pruebas** (incluye `i18n-parity`). Mutaciones deterministas N=1 sobre `git archive` del árbol
-  entero (tree `3b0e01ab`): `label` es ⇒ «Precio final (MXN)» deja UX-SP-18 rojo (2/4: «ningún texto» es + `label`);
-  `rowLabel` en ⇒ «Final price» + `effectPublish` en viejo ⇒ rojo (2/4: «ningún texto» en + `effectPublish`). Copia borrada.
-- **Segunda pasada (`publishQueue`, 2026-10-05):** tsc 0 · lint sin avisos · Vitest **212/212, 2554/2554** (load ~15-20
-  con 4 CPU; sin rojos). Mutaciones N=1 sobre `git archive` del tree `795f4d90`: `basis.manual` es ⇒ «precio final a
-  mano» ⇒ rojo (2/7); `note` en ⇒ «…hand-set final price here.» ⇒ rojo (1/7). Copia borrada.
+## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (2026-10-05) — compactado 2026-10-19: el detalle es histórico (historial del repo, rama `claude/hotfix-texto-sellado`); el texto vigente vive en `messages/*.json`.
 
 ## §102 · **SP-F — el precio del sellado es del PRODUCTO** (`DESIGN_SYSTEM §70` v6.1 + `API_CONTRACT §M11-SP` v1.83 / v1.83.1 §M11-SP.12 / v1.83.2 §M11-SP.13) — 2026-10-05, rama `claude/precio-sellado`, base `66b72c15`
 

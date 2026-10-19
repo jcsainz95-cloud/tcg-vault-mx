@@ -133,7 +133,9 @@ function build(): { svc: MarketingAnalyticsService; m: Mocks } {
     wishlistItem: { groupBy: m.wishlistItemGroupBy },
     card: { findMany: m.cardFindMany },
     buylistQuoteDailyCount: { groupBy: m.quoteGroupBy },
-    order: { findMany: m.orderFindMany },
+    // v1.105 (§MKT.H.9): «¿el periodo tiene datos de medición?» ⇒ 0 (Fase 0).
+    order: { findMany: m.orderFindMany, count: jest.fn().mockResolvedValue(0) },
+    marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },
   } as never;
   const sales = { report: m.report } as never;
   const annotations = { forPeriod: m.forPeriod } as never;

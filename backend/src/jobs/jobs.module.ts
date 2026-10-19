@@ -23,6 +23,9 @@ import { SpendAlertsModule } from '../modules/spend-alerts/spend-alerts.module';
 // rev v1.87⟨wishlist⟩ (§WSH.5): `wishlist-notify` vive en `wishlist/` y se exporta desde `WishlistModule`; aquí solo se programa y se
 // dispara. Sin ciclo: `WishlistModule` no importa `JobsModule`.
 import { WishlistModule } from '../modules/wishlist/wishlist.module';
+// v1.102⟨mkt-fase2⟩: `marketing-access-log-retention` (retención 12 meses, ARCHITECTURE §13.4.4) vive en `marketing/`.
+// `measurement-drain` llega por `MeasurementModule` (@Global). Sin ciclo: ninguno de los dos importa `JobsModule`.
+import { MarketingModule } from '../modules/marketing/marketing.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -36,7 +39,7 @@ import { WishlistModule } from '../modules/wishlist/wishlist.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule, MarketingModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

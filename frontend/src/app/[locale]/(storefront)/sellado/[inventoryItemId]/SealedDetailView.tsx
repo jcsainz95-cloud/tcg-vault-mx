@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
@@ -20,6 +20,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { SealedValueTrend } from './SealedValueTrend';
 import { SealedRestockForm } from './SealedRestockForm';
 import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
+import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { centsToValue, track } from '@/lib/measurement/track';
 
 /**
  * Ficha del producto SELLADO (contrato §2-S · GET /catalog/sealed/:inventoryItemId). Selección de
@@ -61,6 +63,14 @@ export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string 
             onAdd={(ids) => {
               ids.forEach((id) => cart.add(id));
               setAddedSignal(Date.now());
+              // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada). Precio por pieza = «desde».
+              const g = query.data!.group;
+              const price = centsToValue(g.fromPriceCents);
+              track('add_to_cart', {
+                items: ids.map(() => ({ item_id: g.representativeItemId, item_name: g.productName, item_category: 'sealed', price })),
+                value: centsToValue(g.fromPriceCents * ids.length),
+                currency: 'MXN',
+              });
             }}
           />
           <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
@@ -86,6 +96,18 @@ function Detail({
   const router = useRouter();
   const { group, listings, trendEnabled, restockEnabled } = detail;
   const cart = useCart();
+  // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`) para que el banner de cookies no la tape.
+  const buyBarRef = useStickyBottomBar<HTMLDivElement>();
+  // §MKT.H.4 `view_item`: una vez por grupo de sellado. Con el modo `off`, `track` no hace nada.
+  useEffect(() => {
+    const price = centsToValue(group.fromPriceCents);
+    track('view_item', {
+      items: [{ item_id: group.representativeItemId, item_name: group.productName, item_category: 'sealed', price }],
+      value: price,
+      currency: 'MXN',
+      market_value_shown: false,
+    });
+  }, [group.representativeItemId, group.productName, group.fromPriceCents]);
 
   const available = group.availableCount;
   const [qty, setQty] = useState(1);
@@ -255,6 +277,7 @@ function Detail({
           el CTA ya entran arriba, a la derecha del arte. z-40 como el FAB móvil del storefront. */}
       {available > 0 && (
         <div
+          ref={buyBarRef}
           data-testid="mobile-buy-bar"
           aria-label={tcat('addToCart')}
           className="gutter fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-border bg-bg py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"
