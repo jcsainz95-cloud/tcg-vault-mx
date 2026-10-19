@@ -9882,6 +9882,10 @@ fichero versionado de un repositorio público.** Formas admitidas: `${VAR:?}` (o
 `${VAR:-}` (vacío declarado = incapacitación), y en `.env.example` un placeholder
 auto-delator (`CHANGE_ME…`).
 
+**Copia sin `.git` (S-881, 2026-10-19):** en una copia `git archive` el generador lista con `find`, que excluye solo
+`./.native-stack/*` (los secretos desechables de `stack-native.sh`, ignorados por git); en un checkout manda `git ls-files`
+sin exclusión, y el modo lo decide un `.git` en la raíz (no el repo padre). Bloque S-881 del canario de `check-secret-defaults`.
+
 ### 50.2 · Lo que el candado encontró al escribirlo: 24 incumplimientos, no 7
 
 La primera corrida sobre el árbol dio **24** en 8 ficheros. Los 7 del informe eran una
@@ -14141,10 +14145,6 @@ en 4 CPU durante las corridas.
   Permitidos **por valor exacto anclado** en `[allowlist]` de `security/gitleaks.toml` (precedente `868dbcea`) ⇒ **0**.
   `sast-gitleaks-canary.sh` **11/11**. (Modo `dir` local ve 8 más: 5 en `.native-stack/secrets.env`, ignorado por git, y
   3 en specs de backend que ya estaban en la base `3e09685a` — ni lo uno ni lo otro lo escanea el CI.)
-- ⚠️ **Pendiente fuera de mis rutas:** el `backend/test/telemetry.spec.ts` **sin commitear** de backend (en curso a la
-  hora de esta medición) añade un literal de ficción (`… 'PaSsWoRd=[redacted] TOKEN=[redacted]'`, hash `2d6dd2cb…`).
-  Cuando se commitee, S-88-1 volverá a rojo hasta regenerar el manifiesto (`./scripts/gen-published-secrets-manifest.sh`
-  + commit de `security/secretos-publicados.sha256`), y conviene pasar gitleaks por el rango.
 - **C-2** · §85.7 «Antes» lleva las **dos** casillas de la errata v1.84.2 (`API_CONTRACT §14.10/§14.15`, `5ea58917`):
   `npm run check:legal` verde (criterios 500–508) y QA aprobó 500–508 contra la tienda publicada (con sha).
 - **M-3** · `stack-native.sh` exporta `NEXT_PUBLIC_UPLOAD_ORIGIN` = origen de `S3_ENDPOINT` (sigue a `S3_LOCAL_PORT`;

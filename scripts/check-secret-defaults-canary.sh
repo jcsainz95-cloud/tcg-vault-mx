@@ -295,6 +295,73 @@ caso ROJO  "literal ajeno NO neutralizado por el manifiesto" "PAYOUT_SIGNING_SEC
 caso VERDE "literal ajeno SÍ neutralizado (se inventaría)"   "-"                     m_ajeno_neutralizado
 
 # =============================================================================
+# BLOQUE S-881 — la copia de los gates trae los secretos DESECHABLES del arnés
+# =============================================================================
+# QA (2026-10-19, sha 47eb1dea): sobre `git archive` + `stack-native.sh`, el
+# `--check` del generador salía rc=1 («NO cubre 6 literales») por los secretos que
+# el propio arnés escribe en `.native-stack/secrets.env`. Aquí se llama al
+# GENERADOR directamente y se mira su rc: la exclusión tiene que tapar el arnés y
+# NADA más. Los literales se generan en cada corrida (este fichero no lleva
+# ninguno) y el mismo valor se reutiliza en los rojos: si (b) sale verde, la
+# exclusión se tragó un literal publicado.
+S881_VAL="s881_$(od -An -tx1 -N20 /dev/urandom | tr -d ' \n')"
+s881_arnes() {                  # lo que deja `stack-native.sh` (mismos 6 nombres)
+  mkdir -p "$1/.native-stack"
+  for v in NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY \
+           PII_ENCRYPTION_KEY PII_HMAC_KEY; do
+    printf '%s=%s_%s\n' "$v" "$S881_VAL" "$v"
+  done > "$1/.native-stack/secrets.env"
+  printf 'pid 4242\n' > "$1/.native-stack/backend.pid"
+}
+# `caso_gen ROJO|VERDE <nombre> <mutador> [dir-base]` — rc de `--check`, sin regenerar.
+caso_gen() {
+  local esperado="$1" nombre="$2" mutador="$3" base="${4:-$BASE}"
+  local dir="$base/gen$((PASADAS+FALLOS+1))"
+  rm -rf "$dir"; cp -a "$PRISTINO" "$dir"
+  "$mutador" "$dir"
+  local salida rc
+  salida="$(cd "$dir" && bash scripts/gen-published-secrets-manifest.sh --check 2>&1)"; rc=$?
+  if [ "$esperado" = "ROJO" ] && [ "$rc" -eq 0 ]; then
+    bad "$nombre — \`--check\` VERDE (rc=0): un literal publicado quedó fuera del manifiesto."; return
+  fi
+  if [ "$esperado" = "VERDE" ] && [ "$rc" -ne 0 ]; then
+    bad "$nombre — \`--check\` ROJO (rc=$rc) sobre algo que no es publicado. Falso rojo."
+    nota "$(grep -E '✗' <<< "$salida" | head -2)"; return
+  fi
+  ok "$nombre — rc=$rc, como debe."
+}
+m_s881_arnes() { s881_arnes "$1"; }
+m_s881_literal_publicado() {    # (b) el MISMO literal, en un fichero publicado
+  s881_arnes "$1"
+  printf '%s\n' '#!/bin/sh' "export JWT_ACCESS_SECRET=\"${S881_VAL}_JWT_ACCESS_SECRET\"" \
+    > "$1/scripts/arnes-nuevo.sh"
+}
+m_s881_native_anidado() {       # la exclusión va ANCLADA a la raíz, no por nombre
+  s881_arnes "$1"
+  mkdir -p "$1/backend/.native-stack"
+  cp "$1/.native-stack/secrets.env" "$1/backend/.native-stack/secrets.env"
+}
+m_s881_prefijo_en_arnes() {     # control: en el arnés no se cosecha NI por prefijo
+  s881_arnes "$1"
+  printf 'STRIPE_WEBHOOK_SECRET=whsec_%s\n' "$S881_VAL" >> "$1/.native-stack/secrets.env"
+}
+
+printf '\n\033[1mBloque S-881 — copia sin .git con los secretos desechables del arnés\033[0m\n'
+caso_gen VERDE "(a) .native-stack/secrets.env sintético en la raíz"         m_s881_arnes
+caso_gen VERDE "    + un whsec_ dentro del arnés (tampoco es publicado)"    m_s881_prefijo_en_arnes
+caso_gen ROJO  "(b) el MISMO literal en scripts/arnes-nuevo.sh"             m_s881_literal_publicado
+caso_gen ROJO  "    .native-stack/ anidado en backend/ (no es el arnés)"     m_s881_native_anidado
+# La copia extraída DENTRO de otro repo: antes `rev-parse` contestaba por el
+# padre, `ls-files` devolvía 0 ficheros y `--check` salía verde sin mirar nada.
+if command -v git >/dev/null 2>&1; then
+  S881_PADRE="$BASE/padre-repo"
+  mkdir -p "$S881_PADRE" && git -C "$S881_PADRE" init -q 2>/dev/null
+  caso_gen ROJO "    copia dentro de OTRO repo + literal publicado" m_s881_literal_publicado "$S881_PADRE"
+else
+  nota "(sin git en esta máquina: el caso «copia dentro de otro repo» no se ejercita)"
+fi
+
+# =============================================================================
 # BLOQUE H — P-GL-2 / CL-2: la FORMA DE VALOR de Stripe live, `*.md` incluidos
 # =============================================================================
 # Seguridad (2026-10-05, §3.1): `check-secret-defaults.sh` se salta todos los
