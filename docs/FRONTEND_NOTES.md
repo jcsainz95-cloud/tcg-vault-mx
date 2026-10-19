@@ -4733,15 +4733,6 @@ este doc. NO se tocó `api-client.ts` ni `session.ts`. `api.ts` sí (WS-B ya cer
   el botón dispara `triggerPriceIngest` (feedback encolado y single-flight).
 - Preservado `shadow-focus` (Input/Select sin tocar). Gates verdes: lint, tsc, test (248), build.
 
-## WS-D — Quick wins de UX (2026-08-17)
-- **#9 P-13 nav por sesión** (`StorefrontHeader.tsx`): "Mi Bóveda"/"Mis Órdenes" se ocultan sin sesión
-  (público solo Compra/Vender), vía spread condicional en el array `links` (aplica a nav desktop y móvil;
-  `authed` depende de `ready` → sin mismatch de hidratación).
-- **#6 márgenes**: `.gutter` 44→32px (`globals.css`, DS §4.1 "32px+"); canal del label vertical 56→40px
-  (`BuylistView.tsx`, `page.tsx`); quitado `lg:px-10` redundante del aside; header/footer/`VerifyEmailBanner`
-  alineados a `lg:px-8`. `max-w-7xl` intacto (DS §4.4).
-- **#7 placeholder**: "Buscar carta" acortado a "Nombre o número" (`buylist`, `admin.m1`).
-
 ## WS-B — Auto-refresh del access token (sesión no se cae a los 15m) (2026-08-17)
 
 **Problema:** el access token dura `JWT_ACCESS_TTL`=15m; el backend TIENE `POST /auth/refresh`
@@ -4796,14 +4787,8 @@ interceptor **solo corre en modo real**. Los tests mock existentes no se tocan; 
   tocaron. Son ortogonales: keep-alive evita el logout por inactividad durante operaciones largas; WS-B evita
   la caída por **expiración del access token**.
 
-### Pruebas — `lib/api-client.test.ts` (nuevo, 8 casos)
-Ejercitan la rama real mockeando `fetch`: (a) 401 → refresh → reintento OK con el token nuevo + rotación de
-tokens persistida; (b) refresh 401 → sesión limpiada (access+refresh+user) y 401 propagado, sin reintento;
-(c) reintento sigue 401 → sin bucle (exactamente 3 fetch) + sesión limpiada; (d) sin refresh token → 401 tal
-cual; (e) `/auth/login` 401 → sin refresh ni borrado de sesión; (f) 422 y (g) 200 no disparan refresh.
-
-**Gates:** `npm run lint` (0 warnings/errors), `npx tsc --noEmit` (exit 0), `npm run test`
-(**36 archivos, 244 tests** verdes — incluye los 8 nuevos del interceptor), `npm run build` (exit 0).
+**Pruebas:** `lib/api-client.test.ts` (rama real con `fetch` mockeado: refresh+reintento, refresh fallido, sin bucle,
+sin refresh token, `/auth/*` excluido, 422/200 no refrescan).
 
 ## WS-D — 3 quick wins de UX (nav por sesión, márgenes, placeholder) (2026-08-17)
 
@@ -4840,13 +4825,7 @@ aparecen al montar la sesión — mismo patrón ya usado para el botón login/lo
 que compartían el texto largo: `buylist.searchPlaceholder` (`BuylistView`) y `admin.m1.searchPlaceholder`
 (picker de alta de inventario). `catalog.searchPlaceholder` ("Buscar carta…") ya era corto y no se tocó.
 
-### Tests / gates
-- `StorefrontHeader.test.tsx`: ningún test existente asumía las 4 pestañas sin sesión (solo verificaban links
-  públicos y el estado login/logout), así que nada se rompió. Se **añadieron 2 casos** de #9: sin sesión el nav
-  solo muestra Compra/Vender y **oculta** "Mi bóveda"/"Mis órdenes"; con sesión aparecen ligadas a `/vault` y
-  `/orders`.
-- Gates: `next lint` ✓ (0 warnings/errores) · `tsc --noEmit` ✓ · `vitest` **236/236** (35 archivos, incl.
-  paridad i18n) · `next build` ✓ (Compiled successfully). Sin solicitudes al arquitecto.
+**Pruebas:** `StorefrontHeader.test.tsx` («sin sesión el nav público… oculta bóveda y órdenes»; el nav vigente lo fija ese fichero).
 
 ## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
 
@@ -4863,11 +4842,7 @@ El trabajo fue **de claridad de UX**, no contrato nuevo. Solo `frontend/` + esta
 - **i18n (`messages/{es,en}.json`, `admin.m2.catalog`):** cambiada `syncAll` ("Sync de todo el catálogo" →
   **"Importar sets nuevos"** / "Sync entire catalog" → **"Import new sets"**); nueva `syncAllHint` (ES/EN,
   paridad verificada por `i18n-parity`). El resto de claves del bloque intactas.
-- **Tests (`M2View.test.tsx`):** las 3 aserciones que buscaban `/Sync de todo el catálogo/` ahora usan
-  `/Importar sets nuevos/`; nuevo caso "el botón «Importar sets nuevos» dispara syncAllCatalog sin forzar"
-  (verifica `force` ausente/false). El caso del error por set (`/^(Importar|Re-sincronizar)$/`, anclado) sigue
-  sin capturar el nuevo botón. Gates: `lint` ✓ · `tsc --noEmit` ✓ · `vitest` **220/220** (35 archivos, incl.
-  paridad i18n) · `next build` ✓. Sin solicitudes al arquitecto.
+- **Prueba vigente:** `m2/sections/CatalogSyncSection.test.tsx` §32.5a (la sección salió de `M2View`).
 
 ## Gating temprano del flujo de VENDER (buylist) — fix UX del 403 críptico (2026-08-17)
 

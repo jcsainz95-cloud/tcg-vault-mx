@@ -49,7 +49,7 @@
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
 | FE-CS-A | Hex de marca sueltos donde ya hay token: barra de anuncio en `page.tsx` (`bg-[#B31217]`, `text-[#F4F1EA]`) y las capas del burst en `card-show.css` (`.cs-flash`/`.cs-ring`/`.cs-debris*`: `#e0353b`, `#f4f1ea`, `#1a1a18`) | frontend | 2026-10-18 | `grep -rniE '#(B31217|E0353B|F4F1EA|1A1A18)' frontend/src/app/card-show/page.tsx frontend/src/app/card-show/card-show.css` **sin contar comentarios ni el array `CONFETTI_COLORS`** ⇒ 0 (todo migrado a `var(--color-accent)`/`--color-accent-fg`/`--hunt-red-on-ink`/`--color-ink`). Disparador: próximo retoque de la landing |
-| FE-CS-B | CERRADA (2026-10-18) · Fuga de animación al desmontar `HeroExplosion` durante la ráfaga | frontend | 2026-10-18 | Cerrada en este pase: ver abajo |
+| FE-CS-B | CERRADA (2026-10-18) · Fuga de animación al desmontar `HeroExplosion` durante la ráfaga (un `.finished.then` creaba una animación infinita tras el cleanup). R3 quitó la flotación perpetua y añadió la bandera `cancelled` | frontend | 2026-10-18 | `grep -n '\.finished' frontend/src/app/card-show/_components/HeroExplosion.tsx` ⇒ 0; el cleanup del `useEffect` pone `cancelled = true`, detiene `controls` y cancela el `raf`; el `loop` abre con `if (cancelled) return;` |
 
 ### FE-CS-A · P3 · Hex de marca sueltos en la barra de anuncio y en las capas del burst (hay token)
 - **Qué es:** la barra de anuncio (`page.tsx`) usa `bg-[#B31217]` + `text-[#F4F1EA]` en vez de los tokens
@@ -63,22 +63,6 @@
   (`var(--color-accent-fg)` / `var(--color-focus-ring)`), no suman al hueco.
 - **Nota sobre `CONFETTI_COLORS`** (`HeroExplosion.tsx`): el canvas pinta con `fillStyle` (string de color),
   no admite `var(--…)`; ese array **queda exento** de la comprobación.
-- **Dueño:** frontend. **Fecha de medición:** 2026-10-18. **Disparador:** próximo retoque de la landing.
-- **Comprobación de cierre:** el `grep` de la tabla ⇒ 0 (fuera de comentarios y de `CONFETTI_COLORS`).
-
-### FE-CS-B · ✅ CERRADA en este pase (2026-10-18) · Fuga de animación al desmontar `HeroExplosion`
-- **Qué era:** la versión R2 arrancaba la flotación perpetua de las cartas en `c.finished?.then(() => run(…))`;
-  si el componente se **desmontaba durante** la salida (~0.55 s), el `.then` corría DESPUÉS del cleanup y creaba
-  una animación `repeat:Infinity` que ya no estaba en `controls` ⇒ nunca se detenía (fuga).
-- **Cómo se cerró (B-1):** R3 eliminó la flotación perpetua (las cartas se **desvanecen y se retiran** con un
-  solo keyframe, sin `.finished.then`), así que estructuralmente ya no puede nacer una animación tras el
-  desmontaje. Además se añadió una bandera **`cancelled`** que el cleanup pone a `true` y que el único trabajo
-  diferido restante (el bucle de confeti con `requestAnimationFrame`) **comprueba antes de reprogramarse o
-  dibujar**. No queda `.then` diferido que cree animaciones.
-- **Comprobación de cierre (verificada):** `grep -n '\.finished' frontend/src/app/card-show/_components/HeroExplosion.tsx`
-  ⇒ 0 (ya no hay encadenado diferido de animación; el campo `finished` salió del tipo `Controls`) **+** el
-  `return () => { cancelled = true; … }` del `useEffect` detiene los `controls` y cancela el `raf`, y el `loop`
-  abre con `if (cancelled) return;`.
 
 ## Backend (dueño: backend)
 
@@ -9363,16 +9347,9 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   deshabilita el verbo). Candado estático: `rg -n "function (Confirm(Modal|Dialog)|FxConfirmDialog)" frontend/src/app`
   ⇒ **0** (hoy 3).
 
-### PS5-FE-D8 · ✅ CERRADA en este pase (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
-- **Dónde era:** `m1/SealedFinalPrice.tsx` exportaba la cota desde un componente `'use client'` y tenía DOS listas de
-  claves a invalidar: tras guardar (6 claves) y en «Recargar» (3, sin `sealed-sets`/`sealed-set-detail`/
-  `sealed-price-status`) ⇒ «Recargar» tras un `409/422` no refrescaba el panel de «Sellado», justo donde el editor vive
-  con `layout='panel'`.
-- **Cierre:** `m1/sealed-final-price.ts` con `MAX_LIST_PRICE_CENTS` y `SEALED_FINAL_PRICE_INVALIDATES` (una lista, los
-  dos momentos). Candados: `SealedFinalPrice.test.tsx` «techlead D-8» (mutación: devolver «Recargar» a las 3 claves ⇒
-  rojo) y `sealed-final-price.test.ts` (la cota ↔ la cifra que cita `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
-- **Pendiente fuera de frontend:** el contrato no declara la cota de `listPriceCents` (solicitud al arquitecto en
-  `FRONTEND_NOTES` §85).
+### PS5-FE-D8 · ✅ CERRADA (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
+- **Cierre:** `m1/sealed-final-price.ts` (`MAX_LIST_PRICE_CENTS` + una sola `SEALED_FINAL_PRICE_INVALIDATES`). Candados:
+  `SealedFinalPrice.test.tsx` «techlead D-8» y `sealed-final-price.test.ts`. Cota sin contrato: `FRONTEND_NOTES` §85.
 
 ## Frontend · 2026-09-29 · release s5 (7b9c196e)
 
