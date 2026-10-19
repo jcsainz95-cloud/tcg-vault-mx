@@ -4,6 +4,10 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, arquitecto, leído sobre `a1ba4d2e`, sin Bash).** **§14.1:** lista `ENCENDER_BLOCKERS` en
+> la puerta C-D1. **§14.5:** identidad canónica de ítem para GA4/Meta (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada por
+> lectura. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5 (regla de `null`).
+> ---
 > **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, misma rama, leído sobre `e0cce11b`, sin Bash).** **§4.37.1-b NUEVA:** un eje
 > de query se declara con `@Query('<nombre>')` y el SELECTOR es §0-Q. **§9:** `D-EQ-5` (huérfanos de `C-EQ-1`, backend).
 > Contrato: API_CONTRACT §0-Q puntos 4 y 6-bis, §MKT.E.
@@ -14,38 +18,14 @@
 > post-commit que no toca el pago; migración **m86**. **§13.7:** D-MKT-PANEL-2 pasa a «el dueño ve cifras exactas en su pantalla»
 > (`HECHOS.md:172`) y nace D-MKT-PANEL-4 (supresión coherente mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
 > ---
-> **Rev v1.95⟨mkt-tienda⟩ — §MKT TIENDA: atribución UTM, ficha pública de sellado con SSR/og, datos de SEO y panel de
-> marketing (Fase 0)** (2026-10-16, arquitecto, rama `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c`; ⛔ sha NO
-> MEDIDO: sin Bash). **SOLO DISEÑO.** ⚠️ Etiqueta `⟨mkt-tienda⟩` **a propósito distinta de `⟨mkt⟩`** (reservada por otra
-> rama de marketing sin fusionar, ver API_CONTRACT cabecera). Fuente: brief final de marketing
-> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` (v2 §A/§B/§E y Panel §0/§2/§4/§5/§7). Diseño completo en
-> **§13** de este documento; contrato en **API_CONTRACT §MKT** (rev `v1.96⟨mkt-tienda⟩`).
-> Dos olas: **OLA 1** (ficha+SEO+atribución, sin dependencias externas) y **OLA 2** (panel de marketing Fase 0, BD +
-> conteos anónimos de servidor, sin GA4/píxel). Schema: **migración `m81`** (OLA 1, columnas `firstUtm*` en `Order` y
-> `SellRequest`, NULLABLE, se llenan solo con consentimiento de Fase 2 ⇒ **NULL hasta Fase 2**) y **migración `m82`**
-> (OLA 2: enum `Permission`, tablas `UserPermission`, `MarketingApiToken`, `MarketingBannerConsentCounter`,
-> `BuylistQuoteDailyCount`, `SearchNoResultDaily`, `MarketingAccessLog`). ⛔ **Sin DDL aplicado** (sin Bash): el DDL vive
-> como especificación en §13 y en API_CONTRACT §MKT. El Card Show (v2 §E5) **no se detalla aquí**: su página usa solo
-> datos ya anunciados. Zonas compartidas tocadas (solo diseño en docs): `backend/prisma/schema.prisma`,
-> `docs/API_CONTRACT.md`. Tres veredictos al cierre (toca dinero: atribución de pedidos y panel que lee ventas).
+> **Rev v1.95⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda`).** §13 NUEVA: atribución UTM (m81, `firstUtm*` en
+> `Order`/`SellRequest`), ficha pública de sellado con SSR/og, SEO y panel de marketing Fase 0 (m82). Fuente:
+> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Contrato: API_CONTRACT §MKT (v1.96⟨mkt-tienda⟩).
 > ---
-> **Rev v1.94⟨sellado-display⟩ — EL SELLADO SE PINTA COMO CARTA SUELTA EN PEDIDO/FULFILLMENT: la cascada §4.34a
-> nunca llegó a la zona de órdenes, preparación, acta congelada, tracking y reembolsos** (2026-10-13, arquitecto, rama
-> `fix/sealed-display` desde `production`; ⛔ sha NO MEDIDO: sin Bash). 🐞 **BUG DE PRODUCCIÓN, zona de dinero/fulfillment.**
-> Origen: primer pedido real — el cliente compró un producto **sellado** («30th Celebration», tipo binder/poster), se
-> cobró el **precio de sellado correcto**, pero «Pedidos por preparar · Junta y palomea» y el acta lo pintan como carta
-> suelta («Exeggcute · 30th Celebration · NORMAL · Mint», folios INV-001281/INV-001276). **Causa raíz medida (NO es mala
-> venta, es display):** la pieza reservada ES la sellada (ver abajo); el ancla `cardId` (Exeggcute, §4.34a) se filtra en
-> toda superficie de pedido que pinta una pieza por su `card.name` sin rama de sellado. La tienda ya resuelve bien
-> (`sealed-catalog.service.ts:263` cascada `sealedProductName ?? card.name`); la **operación/pedido** nunca recibió esa
-> cascada (es la deuda D-IMG-2 de §9, elevada de «baja» a **bloqueante** por tocar dinero/fulfillment). Secciones:
-> **§4.34a.2 NUEVA** (regla única de identidad de display de una pieza, para TODAS las superficies de pedido) y **§5.2.6
-> ACTUALIZADA** (la petición regla-9 que §5.2.6 dejó enrutada **llega**: el acta congela ahora el nombre CORRECTO del
-> sellado). **Cero DDL, cero migración de BD** (`OrderItem.cardSnapshot` es columna JSON: `FrozenCardFacts` gana
-> `sealedProductId?`/`sealedProductName?` ⇒ cambio de forma + sus cerrojos de tipos, no `ALTER TABLE`; corrige la
-> imprecisión «DDL aditivo» que §5.2.6 arrastraba). **Cero enums nuevos** (`ProductType` ya trae `sealed`). Zona
-> compartida tocada por backend: `orders/`, `shipments/`, `common/` (serializar). Contrato **API_CONTRACT v1.94⟨sellado-display⟩**.
-> BACKEND implementa (modelo fuerte escribe el plano + la prueba que falla, §5.2.6-D); luego **QA + techlead + seguridad**.
+> **Rev v1.94⟨sellado-display⟩ (2026-10-13, arquitecto, rama `fix/sealed-display`).** Un sellado cobrado bien se pintaba como
+> su carta ancla en pedido, preparación, acta, rastreo y reembolsos (display, no mala venta). **§4.34a.2 NUEVA** (resolutor único
+> de identidad de una pieza) y **§5.2.6** (el acta congela el nombre del sellado; `FrozenCardFacts` += `sealedProductId?`/
+> `sealedProductName?`, sin migración: `cardSnapshot` es JSON). Contrato: API_CONTRACT v1.94⟨sellado-display⟩.
 > ---
 > **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA tras el rechazo de QA/techlead a `b70e272`** (2026-10-13,
 > arquitecto, rama `fix/sealed-display`; ⛔ sha NO MEDIDO: sin Bash). El resolutor único de `b70e272` está bien, pero la
@@ -32063,13 +32043,16 @@ Riesgos técnicos:
 > `backend-lite`: toca candados). **Prueba que la vigila:** el propio `C-EQ-1` —descubrimiento sin huérfanos, conformidad
 > HTTP de las seis filas nuevas, trinquete con los literales nuevos— y su canario `enum-query-census-canary.spec.ts`.
 >
-> **`D-MKT-1` (🟡 ABIERTA, dueño backend; medida 2026-10-18 por el arquitecto, lectura sobre `b8197420`; no bloquea pintar
-> la pantalla).** Los `ScreenPayload` **omiten** tablas de nivel I en vez de mandarlas como `measured:false` con «NO MEDIDO —
-> …»: la pantalla c trae solo `c7` (`marketing-analytics.service.ts:339-341`; faltan c1-c6 y c8); b, e y g traen una tabla
-> cada una (`:439-450`; faltan b2, b3, b4 y e3); d no trae `d2` ni `d4b` «más solicitadas» (`:305-335`; `d4b` sí es medible
-> con la BD); y ningún payload trae la línea de cobertura en `notes` (`:56-61`). **Contrato (manda): `API_CONTRACT §MKT.G.4`**
-> (catálogo de tablas y orden). **La corrige backend** (⛔ ningún otro rol). **Prueba que la vigila:** §MKT.G.9 punto 6 (los
-> `tables[].id` de cada pantalla = el catálogo, en orden); para `d4b`, una solicitud enviada con 1 carta ⇒ «< 5» sin MX$.
+> **`D-MKT2-R4` (🔴 ABIERTA para encender, no para fusionar apagado; dueños frontend y backend; medida 2026-10-19 por el
+> techlead y leída por el arquitecto sobre `a1ba4d2e`).** Un sellado sale con tres `item_id`: `representativeItemId`
+> (`SealedDetailView.tsx:70,105`), `card.cardId` (`ecommerce.ts:12`) y `sealedProductId ?? cardId` (`measurement-drain.service.ts:202`);
+> el `item_name` de carta es `name` en el navegador y `name · set` en el servidor (`:203`). El tipo `FrozenCardFacts` del frontend
+> (`types/contract.ts:1092-1111`) no trae `sealedProductId`, que el contrato §4 sí tiene desde v1.94 y el backend ya manda en la
+> cotización (`orders.service.ts:835,890`). **Contrato (manda): API_CONTRACT §MKT.H.4** (identidad canónica) y MKT.H.13. **La
+> corrigen frontend y backend**, cada uno en lo suyo. **Prueba que la vigila:** C-F8 y C-B10; hasta entonces, `R4` en `ENCENDER_BLOCKERS`.
+>
+> **`D-MKT-1` (cerrada por lectura el 2026-10-19 sobre `a1ba4d2e`).** Las tablas que faltaban se emiten
+> (`marketing-analytics.service.ts:694-700,959-962,1031,489,654,1055`; cobertura `:96-97`). Que §MKT.G.9 punto 6 esté verde: NO MEDIDO (QA).
 >
 > **`D-CS-7` (🔴 ABIERTA, dueño backend; medida 2026-10-17 por tester-e2e sobre `release/card-show` @ `4288ca4`, contra el stack
 > real con BD; BLOQ-A).** La preinscripción Pokémon «los dos días» deja el **domingo `pending` colgado para siempre**: el correo
@@ -36996,9 +36979,8 @@ interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de di
 
 ### 14.0 Estado medido (O-1)
 
-- **Construido y apagado, sin fusionar** (leído en los worktrees el 2026-10-19; sha por `refs/heads/worktree-agent-*`, sin
-  Bash): backend `d3af1d77` (BACKEND_NOTES §MKT.H), frontend `dad4a316` (FRONTEND_NOTES §MKT2), devops `4dec5465`
-  (DEVOPS_NOTES §101). Qué hace cada pieza vive en esas notas; que el árbol de cada worktree sea igual a su sha: **NO MEDIDO**.
+- **Construido y apagado, en la rama** (leído sobre `a1ba4d2e`: `backend/src/modules/measurement/`, `frontend/src/lib/measurement/`,
+  `measurement-gate.ts`). Qué hace cada pieza: BACKEND_NOTES §MKT.H, FRONTEND_NOTES §MKT2, DEVOPS_NOTES §101. Pendiente: §MKT.H.13.
 - **Hechos de la base que sostienen el diseño** (sobre `5524bd69`): CSP en report-only (`csp.ts:37`) y `script-src` con
   `'strict-dynamic'` (`csp.ts:9-11,104`) ⇒ la CSP no impide cargar `gtag.js`; Google ya carga en login/checkout
   (`accounts.google.com`) y en el Card Show (`www.google.com`) ⇒ C-F2 mide hosts de medición, no todo Google (§14.8); el pago
@@ -37041,6 +37023,14 @@ brief lo permite: «antes o a la vez», §D5.4); el encendido es un cambio de va
 *Por qué no basta una variable:* una variable sola no sabe qué dice el aviso. La puerta mira el texto que se va a publicar, en el
 mismo build que se publica. *Por qué no en el backend:* el backend no sirve el aviso; ponerle una copia de la versión sería una
 segunda fuente para un hecho.
+
+**Bloqueos de encendido en la misma puerta (D-MKT2-0c, v1.106, a petición del techlead).** Lo que se puede fusionar apagado pero
+no encender vive como dato en `measurement-gate.ts`, no en una nota:
+`ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
+(`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
+problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde. Lista inicial: API_CONTRACT §MKT.H.13. Basta con la
+puerta de Vercel: con el frontend apagado no viaja `measurement` y ningún pedido tiene consentimiento, así que el backend no encola nada (§14.6).
 
 **Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
 su forma (API_CONTRACT §MKT.H.1). GA4 sin `GA4_MEASUREMENT_ID` o sin `GA4_MP_API_SECRET` ⇒ no se encola nada para GA4. Meta sin
@@ -37148,6 +37138,14 @@ El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `b
 `click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. `page_view` va **solo a GA4**: el píxel
 no manda `PageView` (Meta casa la compra por `event_id`, y una visita por página es justo la audiencia que no se quiere).
 
+**D-MKT2-7 (v1.106) — un producto, un `item_id`, en navegador y servidor** (forma y casos: API_CONTRACT §MKT.H.4). GA4 guarda 14
+meses y no se reescribe: d1/d2 cruzan vistas con ventas por `itemId`, y tres identidades para el mismo sellado (`D-MKT2-R4`, §9)
+dejan esas tablas sin cruce para siempre. Reglas: (1) **producto, no pieza**: `inventoryItemId` muere al venderse; `sealedProductId`
+es lo que el pedido congela (§5.2.6). (2) **Prefijo por tabla** (`c_`, `s_`, `sc_`, `a_`, `m_`): el sellado sin ligar cae a su carta
+ancla (§4.34a), que es una carta real; sin `sc_` sus vistas y ventas se sumarían a la de la carta. (3) **Se calcula de `FrozenCardFacts`**,
+la forma que ya viaja en la cotización y está congelada en el pedido: nada se re-resuelve al enviar. Residuo aceptado: un grupo de
+la ficha (`sealedIdentityKey`) con piezas de dos `sealedProductId` distintos cuenta las vistas en el del representante (que eso ocurra: NO MEDIDO).
+
 ### 14.6 Eventos de servidor: cola en base de datos, después del commit, sin poder tocar el pago (§B4, §C)
 
 ```
@@ -37196,9 +37194,8 @@ job measurement-drain (cada 1 min, BullMQ tcg-daily) ─► lee filas con nextAt
 
 ### 14.7 Qué sale hacia Google y Meta, y qué no sale nunca (§D2, PV-A1, PV-B2)
 
-**Sale (lista cerrada; el detalle de cada clave está en API_CONTRACT §MKT.H.4-.6):** nombres de evento de §B2; ids internos
-opacos (`Order.id`, `SellRequest.id`, `cardId`, id de sellado) como `transaction_id`/`item_id`/`content_ids`; nombre y set de la
-carta o del producto; montos en MXN con IVA; número de piezas; `shipping_cents`; método de pago elegido (`card`, etc.); los cuatro
+**Sale (lista cerrada; el detalle de cada clave está en API_CONTRACT §MKT.H.4-.6):** nombres de evento de §B2; `Order.id`,
+`SellRequest.id` y la identidad de ítem (D-MKT2-7) como `transaction_id`/`item_id`/`content_ids`; nombre (y set) del ítem; montos en MXN con IVA; número de piezas; `shipping_cents`; método de pago elegido (`card`, etc.); los cuatro
 `first_utm_*` validados y solo con analítica; ruta de la página sin query salvo `utm_*`; `client_id` de GA4; `fbp`/`fbc` solo con
 publicidad. Inevitable con etiquetas de navegador: la IP y el agente de usuario del visitante viajan en la propia petición a
 Google/Meta tras aceptar (deuda aceptada por seguridad, §D3 «Deuda aceptada»).
@@ -37258,6 +37255,6 @@ Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H
 ### 14.11 Reparto
 
 - **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0.
-  Los ajustes que salen de v1.105 están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
+  Los ajustes vigentes (v1.106) están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
 - **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
   cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.

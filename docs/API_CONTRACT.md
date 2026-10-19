@@ -12,7 +12,7 @@
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; el detalle vive en su sección, la historia en git).** ⚠️ Hay dos v1.96
 > distintas, ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 el número no se repite: la
-> siguiente revisión, de cualquier sección, es **v1.106**.
+> siguiente revisión, de cualquier sección, es **v1.107**.
 > - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
 > - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
 > - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
@@ -20,6 +20,7 @@
 > - v1.103⟨mkt-panel-exacto⟩ · 2026-10-18 · §MKT.G.2/.3/.5/.9/.10: cifras exactas del dueño, supresión coherente · dueño (`HECHOS.md:172`).
 > - v1.104⟨ceq1-mkt⟩ · 2026-10-18 · §0-Q 6-bis (SELECTOR), `CEQ-MKT-1`, query con nombre en §MKT.E · QA.
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
+> - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8).
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -95,39 +96,14 @@
 > - **Reparto:** backend implementa (`orders`, `shipments`, `vault`, `payments/refunds`, resolutor en `common/`); tres
 >   veredictos (QA + techlead + seguridad). Zonas compartidas: `orders/`, `shipments/`, `common/` — serializar.
 >
-> **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA (2026-10-13, arquitecto, rama `fix/sealed-display`; ⛔ sha
-> NO MEDIDO: sin Bash).** QA/techlead rechazaron `b70e272`: el resolutor único está bien, pero la enumeración se hizo por
-> `grep '\.card\.name'` y **no cazó los accesos ALIASEADOS** (`const card = x.inventoryItem.card; … card.name`), dejando
-> superficies **de cara al cliente** filtrando el ancla. Norma y tabla-veredicto por fichero:línea en
-> `ARCHITECTURE §4.34a.2(B)/(E)`. Cambios de contrato (aditivos/retrocompatibles):
-> - **`ClientShipmentItemDTO` (§5) — BLOQUEANTE resuelto.** `card.name` y `card.imageSmallUrl` pasan a **resolverse
->   server-side** con el resolutor único (`SealedProduct` → snapshot → «Sellado sin identificar»; imagen
->   `sealedImageUrl → sealedProduct?.imageUrl → card.imageSmallUrl → null`); el DTO **gana `productType`** para que el
->   front oculte `number` en sellado (igual que `GuestTrackingItemDTO`); `card.imageSmallUrl` se declara **`string|null`**
->   (lo que el resolutor y la columna ya rinden). Forma exacta abajo en §5.
-> - **`GuestTrackingItemDTO` (§4-G) — la IMAGEN de un sellado también se resuelve.** El NOMBRE ya se resolvió en v1.94;
->   la imagen seguía cayendo al ancla (`guest-checkout.service.ts:883`). Se norma que el join vivo resuelva la **cascada
->   de imagen de sellado**, no el arte del single. **Sin cambio de FORMA del DTO.** Cierra la parte de IMAGEN de **D-IMG-2**.
-> - **Correo de reembolso AV-12** (`refund-ledger`, §7/§Admin): el nombre resuelve por el resolutor. **Sin cambio de
->   contrato** (la forma del aviso no cambia; es código backend + ensanchar un `include`).
-> - **D-2:** las 4 copias de la cascada que caían a `card.name` (holdings, grid público, reporte de ventas, restock) se
->   **unifican al resolutor**. Grid público (`SealedGroupDTO`) y holdings (`HoldingDTO`) sin cambio de forma (solo deja
->   de poder mostrar el ancla como último recurso del nombre). Detalle en `ARCHITECTURE §4.34a.2(B)`.
-> - **Reparto:** backend (`shipments`, `orders` [guest], `payments/refunds`, `vault`, `catalog`, `sales-analytics`) +
->   frontend (`(storefront)` rastreo: ocultar `number` por `productType` en `ClientShipmentItemDTO`). Tres veredictos.
->   Backend entrega además la suite integración/E2E del flujo de sellado (ARCHITECTURE §5.2.6-D).
->
-> **Errata v1.94.2⟨sellado-display⟩ — el CANDADO es el mecanismo que cierra la clase; se corrige la sobre-afirmación M-3
-> (2026-10-13, arquitecto, rama `fix/sealed-display`, árbol `dde121d`; ⛔ sha NO MEDIDO: sin Bash). SIN cambio de forma de
-> contrato ni de schema.** La v1.94.1 llamó a la re-enumeración «SEMÁNTICA» y dio por «cerrado el hueco» con una lista a
-> mano; **esa afirmación falló tres veces** (grep + dos relecturas humanas). La completitud de la doctrina «un sellado
-> nunca se pinta con el `card.name`/`card.number`/`card.imageSmallUrl` del ancla» **ya NO depende de ninguna enumeración**:
-> la garantiza el candado `backend/test/sealed-display-guard.spec.ts` (escaneo estático, caza acceso directo **y
-> aliaseado**, falla en CI, allowlist explícita con razón). Norma en `ARCHITECTURE §4.34a.2(F)`. Además se **ratifican por
-> diseño** (sin cambio de contrato) dos superficies admin que muestran la carta ANCLA junto a —no en vez de— la identidad
-> del sellado: **(a)** el export `.xlsx` de inventario (columnas «Carta»/«Número» del ancla; «Tipo» desambigua) y **(b)**
-> `PriceReviewCaseDTO.card` + la cola M2 (el bloque `card` del ancla es «para que el dueño reconozca la carta», §D/§M2; la
-> identidad del sellado viaja en `sealedProductName` resuelto). Ninguna es la clase «cascada `?? card.name` del NOMBRE».
+> **Erratas v1.94.1 y v1.94.2⟨sellado-display⟩ (2026-10-13, rama `fix/sealed-display`).** v1.94.1: `ClientShipmentItemDTO` (§5)
+> resuelve `card.name`/`card.imageSmallUrl` en el servidor con el resolutor único y gana `productType` (forma en §5);
+> `GuestTrackingItemDTO` (§4-G) resuelve también la imagen del sellado; el correo de reembolso AV-12 y las cuatro copias de la
+> cascada (holdings, grid público, ventas, restock) usan el resolutor, sin cambio de forma (ARCHITECTURE §4.34a.2(B)/(E)).
+> v1.94.2: la completitud de «un sellado nunca se pinta con el nombre, número o imagen del ancla» la sostiene el candado
+> `backend/test/sealed-display-guard.spec.ts` (acceso directo y aliaseado; norma en ARCHITECTURE §4.34a.2(F)), no una lista.
+> Ratificadas por diseño: el `.xlsx` de inventario y `PriceReviewCaseDTO.card` + cola M2 muestran el ancla **junto a** la
+> identidad del sellado («Tipo» y `sealedProductName` desambiguan).
 >
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
 > (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
@@ -9976,12 +9952,10 @@ SealedGroupDTO = { representativeItemId: string, card: CardDTO, productName: str
                    priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }
 // ⭐ v1.90⟨miv⟩ (ADITIVO, §MIV.2): SealedGroupDTO += { referenceDisplayCents?: number } — misma regla que en
 //   `GroupedListingDTO`, derivado del `referenceValue` YA PROYECTADO. ⛔ No entra en `SealedGroupSummaryDTO`.
-// ===== v2.1.9 (D2) — el DTO de la REJILLA de sellado: `SealedGroupDTO` MENOS las tres señales de precio =====
-// Se van `priceBasis`, `referenceValue` y **también `priceSource`**: en sellado `priceSource` es de donde `priceBasis`
-// se DERIVA (`override ⇒ override`; `*_spread ⇒ market`), así que dejarlo publicaría la misma señal por otro nombre —
-// el mismo error que v2.1.6 documentó al retirar `isManualOverride` y descubrir que `source` filtraba igual. Misma
-// razón y mismas garantías que `GroupedListingSummaryDTO` (ver su bloque): §N.7 «SOLO fichas», nadie lo consume en la
-// rejilla, y TIPO PROPIO en vez de campos opcionales para que el compilador —y no un test— sostenga la diferencia.
+// ⭐ v1.106 (ADITIVO, §MKT.H.4): SealedGroupDTO y SealedGroupSummaryDTO += { sealedProductId: string | null } — el
+//   `InventoryItem.sealedProductId` del representante; `null` = sellado sin ligar. Solo identidad de medición (`item_id`).
+// ===== v2.1.9 (D2) — REJILLA: `SealedGroupDTO` MENOS `priceBasis`, `referenceValue` y `priceSource` (de este se DERIVA
+// `priceBasis`: dejarlo publicaría la misma señal). Mismas garantías que `GroupedListingSummaryDTO`; TIPO PROPIO. =====
 SealedGroupSummaryDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
                           sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
                           availableCount: number, fromPriceCents: number, currency: "MXN" }
@@ -45564,9 +45538,9 @@ AggTable = {
   rows: Record<string, Cell>[],                      // ⛔ nunca una fila por pedido o solicitud
   notes?: string[], measured: boolean, notMeasuredReason?: string
 }
-Cell = number | '< 5' | 'oculta' | string | null    // '< 5' = conteo con N<5; 'oculta' = N≥5 ocultado por supresión
-                                                     // coherente (MKT.G.10); null = MX$ oculto o dato ausente.
-                                                     // En privacy:'exact' no aparecen ni '< 5' ni 'oculta'.
+Cell = number | '< 5' | 'oculta' | string | null    // v1.106 (TL-MKT2-C1): null = SIN DATO («—»), siempre y en todo `kind`.
+                                                     // Fila suprimida: su conteo N lleva '< 5' (N<5) u 'oculta' (MKT.G.10) y
+                                                     // TODA otra celda no `text` lleva 'oculta' (⛔ null). 'exact': ni una ni otra.
 ```
 - **La pantalla pinta `privacy`:** con `exact`, aviso fijo «Cifras exactas: solo las ves tú. El Excel y el acceso del analista llevan
   "< 5"»; con `small_cells`, la leyenda de «< 5» y «oculta». ⛔ El frontend no persiste un payload `exact` (ni `localStorage`, ni
@@ -45654,13 +45628,13 @@ MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt:
    `filters.privacy`.
 8. **(v1.103) El dueño ve el número real:** fixture con una fila de dimensión de N=3 y MX$ conocido (p. ej. d1 o a3). `panel` con
    sesión `super_admin` ⇒ `privacy:'exact'`, la celda vale `3` (número) y el MX$ es el real; la misma petición con la sesión delegada
-   ⇒ `'< 5'` y MX$ `null`. Con `exact`, el conjunto de `tables[].id` y de claves de fila es el de `small_cells` sin la fila «Otros».
+   ⇒ `'< 5'` y MX$ `'oculta'` (v1.106). Con `exact`, el conjunto de `tables[].id` y de claves de fila es el de `small_cells` sin la fila «Otros».
 9. **(v1.103) Fuera de pantalla nunca es exacto:** con sesión `super_admin`, `export`, `export/todo` y `weekly-excel` de ese fixture
    llevan `< 5` en el fichero; `aggregates` con token, también. **Canario:** derivar el régimen como `'exact'` siempre ⇒ esta prueba
    roja. Y estático: `'exact'` solo lo produce el manejador de `panel`; `screen()` no tiene régimen por defecto.
 10. **(v1.103) Supresión coherente:** fixture en **febrero 2027** (empieza en lunes 1 y acaba en domingo 28: el mes es exactamente
     sus cuatro semanas). Clave `k` con semanas `[3, 6, 6, 6]` (mes 21) ⇒ la semana 1 da `'< 5'` y el mes da `k` = `'oculta'` con MX$
-    `null`; ninguna combinación de los cinco ficheros (4 semanas + mes) despeja el 3. Sin la regla (canario: quitar el paso de
+    `'oculta'`; ninguna combinación de los cinco ficheros (4 semanas + mes) despeja el 3. Sin la regla (canario: quitar el paso de
     coherencia) el mes enseña 21 y la prueba sale roja.
 11. **(v1.103) Mes cerrado = su última semana cerrada:** con el reloj en el lunes 26-oct-2026, `month=2026-10` ⇒ 400 y no sale en
     `periods.closedMonths`; con el reloj en el lunes 2-nov-2026 ⇒ 200.
@@ -45673,7 +45647,7 @@ semanas completas, como febrero 2027; casi exacto en el resto si se combinan mes
 
 1. **Al calcular un mes**, para cada tabla con dimensión, se calculan con la misma función las semanas cerradas que tocan ese mes
    (de 4 a 6). Toda clave que salga oculta en **alguna** de ellas —por «< 5» o por ser la pareja de una fila «Otros»— sale en el mes
-   como **`'oculta'`** (conteo) y `null` (MX$), aunque en el mes tenga N≥5.
+   como **`'oculta'`** (conteo y toda otra celda no `text`, MKT.G.5), aunque en el mes tenga N≥5.
 2. Después se aplica la supresión complementaria de siempre contando `'< 5'` y `'oculta'` como ocultas.
 3. **Las semanas no cambian:** son disjuntas entre sí, así que solas no despejan nada.
 4. **Mes cerrado = su última semana cerrada** (MKT.G.3): si no, el mes se exportaría antes de conocer la semana que lo cruza.
@@ -45776,7 +45750,23 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 
 - Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`.
 - `value` en pesos con IVA (2 decimales); `*_cents` enteros. En `purchase` (navegador, MP y CAPI) `value = Order.totalCents/100`,
-  lo cobrado (envío incluido). `item_id` = `cardId`, id de sellado o de accesorio; ⛔ nunca `orderNumber`.
+  lo cobrado (envío incluido). ⛔ `item_id` nunca es `orderNumber` ni un `inventoryItemId` (`representativeItemId` cambia al vender).
+- **Identidad canónica de ítem (v1.106, R4) — la MISMA en navegador (todos los eventos) y servidor (MP y `content_ids` de
+  CAPI).** Función pura `measurementItemOf(facts)` sobre la forma `FrozenCardFacts` (§4); una por lado, ambas probadas con las filas
+  de abajo (C-F8/C-B10 las leen de este fichero entre los marcadores). Entradas: ficha de carta `{cardId: card.id, name, setName,
+  productType:'raw'}`; ficha/rejilla de sellado `{cardId: group.card.id, name: group.productName, productType:'sealed', sealedProductId}`;
+  cotización/`purchase` del navegador `OrderItemPreview.card` (ya trae `sealedProductId`, v1.94); servidor `OrderItem.cardSnapshot`.
+  Sellado: `item_name` sin set (el nombre resuelto §4.34a ya lo identifica). Accesorio (solo servidor): `a_<accessoryId>`, si no
+  `m_<metaDeckId>`, nombre del snapshot; sin ninguno de los dos o carta sin `cardId` ⇒ la línea no va en `items`.
+<!-- MKT-ITEM-ID:start -->
+| `facts` | `item_id` | `item_name` | `item_category` |
+|---|---|---|---|
+| `{"cardId":"sv3-125","name":"Charizard ex","setName":"Obsidian Flames","productType":"raw"}` | `c_sv3-125` | `Charizard ex · Obsidian Flames` | `card` |
+| `{"cardId":"svp-1","name":"Pikachu","productType":"graded"}` | `c_svp-1` | `Pikachu` | `card` |
+| `{"cardId":"sv3-1","name":"ETB Obsidian Flames","setName":"Obsidian Flames","productType":"sealed","sealedProductId":"sp-9"}` | `s_sp-9` | `ETB Obsidian Flames` | `sealed` |
+| `{"cardId":"sv3-1","name":"Booster Obsidian Flames","productType":"sealed","sealedProductId":null}` | `sc_sv3-1` | `Booster Obsidian Flames` | `sealed` |
+| `{"cardId":"sv3-1","name":"Booster Obsidian Flames","productType":"sealed"}` | `sc_sv3-1` | `Booster Obsidian Flames` | `sealed` |
+<!-- MKT-ITEM-ID:end -->
 - **`generate_lead` no sale del navegador** (la página de venta lleva CLABE/INE): solo servidor (MKT.H.5).
 - Píxel: mismos nombres en su forma estándar (`ViewContent`, `AddToCart`, `InitiateCheckout`, `AddPaymentInfo`, `Purchase`,
   `Contact`; `Lead` solo servidor). `fbq('set','autoConfig',false,PIXEL_ID)` **antes** de `init`; `fbq.disablePushState = true`;
@@ -45797,7 +45787,7 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
                        source: 'server',
                        first_utm_source?, first_utm_medium?, first_utm_campaign?, first_utm_content?   // solo analytics=true
                      } }] }
-Item = { item_id: string, item_name: string, item_category: 'card' | 'sealed' | 'accessory', price: number, quantity: number }
+Item = { item_id: string /* MKT.H.4 */, item_name: string /* MKT.H.4 */, item_category: 'card' | 'sealed' | 'accessory', price: number, quantity: number }
 ```
 - `generate_lead`: `value` = MX$ ofertado de la solicitud al crearla; sin `items`.
 - ⛔ Claves prohibidas en cualquier nivel: `user_id`, `user_data`, `ip_override`, `user_agent`, `user_location`, `user_properties`.
@@ -45846,7 +45836,7 @@ measurementNoticeVersion    String?    // measurementDisclosure.version del avis
 model MeasurementContext {           // identificadores de navegador de vida corta; ⛔ sin FK (muere en ≤7 días)
   id            String   @id @default(uuid())
   orderId       String?  @unique
-  sellRequestId String?  @unique     // exactamente uno de los dos
+  sellRequestId String?  @unique     // exactamente uno: CHECK "MeasurementContext_one_subject" num_nonnulls(...)=1 (SQL, v1.106)
   gaClientId    String?              // solo con analytics
   fbp           String?              // solo con ads
   fbc           String?              // solo con ads (v1.105: sin `sourcePath`; la URL de CAPI es fija, MKT.H.5)
@@ -45871,8 +45861,9 @@ model MeasurementOutbox {            // ⛔ sin cuerpo: se arma al enviar
   @@index([expiresAt])
 }
 ```
-- Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE`. Sin backfill (NULL es la verdad de toda fila previa). ⚠️ `ALTER TYPE … ADD
-  VALUE` no se puede usar en la misma transacción que lo crea: ninguna sentencia de m86 usa `'custom'`.
+- Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE` + el CHECK `num_nonnulls("orderId","sellRequestId") = 1` dentro del `CREATE
+  TABLE "MeasurementContext"` (D8, v1.106: tabla nueva y vacía ⇒ no valida filas; Prisma no lo modela; que su paridad de schema no lo lea como deriva: NO MEDIDO). Sin
+  backfill. ⚠️ `ALTER TYPE … ADD VALUE` no se usa en la misma transacción que lo crea: ninguna sentencia de m86 usa `'custom'`.
 - **Reversa:** apagar (`MEASUREMENT_MODE=off`), desplegar el código anterior, `DROP` de las dos tablas, de las seis columnas y de
   los dos enums nuevos. `custom` se queda en `BannerResponse` (Postgres no quita valores de un enum; es inocuo).
 - Líneas nuevas en §0 (enums): `MeasurementEventKind`, `MeasurementDestination` y el valor `custom` de `BannerResponse`.
@@ -45913,7 +45904,7 @@ encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «si
 | a5 | `eventName` ∈ {`view_item`, `add_to_cart`, `begin_checkout`, `add_payment_info`, `purchase`} | `eventCount`; `sessions` sin dimensión | pasos en orden con % sobre el anterior + fila «Compras (BD)» para cuadrar; un paso sin evento cableado ⇒ celda `null` con nota |
 | c1 | `pagePath` | `screenPageViews`, `totalUsers`, `userEngagementDuration` | 50 primeras; tiempo medio = duración / vistas; ficha ⇒ nombre y set desde BD por el id de la ruta, si no la ruta |
 | c5 | `deviceCategory`, `browser` | `sessions` | tal cual (que GA4 distinga el navegador de Instagram: NO VERIFICADO) |
-| d1 (vistas), d2 | `itemId` | `itemsViewed`, `itemsAddedToCart` | d1 rellena «vistas»; d2 = ≥ 20 vistas y 0 ventas en BD, con % carrito/vista |
+| d1 (vistas), d2 | `itemId` | `itemsViewed`, `itemsAddedToCart` | `itemId` canónico (MKT.H.4): el prefijo dice la tabla (`c_` Card, `s_` SealedProduct, `sc_` Card ancla); las ventas de BD se cruzan por `measurementItemOf(cardSnapshot)`, la misma función del drenador. d1 rellena «vistas»; d2 = ≥ 20 vistas y 0 ventas en BD, con % carrito/vista |
 | e3 | `sessionSource`, `landingPage` (source en la lista) | `sessions` | lista fija en código: `chatgpt.com`, `perplexity.ai`, `gemini.google.com`, `copilot.microsoft.com`, `claude.ai` |
 
 - **b1, b2, b3:** solo columnas de BD (pedidos y MX$, solicitudes y MX$ ofertado por `first_utm_*`; `dm` en una sola fila). Sesiones
@@ -45943,7 +45934,11 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-F5** | frontend (Playwright, `on`, aceptado) | navegando **sin recargar** desde una ficha a cuenta, bóveda, admin, vender, restablecer contraseña y `/pedido?token=` ⇒ en el documento final no existen `window.gtag`, `window.fbq` ni `<script>` de medición, y 0 peticiones de medición tras la navegación | quitar la navegación dura ⇒ rojo |
 | **C-F6** | frontend (unitaria) | `track()` con un parámetro fuera de la lista de MKT.H.4 (p. ej. `email`) lo descarta; en ruta fuera de la lista blanca no envía nada | ampliar la lista ⇒ rojo |
 | **C-F7** | frontend | `buildCsp` con `off` no lleva ningún origen de medición; con `on` lleva exactamente los de MKT.H.1 | — (prueba de texto, como `csp.test.ts`) |
-| **C-D1** | devops + frontend | build con `on` y el aviso actual (`measurementDisclosure = null`, frase de `privacidad.es.ts:266`) ⇒ **build rojo**; con el aviso nuevo ⇒ verde | es el propio caso rojo |
+| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null`, frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
+| **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
+| **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
+| **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
+| **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): toda fila con `'< 5'`/`'oculta'` en su conteo no lleva `null` en ninguna columna no `text` (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
 | **C-D2** | devops | gitleaks: regla para tokens de Meta y para `api_secret` de GA4; `grep` del token real en repo y en logs del despliegue = 0 (el dueño lo corre donde vive el token) | un fichero de prueba con un token falso con la forma de Meta ⇒ rojo |
 | **C-B1** | backend | `MEASUREMENT_MODE` ausente, vacío o `ON` (mayúsculas) ⇒ `off`; con `off`, crear pedido con `measurement` completo ⇒ `firstUtm*` y consentimiento `NULL`, 0 filas de contexto y de cola; `banner-response` ⇒ 204 sin escribir; el drenador no llama a `fetch` | leer el modo con `!== 'off'` ⇒ rojo |
 | **C-B2** | backend | 🔒💰 aislamiento del pago: con el encolado lanzando, `onPaymentSucceeded` liquida igual (orden `settled`, piezas movidas) y no relanza; con el contexto lanzando, `POST /checkout/session` da 201. `measurement` basura ⇒ misma respuesta que sin él | mover el encolado dentro del `$transaction` o quitar el `try/catch` ⇒ rojo |
@@ -45962,17 +45957,20 @@ Las pruebas del panel (régimen `exact`, supresión coherente, mes cerrado) son 
 Las seis de ARCHITECTURE §14.10: (1) sin GTM; (2) agente de usuario a Meta por CAPI; (3) Card Show medido o excluido; (4) guardar
 el `client_id` de GA4 7 días; (5) volver a preguntar al cambiar el aviso; (6) evento `refund` a GA4.
 
-#### MKT.H.13 Qué cambia cada rol con v1.105 (respuesta a las preguntas de la construcción de v1.102)
+#### MKT.H.13 Qué cambia cada rol con v1.106 (veredicto del techlead sobre `a1ba4d2e`: R4, TL-MKT2-C1, D8)
 
-| Rol | Cambio (sobre lo construido en el worktree) | Prueba que lo vigila |
+Lo de v1.105 está cerrado (TECH_DEBT MKT-F2-1/-2, FE-MKT2-1/-3). Pendiente de v1.106:
+
+| Rol | Cambio | Prueba que lo vigila |
 |---|---|---|
-| backend (`d3af1d77`) | quitar `sourcePath` de `MeasurementContext` en `schema.prisma` y en el SQL de m86 **antes de fusionar** (no aplicada en ningún entorno: NO MEDIDO, lo cierra `prisma migrate status` en staging) y de su reversa; cierra MKT-F2-2 | paridad de schema y `measurement.service.spec.ts` sin la clave |
-| backend | consultas GA4 de MKT.H.9 y columnas BD de b1-b3; diferidas con su motivo; cierra MKT-F2-1 | `marketing-fase2-panel.spec.ts`: forma de cada `runReport` (doble) y motivo de cada diferida |
-| backend | f1/f3/g1 medidos también con `off` si el periodo tiene datos; f3 con las filas `false` y «Sin elección registrada»; cobertura por modo | canario: con `off` y un pedido con consentimiento ⇒ f3 `measured:true` |
-| frontend (`dad4a316`) | respuesta por resultado (ambos no ⇒ `necessary_only`, ambos sí ⇒ `accept`) también desde la 2.ª capa | `ConsentBanner.test.tsx`: «Guardar con los dos apagados ⇒ `necessary_only`» |
-| frontend | `no_response` sin `sessionStorage` (marca en memoria); cierra FE-MKT2-1 | grep `sessionStorage` en `MeasurementProvider.tsx` = 0 + E2E «sin responder ⇒ 0 escrituras en storage» |
-| frontend | `CookiePreferencesNoticeSlot` (párrafo al final del apartado `cookies`) es el diseño definitivo; la puerta C-D1 añade «el aviso no tiene apartado `cookies`»; cierra FE-MKT2-3 | `measurement-gate.test.ts` con un aviso sin ese apartado ⇒ problema |
-| frontend | mock del panel con los textos nuevos de cobertura y motivos | `mock/marketing.parity.test.ts` |
+| backend | `SealedGroupDTO` y `SealedGroupSummaryDTO` += `sealedProductId` del representante (bloque de `SealedGroupDTO`, aditivo; `sealed-catalog.service.ts:285-325,338-350`) | contrato de la ficha y de la rejilla con un sellado ligado y uno sin ligar |
+| backend | `measurementItemOf` en `modules/measurement/`; `purchaseFact` la usa (hoy `measurement-drain.service.ts:202-203` sin prefijo); d1/d2 parten el `itemId` por prefijo y cruzan ventas con ella | C-B10, y d1/d2 con dobles de GA4 que traen `s_`/`sc_`/`c_` |
+| backend | m86 con el CHECK de exactamente uno (MKT.H.7), **solo si m86 no se aplicó en ningún entorno** (NO MEDIDO: lo cierra `prisma migrate status` en staging y producción); si ya se aplicó, migración nueva con `ADD CONSTRAINT … NOT VALID` + `VALIDATE` | C-B11 |
+| backend | celdas ocultas del panel = `'oculta'`, nunca `null` (MKT.G.5): `blankMoney` (`small-cells.ts:73-77`) y `vistas` de d1 (`marketing-analytics.service.ts:472`) | C-P1 (backend) |
+| frontend | `FrozenCardFacts` de `types/contract.ts:1092-1111` += `sealedProductId?`/`sealedProductName?` (contrato §4 desde v1.94; el tipo se quedó atrás); `measurementItemOf` en `lib/measurement/`; `ecommerce.ts:11-15`, `SealedDetailView.tsx:70,105` y `CardDetailView.tsx:112,230` la usan | C-F8 |
+| frontend | `cellMeaning` (`MarketingTable.tsx:43-46`): `null` ⇒ «—» siempre; se va la deducción por `rowHasSmall` cuando el backend de C-P1 esté en producción | C-P1 (frontend) |
+| frontend | `ENCENDER_BLOCKERS` en `measurement-gate.ts` (ARCHITECTURE §14.1), con `R4`, `D2` (backend) y `D4` (frontend) salvo los ya cerrados; las pruebas de solo-aviso pasan `[]` explícito (`measurement-gate.test.ts:45,50` hoy cuentan 3 y `[]`) | C-D1 |
+| devops | nada nuevo: el paso de build ya llama a la puerta (`publish-check.ts:45`, job `measurement-gates`); confirmar que con `on` el rótulo lista los bloqueos | C-D1 en CI con `on` |
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 
