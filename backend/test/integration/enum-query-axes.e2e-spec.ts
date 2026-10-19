@@ -2112,6 +2112,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         // ⛔ Si mañana existe `enum PreparationDestination` (o cualquier homónimo), el literal deja
         // de ser legítimo: sería clase E y esto es el bug de `SealedSubtype`/`upc` esperando.
         enunciado: /enum\s+\w*[Dd]estination\w*\s*\{/,
+        // v1.102⟨mkt-fase2⟩ (m86): homónimo de NOMBRE, no de dominio (`ga4_mp|meta_capi` no contiene `vault|ship`).
+        homonimosDeNombre: [{ enum: 'MeasurementDestination', porque: 'destino de la cola de medición (ga4_mp|meta_capi), no el destino de preparación vault|ship' }],
       },
       // 💰 v1.86.5⟨accesorios⟩ — `?active=`/`?soldOut=` de `GET /admin/accessories`: un solo dominio, canónico en la fila de
       // §AC.11 («`active` y `soldOut` clase **L**, dominio canónico `true \| false`»). La regex ancla en los DOS nombres y la
