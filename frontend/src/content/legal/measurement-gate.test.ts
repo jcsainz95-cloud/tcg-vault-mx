@@ -105,12 +105,13 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
   });
 
   // TL-MKT2b-f (2026-10-19): la lista ya no está vacía. Muerde si se vacía o si sale una entrada sin su cierre.
-  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 y MKT-F2-4 (backend) ⇒ con on y aviso válido, rojo por esos dos', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend']);
+  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3, MKT-F2-4 y MKT-TL2 (backend) ⇒ con on y aviso válido, rojo por esos tres', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend', 'MKT-TL2:backend']);
     const problems = measurementGateProblems('on', declaredNotice());
-    expect(problems).toHaveLength(2);
+    expect(problems).toHaveLength(3);
     expect(problems[0]).toMatch(/^bloqueo de encendido abierto: MKT-F2-3 \(backend\) — /);
     expect(problems[1]).toMatch(/^bloqueo de encendido abierto: MKT-F2-4 \(backend\) — /);
+    expect(problems[2]).toMatch(/^bloqueo de encendido abierto: MKT-TL2 \(backend\) — /);
   });
 
   it('TL-MKT2b-f · con off la puerta sigue verde (aviso de hoy y aviso declarado), aunque haya bloqueos', () => {

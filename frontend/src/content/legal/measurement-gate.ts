@@ -107,6 +107,13 @@ export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
     closedBy:
       'backend/test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y prisma migrate deploy verde tras la reversa de m86, con el sha (TECH_DEBT MKT-F2-4)',
   },
+  {
+    id: 'MKT-TL2',
+    what: 'candado general contra deducir una celda oculta cruzando tablas del Panel sin cerrar (API_CONTRACT §MKT.H.14)',
+    owner: 'backend',
+    closedBy:
+      'backend/test/marketing-cross-table.audit.spec.ts y marketing-populations.registry.spec.ts verdes y ficha MKT-TL2 de TECH_DEBT cerrada; caduca el 2026-11-30 (backend/test/marketing-tl2.expiry.spec.ts)',
+  },
 ];
 
 /** Problemas según el modo: con `off`, ninguno. Con `on`, los del aviso + uno por bloqueo abierto. */
