@@ -210,12 +210,12 @@ describe('C-P1 · null siempre «—»; la fila suprimida del servidor v1.106 se
    * Muerde si vuelve la rama `LEGACY_NULL_HIDDEN_COMPAT` (MX$/% `null` + fila suprimida ⇒ «Oculto»).
    */
   it('null en una fila suprimida ⇒ «—» en count, number, pct y money; nunca «Oculto» por vecindad', () => {
-    for (const cell of [null, undefined]) expect(cellMeaning(cell)).toBe('none');
     renderWithProviders(
       <MarketingTable table={table({ id: 'c1', columns: cols, rows: [{ etapa: 'B', n: '< 5', vistas: null, t: null, pct: null, mxn: null }] })} />,
     );
     const row = desktop('c1').getAllByRole('row')[1];
     expect(within(row).getAllByText('—')).toHaveLength(4);
     expect(row).not.toHaveTextContent('Oculto');
+    for (const cell of [null, undefined]) expect(cellMeaning(cell)).toBe('none');
   });
 });
