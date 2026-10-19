@@ -5,6 +5,7 @@ import { HELD_FAQS, PUBLIC_FAQS, FAQ_GROUP_ORDER } from '@/content/seo/faq.es';
 import { HOW_IT_WORKS_SECTIONS } from '@/content/seo/como-funciona.es';
 import { GUIDES } from '@/content/seo/guides.es';
 import {
+  AUTHENTICITY_CLAIM_PATTERNS,
   FAQ_EXPIRY_WARN_DAYS,
   FORBIDDEN_PHRASES,
   contentSitemapPaths,
@@ -257,6 +258,104 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     expect(offenders(texts, [/card\s*show/i, /jakomi/i, /diciembre/i])).toEqual([]);
     expect(offenders(texts, [/MX\$/i, /\$\s?\d/])).toEqual([]);
     expect(offenders(texts, [/\p{Extended_Pictographic}/u])).toEqual([]);
+  });
+});
+
+/*
+ * Trinquete «autentic-» (HECHOS.md 2026-10-19 «El dueño aprueba fusionar la Fase 2 a `main` y cambiar
+ * «autenticadas/autenticidad»…»): la tienda dice «verificadas», no «autenticadas/autenticidad». Mismo patrón que
+ * KNOWN_OFFENDERS: cada excepción está NOMBRADA, tiene motivo y TIENE QUE SEGUIR OFENDIENDO (si alguien corrige el
+ * texto, la excepción sale de la lista o la prueba se pone roja).
+ */
+describe('«autenticadas/autenticidad» fuera de la copia de la tienda (messages ES/EN + contenido SEO)', () => {
+  const hits = (t: string) => AUTHENTICITY_CLAIM_PATTERNS.some((p) => p.test(t));
+  const CATALOGS = { es, en } as const;
+
+  /**
+   * Copia de autenticación de SESIÓN: no afirma nada sobre cartas. Sin caducidad (no es deuda: es otro sentido de la
+   * palabra). Las claves `errors.UNAUTHENTICATED` / `ALREADY_AUTHENTICATED` NO van aquí: la palabra está en la CLAVE,
+   * no en el texto («Inicia sesión para continuar.»), y el trinquete mira textos.
+   */
+  const SESSION_AUTH_KEYS: readonly { locale: 'es' | 'en'; key: string; why: string }[] = [
+    { locale: 'es', key: 'auth.mockNotice', why: 'aviso de modo mock del login («Autenticación pendiente de backend»)' },
+    { locale: 'en', key: 'auth.mockNotice', why: 'mock-mode login notice («Authentication pending backend»)' },
+  ];
+
+  /**
+   * Texto del repo de marketing que la tienda copia TAL CUAL y no reescribe (RESPUESTAS.md §12.0 regla 2; las guías
+   * «solo QUITAN, nunca reescriben», cabecera de `guides.es.ts`). Excepción hasta que marketing lo versione; caduca
+   * con la vigencia de la FAQ P1 (`validThrough` 2026-11-11), cuando hay que re-medirla de todos modos.
+   * P8 no está aquí: está RETENIDA (HELD_FAQS), su texto no se publica.
+   */
+  const MARKETING_TEXT: readonly {
+    where: string;
+    text: () => string | undefined;
+    owner: string;
+    measuredOn: string;
+    expires: string;
+  }[] = [
+    {
+      where: 'faq:P1.answer',
+      text: () => PUBLIC_FAQS.find((f) => f.id === 'P1')?.answer,
+      owner: 'marketing (manual RESPUESTAS §12.2 P1)',
+      measuredOn: '2026-10-19',
+      expires: '2026-11-11',
+    },
+    {
+      where: 'guide:carta-pirata-5-senales',
+      text: () =>
+        GUIDES.find((g) => g.slug === 'carta-pirata-5-senales')
+          ?.blocks.map((b) => b.text ?? '')
+          .find((t) => hits(t)),
+      owner: 'marketing (piezas/2026-10-15-carrusel-carta-pirata/copy.md)',
+      measuredOn: '2026-10-19',
+      expires: '2026-11-11',
+    },
+  ];
+
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)('%s: ningún texto de messages/ con «autentic-» fuera de la sesión', (locale, catalog) => {
+    const allowed = SESSION_AUTH_KEYS.filter((o) => o.locale === locale).map((o) => o.key);
+    const bad = stringEntries(catalog)
+      .filter(([k, v]) => hits(v) && !allowed.includes(k))
+      .map(([k]) => k);
+    expect(bad).toEqual([]);
+  });
+
+  it('cada excepción de sesión SIGUE conteniendo la palabra (corregida ⇒ se borra)', () => {
+    const stale = SESSION_AUTH_KEYS.filter((o) => {
+      const v = stringEntries(CATALOGS[o.locale]).find(([k]) => k === o.key)?.[1];
+      return v === undefined || !hits(v);
+    }).map((o) => `${o.locale}:${o.key}`);
+    expect(stale).toEqual([]);
+  });
+
+  it('contenido SEO público (FAQ, guías, llms.txt) sin «autentic-» fuera del texto de marketing nombrado', () => {
+    const exempt = new Set(MARKETING_TEXT.map((m) => m.text()).filter((t): t is string => !!t));
+    const texts = allContentTexts().filter((t) => !exempt.has(t));
+    expect(offenders(texts, AUTHENTICITY_CLAIM_PATTERNS)).toEqual([]);
+  });
+
+  it('cada excepción de marketing SIGUE ofendiendo, con dueño, medición y caducidad vigente (reloj real)', () => {
+    const today = todayInMexico();
+    for (const m of MARKETING_TEXT) {
+      const t = m.text();
+      expect(t !== undefined && hits(t), `${m.where}: ya no dice «autentic-» ⇒ bórrala de MARKETING_TEXT`).toBe(true);
+      expect(m.owner.trim()).not.toBe('');
+      expect(m.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(today <= m.expires, `${m.where} caducó el ${m.expires}: que marketing la versione o renovar con decisión del dueño`).toBe(true);
+    }
+  });
+
+  it('los tres textos aprobados por el dueño dicen «verificadas» (ES) / «verified» (EN)', () => {
+    expect(es.home.heroSubtitle).toMatch(/^Cartas verificadas, con condición garantizada\./);
+    expect(es.checkout.vaultUpsell.benefit.custody).toBe('Custodia con condición verificada y garantizada.');
+    expect(es.vault.trustBanner).toMatch(/^Tus cartas están verificadas y resguardadas en bóveda\./);
+    expect(en.home.heroSubtitle).toMatch(/^Verified cards, condition guaranteed\./);
+    expect(en.checkout.vaultUpsell.benefit.custody).toBe('Custody with verified, guaranteed condition.');
+    expect(en.vault.trustBanner).toMatch(/^Your cards are verified and kept safe in custody\./);
   });
 });
 

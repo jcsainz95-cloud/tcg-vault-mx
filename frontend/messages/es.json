@@ -231,7 +231,7 @@
   "home": {
     "heroKicker": "Cartas Pokémon · México",
     "heroTitle": "Caza la carta. Nosotros la guardamos.",
-    "heroSubtitle": "Cartas autenticadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "heroSubtitle": "Cartas verificadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
     "ctaShop": "Explorar el catálogo",
     "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
@@ -547,7 +547,7 @@
         "oneShipment": "Acumula cartas y paga un solo envío — te ahorras {amount} cada vez que no envías.",
         "oneShipmentPlain": "Acumula cartas y paga un solo envío.",
         "portfolio": "Ve el valor de tu colección actualizado a diario.",
-        "custody": "Custodia con autenticidad y condición garantizadas."
+        "custody": "Custodia con condición verificada y garantizada."
       },
       "cta": "Crear cuenta y guardar en bóveda",
       "dismiss": "Seguir con envío a domicilio",
@@ -661,7 +661,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están verificadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo las piezas liquidadas y sin envío activo se pueden retirar.",
