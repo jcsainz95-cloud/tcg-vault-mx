@@ -1,19 +1,21 @@
 /**
  * Eventos de comercio de §MKT.H.4 armados desde las formas del contrato (cotización y sesión de
- * checkout). Solo ids opacos (`cardId`, `Order.id`), nombre, categoría y montos en pesos con IVA.
+ * checkout). Solo ids canónicos (`measurementItemOf`, `Order.id`), nombre, categoría y montos en pesos con IVA.
  * ⛔ Nunca `orderNumber` (folio que el cliente comparte), correo ni dirección.
  */
 
 import type { BreakdownDTO, OrderItemPreview } from '@/types/contract';
 import { centsToValue, track, type TrackItem } from './track';
+import { measurementItemOf } from './item';
 
+/** Identidad canónica (§MKT.H.4, `measurementItemOf`); una línea sin identidad no viaja. */
 export function itemsFromQuote(items: readonly OrderItemPreview[] | undefined): TrackItem[] {
-  return (items ?? []).map((it) => ({
-    item_id: it.card.cardId,
-    item_name: it.card.name,
-    item_category: it.card.productType === 'sealed' ? 'sealed' : 'card',
-    price: centsToValue(it.unitPriceCents),
-  }));
+  const out: TrackItem[] = [];
+  for (const it of items ?? []) {
+    const id = measurementItemOf(it.card);
+    if (id) out.push({ ...id, price: centsToValue(it.unitPriceCents) });
+  }
+  return out;
 }
 
 /** `purchase` del navegador: SOLO cuando `confirmPayment` vuelve `succeeded` sin redirección. */

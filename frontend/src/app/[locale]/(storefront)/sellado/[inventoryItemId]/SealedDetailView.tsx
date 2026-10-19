@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
 import { getSealedGroupDetail } from '@/lib/api';
-import type { SealedGroupDetailResponse } from '@/types/contract';
+import type { SealedGroupDetailResponse, SealedGroupDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { IvaLabel } from '@/components/ui/IvaLabel';
@@ -22,6 +22,12 @@ import { SealedRestockForm } from './SealedRestockForm';
 import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { centsToValue, track } from '@/lib/measurement/track';
+import { measurementItemOf } from '@/lib/measurement/item';
+
+/** §MKT.H.4 (v1.106): identidad canónica del sellado — `s_<sealedProductId>` o `sc_<cardId ancla>`, nunca la pieza. */
+function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'> & { card: { id: string } }) {
+  return measurementItemOf({ cardId: g.card.id, name: g.productName, productType: 'sealed', sealedProductId: g.sealedProductId });
+}
 
 /**
  * Ficha del producto SELLADO (contrato §2-S · GET /catalog/sealed/:inventoryItemId). Selección de
@@ -66,8 +72,9 @@ export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string 
               // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada). Precio por pieza = «desde».
               const g = query.data!.group;
               const price = centsToValue(g.fromPriceCents);
+              const id = sealedItemOf(g);
               track('add_to_cart', {
-                items: ids.map(() => ({ item_id: g.representativeItemId, item_name: g.productName, item_category: 'sealed', price })),
+                items: id ? ids.map(() => ({ ...id, price })) : [],
                 value: centsToValue(g.fromPriceCents * ids.length),
                 currency: 'MXN',
               });
@@ -99,15 +106,20 @@ function Detail({
   // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`) para que el banner de cookies no la tape.
   const buyBarRef = useStickyBottomBar<HTMLDivElement>();
   // §MKT.H.4 `view_item`: una vez por grupo de sellado. Con el modo `off`, `track` no hace nada.
+  const cardId = group.card.id;
+  const productName = group.productName;
+  // Un backend anterior a v1.106 no manda la clave ⇒ `sc_<ancla>`, nunca la pieza.
+  const sealedProductId = group.sealedProductId ?? null;
   useEffect(() => {
     const price = centsToValue(group.fromPriceCents);
+    const id = sealedItemOf({ card: { id: cardId }, productName, sealedProductId });
     track('view_item', {
-      items: [{ item_id: group.representativeItemId, item_name: group.productName, item_category: 'sealed', price }],
+      items: id ? [{ ...id, price }] : [],
       value: price,
       currency: 'MXN',
       market_value_shown: false,
     });
-  }, [group.representativeItemId, group.productName, group.fromPriceCents]);
+  }, [cardId, sealedProductId, productName, group.fromPriceCents]);
 
   const available = group.availableCount;
   const [qty, setQty] = useState(1);

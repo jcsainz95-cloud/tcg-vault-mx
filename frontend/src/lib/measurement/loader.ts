@@ -13,6 +13,7 @@
 
 import type { MeasurementIds } from './mode';
 import type { ConsentChoice } from './consent';
+import { neverThrow } from './track';
 
 const GTAG_SRC = 'https://www.googletagmanager.com/gtag/js';
 const FBEVENTS_SRC = 'https://connect.facebook.net/en_US/fbevents.js';
@@ -80,10 +81,13 @@ function loadMeta(w: MeasurementWindow, pixelId: string): void {
   inject(FBEVENTS_SRC, 'meta');
 }
 
-/** Carga lo que la elección permite y el ID hace posible. Idempotente. */
+/**
+ * Carga lo que la elección permite y el ID hace posible. Idempotente. Nunca lanza (barrera R1): un
+ * fallo de una etiqueta no tumba la otra ni sube al proveedor.
+ */
 export function loadMeasurement(ids: MeasurementIds, consent: ConsentChoice): void {
   if (typeof window === 'undefined') return;
   const w = window as unknown as MeasurementWindow;
-  if (consent.analytics && ids.ga4) loadGoogle(w, ids.ga4);
-  if (consent.ads && ids.pixel) loadMeta(w, ids.pixel);
+  if (consent.analytics && ids.ga4) neverThrow(undefined, () => loadGoogle(w, ids.ga4!));
+  if (consent.ads && ids.pixel) neverThrow(undefined, () => loadMeta(w, ids.pixel!));
 }

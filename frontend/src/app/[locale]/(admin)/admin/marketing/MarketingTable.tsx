@@ -25,12 +25,20 @@ export const OTROS_LABEL = 'Otros (< 5 c/u)';
 export type CellMeaning = 'small' | 'hidden' | 'none' | 'value';
 
 /**
+ * COMPATIBILIDAD con el servidor anterior a v1.106 (MX$ `null` en fila suprimida). Se pone en `false` y se borra
+ * la rama cuando C-P1 del backend (`'oculta'`, nunca `null`) esté en PRODUCCIÓN: ficha FE-MKT2-4 de TECH_DEBT.
+ */
+export const LEGACY_NULL_HIDDEN_COMPAT = true;
+
+/**
  * ÚNICA pieza que decide qué dice una celda (§MKT-UX.5 «las cinco cosas»; «No medido» va a nivel de tabla).
  * - `'< 5'` ⇒ cantidad pequeña.
  * - `'oculta'` ⇒ «Oculto» (conteo ocultado por supresión coherente, §MKT.G.10), en texto visible.
- * - `null` en columna de dinero/porcentaje de una fila con algún `'< 5'`, en régimen `small_cells` ⇒ «Oculto».
- * - otro `null` ⇒ «—» (no aplica).
+ * - `null` ⇒ «—» (SIN DATO), siempre y en todo `kind` (API_CONTRACT §MKT.G.5, v1.106, C-P1).
  * - cualquier número (también `0`) o texto ⇒ el dato.
+ * Única excepción, de COMPATIBILIDAD (`LEGACY_NULL_HIDDEN_COMPAT`): un servidor anterior a v1.106 manda `null` en el
+ * MX$/% de una fila suprimida; con `small_cells` y algún `'< 5'`/`'oculta'` en la fila, ese `null` se lee «Oculto».
+ * Con el servidor v1.106 una fila suprimida no lleva `null` (lleva `'oculta'`), así que la excepción no se activa.
  */
 export function cellMeaning(
   cell: MarketingCell | undefined,
@@ -41,6 +49,7 @@ export function cellMeaning(
   if (cell === SMALL) return 'small';
   if (cell === OCULTA) return 'hidden';
   if (cell === null || cell === undefined) {
+    if (!LEGACY_NULL_HIDDEN_COMPAT) return 'none';
     const amount = column.kind === 'money' || column.kind === 'pct';
     return amount && rowHasSmall && privacy === 'small_cells' ? 'hidden' : 'none';
   }

@@ -1,8 +1,6 @@
 # FRONTEND_NOTES.md — Marketplace TCG con Bóveda
 
-> Propiedad: **frontend**. Decisiones de implementación del cliente Next.js.
-> Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
-> El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
+> Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
 ## §MKT2 · Fase 2 de marketing (banner, Consent Mode básico, GA4, píxel) — construida y APAGADA (2026-10-19, base `b95fbbac`)
 
@@ -17,32 +15,34 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   importador `components/consent/MeasurementProvider.tsx`) y `security/measurement-origins.mjs` (solo lo importa
   `next.config.mjs`; los `.map` del middleware copian el fuente entero, por eso la lista no vive en `csp.ts`).
   Candado de fuente `lib/measurement/source-lock.test.ts`; de artefacto, `e2e/measurement-off.spec.ts` (C-F1).
-- **Módulos:** `lib/measurement/{mode,routes,utm,consent,track,request,ecommerce,loader}.ts`;
-  `components/consent/{MeasurementProvider,ConsentBanner,ConsentPreferencesDialog,CookiePreferencesLink}.tsx`;
-  `hooks/useStickyBottomBar.ts` (`--sticky-bottom-h`, aplicado a `CardDetailView`, `SealedDetailView`, `SellCartBar`).
-  Lista blanca única de rutas: `routes.ts` (toda ruta nueva nace excluida).
+- **Módulos:** `lib/measurement/*.ts`, `components/consent/*.tsx`, `hooks/useStickyBottomBar.ts` (`usePublishedHeight`: barras
+  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido).
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
   `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
   escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
   espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
   `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
   imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
-  version=…`. `npx next build` directo (E2E) no pasa por la puerta: no publica.
+  version=…`. `npx next build` directo solo pasa la mínima de `next.config.mjs` (D7).
 - **E2E:** `e2e/measurement-off.spec.ts` (C-F2 + C-F1, suite normal, `@real`) y `e2e/measurement-on.spec.ts` (C-F3,
   C-F5, C-F10, C-F11, C-F12, C-F19) con `npx playwright test -c playwright.measurement-on.config.ts` (bundle de mocks
   `on` propio en `.next-e2e-mkt-on`, terceros interceptados). Unidad: `ConsentBanner.test.tsx` (C-F8/9/13/14/18),
-  `track.test.ts` (C-F6), `utm.test.ts` (C-F4), `csp.measurement.test.ts` (C-F7), `measurement-gate.test.ts`
-  (C-D1/C-F17), `consent-i18n.test.ts` (C-F15). C-F16 ya existía (`MarketingView.test.tsx`).
+  `track.test.ts` (C-F6), `utm.test.ts` + `utm.parity.test.ts` (C-F4; D3, texto del backend), `csp.measurement.test.ts` (C-F7),
+  `measurement-gate.test.ts` (C-D1/C-F17), `consent-i18n.test.ts` (C-F15), `MarketingView.test.tsx` (C-F16).
 - **Decisiones (v1.105, §MKT.H.13):** (1) sin respuesta al banner el objeto `measurement` NO viaja; (2) `no_response`
   una vez por DOCUMENTO, marca solo en memoria (nada en storage antes de elegir); (3) respuesta por resultado, también
-  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); desde el
-  pie, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
-  de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso va en párrafo propio al final del
-  apartado `cookies` (definitivo); la puerta C-D1 exige ese apartado.
-- **Eventos cableados:** `page_view`, `view_item` (carta y sellado), `add_to_cart` (fichas), `begin_checkout` (las dos
-  cotizaciones), `purchase` (los dos checkouts, solo `succeeded`; `StripePaymentModal.onConfirmed(status)`).
-  **Sin cablear:** `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (TECH_DEBT
-  FE-MKT2-2).
+  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); cuenta la
+  PRIMERA elección con el banner visible, también desde el pie (QA M2); un cambio posterior, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
+  de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso, párrafo propio al final de `cookies` (C-D1 lo exige).
+- **Eventos cableados:** `page_view`, `view_item`/`add_to_cart` (fichas), `begin_checkout`, `purchase` (solo `succeeded`,
+  **al final** de `onConfirmed`, tras sesión/carrito/token/`paid`). Sin cablear: FE-MKT2-2. **La medición nunca lanza**
+  (v1.106, TL R1): `trackWith`/`track`/`flushPendingEvents`/`loadMeasurement`/`measurementForRequest` con barrera
+  (`callVendorSafely`, `neverThrow`); candado `checkout/CheckoutMeasurementBarrier.test.tsx`. **Identidad de ítem** (§MKT.H.4,
+  R4): `lib/measurement/item.ts` `measurementItemOf` (`c_`/`s_`/`sc_`), C-F8 = `item.test.ts` (lee la tabla del contrato).
+- **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
+  `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
+  (exento: mocks). `ENCENDER_BLOCKERS` (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto (hoy R4, D2).
+  Panel: `null` = «—»; compat pre-v1.106 `LEGACY_NULL_HIDDEN_COMPAT` (FE-MKT2-4); «Cobertura:» se quita al pintar (QA M3).
 
 ## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
 

@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { centsToValue, track } from '@/lib/measurement/track';
+import { measurementItemOf } from '@/lib/measurement/item';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
@@ -108,8 +109,10 @@ export function CardDetailView({ cardId }: { cardId: string }) {
               setAddedSignal(Date.now());
               // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada).
               const price = centsToValue(u.displayPriceCents ?? 0);
+              const c = query.data!.card;
+              const id = measurementItemOf({ cardId: c.id, name: c.name, setName: c.setName, productType: 'raw' });
               track('add_to_cart', {
-                items: [{ item_id: query.data!.card.id, item_name: query.data!.card.name, item_category: 'card', price }],
+                items: id ? [{ ...id, price }] : [],
                 value: price,
                 currency: 'MXN',
               });
@@ -226,13 +229,14 @@ function Detail({
   useEffect(() => {
     if (primaryPriceCents == null) return;
     const price = centsToValue(primaryPriceCents);
+    const id = measurementItemOf({ cardId: card.id, name: card.name, setName: card.setName, productType: 'raw' });
     track('view_item', {
-      items: [{ item_id: card.id, item_name: card.name, item_category: 'card', price }],
+      items: id ? [{ ...id, price }] : [],
       value: price,
       currency: 'MXN',
       market_value_shown: false,
     });
-  }, [card.id, card.name, primaryPriceCents]);
+  }, [card.id, card.name, card.setName, primaryPriceCents]);
 
   // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
   const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);

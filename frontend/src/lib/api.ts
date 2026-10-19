@@ -1231,15 +1231,6 @@ function idempotencyKey(): string {
 }
 
 /**
- * Crea la sesión de checkout (contrato POST /checkout/session, §4): reserva los items, crea la
- * `Order` en `pending` y el `PaymentIntent` de Stripe. Devuelve `{ orderId, breakdown, stripe:{
- * paymentIntentId, clientSecret } }`. El `clientSecret` alimenta el `StripePaymentModal`; el pago
- * se asienta por webhook (`payment_intent.succeeded`), no por la respuesta a `confirmPayment`.
- *
- * TOCA DINERO. Errores del contrato: `403 EMAIL_NOT_VERIFIED` (correo sin verificar — el front
- * muestra el banner de verificación), `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`.
- */
-/**
  * §MKT.H.2 — el objeto `measurement` de las tres peticiones que crean pedido o solicitud
  * (`/checkout/session`, `/checkout/guest/session`, `/buylist/requests`). `{}` con el modo `off`
  * horneado o sin elección del visitante: el body queda EXACTAMENTE como antes.
@@ -1249,6 +1240,15 @@ export function measurementBodyField(): { measurement?: NonNullable<ReturnType<t
   return m ? { measurement: m } : {};
 }
 
+/**
+ * Crea la sesión de checkout (contrato POST /checkout/session, §4): reserva los items, crea la
+ * `Order` en `pending` y el `PaymentIntent` de Stripe. Devuelve `{ orderId, breakdown, stripe:{
+ * paymentIntentId, clientSecret } }`. El `clientSecret` alimenta el `StripePaymentModal`; el pago
+ * se asienta por webhook (`payment_intent.succeeded`), no por la respuesta a `confirmPayment`.
+ *
+ * TOCA DINERO. Errores del contrato: `403 EMAIL_NOT_VERIFIED` (correo sin verificar — el front
+ * muestra el banner de verificación), `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`.
+ */
 export async function createCheckoutSession(
   inventoryItemIds: string[],
   billingProfileId?: string,

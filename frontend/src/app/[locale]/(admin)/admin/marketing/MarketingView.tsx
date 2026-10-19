@@ -49,6 +49,14 @@ export function resolvePeriod(
   return w ? { query: { weekStart: w.weekStart }, from: w.from, to: w.to, week: isoWeekOf(w.weekStart), month: null } : null;
 }
 
+/**
+ * QA M3 (2026-10-19): el recuadro ya se titula «Cobertura»; el servidor empieza su nota con «Cobertura: …». Se quita el
+ * prefijo AL PINTAR (el literal del servidor no cambia: lo vigila `mock/marketing.parity.test.ts`).
+ */
+export function withoutCoveragePrefix(note: string): string {
+  return note.replace(/^Cobertura:\s*/, '');
+}
+
 export function MarketingView({ initial }: { initial: MktUrlState }) {
   const tModules = useTranslations('admin.modules');
   const t = useTranslations('admin.marketing');
@@ -422,7 +430,7 @@ function ScreenBody({
         <Banner variant="info" title={t('coverage.title')}>
           <ul className="list-disc pl-4" data-testid="mkt-coverage" lang={serverLang}>
             {data.notes.map((n, i) => (
-              <li key={i}>{n}</li>
+              <li key={i}>{withoutCoveragePrefix(n)}</li>
             ))}
           </ul>
         </Banner>

@@ -259,15 +259,17 @@ export function CheckoutView() {
   }
 
   function onConfirmed(status?: 'succeeded' | 'processing') {
-    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección; mismo id que CAPI
-    // (`p_<Order.id>`). Con el modo `off` no hace nada. El servidor lo manda siempre (§14.6).
-    if (status === 'succeeded' && session) trackPurchase(session.orderId, session.breakdown, query.data?.items);
+    const confirmed = session;
     // El pago quedó autorizado; el backend lo asienta por webhook. Limpiamos el carrito y
     // mostramos "procesando" (la titularidad pasa a settled cuando el webhook liquida).
     setSession(null);
     setOutcome(null);
     cart.clear();
     setPaid(true);
+    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección; mismo id que CAPI
+    // (`p_<Order.id>`). Con el modo `off` no hace nada. El servidor lo manda siempre (§14.6).
+    // ⛔ AL FINAL, después de todo el estado de dinero (TL R1): la medición nunca va delante del cobro.
+    if (status === 'succeeded' && confirmed) trackPurchase(confirmed.orderId, confirmed.breakdown, query.data?.items);
   }
 
   return (

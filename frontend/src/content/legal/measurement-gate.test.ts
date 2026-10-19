@@ -3,8 +3,10 @@ import { privacyNoticeEs, type LegalDocument } from './privacidad.es';
 import {
   OLD_NO_MEASUREMENT_SENTENCE,
   formatMeasurementNoticeReport,
+  ENCENDER_BLOCKERS,
   measurementGateProblems,
   measurementNoticeProblems,
+  type EncenderBlocker,
 } from './measurement-gate';
 import { legalPublishProblems } from './publish-check';
 import { MEASUREMENT_DISCLOSURE } from './measurement-disclosure';
@@ -42,12 +44,12 @@ describe('C-D1 · puerta del aviso de medición', () => {
   });
 
   it('con on y el aviso actual ⇒ problemas (build rojo); con off ⇒ ninguno', () => {
-    expect(measurementGateProblems('on', privacyNoticeEs).length).toBe(3);
-    expect(measurementGateProblems('off', privacyNoticeEs)).toEqual([]);
+    expect(measurementGateProblems('on', privacyNoticeEs, []).length).toBe(3);
+    expect(measurementGateProblems('off', privacyNoticeEs, [])).toEqual([]);
   });
 
   it('con un aviso que sí declara ⇒ ninguno (build verde)', () => {
-    expect(measurementGateProblems('on', declaredNotice())).toEqual([]);
+    expect(measurementGateProblems('on', declaredNotice(), [])).toEqual([]);
   });
 
   it('la frase vieja detecta también con negrita (`**…**`) como está en privacidad.es.ts', () => {
@@ -85,8 +87,42 @@ describe('C-D1 · puerta del aviso de medición', () => {
     const base = legalPublishProblems('provisional', input);
     expect(legalPublishProblems('provisional', input, { measurement: 'off' })).toEqual(base);
     const on = legalPublishProblems('provisional', input, { measurement: 'on' });
-    expect(on.length).toBe(base.length + 3);
+    expect(on.length).toBe(base.length + 3 + ENCENDER_BLOCKERS.length);
     expect(on).toContain('measurementDisclosure es null: el aviso no declara la medición');
+  });
+});
+
+/** C-D1 (v1.106, ARCHITECTURE §14.1 D-MKT2-0c) — los bloqueos de encendido viven en la puerta, no en una nota. */
+describe('C-D1 · ENCENDER_BLOCKERS', () => {
+  const ONE: EncenderBlocker = { id: 'X1', what: 'algo sin cerrar', owner: 'backend', closedBy: 'backend/test/x.spec.ts' };
+
+  it('aviso válido + un bloqueo ⇒ rojo, con el problema que nombra id, dueño y qué', () => {
+    expect(measurementGateProblems('on', declaredNotice(), [ONE])).toEqual(['bloqueo de encendido abierto: X1 (backend) — algo sin cerrar']);
+  });
+
+  it('con off la lista no cuenta', () => {
+    expect(measurementGateProblems('off', declaredNotice(), [ONE])).toEqual([]);
+  });
+
+  it('por defecto usa ENCENDER_BLOCKERS: con on, uno por entrada además de los del aviso', () => {
+    expect(ENCENDER_BLOCKERS.length).toBeGreaterThan(0);
+    expect(measurementGateProblems('on', declaredNotice())).toEqual(
+      ENCENDER_BLOCKERS.map((b) => `bloqueo de encendido abierto: ${b.id} (${b.owner}) — ${b.what}`),
+    );
+  });
+
+  it('cada entrada tiene id único, qué, dueño válido y la prueba que la cierra', () => {
+    const ids = ENCENDER_BLOCKERS.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const b of ENCENDER_BLOCKERS) {
+      expect(b.what.length).toBeGreaterThan(10);
+      expect(['backend', 'frontend', 'devops']).toContain(b.owner);
+      expect(b.closedBy).toMatch(/\S/);
+    }
+  });
+
+  it('D4 (parche del router) salió de la lista: lo cierra ConsentBanner.test.tsx «D4 · sin parche del router…»', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain('D4');
   });
 });
 

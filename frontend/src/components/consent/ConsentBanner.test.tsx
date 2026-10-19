@@ -83,6 +83,8 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION', 'e2e-1');
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
   window.sessionStorage.clear();
+  // Next 15 publica `window.next.router` al cargar el módulo del router; aquí se simula (D4: sin él, no hay etiquetas).
+  (window as unknown as { next?: unknown }).next = { router: { push: vi.fn(), replace: vi.fn() } };
 });
 
 afterEach(() => {
@@ -95,6 +97,7 @@ afterEach(() => {
   delete w.fbq;
   delete w._fbq;
   delete w.dataLayer;
+  delete w.next;
   document.querySelectorAll('script[data-th-measurement]').forEach((s) => s.remove());
 });
 
@@ -276,6 +279,32 @@ describe('C-F13 · segunda capa', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Guardar mi elección' }));
     expect(bannerCalls()).toEqual([]);
   });
+
+  // QA M2 (2026-10-19, sobre a1ba4d2e): la PRIMERA elección cuenta venga de donde venga si el banner seguía visible.
+  it('primera elección desde el pie con el banner visible ⇒ cuenta UNA vez (por resultado) y ya no hay no_response', async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByTestId('consent-banner');
+    await user.click(screen.getByTestId('cookie-preferences-nav'));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('switch', { name: 'Analítica' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar mi elección' }));
+    expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+  });
+
+  it('primera elección desde el pie en una ruta SIN banner (fuera de la lista blanca) ⇒ no se manda nada', async () => {
+    mockPath = '/es/account';
+    window.history.replaceState(null, '', '/es/account');
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByTestId('cookie-preferences-nav'));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Guardar mi elección' }));
+    expect(bannerCalls()).toEqual([]);
+  });
 });
 
 describe('C-F14 · enlace persistente', () => {
@@ -342,5 +371,39 @@ describe('§MKT.H.13 · la respuesta del banner es la del RESULTADO (también de
   it('Guardar con solo Publicidad ⇒ custom', async () => {
     await saveFromLayer(['Publicidad']);
     expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+  });
+});
+
+/** TL D4 (2026-10-19): el parche del router (C-F5 2/3) es la LLAVE del cargador — falla en cerrado. */
+describe('D4 · sin parche del router no se cargan las etiquetas', () => {
+  async function acceptAll() {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Aceptar' }));
+    expect(consentCookie()).toMatchObject({ a: 1, m: 1 });
+  }
+  const scripts = () => document.querySelectorAll('script[data-th-measurement]').length;
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 50)));
+
+  it('control: con window.next.router, Aceptar carga Google y Meta', async () => {
+    await acceptAll();
+    await waitFor(() => expect(scripts()).toBe(2));
+  });
+
+  it('sin window.next.router: Aceptar guarda la elección pero no carga nada', async () => {
+    delete (window as unknown as { next?: unknown }).next;
+    await acceptAll();
+    await settle();
+    expect(scripts()).toBe(0);
+    expect((window as unknown as { gtag?: unknown }).gtag).toBeUndefined();
+    expect((window as unknown as { fbq?: unknown }).fbq).toBeUndefined();
+  });
+
+  it('router congelado (el parche no se puede escribir): no carga nada y no rompe la página', async () => {
+    (window as unknown as { next?: unknown }).next = { router: Object.freeze({ push: vi.fn(), replace: vi.fn() }) };
+    await acceptAll();
+    await settle();
+    expect(scripts()).toBe(0);
+    expect(screen.getByText('contenido')).toBeInTheDocument();
   });
 });

@@ -133,8 +133,36 @@ function pixelParams(filtered: Record<string, unknown>): Record<string, unknown>
   return out;
 }
 
-/** El núcleo, con su entorno inyectado (pruebas C-F6). Devuelve lo que mandó (o `null`). */
+/**
+ * BARRERA (TL R1, 2026-10-19): `gtag`/`fbq` son código de terceros. Nada de lo que hagan puede
+ * subir a la pantalla: `purchase` se dispara en el `onConfirmed` de un cobro ya hecho, y una
+ * excepción ahí dejaba el modal en «enviando», el carrito lleno y el token de reintento vivo.
+ * Cada llamada al tercero va por aquí; si lanza, se traga y la otra etiqueta sigue.
+ */
+export function callVendorSafely(fn: (...args: unknown[]) => void, ...args: unknown[]): boolean {
+  try {
+    fn(...args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Ejecuta `fn` y devuelve `fallback` si lanza. Envuelve todo punto de entrada público de medición. */
+export function neverThrow<T>(fallback: T, fn: () => T): T {
+  try {
+    return fn();
+  } catch {
+    return fallback;
+  }
+}
+
+/** El núcleo, con su entorno inyectado (pruebas C-F6). Devuelve lo que mandó (o `null`). Nunca lanza. */
 export function trackWith(rt: TrackRuntime, event: BrowserEvent, params: TrackParams = {}) {
+  return neverThrow<ReturnType<typeof trackWithUnguarded>>(null, () => trackWithUnguarded(rt, event, params));
+}
+
+function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: TrackParams) {
   if (!rt.on || !rt.consent) return null;
   if (!isMeasuredPath(rt.pathname)) return null;
   if (!(event in EVENT_PARAMS)) return null;
@@ -150,8 +178,7 @@ export function trackWith(rt: TrackRuntime, event: BrowserEvent, params: TrackPa
       if (utm.campaign) ga.first_utm_campaign = utm.campaign;
       if (utm.content) ga.first_utm_content = utm.content;
     }
-    rt.gtag('event', event, ga);
-    sent.ga4 = ga;
+    if (callVendorSafely(rt.gtag, 'event', event, ga)) sent.ga4 = ga;
   }
 
   const pixelName = PIXEL_EVENT[event];
@@ -159,9 +186,8 @@ export function trackWith(rt: TrackRuntime, event: BrowserEvent, params: TrackPa
     const p = pixelParams(filtered);
     // Deduplicación con CAPI (§MKT.H.4/.5): el MISMO id que el servidor, `p_<Order.id>`.
     const eventID = event === 'purchase' && typeof filtered.transaction_id === 'string' ? `p_${filtered.transaction_id}` : undefined;
-    if (eventID) rt.fbq('track', pixelName, p, { eventID });
-    else rt.fbq('track', pixelName, p);
-    sent.pixel = { name: pixelName, params: p, eventID };
+    const ok = eventID ? callVendorSafely(rt.fbq, 'track', pixelName, p, { eventID }) : callVendorSafely(rt.fbq, 'track', pixelName, p);
+    if (ok) sent.pixel = { name: pixelName, params: p, eventID };
   }
   return sent.ga4 || sent.pixel ? sent : null;
 }
@@ -194,10 +220,14 @@ function runtimeFor(pathname: string): TrackRuntime {
   return { on: true, pathname, consent: runtimeConsent ?? null, gtag: w.gtag, fbq: w.fbq, jar: documentCookieJar() };
 }
 
-/** API pública. Con el modo `off` horneado no hace nada (y no lee nada). */
+/** API pública. Con el modo `off` horneado no hace nada (y no lee nada). Nunca lanza (barrera R1). */
 export function track(event: BrowserEvent, params: TrackParams = {}): void {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
   if (typeof window === 'undefined') return;
+  neverThrow(undefined, () => trackUnguarded(event, params));
+}
+
+function trackUnguarded(event: BrowserEvent, params: TrackParams): void {
   const rt = runtimeFor(window.location.pathname);
   const c = rt.consent;
   // `loadMeasurement` define los dos stubs en la misma llamada síncrona: o no hay ninguno (aún
@@ -215,9 +245,11 @@ export function track(event: BrowserEvent, params: TrackParams = {}): void {
 export function flushPendingEvents(): void {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
   if (typeof window === 'undefined') return;
-  const here = window.location.pathname;
-  const batch = pending.splice(0, pending.length);
-  for (const p of batch) if (p.pathname === here) trackWith(runtimeFor(here), p.event, p.params);
+  neverThrow(undefined, () => {
+    const here = window.location.pathname;
+    const batch = pending.splice(0, pending.length);
+    for (const p of batch) if (p.pathname === here) trackWith(runtimeFor(here), p.event, p.params);
+  });
 }
 
 /** Pesos con IVA a 2 decimales desde centavos (§MKT.H.4: `value` en pesos; `*_cents` enteros). */

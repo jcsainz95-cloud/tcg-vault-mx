@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/Button';
 import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
 import { useMeasurement } from './measurement-context';
+import { usePublishedHeight } from '@/hooks/useStickyBottomBar';
 
 /**
  * DESIGN_SYSTEM MKT2-UX.3 — primera capa del aviso de cookies.
@@ -29,31 +29,7 @@ function ConsentBanner() {
   const t = useTranslations('consent');
   const tp = useTranslations('privacy');
   const m = useMeasurement();
-  const observer = useRef<ResizeObserver | null>(null);
-
-  const ref = useCallback((node: HTMLDivElement | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    const root = document.documentElement;
-    if (!node) {
-      root.style.removeProperty(BANNER_VAR);
-      return;
-    }
-    const measure = () => root.style.setProperty(BANNER_VAR, `${Math.ceil(node.offsetHeight)}px`);
-    measure();
-    if (typeof ResizeObserver !== 'undefined') {
-      observer.current = new ResizeObserver(measure);
-      observer.current.observe(node);
-    }
-  }, []);
-
-  useEffect(
-    () => () => {
-      observer.current?.disconnect();
-      document.documentElement.style.removeProperty(BANNER_VAR);
-    },
-    [],
-  );
+  const ref = usePublishedHeight<HTMLDivElement>(BANNER_VAR);
 
   return (
     <div

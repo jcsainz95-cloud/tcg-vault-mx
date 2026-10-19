@@ -21,7 +21,7 @@ import {
   type ConsentChoice,
 } from '@/lib/measurement/consent';
 import { hasAnyUtm, utmFromSearch, type FirstUtmValues } from '@/lib/measurement/utm';
-import { flushPendingEvents, setRuntimeConsent, track } from '@/lib/measurement/track';
+import { callVendorSafely, flushPendingEvents, setRuntimeConsent, track } from '@/lib/measurement/track';
 import { sendBannerResponse, type BannerResponse } from '@/lib/measurement/request';
 import { ConsentPreferencesDialog } from './ConsentPreferencesDialog';
 
@@ -107,6 +107,9 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
   const noResponseSent = useRef(false);
   const trigger = useRef<HTMLElement | null>(null);
   const lastHref = useRef<string>('');
+  // D4 (TL, 2026-10-19): FALLA EN CERRADO. Sin el parche del router (C-F5 2/3) instalado, una
+  // navegación por código pintaría una ruta excluida con las etiquetas vivas ⇒ no se cargan.
+  const [routerGuarded, setRouterGuarded] = useState(false);
 
   // Lectura inicial: la cookie solo existe en el cliente (MKT2-UX.2 «hidratación sin parpadeo»).
   useEffect(() => {
@@ -146,7 +149,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
 
   // Cargador + `page_view`, solo en la lista blanca y con elección.
   useEffect(() => {
-    if (!active || !consent || !measured) return;
+    if (!active || !consent || !measured || !routerGuarded) return;
     if (!consent.analytics && !consent.ads) return;
     let cancelled = false;
     if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on') {
@@ -164,7 +167,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [active, consent, measured, ids, pathname]);
+  }, [active, consent, measured, ids, pathname, routerGuarded]);
 
   // C-F5 · navegación dura hacia rutas excluidas (1/2): clics en enlaces, ANTES que el router de Next.
   useEffect(() => {
@@ -189,7 +192,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('click', onClick, true);
   }, [active]);
 
-  // C-F5 (2/3): navegación por código. `useRouter()` (también el de next-intl) devuelve el MISMO
+  // C-F5 (2/3): navegación por código (y llave del cargador, D4: sin parche no hay etiquetas). `useRouter()` (también el de next-intl) devuelve el MISMO
   // objeto que `window.next.router`; se envuelven `push`/`replace` para que una ruta excluida se pida
   // como documento nuevo ANTES de pintarse (sin esto, la ruta excluida llegaba a renderizarse un
   // instante con las etiquetas vivas: medido con N=10, 60/60 rojos en el E2E de C-F5).
@@ -197,7 +200,8 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
     if (!active) return;
     type Nav = (href: string, options?: unknown) => void;
     const router = (window as unknown as { next?: { router?: { push?: Nav; replace?: Nav } } }).next?.router;
-    if (!router?.push || !router.replace) return;
+    // Sin router que envolver, `routerGuarded` se queda en false y el cargador no corre (D4).
+    if (typeof router?.push !== 'function' || typeof router.replace !== 'function') return;
     const origPush = router.push;
     const origReplace = router.replace;
     const hardTarget = (href: string): string | null => {
@@ -209,19 +213,39 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
         return null;
       }
     };
-    router.push = (href, options) => {
-      const target = hardTarget(href);
-      if (target) window.location.assign(target);
-      else origPush(href, options);
+    const restore = () => {
+      try {
+        router.push = origPush;
+        router.replace = origReplace;
+      } catch {
+        /* objeto que no admite escritura: no hubo parche que quitar */
+      }
     };
-    router.replace = (href, options) => {
-      const target = hardTarget(href);
-      if (target) window.location.replace(target);
-      else origReplace(href, options);
-    };
+    try {
+      router.push = (href, options) => {
+        const target = hardTarget(href);
+        if (target) window.location.assign(target);
+        else origPush(href, options);
+      };
+      router.replace = (href, options) => {
+        const target = hardTarget(href);
+        if (target) window.location.replace(target);
+        else origReplace(href, options);
+      };
+    } catch {
+      // Objeto congelado o de solo lectura: el parche NO quedó ⇒ sin etiquetas (D4).
+      restore();
+      return;
+    }
+    // Solo cuenta como instalado si las DOS escrituras quedaron (comprobado leyendo, no supuesto).
+    if (router.push === origPush || router.replace === origReplace) {
+      restore();
+      return;
+    }
+    setRouterGuarded(true);
     return () => {
-      router.push = origPush;
-      router.replace = origReplace;
+      setRouterGuarded(false);
+      restore();
     };
   }, [active]);
 
@@ -265,7 +289,7 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
       if (revoked.analytics || revoked.ads) {
         clearCookies(jar, cookiesToClear(parseCookies(jar.read()).keys(), revoked));
         const w = window as unknown as { gtag?: (...a: unknown[]) => void };
-        if (revoked.analytics && w.gtag) w.gtag('consent', 'update', { analytics_storage: 'denied' });
+        if (revoked.analytics && w.gtag) callVendorSafely(w.gtag, 'consent', 'update', { analytics_storage: 'denied' });
         setRuntimeConsent(choice);
         window.location.reload();
         return;
@@ -322,7 +346,9 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
             }, 0);
           }}
           onSave={(choice) =>
-            save(choice, dialogOrigin === 'banner' && !answered.current ? bannerResponseFor(choice) : null, {
+            // QA M2 (v1.105, «solo cuenta la primera respuesta»): la PRIMERA elección con el banner aún visible
+            // cuenta venga de la 2.ª capa del banner o del enlace del pie; un cambio posterior no manda nada.
+            save(choice, !answered.current && bannerVisible ? bannerResponseFor(choice) : null, {
               focus: dialogOrigin === 'banner' ? 'main' : 'trigger',
               toast: true,
             })

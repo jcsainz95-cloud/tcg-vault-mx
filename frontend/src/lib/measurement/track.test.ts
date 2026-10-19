@@ -147,3 +147,54 @@ describe('track() público', () => {
     expect(gtag).not.toHaveBeenCalled();
   });
 });
+
+/** TL R1 (2026-10-19): gtag/fbq son código de terceros; si lanzan, la medición se lo traga. */
+describe('barrera: la medición nunca lanza', () => {
+  const boom = () => {
+    throw new Error('tercero roto');
+  };
+  type W = { gtag?: unknown; fbq?: unknown; dataLayer?: unknown };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete (window as unknown as W).gtag;
+    delete (window as unknown as W).fbq;
+    delete (window as unknown as W).dataLayer;
+    setRuntimeConsent(null);
+  });
+
+  it('trackWith: gtag lanza ⇒ no sube y Meta igual recibe el evento', () => {
+    const r = rt({ gtag: vi.fn(boom) as never });
+    let out: ReturnType<typeof trackWith> | undefined;
+    expect(() => {
+      out = trackWith(r, 'purchase', { transaction_id: 'ord-1', value: 1 });
+    }).not.toThrow();
+    expect(r.fbq).toHaveBeenCalledWith('track', 'Purchase', expect.any(Object), { eventID: 'p_ord-1' });
+    expect(out?.ga4).toBeUndefined();
+    expect(out?.pixel?.name).toBe('Purchase');
+  });
+
+  it('trackWith: las dos lanzan ⇒ devuelve null, sin excepción', () => {
+    const r = rt({ gtag: vi.fn(boom) as never, fbq: vi.fn(boom) as never });
+    expect(trackWith(r, 'add_to_cart', { value: 1 })).toBeNull();
+  });
+
+  it('track() y flushPendingEvents() públicos con on: etiquetas que lanzan no suben', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    window.history.replaceState(null, '', '/es/catalog/xy1-1');
+    setRuntimeConsent({ analytics: true, ads: true });
+    track('view_item', { value: 1 }); // espera: aún no hay etiquetas
+    (window as unknown as W).gtag = vi.fn(boom);
+    (window as unknown as W).fbq = vi.fn(boom);
+    expect(() => flushPendingEvents()).not.toThrow();
+    expect(() => track('purchase', { transaction_id: 'o', value: 1 })).not.toThrow();
+  });
+
+  it('loadMeasurement: un fallo al montar Google no sube y Meta se carga igual', async () => {
+    const { loadMeasurement } = await import('./loader');
+    // `dataLayer` congelado ⇒ el `push` del stub de gtag lanza dentro de `loadGoogle`.
+    (window as unknown as W).dataLayer = Object.freeze([]);
+    expect(() => loadMeasurement({ ga4: 'G-TEST123', pixel: '123456789012345' }, { analytics: true, ads: true })).not.toThrow();
+    expect(typeof (window as unknown as W).fbq).toBe('function');
+    document.querySelectorAll('script[data-th-measurement]').forEach((s) => s.remove());
+  });
+});

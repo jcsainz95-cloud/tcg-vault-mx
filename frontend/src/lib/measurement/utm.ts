@@ -15,7 +15,7 @@ export interface FirstUtmValues {
   content?: string;
 }
 
-const UTM_VALUE_RE = /^[a-z0-9._-]{1,64}$/;
+export const UTM_VALUE_RE = /^[a-z0-9._-]{1,64}$/;
 
 export const UTM_KEY_MAP: ReadonlyArray<readonly [keyof FirstUtmValues, string]> = [
   ['source', 'utm_source'],

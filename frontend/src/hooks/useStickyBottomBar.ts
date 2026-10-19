@@ -16,53 +16,72 @@ import { useCallback, useEffect, useRef } from 'react';
 
 export const STICKY_BOTTOM_VAR = '--sticky-bottom-h';
 
-const heights = new Map<symbol, number>();
+/** Registro por variable CSS: cada elemento que publica en ella, con su alto medido. */
+const registries = new Map<string, Map<symbol, number>>();
 
-function publish(): void {
+function registry(cssVar: string): Map<symbol, number> {
+  let r = registries.get(cssVar);
+  if (!r) registries.set(cssVar, (r = new Map()));
+  return r;
+}
+
+function publish(cssVar: string): void {
   if (typeof document === 'undefined') return;
-  const max = Math.max(0, ...heights.values());
+  const max = Math.max(0, ...registry(cssVar).values());
   const root = document.documentElement;
-  if (max > 0) root.style.setProperty(STICKY_BOTTOM_VAR, `${Math.ceil(max)}px`);
-  else root.style.removeProperty(STICKY_BOTTOM_VAR);
+  if (max > 0) root.style.setProperty(cssVar, `${Math.ceil(max)}px`);
+  else root.style.removeProperty(cssVar);
 }
 
-/** Solo pruebas: estado del registro. */
+/** Solo pruebas: estado del registro de `--sticky-bottom-h`. */
 export function stickyBottomHeightsForTest(): number[] {
-  return [...heights.values()];
+  return [...registry(STICKY_BOTTOM_VAR).values()];
 }
 
-export function useStickyBottomBar<T extends HTMLElement>(): (node: T | null) => void {
-  const key = useRef<symbol>(Symbol('sticky-bottom-bar'));
+/**
+ * Publica el alto real del elemento en `cssVar` (en `<html>`), lo sigue con `ResizeObserver` y lo
+ * limpia al desmontarse. Varios a la vez ⇒ la MAYOR. Lo usan las barras fijas (`--sticky-bottom-h`)
+ * y el banner de cookies (`--consent-banner-h`, TL D8 2026-10-19: antes repetía este patrón a mano).
+ */
+export function usePublishedHeight<T extends HTMLElement>(cssVar: string): (node: T | null) => void {
+  const key = useRef<symbol>(Symbol(cssVar));
   const observer = useRef<ResizeObserver | null>(null);
 
-  const ref = useCallback((node: T | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    const id = key.current;
-    if (!node) {
-      heights.delete(id);
-      publish();
-      return;
-    }
-    const measure = () => {
-      heights.set(id, node.offsetHeight);
-      publish();
-    };
-    measure();
-    if (typeof ResizeObserver !== 'undefined') {
-      observer.current = new ResizeObserver(measure);
-      observer.current.observe(node);
-    }
-  }, []);
+  const ref = useCallback(
+    (node: T | null) => {
+      observer.current?.disconnect();
+      observer.current = null;
+      const id = key.current;
+      if (!node) {
+        registry(cssVar).delete(id);
+        publish(cssVar);
+        return;
+      }
+      const measure = () => {
+        registry(cssVar).set(id, node.offsetHeight);
+        publish(cssVar);
+      };
+      measure();
+      if (typeof ResizeObserver !== 'undefined') {
+        observer.current = new ResizeObserver(measure);
+        observer.current.observe(node);
+      }
+    },
+    [cssVar],
+  );
 
   useEffect(() => {
     const id = key.current;
     return () => {
       observer.current?.disconnect();
-      heights.delete(id);
-      publish();
+      registry(cssVar).delete(id);
+      publish(cssVar);
     };
-  }, []);
+  }, [cssVar]);
 
   return ref;
+}
+
+export function useStickyBottomBar<T extends HTMLElement>(): (node: T | null) => void {
+  return usePublishedHeight<T>(STICKY_BOTTOM_VAR);
 }

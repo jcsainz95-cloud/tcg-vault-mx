@@ -81,6 +81,45 @@ export const measurementBuildEnv = (env = process.env) => {
   };
 };
 
+/**
+ * TL D7 (2026-10-19) · C-D1 MÍNIMA en `next.config.mjs`: la puerta completa (`prebuild`) solo corre con
+ * `npm run build`; esta corre con CUALQUIER `next build` (y `next dev`/`start`). Modo `on` + declaración
+ * nula o incompleta en `measurement-disclosure.ts` ⇒ la configuración lanza y el build falla.
+ * Se lee el fichero como TEXTO (un `.mjs` no importa `.ts`). Exención única: bundles de MOCKS
+ * (`NEXT_PUBLIC_USE_MOCKS=true`, E2E con `on`), que no se publican y hornean su versión de prueba.
+ * Devuelve el problema o `null`. Candado: `src/lib/next-config-measurement-gate.test.ts`.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ * @param {string} [source] texto de `measurement-disclosure.ts`
+ */
+export function measurementDisclosureProblem(
+  env = process.env,
+  source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'src/content/legal/measurement-disclosure.ts'), 'utf8'),
+) {
+  if (measurementModeOf(env.NEXT_PUBLIC_MEASUREMENT_MODE) !== 'on') return null;
+  if (env.NEXT_PUBLIC_USE_MOCKS === 'true') return null;
+  const decl = source.match(/export const MEASUREMENT_DISCLOSURE\b[^=]*=\s*([^;]*);/);
+  if (!decl) return 'no se encontró `export const MEASUREMENT_DISCLOSURE` en measurement-disclosure.ts';
+  const value = decl[1].trim();
+  if (value === 'null' || value === 'undefined') return 'measurementDisclosure es null: el aviso no declara la medición';
+  const field = (name, re) => {
+    const m = value.match(new RegExp(`\\b${name}\\s*:\\s*['"]([^'"]*)['"]`));
+    return m && re.test(m[1]) ? null : name;
+  };
+  const bad = [
+    field('version', /^[A-Za-z0-9._-]{1,32}$/),
+    field('approvedByOwnerOn', /^\d{4}-\d{2}-\d{2}$/),
+    field('legalReviewOn', /^\d{4}-\d{2}-\d{2}$/),
+  ].filter(Boolean);
+  return bad.length > 0 ? `measurementDisclosure mal formado: ${bad.join(', ')}` : null;
+}
+
+const disclosureProblem = measurementDisclosureProblem();
+if (disclosureProblem) {
+  // ⛔ Sin valores de variables (C-F17): solo el modo y el problema de texto.
+  throw new Error(`MEASUREMENT_NOTICE_REQUIRED mode=on (next.config): ${disclosureProblem}. Publica el aviso revisado o pon NEXT_PUBLIC_MEASUREMENT_MODE=off.`);
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
