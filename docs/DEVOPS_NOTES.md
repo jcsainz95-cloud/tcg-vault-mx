@@ -15154,9 +15154,9 @@ placeholder auto-delator en nombres `…TOKEN`/`…SECRET`.
 ### 101.4 E2E de medición y C-F1
 
 - **Job `measurement-e2e` de `e2e.yml`, BLOQUEANTE en `e2e-ok`.** Matriz `off`/`on` (el modo se hornea: son dos
-  builds). Specs de frontend con nombre fijado aquí: `frontend/e2e/measurement-off.spec.ts` (C-F2) y
-  `frontend/e2e/measurement-on.spec.ts` (C-F3 y C-F5). IDs de ficción con forma válida solo en `on`
-  (`G-CI0E2E0000`, `1000000000000001`).
+  builds). Specs `frontend/e2e/measurement-{off,on}.spec.ts` (C-F2; C-F3/C-F5). `scripts/measurement-e2e-run.sh` elige
+  config y build: `on` ⇒ `-c playwright.measurement-on.config.ts` (la de serie lo ignora: «No tests found», run
+  39202758169, B2) y `.next-e2e-measurement-on`; lista antes y 0 pruebas ⇒ rojo. Canario 6×3 = 18/18.
 - **Nada sale a Google ni a Meta:** el spec intercepta con `page.route`, y debajo
   `scripts/measurement-egress-sinkhole.sh` resuelve 13 hosts de medición a `0.0.0.0` en el runner después de
   instalar Chromium. **Medido** en un espacio de montaje propio (sin tocar el `/etc/hosts` compartido): sin
