@@ -1,4 +1,4 @@
-import type { MeasurementColumns } from '../measurement/measurement-input';
+import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
@@ -1594,7 +1594,7 @@ export class OrdersService {
           billingSnapshot: billingSnapshot ?? undefined,
           items: { create: orderItemsData },
           // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
-          ...measurementColumns,
+          ...measurementColumnsData(measurementColumns),
         },
       });
       // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.

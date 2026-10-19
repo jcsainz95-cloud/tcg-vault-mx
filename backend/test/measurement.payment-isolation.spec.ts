@@ -197,4 +197,33 @@ describe('C-B2 (4) · las tres peticiones que crean pedido o solicitud', () => {
     const c = new BuylistController(buylist as never, {} as never, {} as never, on());
     await expect(c.create('u1', { items: [], measurement: full } as never)).resolves.toBe(created);
   });
+
+  it('TL-MKT2-D1 · los tres pasan por `afterCreate` (un solo camino); el REUSO no lo llama', async () => {
+    const svc = new MeasurementService({} as never, fakeConfig(fullEnv()));
+    const after = jest.spyOn(svc, 'afterCreate').mockResolvedValue(undefined);
+    const save = jest.spyOn(svc, 'saveContext');
+    const lead = jest.spyOn(svc, 'enqueueLead');
+    const fresh = { orderId: 'o1', reused: false };
+    await new OrdersController({ createSession: jest.fn(async () => fresh) } as never, {} as never, svc).session('u1', { inventoryItemIds: ['i1'], measurement: full } as never, res() as never);
+    await new GuestOrdersController({ createSession: jest.fn(async () => fresh) } as never, svc).session({ measurement: full } as never, '1.2.3.4', res() as never);
+    await new BuylistController({ createRequest: jest.fn(async () => ({ sellRequestId: 's1' })) } as never, {} as never, {} as never, svc).create('u1', { items: [], measurement: full } as never);
+    expect(after.mock.calls.map((c) => [c[0], c[2]])).toEqual([[{ orderId: 'o1' }, undefined], [{ orderId: 'o1' }, undefined], [{ sellRequestId: 's1' }, { lead: true }]]);
+    expect([save, lead].map((m) => m.mock.calls.length)).toEqual([0, 0]);
+    after.mockClear();
+    await new OrdersController({ createSession: jest.fn(async () => ({ orderId: 'o1', reused: true })) } as never, {} as never, svc).session('u1', { inventoryItemIds: ['i1'], measurement: full } as never, res() as never);
+    expect(after).not.toHaveBeenCalled();
+  });
+
+  it('TL-MKT2-D1 · `afterCreate` con la BD lanzando por dentro (contexto y cola) ⇒ resuelve sin lanzar y el log no cita el error', async () => {
+    const boom = jest.fn(async () => {
+      throw new Error('SECRETO-EN-EL-MENSAJE');
+    });
+    const prisma = { measurementContext: { createMany: boom, findUnique: boom }, sellRequest: { findUnique: boom } };
+    const svc = new MeasurementService(prisma as never, fakeConfig(fullEnv()));
+    const warn = jest.spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+    await expect(svc.afterCreate({ sellRequestId: 's1' }, svc.prepare(full), { lead: true })).resolves.toBeUndefined();
+    await expect(svc.afterCreate({ orderId: 'o1' }, svc.prepare(full))).resolves.toBeUndefined();
+    expect(boom).toHaveBeenCalled();
+    expect(warn.mock.calls.flat().join('\n')).not.toContain('SECRETO');
+  });
 });

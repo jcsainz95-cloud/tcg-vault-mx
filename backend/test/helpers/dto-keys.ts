@@ -75,6 +75,8 @@ export const GROUPED_LISTING_SUMMARY_KEYS = keysOf<GroupedListingSummaryDTO>({
 /** `SealedGroupDTO` — el DTO de la **FICHA** de sellado (`SealedGroupDetailResponse.group`). */
 export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   representativeItemId: true,
+  // v1.106 (§MKT.H.4, ADITIVO): identidad de medición del representante (`null` = sin ligar).
+  sealedProductId: true,
   card: true,
   productName: true,
   imageUrl: true,
@@ -101,6 +103,8 @@ export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
 /** `SealedGroupSummaryDTO` — el DTO de la **REJILLA** de sellado (v2.1.9 D2: sin las TRES señales). */
 export const SEALED_GROUP_SUMMARY_KEYS = keysOf<SealedGroupSummaryDTO>({
   representativeItemId: true,
+  // v1.106 (§MKT.H.4, ADITIVO): identidad de medición del representante (`null` = sin ligar).
+  sealedProductId: true,
   card: true,
   productName: true,
   imageUrl: true,

@@ -5,7 +5,7 @@
  * ⚠️ Los nombres de dimensiones y métricas son los estándar de la Data API; contrastarlos con `properties/<id>/metadata`:
  * **NO VERIFICADO** (lo cierra backend con credenciales reales al encender; hasta entonces, dobles).
  */
-import type { DimensionRow } from './small-cells';
+import { SMALL_CELL_THRESHOLD, type DimensionRow } from './small-cells';
 import type { Ga4ReportSpec, Ga4Row } from './marketing-external-sources';
 
 /** e3 / a4 / b4 — asistentes de IA: lista fija en código (§MKT.H.9). */
@@ -83,17 +83,31 @@ export function b4Rows(rows: Ga4Row[]): DimensionRow[] {
   return sumBy(rows, (r) => b4Group(r.dimensions[0], r.dimensions[1], r.dimensions[2])).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
-/** c1 — 50 primeras por vistas. `count` = usuarios (la persona es lo que protege la celda pequeña). */
+/**
+ * c1 — 50 primeras por vistas, AGREGADAS por la etiqueta (`key`): la misma ficha en `/es/…` y `/en/…` es una fila
+ * (TL-MKT2-D5). `count` = usuarios (la persona es lo que protege la celda pequeña). GA4 no da los únicos de la unión: la
+ * suma es su cota alta y el mayor de los componentes su cota baja. Si la cota baja es < 5 la unión PUEDE ser < 5 ⇒ `count`
+ * = esa cota baja (queda «< 5»); si no, la unión es ≥ 5 seguro ⇒ `count` = la suma. El corte de 50 va DESPUÉS de agregar.
+ */
 export function c1Rows(rows: Ga4Row[], labelOf: (path: string) => string): DimensionRow[] {
-  return rows
-    .slice()
-    .sort((a, b) => (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0))
+  const acc = new Map<string, { views: number; users: number; maxUsers: number; duration: number }>();
+  for (const r of rows) {
+    const key = labelOf(r.dimensions[0]);
+    const e = acc.get(key) ?? { views: 0, users: 0, maxUsers: 0, duration: 0 };
+    e.views += r.metrics[0] ?? 0;
+    e.users += r.metrics[1] ?? 0;
+    e.maxUsers = Math.max(e.maxUsers, r.metrics[1] ?? 0);
+    e.duration += r.metrics[2] ?? 0;
+    acc.set(key, e);
+  }
+  return [...acc.entries()]
+    .sort(([ka, a], [kb, b]) => b.views - a.views || ka.localeCompare(kb))
     .slice(0, 50)
-    .map((r) => {
-      const views = r.metrics[0] ?? 0;
-      const duration = r.metrics[2] ?? 0;
-      return { key: labelOf(r.dimensions[0]), count: r.metrics[1] ?? 0, money: { vistas: views, tiempoMedio: views > 0 ? Math.round((duration / views) * 10) / 10 : null } };
-    });
+    .map(([key, e]) => ({
+      key,
+      count: e.maxUsers < SMALL_CELL_THRESHOLD ? e.maxUsers : e.users,
+      money: { vistas: e.views, tiempoMedio: e.views > 0 ? Math.round((e.duration / e.views) * 10) / 10 : null },
+    }));
 }
 
 export function c5Rows(rows: Ga4Row[]): DimensionRow[] {

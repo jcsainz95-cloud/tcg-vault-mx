@@ -15,11 +15,10 @@
  *    excluye, sin lista negra que mantener.
  *  - Un valor que no sea `string` (array de query duplicada, número) se descarta.
  *
- * ### Pureza y alcance (⚠️ OLA 1)
- * Es una función PURA: sin Prisma, sin Nest, sin estado, sin `now()`. En OLA 1 **existe y está probada**
- * pero ⛔ **NO se engancha** a la creación de pedido (`Order`) ni de solicitud de buylist (`SellRequest`):
- * poblar las columnas `firstUtm*` requiere el consentimiento, que es **Fase 2**. En OLA 1 esas columnas
- * quedan `NULL`. Ver `docs/BACKEND_NOTES.md`.
+ * ### Pureza y alcance
+ * Es una función PURA: sin Prisma, sin Nest, sin estado, sin `now()`. Desde la Fase 2 (v1.102⟨mkt-fase2⟩) la usa
+ * `sanitizeMeasurementInput` (`modules/measurement/measurement-input.ts`): con `MEASUREMENT_MODE=on` y consentimiento
+ * registrado, las columnas `firstUtm*` de `Order`/`SellRequest` se escriben en el mismo `create`; con `off` quedan `NULL`.
  */
 
 /** Los cuatro utm válidos, ya normalizados. Solo viajan las claves que pasaron la validación. */

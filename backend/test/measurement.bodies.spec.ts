@@ -125,9 +125,9 @@ describe('C-B3 · compra: ningún dato personal y claves EXACTAS por nivel', () 
       events: [{ name: 'purchase', params: { transaction_id: 'ord-uuid-1', value: 1234.56, currency: 'MXN', shipping_cents: 9900, source: 'server' } }],
     });
     expect(b.events[0].params.items).toEqual([
-      { item_id: 'card-1', item_name: 'Charizard ex · 151', item_category: 'card', price: 1000, quantity: 1 },
-      { item_id: 'sp-9', item_name: 'ETB Prismatic', item_category: 'sealed', price: 135.56, quantity: 1 },
-      { item_id: 'acc-1', item_name: 'Fundas', item_category: 'accessory', price: 50, quantity: 2 },
+      { item_id: 'c_card-1', item_name: 'Charizard ex · 151', item_category: 'card', price: 1000, quantity: 1 },
+      { item_id: 's_sp-9', item_name: 'ETB Prismatic', item_category: 'sealed', price: 135.56, quantity: 1 },
+      { item_id: 'a_acc-1', item_name: 'Fundas', item_category: 'accessory', price: 50, quantity: 2 },
     ]);
   });
 
@@ -148,7 +148,7 @@ describe('C-B3 · compra: ningún dato personal y claves EXACTAS por nivel', () 
       event_time: Math.floor(SETTLED.getTime() / 1000),
       event_source_url: 'https://tcghunt.mx/checkout',
       user_data: { fbp: FBP, fbc: FBC },
-      custom_data: { currency: 'MXN', value: 1234.56, content_ids: ['card-1', 'sp-9', 'acc-1'], content_type: 'product', num_items: 4 },
+      custom_data: { currency: 'MXN', value: 1234.56, content_ids: ['c_card-1', 's_sp-9', 'a_acc-1'], content_type: 'product', num_items: 4 },
     });
     expect(meta.url).toMatch(/^https:\/\/graph\.facebook\.com\/v\d+\.\d+\/123456789012345\/events$/);
   });

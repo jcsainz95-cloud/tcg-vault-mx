@@ -61,8 +61,8 @@ export class OrdersController {
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
     const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns);
-    // Post-commit y best-effort (`saveContext` nunca lanza). En el REUSO se conserva lo que la orden ya tenía.
-    if (m?.context && !result.reused) await this.measurement?.saveContext({ orderId: result.orderId }, m.context).catch(() => undefined);
+    // Post-commit; `afterCreate` nunca lanza. En el REUSO se conserva lo que la orden ya tenía.
+    if (!result.reused) await this.measurement?.afterCreate({ orderId: result.orderId }, m);
     res.status(result.reused ? 200 : 201);
     return result;
   }

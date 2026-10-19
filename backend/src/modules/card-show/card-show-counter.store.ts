@@ -1,3 +1,4 @@
+import { closeRedisClient } from '../../common/redis-close';
 import { Logger, OnModuleDestroy, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis, { Redis } from 'ioredis';
@@ -203,21 +204,9 @@ export class RedisCardShowCounterStore implements CardShowCounterStore, OnModule
     return `${this.prefix}${key}`;
   }
 
-  /** Cierra el cliente: `quit` ordenado con tope de 1 s; si no contesta, `disconnect` (corta ya). */
+  /** Cierra el cliente: `quit` ordenado con tope de 1 s; si no contesta, `disconnect` (helper común, TD-HND-3). */
   async onModuleDestroy(): Promise<void> {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        this.client.quit(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('card-show counter: quit timeout')), 1000);
-        }),
-      ]);
-    } catch {
-      this.client.disconnect();
-    } finally {
-      clearTimeout(timer);
-    }
+    await closeRedisClient(this.client);
   }
 
   async hit(key: string, ttlMs: number): Promise<number> {

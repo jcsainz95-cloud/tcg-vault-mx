@@ -30,6 +30,28 @@ export interface MeasurementColumns {
   firstUtmLandedAt?: Date;
 }
 
+/** Las claves de `MeasurementColumns`, una por una (TL-MKT2-D8). */
+const MEASUREMENT_COLUMN_KEYS = [
+  'measurementConsentAnalytics',
+  'measurementConsentAds',
+  'measurementNoticeVersion',
+  'firstUtmSource',
+  'firstUtmMedium',
+  'firstUtmCampaign',
+  'firstUtmContent',
+  'firstUtmLandedAt',
+] as const satisfies readonly (keyof MeasurementColumns)[];
+
+/**
+ * Proyección EXPLÍCITA de las columnas de medición para el `create` de `Order`/`SellRequest`: solo esas ocho claves, así
+ * que aunque llegue un objeto con más campos (p. ej. `totalCents`) ⛔ nada de dinero se pisa al esparcirla al final.
+ */
+export function measurementColumnsData(c: Partial<MeasurementColumns>): Partial<MeasurementColumns> {
+  const out: Partial<Record<keyof MeasurementColumns, unknown>> = {};
+  for (const k of MEASUREMENT_COLUMN_KEYS) if (c[k] !== undefined) out[k] = c[k];
+  return out as Partial<MeasurementColumns>;
+}
+
 /** Lo que va a `MeasurementContext` después del commit (solo si hay al menos uno). */
 export interface MeasurementContextInput {
   gaClientId?: string;

@@ -176,13 +176,13 @@ async function expectFileSuppressed(label: string, body: unknown, withA3: boolea
   expect([label, d1.some((r) => r[UNI] === '3' || r[MXN] === '600')]).toEqual([label, false]);
   expect([label, d1.find((r) => r.Carta === OTROS_LABEL)]).toEqual([
     label,
-    expect.objectContaining({ [UNI]: SMALL_CELL_SENTINEL, [MXN]: '' }),
+    expect.objectContaining({ [UNI]: SMALL_CELL_SENTINEL, [MXN]: SMALL_CELL_HIDDEN }),
   ]);
   if (withA3) {
     const a3 = fileTable(await dataSheetRows(body, 'a'), 'a3');
     expect([label, a3[1]]).toEqual([
       label,
-      { Concepto: 'Ofertas aceptadas / pagadas', 'Nº': SMALL_CELL_SENTINEL, 'MX$ (IVA incluido)': '' },
+      { Concepto: 'Ofertas aceptadas / pagadas', 'Nº': SMALL_CELL_SENTINEL, 'MX$ (IVA incluido)': SMALL_CELL_HIDDEN },
     ]);
   }
 }
@@ -218,12 +218,12 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
     // Delegada: B=3 es la única oculta ⇒ cae en «Otros» con su pareja; nadie ve el 3 ni los 600.
     const d1Deleg = tbl(dDeleg, 'd1');
     expect(d1Deleg.rows.some((r) => r.unidadesVendidas === 3 || r.mxn === 600)).toBe(false);
-    expect(d1Deleg.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
+    expect(d1Deleg.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: SMALL_CELL_HIDDEN });
 
     const aOwner = await ctrl.panel(SUPER, ...screenArgs({ pantalla: 'a', ...q }));
     const aDeleg = await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: 'a', ...q }));
     expect(tbl(aOwner, 'a3').rows[1]).toMatchObject({ n: 3, mxn: 4560 });
-    expect(tbl(aDeleg, 'a3').rows[1]).toMatchObject({ n: SMALL_CELL_SENTINEL, mxn: null });
+    expect(tbl(aDeleg, 'a3').rows[1]).toMatchObject({ n: SMALL_CELL_SENTINEL, mxn: SMALL_CELL_HIDDEN });
   });
 
   it('exact: mismas tablas, mismas columnas; filas = las de small_cells sin «Otros»; ningún «< 5» ni «oculta»', async () => {
@@ -387,11 +387,11 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
     const { ctrl } = build(SALES_FEB);
     const w1 = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', weekStart: '2027-02-01' })), 'd1');
     expect(w1.rows.some((r) => r.carta === K || r.carta === M)).toBe(false);
-    expect(w1.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
+    expect(w1.rows.find((r) => r.carta === OTROS_LABEL)).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: SMALL_CELL_HIDDEN });
 
     const mes = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'd', month: '2027-02' })), 'd1');
-    expect(mes.rows.find((r) => r.carta === K)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: null });
-    expect(mes.rows.find((r) => r.carta === M)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: null });
+    expect(mes.rows.find((r) => r.carta === K)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: SMALL_CELL_HIDDEN });
+    expect(mes.rows.find((r) => r.carta === M)).toMatchObject({ unidadesVendidas: SMALL_CELL_HIDDEN, mxn: SMALL_CELL_HIDDEN });
     expect(mes.rows.find((r) => r.carta === L)).toMatchObject({ unidadesVendidas: 40, mxn: 4000 });
   });
 
@@ -429,7 +429,7 @@ describe('§MKT.G.9 (10) — supresión coherente mes↔semanas (febrero 2027 = 
       return Promise.resolve({ _count: { _all: n }, _sum: { payoutNetCents: n * 100000 } });
     });
     const a3 = tbl(await ctrl.aggregates(tokenReq, ...screenArgs({ pantalla: 'a', month: '2027-02' })), 'a3');
-    expect(a3.rows[1]).toMatchObject({ n: SMALL_CELL_HIDDEN, mxn: null });
+    expect(a3.rows[1]).toMatchObject({ n: SMALL_CELL_HIDDEN, mxn: SMALL_CELL_HIDDEN });
   });
 });
 

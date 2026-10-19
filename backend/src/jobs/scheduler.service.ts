@@ -1,3 +1,4 @@
+import { closeRedisClient } from '../common/redis-close';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
@@ -534,22 +535,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.worker) await bounded('worker.close()', () => this.worker!.close());
     if (this.queue) await bounded('queue.close()', () => this.queue!.close());
     if (this.connection) {
-      // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría);
-      // solo se intenta con la conexión lista, si no, corte duro con `disconnect()`.
-      if (this.connection.status === 'ready') {
-        // Acotado también: si `quit()` se queda esperando (comandos en vuelo tras un cierre
-        // forzado), se corta duro en vez de colgar el apagado.
-        const outcome = await withTimeout(
-          this.connection
-            .quit()
-            .then(() => 'ok' as const)
-            .catch(() => 'failed' as const),
-          timeoutMs,
-        );
-        if (outcome !== 'ok') this.connection.disconnect();
-      } else {
-        this.connection.disconnect();
-      }
+      // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría): solo con la conexión `ready`;
+      // si no, o si `quit` no contesta en el plazo, corte duro con `disconnect()` (helper común, TD-HND-3).
+      await closeRedisClient(this.connection, { timeoutMs, requireReady: true });
     }
   }
 }

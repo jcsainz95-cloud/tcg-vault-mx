@@ -5,8 +5,11 @@
  * Por corrida:
  *  1. Purga: filas de `MeasurementOutbox` y `MeasurementContext` con `expiresAt ≤ now` (7 días) ⇒ borradas (C-B8).
  *  2. Con `MEASUREMENT_MODE=off`: ⛔ no sale a la red (las filas esperan y caducan). C-B1.
- *  3. Lote de 50 filas con `nextAttemptAt ≤ now`. Cada fila se RECLAMA con un CAS sobre `nextAttemptAt` (dos instancias no
- *     envían la misma fila a la vez); destino deshabilitado ⇒ se salta (espera y caduca).
+ *  3. Lote de 50 filas con `nextAttemptAt ≤ now` SOLO de destinos habilitados (las de un destino apagado esperan y caducan
+ *     sin ocupar el lote: si no, 50 filas de un destino apagado bloquean a los demás 7 días — TL-MKT2-R2). Cada fila se
+ *     RECLAMA con un CAS sobre `nextAttemptAt` (dos instancias no envían la misma fila a la vez).
+ *  3b. Presupuesto por corrida (`DRAIN_BUDGET_MS`): no se empieza una fila si el envío podría pasar del presupuesto; las que
+ *     quedan no se reclaman y salen en la corrida siguiente (el worker `tcg-daily` es compartido — TL-MKT2-D2).
  *  4. El cuerpo se arma AL ENVIAR (constructores puros, `measurement-bodies.ts`); ⛔ nunca se guarda.
  *  5. 2xx ⇒ borra · 5xx/red/429 ⇒ `attempts+1` y escalera 1 min, 5 min, 30 min, 2 h, 12 h · otro 4xx ⇒ borra y cuenta.
  *
@@ -14,11 +17,12 @@
  * `api_secret`, ni `fbp`/`fbc`/`gaClientId`.
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import type { MeasurementOutbox } from '@prisma/client';
+import { MeasurementDestination, type MeasurementOutbox } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { META_GRAPH_API_VERSION } from './measurement.config';
 import { MeasurementService } from './measurement.service';
+import { measurementItemOf } from './measurement-item';
 import { MEASUREMENT_HTTP, fetchMeasurementHttp, type MeasurementHttp } from './measurement-http';
 import {
   buildCapiLead,
@@ -34,7 +38,11 @@ import {
 } from './measurement-bodies';
 
 export const DRAIN_BATCH = 50;
+/** Todos los destinos del enum de Prisma (el lote se filtra a los habilitados). */
+const MEASUREMENT_DESTINATIONS = Object.values(MeasurementDestination);
 export const DRAIN_TIMEOUT_MS = 5_000;
+/** Presupuesto de una corrida: ninguna fila empieza si su envío (≤ `DRAIN_TIMEOUT_MS`) podría pasarlo. */
+export const DRAIN_BUDGET_MS = 30_000;
 /** Escalera de reintentos (§MKT.H.6): 1 min, 5 min, 30 min, 2 h, 12 h (y 12 h hasta caducar). */
 export const RETRY_LADDER_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000] as const;
 /** Tiempo que una fila reclamada queda fuera del lote mientras se envía (si el proceso muere, vuelve sola). */
@@ -53,12 +61,16 @@ export interface DrainResult {
   retried: number;
   dropped: number;
   skipped: number;
+  /** Filas del lote que no se empezaron por el presupuesto de tiempo (salen en la corrida siguiente). */
+  deferred: number;
 }
 
 @Injectable()
 export class MeasurementDrainService {
   private readonly logger = new Logger(MeasurementDrainService.name);
   private readonly http: MeasurementHttp;
+  /** Reloj del presupuesto (milisegundos monótonos). Las pruebas lo sustituyen. */
+  clock: () => number = () => performance.now();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -69,20 +81,23 @@ export class MeasurementDrainService {
   }
 
   async run(now = new Date()): Promise<DrainResult> {
-    const res: DrainResult = { purgedOutbox: 0, purgedContext: 0, sent: 0, retried: 0, dropped: 0, skipped: 0 };
+    const started = this.clock();
+    const res: DrainResult = { purgedOutbox: 0, purgedContext: 0, sent: 0, retried: 0, dropped: 0, skipped: 0, deferred: 0 };
     res.purgedOutbox = (await this.prisma.measurementOutbox.deleteMany({ where: { expiresAt: { lte: now } } })).count;
     res.purgedContext = (await this.prisma.measurementContext.deleteMany({ where: { expiresAt: { lte: now } } })).count;
     if (this.measurement.mode !== 'on') return res;
+    const enabled = MEASUREMENT_DESTINATIONS.filter((d) => this.measurement.enabled(d));
+    if (enabled.length === 0) return res;
 
     const rows = await this.prisma.measurementOutbox.findMany({
-      where: { nextAttemptAt: { lte: now }, expiresAt: { gt: now } },
+      where: { destination: { in: enabled }, nextAttemptAt: { lte: now }, expiresAt: { gt: now } },
       orderBy: [{ nextAttemptAt: 'asc' }, { id: 'asc' }],
       take: DRAIN_BATCH,
     });
-    for (const row of rows) {
-      if (!this.measurement.enabled(row.destination)) {
-        res.skipped += 1;
-        continue;
+    for (const [i, row] of rows.entries()) {
+      if (this.clock() - started + DRAIN_TIMEOUT_MS > DRAIN_BUDGET_MS) {
+        res.deferred = rows.length - i;
+        break;
       }
       const claimed = await this.prisma.measurementOutbox.updateMany({
         where: { id: row.id, nextAttemptAt: row.nextAttemptAt },
@@ -190,31 +205,26 @@ export class MeasurementDrainService {
         firstUtmContent: true,
         items: { select: { cardSnapshot: true, unitPriceCents: true } },
         accessoryLines: {
-          select: { id: true, accessoryId: true, metaDeckId: true, deckName: true, quantity: true, unitPriceCents: true, snapshot: true },
+          select: { accessoryId: true, metaDeckId: true, deckName: true, quantity: true, unitPriceCents: true, snapshot: true },
         },
       },
     });
     if (!o || !o.settledAt || o.measurementConsentAnalytics === null) return null;
-    const items: MeasurementItem[] = o.items.map((it) => {
-      const snap = readFrozenCardFacts(it.cardSnapshot);
-      const sealed = snap.productType === 'sealed';
-      return {
-        item_id: (sealed ? snap.sealedProductId : null) ?? snap.cardId ?? 'unknown',
-        item_name: sealed || !snap.setName ? (snap.name ?? '') : `${snap.name ?? ''} · ${snap.setName}`,
-        item_category: sealed ? 'sealed' : 'card',
-        price: pesos(it.unitPriceCents),
-        quantity: 1,
-      };
-    });
+    // Identidad canónica (§MKT.H.4, `measurementItemOf`): una línea sin identidad no viaja.
+    const items: MeasurementItem[] = [];
+    for (const it of o.items) {
+      const id = measurementItemOf(readFrozenCardFacts(it.cardSnapshot));
+      if (id) items.push({ ...id, price: pesos(it.unitPriceCents), quantity: 1 });
+    }
     for (const l of o.accessoryLines) {
       const snap = (l.snapshot ?? {}) as { name?: unknown };
-      items.push({
-        item_id: l.accessoryId ?? l.metaDeckId ?? l.id,
-        item_name: typeof snap.name === 'string' ? snap.name : (l.deckName ?? ''),
-        item_category: 'accessory',
-        price: pesos(l.unitPriceCents),
-        quantity: l.quantity,
+      const id = measurementItemOf({
+        kind: 'accessory',
+        accessoryId: l.accessoryId,
+        metaDeckId: l.metaDeckId,
+        name: typeof snap.name === 'string' ? snap.name : l.deckName,
       });
+      if (id) items.push({ ...id, price: pesos(l.unitPriceCents), quantity: l.quantity });
     }
     return {
       orderId: o.id,

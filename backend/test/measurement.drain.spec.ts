@@ -7,7 +7,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { MeasurementService } from '../src/modules/measurement/measurement.service';
-import { MeasurementDrainService, RETRY_LADDER_MS } from '../src/modules/measurement/measurement-drain.service';
+import { DRAIN_BATCH, DRAIN_BUDGET_MS, DRAIN_TIMEOUT_MS, MeasurementDrainService, RETRY_LADDER_MS } from '../src/modules/measurement/measurement-drain.service';
 import type { MeasurementHttp } from '../src/modules/measurement/measurement-http';
 import { CAPI_TOKEN, FBC, FBP, GA4_SECRET, GA_CLIENT, PIXEL, fakeConfig, fullEnv, type Env } from './helpers/measurement-fixtures';
 import { measurementPrismaDouble } from './helpers/measurement-prisma-double';
@@ -82,6 +82,61 @@ describe('C-B1 · off ⇒ el drenador NO sale a la red', () => {
     expect(w.http.postJson).toHaveBeenCalledTimes(1);
     expect((w.http.postJson as jest.Mock).mock.calls[0][0]).toMatch(/^https:\/\/www\.google-analytics\.com\//);
     expect(w.d.outbox.map((r) => r.destination)).toEqual(['meta_capi']);
+  });
+});
+
+describe('TL-MKT2-R2 · un destino apagado NO bloquea la cola de los demás', () => {
+  it('60 filas meta_capi (destino apagado, más antiguas) + 1 ga4_mp ⇒ la de GA4 sale en esta corrida', async () => {
+    const old = new Date(NOW.getTime() - 3_600_000);
+    const outbox = [
+      ...Array.from({ length: 60 }, (_, i) => ({ kind: 'purchase', destination: 'meta_capi', subjectId: 'o1', eventId: `p_m${i}`, nextAttemptAt: old })),
+      { kind: 'purchase', destination: 'ga4_mp', subjectId: 'o1', eventId: 'p_o1', nextAttemptAt: NOW },
+    ];
+    const d = measurementPrismaDouble({ orders: [order], contexts: [{ orderId: 'o1', gaClientId: GA_CLIENT, fbp: FBP, fbc: FBC }], outbox: outbox as never });
+    const http: MeasurementHttp = { postJson: jest.fn(async () => 204) };
+    const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv({ META_CAPI_TOKEN: undefined })));
+    const r = await new MeasurementDrainService(d.prisma as never, svc, http).run(NOW);
+    expect(http.postJson).toHaveBeenCalledTimes(1);
+    expect((http.postJson as jest.Mock).mock.calls[0][0]).toMatch(/^https:\/\/www\.google-analytics\.com\//);
+    expect(r.sent).toBe(1);
+    expect(d.outbox.filter((x) => x.destination === 'meta_capi')).toHaveLength(60);
+    expect(d.prisma.measurementOutbox.findMany.mock.calls[0][0].where.destination).toEqual({ in: ['ga4_mp'] });
+  });
+
+  it('ambos destinos apagados (modo on) ⇒ ni siquiera se lee el lote', async () => {
+    const w = world(fullEnv({ META_CAPI_TOKEN: undefined, GA4_MP_API_SECRET: undefined }));
+    await w.drain.run(NOW);
+    expect(w.d.prisma.measurementOutbox.findMany).not.toHaveBeenCalled();
+    expect(w.http.postJson).not.toHaveBeenCalled();
+  });
+});
+
+describe('TL-MKT2-D2 · presupuesto de tiempo por corrida (el worker tcg-daily es compartido)', () => {
+  it('50 filas cuyo envío agota el timeout (5 s c/u) ⇒ la corrida no pasa de DRAIN_BUDGET_MS; el resto queda sin reclamar para la siguiente', async () => {
+    const outbox = Array.from({ length: DRAIN_BATCH }, (_, i) => ({ kind: 'purchase', destination: 'ga4_mp', subjectId: 'o1', eventId: `p_${i}` }));
+    const d = measurementPrismaDouble({ orders: [order], contexts: [{ orderId: 'o1', gaClientId: GA_CLIENT }], outbox: outbox as never });
+    let t = 0;
+    const http: MeasurementHttp = { postJson: jest.fn(async () => ((t += DRAIN_TIMEOUT_MS), null)) };
+    const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv()));
+    const drain = new MeasurementDrainService(d.prisma as never, svc, http);
+    drain.clock = () => t;
+    const r = await drain.run(NOW);
+    const started = Math.floor(DRAIN_BUDGET_MS / DRAIN_TIMEOUT_MS);
+    expect(t).toBeLessThanOrEqual(DRAIN_BUDGET_MS);
+    expect(http.postJson).toHaveBeenCalledTimes(started);
+    expect([r.retried, r.deferred]).toEqual([started, DRAIN_BATCH - started]);
+    // Las aplazadas no se reclamaron: siguen elegibles YA (nextAttemptAt intacto), y la corrida siguiente las toma.
+    expect(d.outbox.filter((x) => x.nextAttemptAt.getTime() <= NOW.getTime())).toHaveLength(DRAIN_BATCH - started);
+    t = 0;
+    const r2 = await drain.run(NOW);
+    expect(r2.retried).toBe(started);
+  });
+
+  it('control: envíos rápidos ⇒ el lote entero sale en una corrida (deferred 0)', async () => {
+    const w = world(fullEnv());
+    w.drain.clock = () => 0;
+    const r = await w.drain.run(NOW);
+    expect([r.sent, r.deferred]).toEqual([2, 0]);
   });
 });
 

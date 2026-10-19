@@ -2,7 +2,7 @@
  * §MKT.H.2 — el saneador del objeto `measurement` (puro, nunca lanza, descarta campo a campo).
  * Parte de C-B2 («`measurement` basura ⇒ misma respuesta que sin él») y de C-B4 (consentimiento).
  */
-import { sanitizeMeasurementInput } from '../src/modules/measurement/measurement-input';
+import { measurementColumnsData, sanitizeMeasurementInput } from '../src/modules/measurement/measurement-input';
 import { FBC, FBP, GA_CLIENT } from './helpers/measurement-fixtures';
 
 const NOW = new Date('2026-10-18T18:00:00.000Z');
@@ -94,5 +94,15 @@ describe('§MKT.H.2 · sanitizeMeasurementInput', () => {
     const r = sanitizeMeasurementInput(ok({ firstUtm: { source: 'ig', landedAt: '2026-07-01T00:00:00Z' } }), NOW)!;
     expect(r.columns.firstUtmSource).toBe('ig');
     expect(r.columns.firstUtmLandedAt).toBeUndefined();
+  });
+});
+
+describe('TL-MKT2-D8 · measurementColumnsData proyecta solo las columnas de medición', () => {
+  it('un objeto con campos de dinero de más ⇒ solo salen las ocho claves de medición; undefined no viaja', () => {
+    const cols = { measurementConsentAnalytics: true, measurementConsentAds: false, measurementNoticeVersion: 'v1', firstUtmSource: 'ig', firstUtmMedium: undefined };
+    const out = measurementColumnsData({ ...cols, totalCents: 1, subtotalCents: 2, userId: 'x' } as never);
+    expect(out).toEqual({ measurementConsentAnalytics: true, measurementConsentAds: false, measurementNoticeVersion: 'v1', firstUtmSource: 'ig' });
+    expect(Object.keys(out)).not.toContain('firstUtmMedium');
+    expect(measurementColumnsData({})).toEqual({});
   });
 });

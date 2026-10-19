@@ -1,4 +1,4 @@
-import type { MeasurementColumns } from '../measurement/measurement-input';
+import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -374,7 +374,7 @@ export class GuestCheckoutService {
             // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
-            ...measurementColumns,
+            ...measurementColumnsData(measurementColumns),
           },
         });
         // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias

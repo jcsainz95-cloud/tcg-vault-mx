@@ -1,3 +1,4 @@
+import { closeRedisClient } from '../../common/redis-close';
 import { Injectable, OnModuleDestroy, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis, { Redis } from 'ioredis';
@@ -43,12 +44,8 @@ export class HealthRedisClientProvider implements HealthRedisClient, OnModuleDes
   }
 
   async onModuleDestroy(): Promise<void> {
-    // `quit()` cierra limpio; si el socket nunca se abrió (lazyConnect) también es seguro.
-    try {
-      await this.client.quit();
-    } catch {
-      this.client.disconnect();
-    }
+    // `quit` ordenado con tope de 1 s; si no contesta o falla, `disconnect` (helper común, TD-HND-3).
+    await closeRedisClient(this.client);
   }
 }
 

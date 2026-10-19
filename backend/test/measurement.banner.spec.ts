@@ -4,6 +4,7 @@
  * `test/integration/measurement.e2e-spec.ts`.
  */
 import 'reflect-metadata';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { MeasurementController, BANNER_RESPONSE_THROTTLE } from '../src/modules/measurement/measurement.controller';
 import {
   BannerResponseService,
@@ -91,5 +92,36 @@ describe('C-B9 · utmMedium fuera de los cuatro ⇒ null; el UA no se guarda', (
     expect(Reflect.getMetadata('THROTTLER:TTLdefault', fn)).toBe(3_600_000);
     expect(BANNER_RESPONSE_THROTTLE).toEqual({ default: { ttl: 3_600_000, limit: 30 } });
     expect(Reflect.getMetadata('__httpCode__', fn)).toBe(204);
+  });
+});
+
+describe('QA M1 · §MKT.H.3 «400 body sin forma»: claves desconocidas ⇒ 400, también tras el ValidationPipe GLOBAL de main.ts', () => {
+  // El mismo pipe global que `main.ts` (whitelist SIN forbidNonWhitelisted): si el handler confiara en él, `extra` se
+  // borraría en silencio y respondería 204.
+  const globalPipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false });
+  const metatype = (Reflect.getMetadata('design:paramtypes', MeasurementController.prototype, 'bannerResponse') as unknown[])[0];
+  /** Pipe global + handler, como el cable: el 400 puede salir de cualquiera de los dos. */
+  const call = (body: unknown) => {
+    const record = jest.fn(async () => true);
+    const ctrl = new MeasurementController({ record } as never);
+    const out = (async () => ctrl.bannerResponse((await globalPipe.transform(body, { type: 'body', metatype: metatype as never, data: '' })) as never, IPHONE))();
+    return { record, out };
+  };
+
+  it.each([[{ response: 'accept', extra: 1 }], [{ response: 'accept', utmMedium: 'bio', email: 'a@b.mx' }]])('%j ⇒ 400 y no escribe', async (body) => {
+    const { record, out } = call(body);
+    await expect(out).rejects.toBeInstanceOf(BadRequestException);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it.each([[{ response: 'accept' }], [{ response: 'custom', utmMedium: 'raro' }]])('%j ⇒ 204 (sin cuerpo) y registra', async (body) => {
+    const { record, out } = call(body);
+    await expect(out).resolves.toBeUndefined();
+    expect(record).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([[{ response: 'si' }], [[{ response: 'accept' }]], [null], ['accept']])('sin forma %j ⇒ 400', async (body) => {
+    const { out } = call(body);
+    await expect(out).rejects.toBeInstanceOf(BadRequestException);
   });
 });

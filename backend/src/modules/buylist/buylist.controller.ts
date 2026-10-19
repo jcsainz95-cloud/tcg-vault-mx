@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Logger, Optional, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Optional, Param, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
@@ -33,7 +33,6 @@ export class BuylistController {
     @Optional() private readonly measurement?: MeasurementService,
   ) {}
 
-  private readonly logger = new Logger(BuylistController.name);
 
   // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
   // (`buylist-catalog.controller.ts`). El cotizador por-carta es anónimo (@Public) y READ-ONLY;
@@ -133,15 +132,8 @@ export class BuylistController {
     // tira: era el defecto BL-1 (toda solicitud nacía sin snapshot de origen y, por tanto,
     // inofertable). El `422 PICKUP_ADDRESS_REQUIRED` lo emite el servicio, no el pipe.
     const created = await this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId, m?.columns);
-    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): tras el 201, post-commit y best-effort. ⛔ Un fallo no cambia la respuesta.
-    if (this.measurement) {
-      try {
-        if (m?.context) await this.measurement.saveContext({ sellRequestId: created.sellRequestId }, m.context);
-        await this.measurement.enqueueLead(created.sellRequestId);
-      } catch {
-        this.logger.warn(`measurement: solicitud ${created.sellRequestId} no encolada (best-effort)`);
-      }
-    }
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): post-commit; `afterCreate` nunca lanza (⛔ un fallo no cambia la respuesta).
+    await this.measurement?.afterCreate({ sellRequestId: created.sellRequestId }, m, { lead: true });
     return created;
   }
 
