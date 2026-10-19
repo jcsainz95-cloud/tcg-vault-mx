@@ -36,6 +36,8 @@ import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
 // v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW): landing del Card Show — captura pública, doble opt-in y anti-abuso.
 import { CardShowModule } from './modules/card-show/card-show.module';
+// v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H): medición con consentimiento (GA4 MP / Meta CAPI), construida APAGADA.
+import { MeasurementModule } from './modules/measurement/measurement.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
@@ -78,6 +80,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     WishlistModule,
     MarketingModule,
     CardShowModule,
+    MeasurementModule,
   ],
   providers: [
     // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero

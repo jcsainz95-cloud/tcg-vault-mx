@@ -61,6 +61,11 @@ export class SessionDto {
   /** 💰 v1.86⟨accesorios⟩ (§AC.5): ver `QuoteDto`. */
   @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
   @DeckPullsField() deckPulls?: DeckPullInput[];
+  /**
+   * v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2) — opcional y SIN validación de forma aquí: lo lee campo a campo el
+   * saneador puro (`measurement/measurement-input.ts`), que descarta lo que no cumple. ⛔ Nunca 400 por este campo.
+   */
+  @IsOptional() measurement?: unknown;
 }
 
 export class RefundDto {

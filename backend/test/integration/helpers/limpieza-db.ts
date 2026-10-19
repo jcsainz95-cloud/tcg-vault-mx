@@ -307,6 +307,28 @@ COMMIT;
 }
 
 /**
+ * §14 T-AC3 — quita M-86 (Fase 2 de medición: cola, contexto, columnas de consentimiento y sus dos enums) de un esquema ya
+ * migrado: el B CONGELADO de `a7232d7a` la precede y su G-8 abortaría al ver sus dos tablas. Es la REVERSA de la cabecera de
+ * la migración, literal. Va ANTES de `revertM82M83` (orden inverso de despliegue; `custom` muere con `BannerResponse`).
+ */
+export function revertM86(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "MeasurementOutbox";
+DROP TABLE IF EXISTS "MeasurementContext";
+ALTER TABLE "Order"       DROP COLUMN IF EXISTS "measurementConsentAnalytics", DROP COLUMN IF EXISTS "measurementConsentAds", DROP COLUMN IF EXISTS "measurementNoticeVersion";
+ALTER TABLE "SellRequest" DROP COLUMN IF EXISTS "measurementConsentAnalytics", DROP COLUMN IF EXISTS "measurementConsentAds", DROP COLUMN IF EXISTS "measurementNoticeVersion";
+DROP TYPE  IF EXISTS "MeasurementEventKind";
+DROP TYPE  IF EXISTS "MeasurementDestination";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261106120000_m86_mkt_measurement';
+COMMIT;
+`,
+    'revertM86',
+  );
+}
+
+/**
  * §14 T-AC3 — quita M-82 y M-83 (Panel de Marketing: permisos, token del analista, contadores, registro de accesos y
  * anotaciones de fecha) de un esquema ya migrado, para la comparación con el B CONGELADO de `a7232d7a` (que PRECEDE a
  * M-82/M-83 y por tanto no clasifica esas seis tablas en su G-8: abortaría al verlas). Es la REVERSA documentada en la

@@ -1,3 +1,4 @@
+import type { MeasurementColumns } from '../measurement/measurement-input';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import {
@@ -1581,6 +1582,9 @@ export class BuylistService implements OnModuleInit {
     // pipe (ver `CreateRequestDto.addressId`). Opcional en la FIRMA para que la ausencia llegue aquí
     // y se conteste con el código que el contrato nombra.
     addressId?: string,
+    // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): columnas YA saneadas (consentimiento + `firstUtm*`) por
+    // `MeasurementService.prepare`; vacías con el modo apagado. Mismo `create` que la solicitud. ⛔ No tocan dinero.
+    measurementColumns: Partial<MeasurementColumns> = {},
   ) {
     // v1.53 (§4.40.3, MONEY) — RAW-ONLY, y lo PRIMERO de todo: `createRequest` es TODO-O-NADA (congela
     // dinero en una transacción), así que aquí NO hay degradación por-ítem — un solo ítem `graded`/
@@ -1957,6 +1961,8 @@ export class BuylistService implements OnModuleInit {
             // `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot`.
             pickupAddressSnapshot,
             items: { create: itemsData },
+            // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
+            ...measurementColumns,
           },
           include: { items: { include: { card: true } } },
         });

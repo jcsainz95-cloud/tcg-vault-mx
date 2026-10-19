@@ -38,7 +38,8 @@ const CATALOGO: Record<MarketingScreen, string[]> = {
   h: ['h1'],
 };
 
-const COBERTURA = 'Cobertura: GA4 sin encender; origen de pedidos NO MEDIDO (first_utm_* vacío hasta Fase 2).';
+// v1.105⟨mkt-fase2-cierre⟩ (§MKT.H.9): literal de cobertura con `MEASUREMENT_MODE=off`.
+const COBERTURA = 'Cobertura: GA4 sin encender; el origen de los pedidos aún no se registra.';
 
 const card = (name: string, number: string) => ({ name, number, set: { name: 'Set MX' } });
 
@@ -109,7 +110,9 @@ function build(): Built {
     wishlistItem: { groupBy: m.wishlistItemGroupBy },
     card: { findMany: m.cardFindMany },
     buylistQuoteDailyCount: { groupBy: m.quoteGroupBy },
-    order: { findMany: m.orderFindMany },
+    // v1.105 (§MKT.H.9): «¿el periodo tiene datos de medición?» (pedidos con consentimiento / filas del contador) ⇒ 0.
+    order: { findMany: m.orderFindMany, count: jest.fn().mockResolvedValue(0) },
+    marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },
   } as never;
   const analytics = new MarketingAnalyticsService(prisma, { report: m.report } as never, { forPeriod: m.forPeriod } as never);
   const accessLog = { record: jest.fn().mockResolvedValue(undefined) };

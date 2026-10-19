@@ -1572,6 +1572,13 @@ model Order {
   firstUtmCampaign            String?
   firstUtmContent             String?
   firstUtmLandedAt            DateTime?
+  // ======================= v1.102⟨mkt-fase2⟩ (m86, §MKT.H.2/.7 / ARCHITECTURE §14.6) =======================
+  // Consentimiento de medición con el que se CREÓ el pedido (lo escribe la misma `tx` que crea la fila). NULLABLE, sin
+  // default: NULL = creado con `MEASUREMENT_MODE=off` o antes de m86 («antes de Fase 2» en f3). Decide qué sale a
+  // GA4/Meta al liquidar (tabla de §14.6). `measurementNoticeVersion` = `measurementDisclosure.version` del aviso que vio.
+  measurementConsentAnalytics Boolean?
+  measurementConsentAds       Boolean?
+  measurementNoticeVersion    String?
 
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
@@ -2453,6 +2460,10 @@ model SellRequest {
   firstUtmCampaign           String?
   firstUtmContent            String?
   firstUtmLandedAt           DateTime?
+  // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.2/.7): mismas tres columnas de consentimiento que `Order` (NULL = modo off / antes de m86).
+  measurementConsentAnalytics Boolean?
+  measurementConsentAds       Boolean?
+  measurementNoticeVersion    String?
 
   items SellRequestItem[]
 
@@ -3145,6 +3156,8 @@ enum BannerResponse {
   accept
   necessary_only
   no_response
+  // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.3/.7): guardó la segunda capa (elección mixta). `ALTER TYPE … ADD VALUE`.
+  custom
 }
 
 // §13.4.6 (h1) — tipo de anotación de fecha del Panel. `promocion` lleva `destino` (web del dueño);
@@ -3207,6 +3220,65 @@ model MarketingBannerConsentCounter {
   count     Int            @default(0)
 
   @@unique([weekStart, response, utmMedium, device])
+}
+
+// ============================================================================================
+// v1.102⟨mkt-fase2⟩ (m86, `20261106120000_m86_mkt_measurement`) — Fase 2 de medición: cola de eventos de servidor
+// (GA4 Measurement Protocol / Meta CAPI) y los identificadores de navegador de vida corta. Diseño: ARCHITECTURE §14.6;
+// contrato: API_CONTRACT §MKT.H.5-.7. 100% ADITIVO. ⛔ Sin FK (las dos tablas mueren en ≤7 días). ⛔ Sin cuerpo guardado.
+// ============================================================================================
+
+// §MKT.H.7 — evento de servidor encolado.
+enum MeasurementEventKind {
+  purchase
+  generate_lead
+}
+
+// §MKT.H.7 — destino de la cola de medición.
+enum MeasurementDestination {
+  ga4_mp
+  meta_capi
+}
+
+// §MKT.H.2/.7 — identificadores de navegador del pedido o la solicitud (solo los consentidos). Exactamente uno de
+// `orderId`/`sellRequestId`. Se borra a los 7 días (`expiresAt`, purga del drenador).
+model MeasurementContext {
+  id            String   @id @default(uuid())
+  orderId       String?  @unique
+  sellRequestId String?  @unique
+  // solo con analítica
+  gaClientId    String?
+  // solo con publicidad
+  fbp           String?
+  fbc           String?
+  createdAt     DateTime @default(now())
+  // createdAt + 7 días
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
+// §MKT.H.6/.7 — cola de envíos. ⛔ Sin cuerpo: se arma al enviar desde Order/SellRequest + MeasurementContext.
+// `@@unique(destination, eventId)`: una reentrega del webhook choca con P2002 y se ignora (C-B5).
+model MeasurementOutbox {
+  id            String                 @id @default(uuid())
+  kind          MeasurementEventKind
+  destination   MeasurementDestination
+  // Order.id o SellRequest.id; ⛔ sin FK
+  subjectId     String
+  // 'p_<Order.id>' | 'l_<SellRequest.id>'
+  eventId       String
+  attempts      Int                    @default(0)
+  nextAttemptAt DateTime               @default(now())
+  // último código HTTP; ⛔ nunca texto de error del proveedor
+  lastStatus    Int?
+  createdAt     DateTime               @default(now())
+  // createdAt + 7 días
+  expiresAt     DateTime
+
+  @@unique([destination, eventId])
+  @@index([nextAttemptAt])
+  @@index([expiresAt])
 }
 
 // §13.4.3 (d4) — conteo anónimo de cálculos del cotizador por `(día × cardId)` desde

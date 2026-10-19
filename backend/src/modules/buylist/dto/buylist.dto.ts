@@ -168,6 +168,8 @@ export class CreateRequestDto {
    * el objeto exista— lo aplica `UploadsService.assertOwnedIneKeys` en el servicio.
    */
   @IsOptional() @ValidateNested() @Type(() => IneUploadKeysDto) ineUploadKeys?: IneUploadKeysDto;
+  /** v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): ver `SessionDto.measurement`. ⛔ Nunca 400 por este campo. */
+  @IsOptional() measurement?: unknown;
 }
 
 export class RespondDto {
