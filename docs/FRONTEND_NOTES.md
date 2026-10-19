@@ -81,6 +81,10 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   `_content/content-pages.test.tsx` (DOM = JSON-LD renderizando la página real), `app/sitemap-robots.test.ts`,
   `lib/llms-txt.test.ts`. Trinquete absoluto: `KNOWN_OFFENDERS` vacío desde el 2026-10-19 (D4a cerrada,
   «verificamos la condición NM»); toda excepción futura lleva dueño, medición, caducidad y debe seguir ofendiendo.
+  **Trinquete «autentic-»** (`AUTHENTICITY_CLAIM_PATTERNS`, mismo test; HECHOS 2026-10-19 «…cambiar
+  «autenticadas/autenticidad»…»): la tienda dice «verificadas». Excepciones nombradas: `auth.mockNotice` es/en
+  (sesión, sin caducidad) y texto de marketing no reescribible — FAQ **P1** y la guía `carta-pirata-5-senales`
+  («autenticidad y condición») — con caducidad 2026-11-11 (= `validThrough` de P1).
 - **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
   (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
 

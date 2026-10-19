@@ -231,7 +231,7 @@
   "home": {
     "heroKicker": "Pokémon cards · Mexico",
     "heroTitle": "Hunt the card. We keep it safe.",
-    "heroSubtitle": "Authenticated cards, condition guaranteed. They live safe in your vault and ship in one go, whenever you say.",
+    "heroSubtitle": "Verified cards, condition guaranteed. They live safe in your vault and ship in one go, whenever you say.",
     "ctaShop": "Explore the catalog",
     "ctaSealed": "Browse sealed product",
     "ctaBuylist": "Sell my cards",
@@ -547,7 +547,7 @@
         "oneShipment": "Stack up cards and pay a single shipping fee — you save {amount} every time you don't ship.",
         "oneShipmentPlain": "Stack up cards and pay a single shipping fee.",
         "portfolio": "See the value of your collection updated daily.",
-        "custody": "Custody with guaranteed authenticity and condition."
+        "custody": "Custody with verified, guaranteed condition."
       },
       "cta": "Create account and keep in vault",
       "dismiss": "Continue with home delivery",
@@ -661,7 +661,7 @@
     "emptyTitle": "You have no cards in your vault yet",
     "emptyBody": "Browse the Shop and start your collection.",
     "emptyCta": "Go to Shop",
-    "trustBanner": "Your cards are authenticated and kept safe in custody. They ship only when you ask.",
+    "trustBanner": "Your cards are verified and kept safe in custody. They ship only when you ask.",
     "withdraw": "Withdraw",
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled pieces with no active shipment can be withdrawn.",
