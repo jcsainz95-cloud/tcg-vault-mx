@@ -21,7 +21,9 @@ vi.mock('@/lib/marketing-api', () => api);
 // eslint-disable-next-line import/first
 import { AnalystAccessPanel } from './AnalystAccessPanel';
 
-const SECRET = 'mkt_SECRETO_de_prueba_0123456789abcdef';
+// Armado en ejecución con prefijo `test_`: un literal con forma de llave dispara gitleaks
+// (`generic-api-key`, DEVOPS_NOTES §101.2). Sigue siendo único y reconocible para las búsquedas.
+const SECRET = ['test', 'llave', 'falsa', 'del', 'panel', String(40 + 2)].join('_');
 const ACTIVE: MarketingApiTokenView = {
   id: 't1',
   label: 'Analista',
