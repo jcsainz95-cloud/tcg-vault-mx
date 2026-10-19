@@ -611,9 +611,8 @@ jobs:
   # sale a Google ni a Meta aunque un spec olvide interceptar. Tras la corrida,
   # C-F1 sobre el MISMO artefacto: off sin el cargador, on con él.
   # Los specs los escribe frontend con el nombre que fija
-  # scripts/check-measurement-e2e-specs.sh; hasta que existan, el job dice
-  # PENDIENTE (hasta la caducidad de scripts/mkt-fase2-dependencia.env) y no mide
-  # nada — eso NO es un verde de privacidad. DEVOPS_NOTES §101.4.
+  # scripts/check-measurement-e2e-specs.sh; si falta uno, el job es ROJO (la
+  # excepción PENDIENTE se retiró el 2026-10-19, D6). DEVOPS_NOTES §101.4.
   # ---------------------------------------------------------------------------
   measurement-e2e:
     runs-on: ubuntu-latest
