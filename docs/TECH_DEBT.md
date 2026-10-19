@@ -81,7 +81,7 @@
 | MKT-TD2 | c7 lee `shippingAddressSnapshot.state` (texto libre) en cada consulta | backend (+ arquitecto: migración) | 2026-10-18 | columna `Order.shippingStateCode` (catálogo de 32 estados MX) en una migración **+** `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (hoy ⇒ 2, en `c7Dims`) |
 | MKT-TD3 ✅ | 403 cross-route del token | arquitecto (D-MKT-AUTZ) | 2026-10-17 | §MKT.E de `aggregates` sin 403 |
 | MKT-TL1 ✅ | limitador en memoria sin cota | backend | 2026-10-18 | `marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas) |
-| MKT-TL2 | complementaria frente a un total exacto de la misma población: caso c7↔a1 cerrado en código; candado general abierto | backend (+ arquitecto/seguridad) | 2026-10-18 | candado que recorra las tablas con dimensión y falle si alguna puede dejar UNA sola celda oculta frente a un total exacto publicado de su población (hoy solo está el caso c7) **o** residuo aceptado por escrito en `docs/SECURITY_NOTES.md` |
+| MKT-TL2 | ABIERTA (residuo aceptado con caducidad, SECURITY_NOTES «Vía alternativa») · cruces entre tablas: falta el auditor por ecuaciones (prueba 3, `enforceFamily`, R2 por (tabla, clave, parte), R3b, R4). Hecho: registro de poblaciones (prueba 1) y SEC-MKT-1 | backend | 2026-10-19 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`test/marketing-populations.registry.spec.ts` y `test/marketing-cross-table.audit.spec.ts`). **Caducidad 2026-11-30**: `test/marketing-tl2.expiry.spec.ts` (reloj real) se pone rojo desde ese día mientras esta fila siga abierta |
 | MKT-TL3 ✅ | sin ruta de datos por sesión | backend | 2026-10-18 | `marketing-panel.spec.ts` + `marketing-panel.routes.spec.ts` |
 | MKT-TL4 ✅ | sin camino para emitir/revocar el token | backend | 2026-10-18 | `marketing-tokens.spec.ts` §MKT.G.9 (4)(5) |
 | MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
@@ -126,25 +126,17 @@
   «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
   deterministas).
 
-### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — caso c7↔a1 cerrado en código; candado general abierto
-- **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA
-  población que la tabla suprimida mientras esta deja UNA sola celda oculta (total − visibles la despeja).
-- **Caso medido (c7↔a1):** c7 (pedidos por estado, mes) y a1 (pedidos pagados del mes, exacto) cuentan la misma población
-  (`settledAt` en el periodo, estados `settled|refunded|chargeback`). Antes del 2026-10-18, a1 − filas visibles de c7 despejaba
-  «Otros estados» o «Recogida» cuando solo una de las dos salía «< 5».
-- **Cerrado en código (2026-10-18, `d0f6c648`, MKT-TL5):** c7 pasa por `safeRows` ⇒ la complementaria de `small-cells.ts`
-  agrupa la celda sola con la siguiente más chica en «Otros (< 5 c/u)»; a1 − visibles despeja la suma de ≥ 2 celdas, nunca una.
-  Candado: `marketing-analytics.service.spec.ts` «c7 (mes): …una sola celda oculta…» y «…nunca UNA celda oculta» (cuenta las
-  celdas reales que no salen visibles y exige que no sea 1).
-- **Sigue abierto:** (1) no hay candado GENERAL: una tabla nueva con dimensión que conviva con un total exacto no la vigila nadie
-  si no se le escribe su caso; (2) una tabla con UNA sola fila, oculta y sin ninguna visible, no se puede complementar (`plan()` no
-  tiene pareja) y su valor es el total exacto; en c7 esa fila ya es un agregado («Otros estados» o «Recogida»), no un estado, pero
-  a1 la despeja; (3) la suma de las ≥ 2 ocultas sí sale (a1 − visibles): es lo que admite la regla de complementaria, pero lo
-  acepta o no seguridad.
-- **Comprobación de cierre:** candado que recorra todas las tablas con dimensión y falle si alguna puede dejar UNA sola celda oculta
-  frente a un total exacto publicado de su población, **o** residuo (1)-(3) aceptado por escrito en `docs/SECURITY_NOTES.md`.
-- **Dueño:** backend (+ arquitecto/seguridad para aceptar el residuo). **Medido:** 2026-10-17 (techlead, `9d0ed99`); caso c7↔a1
-  medido y cerrado en código el 2026-10-18.
+### MKT-TL2 · P3 · Cruces entre tablas del Panel — registro hecho; auditor por ecuaciones pendiente (caduca 2026-11-30)
+- **Qué falta:** la prueba 3 de API_CONTRACT §MKT.H.14 (`test/marketing-cross-table.audit.spec.ts`): auditor propio que, con datos
+  adversarios, falle si una celda con N<5 se despeja cruzando tablas del mismo periodo (E1-E7), y lo que la pone verde en código
+  (`MARKETING_EQUATIONS`, `exposedCells`, `enforceFamily`, R2 por (tabla, clave, parte), R3b y R4).
+- **Hecho (2026-10-19, SEC-MKT-1):** umbral por componente y por sujeto (b1-b3, d1, d3), orden R0, g1 sobre `PAID_ORIGIN`
+  (prueba 2, `marketing-small-cells.by-component.spec.ts`) y registro de poblaciones (prueba 1). Caso c7↔a1: cerrado desde 2026-10-18.
+- **Residuo hasta cerrar:** un cruce entre tablas distinto de SEC-MKT-1 (p. ej. b2 = Σ b1 de una puerta) puede despejar una celda.
+  Latente: b1-b3/g1 solo se calculan con la medición encendida o con datos de consentimiento (SECURITY_NOTES SEC-MKT-1).
+- **Candado de caducidad:** `test/marketing-tl2.expiry.spec.ts` — rojo desde el 2026-11-30 mientras la fila del índice siga abierta;
+  rojo también si se borra la fila o si se marca cerrada sin la prueba 3. La fecha vive en la prueba, no aquí.
+- **Dueño:** backend. **Medido:** 2026-10-19 (seguridad, sonda sobre `bfd91ab2`; registro y SEC-MKT-1 por backend).
 
 ### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
 - **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),

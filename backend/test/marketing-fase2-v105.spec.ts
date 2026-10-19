@@ -111,7 +111,7 @@ function build(opts: { mode?: string; ga4?: boolean; failDims?: string; consentR
     orderItem: {
       findMany: jest.fn(async (arg: { select: Record<string, unknown> }) =>
         'inventoryItem' in arg.select
-          ? Array.from({ length: 6 }, () => ({ unitPriceCents: 1000, inventoryItem: { cardId: 'card-1', card: { name: 'Charizard', number: '4', set: { name: '151' } } } }))
+          ? Array.from({ length: 6 }, (_, i) => ({ orderId: `o${i}`, unitPriceCents: 1000, inventoryItem: { cardId: 'card-1', card: { name: 'Charizard', number: '4', set: { name: '151' } } } }))
           : [{ cardSnapshot: { cardId: 'card-1', productType: 'raw' } }],
       ),
     },
@@ -293,8 +293,8 @@ describe('TL-MKT2-D5 · c1 agrega por la etiqueta (una ficha en dos idiomas es U
   it('/es/catalog/card-1 y /en/catalog/card-1 ⇒ una sola fila con vistas, usuarios y duración sumados; claves únicas', () => {
     const out = c1Rows([row('/es/catalog/card-1', 300, 120, 9000), row('/es', 200, 90, 1000), row('/en/catalog/card-1', 100, 30, 3000)], label);
     expect(out).toEqual([
-      { key: 'Charizard · 151 4', count: 150, money: { vistas: 400, tiempoMedio: 30 } },
-      { key: '/es', count: 90, money: { vistas: 200, tiempoMedio: 5 } },
+      { key: 'Charizard · 151 4', count: 150, subjects: 150, money: { vistas: 400, tiempoMedio: 30 } },
+      { key: '/es', count: 90, subjects: 90, money: { vistas: 200, tiempoMedio: 5 } },
     ]);
     expect(new Set(out.map((r) => r.key)).size).toBe(out.length);
   });
@@ -332,7 +332,8 @@ describe('C-P1 (v1.106 §MKT.G.5) · null = «sin dato»; en una fila oculta tod
   it('small_cells, GA4 encendido: en a-g, ninguna fila con conteo oculto lleva null en una columna no texto (c1, d1, d2, g1 y las de BD incluidas)', async () => {
     const w = build({ mode: 'on', ga4: true });
     // d1 con una carta de 2 unidades (oculta ⇒ «Otros» con card-1). d2 no puede tener filas ocultas: su conteo son vistas ≥ 20.
-    const card = (id: string, name: string, number: string) => ({ unitPriceCents: 1000, inventoryItem: { cardId: id, card: { name, number, set: { name: '151' } } } });
+    let n = 0;
+    const card = (id: string, name: string, number: string) => ({ orderId: `o${n++}`, unitPriceCents: 1000, inventoryItem: { cardId: id, card: { name, number, set: { name: '151' } } } });
     w.prisma.orderItem.findMany.mockImplementation(async (arg: { select: Record<string, unknown> }) =>
       'inventoryItem' in arg.select
         ? [...Array.from({ length: 6 }, () => card('card-1', 'Charizard', '4')), card('card-2', 'Pikachu', '25'), card('card-2', 'Pikachu', '25')]
@@ -401,12 +402,14 @@ describe('(5) diferidas con su motivo literal y b1-b3 solo de BD', () => {
   it('b1/b2/b3 de pedidos y solicitudes por first_utm_*; dm en una sola fila; sin GA4', async () => {
     const w = build({ mode: 'on', ga4: true });
     const b = (await w.screen('b')).tables;
+    // §MKT.H.14: cada componente con su umbral (1 solicitud ⇒ «< 5» sin su MX$; los 5 pedidos de la fila siguen visibles);
+    // orden R0 por valores publicados: pedidos (empate), luego solicitudes (0 visible antes que oculta).
     expect(by(b, 'b1').rows).toEqual([
-      { origen: 'instagram / dm', pedidos: 5, mxnPedidos: 250, solicitudes: 1, mxnOfertado: 2500 },
       { origen: 'instagram / bio', pedidos: 5, mxnPedidos: 500, solicitudes: 0, mxnOfertado: 0 },
+      { origen: 'instagram / dm', pedidos: 5, mxnPedidos: 250, solicitudes: SMALL_CELL_SENTINEL, mxnOfertado: SMALL_CELL_HIDDEN },
     ]);
-    expect(by(b, 'b2').rows.map((r) => r.puerta)).toEqual(['Mensaje directo', 'Bio']);
-    expect(by(b, 'b3').rows.map((r) => r.pieza)).toEqual(['Mensaje directo (dm)', 'reel-1']);
+    expect(by(b, 'b2').rows.map((r) => r.puerta)).toEqual(['Bio', 'Mensaje directo']);
+    expect(by(b, 'b3').rows.map((r) => r.pieza)).toEqual(['reel-1', 'Mensaje directo (dm)']);
     expect(['b1', 'b2', 'b3'].map((id) => by(b, id).source)).toEqual(['BD', 'BD', 'BD']);
     expect(by(b, 'b1').notes!.join(' ')).toContain('Sesiones por primer origen');
   });

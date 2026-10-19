@@ -43,7 +43,12 @@ const bKeyPiece: BKey = (_s, m, c) => (m === 'dm' ? 'Mensaje directo (dm)' : (c 
 import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import {
   applySmallCells,
+  applySmallCellsByComponent,
+  hiddenCellIds,
   hiddenKeys,
+  type CellId,
+  type ComponentRow,
+  type SafeComponentRow,
   SMALL_CELL_HIDDEN,
   SMALL_CELL_SENTINEL,
   SMALL_CELL_THRESHOLD,
@@ -71,6 +76,10 @@ const BUY_BUTTON_DEFERRED = 'NO MEDIDO — el evento del botón COMPRAR todavía
 const B_SESSIONS_NOTE =
   'Sesiones por primer origen no entran: exigirían dimensiones de evento propias en la consola de GA4. Pedidos y solicitudes de quien aceptó la analítica.';
 const SC_UNCONNECTED = 'NO MEDIDO — Search Console sin conectar';
+/** b1-b3: nota literal de §MKT.H.14 («Fila de b1-b3»). */
+export const B_CELLS_NOTE = 'Pedidos y solicitudes se ocultan por separado: menos de 5 ⇒ «< 5» sin su MX$.';
+/** Conteo real de un componente (solo en `exact`, donde todo es número). */
+const num = (r: SafeComponentRow, c: string): number => (typeof r.parts[c].count === 'number' ? (r.parts[c].count as number) : 0);
 const BANNER_LABEL: Record<(typeof BANNER_RESPONSES)[number], string> = {
   accept: 'Aceptar',
   necessary_only: 'Solo lo necesario',
@@ -116,11 +125,11 @@ const centsToPesos = (cents: number | null): number | null =>
 /** Clave de la fila «pagadas» de a3 (también es la clave de cruce mes↔semanas). */
 const A3_PAID_KEY = 'Ofertas aceptadas y pagadas';
 
-type SoldByCard = Map<string, { cardId: string; key: string; units: number; mxnCents: number }>;
+type SoldByCard = Map<string, { cardId: string; key: string; units: number; orders: Set<string>; mxnCents: number }>;
 
-/** d1: filas crudas por carta (unidades vendidas, MX$ con IVA). */
+/** d1: filas crudas por carta. Publica unidades vendidas y MX$; el umbral lo deciden los PEDIDOS distintos (§MKT.H.14 R1). */
 const d1Dims = (byCard: SoldByCard): DimensionRow[] =>
-  [...byCard.values()].map((e) => ({ key: e.key, count: e.units, money: { mxn: centsToPesos(e.mxnCents) } }));
+  [...byCard.values()].map((e) => ({ key: e.key, count: e.units, subjects: e.orders.size, money: { mxn: centsToPesos(e.mxnCents) } }));
 
 /**
  * C-P1 (API_CONTRACT v1.106 §MKT.G.5): `null` es SIEMPRE «sin dato». En una fila cuyo conteo salió oculto (`'< 5'` u `'oculta'`),
@@ -432,7 +441,7 @@ export class MarketingAnalyticsService {
       _count: { _all: true },
       _sum: { payoutNetCents: true },
     });
-    return [{ key: A3_PAID_KEY, count: paid._count._all, money: { pagadoMxn: centsToPesos(paid._sum.payoutNetCents ?? 0) } }];
+    return [{ key: A3_PAID_KEY, count: paid._count._all, subjects: paid._count._all, money: { pagadoMxn: centsToPesos(paid._sum.payoutNetCents ?? 0) } }];
   }
 
   // ──────────────────────────────── Régimen de celdas (una sola función) ────────────────────────────────
@@ -457,6 +466,24 @@ export class MarketingAnalyticsService {
       for (const w of weeksTouchingMonth(period)) for (const k of hiddenKeys(await dimsOf(w))) forced.add(k);
     }
     return applySmallCells(dims, privacy, forced);
+  }
+
+  /**
+   * `safeRows` para tablas de VARIOS componentes (b1-b3, §MKT.H.14): umbral por componente y coherencia mes↔semanas por
+   * (clave, componente) (§MKT.G.10).
+   */
+  private async safeComponentRows(
+    period: MarketingPeriod,
+    privacy: CellPrivacy,
+    dimsOf: (p: DayRange) => Promise<ComponentRow[]>,
+  ): Promise<SafeComponentRow[]> {
+    const dims = await dimsOf(period);
+    if (privacy === 'exact') return applySmallCellsByComponent(dims, privacy);
+    const forced = new Set<CellId>();
+    if (period.kind === 'month') {
+      for (const w of weeksTouchingMonth(period)) for (const id of hiddenCellIds(await dimsOf(w))) forced.add(id);
+    }
+    return applySmallCellsByComponent(dims, privacy, forced);
   }
 
   // ──────────────────────────────── Pantalla (d) Catálogo ────────────────────────────────
@@ -556,7 +583,7 @@ export class MarketingAnalyticsService {
       if (n) nameOf.set(id, n);
     }
     const dims: DimensionRow[] = candidates
-      .map(([id, v]) => ({ key: nameOf.get(id) ?? id, count: v.views, money: { carritoPct: v.views > 0 ? Math.round((v.carts / v.views) * 1000) / 10 : null } }))
+      .map(([id, v]) => ({ key: nameOf.get(id) ?? id, count: v.views, subjects: v.views, money: { carritoPct: v.views > 0 ? Math.round((v.carts / v.views) * 1000) / 10 : null } }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
     const safe = applySmallCells(dims, privacy);
     return {
@@ -597,6 +624,7 @@ export class MarketingAnalyticsService {
         inventoryItem: { productType: { in: [...SINGLE_CARD_PRODUCT_TYPES] } },
       },
       select: {
+        orderId: true,
         unitPriceCents: true,
         inventoryItem: { select: { cardId: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } } },
       },
@@ -607,8 +635,9 @@ export class MarketingAnalyticsService {
     for (const it of items) {
       const inv = it.inventoryItem;
       const key = `${inv.card.name} · ${inv.card.set.name} ${inv.card.number}`;
-      const e = byCard.get(inv.cardId) ?? { cardId: inv.cardId, key, units: 0, mxnCents: 0 };
+      const e = byCard.get(inv.cardId) ?? { cardId: inv.cardId, key, units: 0, orders: new Set<string>(), mxnCents: 0 };
       e.units += 1;
+      e.orders.add(it.orderId);
       e.mxnCents += it.unitPriceCents;
       byCard.set(inv.cardId, e);
     }
@@ -640,13 +669,25 @@ export class MarketingAnalyticsService {
     };
   }
 
-  /** d3 (dimensión «carta agotada»): altas de lista de deseos en el rango, solo cartas con 0 a la venta HOY. */
+  /**
+   * d3 (dimensión «carta agotada»): altas de lista de deseos en el rango, solo cartas con 0 a la venta HOY. Publica las
+   * altas; el umbral lo deciden los USUARIOS distintos (§MKT.H.14 R1: hasta 4 acabados por usuario y carta).
+   */
   private async d3Dims(p: DayRange): Promise<DimensionRow[]> {
-    const wish = await this.prisma.wishlistItem.groupBy({
-      by: ['cardId'],
+    // Una fila por (carta, usuario) ⇒ nº de filas de una carta = usuarios distintos; `_count` = altas de ese usuario.
+    const pairs = await this.prisma.wishlistItem.groupBy({
+      by: ['cardId', 'userId'],
       where: { createdAt: mxRange(p.from, p.to) },
       _count: { _all: true },
     });
+    const byCard = new Map<string, { altas: number; users: number }>();
+    for (const w of pairs) {
+      const e = byCard.get(w.cardId) ?? { altas: 0, users: 0 };
+      e.altas += w._count._all;
+      e.users += 1;
+      byCard.set(w.cardId, e);
+    }
+    const wish = [...byCard.entries()].map(([cardId, e]) => ({ cardId, ...e }));
     const cardIds = wish.map((w) => w.cardId);
     if (cardIds.length === 0) return [];
     const [cards, onSale] = await Promise.all([
@@ -660,7 +701,7 @@ export class MarketingAnalyticsService {
     const soldOut = wish.filter((w) => (onSaleBy.get(w.cardId) ?? 0) === 0);
     return soldOut.map((w) => {
       const c = cardBy.get(w.cardId);
-      return { key: c ? `${c.name} · ${c.set.name} ${c.number}` : w.cardId, count: w._count._all, money: {} };
+      return { key: c ? `${c.name} · ${c.set.name} ${c.number}` : w.cardId, count: w.altas, subjects: w.users, money: {} };
     });
   }
 
@@ -735,7 +776,7 @@ export class MarketingAnalyticsService {
       byCard.set(it.cardId, e);
     }
     return [...byCard.values()]
-      .map((e) => ({ key: e.key, count: e.requests.size, money: {} }))
+      .map((e) => ({ key: e.key, count: e.requests.size, subjects: e.requests.size, money: {} }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
   }
 
@@ -884,10 +925,10 @@ export class MarketingAnalyticsService {
     const sorted = [...byState.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     for (const [state, n] of sorted) {
       if (n < SMALL_CELL_THRESHOLD) otros += n;
-      else rows.push({ key: state, count: n, money: {} });
+      else rows.push({ key: state, count: n, subjects: n, money: {} });
     }
-    if (otros > 0) rows.push({ key: C7_OTHER_STATES, count: otros, money: {} });
-    if (pickup > 0) rows.push({ key: C7_PICKUP, count: pickup, money: {} });
+    if (otros > 0) rows.push({ key: C7_OTHER_STATES, count: otros, subjects: otros, money: {} });
+    if (pickup > 0) rows.push({ key: C7_PICKUP, count: pickup, subjects: pickup, money: {} });
     return rows;
   }
 
@@ -1017,7 +1058,11 @@ export class MarketingAnalyticsService {
     return [...b, await this.b4Channels(period, now, privacy)];
   }
 
-  /** b1-b3: una tabla con dimensión `keyOf(first_utm_*)`; `count` = pedidos + solicitudes (personas) para la celda pequeña. */
+  /**
+   * b1-b3: una tabla con dimensión `keyOf(first_utm_*)` y DOS componentes por fila (§MKT.H.14): `pedidos`→`mxnPedidos`
+   * (`PAID_ORIGIN`, sujeto = pedido) y `solicitudes`→`mxnOfertado` (`REQ_ORIGIN`, sujeto = solicitud). Cada componente con su
+   * propio umbral (R1): ⛔ nunca la suma de los dos (SEC-MKT-1). Sin fila «Otros»: una fila parcial conserva su clave.
+   */
   private async bTable(
     id: string,
     title: string,
@@ -1027,7 +1072,7 @@ export class MarketingAnalyticsService {
     privacy: CellPrivacy,
     keyOf: BKey,
   ): Promise<AggTable> {
-    const dimsOf = async (p: DayRange): Promise<DimensionRow[]> => {
+    const dimsOf = async (p: DayRange): Promise<ComponentRow[]> => {
       const range = mxRange(p.from, p.to);
       const [orders, requests] = await Promise.all([
         this.prisma.order.findMany({
@@ -1047,14 +1092,22 @@ export class MarketingAnalyticsService {
         else (e.s += 1), (e.sc += cents);
         acc.set(k, e);
       };
+      // Una fila de `findMany` = un pedido / una solicitud ⇒ el conteo ES el nº de sujetos distintos.
       for (const o of orders) bump(keyOf(o.firstUtmSource, o.firstUtmMedium, o.firstUtmContent), 'o', o.totalCents);
       for (const s of requests) bump(keyOf(s.firstUtmSource, s.firstUtmMedium, s.firstUtmContent), 's', s.quotedTotalCents);
       return [...acc.entries()]
-        .map(([key, e]) => ({ key, count: e.o + e.s, money: { pedidos: e.o, mxnPedidos: centsToPesos(e.oc), solicitudes: e.s, mxnOfertado: centsToPesos(e.sc) } }))
-        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, e]) => ({
+          key,
+          parts: {
+            pedidos: { count: e.o, subjects: e.o, money: { mxnPedidos: centsToPesos(e.oc) } },
+            solicitudes: { count: e.s, subjects: e.s, money: { mxnOfertado: centsToPesos(e.sc) } },
+          },
+        }));
     };
-    const safe = await this.safeRows(period, privacy, dimsOf);
-    const hidden = (r: SafeRow) => typeof r.count !== 'number';
+    const safe = await this.safeComponentRows(period, privacy, dimsOf);
+    // `exact` sale en orden real (MKT.G.2): pedidos desc, solicitudes desc, clave. En `small_cells` el orden es el de R0.
+    const rows = privacy === 'exact' ? [...safe].sort((a, b) => num(b, 'pedidos') - num(a, 'pedidos') || num(b, 'solicitudes') - num(a, 'solicitudes') || (a.key < b.key ? -1 : 1)) : safe;
     return {
       id,
       title,
@@ -1066,15 +1119,15 @@ export class MarketingAnalyticsService {
         { key: 'solicitudes', labelEs: 'Solicitudes de venta', kind: 'count' },
         { key: 'mxnOfertado', labelEs: 'MX$ ofertado (IVA incluido)', kind: 'money' },
       ],
-      rows: safe.map((r) => ({
+      rows: rows.map((r) => ({
         [col]: r.key,
-        pedidos: hidden(r) ? (r.count as Cell) : (r.money.pedidos ?? 0),
-        mxnPedidos: r.money.mxnPedidos ?? null,
-        solicitudes: hidden(r) ? (r.count as Cell) : (r.money.solicitudes ?? 0),
-        mxnOfertado: r.money.mxnOfertado ?? null,
+        pedidos: r.parts.pedidos.count as Cell,
+        mxnPedidos: (r.parts.pedidos.money.mxnPedidos ?? null) as Cell,
+        solicitudes: r.parts.solicitudes.count as Cell,
+        mxnOfertado: (r.parts.solicitudes.money.mxnOfertado ?? null) as Cell,
       })),
       measured: true,
-      notes: [B_SESSIONS_NOTE, cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} pedidos + solicitudes ⇒ «< 5» sin MX$.`)],
+      notes: [B_SESSIONS_NOTE, cellsNote(privacy, B_CELLS_NOTE)],
     };
   }
 
@@ -1132,7 +1185,7 @@ export class MarketingAnalyticsService {
     const dimsOf = async (p: DayRange): Promise<DimensionRow[]> => {
       const r = await ext.searchConsoleQueries(p.from, p.to, now);
       if (!r.ok) throw new Error('search console unavailable');
-      return r.rows.map((q) => ({ key: q.query, count: q.clicks, money: { impresiones: q.impressions, ctr: q.ctr, posicion: q.position } }));
+      return r.rows.map((q) => ({ key: q.query, count: q.clicks, subjects: q.clicks, money: { impresiones: q.impressions, ctr: q.ctr, posicion: q.position } }));
     };
     let safe: SafeRow[];
     try {
@@ -1197,11 +1250,12 @@ export class MarketingAnalyticsService {
   /** g1 (dimensión única): pedidos cobrados en el rango con primer origen `paid`, y su MX$ con IVA. */
   private async g1Dims(p: DayRange): Promise<DimensionRow[]> {
     const agg = await this.prisma.order.aggregate({
-      where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, firstUtmMedium: 'paid' },
+      // Base de b1-b3 (`PAID_ORIGIN`, §MKT.H.14): sin `firstUtmSource` no entra, para que g1 ≡ b2[Promoción] sea identidad exacta.
+      where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, firstUtmSource: { not: null }, firstUtmMedium: 'paid' },
       _count: { _all: true },
       _sum: { totalCents: true },
     });
-    return [{ key: G1_KEY, count: agg._count._all, money: { mxn: centsToPesos(agg._sum.totalCents ?? 0) } }];
+    return [{ key: G1_KEY, count: agg._count._all, subjects: agg._count._all, money: { mxn: centsToPesos(agg._sum.totalCents ?? 0) } }];
   }
 
   private notMeasured(id: string, title: string, source: AggTable['source'], reason: string): AggTable {

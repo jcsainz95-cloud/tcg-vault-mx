@@ -2,9 +2,14 @@
  * small-cells.ts — 🔒💰 CANDADO DE CELDAS PEQUEÑAS del Panel de Marketing (Brief 2 §5.2, PM-A1;
  * ARCHITECTURE §13.5/§13.7; API_CONTRACT §MKT.D/E/§MKT.G.10). PURO (sin IO), para poder probarlo a mano (N=1).
  *
- * Regla única que protege a UNA persona detrás de una cifra agregada:
- *  - En toda tabla CON DIMENSIÓN (`utm_*`, puerta, carta, estado, día): si `N < 5` ⇒ el conteo sale
- *    «< 5» y **todo MX$/derivado de esa fila NO se muestra** (null) — ni ticket medio, ni ofertado, ni pagado.
+ * Regla única que protege a UNA persona detrás de una cifra agregada (API_CONTRACT §MKT.H.14, v1.107):
+ *  - En toda tabla CON DIMENSIÓN (`utm_*`, puerta, carta, estado, día): si el nº de **sujetos distintos** (`subjects`:
+ *    pedidos, solicitudes o usuarios; R1) es `< 5` ⇒ el conteo publicado sale «< 5» y **todo MX$/derivado de esa
+ *    fila sale `'oculta'`** — ni ticket medio, ni ofertado, ni pagado.
+ *  - **Por componente** (b1-b3, `applySmallCellsByComponent`): cada parte de la fila (pedidos, solicitudes) con su N;
+ *    una parte chica no tapa la otra, y la suma de las dos no destapa ninguna (SEC-MKT-1).
+ *  - **Orden (R0):** solo con valores publicados. Las visibles en el orden de entrada (que el llamador da por valor
+ *    publicado o por estructura), después las ocultas por clave asc y «Otros» al final. ⛔ Nunca por el N real de una oculta.
  *  - **Supresión coherente mes↔semanas (§MKT.G.10, D-MKT-PANEL-4):** el llamador pasa `forcedHidden` = las claves
  *    ocultas en ALGUNA semana que toca el mes; en el mes salen **«oculta»** (conteo) y null (MX$) aunque N≥5.
  *  - **Supresión complementaria:** si tras lo anterior queda **UNA sola** celda oculta («< 5» u «oculta») en la
@@ -57,7 +62,13 @@ export const OTROS_LABEL = 'Otros (< 5 c/u)';
 export interface DimensionRow {
   /** Etiqueta de la dimensión, YA escapada por el llamador si viene de fuera (utm_*, término…). Clave de cruce mes↔semanas. */
   key: string;
+  /** Valor PUBLICADO del conteo si la fila queda visible (d1: piezas; d3: altas; el resto: = `subjects`). */
   count: number;
+  /**
+   * Sujetos DISTINTOS detrás de la fila (§MKT.H.14 R1): lo que decide el umbral. d1: pedidos distintos; d3: usuarios
+   * distintos; GA4/SC: la unidad de la fuente. Obligatorio: una tabla nueva no puede nacer sin decir qué cuenta.
+   */
+  subjects: number;
   money: Record<string, number | null>;
 }
 
@@ -86,7 +97,7 @@ const isHidden = (c: SafeRow['count']): boolean => c === SMALL_CELL_SENTINEL || 
  */
 function plan(rows: DimensionRow[], forcedHidden: ReadonlySet<string>) {
   const safe: SafeRow[] = rows.map((r) =>
-    r.count < SMALL_CELL_THRESHOLD
+    r.subjects < SMALL_CELL_THRESHOLD
       ? { key: r.key, count: SMALL_CELL_SENTINEL, money: blankMoney(r.money) }
       : forcedHidden.has(r.key)
         ? { key: r.key, count: SMALL_CELL_HIDDEN, money: blankMoney(r.money) }
@@ -123,13 +134,19 @@ export function applySmallCells(
   // Régimen exacto: cifras reales, sin centinela ni agrupación (mismo orden de entrada).
   if (privacy === 'exact') return rows.map((r) => ({ key: r.key, count: r.count, money: { ...r.money } }));
   const { safe, grouped } = plan(rows, forcedHidden);
-  if (!grouped) return safe;
-  const drop = new Set([grouped.loneIdx, grouped.partnerIdx]);
+  const drop = new Set(grouped ? [grouped.loneIdx, grouped.partnerIdx] : []);
   const kept = safe.filter((_, i) => !drop.has(i));
-  // La fila «Otros»: ambos componentes ocultos (conteo centinela, dinero en null) ⇒ nada deducible.
-  kept.push({ key: OTROS_LABEL, count: SMALL_CELL_SENTINEL, money: blankMoney(rows[grouped.loneIdx].money), otros: true });
-  return kept;
+  // R0 (§MKT.H.14): visibles en su orden de entrada; las ocultas, después y por clave (⛔ nunca por su N real).
+  const visible = kept.filter((r) => !isHidden(r.count));
+  const hidden = kept.filter((r) => isHidden(r.count)).sort((a, b) => byKey(a.key, b.key));
+  const out = [...visible, ...hidden];
+  // La fila «Otros»: ambos componentes ocultos (conteo centinela, dinero «oculta») ⇒ nada deducible. Va al final.
+  if (grouped) out.push({ key: OTROS_LABEL, count: SMALL_CELL_SENTINEL, money: blankMoney(rows[grouped.loneIdx].money), otros: true });
+  return out;
 }
+
+/** Desempate por clave: determinista e independiente de la configuración regional del proceso. */
+const byKey = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * Claves que `applySmallCells(rows, 'small_cells')` deja ocultas: las de N<5 y la pareja de una fila «Otros».
@@ -145,4 +162,104 @@ export function hiddenKeys(rows: DimensionRow[]): Set<string> {
 /** ¿Está oculto el conteo de esta fila? (helper para export/serialización). */
 export function isSuppressed(count: number | SuppressedCount): count is SuppressedCount {
   return isHidden(count);
+}
+
+// ─────────────────────── Por componente (b1-b3; API_CONTRACT §MKT.H.14 R0, R1, R3a y MKT.G.10) ───────────────────────
+
+/** Identidad de una celda para la coherencia mes↔semanas: (clave, componente). */
+export type CellId = string;
+export const cellId = (key: string, component: string): CellId => `${component}\u0000${key}`;
+
+/** Una parte (componente) de una fila: conteo publicado, sujetos distintos y sus MX$/derivadas. */
+export interface ComponentPart {
+  count: number;
+  subjects: number;
+  money: Record<string, number | null>;
+}
+/** Fila con varios componentes (b1-b3: `pedidos` y `solicitudes`). El orden de `parts` es el orden de R0. */
+export interface ComponentRow {
+  key: string;
+  parts: Record<string, ComponentPart>;
+}
+export interface SafePart {
+  count: number | SuppressedCount;
+  money: Record<string, number | null | typeof SMALL_CELL_HIDDEN>;
+}
+/** Fila saneada: conserva su clave aunque algún componente salga oculto (b1-b3 no tienen «Otros»). */
+export interface SafeComponentRow {
+  key: string;
+  parts: Record<string, SafePart>;
+}
+
+type PartState = 'visible' | SuppressedCount;
+
+/**
+ * Estado de cada (fila, componente): R1 (`0 < sujetos < 5` ⇒ «< 5»; 0 ⇒ 0 visible), coherencia (`forced` ⇒ «oculta») y
+ * R3a local: una columna con UNA sola oculta oculta también, en su sitio, la visible más chica ≠ 0 (desempate por clave).
+ */
+function planByComponent(rows: ComponentRow[], forced: ReadonlySet<CellId>): { comps: string[]; state: PartState[][] } {
+  const comps = rows.length ? Object.keys(rows[0].parts) : [];
+  const state: PartState[][] = rows.map((r) =>
+    comps.map((c): PartState => {
+      const n = r.parts[c].subjects;
+      if (n > 0 && n < SMALL_CELL_THRESHOLD) return SMALL_CELL_SENTINEL;
+      return forced.has(cellId(r.key, c)) ? SMALL_CELL_HIDDEN : 'visible';
+    }),
+  );
+  comps.forEach((c, j) => {
+    if (state.filter((st) => st[j] !== 'visible').length !== 1) return;
+    const partner = rows
+      .map((r, i) => ({ i, key: r.key, n: r.parts[c].count }))
+      .filter((x) => state[x.i][j] === 'visible' && x.n !== 0)
+      .sort((a, b) => a.n - b.n || byKey(a.key, b.key))[0];
+    if (partner) state[partner.i][j] = SMALL_CELL_HIDDEN;
+  });
+  return { comps, state };
+}
+
+/**
+ * Umbral POR COMPONENTE (§MKT.H.14 R1): cada parte de la fila con su propio N de sujetos; una parte oculta lleva su conteo
+ * en «< 5»/«oculta» y SUS MX$ en «oculta»; las demás partes no cambian. Orden R0: por el valor publicado de cada componente,
+ * en el orden de `parts` (número desc; oculto después), y por clave. `exact`: cifras reales en el orden de entrada.
+ */
+export function applySmallCellsByComponent(
+  rows: ComponentRow[],
+  privacy: CellPrivacy,
+  forced: ReadonlySet<CellId> = new Set(),
+): SafeComponentRow[] {
+  const copy = (p: ComponentPart): SafePart => ({ count: p.count, money: { ...p.money } });
+  if (privacy === 'exact') {
+    return rows.map((r) => ({ key: r.key, parts: Object.fromEntries(Object.entries(r.parts).map(([c, p]) => [c, copy(p)])) }));
+  }
+  const { comps, state } = planByComponent(rows, forced);
+  const safe: SafeComponentRow[] = rows.map((r, i) => ({
+    key: r.key,
+    parts: Object.fromEntries(
+      comps.map((c, j) => {
+        const st = state[i][j];
+        return [c, st === 'visible' ? copy(r.parts[c]) : { count: st, money: blankMoney(r.parts[c].money) }];
+      }),
+    ),
+  }));
+  const cmp = (a: SafeComponentRow, b: SafeComponentRow): number => {
+    for (const c of comps) {
+      const x = a.parts[c].count;
+      const y = b.parts[c].count;
+      if (typeof x === 'number' && typeof y === 'number') {
+        if (x !== y) return y - x;
+      } else if (typeof x === 'number' || typeof y === 'number') {
+        return typeof x === 'number' ? -1 : 1;
+      }
+    }
+    return byKey(a.key, b.key);
+  };
+  return safe.sort(cmp);
+}
+
+/** (clave, componente) que `applySmallCellsByComponent(rows, 'small_cells')` deja ocultos: lo que el mes hereda de cada semana. */
+export function hiddenCellIds(rows: ComponentRow[]): Set<CellId> {
+  const { comps, state } = planByComponent(rows, new Set());
+  const out = new Set<CellId>();
+  rows.forEach((r, i) => comps.forEach((c, j) => state[i][j] !== 'visible' && out.add(cellId(r.key, c))));
+  return out;
 }

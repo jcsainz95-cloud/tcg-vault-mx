@@ -71,12 +71,13 @@ function sumBy(rows: Ga4Row[], keyOf: (r: Ga4Row) => string | null, metric = 0):
     if (k === null) continue;
     acc.set(k, (acc.get(k) ?? 0) + (r.metrics[metric] ?? 0));
   }
-  return [...acc.entries()].map(([key, count]) => ({ key, count, money: {} }));
+  // GA4: la unidad de la fuente (sesiones) es el sujeto (§MKT.H.14).
+  return [...acc.entries()].map(([key, count]) => ({ key, count, subjects: count, money: {} }));
 }
 
 export function a4Rows(rows: Ga4Row[]): DimensionRow[] {
   const got = sumBy(rows, (r) => a4Group(r.dimensions[0], r.dimensions[1], r.dimensions[2]));
-  return A4_GROUPS.map((g) => got.find((x) => x.key === g) ?? { key: g, count: 0, money: {} });
+  return A4_GROUPS.map((g) => got.find((x) => x.key === g) ?? { key: g, count: 0, subjects: 0, money: {} });
 }
 
 export function b4Rows(rows: Ga4Row[]): DimensionRow[] {
@@ -103,11 +104,10 @@ export function c1Rows(rows: Ga4Row[], labelOf: (path: string) => string): Dimen
   return [...acc.entries()]
     .sort(([ka, a], [kb, b]) => b.views - a.views || ka.localeCompare(kb))
     .slice(0, 50)
-    .map(([key, e]) => ({
-      key,
-      count: e.maxUsers < SMALL_CELL_THRESHOLD ? e.maxUsers : e.users,
-      money: { vistas: e.views, tiempoMedio: e.views > 0 ? Math.round((e.duration / e.views) * 10) / 10 : null },
-    }));
+    .map(([key, e]) => {
+      const count = e.maxUsers < SMALL_CELL_THRESHOLD ? e.maxUsers : e.users;
+      return { key, count, subjects: count, money: { vistas: e.views, tiempoMedio: e.views > 0 ? Math.round((e.duration / e.views) * 10) / 10 : null } };
+    });
 }
 
 export function c5Rows(rows: Ga4Row[]): DimensionRow[] {
