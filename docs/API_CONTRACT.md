@@ -12,7 +12,7 @@
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; el detalle vive en su sección, la historia en git).** ⚠️ Hay dos v1.96
 > distintas, ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 el número no se repite: la
-> siguiente revisión, de cualquier sección, es **v1.107**.
+> siguiente revisión, de cualquier sección, es **v1.108**.
 > - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
 > - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
 > - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
@@ -21,6 +21,7 @@
 > - v1.104⟨ceq1-mkt⟩ · 2026-10-18 · §0-Q 6-bis (SELECTOR), `CEQ-MKT-1`, query con nombre en §MKT.E · QA.
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
 > - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
+> - v1.107⟨mkt-celdas⟩ · 2026-10-19 · §MKT.H.14: umbral por componente y por sujeto, orden sin valores ocultos, registro de poblaciones y ecuaciones, auditor de rango; g1 sobre `PAID_ORIGIN`; §MKT.G.5/.10, C-P1 y .13 ajustados; compactados §MKT intro/.E/.F/.G.1/.G.8/.H.7/.H.12 · seguridad (SEC-MKT-1, MKT-TL2; rechazo sobre `bfd91ab2`).
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -45217,11 +45218,9 @@ Paridad es/en con el control de paridad de textos (criterio 868).
 
 ## <a id="MKT"></a>MKT. 💰 TIENDA DE MARKETING: ATRIBUCIÓN UTM, FICHA PÚBLICA/OG, SITEMAP Y PANEL DE MARKETING (rev v1.96⟨mkt-tienda⟩, 2026-10-16, arquitecto; + **v1.101⟨mkt-panel⟩**, 2026-10-18: §MKT.G; + **v1.102⟨mkt-fase2⟩**: §MKT.H; + **v1.103⟨mkt-panel-exacto⟩**: §MKT.G.2/.3/.5/.9/.10)
 
-> Diseño y razones completas: **ARCHITECTURE §13**. Fuente: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`
-> (v2 §A/§B/§E, Panel §0/§2/§4/§5/§7). Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c` (⛔ sha NO MEDIDO).
-> **Cero DDL aplicado** (sin Bash): las migraciones **m81** (OLA 1) y **m82** (OLA 2) son especificación. Precio
-> **siempre final con IVA 16 % y con fecha, o sin precio**; «Disponible» **solo si `availableCount>0`**; **nunca** la
-> cantidad. El Card Show (v2 §E5) **no se contrata aquí**: su página usa solo datos ya anunciados.
+> Diseño y razones: **ARCHITECTURE §13**. Fuente: `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` (v2 §A/§B/§E,
+> Panel §0/§2/§4/§5/§7). Precio **siempre final con IVA 16 % y con fecha, o sin precio**; «Disponible» **solo si
+> `availableCount>0`**; **nunca** la cantidad. El Card Show (v2 §E5) **no se contrata aquí**.
 
 ### MKT.A — OLA 1: ficha pública (sellado + carta) con datos de SSR/og/JSON-LD (A3/A4)
 
@@ -45255,8 +45254,6 @@ ogImageUrl   : string | null  // URL ABSOLUTA de la imagen del catálogo apta pa
   (si no null) absoluta ≥1200×630, **sin precio en la imagen**; `og:url`=canonical absoluto; `twitter:card=summary_large_image`.
   JSON-LD `Product`+`Offer`: `priceCurrency:"MXN"`, `price` = precio con IVA, `availability` = InStock **solo si**
   `availableCount>0`, `priceValidUntil` lo calcula frontend desde `pricedAsOf` (ventana a confirmar con JC).
-- **A1** (quitar «valor de mercado» de la ficha) y **A2** (botón COMPRAR en primera pantalla móvil): **sin delta de
-  contrato** (frontend/ux-ui; el backend puede seguir emitiendo `referenceDisplayCents`).
 
 ### MKT.B — OLA 1: feed de sitemap (E/SEO)
 
@@ -45280,13 +45277,11 @@ SitemapResponse = {
 
 - Cinco columnas **NULLABLE** en `Order` y en `SellRequest` (nombres confirmados a marketing):
   `firstUtmSource`, `firstUtmMedium`, `firstUtmCampaign`, `firstUtmContent` (`String?`), `firstUtmLandedAt` (`DateTime?`).
-- **Se llenan SOLO con consentimiento** (mecanismo = Fase 2). En **OLA 1 quedan `NULL`** (ningún camino las puebla aún) —
-  dicho explícito. **Invitado incluido** (misma regla; `NULL` sin consentimiento).
+- **Se llenan SOLO con consentimiento** (§MKT.H.2), invitado incluido; `NULL` sin consentimiento o con la medición apagada.
 - **Validación (PV-M2):** cada `utm_*` se acepta solo si, en minúsculas, cumple `^[a-z0-9._-]{1,64}$`; si no, ese valor
   se **descarta**. Se **ignora** todo parámetro que no sea `utm_source|utm_medium|utm_campaign|utm_content`. Helper puro
   en `common/` (`parseFirstUtm`). Al mostrarlos en el admin, se **escapan**.
 - **Retención:** el plazo del pedido/solicitud que las contiene (PV-M5), declarado en el aviso (Fase 2).
-- **Marketing — de vuelta:** nombres de columna = los de arriba; cubre invitado; `NULL` sin consentimiento. ✅
 
 ### MKT.D — OLA 2: autorización y modelos del panel (Fase 0) — migración `m82`
 
@@ -45303,17 +45298,11 @@ SitemapResponse = {
   tras 10 fallos/10 min**. El dueño lo carga como `TIENDA_PANEL_TOKEN` en el entorno de marketing.
 - **Conteos anónimos de servidor** (sin GA4): `MarketingBannerConsentCounter` (f1/f2: `(semana × respuesta ×
   utm_medium × device)`, sin fila por visita ni cookie), `BuylistQuoteDailyCount` (d4: `(día × cardId)` desde
-  `POST /buylist/quote`, sin usuario ni IP). **`SearchNoResultDaily` (c6) queda DIFERIDO** (pre-revisión de seguridad
-  PM-M2): **NO se crea en m82** (confirmado contra `schema.prisma`, 2026-10-16); su diseño sigue vivo en ARCHITECTURE
-  §13.4.3 para cuando seguridad apruebe el filtro PII. c7 (pedidos por estado de envío) se **deriva** de `Order`
-  (`shippingAddressSnapshot` + `fulfillmentMode`), sin modelo nuevo (MKT-TD2: seguridad revisa la fiabilidad del derivado).
+  `POST /buylist/quote`, sin usuario ni IP). **`SearchNoResultDaily` (c6) DIFERIDO** (PM-M2; no existe en el schema; diseño en
+  ARCHITECTURE §13.4.3). c7 se **deriva** de `Order` (`shippingAddressSnapshot` + `fulfillmentMode`), sin modelo nuevo (MKT-TD2).
 - **Registro de accesos** (`MarketingAccessLog`): cada export/descarga/llamada del endpoint ⇒ `{at, actorUserId? |
   tokenId?, screen, filters(sin PII), format, rowCount}`, **sin contenido**, retención 12 meses.
-- **(h1) Anotaciones de fecha** (`MarketingDateAnnotation` + enum `MarketingAnnotationKind = promocion | despliegue |
-  evento`): el admin marca días con etiqueta, visibles en las gráficas (a/b/c) y en la hoja «Info» del export, **como
-  texto saneado** y **sin datos personales** (PM-B1). Va en la **migración `m83`**
-  (`20261104130000_m83_mkt_date_annotations`, existe en el árbol; diseño en ARCHITECTURE §13.4.6). CRUD de **sesión**
-  `marketing:read` (⛔ nunca el token). Endpoints en §MKT.E.
+- **(h1) Anotaciones de fecha** (migración `m83`, ARCHITECTURE §13.4.6): texto saneado sin datos personales (PM-B1); endpoints en §MKT.E.
 - **La pantalla** (`/admin/marketing`) lee por sesión: datos, periodos y gestión de tokens en **§MKT.G**.
 
 ### MKT.E — OLA 2: endpoint de agregados, botón semanal y exports (P2=A+B)
@@ -45332,38 +45321,22 @@ SitemapResponse = {
     arriba, ⛔ no detalle interno — v1.104); **429** al pasar 60/h. El **403** del panel es
     de **SESIÓN**: una cuenta admin **sin** `marketing:read` (§MKT.D / §13.4.1) ⇒ 403 en `/admin/marketing`, exports,
     botón semanal y rutas de datos.
-  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas §MKT.D/§5.2 aplicadas** desde la
-    primera respuesta (N<5 ⇒ «< 5» sin MX$; supresión complementaria «Otros (< 5 c/u)»). **Ninguna fila por
-    pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
+  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas** desde la primera respuesta
+    (regla completa: §MKT.H.14). **Ninguna fila por pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
 
-> **DECISIÓN D-MKT-AUTZ (arquitecto, 2026-10-16, rev v1.96.1⟨mkt-tienda⟩) — «token `marketing-reader` en otra ruta del
-> admin ⇒ 401, no 403».** El brief pedía **403** para un token válido en cualquier otra ruta del admin (Panel §6 general
-> (1) y §7.2). **Medición de backend (BACKEND_NOTES §MKT OLA 2):** el token `marketing-reader` es **opaco** (no es JWT);
-> `JwtAuthGuard`, que gobierna el resto del admin, lo rechaza como **no autenticado ⇒ 401**. Lograr un 403 literal
-> exigiría que `JwtAuthGuard` —autenticación **COMPARTIDA**, adyacente a dinero— **reconozca** tokens de marketing para
-> poder decir «autenticado pero prohibido»: acoplaría la auth compartida al principal de marketing y **ensancharía
-> superficie cerca de dinero**. **Decisión: se amenda el contrato a 401.** La propiedad de seguridad que el criterio
-> quería —que el principal `marketing-reader` **no alcance ninguna otra ruta del admin**— se cumple **igual con 401**:
-> **ambos códigos DENIEGAN; la propiedad es la denegación, no el número.** El `MarketingApiTokenGuard` se monta **solo**
-> en `GET /admin/marketing/aggregates`; las demás rutas quedan en `JwtAuthGuard` **sin cambios**. El **403** se reserva
-> para el caso que SÍ es «autenticado pero prohibido»: una **sesión** admin sin `marketing:read` (§13.4.1). **Paridad que
-> lo vigila (QA/seguridad):** una prueba E2E que mande el token a ≥2 rutas del admin fuera de agregados y afirme **401**
-> (no 2xx) cierra la clase. **⚠️ Se APARTA del «403» literal del brief** (Panel §6(1), §7.2): se relaya a JC/marketing
-> como «lo que no se pudo hacer tal cual» (Panel §7 punto 6).
-- **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token:** migración `m83` (ver
-  ARCHITECTURE §13.4.6). Modelo `MarketingDateAnnotation` + enum `MarketingAnnotationKind =
-  promocion | despliegue | evento` (línea en §0).
+> **DECISIÓN D-MKT-AUTZ (v1.96.1) — token `marketing-reader` en otra ruta del admin ⇒ 401, no el 403 del brief (Panel §6(1),
+> §7.2; relayado a marketing).** El token es opaco: `JwtAuthGuard` lo rechaza como no autenticado, y dar 403 exigiría que la auth
+> compartida, adyacente a dinero, reconozca tokens de marketing. La propiedad es la denegación. `MarketingApiTokenGuard` va **solo**
+> en `aggregates`; 403 = **sesión** sin `marketing:read`. Prueba: E2E con el token en ≥2 rutas del admin fuera de `aggregates` ⇒ 401.
+- **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token** (`MarketingDateAnnotation`; enum en §0):
   - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` — sesión `marketing:read`. Lista de
     `{id, date, kind, label, destino?, createdAt}` del rango (para pintar las gráficas a/b/c del admin).
   - `POST /api/v1/admin/marketing/annotations` — sesión `marketing:read`. Body `{date, kind, label, destino?}`;
     valida/limpia PII (`422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC; §13.4.6) ⇒ **201** con la fila.
   - `PATCH /…/annotations/:id` y `DELETE /…/annotations/:id` — sesión `marketing:read`; `404` si no existe.
-  - **El token `marketing-reader` en TODAS estas rutas ⇒ 401** (no son la de agregados; D-MKT-AUTZ). Una **sesión** sin
-    `marketing:read` ⇒ **403**.
-  - **Las anotaciones del periodo se EMBEBEN** en la respuesta de `GET …/aggregates` (campo `annotations: [{date, kind,
-    label, destino?}]`) y en la hoja **«Info»** del export y del botón semanal, **como texto saneado** (§4/§13.5, PM-B1).
-    No son PII ⇒ el token las ve ahí; ⛔ **sin** celdas pequeñas sobre ellas (no son conteo). Cada acceso ⇒
-    `MarketingAccessLog`.
+  - **El token `marketing-reader` en TODAS estas rutas ⇒ 401** (D-MKT-AUTZ). Una **sesión** sin `marketing:read` ⇒ **403**.
+  - **Se EMBEBEN** en `GET …/aggregates` (`annotations: [{date, kind, label, destino?}]`) y en la hoja **«Info»** del export y del
+    botón semanal, **como texto saneado** (PM-B1); ⛔ **sin** celdas pequeñas (no son conteo). Cada acceso ⇒ `MarketingAccessLog`.
 - **Botón «Descargar Excel de la semana» (P2=B)** en `/admin/marketing`, visible solo con `marketing:read`: .xlsx de la
   última semana cerrada (selector permite otra semana o un mes cerrado, ⛔ nunca rango libre ni día). **Mismas cifras**
   que el endpoint para el mismo periodo (paridad A=B, diferencia 0 celda a celda, incluidas las «< 5»). Una hoja por
@@ -45390,31 +45363,21 @@ SitemapResponse = {
 
 Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
 publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
-puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. (5) **Cerrada (v1.103):** el dueño quiere cifras
-exactas en su pantalla (`HECHOS.md:172`, 2026-10-18, «si cifras exactas») ⇒ MKT.G.2; rango libre y día siguen fuera (MKT.G.8).
-Preguntas de Fase 2: §MKT.H.12.
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. Preguntas de Fase 2: §MKT.H.12.
 
 ### <a id="MKT-G"></a>MKT.G — La pantalla del panel por SESIÓN: datos JSON, periodos y acceso del analista (rev v1.101⟨mkt-panel⟩, 2026-10-18, arquitecto, **NORMATIVA**)
 
-> Cierra el diseño de **MKT-TL3** (no había ruta JSON por sesión) y **MKT-TL4** (`issue()`/`revoke()` sin llamador) de
-> `docs/TECH_DEBT.md`. Razones: **ARCHITECTURE §13.7**. Medido sobre `b8197420` (2026-10-18, lectura de código). **Aditivo:**
-> cuatro rutas nuevas (más una de revocación), **sin migración** (los modelos ya existen en m82/m83), **sin enum nuevo**, **sin
-> código de error nuevo** (todos los de abajo existen en `backend/src/common/error-codes.ts:6-11`). Nada cambia en
-> `GET …/aggregates`, los exports ni las anotaciones (§MKT.E).
+> Razones: **ARCHITECTURE §13.7**. Sin migración (modelos de m82/m83), sin enum ni código de error nuevos
+> (`backend/src/common/error-codes.ts`). Nada cambia en `GET …/aggregates`, los exports ni las anotaciones (§MKT.E).
 
 #### MKT.G.1 Quién usa la pantalla en Fase 0 — DECISIÓN D-MKT-PANEL-1
 
-- **En Fase 0 la pantalla la usa solo `super_admin`** (permiso `marketing:read` implícito, `permission.guard.ts:37`). **No se
-  contrata** ruta para conceder o quitar `marketing:read`. Medido: el único acceso de código a `UserPermission` es la
-  **lectura** de `permission.guard.ts:39`; no hay escritura en `backend/src/`, `frontend/src/` ni `scripts/` (Grep
-  `userPermission|UserPermission`, 2026-10-18). El brief no la necesita: el analista lee por **token** (§MKT.E), no por sesión, y
-  el brief pide confirmar «`marketing:read` solo para el dueño» (Panel §5.3, §7 punto 4).
-- Una cuenta `vault_operator` (o cualquiera sin fila) que abra `/admin/marketing` recibe **403** de cada ruta de datos; la pantalla
-  pinta «No tienes acceso a Marketing» (sin cifras).
-- **Si algún día se contrata la concesión** (delta propio, no ahora), son condiciones: la concede **solo `super_admin`**; solo a
-  una cuenta **`vault_operator` activa** (un `customer` ⇒ `422 VALIDATION_ERROR`; hoy `PermissionGuard` no mira el rol de quien
-  tiene fila, `permission.guard.ts:37-46`, y por eso la condición vive en quien concede); bitácora `marketing.permission.grant` /
-  `marketing.permission.revoke`; y esa cuenta ve las celdas pequeñas (ya es así para todos, MKT.G.2).
+- **En Fase 0 la pantalla la usa solo `super_admin`** (`marketing:read` implícito, `permission.guard.ts:37`). **No se contrata**
+  ruta para conceder o quitar `marketing:read`: el analista lee por **token** (§MKT.E) y el brief pide «solo el dueño» (Panel §5.3, §7.4).
+- Una cuenta sin fila que abra `/admin/marketing` recibe **403** de cada ruta de datos; la pantalla pinta «No tienes acceso a Marketing».
+- **Si algún día se contrata la concesión** (delta propio): la concede **solo `super_admin`**, solo a una cuenta **`vault_operator`
+  activa** (`customer` ⇒ `422 VALIDATION_ERROR`; `PermissionGuard` no mira el rol de quien tiene fila, `permission.guard.ts:37-46`);
+  bitácora `marketing.permission.grant` / `.revoke`; y esa cuenta ve las celdas pequeñas (MKT.G.2).
 
 #### MKT.G.2 `GET /api/v1/admin/marketing/panel` — sesión + `marketing:read`
 
@@ -45427,11 +45390,9 @@ exports (`marketing.controller.ts:73-75`).
     periodo ⇒ la última semana cerrada** (mismo valor por defecto que el botón semanal, `marketing.controller.ts:138-141`). Semana o
     mes abiertos, dos formas a la vez, o cualquier `from`/`to`/`day`/`preset` ⇒ **400** (misma validación que `aggregates`,
     `marketing-period.ts:79-125`).
-- **200:** `ScreenPayload` (MKT.G.5). **Paridad (solo en régimen `small_cells`):** para la misma `pantalla` y el mismo periodo, el
-  cuerpo de una sesión `small_cells` es **igual en profundidad** al de `GET …/aggregates` y sus filas son las del export de esa
-  pantalla (las tres salidas se construyen del mismo `MarketingAnalyticsService.screen()`, con el régimen como argumento obligatorio).
-  En régimen `exact` la paridad es otra: mismas tablas, mismas filas y mismo orden que la salida `small_cells` **antes** de ocultar,
-  con los valores reales (MKT.G.9 prueba 8).
+- **200:** `ScreenPayload` (MKT.G.5). **Paridad:** en `small_cells`, igual en profundidad a `GET …/aggregates` y con las filas del
+  export (las tres salen de `MarketingAnalyticsService.screen()`, régimen obligatorio); en `exact`, mismas tablas y filas que
+  `small_cells` antes de ocultar, con valores reales y orden real (no el de R0, §MKT.H.14; MKT.G.9 prueba 8).
 - **Régimen de privacidad según quién mira (DECISIÓN D-MKT-PANEL-2, v1.103; dueño 2026-10-18, `HECHOS.md:172` «si cifras
   exactas»).** El servidor lo decide; ⛔ ningún parámetro de query lo elige.
   - Sesión **`super_admin`** ⇒ `privacy: 'exact'`: cada conteo y cada MX$ viajan con su valor real (⛔ ni «< 5» ni fila «Otros»;
@@ -45443,11 +45404,9 @@ exports (`marketing.controller.ts:73-75`).
     mismos cerrados que hoy (rango libre y día siguen fuera, MKT.G.8).
   - `aggregates`, `export`, `export/todo` y `weekly-excel` son **siempre** `small_cells`, **aunque** los pida una sesión `super_admin`.
 - **Cabecera:** `Cache-Control: no-store`.
-- **Errores:** **401** `UNAUTHENTICATED` sin sesión — y también con el token `marketing-reader` (no es JWT; D-MKT-AUTZ);
-  **403** `FORBIDDEN` con sesión sin `marketing:read`; **400** `VALIDATION_ERROR` (periodo: genérico; `pantalla`: con
-  `field`+`allowed`, §MKT.E); **429**
-  `RATE_LIMITED` solo por el throttler global de la app (esta ruta no tiene cupo propio; los números del throttler global para
-  admin: NO MEDIDO).
+- **Errores:** **401** `UNAUTHENTICATED` sin sesión o con el token `marketing-reader` (D-MKT-AUTZ); **403** `FORBIDDEN` sin
+  `marketing:read`; **400** `VALIDATION_ERROR` (periodo: genérico; `pantalla`: con `field`+`allowed`, §MKT.E); **429**
+  `RATE_LIMITED` solo por el throttler global (sin cupo propio).
 - **Registro:** cada llamada ⇒ una fila de `MarketingAccessLog` `{actorUserId, tokenId: null, screen: <pantalla>, format: 'json',
   filters: {period: <label>, kind: 'week'|'month', surface: 'panel', privacy: 'exact'|'small_cells'}, rowCount: <suma de filas>}`. Igual de best-effort que el resto
   (`marketing-access-log.service.ts:33-47`): si falla la escritura, la respuesta sale igual.
@@ -45478,7 +45437,7 @@ MarketingWeekOption = { weekStart: string /* lunes YYYY-MM-DD */, from: string, 
 
 `tables[]` trae, **en este orden**, estas tablas. Una tabla que no se puede medir **viaja igual**, con `measured: false` y
 `notMeasuredReason` que empieza por «NO MEDIDO — » (la pantalla pinta el motivo, ⛔ nunca «0»). Solo entran las de nivel **I**
-del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» es lo medido en `marketing-analytics.service.ts` sobre `b8197420`.
+del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» quedó medida sobre `b8197420`; desde `a1ba4d2e` todas se emiten (lectura).
 
 | Pantalla | `id` | Qué | Fuente | Fase 0 | Hoy |
 |---|---|---|---|---|---|
@@ -45514,8 +45473,7 @@ del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» es lo medido en `
 - **h2** (leyenda de fuente) no es tabla: es `sourceLegend` + `tables[].source`; la pantalla la pinta al pasar el cursor.
 - **Cobertura arriba de cada pantalla (Panel §2 convenciones):** el `notes` de **toda** `ScreenPayload` incluye una línea de
   cobertura; su texto literal depende del modo y está en §MKT.H.9. La pantalla la pinta arriba; el export la lleva en «Info».
-- Las filas ❌ son la desviación **D-MKT-1** (ARCHITECTURE §9). Ninguna bloquea pintar la pantalla: el frontend pinta lo que
-  llegue en `tables[]`.
+- Población, componentes y ecuaciones de cada tabla: registro de §MKT.H.14.
 
 #### MKT.G.5 Forma de `ScreenPayload` (la de `panel` y `aggregates`)
 
@@ -45539,9 +45497,9 @@ AggTable = {
   notes?: string[], measured: boolean, notMeasuredReason?: string
 }
 Cell = number | '< 5' | 'oculta' | string | null    // v1.106 (TL-MKT2-C1): null = SIN DATO («—»), siempre y en todo `kind`.
-                                                     // Fila suprimida: su conteo N lleva '< 5'/'oculta' (MKT.G.10), toda otra celda no `text`
-                                                     // 'oculta' (⛔ null) SALVO d1.aLaVentaHoy: stock de hoy, ya público en la ficha ⇒ exacto
-                                                     // (v1.106.2). La fila «Otros» lo lleva null («—»). 'exact': sin '< 5' ni 'oculta'.
+                                                     // Componente suprimido (MKT.H.14): su conteo '< 5'/'oculta' y sus MX$/derivadas 'oculta'
+                                                     // (⛔ null), SALVO aLaVentaHoy de d1/d3: stock de hoy, público ⇒ exacto ('oculta' en «Otros»).
+                                                     // b1-b3 tienen dos componentes por fila (MKT.H.14). 'exact': sin '< 5' ni 'oculta'.
 ```
 - **La pantalla pinta `privacy`:** con `exact`, aviso fijo «Cifras exactas: solo las ves tú. El Excel y el acceso del analista llevan
   "< 5"»; con `small_cells`, la leyenda de «< 5» y «oculta». ⛔ El frontend no persiste un payload `exact` (ni `localStorage`, ni
@@ -45562,15 +45520,12 @@ Tres rutas con `@Roles(super_admin)` (el `RolesGuard` de siempre), **no** con `m
   §13.4.6); si no ⇒ **422** `VALIDATION_ERROR`. Caduca a los 12 meses (`marketing-token.service.ts:23,38`).
 - **`POST /api/v1/admin/marketing/tokens/:id/revoke`** — sin body → **200** `MarketingApiTokenView` con `status: 'revoked'`.
   **Idempotente:** ya revocado ⇒ 200 con el mismo `revokedAt` y **sin** nueva bitácora. Id inexistente ⇒ **404** `NOT_FOUND`.
-  **Efecto inmediato:** `verify()` lee la fila en cada llamada, sin caché (`marketing-token.service.ts:74-81`) ⇒ la siguiente
-  llamada con ese token da **401**, sin desplegar ni reiniciar.
+  **Efecto inmediato:** `verify()` lee la fila en cada llamada, sin caché ⇒ la siguiente llamada con ese token da **401**.
 
 ```
-MarketingApiTokenView = {
-  id: string, label: string, status: 'active' | 'revoked' | 'expired',   // revoked si revokedAt; expired si expiresAt ≤ ahora
+MarketingApiTokenView = { id: string, label: string, status: 'active' | 'revoked' | 'expired',  // revoked si revokedAt; expired si expiresAt ≤ ahora
   createdAt: string, createdByUserId: string | null, expiresAt: string,
-  revokedAt: string | null, revokedByUserId: string | null, lastUsedAt: string | null
-}
+  revokedAt: string | null, revokedByUserId: string | null, lastUsedAt: string | null }
 MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt: string, expiresAt: string }
 ```
 - **El claro (`token`) viaja UNA vez**, en la respuesta del `POST`. ⛔ Ninguna otra respuesta lleva `token` ni `tokenHash` (ni un
@@ -45602,15 +45557,11 @@ MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt:
 
 #### MKT.G.8 Fuera de Fase 0 (declarado, no olvidado)
 
-- **Rango libre y detalle por día en pantalla** (Panel §2 convenciones): no se contratan aún. Las **cifras exactas del dueño** ya
-  están contratadas (MKT.G.2, v1.103). Con `privacy:'exact'` el rango libre no tendría coste de privacidad para el dueño, pero no es
-  trivial: pide otra validación de periodo solo para ese régimen, otro selector y gráficas por día. Va en un delta propio cuando el
-  dueño lo pida; para cualquier otra cuenta sigue prohibido (es justo lo que §13.5 saca fuera de pantalla).
-- **Gráficas por día con las anotaciones encima** (criterio (h) «aparece en las gráficas de a, b y c»): sin detalle diario no hay
-  gráfica; en Fase 0 la anotación sale en la franja del periodo de a, b y c y en «Info». Se relaya a marketing (Panel §7 punto 6).
-- **Interruptor pagado/orgánico:** no se pinta en Fase 0 (`first_utm_*` vacío).
-- **Exportar por tabla:** en Fase 0 el export es por pantalla (`…/export`, una hoja por pantalla) y «Exportar todo» es de todas las
-  pantallas; el brief pide por tabla. No se contrata en Fase 0.
+- **Rango libre y detalle por día en pantalla** (Panel §2): no se contratan. Con `exact` no costarían privacidad al dueño, pero piden
+  otra validación de periodo, otro selector y gráficas por día: delta propio cuando el dueño lo pida; para otra cuenta, prohibido (§13.5).
+- **Gráficas por día con anotaciones** (criterio (h)): sin detalle diario no hay gráfica; la anotación sale en la franja del periodo
+  de a, b y c y en «Info» (relayado a marketing, Panel §7 punto 6).
+- **Interruptor pagado/orgánico:** no se pinta en Fase 0. **Exportar por tabla:** el export es por pantalla y «Exportar todo»; no se contrata.
 
 #### MKT.G.9 Pruebas que lo vigilan (las escribe backend; QA las ejecuta)
 
@@ -45647,17 +45598,16 @@ mes y en las otras semanas sale visible, `mes − semanas visibles` despeja la c
 semanas completas, como febrero 2027; casi exacto en el resto si se combinan meses vecinos). Regla, en régimen `small_cells`:
 
 1. **Al calcular un mes**, para cada tabla con dimensión, se calculan con la misma función las semanas cerradas que tocan ese mes
-   (de 4 a 6). Toda clave que salga oculta en **alguna** de ellas —por «< 5» o por ser la pareja de una fila «Otros»— sale en el mes
-   como **`'oculta'`** (conteo y toda otra celda no `text`, MKT.G.5), aunque en el mes tenga N≥5.
+   (de 4 a 6). Todo (clave, componente) oculto en el resultado **final** de **alguna** de ellas (R1-R4 de §MKT.H.14, incluida la
+   pareja de «Otros») sale en el mes como **`'oculta'`** (su conteo y sus MX$/derivadas, MKT.G.5), aunque en el mes tenga N≥5.
 2. Después se aplica la supresión complementaria de siempre contando `'< 5'` y `'oculta'` como ocultas.
 3. **Las semanas no cambian:** son disjuntas entre sí, así que solas no despejan nada.
 4. **Mes cerrado = su última semana cerrada** (MKT.G.3): si no, el mes se exportaría antes de conocer la semana que lo cruza.
 5. **Mismo cálculo** en `aggregates`, `export`, `export/todo`, `weekly-excel` (que con `month=` exporta un mes) y `panel` en régimen
    `small_cells`. En `exact` no aplica.
 
-**Riesgo residual (no lo cierra esta regla, anotado para seguridad):** las cifras de un periodo pasado cambian cuando hay un
-reembolso o un pedido se cancela; dos descargas del mismo periodo en fechas distintas pueden diferir en una fila. Lo que se despeja
-es «cambió en ≤ N unidades», no el valor oculto. Se acepta salvo que seguridad diga otra cosa.
+**Riesgo residual (aceptado salvo que seguridad diga otra cosa):** un reembolso o una cancelación cambia un periodo pasado; dos
+descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es «cambió en ≤ N», no el valor oculto.
 
 ### <a id="MKT-H"></a>MKT.H — Fase 2: consentimiento, GA4, Meta Pixel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto, **NORMATIVA**; se construye APAGADO)
 
@@ -45829,37 +45779,21 @@ enum MeasurementEventKind   { purchase  generate_lead }
 enum MeasurementDestination { ga4_mp  meta_capi }
 // BannerResponse (m82) gana el valor `custom`:  ALTER TYPE "BannerResponse" ADD VALUE IF NOT EXISTS 'custom';  (v1.106.1, I1)
 
-// En Order y en SellRequest (las dos), NULLABLE, sin default — NULL = creado con el modo apagado o antes de m86:
-measurementConsentAnalytics Boolean?
-measurementConsentAds       Boolean?
-measurementNoticeVersion    String?    // measurementDisclosure.version del aviso aceptado/rechazado
-
-model MeasurementContext {           // identificadores de navegador de vida corta; ⛔ sin FK (muere en ≤7 días)
-  id            String   @id @default(uuid())
-  orderId       String?  @unique
-  sellRequestId String?  @unique     // exactamente uno: CHECK "MeasurementContext_one_subject" num_nonnulls(...)=1 (SQL, v1.106)
-  gaClientId    String?              // solo con analytics
-  fbp           String?              // solo con ads
-  fbc           String?              // solo con ads (v1.105: sin `sourcePath`; la URL de CAPI es fija, MKT.H.5)
-  createdAt     DateTime @default(now())
-  expiresAt     DateTime             // createdAt + 7 días
-  @@index([expiresAt])
+// Order y SellRequest += (NULLABLE, sin default; NULL = modo apagado o antes de m86):
+//   measurementConsentAnalytics Boolean?, measurementConsentAds Boolean?,
+//   measurementNoticeVersion String?   (measurementDisclosure.version del aviso aceptado/rechazado)
+model MeasurementContext {   // identificadores de navegador de vida corta; ⛔ sin FK (muere en ≤7 días)
+  id String @id @default(uuid()); orderId String? @unique; sellRequestId String? @unique
+  //   exactamente uno de los dos: CHECK "MeasurementContext_one_subject" num_nonnulls(...)=1 (SQL, v1.106)
+  gaClientId String? /* solo analytics */; fbp String?; fbc String? /* solo ads; sin `sourcePath` (v1.105) */
+  createdAt DateTime @default(now()); expiresAt DateTime /* createdAt + 7 días */; @@index([expiresAt])
 }
-
-model MeasurementOutbox {            // ⛔ sin cuerpo: se arma al enviar
-  id            String                 @id @default(uuid())
-  kind          MeasurementEventKind
-  destination   MeasurementDestination
-  subjectId     String                 // Order.id o SellRequest.id; ⛔ sin FK
-  eventId       String                 // 'p_<Order.id>' | 'l_<SellRequest.id>'
-  attempts      Int                    @default(0)
-  nextAttemptAt DateTime               @default(now())
-  lastStatus    Int?                   // último código HTTP; ⛔ nunca texto de error del proveedor
-  createdAt     DateTime               @default(now())
-  expiresAt     DateTime               // createdAt + 7 días
-  @@unique([destination, eventId])
-  @@index([nextAttemptAt])
-  @@index([expiresAt])
+model MeasurementOutbox {    // ⛔ sin cuerpo: se arma al enviar
+  id String @id @default(uuid()); kind MeasurementEventKind; destination MeasurementDestination
+  subjectId String /* Order.id | SellRequest.id; ⛔ sin FK */; eventId String /* 'p_<Order.id>' | 'l_<SellRequest.id>' */
+  attempts Int @default(0); nextAttemptAt DateTime @default(now()); lastStatus Int? /* último HTTP; ⛔ nunca texto del proveedor */
+  createdAt DateTime @default(now()); expiresAt DateTime /* createdAt + 7 días */
+  @@unique([destination, eventId]); @@index([nextAttemptAt]); @@index([expiresAt])
 }
 ```
 - Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE IF NOT EXISTS` (no usado en su transacción) + el CHECK de D8 en el `CREATE TABLE
@@ -45907,7 +45841,7 @@ encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «si
 | d1 (vistas), d2 | `itemId` | `itemsViewed`, `itemsAddedToCart` | `itemId` canónico (MKT.H.4): el prefijo dice la tabla (`c_` Card, `s_` SealedProduct, `sc_` Card ancla); las ventas de BD se cruzan por `measurementItemOf(cardSnapshot)`, la misma función del drenador. d1 rellena «vistas»; d2 = ≥ 20 vistas y 0 ventas en BD, con % carrito/vista |
 | e3 | `sessionSource`, `landingPage` (source en la lista) | `sessions` | lista fija en código: `chatgpt.com`, `perplexity.ai`, `gemini.google.com`, `copilot.microsoft.com`, `claude.ai` |
 
-- **b1, b2, b3:** solo columnas de BD (pedidos y MX$, solicitudes y MX$ ofertado por `first_utm_*`; `dm` en una sola fila). Sesiones
+- **b1, b2, b3:** solo columnas de BD (pedidos y MX$, solicitudes y MX$ ofertado por `first_utm_*`: dos componentes, §MKT.H.14; `dm` en una fila). Sesiones
   por primer origen exigirían dimensiones de evento propias en la consola de GA4 (ARCHITECTURE §14.9): no entran; nota en la tabla.
 - **Diferidas** (`measured:false`): c2 y c8 «NO MEDIDO — la clasificación por tipo de página no está definida todavía» (el mapa
   ruta→tipo solo existe en `frontend/…/measurement/routes.ts`; copiarlo sería otra fuente); c3 «NO MEDIDO — la consulta de abandono
@@ -45938,7 +45872,7 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
-| **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): toda fila con `'< 5'`/`'oculta'` en su conteo lleva `'oculta'` en toda columna no `text` salvo d1 `aLaVentaHoy`, que sale número exacto (y `null` solo en «Otros») (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
+| **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): todo componente con `'< 5'`/`'oculta'` en su conteo lleva `'oculta'` en sus columnas (§MKT.H.14) salvo `aLaVentaHoy` de d1/d3, número exacto (`'oculta'` en «Otros») (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
 | **C-D2** | devops | gitleaks: regla para tokens de Meta y para `api_secret` de GA4; `grep` del token real en repo y en logs del despliegue = 0 (el dueño lo corre donde vive el token) | un fichero de prueba con un token falso con la forma de Meta ⇒ rojo |
 | **C-B1** | backend | `MEASUREMENT_MODE` ausente, vacío o `ON` (mayúsculas) ⇒ `off`; con `off`, crear pedido con `measurement` completo ⇒ `firstUtm*` y consentimiento `NULL`, 0 filas de contexto y de cola; `banner-response` ⇒ 204 sin escribir; el drenador no llama a `fetch` | leer el modo con `!== 'off'` ⇒ rojo |
 | **C-B2** | backend | 🔒💰 aislamiento del pago: con el encolado lanzando, `onPaymentSucceeded` liquida igual (orden `settled`, piezas movidas) y no relanza; con el contexto lanzando, `POST /checkout/session` da 201. `measurement` basura ⇒ misma respuesta que sin él | mover el encolado dentro del `$transaction` o quitar el `try/catch` ⇒ rojo |
@@ -45950,27 +45884,93 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-B8** | backend | purga: filas con `expiresAt` vencido ⇒ borradas; filas enviadas ⇒ borradas | — |
 | **C-B9** | backend | `banner-response`: `utmMedium` fuera de los cuatro ⇒ `null`; el UA no se guarda; 31.ª petición en una hora ⇒ 429 | — |
 
-Las pruebas del panel (régimen `exact`, supresión coherente, mes cerrado) son MKT.G.9 8-11.
-
 #### MKT.H.12 Preguntas para el dueño
 
-Las seis de ARCHITECTURE §14.10: (1) sin GTM; (2) agente de usuario a Meta por CAPI; (3) Card Show medido o excluido; (4) guardar
-el `client_id` de GA4 7 días; (5) volver a preguntar al cambiar el aviso; (6) evento `refund` a GA4.
+Las seis de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, Card Show, `client_id` 7 días, re-preguntar, `refund`).
 
-#### MKT.H.13 Qué cambia cada rol con v1.106 (veredicto del techlead sobre `a1ba4d2e`: R4, TL-MKT2-C1, D8)
-
-Lo de v1.105 está cerrado (TECH_DEBT MKT-F2-1/-2, FE-MKT2-1/-3). Pendiente de v1.106:
+#### MKT.H.13 Qué cambia cada rol con v1.107 (lo de v1.106 está en el árbol, leído el 2026-10-19; el verde de sus pruebas: NO MEDIDO)
 
 | Rol | Cambio | Prueba que lo vigila |
 |---|---|---|
-| backend | `SealedGroupDTO` y `SealedGroupSummaryDTO` += `sealedProductId` del representante (bloque de `SealedGroupDTO`, aditivo; `sealed-catalog.service.ts:285-325,338-350`) | contrato de la ficha y de la rejilla con un sellado ligado y uno sin ligar |
-| backend | `measurementItemOf` en `modules/measurement/`; `purchaseFact` la usa (hoy `measurement-drain.service.ts:202-203` sin prefijo); d1/d2 parten el `itemId` por prefijo y cruzan ventas con ella | C-B10, y d1/d2 con dobles de GA4 que traen `s_`/`sc_`/`c_` |
-| backend | m86 con el CHECK de exactamente uno (MKT.H.7), **solo si m86 no se aplicó en ningún entorno** (NO MEDIDO: lo cierra `prisma migrate status` en staging y producción); si ya se aplicó, migración nueva con `ADD CONSTRAINT … NOT VALID` + `VALIDATE` | C-B11 |
-| backend | celdas ocultas del panel = `'oculta'`, nunca `null` (MKT.G.5): `blankMoney` (`small-cells.ts:73-77`) y `vistas` de d1 (`marketing-analytics.service.ts:472`) | C-P1 (backend) |
-| frontend | `FrozenCardFacts` de `types/contract.ts:1092-1111` += `sealedProductId?`/`sealedProductName?` (contrato §4 desde v1.94; el tipo se quedó atrás); `measurementItemOf` en `lib/measurement/`; `ecommerce.ts:11-15`, `SealedDetailView.tsx:70,105` y `CardDetailView.tsx:112,230` la usan | C-F8 |
-| frontend | `cellMeaning` (`MarketingTable.tsx:43-46`): `null` ⇒ «—» siempre; se va la deducción por `rowHasSmall` cuando el backend de C-P1 esté en producción | C-P1 (frontend) |
-| frontend | `ENCENDER_BLOCKERS` en `measurement-gate.ts` (ARCHITECTURE §14.1), con `R4`, `D2` (backend) y `D4` (frontend) salvo los ya cerrados; las pruebas de solo-aviso pasan `[]` explícito (`measurement-gate.test.ts:45,50` hoy cuentan 3 y `[]`) | C-D1 |
-| devops | nada nuevo: el paso de build ya llama a la puerta (`publish-check.ts:45`, job `measurement-gates`); confirmar que con `on` el rótulo lista los bloqueos | C-D1 en CI con `on` |
+| backend | §MKT.H.14 entero: registro, `subjects`, b1-b3 por componente, d1/d3 por sujeto, R0, familias, g1 sobre `PAID_ORIGIN` | pruebas 1-3 de §MKT.H.14 |
+| frontend | `ENCENDER_BLOCKERS` += `SEC-MKT-1` y `MKT-TL2` (owner backend; `closedBy` = prueba 2 y pruebas 1+3); salen en el commit de frontend que sigue al verde de backend | `measurement-gate.test.ts` (lista exacta, `:109`) |
+| frontend | fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$ (ya se pinta por celda, `MarketingTable.tsx:35`; falta el caso), también en el mock de b | `MarketingTable.test.tsx` |
+
+#### <a id="MKT-H14"></a>MKT.H.14 Celdas pequeñas por componente y registro de poblaciones (v1.107, 2026-10-19, **NORMATIVA**; SEC-MKT-1, MKT-TL2)
+
+Razones: ARCHITECTURE §13.7 D-MKT-PANEL-5. Origen: `SECURITY_NOTES.md` (rechazo sobre `bfd91ab2`). Solo en `small_cells` (`exact` no
+aplica nada de esto, MKT.G.2). *Sujeto*: lo que protege la regla — pedido, solicitud o usuario (GA4/SC: la unidad de la fuente).
+*Componente*: en una fila, el conteo de sujetos de **una** población más los MX$/derivadas de esos sujetos. *Total aceptado* (sin
+dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5 y f3 (seguridad nombró a1/a2/f3; a3 y a5 los confirma).
+
+- **R0 · Orden** solo con valores publicados: visibles por conteo publicado desc (b1-b3: `pedidos`, luego `solicitudes`), después
+  las ocultas por clave asc, «Otros» al final. ⛔ Nunca por el N real de una celda oculta.
+- **R1 · Umbral por componente y por sujeto.** `0 < N < 5` ⇒ conteo `'< 5'` y **sus** MX$/derivadas `'oculta'`; los demás
+  componentes de la fila no cambian; `N = 0` ⇒ `0`. N = sujetos **distintos**: d1 pedidos (no piezas), d3 usuarios (no altas: hay
+  hasta 4 acabados por usuario y carta). El valor publicado de un componente visible no cambia (d1 piezas, d3 altas).
+- **R2 · Coherencia mes↔semanas** (MKT.G.10) con unidad (tabla, clave, componente), sobre el resultado **final** de cada semana.
+- **R3 · Complementaria.** (a) *Local*, como hoy: una columna de conteo con una sola oculta oculta también la visible más chica
+  (≠ 0; desempate por clave): tabla de un componente ⇒ «Otros (< 5 c/u)» (`applySmallCells`); b1-b3 ⇒ en su sitio, `'oculta'` con
+  su MX$ (b1-b3 no tienen «Otros»). (b) *De familia*, hasta punto fijo (solo oculta ⇒ termina): mientras una celda con `N<5` sea
+  **despejable**, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla, clave, columna) que comparta ecuación con
+  ella, ⛔ nunca un total aceptado. Sin candidata ⇒ X1.
+- **R4 · Identidad:** dos celdas declaradas idénticas comparten estado (oculta una ⇒ `'oculta'` la otra), dentro del punto fijo.
+- **Despejable** (una definición; servicio y prueba la implementan por separado): visibles = constantes, ocultas = incógnitas; la
+  celda lo es si su vector unitario está en el espacio de filas de las ecuaciones de abajo (eliminación exacta con racionales
+  `bigint`; ⛔ coma flotante). Las cotas (`'< 5'` ∈ 1..4) no entran.
+- **X1 (por diseño):** un **conteo** que sigue despejable aunque se oculten todas las celdas con dimensión del periodo (b1 de una
+  fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
+  confirma X1 y X2 en la re-medición.
+
+**Poblaciones:** `PAID` = `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}` · `PAID_ORIGIN` = `PAID` ∧
+`firstUtmSource IS NOT NULL`, **base de b1, b2, b3 y g1** (g1 gana el filtro: hoy `:1200` no lo tiene) · `REQ` = `SellRequest`
+creada en el periodo · `REQ_ORIGIN` = `REQ` ∧ `firstUtmSource IS NOT NULL` · `REQ_PAID` = `status='pagada'` ∧ `paidAt` en el periodo ·
+`WISH` = altas de `WishlistItem` en el periodo de cartas con 0 piezas `listed` de plataforma hoy · `GA4:<consulta>` y `SC` (MKT.H.9).
+
+| Tabla | Componentes: conteo → MX$/derivadas · población (sujeto) | Clase / exactas por diseño |
+|---|---|---|
+| a1, a2, f3, a5 | a1 `pedidos`→`mxn`, a2 derivadas, f3 cada fila · `PAID`/`PAID_ORIGIN`/consentimiento; a5 `n` · `GA4:funnel*`, «Compras (BD)» · `PAID` | total aceptado; `pct` |
+| a3 | «enviadas» `n`→`mxn` · `REQ` (total aceptado); «pagadas» `n`→`mxn` · `REQ_PAID` (dimensión de una fila) | mixta |
+| b1, b2, b3 | `pedidos`→`mxnPedidos` · `PAID_ORIGIN` (pedido) y `solicitudes`→`mxnOfertado` · `REQ_ORIGIN` (solicitud) | dimensión, 2 componentes |
+| c7 · g1 | `pedidos` · `PAID` · g1: `pedidos`→`mxn` · `PAID_ORIGIN` ∧ `firstUtmMedium='paid'` | dimensión · de una fila |
+| d1 · d3 · d4b | `unidadesVendidas`→`mxn`, `vistas` · `PAID`, carta suelta (pedido distinto) · `listaDeseos` · `WISH` (usuario distinto) · `solicitudes` · `REQ` por carta | dimensión; `aLaVentaHoy` (d1, d3) |
+| a4, b4, c5, e3 · c1 · d2 · e1 | `sesiones` · `GA4:sources`/`devices`/`aiReferrals` · `usuarios`→`vistas`, `tiempoMedio` · `vistas`→`carritoPct` · `clics`→`impresiones`, `ctr`, `posicion` · `SC` | dimensión |
+| d4, f1 · h1 · c2, c3, c4, c6, c8 | — | anónima, sin umbral · texto · diferida (si se mide, la prueba 1 exige su fila) |
+
+**Ecuaciones (mismo periodo):** E1 `a1[actual].pedidos = a5[Compras (BD)] = f3[Pedidos pagados] = Σ c7` · E2 `f3[Con origen registrado]
+= Σ b1.pedidos` · E3 por puerta m, en las cuatro columnas de b: `b2[m] = Σ b1[<source> / m]` · E4 `g1 ≡ b2[Promoción]` (`mxn` ≡
+`mxnPedidos`) · E5 `b3[Mensaje directo (dm)] ≡ b2[Mensaje directo]` · E6 `a4[g] ≡ b4[g]` para Google orgánico y Asistentes de IA,
+y `b4[Asistentes de IA] = Σ e3` · E7 `a5[Sesiones] = Σ a4 = Σ c5` · T (solo en la prueba 3) mes = Σ semanas en febrero 2027.
+E6/E7 son exactas en la fixture (sin `medium=paid` en fuentes de Google o IA, sin corte por `limit`); en datos reales casi, y R4
+las trata igual. **Familias:** {b1, b2, b3, g1, f3}, {a1, a5, f3, c7} y {a4, a5, b4, c5, e3} se calculan juntas por periodo y
+régimen, pida la pantalla que pida: g1 vale lo mismo en `panel?pantalla=g`, `aggregates` y `export/todo`.
+
+**Fila de b1-b3:** `{<clave>, pedidos: number|'< 5'|'oculta', mxnPedidos: number|'oculta', solicitudes: …, mxnOfertado: …}`;
+`mxnPedidos` es `'oculta'` ⇔ `pedidos` no es número (ídem solicitudes). La sonda de seguridad (1 pedido de $12,345.67 + 4
+solicitudes) ⇒ las cuatro ocultas; 1 pedido + 7 solicitudes por $700 ⇒ `{pedidos:'< 5', mxnPedidos:'oculta', solicitudes:7,
+mxnOfertado:700}`. Nota: «Pedidos y solicitudes se ocultan por separado: menos de 5 ⇒ «< 5» sin su MX$.» Pantalla y Excel, por celda.
+**Firmas:** `DimensionRow += subjects: number` (obligatorio, como `privacy`); `applySmallCellsByComponent(rows, privacy, forced:
+ReadonlySet<CellId>)`; `marketing-populations.ts` (fuente en código del registro): `MARKETING_POPULATIONS`, `MARKETING_TABLES`,
+`MARKETING_EQUATIONS`, `ACCEPTED_TOTALS`, `exposedCells(cells, equations): CellId[]`, `enforceFamily(plan)`.
+
+**Pruebas (backend; QA las ejecuta). Las tres ROJAS sobre `bfd91ab2`:**
+1. `test/marketing-populations.registry.spec.ts` (MKT-TL2 a): 8 pantallas × semana/mes × modo off/on con dobles GA4/SC ⇒ todo
+   `tables[].id` en `MARKETING_TABLES`; toda columna no `text` medida en un componente o en «exactas»; toda población con oráculo en
+   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo. Hoy rojo: no hay registro.
+2. `test/marketing-small-cells.by-component.spec.ts` (SEC-MKT-1, R0, R1): la sonda literal de seguridad (2026-W41, `instagram/paid/
+   pieza-x`) ⇒ ninguna celda de b1-b3 ni g1 vale `12345.67` y `pedidos` es `'< 5'`; el caso 1 + 7; d1, un pedido de 5 piezas ⇒ `'< 5'`
+   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles. Hoy rojo (sonda).
+3. `test/marketing-cross-table.audit.spec.ts` (MKT-TL2 b, c): servicio real con Prisma de dobles sembrado, todas las pantallas del
+   periodo; auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E7 literal y exige `MARKETING_EQUATIONS`
+   igual). Rojo si: (D1) conteo visible con oráculo `0<N<5`; (D2) MX$ visible de un componente oculto; (A1) celda con `N<5` despejable
+   fuera de X1; (A2) MX$ con `N<5` despejable. Casos: «SEC-MKT-1», «b2 7 = b1 6 + 1, pareja fuera de la puerta», «g1 pareja en b2»,
+   «b3 dm ≡ b2 dm», «a3 pagadas 1..4», «c7↔a1», «febrero 2027 [3,6,6,6] en b1 con f3»; semillas fijas 1..200 (componentes 1-4 y
+   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida. Hoy rojo
+   en «SEC-MKT-1» (D1) y «b2 7 = b1 6 + 1» (A1, A2).
+
+**Terminado:** las tres rojas sobre `bfd91ab2` por su motivo y verdes en el sha nuevo, con toda `test/marketing-*` verde; ablaciones
+deterministas (N=3 cada una): b1-b3 de vuelta a un componente con `count: e.o + e.s` ⇒ 2 y 3 rojas; quitar E3 ⇒ 3 roja;
+`enforceFamily` que devuelva el plan sin tocar ⇒ «g1 pareja en b2» y «b2 7 = b1 6 + 1» rojas; después, fuera de `ENCENDER_BLOCKERS`.
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 

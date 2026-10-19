@@ -4,6 +4,9 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.107⟨mkt-celdas⟩ (2026-10-19, arquitecto, leído en el árbol vivo, sin Bash).** **§13.7:** D-MKT-PANEL-5 (umbral por componente
+> y sujeto, registro de poblaciones, auditor de rango). **§9:** `D-MKT-CELLS-1`; R4 y D-MKT-1 cerradas. Contrato: API_CONTRACT §MKT.H.14.
+> ---
 > **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, arquitecto, leído sobre `a1ba4d2e`, sin Bash).** **§14.1:** lista `ENCENDER_BLOCKERS` en
 > la puerta C-D1. **§14.5:** identidad canónica de ítem para GA4/Meta (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada por
 > lectura. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5 (regla de `null`).
@@ -32043,16 +32046,16 @@ Riesgos técnicos:
 > `backend-lite`: toca candados). **Prueba que la vigila:** el propio `C-EQ-1` —descubrimiento sin huérfanos, conformidad
 > HTTP de las seis filas nuevas, trinquete con los literales nuevos— y su canario `enum-query-census-canary.spec.ts`.
 >
-> **`D-MKT2-R4` (🔴 ABIERTA para encender, no para fusionar apagado; dueños frontend y backend; medida 2026-10-19 por el
-> techlead y leída por el arquitecto sobre `a1ba4d2e`).** Un sellado sale con tres `item_id`: `representativeItemId`
-> (`SealedDetailView.tsx:70,105`), `card.cardId` (`ecommerce.ts:12`) y `sealedProductId ?? cardId` (`measurement-drain.service.ts:202`);
-> el `item_name` de carta es `name` en el navegador y `name · set` en el servidor (`:203`). El tipo `FrozenCardFacts` del frontend
-> (`types/contract.ts:1092-1111`) no trae `sealedProductId`, que el contrato §4 sí tiene desde v1.94 y el backend ya manda en la
-> cotización (`orders.service.ts:835,890`). **Contrato (manda): API_CONTRACT §MKT.H.4** (identidad canónica) y MKT.H.13. **La
-> corrigen frontend y backend**, cada uno en lo suyo. **Prueba que la vigila:** C-F8 y C-B10; hasta entonces, `R4` en `ENCENDER_BLOCKERS`.
+> **`D-MKT-CELLS-1` (🔴 ABIERTA para encender, no para fusionar apagado; dueño backend; medida 2026-10-19 por seguridad —sonda
+> sobre `bfd91ab2`— y leída por el arquitecto en el árbol vivo).** b1-b3 ponen el umbral a `pedidos + solicitudes` y publican cada
+> parte (`marketing-analytics.service.ts:1053,1069-1075`: 1 pedido + 4 solicitudes sale con el MX$ exacto del pedido que g1
+> oculta); d1 cuenta piezas (`:611`) y d3 altas (`:663`) en vez de sujetos; el orden de filas usa el N real de las ocultas
+> (`small-cells.ts:118-131`); g1 no exige `firstUtmSource` (`:1200`). **Contrato (manda): API_CONTRACT §MKT.H.14.** **La corrige
+> backend** (⛔ no `backend-lite`: candados). **Pruebas que la vigilan:** las tres de §MKT.H.14; hasta su verde, `SEC-MKT-1` y
+> `MKT-TL2` en `ENCENDER_BLOCKERS` (las pone frontend, §MKT.H.13).
 >
-> **`D-MKT-1` (cerrada por lectura el 2026-10-19 sobre `a1ba4d2e`).** Las tablas que faltaban se emiten
-> (`marketing-analytics.service.ts:694-700,959-962,1031,489,654,1055`; cobertura `:96-97`). Que §MKT.G.9 punto 6 esté verde: NO MEDIDO (QA).
+> **`D-MKT2-R4` y `D-MKT-1` (cerradas por lectura el 2026-10-19):** `ENCENDER_BLOCKERS` ya no lista `R4` (`measurement-gate.test.ts:109`) y
+> las tablas de MKT.G.4 se emiten; el verde de C-F8/C-B10 y de MKT.G.9 punto 6: NO MEDIDO por el arquitecto.
 >
 > **`D-CS-7` (🔴 ABIERTA, dueño backend; medida 2026-10-17 por tester-e2e sobre `release/card-show` @ `4288ca4`, contra el stack
 > real con BD; BLOQ-A).** La preinscripción Pokémon «los dos días» deja el **domingo `pending` colgado para siempre**: el correo
@@ -36851,11 +36854,9 @@ columna nueva**.)
 > Normativas del brief (Panel §4, §5); el contrato las fija en API_CONTRACT §MKT.D/E. Si la tienda **no puede** cumplir
 > §5.2 (celdas pequeñas), el endpoint y los exports **no se construyen** (Panel encabezado PM-A1).
 
-- **Celdas pequeñas (§5.2, PM-A1).** En toda tabla **con dimensión** (`utm_*`, puerta, carta, estado, día): si `N < 5`,
-  el conteo sale **«< 5»** y **el MX$ de esa fila no se muestra** (ni ticket medio). **Supresión complementaria:** si
-  queda **una sola** celda oculta en una tabla, se agrupa con la siguiente más chica en **«Otros (< 5 c/u)»**. Totales
-  **sin dimensión** (a1/a2) se muestran **exactos**. `utm_medium=dm` **solo** agregado por `utm_medium`, nunca por
-  campaign/content.
+- **Celdas pequeñas (§5.2, PM-A1).** En toda tabla **con dimensión**, cada componente con menos de 5 sujetos sale «< 5» sin su
+  MX$, con supresión complementaria y registro de poblaciones: norma en API_CONTRACT §MKT.H.14, porqué en §13.7 D-MKT-PANEL-5.
+  Totales **sin dimensión** exactos. `utm_medium=dm` **solo** agregado por `utm_medium`, nunca por campaign/content.
 - **Granularidad fuera de pantalla.** El **endpoint**, el **botón semanal** y los **exports** aceptan **solo una semana
   cerrada o un mes cerrado**, **nunca** rango libre ni detalle por día (evita reconstruir una celda oculta restando dos
   rangos solapados). El filtro libre y el detalle por día **solo** en la pantalla del admin. Semana = **lunes 00:00 →
@@ -36895,21 +36896,6 @@ columna nueva**.)
 > Contrato: **API_CONTRACT §MKT.G**. Cierra el diseño de MKT-TL3 y MKT-TL4 (`docs/TECH_DEBT.md`). Medido por lectura sobre
 > `b8197420`. Sin migración, sin enum, sin código de error nuevo.
 
-**Estado medido (2026-10-18):**
-
-| Afirmación | Evidencia |
-|---|---|
-| La única ruta JSON del panel es `aggregates`, y es solo para el token | `marketing.controller.ts:51-69` (`@Public()` + `MarketingApiTokenGuard`) |
-| Exports, «Exportar todo» y botón semanal son de sesión + `marketing:read` | `marketing.controller.ts:73-154` |
-| `PermissionGuard` es global y va después de `RolesGuard` | `app.module.ts:97-100` |
-| `super_admin` tiene `marketing:read` sin fila; los demás necesitan fila; el guard no mira qué rol tiene la fila | `permission.guard.ts:37-46` |
-| Nada escribe `UserPermission` | Grep `userPermission\|UserPermission` en todo el repo menos `docs/`: solo lectura en `permission.guard.ts:39`, el schema, m82 y pruebas |
-| `issue()`/`revoke()` existen y nadie los llama | `marketing-token.service.ts:35-52`; el módulo no tiene otro controller (`marketing.module.ts:20`) |
-| Revocar surte efecto en la siguiente llamada: `verify()` lee la fila cada vez | `marketing-token.service.ts:74-81` |
-| Las pantallas c, d, b, e omiten tablas de nivel I en vez de marcarlas NO MEDIDO | `marketing-analytics.service.ts:339-341` (c solo c7), `:439-450` (b/e/g una tabla cada una) — D-MKT-1 |
-| No existe ninguna página del panel en el frontend | Glob `frontend/src/app/[locale]/(admin)/admin/marketing/**` ⇒ 0 ficheros |
-| La sesión del frontend viaja como `Authorization: Bearer` | `frontend/src/lib/api-client.ts:340` |
-
 **D-MKT-PANEL-0 — una ruta de datos con `pantalla=`, no una por pantalla.** `GET /admin/marketing/panel?pantalla=` usa los
 mismos parámetros que `aggregates` y `export`, la misma validación (`parseScreen`, `resolveMarketingPeriod`) y el mismo
 `MarketingAnalyticsService.screen()`. Así la paridad A=B sale de construcción: tres salidas, un solo cálculo. Ocho rutas
@@ -36945,15 +36931,29 @@ aceptada PM.4: el dueño ya tiene la base de datos). Cómo se construye, y por q
   gráficas propias; no es trivial y nadie lo ha pedido aún.
 
 **D-MKT-PANEL-4 (v1.103) — supresión coherente entre mes y semanas, y mes cerrado = su última semana cerrada.** Atiende la nota de
-seguridad del brief (Panel §5.2: «si combinar un mes con sus semanas permite despejar una celda oculta…»). Caso (razonado sobre el
-código, no ejecutado): febrero 2027 empieza en lunes y acaba en domingo, así que el mes es exactamente la suma de sus cuatro semanas; con `k` = `[3,6,6,6]`,
-`small-cells.ts:60-90` deja el 3 como «< 5» en la semana y enseña 21 en el mes ⇒ `21 − 18 = 3`. **La fuga existe hoy por lectura de
-`small-cells.ts` y `marketing-period.ts:92-104`** (el mes se calcula solo, sin mirar sus semanas, y cuenta como cerrado al día
-siguiente de acabar). Regla en API_CONTRACT §MKT.G.10: una clave oculta en cualquier semana que toque el mes sale `'oculta'` en el
-mes; y un mes no se acepta hasta que cierra la semana que contiene su último día. Alternativas descartadas: (a) ruido o redondeo a
+seguridad del brief (Panel §5.2: «si combinar un mes con sus semanas permite despejar una celda oculta…»). Caso: febrero 2027
+empieza en lunes y acaba en domingo, así que el mes es la suma de sus cuatro semanas; con `k` = `[3,6,6,6]`, sin la regla, la semana
+dice «< 5» y el mes 21 ⇒ `21 − 18 = 3`. Regla en API_CONTRACT §MKT.G.10 (unidad: clave y componente, §MKT.H.14): lo oculto en cualquier
+semana que toque el mes sale `'oculta'` en el mes; y un mes no se acepta hasta que cierra la semana de su último día. Alternativas descartadas: (a) ruido o redondeo a
 múltiplos de 5 — cambia cifras que el analista cuadra contra pedidos reales (Panel §6 criterio 8, paridad 0 celda a celda);
 (b) sacar los meses fuera de pantalla — el brief pide mes y semana (P2=A+B). Riesgo residual (cambios retroactivos por reembolsos):
 anotado en §MKT.G.10 para seguridad.
+
+**D-MKT-PANEL-5 (v1.107) — el umbral se aplica a cada componente publicado y cuenta sujetos; un registro de poblaciones y un auditor
+de rango deciden qué tabla se cruza con cuál.** Origen: SEC-MKT-1 y MKT-TL2 (rechazo de seguridad sobre `bfd91ab2`); hechos en §9
+`D-MKT-CELLS-1`. Norma: API_CONTRACT §MKT.H.14. Por qué así:
+- *Por componente, no por fila:* una fila de b1-b3 mezcla dos poblaciones (pedidos y solicitudes). Ocultar la fila entera cuando una
+  parte es chica borra datos útiles sin proteger más; sumarlas protege menos que cualquiera de las dos. Cada parte con su propio N.
+- *Sujetos, no unidades:* PM-A1 protege a una persona; cinco piezas de un pedido, o cuatro acabados de un usuario, son una persona.
+- *Registro + rango, no caso por caso:* el caso por caso cerró c7↔a1 y dejó pasar g1↔b2↔b1. Las relaciones entre tablas son sumas e
+  identidades, así que «se puede despejar» tiene respuesta exacta (rango del sistema), y la prueba la calcula con datos adversarios.
+  Una tabla sin fila en el registro pone roja la prueba: nadie publica una tabla sin decidir contra qué total se cruza.
+- *Descartadas:* ruido o redondeo (rompe la paridad 0 celda a celda, como en D-MKT-PANEL-4); ocultar b entera cuando g1 se oculta
+  (un pedido borra la pantalla); fusionar g1 dentro de b2 (cambia el catálogo que marketing ya consume).
+- *Orden por valores publicados:* una fila oculta colocada por su N real entre un 9 y un 7 dice que vale entre 7 y 9.
+- *Límites dichos:* un total sin dimensión aceptado puede despejar un conteo que ninguna supresión protege (X1, nunca MX$), y el
+  candado no mide cotas (X2); los dos quedan para que seguridad los confirme. g1 pasa a la base de b1-b3 (`firstUtmSource IS NOT
+  NULL`, lo que §14.9 ya decía) para que `g1 = b2[Promoción]` sea identidad exacta.
 
 **D-MKT-PANEL-3 — emitir y revocar tokens: solo `super_admin`, no `marketing:read`.** Leer el panel y crear una credencial para
 leerlo desde fuera no son el mismo poder. Un token: (a) vale 12 meses; (b) se usa fuera de la tienda, sin sesión y sin la vida corta
@@ -37029,7 +37029,7 @@ no encender vive como dato en `measurement-gate.ts`, no en una nota:
 `ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
 (`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
 problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
-cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde. Lista inicial: API_CONTRACT §MKT.H.13. Basta con la
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Basta con la
 puerta de Vercel: con el frontend apagado no viaja `measurement` y ningún pedido tiene consentimiento, así que el backend no encola nada (§14.6).
 
 **Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
@@ -37255,6 +37255,6 @@ Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H
 ### 14.11 Reparto
 
 - **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0.
-  Los ajustes vigentes (v1.106) están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
+  Los ajustes vigentes (v1.107) están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
 - **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
   cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.
