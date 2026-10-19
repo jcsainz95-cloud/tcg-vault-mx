@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import type { MarketingAggTable } from '@/types/contract';
-import { MarketingTable, cellMeaning } from './MarketingTable';
+import { LEGACY_NULL_HIDDEN_COMPAT, MarketingTable, cellMeaning } from './MarketingTable';
 
 function table(over: Partial<MarketingAggTable> = {}): MarketingAggTable {
   return {
@@ -172,5 +172,50 @@ describe('UX-MKT-4 · el significado vive en el TEXTO del DOM, no en color ni en
     const all = document.body.textContent ?? '';
     for (const word of ['< 5', 'Oculto', 'No medido todavía', '—']) expect(all).toContain(word);
     expect(document.querySelectorAll('[data-cell][title], [data-cell] [title]')).toHaveLength(0);
+  });
+});
+
+/** C-P1 (API_CONTRACT §MKT.H.11 / §MKT.G.5, v1.106, TL-MKT2-C1): `null` = «—» siempre; fila suprimida = `'oculta'`. */
+describe('C-P1 · null siempre «—»; la fila suprimida del servidor v1.106 se lee «Oculto» entera', () => {
+  const cols = [
+    { key: 'etapa', labelEs: 'Etapa', kind: 'text' as const },
+    { key: 'n', labelEs: 'Pedidos', kind: 'count' as const },
+    { key: 'vistas', labelEs: 'Vistas', kind: 'count' as const },
+    { key: 't', labelEs: 'Tiempo', kind: 'number' as const },
+    { key: 'pct', labelEs: '%', kind: 'pct' as const },
+    { key: 'mxn', labelEs: 'MX$', kind: 'money' as const },
+  ];
+
+  it('fila sin supresión: null en count, number, pct y money ⇒ «—» (cuatro), nunca «Oculto»', () => {
+    renderWithProviders(
+      <MarketingTable table={table({ id: 'c1', columns: cols, rows: [{ etapa: 'A', n: 12, vistas: null, t: null, pct: null, mxn: null }] })} privacy="small_cells" />,
+    );
+    const row = desktop('c1').getAllByRole('row')[1];
+    expect(within(row).getAllByText('—')).toHaveLength(4);
+    expect(row).not.toHaveTextContent('Oculto');
+  });
+
+  it('fila suprimida (forma v1.106): «< 5» en el conteo y `oculta` en el resto ⇒ «Oculto» en cada celda no texto', () => {
+    renderWithProviders(
+      <MarketingTable
+        table={table({ id: 'c1', columns: cols, rows: [{ etapa: 'B', n: '< 5', vistas: 'oculta', t: 'oculta', pct: 'oculta', mxn: 'oculta' }] })}
+        privacy="small_cells"
+      />,
+    );
+    const row = desktop('c1').getAllByRole('row')[1];
+    expect(within(row).getAllByText('Oculto')).toHaveLength(4);
+    expect(row).not.toHaveTextContent('—');
+  });
+
+  it('null en count/number de una fila suprimida ⇒ «—» (sin dato), también con la compatibilidad activa', () => {
+    for (const kind of ['count', 'number'] as const) {
+      expect(cellMeaning(null, { key: 'x', labelEs: 'x', kind }, true, 'small_cells')).toBe('none');
+    }
+  });
+
+  it('compatibilidad pre-v1.106 (FE-MKT2-4): solo MX$/% null en fila suprimida con small_cells ⇒ «Oculto»; sin supresión ⇒ «—»', () => {
+    const money = { key: 'mxn', labelEs: 'MX$', kind: 'money' as const };
+    expect(cellMeaning(null, money, true, 'small_cells')).toBe(LEGACY_NULL_HIDDEN_COMPAT ? 'hidden' : 'none');
+    expect(cellMeaning(null, money, false, 'small_cells')).toBe('none');
   });
 });

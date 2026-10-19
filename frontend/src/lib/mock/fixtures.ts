@@ -4836,6 +4836,7 @@ const SEALED_ETB = cardById('c-sealed-sv06-etb');
 export const mockSealedGroups: SealedGroupDTO[] = [
   {
     representativeItemId: 'inv-1008',
+    sealedProductId: 'sp-sv08-box', // v1.106: ligado ⇒ item_id s_sp-sv08-box
     card: SEALED_BOX,
     productName: SEALED_BOX.name,
     imageUrl: SEALED_BOX.imageSmallUrl,
@@ -4858,6 +4859,7 @@ export const mockSealedGroups: SealedGroupDTO[] = [
   },
   {
     representativeItemId: 'inv-1009',
+    sealedProductId: null, // v1.106: sin ligar ⇒ item_id sc_<ancla>
     card: SEALED_ETB,
     productName: SEALED_ETB.name,
     imageUrl: SEALED_ETB.imageSmallUrl,
@@ -4881,6 +4883,7 @@ export const mockSealedGroups: SealedGroupDTO[] = [
   {
     // Grupo "Detalle menor en caja" — se vende por override (sin mercado TCGCSV) → referencia pending.
     representativeItemId: 'inv-1020',
+    sealedProductId: 'sp-sv08-box',
     card: SEALED_BOX,
     productName: SEALED_BOX.name,
     imageUrl: SEALED_BOX.imageSmallUrl,

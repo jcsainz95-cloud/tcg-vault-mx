@@ -83,6 +83,8 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION', 'e2e-1');
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
   window.sessionStorage.clear();
+  // Next 15 publica `window.next.router` al cargar el módulo del router; aquí se simula (D4: sin él, no hay etiquetas).
+  (window as unknown as { next?: unknown }).next = { router: { push: vi.fn(), replace: vi.fn() } };
 });
 
 afterEach(() => {
@@ -95,6 +97,7 @@ afterEach(() => {
   delete w.fbq;
   delete w._fbq;
   delete w.dataLayer;
+  delete w.next;
   document.querySelectorAll('script[data-th-measurement]').forEach((s) => s.remove());
 });
 
@@ -342,5 +345,39 @@ describe('§MKT.H.13 · la respuesta del banner es la del RESULTADO (también de
   it('Guardar con solo Publicidad ⇒ custom', async () => {
     await saveFromLayer(['Publicidad']);
     expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+  });
+});
+
+/** TL D4 (2026-10-19): el parche del router (C-F5 2/3) es la LLAVE del cargador — falla en cerrado. */
+describe('D4 · sin parche del router no se cargan las etiquetas', () => {
+  async function acceptAll() {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Aceptar' }));
+    expect(consentCookie()).toMatchObject({ a: 1, m: 1 });
+  }
+  const scripts = () => document.querySelectorAll('script[data-th-measurement]').length;
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 50)));
+
+  it('control: con window.next.router, Aceptar carga Google y Meta', async () => {
+    await acceptAll();
+    await waitFor(() => expect(scripts()).toBe(2));
+  });
+
+  it('sin window.next.router: Aceptar guarda la elección pero no carga nada', async () => {
+    delete (window as unknown as { next?: unknown }).next;
+    await acceptAll();
+    await settle();
+    expect(scripts()).toBe(0);
+    expect((window as unknown as { gtag?: unknown }).gtag).toBeUndefined();
+    expect((window as unknown as { fbq?: unknown }).fbq).toBeUndefined();
+  });
+
+  it('router congelado (el parche no se puede escribir): no carga nada y no rompe la página', async () => {
+    (window as unknown as { next?: unknown }).next = { router: Object.freeze({ push: vi.fn(), replace: vi.fn() }) };
+    await acceptAll();
+    await settle();
+    expect(scripts()).toBe(0);
+    expect(screen.getByText('contenido')).toBeInTheDocument();
   });
 });

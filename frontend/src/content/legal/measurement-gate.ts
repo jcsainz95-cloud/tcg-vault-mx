@@ -71,9 +71,44 @@ export function measurementNoticeProblems(doc: LegalDocument): string[] {
   return problems;
 }
 
-/** Problemas según el modo: con `off`, ninguno. */
-export function measurementGateProblems(mode: NoticeMeasurementMode, doc: LegalDocument): string[] {
-  return mode === 'on' ? measurementNoticeProblems(doc) : [];
+/**
+ * ARCHITECTURE §14.1 (D-MKT2-0c, v1.106) — lo que se puede fusionar APAGADO pero no encender. Con `on`,
+ * cada entrada es un problema de la puerta; con `off`, no cuenta. Una entrada sale **en el mismo commit**
+ * que trae su `closedBy` (la prueba que la cierra) en verde.
+ */
+export interface EncenderBlocker {
+  id: string;
+  what: string;
+  owner: 'backend' | 'frontend' | 'devops';
+  closedBy: string;
+}
+
+export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
+  {
+    id: 'R4',
+    what: 'identidad canónica de ítem en el servidor: measurementItemOf del backend (purchaseFact del drenador, d1/d2); la del navegador ya la cierra C-F8',
+    owner: 'backend',
+    closedBy: 'C-B10 (API_CONTRACT §MKT.H.11) verde; C-F8 = frontend/src/lib/measurement/item.test.ts ya verde',
+  },
+  {
+    id: 'D2',
+    what: 'presupuesto de tiempo del drenador de medición (una corrida no puede exceder su ventana)',
+    owner: 'backend',
+    closedBy: 'prueba del presupuesto en backend/test/measurement.drain.spec.ts (la nombra backend al cerrarla)',
+  },
+];
+
+/** Problemas según el modo: con `off`, ninguno. Con `on`, los del aviso + uno por bloqueo abierto. */
+export function measurementGateProblems(
+  mode: NoticeMeasurementMode,
+  doc: LegalDocument,
+  blockers: readonly EncenderBlocker[] = ENCENDER_BLOCKERS,
+): string[] {
+  if (mode !== 'on') return [];
+  return [
+    ...measurementNoticeProblems(doc),
+    ...blockers.map((b) => `bloqueo de encendido abierto: ${b.id} (${b.owner}) — ${b.what}`),
+  ];
 }
 
 /**

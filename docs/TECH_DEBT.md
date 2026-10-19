@@ -9,11 +9,11 @@
 
 ## Frontend · 2026-10-19 · §MKT.H Fase 2 (construida apagada) — base `b95fbbac`
 
-> Dueño del código anotado: **frontend**. Toca el checkout solo para leer (evento `purchase`). Medido el 2026-10-19.
+> Dueño del código anotado: **frontend**. Toca el checkout solo para leer (evento `purchase`). Medido el 2026-10-19. FE-MKT2-1 (cerrada) sale: su comprobación sigue viva en `source-lock.test.ts`. TL D3/D4/D7/D8 (2026-10-19) se cerraron sin ficha: `utm.parity.test.ts`, `ConsentBanner.test.tsx` «D4», `next-config-measurement-gate.test.ts`, `useStickyBottomBar.test.tsx`.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| FE-MKT2-1 | CERRADA (v1.105, §MKT.H.13) · `no_response` usaba `sessionStorage`; ahora marca en memoria, una vez por documento | frontend | 2026-10-19 | `source-lock.test.ts` «la medición no usa sessionStorage» y `ConsentBanner.test.tsx` «sin escribir en storage» verdes |
+| FE-MKT2-4 | ABIERTA · Compatibilidad pre-v1.106 en `cellMeaning` (`MarketingTable.tsx`): MX$/% `null` en fila suprimida ⇒ «Oculto» (`LEGACY_NULL_HIDDEN_COMPAT`). Se quita cuando C-P1 del backend (`'oculta'`, nunca `null`) esté en producción | frontend | 2026-10-19 | `grep -c LEGACY_NULL_HIDDEN_COMPAT frontend/src/app/*/\(admin\)/admin/marketing/MarketingTable.tsx` ⇒ 0 y `MarketingTable.test.tsx` «C-P1» verde sin la rama |
 | FE-MKT2-2 | ABIERTA · Eventos de §MKT.H.4 sin cablear: `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (la lista cerrada de `track.ts` ya los admite) | frontend | 2026-10-19 | `grep -rnE "track\\('(select_content|buy_button_visible|add_payment_info|click_contact|search)'" frontend/src --include=*.tsx` ⇒ ≥ 1 por evento, con su caso en `measurement-on.spec.ts` |
 | FE-MKT2-3 | CERRADA (v1.105, §MKT.H.13) · El párrafo propio al final del apartado `cookies` es el diseño definitivo; C-D1 exige el apartado | frontend | 2026-10-19 | `measurement-gate.test.ts` «el aviso sin apartado `cookies` ⇒ problema» verde |
 

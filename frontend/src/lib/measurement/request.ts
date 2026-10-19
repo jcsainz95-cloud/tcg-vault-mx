@@ -70,7 +70,12 @@ export function buildMeasurementInput(
 export function measurementForRequest(): MeasurementInput | undefined {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return undefined;
   if (typeof document === 'undefined') return undefined;
-  return buildMeasurementInput(getRuntimeConsent(), MEASUREMENT_DISCLOSURE?.version ?? null, documentCookieJar());
+  // Viaja en el cuerpo de las peticiones de dinero: si algo de aquí lanza, la petición sale sin él (R1).
+  try {
+    return buildMeasurementInput(getRuntimeConsent(), MEASUREMENT_DISCLOSURE?.version ?? null, documentCookieJar());
+  } catch {
+    return undefined;
+  }
 }
 
 export type BannerResponse = 'accept' | 'necessary_only' | 'custom' | 'no_response';

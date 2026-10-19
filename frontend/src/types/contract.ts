@@ -1108,6 +1108,10 @@ export interface FrozenCardFacts {
   gradingCompany: GradingCompany | null;
   /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
   gradeValue: string | null;
+  /** v1.94 (§4), tipado en v1.106: SOLO `productType='sealed'`. Identidad (FK → SealedProduct); `null` = sin ligar. */
+  sealedProductId?: string | null;
+  /** v1.94 (§4), tipado en v1.106: SOLO `productType='sealed'`. Nombre resuelto (cascada §4.34a). */
+  sealedProductName?: string;
 }
 
 /**
@@ -5558,6 +5562,8 @@ export interface RarityHealthResponse {
 // = valor de mercado TCGCSV (informativo; puede ser pending si el grupo se vende solo por override).
 export interface SealedGroupDTO {
   representativeItemId: string;
+  /** v1.106 (§MKT.H.4, aditivo): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;
@@ -5611,6 +5617,8 @@ export interface SealedGroupDTO {
 // misma señal por otro nombre). Misma razón y mismas garantías que `GroupedListingSummaryDTO`.
 export interface SealedGroupSummaryDTO {
   representativeItemId: string;
+  /** v1.106 (§MKT.H.4, aditivo): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;

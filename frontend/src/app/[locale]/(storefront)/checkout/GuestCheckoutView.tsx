@@ -447,8 +447,6 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // El pago quedó autorizado; el backend lo asienta por webhook (payment_intent.succeeded)
     // y ahí manda el correo con el enlace de seguimiento (criterio 49).
     const created = session;
-    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección (id `p_<Order.id>`).
-    if (status === 'succeeded' && created) trackPurchase(created.orderId, created.breakdown, query.data?.items);
     setSession(null);
     setOutcome(null);
     // Pedido pagado: ya no hay reserva que reintentar; el token de reintento se retira.
@@ -457,6 +455,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     onPaid();
     cart.clear();
     setPaid(created);
+    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección (id `p_<Order.id>`).
+    // ⛔ AL FINAL, después de todo el estado de dinero (TL R1): la medición nunca va delante del cobro.
+    if (status === 'succeeded' && created) trackPurchase(created.orderId, created.breakdown, query.data?.items);
   }
 
   return (
