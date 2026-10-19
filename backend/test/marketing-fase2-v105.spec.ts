@@ -345,6 +345,13 @@ describe('C-P1 (v1.106 §MKT.G.5) · null = «sin dato»; en una fila oculta tod
     expect(by(d, 'd2').rows).toEqual([{ producto: 'Pikachu · Base 25', vistas: 25, carritoPct: 20 }]);
   });
 
+  it('screen() aplica sealHiddenRows a TODA tabla (una tabla futura que deje null en una fila oculta sale «oculta»)', async () => {
+    const w = build({ mode: 'on', ga4: true });
+    const raw = { tables: [{ id: 'zz', title: 'z', source: 'BD', measured: true, columns: [{ key: 'k', labelEs: 'k', kind: 'text' }, { key: 'n', labelEs: 'n', kind: 'count' }, { key: 'm', labelEs: 'm', kind: 'money' }], rows: [{ k: 'x', n: SMALL_CELL_SENTINEL, m: null }] }] };
+    jest.spyOn(w.svc as unknown as { screenRaw: () => Promise<unknown> }, 'screenRaw').mockResolvedValue(raw);
+    expect((await w.screen('a')).tables[0].rows).toEqual([{ k: 'x', n: SMALL_CELL_SENTINEL, m: SMALL_CELL_HIDDEN }]);
+  });
+
   it('sealHiddenRows: null ⇒ «oculta» solo en filas ocultas y solo en columnas no texto; null fuera de ellas se queda «—»', () => {
     const t = sealHiddenRows({
       id: 'x',
