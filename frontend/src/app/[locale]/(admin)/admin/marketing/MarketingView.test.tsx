@@ -359,3 +359,19 @@ describe('franja de anotaciones y estados', () => {
     expect(loading).toHaveTextContent('Cargando el panel…');
   });
 });
+
+// QA M3 (2026-10-19, sobre a1ba4d2e): el recuadro se titula «Cobertura» y la viñeta repetía «Cobertura: …».
+describe('QA M3 · «Cobertura» una sola vez', () => {
+  it('la viñeta del servidor pierde su prefijo «Cobertura:» al pintarse bajo el título; las otras notas, intactas', async () => {
+    api.getMarketingPanel.mockResolvedValue(
+      payload('2026-10-05', '2026-10-11', {
+        notes: ['Cobertura: GA4 sin encender; el origen de los pedidos aún no se registra.', 'Otra nota: tal cual.'],
+      }),
+    );
+    view();
+    const box = await screen.findByTestId('mkt-coverage');
+    const items = within(box).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual(['GA4 sin encender; el origen de los pedidos aún no se registra.', 'Otra nota: tal cual.']);
+    expect(screen.getAllByText(/Cobertura/)).toHaveLength(1);
+  });
+});

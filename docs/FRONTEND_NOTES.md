@@ -31,8 +31,8 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `measurement-gate.test.ts` (C-D1/C-F17), `consent-i18n.test.ts` (C-F15), `MarketingView.test.tsx` (C-F16).
 - **Decisiones (v1.105, §MKT.H.13):** (1) sin respuesta al banner el objeto `measurement` NO viaja; (2) `no_response`
   una vez por DOCUMENTO, marca solo en memoria (nada en storage antes de elegir); (3) respuesta por resultado, también
-  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); desde el
-  pie, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
+  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); cuenta la
+  PRIMERA elección con el banner visible, también desde el pie (QA M2); un cambio posterior, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
   de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso, párrafo propio al final de `cookies` (C-D1 lo exige).
 - **Eventos cableados:** `page_view`, `view_item`/`add_to_cart` (fichas), `begin_checkout`, `purchase` (solo `succeeded`,
   **al final** de `onConfirmed`, tras sesión/carrito/token/`paid`). Sin cablear: FE-MKT2-2. **La medición nunca lanza**
@@ -42,7 +42,7 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks). `ENCENDER_BLOCKERS` (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto (hoy R4, D2).
-  Panel: `null` = «—»; compat pre-v1.106 `LEGACY_NULL_HIDDEN_COMPAT` (FE-MKT2-4).
+  Panel: `null` = «—»; compat pre-v1.106 `LEGACY_NULL_HIDDEN_COMPAT` (FE-MKT2-4); «Cobertura:» se quita al pintar (QA M3).
 
 ## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
 

@@ -279,6 +279,32 @@ describe('C-F13 · segunda capa', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Guardar mi elección' }));
     expect(bannerCalls()).toEqual([]);
   });
+
+  // QA M2 (2026-10-19, sobre a1ba4d2e): la PRIMERA elección cuenta venga de donde venga si el banner seguía visible.
+  it('primera elección desde el pie con el banner visible ⇒ cuenta UNA vez (por resultado) y ya no hay no_response', async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByTestId('consent-banner');
+    await user.click(screen.getByTestId('cookie-preferences-nav'));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('switch', { name: 'Analítica' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar mi elección' }));
+    expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    expect(bannerCalls()).toEqual([{ response: 'custom' }]);
+  });
+
+  it('primera elección desde el pie en una ruta SIN banner (fuera de la lista blanca) ⇒ no se manda nada', async () => {
+    mockPath = '/es/account';
+    window.history.replaceState(null, '', '/es/account');
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByTestId('cookie-preferences-nav'));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Guardar mi elección' }));
+    expect(bannerCalls()).toEqual([]);
+  });
 });
 
 describe('C-F14 · enlace persistente', () => {

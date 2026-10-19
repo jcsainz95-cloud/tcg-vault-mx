@@ -346,7 +346,9 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
             }, 0);
           }}
           onSave={(choice) =>
-            save(choice, dialogOrigin === 'banner' && !answered.current ? bannerResponseFor(choice) : null, {
+            // QA M2 (v1.105, «solo cuenta la primera respuesta»): la PRIMERA elección con el banner aún visible
+            // cuenta venga de la 2.ª capa del banner o del enlace del pie; un cambio posterior no manda nada.
+            save(choice, !answered.current && bannerVisible ? bannerResponseFor(choice) : null, {
               focus: dialogOrigin === 'banner' ? 'main' : 'trigger',
               toast: true,
             })
