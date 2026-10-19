@@ -137,11 +137,31 @@ PREFIJOS_RE='\b(whsec_[A-Za-z0-9_]{4,}|sk_live_[A-Za-z0-9_]{4,}|sk_test_[A-Za-z0
 # `git ls-files` sobre el árbol real; `find` cuando corremos sobre una COPIA sin
 # git (es lo que hace el canario: si esto no funcionara fuera de un repo, el
 # candado no sería ejercitable y volveríamos a tener un candado nunca visto rojo).
+#
+# S-881 (QA, 2026-10-19, sha 47eb1dea) — FALSO ROJO EN LA COPIA DE LOS GATES.
+# Los gates miden sobre `git archive HEAD` (árbol entero, sin `.git`, O-9) y
+# levantan ahí `scripts/stack-native.sh`, que escribe sus secretos DESECHABLES en
+# `.native-stack/secrets.env`. El `find` los cosechaba como «literales publicados»
+# y `--check` salía rc=1 con «NO cubre 6 literales» — los seis que genera el arnés.
+# En git esa carpeta está en `.gitignore` y `git ls-files` nunca la ve; el `find`
+# tiene que reproducir ESA semántica, no inventar otra. Por eso la exclusión es:
+#   · UNA ruta, anclada a la raíz (`./.native-stack/*`): un `.native-stack/` en
+#     cualquier otro sitio (`backend/.native-stack/…`) SÍ se escanea;
+#   · solo en el modo copia: en un checkout manda `git ls-files`, y un fichero de
+#     `.native-stack/` añadido a la fuerza ES publicado y SÍ se escanea.
+# Sondeado en las dos direcciones en el bloque S-881 de `check-secret-defaults-canary.sh`.
+#
+# Y el modo se decide por `.git` en ESTA raíz, no por `git rev-parse` a secas: una
+# copia extraída DENTRO de otro repo (el patrón ya medido en `stack-native.sh`)
+# hacía que `rev-parse` contestara por el repo PADRE, `git ls-files` devolviera
+# cero ficheros (la copia no está trackeada allí) y `--check` saliera VERDE sin
+# haber mirado nada. Un `.git` fichero (worktree) cuenta igual que un directorio.
 listar_ficheros() {
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -e "$ROOT_DIR/.git" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git ls-files
   else
-    find . -type f -not -path './.git/*' -not -path '*/node_modules/*' | sed 's|^\./||'
+    find . -type f -not -path './.git/*' -not -path '*/node_modules/*' \
+      -not -path './.native-stack/*' | sed 's|^\./||'
   fi
 }
 # --- Ficheros que HABLAN de los secretos, y por eso los contienen -------------
