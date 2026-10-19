@@ -15,6 +15,8 @@ import { addDays, daysBetween, isoWeekday, mxRange, type Ymd } from '../sales-an
 // v1.102⟨mkt-fase2⟩ (§MKT.H.9): f1/f3/g1 con Fase 2 y la lectura de GA4 / Search Console.
 import { MeasurementService } from '../measurement/measurement.service';
 import { BANNER_RESPONSES } from '../measurement/banner-response.service';
+import { measurementItemOf, parseMeasurementItemId } from '../measurement/measurement-item';
+import { UNIDENTIFIED_SEALED_NAME } from '../../common/piece-display-identity';
 import { MarketingExternalSources, type Ga4ReportSpec, type Ga4Row } from './marketing-external-sources';
 import {
   AI_ASSISTANT_SOURCES,
@@ -42,6 +44,8 @@ import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import {
   applySmallCells,
   hiddenKeys,
+  SMALL_CELL_HIDDEN,
+  SMALL_CELL_SENTINEL,
   SMALL_CELL_THRESHOLD,
   type CellPrivacy,
   type DimensionRow,
@@ -117,6 +121,25 @@ type SoldByCard = Map<string, { cardId: string; key: string; units: number; mxnC
 /** d1: filas crudas por carta (unidades vendidas, MX$ con IVA). */
 const d1Dims = (byCard: SoldByCard): DimensionRow[] =>
   [...byCard.values()].map((e) => ({ key: e.key, count: e.units, money: { mxn: centsToPesos(e.mxnCents) } }));
+
+/**
+ * C-P1 (API_CONTRACT v1.106 §MKT.G.5): `null` es SIEMPRE «sin dato». En una fila cuyo conteo salió oculto (`'< 5'` u `'oculta'`),
+ * toda celda no `text` que quedara `null` pasa a `'oculta'`. Una sola pasada sobre toda tabla de toda pantalla (y, por tanto, de
+ * export y `aggregates`, que salen de `screen()`): ninguna tabla nueva puede olvidarse de la regla.
+ */
+export function sealHiddenRows(t: AggTable): AggTable {
+  if (!t.measured) return t;
+  const nonText = t.columns.filter((c) => c.kind !== 'text').map((c) => c.key);
+  return {
+    ...t,
+    rows: t.rows.map((r) => {
+      if (!Object.values(r).some((v) => v === SMALL_CELL_SENTINEL || v === SMALL_CELL_HIDDEN)) return r;
+      const out = { ...r };
+      for (const k of nonText) if (out[k] === null || out[k] === undefined) out[k] = SMALL_CELL_HIDDEN;
+      return out;
+    }),
+  };
+}
 
 /** Nota de régimen en exact (vista del dueño): las notas «N<umbral ⇒ «< 5»» solo son verdad en `small_cells`. */
 export const EXACT_CELLS_NOTE = 'Vista del dueño: cifras exactas. Fuera de esta pantalla (exports, analista) las celdas pequeñas se ocultan.';
@@ -212,6 +235,11 @@ export class MarketingAnalyticsService {
    * puede nacer exacta por olvido. Es un parámetro del MISMO cálculo, no un segundo camino.
    */
   async screen(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<ScreenPayload> {
+    const payload = await this.screenRaw(screen, period, now, privacy);
+    return { ...payload, tables: payload.tables.map(sealHiddenRows) };
+  }
+
+  private async screenRaw(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<ScreenPayload> {
     // Anotaciones del periodo: EMBEBIDAS en toda pantalla (pintan a/b/c y la hoja «Info»), h1/§13.4.6.
     const annotations = await this.annotations.forPeriod(period.from, period.to);
     const base = {
@@ -437,7 +465,8 @@ export class MarketingAnalyticsService {
   /** d1 — por carta: unidades vendidas / MX$ (celdas pequeñas) / unidades a la venta hoy. Vistas=GA4. */
   private async d1Cards(period: MarketingPeriod, privacy: CellPrivacy, views: Map<string, { views: number; carts: number }> | null): Promise<AggTable> {
     const byCard = await this.d1Sold(period);
-    const cardOfKey = new Map([...byCard.values()].map((e) => [e.key, e.cardId]));
+    // `itemId` canónico de GA4 por fila (§MKT.H.4): la MISMA función que el drenador.
+    const itemIdOfKey = new Map([...byCard.values()].map((e) => [e.key, measurementItemOf({ cardId: e.cardId, productType: 'raw' })?.item_id ?? '']));
 
     // Unidades a la venta HOY por carta (plataforma, status listed) — solo para las cartas vendidas.
     const cardIds = [...byCard.keys()];
@@ -468,12 +497,12 @@ export class MarketingAnalyticsService {
       ],
       rows: safe.map((r) => ({
         carta: r.key,
-        // GA4 (§MKT.H.9): vistas de la ficha por `itemId` = `cardId`; sin GA4 ⇒ el motivo; fila oculta ⇒ null.
-        vistas: !views ? this.ga4Reason() : typeof r.count !== 'number' || r.otros ? null : (views.get(cardOfKey.get(r.key) ?? '')?.views ?? 0),
+        // GA4 (§MKT.H.9): vistas por el `itemId` canónico (§MKT.H.4, `c_<cardId>`); sin GA4 ⇒ el motivo; fila oculta ⇒ 'oculta'.
+        vistas: !views ? this.ga4Reason() : typeof r.count !== 'number' || r.otros ? SMALL_CELL_HIDDEN : (views.get(itemIdOfKey.get(r.key) ?? '')?.views ?? 0),
         unidadesVendidas: r.count as Cell,
         mxn: (r.money.mxn ?? null) as Cell,
-        // La fila agrupada «Otros» no mapea a una carta ⇒ su stock es null.
-        aLaVentaHoy: r.otros ? null : (stockByKey.get(r.key) ?? 0),
+        // La fila agrupada «Otros» no mapea a una carta ⇒ su stock se oculta (C-P1: ⛔ null en fila oculta).
+        aLaVentaHoy: r.otros ? SMALL_CELL_HIDDEN : (stockByKey.get(r.key) ?? 0),
       })),
       measured: true,
       notes: [
@@ -489,17 +518,31 @@ export class MarketingAnalyticsService {
     if (!views) return this.notMeasured('d2', title, 'mixed', this.ga4Reason());
     const sold = await this.soldIdsOf(period);
     const candidates = [...views.entries()].filter(([id, v]) => v.views >= D2_MIN_VIEWS && !sold.has(id));
-    const ids = candidates.map(([id]) => id);
-    const [cards, sealed] = ids.length
-      ? await Promise.all([
-          this.prisma.card.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }),
-          this.prisma.sealedProduct.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
-        ])
-      : [[], []];
-    const nameOf = new Map<string, string>([
-      ...cards.map((c) => [c.id, `${c.name} · ${c.set.name} ${c.number}`] as [string, string]),
-      ...sealed.map((s) => [s.id, s.name] as [string, string]),
+    // `itemId` canónico (§MKT.H.4): el prefijo dice la tabla. Lo no canónico se queda con su id crudo como etiqueta.
+    const parsed = candidates.map(([id]) => [id, parseMeasurementItemId(id)] as const);
+    const idsOf = (table: 'card' | 'sealedProduct' | 'sealedAnchor') => parsed.filter(([, p]) => p?.table === table).map(([, p]) => p!.id);
+    const [cardIds, sealedIds, anchorIds] = [idsOf('card'), idsOf('sealedProduct'), idsOf('sealedAnchor')];
+    const [cards, sealed, anchors] = await Promise.all([
+      cardIds.length ? this.prisma.card.findMany({ where: { id: { in: cardIds } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }) : [],
+      sealedIds.length ? this.prisma.sealedProduct.findMany({ where: { id: { in: sealedIds } }, select: { id: true, name: true } }) : [],
+      // Sellado sin ligar: el nombre congelado de una pieza de ese ancla (⛔ nunca el `card.name` del ancla, §4.34a).
+      anchorIds.length
+        ? this.prisma.inventoryItem.findMany({
+            where: { cardId: { in: anchorIds }, productType: 'sealed', sealedProductId: null, sealedProductName: { not: null } },
+            select: { cardId: true, sealedProductName: true },
+            distinct: ['cardId'],
+          })
+        : [],
     ]);
+    const cardName = new Map(cards.map((c) => [c.id, `${c.name} · ${c.set.name} ${c.number}`]));
+    const sealedName = new Map(sealed.map((x) => [x.id, x.name]));
+    const anchorName = new Map(anchors.map((a) => [a.cardId, a.sealedProductName ?? '']));
+    const nameOf = new Map<string, string>();
+    for (const [id, p] of parsed) {
+      const n =
+        p?.table === 'card' ? cardName.get(p.id) : p?.table === 'sealedProduct' ? sealedName.get(p.id) : p?.table === 'sealedAnchor' ? anchorName.get(p.id) || `${UNIDENTIFIED_SEALED_NAME} (${p.id})` : undefined;
+      if (n) nameOf.set(id, n);
+    }
     const dims: DimensionRow[] = candidates
       .map(([id, v]) => ({ key: nameOf.get(id) ?? id, count: v.views, money: { carritoPct: v.views > 0 ? Math.round((v.carts / v.views) * 1000) / 10 : null } }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
@@ -519,7 +562,7 @@ export class MarketingAnalyticsService {
     };
   }
 
-  /** Ids vendidos en el periodo (cartas por `cardId`, sellado por `sealedProductId`) — para d2. */
+  /** `itemId` canónicos vendidos en el periodo (§MKT.H.4, `measurementItemOf` del snapshot congelado) — para d2. */
   private async soldIdsOf(p: DayRange): Promise<Set<string>> {
     const items = await this.prisma.orderItem.findMany({
       where: { order: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES } } },
@@ -527,9 +570,8 @@ export class MarketingAnalyticsService {
     });
     const out = new Set<string>();
     for (const it of items) {
-      const snap = readFrozenCardFacts(it.cardSnapshot);
-      if (snap.cardId) out.add(snap.cardId);
-      if (snap.sealedProductId) out.add(snap.sealedProductId);
+      const id = measurementItemOf(readFrozenCardFacts(it.cardSnapshot));
+      if (id) out.add(id.item_id);
     }
     return out;
   }
@@ -1086,7 +1128,8 @@ export class MarketingAnalyticsService {
     } catch {
       return this.notMeasured('e1', 'Consultas de Google', 'SC', SC_UNCONNECTED);
     }
-    const round = (v: number | null | undefined, f: number): number | null => (v === null || v === undefined ? null : Math.round(v * f) / f);
+    // Fila oculta ⇒ `'oculta'` pasa tal cual (C-P1); sin dato ⇒ null.
+    const round = (v: number | null | undefined | typeof SMALL_CELL_HIDDEN, f: number): Cell => (typeof v === 'number' ? Math.round(v * f) / f : (v ?? null));
     return {
       id: 'e1',
       title: 'Consultas de Google',
@@ -1102,7 +1145,7 @@ export class MarketingAnalyticsService {
         consulta: r.key,
         clics: r.count as Cell,
         impresiones: r.money.impresiones ?? null,
-        ctr: r.money.ctr === null || r.money.ctr === undefined ? null : round(r.money.ctr * 100, 10),
+        ctr: typeof r.money.ctr === 'number' ? round(r.money.ctr * 100, 10) : (r.money.ctr ?? null),
         posicion: round(r.money.posicion, 10),
       })),
       measured: true,

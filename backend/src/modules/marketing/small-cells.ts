@@ -65,14 +65,16 @@ export interface DimensionRow {
 export interface SafeRow {
   key: string;
   count: number | SuppressedCount;
-  money: Record<string, number | null>;
+  /** En una fila oculta, cada valor es `'oculta'` (API_CONTRACT v1.106 §MKT.G.5: `null` es solo «sin dato»). */
+  money: Record<string, number | null | typeof SMALL_CELL_HIDDEN>;
   /** true solo en la fila «Otros (< 5 c/u)» (agrupación por supresión complementaria). */
   otros?: boolean;
 }
 
-const blankMoney = (money: Record<string, number | null>): Record<string, number | null> => {
-  const out: Record<string, number | null> = {};
-  for (const k of Object.keys(money)) out[k] = null;
+/** Fila oculta: toda cifra acompañante pasa a `'oculta'`, ⛔ nunca `null` (que significa «sin dato», C-P1). */
+const blankMoney = (money: Record<string, number | null>): Record<string, typeof SMALL_CELL_HIDDEN> => {
+  const out: Record<string, typeof SMALL_CELL_HIDDEN> = {};
+  for (const k of Object.keys(money)) out[k] = SMALL_CELL_HIDDEN;
   return out;
 };
 

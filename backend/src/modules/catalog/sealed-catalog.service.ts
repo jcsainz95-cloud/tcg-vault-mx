@@ -75,6 +75,8 @@ type ItemWithCard = InventoryItem & {
  */
 export interface SealedGroupSummaryDTO {
   representativeItemId: string;
+  /** v1.106⟨mkt-fase2-r4⟩ (§MKT.H.4, ADITIVO): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;
@@ -92,6 +94,8 @@ export interface SealedGroupSummaryDTO {
 
 export interface SealedGroupDTO {
   representativeItemId: string;
+  /** v1.106⟨mkt-fase2-r4⟩ (§MKT.H.4, ADITIVO): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;
@@ -284,6 +288,7 @@ export class SealedCatalogService {
     });
     return {
       representativeItemId: item.id,
+      sealedProductId: item.sealedProductId ?? null,
       card: toCardDTO(item.card),
       productName: display.name,
       imageUrl: display.imageSmallUrl,
@@ -339,6 +344,7 @@ export class SealedCatalogService {
     const g = this.toGroupDTO(members, dials);
     return {
       representativeItemId: g.representativeItemId,
+      sealedProductId: g.sealedProductId,
       card: g.card,
       productName: g.productName,
       imageUrl: g.imageUrl,

@@ -5,20 +5,17 @@
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
 
-> **Estado vigente — §Handles: la integración termina sola (2026-10-19).** `RedisCardShowCounterStore`
-> (`src/modules/card-show/card-show-counter.store.ts`, desde `794e7f6f`, en `production` desde el merge
-> `0bb62d96` del 17-oct) abría un cliente ioredis que nadie cerraba: cada `app.close()` dejaba un socket
-> a Redis vivo y `npm run test:integration` no salía nunca (CI lo cancelaba a las 6 h). Arreglo: el
-> store implementa `onModuleDestroy` (`quit` con tope de 1 s; si no, `disconnect`). En producción no
-> cambia nada visible: `main.ts` no llama `enableShutdownHooks`. **Candado:**
-> `test/integration/open-handles.teardown.ts` (globalTeardown): si al acabar queda un socket, servidor o
-> timer con ref, los lista y sale con 1: rojo con diagnóstico en vez de cuelgue. Solo vale en banda
-> (`maxWorkers: 1`). ⛔ No es `--forceExit`: con todo cerrado no hace nada. Mediciones y canario: en el
-> mensaje del commit que lo introduce. Unitaria: `test/card-show.counter-store-close.spec.ts`.
-> **Local sin superusuario:** T-AC3 (`pdb-limpieza`) da 42501 y deja esquemas gemelos; los specs que
-> leen `pg_enum`/`pg_constraint` sin filtrar esquema salen rojos después en la MISMA BD: BD nueva por corrida.
->
-> *Retirada (2026-10-19): la nota de renumeración §0.23–§0.36 del 2026-09-06; vive en git (`git log -S RENUMERADO`).*
+> **Estado vigente (2026-10-19).** **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
+> intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
+> `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):
+> si queda un socket, servidor o timer con ref, los lista y sale con 1. ⛔ No es `--forceExit`. Unitarias:
+> `card-show.counter-store-close.spec.ts`, `common.redis-close.spec.ts`. **Local sin superusuario:** T-AC3 (`pdb-limpieza`) da
+> 42501 y deja esquemas gemelos ⇒ BD nueva por corrida.
+> **§MKT.H Fase 2 (apagada, `MEASUREMENT_MODE=off`):** post-commit único `MeasurementService.afterCreate` (nunca lanza);
+> identidad de ítem única `measurement/measurement-item.ts` (drenador y d1/d2); drenador con lote solo de destinos
+> habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
+> (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
+> cabecera del SQL de m86 (no se copia aquí). Pendiente con Postgres: TECH_DEBT MKT-F2-4. Deuda: TECH_DEBT §MKT.
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 

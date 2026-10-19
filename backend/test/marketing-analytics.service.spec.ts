@@ -220,7 +220,7 @@ describe('MarketingAnalyticsService — a3 buylist: enviado exacto, pagado con c
     // Enviadas: conteo y MX$ ofertado EXACTOS (no es cifra de persona única).
     expect(a3.rows[0]).toMatchObject({ concepto: expect.stringContaining('Solicitudes enviadas'), n: 12, mxn: 7890.0 });
     // Pagadas: N<5 ⇒ «< 5» y MX$ pagado NO viaja.
-    expect(a3.rows[1]).toMatchObject({ concepto: expect.stringContaining('Ofertas aceptadas'), n: SMALL_CELL_SENTINEL, mxn: null });
+    expect(a3.rows[1]).toMatchObject({ concepto: expect.stringContaining('Ofertas aceptadas'), n: SMALL_CELL_SENTINEL, mxn: 'oculta' });
   });
 
   it('a3: ofertas pagadas con N≥5 ⇒ conteo y MX$ pagado exactos', async () => {
@@ -259,8 +259,8 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
     const rowB = d1.rows.find((r) => String(r.carta).includes('Carta B'));
     const rowC = d1.rows.find((r) => String(r.carta).includes('Carta C'));
     expect(rowA).toMatchObject({ unidadesVendidas: 6, mxn: 600.0, aLaVentaHoy: 2, vistas: expect.stringContaining('NO MEDIDO') });
-    expect(rowB).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
-    expect(rowC).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: null });
+    expect(rowB).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: 'oculta' });
+    expect(rowC).toMatchObject({ unidadesVendidas: SMALL_CELL_SENTINEL, mxn: 'oculta' });
   });
 
   it('d3: altas de lista de deseos con N<5 sobre carta con stock 0 ⇒ «< 5»', async () => {

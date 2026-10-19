@@ -6,6 +6,7 @@ import {
   RedisCardShowCounterStore,
   cardShowCounterStoreProvider,
 } from '../src/modules/card-show/card-show-counter.store';
+import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { liveResources } from './integration/open-handles.teardown';
 
 /**
@@ -90,5 +91,25 @@ describe('candado open-handles.teardown · liveResources', () => {
     }
     expect(liveResources().filter((r) => r === 'Timeout').length).toBe(before);
     expect(liveResources().some((r) => /stdio/i.test(r))).toBe(false);
+  });
+
+  it('TD-HND-2 · un net.Server escuchando y un socket conectado CUENTAN (con su destino); al cerrarlos desaparecen', async () => {
+    const server: Server = createServer((peer) => peer.on('error', () => undefined));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    let client: Socket | undefined;
+    try {
+      expect(liveResources()).toContain(`Server :${port}`);
+      client = createConnection({ host: '127.0.0.1', port });
+      await new Promise<void>((r) => client!.once('connect', () => r()));
+      expect(liveResources()).toContain(`Socket -> 127.0.0.1:${port}`);
+    } finally {
+      client?.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    // `destroy`/`close` sueltan el handle en el mismo tick o el siguiente: se espera a lo sumo 1 s.
+    const gone = () => !liveResources().some((l) => l.endsWith(`:${port}`));
+    for (let i = 0; i < 20 && !gone(); i += 1) await new Promise((r) => setTimeout(r, 50));
+    expect(liveResources().filter((l) => l.endsWith(`:${port}`))).toEqual([]);
   });
 });

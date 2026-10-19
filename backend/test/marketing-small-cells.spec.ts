@@ -2,17 +2,17 @@
  * 🔒💰 CANDADO — celdas pequeñas del Panel de Marketing (Brief 2 §5.2, PM-A1; ARCHITECTURE §13.5).
  * Protege a UNA persona detrás de una cifra agregada. Deterministas (N=1).
  */
-import { applySmallCells, OTROS_LABEL, SMALL_CELL_SENTINEL, type DimensionRow } from '../src/modules/marketing/small-cells';
+import { applySmallCells, OTROS_LABEL, SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type DimensionRow } from '../src/modules/marketing/small-cells';
 
 const row = (key: string, count: number, mxn: number | null = count * 100): DimensionRow => ({ key, count, money: { mxn } });
 
 describe('applySmallCells', () => {
-  it('oculta conteo y MX$ de una fila con N<5 (centinela «< 5», dinero null)', () => {
+  it('oculta conteo y MX$ de una fila con N<5 (centinela «< 5», dinero «oculta», v1.106 C-P1)', () => {
     // DOS ocultas (story, dm) ⇒ no se dispara la agrupación complementaria: se ve el caso base.
     const out = applySmallCells([row('story', 1), row('dm', 2), row('bio', 9), row('paid', 12)]);
     const story = out.find((r) => r.key === 'story')!;
     expect(story.count).toBe(SMALL_CELL_SENTINEL);
-    expect(story.money.mxn).toBeNull();
+    expect(story.money.mxn).toBe(SMALL_CELL_HIDDEN);
     // Las visibles ≥5 quedan exactas.
     expect(out.find((r) => r.key === 'bio')!.count).toBe(9);
     expect(out.find((r) => r.key === 'bio')!.money.mxn).toBe(900);
@@ -33,8 +33,8 @@ describe('applySmallCells', () => {
       { key: 'z', count: 11, money: { mxn: 6000, ticket: 545 } },
     ]);
     const x = out.find((r) => r.key === 'x')!;
-    expect(x.money.mxn).toBeNull();
-    expect(x.money.ticket).toBeNull();
+    expect(x.money.mxn).toBe(SMALL_CELL_HIDDEN);
+    expect(x.money.ticket).toBe(SMALL_CELL_HIDDEN);
   });
 
   it('supresión complementaria: si queda UNA sola oculta, la agrupa con la más chica en «Otros (< 5 c/u)»', () => {
@@ -45,7 +45,7 @@ describe('applySmallCells', () => {
     const otros = out.find((r) => r.key === OTROS_LABEL)!;
     expect(otros).toBeDefined();
     expect(otros.count).toBe(SMALL_CELL_SENTINEL);
-    expect(otros.money.mxn).toBeNull();
+    expect(otros.money.mxn).toBe(SMALL_CELL_HIDDEN);
     expect(otros.otros).toBe(true);
     // bio y paid siguen visibles y exactas.
     expect(out.find((r) => r.key === 'bio')!.count).toBe(40);

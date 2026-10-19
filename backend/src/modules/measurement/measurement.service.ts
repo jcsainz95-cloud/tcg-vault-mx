@@ -3,10 +3,12 @@
  *
  * - `prepare`: sanea el objeto `measurement` de la petición. Con `MEASUREMENT_MODE=off` devuelve «nada» sin mirarlo.
  *   Las columnas resultantes las escribe el llamador EN LA MISMA escritura que crea `Order`/`SellRequest`.
+ * - `afterCreate`: el ÚNICO paso post-commit de los controladores que crean `Order`/`SellRequest` (contexto y, en la
+ *   solicitud, la fila de `generate_lead`). ⛔ Nunca lanza: registra sin mensaje y la respuesta no cambia (C-B2).
  * - `saveContext`: post-commit, best-effort (⛔ nunca lanza).
  * - `enqueuePurchase` / `enqueueLead`: post-commit. Una fila por destino habilitado Y consentido (tabla de §14.6).
- *   Idempotente por `@@unique(destination, eventId)` (`createMany … skipDuplicates`). Pueden lanzar (BD caída): el
- *   llamador los envuelve en `try/catch` que registra y NO relanza (C-B2) — el pago y la solicitud no dependen de esto.
+ *   Idempotente por `@@unique(destination, eventId)` (`createMany … skipDuplicates`). Pueden lanzar (BD caída): fuera de
+ *   `afterCreate`, el llamador (el webhook de pagos) los envuelve en `try/catch` que registra y NO relanza (C-B2).
  *
  * ⛔ Nada de esto toca dinero ni corre dentro de una `$transaction` de dinero. ⛔ No sale a la red: eso es del drenador.
  */
@@ -81,6 +83,21 @@ export class MeasurementService implements OnModuleInit {
     const s = sanitizeMeasurementInput(raw, now);
     if (!s) return NOTHING;
     return { columns: s.columns, context: s.context };
+  }
+
+  /**
+   * Post-commit de la creación (pedido con cuenta, pedido de invitado, solicitud de venta). Guarda el contexto y, con
+   * `lead`, encola `generate_lead` de la solicitud. ⛔ Nunca lanza: un fallo se registra sin mensaje (podría citar valores).
+   */
+  async afterCreate(subject: MeasurementSubject, prepared: PreparedMeasurement | undefined, opts: { lead?: boolean } = {}): Promise<void> {
+    if (this.config.mode !== 'on') return;
+    const what = 'orderId' in subject ? `pedido ${subject.orderId}` : `solicitud ${subject.sellRequestId}`;
+    try {
+      if (prepared?.context) await this.saveContext(subject, prepared.context);
+      if (opts.lead && 'sellRequestId' in subject) await this.enqueueLead(subject.sellRequestId);
+    } catch {
+      this.logger.warn(`measurement: ${what} no encolado (best-effort)`);
+    }
   }
 
   /** Post-commit, best-effort: una fila de contexto si hay algún identificador. ⛔ Nunca lanza. */

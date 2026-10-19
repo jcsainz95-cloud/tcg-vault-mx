@@ -1,4 +1,4 @@
-import type { MeasurementColumns } from '../measurement/measurement-input';
+import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import {
@@ -1962,7 +1962,7 @@ export class BuylistService implements OnModuleInit {
             pickupAddressSnapshot,
             items: { create: itemsData },
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
-            ...measurementColumns,
+            ...measurementColumnsData(measurementColumns),
           },
           include: { items: { include: { card: true } } },
         });

@@ -108,18 +108,12 @@
 | MKT-F2-1 ✅ | consultas GA4 por tabla sin definir | arquitecto (v1.105 §MKT.H.9) → backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` (4): forma de cada `runReport` con doble y cálculo de a4, a5, b4, c1, c5, d1, d2, e3; (5) diferidas c2/c3/c4/c8 con su motivo |
 | MKT-F2-2 ✅ | `MeasurementContext.sourcePath` sin productor | arquitecto (v1.105 §MKT.H.13) → backend | 2026-10-19 | `measurement.service.spec.ts` «sin `sourcePath`»: ni en el modelo generado, ni en el SQL de m86, ni en lo que escribe `saveContext` |
 | MKT-F2-3 | `META_GRAPH_API_VERSION = 'v21.0'` NO VERIFICADO vigente para la fecha de encendido | backend (+ dueño mide en «Eventos de prueba» de Meta) | 2026-10-18 | evento de prueba aceptado (2xx) con la versión fijada, anotado con fecha en BACKEND_NOTES §MKT.H; caduca al encender (PENDIENTES MKT-FASE2) |
-
-### MKT-TD2 · P3 · c7 estado de envío derivado del JSON por consulta (sin columna denormalizada)
-- **Qué:** c7 parsea `Order.shippingAddressSnapshot.state` (texto libre) por consulta, como autoriza ARCHITECTURE §13.4.3.
-  Al volumen actual es aceptable; el estado es texto libre del checkout (sin normalizar a catálogo de 32 estados MX).
-- **Impacto:** agregación por «estado» agrupa por la cadena tal cual la escribió el cliente (p. ej. «CDMX» vs «Ciudad de
-  México» contarían aparte). Bajo al volumen de hoy.
-- **Disparador:** si c7 pesa en consultas o el agrupado por estado se vuelve ruidoso ⇒ denormalizar `shippingStateCode`
-  en `Order` (migración futura) y/o normalizar a catálogo. Seguridad debe confirmar la fiabilidad del snapshot (§13.6 Q4).
-- **Comprobación de cierre:** migración con `Order.shippingStateCode` (catálogo de 32 estados MX, escrito en el checkout) **+**
-  `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (medido 2026-10-18 sobre
-  `d0f6c648`: 2 líneas, las dos en `c7Dims`). Necesita al arquitecto (schema, regla 9).
-- **Dueño:** backend (+ arquitecto). **Medido:** 2026-10-18.
+| TL-MKT2 ✅ | rechazo del techlead sobre `a1ba4d2e`: R2 cola bloqueada por un destino apagado; D1 post-commit ×3; D2 drenador sin presupuesto; D5 c1 sin agregar por clave; D8 comentarios y `...measurementColumns`; R4 identidad de ítem; C1/C-P1 `null` en filas ocultas | backend | 2026-10-19 | `measurement.drain.spec.ts` «TL-MKT2-R2» y «TL-MKT2-D2»; `measurement.payment-isolation.spec.ts` «TL-MKT2-D1»; `marketing-fase2-v105.spec.ts` «TL-MKT2-D5» y «C-P1»; `measurement.input.spec.ts` «TL-MKT2-D8»; `measurement.item.spec.ts` (C-B10); mutaciones en el commit `f9d678be` |
+| TL-MKT2-D5b | `DimensionRow.money` lleva métricas que no son dinero (vistas, tiempo, CTR, posición): el nombre miente; y `fichaOf` (`marketing-ga4.ts`) copia idiomas y rutas del frontend | backend (+ arquitecto: fuente única de rutas) | 2026-10-19 | `grep -c "money" backend/src/modules/marketing/small-cells.ts` ⇒ 0 (bolsa renombrada a lo que es: «celdas que se ocultan con el conteo») **y** `fichaOf` lee las rutas de una fuente compartida con el frontend (prueba de paridad roja si una ruta cambia en un solo lado) |
+| MKT-F2-4 | C-B11 (CHECK de m86 ⇒ `23514`) y el ciclo «migrar ⇒ reversa ⇒ redeploy» de m86 sin correr contra Postgres por backend en este pase (sin credenciales de la BD local) | backend (lo corre QA u orquestador) | 2026-10-19 | `integration/measurement-context-check.e2e-spec.ts` verde contra Postgres y `prisma migrate deploy` verde tras la REVERSA de m86 (log con el sha) |
+| TD-HND-1 ✅ | la integración no terminaba sola en CI | devops | 2026-10-19 | `e2e.yml:105,372,378` (devops) |
+| TD-HND-2 ✅ | `liveResources` sin caso de socket/servidor | backend | 2026-10-19 | `card-show.counter-store-close.spec.ts` «TD-HND-2» (rojo 10/10 si `liveResources` no recorre `_getActiveHandles`) |
+| TD-HND-3 ✅ | cierre `quit` copiado ×4 | backend | 2026-10-19 | `grep -rc '\.quit()' backend/src` suma 1 (`common/redis-close.ts`); candado en `common.redis-close.spec.ts` |
 
 ### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — caso c7↔a1 cerrado en código; candado general abierto
 - **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA

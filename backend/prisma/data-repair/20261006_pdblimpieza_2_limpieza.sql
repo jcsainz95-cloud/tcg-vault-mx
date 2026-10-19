@@ -204,7 +204,7 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v2.3 (LIMPIEZA_DB §14.2.1, G-8): contadores del Panel de Marketing sin PII que mezclan tráfico de prueba con real
   -- (cotizaciones por día y respuestas al banner) ⇒ borrar, como `CardShowClick`.
   'BuylistQuoteDailyCount','MarketingBannerConsentCounter',
-  -- v1.102⟨mkt-fase2⟩ (M-86, G-8; clasificación de backend a ratificar por el arquitecto en LIMPIEZA_DB §14.2): cola de
+  -- v1.102⟨mkt-fase2⟩ (M-86, G-8; BORRAR ratificado por el arquitecto en ARCHITECTURE §14.2.1, v2.4): cola de
   -- eventos de servidor (sin cuerpo) y los identificadores de navegador de pedidos/solicitudes que esta limpieza borra.
   -- Telemetría de vida corta (7 días) que mezcla prueba con real y solo tiene sentido junto a filas que se borran ⇒ borrar.
   'MeasurementOutbox','MeasurementContext']) AS t

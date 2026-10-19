@@ -28,7 +28,8 @@ export function measurementPrismaDouble(seed: { orders?: Row[]; sellRequests?: R
     Object.entries(where).every(([k, v]) => {
       const cur = row[k];
       if (v && typeof v === 'object' && !(v instanceof Date)) {
-        const op = v as { lte?: Date; gt?: Date };
+        const op = v as { lte?: Date; gt?: Date; in?: unknown[] };
+        if (op.in) return op.in.includes(cur);
         if (!(cur instanceof Date)) return false;
         if (op.lte) return cur.getTime() <= op.lte.getTime();
         if (op.gt) return cur.getTime() > op.gt.getTime();

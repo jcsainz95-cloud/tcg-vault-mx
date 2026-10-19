@@ -99,6 +99,13 @@ describe('v1.105 §MKT.H.13 · MeasurementContext sin `sourcePath` (cierra MKT-F
     expect(model.fields.map((f) => f.name)).not.toContain('sourcePath');
     const sql = readFileSync(join(__dirname, '../prisma/migrations/20261106120000_m86_mkt_measurement/migration.sql'), 'utf8');
     expect(sql).not.toMatch(/sourcePath/);
+    // C-B11 (v1.106, estática; la conducta 23514 la prueba `integration/measurement-context-check.e2e-spec.ts`): el CHECK
+    // de exactamente un sujeto va DENTRO del CREATE TABLE de m86.
+    const create = sql.slice(sql.indexOf('CREATE TABLE "MeasurementContext"'), sql.indexOf(');', sql.indexOf('CREATE TABLE "MeasurementContext"')));
+    expect(create).toMatch(/CONSTRAINT "MeasurementContext_one_subject" CHECK \(num_nonnulls\("orderId", "sellRequestId"\) = 1\)/);
+    // QA I1: la reversa deja `custom` en el enum ⇒ m86 lo añade con IF NOT EXISTS o el re-deploy falla con 42710.
+    expect(sql).toMatch(/^ALTER TYPE "BannerResponse" ADD VALUE IF NOT EXISTS 'custom';$/m);
+    expect(sql).not.toMatch(/^ALTER TYPE "BannerResponse" ADD VALUE 'custom'/m);
     const { d, svc } = world(fullEnv(), { a: true, m: true }, null);
     await svc.saveContext({ orderId: 'o1' }, { fbp: FBP }, NOW);
     expect(Object.keys(d.prisma.measurementContext.createMany.mock.calls[0][0].data[0]).sort()).toEqual(['expiresAt', 'fbc', 'fbp', 'gaClientId', 'orderId']);

@@ -1,3 +1,4 @@
+import { closeRedisClient } from '../../common/redis-close';
 import { Logger, OnModuleDestroy, OnModuleInit, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis, { Redis } from 'ioredis';
@@ -648,11 +649,7 @@ export class ResilientLoginAttemptStore implements LoginAttemptStore, OnModuleIn
 
   async onModuleDestroy(): Promise<void> {
     if (!this.client) return;
-    try {
-      await withTimeout(this.client.quit(), 1000);
-    } catch {
-      this.client.disconnect();
-    }
+    await closeRedisClient(this.client);
   }
 }
 

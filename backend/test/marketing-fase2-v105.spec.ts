@@ -10,11 +10,11 @@
  *      una consulta que falla deja SU tabla «sin conectar», no la pantalla.
  *  (5) Diferidas c2, c3, c4, c8 con su motivo literal; b1-b3 solo de BD.
  */
-import { MarketingAnalyticsService, COVERAGE_NOTE, COVERAGE_NOTE_ON } from '../src/modules/marketing/marketing-analytics.service';
+import { MarketingAnalyticsService, COVERAGE_NOTE, COVERAGE_NOTE_ON, sealHiddenRows } from '../src/modules/marketing/marketing-analytics.service';
 import { MarketingExternalSources, type GoogleReadPort } from '../src/modules/marketing/marketing-external-sources';
 import { MeasurementService } from '../src/modules/measurement/measurement.service';
-import { SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
-import { a4Group, b4Group, fichaOf } from '../src/modules/marketing/marketing-ga4';
+import { SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
+import { a4Group, b4Group, c1Rows, fichaOf } from '../src/modules/marketing/marketing-ga4';
 import type { MarketingPeriod, MarketingScreen } from '../src/modules/marketing/marketing-period';
 import type { AggTable } from '../src/modules/marketing/marketing-aggregates.types';
 import { fakeConfig, fullEnv } from './helpers/measurement-fixtures';
@@ -63,7 +63,7 @@ function ga4Answer(body: Body): unknown {
     case 'deviceCategory,browser':
       return { rows: [r(['mobile', 'Instagram'], [70]), r(['desktop', 'Chrome'], [30])] };
     case 'itemId':
-      return { rows: [r(['card-1'], [400, 40]), r(['card-2'], [25, 5]), r(['sp-9'], [10, 1])] };
+      return { rows: [r(['c_card-1'], [400, 40]), r(['c_card-2'], [25, 5]), r(['s_sp-9'], [10, 1])] };
     case 'sessionSource,landingPage':
       return { rows: [r(['claude.ai', '/es/como-funciona'], [9]), r(['chatgpt.com', '/es/guias/que-es-nm'], [6]), r(['perplexity.ai', '/es'], [2])] };
     default:
@@ -245,7 +245,7 @@ describe('(4) GA4 con credenciales (doble): forma de cada runReport y cálculo',
       { pagina: 'Charizard · 151 4', vistas: 300, usuarios: 120, tiempoMedio: 30 },
       { pagina: '/es/guias/que-es-nm', vistas: 80, usuarios: 60, tiempoMedio: 50 },
       // la ficha de sellado (3 usuarios) sola oculta ⇒ supresión complementaria con la siguiente más chica (`/es`).
-      { pagina: 'Otros (< 5 c/u)', vistas: null, usuarios: SMALL_CELL_SENTINEL, tiempoMedio: null },
+      { pagina: 'Otros (< 5 c/u)', vistas: 'oculta', usuarios: SMALL_CELL_SENTINEL, tiempoMedio: 'oculta' },
     ]);
     expect(by(c, 'c5').rows).toEqual([
       { dispositivo: 'mobile · Instagram', sesiones: 70 },
@@ -283,6 +283,95 @@ describe('(4) GA4 con credenciales (doble): forma de cada runReport y cálculo',
       expect([c1.measured, c1.notMeasuredReason]).toEqual([false, reason]);
       expect(w.calls).toEqual([]);
     }
+  });
+});
+
+describe('TL-MKT2-D5 · c1 agrega por la etiqueta (una ficha en dos idiomas es UNA fila)', () => {
+  const row = (path: string, views: number, users: number, dur: number) => ({ dimensions: [path], metrics: [views, users, dur] });
+  const label = (p: string) => (p.endsWith('/catalog/card-1') ? 'Charizard · 151 4' : p);
+
+  it('/es/catalog/card-1 y /en/catalog/card-1 ⇒ una sola fila con vistas, usuarios y duración sumados; claves únicas', () => {
+    const out = c1Rows([row('/es/catalog/card-1', 300, 120, 9000), row('/es', 200, 90, 1000), row('/en/catalog/card-1', 100, 30, 3000)], label);
+    expect(out).toEqual([
+      { key: 'Charizard · 151 4', count: 150, money: { vistas: 400, tiempoMedio: 30 } },
+      { key: '/es', count: 90, money: { vistas: 200, tiempoMedio: 5 } },
+    ]);
+    expect(new Set(out.map((r) => r.key)).size).toBe(out.length);
+  });
+
+  it('celda pequeña: dos idiomas con 3 + 3 usuarios ⇒ la unión puede ser 3 ⇒ count < 5 (no se publica la suma 6); 5 + 3 ⇒ 8', () => {
+    expect(c1Rows([row('/es/catalog/card-1', 10, 3, 0), row('/en/catalog/card-1', 10, 3, 0)], label)[0].count).toBe(3);
+    expect(c1Rows([row('/es/catalog/card-1', 10, 5, 0), row('/en/catalog/card-1', 10, 3, 0)], label)[0].count).toBe(8);
+  });
+
+  it('el corte de 50 se hace DESPUÉS de agregar (la suma de dos idiomas puede entrar en el top)', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => row(`/es/p${i}`, 100, 10, 0));
+    rows.push(row('/es/catalog/card-1', 60, 6, 0), row('/en/catalog/card-1', 60, 6, 0));
+    const out = c1Rows(rows, label);
+    expect(out).toHaveLength(50);
+    expect(out[0]).toMatchObject({ key: 'Charizard · 151 4', money: { vistas: 120 } });
+  });
+});
+
+describe('C-P1 (v1.106 §MKT.G.5) · null = «sin dato»; en una fila oculta toda celda no texto es «oculta»', () => {
+  const hiddenRow = (r: Record<string, unknown>) => Object.values(r).some((v) => v === SMALL_CELL_SENTINEL || v === SMALL_CELL_HIDDEN);
+
+  it('small_cells, GA4 encendido: en a-g, ninguna fila con conteo oculto lleva null en una columna no texto (c1, d1, d2, g1 y las de BD incluidas)', async () => {
+    const w = build({ mode: 'on', ga4: true });
+    // d1 con una carta de 2 unidades (oculta ⇒ «Otros» con card-1). d2 no puede tener filas ocultas: su conteo son vistas ≥ 20.
+    const card = (id: string, name: string, number: string) => ({ unitPriceCents: 1000, inventoryItem: { cardId: id, card: { name, number, set: { name: '151' } } } });
+    w.prisma.orderItem.findMany.mockImplementation(async (arg: { select: Record<string, unknown> }) =>
+      'inventoryItem' in arg.select
+        ? [...Array.from({ length: 6 }, () => card('card-1', 'Charizard', '4')), card('card-2', 'Pikachu', '25'), card('card-2', 'Pikachu', '25')]
+        : [{ cardSnapshot: { cardId: 'card-1', productType: 'raw' } }],
+    );
+    const seen = new Set<string>();
+    for (const s of ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const) {
+      for (const t of (await w.screen(s)).tables) {
+        const nonText = t.columns.filter((c) => c.kind !== 'text').map((c) => c.key);
+        for (const r of t.rows.filter(hiddenRow)) {
+          seen.add(t.id);
+          for (const k of nonText) expect({ table: t.id, col: k, v: r[k] ?? null }).not.toEqual({ table: t.id, col: k, v: null });
+        }
+      }
+    }
+    // El fixture tiene filas ocultas en estas (si no, la prueba no prueba nada).
+    for (const id of ['a3', 'c1', 'd1']) expect([id, seen.has(id)]).toEqual([id, true]);
+  });
+
+  it('d1/d2 cruzan GA4 por itemId canónico: c_card-1 llena las vistas de d1; d2 nombra c_/s_ desde BD', async () => {
+    const d = (await build({ mode: 'on', ga4: true }).screen('d')).tables;
+    expect(by(d, 'd1').rows[0]).toMatchObject({ carta: 'Charizard · 151 4', vistas: 400 });
+    expect(by(d, 'd2').rows).toEqual([{ producto: 'Pikachu · Base 25', vistas: 25, carritoPct: 20 }]);
+  });
+
+  it('screen() aplica sealHiddenRows a TODA tabla (una tabla futura que deje null en una fila oculta sale «oculta»)', async () => {
+    const w = build({ mode: 'on', ga4: true });
+    const raw = { tables: [{ id: 'zz', title: 'z', source: 'BD', measured: true, columns: [{ key: 'k', labelEs: 'k', kind: 'text' }, { key: 'n', labelEs: 'n', kind: 'count' }, { key: 'm', labelEs: 'm', kind: 'money' }], rows: [{ k: 'x', n: SMALL_CELL_SENTINEL, m: null }] }] };
+    jest.spyOn(w.svc as unknown as { screenRaw: () => Promise<unknown> }, 'screenRaw').mockResolvedValue(raw);
+    expect((await w.screen('a')).tables[0].rows).toEqual([{ k: 'x', n: SMALL_CELL_SENTINEL, m: SMALL_CELL_HIDDEN }]);
+  });
+
+  it('sealHiddenRows: null ⇒ «oculta» solo en filas ocultas y solo en columnas no texto; null fuera de ellas se queda «—»', () => {
+    const t = sealHiddenRows({
+      id: 'x',
+      title: 'x',
+      source: 'BD',
+      measured: true,
+      columns: [
+        { key: 'k', labelEs: 'k', kind: 'text' },
+        { key: 'n', labelEs: 'n', kind: 'count' },
+        { key: 'm', labelEs: 'm', kind: 'money' },
+      ],
+      rows: [
+        { k: null, n: SMALL_CELL_SENTINEL, m: null },
+        { k: 'b', n: 7, m: null },
+      ],
+    });
+    expect(t.rows).toEqual([
+      { k: null, n: SMALL_CELL_SENTINEL, m: SMALL_CELL_HIDDEN },
+      { k: 'b', n: 7, m: null },
+    ]);
   });
 });
 

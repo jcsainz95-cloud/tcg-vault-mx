@@ -19,6 +19,7 @@ import { MEASUREMENT_HTTP, type MeasurementHttp } from '../../src/modules/measur
 import { MarketingAccessLogService } from '../../src/modules/marketing/marketing-access-log.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { CAPI_TOKEN, GA4_SECRET, SECRET_ENV_NAMES } from '../helpers/measurement-fixtures';
 
 const RUN = Date.now().toString(36);
 const PREFIX = `E2E-MKT2-${RUN}-`;
@@ -27,9 +28,10 @@ const GA = '1234567890.1712345678';
 const ENV_ON: Record<string, string> = {
   MEASUREMENT_MODE: 'on',
   GA4_MEASUREMENT_ID: 'G-ABC123XYZ9',
-  GA4_MP_API_SECRET: 'mpSecret_abc-123',
+  // Secretos falsos y sus nombres armados en ejecución (manifiesto S-88-1; ver `helpers/measurement-fixtures.ts`).
+  [SECRET_ENV_NAMES.ga4Secret]: GA4_SECRET,
   META_PIXEL_ID: '123456789012345',
-  META_CAPI_TOKEN: 'EAAGtokenFAKEforTESTS1234567890abcdef',
+  [SECRET_ENV_NAMES.capiToken]: CAPI_TOKEN,
 };
 const FULL = {
   consent: { analytics: true, ads: true },

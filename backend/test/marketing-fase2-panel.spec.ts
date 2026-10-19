@@ -87,7 +87,7 @@ describe('f3/g1 · desde las columnas de consentimiento', () => {
     const f3 = by((await svc.screen('f', week, NOW, 'small_cells')).tables, 'f3');
     expect(f3.rows.map((r) => [r.pedidos, r.pct])).toEqual([[10, 100], [3, 30], [4, 40], [1, 10], [2, 20]]);
     const g1 = by((await svc.screen('g', week, NOW, 'small_cells')).tables, 'g1');
-    expect(g1.rows).toEqual([{ concepto: expect.any(String), pedidos: SMALL_CELL_SENTINEL, mxn: null }]);
+    expect(g1.rows).toEqual([{ concepto: expect.any(String), pedidos: SMALL_CELL_SENTINEL, mxn: 'oculta' }]);
   });
 });
 
@@ -124,7 +124,7 @@ describe('e1 · Search Console, fail-closed', () => {
     expect(e1.measured).toBe(true);
     expect(e1.rows).toEqual([
       { consulta: 'charizard 151', clics: 40, impresiones: 900, ctr: 4.4, posicion: 3.2 },
-      { consulta: 'Otros (< 5 c/u)', clics: SMALL_CELL_SENTINEL, impresiones: null, ctr: null, posicion: null },
+      { consulta: 'Otros (< 5 c/u)', clics: SMALL_CELL_SENTINEL, impresiones: 'oculta', ctr: 'oculta', posicion: 'oculta' },
     ]);
     expect(JSON.stringify(e1.rows)).not.toContain('juan perez');
     expect(port.postJson).toHaveBeenCalledTimes(1);
