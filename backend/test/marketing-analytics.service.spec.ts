@@ -245,9 +245,9 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
     // A=6 (visible), B=3 y C=2 (ocultas): DOS ocultas ⇒ sin supresión complementaria (el total no despeja
     // una sola celda) ⇒ B y C quedan «< 5» en su sitio, A visible con MX$.
     const items = [
-      ...Array.from({ length: 6 }, () => ({ unitPriceCents: 10000, inventoryItem: { cardId: 'A', card: card('Carta A', '001') } })),
-      ...Array.from({ length: 3 }, () => ({ unitPriceCents: 20000, inventoryItem: { cardId: 'B', card: card('Carta B', '002') } })),
-      ...Array.from({ length: 2 }, () => ({ unitPriceCents: 30000, inventoryItem: { cardId: 'C', card: card('Carta C', '003') } })),
+      ...Array.from({ length: 6 }, (_, i) => ({ orderId: `oA${i}`, unitPriceCents: 10000, inventoryItem: { cardId: 'A', card: card('Carta A', '001') } })),
+      ...Array.from({ length: 3 }, (_, i) => ({ orderId: `oB${i}`, unitPriceCents: 20000, inventoryItem: { cardId: 'B', card: card('Carta B', '002') } })),
+      ...Array.from({ length: 2 }, (_, i) => ({ orderId: `oC${i}`, unitPriceCents: 30000, inventoryItem: { cardId: 'C', card: card('Carta C', '003') } })),
     ];
     m.orderItemFindMany.mockResolvedValue(items);
     m.inventoryItemGroupBy.mockResolvedValue([{ cardId: 'A', _count: { _all: 2 } }]);
@@ -266,10 +266,11 @@ describe('MarketingAnalyticsService — d1/d3 aplican celdas pequeñas por dimen
   it('d3: altas de lista de deseos con N<5 sobre carta con stock 0 ⇒ «< 5»', async () => {
     const { svc, m } = build();
     // A=3 y C=2 ocultas (DOS), B=8 visible ⇒ sin supresión complementaria.
+    // Una fila por (carta, usuario) (§MKT.H.14 R1). A: 3 usuarios; B: 5 usuarios con 8 altas; C: 2 usuarios.
     m.wishlistItemGroupBy.mockResolvedValue([
-      { cardId: 'A', _count: { _all: 3 } },
-      { cardId: 'B', _count: { _all: 8 } },
-      { cardId: 'C', _count: { _all: 2 } },
+      ...[1, 1, 1].map((n, i) => ({ cardId: 'A', userId: `uA${i}`, _count: { _all: n } })),
+      ...[2, 2, 2, 1, 1].map((n, i) => ({ cardId: 'B', userId: `uB${i}`, _count: { _all: n } })),
+      ...[1, 1].map((n, i) => ({ cardId: 'C', userId: `uC${i}`, _count: { _all: n } })),
     ]);
     m.cardFindMany.mockResolvedValue([
       { id: 'A', name: 'Carta A', number: '001', set: { name: 'Set MX' } },

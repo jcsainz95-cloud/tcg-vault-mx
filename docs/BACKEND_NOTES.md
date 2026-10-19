@@ -33172,7 +33172,8 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
 **Para frontend.**
 - `ScreenPayload.privacy` dice el régimen aplicado: sesión `super_admin` ⇒ `'exact'` (valores reales, sin «< 5», sin
   «oculta», sin fila «Otros»); cualquier otra sesión ⇒ `'small_cells'`. Lo decide `panelPrivacy()` por ROL; no hay query.
-- Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por la supresión coherente de un MES, §MKT.G.10), texto o `null`.
+- Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por coherencia mes↔semanas o complementaria), texto o `null`.
+  b1-b3 (v1.107, §MKT.H.14): pedidos y solicitudes se ocultan por separado, sin fila «Otros»; una fila puede venir parcial.
 - Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran). Vale igual para
   `weekly-excel` desde `d0f6c648` (MKT-TL6). `week=YYYY-W53` en un año de 52 semanas ⇒ 400 (MKT-TL8).
 - c7 (pedidos por estado, mes) puede traer la fila «Otros (< 5 c/u)» como cualquier otra tabla con dimensión (MKT-TL5).
@@ -33191,9 +33192,13 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
   en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
 - §MKT.G.9 (9) sobre ficheros: la prueba lee las FILAS de la hoja `pantalla_<s>` (o del CSV), nunca «Info», que trae «< 5» en su
   nota de privacidad también en `exact` (techlead R3 sobre `62e8250b`: con `fileText()` sobre todo el libro, xlsx en `exact` seguía verde).
-- Celdas: `small-cells.ts` `applySmallCells(rows, privacy, forcedHidden)` y `hiddenKeys(rows)` comparten el mismo plan.
-  `safeRows()` del servicio: en un MES `small_cells`, recalcula la MISMA función de filas para cada semana que toca el mes
-  (`weeksTouchingMonth`) y fuerza `'oculta'` en toda clave oculta en alguna semana. Aplica a d1, d3, d4b, a3 (pagadas) y c7.
+- Celdas (§MKT.H.14): el umbral mira `DimensionRow.subjects` (obligatorio), no `count`: d1 = pedidos distintos (publica piezas),
+  d3 = usuarios distintos (publica altas; `groupBy` por carta y usuario). b1-b3: `applySmallCellsByComponent` + `hiddenCellIds`
+  (umbral, coherencia y complementaria local por (clave, componente); 0 ⇒ 0). R0: visibles en orden de entrada, ocultas al final
+  por clave (b1-b3: pedidos desc, solicitudes desc, clave; oculto después). g1 exige `firstUtmSource` (g1 ≡ b2[Promoción]).
+  Fuera de b1-b3 un conteo 0 sigue saliendo «< 5» (más conservador que R1; se alinea con la prueba 3). Registro de poblaciones:
+  `marketing-populations.ts` (prueba 1). `safeRows()`/`safeComponentRows()`: en un MES `small_cells` recalculan la MISMA
+  función por semana (`weeksTouchingMonth`) y fuerzan `'oculta'` en lo oculto en alguna semana.
   c7 (`c7Dims`) da filas ya agrupadas (estados ≥ umbral, «Otros estados», «Recogida en persona») y devuelve `[]` para menos de
   4 semanas: c7 semanal no se publica, así que el mes no hereda ocultas de semanas.
 - Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
@@ -33204,14 +33209,9 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
 - Limitador (MKT-TL1): barrido una vez por ventana + cota dura 10 000 claves.
 
 **Abierto, con medición.**
-- MKT-TL2 (docs/TECH_DEBT.md): el caso c7↔a1 está cerrado en código (c7 por `safeRows` ⇒ nunca una sola celda oculta); falta
-  el candado general y que seguridad acepte el residuo. Medido 2026-10-18.
+- MKT-TL2 (docs/TECH_DEBT.md): falta la prueba 3 (auditor por ecuaciones). Caduca 2026-11-30: `marketing-tl2.expiry.spec.ts`.
 
-**Para el arquitecto (2026-10-18, `d0f6c648`).** Con `exact`, c7 daba antes un estado por fila (Colima 2, Nayarit 1…); ahora da
-las mismas claves que `small_cells` sin «Otros (< 5 c/u)»: estados ≥ 5, «Otros estados» con su número real y «Recogida». Lo
-hice así porque §MKT.G.9 (8) pide «el conjunto de claves de fila es el de `small_cells` sin la fila «Otros»» y la versión
-anterior no lo cumplía. Si el dueño debe ver cada estado en su pantalla, es un cambio de contrato (regla 9) y se cambia en
-`c7Dims`, no en un camino aparte.
+**Para el arquitecto.** c7 en `exact` da las claves de `small_cells` sin «Otros» (§MKT.G.9 (8)); un estado por fila sería regla 9.
 
 **Verificación de §MKT.G.** Última suite completa propia: `374647c6` (515/515 suites, 8936/8936); lotes de ablación
 N=10 sobre `89b469d4`, `374647c6` y `f63dbd8e` (todas las mutaciones 10/10 rojo, controles 0/10). Tablas detalladas en la

@@ -78,14 +78,15 @@ function build(): Built {
       ),
     // d1: A=6 visible, B=3 SOLA oculta ⇒ supresión complementaria con la siguiente más chica.
     orderItemFindMany: jest.fn().mockResolvedValue([
-      ...Array.from({ length: 6 }, () => ({ unitPriceCents: 10000, inventoryItem: { cardId: 'A', card: card('Carta A', '001') } })),
-      ...Array.from({ length: 7 }, () => ({ unitPriceCents: 15000, inventoryItem: { cardId: 'C', card: card('Carta C', '003') } })),
-      ...Array.from({ length: 3 }, () => ({ unitPriceCents: 20000, inventoryItem: { cardId: 'B', card: card('Carta B', '002') } })),
+      ...Array.from({ length: 6 }, (_, i) => ({ orderId: `oA${i}`, unitPriceCents: 10000, inventoryItem: { cardId: 'A', card: card('Carta A', '001') } })),
+      ...Array.from({ length: 7 }, (_, i) => ({ orderId: `oC${i}`, unitPriceCents: 15000, inventoryItem: { cardId: 'C', card: card('Carta C', '003') } })),
+      ...Array.from({ length: 3 }, (_, i) => ({ orderId: `oB${i}`, unitPriceCents: 20000, inventoryItem: { cardId: 'B', card: card('Carta B', '002') } })),
     ]),
     inventoryItemGroupBy: jest.fn().mockResolvedValue([{ cardId: 'A', _count: { _all: 2 } }]),
+    // Una fila por (carta, usuario) (§MKT.H.14 R1: el umbral cuenta usuarios). B: 2 usuarios; C: 6 usuarios, 9 altas.
     wishlistItemGroupBy: jest.fn().mockResolvedValue([
-      { cardId: 'B', _count: { _all: 2 } },
-      { cardId: 'C', _count: { _all: 9 } },
+      ...[1, 1].map((n, i) => ({ cardId: 'B', userId: `uB${i}`, _count: { _all: n } })),
+      ...[2, 2, 1, 1, 1, 2].map((n, i) => ({ cardId: 'C', userId: `uC${i}`, _count: { _all: n } })),
     ]),
     cardFindMany: jest.fn().mockResolvedValue([
       { id: 'A', ...card('Carta A', '001') },

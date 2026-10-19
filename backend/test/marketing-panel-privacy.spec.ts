@@ -52,7 +52,7 @@ function build(sales: Sale[], opts: { paid?: { n: number; cents: number } } = {}
       Promise.resolve(
         sales
           .filter((s) => inRange(s.at, where.order.settledAt))
-          .map((s) => ({ unitPriceCents: s.cents, inventoryItem: { cardId: s.cardId, card: card(s.name, s.number) } })),
+          .map((s, i) => ({ orderId: `o${i}`, unitPriceCents: s.cents, inventoryItem: { cardId: s.cardId, card: card(s.name, s.number) } })),
       ),
     ),
   };
