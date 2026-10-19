@@ -37080,8 +37080,8 @@ Visita ─► ¿modo on y alguna etiqueta configurada? ── no ─► nada (si
 visitantes, y antes de la elección no se escribe nada en el dispositivo.
 - **Respuesta por resultado:** `{a:1,m:1}` ⇒ `accept` aunque se guarde desde la 2.ª capa; `{a:0,m:0}` ⇒ `necessary_only`;
   mixta ⇒ `custom`. Contar «guardé con todo apagado» como `custom` partiría a los que rechazan en dos filas y f1 dejaría de
-  decir cuántos rechazan. Solo cuenta **la primera** respuesta del banner; cambiar después desde el pie o el aviso no manda nada
-  (MKT2-UX.13 pet. 1): contar cambios inflaría el denominador.
+  decir cuántos rechazan. Solo cuenta **la primera** elección con el banner visible, también si se hace desde el pie (si no, ese visitante saldría de f1);
+  un cambio posterior no manda nada (MKT2-UX.13 pet. 1, M2 de QA): contar cambios inflaría el denominador.
 - **`no_response` una vez por documento, en memoria** (⛔ ni `sessionStorage`): la regla «nada en el dispositivo antes de la
   elección» vale para todo, no solo para los UTM. Coste aceptado: una recarga sin responder vuelve a contar (sobrecuenta el
   denominador; f1 lo dice en su nota).

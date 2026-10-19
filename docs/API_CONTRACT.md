@@ -20,7 +20,7 @@
 > - v1.103⟨mkt-panel-exacto⟩ · 2026-10-18 · §MKT.G.2/.3/.5/.9/.10: cifras exactas del dueño, supresión coherente · dueño (`HECHOS.md:172`).
 > - v1.104⟨ceq1-mkt⟩ · 2026-10-18 · §0-Q 6-bis (SELECTOR), `CEQ-MKT-1`, query con nombre en §MKT.E · QA.
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
-> - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2).
+> - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -45539,8 +45539,9 @@ AggTable = {
   notes?: string[], measured: boolean, notMeasuredReason?: string
 }
 Cell = number | '< 5' | 'oculta' | string | null    // v1.106 (TL-MKT2-C1): null = SIN DATO («—»), siempre y en todo `kind`.
-                                                     // Fila suprimida: su conteo N lleva '< 5' (N<5) u 'oculta' (MKT.G.10) y
-                                                     // TODA otra celda no `text` lleva 'oculta' (⛔ null). 'exact': ni una ni otra.
+                                                     // Fila suprimida: su conteo N lleva '< 5'/'oculta' (MKT.G.10), toda otra celda no `text`
+                                                     // 'oculta' (⛔ null) SALVO d1.aLaVentaHoy: stock de hoy, ya público en la ficha ⇒ exacto
+                                                     // (v1.106.2). La fila «Otros» lo lleva null («—»). 'exact': sin '< 5' ni 'oculta'.
 ```
 - **La pantalla pinta `privacy`:** con `exact`, aviso fijo «Cifras exactas: solo las ves tú. El Excel y el acceso del analista llevan
   "< 5"»; con `small_cells`, la leyenda de «< 5» y «oculta». ⛔ El frontend no persiste un payload `exact` (ni `localStorage`, ni
@@ -45724,9 +45725,9 @@ BannerResponseRequest = { response: 'accept' | 'necessary_only' | 'custom' | 'no
 - Con `on`: incrementa `(weekStart CDMX, response, utmMedium, device)`. `utmMedium` se guarda solo si es `bio|story|paid|dm`;
   cualquier otro valor ⇒ `null`. `device` (valores de ARCHITECTURE §13.4.3) se deriva del `User-Agent` **en el servidor**; ⛔ el UA no se
   guarda. ⛔ Sin cookie, sin IP guardada, sin fila por visita.
-- **Qué manda el navegador (D-MKT2-5):** la **primera** respuesta al banner, por la elección que quedó: `{a,m}` ambos sí ⇒
-  `accept`, ambos no ⇒ `necessary_only` (también desde la 2.ª capa), mixta ⇒ `custom`. Cambiar después (pie, aviso) no manda
-  nada. `no_response`: **una vez por documento**, en memoria (⛔ ni cookie ni `sessionStorage`), al ocultarse la página
+- **Qué manda el navegador (D-MKT2-5):** la **primera** elección hecha con el banner visible, venga del banner o del pie: `{a,m}`
+  ambos sí ⇒ `accept`, ambos no ⇒ `necessary_only` (también desde la 2.ª capa), mixta ⇒ `custom`. Un cambio posterior, o una
+  elección sin banner mostrado, no manda nada (v1.106.2). `no_response`: **una vez por documento**, en memoria (⛔ ni cookie ni `sessionStorage`), al ocultarse la página
   (`sendBeacon` con un `Blob` `application/json`), si el banner se mostró y no se respondió. El banner solo se monta en rutas de
   la lista blanca (ARCHITECTURE §14.4); el enlace «Preferencias de cookies», en el pie de todo el storefront.
 - Errores: **400** `VALIDATION_ERROR` (body sin forma), **429** `RATE_LIMITED` (30/h por IP).
@@ -45861,12 +45862,11 @@ model MeasurementOutbox {            // ⛔ sin cuerpo: se arma al enviar
   @@index([expiresAt])
 }
 ```
-- Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE` + el CHECK `num_nonnulls("orderId","sellRequestId") = 1` dentro del `CREATE
-  TABLE "MeasurementContext"` (D8, v1.106: tabla nueva y vacía ⇒ no valida filas; Prisma no lo modela; que su paridad de schema no lo lea como deriva: NO MEDIDO). Sin
-  backfill. ⚠️ `ADD VALUE` no se usa en la transacción que lo crea (ninguna sentencia de m86 usa `'custom'`) y va con `IF NOT EXISTS`.
-- **Reversa:** `MEASUREMENT_MODE=off`, código anterior, `DROP` de las dos tablas, las seis columnas y los dos enums nuevos, y
-  `prisma migrate resolve --rolled-back` de m86. `custom` se queda en `BannerResponse` (Postgres no quita valores): por eso m86 usa
-  `IF NOT EXISTS`; sin él, redesplegar m86 tras la reversa falla con P3018/42710 (medido por QA, I1). Enums en §0 (`BannerResponse` incluido).
+- Solo `CREATE` + `ADD COLUMN` nullable + `ADD VALUE IF NOT EXISTS` (no usado en su transacción) + el CHECK de D8 en el `CREATE TABLE
+  "MeasurementContext"` (tabla vacía; Prisma no lo modela; que la paridad de schema no lo lea como deriva: NO MEDIDO). Sin backfill.
+- **Reversa:** `MEASUREMENT_MODE=off`, código anterior, `DROP` de las dos tablas, las seis columnas y los dos enums nuevos, y borrar la
+  fila de m86 en `_prisma_migrations`; así `migrate deploy` la reaplica sin `resolve` (log de QA `m86-rev-3-redeploy.log`: «Applying migration»). `custom` se
+  queda en `BannerResponse` (Postgres no quita valores): sin `IF NOT EXISTS` ese redeploy falla con P3018/42710 (QA, I1). Enums en §0.
 
 #### MKT.H.8 Cookies que pone la tienda (para el aviso; fuente única de nombres y plazos)
 
@@ -45938,7 +45938,7 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
-| **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): toda fila con `'< 5'`/`'oculta'` en su conteo no lleva `null` en ninguna columna no `text` (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
+| **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): toda fila con `'< 5'`/`'oculta'` en su conteo lleva `'oculta'` en toda columna no `text` salvo d1 `aLaVentaHoy`, que sale número exacto (y `null` solo en «Otros») (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
 | **C-D2** | devops | gitleaks: regla para tokens de Meta y para `api_secret` de GA4; `grep` del token real en repo y en logs del despliegue = 0 (el dueño lo corre donde vive el token) | un fichero de prueba con un token falso con la forma de Meta ⇒ rojo |
 | **C-B1** | backend | `MEASUREMENT_MODE` ausente, vacío o `ON` (mayúsculas) ⇒ `off`; con `off`, crear pedido con `measurement` completo ⇒ `firstUtm*` y consentimiento `NULL`, 0 filas de contexto y de cola; `banner-response` ⇒ 204 sin escribir; el drenador no llama a `fetch` | leer el modo con `!== 'off'` ⇒ rojo |
 | **C-B2** | backend | 🔒💰 aislamiento del pago: con el encolado lanzando, `onPaymentSucceeded` liquida igual (orden `settled`, piezas movidas) y no relanza; con el contexto lanzando, `POST /checkout/session` da 201. `measurement` basura ⇒ misma respuesta que sin él | mover el encolado dentro del `$transaction` o quitar el `try/catch` ⇒ rojo |
