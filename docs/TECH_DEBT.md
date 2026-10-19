@@ -114,6 +114,27 @@
 | TD-HND-1 ✅ | la integración no terminaba sola en CI | devops | 2026-10-19 | `e2e.yml:105,372,378` (devops) |
 | TD-HND-2 ✅ | `liveResources` sin caso de socket/servidor | backend | 2026-10-19 | `card-show.counter-store-close.spec.ts` «TD-HND-2» (rojo 10/10 si `liveResources` no recorre `_getActiveHandles`) |
 | TD-HND-3 ✅ | cierre `quit` copiado ×4 | backend | 2026-10-19 | `grep -rc '\.quit()' backend/src` suma 1 (`common/redis-close.ts`); candado en `common.redis-close.spec.ts` |
+| TL-MKT2b-b ✅ | `measurement-item.ts` se ejecuta sin compilar (prueba cruzada del frontend): la restricción «solo `import type`, solo sintaxis que se borra» no estaba escrita y solo la cobraba el vitest del frontend | backend | 2026-10-19 | cabecera «SE EJECUTA SIN COMPILAR» en `measurement-item.ts`; `test/measurement.item-erasable.spec.ts` (AST + `node --experimental-strip-types`): rojo con `enum`, con import de valor y con `import { type X }` |
+| TL-MKT2b-d ✅ | la nota de c1 no decía que «Usuarios» es una suma por idioma (cota alta) ni que «< 5» puede ser falso a la baja | backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` «TL-MKT2b-d» (nota de `small_cells` y de `exact`); rojo si `c1UsersNote` sale de `notes` o cambia el texto |
+
+### TL-MKT2b-b · ✅ CERRADA (2026-10-19) · `measurement-item.ts` solo puede llevar sintaxis borrable
+- **Qué:** `frontend/src/lib/measurement/item.cross.test.ts` importa el fichero en un `node` que solo quita tipos. Un `enum`,
+  un `namespace`, una propiedad de parámetro o un import de valor (también `import { type X }`, que deja `import {} from`)
+  lo rompen, y antes solo se enteraba el vitest del frontend.
+- **Cierre:** cabecera en el fichero + `backend/test/measurement.item-erasable.spec.ts`: (a) AST con la API de TypeScript;
+  (b) ejecución real con `node --experimental-strip-types`, comparada con la versión de ts-jest. Mutaciones medidas
+  (N=3 cada una, deterministas): `enum` ⇒ 2 rojas; `import { readFileSync } from 'node:fs'` ⇒ 1 roja (solo AST: Node la
+  resuelve); `import { pesos } from './measurement-bodies'` ⇒ 2 rojas; `import { type ItemCategory }` ⇒ 2 rojas;
+  restaurado ⇒ 3/3 verdes.
+
+### TL-MKT2b-d · ✅ CERRADA (2026-10-19) · Nota de «Usuarios» en c1
+- **Qué:** c1 junta `/es/…` y `/en/…` (`c1Rows`, `marketing-ga4.ts`); GA4 no da los únicos de la unión. Con número, la cifra
+  es la suma por idioma (cota alta); si ningún idioma llega a 5, sale la del idioma mayor (cota baja), que en `small_cells`
+  es «< 5» aunque la unión llegue a 5.
+- **Cierre:** `c1UsersNote(privacy)` en `marketing-analytics.service.ts` lo dice en llano en las notas de c1 (las dos
+  variantes, según régimen). El contrato (§MKT.H.9) no fija el texto de esa nota. Candado: `marketing-fase2-v105.spec.ts`
+  «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
+  deterministas).
 
 ### MKT-TL2 · P3 · Invariante de la supresión complementaria (`small-cells.ts`) — caso c7↔a1 cerrado en código; candado general abierto
 - **Qué:** la supresión complementaria solo protege si ninguna salida del mismo periodo publica el total exacto de la MISMA

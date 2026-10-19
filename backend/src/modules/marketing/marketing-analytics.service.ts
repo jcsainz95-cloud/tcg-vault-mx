@@ -147,6 +147,18 @@ export const EXACT_CELLS_NOTE = 'Vista del dueño: cifras exactas. Fuera de esta
 const cellsNote = (privacy: CellPrivacy, smallCellsText: string): string =>
   privacy === 'small_cells' ? smallCellsText : EXACT_CELLS_NOTE;
 
+/**
+ * TL-MKT2b-d — qué es «Usuarios» en c1, en palabras del dueño. `c1Rows` (marketing-ga4.ts) junta `/es/…` y `/en/…` en una
+ * fila y GA4 no da los únicos de la unión: con número, la cifra es la SUMA por idioma (cota alta: quien vio las dos versiones
+ * cuenta dos veces); si ningún idioma llega al umbral, la cifra es la del idioma con más usuarios (cota baja: la unión puede
+ * llegar al umbral). En `small_cells` esa cota baja sale «< 5»; en `exact`, como número.
+ */
+export const c1UsersNote = (privacy: CellPrivacy): string =>
+  `Usuarios se suma por idioma: quien vio la versión en español y la en inglés cuenta dos veces, así que puede ser más alto que el real. ` +
+  (privacy === 'small_cells'
+    ? `Sale «< 5» si ningún idioma llega a ${SMALL_CELL_THRESHOLD}, aunque entre los dos sí lleguen.`
+    : `Si ningún idioma llega a ${SMALL_CELL_THRESHOLD}, sale el del idioma con más usuarios, y el real puede ser más alto.`);
+
 const SOURCE_LEGEND: Record<string, string> = {
   BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
   GA4: 'GA4 Data API (solo sesiones que aceptaron analítica) — Fase 2',
@@ -763,7 +775,7 @@ export class MarketingAnalyticsService {
       ],
       rows: safe.map((r) => ({ pagina: r.key, vistas: r.money.vistas ?? null, usuarios: r.count as Cell, tiempoMedio: r.money.tiempoMedio ?? null })),
       measured: true,
-      notes: ['Solo quien aceptó la analítica.', cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} usuarios ⇒ «< 5» sin el resto de cifras.`)],
+      notes: ['Solo quien aceptó la analítica.', c1UsersNote(privacy), cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} usuarios ⇒ «< 5» sin el resto de cifras.`)],
     };
   }
 
