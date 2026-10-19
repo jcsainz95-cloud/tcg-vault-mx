@@ -111,6 +111,11 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     await page.goto(href);
     await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
     await expect.poll(() => page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('function');
+    // El stub se define en el acto, pero la descarga de gtag.js/fbevents.js sale un instante después.
+    // Sin esperarla, esa petición (de la FICHA) caía después del corte `before` y se contaba como de la
+    // ruta excluida: medido 3/170 rojos con N=10 sobre 4bb23ff2, documento final limpio en los tres.
+    await expect.poll(() => kinds(log).has('google') && kinds(log).has('meta')).toBe(true);
+    await settle(page);
     return { log, href };
   }
 
@@ -146,8 +151,12 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     await expectCleanDocument(page);
     expect(log.measurement.slice(before)).toEqual([]);
 
+    const scriptsBefore = log.measurement.filter((m) => /gtag\/js|fbevents/.test(m.url)).length;
     await page.goto(href);
     await expect.poll(() => page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('function');
+    // Misma espera que en `acceptOnCard`: las dos descargas de ESTA ficha antes del corte.
+    await expect.poll(() => log.measurement.filter((m) => /gtag\/js|fbevents/.test(m.url)).length).toBeGreaterThanOrEqual(scriptsBefore + 2);
+    await settle(page);
     before = log.measurement.length;
     await page.locator('footer').getByRole('link', { name: t('es', 'nav.terms') }).click();
     await page.waitForURL(/\/es\/terminos/);
