@@ -13,7 +13,7 @@
 import { MarketingAnalyticsService, COVERAGE_NOTE, COVERAGE_NOTE_ON, sealHiddenRows } from '../src/modules/marketing/marketing-analytics.service';
 import { MarketingExternalSources, type GoogleReadPort } from '../src/modules/marketing/marketing-external-sources';
 import { MeasurementService } from '../src/modules/measurement/measurement.service';
-import { SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL } from '../src/modules/marketing/small-cells';
+import { SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy } from '../src/modules/marketing/small-cells';
 import { a4Group, b4Group, c1Rows, fichaOf } from '../src/modules/marketing/marketing-ga4';
 import type { MarketingPeriod, MarketingScreen } from '../src/modules/marketing/marketing-period';
 import type { AggTable } from '../src/modules/marketing/marketing-aggregates.types';
@@ -310,6 +310,19 @@ describe('TL-MKT2-D5 · c1 agrega por la etiqueta (una ficha en dos idiomas es U
     const out = c1Rows(rows, label);
     expect(out).toHaveLength(50);
     expect(out[0]).toMatchObject({ key: 'Charizard · 151 4', money: { vistas: 120 } });
+  });
+
+  it('TL-MKT2b-d · la nota de c1 dice en llano qué es «Usuarios»: suma por idioma (cuenta dos veces) y «< 5» si ningún idioma llega', async () => {
+    const w = build({ mode: 'on', ga4: true });
+    const small = by((await w.screen('c')).tables, 'c1').notes!.join(' ');
+    expect(small).toContain('Usuarios se suma por idioma');
+    expect(small).toContain('cuenta dos veces');
+    expect(small).toContain('Sale «< 5» si ningún idioma llega a 5, aunque entre los dos sí lleguen.');
+    // En la vista del dueño (exact) la cota baja sale como número: la nota no promete «< 5», pero sí avisa de las dos cotas.
+    const exact = by((await w.svc.screen('c', week, NOW, 'exact' as CellPrivacy)).tables, 'c1').notes!.join(' ');
+    expect(exact).toContain('cuenta dos veces');
+    expect(exact).toContain('sale el del idioma con más usuarios, y el real puede ser más alto');
+    expect(exact).not.toContain('«< 5»');
   });
 });
 

@@ -10,6 +10,11 @@
  *  - accesorio: `a_<accessoryId>`, si no `m_<metaDeckId>`.
  *  - sin identidad (carta sin `cardId`, accesorio sin ninguno de los dos) ⇒ `null`: la línea no viaja.
  * ⛔ Nunca `orderNumber` ni un `inventoryItemId` (el representante cambia al vender).
+ *
+ * ⚠ SE EJECUTA SIN COMPILAR (TL-MKT2b-b): la prueba cruzada del frontend (`frontend/src/lib/measurement/item.cross.test.ts`)
+ * lo importa en un `node` que solo quita los tipos. Por eso aquí: solo `import type` (ningún import de valor, tampoco
+ * `import { type X }`) y solo sintaxis que se borra (sin `enum`, `namespace`, propiedades de parámetro, decoradores,
+ * `import x = require`/`export =`). Lo cobra el jest del backend: `test/measurement.item-erasable.spec.ts`.
  */
 import type { PersistedCardFacts } from '../orders/order-item-card';
 import type { ItemCategory } from './measurement-bodies';
