@@ -20,6 +20,9 @@ module.exports = {
   // ⭐💰🔒 PS-99 (c) — la red a *.skydropx.com vetada en TODA la suite (API_CONTRACT §M4-SHIP.19.19.17).
   setupFiles: ['<rootDir>/test/setup/forbid-skydropx-network.ts'],
   setupFilesAfterEnv: ['<rootDir>/test/integration/setup.ts'],
+  // Candado «la suite termina sola»: si al acabar queda un socket/servidor/timer vivo, lo lista y sale en
+  // ROJO en vez de colgarse (CI cancelaba el job a las 6 h). Requiere el modo en banda de abajo.
+  globalTeardown: '<rootDir>/test/integration/open-handles.teardown.ts',
   // Estado de DB compartido entre specs → serializa para evitar carreras.
   maxWorkers: 1,
   testTimeout: 30000,

@@ -1,4 +1,4 @@
-import { Logger, Provider } from '@nestjs/common';
+import { Logger, OnModuleDestroy, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis, { Redis } from 'ioredis';
 import { resolveRedisFamily } from '../../jobs/redis-connection.util';
@@ -171,8 +171,16 @@ type RedisWithScripts = Redis & {
   csReserve1(key: string, ...args: (string | number)[]): Promise<number[]>;
 };
 
-/** Almacén Redis atómico. Lanza si Redis no responde (el llamador decide fail-open/closed). */
-export class RedisCardShowCounterStore implements CardShowCounterStore {
+/**
+ * Almacén Redis atómico. Lanza si Redis no responde (el llamador decide fail-open/closed).
+ *
+ * Es DUEÑO de su cliente (lo crea `cardShowCounterStoreProvider`) y lo cierra en `onModuleDestroy`.
+ * Sin ese cierre, cada `app.close()` dejaba un socket a Redis abierto (y ioredis reconectándolo): la
+ * integración del backend no terminaba nunca y CI la cancelaba a las 6 h (BACKEND_NOTES §Handles,
+ * candado `test/integration/open-handles.teardown.ts`). En producción no cambia nada visible: `main.ts`
+ * no llama `enableShutdownHooks`, así que un SIGTERM termina el proceso y el socket muere con él.
+ */
+export class RedisCardShowCounterStore implements CardShowCounterStore, OnModuleDestroy {
   private readonly client: RedisWithScripts;
 
   constructor(
@@ -193,6 +201,23 @@ export class RedisCardShowCounterStore implements CardShowCounterStore {
 
   private k(key: string): string {
     return `${this.prefix}${key}`;
+  }
+
+  /** Cierra el cliente: `quit` ordenado con tope de 1 s; si no contesta, `disconnect` (corta ya). */
+  async onModuleDestroy(): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        this.client.quit(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('card-show counter: quit timeout')), 1000);
+        }),
+      ]);
+    } catch {
+      this.client.disconnect();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async hit(key: string, ttlMs: number): Promise<number> {

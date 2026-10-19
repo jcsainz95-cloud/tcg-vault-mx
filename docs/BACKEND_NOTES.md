@@ -5,28 +5,20 @@
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
 
-> ⚠️ **RENUMERADO DOS VECES EN DOS FUSIONES. Lee esto antes de citar una sección de este bloque.**
+> **Estado vigente — §Handles: la integración termina sola (2026-10-19).** `RedisCardShowCounterStore`
+> (`src/modules/card-show/card-show-counter.store.ts`, desde `794e7f6f`, en `production` desde el merge
+> `0bb62d96` del 17-oct) abría un cliente ioredis que nadie cerraba: cada `app.close()` dejaba un socket
+> a Redis vivo y `npm run test:integration` no salía nunca (CI lo cancelaba a las 6 h). Arreglo: el
+> store implementa `onModuleDestroy` (`quit` con tope de 1 s; si no, `disconnect`). En producción no
+> cambia nada visible: `main.ts` no llama `enableShutdownHooks`. **Candado:**
+> `test/integration/open-handles.teardown.ts` (globalTeardown): si al acabar queda un socket, servidor o
+> timer con ref, los lista y sale con 1: rojo con diagnóstico en vez de cuelgue. Solo vale en banda
+> (`maxWorkers: 1`). ⛔ No es `--forceExit`: con todo cerrado no hace nada. Mediciones y canario: en el
+> mensaje del commit que lo introduce. Unitaria: `test/card-show.counter-store-close.spec.ts`.
+> **Local sin superusuario:** T-AC3 (`pdb-limpieza`) da 42501 y deja esquemas gemelos; los specs que
+> leen `pg_enum`/`pg_constraint` sin filtrar esquema salen rojos después en la MISMA BD: BD nueva por corrida.
 >
-> El bloque **§0.23–§0.36** (el ciclo de adquisición, M-46/v1.51, rama
-> `claude/buylist-inventory-workflow-hdnls3`) nació como **§0.13–§0.26** y ha cedido el paso **dos
-> veces**, siempre en la misma dirección: **se renumera lo de la rama, nunca lo que `main` ya
-> publicó.** No es cortesía — la numeración de `main` está citada desde código
-> (`pokemontcg-io.client.ts` §0.19), desde `docs/TECH_DEBT.md` y desde `docs/DEVOPS_NOTES.md`, que no
-> son míos; la de la rama solo se citaba desde la propia rama.
->
-> | Fusión | `main` traía | El bloque pasó de | a | offset |
-> |---|---|---|---|---|
-> | 2026-09-05 (P-54) | §0.13–§0.19 (v1.51-a…-e, M-47) | §0.13–§0.26 | §0.20–§0.33 | +7 |
-> | 2026-09-06 (v1.53) | §0.20–§0.22 (M47-H2, v1.53, v1.53-b) | §0.20–§0.33 | **§0.23–§0.36** | +3 |
->
-> **Mapa acumulado (original → hoy):** §0.13→§0.23, §0.14→§0.24, §0.15→§0.25, §0.16→§0.26,
-> §0.17→§0.27, §0.18→§0.28, §0.19→§0.29, §0.20→§0.30, §0.21→§0.31, §0.22→§0.32, §0.23→§0.33,
-> §0.24→§0.34, §0.25→§0.35, §0.26→§0.36 (y sus subsecciones, con el mismo offset).
->
-> Las referencias internas del bloque y la única externa que lo citaba
-> (`backend/test/buylist.guide-transit.spec.ts`) se actualizaron en el mismo paso. **§0.20, §0.21 y
-> §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
-> v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
+> *Retirada (2026-10-19): la nota de renumeración §0.23–§0.36 del 2026-09-06; vive en git (`git log -S RENUMERADO`).*
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 
