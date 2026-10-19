@@ -69,6 +69,13 @@ export interface CspEnv {
   vercelEnv?: string | null;
   /** `NODE_ENV`. */
   nodeEnv?: string | null;
+  /**
+   * §MKT.H.1 / ARCHITECTURE §14.8 — modo de medición horneado (`NEXT_PUBLIC_MEASUREMENT_MODE`). Con
+   * `off` (o ausente) la política no cambia. Con `on`, `connect-src` suma `measurementConnect`.
+   */
+  measurementMode?: 'off' | 'on';
+  /** Orígenes de medición (de `security/measurement-origins.mjs`, horneados por `next.config.mjs`). */
+  measurementConnect?: readonly string[];
 }
 
 /** Origen (`esquema://host[:puerto]`) de una URL absoluta http(s); `null` si no lo es. */
@@ -108,6 +115,11 @@ export function buildCsp(nonce: string, env: CspEnv, mode: CspMode = CSP_MODE): 
   const connect = ["'self'"];
   if (apiOrigin) connect.push(apiOrigin);
   connect.push('https://api.stripe.com', 'https://accounts.google.com', uploadOriginOf(env.uploadOrigin));
+  // C-F7: con `off`, NINGÚN origen de medición; con `on`, los de §MKT.H.1 (un valor con otra forma
+  // se descarta: una variable mal horneada no puede abrir la política ni inyectar otra directiva).
+  if (env.measurementMode === 'on') {
+    for (const o of env.measurementConnect ?? []) if (ORIGIN_RE.test(o) && !connect.includes(o)) connect.push(o);
+  }
 
   const frame = [
     'https://js.stripe.com',
@@ -163,6 +175,8 @@ export function cspEnvFromProcess(): CspEnv {
     uploadOrigin: process.env.NEXT_PUBLIC_UPLOAD_ORIGIN,
     vercelEnv: process.env.VERCEL_ENV,
     nodeEnv: process.env.NODE_ENV,
+    measurementMode: process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on' ? 'on' : 'off',
+    measurementConnect: (process.env.TH_MEASUREMENT_CSP_CONNECT ?? '').split(' ').filter(Boolean),
   };
 }
 

@@ -7914,5 +7914,36 @@
       "working": "One moment…",
       "goToList": "Go to my wishlist"
     }
+  },
+  "consent": {
+    "region": "Cookie notice",
+    "text": "We use cookies to learn which posts bring you here and to improve the store.",
+    "accept": "Accept",
+    "necessary": "Necessary only",
+    "customize": "Customize",
+    "saved": "Your choice was saved.",
+    "footerLink": "Cookie preferences",
+    "layer": {
+      "title": "Cookie preferences",
+      "intro": "You decide what we measure. You can change this at any time from the page footer.",
+      "necessary": {
+        "title": "Necessary",
+        "body": "They keep your session, your cart and your language, and remember this choice.",
+        "always": "Always on"
+      },
+      "analytics": {
+        "title": "Analytics",
+        "body": "Tells us which pages and posts lead to purchases (Google Analytics)."
+      },
+      "ads": {
+        "title": "Advertising",
+        "body": "Measures which posts and ads lead to purchases (Meta)."
+      },
+      "stateOn": "On",
+      "stateOff": "Off",
+      "more": "More detail in the <privacy>Privacy notice</privacy>.",
+      "save": "Save my choice",
+      "cancel": "Cancel"
+    }
   }
 }

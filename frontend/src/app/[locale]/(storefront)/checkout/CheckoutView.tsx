@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createCheckoutSession, getCheckoutQuote } from '@/lib/api';
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
+import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
@@ -99,6 +100,17 @@ export function CheckoutView() {
     // `/checkout/guest/quote` (contrato §4-G.0-3). Así no se dispara un 401 inútil.
     enabled: cart.ids.length > 0 && ready && isAuthenticated,
   });
+
+  // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
+  const beginCheckoutKey = useRef('');
+  useEffect(() => {
+    const d = query.data;
+    if (!d) return;
+    const key = `${d.items.map((i) => i.inventoryItemId).join(',')}:${d.breakdown.totalCents}`;
+    if (key === beginCheckoutKey.current) return;
+    beginCheckoutKey.current = key;
+    trackBeginCheckout(d.breakdown, d.items);
+  }, [query.data]);
 
   /**
    * v1.21.3-quote-prune: si el quote trae piezas muertas, se PODAN del localStorage
@@ -246,7 +258,10 @@ export function CheckoutView() {
     }
   }
 
-  function onConfirmed() {
+  function onConfirmed(status?: 'succeeded' | 'processing') {
+    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección; mismo id que CAPI
+    // (`p_<Order.id>`). Con el modo `off` no hace nada. El servidor lo manda siempre (§14.6).
+    if (status === 'succeeded' && session) trackPurchase(session.orderId, session.breakdown, query.data?.items);
     // El pago quedó autorizado; el backend lo asienta por webhook. Limpiamos el carrito y
     // mostramos "procesando" (la titularidad pasa a settled cuando el webhook liquida).
     setSession(null);

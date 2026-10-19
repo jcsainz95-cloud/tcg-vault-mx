@@ -1,4 +1,5 @@
 import { config } from './config';
+import { measurementForRequest } from './measurement/request';
 import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
@@ -1238,6 +1239,16 @@ function idempotencyKey(): string {
  * TOCA DINERO. Errores del contrato: `403 EMAIL_NOT_VERIFIED` (correo sin verificar — el front
  * muestra el banner de verificación), `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`.
  */
+/**
+ * §MKT.H.2 — el objeto `measurement` de las tres peticiones que crean pedido o solicitud
+ * (`/checkout/session`, `/checkout/guest/session`, `/buylist/requests`). `{}` con el modo `off`
+ * horneado o sin elección del visitante: el body queda EXACTAMENTE como antes.
+ */
+export function measurementBodyField(): { measurement?: NonNullable<ReturnType<typeof measurementForRequest>> } {
+  const m = measurementForRequest();
+  return m ? { measurement: m } : {};
+}
+
 export async function createCheckoutSession(
   inventoryItemIds: string[],
   billingProfileId?: string,
@@ -1245,7 +1256,8 @@ export async function createCheckoutSession(
   if (!config.useMocks) {
     return apiRequest<CheckoutSessionResponse>('/checkout/session', {
       method: 'POST',
-      body: { inventoryItemIds, billingProfileId },
+      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+      body: { inventoryItemIds, billingProfileId, ...measurementBodyField() },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
@@ -2921,7 +2933,8 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // v1.15: `clabe` es opcional. Cuando se omite (atajo "usar mi CLABE en archivo"), el body no la
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
-    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+    // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField() } });
   }
   // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
   // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
@@ -7270,7 +7283,8 @@ export async function createGuestCheckoutSession(
   if (!config.useMocks) {
     return apiRequest<GuestCheckoutSessionResponse>('/checkout/guest/session', {
       method: 'POST',
-      body: input,
+      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+      body: { ...input, ...measurementBodyField() },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }

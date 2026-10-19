@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { useTranslations } from 'next-intl';
 import { Banner } from '@/components/ui/Banner';
+import { CookiePreferencesNoticeSlot } from '@/components/consent/CookiePreferencesLink';
 import type { LegalBlock, LegalDocument } from '@/content/legal/privacidad.es';
 
 /**
@@ -144,6 +145,8 @@ export function PrivacyNoticeView({
           {s.blocks.map((b, i) => (
             <Block key={i} block={b} />
           ))}
+          {/* MKT2-UX.8 sitio 2: el hueco del botón «Preferencias de cookies» (el texto es del abogado). */}
+          {s.id === 'cookies' && <CookiePreferencesNoticeSlot />}
           {englishAddenda
             .filter((a) => a.sectionId === s.id)
             .map((a, i) => (

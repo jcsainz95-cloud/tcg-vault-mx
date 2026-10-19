@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { measurementCspConnectFor, measurementModeOf } from './src/security/measurement-origins.mjs';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
@@ -57,10 +58,34 @@ export function tsconfigPathForDistDir(dir, { baseDir = dirname(fileURLToPath(im
   return name;
 }
 
+/**
+ * §MKT.H.1 / ARCHITECTURE §14.1 — el interruptor de la Fase 2 se hornea SIEMPRE como literal
+ * normalizado (`off` | `on`), también cuando la variable no está: así el compilador evalúa
+ * `process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on'` en cada sitio y, con `off`, no recorre la rama
+ * del cargador (candado C-F1). Los IDs se hornean tal cual (cadena vacía si faltan); `lib/measurement`
+ * valida su forma. `TH_MEASUREMENT_CSP_CONNECT` = orígenes de `connect-src` solo con `on` (C-F7).
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export const measurementBuildEnv = (env = process.env) => {
+  const mode = measurementModeOf(env.NEXT_PUBLIC_MEASUREMENT_MODE);
+  return {
+    NEXT_PUBLIC_MEASUREMENT_MODE: mode,
+    NEXT_PUBLIC_GA4_MEASUREMENT_ID: mode === 'on' ? (env.NEXT_PUBLIC_GA4_MEASUREMENT_ID ?? '') : '',
+    NEXT_PUBLIC_META_PIXEL_ID: mode === 'on' ? (env.NEXT_PUBLIC_META_PIXEL_ID ?? '') : '',
+    TH_MEASUREMENT_CSP_CONNECT: measurementCspConnectFor(mode),
+    // Solo builds de MOCKS (E2E con `on`, nunca se publican): versión de aviso de prueba para poder
+    // recorrer el banner mientras `measurementDisclosure` siga en null. Un build real hornea ''.
+    NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION:
+      mode === 'on' && env.NEXT_PUBLIC_USE_MOCKS === 'true' ? (env.NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION ?? '') : '',
+  };
+};
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   distDir,
+  env: measurementBuildEnv(),
   typescript: { tsconfigPath: tsconfigPathForDistDir(distDir) },
   reactStrictMode: true,
   // SEC-HDR-1 (2026-09-29): anti-clickjacking. La sesión vive en localStorage, así que sin esto el

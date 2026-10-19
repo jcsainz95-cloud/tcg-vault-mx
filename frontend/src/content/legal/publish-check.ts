@@ -1,6 +1,7 @@
 import type { LegalDocument } from './privacidad.es';
 import { PENDING_OWNER_DATUM_LABEL, findLegalMarkers, provisionalProblems } from './legal-gate';
 import { PRIVACY_NOTICE_SITES, missingUses } from './privacy-sites';
+import { measurementGateProblems, type NoticeMeasurementMode } from './measurement-gate';
 
 /**
  * LIVE-8 · puerta de PUBLICACIÓN del aviso de privacidad (criterio 501; API_CONTRACT §14.17 E4-3).
@@ -27,8 +28,21 @@ export interface LegalPublishInput {
   siteSources: Readonly<Record<number, string | undefined>>;
 }
 
-export function legalPublishProblems(mode: LegalPublishMode, { doc, messages, siteSources }: LegalPublishInput): string[] {
+/**
+ * ARCHITECTURE §14.1 (D-MKT2-0b): tercer argumento. Con `measurement: 'on'` se suman los problemas de
+ * la declaración de medición (`measurement-gate.ts`, C-D1). Sin él, o con `off`, no cambia nada.
+ */
+export interface LegalPublishOptions {
+  measurement?: NoticeMeasurementMode;
+}
+
+export function legalPublishProblems(
+  mode: LegalPublishMode,
+  { doc, messages, siteSources }: LegalPublishInput,
+  options: LegalPublishOptions = {},
+): string[] {
   const problems: string[] = [];
+  problems.push(...measurementGateProblems(options.measurement ?? 'off', doc));
 
   for (const m of findLegalMarkers(doc)) problems.push(`marcador en el aviso: «${m}»`);
   problems.push(...provisionalProblems(doc));

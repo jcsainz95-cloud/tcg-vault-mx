@@ -27,6 +27,7 @@
  */
 
 import { WISHLIST_PRIVACY_ES } from './privacy-wishlist';
+import { MEASUREMENT_DISCLOSURE, type MeasurementDisclosure } from './measurement-disclosure';
 
 export type LegalBlock =
   | { type: 'p'; text: string }
@@ -56,6 +57,11 @@ export interface LegalDocument {
   pendingOwnerData: readonly PendingOwnerDatum[];
   /** Fecha de última actualización que se publica (criterio 500). */
   updatedAt: string;
+  /**
+   * ARCHITECTURE §14.1 (D-MKT2-0b): `null` = el aviso no declara la medición de la Fase 2. Con el
+   * modo `on`, `null` hace fallar el build (`publish-check.ts`). Fuente: `measurement-disclosure.ts`.
+   */
+  measurementDisclosure: MeasurementDisclosure | null;
   title: string;
   sections: LegalSection[];
 }
@@ -79,6 +85,7 @@ export const privacyNoticeEs: LegalDocument = {
   version: '0.5-provisional-2026-10-13',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
   updatedAt: '13 de octubre de 2026',
+  measurementDisclosure: MEASUREMENT_DISCLOSURE,
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
