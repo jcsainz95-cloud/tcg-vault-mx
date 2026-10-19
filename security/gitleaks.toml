@@ -65,6 +65,49 @@ regexes = [
   '''POKEMONPRICETRACKER_API_KEY:\s*'SUPER-SECRETO-123'''',
 ]
 
+# --- C-D2 (API_CONTRACT §MKT.H.11, Fase 2 de marketing, 2026-10-19) ----------
+# Los dos secretos de medición: el token de Conversions API de Meta y el
+# `api_secret` de GA4 Measurement Protocol (§MKT.H.1). Canario que demuestra que
+# muerden y que no ladran a lo legítimo: security/scripts/sast-gitleaks-measurement-canary.sh.
+#
+# (1) Token de Meta por FORMA. Los tokens de la Graph API (usuario de sistema,
+#     el que se usa para CAPI) empiezan por `EAA` y siguen con base62 largo. La
+#     regla por defecto de gitleaks (`facebook-page-access-token`) solo mira
+#     `EAAM`/`EAAC`: un token `EAAG…`/`EAAB…` pasaba. Entropía mínima para no
+#     confundirlo con base64 de ceros (`EAAAAAAA…`).
+[[rules]]
+id = "meta-graph-access-token"
+description = "Token de la Graph API de Meta (Conversions API / píxel), forma EAA + base62"
+regex = '''\b(EAA[A-Za-z0-9]{60,511})\b'''
+secretGroup = 1
+entropy = 4.0
+keywords = ["eaa"]
+
+# (2) Cualquier valor con forma válida asignado al NOMBRE `META_CAPI_TOKEN`
+#     (20-512 sin espacios, §MKT.H.1), aunque no empiece por `EAA`. Una
+#     referencia (`${…}`, `process.env…`, `$VAR`) no casa: empieza por `$`/`p`… y
+#     la entropía de una palabra no llega.
+[[rules]]
+id = "meta-capi-token-assignment"
+description = "Valor asignado a META_CAPI_TOKEN"
+regex = '''(?i)meta_capi_token["']?\s*[:=]\s*["']?([A-Za-z0-9_\-|.]{20,512})'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["meta_capi_token"]
+
+# (3) `api_secret` de GA4 Measurement Protocol. No tiene prefijo: se reconoce
+#     por el NOMBRE (`GA4_MP_API_SECRET=…`, `api_secret: "…"`) o por la QUERY de
+#     la URL de MP (`…/mp/collect?…&api_secret=…`, §MKT.H.1: viaja en la query).
+#     Entropía 3.5: un identificador (`apiSecret`, `secretValue`) no la alcanza;
+#     un secreto aleatorio de 22 caracteres sí (≈4.2).
+[[rules]]
+id = "ga4-mp-api-secret"
+description = "api_secret de GA4 Measurement Protocol (asignación o query de /mp/collect)"
+regex = '''(?i)(?:ga4_mp_api_secret|api_secret)["']?\s*[:=]\s*["']?([A-Za-z0-9_\-]{8,128})'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["api_secret"]
+
 # --- Allowlist: placeholders y valores de prueba NO son hallazgos ------------
 [allowlist]
 description = "Placeholders de .env.example, dummies de CI y claves de TEST"

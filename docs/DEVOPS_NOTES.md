@@ -2,186 +2,35 @@
 
 > Propiedad: **devops**. Cómo levantar el entorno local, correr CI y desplegar/rollback.
 > Coherente con `docs/ARCHITECTURE.md` (§1 stack, §8 variables) y `PROJECT.md`.
-> Estado: **fase de cierre**. Código presente en `backend/` y `frontend/`; **QA aprobó** y
-> **techlead aprobó** (doble veredicto). Único ítem del DoD legítimamente **pendiente**: el
-> **deploy real**, bloqueado por falta de credenciales de producción (ver §11). Runbook listo.
->
-> **⇒ ESTADO VIGENTE 2026-10-18 (fix/cardshow-deploy-secrets — DOS SECRETOS DE CARD SHOW,
-> fail-closed en prod):** el módulo `card-show` exige DOS secretos HMAC al arrancar en
-> NODE_ENV=production, DISTINTOS entre sí (`card-show-tokens.service.ts`): **`CARD_SHOW_FORM_SECRET`**
-> (tokens de formulario) y **`CARD_SHOW_LINK_SECRET`** (tokens de enlace). Si falta cualquiera, el
-> bootstrap de Nest LANZA → crash-loop. **Causa del incidente:** el merge #95 (Card Show) NO llegó al
-> backend de producción porque faltaban de TODA la configuración de despliegue; el stack efímero del
-> DAST (`dast-release`, run 39088336351) entró en crash-loop, `promote-production-backend` quedó
-> SKIPPED (su `if` exige `blocking == 'false'`) y Railway siguió sirviendo código viejo sin la API del
-> Card Show (la landing de Vercel posteaba a `/card-show/*` → 404). El preflight de contenedor NO lo
-> cazó porque los dos nombres NO estaban en el catálogo.
-> **Dónde se cablean (todo en rutas de devops; backend NO se tocó, el código es correcto):**
->   · `docker-compose.staging.yml` (servicio `backend`, el que arranca Nest): `${CARD_SHOW_FORM_SECRET:?}`
->     y `${CARD_SHOW_LINK_SECRET:?}`, sin literal (repo PÚBLICO).
->   · Catálogos `security/secretos-exigidos.txt` (host) y `security/secretos-exigidos-contenedor.txt`
->     (contenedor): regenerados con `./scripts/gen-published-secrets-manifest.sh` (NO a mano). Ahora el
->     preflight de arranque (`secrets-preflight.sh assert`, dentro de la imagen) los exige fail-closed y
->     RUIDOSO en cualquier entorno, incluido Railway.
->   · `.env.example`: documentadas, vacías (OBLIGATORIAS en no-local; en local el arnés deriva efímeros).
-> **En CI/local NO hay que crear ningún secret:** `security-dast.yml` y `e2e-real.yml` resuelven el stack
-> efímero con `secrets-preflight.sh github-env`, y `dast-ephemeral.sh up` con `env-file`; ambos derivan el
-> catálogo de los `${VAR:?}` del compose y GENERAN un valor efímero por corrida (sufijo `_SECRET` → ramal
-> genérico `azar_hex 48`, 96 chars). No se añadió ningún secret de GitHub ni se editó ningún workflow.
-> **LOS VALORES REALES los pone el humano en Railway** (servicio `backend`, entornos **production** Y
-> **staging**): `CARD_SHOW_FORM_SECRET` y `CARD_SHOW_LINK_SECRET`, cada una con `openssl rand -base64 32`,
-> **distintas entre sí**. **Rollback:** sin estos valores en Railway el backend no arranca (fail-closed);
-> no hay rollback «quitándolos». Para revertir la feature entera se despliega el commit anterior a #95.
->
-> **Actualización 2026-08-17 (v1.14 — WS-A CERRADO: ingest de precios con proveedor de paga):** WS-A
-> recibió **triple veredicto** (qa+techlead+seguridad) y backend cerró 3 follow-ups; estado ya reflejado
-> aquí. (1) El job **`price-ingest`** (ingest masivo por set vía **PokemonPriceTracker**, pluggable por el
-> dial `PRICE_PROVIDER`) se programa **POR DEFECTO 2×/día** con el dial sembrado `pokemontcg_io` (legacy
-> USD, money-safe): con Redis (Railway) los precios se refrescan **desde el arranque** sin config manual.
-> (2) El barrido pesado `catalog-price-sync` (force:true) se **retiró del schedule** (ahora MANUAL/ops-only)
-> y lo reemplaza `catalog-metadata-sync` **diario** (`force:false`, solo sets nuevos); además `catalog-sync`
-> tras WS-A **ya no escribe `PriceReference` ni convierte FX** (§18.1 corregido). (3) Candado money-safe
-> **`POKEMONPRICETRACKER_MARKET_FORMAT`** (env, sin default): sin él el proveedor de paga corre **sample-only**
-> (no persiste precios); el PO confirmó **`usd_dollars`**, a fijar **tras leer el log de muestra** (§19.5).
-> Ver **§18** (metadata/manual), **§19** (ingest, horarios, orden `fx-refresh → price-ingest`, flip runbook con
-> `MARKET_FORMAT`, rollback por dial) y el bloque de precios/scheduling de `.env.example`. El **scheduler** y
-> `env.validation.ts` los cabla **backend** (devops no toca `backend/`).
->
-> **⇒ Actualización 2026-08-24 (P-48 / v2.0 — «precio puro por valor de mercado»): EL RUNBOOK
-> OPERATIVO VIGENTE ES §29.** Tres veredictos **aprobados** (QA · techlead con deuda · seguridad
-> **0 críticos / 0 altos**) y **tres decisiones del dueño** ya reflejadas ahí:
-> **(1)** **P-47 primero, P-48 después** — la fuente del precio se estabiliza **antes** de cambiar la
-> matemática que se le aplica (§29.3, con criterio de corte explícito).
-> **(2)** El cut-over va **POR SETS**, empezando por uno chico, leyendo `summary.listedNowPending` y los
-> `counts` de la cola entre set y set (§29.4b/§29.4c).
-> **(3)** La **brecha de E2E contra mocks** se cierra **antes** de desplegar, por la **ruta NATIVA sin
-> Docker** de **§29.10** (`scripts/stack-native.sh` + subset `@real`). **La ejecuta QA.**
-> **Estado del DoD y qué falta exactamente: §29.11 — y OBLIGATORIO leer §29.11-bis**, que corrige el
-> veredicto: tras certificar, la rama **se movió** (`d8c4625` + trabajo sin commitear de backend/frontend),
-> así que **el delta que se desplegaría ya no es el que se aprobó** y el gate de release debe re-pasarse
-> sobre el árbol final. §27 queda como **registro histórico**.
->
-> **⇒ Actualización 2026-08-28 (v1.50.3, rama `claude/psa-graded-card-value-gmhv5u`): NUEVA §32 —
-> PROPAGACIÓN DE SEEDS.** El arquitecto publicó en **ARCHITECTURE §11.0** una **regla general normativa
-> que aplica a TODOS los diales del proyecto**, no solo a esta feature: **un seed es una condición
-> inicial, no un estado deseado** (`prisma/seed.ts` usa `update: {}`), así que **cambiar el default de
-> una clave ya sembrada NO cambia ningún entorno existente — incluida producción**. Cambiar un seed es un
-> **cambio de DATOS**, y exige **dos artefactos**: el default nuevo *y* un paso de despliegue explícito.
-> **Sin ese paso, el despliegue pasa todos los gates y la feature se comporta en producción exactamente
-> como antes.** Su aplicación concreta a esta release (§4.38p: los 3 diales `manualFreshnessDays` 30,
-> `minSampleCount` 5, `maxRawMultiple` 100), el **`UPDATE` directo prohibido**, qué hacer cuando un dial
-> **diverge** (se pregunta al humano, no se pisa), la verificación de cierre y el **rollback** están en
-> **§32**, con el comparador **solo-lectura** `scripts/check-graded-estimate-dials.sh` y el **PASO 8** de
-> `scripts/post-deploy.sh`. También ahí: **`next build` + `next start` para gates, nunca `next dev`**
-> (§32.6) y la confirmación de los dos huecos de entorno **abiertos** (§32.7).
->
-> **⇒ Actualización 2026-08-31 (v1.51, M-48): NUEVA §32.12 — UN SOLO DIAL, y encenderlo es un ACTO DE
-> GASTO.** El dueño colapsó los dos interruptores del gancho de grading en **uno**
-> (`grading_hook_enabled`, seed `off`, DTO `gradingHookEnabled`): el mismo `PUT` **publica la afirmación
-> comercial Y autoriza al barrido diario a pedir datos a un proveedor de PAGA y a escribir precios**. Las
-> dos claves viejas quedan **retiradas del código y vivas en la tabla** —inertes— y por eso la línea de
-> inventario del arranque las lista bajo su rótulo: leer `graded_estimate_ingest_enabled = off` y concluir
-> «el ingest está apagado» es **la trampa de diagnóstico** de este pase. En **§32.12**: el **presupuesto en
-> créditos publicado ANTES del primer encendido** (**250 × 2 × 2 = 1 000 créditos/día**, y
-> `ingestMaxCardsPerRun` es **lo único entre un `PUT` y la factura**), el **runbook de 7 pasos** con sus
-> **dos verificaciones POSITIVAS de ausencia de gasto** —ejecutadas, con la salida real pegada—, el
-> comparador `check-graded-estimate-dials.sh` actualizado a v1.51, la **incapacitación del entorno E2E/CI**
-> frente al proveedor de paga (`docker-compose.yml` pasaba la credencial **sin default**: en CI quedaba
-> vacía por accidente, no por diseño) con su guarda nueva
-> `scripts/check-e2e-provider-incapacitation.sh` cableada en **`ci.yml`** —no en `deploy.yml`, que no
-> corre—, y el **veredicto de la sonda** registrado. **Encender el dial NO es de devops: es del dueño.**
->
-> **⇒ Actualización 2026-08-28, 2ª ronda (rechazo de QA + revisión del techlead):**
-> **§32.10 — el arnés de gate no arrancaba.** `up --seed --gate` moría en el `next build` porque el
-> `NODE_ENV=development` que el backend necesita **se filtraba** al build del frontend (BLOQ-1 de QA).
-> El modo gate de §32.6 era, literalmente, **el único camino documentado y no existía**. Arreglado
-> (el `NODE_ENV` del frontend lo fija el modo, no se hereda), con **detector de regresión** que mata el
-> build si vuelve a aparecer el aviso de Next, y con `down` arreglado para que **libere el puerto de
-> verdad** (`next start` se renombra a `next-server` y quedaba huérfano). **Verificado corriéndolo, 2/2
-> en verde**, no por inspección.
-> **§32.11 — hueco de enforcement anotado, no cerrado.** La verificación de diales del DoD depende hoy de
-> que un humano recuerde correr `post-deploy.sh`: **enforcement de honor** (techlead). Sigue manual **por
-> decisión escrita**, con su contrapartida real (automatizarlo exige un JWT `super_admin` de prod en CI) y
-> con una **vía barata propuesta sin secretos nuevos** (`config inventory` sobre `railway logs`).
->
-> **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
-> `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
-> solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
-> post-deploy**, su idempotencia, qué hacer si falla y el **rollback** quedan en **§27**, y el orquestador
-> idempotente **`scripts/post-deploy.sh`** los corre en orden y **PARA ante «ACCIÓN REQUERIDA»** del reshape
-> money-crítico. Ver **§27**.
->
-> **⇒ Actualización 2026-09-01 (v1.51, rama `claude/buylist-inventory-workflow-hdnls3`): NUEVA §33 —
-> `APP_PUBLIC_URL`.** El ciclo de adquisición del buylist manda dos correos con un **CTA al portal del
-> vendedor** y esa URL sale de `APP_PUBLIC_URL`, que **no estaba declarada** (hueco levantado por backend,
-> `BACKEND_NOTES` §0.18). Ya está: declarada en `.env.example`, **alineada a `APP_BASE_URL`** (no es una
-> segunda URL, es la misma con otro nombre) y **cableada** en los dos composes y en `stack-native.sh` —
-> sin ese cableado, ponerla en `.env` **no llegaba al contenedor**. Se deja **SIN VALOR a propósito**:
-> el destino `…/buylist/requests/<id>` **no existe todavía como página del frontend** (verificado), así
-> que fijarla hoy cambia la frase segura por **un botón a 404**. Contrato de formato, activación en 3
-> pasos, hallazgos enrutados y la revisión del resto del ciclo (correo, plazos, cola): **§33**.
->
-> **⇒ Actualización 2026-09-01, 2ª ronda: `APP_PUBLIC_URL` ACTIVADA (§33.4-bis) + NUEVA §34 (BL-27).**
-> **(a)** La pantalla del portal ya existe, así que la puerta se cruzó **midiéndola**: 307→200, con
-> **404 de control negativo**. Activada en local y staging; **en prod la fija el humano**. Sigue abierto
-> —y enrutado a backend— que el correo arma el path **sin `/{locale}`**, así que un vendedor `en`
-> aterriza en español. **(b)** **BL-27**: `prettier` reformateó 445 líneas dentro de un cambio de dos.
-> Medido el terreno (**274/418 archivos** sin formatear ⇒ un commit de **~13,7k líneas**; y el
-> formateador **ni siquiera está elegido**: entra como transitivo de `resend`), **NO formateo el árbol**:
-> cablé el gate que bloquea **la mezcla** de reformateo con lógica y **deja pasar** el commit de solo
-> formato (`scripts/check-format-mix.sh` + job `format-mix`, probado contra 4 casos). **§34.6** tiene el
-> estado real del gate de seguridad y el harness E2E: **no falta construir, falta encender**.
->
-> **⇒ Actualización 2026-09-06 — NUEVA §38: SEC-OPS-1 (el gate auditaba un binario más viejo que el
-> código auditado) + el mecanismo de purga de los datos del PoC.** Seguridad reportó que **por segundo
-> pase consecutivo** el backend vivo era **más viejo que el commit a auditar**, y que las dos veces lo
-> cazó una persona mirando la **hora de un PID**. La causa eran cuatro líneas de `start_backend()`:
-> «¿responde? ⇒ reutilízalo», sin preguntar **qué código** servía. Ahora **`up` comprueba-o-reinicia y
-> termina PROBÁNDOLO** (`verify_head`), hay verbo de solo-lectura **`stack-native.sh verify:head`** para
-> QA/seguridad/pentester, el arranque **dice qué commit sirve**, y está cableado en **`e2e-real.yml`**,
-> en **`deploy.yml`** (job nuevo `staging-serves-head`, del que ahora **depende el DAST**) y en
-> **`ci.yml`** (guarda anti-regresión). **Reiniciar para auditar NO cuesta la evidencia**: `up` nunca
-> siembra, y está medido que **`--seed` sí habría destruido 2 de las 3 filas del PoC** (§38.4). Al
-> cablearlo, el comprobador **cazó el mismo fallo por tercera vez, en vivo** (§38.2). La **purga**
-> (`scripts/purge-synthetic-poc-data.sh`) está lista, medida y **NO ejecutada**: la dispara el humano
-> cuando backend confirme que ya no necesita esas filas (§38.7).
-> **⚠️ Y mientras se escribía esto, a las 17:14, una resiembra de una corrida de integración borró DOS
-> de las tres filas de evidencia de BL-35 eje 2** (§38.4-bis, con la cadena de relojes). El `--seed` de
-> este script ahora **se planta** ante filas de PoC; las suites de integración no las cubro yo (llaman
-> a `seedE2E()` directamente — rol **backend**). Lección que hay que decidir (**QA/seguridad/backend**):
-> **la BD del fixture no es un sitio donde guardar evidencia de una auditoría** — el PoC va como
-> **spec**, no como fila.
+
+## Estado vigente (2026-10-19)
+
+- **Quién publica:** fusionar en `production` despliega solo (Vercel frontend, Root Directory = `frontend`;
+  Railway backend). El orquestador no publica; el botón es del dueño (`CLAUDE.md` «Cómo se publica»,
+  `HECHOS.md`). Rollback general: §7 y la regla de migraciones de §46.3.
+- **Card Show (2026-10-18):** el backend exige en producción **`CARD_SHOW_FORM_SECRET`** y
+  **`CARD_SHOW_LINK_SECRET`**, distintos entre sí (`card-show-tokens.service.ts`); si falta uno, Nest lanza y
+  Railway queda en crash-loop (fue la causa de que #95 no llegara a producción: run 39088336351). Están como
+  `${VAR:?}` en `docker-compose.staging.yml` y en `security/secretos-exigidos*.txt` (regenerados con
+  `./scripts/gen-published-secrets-manifest.sh`); en CI y local el arnés genera valores efímeros. **Los valores
+  reales los pone el dueño en Railway** (production y staging), cada uno con `openssl rand -base64 32`. Sin ellos
+  el backend no arranca: no hay rollback «quitándolos»; para revertir la función se despliega el commit anterior
+  a #95.
+- **Fase 2 de marketing (medición):** construida en infraestructura y **APAGADA** — variables, puerta del aviso
+  (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
+- **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5). Este documento sigue muy por encima del
+  tope de 1 500 líneas: **se compacta antes de añadir**.
+- **Histórico retirado del encabezado (2026-10-19):** los bloques «Actualización 2026-08-17 … 2026-09-06» que
+  abrían este fichero repetían en resumen lo que ya vive completo en §19, §27, §29, §32, §33, §34 y §38. Texto
+  anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
 
 ## 0. Estado actual (cierre)
 
-> **⚠ Esta sección quedó FECHADA. El estado vigente es §29.11-bis + §30.6 (2026-08-24).** Lo de abajo
-> describe un cierre anterior a la fase de seguridad y a P-48. **Hoy el DoD está REVOCADO** (el árbol se
-> movió después de los veredictos) y **no hay deploy ni tag**. Antes de citar nada de esta sección como
-> estado actual, lee **§30** (pase de infraestructura tras el gate de release) y **§30.6** (condiciones
-> abiertas del DoD).
-
-- **Código presente**: `backend/` (NestJS + Prisma) y `frontend/` (Next.js 14) existen, compilan y
-  pasan `lint + typecheck + test + build` con los scripts que espera el CI.
-- **Doble veredicto**: QA (funciona) y techlead (bien hecho) **aprobados**. Los 3 ítems de gate de
-  go-live del techlead (reserva de checkout atómica, validación de diales M10, acotado por periodo de
-  reportes) están **corregidos con tests** (ver `docs/BACKEND_NOTES.md` §6 y `docs/TECH_DEBT.md`).
-- **Deuda no bloqueante**: registrada y aceptada en `docs/TECH_DEBT.md` (Backend BE-1…BE-8, Frontend
-  FE-1…FE-6). Ninguna bloquea el cierre; cada una tiene dueño y disparador.
-- **Infraestructura validada (estático, sin daemon Docker en esta sesión)**:
-  - `docker compose config` → OK (interpolación y perfiles válidos).
-  - `bash -n` de los 6 scripts → OK.
-  - Los 5 workflows (incl. `deploy.yml`) y `docker-compose.yml` parsean como YAML válido; `railway.json`
-    parsea como JSON válido.
-  - `.env.example` cubre **todas** las env que el código lee (ver §4 y verificación en §10).
-- **CD ejecutable:** `deploy.yml` ya tiene los pasos **reales** de Vercel + Railway (no plantilla). Se
-  añadió `railway.json` (build backend con `Dockerfile.backend`). Se corrigieron dos bugs latentes de
-  build en `Dockerfile.backend` (`npm ci --include=dev` + no podar devDeps, necesarios para
-  `nest build` / `prisma migrate deploy` / seed) y uno en `Dockerfile.frontend` (`mkdir -p public`). Ver §6.
-- **Deploy real**: **NO ejecutado**. Requiere credenciales prod y las plataformas provisionadas
-  (ver runbook §11). Sin los GitHub Secrets de deploy, `deploy.yml` **falla en `preflight`** con la lista
-  exacta (no despliega a medias). Esto es lo único que falta del DoD y es esperado en esta sesión.
+> **Retirada el 2026-10-19 (DOC-SIZE).** Describía el cierre de 2026-08 («deploy real NO ejecutado»), que dejó de
+> ser cierto hace semanas. El estado vigente es el bloque del principio de este documento. Texto anterior:
+> `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ## 1. Stack (resumen, ver ARCHITECTURE §1)
 
@@ -15243,3 +15092,134 @@ de commitear** cualquier cambio en `scripts/new-project.sh` o en `.claude/templa
 (p. ej. las plantillas empiezan a cambiar por sesión), cablearlo a `ci-ok` es un job de 10 segundos sin red.
 
 > **No medido aquí:** `shellcheck` no está instalado en este sandbox; los tres scripts pasaron solo `bash -n`.
+
+## §101 · Fase 2 de marketing construida y APAGADA, DOC-SIZE y `www` → apex (2026-10-19, base `b95fbbac`)
+
+Norma: API_CONTRACT §MKT.H (v1.102; §MKT.H.1 variables, §MKT.H.11 candados) y ARCHITECTURE §14. Aquí solo lo
+de devops; los nombres de variables viven en §MKT.H.1 y no se repiten fuera de `.env.example`.
+
+### 101.1 Variables — todas `off` o vacías
+
+- **Dónde están declaradas:** `.env.example` (bloque «FASE 2 DE MARKETING»), `docker-compose.yml` y
+  `docker-compose.staging.yml` (backend: `MEASUREMENT_MODE`, IDs y los dos secretos con `${…:-}`; frontend: build
+  args `NEXT_PUBLIC_MEASUREMENT_MODE` e IDs), `Dockerfile.frontend` (ARG con `off` por defecto) y `ci.yml`
+  (`NEXT_PUBLIC_MEASUREMENT_MODE: "off"` explícito en el job `frontend`). Staging se enciende solo con
+  `STAGING_MEASUREMENT_MODE=on`, que hoy no existe en ningún sitio.
+- **Vercel y Railway: no hay que crear nada hoy.** Medido en el contrato (§MKT.H.1 columna «Sin ella»): variable
+  ausente ⇒ `off`, y sin ID o sin secreto ese destino no carga. Pedirle al dueño que cree variables en `off` no
+  cambia nada (O-6).
+- **Catálogo de secretos exigidos (`security/secretos-exigidos*.txt`): NO se añade ninguno.** El contrato es
+  fail-closed **por destino sin tumbar el arranque** (ARCHITECTURE §14.1, candado C-B7: «`on` sin
+  `META_CAPI_TOKEN` ⇒ 0 filas, 1 línea `MEASUREMENT_DESTINATION_DISABLED`, arranque OK»). El catálogo alimenta a
+  `secrets-preflight.sh assert`, que **aborta el arranque** si falta uno: meterlos ahí haría que la falta del
+  token de Meta tumbara la tienda, justo lo que el contrato prohíbe. Por eso van como `${VAR:-}` y no `${VAR:?}`
+  (el generador del catálogo solo cosecha `:?`). Medido: `gen-published-secrets-manifest.sh --check` verde, 16
+  exigidos en el host y 13 en el contenedor, sin cambio; `check-secret-defaults.sh` verde (los dos nombres caen
+  por forma en su clase: `…TOKEN`, `…SECRET`).
+
+### 101.2 C-D1 — con `on`, el build exige el aviso nuevo
+
+**Reparto.** La lógica es de frontend y vive en `frontend/` porque Vercel construye con Root Directory =
+`frontend` (§40.6). Devops demuestra en CI que la puerta existe, que Vercel la correría y que muerde.
+**Lo que frontend tiene que entregar** (interfaz que mide `scripts/check-measurement-publish-gate.sh`):
+
+1. `legalPublishProblems(…, { measurement })` en `content/legal/publish-check.ts` (ARCHITECTURE §14.1).
+2. `npm run check:measurement`: corre esa comprobación con el valor REAL de `NEXT_PUBLIC_MEASUREMENT_MODE`. Solo
+   el literal `on` la activa; ausente, `off` u `ON` ⇒ rc 0.
+3. `"prebuild": "npm run check:measurement"` en `frontend/package.json`: npm corre `prebuild` antes de
+   `npm run build`, que es lo que ejecutan Vercel y `Dockerfile.frontend`.
+
+**El candado (job `measurement-gates` de `ci.yml`):** E1 `prebuild` invoca `check:measurement`; E2-E4 sin
+definir, `off` y `ON` ⇒ rc 0; E5 `on` con el aviso viejo (la frase «No usamos cookies de publicidad ni de
+analítica» o `measurementDisclosure: null`) ⇒ rc ≠ 0, y con el aviso nuevo ⇒ rc 0. No publica nada.
+**Canario** `check-measurement-publish-gate-canary.sh`: sin `prebuild`, puerta `true`, puerta `exit 1` y entrega a
+medias ⇒ rojo. **Medido (devops, 2026-10-19)** sobre una copia del árbol entero con una implementación de prueba
+de frontend escrita por mí en el scratchpad (no commiteada): check verde con el aviso viejo (E5 rc 1) y verde
+con un aviso nuevo simulado (E5 rc 0); canario **5/5 casos, N=3 corridas, 3/3 verdes**; mutación «E5 acepta
+rc 0» ⇒ canario rojo (1/1, determinista). Sobre el árbol real de hoy: **PENDIENTE frontend** (§101.7).
+**NO MEDIDO:** que el *Build Command* del proyecto de Vercel sea el de serie (`npm run build`); si alguien lo
+cambió a `next build`, `prebuild` no corre. Lo cierra la primera línea `> prebuild` en el registro de build de
+Vercel después de que frontend lo entregue.
+
+### 101.3 C-D2 — escáner de secretos para Meta CAPI y GA4 MP
+
+Reglas nuevas en `security/gitleaks.toml`: `meta-graph-access-token` (forma `EAA` + 60-511 base62, entropía ≥
+4.0; la regla por defecto solo miraba `EAAM`/`EAAC`), `meta-capi-token-assignment` (valor asignado al nombre) y
+`ga4-mp-api-secret` (asignación o `&api_secret=` de la URL de MP; entropía ≥ 3.5 para no confundir
+identificadores como `apiSecret`). **Canario** `security/scripts/sast-gitleaks-measurement-canary.sh`, en el job
+`gitleaks` de `security-sast.yml` con el mismo binario fijado (8.30.1): 7 rojos (dir y git) y 2 verdes de
+referencias (`${VAR:-}`, `process.env…`, vacíos, placeholder, base64 de ceros). **Medido:** 45/45 casos con N=5
+rondas; mutación «regla solo `EAA[MC]`» ⇒ 6/27 rojos (N=3); mutación «entropía GA4 5.0» ⇒ 9/27 rojos (N=3).
+Falsos positivos: `gitleaks dir` del árbol y `gitleaks git` del historial completo (2 165 commits) ⇒ **0
+hallazgos de las reglas nuevas**. El canario de siempre (`sast-gitleaks-canary.sh`) sigue 15/15.
+`.env.example` está exento por ruta en gitleaks; lo cubre `check-secret-defaults.sh`, que solo admite vacío o
+placeholder auto-delator en nombres `…TOKEN`/`…SECRET`.
+**Hallazgo ajeno (no lo arreglo: no es mi ruta):** el escaneo marca `generic-api-key` en
+`frontend/src/app/[locale]/(admin)/admin/marketing/AnalystAccessPanel.test.tsx:24` (commit `0da20bf4`, ficción
+`mkt_SECRETO_de_prueba_…`). Dueño: frontend (o seguridad, si se exime por valor exacto).
+
+### 101.4 E2E de medición y C-F1
+
+- **Job `measurement-e2e` de `e2e.yml`, BLOQUEANTE en `e2e-ok`.** Matriz `off`/`on` (el modo se hornea: son dos
+  builds). Specs de frontend con nombre fijado aquí: `frontend/e2e/measurement-off.spec.ts` (C-F2) y
+  `frontend/e2e/measurement-on.spec.ts` (C-F3 y C-F5). IDs de ficción con forma válida solo en `on`
+  (`G-CI0E2E0000`, `1000000000000001`).
+- **Nada sale a Google ni a Meta:** el spec intercepta con `page.route`, y debajo
+  `scripts/measurement-egress-sinkhole.sh` resuelve 13 hosts de medición a `0.0.0.0` en el runner después de
+  instalar Chromium. **Medido** en un espacio de montaje propio (sin tocar el `/etc/hosts` compartido): sin
+  aplicar ⇒ `verify` rojo 13/13 hosts; aplicado ⇒ verde, y `curl https://connect.facebook.net/…` falla con rc 7.
+- **C-F1 (`scripts/check-measurement-artifact.sh`):** `off` ⇒ 0 ficheros de `.next/{static,server}` con
+  `googletagmanager.com`, `google-analytics.com`, `connect.facebook.net`, `fbevents`, `gtag/js`; `on` ⇒ > 0. Corre
+  en el job `frontend` de `ci.yml` (`off`) y sobre el build de cada modo en `measurement-e2e`. **Medido** sobre el
+  build real de `b95fbbac` con `off`: 0 coincidencias. Canario 11 casos × N=3: 33/33.
+
+### 101.5 DOC-SIZE (ficha D8)
+
+`scripts/check-doc-size.sh` + `scripts/doc-size.baseline` (job `doc-size` de `ci.yml`). Ningún fichero de `docs/`
+(recursivo) ni `PROJECT.md` puede superar su umbral; el rojo dice qué documento y cuántas líneas creció. Umbrales
+= `wc -l` sobre `b95fbbac`; documento nuevo ⇒ tope de su clase en `CLAUDE.md`. **Solo bajan:** `--update` escribe
+min(umbral, actual), y en CI `--against-ref <base de la PR o commit anterior>` pone rojo si alguien sube uno a
+mano. Holgura ⇒ aviso para bajar el umbral. Canario 15 casos × N=3: 45/45. **Efecto inmediato:** las ramas que
+hoy añaden texto a cualquier documento (p. ej. las notas de backend y frontend de esta misma Fase 2) se pondrán
+rojas al fusionar si crecen: cada rol compacta lo suyo antes de añadir, como manda `CLAUDE.md`. Este documento
+bajó de 15 245 a lo que fija el baseline en el mismo commit.
+
+### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
+
+**Medido 2026-10-19:** `www.tcghunt.mx` **no existe en el DNS** (NXDOMAIN en la zona de Cloudflare,
+`dns.google`); `tcghunt.mx` responde 200 desde Vercel sin Cloudflare delante (sin `cf-ray`). El canónico es el
+apex (`frontend/src` lo escribe 17 veces como `https://tcghunt.mx` y ninguna con `www`). **Desde el repo no hay nada que hacer
+sin riesgo:** un `redirects` por host en `frontend/vercel.json` (ruta de frontend) no recibe nunca una petición
+a un nombre que no resuelve, y la redirección de dominio de Vercel lo hace sin código. Pasos del dueño (nombres
+de menú **no verificados**):
+1. Vercel → proyecto de la tienda → Settings → Domains → Add → `www.tcghunt.mx`. Si ofrece redirigir, elige
+   `tcghunt.mx` con **301 (permanente)**; si no, edita el dominio ya añadido y pon «Redirect to» `tcghunt.mx`, 301.
+2. Vercel enseña el registro DNS que le falta (un CNAME de nombre `www`). Copia el valor tal cual.
+3. Cloudflare → `tcghunt.mx` → DNS → Records → Add record: tipo **CNAME**, nombre **`www`**, destino el valor de
+   Vercel, proxy **DNS only** (nube gris, como el apex). Guardar.
+4. Espera a que Vercel marque el dominio como válido (el certificado se emite solo).
+5. Comprobación del dueño: escribe `www.tcghunt.mx` en el navegador; la barra debe quedarse en `tcghunt.mx`.
+Comprobación técnica (rol técnico, no el dueño): `./scripts/check-www-apex.sh` ⇒ hoy **ROJO (NXDOMAIN)**; verde
+cuando responda 301/308 con la misma ruta y query en el apex.
+
+### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
+
+Mientras frontend no entregue, C-D1 y `measurement-e2e` dicen **PENDIENTE frontend** en `::warning` y no
+miden: **no es un verde de privacidad**. Dueño: frontend. Caducidad: `MKT_FASE2_FRONTEND_EXPIRY` en
+`scripts/mkt-fase2-dependencia.env` (**2026-10-26**), única fuente. Candado: los dos scripts leen esa fecha y a
+partir de ella la falta es ROJO (medido con `--today 2026-10-26`: rc 1 en los dos). Entrega a medias (una pieza
+sin la otra) es rojo siempre. Esa fecha no se mueve sin escribir aquí quién, por qué y hasta cuándo.
+
+### 101.8 Encender y apagar
+
+**Encender** (solo con los tres veredictos y el aviso del abogado en el mismo despliegue, ARCHITECTURE §14.1):
+1. Frontend publica el aviso nuevo (puede salir antes con `off`).
+2. El dueño carga en Railway (almacén de secretos) `GA4_MP_API_SECRET` y `META_CAPI_TOKEN`, y los IDs públicos en
+   Railway y Vercel (§MKT.H.10). Nunca por chat ni en el repositorio.
+3. Railway: `MEASUREMENT_MODE=on`. Vercel: `NEXT_PUBLIC_MEASUREMENT_MODE=on` y **redeploy** (se hornea). Si el
+   aviso no es el nuevo, ese build falla y Vercel sigue sirviendo el anterior (C-D1).
+4. Comprobación de ausencia del token (C-D2, la corre el dueño donde vive el token): `grep -c` del valor en el
+   clon del repo y en el registro de despliegue de Railway ⇒ 0, sin imprimir el valor.
+**Apagar (rollback):** las dos variables a `off` (o borrarlas) y redeploy de Vercel; el backend deja de encolar
+sin redeploy de código. Las filas ya encoladas las purga el job de backend (C-B8). Nada de esto toca dinero ni
+migraciones (m86 es aditiva; su rollback lo documenta backend).

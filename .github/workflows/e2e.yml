@@ -564,6 +564,93 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # 🍪 E2E DE MEDICIÓN (API_CONTRACT §MKT.H.11, Fase 2 de marketing) — BLOQUEANTE.
+  # Dos builds, porque NEXT_PUBLIC_MEASUREMENT_MODE se hornea: `off` corre C-F2
+  # (0 peticiones a hosts de medición, 0 cookies, sin banner) y `on` corre C-F3 y
+  # C-F5 con los terceros INTERCEPTADOS por el spec. Debajo, red de seguridad de
+  # devops: los hosts de medición resuelven a 0.0.0.0 en el runner, así que nada
+  # sale a Google ni a Meta aunque un spec olvide interceptar. Tras la corrida,
+  # C-F1 sobre el MISMO artefacto: off sin el cargador, on con él.
+  # Los specs los escribe frontend con el nombre que fija
+  # scripts/check-measurement-e2e-specs.sh; hasta que existan, el job dice
+  # PENDIENTE (hasta la caducidad de scripts/mkt-fase2-dependencia.env) y no mide
+  # nada — eso NO es un verde de privacidad. DEVOPS_NOTES §101.4.
+  # ---------------------------------------------------------------------------
+  measurement-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ["off", "on"]
+    env:
+      NEXT_PUBLIC_MEASUREMENT_MODE: ${{ matrix.mode }}
+      # IDs de FICCIÓN con forma válida (§MKT.H.1); no son secretos y no existen en
+      # Google/Meta. Solo con `on`: con `off` van vacíos, como en producción hoy.
+      NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${{ matrix.mode == 'on' && 'G-CI0E2E0000' || '' }}
+      NEXT_PUBLIC_META_PIXEL_ID: ${{ matrix.mode == 'on' && '1000000000000001' || '' }}
+      E2E_MOCK_DIST_DIR: .next-e2e-measurement-${{ matrix.mode }}
+      E2E_MOCK_PORT: "3000"
+      STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - name: ¿Existen los specs de medición?
+        id: specs
+        run: ./scripts/check-measurement-e2e-specs.sh "${{ matrix.mode }}"
+      - uses: actions/setup-node@v5
+        if: steps.specs.outputs.run == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install deps frontend
+        if: steps.specs.outputs.run == 'true'
+        working-directory: frontend
+        run: npm ci
+      - name: Instalar Chromium de Playwright
+        if: steps.specs.outputs.run == 'true'
+        working-directory: frontend
+        timeout-minutes: 25
+        run: |
+          set -uo pipefail
+          for intento in 1 2 3; do
+            if timeout 420 npx playwright install --with-deps chromium; then break; fi
+            [ "$intento" = "3" ] && { echo "::error title=No se pudo instalar Chromium::3 intentos agotados."; exit 1; }
+            echo "::warning::Intento $intento de instalar Chromium fallido; reintentando."
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+            sleep 10
+          done
+          CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
+          [ -x "$CHROMIUM_BIN" ] || { echo "::error::Chromium no quedó instalado: $CHROMIUM_BIN"; exit 1; }
+          echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
+      # Después de instalar Chromium (su instalación sí necesita red) y antes de
+      # levantar la app: desde aquí ningún host de medición sale del runner.
+      - name: Sumidero de hosts de medición (nada sale a Google/Meta)
+        if: steps.specs.outputs.run == 'true'
+        run: |
+          sudo ./scripts/measurement-egress-sinkhole.sh apply
+          ./scripts/measurement-egress-sinkhole.sh verify
+      - name: E2E de medición (${{ matrix.mode }})
+        if: steps.specs.outputs.run == 'true'
+        working-directory: frontend
+        run: npx playwright test "e2e/measurement-${{ matrix.mode }}.spec.ts"
+      - name: C-F1 · el artefacto ${{ matrix.mode }} (mismo build que acaba de medirse)
+        if: steps.specs.outputs.run == 'true' && !cancelled()
+        run: ./scripts/check-measurement-artifact.sh "frontend/.next-e2e-measurement-${{ matrix.mode }}" "${{ matrix.mode }}"
+      - name: Subir reporte Playwright
+        if: always() && steps.specs.outputs.run == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-measurement-${{ matrix.mode }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
   # Gate final E2E — DEPLOY-BLOCKING.
   # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+s3-local). El
   # `frontend-e2e` MOCK es INFORMATIVO (§24): su fallo NO tumba este gate ni el
@@ -573,7 +660,7 @@ jobs:
   # queda como red de seguridad y para transparencia en el resumen.
   # ---------------------------------------------------------------------------
   e2e-ok:
-    needs: [detect, backend-e2e, frontend-e2e]
+    needs: [detect, backend-e2e, frontend-e2e, measurement-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -603,4 +690,11 @@ jobs:
           if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
             echo "::warning::frontend-e2e MOCK falló (informativo). NO bloquea el deploy. Ver DEVOPS_NOTES §24."
           fi
-          echo "E2E gate OK (backend-e2e verde)."
+          # Fase 2 de marketing (C-F2/C-F3/C-F5 + C-F1 on): BLOQUEANTE. Es un candado de
+          # privacidad, no una señal de UI: un rojo aquí es medición donde no debe haberla.
+          echo "measurement-e2e (bloqueante): ${{ needs.measurement-e2e.result }}"
+          if [ "${{ needs.measurement-e2e.result }}" != "success" ]; then
+            echo "::error::measurement-e2e terminó en '${{ needs.measurement-e2e.result }}'. Candado de privacidad de la Fase 2 (DEVOPS_NOTES §101.4). Dueño: frontend si falló el spec o C-F1; devops si murió la infraestructura. Bloquea el deploy."
+            exit 1
+          fi
+          echo "E2E gate OK (backend-e2e y measurement-e2e verdes)."
