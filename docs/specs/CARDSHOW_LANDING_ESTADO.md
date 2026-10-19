@@ -1,4 +1,54 @@
-# Card Show — landing: estado (actualizado 2026-10-17, orquestador — PIVOTE A CAPTURA)
+# Card Show — landing: estado (actualizado 2026-10-18, orquestador — PUBLICADO + REDISEÑO DINÁMICO)
+
+## CIERRE 2026-10-18 — LANZADO EN PRODUCCIÓN (sesión orquestación). Medido en vivo por el orquestador.
+
+**La landing del Card Show está VIVA y CAPTANDO registros en `tcghunt.mx/card-show`.** Lo que entró hoy:
+
+- **Rediseño dinámico de la landing (PR #97, `production` `806440f`).** Frontend sobre tinta (línea §CS-UX): hero
+  con **explosión de una sola vez por sesión** (cartas que se disparan y **se desvanecen** dejando el hero limpio —
+  WCAG 2.2.2, sin bucle perpetuo), **rifa como gancho arriba** (barra roja + mención en el hero), **mapa de Google
+  embebido** en «Cómo llegar», **agenda** como línea de tiempo, **torneos** en tira horizontal, y **lockup real**
+  «TCG HUNT × Jakomi» (mascota `jakomi-mascota.webp` + «Jakomi» en texto de marca; enlace a inicio). Librería
+  `motion@14.3.0` bundleada (sin CDN, por la CSP). Respeta `prefers-reduced-motion` y SSR sin-JS, CLS 0.
+  Gates: **qa ✅ · techlead ✅ · seguridad ✅ · tester-e2e ✅ · ux-review ✅** sobre sha `2dff91f` (+ O-9 del orquestador).
+- **Cambio de CSP del mapa (dentro de #97):** `frame-src += https://www.google.com` (único delta; `frame-ancestors`
+  intacto). Autorizado por JC 2026-10-18; **seguridad APROBÓ** (veredicto en `docs/SECURITY_NOTES.md`, sha `5049a34`).
+- **Backend del Card Show desplegado (PR #98 + secretos en Railway).** El deploy del backend llevaba días fallando
+  porque exige fail-closed dos secretos nuevos (`CARD_SHOW_FORM_SECRET`, `CARD_SHOW_LINK_SECRET`) que no estaban
+  cableados. #98 (`b40b244`) los cabló en el pipeline + catálogo del contenedor; **JC puso los valores en Railway
+  (production)** y el backend arrancó. **Verificado en vivo por el orquestador:** `GET /api/v1/card-show/form-token`
+  → 200 (antes 404); `POST /api/v1/card-show/leads` (visitante) → **202 `{ok:true}`** (lead de prueba
+  `prueba-api-cardshow-1792345934@example.com`, pendiente, borrable del admin).
+- **Issue #96** (huella del fallo del DAST) **cerrado** apuntando a #98.
+
+> Los valores de los 2 secretos viven **solo en Railway** (NUNCA en el repo/chat). Son requisito de arranque del
+> backend: sin ellos el contenedor hace crash-loop (candado a propósito). `staging` de Railway no aplica (no se usa;
+> el stack del DAST los resuelve efímeros en CI).
+
+### Pendientes post-lanzamiento (no bloquean; abiertos al cierre del 2026-10-18)
+1. **OG de WhatsApp/IG = placeholder.** `frontend/public/card-show/og.png` sigue siendo el marcador («PLACEHOLDER…»,
+   «San Jose» sin acento). **Marketing produce la final 1200×630; JC elige A/B**; frontend la commitea en la misma
+   ruta. Dueño: marketing + JC + frontend.
+2. **Privacidad vs terceros (Google Maps + fuentes de Google).** El mapa embebido y `fonts.googleapis.com/gstatic`
+   cargan al abrir (cookies/peticiones a Google), pero el aviso de privacidad dice «no usamos cookies de analítica».
+   Salidas: cargar el mapa **al tocar** (imagen estática antes) o **declarar Google en el aviso**. Lo marcaron
+   seguridad y marketing. Dueño: product-owner/arquitecto (texto) + frontend (click-to-load).
+3. **Pulido de marketing (fast-follow):** JSON-LD de tipo Event; metadatos fuera del `<body>`; ~18 toques <44px en
+   móvil; axe (`label-content-name-mismatch`, `scrollable-region-focusable` en `.cs-rail`); WhatsApp/mailto sin
+   texto prellenado; 37 reportes CSP en vivo + `POST /telemetry/csp` por CORS (medir si es solo fuentes no
+   declaradas). Dueño: frontend/devops.
+4. **Decisión de copy pendiente de JC:** marketing pide **«Torneo oficial Play! Pokémon»** (JC lo decidió el 13-oct);
+   confirmar si va en la landing.
+5. **Deuda de pipeline/CI (no bloquea el evento):** `backend-e2e` flaky en CI (choque de Postgres compartido entre
+   runs concurrentes ⇒ se cuelga y lo cancelan ⇒ `e2e-ok` rojo); P-WH-1 (repo público ⇒ `stripe-webhook-failclosed`
+   rojo estructural). Ninguno es defecto de la tienda. Dueño: devops.
+6. **Higiene:** `PENDIENTES.md` rebasó su tope; `frontend/src/content/card-show.ts` conserva el comentario stale
+   «único secreto = patrocinadores» + `card-show.secrets.test.ts` no-op. Compactar/limpiar en un pase propio.
+
+### Changelog
+- **2026-10-18:** PUBLICADO. #97 (rediseño dinámico) + #98 (secretos backend) en `production`; forms captando (202
+  verificado); #96 cerrado. Rediseño nació de: «no me gusta, que sea dinámico con movimiento» → preview aprobado
+  («mézclalos tú» + «atrevido») → 5 rondas de frontend + 2 de cada gate de navegador hasta verde.
 
 ## DECISIONES JC 2026-10-17 (R5 — tras ux-review RECHAZADO + marketing RONDA 2). Verbatim del chat.
 Estas cuatro las respondió JC hoy; mandan sobre lo de abajo donde choquen. Pendientes de integrar en el brief de marketing (product-owner) y en el aviso de privacidad.
