@@ -100,8 +100,12 @@ jobs:
     needs: detect
     if: needs.detect.outputs.backend_e2e != 'false'
     runs-on: ubuntu-latest
+    # Respaldo del presupuesto del paso de tests (35 min propios + 40 del paso):
+    # el job medido dura 13,2-17,6 min en 10 runs verdes. DEVOPS_NOTES §102.
+    timeout-minutes: 55
     # `fase` la fija el último paso (always) y la lee `e2e-ok`: distingue «la
-    # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1).
+    # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1),
+    # y desde §102 también «la suite se colgó» (`suite-colgada`).
     outputs:
       fase: ${{ steps.fase.outputs.fase }}
       paso: ${{ steps.fase.outputs.paso }}
@@ -356,11 +360,36 @@ jobs:
       # pueden leer el blob de logs de Actions (el proxy lo bloquea, SECURITY_NOTES
       # §0 y DEVOPS_NOTES §16.4), así que el paso siguiente convierte cada spec en
       # rojo en una ANOTACIÓN (visible por la API de check-runs) con fichero y línea.
+      # ⏱️ CUELGUE ≠ ROJO (2026-10-19, DEVOPS_NOTES §102). Sin límite, una suite
+      # colgada (handles abiertos) corría hasta que GitHub cortaba a las 6 h y el
+      # job salía «cancelled» mudo (run 39152042442: 358,9 min). Duración medida
+      # del paso en 10 runs verdes (16-oct): 11,8-15,9 min. Presupuesto propio de
+      # 35 min (`timeout` de coreutils, ~2,2× el máximo medido) para que el cuelgue
+      # se detecte AQUÍ y se nombre (`colgada=1`); `timeout-minutes: 40` del paso y
+      # 55 del job son solo respaldo para que el veredicto de fase llegue a correr.
       - name: Test de integración (E2E backend)
         id: tests
+        timeout-minutes: 40
         run: |
+          LOG="$RUNNER_TEMP/backend-e2e.log"
+          LIMITE="${E2E_SUITE_TIMEOUT:-35m}"
+          set +e
           set -o pipefail
-          npm run test:integration 2>&1 | tee "$RUNNER_TEMP/backend-e2e.log"
+          timeout --signal=TERM --kill-after=60s "$LIMITE" npm run test:integration 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "colgada=1" >> "$GITHUB_OUTPUT"
+            if grep -qE '^Tests: |Jest did not exit' "$LOG"; then
+              motivo="los tests TERMINARON (jest imprimió su resumen) pero el proceso no salió: handles abiertos (timers, conexiones de BD/Redis, servidores) que la suite no cierra"
+            else
+              motivo="la suite no llegó a imprimir su resumen: un test o un hook se quedó esperando"
+            fi
+            echo "colgada_motivo=$motivo" >> "$GITHUB_OUTPUT"
+            echo "::error title=backend-e2e · LA SUITE SE COLGÓ (timeout ${LIMITE})::${motivo}. Dueño: backend. No es un rojo de aserción: el veredicto de los tests que sí corrieron está en el log (artifact backend-e2e-log)."
+            exit 1
+          fi
+          exit "$rc"
       - name: Anotar cada spec en rojo con fichero y línea (legible por API)
         if: ${{ !cancelled() && steps.tests.outcome == 'failure' }}
         run: |
@@ -407,10 +436,20 @@ jobs:
           O_PRISMA: ${{ steps.prisma.outcome }}
           O_SEED: ${{ steps.seed.outcome }}
           O_TESTS: ${{ steps.tests.outcome }}
+          O_COLGADA: ${{ steps.tests.outputs.colgada }}
+          O_COLGADA_MOTIVO: ${{ steps.tests.outputs.colgada_motivo }}
         run: |
           fase=""; paso=""
           if [ "$O_TESTS" = "success" ]; then
             fase="suite-verde"; paso="Test de integración (E2E backend)"
+          elif [ "$O_COLGADA" = "1" ]; then
+            fase="suite-colgada"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE SE COLGÓ::Superó su presupuesto de tiempo y se cortó: ${O_COLGADA_MOTIVO:-sin motivo}. Dueño: backend (cierre de recursos de la suite). No es un rojo de aserción ni de infraestructura. DEVOPS_NOTES §102."
+          elif [ "$O_TESTS" = "cancelled" ]; then
+            # El paso empezó y lo cortó el respaldo (timeout-minutes del paso o del
+            # job) o una cancelación manual: tampoco es un rojo de aserción.
+            fase="suite-colgada"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE NO TERMINÓ::El paso de tests quedó cancelled (lo cortó el timeout-minutes de respaldo o una cancelación manual) sin que el presupuesto propio de 35 min la nombrara. Dueño: backend si fue cuelgue; revisa el log. DEVOPS_NOTES §102."
           elif [ "$O_TESTS" = "failure" ]; then
             fase="suite-roja"; paso="Test de integración (E2E backend)"
             echo "::error title=backend-e2e · LA SUITE CORRIÓ y falló::Dueño: backend. Los specs en rojo están anotados con fichero y línea en el paso anterior; el log completo en el artifact backend-e2e-log."
@@ -679,12 +718,17 @@ jobs:
             failure)
               case "$FASE" in
                 suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/s3-local). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
+                suite-colgada) echo "::error::backend-e2e: LA SUITE SE COLGÓ — superó su presupuesto de tiempo y se cortó (no es un rojo de aserción). Dueño: backend (handles abiertos / un test que espera). Motivo en la anotación del job. Bloquea el deploy (DEVOPS_NOTES §102)." ;;
                 infra-muerta) echo "::error::backend-e2e NO MIDIÓ NADA: el job murió en «${PASO:-?}» antes de ejecutar la suite. Dueño: devops. Ninguna suite de dinero/acceso corrió. Bloquea el deploy (DEVOPS_NOTES §52)." ;;
                 *)            echo "::error::backend-e2e falló y NO dejó fase (¿el paso de veredicto no corrió?). Dueño: devops. Bloquea el deploy." ;;
               esac
               exit 1 ;;
             *)
-              echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' — no es verde: un gate deploy-blocking que no corre no gatea. Bloquea el deploy."
+              if [ "$FASE" = "suite-colgada" ]; then
+                echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' porque LA SUITE SE COLGÓ y la cortó el límite de tiempo. Dueño: backend. Bloquea el deploy (DEVOPS_NOTES §102)."
+              else
+                echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' (fase=${FASE:-ninguna}) — no es verde: un gate deploy-blocking que no corre no gatea. Si fue por tiempo y no hay fase, el job entero superó su timeout-minutes de 55. Bloquea el deploy."
+              fi
               exit 1 ;;
           esac
           if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then

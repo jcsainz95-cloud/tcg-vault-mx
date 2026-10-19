@@ -896,6 +896,15 @@ jobs:
       - name: E-8 · la sonda de TTFB distingue antes/después y sabe ponerse roja (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-ttfb-probe-canary.sh
+      # §102 (2026-10-19): backend-e2e colgado 6 h salía «cancelled» mudo. Ejecuta
+      # los run: REALES de e2e.yml con un npm de mentira: cuelgue ⇒ suite-colgada
+      # con motivo, distinto de suite-roja e infra-muerta; e2e-ok lo nombra.
+      - name: §102 · una suite colgada es rojo con motivo, no un cancelled mudo (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-suite-hang-canary.sh 2
+      - name: MKT-E2 · la sonda www→apex acepta 301/308 y rechaza temporales (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-www-apex-canary.sh
       - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
         if: ${{ !cancelled() }}
         run: |

@@ -754,14 +754,7 @@ Validaciones estáticas corridas (reales):
 
 ## 12. Estado de cierre y por qué NO se declara "desplegado"
 
-- **DoD**: 4 de 5 ítems **cumplidos**; el 5º ("devops desplegó") está **documentado y listo como runbook**
-  pero **no ejecutado** por ausencia de daemon Docker y credenciales de producción en esta sesión.
-- **Tag/release**: **no se crea** un tag de versión desplegada porque **no hay deploy**. Sería
-  deshonesto etiquetar una release "en producción" que no existe. El código está listo para tag en cuanto
-  se ejecute el runbook §11 con credenciales reales (sugerencia de versión: `v1.0.0-mvp`).
-- **Conclusión honesta**: el proyecto está **"listo para desplegar en cuanto haya credenciales"**. No hay
-  bloqueo técnico de infraestructura del lado de devops; el bloqueo es de **credenciales/entorno del
-  humano** (checklist §11.A–C) más el endurecimiento de código en §11.E que corresponde al rol backend.
+> **Retirada el 2026-10-19 (DOC-SIZE):** describía el cierre de 2026-08, sin deploy. Vigente: el bloque inicial.
 
 ---
 
@@ -15186,21 +15179,11 @@ bajó de 15 245 a lo que fija el baseline en el mismo commit.
 
 ### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
 
-**Medido 2026-10-19:** `www.tcghunt.mx` **no existe en el DNS** (NXDOMAIN en la zona de Cloudflare,
-`dns.google`); `tcghunt.mx` responde 200 desde Vercel sin Cloudflare delante (sin `cf-ray`). El canónico es el
-apex (`frontend/src` lo escribe 17 veces como `https://tcghunt.mx` y ninguna con `www`). **Desde el repo no hay nada que hacer
-sin riesgo:** un `redirects` por host en `frontend/vercel.json` (ruta de frontend) no recibe nunca una petición
-a un nombre que no resuelve, y la redirección de dominio de Vercel lo hace sin código. Pasos del dueño (nombres
-de menú **no verificados**):
-1. Vercel → proyecto de la tienda → Settings → Domains → Add → `www.tcghunt.mx`. Si ofrece redirigir, elige
-   `tcghunt.mx` con **301 (permanente)**; si no, edita el dominio ya añadido y pon «Redirect to» `tcghunt.mx`, 301.
-2. Vercel enseña el registro DNS que le falta (un CNAME de nombre `www`). Copia el valor tal cual.
-3. Cloudflare → `tcghunt.mx` → DNS → Records → Add record: tipo **CNAME**, nombre **`www`**, destino el valor de
-   Vercel, proxy **DNS only** (nube gris, como el apex). Guardar.
-4. Espera a que Vercel marque el dominio como válido (el certificado se emite solo).
-5. Comprobación del dueño: escribe `www.tcghunt.mx` en el navegador; la barra debe quedarse en `tcghunt.mx`.
-Comprobación técnica (rol técnico, no el dueño): `./scripts/check-www-apex.sh` ⇒ hoy **ROJO (NXDOMAIN)**; verde
-cuando responda 301/308 con la misma ruta y query en el apex.
+**Hecho (2026-10-19):** por la mañana `www.tcghunt.mx` era NXDOMAIN y desde el repo no había nada que hacer
+(ningún `vercel.json` recibe peticiones de un nombre sin DNS). El dueño lo configuró en Vercel con **308**
+(permanente, como 301). Medido por el orquestador y por mí: `./scripts/check-www-apex.sh` ⇒ VERDE, `www…/es` ⇒
+308 ⇒ `https://tcghunt.mx/es`, ruta y query intactas. La sonda acepta 301 y 308; canario
+`check-www-apex-canary.sh` (9 casos, en `live-candados` de `ci.yml`).
 
 ### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
 
@@ -15223,3 +15206,15 @@ sin la otra) es rojo siempre. Esa fecha no se mueve sin escribir aquí quién, p
 **Apagar (rollback):** las dos variables a `off` (o borrarlas) y redeploy de Vercel; el backend deja de encolar
 sin redeploy de código. Las filas ya encoladas las purga el job de backend (C-B8). Nada de esto toca dinero ni
 migraciones (m86 es aditiva; su rollback lo documenta backend).
+
+## §102 · `backend-e2e` colgado 6 h ⇒ presupuesto de tiempo y fase `suite-colgada` (2026-10-19)
+
+**Medido:** run 39152042442 (`production`): «Test de integración» 358,9 min hasta el corte de 6 h de GitHub; job
+`cancelled`, `e2e-ok` rojo sin motivo. En 10 runs verdes de `e2e.yml` (16-oct) el paso dura **11,8-15,9 min** y el
+job **13,2-17,6**. Ahora: el paso corre la suite bajo `timeout` de **35 min** (`E2E_SUITE_TIMEOUT`, ~2,2× el máximo)
+y, si se corta, escribe `colgada=1` y el motivo (con resumen de jest ⇒ «handles abiertos»; sin él ⇒ «un test o hook
+esperando»). Respaldo: `timeout-minutes` 40 en el paso y 55 en el job. El veredicto de fase da `suite-colgada`
+(también si el paso queda `cancelled`) y `e2e-ok` lo dice, distinto de `suite-roja` e `infra-muerta`. La causa
+(handles abiertos) la arregla backend. Canario `check-e2e-suite-hang-canary.sh` (ejecuta los `run:` reales con
+`run-workflow-step.sh`, que acepta `RUN_STEP_EXPRS` para simular `steps.*`/`needs.*`): 13 casos, N=3 ⇒ 39/39;
+mutaciones «sin rama colgada» ⇒ 1/13 rojo y «sin `timeout`» ⇒ 2/13 rojo.

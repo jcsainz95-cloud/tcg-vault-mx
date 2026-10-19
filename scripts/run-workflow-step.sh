@@ -21,6 +21,8 @@
 #       ${{ github.workspace }}     -> raíz del repo
 #       ${{ github.run_id }} / run_attempt / sha / ref -> valores de mentira
 #       ${{ runner.temp }}          -> un tmp
+#       RUN_STEP_EXPRS='{"steps.tests.outcome":"failure"}' -> valores que el invocador
+#       declara para cualquier expresión (los canarios simulan así `steps.*`/`needs.*`).
 #     Cualquier otra expresión queda VACÍA y se avisa (no se finge).
 #   · Exporta GITHUB_ACTIONS=true, CI=true, GITHUB_ENV/GITHUB_OUTPUT/
 #     GITHUB_STEP_SUMMARY apuntando a ficheros temporales, y ejecuta el `run:`
@@ -51,7 +53,7 @@ export GITHUB_ACTIONS=true CI=true RUNNER_TEMP="$TMP" GITHUB_ENV="$TMP/github.en
 # El parser escribe: 1) un fichero de env `KEY=VALUE` (ya con expresiones
 # sustituidas), 2) el `run:` del paso, 3) el cwd efectivo.
 python3 - "$WF" "$JOB" "$PASO" "$ROOT_DIR" "$TMP" <<'PY'
-import os, re, sys, yaml
+import json, os, re, sys, yaml
 wf, job_id, paso, root, tmp = sys.argv[1:6]
 d = yaml.safe_load(open(wf, encoding='utf-8'))
 job = (d.get('jobs') or {}).get(job_id)
@@ -65,6 +67,8 @@ if not st.get('run'): sys.exit("::error::el paso no tiene `run:` (¿es un `uses:
 avisos = []
 def expr(m):
     e = m.group(1).strip()
+    over = json.loads(os.environ.get('RUN_STEP_EXPRS') or '{}')
+    if e in over: return str(over[e])
     mm = re.fullmatch(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)(?:\s*\|\|\s*'([^']*)')?", e)
     if mm:
         v = os.environ.get(mm.group(1), '')
