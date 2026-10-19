@@ -16,7 +16,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MarketingAggTable, MarketingScreen } from '@/types/contract';
-import { mockMarketingPanel, mockMarketingPeriods } from './marketing';
+import {
+  COVERAGE_NOTE as MOCK_COVERAGE_NOTE,
+  COVERAGE_NOTE_ON as MOCK_COVERAGE_NOTE_ON,
+  mockMarketingPanel,
+  mockMarketingPeriods,
+} from './marketing';
 
 const ROOT = resolve(__dirname, '../../../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
@@ -56,14 +61,42 @@ for (const m of SERVICE.matchAll(/id: '(\w+)',\s*title: '([^']*)',\s*source: '(\
 // c7 por semana: tabla literal con `notMeasuredReason: <CONST>`.
 for (const m of SERVICE.matchAll(/id: '(\w+)',[^}]*?notMeasuredReason: (\w+)/gs)) entry(m[1]).reasons.add(constOf(m[2]));
 
-const SERVER_COLUMNS = new Set(
-  [...SERVICE.matchAll(/\{ key: '(\w+)', labelEs: '([^']*)'(?:, tech: '([^']*)')?, kind: '(\w+)'/g)].map(
+/*
+ * v1.105 (§MKT.H.9): las tablas GA4 y b1-b3 nombran su título en una constante local (`const title = '…'`,
+ * `const t1 = '…'`) y el motivo GA4 sale de `this.ga4Reason()`. El mock sirve el modo `off` (el de hoy), así que
+ * `ga4Reason()` se lee como `GA4_OFF`. Cada método se recorta por `private async` para no cruzar títulos.
+ */
+const METHODS = SERVICE.split(/\n  (?:private |public )?async /);
+let LOCAL_TITLE_TABLES = 0;
+for (const body of METHODS) {
+  const locals = new Map([...body.matchAll(/const (title|t\d) = '([^']*)';/g)].map((m) => [m[1], m[2]]));
+  if (locals.size === 0) continue;
+  for (const m of body.matchAll(/this\.notMeasured\('(\w+)',\s*(title|t\d),\s*'(\w+)',\s*(this\.ga4Reason\(\)|\w+)\)/g)) {
+    const e = entry(m[1]);
+    e.titles.add(locals.get(m[2])!);
+    e.sources.add(m[3]);
+    e.reasons.add(m[4] === 'this.ga4Reason()' ? constOf('GA4_OFF') : constOf(m[4]));
+    LOCAL_TITLE_TABLES++;
+  }
+  for (const m of body.matchAll(/id: '(\w+)',\s*title,\s*source: '(\w+)'/g)) {
+    const e = entry(m[1]);
+    e.titles.add(locals.get('title')!);
+    e.sources.add(m[2]);
+  }
+}
+// b1-b3: la primera columna llega por argumento de `bTable(id, título, clave, etiqueta, …)`.
+const B_TABLE_COLUMNS = [...SERVICE.matchAll(/this\.bTable\('(\w+)',\s*t\d,\s*'(\w+)',\s*'([^']*)'/g)].map((m) => `${m[2]}|${m[3]}||text`);
+
+const SERVER_COLUMNS = new Set([
+  ...[...SERVICE.matchAll(/\{ key: '(\w+)', labelEs: '([^']*)'(?:, tech: '([^']*)')?, kind: '(\w+)'/g)].map(
     (m) => `${m[1]}|${m[2]}|${m[3] ?? ''}|${m[4]}`,
   ),
-);
+  ...B_TABLE_COLUMNS,
+]);
 const legendBlock = SERVICE.slice(SERVICE.indexOf('const SOURCE_LEGEND'), SERVICE.indexOf('};', SERVICE.indexOf('const SOURCE_LEGEND')));
 const SERVER_LEGEND = Object.fromEntries([...legendBlock.matchAll(/^\s+(\w+): '([^']*)',/gm)].map((m) => [m[1], m[2]]));
 const SERVER_COVERAGE = /export const COVERAGE_NOTE = '([^']*)'/.exec(SERVICE)?.[1];
+const SERVER_COVERAGE_ON = /export const COVERAGE_NOTE_ON = '([^']*)'/.exec(SERVICE)?.[1];
 const SERVER_OTROS = /export const OTROS_LABEL = '([^']*)'/.exec(SMALL_CELLS)?.[1];
 
 // ── Lo que dice el contrato (§MKT.G.4) ─────────────────────────────────────────────────────────────────────────
@@ -114,8 +147,20 @@ describe('D5 · las fuentes se leyeron (si no, la paridad sería vacía)', () =>
     expect(SERVER_COLUMNS.size).toBeGreaterThan(10);
     expect(Object.keys(SERVER_LEGEND).sort()).toEqual(['BD', 'GA4', 'SC', 'Srv']);
     expect(SERVER_COVERAGE).toBeTruthy();
+    expect(SERVER_COVERAGE_ON).toBeTruthy();
+    expect(SERVER_COVERAGE_ON).not.toBe(SERVER_COVERAGE);
     expect(SERVER_OTROS).toBeTruthy();
+    // v1.105: el lector de títulos locales y de `bTable` encontró algo (si cambia la forma del servicio, rojo aquí).
+    expect(LOCAL_TITLE_TABLES).toBeGreaterThanOrEqual(10);
+    expect(B_TABLE_COLUMNS.length).toBe(3);
     for (const [id, e] of SERVER) expect(e.titles.size, `${id} con un solo título en el servidor`).toBe(1);
+  });
+});
+
+describe('v1.105 · cobertura por modo (§MKT.H.9)', () => {
+  it('el mock exporta los DOS textos del servidor: `off` (el que sirve) y `on`', () => {
+    expect(MOCK_COVERAGE_NOTE).toBe(SERVER_COVERAGE);
+    expect(MOCK_COVERAGE_NOTE_ON).toBe(SERVER_COVERAGE_ON);
   });
 });
 

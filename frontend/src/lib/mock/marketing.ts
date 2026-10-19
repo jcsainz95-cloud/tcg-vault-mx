@@ -91,14 +91,22 @@ function resolvePeriod(q: MockPeriodQuery) {
  * Lo único propio del mock son las CIFRAS y los nombres de carta de demo.
  */
 const GA4_OFF = 'NO MEDIDO — GA4 sin encender';
-const SC_OFF = 'NO MEDIDO — Search Console sin verificar';
+const SC_UNCONNECTED = 'NO MEDIDO — Search Console sin conectar';
 const ORIGIN_OFF = 'NO MEDIDO — el origen de los pedidos aún no se registra (requiere el aviso de cookies con consentimiento)';
-const GA4_AND_ORIGIN_OFF = 'NO MEDIDO — GA4 sin encender y el origen de los pedidos aún no se registra';
 const BANNER_OFF = 'NO MEDIDO — el aviso de cookies todavía no está publicado';
+/* v1.105 (§MKT.H.9): tablas diferidas, con su motivo literal (en cualquier modo). */
+const PAGE_TYPE_DEFERRED = 'NO MEDIDO — la clasificación por tipo de página no está definida todavía';
+const ABANDON_DEFERRED = 'NO MEDIDO — la consulta de abandono no está definida todavía';
+const BUY_BUTTON_DEFERRED = 'NO MEDIDO — el evento del botón COMPRAR todavía no se envía';
 const SEARCH_LOG_OFF =
   'NO MEDIDO — pendiente de la revisión de seguridad; el registro de búsquedas sin resultado no existe todavía';
 const C7_MIN_PERIOD = 'NO MEDIDO — esta tabla necesita un periodo de al menos 4 semanas; elige un mes cerrado';
-const COVERAGE_NOTE = 'Cobertura: GA4 sin encender; origen de pedidos NO MEDIDO (first_utm_* vacío hasta Fase 2).';
+/**
+ * Línea de cobertura por modo (§MKT.H.9 v1.105). El mock sirve el modo `off` (`COVERAGE_NOTE`); el de `on` se exporta
+ * para la paridad y para quien pinte una demo encendida.
+ */
+export const COVERAGE_NOTE = 'Cobertura: GA4 sin encender; el origen de los pedidos aún no se registra.';
+export const COVERAGE_NOTE_ON = 'Cobertura: GA4 y el origen de los pedidos solo cuentan a quien aceptó la analítica; la proporción está en f3.';
 const OTROS_LABEL = 'Otros (< 5 c/u)';
 const SOURCE_LEGEND: Record<string, string> = {
   BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
@@ -175,9 +183,9 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
       ];
     case 'b':
       return [
-        notMeasured('b1', 'Origen por utm_*', 'mixed', GA4_AND_ORIGIN_OFF),
-        notMeasured('b2', 'Instagram por puerta (bio, story, promoción, mensaje directo)', 'mixed', GA4_AND_ORIGIN_OFF),
-        notMeasured('b3', 'Por pieza (utm_content)', 'mixed', GA4_AND_ORIGIN_OFF),
+        notMeasured('b1', 'Origen por utm_*', 'BD', ORIGIN_OFF),
+        notMeasured('b2', 'Instagram por puerta (bio, story, promoción, mensaje directo)', 'BD', ORIGIN_OFF),
+        notMeasured('b3', 'Por pieza (utm_content)', 'BD', ORIGIN_OFF),
         notMeasured('b4', 'Google orgánico, directo, referencias e IA', 'GA4', GA4_OFF),
       ];
     case 'c': {
@@ -212,13 +220,13 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
           : { id: 'c7', title: c7Title, source: 'BD', columns: c7Columns, rows: [], measured: false, notMeasuredReason: C7_MIN_PERIOD };
       return [
         notMeasured('c1', 'Páginas y fichas más vistas', 'GA4', GA4_OFF),
-        notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', GA4_OFF),
-        notMeasured('c3', 'Dónde abandonan', 'GA4', GA4_OFF),
-        notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', GA4_OFF),
+        notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', PAGE_TYPE_DEFERRED),
+        notMeasured('c3', 'Dónde abandonan', 'GA4', ABANDON_DEFERRED),
+        notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', BUY_BUTTON_DEFERRED),
         notMeasured('c5', 'Dispositivo y navegador de Instagram', 'GA4', GA4_OFF),
         notMeasured('c6', 'Búsquedas sin resultado', 'Srv', SEARCH_LOG_OFF),
         c7,
-        notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', GA4_OFF),
+        notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', PAGE_TYPE_DEFERRED),
       ];
     }
     case 'd':
@@ -292,7 +300,7 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
         },
       ];
     case 'e':
-      return [notMeasured('e1', 'Consultas de Google', 'SC', SC_OFF), notMeasured('e3', 'Referencias de asistentes de IA', 'GA4', GA4_OFF)];
+      return [notMeasured('e1', 'Consultas de Google', 'SC', SC_UNCONNECTED), notMeasured('e3', 'Referencias de asistentes de IA', 'GA4', GA4_OFF)];
     case 'f':
       return [
         notMeasured('f1', 'Tasa de aceptación del banner', 'Srv', BANNER_OFF),
