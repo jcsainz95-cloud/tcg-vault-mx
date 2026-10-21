@@ -73,7 +73,11 @@ describe('CARDSHOW · validación de leads', () => {
   it('name con dígitos y & (marca) ⇒ OK (más laxa a propósito)', async () =>
     expect(await code(leadPipe, { ...validLead, name: 'Tienda 3D & Cartas' })).toBe('OK'));
   it('gameInterest fuera de dominio ⇒ 400', async () =>
-    expect(await code(leadPipe, { ...validLead, gameInterest: 'magic' })).toBe('VALIDATION_ERROR'));
+    expect(await code(leadPipe, { ...validLead, gameInterest: 'yugioh' })).toBe('VALIDATION_ERROR'));
+  it('⭐M-90 gameInterest=magic ⇒ OK; MAGIC (mayúscula) ⇒ 400', async () => {
+    expect(await code(leadPipe, { ...validLead, gameInterest: 'magic' })).toBe('OK');
+    expect(await code(leadPipe, { ...validLead, gameInterest: 'MAGIC' })).toBe('VALIDATION_ERROR');
+  });
   it('gameInterest=POKEMON (mayúscula) ⇒ 400', async () =>
     expect(await code(leadPipe, { ...validLead, gameInterest: 'POKEMON' })).toBe('VALIDATION_ERROR'));
   it('gameInterest=pokemon ⇒ OK', async () =>

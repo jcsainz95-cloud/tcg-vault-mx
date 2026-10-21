@@ -39,7 +39,7 @@ import {
  * es-MX literal: el Card Show es un microsite de un solo idioma.
  */
 
-const GAME_LABEL: Record<string, string> = { pokemon: 'Pokémon', riftbound: 'Riftbound', lorcana: 'Lorcana', shardbugs: 'Shard Bugs' };
+const GAME_LABEL: Record<string, string> = { pokemon: 'Pokémon', riftbound: 'Riftbound', lorcana: 'Lorcana', shardbugs: 'Shard Bugs', magic: 'Magic: The Gathering' };
 const LEAD_TYPE_LABEL: Record<string, string> = { visitor: 'Asistente', merchant: 'Vendedor', sponsor: 'Patrocinador' };
 const LEAD_STATUS_LABEL: Record<string, string> = {
   new: 'Nuevo',
@@ -380,6 +380,7 @@ function PlayersPanel() {
               { value: 'riftbound', label: 'Riftbound' },
               { value: 'lorcana', label: 'Lorcana' },
               { value: 'shardbugs', label: 'Shard Bugs' },
+              { value: 'magic', label: 'Magic: The Gathering' },
             ]}
             value={game ?? ''}
             onChange={(e) => setGame((e.target.value || undefined) as PlayerListFilters['game'])}

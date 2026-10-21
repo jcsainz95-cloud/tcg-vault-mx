@@ -190,8 +190,8 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   // añadirlo (las tres preguntas): (1) el dominio entero ES la regla (DTO + filtro `?game=`); (2) formal/ligera es
   // regla de SERVICIO, no un recorte de enum; (3) sin calibración de precio. ⭐ v1.97⟨cardshow-shardbugs⟩ (M-85,
   // §CARDSHOW.1a-ter): + `shardbugs` = 4.º juego confirmado por JC 2026-10-17 (Shard Bugs LLC); aditivo, LIGERA por
-  // la misma regla de servicio. ⛔ Sigue sin `tbd`/`other`.
-  CardShowGame: ['lorcana', 'pokemon', 'riftbound', 'shardbugs'],
+  // la misma regla de servicio. ⛔ Sigue sin `tbd`/`other`. ⭐ v1.101 (M-90, §CARDSHOW.1a-quater): + `magic` (5.º, LIGERA).
+  CardShowGame: ['lorcana', 'magic', 'pokemon', 'riftbound', 'shardbugs'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */

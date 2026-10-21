@@ -59,6 +59,11 @@ export class CardShowThrottleService {
     return this.single(`t:confirm:m:${ipKey}`, MIN_MS, THROTTLE.CONFIRM_PER_MIN);
   }
 
+  /** ⭐M-90 GET /tournament/count: 60/min por IP (⇒ 429 en la 61.ª). Cubo propio: ⛔ no toca los topes de POST. */
+  async hitTournamentCount(ipKey: string): Promise<ThrottleDecision> {
+    return this.single(`t:tournament-count:m:${ipKey}`, MIN_MS, THROTTLE.TOURNAMENT_COUNT_PER_MIN);
+  }
+
   private async single(key: string, ttlMs: number, limit: number): Promise<ThrottleDecision> {
     try {
       const n = await this.store.hit(key, ttlMs);

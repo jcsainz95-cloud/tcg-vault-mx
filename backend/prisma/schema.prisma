@@ -3395,6 +3395,7 @@ enum CardShowGame {
   riftbound
   lorcana
   shardbugs
+  magic // ⭐M-90 (§CARDSHOW.1a-quater): 5.º juego, LIGERA
 }
 
 // §CARDSHOW.1 — captura de «Avísame». ⛔ Sin IP ni user-agent; `referrerHost` guarda SOLO el host.

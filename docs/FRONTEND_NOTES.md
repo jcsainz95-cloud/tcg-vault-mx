@@ -122,6 +122,12 @@ final de `src/types/contract.ts`.
   no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
 
 
+## §CARDSHOW-M90 · Magic (5.º juego) + contador vivo Pokémon + programa por día (2026-10-21, base `f650edb`)
+Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO en `content/card-show.ts` (`torneos.programa`, `torneos.juegos`, FAQ); `magic` → «Magic: The Gathering» en `CARD_SHOW_GAMES` (selectores landing + filtro admin).
+Contador: `_components/TournamentCounter.tsx` + `getTournamentCount()` (`lib/card-show-api.ts`), §CARDSHOW.12-bis: al montar y cada 60 s; `null` ante no-200/red/forma rara ⇒ oculto; SSR no pinta nada.
+Texto de lleno = contrato §13 [M-90](8) «Cupo lleno — lista de espera» (el encargo decía «entras a lista de espera»; manda el contrato).
+Pruebas: `TournamentCounter.test.tsx`, `content/card-show.content.test.ts`, caso Magic en `CardShowForms.test.tsx`.
+
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
 **Estado vigente.** Restyle + reflow + motion de la landing EXISTENTE `/card-show` (decisión del dueño JC,
