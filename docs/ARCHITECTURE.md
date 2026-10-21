@@ -32068,6 +32068,11 @@ Riesgos técnicos:
 > «Pokemon 2 filas (sat+sun) activas» (+ gemelo LIGERA) y el criterio `[M-88 confirmación de grupo]` de `API_CONTRACT §CARDSHOW.§13`
 > (alta «los dos días» + confirmar ⇒ 2 filas `confirmed`, 0 `pending`).
 >
+> **`D-CS-8` (🔴 ABIERTA, dueño backend; medida 2026-10-21 por lectura del arquitecto, sha NO MEDIDO).** La reserva de cupo del
+> torneo cuenta solo `status='confirmed'` (`card-show.service.ts:759-761`), así que un `checked_in` libera plaza y el cupo podría
+> rebasarse. **Contrato (manda): `API_CONTRACT §CARDSHOW.12-bis`** — ocupados = `confirmed`+`checked_in`, misma definición para el
+> cupo y para el contador público. **La corrige backend.** Paridad: criterio `[M-90 …] (6)` de `API_CONTRACT §CARDSHOW.§13`.
+>
 > **v1.86⟨accesorios⟩ — medidas el 2026-10-07 por lectura en `/home/user/tcg-accesorios` (sha NO MEDIDO). Ninguna es
 > de código: son choques entre `PROJECT.md §AC` y `HECHOS.md:90` (F3), posterior. El contrato sigue a F3. Se enrutan a
 > product-owner; el arquitecto no las corrige.**
