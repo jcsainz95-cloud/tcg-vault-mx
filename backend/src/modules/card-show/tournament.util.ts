@@ -5,12 +5,23 @@
  * mueven el cupo; al confirmar se reparten CONFIRMED hasta el cupo y el resto WAITLIST. Esta función
  * es la decisión PURA; la reserva ATÓMICA (dos confirmaciones simultáneas por el último lugar ⇒ 1
  * CONFIRMED + 1 WAITLIST, nunca 3) la hace `CardShowService` dentro de una transacción serializable
- * contando las filas activas CONFIRMED del día.
+ * contando las filas que OCUPAN plaza ese día (`TOURNAMENT_OCCUPIED_STATUSES`).
  */
 import { CardShowSignupStatus } from '@prisma/client';
 
 /**
- * Dado cuántas preinscripciones CONFIRMED hay ya para ese día y el cupo (null ⇒ cupo desconocido/no
+ * ⭐M-90 / D-CS-8 (API_CONTRACT §CARDSHOW.12-bis — un hecho, un sitio): una plaza del torneo Pokémon está
+ * OCUPADA si la fila está `confirmed` o `checked_in`. La MISMA lista la usan la reserva de cupo al confirmar
+ * y el contador público, para que no puedan discrepar. ⛔ `pending`/`waitlist`/`cancelled` no ocupan.
+ * (Antes el cupo contaba solo `confirmed`: un `checked_in` liberaba plaza y el cupo podía rebasarse.)
+ */
+export const TOURNAMENT_OCCUPIED_STATUSES: readonly CardShowSignupStatus[] = [
+  CardShowSignupStatus.confirmed,
+  CardShowSignupStatus.checked_in,
+];
+
+/**
+ * Dado cuántas plazas OCUPADAS (confirmed+checked_in) hay ya para ese día y el cupo (null ⇒ cupo desconocido/no
  * recortado), decide el estado de la que se confirma ahora.
  */
 export function assignOnConfirm(currentConfirmed: number, capPerDay: number | null): CardShowSignupStatus {

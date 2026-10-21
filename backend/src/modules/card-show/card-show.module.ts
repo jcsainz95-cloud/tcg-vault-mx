@@ -12,6 +12,7 @@ import { CardShowMailboxCapsService } from './card-show-mailbox-caps.service';
 import { CardShowMailService, DnsMxResolver, MX_RESOLVER } from './card-show-mail.service';
 import { CardShowWebhookService } from './card-show-webhook.service';
 import { cardShowCounterStoreProvider } from './card-show-counter.store';
+import { CardShowTournamentCountService } from './card-show-tournament-count.service';
 
 /**
  * card-show.module.ts — v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW). Landing del Card Show: captura
@@ -29,6 +30,7 @@ import { cardShowCounterStoreProvider } from './card-show-counter.store';
     CardShowMailboxCapsService,
     CardShowMailService,
     CardShowWebhookService,
+    CardShowTournamentCountService,
     cardShowCounterStoreProvider,
     { provide: MX_RESOLVER, useClass: DnsMxResolver },
   ],

@@ -70,7 +70,7 @@ export class CreateLeadDto {
  * ⇒ `400 {field:'playerId'}` (§CARDSHOW.12).
  */
 export class CreatePlayerDto {
-  @IsIn(GAMES) game!: string; // ⭐M-84 pokemon | riftbound | lorcana (POKEMON mayúscula ⇒ 400)
+  @IsIn(GAMES) game!: string; // CARD_SHOW_GAME_VALUES (⭐M-90 incl. magic); POKEMON/MAGIC mayúscula ⇒ 400
   @IsIn(['sat', 'sun', 'both']) day!: 'sat' | 'sun' | 'both'; // «los dos» = DOS filas, 1 envío
   @IsString() @MaxLength(MAX_PLAYER_NAME_LEN) @Matches(PLAYER_NAME_WHITELIST) playerName!: string;
   @IsOptional() @IsString() @Matches(PLAYER_ID) playerId?: string;

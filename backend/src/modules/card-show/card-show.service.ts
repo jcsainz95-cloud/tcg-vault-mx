@@ -12,7 +12,7 @@ import { CardShowMailboxCapsService } from './card-show-mailbox-caps.service';
 import { CardShowMailService } from './card-show-mail.service';
 import { CardShowWebhookService } from './card-show-webhook.service';
 import { CreateLeadDto, CreatePlayerDto } from './dto/card-show.dto';
-import { assignOnConfirm, playerIdLast4 } from './tournament.util';
+import { assignOnConfirm, playerIdLast4, TOURNAMENT_OCCUPIED_STATUSES } from './tournament.util';
 import { normalizeMxPhone } from './phone.util';
 import { canonicalizeMailbox, emailDomain, normalizeEmail } from './mailbox.util';
 import { CARD_SHOW_GAME_VALUES } from '../../common/enum-values';
@@ -71,7 +71,8 @@ export class CardShowService {
     return (this.config.get<string>('PRIVACY_POLICY_VERSION') ?? 'provisional').trim() || 'provisional';
   }
 
-  private tournamentCap(): number | null {
+  /** Cupo por día del torneo (null ⇒ desconocido). ⭐M-90: público porque el contador lo lee con la MISMA función. */
+  tournamentCap(): number | null {
     const raw = (this.config.get<string>(ENV.TOURNAMENT_CAP_PER_DAY) ?? '').trim();
     if (raw === '') return null; // cupo desconocido (Jakomi aún no lo fija) ⇒ no se recorta
     const n = Number(raw);
@@ -756,10 +757,11 @@ export class CardShowService {
               continue;
             }
 
-            const confirmedCount = await tx.cardShowPlayerSignup.count({
-              where: { game: CardShowGame.pokemon, day: r.day, status: 'confirmed' },
+            // ⭐D-CS-8 (§CARDSHOW.12-bis): ocupados = confirmed + checked_in (misma lista que el contador público).
+            const occupied = await tx.cardShowPlayerSignup.count({
+              where: { game: CardShowGame.pokemon, day: r.day, status: { in: [...TOURNAMENT_OCCUPIED_STATUSES] } },
             });
-            const state = assignOnConfirm(confirmedCount, cap);
+            const state = assignOnConfirm(occupied, cap);
             await tx.cardShowPlayerSignup.update({ where: { id: r.id }, data: { confirmedAt: new Date(now), status: state } });
             results.push({ id: r.id, day: r.day, state });
           }
