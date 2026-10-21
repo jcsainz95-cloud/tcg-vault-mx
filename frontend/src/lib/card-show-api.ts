@@ -80,8 +80,8 @@ export interface BaseSubmitBody {
   referrerHost?: string;
 }
 
-/** Juego del torneo / interés (enum `CardShowGame`, §Enums; +`shardbugs` M-85/v1.97). */
-export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs';
+/** Juego del torneo / interés (enum `CardShowGame`, §Enums; +`shardbugs` M-85/v1.97; +`magic` M-90/v1.101). */
+export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs' | 'magic';
 
 /**
  * Cuerpo de `POST /card-show/leads` (§CARDSHOW.1/.1b, v1.96 M-84). DTO único; las reglas
@@ -114,7 +114,7 @@ export interface LeadSubmitBody extends BaseSubmitBody {
 /**
  * Cuerpo de `POST /card-show/players` (§CARDSHOW.1/.12, v1.96 M-84). `game` obligatorio:
  *  - `pokemon` = FORMAL ⇒ `playerId` OBLIGATORIO (solo dígitos).
- *  - `riftbound`/`lorcana`/`shardbugs` = LIGERA ⇒ `playerId` PROHIBIDO (no se envía).
+ *  - `riftbound`/`lorcana`/`shardbugs`/`magic` = LIGERA ⇒ `playerId` PROHIBIDO (no se envía).
  */
 export interface PlayerSubmitBody extends BaseSubmitBody {
   game: CardShowGame;
@@ -255,4 +255,52 @@ export async function postLinkAction(action: LinkAction, token: string): Promise
   // 400 u otro error de forma: código del contrato si viene, genérico si no.
   const err = body?.error;
   throw new CardShowApiError(res.status, err?.code ?? 'ERROR', err?.message ?? 'error', err?.details);
+}
+
+/** Un día del contador público del torneo Pokémon (§CARDSHOW.12-bis). */
+export interface TournamentCountDay {
+  day: 'sat' | 'sun';
+  confirmed: number;
+  /** `null` = cupo desconocido ⇒ solo «N preinscritos», sin «/cap» ni «lleno». */
+  cap: number | null;
+  full: boolean;
+}
+
+export interface TournamentCount {
+  game: 'pokemon';
+  days: TournamentCountDay[];
+  asOf: string;
+}
+
+function isCountDay(d: unknown): d is TournamentCountDay {
+  if (!d || typeof d !== 'object') return false;
+  const o = d as Record<string, unknown>;
+  return (
+    (o.day === 'sat' || o.day === 'sun') &&
+    typeof o.confirmed === 'number' &&
+    Number.isFinite(o.confirmed) &&
+    (o.cap === null || (typeof o.cap === 'number' && Number.isFinite(o.cap))) &&
+    typeof o.full === 'boolean'
+  );
+}
+
+/**
+ * `GET /card-show/tournament/count` (§CARDSHOW.12-bis, M-90): ocupados del torneo Pokémon por día.
+ * Devuelve `null` ante CUALQUIER no-200, red caída o forma inesperada: el contrato manda OCULTAR el
+ * contador (⛔ nunca un número inventado) y la landing sigue funcionando.
+ */
+export async function getTournamentCount(): Promise<TournamentCount | null> {
+  try {
+    const res = await fetch(url('/tournament/count'), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.status !== 200) return null;
+    const body = (await res.json().catch(() => null)) as Partial<TournamentCount> | null;
+    if (!body || !Array.isArray(body.days) || !body.days.every(isCountDay)) return null;
+    return { game: 'pokemon', days: body.days, asOf: String(body.asOf ?? '') };
+  } catch {
+    return null;
+  }
 }

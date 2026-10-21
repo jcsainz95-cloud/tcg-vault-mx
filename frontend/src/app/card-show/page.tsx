@@ -8,6 +8,7 @@ import { CardShowMotion } from './_components/CardShowMotion';
 import { MapFocusRing } from './_components/MapFocusRing';
 import { HeroTicket } from './_components/HeroTicket';
 import { HeroExplosion, type BurstChip } from './_components/HeroExplosion';
+import { TournamentCounter } from './_components/TournamentCounter';
 
 /**
  * «Cartas» de la ráfaga del hero (realce DECORATIVO, aria-hidden). Datos derivados de los facts
@@ -17,9 +18,10 @@ import { HeroExplosion, type BurstChip } from './_components/HeroExplosion';
 const BURST_CHIPS: readonly BurstChip[] = [
   { k: 'Pokémon · Main', b: 'MX$200', tone: 'red' },
   { k: 'Rifa en vivo', b: '30th', tone: 'paper' },
-  { k: 'Riftbound', b: 'Torneo' },
-  { k: 'Lorcana', b: 'Torneo' },
-  { k: 'Shard Bugs', b: 'Torneo' },
+  { k: 'Riftbound', b: 'Gratis' },
+  { k: 'Magic', b: 'Gratis' },
+  { k: 'Lorcana', b: 'Gratis' },
+  { k: 'Shard Bugs', b: 'Gratis' },
   { k: 'Entrada', b: 'Libre', tone: 'red' },
   { k: 'Vendedores', b: 'Piso 2', tone: 'paper' },
   { k: 'Torneos', b: 'Piso 3' },
@@ -344,7 +346,7 @@ export default function CardShowPage() {
           <div
             className="cs-reveal cs-rail flex overflow-x-auto border-y border-on-ink-rule"
             role="group"
-            aria-label="Torneos por juego — desliza para ver los cuatro"
+            aria-label="Torneos por juego — desliza para ver los cinco"
           >
             {c.torneos.juegos.map((g) => (
               <div
@@ -359,12 +361,52 @@ export default function CardShowPage() {
                 </p>
                 <h3 className="mt-3 font-brand text-h2 font-bold text-on-ink">{g.nombre}</h3>
                 <p className="mt-3 min-h-[4.5em] text-sm text-on-ink-muted">{g.linea}</p>
+                {/* Contador vivo SOLO del torneo Pokémon (§CARDSHOW.12-bis); se oculta si la API falla. */}
+                {g.id === 'pokemon' && <TournamentCounter />}
                 <div className="mt-5 flex items-baseline justify-between gap-3 border-t border-on-ink-rule pt-4">
                   <span className="font-mono text-[11px] uppercase tracking-label text-on-ink-nav">Inscripción</span>
                   <span className="font-brand text-xl font-bold text-[color:var(--hunt-red-up)]">{g.precio}</span>
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* PROGRAMA POR DÍA: horario, cupo, inscripción y premios (dueño JC 2026-10-21). */}
+          <div className="gutter pt-16">
+            <div className="grid gap-4 md:grid-cols-2">
+              {c.torneos.programa.map((dia, i) => (
+                <div
+                  key={dia.id}
+                  className={`cs-reveal border border-on-ink-rule p-6 ${i === 1 ? 'cs-delay-1' : ''}`}
+                  data-testid={`programa-${dia.id}`}
+                >
+                  <p className="font-mono text-[11px] uppercase tracking-label text-[color:var(--hunt-red-up)]">
+                    {`Día ${String(i + 1).padStart(2, '0')}`}
+                  </p>
+                  <h3 className="mt-2 font-brand text-h3 font-bold text-on-ink">{dia.titulo}</h3>
+                  <ul className="mt-4 divide-y divide-on-ink-rule border-t border-on-ink-rule">
+                    {dia.torneos.map((t) => (
+                      <li key={t.id} className="py-4">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                          <span className="font-brand text-lg font-bold text-on-ink">{t.nombre}</span>
+                          <span className="tabular font-mono text-sm text-on-ink">{t.horas}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+                          <span className="text-on-ink-muted">{`Cupo ${t.cupo} jugadores`}</span>
+                          <span className="font-bold text-[color:var(--hunt-red-up)]">{t.precio}</span>
+                        </div>
+                        <ul className="mt-2 space-y-0.5 text-sm text-on-ink-nav">
+                          {t.premios.map((p) => (
+                            <li key={p}>{p}</li>
+                          ))}
+                        </ul>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <p className="cs-reveal mt-6 border-l-2 border-hunt-red-on-ink py-2 pl-4 text-sm text-on-ink">{c.torneos.registroFinal}</p>
           </div>
 
           <div className="gutter py-16">
