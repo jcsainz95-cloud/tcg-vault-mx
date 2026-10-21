@@ -127,7 +127,7 @@ export const CARD_SHOW = {
         'Mapa de Google: José del Castillo 3, Col. San José Insurgentes, Benito Juárez, 03900 CDMX',
     },
     torneoPokemon:
-      'Torneos: 11:00–14:00 Riftbound y Magic (sábado), Lorcana y Shard Bugs (domingo); 14:00–18:00 Pokémon los dos días. Detalle y premios en «Torneos».',
+      'Torneos: 11:00–14:00 Magic y Shard Bugs (sábado), Lorcana y Riftbound (domingo); 14:00–18:00 Pokémon los dos días. Detalle y premios en «Torneos».',
     montaje: 'Montaje de vendedores: viernes 4 de diciembre (el horario se confirma al apartar la mesa).',
     comoLlegar: [
       'Metro Mixcoac (Líneas 7 y 12) + ~5 min caminando por Av. Revolución.',
@@ -139,7 +139,7 @@ export const CARD_SHOW = {
     {
       n: '01',
       titulo: 'Torneos por juego',
-      texto: 'Pokémon como torneo principal, más Riftbound, Magic: The Gathering, Lorcana y Shard Bugs. Horarios y premios en «Torneos».',
+      texto: 'Pokémon como torneo principal, más Magic: The Gathering, Shard Bugs, Lorcana y Riftbound. Horarios y premios en «Torneos».',
     },
     {
       n: '02',
@@ -155,7 +155,7 @@ export const CARD_SHOW = {
 
   torneos: {
     intro:
-      'Cinco juegos sobre la mesa. Pokémon cuesta MX$200; Riftbound, Magic, Lorcana y Shard Bugs son gratis. Preinscríbete aquí y haz tu registro final en el lugar.',
+      'Cinco juegos sobre la mesa. Pokémon cuesta MX$200; Magic, Shard Bugs, Lorcana y Riftbound son gratis. Preinscríbete aquí y haz tu registro final en el lugar.',
     /**
      * Una tarjeta por juego (los cinco valores del enum). Pokémon MX$200 los dos días (JC 2026-10-17,
      * sin cambio 2026-10-21); los demás GRATIS con «premios por anunciar» (JC 2026-10-21).
@@ -171,16 +171,16 @@ export const CARD_SHOW = {
           'Sábado y domingo, 14:00–18:00. Cupo de 64 por día. Preinscripción con tu Player ID; registro final en el lugar.',
       },
       {
-        id: 'riftbound' as CardShowGame,
-        nombre: 'Riftbound',
+        id: 'magic' as CardShowGame,
+        nombre: 'Magic: The Gathering',
         pill: 'Sábado 11:00–14:00',
         principal: false,
         precio: 'Gratis',
         linea: '32 jugadores. Premios por anunciar. Preinscríbete aquí; registro final en el lugar.',
       },
       {
-        id: 'magic' as CardShowGame,
-        nombre: 'Magic: The Gathering',
+        id: 'shardbugs' as CardShowGame,
+        nombre: 'Shard Bugs',
         pill: 'Sábado 11:00–14:00',
         principal: false,
         precio: 'Gratis',
@@ -195,8 +195,8 @@ export const CARD_SHOW = {
         linea: '32 jugadores. Premios por anunciar. Preinscríbete aquí; registro final en el lugar.',
       },
       {
-        id: 'shardbugs' as CardShowGame,
-        nombre: 'Shard Bugs',
+        id: 'riftbound' as CardShowGame,
+        nombre: 'Riftbound',
         pill: 'Domingo 11:00–14:00',
         principal: false,
         precio: 'Gratis',
@@ -209,8 +209,8 @@ export const CARD_SHOW = {
         id: 'sat' as CardShowDayId,
         titulo: 'Sábado 5 de diciembre',
         torneos: [
-          { id: 'riftbound', nombre: 'Riftbound', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
           { id: 'magic', nombre: 'Magic: The Gathering', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
+          { id: 'shardbugs', nombre: 'Shard Bugs', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
           {
             id: 'pokemon',
             nombre: 'Pokémon TCG',
@@ -230,7 +230,7 @@ export const CARD_SHOW = {
         titulo: 'Domingo 6 de diciembre',
         torneos: [
           { id: 'lorcana', nombre: 'Lorcana', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
-          { id: 'shardbugs', nombre: 'Shard Bugs', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
+          { id: 'riftbound', nombre: 'Riftbound', horas: '11:00–14:00', cupo: 32, precio: 'Gratis', premios: ['Premios por anunciar'] },
           {
             id: 'pokemon',
             nombre: 'Pokémon TCG',
@@ -280,7 +280,7 @@ export const CARD_SHOW = {
   faq: [
     {
       q: '¿Cuánto cuesta entrar?',
-      a: 'La entrada al Card Show CDMX es libre: no necesitas registrarte para entrar. El torneo de Pokémon cuesta MX$200 (sábado y domingo); los torneos de Riftbound, Magic: The Gathering, Lorcana y Shard Bugs son gratis.',
+      a: 'La entrada al Card Show CDMX es libre: no necesitas registrarte para entrar. El torneo de Pokémon cuesta MX$200 (sábado y domingo); los torneos de Magic: The Gathering, Shard Bugs, Lorcana y Riftbound son gratis.',
     },
     {
       q: '¿Dónde y cuándo es?',
@@ -288,7 +288,7 @@ export const CARD_SHOW = {
     },
     {
       q: '¿Qué juegos habrá?',
-      a: 'Cinco: Pokémon TCG (sábado y domingo, 14:00–18:00, 64 jugadores por día); Riftbound y Magic: The Gathering (sábado, 11:00–14:00, 32 jugadores cada uno); Lorcana y Shard Bugs (domingo, 11:00–14:00, 32 jugadores cada uno).',
+      a: 'Cinco: Pokémon TCG (sábado y domingo, 14:00–18:00, 64 jugadores por día); Magic: The Gathering y Shard Bugs (sábado, 11:00–14:00, 32 jugadores cada uno); Lorcana y Riftbound (domingo, 11:00–14:00, 32 jugadores cada uno).',
     },
     {
       q: '¿Cómo me inscribo a un torneo?',

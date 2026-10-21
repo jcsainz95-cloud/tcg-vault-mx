@@ -24,8 +24,8 @@ describe('card-show · torneos (JC 2026-10-21)', () => {
     const [sat, sun] = CARD_SHOW.torneos.programa;
     expect(sat.id).toBe('sat');
     expect(sun.id).toBe('sun');
-    expect(sat.torneos.map((t) => t.id)).toEqual(['riftbound', 'magic', 'pokemon']);
-    expect(sun.torneos.map((t) => t.id)).toEqual(['lorcana', 'shardbugs', 'pokemon']);
+    expect(sat.torneos.map((t) => t.id)).toEqual(['magic', 'shardbugs', 'pokemon']);
+    expect(sun.torneos.map((t) => t.id)).toEqual(['lorcana', 'riftbound', 'pokemon']);
     for (const d of [sat, sun]) {
       for (const t of d.torneos) {
         if (t.id === 'pokemon') expect(t).toMatchObject({ horas: '14:00–18:00', precio: 'MX$200', cupo: 64 });
