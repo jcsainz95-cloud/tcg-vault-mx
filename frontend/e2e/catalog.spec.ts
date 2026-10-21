@@ -105,7 +105,7 @@ test.describe('Compra · listado y filtros', () => {
     ).toHaveCount(0);
   });
 
-  test('@real la ficha coincide consigo misma: bloque de mercado y nota al pie cuentan lo mismo', async ({
+  test('@real la ficha pública NO muestra «valor de mercado» ni su nota al pie (D2=A)', async ({
     page,
   }) => {
     await page.goto('/es/catalog');
@@ -130,16 +130,13 @@ test.describe('Compra · listado y filtros', () => {
     await page.goto(href);
     await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
 
-    // §21.8d — bicondicional: el bloque «Valor de mercado» y la nota al pie tienen que contar la
-    // MISMA historia. Con mercado, la nota lo explica; sin mercado, ni lo menciona. Nunca las dos
-    // variantes a la vez, nunca ninguna.
-    const block = await page.getByText(t('es', 'catalog.marketValue'), { exact: true }).count();
-    const withMarket = await page
-      .getByText(t('es', 'card.referenceExplainerWithMarket'))
-      .count();
-    const noMarket = await page.getByText(t('es', 'card.referenceExplainerNoMarket')).count();
-    expect(withMarket + noMarket).toBe(1);
-    expect(block > 0 ? withMarket : noMarket).toBe(1);
+    // D2=A (dueño, 2026-10-16; brief §A1): la ficha pública YA NO pinta «valor de mercado» ni la nota
+    // al pie que lo COMPARABA (`referenceExplainerWithMarket`). Antes §21.8d exigía el bicondicional
+    // «bloque ⇔ nota WithMarket»; ahora la ficha nunca muestra el bloque ni la variante WithMarket, y
+    // la nota al pie es SIEMPRE `referenceExplainerNoMarket` (solo dice qué es el precio de venta).
+    await expect(page.getByText(t('es', 'catalog.marketValue'), { exact: true })).toHaveCount(0);
+    await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toHaveCount(0);
+    await expect(page.getByText(t('es', 'card.referenceExplainerNoMarket'))).toBeVisible();
   });
 
   test('condición NM legible con tooltip del estándar', async ({ page }) => {
@@ -162,16 +159,15 @@ test.describe('Compra · listado y filtros', () => {
 });
 
 test.describe('Compra · ficha de carta', () => {
-  test('distingue valor de mercado vs precio de venta (§21.8: el mercado FIJÓ el precio)', async ({ page }) => {
-    // La regla §21.8 contra datos REALES la cubre `@real la ficha coincide consigo misma` (arriba)
-    // y el `@real` de pricing-curve; lo que ata este test al fixture es el id `c-charizard`.
+  test('la ficha pública muestra precio de venta con IVA, SIN «valor de mercado» (D2=A)', async ({ page }) => {
+    // Lo que ata este test al fixture es el id `c-charizard`.
     mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
 
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
-    // v2.0 (P-48): la nota al pie tiene DOS variantes; con bloque de mercado va la «WithMarket».
-    await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toBeVisible();
-    await expect(page.getByText(t('es', 'catalog.marketValue')).first()).toBeVisible();
+    // D2=A (brief §A1): la ficha pública NO muestra «valor de mercado» ni su nota al pie.
+    await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toHaveCount(0);
+    await expect(page.getByText(t('es', 'catalog.marketValue'))).toHaveCount(0);
     // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
     // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
     // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
@@ -217,7 +213,8 @@ test.describe('Compra · ficha de carta', () => {
   test('ficha traducida a inglés mantiene el nombre de carta en inglés', async ({ page }) => {
     mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/en/catalog/c-charizard');
-    await expect(page.getByText(t('en', 'card.referenceExplainerWithMarket'))).toBeVisible();
+    // D2=A: la nota de «valor de mercado» tampoco aparece en inglés; el nombre sí sigue en inglés.
+    await expect(page.getByText(t('en', 'card.referenceExplainerWithMarket'))).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
   });
 });

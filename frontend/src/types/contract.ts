@@ -951,6 +951,33 @@ export interface GroupedListingDetailResponse {
    * trae; la ausencia se lee como apagado.
    */
   wishlistEnabled?: boolean;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`, RAÍZ de la ficha de carta) — fecha `YYYY-MM-DD`
+   * (America/Mexico_City) en la que el servidor resolvió el precio de ESTA respuesta. Misma semántica que
+   * `SealedGroupDTO.pricedAsOf`: alimenta «precio al <fecha>» (SSR/ISR) y `priceValidUntil` del JSON-LD. Opcional en
+   * el TIPO por resiliencia; el backend actual lo manda SIEMPRE.
+   */
+  pricedAsOf?: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`, RAÍZ) — URL ABSOLUTA de imagen para `og:image` (objetivo
+   * ≥1200×630 NO garantizado). `null` ⇒ el frontend omite `og:image`.
+   */
+  ogImageUrl?: string | null;
+}
+
+/**
+ * ⭐ v1.96⟨mkt-tienda⟩ (`API_CONTRACT §MKT.B`) — feed liviano (⛔ no paginado) de todo lo indexable, para que el
+ * frontend genere `sitemap.xml`. Una entrada por ficha a la venta (carta publicada + grupo de sellado publicado).
+ */
+export interface SitemapEntry {
+  type: 'card' | 'sealed';
+  id: string;
+  /** ISO date del `updatedAt` de la pieza (o `max(updatedAt, cambio de precio)` si fuese medible). */
+  lastmod: string;
+}
+export interface SitemapResponse {
+  items: SitemapEntry[];
+  generatedAt: string;
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
@@ -1081,6 +1108,10 @@ export interface FrozenCardFacts {
   gradingCompany: GradingCompany | null;
   /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
   gradeValue: string | null;
+  /** v1.94 (§4), tipado en v1.106: SOLO `productType='sealed'`. Identidad (FK → SealedProduct); `null` = sin ligar. */
+  sealedProductId?: string | null;
+  /** v1.94 (§4), tipado en v1.106: SOLO `productType='sealed'`. Nombre resuelto (cascada §4.34a). */
+  sealedProductName?: string;
 }
 
 /**
@@ -5531,6 +5562,8 @@ export interface RarityHealthResponse {
 // = valor de mercado TCGCSV (informativo; puede ser pending si el grupo se vende solo por override).
 export interface SealedGroupDTO {
   representativeItemId: string;
+  /** v1.106 (§MKT.H.4, aditivo): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;
@@ -5563,6 +5596,20 @@ export interface SealedGroupDTO {
    * `SealedGroupSummaryDTO`.
    */
   referenceDisplayCents?: number;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`) — fecha `YYYY-MM-DD` (zona America/Mexico_City) en la que el
+   * SERVIDOR resolvió el precio de ESTA respuesta. Bajo SSR/ISR el HTML cacheado la pinta como «precio al <pricedAsOf>»
+   * y alimenta `priceValidUntil` del JSON-LD (§A4/§E3). ⛔ NO es `now()` del cliente. Opcional en el TIPO por
+   * resiliencia (un servidor anterior no lo emite) aunque el backend actual lo manda SIEMPRE en la ficha; el frontend
+   * cae a la fecha de hoy solo como último recurso honesto. ⛔ NO existe en `SealedGroupSummaryDTO` (rejilla).
+   */
+  pricedAsOf?: string;
+  /**
+   * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`) — URL ABSOLUTA de la imagen apta para `og:image` (objetivo
+   * ≥1200×630, NO garantizado: hoy es la «large» de pokemontcg.io ~734×1024). `null` ⇒ el frontend OMITE `og:image`
+   * (⛔ nunca inventa arte). Opcional en el TIPO por resiliencia. ⛔ NO existe en `SealedGroupSummaryDTO`.
+   */
+  ogImageUrl?: string | null;
   currency: 'MXN';
 }
 // v2.1.9 (D2): el DTO de la REJILLA de sellado = `SealedGroupDTO` MENOS `priceBasis`,
@@ -5570,6 +5617,8 @@ export interface SealedGroupDTO {
 // misma señal por otro nombre). Misma razón y mismas garantías que `GroupedListingSummaryDTO`.
 export interface SealedGroupSummaryDTO {
   representativeItemId: string;
+  /** v1.106 (§MKT.H.4, aditivo): `InventoryItem.sealedProductId` del representante; `null` = sin ligar. Solo identidad de medición. */
+  sealedProductId: string | null;
   card: CardDTO;
   productName: string;
   imageUrl: string | null;
@@ -8170,4 +8219,119 @@ export interface WishlistDemandResponse {
     sealedCondition: SealedCondition;
     waitingCount: number;
   }[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// §MKT.D/§MKT.E/§MKT.G (v1.101⟨mkt-panel⟩) — Panel de Marketing del admin (`/admin/marketing`).
+// Forma tomada SOLO de `API_CONTRACT §MKT.G.3/.5/.6` y `§MKT.E` (anotaciones). Aditivo.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Lista blanca de pantallas (§MKT.E `pantalla`). */
+export type MarketingScreen = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
+export type MarketingAnnotationKind = 'promocion' | 'despliegue' | 'evento';
+export type MarketingTableSource = 'BD' | 'GA4' | 'SC' | 'Srv' | 'mixed';
+export type MarketingColumnKind = 'text' | 'count' | 'money' | 'pct' | 'number';
+/**
+ * §MKT.G.5 (v1.103): `'< 5'` = conteo con N<5; `'oculta'` = N≥5 ocultado por supresión coherente mes↔semanas (§MKT.G.10);
+ * `null` = MX$ oculto o dato ausente. En `privacy: 'exact'` no aparecen ni `'< 5'` ni `'oculta'`.
+ */
+export type MarketingCell = number | '< 5' | 'oculta' | string | null;
+
+export interface MarketingColumn {
+  key: string;
+  labelEs: string;
+  tech?: string;
+  kind: MarketingColumnKind;
+}
+
+export interface MarketingAggTable {
+  id: string;
+  title: string;
+  source: MarketingTableSource;
+  columns: MarketingColumn[];
+  rows: Record<string, MarketingCell>[];
+  notes?: string[];
+  measured: boolean;
+  notMeasuredReason?: string;
+}
+
+export interface MarketingEmbeddedAnnotation {
+  date: string;
+  kind: MarketingAnnotationKind;
+  label: string;
+  destino?: string;
+}
+
+/**
+ * Régimen de celdas APLICADO por el servidor (§MKT.G.2/.G.5, v1.103; dueño «si cifras exactas», HECHOS 2026-10-18):
+ * sesión `super_admin` ⇒ `exact`; otra con `marketing:read` ⇒ `small_cells`. El front, si faltara, asume `small_cells`.
+ */
+export type MarketingPrivacy = 'exact' | 'small_cells';
+
+/** `ScreenPayload` de `GET /admin/marketing/panel` (= `aggregates`), §MKT.G.5. */
+export interface MarketingScreenPayload {
+  screen: MarketingScreen;
+  period: { kind: 'week' | 'month'; from: string; to: string; label: string; timezone: 'America/Mexico_City' };
+  previousPeriod?: { from: string; to: string };
+  sourceLegend: Partial<Record<'BD' | 'GA4' | 'SC' | 'Srv', string>>;
+  tables: MarketingAggTable[];
+  annotations: MarketingEmbeddedAnnotation[];
+  notes?: string[];
+  /** v1.103. Obligatorio en el contrato; el front trata su ausencia como `small_cells` (lo seguro). */
+  privacy: MarketingPrivacy;
+}
+
+/** §MKT.G.3 */
+export interface MarketingWeekOption {
+  weekStart: string;
+  from: string;
+  to: string;
+}
+export interface MarketingMonthOption {
+  month: string;
+  from: string;
+  to: string;
+}
+export interface MarketingPeriodsResponse {
+  timezone: 'America/Mexico_City';
+  lastClosedWeek: MarketingWeekOption;
+  closedWeeks: MarketingWeekOption[];
+  closedMonths: MarketingMonthOption[];
+}
+
+/** §MKT.E (h1) — fila de `GET/POST/PATCH …/annotations`. */
+export interface MarketingAnnotationDTO {
+  id: string;
+  date: string;
+  kind: MarketingAnnotationKind;
+  label: string;
+  destino?: string | null;
+  createdAt: string;
+}
+export interface MarketingAnnotationInput {
+  date: string;
+  kind: MarketingAnnotationKind;
+  label: string;
+  destino?: string;
+}
+
+/** §MKT.G.6 */
+export interface MarketingApiTokenView {
+  id: string;
+  label: string;
+  status: 'active' | 'revoked' | 'expired';
+  createdAt: string;
+  createdByUserId: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+  lastUsedAt: string | null;
+}
+/** §MKT.G.6 — el claro `token` viaja UNA vez, en la respuesta del `POST`. */
+export interface MarketingApiTokenIssued {
+  id: string;
+  label: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
 }

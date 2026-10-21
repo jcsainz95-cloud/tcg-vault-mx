@@ -247,6 +247,15 @@ services:
       # es el rollback: el botón vuelve a degradar a instrucción de texto.
       APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-http://localhost:3010}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
+      # Fase 2 de marketing (API_CONTRACT §MKT.H.1; DEVOPS_NOTES §101): APAGADA. Staging no
+      # habla con Google ni con Meta. Los secretos van con `:-` vacío y NO con `:?`: el
+      # contrato es fail-closed POR DESTINO sin tumbar el arranque (C-B7), así que no entran
+      # en el catálogo de secretos exigidos ni el preflight les genera valor.
+      MEASUREMENT_MODE: ${STAGING_MEASUREMENT_MODE:-off}
+      GA4_MEASUREMENT_ID: ${STAGING_GA4_MEASUREMENT_ID:-}
+      GA4_MP_API_SECRET: ${STAGING_GA4_MP_API_SECRET:-}
+      META_PIXEL_ID: ${STAGING_META_PIXEL_ID:-}
+      META_CAPI_TOKEN: ${STAGING_META_CAPI_TOKEN:-}
     ports:
       - "${STAGING_BACKEND_PORT:-3011}:3001"
 
@@ -262,6 +271,10 @@ services:
         NEXT_PUBLIC_DEFAULT_LOCALE: ${NEXT_PUBLIC_DEFAULT_LOCALE:-es}
         NEXT_PUBLIC_USE_MOCKS: "false"
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        # Fase 2 de marketing: APAGADA en staging (se hornea en el build). §MKT.H.1.
+        NEXT_PUBLIC_MEASUREMENT_MODE: ${STAGING_MEASUREMENT_MODE:-off}
+        NEXT_PUBLIC_GA4_MEASUREMENT_ID: ${STAGING_GA4_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_META_PIXEL_ID: ${STAGING_META_PIXEL_ID:-}
     restart: unless-stopped
     depends_on:
       - backend

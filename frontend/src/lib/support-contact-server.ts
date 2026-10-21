@@ -1,8 +1,8 @@
 import { config } from '@/lib/config';
-import { SUPPORT_CONTACT_FALLBACK } from '../checkout/support-contact';
+import { SUPPORT_CONTACT_FALLBACK } from '@/app/[locale]/(storefront)/checkout/support-contact';
 
 /**
- * El buzón para los términos (DESIGN_SYSTEM §60.1 d · contrato v1.82 §PNL.1): página de servidor ⇒
+ * El buzón para páginas de SERVIDOR — `/terminos` y `/llms.txt` (DESIGN_SYSTEM §60.1 d · contrato v1.82 §PNL.1) ⇒
  * `fetch` a `GET /support/contact` con `revalidate: 300` (el `max-age` del contrato). Cualquier
  * fallo (red, no-2xx, cuerpo sin `contact`) ⇒ el valor de respaldo. En modo mock no hay API: respaldo.
  */

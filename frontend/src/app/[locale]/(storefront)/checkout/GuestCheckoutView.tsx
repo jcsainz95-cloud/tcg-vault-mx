@@ -23,6 +23,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
+import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
 import { CheckoutIdentityGate, type IdentityMode } from './CheckoutIdentityGate';
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
@@ -140,6 +141,17 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // mientras llega el nuevo para no desmontar formulario y botón en plena re-cotización.
     placeholderData: keepPreviousData,
   });
+
+  // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
+  const beginCheckoutKey = useRef('');
+  useEffect(() => {
+    const d = query.data;
+    if (!d || query.isPlaceholderData) return;
+    const key = `${d.items.map((i) => i.inventoryItemId).join(',')}:${d.breakdown.totalCents}`;
+    if (key === beginCheckoutKey.current) return;
+    beginCheckoutKey.current = key;
+    trackBeginCheckout(d.breakdown, d.items);
+  }, [query.data, query.isPlaceholderData]);
 
   /**
    * v1.21.3-quote-prune (misma mecánica que CheckoutView): las piezas muertas del
@@ -431,7 +443,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     return name ? tp('soldOut', { name }) : tp('soldOutNoName');
   }
 
-  function onConfirmed() {
+  function onConfirmed(status?: 'succeeded' | 'processing') {
     // El pago quedó autorizado; el backend lo asienta por webhook (payment_intent.succeeded)
     // y ahí manda el correo con el enlace de seguimiento (criterio 49).
     const created = session;
@@ -443,6 +455,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     onPaid();
     cart.clear();
     setPaid(created);
+    // §MKT.H.4: `purchase` del navegador solo con `succeeded` sin redirección (id `p_<Order.id>`).
+    // ⛔ AL FINAL, después de todo el estado de dinero (TL R1): la medición nunca va delante del cobro.
+    if (status === 'succeeded' && created) trackPurchase(created.orderId, created.breakdown, query.data?.items);
   }
 
   return (

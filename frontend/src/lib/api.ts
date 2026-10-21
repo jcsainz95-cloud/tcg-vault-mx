@@ -1,4 +1,5 @@
 import { config } from './config';
+import { measurementForRequest } from './measurement/request';
 import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
@@ -105,6 +106,7 @@ import type {
   SealedGroupDTO,
   SealedGroupListResponse,
   SealedGroupDetailResponse,
+  SitemapResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
   SealedSpreadsUpdateRequest,
@@ -809,6 +811,17 @@ export async function getSealedGroupDetail(
 }
 
 /**
+ * ⭐ v1.96⟨mkt-tienda⟩ `GET /catalog/sitemap` (`public`, contrato §MKT.B) — feed liviano de todo lo
+ * indexable (una entrada por ficha a la venta: carta publicada + grupo de sellado) para que
+ * `src/app/sitemap.ts` genere `sitemap.xml`. ⛔ No paginado. En modo MOCK se compone de las fixtures
+ * publicadas (cartas de `mockGroupedDetail` vía listados + grupos de sellado).
+ */
+export async function getSitemap(): Promise<SitemapResponse> {
+  if (!config.useMocks) return apiRequest<SitemapResponse>('/catalog/sitemap');
+  return delay(fx.mockSitemap());
+}
+
+/**
  * Tendencia de valor de mercado del producto sellado (contrato GET
  * /catalog/sealed/:inventoryItemId/value-history, FEATURE-FLAGGED `sealed_value_trend`).
  * ⭐ v1.90⟨miv⟩ (§MIV.3): tipo propio `SealedValueHistoryResponse` (con `display*`, el mercado con IVA).
@@ -1218,6 +1231,16 @@ function idempotencyKey(): string {
 }
 
 /**
+ * §MKT.H.2 — el objeto `measurement` de las tres peticiones que crean pedido o solicitud
+ * (`/checkout/session`, `/checkout/guest/session`, `/buylist/requests`). `{}` con el modo `off`
+ * horneado o sin elección del visitante: el body queda EXACTAMENTE como antes.
+ */
+export function measurementBodyField(): { measurement?: NonNullable<ReturnType<typeof measurementForRequest>> } {
+  const m = measurementForRequest();
+  return m ? { measurement: m } : {};
+}
+
+/**
  * Crea la sesión de checkout (contrato POST /checkout/session, §4): reserva los items, crea la
  * `Order` en `pending` y el `PaymentIntent` de Stripe. Devuelve `{ orderId, breakdown, stripe:{
  * paymentIntentId, clientSecret } }`. El `clientSecret` alimenta el `StripePaymentModal`; el pago
@@ -1233,7 +1256,8 @@ export async function createCheckoutSession(
   if (!config.useMocks) {
     return apiRequest<CheckoutSessionResponse>('/checkout/session', {
       method: 'POST',
-      body: { inventoryItemIds, billingProfileId },
+      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+      body: { inventoryItemIds, billingProfileId, ...measurementBodyField() },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
@@ -2909,7 +2933,8 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // v1.15: `clabe` es opcional. Cuando se omite (atajo "usar mi CLABE en archivo"), el body no la
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
-    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+    // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField() } });
   }
   // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
   // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
@@ -7258,7 +7283,8 @@ export async function createGuestCheckoutSession(
   if (!config.useMocks) {
     return apiRequest<GuestCheckoutSessionResponse>('/checkout/guest/session', {
       method: 'POST',
-      body: input,
+      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
+      body: { ...input, ...measurementBodyField() },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }

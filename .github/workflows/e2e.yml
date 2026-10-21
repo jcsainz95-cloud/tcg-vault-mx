@@ -100,8 +100,12 @@ jobs:
     needs: detect
     if: needs.detect.outputs.backend_e2e != 'false'
     runs-on: ubuntu-latest
+    # Respaldo del presupuesto del paso de tests (35 min propios + 40 del paso):
+    # el job medido dura 13,2-17,6 min en 10 runs verdes. DEVOPS_NOTES §102.
+    timeout-minutes: 55
     # `fase` la fija el último paso (always) y la lee `e2e-ok`: distingue «la
-    # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1).
+    # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1),
+    # y desde §102 también «la suite se colgó» (`suite-colgada`).
     outputs:
       fase: ${{ steps.fase.outputs.fase }}
       paso: ${{ steps.fase.outputs.paso }}
@@ -356,11 +360,36 @@ jobs:
       # pueden leer el blob de logs de Actions (el proxy lo bloquea, SECURITY_NOTES
       # §0 y DEVOPS_NOTES §16.4), así que el paso siguiente convierte cada spec en
       # rojo en una ANOTACIÓN (visible por la API de check-runs) con fichero y línea.
+      # ⏱️ CUELGUE ≠ ROJO (2026-10-19, DEVOPS_NOTES §102). Sin límite, una suite
+      # colgada (handles abiertos) corría hasta que GitHub cortaba a las 6 h y el
+      # job salía «cancelled» mudo (run 39152042442: 358,9 min). Duración medida
+      # del paso en 10 runs verdes (16-oct): 11,8-15,9 min. Presupuesto propio de
+      # 35 min (`timeout` de coreutils, ~2,2× el máximo medido) para que el cuelgue
+      # se detecte AQUÍ y se nombre (`colgada=1`); `timeout-minutes: 40` del paso y
+      # 55 del job son solo respaldo para que el veredicto de fase llegue a correr.
       - name: Test de integración (E2E backend)
         id: tests
+        timeout-minutes: 40
         run: |
+          LOG="$RUNNER_TEMP/backend-e2e.log"
+          LIMITE="${E2E_SUITE_TIMEOUT:-35m}"
+          set +e
           set -o pipefail
-          npm run test:integration 2>&1 | tee "$RUNNER_TEMP/backend-e2e.log"
+          timeout --signal=TERM --kill-after=60s "$LIMITE" npm run test:integration 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "colgada=1" >> "$GITHUB_OUTPUT"
+            if grep -qE '^Tests: |Jest did not exit' "$LOG"; then
+              motivo="los tests TERMINARON (jest imprimió su resumen) pero el proceso no salió: handles abiertos (timers, conexiones de BD/Redis, servidores) que la suite no cierra"
+            else
+              motivo="la suite no llegó a imprimir su resumen: un test o un hook se quedó esperando"
+            fi
+            echo "colgada_motivo=$motivo" >> "$GITHUB_OUTPUT"
+            echo "::error title=backend-e2e · LA SUITE SE COLGÓ (timeout ${LIMITE})::${motivo}. Dueño: backend. No es un rojo de aserción: el veredicto de los tests que sí corrieron está en el log (artifact backend-e2e-log)."
+            exit 1
+          fi
+          exit "$rc"
       - name: Anotar cada spec en rojo con fichero y línea (legible por API)
         if: ${{ !cancelled() && steps.tests.outcome == 'failure' }}
         run: |
@@ -407,10 +436,20 @@ jobs:
           O_PRISMA: ${{ steps.prisma.outcome }}
           O_SEED: ${{ steps.seed.outcome }}
           O_TESTS: ${{ steps.tests.outcome }}
+          O_COLGADA: ${{ steps.tests.outputs.colgada }}
+          O_COLGADA_MOTIVO: ${{ steps.tests.outputs.colgada_motivo }}
         run: |
           fase=""; paso=""
           if [ "$O_TESTS" = "success" ]; then
             fase="suite-verde"; paso="Test de integración (E2E backend)"
+          elif [ "$O_COLGADA" = "1" ]; then
+            fase="suite-colgada"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE SE COLGÓ::Superó su presupuesto de tiempo y se cortó: ${O_COLGADA_MOTIVO:-sin motivo}. Dueño: backend (cierre de recursos de la suite). No es un rojo de aserción ni de infraestructura. DEVOPS_NOTES §102."
+          elif [ "$O_TESTS" = "cancelled" ]; then
+            # El paso empezó y lo cortó el respaldo (timeout-minutes del paso o del
+            # job) o una cancelación manual: tampoco es un rojo de aserción.
+            fase="suite-colgada"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE NO TERMINÓ::El paso de tests quedó cancelled (lo cortó el timeout-minutes de respaldo o una cancelación manual) sin que el presupuesto propio de 35 min la nombrara. Dueño: backend si fue cuelgue; revisa el log. DEVOPS_NOTES §102."
           elif [ "$O_TESTS" = "failure" ]; then
             fase="suite-roja"; paso="Test de integración (E2E backend)"
             echo "::error title=backend-e2e · LA SUITE CORRIÓ y falló::Dueño: backend. Los specs en rojo están anotados con fichero y línea en el paso anterior; el log completo en el artifact backend-e2e-log."
@@ -564,6 +603,95 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # 🍪 E2E DE MEDICIÓN (API_CONTRACT §MKT.H.11, Fase 2 de marketing) — BLOQUEANTE.
+  # Dos builds, porque NEXT_PUBLIC_MEASUREMENT_MODE se hornea: `off` corre C-F2
+  # (0 peticiones a hosts de medición, 0 cookies, sin banner) y `on` corre C-F3 y
+  # C-F5 con los terceros INTERCEPTADOS por el spec. Debajo, red de seguridad de
+  # devops: los hosts de medición resuelven a 0.0.0.0 en el runner, así que nada
+  # sale a Google ni a Meta aunque un spec olvide interceptar. Tras la corrida,
+  # C-F1 sobre el MISMO artefacto: off sin el cargador, on con él.
+  # Los specs los escribe frontend con el nombre que fija
+  # scripts/check-measurement-e2e-specs.sh; si falta uno, el job es ROJO (la
+  # excepción PENDIENTE se retiró el 2026-10-19, D6). DEVOPS_NOTES §101.4.
+  # ---------------------------------------------------------------------------
+  measurement-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ["off", "on"]
+    env:
+      NEXT_PUBLIC_MEASUREMENT_MODE: ${{ matrix.mode }}
+      # Config, carpeta de build e IDs de ficción los fija CADA config de Playwright
+      # (`on`: playwright.measurement-on.config.ts); el paso los elige con
+      # scripts/measurement-e2e-run.sh (B2 de QA, run 39202758169).
+      STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - name: ¿Existen los specs de medición?
+        id: specs
+        run: ./scripts/check-measurement-e2e-specs.sh "${{ matrix.mode }}"
+      - uses: actions/setup-node@v5
+        if: steps.specs.outputs.run == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install deps frontend
+        if: steps.specs.outputs.run == 'true'
+        working-directory: frontend
+        run: npm ci
+      - name: Instalar Chromium de Playwright
+        if: steps.specs.outputs.run == 'true'
+        working-directory: frontend
+        timeout-minutes: 25
+        run: |
+          set -uo pipefail
+          for intento in 1 2 3; do
+            if timeout 420 npx playwright install --with-deps chromium; then break; fi
+            [ "$intento" = "3" ] && { echo "::error title=No se pudo instalar Chromium::3 intentos agotados."; exit 1; }
+            echo "::warning::Intento $intento de instalar Chromium fallido; reintentando."
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+            sleep 10
+          done
+          CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
+          [ -x "$CHROMIUM_BIN" ] || { echo "::error::Chromium no quedó instalado: $CHROMIUM_BIN"; exit 1; }
+          echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
+      # Después de instalar Chromium (su instalación sí necesita red) y antes de
+      # levantar la app: desde aquí ningún host de medición sale del runner.
+      - name: Sumidero de hosts de medición (nada sale a Google/Meta)
+        if: steps.specs.outputs.run == 'true'
+        run: |
+          sudo ./scripts/measurement-egress-sinkhole.sh apply
+          ./scripts/measurement-egress-sinkhole.sh verify
+      # `off` con la config por defecto; `on` con -c playwright.measurement-on.config.ts
+      # (la por defecto IGNORA ese spec: así salió «No tests found» y C-F3/C-F5 no
+      # corrieron nunca). Lista antes de correr: 0 pruebas ⇒ rojo con motivo.
+      - name: E2E de medición (${{ matrix.mode }})
+        id: mkt_e2e
+        if: steps.specs.outputs.run == 'true'
+        run: |
+          # Corre `npx playwright test -c <config del modo>` dentro del script; esta línea deja que
+          # check-e2e-provider-incapacitation.sh siga descubriendo el job como E2E.
+          ./scripts/measurement-e2e-run.sh "${{ matrix.mode }}"
+      - name: C-F1 · el artefacto ${{ matrix.mode }} (mismo build que acaba de medirse)
+        if: steps.specs.outputs.run == 'true' && steps.mkt_e2e.outputs.dist != '' && !cancelled()
+        run: ./scripts/check-measurement-artifact.sh "${{ steps.mkt_e2e.outputs.dist }}" "${{ matrix.mode }}"
+      - name: Subir reporte Playwright
+        if: always() && steps.specs.outputs.run == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-measurement-${{ matrix.mode }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
   # Gate final E2E — DEPLOY-BLOCKING.
   # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+s3-local). El
   # `frontend-e2e` MOCK es INFORMATIVO (§24): su fallo NO tumba este gate ni el
@@ -573,7 +701,7 @@ jobs:
   # queda como red de seguridad y para transparencia en el resumen.
   # ---------------------------------------------------------------------------
   e2e-ok:
-    needs: [detect, backend-e2e, frontend-e2e]
+    needs: [detect, backend-e2e, frontend-e2e, measurement-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -592,15 +720,27 @@ jobs:
             failure)
               case "$FASE" in
                 suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/s3-local). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
+                suite-colgada) echo "::error::backend-e2e: LA SUITE SE COLGÓ — superó su presupuesto de tiempo y se cortó (no es un rojo de aserción). Dueño: backend (handles abiertos / un test que espera). Motivo en la anotación del job. Bloquea el deploy (DEVOPS_NOTES §102)." ;;
                 infra-muerta) echo "::error::backend-e2e NO MIDIÓ NADA: el job murió en «${PASO:-?}» antes de ejecutar la suite. Dueño: devops. Ninguna suite de dinero/acceso corrió. Bloquea el deploy (DEVOPS_NOTES §52)." ;;
                 *)            echo "::error::backend-e2e falló y NO dejó fase (¿el paso de veredicto no corrió?). Dueño: devops. Bloquea el deploy." ;;
               esac
               exit 1 ;;
             *)
-              echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' — no es verde: un gate deploy-blocking que no corre no gatea. Bloquea el deploy."
+              if [ "$FASE" = "suite-colgada" ]; then
+                echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' porque LA SUITE SE COLGÓ y la cortó el límite de tiempo. Dueño: backend. Bloquea el deploy (DEVOPS_NOTES §102)."
+              else
+                echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' (fase=${FASE:-ninguna}) — no es verde: un gate deploy-blocking que no corre no gatea. Si fue por tiempo y no hay fase, el job entero superó su timeout-minutes de 55. Bloquea el deploy."
+              fi
               exit 1 ;;
           esac
           if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
             echo "::warning::frontend-e2e MOCK falló (informativo). NO bloquea el deploy. Ver DEVOPS_NOTES §24."
           fi
-          echo "E2E gate OK (backend-e2e verde)."
+          # Fase 2 de marketing (C-F2/C-F3/C-F5 + C-F1 on): BLOQUEANTE. Es un candado de
+          # privacidad, no una señal de UI: un rojo aquí es medición donde no debe haberla.
+          echo "measurement-e2e (bloqueante): ${{ needs.measurement-e2e.result }}"
+          if [ "${{ needs.measurement-e2e.result }}" != "success" ]; then
+            echo "::error::measurement-e2e terminó en '${{ needs.measurement-e2e.result }}'. Candado de privacidad de la Fase 2 (DEVOPS_NOTES §101.4). Dueño: frontend si falló el spec o C-F1; devops si murió la infraestructura. Bloquea el deploy."
+            exit 1
+          fi
+          echo "E2E gate OK (backend-e2e y measurement-e2e verdes)."

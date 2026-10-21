@@ -144,6 +144,9 @@ export class GuestSessionDto {
 
   @IsOptional() @IsIn(['es', 'en']) locale?: 'es' | 'en';
 
+  /** v1.102⟨mkt-fase2⟩ (§MKT.H.2): ver `SessionDto.measurement`. ⛔ Nunca 400 por este campo. */
+  @IsOptional() measurement?: unknown;
+
   /** Aceptación explícita de ventas finales + aviso de privacidad. Debe ser literalmente `true`. */
   @IsBoolean() @Equals(true) acceptedTerms!: boolean;
 

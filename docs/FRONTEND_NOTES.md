@@ -1,8 +1,126 @@
 # FRONTEND_NOTES.md — Marketplace TCG con Bóveda
 
-> Propiedad: **frontend**. Decisiones de implementación del cliente Next.js.
-> Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
-> El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
+> Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
+
+## §MKT2 · Fase 2 de marketing (banner, Consent Mode básico, GA4, píxel) — construida y APAGADA (2026-10-19, base `b95fbbac`)
+
+**Estado vigente.** Norma: `API_CONTRACT §MKT.H` (v1.102), `ARCHITECTURE §14`, `DESIGN_SYSTEM §MKT2-UX`. Con
+`NEXT_PUBLIC_MEASUREMENT_MODE` ausente o distinto de `on` (hoy, en todos los entornos) no hay banner, ni enlace, ni
+cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está en el artefacto** (C-F1).
+- **Interruptor:** `next.config.mjs` (`measurementBuildEnv`) hornea SIEMPRE el modo normalizado (`off`|`on`), los IDs
+  (solo con `on`) y `TH_MEASUREMENT_CSP_CONNECT` (orígenes de `connect-src`, solo con `on`). Cada sitio que decide si
+  entra código de medición compara el literal `process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on'`: el compilador
+  evalúa la rama muerta y no la recorre. Una constante exportada NO sirve (entre módulos no se pliega).
+- **Hosts de etiquetas:** solo en `lib/measurement/loader.ts` (importado con `import()` bajo la guarda, único
+  importador `components/consent/MeasurementProvider.tsx`) y `security/measurement-origins.mjs` (solo lo importa
+  `next.config.mjs`; los `.map` del middleware copian el fuente entero, por eso la lista no vive en `csp.ts`).
+  Candado de fuente `lib/measurement/source-lock.test.ts`; de artefacto, `e2e/measurement-off.spec.ts` (C-F1).
+- **Módulos:** `lib/measurement/*.ts`, `components/consent/*.tsx`, `hooks/useStickyBottomBar.ts` (`usePublishedHeight`: barras
+  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido).
+- **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
+  `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
+  escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
+  espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
+  `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
+  imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
+  version=…`. `npx next build` directo solo pasa la mínima de `next.config.mjs` (D7).
+  **Límite aceptado (QA menor 1, 2026-10-19):** la mínima mira SOLO la declaración (`measurement-disclosure.ts`); un aviso
+  con declaración bien formada que aún diga «No usamos cookies…» pasa `npx next build`. No se copia la lista de términos:
+  la mínima lee ficheros como texto (un `.mjs` no importa `.ts`) y el aviso es TS con concatenaciones e importaciones, así
+  que medir términos ahí sería una segunda implementación frágil de `measurementNoticeProblems` (falsos verdes/rojos) y
+  tampoco cubriría `ENCENDER_BLOCKERS`. Lo que publica pasa por `npm run build` ⇒ `prebuild` ⇒ puerta completa: Vercel
+  (`vercel build`) y `Dockerfile.frontend:70`, vigilado por devops (`scripts/check-measurement-publish-gate.sh` E1). El
+  único `npx next build` del repo es `scripts/stack-native.sh` (stack local de gates, no publica).
+- **E2E:** `e2e/measurement-off.spec.ts` (C-F2 + C-F1, suite normal, `@real`) y `e2e/measurement-on.spec.ts` (C-F3,
+  C-F5, C-F10, C-F11, C-F12, C-F19) con `npx playwright test -c playwright.measurement-on.config.ts` (bundle de mocks
+  `on` propio en `.next-e2e-mkt-on`, terceros interceptados). Unidad: `ConsentBanner.test.tsx` (C-F8/9/13/14/18),
+  `track.test.ts` (C-F6), `utm.test.ts` + `utm.parity.test.ts` (C-F4; D3, texto del backend), `csp.measurement.test.ts` (C-F7),
+  `measurement-gate.test.ts` (C-D1/C-F17), `consent-i18n.test.ts` (C-F15), `MarketingView.test.tsx` (C-F16).
+- **Decisiones (v1.105, §MKT.H.13):** (1) sin respuesta al banner el objeto `measurement` NO viaja; (2) `no_response`
+  una vez por DOCUMENTO, marca solo en memoria (nada en storage antes de elegir); (3) respuesta por resultado, también
+  desde la 2.ª capa (`bannerResponseFor`: sí/sí ⇒ `accept`, no/no ⇒ `necessary_only`, mixta ⇒ `custom`); cuenta la
+  PRIMERA elección con el banner visible, también desde el pie (QA M2); un cambio posterior, nada; (4) `page_view` solo a GA4; (5) sin `measurementDisclosure` el proveedor queda inactivo salvo en bundles
+  de MOCKS con `NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION`; (6) el botón del aviso, párrafo propio al final de `cookies` (C-D1 lo exige).
+- **Eventos cableados:** `page_view`, `view_item`/`add_to_cart` (fichas), `begin_checkout`, `purchase` (solo `succeeded`,
+  **al final** de `onConfirmed`, tras sesión/carrito/token/`paid`). Sin cablear: FE-MKT2-2. **La medición nunca lanza**
+  (v1.106, TL R1): `trackWith`/`track`/`flushPendingEvents`/`loadMeasurement`/`measurementForRequest` con barrera
+  (`callVendorSafely`, `neverThrow`); candado `checkout/CheckoutMeasurementBarrier.test.tsx`. **Identidad de ítem** (§MKT.H.4,
+  R4): `lib/measurement/item.ts` `measurementItemOf` (`c_`/`s_`/`sc_`), C-F8 = `item.test.ts` (tabla del contrato); paridad con el servidor: `item.cross.test.ts`.
+- **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
+  `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
+  (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend, TL-MKT2b-f).
+  `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
+  Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
+  `sealHiddenRows` del servidor; «Cobertura:» se quita al pintar (QA M3).
+
+## §MKT-SEO-GEO · Páginas de contenido `/preguntas`, `/como-funciona`, `/guias` + `llms.txt` (2026-10-18, base `5524bd69`)
+
+**Estado vigente.** Brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §E4/§E6/§E7 (+ v1 §2.3–2.5, §3.1–3.3).
+Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
+- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual v5 (23 de 24; **P8 retenida**:
+  dice «No autenticamos…» y el brief retira «autenticamos»; vuelve al manual, `HELD_FAQS`). `guides.es.ts` = sección
+  «Caption» de cada `copy.md` (sin emojis ni líneas solo de Instagram, anotadas en `omitted`); la guía NM usa la
+  historia aprobada del 8-oct + P7 porque el carrusel `que-es-nm` está `pendiente-de-aprobación`.
+  `como-funciona.es.ts` solo COMPONE FAQ por id (marketing no tiene texto propio de esa página).
+- **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ (mensual ⇒ 2026-11-11; P19 ⇒ 2026-11-05). Al vencer,
+  la FAQ sale de la página, del `FAQPage`, de `/como-funciona`, del sitemap y de `llms.txt` (`lib/seo-content.ts`,
+  `revalidate = 3600`, fecha en CDMX). **Aviso (R1):** `seo-content.test.ts` «⏳ R1» usa el reloj real y se pone ROJO
+  7 días antes del `validThrough` más cercano (`faqsExpiringSoon`); con los datos de hoy, el **2026-10-29** (P19). Se
+  apaga re-midiendo la FAQ, no tocando la prueba. Una **guía que cita una FAQ vencida se retira entera** (404, fuera
+  del índice, del sitemap y de `llms.txt`; `guideCitationsLive`), p. ej. `que-es-nm` sin P7 desde el 12-nov.
+  Las pruebas de la REGLA (vigencia, canario, guía con cita vencida, sitemap, `llms.txt`) corren sobre
+  `lib/seo-content.fixture.ts` (fechas fijas, inyectado como `ContentSource`); solo «⏳ R1» mira los datos vivos.
+  Renovar las FAQ cada mes no obliga a tocar pruebas (FE-MKT-T1).
+- **JSON-LD:** `/preguntas` `FAQPage` (mismo arreglo que se pinta) · `/como-funciona` y `/guias` `WebPage` · cada guía
+  `Article` · todas `Organization` + `BreadcrumbList`; catálogo ganó `BreadcrumbList`. Canonical siempre `/es/…`
+  (solo hay español; `/en/…` sirve el mismo texto con «available in Spanish only», sin hreflang).
+- **`/llms.txt`** = `app/llms.txt/route.ts` + `lib/llms-txt.ts` (contacto = `GET /support/contact`, tagline de
+  `messages`). Sin «16 %»: la tasa de IVA viaja por publicación (`ivaRatePct`).
+- **Candados:** `lib/seo-content.test.ts` (frases prohibidas en contenido y trinquete en `messages/`, vigencia, sitemap),
+  `_content/content-pages.test.tsx` (DOM = JSON-LD renderizando la página real), `app/sitemap-robots.test.ts`,
+  `lib/llms-txt.test.ts`. Trinquete absoluto: `KNOWN_OFFENDERS` vacío desde el 2026-10-19 (D4a cerrada,
+  «verificamos la condición NM»); toda excepción futura lleva dueño, medición, caducidad y debe seguir ofendiendo.
+  **Trinquete «autentic-»** (`AUTHENTICITY_CLAIM_PATTERNS`, mismo test; HECHOS 2026-10-19 «…cambiar
+  «autenticadas/autenticidad»…»): la tienda dice «verificadas». Excepciones nombradas: `auth.mockNotice` es/en
+  (sesión, sin caducidad) y texto de marketing no reescribible — FAQ **P1** y la guía `carta-pirata-5-senales`
+  («autenticidad y condición») — con caducidad 2026-11-11 (= `validThrough` de P1).
+- **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
+  (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
+
+## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
+
+**Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
+(`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
+`frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
+`src/lib/mock/marketing.ts` (modo demo/e2e de mocks; textos = copia literal del servicio real, cobrada por
+`mock/marketing.parity.test.ts` contra `marketing-analytics.service.ts` y §MKT.G.4); tipos aditivos `Marketing*` al
+final de `src/types/contract.ts`.
+**Contra el stack real: NO CORRIDO** (el backend de §MKT.G se construía en paralelo).
+- **Menú:** «Marketing» en Administración, `superAdminOnly` + `hiddenUnlessSuperAdmin` (§MKT.G.1/.G.7). Sin
+  `SuperAdminOnly` en la página: quien no tiene permiso recibe `403` del servidor y ve el aviso neutro (§MKT-UX.11).
+- **Periodos:** solo los de `GET …/periods` (semana por defecto = `closedWeeks[0]`). La URL guarda `week=YYYY-Www`
+  (semana ISO calculada del `weekStart` del servidor, aritmética de calendario sin reloj) o `month=YYYY-MM`; al
+  servidor se manda `weekStart=`/`month=` tomado de la lista. Un valor de URL que no está en la lista se ignora.
+- **Régimen de celdas:** `ScreenPayload.privacy` (ausente ⇒ `small_cells`). `CellValue` es la única pieza que decide
+  «< 5» / «Oculto» (`null` monetario en fila con `'< 5'`/`'oculta'`, solo en `small_cells`; `'oculta'` siempre) / «—» /
+  dato. Aviso de descargas: `exactNotice` **sustituye** a `helpAlways` con `exact`; ninguno mientras carga. El payload
+  vive solo en la caché en memoria de TanStack (sin persistencia en este proyecto).
+- **Llave del analista:** el claro va de la respuesta del `POST` al `useState` del diálogo **sin `useMutation`**: su
+  `data` quedaba en la `MutationCache` mientras el diálogo estaba abierto (lo cazó el candado UX-MKT-16). Mientras el
+  `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6), y un segundo
+  envío (Enter, botón, «Reintentar») no emite otra llave: guarda síncrona `inFlight` (ref, no el estado `pending`,
+  que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
+- **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
+  `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
+- **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`). El enlace del menú se busca por `href` dentro de `aside nav`, no
+  por nombre: el nombre accesible del súper-admin es «MarketingSúper» y el nombre exacto daba 0 a los dos roles (QA).
+  Positivo en el súper-admin, negativo en el operador con testigo `/admin/m4`; muerde en mocks 3/3 en cada sentido.
+- **Desviaciones conscientes del diseño:** el `h1`/menú salen de `admin.modules.marketing` (candado P66-2), no de
+  `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
+  ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
+  no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
+
 
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
@@ -4619,15 +4737,6 @@ este doc. NO se tocó `api-client.ts` ni `session.ts`. `api.ts` sí (WS-B ya cer
   el botón dispara `triggerPriceIngest` (feedback encolado y single-flight).
 - Preservado `shadow-focus` (Input/Select sin tocar). Gates verdes: lint, tsc, test (248), build.
 
-## WS-D — Quick wins de UX (2026-08-17)
-- **#9 P-13 nav por sesión** (`StorefrontHeader.tsx`): "Mi Bóveda"/"Mis Órdenes" se ocultan sin sesión
-  (público solo Compra/Vender), vía spread condicional en el array `links` (aplica a nav desktop y móvil;
-  `authed` depende de `ready` → sin mismatch de hidratación).
-- **#6 márgenes**: `.gutter` 44→32px (`globals.css`, DS §4.1 "32px+"); canal del label vertical 56→40px
-  (`BuylistView.tsx`, `page.tsx`); quitado `lg:px-10` redundante del aside; header/footer/`VerifyEmailBanner`
-  alineados a `lg:px-8`. `max-w-7xl` intacto (DS §4.4).
-- **#7 placeholder**: "Buscar carta" acortado a "Nombre o número" (`buylist`, `admin.m1`).
-
 ## WS-B — Auto-refresh del access token (sesión no se cae a los 15m) (2026-08-17)
 
 **Problema:** el access token dura `JWT_ACCESS_TTL`=15m; el backend TIENE `POST /auth/refresh`
@@ -4682,14 +4791,8 @@ interceptor **solo corre en modo real**. Los tests mock existentes no se tocan; 
   tocaron. Son ortogonales: keep-alive evita el logout por inactividad durante operaciones largas; WS-B evita
   la caída por **expiración del access token**.
 
-### Pruebas — `lib/api-client.test.ts` (nuevo, 8 casos)
-Ejercitan la rama real mockeando `fetch`: (a) 401 → refresh → reintento OK con el token nuevo + rotación de
-tokens persistida; (b) refresh 401 → sesión limpiada (access+refresh+user) y 401 propagado, sin reintento;
-(c) reintento sigue 401 → sin bucle (exactamente 3 fetch) + sesión limpiada; (d) sin refresh token → 401 tal
-cual; (e) `/auth/login` 401 → sin refresh ni borrado de sesión; (f) 422 y (g) 200 no disparan refresh.
-
-**Gates:** `npm run lint` (0 warnings/errors), `npx tsc --noEmit` (exit 0), `npm run test`
-(**36 archivos, 244 tests** verdes — incluye los 8 nuevos del interceptor), `npm run build` (exit 0).
+**Pruebas:** `lib/api-client.test.ts` (rama real con `fetch` mockeado: refresh+reintento, refresh fallido, sin bucle,
+sin refresh token, `/auth/*` excluido, 422/200 no refrescan).
 
 ## WS-D — 3 quick wins de UX (nav por sesión, márgenes, placeholder) (2026-08-17)
 
@@ -4726,13 +4829,7 @@ aparecen al montar la sesión — mismo patrón ya usado para el botón login/lo
 que compartían el texto largo: `buylist.searchPlaceholder` (`BuylistView`) y `admin.m1.searchPlaceholder`
 (picker de alta de inventario). `catalog.searchPlaceholder` ("Buscar carta…") ya era corto y no se tocó.
 
-### Tests / gates
-- `StorefrontHeader.test.tsx`: ningún test existente asumía las 4 pestañas sin sesión (solo verificaban links
-  públicos y el estado login/logout), así que nada se rompió. Se **añadieron 2 casos** de #9: sin sesión el nav
-  solo muestra Compra/Vender y **oculta** "Mi bóveda"/"Mis órdenes"; con sesión aparecen ligadas a `/vault` y
-  `/orders`.
-- Gates: `next lint` ✓ (0 warnings/errores) · `tsc --noEmit` ✓ · `vitest` **236/236** (35 archivos, incl.
-  paridad i18n) · `next build` ✓ (Compiled successfully). Sin solicitudes al arquitecto.
+**Pruebas:** `StorefrontHeader.test.tsx` («sin sesión el nav público… oculta bóveda y órdenes»; el nav vigente lo fija ese fichero).
 
 ## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
 
@@ -4749,11 +4846,7 @@ El trabajo fue **de claridad de UX**, no contrato nuevo. Solo `frontend/` + esta
 - **i18n (`messages/{es,en}.json`, `admin.m2.catalog`):** cambiada `syncAll` ("Sync de todo el catálogo" →
   **"Importar sets nuevos"** / "Sync entire catalog" → **"Import new sets"**); nueva `syncAllHint` (ES/EN,
   paridad verificada por `i18n-parity`). El resto de claves del bloque intactas.
-- **Tests (`M2View.test.tsx`):** las 3 aserciones que buscaban `/Sync de todo el catálogo/` ahora usan
-  `/Importar sets nuevos/`; nuevo caso "el botón «Importar sets nuevos» dispara syncAllCatalog sin forzar"
-  (verifica `force` ausente/false). El caso del error por set (`/^(Importar|Re-sincronizar)$/`, anclado) sigue
-  sin capturar el nuevo botón. Gates: `lint` ✓ · `tsc --noEmit` ✓ · `vitest` **220/220** (35 archivos, incl.
-  paridad i18n) · `next build` ✓. Sin solicitudes al arquitecto.
+- **Prueba vigente:** `m2/sections/CatalogSyncSection.test.tsx` §32.5a (la sección salió de `M2View`).
 
 ## Gating temprano del flujo de VENDER (buylist) — fix UX del 403 críptico (2026-08-17)
 
@@ -19249,66 +19342,8 @@ deterministas: 22/22 rojas en su prueba objetivo** (FP-1…5, PF-UI-1…4, LP-1,
 Playwright no corrido (encargo). Ruido previo, no tocado: `mockAdminOrderRowAdditions` pisa `status` con `undefined`
 en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3View.test`.
 
-## §85 · **Gate de QA y techlead sobre `4d994c55`**: IMPORTANTE-1 (`MX$NaN` en M3), IMPORTANTE-2 (E2E de §39/§40), MENOR-3, D-7/D-8 (2026-10-04, rama `claude/precios-s5`, base `1b1ab19a`)
+## §85 · Gate de QA y techlead sobre `4d994c55` (2026-10-04) — compactado 2026-10-19: el detalle es histórico (historial del repo, rama `claude/precios-s5`); los arreglos viven en el código y sus pruebas.
 
-**IMPORTANTE-1 — `MX$NaN` en producción (detalle M3 y diálogo de reembolso total).** El detalle (`GET /admin/orders/:id`,
-contrato §11 `AdminOrderDetailDTO`, y errata v1.80.10 F-1) pone el total **solo** en `breakdown.totalCents`; la vista
-leía `o.totalCents` (`M3OrderDetailView.tsx:219`) y el diálogo `detail.data.totalCents` (`RefundOrderDialog.tsx:91`).
-- **Por qué tsc no lo veía:** `AdminOrderDetailDTO extends Omit<AdminOrderDTO,'settledAt'>` heredaba el `totalCents` de
-  `OrderSummaryDTO` (que es de la **fila** de la lista). Ahora el tipo se declara a mano desde el contrato, sin herencia y
-  con `breakdown: BreakdownDTO` obligatorio. Al quitar la herencia tsc marcó **exactamente 3 lectores** (los dos de arriba y
-  el paso `order={o}` del detalle al diálogo) y el mock — no había más.
-- **Lectores:** cabecera ⇒ `o.breakdown.totalCents` (`data-testid="m3-total"`); diálogo ⇒ `breakdown.totalCents −
-  refundedCents`; el detalle pasa al diálogo `refundDialogOrderOfDetail(o)` (proyección con el total del desglose). La fila
-  de la lista sigue leyendo `totalCents` de primer nivel (correcto: la lista sí lo trae).
-- **Mock:** `getAdminOrder` esparcía la fila de la lista (`...order`) ⇒ en local había `totalCents` en la raíz y el defecto
-  no se veía. Ahora proyecta **explícitamente** la forma del contrato; `mockAdminOrderDetailAdditions` aporta el
-  `breakdown` real de cada origen de `m4-ship`. De paso, `definedOnly` evita que un parcial sin origen pise `status` con
-  `undefined` (el ruido `status.order.undefined` que §84 dejó anotado, ya no sale en `M3View.test`).
-- **Mismo patrón en otros sitios (medido con tsc + `rg "\.totalCents" src`):** ninguno. El detalle del cliente
-  (`OrderDetailDTO`) nunca tuvo `totalCents` de primer nivel; los demás lectores son de filas de lista (`OrdersView`,
-  `M3View`, `M6View`, `ClaimableOrdersNotice`) o de retiros, y el contrato sí lo trae ahí.
-- **Prueba que falla con la forma real:** `m3/DetailTotal.test.tsx` sirve un detalle literal del contrato (sin `totalCents`
-  en la raíz): DT-1 cabecera, DT-2 diálogo (`MX$NaN` ⇒ rojo), DT-3 proyección, DT-4 el mock tiene la forma del contrato.
-  **Mutaciones (copia del árbol, deterministas, N=1):** volver a leer la raíz ⇒ **DT-1 y DT-2 rojas** (vitest) y, en un
-  navegador con build de producción, **las 2 specs de §40.2 rojas** con `m3-total` = «MX$NaN»; con la lectura sin
-  `as`, `tsc` da 2 errores TS2339; mock con `...order` ⇒ **DT-4 roja**.
-
-**IMPORTANTE-2 — `e2e/precios-s5.spec.ts`** (10 casos). Censo: `@real` agnósticos — dial de M10 (en real lee la regla
-vigente por API y la **restaura** en `finally`), «ninguna fila ofrece precio final fuera del sellado», tarjeta+filtro de
-«Reembolso por revisar»; `realOnly` — `400` del filtro, `403 MONEY_OUT_FORBIDDEN` del operador, `404`; `mockOnly` — cola
-con motivo (`INV-004204` premium retenida, `INV-000109` sellado), precio final del sellado (⛔ $0, confirmación, sale de
-la cola), reembolso total no enviado (`ord-5008`, sin motivo, total `MX$838.86`) y enviado (`ord-5006`, motivo
-obligatorio sin preselección, nota, motivo a la vista), «Reembolso por revisar» de punta a punta como el dueño (tablero →
-filtro → marca → formulario → confirmar → registro único: formulario y marca desaparecen) y la vista del operador.
-- **Fixtures nuevos (MOCK, marcados en el código):** `ord-5006/5007/5008` (directos de invitado; envíos `shp-7008/7009`
-  `enviado` y `shp-7010` `guia`, ⛔ fuera de la cola de preparar), `ord-5007` con `fullRefundAfterShipment` sin motivo,
-  `workQueue.refundReviews` del tablero (`mockRefundReviewsCounter`, `null` al operador), fila `inv-pub-4`
-  `premium_at_floor` y el sellado `inv-1009` en la cola mientras siga `in_stock` sin precio final.
-- **Hueco declarado, no escondido:** los recorridos de dinero de §40.2/§40.3 **no** tienen versión real: el seed no
-  siembra un directo liquidado con envío `enviado`/`guia` ni un reembolso total tras el envío sin motivo (QA los fabricó
-  con SQL y un `charge.refunded` firmado). Ver solicitudes abajo. Los `needsSeed` vacíos se quitaron: el censo
-  (`e2e-harness.test.ts`) prohíbe un `@real` que se salta solo, y un caso vacío en mock sería un verde que no mide nada.
-- **Corridas (mocks, build de producción, :3471):** el spec solo **9 passed / 1 skipped** (el `realOnly`); con los specs
-  vecinos que leen los mismos fixtures (`admin`, `m4-ship`, `m4-preparation`, `m4-vault-placement`,
-  `admin-m2-sealed-unmapped`, `orders-resume` + el nuevo) **71 passed / 3 skipped**, 0 rojos. **Contra backend real: NO
-  MEDIDO** — `scripts/stack-native.sh` guarda su estado en `.native-stack/` del árbol y reinicia el backend que no sirva
-  el árbol actual; con el agente backend trabajando en este mismo árbol, levantarlo podía tumbar su stack.
-
-**MENOR-3.** SR-UI-1 asevera ahora «nota escrita y SIN motivo ⇒ apagado» antes de «motivo sin nota ⇒ apagado».
-Mutación (quitar `(!shipped || shippedReason !== null)` de `canSubmit`) ⇒ **SR-UI-1 y SR-UI-3 rojas** (N=1, determinista).
-
-**Techlead D-8 (cerrada) / D-7 (deuda).** `m1/sealed-final-price.ts`: `MAX_LIST_PRICE_CENTS` fuera del componente y
-`SEALED_FINAL_PRICE_INVALIDATES`, **una** lista para «tras guardar» y «Recargar» (antes «Recargar» invalidaba 3 de 6
-claves y no refrescaba el panel de «Sellado»). Candados: «techlead D-8» en `SealedFinalPrice.test.tsx` (mutación: lista
-vieja en «Recargar» ⇒ rojo) y `sealed-final-price.test.ts` (cota ↔ `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
-⚠️ No tuve el texto literal de D-8; lo cerré por lo que el código medía (dos listas divergentes y la cota en un componente
-cliente sin ancla). D-7 ⇒ `TECH_DEBT` PS5-FE-D7 (`components/ui` es zona compartida).
-
-**Solicitudes.** (1) **Arquitecto:** declarar en §M1 la cota de `UpdateItemDto.listPriceCents` (`@Max 100_000_000`,
-`backend/src/modules/inventory/dto/inventory.dto.ts:57`); hoy solo la cita `DESIGN_SYSTEM §39`. (2) **Backend (seed
-E2E):** un directo `settled` con envío `enviado`, otro con `guia`, y uno `refunded` con `fullRefundAfterShipment=true` sin
-motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 ## §86 · **Equipo sin correo — `DESIGN_SYSTEM §42` (v4.14) contra el contrato errata v1.80.9 `§M6-U`** (2026-10-04, rama `claude/staff-sin-correo`, base `fe44901e`; código en `5ec85f64`)
 
 > Fuente: `PROJECT §U` (criterios 256–270), `HECHOS.md` 2026-10-04 (c) «misma pantalla de login». Backend **no existía**
@@ -20097,7 +20132,7 @@ entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en l
 2. **`useSupportContact`**: `['support-contact']`, 5 min; mientras carga `contact = null` ⇒ `Skeleton` y «Copiar» apagado
    (⛔ nunca el respaldo antes de tiempo); error ⇒ `SUPPORT_CONTACT_FALLBACK`. Los contactos neutros (confirmación de
    invitado, enlace caducado, pie de `/pedido`) pintan su frase cuando el correo ya llegó. Términos (servidor): `fetch`
-   con `revalidate: 300` en `terminos/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra).
+   con `revalidate: 300` en `lib/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra; movido desde `terminos/` el 2026-10-18, D7, porque `/llms.txt` también lo usa).
    ⚠️ **Siguen con el valor fijo** (fuera de la lista F-9, zonas de buylist/reclamo): `ClaimableOrdersNotice.tsx:118` y
    `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
 3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de
@@ -20241,33 +20276,7 @@ mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 
 **Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
 2640/2640**.
 
-## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (SP-F-8b, solo textos) — 2026-10-05
-
-Rama `claude/hotfix-texto-sellado` desde `production` `3e09685a`. El editor del sellado escribe `listPriceCents`
-(`L`, antes de IVA) y la tienda cobra `P` (IVA trasladado encima); los textos decían «Precio final» y «Se publica en la
-tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DESIGN_SYSTEM §70.5`, rama de sellado) en
-`es.json` y `en.json`. **Sin cambio de conducta**: `{price}` sigue siendo el `L` tecleado y el JSX no se toca.
-
-- **Fuera a propósito:** `storePrice` («En la tienda: {price}») — necesita `resolvedDisplayPriceCents` del servidor,
-  que en `production` no existe; y el sufijo «antes de IVA» en la lectura de la cola / solo lectura
-  (`SealedFinalPrice.tsx:208-212`, `:234-240`), que es JSX, no texto. Ambos van con el stream de sellado.
-- **Cola «Listas para publicar» (`admin.m1.publishQueue.*`, `es.json:1554/1557/1565` y pares `en`)**, cerrada en
-  el mismo hotfix a petición del orquestador: `note` «…un precio a mano, antes de IVA» / «…a hand-set price here,
-  before VAT»; `basis.manual` (va junto a la cifra) «a mano, antes de IVA» / «set by hand, before VAT»;
-  `reason.sealedNoPrice` «…ponle precio.» / «…set a price.». Redacción de frontend con el léxico de D-SP-5;
-  pendiente de que ux-ui la ratifique. Ya no queda «precio final»/«final price» en ninguno de los dos catálogos.
-- **Candado UX-SP-18** (`src/lib/i18n-sealed-final-price-iva.test.ts`): ningún valor de `admin.sealedFinalPrice.*`
-  ni de `admin.m1.publishQueue.*` (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
-  «antes de IVA»/«before VAT». `SealedFinalPrice.test.tsx` actualizada solo en los textos que fijaba; las comprobaciones
-  de ausencia (`/precio final/i`) pasan a los rótulos nuevos (`/^(Poner|Cambiar) precio de /i`, `/Antes de IVA/`)
-  para no quedar vacías.
-- **Mediciones (2026-10-05, árbol vivo):** `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **212/212
-  ficheros, 2551/2551 pruebas** (incluye `i18n-parity`). Mutaciones deterministas N=1 sobre `git archive` del árbol
-  entero (tree `3b0e01ab`): `label` es ⇒ «Precio final (MXN)» deja UX-SP-18 rojo (2/4: «ningún texto» es + `label`);
-  `rowLabel` en ⇒ «Final price» + `effectPublish` en viejo ⇒ rojo (2/4: «ningún texto» en + `effectPublish`). Copia borrada.
-- **Segunda pasada (`publishQueue`, 2026-10-05):** tsc 0 · lint sin avisos · Vitest **212/212, 2554/2554** (load ~15-20
-  con 4 CPU; sin rojos). Mutaciones N=1 sobre `git archive` del tree `795f4d90`: `basis.manual` es ⇒ «precio final a
-  mano» ⇒ rojo (2/7); `note` en ⇒ «…hand-set final price here.» ⇒ rojo (1/7). Copia borrada.
+## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (2026-10-05) — compactado 2026-10-19: el detalle es histórico (historial del repo, rama `claude/hotfix-texto-sellado`); el texto vigente vive en `messages/*.json`.
 
 ## §102 · **SP-F — el precio del sellado es del PRODUCTO** (`DESIGN_SYSTEM §70` v6.1 + `API_CONTRACT §M11-SP` v1.83 / v1.83.1 §M11-SP.12 / v1.83.2 §M11-SP.13) — 2026-10-05, rama `claude/precio-sellado`, base `66b72c15`
 
@@ -22234,3 +22243,166 @@ Lo sirve ahora el frontend como route handler del App Router **FUERA del i18n**
 **Medido por mí (2026-10-14, sobre `d93f7d4` + estos cambios):** `npm run typecheck` **limpio**; `eslint` de los ficheros tocados **sin avisos**; suite m7 **41/41** (incluye 6 nuevas); **suite completa 4329 passed / 10 skipped / 334 files** (los «Not implemented: navigation» de jsdom son avisos preexistentes de otras suites, no fallos). ⚠ **NO MEDIDO por mí:** el P&L con `statement` real del backend (otro agente lo construye en paralelo en `backend/`); mi path `statement` se midió con fixture inyectado. Lo cierra el E2E de QA contra el stack con backend mergeado.
 
 **Huecos de contrato: ninguno nuevo.** Todo el consumo (`statement` aditivo en `GET /admin/finance/pnl`; `totals` de `GET /admin/reports/sales`) está en el contrato `§M10-IVA.8-bis`. El rótulo de captura ya viajaba en `§M10-IVA.8-bis (A)` + `DESIGN_SYSTEM §PNL-IVA`.
+
+---
+
+## §MKT tienda · §A1 quitar «valor de mercado» de la ficha pública + §A2 botón COMPRAR en la primera pantalla móvil (2026-10-16, rama `feat/mkt-tienda`)
+
+Dos cambios de UI pura (sin cambio de contrato ni de tipos) en las DOS fichas públicas de storefront:
+`catalog/[cardId]/CardDetailView.tsx` y `sellado/[inventoryItemId]/SealedDetailView.tsx`. Fuente:
+brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A1 (MKT-26a) y §A2 (MKT-26b);
+decisión D2=A del dueño (2026-10-16, HECHOS:65).
+
+### §A1 — retirada de «Valor de mercado» (solo deja de renderizar; el DTO lo sigue trayendo)
+- **Carta:** se eliminó la celda `marketValue` de `FactGrid` (antes gateada por `priceBasis==='market' ∧
+  referenceDisplayCents entero > 0`), su nombre accesible (`role=group`/`aria-labelledby`) y la fecha de
+  captura. `Precio de venta` ocupa SIEMPRE la fila completa (`fullRow: true`). La nota al pie usa SIEMPRE
+  `card.referenceExplainerNoMarket`; nunca `referenceExplainerWithMarket` («…para que los compares tal
+  cual»). Se retiraron del componente: `referenceDisplayCents`, `showMarketValue`, `useId`, `formatDate`,
+  `captured`.
+- **Sellado:** se eliminó la celda «Valor de mercado» (rótulo `sealed.detail.marketValue`, cifra con IVA,
+  fecha, nombre accesible). «Desde» ocupa SIEMPRE la fila completa. Se CONSERVÓ el predicado
+  `showMarketValue`/`referenceDisplayCents` **solo para gobernar la «Tendencia de valor»** (gateada por
+  `trendEnabled`, §MIV.3) — la tendencia NO es parte de A1 y queda intacta. Se retiró `cn`, `useId`,
+  `formatDate`, `captured` del componente.
+- Las claves `card.referenceExplainerWithMarket`, `catalog.marketValue` y `sealed.detail.marketValue`
+  siguen en `messages/*.json` (su retiro de catálogo lo evalúa ux-ui; no es cambio de tienda).
+
+### §A2 — barra de compra FIJA en móvil (precio + «IVA incluido» + COMPRAR sin scroll)
+- Patrón elegido: **barra fija al pie** (`fixed inset-x-0 bottom-0 z-40 lg:hidden`, con
+  `pb-[max(0.75rem,env(safe-area-inset-bottom))]`), consistente con el FAB móvil del storefront
+  (`SellCartFab`, z-40) y el header (`sticky top-0 z-40`). Se descartó reordenar el DOM porque la imagen
+  de la carta llena el alto en móvil y porque mover «Ejemplares disponibles» arriba del bloque PSA
+  violaría `DESIGN_SYSTEM §22.3`.
+- Lleva el precio «desde» del grupo primario (`groups[0]` en carta; `fromPriceCents` en sellado), su
+  rótulo de IVA vía `IvaLabel` (único sitio que rotula la convención, §M10-IVA.3) y el CTA de compra.
+  Solo se pinta con ≥ 1 unidad a la venta (carta: el grupo primario tiene piezas `sellable`; sellado:
+  `availableCount > 0`). `data-testid="mobile-buy-bar"`.
+- La barra usa copy PROPIO para no colisionar —ni en pantalla ni para lector de pantalla— con los botones
+  del cuerpo: `catalog.addToCart` («Añadir al carrito») / `catalog.viewCart` («Ver carrito»), distintos de
+  los `buyNow`/`inCart` por variante (carta) y de `sealed.detail.addToCart`/`goToCart` (sellado). En ≥ lg
+  la barra se oculta: ahí el precio y el CTA ya entran arriba, a la derecha del arte.
+
+### Tests
+- Las suites §MIV de las dos fichas (`*.miv.test.tsx`) y los bloques §21.8 de las bases se reconvirtieron
+  en LOCKS de A1: con los mismos datos de servidor que antes encendían el mercado, ahora muerden que el
+  bloque **NO** se monta (es/en, raw/gradeada/sellado, market/floor/override). Se añadieron tests de §A2
+  (barra `fixed bottom-0 lg:hidden` con precio+IVA+CTA; agrega al carrito; no aparece sin stock; el precio
+  va antes del bloque PSA en el DOM).
+- `src/test/miv-locks.test.ts`: el lock «la ficha de carta lee `referenceDisplayCents`» se invirtió a «ya
+  NO lo lee» (A1); el sellado y la tendencia siguen leyéndolo.
+
+### Medido por mí (2026-10-16)
+- `npx tsc --noEmit` **limpio**; `eslint` de los 6 ficheros tocados **sin avisos**.
+- Vitest de las 4 suites de ficha: **47/47**. Directorios `catalog` + `sellado` + `src/test`: **234/234**.
+- **Criterio grep §A1** (`grep -i "valor de mercado" = 0` en el HTML de 3 fichas renderizadas): **NO
+  MEDIDO** por mí (no levanté la app). Fijado por tests de componente: el bloque no se monta. ⚠ El bloque
+  «Tendencia de valor» del sellado (feature-flag `trendEnabled`) **sí** rotula «valor de mercado de
+  referencia»; si está encendido en la ficha de sellado del grep, daría coincidencias — fuera del alcance
+  de A1 («quita solo ese bloque»); ver PROJECT §MIV.2 A3 / P-MIV-6. Lo mide el gate.
+- **Criterio viewport §A2** (iPhone 13 390×664: borde inferior del botón ≤ 664px; precio con «IVA
+  incluido» visible sin scroll): **NO MEDIDO** por mí (requiere Playwright con la app levantada, coste
+  alto). Por construcción, una barra `fixed bottom-0` queda pinada al pie del viewport con el precio y el
+  CTA dentro. Lo verifica el gate (Playwright) y el evento `buy_button_visible` (§B2).
+
+### E2E de ficha actualizados a D2=A (ABIERTO del A1 — RESUELTO 2026-10-16, OLA 1 SSR/SEO)
+Las aserciones de FICHA que afirmaban «valor de mercado»/`referenceExplainerWithMarket` VISIBLES se
+cambiaron **quirúrgicamente** a «no presente» (`toHaveCount(0)`), al comportamiento correcto de D2=A. ⛔ No
+se debilitó ni se borró ninguna parte ajena a la ficha (bóveda/buylist siguen intactas).
+- `catalog.spec.ts`: el `@real` «la ficha coincide consigo misma» pasó a «la ficha pública NO muestra valor
+  de mercado»: `catalog.marketValue` y `referenceExplainerWithMarket` → `toHaveCount(0)`, y
+  `referenceExplainerNoMarket` → **visible** (CardDetailView lo renderiza SIEMPRE ahora). El test
+  `distingue valor de mercado…` y el de inglés: mismos flips.
+- `miv-market-iva.spec.ts` (solo la **parte de ficha** del `@real MIV-E1`): pasos (a) carta, (d) sellado y
+  (f) inglés — el grupo accesible «Valor de mercado …» → `toHaveCount(0)`; se añadió que ni el neto ni el
+  mercado-con-IVA aparezcan en `main`. (d) **conserva** la verificación de la «Tendencia de valor» (sigue
+  viva con spread). ⛔ NO se tocó el paso (e) «Vender» (buylist) ni (b) carrito, ni las aserciones de API
+  (`sealedMarketCase` lee el DTO, que SÍ sigue trayendo `referenceValue`/`referenceDisplayCents`).
+- `pricing-curve.spec.ts`: el `@real` que exigía que ALGUNA ficha publicara el mercado se **invirtió** a
+  «NINGUNA lo publica» (block=false, explainer='no' en cada ficha; N>0 para no pasar en vacío). El test de
+  sellado por SPREAD: la celda `sealed.detail.marketValue` → `toHaveCount(0)`, la `sealed.trend.title`
+  sigue **visible**. El test de OVERRIDE (ya afirmaba ausencia) y `§21.8f` (tejas de Compra) quedan igual.
+  Se actualizó el doc del módulo para que no describa el bicondicional retirado.
+- **Verificación:** las aserciones reflejan el comportamiento que miden los tests de componente (ya verdes).
+  El VERDE total de estas specs `@real`/mock necesita Playwright + stack ⇒ lo corre **el gate QA**
+  (O-1: no lo afirmo como medido).
+
+---
+
+## §MKT tienda · §A3 ficha de sellado en SSR + §A4 og/title/JSON-LD + §E1 sitemap/robots/canonical (2026-10-16, rama `feat/mkt-tienda`, OLA 1)
+
+Fuente: brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A3/§A4/§E1/§E3; contrato `§MKT.A/.B`;
+backend `BACKEND_NOTES §MKT` (commit `2f93f36`, campos `pricedAsOf`/`ogImageUrl` + `GET /catalog/sitemap`).
+
+### §A3/§A4 — las DOS fichas pasan a SSR con `generateMetadata`
+- **Patrón de URL (decisión del arquitecto, §MKT.A):** se CONSERVA `/{locale}/sellado/<inventoryItemId>`
+  (ruta viva) y `/{locale}/catalog/<cardId>`. ⛔ No se creó `/{locale}/catalog/sealed/<id>` (el 404 de
+  marketing era esa ruta inexistente).
+- **Patrón adoptado:** `page.tsx` server-component con `generateMetadata` + render de JSON-LD; el cuerpo
+  sigue siendo la vista cliente (`SealedDetailView`/`CardDetailView`, react-query, carrito). El layout de
+  `[locale]` ya fuerza render por petición (lee `headers()`), así que la ruta es **SSR** (`ƒ Dynamic` en
+  `next build`, medido), no SSG. `generateMetadata` y la página comparten UNA sola lectura vía
+  `React.cache()` (`src/lib/catalog-ssr.ts`), tolerante a fallo: si el backend no responde, metadata
+  mínima (solo canonical) y el cuerpo cliente resuelve su propio estado — ⛔ la ruta no se cae.
+- Las fichas de carta ya eran clientes puros (sin SSR); ahora AMBAS tienen SSR, como pide A4.
+- «Disponible»/stock: sin cambio; nunca se imprime la cantidad. El JSON-LD usa `availability=InStock` solo
+  si `availableCount>0` (carta: suma de `stockCount` de los listados), si no `OutOfStock`.
+
+### §A4/§E3 — og/title/JSON-LD en el HTML del servidor (helpers puros en `src/lib/seo.ts`)
+- `<title>`/`og:title` = «<Nombre> · <Set> <nº> | TCG HUNT» (carta) / «<Producto> | TCG HUNT» (sellado).
+  **Sin precio** (las vistas previas cachean días).
+- `meta description`/`og:description` (≤155): condición + «desde MX$<precio> IVA <tasa> % incluido · precio
+  al <pricedAsOf>» + «Verificamos la condición». Sin precio/fecha ⇒ se omite el tramo de precio.
+- `og:image` = `ogImageUrl` (absoluta); si `null`, se **omite** og:image. ⛔ NO se afirma ≥1200×630 (hoy la
+  «large» de pokemontcg.io ~734×1024, §MKT.F — decisión de JC pendiente).
+- `og:url`=canonical absoluto, `og:site_name`=«TCG HUNT», `twitter:card=summary_large_image`.
+  `metadataBase` se fija a `SITE_URL` por página.
+- **JSON-LD** (`@graph`): `Product`+`Offer` (`priceCurrency:MXN`, `price`=precio con IVA en pesos,
+  `availability`, `priceValidUntil` = **`pricedAsOf` + 7 días**, `url`=canonical) · `Organization` (name
+  «TCG HUNT», url) · `BreadcrumbList` (Inicio → Compra/Sellado → ficha). Se inyecta con
+  `components/seo/JsonLd.tsx` (lleva el **nonce** de la petición, porque la CSP gobierna todo `<script>`; `<`
+  escapado).
+- **`Organization.sameAs` a Instagram: NO MEDIDO.** No hay handle de Instagram en el código del sitio
+  (`lib/brand.ts`, footer, legal — buscado 2026-10-16). `INSTAGRAM_URL=null` en `seo.ts` ⇒ el `sameAs` se
+  **omite** (⛔ no se inventa una URL). Solicitud al arquitecto/dueño abajo.
+
+### §E1 — sitemap.xml, robots.txt, canonical
+- `src/app/sitemap.ts` (App Router): páginas estáticas públicas existentes (portada, catálogo, sellado,
+  accesorios, meta-decks, cotizador, términos, privacidad) + una entrada por ficha a la venta desde
+  `GET /catalog/sitemap` (`getSitemap()` en `lib/api.ts`, con mock). §E4/§E6 (`/como-funciona`,
+  `/preguntas`, `/guias`): ver §MKT-SEO-GEO arriba (2026-10-18). `revalidate=3600`; resiliente (si el backend
+  no responde, salen solo las estáticas). URLs con el locale por defecto `es` (canonical de cada ficha).
+- `src/app/robots.ts`: `allow:'/'` + `Sitemap:` → `<SITE_URL>/sitemap.xml`; bloquea SOLO cuenta, checkout/
+  compra, órdenes, envíos, bóveda, pedido-invitado, auth, admin y `/api/` (comodín de segmento para ambos
+  locales).
+- `canonical` absoluto añadido en portada (`(storefront)/page.tsx`, ahora envoltorio server de `HomeView`),
+  catálogo (`catalog/page.tsx`, canonical SIN query) y las dos fichas.
+
+### Config nueva
+- `NEXT_PUBLIC_SITE_URL` (opcional) gobierna la base absoluta de canonical/og/sitemap; por defecto
+  `https://tcghunt.mx` (dominio de producción). Lo puede fijar devops por entorno.
+
+### Tipos y mocks
+- `src/types/contract.ts`: `pricedAsOf?`/`ogImageUrl?` añadidos a `SealedGroupDTO` y a la RAÍZ de
+  `GroupedListingDetailResponse` (opcionales **por resiliencia** de tipo; el backend actual los manda
+  SIEMPRE en la ficha). Nuevo `SitemapResponse`/`SitemapEntry` (§MKT.B). ⛔ NO en las rejillas.
+- `src/lib/mock/fixtures.ts`: los 3 grupos de sellado y `mockGroupedDetail` ganan `pricedAsOf`/`ogImageUrl`;
+  nuevo `mockSitemap()` (cartas vendibles + grupos de sellado).
+
+### Medido por mí (2026-10-16)
+- `npx tsc --noEmit` ⇒ **limpio**.
+- `npx eslint` de los 16 ficheros tocados ⇒ **sin avisos**.
+- `npx vitest run` de `seo.test.ts` + `page.test.tsx` ⇒ **12/12**; `api.test.ts` + 4 suites de ficha ⇒
+  **110/110**.
+- `npx next build` ⇒ **OK**: `/[locale]/catalog/[cardId]` y `/[locale]/sellado/[inventoryItemId]` salen
+  `ƒ (Dynamic) server-rendered on demand` (SSR confirmado); `/robots.txt` y `/sitemap.xml` generados.
+- **NO MEDIDO por mí (lo hace el gate QA con stack+navegador):** `curl` 200 a 3 fichas de sellado con og
+  en el HTML; descripción con «IVA incluido»+«precio al <fecha>»; `curl /robots.txt` 200 con `Sitemap:`; el
+  sitemap lista ≥1 URL por ficha a la venta; Prueba de resultados enriquecidos de Google sin errores;
+  viewport §A2. (O-1: no lo afirmo como medido.)
+
+### Solicitud al arquitecto / dueño
+- **Handle de Instagram para `Organization.sameAs`**: no existe en el código del sitio (NO MEDIDO). Si el
+  dueño lo tiene, fijarlo (p. ej. `INSTAGRAM_URL` en `seo.ts` o una config) y el `sameAs` se publica solo.
+- **§MKT.F abierto (de JC):** variante de imagen ≥1200×630 para `og:image` (hoy ~734×1024). Mientras, se usa
+  la «large» tal cual (WhatsApp/Twitter degradan con gracia).

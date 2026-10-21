@@ -7,6 +7,39 @@
 
 ---
 
+## Frontend · 2026-10-19 · §MKT.H Fase 2 (construida apagada) — base `b95fbbac`
+
+> Dueño del código anotado: **frontend**. Toca el checkout solo para leer (evento `purchase`). Medido el 2026-10-19. TL-MKT2b-* y QA-MKT2b-*: veredictos de techlead y QA sobre `47eb1dea`. FE-MKT2-1 (cerrada) sale: su comprobación sigue viva en `source-lock.test.ts`. TL D3/D4/D7/D8 (2026-10-19) se cerraron sin ficha: `utm.parity.test.ts`, `ConsentBanner.test.tsx` «D4», `next-config-measurement-gate.test.ts`, `useStickyBottomBar.test.tsx`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-MKT2b-a | CERRADA · `itemsFromQuote`/`centsToValue` se evaluaban fuera de la barrera (también con `off`): una `card: null` salía de `onConfirmed`/`handleMockPay` como rechazo sin capturar | frontend | 2026-10-19 | `checkout/CheckoutMeasurementBarrier.test.tsx` «TL-MKT2b-a» (cuenta e invitado: el pago termina y `unhandledRejection` queda vacío) + `lib/measurement/ecommerce.test.ts` (con `off` no lee la cotización) verdes |
+| TL-MKT2b-c | CERRADA · FE-MKT2-4 / `LEGACY_NULL_HIDDEN_COMPAT` borrada de `MarketingTable.tsx`: `sealHiddenRows` (backend) ya sella todo `null` de fila oculta, y ni el panel ni `modules/marketing` del backend están en `production` (`ls-tree -r origin/production` ⇒ 0 ficheros de cada uno, 2026-10-19): no hay servidor pre-v1.106 con el que convivir. El mock sella igual | frontend | 2026-10-19 | `grep -c LEGACY_NULL_HIDDEN_COMPAT 'frontend/src/app/[locale]/(admin)/admin/marketing/MarketingTable.tsx'` ⇒ 0; `MarketingTable.test.tsx` «null en una fila suprimida ⇒ «—» …» y `mock/marketing.parity.test.ts` «C-P1 · el mock sirve las filas suprimidas selladas» verdes |
+| TL-MKT2b-e | CERRADA · `measurementDisclosureProblem` eximía `on` + `USE_MOCKS=true` también con `VERCEL_ENV=production` | frontend | 2026-10-19 | `lib/next-config-measurement-gate.test.ts` «on + MOCKS en Vercel production o preview ⇒ problema» y «TL-MKT2b-e · … ⇒ lanza (rc ≠ 0)» verdes |
+| TL-MKT2b-f | CERRADA · `ENCENDER_BLOCKERS` vacía: entran MKT-F2-3 y MKT-F2-4 (backend). MKT-F2-4 queda BLOQUEANTE: el formato (ARCHITECTURE §14.1 D-MKT2-0c) no tiene estado «cumplida»; sale en el commit que cierre su ficha backend con la medición de QA (2026-10-19 sobre `47eb1dea`) | frontend | 2026-10-19 | `content/legal/measurement-gate.test.ts` «… MKT-F2-3 y MKT-F2-4 (backend) ⇒ … rojo por esos dos» y «TL-MKT2b-f · con off la puerta sigue verde» verdes |
+| QA-MKT2b-2 | CERRADA · el candado de `neverThrow` era débil (si relanzaba caía 1 de 23 pruebas, ninguna de checkout) | frontend | 2026-10-19 | `CheckoutMeasurementBarrier.test.tsx` «TL-MKT2b-a» (las dos) se ponen rojas con `neverThrow` relanzando |
+| QA-MKT2b-1 | ACEPTADA (límite) · la C-D1 mínima de `next.config.mjs` no mide los términos del aviso; la completa (`prebuild`) sí, y es la que corre al publicar | frontend | 2026-10-19 | razón y rutas en FRONTEND_NOTES §MKT2 «Límite aceptado»; se reabre si aparece un camino de publicación con `next build` directo: `grep -rn "npx next build" .github Dockerfile* vercel.json frontend/vercel.json` ⇒ 0 |
+| FE-MKT2-4 | CERRADA (TL-MKT2b-c, 2026-10-19) · compatibilidad pre-v1.106 en `cellMeaning` | frontend | 2026-10-19 | ver TL-MKT2b-c |
+| FE-MKT2-2 | ABIERTA · Eventos de §MKT.H.4 sin cablear: `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (la lista cerrada de `track.ts` ya los admite) | frontend | 2026-10-19 | `grep -rnE "track\\('(select_content|buy_button_visible|add_payment_info|click_contact|search)'" frontend/src --include=*.tsx` ⇒ ≥ 1 por evento, con su caso en `measurement-on.spec.ts` |
+| FE-MKT2-3 | CERRADA (v1.105, §MKT.H.13) · El párrafo propio al final del apartado `cookies` es el diseño definitivo; C-D1 exige el apartado | frontend | 2026-10-19 | `measurement-gate.test.ts` «el aviso sin apartado `cookies` ⇒ problema» verde |
+
+---
+
+## Frontend · 2026-10-18 · §MKT tienda + Panel — rechazos del techlead sobre `afd12b82` (R1, D4a, D5, D6, D7) y `62e8250b` (R4, T1, c7)
+
+> Dueño del código anotado: **frontend**. Sin dinero. Medido el 2026-10-18 sobre `afd12b82`, `62e8250b` y sus pases.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| FE-MKT-R1 | CERRADA · FAQ caducaban sin aviso; guía `que-es-nm` se publicaba sin P7 | frontend | 2026-10-18 | `seo-content.test.ts` «⏳ R1» (reloj real, rojo desde 7 días antes del `validThrough` más cercano) + «guía con FAQ vencida» + `content-pages.test.tsx` «R1: … 404» verdes; rojo esperado el **2026-10-29** (P19) |
+| FE-MKT-D4a | CERRADA (2026-10-19, texto del dueño: «verificamos la condición NM», HECHOS 2026-10-19) · Copy «nosotros autenticamos / we authenticate» en `home.sellBody` y `buylist.subtitle` (es+en) | frontend | 2026-10-19 | `KNOWN_OFFENDERS` vacío en `seo-content.test.ts`; el trinquete sobre `messages/` es absoluto (una clave con «autenticamos» lo pone rojo) |
+| FE-MKT-T1 | CERRADA · Canarios y pruebas de vigencia de `seo-content.test.ts` usaban las FAQ vivas (cada renovación mensual obligaba a reescribirlos). Fecha límite 2026-10-18 | frontend | 2026-10-18 | `grep -n "faqsExpiringSoon(" frontend/src/lib/seo-content.test.ts` ⇒ solo la ⏳ R1 sin argumentos (reloj real, datos vivos) y el canario con `FIX.faqs`; vigencia/guía/sitemap/llms sobre `lib/seo-content.fixture.ts`; `content-pages.test.tsx` deriva «ya vencida» de `validThrough` (sin fechas a mano). Canario: renovar todas las `validThrough` un mes ⇒ 41/41 verdes en seo-content + llms-txt + content-pages + sitemap-robots (antes, 2 rojas en content-pages) |
+| FE-DOC-1 | ABIERTA · `docs/FRONTEND_NOTES.md` tiene 22 450 líneas (tope ~1 500) | frontend | 2026-10-18 | `wc -l docs/FRONTEND_NOTES.md` ≤ 1 500 (compactar por release; lo histórico a git) |
+
+- Compactado 2026-10-19: las fichas CERRADAS D5, D6, D7, R4 y C7 y sus notas salen (historial del repo; su comprobación sigue viva en las pruebas citadas allí).
+
+---
+
 ## Frontend · 2026-10-18 · stream «Card Show R3 (rediseño landing)» (rama `feat/cardshow-landing-redesign`)
 
 > Deuda anotada a petición del techlead durante la RONDA 3 del rediseño de `/card-show`. Dueño del código
@@ -16,7 +49,7 @@
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
 | FE-CS-A | Hex de marca sueltos donde ya hay token: barra de anuncio en `page.tsx` (`bg-[#B31217]`, `text-[#F4F1EA]`) y las capas del burst en `card-show.css` (`.cs-flash`/`.cs-ring`/`.cs-debris*`: `#e0353b`, `#f4f1ea`, `#1a1a18`) | frontend | 2026-10-18 | `grep -rniE '#(B31217|E0353B|F4F1EA|1A1A18)' frontend/src/app/card-show/page.tsx frontend/src/app/card-show/card-show.css` **sin contar comentarios ni el array `CONFETTI_COLORS`** ⇒ 0 (todo migrado a `var(--color-accent)`/`--color-accent-fg`/`--hunt-red-on-ink`/`--color-ink`). Disparador: próximo retoque de la landing |
-| FE-CS-B | CERRADA (2026-10-18) · Fuga de animación al desmontar `HeroExplosion` durante la ráfaga | frontend | 2026-10-18 | Cerrada en este pase: ver abajo |
+| FE-CS-B | CERRADA (2026-10-18) · Fuga de animación al desmontar `HeroExplosion` durante la ráfaga (un `.finished.then` creaba una animación infinita tras el cleanup). R3 quitó la flotación perpetua y añadió la bandera `cancelled` | frontend | 2026-10-18 | `grep -n '\.finished' frontend/src/app/card-show/_components/HeroExplosion.tsx` ⇒ 0; el cleanup del `useEffect` pone `cancelled = true`, detiene `controls` y cancela el `raf`; el `loop` abre con `if (cancelled) return;` |
 
 ### FE-CS-A · P3 · Hex de marca sueltos en la barra de anuncio y en las capas del burst (hay token)
 - **Qué es:** la barra de anuncio (`page.tsx`) usa `bg-[#B31217]` + `text-[#F4F1EA]` en vez de los tokens
@@ -30,28 +63,92 @@
   (`var(--color-accent-fg)` / `var(--color-focus-ring)`), no suman al hueco.
 - **Nota sobre `CONFETTI_COLORS`** (`HeroExplosion.tsx`): el canvas pinta con `fillStyle` (string de color),
   no admite `var(--…)`; ese array **queda exento** de la comprobación.
-- **Dueño:** frontend. **Fecha de medición:** 2026-10-18. **Disparador:** próximo retoque de la landing.
-- **Comprobación de cierre:** el `grep` de la tabla ⇒ 0 (fuera de comentarios y de `CONFETTI_COLORS`).
-
-### FE-CS-B · ✅ CERRADA en este pase (2026-10-18) · Fuga de animación al desmontar `HeroExplosion`
-- **Qué era:** la versión R2 arrancaba la flotación perpetua de las cartas en `c.finished?.then(() => run(…))`;
-  si el componente se **desmontaba durante** la salida (~0.55 s), el `.then` corría DESPUÉS del cleanup y creaba
-  una animación `repeat:Infinity` que ya no estaba en `controls` ⇒ nunca se detenía (fuga).
-- **Cómo se cerró (B-1):** R3 eliminó la flotación perpetua (las cartas se **desvanecen y se retiran** con un
-  solo keyframe, sin `.finished.then`), así que estructuralmente ya no puede nacer una animación tras el
-  desmontaje. Además se añadió una bandera **`cancelled`** que el cleanup pone a `true` y que el único trabajo
-  diferido restante (el bucle de confeti con `requestAnimationFrame`) **comprueba antes de reprogramarse o
-  dibujar**. No queda `.then` diferido que cree animaciones.
-- **Comprobación de cierre (verificada):** `grep -n '\.finished' frontend/src/app/card-show/_components/HeroExplosion.tsx`
-  ⇒ 0 (ya no hay encadenado diferido de animación; el campo `finished` salió del tipo `Controls`) **+** el
-  `return () => { cancelled = true; … }` del `useEffect` detiene los `controls` y cancela el `raf`, y el `loop`
-  abre con `if (cancelled) return;`.
 
 ## Backend (dueño: backend)
 
 > Los 3 hallazgos de correctness de dinero marcados como gate de go-live (reserva de checkout atómica,
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
+
+## Backend · 2026-10-16 · §MKT OLA 2 — Panel de Marketing Fase 0 (rama `feat/mkt-tienda`)
+
+> Deudas **no bloqueantes** del núcleo del Panel (Brief 2, API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5). Ninguna
+> toca dinero ni bloquea el DoD de Fase 0 (los indicadores afectados salen «NO MEDIDO» con motivo, no «0»).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| MKT-TD1 ✅ | h1 «Anotaciones de fecha» sin modelo | backend | 2026-10-17 | `marketing-annotations.service.spec.ts` + pantalla (h) con la tabla `h1` medida |
+| MKT-TD2 | c7 lee `shippingAddressSnapshot.state` (texto libre) en cada consulta | backend (+ arquitecto: migración) | 2026-10-18 | columna `Order.shippingStateCode` (catálogo de 32 estados MX) en una migración **+** `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (hoy ⇒ 2, en `c7Dims`) |
+| MKT-TD3 ✅ | 403 cross-route del token | arquitecto (D-MKT-AUTZ) | 2026-10-17 | §MKT.E de `aggregates` sin 403 |
+| MKT-TL1 ✅ | limitador en memoria sin cota | backend | 2026-10-18 | `marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas) |
+| MKT-TL2 | ABIERTA (residuo aceptado con caducidad, SECURITY_NOTES «Vía alternativa») · cruces entre tablas: falta el auditor por ecuaciones (prueba 3, `enforceFamily`, R2 por (tabla, clave, parte), R3b, R4). Hecho: registro de poblaciones (prueba 1) y SEC-MKT-1 | backend | 2026-10-19 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`test/marketing-populations.registry.spec.ts` y `test/marketing-cross-table.audit.spec.ts`). **Caducidad 2026-11-30**: `test/marketing-tl2.expiry.spec.ts` (reloj real) se pone rojo desde ese día mientras esta fila siga abierta |
+| MKT-TL3 ✅ | sin ruta de datos por sesión | backend | 2026-10-18 | `marketing-panel.spec.ts` + `marketing-panel.routes.spec.ts` |
+| MKT-TL4 ✅ | sin camino para emitir/revocar el token | backend | 2026-10-18 | `marketing-tokens.spec.ts` §MKT.G.9 (4)(5) |
+| MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
+| MKT-TL6 ✅ | `weekly-excel` ignoraba `from/to/day/preset` sin semana | backend | 2026-10-18 | `grep -c hasPeriod backend/src/modules/marketing/marketing.controller.ts` ⇒ 0; `marketing-panel.spec.ts` «§MKT.E — weekly-excel» (5 casos ⇒ 400) |
+| MKT-TL7 ✅ (residuo) | candado de `'exact'` solo léxico; notas «< 5» falsas en exact | backend | 2026-10-18 | `@ts-expect-error` de «tipo (D3)» y «estático (D3)» en `marketing-panel-privacy.spec.ts`; «notas de régimen» en `marketing-analytics.service.spec.ts` |
+| MKT-TL7r ✅ | residuo de D3: `as never` / `as unknown as` podían fabricar el régimen exacto sin que el candado lo viera | backend | 2026-10-18 | `marketing-panel-privacy.spec.ts` «estático (MKT-TL7r)»: la lista de `as never` + `as unknown as` en `src/modules/marketing` es `[]` desde TL-MKT-9 |
+| MKT-TL8 ✅ | `YYYY-W53` inexistente se aceptaba (el comentario lo negaba) | backend | 2026-10-18 | `marketing-period.spec.ts` «semana ISO 53» (`2025-W53` ⇒ 400; `2026-W53` válida) |
+| MKT-EQ1 ✅ | `D-EQ-5`: 8 llaves huérfanas de `C-EQ-1` (6 `@Query()` enteros de marketing, `?game=` de card-show ×2) | backend | 2026-10-18 | `enum-query-axes.e2e-spec.ts` verde contra Postgres («ningún `@Query` fuera de las CINCO listas» ⇒ `[]`; REGISTRO 89; filas SELECTOR); canarios clamp-en-vacío (12 rojas) e ignorar-`pantalla` en `panel` (1 roja) |
+| MKT-QA1 ✅ | CORS sin `exposedHeaders`: el navegador ocultaba `Content-Disposition` y el Excel bajaba con nombre por defecto | backend | 2026-10-18 | `test/cors.spec.ts` «expone Content-Disposition» (rojo sin `exposedHeaders` en `src/cors.ts`) |
+| MKT-QA2 ✅ | G-8 de la limpieza abortaba con las 6 tablas de M-82/M-83 sin clasificar | backend (+ arquitecto ratifica en LIMPIEZA_DB §14) | 2026-10-18 | `pdb-limpieza.e2e-spec.ts` contra Postgres: 66/67, G-8 ya no aborta; §9.2 siembra una fila en cada una (`MKT_KEPT`) y exige contenido idéntico. La 67.ª (T-AC3) cae en `cloneSchema` por `SET session_replication_role` sin superusuario, igual que en `production` b40b244 (QA): entorno, no producto |
+| MKT-COV1 | paridad de cifras contra BD real + pipeline HTTP e2e | backend | 2026-10-17 | suite de integración con infra: diferencia 0 endpoint↔export↔BD, `no-store`, registro de acceso, PII=0 en los ficheros |
+| TL-MKT-9 ✅ | `marketing.controller.ts:94` leía `req.marketingToken` con `as unknown as` (la única excepción del candado MKT-TL7r) | backend | 2026-10-18 | `MarketingTokenRequest` exportado por `marketing-token.guard.ts` tipa `@Req()`; «estático (MKT-TL7r)» exige `toEqual([])` (rojo con la línea vieja: `['marketing.controller.ts:94']`) |
+| MKT-RET1 ✅ | la retención de 12 meses de `MarketingAccessLog` (ARCHITECTURE §13.4.4) no tenía job: el plazo era mínimo, no máximo | backend | 2026-10-18 | `integration/measurement.e2e-spec.ts` «§13.4.4 · retención»: fila de 13 meses y de 11 ⇒ queda la de 11; job `marketing-access-log-retention` en `scheduler.service.ts` |
+| MKT-F2-1 ✅ | consultas GA4 por tabla sin definir | arquitecto (v1.105 §MKT.H.9) → backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` (4): forma de cada `runReport` con doble y cálculo de a4, a5, b4, c1, c5, d1, d2, e3; (5) diferidas c2/c3/c4/c8 con su motivo |
+| MKT-F2-2 ✅ | `MeasurementContext.sourcePath` sin productor | arquitecto (v1.105 §MKT.H.13) → backend | 2026-10-19 | `measurement.service.spec.ts` «sin `sourcePath`»: ni en el modelo generado, ni en el SQL de m86, ni en lo que escribe `saveContext` |
+| MKT-F2-3 | `META_GRAPH_API_VERSION = 'v21.0'` NO VERIFICADO vigente para la fecha de encendido | backend (+ dueño mide en «Eventos de prueba» de Meta) | 2026-10-18 | evento de prueba aceptado (2xx) con la versión fijada, anotado con fecha en BACKEND_NOTES §MKT.H; caduca al encender (PENDIENTES MKT-FASE2) |
+| TL-MKT2 ✅ | rechazo del techlead sobre `a1ba4d2e`: R2 cola bloqueada por un destino apagado; D1 post-commit ×3; D2 drenador sin presupuesto; D5 c1 sin agregar por clave; D8 comentarios y `...measurementColumns`; R4 identidad de ítem; C1/C-P1 `null` en filas ocultas | backend | 2026-10-19 | `measurement.drain.spec.ts` «TL-MKT2-R2» y «TL-MKT2-D2»; `measurement.payment-isolation.spec.ts` «TL-MKT2-D1»; `marketing-fase2-v105.spec.ts` «TL-MKT2-D5» y «C-P1»; `measurement.input.spec.ts` «TL-MKT2-D8»; `measurement.item.spec.ts` (C-B10); mutaciones en el commit `f9d678be` |
+| TL-MKT2-D5b | `DimensionRow.money` lleva métricas que no son dinero (vistas, tiempo, CTR, posición): el nombre miente; y `fichaOf` (`marketing-ga4.ts`) copia idiomas y rutas del frontend | backend (+ arquitecto: fuente única de rutas) | 2026-10-19 | `grep -c "money" backend/src/modules/marketing/small-cells.ts` ⇒ 0 (bolsa renombrada a lo que es: «celdas que se ocultan con el conteo») **y** `fichaOf` lee las rutas de una fuente compartida con el frontend (prueba de paridad roja si una ruta cambia en un solo lado) |
+| MKT-F2-4 | C-B11 (CHECK de m86 ⇒ `23514`) y el ciclo «migrar ⇒ reversa ⇒ redeploy» de m86 sin correr contra Postgres por backend en este pase (sin credenciales de la BD local) | backend (lo corre QA u orquestador) | 2026-10-19 | `integration/measurement-context-check.e2e-spec.ts` verde contra Postgres y `prisma migrate deploy` verde tras la REVERSA de m86 (log con el sha) |
+| TD-HND-1 ✅ | la integración no terminaba sola en CI | devops | 2026-10-19 | `e2e.yml:105,372,378` (devops) |
+| TD-HND-2 ✅ | `liveResources` sin caso de socket/servidor | backend | 2026-10-19 | `card-show.counter-store-close.spec.ts` «TD-HND-2» (rojo 10/10 si `liveResources` no recorre `_getActiveHandles`) |
+| TD-HND-3 ✅ | cierre `quit` copiado ×4 | backend | 2026-10-19 | `grep -rc '\.quit()' backend/src` suma 1 (`common/redis-close.ts`); candado en `common.redis-close.spec.ts` |
+| TL-MKT2b-b ✅ | `measurement-item.ts` se ejecuta sin compilar (prueba cruzada del frontend): la restricción «solo `import type`, solo sintaxis que se borra» no estaba escrita y solo la cobraba el vitest del frontend | backend | 2026-10-19 | cabecera «SE EJECUTA SIN COMPILAR» en `measurement-item.ts`; `test/measurement.item-erasable.spec.ts` (AST + `node --experimental-strip-types`): rojo con `enum`, con import de valor y con `import { type X }` |
+| TL-MKT2b-d ✅ | la nota de c1 no decía que «Usuarios» es una suma por idioma (cota alta) ni que «< 5» puede ser falso a la baja | backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` «TL-MKT2b-d» (nota de `small_cells` y de `exact`); rojo si `c1UsersNote` sale de `notes` o cambia el texto |
+
+### TL-MKT2b-b · ✅ CERRADA (2026-10-19) · `measurement-item.ts` solo puede llevar sintaxis borrable
+- **Qué:** `frontend/src/lib/measurement/item.cross.test.ts` importa el fichero en un `node` que solo quita tipos. Un `enum`,
+  un `namespace`, una propiedad de parámetro o un import de valor (también `import { type X }`, que deja `import {} from`)
+  lo rompen, y antes solo se enteraba el vitest del frontend.
+- **Cierre:** cabecera en el fichero + `backend/test/measurement.item-erasable.spec.ts`: (a) AST con la API de TypeScript;
+  (b) ejecución real con `node --experimental-strip-types`, comparada con la versión de ts-jest. Mutaciones medidas
+  (N=3 cada una, deterministas): `enum` ⇒ 2 rojas; `import { readFileSync } from 'node:fs'` ⇒ 1 roja (solo AST: Node la
+  resuelve); `import { pesos } from './measurement-bodies'` ⇒ 2 rojas; `import { type ItemCategory }` ⇒ 2 rojas;
+  restaurado ⇒ 3/3 verdes.
+
+### TL-MKT2b-d · ✅ CERRADA (2026-10-19) · Nota de «Usuarios» en c1
+- **Qué:** c1 junta `/es/…` y `/en/…` (`c1Rows`, `marketing-ga4.ts`); GA4 no da los únicos de la unión. Con número, la cifra
+  es la suma por idioma (cota alta); si ningún idioma llega a 5, sale la del idioma mayor (cota baja), que en `small_cells`
+  es «< 5» aunque la unión llegue a 5.
+- **Cierre:** `c1UsersNote(privacy)` en `marketing-analytics.service.ts` lo dice en llano en las notas de c1 (las dos
+  variantes, según régimen). El contrato (§MKT.H.9) no fija el texto de esa nota. Candado: `marketing-fase2-v105.spec.ts`
+  «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
+  deterministas).
+
+### MKT-TL2 · P3 · Cruces entre tablas del Panel — registro hecho; auditor por ecuaciones pendiente (caduca 2026-11-30)
+- **Qué falta:** la prueba 3 de API_CONTRACT §MKT.H.14 (`test/marketing-cross-table.audit.spec.ts`): auditor propio que, con datos
+  adversarios, falle si una celda con N<5 se despeja cruzando tablas del mismo periodo (E1-E7), y lo que la pone verde en código
+  (`MARKETING_EQUATIONS`, `exposedCells`, `enforceFamily`, R2 por (tabla, clave, parte), R3b y R4).
+- **Hecho (2026-10-19, SEC-MKT-1):** umbral por componente y por sujeto (b1-b3, d1, d3), orden R0, g1 sobre `PAID_ORIGIN`
+  (prueba 2, `marketing-small-cells.by-component.spec.ts`) y registro de poblaciones (prueba 1). Caso c7↔a1: cerrado desde 2026-10-18.
+- **Residuo hasta cerrar:** un cruce entre tablas distinto de SEC-MKT-1 (p. ej. b2 = Σ b1 de una puerta) puede despejar una celda.
+  Latente: b1-b3/g1 solo se calculan con la medición encendida o con datos de consentimiento (SECURITY_NOTES SEC-MKT-1).
+- **Candado de caducidad:** `test/marketing-tl2.expiry.spec.ts` — rojo desde el 2026-11-30 mientras la fila del índice siga abierta;
+  rojo también si se borra la fila o si se marca cerrada sin la prueba 3. La fecha vive en la prueba, no aquí.
+- **Dueño:** backend. **Medido:** 2026-10-19 (seguridad, sonda sobre `bfd91ab2`; registro y SEC-MKT-1 por backend).
+
+### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
+- **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
+  NO la paridad de cifras **contra BD real** (diferencia 0, Brief 2 §6(a)) ni el **pipeline HTTP e2e**: 401/400/429 en el
+  cable, `Cache-Control: no-store` servido, fila escrita en `MarketingAccessLog`, y grep **PII=0** sobre los .xlsx/.csv
+  generados. Todo eso necesita Postgres/Redis/MinIO levantados (no hay aquí).
+- **Impacto:** un error que solo aparezca en la integración (query Prisma mal filtrada, header que no llega, PII que se cuela
+  en el binario) no lo atrapa el unitario de ensamblaje.
+- **Comprobación de cierre:** suite de integración con infra que mida diferencia 0 endpoint↔export↔BD y el pipeline HTTP
+  completo (status, `no-store`, access-log, PII=0 en artefactos).
+- **Dueño:** backend. **Disparador:** stream de UI del Panel (cuando haya infra de integración).
+- **Medido:** 2026-10-17 (QA + techlead, sobre `9d0ed99`).
 
 ## Backend · 2026-10-17 · stream «Card Show R2» (M-84 pivote a leads + M-85 `shardbugs`, rama `r2-cardshow`)
 
@@ -1234,82 +1331,13 @@ aparece, con la bandera SÍ).
   Ruta: `frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx` (+ tejas de singles homólogas).
 
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
-- **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo
-  (no es regresión de Ronda C): **2 tests fallaban / 348 pasaban**. Verde en local/qa.
-- **Causa raíz:** CI levanta un contenedor Redis y **exporta `REDIS_URL`**. Dos suites afirmaban
-  comportamiento "sin Redis" leyendo la variable con `ConfigService.get('REDIS_URL')`, que **cae a
-  `process.env`** → fuga de entorno. Afectadas: `test/health-redis.provider.spec.ts` («sin REDIS_URL:
-  resuelve a null») y `test/scheduler.spec.ts` («sin REDIS_URL: onModuleInit es no-op», gating BE-5/v15-D1).
-- **Fix:** aislar `process.env.REDIS_URL` (guardar/borrar en `beforeEach`, restaurar en `afterEach`) en el
-  bloque que ejerce el caso "sin REDIS_URL". Sin tocar `health-redis.provider.ts` ni `scheduler.service.ts`
-  (el bug estaba en el test, no en el gating). Verificado con y sin `REDIS_URL`: **56 suites / 350 tests
-  verdes** en ambos; `lint`/`typecheck`/`build` verdes. Detalle en `BACKEND_NOTES.md §28`.
-- **Nota de alcance:** los workflows **Security SAST**, **E2E** y **deploy.yml** siguen fallando por causas
-  de **infra/secrets separadas** (dueño **devops/humano**) — fuera del alcance de este fix de backend.
+- backend · fuga de `process.env.REDIS_URL` en `health-redis.provider.spec.ts` y `scheduler.spec.ts`; se aísla en `beforeEach`/`afterEach`. Comprobación: ambas suites verdes con y sin `REDIS_URL` (`BACKEND_NOTES.md §28`). Texto completo en git.
 
-### E2E-1 · Seed E2E no idempotente (doble siembra + estado no reseteado) — RESUELTO (2026-08-16)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo `backend/prisma/seed-e2e.ts` + `backend/package.json`;
-  producción intacta, ningún endpoint tocado).
-- **Síntoma:** el gate **backend-e2e** (`npm run test:integration`) fallaba. Postgres del runner registraba
-  `duplicate key ... "ProcessedStripeEvent_pkey" (id)=(evt_e2e_succeeded_fixed)` y
-  `... "User_email_key" (email)=(customer@e2e.local)` **durante** el `jest`.
-- **Causa raíz — dos capas:**
-  1. **Doble siembra:** `test:integration` corría `npm run seed:synthetic` **standalone** ANTES de `jest`, y
-     además **cada** uno de los 5 `*.e2e-spec.ts` vuelve a llamar `seedE2E()` en su `beforeAll` → 6 siembras
-     por corrida (redundancia). Los dos `ERROR` de Postgres citados son, en una corrida única, **P2002
-     capturados por diseño**: `auth.service.ts:111` (test "rechaza email duplicado" → 409 `EMAIL_TAKEN`) y
-     `payments.service.ts:44` (guard de idempotencia del webhook, test "es IDEMPOTENTE reenvía event.id") —
-     benignos, no son el fallo.
-  2. **Idempotencia CROSS-RUN rota (fallo real):** `seed-e2e.ts` reseteaba estado transaccional **por
-     userId** (orders/shipments/sellRequests/disputes/kyc) pero **NO** el estado E2E que no cuelga de userId:
-     `ProcessedStripeEvent` (id `evt_e2e_succeeded_fixed`) ni `InventoryMovement` de piezas de **plataforma**.
-     En una **2ª corrida** sobre la misma DB, `evt_e2e_succeeded_fixed` ya existía → el webhook hacía no-op →
-     la orden **no** liquidaba (test "el webhook FIRMADO liquida la orden" fallaba); y los movimientos `settle`
-     previos hacían que el assert `settleMovements === 1` contara 2+.
-- **Fix:**
-  1. Se quitó la siembra **standalone** redundante de `test:integration` (ahora `prisma migrate deploy && jest
-     ...`); la siembra queda como **única fuente** en el `beforeAll` de cada spec (`seedE2E`). El script
-     `seed:synthetic` (usado por `scripts/seed-synthetic.sh`/CI staging) **se conserva**.
-  2. `seedE2E` ahora es **idempotente cross-run**: además del reset por-usuario, borra en el paso 3b los
-     `InventoryMovement` de los ítems E2E (por `folio IN E2E_FOLIOS`) y los `ProcessedStripeEvent`
-     (`evt_e2e_succeeded_fixed` + prefijo `evt_e2e`). Todos los fixtures con clave única ya usaban `upsert`
-     (revisado el seed completo: ConfigSetting, User, VaultLocation, CardSet, Card, PriceReference,
-     InventoryItem; Address ya iba con guard `findFirst`). Correr `test:integration` DOS veces seguidas sobre
-     la misma DB ya no rompe.
-- **Verificación (gates sin infra):** `lint` OK, `typecheck` OK, `build` OK, `npm test` **57 suites / 372
-  tests** verdes. El **verde de E2E lo confirma el runner** (egress local bloquea el pull de imágenes Docker
-  de los services). Detalle en `docs/BACKEND_NOTES.md`.
-
-#### E2E-1-bis · La idempotencia de 2026-08-16 era **intra-día**: dos agujeros más — RESUELTOS (2026-08-29, v1.50.3-e)
-- **Dueño:** backend. **Estado:** **RESUELTO** (solo `backend/prisma/seed-e2e.ts` + suites; producción intacta).
-- **Por qué se reabre la entrada:** el fix de E2E-1 afirmaba «correr `test:integration` DOS veces seguidas
-  sobre la misma DB ya no rompe», y era cierto **el mismo día**. QA (BLOQ-A, gate de v1.50.3-d) encontró dos
-  casos que el criterio no cubría, y los dos hacen que **el arnés se rompa por su propia operación**:
-  1. **Entre DÍAS:** la `@@unique` de `PriceReference` incluye `capturedDate` y el seed «actualizaba la fila
-     del día» ⇒ sembrar hoy sobre una BD sembrada ayer **insertaba** una segunda fila de la misma clave
-     lógica (el fixture del slab acababa con dos `graded:PSA:10` y el criterio 8 fallaba en la 2ª corrida).
-  2. **Estado sin `userId`:** los **pedidos de invitado** (v1.21/M-25) no los alcanzaba ningún reset
-     por-usuario y se acumulaban sin límite; al pasar de 100 envíos `picking` históricos, el tope duro de
-     paginación de `GET /admin/shipments` dejó fuera al envío recién creado y el caso de la cola de M4 de
-     `guest-checkout.e2e-spec` empezó a fallar solo en máquinas con historial.
-- **Fix:** `PriceReference` de las cartas del fixture pasa a **borra-y-declara transaccional**, y el seed
-  resetea pedidos/envíos de invitado del dominio reservado `@example.com`. Detalle en
-  `docs/BACKEND_NOTES.md` §0.9.
-- **Lección que sí es deuda de PROCESO (no de código):** en CI la BD es **efímera**, así que esta familia
-  entera sale **verde siempre** y solo muerde a quien verifica en local. Por eso ahora existe un test que la
-  vigila explícitamente: `backend/test/integration/seed-idempotency.e2e-spec.ts`. Cualquier estado nuevo del
-  arnés que **no cuelgue de `userId`** o que dependa de **la fecha** debe entrar ahí a la vez que al seed.
+### E2E-1 / E2E-1-bis · Seed E2E no idempotente (doble siembra, estado sin `userId`, entre días) — RESUELTO (2026-08-16; bis 2026-08-29, v1.50.3-e)
+- backend · `seedE2E` es la única siembra (en el `beforeAll` de cada spec) y es idempotente cross-run y entre días (borra `ProcessedStripeEvent`/movimientos E2E, `PriceReference` borra-y-declara, pedidos de invitado `@example.com`). Comprobación: `test/integration/seed-idempotency.e2e-spec.ts`; todo estado nuevo del arnés sin `userId` o dependiente de la fecha entra ahí a la vez que al seed (`BACKEND_NOTES.md §0.9`). Texto completo en git.
 
 ### BE-1 · La recompra de disputa no ejecuta reembolso Stripe real — RESUELTA/OBSOLETA
-- **Dónde:** `src/modules/disputes/disputes.service.ts` → `resolve(resolution='repurchase')`.
-- **Estado actual (2026-08-13):** **resuelta.** Con la política de **VENTAS FINALES**, la recompra por
-  disputa **ya NO revierte el item al inventario** — el cliente **conserva la carta**. El remedio ahora
-  **compensa dinero al cliente** (money-out) por el precio de recompra y queda **auditado**, con
-  idempotencia; ya no se mueve a mano ni queda solo como texto en `resolution`.
-- **Nota:** entrada conservada como registro histórico. El supuesto original ("revierte el item al
-  inventario" + "solo registra el remedio, sin mover dinero") es **obsoleto**: la política correcta ya
-  está implementada. Ya no aplica como deuda técnica.
+- backend · con VENTAS FINALES la recompra compensa dinero al cliente (auditado, idempotente) y no revierte el item; el supuesto original ya no aplica (`disputes.service.ts#resolve`).
 
 ### BE-2 · TOCTOU en operaciones que aún no son atómicas
 - **Dónde:** `buylist.service.ts` → `convertToInventory` (check `inventoryItemId` + create), asignación de
@@ -1348,15 +1376,7 @@ aparece, con la bandera SÍ).
   y map en memoria, o una vista materializada de "última referencia por combinación".
 
 ### BE-5 · Scheduling BullMQ de los jobs — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/jobs/scheduler.service.ts` + `src/jobs/admin-jobs.controller.ts`.
-- **Estado:** **resuelta.** El scheduler ahora programa **los 7 jobs diarios** repetibles BullMQ
-  (`fx-refresh`, `price-sync`, `portfolio-snapshot`, `ine-retention`, `buylist-sweep`, `dispute-deadline`,
-  `auth-token-sweep`) con `repeat`+`jobId` single-flight y conexión a `REDIS_URL` (sin Redis queda
-  deshabilitado, jobs disparables a mano). Los 4 barridos también son **disparables manualmente** por
-  `POST /admin/jobs/*` (super_admin, auditado). Cubierto con tests (`test/scheduler.spec.ts` mockea
-  bullmq/ioredis; `test/admin-jobs.controller.spec.ts`). Detalle: `docs/BACKEND_NOTES.md §18.1/§18.2`.
-- **Nota:** BE-3 (conversión a inventario del abandono a 30 días en `buylist-sweep`) **sigue diferida** como
-  deuda propia; este pase cableó el `run()` **actual** (7d/30d) sin cambiar su comportamiento.
+- backend · `scheduler.service.ts` programa los 7 jobs diarios (single-flight, sin Redis queda deshabilitado) y los barridos son disparables por `POST /admin/jobs/*`. Comprobación: `test/scheduler.spec.ts`, `test/admin-jobs.controller.spec.ts` (`BACKEND_NOTES.md §18.1/§18.2`). BE-3 sigue abierta aparte.
 
 ### BE-6 · Providers de precio graded/sealed son stubs
 - **Dónde:** `src/modules/pricing/providers/graded-sealed.providers.ts`.
@@ -1388,12 +1408,7 @@ aparece, con la bandera SÍ).
   expiración de reservas `pending` sin PI tras N minutos.
 
 ### BE-8 · CORS `origin: true` en `main.ts` — RESUELTA/OBSOLETA
-- **Dónde:** `src/main.ts` → `enableCors`.
-- **Estado:** **resuelta.** Ya **no** usa `origin: true`. `resolveCorsOrigins()` construye una **allow-list**
-  desde `APP_BASE_URL` (lista separada por comas) con `credentials: true`; fallback seguro a orígenes de dev
-  local (`http://localhost:3000`, `:5173`) — **nunca** un comodín ni reflejo de origen arbitrario. En
-  staging/prod `APP_BASE_URL` DEBE fijarse (coordinado con devops). Entrada conservada como registro
-  histórico; ya no aplica como deuda.
+- backend · `resolveCorsOrigins()` usa allow-list desde `APP_BASE_URL` con `credentials: true`; nunca comodín ni reflejo de origen.
 
 ### Deuda del pase v1.1 (hallazgos QA/techlead sobre alcance v1.1)
 
@@ -1436,19 +1451,10 @@ aparece, con la bandera SÍ).
   memoria, reutilizado por `holdings()` y el job.
 
 ### D4 · Exponer `stripeFeeIvaPct` en el DTO de settings — RESUELTA (pase v1.1)
-- **Dónde:** `src/modules/settings/settings.constants.ts` → `SETTING_DTO_MAP`.
-- **Estado:** **resuelta.** El contrato §M10 ya listaba `stripeFeeIvaPct` en el DTO de `GET/PUT
-  /admin/settings`, pero faltaba en `SETTING_DTO_MAP`. Se añadió con su validador de rango (fracción
-  `[0,1)`) y se cubrió con tests (`test/settings.validation.spec.ts`: lectura vía `getAllDto` +
-  actualización). Ya no es deuda.
+- backend · añadido a `SETTING_DTO_MAP` con validador `[0,1)`. Comprobación: `test/settings.validation.spec.ts`.
 
 ### D5 · Enumeración por temporización en login — RESUELTA (pase v1.1)
-- **Dónde:** `src/modules/auth/auth.service.ts` → `login`.
-- **Estado:** **resuelta.** Antes retornaba temprano (401) si el usuario no existía o si `passwordHash`
-  era null, dejando un canal de temporización (el comentario prometía una mitigación ausente). Ahora se
-  ejecuta **siempre** `argon2.verify` — contra un **hash dummy fijo precomputado** cuando no hay
-  usuario/`passwordHash` null — para igualar la latencia; se mantiene `401 INVALID_CREDENTIALS` y el caso
-  Google intacto. Cubierto con tests (`test/auth.login-timing.spec.ts`). Ya no es deuda.
+- backend · `login` corre siempre `argon2.verify` (hash dummy si no hay usuario/`passwordHash`). Comprobación: `test/auth.login-timing.spec.ts`.
 
 ### Deuda del pase correo v1.5 (hallazgos seguridad — Baja, aceptada)
 
@@ -1458,13 +1464,7 @@ aparece, con la bandera SÍ).
 > autorizó a diferir. IDs prefijados `v15-` para no colisionar con la D1–D3 del pase v1.1 (arriba).
 
 ### v15-D1 · `auth-token-sweep` sin disparador automático — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/jobs/auth-token-sweep.service.ts` + `src/jobs/scheduler.service.ts`.
-- **Estado:** **resuelta.** `auth-token-sweep` (junto con `buylist-sweep`, `dispute-deadline`,
-  `ine-retention`) ya está cableado como job repetible BullMQ en el scheduler (`repeat` + `case` en el worker,
-  cron diario `15 8 * * *`) y también es disparable a mano por `POST /admin/jobs/auth-token-sweep`
-  (super_admin, auditado). La tabla `AuthToken` ya se poda sola cuando hay `REDIS_URL`. Ver BE-5 arriba y
-  `docs/BACKEND_NOTES.md §18`. Nota v15-D2 (claim-luego-lectura no transaccional en `consume`) sigue como
-  deuda propia: al activarse el sweep conviene envolver claim+lectura en tx (ver v15-D2).
+- backend · cableado como job repetible (`15 8 * * *`) y disparable por `POST /admin/jobs/auth-token-sweep`; ver BE-5. v15-D2 sigue abierta aparte.
 
 ### v15-D2 · `AuthTokenService.consume`/`ownerOf`: claim-luego-lectura no transaccional
 - **Dónde:** `src/modules/auth/auth-token.service.ts:53-65` (`consume`) y `:68-75` (`ownerOf`).
@@ -1523,31 +1523,13 @@ aparece, con la bandera SÍ).
 > **no** figura como deuda. Lo de abajo es la deuda no bloqueante que el techlead autorizó a diferir.
 
 ### BE-9 · `createUser` reimplementa a mano la validación de email/password — CERRADA (v1.8-ronda-c)
-- **Dónde:** `src/modules/admin/admin.service.ts` → `createUser` vs. `src/modules/auth` (`RegisterDto` /
-  `ResetPasswordDto`).
-- **Estado (2026-08-16):** **cerrada.** Se centralizaron las reglas en `src/common/validation/credentials.ts`
-  (`MIN_PASSWORD_LENGTH`, `EMAIL_REGEX`, `normalizeEmail`, `isValidEmailFormat`, `isStrongPassword`).
-  `createUser` consume el helper; las DTOs de `auth` usan la constante compartida `MIN_PASSWORD_LENGTH` en
-  sus `@MinLength`. Fuente única → sin riesgo de divergencia. Entrada conservada como registro histórico.
+- backend · reglas centralizadas en `src/common/validation/credentials.ts`, que consumen `createUser` y las DTOs de `auth`.
 
 ### BE-10 · `AdminUserOwnedItemRef` sin `finish` ni `referenceValue` — CERRADA (v1.8-ronda-c)
-- **Dónde:** contrato `docs/API_CONTRACT.md §M6` (`AdminUserOwnedItemRef`); backend `admin.service.ts` →
-  `getUser().ownedItems` / `ownedItemRefs`.
-- **Estado (2026-08-16):** **cerrada.** El arquitecto eligió la opción (a) — enriquecer el ref — en el
-  contrato v1.8-ronda-c. El backend implementó: cada `AdminUserOwnedItemRef` trae `finish` + `productType`
-  + `referenceValue: PriceInfo`, reusando la valuación por-acabado del `HoldingDTO`. Anti N+1 con lectura
-  batch de `PriceReference` por `cardId IN (...)`. Items sin precio → `referenceValue.status="pending"`
-  (no se excluyen: vista 360°). Cubierto en `test/admin.pii.spec.ts`. Entrada conservada como histórico.
+- backend · el ref trae `finish` + `productType` + `referenceValue` (lectura batch de `PriceReference`; sin precio ⇒ `pending`). Comprobación: `test/admin.pii.spec.ts`.
 
 ### B-4 / S-B5 · `approvedPriceCents` sin tope (dinero saliente arbitrario) — RESUELTA (pase P0 jobs de barrido)
-- **Dónde:** `src/modules/buylist/dto/buylist.dto.ts` (`ItemDecisionDto`) + `buylist.service.ts` (`itemDecision`).
-- **Estado:** **resuelta.** Hallazgo B-4 del pentest: `approvedPriceCents` tenía `@IsInt @Min(0)` **sin cota
-  superior** → un `vault_operator` podía aprobar un monto SPEI arbitrario (PoC `99999999`). Defensa en dos
-  capas: (1) DTO `@Max(1_000_000)` (MX$10,000, cota dura de sanidad → 400); (2) server-side
-  `assertApprovedPriceWithinCap`: monto efectivo ≤ **min(`quotedPriceCents` × 2, tope por solicitud
-  `buylist_cap_per_request_cents`)**; excede → `APPROVED_PRICE_CAP_EXCEEDED` (422). No rompe SEC-A1 ni el
-  flujo de aprobación normal (aprobar el cotizado o ajuste ≤ 2× pasa). Cubierto con
-  `test/buylist.approved-price-cap.spec.ts`. Ver `docs/BACKEND_NOTES.md §18.3`.
+- backend · DTO `@Max(1_000_000)` + `assertApprovedPriceWithinCap` (≤ min(cotizado × 2, `buylist_cap_per_request_cents`) ⇒ si no, 422 `APPROVED_PRICE_CAP_EXCEEDED`). Comprobación: `test/buylist.approved-price-cap.spec.ts` (`BACKEND_NOTES.md §18.3`).
 
 ### Delta rama `claude/git-repo-review-c67xyk` — review techlead (2026-08-17, no bloqueante)
 
@@ -9357,16 +9339,9 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   deshabilita el verbo). Candado estático: `rg -n "function (Confirm(Modal|Dialog)|FxConfirmDialog)" frontend/src/app`
   ⇒ **0** (hoy 3).
 
-### PS5-FE-D8 · ✅ CERRADA en este pase (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
-- **Dónde era:** `m1/SealedFinalPrice.tsx` exportaba la cota desde un componente `'use client'` y tenía DOS listas de
-  claves a invalidar: tras guardar (6 claves) y en «Recargar» (3, sin `sealed-sets`/`sealed-set-detail`/
-  `sealed-price-status`) ⇒ «Recargar» tras un `409/422` no refrescaba el panel de «Sellado», justo donde el editor vive
-  con `layout='panel'`.
-- **Cierre:** `m1/sealed-final-price.ts` con `MAX_LIST_PRICE_CENTS` y `SEALED_FINAL_PRICE_INVALIDATES` (una lista, los
-  dos momentos). Candados: `SealedFinalPrice.test.tsx` «techlead D-8» (mutación: devolver «Recargar» a las 3 claves ⇒
-  rojo) y `sealed-final-price.test.ts` (la cota ↔ la cifra que cita `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
-- **Pendiente fuera de frontend:** el contrato no declara la cota de `listPriceCents` (solicitud al arquitecto en
-  `FRONTEND_NOTES` §85).
+### PS5-FE-D8 · ✅ CERRADA (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
+- **Cierre:** `m1/sealed-final-price.ts` (`MAX_LIST_PRICE_CENTS` + una sola `SEALED_FINAL_PRICE_INVALIDATES`). Candados:
+  `SealedFinalPrice.test.tsx` «techlead D-8» y `sealed-final-price.test.ts`. Cota sin contrato: `FRONTEND_NOTES` §85.
 
 ## Frontend · 2026-09-29 · release s5 (7b9c196e)
 

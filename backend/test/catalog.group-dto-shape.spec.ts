@@ -336,6 +336,20 @@ describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
     expect(single.listings[0].priceBasis).toBe(group.priceBasis);
   });
 
+  it.each([
+    ['ligado', 'sp-9', 'sp-9'],
+    ['sin ligar', null, null],
+    ['sin ligar (columna ausente)', undefined, null],
+  ])('v1.106 §MKT.H.4 · sellado %s ⇒ ficha y rejilla llevan `sealedProductId` = %p en el cable (clave siempre presente)', async (_n, linked, wire) => {
+    const svc = buildSealed([SEALED(linked === undefined ? {} : { sealedProductId: linked })]);
+    const { group } = await svc.sealedDetail('s1');
+    const grid = (await svc.listSealed({ page: 1, pageSize: 20 } as never)).data[0];
+    for (const dto of [onWire(group), onWire(grid)]) {
+      expect('sealedProductId' in dto).toBe(true);
+      expect(dto.sealedProductId).toBe(wire);
+    }
+  });
+
   it('D2 · la REJILLA de sellado NO recibe las tres señales de precio', async () => {
     const res = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
     expect(Object.keys(onWire(res.data[0])).sort()).toEqual(SEALED_GROUP_SUMMARY_KEYS);

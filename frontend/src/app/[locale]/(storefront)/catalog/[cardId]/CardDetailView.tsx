@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
@@ -12,7 +12,7 @@ import type {
   ListingDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatDate, formatMoneyCents } from '@/lib/format';
+import { formatMoneyCents } from '@/lib/format';
 import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../CartAddedToast';
@@ -28,6 +28,9 @@ import { GradingFootnoteBoundary } from '../../_shared/grading/GradingFootnote';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
+import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { centsToValue, track } from '@/lib/measurement/track';
+import { measurementItemOf } from '@/lib/measurement/item';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
@@ -104,6 +107,15 @@ export function CardDetailView({ cardId }: { cardId: string }) {
             onAdd={(u) => {
               cart.add(u.inventoryItemId);
               setAddedSignal(Date.now());
+              // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada).
+              const price = centsToValue(u.displayPriceCents ?? 0);
+              const c = query.data!.card;
+              const id = measurementItemOf({ cardId: c.id, name: c.name, setName: c.setName, productType: 'raw' });
+              track('add_to_cart', {
+                items: id ? [{ ...id, price }] : [],
+                value: price,
+                currency: 'MXN',
+              });
             }}
           />
           <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
@@ -211,6 +223,21 @@ function Detail({
   const locale = useLocale() as AppLocale;
   const primary = groups[0];
 
+  // §MKT.H.4 `view_item`: una vez por carta, con el precio «desde» del grupo primario. La ficha ya
+  // no pinta el mercado (§A1) ⇒ `market_value_shown: false`. Con el modo `off`, `track` no hace nada.
+  const primaryPriceCents = primary?.displayPriceCents ?? null;
+  useEffect(() => {
+    if (primaryPriceCents == null) return;
+    const price = centsToValue(primaryPriceCents);
+    const id = measurementItemOf({ cardId: card.id, name: card.name, setName: card.setName, productType: 'raw' });
+    track('view_item', {
+      items: id ? [{ ...id, price }] : [],
+      value: price,
+      currency: 'MXN',
+      market_value_shown: false,
+    });
+  }, [card.id, card.name, card.setName, primaryPriceCents]);
+
   // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
   const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);
   const primaryUnit = primary ? unitById.get(primary.representativeInventoryItemId) : undefined;
@@ -221,30 +248,13 @@ function Detail({
     { key: 'condition' as const, label: t('tabCondition') },
   ];
 
-  const captured = primary?.referenceValue.capturedDate
-    ? formatDate(primary.referenceValue.capturedDate, locale)
-    : undefined;
-
-  // §21.8a — el basis que manda es el del MISMO grupo cuyo precio ocupa el bloque (hoy
-  // `listings[0]`, la publicación más barata, la del «desde»). Nunca se mezcla el precio de un
-  // grupo con el mercado de otro. Empate ⇒ el backend ya emitió "market"; el front no re-evalúa.
-  //
-  // ⭐ §MIV.2 (v1.90⟨miv⟩, NORMATIVA): la cifra del bloque es `referenceDisplayCents` —el mercado CON
-  // IVA que calcula el servidor—, y el bloque existe ⇔ `priceBasis === 'market'` ∧ esa cifra es un
-  // entero > 0. ⛔ Nunca se cae al neto (`referenceValue`): sin la cifra con IVA no hay bloque, ni
-  // «—», ni rótulo de IVA suelto. ⛔ Ninguna cuenta aquí: la cifra se pinta tal cual llega.
-  const marketDisplayCents =
-    primary?.priceBasis === 'market' &&
-    Number.isInteger(primary.referenceDisplayCents) &&
-    (primary.referenceDisplayCents ?? 0) > 0
-      ? primary.referenceDisplayCents
-      : undefined;
-  const showMarketValue = marketDisplayCents !== undefined;
-  // §MIV.5: ids para el nombre accesible de la celda («Valor de mercado MX$1,160.00 IVA 16 % incluido»).
-  const marketIds = useId();
-  const marketLabelId = `${marketIds}-label`;
-  const marketFigureId = `${marketIds}-figure`;
-  const marketIvaId = `${marketIds}-iva`;
+  // §A1 (MKT-26a, D2=A, dueño 2026-10-16 · HECHOS:65): la ficha PÚBLICA ya NO pinta «Valor de
+  // mercado». 39/39 listados lo mostraban por encima de nuestro precio (mediana +26.9 %) y nos hacía
+  // ver caros justo bajo el precio. El dato SIGUE llegando en el DTO (`referenceValue`,
+  // `referenceDisplayCents`) porque alimenta admin y valuación — pero la ficha de venta no lo
+  // renderiza (ni celda, ni rótulo, ni explicador de comparación). Lo que se retiró respecto de §MIV:
+  // la celda «Valor de mercado» y su nombre accesible, y el explicador «…para que los compares tal
+  // cual». La celda de «Precio de venta» ocupa siempre la fila completa.
 
   const facts: FactSpec[] = primary
     ? [
@@ -259,9 +269,9 @@ function Detail({
                 ? tc('ivaIncluded', { rate: primary.ivaRatePct })
                 : tc('withoutIva')
               : undefined,
-          // §21.8b-3: sin «Valor de mercado», la celda de venta ocupa la fila completa. La cifra
-          // CONSERVA su tamaño y su posición: nada crece para compensar (§21.8c).
-          fullRow: !showMarketValue,
+          // §A1: sin «Valor de mercado» en la ficha pública, la celda de venta ocupa SIEMPRE la fila
+          // completa. La cifra CONSERVA su tamaño y su posición: nada crece para compensar (§21.8c).
+          fullRow: true,
           node:
             primary.displayPriceCents != null ? (
               <span className="tabular text-3xl font-medium leading-none text-text">
@@ -272,35 +282,6 @@ function Detail({
               <PendingPriceLabel className="text-[13px] tracking-[0.06em]" />
             ),
         },
-        ...(showMarketValue
-          ? [
-              {
-                key: 'marketValue',
-                label: tcat('marketValue'),
-                // DESIGN_SYSTEM §MIV.2: cifra → rótulo de IVA (dentro del `node`) → fecha (`note`).
-                note: captured,
-                labelId: marketLabelId,
-                labelledBy: `${marketLabelId} ${marketFigureId} ${marketIvaId}`,
-                node: (
-                  <>
-                    <span id={marketFigureId} className="tabular text-3xl font-medium leading-none text-text">
-                      {formatMoneyCents(marketDisplayCents, locale)}
-                    </span>
-                    {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
-                        `showRate={false}`; ⛔ el del PRECIO sigue «IVA 16 % incluido». `ivaIncluded`
-                        literal: el servidor arma esta cifra siempre con el IVA completo (§MIV.1). La tasa
-                        ya no se muestra aquí, así que `ivaRatePct` deja de pasarse. */}
-                    <IvaLabel
-                      id={marketIvaId}
-                      ivaIncluded
-                      showRate={false}
-                      className="mt-2 block text-[11px] leading-none whitespace-nowrap"
-                    />
-                  </>
-                ),
-              },
-            ]
-          : []),
         {
           key: 'condition',
           label: t('condition'),
@@ -322,8 +303,15 @@ function Detail({
       ]
     : [];
 
+  // §A2 (MKT-26b): la barra de compra fija en móvil opera sobre el grupo primario (el «desde»,
+  // groups[0]), cheapest-first, con el MISMO add-to-cart por-pieza que InstanceCta (units[]).
+  const primaryGroupUnits = primary
+    ? units.filter((u) => unitMatchesGroup(u, primary)).sort(byPriceThenId)
+    : [];
+
   return (
-    <div>
+    // §A2: hueco inferior en móvil para que la barra fija no tape el último contenido.
+    <div className="pb-24 lg:pb-0">
       <nav
         aria-label="Breadcrumb"
         className="gutter flex items-center gap-3 border-b border-border py-5 font-mono text-xs tracking-[0.06em] text-muted"
@@ -359,15 +347,10 @@ function Detail({
 
           {primary && (
             <>
-              {/* §21.8: la retícula se arma sobre la lista de hechos VISIBLES. El bloque «Valor de
-                  mercado» entra si y solo si `priceBasis === 'market'` (y, desde §MIV, trae su cifra con IVA
-                  `referenceDisplayCents`); con floor/override/bounty/
-                  pending NO se renderiza (ni en cero, ni tachado, ni atenuado, ni «—»). La UI
-                  OBEDECE `priceBasis`: está PROHIBIDO inferirlo comparando `referenceValue` contra
-                  `displayPriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies
-                  de admin y de valuación — que viaje no autoriza a pintarla). ⛔ Bajo §M10-IVA.3 esa
-                  comparación sería además de peras y manzanas: `referenceValue` es NETO y
-                  `displayPriceCents` lleva el IVA dentro. */}
+              {/* §A1 (MKT-26a): la retícula se arma sobre la lista de hechos VISIBLES. Ya NO incluye
+                  «Valor de mercado» en la ficha pública (D2=A, dueño 2026-10-16): solo precio,
+                  condición y acabado. El DTO sigue trayendo `referenceValue`/`referenceDisplayCents`
+                  porque alimentan admin y valuación — que viaje no autoriza a pintarlo en la tienda. */}
               <FactGrid facts={facts} />
 
               {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
@@ -379,11 +362,13 @@ function Detail({
             </>
           )}
 
-          {/* §21.8d: la nota al pie cambia CON el bloque. La variante «sin mercado» no menciona el
-              valor de mercado ni insinúa que falte algo: no hay nada que explicar. La clave vieja
-              `card.referenceExplainer` describía además el modelo retirado («referencia + margen»). */}
+          {/* §A1 (MKT-26a): sin «Valor de mercado» en la ficha pública, la nota al pie NUNCA usa el
+              explicador de comparación `referenceExplainerWithMarket` («…para que los compares tal
+              cual»): siempre es `referenceExplainerNoMarket`, que solo dice qué es el precio de venta
+              y no menciona el mercado. (`referenceExplainerWithMarket` sigue en `messages/*.json`;
+              su retiro de catálogo lo evalúa ux-ui.) */}
           <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">
-            {showMarketValue ? t('referenceExplainerWithMarket') : t('referenceExplainerNoMarket')}
+            {t('referenceExplainerNoMarket')}
           </p>
 
           {/* «Gancho de grading» (§22.3): junto al precio, DESPUÉS del referenceExplainer —esa prosa
@@ -497,6 +482,77 @@ function Detail({
             ))}
         </div>
       </div>
+
+      {/* §A2 (MKT-26b): en móvil el precio con «IVA incluido» y COMPRAR viven en una barra fija al
+          pie — visibles sin scroll en la primera pantalla (la imagen de la carta llena el alto). En
+          ≥ lg se oculta: ahí el precio y el CTA ya entran arriba, a la derecha del arte. */}
+      {primary && (
+        <MobileBuyBar group={primary} groupUnits={primaryGroupUnits} cartIds={cartIds} onAdd={onAdd} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * §A2 (MKT-26b) · barra de compra FIJA al pie, solo en móvil (`lg:hidden`). Lleva el precio «desde»
+ * del grupo primario con su rótulo «IVA incluido» y el CTA de compra. Misma lógica por-pieza que
+ * `InstanceCta`: agrega la pieza más barata del grupo primario aún no en el carrito; cuando todas
+ * están, el CTA lleva al carrito. Sin piezas a la venta (criterio A2: «≥ 1 unidad a la venta») o sin
+ * precio ⇒ no se pinta la barra. z-40 como el FAB móvil (`SellCartFab`); el header es z-40 arriba.
+ */
+function MobileBuyBar({
+  group,
+  groupUnits,
+  cartIds,
+  onAdd,
+}: {
+  group: GroupedListingDTO;
+  groupUnits: ListingDTO[];
+  cartIds: string[];
+  onAdd: (u: ListingDTO) => void;
+}) {
+  const tcat = useTranslations('catalog');
+  const locale = useLocale() as AppLocale;
+  const router = useRouter();
+  // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`) para que el banner de cookies no la tape.
+  const buyBarRef = useStickyBottomBar<HTMLDivElement>();
+
+  const sellableUnits = groupUnits.filter((u) => u.sellable);
+  const nextUnit = sellableUnits.find((u) => !cartIds.includes(u.inventoryItemId));
+  const allInCart = sellableUnits.length > 0 && !nextUnit;
+
+  if (sellableUnits.length === 0 || group.displayPriceCents == null) return null;
+
+  // La barra usa copy PROPIO («Añadir al carrito» / «Ver carrito») y no el de los renglones
+  // («Comprar» / «En el carrito»): es el CTA del grupo «desde», no el de una variante concreta, y así
+  // además no se confunde con ellos para lector de pantalla.
+  return (
+    <div
+      ref={buyBarRef}
+      data-testid="mobile-buy-bar"
+      aria-label={tcat('addToCart')}
+      className="gutter fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-border bg-bg py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"
+    >
+      <div className="min-w-0">
+        <div className="tabular text-xl font-medium leading-none text-text">
+          {formatMoneyCents(group.displayPriceCents, locale)}
+        </div>
+        {/* ⛔ §M10-IVA.3: el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla. */}
+        <IvaLabel
+          ivaIncluded={group.ivaIncluded}
+          ivaRatePct={group.ivaRatePct}
+          className="mt-1.5 block leading-none"
+        />
+      </div>
+      {allInCart ? (
+        <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+          {tcat('viewCart')}
+        </Button>
+      ) : (
+        <Button variant="primary" size="sm" onClick={() => onAdd(nextUnit!)}>
+          {tcat('addToCart')}
+        </Button>
+      )}
     </div>
   );
 }

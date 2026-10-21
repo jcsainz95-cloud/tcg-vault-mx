@@ -1,3 +1,109 @@
+# VEREDICTO BLUE TEAM — **RELEASE Panel de Marketing · Medición Fase 2 (APAGADA) · SEO/GEO · UTM primer toque · m81–m86** · SHA **`e77b9612e18a9cbfb0090dfb514edbbcfcf1e401`** · 2026-10-19 · seguridad
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `e77b9612` (sustituye al RECHAZO sobre `bfd91ab2`, que queda en git)
+> **0 críticas · 0 altas · 0 medias abiertas · 1 baja aceptada como residuo (MKT-TL2, con dueño + caducidad + candado) · 2 info nuevas.**
+> **SEC-MKT-1 cerrada** (medido: mi sonda literal ya no publica el monto, y dos ablaciones mías ponen rojo el candado 3/3).
+> **MKT-TL2** tomó la «vía alternativa» de mi rechazo, y la acepto. Dueño: backend. Caducidad: **2026-11-30**. Candados:
+> `backend/test/marketing-tl2.expiry.spec.ts` (reloj real, con canario) y la entrada `MKT-TL2` de `ENCENDER_BLOCKERS` (build con `on` ⇒ rc 1).
+> El residuo **no es teórico**: lo reproduje (abajo). Eso no bloquea este release porque la medición sale apagada y no se puede encender
+> sin cerrarlo. **Antes de encender, la prueba 3 (auditor por ecuaciones) es obligatoria.** Este veredicto no pone condiciones propias.
+
+## Procedencia (O-9 / O-14) — alcance: solo el delta `bfd91ab2..e77b9612` (21 ficheros); el resto quedó medido en el pase anterior
+- **Copia del árbol ENTERO** anclada al sha: `git archive e77b9612 | tar -x` en `scratchpad/seg2-e77b9612/`, `node_modules` copiado y
+  `npx prisma generate` en mi copia. Load 2.2 (4 CPU). Sin stack, sin BD, sin navegador y sin credenciales (QA y tester-e2e corrían).
+  Copia borrada al terminar.
+- **[MEDIDO] Suites:** `test/marketing-* test/measurement* test/first-utm*` ⇒ **29/29 suites, 398/398**.
+  **Del orquestador, NO medido por mí:** jest completo 533/533 y 9162/9162, `tsc` 0, y sus dos mutaciones (d1 con piezas ⇒ 1 rojo;
+  id de `ENCENDER_BLOCKERS` cambiado ⇒ 1 rojo de 18).
+- **[MEDIDO] Sonda literal SEC-MKT-1** (2026-W41, `instagram/paid/pieza-x`, 1 pedido de $12,345.67 + 4 solicitudes, `small_cells`), spec propia
+  no commiteada sobre el servicio real con el doble de Prisma de `by-component.spec`:
+  `g1 {pedidos:"< 5", mxn:"oculta"}` · `b1/b2/b3 {pedidos:"< 5", mxnPedidos:"oculta", solicitudes:"< 5", mxnOfertado:"oculta"}` ⇒ 12345.67 en ninguna celda.
+- **[MEDIDO] Ablaciones propias** (restauradas con `cmp` idéntico contra `git show e77b9612:…`; deterministas):
+  - **A**: umbral de `planByComponent` sobre la **suma** de sujetos de la fila (reintroduce SEC-MKT-1 en la librería) ⇒
+    `by-component` + mi sonda **3 rojas de 9, en 3/3** (N=3).
+  - **B**: d3 con `subjects: w.altas` en vez de usuarios ⇒ «d3: 2 usuarios × 3 acabados» **rojo en 3/3** (N=3).
+- **[MEDIDO] Residuo MKT-TL2** (misma spec, semana W41): 6 pedidos `instagram/paid` a $100, **1 `facebook/paid` a $7,777.77**, 5 `google/organic`,
+  9 `tiktok/bio`. Salida: b1 `instagram/paid 6 · $600`, `facebook/paid "< 5" · oculta`, `google/organic oculta` (la pareja R3a, **fuera** de la puerta).
+  b2 `Promoción 7 · $8,377.77`. ⇒ **b2 − b1 = 1 pedido de $7,777.77 exactos**. Es el caso «b2 7 = b1 6 + 1» de §MKT.H.14 prueba 3 (A1/A2),
+  que se cierra con R3b (`enforceFamily`) y **no está implementado**. Solo ocurre con la medición encendida.
+- **[CÓDIGO]** CI corre `npm test` ⇒ `jest` sin filtro (`ci.yml:187`, `backend/package.json`) ⇒ la caducidad corre en cada PR.
+  La fila `MKT-TL2` está ABIERTA en `TECH_DEBT.md:84`, con dueño, fecha y comprobación de cierre.
+
+## Hallazgos consolidados (estado en `e77b9612`)
+
+| ID | Sev | Estado | Qué | Dueño | Procedencia |
+|---|---|---|---|---|---|
+| SEC-MKT-1 | Media (latente) | ✅ **CERRADA** | b1-b3 publicaban el pedido que g1 oculta, con su MX$ exacto | backend | **[MEDIDO]** sonda + ablaciones A y B |
+| **MKT-TL2** | Baja (latente) | **RESIDUO ACEPTADO** (vence 2026-11-30) | cruces entre tablas sin auditor general; caso concreto reproducido (E3, b2 − b1) | backend | pentester + **[MEDIDO]** |
+| SEC-MKT-2 | Info | aceptado (deuda) | la entrada `MKT-TL2` de `ENCENDER_BLOCKERS` se puede quitar (con su test) sin cerrar la ficha: no hay paridad bloqueo ↔ ficha | frontend | [código] `measurement-gate.ts:110-116`, `.test.ts:109` |
+| SEC-MKT-3 | Info | aceptado | `MEASUREMENT_MODE=on` **solo en el backend** no pasa por `ENCENDER_BLOCKERS`. Sin el front encendido no hay `th_first_utm` ni consentimiento ⇒ b1-b3 sin datos de clientes. Quien inyecte UTM a mano solo ve los suyos | backend | [código] `first-utm.ts:20`, `measurement.config.ts:50`; **NO MEDIDO** en vivo |
+| MKT-INFO-1/2/3, RL-DEP-1 | Info | aceptados (sin cambio) | ver «Deuda aceptada» | — | pase `bfd91ab2` |
+
+### SEC-MKT-1 · cerrada — qué verifiqué del arreglo
+- `applySmallCellsByComponent` (`small-cells.ts:225-257`): cada componente tiene su propio N, y uno oculto lleva su conteo en «< 5»/«oculta»
+  y **sus** MX$ en «oculta». La coherencia mes↔semanas usa (clave, componente) (`hiddenCellIds`). La complementaria local R3a va por columna.
+- d1 cuenta **pedidos distintos** (`orders: Set`) y d3 **usuarios distintos** (`groupBy cardId,userId`). g1 usa la base de b1-b3
+  (`firstUtmSource: { not: null }`). Por eso E4 (g1 ≡ b2[Promoción]) es una identidad exacta, y la prueba lo comprueba.
+- `subjects` es **obligatorio** en `DimensionRow`: una tabla nueva no compila sin decir qué cuenta. El registro de poblaciones
+  (`marketing-populations.registry.spec.ts`, prueba 1) está verde y tiene canario.
+
+### MKT-TL2 · residuo aceptado: por qué ahora sí
+- Cumple la vía alternativa de mi rechazo **al pie de la letra**: dueño (backend), caducidad (2026-11-30) y un check de CI que se pone rojo
+  desde esa fecha mientras la ficha siga abierta. Ese check tiene canario: borrar la fila no lo apaga, y cerrarla sin la prueba 3 tampoco.
+  Además, encender sin cerrarla rompe el build (`on` ⇒ rc 1).
+- La fecha vive en el spec (`MKT_TL2_DEADLINE`). **Moverla exige un veredicto nuevo de seguridad**, y lo hago mío: una edición sin
+  veredicto aquí invalida esta aceptación.
+- Qué cierra MKT-TL2: la prueba 3 de §MKT.H.14, `marketing-cross-table.audit.spec.ts`, verde, con el caso «b2 7 = b1 6 + 1». El ejemplo de
+  arriba es la forma mínima, y tiene que salir **rojo sobre `e77b9612`**. Después se quita la entrada de `ENCENDER_BLOCKERS` y se cierra la ficha.
+  Seguridad re-mide con una ablación de `enforceFamily` antes de que salga la entrada.
+
+### Discrepancias que dejó backend: ninguna bloquea
+- **(1)** «N=0 ⇒ 0» solo en b1-b3; en las tablas de una parte, 0 sale «< 5». Es **más** conservador, así que no hay fuga. La paridad con R1
+  la resuelven contrato y código (arquitecto/backend); para seguridad no es condición.
+- **(2)** R0 en b1-b3: las filas con pedidos ocultos se ordenan por solicitudes **publicadas** y luego por clave. Solo usa valores publicados,
+  así que cumple R0. Visto en código (`small-cells.ts:244-256`).
+- **(3)** Las visibles de una parte conservan su orden de entrada. Los llamadores ordenan por el conteo publicado (`service.ts:587/780/925`,
+  `ga4.ts:84/114/118`). Hay una salvedad: c1 corta el top 50 **por vistas** (`ga4.ts:105-106`), así que una fila oculta deja ver una **cota**
+  de sus vistas, nunca su valor. Es de la clase X2 y viene de antes. Aceptado.
+- **(4)** **X1**: un **conteo** que despeja f3, que es un total aceptado, cuando hay un solo origen. Nunca da un MX$. Lo acepto por diseño.
+  **X2**: cotas sobre la suma de ≥2 ocultas. Es lo estándar de la complementaria, y lo acepto. **a3 «enviadas» y a5** como totales aceptados
+  son de la misma clase que a1/a2/f3 (Brief 2 §5.2). Los acepto, con la bandera de abajo.
+
+## Lo que pasó en `bfd91ab2` y sigue valiendo (el delta no lo toca; medido entonces)
+- **authz HTTP del Panel**, con la cadena real de guards sobre un socket: anónimo/analista ⇒ 401; customer/vault_operator ⇒ 403; delegado con `marketing_read` ⇒ 200;
+  `tokens` solo `super_admin`; `aggregates` solo con token del analista. `?token=` ⇒ 401. Fuerza bruta ⇒ 429 al 11.º fallo.
+  `?privacy=exact` no escala. Ablaciones del `PermissionGuard` y de `panelPrivacy()`: rojas.
+- **Token del analista**: sha-256 en reposo, `timingSafeEqual`, ≥256 bits. **Export**: `neutralizeFormula`. **Medición apagada**: `on` solo con
+  el literal exacto, cero red con `off`. **Dinero**: `measurementColumnsData` con lista blanca; encolado post-commit que no relanza.
+  **PII**: `parseFirstUtm` con regex; el user-agent se reduce a `device`. **CSP**: `connect-src` solo con `on`. Dependencias: el delta no toca lockfiles.
+
+## Deuda aceptada (no bloqueante) — impacto y disparador
+| ID | Impacto | Disparador para abordarla | Dueño |
+|---|---|---|---|
+| MKT-TL2 | Con `on`, el analista externo despeja el MX$ exacto de un pedido cruzando b2 con b1 | **Caduca 2026-11-30** (`marketing-tl2.expiry.spec.ts`) o antes de encender (`ENCENDER_BLOCKERS`) | backend |
+| SEC-MKT-2 | Antes del 2026-11-30, quitar la entrada y su línea de test desbloquea `on` con la ficha abierta | El próximo cambio a `ENCENDER_BLOCKERS`: añadir paridad «entrada `MKT-TL2` presente ⇔ fila `MKT-TL2` abierta en TECH_DEBT» | frontend |
+| SEC-MKT-3 | Ninguno sin el front encendido | El primer cliente de la API que no sea el front propio, o UTM capturados en el backend | backend |
+| MKT-INFO-2 | Un delegado con `marketing_read` podría borrar anotaciones del dueño. Hoy no hay ruta de alta | La primera ruta o pantalla que conceda `marketing_read` | arquitecto |
+| MKT-INFO-3 | Con N instancias, el techo de fuerza bruta se multiplica por N (impracticable contra 256 bits) | Más de 1 instancia del backend | backend |
+| MKT-INFO-1 | XSS sin la 2.ª barrera aplicada (CSP en report-only) | Atado a CL-1 (`check-csp-zap-parity.sh`, sonda E-8) | frontend/devops |
+| RL-DEP-1 | Ninguno sin `@Sse` | El primer `@Sse`, que el audit suba a alta, o Nest 11+ | devops (+ backend) |
+
+## Banderas para el humano
+- **No enciendas la medición (Fase 2) hasta que MKT-TL2 esté cerrada.** Hoy, con datos reales, el analista externo podría sacar el importe
+  exacto de un pedido restando dos tablas del panel. El sistema ya bloquea el encendido; la bandera es para que no se pida quitar el bloqueo.
+- Los totales sin desglose (a1, a3 «enviadas», a5) salen exactos al analista. En una semana con **un solo** pedido o una sola solicitud,
+  eso es el importe de esa operación. Es lo que se decidió en el Brief 2 §5.2. Si no lo quieres así, se cambia el régimen de esos totales.
+- Siguen vigentes: pentest de tercero y bug bounty antes de escalar con dinero real; revisión legal de la custodia, de INE/CLABE y del
+  aviso de privacidad (incluida la medición con GA4/Meta) antes de encender la Fase 2.
+
+## Mínimo para seguir APROBADO (no son condiciones de este veredicto: ya tienen su candado)
+1. La fecha de `MKT_TL2_DEADLINE` no se mueve sin un veredicto nuevo aquí.
+2. Antes de quitar `MKT-TL2` de `ENCENDER_BLOCKERS`: la prueba 3 verde, roja sobre `e77b9612`, y re-medición de seguridad con ablación de `enforceFamily` (N≥3).
+
+— SEGURIDAD (blue team / AppSec), 2026-10-19 · sha **`e77b9612e18a9cbfb0090dfb514edbbcfcf1e401`** · **APROBADO**
+
+---
+
 # VEREDICTO BLUE TEAM — **Delta CSP mapa Card Show** (§CARDSHOW) · SHA **`5049a34`** (rama `feat/cardshow-landing-redesign`) · 2026-10-18 · seguridad
 
 > ## VEREDICTO: ✅ **APROBADO** sobre `5049a34`
@@ -9987,187 +10093,16 @@ sin cota, fijable por `vault_operator`) ⇒ **cerrado** por `assertApprovedPrice
   (`CardDetailView.tsx:218`) y no expone `priceBasis` en superficies de cliente. Carryover B-5 sigue abierto.
 
 ---
----
 
-<!-- ════════════════════════════════════════════════════════════════════════════════════════
-     PASE P-38 — SealedProduct + precio manual de sellado (2026-08-23) — se antepone;
-     el contenido histórico (v1.28, Stream C, etc.) se conserva íntegro abajo.
-     ════════════════════════════════════════════════════════════════════════════════════════ -->
-
-# PASE P-38 — Precio manual de sellado (fix `d408769`) · 2026-08-23 · VEREDICTO de seguridad
-
-> **Rol:** seguridad (blue team / AppSec). Consolido el RE-TEST del pentester (`docs/PENTEST_NOTES.md`,
-> «RE-TEST FOCALIZADO — P-38 … fix d408769») contra el código, valido cada cierre con mi propio análisis
-> y emito veredicto. **NO corrijo código:** cada residual se rutea a su rol dueño.
-> **Modo:** revisión **estática** dirigida de `inventory.service.ts`, `pricing.service.ts`,
-> `audit.service.ts`, `dto/inventory.dto.ts` + suite jest del pentester (verde: 50/50 specs de sellado,
-> 321/321 en inventory+pricing+audit). Sin stack HTTP vivo → live-fire por endpoint = [PoC-pendiente-DAST].
-> **Commit revisado:** `d408769` (H-1 atomicidad + H-2 exigir sealedProductId + M-2 cap acquisitionPct).
-
-## 0. Resumen ejecutivo
-
-**Los 2 ALTOS (H-1, H-2) y el M-2 del path de precio manual de sellado están CERRADOS y lo confirmo por
-revisión independiente. SIN Críticos ni Altos abiertos. → VEREDICTO: APROBADO.** El patrón deferred-write
-del override es atómico y sin camino residual de auto-commit; el gate de identidad por `sealedProductId`
-validado impide anclar dinero a un productId arbitrario del cliente; las cotas anti-overflow/anti-abuso
-están en su lugar. El `tx?` opcional añadido a `pricing.manualOverride`/`audit.log` no abrió otro hueco.
-
-| Severidad | # ABIERTO (P-38) | Estado |
-|---|---|---|
-| **Crítica** | 0 | — |
-| **Alta** | 0 | **H-1 y H-2 CERRADOS** (verificados en código + tests) |
-| **Media** | 0 nuevos | **M-2 CERRADO**; M-1 (residual de negocio) = **riesgo aceptado-auditado**; deps = carryover |
-| **Baja** | 0 nuevos | L-1/L-2 previos sin cambio (abiertos, no bloqueantes) |
-
-## 1. Cierres verificados (revisión estática independiente)
-- **H-1 (atomicidad) CERRADO:** `resolveSealedMarketForAlta` solo valida y devuelve descriptor;
-  `applySealedManualOverride(ov, actorUserId, tx)` exige `tx` y escribe override+audit dentro de la tx;
-  `createItem`/`batchCreate` envuelven creación+override en `$transaction` con el override **tras** crear la
-  pieza; `pricing.manualOverride`/`audit.log` usan `tx ?? this.prisma` en **ambas** escrituras. Sin huérfano.
-- **H-2 (identidad) CERRADO:** gate `manualMarketMxnCents != null && sealedProductId == null → 422`;
-  `sealedProductId` solo no-null desde `SealedProduct` activo; ids sueltos del cliente ignorados (SEC-A1).
-- **M-2 CERRADO:** `@Max(MAX_APORTACION_PCT=100)` en las 3 DTO (cierra también R-2 de v1.28).
-- El `tx?` opcional no debilitó otros llamadores (`PricingController.override` conserva auto-commit).
-- Higiene (no hallazgo): `manualMarketMxnCents` sin `@Min` a nivel DTO; el gate de servicio `>0` lo cubre.
-
-## 2. M-1 residual — RIESGO ACEPTADO-AUDITADO
-Decisión del humano (v1.39.1): precio manual de sellado por `vault_operator+`. Aceptado con controles
-compensatorios verificados (H-1/H-2 cerrados, `@Max(100M)`, `@Max(100)` acquisitionPct, `>0`, «solo llena
-hueco null / jamás pisa mercado vivo», auditoría `inventory.sealed_manual_market`, sin cash-out — el dinero
-saliente sigue siendo money-out `super_admin`). **Endurecimiento recomendado (no bloqueante):** banda de
-cordura relativa al mercado comparable + revisión periódica del log de overrides; elevar a 4-ojos ante
-primer indicio de abuso. Dueño: backend (banda) / seguridad (monitoreo).
-
-## 3. Carryover no bloqueante (0 críticos/altos) — ruteado
-deps `@nestjs/core` (Media, devops), L-1 imagen display sin sanitizar (backend/frontend), L-2 dial off
-reescribe override (backend), B-1 timing forgot-password (backend), B-2 linking Google a privilegiadas
-(backend), B-5 token en query-string (frontend), R-3 lectura de estrategia por vault_operator (diseño),
-MS-1/MS-2 idempotency shipments/refund (backend), B-3 Int32 (arquitecto).
-
-## 4. Banderas para el humano
-- **Pre-dinero-real (no bloqueante de P-38):** DAST en staging autorizado del alta de sellado por HTTP
-  (con/ sin `sealedProductId`, y fallo de BD a mitad del `$transaction` verificando cero override huérfano)
-  + concurrencia de checkout de sellado único. Antes de operar dinero real a escala: pentest de tercero.
-- **PII/custodia:** validaciones legales de custodia + INE/CLABE (AML SPEI) siguen siendo bandera legal del
-  humano; P-38 no las toca.
-
-## 5. VEREDICTO DE SEGURIDAD de P-38 — **APROBADO**
-0 Críticos · 0 Altos · 0 Medios nuevos · 0 Bajos nuevos. Umbral DoD cumplido (sin críticos/altos abiertos).
-**Mínimo para mantener el APROBADO:** ningún cambio futuro reintroduce escritura del override fuera de la tx,
-ni acepta `manualMarketMxnCents` sin `sealedProductId` validado, ni retira las cotas `@Max`. Cualquier
-cambio a `inventory`/`pricing`/`audit` o al contrato re-abre este gate.
-
-— SEGURIDAD (blue team / AppSec), 2026-08-23
-
-<!-- ════════════════════════════════════════════════════════════════════════════════════════
-     PASE v1.28 — RELEASE (2026-08-21) — se antepone; el contenido histórico se conserva íntegro abajo.
-     ════════════════════════════════════════════════════════════════════════════════════════ -->
-
-# PASE v1.28 — RELEASE (Streams A v1.27 + B v1.28/v1.28.1 + P-21 rebrand) · 2026-08-21 · VEREDICTO de seguridad
-
-> **Rol:** seguridad (blue team / AppSec). Consolido `docs/PENTEST_NOTES.md` (sección «PASE v1.28 — RELEASE», 2026-08-21) contra el código de `main` (rama `claude/backend-e2e-payment-fixtures-77mo4t`). Reviso la defensa, valido/refuto cada hallazgo ofensivo con mi propio análisis, y emito veredicto. **NO corrijo código:** cada hallazgo se enruta a su **rol dueño**.
-> **Modo:** revisión **estática** de código (lectura dirigida) + `npm audit --omit=dev` + `git grep` de secretos/patrones + `git ls-files`. Sin stack vivo (Docker daemon ausente, Postgres `:5432` no responde) → los vectores que exigen webhook/checkout/concurrencia real quedan **[PoC-pendiente-de-target — DAST]**; los verificados por lectura = **[Verificado-estático]**.
-> **Alcance del release:** superficie NUEVA — M-30 `variant-controls` (consola de precios compra/venta/bounty), `publish-all` (P-19), bounty P-22, aportación a valor de mercado (P-19), precedencias de precio, rebrand P-21 (`envOr`/`MAIL_FROM`/CORS/guardia DAST por host) + **regresión** de los guardarraíles de dinero (H1/H2/H3, MoneyOutGuard, firma Stripe, KYC/INE cifrado) tras los tres streams.
-
-## 0. Resumen ejecutivo del pase
-
-**La superficie NUEVA de dinero llegó money-safe y bien autorizada. SIN hallazgos Críticos ni Altos.** Cada camino de dinero nuevo (variant-controls, publish-all, bounty) **deriva el precio server-side**, gatea la **escritura** tras `@Roles(super_admin)`, es **idempotente** (guardia `count===1` en `$transaction`) y **auditado**; la precedencia `bounty > override > regla > PRICE_PENDING` **jamás inventa un precio** (devuelve `null`/pending, nunca $0/negativo), y los overrides buy/sell/bounty pasan por `assertCents` (entero, `>0`, `<= MAX_CENTS` Int32) ⇒ sin negativos, overflow ni moneda distinta de MXN. El rebrand P-21 **no abrió superficie** (CORS sigue en allow-list, `envOr` sanea sin interpolar input de usuario, guardia DAST decide por host).
-
-**Consolidación de los 3 hallazgos del pentester (R-1, R-2, R-3): los CONFIRMO todos [Verificado-estático], con la severidad final que el red team asignó.** Ninguno es bloqueante: R-1 es Media de dependencias (carryover, no alcanzable), R-2 y R-3 son Bajas de defensa-en-profundidad **acotadas al rol back-office** (`vault_operator`), sin cash-out, sin overflow de columna, sin fuga de PII. **Ratifico R-3 como aceptación de diseño** (la lectura de estrategia de precios por `vault_operator` es consistente con ARCHITECTURE §4.26b; recomiendo omitir `pricing.buy`/`bounty` para ese rol como endurecimiento no bloqueante).
-
-**Regresión de dinero: sin debilitamiento tras los tres streams.** Verifiqué en código: orden de guards correcto (`app.module.ts:66-70`), MoneyOutGuard global con `@MoneyOut()` en refund/pay-spei/recompra, firma Stripe `constructEvent`, idempotencia por `event.id`, reserva atómica anti doble-venta, KYC/INE AES-256-GCM + HMAC, sin `$queryRawUnsafe` con input de cliente, sin secretos hardcodeados ni `.env` versionado.
-
-**→ VEREDICTO: APROBADO** (0 críticos / 0 altos abiertos; deuda Media/Baja aceptada y ruteada — ver §4/§6).
-
-| Severidad | # ABIERTO (release) | Estado |
-|---|---|---|
-| **Crítica** | 0 | — |
-| **Alta** | 0 | — |
-| **Media** | 1 | R-1 (deps `@nestjs/core`, carryover, no alcanzable — aceptada, dueño devops) |
-| **Baja** | 2 | R-2 (`acquisitionPct` sin `@Max`), R-3 (lectura de estrategia de precios a `vault_operator`) — aceptadas |
-| **Info/positivo** | 8 | R-4 … R-11 (defensas de la superficie nueva, verificadas) |
-
-## 1. Consolidación de hallazgos del pentester — validación independiente
-
-Cada hallazgo cruzado contra el código; coincido con el red team en los tres.
-
-### R-1 (Media) — Deps: 2 `moderate` de `@nestjs/core` (carryover M-1) · **CONFIRMADO · aceptado**
-- **Mi verificación:** corrí `npm audit --omit=dev` en `backend/` (2026-08-21): **2 moderate, 0 high, 0 critical** — `@nestjs/core <=11.1.17` **GHSA-36xv-jgw5-4q75** (Improperly Neutralizes Special Elements / Injection), que arrastra `@nestjs/platform-express`; `fix` = bump mayor a `@nestjs/core@11.2.1` (**breaking**). frontend prod: sin cambios (histórico: 0 vulns).
-- **Alcanzabilidad:** el aviso corresponde a la inyección SSE ya analizada en revs previas; `git grep` histórico de `@Sse|MessageEvent|text/event-stream` en `backend/src` = 0 coincidencias → **el backend no expone SSE → no alcanzable**. Sin cambio en el release.
-- **Decisión:** **aceptado como deuda no bloqueante** (Media por herramienta, efectiva Baja por no-alcanzable). **Dueño: devops.** **Disparador:** próxima ventana de mantenimiento de deps, o **antes** de introducir cualquier endpoint SSE; gate `npm audit` en CI/SAST ya previsto.
-
-### R-2 (Baja) — `acquisitionPct` sin `@Max` en las 3 DTO de alta/ajuste · **CONFIRMADO · aceptado**
-- **Mi verificación (leída):** `backend/src/modules/inventory/dto/inventory.dto.ts` — `CreateItemDto:59`, `BatchInventoryItemInput:113`, `AdjustmentFoundItemInput:187` declaran `@IsOptional() @IsInt() @Min(0) acquisitionPct?` **sin `@Max`**. Contrasta con `listPriceCents` (misma DTO) que sí lleva `@Max(MAX_LIST_PRICE_CENTS)`. Consumo: `inventory.service.ts` → `computeAportacionCostCents` (`common/money.ts` = `clampCents(round(ref*pct/100))`).
-- **Análisis de impacto:** un `pct` gigante satura el costo-base a `MAX_CENTS` (~MX$21.47M) vía `clampCents` — **recorte silencioso, sin log/AuditLog** (misma clase que MS-3 histórico). Alimenta costo/P&L/valuación (StatCards). **No es cash-out** (el costo-base no sale de la caja; el dinero saliente sigue siendo money-out super_admin), **no** desborda columna (clampCents lo contiene en Int32), y requiere **rol back-office** (`vault_operator`). Es variante de B-4 histórico.
-- **Decisión:** **aceptado como deuda no bloqueante (Baja).** **Dueño: backend** (añadir `@Max` razonable — p.ej. `@Max(10000)` = 100.00% con 2 decimales, o el tope de negocio — + emitir alerta/AuditLog al recortar en `computeAportacionCostCents`). **Disparador:** al endurecer el flujo de inventario/aportación, o antes de reportes financieros con datos de escala.
-
-### R-3 (Baja) — El binder scope `platform` expone la CONSOLA de estrategia de precios (buy override + bounty) al `vault_operator` · **CONFIRMADO · aceptado (ratificación de diseño)**
-- **Mi verificación (leída):** `GET /admin/inventory/master-sets/:setId` → `masterSetBinder` (`inventory.controller.ts:74-77`) llama `masterSetService.binder(setId)` **sin scope** → default `{ kind: 'platform' }` (`master-set.service.ts:408`). El controller es `@Roles(Role.vault_operator, Role.super_admin)` (`:45-46`). En scope `platform` el binder adjunta `pricing?` por variante (`master-set.service.ts:472-478`, `includePricing = scope.kind === 'platform'`), que compone `buy.overrideCents/effectiveCents` y el bloque `bounty` vía `composeVariantPricing`. **La ESCRITURA sí está blindada** super_admin-only (`PricingController @Roles(Role.super_admin)`, `pricing.controller.ts:106`); lo que fuga es la **LECTURA** de márgenes de compra/bounty a un rol de bóveda.
-- **Análisis de impacto:** sin PII, sin cash-out, sin escalada de privilegio (el `vault_operator` no puede escribir precios/overrides/bounty). Es exposición de **inteligencia de negocio** (estrategia de compra) a un rol que opera M1/M4/M5-hasta-verificación. Consistente con el diseño del binder platform (ARCHITECTURE §4.26b), pero el principio de mínima exposición sugiere omitir `pricing.buy`/`bounty` para `vault_operator`.
-- **Decisión:** **RATIFICO como aceptable** (Baja, defensa-en-profundidad). No bloquea. **Endurecimiento recomendado (no bloqueante): backend** omite `pricing.buy` y `pricing.bounty` (dejando `sell`/`market` si aplica) cuando el actor es `vault_operator`, o el arquitecto confirma explícitamente que la estrategia de compra es visible para ese rol por diseño. **Disparador:** antes de dar de alta operadores de bóveda que NO deban ver márgenes de compra, o al segregar M1 de la estrategia de pricing.
-
-## 2. Regresión de guardarraíles de dinero/PII — SIN debilitamiento (re-verificado en código)
-
-Verifiqué que los tres streams (A v1.27 + B v1.28/v1.28.1 + P-21) **no** introdujeron regresión en los guardarraíles previos. Coincido con R-11 del pentester.
-
-| Guardarraíl | Evidencia (mi lectura) | Estado |
-|---|---|---|
-| **Orden de guards** | `app.module.ts:66-70` — throttle → JwtAuth → Roles → EmailVerified → **MoneyOut** (global). | OK |
-| **Money-out solo super_admin** | `@MoneyOut()` en `admin-orders.controller.ts:212` (refund), `admin-buylist.controller.ts:80` (pay-spei) y `:197` (reveal/recompra); `MoneyOutGuard` global → rol != super_admin = 403 auditado. | OK |
-| **Firma webhook Stripe** | `stripe.service.ts:172-174` — `constructEvent(payload, signature, secret)`; `onModuleInit` (`:35`) fail-fast si falta `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`. Fallback `?? ''` = falla-cerrada (MS-5 histórico, sin cambio). | OK |
-| **Idempotencia webhook** | Guardia atómica por `event.id` (P2002); borra marcador y re-lanza si el handler falla (histórico I-4, intacto). | OK |
-| **Reserva atómica anti doble-venta** | `reserveItems`/`claimListed` `updateMany` guardado por estado vendible + `count===1`; `publish-all` (`inventory.service.ts`) selecciona solo `platform`+`in_stock`. | OK |
-| **Precio server-side (SEC-A1)** | variant-controls/publish-all/bounty derivan de reglas + referencia de BD; el DTO del cliente aporta solo IDs. `assertCents` (`variant-controls.service.ts:68-76`) rechaza no-entero/`<=0`/`>MAX_CENTS`. | OK |
-| **Bounty count idempotente** | `countBountyAcquisitionsTx` en la MISMA `$transaction` del pago, guardia `count===1`; re-POST/replay ve `pagada` y no re-cuenta (`buylist.service.ts:1287-1388`); filtro B-1 `notIn ['rechazada','abandonada']`. | OK |
-| **KYC/INE cifrado** | `pii-crypto.service.ts` — AES-256-GCM (`createCipheriv`) formato `v1:iv:tag:ct` + blind index HMAC-SHA256; enmascarado por defecto incl. super_admin (histórico I-5). | OK |
-| **Sin inyección SQL** | Sin `$queryRawUnsafe` con input de cliente (único uso = literal de secuencia). Prisma parametriza el resto. | OK |
-
-## 3. Revisión AppSec propia — más allá del red team
-
-Ítems que revisé por mi cuenta (no solo validar al pentester):
-
-- **Manejo de secretos:** `git grep` de patrones `secret|password|api-key|token = "…"` en `backend/src` + `frontend/src` = **sin secretos hardcodeados**. `git ls-files` = **ningún `.env` versionado** (solo `.env.example` de devops). Los secretos se leen por `ConfigService`/`process.env`; `env.validation.ts` (histórico) exige entropía ≥32 en no-local. **OK.**
-- **CORS (rebrand P-21):** `main.ts:15-21` `resolveCorsOrigins()` construye allow-list desde `APP_BASE_URL`, **nunca `origin:true`**, fallback fail-closed a localhost. El rebrand a dos dominios no relajó la política. **OK.**
-- **Superficie de correo del rebrand (`envOr`/`MAIL_FROM`):** `mail/mail-env.util.ts:15-18` — `envOr` hace `trim` y trata vacío/blanco como ausente devolviendo el fallback; **no interpola input de usuario** en el `from`/headers; el envío es por **API JSON de Resend** (sin concatenación SMTP → sin header injection). **OK.**
-- **Guardia DAST por host (rebrand):** `security/scripts/_guard.sh` — `_dast_host_from_url` extrae el host correctamente (quita esquema, **userinfo `##*@`**, path/query/fragment); la exención es por **prefijo del host** `staging.*`, no substring de la URL → `https://tcghunt.mx/staging-x` y `?env=staging` **NO bypasean** el bloqueo de prod. Requiere `ALLOW_PROD_DAST=1` explícito para prod. **OK** (coincido con R-10).
-- **Authz de escritura de la consola de precios:** `PricingController` y `variant-controls` PUT = `@Roles(Role.super_admin)` (`pricing.controller.ts:106,182`) — la estrategia de precios/bounty **solo la escribe super_admin**. La lectura por `vault_operator` (R-3) es la única fuga, ya consolidada. **OK.**
-- **Validación de entrada de la superficie nueva:** DTOs de publish-all/batch con `@IsIn`/`@IsString`/`@ArrayMaxSize(200)`/`@Max(MAX_BATCH_QTY)`; `ValidationPipe({whitelist:true})` global (histórico) → sin mass-assignment. Único hueco de cota: `acquisitionPct` (R-2). **OK salvo R-2.**
-
-## 4. Hallazgos priorizados por severidad (release)
-
-- **Crítica:** ninguno.
-- **Alta:** ninguno.
-- **Media:** ninguno **remediable dentro del alcance de código de este release**. R-1 es Media de dependencias (bump mayor breaking, no alcanzable) → deuda aceptada (§6).
-- **Baja:** R-2 (`acquisitionPct` sin `@Max`, backend), R-3 (lectura de estrategia de precios a `vault_operator`, backend/diseño) → aceptadas (§6).
-
-## 5. Banderas para el humano (antes de operar con dinero real)
-
-- **Pentest de tercero + programa de bug bounty ANTES del go-live con dinero real.** Todo el guardarraíl de dinero de este release (reserva atómica, idempotencia del webhook, firma real de Stripe, H1 con eventos forjados, carrera de dos `pay-spei`, replay de `batchKey` en publish-all) está **verificado solo en estático**. Falta la prueba con firmas reales y concurrencia — ver «Pendiente de DAST en vivo» en `PENTEST_NOTES.md` (pase v1.28).
-- **DAST contra staging autorizado, obligatorio antes de promover a prod** (la guardia por host ya bloquea prod sin `ALLOW_PROD_DAST=1`). Requiere que devops habilite staging (Docker/Postgres/R2) — hoy no levantable localmente.
-- **KMS / secret manager en producción:** `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `JWT_*`, `STRIPE_*` y `S3_*` desde secret manager (no `.env` ni imagen), con rotación; confirmar que ningún secreto aparece en logs/errores.
-- **Validaciones legales de custodia/PII (INE/CLABE):** figura de depositario, contrato de custodia, base legal del tratamiento del INE almacenado (`INE_RETENTION_DAYS`), derecho de supresión frente a los snapshots económicos retenidos (`Order.billingSnapshot`/`SellRequest.clabeSnapshotEnc`, ver histórico rev v1.5 §B.2). Confirmar con abogado/contador.
-
-## 6. Deuda de seguridad aceptada (no bloqueante) — con dueño y disparador
-
-| ID | Deuda | Sev | Impacto | Dueño | Disparador |
-|---|---|---|---|---|---|
-| **R-1** | `@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate) sin parchar (fix = major breaking) | Media (efectiva Baja) | Ninguno hoy (backend sin SSE → aviso no alcanzable) | **devops** | Antes de introducir SSE, o en la próxima ventana de mantenimiento de deps; gate `npm audit` en CI. |
-| **R-2** | `acquisitionPct` sin `@Max` (3 DTO) → costo-base saturable con recorte silencioso | Baja | Costo/P&L/valuación inflables por `vault_operator`; no cash-out, no overflow de columna | **backend** | Al endurecer inventario/aportación, o antes de reportes financieros a escala. Añadir `@Max` + alerta al recortar. |
-| **R-3** | Binder platform expone `pricing.buy`/`bounty` (estrategia de compra) a `vault_operator` (lectura) | Baja | Fuga de inteligencia de negocio a rol de bóveda; sin PII/cash-out/escalada | **backend** / diseño | Antes de operadores que NO deban ver márgenes de compra; o ratificar por diseño. |
-
-**Carryover histórico (sigue como deuda de revs previas, no re-abierto por este release):** MS-1 (idempotency-key de cliente en shipments/refund — arquitecto/backend), MS-3/MS-4/MS-5 (clamp silencioso / H1 en shipment / `constructEvent ?? ''` — backend), B-2 (linking Google a back-office — backend), B-5 (token en query-string — frontend), S-1..S-7 (stream sellado — backend/arquitecto/devops), B-3/S-B2 (dinero en `Int` 32-bit — arquitecto). Todos con dueño y disparador en las secciones históricas de abajo. Ninguno Crítico/Alto; ninguno bloquea este release.
-
-## 7. VEREDICTO DE SEGURIDAD DEL RELEASE
-
-**APROBADO.**
-
-- **0 hallazgos Críticos o Altos ABIERTOS** → no se cumple la condición de RECHAZO del DoD.
-- La superficie NUEVA de dinero (variant-controls M-30, publish-all P-19, bounty P-22, aportación a mercado) llegó **money-safe**: precio server-side, escritura super_admin-only, idempotente (`count===1`), auditada, `assertCents` (entero `>0` `<=MAX_CENTS`), precedencia que nunca inventa precio.
-- **Regresión de dinero/PII sin debilitamiento** tras los tres streams (§2): MoneyOutGuard, firma/idempotencia Stripe, reserva atómica, KYC/INE AES-256-GCM, sin inyección, sin secretos hardcodeados.
-- Los 3 hallazgos del pentester (**R-1, R-2, R-3**) **CONFIRMADOS** con mi propio análisis y **aceptados como deuda no bloqueante** con dueño y disparador (§6). R-3 **ratificado** como aceptación de diseño con endurecimiento recomendado.
-- **Mínimo para mantener la aprobación / previo a producción con dinero real:** ejecutar la **fase dinámica (DAST + pentest de tercero) contra staging autorizado** (hoy no levantable) y provisión de secret manager. Nada de eso bloquea el veredicto de código estático de este release.
-
-**Ruteo por rol dueño (follow-up, no bloqueante):** backend → R-2 (`@Max` + alerta), R-3 (omitir `pricing.buy`/`bounty` para `vault_operator` si no es diseño); devops → R-1 (bump NestJS + gate audit), habilitar staging para DAST; humano → pentest de tercero + bug bounty + validaciones legales de custodia/PII antes de dinero real.
+# PASES P-38 (2026-08-23) y v1.28 (2026-08-21) — compactados el 2026-10-19 (DOC-SIZE; el texto íntegro está en git: `git show bfd91ab2:docs/SECURITY_NOTES.md`)
+- **P-38 · precio manual de sellado (`d408769`) — APROBADO.** H-1 (atomicidad override+audit en `$transaction`), H-2 (exigir `sealedProductId`
+  validado) y M-2 (`@Max(100)` en `acquisitionPct`, que cierra también R-2 de v1.28) CERRADOS. **Sigue vigente:** M-1 = riesgo aceptado-auditado
+  (precio manual de sellado por `vault_operator+`, decisión del humano v1.39.1; solo llena hueco null, jamás pisa mercado vivo, auditoría
+  `inventory.sealed_manual_market`). Endurecimiento recomendado: banda de cordura relativa al mercado (backend) y revisión del log (seguridad).
+  Re-abre el gate: escribir el override fuera de la tx, aceptar `manualMarketMxnCents` sin `sealedProductId` o retirar las cotas `@Max`.
+- **v1.28 · variant-controls/publish-all/bounty/rebrand P-21 — APROBADO.** Deuda que sigue vigente: **R-1** = hoy **RL-DEP-1** (ver arriba);
+  **R-3** (Baja) binder platform expone `pricing.buy`/`bounty` a `vault_operator`: ratificado como diseño (ARCHITECTURE §4.26b), endurecimiento
+  recomendado si llegan operadores que no deban ver márgenes de compra (backend). R-2 cerrado por P-38 M-2.
 
 ---
 

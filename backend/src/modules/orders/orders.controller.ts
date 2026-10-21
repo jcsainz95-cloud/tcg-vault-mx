@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Optional, Param, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
@@ -10,6 +10,7 @@ import { OrderClaimService } from './order-claim.service';
 import { QuoteDto, SessionDto } from './dto/orders.dto';
 import { ClaimOrdersDto } from './dto/guest-checkout.dto';
 import { BusinessException } from '../../common/business.exception';
+import { MeasurementService } from '../measurement/measurement.service';
 
 /**
  * 💰 v1.86⟨accesorios⟩ (§AC.5, criterio 749, `D-AC-1`): con sesión NO se compran accesorios, energías ni paquete (F3:
@@ -31,6 +32,8 @@ export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly claims: OrderClaimService,
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `@Optional()` por las pruebas que construyen el controller a mano.
+    @Optional() private readonly measurement?: MeasurementService,
   ) {}
 
   @Post('checkout/quote')
@@ -55,7 +58,11 @@ export class OrdersController {
     rejectAccessoriesWithAccount(dto);
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
-    const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId);
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
+    const m = this.measurement?.prepare(dto.measurement);
+    const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns);
+    // Post-commit; `afterCreate` nunca lanza. En el REUSO se conserva lo que la orden ya tenía.
+    if (!result.reused) await this.measurement?.afterCreate({ orderId: result.orderId }, m);
     res.status(result.reused ? 200 : 201);
     return result;
   }

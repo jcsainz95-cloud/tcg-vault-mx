@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/Button';
 import { CartTotalFigure } from './CartTotalFigure';
+import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 
 export interface SellCartBarProps {
   /** Piezas en la lista (suma de cantidades). */
@@ -59,8 +60,11 @@ export const SellCartBar = forwardRef<HTMLButtonElement, SellCartBarProps>(funct
   ref,
 ) {
   const t = useTranslations('buylist');
+  // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`); con `lg:flex` oculto mide 0.
+  const barRef = useStickyBottomBar<HTMLElement>();
   return (
     <section
+      ref={barRef}
       aria-label={t('cartBar.region')}
       data-testid="sell-cart-bar"
       data-sell-cart-bar=""

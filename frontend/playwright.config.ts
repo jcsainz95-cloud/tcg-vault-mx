@@ -79,6 +79,9 @@ const reuseExistingServer = process.env.E2E_REUSE_SERVER === '1';
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
+  // §MKT.H Fase 2: el spec con el modo ENCENDIDO necesita su propio bundle (lo construye
+  // `playwright.measurement-on.config.ts`). Aquí el bundle es `off`, el de hoy.
+  testIgnore: '**/measurement-on.spec.ts',
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,

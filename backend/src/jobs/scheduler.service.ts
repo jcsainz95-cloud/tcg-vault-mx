@@ -1,3 +1,4 @@
+import { closeRedisClient } from '../common/redis-close';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
@@ -26,6 +27,8 @@ import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
+import { MeasurementDrainService } from '../modules/measurement/measurement-drain.service';
+import { MarketingAccessLogService } from '../modules/marketing/marketing-access-log.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -130,6 +133,11 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // cada 5 min. `@Optional()` por la misma razón que los de D2d/C1; la app real los inyecta (WSH-T24 e2e).
     @Optional() private readonly wishlistNotify?: WishlistNotifyService,
     @Optional() private readonly sealedRestockNotify?: SealedRestockNotifyService,
+    // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.6): drenado de la cola de medición cada minuto (con `MEASUREMENT_MODE=off` solo
+    // purga; ⛔ no sale a la red) y la retención de 12 meses del registro de accesos del Panel (ARCHITECTURE §13.4.4).
+    // `@Optional()` por la misma razón que los de D2d/C1.
+    @Optional() private readonly measurementDrain?: MeasurementDrainService,
+    @Optional() private readonly marketingAccessLog?: MarketingAccessLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -289,6 +297,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de avisos al cliente NO están inyectados; wishlist-notify y sealed-restock-notify no quedan programados.');
     }
 
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): `measurement-drain` cada minuto (sufijo `-cron`) y la retención del registro de accesos
+    // del Panel una vez al día. Crons por env.
+    const measurementDrainCron = this.config.get<string>('MEASUREMENT_DRAIN_CRON') ?? '* * * * *';
+    const accessLogRetentionCron = this.config.get<string>('MARKETING_ACCESS_LOG_RETENTION_CRON') ?? '45 8 * * *';
+    if (this.measurementDrain && this.marketingAccessLog) {
+      await this.queue.add('measurement-drain', {}, this.repeatEvery('measurement-drain', measurementDrainCron));
+      await this.queue.add('marketing-access-log-retention', {}, this.repeat('marketing-access-log-retention', accessLogRetentionCron));
+    } else {
+      this.logger.error('Scheduler: los jobs de marketing NO están inyectados; measurement-drain y marketing-access-log-retention no quedan programados.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -325,7 +344,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false) ' +
         '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider) ' +
         '+ spend-watch (cada 5 min) / spend-digest (08:00 America/Mexico_City) ' +
-        '+ wishlist-notify / sealed-restock-notify (cada 5 min; diales wishlist_enabled / sealed_restock_alerts).',
+        '+ wishlist-notify / sealed-restock-notify (cada 5 min; diales wishlist_enabled / sealed_restock_alerts) ' +
+        '+ measurement-drain (cada minuto; MEASUREMENT_MODE, off por defecto) / marketing-access-log-retention (diario).',
     );
 
     // Catch-up (auditoría 2026-08-17): si NO hay ingesta de precios reciente (hoy/ayer),
@@ -408,6 +428,11 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.wishlistNotify?.run() ?? null;
       case 'sealed-restock-notify':
         return this.sealedRestockNotify?.run() ?? null;
+      // v1.102⟨mkt-fase2⟩ (§MKT.H.6, §13.4.4): drenado de la cola de medición y retención del registro de accesos.
+      case 'measurement-drain':
+        return this.measurementDrain?.run() ?? null;
+      case 'marketing-access-log-retention':
+        return this.marketingAccessLog?.purgeExpired() ?? null;
       default:
         this.logger.warn(`Job desconocido en la cola: ${job.name}`);
         return null;
@@ -510,22 +535,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.worker) await bounded('worker.close()', () => this.worker!.close());
     if (this.queue) await bounded('queue.close()', () => this.queue!.close());
     if (this.connection) {
-      // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría);
-      // solo se intenta con la conexión lista, si no, corte duro con `disconnect()`.
-      if (this.connection.status === 'ready') {
-        // Acotado también: si `quit()` se queda esperando (comandos en vuelo tras un cierre
-        // forzado), se corta duro en vez de colgar el apagado.
-        const outcome = await withTimeout(
-          this.connection
-            .quit()
-            .then(() => 'ok' as const)
-            .catch(() => 'failed' as const),
-          timeoutMs,
-        );
-        if (outcome !== 'ok') this.connection.disconnect();
-      } else {
-        this.connection.disconnect();
-      }
+      // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría): solo con la conexión `ready`;
+      // si no, o si `quit` no contesta en el plazo, corte duro con `disconnect()` (helper común, TD-HND-3).
+      await closeRedisClient(this.connection, { timeoutMs, requireReady: true });
     }
   }
 }

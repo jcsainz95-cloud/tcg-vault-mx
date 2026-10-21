@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Optional, Param, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
@@ -7,6 +7,10 @@ import { RequireEmailVerified } from '../../common/decorators/require-email-veri
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
+// v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo (día × cardId) del cotizador. ⛔ NO toca la cotización.
+import { MarketingQuoteCounterService } from '../marketing/marketing-quote-counter.service';
+// v1.102⟨mkt-fase2⟩ (§MKT.H.2/.6): consentimiento en la solicitud y `generate_lead` SOLO de servidor, post-commit.
+import { MeasurementService } from '../measurement/measurement.service';
 import {
   BatchQuoteDto,
   CreateRequestDto,
@@ -23,7 +27,12 @@ export class BuylistController {
     // v1.51.3 (D36/D37): `PATCH …/pickup-address` se AUDITA (`buylist.pickup_address.update`), y la
     // bitácora la escribe el controller — misma disciplina que la ruta hermana de admin.
     private readonly audit: AuditService,
+    // v1.96⟨mkt-tienda⟩ (§MKT.D d4): conteo anónimo del cotizador. Best-effort, fuera del dinero.
+    private readonly quoteCounter: MarketingQuoteCounterService,
+    // v1.102⟨mkt-fase2⟩: `@Optional()` por las pruebas que construyen el controller a mano.
+    @Optional() private readonly measurement?: MeasurementService,
   ) {}
+
 
   // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
   // (`buylist-catalog.controller.ts`). El cotizador por-carta es anónimo (@Public) y READ-ONLY;
@@ -32,14 +41,19 @@ export class BuylistController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('quote')
   @HttpCode(200)
-  quote(@Body() dto: PublicQuoteDto) {
-    return this.buylist.publicQuote(
+  async quote(@Body() dto: PublicQuoteDto) {
+    // 💰 La cotización es la MISMA de siempre (lógica de dinero intacta).
+    const payload = await this.buylist.publicQuote(
       dto.cardId,
       dto.productType,
       dto.rawCondition,
       dto.finish,
       dto.productId,
     );
+    // d4 (§MKT.D): tras calcular, suma 1 al contador anónimo (día × cardId). SIN usuario, SIN IP.
+    // Best-effort: `increment` nunca lanza ⇒ un fallo del contador no afecta a la cotización.
+    await this.quoteCounter.increment(dto.cardId);
+    return payload;
   }
 
   // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y
@@ -111,11 +125,16 @@ export class BuylistController {
   @RequireEmailVerified()
   @Post('requests')
   @HttpCode(201)
-  create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {
+  async create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
+    const m = this.measurement?.prepare(dto.measurement);
     // ⚠️ v1.51.3 (D36/D37) — `addressId` viaja al servicio. Sin esta línea el campo se recibe y se
     // tira: era el defecto BL-1 (toda solicitud nacía sin snapshot de origen y, por tanto,
     // inofertable). El `422 PICKUP_ADDRESS_REQUIRED` lo emite el servicio, no el pipe.
-    return this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId);
+    const created = await this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId, m?.columns);
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): post-commit; `afterCreate` nunca lanza (⛔ un fallo no cambia la respuesta).
+    await this.measurement?.afterCreate({ sellRequestId: created.sellRequestId }, m, { lead: true });
+    return created;
   }
 
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)

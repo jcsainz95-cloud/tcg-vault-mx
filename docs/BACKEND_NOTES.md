@@ -5,28 +5,17 @@
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
 
-> ⚠️ **RENUMERADO DOS VECES EN DOS FUSIONES. Lee esto antes de citar una sección de este bloque.**
->
-> El bloque **§0.23–§0.36** (el ciclo de adquisición, M-46/v1.51, rama
-> `claude/buylist-inventory-workflow-hdnls3`) nació como **§0.13–§0.26** y ha cedido el paso **dos
-> veces**, siempre en la misma dirección: **se renumera lo de la rama, nunca lo que `main` ya
-> publicó.** No es cortesía — la numeración de `main` está citada desde código
-> (`pokemontcg-io.client.ts` §0.19), desde `docs/TECH_DEBT.md` y desde `docs/DEVOPS_NOTES.md`, que no
-> son míos; la de la rama solo se citaba desde la propia rama.
->
-> | Fusión | `main` traía | El bloque pasó de | a | offset |
-> |---|---|---|---|---|
-> | 2026-09-05 (P-54) | §0.13–§0.19 (v1.51-a…-e, M-47) | §0.13–§0.26 | §0.20–§0.33 | +7 |
-> | 2026-09-06 (v1.53) | §0.20–§0.22 (M47-H2, v1.53, v1.53-b) | §0.20–§0.33 | **§0.23–§0.36** | +3 |
->
-> **Mapa acumulado (original → hoy):** §0.13→§0.23, §0.14→§0.24, §0.15→§0.25, §0.16→§0.26,
-> §0.17→§0.27, §0.18→§0.28, §0.19→§0.29, §0.20→§0.30, §0.21→§0.31, §0.22→§0.32, §0.23→§0.33,
-> §0.24→§0.34, §0.25→§0.35, §0.26→§0.36 (y sus subsecciones, con el mismo offset).
->
-> Las referencias internas del bloque y la única externa que lo citaba
-> (`backend/test/buylist.guide-transit.spec.ts`) se actualizaron en el mismo paso. **§0.20, §0.21 y
-> §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
-> v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
+> **Estado vigente (2026-10-19).** **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
+> intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
+> `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):
+> si queda un socket, servidor o timer con ref, los lista y sale con 1. ⛔ No es `--forceExit`. Unitarias:
+> `card-show.counter-store-close.spec.ts`, `common.redis-close.spec.ts`. **Local sin superusuario:** T-AC3 (`pdb-limpieza`) da
+> 42501 y deja esquemas gemelos ⇒ BD nueva por corrida.
+> **§MKT.H Fase 2 (apagada, `MEASUREMENT_MODE=off`):** post-commit único `MeasurementService.afterCreate` (nunca lanza);
+> identidad de ítem única `measurement/measurement-item.ts` (drenador y d1/d2); drenador con lote solo de destinos
+> habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
+> (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
+> cabecera del SQL de m86 (no se copia aquí). Pendiente con Postgres: TECH_DEBT MKT-F2-4. Deuda: TECH_DEBT §MKT.
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 
@@ -33077,3 +33066,153 @@ exacto de `ShipmentRequest.shippingCostIvaCents`»). Medido: mi árbol de B1 **n
 ya existía en `26ff05f`. No la arreglo (⛔ «no toques A/B2/C»). Fix trivial para el dueño de A: reformular el
 comentario de `m79` para no repetir el token exacto, o ampliar el censo para admitir una referencia documentada.
 Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roja es esta.
+
+---
+
+## §MKT — Tienda de marketing y Panel: estado vigente (Fase 0 + Fase 2 apagada) · 2026-10-18
+
+> Contrato: API_CONTRACT §MKT.A–§MKT.H (manda; aquí solo lo que el contrato no dice). Diseño: ARCHITECTURE §13–§14.
+> Histórico de OLA 1/OLA 2/h1 (mediciones de m81–m83, verificaciones por pase): `git log -- docs/BACKEND_NOTES.md` antes
+> de `b95fbbac`.
+
+**Migraciones.** m81 (`firstUtm*` en `Order`/`SellRequest`), m82 (permisos, token, contadores, registro de accesos), m83
+(anotaciones), **m86** (Fase 2, ver abajo). Todas aditivas; reversa en la cabecera de cada `migration.sql`.
+
+**Lo que existe (fichero de entrada).**
+- Ficha pública: `pricedAsOf` (día CDMX del servidor) y `ogImageUrl` (`common/og-image.ts`, solo URLs absolutas; la grande
+  de pokemontcg.io ronda 734×1024 ⇒ ≥1200×630 **no garantizado**, pregunta abierta al dueño §MKT.F).
+- `GET /catalog/sitemap` (una entrada por ficha a la venta; `lastmod = max(updatedAt)` de las piezas, no hay sello de precio).
+- `parseFirstUtm` (`common/first-utm.ts`): desde m86 lo usa el saneador de `measurement` (abajo).
+- Autorización fina: `@RequirePermission(marketing_read)` + `PermissionGuard` (tras `RolesGuard`; `super_admin` implícito).
+  Token `marketing-reader`: solo SHA-256 en BD, 60/h por token, bloqueo de IP tras 10 fallos/10 min, válido SOLO en
+  `GET …/aggregates` (en otra ruta ⇒ 401, D-MKT-AUTZ). La petición tras el guard se tipa `MarketingTokenRequest`
+  (`marketing-token.guard.ts`, TL-MKT-9).
+- Exports: mismo `ScreenPayload` que el endpoint (paridad por construcción); saneado de fórmula en `cell-safety.ts`.
+- d4: `MarketingQuoteCounterService.increment` tras `POST /buylist/quote` (best-effort, sin usuario ni IP).
+- h1: CRUD `/admin/marketing/annotations` por sesión; filtro PII compartido `marketing-pii-filter.ts`.
+- Retención 12 meses de `MarketingAccessLog`: job diario `marketing-access-log-retention` (`MarketingAccessLogService.
+  purgeExpired`, corte = mismo instante de hace 12 meses UTC; cron `MARKETING_ACCESS_LOG_RETENTION_CRON`, def. `45 8 * * *`).
+- Limpieza de datos de prueba (LIMPIEZA_DB §14.2.1): conservar `UserPermission`, `MarketingApiToken`, `MarketingAccessLog`,
+  `MarketingDateAnnotation`; borrar `BuylistQuoteDailyCount`, `MarketingBannerConsentCounter` y (m86, **a ratificar por
+  el arquitecto en §14.2**) `MeasurementOutbox`, `MeasurementContext`: telemetría de 7 días sin sentido sin los pedidos
+  y solicitudes que la limpieza borra.
+
+## §MKT.H — Fase 2 de medición, construida APAGADA (v1.102⟨mkt-fase2⟩, m86) · 2026-10-18
+
+> Contrato: API_CONTRACT §MKT.H (variables, cuerpos, candados C-B1…C-B9). Diseño: ARCHITECTURE §14. Se enciende con
+> `MEASUREMENT_MODE=on` en Railway, en el mismo despliegue que el aviso del abogado (PENDIENTES §MKT, MKT-FASE2).
+
+**Dónde vive.** `src/modules/measurement/` (`@Global`): `measurement.config.ts` (interruptor y fail-closed, puro),
+`measurement-input.ts` (saneador del objeto `measurement`, puro, nunca lanza), `measurement-bodies.ts` (cuerpos MP/CAPI,
+lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchase / enqueueLead), `measurement-drain.service.ts`
+(job), `banner-response.service.ts` + `measurement.controller.ts`, `measurement-http.ts` (único camino a la red, inyectable).
+
+**Comportamiento que el contrato no fija y decidí (para el arquitecto si no le vale).**
+- `measurement` sin `consent` de dos booleanos o sin `noticeVersion` válido ⇒ se ignora ENTERO (columnas NULL, como `off`).
+- `value` de `purchase` = `Order.totalCents` (lo cobrado: cartas + envío + IVA + comisión); `shipping_cents` aparte.
+- `item_name` de carta = `nombre · set`; sellado = nombre del producto; accesorio = nombre del snapshot. `item_id` = `cardId`,
+  `sealedProductId` o `accessoryId`.
+- Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`): **NO VERIFICADO** que siga vigente al
+  encender; se revisa con «Eventos de prueba» de Meta.
+- Panel (v1.105, §MKT.H.9 manda): consultas GA4 en `marketing-ga4.ts` (specs + cálculo puro); b4 excluye Instagram de
+  «Referencias» (va en a4/b1-b3); b1-b3 cuentan pedidos + solicitudes por fila para la celda pequeña; d2 sin coherencia
+  mes↔semanas (no es conteo de personas). `COVERAGE_NOTE` (off) y `COVERAGE_NOTE_ON` (on) se exportan del servicio.
+- Contador del banner: la `@@unique` de m82 incluye columnas NULLABLE ⇒ incremento con candado consultivo por celda
+  (`BANNER_COUNTER_LOCK_NAMESPACE`) + `updateMany`/`create`, no `upsert`.
+- Drenador: reclama cada fila con CAS sobre `nextAttemptAt` (+10 min) antes de enviar; tras el 5.º reintento sigue cada
+  12 h hasta caducar. Cron `MEASUREMENT_DRAIN_CRON` (def. `* * * * *`).
+
+**Para frontend.** `measurement` opcional en las tres peticiones; nunca da 400. `POST /measurement/banner-response` exige
+`Content-Type: application/json` (un `sendBeacon` con cadena va como `text/plain` y da 400: mandar un `Blob` JSON).
+`utmMedium` fuera de `bio|story|paid|dm` se cuenta como NULL. El `event_id` del píxel es `p_<orderId>` (`orderId` de la
+respuesta de la sesión).
+
+**Para devops.** Variables de §MKT.H.1 (nombres exactos ahí). Además: `MEASUREMENT_DRAIN_CRON`,
+`MARKETING_ACCESS_LOG_RETENTION_CRON` (opcionales). Al arrancar: `MEASUREMENT_MODE=<off|on>` y, con `on`, una línea
+`MEASUREMENT_DESTINATION_DISABLED destination=<…> reason=<missing_config|invalid_config>` por destino incompleto.
+Ningún log lleva URL, cuerpo, token ni `api_secret`.
+
+**Candados (QA los ejecuta).** C-B1 `measurement.config/service/drain.spec.ts` + `integration/measurement.e2e-spec.ts`;
+C-B2 `measurement.payment-isolation.spec.ts` + e2e; C-B3/C-B4 `measurement.bodies.spec.ts`, `measurement.input.spec.ts`;
+C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec.ts` + e2e; C-B9 `measurement.banner.spec.ts`
++ e2e (429 real); panel `marketing-fase2-panel.spec.ts`. Números y mutaciones con su N: informe de entrega del sha.
+
+## §MKT.G — Pantalla del panel por SESIÓN, periodos y acceso del analista (v1.101 + v1.103) · 2026-10-18
+
+> **Estado vigente.** Contrato: API_CONTRACT §MKT.G (v1.103⟨mkt-panel-exacto⟩). Cierra MKT-TL1, MKT-TL3, MKT-TL4 y la
+> desviación D-MKT-1 (ARCHITECTURE §9; la marca de cerrada la pone el arquitecto). Sin migración. Integración por HTTP
+> (`test/integration/marketing-panel.e2e-spec.ts`): **verde contra Postgres 16** el 2026-10-18 sobre `961eb757` (5/5).
+>
+> **v1.104⟨ceq1-mkt⟩ (2026-10-18, cierra `D-EQ-5` y los rojos de QA sobre `afd12b82`).**
+> - **Query con nombre.** Los cinco handlers de `marketing.controller.ts` declaran cada llave con `@Query('<nombre>')`
+>   (`pantalla`, `format`, `week`, `weekStart`, `month` y los prohibidos `from`/`to`/`day`/`preset`, que siguen dando 400).
+>   `annotations` lee `@Query('from')`/`@Query('to')` con `parseAnnotationDay` (fuera de forma ⇒ 400). Las pruebas unitarias
+>   llaman a los handlers con `test/helpers/marketing-query.ts` (`screenArgs`/`exportArgs`/`periodArgs`).
+> - **`pantalla` y `format` son SELECTOR** (§0-Q punto 6-bis): ausente, vacío, espacios o basura ⇒ `400 VALIDATION_ERROR`
+>   con `details.{field, allowed}` (⛔ sin `value`); `allowed` sale de `MARKETING_SCREENS` y `MARKETING_EXPORT_FORMATS`
+>   (`marketing-period.ts`). **Para frontend:** un 400 por pantalla/format ahora trae `field`; los del periodo siguen genéricos.
+> - **CORS expone `Content-Disposition`** (`src/cors.ts`, prueba `test/cors.spec.ts`): el front ya puede leer el nombre del
+>   archivo de cualquier descarga con `requestBlob`.
+> - **C-EQ-1** gana la clase `SELECTOR`, 6 filas (pantalla ×3, format, `players::game` y su CSV), REGISTRO 89 y tope de
+>   `NO_ENUM_POR_RUTA` 107 (las 37 llaves de `CEQ-MKT-1`). Con Postgres no salieron más huérfanos que los 8 de QA.
+> - **Limpieza (G-8):** las seis tablas de M-82/M-83 van a `conservar` (clasificación conservadora; ratificación pendiente
+>   del arquitecto en `docs/specs/LIMPIEZA_DB.md §14`, que es suyo). `T-AC3` revierte M-82/M-83 con `revertM82M83`.
+> - **Pruebas de integración que QA vio rojas por la prueba, no por el producto:** `marketing-panel` (4)(5) ahora manda
+>   `weekStart`; `card-show-contract` manda una IP distinta por alta (`X-Forwarded-For`), en vez de 6+ POST/min desde
+>   127.0.0.1 contra el throttle real de 5/min.
+
+**Rutas (todas bajo `/api/v1/admin/marketing`).**
+
+| Ruta | Autz | Fichero |
+|---|---|---|
+| `GET panel?pantalla=&week|weekStart|month` | sesión + `marketing:read` | `marketing.controller.ts` `panel()` |
+| `GET periods` | sesión + `marketing:read` | `marketing.controller.ts` `periods()` → `marketing-period.ts` `marketingPeriodOptions()` |
+| `GET tokens` · `POST tokens` · `POST tokens/:id/revoke` | `@Roles(super_admin)` | `marketing-tokens.controller.ts` → `marketing-token-admin.service.ts` |
+
+**Para frontend.**
+- `ScreenPayload.privacy` dice el régimen aplicado: sesión `super_admin` ⇒ `'exact'` (valores reales, sin «< 5», sin
+  «oculta», sin fila «Otros»); cualquier otra sesión ⇒ `'small_cells'`. Lo decide `panelPrivacy()` por ROL; no hay query.
+- Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por coherencia mes↔semanas o complementaria), texto o `null`.
+  b1-b3 (v1.107, §MKT.H.14): pedidos y solicitudes se ocultan por separado, sin fila «Otros»; una fila puede venir parcial.
+- Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran). Vale igual para
+  `weekly-excel` desde `d0f6c648` (MKT-TL6). `week=YYYY-W53` en un año de 52 semanas ⇒ 400 (MKT-TL8).
+- c7 (pedidos por estado, mes) puede traer la fila «Otros (< 5 c/u)» como cualquier otra tabla con dimensión (MKT-TL5).
+- `notes` de TODA pantalla trae la línea de cobertura literal de §MKT.G.4 (`COVERAGE_NOTE`); también va a la hoja «Info».
+- Motivos `notMeasuredReason`: empiezan por «NO MEDIDO — » y no llevan códigos internos (PM-…, Fase N) — candado en
+  `marketing-panel.spec.ts`. ⚠️ La línea de cobertura SÍ dice «Fase 2» y `first_utm_*` porque el contrato la fija literal.
+- Dinero (`kind:'money'`): **pesos con IVA, 2 decimales** (`centsToPesos`), confirmado (DESIGN_SYSTEM §MKT-UX.17 petición 6).
+- 422 de anotaciones y de `label` de token: `details.field` (`'label'` | `'destino'`).
+- Tokens: el claro (`token`) solo en la respuesta del POST (`no-store`); ninguna otra respuesta lleva `token`/`tokenHash`.
+
+**Cómo está construido (para QA/techlead/seguridad).**
+- Un solo cálculo: `MarketingAnalyticsService.screen(screen, period, now, privacy)` — `privacy` obligatorio, sin valor por
+  defecto. `aggregates`, `export`, `export/todo`, `weekly-excel` pasan `'small_cells'` literal; solo `panelPrivacy()` produce
+  el régimen exacto. `CellPrivacy = 'small_cells' | ExactPrivacy` (tipo marcado, MKT-TL7): `'exact'` a pelo no compila; candados
+  «tipo (D3)», «estático (D3)» y «estático (MKT-TL7r)» (`as never`/`as unknown as` en el módulo: ninguno desde TL-MKT-9)
+  en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
+- §MKT.G.9 (9) sobre ficheros: la prueba lee las FILAS de la hoja `pantalla_<s>` (o del CSV), nunca «Info», que trae «< 5» en su
+  nota de privacidad también en `exact` (techlead R3 sobre `62e8250b`: con `fileText()` sobre todo el libro, xlsx en `exact` seguía verde).
+- Celdas (§MKT.H.14): el umbral mira `DimensionRow.subjects` (obligatorio), no `count`: d1 = pedidos distintos (publica piezas),
+  d3 = usuarios distintos (publica altas; `groupBy` por carta y usuario). b1-b3: `applySmallCellsByComponent` + `hiddenCellIds`
+  (umbral, coherencia y complementaria local por (clave, componente); 0 ⇒ 0). R0: visibles en orden de entrada, ocultas al final
+  por clave (b1-b3: pedidos desc, solicitudes desc, clave; oculto después). g1 exige `firstUtmSource` (g1 ≡ b2[Promoción]).
+  Fuera de b1-b3 un conteo 0 sigue saliendo «< 5» (más conservador que R1; se alinea con la prueba 3). Registro de poblaciones:
+  `marketing-populations.ts` (prueba 1). `safeRows()`/`safeComponentRows()`: en un MES `small_cells` recalculan la MISMA
+  función por semana (`weeksTouchingMonth`) y fuerzan `'oculta'` en lo oculto en alguna semana.
+  c7 (`c7Dims`) da filas ya agrupadas (estados ≥ umbral, «Otros estados», «Recogida en persona») y devuelve `[]` para menos de
+  4 semanas: c7 semanal no se publica, así que el mes no hereda ocultas de semanas.
+- Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
+  puede salir 400 los primeros días del mes (p. ej. `2026-10` hasta el lunes 2-nov).
+- d4b: solicitudes DISTINTAS (no líneas) creadas en el periodo que incluyen la carta; sin MX$.
+- Emitir/revocar escriben `AuditLog` en la misma transacción que el cambio; revocar es idempotente (solo la primera
+  revocación cambia la fila y deja bitácora). `verify()` sin caché ⇒ la siguiente llamada da 401.
+- Limitador (MKT-TL1): barrido una vez por ventana + cota dura 10 000 claves.
+
+**Abierto, con medición.**
+- MKT-TL2 (docs/TECH_DEBT.md): falta la prueba 3 (auditor por ecuaciones). Caduca 2026-11-30: `marketing-tl2.expiry.spec.ts`.
+
+**Para el arquitecto.** c7 en `exact` da las claves de `small_cells` sin «Otros» (§MKT.G.9 (8)); un estado por fila sería regla 9.
+
+**Verificación de §MKT.G.** Última suite completa propia: `374647c6` (515/515 suites, 8936/8936); lotes de ablación
+N=10 sobre `89b469d4`, `374647c6` y `f63dbd8e` (todas las mutaciones 10/10 rojo, controles 0/10). Tablas detalladas en la
+versión de este fichero de `f63dbd8e`.

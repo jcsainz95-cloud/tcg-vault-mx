@@ -530,6 +530,56 @@ por producto: overrides de venta/compra y bounties (`VariantPriceOverride`), pre
 Recomendación operativa (§14.8 paso 2): **descargar el `.xlsx` de inventario antes** (`GET /admin/inventory/export.xlsx`,
 `inventory.controller.ts:557-562`, una fila por pieza) como chuleta para re-subir. ⚠️ Sus folios son los **viejos**.
 
+#### 14.2.1 Panel de Marketing y medición (M-82/M-83/M-86) — clasificación v2.4 (2026-10-19)
+
+Las seis tablas de `m82`/`m83` y las dos de `m86` entran al censo G-8. En el árbol principal las seis siguen en `conservar`
+(`pdb-limpieza.e2e-spec.ts:92`, `MKT_KEPT`); esta clasificación la implementa el worktree backend `d3af1d77` (sin fusionar:
+`MKT_EMPTIED`/`MKT_KEPT` en `pdb-limpieza.e2e-spec.ts:83,99`). **Criterio**, el mismo de §14.13.1 y §14.14.1: se **conserva** lo que es decisión, credencial o contenido
+del dueño, o dato de una persona real; se **borra** la telemetría sin PII que mezcla tráfico de prueba con real
+(`CardShowClick`) y lo que solo tiene sentido junto a filas que se borran. Esquema medido en `schema.prisma:3160-3269`
+(árbol `b95fbbac`, 2026-10-18).
+
+| Tabla | Grupo | Por qué | FK / orden |
+|---|---|---|---|
+| `UserPermission` | **conservar** (ratificado) | Permisos que el dueño delegó (`marketing_read`…). Es una decisión suya, como `ConfigSetting`. Si se borra, el analista y el staff pierden el acceso sin aviso, y la bitácora (`AuditLog`, que sí se borra, §6) ya no guarda quién lo concedió. `grantedByUserId` queda como único rastro. | FK `userId → User` `Cascade`; `User` se conserva. |
+| `MarketingApiToken` | **conservar** (ratificado) | Credencial del principal `marketing-reader`. Solo guarda el **hash** (`tokenHash`), nunca el token en claro. Si se borra, el analista pierde el acceso sin que nadie lo revoque explícitamente, y el token que tiene en sus secretos deja de valer sin rastro. Revocar es una acción explícita (`revokedAt`), no una limpieza. | La referencia `MarketingAccessLog.tokenId` es `SetNull`: ambas tablas se conservan. |
+| `MarketingAccessLog` | **conservar** (ratificado) | **(1) No es dato de prueba:** registra accesos **reales** (export, botón semanal, llamada al endpoint) de principales reales (dueño o staff con sesión, o el token del analista). No narra entidades que dejan de existir. **(2) No guarda contenido:** ni filas, ni datos personales (ARCHITECTURE §13.4.4). `actorUserId` es el id de una cuenta **de staff**, nunca de un cliente, y esa cuenta se conserva, así que no queda id colgando. **(3) Promesa de retención:** el registro se guarda **12 meses** (ARCHITECTURE §13.4.4, PM-M3) y es el rastro de seguridad del panel. Borrarlo antes de tiempo rompería esa promesa justo en el periodo en que el token ya circulaba. **Por qué `AuditLog` sí se borra y este no:** `AuditLog` narra operaciones sobre pedidos, piezas y envíos de prueba que la limpieza elimina, guarda folios y `after` con datos, y el dueño pidió vaciarla expresamente (`HECHOS.md:80` (4), 2026-10-06, «la bitácora igual límpiala»). Esa frase es **anterior a m82** y se refiere a `AuditLog`. Extenderla al registro de accesos es una interpretación, así que se le pregunta al dueño (P-MKT, abajo). **Privacidad:** el mecanismo que la protege es el **plazo de 12 meses**, no la limpieza. Ese job **no existe hoy**: en `backend/src` no hay ningún `marketingAccessLog.deleteMany` (grep, 2026-10-18). No se arregla desde aquí: ver «Fuera de la limpieza». | FK `tokenId → MarketingApiToken` `SetNull`; `actorUserId` sin FK. Nada se borra debajo. |
+| `MarketingDateAnnotation` | **conservar** (ratificado) | Contenido editorial del dueño (etiquetas de fecha en las gráficas). Pasa por un filtro anti-PII antes de guardarse (§13.4.6). Es configuración suya, como `ConfigSetting`. Una anotación que puso mientras probaba la puede borrar él desde el panel. | FK `createdByUserId → User` `SetNull`; `User` se conserva. |
+| `BuylistQuoteDailyCount` | **BORRAR** (corregido) | Es telemetría anónima `(día, cardId, count)` que escribe en vivo `POST /buylist/quote` (`marketing-quote-counter.service.ts:28-39`). Sin usuario ni IP, por lo que no se puede separar el tráfico de prueba del real. Las tres razones para vaciarla: **(1)** su pareja en la pantalla d4, las solicitudes de venta (`SellRequest`), **se borra entera** porque «es todo fake» (`HECHOS.md:80` (2)). Si se conservan las cotizaciones de antes y se borran sus compras, la razón cotizado/comprado de ese periodo queda falseada. **(2)** El dueño exige «datos reales, nunca rellenos»: un contador inflado por las pruebas del equipo es justo eso. **(3)** Es la misma familia que `CardShowClick` (§14.14.1), que ya se borra. **Costo:** se pierde la señal real que hubiera antes de la limpieza. Es poca, y su volumen está **NO MEDIDO** (lo cierra `SELECT count(*), sum(count), min(day) FROM "BuylistQuoteDailyCount"` en el ensayo, paso 1). | Sin FK: `cardId` es texto, `Card` no la referencia. `DELETE` directo en el paso 13, como `CardShowClick`. |
+| `MarketingBannerConsentCounter` | **BORRAR** (corregido) | Contador agregado `(semana × respuesta × utm × device)` sin cookie ni PII. No prueba el consentimiento de nadie, así que no es un registro legal: es telemetría, como `CardShowClick`. En `main` no tiene escritor; con Fase 2 lo escribe `banner-response` solo con el modo `on`. Se borra para que nada de prueba cuente como real. | Sin FK. `DELETE` directo en el paso 13. |
+| `MeasurementOutbox` (m86) | **BORRAR** (ratificado v2.4) | Cola de envíos a GA4/Meta de vida ≤ 7 días, sin cuerpo (API_CONTRACT §MKT.H.7). Sus `subjectId` son pedidos y solicitudes que la limpieza borra (§2.4, §2.6): conservarla enviaría compras de prueba como reales. | Sin FK (`subjectId` texto). `DELETE` en el paso 13 dentro de `\if :lz_m86`; `LOCK` con `lz_m86` porque el drenador escribe en vivo. |
+| `MeasurementContext` (m86) | **BORRAR** (ratificado v2.4) | `gaClientId`/`fbp`/`fbc` de ≤ 7 días atados a pedidos y solicitudes que se borran; sin ellos no tienen sentido. | Sin FK. Igual que la anterior. |
+
+**Efecto en G-7, a conciencia.** Una vez hecha la limpieza, cualquier cotización pública vuelve a escribir en
+`BuylistQuoteDailyCount`. A partir de ahí, G-7 se **niega** a repetir B (`…_2_limpieza.sql:286-293`). Es la conducta
+diseñada: pasa lo mismo con `CardShowClick` y con un pedido real. «Eso ya es real».
+
+**P-MKT · ¿«Límpiala» incluía el registro de accesos del panel?** Esta pregunta **no bloquea** y tiene valor por defecto.
+- **(a) Por defecto, CONSERVAR** `MarketingAccessLog`, por las razones de la tabla.
+- **(b)** Si el dueño quiere vaciarlo también, pasa a `borrar` con `DELETE` directo (no tiene hijos). Hay que decirle
+  que el rastro de los accesos previos a la limpieza solo quedará en el respaldo de Railway, y añadirle la misma línea
+  `\copy` de `AuditLog` (`…_2_limpieza.sql:71`).
+
+Sin respuesta, rige (a). El orquestador le lleva P-MKT al dueño junto con P-CS (§14.14.2).
+
+**Qué hace B (`…_2_limpieza.sql`; implementado en `d3af1d77`, `:113-115,141-146,476-484`), norma:**
+1. `\gset` previo al `BEGIN`: `lz_mkt` (existe `BuylistQuoteDailyCount`) y `lz_m86` (existe `MeasurementOutbox`), patrón
+   `lz_cs`: en una base sin m82/m86, psql ni manda las sentencias.
+2. `LOCK … IN SHARE ROW EXCLUSIVE MODE` de los dos contadores (`\if :lz_mkt`) y de las dos tablas de m86 (`\if :lz_m86`):
+   se escriben en vivo y, sin candado, una escritura a mitad de la transacción haría saltar G-5 por error.
+3. Las cuatro van a `borrar` en `lz_conteo` y se vacían en el paso 13 con `WITH x AS (DELETE … RETURNING 1) INSERT INTO
+   lz_cambio …`. G-5 las cuenta solas (0 al terminar); no hacen falta G nuevas.
+4. No cambian A, C, D ni `schema.prisma`. El B congelado (`FROZEN_B_SHA256`) **no se toca**: T-AC3 lo ejerce sobre un
+   esquema sin m82/m83/m86 con `revertM86` **y después** `revertM82M83` (orden inverso de despliegue; `helpers/limpieza-db.ts:314`).
+
+**Prueba (`pdb-limpieza.e2e-spec.ts`):** `MKT_EMPTIED` = las cuatro de `borrar`, `MKT_KEPT` = las cuatro de `conservar`;
+se siembran todas y se exige `n > 0` antes del `commit` (si no, «queda en 0» no prueba nada). **Mutación** (copia del árbol
+**entero**, O-9; determinista ⇒ `1/1`): devolver `MeasurementOutbox` a `conservar` ⇒ rojo por `MKT_EMPTIED`; quitar su
+`DELETE` sin moverla de grupo ⇒ G-5 aborta.
+
+**Fuera de la limpieza.** Retención de 12 meses de `MarketingAccessLog`: en `main` no hay job (grep `purgeExpired` en
+`backend/src` = 0, 2026-10-19); `d3af1d77` lo trae (`marketing-access-log.service.ts`, job `marketing-access-log-retention`).
+
 ### 14.3 Orden de borrado (una transacción) y guardas
 
 `LOCK TABLE` de v1 **más** `"InventoryBatch"` y `"PendingPriceEntry"` (el `price-ingest` escribe en la cola leyendo
@@ -1078,3 +1128,10 @@ lleva P-CS al dueño; backend implementa el DEFAULT conservar (la herramienta qu
 (0 tras borrar, grupo `borrar`). `pdb-limpieza.e2e-spec.ts`: `EMPTIED` += `CardShowClick`; `KEY_KEPT` += `CardShowLead`,
 `CardShowPlayerSignup`. `limpieza-fixture.ts`: siembra 2 clics (borrar), 1 lead confirmado y 1 preinscripción de **menor**
 confirmada (conservar), con fechas fijas. **No** cambian A, C, D, `schema.prisma` ni ninguna migración.
+
+---
+
+## Changelog
+
+- v2.3 · 2026-10-18 · §14.2.1: se clasifican las seis tablas de m82/m83. Se ratifican 4 en conservar (con `MarketingAccessLog`). `BuylistQuoteDailyCount` y `MarketingBannerConsentCounter` pasan a borrar. Se abre P-MKT · ficha MKT-QA2r del techlead, a petición del orquestador.
+- v2.4 · 2026-10-19 · §14.2.1: `MeasurementOutbox` y `MeasurementContext` (m86) ratificadas en borrar con `lz_m86` y `revertM86` en T-AC3; pasos de B compactados · pedido de backend (`d3af1d77`) vía orquestador.

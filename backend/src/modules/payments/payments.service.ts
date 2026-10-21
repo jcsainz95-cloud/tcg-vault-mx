@@ -21,6 +21,8 @@ import { ModuleRef } from '@nestjs/core';
 import { RefundLedgerService } from './refunds/refund-ledger.service';
 import { WishlistService } from '../wishlist/wishlist.service';
 import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
+// v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.6): encolado de la compra para GA4 MP / Meta CAPI, POST-COMMIT y best-effort.
+import { MeasurementService } from '../measurement/measurement.service';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -51,7 +53,24 @@ export class PaymentsService {
     // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Se quita sola al pagar», 816): `@Optional()` por los tests unitarios que
     // construyen este servicio a mano. Se llama POST-COMMIT y best-effort (⛔ jamás tumba el webhook).
     @Optional() private readonly wishlist?: WishlistService,
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): `@Optional()` por los tests que construyen este servicio a mano. Se llama POST-COMMIT,
+    // después de `notifyOrderSettled`, y ⛔ jamás tumba ni cambia el webhook (C-B2).
+    @Optional() private readonly measurement?: MeasurementService,
   ) {}
+
+  /**
+   * v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.6, C-B2) — encola la compra para medición. ⛔ Fuera de toda `$transaction`,
+   * después del CAS de liquidación (solo lo llama el ganador) y del aviso. Un fallo se registra SIN mensaje (podría
+   * citar valores) y ⛔ no propaga: un 5xx haría que Stripe reintentara un settle ya aplicado.
+   */
+  private async enqueuePurchaseMeasurement(orderId: string): Promise<void> {
+    if (!this.measurement) return;
+    try {
+      await this.measurement.enqueuePurchase(orderId);
+    } catch {
+      this.logger.warn(`measurement: compra ${orderId} no encolada (best-effort)`);
+    }
+  }
 
   /**
    * rev v1.87⟨wishlist⟩ (§WSH.5, 816) — tras el commit de **las dos** liquidaciones: el deseo cumplido desaparece. Best-effort:
@@ -375,6 +394,8 @@ export class PaymentsService {
       // aquí, `direct_ship` en `settleDirectShipOrder`): el criterio 200 no distingue por ruta de
       // fulfillment, distingue por **quién recibe**.
       await this.notifyOrderSettled(order);
+      // v1.102⟨mkt-fase2⟩ (§MKT.H.6): rama BÓVEDA, post-commit y best-effort.
+      await this.enqueuePurchaseMeasurement(order.id);
       // rev v1.87⟨wishlist⟩ (816): rama BÓVEDA.
       await this.consumeWishlist(order.id);
       return;
@@ -672,6 +693,8 @@ export class PaymentsService {
     // envíos son mutuamente excluyentes por construcción (`guestEmail` poblado ⇔ el de arriba;
     // `guestEmail` nulo ⇔ éste), así que ⛔ nadie recibe dos confirmaciones.
     await this.notifyOrderSettled(order);
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.6): rama ENVÍO DIRECTO, post-commit y best-effort.
+    await this.enqueuePurchaseMeasurement(order.id);
     // rev v1.87⟨wishlist⟩ (816): rama ENVÍO DIRECTO.
     await this.consumeWishlist(order.id);
   }

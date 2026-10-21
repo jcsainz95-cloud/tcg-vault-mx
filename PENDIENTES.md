@@ -1055,3 +1055,95 @@ roles) y **¿cómo le llama a M5?**.
 
 ---
 
+
+---
+
+## §MKT TIENDA (sesión `feat/mkt-tienda`, arranque 2026-10-16) — SEO/medición/píxel/cookies/ficha/códigos
+
+> **Rama:** `feat/mkt-tienda` desde `origin/production` `0dd2d7c` (production es ancestro). **Fuente de verdad:** brief
+> final de JC en el repo de marketing: `/home/user/tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` (tres briefs:
+> v2 medición/búsqueda, Panel de Marketing, Códigos de descuento). **NO se copia el brief a este repo.**
+> ⛔ **Secreto Card Show:** nombre de patrocinador «Bodegas Alianza», sede, precio/fecha exactos NUNCA van a este repo
+> (grep de CI). E5 (página del evento) usa solo lo ya anunciado el 14-oct. Patrocinador fuera mientras MKT-11 siga abierta.
+
+### Fases (decisión de JC 2026-10-16, respétalas)
+- **FASE 1 (empieza ya, sin deps):** A1 quitar «valor de mercado» de ficha · A2 COMPRAR en 1ª pantalla móvil · A3 ficha
+  pública sellado · A4 og/title por ficha · §E SEO/GEO · §B1 columnas `first_utm_*` · Panel de Marketing Fase 0 (datos de
+  la tienda + export Excel/CSV + endpoint de agregados).
+- **FASE 2 (se construye, NO se enciende hasta aviso de privacidad del abogado):** §C/§D cookies + Consent Mode v2 + GA4 +
+  Meta Pixel/CAPI. Bloqueante: el aviso de privacidad revisado va en el MISMO despliegue que GA4/píxel.
+- **FASE 3 (se construye, NO se publica código hasta que JC apruebe condiciones):** Brief 3 códigos de descuento (Q1=A
+  código público por campaña/pieza, tope de usos, solo primera compra; ningún código a una sola persona).
+
+### Le debe JC (son suyos; no frenan Fase 1; recordárselos al tocar Fase 2/3)
+- Re-pegar el enlace de la bio con `utm_medium=bio&utm_campaign=perfil` (v2 §B3).
+- Crear el píxel en Meta ANTES de Fase 2 y pasar el ID (no es secreto); el token de CAPI lo carga él en variables de
+  entorno de la tienda, nunca por chat/repo.
+- Llevar el aviso de privacidad al abogado (LFPDPPP 2025, NO VERIFICADO) y mandarlo revisado → desbloquea Fase 2.
+
+### Estado medido (orquestador, 2026-10-16, sobre `0dd2d7c`)
+| Ítem | Medido | Comprobación |
+|---|---|---|
+| A1 valor de mercado en ficha pública | **SE PINTA HOY** en `catalog/[cardId]/CardDetailView.tsx` y `sellado/[inventoryItemId]/SealedDetailView.tsx` | `grep -i "valor de mercado"` en HTML de 3 fichas = 0 |
+| A2 botón COMPRAR móvil | hoy ~2.8 pantallas abajo (marketing, N=1); orden de bloques a reordenar — **EN CURSO (frontend)** | iPhone13 390×664: borde del botón ≤664px + precio con IVA visible |
+| A3 ficha sellado | ruta `/es/sellado/[inventoryItemId]/page.tsx` EXISTE pero es cliente sin SSR/metadata; pública/200 **NO MEDIDO**; patrón ≠ al del brief (`/catalog/sealed/<id>`) | `curl` 200 a 3 fichas de sellado; lista enlaza |
+| A4 og/metadata ficha | `generateMetadata`/`openGraph` en ficha de carta: **grep 0** (ausente) | `curl` HTML con nombre en `<title>`, og:image ≥1200×630, og:description con IVA y fecha |
+| B1 `first_utm_*` | **no existe en schema.prisma** (grep 0) → arquitecto + migración (siguiente libre M81+) | columnas en Order y BuylistRequest; NULL sin consentimiento |
+| E1 robots/sitemap | **no hay** en `frontend/src` (grep 0) | `curl /robots.txt` 200 con `Sitemap:`; sitemap ≥1 URL por ficha a la venta |
+| Panel `/admin/marketing` | **no existe** (hay m1..m12, `_owner`, refunds; no «marketing»); HECHOS:8 lo dejó «en reserva». Módulo `backend/src/modules/sales-analytics` existe (¿reutilizable? NO MEDIDO) | pestaña + `marketing:read` 403 sin permiso; export sin datos personales |
+
+### En curso (2026-10-16)
+- **arquitecto** (diseño, docs): deltas de contrato/schema Fase 1 — B1, A3/A4 (patrón URL sellado + datos og/JSON-LD), E
+  (datos para sitemap), Panel Fase 0 (`marketing:read`, principal `marketing-reader`+`TIENDA_PANEL_TOKEN`, endpoint de
+  agregados, contadores de servidor, export). Sin Bash → lo commiteo yo (O-13).
+- **frontend** (código): A1 (quitar valor de mercado de las 2 fichas públicas) + A2 (COMPRAR en 1ª pantalla móvil).
+
+### Marketing necesita de vuelta (relayar a JC cuando haya datos)
+Fechas de despliegue de cada cosa; URLs de prueba por evento; patrón final de URL de sellado (A3) y del Card Show (E5);
+nombres de columnas `first_utm_*` y de eventos; mensajes exactos del checkout de códigos; costo de envío y métodos de pago
+que ve el comprador (NO MEDIDO); confirmaciones de privacidad (0 fugas, 0 eventos a Meta rechazando).
+
+### Progreso 2026-10-16 (orquestador)
+- ✅ **A1 + A2 hechos y commiteados** (`09e297c`, frontend; verificado por mí O-10: 8 ficheros, 0 backend, sin secretos). A1: quitada la celda «valor de mercado» de las dos fichas públicas (carta y sellado); contrato/tipos sin cambio (el DTO sigue trayendo `referenceValue`, solo deja de pintarse). A2: barra de compra **fija al pie en móvil** (`fixed bottom-0 lg:hidden`) con precio+IVA+CTA, solo con ≥1 unidad a la venta. Tests de componente: tsc limpio, 234/234 verde (medido por el agente; **el grep sobre HTML renderizado y el viewport iPhone13 NO los midió** → los verifica el gate QA/tester-e2e con stack).
+- ✅ rama `feat/mkt-tienda` empujada a remoto (`6816ab0`, `d55692d`, `09e297c`).
+- 🟡 **ABIERTO — Tendencia de valor (sellado) vs D2=A.** El bloque «Tendencia de valor» (flag `SEALED_VALUE_TREND`, **default `off`**, `settings.constants.ts:522`) rotula «valor de mercado de referencia». Hoy OFF ⇒ A1 cumple. Si JC lo enciende, re-mostraría valor de mercado en la ficha pública, contra D2=A. **Decisión para JC** (no urgente, flag off): ¿hacemos que la tendencia respete D2=A (sin «valor de mercado» público) o se acepta que encender el flag revierte D2 para ese bloque? Recomendación: respetar D2=A. No tocado.
+- 🟡 **ABIERTO — E2E de ficha en rojo por A1.** `frontend/e2e/catalog.spec.ts`, `miv-market-iva.spec.ts`, `pricing-curve.spec.ts` afirman que «valor de mercado»/`referenceExplainerWithMarket` son VISIBLES (codifican §MIV D2=B). D2=A lo revierte en la ficha pública ⇒ hay que actualizar esas aserciones (quirúrgico; las partes de bóveda/buylist NO se tocan). Dueño: frontend; se hace en la siguiente ola junto con A3/A4, y QA lo verifica con stack. Documentado en `docs/FRONTEND_NOTES.md`.
+- 🔧 backend OLA 1 en curso (m81 firstUtm + campos ficha pricedAsOf/ogImageUrl + `GET /catalog/sitemap`); sus ficheros están sueltos en el árbol (otro agente, O-12 respetado).
+- **Siguiente ola (tras backend):** frontend A3 (SSR/ISR ficha sellado) + A4 (og/title/JSON-LD en ambas fichas) + E (sitemap.xml/robots/canonical consumiendo `/catalog/sitemap`) + fix de e2e de ficha. Luego gate QA+techlead del stream.
+
+### Hito 2026-10-16 — OLA 1 (ficha+SEO+atribución) FUSIONADA a `main`
+- **Doble veredicto sobre `25cf000`:** QA **APROBADO** (suites 8578 backend + 4346 frontend verde; A1 grep 0/0/0, A2 botón ≤664px+IVA con capturas, A3 200+enlaces, A4 title/og/JSON-LD precio al 2026-10-16, E1 robots+sitemap 10/10 fichas a la venta, e2e 10/10 D2=A) · techlead **APROBADO CON DEUDA** (candado sellado no filtra mercado, e2e refuerza, SSR 1 lectura/petición, UTM sin huecos). Verificación O-9 del orquestador: pase limpio 12/12 + mutación (regex parseFirstUtm ensanchada ⇒ 6/12 rojo, el candado muerde).
+- **Fusionado:** `main` = `f7febcd` (merge `--no-ff`); `feat/mkt-tienda` = `a557f86` (sincronizada con main; main es ancestro). **NO desplegado** (solo production publica; irá en el release-gate con fase de seguridad completa).
+- **Reconciliación O-18:** production avanzó `0dd2d7c`→`bda0c0d` y main→`c9febf2` mientras trabajaba, pero solo con mantenimiento de plantilla/doctrina/merges; diff sobre mis zonas (schema/contrato/catálogo/fichas/common) = VACÍO, sin migraciones nuevas ⇒ cero colisión con m81.
+- NO MEDIDO (límites del seed E2E, se re-miden en producción con la re-medición SEO §E de marketing): og:image responde 200/≥1200×630 (seed sintético); conteos a escala (~884); resultados enriquecidos live.
+
+### Deuda de OLA 1 (techlead, no bloqueante) — enrutada a dueño
+- **[frontend]** doble lectura por ficha (SSR head + refetch cliente sin `initialData`/HydrationBoundary). Anotar en `docs/TECH_DEBT.md` y, si se aborda, pasar el SSR como `initialData`.
+- **[arquitecto]** el «valor de mercado» (`referenceValue`/`referenceDisplayCents`) **sigue viajando en el DTO público** aunque D2=A lo quitó de la UI (conducta MIV previa, no introducida aquí). Evaluar si, ahora que nunca se pinta, el DTO público deja de emitirlo. Candado e2e es a nivel DOM, no de cable.
+- **[frontend]** Instagram `sameAs` omitido (falta el handle de JC → `seo.ts:29 INSTAGRAM_URL=null`). **[backend]** og:image <1200×630 (abierto con JC). Ambos documentados en código/notas.
+
+### Siguiente: Panel de Marketing Fase 0 (Brief 2) — EN CURSO
+Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable ahora (Brief 2 §3): permiso `marketing:read`+control de acceso, principal `marketing-reader`+`TIENDA_PANEL_TOKEN` (hash, Bearer, rate-limit), endpoint de agregados (semana/mes cerrados, celdas pequeñas §5.2, 401/403/400/429, no-store), export .xlsx/.csv + botón Excel semanal, indicadores de BD (a1/a2/a3 ventas/MX$/buylist, d1/d3/d4 stock/cotizador), c7 pedidos por estado (P5=B, del snapshot), h1/h2. **DIFERIDO:** c6 términos de búsqueda (necesita pre-revisión de **seguridad** de PM-M2 puntos 1-4 antes de construir); f1/f2 aceptación del banner (se pueblan en Fase 2, cuando exista el banner). Columnas GA4/SC ⇒ «NO MEDIDO — GA4 sin encender».
+
+## §MKT TIENDA — sesión «sesiones pendientes» (rama `claude/sesiones-pendientes-alcances-cznucn`, medido 2026-10-18)
+> Retoma la continuación de `feat/mkt-tienda` (`3d3b738`, ver `git show 3d3b738:PENDIENTES.md`). Rama = `main` 66f10ca
+> + `production` b40b244 fusionado (`b819742`; backend 511/511 · 8859/8859, frontend 4392 verdes, medido por el orquestador).
+> Brief: repo `tcg-hunt-marketing` `briefs/PAQUETE_TIENDA_2026-10-16.md` (solo lectura). ⛔ Secreto Card Show nunca aquí.
+
+| # | Qué | Estado (medido 2026-10-18) | Comprobación |
+|---|---|---|---|
+| MKT-PANEL | Panel `/admin/marketing` (pantalla + `GET panel/periods`, tokens del analista, régimen exacto para super_admin — HECHOS 2026-10-18) | ✅ construido y fusionado en la rama (`eb0b995` backend, `093d823` frontend). Orquestador O-9: backend 515/515 · 8936/8936, mutación «panel siempre exact» 3/3 rojo; frontend tsc 0, vitest 4499 verdes, mutación «privacy ausente ⇒ exact» 3/3 rojo. **Integración y E2E contra stack: NO MEDIDOS.** Falta gate QA + techlead. | `git log --oneline eb0b995 093d823` |
+| MKT-SEO | §E4 `/preguntas` (FAQPage), `/como-funciona`, §E6 `/guias`, §E7 `llms.txt`, sitemap | ✅ fusionado (`506c1a6`). Orquestador: tsc 0 (tras arreglo `e36aca3`), vitest 4425, mutación «envío gratis» 3/3 rojo. P8 retenida (dice «autenticamos»). | `curl /llms.txt` y `/es/preguntas` en el stack |
+| MKT-AUTENTICAMOS | `home.sellBody` y `buylist.subtitle` (ES/EN) dicen «nosotros autenticamos»; el brief exige «verificamos la condición NM» | Abierto, medido por frontend-SEO en `5524bd6` (`es.json:302`, `:922`); el trinquete de `seo-content.test.ts` los tolera como excepción | vaciar la lista de excepciones del trinquete |
+| MKT-FAQ-CADUCA | Las FAQ caducan el 2026-11-11 (P19 el 11-05) por regla del manual de marketing | Candado ya en código (`frontend/src/lib/seo-content.test.ts` «⏳ R1», reloj real): se pone **rojo el 2026-10-29** en TODAS las ramas/PR (P19 a 7 días). Se apaga copiando a `faq.es.ts` la revisión de marketing, nunca tocando la prueba. Dueño: orquestador pide la revisión a marketing **antes del 2026-10-28**; frontend la copia. Medido 2026-10-18 (techlead sobre `62e8250`). | vitest `seo-content.test.ts` verde con el reloj real |
+| MKT-E2 | `www.tcghunt.mx` → redirección permanente a apex | ✅ HECHO por el dueño 2026-10-19 (Vercel: www → 308 → tcghunt.mx; Cloudflare: CNAME www, DNS only). Medido por el orquestador 2026-10-19: `https://www.tcghunt.mx/es` → 308 `https://tcghunt.mx/es` (conserva ruta y query); `http://www…` → 308 a https y luego a apex; apex 200. Pendiente devops: `scripts/check-www-apex.sh` (en `7852a98`) debe aceptar 308 además de 301. | `curl -sI https://www.tcghunt.mx/es` ⇒ 308 a apex |
+| MKT-E5 | JSON-LD `Event` del Card Show | No existe (grep 0 en `frontend/src/app/card-show/`) | — |
+| MKT-TL2 | Supresión complementaria: c7 por mes ↔ a1 por mes puede despejar una celda (backend, lectura de código) | Abierto; necesita regla de arquitecto/seguridad | `docs/TECH_DEBT.md` MKT-TL2 |
+| MKT-FASE2 | Cookies/Consent Mode/GA4/Pixel/CAPI, **construir apagado** | Diseñado: API_CONTRACT §MKT.H v1.102 + ARCHITECTURE §14 (`c492b0e`), banner MKT2-UX (`31e510b`). Sin construir. ⚠️ `BannerResponse.custom` en §0 entra en el MISMO commit que m86. Le debe JC: ID del píxel, token CAPI en el almacén del proveedor, aviso del abogado. 6+3 preguntas al dueño con defecto (chat 2026-10-18). | — |
+| MKT-FASE3 | Códigos de descuento (Brief 3) | Sin empezar; no se publica hasta que JC apruebe condiciones | — |
+| DOC-SIZE (D8) | Documentos muy por encima del tope de CLAUDE.md: API_CONTRACT ~46.5k (tope 3k), ARCHITECTURE ~37k (3k), DESIGN_SYSTEM ~33.9k (2k), BACKEND_NOTES ~33.4k (1.5k), FRONTEND_NOTES ~22.5k (1.5k), PROJECT ~19.6k (400) | Abierto; deuda anterior a este stream. Techlead exige un **trinquete en CI** (`scripts/`, devops) que falle si `wc -l` de cualquier documento supera el valor medido hoy y baje con cada compactación, **antes del próximo cierre de release**. Dueño: orquestador (+ devops el script; cada rol compacta lo suyo). Medido 2026-10-18 (techlead). | script de CI con los valores de hoy, rojo si crecen |
+| MKT-MAIN | Stream «Panel de Marketing + SEO/GEO» fusionado a `main` | ✅ 2026-10-19: `main` = `789b8788` (fast-forward desde `66f10ca2`), por autorización del dueño (HECHOS 2026-10-19). Gates: QA + techlead APROBADOS sobre `b95fbbac`; techlead APROBADO CON DEUDA sobre el arreglo del cuelgue `d5c9ccc5`; GitHub CI + SAST + E2E verdes sobre `789b8788` (E2E backend terminó solo en 11,6 min). NO publicado (`production` no cambia). Pendiente para el release: fase de seguridad completa + E2E completa. | `git log -1 origin/main` |
+| HND-DEUDA | Deuda techlead del arreglo del cuelgue: TD-HND-1 (timeout de `backend-e2e`, devops — ya construido en `4dec5465`, sin fusionar), TD-HND-2 (candado sin caso de sockets, backend), TD-HND-3 (cierre `quit` repetido ×4, backend) | Abierto, medido 2026-10-19 (techlead sobre `789b8788`); se anotan en TECH_DEBT con la Fase 2 | `grep TD-HND docs/TECH_DEBT.md` |
+| QA-REL-1 | Seguimiento público del invitado: `toTrackingDto` (`backend/src/modules/orders/guest-checkout.service.ts` ~l.902) arma el desglose sin `priceConvention`/`ivaIncluded` (contrato §4-G.3 exige `BreakdownDTO`); en pantalla un pedido IVA incluido muestra «IVA 16%» como sumando y el total no cuadra (D54, criterio 190) | Abierto, PREEXISTENTE en `production` `69415582` (no es regresión). Medido por QA 2026-10-19 sobre `bfd91ab2`, captura `j1-04-tracking-guia.png`. Dueño: backend | prueba de `toTrackingDto` con `priceConvention` + captura del seguimiento sin «IVA» como sumando |
+| QA-REL-2 | `scripts/check-ci-ok.sh:108-113` acepta un trabajo opcional `cancelled` (no solo `skipped`): un `frontend`/`backend` muerto por tiempo dejaría `ci-ok` verde | Abierto, medido por QA 2026-10-19 (corrida 39279361414 intento 1). Dueño: devops | canario: trabajo detectado y `cancelled` ⇒ `ci-ok` rojo |
+| QA-REL-3 | La suite E2E `@real` completa no es autoconsistente con cobro real: 429 por 5 sesiones de invitado/h/IP, casos que consumen datos del seed de otros (vault:15, buylist-offer:155, accessories AC-F14) | Abierto, medido por QA 2026-10-19 (103/106 y 102/106, N=2; rojos de arnés). Dueños: frontend (specs) + devops (arnés) | suite `@real` completa verde 2/2 con cobro |

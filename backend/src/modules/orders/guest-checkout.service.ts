@@ -1,3 +1,4 @@
+import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -227,7 +228,12 @@ export class GuestCheckoutService {
    * `direct_ship`, snapshot de dirección) y UN SOLO PaymentIntent por el total (cartas + envío +
    * IVA + fee). Devuelve el `checkoutToken` (vida corta, §4-G.7a) a quien acaba de crear el pedido.
    */
-  async createSession(dto: GuestSessionDto, requestIp?: string | null) {
+  async createSession(
+    dto: GuestSessionDto,
+    requestIp?: string | null,
+    // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): columnas YA saneadas; ver `OrdersService.createSession`.
+    measurementColumns: Partial<MeasurementColumns> = {},
+  ) {
     // Destino bóveda ⇒ UPSELL, no error (criterio 48). El front NUNCA lo pinta como error.
     if (dto.fulfillmentMode === 'vault') {
       throw BusinessException.validation(
@@ -367,6 +373,8 @@ export class GuestCheckoutService {
             items: { create: lines },
             // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
+            // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
+            ...measurementColumnsData(measurementColumns),
           },
         });
         // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias

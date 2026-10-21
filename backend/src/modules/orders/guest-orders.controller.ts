@@ -1,4 +1,4 @@
-import { Body, Controller, Header, HttpCode, Ip, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Header, HttpCode, Ip, Optional, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
@@ -10,6 +10,7 @@ import {
   GuestSessionDto,
   GuestTrackDto,
 } from './dto/guest-checkout.dto';
+import { MeasurementService } from '../measurement/measurement.service';
 
 const HOUR_MS = 3_600_000;
 
@@ -25,7 +26,11 @@ const HOUR_MS = 3_600_000;
  */
 @Controller()
 export class GuestOrdersController {
-  constructor(private readonly guest: GuestCheckoutService) {}
+  constructor(
+    private readonly guest: GuestCheckoutService,
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `@Optional()` por las pruebas que construyen el controller a mano.
+    @Optional() private readonly measurement?: MeasurementService,
+  ) {}
 
   /** §4-G.1 — desglose sin cobrar. Read-only: NO reserva inventario. */
   @Public()
@@ -50,7 +55,11 @@ export class GuestOrdersController {
   async session(@Body() dto: GuestSessionDto, @Ip() ip: string, @Res({ passthrough: true }) res: Response) {
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
-    const result = await this.guest.createSession(dto, ip);
+    // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
+    const m = this.measurement?.prepare(dto.measurement);
+    const result = await this.guest.createSession(dto, ip, m?.columns);
+    // Post-commit; `afterCreate` nunca lanza. En el REUSO se conserva lo que la orden ya tenía.
+    if (!result.reused) await this.measurement?.afterCreate({ orderId: result.orderId }, m);
     res.status(result.reused ? 200 : 201);
     return result;
   }

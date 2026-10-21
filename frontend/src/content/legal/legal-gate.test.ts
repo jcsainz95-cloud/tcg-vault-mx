@@ -14,6 +14,7 @@ const CLEAN: LegalDocument = {
   version: '1.0',
   pendingOwnerData: [],
   updatedAt: '5 de octubre de 2026',
+  measurementDisclosure: null,
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {

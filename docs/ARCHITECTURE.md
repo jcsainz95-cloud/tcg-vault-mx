@@ -4,23 +4,31 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
-> **Rev v1.94⟨sellado-display⟩ — EL SELLADO SE PINTA COMO CARTA SUELTA EN PEDIDO/FULFILLMENT: la cascada §4.34a
-> nunca llegó a la zona de órdenes, preparación, acta congelada, tracking y reembolsos** (2026-10-13, arquitecto, rama
-> `fix/sealed-display` desde `production`; ⛔ sha NO MEDIDO: sin Bash). 🐞 **BUG DE PRODUCCIÓN, zona de dinero/fulfillment.**
-> Origen: primer pedido real — el cliente compró un producto **sellado** («30th Celebration», tipo binder/poster), se
-> cobró el **precio de sellado correcto**, pero «Pedidos por preparar · Junta y palomea» y el acta lo pintan como carta
-> suelta («Exeggcute · 30th Celebration · NORMAL · Mint», folios INV-001281/INV-001276). **Causa raíz medida (NO es mala
-> venta, es display):** la pieza reservada ES la sellada (ver abajo); el ancla `cardId` (Exeggcute, §4.34a) se filtra en
-> toda superficie de pedido que pinta una pieza por su `card.name` sin rama de sellado. La tienda ya resuelve bien
-> (`sealed-catalog.service.ts:263` cascada `sealedProductName ?? card.name`); la **operación/pedido** nunca recibió esa
-> cascada (es la deuda D-IMG-2 de §9, elevada de «baja» a **bloqueante** por tocar dinero/fulfillment). Secciones:
-> **§4.34a.2 NUEVA** (regla única de identidad de display de una pieza, para TODAS las superficies de pedido) y **§5.2.6
-> ACTUALIZADA** (la petición regla-9 que §5.2.6 dejó enrutada **llega**: el acta congela ahora el nombre CORRECTO del
-> sellado). **Cero DDL, cero migración de BD** (`OrderItem.cardSnapshot` es columna JSON: `FrozenCardFacts` gana
-> `sealedProductId?`/`sealedProductName?` ⇒ cambio de forma + sus cerrojos de tipos, no `ALTER TABLE`; corrige la
-> imprecisión «DDL aditivo» que §5.2.6 arrastraba). **Cero enums nuevos** (`ProductType` ya trae `sealed`). Zona
-> compartida tocada por backend: `orders/`, `shipments/`, `common/` (serializar). Contrato **API_CONTRACT v1.94⟨sellado-display⟩**.
-> BACKEND implementa (modelo fuerte escribe el plano + la prueba que falla, §5.2.6-D); luego **QA + techlead + seguridad**.
+> **Rev v1.107⟨mkt-celdas⟩ (2026-10-19, arquitecto, leído en el árbol vivo, sin Bash).** **§13.7:** D-MKT-PANEL-5 (umbral por componente
+> y sujeto, registro de poblaciones, auditor de rango). **§9:** `D-MKT-CELLS-1`; R4 y D-MKT-1 cerradas. Contrato: API_CONTRACT §MKT.H.14.
+> ---
+> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, arquitecto, leído sobre `a1ba4d2e`, sin Bash).** **§14.1:** lista `ENCENDER_BLOCKERS` en
+> la puerta C-D1. **§14.5:** identidad canónica de ítem para GA4/Meta (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada por
+> lectura. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5 (regla de `null`).
+> ---
+> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, misma rama, leído sobre `e0cce11b`, sin Bash).** **§4.37.1-b NUEVA:** un eje
+> de query se declara con `@Query('<nombre>')` y el SELECTOR es §0-Q. **§9:** `D-EQ-5` (huérfanos de `C-EQ-1`, backend).
+> Contrato: API_CONTRACT §0-Q puntos 4 y 6-bis, §MKT.E.
+> ---
+> **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`,
+> leído sobre `5524bd69`, sin Bash).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta Pixel y CAPI),
+> construida **apagada** tras dos variables y una puerta de build que exige el aviso nuevo; sin GTM; eventos de servidor por cola
+> post-commit que no toca el pago; migración **m86**. **§13.7:** D-MKT-PANEL-2 pasa a «el dueño ve cifras exactas en su pantalla»
+> (`HECHOS.md:172`) y nace D-MKT-PANEL-4 (supresión coherente mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
+> ---
+> **Rev v1.95⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda`).** §13 NUEVA: atribución UTM (m81, `firstUtm*` en
+> `Order`/`SellRequest`), ficha pública de sellado con SSR/og, SEO y panel de marketing Fase 0 (m82). Fuente:
+> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Contrato: API_CONTRACT §MKT (v1.96⟨mkt-tienda⟩).
+> ---
+> **Rev v1.94⟨sellado-display⟩ (2026-10-13, arquitecto, rama `fix/sealed-display`).** Un sellado cobrado bien se pintaba como
+> su carta ancla en pedido, preparación, acta, rastreo y reembolsos (display, no mala venta). **§4.34a.2 NUEVA** (resolutor único
+> de identidad de una pieza) y **§5.2.6** (el acta congela el nombre del sellado; `FrozenCardFacts` += `sealedProductId?`/
+> `sealedProductName?`, sin migración: `cardSnapshot` es JSON). Contrato: API_CONTRACT v1.94⟨sellado-display⟩.
 > ---
 > **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA tras el rechazo de QA/techlead a `b70e272`** (2026-10-13,
 > arquitecto, rama `fix/sealed-display`; ⛔ sha NO MEDIDO: sin Bash). El resolutor único de `b70e272` está bien, pero la
@@ -16671,6 +16679,28 @@ y la lista **siempre actual** es la salida en rojo de `C-EQ-1`. La diferencia pr
 se midió** (O-5); uno de `C-EQ-1` **se mide al leerlo**. Ninguno de los dos puede afirmar, con autoridad normativa, un
 estado que nadie comprobó.
 
+#### 4.37.1-b — Un eje se declara con nombre, y el SELECTOR es §0-Q (v1.104, NORMATIVO)
+
+**Por qué con nombre.** El descubrimiento lee el literal de `@Query('x')` y nada más
+(`backend/test/helpers/query-axis-census.ts:69-73` y `:157-164`): un `@Query()` sin literal sale como `::<sin nombre>`,
+**con DTO o sin él**. Un DTO, `req.query` o un decorador propio dejan el eje fuera del inventario: un `@IsEnum` nuevo en ese
+DTO **no pondría nada rojo** (es la ficha `EQ-D4` de `TECH_DEBT.md`). `QUERY_SIN_NOMBRE` tiene techo 2 y solo baja
+(`enum-query-axes.e2e-spec.ts:1788`). Precedente: accesorios pasó sus tres `@Query()` enteros a llaves con nombre
+(`BACKEND_NOTES.md` §83.ceq1). El marketing de §MKT.E/§MKT.G hace lo mismo (`API_CONTRACT §0-Q`, nota `CEQ-MKT-1`).
+⚠️ Coste aceptado: los parámetros **prohibidos** (`from`/`to`/`day`/`preset`) se declaran también, para que lleguen a la
+validación que da `400`. Cada uno es una fila de `NO_ENUM_POR_RUTA` (dominio aceptado vacío, no de tokens).
+
+**Por qué el SELECTOR entra en §0-Q y no en la lista de no-enums.** `?pantalla=` y `?format=` tienen dominio cerrado de
+tokens: meterlos en `NO_ENUM_POR_RUTA` sería afirmar que su dominio es abierto, y esa lista dice expresamente que eso es
+mentir (`enum-query-axes.e2e-spec.ts:50-53`). Tampoco van a la cola `SIN_CLASE_DECLARADA`: la cola es para lo que nadie ha
+decidido, y esto queda decidido aquí. Lo que no encajaba era la fila 1 del punto 1 («vacío ⇒ sin filtrar»): un selector no
+tiene «todos». Por eso §0-Q punto 6-bis le da su propia fila 1, igual que el punto 6 se la dio al `?sort=`. El resto
+(`400` con `field` + `allowed`, sin `value`, cota del eco) es la norma de siempre.
+**Lo que exige al candado (backend):** `C-EQ-1` gana la clase de fila `SELECTOR` con su conformidad propia, ⛔ no con
+`excepciones` (su censo, `enum-query-axes.e2e-spec.ts:1875-1885`, sigue en 5). Ausente, vacío y `%20` ⇒ `400 {field,
+allowed}`; `valid` y `alterno` ⇒ `200` con huellas distintas; basura, valor sin normalizar y cota como cualquier fila.
+Segundo cliente futuro de la clase: `?report=` de finanzas, hoy en la cola (DINERO, otro stream; no se toca aquí).
+
 ---
 
 **Lo que esta convención NO es.** ⛔ No es la regla de **llaves de query desconocidas**, que sigue **acotada a
@@ -32007,6 +32037,26 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
+> `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
+> huérfanas: seis `::<sin nombre>` de marketing (`marketing.controller.ts:61,87,129,161,184`;
+> `marketing-annotations.controller.ts:34`) y `::game` de `GET /admin/card-show/players` y de su `export.csv`
+> (`card-show-admin.controller.ts:40,83`; su fila de §0-Q existe desde v1.96 M-84). **Contrato (manda): `API_CONTRACT §0-Q`
+> punto 4 (filas v1.104 y nota `CEQ-MKT-1`), punto 6-bis y §MKT.E.** **La corrige backend** (⛔ ningún otro rol; ⛔ no
+> `backend-lite`: toca candados). **Prueba que la vigila:** el propio `C-EQ-1` —descubrimiento sin huérfanos, conformidad
+> HTTP de las seis filas nuevas, trinquete con los literales nuevos— y su canario `enum-query-census-canary.spec.ts`.
+>
+> **`D-MKT-CELLS-1` (🔴 ABIERTA para encender, no para fusionar apagado; dueño backend; medida 2026-10-19 por seguridad —sonda
+> sobre `bfd91ab2`— y leída por el arquitecto en el árbol vivo).** b1-b3 ponen el umbral a `pedidos + solicitudes` y publican cada
+> parte (`marketing-analytics.service.ts:1053,1069-1075`: 1 pedido + 4 solicitudes sale con el MX$ exacto del pedido que g1
+> oculta); d1 cuenta piezas (`:611`) y d3 altas (`:663`) en vez de sujetos; el orden de filas usa el N real de las ocultas
+> (`small-cells.ts:118-131`); g1 no exige `firstUtmSource` (`:1200`). **Contrato (manda): API_CONTRACT §MKT.H.14.** **La corrige
+> backend** (⛔ no `backend-lite`: candados). **Pruebas que la vigilan:** las tres de §MKT.H.14; hasta su verde, `SEC-MKT-1` y
+> `MKT-TL2` en `ENCENDER_BLOCKERS` (las pone frontend, §MKT.H.13).
+>
+> **`D-MKT2-R4` y `D-MKT-1` (cerradas por lectura el 2026-10-19):** `ENCENDER_BLOCKERS` ya no lista `R4` (`measurement-gate.test.ts:109`) y
+> las tablas de MKT.G.4 se emiten; el verde de C-F8/C-B10 y de MKT.G.9 punto 6: NO MEDIDO por el arquitecto.
+>
 > **`D-CS-7` (🔴 ABIERTA, dueño backend; medida 2026-10-17 por tester-e2e sobre `release/card-show` @ `4288ca4`, contra el stack
 > real con BD; BLOQ-A).** La preinscripción Pokémon «los dos días» deja el **domingo `pending` colgado para siempre**: el correo
 > lleva el token de **`rows[0]`** (la fila `sat`, `card-show.service.ts:447-460`) y `confirmSignup` confirma **una** fila por id
@@ -36406,3 +36456,805 @@ después de no-ex nombrada»; medido leyendo el spec). La de `Basic Box ⇒ tera
   toma «vstar» como especie). Con portada casada deja de importar para los decks de Limitless; queda en TD-2 para
   listas manuales. Cambiarlo es decisión del dueño (orden de reglas), no de esta rev.
 - `imageCardId` editable por `PUT /:id` (ver §12.4.5).
+
+## 13. §MKT tienda — atribución, ficha pública, SEO y panel de marketing (rev v1.96⟨mkt-tienda⟩, 2026-10-16, + v1.101⟨mkt-panel⟩ 2026-10-18 §13.7, arquitecto)
+
+> **SOLO DISEÑO.** Contrato de endpoints/DTO: **API_CONTRACT §MKT**. Fuente: brief de marketing
+> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Base `feat/mkt-tienda` = `origin/production` HEAD `0dd2d7c`
+> (⛔ sha NO MEDIDO: sin Bash). **Cero DDL aplicado** (sin Bash): todo lo de abajo es especificación de migración.
+> Dos olas; la **OLA 1** se enruta primero y **no depende de nada externo**; la **OLA 2** es Fase 0 del panel (BD +
+> conteos de servidor, **sin** GA4 ni píxel).
+
+### 13.0 Estado medido del árbol (O-1)
+
+| Afirmación | Evidencia |
+|---|---|
+| No existe ninguna columna/campo `utm` en el schema | `grep -i utm backend/prisma/schema.prisma` ⇒ **0 coincidencias** (medido con Grep, 2026-10-16) |
+| El modelo del pedido es `Order` | `backend/prisma/schema.prisma:1467` |
+| El modelo de la solicitud de buylist es `SellRequest` (no «BuylistRequest») | `backend/prisma/schema.prisma:2273` |
+| El sistema de autorización es por **rol** (enum `Role { customer, vault_operator, super_admin }`), SIN permisos finos ni modelo `Permission` | `schema.prisma:16`; `RolesGuard` en `backend/src/common/guards/roles.guard.ts:12` (lee `req.user.role`, compara con `@Roles(...)` de `common/decorators/roles.decorator.ts:7`) |
+| La ficha pública de sellado existe pero es **componente cliente** (`'use client'` + `useQuery`), sin SSR/metadata | `frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/page.tsx` + `SealedDetailView.tsx:1` |
+| El endpoint público de ficha de sellado ya devuelve `imageUrl`, `availableCount`, `fromPriceCents` (IVA dentro), `ivaRatePct` | `GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO` (`backend/src/modules/catalog/sealed-catalog.service.ts:90`, campos `:94/:97/:105/:109`) |
+| Hay listados públicos paginados de catálogo | `GET /catalog/cards` (`catalog.controller.ts:38`, `@Public`) y `GET /catalog/sealed` (`:87`, `@Public`); ficha de carta `GET /catalog/cards/:cardId` (`:135`) |
+| El módulo `sales-analytics` existe y es reutilizable para a1/a2/a3 del panel | `backend/src/modules/sales-analytics/sales-analytics.service.ts` (`report`/`csv`/`today`; lee `Order`, `SellRequest`, `OrderItem`; helpers `common/money.ts`; periodo semana/mes en `sales-period.ts`). HOY es `super_admin` (contrato §15/§AN) |
+| Número de migración más alto existente = **m85** (2026-10-18; el 2026-10-16 era m80) | Glob `backend/prisma/migrations/**/migration.sql` sobre `b8197420`: m81, m82, m83 (§MKT) y m84, m85 (Card Show) existen; el último es `20261105120000_m85_card_show_shardbugs`. Siguiente libre = **m86**. §13.7 no necesita migración |
+| Existe `AuditLog` (genérico, con `ip`), pero no modela un principal de servicio sin usuario ni `rowCount`/`format` | `schema.prisma:2554` |
+
+---
+
+### 13.1 OLA 1 · B1 — Columnas de atribución en `Order` y `SellRequest` (migración `m81`)
+
+**Decisión.** Se añaden a **`Order`** y a **`SellRequest`** cinco columnas de primer-toque, **todas NULLABLE** y sin
+default:
+
+```
+firstUtmSource    String?    // minúsculas, ^[a-z0-9._-]{1,64}$
+firstUtmMedium    String?
+firstUtmCampaign  String?
+firstUtmContent   String?
+firstUtmLandedAt  DateTime?  // momento del primer aterrizaje (landed_at de th_first_utm)
+```
+
+- **Se llenan SOLO con consentimiento.** El mecanismo de consentimiento (banner, cookie `th_first_utm`, Consent Mode v2)
+  es **Fase 2** (v2 §D3/§D3b). Las columnas se **crean ahora** (OLA 1) y **quedan `NULL` hasta Fase 2**: en OLA 1 ningún
+  camino de escritura las puebla. Es deliberado — dicho explícito para que QA/seguridad no lo lea como defecto.
+  *(Dicho así porque O-1: en OLA 1 estas columnas son estructura muerta a propósito; la vida llega en Fase 2.)*
+- **Regla de validación (v2 §B1 [PV-M2]).** Cada `utm_*` entrante se normaliza a minúsculas y se acepta **solo si**
+  cumple `^[a-z0-9._-]{1,64}$`; si no, **ese valor se descarta** (el resto puede guardarse). Se **ignora** cualquier
+  parámetro de query que no sea `utm_source|utm_medium|utm_campaign|utm_content`. Donde el admin los muestre, se escapan.
+  La validación vive en `common/` (helper puro `parseFirstUtm(query): { source?, medium?, campaign?, content? }`),
+  reutilizable por los dos escritores. **Nunca** se guarda un valor con `@`, `<`, espacio, dígitos de PII, etc. (la
+  regex ya los excluye).
+- **Invitado incluido.** La misma regla aplica a pedidos de invitado (`Order.guestEmail != null`): con consentimiento se
+  llenan; sin él, `NULL`.
+- **Retención (v2 §B1 [PV-M5]).** Mismo plazo que el pedido/solicitud que las contiene (no es una tabla aparte con su
+  propio ciclo). Se declara en el aviso de privacidad (Fase 2).
+- **Índices.** Para el panel (OLA 2, pantalla «Origen» §2b) conviene `@@index([firstUtmMedium])` en `Order`. No se
+  indexan las cuatro: el panel agrupa en memoria sobre el periodo acotado (patrón `sales-analytics`). Se deja a backend
+  medir si hace falta más de uno (TD si el volumen crece).
+- **⛔ No se crea tabla de eventos ni de UTM por visita.** El primer-toque vive como columnas del pedido/solicitud; los
+  conteos agregados por `utm_medium` del banner van a `MarketingBannerConsentCounter` (§13.4), sin fila por visita.
+
+**Migración `m81`** (nombre propuesto): `20261103120000_m81_mkt_first_utm_attribution`. Contenido:
+`ALTER TABLE "Order" ADD COLUMN ...` (5 columnas nullable) + `ALTER TABLE "SellRequest" ADD COLUMN ...` (5) +
+`CREATE INDEX "Order_firstUtmMedium_idx" ...`. **Aditiva, segura con la app corriendo, sin backfill** (NULL es la verdad
+de toda fila previa). Cero `DROP`, cero cambio de tipo, cero enum.
+
+---
+
+### 13.2 OLA 1 · A3/A4 — Ficha pública de sellado con SSR, og/metadata y JSON-LD
+
+#### 13.2.1 Patrón de URL de la ficha de sellado — DECISIÓN
+
+**Se CONSERVA `/es/sellado/<inventoryItemId>`** como URL pública canónica de la ficha de sellado (y su par en inglés
+`/en/sellado/<inventoryItemId>` según el locale routing actual). **Marketing: el patrón de vuelta es
+`https://tcghunt.mx/es/sellado/<inventoryItemId>`.**
+
+**Por qué (no `/es/catalog/sealed/<id>`):**
+1. La ruta `/es/sellado/[inventoryItemId]` **ya existe** y ya resuelve contra `GET /catalog/sealed/:inventoryItemId`
+   (medido: `page.tsx` + `SealedDetailView.tsx`). El 404 que marketing midió el 12-oct fue en
+   `/es/catalog/sealed/<id>` (v2 §A3 cita el patrón de la v1), que es **una ruta distinta que no existe en este árbol**.
+   Conservar `/sellado/` **no rompe ningún enlace ya publicado en stickers** que apunte a `/sellado/` y evita inventar
+   una segunda ruta para lo mismo.
+2. El `<inventoryItemId>` es el `representativeItemId` del grupo (el mismo id que consume el endpoint). Es opaco y
+   estable por pieza representante.
+3. **Alternativa considerada y descartada:** crear `/es/catalog/sealed/<id>` (lo que el brief cita textualmente de la
+   v1) obligaría a (a) un segundo route handler, (b) decidir un redirect 301 de uno a otro, y (c) coordinar con el
+   creador un cambio de patrón. No aporta nada sobre la ruta viva. **Si marketing ya pegó stickers con
+   `/catalog/sealed/<id>`** (NO MEDIDO si existe tal sticker), devops puede añadir un 301
+   `/{locale}/catalog/sealed/:id → /{locale}/sellado/:id` — se anota como pregunta a JC (§13.6), no se asume.
+
+**Lo que falta (delta de frontend, no de contrato):** la ruta debe pasar de componente **cliente** a **SSR/ISR** con
+`generateMetadata`, para que `og:*`, `<title>` y JSON-LD estén en el **HTML del servidor** (v2 §A4). Eso lo construye
+**frontend** (stream Catálogo); el dato de backend ya existe salvo el delta de §13.2.3.
+
+#### 13.2.2 Ficha de carta — misma exigencia
+
+La ficha de carta `/es/catalog/<cardId>` (ruta viva; endpoint `GET /catalog/cards/:cardId`) necesita el mismo SSR +
+`og`/JSON-LD. **A1 (quitar «valor de mercado» de la ficha)** es cambio de **frontend** (deja de pintar
+`referenceDisplayCents`/`referenceValue`); el backend puede seguir emitiéndolo (v2 §A1 D2=A). No hay delta de contrato
+para A1. **A2 (botón COMPRAR en la primera pantalla móvil)** es 100% frontend/ux-ui; sin contrato.
+
+#### 13.2.3 Datos que el backend debe exponer para el SSR/og/JSON-LD — DELTA
+
+Para pintar `og:`/`title`/`description`/JSON-LD `Product`+`Offer` en el HTML del servidor, cada ficha (carta y sellado)
+necesita, en **una** respuesta pública:
+
+| Dato | Carta (`GET /catalog/cards/:cardId`) | Sellado (`GET /catalog/sealed/:inventoryItemId`) | Estado medido |
+|---|---|---|---|
+| Nombre | `card.name` | `productName` | Ya viaja |
+| Set y número | `card.setName`, `card.number` | `card.setName` (número no aplica a sellado) | Ya viaja (`CardDTO`) |
+| Precio final con IVA | `displayPriceCents` (grupo) + `ivaRatePct` | `fromPriceCents` (IVA dentro) + `ivaRatePct` | Ya viaja |
+| `availableCount` (>0 ⇒ «Disponible») | `stockCount` del grupo | `availableCount` | Ya viaja |
+| Imagen | `imageUrl` | `imageUrl` | **Viaja, pero NO MEDIDO que sea absoluta ni ≥1200×630** |
+| «precio al AAAA-MM-DD» | **ausente** | **ausente** | **DELTA** |
+
+**Deltas de contrato (aditivos, OLA 1), especificados en API_CONTRACT §MKT.A:**
+1. **`pricedAsOf: string`** (fecha ISO `YYYY-MM-DD`, zona `America/Mexico_City`) en el DTO de ficha de carta y en
+   `SealedGroupDTO`: la fecha en que el servidor resolvió el precio para **esta** respuesta. Con SSR/ISR, el HTML
+   cacheado muestra una fecha honesta («precio al <pricedAsOf>»). ⛔ No es `now()` del cliente (el HTML se cachea). Es el
+   momento de render/revalidación en el servidor. **Money-safe:** informativo, no entra en ninguna cuenta.
+2. **`ogImageUrl: string | null`** (URL **absoluta**, imagen del catálogo apta para vista previa, objetivo ≥1200×630):
+   og/WhatsApp exigen absoluta y tamaño mínimo. Si el `imageUrl` del catálogo ya es absoluto y suficientemente grande,
+   `ogImageUrl` puede ser el mismo; si no, backend resuelve la variante grande/absoluta. **Backend mide** si la fuente de
+   imagen (CDN) ya da ≥1200×630; si solo tiene variantes pequeñas, es una pregunta a JC (§13.6). Alternativa si no hay
+   imagen apta: `null` ⇒ frontend omite `og:image` (no inventa arte — regla del brief).
+   - **Regla de precio en og/JSON-LD (v2 §A4, MKT-2):** el precio va en `og:description`/JSON-LD **con IVA y con fecha**
+     («MX$<precio> IVA incluido · precio al <pricedAsOf>»), **nunca** en `og:image` ni en `og:title` (la caché de
+     WhatsApp/Meta sobrevive días; un precio sin fecha envejece). «Disponible» **solo si `availableCount>0`**; **nunca**
+     se imprime la cantidad.
+
+**Qué NO necesita delta:** el JSON-LD `Product`+`Offer`, `canonical`, `robots`, `BreadcrumbList` y los `<meta>` los
+**arma el frontend** con los datos de arriba. El backend solo garantiza que los datos (precio con IVA, fecha, imagen
+absoluta, availableCount, nombre/set/número) estén en la respuesta pública y en el HTML del servidor.
+
+---
+
+### 13.3 OLA 1 · E (SEO) — datos que el frontend necesita del backend
+
+El frontend construye `sitemap.xml`, `robots.txt`, `canonical` y JSON-LD; `www`→apex es **devops** (DNS+301). El único
+**delta de backend** es un **feed público de listado para el sitemap**:
+
+- **Medido:** existen `GET /catalog/cards` y `GET /catalog/sealed`, públicos y **paginados**, pero (a) obligan a paginar
+  N páginas para el sitemap completo y (b) **NO MEDIDO** que expongan un `lastmod`/`updatedAt` por ítem.
+- **Delta (API_CONTRACT §MKT.B):** `GET /api/v1/catalog/sitemap` (público, `Cache-Control` corto) que devuelve, en una
+  sola respuesta liviana, **solo lo indexable**: por cada ficha a la venta (carta publicada con precio y stock, y sellado
+  publicado) `{ type: 'card'|'sealed', id, lastmod }`, más las rutas estáticas conocidas (home, catálogo, guías,
+  preguntas, cómo-funciona) si backend las conoce — si no, el frontend añade las estáticas y solo pide a backend las
+  dinámicas. `lastmod` = `max(updatedAt de la pieza, fecha de último cambio de precio)` si disponible; si no es medible
+  hoy, se usa `pricedAsOf`/`updatedAt` de la pieza y se declara (honesto, no se inventa un lastmod falso).
+  - **Cuadra con «884 publicaciones el 16-oct» (v2 §E1):** el feed debe listar **≥ 1 URL por ficha a la venta**; el
+    criterio de marketing es que `sitemap` liste ese orden de magnitud. El número exacto lo mide QA contra el stack.
+  - **Volumen:** ~884 ítems hoy. Una respuesta liviana (solo `id`+`lastmod`+`type`) es barata. Si creciera mucho, se
+    pagina el sitemap (sitemap index) — TD anotada, no bloqueante hoy.
+- **JSON-LD `Product`+`Offer` (v2 §E3):** usa los mismos campos de §13.2.3 (`displayPriceCents`/`fromPriceCents` con
+  IVA, `currency:MXN`, `availableCount`→availability, `pricedAsOf`). **`priceValidUntil`** del JSON-LD: el frontend lo
+  calcula como `pricedAsOf + N días` (p. ej. fin del día o +7); backend no necesita emitirlo. Si JC quiere una ventana
+  fija, es dato de producto (§13.6).
+
+---
+
+### 13.4 OLA 2 · Panel de Marketing (Fase 0) — modelo de datos y autorización
+
+> Panel §0/§2/§3/§5/§7. **Fase 0 = sin GA4 ni píxel**: solo lo que sale de la **BD** y de **conteos anónimos del
+> servidor**. Las columnas que dependan de GA4/SC se declaran «NO MEDIDO — GA4 sin encender», nunca «0» (Panel §2
+> convenciones). Todo el modelo va en la **migración `m82`** (`20261104120000_m82_mkt_panel`).
+
+#### 13.4.1 Permiso `marketing:read` (Panel §5.3, §0 P1)
+
+El sistema actual es **solo por rol** (medido §13.0). Se introduce un permiso fino **sin romper** el modelo de rol:
+
+```
+enum Permission {
+  marketing_read            // «marketing:read» del brief
+}
+
+model UserPermission {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission      Permission
+  grantedByUserId String?     // quién lo concedió (super_admin)
+  grantedAt       DateTime    @default(now())
+  @@unique([userId, permission])
+  @@index([userId])
+}
+```
+
+- **Regla de concesión (Panel §5.3):** `super_admin` (el dueño, rol más alto) **tiene `marketing:read` implícitamente**
+  (no necesita fila). Cualquier **otro** usuario solo lo obtiene con una fila `UserPermission` explícita, creada por el
+  dueño. Sin el permiso ⇒ **403** en la pestaña, los exports, el botón semanal y las rutas de datos.
+- **Guard (ARCHITECTURE §7):** nuevo `@RequirePermission(Permission.marketing_read)` + `PermissionGuard` que corre
+  **después** de `JwtAuthGuard`: pasa si `user.role === super_admin` **o** si existe la fila `UserPermission`. Patrón
+  idéntico a `RolesGuard`/`MoneyOutGuard` (`common/guards/`). **No** se mezcla con `@Roles`: el panel usa el permiso, no
+  el rol, para permitir delegación futura.
+- *Deuda aceptada (Panel §5.2):* el dueño en pantalla ve celdas exactas (ya tiene acceso a la BD); **otro** usuario con
+  `marketing:read` ve en pantalla las **mismas celdas pequeñas** que el export. Lo implementa backend; seguridad lo
+  revisa.
+
+#### 13.4.2 Principal de servicio `marketing-reader` y token (Panel §7.2, PM-M1/PV-B3)
+
+Token portador para que el analista lea el endpoint de agregados **sin** una sesión de admin:
+
+```
+model MarketingApiToken {
+  id              String    @id @default(uuid())
+  label           String                       // «marketing-reader» u otro nombre legible
+  tokenHash       String    @unique             // SHA-256 (o argon2id) del token claro; ⛔ NUNCA el claro
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime                       // createdAt + 12 meses (PV-B3)
+  revokedAt       DateTime?                       // revocación inmediata, SIN desplegar
+  revokedByUserId String?
+  lastUsedAt      DateTime?
+  @@index([tokenHash])
+}
+```
+
+- **Token:** aleatorio **≥ 256 bits**; el cliente lo recibe **una vez** (al crearlo); la tienda guarda **solo el hash**.
+  Comparación en **tiempo constante** (hash fijo-longitud ⇒ `crypto.timingSafeEqual` sobre los digest). `Authorization:
+  Bearer <token>` sobre HTTPS, **nunca** en la URL ni en query. La **cabecera no se escribe en logs** (ni tienda, ni CDN,
+  ni errores) — seguridad lo verifica en código (Panel §7.5).
+- **Caducidad 12 meses**, **revocable al momento** poniendo `revokedAt` (sin deploy). Un token caducado o revocado ⇒
+  **401**.
+- **Rate limit:** **60 req/hora por token** (429 al pasarlo) + **bloqueo temporal de IP tras 10 fallos de token en 10
+  min**. El contador de rate-limit puede vivir en memoria/Redis (devops define el store); no requiere tabla.
+- **Carga del token:** el dueño lo pone en los secretos del entorno **de marketing** como `TIENDA_PANEL_TOKEN`; **nunca**
+  por chat, fichero ni repo. La tienda solo guarda el hash.
+- **Autorización del endpoint (DECISIÓN D-MKT-AUTZ, ver API_CONTRACT §MKT.E):** el token **solo** autoriza `GET` del
+  endpoint de agregados (§13.5). El `MarketingApiTokenGuard` se monta **solo** en esa ruta; las demás quedan en
+  `JwtAuthGuard`, **que el token opaco no satisface ⇒ 401** (no 403). Backend lo midió (BACKEND_NOTES §MKT OLA 2): el
+  token no es JWT, así que la auth compartida lo rechaza como **no autenticado**; un 403 literal exigiría acoplar
+  `JwtAuthGuard` (auth **compartida**, cerca de dinero) al principal de marketing — **no se hace**. La propiedad («el
+  `marketing-reader` no alcanza ninguna otra ruta») se cumple igual: **401 y 403 ambos deniegan**. El **403** se reserva
+  para la **sesión** de admin sin `marketing:read` (§13.4.1), que sí es «autenticado pero prohibido». ⚠️ Se **aparta**
+  del «403» literal del brief (Panel §6(1), §7.2); se relaya a marketing.
+
+#### 13.4.3 Contadores anónimos de servidor (Fase 0, sin GA4) — Panel §2 f1/f2, d4, c6, c7
+
+**(f1/f2) Aceptación del banner** — contador por `(respuesta × utm_medium)`, **sin fila por visita, sin cookie**:
+```
+enum BannerResponse { accept, necessary_only, no_response }
+
+model MarketingBannerConsentCounter {
+  id          String         @id @default(uuid())
+  weekStart   DateTime       @db.Date          // lunes CDMX de la semana
+  response    BannerResponse
+  utmMedium   String?                           // uno de los 4 de U-1 (bio|story|paid|dm) o null; validado ^[a-z0-9._-]{1,64}$
+  device      String?                           // f2: móvil|escritorio|tableta (derivado del UA en el servidor, sin guardar UA)
+  count       Int            @default(0)
+  @@unique([weekStart, response, utmMedium, device])
+}
+```
+- El servidor **incrementa** el contador de la celda correspondiente cuando el visitante responde al banner (Panel §2 f2
+  PM-B3). Los `utm_*` de quien **rechaza** se usan **solo para contar** y se **descartan** (no se escribe cookie ni fila
+  por visita). **Agregado por semana, sin plazo** (no es dato personal, PM-M4).
+- *El banner en sí es Fase 2* (v2 §D3b); pero f1 se puede alimentar «en cuanto exista el banner» (Panel §3). El modelo se
+  crea en `m82`; lo alimenta quien construya el banner (Fase 2).
+
+**(d4) Cotizaciones del cotizador por carta** — conteo anónimo de `POST /buylist/quote`, **sin usuario, sin IP**:
+```
+model BuylistQuoteDailyCount {
+  id        String   @id @default(uuid())
+  day       DateTime @db.Date      // día CDMX
+  cardId    String
+  count     Int      @default(0)
+  @@unique([day, cardId])
+  @@index([cardId])
+}
+```
+- El handler de `POST /buylist/quote` incrementa `(day, cardId)` tras calcular. **Nada** de quién cotizó. Se agrega a la
+  semana/mes en lectura. Sin plazo (no personal).
+
+**(c6) Términos de búsqueda sin resultado** — Panel §2 c6 (PM-M2), con normalización + filtro PII + umbral N≥5 en ≥2 días.
+> ⚠️ **DIFERIDO — `SearchNoResultDaily` NO se creó en m82** (pre-revisión de seguridad PM-M2; confirmado contra
+> `schema.prisma`, 2026-10-16). El diseño de abajo queda vigente como ESPECIFICACIÓN para cuando seguridad apruebe el
+> filtro PII; backend lo implementará entonces en una migración propia (con su línea en §0 — es un modelo, no un enum).
+```
+model SearchNoResultDaily {
+  id              String   @id @default(uuid())
+  termNormalized  String                 // ya normalizado y filtrado (ver abajo); solo [a-z0-9ñ ._-], ≤40
+  day             DateTime @db.Date       // día CDMX (para «≥2 días distintos»)
+  count           Int      @default(0)
+  @@unique([termNormalized, day])
+  @@index([termNormalized])
+}
+```
+- **Normalización + filtro (c6 punto 1), en el servidor ANTES de guardar:** minúsculas, sin acentos, ≤40 chars; quitar
+  espacios/guiones/puntos/`/` **antes de filtrar**; **descartar** el término si queda una racha de ≥7 dígitos, si suma
+  ≥10 dígitos, si contiene `@` o URL, o si encaja con CURP `[a-z]{4}\d{6}[hm][a-z]{5}[a-z0-9]\d` o RFC
+  `[a-z&ñ]{3,4}\d{6}[a-z0-9]{3}`; tras normalizar solo se admite `[a-z0-9ñ ._-]`, lo demás se descarta. Un término
+  descartado **no se guarda**.
+- **Umbral de visibilidad (lectura):** se muestra/exporta **solo** con `SUM(count) ≥ 5` repartido en **≥ 2 `day`
+  distintos**. El navegador manda cada término **una vez por pestaña** (dedup en `sessionStorage`, **sin** identificador
+  hacia el servidor). Por debajo del umbral: ni pantalla ni export.
+- **Retención (PM-M4):** términos **bajo** el umbral se borran a los **30 días**; los visibles, a los **90**
+  (job de limpieza). El filtro de PII lo **revisa seguridad** antes de construir (Panel §7.5); si no se puede garantizar,
+  el término **no se guarda** y la tienda lo avisa a marketing.
+- **Cómo viaja la búsqueda (c6 punto 4):** si hoy viaja en la URL (`?q=`), la tienda la **excluye de los logs de
+  acceso/CDN** o la manda por `POST` (**NO MEDIDO** hoy cómo viaja — seguridad lo mide). A GA4 **nunca** va el término
+  (solo el evento `search` con `results_count`, Fase 2).
+
+**(c7 / P5=B) Nº de pedidos por estado de envío** — **sin modelo nuevo**: se **deriva** de `Order`:
+- El estado mexicano sale de `Order.shippingAddressSnapshot` (JSON) para `fulfillmentMode='direct_ship'`; los pedidos
+  `fulfillmentMode='vault'` (bóveda/recogida) van en fila **«Recogida en persona»** aparte (c7). **Sin MX$ por estado,
+  sin cruce con carta/`utm_*`/puerta** (PM-B2). Periodo mínimo **4 semanas**. Estados con **N<5** en **«Otros estados»**.
+  - *Nota de diseño:* parsear el JSON por consulta es aceptable al volumen actual; si molesta, backend puede
+    **denormalizar** un `shippingStateCode String?` en `Order` (otra migración futura) — **no** se hace en `m82` (evita
+    tocar dinero sin necesidad). Se deja como TD a criterio de backend.
+
+#### 13.4.4 Registro de accesos (Panel §5.3, §7.2, PM-M3) — 12 meses
+
+`AuditLog` (medido §13.0) no cubre un principal de servicio sin usuario ni `rowCount`/`format`. Modelo dedicado:
+```
+model MarketingAccessLog {
+  id          String   @id @default(uuid())
+  at          DateTime @default(now())
+  actorUserId String?                  // sesión admin (export/botón) …
+  tokenId     String?                  // … o token marketing-reader (endpoint); exactamente uno
+  screen      String                   // pantalla a-h
+  filters     Json?                    // filtros aplicados, SIN contenido personal (los utm se escapan; sin PII)
+  format      String?                  // 'json' | 'xlsx' | 'csv'
+  rowCount    Int?
+  @@index([at])
+  @@index([actorUserId])
+  @@index([tokenId])
+}
+```
+- Se escribe en **cada** export, **cada** descarga del botón semanal y **cada** llamada al endpoint. **Sin contenido**
+  (ni filas, ni datos personales). Retención **12 meses**; lo ve solo el dueño. Es compatible con reusar `AuditLog` si
+  backend prefiere (action `marketing.export`/`marketing.endpoint`, `after` con el JSON) — se deja a backend medir; el
+  modelo dedicado es la opción clara por el `tokenId` sin usuario.
+
+#### 13.4.5 Reutilización de `sales-analytics`
+
+`sales-analytics.service` (medido §13.0) ya calcula ventas, ticket, piezas, buylist pagado, top cartas/sets/sellado,
+con periodo semana/mes (`sales-period.ts`) y helpers de dinero. **Reutilizable** para las pantallas **(a)** a1/a2/a3 y
+parte de **(d)** d1 (columna ventas/stock). **No** cubre lo propio de marketing: origen por UTM (b), cruces de catálogo
+con vistas (d, dependen de GA4), cookies (f), Meta (g), búsquedas (c6), geografía por estado (c7). Diseño: un **nuevo
+servicio `marketing-analytics`** (módulo nuevo `backend/src/modules/marketing/`) que **compone** `sales-analytics` para
+las cifras de dinero y añade los agregados propios con las **celdas pequeñas** (§13.5). ⛔ El panel de marketing **no**
+cambia `sales-analytics` (es `super_admin`, otra superficie): lo invoca.
+
+#### 13.4.6 (h1) Anotaciones de fecha — `MarketingDateAnnotation` — migración `m83` (`20261104130000_m83_mkt_date_annotations`, existe en `b8197420`; cerró MKT-TD1)
+
+> Panel §2(h) **h1**, nivel **Imprescindible v1**. m82 **no** la incluyó: backend la dejó como deuda **MKT-TD1** pidiendo
+> la decisión del arquitecto. Se especifica aquí. ⛔ **No es dinero, pero sí migración nueva**: no cabe en m82 (ya
+> reflejada en `schema.prisma`). **Migración siguiente libre = `m83`** (medido: el máximo en este árbol es **m82**
+> `20261104120000`; §13.0). Timestamp posterior: **`20261104130000_m83_mkt_date_annotations`**. **Backend la implementa
+> y aplica** (el arquitecto no tiene Bash). **100% aditivo**: enum + modelo nuevos + relación inversa en `User` (sin
+> columna nueva en `User`). **CERO dinero.**
+
+El admin marca días con una etiqueta (promoción del dueño y su destino; despliegues A1/A2/A4/GA4/píxel/aviso; Card Show)
+y las anotaciones aparecen en **todas las gráficas** (a, b, c) y en la hoja **«Info»** del export y del botón semanal,
+**escritas como texto** (saneado de fórmula, PM-B1). **Nunca** datos personales — ni nombre de cliente, ni @usuario
+(PM-B1 / §5).
+
+```
+enum MarketingAnnotationKind {
+  promocion     // promoción del dueño (su destino web va en `destino`)
+  despliegue    // A1/A2/A4/GA4/píxel/aviso de la v2 — cambio de la tienda cuya fecha marca el «antes/después»
+  evento        // p. ej. Card Show — evento externo con fecha
+}
+
+model MarketingDateAnnotation {
+  id              String                  @id @default(uuid())
+  date            DateTime                @db.Date   // día anotado (solo fecha, zona CDMX)
+  kind            MarketingAnnotationKind
+  label           String                  // texto corto ≤120; SIN PII; se ESCAPA al mostrar y va como TEXTO en el export
+  destino         String?                 // solo `promocion`: a dónde apunta (ruta/etiqueta ≤200, SIN PII); opcional
+  createdByUserId String?                 // admin autor (nullable solo para siembra; la API exige sesión)
+  createdBy       User?                   @relation("marketingAnnotations", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  @@index([date])
+}
+```
+(y en `User`: `marketingAnnotations MarketingDateAnnotation[] @relation("marketingAnnotations")`, relación inversa, **sin
+columna nueva**.)
+
+- **Validación de `label`/`destino` (PM-B1 / §5), en el servidor ANTES de guardar:** ≤120 / ≤200 chars; se **rechaza**
+  (`422 VALIDATION_ERROR`) si contiene `@`, correo, una racha de ≥7 dígitos o ≥10 dígitos en total, o encaja con CURP/RFC
+  — **mismo filtro PII que c6** (§13.4.3). Se **escapan** al mostrar en el admin y se escriben como **celda de tipo
+  texto** (XLSX) / con prefijo anti-fórmula (CSV) en la hoja «Info» (§13.5, PM-B1). Es texto de un admin **de confianza**,
+  pero el filtro cierra el error honesto; **seguridad lo revisa** (misma doctrina que los `utm_*`).
+- **Autorización:** las anotaciones las **crea/edita/borra** una **sesión** de admin con `marketing:read` (§13.4.1) —
+  **nunca** el token `marketing-reader` (GET-only; en estas rutas ⇒ **401**, D-MKT-AUTZ). Se **leen** embebidas en la
+  respuesta del endpoint de agregados y en la hoja «Info» (el token SÍ las ve ahí: **no son PII**), **no** por una ruta
+  aparte para el token.
+- **Sin celdas pequeñas:** una anotación **no es un conteo** ⇒ no aplica §5.2. Sí aplican las reglas de export (texto,
+  escape, no-fórmula) y de registro (`MarketingAccessLog`).
+- **Enum:** `MarketingAnnotationKind` está en `schema.prisma:3153` y su línea canónica en §0 del contrato
+  (banda-3 de `enum-values-parity.spec.ts`).
+
+---
+
+### 13.5 OLA 2 · Reglas transversales del panel (celdas pequeñas, periodos, export)
+
+> Normativas del brief (Panel §4, §5); el contrato las fija en API_CONTRACT §MKT.D/E. Si la tienda **no puede** cumplir
+> §5.2 (celdas pequeñas), el endpoint y los exports **no se construyen** (Panel encabezado PM-A1).
+
+- **Celdas pequeñas (§5.2, PM-A1).** En toda tabla **con dimensión**, cada componente con menos de 5 sujetos sale «< 5» sin su
+  MX$, con supresión complementaria y registro de poblaciones: norma en API_CONTRACT §MKT.H.14, porqué en §13.7 D-MKT-PANEL-5.
+  Totales **sin dimensión** exactos. `utm_medium=dm` **solo** agregado por `utm_medium`, nunca por campaign/content.
+- **Granularidad fuera de pantalla.** El **endpoint**, el **botón semanal** y los **exports** aceptan **solo una semana
+  cerrada o un mes cerrado**, **nunca** rango libre ni detalle por día (evita reconstruir una celda oculta restando dos
+  rangos solapados). El filtro libre y el detalle por día **solo** en la pantalla del admin. Semana = **lunes 00:00 →
+  domingo 23:59 `America/Mexico_City`**; por defecto, la última semana cerrada. (Reutiliza la lógica de periodo de
+  `sales-period.ts`, que ya trabaja en zona de México.)
+- **Export .xlsx/.csv (§4, PM-B1) — seguridad de fichero.** CSV: prefijo `'` en toda celda de texto que empiece por
+  `=`,`+`,`-`,`@`, tab o `\r`, y celda entrecomillada con `"` escapadas; CSV UTF-8 **con BOM**. XLSX: **todo texto como
+  celda de tipo texto** (nunca fórmula). Montos MXN con IVA como **número** `$#,##0.00` (no centavos en celda). Fechas
+  como fecha. Cada tasa exporta su numerador y denominador. Celdas pequeñas aplicadas en el fichero. **Ninguna fila por
+  pedido/solicitud** (ni con id opaco). `Cache-Control: no-store` + `Content-Disposition: attachment`; generado al
+  vuelo, sin URL firmada de larga vida. Nombre: `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx`.
+- **Paridad A=B (Panel §6 criterio 8):** el .xlsx del botón semanal y la respuesta del endpoint para la misma pantalla y
+  periodo dan **las mismas cifras** (diferencia 0 celda a celda, incluidas las «< 5»).
+- **Solo lectura.** Ni el panel ni el endpoint escriben en GA4, Meta ni en la tienda. Cada cifra con su N y su periodo;
+  lo que no existe dice «NO MEDIDO», lo que depende de un supuesto dice «no verificado». Los `utm_*`, términos y
+  anotaciones se **escapan** al mostrarse.
+
+---
+
+### 13.6 Preguntas abiertas para JC (regla de conflicto; no se asume)
+
+1. **og:image ≥1200×630:** ¿la fuente de imagen del catálogo (CDN) ya ofrece una variante absoluta ≥1200×630? Si solo
+   hay miniaturas, ¿se acepta `og:image` null (sin foto en la vista previa) o se genera una variante grande? (backend
+   mide la fuente; la política la decide JC).
+2. **`/catalog/sealed/<id>` legado:** ¿existe algún sticker ya publicado que apunte a `/es/catalog/sealed/<id>` (patrón
+   de la v1)? Si sí, devops añade un 301 a `/es/sellado/<id>`. (NO MEDIDO si existe tal enlace.)
+3. **`priceValidUntil` del JSON-LD:** ¿ventana fija (p. ej. fin del día de `pricedAsOf`, o +7 días)? Dato de producto.
+4. **c7 estado de envío:** confirmar que basta derivar el estado de `shippingAddressSnapshot` (sin denormalizar columna);
+   seguridad revisa que el snapshot tenga el estado de forma fiable.
+5. **Vista del dueño — resuelta 2026-10-18:** cifras exactas en su pantalla (`HECHOS.md:172`) ⇒ D-MKT-PANEL-2 (§13.7).
+   Preguntas de Fase 2: §14.10.
+
+---
+
+### 13.7 La pantalla del panel por sesión (rev v1.101⟨mkt-panel⟩ + v1.103⟨mkt-panel-exacto⟩, 2026-10-18) — decisiones y razones
+
+> Contrato: **API_CONTRACT §MKT.G**. Cierra el diseño de MKT-TL3 y MKT-TL4 (`docs/TECH_DEBT.md`). Medido por lectura sobre
+> `b8197420`. Sin migración, sin enum, sin código de error nuevo.
+
+**D-MKT-PANEL-0 — una ruta de datos con `pantalla=`, no una por pantalla.** `GET /admin/marketing/panel?pantalla=` usa los
+mismos parámetros que `aggregates` y `export`, la misma validación (`parseScreen`, `resolveMarketingPeriod`) y el mismo
+`MarketingAnalyticsService.screen()`. Así la paridad A=B sale de construcción: tres salidas, un solo cálculo. Ocho rutas
+(una por pantalla) habrían sido ocho sitios donde puede divergir la autorización. La única diferencia con `aggregates` es que el
+periodo es **opcional** (sin él, la última semana cerrada), como en el botón semanal, para que la pantalla abra sin elegir nada.
+`GET /admin/marketing/periods` existe para que el **servidor** diga qué semanas y meses están cerrados: el navegador no tiene que
+recalcular la zona de México, y el selector no puede ofrecer un periodo abierto. No trae datos de negocio, así que no deja fila en
+el registro de accesos; `panel` sí la deja (`surface: 'panel'`) aunque el brief solo lo exige para exports y endpoint: es lectura
+de las mismas cifras por otra puerta.
+
+**D-MKT-PANEL-1 — Fase 0: solo `super_admin`, sin ruta de concesión.** El brief asigna `marketing:read` «por defecto solo al
+dueño» y pide confirmarlo (Panel §5.3, §7.4). El analista entra por token, no por sesión. Una ruta de concesión sería superficie
+nueva sin usuario hoy. Queda escrito qué condiciones tendría (API_CONTRACT §MKT.G.1), sobre todo una: `PermissionGuard` deja pasar
+a quien tenga la fila **sea cual sea su rol** (incluido `customer`), así que quien conceda debe aceptar solo `vault_operator`.
+Hoy no hay riesgo, porque no hay filas.
+
+**D-MKT-PANEL-2 (v1.103) — el dueño ve cifras exactas en SU pantalla; todo lo que sale de la pantalla lleva celdas pequeñas.**
+Decisión del dueño 2026-10-18 (`HECHOS.md:172`, «si cifras exactas»), dentro de lo que el brief ya permitía (Panel §5.2, deuda
+aceptada PM.4: el dueño ya tiene la base de datos). Cómo se construye, y por qué así:
+- **El régimen lo decide el servidor por rol, no la petición.** `GET …/panel` calcula `privacy = role === super_admin ? 'exact' :
+  'small_cells'` y lo pasa a `MarketingAnalyticsService.screen()` como argumento **obligatorio, sin valor por defecto**. Un
+  parámetro de query sería una puerta para que cualquier delegado pidiera `exact`; un valor por defecto haría que una salida nueva
+  naciera exacta por olvido. `aggregates`, los exports y el botón semanal pasan `'small_cells'` literal.
+- **Por qué no la fila `UserPermission`:** el brief limita la vista exacta al dueño. `marketing:read` se puede delegar algún día
+  (MKT.G.1); `super_admin` no. Atar `exact` al rol hace que delegar el permiso nunca delegue las cifras exactas.
+- **`exact` solo quita los umbrales**, no las reglas de forma: sin filas por pedido, c7 sin MX$ por estado, `dm` solo por medio,
+  umbral propio de c6. Esas reglas no protegen contra «pocos casos», protegen contra «una fila es una persona», y el dueño no las pidió.
+- **El payload dice qué régimen se aplicó** (`privacy`, lo pidió ux-ui): la pantalla avisa al dueño de que su Excel no dirá lo mismo
+  que su pantalla, y una prueba lo puede afirmar.
+- **La paridad cambia de forma, no desaparece:** `small_cells` sigue siendo panel = aggregates = Excel; `exact` es «mismas tablas y
+  filas, valores reales». Pruebas 1, 8 y 9 de API_CONTRACT §MKT.G.9.
+- **Rango libre y día siguen fuera** (MKT.G.8): con `exact` no costarían privacidad al dueño, pero piden validación, selector y
+  gráficas propias; no es trivial y nadie lo ha pedido aún.
+
+**D-MKT-PANEL-4 (v1.103) — supresión coherente entre mes y semanas, y mes cerrado = su última semana cerrada.** Atiende la nota de
+seguridad del brief (Panel §5.2: «si combinar un mes con sus semanas permite despejar una celda oculta…»). Caso: febrero 2027
+empieza en lunes y acaba en domingo, así que el mes es la suma de sus cuatro semanas; con `k` = `[3,6,6,6]`, sin la regla, la semana
+dice «< 5» y el mes 21 ⇒ `21 − 18 = 3`. Regla en API_CONTRACT §MKT.G.10 (unidad: clave y componente, §MKT.H.14): lo oculto en cualquier
+semana que toque el mes sale `'oculta'` en el mes; y un mes no se acepta hasta que cierra la semana de su último día. Alternativas descartadas: (a) ruido o redondeo a
+múltiplos de 5 — cambia cifras que el analista cuadra contra pedidos reales (Panel §6 criterio 8, paridad 0 celda a celda);
+(b) sacar los meses fuera de pantalla — el brief pide mes y semana (P2=A+B). Riesgo residual (cambios retroactivos por reembolsos):
+anotado en §MKT.G.10 para seguridad.
+
+**D-MKT-PANEL-5 (v1.107) — el umbral se aplica a cada componente publicado y cuenta sujetos; un registro de poblaciones y un auditor
+de rango deciden qué tabla se cruza con cuál.** Origen: SEC-MKT-1 y MKT-TL2 (rechazo de seguridad sobre `bfd91ab2`); hechos en §9
+`D-MKT-CELLS-1`. Norma: API_CONTRACT §MKT.H.14. Por qué así:
+- *Por componente, no por fila:* una fila de b1-b3 mezcla dos poblaciones (pedidos y solicitudes). Ocultar la fila entera cuando una
+  parte es chica borra datos útiles sin proteger más; sumarlas protege menos que cualquiera de las dos. Cada parte con su propio N.
+- *Sujetos, no unidades:* PM-A1 protege a una persona; cinco piezas de un pedido, o cuatro acabados de un usuario, son una persona.
+- *Registro + rango, no caso por caso:* el caso por caso cerró c7↔a1 y dejó pasar g1↔b2↔b1. Las relaciones entre tablas son sumas e
+  identidades, así que «se puede despejar» tiene respuesta exacta (rango del sistema), y la prueba la calcula con datos adversarios.
+  Una tabla sin fila en el registro pone roja la prueba: nadie publica una tabla sin decidir contra qué total se cruza.
+- *Descartadas:* ruido o redondeo (rompe la paridad 0 celda a celda, como en D-MKT-PANEL-4); ocultar b entera cuando g1 se oculta
+  (un pedido borra la pantalla); fusionar g1 dentro de b2 (cambia el catálogo que marketing ya consume).
+- *Orden por valores publicados:* una fila oculta colocada por su N real entre un 9 y un 7 dice que vale entre 7 y 9.
+- *Límites dichos:* un total sin dimensión aceptado puede despejar un conteo que ninguna supresión protege (X1, nunca MX$), y el
+  candado no mide cotas (X2); los dos quedan para que seguridad los confirme. g1 pasa a la base de b1-b3 (`firstUtmSource IS NOT
+  NULL`, lo que §14.9 ya decía) para que `g1 = b2[Promoción]` sea identidad exacta.
+
+**D-MKT-PANEL-3 — emitir y revocar tokens: solo `super_admin`, no `marketing:read`.** Leer el panel y crear una credencial para
+leerlo desde fuera no son el mismo poder. Un token: (a) vale 12 meses; (b) se usa fuera de la tienda, sin sesión y sin la vida corta
+del JWT; (c) saca las cifras a otro entorno (el de marketing). Si un delegado con
+`marketing:read` pudiera emitirlo, podría darle a un tercero un acceso que dura más que su propia cuenta y que no muere cuando se le
+quita el permiso. Y revocar es respuesta a un incidente: es del dueño. Se usa `@Roles(super_admin)` (el `RolesGuard` de siempre)
+para no mezclar el permiso fino con algo que no es lectura. La revocación es una ruta `POST …/:id/revoke` y no un `DELETE`
+porque la fila se queda: el registro de accesos la referencia (`MarketingAccessLog.tokenId`) y el historial de quién emitió y
+quién revocó debe sobrevivir. La bitácora va a `AuditLog`, que es lo que ya se usa para acciones de admin; `MarketingAccessLog`
+es para lecturas de datos.
+
+**Qué pinta la pantalla y de dónde sale:** tabla en API_CONTRACT §MKT.G.7. **Lo que no entra en Fase 0** (gráficas por día,
+interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de diseño no tiene aún sección del panel**
+(`DESIGN_SYSTEM.md`: ninguna mención del panel de marketing, Grep 2026-10-18): la pantalla necesita a ux-ui antes que a frontend.
+
+## 14. §MKT Fase 2 — medición con consentimiento: banner, GA4, píxel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto)
+
+> **SOLO DISEÑO. Se construye apagado.** Contrato: **API_CONTRACT §MKT.H**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel
+> f1/f2/f3/g1 (`tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`). Decisión del dueño (`PENDIENTES.md:1059-1060`, 2026-10-16):
+> Fase 2 se construye pero **no se enciende** hasta que llegue el aviso de privacidad revisado por el abogado, y el aviso va en el
+> **mismo despliegue** que GA4 y el píxel. Medido por lectura sobre `5524bd69` (sin Bash: ningún comando ejecutado). Migración
+> **m86**. Toca `orders`, `payments` y `buylist` (dinero) solo para encolar después del commit: tres veredictos.
+
+### 14.0 Estado medido (O-1)
+
+- **Construido y apagado, en la rama** (leído sobre `a1ba4d2e`: `backend/src/modules/measurement/`, `frontend/src/lib/measurement/`,
+  `measurement-gate.ts`). Qué hace cada pieza: BACKEND_NOTES §MKT.H, FRONTEND_NOTES §MKT2, DEVOPS_NOTES §101. Pendiente: §MKT.H.13.
+- **Hechos de la base que sostienen el diseño** (sobre `5524bd69`): CSP en report-only (`csp.ts:37`) y `script-src` con
+  `'strict-dynamic'` (`csp.ts:9-11,104`) ⇒ la CSP no impide cargar `gtag.js`; Google ya carga en login/checkout
+  (`accounts.google.com`) y en el Card Show (`www.google.com`) ⇒ C-F2 mide hosts de medición, no todo Google (§14.8); el pago
+  se confirma en el webhook (`payments.service.ts:233`, avisos post-commit `:377`); el retorno de 3DS va a `/pedido?token=` y
+  `/orders` (`GuestCheckoutView.tsx:705`, `CheckoutView.tsx:431`) y Stripe usa `redirect:'if_required'`
+  (`StripePaymentModal.tsx:16,89`); el aviso es un módulo de datos con puerta de publicación (`publish-check.ts:30`).
+
+### 14.1 El interruptor: dos variables, apagado por defecto, y una puerta de build que exige el aviso
+
+**Decisión D-MKT2-0.** Fase 2 tiene **un** interruptor lógico con **dos** variables, porque son dos despliegues (Vercel y Railway):
+
+| Variable | Dónde | Valores | Si falta o no es válida |
+|---|---|---|---|
+| `NEXT_PUBLIC_MEASUREMENT_MODE` | Vercel (se hornea en el build) | `off` \| `on` | `off` |
+| `MEASUREMENT_MODE` | Railway (backend) | `off` \| `on` | `off` |
+
+El resto de variables (IDs y secretos) está en API_CONTRACT §MKT.H.1; esta sección no las repite.
+
+**Apagado (`off`) significa, en el frontend:** no hay banner, no hay cookie `th_consent` ni `th_first_utm`, no se envía el objeto
+`measurement` en ninguna petición, no se llama a `POST /measurement/banner-response` y **el código del cargador no está en el
+artefacto**: el módulo que inyecta `gtag.js`/`fbevents.js` se importa solo dentro de `if (MEASUREMENT_MODE === 'on')` con la
+constante horneada, así que el compilador lo elimina. Así el candado C-F1 puede ser un grep del artefacto, que es más fuerte que
+mirar peticiones: lo que no está en el bundle no puede ejecutarse por ninguna ruta, ni por una que el E2E no recorra.
+
+**Apagado, en el backend:** el objeto `measurement` se **acepta y se ignora** (no escribe consentimiento, ni `firstUtm*`, ni
+contexto), no se crea ninguna fila de cola, el drenador no sale a la red, y `banner-response` responde 204 sin escribir. Se acepta
+en vez de rechazarlo para que el orden de despliegue entre Vercel y Railway no rompa el checkout.
+
+**Encender exige el aviso nuevo — puerta de build (D-MKT2-0b).** El aviso es un módulo de datos
+(`content/legal/privacidad.es.ts`) y ya tiene una puerta de publicación (`publish-check.ts:30`). **Se extiende esa puerta, no se
+escribe otra:** `LegalDocument` gana `measurementDisclosure: null | { version: string, approvedByOwnerOn: 'AAAA-MM-DD',
+legalReviewOn: 'AAAA-MM-DD' }`, y `legalPublishProblems` gana un tercer argumento `{ measurement: 'off' | 'on' }`. Con `on`
+añade estos problemas: `measurementDisclosure === null`; el aviso aún contiene «No usamos cookies de publicidad ni de analítica»;
+o el aviso no nombra «Google Analytics», «Meta», `_fbp`, `_fbc`, `th_first_utm`, `th_consent` y la retención de 14 meses. Devops
+corre esa comprobación **como paso del build de Vercel** con el valor real de `NEXT_PUBLIC_MEASUREMENT_MODE`, y un problema hace
+fallar el build. Así **no existe** un despliegue encendido con el aviso viejo: Vercel no publica un build fallido. La versión del
+aviso que se guarda en `th_consent` y en el pedido es `measurementDisclosure.version`. El aviso nuevo puede salir **antes** con el modo apagado (el
+brief lo permite: «antes o a la vez», §D5.4); el encendido es un cambio de variable más un redeploy, sin código.
+
+*Por qué no basta una variable:* una variable sola no sabe qué dice el aviso. La puerta mira el texto que se va a publicar, en el
+mismo build que se publica. *Por qué no en el backend:* el backend no sirve el aviso; ponerle una copia de la versión sería una
+segunda fuente para un hecho.
+
+**Bloqueos de encendido en la misma puerta (D-MKT2-0c, v1.106, a petición del techlead).** Lo que se puede fusionar apagado pero
+no encender vive como dato en `measurement-gate.ts`, no en una nota:
+`ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
+(`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
+problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Basta con la
+puerta de Vercel: con el frontend apagado no viaja `measurement` y ningún pedido tiene consentimiento, así que el backend no encola nada (§14.6).
+
+**Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
+su forma (API_CONTRACT §MKT.H.1). GA4 sin `GA4_MEASUREMENT_ID` o sin `GA4_MP_API_SECRET` ⇒ no se encola nada para GA4. Meta sin
+`META_PIXEL_ID` o sin `META_CAPI_TOKEN` ⇒ no se encola nada para Meta. Al arrancar se escribe **una** línea de log por destino
+deshabilitado (`MEASUREMENT_DESTINATION_DISABLED destination=meta_capi reason=missing_config`), **sin** valores. El arranque no
+falla: que falte el token de Meta no debe tumbar la tienda. **Fail-closed en el frontend:** con `on` pero sin un ID con forma
+válida, esa etiqueta no carga; si no carga ninguna, el banner tampoco se muestra (no se pide permiso para algo que no existe).
+
+### 14.2 Sin GTM: las etiquetas viven en el repositorio (D-MKT2-1, se aparta del brief)
+
+El brief dice «vía GTM» (§B2, §C). **Se cargan `gtag.js` y `fbevents.js` directamente, desde código propio, sin contenedor GTM.**
+Razones:
+1. Las reglas de privacidad del brief (§D2: rutas excluidas, URL reescrita, sin `page_view` automático, coincidencia avanzada y
+   eventos automáticos apagados) pasan a ser **código con pruebas**. En GTM serían configuración de una consola que cambia sin
+   despliegue, sin revisión y sin candado: cualquiera con acceso al contenedor podría añadir una etiqueta en `/cuenta` mañana.
+   Es la regla del proyecto «toda dependencia externa va fijada», aplicada a la configuración.
+2. El brief pide que seguridad revise el contenedor y la configuración del píxel antes de publicar (PV.3 bandera 2). Sin GTM,
+   revisa un diff.
+3. Evita cargar el contenedor antes del banner (§D3), sin tener que declararlo en el aviso.
+
+Coste: marketing no podrá añadir etiquetas por su cuenta (es justo lo que se evita) y el `GTM_CONTAINER_ID` que marketing pedía
+(«de vuelta» 3) no existe. Se relaya a marketing como «lo que no se pudo hacer tal cual» y es la pregunta 1 de §14.10.
+
+### 14.3 Flujo de consentimiento (D3 modo básico, D3b diseño)
+
+```
+Visita ─► ¿modo on y alguna etiqueta configurada? ── no ─► nada (sin banner, sin cookies)
+              │ sí
+              ▼
+        ¿cookie th_consent válida y de la versión vigente del aviso? ── sí ─► aplicar elección
+              │ no
+              ▼
+        ¿ruta de la lista blanca (§14.4)? ── no ─► sin banner (el enlace del pie sí está)
+              │ sí
+        banner abajo, sin muro (D3b). utm_* válidos de la URL ─► memoria del documento (sin cookie, sin storage)
+              │
+   ┌──────────┼────────────────────┬─────────────────────────────┐
+ «Aceptar»  «Solo lo necesario»   «Configurar» (2.ª capa)        sin respuesta al ocultarse la página
+ analítica+publicidad  todo denied  analítica / publicidad por separado   beacon no_response (1 por documento)
+   ▼          ▼                    ▼
+ th_consent {a:1,m:1}  th_consent {a:0,m:0}  th_consent {a,m}; th_first_utm si a
+ carga gtag (si a), fbevents (si m)
+ POST /measurement/banner-response: respuesta = la ELECCIÓN que quedó (D-MKT2-5), no el botón
+```
+
+**D-MKT2-5 (2026-10-19, v1.105) — qué se cuenta y qué viaja sin elección.** Razón común: f1 mide qué consienten los
+visitantes, y antes de la elección no se escribe nada en el dispositivo.
+- **Respuesta por resultado:** `{a:1,m:1}` ⇒ `accept` aunque se guarde desde la 2.ª capa; `{a:0,m:0}` ⇒ `necessary_only`;
+  mixta ⇒ `custom`. Contar «guardé con todo apagado» como `custom` partiría a los que rechazan en dos filas y f1 dejaría de
+  decir cuántos rechazan. Solo cuenta **la primera** elección con el banner visible, también si se hace desde el pie (si no, ese visitante saldría de f1);
+  un cambio posterior no manda nada (MKT2-UX.13 pet. 1, M2 de QA): contar cambios inflaría el denominador.
+- **`no_response` una vez por documento, en memoria** (⛔ ni `sessionStorage`): la regla «nada en el dispositivo antes de la
+  elección» vale para todo, no solo para los UTM. Coste aceptado: una recarga sin responder vuelve a contar (sobrecuenta el
+  denominador; f1 lo dice en su nota).
+- **Sin elección, el objeto `measurement` no viaja**: el pedido queda con consentimiento `NULL` y ningún destino recibe nada
+  (tabla de §14.6). No se infiere un «no» de un silencio.
+
+- **`th_consent`** es la cookie que **guarda la elección** (estrictamente necesaria para respetarla): primera parte, 180 días,
+  `SameSite=Lax`, `Secure`, `Path=/`, legible por JS. Contenido: versión del formato, `a` (analítica), `m` (publicidad), versión del
+  aviso, fecha. Si la versión del aviso cambia, se vuelve a preguntar. Va declarada en el aviso.
+- **Consent Mode v2 básico:** antes de cargar `gtag.js` se fija `consent default` con los cuatro `denied`; al aceptar analítica,
+  `update` de `analytics_storage` a `granted`. `ad_storage`, `ad_user_data` y `ad_personalization` quedan `denied` para Google
+  siempre: GA4 aquí solo mide. **Nada de Google ni de Meta se descarga antes de la elección**, ni un ping sin cookies.
+- **Publicidad = Meta.** `m=1` es lo único que carga `fbevents.js` y lo único que habilita CAPI. Aceptar solo analítica no
+  enciende Meta (D3, PV-A1).
+- **Revocar:** «Preferencias de cookies» en el pie de todo el storefront y en el aviso ⇒ abre la segunda capa. En el aviso va
+  como **párrafo propio al final del apartado de cookies**, fuera del texto del abogado (D-MKT2-6: el texto legal queda como
+  dato puro y el botón no depende de su redacción; la puerta C-D1 exige que el apartado exista). Al quitar un consentimiento se
+  borran las cookies propias de esa finalidad que la tienda puede borrar en su dominio (`th_first_utm`, `_ga*`, `_fbp`, `_fbc`), se
+  manda `consent update` y se **recarga** la página, para que el código de terceros ya cargado salga del documento.
+- **`th_first_utm`** (§B1): se escribe solo con `a=1`, con los `utm_*` que pasaron `parseFirstUtm` (misma regla que
+  `common/first-utm.ts`, espejo en el frontend), 90 días, sin sobrescribir. Si los UTM llegaron antes de aceptar y la pestaña no
+  se recargó, se toman de la memoria de la pestaña; si se recargó, se pierden (se acepta: sin storage antes del consentimiento).
+
+### 14.4 Dónde se carga: lista blanca de rutas y navegación dura a las rutas sensibles (§D2.1)
+
+- **Lista blanca, no lista negra.** El cargador y `track()` solo actúan en: portada, catálogo, ficha de carta, lista y ficha de
+  sellado, carrito, checkout (con cuenta e invitado), guías, preguntas, cómo funciona. **Toda ruta nueva nace excluida.** La lista
+  exacta de rutas la escribe frontend en un módulo único; la ruta real de cada página: **NO MEDIDO** aquí.
+- **Excluidas a propósito:** cuenta y perfil, bóveda, admin, vender/buylist con CLABE o INE, restablecer contraseña, verificar
+  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos, **y la landing del Card Show** (tiene formularios con nombre
+  y teléfono y su medición propia sin cookie, §4.CARDSHOW.j; pregunta 3 de §14.10).
+- **Navegación dura (D-MKT2-2).** Next navega sin recargar: un `gtag`/`fbq` cargado en la ficha seguiría vivo en `/cuenta`. Por
+  eso, si hay código de medición cargado en el documento y la navegación va a una ruta excluida, **se hace navegación completa del
+  documento** (recarga), que llega sin terceros porque el cargador no actúa allí. Propiedad que vigila el candado C-F5: **nunca
+  hay un campo de contraseña, CLABE, INE, correo de cuenta o token en un documento donde existan `window.gtag`, `window.fbq` o un
+  `<script>` de `googletagmanager.com`/`connect.facebook.net`.** El checkout de invitado es la excepción que el brief admite (§D2.1:
+  «en checkout solo los eventos de §B2»): ahí se teclean correo y dirección con las etiquetas cargadas; mitigación: sin coincidencia
+  avanzada, sin eventos automáticos, sin `page_view` automático. Seguridad lo revisa.
+- **URL que sale (§D2.2):** `page_location`, `page_referrer` y la URL que ve el píxel se reescriben con una sola función:
+  origen + ruta + solo los `utm_*` que pasan `parseFirstUtm`. Se borra todo lo demás (`token`, `session_id`,
+  `payment_intent_client_secret`, `email`, `code`, el fragmento `#…`).
+
+### 14.5 Eventos del navegador (§B2) y sus desvíos
+
+Un único `track(evento, params)` con **lista cerrada de parámetros por evento** (API_CONTRACT §MKT.H.4). Se aparta del brief en dos
+eventos, porque su página está excluida (§14.4):
+
+| Evento | Brief | Aquí | Por qué |
+|---|---|---|---|
+| `purchase` | página de gracias **y** servidor | navegador: en el checkout, cuando `confirmPayment` vuelve con `succeeded` sin redirección; servidor: siempre (§14.6) | la página de gracias es `/pedido?token=` (invitado) u `/orders` (cuenta): excluidas. Con 3DS que redirige, solo cuenta el servidor |
+| `generate_lead` | al enviar la solicitud | solo servidor | el formulario de venta lleva CLABE e INE (§D2.1 lo excluye) |
+
+El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `begin_checkout`, `add_payment_info`,
+`click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. `page_view` va **solo a GA4**: el píxel
+no manda `PageView` (Meta casa la compra por `event_id`, y una visita por página es justo la audiencia que no se quiere).
+
+**D-MKT2-7 (v1.106) — un producto, un `item_id`, en navegador y servidor** (forma y casos: API_CONTRACT §MKT.H.4). GA4 guarda 14
+meses y no se reescribe: d1/d2 cruzan vistas con ventas por `itemId`, y tres identidades para el mismo sellado (`D-MKT2-R4`, §9)
+dejan esas tablas sin cruce para siempre. Reglas: (1) **producto, no pieza**: `inventoryItemId` muere al venderse; `sealedProductId`
+es lo que el pedido congela (§5.2.6). (2) **Prefijo por tabla** (`c_`, `s_`, `sc_`, `a_`, `m_`): el sellado sin ligar cae a su carta
+ancla (§4.34a), que es una carta real; sin `sc_` sus vistas y ventas se sumarían a la de la carta. (3) **Se calcula de `FrozenCardFacts`**,
+la forma que ya viaja en la cotización y está congelada en el pedido: nada se re-resuelve al enviar. Residuo aceptado: un grupo de
+la ficha (`sealedIdentityKey`) con piezas de dos `sealedProductId` distintos cuenta las vistas en el del representante (que eso ocurra: NO MEDIDO).
+
+### 14.6 Eventos de servidor: cola en base de datos, después del commit, sin poder tocar el pago (§B4, §C)
+
+```
+POST /checkout/session | /checkout/guest/session | /buylist/requests
+   │  (en la tx de siempre: firstUtm* + consentimiento en la fila Order/SellRequest — datos ya saneados, no pueden fallar)
+   ▼  commit
+   └─► best-effort, fuera de la tx: MeasurementContext {gaClientId?, fbp?, fbc?}   (try/catch, nunca lanza)
+
+webhook payment_intent.succeeded ─► onPaymentSucceeded ─► tx de liquidación (SIN CAMBIOS) ─► commit
+   └─► después de notifyOrderSettled, best-effort: measurement.enqueuePurchase(order.id)   (try/catch, nunca lanza)
+           └─► MeasurementOutbox: 1 fila por destino habilitado y consentido; @@unique(destination,eventId) ⇒ reentrega = no-op
+
+POST /buylist/requests (201) ─► post-commit best-effort: measurement.enqueueLead(sellRequest.id)
+
+job measurement-drain (cada 1 min, BullMQ tcg-daily) ─► lee filas con nextAttemptAt ≤ now
+   ├─ construye el cuerpo AL ENVIAR desde Order/SellRequest + MeasurementContext (constructor puro con lista cerrada de claves)
+   ├─ POST a GA4 Measurement Protocol / Meta CAPI, timeout 5 s
+   ├─ 2xx ⇒ borra la fila   ·   error ⇒ attempts+1, backoff (1, 5, 30 min, 2 h, 12 h)   ·   4xx de forma ⇒ borra y cuenta
+   └─ purga: filas de cola y de contexto con más de 7 días ⇒ borradas
+```
+
+**Por qué así (D-MKT2-3):**
+- **Nada de medición dentro de una transacción de dinero.** La única escritura dentro de la tx del checkout son columnas de la
+  propia fila (`firstUtm*`, consentimiento), con valores ya validados por funciones puras que no lanzan. Todo lo demás va después
+  del commit con `try/catch` que registra y sigue, igual que `notifyOrderSettled` (`payments.service.ts:377`). Si la cola falla, el
+  pedido se liquida igual y el webhook devuelve 200; si Meta tarda 30 s, el webhook no se entera: la red solo la toca el drenador.
+- **Cola en Postgres, no en Redis.** El encolado debe sobrevivir a un reinicio y ser idempotente por clave única; la fila es
+  barata y el drenador corre en la cola BullMQ que ya existe (`scheduler.service.ts:178`) como un trabajo periódico más.
+- **El cuerpo no se guarda.** La fila de cola solo lleva `destino`, `eventId`, `subjectId` e intentos; el cuerpo se arma al
+  enviar. Así no hay cuerpos en reposo que filtrar, y «los cuerpos no se escriben en logs» (§B4) se cumple porque solo existen en
+  memoria durante el envío. Los errores registran destino, código HTTP e intento, nunca cuerpo, URL con `api_secret` ni token.
+- **Idempotencia y deduplicación con un `event_id` determinista:** `p_<Order.id>` para la compra y `l_<SellRequest.id>` para la
+  solicitud. El navegador lo calcula igual (conoce `orderId` por la respuesta de la sesión), así que no hace falta guardarlo y
+  Meta deduplica navegador + servidor. GA4 deduplica `purchase` por `transaction_id = Order.id` (comportamiento de GA4 con
+  eventos de navegador y de Measurement Protocol en la misma propiedad: **NO VERIFICADO**).
+- **Cuándo se envía a quién** (consentimiento guardado con la fila en el momento de crear el pedido o la solicitud):
+
+| Consentimiento en la fila | GA4 (Measurement Protocol) | Meta (CAPI) |
+|---|---|---|
+| `NULL` (modo off al crear, o sin elección del visitante) | nada | nada |
+| analítica no, publicidad no | `purchase`/`generate_lead` con `client_id` **aleatorio por evento**, sin `first_utm_*`, sin `user_id`, sin IP | **nada** |
+| analítica sí | con `client_id` del navegador (`gaClientId`) y `first_utm_*` de la fila | según publicidad |
+| publicidad sí | según analítica | evento con `event_id`, `fbp`/`fbc`; si no hay ni `fbp` ni `fbc`, **nada** (no hay con qué casar) |
+
+- **Reembolsos, contracargos y cancelaciones** no generan eventos (el brief no los pide). Pregunta 6 de §14.10.
+
+### 14.7 Qué sale hacia Google y Meta, y qué no sale nunca (§D2, PV-A1, PV-B2)
+
+**Sale (lista cerrada; el detalle de cada clave está en API_CONTRACT §MKT.H.4-.6):** nombres de evento de §B2; `Order.id`,
+`SellRequest.id` y la identidad de ítem (D-MKT2-7) como `transaction_id`/`item_id`/`content_ids`; nombre (y set) del ítem; montos en MXN con IVA; número de piezas; `shipping_cents`; método de pago elegido (`card`, etc.); los cuatro
+`first_utm_*` validados y solo con analítica; ruta de la página sin query salvo `utm_*`; `client_id` de GA4; `fbp`/`fbc` solo con
+publicidad. Inevitable con etiquetas de navegador: la IP y el agente de usuario del visitante viajan en la propia petición a
+Google/Meta tras aceptar (deuda aceptada por seguridad, §D3 «Deuda aceptada»).
+
+**No sale nunca, ni en claro ni con hash, ni del navegador ni del servidor:** nombre, correo (también `guestEmail`), teléfono,
+dirección o CP, CLABE, INE/CURP/RFC, IP (el servidor **no** pone `client_ip_address` ni `ip_override`), `@usuario`, tarjeta o sus
+últimos 4, texto libre, `orderNumber` (`TCG-000123` no es un secreto pero sí un folio que el cliente comparte), tokens
+(`checkoutToken`, `OrderAccessToken`, sesión, `client_secret`), `user_id` de GA4, `external_id`, `em`, `ph`, `fn`, `ln`, `ct`, `st`,
+`zp`, `country`, `db`, `ge`. **Agente de usuario por CAPI: no se envía** hasta que el dueño decida (pregunta 2 de §14.10).
+
+**Ajustes que no son código (los hace el dueño en las consolas, lista en API_CONTRACT §MKT.H.10):** GA4 sin Google Signals, sin
+personalización de anuncios, sin «datos proporcionados por el usuario», retención de eventos 14 meses; píxel con coincidencia
+avanzada automática y configuración automática de eventos apagadas, sin audiencias ni conversiones personalizadas. En código se
+fija lo que se puede fijar: `fbq('set','autoConfig',false,…)` antes de `init`, `fbq.disablePushState = true`, `send_page_view:
+false`, `allow_google_signals: false`, `allow_ad_personalization_signals: false`.
+
+### 14.8 CSP con medición: orígenes solo si está encendido
+
+`buildCsp` (`csp.ts:98`) recibe el modo. Con `on`, `connect-src` añade los orígenes de medición de API_CONTRACT §MKT.H.1 (lista
+única). Con `off`, **ninguno**. Hoy la CSP es report-only (`csp.ts:37`), así que esto no bloquea nada aún; deja escrito qué
+orígenes se esperan para que, cuando pase a `enforce`, un host de medición nuevo salga como violación en vez de pasar callado.
+**Hosts de medición** (los que vigilan C-F1/C-F2): `googletagmanager.com`, `google-analytics.com`, `analytics.google.com`,
+`doubleclick.net`, `connect.facebook.net`, `facebook.com`, `facebook.net`. **No** son de medición y están permitidos donde ya se
+usan: `accounts.google.com` (botón de Google en login y checkout) y `www.google.com` (mapa del Card Show).
+
+### 14.9 Panel: f1/f2/f3/g1 y lectura de GA4 y Search Console (b, c, e, g)
+
+Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H.9. Aquí, el porqué:
+- **f1** (con f2 como columnas por dispositivo) cuenta `accept`, `necessary_only`, `custom` (solo mixta, D-MKT2-5) y
+  `no_response`; tasa = `accept / total`. Sin `custom` una elección mixta inflaría o hundiría la tasa.
+- **f3/g1:** `firstUtmSource IS NOT NULL` es el numerador; `measurementConsentAnalytics = true` el denominador honesto de
+  «aceptó». `NULL` mezcla «no respondió» y «antes de encender»: la fila no sabe cuál y no se inventa. f1, f3 y g1 se miden con
+  el modo `on` **o** si el periodo ya tiene datos de medición (apagar no debe esconder semanas que sí se midieron).
+- **GA4 Data API y Search Console** se leen con una **cuenta de servicio propia de la tienda** (no la de marketing), rol Lector
+  en GA4 y usuario restringido en SC, adaptador en `modules/marketing/` con caché de 6 h por `(pantalla, periodo)`. Fase 2 solo
+  lee dimensiones y métricas **estándar** de GA4: las de evento propias (`first_utm_*`, `seconds_to_visible`) exigen
+  registrarlas en la consola, que es configuración fuera del repositorio (la razón de §14.2). Lo que no sale con estándar
+  queda `measured:false` con motivo propio; ⛔ nunca «0». Celdas pequeñas y §MKT.G.10 también en las tablas de GA4.
+- **Search Console no depende del aviso** (no toca al visitante): e1 se enciende en cuanto el dueño dé acceso.
+
+### 14.10 Preguntas para el dueño (no se asume; regla de conflicto)
+
+1. **Sin GTM (§14.2).** ¿Aceptas que GA4 y el píxel se carguen desde el código de la tienda, sin contenedor GTM? Consecuencia: para
+   añadir o cambiar una etiqueta hace falta un cambio revisado de la tienda, no un clic en GTM. *Recomendación: sí.*
+2. **Agente de usuario a Meta por CAPI.** Meta lo usa para casar el evento; no está en la lista prohibida del brief, pero ayuda a
+   identificar el navegador. ¿Se envía (solo con publicidad aceptada) o no? *Por defecto: no.* Si sin él Meta rechaza o casa muy
+   poco (NO VERIFICADO), se mide en «Eventos de prueba» y se vuelve a preguntar.
+3. **Landing del Card Show.** ¿Se mide con GA4/píxel o se queda solo con su contador propio sin cookie? *Por defecto: excluida*
+   (tiene formularios con nombre y teléfono).
+4. **`client_id` de GA4 en el servidor para quien aceptó.** Guardarlo 7 días junto al pedido une la compra del servidor con la
+   visita; no guardarlo (siempre aleatorio) es más privado y la compra se cuenta igual, pero sin la visita que la trajo. *Por
+   defecto: se guarda, solo con analítica aceptada, y se borra a los 7 días.*
+5. **Volver a preguntar** al cambiar la versión del aviso: *por defecto sí*. Y la duración de la elección: 6 meses (brief v1 §4.2).
+6. **Reembolsos en GA4** (evento `refund`): el brief no lo pide; sin él, las compras de GA4 no restan los reembolsos. *Por
+   defecto: no se envía.*
+
+### 14.11 Reparto
+
+- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0.
+  Los ajustes vigentes (v1.107) están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
+- **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
+  cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.

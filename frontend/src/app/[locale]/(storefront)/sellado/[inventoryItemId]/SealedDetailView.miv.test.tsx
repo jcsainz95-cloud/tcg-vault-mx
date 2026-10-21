@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
@@ -7,9 +7,13 @@ import { mockSealedGroups } from '@/lib/mock/fixtures';
 import type { ListingDTO, SealedGroupDTO, SealedValueHistoryResponse } from '@/types/contract';
 
 /**
- * §MIV (v1.90⟨miv⟩) · MIV-F4 — F1–F3 en la ficha de sellado. Mercado neto 200,000 (MX$2,000.00) ⇒ el
- * servidor manda `referenceDisplayCents` 232,000 (MX$2,320.00, criterio 861). Las cifras las inyecta el
- * test como servidor: ⛔ la pantalla no calcula.
+ * §A1 (MKT-26a, D2=A · dueño 2026-10-16 · HECHOS:65) — **la ficha PÚBLICA de sellado ya NO pinta la
+ * celda «Valor de mercado»**, ni el neto ni la cifra con IVA. Este fichero (antes la suite §MIV-F4)
+ * se reconvierte en el LOCK de la retirada de la CELDA: con los mismos datos de servidor que antes la
+ * encendían (market + `referenceDisplayCents`), la celda NO debe montarse.
+ *
+ * La «Tendencia de valor» (gateada por `trendEnabled`, §MIV.3) **no es parte de A1 y sigue**: sus dos
+ * tests se conservan intactos, porque siguen obedeciendo el mismo predicado de mercado.
  */
 
 vi.mock('@/i18n/navigation', () => ({
@@ -73,58 +77,59 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('MIV-F4 · ficha de sellado', () => {
-  it('F1: market + display ⇒ «MX$2,320.00» con su rótulo de IVA; ⛔ el neto «MX$2,000.00»', async () => {
+describe('§A1 · la ficha pública de sellado NO pinta la celda «Valor de mercado»', () => {
+  it('market + display: ni rótulo, ni neto, ni cifra con IVA; «Desde» a fila completa con su rótulo de IVA', async () => {
     mockDetail(group());
-    const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
-
-    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    expect(screen.getByText('MX$2,320.00')).toBeInTheDocument();
-    expect(screen.getByText('MX$2,668.00')).toBeInTheDocument();
-    expect(container.textContent).not.toContain('MX$2,000.00');
-    // vMIV-2 (MIV-UX-1): el PRECIO («Desde») conserva su tasa; el MERCADO dice «incluye IVA» (sin tasa).
-    expect(screen.getAllByTestId('iva-label').map((n) => n.textContent)).toEqual([
-      'IVA 16 % incluido',
-      'incluye IVA',
-    ]);
-  });
-
-  it('F8/UX-2 (vMIV-2): grupo accesible «Valor de mercado MX$2,320.00 incluye IVA» y orden cifra → IVA → fecha', async () => {
-    mockDetail(group());
-    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
-    const g = await screen.findByRole('group', { name: 'Valor de mercado MX$2,320.00 incluye IVA' });
-    expect(g.getAttribute('aria-label')).toBeNull();
-    const text = g.textContent ?? '';
-    expect(text.indexOf('MX$2,320.00')).toBeLessThan(text.indexOf('incluye IVA'));
-    expect(text.indexOf('incluye IVA')).toBeLessThan(text.search(/9 oct/i));
-    // ⛔ MIV-UX-3: el rótulo de mercado no lleva la tasa.
-    expect(within(g).getByTestId('iva-label').textContent).not.toMatch(/16 %/);
-    expect(within(g).getByTestId('iva-label').closest('[aria-hidden="true"]')).toBeNull();
-  });
-
-  it('F8/UX-2 en inglés (vMIV-2)', async () => {
-    mockDetail(group());
-    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'en');
-    expect(
-      await screen.findByRole('group', { name: 'Market value MX$2,320.00 VAT included' }),
-    ).toBeInTheDocument();
-  });
-
-  it('F2: market SIN display ⇒ ni bloque, ni rótulo extra, ni «—», ni el neto; «Desde» a fila completa', async () => {
-    const { referenceDisplayCents: _drop, ...noDisplay } = group();
-    mockDetail(noDisplay as SealedGroupDTO);
     const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
 
     expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.getAllByText('MX$2,668.00').length).toBeGreaterThan(0); // el PRECIO «desde» sí
+    // ⛔ nada de mercado: ni rótulo, ni neto (MX$2,000.00), ni la cifra con IVA (MX$2,320.00).
     expect(screen.queryByText('Valor de mercado')).toBeNull();
-    expect(screen.queryByText('—')).toBeNull();
     expect(container.textContent).not.toContain('MX$2,000.00');
-    expect(screen.getAllByTestId('iva-label')).toHaveLength(1);
+    expect(container.textContent).not.toContain('MX$2,320.00');
+    expect(screen.queryByRole('group', { name: /Valor de mercado/ })).toBeNull();
+    // Una sola celda de dinero, a fila completa.
     expect(cells()).toHaveLength(1);
     expect(cells()[0].className).toContain('sm:col-span-2');
   });
 
-  it('F2: sin display tampoco se monta la TENDENCIA (mismo predicado, §MIV.3)', async () => {
+  it('en inglés: tampoco «Market value»', async () => {
+    mockDetail(group());
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'en');
+    expect(await screen.findByText('From')).toBeInTheDocument();
+    expect(screen.queryByText('Market value')).toBeNull();
+    expect(screen.queryByRole('group', { name: /Market value/ })).toBeNull();
+  });
+
+  it('override (o market sin display): igual — una sola celda, sin cifra de mercado', async () => {
+    mockDetail(group({ priceBasis: 'override', priceSource: 'override' }), true);
+    const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    expect(container.textContent).not.toContain('MX$2,320.00');
+    expect(cells()).toHaveLength(1);
+    expect(cells()[0].className).toContain('sm:col-span-2');
+  });
+
+  it('market sin display: tampoco cifra, «Desde» a fila completa', async () => {
+    const { referenceDisplayCents: _drop, ...noDisplay } = group();
+    mockDetail(noDisplay as SealedGroupDTO);
+    const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    expect(container.textContent).not.toContain('MX$2,000.00');
+    expect(cells()).toHaveLength(1);
+    expect(cells()[0].className).toContain('sm:col-span-2');
+  });
+});
+
+/**
+ * La «Tendencia de valor» NO es A1: sigue viva y sigue obedeciendo el predicado de mercado (§MIV.3).
+ * Estos dos tests se conservan de la suite §MIV original (seguían verdes tras A1).
+ */
+describe('Tendencia de valor del sellado (fuera de A1 · §MIV.3)', () => {
+  it('sin display no se monta la TENDENCIA (mismo predicado de mercado)', async () => {
     const { referenceDisplayCents: _drop, ...noDisplay } = group();
     mockDetail(noDisplay as SealedGroupDTO, true);
     const trend = vi.spyOn(api, 'getSealedValueHistory');
@@ -132,15 +137,6 @@ describe('MIV-F4 · ficha de sellado', () => {
     expect(await screen.findByText('Desde')).toBeInTheDocument();
     expect(screen.queryByText('Tendencia de valor')).toBeNull();
     expect(trend).not.toHaveBeenCalled();
-  });
-
-  it('F3: override con display presente (servidor erróneo) ⇒ sin bloque, sin cifra', async () => {
-    mockDetail(group({ priceBasis: 'override', priceSource: 'override' }), true);
-    const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
-    expect(await screen.findByText('Desde')).toBeInTheDocument();
-    expect(screen.queryByText('Valor de mercado')).toBeNull();
-    expect(container.innerHTML).not.toContain('MX$2,320.00');
-    expect(screen.getAllByTestId('iva-label')).toHaveLength(1);
   });
 
   it('la tendencia rotula «incluye IVA» (vMIV-2: sin tasa, sea cual sea `ivaRatePct` del grupo)', async () => {

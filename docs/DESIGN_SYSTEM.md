@@ -32952,3 +32952,912 @@ Problema medido (ux-review): bajo ~390px el wordmark se parte en dos líneas por
 2. **frontend:** el hover de CTA variante A queda **NO MEDIDO** (CS-UX.1); cerrar con un probador de contraste en el gate.
 3. **orquestador (O-22/tope):** `DESIGN_SYSTEM.md` mide **32 834 líneas** (`Read` aviso, 2026-10-17) frente al tope orientativo de ~2 000: está 16× rebasado. Compactarlo es un trabajo propio (borrar histórico por sección) que no cabe en este encargo y no hice; propongo encargarlo como stream aparte.
 4. Cero cambios de contrato. Changelog: **vCS-1 (2026-10-17):** §CS-UX nuevo (rojo sobre tinta, eyebrow on-ink, error de Select/fieldset, excepción Montserrat del microsite, lockup móvil).
+
+---
+
+## MKT-UX. Panel de Marketing del admin — `/admin/marketing` (vMKT-1, 2026-10-18 · `API_CONTRACT §MKT.D/§MKT.E` · `ARCHITECTURE §13.4–§13.5` · brief «Panel de Marketing», pantallas a–h)
+
+### MKT-UX.0 Fuente, alcance y reglas duras
+
+**Qué se leyó (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`, HEAD `b8197420` dado por el orquestador; ux-ui sin Bash, sha NO MEDIDO por mí):** `backend/src/modules/marketing/marketing-aggregates.types.ts` entero (`ScreenPayload`, `AggTable`, `Column`, `Cell`); `marketing.controller.ts:36-160` (rutas `aggregates`, `export`, `export/todo`, `weekly-excel`); `marketing-annotations.service.ts` y su DTO (`label` 1–120, `destino` ≤ 200); `marketing-analytics.service.ts` (ids de tabla `a1 a2 a3 d1 d3 d4 c7 h1`; el dinero llega **en pesos** con decimales, no en centavos: `:35`); `small-cells.ts:20-24`; `API_CONTRACT §MKT.D/E` (`:45301-45383`); `ARCHITECTURE §13.5`; `AdminSidebar.tsx:109-121`; este documento §2.3, §6.1–6.6, §7.5–7.8, §8.1–8.2, §9, **§AN-UX** (el hermano más cercano: periodo, tabla, estados, cifras) y §CS-UX. **No existe** `frontend/src/app/[locale]/(admin)/admin/marketing` ni ninguna entrada «marketing» en el menú (medido con `Grep` en `frontend/src`).
+
+**Para quién:** el dueño (no programa) y, después, el analista. **Esta pantalla es del dueño.** El analista lee por el endpoint con token (sin interfaz), salvo el bloque de acceso (MKT-UX.10), que también es del dueño.
+
+**Por ahora solo se mide la tienda** (brief §3): base de datos y conteos anónimos del servidor. Lo que vendrá de Google Analytics 4, Search Console o Meta sale como «No medido todavía», con su motivo, **nunca como 0**.
+
+**Reglas duras (se revisan en el PR):**
+- **MKT-1 · Cero no es «no medido».** Cuatro cosas distintas, cuatro textos distintos (MKT-UX.5): **0** (dato), **< 5** (cantidad pequeña), **Oculto** (monto que se esconde por esa cantidad), **No medido** (la fuente no existe aún). ⛔ Una fuente apagada nunca se pinta como `0`, `—` ni celda vacía.
+- **MKT-2 · El significado va en texto, no en color.** «< 5», «Oculto» y «No medido» son palabras visibles. ⛔ Ni un `title`/tooltip como único portador (no sale en táctil ni en lector).
+- **MKT-3 · Una cifra, una fuente.** El front pinta lo que llega en `ScreenPayload`; ⛔ no suma filas, no calcula diferencias ni porcentajes, no «adivina» una celda oculta, no reordena filas (la fila «Otros» va donde la manda el servidor, al final).
+- **MKT-4 · Fechas y periodos los dice el servidor** (`period.from/to`, `previousPeriod`). El navegador no decide qué semana está «cerrada» (su reloj puede no ser el de México). El rótulo del periodo y sus cifras cambian **juntos** (AN-4).
+- **MKT-5 · Solo semanas o meses cerrados**, igual que en el endpoint y los archivos (brief §5.2): evita despejar una celda oculta restando dos rangos. En pantalla **no hay rango libre ni detalle por día** en esta versión (MKT-UX.17, petición 12).
+- **MKT-6 · Todo lo que viene de fuera se pinta como texto.** `utm_*`, nombres de campaña/pieza, términos de búsqueda y etiquetas de anotación: nodos de texto de React, ⛔ `dangerouslySetInnerHTML`, ⛔ enlaces generados a partir de ellos.
+- **MKT-7 · Sin datos personales en nada de lo que el panel crea.** El formulario de anotaciones lo dice **antes** de escribir (MKT-UX.8), no solo cuando falla.
+- **MKT-8 · Solo lectura sobre la tienda.** El panel no tiene un solo botón que escriba en GA4, Meta o la tienda; sus únicas escrituras son las anotaciones y el acceso del analista.
+- **P66-3:** ⛔ ningún código interno en pantalla («a1», «PM-B2», «MKT», «Fase 0», «D-MKT-AUTZ»). Los ids de tabla sirven para buscar claves de copy, no se muestran.
+
+**Cero tokens nuevos. Cero componentes de gráfica en esta versión** (no hay serie diaria que pintar, MKT-UX.17 petición 12). Contraste: MKT-UX.13.
+
+---
+
+### MKT-UX.1 Dónde vive y qué recuerda la URL
+
+| Elemento | Decisión |
+|---|---|
+| Ruta | `/{locale}/admin/marketing` |
+| Menú | Grupo «Administración» (`AdminSidebar`, junto a Reportes y Card Show), rótulo **«Marketing»** / «Marketing». Visible **solo** si la sesión tiene `marketing:read` (`hiddenUnlessSuperAdmin` no basta: es un permiso propio, petición 7). Un enlace escrito a mano por quien no lo tiene llega al estado 403 (MKT-UX.11), no a una pantalla en blanco |
+| `<title>` / `h1` | «Marketing» (un solo `h1` por página) |
+| Estado en la URL | `?pantalla=a…h` (o `acceso`) · `&periodo=semana|mes` · `&week=2026-W42` o `&month=2026-10`. Recargar o compartir el enlace deja lo mismo. Valores fuera de dominio se **ignoran** y se usa el default (⛔ no se manda basura al servidor para recibir un `400`) |
+| Defaults | `pantalla=a`, última semana cerrada que dice el servidor |
+| Cada pestaña monta su consulta **solo cuando está activa** | la de «Acceso» no pide nada mientras se ve «Resumen» |
+
+---
+
+### MKT-UX.2 Anatomía de la página (escritorio ≥ `lg`)
+
+```
+MARKETING                                                       ← h1
+Cómo se mueve la tienda y de dónde llega la gente. Por ahora solo se miden los datos de la tienda.
+
+[ Resumen ][ Origen ][ Comportamiento ][ Catálogo ][ Buscadores e IA ][ Cookies ][ Promociones ][ Anotaciones ]   Acceso del analista
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+PERIODO   ( Semana )( Mes )   [ Lun 5 – dom 11 oct 2026  ▾ ]                   [ Descargar Excel de la semana ]
+Del 5 al 11 oct 2026 · hora del centro de México · Se compara con: del 28 sep al 4 oct 2026
+                                                           Exportar esta pantalla: [ .xlsx ] [ .csv ]
+ⓘ Las cantidades menores a 5 se ocultan en el Excel; en pantalla ves las cifras exactas.   ← MKT-UX.9
+
+┌ Cobertura ──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ • (notas del servidor: p. ej. «12 de 15 pedidos con origen (aceptaron cookies)»)                          │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+VENTAS Y TICKET                                 Fuente: base de datos de la tienda
+[tabla]  ········································································
+VISITAS Y EMBUDO                                Fuente: Google Analytics 4
+[ No medido todavía — Google Analytics 4 aún no está encendido. Esto no es cero: todavía no hay dato. ]
+
+Anotaciones de esta semana (2) ▸                                                 ← MKT-UX.8, plegable
+¿Cómo leer las celdas? ▸                                                         ← MKT-UX.5, plegable
+```
+
+- Ancho: el contenedor estándar del admin (`max-w` de las otras vistas; ⛔ no inventar uno). Sin tarjetas con sombra (§4.3): bloques separados por **regla** `--color-border` y títulos `h2` (§3.2), como §AN-UX.
+- Orden de tabulación = orden visual: pestañas → periodo → descarga → exportar → plegables → tablas (cada tabla: exportar no tiene botón propio, MKT-UX.9) → anotaciones.
+- Skip-link y `h1` los pone el shell del admin; esta página no los duplica.
+
+---
+
+### MKT-UX.3 Navegación entre pantallas (a–h) y «Acceso»
+
+**Escritorio (≥ `md`):** `role="tablist"` con `aria-label` «Pantallas del panel» y ocho `role="tab"` (§6.6: subrayado de 2 px en tinta en la activa, `muted` en las demás; flechas ←/→, `Home`, `End`; tabulación solo a la pestaña activa, `aria-selected`, `aria-controls` → `role="tabpanel"` con `aria-labelledby`). Cambiar de pestaña **no mueve el foco** del tab. Si las ocho no caben en una línea (ES a 768 px), la fila **hace wrap** a dos líneas (⛔ scroll horizontal oculto: el dueño debe ver todas).
+
+**Móvil (< `md`):** las pestañas se sustituyen por un **`Select` nativo** con label visible «Pantalla» (§6.3), 44 px de alto, mismas ocho opciones. Es más corto, más accesible y no esconde opciones tras un scroll lateral.
+
+| Clave | `pantalla` | Rótulo ES | Rótulo EN | Qué enseña (brief §2) |
+|---|---|---|---|---|
+| a | `a` | Resumen | Summary | Ventas, ticket, cotizaciones de buylist, visitas por origen, embudo |
+| b | `b` | Origen | Sources | De dónde viene quien compra: por canal, por puerta de Instagram, por pieza |
+| c | `c` | Comportamiento | Behavior | Páginas más vistas, tiempo, abandono, búsquedas sin resultado, dispositivo, estado del pedido |
+| d | `d` | Catálogo | Catalog | Cartas más vistas vs más vendidas, vistas sin venta, agotado con demanda, buylist más cotizadas |
+| e | `e` | Buscadores e IA | Search & AI | Consultas de Google y visitas desde asistentes de IA |
+| f | `f` | Cookies | Cookies | Qué responde la gente al aviso de cookies; cobertura |
+| g | `g` | Promociones | Promotions | Compras y cotizaciones con origen de promoción pagada |
+| h | `h` | Anotaciones | Notes | Fechas marcadas (promociones, despliegues, eventos): lista y alta/edición/borrado |
+| — | `acceso` | Acceso del analista | Analyst access | Emitir y revocar la llave del analista (MKT-UX.10; **dependiente de contrato**) |
+
+- «Acceso del analista» va **a la derecha, separada** por un hueco o una regla vertical y **solo se monta para el súper-admin** (⛔ ni candado ni «solo dueño»; se omite, como AN-7). En móvil es la última opción del `Select`.
+- ⛔ Ninguna pestaña lleva contadores, puntos ni color de «aviso»: qué tabla está medida y cuál no se sabe **dentro** de la pantalla (MKT-UX.5), porque el estado viene en cada tabla (`measured`), no por pestaña. El front **no** codifica qué pestaña está «apagada».
+
+---
+
+### MKT-UX.4 Selector de periodo (`MarketingPeriodPicker`)
+
+```
+PERIODO  ( Semana )( Mes )   [ Lun 5 – dom 11 oct 2026 ▾ ]
+```
+
+- **Segmentado «Semana · Mes»** (`role="group"`, `aria-label` «Tipo de periodo», cada botón `aria-pressed`, ≥ 44 px; mismo estilo que los chips de §AN-UX.2 y `RangeToggle` §7.17).
+- **`Select` con los periodos cerrados**, el más reciente primero. Semana: «Lun 5 – dom 11 oct 2026»; mes: «Octubre 2026» / «October 2026». Por defecto la última cerrada. Al cambiar Semana↔Mes se elige el más reciente del otro tipo. La lista (cuántos periodos y desde qué fecha hay datos) **la da el servidor** (petición 2); mientras no exista, el front ofrece las **12 últimas** calculadas con la fecha del servidor (cabecera `Date` de la respuesta), nunca con `new Date()` del navegador (MKT-4).
+- **Rótulo bajo el selector** (`aria-live="polite"`, se actualiza **con** los datos, AN-4): «Del 5 al 11 oct 2026 · hora del centro de México» y, si el payload trae `previousPeriod`, «Se compara con: del 28 sep al 4 oct 2026». Las fechas se componen con `Intl` desde `period.from/to` (ISO); `period.label` solo es respaldo.
+- **Mientras carga un periodo nuevo** se siguen viendo el rótulo y las cifras **viejos**, atenuados al 60 % y con la línea «Actualizando…» (`role="status"`); ⛔ nunca rótulo nuevo sobre cifras viejas.
+- **Un periodo sin cerrar no se ofrece.** Si la URL trae uno (`week=` de esta semana) y el servidor responde `400`, se muestra el error genérico de MKT-UX.11 con «Ese periodo todavía no está cerrado. Elige uno anterior.» y el selector vuelve al default.
+- **Semana de lunes a domingo, hora de México:** no lleva nota aparte; lo dicen las opciones del `Select` («Lun … – dom …») y el rótulo («hora del centro de México»).
+
+---
+
+### MKT-UX.5 Tablas (`MarketingTable`) y el vocabulario de celdas
+
+Una sola pieza genérica pinta **toda** `AggTable`: `DataTable` §7.7 (cabecera pegajosa bajo `--app-header-h` §4.5, números a la derecha con `tabular-nums`, primera columna como `th scope="row"`, `<caption class="sr-only">` con el título y el periodo). Las columnas salen de `columns[]` en ese orden; el tipo (`kind`) fija el formato:
+
+| `kind` | Formato (siempre localizado, §9.3) |
+|---|---|
+| `money` | **Pesos** (el payload ya los trae en pesos, no centavos): `Intl.NumberFormat(locale,{style:'currency',currency:'MXN'})` → «MX$1,250.00». ⛔ No pasar por `formatMoneyCents` (dividiría otra vez). Cabecera con «IVA incluido» tal como la manda `labelEs` |
+| `count`, `number` | Entero / decimal del idioma, `tabular-nums` |
+| `pct` | Porcentaje del idioma tal cual (MKT-3: no se recalcula) |
+| `text` | Texto; si es dato de fuera (utm, término, carta) en `font-mono`, `break-words`, sin enlace |
+
+**Encabezado de cada tabla:** `h2` con el título + a la derecha, en `text-xs muted`, «Fuente: {fuente}» (BD → «base de datos de la tienda», GA4 → «Google Analytics 4», SC → «Search Console», Srv → «conteo anónimo del servidor», mixed → «varias fuentes»). Es texto visible (la leyenda por cifra del brief, h2, no depende de pasar el cursor). Debajo de la tabla, `text-xs muted`, las `notes[]` de la tabla.
+
+#### Las cinco cosas que una celda puede decir
+
+| Qué es | Cómo se ve (ES / EN) | Cuándo | Lector de pantalla |
+|---|---|---|---|
+| **Cero** | `0` / `MX$0.00` en tinta | el servidor mandó el número 0 (dato real) | «0» |
+| **Cantidad pequeña** | `< 5` en `font-mono`, tinta | `Cell === '< 5'` (el centinela del servidor) | `< 5` visible + `sr-only` «menos de 5, oculto por privacidad» / «fewer than 5, hidden for privacy» |
+| **Monto oculto** | `Oculto` / `Hidden` en `text-xs muted`, versalitas | celda `null` de tipo `money`/`pct` **en una fila que tiene alguna celda `< 5`** | «oculto por privacidad» |
+| **No medido** | `No medido` / `Not measured yet` en `text-xs muted`, versalitas + (en la tabla) el motivo | columna o tabla sin fuente aún (ver abajo) | «no medido todavía: {motivo}» |
+| **Sin dato** | `—` en `muted` | `null` en una fila **sin** `< 5` y sin columna «no medida»: no aplica | `sr-only` «sin dato» |
+
+- **«Otros (< 5 c/u)»:** fila al final, tal cual la manda el servidor, etiqueta en tinta normal (no atenuada, sin cursiva: el sistema no usa cursiva para estado). Se distingue por la regla superior de 1 px `--color-border-strong` y porque su etiqueta contiene «< 5». La etiqueta se **traduce por clave** (`cells.others`, «Otros (< 5 c/u)» / «Others (< 5 each)»); mientras el servidor mande el literal en español, el front compara con la constante y usa la clave (frágil: petición 3).
+- **Nota al pie automática** (una vez por tabla, solo si la tabla tiene alguna celda `< 5` u «Oculto»; `text-xs muted`): «**< 5** significa menos de 5. El monto de esas filas se oculta para que nadie pueda identificar a una persona.» / «**< 5** means fewer than 5. The amount for those rows is hidden so no one can be identified.»
+- **No medido, a nivel de TABLA** (`measured === false`): la tabla **conserva su cabecera** (el dueño ve qué columnas existirán) y su cuerpo es **una sola fila** con `colSpan` completo:
+
+  ```
+  ┌─ No medido todavía ──────────────────────────────────────────────────────┐
+  │ {motivo}                                                                  │
+  │ Esto no es cero: todavía no hay dato.                                     │
+  └──────────────────────────────────────────────────────────────────────────┘
+  ```
+  Borde 1 px **discontinuo** `--color-border-strong` (la forma «vacía» ya distingue sin color), título en `font-semibold`, motivo en `text-sm`, aviso en `text-xs muted`. `role="group"` con `aria-label` «{título de tabla}: no medido todavía». El **motivo** viene de `notMeasuredReason`; se traduce por clave cuando el servidor mande código (petición 3) y, mientras mande texto, se muestra tal cual con `lang="es"`. ⛔ Si el texto trae un código interno entre paréntesis (p. ej. «(PM-B2)»), eso es defecto de contrato, no se limpia con regex en el front.
+- **No medido, a nivel de COLUMNA** (tabla medida con una columna de GA4 apagada, p. ej. «Sesiones» junto a «Pedidos»): cada celda de esa columna dice «No medido» y **debajo de la tabla** una nota «Sesiones: no medido todavía — {motivo}». Necesita `Column.measured/notMeasuredReason` (petición 3); **mientras no exista**, el front trata como no medida solo la tabla entera y **no inventa** el caso por columna.
+- **Tabla medida pero sin filas** (`rows: []`): no es «no medido». Cuerpo con una fila: «Sin registros en este periodo.» / «No records in this period.» y `text-xs muted` «Eso también es un dato: no hubo.» (MKT-UX.11).
+- **Comparación con el periodo anterior:** la pinta el servidor como filas o columnas («Periodo actual», «Periodo anterior»…). Cuando exista porcentaje y N ≥ 30, se pinta tal cual; si el servidor lo omite por N chico, la celda dice «N chico, sin veredicto» / «Small N, no verdict» (clave `cells.smallN`). El % y el color: **sin color** de bueno/malo (que suba un reembolso es malo y que suba una venta es bueno: pintar opina). Signo + flecha en texto como en AN-6. Nombres de campo de la comparación: **pendiente de contrato** (petición 5).
+- **Móvil (< `md`):** cada fila se convierte en una tarjeta (`<article>` + `<dl>` etiqueta/valor, §7.7); la primera columna es el título de la tarjeta; las celdas conservan exactamente los mismos textos de la tabla de arriba. La versión de tabla y la de tarjetas **no conviven en el árbol de accesibilidad** (`hidden`/`md:hidden` de verdad, `display:none`).
+- **Ayuda de lectura** (`<details>` al fondo de cada pantalla, cerrado): «¿Cómo leer las celdas?» con la tabla de arriba reducida a cinco renglones (cero / < 5 / Oculto / No medido / —) y la frase «Cero es un dato; No medido es que aún no existe la fuente.»
+
+---
+
+### MKT-UX.6 Cobertura y fuentes
+
+- **Cobertura** = `payload.notes` (p. ej. cuántos pedidos tienen origen). Se pinta **arriba de las tablas** en un `Banner` `info` no descartable, una viñeta por nota. Si `notes` viene vacío o ausente, no hay banner (⛔ banner vacío).
+- **Estado por fuente** («Google Analytics 4: con datos desde…», «Search Console: datos hasta…»): línea `text-xs muted` bajo el banner, **solo** si el servidor manda estado por fuente (petición 4); hasta entonces no se inventa. Sin esa información, la cobertura de una fuente se lee **en el motivo** de cada tabla no medida.
+- **Origen de cada cifra:** el «Fuente: …» del encabezado de cada tabla (MKT-UX.5). Tablas `mixed`: «Fuente: varias fuentes» y, cuando haya `Column.source` (petición 3), la sigla visible bajo cada cabecera (`text-xs`).
+- **Sin origen ≠ Directo:** si el servidor manda la fila «Sin origen (no aceptó cookies)», se pinta como una fila más, **sin** atenuarla y **sin** unirla a «Directo». El front no re-etiqueta.
+
+---
+
+### MKT-UX.7 Qué muestra cada pantalla por ahora
+
+**El front no codifica esto:** pinta lo que llegue (`measured`, `rows`). La tabla es la expectativa del brief §3 para que el diseño de estados sea el correcto; qué llega medido hoy lo dice el payload.
+
+| Pantalla | Tablas esperadas medidas | Tablas esperadas «No medido todavía» |
+|---|---|---|
+| Resumen | Ventas y MX$ del periodo vs anterior; ticket y piezas por pedido; cotizaciones de buylist (enviadas, ofertadas, aceptadas, pagadas — con «< 5» en aceptadas/pagadas si N < 5) | Visitas por origen; embudo completo |
+| Origen | Pedidos y solicitudes por canal/puerta/pieza (con «< 5» y «Otros»; **`dm` en una sola fila**, sin desglose) | Sesiones, fichas vistas y carritos |
+| Comportamiento | Pedidos por estado de envío (si el periodo alcanza el mínimo; si no, **No medido** con ese motivo) | Páginas, tiempo, abandono, botón de compra visible, dispositivo, aterrizaje; búsquedas sin resultado (diferidas) |
+| Catálogo | Más vistas vs vendidas (la columna de ventas y stock), agotado con demanda y deseos, buylist más cotizadas | Vistas de ficha, carritos |
+| Buscadores e IA | — | Todo |
+| Cookies | Respuesta al aviso de cookies; cobertura de pedidos con origen | Aceptación por separado analítica/publicidad |
+| Promociones | Pedidos y solicitudes con origen de promoción pagada (con «< 5») | Salud de la conexión con Meta |
+| Anotaciones | Lista del periodo (MKT-UX.8) | — |
+
+- Una pantalla **entera** «No medido» (Buscadores e IA) muestra sus tablas con la forma de MKT-UX.5 y, arriba, **una** línea `text-sm`: «Esta pantalla se llenará cuando se encienda Google Search Console.» (clave `screen.e.pending`). ⛔ No se oculta la pestaña: el dueño debe ver qué viene.
+- «Pedidos por estado de envío» **nunca** muestra monto, ni cruce con carta, canal o puerta, ni periodos menores a 4 semanas: es regla del servidor; el front solo pinta (si por error llegara una columna de monto, no la quita: se reporta como defecto de contrato).
+
+---
+
+### MKT-UX.8 Anotaciones de fecha (pantalla «Anotaciones» + tira en las demás)
+
+**(1) Tira «Anotaciones de este periodo»** — en **cada** pantalla, bajo la cobertura, `<details>` plegado por defecto: resumen «Anotaciones de esta semana (2)» / «Notes for this week (2)». Dentro, lista de `payload.annotations` (`date`, `kind`, `label`, `destino`): una línea por anotación, «Mar 7 oct · PROMOCIÓN · Historia con enlace a la ficha → Perfil de la tienda». Sin anotaciones: no se renderiza (⛔ «0 anotaciones»). Con ≥ 1, el resumen añade enlace «Gestionar» → `?pantalla=h`. *(Cuando haya series diarias, estas fechas se marcarán en la gráfica; hoy no hay gráfica, petición 12.)*
+
+**(2) Pantalla «Anotaciones»** (`?pantalla=h`):
+
+```
+ANOTACIONES                                       [ + Nueva anotación ]
+Marca los días que explican un cambio: una promoción tuya, un despliegue, un evento.
+┌ ⚠ No escribas datos personales ────────────────────────────────────────┐
+│ Nada de nombres de clientes, @usuarios, correos, teléfonos, CURP ni RFC. │
+│ La tienda rechaza lo que parece un dato personal.                        │
+└──────────────────────────────────────────────────────────────────────────┘
+Mostrar: ( Del periodo )( Todas )
+ Fecha        Tipo         Etiqueta                                   Destino        Acciones
+ Mar 7 oct    PROMOCIÓN    Historia con enlace a la ficha             Perfil         [Editar][Borrar]
+ Sáb 5 dic    EVENTO       Evento en tienda                           —              [Editar][Borrar]
+```
+
+- **Lista:** `MarketingTable` genérica **no**: es una tabla propia (`AnnotationsTable`) con columnas Fecha · Tipo · Etiqueta · Destino · Acciones, fecha ascendente (como la manda `GET …/annotations`), `tabular-nums`. Tipo = `Badge` §7.2 **solo texto en versalitas** (`Promoción`, `Despliegue`, `Evento`), sin color propio. «Destino» solo para promociones; en otros tipos «—». Etiqueta y destino en `break-words`. Filtro «Del periodo / Todas» (segmentado, `aria-pressed`): «Del periodo» pide `from/to` del periodo elegido; «Todas», sin rango. En móvil, tarjetas (§7.7).
+- **Aviso fijo de privacidad:** `Banner` `warning` **no descartable**, **siempre visible** sobre la lista y repetido dentro del formulario (MKT-7). Texto: «No escribas datos personales: nombres de clientes, @usuarios, correos, teléfonos, CURP ni RFC. La tienda rechaza lo que parece un dato personal.»
+- **Crear / editar:** diálogo (§7.6; *bottom sheet* en móvil), foco al primer campo, `Esc` cierra, foco vuelve al botón que lo abrió.
+
+  | Campo | Control | Reglas visibles |
+  |---|---|---|
+  | Fecha | `Input type="date"` | obligatoria; **sin** `max` (se pueden marcar fechas futuras: un evento planeado) |
+  | Tipo | `Select`: Promoción · Despliegue · Evento | obligatorio; al elegir un tipo distinto de «Promoción», el campo «Destino» **se oculta y se vacía** |
+  | Etiqueta | `Input` | obligatoria, 1–120; contador «34 / 120» bajo el campo (`aria-live` solo al cruzar 100 y 120, no por tecla); ayuda: «Qué pasó ese día, en pocas palabras.» |
+  | Destino | `Input` (solo Promoción) | opcional, hasta 200; ayuda: «A dónde llevaba: la ficha de una carta, el catálogo, tu perfil…» |
+
+  Botones: **Guardar** (`primary`, `loading` con label persistente «Guardando…», §6.1) y **Cancelar**. Se valida en el navegador solo lo obvio (obligatorios y largos); **el filtro de datos personales es del servidor** (no se duplica en el front).
+- **Errores:**
+
+  | Respuesta | Qué se ve |
+  |---|---|
+  | `422 VALIDATION_ERROR` por datos personales | bajo el campo señalado (`label` → Etiqueta, `destino` → Destino; sin `details.field` ⇒ bajo Etiqueta, petición 11): «Quita los datos personales (correo, @usuario, teléfono, CURP o RFC) y vuelve a intentarlo.» `aria-invalid` + `aria-describedby`, foco al campo; **el texto escrito se conserva** |
+  | `422` por destino en tipo que no es Promoción | no ocurre en la interfaz (el campo se oculta); si llegara: banner del diálogo «El destino solo aplica a promociones.» |
+  | `404` al editar o borrar | banner en el diálogo: «Esa anotación ya no existe. Se actualizó la lista.»; se cierra y se recarga |
+  | `403` | estado de MKT-UX.11 |
+  | red / `5xx` | banner `danger` en el diálogo con «Reintentar»; no se cierra |
+- **Borrar:** diálogo de confirmación (§7.6): título «¿Borrar esta anotación?», cuerpo con **la fecha y la etiqueta** (texto de fuera, escapado), botón `destructive` «Borrar anotación», `secondary` «Cancelar». No es dinero, así que no lleva la nota de bitácora de §7.6. Tras borrar: foco al `h2` de la lista (`tabindex="-1"`) y anuncio «Anotación borrada.»
+- **Tras guardar:** se cierra, la lista se actualiza, el foco vuelve al botón «Nueva anotación» (o a «Editar» de esa fila) y `role="status"` anuncia «Anotación guardada.» Toast no es el único aviso (§7.5).
+- **Vacío:** «Todavía no hay anotaciones en este periodo.» + botón «Nueva anotación»; con «Todas» y sin ninguna: «Aún no has marcado ningún día.»
+- **Quién puede:** cualquier cuenta con `marketing:read` ve y gestiona las anotaciones. El analista con llave **no** (la llave solo lee agregados; las anotaciones le llegan embebidas).
+
+---
+
+### MKT-UX.9 Descargas: Excel de la semana y exportaciones
+
+**Botón principal «Descargar Excel de la semana»** (`primary`, `md`, arriba a la derecha del selector; en móvil, ancho completo bajo el selector). Llama a `GET /admin/marketing/weekly-excel` con el periodo elegido (`week=` o `month=`); el rótulo se ajusta: con **Mes**, «Descargar Excel del mes» / «Download monthly Excel». Sin periodo elegido, la última semana cerrada. Es un libro con una hoja por pantalla más «Info».
+
+**«Exportar esta pantalla»:** dos botones `secondary` `sm` «.xlsx» y «.csv» (`GET …/export?pantalla=…&format=…`), con un rótulo de grupo «Exportar esta pantalla». *(El brief pide exportar **cada tabla**; el contrato exporta **por pantalla**: se diseña por pantalla, petición 9.)* «Exportar todo» **no** es un botón aparte: es el mismo libro del botón principal (`export/todo` con periodo = `weekly-excel`, petición 10).
+
+**Mecánica (frontend, no es un enlace de navegación):** se pide con `fetch` y credenciales, se recibe el binario y se guarda con el nombre del `Content-Disposition` (`tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx`). Así un `400`/`403` no deja al dueño mirando un JSON en una pestaña nueva.
+
+| Estado del botón | Qué se ve |
+|---|---|
+| Normal | «Descargar Excel de la semana» |
+| `loading` | spinner + «Preparando el Excel…», `aria-busy="true"`, deshabilitado para evitar doble clic (§6.1); ancho estable |
+| Éxito | `role="status"`: «Se descargó {nombre del archivo}.» (se queda 8 s, o hasta la siguiente acción) |
+| `400` | `Banner` `danger` bajo la barra: «Ese periodo todavía no está cerrado. Elige uno anterior.» |
+| `403` | estado de MKT-UX.11 |
+| red / `5xx` | `Banner` `danger`: «No se pudo preparar el Excel. Inténtalo de nuevo.» + «Reintentar» |
+| Una descarga en curso | los demás botones de descarga quedan deshabilitados |
+
+**Textos de apoyo (visibles, `text-xs muted`, bajo los botones):**
+1. «El Excel sale sin datos personales y con las cantidades menores a 5 ocultas.» (siempre).
+2. Solo si el payload de pantalla trae cifras exactas (petición 1, campo `privacy`): «En pantalla ves las cifras exactas; el Excel oculta las cantidades menores a 5.» Esto evita que el dueño crea que el archivo «perdió» filas. Si la pantalla ya aplica celdas pequeñas, esta frase no se pinta.
+3. «Compártelo solo con quien lo necesite.»
+
+⛔ Nada de «Descargar» sobre una tabla vacía deshabilitado sin explicación: si el periodo está vacío, el botón sigue activo y el archivo trae las hojas con «Sin registros».
+⛔ La URL de descarga no se guarda en ningún sitio (historial, caché de consultas): el archivo se genera al vuelo.
+
+---
+
+### MKT-UX.10 Acceso del analista — emitir y revocar la llave **(dependiente de contrato)**
+
+> **Estado:** el contrato (`§MKT.D/E`) define el token `marketing-reader` pero **no** endpoints para emitirlo, revocarlo ni listarlo (medido: ninguna ruta en `marketing.controller.ts`; el arquitecto los está cerrando). Este bloque se diseña **sin nombres de campo ni de ruta**: lo marcado ⟨pendiente de contrato⟩ se sustituye al publicarse. Si el contrato final no incluye estas rutas, **este bloque no se construye** y la pestaña «Acceso del analista» no existe.
+
+**Quién lo ve:** solo el súper-admin (la pestaña no se monta para nadie más). Texto de apoyo fijo arriba: «El analista de marketing lee las cifras de cada semana con una llave, sin entrar a tu cuenta. La llave solo sirve para leer el resumen de cifras: no abre nada más del panel.»
+
+**Tres estados de la pantalla** (según lo que devuelva la consulta ⟨pendiente⟩):
+
+| Estado | Contenido |
+|---|---|
+| **Sin llave activa** | Mensaje «Nadie tiene acceso ahora.» + botón `primary` «Crear llave» |
+| **Llave activa** | Ficha en `dl`: Nombre (el que se dio al crearla) · Creada el … · Caduca el … (con texto, no color) · Último uso: … (solo si el contrato lo trae; si no, la fila no existe) + botón `destructive` «Revocar llave». Si caduca en ≤ 30 días: `Banner` `warning` «Esta llave caduca en {n} días. Crea una nueva y cárgala en el entorno del analista antes de esa fecha.» |
+| **Llave caducada o revocada** | Mensaje «La llave anterior ya no sirve: caducó el … / se revocó el ….» + «Crear llave» |
+
+*(Si el contrato permite varias llaves a la vez, la ficha pasa a una tabla con una fila por llave y el mismo botón «Revocar» por fila; con una sola permitida, «Crear llave» sustituye a la anterior y el diálogo lo avisa. Petición 8.)*
+
+**Crear llave** (diálogo): campo «Nombre de la llave» (obligatorio, ayuda «Solo para reconocerla, por ejemplo: Analista de marketing. No escribas datos personales.») → **Crear**. Al responder el servidor:
+
+```
+┌ Tu llave nueva ───────────────────────────────────────────────┐
+│ ⚠ Cópiala ahora. Se muestra UNA sola vez.                      │
+│ La tienda guarda solo una huella; si la pierdes, no se puede   │
+│ recuperar: tendrás que crear otra.                             │
+│ [ tcg_mkt_… (campo de solo lectura, monoespaciada)   ] [Copiar]│
+│ Dónde va: en los secretos del entorno de marketing, con el     │
+│ nombre TIENDA_PANEL_TOKEN. No la pegues en chats, correos ni   │
+│ archivos.                                                      │
+│ [ ] Ya la copié y la guardé                                    │
+│                                          [ Listo ] (deshabilitado hasta marcar) │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- El **valor claro** vive **solo en el estado del componente** mientras el diálogo está abierto: ⛔ no va a la URL, a `localStorage`/`sessionStorage`, a la caché de TanStack Query (`gcTime: 0` en la mutación), a los registros del navegador ni a un `data-` del DOM; ⛔ no se vuelve a pedir. Al cerrar, se borra de memoria y el campo se vacía.
+- Campo `readOnly`, `autocomplete="off"`, `spellcheck="false"`, `font-mono`, **seleccionable de un clic** (`select()` al enfocar). Etiqueta visible «Tu llave (se muestra una sola vez)».
+- **«Copiar»:** `navigator.clipboard.writeText`; éxito → el botón dice «Copiada» 3 s y `role="status"` anuncia «Llave copiada al portapapeles.»; si el portapapeles no está disponible o falla, se avisa «No se pudo copiar. Selecciónala y cópiala a mano.» y el campo ya queda seleccionado.
+- **«Listo»** solo se habilita al marcar «Ya la copié y la guardé». Mientras tanto, `Esc` y clic fuera **no cierran** (es el proceso crítico de §7.6): perder la llave por un clic accidental no tiene vuelta. Foco atrapado; al abrir, el foco va al botón «Copiar».
+- Nombre de variable `TIENDA_PANEL_TOKEN` y la frase «con el nombre …» son el dato que el dueño necesita para pegarla: se muestra tal cual, en `font-mono`.
+
+**Revocar** (diálogo destructivo §7.6): título «¿Revocar la llave del analista?», cuerpo «Dejará de funcionar al momento. El analista no podrá leer cifras hasta que crees otra llave y se la hagas llegar.»; botón `destructive` «Revocar llave», `secondary` «Cancelar»; con `loading` «Revocando…». Tras revocar: la ficha pasa al estado «revocada», `role="status"` «Llave revocada.» y el foco va al botón «Crear llave». Es irreversible: sin «Deshacer».
+
+**Errores propios:** `403` → MKT-UX.11; `409`/llave ya revocada ⟨pendiente⟩ → «Esa llave ya estaba revocada. Se actualizó la pantalla.»; red/`5xx` → banner `danger` en el diálogo con «Reintentar». ⛔ Si falla la creación **después** de generar el valor (respuesta perdida), el diálogo dice «No se pudo mostrar la llave. Revoca la que quedó creada y crea otra.»; no hay forma de recuperarla.
+
+---
+
+### MKT-UX.11 Estados: sin permiso (403), carga, error y vacío
+
+**403 — la cuenta no tiene permiso** (la sesión es válida, falta `marketing:read`). Sustituye **todo** el contenido bajo el `h1` (sin pestañas, sin selector, sin botones, **y sin pedir datos**):
+
+```
+MARKETING
+Esta cuenta no tiene permiso para ver el Panel de Marketing.
+Si lo necesitas, pídele al dueño de la tienda que te lo active.
+[ Volver al tablero ]
+```
+
+- Texto neutro: no dice qué hay detrás, ni muestra cifras en miniatura, ni «solo súper-admin». `role="alert"` **no** (no es un error transitorio): `h2` + párrafo. Foco al `h2` (`tabindex="-1"`) al montar.
+- Aparece igual si el `403` llega **a media sesión** (a una descarga, a una anotación): se descarta lo que hubiera en pantalla.
+- `401`: no es este estado; sigue el patrón de sesión caducada del admin (§81).
+
+**Carga:** esqueletos que respetan el layout final (§8.1): barra de periodo real (los controles ya se pueden usar), banner de cobertura como una línea gris y **dos** bloques de tabla con 5 filas esqueleto; ⛔ spinner a pantalla completa. Región con `aria-busy="true"` y `role="status"` `sr-only` «Cargando el panel…» / «Loading the panel…». Sin animación bajo `prefers-reduced-motion` (§8.2).
+
+**Error** (no `403`): `Banner` `danger` sobre la región de tablas con «No se pudieron cargar las cifras. Inténtalo de nuevo.» + «Reintentar» (`secondary`). Los controles de periodo y las pestañas siguen activos. `400` por periodo → «Ese periodo no es válido o todavía no cerró. Elige otro.» (el selector vuelve al default). Texto siempre de clave; ⛔ mensaje crudo del servidor. `role="alert"` en el banner.
+
+**Vacío:**
+- *Tabla medida sin filas:* «Sin registros en este periodo.» (MKT-UX.5).
+- *Toda la pantalla sin actividad* (todas las tablas medidas vacías): una línea sobre las tablas «No hubo actividad en este periodo. Prueba con otra semana.» y las tablas igual debajo (los ceros son dato).
+- *Tabla no medida:* **no** es vacío; usa el bloque de «No medido todavía».
+
+---
+
+### MKT-UX.12 Móvil (390 px) y tableta
+
+- **Una sola columna.** Barra de periodo apilada: segmentado → `Select` de periodo → botón principal de descarga (ancho completo, 44 px) → «Exportar esta pantalla» como dos botones iguales en una fila.
+- **Navegación:** `Select` «Pantalla» (MKT-UX.3), no pestañas.
+- **Tablas → tarjetas** (MKT-UX.5): 1 tarjeta por fila, etiqueta arriba / valor abajo en pares; las tablas con > 8 columnas (origen, catálogo) muestran primero las 3 columnas clave (nombre/canal, pedidos, monto) y el resto bajo «Ver todo» (`<details>` dentro de la tarjeta). El orden de lectura es el de `columns[]`.
+- **Anotaciones:** tarjetas; el formulario es *bottom sheet* con **Guardar** pegado abajo (sticky) y teclado que no lo tape (`visualViewport`).
+- **Bloque de la llave:** el valor se parte en varias líneas (`break-all`), «Copiar» a 44 px; el diálogo ocupa la pantalla (alto completo, scroll interno).
+- **Objetivos táctiles ≥ 44 px** en todo (§8.2). Cero scroll horizontal a 320, 360, 375 y 390 px (**NO MEDIDO**: lo cierra una captura del gate).
+- **Tableta 768 px:** pestañas con wrap a dos líneas; tablas en tabla (no tarjetas) con scroll interno **solo** si la tabla supera el ancho, en un contenedor `tabindex="0"` con `aria-label` «Tabla: {título}» (para que el teclado pueda desplazarla).
+
+---
+
+### MKT-UX.13 Accesibilidad (WCAG 2.1 AA) y contraste
+
+- **Foco visible siempre** (§8.2: anillo bermellón de 2 px, `outline-offset: 2px`); sobre fondos de tinta no hay (la pantalla es de papel).
+- **Pestañas:** patrón APG (MKT-UX.3). **Tablas:** `caption`, `th scope`, sin `role="presentation"`; tablas de «no medido» con `role="group"` y `aria-label`. **Diálogos:** foco atrapado, `aria-modal`, título como `aria-labelledby`, foco de regreso al disparador. **Estados asíncronos:** `role="status"` (`polite`) para cargar/descargar/guardar/copiar; `role="alert"` solo para error de descarga o de carga.
+- **El significado nunca va solo en color o en `title`** (MKT-2): «< 5», «Oculto», «No medido», tipo de anotación y estado de la llave (activa / revocada / caduca el …) son texto.
+- **Orden de lectura = orden visual**; el rótulo del periodo es `aria-live="polite"` pero **no** anuncia por cada cambio intermedio (se actualiza una vez, con los datos).
+- **`lang`:** los textos de usuario (etiquetas de anotación, utm, términos) van sin `lang` forzado; las cadenas del servidor que sigan en español (motivos, notas) llevan `lang="es"` en la versión EN mientras no vengan por clave.
+- **Movimiento:** ninguno (sin gráficas animadas). `prefers-reduced-motion` desactiva el atenuado de «Actualizando…».
+- **Contraste — cero pares nuevos.** Todo el panel usa pares ya verificados en §10 (tinta / muted sobre papel y pozo; bermellón solo sobre papel). Recalculé a mano con la fórmula WCAG 2.1 desde los hex de §2.3 los dos que más se usan aquí (ux-ui, sin herramienta; los confirma el probador del gate):
+
+  | Par | Ratio | Uso en el panel | ¿AA texto normal (4.5)? |
+  |---|---|---|---|
+  | `#6E695E` (muted) sobre `#F4F1EA` (papel) | **4.85:1** | «Oculto», «No medido», notas, fuente | Sí |
+  | `#6E695E` (muted) sobre `#EFEBE2` (pozo) | **4.60:1** | las mismas, si el bloque va sobre pozo | Sí (margen estrecho: ⛔ no usar `text-subtle`/placeholder más claro) |
+  | `#B44B3A` (bermellón) sobre `#F4F1EA` | **4.64:1** | error de campo, banner `danger` | Sí |
+  | `#B44B3A` (bermellón) sobre `#EFEBE2` (pozo) | **4.40:1** | — | **No** ⛔: ningún texto de error sobre pozo; los errores van sobre papel |
+
+---
+
+### MKT-UX.14 Textos visibles (claves i18n, propiedad de frontend)
+
+Espacio de nombres `admin.marketing.*` en `messages/{es,en}.json`, **paridad ES/EN obligatoria** (control de paridad existente). Valores con `{}` son interpolaciones ICU (§9.4). Títulos, columnas y notas que hoy llegan en español desde el servidor se resuelven por clave `admin.marketing.tables.<idTabla>.title` y `admin.marketing.tables.<idTabla>.cols.<keyColumna>` con **respaldo** al texto del payload (petición 3).
+
+| Clave | ES | EN |
+|---|---|---|
+| `nav.menu` | Marketing | Marketing |
+| `title` | Marketing | Marketing |
+| `lede` | Cómo se mueve la tienda y de dónde llega la gente. Por ahora solo se miden los datos de la tienda. | How the store is doing and where people come from. For now only the store's own data is measured. |
+| `tabs.label` | Pantallas del panel | Panel screens |
+| `tabs.select` | Pantalla | Screen |
+| `tabs.a` / `b` / `c` / `d` / `e` / `f` / `g` / `h` | Resumen / Origen / Comportamiento / Catálogo / Buscadores e IA / Cookies / Promociones / Anotaciones | Summary / Sources / Behavior / Catalog / Search & AI / Cookies / Promotions / Notes |
+| `tabs.access` | Acceso del analista | Analyst access |
+| `period.group` | Tipo de periodo | Period type |
+| `period.week` / `period.month` | Semana / Mes | Week / Month |
+| `period.label` | Periodo | Period |
+| `period.range` | Del {from} al {to} · hora del centro de México | {from} to {to} · Mexico City time |
+| `period.compare` | Se compara con: del {from} al {to} | Compared with: {from} to {to} |
+| `period.updating` | Actualizando… | Updating… |
+| `period.invalid` | Ese periodo no es válido o todavía no cerró. Elige otro. | That period is not valid or has not closed yet. Pick another. |
+| `source.BD` | base de datos de la tienda | store database |
+| `source.GA4` | Google Analytics 4 | Google Analytics 4 |
+| `source.SC` | Search Console | Search Console |
+| `source.Srv` | conteo anónimo del servidor | anonymous server count |
+| `source.mixed` | varias fuentes | several sources |
+| `source.prefix` | Fuente: {fuente} | Source: {fuente} |
+| `coverage.title` | Cobertura | Coverage |
+| `cells.small` (sr-only) | menos de 5, oculto por privacidad | fewer than 5, hidden for privacy |
+| `cells.hidden` | Oculto | Hidden |
+| `cells.hiddenSr` | oculto por privacidad | hidden for privacy |
+| `cells.notMeasured` | No medido | Not measured yet |
+| `cells.notMeasuredSr` | no medido todavía: {motivo} | not measured yet: {motivo} |
+| `cells.none` (sr-only) | sin dato | no data |
+| `cells.others` | Otros (< 5 c/u) | Others (< 5 each) |
+| `cells.smallN` | N chico, sin veredicto | Small N, no verdict |
+| `cells.footnote` | < 5 significa menos de 5. El monto de esas filas se oculta para que nadie pueda identificar a una persona. | < 5 means fewer than 5. The amount for those rows is hidden so no one can be identified. |
+| `table.notMeasuredTitle` | No medido todavía | Not measured yet |
+| `table.notMeasuredBody` | Esto no es cero: todavía no hay dato. | This is not zero: there is no data yet. |
+| `table.notMeasuredGroup` | {titulo}: no medido todavía | {titulo}: not measured yet |
+| `table.columnNote` | {columna}: no medido todavía — {motivo} | {columna}: not measured yet — {motivo} |
+| `table.empty` | Sin registros en este periodo. | No records in this period. |
+| `table.emptyHint` | Eso también es un dato: no hubo. | That is data too: there were none. |
+| `table.scrollLabel` | Tabla: {titulo} | Table: {titulo} |
+| `table.seeAll` | Ver todo | See all |
+| `screen.empty` | No hubo actividad en este periodo. Prueba con otra semana. | There was no activity in this period. Try another week. |
+| `screen.e.pending` | Esta pantalla se llenará cuando se encienda Google Search Console. | This screen will fill in once Google Search Console is switched on. |
+| `help.title` | ¿Cómo leer las celdas? | How to read the cells |
+| `help.zero` | Cero: no hubo; es un dato. | Zero: there were none; that is data. |
+| `help.small` | < 5: hubo menos de 5; se muestra así para no identificar a nadie. | < 5: fewer than 5; shown this way so no one can be identified. |
+| `help.hidden` | Oculto: el monto de una fila con menos de 5. | Hidden: the amount of a row with fewer than 5. |
+| `help.notMeasured` | No medido: la fuente todavía no existe. | Not measured: the source does not exist yet. |
+| `help.none` | —: no aplica. | —: not applicable. |
+| `notes.summary` | Anotaciones de {periodo} ({n}) | Notes for {periodo} ({n}) |
+| `notes.manage` | Gestionar | Manage |
+| `download.week` | Descargar Excel de la semana | Download weekly Excel |
+| `download.month` | Descargar Excel del mes | Download monthly Excel |
+| `download.preparing` | Preparando el Excel… | Preparing the Excel… |
+| `download.done` | Se descargó {archivo}. | {archivo} was downloaded. |
+| `download.exportGroup` | Exportar esta pantalla | Export this screen |
+| `download.xlsx` / `download.csv` | .xlsx / .csv | .xlsx / .csv |
+| `download.helpAlways` | El Excel sale sin datos personales y con las cantidades menores a 5 ocultas. | The Excel has no personal data and hides amounts below 5. |
+| `download.helpExact` | En pantalla ves las cifras exactas; el Excel oculta las cantidades menores a 5. | The screen shows exact figures; the Excel hides amounts below 5. |
+| `download.helpShare` | Compártelo solo con quien lo necesite. | Share it only with whoever needs it. |
+| `download.errorClosed` | Ese periodo todavía no está cerrado. Elige uno anterior. | That period has not closed yet. Pick an earlier one. |
+| `download.errorGeneric` | No se pudo preparar el Excel. Inténtalo de nuevo. | The Excel could not be prepared. Try again. |
+| `state.loading` | Cargando el panel… | Loading the panel… |
+| `state.error` | No se pudieron cargar las cifras. Inténtalo de nuevo. | The figures could not be loaded. Try again. |
+| `state.retry` | Reintentar | Retry |
+| `forbidden.title` | Esta cuenta no tiene permiso para ver el Panel de Marketing. | This account does not have permission to view the Marketing panel. |
+| `forbidden.body` | Si lo necesitas, pídele al dueño de la tienda que te lo active. | If you need it, ask the store owner to turn it on. |
+| `forbidden.back` | Volver al tablero | Back to dashboard |
+| `ann.title` | Anotaciones | Notes |
+| `ann.lede` | Marca los días que explican un cambio: una promoción tuya, un despliegue, un evento. | Mark the days that explain a change: a promotion of yours, a release, an event. |
+| `ann.pii.title` | No escribas datos personales | Do not write personal data |
+| `ann.pii.body` | Nada de nombres de clientes, @usuarios, correos, teléfonos, CURP ni RFC. La tienda rechaza lo que parece un dato personal. | No customer names, @handles, emails, phone numbers, CURP or RFC. The store rejects anything that looks like personal data. |
+| `ann.show.period` / `ann.show.all` | Del periodo / Todas | This period / All |
+| `ann.new` | Nueva anotación | New note |
+| `ann.edit` / `ann.delete` | Editar / Borrar | Edit / Delete |
+| `ann.col.date` / `type` / `label` / `dest` / `actions` | Fecha / Tipo / Etiqueta / Destino / Acciones | Date / Type / Label / Destination / Actions |
+| `ann.kind.promocion` / `despliegue` / `evento` | Promoción / Despliegue / Evento | Promotion / Release / Event |
+| `ann.field.date` / `kind` / `label` / `dest` | Fecha / Tipo / Etiqueta / Destino | Date / Type / Label / Destination |
+| `ann.field.labelHelp` | Qué pasó ese día, en pocas palabras. | What happened that day, in a few words. |
+| `ann.field.destHelp` | A dónde llevaba: la ficha de una carta, el catálogo, tu perfil… | Where it led: a card page, the catalog, your profile… |
+| `ann.save` / `ann.saving` / `ann.cancel` | Guardar / Guardando… / Cancelar | Save / Saving… / Cancel |
+| `ann.saved` | Anotación guardada. | Note saved. |
+| `ann.errPii` | Quita los datos personales (correo, @usuario, teléfono, CURP o RFC) y vuelve a intentarlo. | Remove the personal data (email, @handle, phone, CURP or RFC) and try again. |
+| `ann.errDest` | El destino solo aplica a promociones. | Destination only applies to promotions. |
+| `ann.errGone` | Esa anotación ya no existe. Se actualizó la lista. | That note no longer exists. The list was refreshed. |
+| `ann.delTitle` | ¿Borrar esta anotación? | Delete this note? |
+| `ann.delConfirm` | Borrar anotación | Delete note |
+| `ann.deleted` | Anotación borrada. | Note deleted. |
+| `ann.emptyPeriod` | Todavía no hay anotaciones en este periodo. | There are no notes in this period yet. |
+| `ann.emptyAll` | Aún no has marcado ningún día. | You have not marked any day yet. |
+| `access.lede` | El analista de marketing lee las cifras de cada semana con una llave, sin entrar a tu cuenta. La llave solo sirve para leer el resumen de cifras: no abre nada más del panel. | The marketing analyst reads each week's figures with a key, without signing in to your account. The key only reads the figures summary: it opens nothing else in the panel. |
+| `access.none` | Nadie tiene acceso ahora. | Nobody has access right now. |
+| `access.create` | Crear llave | Create key |
+| `access.name` / `access.nameHelp` | Nombre de la llave / Solo para reconocerla, por ejemplo: Analista de marketing. No escribas datos personales. | Key name / Only to recognize it, for example: Marketing analyst. Do not write personal data. |
+| `access.created` / `expires` / `lastUsed` | Creada el {fecha} / Caduca el {fecha} / Último uso: {fecha} | Created on {fecha} / Expires on {fecha} / Last used: {fecha} |
+| `access.expiresSoon` | Esta llave caduca en {n} días. Crea una nueva y cárgala en el entorno del analista antes de esa fecha. | This key expires in {n} days. Create a new one and load it in the analyst's environment before then. |
+| `access.dead` | La llave anterior ya no sirve: {motivo} el {fecha}. | The previous key no longer works: {motivo} on {fecha}. |
+| `access.reason.expired` / `revoked` | caducó / se revocó | expired / was revoked |
+| `access.new.title` | Tu llave nueva | Your new key |
+| `access.new.once` | Cópiala ahora. Se muestra UNA sola vez. | Copy it now. It is shown only ONCE. |
+| `access.new.why` | La tienda guarda solo una huella; si la pierdes, no se puede recuperar: tendrás que crear otra. | The store keeps only a fingerprint; if you lose it, it cannot be recovered: you will have to create another. |
+| `access.new.field` | Tu llave (se muestra una sola vez) | Your key (shown only once) |
+| `access.new.where` | Va en los secretos del entorno de marketing, con el nombre TIENDA_PANEL_TOKEN. No la pegues en chats, correos ni archivos. | It goes in the marketing environment's secrets, named TIENDA_PANEL_TOKEN. Do not paste it in chats, emails or files. |
+| `access.new.copy` / `copied` | Copiar / Copiada | Copy / Copied |
+| `access.new.copiedSr` | Llave copiada al portapapeles. | Key copied to the clipboard. |
+| `access.new.copyFail` | No se pudo copiar. Selecciónala y cópiala a mano. | Could not copy. Select it and copy it by hand. |
+| `access.new.confirm` | Ya la copié y la guardé | I copied it and saved it |
+| `access.new.done` | Listo | Done |
+| `access.new.lost` | No se pudo mostrar la llave. Revoca la que quedó creada y crea otra. | The key could not be shown. Revoke the one that was created and create another. |
+| `access.revoke` | Revocar llave | Revoke key |
+| `access.revoke.title` | ¿Revocar la llave del analista? | Revoke the analyst's key? |
+| `access.revoke.body` | Dejará de funcionar al momento. El analista no podrá leer cifras hasta que crees otra llave y se la hagas llegar. | It will stop working immediately. The analyst will not be able to read figures until you create another key and get it to them. |
+| `access.revoking` / `access.revoked` | Revocando… / Llave revocada. | Revoking… / Key revoked. |
+| `access.alreadyRevoked` | Esa llave ya estaba revocada. Se actualizó la pantalla. | That key was already revoked. The screen was refreshed. |
+
+Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-reader» en pantalla (P66-3; «llave» es la palabra del dueño, `TIENDA_PANEL_TOKEN` es el único identificador técnico, porque es el dato que debe pegar). Números y fechas con `Intl` (§9.3). Datos de fuera (utm, términos, etiquetas) **no se traducen**.
+
+---
+
+### MKT-UX.15 Componentes: qué se reutiliza y qué es nuevo
+
+| Pieza | Estado | Dónde / nota |
+|---|---|---|
+| `Tabs` (patrón `role="tablist"` de `M4View`) | Reutiliza | §6.6; con wrap en vez de scroll |
+| `Select`, `Input type="date"`, `Button` (`primary`/`secondary`/`ghost`/`destructive`, `loading`), `Badge` (solo texto), `Banner` (`info`/`warning`/`danger`) | Reutiliza | §6.1–6.3, §7.2, §7.5 |
+| Diálogo / *bottom sheet*, confirmación destructiva | Reutiliza | §7.6 |
+| `DataTable` (cabecera pegajosa, tarjetas en móvil, esqueleto, vacío, error) | Reutiliza | §7.7; `AnnotationsTable` y `MarketingTable` la envuelven |
+| Segmentado `aria-pressed` («Semana · Mes», «Del periodo · Todas») | Reutiliza | patrón de chips §AN-UX.2 / `RangeToggle` §7.17 |
+| Rótulo de periodo con regla AN-4, `aria-live` | Reutiliza el patrón | §AN-UX.2 |
+| `formatMoneyCents` | **No** se usa | el payload trae pesos: `Intl` directo |
+| `StatCard` | No se usa en v1 | la comparación llega como filas; se evaluará cuando el contrato mande cifras sueltas (petición 5) |
+| `DateRangePresets` | **No** se usa | ofrece rangos libres (MKT-5) |
+| `MarketingPeriodPicker` | **Nuevo** | MKT-UX.4 |
+| `MarketingTable` + `CellValue` (cinco vocabularios) + `NotMeasuredBlock` | **Nuevos** | MKT-UX.5; `CellValue` es la única pieza que decide «< 5 / Oculto / No medido / — / 0» |
+| `AnnotationsStrip`, `AnnotationsTable`, `AnnotationDialog`, `ConfirmDeleteDialog` (instancia de §7.6) | **Nuevos** | MKT-UX.8 |
+| `DownloadExcelButton` (fetch + blob + estados) | **Nuevo** | MKT-UX.9 |
+| `AnalystAccessPanel`, `NewKeyDialog` (con `SecretField`: solo lectura, copiar, confirmar) | **Nuevos, dependientes de contrato** | MKT-UX.10 |
+| `ForbiddenState` | **Nuevo** (o reutiliza el existente de §81/`SuperAdminOnly` si ya pinta un `h2` + enlace) | MKT-UX.11; el frontend verifica antes de duplicar |
+
+---
+
+### MKT-UX.16 Candados sugeridos para frontend (cada uno con la mutación que lo pone rojo)
+
+| Id | Afirma | Mutación que lo pone rojo |
+|---|---|---|
+| UX-MKT-1 | Una tabla con `measured:false` pinta «No medido todavía» + el motivo y **ningún** `0`, `—` ni celda vacía | pintar `0` cuando `measured` es falso |
+| UX-MKT-2 | Celda `'< 5'` → texto «< 5» **y** `sr-only` «menos de 5…»; un `null` monetario en fila con `< 5` → «Oculto»; un `null` en fila sin `< 5` → «—» | tratar todo `null` como «—» |
+| UX-MKT-3 | `0` numérico se pinta `0` / `MX$0.00` (no «—» ni «Oculto») | `value ? … : '—'` |
+| UX-MKT-4 | El texto de «< 5», «Oculto» y «No medido» es el **mismo** en `es.json` y `en.json` por clave (paridad) y ninguna celda depende solo de `color`/`title` (render sin CSS conserva el texto) | quitar el texto y dejar solo la clase de color |
+| UX-MKT-5 | Una tabla con alguna celda `< 5` u «Oculto» muestra la nota al pie `cells.footnote`; sin ellas, no | omitir la nota |
+| UX-MKT-6 | El dinero (`kind:'money'`) se pinta en pesos tal cual (`1250` → «MX$1,250.00»), sin dividir | pasar por `formatMoneyCents` |
+| UX-MKT-7 | Con `pantalla`/`week`/`month` inválidos en la URL, **no** se emite ninguna petición con ese valor (se usa el default) | mandar el valor crudo |
+| UX-MKT-8 | El selector solo ofrece periodos cerrados; no hay `Input type="date"` de rango en la página | añadir «Elegir fechas…» |
+| UX-MKT-9 | Mientras carga un periodo nuevo, el rótulo y las cifras son los **viejos** (misma `period.from`) | actualizar el rótulo antes que las tablas |
+| UX-MKT-10 | Con `403` (sesión sin permiso) la página no monta pestañas, selector ni botones y **no** hace petición de datos tras el primero; la entrada de menú no se pinta sin permiso | pintar las pestañas bajo el mensaje |
+| UX-MKT-11 | Pestañas: `role="tab"`, `aria-selected`, flechas/Home/End; en < `md` hay un `Select` con label «Pantalla» y no hay tablist visible | quitar `aria-selected` |
+| UX-MKT-12 | El formulario de anotación muestra el aviso de datos personales **antes** de cualquier error; un `422` deja el texto escrito y pone `aria-invalid` + foco en el campo | vaciar el campo al fallar |
+| UX-MKT-13 | «Destino» solo existe con tipo «Promoción»; al cambiar de tipo se vacía | dejar el destino oculto pero enviado |
+| UX-MKT-14 | Etiquetas/`utm`/términos aparecen como texto (`<script>` de prueba se ve literal; sin `dangerouslySetInnerHTML` en el módulo) | `dangerouslySetInnerHTML` |
+| UX-MKT-15 | La descarga usa `fetch` con estado `loading` y deshabilita el botón; un `400` muestra el banner de periodo y no navega | usar `<a href>` |
+| UX-MKT-16 | **Si se construye el acceso:** el valor claro de la llave no está en `localStorage`/`sessionStorage`/URL/caché de consultas después de cerrar el diálogo, ni se vuelve a pedir; «Listo» está deshabilitado hasta marcar la casilla; `Esc` no cierra antes | guardar la llave en `useState` global o en la caché |
+| UX-MKT-17 | La pestaña «Acceso del analista» no se monta para quien no es súper-admin | pintarla con candado |
+| UX-MKT-18 | Cero códigos internos en pantalla: ninguna cadena de `admin.marketing.*` coincide con `\b(PM-[A-Z]\d|MKT|Fase 0|[a-h][0-9]{1,2})\b` | meter «(PM-B2)» en un texto |
+
+---
+
+### MKT-UX.17 Peticiones al arquitecto / product-owner / backend y dudas para el dueño (ninguna bloquea el diseño; las marcadas ⛔ bloquean construir esa parte)
+
+**Peticiones (numeradas para enrutar):**
+1. ⛔ **arquitecto — endpoint de datos por SESIÓN.** `GET …/aggregates` es solo del token (`@Public` + `MarketingApiTokenGuard`, `marketing.controller.ts:51-55`): la pantalla del admin no puede llamarlo. Hace falta el equivalente con sesión y `marketing:read` (nombre pendiente), con los mismos parámetros (`pantalla`, `week|month`), y un campo de payload `privacy: 'exact' | 'small_cells'` (el brief §5.2 quiere cifras exactas en pantalla del dueño y celdas pequeñas para otro usuario; el diseño de MKT-UX.9 depende de saber cuál se está viendo).
+2. **arquitecto — lista de periodos cerrados** (semanas y meses, con la fecha del primer dato) para poblar el `Select`; hasta entonces el front ofrece las 12 últimas con la fecha del servidor.
+3. **arquitecto/backend — textos y metadatos en el payload.** (a) `notMeasuredReason` hoy es una frase en español **con un código interno dentro** («… (PM-B2) …», `marketing-analytics.service.ts:358`); pedir `reasonCode` + params y traducir por clave. (b) `Column.measured` / `notMeasuredReason` / `source` **por columna** (tablas medidas con columna de GA4 apagada). (c) Etiquetas de fila ('Periodo actual', 'Ofertas aceptadas y pagadas', y `OTROS_LABEL`) y `notes[]` como código + parámetros, o una marca `rowKind: 'others'`. (d) Cómo se distingue en una celda `null` entre «oculto por celda pequeña», «no aplica» y «no medido» (el tipo `Cell` los junta, `marketing-aggregates.types.ts:10-11`); el diseño de MKT-UX.5 lo infiere por la fila, y es una inferencia que conviene reemplazar por un dato.
+4. **arquitecto — estado por fuente** en el payload (`sourceStatus`: medido sí/no, desde/hasta) para la línea «Google Analytics 4: con datos desde…» y la cobertura del brief §2.
+5. **arquitecto — comparación con el periodo anterior:** nombres de campo (valor, diferencia, %) y la regla «% solo si ambos periodos tienen N ≥ 30» emitida por el servidor; hoy `a1/a2` llegan como filas «actual/anterior» sin diferencia.
+6. **backend — unidad del dinero confirmada** (pesos con decimales, `:35`); si algún día pasa a centavos, avisar: `UX-MKT-6` lo vigila.
+7. **arquitecto — permiso en la sesión** (p. ej. en `/auth/me`) para pintar o no la entrada de menú y anticipar el `403`.
+8. ⛔ **arquitecto — acceso del analista:** rutas de listar / crear / revocar, forma del `secret` (se devuelve una sola vez), campos `name`, `createdAt`, `expiresAt`, `revokedAt`, `lastUsedAt?`; si hay **una** llave activa a la vez o varias; si crear una nueva revoca la anterior; permiso (¿solo súper-admin, no `marketing:read` a secas?). Mientras no esté, MKT-UX.10 no se construye.
+9. **arquitecto/PO — exportación por tabla:** el brief §4 la pide en cada tabla; el contrato exporta por **pantalla**. Se diseñó por pantalla.
+10. **arquitecto — `weekly-excel` vs `export/todo`:** el código hace lo mismo con distinto periodo por defecto; confirmar que el front usa `weekly-excel` para el botón principal y no hay botón «Exportar todo» aparte.
+11. **backend — `422` de anotaciones con `details.field`** (`label` o `destino`) para pintar el error bajo el campo correcto.
+12. **PO — gráficas, detalle diario, rango libre y «excluir días de promoción»** (brief §2 «Convenciones», §2h): no existen en el contrato (el payload es solo semana/mes, sin serie diaria). **Fuera de esta versión.** Si el dueño los quiere en pantalla, se contrata una serie diaria **solo en la sesión** (nunca en el endpoint, brief §5.2) y se diseña la gráfica en una versión siguiente.
+13. **PO — registro de descargas** (brief §5.3: «solo lo ve el dueño»): existe `MarketingAccessLog` pero ninguna ruta de lectura; sin pantalla en esta versión.
+
+**Dudas para el dueño (con la recomendación entre paréntesis):**
+- ¿Prefieres ver en pantalla las cifras **exactas** (como dice el brief para ti) o **igual que el Excel**, con «< 5»? (Exactas, con la frase de aviso de MKT-UX.9; si una segunda cuenta recibe el permiso, ve las ocultas.)
+- ¿La llave del analista debe ser **una** a la vez, o puede haber varias (por ejemplo, una por persona)? (Una a la vez: más simple de explicar y de revocar.)
+- ¿Alguien más, además de ti, tendrá acceso a esta pestaña? (Hoy el brief dice que no; si sí, el aviso de privacidad y las celdas ocultas pasan a ser lo que esa persona ve.)
+
+**Fuera de esta sección:** `DESIGN_SYSTEM.md` mide **32 955 líneas** (aviso de `Read`, 2026-10-18) frente al tope orientativo de ~2 000 (16×); esta sección suma ~560 y la compactación sigue pendiente (ya pedida en CS-UX.7 punto 3).
+
+### MKT-UX.18 Changelog
+
+**vMKT-1 (2026-10-18):** §MKT-UX nueva: página `/admin/marketing` (pestañas a–h + acceso del analista, selector de semana/mes cerrados, tablas con vocabulario «< 5 / Oculto / No medido / —», anotaciones, descarga de Excel, 403/carga/error/vacío, móvil, claves ES/EN, 18 candados). Cero tokens y cero pares de contraste nuevos. 13 peticiones de contrato (MKT-UX.17).
+
+---
+
+## MKT2-UX. Fase 2 de marketing — banner de cookies, segunda capa, enlace para cambiar la elección, rótulo del build bloqueado y aviso de «cifras exactas» del Panel (vMKT2-1, 2026-10-18 · `API_CONTRACT §MKT.H` rev v1.102⟨mkt-fase2⟩ y `§MKT.G.2` rev v1.103⟨mkt-panel-exacto⟩ · `ARCHITECTURE §14` · brief de marketing `PAQUETE_TIENDA_2026-10-16.md` §D)
+
+### MKT2-UX.0 Fuente, alcance y reglas duras
+
+**Qué se leyó (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`, HEAD `c492b0e4` dado por el orquestador; ux-ui sin Bash, sha NO MEDIDO por mí):** brief `PAQUETE_TIENDA_2026-10-16.md:206-262` (§D, con §D3b en `:229-246`; fuente de negocio, solo lectura); `API_CONTRACT.md:45687-45934` (§MKT.H: modo `:45697`, `banner-response` `:45742-45754`, cookies `:45876-45885`, candados `:45906-45927`) y `:45445-45478` (§MKT.G.2, `privacy`); `ARCHITECTURE.md:36954-37091` (§14.0-§14.4); `HECHOS.md:172` (dueño, 2026-10-18, «si cifras exactas»); `frontend/src/app/[locale]/(storefront)/layout.tsx:23,41-47,50-77` (`#main`, skip-link, pie), `…/catalog/[cardId]/CardDetailView.tsx:474,504` (barra de COMPRAR: `fixed inset-x-0 bottom-0 z-40 … lg:hidden`), `…/buylist/SellCartBar.tsx:67` (`fixed … bottom-0 z-40 hidden h-16 … lg:flex`), `frontend/src/components/ui/Toast.tsx:139` (`z-[60]`); `frontend/messages/es.json:7489-7496` (`privacy.link`, `privacy.opensInNewTab`); y de este documento §2.3, §4.3, §6.1, §6.4, §7.5, §7.6, §80 y MKT-UX.9/.13/.14. **No existe** un espacio `consent.*` en `messages/es.json` (Grep, 2026-10-18). **No medido** en navegador: ningún número de altura de esta sección (son aritmética de diseño, MKT2-UX.4).
+
+**Cero tokens visuales nuevos, cero pares de contraste nuevos, cero componentes de dominio fuera de los de MKT2-UX.9.** Dos variables CSS de layout nuevas (`--sticky-bottom-h`, `--consent-banner-h`), del mismo tipo que `--app-header-h` (§4.5): contrato de layout, no token.
+
+**Reglas duras (se revisan en el PR):**
+- **CK-1 · Con `NEXT_PUBLIC_MEASUREMENT_MODE=off` no existe nada de esto:** ni banner, ni enlace «Preferencias de cookies», ni segunda capa, ni llamada a `banner-response` (`ARCHITECTURE.md:36990`, `API_CONTRACT.md:45697`). Lo mismo con `on` pero sin ninguna etiqueta con ID válido (`ARCHITECTURE.md:37019-37020`: «no se pide permiso para algo que no existe»).
+- **CK-2 · Sin muro.** Quien no responde usa la tienda entera (brief `:239`). Sin capa oscura, sin `aria-modal`, sin bloqueo de scroll, sin trampa de foco **en el banner** (la trampa de foco es solo de la segunda capa, que es un diálogo que el visitante abre a propósito).
+- **CK-3 · Ningún patrón oscuro.** (a) «Aceptar» y «Solo lo necesario» están **los dos** en la primera capa, a **un** toque, ambos `<button>` reales con texto, ambos ≥ 44 px de alto, misma tipografía; (b) ningún interruptor viene encendido; (c) ningún texto culpabiliza o lisonjea («No quiero ayudar», «Sí, quiero lo mejor»); (d) ningún color engañoso (ni el bermellón ni el gris apagado para el botón de rechazo); (e) rechazar no cuesta más pasos que aceptar; (f) cerrar con `Esc` o tocar fuera de la segunda capa **no es una respuesta**: no escribe `th_consent` ni cuenta en el contador.
+- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **las revisa el abogado con el aviso** (MKT2-UX.13, duda 3).
+- **CK-5 · El banner no decide qué se mide.** Pinta la elección y la escribe donde manda ARCHITECTURE §14.3; ⛔ no decide rutas ni eventos (§14.4) ni calcula la tasa de aceptación (la cuenta el servidor, `API_CONTRACT.md:45744-45753`).
+- **P66-3:** ⛔ ningún código interno en pantalla («MKT», «Fase 2», «D3b», «Consent Mode», «`th_consent`», «GA4», «CAPI»).
+
+---
+
+### MKT2-UX.1 Decisión del dueño que contradice una línea del encargo — léela primero
+
+El encargo de ux-ui dice «Aceptar y Solo necesarias deben tener el mismo peso visual». La decisión del dueño, literal en el brief, dice lo contrario:
+
+> «deja solo el de aceptar más grande haz este cambio y se lo paso a orquestador» (`PAQUETE_TIENDA_2026-10-16.md:230`); «**Botón primario "Aceptar".** Grande y destacado: color de marca, ancho completo en móvil, el elemento más visible del banner» (`:235`); «**Secundario "Solo lo necesario".** Visible en la primera capa, sin abrir menús, como botón o enlace más pequeño y de menor contraste (no oculto, no gris ilegible, no detrás de "Configurar")» (`:236`).
+
+No lo resuelvo en silencio. **Decisión de diseño: gana la decisión del dueño (`:230-236`), con el daño de «menor peso» acotado a lo que ella pide** y nada más:
+
+| Atributo | «Aceptar» | «Solo lo necesario» | ¿Lo pide el dueño? |
+|---|---|---|---|
+| Relleno | tinta (`primary`) | papel con **borde de tinta de 1 px** y texto de tinta | Sí: «menor contraste» (`:236`) |
+| Alto | 48 px (`lg`) | 44 px (`md` con área táctil de 44) | Sí: «más pequeño» (`:236`) |
+| Ancho en móvil | completo | **completo** | «Aceptar» completo (`:235`); el otro no se achica más |
+| Tipografía y tamaño de letra | la misma (13 px, 600) | la misma | No: igual a propósito |
+| Posición | primera | inmediatamente después, a la vista | `:236` «visible en la primera capa» |
+| Texto legible | papel sobre tinta 15.45:1 | tinta sobre papel 15.45:1 | `:236` «no gris ilegible» |
+
+Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO** (misma bandera LFPDPPP 2025 del brief `:208-211`; lo cierra la asesoría legal del dueño, no el diseño).
+
+---
+
+### MKT2-UX.2 Máquina de estados de la elección (qué ve el visitante en cada caso)
+
+| Estado de `th_consent` (`API_CONTRACT.md:45880`, `ARCHITECTURE.md:37059-37061`) | Banner | Enlace «Preferencias de cookies» (pie y aviso) | Etiquetas |
+|---|---|---|---|
+| `off` (modo apagado) o sin ninguna etiqueta con ID válido | **No existe** | **No existe** | ninguna |
+| `on`, sin cookie, o cookie de **otra versión del aviso** | **Visible** hasta que responda (o salga de la pestaña: `no_response`) | Existe | ninguna |
+| `on`, cookie vigente `{a,m}` | No se monta | Existe | las que `a`/`m` permitan |
+| `on`, no se pudo escribir la cookie (navegador que la bloquea) | Se cierra para esa pestaña (la elección vive en memoria); **no** reaparece en cada página de la sesión | Existe | las de la elección en memoria |
+
+- **Hidratación sin parpadeo:** el servidor **no** pinta el banner (no puede leer la cookie al renderizar de forma estática); el cliente lo monta tras leer `th_consent`. Un navegador sin JavaScript no ve banner **ni** carga etiquetas: consistente.
+- **Dónde se monta (supuesto de diseño, petición 2):** solo en las rutas de la lista blanca de medición (`ARCHITECTURE.md:37076-37078`); en cuenta, bóveda, admin, vender, restablecer y `/pedido?token=` no se pide permiso para algo que ahí no corre. El **enlace del pie** existe en todo lugar donde se pinta el pie de la tienda.
+- **Una pregunta no se repite en la misma visita:** tras responder, el banner no vuelve hasta que caduque la cookie (180 días) o cambie la versión del aviso. Sin respuesta, el banner sigue en las páginas siguientes de la sesión (no se vuelve más insistente: sin animación, sin ampliarse).
+
+---
+
+### MKT2-UX.3 Primera capa — el banner
+
+**Anatomía (DOM en este orden; el orden de tabulación es el del DOM):**
+
+```
+móvil (< md) · 390×664, apilado                    escritorio (≥ md), una fila
+┌────────────────────────────────────────┐          ┌──────────────────────────────────────────────────────────────┐
+│ Usamos cookies para saber qué          │          │ Usamos cookies para saber qué publicaciones   [ Aceptar ] [ Solo lo necesario ] │
+│ publicaciones te traen y mejorar la    │          │ te traen y mejorar la tienda. Aviso de        Configurar                         │
+│ tienda. Aviso de privacidad ↗          │          │ privacidad ↗                                                                      │
+│ [          Aceptar  (tinta, 48)      ] │          └──────────────────────────────────────────────────────────────┘
+│ [ Solo lo necesario (borde tinta, 44) ]│
+│ Configurar                             │
+└────────────────────────────────────────┘
+```
+
+| Elemento | Decisión |
+|---|---|
+| Contenedor | `<div role="region" aria-label="{consent.region}">`. **No** `role="dialog"`, **no** `aria-modal`. Fondo `--color-surface-2` (pozo), regla superior `--color-border-strong` 1 px, **sin sombra** (§4.3), radio 0 (§4.2). Gutter de página (§4.1). Padding vertical `pt-3 pb-2` (12/8 px) en móvil; `py-3` en ≥ `md` |
+| Posición | `fixed inset-x-0 z-40`, `bottom: var(--sticky-bottom-h, 0px)` (MKT2-UX.5): **encima** de la barra de COMPRAR, nunca la cubre (brief `:238`). Sin barra, `bottom: 0` y `padding-bottom: max(0.5rem, env(safe-area-inset-bottom))` |
+| Dónde está en el DOM | **justo después del skip-link y antes del resto del shell.** Es visualmente lo último de la pantalla, pero así el visitante de teclado o de lector lo encuentra **sin recorrer toda la página**. Desviación consciente del «orden de tabulación = orden visual» de MKT-UX.2: el banner es un aviso que se resuelve una vez, no contenido de lectura |
+| Texto | `consent.text` (13–14 px, tinta, `leading-[1.5]`), seguido, en la misma frase, del `PrivacyNoticeLink` variante **`inline`** de §80 (pestaña nueva, subrayado, icono y texto «(se abre en otra pestaña)» ya existentes: `privacy.link`, `privacy.opensInNewTab`). Es el **octavo** sitio de §80; ⛔ no se hace un enlace nuevo ni una clave nueva para «Aviso de privacidad» (§80.0.1 y .5). Sin título visible: «nada más en la primera capa» (brief `:234`) |
+| «Aceptar» | `Button` `primary` `lg`, **ancho completo en móvil** (`w-full`), ancho automático con `min-w-[10rem]` en ≥ `md`. Concede analítica **y** publicidad (brief `:235`) |
+| «Solo lo necesario» | `<button>` con borde de tinta 1 px (`border-text`), fondo papel, texto de tinta; `h-11` (44 px), ancho completo en móvil. **No** es un `<a>`, **no** está detrás de «Configurar» ni de un menú. Todo en `denied` (brief `:236`) |
+| «Configurar» | `<button>` con aspecto de enlace (§6.1 `link`: tinta, subrayado `underline underline-offset-4`, 13 px), `min-h-9` (36 px): en móvil, bajo los dos botones, alineado a la izquierda; en escritorio, a la derecha de «Solo lo necesario». Abre la segunda capa (MKT2-UX.7). **Desviación consciente de los 44 px de §6.1**, para no pasar el presupuesto de altura de brief `:238`; cumple los 24 px de WCAG 2.5.8 y deja ≥ 8 px a sus vecinos |
+| Foco inicial | **El banner no roba el foco** al aparecer (no es un diálogo). El visitante de teclado llega a él con el primer `Tab` tras el skip-link |
+| `Esc` | **No hace nada** (CK-3 f): no es una respuesta |
+| Movimiento | Ninguno (sin animación de entrada; `prefers-reduced-motion` no tiene qué desactivar) |
+
+**Estados de los botones** (§6.1): hover (tinta → `--color-primary-hover` en «Aceptar»; fondo `surface-2` en «Solo lo necesario»), `focus-visible` (anillo global bermellón 2 px con offset 2 px; ⛔ `outline-none`), `active` (`scale-[.98]`). No hay `loading`: la elección se escribe en el momento (cookie local) y el envío a `banner-response` es **best-effort y no espera** (`API_CONTRACT.md:45748`, `ARCHITECTURE.md:37056`): un fallo de red no se le muestra al visitante ni retrasa el cierre.
+
+**Al responder (cualquiera de las tres salidas):** el banner se desmonta; el foco **pasa a `#main`** (`tabindex="-1"`, el mismo destino del skip-link, `(storefront)/layout.tsx:23,42`) para que un visitante de teclado no quede en `<body>`; y un `role="status"` (región viva **montada de antemano**, `aria-live="polite"`) anuncia «{consent.saved}». Sin toast visible: la desaparición del banner es la confirmación visual.
+
+---
+
+### MKT2-UX.4 Presupuesto de altura (móvil 390×664, brief `:238` y `:241`)
+
+El brief pide «lo menor posible (orientativo ≤ ~30 % del viewport; propuesta, ajustable)» (`:238`) y, en la captura del criterio 1, ver los dos botones sin scroll y el precio «IVA incluido» y COMPRAR sin tapar (`:241`).
+
+| Pieza (ES, 390 px de ancho, texto en 2 líneas) | px |
+|---|---|
+| Padding superior | 12 |
+| Texto con el enlace al aviso (2 líneas × 20) | 40 |
+| Hueco | 8 |
+| «Aceptar» | 48 |
+| Hueco | 8 |
+| «Solo lo necesario» | 44 |
+| «Configurar» | 36 |
+| Padding inferior | 8 |
+| **Total** | **204** (30.7 % de 664) |
+
+- **Aritmética de diseño, no medida en navegador (NO MEDIDO).** Rebasa el ≈ 30 % orientativo en ~1 punto; el brief lo llama «ajustable». **Techo duro para el candado: 232 px (35 % de 664)** en ES y en EN (el texto de EN puede pasar a 3 líneas: 224 px). Si C-F12 lo mide por encima, la palanca es subir «Configurar» a la misma fila que el enlace al aviso, no achicar los botones.
+- **Con la barra de COMPRAR debajo** (≈ 72 px, `CardDetailView.tsx:504`: `py-3` + contenido; altura real **NO MEDIDA**), lo fijo ocupa ~276 px (≈ 42 %) y quedan ~388 px de contenido. El precio «desde» + IVA + COMPRAR viven **dentro** de la barra (`CardDetailView.test.tsx:448`), así que siguen a la vista por construcción; que el bloque de precio **de la página** también se vea sin scroll depende del layout de la ficha: **NO MEDIDO** (lo cierra la captura del criterio 1).
+- **Escritorio:** una fila de ~84–96 px; sin presupuesto en el brief.
+
+---
+
+### MKT2-UX.5 «No tapar el botón COMPRAR»: el contrato de layout
+
+D3b: «el banner va encima de ella o la empuja, nunca la cubre» (`:238`). **Decisión: el banner va encima.** La barra de COMPRAR no se mueve (el pulgar la encuentra siempre en el mismo sitio y no hay salto cuando el banner desaparece).
+
+| | Regla |
+|---|---|
+| **Nombre** | `--sticky-bottom-h` (px), contrato de layout (no token; no se mapea en `tailwind.config`; se consume con valor arbitrario), gemela de `--app-header-h` (§4.5) |
+| **Quién la define** | **Cada barra fija inferior**, y solo ella, en `document.documentElement`, con un único hook compartido (p. ej. `useStickyBottomBar(ref)`; nombre libre de frontend) que mide `offsetHeight` **con** su padding de área segura (`pb-[max(0.75rem,env(safe-area-inset-bottom))]`) con `ResizeObserver` y **la limpia al desmontar**. Hoy: la barra de `CardDetailView.tsx:504`, la de `SealedDetailView` (mismo patrón, `SealedDetailView.test.tsx:253`) y `SellCartBar.tsx:67`. Cualquier barra fija inferior que se cree después usa el mismo hook; si hay más de una a la vez, el valor es la mayor (no la suma). Barra de pago del checkout y `SellCartFab`: **NO MEDIDO** si existen como fijas inferiores; el frontend las inspecciona antes de dar el trabajo por terminado |
+| **Quién la consume** | Solo el banner (`bottom: var(--sticky-bottom-h, 0px)`) |
+| **Fallback** | `0px` siempre |
+| **Prohibición** | ⛔ Nunca se hardcodea la altura de una barra dentro del banner (`bottom-[72px]`); ⛔ nunca se baja el `z-index` de la barra para «meter» el banner debajo |
+| `--consent-banner-h` | La define **el banner** en `document.documentElement` (misma técnica) y la consume el contenedor del shell del storefront como `padding-bottom`, para que el pie y su último renglón no queden **tapados** mientras el banner siga sin respuesta. Se limpia al desmontar. El cambio de padding ocurre bajo el pliegue: no cuenta como salto de diseño visible |
+| `z-index` | Banner `z-40` como las barras (no se solapan por construcción). La segunda capa usa el `Modal` de §7.6 (por encima). El `Toast` (`z-[60]`, `Toast.tsx:139`) queda por encima del banner a propósito |
+
+**Zona compartida:** el hook toca tres componentes de módulos distintos (`catalog`, `sellado`, `buylist` del mapa de módulos de `CLAUDE.md`) y `frontend/src/hooks/`. Es una petición de **serialización al orquestador** (MKT2-UX.13, petición 5), no de contrato.
+
+---
+
+### MKT2-UX.6 Texto del banner (decisión de copy)
+
+El texto de brief `:234` («Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.» + «Aviso de privacidad») se adopta **tal cual** y se marca **provisional hasta que el dueño lo valide con su asesoría legal** (el propio brief lo dice, `:234` y `:293`). Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
+
+Si la tasa de aceptación sale < 50 % con N ≥ 100, marketing propone un A/B **de texto** (brief `:245`): por eso el texto vive en una clave y **ningún** otro atributo del banner depende de su longitud (el candado de altura C-F12 es el que avisa si un texto nuevo lo rompe).
+
+---
+
+### MKT2-UX.7 Segunda capa — «Preferencias de cookies» («custom»)
+
+**Qué es:** un diálogo (`Modal` §7.6: centrado en escritorio, *bottom sheet* en móvil; radio 0; scrim de tinta; **foco atrapado**; `Esc` y «Cancelar» cierran **sin guardar**). Se abre desde **dos** sitios: «Configurar» del banner y el enlace persistente (MKT2-UX.8). Es la separación que exige el brief: analítica sin publicidad (`:237`, `:225`).
+
+```
+PREFERENCIAS DE COOKIES                                                  ← h2 del diálogo (aria-labelledby)
+Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.
+
+─ Necesarias ──────────────────────────────────────── Siempre activas
+  Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.
+─ Analítica ───────────────────────────────── [ Switch ] Desactivada
+  Nos dice qué páginas y publicaciones llevan a compras (Google Analytics).
+─ Publicidad ──────────────────────────────── [ Switch ] Desactivada
+  Mide qué publicaciones y anuncios llevan a compras (Meta).
+─────────────────────────────────────────────────────────────────────
+Más detalle en el Aviso de privacidad ↗
+
+                                     [ Cancelar ]  [ Guardar mi elección ]
+```
+
+| Elemento | Decisión |
+|---|---|
+| Filas | Una por finalidad, separadas por **regla** (`--color-border`), sin cajas de color (§2.1). Título en 13 px 600; descripción en 13 px `muted` (4.85:1 sobre papel; **el diálogo va sobre papel**, no sobre pozo, para no bajar a 4.60:1: MKT-UX.13) |
+| «Necesarias» | **Texto «Siempre activas»**, no un interruptor deshabilitado (un `switch` deshabilitado se anuncia como una opción que no se puede cambiar y confunde al lector) |
+| Interruptores | `Switch` de §6.4 (`role="switch"`, `aria-checked`, área táctil 44 px). Etiqueta = título de la fila; la descripción va en `aria-describedby`. **Texto de estado visible** «Activada» / «Desactivada» al lado (el estado no depende del color, §6.4) |
+| **Valores iniciales** | Sin `th_consent` vigente: **los dos apagados** (brief `:237` «ambos apagados por defecto»). Con `th_consent` vigente (se abrió desde el pie): reflejan la elección guardada. Tras un cambio de versión del aviso: apagados (se vuelve a preguntar de cero) |
+| «Guardar mi elección» | `Button` `primary` `md`. Guarda `{a,m}` tal cual estén los interruptores —**también si los dos están apagados**— |
+| «Cancelar» | `Button` `secondary` `md`. Cierra sin escribir nada. Sin respuesta contada |
+| Foco | Al abrir: al título del diálogo (o a su primer control; lo decide el `Modal` de §7.6). Al cerrar con «Cancelar»/`Esc`: **vuelve al disparador** (§7.6) si sigue en pantalla («Configurar» del banner; el enlace del pie). Al guardar desde el banner: a `#main` (MKT2-UX.3) |
+| Enlace al aviso | `PrivacyNoticeLink` `inline` (§80), clave `consent.layer.more` con la etiqueta `<privacy>…</privacy>` |
+| Lo que **no** hay | Sin tercer botón «Aceptar todo» (ya existe en el banner; en el diálogo añadiría un camino más ancho que los otros), sin lista de cookies por nombre ni plazos (eso es del aviso, CK-4) |
+
+**Al guardar:**
+- La elección se escribe en `th_consent` (`API_CONTRACT.md:45880`) con el efecto de `ARCHITECTURE.md:37062-37072`.
+- **Si se QUITÓ algún consentimiento que estaba concedido**, la tienda recarga la página (`ARCHITECTURE.md:37067-37069`): no hay mensaje (la recarga lo borraría); el visitante ve la página recargada sin las etiquetas. Es el único caso con recarga.
+- **Si solo se concedió o no cambió nada:** el diálogo se cierra, `role="status"` anuncia «{consent.saved}» y, además, un `Toast` de §7.5 (4–6 s) lo confirma a la vista. Sin recarga.
+- **`banner-response` (contrato v1.106.2 §MKT.H.3, `ARCHITECTURE.md` §14.3 D-MKT2-5):** se manda `POST /measurement/banner-response` con `custom` solo si es la **primera elección con el banner visible**, se guarde desde el banner o desde el enlace del pie. Un cambio posterior **no** lo llama, y tampoco en rutas donde nunca se mostró el banner.
+- «Guardar» con los dos apagados cuenta como `custom`, no como `necessary_only` (el contrato dice «`custom` = guardó la segunda capa», `:45753`). Petición 3 por si el arquitecto prefiere lo contrario.
+
+---
+
+### MKT2-UX.8 Enlace persistente «Preferencias de cookies»
+
+| | Decisión |
+|---|---|
+| Texto | «Preferencias de cookies» / “Cookie preferences” (`consent.footerLink`; es el rótulo de `ARCHITECTURE.md:37067`) |
+| Sitio 1: pie de la tienda | En la fila de enlaces del pie, **junto a «Aviso de privacidad»** (`(storefront)/layout.tsx:67-74`), con las **mismas clases que su vecino** (`text-text hover:text-accent`, mono 11 px versalitas). Es un `<button type="button">` con el aspecto de ese enlace (abre un diálogo, no navega: ⛔ no un `<a href="#">`) |
+| Sitio 2: el aviso | En `/privacidad`, en el apartado de cookies, como **enlace dentro de la frase** (variante inline, subrayado, mismo color que los enlaces del cuerpo del aviso): `<button>` con aspecto de enlace. El texto del aviso es del abogado/dueño; esta pieza solo dice **dónde** va el botón (brief `:214`, `ARCHITECTURE.md:37067`) |
+| Visible cuando | `on` con alguna etiqueta válida (MKT2-UX.2 fila 2-4). Con `off`: ⛔ no se pinta ni un hueco |
+| Abre | La segunda capa (MKT2-UX.7) con los interruptores en la elección guardada. Si el visitante aún no respondió y el banner está visible, también funciona y esa primera elección sí cuenta en `banner-response` (MKT2-UX.7); un cambio posterior no |
+| Teclado/lector | `<button>` nativo: Enter y Espacio; el nombre accesible es el texto visible; al cerrar, el foco vuelve al botón |
+| El pie de `pedido/layout.tsx` | **No lleva** el enlace (esa ruta está excluida de la medición, `ARCHITECTURE.md:37080`) |
+
+---
+
+### MKT2-UX.9 Componentes: qué se reutiliza y qué es nuevo
+
+| Pieza | Estado | Nota |
+|---|---|---|
+| `Button` (`primary` `lg`, `secondary`, `link`), `Switch` (§6.4), `Modal`/*bottom sheet* con foco atrapado (§7.6), `Toast` (§7.5), `PrivacyNoticeLink` `inline` (§80) | Reutiliza | — |
+| `ConsentBanner` | **Nuevo** | Primera capa; se monta solo en las rutas de la lista blanca y solo con `on` |
+| `ConsentPreferencesDialog` | **Nuevo** | Segunda capa; lo abren el banner y el enlace |
+| `CookiePreferencesLink` | **Nuevo** | Botón con aspecto de enlace del pie y del aviso |
+| Hook de barra fija inferior | **Nuevo** (en `frontend/src/hooks/`) | MKT2-UX.5 |
+| Región viva `role="status"` del consentimiento | **Nueva**, montada de antemano en el proveedor | MKT2-UX.3 |
+
+Los nombres son orientativos; la lógica de cookies y Consent Mode es de frontend/arquitectura (`ARCHITECTURE.md §14.3`), no de este documento.
+
+---
+
+### MKT2-UX.10 Accesibilidad (resumen verificable)
+
+- **Banner:** `role="region"` con nombre accesible; no es diálogo; no roba foco; `Esc` no responde; llegar a él = primer `Tab` tras el skip-link; orden de tabulación = «Aviso de privacidad» (en la frase) → «Aceptar» → «Solo lo necesario» → «Configurar».
+- **Segunda capa:** diálogo con `aria-labelledby`, foco atrapado, `Esc` cierra sin guardar, foco de regreso; interruptores con estado en texto.
+- **Tras responder:** foco a `#main` + anuncio «Tu elección se guardó.».
+- **Zoom/tamaño de letra:** a 200 % de zoom o con letra grande, el banner puede superar el 35 % del viewport; en ese caso el contenedor lleva `max-h-[60vh] overflow-y-auto` (el texto y los dos botones siguen primero en el DOM y a la vista). ⛔ Nunca recortar los botones.
+- **Contraste (cálculo a mano con la fórmula WCAG 2.1 desde los hex de §2.3; sin herramienta, lo confirma el probador del gate):**
+
+  | Par | Ratio | Uso | ¿AA? |
+  |---|---|---|---|
+  | tinta `#1A1A18` sobre pozo `#EFEBE2` | **14.65:1** | texto del banner, «Configurar», borde de «Solo lo necesario» | Sí (texto y componente ≥ 3:1) |
+  | papel `#F4F1EA` sobre tinta (texto de «Aceptar») | **15.45:1** | «Aceptar» | Sí |
+  | tinta sobre papel | **15.45:1** | texto de «Solo lo necesario» | Sí |
+  | `muted` `#6E695E` sobre papel | **4.85:1** | descripciones del diálogo (sobre papel) | Sí |
+  | anillo de foco `#B44B3A` sobre pozo | **4.40:1** | foco en el banner (no es texto: pide 3:1) | Sí |
+
+  ⛔ Ningún texto `muted` ni bermellón **sobre el pozo del banner** (4.60:1 y 4.40:1: MKT-UX.13). El borde de «Solo lo necesario» es de **tinta** y no `border-strong` (que da ~1.96:1 sobre pozo, bajo los 3:1 de WCAG 1.4.11).
+
+---
+
+### MKT2-UX.11 Textos visibles (claves i18n, propiedad de frontend)
+
+Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN obligatoria**. «Aviso de privacidad» **no** tiene clave aquí: se usa `privacy.link` (una sola fuente, §80.0.5).
+
+| Clave | ES | EN |
+|---|---|---|
+| `consent.region` | Aviso de cookies | Cookie notice |
+| `consent.text` | Usamos cookies para saber qué publicaciones te traen y mejorar la tienda. | We use cookies to learn which posts bring you here and to improve the store. |
+| `consent.accept` | Aceptar | Accept |
+| `consent.necessary` | Solo lo necesario | Necessary only |
+| `consent.customize` | Configurar | Customize |
+| `consent.saved` | Tu elección se guardó. | Your choice was saved. |
+| `consent.footerLink` | Preferencias de cookies | Cookie preferences |
+| `consent.layer.title` | Preferencias de cookies | Cookie preferences |
+| `consent.layer.intro` | Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página. | You decide what we measure. You can change this at any time from the page footer. |
+| `consent.layer.necessary.title` | Necesarias | Necessary |
+| `consent.layer.necessary.body` | Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección. | They keep your session, your cart and your language, and remember this choice. |
+| `consent.layer.necessary.always` | Siempre activas | Always on |
+| `consent.layer.analytics.title` | Analítica | Analytics |
+| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). | Tells us which pages and posts lead to purchases (Google Analytics). |
+| `consent.layer.ads.title` | Publicidad | Advertising |
+| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a compras (Meta). | Measures which posts and ads lead to purchases (Meta). |
+| `consent.layer.stateOn` / `stateOff` | Activada / Desactivada | On / Off |
+| `consent.layer.more` | Más detalle en el <privacy>Aviso de privacidad</privacy>. | More detail in the <privacy>Privacy notice</privacy>. |
+| `consent.layer.save` | Guardar mi elección | Save my choice |
+| `consent.layer.cancel` | Cancelar | Cancel |
+
+Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor; **el abogado los valida con el aviso** (CK-4, duda 3).
+
+---
+
+### MKT2-UX.12 Rótulo del build bloqueado por falta de aviso (encargo 2)
+
+**Aplica, y es solo un rótulo para registros de CI/Vercel** (nadie lo ve en la tienda; no hay pantalla ni clave i18n). Contexto: con `NEXT_PUBLIC_MEASUREMENT_MODE=on` y `legalPublishProblems` con `{measurement:'on'}` devolviendo problemas, el build **falla** (`ARCHITECTURE.md:37000-37009`, candado C-D1 en `API_CONTRACT.md:45917`). Los registros del proyecto están en español y llevan un código estable al inicio de línea, como `MEASUREMENT_DESTINATION_DISABLED destination=… reason=…` (`ARCHITECTURE.md:37017-37018`) y las líneas de `publish-check.ts:33-53`.
+
+**Rótulo (primera línea = código greppable; las demás, para el humano que lee el registro):**
+
+```
+MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
+  El build NO se publica: la medición está encendida (NEXT_PUBLIC_MEASUREMENT_MODE=on) y el aviso de privacidad no la declara.
+  - <problema 1>
+  - <problema n>
+  Para publicar: (a) publica el aviso revisado (measurementDisclosure con versión y fechas) o (b) pon NEXT_PUBLIC_MEASUREMENT_MODE=off.
+  El sitio en línea no cambia con este build.
+```
+
+**Texto de cada problema (los tres de `ARCHITECTURE.md:37004-37005`):**
+1. `measurementDisclosure es null: el aviso no declara la medición`
+2. `el aviso aún dice «No usamos cookies de publicidad ni de analítica»`
+3. `el aviso no nombra: <lista exacta de lo que falta, de: Google Analytics, Meta, _fbp, _fbc, th_first_utm, th_consent, retención de 14 meses>`
+
+**Cuando pasa**, una sola línea: `MEASUREMENT_NOTICE_OK mode=on version=<measurementDisclosure.version>`. **Con `off`**: `MEASUREMENT_NOTICE_OK mode=off` (así el registro de cada build deja dicho en qué modo se publicó, sin buscar la variable).
+
+⛔ El rótulo nunca imprime valores de variables secretas ni IDs (`GA4_*`, `META_*`): solo el modo, el conteo y los problemas de texto. Candado C-F17.
+
+---
+
+### MKT2-UX.13 Peticiones, dudas y desviaciones
+
+**Peticiones (numeradas para enrutar):**
+1. **(Cerrada, v1.106.2 §MKT.H.3)** Solo la primera elección con el banner visible cuenta en `banner-response`, también desde el pie; un cambio posterior no (inflaría `accept / total`, `API_CONTRACT.md:45889`).
+2. **arquitecto — dónde se monta el banner.** `ARCHITECTURE.md:37039-37041` dice «Visita ► banner» sin restringir rutas. Mi supuesto: solo en la lista blanca de medición (`:37076-37078`) y el enlace del pie en todo el storefront. Confirmar o corregir.
+3. **arquitecto — `custom` con los dos interruptores apagados:** cuenta como `custom` (literal, `:45753`) o como `necessary_only`. Afecta a f1/f2, no al diseño.
+4. **arquitecto — texto del aviso (apartado de cookies, §8 de `privacidad.es.ts`)** debe dejar el hueco del enlace «Preferencias de cookies» (MKT2-UX.8 sitio 2); es contenido del aviso, no de este documento.
+5. **orquestador — serialización de la zona compartida:** el hook de barra fija inferior (MKT2-UX.5) toca `CardDetailView`, `SealedDetailView`, `SellCartBar` (módulos de catálogo/sellado/buylist) y `frontend/src/hooks/`. Debe serializarse con el stream que lleve esos módulos.
+6. **orquestador — al fusionar `MKT-UX`:** retirar de MKT-UX la clave `download.helpExact`, el texto de apoyo n.º 2 de MKT-UX.9 y la línea del esquema de MKT-UX.2 que dicen lo mismo que MKT2-UX.14 (para que el hecho viva en **un** sitio). No lo toco yo: esa sección está en construcción en otro *worktree*.
+7. **orquestador — tamaño:** `DESIGN_SYSTEM.md` llegaba a la línea 33 509 antes de esta sección (tope orientativo ~2 000); la compactación sigue pendiente (ya pedida en CS-UX.7 punto 3 y MKT-UX.17). Riesgo de merge: esta sección se añade al final, justo debajo de MKT-UX; si el otro *worktree* también añade al final habrá conflicto de texto, no de contenido: se conservan ambos bloques, MKT-UX primero.
+
+**Dudas para el dueño (con recomendación):**
+1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; si la asesoría legal dice que hace falta igualarlos, es un cambio de dos atributos.)
+2. **¿El aviso de cookies aparece solo donde se mide, o en toda la tienda?** (Solo donde se mide: no pedimos permiso en tu cuenta ni al vender.)
+3. **Los rótulos «Analítica» y «Publicidad» con «(Google Analytics)» y «(Meta)» en la segunda capa:** ¿los revisa tu asesor junto con el aviso? (Sí: son lo más cercano a texto legal que hay en la pantalla.)
+4. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
+
+**Desviaciones conscientes y lo que no pude medir:** (a) «Configurar» de 36 px y no 44 (por el presupuesto de altura); (b) banner primero en el DOM aunque va abajo; (c) alturas de 204–224 px y de la barra de COMPRAR (~72 px): **NO MEDIDAS** en navegador (las cierra la captura 390×664 de C-F3 y el candado C-F12); (d) contrastes calculados a mano; (e) si hay barra de pago fija o FAB en el checkout y en el carrito de venta: **NO MEDIDO** (comando que lo cierra: `Grep "fixed .*bottom-0" frontend/src --glob "*.tsx"` y revisar cada resultado).
+
+---
+
+### MKT2-UX.14 Aviso de «cifras exactas» del Panel (encargo 3, pedido del arquitecto)
+
+**Por qué:** con `privacy: 'exact'` (decisión del dueño, `HECHOS.md:172`; régimen en `API_CONTRACT.md:45461-45470`) la pantalla del dueño trae conteos reales y el Excel, los exports y el endpoint del analista siguen ocultando lo menor a 5. Sin un aviso a la vista, el dueño verá `3` en pantalla y «< 5» en el archivo y creerá que el Excel está mal.
+
+**Clave y texto (reemplaza a `download.helpAlways` mientras `privacy === 'exact'`; y reemplaza a `download.helpExact` de MKT-UX.14, que no debe construirse):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.marketing.download.exactNotice` | Aquí ves las cifras exactas. El Excel y las exportaciones salen sin datos personales y con las cantidades menores a 5 ocultas, así que esas filas pueden no coincidir con la pantalla. | Here you see the exact figures. The Excel and exports have no personal data and hide amounts below 5, so those rows may not match the screen. |
+
+**Ubicación y conducta:**
+- **Dónde:** inmediatamente **debajo del grupo de botones de descarga** (el principal «Descargar Excel de la semana/del mes» y «Exportar esta pantalla»: MKT-UX.9), en la misma posición del primer texto de apoyo; `text-xs`, `muted` sobre **papel** (4.85:1). Le sigue `download.helpShare` («Compártelo solo con quien lo necesite.»), que no cambia.
+- **Cuándo:** solo si el payload de la pantalla trae `privacy === 'exact'` (`API_CONTRACT.md:45463`). Con `small_cells`, se pinta `download.helpAlways` como hoy y **no** esta frase. Mientras el payload carga, ni una ni otra se adivinan (⛔ no se decide por el rol del navegador ni por la sesión: lo dice el servidor, MKT-3).
+- **Texto, no color ni tooltip** (MKT-2): párrafo visible, no `title`, no icono solo. Si se pinta el icono ⓘ del esquema de MKT-UX.2, va `aria-hidden` y el texto es el portador.
+- **Lector de pantalla:** el texto lleva un `id` y los tres botones de descarga lo referencian con `aria-describedby`, para que el aviso se oiga al enfocar el botón y no solo al leer la página.
+- **Ancho:** en móvil, bajo el botón de ancho completo, se parte en las líneas que haga falta (sin truncar).
+- **No es un `Banner`** (§7.5): es una nota fija de apoyo, no una alerta; un recuadro de color en cada visita le quitaría fuerza a los avisos reales.
+
+---
+
+### MKT2-UX.15 Candados sugeridos para frontend (cada uno con la mutación que lo pone rojo)
+
+Numeración nueva **C-F8…** para no chocar con C-F1…C-F7 del contrato (`API_CONTRACT.md:45910-45916`). Las pruebas las escribe frontend; QA las ejecuta. Playwright en 390×664 salvo que se diga.
+
+| Id | Afirma | Mutación que lo pone rojo |
+|---|---|---|
+| **C-F8** | Banner accesible: `role="region"` con nombre; sin `aria-modal` ni `role="dialog"`; es el primer elemento enfocable tras el skip-link; orden de `Tab` = enlace al aviso → «Aceptar» → «Solo lo necesario» → «Configurar»; `Esc` **no** escribe `th_consent` ni llama a `banner-response`; no recibe foco al montarse | añadir un manejador de `Esc` que guarde «solo necesario», o `autoFocus` al banner |
+| **C-F9** | Sin patrones oscuros: «Aceptar» y «Solo lo necesario» son `<button>`, ambos con alto ≥ 44 px, misma `font-size`, **ambos dentro del viewport sin scroll** y a un toque; «Solo lo necesario» no está dentro de «Configurar» ni del diálogo; en la segunda capa los dos interruptores nacen `aria-checked="false"` | mover «Solo lo necesario» a la segunda capa; o bajarlo a 24 px de alto; o nacer con «Analítica» encendida |
+| **C-F10** | Sin muro: con el banner abierto se puede hacer scroll, abrir el catálogo y una ficha, agregar al carrito y llegar al checkout; no existe un elemento con `inset-0` + fondo oscuro, ni `aria-modal`, ni `overflow:hidden` en `body`/`html` | añadir un *scrim* de pantalla completa al banner |
+| **C-F11** | No tapa COMPRAR: en la ficha de carta y en la de sellado, con el banner abierto, `banner.bottom ≤ barra.top` y `document.elementFromPoint(centro de COMPRAR)` devuelve el propio botón; igual en `lg` con `SellCartBar` si el banner se monta ahí | quitar la llamada al hook de la barra (la variable queda en 0) o poner `bottom-0` fijo al banner |
+| **C-F12** | Altura: con el banner abierto en 390×664, `banner.height ≤ 232` px en **ES y EN** (objetivo 204); a 1280×720 una sola fila (`≤ 120` px) | añadir una tercera línea de padding o apilar «Configurar» en un renglón propio de 44 px |
+| **C-F13** | Segunda capa: foco atrapado, `Esc` y «Cancelar» cierran **sin** escribir cookie ni llamar a `banner-response`; el foco vuelve al disparador; «Guardar» con solo «Analítica» ⇒ `th_consent {a:1,m:0}` y 0 hosts de Meta (se apoya en C-F3); desde el pie, «Guardar» llama a `banner-response` solo si es la primera elección con el banner visible; un cambio posterior no llama | hacer que «Cancelar» guarde; o llamar a `banner-response` en un cambio posterior |
+| **C-F14** | Enlace persistente: con `on` y elección guardada, «Preferencias de cookies» existe en el pie y en `/privacidad` y abre la capa con los interruptores en lo guardado; con `off` **no existe** (ni en `/privacidad`); con `on` sin ID válido, ni banner ni enlace | pintar el enlace con `off`; o con `on` sin ID mostrar el banner |
+| **C-F15** | i18n: `consent.*` tiene las mismas claves en ES y EN; ninguna cadena contiene `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents`, `gtag/js`, «LFPDPPP», «Consent Mode», `th_consent` | meter `googletagmanager.com` en una cadena (el grep de C-F1 se pondría rojo con ella) |
+| **C-F16** | Aviso de «cifras exactas»: con `privacy:'exact'` se pinta `download.exactNotice`, **no** `download.helpAlways`, y los botones de descarga lo referencian con `aria-describedby`; con `small_cells`, al revés; con el payload cargando, ninguno de los dos. Paridad ES/EN | pintar el aviso siempre; o decidirlo por `role === 'super_admin'` en el navegador |
+| **C-F17** | Rótulo de build (prueba unitaria del formateador): con N problemas, la primera línea es `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N`; incluye cada problema, las dos salidas (a)/(b) y «NO se publica»; con modo `off` o sin problemas, una sola línea `MEASUREMENT_NOTICE_OK …`; ninguna línea contiene un ID ni un secreto | quitar la línea de salidas; o imprimir `process.env` |
+| **C-F18** | Tras cada una de las tres respuestas del banner: el banner ya no está, `document.activeElement` es `#main` y la región `role="status"` dice «Tu elección se guardó.» | desmontar el banner sin mover el foco (`activeElement === body`) |
+| **C-F19** | Zoom: a 200 % de zoom (viewport efectivo 195×332) el banner tiene `max-height ≤ 60vh`, scroll interno, y «Aceptar» y «Solo lo necesario» siguen alcanzables | quitar el `max-h` (el banner ocuparía más del 60 %) |
+
+Los candados de contrato de §MKT.H.11 (C-F1…C-F7, C-D1) **no se repiten** aquí: C-F2 cubre «`off` ⇒ sin banner», C-F3 los cuatro caminos de red y las capturas 390×664.
+
+**Cómo se verifica lo que no es de CI:** las capturas 390×664 del criterio 1 de brief `:241` (portada y una ficha con el banner abierto) las toma el probador en C-F3 y se pegan en el PR; el dueño no tiene que hacer nada para esto.
+
+### MKT2-UX.16 Changelog
+
+**vMKT2-1 (2026-10-18):** §MKT2-UX nueva: banner de cookies de primera capa (D3b del dueño, con «Aceptar» más grande que «Solo lo necesario» y la contradicción con el encargo explicada), segunda capa «custom», enlace persistente «Preferencias de cookies», contrato de layout `--sticky-bottom-h` para no tapar COMPRAR, claves `consent.*`, rótulo `MEASUREMENT_NOTICE_REQUIRED`, aviso `admin.marketing.download.exactNotice` y 12 candados (C-F8…C-F19). Cero tokens y cero pares de contraste nuevos. 7 peticiones y 4 dudas (MKT2-UX.13).

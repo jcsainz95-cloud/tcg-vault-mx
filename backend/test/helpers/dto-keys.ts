@@ -75,6 +75,8 @@ export const GROUPED_LISTING_SUMMARY_KEYS = keysOf<GroupedListingSummaryDTO>({
 /** `SealedGroupDTO` — el DTO de la **FICHA** de sellado (`SealedGroupDetailResponse.group`). */
 export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   representativeItemId: true,
+  // v1.106 (§MKT.H.4, ADITIVO): identidad de medición del representante (`null` = sin ligar).
+  sealedProductId: true,
   card: true,
   productName: true,
   imageUrl: true,
@@ -92,11 +94,17 @@ export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   // v1.90⟨miv⟩ (§MIV.2, ADITIVO): el mercado CON IVA. OPCIONAL: viaja ⇔ `priceBasis === 'market'`.
   referenceDisplayCents: true,
   currency: true,
+  // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): los DOS campos nuevos de la FICHA (SSR/og). REQUERIDOS y SIEMPRE
+  // presentes (ogImageUrl puede ser `null` pero la clave viaja). ⛔ NO están en `SEALED_GROUP_SUMMARY_KEYS`.
+  pricedAsOf: true,
+  ogImageUrl: true,
 });
 
 /** `SealedGroupSummaryDTO` — el DTO de la **REJILLA** de sellado (v2.1.9 D2: sin las TRES señales). */
 export const SEALED_GROUP_SUMMARY_KEYS = keysOf<SealedGroupSummaryDTO>({
   representativeItemId: true,
+  // v1.106 (§MKT.H.4, ADITIVO): identidad de medición del representante (`null` = sin ligar).
+  sealedProductId: true,
   card: true,
   productName: true,
   imageUrl: true,

@@ -231,7 +231,7 @@
   "home": {
     "heroKicker": "Cartas Pokémon · México",
     "heroTitle": "Caza la carta. Nosotros la guardamos.",
-    "heroSubtitle": "Cartas autenticadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "heroSubtitle": "Cartas verificadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
     "ctaShop": "Explorar el catálogo",
     "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
@@ -299,7 +299,7 @@
       "step3Body": "Todo lo que acumulaste sale junto, en un solo envío."
     },
     "sellTitle": "Convierte tus repetidas en dinero",
-    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros verificamos la condición NM y te transferimos.",
     "sellCta": "Cotizar mi lista gratis",
     "featuredSet": {
       "label": "Valor de mercado · Set destacado",
@@ -547,7 +547,7 @@
         "oneShipment": "Acumula cartas y paga un solo envío — te ahorras {amount} cada vez que no envías.",
         "oneShipmentPlain": "Acumula cartas y paga un solo envío.",
         "portfolio": "Ve el valor de tu colección actualizado a diario.",
-        "custody": "Custodia con autenticidad y condición garantizadas."
+        "custody": "Custodia con condición verificada y garantizada."
       },
       "cta": "Crear cuenta y guardar en bóveda",
       "dismiss": "Seguir con envío a domicilio",
@@ -661,7 +661,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están verificadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo las piezas liquidadas y sin envío activo se pueden retirar.",
@@ -919,7 +919,7 @@
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
-    "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
+    "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros verificamos la condición NM y te pagamos por SPEI.",
     "sellPrice": {
       "market": "Valor de mercado",
       "wePay": "Te pagamos",
@@ -1397,7 +1397,8 @@
       "spendAlerts": "Avisos de gasto",
       "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}",
       "accessories": "Accesorios",
-      "cardShow": "Card Show"
+      "cardShow": "Card Show",
+      "marketing": "Marketing"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -6876,6 +6877,234 @@
         "countRange": "Escribe un número del 0 al 6."
       },
       "energyPricesDiffer": "Las energías no tienen todas el mismo precio."
+    },
+    "marketing": {
+      "lede": "Cómo se mueve la tienda y de dónde llega la gente. Por ahora solo se miden los datos de la tienda.",
+      "tabs": {
+        "label": "Pantallas del panel",
+        "select": "Pantalla",
+        "a": "Resumen",
+        "b": "Origen",
+        "c": "Comportamiento",
+        "d": "Catálogo",
+        "e": "Buscadores e IA",
+        "f": "Cookies",
+        "g": "Promociones",
+        "h": "Anotaciones",
+        "access": "Acceso del analista"
+      },
+      "period": {
+        "group": "Tipo de periodo",
+        "week": "Semana",
+        "month": "Mes",
+        "label": "Periodo",
+        "range": "Del {from} al {to} · hora del centro de México",
+        "compare": "Se compara con: del {from} al {to}",
+        "updating": "Actualizando…",
+        "invalid": "Ese periodo no es válido o todavía no cerró. Elige otro."
+      },
+      "source": {
+        "BD": "base de datos de la tienda",
+        "GA4": "Google Analytics 4",
+        "SC": "Search Console",
+        "Srv": "conteo anónimo del servidor",
+        "mixed": "varias fuentes",
+        "prefix": "Fuente: {fuente}"
+      },
+      "coverage": {
+        "title": "Cobertura"
+      },
+      "cells": {
+        "small": "menos de 5, oculto por privacidad",
+        "hidden": "Oculto",
+        "hiddenSr": "oculto por privacidad",
+        "notMeasured": "No medido",
+        "notMeasuredSr": "no medido todavía: {motivo}",
+        "none": "sin dato",
+        "others": "Otros (< 5 c/u)",
+        "smallN": "N chico, sin veredicto",
+        "footnote": "< 5 significa menos de 5. El monto de esas filas se oculta para que nadie pueda identificar a una persona."
+      },
+      "table": {
+        "notMeasuredTitle": "No medido todavía",
+        "notMeasuredBody": "Esto no es cero: todavía no hay dato.",
+        "notMeasuredGroup": "{titulo}: no medido todavía",
+        "empty": "Sin registros en este periodo.",
+        "emptyHint": "Eso también es un dato: no hubo.",
+        "scrollLabel": "Tabla: {titulo}",
+        "seeAll": "Ver todo"
+      },
+      "screen": {
+        "empty": "No hubo actividad en este periodo. Prueba con otra semana.",
+        "e": {
+          "pending": "Esta pantalla se llenará cuando se encienda Google Search Console."
+        }
+      },
+      "help": {
+        "title": "¿Cómo leer las celdas?",
+        "zero": "Cero: no hubo; es un dato.",
+        "small": "< 5: hubo menos de 5; se muestra así para no identificar a nadie.",
+        "hidden": "Oculto: el monto de una fila con menos de 5.",
+        "notMeasured": "No medido: la fuente todavía no existe.",
+        "none": "—: no aplica.",
+        "rule": "Cero es un dato; No medido es que aún no existe la fuente."
+      },
+      "notes": {
+        "summary": "Anotaciones de {periodo} ({n})",
+        "manage": "Gestionar"
+      },
+      "download": {
+        "week": "Descargar Excel de la semana",
+        "month": "Descargar Excel del mes",
+        "preparing": "Preparando el Excel…",
+        "done": "Se descargó {archivo}.",
+        "exportGroup": "Exportar esta pantalla",
+        "xlsx": ".xlsx",
+        "csv": ".csv",
+        "helpAlways": "El Excel sale sin datos personales y con las cantidades menores a 5 ocultas.",
+        "exactNotice": "Aquí ves las cifras exactas. El Excel y las exportaciones salen sin datos personales y con las cantidades menores a 5 ocultas, así que esas filas pueden no coincidir con la pantalla.",
+        "helpShare": "Compártelo solo con quien lo necesite.",
+        "errorClosed": "Ese periodo todavía no está cerrado. Elige uno anterior.",
+        "errorGeneric": "No se pudo preparar el Excel. Inténtalo de nuevo."
+      },
+      "state": {
+        "loading": "Cargando el panel…",
+        "error": "No se pudieron cargar las cifras. Inténtalo de nuevo.",
+        "retry": "Reintentar"
+      },
+      "forbidden": {
+        "title": "Esta cuenta no tiene permiso para ver el Panel de Marketing.",
+        "body": "Si lo necesitas, pídele al dueño de la tienda que te lo active.",
+        "back": "Volver al tablero"
+      },
+      "ann": {
+        "title": "Anotaciones",
+        "lede": "Marca los días que explican un cambio: una promoción tuya, un despliegue, un evento.",
+        "pii": {
+          "title": "No escribas datos personales",
+          "body": "Nada de nombres de clientes, @usuarios, correos, teléfonos, CURP ni RFC. La tienda rechaza lo que parece un dato personal."
+        },
+        "show": {
+          "group": "Mostrar",
+          "period": "Del periodo",
+          "all": "Todas"
+        },
+        "new": "Nueva anotación",
+        "editTitle": "Editar anotación",
+        "edit": "Editar",
+        "delete": "Borrar",
+        "col": {
+          "date": "Fecha",
+          "type": "Tipo",
+          "label": "Etiqueta",
+          "dest": "Destino",
+          "actions": "Acciones"
+        },
+        "kind": {
+          "promocion": "Promoción",
+          "despliegue": "Despliegue",
+          "evento": "Evento"
+        },
+        "field": {
+          "date": "Fecha",
+          "kind": "Tipo",
+          "label": "Etiqueta",
+          "dest": "Destino",
+          "labelHelp": "Qué pasó ese día, en pocas palabras.",
+          "destHelp": "A dónde llevaba: la ficha de una carta, el catálogo, tu perfil…",
+          "counter": "{n} / {max}"
+        },
+        "save": "Guardar",
+        "saving": "Guardando…",
+        "cancel": "Cancelar",
+        "saved": "Anotación guardada.",
+        "errRequired": "Este campo es obligatorio.",
+        "errPii": "Quita los datos personales (correo, @usuario, teléfono, CURP o RFC) y vuelve a intentarlo.",
+        "errDest": "El destino solo aplica a promociones.",
+        "errGone": "Esa anotación ya no existe. Se actualizó la lista.",
+        "errGeneric": "No se pudo guardar. Inténtalo de nuevo.",
+        "delTitle": "¿Borrar esta anotación?",
+        "delConfirm": "Borrar anotación",
+        "deleting": "Borrando…",
+        "deleted": "Anotación borrada.",
+        "emptyPeriod": "Todavía no hay anotaciones en este periodo.",
+        "emptyAll": "Aún no has marcado ningún día."
+      },
+      "access": {
+        "lede": "El analista de marketing lee las cifras de cada semana con una llave, sin entrar a tu cuenta. La llave solo sirve para leer el resumen de cifras: no abre nada más del panel.",
+        "none": "Nadie tiene acceso ahora.",
+        "create": "Crear llave",
+        "submit": "Crear",
+        "creating": "Creando…",
+        "name": "Nombre de la llave",
+        "nameHelp": "Solo para reconocerla, por ejemplo: Analista de marketing. No escribas datos personales.",
+        "errName": "Usa solo letras sin acentos, números, espacios, punto, guion o guion bajo (hasta 60), sin datos personales.",
+        "errGeneric": "No se pudo completar. Inténtalo de nuevo.",
+        "created": "Creada el {fecha}",
+        "expires": "Caduca el {fecha}",
+        "lastUsed": "Último uso: {fecha}",
+        "neverUsed": "Último uso: nunca",
+        "status": {
+          "active": "Activa",
+          "revoked": "Revocada",
+          "expired": "Caducada"
+        },
+        "expiresSoon": "Esta llave caduca en {n} días. Crea una nueva y cárgala en el entorno del analista antes de esa fecha.",
+        "dead": "La llave anterior ya no sirve: {motivo} el {fecha}.",
+        "reason": {
+          "expired": "caducó",
+          "revoked": "se revocó"
+        },
+        "new": {
+          "title": "Tu llave nueva",
+          "once": "Cópiala ahora. Se muestra UNA sola vez.",
+          "why": "La tienda guarda solo una huella; si la pierdes, no se puede recuperar: tendrás que crear otra.",
+          "field": "Tu llave (se muestra una sola vez)",
+          "where": "Va en los secretos del entorno de marketing, con el nombre TIENDA_PANEL_TOKEN. No la pegues en chats, correos ni archivos.",
+          "copy": "Copiar",
+          "copied": "Copiada",
+          "copiedSr": "Llave copiada al portapapeles.",
+          "copyFail": "No se pudo copiar. Selecciónala y cópiala a mano.",
+          "confirm": "Ya la copié y la guardé",
+          "done": "Listo",
+          "lost": "No se pudo mostrar la llave. Revoca la que quedó creada y crea otra."
+        },
+        "revokeCta": "Revocar llave",
+        "revokeDialog": {
+          "title": "¿Revocar la llave del analista?",
+          "body": "Dejará de funcionar al momento. El analista no podrá leer cifras hasta que crees otra llave y se la hagas llegar."
+        },
+        "revoking": "Revocando…",
+        "revoked": "Llave revocada."
+      }
+    }
+  },
+  "seo": {
+    "nav": {
+      "faq": "Preguntas",
+      "howItWorks": "Cómo funciona",
+      "guides": "Guías"
+    },
+    "lastReview": "Última revisión: {date} · manual {version}",
+    "spanishOnly": "Este contenido está en español.",
+    "faq": {
+      "title": "Preguntas frecuentes",
+      "description": "Respuestas de TCG HUNT sobre compras, bóveda, envíos, venta de cartas y condición NM.",
+      "empty": "Estamos revisando estas respuestas. Vuelve pronto."
+    },
+    "howItWorks": {
+      "title": "Cómo funciona",
+      "description": "Cómo se compra, se guarda en la bóveda, se envía y se vende en TCG HUNT.",
+      "empty": "Estamos revisando esta página. Vuelve pronto."
+    },
+    "guides": {
+      "title": "Guías",
+      "description": "Guías del coleccionista de TCG HUNT: condición NM, cartas piratas, cómo guardar tus cartas y rarezas.",
+      "published": "Publicada: {date}",
+      "readGuide": "Leer la guía",
+      "ctaCatalog": "Ver el catálogo",
+      "ctaBuylist": "Cotiza la tuya",
+      "empty": "Estamos preparando las guías. Vuelve pronto."
     }
   },
   "locale": {
@@ -7684,6 +7913,37 @@
       "error": "No pudimos hacerlo. Intenta de nuevo.",
       "working": "Un momento…",
       "goToList": "Ir a mi lista de deseos"
+    }
+  },
+  "consent": {
+    "region": "Aviso de cookies",
+    "text": "Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.",
+    "accept": "Aceptar",
+    "necessary": "Solo lo necesario",
+    "customize": "Configurar",
+    "saved": "Tu elección se guardó.",
+    "footerLink": "Preferencias de cookies",
+    "layer": {
+      "title": "Preferencias de cookies",
+      "intro": "Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.",
+      "necessary": {
+        "title": "Necesarias",
+        "body": "Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.",
+        "always": "Siempre activas"
+      },
+      "analytics": {
+        "title": "Analítica",
+        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics)."
+      },
+      "ads": {
+        "title": "Publicidad",
+        "body": "Mide qué publicaciones y anuncios llevan a compras (Meta)."
+      },
+      "stateOn": "Activada",
+      "stateOff": "Desactivada",
+      "more": "Más detalle en el <privacy>Aviso de privacidad</privacy>.",
+      "save": "Guardar mi elección",
+      "cancel": "Cancelar"
     }
   }
 }

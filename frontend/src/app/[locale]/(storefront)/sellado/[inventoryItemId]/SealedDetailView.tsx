@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useId, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
 import { getSealedGroupDetail } from '@/lib/api';
-import type { SealedGroupDetailResponse } from '@/types/contract';
+import type { SealedGroupDetailResponse, SealedGroupDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents, formatDate } from '@/lib/format';
+import { formatMoneyCents } from '@/lib/format';
 import { IvaLabel } from '@/components/ui/IvaLabel';
 import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -20,7 +20,14 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { SealedValueTrend } from './SealedValueTrend';
 import { SealedRestockForm } from './SealedRestockForm';
 import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
-import { cn } from '@/lib/cn';
+import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { centsToValue, track } from '@/lib/measurement/track';
+import { measurementItemOf } from '@/lib/measurement/item';
+
+/** §MKT.H.4 (v1.106): identidad canónica del sellado — `s_<sealedProductId>` o `sc_<cardId ancla>`, nunca la pieza. */
+function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'> & { card: { id: string } }) {
+  return measurementItemOf({ cardId: g.card.id, name: g.productName, productType: 'sealed', sealedProductId: g.sealedProductId });
+}
 
 /**
  * Ficha del producto SELLADO (contrato §2-S · GET /catalog/sealed/:inventoryItemId). Selección de
@@ -62,6 +69,15 @@ export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string 
             onAdd={(ids) => {
               ids.forEach((id) => cart.add(id));
               setAddedSignal(Date.now());
+              // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada). Precio por pieza = «desde».
+              const g = query.data!.group;
+              const price = centsToValue(g.fromPriceCents);
+              const id = sealedItemOf(g);
+              track('add_to_cart', {
+                items: id ? ids.map(() => ({ ...id, price })) : [],
+                value: centsToValue(g.fromPriceCents * ids.length),
+                currency: 'MXN',
+              });
             }}
           />
           <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
@@ -80,18 +96,33 @@ function Detail({
 }) {
   const t = useTranslations('sealed');
   const tSub = useTranslations('status.sealedSubtype');
+  // §A2: la barra de compra fija usa copy compartido del storefront para no colisionar con los
+  // botones del cuerpo («Agregar {n} al carrito» / «Ir al carrito»).
+  const tcat = useTranslations('catalog');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
   const { group, listings, trendEnabled, restockEnabled } = detail;
   const cart = useCart();
+  // MKT2-UX.5: la barra fija publica su alto (`--sticky-bottom-h`) para que el banner de cookies no la tape.
+  const buyBarRef = useStickyBottomBar<HTMLDivElement>();
+  // §MKT.H.4 `view_item`: una vez por grupo de sellado. Con el modo `off`, `track` no hace nada.
+  const cardId = group.card.id;
+  const productName = group.productName;
+  // Un backend anterior a v1.106 no manda la clave ⇒ `sc_<ancla>`, nunca la pieza.
+  const sealedProductId = group.sealedProductId ?? null;
+  useEffect(() => {
+    const price = centsToValue(group.fromPriceCents);
+    const id = sealedItemOf({ card: { id: cardId }, productName, sealedProductId });
+    track('view_item', {
+      items: id ? [{ ...id, price }] : [],
+      value: price,
+      currency: 'MXN',
+      market_value_shown: false,
+    });
+  }, [cardId, sealedProductId, productName, group.fromPriceCents]);
 
   const available = group.availableCount;
   const [qty, setQty] = useState(1);
-  // §MIV.5: ids del nombre accesible de la celda de mercado.
-  const marketIds = useId();
-  const marketLabelId = `${marketIds}-label`;
-  const marketFigureId = `${marketIds}-figure`;
-  const marketIvaId = `${marketIds}-iva`;
   const clampedQty = Math.max(1, Math.min(qty, available));
 
   // Carrito por-pieza: agregar N = las N piezas MÁS BARATAS del grupo (listings ya vienen así).
@@ -99,17 +130,11 @@ function Detail({
   const inCartCount = idsToAdd.filter((id) => cart.ids.includes(id)).length;
   const allInCart = inCartCount === idsToAdd.length && idsToAdd.length > 0;
 
-  const captured = group.referenceValue.capturedDate
-    ? formatDate(group.referenceValue.capturedDate, locale)
-    : undefined;
-
-  // §21.8a — el sellado no cambia de matemática (conserva su spread por presentación, §K): solo
-  // obedece el `priceBasis` que el backend DERIVA de `priceSource` (override ⇒ "override" ⇒ no se
-  // muestra mercado; subtype_spread|global_spread ⇒ "market" ⇒ sí se muestra).
-  //
-  // ⭐ §MIV.2 (v1.90⟨miv⟩, NORMATIVA): la cifra es `referenceDisplayCents` (mercado CON IVA, del
-  // servidor) y el bloque existe ⇔ basis `market` ∧ esa cifra es entero > 0. ⛔ Nunca se cae al neto.
-  // El MISMO predicado gobierna la tendencia (§MIV.3).
+  // §A1 (MKT-26a, D2=A, dueño 2026-10-16 · HECHOS:65): la ficha pública de sellado ya NO pinta la
+  // celda «Valor de mercado». Este predicado se CONSERVA porque sigue gobernando la «Tendencia de
+  // valor» (gateada por `trendEnabled`, §MIV.3): no publicar el mercado cuando el mercado no fijó el
+  // precio (override ⇒ "override" ⇒ no; subtype_spread|global_spread ⇒ "market" ⇒ sí). La cifra con
+  // IVA (`referenceDisplayCents`, §MIV.2) ya no se renderiza en la celda; solo decide si hay mercado.
   const marketDisplayCents =
     group.priceBasis === 'market' &&
     Number.isInteger(group.referenceDisplayCents) &&
@@ -119,7 +144,8 @@ function Detail({
   const showMarketValue = marketDisplayCents !== undefined;
 
   return (
-    <div>
+    // §A2 (MKT-26b): hueco inferior en móvil para que la barra de compra fija no tape el contenido.
+    <div className="pb-24 lg:pb-0">
       <nav
         aria-label="Breadcrumb"
         className="gutter flex items-center gap-3 border-b border-border py-5 font-mono text-xs tracking-[0.06em] text-muted"
@@ -164,17 +190,12 @@ function Detail({
             <p className="mt-2 text-[13px] leading-relaxed text-muted">{t('detail.minorDamageNote')}</p>
           )}
 
-          {/* §21.8: mismo mecanismo que la ficha de carta, con dos hechos. El bloque «Valor de
-              mercado» se muestra si y solo si `priceBasis === 'market'` — que para el sellado
-              significa precio derivado por SPREAD sobre mercado; con override manual DESAPARECE y
-              la celda «Desde» ocupa la fila completa. La UI obedece el basis, no lo infiere. */}
+          {/* §A1 (MKT-26a): la ficha pública de sellado ya NO pinta «Valor de mercado». Queda una
+              sola celda, «Desde», a fila completa. El predicado del mercado (`showMarketValue`)
+              sigue vivo arriba, pero solo para gobernar la «Tendencia de valor» (§MIV.3), no esta
+              retícula. */}
           <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-            <div
-              className={cn(
-                'border-b border-border py-6',
-                !showMarketValue && 'sm:col-span-2',
-              )}
-            >
+            <div className="border-b border-border py-6 sm:col-span-2">
               <div className="eyebrow">{t('fromPrice')}</div>
               <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
                 {formatMoneyCents(group.fromPriceCents, locale)}
@@ -186,34 +207,6 @@ function Detail({
                 className="mt-2 block text-[11px] leading-none"
               />
             </div>
-            {showMarketValue && (
-              // §MIV.5 (criterio 863): la celda se nombra con sus nodos VISIBLES —rótulo, cifra y
-              // rótulo de IVA—; la fecha queda fuera del nombre y se lee después, en orden del DOM.
-              <div
-                role="group"
-                aria-labelledby={`${marketLabelId} ${marketFigureId} ${marketIvaId}`}
-                className="border-b border-border py-6 sm:border-l sm:pl-7"
-              >
-                <div id={marketLabelId} className="eyebrow">
-                  {t('detail.marketValue')}
-                </div>
-                <div id={marketFigureId} className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
-                  {formatMoneyCents(marketDisplayCents, locale)}
-                </div>
-                {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
-                    `showRate={false}`; ⛔ el de «Desde» (precio) sigue «IVA 16 % incluido». `ivaIncluded`
-                    literal (el servidor arma la cifra con el IVA completo). `ivaRatePct` ya no se muestra. */}
-                <IvaLabel
-                  id={marketIvaId}
-                  ivaIncluded
-                  showRate={false}
-                  className="mt-2 block text-[11px] leading-none whitespace-nowrap"
-                />
-                {captured && (
-                  <div className="mt-1.5 font-mono text-[11px] leading-none text-muted">{captured}</div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
@@ -287,6 +280,39 @@ function Detail({
         <div className="gutter border-t border-border py-10">
           {/* §MIV.3: la tasa del rótulo sale del grupo (la respuesta de la serie no la trae). */}
           <SealedValueTrend inventoryItemId={group.representativeItemId} ivaRatePct={group.ivaRatePct} />
+        </div>
+      )}
+
+      {/* §A2 (MKT-26b): en móvil el precio «desde» con «IVA incluido» y el CTA de compra viven en
+          una barra fija al pie, visibles sin scroll en la primera pantalla (la imagen llena el
+          alto). Solo con ≥ 1 unidad a la venta (`available > 0`). En ≥ lg se oculta: ahí el precio y
+          el CTA ya entran arriba, a la derecha del arte. z-40 como el FAB móvil del storefront. */}
+      {available > 0 && (
+        <div
+          ref={buyBarRef}
+          data-testid="mobile-buy-bar"
+          aria-label={tcat('addToCart')}
+          className="gutter fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-border bg-bg py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"
+        >
+          <div className="min-w-0">
+            <div className="tabular text-xl font-medium leading-none text-text">
+              {formatMoneyCents(group.fromPriceCents, locale)}
+            </div>
+            <IvaLabel
+              ivaIncluded={group.ivaIncluded}
+              ivaRatePct={group.ivaRatePct}
+              className="mt-1.5 block leading-none"
+            />
+          </div>
+          {allInCart ? (
+            <Button variant="secondary" onClick={() => router.push('/checkout')}>
+              {tcat('viewCart')}
+            </Button>
+          ) : (
+            <Button variant="accent" onClick={() => onAdd(idsToAdd)}>
+              {tcat('addToCart')}
+            </Button>
+          )}
         </div>
       )}
     </div>

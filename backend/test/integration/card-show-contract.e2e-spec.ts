@@ -43,6 +43,19 @@ jest.setTimeout(60_000);
 const RUN = `cse2e${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Una IP de cliente DISTINTA por alta (QA, afd12b82: el bloque E daba 429 en vez de 202, 1/1 con Redis limpio).
+ * El throttle REAL de la landing (`card-show-throttle.service.ts`, 5 POST/min y 20/h por IP y endpoint, en Redis)
+ * se cuenta por `req.ip`; sin esto TODAS las altas de la suite salen de 127.0.0.1 y la 6.ª de `/players` en el
+ * mismo minuto es 429. ⛔ No se toca el límite: cada alta es un «visitante» distinto, como en producción.
+ * `req.ip` = la ÚLTIMA entrada de `X-Forwarded-For` (`trust proxy = 1`, `e2e-app.ts` ⇒ `applyTrustProxy`).
+ * Rango 198.18.0.0/15 (RFC 2544, de pruebas); tercer octeto al azar por corrida, para que dos corridas en la
+ * misma hora contra el mismo Redis no compartan el cubo de 20/h.
+ */
+const IP_BASE = `198.${18 + Math.floor(Math.random() * 2)}.${Math.floor(Math.random() * 256)}`;
+let ipSeq = 0;
+const freshClient = (): Record<string, string> => ({ 'x-forwarded-for': `${IP_BASE}.${(ipSeq++ % 254) + 1}` });
+
 describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, §CARDSHOW.3/.5/.11/.12/.15)', () => {
   let h: E2EHarness;
   let tokens: CardShowTokensService;
@@ -65,8 +78,8 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
   });
 
   /** Pide un token de formulario REAL emitido por el endpoint (con `iat = now`). */
-  const formToken = async (purpose: 'leads' | 'players'): Promise<string> => {
-    const r = await h.api('GET', `/card-show/form-token?purpose=${purpose}`);
+  const formToken = async (purpose: 'leads' | 'players', client: Record<string, string>): Promise<string> => {
+    const r = await h.api('GET', `/card-show/form-token?purpose=${purpose}`, { headers: client });
     expect(r.status).toBe(200);
     const t = (r.body as { formToken?: string }).formToken;
     expect(typeof t).toBe('string');
@@ -80,18 +93,20 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
 
   /** Alta de un lead válido M-84 (devuelve el email usado), tras respetar el min-age. */
   const postLead = async (email: string, body: Record<string, unknown>): Promise<void> => {
-    const token = await formToken('leads');
+    const client = freshClient();
+    const token = await formToken('leads', client);
     await waitPastMinAge();
-    const res = await h.api('POST', '/card-show/leads', { json: { email, formToken: token, ...body } });
+    const res = await h.api('POST', '/card-show/leads', { headers: client, json: { email, formToken: token, ...body } });
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ ok: true });
   };
 
   /** Alta de una preinscripción válida M-84 (devuelve el email usado), tras respetar el min-age. */
   const postPlayer = async (email: string, body: Record<string, unknown>): Promise<void> => {
-    const token = await formToken('players');
+    const client = freshClient();
+    const token = await formToken('players', client);
     await waitPastMinAge();
-    const res = await h.api('POST', '/card-show/players', { json: { email, formToken: token, ...body } });
+    const res = await h.api('POST', '/card-show/players', { headers: client, json: { email, formToken: token, ...body } });
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ ok: true });
   };
@@ -116,10 +131,12 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
     });
 
     it('A2 (CANDADO) — campo VIEJO `token` en vez de `formToken` ⇒ 400 VALIDATION_ERROR y 0 filas', async () => {
-      const token = await formToken('leads');
+      const client = freshClient();
+      const token = await formToken('leads', client);
       await waitPastMinAge();
       const email = `viejo-campo-lead-${RUN}@e2e-cardshow.example`;
       const res = await h.api('POST', '/card-show/leads', {
+        headers: client,
         json: { type: 'visitor', name: 'Visitante de Prueba', email, source: 'cta_hero', consent: true, token }, // ⛔ `token`, no `formToken`
       });
       expect(res.status).toBe(400);
@@ -151,11 +168,13 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
     });
 
     it('B2 (CANDADO) — campo VIEJO `token` en vez de `formToken` ⇒ 400 VALIDATION_ERROR y 0 filas', async () => {
-      const token = await formToken('players');
+      const client = freshClient();
+      const token = await formToken('players', client);
       await waitPastMinAge();
       const email = `viejo-campo-player-${RUN}@e2e-cardshow.example`;
       const playerId = String(100000 + Math.floor(Math.random() * 800000));
       const res = await h.api('POST', '/card-show/players', {
+        headers: client,
         json: {
           game: 'pokemon',
           day: 'sat',

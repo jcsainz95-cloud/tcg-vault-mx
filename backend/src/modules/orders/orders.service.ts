@@ -1,3 +1,4 @@
+import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
@@ -1516,6 +1517,10 @@ export class OrdersService {
     userId: string,
     inventoryItemIds: string[],
     billingProfileId: string | undefined,
+    // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.2): columnas YA saneadas (consentimiento + `firstUtm*`) por
+    // `MeasurementService.prepare`; vacías con el modo apagado. Se escriben en el MISMO `create` de la orden y solo en una
+    // orden NUEVA (el reuso conserva lo que tenía). ⛔ No cambian ningún importe ni ninguna guarda.
+    measurementColumns: Partial<MeasurementColumns> = {},
   ): Promise<CheckoutSessionResult> {
     const fee = await this.settings.getStripeFee();
 
@@ -1588,6 +1593,8 @@ export class OrdersService {
           cfdiStatus: 'registrado',
           billingSnapshot: billingSnapshot ?? undefined,
           items: { create: orderItemsData },
+          // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
+          ...measurementColumnsData(measurementColumns),
         },
       });
       // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.
