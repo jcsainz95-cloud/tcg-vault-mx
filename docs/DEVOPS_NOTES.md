@@ -20,9 +20,7 @@
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5). Este documento sigue muy por encima del
   tope de 1 500 líneas: **se compacta antes de añadir**.
-- **Histórico retirado del encabezado (2026-10-19):** los bloques «Actualización 2026-08-17 … 2026-09-06» que
-  abrían este fichero repetían en resumen lo que ya vive completo en §19, §27, §29, §32, §33, §34 y §38. Texto
-  anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
+- **Histórico:** el encabezado anterior vive en `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
 
@@ -15157,16 +15155,14 @@ de `789b8788`; `main` sin baseline). Canario 22×3 = 66/66; mutaciones «sin `�
 
 ### 101.6 MKT-E2 — `www.tcghunt.mx` → permanente al apex (CERRADA)
 
-Vercel redirige `www` → apex con **308** (configurado por el dueño el 2026-10-19). `check-www-apex.sh` acepta
-301 y 308 (permanentes) y pone rojo 302/307, query perdida, bucle a `www` y 200. Cierre medido en §103.2.
+Vercel redirige `www` → apex con **308** (dueño, 2026-10-19). `check-www-apex.sh` acepta 301 y 308 y pone rojo 302/307,
+query perdida, bucle a `www` y 200. Medido 2026-10-23 (`4dec5465`): canario N=3 ⇒ 27/27; «solo 301» ⇒ 2/9 rojos.
 
 ### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
 
-**Retirada el 2026-10-19 (D6 del techlead):** la excepción «PENDIENTE frontend» (y `mkt-fase2-dependencia.env`)
-sobraba al existir la puerta y los dos specs, y dejaba que borrar los specs fuera un `::warning`. Ahora falta una
-pieza ⇒ rojo; canario `check-measurement-e2e-specs-canary.sh` 5×3 = 15/15, mutación «volver a PENDIENTE» 3/3 rojo.
-C-D1 lee `measurementDisclosure` literal o vía `MEASUREMENT_DISCLOSURE` (`measurement-disclosure.ts`), y una forma
-desconocida es rc 2; canario 9/9, mutación «ignorar la constante» ⇒ M5 rojo 3/3. TD-HND-1: de backend.
+**Retirada el 2026-10-19 (D6 del techlead):** falta una pieza (puerta o specs) ⇒ rojo, no `::warning`; canario
+`check-measurement-e2e-specs-canary.sh` 15/15, «volver a PENDIENTE» 3/3 rojo. C-D1 lee `measurementDisclosure` literal o
+vía `MEASUREMENT_DISCLOSURE`; forma desconocida ⇒ rc 2 (canario 9/9; «ignorar la constante» ⇒ M5 rojo 3/3). TD-HND-1: backend.
 
 ### 101.8 Encender y apagar
 
@@ -15202,18 +15198,22 @@ si su `DETECTOR` (jq sobre `toJSON(needs)`) dice que debía correr: `detect.outp
 `format-mix-base.outputs.ref != ""` para `format-mix`. Canario `check-ci-ok-canary.sh`: 18/18; contra el script de
 `01440e56` da 12/18 (los 6 casos QA-REL-2 en rojo: detectado+cancelled, detectado+skipped, format-mix…).
 
-**103.2 MKT-E2 — ya estaba hecho** (`4dec5465`): la sonda acepta 301 y 308. Hoy solo cambia el texto del rojo temporal
-(«elige una permanente (308 o 301)»). Medido 2026-10-23: `check-www-apex.sh` ⇒ VERDE (`www…/es/catalogo?utm_source=e2`
-⇒ 308 ⇒ apex, ruta y query intactas); canario N=3 ⇒ 27/27; con la mutación «solo 301» ⇒ 2/9 rojos (los dos de 308).
-
 **103.3 QA-REL-3 (arnés) — cada spec de invitado tiene su presupuesto; el límite no se toca.** `checkout/guest/session`
-es 5/h por IP (`guest-orders.controller.ts`) con almacén en memoria por proceso (`app.module.ts`), y el arnés sale
-todo de 127.0.0.1. `scripts/e2e-real-suite.sh` (lo corre QA con el stack `up --seed --gate`): lista los specs `@real`
-con `playwright test --list`, corre el resto en una tanda y cada spec que casa con `guest|invitado` en la suya, cada
-tanda tras `stack-native.sh restart:backend` (nuevo: solo el backend propio por pidfile, datos intactos, procedencia
-re-verificada con `assert-serving-head.sh`). Salidas por tanda en `frontend/test-results-real-suite/`. Canario
-`e2e-real-suite-canary.sh` (en `live-candados`): N=3 ⇒ 19/19; también comprueba que el producto sigue en 5/h y que el
-throttler solo se omite con `NODE_ENV=test`. Mutaciones: «sin RESTART antes de invitado» ⇒ 2/9 rojos; `limit: 50` ⇒
-1/9; quitar `isTestEnv() &&` ⇒ 1/9. **NO MEDIDO:** la suite real completa con cobro (no hay Playwright ni stack en este
-contenedor); la medición que lo cierra es QA corriendo el runner 2/2. Si un spec solo crea más de 5 sesiones, o
-consume datos del seed de otro (vault:15, buylist-offer:155, AC-F14), el hallazgo es de frontend.
+es 5/h por IP con almacén en memoria por proceso y el arnés sale todo de 127.0.0.1. `scripts/e2e-real-suite.sh` (lo
+corre QA con `up --seed --gate`) lista los specs `@real` (`playwright test --list`), corre el resto en una tanda y cada
+spec que casa con `guest|invitado` en la suya, cada tanda tras `stack-native.sh restart:backend`. Salidas en
+`frontend/test-results-real-suite/`. **Filtro exacto (rechazo de QA a `803c4298`):** Playwright toma cada fichero como
+RegExp contra la ruta absoluta y `checkout.spec.ts` arrastraba `guest-checkout.spec.ts` (QA: «2 tests in 2 files»,
+`:137` rojo 2/2). Ahora va `^<ruta real escapada>$`; medido con playwright 1.56.1: nombre suelto ⇒ 3 ficheros, ancla ⇒ 1.
+Canario `e2e-real-suite-canary.sh` (en `live-candados`, también vigila el 5/h y `NODE_ENV=test`): N=3 ⇒ 26/26; runner
+de `442b1e8d` ⇒ 3/26 rojos (la tanda común corría `checkout guest-checkout n1 sub/checkout`). **NO MEDIDO:** la suite
+real completa con cobro (sin stack aquí); la cierra QA con el runner 2/2. Specs con >5 sesiones o datos ajenos: frontend.
+
+**103.4 Cliente Prisma al día antes de arrancar (tester-e2e).** Con `.prisma/client` de otro schema el backend moría con
+`Cannot convert undefined or null to object` (`measurement-drain.service.ts:42`). `ensure_prisma_client` (en
+`start_backend` y antes del seed de `up --seed`) compara por bytes `prisma/schema.prisma` con la copia del cliente:
+igual ⇒ nada; distinto o ausente ⇒ `prisma generate` y re-mide; si falla o sigue distinto ⇒ se para con el remedio.
+Canario `check-stack-prisma-client.sh` (`restart:backend` real en árbol de juguete): N=3 ⇒ 17/17; stack de `442b1e8d` ⇒
+13/17 rojos; sin la llamada en `start_backend` ⇒ 12/17. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
+corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
+pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.

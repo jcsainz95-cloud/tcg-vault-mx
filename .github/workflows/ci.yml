@@ -910,6 +910,11 @@ jobs:
       - name: QA-REL-3 · suite @real completa con presupuesto por spec de invitado (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/e2e-real-suite-canary.sh 2
+      # §103.4 (2026-10-23): con un cliente Prisma de otro schema el backend moría al
+      # arrancar; `start_backend` lo regenera o se para. Conducta en árbol de juguete.
+      - name: §103.4 · el backend no arranca con un cliente Prisma de otro schema (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stack-prisma-client.sh 2
       - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
         if: ${{ !cancelled() }}
         run: |
