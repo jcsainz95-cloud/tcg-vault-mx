@@ -16,6 +16,11 @@
 > habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
 > (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
 > cabecera del SQL de m86 (no se copia aquí). Pendiente con Postgres: TECH_DEBT MKT-F2-4. Deuda: TECH_DEBT §MKT.
+> **M-90 (2026-10-21):** `magic` en `CardShowGame` (migración `20261107120000_m90_card_show_magic`, LIGERA sin código nuevo).
+> `GET /card-show/tournament/count` = `card-show-tournament-count.service.ts`: caché **en memoria del proceso** 30 s (por réplica);
+> BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
+> no da 503. D-CS-8 cerrada: `TOURNAMENT_OCCUPIED_STATUSES` (`tournament.util.ts`) la usan cupo y contador. Pruebas: bloque F de
+> `test/integration/card-show-contract.e2e-spec.ts` + `test/card-show.tournament-count.spec.ts`.
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 

@@ -35,6 +35,7 @@ import { ConfigService } from '@nestjs/config';
 import { E2EHarness } from './helpers/e2e-app';
 import { MX_RESOLVER } from '../../src/modules/card-show/card-show-mail.service';
 import { CardShowTokensService } from '../../src/modules/card-show/card-show-tokens.service';
+import { CardShowTournamentCountService } from '../../src/modules/card-show/card-show-tournament-count.service';
 import { ENV, FORM_TOKEN_MIN_AGE_MS } from '../../src/modules/card-show/card-show.constants';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -564,6 +565,187 @@ describe('E2E — CARDSHOW contrato POST /card-show/{leads,players} (sin mocks, 
       expect(rowAafter.status).toBe('confirmed');
       expect(rowBafter.status).toBe('pending'); // ⛔ el 2.º jugador NO se auto-confirma (otro grupo)
       expect(rowBafter.confirmedAt).toBeNull();
+    });
+  });
+  // ⭐M-90 (§CARDSHOW.1a-quater / §CARDSHOW.12-bis / D-CS-8) — criterios §13 [M-90] (1)-(7) contra Postgres REAL.
+  // BD COMPARTIDA: todo se mide en DELTAS sobre la línea base (otras corridas pueden dejar filas), y el cupo se
+  // fija relativo a lo ya ocupado, como el bloque E (c).
+  describe('F — M-90 Magic (LIGERA) + contador público del torneo + D-CS-8', () => {
+    const occupied = (day: 'sat' | 'sun') =>
+      h.prisma.cardShowPlayerSignup.count({ where: { game: 'pokemon', day, status: { in: ['confirmed', 'checked_in'] } } });
+    /** El contador cachea 30 s en memoria del proceso; entre pasos de la prueba se vacía (hook de prueba). */
+    const dropCountCache = () => {
+      (h.app.get(CardShowTournamentCountService) as unknown as { cache: unknown }).cache = null;
+    };
+    const getCount = (client: Record<string, string> = freshClient()) => h.api('GET', '/card-show/tournament/count', { headers: client });
+    const satOf = (body: unknown) => (body as { days: { day: string; confirmed: number; cap: number | null; full: boolean }[] }).days;
+    let seedSeq = 0;
+    const seed = async (rows: { game: 'pokemon' | 'magic'; day: 'sat' | 'sun'; status: 'confirmed' | 'checked_in' | 'pending' | 'waitlist' | 'cancelled' }[]) => {
+      const base = 20_000_000 + Math.floor(Math.random() * 70_000_000);
+      await h.prisma.cardShowPlayerSignup.createMany({
+        data: rows.map((r, i) => {
+          const n = seedSeq++;
+          return {
+            game: r.game,
+            day: r.day,
+            playerName: `Semilla ${n}`,
+            playerId: r.game === 'pokemon' ? String(base + i) : null,
+            email: `semilla-${n}-${RUN}@e2e-cardshow.example`,
+            mailboxHmac: `seed-hmac-${n}-${RUN}`,
+            isMinor: false,
+            status: r.status,
+            confirmedAt: r.status === 'pending' ? null : new Date(),
+            consentAt: new Date(),
+            privacyVersion: 'provisional',
+          };
+        }),
+      });
+    };
+    const postPokemon = async (email: string, day: 'sat' | 'sun') => {
+      await postPlayer(email, { game: 'pokemon', day, playerName: 'Entrenador Cupo', playerId: String(100000 + Math.floor(Math.random() * 800000)), isMinor: false, consent: true });
+      return h.prisma.cardShowPlayerSignup.findFirstOrThrow({ where: { email } });
+    };
+
+    it('(2) magic LIGERA: sin playerId ⇒ 202 y al confirmar `confirmed` directo AUNQUE el cupo esté lleno; con playerId ⇒ 400; MAGIC ⇒ 400; gameInterest=magic ⇒ 202; ?game=magic ⇒ 200', async () => {
+      const config = h.app.get(ConfigService);
+      const email = `magic-${RUN}@e2e-cardshow.example`;
+      await postPlayer(email, { game: 'magic', day: 'sat', playerName: 'Planeswalker', isMinor: false, consent: true });
+      const row = await h.prisma.cardShowPlayerSignup.findFirstOrThrow({ where: { email } });
+      expect(row.game).toBe('magic');
+      expect(row.playerId).toBeNull();
+      config.set(ENV.TOURNAMENT_CAP_PER_DAY, '0'); // cupo Pokémon lleno
+      try {
+        const res = await confirm('signup', row.id);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true, state: 'confirmed' });
+      } finally {
+        config.set(ENV.TOURNAMENT_CAP_PER_DAY, '');
+      }
+
+      for (const [body, field] of [
+        [{ game: 'magic', day: 'sat', playerName: 'Con Id', playerId: '1234567', isMinor: false, consent: true }, 'playerId'],
+        [{ game: 'MAGIC', day: 'sat', playerName: 'Mayus', isMinor: false, consent: true }, 'game'],
+      ] as const) {
+        const client = freshClient();
+        const token = await formToken('players', client);
+        await waitPastMinAge();
+        const bad = `magic-bad-${field}-${RUN}@e2e-cardshow.example`;
+        const r = await h.api('POST', '/card-show/players', { headers: client, json: { email: bad, formToken: token, ...body } });
+        expect(r.status).toBe(400);
+        expect(JSON.stringify(r.body)).toContain(field);
+        expect(await h.prisma.cardShowPlayerSignup.count({ where: { email: bad } })).toBe(0);
+      }
+
+      // `POST /leads` responde el NEUTRO 202 (§CARDSHOW.3); el «200» del criterio se lee como «aceptado».
+      const leadEmail = `magic-lead-${RUN}@e2e-cardshow.example`;
+      await postLead(leadEmail, { type: 'visitor', name: 'Visitante Magic', source: 'cta_hero', consent: true, gameInterest: 'magic' });
+      expect((await h.prisma.cardShowLead.findFirstOrThrow({ where: { email: leadEmail } })).gameInterest).toBe('magic');
+
+      const panel = await h.api('GET', `/admin/card-show/players?q=${RUN}&game=magic`, { token: adminToken });
+      expect(panel.status).toBe(200);
+      const data = (panel.body as { data: { email: string; game: string }[] }).data;
+      expect(data.find((r) => r.email === email)?.game).toBe('magic');
+      expect(data.every((r) => r.game === 'magic')).toBe(true);
+    });
+
+    it('(3)(4) contador: +2 confirmed +1 checked_in (+ pending/waitlist/cancelled/magic que NO cuentan) ⇒ +3 ese día, +0 el otro; sat,sun; 0 PII; sin Set-Cookie; Cache-Control 30 s', async () => {
+      dropCountCache();
+      const before = await getCount();
+      expect(before.status).toBe(200);
+      await seed([
+        { game: 'pokemon', day: 'sat', status: 'confirmed' },
+        { game: 'pokemon', day: 'sat', status: 'confirmed' },
+        { game: 'pokemon', day: 'sat', status: 'checked_in' },
+        { game: 'pokemon', day: 'sat', status: 'pending' },
+        { game: 'pokemon', day: 'sat', status: 'waitlist' },
+        { game: 'pokemon', day: 'sat', status: 'cancelled' },
+        { game: 'magic', day: 'sat', status: 'confirmed' },
+      ]);
+      dropCountCache();
+      const after = await getCount();
+      expect(after.status).toBe(200);
+      const b = satOf(before.body);
+      const a = satOf(after.body);
+      expect(a.map((d) => d.day)).toEqual(['sat', 'sun']);
+      expect(a[0].confirmed - b[0].confirmed).toBe(3);
+      expect(a[1].confirmed - b[1].confirmed).toBe(0);
+      expect(a[0].confirmed).toBe(await occupied('sat'));
+      expect((after.body as { game: string }).game).toBe('pokemon');
+      expect(Object.keys(after.body as object).sort()).toEqual(['asOf', 'days', 'game']);
+      expect(after.text).not.toMatch(/playerName|playerId|email|"id"|Semilla|semilla/);
+      expect(after.headers['set-cookie']).toBeUndefined();
+      expect(after.headers['cache-control']).toBe('public, max-age=30');
+    });
+
+    it('(5) cap = ocupados ⇒ full=true y la siguiente confirmación Pokémon ⇒ waitlist; variable vacía ⇒ cap=null, full=false', async () => {
+      const config = h.app.get(ConfigService);
+      const row = await postPokemon(`cupo-lleno-${RUN}@e2e-cardshow.example`, 'sat');
+      const cap = await occupied('sat');
+      config.set(ENV.TOURNAMENT_CAP_PER_DAY, String(cap));
+      try {
+        dropCountCache();
+        const r = await getCount();
+        expect(satOf(r.body)[0]).toMatchObject({ day: 'sat', confirmed: cap, cap, full: true });
+        const res = await confirm('signup', row.id);
+        expect(res.body).toEqual({ ok: true, state: 'waitlist' });
+      } finally {
+        config.set(ENV.TOURNAMENT_CAP_PER_DAY, '');
+      }
+      dropCountCache();
+      const r2 = await getCount();
+      for (const d of satOf(r2.body)) expect(d).toMatchObject({ cap: null, full: false });
+    });
+
+    it('(6) [D-CS-8] 1 confirmed + 1 checked_in con cap = ocupados ⇒ confirmar otra Pokémon ⇒ waitlist (el checked_in OCUPA plaza)', async () => {
+      const config = h.app.get(ConfigService);
+      await seed([
+        { game: 'pokemon', day: 'sun', status: 'confirmed' },
+        { game: 'pokemon', day: 'sun', status: 'checked_in' },
+      ]);
+      const row = await postPokemon(`dcs8-${RUN}@e2e-cardshow.example`, 'sun');
+      // cap = confirmed + checked_in de `sun` ⇒ contando solo `confirmed` (defecto) quedaría 1 plaza libre.
+      const cap = await occupied('sun');
+      config.set(ENV.TOURNAMENT_CAP_PER_DAY, String(cap));
+      try {
+        const res = await confirm('signup', row.id);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true, state: 'waitlist' });
+      } finally {
+        config.set(ENV.TOURNAMENT_CAP_PER_DAY, '');
+      }
+      expect((await h.prisma.cardShowPlayerSignup.findUniqueOrThrow({ where: { id: row.id } })).status).toBe('waitlist');
+    });
+
+    it('(7) caché: confirmar una fila NO mueve el contador dentro de la ventana (mismo asOf); 61 GET desde 1 IP ⇒ 429 en la 61.ª con Retry-After ≥ 1', async () => {
+      dropCountCache();
+      const first = await getCount();
+      const row = await postPokemon(`cache-${RUN}@e2e-cardshow.example`, 'sat');
+      expect((await confirm('signup', row.id)).body).toEqual({ ok: true, state: 'confirmed' });
+      const cached = await getCount();
+      expect(cached.body).toEqual(first.body); // dentro de los 30 s: el valor de caché (el reloj simulado está en la unitaria)
+      dropCountCache();
+      expect(satOf((await getCount()).body)[0].confirmed).toBe(satOf(first.body)[0].confirmed + 1);
+
+      const client = freshClient();
+      const statuses: number[] = [];
+      let last: Awaited<ReturnType<typeof getCount>> | undefined;
+      for (let i = 0; i < 61; i += 1) {
+        last = await getCount(client);
+        statuses.push(last.status);
+      }
+      expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
+      expect(statuses[60]).toBe(429);
+      const ra = Number(last!.headers['retry-after']);
+      expect(Number.isInteger(ra) && ra >= 1).toBe(true);
+      // 0 efecto en los topes de POST: la MISMA IP aún puede pedir token y dar de alta.
+      const token = await formToken('players', client);
+      await waitPastMinAge();
+      const after429 = await h.api('POST', '/card-show/players', {
+        headers: client,
+        json: { email: `tras-429-${RUN}@e2e-cardshow.example`, formToken: token, game: 'magic', day: 'sun', playerName: 'Tras Limite', isMinor: false, consent: true },
+      });
+      expect(after429.status).toBe(202);
+      expect(await h.prisma.cardShowPlayerSignup.count({ where: { email: `tras-429-${RUN}@e2e-cardshow.example` } })).toBe(1);
     });
   });
 });

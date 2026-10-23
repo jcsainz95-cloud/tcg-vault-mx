@@ -196,5 +196,5 @@ export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus
 // regla; (2) sin lista de negocio propia (formal/ligera es una regla de SERVICIO, no un recorte de enum); (3) sin
 // calibración de precio (no toca dinero). ⭐ v1.97⟨cardshow-shardbugs⟩ (M-85, §CARDSHOW.1a-ter): 4.º juego
 // `shardbugs` (aditivo, LIGERA por la misma regla de servicio; sin lógica nueva). DERIVADO de Prisma, así que el
-// array recoge los CUATRO valores por construcción. Tres bandas en `test/enum-values-parity.spec.ts`.
+// array recoge los valores por construcción (⭐M-90 §CARDSHOW.1a-quater: + `magic`, 5.º, LIGERA). Tres bandas en `test/enum-values-parity.spec.ts`.
 export const CARD_SHOW_GAME_VALUES = Object.values(CardShowGame);

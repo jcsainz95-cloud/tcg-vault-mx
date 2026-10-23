@@ -231,6 +231,24 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     expect(body.playerId).toBeUndefined();
   });
 
+  it('⭐M-90: «Magic: The Gathering» en el selector; LIGERA ⇒ POST game=magic sin playerId', async () => {
+    submitPlayer.mockResolvedValue(undefined);
+    const u = userEvent.setup();
+    render(<TorneoForm />);
+    expect(screen.getByRole('option', { name: 'Magic: The Gathering' })).toHaveValue('magic');
+    await u.selectOptions(screen.getByLabelText('Juego'), 'magic');
+    expect(screen.queryByLabelText('Player ID')).toBeNull();
+    await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+    await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
+    await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+    await u.click(screen.getByLabelText(/He leído el/));
+    await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
+    expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+    const body = submitPlayer.mock.calls[0][0];
+    expect(body.game).toBe('magic');
+    expect(body.playerId).toBeUndefined();
+  });
+
   it('sin juego ⇒ error de campo', async () => {
     const u = userEvent.setup();
     render(<TorneoForm />);

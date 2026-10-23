@@ -21,6 +21,7 @@ import { CardShowService, ConfirmResult } from './card-show.service';
 import { CardShowThrottleService } from './card-show-throttle.service';
 import { CardShowWebhookService } from './card-show-webhook.service';
 import { CardShowTokensService } from './card-show-tokens.service';
+import { CardShowTournamentCountService, TournamentCount } from './card-show-tournament-count.service';
 import { CardShowBodySizeGuard } from './body-size.guard';
 import { ClickDto, CreateLeadDto, CreatePlayerDto, LinkActionDto } from './dto/card-show.dto';
 import { ipThrottleKey } from './card-show-ip.util';
@@ -42,6 +43,7 @@ export class CardShowController {
     private readonly throttle: CardShowThrottleService,
     private readonly webhook: CardShowWebhookService,
     private readonly tokens: CardShowTokensService,
+    private readonly tournamentCount: CardShowTournamentCountService,
   ) {}
 
   // ── GET /form-token ─────────────────────────────────────────────────────────────────────────
@@ -61,6 +63,27 @@ export class CardShowController {
     // ⛔ sin Set-Cookie, no-store, ⛔ no reflejar Origin ajeno (el CORS global ya no refleja comodín).
     res.setHeader('Cache-Control', 'no-store');
     return { formToken: this.tokens.issueFormToken(purpose) };
+  }
+
+  // ── GET /tournament/count (⭐M-90, §CARDSHOW.12-bis) ──────────────────────────────────────────
+  // Agregado por día del torneo Pokémon; 0 PII, ⛔ sin Set-Cookie. 60/min por IP (cubo propio).
+  // BD caída sin valor en caché ⇒ 503 `{ok:false}` (⛔ nunca un número inventado).
+  @Public()
+  @Get('tournament/count')
+  async tournamentCountGet(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TournamentCount | { ok: false } | undefined> {
+    const d = await this.throttle.hitTournamentCount(ipThrottleKey(req.ip));
+    if (!d.allowed) return this.deny(res, d.retryAfterSeconds);
+    const result = await this.tournamentCount.get();
+    if (!result) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+      res.setHeader('Cache-Control', 'no-store');
+      return { ok: false };
+    }
+    res.setHeader('Cache-Control', 'public, max-age=30');
+    return result;
   }
 
   // ── POST /leads ─────────────────────────────────────────────────────────────────────────────
