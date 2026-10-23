@@ -91,6 +91,8 @@ export interface EncenderBlocker {
  * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 tiene la medición de QA
  * del 2026-10-19 sobre `47eb1dea` (psql: `23514` en los dos casos inválidos; reversa + `migrate deploy` rc 0
  * sin `resolve`; CI `backend-e2e` 144/144), pero su ficha (backend) sigue ABIERTA: sale cuando backend la cierre.
+ * SEC-MKT-2: paridad con `docs/TECH_DEBT.md` en `measurement-gate.test.ts` — una entrada no sale mientras su ficha
+ * siga abierta, y una entrada nueva se registra en `ENCENDER_REGISTRY` de esa prueba.
  */
 export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
   {
