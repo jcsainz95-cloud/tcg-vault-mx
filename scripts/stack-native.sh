@@ -795,28 +795,42 @@ stop_backend_only() {
 # Con un `backend/node_modules/.prisma/client` generado de un schema VIEJO, el backend moría al
 # arrancar con `TypeError: Cannot convert undefined or null to object` en
 # `measurement-drain.service.ts:42` (`Object.values(MeasurementDestination)`: el enum no existía en el
-# cliente). `prisma generate` copia el schema tal cual a `.prisma/client/schema.prisma`, así que la
-# paridad se mide por BYTES (cubre todo enum y modelo, no solo uno): igual ⇒ nada; distinto o
-# ausente ⇒ `prisma generate` y se re-mide; si sigue distinto o generate falla ⇒ se para con el
-# remedio. Idempotente y barato (un `cmp`). Canario: scripts/check-stack-prisma-client.sh.
+# cliente). OJO: `prisma generate` NO copia el schema tal cual: lo REFORMATEA (Prisma 5.22 realinea
+# columnas, p. ej. `model User`), así que comparar por bytes abortaba en todo clon limpio (rechazo de
+# QA a 96cda136, 3/3). Ahora la paridad no depende del formato:
+#   · tras un `generate` correcto el script deja un SELLO `.tcg-schema.sha256` en el cliente con
+#     «sha256(schema del repo) sha256(copia del cliente)». Sello igual ⇒ al día, sin regenerar.
+#   · sello ausente o distinto (schema editado, cliente regenerado a mano con otro schema, `npm ci`
+#     que rehace node_modules) ⇒ `prisma generate` y se re-mide la copia contra el schema por HUELLA
+#     sin formato (espacios colapsados, sin líneas vacías ≈ `diff -w`); si no coincide o generate
+#     falla ⇒ se para con el remedio. El schema del repo no se toca (nada de `prisma format`).
+# Canario: scripts/check-stack-prisma-client.sh (su `npx` falso REFORMATEA al copiar).
 # Límite dicho: supone el `output` por defecto del generador (el schema no declara otro; el canario
 # lo comprueba). DEVOPS_NOTES §103.4.
 # >>> PRISMA-CLIENT (no muevas estas marcas: el canario extrae este bloque)
+_prisma_sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+_prisma_huella() { awk '{$1=$1}; NF' "$1" | _prisma_sha; }
 ensure_prisma_client() {
   local schema="$BACKEND_DIR/prisma/schema.prisma" copia="$BACKEND_DIR/node_modules/.prisma/client/schema.prisma"
+  local sello="$BACKEND_DIR/node_modules/.prisma/client/.tcg-schema.sha256" esperado=""
   [ -f "$schema" ] || die "No existe $schema."
-  if cmp -s "$schema" "$copia"; then ok "cliente Prisma al día con prisma/schema.prisma."; return 0; fi
-  if [ -f "$copia" ]; then warn "El cliente Prisma de backend/node_modules es de OTRO schema (viejo). Lo regenero."
-  else warn "No hay cliente Prisma generado en backend/node_modules/.prisma/client. Lo genero."; fi
-  log "prisma generate (el cliente no coincidía con el schema)"
+  if [ -f "$copia" ]; then esperado="$(_prisma_sha < "$schema") $(_prisma_sha < "$copia")"; fi
+  if [ -n "$esperado" ] && [ -f "$sello" ] && [ "$(cat "$sello")" = "$esperado" ]; then
+    ok "cliente Prisma al día con prisma/schema.prisma (sello)."; return 0
+  fi
+  if [ ! -f "$copia" ]; then warn "No hay cliente Prisma generado en backend/node_modules/.prisma/client. Lo genero."
+  elif [ -f "$sello" ]; then warn "El cliente Prisma de backend/node_modules es de OTRO schema (el sello no coincide). Lo regenero."
+  else warn "El cliente Prisma de backend/node_modules no lleva sello de este script (¿npm ci, generate a mano?). Lo regenero."; fi
+  log "prisma generate (el cliente no estaba sellado con este schema)"
   ( cd "$BACKEND_DIR" && npx prisma generate ) \
     || die "\`prisma generate\` falló. El backend NO arranca con un cliente que no es de este schema
      (moriría con «Cannot convert undefined or null to object» al leer un enum nuevo).
      Remedio:  cd backend && npm ci && npx prisma generate"
-  cmp -s "$schema" "$copia" \
-    || die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia).
-     ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
-  ok "cliente Prisma regenerado y al día con prisma/schema.prisma."
+  [ -f "$copia" ] && [ "$(_prisma_huella "$copia")" = "$(_prisma_huella "$schema")" ] \
+    || die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia),
+     ni ignorando el formato. ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
+  printf '%s %s\n' "$(_prisma_sha < "$schema")" "$(_prisma_sha < "$copia")" > "$sello"
+  ok "cliente Prisma regenerado, al día con prisma/schema.prisma y sellado."
 }
 # <<< PRISMA-CLIENT
 

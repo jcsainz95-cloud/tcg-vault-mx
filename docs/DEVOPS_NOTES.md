@@ -15210,10 +15210,10 @@ de `442b1e8d` ⇒ 3/26 rojos (la tanda común corría `checkout guest-checkout n
 real completa con cobro (sin stack aquí); la cierra QA con el runner 2/2. Specs con >5 sesiones o datos ajenos: frontend.
 
 **103.4 Cliente Prisma al día antes de arrancar (tester-e2e).** Con `.prisma/client` de otro schema el backend moría con
-`Cannot convert undefined or null to object` (`measurement-drain.service.ts:42`). `ensure_prisma_client` (en
-`start_backend` y antes del seed de `up --seed`) compara por bytes `prisma/schema.prisma` con la copia del cliente:
-igual ⇒ nada; distinto o ausente ⇒ `prisma generate` y re-mide; si falla o sigue distinto ⇒ se para con el remedio.
-Canario `check-stack-prisma-client.sh` (`restart:backend` real en árbol de juguete): N=3 ⇒ 17/17; stack de `442b1e8d` ⇒
-13/17 rojos; sin la llamada en `start_backend` ⇒ 12/17. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
+`Cannot convert undefined or null to object`. `ensure_prisma_client` (`start_backend` y antes del seed de `up --seed`):
+sello `node_modules/.prisma/client/.tcg-schema.sha256` = sha256(schema) + sha256(copia) igual ⇒ nada; si no ⇒ `prisma
+generate`, copia vs schema por huella sin formato (Prisma 5.22 REFORMATEA la copia: el `cmp` de 96cda136 abortaba en todo
+clon limpio, QA 3/3) y se sella; si falla o no coincide ⇒ se para. Prueba real (copia `git archive` + `npm ci`, generate de
+verdad): 1.ª regenera, 2.ª «al día», N=2; `cmp` viejo ⇒ aborta. Canario: N=3 ⇒ 29/29; `cmp` ⇒ 18/29 rojos. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
 corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
 pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.
