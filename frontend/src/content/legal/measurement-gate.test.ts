@@ -107,13 +107,12 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
   });
 
   // TL-MKT2b-f (2026-10-19): la lista ya no está vacía. Muerde si se vacía o si sale una entrada sin su cierre.
-  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3, MKT-F2-4 y MKT-TL2 (backend) ⇒ con on y aviso válido, rojo por esos tres', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend', 'MKT-TL2:backend']);
+  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 y MKT-F2-4 (backend) ⇒ con on y aviso válido, rojo por esos dos', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend']);
     const problems = measurementGateProblems('on', declaredNotice());
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(2);
     expect(problems[0]).toMatch(/^bloqueo de encendido abierto: MKT-F2-3 \(backend\) — /);
     expect(problems[1]).toMatch(/^bloqueo de encendido abierto: MKT-F2-4 \(backend\) — /);
-    expect(problems[2]).toMatch(/^bloqueo de encendido abierto: MKT-TL2 \(backend\) — /);
   });
 
   it('TL-MKT2b-f · con off la puerta sigue verde (aviso de hoy y aviso declarado), aunque haya bloqueos', () => {
@@ -140,8 +139,8 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
     }
   });
 
-  it('D4, R4 y D2 salieron (13cf3653): sus pruebas de cierre están en la cabecera de ENCENDER_BLOCKERS', () => {
-    for (const id of ['D4', 'R4', 'D2']) expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain(id);
+  it('D4, R4 y D2 salieron (13cf3653) y MKT-TL2 (86ee9bdb): sus pruebas de cierre están en la cabecera de ENCENDER_BLOCKERS', () => {
+    for (const id of ['D4', 'R4', 'D2', 'MKT-TL2']) expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain(id);
   });
 });
 
@@ -152,7 +151,8 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
  *  2. toda ficha del REGISTRO que siga ABIERTA está en la lista (quitar la entrada con la ficha abierta ⇒ rojo);
  *  3. toda entrada está en el REGISTRO (una entrada nueva se registra aquí al entrar, y queda vigilada por 2).
  * El registro es el censo de las entradas que han existido CON ficha de ese id. D4, R4 y D2 salieron en `13cf3653`,
- * antes de esta paridad y sin fila propia en TECH_DEBT (ver la prueba de arriba). ⛔ Borrar un id del registro para
+ * antes de esta paridad y sin fila propia en TECH_DEBT (ver la prueba de arriba). MKT-TL2 salió en `86ee9bdb` con su ficha
+ * cerrada (✅): sigue en el registro, y la paridad exige que esté cerrada y fuera de la lista. ⛔ Borrar un id del registro para
  * quitar su entrada es debilitar el candado: la ficha se cierra en TECH_DEBT (su dueño) y entonces sale de la lista.
  * Formato del índice (medido 2026-10-23): fila `| ID | Qué | Dueño | Medido el | Comprobación |`; cerrada = `✅` en la
  * celda ID o «Qué» que empieza por «CERRADA»; si no, abierta.
@@ -203,19 +203,26 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     expect(encenderParityProblems(ENCENDER_BLOCKERS, md, ENCENDER_REGISTRY)).toEqual([]);
   });
 
-  it('el parser lee el índice real: MKT-TL2 abierta, MKT-TD1 cerrada (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
-    expect(fichaState(md, 'MKT-TL2')).toBe('open');
+  it('el parser lee el índice real: MKT-F2-4 abierta, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
+    expect(fichaState(md, 'MKT-F2-4')).toBe('open');
+    expect(fichaState(md, 'MKT-TL2')).toBe('closed');
     expect(fichaState(md, 'MKT-TD1')).toBe('closed');
     expect(fichaState(md, 'TL-MKT2b-f')).toBe('closed');
     expect(fichaState(md, 'NO-EXISTE-0')).toBe('missing');
   });
 
-  // Canario sobre el índice REAL: el defecto de SEC-MKT-2 (quitar MKT-TL2 de la lista con la ficha abierta) muerde.
-  it('canario: sin la entrada MKT-TL2 (ficha abierta) ⇒ rojo', () => {
-    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-TL2');
+  // Canario sobre el índice REAL: el defecto de SEC-MKT-2 (quitar una entrada de la lista con la ficha abierta) muerde.
+  it('canario: sin la entrada MKT-F2-4 (ficha abierta) ⇒ rojo', () => {
+    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-F2-4');
     expect(encenderParityProblems(without, md, ENCENDER_REGISTRY)).toEqual([
-      'MKT-TL2: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
+      'MKT-F2-4: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
     ]);
+  });
+
+  // Canario sobre el índice REAL: devolver MKT-TL2 (ficha cerrada en 86ee9bdb) a la lista ⇒ rojo.
+  it('canario: con la entrada MKT-TL2 de vuelta (ficha cerrada) ⇒ rojo', () => {
+    const back = [...ENCENDER_BLOCKERS, { id: 'MKT-TL2' }];
+    expect(encenderParityProblems(back, md, ENCENDER_REGISTRY)).toEqual(['MKT-TL2: en ENCENDER_BLOCKERS con ficha closed en TECH_DEBT']);
   });
 
   it('canario (sintético): ficha cerrada con la entrada viva, entrada sin registrar y ficha desaparecida ⇒ rojo', () => {
