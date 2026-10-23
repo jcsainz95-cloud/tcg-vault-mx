@@ -83,14 +83,14 @@ describe('/preguntas (§E4)', () => {
     const faq = node(jsonLdOf(container), 'FAQPage') as {
       mainEntity: { name: string; acceptedAnswer: { text: string } }[];
     };
-    expect(visibleQ).toHaveLength(23);
+    expect(visibleQ).toHaveLength(24);
     expect(faq.mainEntity.map((q) => q.name)).toEqual(visibleQ);
     expect(faq.mainEntity.map((q) => q.acceptedAnswer.text)).toEqual(visibleA);
   });
 
   it('«Última revisión: <fecha>» visible + BreadcrumbList con URL absolutas', async () => {
     const { container, getByText } = render(await PreguntasPage({ params: params('es') }));
-    expect(getByText('Última revisión: 2026-10-11 · manual v5')).toBeVisible();
+    expect(getByText('Última revisión: 2026-10-20 · manual v8')).toBeVisible();
     const bc = node(jsonLdOf(container), 'BreadcrumbList') as {
       itemListElement: { item: string }[];
     };
@@ -103,7 +103,7 @@ describe('/preguntas (§E4)', () => {
   it('en: aviso en inglés de que el contenido está en español', async () => {
     const { getByText } = render(await PreguntasPage({ params: params('en') }));
     expect(getByText('This content is available in Spanish only.')).toHaveAttribute('lang', 'en');
-    expect(getByText('Last reviewed: 2026-10-11 · manual v5')).toBeVisible();
+    expect(getByText('Last reviewed: 2026-10-20 · manual v8')).toBeVisible();
   });
 
   it('con todas las FAQ vencidas: estado vacío y SIN FAQPage', async () => {
@@ -117,7 +117,7 @@ describe('/preguntas (§E4)', () => {
 describe('/como-funciona (§E4)', () => {
   it('pinta las respuestas compuestas, «Última revisión» y WebPage sin FAQPage duplicado', async () => {
     const { container, getByText } = render(await ComoFuncionaPage({ params: params('es') }));
-    expect(getByText('Última revisión: 2026-10-11 · manual v5')).toBeVisible();
+    expect(getByText('Última revisión: 2026-10-20 · manual v8')).toBeVisible();
     const text = container.textContent ?? '';
     expect(text).toContain('Cotizar es gratis, sin cuenta y sin compromiso.');
     expect(text).toContain('Su costo es una tarifa fija que se descuenta de lo que te pagamos');
