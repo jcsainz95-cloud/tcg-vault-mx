@@ -32285,36 +32285,16 @@ el argumento de imposibilidad** (*«el cotejo tiene que vivir en el pago porque 
   el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40**, que **está cerrada con «no
   existe fuente»**. *Un enum con un valor llamado `verified` es una invitación permanente a construirle encima una
   regla; por eso la advertencia vive en el DTO y no solo aquí.*
-- ⚠️ ~~**Encargo a frontend/ux-ui (revisión, no cambio obligatorio):** `kycStatus` **hoy NO se pinta en ninguna superficie
-  de vendedor** —medido: en `(storefront)` solo aparece en tests— **y así debe seguir.** Pintarle *«verificado»* al
-  vendedor **afirmaría un acto que no existe**, que es lo que el **criterio 183(c)** prohíbe.~~ El **badge de M6 (admin)**
-  se queda: ahí el lector sabe qué está mirando, y el dueño de esa pantalla es back-office.
-  > ⚠️⚠️ **v1.69 — ESTE BULLET QUEDA DEROGADO POR DOS RAZONES, Y LA PRIMERA ES QUE YA ERA FALSO.**
-  > **(1) Medición 2026-09-11:** el KYC **sí se pinta al vendedor** desde Stream A — `KycSection.tsx:69,84-85`
-  > (`getBadgeSpec('kyc', data.kycStatus)`), en la pantalla de cuenta. *La afirmación envejeció cuando se construyó la
-  > pantalla que este contrato pedía.*
-  > **(2) Y ahora DEBE pintarse**, porque es la mitad del ciclo que P-78 cierra: un cliente que subió su INE y ve
-  > «Pendiente» **sin ninguna acción** es el hallazgo del dueño. **Qué se pinta en cada estado y qué acción se ofrece
-  > es NORMATIVO y está en [`§M6-K.7`](#M6-K)** — incluido **`rejected` + su motivo**, que es lo que le permite
-  > corregir. **El criterio 183(c) sigue vigente y se respeta:** `'verified'` ya **no** afirma un acto inexistente
-  > (§M6-K lo crea), y ⛔ **ninguna superficie puede decir que cotejamos la CLABE contra un titular** — eso sigue sin
-  > existir y sigue prohibido decirlo.
+- **Superficies de `kycStatus` (v1.69):** el **badge de M6 (admin)** se queda. Al vendedor **sí se le pinta** (cuenta,
+  `KycSection.tsx`), y qué se pinta en cada estado y qué acción se ofrece —incluido **`rejected` + su motivo**— es
+  **NORMATIVO en [`§M6-K.7`](#M6-K)**. Criterio **183(c)** vigente: ⛔ **ninguna superficie puede decir que cotejamos la
+  CLABE contra un titular**.
 - ⚠️ **Deuda cosmética registrada, NO bloqueante:** el **nombre** del enum (`verified`) es peor que su conducta —**misma
   familia exacta que `CLABE_NOT_OWN_NAME`**— y por la **misma razón no se renombra hoy**: sería DDL + romper a frontend
   por un cambio de vocabulario. **Se registra; no se hace.**
 
-**K.4 — 🗄️ (v1.59) COSTE OPERATIVO Y CONTEO PRE-MERGE — ⛔ SIN OBJETO TRAS D51. NO SE CORRE.**
-> **Se conserva tachado como registro de lo que el control habría costado**, y porque **ese coste es parte de por qué
-> la decisión de retirarlo fue correcta**: el control introducía **un paso humano obligatorio entre la recepción y el
-> pago para toda solicitud sobre el umbral**, sobre una **población que D46 hace crecer**, **a cambio de nada
-> comprobable**. ⛔ **La consulta de abajo NO se ejecuta y NO bloquea ningún merge.**
-```sql
--- ⛔ RETIRADA (v1.60, D51). Conservada solo como registro. NO se corre.
--- SELECT count(*) FROM "SellRequest" s
---  WHERE s."ineRequired" = true
---    AND NOT EXISTS (SELECT 1 FROM "KycProfile" k
---                     WHERE k."userId" = s."userId" AND k."kycStatus" = 'verified');
-```
+**K.4 — 🗄️ (v1.59) COSTE OPERATIVO Y CONTEO PRE-MERGE — ⛔ SIN OBJETO TRAS D51. NO SE CORRE** y no bloquea ningún
+merge. La consulta retirada está en `git`.
 
 **K.6 — QA: esto se verifica POR AUSENCIA, y el contra-caso es obligatorio.**
 1. **Nada de KYC bloquea el dinero** *(criterio 183(a))*: solicitud **sobre el umbral**, con **INE en archivo**, con
@@ -37099,32 +37079,8 @@ salesPeriod = {
 
 ##### <a id="M10-IVA6"></a>§M10-IVA.6 — Orden de entrega, para el orquestador — ⛔⛔ **DEROGADA POR [§M10-IVA.9](#M10-IVA9) (v1.74, D56)**
 
-> ⛔⛔ **ESTA SUBSECCIÓN YA NO ES NORMATIVA. Se conserva ENTERA y sin tachar porque es el registro de lo que v1.64
-> decidió y de POR QUÉ, y porque su reparto de trabajo (qué toca backend, qué toca frontend, qué candado cubre qué)
-> **sigue siendo exacto**: lo único que muere es la FRONTERA entre las dos columnas.**
-> **El dueño decidió UN SOLO DESPLIEGUE** (`PROJECT §Q.10.e`, pregunta **82**: *«haz el cambio de una vez cuando
-> despliegues»*). ⇒ **la columna «Deploy 1» y la columna «Deploy 2» son el MISMO corte**, y **los ONCE candados
-> corren aquí**. La norma vigente es **[§M10-IVA.9](#M10-IVA9)**.
-> **Por qué el motivo murió, con su medición:** el escalonado existía *«para no mover el desglose de pedidos ya
-> cobrados»*, y el dueño estableció que **no hay ninguno** (*«la tienda no ha procesado ninguna venta real»*,
-> `HECHOS.md` 2026-09-14). **Una cautela que protege un conjunto vacío no protege nada.**
-> ⚠️ **Lo que NO muere con ella:** `decks-meta-v1` (criterio **197**) sigue exigiendo **implementado Y PUBLICADO EN
-> PRODUCCIÓN**; con un solo despliegue eso ocurre **antes**, ⛔ **no por defecto**.
-
-**Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
-PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
-
-| | Deploy 1 | Deploy 2 |
-|---|---|---|
-| Backend | `M-50` entera + `netRevenueCents` cableado + escribe `IVA_EXCLUSIVE` | deriva `P`, escribe `IVA_INCLUSIVE`, emite los tres campos, abre §M10-IVA.2 |
-| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188), la tarjeta **bruto/neto** (§M10-IVA.7) y arregla el mock (criterio 196) |
-| Contrato observable | **CERO cambios** | §M10-IVA.3, §M10-IVA.4 y §M10-IVA.7 |
-| Candados a correr | `IVA-3`, `IVA-5` | los **once** |
-
-⚠️ **v1.64(3) — lo que entra en D-2 y NO estaba en la lista de v1.64:** la fórmula corregida de `netRevenueCents`
-(`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
-**bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
-promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
+> ⛔⛔ **No normativa.** El reparto en dos despliegues de v1.64 murió con la decisión **82** (un solo despliegue,
+> `PROJECT §Q.10.e`). El reparto vigente es la tabla de [§M10-IVA.9.c](#M10-IVA9); el texto anterior está en `git`.
 
 ##### <a id="M10-IVA9"></a>§M10-IVA.9 — ⭐⭐ **D56: UN SOLO DESPLIEGUE, Y LA PUERTA DEL DIAL ABRE EN ESTE CORTE** (v1.74, **NORMATIVO, DINERO**; `PROJECT §Q.10.e`, criterios **213** y **214**)
 
@@ -37776,16 +37732,11 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
   no exista, SP.6 es el mínimo: se cobra el precio **actual**, pero solo después de mostrarlo. Cuando §X se construya,
   sustituye esta regla (el aviso desaparece porque el precio visto se respeta). Registrado en `ARCHITECTURE §9` `D-SP-2`.
 
-**SP.7 · Migración `M-71` — `prisma/migrations/20261021120000_m71_sealed_product_owner_price/migration.sql`.**
-> ⛔ **v1.83.1 (E-7): este SQL queda SUSTITUIDO por [SP.12.12](#M11-SP-12)** (columna `ownerDisplayPriceCents`, **sin
-> relleno**). Se conserva abajo solo como registro de lo descartado.
+**SP.7 · Migración `M-71`.** ⛔ **v1.83.1 (E-7): el DDL, el relleno y el rollback de aquí quedan SUSTITUIDOS por
+[SP.12.12](#M11-SP-12)** (columna `ownerDisplayPriceCents`, **sin relleno**; lo descartado está en `git`). Queda solo
+la consulta previa que SP.12.12 cita: el dueño (o un usuario de solo lectura) la corre **antes** del despliegue para
+contar productos con precio por pieza común o distinto (NO MEDIDO en producción).
 ```sql
-ALTER TABLE "SealedProduct" ADD COLUMN "ownerSalePriceCents" INTEGER;
-ALTER TABLE "SealedProduct" ADD CONSTRAINT "sealed_product_owner_price_range"
-  CHECK ("ownerSalePriceCents" IS NULL OR ("ownerSalePriceCents" BETWEEN 1 AND 100000000));
-
--- Relleno que NO mueve ningún precio efectivo: solo donde TODAS las piezas en existencia del producto ya tienen
--- el MISMO listPriceCents > 0 (con el peldaño 1 = ese valor, cada pieza cobra exactamente lo mismo que hoy).
 WITH live AS (
   SELECT "sealedProductId" AS pid, "listPriceCents" AS lp
     FROM "InventoryItem"
@@ -37795,29 +37746,11 @@ WITH live AS (
   SELECT pid, count(*) AS n, count(*) FILTER (WHERE lp > 0) AS n_manual,
          min(lp) FILTER (WHERE lp > 0) AS mn, max(lp) FILTER (WHERE lp > 0) AS mx
     FROM live GROUP BY pid
-), filled AS (
-  UPDATE "SealedProduct" sp SET "ownerSalePriceCents" = agg.mn
-    FROM agg
-   WHERE sp.id = agg.pid AND agg.n = agg.n_manual AND agg.mn = agg.mx AND agg.mn BETWEEN 1 AND 100000000
-  RETURNING sp.id, sp."ownerSalePriceCents"
 )
-INSERT INTO "AuditLog" ("id", "actorUserId", "actorRole", "action", "entityType", "entityId", "before", "after", "createdAt")
-SELECT 'm71-' || id, NULL, NULL, 'sealed_product.sale_price_backfilled', 'SealedProduct', id,
-       jsonb_build_object('ownerSalePriceCents', NULL),
-       jsonb_build_object('ownerSalePriceCents', "ownerSalePriceCents", 'source', 'migration:M-71'), now()
-  FROM filled;
+SELECT * FROM agg;
 ```
-- `id` determinista (`'m71-' || productId`): ⛔ sin `gen_random_uuid()` (versión de Postgres de producción NO MEDIDA).
-  Columnas de `AuditLog` leídas en `schema.prisma:1974-1990` (`before`/`after` `Json?` ⇒ `jsonb`: tipo físico NO MEDIDO;
-  backend lo confirma en la migración generada).
-- Productos con precios **distintos** por pieza, o mezcla de pieza con precio y pieza automática: **no** se rellenan;
-  la hoja los muestra con `legacyPiecePrices` y el dueño decide. ⛔ Nunca «el mayor» ni «el más reciente».
-- **Despliegue:** la migración es aditiva; el código viejo ignora la columna. **Antes** de desplegar, el dueño (o un
-  usuario de solo lectura) corre el `SELECT` de `agg` para saber cuántos productos se rellenan y cuántos quedan con
-  precios distintos (NO MEDIDO en producción). **Rollback:** código anterior + `ALTER TABLE "SealedProduct" DROP COLUMN
-  "ownerSalePriceCents"` (el CHECK cae con ella); las piezas conservan su `listPriceCents` ⇒ los precios vuelven a ser
-  exactamente los de antes. Los precios fijados por el dueño **después** del despliegue se pierden con el rollback (están
-  en la bitácora para re-teclearlos).
+- ⛔ Con precios **distintos** por pieza nunca se elige «el mayor» ni «el más reciente»: la hoja los muestra con
+  `legacyPiecePrices` y el dueño decide.
 
 **SP.8 · Pruebas que deben fallar hoy, con su mutación.** Deterministas ⇒ N=1 es medida; las ⭐ son carreras (N ≥ 10
 forzada + N ≥ 10 suelta, proporción). Mutaciones sobre **copia del árbol ENTERO** (O-9).
