@@ -10,9 +10,8 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
-> **Revisiones de [§MKT](#MKT) (una línea cada una; el detalle vive en su sección, la historia en git).** ⚠️ Hay dos v1.96
-> distintas, ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 el número no se repite: la
-> siguiente revisión, de cualquier sección, es **v1.108**.
+> **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y
+> ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite: la siguiente, de cualquier sección, es **v1.109**.
 > - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
 > - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
 > - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
@@ -22,6 +21,7 @@
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
 > - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
 > - v1.107⟨mkt-celdas⟩ · 2026-10-19 · §MKT.H.14: umbral por componente y por sujeto, orden sin valores ocultos, registro de poblaciones y ecuaciones, auditor de rango; g1 sobre `PAID_ORIGIN`; §MKT.G.5/.10, C-P1 y .13 ajustados; compactados §MKT intro/.E/.F/.G.1/.G.8/.H.7/.H.12 · seguridad (SEC-MKT-1, MKT-TL2; rechazo sobre `bfd91ab2`).
+> - v1.108⟨mkt-celdas-r⟩ · 2026-10-23 · §MKT.H.14: ratificadas cuatro lecturas de backend (R3b por anillos, X1 sin ceros, familias unidas solo por totales aceptados, espejo `BACKEND_ENCENDER_BLOCKERS` en ARCHITECTURE §14.1); sin cambio de código · backend (MKT-TL2).
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -45831,7 +45831,6 @@ Las seis de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, Card Show, `cli
 
 | Rol | Cambio | Prueba que lo vigila |
 |---|---|---|
-| backend | §MKT.H.14 entero: registro, `subjects`, b1-b3 por componente, d1/d3 por sujeto, R0, familias, g1 sobre `PAID_ORIGIN` | pruebas 1-3 de §MKT.H.14 |
 | frontend | `ENCENDER_BLOCKERS` += `SEC-MKT-1` y `MKT-TL2` (owner backend; `closedBy` = prueba 2 y pruebas 1+3); salen en el commit de frontend que sigue al verde de backend | `measurement-gate.test.ts` (lista exacta, `:109`) |
 | frontend | fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$ (ya se pinta por celda, `MarketingTable.tsx:35`; falta el caso), también en el mock de b | `MarketingTable.test.tsx` |
 
@@ -45851,14 +45850,15 @@ dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5 y f3
 - **R3 · Complementaria.** (a) *Local*, como hoy: una columna de conteo con una sola oculta oculta también la visible más chica
   (≠ 0; desempate por clave): tabla de un componente ⇒ «Otros (< 5 c/u)» (`applySmallCells`); b1-b3 ⇒ en su sitio, `'oculta'` con
   su MX$ (b1-b3 no tienen «Otros»). (b) *De familia*, hasta punto fijo (solo oculta ⇒ termina): mientras una celda con `N<5` sea
-  **despejable**, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla, clave, columna) que comparta ecuación con
-  ella, ⛔ nunca un total aceptado. Sin candidata ⇒ X1.
+  **despejable**, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla, clave, columna) del primer anillo que tenga
+  visibles: anillo 1 = celdas de sus ecuaciones; anillo k+1 = las de las ecuaciones de las ocultas del anillo k (la cadena por la que
+  se despeja; caso «g1 pareja en b2»). ⛔ Nunca un total aceptado. Sin candidata en ningún anillo ⇒ X1.
 - **R4 · Identidad:** dos celdas declaradas idénticas comparten estado (oculta una ⇒ `'oculta'` la otra), dentro del punto fijo.
 - **Despejable** (una definición; servicio y prueba la implementan por separado): visibles = constantes, ocultas = incógnitas; la
   celda lo es si su vector unitario está en el espacio de filas de las ecuaciones de abajo (eliminación exacta con racionales
   `bigint`; ⛔ coma flotante). Las cotas (`'< 5'` ∈ 1..4) no entran.
-- **X1 (por diseño):** un **conteo** que sigue despejable aunque se oculten todas las celdas con dimensión del periodo (b1 de una
-  fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
+- **X1 (por diseño):** un **conteo** que sigue despejable aunque se oculten todas las celdas con dimensión del periodo y valor ≠ 0
+  (un 0 no se oculta, R1/R3; b1 de una fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
   confirma X1 y X2 en la re-medición.
 
 **Poblaciones:** `PAID` = `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}` · `PAID_ORIGIN` = `PAID` ∧
@@ -45881,7 +45881,8 @@ creada en el periodo · `REQ_ORIGIN` = `REQ` ∧ `firstUtmSource IS NOT NULL` ·
 `mxnPedidos`) · E5 `b3[Mensaje directo (dm)] ≡ b2[Mensaje directo]` · E6 `a4[g] ≡ b4[g]` para Google orgánico y Asistentes de IA,
 y `b4[Asistentes de IA] = Σ e3` · E7 `a5[Sesiones] = Σ a4 = Σ c5` · T (solo en la prueba 3) mes = Σ semanas en febrero 2027.
 E6/E7 son exactas en la fixture (sin `medium=paid` en fuentes de Google o IA, sin corte por `limit`); en datos reales casi, y R4
-las trata igual. **Familias:** {b1, b2, b3, g1, f3}, {a1, a5, f3, c7} y {a4, a5, b4, c5, e3} se calculan juntas por periodo y
+las trata igual. **Familias:** {b1, b2, b3, g1, f3}, {a1, a5, f3, c7} y {a4, a5, b4, c5, e3}, cada una aparte (solo las unen
+totales aceptados, constantes aunque su tabla no se publique; el auditor de la prueba 3 resuelve E1-E7 juntas), por periodo y
 régimen, pida la pantalla que pida: g1 vale lo mismo en `panel?pantalla=g`, `aggregates` y `export/todo`.
 
 **Fila de b1-b3:** `{<clave>, pedidos: number|'< 5'|'oculta', mxnPedidos: number|'oculta', solicitudes: …, mxnOfertado: …}`;
@@ -45892,20 +45893,19 @@ mxnOfertado:700}`. Nota: «Pedidos y solicitudes se ocultan por separado: menos 
 ReadonlySet<CellId>)`; `marketing-populations.ts` (fuente en código del registro): `MARKETING_POPULATIONS`, `MARKETING_TABLES`,
 `MARKETING_EQUATIONS`, `ACCEPTED_TOTALS`, `exposedCells(cells, equations): CellId[]`, `enforceFamily(plan)`.
 
-**Pruebas (backend; QA las ejecuta). Las tres ROJAS sobre `bfd91ab2`:**
+**Pruebas (backend; QA las ejecuta; rojas sobre `bfd91ab2`):**
 1. `test/marketing-populations.registry.spec.ts` (MKT-TL2 a): 8 pantallas × semana/mes × modo off/on con dobles GA4/SC ⇒ todo
    `tables[].id` en `MARKETING_TABLES`; toda columna no `text` medida en un componente o en «exactas»; toda población con oráculo en
-   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo. Hoy rojo: no hay registro.
+   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo.
 2. `test/marketing-small-cells.by-component.spec.ts` (SEC-MKT-1, R0, R1): la sonda literal de seguridad (2026-W41, `instagram/paid/
    pieza-x`) ⇒ ninguna celda de b1-b3 ni g1 vale `12345.67` y `pedidos` es `'< 5'`; el caso 1 + 7; d1, un pedido de 5 piezas ⇒ `'< 5'`
-   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles. Hoy rojo (sonda).
+   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles.
 3. `test/marketing-cross-table.audit.spec.ts` (MKT-TL2 b, c): servicio real con Prisma de dobles sembrado, todas las pantallas del
    periodo; auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E7 literal y exige `MARKETING_EQUATIONS`
    igual). Rojo si: (D1) conteo visible con oráculo `0<N<5`; (D2) MX$ visible de un componente oculto; (A1) celda con `N<5` despejable
    fuera de X1; (A2) MX$ con `N<5` despejable. Casos: «SEC-MKT-1», «b2 7 = b1 6 + 1, pareja fuera de la puerta», «g1 pareja en b2»,
    «b3 dm ≡ b2 dm», «a3 pagadas 1..4», «c7↔a1», «febrero 2027 [3,6,6,6] en b1 con f3»; semillas fijas 1..200 (componentes 1-4 y
-   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida. Hoy rojo
-   en «SEC-MKT-1» (D1) y «b2 7 = b1 6 + 1» (A1, A2).
+   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida.
 
 **Terminado:** las tres rojas sobre `bfd91ab2` por su motivo y verdes en el sha nuevo, con toda `test/marketing-*` verde; ablaciones
 deterministas (N=3 cada una): b1-b3 de vuelta a un componente con `count: e.o + e.s` ⇒ 2 y 3 rojas; quitar E3 ⇒ 3 roja;

@@ -37004,8 +37004,8 @@ no encender vive como dato en `measurement-gate.ts`, no en una nota:
 `ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
 (`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
 problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
-cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Basta con la
-puerta de Vercel: con el frontend apagado no viaja `measurement` y ningún pedido tiene consentimiento, así que el backend no encola nada (§14.6).
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Fuente: esta
+lista; `BACKEND_ENCENDER_BLOCKERS` (SEC-MKT-3, `on` ⇒ `off` efectivo) es espejo aceptado de sus entradas de backend, por paridad (`measurement.encender-gate.spec.ts`).
 
 **Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
 su forma (API_CONTRACT §MKT.H.1). GA4 sin `GA4_MEASUREMENT_ID` o sin `GA4_MP_API_SECRET` ⇒ no se encola nada para GA4. Meta sin
