@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, needsSeed, skipIfSeedMissing, MONEY_RE } from './utils/auth';
-import { M5SeedUnavailable, SCENARIO_SELLER, sellerOfferedRequest } from './utils/m5-scenario';
+import { loginAs, needsSeed, MONEY_RE } from './utils/auth';
+import { SCENARIO_SELLER, sellerOfferedRequest } from './utils/m5-scenario';
 
 /**
  * **PORTAL DEL VENDEDOR — ver la oferta y responderla** (contrato §6 ·
@@ -117,14 +117,10 @@ async function openOfferedRequest(page: Page): Promise<void> {
  * directa: no se busca entre las solicitudes de nadie. En mock, la del fixture del `customer`, como antes.
  */
 async function loginAndOpenOwnOfferedRequest(page: Page): Promise<void> {
-  let id: string | null;
-  try {
-    id = await sellerOfferedRequest();
-  } catch (e) {
-    // Cupo mensual agotado o catálogo sin cartas: razón de ENTORNO ⇒ salto con motivo. Lo demás, rojo.
-    skipIfSeedMissing(e instanceof M5SeedUnavailable, e instanceof Error ? e.message : String(e));
-    throw e;
-  }
+  // Sin salto: el caso crea su propio dato. Si el entorno no da para crearlo (cupo mensual agotado,
+  // catálogo sin cartas), `M5SeedUnavailable` sube como ROJO con su razón impresa — no se apaga en
+  // verde (censo de saltos, scripts/check-e2e-skip-census.sh; rechazo de QA 2026-10-23).
+  const id = await sellerOfferedRequest();
   if (id === null) {
     await loginAs(page, 'customer');
     await openOfferedRequest(page);
