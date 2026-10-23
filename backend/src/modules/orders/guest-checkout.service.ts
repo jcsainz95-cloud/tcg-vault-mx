@@ -17,6 +17,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { OrdersService, OwnReservation } from './orders.service';
+import { frozenDirectShipBreakdownOf } from './frozen-breakdown';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
@@ -168,7 +169,7 @@ export class GuestCheckoutService {
     const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units));
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdown: DirectShipBreakdownDTO = frozenOrder
-      ? { ...this.orders.breakdownOf(frozenOrder), shippingFeeCents: frozenOrder.shippingFeeCents }
+      ? frozenDirectShipBreakdownOf(frozenOrder)
       : computed.breakdown;
     const vaultBreakdown = computed.vaultBreakdown;
     return {
@@ -434,7 +435,7 @@ export class GuestCheckoutService {
 
     const breakdown: DirectShipBreakdownDTO =
       outcome.kind === 'reused'
-        ? { ...this.orders.breakdownOf(order), shippingFeeCents: order.shippingFeeCents }
+        ? frozenDirectShipBreakdownOf(order)
         : outcome.breakdown;
 
     return {
@@ -899,15 +900,10 @@ export class GuestCheckoutService {
       })),
       // 💰 v1.86⟨accesorios⟩ (§AC.19.6): `OrderAccessoryLineDTO` (lista blanca; ⛔ `deliveredRefund`, costo, snapshot).
       accessoryLines: (order.accessoryLines ?? []).map((l) => toOrderAccessoryLineDTO(l)),
-      breakdown: {
-        subtotalCents: order.subtotalCents,
-        shippingFeeCents: order.shippingFeeCents,
-        ivaCents: order.ivaCents,
-        ivaRatePct: order.ivaRatePct,
-        processingFeeCents: order.processingFeeCents,
-        totalCents: order.totalCents,
-        currency: 'MXN' as const,
-      },
+      // QA-REL-1 (§4-G.3 → `BreakdownDTO` completo, §M10-IVA.4): el MISMO constructor que el resto de vistas del
+      // pedido, con `priceConvention`/`ivaIncluded` de la columna de ESTA orden. Antes se armaba a mano sin esos dos
+      // campos y el front pintaba el IVA de un pedido IVA_INCLUSIVE como sumando (D54, criterio 190).
+      breakdown: frozenDirectShipBreakdownOf(order),
       shipping: {
         // Dirección MÍNIMA: ciudad/estado + 2 últimos dígitos del CP + nombre abreviado.
         city: address.city ?? '',

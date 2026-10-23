@@ -264,6 +264,8 @@ describe('§4.34a.2(E) escape #2 — imagen del tracking de invitado (GuestTrack
     ivaCents: 0,
     ivaRatePct: 16,
     processingFeeCents: 0,
+    // QA-REL-1: el desglose del seguimiento exige la convención de la fila (no hay `??` por defecto).
+    priceConvention: 'IVA_EXCLUSIVE',
     paymentMethodBrand: null,
     paymentMethodLast4: null,
     locale: 'es',
