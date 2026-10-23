@@ -46,7 +46,7 @@ import {
   applySmallCellsByComponent,
   hiddenCellIds,
   hiddenKeys,
-  type CellId,
+  cellId,
   type ComponentRow,
   type SafeComponentRow,
   SMALL_CELL_HIDDEN,
@@ -57,6 +57,7 @@ import {
   type SafeRow,
 } from './small-cells';
 import { MarketingAnnotationsService, type EmbeddedAnnotation } from './marketing-annotations.service';
+import { enforceFamily, type FamilyCell } from './marketing-populations';
 import { weeksTouchingMonth, type DayRange, type MarketingPeriod, type MarketingScreen } from './marketing-period';
 import type { AggTable, Cell, ScreenPayload } from './marketing-aggregates.types';
 
@@ -168,6 +169,98 @@ export const c1UsersNote = (privacy: CellPrivacy): string =>
     ? `Sale «< 5» si ningún idioma llega a ${SMALL_CELL_THRESHOLD}, aunque entre los dos sí lleguen.`
     : `Si ningún idioma llega a ${SMALL_CELL_THRESHOLD}, sale el del idioma con más usuarios, y el real puede ser más alto.`);
 
+// ──────────────────────────────── Familias (§MKT.H.14 R2, R3b, R4; MKT-TL2) ────────────────────────────────
+
+/** Tablas con dimensión de cada familia que el servicio calcula junto (los totales aceptados son constantes). */
+type PartsTable = 'b1' | 'b2' | 'b3';
+type OneTable = 'g1' | 'c7' | 'a4' | 'b4' | 'c5' | 'e3';
+type FamilyGroup = 'origin' | 'states' | 'sessions';
+/** Columna de conteo de cada tabla de una parte (= su componente, `FamilyCell.part`). */
+const ONE_COUNT: Record<OneTable, string> = { g1: 'pedidos', c7: 'pedidos', a4: 'sesiones', b4: 'sesiones', c5: 'sesiones', e3: 'sesiones' };
+
+/** Filas crudas de una familia en un rango. Tabla ausente ⇒ no se publica en el periodo (`unmeasured`). */
+interface FamilyDims {
+  parts: Partial<Record<PartsTable, ComponentRow[]>>;
+  one: Partial<Record<OneTable, DimensionRow[]>>;
+  unmeasured: string[];
+}
+/** `forced`: lo que cada tabla recibe como oculto forzado (R2 + familia); `hidden`: lo que acaba oculto (clave o CellId). */
+interface FamilyResult {
+  dims: FamilyDims;
+  forced: Map<string, Set<string>>;
+  hidden: Map<string, Set<string>>;
+}
+
+const small = (n: number): boolean => n > 0 && n < SMALL_CELL_THRESHOLD;
+
+/** Estado LOCAL de cada tabla (R1, R2/forzadas, R3a): claves (una parte) o CellId (b1-b3). */
+function localHidden(d: FamilyDims, forced: Map<string, Set<string>>): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const [t, rows] of Object.entries(d.parts)) out.set(t, hiddenCellIds(rows!, forced.get(t)));
+  for (const [t, rows] of Object.entries(d.one)) out.set(t, hiddenKeys(rows!, forced.get(t)));
+  return out;
+}
+
+/** El plan de `enforceFamily`: una celda por (tabla, clave, columna). */
+function familyCells(d: FamilyDims, hidden: Map<string, Set<string>>): FamilyCell[] {
+  const cells: FamilyCell[] = [];
+  for (const [t, rows] of Object.entries(d.parts)) {
+    for (const r of rows!) {
+      for (const [part, p] of Object.entries(r.parts)) {
+        const h = hidden.get(t)!.has(cellId(r.key, part));
+        cells.push({ table: t, key: r.key, part, column: part, value: p.count, hidden: h, small: small(p.subjects) });
+        for (const [column, v] of Object.entries(p.money)) cells.push({ table: t, key: r.key, part, column, value: v, hidden: h, small: small(p.subjects) });
+      }
+    }
+  }
+  for (const [t, rows] of Object.entries(d.one) as [OneTable, DimensionRow[]][]) {
+    const part = ONE_COUNT[t];
+    for (const r of rows) {
+      const h = hidden.get(t)!.has(r.key);
+      cells.push({ table: t, key: r.key, part, column: part, value: r.count, hidden: h, small: small(r.subjects) });
+      for (const [column, v] of Object.entries(r.money)) cells.push({ table: t, key: r.key, part, column, value: v, hidden: h, small: small(r.subjects) });
+    }
+  }
+  return cells;
+}
+
+/**
+ * Punto fijo de una familia: estado local de cada tabla ⇒ `enforceFamily` (R3b, R4) ⇒ toda tabla a la que la familia oculta
+ * algo más recibe TODO su oculto como forzado (así R3a no suelta la pareja que tenía) ⇒ otra vuelta, hasta que nada cambie.
+ * Solo oculta ⇒ termina.
+ */
+export function solveFamily(d: FamilyDims, forced0: Map<string, Set<string>>): { forced: Map<string, Set<string>>; hidden: Map<string, Set<string>> } {
+  const forced = new Map([...forced0].map(([t, s]) => [t, new Set(s)]));
+  for (;;) {
+    const hidden = localHidden(d, forced);
+    const out = enforceFamily({ cells: familyCells(d, hidden), unmeasured: d.unmeasured });
+    const next = new Map<string, Set<string>>();
+    for (const c of out.cells) {
+      if (!c.hidden) continue;
+      const id = c.table in d.parts ? cellId(c.key, c.part) : c.key;
+      const set = next.get(c.table) ?? new Set<string>();
+      set.add(id);
+      next.set(c.table, set);
+    }
+    let grew = false;
+    for (const [t, ids] of next) {
+      if (ids.size > (hidden.get(t)?.size ?? 0)) {
+        forced.set(t, ids);
+        grew = true;
+      }
+    }
+    if (!grew) return { forced, hidden };
+  }
+}
+
+type Fam = (g: FamilyGroup) => Promise<FamilyResult>;
+
+/** Filas seguras de una tabla de una parte de la familia (R1-R4 ya resueltos); `null` ⇒ la tabla no se publica. */
+function familyRows(f: FamilyResult, t: OneTable, privacy: CellPrivacy): SafeRow[] | null {
+  const rows = f.dims.one[t];
+  return rows ? applySmallCells(rows, privacy, f.forced.get(t)) : null;
+}
+
 const SOURCE_LEGEND: Record<string, string> = {
   BD: 'Base de datos de la tienda (pedidos, solicitudes de buylist, stock, conteos de servidor)',
   GA4: 'GA4 Data API (solo sesiones que aceptaron analítica) — Fase 2',
@@ -271,22 +364,28 @@ export class MarketingAnalyticsService {
       notes: [this.measurement?.mode === 'on' ? COVERAGE_NOTE_ON : COVERAGE_NOTE],
       privacy,
     };
+    // Familias (§MKT.H.14): cada una se calcula UNA vez por llamada y entera, pida la pantalla que pida.
+    const memo = new Map<FamilyGroup, Promise<FamilyResult>>();
+    const fam: Fam = (g) => {
+      if (!memo.has(g)) memo.set(g, this.family(g, period, now, privacy));
+      return memo.get(g)!;
+    };
     // Catálogo y ORDEN de tablas: API_CONTRACT §MKT.G.4 (candado `marketing-panel.spec.ts`, §MKT.G.9 (6)).
     switch (screen) {
       case 'a':
-        return { ...base, previousPeriod: period.prev, tables: await this.screenA(period, now, privacy) };
+        return { ...base, previousPeriod: period.prev, tables: await this.screenA(period, now, privacy, fam) };
       case 'b':
-        return { ...base, tables: await this.screenB(period, now, privacy) };
+        return { ...base, tables: await this.screenB(period, now, privacy, fam) };
       case 'c':
-        return { ...base, tables: await this.screenC(period, now, privacy) };
+        return { ...base, tables: await this.screenC(period, now, privacy, fam) };
       case 'd':
         return { ...base, tables: await this.screenD(period, now, privacy) };
       case 'e':
-        return { ...base, tables: await this.screenE(period, now, privacy) };
+        return { ...base, tables: await this.screenE(period, now, privacy, fam) };
       case 'f':
         return { ...base, tables: [await this.f1Banner(period), await this.f3Coverage(period)] };
       case 'g':
-        return { ...base, tables: await this.screenG(period, privacy) };
+        return { ...base, tables: await this.screenG(period, privacy, fam) };
       case 'h':
         return { ...base, tables: this.screenH(annotations) };
     }
@@ -294,7 +393,7 @@ export class MarketingAnalyticsService {
 
   // ──────────────────────────────── Pantalla (a) Resumen ────────────────────────────────
 
-  private async screenA(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
+  private async screenA(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
     // a1/a2: TOTALES SIN DIMENSIÓN ⇒ exactos (§5.2). Reusa `sales-analytics` (ARCHITECTURE §13.4.5),
     // cuyo «periodo anterior» es de IGUAL DURACIÓN inmediatamente antes (= semana/mes previo).
     const report = await this.sales.report({ preset: 'custom', from: period.from, to: period.to, groupBy: 'day' }, now);
@@ -339,13 +438,13 @@ export class MarketingAnalyticsService {
 
     const a3 = await this.a3Buylist(period, privacy);
 
-    return [a1, a2, a3, await this.a4Visits(period, now, privacy), await this.a5Funnel(period, now)];
+    return [a1, a2, a3, await this.a4Visits(privacy, fam), await this.a5Funnel(period, now)];
   }
 
   /** a4 (§MKT.H.9) — sesiones por los cinco grupos de origen. */
-  private async a4Visits(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+  private async a4Visits(privacy: CellPrivacy, fam: Fam): Promise<AggTable> {
     const title = 'Visitas y de dónde (5 grupos)';
-    const safe = await this.ga4SafeRows(GA4_SPECS.sources, period, now, privacy, a4Rows);
+    const safe = familyRows(await fam('sessions'), 'a4', privacy);
     if (!safe) return this.notMeasured('a4', title, 'GA4', this.ga4Reason());
     return {
       id: 'a4',
@@ -469,21 +568,68 @@ export class MarketingAnalyticsService {
   }
 
   /**
-   * `safeRows` para tablas de VARIOS componentes (b1-b3, §MKT.H.14): umbral por componente y coherencia mes↔semanas por
-   * (clave, componente) (§MKT.G.10).
+   * Una familia de §MKT.H.14 en `period` (R2, R3b, R4). En un mes con `small_cells`, lo que cada tabla hereda de las semanas es
+   * su oculto FINAL en cada semana (la familia de la semana ya resuelta), por (tabla, clave, componente). En `exact`, solo las
+   * filas crudas.
    */
-  private async safeComponentRows(
-    period: MarketingPeriod,
-    privacy: CellPrivacy,
-    dimsOf: (p: DayRange) => Promise<ComponentRow[]>,
-  ): Promise<SafeComponentRow[]> {
-    const dims = await dimsOf(period);
-    if (privacy === 'exact') return applySmallCellsByComponent(dims, privacy);
-    const forced = new Set<CellId>();
+  private async family(g: FamilyGroup, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<FamilyResult> {
+    const dims = await this.familyDims(g, period, period, now);
+    if (privacy === 'exact') return { dims, forced: new Map(), hidden: new Map() };
+    const forced0 = new Map<string, Set<string>>();
     if (period.kind === 'month') {
-      for (const w of weeksTouchingMonth(period)) for (const id of hiddenCellIds(await dimsOf(w))) forced.add(id);
+      for (const w of weeksTouchingMonth(period)) {
+        const wd = await this.familyDims(g, w, period, now);
+        // Una semana sin datos de la fuente deja la tabla del mes sin medir (como hasta ahora, ga4SafeRows).
+        for (const t of wd.unmeasured) this.dropTable(dims, t);
+        for (const [t, ids] of solveFamily(wd, new Map()).hidden) {
+          const set = forced0.get(t) ?? new Set<string>();
+          for (const id of ids) set.add(id);
+          forced0.set(t, set);
+        }
+      }
     }
-    return applySmallCellsByComponent(dims, privacy, forced);
+    const { forced, hidden } = solveFamily(dims, forced0);
+    return { dims, forced, hidden };
+  }
+
+  private dropTable(d: FamilyDims, t: string): void {
+    if (d.unmeasured.includes(t)) return;
+    delete d.parts[t as PartsTable];
+    delete d.one[t as OneTable];
+    d.unmeasured.push(t);
+  }
+
+  /** Filas crudas de una familia en el rango `p`; `period` (el pedido) decide qué se mide. */
+  private async familyDims(g: FamilyGroup, p: DayRange, period: MarketingPeriod, now: Date): Promise<FamilyDims> {
+    const d: FamilyDims = { parts: {}, one: {}, unmeasured: [] };
+    if (g === 'origin') {
+      if (!(await this.originMeasured(period))) {
+        d.unmeasured.push('b1', 'b2', 'b3', 'g1');
+        return d;
+      }
+      const b = await this.bDims(p);
+      d.parts = b;
+      d.one.g1 = await this.g1Dims(p);
+      return d;
+    }
+    if (g === 'states') {
+      if (!c7Measurable(period)) d.unmeasured.push('c7');
+      else d.one.c7 = await this.c7Dims(p);
+      return d;
+    }
+    const put = (t: OneTable, rows: DimensionRow[] | null) => (rows ? (d.one[t] = rows) : d.unmeasured.push(t));
+    if (!this.ga4Live()) {
+      d.unmeasured.push('a4', 'b4', 'c5', 'e3');
+      return d;
+    }
+    const sources = await this.ga4(GA4_SPECS.sources, p, now);
+    put('a4', sources && a4Rows(sources));
+    put('b4', sources && b4Rows(sources));
+    const devices = await this.ga4(GA4_SPECS.devices, p, now);
+    put('c5', devices && c5Rows(devices));
+    const ai = await this.ga4(GA4_SPECS.aiReferrals, p, now);
+    put('e3', ai && e3Rows(ai));
+    return d;
   }
 
   // ──────────────────────────────── Pantalla (d) Catálogo ────────────────────────────────
@@ -782,16 +928,16 @@ export class MarketingAnalyticsService {
 
   // ──────────────────────────────── Pantalla (c) Comportamiento ────────────────────────────────
 
-  private async screenC(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
+  private async screenC(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
     return [
       await this.c1Pages(period, now, privacy),
       // Diferidas (§MKT.H.9): su motivo literal, en cualquier modo.
       this.notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', PAGE_TYPE_DEFERRED),
       this.notMeasured('c3', 'Dónde abandonan', 'GA4', ABANDON_DEFERRED),
       this.notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', BUY_BUTTON_DEFERRED),
-      await this.c5Devices(period, now, privacy),
+      await this.c5Devices(privacy, fam),
       this.notMeasured('c6', 'Búsquedas sin resultado', 'Srv', SEARCH_LOG_OFF),
-      await this.c7ByState(period, privacy),
+      await this.c7ByState(period, privacy, fam),
       this.notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', PAGE_TYPE_DEFERRED),
     ];
   }
@@ -842,9 +988,9 @@ export class MarketingAnalyticsService {
   }
 
   /** c5 (§MKT.H.9) — sesiones por dispositivo y navegador, tal cual (que GA4 distinga el de Instagram: NO VERIFICADO). */
-  private async c5Devices(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+  private async c5Devices(privacy: CellPrivacy, fam: Fam): Promise<AggTable> {
     const title = 'Dispositivo y navegador de Instagram';
-    const safe = await this.ga4SafeRows(GA4_SPECS.devices, period, now, privacy, c5Rows);
+    const safe = familyRows(await fam('sessions'), 'c5', privacy);
     if (!safe) return this.notMeasured('c5', title, 'GA4', this.ga4Reason());
     return {
       id: 'c5',
@@ -865,7 +1011,7 @@ export class MarketingAnalyticsService {
    * Pasa por `safeRows` como toda tabla con dimensión (techlead D1, 2026-10-18): hereda umbral, régimen y supresión
    * complementaria de `small-cells.ts` — ⛔ sin camino propio de celdas pequeñas.
    */
-  private async c7ByState(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable> {
+  private async c7ByState(period: MarketingPeriod, privacy: CellPrivacy, fam: Fam): Promise<AggTable> {
     const columns = [
       { key: 'estado', labelEs: 'Estado', kind: 'text' as const },
       { key: 'pedidos', labelEs: 'Pedidos', kind: 'count' as const },
@@ -881,7 +1027,7 @@ export class MarketingAnalyticsService {
         notMeasuredReason: C7_MIN_PERIOD,
       };
     }
-    const safe = await this.safeRows(period, privacy, (p) => this.c7Dims(p));
+    const safe = familyRows(await fam('states'), 'c7', privacy) ?? [];
     return {
       id: 'c7',
       title: 'Nº de pedidos por estado de envío',
@@ -1043,19 +1189,19 @@ export class MarketingAnalyticsService {
    * (b) Origen (§MKT.H.9). b1-b3: SOLO columnas de BD (pedidos pagados y MX$, solicitudes y MX$ ofertado por `first_utm_*`;
    * `dm` en una sola fila); se miden cuando `originMeasured`. b4: GA4.
    */
-  private async screenB(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
+  private async screenB(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
     const t1 = 'Origen por utm_*';
     const t2 = 'Instagram por puerta (bio, story, promoción, mensaje directo)';
     const t3 = 'Por pieza (utm_content)';
     const measured = await this.originMeasured(period);
     const b = measured
       ? [
-          await this.bTable('b1', t1, 'origen', 'Origen (utm_source / utm_medium)', period, privacy, bKeyOrigin),
-          await this.bTable('b2', t2, 'puerta', 'Puerta', period, privacy, bKeyDoor),
-          await this.bTable('b3', t3, 'pieza', 'Pieza (utm_content)', period, privacy, bKeyPiece),
+          this.bTable('b1', t1, 'origen', 'Origen (utm_source / utm_medium)', privacy, await fam('origin')),
+          this.bTable('b2', t2, 'puerta', 'Puerta', privacy, await fam('origin')),
+          this.bTable('b3', t3, 'pieza', 'Pieza (utm_content)', privacy, await fam('origin')),
         ]
       : [this.notMeasured('b1', t1, 'BD', ORIGIN_OFF), this.notMeasured('b2', t2, 'BD', ORIGIN_OFF), this.notMeasured('b3', t3, 'BD', ORIGIN_OFF)];
-    return [...b, await this.b4Channels(period, now, privacy)];
+    return [...b, await this.b4Channels(privacy, fam)];
   }
 
   /**
@@ -1063,49 +1209,8 @@ export class MarketingAnalyticsService {
    * (`PAID_ORIGIN`, sujeto = pedido) y `solicitudes`→`mxnOfertado` (`REQ_ORIGIN`, sujeto = solicitud). Cada componente con su
    * propio umbral (R1): ⛔ nunca la suma de los dos (SEC-MKT-1). Sin fila «Otros»: una fila parcial conserva su clave.
    */
-  private async bTable(
-    id: string,
-    title: string,
-    col: string,
-    label: string,
-    period: MarketingPeriod,
-    privacy: CellPrivacy,
-    keyOf: BKey,
-  ): Promise<AggTable> {
-    const dimsOf = async (p: DayRange): Promise<ComponentRow[]> => {
-      const range = mxRange(p.from, p.to);
-      const [orders, requests] = await Promise.all([
-        this.prisma.order.findMany({
-          where: { settledAt: range, status: { in: SOLD_STATUSES }, firstUtmSource: { not: null } },
-          select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, totalCents: true },
-        }),
-        this.prisma.sellRequest.findMany({
-          where: { createdAt: range, firstUtmSource: { not: null } },
-          select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, quotedTotalCents: true },
-        }),
-      ]);
-      const acc = new Map<string, { o: number; oc: number; s: number; sc: number }>();
-      const bump = (k: string | null, f: 'o' | 's', cents: number) => {
-        if (k === null) return;
-        const e = acc.get(k) ?? { o: 0, oc: 0, s: 0, sc: 0 };
-        if (f === 'o') (e.o += 1), (e.oc += cents);
-        else (e.s += 1), (e.sc += cents);
-        acc.set(k, e);
-      };
-      // Una fila de `findMany` = un pedido / una solicitud ⇒ el conteo ES el nº de sujetos distintos.
-      for (const o of orders) bump(keyOf(o.firstUtmSource, o.firstUtmMedium, o.firstUtmContent), 'o', o.totalCents);
-      for (const s of requests) bump(keyOf(s.firstUtmSource, s.firstUtmMedium, s.firstUtmContent), 's', s.quotedTotalCents);
-      return [...acc.entries()]
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, e]) => ({
-          key,
-          parts: {
-            pedidos: { count: e.o, subjects: e.o, money: { mxnPedidos: centsToPesos(e.oc) } },
-            solicitudes: { count: e.s, subjects: e.s, money: { mxnOfertado: centsToPesos(e.sc) } },
-          },
-        }));
-    };
-    const safe = await this.safeComponentRows(period, privacy, dimsOf);
+  private bTable(id: PartsTable, title: string, col: string, label: string, privacy: CellPrivacy, f: FamilyResult): AggTable {
+    const safe = applySmallCellsByComponent(f.dims.parts[id] ?? [], privacy, f.forced.get(id));
     // `exact` sale en orden real (MKT.G.2): pedidos desc, solicitudes desc, clave. En `small_cells` el orden es el de R0.
     const rows = privacy === 'exact' ? [...safe].sort((a, b) => num(b, 'pedidos') - num(a, 'pedidos') || num(b, 'solicitudes') - num(a, 'solicitudes') || (a.key < b.key ? -1 : 1)) : safe;
     return {
@@ -1131,10 +1236,52 @@ export class MarketingAnalyticsService {
     };
   }
 
+  /**
+   * b1-b3 en un rango: dimensión `keyOf(first_utm_*)` y DOS componentes por fila (§MKT.H.14): `pedidos`→`mxnPedidos`
+   * (`PAID_ORIGIN`, sujeto = pedido) y `solicitudes`→`mxnOfertado` (`REQ_ORIGIN`, sujeto = solicitud). Cada componente con su
+   * propio umbral (R1): ⛔ nunca la suma de los dos (SEC-MKT-1). Una sola lectura para las tres tablas.
+   */
+  private async bDims(p: DayRange): Promise<Record<PartsTable, ComponentRow[]>> {
+    const range = mxRange(p.from, p.to);
+    const [orders, requests] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { settledAt: range, status: { in: SOLD_STATUSES }, firstUtmSource: { not: null } },
+        select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, totalCents: true },
+      }),
+      this.prisma.sellRequest.findMany({
+        where: { createdAt: range, firstUtmSource: { not: null } },
+        select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, quotedTotalCents: true },
+      }),
+    ]);
+    const rowsOf = (keyOf: BKey): ComponentRow[] => {
+      const acc = new Map<string, { o: number; oc: number; s: number; sc: number }>();
+      const bump = (k: string | null, f: 'o' | 's', cents: number) => {
+        if (k === null) return;
+        const e = acc.get(k) ?? { o: 0, oc: 0, s: 0, sc: 0 };
+        if (f === 'o') (e.o += 1), (e.oc += cents);
+        else (e.s += 1), (e.sc += cents);
+        acc.set(k, e);
+      };
+      // Una fila de `findMany` = un pedido / una solicitud ⇒ el conteo ES el nº de sujetos distintos.
+      for (const o of orders) bump(keyOf(o.firstUtmSource, o.firstUtmMedium, o.firstUtmContent), 'o', o.totalCents);
+      for (const r of requests) bump(keyOf(r.firstUtmSource, r.firstUtmMedium, r.firstUtmContent), 's', r.quotedTotalCents);
+      return [...acc.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, e]) => ({
+          key,
+          parts: {
+            pedidos: { count: e.o, subjects: e.o, money: { mxnPedidos: centsToPesos(e.oc) } },
+            solicitudes: { count: e.s, subjects: e.s, money: { mxnOfertado: centsToPesos(e.sc) } },
+          },
+        }));
+    };
+    return { b1: rowsOf(bKeyOrigin), b2: rowsOf(bKeyDoor), b3: rowsOf(bKeyPiece) };
+  }
+
   /** b4 (§MKT.H.9) — Google orgánico, Directo, Referencias por dominio, Asistentes de IA (misma consulta que a4). */
-  private async b4Channels(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+  private async b4Channels(privacy: CellPrivacy, fam: Fam): Promise<AggTable> {
     const title = 'Google orgánico, directo, referencias e IA';
-    const safe = await this.ga4SafeRows(GA4_SPECS.sources, period, now, privacy, b4Rows);
+    const safe = familyRows(await fam('sessions'), 'b4', privacy);
     if (!safe) return this.notMeasured('b4', title, 'GA4', this.ga4Reason());
     return {
       id: 'b4',
@@ -1151,14 +1298,14 @@ export class MarketingAnalyticsService {
   }
 
   /** (e) Buscadores e IA — e1 de Search Console (no depende del aviso), e3 de GA4. */
-  private async screenE(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
-    return [await this.e1SearchConsole(period, now, privacy), await this.e3Ai(period, now, privacy)];
+  private async screenE(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
+    return [await this.e1SearchConsole(period, now, privacy), await this.e3Ai(privacy, fam)];
   }
 
   /** e3 (§MKT.H.9) — sesiones desde asistentes de IA (lista fija en código) por página de aterrizaje. */
-  private async e3Ai(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+  private async e3Ai(privacy: CellPrivacy, fam: Fam): Promise<AggTable> {
     const title = 'Referencias de asistentes de IA';
-    const safe = await this.ga4SafeRows(GA4_SPECS.aiReferrals, period, now, privacy, e3Rows);
+    const safe = familyRows(await fam('sessions'), 'e3', privacy);
     if (!safe) return this.notMeasured('e3', title, 'GA4', this.ga4Reason());
     return {
       id: 'e3',
@@ -1222,11 +1369,12 @@ export class MarketingAnalyticsService {
   }
 
   /** (g) g1 — compras pagadas con `first_utm_medium = paid` (Fase 2). N<5 ⇒ «< 5» sin MX$ (como a3 pagadas). */
-  private async screenG(period: MarketingPeriod, privacy: CellPrivacy): Promise<AggTable[]> {
+  private async screenG(period: MarketingPeriod, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
     if (!(await this.originMeasured(period))) {
       return [this.notMeasured('g1', 'Compras atribuidas a promociones (utm_medium=paid)', 'BD', ORIGIN_OFF)];
     }
-    const [row] = await this.safeRows(period, privacy, (p) => this.g1Dims(p));
+    // g1 con su familia (b1-b3): R4 la ata a b2[Promoción] (E4), también en `aggregates` y `export/todo`.
+    const [row] = familyRows(await fam('origin'), 'g1', privacy) ?? [];
     return [
       {
         id: 'g1',

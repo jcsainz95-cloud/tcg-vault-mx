@@ -237,6 +237,15 @@ describe('SEC-MKT-1 · b1-b3 y g1: umbral por componente (§MKT.H.14 R1)', () =>
   });
 });
 
+describe('MKT-TL9 · g1 es una tabla de una parte: R1 «N = 0 ⇒ 0»', () => {
+  it('g1 con 0 ⇒ 0 (pedidos y MX$ visibles en 0, no «< 5»), con medición encendida y pedidos de otro origen', async () => {
+    const w = empty();
+    for (let i = 0; i < 6; i++) w.orders.push(order({ settledAt: at('2026-10-06'), ...utm('instagram', 'bio', 'pieza-y') }));
+    const g1 = tableOf(await service(w)('g', W41), 'g1').rows[0];
+    expect({ pedidos: g1.pedidos, mxn: g1.mxn }).toEqual({ pedidos: 0, mxn: 0 });
+  });
+});
+
 describe('SEC-MKT-1 · d1/d3 cuentan sujetos distintos (§MKT.H.14 R1)', () => {
   it('d1: UN pedido de 5 piezas de la misma carta ⇒ «< 5» y MX$ «oculta» (pedidos, no piezas); 6 pedidos ⇒ 6 visibles', async () => {
     const w = empty();

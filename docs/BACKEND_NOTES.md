@@ -33188,15 +33188,14 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
   en `marketing-panel-privacy.spec.ts`. Las notas «< 5» de a3/d1/d3/d4b solo salen en `small_cells`.
 - §MKT.G.9 (9) sobre ficheros: la prueba lee las FILAS de la hoja `pantalla_<s>` (o del CSV), nunca «Info», que trae «< 5» en su
   nota de privacidad también en `exact` (techlead R3 sobre `62e8250b`: con `fileText()` sobre todo el libro, xlsx en `exact` seguía verde).
-- Celdas (§MKT.H.14): el umbral mira `DimensionRow.subjects` (obligatorio), no `count`: d1 = pedidos distintos (publica piezas),
-  d3 = usuarios distintos (publica altas; `groupBy` por carta y usuario). b1-b3: `applySmallCellsByComponent` + `hiddenCellIds`
-  (umbral, coherencia y complementaria local por (clave, componente); 0 ⇒ 0). R0: visibles en orden de entrada, ocultas al final
-  por clave (b1-b3: pedidos desc, solicitudes desc, clave; oculto después). g1 exige `firstUtmSource` (g1 ≡ b2[Promoción]).
-  Fuera de b1-b3 un conteo 0 sigue saliendo «< 5» (más conservador que R1; se alinea con la prueba 3). Registro de poblaciones:
-  `marketing-populations.ts` (prueba 1). `safeRows()`/`safeComponentRows()`: en un MES `small_cells` recalculan la MISMA
-  función por semana (`weeksTouchingMonth`) y fuerzan `'oculta'` en lo oculto en alguna semana.
-  c7 (`c7Dims`) da filas ya agrupadas (estados ≥ umbral, «Otros estados», «Recogida en persona») y devuelve `[]` para menos de
-  4 semanas: c7 semanal no se publica, así que el mes no hereda ocultas de semanas.
+- Celdas (§MKT.H.14): el umbral mira `DimensionRow.subjects` (d1 pedidos distintos, d3 usuarios distintos); `plan` (una
+  parte) es el caso de un componente de `planByComponent` (R1 0 ⇒ 0, R3a pareja ≠ 0; MKT-TL9). Familias (MKT-TL2):
+  b1-b3+g1, c7 y a4/b4/c5/e3 salen de `family()` en el servicio: estado local ⇒ `enforceFamily` (R3b, R4, `MARKETING_EQUATIONS`
+  en `marketing-populations.ts`) ⇒ punto fijo; en un mes, R2 hereda el oculto FINAL de cada semana. Lectura de R3b: si las
+  ecuaciones de la celda no tienen visible, la pareja se busca por la cadena de ocultas (si no, «sin candidata» sería falso X1).
+  X1 = conteo despejable aun ocultando toda celda ≠ 0. c7 (`c7Dims`) da filas agrupadas y `[]` con menos de 4 semanas.
+- SEC-MKT-3: `MEASUREMENT_MODE=on` con `BACKEND_ENCENDER_BLOCKERS` abiertos ⇒ modo efectivo `off` + línea
+  `MEASUREMENT_ENCENDER_BLOCKED` (no tumba el arranque). Paridad con el frontend y TECH_DEBT: `measurement.encender-gate.spec.ts`.
 - Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
   puede salir 400 los primeros días del mes (p. ej. `2026-10` hasta el lunes 2-nov).
 - d4b: solicitudes DISTINTAS (no líneas) creadas en el periodo que incluyen la carta; sin MX$.
@@ -33204,11 +33203,6 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
   revocación cambia la fila y deja bitácora). `verify()` sin caché ⇒ la siguiente llamada da 401.
 - Limitador (MKT-TL1): barrido una vez por ventana + cota dura 10 000 claves.
 
-**Abierto, con medición.**
-- MKT-TL2 (docs/TECH_DEBT.md): falta la prueba 3 (auditor por ecuaciones). Caduca 2026-11-30: `marketing-tl2.expiry.spec.ts`.
-
 **Para el arquitecto.** c7 en `exact` da las claves de `small_cells` sin «Otros» (§MKT.G.9 (8)); un estado por fila sería regla 9.
 
-**Verificación de §MKT.G.** Última suite completa propia: `374647c6` (515/515 suites, 8936/8936); lotes de ablación
-N=10 sobre `89b469d4`, `374647c6` y `f63dbd8e` (todas las mutaciones 10/10 rojo, controles 0/10). Tablas detalladas en la
-versión de este fichero de `f63dbd8e`.
+**Verificación de §MKT.G.** Ablaciones N=10 sobre `89b469d4`, `374647c6` y `f63dbd8e` (10/10 rojo); tablas en `f63dbd8e`.

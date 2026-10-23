@@ -81,7 +81,8 @@
 | MKT-TD2 | c7 lee `shippingAddressSnapshot.state` (texto libre) en cada consulta | backend (+ arquitecto: migración) | 2026-10-18 | columna `Order.shippingStateCode` (catálogo de 32 estados MX) en una migración **+** `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (hoy ⇒ 2, en `c7Dims`) |
 | MKT-TD3 ✅ | 403 cross-route del token | arquitecto (D-MKT-AUTZ) | 2026-10-17 | §MKT.E de `aggregates` sin 403 |
 | MKT-TL1 ✅ | limitador en memoria sin cota | backend | 2026-10-18 | `marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas) |
-| MKT-TL2 | ABIERTA (residuo aceptado con caducidad, SECURITY_NOTES «Vía alternativa») · cruces entre tablas: falta el auditor por ecuaciones (prueba 3, `enforceFamily`, R2 por (tabla, clave, parte), R3b, R4). Hecho: registro de poblaciones (prueba 1) y SEC-MKT-1 | backend | 2026-10-19 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`test/marketing-populations.registry.spec.ts` y `test/marketing-cross-table.audit.spec.ts`). **Caducidad 2026-11-30**: `test/marketing-tl2.expiry.spec.ts` (reloj real) se pone rojo desde ese día mientras esta fila siga abierta |
+| MKT-TL2 ✅ | CERRADA en `86ee9bdb` · cruces entre tablas: `MARKETING_EQUATIONS` (E1-E7), `exposedCells`, `enforceFamily` (R3b, R4) y R2 por (tabla, clave, parte) sobre el oculto final de cada semana | backend | 2026-10-23 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`marketing-populations.registry.spec.ts`, `marketing-cross-table.audit.spec.ts`: roja sobre `01440e56` en «b2 7 = b1 6 + 1», A1+A2); `marketing-tl2.expiry.spec.ts` verde con la fila cerrada |
+| MKT-TL9 ✅ | CERRADA · `plan` (un componente) es el caso de un componente de `planByComponent` (R1 «N=0 ⇒ 0», R3a «pareja ≠ 0»), sin `localeCompare` | backend | 2026-10-23 | `grep -c localeCompare backend/src/modules/marketing/small-cells.ts` ⇒ 0; «MKT-TL9 · R1 N=0 ⇒ 0» y «R3a pareja ≠ 0» en `marketing-small-cells.spec.ts` y «g1 con 0 ⇒ 0» en `…by-component.spec.ts` (rojas sobre `01440e56`, 3/3) |
 | MKT-TL3 ✅ | sin ruta de datos por sesión | backend | 2026-10-18 | `marketing-panel.spec.ts` + `marketing-panel.routes.spec.ts` |
 | MKT-TL4 ✅ | sin camino para emitir/revocar el token | backend | 2026-10-18 | `marketing-tokens.spec.ts` §MKT.G.9 (4)(5) |
 | MKT-TL5 ✅ | c7 era un segundo camino de celdas pequeñas (`>= 5` literal, rama `exact` propia) | backend | 2026-10-18 | `sed -n '/private async c7ByState(/,/^  \/\/ ────/p' backend/src/modules/marketing/marketing-analytics.service.ts \| grep -c "SMALL_CELL_SENTINEL\|privacy === 'exact'"` ⇒ 0; prueba «estático (D1)» de `marketing-analytics.service.spec.ts` |
@@ -126,17 +127,12 @@
   «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
   deterministas).
 
-### MKT-TL2 · P3 · Cruces entre tablas del Panel — registro hecho; auditor por ecuaciones pendiente (caduca 2026-11-30)
-- **Qué falta:** la prueba 3 de API_CONTRACT §MKT.H.14 (`test/marketing-cross-table.audit.spec.ts`): auditor propio que, con datos
-  adversarios, falle si una celda con N<5 se despeja cruzando tablas del mismo periodo (E1-E7), y lo que la pone verde en código
-  (`MARKETING_EQUATIONS`, `exposedCells`, `enforceFamily`, R2 por (tabla, clave, parte), R3b y R4).
-- **Hecho (2026-10-19, SEC-MKT-1):** umbral por componente y por sujeto (b1-b3, d1, d3), orden R0, g1 sobre `PAID_ORIGIN`
-  (prueba 2, `marketing-small-cells.by-component.spec.ts`) y registro de poblaciones (prueba 1). Caso c7↔a1: cerrado desde 2026-10-18.
-- **Residuo hasta cerrar:** un cruce entre tablas distinto de SEC-MKT-1 (p. ej. b2 = Σ b1 de una puerta) puede despejar una celda.
-  Latente: b1-b3/g1 solo se calculan con la medición encendida o con datos de consentimiento (SECURITY_NOTES SEC-MKT-1).
-- **Candado de caducidad:** `test/marketing-tl2.expiry.spec.ts` — rojo desde el 2026-11-30 mientras la fila del índice siga abierta;
-  rojo también si se borra la fila o si se marca cerrada sin la prueba 3. La fecha vive en la prueba, no aquí.
-- **Dueño:** backend. **Medido:** 2026-10-19 (seguridad, sonda sobre `bfd91ab2`; registro y SEC-MKT-1 por backend).
+### MKT-TL2 ✅ · Cruces entre tablas del Panel — CERRADA 2026-10-23 (rama `be-mkt-tl2`, sha: `86ee9bdb`)
+- **Cierre:** prueba 3 (`marketing-cross-table.audit.spec.ts`, auditor propio en `test/support/disclosure-audit.ts`) verde: casos de
+  §MKT.H.14, 200 semillas en 2026-W41 y 40 en febrero 2027 con T. Roja sobre `01440e56` en «b2 7 = b1 6 + 1» (A1+A2 de
+  `facebook / paid`, el caso E3 de seguridad). Ablaciones N=3: `enforceFamily` sin tocar ⇒ 4 rojas 3/3; sin E3 ⇒ 4 rojas 3/3.
+- **Lo que queda:** quitar `MKT-TL2` de `ENCENDER_BLOCKERS` (frontend), tras la re-medición de seguridad (SECURITY_NOTES).
+  Decisión de lectura de R3b (pareja por la cadena de ocultas): BACKEND_NOTES §MKT-TL2.
 
 ### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
 - **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
