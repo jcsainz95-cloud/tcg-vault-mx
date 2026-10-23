@@ -91,3 +91,49 @@ export function disabledDestinationLines(cfg: MeasurementConfig): string[] {
   if (!cfg.meta.enabled) out.push(`MEASUREMENT_DESTINATION_DISABLED destination=meta_capi reason=${cfg.meta.reason}`);
   return out;
 }
+
+// ───────────── SEC-MKT-3: bloqueos de encendido también en el backend (ARCHITECTURE §14.1 D-MKT2-0c) ─────────────
+
+/** Un bloqueo de encendido cuyo dueño es backend (mismo formato que `ENCENDER_BLOCKERS` del frontend). */
+export interface MeasurementEncenderBlocker {
+  id: string;
+  what: string;
+  closedBy: string;
+}
+
+/**
+ * Los bloqueos ABIERTOS de dueño backend. Con `MEASUREMENT_MODE=on` y alguno aquí, el modo EFECTIVO es `off` y el arranque
+ * registra `MEASUREMENT_ENCENDER_BLOCKED`: encender solo el backend ya no se salta lo que bloquea el frontend (SEC-MKT-3). Una
+ * entrada sale en el commit que cierra su ficha de TECH_DEBT; la paridad con el frontend y con las fichas la vigila
+ * `test/measurement.encender-gate.spec.ts`. MKT-TL2 salió con la prueba 3 (`test/marketing-cross-table.audit.spec.ts`).
+ */
+export const BACKEND_ENCENDER_BLOCKERS: readonly MeasurementEncenderBlocker[] = [
+  {
+    id: 'MKT-F2-3',
+    what: "META_GRAPH_API_VERSION ('v21.0') sin verificar vigente para la fecha de encendido",
+    closedBy: 'evento de prueba de Meta aceptado (2xx) con la versión fijada, anotado en BACKEND_NOTES (TECH_DEBT MKT-F2-3)',
+  },
+  {
+    id: 'MKT-F2-4',
+    what: 'CHECK de m86 (23514) y ciclo migrar ⇒ reversa ⇒ redeploy de m86 contra Postgres sin cerrar en su ficha',
+    closedBy: 'test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y migrate deploy tras la reversa (TECH_DEBT MKT-F2-4)',
+  },
+];
+
+/** Token de inyección de la lista (lo provee `MeasurementModule`; las pruebas que construyen el servicio a mano no lo pasan). */
+export const MEASUREMENT_ENCENDER_BLOCKERS = Symbol('MEASUREMENT_ENCENDER_BLOCKERS');
+
+/**
+ * Modo efectivo: `on` solo si se pidió `on` Y no queda ningún bloqueo. Devuelve también las líneas de arranque (sin valores:
+ * solo ids). Con `off` pedido no hay nada que decir.
+ */
+export function gateMeasurementConfig(
+  cfg: MeasurementConfig,
+  blockers: readonly MeasurementEncenderBlocker[],
+): { config: MeasurementConfig; lines: string[] } {
+  if (cfg.mode !== 'on' || blockers.length === 0) return { config: cfg, lines: [] };
+  return {
+    config: { ...cfg, mode: 'off' },
+    lines: [`MEASUREMENT_ENCENDER_BLOCKED requested=on effective=off blockers=${blockers.map((b) => b.id).join(',')}`],
+  };
+}

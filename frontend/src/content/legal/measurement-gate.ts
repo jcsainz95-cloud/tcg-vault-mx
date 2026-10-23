@@ -86,11 +86,14 @@ export interface EncenderBlocker {
 /**
  * Abiertos (TL-MKT2b-f, 2026-10-19). Salieron antes: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
  * `backend/test/measurement.item.spec.ts` y la paridad `lib/measurement/item.cross.test.ts`) y D2 (`DRAIN_BUDGET_MS`,
- * `backend/test/measurement.drain.spec.ts`), merge `13cf3653`.
+ * `backend/test/measurement.drain.spec.ts`), merge `13cf3653`; MKT-TL2 (`backend/test/marketing-cross-table.audit.spec.ts`,
+ * `marketing-populations.registry.spec.ts` y `marketing-tl2.expiry.spec.ts` verdes; ficha cerrada en TECH_DEBT), `86ee9bdb`.
  * El formato (ARCHITECTURE §14.1 D-MKT2-0c) no tiene estado «cumplida»: una entrada sale en el mismo commit que
  * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 tiene la medición de QA
  * del 2026-10-19 sobre `47eb1dea` (psql: `23514` en los dos casos inválidos; reversa + `migrate deploy` rc 0
  * sin `resolve`; CI `backend-e2e` 144/144), pero su ficha (backend) sigue ABIERTA: sale cuando backend la cierre.
+ * SEC-MKT-2: paridad con `docs/TECH_DEBT.md` en `measurement-gate.test.ts` — una entrada no sale mientras su ficha
+ * siga abierta, y una entrada nueva se registra en `ENCENDER_REGISTRY` de esa prueba.
  */
 export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
   {
@@ -106,13 +109,6 @@ export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
     owner: 'backend',
     closedBy:
       'backend/test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y prisma migrate deploy verde tras la reversa de m86, con el sha (TECH_DEBT MKT-F2-4)',
-  },
-  {
-    id: 'MKT-TL2',
-    what: 'candado general contra deducir una celda oculta cruzando tablas del Panel sin cerrar (API_CONTRACT §MKT.H.14)',
-    owner: 'backend',
-    closedBy:
-      'backend/test/marketing-cross-table.audit.spec.ts y marketing-populations.registry.spec.ts verdes y ficha MKT-TL2 de TECH_DEBT cerrada; caduca el 2026-11-30 (backend/test/marketing-tl2.expiry.spec.ts)',
   },
 ];
 

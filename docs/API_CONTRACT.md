@@ -10,9 +10,8 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
-> **Revisiones de [§MKT](#MKT) (una línea cada una; el detalle vive en su sección, la historia en git).** ⚠️ Hay dos v1.96
-> distintas, ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 el número no se repite: la
-> siguiente revisión, de cualquier sección, es **v1.108**.
+> **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y
+> ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite: la siguiente, de cualquier sección, es **v1.109**.
 > - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
 > - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
 > - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
@@ -22,6 +21,7 @@
 > - v1.105⟨mkt-fase2-cierre⟩ · 2026-10-19 · §MKT.G.4, §MKT.H.2-.9, .13: respuestas de backend/frontend/ux-ui a v1.102 (sin `sourcePath`, consultas GA4, conteo por resultado) · orquestador.
 > - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
 > - v1.107⟨mkt-celdas⟩ · 2026-10-19 · §MKT.H.14: umbral por componente y por sujeto, orden sin valores ocultos, registro de poblaciones y ecuaciones, auditor de rango; g1 sobre `PAID_ORIGIN`; §MKT.G.5/.10, C-P1 y .13 ajustados; compactados §MKT intro/.E/.F/.G.1/.G.8/.H.7/.H.12 · seguridad (SEC-MKT-1, MKT-TL2; rechazo sobre `bfd91ab2`).
+> - v1.108⟨mkt-celdas-r⟩ · 2026-10-23 · §MKT.H.14: ratificadas cuatro lecturas de backend (R3b por anillos, X1 sin ceros, familias unidas solo por totales aceptados, espejo `BACKEND_ENCENDER_BLOCKERS` en ARCHITECTURE §14.1); sin cambio de código · backend (MKT-TL2).
 >
 > **Rev v1.95⟨pnl-finanzas⟩ — EL P&L DE FINANZAS (M7): COGS NETO DE IVA, CAPTURA DE REEMBOLSOS FUERA DE LA APP,
 > ESTADO DE RESULTADOS CON SUBTOTALES Y VOLUMEN/TICKET (2026-10-14, arquitecto, rama `fix/pnl-finanzas` desde
@@ -32285,36 +32285,16 @@ el argumento de imposibilidad** (*«el cotejo tiene que vivir en el pago porque 
   el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40**, que **está cerrada con «no
   existe fuente»**. *Un enum con un valor llamado `verified` es una invitación permanente a construirle encima una
   regla; por eso la advertencia vive en el DTO y no solo aquí.*
-- ⚠️ ~~**Encargo a frontend/ux-ui (revisión, no cambio obligatorio):** `kycStatus` **hoy NO se pinta en ninguna superficie
-  de vendedor** —medido: en `(storefront)` solo aparece en tests— **y así debe seguir.** Pintarle *«verificado»* al
-  vendedor **afirmaría un acto que no existe**, que es lo que el **criterio 183(c)** prohíbe.~~ El **badge de M6 (admin)**
-  se queda: ahí el lector sabe qué está mirando, y el dueño de esa pantalla es back-office.
-  > ⚠️⚠️ **v1.69 — ESTE BULLET QUEDA DEROGADO POR DOS RAZONES, Y LA PRIMERA ES QUE YA ERA FALSO.**
-  > **(1) Medición 2026-09-11:** el KYC **sí se pinta al vendedor** desde Stream A — `KycSection.tsx:69,84-85`
-  > (`getBadgeSpec('kyc', data.kycStatus)`), en la pantalla de cuenta. *La afirmación envejeció cuando se construyó la
-  > pantalla que este contrato pedía.*
-  > **(2) Y ahora DEBE pintarse**, porque es la mitad del ciclo que P-78 cierra: un cliente que subió su INE y ve
-  > «Pendiente» **sin ninguna acción** es el hallazgo del dueño. **Qué se pinta en cada estado y qué acción se ofrece
-  > es NORMATIVO y está en [`§M6-K.7`](#M6-K)** — incluido **`rejected` + su motivo**, que es lo que le permite
-  > corregir. **El criterio 183(c) sigue vigente y se respeta:** `'verified'` ya **no** afirma un acto inexistente
-  > (§M6-K lo crea), y ⛔ **ninguna superficie puede decir que cotejamos la CLABE contra un titular** — eso sigue sin
-  > existir y sigue prohibido decirlo.
+- **Superficies de `kycStatus` (v1.69):** el **badge de M6 (admin)** se queda. Al vendedor **sí se le pinta** (cuenta,
+  `KycSection.tsx`), y qué se pinta en cada estado y qué acción se ofrece —incluido **`rejected` + su motivo**— es
+  **NORMATIVO en [`§M6-K.7`](#M6-K)**. Criterio **183(c)** vigente: ⛔ **ninguna superficie puede decir que cotejamos la
+  CLABE contra un titular**.
 - ⚠️ **Deuda cosmética registrada, NO bloqueante:** el **nombre** del enum (`verified`) es peor que su conducta —**misma
   familia exacta que `CLABE_NOT_OWN_NAME`**— y por la **misma razón no se renombra hoy**: sería DDL + romper a frontend
   por un cambio de vocabulario. **Se registra; no se hace.**
 
-**K.4 — 🗄️ (v1.59) COSTE OPERATIVO Y CONTEO PRE-MERGE — ⛔ SIN OBJETO TRAS D51. NO SE CORRE.**
-> **Se conserva tachado como registro de lo que el control habría costado**, y porque **ese coste es parte de por qué
-> la decisión de retirarlo fue correcta**: el control introducía **un paso humano obligatorio entre la recepción y el
-> pago para toda solicitud sobre el umbral**, sobre una **población que D46 hace crecer**, **a cambio de nada
-> comprobable**. ⛔ **La consulta de abajo NO se ejecuta y NO bloquea ningún merge.**
-```sql
--- ⛔ RETIRADA (v1.60, D51). Conservada solo como registro. NO se corre.
--- SELECT count(*) FROM "SellRequest" s
---  WHERE s."ineRequired" = true
---    AND NOT EXISTS (SELECT 1 FROM "KycProfile" k
---                     WHERE k."userId" = s."userId" AND k."kycStatus" = 'verified');
-```
+**K.4 — 🗄️ (v1.59) COSTE OPERATIVO Y CONTEO PRE-MERGE — ⛔ SIN OBJETO TRAS D51. NO SE CORRE** y no bloquea ningún
+merge. La consulta retirada está en `git`.
 
 **K.6 — QA: esto se verifica POR AUSENCIA, y el contra-caso es obligatorio.**
 1. **Nada de KYC bloquea el dinero** *(criterio 183(a))*: solicitud **sobre el umbral**, con **INE en archivo**, con
@@ -37099,32 +37079,8 @@ salesPeriod = {
 
 ##### <a id="M10-IVA6"></a>§M10-IVA.6 — Orden de entrega, para el orquestador — ⛔⛔ **DEROGADA POR [§M10-IVA.9](#M10-IVA9) (v1.74, D56)**
 
-> ⛔⛔ **ESTA SUBSECCIÓN YA NO ES NORMATIVA. Se conserva ENTERA y sin tachar porque es el registro de lo que v1.64
-> decidió y de POR QUÉ, y porque su reparto de trabajo (qué toca backend, qué toca frontend, qué candado cubre qué)
-> **sigue siendo exacto**: lo único que muere es la FRONTERA entre las dos columnas.**
-> **El dueño decidió UN SOLO DESPLIEGUE** (`PROJECT §Q.10.e`, pregunta **82**: *«haz el cambio de una vez cuando
-> despliegues»*). ⇒ **la columna «Deploy 1» y la columna «Deploy 2» son el MISMO corte**, y **los ONCE candados
-> corren aquí**. La norma vigente es **[§M10-IVA.9](#M10-IVA9)**.
-> **Por qué el motivo murió, con su medición:** el escalonado existía *«para no mover el desglose de pedidos ya
-> cobrados»*, y el dueño estableció que **no hay ninguno** (*«la tienda no ha procesado ninguna venta real»*,
-> `HECHOS.md` 2026-09-14). **Una cautela que protege un conjunto vacío no protege nada.**
-> ⚠️ **Lo que NO muere con ella:** `decks-meta-v1` (criterio **197**) sigue exigiendo **implementado Y PUBLICADO EN
-> PRODUCCIÓN**; con un solo despliegue eso ocurre **antes**, ⛔ **no por defecto**.
-
-**Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
-PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
-
-| | Deploy 1 | Deploy 2 |
-|---|---|---|
-| Backend | `M-50` entera + `netRevenueCents` cableado + escribe `IVA_EXCLUSIVE` | deriva `P`, escribe `IVA_INCLUSIVE`, emite los tres campos, abre §M10-IVA.2 |
-| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188), la tarjeta **bruto/neto** (§M10-IVA.7) y arregla el mock (criterio 196) |
-| Contrato observable | **CERO cambios** | §M10-IVA.3, §M10-IVA.4 y §M10-IVA.7 |
-| Candados a correr | `IVA-3`, `IVA-5` | los **once** |
-
-⚠️ **v1.64(3) — lo que entra en D-2 y NO estaba en la lista de v1.64:** la fórmula corregida de `netRevenueCents`
-(`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
-**bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
-promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
+> ⛔⛔ **No normativa.** El reparto en dos despliegues de v1.64 murió con la decisión **82** (un solo despliegue,
+> `PROJECT §Q.10.e`). El reparto vigente es la tabla de [§M10-IVA.9.c](#M10-IVA9); el texto anterior está en `git`.
 
 ##### <a id="M10-IVA9"></a>§M10-IVA.9 — ⭐⭐ **D56: UN SOLO DESPLIEGUE, Y LA PUERTA DEL DIAL ABRE EN ESTE CORTE** (v1.74, **NORMATIVO, DINERO**; `PROJECT §Q.10.e`, criterios **213** y **214**)
 
@@ -37776,16 +37732,11 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
   no exista, SP.6 es el mínimo: se cobra el precio **actual**, pero solo después de mostrarlo. Cuando §X se construya,
   sustituye esta regla (el aviso desaparece porque el precio visto se respeta). Registrado en `ARCHITECTURE §9` `D-SP-2`.
 
-**SP.7 · Migración `M-71` — `prisma/migrations/20261021120000_m71_sealed_product_owner_price/migration.sql`.**
-> ⛔ **v1.83.1 (E-7): este SQL queda SUSTITUIDO por [SP.12.12](#M11-SP-12)** (columna `ownerDisplayPriceCents`, **sin
-> relleno**). Se conserva abajo solo como registro de lo descartado.
+**SP.7 · Migración `M-71`.** ⛔ **v1.83.1 (E-7): el DDL, el relleno y el rollback de aquí quedan SUSTITUIDOS por
+[SP.12.12](#M11-SP-12)** (columna `ownerDisplayPriceCents`, **sin relleno**; lo descartado está en `git`). Queda solo
+la consulta previa que SP.12.12 cita: el dueño (o un usuario de solo lectura) la corre **antes** del despliegue para
+contar productos con precio por pieza común o distinto (NO MEDIDO en producción).
 ```sql
-ALTER TABLE "SealedProduct" ADD COLUMN "ownerSalePriceCents" INTEGER;
-ALTER TABLE "SealedProduct" ADD CONSTRAINT "sealed_product_owner_price_range"
-  CHECK ("ownerSalePriceCents" IS NULL OR ("ownerSalePriceCents" BETWEEN 1 AND 100000000));
-
--- Relleno que NO mueve ningún precio efectivo: solo donde TODAS las piezas en existencia del producto ya tienen
--- el MISMO listPriceCents > 0 (con el peldaño 1 = ese valor, cada pieza cobra exactamente lo mismo que hoy).
 WITH live AS (
   SELECT "sealedProductId" AS pid, "listPriceCents" AS lp
     FROM "InventoryItem"
@@ -37795,29 +37746,11 @@ WITH live AS (
   SELECT pid, count(*) AS n, count(*) FILTER (WHERE lp > 0) AS n_manual,
          min(lp) FILTER (WHERE lp > 0) AS mn, max(lp) FILTER (WHERE lp > 0) AS mx
     FROM live GROUP BY pid
-), filled AS (
-  UPDATE "SealedProduct" sp SET "ownerSalePriceCents" = agg.mn
-    FROM agg
-   WHERE sp.id = agg.pid AND agg.n = agg.n_manual AND agg.mn = agg.mx AND agg.mn BETWEEN 1 AND 100000000
-  RETURNING sp.id, sp."ownerSalePriceCents"
 )
-INSERT INTO "AuditLog" ("id", "actorUserId", "actorRole", "action", "entityType", "entityId", "before", "after", "createdAt")
-SELECT 'm71-' || id, NULL, NULL, 'sealed_product.sale_price_backfilled', 'SealedProduct', id,
-       jsonb_build_object('ownerSalePriceCents', NULL),
-       jsonb_build_object('ownerSalePriceCents', "ownerSalePriceCents", 'source', 'migration:M-71'), now()
-  FROM filled;
+SELECT * FROM agg;
 ```
-- `id` determinista (`'m71-' || productId`): ⛔ sin `gen_random_uuid()` (versión de Postgres de producción NO MEDIDA).
-  Columnas de `AuditLog` leídas en `schema.prisma:1974-1990` (`before`/`after` `Json?` ⇒ `jsonb`: tipo físico NO MEDIDO;
-  backend lo confirma en la migración generada).
-- Productos con precios **distintos** por pieza, o mezcla de pieza con precio y pieza automática: **no** se rellenan;
-  la hoja los muestra con `legacyPiecePrices` y el dueño decide. ⛔ Nunca «el mayor» ni «el más reciente».
-- **Despliegue:** la migración es aditiva; el código viejo ignora la columna. **Antes** de desplegar, el dueño (o un
-  usuario de solo lectura) corre el `SELECT` de `agg` para saber cuántos productos se rellenan y cuántos quedan con
-  precios distintos (NO MEDIDO en producción). **Rollback:** código anterior + `ALTER TABLE "SealedProduct" DROP COLUMN
-  "ownerSalePriceCents"` (el CHECK cae con ella); las piezas conservan su `listPriceCents` ⇒ los precios vuelven a ser
-  exactamente los de antes. Los precios fijados por el dueño **después** del despliegue se pierden con el rollback (están
-  en la bitácora para re-teclearlos).
+- ⛔ Con precios **distintos** por pieza nunca se elige «el mayor» ni «el más reciente»: la hoja los muestra con
+  `legacyPiecePrices` y el dueño decide.
 
 **SP.8 · Pruebas que deben fallar hoy, con su mutación.** Deterministas ⇒ N=1 es medida; las ⭐ son carreras (N ≥ 10
 forzada + N ≥ 10 suelta, proporción). Mutaciones sobre **copia del árbol ENTERO** (O-9).
@@ -45898,7 +45831,6 @@ Las seis de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, Card Show, `cli
 
 | Rol | Cambio | Prueba que lo vigila |
 |---|---|---|
-| backend | §MKT.H.14 entero: registro, `subjects`, b1-b3 por componente, d1/d3 por sujeto, R0, familias, g1 sobre `PAID_ORIGIN` | pruebas 1-3 de §MKT.H.14 |
 | frontend | `ENCENDER_BLOCKERS` += `SEC-MKT-1` y `MKT-TL2` (owner backend; `closedBy` = prueba 2 y pruebas 1+3); salen en el commit de frontend que sigue al verde de backend | `measurement-gate.test.ts` (lista exacta, `:109`) |
 | frontend | fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$ (ya se pinta por celda, `MarketingTable.tsx:35`; falta el caso), también en el mock de b | `MarketingTable.test.tsx` |
 
@@ -45918,14 +45850,15 @@ dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5 y f3
 - **R3 · Complementaria.** (a) *Local*, como hoy: una columna de conteo con una sola oculta oculta también la visible más chica
   (≠ 0; desempate por clave): tabla de un componente ⇒ «Otros (< 5 c/u)» (`applySmallCells`); b1-b3 ⇒ en su sitio, `'oculta'` con
   su MX$ (b1-b3 no tienen «Otros»). (b) *De familia*, hasta punto fijo (solo oculta ⇒ termina): mientras una celda con `N<5` sea
-  **despejable**, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla, clave, columna) que comparta ecuación con
-  ella, ⛔ nunca un total aceptado. Sin candidata ⇒ X1.
+  **despejable**, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla, clave, columna) del primer anillo que tenga
+  visibles: anillo 1 = celdas de sus ecuaciones; anillo k+1 = las de las ecuaciones de las ocultas del anillo k (la cadena por la que
+  se despeja; caso «g1 pareja en b2»). ⛔ Nunca un total aceptado. Sin candidata en ningún anillo ⇒ X1.
 - **R4 · Identidad:** dos celdas declaradas idénticas comparten estado (oculta una ⇒ `'oculta'` la otra), dentro del punto fijo.
 - **Despejable** (una definición; servicio y prueba la implementan por separado): visibles = constantes, ocultas = incógnitas; la
   celda lo es si su vector unitario está en el espacio de filas de las ecuaciones de abajo (eliminación exacta con racionales
   `bigint`; ⛔ coma flotante). Las cotas (`'< 5'` ∈ 1..4) no entran.
-- **X1 (por diseño):** un **conteo** que sigue despejable aunque se oculten todas las celdas con dimensión del periodo (b1 de una
-  fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
+- **X1 (por diseño):** un **conteo** que sigue despejable aunque se oculten todas las celdas con dimensión del periodo y valor ≠ 0
+  (un 0 no se oculta, R1/R3; b1 de una fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
   confirma X1 y X2 en la re-medición.
 
 **Poblaciones:** `PAID` = `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}` · `PAID_ORIGIN` = `PAID` ∧
@@ -45948,7 +45881,8 @@ creada en el periodo · `REQ_ORIGIN` = `REQ` ∧ `firstUtmSource IS NOT NULL` ·
 `mxnPedidos`) · E5 `b3[Mensaje directo (dm)] ≡ b2[Mensaje directo]` · E6 `a4[g] ≡ b4[g]` para Google orgánico y Asistentes de IA,
 y `b4[Asistentes de IA] = Σ e3` · E7 `a5[Sesiones] = Σ a4 = Σ c5` · T (solo en la prueba 3) mes = Σ semanas en febrero 2027.
 E6/E7 son exactas en la fixture (sin `medium=paid` en fuentes de Google o IA, sin corte por `limit`); en datos reales casi, y R4
-las trata igual. **Familias:** {b1, b2, b3, g1, f3}, {a1, a5, f3, c7} y {a4, a5, b4, c5, e3} se calculan juntas por periodo y
+las trata igual. **Familias:** {b1, b2, b3, g1, f3}, {a1, a5, f3, c7} y {a4, a5, b4, c5, e3}, cada una aparte (solo las unen
+totales aceptados, constantes aunque su tabla no se publique; el auditor de la prueba 3 resuelve E1-E7 juntas), por periodo y
 régimen, pida la pantalla que pida: g1 vale lo mismo en `panel?pantalla=g`, `aggregates` y `export/todo`.
 
 **Fila de b1-b3:** `{<clave>, pedidos: number|'< 5'|'oculta', mxnPedidos: number|'oculta', solicitudes: …, mxnOfertado: …}`;
@@ -45959,20 +45893,19 @@ mxnOfertado:700}`. Nota: «Pedidos y solicitudes se ocultan por separado: menos 
 ReadonlySet<CellId>)`; `marketing-populations.ts` (fuente en código del registro): `MARKETING_POPULATIONS`, `MARKETING_TABLES`,
 `MARKETING_EQUATIONS`, `ACCEPTED_TOTALS`, `exposedCells(cells, equations): CellId[]`, `enforceFamily(plan)`.
 
-**Pruebas (backend; QA las ejecuta). Las tres ROJAS sobre `bfd91ab2`:**
+**Pruebas (backend; QA las ejecuta; rojas sobre `bfd91ab2`):**
 1. `test/marketing-populations.registry.spec.ts` (MKT-TL2 a): 8 pantallas × semana/mes × modo off/on con dobles GA4/SC ⇒ todo
    `tables[].id` en `MARKETING_TABLES`; toda columna no `text` medida en un componente o en «exactas»; toda población con oráculo en
-   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo. Hoy rojo: no hay registro.
+   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo.
 2. `test/marketing-small-cells.by-component.spec.ts` (SEC-MKT-1, R0, R1): la sonda literal de seguridad (2026-W41, `instagram/paid/
    pieza-x`) ⇒ ninguna celda de b1-b3 ni g1 vale `12345.67` y `pedidos` es `'< 5'`; el caso 1 + 7; d1, un pedido de 5 piezas ⇒ `'< 5'`
-   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles. Hoy rojo (sonda).
+   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles.
 3. `test/marketing-cross-table.audit.spec.ts` (MKT-TL2 b, c): servicio real con Prisma de dobles sembrado, todas las pantallas del
    periodo; auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E7 literal y exige `MARKETING_EQUATIONS`
    igual). Rojo si: (D1) conteo visible con oráculo `0<N<5`; (D2) MX$ visible de un componente oculto; (A1) celda con `N<5` despejable
    fuera de X1; (A2) MX$ con `N<5` despejable. Casos: «SEC-MKT-1», «b2 7 = b1 6 + 1, pareja fuera de la puerta», «g1 pareja en b2»,
    «b3 dm ≡ b2 dm», «a3 pagadas 1..4», «c7↔a1», «febrero 2027 [3,6,6,6] en b1 con f3»; semillas fijas 1..200 (componentes 1-4 y
-   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida. Hoy rojo
-   en «SEC-MKT-1» (D1) y «b2 7 = b1 6 + 1» (A1, A2).
+   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida.
 
 **Terminado:** las tres rojas sobre `bfd91ab2` por su motivo y verdes en el sha nuevo, con toda `test/marketing-*` verde; ablaciones
 deterministas (N=3 cada una): b1-b3 de vuelta a un componente con `count: e.o + e.s` ⇒ 2 y 3 rojas; quitar E3 ⇒ 3 roja;

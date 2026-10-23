@@ -53,6 +53,25 @@ export interface FaqItem {
 /** Aviso de privacidad INTEGRAL que YA está live (⛔ no se redacta uno nuevo). */
 const AVISO_PRIVACIDAD = 'https://tcghunt.mx/es/privacidad';
 
+/**
+ * TL-CS-1 — Horario y dirección van ESTRUCTURADOS: el JSON-LD `Event` (`app/card-show/event-jsonld.ts`) lee los
+ * campos (`cierre`, `alcaldia`, `postalCode`, `region`) y los textos que pinta la página (`horas`, `colonia`, `cp`)
+ * se DERIVAN de ellos aquí. Una sola fuente: cambiar un dato no exige reescribirlo en un texto, ni partir textos.
+ */
+export interface HorarioDia {
+  dia: string;
+  apertura: string; // «HH:MM», America/Mexico_City
+  cierre: string; // «HH:MM», America/Mexico_City
+  horas: string; // «apertura–cierre», derivado
+}
+function horarioDia(dia: string, apertura: string, cierre: string): HorarioDia {
+  return { dia, apertura, cierre, horas: `${apertura}–${cierre}` };
+}
+const SEDE_COLONIA = 'San José Insurgentes';
+const SEDE_ALCALDIA = 'Benito Juárez';
+const SEDE_CP = '03900';
+const SEDE_REGION = 'CDMX';
+
 export const CARD_SHOW = {
   /** Ruta canónica FUERA del i18n (§CARDSHOW.2). */
   canonicalUrl: 'https://tcghunt.mx/card-show',
@@ -105,13 +124,16 @@ export const CARD_SHOW = {
     titulo: 'Dos días en San José Insurgentes',
     entrada: 'Entrada libre — no necesitas registrarte para entrar.',
     horarios: [
-      { dia: 'Sábado 5 de diciembre', horas: '11:00–19:00' },
-      { dia: 'Domingo 6 de diciembre', horas: '11:00–18:00' },
-    ] as { dia: string; horas: string }[],
+      horarioDia('Sábado 5 de diciembre', '11:00', '19:00'),
+      horarioDia('Domingo 6 de diciembre', '11:00', '18:00'),
+    ] as HorarioDia[],
     direccion: {
       calle: 'José del Castillo 3, esq. Av. Revolución',
-      colonia: 'Col. San José Insurgentes, Benito Juárez',
-      cp: '03900 CDMX',
+      alcaldia: SEDE_ALCALDIA,
+      postalCode: SEDE_CP,
+      region: SEDE_REGION,
+      colonia: `Col. ${SEDE_COLONIA}, ${SEDE_ALCALDIA}`, // texto de la página, derivado
+      cp: `${SEDE_CP} ${SEDE_REGION}`, // texto de la página, derivado
       pisos: [
         'Piso 2 — vendedores',
         'Piso 3 — torneos, juego libre y comida',

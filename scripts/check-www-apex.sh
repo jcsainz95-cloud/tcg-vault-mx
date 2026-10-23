@@ -37,7 +37,7 @@ case "$ESTADO" in
   301|308)
     if [ "$LOC" = "$ESPERADO" ]; then echo "VERDE: $WWW → $ESTADO → $LOC (ruta y query intactas)."; exit 0; fi
     echo "ROJO: $ESTADO pero Location=«$LOC», esperaba «$ESPERADO» (¿pierde la ruta o la query?)."; exit 1 ;;
-  302|307) echo "ROJO: redirección TEMPORAL ($ESTADO → $LOC). En Vercel elige 301 (permanente)."; exit 1 ;;
+  302|307) echo "ROJO: redirección TEMPORAL ($ESTADO → $LOC). En Vercel elige una permanente (308 o 301)."; exit 1 ;;
   "") echo "NO MEDIDO: sin línea de estado HTTP en la respuesta."; exit 2 ;;
   *) echo "ROJO: www responde $ESTADO sin redirigir al apex."; exit 1 ;;
 esac

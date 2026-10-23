@@ -12,19 +12,17 @@
  *    publicado o por estructura), después las ocultas por clave asc y «Otros» al final. ⛔ Nunca por el N real de una oculta.
  *  - **Supresión coherente mes↔semanas (§MKT.G.10, D-MKT-PANEL-4):** el llamador pasa `forcedHidden` = las claves
  *    ocultas en ALGUNA semana que toca el mes; en el mes salen **«oculta»** (conteo) y null (MX$) aunque N≥5.
- *  - **Supresión complementaria:** si tras lo anterior queda **UNA sola** celda oculta («< 5» u «oculta») en la
- *    tabla, se agrupa con la **siguiente más chica** en una fila «Otros (< 5 c/u)» (ambas ocultas), de modo
- *    que el total menos las visibles no despeje una sola celda.
+ *  - **Supresión complementaria (R3a):** si tras lo anterior queda **UNA sola** celda oculta («< 5» u «oculta») en la
+ *    tabla, se agrupa con la **siguiente más chica ≠ 0** en una fila «Otros (< 5 c/u)» (ambas ocultas), de modo
+ *    que el total menos las visibles no despeje una sola celda. `N = 0` ⇒ `0` visible (R1).
  *
  * ⛔ El conteo real de una fila oculta NUNCA viaja: se reemplaza por el centinela.
  * ⛔ Los TOTALES SIN DIMENSIÓN (a1/a2 de la semana) NO pasan por aquí: se muestran exactos.
  *
- * 🔒 INVARIANTE (MKT-TL2) — la supresión complementaria solo protege si **ninguna salida del mismo periodo publica
- * el TOTAL exacto de la MISMA población** que la tabla suprimida, salvo que la tabla nunca deje UNA sola celda oculta:
- * con ese total, total − visibles despeja la SUMA de lo oculto. c7 (pedidos por estado, mes) y a1 (pedidos pagados
- * del mes, exacto) son la misma población; desde 2026-10-18 c7 pasa por aquí (`safeRows`) ⇒ nunca queda una sola
- * celda oculta y a1 − visibles despeja la suma de ≥ 2 (candado `marketing-analytics.service.spec.ts` «c7»). Lo que
- * sigue abierto (candado general entre pantallas, tabla con una sola fila): docs/TECH_DEBT.md MKT-TL2.
+ * 🔒 CRUCES ENTRE TABLAS (MKT-TL2, §MKT.H.14 R3b/R4): lo de aquí es LOCAL a una tabla. Lo que una tabla publica y otra
+ * del mismo periodo despeja (b2 = Σ b1 de una puerta, g1 ≡ b2[Promoción]…) lo cierra `enforceFamily`
+ * (`marketing-populations.ts`), que el servicio aplica a cada familia antes de pintar; el auditor independiente es
+ * `test/marketing-cross-table.audit.spec.ts` (prueba 3).
  *
  * Régimen (`CellPrivacy`, API_CONTRACT v1.103 §MKT.G.2): `'small_cells'` aplica todo lo anterior; `'exact'` lo
  * salta (cifras reales, sin «Otros»). Es un PARÁMETRO del mismo cálculo, no un segundo camino. Solo la pantalla
@@ -91,32 +89,25 @@ const blankMoney = (money: Record<string, number | null>): Record<string, typeof
 
 const isHidden = (c: SafeRow['count']): boolean => c === SMALL_CELL_SENTINEL || c === SMALL_CELL_HIDDEN;
 
+/** Componente único de una tabla de una parte: `plan` es el caso de un componente de `planByComponent` (MKT-TL9). */
+const ONE = '\u0001';
+
 /**
- * Núcleo: qué índices quedan ocultos y, si hay supresión complementaria, cuál es la pareja de la celda sola.
- * Comparten `applySmallCells` (las filas) y `hiddenKeys` (las claves, para la coherencia mes↔semanas).
+ * Núcleo de una tabla de UN componente: el mismo cálculo que `planByComponent` con una sola parte (R1 «N = 0 ⇒ 0»,
+ * coherencia `forcedHidden` y R3a «pareja ≠ 0», desempate por clave con `byKey`). Lo único propio de una parte es
+ * la PRESENTACIÓN de R3a: la sola oculta y su pareja salen juntas en «Otros (< 5 c/u)». Lo comparten `applySmallCells` (las
+ * filas) y `hiddenKeys` (las claves, para la coherencia mes↔semanas y la familia).
  */
 function plan(rows: DimensionRow[], forcedHidden: ReadonlySet<string>) {
-  const safe: SafeRow[] = rows.map((r) =>
-    r.subjects < SMALL_CELL_THRESHOLD
-      ? { key: r.key, count: SMALL_CELL_SENTINEL, money: blankMoney(r.money) }
-      : forcedHidden.has(r.key)
-        ? { key: r.key, count: SMALL_CELL_HIDDEN, money: blankMoney(r.money) }
-        : { key: r.key, count: r.count, money: { ...r.money } },
-  );
+  const asParts: ComponentRow[] = rows.map((r) => ({ key: r.key, parts: { [ONE]: { count: r.count, subjects: r.subjects, money: r.money } } }));
+  const forced = new Set([...forcedHidden].map((k) => cellId(k, ONE)));
+  const { state, r3a } = planByComponent(asParts, forced);
+  const safe: SafeRow[] = rows.map((r, i) => {
+    const st = state[i][0];
+    return st === 'visible' ? { key: r.key, count: r.count, money: { ...r.money } } : { key: r.key, count: st, money: blankMoney(r.money) };
+  });
   const hiddenIdx = safe.map((r, i) => (isHidden(r.count) ? i : -1)).filter((i) => i >= 0);
-  let grouped: { loneIdx: number; partnerIdx: number } | null = null;
-  // Supresión complementaria SOLO si queda EXACTAMENTE una celda oculta y hay con qué agruparla (≥1 visible).
-  // Con 0 ó ≥2 ocultas, el total no despeja una sola celda ⇒ no se toca.
-  if (hiddenIdx.length === 1) {
-    const loneIdx = hiddenIdx[0];
-    // «La siguiente más chica» entre las visibles. Desempate por key.
-    const visible = rows
-      .map((r, i) => ({ i, count: r.count }))
-      .filter((x) => x.i !== loneIdx && !isHidden(safe[x.i].count))
-      .sort((a, b) => a.count - b.count || rows[a.i].key.localeCompare(rows[b.i].key));
-    if (visible.length > 0) grouped = { loneIdx, partnerIdx: visible[0].i };
-  }
-  return { safe, hiddenIdx, grouped };
+  return { safe, hiddenIdx, grouped: r3a[0] ? { loneIdx: r3a[0].lone, partnerIdx: r3a[0].partner } : null };
 }
 
 /**
@@ -149,14 +140,11 @@ export function applySmallCells(
 const byKey = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * Claves que `applySmallCells(rows, 'small_cells')` deja ocultas: las de N<5 y la pareja de una fila «Otros».
- * Es lo que el mes hereda de cada semana (§MKT.G.10 paso 1).
+ * Claves que `applySmallCells(rows, 'small_cells', forcedHidden)` deja ocultas: las de N<5, las forzadas y la pareja de una
+ * fila «Otros». Es lo que el mes hereda de cada semana (§MKT.G.10 paso 1) y lo que la familia (R3b/R4) parte de cada tabla.
  */
-export function hiddenKeys(rows: DimensionRow[]): Set<string> {
-  const { hiddenIdx, grouped } = plan(rows, new Set());
-  const out = new Set(hiddenIdx.map((i) => rows[i].key));
-  if (grouped) out.add(rows[grouped.partnerIdx].key);
-  return out;
+export function hiddenKeys(rows: DimensionRow[], forcedHidden: ReadonlySet<string> = new Set()): Set<string> {
+  return new Set(plan(rows, forcedHidden).hiddenIdx.map((i) => rows[i].key));
 }
 
 /** ¿Está oculto el conteo de esta fila? (helper para export/serialización). */
@@ -196,8 +184,12 @@ type PartState = 'visible' | SuppressedCount;
 /**
  * Estado de cada (fila, componente): R1 (`0 < sujetos < 5` ⇒ «< 5»; 0 ⇒ 0 visible), coherencia (`forced` ⇒ «oculta») y
  * R3a local: una columna con UNA sola oculta oculta también, en su sitio, la visible más chica ≠ 0 (desempate por clave).
+ * `r3a[j]` dice qué pareja eligió R3a en la columna `j` (la tabla de una parte la presenta como «Otros»).
  */
-function planByComponent(rows: ComponentRow[], forced: ReadonlySet<CellId>): { comps: string[]; state: PartState[][] } {
+function planByComponent(
+  rows: ComponentRow[],
+  forced: ReadonlySet<CellId>,
+): { comps: string[]; state: PartState[][]; r3a: ({ lone: number; partner: number } | null)[] } {
   const comps = rows.length ? Object.keys(rows[0].parts) : [];
   const state: PartState[][] = rows.map((r) =>
     comps.map((c): PartState => {
@@ -206,15 +198,18 @@ function planByComponent(rows: ComponentRow[], forced: ReadonlySet<CellId>): { c
       return forced.has(cellId(r.key, c)) ? SMALL_CELL_HIDDEN : 'visible';
     }),
   );
-  comps.forEach((c, j) => {
-    if (state.filter((st) => st[j] !== 'visible').length !== 1) return;
+  const r3a = comps.map((c, j) => {
+    const lone = state.map((st, i) => (st[j] !== 'visible' ? i : -1)).filter((i) => i >= 0);
+    if (lone.length !== 1) return null;
     const partner = rows
       .map((r, i) => ({ i, key: r.key, n: r.parts[c].count }))
       .filter((x) => state[x.i][j] === 'visible' && x.n !== 0)
       .sort((a, b) => a.n - b.n || byKey(a.key, b.key))[0];
-    if (partner) state[partner.i][j] = SMALL_CELL_HIDDEN;
+    if (!partner) return null;
+    state[partner.i][j] = SMALL_CELL_HIDDEN;
+    return { lone: lone[0], partner: partner.i };
   });
-  return { comps, state };
+  return { comps, state, r3a };
 }
 
 /**
@@ -256,9 +251,12 @@ export function applySmallCellsByComponent(
   return safe.sort(cmp);
 }
 
-/** (clave, componente) que `applySmallCellsByComponent(rows, 'small_cells')` deja ocultos: lo que el mes hereda de cada semana. */
-export function hiddenCellIds(rows: ComponentRow[]): Set<CellId> {
-  const { comps, state } = planByComponent(rows, new Set());
+/**
+ * (clave, componente) que `applySmallCellsByComponent(rows, 'small_cells', forced)` deja ocultos: lo que el mes hereda de cada
+ * semana y lo que la familia (R3b/R4) parte de cada tabla.
+ */
+export function hiddenCellIds(rows: ComponentRow[], forced: ReadonlySet<CellId> = new Set()): Set<CellId> {
+  const { comps, state } = planByComponent(rows, forced);
   const out = new Set<CellId>();
   rows.forEach((r, i) => comps.forEach((c, j) => state[i][j] !== 'visible' && out.add(cellId(r.key, c))));
   return out;

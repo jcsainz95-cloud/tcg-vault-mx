@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, needsSeed, MONEY_RE } from './utils/auth';
+import { SCENARIO_SELLER, sellerOfferedRequest } from './utils/m5-scenario';
 
 /**
  * **PORTAL DEL VENDEDOR — ver la oferta y responderla** (contrato §6 ·
@@ -37,6 +38,12 @@ import { loginAs, needsSeed, MONEY_RE } from './utils/auth';
  * viva del seed (`ofertada` → `aceptada`), así que tagueárlo dejaría a los otros dos casos sin
  * dato **en la misma corrida** —a merced de qué worker gane la carrera— y sin dato en **todas las
  * corridas siguientes**. Se queda con `needsSeed` y con la petición escrita al lado.
+ * **QA-REL-3 (2026-10-19) — los dos casos de la oferta viva ya NO leen la `ofertada` del seed.** En la suite
+ * `@real` completa esa fila compartida no se reponía (QA listó `buylist-offer:155` entre los rojos de arnés de
+ * 103/106 y 102/106, N=2, PENDIENTES QA-REL-3). Ahora cada
+ * caso pide SU `ofertada` al escenario (`sellerOfferedRequest`, `utils/m5-scenario.ts`: recicla la del vendedor
+ * `customer2` o crea y oferta una nueva por la API del contrato) y abre su portal con la sesión de ese vendedor. En
+ * mock se sigue descubriendo la del fixture por la pantalla.
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
@@ -106,6 +113,26 @@ async function openOfferedRequest(page: Page): Promise<void> {
 }
 
 /**
+ * QA-REL-3: inicia sesión y abre una oferta viva QUE ES DEL CASO. En real, la del escenario (`customer2`), por URL
+ * directa: no se busca entre las solicitudes de nadie. En mock, la del fixture del `customer`, como antes.
+ */
+async function loginAndOpenOwnOfferedRequest(page: Page): Promise<void> {
+  // Sin salto: el caso crea su propio dato. Si el entorno no da para crearlo (cupo mensual agotado,
+  // catálogo sin cartas), `M5SeedUnavailable` sube como ROJO con su razón impresa — no se apaga en
+  // verde (censo de saltos, scripts/check-e2e-skip-census.sh; rechazo de QA 2026-10-23).
+  const id = await sellerOfferedRequest();
+  if (id === null) {
+    await loginAs(page, 'customer');
+    await openOfferedRequest(page);
+    return;
+  }
+  await loginAs(page, SCENARIO_SELLER);
+  await page.goto(`/es/buylist/requests/${encodeURIComponent(id)}`);
+  await waitForPortal(page);
+  await expect(page.getByRole('button', { name: t('es', 'buylist.offer.accept') })).toBeVisible();
+}
+
+/**
  * Abre una solicitud **anterior a la oferta**: sin montos que enseñar **y no terminal**.
  *
  * ⚠️ Las dos condiciones hacen falta. «Sin `offer-amounts`» sola también la cumple una solicitud
@@ -131,8 +158,7 @@ test.describe('buylist · portal del vendedor (la oferta)', () => {
   test('@real muestra los tres montos, la condición NM y el plazo con fecha y hora', async ({
     page,
   }) => {
-    await loginAs(page, 'customer');
-    await openOfferedRequest(page);
+    await loginAndOpenOwnOfferedRequest(page);
 
     const amounts = page.getByTestId('offer-amounts');
     await expect(amounts).toBeVisible();
@@ -153,8 +179,7 @@ test.describe('buylist · portal del vendedor (la oferta)', () => {
 
   /** Todo-o-nada (D1): se demuestra por lo que NO está — ni casillas, ni «quitar esta carta». */
   test('@real no ofrece elegir líneas ni contraofertar', async ({ page }) => {
-    await loginAs(page, 'customer');
-    await openOfferedRequest(page);
+    await loginAndOpenOwnOfferedRequest(page);
 
     await expect(page.getByTestId('offer-amounts')).toBeVisible();
     await expect(page.getByRole('checkbox')).toHaveCount(0);

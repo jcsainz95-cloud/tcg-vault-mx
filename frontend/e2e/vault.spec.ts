@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, mockOnly, MONEY_RE } from './utils/auth';
+import { withCustomerSettledHolding } from './utils/vault-holding';
 
 /**
  * Flujo: Mi bóveda / portafolio (PROJECT §C / AC 5, 6, 8, 10; contrato §3).
@@ -14,17 +15,21 @@ test.describe('bóveda · portafolio y titularidad', () => {
    */
   test('@real muestra valor de portafolio, custodia y retiro de pieza settled', async ({ page }) => {
     await loginAs(page, 'customer');
-    await page.goto('/es/vault');
+    // QA-REL-3: la pieza settled del seed es la misma que `shipments.spec.ts` toma prestada (y devuelve)
+    // para su retiro: se mira bajo el mismo candado, nunca a mitad de ese préstamo (`utils/vault-holding.ts`).
+    await withCustomerSettledHolding(async () => {
+      await page.goto('/es/vault');
 
-    await expect(page.getByRole('heading', { name: t('es', 'vault.title') })).toBeVisible();
-    await expect(page.getByText(t('es', 'vault.portfolioValue'))).toBeVisible();
-    await expect(page.getByText(MONEY_RE).first()).toBeVisible();
-    await expect(page.getByText(t('es', 'vault.trustBanner'))).toBeVisible();
+      await expect(page.getByRole('heading', { name: t('es', 'vault.title') })).toBeVisible();
+      await expect(page.getByText(t('es', 'vault.portfolioValue'))).toBeVisible();
+      await expect(page.getByText(MONEY_RE).first()).toBeVisible();
+      await expect(page.getByText(t('es', 'vault.trustBanner'))).toBeVisible();
 
-    // El seed del cliente trae inventario en custodia settled → badge + acceso a retiro.
-    await expect(page.getByText(t('es', 'status.ownership.settled')).first()).toBeVisible();
-    // "Retirar" de una pieza settled es un enlace a /shipments (no un botón).
-    await expect(page.getByRole('link', { name: t('es', 'vault.withdraw') }).first()).toBeVisible();
+      // El seed del cliente trae inventario en custodia settled → badge + acceso a retiro.
+      await expect(page.getByText(t('es', 'status.ownership.settled')).first()).toBeVisible();
+      // "Retirar" de una pieza settled es un enlace a /shipments (no un botón).
+      await expect(page.getByRole('link', { name: t('es', 'vault.withdraw') }).first()).toBeVisible();
+    });
   });
 
   test('distingue titularidad pending vs settled', async ({ page }) => {

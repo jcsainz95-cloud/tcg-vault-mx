@@ -54,6 +54,9 @@
 #                                         #   cualquier medición que vayas a citar en un
 #                                         #   veredicto (SEC-OPS-1). Admite un SHA:
 #                                         #   `verify:head 3b2fc87` = «quiero auditar ÉSE».
+#   ./scripts/stack-native.sh restart:backend  # reinicia SOLO el backend propio (throttler en
+#                                         #   memoria a cero, datos intactos) y verifica su
+#                                         #   procedencia. Lo usa e2e-real-suite.sh (QA-REL-3).
 #   ./scripts/stack-native.sh status      # qué está arriba, en qué puerto y QUÉ COMMIT sirve
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
@@ -786,6 +789,51 @@ stop_backend_only() {
      Mientras siga vivo, NADIE puede afirmar qué commit se está midiendo (SEC-OPS-1)."
 }
 
+# -----------------------------------------------------------------------------
+# CLIENTE PRISMA AL DÍA ANTES DE ARRANCAR (tester-e2e vía QA, rechazo de 803c4298, 2026-10-23)
+# -----------------------------------------------------------------------------
+# Con un `backend/node_modules/.prisma/client` generado de un schema VIEJO, el backend moría al
+# arrancar con `TypeError: Cannot convert undefined or null to object` en
+# `measurement-drain.service.ts:42` (`Object.values(MeasurementDestination)`: el enum no existía en el
+# cliente). OJO: `prisma generate` NO copia el schema tal cual: lo REFORMATEA (Prisma 5.22 realinea
+# columnas, p. ej. `model User`), así que comparar por bytes abortaba en todo clon limpio (rechazo de
+# QA a 96cda136, 3/3). Ahora la paridad no depende del formato:
+#   · tras un `generate` correcto el script deja un SELLO `.tcg-schema.sha256` en el cliente con
+#     «sha256(schema del repo) sha256(copia del cliente)». Sello igual ⇒ al día, sin regenerar.
+#   · sello ausente o distinto (schema editado, cliente regenerado a mano con otro schema, `npm ci`
+#     que rehace node_modules) ⇒ `prisma generate` y se re-mide la copia contra el schema por HUELLA
+#     sin formato (espacios colapsados, sin líneas vacías ≈ `diff -w`); si no coincide o generate
+#     falla ⇒ se para con el remedio. El schema del repo no se toca (nada de `prisma format`).
+# Canario: scripts/check-stack-prisma-client.sh (su `npx` falso REFORMATEA al copiar).
+# Límite dicho: supone el `output` por defecto del generador (el schema no declara otro; el canario
+# lo comprueba). DEVOPS_NOTES §103.4.
+# >>> PRISMA-CLIENT (no muevas estas marcas: el canario extrae este bloque)
+_prisma_sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+_prisma_huella() { awk '{$1=$1}; NF' "$1" | _prisma_sha; }
+ensure_prisma_client() {
+  local schema="$BACKEND_DIR/prisma/schema.prisma" copia="$BACKEND_DIR/node_modules/.prisma/client/schema.prisma"
+  local sello="$BACKEND_DIR/node_modules/.prisma/client/.tcg-schema.sha256" esperado=""
+  [ -f "$schema" ] || die "No existe $schema."
+  if [ -f "$copia" ]; then esperado="$(_prisma_sha < "$schema") $(_prisma_sha < "$copia")"; fi
+  if [ -n "$esperado" ] && [ -f "$sello" ] && [ "$(cat "$sello")" = "$esperado" ]; then
+    ok "cliente Prisma al día con prisma/schema.prisma (sello)."; return 0
+  fi
+  if [ ! -f "$copia" ]; then warn "No hay cliente Prisma generado en backend/node_modules/.prisma/client. Lo genero."
+  elif [ -f "$sello" ]; then warn "El cliente Prisma de backend/node_modules es de OTRO schema (el sello no coincide). Lo regenero."
+  else warn "El cliente Prisma de backend/node_modules no lleva sello de este script (¿npm ci, generate a mano?). Lo regenero."; fi
+  log "prisma generate (el cliente no estaba sellado con este schema)"
+  ( cd "$BACKEND_DIR" && npx prisma generate ) \
+    || die "\`prisma generate\` falló. El backend NO arranca con un cliente que no es de este schema
+     (moriría con «Cannot convert undefined or null to object» al leer un enum nuevo).
+     Remedio:  cd backend && npm ci && npx prisma generate"
+  [ -f "$copia" ] && [ "$(_prisma_huella "$copia")" = "$(_prisma_huella "$schema")" ] \
+    || die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia),
+     ni ignorando el formato. ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
+  printf '%s %s\n' "$(_prisma_sha < "$schema")" "$(_prisma_sha < "$copia")" > "$sello"
+  ok "cliente Prisma regenerado, al día con prisma/schema.prisma y sellado."
+}
+# <<< PRISMA-CLIENT
+
 start_backend() {
   log "Backend NestJS nativo (ts-node) en :$BACKEND_PORT"
 
@@ -808,6 +856,7 @@ start_backend() {
   fi
 
   [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
+  ensure_prisma_client
   # -------------------------------------------------------------------------
   # ⚠️ `setsid env -C … &` A NIVEL DE FUNCIÓN, **SIN** `( … )` ENVOLVENTE.
   # Esto es EL MISMO defecto que ya se arregló en `start_s3` (ver el bloque de
@@ -1362,6 +1411,8 @@ case "${1:-up}" in
     # (como última sentencia de una función/script, el `[ ]` falso mata al llamador).
     # `if/fi` quita esa carga estructural: mover esta línea ya no puede romper nada.
     if [ "$DO_SEED" = 1 ]; then
+      # El seed usa el MISMO cliente Prisma que el backend: se pone al día antes (§103.4).
+      if [ -d "$BACKEND_DIR/node_modules" ]; then ensure_prisma_client; fi
       seed_synthetic
     fi
     if [ "$ONLY_INFRA" = 1 ]; then
@@ -1653,6 +1704,32 @@ case "${1:-up}" in
     [ -n "$VH_SHA" ] || require_expected_sha
     verify_head "$VH_SHA"
     ;;
+  restart:backend)
+    # -------------------------------------------------------------------------
+    # QA-REL-3 (devops, 2026-10-23 · DEVOPS_NOTES §105) — VACIAR EL THROTTLER SIN
+    # TOCAR EL LÍMITE. `POST /checkout/guest/session` tiene 5/h por IP en el
+    # producto (`guest-orders.controller.ts`, `@Throttle({ ttl: HOUR_MS, limit: 5 })`)
+    # y el almacén del `ThrottlerModule` es EN MEMORIA por proceso (`app.module.ts`,
+    # `forRoot` sin storage). Desde el arnés todo sale de 127.0.0.1, así que la suite
+    # `@real` completa (≥6 sesiones de invitado) daba 429 a partir de la sexta.
+    # Reiniciar el proceso es la ÚNICA forma de empezar con el presupuesto entero
+    # sin debilitar nada: el límite sigue siendo 5/h dentro de cada vida del
+    # proceso, y producción no ve este subcomando. Lo usa `scripts/e2e-real-suite.sh`.
+    # Datos: Postgres/Redis NO se tocan y NO se resiembra (como el reinicio de `up`).
+    # Solo reinicia un backend que lanzó ESTE clon (pidfile propio, I-QA2).
+    # -------------------------------------------------------------------------
+    [ -f "$RUN_DIR/backend.pid" ] || die "No hay $RUN_DIR/backend.pid: este clon no lanzó el backend (o ya está abajo).
+     No reinicio un proceso que no es mío (I-QA2). Levántalo con:  ./scripts/stack-native.sh up --gate"
+    [ -n "$(head_sha)" ] || require_expected_sha
+    log "Reinicio del backend (throttler en memoria a cero; datos intactos)"
+    stop_backend_only
+    start_backend
+    # Procedencia tras el reinicio: el proceso nuevo tiene que servir el MISMO árbol.
+    "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT (reiniciado)" \
+        --stamp "$BACKEND_STAMP" --sha "$(head_sha)" "${BACKEND_SOURCE_ARGS[@]}" --quiet \
+      || die "El backend reiniciado NO sirve el árbol esperado ($(short_sha "$(head_sha)")) — SEC-OPS-1."
+    ok "backend reiniciado y verificado ($(short_sha "$(head_sha)"))."
+    ;;
   status)
     log "Estado del stack nativo"
     pg_isready 2>&1 | sed 's/^/  postgres: /'
@@ -1710,6 +1787,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | restart:backend | status | down [--all]}"
     ;;
 esac

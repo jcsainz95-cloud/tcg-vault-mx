@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ivaLabelRe, t } from './utils/i18n';
 import { loginAs, mockOnly, IS_REAL, MONEY_RE } from './utils/auth';
+import { cancelOwnWithdrawal, withCustomerSettledHolding } from './utils/vault-holding';
 
 /**
  * Flujo: retiro / envío (PROJECT §D / AC 9, 10, 31; contrato §5).
@@ -29,46 +30,71 @@ test.describe('retiro · envío nacional', () => {
    */
   test('@real retirar: cotiza envío y el cobro abre el modal de pago', async ({ page }) => {
     await loginAs(page, 'customer');
-    await page.goto('/es/shipments');
+    // QA-REL-3: la pieza settled del seed es UNA y la comparte `vault.spec.ts:15`. Este caso la toma
+    // prestada bajo candado y CANCELA su propio retiro al terminar (`utils/vault-holding.ts`).
+    await withCustomerSettledHolding(async () => {
+      let shipmentId: string | null = null;
+      try {
+        await page.goto('/es/shipments');
 
-    // Primera pieza settled: los ítems son checkboxes; las direcciones del picker son radios.
-    await page.getByRole('checkbox').first().check();
+        // Primera pieza settled: los ítems son checkboxes; las direcciones del picker son radios.
+        await page.getByRole('checkbox').first().check();
 
-    // La dirección MX por defecto se auto-selecciona → aparece el desglose de envío.
-    const breakdown = page.getByTestId('amount-breakdown');
-    await expect(breakdown).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.shipping'))).toBeVisible();
-    // (B-2) ESTE ASSERT PEDIA `checkout.iva` («IVA 16%») Y QUEDO CADUCO CON §M10-IVA.4.
-    //
-    // `PROJECT.md §Q` (tabla de superficies, enmienda `D-IVA-8`) lo fija para el envío: *«SÍ, su
-    // cifra exhibida lleva el IVA dentro»* (criterio **189**), y el criterio **190** manda que el
-    // rótulo lo decida el DATO (`BreakdownDTO.ivaIncluded`), no la pantalla. Medido contra el
-    // stack (2026-09-14, `9328880`) en el propio desglose del retiro: Envío MX$203.00 ·
-    // «IVA 16 % incluido» MX$28.00 · Comisión MX$12.48 · Total MX$215.48 — o sea
-    // `total == envío + comisión`, con el IVA INFORMANDO y no sumando. La prueba era la
-    // equivocada; el producto hace lo que `PROJECT.md` manda.
-    //
-    // ⚠️ Y no es un fallo de COBRO: esta línea muere ANTES de tocar Stripe. Contarla con los
-    // tres rojos de «falta capacidad de cobro» ocultaba un rótulo caduco detrás de un hueco de
-    // entorno.
-    await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
-    // El IVA bajo `IVA_INCLUSIVE` INFORMA: el desglose lo declara en su atributo, que es el dato
-    // y no el texto. Sin esto, el assert de arriba pasaría igual con un rótulo pegado a mano.
-    await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
-    await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
+        // La dirección MX por defecto se auto-selecciona → aparece el desglose de envío.
+        const breakdown = page.getByTestId('amount-breakdown');
+        await expect(breakdown).toBeVisible();
+        await expect(breakdown.getByText(t('es', 'checkout.shipping'))).toBeVisible();
+        // (B-2) ESTE ASSERT PEDIA `checkout.iva` («IVA 16%») Y QUEDO CADUCO CON §M10-IVA.4.
+        //
+        // `PROJECT.md §Q` (tabla de superficies, enmienda `D-IVA-8`) lo fija para el envío: *«SÍ, su
+        // cifra exhibida lleva el IVA dentro»* (criterio **189**), y el criterio **190** manda que el
+        // rótulo lo decida el DATO (`BreakdownDTO.ivaIncluded`), no la pantalla. Medido contra el
+        // stack (2026-09-14, `9328880`) en el propio desglose del retiro: Envío MX$203.00 ·
+        // «IVA 16 % incluido» MX$28.00 · Comisión MX$12.48 · Total MX$215.48 — o sea
+        // `total == envío + comisión`, con el IVA INFORMANDO y no sumando. La prueba era la
+        // equivocada; el producto hace lo que `PROJECT.md` manda.
+        //
+        // ⚠️ Y no es un fallo de COBRO: esta línea muere ANTES de tocar Stripe. Contarla con los
+        // tres rojos de «falta capacidad de cobro» ocultaba un rótulo caduco detrás de un hueco de
+        // entorno.
+        await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
+        // El IVA bajo `IVA_INCLUSIVE` INFORMA: el desglose lo declara en su atributo, que es el dato
+        // y no el texto. Sin esto, el assert de arriba pasaría igual con un rótulo pegado a mano.
+        await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
+        await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 
-    await page.getByRole('button', { name: t('es', 'shipments.requestWithdrawal') }).click();
+        // El id del retiro que crea ESTE caso (contrato §5: `201 { shipmentId, status:'solicitado', … }`).
+        const created = IS_REAL
+          ? page.waitForResponse(
+              (r) => r.request().method() === 'POST' && /\/shipments$/.test(new URL(r.url()).pathname),
+            )
+          : null;
+        await page.getByRole('button', { name: t('es', 'shipments.requestWithdrawal') }).click();
+        if (created) {
+          const body = (await (await created).json().catch(() => null)) as { shipmentId?: string } | null;
+          shipmentId = body?.shipmentId ?? null;
+        }
 
-    const modal = page.getByRole('dialog', { name: t('es', 'shipments.payTitle') });
-    await expect(modal).toBeVisible();
+        const modal = page.getByRole('dialog', { name: t('es', 'shipments.payTitle') });
+        await expect(modal).toBeVisible();
 
-    if (IS_REAL) {
-      // Real: camino Stripe <Elements>, NO el cuerpo simulado.
-      await expect(modal.getByText(t('es', 'payment.mockBody'))).toBeHidden();
-    } else {
-      await modal.getByRole('button', { name: /Pagar/ }).click();
-      await expect(modal).toBeHidden();
-    }
+        if (IS_REAL) {
+          // Real: camino Stripe <Elements>, NO el cuerpo simulado.
+          await expect(modal.getByText(t('es', 'payment.mockBody'))).toBeHidden();
+          expect(shipmentId, 'POST /shipments respondió sin `shipmentId`').toBeTruthy();
+        } else {
+          await modal.getByRole('button', { name: /Pagar/ }).click();
+          await expect(modal).toBeHidden();
+        }
+      } finally {
+        // Restaurar SIEMPRE lo que se tomó, también si el caso falló a la mitad. Sin cobro, el retiro
+        // `solicitado` es cancelable; si no lo fuera, el rojo sale aquí y no en la corrida siguiente.
+        if (shipmentId) {
+          const status = await cancelOwnWithdrawal(shipmentId);
+          expect(status, `no se pudo cancelar el retiro ${shipmentId} del arnés (PATCH …/status cancelado)`).toBeLessThan(300);
+        }
+      }
+    });
   });
 
   test('solo nacional: el aviso MX-only es visible (país fijo en el alta de dirección)', async ({

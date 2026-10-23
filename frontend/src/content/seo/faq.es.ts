@@ -1,7 +1,7 @@
 /**
  * ⭐ §MKT tienda §E4 — FAQ públicas de `/preguntas` (y los bloques de `/como-funciona`).
  *
- * FUENTE ÚNICA: repo de marketing `plan/RESPUESTAS.md` §12.2, **manual v5** (2026-10-11). Pregunta y
+ * FUENTE ÚNICA: repo de marketing `plan/RESPUESTAS.md` §12.2, **manual v8** (2026-10-20, commit `7dd4dcc`). Pregunta y
  * respuesta se copian TAL CUAL (§12.0 regla 1); la tienda NO redacta ni retoca FAQ: todo cambio vuelve
  * al manual primero y después se copia la versión nueva aquí (§12.0 regla 2). Texto en español de
  * México: el manual no tiene versión en inglés, y la ruta `/en/…` lo sirve en español con aviso.
@@ -15,14 +15,17 @@
  *  - P19 ⇒ «Revisión obligatoria el 2026-11-06: ese día se reescribe en pasado o se retira» ⇒ hasta el 05.
  * La página y el sitemap filtran con `publishedFaqs()` (`lib/seo-content.ts`): al vencer, sale SOLA.
  *
- * RETENIDAS (no publicadas) — ver `HELD_FAQS` al final, con su motivo.
+ * RETENIDAS (no publicadas) — ver `HELD_FAQS` al final, con su motivo (hoy ninguna: P8 se publica desde v8).
+ * P1 y P8 llevan el texto v7/v8 sin «autentic-» en la respuesta («vigente desde 2026-10-19 · revisión mensual»).
+ * La PREGUNTA de P8 conserva «auténtica» (decisión A de v8: es la pregunta del cliente, no afirmación nuestra):
+ * excepción nombrada en el trinquete «autentic-» de `seo-content.test.ts`.
  * ⛔ Nada del Card Show, sin precios, sin «disponible», sin emojis (§12.0 regla 4): lo vigila
  * `seo-content.test.ts`.
  */
 
-export const FAQ_MANUAL_VERSION = 'v5';
-/** Fecha de la versión del manual que está publicada (cabecera v5 de `RESPUESTAS.md`). */
-export const FAQ_LAST_REVIEW = '2026-10-11';
+export const FAQ_MANUAL_VERSION = 'v8';
+/** Fecha de la versión del manual que está publicada (cabecera v8 de `RESPUESTAS.md`). */
+export const FAQ_LAST_REVIEW = '2026-10-20';
 
 export type FaqGroup =
   | 'Comprar'
@@ -62,7 +65,7 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     group: "Comprar",
     question: "¿Cómo funciona la bóveda? ¿No me mandan las cartas?",
     answer:
-      "Cuando compras en tcghunt.mx, tus cartas no se envían una por una: se quedan autenticadas y resguardadas a tu nombre en tu bóveda, dentro de tu cuenta. Puedes seguir comprando y, cuando tú quieras, pedir el envío de todo junto en un solo paquete. Mientras están en la bóveda ves el valor de tu colección actualizado al precio de mercado del día.",
+      "Cuando compras en tcghunt.mx, tus cartas no se envían una por una: se quedan verificadas y resguardadas a tu nombre en tu bóveda, dentro de tu cuenta. Puedes seguir comprando y, cuando tú quieras, pedir el envío de todo junto en un solo paquete. Mientras están en la bóveda ves el valor de tu colección actualizado al precio de mercado del día.",
     validThrough: '2026-11-11',
   },
   {
@@ -201,6 +204,15 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     validThrough: '2026-11-11',
   },
   {
+    id: 'P8',
+    core: true,
+    group: "Cartas y condición",
+    question: "¿Cómo sé que una carta que compro en TCG HUNT es auténtica?",
+    answer:
+      "Cada carta que vendemos se revisa en mano antes de publicarse: que sea original y su condición. Después se queda resguardada en la bóveda hasta que pides tu envío, así que la pieza que compras ya pasó esa revisión. No revisamos cartas de terceros por foto ni a distancia: que una carta sea original lo verificamos solo con la carta en mano, cuando entra a la bóveda o cuando nos la vendes.",
+    validThrough: '2026-11-11',
+  },
+  {
     id: 'P9',
     core: true,
     group: "Cartas y condición",
@@ -267,12 +279,7 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
 
 /**
  * FAQ del manual §12.2 que la tienda NO publica todavía, con el motivo. Solo id + motivo: el texto
- * vive en el manual (un hecho, un documento).
+ * vive en el manual (un hecho, un documento). Hoy vacía: P8 (retenida por «No autenticamos…» en v5) se
+ * publica con el texto de v7/v8.
  */
-export const HELD_FAQS: readonly { id: string; reason: string }[] = [
-  {
-    id: 'P8',
-    reason:
-      'Su respuesta dice «No autenticamos cartas de terceros…»: el brief §E4 retira «autenticamos» de toda copia de la tienda. La tienda no reescribe FAQ (§12.0 regla 2) ⇒ vuelve al manual para versionarla.',
-  },
-];
+export const HELD_FAQS: readonly { id: string; reason: string }[] = [];

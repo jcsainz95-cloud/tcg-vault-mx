@@ -20,9 +20,7 @@
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5). Este documento sigue muy por encima del
   tope de 1 500 líneas: **se compacta antes de añadir**.
-- **Histórico retirado del encabezado (2026-10-19):** los bloques «Actualización 2026-08-17 … 2026-09-06» que
-  abrían este fichero repetían en resumen lo que ya vive completo en §19, §27, §29, §32, §33, §34 y §38. Texto
-  anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
+- **Histórico:** el encabezado anterior vive en `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
 
@@ -5062,29 +5060,8 @@ gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.*
 
 ### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
 
-> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-48.**
-> Se conserva porque los 3 diales de M2 siguen siendo los mismos, pero **el nombre del dial del
-> penúltimo punto cambió con M-48** y ya viene corregido abajo. Si el pase que estás preparando es el
-> de M-48 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
-
-- [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
-- [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
-- [ ] **Staging**: aplicar el `PUT` parcial solo de las claves en el seed viejo. Divergentes → **preguntar** (§32.4).
-- [ ] **Staging**: re-`GET` (`rc=0`) + línea de inventario del arranque + **E2E del criterio 109** (`-t '8d'`).
-- [ ] **Prod**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes.
-- [ ] **Prod**: aplicar el `PUT` parcial. Divergentes → **preguntar al humano (GU-13)**, no sobrescribir.
-- [ ] **Prod**: re-`GET` (`rc=0`) + línea de inventario del arranque. **E2E 109 NO se corre aquí** (§32.5).
-- [ ] La feature sigue **APAGADA** por su dial (**v1.51: `grading_hook_enabled = off`**, DTO
-      `gradingHookEnabled`; la vieja `graded_estimates_enabled` está **retirada e inerte** — verificarla
-      no prueba nada) hasta que el humano apruebe el texto legal. **Encenderla no es decisión de
-      devops** y **no es parte de este paso**; desde M-48 encenderla es además un **acto de gasto**
-      (§32.12.1).
-- [ ] Solo entonces: anunciar el release.
-
-> **El último punto no es una formalidad.** Los tres diales se alinean **con la feature apagada**. Eso es
-> lo correcto: cuando el humano la encienda, se enciende **ya con el criterio que `PROJECT.md` escribió**,
-> no con el que el código eligió por accidente. Alinear los diales **después** de encender significaría
-> publicar durante un rato afirmaciones comerciales que el producto no autorizó.
+> **Retirada el 2026-10-23 (DOC-SIZE).** Era la checklist del pase de M-42 (2026-08-28), superada por
+> **§32.12.9**, que es la que se pega en el ticket. Texto anterior: `git show 01440e56:docs/DEVOPS_NOTES.md`.
 
 ---
 
@@ -15176,21 +15153,16 @@ si la ref no declaraba `base-sha`, el sha es ancestro de la ref y el umbral = `w
 un ancestro previo a una compactación no reabre el umbral). En la PR a `main` no se activa (`aed3ca0d` no es ancestro
 de `789b8788`; `main` sin baseline). Canario 22×3 = 66/66; mutaciones «sin `≤ ref`» y «re-medir otra vez» ⇒ 3/66 c/u.
 
-### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
+### 101.6 MKT-E2 — `www.tcghunt.mx` → permanente al apex (CERRADA)
 
-**Hecho (2026-10-19):** por la mañana `www.tcghunt.mx` era NXDOMAIN y desde el repo no había nada que hacer
-(ningún `vercel.json` recibe peticiones de un nombre sin DNS). El dueño lo configuró en Vercel con **308**
-(permanente, como 301). Medido por el orquestador y por mí: `./scripts/check-www-apex.sh` ⇒ VERDE, `www…/es` ⇒
-308 ⇒ `https://tcghunt.mx/es`, ruta y query intactas. La sonda acepta 301 y 308; canario
-`check-www-apex-canary.sh` (9 casos, en `live-candados` de `ci.yml`).
+Vercel redirige `www` → apex con **308** (dueño, 2026-10-19). `check-www-apex.sh` acepta 301 y 308 y pone rojo 302/307,
+query perdida, bucle a `www` y 200. Medido 2026-10-23 (`4dec5465`): canario N=3 ⇒ 27/27; «solo 301» ⇒ 2/9 rojos.
 
 ### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
 
-**Retirada el 2026-10-19 (D6 del techlead):** la excepción «PENDIENTE frontend» (y `mkt-fase2-dependencia.env`)
-sobraba al existir la puerta y los dos specs, y dejaba que borrar los specs fuera un `::warning`. Ahora falta una
-pieza ⇒ rojo; canario `check-measurement-e2e-specs-canary.sh` 5×3 = 15/15, mutación «volver a PENDIENTE» 3/3 rojo.
-C-D1 lee `measurementDisclosure` literal o vía `MEASUREMENT_DISCLOSURE` (`measurement-disclosure.ts`), y una forma
-desconocida es rc 2; canario 9/9, mutación «ignorar la constante» ⇒ M5 rojo 3/3. TD-HND-1: de backend.
+**Retirada el 2026-10-19 (D6 del techlead):** falta una pieza (puerta o specs) ⇒ rojo, no `::warning`; canario
+`check-measurement-e2e-specs-canary.sh` 15/15, «volver a PENDIENTE» 3/3 rojo. C-D1 lee `measurementDisclosure` literal o
+vía `MEASUREMENT_DISCLOSURE`; forma desconocida ⇒ rc 2 (canario 9/9; «ignorar la constante» ⇒ M5 rojo 3/3). TD-HND-1: backend.
 
 ### 101.8 Encender y apagar
 
@@ -15217,3 +15189,31 @@ esperando»). Respaldo: `timeout-minutes` 40 en el paso y 55 en el job. El vered
 (handles abiertos) la arregla backend. Canario `check-e2e-suite-hang-canary.sh` (ejecuta los `run:` reales con
 `run-workflow-step.sh`, que acepta `RUN_STEP_EXPRS` para simular `steps.*`/`needs.*`): 13 casos, N=3 ⇒ 39/39;
 mutaciones «sin rama colgada» ⇒ 1/13 rojo y «sin `timeout`» ⇒ 2/13 rojo.
+
+## §103 · Cierre QA-REL-2, MKT-E2 y la parte de arnés de QA-REL-3 (2026-10-23, rama `devops-rel`, base `01440e56`)
+
+**103.1 QA-REL-2 — `ci-ok` ya no da verde a un opcional `cancelled`.** `check-ci-ok.sh`: un opcional solo puede estar
+`success` o `skipped`; cualquier otro resultado (`cancelled` por `timeout-minutes`, etc.) es rojo. Y `skipped` es rojo
+si su `DETECTOR` (jq sobre `toJSON(needs)`) dice que debía correr: `detect.outputs.backend|frontend == "true"`, o
+`format-mix-base.outputs.ref != ""` para `format-mix`. Canario `check-ci-ok-canary.sh`: 18/18; contra el script de
+`01440e56` da 12/18 (los 6 casos QA-REL-2 en rojo: detectado+cancelled, detectado+skipped, format-mix…).
+
+**103.3 QA-REL-3 (arnés) — cada spec de invitado tiene su presupuesto; el límite no se toca.** `checkout/guest/session`
+es 5/h por IP con almacén en memoria por proceso y el arnés sale todo de 127.0.0.1. `scripts/e2e-real-suite.sh` (lo
+corre QA con `up --seed --gate`) lista los specs `@real` (`playwright test --list`), corre el resto en una tanda y cada
+spec que casa con `guest|invitado` en la suya, cada tanda tras `stack-native.sh restart:backend`. Salidas en
+`frontend/test-results-real-suite/`. **Filtro exacto (rechazo de QA a `803c4298`):** Playwright toma cada fichero como
+RegExp contra la ruta absoluta y `checkout.spec.ts` arrastraba `guest-checkout.spec.ts` (QA: «2 tests in 2 files»,
+`:137` rojo 2/2). Ahora va `^<ruta real escapada>$`; medido con playwright 1.56.1: nombre suelto ⇒ 3 ficheros, ancla ⇒ 1.
+Canario `e2e-real-suite-canary.sh` (en `live-candados`, también vigila el 5/h y `NODE_ENV=test`): N=3 ⇒ 26/26; runner
+de `442b1e8d` ⇒ 3/26 rojos (la tanda común corría `checkout guest-checkout n1 sub/checkout`). **NO MEDIDO:** la suite
+real completa con cobro (sin stack aquí); la cierra QA con el runner 2/2. Specs con >5 sesiones o datos ajenos: frontend.
+
+**103.4 Cliente Prisma al día antes de arrancar (tester-e2e).** Con `.prisma/client` de otro schema el backend moría con
+`Cannot convert undefined or null to object`. `ensure_prisma_client` (`start_backend` y antes del seed de `up --seed`):
+sello `node_modules/.prisma/client/.tcg-schema.sha256` = sha256(schema) + sha256(copia) igual ⇒ nada; si no ⇒ `prisma
+generate`, copia vs schema por huella sin formato (Prisma 5.22 REFORMATEA la copia: el `cmp` de 96cda136 abortaba en todo
+clon limpio, QA 3/3) y se sella; si falla o no coincide ⇒ se para. Prueba real (copia `git archive` + `npm ci`, generate de
+verdad): 1.ª regenera, 2.ª «al día», N=2; `cmp` viejo ⇒ aborta. Canario: N=3 ⇒ 29/29; `cmp` ⇒ 18/29 rojos. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
+corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
+pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.

@@ -22,7 +22,7 @@ import {
 import { buildLlmsTxt } from './llms-txt';
 import { FIXTURE_CONTENT as FIX, FX_NOW } from './seo-content.fixture';
 
-/** Un día dentro de la vigencia de la primera publicación (manual v5). */
+/** Un día dentro de la vigencia de la publicación vigente (manual v8). */
 const NOW = new Date('2026-10-18T18:00:00Z');
 
 function stringEntries(obj: unknown, prefix = ''): [string, string][] {
@@ -46,17 +46,18 @@ function offenders(texts: readonly string[], patterns: readonly RegExp[]): strin
   return texts.filter((t) => patterns.some((p) => p.test(t)));
 }
 
-describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v5)', () => {
-  it('ids únicos, grupos del manual, y P8 retenida (no publicada)', () => {
+describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v8)', () => {
+  it('ids únicos, grupos del manual, las 24 publicadas (P8 incluida desde v8) y ninguna retenida', () => {
     const ids = PUBLIC_FAQS.map((f) => f.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(PUBLIC_FAQS).toHaveLength(23); // 24 del manual − P8 retenida
+    expect(PUBLIC_FAQS).toHaveLength(24); // P1-P24 del manual v8
+    expect(HELD_FAQS).toEqual([]);
     for (const f of PUBLIC_FAQS) expect(FAQ_GROUP_ORDER).toContain(f.group);
     for (const h of HELD_FAQS) expect(ids).not.toContain(h.id);
   });
 
-  it('hoy (NOW) se publican las 23 FAQ vivas', () => {
-    expect(publishedFaqs(NOW)).toHaveLength(23);
+  it('hoy (NOW) se publican las 24 FAQ vivas', () => {
+    expect(publishedFaqs(NOW)).toHaveLength(24);
   });
 
   // FE-MKT-T1: la regla de vigencia se prueba sobre el fixture (fechas fijas), no sobre las FAQ vivas.
@@ -86,7 +87,7 @@ describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v5)', () => {
   it('agrupa en el orden del manual sin perder ninguna', () => {
     const groups = groupFaqs(publishedFaqs(NOW));
     expect(groups.map((g) => g.group)).toEqual([...FAQ_GROUP_ORDER]);
-    expect(groups.flatMap((g) => g.faqs)).toHaveLength(23);
+    expect(groups.flatMap((g) => g.faqs)).toHaveLength(24);
   });
 });
 
@@ -282,36 +283,22 @@ describe('«autenticadas/autenticidad» fuera de la copia de la tienda (messages
   ];
 
   /**
-   * Texto del repo de marketing que la tienda copia TAL CUAL y no reescribe (RESPUESTAS.md §12.0 regla 2; las guías
-   * «solo QUITAN, nunca reescriben», cabecera de `guides.es.ts`). Excepción hasta que marketing lo versione; caduca
-   * con la vigencia de la FAQ P1 (`validThrough` 2026-11-11), cuando hay que re-medirla de todos modos.
-   * P8 no está aquí: está RETENIDA (HELD_FAQS), su texto no se publica.
+   * PREGUNTA del cliente, no afirmación nuestra: el `name` de P8 conserva «auténtica» por la decisión A de
+   * `RESPUESTAS.md` v8 (2026-10-20, «P8 conserva el título «¿…es auténtica?» (opción A: es la pregunta del cliente,
+   * no afirmación nuestra)», delegada por el dueño al orquestador). La excepción es el LITERAL exacto: si la pregunta
+   * cambia, deja de estar exenta y hay que volver a decidir. Las respuestas no tienen excepción ninguna.
+   * (Las dos excepciones de marketing —respuesta de P1 y cierre de la guía `carta-pirata-5-senales`— salieron el
+   * 2026-10-23: con el manual v8 y `copy-v2.md` ya no dicen «autentic-».)
    */
-  const MARKETING_TEXT: readonly {
-    where: string;
-    text: () => string | undefined;
-    owner: string;
-    measuredOn: string;
-    expires: string;
-  }[] = [
+  const CUSTOMER_QUESTIONS: readonly { where: string; text: () => string | undefined; literal: string; source: string }[] = [
     {
-      where: 'faq:P1.answer',
-      text: () => PUBLIC_FAQS.find((f) => f.id === 'P1')?.answer,
-      owner: 'marketing (manual RESPUESTAS §12.2 P1)',
-      measuredOn: '2026-10-19',
-      expires: '2026-11-11',
-    },
-    {
-      where: 'guide:carta-pirata-5-senales',
-      text: () =>
-        GUIDES.find((g) => g.slug === 'carta-pirata-5-senales')
-          ?.blocks.map((b) => b.text ?? '')
-          .find((t) => hits(t)),
-      owner: 'marketing (piezas/2026-10-15-carrusel-carta-pirata/copy.md)',
-      measuredOn: '2026-10-19',
-      expires: '2026-11-11',
+      where: 'faq:P8.question',
+      text: () => PUBLIC_FAQS.find((f) => f.id === 'P8')?.question,
+      literal: '¿Cómo sé que una carta que compro en TCG HUNT es auténtica?',
+      source: 'RESPUESTAS.md v8 §12.2 P8 (decisión A, 2026-10-20)',
     },
   ];
+  const isQuestionField = (t: string) => PUBLIC_FAQS.some((f) => f.question === t);
 
   it.each([
     ['es', es],
@@ -332,21 +319,26 @@ describe('«autenticadas/autenticidad» fuera de la copia de la tienda (messages
     expect(stale).toEqual([]);
   });
 
-  it('contenido SEO público (FAQ, guías, llms.txt) sin «autentic-» fuera del texto de marketing nombrado', () => {
-    const exempt = new Set(MARKETING_TEXT.map((m) => m.text()).filter((t): t is string => !!t));
-    const texts = allContentTexts().filter((t) => !exempt.has(t));
+  it('contenido SEO público (FAQ, guías, llms.txt) sin «autentic-» salvo la pregunta del cliente nombrada', () => {
+    // Exenta solo si es un campo `question` Y es el literal decidido: una respuesta o guía con ese mismo texto no pasa.
+    const exempt = new Set(CUSTOMER_QUESTIONS.map((q) => q.literal));
+    const texts = allContentTexts().filter((t) => !(exempt.has(t) && isQuestionField(t)));
     expect(offenders(texts, AUTHENTICITY_CLAIM_PATTERNS)).toEqual([]);
   });
 
-  it('cada excepción de marketing SIGUE ofendiendo, con dueño, medición y caducidad vigente (reloj real)', () => {
-    const today = todayInMexico();
-    for (const m of MARKETING_TEXT) {
-      const t = m.text();
-      expect(t !== undefined && hits(t), `${m.where}: ya no dice «autentic-» ⇒ bórrala de MARKETING_TEXT`).toBe(true);
-      expect(m.owner.trim()).not.toBe('');
-      expect(m.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(today <= m.expires, `${m.where} caducó el ${m.expires}: que marketing la versione o renovar con decisión del dueño`).toBe(true);
+  it('cada pregunta exenta es el literal decidido y SIGUE ofendiendo (corregida ⇒ se borra de CUSTOMER_QUESTIONS)', () => {
+    for (const q of CUSTOMER_QUESTIONS) {
+      expect(q.text(), `${q.where}: ya no es el literal de ${q.source}`).toBe(q.literal);
+      expect(hits(q.literal), `${q.where}: ya no dice «autentic-» ⇒ bórrala de CUSTOMER_QUESTIONS`).toBe(true);
     }
+  });
+
+  it('P1 y la guía de la carta pirata llevan el texto v8 / copy-v2 (sin «autentic-»)', () => {
+    expect(PUBLIC_FAQS.find((f) => f.id === 'P1')?.answer).toContain('se quedan verificadas y resguardadas');
+    const pirata = GUIDES.find((g) => g.slug === 'carta-pirata-5-senales')!;
+    expect(pirata.blocks.map((b) => b.text)).toContain(
+      'Cada carta que vendemos se revisa antes de publicarse: que sea original y su condición.',
+    );
   });
 
   it('los tres textos aprobados por el dueño dicen «verificadas» (ES) / «verified» (EN)', () => {

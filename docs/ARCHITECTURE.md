@@ -24154,39 +24154,12 @@ netShippingRevenue   = E − ivaEnvioCents
 
 #### 4.44.k EL DESPLIEGUE — SON DOS, Y NUNCA UNO — ⛔⛔ **DEROGADA POR §4.55 (v2.2, D56, 2026-09-14)**
 
-> ⛔⛔ **ESTA SUBSECCIÓN YA NO ES NORMATIVA.** El dueño decidió **un solo despliegue** (`PROJECT §Q.10.e`, pregunta
-> **82**) porque **no existe ningún pedido cobrado** al que proteger. **La norma vigente es §4.55 (justo después de
-> §4.54, al final de §4) y su interfaz `API_CONTRACT §M10-IVA.9`.**
-> **Se conserva ENTERA y sin tachar, y no por respeto al registro sino porque DOS de sus cinco filas siguen siendo
-> exactas y hacen falta:** el reparto **DDL/Código** (todo lo de las dos columnas se hace igual, sólo que junto) y
-> ⭐ **la fila de ROLLBACK**, que ⛔ **no cambia ni una letra**: *revertir SOLO el código; **la BD no se toca**.* Las
-> columnas son **aditivas e inertes** y sobreviven al rollback — que es justo lo que hace que un solo despliegue
-> **no** sea irreversible.
-> ⚠️ **Lo que sí deja de ser cierto es la frase de abajo** (*«un solo deploy hace este cambio irreversible en la
-> práctica»*): lo era **porque había desglose fiscal que proteger**. Sin ventas, lo único que un despliegue único
-> adelanta es el momento en que la vitrina deja de mentir. **Y la fila «qué se verifica ahí» se colapsa: los DOCE
-> candados corren aquí** (`IVA-1`…`IVA-12`), `IVA-3` incluido y **sin aflojar** (criterio 190, §4.55.1).
-
-> **Ésta es la parte del diseño que no se puede optimizar. Un solo deploy hace este cambio irreversible en la
-> práctica.**
-
-| | **Deploy 1 — el esqueleto, sin cambiar una cifra** | **Deploy 2 — la convención** |
-|---|---|---|
-| **DDL** | **M-50 completa** (§11): las dos columnas en `Order` y `ShipmentRequest`, backfill a `IVA_EXCLUSIVE`, `SET NOT NULL`, fila del dial sembrada en `100` | **CERO DDL** |
-| **Código** | Escribe **siempre `IVA_EXCLUSIVE`**. Aritmética **la de hoy**. El helper `netRevenueCents` **ya cableado** en los cuatro sitios | Escribe **`IVA_INCLUSIVE`** y deriva `P`. Aparecen `displayPriceCents`/`ivaIncluded`/`ivaRatePct` y la puerta del dial |
-| **Efecto observable** | **NINGUNO.** Ni un centavo, ni un DTO, ni una cifra del P&L | La vitrina deja de mentir |
-| **Qué se verifica ahí** | `IVA-3` y `IVA-5` **contra producción real**, antes de tocar ningún precio | `IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-7`, `IVA-8` |
-| **Rollback** | Revertir código; las columnas quedan (aditivas e inertes) | **Revertir SOLO el código. ⛔ La BD no se toca** |
-
-- **Por qué el rollback del deploy 2 es seguro sin tocar la BD:** el lector es **por fila**. Las órdenes cobradas
-  bajo `IVA_INCLUSIVE` conservan su etiqueta y se siguen leyendo bien; las nuevas vuelven a nacer `IVA_EXCLUSIVE`.
-  **Nada se reinterpreta en ninguna de las dos direcciones** — que es exactamente la lección de `§4.43g-bis`.
-- **⛔ Por qué NUNCA en uno solo:** si el DDL y la convención viajan juntos, revertir deja **órdenes
-  `IVA_INCLUSIVE` en una base cuyo código ya no conoce la columna** ⇒ **se reinterpretan solas**, que es el
-  criterio **190 al revés**. Y además se pierde la única ventana en la que se puede probar que el P&L quedó neutro
-  **antes** de que ninguna cifra se mueva.
-- **`decks-meta-v1` se desbloquea con el DEPLOY 2 PUBLICADO EN PRODUCCIÓN**, no antes (criterio **197**;
-  `docs/specs/DECKS_META_V1.md §12`). ⚠️ **Aprobar D54 no desbloquea nada, y mergear tampoco.**
+> ⛔⛔ **No normativa** (decisión **82**, `PROJECT §Q.10.e`: un solo despliegue). La norma vigente es **§4.55** y su
+> interfaz `API_CONTRACT §M10-IVA.9`; la tabla de dos despliegues está en `git`.
+> **Lo único que sigue vigente, y §4.55.5 lo cita — la fila de ROLLBACK:** revertir **SOLO el código; ⛔ la BD no se
+> toca**. Las columnas de `M-50` son **aditivas e inertes** y sobreviven al rollback; el lector es **por fila**, así que
+> ninguna orden se reinterpreta (lección de `§4.43g-bis`). Si revertir basta depende de `N-IVA-1` (§4.55.5).
+> `decks-meta-v1` se desbloquea con el corte **publicado en producción** (criterio **197**), no con aprobar ni mergear.
 
 #### 4.44.l Qué NO hace este pase, dicho porque es justo donde alguien haría de más
 
@@ -34856,16 +34829,13 @@ productivas); las migraciones solo redefinen esquema.~~
 - **Reversa:** documentada en el contrato; **primero el código**. ⛔ Con guías de entrada vivas no se revierte sin
   cancelarlas.
 
-### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK + relleno que no mueve precios efectivos**, §4.62)
+### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK, sin relleno** (v1.83.1), §4.62)
 
 - **Carpeta:** `prisma/migrations/20261021120000_m71_sealed_product_owner_price/` (posterior a `M-70` del panel,
   `20261020120000`, y a `M-64`…`M-68` de Skydropx, `20261006…`–`20261009…`; medido con `Glob` en los tres árboles el
   2026-10-05). Si al fusionar otro stream ya tomó `M-71`, se renumera **esta**.
-- **Schema:** `model SealedProduct { … ownerSalePriceCents Int? }` — comentario en el modelo: «`L` del dueño; `null` =
-  automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price` (y el relleno de M-71)».
-- **SQL, relleno, bitácora, despliegue y rollback:** texto exacto en `API_CONTRACT §M11-SP.7`. ⛔ No toca
-  `InventoryItem`. Hay datos (preámbulo de §11): la columna es anulable y el relleno es un `UPDATE … WHERE` acotado.
-- ⛔ **v1.83.1 — SUSTITUYE lo de arriba:** columna **`ownerDisplayPriceCents Int?`** (`P`, con IVA) + CHECK
+- ⛔ **v1.83.1 — forma vigente** (la columna `ownerSalePriceCents` con relleno quedó descartada; está en `git`). ⛔ No
+  toca `InventoryItem`. Columna **`ownerDisplayPriceCents Int?`** (`P`, con IVA) + CHECK
   `1…100000000`, **sin relleno** y sin filas de bitácora (§4.62.8 (e)). Carpeta
   `20261021120000_m71_sealed_product_owner_display_price/`. Comentario del modelo: «`P` del dueño (lo que paga el
   cliente); `null` = automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price`». SQL y rollback:
@@ -37034,8 +37004,8 @@ no encender vive como dato en `measurement-gate.ts`, no en una nota:
 `ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
 (`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
 problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
-cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Basta con la
-puerta de Vercel: con el frontend apagado no viaja `measurement` y ningún pedido tiene consentimiento, así que el backend no encola nada (§14.6).
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Fuente: esta
+lista; `BACKEND_ENCENDER_BLOCKERS` (SEC-MKT-3, `on` ⇒ `off` efectivo) es espejo aceptado de sus entradas de backend, por paridad (`measurement.encender-gate.spec.ts`).
 
 **Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
 su forma (API_CONTRACT §MKT.H.1). GA4 sin `GA4_MEASUREMENT_ID` o sin `GA4_MP_API_SECRET` ⇒ no se encola nada para GA4. Meta sin
