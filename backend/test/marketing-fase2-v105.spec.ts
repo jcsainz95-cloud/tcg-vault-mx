@@ -104,7 +104,8 @@ function build(opts: { mode?: string; ga4?: boolean; failDims?: string; consentR
       ]),
     },
     sellRequest: {
-      aggregate: jest.fn(async () => ({ _count: { _all: 0 }, _sum: { quotedTotalCents: 0, payoutNetCents: 0 } })),
+      // a3 «pagadas» con 2 (1..4 ⇒ «< 5»): con 0 sale 0 visible desde MKT-TL9 (R1 «N = 0 ⇒ 0»).
+      aggregate: jest.fn(async () => ({ _count: { _all: 2 }, _sum: { quotedTotalCents: 20000, payoutNetCents: 15000 } })),
       findMany: jest.fn(async () => [{ firstUtmSource: 'instagram', firstUtmMedium: 'dm', firstUtmContent: 'chat-8', quotedTotalCents: 250000 }]),
     },
     sellRequestItem: { findMany: jest.fn(async () => []) },

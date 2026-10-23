@@ -7,8 +7,9 @@
  * sujetos de una población + sus MX$/derivadas) o declarada EXACTA por diseño. Una tabla nueva sin fila aquí pone roja
  * `test/marketing-populations.registry.spec.ts` (prueba 1): nadie publica una tabla sin decidir de qué población sale.
  *
- * ⚠️ Fuera de este fichero, por ahora (MKT-TL2, docs/TECH_DEBT.md): las ecuaciones entre tablas (`MARKETING_EQUATIONS`),
- * `exposedCells` y `enforceFamily` (R3b/R4) y su auditor (prueba 3). Hasta su verde, MKT-TL2 sigue abierta con caducidad.
+ * También aquí (MKT-TL2 b): las ecuaciones entre tablas del mismo periodo (`MARKETING_EQUATIONS`, E1-E7), las familias que se
+ * calculan juntas (`MARKETING_FAMILIES`), `exposedCells` (qué celda oculta se despeja) y `enforceFamily` (R3b y R4). Su
+ * auditor, independiente de este fichero, es `test/marketing-cross-table.audit.spec.ts` (prueba 3).
  */
 
 /** Poblaciones de sujetos (§MKT.H.14 «Poblaciones»). `GA4:<consulta>` y `SC`: la unidad de la fuente. */
@@ -125,8 +126,14 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
   h1: { class: 'text', components: [], exact: [] },
 };
 
-/** Totales sin dimensión que el dueño acepta exactos (Brief 2 §5.2; §MKT.H.14 «Total aceptado»). */
+/**
+ * Totales sin dimensión que el dueño acepta exactos (Brief 2 §5.2; §MKT.H.14 «Total aceptado»): `<tabla>` entera o
+ * `<tabla>:<fila>`. En las ecuaciones son CONSTANTES (se publican siempre) y R3b nunca los oculta (`isAcceptedTotal`).
+ */
 export const ACCEPTED_TOTALS: readonly string[] = ['a1', 'a2', 'a3:Solicitudes enviadas (generate_lead)', 'a5', 'f3'];
+
+/** ¿Es (tabla, fila) un total aceptado? */
+export const isAcceptedTotal = (table: string, key: string): boolean => ACCEPTED_TOTALS.includes(table) || ACCEPTED_TOTALS.includes(`${table}:${key}`);
 
 /** Columnas no texto que el registro cubre en una tabla (componentes + exactas). */
 export function registeredColumns(id: string): Set<string> {
@@ -137,4 +144,253 @@ export function registeredColumns(id: string): Set<string> {
     for (const d of comp.derived) out.add(d);
   }
   return out;
+}
+
+// ─────────────────────────── Ecuaciones entre tablas (§MKT.H.14 «Ecuaciones», MKT-TL2 b) ───────────────────────────
+
+/** Filas de una tabla que entran en un término: una clave, las claves que acaban en un sufijo (b1 por puerta) o todas. */
+export type RowSelector = { key: string } | { keySuffix: string } | 'all';
+/** Un término: la suma de `column` sobre las filas que elige `row` en `table`. */
+export interface EquationTerm {
+  table: string;
+  row: RowSelector;
+  column: string;
+}
+/**
+ * `left = Σ right`, en el mismo periodo. `identity`: dos celdas que valen lo mismo por construcción (R4: comparten estado).
+ * `id` es el de §MKT.H.14 (E1-E7); una ecuación del contrato puede dar varias filas (E3: cuatro puertas × cuatro columnas).
+ */
+export interface MarketingEquation {
+  id: 'E1' | 'E2' | 'E3' | 'E4' | 'E5' | 'E6' | 'E7';
+  kind: 'sum' | 'identity';
+  left: EquationTerm;
+  right: readonly EquationTerm[];
+}
+
+const at = (table: string, key: string, column: string): EquationTerm => ({ table, row: { key }, column });
+const allOf = (table: string, column: string): EquationTerm => ({ table, row: 'all', column });
+/** Puertas de b2 (`first_utm_medium` → etiqueta de fila). */
+export const B2_DOORS: Readonly<Record<string, string>> = { bio: 'Bio', story: 'Story', paid: 'Promoción', dm: 'Mensaje directo' };
+const B_COLUMNS = ['pedidos', 'mxnPedidos', 'solicitudes', 'mxnOfertado'] as const;
+/** Fila única de g1 (también su clave de coherencia mes↔semanas). */
+export const G1_ROW = 'Pedidos con primer origen utm_medium=paid';
+/** Fila de dm de b3 (un mensaje directo no tiene pieza). */
+export const B3_DM_ROW = 'Mensaje directo (dm)';
+
+/** E1-E7 de §MKT.H.14. ⛔ T (mes = Σ semanas) no está aquí: la cubre R2 y solo la mide la prueba 3. */
+export const MARKETING_EQUATIONS: readonly MarketingEquation[] = [
+  { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('a5', 'Compras (BD)', 'n')] },
+  { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('f3', 'Pedidos pagados del periodo', 'pedidos')] },
+  { id: 'E1', kind: 'sum', left: at('a1', 'Periodo actual', 'pedidos'), right: [allOf('c7', 'pedidos')] },
+  { id: 'E2', kind: 'sum', left: at('f3', 'Con origen registrado (first_utm_source)', 'pedidos'), right: [allOf('b1', 'pedidos')] },
+  ...Object.entries(B2_DOORS).flatMap(([medium, door]) =>
+    B_COLUMNS.map((column): MarketingEquation => ({ id: 'E3', kind: 'sum', left: at('b2', door, column), right: [{ table: 'b1', row: { keySuffix: ` / ${medium}` }, column }] })),
+  ),
+  { id: 'E4', kind: 'identity', left: at('g1', G1_ROW, 'pedidos'), right: [at('b2', 'Promoción', 'pedidos')] },
+  { id: 'E4', kind: 'identity', left: at('g1', G1_ROW, 'mxn'), right: [at('b2', 'Promoción', 'mxnPedidos')] },
+  ...B_COLUMNS.map((column): MarketingEquation => ({ id: 'E5', kind: 'identity', left: at('b3', B3_DM_ROW, column), right: [at('b2', 'Mensaje directo', column)] })),
+  { id: 'E6', kind: 'identity', left: at('a4', 'Google orgánico', 'sesiones'), right: [at('b4', 'Google orgánico', 'sesiones')] },
+  { id: 'E6', kind: 'identity', left: at('a4', 'Asistentes de IA', 'sesiones'), right: [at('b4', 'Asistentes de IA', 'sesiones')] },
+  { id: 'E6', kind: 'sum', left: at('b4', 'Asistentes de IA', 'sesiones'), right: [allOf('e3', 'sesiones')] },
+  { id: 'E7', kind: 'sum', left: at('a5', 'Sesiones', 'n'), right: [allOf('a4', 'sesiones')] },
+  { id: 'E7', kind: 'sum', left: at('a5', 'Sesiones', 'n'), right: [allOf('c5', 'sesiones')] },
+];
+
+/** Familias de §MKT.H.14: se calculan juntas por periodo y régimen, pida la pantalla que pida. */
+export const MARKETING_FAMILIES: readonly (readonly string[])[] = [
+  ['b1', 'b2', 'b3', 'g1', 'f3'],
+  ['a1', 'a5', 'f3', 'c7'],
+  ['a4', 'a5', 'b4', 'c5', 'e3'],
+];
+
+// ─────────────────────────── Despejable, R3b y R4 (§MKT.H.14) ───────────────────────────
+
+/** Una celda de una tabla con dimensión de la familia, ANTES de publicar (el plan). Los totales aceptados no tienen celdas. */
+export interface FamilyCell {
+  table: string;
+  key: string;
+  /** Componente (b1-b3: `pedidos`/`solicitudes`; tabla de una parte: su columna de conteo). Se oculta entero. */
+  part: string;
+  column: string;
+  /** Valor que se publicaría si queda visible (R3b elige la de menor valor). */
+  value: number | null;
+  hidden: boolean;
+  /** `0 < sujetos < 5` del componente: lo que R3b protege. */
+  small: boolean;
+}
+export type FamilyCellId = string;
+export const familyCellId = (c: Pick<FamilyCell, 'table' | 'key' | 'column'>): FamilyCellId => `${c.table}\u0000${c.key}\u0000${c.column}`;
+
+export interface FamilyPlan {
+  cells: readonly FamilyCell[];
+  /** Tablas de la familia que no se publican en el periodo: cada término suyo es una incógnita que nadie controla. */
+  unmeasured?: readonly string[];
+  /** Salida: celdas con N<5 que siguen despejables sin candidata (X1; por diseño, solo conteos). */
+  x1?: readonly FamilyCellId[];
+}
+
+/** Racional exacto con `bigint` (⛔ coma flotante, §MKT.H.14 «Despejable»). */
+type Q = { n: bigint; d: bigint };
+const gcd = (a: bigint, b: bigint): bigint => {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y) [x, y] = [y, x % y];
+  return x;
+};
+const q = (n: bigint, d = 1n): Q => {
+  if (d < 0n) [n, d] = [-n, -d];
+  const g = gcd(n, d) || 1n;
+  return { n: n / g, d: d / g };
+};
+const sub = (a: Q, b: Q): Q => q(a.n * b.d - b.n * a.d, a.d * b.d);
+const mul = (a: Q, b: Q): Q => q(a.n * b.n, a.d * b.d);
+const div = (a: Q, b: Q): Q => q(a.n * b.d, a.d * b.n);
+
+interface Instance {
+  eq: MarketingEquation;
+  /** Coeficiente por incógnita (las visibles son constantes y no entran). */
+  row: Map<string, bigint>;
+  /** Celdas del plan que el término elige (visibles u ocultas). */
+  members: FamilyCell[];
+}
+
+/** Instancia las ecuaciones sobre las celdas del plan. Una tabla sin celdas (total aceptado, fila ausente) es constante. */
+function instantiate(cells: readonly FamilyCell[], equations: readonly MarketingEquation[], unmeasured: ReadonlySet<string>): Instance[] {
+  const byTable = new Map<string, FamilyCell[]>();
+  for (const c of cells) {
+    const list = byTable.get(c.table) ?? [];
+    list.push(c);
+    byTable.set(c.table, list);
+  }
+  return equations.map((eq) => {
+    const row = new Map<string, bigint>();
+    const members: FamilyCell[] = [];
+    const add = (t: EquationTerm, sign: bigint) => {
+      if (unmeasured.has(t.table)) {
+        const u = `?${t.table}\u0000${JSON.stringify(t.row)}\u0000${t.column}`;
+        row.set(u, (row.get(u) ?? 0n) + sign);
+        return;
+      }
+      const sel = t.row;
+      const chosen = (byTable.get(t.table) ?? []).filter(
+        (c) => c.column === t.column && (sel === 'all' ? true : 'key' in sel ? c.key === sel.key : c.key.endsWith(sel.keySuffix)),
+      );
+      members.push(...chosen);
+      for (const c of chosen) if (c.hidden) row.set(familyCellId(c), (row.get(familyCellId(c)) ?? 0n) + sign);
+    };
+    add(eq.left, 1n);
+    for (const t of eq.right) add(t, -1n);
+    for (const [k, v] of row) if (v === 0n) row.delete(k);
+    return { eq, row, members };
+  });
+}
+
+/**
+ * Celdas OCULTAS que el resto del periodo despeja (§MKT.H.14 «Despejable»): su vector unitario está en el espacio de filas
+ * de las ecuaciones instanciadas (visibles = constantes; ocultas = incógnitas; las cotas «< 5» no entran). Forma escalonada
+ * reducida con racionales `bigint`: x se despeja ⇔ es pivote y su fila no tiene ninguna otra incógnita.
+ */
+export function exposedCells(
+  cells: readonly FamilyCell[],
+  equations: readonly MarketingEquation[] = MARKETING_EQUATIONS,
+  unmeasured: readonly string[] = [],
+): FamilyCellId[] {
+  const eqs = instantiate(cells, equations, new Set(unmeasured))
+    .map((e) => e.row)
+    .filter((r) => r.size > 0);
+  const vars = [...new Set(eqs.flatMap((r) => [...r.keys()]))].sort();
+  const col = new Map(vars.map((v, i) => [v, i]));
+  const m: Q[][] = eqs.map((r) => {
+    const out = vars.map(() => q(0n));
+    for (const [k, v] of r) out[col.get(k)!] = q(v);
+    return out;
+  });
+  const pivots: { row: number; col: number }[] = [];
+  let r = 0;
+  for (let c = 0; c < vars.length && r < m.length; c++) {
+    const p = m.findIndex((row, i) => i >= r && row[c].n !== 0n);
+    if (p < 0) continue;
+    [m[r], m[p]] = [m[p], m[r]];
+    const piv = m[r][c];
+    m[r] = m[r].map((x) => div(x, piv));
+    for (let i = 0; i < m.length; i++) {
+      if (i === r || m[i][c].n === 0n) continue;
+      const f = m[i][c];
+      m[i] = m[i].map((x, j) => sub(x, mul(f, m[r][j])));
+    }
+    pivots.push({ row: r, col: c });
+    r++;
+  }
+  const hiddenIds = new Set(cells.filter((c) => c.hidden).map(familyCellId));
+  return pivots
+    .filter(({ row, col: c }) => m[row].every((x, j) => j === c || x.n === 0n))
+    .map(({ col: c }) => vars[c])
+    .filter((v) => hiddenIds.has(v))
+    .sort();
+}
+
+const tieBreak = (a: FamilyCell, b: FamilyCell): number =>
+  a.table < b.table ? -1 : a.table > b.table ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : a.column < b.column ? -1 : a.column > b.column ? 1 : 0;
+
+/**
+ * R3b (complementaria de familia) y R4 (identidad), hasta punto fijo (solo oculta ⇒ termina). Devuelve el plan con las celdas
+ * que haga falta ocultar y, en `x1`, las de N<5 que siguen despejables sin candidata.
+ *  - R4: en una ecuación `identity`, si un lado está oculto, el otro también (su componente entero).
+ *  - R3b: mientras una celda con N<5 sea despejable, se oculta en su sitio la visible de menor valor (≠ 0; desempate tabla,
+ *    clave, columna) que comparta ecuación con ella; ⛔ nunca un total aceptado (no tienen celdas). Si sus ecuaciones no tienen
+ *    visible, se busca en las de las ocultas con las que comparte ecuación (la cadena por la que se despeja) — BACKEND_NOTES.
+ */
+export function enforceFamily(plan: FamilyPlan, equations: readonly MarketingEquation[] = MARKETING_EQUATIONS): FamilyPlan {
+  const cells = plan.cells.map((c) => ({ ...c }));
+  const unmeasured = new Set(plan.unmeasured ?? []);
+  const byId = new Map(cells.map((c) => [familyCellId(c), c]));
+  const hidePart = (c: FamilyCell): boolean => {
+    let changed = false;
+    for (const x of cells) {
+      if (x.table === c.table && x.key === c.key && x.part === c.part && !x.hidden) {
+        x.hidden = true;
+        changed = true;
+      }
+    }
+    return changed;
+  };
+  let x1: FamilyCellId[] = [];
+  for (let guard = 0; guard <= cells.length + 1; guard++) {
+    const eqs = instantiate(cells, equations, unmeasured);
+    // R4 · identidad: comparten estado.
+    let changed = false;
+    for (const { eq, members } of eqs) {
+      if (eq.kind !== 'identity' || members.length !== 2) continue;
+      const [a, b] = members;
+      if (a.hidden !== b.hidden) changed = hidePart(a.hidden ? b : a) || changed;
+    }
+    if (changed) continue;
+    // R3b · complementaria de familia.
+    const exposed = exposedCells(cells, equations, [...unmeasured])
+      .map((id) => byId.get(id)!)
+      .filter((c) => c.small)
+      .sort(tieBreak);
+    const eqsOf = (id: FamilyCellId) => eqs.filter((e) => e.members.some((x) => familyCellId(x) === id));
+    let hid = false;
+    x1 = [];
+    for (const target of exposed) {
+      const seen = new Set([familyCellId(target)]);
+      let frontier = [familyCellId(target)];
+      let candidate: FamilyCell | undefined;
+      while (frontier.length > 0 && !candidate) {
+        const ring = frontier.flatMap(eqsOf).flatMap((e) => e.members);
+        candidate = ring.filter((c) => !c.hidden && c.value !== null && c.value !== 0).sort((a, b) => a.value! - b.value! || tieBreak(a, b))[0];
+        frontier = [...new Set(ring.filter((c) => c.hidden).map(familyCellId))].filter((id) => !seen.has(id));
+        for (const id of frontier) seen.add(id);
+      }
+      if (candidate) {
+        hidePart(candidate);
+        hid = true;
+        break;
+      }
+      x1.push(familyCellId(target));
+    }
+    if (!hid) break;
+  }
+  return { ...plan, cells, x1 };
 }

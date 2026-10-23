@@ -409,7 +409,8 @@ describe('MarketingAnalyticsService — c7 por estado de envío', () => {
     expect(body).not.toContain('SMALL_CELL_SENTINEL');
     expect(body).not.toMatch(/privacy\s*===\s*'exact'/);
     expect(body).not.toMatch(/[<>]=?\s*5\b/);
-    expect(body).toContain('this.safeRows(');
+    // Desde MKT-TL2 c7 sale de su familia (E1 con a1/a5/f3): `familyRows` ⇒ `applySmallCells`, el mismo cálculo.
+    expect(body).toContain('familyRows(');
   });
 });
 

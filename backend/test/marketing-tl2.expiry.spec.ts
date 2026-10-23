@@ -59,11 +59,14 @@ describe('MKT-TL2 · caducidad 2026-11-30 (reloj real)', () => {
 });
 
 describe('CANARIO · el candado muerde', () => {
-  const doc = readFileSync(TECH_DEBT, 'utf8');
+  const real = readFileSync(TECH_DEBT, 'utf8');
+  // Desde el cierre (prueba 3 verde) la ficha real está cerrada: el canario reabre una COPIA para medir el candado.
+  const doc = real.replace(/^\|\s*MKT-TL2 ✅\s*\|/m, '| MKT-TL2 |');
   const closedDoc = doc.replace(/^\|\s*MKT-TL2\s*\|/m, '| MKT-TL2 ✅ |');
   const day = (iso: string) => new Date(iso);
 
-  it('la ficha REAL está abierta hoy y el candado la encuentra (si no, el resto no prueba nada)', () => {
+  it('la ficha REAL está cerrada y la prueba 3 existe; la copia reabierta el candado la encuentra abierta', () => {
+    expect([tl2State(real), existsSync(AUDIT_SPEC)]).toEqual(['closed', true]);
     expect(tl2State(doc)).toBe('open');
   });
   it('ficha abierta: 29-nov 23:59 CDMX ⇒ verde; 30-nov 00:00 CDMX ⇒ rojo; 2027 ⇒ rojo', () => {

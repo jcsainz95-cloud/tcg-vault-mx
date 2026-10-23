@@ -40,7 +40,9 @@ function build(opts: { mode?: string; sc?: boolean; ga4?: boolean; port?: Google
   });
   const prisma = {
     marketingBannerConsentCounter: { groupBy: jest.fn(async () => counters), count: jest.fn(async () => 0) },
-    order: { count: orderCount, aggregate: jest.fn(async () => ({ _count: { _all: 3 }, _sum: { totalCents: 300000 } })) },
+    // `findMany`: g1 se calcula con su familia (b1-b3, §MKT.H.14), también en la pantalla (g).
+    order: { count: orderCount, aggregate: jest.fn(async () => ({ _count: { _all: 3 }, _sum: { totalCents: 300000 } })), findMany: jest.fn(async () => []) },
+    sellRequest: { findMany: jest.fn(async () => []) },
   };
   const env = fullEnv({
     MEASUREMENT_MODE: opts.mode,

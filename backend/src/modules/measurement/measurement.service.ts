@@ -12,14 +12,17 @@
  *
  * ⛔ Nada de esto toca dinero ni corre dentro de una `$transaction` de dinero. ⛔ No sale a la red: eso es del drenador.
  */
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { MeasurementDestination, MeasurementEventKind } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   destinationEnabled,
   disabledDestinationLines,
+  gateMeasurementConfig,
+  MEASUREMENT_ENCENDER_BLOCKERS,
   readMeasurementConfig,
+  type MeasurementEncenderBlocker,
   type EnvLike,
   type MeasurementConfig,
 } from './measurement.config';
@@ -54,17 +57,25 @@ export class MeasurementService implements OnModuleInit {
   /** Primer origen de `APP_BASE_URL` (base de `event_source_url`). */
   readonly origin: string;
 
+  /** SEC-MKT-3: líneas `MEASUREMENT_ENCENDER_BLOCKED` (se pidió `on` con bloqueos abiertos ⇒ modo efectivo `off`). */
+  private readonly blockedLines: string[];
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() config?: ConfigService,
+    // SEC-MKT-3: `MeasurementModule` provee la lista real (`BACKEND_ENCENDER_BLOCKERS`); sin ella (pruebas a mano), sin puerta.
+    @Optional() @Inject(MEASUREMENT_ENCENDER_BLOCKERS) blockers?: readonly MeasurementEncenderBlocker[],
   ) {
     const env = envFrom(config);
-    this.config = readMeasurementConfig(env);
+    const gated = gateMeasurementConfig(readMeasurementConfig(env), blockers ?? []);
+    this.config = gated.config;
+    this.blockedLines = gated.lines;
     this.origin = (env.APP_BASE_URL ?? '').split(',')[0].trim() || 'https://tcghunt.mx';
   }
 
-  /** C-B7: una línea por destino deshabilitado, sin valores. El arranque sigue. */
+  /** C-B7: una línea por destino deshabilitado, sin valores. El arranque sigue (con bloqueos, en modo `off`). */
   onModuleInit(): void {
+    for (const line of this.blockedLines) this.logger.error(line);
     this.logger.log(`MEASUREMENT_MODE=${this.config.mode}`);
     for (const line of disabledDestinationLines(this.config)) this.logger.warn(line);
   }

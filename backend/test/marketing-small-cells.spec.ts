@@ -2,7 +2,7 @@
  * 🔒💰 CANDADO — celdas pequeñas del Panel de Marketing (Brief 2 §5.2, PM-A1; ARCHITECTURE §13.5).
  * Protege a UNA persona detrás de una cifra agregada. Deterministas (N=1).
  */
-import { applySmallCells, applySmallCellsByComponent, hiddenCellIds, cellId, OTROS_LABEL, SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy, type DimensionRow } from '../src/modules/marketing/small-cells';
+import { applySmallCells, applySmallCellsByComponent, hiddenCellIds, hiddenKeys, cellId, OTROS_LABEL, SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy, type DimensionRow } from '../src/modules/marketing/small-cells';
 
 const row = (key: string, count: number, mxn: number | null = count * 100): DimensionRow => ({ key, count, subjects: count, money: { mxn } });
 
@@ -55,6 +55,19 @@ describe('applySmallCells', () => {
     const out = applySmallCells([row('dm', 1), row('story', 2), row('bio', 40)]);
     expect(out.find((r) => r.key === OTROS_LABEL)).toBeUndefined();
     expect(out.filter((r) => r.count === SMALL_CELL_SENTINEL).length).toBe(2);
+  });
+
+  it('MKT-TL9 · R1 N=0 ⇒ 0: una fila con 0 sujetos sale 0 visible (no «< 5»), igual que en planByComponent', () => {
+    const out = applySmallCells([row('zero', 0, 0), row('dm', 1), row('story', 2), row('bio', 40)]);
+    expect(out.find((r) => r.key === 'zero')).toEqual({ key: 'zero', count: 0, money: { mxn: 0 } });
+    expect(hiddenKeys([row('zero', 0, 0), row('dm', 1), row('story', 2), row('bio', 40)])).toEqual(new Set(['dm', 'story']));
+  });
+
+  it('MKT-TL9 · R3a «pareja ≠ 0»: con UNA oculta, un 0 nunca es la pareja de «Otros»; se agrupa con la más chica ≠ 0', () => {
+    const out = applySmallCells([row('dm', 1), row('zero', 0, 0), row('story', 6), row('bio', 40)]);
+    expect(out.find((r) => r.key === 'zero')).toEqual({ key: 'zero', count: 0, money: { mxn: 0 } });
+    expect(out.find((r) => r.key === 'story')).toBeUndefined();
+    expect(out.find((r) => r.key === OTROS_LABEL)).toMatchObject({ count: SMALL_CELL_SENTINEL, otros: true });
   });
 
   it('una sola fila oculta sin pareja visible queda «< 5» (no hay con qué agrupar)', () => {
