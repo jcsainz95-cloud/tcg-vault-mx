@@ -255,6 +255,7 @@ export const FORBIDDEN_PHRASES: readonly RegExp[] = [
  * «authenticated», «authenticity»… La tienda VERIFICA la condición; no afirma autenticar cartas (decisión del dueño,
  * HECHOS.md 2026-10-19 «El dueño aprueba fusionar la Fase 2 a `main` y cambiar «autenticadas/autenticidad»…»).
  * Es una raíz a propósito y no una lista de palabras: cubre las variantes futuras. La copia de autenticación de
- * SESIÓN (p. ej. `auth.mockNotice`) choca con la raíz y va como excepción nombrada en `seo-content.test.ts`.
+ * SESIÓN (p. ej. `auth.mockNotice`) y la PREGUNTA del cliente de la FAQ P8 («¿…es auténtica?», decisión A del
+ * manual v8) chocan con la raíz y van como excepciones nombradas en `seo-content.test.ts`; ninguna respuesta ni guía.
  */
 export const AUTHENTICITY_CLAIM_PATTERNS: readonly RegExp[] = [/aut[eé]ntic/i, /authentic/i];

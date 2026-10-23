@@ -9,6 +9,7 @@ import {
   deckScenario,
   getAdminAccessory,
   makePng,
+  ownCatalogPiece,
   rememberCreatedAccessory,
   retireAccessory,
   runTag,
@@ -227,8 +228,17 @@ for (const locale of LOCALES) {
             .toBe(true);
 
           // ── 3. Invitado: una carta + el accesorio desde la sugerencia del carrito ──
-          await page.goto(`/${locale}/catalog`);
-          await page.getByRole('button', { name: t(locale, 'catalog.addToCart') }).first().click();
+          // QA-REL-3: la carta es una pieza PROPIA del caso (`ownCatalogPiece`), no «el primer botón del catálogo»:
+          // esa era del seed y la sesión de pago la dejaba apartada 60 min para todos los demás. Se pone en el carrito
+          // por su id (formato v3 de `src/lib/cart.ts`): el catálogo no deja elegir CUÁL pieza de un grupo se añade, y
+          // lo que este caso mide es el accesorio de la sugerencia, no el botón de la carta (`checkout.spec.ts`).
+          const piece = await ownCatalogPiece();
+          await page.goto(`/${locale}/catalog/${piece.cardId}`);
+          await page.evaluate(
+            ([key, id]) =>
+              window.localStorage.setItem(key, JSON.stringify({ ids: [id], accessories: [], deckPulls: [], updatedAt: Date.now() })),
+            ['tcg.cart', piece.inventoryItemId] as const,
+          );
           await page.goto(`/${locale}/checkout`);
           await page.getByRole('button', { name: t(locale, 'checkout.identity.guest.cta') }).click();
           const suggestions = page.getByRole('region', { name: t(locale, 'checkout.suggestions.title') });

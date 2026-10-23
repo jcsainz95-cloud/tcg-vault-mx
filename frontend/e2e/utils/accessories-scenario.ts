@@ -383,6 +383,44 @@ async function ensureDeckPieces(lines: DeckLine[]): Promise<{ rawName: string; c
 }
 
 /**
+ * QA-REL-3 (QA de release, 2026-10-19: «accessories AC-F14 agota el catálogo») — la CARTA que acompaña al accesorio
+ * en el 724 era «el primer botón del catálogo»: una pieza del SEED, compartida con los smokes de dinero (`checkout`,
+ * `guest-checkout`, `address-colonia`, `claimable-orders`) y con las cartas del deck (las más nuevas), que la sesión
+ * de pago deja `reserved` 60 min sin ruta para soltarla. Dos locales × N corridas vaciaban la vitrina para todos.
+ *
+ * Ahora el caso usa una pieza SUYA: la da de alta por la API del contrato (`POST /admin/inventory/items`, la carta
+ * raw más barata con precio publicado; el alta publica sola, errata SU-1/SU.8) y la anota con las piezas del arnés,
+ * así que `restoreAccessoryScenario` la retira con `error_captura` (o en la corrida siguiente si quedó apartada).
+ * La pieza del seed no se toca. Una alta que no nace `listed` es un rojo con causa, no un salto.
+ */
+export async function ownCatalogPiece(): Promise<{ inventoryItemId: string; cardId: string }> {
+  const catalog = await apiAsOk<{ data: { card: { id: string }; productType: string; displayPriceCents: number | null }[] }>(
+    'admin',
+    'GET',
+    '/catalog/cards?pageSize=50',
+  );
+  const raw = catalog.data
+    .filter((r) => r.productType === 'raw' && typeof r.displayPriceCents === 'number')
+    .sort((a, b) => a.displayPriceCents! - b.displayPriceCents!);
+  if (raw.length === 0) {
+    throw new Error('GET /catalog/cards no trae ninguna carta raw con precio publicado: no hay de qué dar de alta la pieza del 724');
+  }
+  const cardId = raw[0].card.id;
+  const item = await apiAsOk<{ id: string; folio: string; status: string }>('admin', 'POST', '/admin/inventory/items', {
+    cardId,
+    productType: 'raw',
+    rawCondition: 'NM',
+    acquisitionType: 'compra',
+    acquisitionCostCents: 2000,
+  });
+  await remember(await deckPiecesKey(), item.id);
+  if (item.status !== 'listed') {
+    throw new Error(`La pieza del arnés del 724 (${item.folio}) nació «${item.status}», no «listed»: el alta no publicó.`);
+  }
+  return { inventoryItemId: item.id, cardId };
+}
+
+/**
  * Deck con energías ligadas y paquete ofrecido. En mock: el primer deck del simulador (`slug` vacío ⇒
  * el spec entra por la primera tarjeta). En real: energías listas + deck curado + verificación con el
  * propio `GET /decks-meta/:slug` (quien dice si se ofrece es el servidor).

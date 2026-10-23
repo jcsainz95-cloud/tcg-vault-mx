@@ -64,7 +64,7 @@ export const GUIDES: readonly Guide[] = [
     cta: 'buylist',
     source: [
       { path: 'piezas/2026-10-08-historia-es-nm/copy.md', estado: 'aprobada-por-el-dueño-2026-10-08' },
-      { path: 'plan/RESPUESTAS.md §12.2 P7', estado: 'manual v5 (2026-10-11)' },
+      { path: 'plan/RESPUESTAS.md §12.2 P7', estado: 'manual v8 (2026-10-20)' },
     ],
     omitted: [],
   },
@@ -85,7 +85,7 @@ export const GUIDES: readonly Guide[] = [
       },
       {
         kind: 'p',
-        text: 'Cada carta que vendemos se revisa antes de publicarse: autenticidad y condición.',
+        text: 'Cada carta que vendemos se revisa antes de publicarse: que sea original y su condición.',
       },
       {
         kind: 'p',
@@ -97,6 +97,12 @@ export const GUIDES: readonly Guide[] = [
       {
         path: 'piezas/2026-10-15-carrusel-carta-pirata/copy.md',
         estado: 'aprobada-por-el-dueño-2026-10-09',
+      },
+      {
+        // Solo la línea de cierre («…: que sea original y su condición.»): frase literal del dueño 2026-10-19,
+        // `copy-v2.md` (commit `0b107fa` del repo de marketing). El resto del caption es idéntico en v1 y v2.
+        path: 'piezas/2026-10-15-carrusel-carta-pirata/copy-v2.md',
+        estado: 'v2 de texto, frase de cierre dictada por el dueño 2026-10-19',
       },
     ],
     omitted: [

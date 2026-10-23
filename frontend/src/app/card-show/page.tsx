@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
+import { NONCE_HEADER } from '@/security/csp';
+import { JsonLd } from '@/components/seo/JsonLd';
 import { CARD_SHOW } from '@/content/card-show';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { Countdown } from './_components/Countdown';
@@ -9,6 +12,7 @@ import { MapFocusRing } from './_components/MapFocusRing';
 import { HeroTicket } from './_components/HeroTicket';
 import { HeroExplosion, type BurstChip } from './_components/HeroExplosion';
 import { TournamentCounter } from './_components/TournamentCounter';
+import { cardShowEventJsonLd } from './event-jsonld';
 
 /**
  * «Cartas» de la ráfaga del hero (realce DECORATIVO, aria-hidden). Datos derivados de los facts
@@ -75,10 +79,13 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return <p className="eyebrow mb-3">{children}</p>;
 }
 
-export default function CardShowPage() {
+export default async function CardShowPage() {
   const c = CARD_SHOW;
+  // MKT-E5: JSON-LD `Event` en el HTML del servidor, con el nonce de la CSP de la petición (como el layout).
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
   return (
     <div data-cs-root>
+      <JsonLd data={cardShowEventJsonLd()} nonce={nonce} />
       {/* BARRA DE ANUNCIO (gancho ARRIBA DEL TODO, decisión JC 2026-10-18 «que jale gente»): relleno
           #B31217 + texto papel (6.18:1 AA para texto normal, §CS-UX.1). No es sticky: queda sobre el
           topbar y se va al bajar. Enlace completo a #registro. Copy en `content/card-show.ts`. */}
