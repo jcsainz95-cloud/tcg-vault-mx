@@ -46,6 +46,8 @@ function orderRow(overrides: Record<string, unknown> = {}) {
     ivaRatePct: 16,
     processingFeeCents: 2512,
     totalCents: 51812,
+    // Fila legada: 25000 + 17500 + 6800 + 2512 = 51812 ⇒ el IVA SUMA (IVA_EXCLUSIVE, §M10-IVA.4).
+    priceConvention: 'IVA_EXCLUSIVE',
     createdAt: new Date('2026-08-01T10:00:00.000Z'),
     settledAt: new Date('2026-08-01T10:05:00.000Z'),
     refundedAt: null,
@@ -280,6 +282,9 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       processingFeeCents: 2512,
       totalCents: 51812,
       currency: 'MXN',
+      // QA-REL-1: `BreakdownDTO` completo (§4-G.3 → §M10-IVA.4), con la convención de la columna de la orden.
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     });
   });
 

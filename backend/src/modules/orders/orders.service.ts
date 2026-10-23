@@ -35,6 +35,7 @@ import {
   reservedUntilFrom,
 } from './reservation';
 import { lockReservedOfOrder, releaseReservedOfUnsettledRefund } from '../payments/refunds/release-unsettled-refund';
+import { frozenBreakdownOf } from './frozen-breakdown';
 import { accessoryReservedDrift, expiredAccessoryOrderIds, releaseAccessoryReservations, renewAccessoryReservations } from './accessory-stock';
 import {
   computeCartBreakdown,
@@ -1175,22 +1176,12 @@ export class OrdersService {
     }
   }
 
-  /** El desglose CONGELADO de una orden (lo que su PaymentIntent cobra). El reuso no re-precia (§4-R.2 regla 5). */
+  /**
+   * El desglose CONGELADO de una orden (lo que su PaymentIntent cobra). El reuso no re-precia (§4-R.2 regla 5).
+   * Constructor único en `frozen-breakdown.ts` (también lo usa el seguimiento de invitado §4-G.3, QA-REL-1).
+   */
   breakdownOf(order: Order): BreakdownDTO {
-    return {
-      subtotalCents: order.subtotalCents,
-      ivaCents: order.ivaCents,
-      ivaRatePct: order.ivaRatePct,
-      processingFeeCents: order.processingFeeCents,
-      totalCents: order.totalCents,
-      currency: 'MXN',
-      // ⭐⭐ `IVA-3`: la convención sale de **la columna de ESA fila**, ⛔ jamás del dial vivo ni de
-      // la constante de filas nuevas. Es lo que hace que una orden cobrada bajo `IVA_EXCLUSIVE` se
-      // siga renderizando **idéntica al centavo** después del corte, y también después de mover el
-      // dial. *Una orden ya cobrada no se reinterpreta sola.*
-      priceConvention: order.priceConvention,
-      ivaIncluded: ivaIsIncluded(order.priceConvention),
-    };
+    return frozenBreakdownOf(order);
   }
 
   /**

@@ -4,7 +4,6 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
-
 > **Estado vigente (2026-10-19).** **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
 > intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
 > `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):
@@ -20,7 +19,7 @@
 > `GET /card-show/tournament/count` = `card-show-tournament-count.service.ts`: caché **en memoria del proceso** 30 s (por réplica);
 > BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
 > no da 503. D-CS-8 cerrada: `TOURNAMENT_OCCUPIED_STATUSES` (`tournament.util.ts`) la usan cupo y contador. Pruebas: bloque F de
-> `test/integration/card-show-contract.e2e-spec.ts` + `test/card-show.tournament-count.spec.ts`.
+> `test/integration/card-show-contract.e2e-spec.ts` + `test/card-show.tournament-count.spec.ts`. **QA-REL-1 (2026-10-23):** desglose congelado de una orden = UN constructor, `orders/frozen-breakdown.ts` (`breakdownOf`, quote/sesión de invitado y `guest/track` §4-G.3, con `priceConvention`/`ivaIncluded` de la fila); candado `orders/qa-rel-1-guest-tracking-breakdown.spec.ts`.
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 
@@ -5783,7 +5782,6 @@ Prisma, y el docstring dice lo que el código hace.
 | `backend/test/catalog.group-identity-gap.spec.ts` | 5 | I-2: la cadena existe (la pieza es vendible y viaja en `units[]`), **no** forma grupo, el filtro no se come lo legítimo, y **en el cable** todo grupo trae `gradeKey` string no vacío |
 | `backend/test/inventory.publish-slab-identity.spec.ts` | 7 | M-1: rechazo con precio manual en pieza y en línea, `''`/`'   '` como ausencia, **no regresión** de la graduada completa, degradación por-línea, y `publishAll` |
 | `backend/test/pricing.grade-key-identity.spec.ts` (+1) | 1 | El **ancla de la premisa** del `?? 'NM'`: cardinalidad del enum `RawCondition`, no la lista de negocio (ver `TECH_DEBT` DT-M1) |
-
 
 ## 0.21 — **v1.53: el buylist vuelve a ser RAW-ONLY y `buildGradeKey` deja de inventar el grado** (2026-09-05, rama `claude/buylist-graded-identity`, **MONEY**)
 
@@ -22497,7 +22495,6 @@ que cierra `N-A5-1`.
 | `N-A5-1c` | **Si algún cliente vivo manda hoy una query de más a `GET /admin/users`** y por tanto empezaría a recibir `400`. Medido **en el repo**: el único llamador es `frontend/src/lib/api.ts`, que manda exactamente las cinco llaves admitidas ⇒ **no rompe al frontend publicado**. Lo que **no** puedo medir desde aquí es un cliente fuera del repo (curl guardado, integración de terceros) | `grep` de los registros de acceso del backend en staging/prod por `GET /admin/users` con query fuera de la lista blanca | devops |
 | `N-A5-1d` | **Que la columna se pinte bien en la pantalla.** Medí la **respuesta**, no el render: `A5` es backend-solo y la columna ya existía en `M6View.tsx` | Abrir M6 contra el backend nuevo (QA / Playwright) | qa / frontend |
 
-
 ---
 
 ## P-84 — «o filtra, o `400`»: el mismo `500` de `A5` vivía en otros seis ejes
@@ -24965,7 +24962,6 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
-
 # Hotfix — los CTA de los correos al cliente llevaban a rutas inexistentes (404) (2026-09-29)
 
 **Defecto medido:** los avisos §R al cliente usaban `appUrl('cuenta/pedidos'|'boveda/envios'|'cuenta/identidad'|'cuenta/aclaraciones')`.
@@ -25897,7 +25893,6 @@ del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en 
   `CLABE_NOT_ON_FILE`, `CLABE_CHANGED_SINCE_REVEAL`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`,
   `ITEM_ORIGIN_REFUNDED`, `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `REFUND_CONFIRMATION_REQUIRED`, `ITEM_NOT_ADJUSTABLE`).
 - Enlaces de correo: `/orders/{id}` (pedido) y `/vault?tab=withdrawals` (retiro); `AV-14` sin CLABE ⇒ `/cuenta#kyc`.
-
 
 # §M4-SHIP-TL · Gate del techlead sobre `c20451f` (R1/R2/R3 + deuda (a)) y errata `API_CONTRACT v1.80.7` (backend · 2026-09-29)
 
@@ -27959,7 +27954,6 @@ dentro de la prueba (N = 10):
 Nota de método: la primera versión de PS-113 (sin barrera) dio «ganó la corrección 10/10» ⇒ el orden «la compra reclama
 primero» nunca ocurría y M11 no podía morder; se cambió a barrera en las lecturas del saldo (paso 6 / 7b.1), alternada.
 
-
 ### 62.4 Lo que FALTA (D2c y vecinos), con dueño
 
 Medido con `grep` sobre `backend/src` en el sha de esta sección. Nada de esto está a medias en el árbol: o está entero
@@ -27975,7 +27969,6 @@ Medido con `grep` sobre `backend/src` en el sha de esta sección. Nada de esto e
 | **D2g** entero: despacho del correo de los avisos (outbox con freno, lote, resumen 08:00, `spend-watch`, `spend-digest`, AVG-1/2/3, panel, AG-21/AG-22, C-24) | D2g. Los avisos 🔴 quedan `mailStatus='pending'` esperando a su despachador | `spend-alerts.service.ts`, cabecera |
 | PS-161…PS-163 (ajustes del dueño, cuenta protegida, AG-22) | «Usuarios y ajustes» (§19.30.13), otro stream | — |
 | PS-122 (a) «`retryAfterSeconds = 5`» con un reclamo de 20 s | sustituido por la fórmula de §19.28.8 (hoy da 160); ver pregunta 3 | prueba (a) aserta la fórmula (60 con 2 min) |
-
 
 ### 62.5 Preguntas al arquitecto (no resueltas aquí)
 
@@ -31152,7 +31145,6 @@ CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración
 servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
 compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
 
-
 ### 83.B Stream (B) construido — compra de invitado con accesorios y paquete, apartado, liquidación, caja, preparación, reembolsos, M3/seguimiento, P&L y analítica 💰 (2026-10-07, rama `claude/accesorios`, sobre `4dd5649`)
 
 **Alcance (§AC.17 (B)):** `orders`, `payments`, `shipments`, `admin/pnl-core`, `sales-analytics`. ⛔ Sin schema ni
@@ -31585,7 +31577,6 @@ Norma: `API_CONTRACT §WSH` con la errata v1.87.1 (el contrato manda). Decisione
 | `c61f1f0` pruebas | WSH-T1…T37 escritas ANTES del código: unit 4/4 suites rojas (24 rojas / 2 verdes), e2e 4/4 suites rojas (49 rojas / 1 verde) |
 | `c933461` diales + aritmética | `settings.constants.ts` (8 claves, seeds, dominios, `SETTING_DTO_MAP`), `error-codes.ts` (3 códigos), `common/wishlist-math.ts` |
 | `c0667e6` módulo | `modules/wishlist/*`, catálogo, pagos, admin, planificador, disparo manual, adaptación de pruebas existentes |
-
 
 ### 84.1 Qué hay y dónde
 - `src/common/wishlist-math.ts` — `maxDisplay`, `fits`, `tope`, `ceiling`, `marginAtMarket`, `demandRowMath`. `BigInt`, un solo
