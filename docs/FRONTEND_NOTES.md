@@ -59,18 +59,18 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 
 **Estado vigente.** Brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §E4/§E6/§E7 (+ v1 §2.3–2.5, §3.1–3.3).
 Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
-- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual **v8** (`7dd4dcc`, 2026-10-20):
-  las 24, comparadas byte a byte con el manual el 2026-10-23 (0 diferencias); `HELD_FAQS` vacía. `guides.es.ts` = sección
+- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual **v9** (`b1be3cd`, 2026-10-23):
+  las 24 + su `validThrough` + `FAQ_LAST_REVIEW`, comparadas carácter a carácter con el manual el 2026-10-23 (0 diferencias); `HELD_FAQS` vacía. `guides.es.ts` = sección
   «Caption» de cada `copy.md` (sin emojis ni líneas solo de Instagram, anotadas en `omitted`); la guía NM usa la
   historia aprobada del 8-oct + P7 porque el carrusel `que-es-nm` está `pendiente-de-aprobación`; el cierre de la
   carta pirata es el de `copy-v2.md` (`0b107fa`, «que sea original y su condición»).
   `como-funciona.es.ts` solo COMPONE FAQ por id (marketing no tiene texto propio de esa página).
-- **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ (mensual ⇒ 2026-11-11; P19 ⇒ 2026-11-05). Al vencer,
+- **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ, copiado de la tabla de §12.2 v9 (P19 2026-11-20; P1/P2/P5/P6/P23 2026-12-11; resto 2027-01-22). Al vencer,
   la FAQ sale de la página, del `FAQPage`, de `/como-funciona`, del sitemap y de `llms.txt` (`lib/seo-content.ts`,
   `revalidate = 3600`, fecha en CDMX). **Aviso (R1):** `seo-content.test.ts` «⏳ R1» usa el reloj real y se pone ROJO
-  7 días antes del `validThrough` más cercano (`faqsExpiringSoon`); con los datos de hoy, el **2026-10-29** (P19). Se
+  7 días antes del `validThrough` más cercano (`faqsExpiringSoon`); con los datos de hoy, el **2026-11-13** (P19). Se
   apaga re-midiendo la FAQ, no tocando la prueba. Una **guía que cita una FAQ vencida se retira entera** (404, fuera
-  del índice, del sitemap y de `llms.txt`; `guideCitationsLive`), p. ej. `que-es-nm` sin P7 desde el 12-nov.
+  del índice, del sitemap y de `llms.txt`; `guideCitationsLive`), p. ej. `que-es-nm` sin P7 desde el 2027-01-23.
   Las pruebas de la REGLA (vigencia, canario, guía con cita vencida, sitemap, `llms.txt`) corren sobre
   `lib/seo-content.fixture.ts` (fechas fijas, inyectado como `ContentSource`); solo «⏳ R1» mira los datos vivos.
   Renovar las FAQ cada mes no obliga a tocar pruebas (FE-MKT-T1).
