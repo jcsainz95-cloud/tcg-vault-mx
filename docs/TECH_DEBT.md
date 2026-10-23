@@ -9585,6 +9585,16 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ---
 
+## Devops · 2026-10-23 · rechazo de QA y deuda del techlead sobre `803c4298` (rama `devops-qa-rechazo`, base `442b1e8d`)
+
+> Dueño del código anotado: **devops** (`scripts/`). Medido el 2026-10-23 por devops; detalle en DEVOPS_NOTES §103.3-§103.4.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-OPS-4 | CERRADA · el caso 7 de `e2e-real-suite-canary.sh` comprobaba `restart:backend` con grep de cadenas (candado de presencia) | devops | 2026-10-23 | `./scripts/e2e-real-suite-canary.sh 3` ⇒ VERDE 26/26: corre `restart:backend` en árbol de juguete; sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese pid. Ablación «guarda quitada» ⇒ 3/26 rojos (N=3) |
+
+---
+
 ## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
 
 ### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título

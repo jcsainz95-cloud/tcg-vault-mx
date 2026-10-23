@@ -35,11 +35,15 @@
 # Variables: E2E_BASE_URL (por defecto http://localhost:$FRONTEND_PORT, 3000) · GUEST_RE.
 # Salidas: frontend/test-results-real-suite/<n>-<tanda>/{report.json,not-measured.json,html/}.
 # rc: 0 todas las tandas verdes · 1 alguna roja · 2 no concluyente (sin specs, sin lista, reinicio fallido).
+# Filtro (QA, rechazo de 803c4298, 2026-10-23): Playwright toma cada fichero posicional como REGEX contra la
+# ruta absoluta (`forceRegExp`, playwright 1.56 lib/util.js), así que `checkout.spec.ts` recogía también
+# `guest-checkout.spec.ts` y los dos corrían a la vez sobre la misma pieza del seed. Cada spec se pasa como
+# `^<ruta real absoluta, escapada>$`: casa con ESE fichero y con ningún otro (prefijo, sufijo ni subcarpeta).
 # Canario: scripts/e2e-real-suite-canary.sh · DEVOPS_NOTES §103.3.
 # =============================================================================
 set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FRONTEND_DIR="$ROOT_DIR/frontend"; E2E_DIR="$FRONTEND_DIR/e2e"
+FRONTEND_DIR="$ROOT_DIR/frontend"; E2E_DIR="$(cd "$FRONTEND_DIR/e2e" 2>/dev/null && pwd -P || echo "$FRONTEND_DIR/e2e")"
 STACK="$ROOT_DIR/scripts/stack-native.sh"
 GUEST_RE="${GUEST_RE:-guest|invitado}"
 DRY=0; LIST_FILE=""; EXTRA=()
@@ -47,7 +51,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)   DRY=1; shift ;;
     --list-file) LIST_FILE="$2"; shift 2 ;;
-    --e2e-dir)   E2E_DIR="$(cd "$2" && pwd)"; shift 2 ;;
+    --e2e-dir)   E2E_DIR="$(cd "$2" && pwd -P)"; shift 2 ;;
     --)          shift; EXTRA=("$@"); break ;;
     *) echo "::error::argumento desconocido: $1"; exit 2 ;;
   esac
@@ -82,6 +86,11 @@ printf '%s\n' "${PLAN[@]}"
 [ "$DRY" -eq 1 ] && exit 0
 
 # --- 4. Ejecución ------------------------------------------------------------------
+# Un spec ⇒ un argumento que Playwright no puede ensanchar: `^/ruta/real/e2e/<spec>$` con los metacaracteres
+# escapados. La ruta es la REAL (`pwd -P`): Playwright resuelve enlaces simbólicos y un ancla sobre la ruta
+# lógica no casaría con nada (medido con playwright 1.56.1: 0 tests). Si el ancla no casa, Playwright sale ≠ 0
+# («No tests found»): la tanda sale roja, nunca verde por no correr.
+filtro_exacto() { printf '^%s$' "$(printf '%s' "$E2E_DIR/$1" | sed 's/[][\\.*^$+?(){}|]/\\&/g')"; }
 OUT="$FRONTEND_DIR/test-results-real-suite"; mkdir -p "$OUT"
 n=0; ROJAS=0; RESUMEN=()
 for paso in "${PLAN[@]}"; do
@@ -92,10 +101,10 @@ for paso in "${PLAN[@]}"; do
   n=$((n+1)); read -r _ tanda archivos <<<"$paso"
   nombre="$(printf '%02d' "$n")-$tanda$( [ "$tanda" = invitado ] && printf -- '-%s' "${archivos%.spec.ts}")"
   d="$OUT/$nombre"; mkdir -p "$d"
-  # shellcheck disable=SC2086
+  FILTROS=(); for a in $archivos; do FILTROS+=("$(filtro_exacto "$a")"); done
   ( cd "$FRONTEND_DIR" && PLAYWRIGHT_JSON_OUTPUT_NAME="$d/report.json" E2E_NOT_MEASURED_JSON="$d/not-measured.json" \
       PLAYWRIGHT_HTML_OUTPUT_DIR="$d/html" PLAYWRIGHT_HTML_REPORT="$d/html" \
-      npx playwright test $archivos --output="$d/artifacts" \
+      npx playwright test "${FILTROS[@]}" --output="$d/artifacts" \
       --reporter=list,json,./e2e/reporters/not-measured.ts "${EXTRA[@]}" )
   rc=$?
   [ "$rc" -eq 0 ] || ROJAS=$((ROJAS+1))

@@ -789,6 +789,37 @@ stop_backend_only() {
      Mientras siga vivo, NADIE puede afirmar qué commit se está midiendo (SEC-OPS-1)."
 }
 
+# -----------------------------------------------------------------------------
+# CLIENTE PRISMA AL DÍA ANTES DE ARRANCAR (tester-e2e vía QA, rechazo de 803c4298, 2026-10-23)
+# -----------------------------------------------------------------------------
+# Con un `backend/node_modules/.prisma/client` generado de un schema VIEJO, el backend moría al
+# arrancar con `TypeError: Cannot convert undefined or null to object` en
+# `measurement-drain.service.ts:42` (`Object.values(MeasurementDestination)`: el enum no existía en el
+# cliente). `prisma generate` copia el schema tal cual a `.prisma/client/schema.prisma`, así que la
+# paridad se mide por BYTES (cubre todo enum y modelo, no solo uno): igual ⇒ nada; distinto o
+# ausente ⇒ `prisma generate` y se re-mide; si sigue distinto o generate falla ⇒ se para con el
+# remedio. Idempotente y barato (un `cmp`). Canario: scripts/check-stack-prisma-client.sh.
+# Límite dicho: supone el `output` por defecto del generador (el schema no declara otro; el canario
+# lo comprueba). DEVOPS_NOTES §103.4.
+# >>> PRISMA-CLIENT (no muevas estas marcas: el canario extrae este bloque)
+ensure_prisma_client() {
+  local schema="$BACKEND_DIR/prisma/schema.prisma" copia="$BACKEND_DIR/node_modules/.prisma/client/schema.prisma"
+  [ -f "$schema" ] || die "No existe $schema."
+  if cmp -s "$schema" "$copia"; then ok "cliente Prisma al día con prisma/schema.prisma."; return 0; fi
+  if [ -f "$copia" ]; then warn "El cliente Prisma de backend/node_modules es de OTRO schema (viejo). Lo regenero."
+  else warn "No hay cliente Prisma generado en backend/node_modules/.prisma/client. Lo genero."; fi
+  log "prisma generate (el cliente no coincidía con el schema)"
+  ( cd "$BACKEND_DIR" && npx prisma generate ) \
+    || die "\`prisma generate\` falló. El backend NO arranca con un cliente que no es de este schema
+     (moriría con «Cannot convert undefined or null to object» al leer un enum nuevo).
+     Remedio:  cd backend && npm ci && npx prisma generate"
+  cmp -s "$schema" "$copia" \
+    || die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia).
+     ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
+  ok "cliente Prisma regenerado y al día con prisma/schema.prisma."
+}
+# <<< PRISMA-CLIENT
+
 start_backend() {
   log "Backend NestJS nativo (ts-node) en :$BACKEND_PORT"
 
@@ -811,6 +842,7 @@ start_backend() {
   fi
 
   [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
+  ensure_prisma_client
   # -------------------------------------------------------------------------
   # ⚠️ `setsid env -C … &` A NIVEL DE FUNCIÓN, **SIN** `( … )` ENVOLVENTE.
   # Esto es EL MISMO defecto que ya se arregló en `start_s3` (ver el bloque de
@@ -1365,6 +1397,8 @@ case "${1:-up}" in
     # (como última sentencia de una función/script, el `[ ]` falso mata al llamador).
     # `if/fi` quita esa carga estructural: mover esta línea ya no puede romper nada.
     if [ "$DO_SEED" = 1 ]; then
+      # El seed usa el MISMO cliente Prisma que el backend: se pone al día antes (§103.4).
+      if [ -d "$BACKEND_DIR/node_modules" ]; then ensure_prisma_client; fi
       seed_synthetic
     fi
     if [ "$ONLY_INFRA" = 1 ]; then
