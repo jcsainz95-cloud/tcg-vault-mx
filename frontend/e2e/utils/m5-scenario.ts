@@ -352,3 +352,43 @@ async function buildM5Scenario(): Promise<M5Scenario> {
     quoted: quoted.sellRequestId,
   };
 }
+
+/**
+ * QA-REL-3 (QA de release, 2026-10-19) — una solicitud `ofertada` PROPIA del arnés para el portal del vendedor
+ * (`buylist-offer.spec.ts`). Antes esos casos buscaban la `ofertada` del SEED en «Mis solicitudes» del `customer`:
+ * un dato compartido que la corrida no repone (las solicitudes nuevas de otras suites la empujan en la lista y nadie
+ * la vuelve a ofertar si se pierde). Ahora cada caso pide la suya, del vendedor de este escenario (`customer2`):
+ *
+ *  1. **Recicla** una `ofertada` que ya tenga: leerla no la consume (el portal solo la pinta) — cero cupo;
+ *  2. si no hay, **crea** una `cotizada` NUEVA y la oferta con `POST /admin/buylist/:id/offer` (+ `authorize` si el
+ *     servidor la deja preparada, `202`), los mismos actos del back-office. ⛔ No recicla una `cotizada`: esas son
+ *     las que `m5Scenario()` devuelve como `quoted` y ofertarlas le cambiaría el estado debajo a otro spec.
+ *
+ * Bajo el MISMO candado que `m5Scenario()` (dos intakes concurrentes del mismo vendedor dan `500`, B-2). En MOCK
+ * devuelve `null`: el spec sigue descubriendo la del fixture por la pantalla. Cupo agotado ⇒ `M5SeedUnavailable`.
+ */
+export async function sellerOfferedRequest(): Promise<string | null> {
+  if (!IS_REAL) return null;
+  return withFileLock(
+    `m5:build:${await resolveApiBaseUrl()}:${SELLER}`,
+    async () => {
+      const offered = takeFrom(await sellerPool(), 'ofertada');
+      if (offered) return offered.sellRequestId;
+      const req = await createQuotedRequest();
+      const offer = await apiAs('admin', 'POST', `/admin/buylist/${req.sellRequestId}/offer`, {
+        lines: req.itemIds.map((itemId) => ({ itemId, decision: 'buy' })),
+      });
+      if (offer.status !== 200 && offer.status !== 202) {
+        throw new Error(`POST …/offer respondió ${offer.status}: ${JSON.stringify(offer.body).slice(0, 300)}`);
+      }
+      if (offer.status === 202) {
+        await apiAsOk('admin', 'POST', `/admin/buylist/${req.sellRequestId}/offer/authorize`);
+      }
+      return req.sellRequestId;
+    },
+    { timeoutMs: 180_000 },
+  );
+}
+
+/** El vendedor de los escenarios sembrados: el portal de su solicitud se abre con SU sesión. */
+export const SCENARIO_SELLER = SELLER;

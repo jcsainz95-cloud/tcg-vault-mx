@@ -49,7 +49,8 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend, TL-MKT2b-f).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3**, **MKT-F2-4** y **MKT-TL2** (backend).
+  Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
   `sealHiddenRows` del servidor; «Cobertura:» se quita al pintar (QA M3).
@@ -58,10 +59,11 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 
 **Estado vigente.** Brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §E4/§E6/§E7 (+ v1 §2.3–2.5, §3.1–3.3).
 Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
-- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual v5 (23 de 24; **P8 retenida**:
-  dice «No autenticamos…» y el brief retira «autenticamos»; vuelve al manual, `HELD_FAQS`). `guides.es.ts` = sección
+- **Texto = repo de marketing, tal cual.** `faq.es.ts` = `plan/RESPUESTAS.md` §12.2 manual **v8** (`7dd4dcc`, 2026-10-20):
+  las 24, comparadas byte a byte con el manual el 2026-10-23 (0 diferencias); `HELD_FAQS` vacía. `guides.es.ts` = sección
   «Caption» de cada `copy.md` (sin emojis ni líneas solo de Instagram, anotadas en `omitted`); la guía NM usa la
-  historia aprobada del 8-oct + P7 porque el carrusel `que-es-nm` está `pendiente-de-aprobación`.
+  historia aprobada del 8-oct + P7 porque el carrusel `que-es-nm` está `pendiente-de-aprobación`; el cierre de la
+  carta pirata es el de `copy-v2.md` (`0b107fa`, «que sea original y su condición»).
   `como-funciona.es.ts` solo COMPONE FAQ por id (marketing no tiene texto propio de esa página).
 - **Vigencia automática** (`RESPUESTAS` §12.0.3): `validThrough` por FAQ (mensual ⇒ 2026-11-11; P19 ⇒ 2026-11-05). Al vencer,
   la FAQ sale de la página, del `FAQPage`, de `/como-funciona`, del sitemap y de `llms.txt` (`lib/seo-content.ts`,
@@ -83,10 +85,10 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
   «verificamos la condición NM»); toda excepción futura lleva dueño, medición, caducidad y debe seguir ofendiendo.
   **Trinquete «autentic-»** (`AUTHENTICITY_CLAIM_PATTERNS`, mismo test; HECHOS 2026-10-19 «…cambiar
   «autenticadas/autenticidad»…»): la tienda dice «verificadas». Excepciones nombradas: `auth.mockNotice` es/en
-  (sesión, sin caducidad) y texto de marketing no reescribible — FAQ **P1** y la guía `carta-pirata-5-senales`
-  («autenticidad y condición») — con caducidad 2026-11-11 (= `validThrough` de P1).
+  (sesión) y la PREGUNTA de P8 («¿…es auténtica?», decisión A de v8: pregunta del cliente), exenta solo como literal
+  exacto en un campo `question`. Las de marketing (P1, guía pirata) salieron el 2026-10-23: ya no ofenden.
 - **Pendiente:** imágenes de las guías (láminas PNG del repo de marketing; hosting sin decidir), `Organization.sameAs`
-  (Instagram NO MEDIDO en `lib/seo.ts`), JSON-LD `Event` del Card Show (no existe; fuera de este encargo).
+  (Instagram NO MEDIDO en `lib/seo.ts`).
 
 ## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
 
@@ -127,6 +129,10 @@ Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO
 Contador: `_components/TournamentCounter.tsx` + `getTournamentCount()` (`lib/card-show-api.ts`), §CARDSHOW.12-bis: al montar y cada 60 s; `null` ante no-200/red/forma rara ⇒ oculto; SSR no pinta nada.
 Texto de lleno = contrato §13 [M-90](8) «Cupo lleno — lista de espera» (el encargo decía «entras a lista de espera»; manda el contrato).
 Pruebas: `TournamentCounter.test.tsx`, `content/card-show.content.test.ts`, caso Magic en `CardShowForms.test.tsx`.
+JSON-LD `Event` (MKT-E5): `card-show/event-jsonld.ts` desde `card-show.ts`; sin `offers`/precio, patrocinador, premios ni
+montaje; `<JsonLd>` escapa `<`. Prueba: `event-jsonld.test.tsx` (emitido, JSON válido, sin campos secretos).
+E2E `@real` autoconsistentes (QA-REL-3, 2026-10-23): retiro cancela su retiro bajo candado compartido con
+`vault:15` (`e2e/utils/vault-holding.ts`); oferta propia de `customer2` (`sellerOfferedRequest`); 724 con pieza propia.
 
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
