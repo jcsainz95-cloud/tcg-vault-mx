@@ -54,6 +54,9 @@
 #                                         #   cualquier medición que vayas a citar en un
 #                                         #   veredicto (SEC-OPS-1). Admite un SHA:
 #                                         #   `verify:head 3b2fc87` = «quiero auditar ÉSE».
+#   ./scripts/stack-native.sh restart:backend  # reinicia SOLO el backend propio (throttler en
+#                                         #   memoria a cero, datos intactos) y verifica su
+#                                         #   procedencia. Lo usa e2e-real-suite.sh (QA-REL-3).
 #   ./scripts/stack-native.sh status      # qué está arriba, en qué puerto y QUÉ COMMIT sirve
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
@@ -1653,6 +1656,32 @@ case "${1:-up}" in
     [ -n "$VH_SHA" ] || require_expected_sha
     verify_head "$VH_SHA"
     ;;
+  restart:backend)
+    # -------------------------------------------------------------------------
+    # QA-REL-3 (devops, 2026-10-23 · DEVOPS_NOTES §105) — VACIAR EL THROTTLER SIN
+    # TOCAR EL LÍMITE. `POST /checkout/guest/session` tiene 5/h por IP en el
+    # producto (`guest-orders.controller.ts`, `@Throttle({ ttl: HOUR_MS, limit: 5 })`)
+    # y el almacén del `ThrottlerModule` es EN MEMORIA por proceso (`app.module.ts`,
+    # `forRoot` sin storage). Desde el arnés todo sale de 127.0.0.1, así que la suite
+    # `@real` completa (≥6 sesiones de invitado) daba 429 a partir de la sexta.
+    # Reiniciar el proceso es la ÚNICA forma de empezar con el presupuesto entero
+    # sin debilitar nada: el límite sigue siendo 5/h dentro de cada vida del
+    # proceso, y producción no ve este subcomando. Lo usa `scripts/e2e-real-suite.sh`.
+    # Datos: Postgres/Redis NO se tocan y NO se resiembra (como el reinicio de `up`).
+    # Solo reinicia un backend que lanzó ESTE clon (pidfile propio, I-QA2).
+    # -------------------------------------------------------------------------
+    [ -f "$RUN_DIR/backend.pid" ] || die "No hay $RUN_DIR/backend.pid: este clon no lanzó el backend (o ya está abajo).
+     No reinicio un proceso que no es mío (I-QA2). Levántalo con:  ./scripts/stack-native.sh up --gate"
+    [ -n "$(head_sha)" ] || require_expected_sha
+    log "Reinicio del backend (throttler en memoria a cero; datos intactos)"
+    stop_backend_only
+    start_backend
+    # Procedencia tras el reinicio: el proceso nuevo tiene que servir el MISMO árbol.
+    "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT (reiniciado)" \
+        --stamp "$BACKEND_STAMP" --sha "$(head_sha)" "${BACKEND_SOURCE_ARGS[@]}" --quiet \
+      || die "El backend reiniciado NO sirve el árbol esperado ($(short_sha "$(head_sha)")) — SEC-OPS-1."
+    ok "backend reiniciado y verificado ($(short_sha "$(head_sha)"))."
+    ;;
   status)
     log "Estado del stack nativo"
     pg_isready 2>&1 | sed 's/^/  postgres: /'
@@ -1710,6 +1739,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | restart:backend | status | down [--all]}"
     ;;
 esac

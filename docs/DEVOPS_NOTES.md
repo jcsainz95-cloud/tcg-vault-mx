@@ -5062,29 +5062,8 @@ gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.*
 
 ### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
 
-> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-48.**
-> Se conserva porque los 3 diales de M2 siguen siendo los mismos, pero **el nombre del dial del
-> penúltimo punto cambió con M-48** y ya viene corregido abajo. Si el pase que estás preparando es el
-> de M-48 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
-
-- [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
-- [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
-- [ ] **Staging**: aplicar el `PUT` parcial solo de las claves en el seed viejo. Divergentes → **preguntar** (§32.4).
-- [ ] **Staging**: re-`GET` (`rc=0`) + línea de inventario del arranque + **E2E del criterio 109** (`-t '8d'`).
-- [ ] **Prod**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes.
-- [ ] **Prod**: aplicar el `PUT` parcial. Divergentes → **preguntar al humano (GU-13)**, no sobrescribir.
-- [ ] **Prod**: re-`GET` (`rc=0`) + línea de inventario del arranque. **E2E 109 NO se corre aquí** (§32.5).
-- [ ] La feature sigue **APAGADA** por su dial (**v1.51: `grading_hook_enabled = off`**, DTO
-      `gradingHookEnabled`; la vieja `graded_estimates_enabled` está **retirada e inerte** — verificarla
-      no prueba nada) hasta que el humano apruebe el texto legal. **Encenderla no es decisión de
-      devops** y **no es parte de este paso**; desde M-48 encenderla es además un **acto de gasto**
-      (§32.12.1).
-- [ ] Solo entonces: anunciar el release.
-
-> **El último punto no es una formalidad.** Los tres diales se alinean **con la feature apagada**. Eso es
-> lo correcto: cuando el humano la encienda, se enciende **ya con el criterio que `PROJECT.md` escribió**,
-> no con el que el código eligió por accidente. Alinear los diales **después** de encender significaría
-> publicar durante un rato afirmaciones comerciales que el producto no autorizó.
+> **Retirada el 2026-10-23 (DOC-SIZE).** Era la checklist del pase de M-42 (2026-08-28), superada por
+> **§32.12.9**, que es la que se pega en el ticket. Texto anterior: `git show 01440e56:docs/DEVOPS_NOTES.md`.
 
 ---
 
@@ -15176,13 +15155,10 @@ si la ref no declaraba `base-sha`, el sha es ancestro de la ref y el umbral = `w
 un ancestro previo a una compactación no reabre el umbral). En la PR a `main` no se activa (`aed3ca0d` no es ancestro
 de `789b8788`; `main` sin baseline). Canario 22×3 = 66/66; mutaciones «sin `≤ ref`» y «re-medir otra vez» ⇒ 3/66 c/u.
 
-### 101.6 MKT-E2 — `www.tcghunt.mx` → 301 al apex
+### 101.6 MKT-E2 — `www.tcghunt.mx` → permanente al apex (CERRADA)
 
-**Hecho (2026-10-19):** por la mañana `www.tcghunt.mx` era NXDOMAIN y desde el repo no había nada que hacer
-(ningún `vercel.json` recibe peticiones de un nombre sin DNS). El dueño lo configuró en Vercel con **308**
-(permanente, como 301). Medido por el orquestador y por mí: `./scripts/check-www-apex.sh` ⇒ VERDE, `www…/es` ⇒
-308 ⇒ `https://tcghunt.mx/es`, ruta y query intactas. La sonda acepta 301 y 308; canario
-`check-www-apex-canary.sh` (9 casos, en `live-candados` de `ci.yml`).
+Vercel redirige `www` → apex con **308** (configurado por el dueño el 2026-10-19). `check-www-apex.sh` acepta
+301 y 308 (permanentes) y pone rojo 302/307, query perdida, bucle a `www` y 200. Cierre medido en §103.2.
 
 ### 101.7 Dependencia con frontend (excepción con dueño, caducidad y candado)
 
@@ -15217,3 +15193,27 @@ esperando»). Respaldo: `timeout-minutes` 40 en el paso y 55 en el job. El vered
 (handles abiertos) la arregla backend. Canario `check-e2e-suite-hang-canary.sh` (ejecuta los `run:` reales con
 `run-workflow-step.sh`, que acepta `RUN_STEP_EXPRS` para simular `steps.*`/`needs.*`): 13 casos, N=3 ⇒ 39/39;
 mutaciones «sin rama colgada» ⇒ 1/13 rojo y «sin `timeout`» ⇒ 2/13 rojo.
+
+## §103 · Cierre QA-REL-2, MKT-E2 y la parte de arnés de QA-REL-3 (2026-10-23, rama `devops-rel`, base `01440e56`)
+
+**103.1 QA-REL-2 — `ci-ok` ya no da verde a un opcional `cancelled`.** `check-ci-ok.sh`: un opcional solo puede estar
+`success` o `skipped`; cualquier otro resultado (`cancelled` por `timeout-minutes`, etc.) es rojo. Y `skipped` es rojo
+si su `DETECTOR` (jq sobre `toJSON(needs)`) dice que debía correr: `detect.outputs.backend|frontend == "true"`, o
+`format-mix-base.outputs.ref != ""` para `format-mix`. Canario `check-ci-ok-canary.sh`: 18/18; contra el script de
+`01440e56` da 12/18 (los 6 casos QA-REL-2 en rojo: detectado+cancelled, detectado+skipped, format-mix…).
+
+**103.2 MKT-E2 — ya estaba hecho** (`4dec5465`): la sonda acepta 301 y 308. Hoy solo cambia el texto del rojo temporal
+(«elige una permanente (308 o 301)»). Medido 2026-10-23: `check-www-apex.sh` ⇒ VERDE (`www…/es/catalogo?utm_source=e2`
+⇒ 308 ⇒ apex, ruta y query intactas); canario N=3 ⇒ 27/27; con la mutación «solo 301» ⇒ 2/9 rojos (los dos de 308).
+
+**103.3 QA-REL-3 (arnés) — cada spec de invitado tiene su presupuesto; el límite no se toca.** `checkout/guest/session`
+es 5/h por IP (`guest-orders.controller.ts`) con almacén en memoria por proceso (`app.module.ts`), y el arnés sale
+todo de 127.0.0.1. `scripts/e2e-real-suite.sh` (lo corre QA con el stack `up --seed --gate`): lista los specs `@real`
+con `playwright test --list`, corre el resto en una tanda y cada spec que casa con `guest|invitado` en la suya, cada
+tanda tras `stack-native.sh restart:backend` (nuevo: solo el backend propio por pidfile, datos intactos, procedencia
+re-verificada con `assert-serving-head.sh`). Salidas por tanda en `frontend/test-results-real-suite/`. Canario
+`e2e-real-suite-canary.sh` (en `live-candados`): N=3 ⇒ 19/19; también comprueba que el producto sigue en 5/h y que el
+throttler solo se omite con `NODE_ENV=test`. Mutaciones: «sin RESTART antes de invitado» ⇒ 2/9 rojos; `limit: 50` ⇒
+1/9; quitar `isTestEnv() &&` ⇒ 1/9. **NO MEDIDO:** la suite real completa con cobro (no hay Playwright ni stack en este
+contenedor); la medición que lo cierra es QA corriendo el runner 2/2. Si un spec solo crea más de 5 sesiones, o
+consume datos del seed de otro (vault:15, buylist-offer:155, AC-F14), el hallazgo es de frontend.
