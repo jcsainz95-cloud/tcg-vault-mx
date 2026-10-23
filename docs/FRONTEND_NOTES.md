@@ -129,10 +129,10 @@ Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO
 Contador: `_components/TournamentCounter.tsx` + `getTournamentCount()` (`lib/card-show-api.ts`), §CARDSHOW.12-bis: al montar y cada 60 s; `null` ante no-200/red/forma rara ⇒ oculto; SSR no pinta nada.
 Texto de lleno = contrato §13 [M-90](8) «Cupo lleno — lista de espera» (el encargo decía «entras a lista de espera»; manda el contrato).
 Pruebas: `TournamentCounter.test.tsx`, `content/card-show.content.test.ts`, caso Magic en `CardShowForms.test.tsx`.
-JSON-LD `Event` (MKT-E5): `card-show/event-jsonld.ts` desde `card-show.ts`; sin `offers`/precio, patrocinador, premios ni
+JSON-LD `Event` (MKT-E5): `card-show/event-jsonld.ts` lee campos estructurados de `card-show.ts` (`horarios[].cierre`, `direccion.alcaldia/postalCode/region`; los textos `horas`/`colonia`/`cp` se derivan de ellos, TL-CS-1); sin `offers`/precio, patrocinador, premios ni
 montaje; `<JsonLd>` escapa `<`. Prueba: `event-jsonld.test.tsx` (emitido, JSON válido, sin campos secretos).
 E2E `@real` autoconsistentes (QA-REL-3, 2026-10-23): retiro cancela su retiro bajo candado compartido con
-`vault:15` (`e2e/utils/vault-holding.ts`); oferta propia de `customer2` (`sellerOfferedRequest`); 724 con pieza propia.
+`vault:15` (`e2e/utils/vault-holding.ts`); oferta propia de `customer2` (`sellerOfferedRequest`, SIN salto: entorno sin cupo ⇒ rojo); 724 con pieza propia.
 
 ## §CARDSHOW-MOTION · Restyle dinámico de la landing (2026-10-18, rama `feat/cardshow-landing-redesign`, base `origin/production`)
 
