@@ -1,3 +1,71 @@
+# VEREDICTO BLUE TEAM — **Re-medición MKT-TL2 (R3b/R4, prueba 3) · MKT-TL9 · SEC-MKT-2/3 · QA-REL-1/2/3** · SHA **`803c429862e8da0ae75d9905bb4eb09f95427776`** · 2026-10-23 · seguridad
+> ## VEREDICTO: ✅ **APROBADO** sobre `803c4298` (delta `e77b9612..803c4298`, sin lo de production #101 ya auditado en `e19b08cc`)
+> **0 críticas · 0 altas · 0 medias · 0 bajas abiertas · 1 info nueva (SEC-MKT-4, X2 confirmada).** Sin condiciones.
+> **MKT-TL2 CERRADA para seguridad:** mi sonda E3 ya no despeja el monto, y tres ablaciones mías de `enforceFamily` ponen roja la prueba 3,
+> cada una 3/3 (N=3). Ya se cumple lo que pedí en `e77b9612` para quitar la entrada `MKT-TL2` de `ENCENDER_BLOCKERS` (`c1220cb0`).
+
+## Procedencia (O-9 / O-14)
+- Copia del árbol ENTERO: `git archive 803c4298 | tar -x` en `scratchpad/seg3-803c4298/`, con `node_modules` copiado y `prisma generate`. Load ≈ 2-4
+  (4 CPU). Sin stack, sin BD, sin navegador y sin credenciales. La copia está **borrada**.
+- **Del orquestador, NO medido por mí:** jest 537/537 · 9204/9204, `tsc` 0, vitest 4779, y su mutación `equations.length >= 0` (4/17 rojas, N=3).
+- **[MEDIDO]** `measurement.encender-gate` + `qa-rel-1-guest-tracking-breakdown` + `marketing-tl2.expiry` ⇒ **11/11**.
+
+## MKT-TL2 · lo que medí yo
+- **Ablaciones de `enforceFamily`** sobre `marketing-cross-table.audit.spec.ts` (17 pruebas). Restaurado con `cmp` idéntico y vuelta a 17/17:
+  - **M1 · R3b sin candidata** (`if (candidate && guard < 0)`, equivale al estado de `e77b9612`) ⇒ **3/17 rojas en 3/3**. Rojas: el caso con nombre
+    «b2 7 = b1 6 + 1» (mi E3) y las dos baterías de semillas. Así que la prueba 3 **sí es roja sin R3b**, que es la condición que puse.
+  - **M2 · R4 apagado** (identidad g1≡b2, b3≡b2) ⇒ **1/17 roja en 3/3**.
+  - **M3 · solo el anillo 1** (`frontier = []`) ⇒ **2/17 rojas en 3/3**.
+  - Mi primer intento de M1 (`candidate && false`) no compiló (0 tests). No cuenta y lo descarto.
+- **Sonda E3 literal** (W41: 6 `instagram/paid` a $100 + 1 `facebook/paid` a $7,777.77 + 5 `google/organic` + 9 `tiktok/bio`), con una spec propia
+  sin commitear sobre el servicio real:
+  b1 `tiktok/bio 9 · $900`, `facebook/paid "< 5" · oculta`, `google/organic oculta · oculta`, **`instagram/paid oculta · oculta`**;
+  b2 `Promoción 7 · $8,377.77`; g1 `7 · $8,377.77`. ⇒ b2 − b1 = fb + ig: **dos incógnitas en una ecuación, así que el monto ya no se despeja**.
+  Por f3 (21 = Σ b1) se despeja google = 5 pedidos, pero tiene N=5 y no está protegido. El auditor independiente da 0 hallazgos.
+- **El auditor es independiente de verdad:** `test/support/disclosure-audit.ts` no importa `small-cells`/`exposedCells`; declara E1-E7 literal y
+  exige `MARKETING_EQUATIONS` igual. `exposedCells` usa RREF con racionales `bigint` (sin coma flotante). La regla «pivote sin otra incógnita»
+  equivale a «e_x está en el espacio de filas»: es correcta.
+
+## MKT-TL9 · el 0 visible no abre nada
+- `planByComponent` (`small-cells.ts:196-197`) oculta solo si `0 < sujetos < 5`; con 0 sujetos el conteo **y** el MX$ valen 0 de verdad.
+  Publicar «0» dice que no hubo nadie, que no es dato de una persona. Como constante, un 0 elimina una incógnita, pero eso ya entra en
+  `exposedCells`/R3b. Además R3b y R3a nunca eligen un 0 como pareja (`≠ 0`), así que no hay pareja inútil. Las 240 semillas del auditor están en verde.
+- **[MEDIDO]** sonda: 6 `instagram/paid` + 7 solicitudes `instagram/bio` ⇒ `instagram/bio {pedidos:0, mxnPedidos:0, solicitudes:7}`. Limpio.
+
+## SEC-MKT-4 · Info (aceptada) — X2 confirmada en vivo
+- Variante E3: 6 `instagram/paid` + **1 `facebook/paid` $7,777.77 + 1 `x/paid` $55.55** + 9 `tiktok/bio`. Salida: b1 ig `6 · $600`, fb y x `"< 5" · oculta`;
+  b2 Promoción `8 · $8,433.32`. ⇒ fb + x = **2 pedidos**. Como cada «< 5» es ≥ 1, cada uno vale exactamente 1, y el **MX$ de la pareja** queda
+  en $7,833.32. Es la **X2** del contrato (§MKT.H.14: «fuera del candado»). Ningún MX$ individual se despeja solo.
+- Riesgo real: un insider con acceso al panel que haga **su propio** pedido con un UTM inventado (`x/paid`) resta el suyo y obtiene el del otro.
+  Contra eso, ningún umbral de celdas chicas protege. Panel admin/analista, medición hoy apagada ⇒ **Info**.
+  Disparador: el primer analista que no sea del dueño con acceso a b1/b2, o un MX$ de b1-b3 en el export de `TIENDA_PANEL_TOKEN` (**NO MEDIDO**
+  si lo incluye). Arreglo si se dispara: R3b extendido a «suma de ocultas con N total < 5». Dueño: arquitecto → backend.
+
+## SEC-MKT-3 · cerrada (antes Info)
+- `BACKEND_ENCENDER_BLOCKERS` (`measurement.config.ts:110`) entra por un token que solo provee `MeasurementModule`. `gateMeasurementConfig`
+  fuerza `mode:'off'` con bloqueos abiertos y registra solo los ids, sin secretos. **[CÓDIGO]** Es el único lector de `MEASUREMENT_MODE`
+  (`readMeasurementConfig` solo se llama en `measurement.service.ts:70`), el único `providers` con `MeasurementService` y no hay ningún `new
+  MeasurementService` en `src/`. El Panel y el drenador leen `measurement.mode`. El `@Optional()` solo deja sin puerta a las pruebas construidas a mano.
+- **SEC-MKT-2 cerrada:** la paridad entrada ↔ ficha abierta de TECH_DEBT existe en los dos lados (`measurement-gate.test.ts`, `measurement.encender-gate.spec.ts`).
+  Quedan MKT-F2-3 y MKT-F2-4, iguales en front y back: **encender sigue bloqueado** por esas dos.
+
+## Fuera del Panel
+- **QA-REL-1 (desglose de seguimiento de invitado):** `frozenDirectShipBreakdownOf` es puro y sale de las columnas de la orden. Añade solo
+  `priceConvention` + `ivaIncluded`, que son enums del contrato (`BreakdownDTO`, §4-G.3) y no PII. `priceConvention` es NOT NULL
+  (`schema.prisma:1520`), así que `ivaIsIncluded` no lanza con filas viejas. No cambia la dirección mínima ni el token de acceso. **Nada nuevo expuesto.**
+- **Arnés (QA-REL-2/3):** `restart:backend` solo reinicia un backend con pidfile propio, re-verifica la procedencia (SEC-OPS-1) y no toca env, límite
+  ni `NODE_ENV`. `guest-orders.controller.ts` no está en el delta, así que el 5/h del producto sigue igual. `check-ci-ok.sh` **endurece**
+  (un `cancelled`, o un opcional detectado y `skipped`, da rojo). La deuda de antes, el throttler en memoria por proceso, es MKT-INFO-3 y no cambia.
+- JSON-LD `Event` y FAQ v8: contenido estático, sin precio ni patrocinador. No los revisé a fondo (**NO MEDIDO** en navegador).
+
+## Banderas para el humano
+- **La medición (Fase 2) sigue sin poder encenderse**: faltan MKT-F2-3 (versión de Meta) y MKT-F2-4 (CHECK de m86 contra Postgres). MKT-TL2 ya no bloquea.
+- Antes de encender: revisión legal del aviso (GA4/Meta) y decidir si un analista externo verá b1/b2 (SEC-MKT-4). Pentest de tercero y bug bounty siguen vigentes.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-23 · sha **`803c429862e8da0ae75d9905bb4eb09f95427776`** · **APROBADO**
+
+---
+
 # VEREDICTO BLUE TEAM — **Card Show M-90 (Magic 5.º juego · GET /card-show/tournament/count · cupo confirmed+checked_in)** · SHA **`af37ea5`** · 2026-10-21 · seguridad
 > ## VEREDICTO: ✅ **APROBADO** sobre `af37ea5` (delta `2c125ba..af37ea5`, 27 ficheros) · 0 críticas · 0 altas · 0 medias · 1 baja aceptada · 2 info. Sin condiciones.
 - **PII / enumeración:** el contador es un `groupBy` por día (`card-show-tournament-count.service.ts:61`), solo enteros por día; nunca filas. Solo sube con `confirmed`/`checked_in`, y a eso se llega con el enlace del correo o desde admin: un tercero no puede confirmar el correo o el Player ID de otro para ver si el número se mueve. No permite saber quién se inscribió.
@@ -58,19 +126,10 @@
 - `subjects` es **obligatorio** en `DimensionRow`: una tabla nueva no compila sin decir qué cuenta. El registro de poblaciones
   (`marketing-populations.registry.spec.ts`, prueba 1) está verde y tiene canario.
 
-### MKT-TL2 · residuo aceptado: por qué ahora sí
-- Cumple la vía alternativa de mi rechazo **al pie de la letra**: dueño (backend), caducidad (2026-11-30) y un check de CI que se pone rojo
-  desde esa fecha mientras la ficha siga abierta. Ese check tiene canario: borrar la fila no lo apaga, y cerrarla sin la prueba 3 tampoco.
-  Además, encender sin cerrarla rompe el build (`on` ⇒ rc 1).
-- La fecha vive en el spec (`MKT_TL2_DEADLINE`). **Moverla exige un veredicto nuevo de seguridad**, y lo hago mío: una edición sin
-  veredicto aquí invalida esta aceptación.
-- Qué cierra MKT-TL2: la prueba 3 de §MKT.H.14, `marketing-cross-table.audit.spec.ts`, verde, con el caso «b2 7 = b1 6 + 1». El ejemplo de
-  arriba es la forma mínima, y tiene que salir **rojo sobre `e77b9612`**. Después se quita la entrada de `ENCENDER_BLOCKERS` y se cierra la ficha.
-  Seguridad re-mide con una ablación de `enforceFamily` antes de que salga la entrada.
+### MKT-TL2 · residuo aceptado entonces — CERRADO en `803c4298` (veredicto de arriba; el detalle queda en git)
 
 ### Discrepancias que dejó backend: ninguna bloquea
-- **(1)** «N=0 ⇒ 0» solo en b1-b3; en las tablas de una parte, 0 sale «< 5». Es **más** conservador, así que no hay fuga. La paridad con R1
-  la resuelven contrato y código (arquitecto/backend); para seguridad no es condición.
+- **(1)** superada por MKT-TL9 (`803c4298`).
 - **(2)** R0 en b1-b3: las filas con pedidos ocultos se ordenan por solicitudes **publicadas** y luego por clave. Solo usa valores publicados,
   así que cumple R0. Visto en código (`small-cells.ts:244-256`).
 - **(3)** Las visibles de una parte conservan su orden de entrada. Los llamadores ordenan por el conteo publicado (`service.ts:587/780/925`,
@@ -91,25 +150,16 @@
 ## Deuda aceptada (no bloqueante) — impacto y disparador
 | ID | Impacto | Disparador para abordarla | Dueño |
 |---|---|---|---|
-| MKT-TL2 | Con `on`, el analista externo despeja el MX$ exacto de un pedido cruzando b2 con b1 | **Caduca 2026-11-30** (`marketing-tl2.expiry.spec.ts`) o antes de encender (`ENCENDER_BLOCKERS`) | backend |
-| SEC-MKT-2 | Antes del 2026-11-30, quitar la entrada y su línea de test desbloquea `on` con la ficha abierta | El próximo cambio a `ENCENDER_BLOCKERS`: añadir paridad «entrada `MKT-TL2` presente ⇔ fila `MKT-TL2` abierta en TECH_DEBT» | frontend |
-| SEC-MKT-3 | Ninguno sin el front encendido | El primer cliente de la API que no sea el front propio, o UTM capturados en el backend | backend |
 | MKT-INFO-2 | Un delegado con `marketing_read` podría borrar anotaciones del dueño. Hoy no hay ruta de alta | La primera ruta o pantalla que conceda `marketing_read` | arquitecto |
 | MKT-INFO-3 | Con N instancias, el techo de fuerza bruta se multiplica por N (impracticable contra 256 bits) | Más de 1 instancia del backend | backend |
 | MKT-INFO-1 | XSS sin la 2.ª barrera aplicada (CSP en report-only) | Atado a CL-1 (`check-csp-zap-parity.sh`, sonda E-8) | frontend/devops |
 | RL-DEP-1 | Ninguno sin `@Sse` | El primer `@Sse`, que el audit suba a alta, o Nest 11+ | devops (+ backend) |
 
 ## Banderas para el humano
-- **No enciendas la medición (Fase 2) hasta que MKT-TL2 esté cerrada.** Hoy, con datos reales, el analista externo podría sacar el importe
-  exacto de un pedido restando dos tablas del panel. El sistema ya bloquea el encendido; la bandera es para que no se pida quitar el bloqueo.
 - Los totales sin desglose (a1, a3 «enviadas», a5) salen exactos al analista. En una semana con **un solo** pedido o una sola solicitud,
   eso es el importe de esa operación. Es lo que se decidió en el Brief 2 §5.2. Si no lo quieres así, se cambia el régimen de esos totales.
 - Siguen vigentes: pentest de tercero y bug bounty antes de escalar con dinero real; revisión legal de la custodia, de INE/CLABE y del
   aviso de privacidad (incluida la medición con GA4/Meta) antes de encender la Fase 2.
-
-## Mínimo para seguir APROBADO (no son condiciones de este veredicto: ya tienen su candado)
-1. La fecha de `MKT_TL2_DEADLINE` no se mueve sin un veredicto nuevo aquí.
-2. Antes de quitar `MKT-TL2` de `ENCENDER_BLOCKERS`: la prueba 3 verde, roja sobre `e77b9612`, y re-medición de seguridad con ablación de `enforceFamily` (N≥3).
 
 — SEGURIDAD (blue team / AppSec), 2026-10-19 · sha **`e77b9612e18a9cbfb0090dfb514edbbcfcf1e401`** · **APROBADO**
 
