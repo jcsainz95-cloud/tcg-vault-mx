@@ -13,7 +13,8 @@
 #
 # Aquí el default está INVERTIDO: todo job de `needs` exige `success`, y solo
 # los que están en OPCIONALES (declarados abajo, con motivo) pueden estar
-# `skipped` sin poner rojo (nunca `failure`). Un job nuevo en `needs` sin
+# `skipped` sin poner rojo (nunca `failure` ni `cancelled`; y si su DETECTOR
+# dice que debía correr, tampoco `skipped` — QA-REL-2). Un job nuevo en `needs` sin
 # entrada aquí ⇒ exige success ⇒ si se salta, rojo.
 #
 # Además comprueba ESTÁTICAMENTE (lee ci.yml, sin red) que:
@@ -40,6 +41,14 @@ declare -A OPCIONALES=(
   [frontend]="puede no existir en greenfield (detect lo salta)"
   [format-mix-base]="resuelve la base; si no la hay lo dice con ::warning"
   [format-mix]="skipped = sin base utilizable (NO medido, no verde; ya lo dice format-mix-base)"
+)
+# DETECTOR: expresión jq sobre NEEDS_JSON, verdadera cuando el opcional DEBÍA
+# correr (su `if:` de ci.yml se cumplía). Opcional detectado y `skipped` ⇒ rojo.
+# Sin outputs en NEEDS_JSON la expresión es falsa (greenfield). QA-REL-2.
+declare -A DETECTOR=(
+  [backend]='.detect.outputs.backend == "true"'
+  [frontend]='.detect.outputs.frontend == "true"'
+  [format-mix]='((.["format-mix-base"].outputs.ref // "") != "")'
 )
 # Punteros por job para que el rojo diga dónde mirar (opcional; hay mensaje genérico).
 declare -A PUNTERO=(
@@ -106,10 +115,19 @@ echo
 for fila in "${FILAS[@]}"; do
   job="${fila%%$'\t'*}"; res="${fila#*$'\t'}"
   if [ -n "${OPCIONALES[$job]+x}" ]; then
+    # QA-REL-2 (2026-10-23): un opcional solo puede estar `skipped`, y solo si su
+    # condición de arranque NO se cumplió. `cancelled` (p. ej. timeout-minutes) es
+    # rojo siempre: antes caía en `*)` y un backend/frontend DETECTADO muerto por
+    # tiempo dejaba ci-ok en verde (QA, corrida 39279361414 intento 1).
     case "$res" in
       success) ok "$job: success" ;;
-      failure) bad "$job: failure (opcional: puede saltarse, no fallar)." ;;
-      *)       printf '  \033[2m·\033[0m %s: %s (opcional: %s)\n' "$job" "$res" "${OPCIONALES[$job]}" ;;
+      skipped)
+        if [ -n "${DETECTOR[$job]+x}" ] && jq -e "${DETECTOR[$job]}" >/dev/null 2>&1 <<<"$NEEDS_JSON"; then
+          bad "$job: skipped pero DETECTADO (${DETECTOR[$job]}): debía correr. Dueño: devops."
+        else
+          printf '  \033[2m·\033[0m %s: skipped (opcional: %s)\n' "$job" "${OPCIONALES[$job]}"
+        fi ;;
+      *)       bad "$job: $res (opcional: solo puede saltarse si no aplica; \`$res\` NO es verde — QA-REL-2)." ;;
     esac
   else
     if [ "$res" = "success" ]; then ok "$job: success"

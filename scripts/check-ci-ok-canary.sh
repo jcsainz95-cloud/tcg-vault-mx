@@ -11,6 +11,9 @@
 #   5. job DESCONOCIDO (sin bloque, sin lista) skipped → 1
 #   6. job desconocido success                       → 0
 #   7. gate cancelled                                → 1
+#   7b. QA-REL-2: backend/frontend DETECTADO y cancelled → 1; NO detectado y
+#       skipped → 0; detectado y skipped → 1; no detectado y cancelled → 1;
+#       format-mix cancelled → 1, skipped con base → 1, skipped sin base → 0
 #   8. estática: ci.yml real                         → 0
 #   9. estática: ci.yml con un job nuevo FUERA del needs de ci-ok → 1
 #  10. estática: sin NEEDS_JSON                      → 2
@@ -40,6 +43,17 @@ caso 1 "gate dast-gate-live skipped (default invertido)" "$(con dast-gate-live s
 caso 1 "job DESCONOCIDO skipped (sin bloque, sin lista)" "$(con job-nuevo-sin-bloque skipped)"
 caso 0 "job desconocido success" "$(con job-nuevo-sin-bloque success)"
 caso 1 "gate provenance-gate cancelled" "$(con provenance-gate cancelled)"
+# QA-REL-2: opcionales con los outputs del detector (como los da toJSON(needs) en CI)
+det() { jq -c --arg k "$1" --arg v "$2" --arg b "$3" --arg f "$4" '.[$k] = {"result": $v} | .detect = {"result":"success","outputs":{"backend":$b,"frontend":$f}}' <<<"$(base_json)"; }
+caso 1 "QA-REL-2: frontend DETECTADO y cancelled" "$(det frontend cancelled true true)"
+caso 1 "QA-REL-2: backend DETECTADO y cancelled" "$(det backend cancelled true true)"
+caso 0 "QA-REL-2: frontend NO detectado y skipped" "$(det frontend skipped true false)"
+caso 1 "QA-REL-2: backend DETECTADO y skipped" "$(det backend skipped true true)"
+caso 1 "QA-REL-2: frontend NO detectado pero cancelled" "$(det frontend cancelled true false)"
+fm() { jq -c --arg v "$1" --arg r "$2" '.["format-mix"] = {"result": $v} | .["format-mix-base"] = {"result":"success","outputs":{"ref":$r}}' <<<"$(base_json)"; }
+caso 1 "QA-REL-2: format-mix cancelled (sin base)" "$(fm cancelled '')"
+caso 1 "QA-REL-2: format-mix skipped CON base" "$(fm skipped abc123)"
+caso 0 "QA-REL-2: format-mix skipped sin base" "$(fm skipped '')"
 "$GATE" --static >/dev/null 2>&1; rc=$?; [ "$rc" -eq 0 ] && ok "estática sobre el ci.yml real — rc=0" || bad "estática sobre el ci.yml real — rc=$rc"
 # job nuevo fuera del needs
 { cat "$CI"; printf '\n  job-nuevo-fuera-de-needs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n'; } > "$TMP/ci-extra.yml"
