@@ -81,7 +81,7 @@
 | MKT-TD2 | c7 lee `shippingAddressSnapshot.state` (texto libre) en cada consulta | backend (+ arquitecto: migración) | 2026-10-18 | columna `Order.shippingStateCode` (catálogo de 32 estados MX) en una migración **+** `grep -c 'shippingAddressSnapshot' backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 (hoy ⇒ 2, en `c7Dims`) |
 | MKT-TD3 ✅ | 403 cross-route del token | arquitecto (D-MKT-AUTZ) | 2026-10-17 | §MKT.E de `aggregates` sin 403 |
 | MKT-TL1 ✅ | limitador en memoria sin cota | backend | 2026-10-18 | `marketing-token.spec.ts` «MKT-TL1 —» (2 pruebas) |
-| MKT-TL2 ✅ | CERRADA (sha en la ficha) · cruces entre tablas: `MARKETING_EQUATIONS` (E1-E7), `exposedCells`, `enforceFamily` (R3b, R4) y R2 por (tabla, clave, parte) sobre el oculto final de cada semana | backend | 2026-10-23 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`marketing-populations.registry.spec.ts`, `marketing-cross-table.audit.spec.ts`: roja sobre `01440e56` en «b2 7 = b1 6 + 1», A1+A2); `marketing-tl2.expiry.spec.ts` verde con la fila cerrada |
+| MKT-TL2 ✅ | CERRADA en `86ee9bdb` · cruces entre tablas: `MARKETING_EQUATIONS` (E1-E7), `exposedCells`, `enforceFamily` (R3b, R4) y R2 por (tabla, clave, parte) sobre el oculto final de cada semana | backend | 2026-10-23 | pruebas 1 y 3 de API_CONTRACT §MKT.H.14 verdes (`marketing-populations.registry.spec.ts`, `marketing-cross-table.audit.spec.ts`: roja sobre `01440e56` en «b2 7 = b1 6 + 1», A1+A2); `marketing-tl2.expiry.spec.ts` verde con la fila cerrada |
 | MKT-TL9 ✅ | CERRADA · `plan` (un componente) es el caso de un componente de `planByComponent` (R1 «N=0 ⇒ 0», R3a «pareja ≠ 0»), sin `localeCompare` | backend | 2026-10-23 | `grep -c localeCompare backend/src/modules/marketing/small-cells.ts` ⇒ 0; «MKT-TL9 · R1 N=0 ⇒ 0» y «R3a pareja ≠ 0» en `marketing-small-cells.spec.ts` y «g1 con 0 ⇒ 0» en `…by-component.spec.ts` (rojas sobre `01440e56`, 3/3) |
 | MKT-TL3 ✅ | sin ruta de datos por sesión | backend | 2026-10-18 | `marketing-panel.spec.ts` + `marketing-panel.routes.spec.ts` |
 | MKT-TL4 ✅ | sin camino para emitir/revocar el token | backend | 2026-10-18 | `marketing-tokens.spec.ts` §MKT.G.9 (4)(5) |
@@ -127,7 +127,7 @@
   «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
   deterministas).
 
-### MKT-TL2 ✅ · Cruces entre tablas del Panel — CERRADA 2026-10-23 (rama `be-mkt-tl2`, sha: SHA_CIERRE)
+### MKT-TL2 ✅ · Cruces entre tablas del Panel — CERRADA 2026-10-23 (rama `be-mkt-tl2`, sha: `86ee9bdb`)
 - **Cierre:** prueba 3 (`marketing-cross-table.audit.spec.ts`, auditor propio en `test/support/disclosure-audit.ts`) verde: casos de
   §MKT.H.14, 200 semillas en 2026-W41 y 40 en febrero 2027 con T. Roja sobre `01440e56` en «b2 7 = b1 6 + 1» (A1+A2 de
   `facebook / paid`, el caso E3 de seguridad). Ablaciones N=3: `enforceFamily` sin tocar ⇒ 4 rojas 3/3; sin E3 ⇒ 4 rojas 3/3.
