@@ -50,7 +50,7 @@ describe('C-F6 · track() descarta lo que no está en la lista de §MKT.H.4', ()
   });
 
   it('en ruta fuera de la lista blanca no envía nada', () => {
-    for (const pathname of ['/es/account', '/es/buylist', '/es/admin/m3', '/es/pedido', '/es/orders/o1']) {
+    for (const pathname of ['/es/account', '/es/buylist/solicitud', '/es/admin/m3', '/es/pedido', '/es/orders/o1']) {
       const r = rt({ pathname });
       expect(trackWith(r, 'view_item', { items: [ITEM], value: 1 })).toBeNull();
       expect(r.gtag).not.toHaveBeenCalled();

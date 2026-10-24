@@ -4784,6 +4784,29 @@
           "off": "<b>It stops both at once.</b> While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. <b>For one specific figure, this is not the remedy.</b> A wrong figure is deleted from the <review>review list</review>; if what’s excessive is the promotion, raise the minimum upside in “Catalog & pricing” and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in “Catalog & pricing”."
         }
       },
+      "directShip": {
+        "title": "Home delivery",
+        "subtitle": "What shipping charges on a home-delivery order. Moving a setting doesn't change orders already paid.",
+        "labels": {
+          "directShipCardsFeeCents": "Shipping for cards-only orders",
+          "directShipSealedFeeCents": "Shipping for orders with sealed product or accessories",
+          "directShipFreeFromCents": "No shipping charge from this subtotal (orders with sealed product)"
+        },
+        "convention": {
+          "gross": "VAT included"
+        },
+        "help": {
+          "directShipCardsFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with only single or graded cards; shipping is always charged on them.",
+          "directShipSealedFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with sealed product, accessories or energy, even if they also include cards. A large box charges its own rate.",
+          "directShipFreeFromCents": "<b>VAT included:</b> compared with the subtotal the customer sees, before shipping and the fee. Only applies to orders with sealed product or accessories."
+        },
+        "withdrawalNote": "Shipping for a vault withdrawal is a different setting (“Withdrawal shipping”, above), and that one is before VAT.",
+        "unavailable": "The server doesn't have these settings yet.",
+        "save": "Save home delivery ({count, plural, =0 {no changes} one {# change} other {# changes}})",
+        "saved": "Saved.",
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "invalid": "That value isn't valid for this setting."
+      },
       "ingest": {
         "title": "Bulk ingest provider (daily price sweep)",
         "note": "Dial for the daily price sweep, SEPARATE from the per-card reference providers above. Values: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (daily per-finish pricing, P-47). Money-safe rollback: switch back to pokemontcg_io.",

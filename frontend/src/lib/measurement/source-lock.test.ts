@@ -43,18 +43,25 @@ describe('C-F1 (fuente) · los hosts de medición no salen del cargador', () => 
 
   it('el cargador solo se importa con import() bajo la guarda literal del modo', () => {
     const importers = files.filter((f) => !isTest(f.rel) && /measurement\/loader['"]/.test(f.src));
-    expect(importers.map((f) => f.rel)).toEqual(['src/components/consent/MeasurementProvider.tsx']);
-    const src = importers[0].src;
-    expect(src).not.toMatch(/^\s*import[^(]*measurement\/loader/m);
-    const guard = "if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on') {";
-    const g = src.indexOf(guard);
-    const i = src.indexOf("import('@/lib/measurement/loader')");
-    expect(g).toBeGreaterThan(-1);
-    expect(i).toBeGreaterThan(g);
-    // El import está DENTRO del bloque de la guarda (antes de que cierre).
-    const between = src.slice(g + guard.length, i);
-    const depth = [...between].reduce((d, ch) => d + (ch === '{' ? 1 : ch === '}' ? -1 : 0), 0);
-    expect(depth).toBeGreaterThanOrEqual(0);
+    // Dos montajes (v1.109, C-F9): la tienda (`[locale]`) y el árbol raíz de `/card-show`. Ninguno más.
+    expect(importers.map((f) => f.rel).sort()).toEqual([
+      'src/components/consent/CardShowMeasurement.tsx',
+      'src/components/consent/MeasurementProvider.tsx',
+    ]);
+    for (const { rel, src } of importers) {
+      expect(src, rel).not.toMatch(/^\s*import[^(]*measurement\/loader/m);
+      const guard = "if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE === 'on') {";
+      const g = src.indexOf(guard);
+      const i = src.indexOf("import('@/lib/measurement/loader')");
+      expect(g, rel).toBeGreaterThan(-1);
+      expect(i, rel).toBeGreaterThan(g);
+      // El import está DENTRO del bloque de la guarda (antes de que cierre).
+      const between = src.slice(g + guard.length, i);
+      const depth = [...between].reduce((d, ch) => d + (ch === '{' ? 1 : ch === '}' ? -1 : 0), 0);
+      expect(depth, rel).toBeGreaterThanOrEqual(0);
+      // Y el componente exportado sale con `off` ANTES de montar la rama activa.
+      expect(src, rel).toMatch(/process\.env\.NEXT_PUBLIC_MEASUREMENT_MODE === 'on' \?/);
+    }
   });
 
   it('MKT.H.13 · la medición no usa sessionStorage (nada en el dispositivo antes de elegir; cierra FE-MKT2-1)', () => {

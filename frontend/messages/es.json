@@ -4784,6 +4784,29 @@
           "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en «Catálogo y precios» y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en «Catálogo y precios»."
         }
       },
+      "directShip": {
+        "title": "Envío a domicilio",
+        "subtitle": "Lo que cobra el envío de un pedido a domicilio. Mover un dial no cambia los pedidos ya cobrados.",
+        "labels": {
+          "directShipCardsFeeCents": "Envío de pedidos solo de cartas",
+          "directShipSealedFeeCents": "Envío de pedidos con sellado o accesorios",
+          "directShipFreeFromCents": "Desde este subtotal no se cobra envío (pedidos con sellado)"
+        },
+        "convention": {
+          "gross": "IVA incluido"
+        },
+        "help": {
+          "directShipCardsFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con solo cartas sueltas o gradeadas; a ellos siempre se les cobra el envío.",
+          "directShipSealedFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con sellado, accesorios o energías, aunque también lleven cartas. Una caja grande cobra su propia tarifa.",
+          "directShipFreeFromCents": "<b>IVA incluido:</b> se compara con el subtotal que ve el cliente, antes del envío y de la comisión. Solo aplica a pedidos con sellado o accesorios."
+        },
+        "withdrawalNote": "El envío de un retiro desde la bóveda es otro dial («Envío de un retiro», arriba) y ese va antes de IVA.",
+        "unavailable": "El servidor todavía no tiene estos diales.",
+        "save": "Guardar envío a domicilio ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
+        "saved": "Guardado.",
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "invalid": "Ese valor no es válido para este dial."
+      },
       "ingest": {
         "title": "Proveedor de ingesta masiva (barrido diario de precios)",
         "note": "Dial del barrido diario de precios, DISTINTO de los proveedores de referencia por-carta de arriba. Valores: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (precio por-acabado diario, P-47). Rollback money-safe: volver a pokemontcg_io.",

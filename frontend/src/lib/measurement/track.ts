@@ -11,7 +11,7 @@
  * hace nada. El cargador vive aparte (`loader.ts`) y solo entra al bundle con el modo `on`.
  */
 
-import { isMeasuredPath } from './routes';
+import { isMeasuredPath, measurementPolicyFor } from './routes';
 import { readFirstUtm, documentCookieJar, type ConsentChoice, type CookieJar } from './consent';
 import { sanitizeMeasurementUrl, sanitizePath } from './utm';
 
@@ -164,8 +164,11 @@ export function trackWith(rt: TrackRuntime, event: BrowserEvent, params: TrackPa
 
 function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: TrackParams) {
   if (!rt.on || !rt.consent) return null;
-  if (!isMeasuredPath(rt.pathname)) return null;
+  const policy = measurementPolicyFor(rt.pathname);
+  if (!policy) return null;
   if (!(event in EVENT_PARAMS)) return null;
+  // C-F9 (v1.109): en `/card-show` solo `page_view` (sus formularios llevan nombre, teléfono y menores).
+  if (policy.events === 'page_view_only' && event !== 'page_view') return null;
   const filtered = filterParams(event, params);
   const sent: { ga4?: Record<string, unknown>; pixel?: { name: string; params: Record<string, unknown>; eventID?: string } } = {};
 
@@ -182,7 +185,8 @@ function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: Track
   }
 
   const pixelName = PIXEL_EVENT[event];
-  if (rt.consent.ads && rt.fbq && pixelName) {
+  // C-F9: en `/card-show` nada va a Meta aunque haya `fbq` en el documento (P-CS-MEDIR-1).
+  if (policy.pixel && rt.consent.ads && rt.fbq && pixelName) {
     const p = pixelParams(filtered);
     // Deduplicación con CAPI (§MKT.H.4/.5): el MISMO id que el servidor, `p_<Order.id>`.
     const eventID = event === 'purchase' && typeof filtered.transaction_id === 'string' ? `p_${filtered.transaction_id}` : undefined;

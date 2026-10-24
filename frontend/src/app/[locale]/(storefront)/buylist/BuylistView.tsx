@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useId, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { batchQuote } from '@/lib/api';
 import type {
@@ -18,12 +18,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
 import { BodyPortal } from '@/components/ui/BodyPortal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
-import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
-import {
-  BuylistPendingLineLabel,
-  BuylistPendingLinesNote,
-} from '@/components/domain/BuylistPendingLinesNote';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
 // v1.21-cotizador-master-set: el grid del cotizador es el binder COMPARTIDO de Master Set
 // (§4.20f, mode="quoter") — casillas de imagen por acabado real de la carta, nunca un chip
@@ -36,8 +31,6 @@ import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
 // disparadores fijos son el FAB (`< lg`) y la `SellCartBar` (`≥ lg`), montados vía `BodyPortal`.
 import { SellCartFab } from '@/components/domain/SellCartFab';
 import { SellCartDrawer } from '@/components/domain/SellCartDrawer';
-// v1.29 Stream C (P-14, §18.5): las líneas del resumen usan el FinishMark compartido.
-import { FinishMark } from '@/components/domain/FinishMark';
 // TL-C3 (FE-13): el estado del carrito, el contenido del drawer y "Mis solicitudes" viven
 // en módulos propios (extracción mecánica, sin cambio de comportamiento).
 import { useSellCart } from './useSellCart';
@@ -45,7 +38,8 @@ import { SellCartContents } from './SellCartContents';
 // §37.1 (P-61): en escritorio el carrito vuelve a ser el cajón; la barra inferior conserva a la
 // vista cuánto llevas. La requisitos de cuenta suben a la cabecera con el cajón cerrado.
 import { SellCartBar } from './SellCartBar';
-import { CartTotalFigure } from './CartTotalFigure';
+// v1.109 (D-MKT2-8): el paso de crear (CLABE/INE) vive en `/buylist/solicitud`, con navegación dura.
+import { goToSellRequestStep } from './request-step';
 // §4.4: el umbral `lg` como token, no como `1024` a mano (mismo número que la clase `lg:`).
 import { minWidthQuery } from '@/lib/breakpoints';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
@@ -104,11 +98,8 @@ export function BuylistView() {
   const t = useTranslations('buylist');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
-  const queryClient = useQueryClient();
 
   const [guideOpen, setGuideOpen] = useState(false);
-  const [requestOpen, setRequestOpen] = useState(false);
-  const [createdId, setCreatedId] = useState<string | null>(null);
 
   // --- Carrito de venta: varias cartas en UNA sola solicitud. P-16 (§18.4): vive en un
   // cajón (`SellCartDrawer`) disparado por el FAB en `< lg` o por la barra en `≥ lg` (cerrado por
@@ -127,7 +118,6 @@ export function BuylistView() {
     pendingCardCount,
     cartCount,
     isInCart,
-    requestItems,
     restore,
     requoting,
     requoteFailed,
@@ -189,7 +179,7 @@ export function BuylistView() {
    * |---|---|
    * | Cajón cerrado (cualquier tamaño) | la **cabecera** |
    * | Cajón abierto (cualquier tamaño) | el **bloque de dinero** del cajón |
-   * | Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
+   * | Paso de crear | **el suyo** (`BuylistKycForm`), en otra ruta (`/buylist/solicitud`, v1.109) |
    *
    * §37.1c (P-61): no hay fila para escritorio porque el cajón es el mismo en todos los tamaños:
    * la fórmula no mira el viewport. ⛔ Nada de versión corta en la barra: sería una segunda
@@ -203,11 +193,7 @@ export function BuylistView() {
    * **layout**. La invariante nueva es **más fuerte y más fácil de comprobar**: *siempre
    * exactamente una*, en vez de *al menos una*.
    */
-  const shippingNoteHost: 'header' | 'cart' | 'createStep' = requestOpen
-    ? 'createStep'
-    : drawerOpen
-      ? 'cart'
-      : 'header';
+  const shippingNoteHost: 'header' | 'cart' = drawerOpen ? 'cart' : 'header';
 
   /**
    * §37.1c (P-61) · la llamada a iniciar sesión / requisitos de cuenta (`SellRequirementsPanel`),
@@ -463,11 +449,11 @@ export function BuylistView() {
             requoteFailed={requoteFailed}
             onRetryRequote={retryRequote}
             onSubmit={() => {
-              setCreatedId(null);
-              // Un solo focus trap activo (§18.4b): abrir el modal de solicitud
-              // cierra el drawer (el resumen del modal repite las líneas).
+              // v1.109 (ARCHITECTURE §14.4, D-MKT2-8; C-F5): el paso de crear pinta CLABE e INE y vive en una
+              // ruta EXCLUIDA de la medición. Documento nuevo SIEMPRE (`location.assign`), con la medición
+              // encendida o apagada: el carrito viaja por `localStorage` y el paso lo recotiza al montar.
               setDrawerOpen(false);
-              setRequestOpen(true);
+              goToSellRequestStep(locale);
             }}
           />
         </SellCartDrawer>
@@ -494,17 +480,8 @@ export function BuylistView() {
           </div>
         </section>
 
-        {/* Aviso de solicitud creada (§23.14.4c). El texto viejo —«te avisaremos cuando
-            recibamos tu carta»— se leía como permiso para ENVIAR y se saltaba el ciclo entero
-            (oferta → aceptación → etiqueta); PROJECT es tajante: lo que llega por cuenta propia
-            NO está comprado. El nuevo dice explícitamente que no mande nada todavía. Sin plazos
-            (ese reloj es nuestro, §23.4.3) y sin la resta: es una secuencia, no una afirmación
-            de coste, y §23.14.3 muerde sobre las afirmaciones de coste, no sobre la logística. */}
-        {createdId && (
-          <p className="gutter rule-note py-5 text-sm text-text" role="status">
-            {t('created')}
-          </p>
-        )}
+        {/* El aviso de solicitud creada (§23.14.4c) se pinta en el paso de crear (`/buylist/solicitud`), que es
+            donde se crea desde v1.109 (D-MKT2-8). */}
 
         {/* §33.3 (Stream A): «Mis solicitudes» vive ahora en la pestaña Ventas de «Compras y
             ventas» (`/orders?tab=ventas`). Aquí queda UNA línea con sesión; sin sesión, la
@@ -563,96 +540,6 @@ export function BuylistView() {
           SeparateProductTile, con su propio CardDetailModal). Aquí vivía el del GRID PLANO de
           graded/sealed, que se retiró con él (v1.53, §4.40). */}
 
-      <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
-        {requestItems.length > 0 && (
-          <>
-            {/* Resumen de la venta ANTES de confirmar: qué cartas, cuánto (estimado) y
-                la vigencia del estimado. Evita enviar "a ciegas" desde el modal. */}
-            <div className="mb-6">
-              <p className="eyebrow">{t('summaryTitle')}</p>
-              <ul className="mt-3">
-                {cart.map((l) => {
-                  const pending = l.quote.quote.status === 'precio_pendiente';
-                  const unitCents = l.quote.quote.quotedPriceCents ?? 0;
-                  return (
-                    <li
-                      key={l.id}
-                      className="flex items-baseline justify-between gap-3 border-b border-border py-2 text-sm"
-                    >
-                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-text">
-                        <span lang="en" className="min-w-0 truncate">
-                          {l.card.name}
-                        </span>
-                        <span className="font-mono text-[10px] text-muted">
-                          ×{l.quantity}
-                        </span>
-                        {/* P-14 (§18.5): mismo FinishMark que en el carrito — la decisión de
-                            venta se confirma viendo la variante con el mismo lenguaje. */}
-                        <FinishMark finish={l.finish} className="translate-y-[1px]" />
-                      </span>
-                      <span className="tabular shrink-0">
-                        {pending ? (
-                          <BuylistPendingLineLabel />
-                        ) : (
-                          formatMoneyCents(unitCents * l.quantity, locale)
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="flex items-baseline justify-between gap-3 pt-3">
-                <span className="text-[13px] font-medium text-text">{t('quote.money.cardsValue')}</span>
-                {/* §37.1b: la MISMA función que el cajón y la barra (antes este bloque copiaba dos de
-                    las tres ramas y omitía la del «—»). El CTA que abre este modal está apagado
-                    mientras se recotiza, así que esa rama es hoy inalcanzable aquí — pero la cifra
-                    sale de un solo sitio, no de una copia que diverja a la próxima. */}
-                <CartTotalFigure
-                  noFreshPrice={requoting || requoteFailed}
-                  totalEstimatedCents={totalEstimatedCents}
-                  pendingCardCount={pendingCardCount}
-                  size="summary"
-                  testIdScope="sell-request"
-                />
-              </div>
-              {/* §23.3h: el paso de crear también es un bloque de dinero, así que explica su
-                  propia aritmética — mismo texto, misma vez, con el conteo interpolado. */}
-              <BuylistPendingLinesNote count={pendingCardCount} className="mt-2" />
-              {/* Vigencia del estimado (copy editable de confianza). */}
-              <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">{t('trustValidity')}</p>
-            </div>
-
-            <BuylistKycForm
-              items={requestItems}
-              // El mismo mínimo del cotizador: el paso de crear no vuelve a pedirlo (una sola
-              // llamada por montaje) y el `422` del servidor manda sobre él si difieren.
-              minimumRequestCents={minimumRequestCents}
-              totalEstimatedCents={totalEstimatedCents}
-              // §23.3f-bis: el consejo del faltante cambia con líneas sin precio (la cifra no).
-              pendingCardCount={pendingCardCount}
-              // Heads-up derivado de GET /users/me/kyc (⭐ v1.69: el VEREDICTO del servidor, no una
-              // comparación nuestra); el backend re-decide igualmente (SEC-A1).
-              ineExpected={sellReq.ineExpected}
-              clabeMasked={sellReq.clabeMasked}
-              // v1.15: atajo "usar mi CLABE" (omite `clabe`) e INE en archivo (oculta uploaders).
-              clabeOnFile={sellReq.clabeOnFile}
-              ineOnFile={sellReq.ineOnFile}
-              // P-78 (§34.8.4): si la INE anterior fue rechazada, el motivo se lee AQUÍ también.
-              kycStatus={sellReq.kyc?.kycStatus}
-              rejectionReason={sellReq.kyc?.rejectionReason}
-              onCreated={(sellRequestId) => {
-                setCreatedId(sellRequestId);
-                setRequestOpen(false);
-                clearCart();
-                setLastAdded(null);
-                void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
-                // La solicitud pudo registrar la CLABE en KYC → refresca el checklist.
-                void queryClient.invalidateQueries({ queryKey: ['kyc'] });
-              }}
-            />
-          </>
-        )}
-      </Modal>
     </div>
   );
 }

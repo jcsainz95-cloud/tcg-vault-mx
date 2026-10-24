@@ -6206,7 +6206,19 @@ export interface UserAuditEntryDTO {
 
 // ---- M10: Config (diales) y bitácora (contrato §M10) ----
 export interface SettingsDTO {
+  /** Desde v1.109 gobierna SOLO el retiro desde bóveda (§M10, §4-G.12 punto 3); ⛔ el envío directo no lo lee. */
   shippingFeeCents: number;
+  /*
+   * 💰 v1.109 (§4-G.12 punto 3): los tres diales del envío directo. Opcionales por tolerancia a un servidor
+   * anterior; M10 («Envío a domicilio») no pinta la sección como si existieran.
+   *  - LOS TRES CON IVA INCLUIDO: el importe final que ve el cliente (decisión del dueño 2026-10-24, `HECHOS.md`
+   *    «envío v2 con IVA incluido»; el texto de v1.109 decía `F` neto en los dos primeros: corrección pedida al
+   *    arquitecto). `directShipCardsFeeCents` (default 10000) y `directShipSealedFeeCents` (default 17500): entero
+   *    ≥ 0. `directShipFreeFromCents` (default 400000): se compara con el subtotal; 1..MAX_CENTS.
+   */
+  directShipCardsFeeCents?: number;
+  directShipSealedFeeCents?: number;
+  directShipFreeFromCents?: number;
   aportacionPct: number;
   ivaPct: number;
   /*
@@ -7217,6 +7229,43 @@ export interface GuestCheckoutQuoteResponse {
   unavailableBundles?: UnavailableBundleDTO[];
   shippingBox?: QuoteShippingBoxDTO | null;
   vaultExcludesAccessories?: boolean;
+  /**
+   * 💰 v1.109 (§4-G.12 punto 4): la regla de envío que produjo `breakdown.shippingFeeCents`. El contrato la
+   * declara SIEMPRE presente; opcional aquí solo por tolerancia a un servidor anterior a v1.109 (mismo
+   * precedente que `accessoryLines`). ⛔ El front no recalcula nada con ella: pinta el número del servidor.
+   */
+  shippingRule?: GuestShippingRuleDTO;
+}
+
+/**
+ * 💰 v1.109 (§4-G.12): clase del pedido para el envío directo. Literal de DTO, no columna (no entra en §0 Enums).
+ * `null` en `GuestShippingRuleDTO.kind` = tras la poda no quedó nada (envío 0).
+ */
+export type ShippingRuleKind = 'cards_only' | 'sealed';
+
+/** 💰 v1.109 (§4-G.12 punto 4) — `shippingRule` del `POST /checkout/guest/quote`. */
+export interface GuestShippingRuleDTO {
+  kind: ShippingRuleKind | null;
+  /** `T` (exhibido, IVA dentro) si `kind = 'sealed'`; si no, `null`. */
+  freeFromCents: number | null;
+  /** `kind = 'sealed'` ⇒ `max(0, T − breakdown.subtotalCents)` («te faltan MX$N»); si no, `null`. */
+  freeShippingRemainingCents: number | null;
+  /** `kind = 'sealed'` ∧ `S ≥ T`. */
+  freeShippingApplied: boolean;
+  /** La tarifa salió de una caja grande (§4-G.12 paso 3). */
+  boxFeeApplies: boolean;
+}
+
+/**
+ * 💰 v1.109 (§4-G.12 punto 5) — `GET /api/v1/checkout/shipping-rule`, `public`, `Cache-Control: public, max-age=300`.
+ * Las `E` ya derivadas con los diales vivos (IVA dentro). Informativo: lo cobrado lo decide `session`.
+ */
+export interface PublicShippingRuleDTO {
+  cardsOnlyFeeCents: number;
+  sealedFeeCents: number;
+  freeFromCents: number;
+  currency: 'MXN';
+  ivaIncluded: true;
 }
 
 /** POST /checkout/guest/session. §4-G.2 */

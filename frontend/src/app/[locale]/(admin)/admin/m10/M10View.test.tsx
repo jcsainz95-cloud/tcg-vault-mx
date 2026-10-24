@@ -7,6 +7,7 @@ import * as api from '@/lib/api';
 import { mockSettings } from '@/lib/mock/fixtures';
 import { M10View, M10_LIST_DIAL_KEYS } from './M10View';
 import { WISHLIST_DIAL_KEYS } from './sections/WishlistDialsSection';
+import { DIRECT_SHIP_DIAL_KEYS } from './sections/DirectShipSection';
 import es from '../../../../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
@@ -365,6 +366,9 @@ describe('M10View · Config y bitácora', () => {
     expect(WISHLIST_DIAL_KEYS).toHaveLength(7);
     for (const k of WISHLIST_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
     expect(M10_LIST_DIAL_KEYS.filter((k) => /^wishlist/.test(k))).toEqual([]);
+    // v1.109 (§4-G.12): los tres diales del envío directo solo en «Envío a domicilio».
+    expect(DIRECT_SHIP_DIAL_KEYS).toEqual(['directShipCardsFeeCents', 'directShipSealedFeeCents', 'directShipFreeFromCents']);
+    for (const k of DIRECT_SHIP_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
     for (const k of ['energyBundlePriceCents', 'accessorySuggestionCount']) {
       expect(M10_LIST_DIAL_KEYS).not.toContain(k);
     }

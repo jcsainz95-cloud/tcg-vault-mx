@@ -156,7 +156,9 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
     // 3 · Crear la solicitud y comparar con lo que congeló el servidor.
     await ensureMinimumReached(page);
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
-    const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
+    // v1.109 (D-MKT2-8): el paso de crear es una RUTA (`/buylist/solicitud`), no un modal.
+    await page.waitForURL(/\/es\/buylist\/solicitud$/);
+    const dialog = page.getByRole('region', { name: t('es', 'buylist.requestTitle') });
     await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
     await choosePickupAddress(dialog);
     const clabeInput = dialog.getByLabel(/CLABE/);
