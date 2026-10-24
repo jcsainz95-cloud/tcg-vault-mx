@@ -129,6 +129,9 @@ function build(opts: { mode?: string; ga4?: boolean; failDims?: string; consentR
     sealedProduct: { findMany: jest.fn(async () => [{ id: 'sp-9', name: 'ETB Prismatic' }]) },
     wishlistItem: { groupBy: jest.fn(async () => []) },
     buylistQuoteDailyCount: { groupBy: jest.fn(async () => []) },
+    // v1.109 (MKT-MEDIR-CS): b5/b6 leen los preregistros confirmados del Card Show; sin filas ⇒ ceros.
+    cardShowLead: { findMany: jest.fn(async () => []) },
+    cardShowPlayerSignup: { findMany: jest.fn(async () => []) },
   };
   const env = fullEnv({ MEASUREMENT_MODE: opts.mode, MKT_GOOGLE_SA_JSON: opts.ga4 ? SA : undefined, MKT_GA4_PROPERTY_ID: opts.ga4 ? '123456789' : undefined });
   const measurement = new MeasurementService(prisma as never, fakeConfig(env));

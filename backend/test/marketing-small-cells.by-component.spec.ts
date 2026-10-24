@@ -15,6 +15,10 @@
  *  6. R0 en un mes (febrero 2027): una fila «oculta» no cae entre dos visibles; y, en TODA tabla de este fichero, ninguna
  *     celda oculta de la primera columna de conteo va antes de una visible.
  *
+ *  7. (v1.109, MKT-MEDIR-CS) b5/b6: un día con 1 lead + 7 preinscripciones ⇒ `avisame:'< 5'`, `torneo:7`; un buzón con lead
+ *     `visitor` y `merchant` cuenta 1 sujeto y 2 filas; `pending` y `confirmedAt` fuera del periodo no cuentan; un `utmCampaign`
+ *     con `@` ⇒ «No válido» (y el texto crudo en ningún sitio); la consulta solo pide columnas del conteo.
+ *
  * Deterministas (sin reloj ni azar): N=1 por caso.
  */
 import { MarketingAnalyticsService } from '../src/modules/marketing/marketing-analytics.service';
@@ -47,10 +51,24 @@ interface Wish {
   userId: string;
   createdAt: Date;
 }
+/** v1.109: un preregistro del Card Show (`CardShowLead` o `CardShowPlayerSignup`), con lo que el doble necesita para filtrar. */
+interface Cs {
+  confirmedAt: Date | null;
+  status: string;
+  mailboxHmac: string;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  /** PII que la consulta NO debe pedir (el doble solo devuelve lo que `select` nombra). */
+  email: string;
+}
 interface World {
   orders: Order[];
   requests: Req[];
   wishes: Wish[];
+  leads?: Cs[];
+  signups?: Cs[];
 }
 
 type Range = { gte: Date; lt: Date };
@@ -106,6 +124,20 @@ function prismaOf(world: World) {
     },
     buylistQuoteDailyCount: { groupBy: jest.fn(async () => []) },
     marketingBannerConsentCounter: { count: jest.fn(async () => 0) },
+    cardShowLead: { findMany: jest.fn(csFindMany(() => world.leads ?? [])) },
+    cardShowPlayerSignup: { findMany: jest.fn(csFindMany(() => world.signups ?? [])) },
+  };
+}
+
+/** Selects que pidió el servicio a las tablas del Card Show (la prueba exige solo columnas de conteo). */
+const csSelects: Record<string, unknown>[] = [];
+/** Doble de `findMany` del Card Show: filtra `confirmedAt` en el rango y `status ≠ pending`, y devuelve SOLO lo que `select` nombra. */
+function csFindMany(rows: () => Cs[]) {
+  return async ({ where, select }: { where: { confirmedAt?: Range; status?: { not: string } }; select: Record<string, boolean> }) => {
+    csSelects.push(select);
+    return rows()
+      .filter((x) => x.confirmedAt !== null && inRange(x.confirmedAt, where.confirmedAt) && (!where.status || x.status !== where.status.not))
+      .map((x) => Object.fromEntries(Object.keys(select).map((k) => [k, (x as unknown as Record<string, unknown>)[k]])));
   };
 }
 
@@ -162,7 +194,8 @@ const isHidden = (c: Cell | undefined) => c === SMALL_CELL_SENTINEL || c === SMA
  * por su N real entre un 9 y un 7 diría que vale entre 7 y 9). Se aplica a TODA tabla medida de cada payload del fichero.
  */
 function expectHiddenAfterVisible(p: ScreenPayload): void {
-  for (const t of p.tables.filter((x) => x.measured)) {
+  // b5 va en orden FIJO de fecha (R0 sin valores, §MKT.H.14): su orden no depende de ninguna cifra, oculta o no.
+  for (const t of p.tables.filter((x) => x.measured && x.id !== 'b5')) {
     const col = t.columns.find((c) => c.kind === 'count');
     if (!col) continue;
     const cells = t.rows.map((r) => r[col.key]);
@@ -299,5 +332,103 @@ describe('R0 · el orden de filas usa solo valores publicados (§MKT.H.14)', () 
     ]);
     expect(rowOf(b1, 'origen', 'k / bio').mxnPedidos).toBe(SMALL_CELL_HIDDEN);
     expectHiddenAfterVisible(b);
+  });
+});
+
+// ──────────────────────────────── v1.109 · b5/b6 del Card Show (MKT-MEDIR-CS) ────────────────────────────────
+
+describe('MKT-MEDIR-CS · b5/b6: umbral por componente y por BUZÓN (§MKT.H.14 R1, `CS_LEAD`/`CS_SIGNUP`)', () => {
+  let box = 0;
+  const cs = (confirmedAt: Date | null, extra: Partial<Cs> = {}): Cs => ({
+    confirmedAt,
+    status: confirmedAt ? 'new' : 'pending',
+    mailboxHmac: `box-${++box}`,
+    utmSource: null,
+    utmMedium: null,
+    utmCampaign: null,
+    utmContent: null,
+    email: `persona${box}@correo.mx`,
+    ...extra,
+  });
+  const ig = { utmSource: 'instagram', utmMedium: 'story', utmCampaign: 'cardshow-2026' };
+
+  it('un día con 1 lead + 7 preinscripciones ⇒ b5 `avisame:"< 5"`, `torneo:7`; b6 igual en su UTM; una fila por día del periodo, en orden de fecha', async () => {
+    const w = empty();
+    w.leads = [cs(at('2026-10-07'), ig)];
+    w.signups = Array.from({ length: 7 }, () => cs(at('2026-10-07'), { ...ig, status: 'confirmed' }));
+    const b = await service(w)('b', W41);
+    const b5 = tableOf(b, 'b5');
+    expect(b5.rows.map((r) => r.dia)).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11']);
+    expect(rowOf(b5, 'dia', '2026-10-07')).toEqual({ dia: '2026-10-07', avisame: SMALL_CELL_SENTINEL, torneo: 7 });
+    expect(rowOf(b5, 'dia', '2026-10-06')).toEqual({ dia: '2026-10-06', avisame: 0, torneo: 0 });
+    expect(tableOf(b, 'b6').rows).toEqual([{ utm: 'instagram / story / cardshow-2026', avisame: SMALL_CELL_SENTINEL, torneo: 7 }]);
+    expect([b5.measured, tableOf(b, 'b6').measured, b5.source]).toEqual([true, true, 'BD']);
+    expectHiddenAfterVisible(b);
+  });
+
+  it('un buzón con lead `visitor` y `merchant` cuenta 1 sujeto y 2 filas: 4 buzones con 5 filas ⇒ «< 5»; 5 buzones con 6 filas ⇒ 6', async () => {
+    const pair = (d: Date) => {
+      const a = cs(d);
+      return [a, { ...a, email: `otra-${a.email}` }]; // mismo buzón (`mailboxHmac`), dos filas (dos `type`)
+    };
+    const four = empty();
+    four.leads = [...pair(at('2026-10-08')), ...[1, 2, 3].map(() => cs(at('2026-10-08')))];
+    const five = empty();
+    five.leads = [...pair(at('2026-10-08')), ...[1, 2, 3, 4].map(() => cs(at('2026-10-08')))];
+    const exact = await service(four)('b', W41, 'exact' as CellPrivacy);
+    expect(rowOf(tableOf(exact, 'b5'), 'dia', '2026-10-08').avisame).toBe(5);
+    expect(rowOf(tableOf(await service(four)('b', W41), 'b5'), 'dia', '2026-10-08').avisame).toBe(SMALL_CELL_SENTINEL);
+    expect(tableOf(await service(four)('b', W41), 'b6').rows).toEqual([{ utm: 'Sin UTM', avisame: SMALL_CELL_SENTINEL, torneo: 0 }]);
+    expect(rowOf(tableOf(await service(five)('b', W41), 'b5'), 'dia', '2026-10-08').avisame).toBe(6);
+  });
+
+  it('`pending` y `confirmedAt` fuera del periodo no cuentan; una baja posterior sí; el día es el de CDMX', async () => {
+    const w = empty();
+    w.leads = [
+      cs(null), // pending
+      cs(at('2026-10-04')), // domingo anterior
+      cs(at('2026-10-12')), // lunes siguiente
+      cs(at('2026-10-09'), { status: 'discarded' }), // confirmó en el periodo y se dio de baja después: cuenta
+      cs(new Date('2026-10-06T05:30:00.000Z')), // 23:30 del 5 en CDMX
+      cs(new Date('2026-10-12T05:30:00.000Z')), // 23:30 del domingo 11 en CDMX: dentro
+    ];
+    w.signups = [cs(at('2026-10-10'), { status: 'pending' })];
+    const b5 = tableOf(await service(w)('b', W41, 'exact' as CellPrivacy), 'b5');
+    const count = Object.fromEntries(b5.rows.map((r) => [r.dia, [r.avisame, r.torneo]]));
+    expect(count).toEqual({
+      '2026-10-05': [1, 0],
+      '2026-10-06': [0, 0],
+      '2026-10-07': [0, 0],
+      '2026-10-08': [0, 0],
+      '2026-10-09': [1, 0],
+      '2026-10-10': [0, 0],
+      '2026-10-11': [1, 0],
+    });
+  });
+
+  it('un `utmCampaign` con `@` ⇒ «No válido» (⛔ el texto crudo en ninguna celda); los cuatro NULL ⇒ «Sin UTM»; mayúsculas válidas ⇒ en minúsculas', async () => {
+    const w = empty();
+    w.leads = [
+      ...Array.from({ length: 5 }, () => cs(at('2026-10-07'), { ...ig, utmCampaign: 'juan@correo.com' })),
+      ...Array.from({ length: 6 }, () => cs(at('2026-10-08'))),
+      ...Array.from({ length: 7 }, () => cs(at('2026-10-09'), { utmSource: 'Instagram', utmMedium: 'BIO' })),
+    ];
+    const b = await service(w)('b', W41);
+    const b6 = tableOf(b, 'b6');
+    expect(b6.rows).toEqual([
+      { utm: 'instagram / bio / —', avisame: 7, torneo: 0 },
+      { utm: 'Sin UTM', avisame: 6, torneo: 0 },
+      { utm: 'No válido', avisame: 5, torneo: 0 },
+    ]);
+    expect(JSON.stringify(b)).not.toContain('juan@correo.com');
+  });
+
+  it('la consulta pide SOLO columnas del conteo (sin correo, nombre, teléfono, juego ni tipo)', async () => {
+    const w = empty();
+    w.leads = [cs(at('2026-10-07'))];
+    csSelects.length = 0;
+    await service(w)('b', W41);
+    expect(csSelects.length).toBeGreaterThan(0);
+    for (const sel of csSelects) expect(Object.keys(sel).sort()).toEqual(['confirmedAt', 'mailboxHmac', 'utmCampaign', 'utmContent', 'utmMedium', 'utmSource']);
   });
 });
