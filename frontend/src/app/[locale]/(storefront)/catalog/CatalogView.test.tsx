@@ -212,3 +212,37 @@ describe('CatalogView · D-EQ-3: el sellado tiene su propia vitrina, no un calle
     expect(screen.queryByText('Twilight Masquerade ETB')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Fricción 5 (DESIGN_SYSTEM §CHK-MOVIL.5): quien llega de Instagram veía el selector «Ordenar» en «—». Sin `sort`
+ * en la URL se pinta «Novedades» y SE ENVÍA ese orden; con `sort` en la URL, manda la URL.
+ */
+describe('CatalogView · orden visible por defecto (fricción 5)', () => {
+  it('sin `sort` en la URL: el selector dice «Novedades», sin opción «—», y la petición va con sort=newest', async () => {
+    const api = await import('@/lib/api');
+    const spy = vi.spyOn(api, 'getCatalog');
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    const selects = screen.getAllByRole('combobox', { name: 'Ordenar' });
+    expect(selects.length).toBeGreaterThan(0);
+    for (const select of selects) {
+      expect(select).toHaveValue('newest');
+      expect((select as HTMLSelectElement).selectedOptions[0]?.textContent).toBe('Novedades');
+      expect(Array.from((select as HTMLSelectElement).options).map((o) => o.textContent)).not.toContain('—');
+    }
+    expect(spy).toHaveBeenCalled();
+    expect(spy.mock.calls.every(([f]) => f?.sort === 'newest')).toBe(true);
+  });
+
+  it('con `sort=price_asc` en la URL manda la URL', async () => {
+    urlParams.current = new URLSearchParams('sort=price_asc');
+    const api = await import('@/lib/api');
+    const spy = vi.spyOn(api, 'getCatalog');
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    for (const select of screen.getAllByRole('combobox', { name: 'Ordenar' })) expect(select).toHaveValue('price_asc');
+    expect(spy.mock.calls.every(([f]) => f?.sort === 'price_asc')).toBe(true);
+  });
+});

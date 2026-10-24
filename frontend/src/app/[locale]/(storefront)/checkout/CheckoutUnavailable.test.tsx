@@ -45,6 +45,10 @@ import { ApiClientError } from '@/lib/api-client';
 import { clearUnavailableNotice } from './unavailable-notice';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { CheckoutView } from './CheckoutView';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 /** Piezas muertas del escenario: id → cardName (null = ya no existe en BD). */
 type Dead = Record<string, string | null>;
@@ -330,7 +334,6 @@ describe('checkout · poda amable de piezas muertas (v1.21.3-quote-prune)', () =
     expect(screen.queryByTestId('unavailable-notice')).not.toBeInTheDocument();
 
     // Formulario de invitado completo y válido (§15.3) para llegar hasta la session.
-    await usr.click(screen.getByRole('button', { name: 'Continuar como invitado' }));
     await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');

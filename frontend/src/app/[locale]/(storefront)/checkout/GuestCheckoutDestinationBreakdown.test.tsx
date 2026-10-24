@@ -26,6 +26,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
 
 import { getGuestCheckoutQuote } from '@/lib/api';
 import { GuestCheckoutView } from './GuestCheckoutView';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 // Valores del ejemplo normativo del contrato (§4-G.1): DOS desgloses del MISMO subtotal.
 // `breakdown` (envío directo) trae `shippingFeeCents` y un total mayor; `vaultBreakdown` NO trae
@@ -73,7 +77,7 @@ function seedCart(ids: string[]) {
   window.localStorage.setItem('tcg.cart', JSON.stringify({ ids, updatedAt: Date.now() }));
 }
 
-/** Selector de destino del FORMULARIO (única `region` con nombre "DESTINO"; el aside es un radiogroup). */
+/** Fila de destino (CHK-MOVIL.2.3): única `region` «DESTINO», antes del formulario; sin radios ni copia en el aside. */
 function destinationForm() {
   return screen.getByRole('region', { name: 'DESTINO' });
 }
@@ -90,7 +94,7 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
 
     const breakdown = screen.getByTestId('amount-breakdown');
     // La línea de envío está presente (el destino por defecto es "recibir en casa").
@@ -106,8 +110,8 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
-    await user.click(within(destinationForm()).getByRole('radio', { name: /Guardar en mi bóveda/ }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
+    await user.click(within(destinationForm()).getByRole('button', { name: /Guardar en mi bóveda/ }));
 
     const breakdown = screen.getByTestId('amount-breakdown');
     // Sin línea de envío: la bóveda no se envía (el desglose conmuta a vaultBreakdown).
@@ -124,7 +128,7 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     const breakdown = screen.getByTestId('amount-breakdown');
     const form = destinationForm();
 
@@ -133,12 +137,12 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     expect(within(breakdown).getByText('MX$512.00')).toBeInTheDocument();
 
     // Envío → bóveda: el resumen cambia sin volver a llamar a la API.
-    await user.click(within(form).getByRole('radio', { name: /Guardar en mi bóveda/ }));
+    await user.click(within(form).getByRole('button', { name: /Guardar en mi bóveda/ }));
     expect(within(breakdown).getByText('MX$304.00')).toBeInTheDocument();
     expect(within(breakdown).queryByText('Envío')).not.toBeInTheDocument();
 
-    // Bóveda → envío: vuelve al desglose con envío, también sin refetch.
-    await user.click(within(form).getByRole('radio', { name: /Envío a mi domicilio/ }));
+    // Bóveda → envío (el mismo botón pliega el upsell): vuelve al desglose con envío, también sin refetch.
+    await user.click(within(form).getByRole('button', { name: /Guardar en mi bóveda/ }));
     expect(within(breakdown).getByText('MX$512.00')).toBeInTheDocument();
     expect(within(breakdown).getByText('Envío')).toBeInTheDocument();
 

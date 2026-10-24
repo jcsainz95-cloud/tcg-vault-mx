@@ -18,13 +18,15 @@ import { AccessorySuggestions } from './AccessorySuggestions';
 import { BundleOffers } from './BundleOffers';
 import { pushAccessoryNotices, type AccessoryNotice } from './accessory-notice';
 import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
-import { CardImage } from '@/components/ui/CardImage';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
-import { CheckoutIdentityGate, type IdentityMode } from './CheckoutIdentityGate';
+import { CheckoutLines } from './CheckoutLines';
+import { CheckoutPayBar } from './CheckoutPayBar';
+import { VaultUpsellPanel } from './VaultUpsellPanel';
+import { useIsDesktop } from './use-is-desktop';
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { InlineAuthPanel } from './InlineAuthPanel';
@@ -45,7 +47,7 @@ export interface GuestCheckoutViewProps {
   /** El pago quedó autorizado: el padre debe mantener esta vista montada (confirmación). */
   onPaid: () => void;
   /**
-   * El invitado creó cuenta / inició sesión desde el gate o desde el upsell. El padre
+   * El invitado creó cuenta / inició sesión desde la línea T4 (CHK-MOVIL.2.1) o desde el upsell. El padre
    * (`CheckoutView`) conmuta al flujo con cuenta SIN recargar la ruta: el carrito vive en
    * localStorage y el desglose se re-cotiza, no se reinicia (criterio 46/48).
    */
@@ -56,7 +58,7 @@ export interface GuestCheckoutViewProps {
  * Checkout de INVITADO (PROJECT §J, criterios 45–48b · DESIGN_SYSTEM §15.2–§15.4).
  *
  * Estructura del estado (importante para el criterio 46): el formulario de invitado vive
- * AQUÍ, por encima del gate de identidad, no dentro del panel. Por eso ir a "iniciar
+ * AQUÍ, por encima del panel de identidad (T4), no dentro de él. Por eso ir a "iniciar
  * sesión" y volver a "invitado" no borra el correo ni la dirección ya capturados, y el
  * carrito —que vive en localStorage— nunca se toca al cambiar de vía.
  *
@@ -73,7 +75,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const getMessage = useErrorMessage();
   const cart = useCart();
 
-  const [identity, setIdentity] = useState<IdentityMode>('none');
+  /**
+   * CHK-MOVIL.2.1 (opción A): sin pantalla de tres vías. El invitado ve su formulario en el primer pintado y la
+   * línea T4 abre `InlineAuthPanel` inline (`login`/`register`) sin tocar el formulario ni el carrito (criterio 46).
+   */
+  const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register'>('none');
+  const isDesktop = useIsDesktop();
+  /** L6: un doble toque en PAGAR crea UNA sesión. El estado `creating` llega tarde para el segundo evento del mismo tick. */
+  const payInFlight = useRef(false);
+  const vaultButtonRef = useRef<HTMLButtonElement>(null);
   const [form, setForm] = useState<GuestFormState>({
     email: '',
     emailConfirmed: false,
@@ -296,6 +306,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       : null;
 
   async function pay() {
+    if (payInFlight.current) return;
     setSubmitAttempted(true);
     setSubmitAttemptId((n) => n + 1);
     setPayError(null);
@@ -311,6 +322,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       return;
     }
 
+    payInFlight.current = true;
     setCreating(true);
     setPaymentInProgress(false);
     setAccessoryPayError(null);
@@ -384,6 +396,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         setPayError(getMessage(e));
       }
     } finally {
+      payInFlight.current = false;
       setCreating(false);
     }
   }
@@ -460,8 +473,63 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     if (status === 'succeeded' && created) trackPurchase(created.orderId, created.breakdown, query.data?.items);
   }
 
+  const data = query.data;
+  // 💰 F-SP-5 (AC-F9): el importe del botón es el de la SESIÓN; sin sesión, sin importe.
+  const payLabel = creating
+    ? t('preparing')
+    : outcome
+      ? t('pay', { amount: formatMoneyCents(outcome.breakdown.totalCents, locale) })
+      : t('payNoAmount');
+  const payDisabled = !!payBlockedReason || paymentInProgress;
+
+  // T3a (CHK-MOVIL.4): importes del quote, ⛔ nunca del front. Con envío 0, la variante «envío gratis».
+  const barLine = activeBreakdown
+    ? activeBreakdown.shippingFeeCents === 0
+      ? t('bar.includesShippingFree', { fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale) })
+      : t('bar.includesShipping', {
+          shipping: formatMoneyCents(activeBreakdown.shippingFeeCents ?? 0, locale),
+          fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale),
+        })
+    : '';
+  // T9: solo con sellado (`kind='sealed'`) y si falta algo; el número es el del backend (ENV-F1).
+  const remaining = data?.shippingRule?.kind === 'sealed' ? data.shippingRule.freeShippingRemainingCents : null;
+
+  const breakdownNode = data ? (
+    <>
+      <AmountBreakdown
+        breakdown={activeBreakdown ?? data.breakdown}
+        variant="purchase"
+        productsSubtotal={(data.accessoryLines?.length ?? 0) + (data.energyBundles?.length ?? 0) > 0}
+        // §AC-UX.7: ⛔ ni `label` ni `code` ni `review` de la caja: solo que el envío sale de su tamaño.
+        shippingNote={data.shippingBox ? tacc('boxHint') : undefined}
+      />
+    </>
+  ) : null;
+
+  // Desenlaces de pago, accesorios y reintento: en el `aside` (lg+) o en flujo sobre las notas legales (<lg).
+  const notices = (
+    <>
+      <div role="status" aria-live="polite" className="text-xs text-muted">
+        {shippingChangedTo !== null && tacc('shippingChanged', { amount: formatMoneyCents(shippingChangedTo, locale) })}
+      </div>
+      {payError && (
+        <p role="alert" className="mt-6 font-mono text-xs text-accent [overflow-wrap:anywhere]">
+          {payError}
+        </p>
+      )}
+      {accessoryPayError && (
+        <Banner variant="danger" role="alert" className="mt-6">
+          {accessoryPayError}
+        </Banner>
+      )}
+      {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R.3). */}
+      <CheckoutRetryNotice outcome={notice} className="mt-6" />
+      {paymentInProgress && <PaymentInProgressNotice guest retrying={creating} onRetry={pay} className="mt-6" />}
+    </>
+  );
+
   return (
-    <div>
+    <div style={isDesktop ? undefined : { paddingBottom: 'calc(var(--sticky-bottom-h, 0px) + 16px)' }}>
       <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
       </div>
@@ -477,80 +545,143 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         error={query.error}
         onRetry={() => query.refetch()}
       >
-        {query.data && (
-          <div className="grid border-t border-border lg:grid-cols-[1fr_420px]">
-            <div className="gutter border-b border-border pb-14 pt-4 lg:border-b-0 lg:border-r">
-              <CheckoutIdentityGate mode={identity} onSelect={setIdentity} panelId="identity-panel" />
-
-              <div id="identity-panel">
-                {(identity === 'login' || identity === 'register') && (
-                  <div className="max-w-[420px] py-8">
-                    <InlineAuthPanel
-                      variant={identity === 'login' ? 'login' : 'register'}
-                      defaultEmail={form.email}
-                      defaultName={form.address.recipientName}
-                      neutralEmailTaken={t('vaultUpsell.emailTakenNeutral')}
-                      onSuccess={() => onAccountReady({ fromVaultUpsell: false })}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Los renglones del carrito siempre visibles: el motivo de la compra no desaparece. */}
-              {/* Líneas del carrito (artboard): miniatura grande, serif + mono y precio
-                  tabular a la derecha; «Quitar» bajo la meta. */}
-              <ul className="pt-2">
-                {query.data.items.map((item) => (
-                  <li
-                    key={item.inventoryItemId}
-                    className="flex items-start gap-4 border-b border-border py-5 sm:gap-5"
-                  >
-                    <div className="w-16 shrink-0 sm:w-[92px]">
-                      <CardImage src={item.card.imageSmallUrl} alt={item.card.name} className="p-1" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-serif text-[17px] leading-tight text-text sm:text-[19px]" lang="en">
-                        {item.card.name}
-                      </p>
-                      <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
-                        {/* v1.51-b: el invitado ve la MISMA meta que la cuenta. `card` es un
-                            `OrderItemCardDTO` en las dos rutas de quote (§4 y §4-G.1), así que
-                            el sufijo de condición sale del mismo sitio: dentro de `card`. */}
-                        {item.card.setName} · #{item.card.number}
-                        {item.card.productType === 'raw' && item.card.rawCondition
-                          ? ` · ${item.card.rawCondition}`
-                          : ''}
-                      </p>
-                      <button
-                        type="button"
-                        aria-label={t('removeItem')}
-                        onClick={() => cart.remove(item.inventoryItemId)}
-                        className="mt-3.5 font-mono text-[11px] text-muted hover:text-accent"
-                      >
-                        {t('removeItem')}
-                      </button>
-                    </div>
-                    <span className="tabular shrink-0 text-right text-[17px] font-medium text-text sm:text-[19px]">
-                      {formatMoneyCents(item.unitPriceCents, locale)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+        {data && (
+          // CHK-MOVIL.1: una pista `minmax(0,1fr)` en <lg (antes, la implícita `auto` crecía al mínimo del hijo
+          // más ancho: 439 px a 390, medido); los 420 px del resumen solo desde `lg`. Hijos directos `min-w-0`.
+          <div className="grid grid-cols-[minmax(0,1fr)] border-t border-border lg:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="gutter min-w-0 border-b border-border pb-14 pt-4 lg:border-b-0 lg:border-r">
+              {/* Líneas (2 + «Ver {n} más») y lo ya añadido: el motivo de la compra no desaparece. */}
+              <CheckoutLines items={data.items} onRemove={(id) => cart.remove(id)} />
 
               {/* 💰 §AC-UX.5: accesorios y paquetes después de cartas y sellado; cifras de la cotización. */}
               <AccessoryCartLines
-                lines={query.data.accessoryLines ?? []}
-                bundles={query.data.energyBundles ?? []}
+                lines={data.accessoryLines ?? []}
+                bundles={data.energyBundles ?? []}
                 qtyOf={(id) => cart.accessories.find((a) => a.id === id)?.qty}
                 onQty={(id, q) => cart.setAccessoryQty(id, q)}
                 onRemove={(id) => cart.removeAccessory(id)}
                 onRemoveBundle={(slug) => cart.setBundle(slug, false)}
               />
 
-              {/* §AC-UX.8b y §AC-UX.6: solo con envío a domicilio; ⛔ nunca modales, nunca en el resumen. */}
+              {/* T4 (CHK-MOVIL.2.1): las otras dos vías del criterio 46, a un toque, inline y sin perder nada. */}
+              <div className="mt-2 border-t border-border pt-1">
+                <p className="text-sm leading-relaxed text-muted">
+                  {t.rich('entryLine', {
+                    login: (chunks) => (
+                      <button
+                        type="button"
+                        aria-expanded={authPanel === 'login'}
+                        aria-controls="identity-panel"
+                        onClick={() => setAuthPanel(authPanel === 'login' ? 'none' : 'login')}
+                        className="inline-flex min-h-[44px] items-center text-text underline underline-offset-4 hover:text-accent"
+                      >
+                        {chunks}
+                      </button>
+                    ),
+                    register: (chunks) => (
+                      <button
+                        type="button"
+                        aria-expanded={authPanel === 'register'}
+                        aria-controls="identity-panel"
+                        onClick={() => setAuthPanel(authPanel === 'register' ? 'none' : 'register')}
+                        className="inline-flex min-h-[44px] items-center text-text underline underline-offset-4 hover:text-accent"
+                      >
+                        {chunks}
+                      </button>
+                    ),
+                  })}
+                </p>
+                <div id="identity-panel">
+                  {authPanel !== 'none' && (
+                    <div className="max-w-[420px] pb-8 pt-4">
+                      <InlineAuthPanel
+                        variant={authPanel}
+                        defaultEmail={form.email}
+                        defaultName={form.address.recipientName}
+                        neutralEmailTaken={t('vaultUpsell.emailTakenNeutral')}
+                        onSuccess={() => onAccountReady({ fromVaultUpsell: false })}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CHK-MOVIL.2.3 · fila de destino ANTES del primer campo: envío con su importe y, debajo, la bóveda
+                  (REQUIERE CUENTA) — primer anuncio de la bóveda en el checkout. Sigue seleccionable (criterio 48):
+                  nada de `disabled`, candado ni `Banner danger`; abre el `VaultUpsellPanel` (§15.4) sin cambios. */}
+              <section aria-labelledby="guest-destination-group" className="mt-2 border-y border-border py-2.5">
+                <h2 id="guest-destination-group" className="sr-only">
+                  {t('destination.eyebrow')}
+                </h2>
+                <div className="flex min-h-8 items-baseline justify-between gap-3">
+                  <span className={destination === 'ship' ? 'text-sm text-text' : 'text-sm text-muted'}>
+                    {t('destination.ship')}
+                  </span>
+                  {shippingFeeLabel && (
+                    <span className="tabular shrink-0 font-mono text-[11px] text-muted">
+                      {t('destination.shipFeeHint', { amount: shippingFeeLabel })}
+                    </span>
+                  )}
+                </div>
+                {/* §AC-UX.7: sin cartas ni sellado no hay nada que guardar ⇒ sin opción de bóveda. */}
+                {data.items.length > 0 && (
+                  <button
+                    ref={vaultButtonRef}
+                    type="button"
+                    aria-expanded={upsellOpen}
+                    aria-controls="vault-upsell-panel"
+                    onClick={() => chooseDestination(upsellOpen ? 'ship' : 'vault')}
+                    className="flex min-h-[44px] w-full flex-wrap items-baseline gap-x-2 text-left text-sm text-text"
+                  >
+                    <span className="underline underline-offset-4">{t('destination.vault')}</span>
+                    <span className="font-mono text-[11px] uppercase tracking-label text-muted">
+                      {t('destination.vaultRequiresAccount')}
+                    </span>
+                  </button>
+                )}
+                <div id="vault-upsell-panel">
+                  {upsellOpen && (
+                    <VaultUpsellPanel
+                      shippingFeeLabel={shippingFeeLabel}
+                      defaultEmail={form.email}
+                      defaultName={form.address.recipientName}
+                      onDismiss={() => {
+                        setUpsellOpen(false);
+                        setDestination('ship');
+                      }}
+                      onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
+                      onEscape={() => vaultButtonRef.current?.focus()}
+                      notice={vaultNoticeFor(data)}
+                    />
+                  )}
+                </div>
+              </section>
+              {destination === 'ship' && remaining != null && remaining > 0 && (
+                <p data-testid="free-shipping-remaining" className="mt-2 font-mono text-xs text-muted">
+                  {t('freeShippingRemaining', { remaining: formatMoneyCents(remaining, locale) })}
+                </p>
+              )}
+
+              <div className="pt-8">
+                <GuestCheckoutForm
+                  state={form}
+                  onChange={patchForm}
+                  onAddressChange={patchAddress}
+                  errors={errors}
+                  touched={touched}
+                  onBlurField={(field) => setTouched((s) => ({ ...s, [field]: true }))}
+                  submitAttempted={submitAttempted}
+                  submitAttemptId={submitAttemptId}
+                  serverAddressError={serverAddressError}
+                  onGeoModeChange={setGeoMode}
+                />
+              </div>
+
+              {/* CHK-MOVIL.2.5: paquetes y sugerencias DESPUÉS del último campo y de la casilla de términos.
+                  §AC-UX.8b y §AC-UX.6: solo con envío a domicilio; ⛔ nunca modales, nunca en el resumen. */}
               {destination === 'ship' && (
                 <>
-                  <BundleOffers offers={query.data.energyBundleOffers ?? []} onAdd={(slug) => cart.setBundle(slug, true)} />
+                  <BundleOffers offers={data.energyBundleOffers ?? []} onAdd={(slug) => cart.setBundle(slug, true)} />
                   <AccessorySuggestions
                     exclude={cart.accessories.map((a) => a.id)}
                     onAdd={(id) => cart.addAccessory(id, 1)}
@@ -558,40 +689,17 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                 </>
               )}
 
-              {identity === 'guest' && (
-                <div className="pt-10">
-                  <GuestCheckoutForm
-                    state={form}
-                    onChange={patchForm}
-                    onAddressChange={patchAddress}
-                    errors={errors}
-                    touched={touched}
-                    onBlurField={(field) => setTouched((s) => ({ ...s, [field]: true }))}
-                    submitAttempted={submitAttempted}
-                    submitAttemptId={submitAttemptId}
-                    destination={destination}
-                    onDestinationChange={chooseDestination}
-                    upsellOpen={upsellOpen}
-                    shippingFeeLabel={shippingFeeLabel}
-                    onDismissUpsell={() => {
-                      setUpsellOpen(false);
-                      setDestination('ship');
-                    }}
-                    onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
-                    vaultAvailable={query.data.items.length > 0}
-                    vaultNotice={vaultNoticeFor(query.data)}
-                    serverAddressError={serverAddressError}
-                    onGeoModeChange={setGeoMode}
-                  />
-                </div>
-              )}
+              {/* <lg: los desenlaces de pago van en flujo, sobre las notas legales (CHK-MOVIL.2.4). */}
+              {!isDesktop && <div className="mt-6">{notices}</div>}
 
-              {/* Mismos avisos que el checkout con cuenta (criterio 48b): ninguno se quita. */}
+              {/* Mismos avisos que el checkout con cuenta (criterio 48b): ninguno se quita. T8 junto a «ventas finales». */}
               <p className="rule-note mt-10 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 <span className="font-medium text-text">{t('finalSaleNotice')}</span>{' '}
                 <Link href="/terminos" className="text-accent hover:text-text">
                   {t('viewTerms')}
                 </Link>
+                <br />
+                <span className="font-mono text-[11px]">{t('refundPromise')}</span>
               </p>
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('cfdiNotice')}
@@ -599,107 +707,54 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('afterPaymentGuest')}
               </p>
-            </div>
-
-            <aside className="gutter h-fit pb-14 pt-8 lg:px-10">
-              {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
-              <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
-              <div className="mt-5">
-                <AmountBreakdown
-                  breakdown={activeBreakdown ?? query.data.breakdown}
-                  variant="purchase"
-                  productsSubtotal={(query.data.accessoryLines?.length ?? 0) + (query.data.energyBundles?.length ?? 0) > 0}
-                  // §AC-UX.7: ⛔ ni `label` ni `code` ni `review` de la caja: solo que el envío sale de su tamaño.
-                  shippingNote={query.data.shippingBox ? tacc('boxHint') : undefined}
-                />
-              </div>
-              <div role="status" aria-live="polite" className="text-xs text-muted">
-                {shippingChangedTo !== null && tacc('shippingChanged', { amount: formatMoneyCents(shippingChangedTo, locale) })}
-              </div>
-
-              {payError && (
-                <p role="alert" className="mt-6 font-mono text-xs text-accent">
-                  {payError}
-                </p>
-              )}
-              {accessoryPayError && (
-                <Banner variant="danger" role="alert" className="mt-6">
-                  {accessoryPayError}
-                </Banner>
-              )}
-              {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R.3). */}
-              <CheckoutRetryNotice outcome={notice} className="mt-6" />
-              {paymentInProgress && (
-                <PaymentInProgressNotice guest retrying={creating} onRetry={pay} className="mt-6" />
-              )}
-
-              {identity === 'guest' ? (
-                <>
-                  {/* N-9: destino JUSTO arriba de "Pagar" (además del detalle+upsell en el
-                      formulario), para que el invitado confirme a dónde va su compra antes de
-                      pagar. Comparte el mismo estado: elegir bóveda abre el upsell y explica el
-                      bloqueo bajo el botón. */}
-                  <div className="mt-7">
-                    <h2 className="eyebrow">{t('destination.eyebrow')}</h2>
-                    <div
-                      className="mt-3 grid grid-cols-2 gap-2"
-                      role="radiogroup"
-                      aria-label={t('destination.eyebrow')}
-                    >
-                      {/* §AC-UX.7: sin cartas ni sellado no hay nada que guardar ⇒ sin opción de bóveda. */}
-                      {(query.data.items.length > 0 ? (['ship', 'vault'] as const) : (['ship'] as const)).map((opt) => (
-                        <button
-                          key={opt}
-                          type="button"
-                          role="radio"
-                          aria-checked={destination === opt}
-                          onClick={() => chooseDestination(opt)}
-                          className={`min-h-[44px] border px-3 py-2 text-sm transition-colors ${
-                            destination === opt
-                              ? 'border-text bg-surface-2 text-text'
-                              : 'border-border text-muted hover:text-text'
-                          }`}
-                        >
-                          {t(`destination.${opt}`)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <Button
-                    variant="accent"
-                    loading={creating}
-                    disabled={!!payBlockedReason || paymentInProgress}
-                    aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
-                    onClick={pay}
-                    className="mt-5 min-h-[54px] w-full tracking-eyebrow"
-                  >
-                    {/* 💰 F-SP-5 (AC-F9): el importe del botón es el de la SESIÓN; sin sesión, sin importe. */}
-                    {creating
-                      ? t('preparing')
-                      : outcome
-                        ? t('pay', { amount: formatMoneyCents(outcome.breakdown.totalCents, locale) })
-                        : t('payNoAmount')}
-                  </Button>
-                  {/* Nunca un botón apagado y mudo: la condición se explica (§15.9). */}
-                  {payBlockedReason && (
-                    <p id="pay-blocked-note" className="mt-4 text-xs leading-relaxed text-muted">
-                      {payBlockedReason}
-                    </p>
-                  )}
-                </>
-              ) : (
-                // Sin vía elegida no hay botón de pago: el gate de arriba es el siguiente
-                // paso y el desglose ya está a la vista (el motivo de la compra no desaparece).
-                <p className="mt-7 text-sm leading-relaxed text-muted">{t('identity.guest.hint')}</p>
-              )}
-
-              {config.useMocks && (
+              {config.useMocks && !isDesktop && (
                 <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{t('stripeMock')}</p>
               )}
-            </aside>
+            </div>
+
+            {isDesktop && (
+              <aside className="gutter h-fit min-w-0 pb-14 pt-8 lg:sticky lg:top-[var(--app-header-h,0px)] lg:px-10">
+                {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
+                <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
+                <div className="mt-5">{breakdownNode}</div>
+                {notices}
+                <Button
+                  variant="accent"
+                  loading={creating}
+                  disabled={payDisabled}
+                  aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
+                  onClick={pay}
+                  className="mt-7 min-h-[54px] w-full tracking-eyebrow"
+                >
+                  {payLabel}
+                </Button>
+                {/* Nunca un botón apagado y mudo: la condición se explica (§15.9). */}
+                {payBlockedReason && (
+                  <p id="pay-blocked-note" className="mt-4 text-xs leading-relaxed text-muted">
+                    {payBlockedReason}
+                  </p>
+                )}
+                {config.useMocks && (
+                  <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{t('stripeMock')}</p>
+                )}
+              </aside>
+            )}
           </div>
         )}
       </QueryState>
+
+      {data && !isDesktop && (
+        <CheckoutPayBar
+          summaryLine={barLine}
+          blockedReason={payBlockedReason}
+          totalLabel={formatMoneyCents((outcome?.breakdown ?? activeBreakdown ?? data.breakdown).totalCents, locale)}
+          payLabel={creating ? t('preparing') : t('payNoAmount')}
+          loading={creating}
+          disabled={payDisabled}
+          onPay={pay}
+          breakdown={breakdownNode}
+        />
+      )}
 
       <StripePaymentModal
         open={!!session}

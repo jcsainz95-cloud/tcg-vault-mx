@@ -455,7 +455,6 @@
   "checkout": {
     "title": "Tu carrito",
     "subtitle": "Tus piezas entran a tu bóveda al pagar. Pides el envío cuando tú quieras, todo junto.",
-    "vaultKeepEyebrow": "Guardar en mi bóveda",
     "summary": "Resumen",
     "removeItem": "Quitar",
     "subtotal": "Subtotal",
@@ -490,28 +489,8 @@
     "processingTitle": "Pago en proceso",
     "processingBody": "Recibimos tu pago y lo estamos confirmando. Tus cartas aparecerán en tu bóveda con titularidad pendiente y pasarán a liquidadas en cuanto el pago se confirme.",
     "afterPaymentGuest": "Al pagar preparamos tu pedido y lo enviamos a tu domicilio. Te llega al correo la confirmación con tu enlace de seguimiento.",
-    "identity": {
-      "eyebrow": "IDENTIDAD",
-      "title": "¿Cómo quieres continuar?",
-      "cartKept": "Tu carrito se conserva en cualquiera de las tres.",
-      "change": "Cambiar",
-      "chosen": "Vía elegida",
-      "guest": {
-        "cta": "Continuar como invitado",
-        "hint": "Solo necesitas tu correo y tu dirección."
-      },
-      "login": {
-        "cta": "Iniciar sesión",
-        "hint": "Tus direcciones y tu bóveda te esperan."
-      },
-      "register": {
-        "cta": "Crear cuenta",
-        "hint": "Guarda tus cartas en la bóveda y paga un solo envío."
-      }
-    },
     "guest": {
       "contactGroup": "CONTACTO",
-      "shippingGroup": "ENVÍO",
       "recipientName": "Nombre de quien recibe",
       "errorSummary": "Revisa {count, plural, one {# campo} other {# campos}}.",
       "formIncomplete": "Revisa los datos marcados arriba (por ejemplo el teléfono) para poder pagar.",
@@ -531,7 +510,9 @@
         "vault": "Para pagar, crea tu cuenta o elige envío a domicilio.",
         "address": "Para pagar, completa tu dirección de envío en México.",
         "terms": "Para pagar, acepta los términos."
-      }
+      },
+      "optionalFold": "Interior y referencias (opcional)",
+      "shippingGroupMx": "ENVÍO A MÉXICO"
     },
     "destination": {
       "eyebrow": "DESTINO",
@@ -651,6 +632,23 @@
       "soldOutNoName": "Un accesorio se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
       "bundle": "El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.",
       "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
+    },
+    "feeHint": {
+      "cardsOnly": "+ envío {shipping} · comisión de plataforma al pagar",
+      "sealed": "Envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar"
+    },
+    "finalSaleShort": "Todas las ventas son finales.",
+    "refundPromise": "Si tu carta llega dañada o equivocada, te reembolsamos.",
+    "freeShippingRemaining": "Te faltan {remaining} para envío gratis",
+    "entryLine": "¿Ya tienes cuenta? <login>Inicia sesión</login> · o <register>crea una cuenta</register>",
+    "showMoreLines": "Ver {n} más",
+    "bar": {
+      "includesShipping": "Incluye envío {shipping} y comisión de plataforma {fee}",
+      "includesShippingFree": "Incluye envío gratis y comisión de plataforma {fee}",
+      "includesFee": "Incluye comisión de plataforma {fee}",
+      "showBreakdown": "Ver desglose",
+      "hideBreakdown": "Ocultar desglose",
+      "total": "Total"
     }
   },
   "vault": {

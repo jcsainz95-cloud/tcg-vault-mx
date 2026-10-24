@@ -21,6 +21,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { createGuestCheckoutSession } from '@/lib/api';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { clearUnavailableNotice } from './unavailable-notice';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -38,7 +42,7 @@ beforeEach(() => {
  */
 describe('checkout de invitado · foco del resumen de errores (§91)', () => {
   async function failedPayAttempt(usr: ReturnType<typeof userEvent.setup>) {
-    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.click(screen.getByRole('button', { name: /Pagar/ }));

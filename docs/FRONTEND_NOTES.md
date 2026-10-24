@@ -2,13 +2,50 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
+## §CHK-MOVIL · Checkout móvil, opción A (una pantalla) (2026-10-24, rama `fe-checkout-a`, base `aeea6fac`)
+
+**Estado vigente.** Norma: `DESIGN_SYSTEM §CHK-MOVIL` + maqueta `docs/mockups/chk-movil-A.html`; elección del dueño en
+`HECHOS.md` 2026-10-24 «Checkout móvil: opción A». Contrato: §4-G.12 (`shippingRule`, `GET /checkout/shipping-rule`).
+- **Causa medida de los 426 px** (`getBoundingClientRect` a 390, bundle de mocks de `aeea6fac`; allí midió **439 px**,
+  no 426: los datos de mocks no son los de producción): la rejilla raíz del checkout no declaraba columnas bajo `lg`, la
+  pista implícita `auto` crecía al mínimo del hijo más ancho, y ese hijo era la fila de `AccessorySuggestions` (foto +
+  nombre + precio + «Agregar» en una línea = 359 px + `p-5`). Ablación: sin la sección ⇒ 390; sin los «Agregar» ⇒ 390;
+  con `minmax(0,1fr)` ⇒ 390. Arreglo: pista `minmax(0,1fr)` (`lg:` `minmax(0,1fr)_420px`), hijos `min-w-0`, fila de
+  sugerencia con nombre/precio apilados. ⛔ Sin `overflow-x:hidden`.
+- **Entrada (2.1):** `CheckoutIdentityGate` retirado (y `checkout.identity.*`). Formulario directo; T4 (`checkout.entryLine`)
+  abre `InlineAuthPanel` inline (login/registro) sin tocar formulario ni carrito (criterio 46).
+- **Orden (2.2, A):** líneas (2 + «Ver {n} más», `CheckoutLines`) → accesorios ya añadidos → T4 → fila de destino (envío +
+  importe; botón «Guardar en mi bóveda · REQUIERE CUENTA» que abre `VaultUpsellPanel`) → T9 → Contacto (correo + su casilla
+  bajo el campo) → «ENVÍO A MÉXICO»: nombre, CP, colonia, calle, teléfono; `line2`/`references` plegados (T5, se abren solos
+  con error) → términos → paquetes y sugerencias (máx. 3) → desenlaces de pago (<lg) → notas legales (+T8). `FIELD_ORDER`
+  sigue el DOM. Sustituye a §43.18b (referencias antes del teléfono).
+- **Barra fija (2.4):** `CheckoutPayBar` en <lg (`useIsDesktop`, `matchMedia` ≥1024): T3a (invitado) / T3b (cuenta) +
+  T6, TOTAL + PAGAR; `useStickyBottomBar`; contenido con `padding-bottom: calc(var(--sticky-bottom-h) + 16px)`; se desmonta
+  con un campo de texto enfocado y solo reaparece sin puntero abajo (si no, el toque sobre la casilla de abajo caía en la
+  barra: 10/10 a 360×740 antes del arreglo). En lg+ el `aside` de siempre. **Una sola copia** de PAGAR y del desglose en
+  el DOM (se decide por JS con `minWidthQuery('lg')`; choca con §37.1a «el contenedor nunca por JS», cuyo motivo —destello
+  al hidratar— no se da aquí porque el checkout es solo de cliente: pedido a ux-ui que lo reconcilie). Doble envío: guarda
+  `payInFlight` (ref) además de `loading`, en las dos vistas.
+- **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
+  `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, solo
+  `kind='sealed'` y falta > 0), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
+  `formatMoneyCents` (MX$100.00). T2 (ficha, sesión anónima) **no** entró en este encargo.
+- **«envío gratis»:** excepción nombrada en `seo-content.test.ts` `KNOWN_OFFENDERS` solo para `checkout.bar.includesShippingFree`
+  y `checkout.freeShippingRemaining` (ES/EN), dueño, medida 2026-10-24, caduca 2026-11-24, nota «pendiente de aprobación del
+  dueño» (prueba propia). Si el dueño dice que no, se cambia el texto de esas dos claves y se borran las filas.
+- **Fricción 5:** `CatalogView` muestra y envía `newest` sin `sort` en la URL (`DEFAULT_CATALOG_SORT`); con `sort`, la URL.
+- **Pruebas:** `e2e/checkout-movil.spec.ts` (L1-L6 a 320/360/390/414 + escritorio), `checkout/CheckoutPayBar.test.tsx`,
+  `_shared/ShippingFeeHint.test.tsx`, fricción 5 en `CatalogView.test.tsx`. Las pruebas de checkout previas fijan escritorio
+  con `checkout/test-viewport.ts` (jsdom responde móvil). Mutaciones medidas sobre copia de `fc42678c` (rojas/corridas):
+  L1 `min-w-[426px]` 4/4 · L2 sin `ref={barRef}` 4/4 · L3 sugerencias antes del formulario 4/4 · L4 plegable abierto 4/4 ·
+  L5 comisión calculada en el front 2/2 · L6 sin `payInFlight` ni `loading` 12/12; solo sin `loading` 0/12 (la ref basta).
+
 ## §ENV-V2 · Regla de envío v2 en tipos, mock y M10 (2026-10-24, rama `fe-envio-medir`, base `5c7e652b`, contrato v1.109)
 
 **Estado vigente.** Norma: `API_CONTRACT §4-G.12` (un hecho, un sitio: aquí solo lo que hace el front).
 - **Tipos** (`types/contract.ts`): `GuestShippingRuleDTO` (`shippingRule` del quote de invitado, opcional solo por
   tolerancia a un servidor anterior), `PublicShippingRuleDTO` (`GET /checkout/shipping-rule`, `getPublicShippingRule`)
-  y los tres diales `directShip*` en `SettingsDTO`. ⛔ Ninguna pantalla de cliente los consume todavía: T1a/T1b/T3a/T8/T9
-  y el checkout A/B esperan al dueño (y T3a/T9 chocan con `FORBIDDEN_PHRASES`, MKT-8).
+  y los tres diales `directShip*` en `SettingsDTO`. Los consume el checkout móvil A (§CHK-MOVIL, arriba).
 - **Convención (dueño 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido», relayada por el orquestador):** los tres
   diales son CON IVA INCLUIDO; la `E` exhibida ES el valor del dial (10000 / 17500; umbral 400000). ⚠️ El texto de
   v1.109 aún dice `F` neto y ENV-1/ENV-6 con 11600/20300: corrección pedida al arquitecto (v1.110). El retiro de bóveda
@@ -4839,43 +4876,6 @@ interceptor **solo corre en modo real**. Los tests mock existentes no se tocan; 
 **Pruebas:** `lib/api-client.test.ts` (rama real con `fetch` mockeado: refresh+reintento, refresh fallido, sin bucle,
 sin refresh token, `/auth/*` excluido, 422/200 no refrescan).
 
-## WS-D — 3 quick wins de UX (nav por sesión, márgenes, placeholder) (2026-08-17)
-
-Tres ajustes de bajo riesgo, solo `frontend/`. **No** se tocó `lib/api.ts`, `api-client.ts` ni `session.ts`
-(trabajo paralelo de otro agente), ni backend ni contrato. Sin claves i18n nuevas; paridad ES/EN preservada.
-
-### #9 — Nav por sesión (P-13) — `StorefrontHeader.tsx`
-El array `links` pintaba las 4 pestañas siempre. Ahora "Mi Bóveda" (`/vault`) y "Mis Órdenes" (`/orders`) se
-**gatean tras `authed`** (`ready && isAuthenticated`, ya calculado en `:51`); el público solo ve "Compra"
-(`/catalog`) y "Vender" (`/buylist`). El gate vive en la construcción del array (spread condicional), así que
-aplica **igual a nav desktop y menú móvil** (ambos hacen `links.map`). Como `authed` depende de `ready`, en
-SSR/hidratación se pinta el nav público (idéntico al render de servidor, sin mismatch) y las pestañas privadas
-aparecen al montar la sesión — mismo patrón ya usado para el botón login/logout.
-
-### #6 — Márgenes laterales grandes (columna vertical 56px + gutter 44px)
-- `globals.css` `.gutter` `@media (min-width:1024px)`: **44px → 32px** (DESIGN_SYSTEM §4.1 pide "32px+"; 32 es
-  el mínimo válido). Afecta a todas las secciones storefront que usan `.gutter` (ese es el objetivo).
-- Canal del label vertical **56px → 40px** en `BuylistView.tsx` (`grid lg:grid-cols-[40px_1fr]`) y
-  `page.tsx` (`[40px_1fr_1fr]` hero y `[40px_1fr_auto]` banda buylist). La etiqueta vertical (`.vertical-label`,
-  `writing-mode: vertical-rl`) se mantiene: en modo vertical su longitud crece en alto, no en ancho, así que
-  "Bóveda"/"Buylist" caben de sobra centradas en 40px.
-- Quitado `lg:px-10` redundante del `<aside>` del cotizador en `BuylistView.tsx` (ya lleva `.gutter`).
-- Alineación del **chrome** con el gutter nuevo (32px): `StorefrontHeader.tsx` y el footer de
-  `(storefront)/layout.tsx` bajaron `lg:px-11` → `lg:px-8`. **También** `VerifyEmailBanner.tsx` (banner que se
-  monta entre header y `main` y comparte el patrón idéntico `mx-auto max-w-7xl px-5 sm:px-6 lg:px-11`): bajado a
-  `lg:px-8` para no introducir una desalineación de 12px cuando el banner es visible. Los `lg:px-10` de asides
-  de otras vistas (checkout, order-detail, shipments) y el chrome admin (`AdminTopbar`/`AdminShell`) quedaron
-  **intactos** por estar fuera del alcance de este WS.
-- `max-w-7xl` **no se tocó** (fijado por DESIGN_SYSTEM §4.4). Anillo de foco `shadow-focus` intacto.
-
-### #7 — Placeholder "Buscar carta" que se truncaba
-`"Nombre o número (ej. Charizard, 4)"` se cortaba en el ancho del input. Acortado a **"Nombre o número" /
-"Name or number"** (describe los dos modos de búsqueda: nombre o número de carta). Cambiado en las 2 claves
-que compartían el texto largo: `buylist.searchPlaceholder` (`BuylistView`) y `admin.m1.searchPlaceholder`
-(picker de alta de inventario). `catalog.searchPlaceholder` ("Buscar carta…") ya era corto y no se tocó.
-
-**Pruebas:** `StorefrontHeader.test.tsx` («sin sesión el nav público… oculta bóveda y órdenes»; el nav vigente lo fija ese fichero).
-
 ## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
 
 Contrato/arquitectura v1.12. El humano pidió "mapear los sets nuevos que vayan saliendo"; el endpoint ya
@@ -7230,8 +7230,7 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 |---|---|
 | `checkout/CheckoutView.tsx` (modificado) | Conmutador de las dos naturalezas del checkout **en la misma ruta**: con sesión = flujo de cuenta intacto; sin sesión = `GuestCheckoutView`. |
 | `checkout/GuestCheckoutView.tsx` | Contenedor del flujo de invitado: cotización, gate, formulario, destino, pago, confirmación. |
-| `checkout/CheckoutIdentityGate.tsx` | §15.2 — las tres vías (invitado / iniciar sesión / crear cuenta) inline, con "Cambiar". |
-| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, destino, términos, resumen de errores. |
+| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, términos, resumen de errores (destino y gate: §CHK-MOVIL). |
 | `checkout/VaultUpsellPanel.tsx` | §15.4 — upsell inline de bóveda (nunca error), con salida en positivo. |
 | `checkout/InlineAuthPanel.tsx` | Login/registro inline **sin navegar** (ver "Por qué no se reusó `AuthForm`"). |
 | `checkout/GuestOrderConfirmation.tsx` | §15.5 — confirmación + reclamo post-compra (`AccountClaimOffer` incluido). |

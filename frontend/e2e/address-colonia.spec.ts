@@ -31,7 +31,8 @@ test.describe('colonia como Mercado Libre · §M4-SHIP.19.25', () => {
   test('@real invitado con un CP fuera del catálogo: escribe colonia, municipio y estado y paga', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
+    // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
 
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');

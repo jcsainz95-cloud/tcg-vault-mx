@@ -25,6 +25,10 @@ import { ApiClientError } from '@/lib/api-client';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { FIELD_ID, FIELD_ORDER } from './GuestCheckoutForm';
 import { clearUnavailableNotice } from './unavailable-notice';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 function seedCart(ids: string[]) {
   window.localStorage.setItem('tcg.cart', JSON.stringify({ ids, updatedAt: Date.now() }));
@@ -45,7 +49,7 @@ function guestSession(): GuestCheckoutSessionResponse {
 }
 
 async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>, cp = '44100') {
-  await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+  await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
   await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
   await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
   await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');
@@ -196,19 +200,25 @@ describe('checkout de invitado · colonia de lista por CP (v1.81)', () => {
     expect(screen.queryByText(/soporte@tcghunt\.mx/)).toBeNull();
   });
 
-  it('UX-ADR-5 · referencias antes que teléfono en el DOM, y FIELD_ORDER sigue el orden del DOM', async () => {
+  it('CHK-MOVIL.2.2 (sustituye a UX-ADR-5) · CP antes que colonia y calle, opcionales plegados al final, y FIELD_ORDER = orden del DOM', async () => {
     const usr = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
-    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
+    // T5: interior y referencias, plegados por defecto (no se quitan: son del contrato).
+    expect(screen.queryByLabelText('Referencias para el repartidor (opcional)')).toBeNull();
+    const fold = screen.getByRole('button', { name: /Interior y referencias \(opcional\)/ });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await usr.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
     // CP fuera del catálogo ⇒ «todo a mano»: municipio y estado existen y van tras la colonia (FC-23).
     await usr.type(screen.getByLabelText('Código postal'), '20000');
     await screen.findByRole('textbox', { name: 'Municipio o alcaldía' });
     const refs = screen.getByLabelText('Referencias para el repartidor (opcional)');
     const tel = document.querySelector('input[type="tel"]')!;
-    expect(refs.compareDocumentPosition(tel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Lo opcional va DESPUÉS del teléfono (antes iba antes: §43.18b, sustituido por CHK-MOVIL.2.2).
+    expect(tel.compareDocumentPosition(refs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // El teléfono del invitado lleva la MISMA ayuda que la libreta (§43.18i).
     expect(tel).toHaveAccessibleDescription('10 dígitos. Solo lo usa la paquetería, si necesita llamar para entregar.');
-    // Grupo «Envío» (§43.18b). La casilla de lectura del correo vive en otro grupo: no entra en esta cuenta.
     const shippingIds = FIELD_ORDER.slice(FIELD_ORDER.indexOf('recipientName'), FIELD_ORDER.indexOf('terms')).map(
       (f) => FIELD_ID[f],
     );
@@ -217,6 +227,8 @@ describe('checkout de invitado · colonia de lista por CP (v1.81)', () => {
       .map((el) => el.id)
       .filter((id) => shippingIds.includes(id));
     expect(domOrder).toEqual(shippingIds);
-    expect(domOrder.indexOf('guest-references')).toBeLessThan(domOrder.indexOf('guest-phone'));
+    expect(domOrder.indexOf('guest-postalCode')).toBeLessThan(domOrder.indexOf('guest-neighborhood'));
+    expect(domOrder.indexOf('guest-neighborhood')).toBeLessThan(domOrder.indexOf('guest-line1'));
+    expect(domOrder.indexOf('guest-phone')).toBeLessThan(domOrder.indexOf('guest-line2'));
   });
 });

@@ -21,27 +21,31 @@ async function addFirstCardToCart(page: import('@playwright/test').Page, locale:
 }
 
 test.describe('guest checkout · identidad y desglose', () => {
-  test('sin sesión el checkout ofrece las TRES vías y conserva el carrito (criterios 45, 46)', async ({
+  test('sin sesión: formulario directo y las otras dos vías a un toque, inline; el carrito se conserva (criterios 45, 46)', async ({
     page,
   }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
 
-    await expect(page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') })).toBeVisible();
-    await expect(page.getByRole('button', { name: t('es', 'checkout.identity.login.cta') })).toBeVisible();
-    await expect(page.getByRole('button', { name: t('es', 'checkout.identity.register.cta') })).toBeVisible();
-    await expect(page.getByText(t('es', 'checkout.identity.cartKept'))).toBeVisible();
+    // CHK-MOVIL.2.1 (opción A): sin pantalla de tres vías. El invitado ve su formulario en el primer pintado
+    // y «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» (T4) abre el panel inline.
+    const email = page.getByLabel(t('es', 'checkout.guest.email.label'));
+    await expect(email).toBeVisible();
+    await expect(page.getByRole('button', { name: /Continuar como invitado/ })).toHaveCount(0);
+    await email.fill('invitado@dominio.com');
 
-    // Alternar vías no vacía el carrito ni cambia de ruta.
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
-    await page.getByRole('button', { name: t('es', 'checkout.identity.change') }).click();
-    await page.getByRole('button', { name: t('es', 'checkout.identity.login.cta') }).click();
-    await page.getByRole('button', { name: t('es', 'checkout.identity.change') }).click();
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
+    const login = page.getByRole('button', { name: 'Inicia sesión', exact: true });
+    const register = page.getByRole('button', { name: 'crea una cuenta', exact: true });
+    await login.click();
+    await expect(login).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#identity-panel input[type="password"]')).toBeVisible();
+    await register.click();
+    await expect(register).toHaveAttribute('aria-expanded', 'true');
+    await register.click();
+    await expect(register).toHaveAttribute('aria-expanded', 'false');
 
     await expect(page).toHaveURL(/\/es\/checkout$/);
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toHaveValue('invitado@dominio.com');
+    await expect(email).toHaveValue('invitado@dominio.com');
     await expect(page.getByTestId('amount-breakdown')).toBeVisible();
   });
 
@@ -73,7 +77,8 @@ test.describe('guest checkout · identidad y desglose', () => {
   test('un correo inválido impide avanzar al pago (criterio 47)', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
+    // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
 
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('no-es-correo');
     await page.getByRole('button', { name: /Pagar/ }).click();
@@ -94,17 +99,17 @@ test.describe('guest checkout · identidad y desglose', () => {
   test('elegir bóveda muestra UPSELL, nunca un error (criterio 48)', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
+    // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
 
-    // N-9: el destino se ofrece DOS veces a propósito (en el formulario, con su detalle y el
-    // upsell; y otra vez justo arriba de «Pagar»), compartiendo estado. Se elige el del
-    // FORMULARIO por su nombre accesible completo — el del resumen se llama solo «Guardar en mi
-    // bóveda» —, en vez de un localizador que casa con los dos.
-    const vault = page.getByRole('radio', {
+    // CHK-MOVIL.2.3: UNA fila de destino antes del formulario; la bóveda es un botón con «REQUIERE CUENTA»
+    // (seleccionable, sin `disabled`) que despliega el upsell. Ya no hay radios ni segunda copia en el resumen.
+    const vault = page.getByRole('region', { name: t('es', 'checkout.destination.eyebrow') }).getByRole('button', {
       name: `${t('es', 'checkout.destination.vault')} ${t('es', 'checkout.destination.vaultRequiresAccount')}`,
     });
     await expect(vault).toBeEnabled();
-    await vault.check();
+    await vault.click();
+    await expect(vault).toHaveAttribute('aria-expanded', 'true');
 
     const upsell = page.getByTestId('vault-upsell');
     await expect(upsell).toBeVisible();
@@ -137,7 +142,8 @@ test.describe('guest checkout · identidad y desglose', () => {
   test('@real comprar como invitado: la sesión se crea y termina en confirmación', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
-    await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
+    // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
 
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
