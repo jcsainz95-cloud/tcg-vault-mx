@@ -54,8 +54,10 @@ export class AccDb {
   adminToken!: string;
   customerToken!: string;
   pii!: PiiCryptoService;
-  /** `E_base` — la tarifa de hoy exhibida (cotizada sobre un carrito solo de cartas). */
+  /** `E_base` = `E_sellado` exhibida (v1.109: cotizada sobre un sellado bajo el umbral, §4-G.12 paso 3). */
   eBase!: number;
+  /** `E_cartas` (v1.109): un carrito solo de cartas no lleva caja y paga su propio dial. */
+  eCards!: number;
 
   constructor(
     readonly h: E2EHarness,
@@ -73,24 +75,33 @@ export class AccDb {
     this.pii = this.h.app.get(PiiCryptoService);
     await this.resetEnergies();
     await this.clearBoxFees();
-    const item = await this.mkItem();
+    // 💰 v1.109 (§4-G.12): `E_base = E_sellado` (con accesorios el pedido es de clase «sellado»). Se cotiza un sellado bajo el
+    // umbral: un carrito solo de cartas daría `E_cartas` y ya no es la base de la caja.
+    const item = await this.mkItem({ productType: 'sealed' });
     const q = await this.quote({ inventoryItemIds: [item.id] });
     if (q.status !== 200) throw new Error(`init quote ${q.status} ${q.text}`);
     this.eBase = q.body.breakdown.shippingFeeCents;
+    const card = await this.mkItem();
+    const qc = await this.quote({ inventoryItemIds: [card.id] });
+    if (qc.status !== 200) throw new Error(`init quote (cartas) ${qc.status} ${qc.text}`);
+    this.eCards = qc.body.breakdown.shippingFeeCents;
   }
 
   // ------------------------------------------------------------------ catálogo
 
   /** Pieza vendible propia de la corrida (clona la carta del seed). `listPriceCents` fija el precio (peldaño «pieza»). */
-  async mkItem(opts: { productType?: 'raw' | 'sealed'; listPriceCents?: number } = {}) {
+  async mkItem(opts: { productType?: 'raw' | 'sealed' | 'graded'; listPriceCents?: number } = {}) {
     this.seq += 1;
     const sealed = opts.productType === 'sealed';
+    // 💰 v1.109 (§4-G.12, ENV-3): la gradeada es una CARTA (D-ENV-2); se vende por su override por pieza.
+    const graded = opts.productType === 'graded';
     const it = await this.h.prisma.inventoryItem.create({
       data: {
         folio: `ACB-${this.run}-${this.seq}`,
         cardId: this.template.cardId,
-        productType: sealed ? 'sealed' : 'raw',
-        rawCondition: sealed ? null : 'NM',
+        productType: sealed ? 'sealed' : graded ? 'graded' : 'raw',
+        rawCondition: sealed || graded ? null : 'NM',
+        ...(graded ? { gradingCompany: 'PSA' as const, gradeValue: '10', certNumber: `ACB${this.run}${this.seq}` } : {}),
         sealedSubtype: sealed ? 'box' : null,
         sealedCondition: sealed ? 'mint' : null,
         finish: 'normal',

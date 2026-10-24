@@ -3,8 +3,8 @@
  *
  * NO son diales de M10 a propósito: siguen el precedente de las ventanas 7d/30d del buylist
  * (v1.18) y evitan tocar el módulo `settings` (otro work stream). Promoverlas a `ConfigSetting`
- * más adelante es NO-BREAKING. La tarifa de envío NO vive aquí: reusa el dial existente
- * `SHIPPING_FEE_CENTS` (default 17500).
+ * más adelante es NO-BREAKING. La tarifa de envío NO vive aquí: desde v1.109 son los tres diales
+ * `direct_ship_*` de API_CONTRACT §4-G.12 (`orders/shipping-rule.ts`); `SHIPPING_FEE_CENTS` queda solo para el retiro.
  */
 import { ORDER_RESERVATION_TTL_MIN } from './reservation';
 

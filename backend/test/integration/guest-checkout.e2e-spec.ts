@@ -17,14 +17,12 @@ import { computeDirectShipBreakdown } from '../../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
-/** `F` — el dial `shipping_fee_cents`, **NETO** y sin cambiar de valor con D56 (§4.44.f). */
-const SHIPPING = 17500;
 /**
- * ⭐ `E = round(F × (1+t·r)) = 20300` — la tarifa **EXHIBIDA**, con su IVA dentro (`IVA-6`).
- * Se DERIVA de `F` en vez de clavarse: así el fixture dice **por qué** vale eso, y **money-neutral**
- * queda asertado en la propia definición (`20300 = 17500 + 2800`).
+ * 💰 v1.109.1 (API_CONTRACT §4-G.12): los carritos de esta suite son SOLO de cartas (`raw`) ⇒ el envío directo es el dial
+ * `direct_ship_cards_fee_cents` (10000), EXHIBIDO con su IVA dentro: `E` = dial, sin re-exhibir (IVA-6). Antes de v1.109
+ * era `shipping_fee_cents` re-exhibido (20300), que hoy solo gobierna el retiro desde bóveda.
  */
-const SHIPPING_DISPLAY = SHIPPING + Math.round((SHIPPING * IVA) / 100);
+const SHIPPING_DISPLAY = 10000;
 
 /**
  * Correos ÚNICOS por corrida: la suite de integración comparte BD entre ejecuciones y un pedido de

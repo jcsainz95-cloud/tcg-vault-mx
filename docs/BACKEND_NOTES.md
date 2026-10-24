@@ -4,7 +4,8 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
-> **Estado vigente (2026-10-19).** **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
+> **Estado vigente (2026-10-24).** **Envío v2 (v1.109.1):** `orders/shipping-rule.ts`, `E` = dial exhibido, M-91 — §0.68.
+> **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
 > intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
 > `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):
 > si queda un socket, servidor o timer con ref, los lista y sale con 1. ⛔ No es `--forceExit`. Unitarias:
@@ -20,6 +21,32 @@
 > BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
 > no da 503. D-CS-8 cerrada: `TOURNAMENT_OCCUPIED_STATUSES` (`tournament.util.ts`) la usan cupo y contador. Pruebas: bloque F de
 > `test/integration/card-show-contract.e2e-spec.ts` + `test/card-show.tournament-count.spec.ts`. **QA-REL-1 (2026-10-23):** desglose congelado de una orden = UN constructor, `orders/frozen-breakdown.ts` (`breakdownOf`, quote/sesión de invitado y `guest/track` §4-G.3, con `priceConvention`/`ivaIncluded` de la fila); candado `orders/qa-rel-1-guest-tracking-breakdown.spec.ts`.
+
+## 0.68 — 💰 **v1.109.1⟨envio-v2⟩: regla de envío v2 del envío directo** (2026-10-24, rama `be-envio-v2` desde `5c7e652b`; contrato v1.109.1 `d090b188`)
+
+Norma: `API_CONTRACT §4-G.12` (no se repite aquí). Lo que el código decidió y otros roles necesitan:
+- **Un solo cuerpo:** `orders/shipping-rule.ts` (puro): `shippingRuleKindOf` → `directShipFeeOf` (umbral sobre `S`, luego caja) →
+  `shippingRuleDtoOf` / `publicShippingRuleOf`; `directShipFeeTaxSplitOf` = base R2 + IVA por resta (10000 ⇒ 8621 + 1379). Lo llaman
+  `quoteBreakdowns`, `breakdownFor` (sesión sin accesorios) y la rama con accesorios de `createSession`. ⛔ `box-fit.shippingFeeWithBox`
+  ya no se llama desde el checkout (queda como la mitad «bajo el umbral», fijada por `accessories-b.box-fit.spec.ts`).
+- **E = dial exacto** (P-ENV-1 cerrada): los tres `direct_ship_*` son exhibidos; `directShipDialsOf` ni recibe `IvaDials`. El IVA del
+  envío vive dentro del IVA agregado de `computeDirectShipBreakdown` (sin cambio). `shipping_fee_cents` sigue NETO y solo para el retiro.
+- **Clase:** lo cobrable YA podado (quote) o estricto (sesión): piezas por `productType` (enum generado, sin lista a mano: candado
+  `enum-values-parity`), renglones sueltos y paquetes aceptados. Un `deckPull` sin paquete no cobra nada ⇒ no cuenta como accesorio.
+- **Quote con orden propia congelada:** el `breakdown` es el congelado; `shippingRule` describe la regla VIVA contra ese `subtotalCents`
+  (solo difiere si un dial se movió dentro de la reserva de 60 min). Lo cobrado sigue siendo lo congelado.
+- **Reembolsos:** `orderRemainingRefundComponents` con `E = 0` lleva envío e IVA de envío en 0 (antes el residuo −1 daba `23514`); el
+  remanente 0 ya no escribía fila (`amountCents > 0` en `shipment-prep.service.ts`). Censo de otros lectores de `shippingFeeCents` en
+  reembolsos: `orderFullRefundComponents` (con `E = 0` da envío 0, sin negativos), `itemFeeShareCents` (`G = S`), `item-delivered-refund`
+  y `withdrawal-delivered-refund` (retiro): sin cambio.
+- **M-91** `20261108120000_m91_envio_v2_dials`: solo datos, siembra 10000/17500/400000 `ON CONFLICT DO NOTHING`; ⛔ no copia
+  `shipping_fee_cents`. Al desplegar el sellado directo pasa de MX$203 a MX$175 (dueño). Reversa en la cabecera del SQL.
+- **`GET /checkout/shipping-rule`** en `GuestOrdersController`: `@Public`, sin `RejectAuthenticatedGuard`, 60/min, `Cache-Control:
+  public, max-age=300` (solo la cabecera: sin caché en proceso).
+- **Pruebas:** `test/shipping-rule.spec.ts` (ENV-1, mitades puras de ENV-5/ENV-8 y del punto 7) y
+  `test/integration/envio-v2.e2e-spec.ts` (ENV-2…ENV-8, claves literales para correr también sobre el árbol de antes). Ajustadas a la
+  regla nueva: `guest-checkout.session.spec`, `img-order-item-card.spec`, `guest-checkout.e2e`, `iva-price-convention.e2e` (IVA-12(a)),
+  `accessories-checkout.e2e` (I-AC-5 usa `eCards`); `AccDb.eBase` = `E_sellado` y gana `eCards`/`graded`; `ShipPrepDb.mkDirect` gana `money`.
 
 ## 0.67 — ⭐ **v1.100⟨cardshow⟩ R5b: Jakomi sin PII (M-89/L2-SEG-01) + copy correos ($200/patrocinio) + BOM CSV** (2026-10-17, rama `fix/card-show-r5b-backend` desde `release/card-show`@`1315236`, PII · SIN DINERO)
 
@@ -65,60 +92,17 @@
 
 **MEDIDO (sha `fade4e6` base; `node_modules` de la copia principal enlazado al worktree, TS 5.9.3).** `tsc --noEmit -p tsconfig.json` (config CON tests, no `tsconfig.build.json`) ⇒ **0 errores**. **Unit** `jest card-show enum-values-parity mail.privacy-footer` ⇒ **17 suites / 458 pruebas VERDES**. **Canario BLOQ-A (N=1, determinista):** mutar el bucle de grupo a `groupRows.slice(0,1)` (= defecto viejo, confirma 1 fila) ⇒ las 2 pruebas de GRUPO de `leads-fields` **ROJAS (2/2)**; restaurado ⇒ **VERDES (24/24)**. **Integración bloque E: NO CORRIDA por mí** — el `node_modules` del worktree está enlazado al compartido, así que ⛔ no puedo `prisma generate` sin pisar a otros agentes ni garantizar que el cliente case con el schema de `fade4e6`. La dejo ESCRITA y typecheada; **el orquestador la corre** (Postgres 16 + redis ARRIBA, creds en `.native-stack/secrets.env`): `cd backend && DATABASE_URL=postgresql://tcg:$NATIVE_DB_PASSWORD@localhost:5432/tcg_marketplace?schema=public REDIS_URL=redis://localhost:6379 npx prisma generate && npx prisma migrate deploy && npx jest --config test/jest-integration.config.js test/integration/card-show-contract.e2e-spec.ts --runInBand`.
 
-## 0.65 — ⭐ **v1.98⟨cardshow⟩ R3b: `q` nombre+correo (M-86) + cupo form-token 120/h (M-87) + instrumentación de descartes (IMP-5)** (2026-10-17, rama `fix/card-show-r3b-backend` desde `release/card-show`@`0cbe558`, PII · SIN DINERO)
+## 0.63–0.65 — Card Show M-84…M-87 (2026-10-17, PII · SIN DINERO) — compactado en v1.109; el detalle vive en la historia del repo
 
-> Contrato: `API_CONTRACT §CARDSHOW.15` (M-86), `§CARDSHOW.5` (M-87) y el §13 verbatim. Tres hallazgos de tester-e2e; el contrato ya los fijaba. Solo `backend/` + este doc.
-
-**Qué entró.**
-
-- **IMP-3 / M-86 — semántica de `q` en el panel** (`card-show.service.ts` `leadWhere`/`playerWhere` + `normalizeQ`). Antes `q` casaba **solo `email`** (`where.email = {contains: q.toLowerCase()}`) aunque el rótulo decía «nombre o correo». Ahora:
-  - `/admin/card-show/leads` (+ `export.csv`): `q` casa `name` **OR** `email` (`contains`, **`mode:'insensitive'`**, parametrizado vía Prisma — ⛔ sin SQL crudo). `name` cubre nombre y **marca**.
-  - `/admin/card-show/players` (+ `export.csv`): `q` casa `playerName` **OR** `email` **OR** `playerId` (string de dígitos, nullable ⇒ filas LIGERA sin `playerId` no casan por ese campo, sin romper el `OR`).
-  - El `OR` se combina (AND) con `confirmedAt/status` de arriba ⇒ `q` **solo REDUCE** el conjunto autorizado y **⛔ nunca trae PENDING**. ⛔ No casa `phone` ni `sellsWhat`.
-  - Gramática §0 vía `normalizeQ` (nuevo helper, patrón de `/admin/shipments`): `trim`, vacío ≡ ausente, **> 200 chars ⇒ `400 {field:'q'}`** (antes `q` iba sin validar longitud).
-- **IMP-6 / M-87 — cupo del `GET /card-show/form-token` 30/h → 120/h por IP** (⇒ `429` en la 121.ª). Un solo hecho, un solo sitio: `THROTTLE.FORM_TOKEN_PER_HOUR` (`card-show.constants.ts`); comentarios de `card-show-throttle.service.ts` alineados. ⛔ **NO** se tocaron las guardas reales del gasto (throttle del POST 5/min·20/h, presupuesto C1 Redis §7, topes por buzón C2 §8). La conducta perezosa del token (0 al montar) es de **frontend**.
-- **IMP-5 — instrumentación de los descartes silenciosos** (`card-show.service.ts` `logDiscard`). Cada `return` silencioso (que el contrato manda responder con el 202 neutro) emite ahora un `logger.debug` con **motivo** (`honeypot`/`too_fast`/`suppressed`/`no_mx`/`dedupe`/`tope`) + **propósito** (`leads`/`players`) + **día** (cuando aplica) + **prefijo (12 ch) del `mailboxHmac`** para correlacionar. **⛔ 0 PII**: ni email, ni name, ni phone, ni playerId, ni IP. El `mailboxHmac` es un blindIndex HMAC (no reversible); se recorta a prefijo. Instrumentados: honeypot, too_fast, suppressed/unsubscribed, dominio sin MX, re-alta de confirmado, y en `insertPendingSignup` el dedupe (dup formal / activa ligera) y los topes (3 PENDING/playerId, 4 playerId/buzón·día, 3 PENDING ligera) — estos últimos con `day`, que es lo que hace diagnosticable «los dos días».
-
-**Pruebas (candados del §13).**
-
-- `test/integration/card-show-contract.e2e-spec.ts` bloque **D** (3 pruebas): leads `name`-casa-email-no (CANARIO) / email-casa-name-no / insensible a mayúsculas / q nunca trae PENDING / ⛔ no casa phone·sellsWhat; players `playerName`-casa-email-no (CANARIO) / `playerId` casa / LIGERA sin playerId no rompe ni casa por playerId; `q>200 ⇒ 400`.
-- `test/card-show.throttle.spec.ts`: form-token **121.ª/h ⇒ 429** (antes 31.ª); confirm sigue 31.ª/min.
-
-**MEDIDO (sha `0cbe558` base; node_modules de la copia principal, TS 5.9.3).** `npm run typecheck` ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). **Unit** (`npx jest`) ⇒ **497 suites / 8710 pruebas VERDES**. **Integración** (`jest-integration` contra Postgres 16 local, migraciones aplicadas) ⇒ `card-show-contract` **11/11 VERDES** (incluidas las 3 de D). **Canario M-86 (N=1, determinista):** quitar la cláusula `name` del `OR` de `leadWhere` ⇒ la prueba de leads **ROJA** (`Expected "Zqname…"` / `Received []`); restaurada ⇒ **VERDE**. **IMP-5 re-medición N=20** del caso «los dos días» LIGERA (`createPlayer` directo contra servicio+BD reales, correo fresco por iteración, `now` > min-age): **20/20 crearon 2 filas, 0 misses, 0 descartes**. NO REPRODUCIDO (consistente con el 13/14 de tester-e2e); si alguna vez cae una fila, el `debug` ya dirá motivo+día. *(La N=20 se midió por el camino del servicio, no por HTTP: el 429 del throttle de POST por IP —5/min— no es el sospechoso de IMP-5 y por HTTP enmascararía la medición.)*
-
-## 0.64 — ⭐ **M-85 / v1.97⟨cardshow-shardbugs⟩: 4.º juego `shardbugs` + candados R2 del Card Show** (2026-10-17, rama `r2-cardshow` desde `release/card-show`@`4b51c68`, PII · SIN DINERO)
-
-> Contrato: `API_CONTRACT §CARDSHOW.1a-ter` + `§Enums` línea `CardShowGame`. Aditivo sobre M-84; ⛔ no toca dinero, inventario ni cuentas.
-
-**Qué entró (solo `backend/` + `schema.prisma` + `common/enum-values.ts` + 3 candados + `docs/`).**
-
-- **`shardbugs` = 4.º juego** (confirmado por JC 2026-10-17; Shard Bugs LLC). Añadido al `enum CardShowGame` (`schema.prisma`), a las TRES bandas del candado de paridad y al cliente de Prisma regenerado. **LIGERA sin lógica nueva**: la regla «pokemon=FORMAL / resto=LIGERA» de M-84 (§CARDSHOW.12) lo absorbe (sin `playerId`, sin cupo/waitlist, confirma directo a `confirmed`). `CARD_SHOW_GAME_VALUES` es `Object.values(CardShowGame)` ⇒ recoge los 4 por construcción (no se transcribe nada).
-- **Migración `prisma/migrations/20261105120000_m85_card_show_shardbugs/`.** Número **M-85**, prefijo posterior a M-84 `20261104120000` (medido con `ls` del árbol). Único statement: `ALTER TYPE "CardShowGame" ADD VALUE IF NOT EXISTS 'shardbugs';`. **Técnica (MEDIDO vs la Nota del contrato):** el error «ALTER TYPE … ADD cannot run inside a transaction block» solo salta si además se **USA** el valor nuevo en la misma tx; esta migración NO lo usa (sin CHECK/UPDATE/índice que lo mencione), así que es segura dentro de la tx de `prisma migrate` en PG16 — **patrón idéntico y ya en producción** en M-61/M-62/M-70/M-80 (todos `ADD VALUE IF NOT EXISTS` como único statement). Por eso ⛔ NO se parte en archivos ni hace falta directiva de no-transacción. Reversa: dejar de emitir/aceptar `shardbugs` (el valor del enum se queda, como M-62/M-70/M-80).
-- **Candado PRIV-6** (`test/mail.privacy-footer.spec.ts`): conteo `card-show-internal.templates.ts` **2→3** — M-84 añadió `renderLeadsSummary` (0-PII) como 3.ª plantilla `audience:'staff'`.
-- **Candado contract-e2e** (`test/integration/card-show-contract.e2e-spec.ts`): A1 gana `name`, B1 gana `game:'pokemon'` (ambos requeridos tras M-84). **Camino feliz ampliado contra stack** (bloque C): crea → **confirma** (POST /confirm, token de enlace emitido por el `CardShowTokensService` real) → panel + CSV (super_admin), con un caso FORMAL (pokemon, playerId) y dos LIGERA (`shardbugs`, playerId NULL) — cierra el hueco que QA señaló (antes solo cobertura unitaria mockeada de la aceptación/persistencia).
-
-**MEDIDO (jest, worktree `r2-cardshow`, client regenerado con `shardbugs`).** `npm run typecheck` (`tsc -p tsconfig.json`, incluye `test/`) ⇒ **0 errores**. `npm run lint` ⇒ 0 errores (2 warnings pre-existentes en ficheros no tocados). `jest enum-values-parity mail.privacy-footer card-show` ⇒ **17 suites / 456 pruebas VERDES**. Canarios (deterministas, N=1): (1) ancla de paridad de `CardShowGame` a 3 valores ⇒ **banda 1 ROJA** (bandas 2/3 verdes: prisma y contrato ya traen 4) ⇒ el ancla obliga a decidir; restaurado ⇒ verde. (2) quitar `audience:'staff'` de `renderLeadsSummary` (conteo 3→2) ⇒ **PRIV-6 ROJA**; restaurado ⇒ verde.
-
-**⚠️ NO MEDIDO — contract-e2e NO se ejecutó contra Postgres aquí** (sin `DATABASE_URL`; Redis/MinIO abajo — la suite de integración exige infra completa, **es gate de QA**, `npm run test:integration`). El spec **compila** (`tsc` incluye `test/`, 0 errores). **Cierre:** QA corre `prisma migrate deploy` (aplica M-85) + la suite con Postgres+Redis; el bloque C queda VERDE y prueba que un lead/player M-84/M-85 válido se acepta, confirma y persiste. ⚠️ El bloque B3/C3 usa `shardbugs` ⇒ exige M-85 aplicada en la BD de prueba.
-
-## 0.63 — ⭐⭐ **M-84 / v1.96⟨cardshow-leads⟩: pivote del Card Show a captura de LEADS** (2026-10-17, rama `m84-cardshow-leads` desde `release/card-show`@`cbc4dfe`, PII · SIN DINERO)
-
-> Contrato: `API_CONTRACT §CARDSHOW.1/.1a/.1a-bis/.1b/.12/.15` + `§Enums` línea `CardShowGame`. Diseño: `ARCHITECTURE §4.CARDSHOW.p/.q/.r`.
-
-**Qué entró (solo `backend/` + `schema.prisma` + `common/enum-values.ts`).** Aditivo sobre M-78; ⛔ no toca anti-abuso, dinero ni cuentas.
-
-- **Migración `prisma/migrations/20261104120000_m84_card_show_leads/`.** Número **M-84** del contrato, libre (la última en el árbol base era `20261103120000_m78_card_show_landing`; medido con `Glob`). Enum nuevo `CardShowGame (pokemon|riftbound|lorcana)`. `CardShowLead` +`name`(NOT NULL vía DEFAULT '' transitorio→DROP DEFAULT, patrón §11), +`phone`/`gameInterest`/`raffleTermsVersion`/`sellsWhat` (nullable), +`raffleOptIn`(bool default false). `CardShowPlayerSignup` +`game`(NOT NULL, default transitorio `pokemon`→DROP DEFAULT), `playerId`→**nullable**, +`@@index([mailboxHmac,game,day])`, **índice único parcial RECREADO** acotado a `status IN (confirmed,waitlist,checked_in) AND game='pokemon' AND playerId IS NOT NULL`. **`mesaInteres` @deprecated, NO se dropea** (drop diferido, §CARDSHOW.1a-bis).
-- **Paridad de enums** (candado `test/enum-values-parity.spec.ts`): `CARD_SHOW_GAME_VALUES` en `common/enum-values.ts` + fila `CardShowGame` en las tres bandas. La banda 3 universal recoge el enum nuevo automáticamente (el contrato ya trae la línea canónica).
-- **DTO** (`dto/card-show.dto.ts`): `CreateLeadDto` gana los campos nuevos con `NAME_WHITELIST` (más laxa que `playerName`: dígitos/`&`, ⛔ sin `<`,`>`,`@`,`http`); `mesaInteres` **retirado** ⇒ en el cuerpo da 400 (campo desconocido). `CreatePlayerDto` gana `game`; `playerId` pasa a opcional en el DTO. Validación **condicional por tipo/juego** en el SERVICIO (`validateLeadFields`/`validatePlayerFields`) ⇒ `400 {field}` (⛔ no silencioso); corre ANTES del token/tiempo para que un campo prohibido/faltante nunca lo trague el gate silencioso `too_fast` (honeypot sigue primero). Teléfono MX normalizado a 10 dígitos (`phone.util.ts`).
-- **Torneo FORMAL vs LIGERA** (`card-show.service.ts`): `game=pokemon` ⇒ playerId obligatorio, cupo/waitlist/índice como M-78. `game≠pokemon` ⇒ playerId prohibido, fila `playerId=NULL`, sin cupo/waitlist, al confirmar pasa **directo a `confirmed`**; dedupe/cap por `(mailboxHmac,game,day)` (máx 1 activa, máx 3 PENDING). El conteo de cupo y el check «ya preinscrito» se acotaron a `game='pokemon'`.
-- **Panel** (`card-show-admin.controller.ts` + service): columnas nuevas en JSON+CSV de `/leads` (name/phone/gameInterest/raffleOptIn/raffleTermsVersion/sellsWhat) y de `/players` (`game`; `playerId` vacío en LIGERA); filtro `?game=` en `/players` y su `export.csv`. PENDING sigue fuera; sin IP; auditoría intacta.
-- **Correo-resumen** (`renderLeadsSummary` + `CardShowService.sendLeadsSummary`/`buildLeadsSummaryData`): conteos por tipo/juego/día/opt-ins de rifa (hoy/7d/total) + enlaces de descarga AUTENTICADOS a los `export.csv`. ⛔ 0 PII en el cuerpo (⛔ no adjunta CSV: players lleva nombres de menores). Solo confirmados, sin IP, ≤10/h (reserva `reserveInternalNotice`).
-
-**⚠️ PENDIENTE DEVOPS — cablear el CRON del correo-resumen (entregable, ⛔ no gate).** El DISPARO ⛔ NO vive en el módulo (sin scheduler propio). Programar un job **diario a hora fija `America/Mexico_City`** que llame `CardShowService.sendLeadsSummary()` una vez al día (unificable con el resumen diario de visitantes de §0.61, misma cola `tcg-daily`). ⛔ Sin variables nuevas obligatorias (reusa `CARD_SHOW_INTERNAL_RECIPIENTS` / `CARD_SHOW_PUBLIC_BASE_URL`).
-
-**MEDIDO (jest, sha de trabajo).** `enum-values-parity` + 15 suites `card-show` ⇒ **16 suites / 310 pruebas verdes**. `tsc -p tsconfig.build.json --noEmit` ⇒ 0 errores. Mutaciones (deterministas, N=1): (1) quitar `riftbound` del ancla de paridad ⇒ banda 1 ROJA; restaurado ⇒ verde. (2) LIGERA confirma a `waitlist` en vez de `confirmed` ⇒ `card-show.leads-fields` ROJA; restaurado ⇒ verde.
-
-**⚠️ NO MEDIDO — la migración NO se aplicó contra Postgres en este entorno** (sin docker daemon; `initdb` rehúsa como root; el harness bloquea `su`/`sudo` para bajar al usuario `postgres`). Verificado por inspección + `prisma validate` (schema válido, client regenerado con `CardShowGame`) + el SQL replica el patrón probado de M-78 y el bloque del índice parcial es **verbatim** del contrato §CARDSHOW.12. **Cierre de la medición:** QA/devops corre `prisma migrate deploy` contra un Postgres con las filas de M-78 y confirma 0 filas rotas (`name` backfill, `game` backfill a `pokemon`, playerId nullable, índice recreado).
+- **M-84** (`20261104120000_m84_card_show_leads`): `CardShowGame`; `CardShowLead` gana `name`/`phone`/`gameInterest`/`raffle*`/`sellsWhat`;
+  `CardShowPlayerSignup.game`, `playerId` nullable, índice único parcial solo `game='pokemon' ∧ playerId IS NOT NULL`. Torneo FORMAL
+  (pokemon: playerId, cupo/waitlist) vs LIGERA (resto: sin playerId, confirma directo). `mesaInteres` @deprecated, sin drop.
+  Correo-resumen 0-PII `sendLeadsSummary`. ⚠️ **PENDIENTE DEVOPS:** cron diario `America/Mexico_City` que llame
+  `CardShowService.sendLeadsSummary()` (unificable con el resumen de visitantes, cola `tcg-daily`).
+- **M-85** (`20261105120000_m85_card_show_shardbugs`): `shardbugs` = 4.º juego, LIGERA; `ADD VALUE IF NOT EXISTS` como único statement.
+- **M-86/M-87/IMP-5:** `q` del panel casa `name|email` (leads) y `playerName|email|playerId` (players), `normalizeQ` (>200 ⇒ 400);
+  form-token 120/h (`THROTTLE.FORM_TOKEN_PER_HOUR`); `logDiscard` con motivo/propósito/día y prefijo de `mailboxHmac`, 0 PII.
+- Candados: `card-show-contract.e2e-spec.ts` bloques C–D, `card-show.throttle.spec.ts`, `enum-values-parity.spec.ts`, PRIV-6.
 
 ## 0.62 — ⭐⭐ **§CARDSHOW.10 CS-RT-1: webhook de Resend IDEMPOTENTE por `svix-id`** (2026-10-17, rama `feat/event-landing`, condición recomendada del equipo azul antes de publicar)
 

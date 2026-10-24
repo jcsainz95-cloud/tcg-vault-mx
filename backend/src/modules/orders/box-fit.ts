@@ -10,8 +10,9 @@
  *   Σ volumen(unidades) ≤ volumen(caja). Gana la que sirve con MENOR volumen; desempate `customerFeeCents`, `sortOrder`,
  *   `code`. Ninguna sirve ⇒ la de MAYOR volumen (mismo desempate) con `review = true` (F3, criterio 728): solo un aviso
  *   para quien prepara; ⛔ no retiene nada ni genera cargo posterior.
- * - Tarifa al cliente: `max(E_base, customerFeeCents)` (recomendación de P-AC-2). Si el dueño contesta «la de la caja»,
- *   se quita el `max` en `shippingFeeWithBox` y nada más cambia.
+ * - Tarifa al cliente: desde v1.109 la decide `shipping-rule.ts` (`directShipFeeOf`, §4-G.12 paso 3: umbral antes de la
+ *   caja; bajo el umbral es bit a bit este `max(E_base, customerFeeCents)` con `E_base = E_sellado`). `shippingFeeWithBox`
+ *   queda como la mitad «bajo el umbral» de esa regla y la prueba de §AC.7 la fija; el checkout ya no la llama.
  */
 
 export interface FitUnit {

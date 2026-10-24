@@ -16,14 +16,12 @@ import { IVA_DIALS_NEUTRAL, ivaDialsStub } from './helpers/iva-dials';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
-/** `F` — el dial `shipping_fee_cents`, que sigue siendo **NETO** y no cambia de valor (§4.44.f). */
-const SHIPPING = 17500;
 /**
- * ⭐ `E = round(F × (1 + t·r))` — la tarifa **EXHIBIDA**, con su IVA dentro. Con el dial en 100 %
- * vale `20300`, que es **exactamente** lo que antes aportaban `17500 + 2800` (money-neutral,
- * `IVA-6(b)`).
+ * 💰 v1.109.1 (§4-G.12): el carrito de estas pruebas es SOLO de cartas (`raw`) ⇒ el dial `direct_ship_cards_fee_cents`
+ * (10000), EXHIBIDO: el envío que paga el cliente es el dial tal cual. `shipping_fee_cents` ya no lo lee el envío directo.
  */
-const SHIPPING_DISPLAY = 20300;
+const SHIPPING = 10000;
+const SHIPPING_DISPLAY = SHIPPING;
 
 const ADDRESS = {
   line1: 'Av. Reforma 100',
@@ -78,7 +76,9 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const settings: any = {
-    getNumber: jest.fn(async (key: string) => (key.includes('shipping') ? SHIPPING : IVA)),
+    getNumber: jest.fn(async (key: string) =>
+      key === 'direct_ship_cards_fee_cents' ? SHIPPING : key === 'direct_ship_free_from_cents' ? 400000 : key.startsWith('direct_ship_') || key.includes('shipping') ? 17500 : IVA,
+    ),
     // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
     ...ivaDialsStub(),
     getStripeFee: jest.fn(async () => FEE),
@@ -111,7 +111,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
   jest.spyOn(orders, 'priceCartForOrder').mockImplementation(async (ids: string[]) => ({
     // ⭐ D56: el carrito preciado viaja CON los diales que produjeron sus precios (§M10-IVA.3).
     ivaDials: IVA_DIALS_NEUTRAL,
-    items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
+    items: ids.map((id) => ({ id, folio: `INV-${id}`, productType: 'raw' })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
       inventoryItemId: id,
@@ -136,7 +136,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
   // resuelve (`unavailableItems: []`); cada test de poda la re-mockea con sus muertos.
   jest.spyOn(orders, 'priceCartForQuote').mockImplementation(async (ids: string[]) => ({
     ivaDials: IVA_DIALS_NEUTRAL,
-    items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
+    items: ids.map((id) => ({ id, folio: `INV-${id}`, productType: 'raw' })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
       inventoryItemId: id,
@@ -406,7 +406,7 @@ describe('GuestCheckoutService.quote', () => {
       const { svc, orders } = buildService();
       (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
         ivaDials: IVA_DIALS_NEUTRAL,
-        items: [{ id: 'viva', folio: 'INV-viva' }],
+        items: [{ id: 'viva', folio: 'INV-viva', productType: 'raw' }],
         subtotalCents: 25000,
         lines: [
           {

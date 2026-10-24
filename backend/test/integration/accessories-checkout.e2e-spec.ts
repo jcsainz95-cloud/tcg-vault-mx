@@ -477,7 +477,8 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       const card = await db.mkItem();
       const q = await db.quote({ inventoryItemIds: [card.id] });
       expect(q.body.shippingBox).toBeNull();
-      expect(q.body.breakdown).toEqual(bd(q.body.items[0].unitPriceCents, db.eBase));
+      // 💰 v1.109 (§4-G.12): solo cartas ⇒ `E_cartas`, sin caja (la caja solo existe con accesorios).
+      expect(q.body.breakdown).toEqual(bd(q.body.items[0].unitPriceCents, db.eCards));
       expect(q.body.vaultExcludesAccessories).toBe(false);
       const fire = await db.setEnergy('fire', { stockQty: 20, dims: PLAYMAT_DIMS });
       const qe = await db.quote({ accessoryLines: [{ accessoryId: fire, quantity: 8 }] });

@@ -461,12 +461,13 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       expect(order!.priceConvention).toBe('IVA_INCLUSIVE');
       expect(order!.ivaTransferPct).toBe(100);
       expect(order!.fulfillmentMode).toBe('direct_ship');
-      // ⭐⭐ `IVA-6`: la orden archiva `E = round(F × 1.16) = 20300`, ⛔ no la tarifa NETA `17500`.
-      // **Money-neutral:** es exactamente lo que antes aportaban `17500 + 2800`.
-      expect(order!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
-      expect(order!.shippingFeeCents).toBe(SHIPPING + Math.round((SHIPPING * IVA) / 100));
+      // ⭐⭐ `IVA-6` (v1.109.1, API_CONTRACT §4-G.12): el envío directo de un carrito de cartas es el dial
+      // `direct_ship_cards_fee_cents` = 10000, YA exhibido (IVA dentro) ⇒ la orden archiva `E = 10000`, ⛔ no `11600`
+      // (IVA apilado sobre un dial exhibido). `shipping_fee_cents` (neto ⇒ 20300) queda solo para el retiro.
+      const E_CARDS = 10000;
+      expect(order!.shippingFeeCents).toBe(E_CARDS);
 
-      const esperado = computeDirectShipBreakdown(order!.subtotalCents, SHIPPING_DISPLAY, IVA, FEE);
+      const esperado = computeDirectShipBreakdown(order!.subtotalCents, E_CARDS, IVA, FEE);
       expect(order!.ivaCents).toBe(esperado.ivaCents);
       expect(order!.processingFeeCents).toBe(esperado.processingFeeCents);
       expect(order!.totalCents).toBe(esperado.totalCents);

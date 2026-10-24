@@ -54,6 +54,7 @@ import {
   isFxRateInBand,
 } from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+import { MAX_CENTS } from '../../common/money';
 // v1.91⟨precios⟩ (M-75, §PRE.G): los seeds y validadores de los CINCO diales del árbitro viven en la zona
 // compartida `common/robust-market.ts` (pura), igual que la curva y el FX. Aquí solo se cablean.
 import {
@@ -392,6 +393,14 @@ export const SettingKey = {
   // Cuántas sugerencias da «¿Te falta algo?» (0 apaga el recuadro).
   ACCESSORY_SUGGESTION_COUNT: 'accessory_suggestion_count',
 
+  // ===== 💰 v1.109⟨envio-v2⟩ (API_CONTRACT §4-G.12 punto 3) — la regla de envío del ENVÍO DIRECTO =====
+  // `HECHOS.md` 2026-10-24 «Regla de envío nueva…» (+ P-ENV-1 cerrada, v1.109.1). Solo `super_admin` (clase `@MoneyOut` de M10).
+  // Los TRES son EXHIBIDOS (IVA dentro): las dos tarifas son lo que paga el cliente y el umbral se compara con `S`. ⛔ A
+  // diferencia de `shipping_fee_cents` (NETO, solo retiro desde bóveda), que el envío directo ya no lee. Lector: `orders/shipping-rule.ts`.
+  DIRECT_SHIP_CARDS_FEE_CENTS: 'direct_ship_cards_fee_cents',
+  DIRECT_SHIP_SEALED_FEE_CENTS: 'direct_ship_sealed_fee_cents',
+  DIRECT_SHIP_FREE_FROM_CENTS: 'direct_ship_free_from_cents',
+
   // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los OCHO diales de la lista de deseos =====
   // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
   // los máximos se calculan al leer (criterio 808). Seeds: la tabla de §WSH.2 (y el INSERT de M-74, mismo valor).
@@ -625,6 +634,10 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: 3,
   [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: 2000, // MX$20 (F1/F2)
   [SettingKey.ACCESSORY_SUGGESTION_COUNT]: 3,
+  // 💰 v1.109.1 (§4-G.12, P-ENV-1 cerrada): EXHIBIDOS, IVA dentro — lo que paga el cliente. ⚠️ Idénticos al INSERT de M-91.
+  [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: 10000, // MX$100 final (base 8621 + IVA 1379 con r=16)
+  [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: 17500, // MX$175 final (base 15086 + IVA 2414)
+  [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: 400000, // MX$4,000 exhibido, contra `S`
   // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
   [SettingKey.WISHLIST_ENABLED]: 'off',
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
@@ -1273,6 +1286,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // 💰 v1.86⟨accesorios⟩ (§AC.11): rangos del contrato.
   [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
   [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
+  // 💰 v1.109 (§4-G.12): `F` entero ≥ 0; el umbral entero 1..MAX_CENTS (0 regalaría todo envío con sellado).
+  [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: validateIntRange(1, MAX_CENTS),
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
   [SettingKey.WISHLIST_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
@@ -1381,6 +1398,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // 💰 v1.86⟨accesorios⟩ (§AC.11): los edita el súper-admin; ⛔ NO son diales del dueño (no van a OWNER_ONLY_SETTING_KEYS).
   energyBundlePriceCents: SettingKey.ENERGY_BUNDLE_PRICE_CENTS,
   accessorySuggestionCount: SettingKey.ACCESSORY_SUGGESTION_COUNT,
+  // 💰 v1.109 (§4-G.12): los tres de la regla de envío directo (⛔ no son diales del dueño: `super_admin` como el resto).
+  directShipCardsFeeCents: SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS,
+  directShipSealedFeeCents: SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS,
+  directShipFreeFromCents: SettingKey.DIRECT_SHIP_FREE_FROM_CENTS,
   // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
   wishlistEnabled: SettingKey.WISHLIST_ENABLED,
   wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,
