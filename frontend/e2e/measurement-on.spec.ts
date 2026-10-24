@@ -223,6 +223,10 @@ test.describe('C-F5 · /buylist → paso de crear (CLABE/INE)', () => {
     await page.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ }).click();
     const trigger = page.getByTestId('sell-cart-fab').or(page.getByTestId('sell-cart-bar-open')).filter({ visible: true });
     await trigger.click();
+    // El veredicto de INE (debounce de 400 ms + consulta) inserta una línea en los requisitos del cajón y BAJA el CTA:
+    // un clic antes de eso cae donde estaba el botón (medido: 1/10 rojos con N=10 sobre `0066d9e6`, cajón abierto y
+    // «Enviar solicitud» con foco pero sin navegación). En el mock el total de Charizard siempre exige INE.
+    await expect(page.getByText(t('es', 'buylist.reqIneExpected')).first()).toBeVisible();
     const before = log.measurement.length;
     await page.evaluate(() => ((window as unknown as { __cf5?: number }).__cf5 = 1));
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
