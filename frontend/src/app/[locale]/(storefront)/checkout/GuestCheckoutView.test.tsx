@@ -15,6 +15,10 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 
 import { GuestCheckoutView } from './GuestCheckoutView';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 function seedCart(ids: string[]) {
   window.localStorage.setItem('tcg.cart', JSON.stringify(ids));
@@ -26,30 +30,37 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     seedCart(['inv-1002']);
   });
 
-  it('ofrece las TRES vías de identidad y anuncia que el carrito se conserva (criterio 46)', async () => {
+  it('CHK-MOVIL.2.1: el formulario se pinta directo y las otras dos vías quedan a UN toque, inline (criterio 46)', async () => {
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    expect(await screen.findByRole('button', { name: 'Continuar como invitado' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Iniciar sesión' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Crear cuenta' })).toBeInTheDocument();
-    expect(screen.getByText('Tu carrito se conserva en cualquiera de las tres.')).toBeInTheDocument();
+    // Sin pantalla de tres vías: el primer campo existe en el primer pintado de datos.
+    expect(await screen.findByLabelText('Correo electrónico')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continuar como invitado' })).toBeNull();
+    // T4: «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» — dos botones, cerrados.
+    const login = screen.getByRole('button', { name: 'Inicia sesión' });
+    const register = screen.getByRole('button', { name: 'crea una cuenta' });
+    expect(login).toHaveAttribute('aria-expanded', 'false');
+    expect(register).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('conserva carrito y correo al alternar invitado → iniciar sesión → invitado (criterio 46)', async () => {
+  it('conserva carrito y correo al abrir «Inicia sesión» y «crea una cuenta» inline (criterio 46)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
-    const email = screen.getByLabelText('Correo electrónico');
+    const email = await screen.findByLabelText('Correo electrónico');
     await user.type(email, 'juan@dominio.com');
 
-    // Cambia de vía (inline, sin navegar) y vuelve.
-    await user.click(screen.getByRole('button', { name: 'Cambiar' }));
-    await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }));
-    await user.click(screen.getByRole('button', { name: 'Cambiar' }));
-    await user.click(screen.getByRole('button', { name: 'Continuar como invitado' }));
+    // Abre el panel de login (inline, sin navegar): el formulario de invitado sigue montado con su correo.
+    await user.click(screen.getByRole('button', { name: 'Inicia sesión' }));
+    expect(screen.getByRole('button', { name: 'Inicia sesión' })).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById('guest-email')).toHaveValue('juan@dominio.com');
+    // Cambia a registro y cierra: nada se pierde.
+    await user.click(screen.getByRole('button', { name: 'crea una cuenta' }));
+    expect(screen.getByRole('button', { name: 'crea una cuenta' })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('button', { name: 'crea una cuenta' }));
+    expect(screen.getByRole('button', { name: 'crea una cuenta' })).toHaveAttribute('aria-expanded', 'false');
 
-    expect(screen.getByLabelText('Correo electrónico')).toHaveValue('juan@dominio.com');
+    expect(document.getElementById('guest-email')).toHaveValue('juan@dominio.com');
     // El carrito nunca se toca al cambiar de vía (formato v2: { ids, updatedAt }).
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-1002']);
   });
@@ -82,7 +93,7 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await user.type(screen.getByLabelText('Correo electrónico'), 'no-es-correo');
     await user.click(screen.getByRole('button', { name: /Pagar/ }));
 
@@ -104,16 +115,19 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
-    // N-9/N-12: hay DOS selectores de destino (el del formulario y el del aside), así que
-    // acotamos al del FORMULARIO (única `region` con nombre accesible "DESTINO"; el aside usa
-    // un `radiogroup` sin rol de región).
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
+    // CHK-MOVIL.2.3: UNA fila de destino (región «DESTINO»), antes del formulario; la bóveda es un botón con
+    // «REQUIERE CUENTA» que despliega el upsell. Sigue seleccionable: ni `disabled` ni `aria-disabled`.
     const form = screen.getByRole('region', { name: 'DESTINO' });
-    const vaultRadio = within(form).getByRole('radio', { name: /Guardar en mi bóveda/ });
+    const vaultRadio = within(form).getByRole('button', { name: /Guardar en mi bóveda/ });
+    expect(vaultRadio).toHaveAccessibleName(/REQUIERE CUENTA/);
     expect(vaultRadio).not.toBeDisabled();
     expect(vaultRadio).not.toHaveAttribute('aria-disabled');
+    // La bóveda se anuncia ANTES del primer campo (CHK-MOVIL.5).
+    expect(vaultRadio.compareDocumentPosition(screen.getByLabelText('Correo electrónico')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(vaultRadio);
+    expect(vaultRadio).toHaveAttribute('aria-expanded', 'true');
 
     // Upsell: beneficio + crear cuenta sin salir del checkout + salida en positivo.
     const panel = await screen.findByTestId('vault-upsell');
@@ -131,14 +145,15 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     // Descartar el upsell devuelve el flujo a envío directo.
     await user.click(screen.getByRole('button', { name: 'Seguir con envío a domicilio' }));
     await waitFor(() => expect(screen.queryByTestId('vault-upsell')).not.toBeInTheDocument());
-    expect(within(form).getByRole('radio', { name: /Envío a mi domicilio/ })).toBeChecked();
+    expect(vaultRadio).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Para pagar, crea tu cuenta o elige envío a domicilio.')).toBeNull();
   });
 
   it('editar el correo desmarca la confirmación y vuelve a bloquear el pago (§15.3)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await user.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
 
     const confirm = screen.getByRole('checkbox', { name: /Confirmo que/ });

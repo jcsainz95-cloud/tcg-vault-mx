@@ -32,6 +32,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { createGuestCheckoutSession } from '@/lib/api';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { clearUnavailableNotice } from './unavailable-notice';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 /** La frase de antes del lote 2 (`checkout.guest.acceptTerms`, retirada), literal: no cambia ni una palabra. */
 const PHRASE_ES = 'Acepto los términos y el aviso de privacidad, y entiendo que todas las ventas son finales.';
@@ -53,8 +57,8 @@ async function openGuestForm(linked: boolean, locale: 'es' | 'en' = 'es') {
     </PrivacyLinkProvider>,
     locale,
   );
-  const cta = locale === 'es' ? 'Continuar como invitado' : 'Continue as guest';
-  await usr.click(await screen.findByRole('button', { name: cta }));
+  // CHK-MOVIL.2.1: sin pantalla de tres vías, el formulario está desde el primer pintado.
+  await screen.findByLabelText(locale === 'es' ? 'Correo electrónico' : 'Email');
   const box = document.getElementById('guest-terms') as HTMLInputElement;
   expect(box).not.toBeNull();
   const label = document.querySelector('label[for="guest-terms"]') as HTMLLabelElement;

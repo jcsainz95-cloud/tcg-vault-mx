@@ -202,7 +202,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
 
   /*
    * Trinquete sobre TODO `messages/` (ES y EN): ninguna cadena nueva puede traer una frase prohibida.
-   * Excepciones CONOCIDAS: hoy NINGUNA. Las cuatro de D4a (`home.sellBody` y `buylist.subtitle`, es+en, «nosotros
+   * Excepciones CONOCIDAS: las cuatro de CHK-MOVIL (abajo). Las cuatro de D4a (`home.sellBody` y `buylist.subtitle`, es+en, «nosotros
    * autenticamos» / «we authenticate») se corrigieron el 2026-10-19 con el texto que decidió el dueño («verificamos la
    * condición NM», HECHOS.md 2026-10-19) y salieron de la lista: el trinquete es absoluto.
    * D4a (techlead, 2026-10-18): toda excepción futura lleva dueño, fecha de medición y caducidad, y TIENE QUE SEGUIR
@@ -215,7 +215,47 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     owner: string;
     measuredOn: string;
     expires: string;
-  }[] = [];
+    note?: string;
+  }[] = [
+    /*
+     * CHK-MOVIL (DESIGN_SYSTEM §CHK-MOVIL.4, `HECHOS.md` 2026-10-24 «Checkout móvil: opción A»): T3a con envío 0 y
+     * T9 dicen «envío gratis» porque el envío ES 0 (regla v2 de §4-G.12: sellado ≥ umbral). Acotada a ESTAS cuatro
+     * claves —nada más de `messages/` puede decirlo— y PENDIENTE DE APROBACIÓN DEL DUEÑO (MKT-8). Si dice que no,
+     * cambia el texto de estas claves y se borran estas filas (la prueba de abajo obliga). Caduca en un mes.
+     */
+    {
+      locale: 'es',
+      key: 'checkout.bar.includesShippingFree',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-24',
+      expires: '2026-11-24',
+      note: 'pendiente de aprobación del dueño · T3a con envío 0',
+    },
+    {
+      locale: 'en',
+      key: 'checkout.bar.includesShippingFree',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-24',
+      expires: '2026-11-24',
+      note: 'pendiente de aprobación del dueño · T3a con envío 0',
+    },
+    {
+      locale: 'es',
+      key: 'checkout.freeShippingRemaining',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-24',
+      expires: '2026-11-24',
+      note: 'pendiente de aprobación del dueño · T9 «Te faltan {remaining} para envío gratis»',
+    },
+    {
+      locale: 'en',
+      key: 'checkout.freeShippingRemaining',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-24',
+      expires: '2026-11-24',
+      note: 'pendiente de aprobación del dueño · T9 «{remaining} more for free shipping»',
+    },
+  ];
   const CATALOGS = { es, en } as const;
   const badKeys = (catalog: unknown) =>
     stringEntries(catalog)
@@ -245,6 +285,17 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
       expect(o.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(today <= o.expires, `${o.locale}:${o.key} caducó el ${o.expires}: corregir la copia o renovar con decisión del dueño`).toBe(true);
     }
+  });
+
+  it('CHK-MOVIL: la excepción de «envío gratis» es SOLO de T3a/T9 y sigue «pendiente de aprobación del dueño»', () => {
+    const chk = KNOWN_OFFENDERS.filter((o) => /envío gratis|free shipping/i.test(String(CATALOGS[o.locale] && stringEntries(CATALOGS[o.locale]).find(([k]) => k === o.key)?.[1])));
+    expect(chk.map((o) => `${o.locale}:${o.key}`).sort()).toEqual([
+      'en:checkout.bar.includesShippingFree',
+      'en:checkout.freeShippingRemaining',
+      'es:checkout.bar.includesShippingFree',
+      'es:checkout.freeShippingRemaining',
+    ]);
+    for (const o of chk) expect(o.note, `${o.locale}:${o.key}`).toMatch(/pendiente de aprobación del dueño/);
   });
 
   it('el namespace seo.* existe en ES y EN con las mismas claves', () => {

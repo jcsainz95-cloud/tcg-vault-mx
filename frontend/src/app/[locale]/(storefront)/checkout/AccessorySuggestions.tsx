@@ -16,6 +16,9 @@ import { AccessoryPhoto } from '@/components/domain/accessories/AccessoryPhoto';
  * «Agregar» suma 1; la fila se queda con «En el carrito» para que la lista no salte bajo el dedo. «No, gracias»
  * oculta el recuadro en ESTA visita (estado del componente).
  */
+/** CHK-MOVIL.2.5: tope de tarjetas de sugerencia. */
+export const MAX_SUGGESTIONS = 3;
+
 export function AccessorySuggestions({ exclude, onAdd }: { exclude: string[]; onAdd: (id: string) => void }) {
   const t = useTranslations('checkout.suggestions');
   const locale = useLocale() as AppLocale;
@@ -29,7 +32,8 @@ export function AccessorySuggestions({ exclude, onAdd }: { exclude: string[]; on
     queryFn: () => getAccessorySuggestions(ex),
     staleTime: 60_000,
   });
-  const items = query.data?.items ?? [];
+  // CHK-MOVIL.2.5: máximo 3 tarjetas, una columna.
+  const items = (query.data?.items ?? []).slice(0, MAX_SUGGESTIONS);
   if (hidden || items.length === 0) return null;
 
   return (
@@ -42,10 +46,15 @@ export function AccessorySuggestions({ exclude, onAdd }: { exclude: string[]; on
         {items.map((it) => {
           const added = addedHere.includes(it.id);
           return (
-            <li key={it.id} className="flex items-center gap-4 border-t border-border py-3">
-              <AccessoryPhoto src={it.photo.thumbUrl} alt="" fallbackText={it.name} className="h-16 w-16 shrink-0" />
-              <span className="min-w-0 flex-1 text-[15px] text-text">{it.name}</span>
-              <span className="tabular text-[15px] font-medium text-text">{formatMoneyCents(it.priceCents, locale)}</span>
+            // CHK-MOVIL.1 (causa medida de los 439 px a 390, mocks): foto + nombre + precio + «Agregar» en UNA fila
+            // fijaban un mínimo de 359 px que ensanchaba la pista implícita de la rejilla raíz. Nombre y precio van
+            // apilados en un hijo `min-w-0`: a 320 px la fila cabe sin recortar el importe.
+            <li key={it.id} className="flex min-w-0 items-center gap-3 border-t border-border py-3 sm:gap-4">
+              <AccessoryPhoto src={it.photo.thumbUrl} alt="" fallbackText={it.name} className="h-14 w-14 shrink-0 sm:h-16 sm:w-16" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[15px] text-text [overflow-wrap:anywhere]">{it.name}</span>
+                <span className="tabular text-[15px] font-medium text-text">{formatMoneyCents(it.priceCents, locale)}</span>
+              </span>
               <Button
                 variant="secondary"
                 size="sm"

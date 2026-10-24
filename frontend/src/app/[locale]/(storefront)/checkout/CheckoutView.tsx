@@ -11,7 +11,6 @@ import type { AppLocale } from '@/i18n/routing';
 import type { CheckoutSessionResponse } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
-import { CardImage } from '@/components/ui/CardImage';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -28,6 +27,9 @@ import { AccessoryCartNotices } from './AccessoryCartNotices';
 import { SignedInAccessoriesBlock } from './SignedInAccessoriesBlock';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
 import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
+import { CheckoutLines } from './CheckoutLines';
+import { CheckoutPayBar } from './CheckoutPayBar';
+import { useIsDesktop } from './use-is-desktop';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -45,7 +47,7 @@ import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
  * checkout, en la MISMA ruta `/checkout` (criterio 46):
  *  - CON sesión: exactamente el flujo de abajo, sin un solo cambio de comportamiento
  *    (`/checkout/quote` → `/checkout/session` → Stripe, destino bóveda).
- *  - SIN sesión: `GuestCheckoutView` (gate de identidad + formulario de invitado + upsell
+ *  - SIN sesión: `GuestCheckoutView` (formulario directo + línea T4 + upsell
  *    de bóveda + `/checkout/guest/*`). Un invitado NUNCA toca un endpoint `customer` ni ve
  *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.3.2).
  * Al crear cuenta/iniciar sesión desde el flujo de invitado, `useSession` reacciona y esta
@@ -92,6 +94,9 @@ export function CheckoutView() {
   const [paymentInProgress, setPaymentInProgress] = useState<{ orderId?: string; orderNumber?: string } | null>(null);
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  const isDesktop = useIsDesktop();
+  /** L6: un doble toque en PAGAR crea UNA sesión (el estado `creating` llega tarde para el 2.º evento del tick). */
+  const payInFlight = useRef(false);
 
   const query = useQuery({
     queryKey: ['checkout-quote', cart.ids],
@@ -218,6 +223,8 @@ export function CheckoutView() {
   }
 
   async function pay() {
+    if (payInFlight.current) return;
+    payInFlight.current = true;
     setCreating(true);
     setPayError(null);
     setEmailNotVerified(false);
@@ -254,6 +261,7 @@ export function CheckoutView() {
         setPayError(getMessage(e));
       }
     } finally {
+      payInFlight.current = false;
       setCreating(false);
     }
   }
@@ -272,9 +280,52 @@ export function CheckoutView() {
     if (status === 'succeeded' && confirmed) trackPurchase(confirmed.orderId, confirmed.breakdown, query.data?.items);
   }
 
+  const data = query.data;
+  const payLabel = creating
+    ? t('preparing')
+    : data
+      ? t('pay', { amount: formatMoneyCents(data.breakdown.totalCents, locale) })
+      : t('payNoAmount');
+
+  // Desenlaces (verificación de correo, error, reintento, pago en curso): `aside` en lg+, en flujo en <lg.
+  const notices = (
+    <>
+      {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
+      {vaultUpsellDone && (
+        <div role="status" aria-live="polite" className="mt-6">
+          <p className="font-mono text-[11px] uppercase tracking-label text-success">{t('vaultUpsell.created')}</p>
+          <p className="mt-2 text-xs leading-relaxed text-muted">{t('vaultUpsell.shippingRemoved')}</p>
+        </div>
+      )}
+      {emailNotVerified && (
+        <div className="mt-6">
+          <EmailNotVerifiedNotice />
+        </div>
+      )}
+      {payError && (
+        <p role="alert" className="mt-6 font-mono text-xs text-accent [overflow-wrap:anywhere]">
+          {payError}
+        </p>
+      )}
+      {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R). */}
+      <CheckoutRetryNotice outcome={notice} className="mt-6" />
+      {paymentInProgress && (
+        <PaymentInProgressNotice
+          orderId={paymentInProgress.orderId}
+          orderNumber={paymentInProgress.orderNumber}
+          guest={false}
+          retrying={creating}
+          onRetry={pay}
+          className="mt-6"
+        />
+      )}
+    </>
+  );
+
   return (
-    <div>
-      {/* Artboard «Carrito y pago»: título + promesa de bóveda bajo el hero. */}
+    <div style={isDesktop || !data ? undefined : { paddingBottom: 'calc(var(--sticky-bottom-h, 0px) + 16px)' }}>
+      {/* Artboard «Carrito y pago»: título + promesa de bóveda bajo el hero. CHK-MOVIL.2.6: el subtítulo es TODO
+          el anuncio de la bóveda con cuenta (el bloque de 3 beneficios se retiró). */}
       <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
         <p className="mt-3.5 max-w-[560px] text-[15px] leading-[1.7] text-muted">{t('subtitle')}</p>
@@ -297,73 +348,26 @@ export function CheckoutView() {
         error={query.error}
         onRetry={() => query.refetch()}
       >
-        {query.data && (
-          <div className="grid border-t border-border lg:grid-cols-[1fr_420px]">
-            <div className="gutter border-b border-border pb-14 pt-4 lg:border-b-0 lg:border-r">
-              {/* Líneas del carrito (artboard): miniatura grande, nombre en serif,
-                  meta en mono, «Quitar» bajo la meta y el precio tabular a la derecha. */}
-              {query.data.items.map((item) => (
-                <div
-                  key={item.inventoryItemId}
-                  className="flex items-start gap-4 border-b border-border py-5 sm:gap-5"
-                >
-                  <div className="w-16 shrink-0 sm:w-[92px]">
-                    <CardImage src={item.card.imageSmallUrl} alt={item.card.name} className="p-1" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-serif text-[17px] leading-tight text-text sm:text-[19px]" lang="en">
-                      {item.card.name}
-                    </p>
-                    <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
-                      {/* v1.51-b: `productType`/`rawCondition` viajan DENTRO de `card`
-                          (`OrderItemCardDTO`, contrato §4) — el backend NUNCA los mandó al
-                          nivel del ítem, así que leerlos ahí dejaba el sufijo «· NM» siempre
-                          en blanco. */}
-                      {item.card.setName} · #{item.card.number}
-                      {item.card.productType === 'raw' && item.card.rawCondition
-                        ? ` · ${item.card.rawCondition}`
-                        : ''}
-                    </p>
-                    <button
-                      type="button"
-                      aria-label={t('removeItem')}
-                      onClick={() => cart.remove(item.inventoryItemId)}
-                      className="mt-3.5 font-mono text-[11px] text-muted hover:text-accent"
-                    >
-                      {t('removeItem')}
-                    </button>
-                  </div>
-                  <span className="tabular shrink-0 text-right text-[17px] font-medium text-text sm:text-[19px]">
-                    {formatMoneyCents(item.unitPriceCents, locale)}
-                  </span>
-                </div>
-              ))}
+        {data && (
+          // CHK-MOVIL.1: pista `minmax(0,1fr)` en <lg; los 420 px del resumen solo desde `lg`.
+          <div className="grid grid-cols-[minmax(0,1fr)] border-t border-border lg:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="gutter min-w-0 border-b border-border pb-14 pt-4 lg:border-b-0 lg:border-r">
+              {/* CHK-MOVIL.2.6 (con cuenta, sin formulario): líneas → sugerencias → notas legales → barra. */}
+              <CheckoutLines items={data.items} onRemove={(id) => cart.remove(id)} />
 
               {/* §AC-UX.4 (AC-F7): los accesorios del carrito local van APARTE, no suman y ⛔ nunca se mandan. */}
               <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
 
-              {/* Artboard: recordatorio del valor de la bóveda ANTES de los avisos legales. */}
-              <div className="mt-6 border-t border-border-strong pt-6">
-                <p className="eyebrow">{t('vaultKeepEyebrow')}</p>
-                <ul className="mt-4 max-w-[620px]">
-                  <li className="border-t border-border py-3 text-sm leading-[1.7] text-text">
-                    {t('vaultUpsell.benefit.oneShipmentPlain')}
-                  </li>
-                  <li className="border-t border-border py-3 text-sm leading-[1.7] text-text">
-                    {t('vaultUpsell.benefit.portfolio')}
-                  </li>
-                  <li className="border-y border-border py-3 text-sm leading-[1.7] text-text">
-                    {t('vaultUpsell.benefit.custody')}
-                  </li>
-                </ul>
-              </div>
+              {!isDesktop && <div className="mt-6">{notices}</div>}
 
-              {/* Los tres avisos del contrato, como notas al margen. */}
+              {/* Los tres avisos del contrato, como notas al margen (criterio 48b). T8 junto a «ventas finales». */}
               <p className="rule-note mt-8 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 <span className="font-medium text-text">{t('finalSaleNotice')}</span>{' '}
                 <Link href="/terminos" className="text-accent hover:text-text">
                   {t('viewTerms')}
                 </Link>
+                <br />
+                <span className="font-mono text-[11px]">{t('refundPromise')}</span>
               </p>
               {/* LIVE-8 · sitio 4 (DESIGN_SYSTEM §80.2, criterio 505 ii). */}
               <PrivacySiteNote
@@ -376,70 +380,55 @@ export function CheckoutView() {
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('afterPayment')}
               </p>
-            </div>
-
-            <aside className="gutter h-fit pb-14 pt-8 lg:px-10">
-              {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
-              <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
-              <div className="mt-5">
-                <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
-              </div>
-
-              {/* ⛔ Sin segunda copia de `afterPayment` aquí (B-3b, gate de release s5): DESIGN_SYSTEM §15.3
-                  fija TRES notas al margen («no se añade ni se quita ninguna») y PROJECT 48b exige los
-                  mismos avisos que el checkout de invitado, que pinta una sola. */}
-              {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
-              {vaultUpsellDone && (
-                <div role="status" aria-live="polite" className="mt-6">
-                  <p className="font-mono text-[11px] uppercase tracking-label text-success">
-                    {t('vaultUpsell.created')}
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-muted">{t('vaultUpsell.shippingRemoved')}</p>
-                </div>
-              )}
-
-              {emailNotVerified && (
-                <div className="mt-6">
-                  <EmailNotVerifiedNotice />
-                </div>
-              )}
-              {payError && (
-                <p role="alert" className="mt-6 font-mono text-xs text-accent">
-                  {payError}
-                </p>
-              )}
-              {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R). */}
-              <CheckoutRetryNotice outcome={notice} className="mt-6" />
-              {paymentInProgress && (
-                <PaymentInProgressNotice
-                  orderId={paymentInProgress.orderId}
-                  orderNumber={paymentInProgress.orderNumber}
-                  guest={false}
-                  retrying={creating}
-                  onRetry={pay}
-                  className="mt-6"
-                />
-              )}
-
-              {/* Compromiso final en rojo TCG HUNT, bloque de 54px (artboard). */}
-              <Button
-                variant="accent"
-                loading={creating}
-                disabled={!!paymentInProgress}
-                onClick={pay}
-                className="mt-7 min-h-[54px] w-full tracking-eyebrow"
-              >
-                {creating
-                  ? t('preparing')
-                  : t('pay', { amount: formatMoneyCents(query.data.breakdown.totalCents, locale) })}
-              </Button>
-              {config.useMocks && (
+              {config.useMocks && !isDesktop && (
                 <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{t('stripeMock')}</p>
               )}
-            </aside>
+            </div>
+
+            {isDesktop && (
+              <aside className="gutter h-fit min-w-0 pb-14 pt-8 lg:sticky lg:top-[var(--app-header-h,0px)] lg:px-10">
+                {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
+                <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
+                <div className="mt-5">
+                  <AmountBreakdown breakdown={data.breakdown} variant="purchase" />
+                </div>
+
+                {/* ⛔ Sin segunda copia de `afterPayment` aquí (B-3b, gate de release s5): DESIGN_SYSTEM §15.3
+                    fija TRES notas al margen («no se añade ni se quita ninguna») y PROJECT 48b exige los
+                    mismos avisos que el checkout de invitado, que pinta una sola. */}
+                {notices}
+
+                {/* Compromiso final en rojo TCG HUNT, bloque de 54px (artboard). */}
+                <Button
+                  variant="accent"
+                  loading={creating}
+                  disabled={!!paymentInProgress}
+                  onClick={pay}
+                  className="mt-7 min-h-[54px] w-full tracking-eyebrow"
+                >
+                  {payLabel}
+                </Button>
+                {config.useMocks && (
+                  <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{t('stripeMock')}</p>
+                )}
+              </aside>
+            )}
           </div>
         )}
       </QueryState>
+
+      {/* CHK-MOVIL.2.4 «Con sesión, la misma barra»: T3b (sin envío: la compra va a la bóveda, §4-G.12 punto 1). */}
+      {data && !isDesktop && (
+        <CheckoutPayBar
+          summaryLine={t('bar.includesFee', { fee: formatMoneyCents(data.breakdown.processingFeeCents, locale) })}
+          totalLabel={formatMoneyCents(data.breakdown.totalCents, locale)}
+          payLabel={creating ? t('preparing') : t('payNoAmount')}
+          loading={creating}
+          disabled={!!paymentInProgress}
+          onPay={pay}
+          breakdown={<AmountBreakdown breakdown={data.breakdown} variant="purchase" />}
+        />
+      )}
 
       <StripePaymentModal
         open={!!session}
@@ -447,9 +436,7 @@ export function CheckoutView() {
         clientSecret={session?.stripe.clientSecret ?? null}
         returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/${locale}/orders`}
         title={t('payTitle')}
-        amountLabel={
-          query.data ? formatMoneyCents(query.data.breakdown.totalCents, locale) : undefined
-        }
+        amountLabel={data ? formatMoneyCents(data.breakdown.totalCents, locale) : undefined}
         onConfirmed={onConfirmed}
       />
     </div>

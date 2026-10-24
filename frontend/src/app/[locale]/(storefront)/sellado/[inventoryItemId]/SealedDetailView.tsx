@@ -23,6 +23,7 @@ import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
+import { FinalSaleLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 
 /** §MKT.H.4 (v1.106): identidad canónica del sellado — `s_<sealedProductId>` o `sc_<cardId ancla>`, nunca la pieza. */
 function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'> & { card: { id: string } }) {
@@ -208,6 +209,10 @@ function Detail({
               />
             </div>
           </div>
+
+          {/* T1b + T8 (§CHK-MOVIL.4): bajo el precio, fuera de su celda; importes del endpoint público. */}
+          <ShippingFeeHint kind="sealed" className="mt-3" />
+          <FinalSaleLine className="mt-1" />
 
           {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
           <div className="mt-7">
