@@ -23,7 +23,9 @@
   T6, TOTAL + PAGAR; `useStickyBottomBar`; contenido con `padding-bottom: calc(var(--sticky-bottom-h) + 16px)`; se desmonta
   con un campo de texto enfocado y solo reaparece sin puntero abajo (si no, el toque sobre la casilla de abajo caía en la
   barra: 10/10 a 360×740 antes del arreglo). En lg+ el `aside` de siempre. **Una sola copia** de PAGAR y del desglose en
-  el DOM (se decide por JS). Doble envío: guarda `payInFlight` (ref) además de `loading`, en las dos vistas.
+  el DOM (se decide por JS con `minWidthQuery('lg')`; choca con §37.1a «el contenedor nunca por JS», cuyo motivo —destello
+  al hidratar— no se da aquí porque el checkout es solo de cliente: pedido a ux-ui que lo reconcilie). Doble envío: guarda
+  `payInFlight` (ref) además de `loading`, en las dos vistas.
 - **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
   `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, solo
   `kind='sealed'` y falta > 0), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con

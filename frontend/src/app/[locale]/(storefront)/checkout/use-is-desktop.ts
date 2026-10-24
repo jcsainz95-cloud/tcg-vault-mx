@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { minWidthQuery } from '@/lib/breakpoints';
 
-/** `lg` de Tailwind (sin `screens` propios en `tailwind.config.ts`): desde aquí el `aside` sustituye a la barra fija. */
-export const CHECKOUT_DESKTOP_QUERY = '(min-width: 1024px)';
+/** `lg` (DESIGN_SYSTEM §4.4, única fuente `lib/breakpoints.ts`): desde aquí el `aside` sustituye a la barra fija. */
+export const CHECKOUT_DESKTOP_QUERY = minWidthQuery('lg');
 
 function read(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
@@ -13,8 +14,9 @@ function read(): boolean {
 /**
  * CHK-MOVIL.2.4 — ¿`aside` (lg+) o barra fija (<lg)? Se decide por JS y no por CSS a propósito: el diseño exige
  * **una sola copia del desglose y del botón PAGAR en el DOM** (dos botones de pago son dos caminos a una sesión,
- * L6). El checkout solo se pinta en cliente (`CheckoutView` espera a `useSession().ready`), así que el valor
- * inicial ya es el real: sin destello ni desajuste de hidratación. En jsdom `matchMedia` devuelve `false`
+ * L6). Esto choca con §37.1a («el contenedor nunca se decide por JS»), cuyo motivo es el destello al hidratar y el
+ * DOM duplicado: aquí no se da ninguno de los dos, porque el checkout solo se pinta en cliente (`CheckoutView` espera
+ * a `useSession().ready`) y el valor inicial ya es el real. La tensión entre las dos reglas va a ux-ui (FRONTEND_NOTES). En jsdom `matchMedia` devuelve `false`
  * (vitest.setup): las pruebas de unidad ven la variante móvil salvo que lo simulen.
  */
 export function useIsDesktop(): boolean {

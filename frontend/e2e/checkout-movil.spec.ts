@@ -206,6 +206,7 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
 
   for (const locale of ['es', 'en'] as const) {
     test(`T1a/T1b en la ficha y T3a en la barra (${locale})`, async ({ page }) => {
+      mockOnly('navega a fichas de fixture (c-charizard, inv-1008)');
       await page.goto(`/${locale}/catalog/c-charizard`);
       await expect(page.getByTestId('shipping-fee-hint').first()).toHaveText(shape(locale, 'checkout.feeHint.cardsOnly'));
       await page.goto(`/${locale}/sellado/inv-1008`);
