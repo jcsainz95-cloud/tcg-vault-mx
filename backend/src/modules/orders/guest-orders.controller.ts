@@ -1,4 +1,4 @@
-import { Body, Controller, Header, HttpCode, Ip, Optional, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Ip, Optional, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
@@ -22,7 +22,7 @@ const HOUR_MS = 3_600_000;
  * `/checkout/session`, un invitado por aquí. NO hay endpoint que sirva a los dos (§4-G.0-3).
  *
  * Los rate limits son los TABULADOS por el contrato, por handler (el guard global sigue vigente):
- *   quote 30/min · session 5/h · track 20/min · resend-link 3/h (+ tope por pedido de 5/24h).
+ *   quote 30/min · session 5/h · track 20/min · resend-link 3/h (+ tope por pedido de 5/24h) · shipping-rule 60/min.
  */
 @Controller()
 export class GuestOrdersController {
@@ -40,6 +40,19 @@ export class GuestOrdersController {
   @HttpCode(200)
   quote(@Body() dto: GuestQuoteDto) {
     return this.guest.quote(dto);
+  }
+
+  /**
+   * 💰 v1.109 (§4-G.12 punto 5) — la regla de envío para la ficha, sin cotizar. `@Public` y ⛔ SIN
+   * `RejectAuthenticatedGuard` (no rechaza una sesión válida: la ficha la ven todos). Informativo: lo cobrado lo decide
+   * `session`. Caché pública de 300 s (los diales cambian rara vez) y 60/min por IP.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('checkout/shipping-rule')
+  @Header('Cache-Control', 'public, max-age=300')
+  shippingRule() {
+    return this.guest.publicShippingRule();
   }
 
   /**
