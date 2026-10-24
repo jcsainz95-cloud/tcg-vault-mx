@@ -2,6 +2,26 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
+## §ENV-V2 · Regla de envío v2 en tipos, mock y M10 (2026-10-24, rama `fe-envio-medir`, base `5c7e652b`, contrato v1.109)
+
+**Estado vigente.** Norma: `API_CONTRACT §4-G.12` (un hecho, un sitio: aquí solo lo que hace el front).
+- **Tipos** (`types/contract.ts`): `GuestShippingRuleDTO` (`shippingRule` del quote de invitado, opcional solo por
+  tolerancia a un servidor anterior), `PublicShippingRuleDTO` (`GET /checkout/shipping-rule`, `getPublicShippingRule`)
+  y los tres diales `directShip*` en `SettingsDTO`. ⛔ Ninguna pantalla de cliente los consume todavía: T1a/T1b/T3a/T8/T9
+  y el checkout A/B esperan al dueño (y T3a/T9 chocan con `FORBIDDEN_PHRASES`, MKT-8).
+- **Convención (dueño 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido», relayada por el orquestador):** los tres
+  diales son CON IVA INCLUIDO; la `E` exhibida ES el valor del dial (10000 / 17500; umbral 400000). ⚠️ El texto de
+  v1.109 aún dice `F` neto y ENV-1/ENV-6 con 11600/20300: corrección pedida al arquitecto (v1.110). El retiro de bóveda
+  (`shippingFeeCents`) sigue neto.
+- **Mock** (`lib/mock/shipping-rule.ts`): pasos 1-3 de §4-G.12 con los diales de `fx.mockSettings` (los que M10
+  escribe). Quote, sesión (ENV-3: misma función) y pedido demo de seguimiento la usan; `shippingBox` sigue `null` en el
+  mock. Paridad en `lib/mock/shipping-rule.parity.test.ts`: lee del contrato la tabla de defaults y el ejemplo de
+  `shippingRule` (lo que la decisión no movió); los casos de ENV-1 van con la convención del dueño.
+- **M10** (`admin/m10/sections/DirectShipSection.tsx`, «Envío a domicilio»): los tres diales en pesos, `PUT` parcial en
+  centavos, `422` por campo, sin pintar nada si el servidor no trae las claves. «IVA incluido» pegado a cada campo
+  (sufijo) y en la ayuda; una nota recuerda que el retiro de bóveda va antes de IVA. La copia de admin evita «envío gratis»
+  (trinquete de `seo-content.test.ts` sobre todo `messages/`). REL-S7 (`M10View.test.tsx`) los deja fuera del listado genérico.
+
 ## §MKT2 · Fase 2 de marketing (banner, Consent Mode básico, GA4, píxel) — construida y APAGADA (2026-10-19, base `b95fbbac`)
 
 **Estado vigente.** Norma: `API_CONTRACT §MKT.H` (v1.102), `ARCHITECTURE §14`, `DESIGN_SYSTEM §MKT2-UX`. Con
@@ -16,7 +36,18 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `next.config.mjs`; los `.map` del middleware copian el fuente entero, por eso la lista no vive en `csp.ts`).
   Candado de fuente `lib/measurement/source-lock.test.ts`; de artefacto, `e2e/measurement-off.spec.ts` (C-F1).
 - **Módulos:** `lib/measurement/*.ts`, `components/consent/*.tsx`, `hooks/useStickyBottomBar.ts` (`usePublishedHeight`: barras
-  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido).
+  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido);
+  `measurementPolicyFor` es la única puerta (cargador, `track()`, `consentForRoute`). Navegación dura: `hard-navigation.ts`.
+- **v1.109 (MKT-MEDIR-CS b, 2026-10-24):** `/buylist` medida (D-MKT2-8): el paso de crear (resumen + `BuylistKycForm`)
+  salió del modal a `/buylist/solicitud` (excluida, `noindex`), al que «Enviar solicitud» llega SIEMPRE con
+  `location.assign` (`buylist/request-step.ts`); el carrito cruza por `localStorage`, el paso recotiza y espera KYC y el
+  veredicto de INE (`ineVerdictPending`, nuevo en `useSellRequirements`) antes de montar el formulario. `/card-show` en
+  `MEASURED_UNLOCALIZED_PATHS` (exacta; `confirm`/`cancel`/`unsubscribe` fuera): `CardShowMeasurement` (layout raíz de la
+  landing, segundo importador del cargador en `source-lock.test.ts`) **sin banner**: honra un `th_consent` ya guardado,
+  solo GA4 y solo `page_view` (política `page_view_only`, sin píxel). C-F5 ampliado: `SellRequestStep.cf5.test.tsx` +
+  `measurement-on.spec.ts` («/buylist → paso»); C-F9: `routes.test.ts` + `measurement-on.spec.ts` («/card-show»).
+  **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
+  quien llega a `/card-show` sin haber elegido en la tienda no se mide.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
   `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
   escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
@@ -49,7 +80,7 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3**, **MKT-F2-4** y **MKT-TL2** (backend).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend; leído el 2026-10-24).
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
@@ -92,6 +123,8 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
 
 ## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
 
+**v1.109 (2026-10-24):** el mock de la pantalla b sirve b5/b6 del Card Show (`cardShowTables`: `avisame`/`torneo`, sin MX$,
+«< 5» por componente; copia de `CS_HEADS`/`csTable` del servicio en `21a7f637`); `MarketingTable.b5b6.test.tsx`.
 **Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
 (`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
 `frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
@@ -5457,65 +5490,10 @@ Las dos etiquetas "Enviar solicitud" se distinguen: el **CTA del carrito** es "E
 ### Gates (todos verdes)
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` (153) ✓ · `npm run build` ✓ (incluye paridad i18n ES/EN).
 
-## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16
-
-Feature **solo frontend** (sin cambio de contrato). El cotizador dejó de ser un flujo de
-una-carta-a-la-vez y ahora es un **carrito**: se cotizan varias cartas y se envían en **una sola**
-`POST /buylist/requests` (que ya recibía `items: RequestItemDto[]`). No se inventó ningún endpoint
-batch: `POST /buylist/quote` sigue siendo **por carta** y sus resultados son **estimados** que se
-snapshotean en cada línea; el monto autoritativo lo re-deriva el backend server-side (SEC-A1).
-
-### Archivos tocados (todos dentro de `frontend/`)
-- `src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — reescrito: estado de carrito + panel de
-  carrito + total estimado + envío único.
-- `src/components/domain/BuylistKycForm.tsx` — props cambiadas de `{cardId, productType}` a
-  `{items: BuylistRequestItem[]}`; el form ahora envía **todos** los items del carrito (ya
-  expandidos). Nuevo tipo exportado `BuylistRequestItem = {cardId, productType, rawCondition?}`.
-- `messages/es.json` / `messages/en.json` — llaves nuevas del carrito (paridad ES/EN).
-- Tests: `BuylistView.test.tsx` (agrega casos de carrito), `BuylistKycForm.test.tsx` (props `items`),
-  `e2e/buylist.spec.ts` (flujo cotizar → agregar al carrito → enviar).
-
-### Flujo del carrito (pasos + UI)
-1. **Buscar** por set y/o texto sobre TODO el catálogo (`GET /buylist/cards`, `GET /buylist/sets`).
-2. **Elegir carta** de los resultados (`role=option`).
-3. **Elegir tipo** (`raw|graded|sealed`; raw fija `NM`, sin selector) y **Cotizar**
-   (`POST /buylist/quote`, por carta).
-4. **Agregar al carrito** (botón `accent`): añade una **línea** con el snapshot del estimado
-   (`BuylistQuoteResponse`) y `quantity=1`. Se puede agregar la misma carta varias veces (líneas
-   independientes) y/o subir la **cantidad** por línea.
-5. **Panel de carrito** (sección full-width bajo el cotizador): lista de líneas (nombre/set/rareza/
-   tipo + estimado c/u + control −/N/+ de cantidad + quitar), **Total estimado** (suma
-   `quotedPriceCents × cantidad`; las líneas `precio_pendiente` muestran "Precio pendiente" y aportan
-   0), **nota de estimado** (SEC-A1) y **nota de KYC**. Carrito vacío → `EmptyState`, sin botón de
-   enviar.
-6. **Enviar solicitud ({count})** (habilitado con ≥1 línea) abre **una sola vez** el `BuylistKycForm`
-   (CLABE + INE por presign `kyc_ine`) y llama `createSellRequest` con todos los items. Al crear:
-   limpia el carrito, invalida `['sell-requests']` y muestra el banner de éxito. El requisito de
-   INE/tope lo decide el **backend por el TOTAL** (no se reimplementa en el front).
-
-### Expansión cantidad → items
-Al enviar, `cart.flatMap(line => Array(line.quantity).fill({cardId, productType, rawCondition}))`
-produce el array `items`: una línea con `quantity=3` genera **3 entradas** idénticas (el modelo es
-1 item por carta física). El payload solo lleva `cardId/productType/rawCondition`; **no** se envían
-precios ni categorías (el `ValidationPipe` descarta lo demás; SEC-A1).
-
-### SEC-A1 / claridad
-- El total del carrito se rotula explícitamente como **ESTIMADO** (`buylist.estimateNote`): "el monto
-  final lo confirma la plataforma al recibir y verificar".
-- No se envía monto/categoría/rareza en el payload; el backend re-deriva la regla de `Card.rarity`.
-
-### Historial de "mis solicitudes"
-Intacto: sigue consumiendo `GET /buylist/requests` y renderizando `PipelineStepper` + items con sus
-`StatusBadge`. Solo se invalida su query tras crear una solicitud.
-
-### Gates (frontend/)
-`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (144/144, incluye paridad i18n y los
-casos nuevos de carrito: agregar, quitar, cantidad, total, envío con múltiples items) ·
-`npm run build` ✓.
-
-### Solicitudes al arquitecto
-Ninguna. El contrato ya soportaba múltiples ítems en `POST /buylist/requests`; no hizo falta ningún
-campo/endpoint nuevo.
+## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16 · compactada 2026-10-24
+Histórico (el flujo de búsqueda/tipo que describía se retiró en v1.21/v1.53; el paso de crear salió del modal en v1.109,
+§MKT2). Vigente de entonces: una línea por (carta, acabado, `productId`), `quantity` se expande a N `items` al enviar
+y el payload no lleva montos (SEC-A1). Texto completo: la versión de este fichero en `5c7e652b`.
 
 ## v1.5-auth-email — Verificación de correo + recuperación self-service (2026-08-16)
 

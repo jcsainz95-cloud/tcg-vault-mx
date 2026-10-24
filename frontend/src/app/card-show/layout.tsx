@@ -4,6 +4,7 @@ import localFont from 'next/font/local';
 import { headers } from 'next/headers';
 import { NONCE_HEADER } from '@/security/csp';
 import { CARD_SHOW } from '@/content/card-show';
+import { CardShowMeasurement } from '@/components/consent/CardShowMeasurement';
 import '../globals.css';
 import './card-show.css';
 
@@ -105,7 +106,11 @@ export default async function CardShowLayout({ children }: { children: React.Rea
       className={`${zenOldMincho.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
       data-csp={nonce ? 'nonce' : undefined}
     >
-      <body className="min-h-dvh bg-bg font-sans text-text antialiased">{children}</body>
+      <body className="min-h-dvh bg-bg font-sans text-text antialiased">
+        {children}
+        {/* ARCHITECTURE §14.4 (D-MKT2-9, C-F9): solo `page_view` a GA4 con una elección ya guardada; con `off`, nada. */}
+        <CardShowMeasurement />
+      </body>
     </html>
   );
 }

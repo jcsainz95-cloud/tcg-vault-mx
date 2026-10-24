@@ -474,6 +474,10 @@ export const mockReferenceByCardId: Record<string, number | null> = {
 // ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
 export let mockSettings: SettingsDTO = {
   shippingFeeCents: 17500,
+  // 💰 v1.109 (§4-G.12 punto 3, MOCK con los defaults del contrato): los tres CON IVA INCLUIDO (dueño 2026-10-24).
+  directShipCardsFeeCents: 10000,
+  directShipSealedFeeCents: 17500,
+  directShipFreeFromCents: 400000,
   // §AC.11 (MOCK): diales de accesorios con sus defaults del contrato.
   energyBundlePriceCents: 2000,
   accessorySuggestionCount: 3,

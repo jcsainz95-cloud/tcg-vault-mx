@@ -19,6 +19,13 @@ import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
 import * as mockAcc from './mock/accessories';
+import {
+  DIRECT_SHIP_DEFAULT_DIALS,
+  directShipFeeOf,
+  shippingRuleKindOf,
+  type DirectShipDials,
+  type DirectShipFee,
+} from './mock/shipping-rule';
 import type {
   Paginated,
   ListingDTO,
@@ -338,6 +345,7 @@ import * as spendMock from './mock/spend-alerts';
 import * as salesMock from './mock/sales';
 import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
+import type { PublicShippingRuleDTO } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
 import * as wishlistMock from './mock/wishlist';
 import type {
@@ -1288,7 +1296,7 @@ function mockCheckoutSessionOutcome(
   inventoryItemIds: string[],
   caller: mockReservation.MockCaller,
   subtotalCents: number,
-  guest: { email: string; checkoutToken: string } | null,
+  guest: { email: string; checkoutToken: string; shippingFeeCents: number } | null,
 ): CheckoutSessionResponse & { checkoutToken?: string } {
   const decision = mockReservation.decideMockSession(inventoryItemIds, caller);
   if (decision.kind === 'unavailable') {
@@ -1302,7 +1310,7 @@ function mockCheckoutSessionOutcome(
     });
   }
   const breakdown = guest
-    ? computeGuestBreakdown(subtotalCents, MOCK_SHIPPING_FEE_CENTS)
+    ? computeGuestBreakdown(subtotalCents, guest.shippingFeeCents)
     : computeBreakdown(subtotalCents);
   if (decision.kind === 'reuse') {
     const renewed = mockReservation.commitMockSession(
@@ -7138,8 +7146,43 @@ export async function getSalesToday(): Promise<SalesTodayDTO> {
 //    el webhook del settle y llega SOLO por correo (§4-G.7a).
 // ============================================================================
 
-/** Tarifa fija de envío (dial SHIPPING_FEE_CENTS, default 17500). MOCK: el valor real viaja en el BreakdownDTO. */
-const MOCK_SHIPPING_FEE_CENTS = 17500;
+/**
+ * 💰 v1.109 (§4-G.12, MOCK): la tarifa del envío directo ya no es una constante. Sale de los tres diales de
+ * `fx.mockSettings` (los que M10 escribe), CON IVA INCLUIDO (dueño 2026-10-24), con la MISMA regla que el servidor
+ * (`lib/mock/shipping-rule.ts`, paridad en `shipping-rule.parity.test.ts`). El valor real viaja en el
+ * `BreakdownDTO` y en `shippingRule`.
+ */
+function mockDirectShipDials(): DirectShipDials {
+  const s = fx.mockSettings;
+  return {
+    cardsFeeCents: s.directShipCardsFeeCents ?? DIRECT_SHIP_DEFAULT_DIALS.cardsFeeCents,
+    sealedFeeCents: s.directShipSealedFeeCents ?? DIRECT_SHIP_DEFAULT_DIALS.sealedFeeCents,
+    freeFromCents: s.directShipFreeFromCents ?? DIRECT_SHIP_DEFAULT_DIALS.freeFromCents,
+  };
+}
+
+/** MOCK §4-G.12 pasos 1-3 sobre las piezas y los accesorios del carrito (sin cajas: `shippingBox: null`). */
+function mockGuestDirectShip(listings: ListingDTO[], accessoryCount: number, subtotalCents: number): DirectShipFee {
+  const kind = shippingRuleKindOf({ productTypes: listings.map((l) => l.productType), accessoryCount });
+  return directShipFeeOf(kind, subtotalCents, mockDirectShipDials());
+}
+
+/**
+ * `GET /checkout/shipping-rule` (§4-G.12 punto 5) — `public`, cacheable 5 min. Las `E` ya derivadas; informativo
+ * (lo cobrado lo decide `session`). Sin Bearer: es público y no rechaza una sesión, pero no la necesita.
+ */
+export async function getPublicShippingRule(): Promise<PublicShippingRuleDTO> {
+  if (!config.useMocks) return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule');
+  const d = mockDirectShipDials();
+  return delay({
+    // Diales con IVA incluido (dueño 2026-10-24): la `E` exhibida ES el valor del dial.
+    cardsOnlyFeeCents: d.cardsFeeCents,
+    sealedFeeCents: d.sealedFeeCents,
+    freeFromCents: d.freeFromCents,
+    currency: 'MXN' as const,
+    ivaIncluded: true as const,
+  });
+}
 
 /**
  * MOCK: réplica local de `computeDirectShipBreakdown` (contrato §4-G / ARCHITECTURE §5.1).
@@ -7148,10 +7191,8 @@ const MOCK_SHIPPING_FEE_CENTS = 17500;
  * copias de la misma aritmética de dinero es cómo se consigue que una se arregle y la otra no —
  * y es justo lo que pasó aquí con el gross-up sin IVA de la comisión.
  *
- * ⚠️ **§M10-IVA.4 — bajo `IVA_INCLUSIVE` el envío TAMBIÉN lleva su IVA dentro** y es
- * *money-neutral*: `round(17500 × 1.16) = 20300`, exactamente lo que hoy aportan `17500 + 2800`.
- * `MOCK_SHIPPING_FEE_CENTS` se mantiene en el **valor del dial** y el mock **no lo multiplica**;
- * si el servidor real pasa a emitir `20300`, es el servidor quien lo dice, no esta réplica.
+ * ⚠️ **§M10-IVA.4 — bajo `IVA_INCLUSIVE` el envío TAMBIÉN lleva su IVA dentro**: `shippingFeeCents` llega
+ * aquí YA exhibido (`E`, v1.109 con los diales con IVA incluido: `17500` sellado, `10000` solo cartas).
  */
 function computeGuestBreakdown(subtotalCents: number, shippingFeeCents: number): BreakdownDTO {
   return computeBreakdown(subtotalCents, shippingFeeCents);
@@ -7225,6 +7266,12 @@ export async function getGuestCheckoutQuote(
   );
   const subtotal = cardsSubtotal + acc.extraSubtotalCents;
   const nothing = items.length === 0 && acc.accessoryLines.length === 0;
+  // 💰 v1.109 (§4-G.12): energía, paquetes y decks cuentan como accesorio (D-ENV-3) ⇒ regla del sellado.
+  const ship = mockGuestDirectShip(
+    items,
+    nothing ? 0 : acc.accessoryLines.length + acc.energyBundles.length + (extras?.deckPulls?.length ?? 0),
+    subtotal,
+  );
   return delay({
     // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
     // checkout de invitado pintaba el mismo hueco gris por la misma causa.
@@ -7238,7 +7285,7 @@ export async function getGuestCheckoutQuote(
     })),
     fulfillmentMode: 'direct_ship' as const,
     ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, guestCaller),
-    breakdown: nothing ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    breakdown: nothing ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, ship.feeCents),
     // v1.21.4-dual-breakdown (§4-G.1, N-12): SEGUNDO desglose para el destino BÓVEDA — solo
     // cartas, SIN envío (IVA solo sobre subtotal, gross-up sobre la base menor). Es EXACTAMENTE
     // computeCartBreakdown, que aquí es `computeBreakdown(subtotal)` (la réplica local que ya
@@ -7257,6 +7304,7 @@ export async function getGuestCheckoutQuote(
     // MOCK: sin cajas con tarifa ⇒ tarifa de hoy (§AC.7, `null`).
     shippingBox: null,
     vaultExcludesAccessories: acc.accessoryLines.length + acc.energyBundles.length > 0,
+    shippingRule: ship.rule,
   });
 }
 
@@ -7321,6 +7369,12 @@ export async function createGuestCheckoutSession(
     throw new ApiClientError(422, { code: 'ENERGY_BUNDLE_INVALID', message: 'bundle', details: { index: badBundle.index, deckSlug: badBundle.deckSlug, reason: badBundle.reason } });
   }
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) + accSession.extraSubtotalCents;
+  // ENV-3: la sesión cobra con la MISMA función que el quote.
+  const ship = mockGuestDirectShip(
+    items,
+    accSession.accessoryLines.length + accSession.energyBundles.length + (input.deckPulls?.length ?? 0),
+    subtotal,
+  );
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
   // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
   const email = input.email.trim().toLowerCase();
@@ -7331,7 +7385,7 @@ export async function createGuestCheckoutSession(
     input.inventoryItemIds,
     { kind: 'guest', email, retryOfCheckoutToken: input.retryOfCheckoutToken },
     subtotal,
-    { email, checkoutToken },
+    { email, checkoutToken, shippingFeeCents: ship.feeCents },
   );
   return delay({
     orderId: outcome.orderId,
@@ -7400,7 +7454,8 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
       unitPriceCents: l.displayPriceCents ?? 0,
     })),
-    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    // Pedido demo de solo cartas: la tarifa con la que se cobró (§4-G.12 punto 6: congelada; aquí, la regla vigente).
+    breakdown: computeGuestBreakdown(subtotal, mockGuestDirectShip(listings, 0, subtotal).feeCents),
     shipping: {
       city: 'Guadalajara',
       state: 'Jalisco',

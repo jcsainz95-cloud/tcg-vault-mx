@@ -687,7 +687,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     await openCart(page);
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
-    const dialog = page.getByRole('dialog');
+    // v1.109 (D-MKT2-8): el paso de crear es una RUTA excluida de la medición (`/buylist/solicitud`), no un modal.
+    await page.waitForURL(/\/es\/buylist\/solicitud$/);
+    const dialog = page.getByRole('region', { name: t('es', 'buylist.requestTitle') });
     // Resumen de la venta antes de confirmar (cartas + total + vigencia).
     await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
     await expect(dialog.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
@@ -741,7 +743,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     await ensureMinimumReached(page);
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
-    const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
+    // v1.109 (ARCHITECTURE §14.4, D-MKT2-8): el paso de crear es una RUTA (`/buylist/solicitud`), no un modal.
+    await page.waitForURL(/\/es\/buylist\/solicitud$/);
+    const dialog = page.getByRole('region', { name: t('es', 'buylist.requestTitle') });
     const clabe = dialog.getByLabel(/CLABE/);
     await expect(clabe).toBeVisible();
     await choosePickupAddress(dialog);
@@ -802,7 +806,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
 
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
-    const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
+    // v1.109 (ARCHITECTURE §14.4, D-MKT2-8): el paso de crear es una RUTA (`/buylist/solicitud`), no un modal.
+    await page.waitForURL(/\/es\/buylist\/solicitud$/);
+    const dialog = page.getByRole('region', { name: t('es', 'buylist.requestTitle') });
     await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
 
     // D36/D37: sin dirección de origen no se crea la solicitud (el botón está apagado).
