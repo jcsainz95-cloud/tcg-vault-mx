@@ -4,6 +4,9 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.109⟨envio-v2⟩ (2026-10-24, arquitecto, árbol vivo, sin Bash).** **§14.4:** `/buylist` (D-MKT2-8) y `/card-show` (D-MKT2-9)
+> entran a la lista blanca; §14.10 pregunta 3 contestada. Regla de envío v2: solo en API_CONTRACT §4-G.12 (un hecho, un sitio).
+> ---
 > **Rev v1.107⟨mkt-celdas⟩ (2026-10-19, arquitecto, leído en el árbol vivo, sin Bash).** **§13.7:** D-MKT-PANEL-5 (umbral por componente
 > y sujeto, registro de poblaciones, auditor de rango). **§9:** `D-MKT-CELLS-1`; R4 y D-MKT-1 cerradas. Contrato: API_CONTRACT §MKT.H.14.
 > ---
@@ -30,37 +33,9 @@
 > de identidad de una pieza) y **§5.2.6** (el acta congela el nombre del sellado; `FrozenCardFacts` += `sealedProductId?`/
 > `sealedProductName?`, sin migración: `cardSnapshot` es JSON). Contrato: API_CONTRACT v1.94⟨sellado-display⟩.
 > ---
-> **Errata v1.94.1⟨sellado-display⟩ — RE-ENUMERACIÓN SEMÁNTICA tras el rechazo de QA/techlead a `b70e272`** (2026-10-13,
-> arquitecto, rama `fix/sealed-display`; ⛔ sha NO MEDIDO: sin Bash). El resolutor único de `b70e272` está bien, pero la
-> enumeración de superficies se hizo con `grep '\.card\.name'` y **dejó pasar accesos ALIASEADOS** (`const card =
-> x.inventoryItem.card; … card.name`), con **superficies de cara al cliente filtrando el ancla**. Esta errata re-enumera
-> SEMÁNTICAMENTE (toda lectura de la relación `InventoryItem.card`), cierra **3 escapes** (`toClientShipmentItem` §5 —
-> BLOQUEANTE; imagen del tracking de invitado §4-G; correo AV-12), **unifica las 4 copias divergentes de la cascada
-> (D-2)** al resolutor, **corrige D-4** (el nombre de un sellado JAMÁS cae al ancla — el doc se contradecía) y **exige la
-> suite de integración/E2E** (hoy inexistente pese a que `sealed-display.be.spec.ts:15-16` afirma que existe). Método,
-> tabla-veredicto por fichero:línea y reparto en **§4.34a.2(B)/(E)**; forma de `ClientShipmentItemDTO` en API_CONTRACT §5.
-> Único cambio de FORMA de contrato: `ClientShipmentItemDTO` gana `productType` y su `imageSmallUrl` pasa a `string|null`
-> (ambos aditivos/retrocompatibles). Lo demás es CÓDIGO (backend) sin cambio de contrato. Tres veredictos (dinero/fulfillment).
-> ---
-> **Errata v1.94.2⟨sellado-display⟩ — EL CANDADO MECÁNICO ES AHORA EL MECANISMO NORMATIVO; se corrige la sobre-afirmación
-> M-3 (QA/techlead)** (2026-10-13, arquitecto, rama `fix/sealed-display`, árbol `dde121d`; ⛔ sha NO MEDIDO: sin Bash).
-> **Esta errata NO cambia ninguna forma de contrato ni el schema; corrige doctrina y cierra el hallazgo M-3.**
-> - **M-3 corregido (sobre-afirmación medida 3 veces):** la v1.94.1 llamó a la re-enumeración «SEMÁNTICA» y afirmó que
->   «cierra el hueco» / que la lista era «COMPLETA». **Eso era una afirmación de clase (B) escrita como (A)** (§0-B): una
->   enumeración a mano —por grep, por directorio, o por lectura humana— es exhaustiva el día que se escribe y nunca más,
->   y **falló tres veces** (grep en `b70e272`, y dos relecturas humanas que seguían dejando ofensores). La completitud
->   **ya NO depende de ninguna enumeración**: la **garantiza el candado `backend/test/sealed-display-guard.spec.ts`**
->   (escaneo estático que FALLA en CI ante cualquier lectura del `card.name`/`card.number`/`card.imageSmallUrl` del ancla
->   —directa **o aliaseada**— para un sellado fuera de `pieceDisplayIdentityOf`, salvo allowlist explícita con razón).
->   Las tablas de (B)/(E) pasan a ser **evidencia histórica de cómo se descubrió la clase, NO el inventario que la cierra**.
-> - **Ratificación:** el candado es el mecanismo normativo de la doctrina **«no se copia la cascada de display en ningún
->   servicio»** (§4.34a.2(C)); el censo de allowlist (31 entradas, cada una con razón) es su contraparte auditable. El
->   candado cazó 4 ofensores fuera del alcance normado (§4.34a.2(F)) que tres enumeraciones a mano no vieron.
-> - **Dos preguntas de política que backend rebotó (regla 9), resueltas en §4.34a.2(F):** (a) el export `.xlsx` de
->   inventario muestra la **carta ancla** en «Carta»/«Número» para toda pieza incl. sellada → **ACEPTABLE por diseño**
->   (volcado crudo del inventario del dueño; la columna «Tipo» desambigua), queda en la allowlist; (b) `PriceReviewCaseDTO.card`
->   y la cola M2 → **CORRECTO por diseño** (🔵), el bloque `card` es la identidad del ancla por contrato y la del sellado
->   viaja aparte (`sealedProductName` resuelto). Ninguna es la clase «cascada `?? card.name` del NOMBRE de un sellado».
+> **Erratas v1.94.1-v1.94.2⟨sellado-display⟩ (2026-10-13), compactadas en v1.109:** re-enumeración de lecturas aliaseadas del
+> ancla (3 escapes cerrados) y, sobre todo, la completitud la garantiza el candado `backend/test/sealed-display-guard.spec.ts`
+> (allowlist con razón), no una lista. Norma y casos aceptados por diseño: §4.34a.2(B)/(C)/(E)/(F).
 > ---
 > **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: redundancia multi-fuente, árbitro de MEDIANA y candado anti-inflado ×5**
 > (2026-10-11, arquitecto, rama `claude/precios-redundancia` en `/home/user/tcg-precios`, base `1ba098a4` según el
@@ -29589,7 +29564,7 @@ de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es cor
 | `SealedProduct` exige set y producto de TCGplayer | `schema.prisma:840-843` |
 | `ShippingPackage` ya guarda cajas con medidas (cm) para Skydropx; sus semillas son «ESTIMADO» | `schema.prisma:1747-1760`, `settings/shipping-dials.ts:176-204` |
 | Las cajas se editan por reemplazo entero, solo súper-admin | `admin/shipping-config.ts:1-77`, `admin/shipping-config.service.ts:79-88` |
-| El envío del invitado sale del dial neto `shipping_fee_cents` (`E = round(F×(1+t·r))`) | `orders/guest-checkout.service.ts:591-619` |
+| El envío del invitado sale del dial neto `shipping_fee_cents` (`E = round(F×(1+t·r))`); desde v1.109, de §4-G.12 | `orders/guest-checkout.service.ts:591-619` |
 | El total de un directo es `grossUpTotal(S+E)`; IVA dentro | `common/money.ts:855-868` |
 | Comisión de una línea reembolsada: `floor(F×P/G)`, y `Σ ≤ F` | `common/money.ts:1057-1081` |
 | Lo asegurado de un directo = Σ `OrderItem.unitPriceCents` de las líneas `picked` | `shipments/label-quote.service.ts:476-484` |
@@ -35998,8 +35973,8 @@ campo por campo, con nota de compatibilidad por columna, en **API_CONTRACT §4-G
 > `ShipmentStatus` tampoco. **Config/diales:** **ninguno** — los cinco parámetros del guest checkout son
 > **constantes de servidor** (`GUEST_TRACKING_TTL_DAYS=90`, `GUEST_TRACKING_MAX_AGE_DAYS=365`,
 > `GUEST_RESEND_MAX_PER_DAY=5`, `GUEST_MAX_ITEMS=20`, `GUEST_ORDER_RESERVATION_TTL_MIN=60`), mismo precedente que
-> las ventanas 7d/30d del buylist (v1.18); promoverlas a M10 después es no-breaking. La tarifa de envío reusa el
-> dial existente `SHIPPING_FEE_CENTS`. **Sin variables de entorno nuevas** (el enlace se arma con `APP_BASE_URL`).
+> las ventanas 7d/30d del buylist (v1.18); promoverlas a M10 después es no-breaking. La tarifa del envío directo: tres
+> diales desde v1.109 (API_CONTRACT §4-G.12). **Sin variables de entorno nuevas** (el enlace se arma con `APP_BASE_URL`).
 
 ### v1.20-master-set-everywhere (nueva — WS «Inventario y vault»: master set en todas partes)
 
@@ -37083,11 +37058,18 @@ visitantes, y antes de la elección no se escribe nada en el dispositivo.
 ### 14.4 Dónde se carga: lista blanca de rutas y navegación dura a las rutas sensibles (§D2.1)
 
 - **Lista blanca, no lista negra.** El cargador y `track()` solo actúan en: portada, catálogo, ficha de carta, lista y ficha de
-  sellado, carrito, checkout (con cuenta e invitado), guías, preguntas, cómo funciona. **Toda ruta nueva nace excluida.** La lista
-  exacta de rutas la escribe frontend en un módulo único; la ruta real de cada página: **NO MEDIDO** aquí.
-- **Excluidas a propósito:** cuenta y perfil, bóveda, admin, vender/buylist con CLABE o INE, restablecer contraseña, verificar
-  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos, **y la landing del Card Show** (tiene formularios con nombre
-  y teléfono y su medición propia sin cookie, §4.CARDSHOW.j; pregunta 3 de §14.10).
+  sellado, carrito, checkout (con cuenta e invitado), guías, preguntas, cómo funciona y, desde v1.109 (dueño, `HECHOS.md` 2026-10-24,
+  MKT-MEDIR-CS), el cotizador `/buylist` y la landing `/card-show`. **Toda ruta nueva nace excluida.** Módulo único:
+  `frontend/src/lib/measurement/routes.ts`. Candados C-F5 y C-F9 (API_CONTRACT §MKT.H.11).
+- **`/buylist` (D-MKT2-8):** entra solo si su documento nunca pinta CLABE, INE, contraseña ni token. Hoy lo pinta (`BuylistKycForm`,
+  `BuylistView.tsx:21,625`) ⇒ el paso de crear solicitud pasa a una ruta excluida a la que se llega con navegación dura (el carrito
+  de venta ya persiste en `localStorage`, `useSellCart.ts:90`). `/buylist/requests/:id` sigue excluida; `generate_lead`, solo servidor.
+- **`/card-show` (D-MKT2-9):** vive fuera de `[locale]` ⇒ `stripLocale` no la casa y hace falta una lista aparte de rutas sin idioma,
+  con **coincidencia exacta** (`confirm`, `cancel`, `unsubscribe` llevan token: excluidas). Sus formularios llevan nombre, teléfono y
+  menores ⇒ solo `page_view` a GA4, sin eventos de formulario (la conversión la mide b5/b6, §MKT.H.14) y, por defecto, **sin Meta**
+  (P-CS-MEDIR-1). Si la landing tiene aviso propio, entra en la puerta C-D1 o es un `ENCENDER_BLOCKERS` (`CS-MEDIR-AVISO`, frontend).
+- **Excluidas a propósito:** cuenta y perfil, bóveda, admin, solicitud de venta con CLABE o INE, restablecer contraseña, verificar
+  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos.
 - **Navegación dura (D-MKT2-2).** Next navega sin recargar: un `gtag`/`fbq` cargado en la ficha seguiría vivo en `/cuenta`. Por
   eso, si hay código de medición cargado en el documento y la navegación va a una ruta excluida, **se hace navegación completa del
   documento** (recarga), que llega sin terceros porque el cargador no actúa allí. Propiedad que vigila el candado C-F5: **nunca
@@ -37218,8 +37200,7 @@ Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H
 2. **Agente de usuario a Meta por CAPI.** Meta lo usa para casar el evento; no está en la lista prohibida del brief, pero ayuda a
    identificar el navegador. ¿Se envía (solo con publicidad aceptada) o no? *Por defecto: no.* Si sin él Meta rechaza o casa muy
    poco (NO VERIFICADO), se mide en «Eventos de prueba» y se vuelve a preguntar.
-3. **Landing del Card Show.** ¿Se mide con GA4/píxel o se queda solo con su contador propio sin cookie? *Por defecto: excluida*
-   (tiene formularios con nombre y teléfono).
+3. **P-CS-MEDIR-1 (Card Show).** El dueño la mandó medir (2026-10-24); queda si el píxel de Meta carga ahí. *Por defecto: no* (menores).
 4. **`client_id` de GA4 en el servidor para quien aceptó.** Guardarlo 7 días junto al pedido une la compra del servidor con la
    visita; no guardarlo (siempre aleatorio) es más privado y la compra se cuenta igual, pero sin la visita que la trajo. *Por
    defecto: se guarda, solo con analítica aceptada, y se borra a los 7 días.*
