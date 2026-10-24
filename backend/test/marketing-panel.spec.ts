@@ -29,7 +29,7 @@ const NOW = new Date('2026-10-14T12:00:00.000Z');
 /** MKT.G.4 — CATÁLOGO NORMATIVO, copiado a mano del contrato (oráculo independiente del código). */
 const CATALOGO: Record<MarketingScreen, string[]> = {
   a: ['a1', 'a2', 'a3', 'a4', 'a5'],
-  b: ['b1', 'b2', 'b3', 'b4'],
+  b: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'], // v1.109 (MKT-MEDIR-CS): b5/b6 del Card Show
   c: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'],
   d: ['d1', 'd2', 'd3', 'd4', 'd4b'],
   e: ['e1', 'e3'],
@@ -111,6 +111,9 @@ function build(): Built {
     wishlistItem: { groupBy: m.wishlistItemGroupBy },
     card: { findMany: m.cardFindMany },
     buylistQuoteDailyCount: { groupBy: m.quoteGroupBy },
+    // v1.109 (MKT-MEDIR-CS): b5/b6 leen los preregistros confirmados del Card Show; sin filas ⇒ ceros.
+    cardShowLead: { findMany: jest.fn(async () => []) },
+    cardShowPlayerSignup: { findMany: jest.fn(async () => []) },
     // v1.105 (§MKT.H.9): «¿el periodo tiene datos de medición?» (pedidos con consentimiento / filas del contador) ⇒ 0.
     order: { findMany: m.orderFindMany, count: jest.fn().mockResolvedValue(0) },
     marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },

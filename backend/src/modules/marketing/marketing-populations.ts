@@ -7,7 +7,7 @@
  * sujetos de una población + sus MX$/derivadas) o declarada EXACTA por diseño. Una tabla nueva sin fila aquí pone roja
  * `test/marketing-populations.registry.spec.ts` (prueba 1): nadie publica una tabla sin decidir de qué población sale.
  *
- * También aquí (MKT-TL2 b): las ecuaciones entre tablas del mismo periodo (`MARKETING_EQUATIONS`, E1-E7), las familias que se
+ * También aquí (MKT-TL2 b): las ecuaciones entre tablas del mismo periodo (`MARKETING_EQUATIONS`, E1-E9), las familias que se
  * calculan juntas (`MARKETING_FAMILIES`), `exposedCells` (qué celda oculta se despeja) y `enforceFamily` (R3b y R4). Su
  * auditor, independiente de este fichero, es `test/marketing-cross-table.audit.spec.ts` (prueba 3).
  */
@@ -33,6 +33,13 @@ export const MARKETING_POPULATIONS = {
   'GA4:items': { subject: 'vista', source: 'GA4' },
   'GA4:aiReferrals': { subject: 'sesión', source: 'GA4' },
   SC: { subject: 'clic', source: 'SC' },
+  /**
+   * v1.109 (MKT-MEDIR-CS): `CardShowLead` (todo `type`) con `confirmedAt` en el periodo (CDMX), sea cual sea su `status` después;
+   * `pending` nunca entra. Sujeto: buzón distinto (`mailboxHmac`); valor publicado: filas (patrón d1).
+   */
+  CS_LEAD: { subject: 'buzón', source: 'BD' },
+  /** v1.109: `CardShowPlayerSignup` (todo `game`) con `confirmedAt` en el periodo; mismo sujeto y valor que `CS_LEAD`. */
+  CS_SIGNUP: { subject: 'buzón', source: 'BD' },
 } as const;
 export type PopulationId = keyof typeof MARKETING_POPULATIONS;
 
@@ -88,6 +95,9 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
   b2: { class: 'dimension', components: [c('pedidos', ['mxnPedidos'], 'PAID_ORIGIN'), c('solicitudes', ['mxnOfertado'], 'REQ_ORIGIN')], exact: [] },
   b3: { class: 'dimension', components: [c('pedidos', ['mxnPedidos'], 'PAID_ORIGIN'), c('solicitudes', ['mxnOfertado'], 'REQ_ORIGIN')], exact: [] },
   b4: { class: 'dimension', components: [c('sesiones', [], 'GA4:sources')], exact: [] },
+  // v1.109 (MKT-MEDIR-CS): dos componentes por fila, sin MX$. b5 en orden fijo de fecha; b6 como b1-b3 (sin «Otros»).
+  b5: { class: 'dimension', components: [c('avisame', [], 'CS_LEAD', { filter: 'por día CDMX de confirmedAt; sujeto = buzón distinto' }), c('torneo', [], 'CS_SIGNUP', { filter: 'por día CDMX de confirmedAt; sujeto = buzón distinto' })], exact: [] },
+  b6: { class: 'dimension', components: [c('avisame', [], 'CS_LEAD', { filter: 'por UTM (parseFirstUtm); sujeto = buzón distinto' }), c('torneo', [], 'CS_SIGNUP', { filter: 'por UTM (parseFirstUtm); sujeto = buzón distinto' })], exact: [] },
   c1: { class: 'dimension', components: [c('usuarios', ['vistas', 'tiempoMedio'], 'GA4:pages')], exact: [] },
   c2: { class: 'deferred', components: [], exact: [] },
   c3: { class: 'deferred', components: [], exact: [] },
@@ -161,7 +171,7 @@ export interface EquationTerm {
  * `id` es el de §MKT.H.14 (E1-E7); una ecuación del contrato puede dar varias filas (E3: cuatro puertas × cuatro columnas).
  */
 export interface MarketingEquation {
-  id: 'E1' | 'E2' | 'E3' | 'E4' | 'E5' | 'E6' | 'E7';
+  id: 'E1' | 'E2' | 'E3' | 'E4' | 'E5' | 'E6' | 'E7' | 'E8' | 'E9';
   kind: 'sum' | 'identity';
   left: EquationTerm;
   right: readonly EquationTerm[];
@@ -177,7 +187,10 @@ export const G1_ROW = 'Pedidos con primer origen utm_medium=paid';
 /** Fila de dm de b3 (un mensaje directo no tiene pieza). */
 export const B3_DM_ROW = 'Mensaje directo (dm)';
 
-/** E1-E7 de §MKT.H.14. ⛔ T (mes = Σ semanas) no está aquí: la cubre R2 y solo la mide la prueba 3. */
+/**
+ * E1-E9 de §MKT.H.14. ⛔ T (mes = Σ semanas) no está aquí: la cubre R2 y solo la mide la prueba 3. Tampoco la identidad de una
+ * fila de b5 entre la semana y el mes (R4 entre periodos): la cubre R2 más `FamilyCell.fixed` (BACKEND_NOTES §MKT-MEDIR-CS).
+ */
 export const MARKETING_EQUATIONS: readonly MarketingEquation[] = [
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('a5', 'Compras (BD)', 'n')] },
   { id: 'E1', kind: 'identity', left: at('a1', 'Periodo actual', 'pedidos'), right: [at('f3', 'Pedidos pagados del periodo', 'pedidos')] },
@@ -194,10 +207,14 @@ export const MARKETING_EQUATIONS: readonly MarketingEquation[] = [
   { id: 'E6', kind: 'sum', left: at('b4', 'Asistentes de IA', 'sesiones'), right: [allOf('e3', 'sesiones')] },
   { id: 'E7', kind: 'sum', left: at('a5', 'Sesiones', 'n'), right: [allOf('a4', 'sesiones')] },
   { id: 'E7', kind: 'sum', left: at('a5', 'Sesiones', 'n'), right: [allOf('c5', 'sesiones')] },
+  // v1.109 (MKT-MEDIR-CS): sin total aceptado (la suma no se publica) ⇒ las dos tablas son incógnitas a ambos lados.
+  { id: 'E8', kind: 'sum', left: allOf('b5', 'avisame'), right: [allOf('b6', 'avisame')] },
+  { id: 'E9', kind: 'sum', left: allOf('b5', 'torneo'), right: [allOf('b6', 'torneo')] },
 ];
 
 /** Familias de §MKT.H.14: se calculan juntas por periodo y régimen, pida la pantalla que pida. */
 export const MARKETING_FAMILIES: readonly (readonly string[])[] = [
+  ['b5', 'b6'],
   ['b1', 'b2', 'b3', 'g1', 'f3'],
   ['a1', 'a5', 'f3', 'c7'],
   ['a4', 'a5', 'b4', 'c5', 'e3'],
@@ -217,6 +234,11 @@ export interface FamilyCell {
   hidden: boolean;
   /** `0 < sujetos < 5` del componente: lo que R3b protege. */
   small: boolean;
+  /**
+   * Su estado lo fija OTRO periodo: R3b nunca la elige como candidata (v1.109, b5 en un mes: la misma fila sale en su semana;
+   * ocultarla solo en el mes no tapa nada, porque la semana la publica — R4 entre periodos).
+   */
+  fixed?: boolean;
 }
 export type FamilyCellId = string;
 export const familyCellId = (c: Pick<FamilyCell, 'table' | 'key' | 'column'>): FamilyCellId => `${c.table}\u0000${c.key}\u0000${c.column}`;
@@ -379,7 +401,7 @@ export function enforceFamily(plan: FamilyPlan, equations: readonly MarketingEqu
       let candidate: FamilyCell | undefined;
       while (frontier.length > 0 && !candidate) {
         const ring = frontier.flatMap(eqsOf).flatMap((e) => e.members);
-        candidate = ring.filter((c) => !c.hidden && c.value !== null && c.value !== 0).sort((a, b) => a.value! - b.value! || tieBreak(a, b))[0];
+        candidate = ring.filter((c) => !c.hidden && !c.fixed && c.value !== null && c.value !== 0).sort((a, b) => a.value! - b.value! || tieBreak(a, b))[0];
         frontier = [...new Set(ring.filter((c) => c.hidden).map(familyCellId))].filter((id) => !seen.has(id));
         for (const id of frontier) seen.add(id);
       }

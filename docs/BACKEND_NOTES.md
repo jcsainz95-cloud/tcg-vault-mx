@@ -33169,7 +33169,9 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
 - `ScreenPayload.privacy` dice el régimen aplicado: sesión `super_admin` ⇒ `'exact'` (valores reales, sin «< 5», sin
   «oculta», sin fila «Otros»); cualquier otra sesión ⇒ `'small_cells'`. Lo decide `panelPrivacy()` por ROL; no hay query.
 - Celdas: número, `'< 5'` (N<5), `'oculta'` (N≥5 ocultado por coherencia mes↔semanas o complementaria), texto o `null`.
-  b1-b3 (v1.107, §MKT.H.14): pedidos y solicitudes se ocultan por separado, sin fila «Otros»; una fila puede venir parcial.
+  b1-b3 (v1.107) y b5/b6 (v1.109, Card Show: `avisame`/`torneo`, sin MX$) se ocultan por componente, sin «Otros»; una fila
+  puede venir parcial. b5: una fila por día CDMX del periodo, en orden de fecha (una oculta puede ir antes de una visible);
+  b6: clave `<source> / <medium> / <campaign>` («—» si falta uno), «Sin UTM» o «No válido».
 - Sin periodo ⇒ última semana cerrada. `from/to/day/preset` ⇒ 400 aunque falte la semana (no se ignoran). Vale igual para
   `weekly-excel` desde `d0f6c648` (MKT-TL6). `week=YYYY-W53` en un año de 52 semanas ⇒ 400 (MKT-TL8).
 - c7 (pedidos por estado, mes) puede traer la fila «Otros (< 5 c/u)» como cualquier otra tabla con dimensión (MKT-TL5).
@@ -33194,6 +33196,10 @@ C-B5/C-B7 `measurement.service.spec.ts` + e2e; C-B6/C-B8 `measurement.drain.spec
   en `marketing-populations.ts`) ⇒ punto fijo; en un mes, R2 hereda el oculto FINAL de cada semana. Lectura de R3b: si las
   ecuaciones de la celda no tienen visible, la pareja se busca por la cadena de ocultas (si no, «sin candidata» sería falso X1).
   X1 = conteo despejable aun ocultando toda celda ≠ 0. c7 (`c7Dims`) da filas agrupadas y `[]` con menos de 4 semanas.
+- b5/b6 (MKT-MEDIR-CS): `csDims` lee `CardShowLead`/`CardShowPlayerSignup` con `confirmedAt` en el periodo y `status ≠ pending`,
+  `select` solo de conteo (sin correo, nombre ni juego); familia `cardshow` con E8/E9. En un MES, b5 va `fixed` (sin R3a local y
+  nunca candidata de R3b): su fila es la de su semana, ocultarla solo en el mes no tapa nada; le llega lo oculto por R2 y R3b
+  tapa en b6. X3 (`b5.torneo` conocido) lo cubre R3a de b6; la prueba 3 audita las dos vistas y la identidad semana↔mes de b5.
 - SEC-MKT-3: `MEASUREMENT_MODE=on` con `BACKEND_ENCENDER_BLOCKERS` abiertos ⇒ modo efectivo `off` + línea
   `MEASUREMENT_ENCENDER_BLOCKED` (no tumba el arranque). Paridad con el frontend y TECH_DEBT: `measurement.encender-gate.spec.ts`.
 - Mes cerrado = cerrada la semana de su último día (`isMonthClosed`, una regla para todas las salidas). ⇒ el mes anterior
