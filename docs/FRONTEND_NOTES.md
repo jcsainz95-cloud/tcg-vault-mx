@@ -123,6 +123,8 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
 
 ## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
 
+**v1.109 (2026-10-24):** el mock de la pantalla b sirve b5/b6 del Card Show (`cardShowTables`: `avisame`/`torneo`, sin MX$,
+«< 5» por componente; copia de `CS_HEADS`/`csTable` del servicio en `21a7f637`); `MarketingTable.b5b6.test.tsx`.
 **Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
 (`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
 `frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
