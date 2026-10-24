@@ -175,10 +175,33 @@ for (const vp of VIEWPORTS) {
 
     test(`L6 · doble toque en PAGAR crea UNA sesión (${vp.width})`, async ({ page }) => {
       mockOnly('se cuentan las sesiones en el simulador de reservas del modo mock (sessionStorage)');
+      // Cada `pay()` que llega a crear la sesión lee UNA vez el token de reintento (`tcg.guestCheckoutRetry`, §4-R.3)
+      // justo antes de `POST /checkout/guest/session`: se cuentan esas lecturas desde el toque. Medido: contar
+      // reservas o respuestas no servía (el simulador rechaza la 2.ª en silencio porque la pieza ya es «tuya» y no se
+      // poda) — 0/12 y 1/12 rojas sin guardas; la prueba de unidad sí veía 2 llamadas.
+      await page.addInitScript(() => {
+        const w = window as unknown as { __sessionAttempts: number; __countAttempts: boolean };
+        w.__sessionAttempts = 0;
+        w.__countAttempts = false;
+        const orig = Storage.prototype.getItem;
+        Storage.prototype.getItem = function (k: string) {
+          if (w.__countAttempts && k === 'tcg.guestCheckoutRetry') w.__sessionAttempts += 1;
+          return orig.call(this, k);
+        };
+      });
       await addCardAndOpenCheckout(page);
       await fillGuestForm(page);
-      await payButton(page).dblclick();
+      // Dos activaciones en el MISMO tick (el peor doble toque): con `dblclick` de Playwright el segundo clic llegaba
+      // ya con el botón re-pintado y la mutación «sin guardas» salía 0/12 roja — el candado no mordía.
+      await expect(payButton(page)).toBeEnabled();
+      await payButton(page).evaluate((b: HTMLButtonElement) => {
+        (window as unknown as { __countAttempts: boolean }).__countAttempts = true;
+        b.click();
+        b.click();
+        (window as unknown as { __countAttempts: boolean }).__countAttempts = false;
+      });
       await expect(page.getByRole('dialog', { name: t('es', 'checkout.payTitle') })).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { __sessionAttempts: number }).__sessionAttempts)).toBe(1);
       const sessions = await page.evaluate(() => {
         const raw = window.sessionStorage.getItem('tcg.mock.reservations');
         const s = raw ? JSON.parse(raw) : { reservations: [], superseded: [] };
@@ -186,6 +209,7 @@ for (const vp of VIEWPORTS) {
       });
       expect(sessions).toBe(1);
       await expect(page.getByTestId('unavailable-notice')).toHaveCount(0);
+      await expect(page.getByTestId('payment-in-progress')).toHaveCount(0);
       await expect(page.getByText(/Tu intento anterior se canceló|Your previous attempt was canceled/)).toHaveCount(0);
     });
   });

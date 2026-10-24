@@ -36,7 +36,9 @@
 - **Fricción 5:** `CatalogView` muestra y envía `newest` sin `sort` en la URL (`DEFAULT_CATALOG_SORT`); con `sort`, la URL.
 - **Pruebas:** `e2e/checkout-movil.spec.ts` (L1-L6 a 320/360/390/414 + escritorio), `checkout/CheckoutPayBar.test.tsx`,
   `_shared/ShippingFeeHint.test.tsx`, fricción 5 en `CatalogView.test.tsx`. Las pruebas de checkout previas fijan escritorio
-  con `checkout/test-viewport.ts` (jsdom responde móvil).
+  con `checkout/test-viewport.ts` (jsdom responde móvil). Mutaciones medidas sobre copia de `fc42678c` (rojas/corridas):
+  L1 `min-w-[426px]` 4/4 · L2 sin `ref={barRef}` 4/4 · L3 sugerencias antes del formulario 4/4 · L4 plegable abierto 4/4 ·
+  L5 comisión calculada en el front 2/2 · L6 sin `payInFlight` ni `loading` 12/12; solo sin `loading` 0/12 (la ref basta).
 
 ## §ENV-V2 · Regla de envío v2 en tipos, mock y M10 (2026-10-24, rama `fe-envio-medir`, base `5c7e652b`, contrato v1.109)
 
