@@ -90,7 +90,7 @@ describe('/preguntas (§E4)', () => {
 
   it('«Última revisión: <fecha>» visible + BreadcrumbList con URL absolutas', async () => {
     const { container, getByText } = render(await PreguntasPage({ params: params('es') }));
-    expect(getByText('Última revisión: 2026-10-20 · manual v8')).toBeVisible();
+    expect(getByText('Última revisión: 2026-10-23 · manual v9')).toBeVisible();
     const bc = node(jsonLdOf(container), 'BreadcrumbList') as {
       itemListElement: { item: string }[];
     };
@@ -103,7 +103,7 @@ describe('/preguntas (§E4)', () => {
   it('en: aviso en inglés de que el contenido está en español', async () => {
     const { getByText } = render(await PreguntasPage({ params: params('en') }));
     expect(getByText('This content is available in Spanish only.')).toHaveAttribute('lang', 'en');
-    expect(getByText('Last reviewed: 2026-10-20 · manual v8')).toBeVisible();
+    expect(getByText('Last reviewed: 2026-10-23 · manual v9')).toBeVisible();
   });
 
   it('con todas las FAQ vencidas: estado vacío y SIN FAQPage', async () => {
@@ -117,7 +117,7 @@ describe('/preguntas (§E4)', () => {
 describe('/como-funciona (§E4)', () => {
   it('pinta las respuestas compuestas, «Última revisión» y WebPage sin FAQPage duplicado', async () => {
     const { container, getByText } = render(await ComoFuncionaPage({ params: params('es') }));
-    expect(getByText('Última revisión: 2026-10-20 · manual v8')).toBeVisible();
+    expect(getByText('Última revisión: 2026-10-23 · manual v9')).toBeVisible();
     const text = container.textContent ?? '';
     expect(text).toContain('Cotizar es gratis, sin cuenta y sin compromiso.');
     expect(text).toContain('Su costo es una tarifa fija que se descuenta de lo que te pagamos');
