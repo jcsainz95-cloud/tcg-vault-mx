@@ -86,6 +86,11 @@ type CsPart = 'avisame' | 'torneo';
 const CS_SOURCE_NOTE =
   'Registros confirmados (doble opt-in) por fecha de confirmación: «Avísame» (todos los tipos) y «Torneo» (todos los juegos). Una baja posterior no los resta. Un buzón con varios registros cuenta una vez para el umbral.';
 const CS_UTM_NOTE = '«No válido»: algún utm_* no pasa la validación (el texto no se muestra). «Sin UTM»: llegó sin parámetros.';
+/** Cabecera de b5/b6 (catálogo §MKT.G.4): id, título, fuente y la columna de la clave. */
+const CS_HEADS = {
+  b5: { id: 'b5', title: 'Preregistros del Card Show por día', source: 'BD', keyColumn: { key: 'dia', labelEs: 'Día de confirmación (CDMX)', kind: 'text' } },
+  b6: { id: 'b6', title: 'Preregistros del Card Show por UTM', source: 'BD', keyColumn: { key: 'utm', labelEs: 'Origen (utm_source / utm_medium / utm_campaign)', kind: 'text' } },
+} as const;
 export const CS_NO_UTM = 'Sin UTM';
 export const CS_BAD_UTM = 'No válido';
 /**
@@ -1238,8 +1243,8 @@ export class MarketingAnalyticsService {
     return [
       ...b,
       await this.b4Channels(privacy, fam),
-      this.csTable('b5', 'Preregistros del Card Show por día', 'dia', 'Día de confirmación (CDMX)', privacy, cs),
-      this.csTable('b6', 'Preregistros del Card Show por UTM', 'utm', 'Origen (utm_source / utm_medium / utm_campaign)', privacy, cs),
+      this.csTable('b5', privacy, cs),
+      this.csTable('b6', privacy, cs),
     ];
   }
 
@@ -1248,7 +1253,9 @@ export class MarketingAnalyticsService {
    * Valor publicado = filas; umbral = buzones distintos (R1). b5: una fila por día del periodo en orden de fecha (R0 sin valores;
    * en un mes, su estado lo fija la semana). b6: orden R0 como b1-b3, sin «Otros».
    */
-  private csTable(id: 'b5' | 'b6', title: string, col: string, label: string, privacy: CellPrivacy, f: FamilyResult): AggTable {
+  private csTable(id: 'b5' | 'b6', privacy: CellPrivacy, f: FamilyResult): AggTable {
+    const head = CS_HEADS[id];
+    const col = head.keyColumn.key;
     const opts = { complement: !f.dims.fixed?.includes(id), keepOrder: id === 'b5' };
     const safe = applySmallCellsByComponent(f.dims.parts[id] ?? [], privacy, f.forced.get(id), opts);
     // `exact` (MKT.G.2): b5 sigue en orden de fecha; b6 en orden real (avisame desc, torneo desc, clave).
@@ -1257,11 +1264,11 @@ export class MarketingAnalyticsService {
         ? [...safe].sort((a, b) => num(b, 'avisame') - num(a, 'avisame') || num(b, 'torneo') - num(a, 'torneo') || (a.key < b.key ? -1 : 1))
         : safe;
     return {
-      id,
-      title,
-      source: 'BD',
+      id: head.id,
+      title: head.title,
+      source: head.source,
       columns: [
-        { key: col, labelEs: label, kind: 'text' },
+        { ...head.keyColumn },
         { key: 'avisame', labelEs: 'Avísame (registros confirmados)', kind: 'count' },
         { key: 'torneo', labelEs: 'Torneo (preinscripciones confirmadas)', kind: 'count' },
       ],
