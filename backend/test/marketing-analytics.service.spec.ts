@@ -133,6 +133,9 @@ function build(): { svc: MarketingAnalyticsService; m: Mocks } {
     wishlistItem: { groupBy: m.wishlistItemGroupBy },
     card: { findMany: m.cardFindMany },
     buylistQuoteDailyCount: { groupBy: m.quoteGroupBy },
+    // v1.109 (MKT-MEDIR-CS): b5/b6 leen los preregistros confirmados del Card Show; sin filas ⇒ ceros.
+    cardShowLead: { findMany: jest.fn(async () => []) },
+    cardShowPlayerSignup: { findMany: jest.fn(async () => []) },
     // v1.105 (§MKT.H.9): «¿el periodo tiene datos de medición?» ⇒ 0 (Fase 0).
     order: { findMany: m.orderFindMany, count: jest.fn().mockResolvedValue(0) },
     marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },

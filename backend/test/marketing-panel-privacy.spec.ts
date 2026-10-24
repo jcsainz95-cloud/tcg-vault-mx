@@ -64,6 +64,9 @@ function build(sales: Sale[], opts: { paid?: { n: number; cents: number } } = {}
     wishlistItem: { groupBy: jest.fn().mockResolvedValue([]) },
     card: { findMany: jest.fn().mockResolvedValue([]) },
     buylistQuoteDailyCount: { groupBy: jest.fn().mockResolvedValue([]) },
+    // v1.109 (MKT-MEDIR-CS): b5/b6 leen los preregistros confirmados del Card Show; sin filas ⇒ ceros.
+    cardShowLead: { findMany: jest.fn(async () => []) },
+    cardShowPlayerSignup: { findMany: jest.fn(async () => []) },
     order: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     marketingBannerConsentCounter: { count: jest.fn().mockResolvedValue(0) },
   } as never;

@@ -44,6 +44,17 @@ export interface AuditWish {
   userId: string;
   createdAt: Date;
 }
+/** v1.109 (MKT-MEDIR-CS): una fila de `CardShowLead` o `CardShowPlayerSignup`, solo lo que b5/b6 leen. */
+export interface AuditCsRow {
+  id: string;
+  mailboxHmac: string;
+  confirmedAt: Date | null;
+  status: string;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+}
 /** Filas que el doble de GA4/Search Console devuelve por consulta: la unidad de la fuente es el sujeto. */
 export interface AuditExternalRow {
   key: string;
@@ -60,6 +71,9 @@ export interface AuditWorld {
   sc: AuditExternalRow[];
   /** Sesiones de GA4 por día (prueba 3): el fixture declara a qué fila de a4/b4 va cada una (la fuente de verdad del caso). */
   sessions?: AuditSession[];
+  /** v1.109: preregistros del Card Show (b5/b6). `leads` = «Avísame» (todo `type`); `signups` = «Torneo» (todo `game`). */
+  leads?: AuditCsRow[];
+  signups?: AuditCsRow[];
 }
 export interface AuditSession {
   day: string;
@@ -89,9 +103,21 @@ const paid = (w: AuditWorld, r: AuditRange) => w.orders.filter((o) => SOLD.has(o
 const req = (w: AuditWorld, r: AuditRange) => w.requests.filter((s) => within(s.createdAt, r));
 const one = (id: string): AuditSubject => ({ id, units: 1 });
 const ext = (rows: AuditExternalRow[] | undefined): AuditSubject[] => (rows ?? []).map((x) => ({ id: x.key, units: x.units }));
+/** Preregistros que cuentan (§MKT.H.14 `CS_*`): `confirmedAt` en el rango y nunca `pending`. */
+const csIn = (xs: AuditCsRow[] | undefined, r: AuditRange) => (xs ?? []).filter((x) => x.status !== 'pending' && within(x.confirmedAt, r));
+/** Sujeto = BUZÓN distinto; `units` = sus filas (lo que se publica, patrón d1). */
+const boxes = (xs: AuditCsRow[]): AuditSubject[] => {
+  const n = new Map<string, number>();
+  for (const x of xs) n.set(x.mailboxHmac, (n.get(x.mailboxHmac) ?? 0) + 1);
+  return [...n].map(([id, units]) => ({ id, units }));
+};
 
-/** Un oráculo por población del registro (`MARKETING_POPULATIONS`). La prueba 1 exige que no falte ninguno. */
-export const POPULATION_ORACLES: Record<PopulationId, (w: AuditWorld, r: AuditRange) => AuditSubject[]> = {
+/**
+ * Un oráculo por población del registro (`MARKETING_POPULATIONS`). La prueba 1 exige que no falte ninguno ni sobre ninguno (las
+ * claves, iguales). `| 'CS_LEAD' | 'CS_SIGNUP'`: para que el fichero compile también sobre `5c7e652b` (sin esas poblaciones) y la
+ * prueba 1 salga roja allí por su motivo (el catálogo y las claves), no por un error de tipos.
+ */
+export const POPULATION_ORACLES: Record<PopulationId | 'CS_LEAD' | 'CS_SIGNUP', (w: AuditWorld, r: AuditRange) => AuditSubject[]> = {
   PAID: (w, r) => paid(w, r).map((o) => one(o.id)),
   PAID_ORIGIN: (w, r) => paid(w, r).filter((o) => o.firstUtmSource !== null).map((o) => one(o.id)),
   REQ: (w, r) => req(w, r).map((s) => one(s.id)),
@@ -109,6 +135,8 @@ export const POPULATION_ORACLES: Record<PopulationId, (w: AuditWorld, r: AuditRa
   'GA4:items': (w) => ext(w.ga4.items),
   'GA4:aiReferrals': (w) => ext(w.ga4.aiReferrals),
   SC: (w) => ext(w.sc),
+  CS_LEAD: (w, r) => boxes(csIn(w.leads, r)),
+  CS_SIGNUP: (w, r) => boxes(csIn(w.signups, r)),
 };
 
 // ═════════════════════════════ Auditor de cruces (prueba 3, §MKT.H.14; MKT-TL2 b/c) ═════════════════════════════
@@ -207,6 +235,34 @@ function sessionOracle(keyOf: (x: AuditSession) => string | null, always: readon
   };
 }
 
+/**
+ * Clave de b6, segunda implementación (⛔ no importa `parseFirstUtm` ni el servicio): un valor vale si, en minúsculas, es
+ * `[a-z0-9._-]{1,64}` (§MKT.C, PV-M2). Los cuatro `NULL` ⇒ «Sin UTM»; alguno que no vale ⇒ «No válido».
+ */
+export function auditCsUtmKey(x: Pick<AuditCsRow, 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent'>): string {
+  const vals = [x.utmSource, x.utmMedium, x.utmCampaign, x.utmContent];
+  if (vals.every((v) => v === null)) return 'Sin UTM';
+  if (vals.some((v) => v !== null && !/^[a-z0-9._-]{1,64}$/.test(v.toLowerCase()))) return 'No válido';
+  const [s, m, c] = vals.map((v) => (v === null ? '—' : v.toLowerCase()));
+  return `${s} / ${m} / ${c}`;
+}
+function csOracle(keyOf: (x: AuditCsRow) => string) {
+  return (w: AuditWorld, r: AuditRange): Map<string, PartsN> => {
+    const sets = new Map<string, { avisame: Set<string>; torneo: Set<string> }>();
+    for (const [part, xs] of [['avisame', csIn(w.leads, r)], ['torneo', csIn(w.signups, r)]] as const) {
+      for (const x of xs) {
+        const k = keyOf(x);
+        const e = sets.get(k) ?? { avisame: new Set<string>(), torneo: new Set<string>() };
+        e[part].add(x.mailboxHmac);
+        sets.set(k, e);
+      }
+    }
+    return new Map([...sets].map(([k, e]) => [k, { avisame: e.avisame.size, torneo: e.torneo.size }]));
+  };
+}
+/** b5: tabla POR DÍA ⇒ una fila de un día es la misma en todo periodo que lo contiene (R4 entre periodos, §MKT.H.14). */
+export const AUDIT_DAY_TABLES: ReadonlySet<string> = new Set(['b5']);
+
 /** Las tablas con dimensión que la prueba 3 audita, con su oráculo (segunda implementación de «qué cuenta cada fila»). */
 export const AUDIT_TABLES: Readonly<Record<string, AuditTableSpec>> = {
   b1: { keyCol: 'origen', parts: B_PARTS, oracle: bOracle((s, m) => `${s} / ${m ?? '—'}`) },
@@ -246,6 +302,9 @@ export const AUDIT_TABLES: Readonly<Record<string, AuditTableSpec>> = {
   b4: { keyCol: 'canal', parts: { sesiones: ['sesiones'] }, oracle: sessionOracle((x) => x.b4) },
   c5: { keyCol: 'dispositivo', parts: { sesiones: ['sesiones'] }, oracle: sessionOracle((x) => `${x.device} · ${x.browser}`) },
   e3: { keyCol: 'fuente', parts: { sesiones: ['sesiones'] }, oracle: sessionOracle((x) => (x.b4 === 'Asistentes de IA' ? `${x.source} · ${x.landing}` : null)) },
+  // v1.109 (MKT-MEDIR-CS): sin MX$; cada componente es solo su conteo.
+  b5: { keyCol: 'dia', parts: { avisame: ['avisame'], torneo: ['torneo'] }, oracle: csOracle((x) => mxDay(x.confirmedAt!)) },
+  b6: { keyCol: 'utm', parts: { avisame: ['avisame'], torneo: ['torneo'] }, oracle: csOracle(auditCsUtmKey) },
 };
 
 // ── álgebra: rango con enteros `bigint` (eliminación sin fracciones) ──
@@ -307,7 +366,14 @@ export function auditDisclosure(
   world: AuditWorld,
   periods: readonly AuditPeriod[],
   equations: readonly AuditEquation[],
-  opts: { monthOfWeeks?: { month: string; weeks: readonly string[] } } = {},
+  opts: {
+    monthOfWeeks?: { month: string; weeks: readonly string[] };
+    /**
+     * X3 (§MKT.H.14): columnas que el atacante conoce por fuera del panel (el contador público del torneo ⇒ `b5.torneo`). Sus
+     * celdas son CONSTANTES aunque salgan ocultas; lo que se audita es que, aun así, nada más se despeje.
+     */
+    known?: readonly { table: string; column: string }[];
+  } = {},
 ): AuditReport {
   interface Ctx {
     p: AuditPeriod;
@@ -326,8 +392,9 @@ export function auditDisclosure(
   const rowOf = (c: Ctx, t: string, key: string) => c.pub.get(t)?.rows.find((r) => r[AUDIT_TABLES[t].keyCol] === key);
   const v = (c: Ctx, t: string, key: string, col: string) => `${c.p.label}|${t}|${key}|${col}`;
   /** Incógnitas de UNA celda (vacío ⇒ constante: publicada como número, o fila inexistente ⇒ 0). */
+  const isKnown = (t: string, col: string) => (opts.known ?? []).some((k) => k.table === t && k.column === col);
   const cell = (c: Ctx, t: string, key: string, col: string, allUnknown: boolean): string[] => {
-    if (AUDIT_ACCEPTED_TABLES.has(t) || !AUDIT_TABLES[t]) return [];
+    if (AUDIT_ACCEPTED_TABLES.has(t) || !AUDIT_TABLES[t] || isKnown(t, col)) return [];
     if (!measured(c, t)) return [`?${c.p.label}|${t}|${key}|${col}`];
     const row = rowOf(c, t, key);
     // En «ciego» (X1) toda celda que se PUEDE ocultar es incógnita; un 0 publicado no (R1/R3: nunca se oculta un 0).
@@ -364,6 +431,21 @@ export function auditDisclosure(
         const members = keysOf(c, t).filter((k) => !rowOf(c, t, k));
         for (const col of Object.values(spec.parts).flat()) push(cell(c, t, AUDIT_OTROS, col, allUnknown), members.flatMap((k) => cell(c, t, k, col, allUnknown)));
       }
+    }
+    // R4 entre periodos: la fila de un día de b5 vale lo mismo en la semana y en el mes que la contienen.
+    const list = [...ctxs.values()];
+    for (const t of AUDIT_DAY_TABLES) {
+      const cols = Object.values(AUDIT_TABLES[t].parts).flat();
+      list.forEach((a, i) =>
+        list.slice(i + 1).forEach((b) => {
+          if (!measured(a, t) || !measured(b, t)) return;
+          const days = new Set([...a.oracle.get(t)!.keys(), ...b.oracle.get(t)!.keys()]);
+          for (const d of days) {
+            if (d < a.p.range.from || d > a.p.range.to || d < b.p.range.from || d > b.p.range.to) continue;
+            for (const col of cols) push(cell(a, t, d, col, allUnknown), cell(b, t, d, col, allUnknown));
+          }
+        }),
+      );
     }
     const mw = opts.monthOfWeeks;
     if (mw) {
