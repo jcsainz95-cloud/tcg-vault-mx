@@ -717,101 +717,11 @@
 > sostenerse**: `PROJECT.md` manda sobre ellas. **Pregunta 31 CERRADA.**
 > **Preguntas: se abren la 30, la 31 y la 32** (las tres **no bloqueantes**, con supuesto tomado).
 >
-> **ESTADO AL 2026-09-01 (7ª ronda del bloque v2.1 — CORRECTIVA FINAL — histórico; superado por el bloque
-> de arriba en lo que toca al conteo de correos y a lo que el cotizador dice del envío):** cuatro decisiones
-> del humano (**D36–D40**) y **una corrección enrutada por el arquitecto**. La más importante **tapa un hueco
-> BLOQUEANTE que nadie había visto**:
-> **(D36/D37) EL CICLO NUNCA PEDÍA LA DIRECCIÓN DEL VENDEDOR.** Verificado: hasta esta ronda, **§P no
-> mencionaba dirección, domicilio ni remitente en ningún punto**. Eso hacía que **D16 —«la guía la mandamos
-> nosotros»— NO fuera ejecutable como estaba escrito**: no se puede comprar una etiqueta sin un **domicilio
-> de origen**. **Se cierra así**: la dirección **se pide AL CREAR LA SOLICITUD**, junto con la CLABE —**no al
-> aceptar**—; **se reusa la MISMA libreta de direcciones** que el cliente ya usa para recibir sus compras
-> (**sin modelo nuevo, sin pantalla nueva, sin «domicilio de remitente» aparte**); **si ya tiene direcciones
-> guardadas elige o confirma una, y si no tiene ninguna la captura**; y **sin dirección NO se crea la
-> solicitud**. **Costo aceptado explícitamente por el humano**: también se le pide la dirección a gente a la
-> que al final **no** le compraremos. Ver **§P.2.1** (nueva), §P.1, §P.3, §P.4, §E, M5 y criterio **170**.
-> **(D38) EL RELOJ DE CADUCIDAD SÍ REINICIA AL CANCELAR UNA OFERTA — ⚠ CORRIGE LA 6ª RONDA.** Este documento
-> había levantado la bandera y **el humano le dio la razón**: con el reloj corriendo *siempre* desde la
-> creación, cancelar una oferta para **corregirla** podía hacer que la solicitud **caducara el mismo día en
-> que volvía a la fila**, y el cliente recibía un *«no procederemos»* **por un error nuestro**. **Regla
-> vigente: cancelar una oferta devuelve la solicitud a la fila con los 7 días hábiles COMPLETOS.** Con eso
-> **«un plazo, un origen» queda SUPERADO** como regla vigente. **⚠ Riesgo NUEVO que esto abre y que este
-> documento SEÑALA sin inventarle remedio**: cancelar y re-emitir **en bucle** podría alargar el plazo
-> indefinidamente — **el candado, si hace falta, lo decide el arquitecto** (ver «Riesgos y banderas»).
-> **(D39) HAY BOTÓN DE «DECLINAR AHORA».** También estaba señalado: si el operador decidía el día 1 que no
-> compra, el cliente **esperaba 7 días hábiles** a que el barrido lo cerrara. Ahora **el operador puede
-> cerrar la solicitud de inmediato**, con **el MISMO correo** de «no procederemos» y **el MISMO estado
-> terminal** (`expirada` + motivo `no_offer`). **No es un desenlace nuevo: es el mismo, sin la espera.**
-> Criterio **171**.
-> **(D40) EL PISO DE NETO ES INCLUSIVO — confirmado, sin cambio.** Un neto de **exactamente MX$200 SÍ se
-> puede emitir**. Ya estaba así redactado (criterio 167a); esta ronda **solo lo hace inequívoco** en §P.2,
-> §P.3, §P.10 y §P.12.
-> **(o.17 — corrección enrutada por el arquitecto) Los ejemplos numéricos de «neto MX$20 / neto MX$0» como
-> desenlaces VÁLIDOS quedan corregidos.** La **regla** del criterio **158(c)** —el mínimo de compra **no** se
-> re-aplica a la oferta— **sigue viva**; lo que cambió con D34 es el **ejemplo**. El del propio 158(c) ya
-> estaba tachado; **las notas derivadas de §P.5.1 y §P.12 seguían leyéndose como vigentes** y **se corrigen
-> aquí**. *(El arquitecto no las tocó a propósito: por la regla de conflicto, `PROJECT.md` manda sobre el
-> contrato.)*
-> Ver **§P.1, §P.2, §P.2.1, §P.3, §P.3.1, §P.4, §P.5.1, §P.9, §P.10, §P.11, §P.12**, **§E**, **§H**,
-> **«Usuarios y roles»**, **«Fuera de alcance»**, **M5**, criterios
-> **16/114/142/145/158/165/167/169** (corregidos), criterios
-> **170–172** (nuevos) y decisiones **97–100**. **Preguntas: se abren la 28 y la 29** (ambas **no
-> bloqueantes**, con supuesto tomado).
-> **⚠ Dos cosas que este documento SEÑALA y el humano debería mirar antes de que el arquitecto cierre**:
-> **(1)** la frase *«igual que hoy pasa con la CLABE»* **no describe lo que este documento dice hoy** —la
-> **CLABE se pide en el paso de PAGO**, no al crear (criterio 14, §E, M6)—; **la dirección se redactó como él
-> la decidió** y **la CLABE se dejó intacta** (**pregunta 29**). **(2)** la **libreta de direcciones** que
-> D37 manda reusar **existe en este documento como MENCIÓN, no como requisito redactado** (§J la nombra al
-> listar lo que el invitado no tiene): **no cambia ninguna decisión**, pero el arquitecto **la está heredando
-> sin especificación**.
+> *Rondas 4ª, 6ª y 7ª del bloque v2.1 (2026-09-01, D30 y D34–D40): su resumen histórico salió el 2026-10-25.
+> Sus reglas viven en §P (criterios 16–172); el texto queda en git (`ee8d5c73`) y el registro en
+> `docs/DECISIONES.md`.*
 >
-> **ESTADO AL 2026-09-01 (6ª ronda del bloque v2.1 — CORRECTIVA — histórico; superado por el bloque de
-> arriba en lo que toca al reinicio del reloj y a la espera de 7 días para un «no»):** el **bloque v2.1
-> (ciclo de adquisición del buylist, §P)** queda **CERRADO, sin preguntas abiertas propias**. Tres cierres:
-> **(D34)** **SÍ hay piso: no se puede EMITIR una oferta cuyo NETO quede por debajo de MX$200** —el bloqueo
-> vive **en la emisión**, no en el dial ni en la aceptación; el operador **compra más líneas o no oferta**—,
-> con lo que la **pregunta 25 queda CERRADA** y **los diales del ciclo pasan de OCHO a NUEVE** (§P.10).
-> **(D35)** el **objetivo del bounty por defecto es 2** («hasta tener 2 en inventario»): es el **default al
-> dar de alta** y el valor con el que **se llenan los bounties viejos sin meta** —**no se desactivan**—,
-> y **sigue siendo editable por bounty**; con eso la **pregunta 26 queda CERRADA**. **(Pregunta 27)** la
-> resolvió el **arquitecto**: **se reutiliza el terminal `expirada`** y **el motivo se persiste en columna
-> propia** (`no_offer` / `not_shipped`), así que **los estados terminales vuelven a ser CUATRO** —el
-> requisito de negocio nunca fue «un estado nuevo», sino que **los dos desenlaces sean distinguibles**, y
-> eso se cumple con el motivo—; además **sí caduca** una solicitud que tenga una oferta esperando
-> autorización (**y el barrido anula esa oferta al hacerlo**) y ~~**el reloj NO reinicia** al cancelar una
-> oferta emitida: **cuenta desde la creación de la solicitud**~~ *(**⚠ SUPERADO por D38, 7ª ronda: SÍ
-> reinicia — 7 días hábiles completos**)*. **`caducada` como estado propio era un
-> SUPUESTO de nombre de este documento y queda SUPERADO.** Ver **§P.1, §P.2, §P.3, §P.3.1, §P.5.1, §P.9,
-> §P.10, §P.11, §P.12**, **§N.6**, **§H**, **M5/M10**, criterios **16/113/127/129/145/152/158/164/165**
-> (corregidos), criterios **167–169** (nuevos) y decisiones **94–96**.
-> ~~**⚠ Una consecuencia que este documento SEÑALA en vez de callar**: al no reiniciar el reloj tras cancelar
-> una oferta, **una solicitud puede caducar el mismo día en que vuelve a la fila** si ya pasaron los 7 días
-> hábiles desde su creación — se castiga al cliente por una corrección **nuestra**. Ver la bandera en
-> «Riesgos y banderas» y la nota de §P.3.1.~~
-> **⚠ SUPERADO en la 7ª ronda (D38): el humano le dio la razón a esa bandera.** **Cancelar una oferta
-> devuelve la solicitud a la fila con los 7 días hábiles COMPLETOS**; el escenario descrito **ya no puede
-> ocurrir**. La bandera se retira y **en su lugar queda otra**: el bucle cancelar/re-emitir.
->
-> **ESTADO AL 2026-09-01 (4ª ronda del bloque v2.1 — CORRECTIVA Y ACOTADA — histórico; superado por el
-> bloque de arriba en lo que toca a diales, terminales y preguntas 25/26/27):** el **bloque v2.1
-> (ciclo de adquisición del buylist, §P)** sigue **CERRADO y listo para el arquitecto**, con **una corrección
-> de raíz**: **D27 y D28 quedan SUPERADAS por D30**. El rechazo parcial **ya no le pregunta nada al
-> vendedor**; en su lugar, **la oferta se declara CONDICIONAL a Near Mint línea por línea en el propio correo
-> de oferta**, y el vendedor acepta **ese** trato —con su riesgo incluido— **antes de que compremos la
-> etiqueta y antes de que empaque nada**. Al verificar **no cambia el trato**: se cumple una condición ya
-> escrita y aceptada, así que **no hay nada que re-preguntar**. Consecuencias: **desaparecen** la
-> re-confirmación, el uso del ítem **`ajustada`** en este ciclo y el **umbral de «recorte material» del
-> 20%** —**D28 queda SIN OBJETO** y los diales del ciclo pasan de **nueve a OCHO** (§P.10)—, y la **pregunta
-> abierta 23 queda CERRADA por eliminación** (no hay plazo nuevo, ni semántica del silencio, ni recordatorio
-> que fijar). **Las dos protecciones al vendedor NO se tocan**: **el neto nunca es negativo** (criterio
-> **152**) y **si se rechaza TODO, absorbemos el envío** (D17, criterio **140**). El **criterio 127** se
-> **reformula** (su fórmula citaba el dial que dejó de existir) y abre **una pregunta nueva, no bloqueante:
-> la 24**. Los **bloques anteriores** (v1.3, v1.4, v1.5, v1.7 y los dos v2.0) **conservan sus propias
-> preguntas abiertas históricas**, todas con **defaults marcados que no bloquean el arranque**; los bloques
-> **v1.6, v1.9 y v2.0/P-48 están LOCKED**. Lo único no fijado del alcance son las **metas de lanzamiento
-> N/X/Y/Z**, que el humano define al momento de lanzar.
->
-> **ESTADO AL 2026-08-31** *(3ª ronda — histórico; superado por la línea de arriba en lo que toca a
+> **ESTADO AL 2026-08-31** *(3ª ronda — histórico; superado por las rondas posteriores en lo que toca a
 > D27/D28 y al dial del 20%; el resto sigue vigente)*: el bloque v2.1 quedó cerrado con **D1–D29** decididas,
 > **los cuatro números de dinero fijados** (tope de oferta del operador **MX$1,500**, tarifa de envío del
 > buylist **MX$180**, tope de piezas por variante **10**, umbral de recorte material **20%**), el **rechazo
@@ -8667,7 +8577,7 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 | 19 | **Merma: piezas marcadas perdidas o dañadas** | personal | `POST /admin/inventory/adjustments`, motivo `perdida`/`danada`, **sin `@MoneyOut`** (`backend/src/modules/inventory/inventory.controller.ts:429-436`; roles exactos NO MEDIDOS) | Bitácora con motivo. **Sin aviso** |
 | 20 | **Contracargo** (dinero perdido + cuota) | banco del cliente | `charge.dispute.created` (`HECHOS.md:52`, `payments.service.ts:173`); §W.3 (c) | Congela las piezas. **Sin aviso al dueño** (NO MEDIDO si hoy hay alguno) |
 | 21 | **Créditos del proveedor de precios PSA** (proveedor de paga) | sistema | `grading_hook_enabled` «arranca el consumo de créditos de un proveedor de paga» (`settings.constants.ts:200-213`); tope diario propuesto en §Y.2 | Tope propuesto en §Y.2 |
-| — | **Saldo a favor y descuentos manuales** | — | **No existen**: `saldo a favor` está fuera de alcance (`PROJECT.md` «Fuera de alcance», §S.10); búsqueda de `discount|coupon|storeCredit` en `backend/src` ⇒ solo un fixture de Skydropx | **Nada que controlar.** Si se construyen, entran aquí |
+| — | **Saldo a favor y descuentos manuales** | — | **No existen**: `saldo a favor` está fuera de alcance (`PROJECT.md` «Fuera de alcance», §S.10); búsqueda de `discount|coupon|storeCredit` en `backend/src` ⇒ solo un fixture de Skydropx | **Nada que controlar.** Los códigos de descuento (§DSC, 2026-10-25) solo los crea el dueño **[D6]**: no hay gasto del personal que topar |
 
 **Hoy no existe ningún correo al dueño.** Medido: `backend/src/modules/mail/mail.service.ts` solo envía
 verificación de correo, restablecer contraseña y aviso de candado (`:17`, `:25`, `:34`); D-13 retiró el correo
@@ -9931,8 +9841,9 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
 #### AC.8 Fuera de alcance de §AC (primera versión)
 - **Variantes** de color, tamaño o diseño dentro de un mismo artículo (en la v1, cada variante es un accesorio
   aparte: «Carpeta 9 bolsillos negra», «… azul»).
-- **Combos** o paquetes (p. ej. «sellado + fundas») y **descuentos** (por cantidad, cupones, promociones, precio
-  tachado). **Única excepción:** el paquete de energías del Meta Battle Deck (AC.10), aprobado por el dueño.
+- **Combos** o paquetes (p. ej. «sellado + fundas») y **descuentos** (por cantidad, promociones, precio
+  tachado). **Excepciones:** el paquete de energías del Meta Battle Deck (AC.10), aprobado por el dueño, y los
+  **códigos de descuento de §DSC** (2026-10-25), que sí pueden filtrar «accesorios y energías».
 - **Energías especiales** (las que tienen set y número, p. ej. «Reversal Energy»): siguen siendo **cartas** del
   catálogo, no accesorios. Solo las **básicas** son accesorio (`HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «solo
   básicas (8 tipos)»).
@@ -10308,7 +10219,135 @@ el arquitecto/backend al elegir fuentes.)*
 
 - Criterios **870–889**. Preguntas **P-RP-1…7** al final del documento.
 
+### DSC. Códigos de descuento (transversal — NUEVO 2026-10-25 · alcance B decidido por el dueño · se construye tras publicar la entrega de envío v2)
+
+> **Decisión del dueño — no se re-pregunta:** `HECHOS.md`, fila «Códigos de descuento: opción B, se construyen tras
+> publicar la entrega de envío v2» (2026-10-25). Literal: *«b para los códigos si aplica el treshold, si aplica para
+> vault purchases no se puede combinar con otros descuentos, no puede usar el código de nuevo si reembolsa. Solo yo
+> puedo crearlas. Bopis déjalo en el tintero»*; sobre el umbral, *«No: se mide después (Recomendado)»*; sobre cuándo,
+> *«Arrancar tras publicar»*. Esa fila fija las seis reglas marcadas **[D1]…[D6]** abajo. Lo marcado *(SUPUESTO)* es
+> del product-owner y espera confirmación. Base: exploración del PO en `PENDIENTES.md`, IDEA-CUPONES (2026-10-25),
+> que midió que hoy no existe nada de esto (`Order` sin columna de descuento). **NO MEDIDO hoy por el PO**: lo vuelve a
+> medir el arquitecto antes de diseñar.
+
+#### DSC.1 Historias de usuario
+- **Cliente invitado** (compra con envío a domicilio, §J): escribo un código en el checkout, veo cuánto ahorro y el
+  total final **antes de pagar**; si el código no sirve, me lo dice sin borrar lo que ya llené.
+- **Cliente con cuenta** (a domicilio o **a su bóveda**, §B/§C): igual que el invitado; el código también vale cuando
+  compro para guardar en mi bóveda **[D3]**.
+- **Cliente con un código de un solo uso** (p. ej. repartido en un evento): lo uso una vez y deja de servir para todos.
+- **Dueño (`super_admin`)**: creo un código o un lote de códigos de un solo uso; elijo tipo, valor, vigencia, límites
+  y filtros; lo pauso si se filtra; y veo por código cuántas veces se usó, cuánto descuento di y cuánto vendí con él.
+- **Personal (`vault_operator`)**: veo en el pedido que llevó un código y cuánto se descontó; **no** creo códigos
+  **[D6]** *(SUPUESTO: tampoco edito, pauso ni abro la pantalla Códigos)*.
+
+#### DSC.2 Reglas de negocio
+**Tipos y cálculo**
+1. **Tres tipos:** (a) **porcentaje** sobre la mercancía elegible; (b) **monto fijo en pesos, con IVA** (precio final,
+   la misma convención que el precio exhibido, §Q); (c) **envío gratis**. **[D1]**
+2. **Base del descuento:** el precio exhibido (IVA dentro) de las **líneas elegibles** (regla 12). Nunca se descuentan
+   el envío (salvo el tipo c), la comisión de plataforma ni nada del buylist.
+3. **Monto fijo:** nunca mayor que la suma de las líneas elegibles; la mercancía no baja de MX$0.00.
+4. **Tope en pesos** (opcional, solo para porcentaje): el descuento no pasa de esa cifra (p. ej. «15 % hasta MX$500»).
+5. **Orden del cálculo — el descuento va primero:** mercancía → **descuento** → umbral de envío gratis → IVA → comisión.
+   - El **umbral de envío gratis** (hoy MX$4,000, regla vigente en la fila de `HECHOS.md` «Envío gratis desde MX$4,000
+     para CUALQUIER pedido (opción A)» y en `API_CONTRACT §4-G.12`) se mide sobre la mercancía **ya descontada**
+     **[D2]**. Ejemplo del dueño: pedido de MX$4,200 con 10 % ⇒ paga MX$3,780 de mercancía ⇒ no llega al umbral
+     ⇒ paga envío.
+   - El **IVA** desglosado del pedido y la **comisión de plataforma** se calculan sobre la base ya descontada, con la
+     misma fórmula de hoy (gross-up, `ARCHITECTURE §5.1`). Un pedido con descuento D cobra **exactamente** lo mismo
+     que uno sin código cuya mercancía valga (subtotal − D).
+6. **Envío gratis (tipo c):** pone en MX$0 el envío a domicilio del pedido (cartas MX$100 / sellado o accesorio
+   MX$175). *(SUPUESTO: igual que el umbral, no cubre la tarifa de caja grande de §AC.)* En un pedido a bóveda no hay
+   envío: el código no aplica y el mensaje lo dice (regla 21).
+7. **Reparto por línea:** el descuento se reparte entre las líneas elegibles en proporción a su precio. Cada línea
+   guarda su **precio original** y su **precio cobrado**. Las partes suman **exactamente** el descuento, y ninguna
+   línea queda negativa (el redondeo de centavos lo fija el arquitecto). Esto hace que un reembolso por carta devuelva
+   lo cobrado y no el precio de lista (regla 17).
+
+**Límites que el dueño elige por código**
+8. **Vigencia:** fecha y hora de inicio y de fin, en hora del centro de México (como P-FIN-1). *(SUPUESTO: sin fecha
+   de fin, vale hasta que el dueño lo pause.)*
+9. **Usos totales** (opcional): cuántos pedidos pagados pueden llevarlo en total.
+10. **Usos por cliente** (opcional; *SUPUESTO: por defecto 1*). Con cuenta se cuenta por cuenta **y** por su correo;
+    un invitado, por correo. Así una persona no lo repite pasando de invitado a cuenta. El correo se compara en
+    minúsculas y sin espacios. *(SUPUESTO: no se quitan puntos ni «+alias»; ver «Riesgos» en DSC.5.)*
+11. **Mínimo de compra** (opcional) — *(SUPUESTO)*: se mide sobre las **líneas elegibles ANTES del descuento**, sin
+    envío ni comisión, porque es el número que el cliente ve en su carrito. No contradice [D2]: el umbral de envío es
+    **otro** beneficio y se mide después. Ejemplo: «MX$200 en compras desde MX$2,000» con un carrito de MX$2,000 ⇒
+    aplica; el cliente paga MX$1,800 de mercancía y, por [D2], paga envío.
+12. **Filtros:** por **tipo de producto** (cartas sueltas, gradeadas, sellado, accesorios y energías; uno o varios) y por
+    **destino** (domicilio, bóveda o ambos). En un carrito mixto solo se descuentan las líneas elegibles. Si ninguna
+    lo es, el código no aplica.
+13. **Uno por pedido, sin combinar [D4]:** un pedido lleva como máximo **un** código y ningún otro descuento. Hoy la
+    tienda no tiene otro descuento construido (el 5 %/3 % de deck no existe, §AC). Cuando exista, el código no se
+    acepta en un pedido que ya lo lleve y el mensaje dice que no se combina. *(SUPUESTO: un segundo código reemplaza
+    al primero, con aviso.)* El paquete de energías del deck queda fuera del descuento mientras **P-DSC-2** siga
+    abierta.
+
+**Lotes y administración**
+14. **Lote de un solo uso [D1]:** el dueño elige cantidad y prefijo, y el sistema genera códigos únicos con sufijo
+    aleatorio, difíciles de adivinar. Comparten configuración y cada uno vale **1 uso en total**. El lote se
+    descarga en CSV para repartirlo, y pausar el lote pausa todos. *(SUPUESTO: hasta 500 por lote; sufijo de 8 o más
+    caracteres.)*
+15. **Solo el dueño administra [D6]:** solo `super_admin` crea códigos y lotes. *(SUPUESTO: también solo él edita,
+    pausa y reanuda.)* Cada acción deja quién, cuándo y antes → después en la auditoría.
+16. **Texto del código y edición** *(SUPUESTO)*: letras, números y guion, de 4 a 20 caracteres, sin distinguir
+    mayúsculas, y único para siempre (no se reusa el texto de un código viejo). Con un uso apartado o consumido ya no
+    se cambian tipo, valor, tope, mínimo ni filtros: se crea otro código. Sí se puede pausar o reanudar, mover el fin
+    de vigencia y cambiar los usos totales (nunca por debajo de los ya consumidos). Un código con usos no se borra:
+    se pausa.
+
+**Ciclo del uso y dinero**
+17. **Apartar y consumir:** al **iniciar el pago** (crear la sesión de cobro) se aparta un uso; al **confirmarse el
+    cobro** se consume; si el pago falla o la sesión vence, el uso se libera, igual que las cartas apartadas. Un uso
+    apartado cuenta contra los límites mientras dura, así que dos pagos simultáneos no rebasan el límite. *(SUPUESTO:
+    si el código se pausa o vence con un pago ya en curso, ese pago se respeta; ningún pago nuevo lo toma.)*
+18. **El reembolso no devuelve el uso [D5],** sea total o por carta. Devuelve lo **cobrado**: por carta, su precio ya
+    descontado más su parte de comisión, según la regla vigente de reembolso por carta (§V.2, criterio 403). Nunca
+    devuelve el precio original ni más de lo que se cobró.
+19. **Precio que cambió antes de pagar** (§X, P-POR-3): el descuento se recalcula sobre el precio que se cobra.
+20. **Fuera del código:** el buylist (lo que pagamos a un vendedor) y el retiro de bóveda (MX$203) mientras **P-DSC-1**
+    siga abierta.
+
+**Mensajes y abuso**
+21. **Mensaje genérico:** un código que no existe, venció, está pausado, se agotó o que el cliente ya usó todas las
+    veces permitidas da **el mismo** mensaje y la misma respuesta: «Este código no es válido o ya no está disponible.»
+    Así no se puede averiguar qué códigos existen. *(SUPUESTO: un código vigente que no aplica a este carrito
+    —mínimo, tipo de producto, destino, combinación— sí dice qué falta, p. ej. «Aplica desde MX$2,000 en sellado».
+    El texto exacto lo aprueba el dueño.)*
+22. **Límite de intentos:** tras varios códigos fallidos seguidos por IP y por sesión, se bloquea el campo un rato
+    («Demasiados intentos; espera unos minutos»), y durante el bloqueo tampoco se acepta un código válido.
+    *(SUPUESTO: 10 en 15 min; el número lo fijan arquitecto y seguridad.)*
+
+#### DSC.3 Dónde se ve
+- **Checkout** (invitado y con cuenta, una pantalla `DESIGN_SYSTEM §CHK-MOVIL`): campo «¿Tienes un código?», línea
+  «Descuento (CÓDIGO) −MX$X» en el desglose antes de PAGAR, y «Quitar».
+- **Correo de confirmación y detalle del pedido** del cliente: la misma línea.
+- **Panel:** en **Ventas**, el pedido muestra código y monto. La pantalla **Códigos** (solo `super_admin`) tiene la
+  lista, crear, lote, pausar/reanudar y el reporte. La venta y el IVA de Finanzas y Analítica (§W, §AN) cuentan lo
+  **cobrado**, ya descontado.
+
+#### DSC.4 Reporte por código
+Por código y por lote (sumado): estado, vigencia, usos **consumidos / apartados ahora / límite**, pedidos pagados,
+**descuento total otorgado** (MX$), envío regalado (tipo c), venta cobrada en esos pedidos (MX$), pedidos reembolsados
+y MX$ reembolsados. Debajo, la lista de pedidos con fecha, folio, correo del cliente y monto descontado. En un lote,
+además, qué códigos se usaron. Se descarga en CSV.
+
+#### DSC.5 Fuera de alcance de §DSC y riesgos
+- **Fuera:** buylist; retiro de bóveda (P-DSC-1); **BOPIS / recoger en tienda** (dueño: «en el tintero»); descuentos
+  automáticos sin código, precio tachado, combos, saldo a favor, referidos; códigos asignados a un cliente concreto;
+  apilar códigos; códigos creados por el personal; mandar códigos por correo promocional (P-LEG-8: hoy no hay usos
+  secundarios de datos).
+- **Riesgos para el dueño:** (a) **usos por cliente**: quien abre otro correo vuelve a usar el código; el freno real
+  es el límite de usos totales y la vigencia. (b) **Códigos filtrados** en redes: la pausa es inmediata, y el
+  reporte dice cuánto costó. (c) **Dinero:** un error en el orden del cálculo (regla 5) cobraría IVA o comisión de
+  más o de menos en cada pedido; por eso existe el criterio de equivalencia 892.
+
+- Criterios **890–916**. Preguntas **P-DSC-1** y **P-DSC-2** en «Preguntas abiertas».
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §DSC (códigos de descuento)** *(2026-10-25)*: detalle en **§DSC.5**.
 - **De §PRE (precios robustos)** *(2026-10-11)*: recalcular importes ya cobrados o pagados; cambiar margen, IVA, piso
   de MX$25 o la convención de precio; mover dónde se muestra el mercado; el «precio final a mano» (sigue mandando);
   contratar o pagar una fuente en vivo y la cadencia de 20 min (P-RP-2). Detalle en **§PRE.5**.
@@ -10323,7 +10362,7 @@ el arquitecto/backend al elegir fuentes.)*
   envíos de salida; japonés y español; recolección a domicilio del vendedor; correos de rastreo al vendedor. Detalle
   en **§BSD.6**.
 - **De §AC (accesorios)** *(2026-10-06, act. 2026-10-07)*: variantes de color/tamaño, combos y descuentos (salvo el
-  paquete de energías del deck), galería de fotos, «avísame cuando vuelva», sugerencias inteligentes, accesorios en
+  paquete de energías del deck y los códigos de §DSC), galería de fotos, «avísame cuando vuelva», sugerencias inteligentes, accesorios en
   bóveda/portafolio/buylist/retiros, energías especiales o por set, compras a proveedores e importación por archivo.
   Detalle en **§AC.8**.
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
@@ -15100,6 +15139,75 @@ Energy» (12 energías; sueltas = MX$60.00):*
    para una variante, refresca y comprueba que **no** sale en la tienda sino que aparece en la cola de revisión; (d)
    lo resuelve desde la cola (acepta / conserva / precio a mano) y ve el resultado reflejado.
 
+#### Códigos de descuento (§DSC, 2026-10-25) — criterios 890–916
+890. **Solo el dueño crea** *(DSC.2-15, [D6])*: un `super_admin` crea un código de cada tipo con todos sus campos. Un
+   `vault_operator` no ve la pantalla Códigos, y la llamada directa al servidor para crear, editar o pausar se rechaza
+   sin crear nada. Cada alta y cambio aparece en la auditoría con quién, cuándo y antes → después.
+891. 💰 **Porcentaje** *(DSC.2-1/2)*: carrito de MX$1,000.00 en cartas sueltas con un código de 10 % ⇒ «Descuento
+   −MX$100.00» y mercancía de MX$900.00; el envío y la comisión no se descuentan.
+892. 💰 **IVA y comisión después del descuento — equivalencia** *(DSC.2-5)*: para el pedido de 891, el IVA desglosado,
+   la comisión y el total son **idénticos al centavo** a los de un pedido sin código con MX$900.00 de mercancía y el
+   mismo destino. QA lo repite con un monto fijo, con envío gratis y con un pedido a bóveda (4 de 4 iguales).
+893. 💰 **Monto fijo con IVA** *(DSC.2-1/3)*: un código de MX$150.00 sobre MX$1,000.00 ⇒ mercancía de MX$850.00. El
+   mismo código con solo MX$100.00 elegibles ⇒ descuento de MX$100.00, nunca negativo.
+894. 💰 **Tope en pesos** *(DSC.2-4)*: 20 % con tope de MX$300.00 sobre MX$2,000.00 ⇒ descuento de MX$300.00, no de
+   MX$400.00.
+895. 💰 **Umbral medido después [D2]** *(DSC.2-5)*: MX$4,200.00 con 10 % ⇒ mercancía de MX$3,780.00 y **se cobra
+   envío**. MX$4,500.00 con 10 % ⇒ MX$4,050.00 y envío MX$0.00.
+896. 💰 **Envío gratis** *(DSC.2-6)*: un pedido de MX$1,000.00 en cartas a domicilio queda con envío MX$0.00 y el resto
+   del desglose igual al de un pedido sin envío. En un pedido a bóveda, el código no aplica y lo dice. Un pedido con
+   caja grande conserva la tarifa de su caja.
+897. **Compra a bóveda [D3]**: un cliente con cuenta que compra a su bóveda con un código de porcentaje recibe el
+   descuento, y el pedido aparece en el reporte del código.
+898. **Usos por cliente con correo** *(DSC.2-10)*: con un código de 1 uso por cliente, un invitado paga con
+   `Ana@Correo.mx`. Otro intento con `ana@correo.mx` como invitado da el mensaje genérico, y otro con la cuenta de
+   ese correo también.
+899. 💰 **Apartar al iniciar el pago, consumir al cobrar** *(DSC.2-17)*: al iniciar el pago, el reporte marca 1
+   apartado y 0 consumidos. Con el cobro confirmado, 0 apartados y 1 consumido. Si la sesión vence sin pagar, 0 y 0, y
+   el uso vuelve a estar disponible.
+900. 💰 **Último uso, dos clientes a la vez** *(DSC.2-17)*: a un código con 1 uso restante, dos clientes inician el pago
+   al mismo tiempo. Solo uno llega a la pantalla de cobro con descuento; el otro ve el mensaje antes de pagar. Es
+   probabilístico, así que se mide **N ≥ 10** veces y se reporta la proporción (O-3): se espera 10/10.
+901. 💰 **El reembolso no devuelve el uso [D5]** *(DSC.2-18)*: con un código de 1 uso por cliente, el cliente paga, se
+   le reembolsa **todo** y vuelve a intentar con el mismo código: mensaje genérico. Igual tras un reembolso de una sola
+   carta. El reporte cuenta 1 consumido y el reembolso.
+902. 💰 **El reembolso por carta nunca devuelve más de lo cobrado** *(DSC.2-7/18)*: un pedido con dos cartas de
+   MX$1,000.00 y MX$500.00 y un 10 % cobra líneas de MX$900.00 y MX$450.00. Reembolsar la primera devuelve MX$900.00
+   más su parte de comisión según el criterio 403, **nunca MX$1,000.00**. Reembolsar las dos más el envío suma
+   **exactamente** el total cobrado.
+903. 💰 **Reparto exacto** *(DSC.2-7)*: en pedidos de 1, 2, 3 y 7 líneas con precios que no dividen exacto, las partes
+   por línea suman el descuento al centavo, ninguna línea queda negativa y las no elegibles quedan sin descuento.
+904. **Mínimo antes del descuento** *(DSC.2-11)*: con mínimo de MX$2,000.00, un carrito elegible de MX$2,000.00 aplica.
+   Uno de MX$1,999.99 no aplica, y el mensaje dice cuánto falta.
+905. **Filtros** *(DSC.2-12)*: un código «solo sellado» en un carrito mixto descuenta solo las líneas de sellado. Un
+   código «solo bóveda» en un pedido a domicilio no aplica.
+906. **Uno por pedido [D4]** *(DSC.2-13)*: no hay forma de aplicar dos códigos al mismo pedido. Un segundo código
+   reemplaza al primero con aviso, y el total refleja solo uno.
+907. **Mensaje genérico** *(DSC.2-21)*: con un código inexistente, vencido, pausado, agotado y uno ya usado por ese
+   cliente, el texto visible y la respuesta del servidor (estado y forma) son **idénticos** en los 5 casos.
+908. **Límite de intentos** *(DSC.2-22)*: tras el número configurado de intentos fallidos, el campo se bloquea por un
+   rato, y durante el bloqueo un código válido tampoco se acepta.
+909. **Vigencia en hora del centro de México** *(DSC.2-8)*: un código que vence el día 31 a las 23:59 aplica a las
+   23:58 y no aplica a las 00:00 del día 1.
+910. **Pausar** *(DSC.2-16/17)*: un código pausado deja de aplicar al instante a pagos nuevos. Un pago ya iniciado
+   con él se cobra con su descuento, y reanudarlo lo vuelve a aceptar.
+911. **Lote** *(DSC.2-14)*: un lote de 50 genera 50 códigos distintos con el prefijo elegido y se descarga en CSV.
+   Cada uno vale 1 uso: usado uno, el mismo da el mensaje genérico y los otros 49 siguen sirviendo. Pausar el lote
+   pausa los 50.
+912. **Edición bloqueada tras el primer uso** *(DSC.2-16)*: con un uso apartado o consumido, el panel no deja cambiar
+   tipo, valor, tope, mínimo ni filtros. Sí deja pausar, mover el fin de vigencia y cambiar los usos totales, nunca
+   por debajo de los consumidos. Un código con usos no se puede borrar.
+913. **Reporte por código** *(DSC.4)*: tras una ronda sembrada (3 pedidos pagados, 1 apartado, 1 reembolsado), el
+   reporte y su CSV dan esos conteos, y su «descuento total» es igual a la suma de los descuentos de esos pedidos en
+   Ventas. Se repite por lote.
+914. **Dónde se ve** *(DSC.3)*: la línea «Descuento (CÓDIGO) −MX$X» aparece en el checkout de invitado y con cuenta
+   antes de PAGAR, en el correo de confirmación, en el detalle del pedido del cliente y en Ventas.
+915. 💰 **Lo que no cambia** *(DSC.2-20)*: un pedido **sin** código cobra exactamente lo mismo que antes de §DSC (sus
+   pruebas en verde sin editarlas). El buylist y el retiro de bóveda no tienen campo de código.
+916. **De punta a punta** *(O-4)*: contra el stack corriendo, (a) el dueño crea un código en el panel; (b) un
+   invitado en el celular lo aplica y paga en modo prueba; (c) llega el correo con la línea de descuento; (d) Ventas y
+   el reporte lo muestran; (e) se reembolsa una carta y el reporte refleja el reembolso sin devolver el uso.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -17098,6 +17206,23 @@ promesa:**
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
   desarrollo del MVP.
 
+## Preguntas abiertas
+
+> Esta es **la** sección de preguntas abiertas. Las secciones «Preguntas — …» que siguen son anteriores al
+> 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
+> `docs/DECISIONES.md` con la respuesta literal.
+
+- **P-DSC-1 · ¿Un código de descuento sirve también para pagar un retiro de bóveda (los MX$203)?** *(§DSC; no lo
+  dijiste.)* Un retiro no es una compra: el cliente paga por mandar a su casa lo que ya es suyo. Opciones: **(a) no**
+  —un código solo vale en compras—; **(b) solo los códigos de envío gratis**, que dejarían el retiro en MX$0 (la
+  tienda pagaría la guía); **(c) cualquier código**. **Mientras no contestes: (a)**, y el retiro no tiene campo de
+  código.
+- **P-DSC-2 · ¿El paquete de energías del deck (MX$20) queda fuera del descuento?** *(§DSC, regla 13; no lo dijiste.)*
+  El paquete ya es un precio especial aprobado por ti (§AC.10), y dijiste que el código «no se puede combinar con
+  otros descuentos». Opciones: **(a) queda fuera**: el código descuenta el resto del carrito, pero no el paquete;
+  **(b) entra** como cualquier accesorio. **Mientras no contestes: (a)**. Ejemplo con 10 %: carrito de MX$500 en
+  cartas + paquete de MX$20 ⇒ con (a), −MX$50.00; con (b), −MX$52.00.
+
 ## Preguntas abiertas — precio de buylist por rareza (v1.3)
 > Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
 > corregir los siguientes puntos antes de pasar al arquitecto. Los defaults propuestos preservan el
@@ -18961,91 +19086,10 @@ ese frente:**
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
 
-## Preguntas — reembolsos totales y precios (2026-10-04, sesión 5) — ✅ TODAS RESPONDIDAS
+## Preguntas — panel del personal (§V, de `API_CONTRACT` v1.82 §PNL.9, 2026-10-05) — ABIERTAS
 
-> Salieron de aterrizar las filas de `HECHOS.md` del **2026-10-04** («Cartas apartadas (SSL-R1) — detalles» y
-> «Precios — decisiones»). **Respondidas el mismo día** — `HECHOS.md` «Precios y reembolsos — respuestas a
-> P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1». Palabras del dueño: *«solo ex y double rare, lo demás por defecto»*.
-> No se re-preguntan.
-
-- ~~**P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo?**~~ ⇒ ✅ **No pide motivo** (default
-  aceptado). §S.11.7, criterio 253. *(Sigue abierta, aparte: la pregunta **86** —qué le pasa al pedido mientras
-  un contracargo está vivo—.)*
-- ~~**P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya retirada: ¿pide motivo?**~~ ⇒ ✅ **No
-  pide motivo; lo retirado no se toca** (default aceptado). §S.11.7, criterio 253.
-- ~~**P-PRE-1 · ¿Se quita el precio a mano por pieza de sueltas y gradeadas?**~~ ⇒ ✅ **Se conserva como está,
-  sin hacerlo más visible** (default aceptado). §N.5-bis (b), criterio 255.
-- ~~**P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?**~~ ⇒ ✅ **Solo ex y
-  Double Rare** (el dueño **cambió** el default). Las demás premium siguen retenidas «premium en el piso» para
-  revisión; la lista es parametrizable, sin código para cambiarla. §N.5-bis (a), criterio 254.
-
-## Preguntas — usuarios de back-office sin correo (§U, 2026-10-04, sesión 5) — ✅ CERRADAS el 2026-10-04
-
-> **Cierre (2026-10-04, `HECHOS.md` fila «Usuarios de back-office SIN correo», punto (c)):** P-STF-4 la decidió
-> el dueño — **misma pantalla de entrada que los clientes**, el campo acepta correo o usuario y un usuario de staff
-> entra directo al panel. Las otras siete quedan con su default: el dueño las vio sin objetar (**default
-> aceptado**, 2026-10-04).
-
-> Salen de aterrizar la fila de `HECHOS.md` **«Usuarios de back-office SIN correo; el correo es solo para
-> clientes.»** (2026-10-04). Lo que esa fila ya dice (cuenta del dueño con correo; staff con usuario + contraseña,
-> sin doble verificación; restablece el dueño; aviso de candado al panel) **no se pregunta**. Si el dueño no
-> contesta, se construye con el default. **Ninguna bloquea al arquitecto.**
-
-- **P-STF-1 · ¿Se puede dar de alta un SÚPER-ADMIN sin correo?** ✅ **Default aceptado (2026-10-04): sí**, el alta de equipo ofrece
-  `vault_operator` y `super_admin`. Ese súper-admin no puede recuperar su contraseña solo: se la restablece otro
-  súper-admin (el dueño). Si el dueño prefiere **solo operadores sin correo**, el alta de equipo ofrece únicamente
-  `vault_operator`. Criterio 256.
-- **P-STF-2 · El staff que ya existe con correo, ¿se pasa a usuario sin correo?** ✅ **Default aceptado
-  (2026-10-04): no**; se queda como
-  está y sigue entrando con su correo. Los nuevos se crean sin correo. Criterio 266.
-- **P-STF-3 · ¿Se puede cambiar el nombre de usuario después del alta?** ✅ **Default aceptado (2026-10-04): no**
-  en este corte (si alguien
-  necesita otro, se da de baja y se crea de nuevo). Fuera de alcance.
-- ~~**P-STF-4 · ¿Cómo llega el equipo a su pantalla de entrada?**~~ ✅ **Decidida por el dueño (2026-10-04),
-  distinta del default:** no hay pantalla propia; el equipo entra por **la misma pantalla que los clientes**, cuyo
-  campo acepta correo o usuario, y un usuario de staff entra directo al panel (*«¿no es más fácil que detecte
-  usuario la misma página en mi cuenta y así entra directo a admin?»*). §U.3, criterios 258, 259, 262, 269.
-- **P-STF-5 · La cuenta del dueño y el staff con correo, ¿siguen recibiendo el aviso de candado por correo?**
-  ✅ **Default aceptado (2026-10-04): sí, como hoy** (el dueño dijo que su correo es para recuperar la contraseña, y este aviso es de esa
-  misma familia). Si prefiere que su aviso también vaya solo al panel, se cambia. Criterio 265.
-- **P-STF-6 · Si el dueño teclea la contraseña inicial, ¿el staff igual debe cambiarla al primer ingreso?**
-  ✅ **Default aceptado (2026-10-04): sí, siempre** (así solo el staff conoce su contraseña). Hoy el alta solo obliga cuando la contraseña
-  es generada por el sistema. Criterio 260.
-- **P-STF-7 · ¿El dueño quiere un contador de cuentas bloqueadas en el tablero?** ✅ **Default aceptado
-  (2026-10-04): no**; lo ve en
-  Usuarios y en el historial de la persona (mismo criterio que D-13: «solo verlo en el panel»). Criterio 265.
-- **P-STF-8 · ¿Una cuenta de staff sin correo puede comprar o vender en la tienda?** ✅ **Default aceptado
-  (2026-10-04): no**; es solo de
-  back-office (sin correo no hay recibo ni avisos de pedido; y ya está escrito que el staff no vende, D11). Si un
-  miembro del equipo quiere comprar, usa una cuenta de cliente con su correo. Criterio 269.
-
-## Preguntas — disputas fuera de la tienda (§V, 2026-10-04, sesión 5) — ✅ P-DSP-1…5 RESPONDIDAS (`HECHOS.md:44`) · P-PNL-1…3 abiertas (2026-10-05)
-
-> Salen de aterrizar la fila de `HECHOS.md:44` **2026-10-04 «Disputas: se quitan de la tienda…»**. **Respondidas el
-> mismo día** (misma fila): P-DSP-3 ⇒ **reembolsar solo la carta**; P-DSP-4 ⇒ **«Escríbenos» también en retiros,
-> devolución por SPEI**; P-DSP-1, 2 y 5 ⇒ **default**. Lo que sigue es el registro de lo que se preguntó; **no se
-> re-pregunta**. Abajo, las tres que trae el contrato v1.82 §PNL.9 (P-PNL-1…3), cada una con su default.
-
-- **P-DSP-1 · ¿Qué pasa con la pantalla de disputas del panel (M8) y con las disputas que ya estén abiertas?**
-  ✅ **Default aceptado** (`HECHOS.md:44`).
-  Default: M8 queda **en transición** —sin disputas nuevas, con lo justo para **cerrar las abiertas** con las
-  acciones de hoy— y **se retira** cuando no quede ninguna abierta; el cliente ve las suyas en lectura hasta que
-  cierren. **NO MEDIDO** cuántas hay abiertas hoy en producción. §V.5, criterio 272.
-- **P-DSP-2 · ¿Se conserva la «ventana de 7 días desde la entrega» para reclamar una carta dañada?** Default: se
-  queda **como texto de la política** en términos, pero el sistema no la aplica (no hay disputa que cerrar);
-  decides tú caso por caso. Alternativa: quitarla de los términos. §H. ✅ **Default aceptado** (`HECHOS.md:44`).
-- **P-DSP-3 · Si en un pedido llega mal UNA carta de varias, ¿cómo compensas?** ✅ **Respondida** (`HECHOS.md:44`
-  (a)): **reembolsar solo esa carta**, desde Ventas, con motivo. Se construye (§V.2, criterios 403–405). *(El default
-  «solo total» que traía este borrador queda **descartado**.)*
-- **P-DSP-4 · ¿«¿Problema con tu pedido? Escríbenos» también en un RETIRO de bóveda entregado?** ✅ **Respondida**
-  (`HECHOS.md:44` (b)): **sí**, y si hay que devolver dinero, **por SPEI** como los reembolsos manuales existentes
-  (§V.1, §V.2, criterios 401, 406–407). *(El default «no» queda **descartado**.)*
-- **P-DSP-5 · El correo de soporte, ¿sale de la configuración que ya existe o lo fijamos?** Medido: hoy **no es un
-  dial de M10**; sale de la configuración del servidor (`DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL`, por defecto
-  `soporte@tcghunt.mx`). Default: **el mismo buzón y el mismo origen**, sin dial nuevo. §V.6. ✅ **Default aceptado**
-  (`HECHOS.md:44`).
-
-**Abiertas (2026-10-05, de `API_CONTRACT` v1.82 §PNL.9) — ninguna bloquea; si no contestas, se construye con el default:**
+> P-S11-3/4, P-PRE-1/2, P-STF-1…8 y P-DSP-1…5 están respondidas e integradas (§S.11, §N.5-bis, §U, §V); su registro
+> está en `docs/DECISIONES.md`. Ninguna de las de abajo bloquea; si no contestas, se construye con el default:
 - **P-PNL-1 · ¿El personal va a usar el panel desde el celular?** El 2026-09-08 dijiste «solo computadora», antes de
   que existiera personal. Default (recomendación del arquitecto): **solo «Pedidos por preparar»** funciona en celular
   (quien prepara está en el estante); lo demás sigue de escritorio. ⚠️ No entra en ningún criterio de este corte
@@ -19119,58 +19163,10 @@ ese frente:**
 - **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
   solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
   la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.
-## Preguntas abiertas — Envíos con Skydropx (§T, v1.81 · 2026-09-29; ⭐ actualizado 2026-10-04)
+## Preguntas abiertas — Envíos con Skydropx (§T, 2026-10-04)
 
-> ✅ **88–91 RESPONDIDAS el 2026-10-02**: el dueño acepta los defaults tal como se mapearon (*«de las preguntas de
-> skydropx déjalas como las mapeaste»*, fila de `HECHOS.md` «~~Skydropx — preguntas 88–91…~~ ⇒ RESPONDIDAS
-> 2026-10-02»). Quedan como **DECIDIDO** en T.6, T.7 y los criterios 238 y 241. Se conservan abajo como registro.
-> **Preguntas abiertas de §T: P-SDX-1 y P-ADR-1** (al final), con default; no bloquean.
-
-> **Solo las que de verdad quedan abiertas.** Del levantamiento (§6, §9, §11.2) ya están contestadas por sus
-> seis decisiones en `HECHOS.md`: la tarifa (no cambia), cuándo se compra la guía (al preparar, eligiendo el
-> operador), paqueterías y regla (99minutos primero, el operador elige), seguro (siempre), recolección (no), origen
-> (una sola: CP 14210), buylist (fuera), la liga de rastreo, «Entregado» y «en sucursal». **Ninguna de esas se
-> vuelve a preguntar.** Las cuatro de abajo **tienen un default ya escrito como SUPUESTO en §T**: si no contesta,
-> se construye con el default; **ninguna bloquea al arquitecto**. Detalles de configuración (medidas de los
-> empaques, umbral de saldo bajo, orden de respaldo) **no son preguntas**: los captura usted en la pantalla de
-> ajustes (§T.9) y traen un valor de arranque.
-
-88. **[✅ RESPONDIDA 2026-10-02: (a) se absorbe] [era: ABIERTA — NO BLOQUEA — dinero, chico] Cuando Skydropx cobra un extra DESPUÉS de comprar la guía
-   (sobrepeso, zona extendida, devolución): ¿se le cobra al cliente o lo absorbe la tienda?**
-   **El hecho**: los cargos extra existen y llegan días después (levantamiento §8.1, §9 D3). Hoy no tienen dónde
-   caer; con §T.7 caen como **ajuste** al costo de ese envío.
-   **Default escrito (SUPUESTO)**: **se absorbe**. Razón: la tarifa fija ya es la política de absorber la
-   diferencia, y **no hay mecanismo** para cobrarle después a un invitado sin cuenta (habría que construir un
-   cobro nuevo, y es zona de dinero).
-   **Qué confirmar**: **(a)** se absorbe —**vigente**—; **o (b)** se cobra al cliente, y entonces **cómo** (es
-   trabajo nuevo: un cobro posterior, con su correo y su consentimiento).
-89. **[✅ RESPONDIDA 2026-10-02: (a) mes del cargo] [era: ABIERTA — NO BLOQUEA — contable] El ajuste por cargo extra, ¿en qué mes cae en el P&L: en el mes del
-   envío o en el mes en que llegó el cargo?**
-   **Default escrito (SUPUESTO)**: **en el mes del cargo** (su fecha propia). Razón: no reabre un mes ya cerrado
-   y M7 lo muestra aparte como *«ajustes de paquetería»*, así que el costo del envío original no se reescribe.
-   **Qué confirmar**: **(a)** mes del cargo —**vigente**—; **o (b)** mes del envío (M7 tendría que **re-emitir**
-   el mes anterior); su contador puede tener opinión.
-90. **[✅ RESPONDIDA 2026-10-02: (a) la absorbe la tienda] [era: ABIERTA — NO BLOQUEA — dinero, raro] Si en un RETIRO la cotización venció (24 h) y al comprar la guía sale
-   más cara, ¿quién absorbe la diferencia?**
-   **El hecho**: el retiro se paga **antes** de que el operador cotice (levantamiento R4). Con su decisión 3 el
-   operador cotiza **al preparar**, así que la diferencia solo aparece si deja pasar más de 24 h entre cotizar y
-   comprar — y la pantalla se lo avisa con la cifra nueva (§T.4.1).
-   **Default escrito (SUPUESTO)**: **la absorbe la tienda**. Razón: el cliente ya pagó **MX$203 fijo**; volverle a
-   cobrar rompe la tarifa fija que usted mantuvo.
-   **Qué confirmar**: **(a)** la absorbe la tienda —**vigente**—; **o (b)** otra cosa, y dígala en forma de regla.
-91. **[✅ RESPONDIDA 2026-10-02: (a) a mano, caso por caso, sin correo] [era: ABIERTA — NO BLOQUEA — operación] Cuando un paquete NO se pudo entregar y REGRESA (o queda retenido /
-   con excepción), ¿qué hace la tienda: reexpedir con guía nueva (a costo nuestro o del cliente), o reembolsar?
-   ¿Y se le escribe al cliente?**
-   **El hecho**: Skydropx reporta `in_return`, `exception`, `retained`, `destroyed` (levantamiento §8.2 R7); hoy
-   no existe ninguno de esos casos en nuestro sistema. Es la **pregunta 8** del levantamiento, la única de §6 sin
-   respuesta suya.
-   **Default escrito (SUPUESTO, §T.6)**: **alerta al admin** en el tablero y la tarjeta, **sin cambio de estado
-   solo y sin correo al cliente**; **usted resuelve a mano** caso por caso (una guía nueva desde la misma tarjeta,
-   o un reembolso desde M3) y le escribe usted si hace falta. Razón: es dinero y es raro; una política automática
-   inventada hoy se ejecutaría al pie.
-   **Qué confirmar**: **(a)** a mano, caso por caso —**vigente**—; **o (b)** una regla (por ejemplo: *«primer
-   regreso: reexpedir a nuestro costo; segundo: reembolsar»*) y **si el cliente recibe correo** cuando su paquete
-   regresa — con eso se vuelve requisito y correo del catálogo.
+> 88–91 respondidas el 2026-10-02 e integradas en T.6, T.7 y criterios 238 y 241 (registro en `docs/DECISIONES.md`).
+> Quedan P-SDX-1 y P-ADR-1, con default; no bloquean.
 
 - **P-SDX-1 · [ABIERTA — NO BLOQUEA — operación] ¿En qué imprime usted las etiquetas: hoja normal o impresora
   térmica de etiquetas?** *(2026-10-04; la pide el arquitecto, `API_CONTRACT §M4-SHIP.19.19.8` y `.18`)*
@@ -19261,9 +19257,6 @@ ese frente:**
   finales: no aceptamos devoluciones por cambio de opinión. Te reembolsamos si fue un error nuestro, si una carta
   falta o llega dañada, o si tu pedido no llega. Escríbenos a soporte.»* (sin plazo, como decidiste). §LEG.4,
   criterio 510.
-- ~~**P-LEG-7 · ¿Plazo para reclamar tras la entrega?**~~ ⇒ **RESPONDIDA antes de preguntarla**: «Sin plazo escrito»
-  y «No mencionarlo» (contracargo) — `HECHOS.md` fila **2026-10-05** «Términos tras quitar disputas…». Retirada
-  (2026-10-05); T-5 pasa a «decidido, frontend debe aplicarlo».
 - **P-LEG-8 · ¿Vas a mandar promociones o novedades por correo, o usar lo que la gente busca y ve para decidir qué
   comprar?** Si sí, el aviso tiene que decirlo y dar una forma de negarse. Default: **no hay usos secundarios** por
   ahora; si cambia, se actualiza el aviso antes. §LEG.2 punto 4.
@@ -19351,39 +19344,10 @@ ese frente:**
 
 ## Preguntas — accesorios y energías (§AC, v2 2026-10-07, sesión 6)
 
-> **Cerradas — no se re-preguntan** (`HECHOS.md` 2026-10-07, filas «Respuestas a P-ACC-1…9 … (P-ENERGIAS)» y
-> «Confirmaciones de accesorios, energías y paquete de energías del battle deck»): **P-ACC-1** todo pedido con envío a
-> domicilio, nunca a bóveda — **acotada por P-ACC-10 (a): solo invitado** (`HECHOS.md` 2026-10-07 «"Termina wishlist
-> y accesorios"…», que manda sobre «de invitado o de cuenta») · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío puede
-> cambiar según la caja (sub-preguntas 3a–3c cerradas después, ver abajo) · **P-ACC-4** se sugiere quitando lo que ya lleva ·
-> **P-ACC-6** categorías bien · **P-ACC-7** sin foto no se publica · **P-ACC-9** costo unitario sí · **P-ACC-5** y
-> **P-ACC-8** sin respuesta explícita, **van con la recomendación** (agotado se ve al final; solo el dueño pone precio,
-> activa y marca «Sugerido») · energías básicas a MX$5 · paquete del deck a MX$20 con sus seis reglas · precios ya con
-> IVA.
->
-> **Cerradas después** por `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…» («se construyen con las
-> recomendaciones del orquestador para lo que quedaba abierto»): **P-ACC-3a..c, P-ACC-10, P-EN-1, P-EN-2, P-EN-4,
-> P-EN-5, P-EN-6**; **P-EN-3 y P-EN-7 van con la recomendación del product-owner**. Ver cada una abajo.
->
-> **Siguen abiertas** — si no contestas una, **se construye con la recomendación**: **P-ACC-11**, **P-ACC-12** y las
-> del contrato **P-AC-1..5** (`docs/API_CONTRACT.md` §AC.16).
+> P-ACC-1…10 y P-EN-1…7 están respondidas e integradas en §AC (registro en `docs/DECISIONES.md`). **Siguen
+> abiertas** — si no contestas una, **se construye con la recomendación**: **P-ACC-11**, **P-ACC-12** y las del
+> contrato **P-AC-1..5** (`docs/API_CONTRACT.md` §AC.16).
 
-**Envío por caja (P-ACC-3):**
-- **P-ACC-3a · ¿Qué cajas usas?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»):
-  el dueño **registra sus cajas en el panel**; sin medidas inventadas, el catálogo de cajas **empieza vacío** y lo
-  llena él. Aplicado en AC.4.1 y criterio 725.
-- **P-ACC-3b · ¿Cómo se calcula lo que paga el cliente por cada caja?** ✅ **RESPONDIDA** (misma fila): **una tarifa
-  fija por caja**, que escribe el dueño. Aplicado en AC.4.1. Si con caja se cobra la de la caja o lo mayor entre esa y
-  la de hoy: **P-AC-2** del contrato, abierta.
-- **P-ACC-3c · ¿Qué pasa si el pedido no cabe en ninguna caja?** ✅ **RESPONDIDA** (misma fila): se cobra **la más
-  grande** y **quien prepara lo resuelve**. Las medidas y el peso obligatorios para activar van con la recomendación
-  (la fila adopta las recomendaciones para lo que quedaba abierto). Aplicado en AC.4.1 y criterios 728 y 729.
-
-**Destino:**
-- **P-ACC-10 · Cliente con cuenta y envío a domicilio.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina
-  wishlist y accesorios"**…»): opción (a), **accesorios y energías solo en la compra de invitado con envío a
-  domicilio**; el envío a domicilio para cuentas es un proyecto aparte, no se hace aquí. Aplicado en AC.4, AC.5 y
-  criterios 713 y 749.
 - **P-ACC-11 · Carrito con accesorios y el cliente elige bóveda** (o acepta la oferta «guarda tus cartas en tu
   bóveda» del checkout de invitado, que quita el envío). **Recomendación:** se le avisa en claro «los accesorios y
   energías solo se envían a domicilio» y elige: **mandar todo a domicilio**, o **quitar los accesorios** de este
@@ -19391,30 +19355,6 @@ ese frente:**
 - **P-ACC-12 · ¿Se pueden agregar accesorios a un retiro de bóveda** (cuando el cliente pide que le mandes sus
   cartas guardadas)? Un retiro no es una compra. **Recomendación: no en esta versión** (queda en «Fuera de alcance»);
   es buena idea para después porque ese paquete ya va a domicilio.
-
-**Energías y paquete del deck:**
-- **P-EN-1 · ¿Los 8 tipos son estos?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
-  accesorios"**…»): **sí**, los 8 tipos: Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura y Metálica.
-- **P-EN-2 · ¿Las energías aparecen en el recuadro «¿Te falta algo?» del carrito?** ✅ **RESPONDIDA** (`HECHOS.md`
-  2026-10-07 «**"Termina wishlist y accesorios"**…»): **no**, nunca; se ofrecen en los decks. Aplicado en AC.5.
-- **P-EN-3 · Deck con pocas energías** (4 o menos: sueltas cuestan MX$20 o menos, el paquete no ahorra nada).
-  ✅ **Va con la recomendación del product-owner** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»:
-  «P-EN-3 y P-EN-7 van con la recomendación del product-owner»): en ese caso **no se muestra el paquete**, solo las
-  sueltas.
-- **P-EN-4 · ¿Cuándo cuenta que «el deck está en el carrito»?** ✅ **RESPONDIDA** (misma fila): opción (a), «el deck
-  "está en el carrito" cuando están todas las cartas que agregó "Agregar de jalón"». Si el cliente quita una carta del
-  deck, el paquete sale y se le avisa (regla 4). El mínimo de cartas para ofrecer el paquete es **P-AC-4** del
-  contrato, abierta.
-- **P-EN-5 · Reembolso del paquete.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
-  accesorios"**…»): «el paquete se reembolsa completo solo si se devuelve el deck completo»; sin reembolso
-  proporcional. Aplicado en AC.10 y criterio 744. El caso «falta el paquete al preparar» sigue **abierto** como
-  **P-AC-3** del contrato (`docs/API_CONTRACT.md` §AC.16), con la recomendación del arquitecto.
-- **P-EN-6 · ¿El MX$20 del paquete y el MX$5 de la energía los puedes cambiar desde el panel?** ✅ **RESPONDIDA**
-  (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»): **sí**, «MX$5 y MX$20 se editan en el panel»;
-  arrancan en MX$20 y MX$5. Quién los cambia: solo el dueño, como cualquier precio (P-ACC-8, AC.6).
-- **P-EN-7 · ¿El paquete se ofrece también en «Pegar lista»** (cuando el cliente pega su propia lista de deck)?
-  ✅ **Va con la recomendación del product-owner** (misma fila): **no en esta versión**; solo en los decks del meta
-  que publica la tienda; en «Pegar lista» las energías sí salen ligadas y se pueden agregar sueltas.
 
 ## Preguntas — lista de deseos y «lista de compra casi segura» (§WSH, 2026-10-06 · v2 2026-10-07) — P-WSH-7…9 ABIERTAS
 
@@ -19462,31 +19402,8 @@ ese frente:**
 > Lo que ya dijiste **no se pregunta** (`HECHOS.md` fila 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR
 > DE MERCADO…»): opción A, mercado y oferta juntos por carta; **sin** frase de porcentaje; ningún importe cambia.
 >
-> **P-BMK-1…5 — RESUELTAS el 2026-10-08 con la recomendación.** `HECHOS.md` fila 2026-10-08 «Cotizador de venta
-> (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la recomendación.» Palabras del dueño: *«todo como
-> recomiendas»*. Se conservan abajo como registro de qué se decidió.
-
-- **P-BMK-1 · Carta con precio de compra puesto A MANO (override).** Ejemplo: el mercado de una carta es MX$1,000 y tú
-  fijaste a mano pagar MX$650. ¿El vendedor ve «Valor de mercado: MX$1,000 · Te pagamos: MX$650», o solo «Te pagamos:
-  MX$650»? Recomendación: **se ve el mercado igual**, como en cualquier otra carta: es el mismo dato que el vendedor
-  encuentra en internet, y esconderlo solo en tus cartas «a mano» se notaría. §BMK.3, criterio 853.
-- **P-BMK-2 · Carta con BOUNTY.** Ejemplo: mercado MX$1,000, bounty MX$700 ⇒ «Valor de mercado: MX$1,000 · Te pagamos:
-  MX$700» (el bounty nunca paga más que el mercado: se topa en él). ¿Se muestra igual? Recomendación: **sí, igual que
-  cualquier carta**. Y aparte: ¿la **vitrina de bounties** de arriba del cotizador también lleva el mercado?
-  Recomendación: **no en esta ronda** (hoy esa vitrina no recibe el mercado; se suma después si la quieres). §BMK.3.
-- **P-BMK-3 · Carta en «precio pendiente» que SÍ tiene un dato de mercado.** Pasa con cartas caras cuyo dato de mercado
-  parece estar mal (p. ej. una carta rara que el dato dice que vale MX$3): no le ponemos precio hasta que tú la revises.
-  ¿Mostramos «Valor de mercado: MX$3 · precio pendiente»? Recomendación: **no**: mientras esté pendiente, **no se
-  muestra el mercado**, solo «precio pendiente» como hoy; enseñar un mercado que sospechamos falso confunde al vendedor.
-  §BMK.3, criterio 854.
-- **P-BMK-4 · ¿También el total?** Ejemplo: el carrito de venta trae dos cartas de mercado MX$1,000 y MX$200 por las que
-  pagamos MX$500 y MX$80. ¿Además de cada carta, el total dice «Valor de mercado de tus cartas: MX$1,200 · Te pagamos:
-  MX$580»? Recomendación: **no**: solo por carta, como lo pediste. El total sigue siendo uno solo (lo que pagamos).
-  §BMK.2, criterio 856.
-- **P-BMK-5 · ¿Y después de mandar la solicitud?** En «Mi cuenta», el detalle de una solicitud enseña lo cotizado y la
-  oferta por carta, sin mercado. ¿Lo agregamos ahí («Valor de mercado al cotizar: MX$1,000 · Te pagamos: MX$500»)?
-  Recomendación: **no en esta ronda**: lo pediste para el cotizador; si después te lo piden los vendedores, se suma.
-  §BMK.2, §BMK.4.
+> P-BMK-1…5 resueltas el 2026-10-08 con la recomendación («todo como recomiendas») e integradas en §BMK.2–§BMK.4
+> (registro en `docs/DECISIONES.md`).
 
 **ABIERTA (no bloquea; se construye con «sí» si no contestas):**
 
