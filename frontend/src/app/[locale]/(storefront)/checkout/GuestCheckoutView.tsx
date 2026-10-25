@@ -492,8 +492,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         })
     : '';
   // T9: con CUALQUIER clase (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido») y
-  // solo si falta algo; el número es el del backend (ENV-F1). Un servidor que mande `null` (contrato v1.109.1 en solo
-  // cartas) no pinta T9: nunca se calcula aquí.
+  // solo si falta algo; el número es el del backend (ENV-F1). `null` no pinta T9 —caja grande (contrato v1.109.5,
+  // `boxFeeApplies`) o un servidor que mande null (fuera de contrato)—: la falta nunca se calcula aquí.
   const remaining = data?.shippingRule?.kind != null ? data.shippingRule.freeShippingRemainingCents : null;
 
   const breakdownNode = data ? (

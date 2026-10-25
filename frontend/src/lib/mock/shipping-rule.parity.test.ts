@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as fx from './fixtures';
+import { mockPullToken } from './accessories';
 import {
   DIRECT_SHIP_DEFAULT_DIALS,
   directShipFeeOf,
@@ -49,8 +50,9 @@ const ENV1: ReadonlyArray<[string, ShippingRuleCart, number, number | null, numb
   ['sellado S=400000 ⇒ 0 (umbral inclusivo)', cards('sealed'), 400000, null, 0, 0],
   ['carta + sellado con S ≥ T ⇒ 0', cards('raw', 'sealed'), 400000, null, 0, 0],
   ['carta + energía ⇒ regla del sellado (D-ENV-3)', { productTypes: ['raw'], accessoryCount: 1 }, 50000, null, 17500, 350000],
-  ['caja 35000 bajo T', acc, 50000, 35000, 35000, 350000],
-  ['caja 35000 sobre T (conserva su tarifa)', acc, 400000, 35000, 35000, 0],
+  // v1.109.5: caja grande ⇒ sin promesa de «te faltan» (`null`), bajo y sobre T.
+  ['caja 35000 bajo T', acc, 50000, 35000, 35000, null],
+  ['caja 35000 sobre T (conserva su tarifa)', acc, 400000, 35000, 35000, null],
   ['caja 15000 bajo T ⇒ tarifa del sellado', acc, 50000, 15000, 17500, 350000],
   ['caja 15000 sobre T ⇒ 0', acc, 400000, 15000, 0, 0],
 ];
@@ -149,6 +151,27 @@ describe('ENV-1 / ENV-F1 (frontend) · los casos que el contrato da con cifras, 
     expect(directShipFeeOf(kind, D.freeFromCents, D, { customerFeeCents: big }).rule.freeShippingApplied).toBe(false);
     expect(directShipFeeOf(kind, 50000, D, { customerFeeCents: small }).feeCents).toBe(smallUnder);
     expect(directShipFeeOf(kind, D.freeFromCents, D, { customerFeeCents: small }).feeCents).toBe(smallOver);
+  });
+
+  // v1.109.5 (QA sobre fc84acde: S=474000 cobraba 35000 con T9 «te faltan» pintado): con caja grande cruzar T no quita
+  // el envío ⇒ `freeShippingRemainingCents: null` bajo y sobre T, y T9 no se pinta. Las `S` se leen del contrato.
+  it('ENV-1 v1.109.5: caja grande ⇒ `boxFeeApplies` y `freeShippingRemainingCents: null` bajo y sobre T (sin T9); chica ⇒ T − S', () => {
+    const [big, bigFee, sUnder, sOver] = read(
+      /caja (\d+) ⇒\s+(\d+) bajo y sobre T \(`boxFeeApplies:true` y `freeShippingRemainingCents:null` en ambos — `S` = (\d+) y (\d+) —/,
+      'caso ENV-1 v1.109.5 de caja grande',
+    );
+    expect(sUnder).toBeLessThan(D.freeFromCents);
+    expect(sOver).toBeGreaterThanOrEqual(D.freeFromCents);
+    expect(SECTION).toContain('el mock devuelve `null` con caja grande ⇒ sin T9, bajo y sobre T');
+    const kind = shippingRuleKindOf(acc);
+    for (const s of [sUnder, sOver]) {
+      const out = directShipFeeOf(kind, s, D, { customerFeeCents: big });
+      expect(out.feeCents, `E con caja grande, S=${s}`).toBe(bigFee);
+      expect(out.rule, `S=${s}`).toMatchObject({ boxFeeApplies: true, freeShippingRemainingCents: null, freeShippingApplied: false });
+    }
+    // Chica: «remaining = T − S, como sin caja».
+    const [small] = read(/caja (\d+) ⇒ \d+ bajo T y \d+ sobre T \(chica: remaining = `T − S`/, 'caso ENV-1 de caja chica (remaining)');
+    expect(directShipFeeOf(kind, sUnder, D, { customerFeeCents: small }).rule.freeShippingRemainingCents).toBe(D.freeFromCents - sUnder);
   });
 
   it('ENV-F1: T9 ⇔ `kind ≠ null ∧ freeShippingRemainingCents > 0` — el mock lo da en las dos clases bajo T y lo quita en T', () => {
@@ -250,6 +273,37 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
       deckPulls: pulls,
     });
     expect(s.breakdown.shippingFeeCents).toBe(10000);
+  });
+
+  // TL-ENV-F5 (techlead, 2026-10-25): la otra mitad de TL-R2. Un pull con token VÁLIDO y `withEnergyBundle: true` deja
+  // el paquete aceptado (`energyBundles`) ⇒ cuenta como accesorio (D-ENV-3) ⇒ `sealed` y 17500 aun con solo cartas.
+  // Muerde si se quita `+ acc.energyBundles.length` del cálculo de envío del quote (`lib/api.ts`) o de la sesión.
+  it('paridad: deckPull CON paquete aceptado + solo cartas ⇒ `sealed` y 17500 (quote y sesión)', async () => {
+    // MOCK: token legible `mock-pull:<slug>:<ids>`; el deck existe y sus ids están en el carrito ⇒ válido.
+    const pulls = [{ pullToken: mockPullToken('dragapult-ex', ['inv-1003']), withEnergyBundle: true }];
+    const q = await getGuestCheckoutQuote(['inv-1003'], undefined, undefined, { deckPulls: pulls });
+    expect(q.unavailableBundles, 'el paquete tiene que quedar aceptado, no podado').toEqual([]);
+    expect(q.energyBundles).toHaveLength(1);
+    expect(q.breakdown.subtotalCents).toBeLessThan(D.freeFromCents);
+    expect(q.shippingRule?.kind).toBe('sealed');
+    expect(q.breakdown.shippingFeeCents).toBe(17500);
+    const s = await createGuestCheckoutSession({
+      inventoryItemIds: ['inv-1003'],
+      email: 'tlf5@example.com',
+      shippingAddress: {
+        line1: 'Calle 1',
+        neighborhood: 'Centro',
+        city: 'Guadalajara',
+        state: 'Jalisco',
+        postalCode: '44100',
+        country: 'MX',
+        phone: '3312345678',
+        recipientName: 'Tl Cinco',
+      },
+      acceptedTerms: true,
+      deckPulls: pulls,
+    });
+    expect(s.breakdown.shippingFeeCents).toBe(17500);
   });
 
   it('M10 mueve la tarifa del mock (criterio 196) y ENV-3: la sesión cobra lo mismo que el quote', async () => {

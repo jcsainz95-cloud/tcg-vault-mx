@@ -1,5 +1,5 @@
 /**
- * MOCK · réplica de la regla de envío v2 del envío directo (API_CONTRACT §4-G.12, v1.109.3; convención de los
+ * MOCK · réplica de la regla de envío v2 del envío directo (API_CONTRACT §4-G.12, v1.109.5; convención de los
  * diales según la decisión del dueño del 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido»).
  *
  * ⚠️ **SIMULADOR, no la fuente.** En producción la tarifa la decide el servidor
@@ -16,7 +16,8 @@
  *     hay cartas (raw y graded, D-ENV-2), `null` si no queda nada (envío 0);
  *  2. `E_regla`: `S ≥ T ⇒ 0` para CUALQUIER clase; si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`
  *     (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido (opción A)»; contrato v1.109.3).
- *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents`;
+ *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents` y
+ *     `freeShippingRemainingCents = null` (v1.109.5: sin T9 bajo ni sobre T);
  *  4. el desglose (comisión sobre `S + E`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
  *
  * `S` = subtotal exhibido (IVA dentro, antes del envío y de la comisión). ⛔ El umbral NUNCA se compara
@@ -87,7 +88,9 @@ export function directShipFeeOf(
     rule: {
       kind,
       freeFromCents: dials.freeFromCents,
-      freeShippingRemainingCents: Math.max(0, dials.freeFromCents - subtotalCents),
+      // §4-G.12 punto 4 (v1.109.5): con caja grande cruzar T no quita el envío ⇒ no hay promesa («te faltan») que
+      // cumplir: `null` bajo y sobre T, y T9 no se pinta (su predicado ENV-F1 no cambia).
+      freeShippingRemainingCents: bigBox ? null : Math.max(0, dials.freeFromCents - subtotalCents),
       // §4-G.12 punto 4 (v1.109.2): `S ≥ T ∧ ¬boxFeeApplies` (⇔ E = 0); caja grande sobre T ⇒ false.
       freeShippingApplied: free && !bigBox,
       boxFeeApplies: bigBox,

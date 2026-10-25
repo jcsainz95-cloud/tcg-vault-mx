@@ -145,7 +145,7 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     expect(await screen.findByTestId('free-shipping-remaining')).toHaveTextContent('Te faltan MX$987.65 para envío gratis');
     third.unmount();
 
-    // Servidor que aún manda `null` en solo cartas (contrato v1.109.1) ⇒ sin T9: el front no calcula la falta.
+    // Servidor que mande `null` en solo cartas (fuera de contrato) ⇒ sin T9: el front no calcula la falta.
     spy.mockResolvedValue(
       guestQuote({
         items: [CARD_ITEM],
@@ -155,6 +155,27 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     renderGuest();
     await screen.findByTestId('checkout-pay-bar');
     expect(screen.queryByTestId('free-shipping-remaining')).toBeNull();
+  });
+
+  // v1.109.5 (§4-G.12 punto 4; QA sobre fc84acde): con caja grande cruzar T no quita el envío ⇒ el servidor manda
+  // `freeShippingRemainingCents: null` bajo y sobre T y T9 no se pinta. ⛔ El front no deriva la falta de
+  // `freeFromCents − subtotal` (una fuente): aquí ambos están presentes y T9 sigue sin pintarse.
+  it('caja grande (`boxFeeApplies`, falta `null`) ⇒ sin T9 bajo y sobre T; la barra cobra la tarifa de la caja', async () => {
+    const spy = vi.spyOn(api, 'getGuestCheckoutQuote');
+    for (const subtotal of [50_000, 474_000]) {
+      spy.mockResolvedValue(
+        guestQuote({
+          items: [CARD_ITEM],
+          breakdown: breakdownOf(subtotal, 35_000, subtotal + 35_000 + 1_234),
+          shippingRule: { kind: 'sealed', freeFromCents: 400_000, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true },
+        }),
+      );
+      const r = renderGuest();
+      const bar = await screen.findByTestId('checkout-pay-bar');
+      expect(within(bar).getByTestId('checkout-pay-bar-summary'), `S=${subtotal}`).toHaveTextContent(/Incluye envío MX\$350\.00/);
+      expect(screen.queryByTestId('free-shipping-remaining'), `S=${subtotal}`).toBeNull();
+      r.unmount();
+    }
   });
 
   it('L6 (unidad): doble toque en PAGAR con el formulario completo crea UNA sola sesión', async () => {

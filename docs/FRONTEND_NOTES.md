@@ -27,8 +27,8 @@
   al hidratar— no se da aquí porque el checkout es solo de cliente: pedido a ux-ui que lo reconcilie). Doble envío: guarda
   `payInFlight` (ref) además de `loading`, en las dos vistas.
 - **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
-  `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, solo
-  `kind='sealed'` y falta > 0), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
+  `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, `kind ≠ null`
+  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
   `formatMoneyCents` (MX$100.00). T2 (ficha, sesión anónima) **no** entró en este encargo.
 - **«envío gratis»:** excepción nombrada en `seo-content.test.ts` `KNOWN_OFFENDERS` solo para `checkout.bar.includesShippingFree`
   y `checkout.freeShippingRemaining` (ES/EN), dueño, medida 2026-10-24, caduca 2026-11-24, nota «pendiente de aprobación del
@@ -39,10 +39,12 @@
   con `checkout/test-viewport.ts` (jsdom responde móvil). Mutaciones medidas sobre copia de `fc42678c` (rojas/corridas):
   L1 `min-w-[426px]` 4/4 · L2 sin `ref={barRef}` 4/4 · L3 sugerencias antes del formulario 4/4 · L4 plegable abierto 4/4 ·
   L5 comisión calculada en el front 2/2 · L6 sin `payInFlight` ni `loading` 12/12; solo sin `loading` 0/12 (la ref basta).
-- **Contra el stack real (censo E2E, 2026-10-25):** L5 llega a las fichas desde el catálogo / la lista de sellado (sin
-  ids de fixture) y L6 cuenta en real los `POST /checkout/guest/session` que salen del navegador (no depende de Stripe).
-  Queda una sola salvaguarda de solo-mock: L1 con el aviso de reintento, porque sin Stripe la sesión da 503 y no hay
-  `reservedUntil` que pintar; el dato lo cubre `backend/test/integration/checkout-reservation-owner.e2e-spec.ts:172,640`.
+- **Contra el stack real (2026-10-25, `c3f6ed2b`):** 23 casos llevan `@real` (antes ninguno: el `grep: /@real/` del config
+  dejaba el fichero fuera, QA sobre `fc84acde`); la suite `@real` pasa de 106 a 129. Fuera queda L1 con aviso de reintento
+  (`mockOnly`: sin Stripe la sesión da 503; dato en `checkout-reservation-owner.e2e-spec.ts:172,640`). En real el fichero
+  va en `mode: 'default'` (un worker, en orden) porque L6 aparta la pieza que otro viewport ya añadió («ya no está
+  disponible»); L3 siembra su accesorio sugerido (el seed no trae). Stack propio, 2 workers: 10/10 corridas 23/23; sin el
+  modo, 1/10 roja con el mensaje de QA y 10/10 con L6 solapado a otro caso. `e2e-real-suite.sh` le da tanda propia (4 sesiones).
   L5 acepta las dos plantillas de T3a (`includesShipping` / `includesShippingFree`, la elige el quote): en `84410390`
   estaba roja 2/2 en mock porque la primera carta del catálogo ya cae en envío gratis.
 
@@ -61,7 +63,8 @@
   lee del contrato la tabla de defaults, el ejemplo de `shippingRule` (objeto entero, con el `S` del propio ejemplo),
   las cifras de ENV-1 de cartas/sellado/caja y el predicado de T9 de ENV-F1; mixtos, energía y vacío van como tabla
   propia (el contrato los da sin cifras). `freeShippingApplied = S ≥ T ∧ ¬boxFeeApplies` (antes el mock daba `true`
-  con caja grande sobre T; lo cazó la lectura del caso de caja, 2026-10-25).
+  con caja grande sobre T; lo cazó la lectura del caso de caja, 2026-10-25). v1.109.5: caja grande ⇒
+  `freeShippingRemainingCents: null` bajo y sobre T. TL-ENV-F5: pull con paquete aceptado + solo cartas ⇒ `sealed`.
 - **M10** (`admin/m10/sections/DirectShipSection.tsx`, «Envío a domicilio»): los tres diales en pesos, `PUT` parcial en
   centavos, `422` por campo, sin pintar nada si el servidor no trae las claves. «IVA incluido» pegado a cada campo
   (sufijo) y en la ayuda; una nota recuerda que el retiro de bóveda va antes de IVA. La copia de admin evita «envío gratis»
