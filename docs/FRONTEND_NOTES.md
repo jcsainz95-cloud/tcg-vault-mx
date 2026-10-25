@@ -804,12 +804,7 @@ este frontend «—»). Ahora: **`null` es la única marca de ausencia** y ⛔ *
 
 ### 2. Estado VIVO de M4 en el frontend — **lo que hay que leer hoy** *(sustituye a §63.2)*
 
-> ⚠️ **SUPERADA en tres filas — el estado vivo se lee en [§65.2](#65).** Y sí: es la **segunda** vez
-> en el mismo día que una tabla de «estado vivo» caduca aquí. §63.2 ya lo dijo y esta entrada lo
-> repitió igual — *una tabla así, en un registro fechado, caduca por construcción*. **Lo que cambió:**
-> `PreparationQueue.tsx` pasó de 493 a **538** líneas; `M4View.test.tsx` de 42 a **49** casos (**37**
-> en el `describe` de «Pedidos a preparar»); y el bloque de la persona ya **no pinta «—»**. El resto
-> de las filas sigue vigente.
+> ⚠️ **Superada en tres filas (Pantalla, Pruebas, bloque de la persona) — el estado vivo se lee en [§65.2](#65).** El resto de las filas sigue vigente.
 
 | Pieza | Dónde | Qué es hoy |
 |---|---|---|
@@ -865,30 +860,8 @@ redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a cola
 
 ### 5. ✅ ~~🔴 NO CONFORMIDAD ABIERTA~~ — **CERRADA** el mismo día por `DESIGN_SYSTEM §35.6a` (v4.5, `27339eb`) · aplicada en §65
 
-> ✅ **Ya no hay «—» en esa ranura: la ausencia se nombra.** ux-ui publicó el copy (`§35.6a`) y
-> **ratificó la costura con nombre propio** — fijar el guion habría convertido la suite en
-> **defensora del defecto**, y al llegar el copy el arreglo más barato habría sido **revertir el
-> copy**. Lo aplicado está en **[§65](#65)**. Lo que sigue se conserva **en pasado**, porque es el
-> relato de una costura que funcionó y eso es lo que hay que poder repetir.
-
-**§M4-PREP v1.78.1 obliga al consumidor** a pintar, con `fullName === null`, una **AUSENCIA CON
-NOMBRE** —el patrón de «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4— y ⛔ **prohíbe el «—»
-mudo**: `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase que diga que no se pudo saber**, y §16.3a
-advierte que el em dash **ya carga semántica de dinero** («precio pendiente») y **se lee como cero**.
-
-**Hoy la pantalla pinta «—». Eso NO cumple el contrato.** No se cerró aquí porque **la redacción es de
-ux-ui por decisión del propio contrato**, y §35 no la cubre (§35.3 solo trata el apellido no derivable).
-Lo que sí quedó hecho es **la costura**:
-
-- rama de ausencia **aislada** (`fullNameMissing`), con `data-testid="prep-fullname-missing-<shipmentId>"`;
-- marcada `PENDIENTE-UX` en `PreparationQueue.tsx` con la cláusula que la obliga;
-- ⇒ **ponerle el copy es una clave i18n y una línea.**
-
-⛔ **Y los candados NO fijan el «—»**, a propósito: un test que lo fijara **protegería en CI justo lo
-que el contrato prohíbe**. Asertan lo que es cierto con **cualquier** redacción — que no se imprime
-`null`/`undefined` y que **la ausencia es distinguible**. *(Atenuante, no excusa: la tarjeta ya no queda
-muda del todo, porque `fullName === null ⇒ lastName === null` y el plano de arriba dice «Apellido no
-identificado». Lo que falta es la frase en el hueco del nombre.)*
+> ✅ Cerrada: `fullName === null` ya no pinta «—»; la ausencia se nombra con el copy de `DESIGN_SYSTEM §35.6a`, aplicado en **[§65](#65)**.
+> *(Compactado 2026-10-25: el relato de la costura `PENDIENTE-UX` mientras faltaba el copy; la historia, en git.)*
 
 ### 6. Dos defectos que aparecieron al ESCRIBIR los candados, no al leer §35
 
@@ -980,35 +953,7 @@ no toca guard ni ruteo).
 
 ### 2. Estado VIVO de M4 en el frontend (lo que hay que leer, no lo que hubo)
 
-> ⚠️⚠️ **SUPERADA — el estado vivo se lee en [§64.2](#64), no aquí.** Y la lección no es que esta
-> tabla se quedara vieja: es que **una tabla de «estado VIVO» dentro de un registro FECHADO caduca
-> por construcción**. Ésta duró **horas** — el mismo día, dos commits después (`102d57d`). Lo que
-> sigue era cierto en `5026692` y se conserva en pasado. *Si vuelves a escribir una tabla así aquí,
-> ponle delante el puntero a la siguiente desde el primer día.*
->
-> **Lo que de esta tabla ya NO es cierto:** las **cuentas de pruebas** (hoy `M4View.test.tsx` tiene
-> **42** casos, **30** en el `describe` de «Pedidos a preparar»; `PreparationQueue.tsx` pasó de 343 a
-> **493** líneas); y la fila de la **pantalla**, que ahora se monta **encima** de la cola de envíos y
-> **se re-pide al recuperar el foco**. El resto de las filas (tipos, cliente del API, clave de query,
-> fixtures, `formatAge`, claves i18n) **sigue vigente** — ⛔ no las tires por arrastre.
-
-| Pieza | Dónde | Qué es hoy |
-|---|---|---|
-| Tipos del contrato | `src/types/contract.ts` | `PreparationDestination`, `PreparationOrderDTO`, `PreparationItemDTO`, `LocationView` — **copiados 1:1 de §M4-PREP**. ⛔ `PickingListEntryDTO` **retirado** |
-| Cliente del API | `src/lib/api.ts` | `getAdminPreparationQueue({ destination?, date? })` → `GET /admin/shipments/picking-list`. ⛔ `getAdminPickingList` **retirado** |
-| Pantalla | `src/app/[locale]/(admin)/admin/m4/PreparationQueue.tsx` (**nuevo**) | tarjeta por pedido; `M4View.tsx` solo la monta |
-| Clave de query | `M4View.tsx` / `PreparationQueue.tsx` | `['admin-preparation-queue', bucket]`. ⛔ `['admin-picking-list']` **retirado** (las mutaciones de guía y de estado invalidan la nueva) |
-| Fixtures | `src/lib/mock/fixtures.ts` | `mockPreparationQueue` (+ `shp-7004` en `mockAdminShipments`). ⛔ `mockPickingList` **retirado** |
-| Antigüedad | `src/lib/format.ts` | `formatAge(iso, locale, now?)` — **trunca, no redondea**; escalona segundos→minutos→horas→días |
-| i18n | `messages/{es,en}.json` | **`admin.m4.prep.*`**. ⛔ `admin.m4.{pickingHint,pickingEmpty,picking.*}` **retiradas** |
-| Pruebas | `m4/M4View.test.tsx` (**28** casos en total, **16** en el `describe` de «Pedidos a preparar») · `lib/format.test.ts` (**+4**, `formatAge`) | agrupación, retiro sin folio, `lastName` null, miniatura null, ubicación en ambos `kind`, dirección con calle, dos cubetas, cubeta bóveda vacía, orden asc |
-
-**Claves i18n nuevas (paridad ES/EN verde):** `admin.m4.prep.{title,hint,filterLabel,filterAll,
-filterShip,filterVault,destination.{ship,vault},withdrawal,shipmentRef,requestedAt,lastNameUnknown,
-unassigned,folio,location,set,itemCount,orderCount,empty.{title,body},emptyShip.{title,body},
-emptyVault.{title,body}}`. Además, EN `status.shipment.picking` pasa de «Picking» a
-«In preparation» (ES ya decía «En preparación»): era la palabra retirada apareciendo en esta misma
-pantalla. ⛔ **No se tocó `status.inventory.picking`** — vive en M1, que es de otro stream.
+> *(Compactado 2026-10-25: la tabla de estado de `5026692` y su lista de claves i18n quedaron superadas por [§64.2](#64) y [§65.2](#65); la historia, en git.)*
 
 ### 3. Los sitios donde un dato ausente NO puede leerse como un error
 
@@ -1027,20 +972,7 @@ caducadas que este documento ya tuvo que barrer dos veces.
 | `card.imageSmallUrl` | el catálogo no tiene miniatura | el **pozo de papel** de `CardImage` (que ya no pulsa sin `src`) |
 | `currentLocation.kind='unassigned'` | la pieza no está ubicada | **«Sin ubicar»**. ⛔ **NUNCA** el crudo `UNASSIGNED` (CA #11) |
 
-⚠️ Y un caso **defensivo** que no es nullable sino opcional: `LocationView` declara `label?` **incluso con
-`kind:'assigned'`**. Sin etiqueta no hay ubicación que caminar ⇒ se trata **igual que `unassigned`**
-(copy legible y al final del orden), en vez de colarse arriba de la lista con una cadena vacía.
-
-> ⚠️⚠️ **SUPERADO por el contrato v1.78.2 — esto describe el tipo de v1.78.1, que YA NO EXISTE.** Lo
-> levantó el techlead (`NB-3`) y tiene razón: es **documentación con forma de código describiendo un
-> mundo que no existe**, y choca con el DoD (*«`docs/` al día reflejan lo implementado»*). Hoy
-> `LocationView` es una **unión discriminada** (`{kind:'assigned'; label: string} | {kind:'unassigned'}`):
-> el estado que este párrafo describe **no es representable**, y las dos ramas defensivas que
-> justificaba **se retiraron** —`preparation-order.ts` documenta el retiro—. ⇒ **preguntar
-> `kind === 'assigned'` basta y es total**, y ⛔ un `if (loc.label)` vuelve a admitir lo que el tipo
-> borró. Se conserva el párrafo en pasado porque **fue la lectura correcta mientras el tipo era
-> flojo**, y porque es el ejemplo de lo que cuesta un invariante que vive en un comentario: cuatro
-> ramas defensivas repartidas entre dos repos. Estado vivo: **[§65.2](#65)** y §M4-PREP.
+*(Compactado 2026-10-25: aquí había una rama defensiva para `LocationView.label?`, retirada por el contrato v1.78.2 —hoy unión discriminada—. Estado vivo: [§65.2](#65) y §M4-PREP.)*
 
 ### 4. Tres decisiones que el contrato no cerraba, dichas para que sean discutibles
 
@@ -1330,20 +1262,8 @@ limpio · `npx eslint` limpio · `npx playwright test` en modo mock ✓ **159 pa
 ### 2. Las cinco decisiones que conviene dejar por escrito
 
 1. ⭐⭐ **El acuse de §30.8 necesita un número que el DTO no trae, así que se PIDE al servidor.**
-   ⚠️ **SUPERADO por el contrato v1.63.4 — ver [§62.1](#62).** Lo que sigue describe la conducta de
-   v1.63.3 y se conserva porque explica **por qué** se pidió el campo; hoy el acuse se compone
-   **sin ninguna petición** y `FX-UI-4(a)` cuenta **0**.
-   `ack.would` / `ack.cta` nombran **el valor de respaldo**, y `FxStateDTO` no lo publica. Las tres
-   salidas posibles eran: hornear el `18` en el cliente (⛔ prohibido, §30.16.8), inventar una
-   variante de copy sin número (⛔ no se inventa copy) o **leerlo de `details.fallbackRate`**, que
-   es de donde §30.8 dice que sale. Se hace lo tercero: al mover el interruptor a AUTOMÁTICA con
-   `status: "missing"` sale **un `PUT` sin acuse**, el servidor contesta su `422` —que **por
-   contrato no cambia el modo** (candado `FX-12`)— y **ese** `422` se convierte en el diálogo, con
-   el número del servidor. Al confirmar sale el segundo `PUT`, ya con `acknowledgeNoAutomaticRate`.
-   ⚠️ **Consecuencia para QA:** `FX-UI-4(a)` dice *«0 peticiones hasta confirmar»*; con el contrato
-   de hoy son **0 peticiones que cambien algo** y **1 consulta de precondición**. El test lo mide
-   así, inspeccionando el cuerpo de las dos. Si se quiere el literal, hace falta que el contrato
-   publique el respaldo en el DTO — **petición al arquitecto**, §5.
+   *(Compactado 2026-10-25: describía la conducta de v1.63.3 —una consulta de precondición para leer
+   `details.fallbackRate`—, superada por v1.63.4; el estado vigente está en [§62.1](#62); la historia, en git.)*
 2. **El colchón se va de M2 y VUELVE a M10.** §30.1 lo saca de la tarjeta y §30.3d dice, en copy
    normativo, *«Se edita en Ajustes»*. M10 lo había retirado en su día **apuntando a M2** («editor
    canónico = M2 §3 FX»), así que borrarlo aquí dejaba un **dial de dinero sin ningún editor** —
