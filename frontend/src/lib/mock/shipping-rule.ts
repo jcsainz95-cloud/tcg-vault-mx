@@ -8,9 +8,8 @@
  * cifra que el sistema real no produciría (criterio 196). Paridad: `shipping-rule.parity.test.ts`.
  *
  * ⭐ **Los tres diales son CON IVA INCLUIDO** (lo que ve el cliente): `E_cartas = directShipCardsFeeCents` y
- * `E_sellado = directShipSealedFeeCents`, EXACTOS, sin derivar del dial del IVA. ⚠️ El texto de v1.109 los
- * describía como `F` neto (P-ENV-1); el dueño contestó «IVA incluido» y la corrección del contrato está pedida
- * al arquitecto (v1.110). `shipping_fee_cents` (retiro de bóveda) sigue neto y no pasa por aquí.
+ * `E_sellado = directShipSealedFeeCents`, EXACTOS, sin derivar del dial del IVA (contrato v1.109.1, P-ENV-1
+ * cerrada). `shipping_fee_cents` (retiro de bóveda) sigue neto y no pasa por aquí.
  *
  * Pasos de §4-G.12 punto 2:
  *  1. clase: `sealed` si hay ≥ 1 sellado o accesorio (energía y paquetes incluidos), `cards_only` si solo
@@ -42,7 +41,7 @@ export const DIRECT_SHIP_DEFAULT_DIALS: DirectShipDials = {
 /** Lo que el paso 1 necesita del carrito: tipos de las piezas y si hay accesorios/paquetes/decks. */
 export interface ShippingRuleCart {
   productTypes: ReadonlyArray<'raw' | 'graded' | 'sealed'>;
-  /** Renglones de accesorio (energía incluida), paquetes de energía o `deckPulls` (D-ENV-3). */
+  /** Renglones de accesorio (energía incluida) + paquetes de energía ACEPTADOS (D-ENV-3). Un `deckPull` sin paquete no cuenta. */
   accessoryCount: number;
 }
 

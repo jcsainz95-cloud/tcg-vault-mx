@@ -16,10 +16,8 @@ import { createGuestCheckoutSession, getGuestCheckoutQuote, getPublicShippingRul
  * ENV-1 / ENV-F1 (frontend) · API_CONTRACT §4-G.12 — el MOCK replica la regla de envío v2.
  *
  * ⭐ Convención: los tres diales son CON IVA INCLUIDO (decisión del dueño 2026-10-24, `HECHOS.md` «envío v2 con
- * IVA incluido», relayada por el orquestador): la `E` exhibida ES el valor del dial. ⚠️ El texto de v1.109 aún dice
- * `F` neto y sus ejemplos de ENV-1/ENV-6 (11600/20300) son de esa convención: esta prueba NO los lee (contradicen al
- * dueño, que manda sobre el contrato) y lee solo lo que la decisión no movió: la tabla de defaults (punto 3) y el
- * ejemplo de `shippingRule` del quote. Cuando el arquitecto publique v1.110, aquí se vuelve a leer ENV-1/ENV-6.
+ * IVA incluido»; contrato v1.109.1): la `E` exhibida ES el valor del dial. Del contrato esta prueba lee la tabla de
+ * defaults (punto 3) y el ejemplo de `shippingRule` del quote; los casos de ENV-1 van como tabla propia abajo.
  */
 
 const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
@@ -139,6 +137,33 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
     expect(two.shippingRule).toMatchObject({ kind: 'sealed', freeShippingApplied: true, freeShippingRemainingCents: 0 });
     // §4-G.0-2: el total sigue siendo subtotal + envío + comisión (la comisión baja con el envío gratis).
     expect(two.breakdown.totalCents).toBe(two.breakdown.subtotalCents + two.breakdown.processingFeeCents);
+  });
+
+  // 💰 TL-R2 (techlead, release sobre 230b9bd3): el backend cuenta como accesorio solo los paquetes ACEPTADOS
+  // (`guest-checkout.service.ts`: `energyBundleCount: acc.energyBundles.length` en quote, `part.bundles.length` en
+  // sesión). El mock contaba todo `deckPulls` ⇒ un pull sin paquete con solo cartas cobraba 17500 en vez de 10000.
+  it('paridad: deckPull SIN paquete + solo cartas ⇒ 10000 y `cards_only` (quote y sesión)', async () => {
+    const pulls = [{ pullToken: 'cualquiera', withEnergyBundle: false }];
+    const q = await getGuestCheckoutQuote(['inv-1001'], undefined, undefined, { deckPulls: pulls });
+    expect(q.breakdown.shippingFeeCents).toBe(10000);
+    expect(q.shippingRule?.kind).toBe('cards_only');
+    const s = await createGuestCheckoutSession({
+      inventoryItemIds: ['inv-1001'],
+      email: 'tlr2@example.com',
+      shippingAddress: {
+        line1: 'Calle 1',
+        neighborhood: 'Centro',
+        city: 'Guadalajara',
+        state: 'Jalisco',
+        postalCode: '44100',
+        country: 'MX',
+        phone: '3312345678',
+        recipientName: 'Tl Dos',
+      },
+      acceptedTerms: true,
+      deckPulls: pulls,
+    });
+    expect(s.breakdown.shippingFeeCents).toBe(10000);
   });
 
   it('M10 mueve la tarifa del mock (criterio 196) y ENV-3: la sesión cobra lo mismo que el quote', async () => {

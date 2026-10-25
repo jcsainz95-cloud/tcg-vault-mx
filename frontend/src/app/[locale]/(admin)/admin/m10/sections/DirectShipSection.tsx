@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { pesosToCents } from '../../m4/pesosToCents';
 
 type DirectShipDialKey = 'directShipCardsFeeCents' | 'directShipSealedFeeCents' | 'directShipFreeFromCents';
 
@@ -36,11 +37,6 @@ function savedText(key: DirectShipDialKey, s: SettingsDTO | undefined): string {
   return v == null ? '' : String(v / 100);
 }
 
-/** Pesos tecleados ⇒ centavos enteros. Lo que no es número viaja tal cual y el servidor responde `422`. */
-function toCents(text: string): number {
-  return Math.round(Number(text.trim().replace(/,/g, '')) * 100);
-}
-
 /**
  * Grupo «Envío a domicilio» de M10 (solo `super_admin`: la página entera va en `SuperAdminOnly`). Mismo patrón que
  * los demás grupos: borrador propio y `PUT` parcial con SOLO las claves tocadas; `422` por campo.
@@ -59,6 +55,9 @@ export function DirectShipSection() {
   const s = settings.data;
   const available = !!s && DIALS.every((d) => typeof s[d.key] === 'number');
   const dirty = (Object.keys(draft) as DirectShipDialKey[]).filter((k) => draft[k] !== savedText(k, s));
+  // 💰 TL-R1: un campo tocado que no da centavos (vacío o no numérico) NO viaja. Antes `Number('')` daba 0 y el
+  // `PUT` dejaba el envío en MX$0 sin avisar. Inválido ⇒ el campo se marca y Guardar queda bloqueado.
+  const localInvalid = new Set(dirty.filter((k) => pesosToCents(draft[k]!) === null));
 
   const save = useMutation({
     mutationFn: (p: Partial<SettingsDTO>) => updateSettings(p),
@@ -87,7 +86,10 @@ export function DirectShipSection() {
 
   function patch(): Partial<SettingsDTO> {
     const out: Partial<Record<DirectShipDialKey, number>> = {};
-    for (const k of dirty) out[k] = toCents(draft[k]!);
+    for (const k of dirty) {
+      const cents = pesosToCents(draft[k]!);
+      if (cents !== null) out[k] = cents;
+    }
     return out;
   }
 
@@ -106,7 +108,7 @@ export function DirectShipSection() {
             )}
             <div className="grid gap-5 sm:grid-cols-3">
               {DIALS.map(({ key, convention }) => {
-                const bad = fieldErrors.has(key);
+                const bad = fieldErrors.has(key) || localInvalid.has(key);
                 return (
                   <div key={key} className="flex flex-col gap-1">
                     <Input
@@ -139,9 +141,11 @@ export function DirectShipSection() {
             <p className="text-xs text-muted">{t('withdrawalNote')}</p>
             <div className="flex items-center gap-3">
               <Button
-                disabled={dirty.length === 0}
+                disabled={dirty.length === 0 || localInvalid.size > 0}
                 loading={save.isPending}
-                onClick={() => save.mutate(patch())}
+                onClick={() => {
+                  if (localInvalid.size === 0) save.mutate(patch());
+                }}
                 data-testid="m10-direct-ship-save"
               >
                 <Save size={18} /> {t('save', { count: dirty.length })}
