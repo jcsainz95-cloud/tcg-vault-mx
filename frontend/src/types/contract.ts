@@ -8572,7 +8572,7 @@ export interface DiscountCodeBatchCreateResponse {
 }
 
 /** §DSC.7 (v1.110.1) — `POST /admin/discount-codes/preview`: config del `POST` sin `code` + carrito de ejemplo (1..5 líneas). */
-export type DiscountPreviewRequest = Omit<DiscountCodeCreateRequest, 'code' | 'maxTotalUses' | 'maxUsesPerCustomer'> & {
+export type DiscountPreviewRequest = Omit<DiscountCodeCreateRequest, 'code'> & {
   sampleLines: Array<{ scope: DiscountProductScope; priceCents: number; quantity: number }>;
 };
 
