@@ -114,12 +114,12 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
   // ================================================================ ENV-2
 
   describe('ENV-2 — `shippingRule` en todo 200 del quote', () => {
-    it('carrito solo de cartas ⇒ envío 10000 y `kind: cards_only`', async () => {
+    it('carrito solo de cartas ⇒ envío 10000 y `kind: cards_only` (v1.109.3: con umbral y «te falta»)', async () => {
       const it1 = await piece('raw', 50000, false);
       const q = await acc.quote({ inventoryItemIds: [it1.id] });
       expect(q.status).toBe(200);
       expect(q.body.breakdown).toEqual(bd(it1.P, E_CARDS));
-      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: null, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false });
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: T, freeShippingRemainingCents: T - it1.P, freeShippingApplied: false, boxFeeApplies: false });
     });
 
     it('100 % podado ⇒ breakdown en ceros (envío 0) y `shippingRule.kind: null`', async () => {
@@ -146,18 +146,20 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
     type Case = {
       name: string;
       build: () => Promise<{ cart: Record<string, unknown>; S: number }>;
-      fee: number;
-      rule: Record<string, unknown>;
+      /** Función de `S` cuando el `S` real sale del fixture (`piece(…, false)`). */
+      fee: number | ((S: number) => number);
+      rule: Record<string, unknown> | ((S: number) => Record<string, unknown>);
       box?: boolean;
     };
+    // v1.109.3 (dueño 2026-10-25, «Envío gratis desde MX$4,000 para CUALQUIER pedido»): S ≥ T ⇒ 0 también en cartas.
     const cards = (t: 'raw' | 'graded', S: number): Case => ({
-      name: `solo ${t} con S≈${S} ⇒ 10000`,
+      name: `solo ${t} con S≈${S} ⇒ ${S >= T ? 0 : E_CARDS}`,
       build: async () => {
         const p = await piece(t, S, false);
         return { cart: { inventoryItemIds: [p.id] }, S: p.P };
       },
-      fee: E_CARDS,
-      rule: { kind: 'cards_only', freeFromCents: null, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false },
+      fee: (s) => (s >= T ? 0 : E_CARDS),
+      rule: (s) => ({ kind: 'cards_only', freeFromCents: T, freeShippingRemainingCents: Math.max(0, T - s), freeShippingApplied: s >= T, boxFeeApplies: false }),
     });
     const accessory = async (priceCents: number) => (await acc.mkAccessory({ priceCents, stockQty: 5, dims: FUNDA_DIMS })).id;
     const CASES: Case[] = [
@@ -165,6 +167,15 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       cards('raw', 500000),
       cards('graded', 50000),
       cards('graded', 500000),
+      {
+        name: 'pentester: cartas con S ≥ T + accesorio barato ⇒ 0 (sin el accesorio también: ver cards(raw, 500000))',
+        build: async () => {
+          const p = await piece('raw', 400000, false);
+          return { cart: { inventoryItemIds: [p.id], accessoryLines: [{ accessoryId: await accessory(100), quantity: 1 }] }, S: p.P + 100 };
+        },
+        fee: 0,
+        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: false },
+      },
       {
         name: 'sellado S=399999 ⇒ 17500, falta 1',
         build: async () => ({ cart: { inventoryItemIds: [(await piece('sealed', 399999)).id] }, S: 399999 }),
@@ -246,15 +257,17 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
 
     it.each(CASES.map((c) => [c.name, c] as const))('%s — quote = session = Order', async (_n, c) => {
       const { cart, S } = await c.build();
+      const fee = typeof c.fee === 'function' ? c.fee(S) : c.fee;
+      const rule = typeof c.rule === 'function' ? c.rule(S) : c.rule;
       const q = await acc.quote(cart);
       expect(q.status).toBe(200);
-      expect(q.body.breakdown).toEqual(bd(S, c.fee));
-      expect(q.body.shippingRule).toEqual(c.rule);
+      expect(q.body.breakdown).toEqual(bd(S, fee));
+      expect(q.body.shippingRule).toEqual(rule);
       const s = await acc.session(cart);
       expect(s.status).toBe(201);
       expect(s.body.breakdown).toEqual(q.body.breakdown);
       const order = await h.prisma.order.findUniqueOrThrow({ where: { id: s.body.orderId } });
-      expect(order.shippingFeeCents).toBe(c.fee);
+      expect(order.shippingFeeCents).toBe(fee);
       expect(order.subtotalCents).toBe(S);
       expect(order.totalCents).toBe(q.body.breakdown.totalCents);
       if (c.box) {

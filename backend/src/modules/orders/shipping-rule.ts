@@ -7,7 +7,8 @@
  *     renglón suelto (energía incluida) y todo paquete de energías (D-ENV-3). `sealed` si hay ≥ 1 sellado o accesorio,
  *     `cards_only` si solo hay cartas, `null` si no queda nada cobrable (envío 0).
  *  2. Importe (`directShipFeeOf`): `S` = `breakdown.subtotalCents` (IVA dentro, ANTES del envío y de la comisión;
- *     D-ENV-1). `cards_only ⇒ E_cartas` (nunca gratis) · `sealed ⇒ (S ≥ T ? 0 : E_sellado)`.
+ *     D-ENV-1). `S ≥ T ⇒ 0` en las DOS clases (v1.109.3, HECHOS 2026-10-25 «Envío gratis desde MX$4,000 para CUALQUIER
+ *     pedido»); si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`.
  *  3. Caja (§AC.7): `cajaGrande ⇔ choice ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents`; si no,
  *     `E = E_regla`. Bajo el umbral es bit a bit el `max(E_base, customerFeeCents)` de v1.86 con `E_base = E_sellado`.
  *  ⛔ El umbral se mide sobre `S`, NUNCA sobre el total: el total lleva la comisión, la comisión depende de `E` y `E` del
@@ -102,8 +103,9 @@ export function directShipFeeOf(
 ): DirectShipFee {
   const base = dials.sealedFeeCents;
   if (kind === null) return { feeCents: 0, baseFeeCents: base, freeShippingApplied: false, boxFeeApplies: false };
-  const free = kind === 'sealed' && subtotalCents >= dials.freeFromCents;
-  const ruleFee = kind === 'cards_only' ? dials.cardsFeeCents : free ? 0 : dials.sealedFeeCents;
+  // v1.109.3 (dueño 2026-10-25): el umbral vale para CUALQUIER pedido, sin mirar la clase.
+  const free = subtotalCents >= dials.freeFromCents;
+  const ruleFee = free ? 0 : kind === 'cards_only' ? dials.cardsFeeCents : dials.sealedFeeCents;
   const bigBox = choice !== null && choice.box.customerFeeCents > dials.sealedFeeCents;
   return {
     feeCents: bigBox ? (choice as BoxChoice).box.customerFeeCents : ruleFee,
@@ -116,12 +118,13 @@ export function directShipFeeOf(
 
 /** Punto 4 — el DTO del quote. `subtotalCents` = el `breakdown.subtotalCents` que viaja en la MISMA respuesta. */
 export function shippingRuleDtoOf(kind: ShippingRuleKind | null, subtotalCents: number, dials: DirectShipDials, fee: DirectShipFee): GuestShippingRuleDTO {
-  const sealed = kind === 'sealed';
+  // v1.109.3: el umbral aplica a las dos clases; solo el carrito vacío (`kind = null`) va en null/false.
+  const any = kind !== null;
   return {
     kind,
-    freeFromCents: sealed ? dials.freeFromCents : null,
-    freeShippingRemainingCents: sealed ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
-    freeShippingApplied: sealed && fee.freeShippingApplied,
+    freeFromCents: any ? dials.freeFromCents : null,
+    freeShippingRemainingCents: any ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
+    freeShippingApplied: any && fee.freeShippingApplied,
     boxFeeApplies: fee.boxFeeApplies,
   };
 }
