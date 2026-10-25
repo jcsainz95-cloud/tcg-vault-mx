@@ -42,6 +42,16 @@ import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // ⭐ v1.78.2 (§M4-PREP): la gramática de «date-only» es UNA en el repo; ⛔ no se escribe una tercera.
 import { DATE_ONLY_RE } from '../../common/admin-list-filters';
 import { runSerializable } from '../../common/serializable-retry';
+import {
+  DiscountCustomer,
+  DiscountQuoteDTO,
+  DiscountsService,
+  discountInvalidError,
+  discountNotApplicableError,
+  normalizeDiscountCode,
+  termsOf,
+} from '../discounts/discounts.service';
+import { withdrawalCodeOutcome } from '../discounts/discount-pricing';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   LocationView,
@@ -403,7 +413,26 @@ export class ShipmentsService {
     // 🔒 v1.80.12.16 (§19.35.1): la liga del invitado en los avisos (token nuevo SIN rotar). `@Optional()` por los tests
     // unitarios legacy; sin él el invitado va sin CTA (y se avisa en el log).
     @Optional() private readonly orderTokens?: OrderAccessTokenService,
+    // 💰 v1.110⟨descuentos⟩ (§DSC.8): el retiro con código de envío gratis. `@Optional()` por los unitarios legacy; un
+    // request CON código y sin él falla ruidoso (`requireDiscounts`).
+    @Optional() private readonly discounts?: DiscountsService,
   ) {}
+
+  private requireDiscounts(): DiscountsService {
+    if (!this.discounts) throw new Error('DiscountsService no disponible');
+    return this.discounts;
+  }
+
+  /** El cliente del retiro para el límite por cliente (§DSC.5): id y correo normalizado de la cuenta. */
+  private async withdrawalCustomer(userId: string): Promise<DiscountCustomer> {
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    return { userId, email: u?.email ? u.email.trim().toLowerCase() : null };
+  }
+
+  /** §DSC.8: el desglose del retiro gratis — la MISMA forma de hoy, con los cuatro importes en 0 (sin contraprestación no hay IVA). */
+  private zeroWithdrawalBreakdown<T extends { subtotalCents: number; ivaCents: number; processingFeeCents: number; totalCents: number }>(b: T): T {
+    return { ...b, subtotalCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0 };
+  }
 
   private requirePostalCodes(): PostalCodeService {
     if (!this.postalCodes) throw new Error('PostalCodeService no disponible');
@@ -509,12 +538,39 @@ export class ShipmentsService {
     return originsBeingRefunded(this.prisma, userId, inventoryItemIds);
   }
 
-  async quote(userId: string, inventoryItemIds: string[], addressId: string) {
+  async quote(userId: string, inventoryItemIds: string[], addressId: string, opts: { discountCode?: unknown; ip?: string | null } = {}) {
     const address = await this.validateAddress(userId, addressId);
     this.assertRecipientName(address); // v1.67: misma regla que `create` (lectura y escritura)
     const { eligibleItemIds, ineligible } = await this.classifyItems(userId, inventoryItemIds);
     const breakdown = await this.breakdown();
-    return { breakdown, eligibleItemIds, ineligible };
+    // 💰 v1.110⟨descuentos⟩ (§DSC.6/§DSC.8): sin código ⇒ la respuesta de hoy (I-1). Con código, siempre `200` y el
+    // resultado en `discount`; `applied` ⇒ el desglose en ceros.
+    const code = normalizeDiscountCode(opts.discountCode);
+    if (code === null) return { breakdown, eligibleItemIds, ineligible };
+    const discount = await this.withdrawalQuoteDiscount(userId, code, opts.ip ?? null, breakdown.subtotalCents);
+    return {
+      breakdown: discount.outcome === 'applied' ? this.zeroWithdrawalBreakdown(breakdown) : breakdown,
+      eligibleItemIds,
+      ineligible,
+      discount,
+    };
+  }
+
+  /** §DSC.8 — el bloque `discount` del quote del retiro (⛔ no aparta nada). Solo los `invalid` suman al límite. */
+  private async withdrawalQuoteDiscount(userId: string, code: string, ip: string | null, feeCents: number): Promise<DiscountQuoteDTO> {
+    const discounts = this.requireDiscounts();
+    const now = new Date();
+    const keys = discounts.throttleKeys({ ip, userId });
+    const blocked = await discounts.retryAfterSeconds(keys, now);
+    if (blocked !== null) return { outcome: 'rate_limited', retryAfterSeconds: blocked };
+    const ev = await discounts.evaluate(this.prisma, code, await this.withdrawalCustomer(userId), now, { lock: false });
+    if (!ev.ok) {
+      await discounts.recordFailure(keys, now);
+      return { outcome: 'invalid' };
+    }
+    const out = withdrawalCodeOutcome(termsOf(ev.row), feeCents);
+    if (out.outcome === 'not_applicable') return { outcome: 'not_applicable', code: ev.row.code, reason: out.reason, details: out.details };
+    return { outcome: 'applied', code: ev.row.code, kind: ev.row.kind, merchandiseBeforeDiscountCents: 0, discountCents: 0, shippingWaivedCents: out.shippingWaivedCents };
   }
 
   /**
@@ -526,7 +582,12 @@ export class ShipmentsService {
     inventoryItemIds: string[],
     addressId: string,
     idempotencyKey?: string,
+    // 💰 v1.110⟨descuentos⟩ (§DSC.8): código de envío gratis + IP del límite de intentos. Sin código ⇒ la conducta de hoy.
+    opts: { discountCode?: unknown; ip?: string | null } = {},
   ) {
+    const code = normalizeDiscountCode(opts.discountCode);
+    const throttleKeys = code !== null ? this.requireDiscounts().throttleKeys({ ip: opts.ip ?? null, userId }) : [];
+    if (code !== null) await this.requireDiscounts().assertNotBlocked(throttleKeys);
     const address = await this.validateAddress(userId, addressId);
     // v1.67: rechazo ANTES de la tx serializable y ANTES del PaymentIntent (contrato §5).
     const recipientName = this.assertRecipientName(address);
@@ -557,6 +618,8 @@ export class ShipmentsService {
     }
 
     const breakdown = await this.breakdown();
+    // 💰 v1.110⟨descuentos⟩ (§DSC.8): con código, la MISMA tx serializable de abajo crea el retiro gratis (rama `free`).
+    const customer = code !== null ? await this.withdrawalCustomer(userId) : null;
 
     // SEC-H2 (WS-H): el chequeo anti-doble-envío + la creación de la ShipmentRequest/items
     // van en UNA transacción SERIALIZABLE (mismo patrón atómico que la reserva de checkout,
@@ -567,7 +630,7 @@ export class ShipmentsService {
     // propósito (A2/BE-7: no bloquear una conexión de DB en una llamada de red; el rollback
     // compensatorio borra la ShipmentRequest si Stripe falla). Nota: el índice único parcial
     // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-42.
-    const shipment = await runSerializable(
+    const created = await runSerializable(
       this.prisma,
       async (tx) => {
         // Un item no puede estar en dos envíos activos (re-verificado DENTRO de la tx).
@@ -583,9 +646,12 @@ export class ShipmentsService {
             'Item already in a shipment',
           );
         }
+        if (code !== null && customer !== null) {
+          return { free: await this.freeWithdrawalInTx(tx, { userId, inventoryItemIds, address, recipientName, feeCents: breakdown.subtotalCents, code, customer }) };
+        }
         // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller (`create`) proyecta a
         // `{ shipmentId, status, breakdown, stripe }` (contrato §5).
-        return tx.shipmentRequest.create({
+        const paid = await tx.shipmentRequest.create({
           data: {
             userId,
             // v1.67 (M-52, contrato §5): NUEVE campos, los MISMOS que `Order.shippingAddressSnapshot`
@@ -616,9 +682,27 @@ export class ShipmentsService {
             items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
           },
         });
+        return { paid };
       },
       { label: 'createShipmentRequest', logger: this.logger },
-    );
+    ).catch(async (e: unknown) => {
+      // §DSC.6: el `invalid` cuenta como intento fallido; se anota FUERA de la tx deshecha (el retiro no escribe nada).
+      if (code !== null && e instanceof BusinessException && e.code === 'DISCOUNT_CODE_INVALID') await this.requireDiscounts().recordFailure(throttleKeys);
+      throw e;
+    });
+    if (created.free) {
+      const f = created.free;
+      const discount: DiscountQuoteDTO = {
+        outcome: 'applied',
+        code: f.codeText,
+        kind: f.kind,
+        merchandiseBeforeDiscountCents: 0,
+        discountCents: 0,
+        shippingWaivedCents: f.waived,
+      };
+      return { shipmentId: f.row.id, status: 'picking' as const, breakdown: this.zeroWithdrawalBreakdown(breakdown), stripe: null, discount };
+    }
+    const shipment = created.paid as NonNullable<typeof created.paid>;
 
     // M3: idempotency-key derivada en servidor (`pi-shipment-<id>`); header del cliente = override.
     const idem = idempotencyKey ?? `pi-shipment-${shipment.id}`;
@@ -651,6 +735,67 @@ export class ShipmentsService {
       status: 'solicitado' as const,
       breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
+    };
+  }
+
+  /**
+   * 💰 v1.110⟨descuentos⟩ (§DSC.8, P-DSC-3 = a) — el retiro con código de envío gratis, DENTRO de la tx serializable de
+   * `create` (tras el anti-doble-envío): candado del código, conteos, retiro y uso. Total MX$0.00, ⛔ sin PaymentIntent,
+   * nace en `picking` (lo que hoy hace el webhook) y el uso se CONSUME aquí (no hay cobro que esperar). `%`/monto ⇒
+   * `WITHDRAWAL_ONLY_FREE_SHIPPING`; mínimo o tipos ⇒ `WITHDRAWAL_FILTERED`; todo `422` deshace la tx (cero escrituras).
+   * La guía la paga la tienda y entra al P&L como hoy (`shippingCostCents`); el ingreso del retiro es 0.
+   */
+  private async freeWithdrawalInTx(
+    tx: Prisma.TransactionClient,
+    w: {
+      userId: string;
+      inventoryItemIds: string[];
+      address: Address;
+      recipientName: string;
+      feeCents: number;
+      code: string;
+      customer: DiscountCustomer;
+    },
+  ) {
+    const discounts = this.requireDiscounts();
+    const now = new Date();
+    const ev = await discounts.evaluate(tx, w.code, w.customer, now, { lock: true });
+    if (!ev.ok) throw discountInvalidError();
+    const out = withdrawalCodeOutcome(termsOf(ev.row), w.feeCents);
+    if (out.outcome === 'not_applicable') throw discountNotApplicableError(out.reason, out.details);
+    const row = await tx.shipmentRequest.create({
+      data: {
+        userId: w.userId,
+        addressSnapshot: this.withdrawalAddressSnapshot(w.address, w.recipientName),
+        status: 'picking',
+        pickingAt: now,
+        shippingFeeCents: 0,
+        ivaCents: 0,
+        processingFeeCents: 0,
+        totalCents: 0,
+        shippingWaivedCents: out.shippingWaivedCents,
+        priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+        items: { create: w.inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
+      },
+      select: { id: true },
+    });
+    await discounts.reserve(tx, ev.row, { shipmentRequestId: row.id }, w.customer, now, 'consumed');
+    return { row, codeText: ev.row.code, kind: ev.row.kind, waived: out.shippingWaivedCents };
+  }
+
+  /** El snapshot de dirección del retiro (v1.67/v1.81): los diez campos, `recipientName` de `Address` tal cual. */
+  private withdrawalAddressSnapshot(address: Address, recipientName: string) {
+    return {
+      recipientName,
+      line1: address.line1,
+      line2: address.line2,
+      neighborhood: address.neighborhood,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
+      phone: address.phone,
+      references: address.references,
     };
   }
 

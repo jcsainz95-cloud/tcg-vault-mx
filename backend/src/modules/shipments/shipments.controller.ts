@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Ip, Param, Post, Res } from '@nestjs/common';
+import { Response } from 'express';
+import { retryAfterOf } from '../discounts/discounts.service';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
@@ -13,8 +15,10 @@ export class ShipmentsController {
 
   @Post('quote')
   @HttpCode(200)
-  quote(@CurrentUser('id') userId: string, @Body() dto: ShipmentQuoteDto) {
-    return this.shipments.quote(userId, dto.inventoryItemIds, dto.addressId);
+  quote(@CurrentUser('id') userId: string, @Body() dto: ShipmentQuoteDto, @Ip() ip?: string) {
+    // 💰 v1.110 (§DSC.8): sin `discountCode`, la llamada de hoy (I-1).
+    if (dto.discountCode === undefined) return this.shipments.quote(userId, dto.inventoryItemIds, dto.addressId);
+    return this.shipments.quote(userId, dto.inventoryItemIds, dto.addressId, { discountCode: dto.discountCode, ip });
   }
 
   // v1.5: retirar/enviar es acción sensible → requiere emailVerified (el `quote` no se bloquea).
@@ -25,8 +29,18 @@ export class ShipmentsController {
     @CurrentUser('id') userId: string,
     @Body() dto: CreateShipmentDto,
     @Headers('idempotency-key') idempotencyKey?: string,
+    @Res({ passthrough: true }) res?: Response,
+    @Ip() ip?: string,
   ) {
-    return this.shipments.create(userId, dto.inventoryItemIds, dto.addressId, idempotencyKey);
+    // 💰 v1.110 (§DSC.8): sin `discountCode`, la llamada de hoy (I-1); `429` ⇒ cabecera `Retry-After`.
+    if (dto.discountCode === undefined) return this.shipments.create(userId, dto.inventoryItemIds, dto.addressId, idempotencyKey);
+    return this.shipments
+      .create(userId, dto.inventoryItemIds, dto.addressId, idempotencyKey, { discountCode: dto.discountCode, ip })
+      .catch((e: unknown) => {
+        const retryAfter = retryAfterOf(e);
+        if (retryAfter !== null) res?.setHeader('Retry-After', String(retryAfter));
+        throw e;
+      });
   }
 
   @Get()

@@ -5,6 +5,7 @@
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
 > **Estado vigente (2026-10-25).** **Envío v2 (v1.109.5):** `orders/shipping-rule.ts`, `E` = dial exhibido, M-91 — §0.68; con caja grande (`boxFeeApplies`) `freeShippingRemainingCents = null` (`shippingRuleDtoOf`, ENV-1).
+> **Códigos de descuento fase 1 (v1.110, 2026-10-25):** M-92; aritmética pura `common/money.ts` (`discountOf`/`allocateDiscount`) + orden del cálculo `discounts/discount-pricing.ts`; validez/límite de intentos/uso en `discounts/discounts.service.ts`; el uso se libera DENTRO de `failPendingOrder` (único escritor `pending→failed`) y se consume tras el CAS del settle; retiro gratis nace en `picking` sin PI (rama de la MISMA tx serializable de `ShipmentsService.create`). Alta solo interna (`DiscountsService.createCode`); rutas `super_admin` = fase 2. Pruebas: `test/discounts.pure.spec.ts`, `test/integration/discounts.e2e-spec.ts`. Deuda: TECH_DEBT §DSC-B.
 > **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
 > intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
 > `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):

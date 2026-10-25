@@ -1,3 +1,4 @@
+import { releaseOrderRedemption } from '../discounts/redemption';
 import { Prisma } from '@prisma/client';
 
 /**
@@ -72,13 +73,17 @@ export const releaseReservationData = {
  * `updateMany` y no `update`: sin fila, `update` lanza `P2025`. Mismo patrón que `failAndRelease` (payments).
  */
 export async function failPendingOrder(
-  tx: Pick<Prisma.TransactionClient, 'order'>,
+  tx: Pick<Prisma.TransactionClient, 'order'> & Partial<Pick<Prisma.TransactionClient, 'discountRedemption'>>,
   orderId: string,
 ): Promise<boolean> {
   const { count } = await tx.order.updateMany({
     where: { id: orderId, status: 'pending' },
     data: { status: 'failed' },
   });
+  // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Liberar»): el uso apartado del código vuelve en la MISMA tx que pone la orden en
+  // `failed`. Aquí y no en cada llamador: este es el ÚNICO escritor de `pending → failed` (barrido, webhook
+  // `payment_failed|canceled`, sustitución y compensación del PI), así que ningún camino puede olvidarlo.
+  if (count === 1) await releaseOrderRedemption(tx, orderId);
   return count === 1;
 }
 

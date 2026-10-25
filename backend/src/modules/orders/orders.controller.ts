@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Optional, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Ip, Optional, Param, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
@@ -11,6 +11,7 @@ import { QuoteDto, SessionDto } from './dto/orders.dto';
 import { ClaimOrdersDto } from './dto/guest-checkout.dto';
 import { BusinessException } from '../../common/business.exception';
 import { MeasurementService } from '../measurement/measurement.service';
+import { retryAfterOf } from '../discounts/discounts.service';
 
 /**
  * 💰 v1.86⟨accesorios⟩ (§AC.5, criterio 749, `D-AC-1`): con sesión NO se compran accesorios, energías ni paquete (F3:
@@ -38,10 +39,12 @@ export class OrdersController {
 
   @Post('checkout/quote')
   @HttpCode(200)
-  quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto) {
+  quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto, @Ip() ip?: string) {
     rejectAccessoriesWithAccount(dto);
     // v1.68.1 (§4-R.5): el quote conoce la reserva PROPIA del cliente (por `userId`).
-    return this.orders.quote(dto.inventoryItemIds, userId);
+    // 💰 v1.110 (§DSC.6): `discountCode` opcional; sin él, la llamada de hoy (I-1).
+    if (dto.discountCode === undefined) return this.orders.quote(dto.inventoryItemIds, userId);
+    return this.orders.quote(dto.inventoryItemIds, userId, { discountCode: dto.discountCode, ip });
   }
 
   // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).
@@ -54,13 +57,22 @@ export class OrdersController {
     @CurrentUser('id') userId: string,
     @Body() dto: SessionDto,
     @Res({ passthrough: true }) res: Response,
+    @Ip() ip?: string,
   ) {
     rejectAccessoriesWithAccount(dto);
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
-    const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns);
+    // 💰 v1.110 (§DSC.6): `discountCode` opcional; sin él, la llamada de hoy (I-1). `429` ⇒ cabecera `Retry-After`.
+    const result = await (dto.discountCode === undefined
+      ? this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns)
+      : this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, m?.columns, { discountCode: dto.discountCode, ip })
+    ).catch((e: unknown) => {
+      const retryAfter = retryAfterOf(e);
+      if (retryAfter !== null) res.setHeader('Retry-After', String(retryAfter));
+      throw e;
+    });
     // Post-commit; `afterCreate` nunca lanza. En el REUSO se conserva lo que la orden ya tenía.
     if (!result.reused) await this.measurement?.afterCreate({ orderId: result.orderId }, m);
     res.status(result.reused ? 200 : 201);

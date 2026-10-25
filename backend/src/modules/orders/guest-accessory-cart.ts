@@ -16,6 +16,7 @@ import type { DecksMetaService } from '../decks-meta/decks-meta.service';
 import type { DeckPullEvaluation, EnergyBundleDTO } from '../decks-meta/energy-bundle';
 import { BundleNeed, LooseWant, allocateQuoteStock, wantsOf } from './accessory-cart';
 import { BoxChoice, FitBox, FitUnit, boxSnapshotOf, chooseBox, fitUnitsOf, ShippingBoxSnapshot } from './box-fit';
+import { accessoryLineId } from '../discounts/discount-lines';
 
 type Db = Prisma.TransactionClient;
 
@@ -31,6 +32,8 @@ export interface QuoteAccessoryLineDTO {
   quantity: number;
   lineTotalCents: number;
   photo: AccessoryPhotoDTO;
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6): rebaja por unidad, SOLO si > 0 (`unitPriceCents` ya es el cobrado). */
+  unitDiscountCents?: number;
 }
 
 export type UnavailableAccessoryDTO =
@@ -344,15 +347,24 @@ export async function sessionAccessoryPart(
  * `deckOrderItemIds` = los `OrderItem` de las piezas firmadas, leídos en ESTA tx por `inventoryItemId` tras el `create`
  * anidado del pedido.
  */
-export async function createAccessoryLines(tx: Db, orderId: string, part: SessionAccessoryPart, reservedUntil: Date): Promise<void> {
-  for (const l of part.loose) {
+export async function createAccessoryLines(
+  tx: Db,
+  orderId: string,
+  part: SessionAccessoryPart,
+  reservedUntil: Date,
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.0 I-3): rebaja por unidad por id de línea (`accessoryLineId`); `unitPriceCents` = cobrado. */
+  unitDiscount?: ReadonlyMap<string, number> | null,
+): Promise<void> {
+  for (const [i, l] of part.loose.entries()) {
+    const u = unitDiscount?.get(accessoryLineId(l.row.id, i)) ?? 0;
     await tx.orderAccessoryLine.create({
       data: {
         orderId,
         kind: 'accessory',
         accessoryId: l.row.id,
         quantity: l.quantity,
-        unitPriceCents: l.row.priceCents,
+        unitPriceCents: l.row.priceCents - u,
+        ...(u > 0 ? { unitDiscountCents: u } : {}),
         unitCostCents: l.row.unitCostCents,
         snapshot: { name: l.row.name, category: l.row.category, energyType: l.row.energyType, photoVersion: l.row.photoVersion },
         reservedUntil,
@@ -407,6 +419,8 @@ export async function sessionLinesDtoOf(tx: Db, orderId: string): Promise<QuoteA
       quantity: l.quantity,
       lineTotalCents: l.unitPriceCents * l.quantity,
       photo: photoDTO(a.id, a.photoVersion as string),
+      // 💰 v1.110 (§DSC.6): la rebaja por unidad SOLO si > 0 (sin código, ni el campo).
+      ...(l.unitDiscountCents > 0 ? { unitDiscountCents: l.unitDiscountCents } : {}),
     };
   });
 }

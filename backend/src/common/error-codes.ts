@@ -248,6 +248,15 @@ export const ErrorCode = {
   CARD_DECLINED: 'CARD_DECLINED', // B1: StripeCardError mapeado a error de negocio legible
   PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE', // A2: fallo del PI → reintento
 
+  // ── 💰 v1.110⟨descuentos⟩ (API_CONTRACT §0, §DSC.6) — códigos de descuento (solo session y POST /shipments) ──────────
+  // 422 GENÉRICO: no existe, archivado, pausado, fuera de vigencia, agotado o agotado para este cliente. ⛔ Sin `details`,
+  // mismo cuerpo y estado en los seis casos (criterio 907).
+  DISCOUNT_CODE_INVALID: 'DISCOUNT_CODE_INVALID',
+  // 422 — vigente pero no aplica a este carrito o retiro. `details: { reason, … }`.
+  DISCOUNT_CODE_NOT_APPLICABLE: 'DISCOUNT_CODE_NOT_APPLICABLE',
+  // 429 — bloqueo por intentos fallidos. `details: { retryAfterSeconds }` + cabecera `Retry-After`.
+  DISCOUNT_CODE_RATE_LIMITED: 'DISCOUNT_CODE_RATE_LIMITED',
+
   // Shipments
   ADDRESS_NOT_MX: 'ADDRESS_NOT_MX',
   ITEM_NOT_SETTLED: 'ITEM_NOT_SETTLED',

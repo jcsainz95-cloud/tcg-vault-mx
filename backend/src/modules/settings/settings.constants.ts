@@ -401,6 +401,12 @@ export const SettingKey = {
   DIRECT_SHIP_SEALED_FEE_CENTS: 'direct_ship_sealed_fee_cents',
   DIRECT_SHIP_FREE_FROM_CENTS: 'direct_ship_free_from_cents',
 
+  // ===== 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.1 «Diales», §DSC.6) — límite de intentos FALLIDOS de código =====
+  // Sin semilla en BD: el default de código manda hasta el primer PUT. Enteros ≥ 1. Lector: `discounts/discounts.service.ts`.
+  DISCOUNT_CODE_MAX_FAILURES: 'discount_code_max_failures',
+  DISCOUNT_CODE_FAILURE_WINDOW_MIN: 'discount_code_failure_window_min',
+  DISCOUNT_CODE_BLOCK_MIN: 'discount_code_block_min',
+
   // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los OCHO diales de la lista de deseos =====
   // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
   // los máximos se calculan al leer (criterio 808). Seeds: la tabla de §WSH.2 (y el INSERT de M-74, mismo valor).
@@ -638,6 +644,10 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: 10000, // MX$100 final (base 8621 + IVA 1379 con r=16)
   [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: 17500, // MX$175 final (base 15086 + IVA 2414)
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: 400000, // MX$4,000 exhibido, contra `S`
+  // 💰 v1.110⟨descuentos⟩ (§DSC.1): 10 intentos fallidos en 15 min ⇒ 15 min de bloqueo (supuesto del PO, §DSC.12).
+  [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: 10,
+  [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: 15,
+  [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: 15,
   // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
   [SettingKey.WISHLIST_ENABLED]: 'off',
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
@@ -1291,6 +1301,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: validateIntRange(1, MAX_CENTS),
+  // 💰 v1.110⟨descuentos⟩ (§DSC.1): enteros ≥ 1 o `422 VALIDATION_ERROR`.
+  [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: validatePositiveIntDial('failures'),
+  [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: validatePositiveIntDial('minutes'),
+  [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: validatePositiveIntDial('minutes'),
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
   [SettingKey.WISHLIST_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
@@ -1403,6 +1417,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   directShipCardsFeeCents: SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS,
   directShipSealedFeeCents: SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS,
   directShipFreeFromCents: SettingKey.DIRECT_SHIP_FREE_FROM_CENTS,
+  // 💰 v1.110⟨descuentos⟩ (§DSC.1): `super_admin`, auditados (⛔ no son diales del dueño de §Z).
+  discountCodeMaxFailures: SettingKey.DISCOUNT_CODE_MAX_FAILURES,
+  discountCodeFailureWindowMin: SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN,
+  discountCodeBlockMin: SettingKey.DISCOUNT_CODE_BLOCK_MIN,
   // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
   wishlistEnabled: SettingKey.WISHLIST_ENABLED,
   wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,

@@ -65,6 +65,24 @@ import {
 } from './guest-accessory-cart';
 import { ACCESSORY_LINE_READ_INCLUDE, AccessoryLineReadRow, toOrderAccessoryLineDTO } from './accessory-lines-view';
 import { photoDTO } from '../accessories/accessory-dto';
+import {
+  DiscountQuoteDTO,
+  DiscountsService,
+  discountInvalidError,
+  discountNotApplicableError,
+  normalizeDiscountCode,
+  termsOf,
+} from '../discounts/discounts.service';
+import { AppliedCartDiscount, priceDirectShipCartWithCode } from '../discounts/discount-pricing';
+import {
+  accessoryDiscountLines,
+  bundleDiscountLines,
+  discountedAccessoryLine,
+  discountedPieceLine,
+  pieceDiscountLines,
+} from '../discounts/discount-lines';
+import type { DiscountCartLine } from '../../common/money';
+import { DiscountCode } from '@prisma/client';
 import type { EnergyBundleDTO } from '../decks-meta/energy-bundle';
 
 /** Snapshot de dirección de un pedido `direct_ship` (el invitado no tiene fila `Address`). */
@@ -114,7 +132,20 @@ export class GuestCheckoutService {
     // 💰 v1.86⟨accesorios⟩ (§AC.19.4): el validador de `deckPulls` (stream C). `@Optional()` por los unitarios a mano;
     // sin él, un carrito CON `deckPulls` lanza (⛔ nunca se cobra un paquete sin validar).
     @Optional() private readonly decksMeta?: DecksMetaService,
+    // 💰 v1.110⟨descuentos⟩ (§DSC.5/§DSC.6): `@Optional()` por los unitarios a mano; un request CON código y sin él falla ruidoso.
+    @Optional() private readonly discountsSvc?: DiscountsService,
   ) {}
+
+  private get discounts(): DiscountsService {
+    if (!this.discountsSvc) throw new Error('DiscountsService no disponible');
+    return this.discountsSvc;
+  }
+
+  /** §DSC.5 «Reuso»: el MISMO código normalizado o ninguno en los dos lados (sin el servicio no hay códigos). */
+  private async sameCodeAsOrder(db: Prisma.TransactionClient | PrismaService, orderId: string, code: string | null): Promise<boolean> {
+    if (!this.discountsSvc) return code === null;
+    return (await this.discountsSvc.codeOfOrder(db, orderId)) === code;
+  }
 
   private get postalCodes(): PostalCodeService {
     if (!this.postalCodesSvc) throw new Error('PostalCodeService no disponible');
@@ -133,7 +164,8 @@ export class GuestCheckoutService {
    * el array del REQUEST (pre-poda): podar a vacío es `200`, no `400`.
    * `createSession` (abajo) NO usa esta ruta: sigue estricta (anti double-sell).
    */
-  async quote(dto: GuestQuoteDto) {
+  async quote(dto: GuestQuoteDto, requestIp?: string | null) {
+    const code = normalizeDiscountCode(dto.discountCode);
     if (dto.shippingAddress) {
       // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): el quote NO consulta el catálogo — solo forma (pipe) y `ADDRESS_NOT_MX`.
       // No persiste nada y ya no hay nada geográfico que rechazar.
@@ -172,7 +204,9 @@ export class GuestCheckoutService {
             extra: claimedOrderId ? await ownAccessoryReservedOf(this.prisma as unknown as Prisma.TransactionClient, [claimedOrderId]) : undefined,
           })
         : EMPTY_QUOTE_ACCESSORY_PART;
-    const frozenOrder = await this.frozenForQuote(frozenByItems, claimedOrderId, lines.length, acc);
+    const frozenCandidate = await this.frozenForQuote(frozenByItems, claimedOrderId, lines.length, acc);
+    // 💰 v1.110 (§DSC.5): el congelado de la orden propia rige solo con el MISMO código (o ninguno en los dos lados).
+    const frozenOrder = frozenCandidate && (await this.sameCodeAsOrder(this.prisma, frozenCandidate.id, code)) ? frozenCandidate : null;
     const itemsEmpty = lines.length === 0;
     const empty = itemsEmpty && acc.accessoryLines.length === 0 && acc.energyBundles.length === 0;
     // 💰 v1.109 (§4-G.12 paso 1): la clase sale de lo cobrable YA podado (piezas válidas + accesorios y paquetes que quedaron).
@@ -181,18 +215,41 @@ export class GuestCheckoutService {
       accessoryLineCount: acc.accessoryLines.length,
       energyBundleCount: acc.energyBundles.length,
     });
-    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units), empty ? null : kind);
+    const choice = empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units);
+    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, choice, empty ? null : kind);
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
-    const breakdown: DirectShipBreakdownDTO = frozenOrder
+    const breakdownToday: DirectShipBreakdownDTO = frozenOrder
       ? frozenDirectShipBreakdownOf(frozenOrder)
       : computed.breakdown;
     const vaultBreakdown = computed.vaultBreakdown;
+    // 💰 v1.110⟨descuentos⟩ (§DSC.6): sin código ⇒ ⛔ nada de esto corre y la respuesta es la de hoy (I-1).
+    const dq =
+      code === null
+        ? null
+        : await this.quoteDiscount({
+            code,
+            ip: requestIp ?? null,
+            email: typeof dto.email === 'string' && dto.email.trim() !== '' ? normalizeEmail(dto.email) : null,
+            claimedOrderId,
+            frozenOrder,
+            cart: [...pieceDiscountLines(items, lines), ...accessoryDiscountLines(acc.accessoryLines), ...bundleDiscountLines(acc.energyBundles)],
+            ship: { kind: empty ? null : kind, choice },
+            ivaRatePct: ivaDials.ivaRatePct,
+          });
+    const applied = dq?.applied ?? null;
+    const breakdown: DirectShipBreakdownDTO = applied ? applied.breakdown : breakdownToday;
+    const unit = applied?.unitDiscountCents ?? null;
+    const frozenUnit = dq?.frozenUnit ?? null;
     return {
       // §5.2.5 / contrato v1.51-b: `card` es un `OrderItemCardDTO` (8 hechos congelados +
       // `imageSmallUrl` resuelta en lectura). Se usa el MISMO cuerpo que `POST /checkout/quote`
       // —el hueco gris del invitado tenía exactamente la misma causa— y sin consulta extra: la
       // imagen sale del `card` que `priceCartForQuote` ya cargó para preciar.
-      items: this.orders.toOrderItemPreviews(items, lines, reservedByYou ?? new Set<string>()),
+      items: unit
+        ? this.discountedPreviews(items, lines, reservedByYou ?? new Set<string>(), unit)
+        : frozenUnit
+          ? this.annotatedPreviews(items, lines, reservedByYou ?? new Set<string>(), frozenUnit)
+          : this.orders.toOrderItemPreviews(items, lines, reservedByYou ?? new Set<string>()),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
       // v1.68.1 (§4-R.5): SIEMPRE presente (`null` si no hay reserva propia).
@@ -205,7 +262,7 @@ export class GuestCheckoutService {
       // Banderas, no texto (§0 i18n): el front renderiza ventas finales / factura / términos.
       notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
       // 💰 v1.86⟨accesorios⟩ (§AC.4, aditivo): SIEMPRE presentes (`[]`/`null` sin accesorios).
-      accessoryLines: acc.accessoryLines,
+      accessoryLines: unit ? acc.accessoryLines.map((l, i) => discountedAccessoryLine(l, i, unit)) : acc.accessoryLines,
       energyBundles: acc.energyBundles,
       energyBundleOffers: acc.energyBundleOffers,
       unavailableAccessories: acc.unavailableAccessories,
@@ -213,7 +270,102 @@ export class GuestCheckoutService {
       shippingBox: shippingBoxDtoOf(computed.choice),
       vaultExcludesAccessories: acc.accessoryLines.length > 0 || acc.energyBundles.length > 0,
       // 💰 v1.109 (§4-G.12 punto 4): SIEMPRE presente; `freeShippingRemainingCents` contra el `subtotalCents` de ESTA respuesta.
-      shippingRule: computed.shippingRule(breakdown.subtotalCents),
+      shippingRule: applied && dq?.dials
+        ? this.discountedShippingRule(empty ? null : kind, applied, dq.dials)
+        : computed.shippingRule(breakdown.subtotalCents),
+      ...(dq ? { discount: dq.discount } : {}),
+    };
+  }
+
+  /** Las piezas del quote con la rebaja por unidad (`unitPriceCents` = cobrado, `unitDiscountCents` solo si > 0). */
+  private discountedPreviews(
+    items: Parameters<OrdersService['toOrderItemPreviews']>[0],
+    lines: Parameters<OrdersService['toOrderItemPreviews']>[1],
+    reservedByYou: Set<string>,
+    unit: ReadonlyMap<string, number>,
+  ) {
+    const discounted = lines.map((l) => discountedPieceLine(l, unit));
+    return this.orders.toOrderItemPreviews(items, discounted, reservedByYou).map((p, i) =>
+      discounted[i].unitDiscountCents ? { ...p, unitDiscountCents: discounted[i].unitDiscountCents as number } : p,
+    );
+  }
+
+  /** El congelado de la orden propia: las líneas YA son lo cobrado; solo se añade `unitDiscountCents` (si > 0). */
+  private annotatedPreviews(
+    items: Parameters<OrdersService['toOrderItemPreviews']>[0],
+    lines: Parameters<OrdersService['toOrderItemPreviews']>[1],
+    reservedByYou: Set<string>,
+    unit: ReadonlyMap<string, number>,
+  ) {
+    return this.orders.toOrderItemPreviews(items, lines, reservedByYou).map((p) =>
+      (unit.get(p.inventoryItemId) ?? 0) > 0 ? { ...p, unitDiscountCents: unit.get(p.inventoryItemId) as number } : p,
+    );
+  }
+
+  /**
+   * §DSC.4 — el `shippingRule` con código: contra `S'` y la `E` resultante; si el envío gratis lo puso el código,
+   * `freeShippingApplied: true` y `freeShippingRemainingCents: null`.
+   */
+  private discountedShippingRule(kind: ShippingRuleKind | null, applied: AppliedCartDiscount<DirectShipBreakdownDTO>, dials: DirectShipDials): GuestShippingRuleDTO {
+    const dto = shippingRuleDtoOf(kind, applied.breakdown.subtotalCents, dials, applied.shipFee ?? directShipFeeOf(kind, applied.breakdown.subtotalCents, dials, null));
+    return applied.freeShippingByCode ? { ...dto, freeShippingApplied: true, freeShippingRemainingCents: null } : dto;
+  }
+
+  /**
+   * 💰 v1.110⟨descuentos⟩ (§DSC.6) — el bloque `discount` del quote de invitado (siempre `200`). Solo los `invalid`
+   * suman al límite de intentos; el por-cliente se evalúa solo si el quote trae `email`.
+   */
+  private async quoteDiscount(q: {
+    code: string;
+    ip: string | null;
+    email: string | null;
+    claimedOrderId: string | null;
+    frozenOrder: Order | null;
+    cart: DiscountCartLine[];
+    ship: { kind: ShippingRuleKind | null; choice: BoxChoice | null };
+    ivaRatePct: number;
+  }): Promise<{
+    discount: DiscountQuoteDTO;
+    applied: AppliedCartDiscount<DirectShipBreakdownDTO> | null;
+    frozenUnit: Map<string, number> | null;
+    dials: DirectShipDials | null;
+  }> {
+    const discounts = this.discounts;
+    if (q.frozenOrder) {
+      // La orden propia con ESTE código: lo que su PI cobra (§4-R.5 + §DSC.5), sin recalcular.
+      const discount = await discounts.appliedOfOrder(this.prisma, q.frozenOrder);
+      const its = await this.prisma.orderItem.findMany({ where: { orderId: q.frozenOrder.id }, select: { inventoryItemId: true, unitDiscountCents: true } });
+      return { discount: discount ?? { outcome: 'invalid' }, applied: null, frozenUnit: new Map(its.map((i) => [i.inventoryItemId, i.unitDiscountCents])), dials: null };
+    }
+    const now = new Date();
+    const keys = discounts.throttleKeys({ ip: q.ip, email: q.email });
+    const blocked = await discounts.retryAfterSeconds(keys, now);
+    if (blocked !== null) return { discount: { outcome: 'rate_limited', retryAfterSeconds: blocked }, applied: null, frozenUnit: null, dials: null };
+    const ev = await discounts.evaluate(this.prisma, q.code, { email: q.email }, now, {
+      lock: false,
+      excludeOrderIds: q.claimedOrderId ? [q.claimedOrderId] : [],
+    });
+    if (!ev.ok) {
+      await discounts.recordFailure(keys, now);
+      return { discount: { outcome: 'invalid' }, applied: null, frozenUnit: null, dials: null };
+    }
+    const dials = await this.directShipDials();
+    const priced = priceDirectShipCartWithCode(q.cart, termsOf(ev.row), { kind: q.ship.kind, dials, choice: q.ship.choice }, q.ivaRatePct, await this.settings.getStripeFee());
+    if (priced.outcome === 'not_applicable') {
+      return { discount: { outcome: 'not_applicable', code: ev.row.code, reason: priced.reason, details: priced.details }, applied: null, frozenUnit: null, dials: null };
+    }
+    return {
+      discount: {
+        outcome: 'applied',
+        code: ev.row.code,
+        kind: ev.row.kind,
+        merchandiseBeforeDiscountCents: priced.merchandiseBeforeDiscountCents,
+        discountCents: priced.discountCents,
+        shippingWaivedCents: priced.shippingWaivedCents,
+      },
+      applied: priced,
+      frozenUnit: null,
+      dials,
     };
   }
 
@@ -325,6 +477,15 @@ export class GuestCheckoutService {
           fee: await this.settings.getStripeFee(),
         }
       : null;
+    // 💰 v1.110⟨descuentos⟩ (§DSC.6): el código, el bloqueo por intentos (`429` antes de tocar nada) y los diales del
+    // cálculo con código, leídos AQUÍ, fuera de la tx (misma razón del pool). Sin código ⇒ nada de esto corre.
+    const code = normalizeDiscountCode(dto.discountCode);
+    const throttleKeys = code !== null ? this.discounts.throttleKeys({ ip: requestIp ?? null, email: guestEmail }) : [];
+    if (code !== null) await this.discounts.assertNotBlocked(throttleKeys);
+    const codeDials =
+      code !== null
+        ? { shipDials: accDials?.shipDials ?? (await this.directShipDials()), fee: accDials?.fee ?? (await this.settings.getStripeFee()) }
+        : null;
 
     const outcome = await this.prisma.$transaction(
       async (
@@ -340,6 +501,7 @@ export class GuestCheckoutService {
             reservedUntil: Date;
             part: SessionAccessoryPart | null;
             choice: BoxChoice | null;
+            unitDiscount: Map<string, number> | null;
           }
       > => {
         // §4-R.2: PUERTA POR CLIENTE (aquí, por correo normalizado: solo SERIALIZA; la titularidad la
@@ -358,7 +520,12 @@ export class GuestCheckoutService {
               extra: own.length > 0 ? await ownAccessoryReservedOf(tx, own.map((o) => o.order.id)) : undefined,
             })
           : null;
-        if (own.length === 1 && this.orders.isReusable(own[0], dto.inventoryItemIds) && (await this.sameAccessoryCart(tx, own[0].order.id, part))) {
+        if (
+          own.length === 1 &&
+          this.orders.isReusable(own[0], dto.inventoryItemIds) &&
+          (await this.sameAccessoryCart(tx, own[0].order.id, part)) &&
+          (await this.sameCodeAsOrder(tx, own[0].order.id, code))
+        ) {
           // `renewReservation` renueva piezas y renglones de accesorio (§AC.6 (3)).
           const reservedUntil = await this.orders.renewReservation(tx, own[0].order.id, now);
           return { kind: 'reused', order: own[0].order, reservedUntil, part };
@@ -383,6 +550,25 @@ export class GuestCheckoutService {
           breakdown = this.orders.representableOrThrow(() => computeDirectShipBreakdown(S, fee.feeCents, ivaDials.ivaRatePct, accDials.fee));
         } else {
           breakdown = breakdownPre as DirectShipBreakdownDTO;
+        }
+        // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Apartar», §DSC.4): tras la puerta y la sustitución — candado de la fila del
+        // código, validez con el `now` de esta tx y el cálculo con `S'`. Cualquier fallo ⇒ `422` y rollback.
+        let orderLines = lines;
+        let applied: { row: DiscountCode; priced: AppliedCartDiscount<DirectShipBreakdownDTO> } | null = null;
+        if (code !== null && codeDials) {
+          const ev = await this.discounts.evaluate(tx, code, { email: guestEmail }, now, { lock: true });
+          if (!ev.ok) throw discountInvalidError();
+          const kind = shippingRuleKindOf({ productTypes: itemTypes, accessoryLineCount: part?.loose.length ?? 0, energyBundleCount: part?.bundles.length ?? 0 });
+          const cart = [
+            ...pieceDiscountLines(items, lines),
+            ...accessoryDiscountLines((part?.loose ?? []).map((l) => ({ accessoryId: l.row.id, unitPriceCents: l.row.priceCents, quantity: l.quantity }))),
+            ...bundleDiscountLines((part?.bundles ?? []).map((b) => b.bundle)),
+          ];
+          const priced = priceDirectShipCartWithCode(cart, termsOf(ev.row), { kind, dials: codeDials.shipDials, choice }, ivaDials.ivaRatePct, codeDials.fee);
+          if (priced.outcome === 'not_applicable') throw discountNotApplicableError(priced.reason, priced.details);
+          breakdown = priced.breakdown;
+          orderLines = lines.map((l) => discountedPieceLine(l, priced.unitDiscountCents));
+          applied = { row: ev.row, priced };
         }
         const boxSnapshot = part && accDials ? boxSnapshotOf(choice, baseFeeCents, part.units) : null;
         // v1.68.1: por el `tx` (una sola conexión por checkout; ver `OrdersService.nextOrderNumber`).
@@ -414,7 +600,9 @@ export class GuestCheckoutService {
             // ⭐ La posición del dial que produjo estos precios (informativa/auditora, `/admin/*`).
             ivaTransferPct: ivaDials.ivaTransferPct,
             cfdiStatus: 'registrado',
-            items: { create: lines },
+            items: { create: orderLines },
+            // 💰 v1.110 (§DSC.1): solo con código aplicado (sin él, el `INSERT` de hoy y el default 0).
+            ...(applied ? { discountCents: applied.priced.discountCents, shippingWaivedCents: applied.priced.shippingWaivedCents } : {}),
             // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
@@ -425,11 +613,12 @@ export class GuestCheckoutService {
         // (`ownerType='platform'` + estado vendible + `count===1`) y, desde v1.68, el DUEÑO (esta
         // orden) y el vencimiento. La diferencia de esta ruta es el `null`: NO se escribe titularidad,
         // la pieza sigue siendo de la plataforma durante todo el ciclo — invariante §4-G.0-1.
+        if (applied) await this.discounts.reserve(tx, applied.row, { orderId: order.id }, { email: guestEmail }, now);
         await this.orders.reserveItems(tx, items, null, { orderId: order.id, reservedUntil });
         if (part) {
           // 💰 §AC.19.4 pasos 4–5: renglones congelados y el apartado ÚNICO por accesorio (Σ sueltos + Σ componentes),
           // `accessoryId` ascendente, condición en el `UPDATE`. 0 filas ⇒ 409 y se deshace TODO, piezas incluidas.
-          await createAccessoryLines(tx, order.id, part, reservedUntil);
+          await createAccessoryLines(tx, order.id, part, reservedUntil, applied?.priced.unitDiscountCents);
           await reserveAccessories(tx, order.id, part.wants);
         }
         return {
@@ -441,10 +630,15 @@ export class GuestCheckoutService {
           reservedUntil,
           part,
           choice,
+          unitDiscount: applied?.priced.unitDiscountCents ?? null,
         };
       },
       RESERVATION_TX_OPTIONS,
-    );
+    ).catch(async (e: unknown) => {
+      // §DSC.6: el `invalid` cuenta como intento fallido; se anota FUERA de la tx deshecha (la sesión no escribe nada).
+      if (code !== null && e instanceof BusinessException && e.code === 'DISCOUNT_CODE_INVALID') await this.discounts.recordFailure(throttleKeys);
+      throw e;
+    });
 
     const order = outcome.order;
     // A2: crear PI + compensar si el proveedor falla + persistir el id, por el helper COMPARTIDO
@@ -480,6 +674,7 @@ export class GuestCheckoutService {
       outcome.kind === 'reused'
         ? frozenDirectShipBreakdownOf(order)
         : outcome.breakdown;
+    const discount = code !== null ? await this.discounts.appliedOfOrder(this.prisma, order) : null;
 
     return {
       orderId: order.id,
@@ -494,7 +689,9 @@ export class GuestCheckoutService {
       supersededOrderIds: outcome.kind === 'reused' ? [] : outcome.supersededOrderIds,
       // 💰 v1.86⟨accesorios⟩ (§AC.4, §AC.19.4, aditivo): lo CREADO (en el reuso, lo de la orden reusada). ⛔ Sin
       // `energyBundleOffers` ni `unavailableBundles`: la sesión no ofrece.
-      ...(await this.sessionAccessoryResponse(order, outcome.part, outcome.kind === 'created' ? { choice: outcome.choice } : null)),
+      ...(await this.sessionAccessoryResponse(order, outcome.part, outcome.kind === 'created' ? { choice: outcome.choice, unitDiscount: outcome.unitDiscount } : null)),
+      // 💰 v1.110 (§DSC.6): `applied` ⇒ la respuesta de hoy + `discount`; sin código, ni el campo (I-1).
+      ...(discount ? { discount } : {}),
     };
   }
 
@@ -529,19 +726,26 @@ export class GuestCheckoutService {
    * La parte aditiva de la respuesta de `session` (§AC.4): `accessoryLines`, `energyBundles` y `shippingBox` de lo CREADO;
    * en el REUSO, lo de la orden reusada con sus precios CONGELADOS (el PI cobra eso, no el catálogo de hoy).
    */
-  private async sessionAccessoryResponse(order: Order, part: SessionAccessoryPart | null, created: { choice: BoxChoice | null } | null) {
+  private async sessionAccessoryResponse(
+    order: Order,
+    part: SessionAccessoryPart | null,
+    created: { choice: BoxChoice | null; unitDiscount?: ReadonlyMap<string, number> | null } | null,
+  ) {
     if (created) {
+      const lines = (part?.loose ?? []).map((l) => ({
+        accessoryId: l.row.id,
+        name: l.row.name,
+        category: l.row.category,
+        energyType: l.row.energyType,
+        unitPriceCents: l.row.priceCents,
+        quantity: l.quantity,
+        lineTotalCents: l.row.priceCents * l.quantity,
+        photo: photoDTO(l.row.id, l.row.photoVersion),
+      }));
+      const unit = created.unitDiscount ?? null;
       return {
-        accessoryLines: (part?.loose ?? []).map((l) => ({
-          accessoryId: l.row.id,
-          name: l.row.name,
-          category: l.row.category,
-          energyType: l.row.energyType,
-          unitPriceCents: l.row.priceCents,
-          quantity: l.quantity,
-          lineTotalCents: l.row.priceCents * l.quantity,
-          photo: photoDTO(l.row.id, l.row.photoVersion),
-        })),
+        // 💰 v1.110 (§DSC.6): con código, el cobrado por unidad y `unitDiscountCents` (solo si > 0).
+        accessoryLines: unit ? lines.map((l, i) => discountedAccessoryLine(l, i, unit)) : lines,
         energyBundles: (part?.bundles ?? []).map((b) => b.bundle) as EnergyBundleDTO[],
         shippingBox: shippingBoxDtoOf(created.choice),
       };
@@ -612,7 +816,10 @@ export class GuestCheckoutService {
     if (!order) throw BusinessException.notFound('INVALID_TOKEN', 'Invalid or unknown tracking link');
 
     await this.tokens.markUsed(token.id, now);
-    return this.toTrackingDto(order, token.expiresAt);
+    // 💰 v1.110 (§DSC.6, 914): el código del pedido, solo si lo lleva (sin él, ni el campo).
+    const discount = this.discountsSvc ? await this.discountsSvc.orderDiscountOf(this.prisma, order) : null;
+    const dto = this.toTrackingDto(order, token.expiresAt);
+    return discount ? { ...dto, items: dto.items.map((it, i) => ((order.items[i].unitDiscountCents ?? 0) > 0 ? { ...it, unitDiscountCents: order.items[i].unitDiscountCents } : it)), discount } : dto;
   }
 
   // ----------------------------------------------------------- resend link
