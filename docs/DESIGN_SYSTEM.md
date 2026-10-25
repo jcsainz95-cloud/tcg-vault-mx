@@ -8285,63 +8285,23 @@ este documento.)*
 
 #### 23.4a ~~La decisión: dónde vive el control~~ — **retirada (v2.7)**
 
-Aquí vivía la decisión de la v2.6: *«el control no es una tercera flecha; es un conmutador de texto mono,
-pegado al H2, en el hueco estructural del kicker, a la izquierda de la fila, en las tres anchuras»*, con sus
-tres razones (no es de la familia de las flechas · el lado izquierdo es el libre · orden de tabulación
-correcto). **Ya no aplica: no hay control que colocar.** Se conserva el registro porque, si alguna vez se
-reintroduce un control de reproducción (§23.4.0 e), **ése es el sitio ya resuelto** y no hay que volver a
-discutirlo.
-
-**Lo que sí sobrevive de §23.4a, y sigue vigente:** el hueco estructural del kicker en este encabezado está
-**libre y prohibido**. §22.6b-e vuelve a leerse literal, sin la precisión que la v2.6 tuvo que añadirle: en
-esta fila no va kicker, ni subtítulo, ni mención al gradeo, ni ninguna otra cosa.
+No hay control que colocar (el diseño del conmutador de la v2.6 está en git). **Vigente:** el hueco estructural del kicker en este encabezado está **libre y prohibido**: §22.6b-e se lee literal (ni kicker, ni subtítulo, ni mención al gradeo).
 
 #### 23.4b ~~Anatomía del conmutador~~ — **retirada (v2.7)**
 
-Aquí vivía la anatomía al píxel del conmutador (glifo lucide 12/14px, palabra mono 10px `.eyebrow`, `gap`
-12/16px al H2, `min-width: 80px`, área táctil 44×44 por `::after` y no por `padding`, cero borde/fondo/radio/
-sombra). **Nada de eso se implementa.** El elemento no existe.
-
-Se guarda **un** aprendizaje, porque es de aplicación general y no era del conmutador: **cuando un control de
-texto pequeño necesita 44×44px de área táctil, se consigue con un pseudo-elemento (`::after`, `inset`), no
-con `padding`** — así el anillo de foco sigue **ciñendo la etiqueta** en vez de dibujar un halo de 44px
-alrededor de un texto de 12px. Vale para cualquier control de texto del sistema (§8.2).
+El elemento no existe. **Aprendizaje general que se conserva:** un control de texto pequeño que necesita 44×44px de área táctil la obtiene con un pseudo-elemento (`::after`, `inset`), no con `padding`, para que el anillo de foco siga ciñendo la etiqueta (§8.2).
 
 #### 23.4c ~~Estados del conmutador~~ — **retirada (v2.7)**
 
-Aquí vivía la tabla de estados (Reproduciendo/Pausado/Terminado × hover/focus, sin `disabled`, sin
-`loading`) y las reglas de nombre accesible. **No hay control, así que no hay estados de control.** Dos
-reglas que estaban enunciadas aquí **no son del conmutador y siguen vigentes en el sistema**:
-
-- **Nombre accesible que empieza por la palabra visible** (WCAG 2.5.3, «etiqueta en el nombre»): aplica a
-  todo control con texto visible del sistema, empezando por las flechas de §20.3.
-- **Nunca `disabled` ni `loading` en un control cuyo trabajo es detener algo**: si no puede funcionar, no se
-  pinta (§8.2). Hoy se cumple de la forma más fuerte posible.
-
-**Lo que sí desaparece del todo:** el patrón APG de «cambiar el nombre del botón en vez de usar
-`aria-pressed`». Aquí ya no hay botón que nombrar. El **único** canal por el que un lector de pantalla se
-entera de que la rotación se detuvo es ahora la línea `role="status"` de **§23.9(c)** — lo que la convierte
-en **obligatoria y no decorativa**, cosa que antes no era del todo cierta.
+No hay control, no hay estados. **Siguen vigentes en el sistema:** (1) nombre accesible que empieza por la palabra visible (WCAG 2.5.3), empezando por las flechas de §20.3; (2) nunca `disabled` ni `loading` en un control cuyo trabajo es detener algo (§8.2). El **único** canal por el que un lector de pantalla se entera de que la rotación se detuvo es la línea `role="status"` de **§23.9(c)**: obligatoria, no decorativa.
 
 #### 23.4d ~~Cuándo el control NO se renderiza~~ — **retirada (v2.7): nunca se renderiza**
 
-Los cinco casos que enumeraba (movimiento reducido · sin JS/antes de hidratar · pista que no desborda ·
-carga/error/vacío · una sola teja) **siguen siendo exactamente los casos en que NO hay rotación**, y como
-tales siguen descritos en §23.3 (precondiciones), §23.7 y §23.8. Lo que cambia es que ya no hay que decidir
-nada sobre un control: **no existe en ninguno de los cinco casos, ni en los demás.**
+El control no existe en ningún caso. Los casos sin rotación siguen en §23.3, §23.7 y §23.8.
 
 #### 23.4e ~~Presupuesto de la fila~~ — **retirada (v2.7): la fila vuelve a su terna**
 
-La cuenta de anchuras existía para demostrar que un **cuarto** elemento cabía en la fila de §20.3. Ya no hay
-cuarto elemento, así que la fila vuelve **literalmente** a lo que §20.3 define: **H2 ⟷ link «Ver todo el
-catálogo» + dos flechas**, con su `flex-wrap` y su ocultamiento del link por debajo de `sm`, tal como estaba
-antes de la v2.6. **Se recuperan ~92px en el grupo izquierdo en móvil** (bloque de 80px + `gap` de 12px), que
-simplemente vuelven a ser aire.
-
-- **Nada se recoloca para «aprovechar» ese hueco.** Ni el H2 crece, ni el link vuelve antes de `sm`, ni las
-  flechas cambian de tamaño (§23.13 nº13). El encabezado queda **idéntico al de la v2.5**.
-- **Y el hueco no se rellena con nada**: §22.6b-e prohíbe kicker, subtítulo o mención al gancho en esta fila,
-  y ahora sin ninguna precisión que lo matice.
+La fila es **literalmente** la de §20.3 (**H2 ⟷ link «Ver todo el catálogo» + dos flechas**, `flex-wrap`, link oculto bajo `sm`), idéntica a la v2.5. Nada se recoloca para aprovechar los ~92px recuperados (§23.13 nº13) y el hueco no se rellena (§22.6b-e).
 
 ### 23.5 Máquina de estados — suspensión temporal vs. pausa permanente
 
@@ -33764,17 +33724,8 @@ Causa de los 426 px: **NO MEDIDA**. Hipótesis del código: la rejilla raíz (`G
 **2.5 Accesorios y paquetes después.** `BundleOffers` y `AccessorySuggestions` (hoy antes del formulario) pasan **debajo del último campo obligatorio y de la casilla de términos**, sobre las notas legales (A) o a la revisión (B); máximo 3 tarjetas, una columna. Con sesión, debajo de las líneas. `AccessoryCartLines` (lo ya añadido) no se mueve. Las líneas del carrito muestran 2 y «Ver {n} más» pliega el resto; «Quitar» y cantidades con área ≥ 44 px.
 **2.6 Con cuenta.** Sin formulario: líneas → sugerencias → notas legales → barra. El bloque «Guardar en mi bóveda» (3 beneficios) se reduce al subtítulo existente («Tus piezas entran a tu bóveda al pagar…»). Las tres notas al margen (ventas finales, CFDI, tras el pago) y la del aviso de privacidad **no se quitan** (criterio 48b).
 
-### CHK-MOVIL.3 Opciones para el dueño y recomendación
-| | **A · Una pantalla** | **B · Dos pasos** |
-|---|---|---|
-| Estructura | Líneas (2) → línea «Inicia sesión» → fila de destino → **Contacto** (correo + casilla de lectura de vuelta bajo el campo) → **Envío** (nombre, CP, colonia, calle, teléfono, plegable) → casilla de términos → sugerencias → notas legales. Barra con PAGAR desde el primer pintado. | **Paso 1 «Contacto y envío»** (T7): mismos campos y fila de destino; la barra dice «Continuar» (valida, foco al primer error). **Paso 2 «Revisar y pagar»**: filas «Correo {correo} · Cambiar» y «Envío a {nombre}, {calle}, {colonia} {CP} · Cambiar», líneas, **sugerencias**, desglose abierto, casilla de términos, barra con PAGAR. «Atrás» del navegador vuelve al paso 1 (entrada de historial) sin salir del checkout; el estado vive por encima de los pasos. |
-| Toques a pagar (formulario lleno) | 1 (PAGAR) | 2 (Continuar, PAGAR) |
-| Casillas | 2 (correo, términos) | 2 en el paso 2; **1** si producto acepta que la fila «Correo · Cambiar» es la confirmación (petición 3b) |
-| Largo | 6 campos + 1 plegable ≈ 1.3 pantallas a 390×844 (**estimación de diseño, NO MEDIDA**) | ≈ 1 pantalla por paso (NO MEDIDA) |
-| Accesorios | bajo el formulario, antes de las notas | en la revisión: el comprador ya se comprometió y ve el desglose |
-| Coste | bajo: reordena el formulario actual, sin estado nuevo | medio: máquina de dos pasos, historial, foco y errores por paso |
-| Medición | `begin_checkout` sin cambio | además, un evento por paso (petición 6) |
-**Recomendación: A.** Ataca las tres causas de la fricción 3 (pantalla de tres vías, orden y largo, accesorios antes del formulario) con el menor riesgo y sin estado nuevo. **B** gana si el dueño prioriza vender accesorios y reducir errores de pago con una revisión final; se puede añadir después porque comparte todo CHK-MOVIL.2. Para decidir con datos: tras A, medir el abandono entre «primer campo tocado» y PAGAR.
+### CHK-MOVIL.3 Opción elegida
+**Decidido: A** (`HECHOS.md` 2026-10-24 «Checkout móvil: opción A»). Estructura: líneas (2) → línea «Inicia sesión» → fila de destino → **Contacto** (correo + casilla de lectura de vuelta) → **Envío** (nombre, CP, colonia, calle, teléfono, plegable) → casilla de términos → sugerencias → notas legales; barra con PAGAR desde el primer pintado; ≈1.3 pantallas a 390×844 (estimación, NO MEDIDA). La variante B (dos pasos) quedó descartada; su diseño está en git. Para decidir con datos: medir el abandono entre «primer campo tocado» y PAGAR.
 
 ### CHK-MOVIL.4 Envío y comisión antes del carrito (fricción 1a): textos NUEVOS, los aprueba el dueño
 Norma §7.12a/§29 intacta: nombran el cobro, **no** lo justifican, ni proveedor ni afirmación jurídica. La ficha lleva el **envío** con importe, pero la comisión sin importe: no se calcula fuera del carrito (gross-up no invertible, §4-G.1). **Regla de envío vigente** (`HECHOS.md` 2026-10-24 «Regla de envío nueva…»): solo cartas sueltas MX$100; con sellado MX$175, gratis si el pedido completo ≥ MX$4,000; mixto = regla del sellado. **Campos provisionales (⚠ los nombra el arquitecto; no tocar el contrato desde aquí):** lectura pública `shipping.cardsOnlyFeeCents`, `shipping.sealedFeeCents`, `shipping.freeFromCents`; en el `quote` `breakdown.shippingFeeCents` (existe) y `freeShippingRemainingCents` (nuevo, `null` si no aplica).
