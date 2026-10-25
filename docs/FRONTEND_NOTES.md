@@ -39,6 +39,12 @@
   con `checkout/test-viewport.ts` (jsdom responde móvil). Mutaciones medidas sobre copia de `fc42678c` (rojas/corridas):
   L1 `min-w-[426px]` 4/4 · L2 sin `ref={barRef}` 4/4 · L3 sugerencias antes del formulario 4/4 · L4 plegable abierto 4/4 ·
   L5 comisión calculada en el front 2/2 · L6 sin `payInFlight` ni `loading` 12/12; solo sin `loading` 0/12 (la ref basta).
+- **Contra el stack real (censo E2E, 2026-10-25):** L5 llega a las fichas desde el catálogo / la lista de sellado (sin
+  ids de fixture) y L6 cuenta en real los `POST /checkout/guest/session` que salen del navegador (no depende de Stripe).
+  Queda una sola salvaguarda de solo-mock: L1 con el aviso de reintento, porque sin Stripe la sesión da 503 y no hay
+  `reservedUntil` que pintar; el dato lo cubre `backend/test/integration/checkout-reservation-owner.e2e-spec.ts:172,640`.
+  L5 acepta las dos plantillas de T3a (`includesShipping` / `includesShippingFree`, la elige el quote): en `84410390`
+  estaba roja 2/2 en mock porque la primera carta del catálogo ya cae en envío gratis.
 
 ## §ENV-V2 · Regla de envío v2 en tipos, mock y M10 (2026-10-24, rama `fe-envio-medir`, base `5c7e652b`, contrato v1.109)
 
