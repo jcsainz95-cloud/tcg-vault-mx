@@ -12,7 +12,6 @@ import { join } from 'node:path';
 import type { ProductType } from '@prisma/client';
 import {
   DirectShipDials,
-  directShipDialsOf,
   directShipFeeTaxSplitOf,
   directShipFeeOf,
   publicShippingRuleOf,
@@ -29,8 +28,7 @@ import {
 } from '../src/common/money';
 import { OWNER_ONLY_SETTING_KEYS, SETTING_DEFAULTS, SETTING_DTO_MAP, SETTING_VALIDATORS, SettingKey } from '../src/modules/settings/settings.constants';
 
-const RAW = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
-const DIALS: DirectShipDials = directShipDialsOf(RAW);
+const DIALS: DirectShipDials = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 const E_CARDS = 10000;
 const E_SEALED = 17500;
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
@@ -71,21 +69,45 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
     expect(bd.totalCents).toBe(bd.subtotalCents + bd.shippingFeeCents + bd.processingFeeCents);
   });
 
+  // v1.109.3 (dueño 2026-10-25, «Envío gratis desde MX$4,000 para CUALQUIER pedido»): el umbral vale para las dos clases.
   it.each([
     ['raw', 50000],
-    ['raw', 500000],
+    ['raw', 399999],
     ['graded', 50000],
-    ['graded', 500000],
-  ] as const)('solo cartas (%s) con S = %i ⇒ 10000, nunca gratis', (t, S) => {
+    ['graded', 399999],
+  ] as const)('solo cartas (%s) S < T (S = %i) ⇒ 10000', (t, S) => {
     expect(shippingRuleKindOf(cart([t]))).toBe('cards_only');
     const f = feeOf([t], S);
     expect(f).toEqual({ feeCents: 10000, baseFeeCents: 17500, freeShippingApplied: false, boxFeeApplies: false });
-    expect(shippingRuleDtoOf('cards_only', S, DIALS, f)).toEqual({ kind: 'cards_only', freeFromCents: null, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false });
+    expect(shippingRuleDtoOf('cards_only', S, DIALS, f)).toEqual({ kind: 'cards_only', freeFromCents: 400000, freeShippingRemainingCents: 400000 - S, freeShippingApplied: false, boxFeeApplies: false });
+  });
+
+  it.each([
+    ['raw', 400000],
+    ['raw', 500000],
+    ['graded', 400000],
+    ['graded', 500000],
+  ] as const)('solo cartas (%s) S ≥ T (S = %i) ⇒ 0 y `freeShippingApplied` (umbral inclusivo)', (t, S) => {
+    const f = feeOf([t], S);
+    expect(f).toEqual({ feeCents: 0, baseFeeCents: 17500, freeShippingApplied: true, boxFeeApplies: false });
+    expect(shippingRuleDtoOf('cards_only', S, DIALS, f)).toEqual({ kind: 'cards_only', freeFromCents: 400000, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: false });
+  });
+
+  it('caso del pentester: cartas con S ≥ T ⇒ 0 con un accesorio barato y también sin él (añadir nada no abarata)', () => {
+    const sin = feeOf(['raw'], 400000);
+    const con = feeOf(['raw'], 400000 + 100, { acc: 1 });
+    expect(sin.feeCents).toBe(0);
+    expect(con.feeCents).toBe(0);
+    expect(sin.freeShippingApplied && con.freeShippingApplied).toBe(true);
+    // y bajo T el accesorio sigue cambiando la clase (10000 ⇒ 17500), ⛔ nunca la abarata.
+    expect(feeOf(['raw'], 50000).feeCents).toBe(10000);
+    expect(feeOf(['raw'], 50100, { acc: 1 }).feeCents).toBe(17500);
   });
 
   it('raw + graded juntos siguen siendo «solo cartas» (D-ENV-2)', () => {
     expect(shippingRuleKindOf(cart(['raw', 'graded']))).toBe('cards_only');
-    expect(feeOf(['raw', 'graded'], 900000).feeCents).toBe(10000);
+    expect(feeOf(['raw', 'graded'], 90000).feeCents).toBe(10000);
+    expect(feeOf(['raw', 'graded'], 900000).feeCents).toBe(0);
   });
 
   it('sellado con S = 399999 ⇒ 17500 y «te falta 1»; S = 400000 ⇒ 0 (umbral inclusivo)', () => {
@@ -120,12 +142,39 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
     expect(shippingRuleKindOf(cart([], 0, 1))).toBe('sealed');
   });
 
-  it('caja grande 35000 ⇒ 35000 bajo y sobre T (conserva su tarifa); boxFeeApplies', () => {
+  it('caja grande 35000 ⇒ 35000 bajo T (conserva su tarifa); boxFeeApplies', () => {
     const under = feeOf(['sealed'], 100000, { acc: 1, choice: box(35000) });
-    const over = feeOf(['sealed'], 500000, { acc: 1, choice: box(35000) });
     expect(under).toEqual({ feeCents: 35000, baseFeeCents: 17500, freeShippingApplied: false, boxFeeApplies: true });
-    expect(over).toEqual({ feeCents: 35000, baseFeeCents: 17500, freeShippingApplied: true, boxFeeApplies: true });
-    expect(shippingRuleDtoOf('sealed', 500000, DIALS, over)).toEqual({ kind: 'sealed', freeFromCents: 400000, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: true });
+  });
+
+  it('v1.109.2: caja 35000 sobre T ⇒ 35000, `freeShippingApplied:false`, `boxFeeApplies:true` (gratis ⇔ E = 0)', () => {
+    for (const S of [400000, 500000]) {
+      const over = feeOf(['sealed'], S, { acc: 1, choice: box(35000) });
+      expect(over).toEqual({ feeCents: 35000, baseFeeCents: 17500, freeShippingApplied: false, boxFeeApplies: true });
+      expect(shippingRuleDtoOf('sealed', S, DIALS, over)).toEqual({ kind: 'sealed', freeFromCents: 400000, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: true });
+    }
+    // Invariante del contrato v1.109.2: `freeShippingApplied` ⇔ `E = 0` en todo pedido no vacío.
+    for (const c of [null, 15000, 17500, 17501, 35000]) {
+      for (const S of [100000, 399999, 400000, 900000]) {
+        const f = feeOf(['sealed'], S, { acc: 1, choice: c === null ? null : box(c) });
+        expect(f.freeShippingApplied).toBe(f.feeCents === 0);
+      }
+    }
+    for (const S of [100000, 399999, 400000, 900000]) {
+      const f = feeOf(['raw'], S);
+      expect(f.freeShippingApplied).toBe(f.feeCents === 0);
+    }
+  });
+
+  it('`deckPull` sin paquete aceptado + solo cartas ⇒ 10000 (la oferta no cobra ni cuenta como sellado)', () => {
+    // Un `deckPull` con `withEnergyBundle:false` (o con oferta no aceptada) NO entra a `energyBundles` (§AC.4): el
+    // carrito que llega a la regla son solo sus cartas, con `energyBundleCount = 0`.
+    expect(shippingRuleKindOf(cart(['raw', 'raw', 'graded'], 0, 0))).toBe('cards_only');
+    expect(feeOf(['raw', 'raw', 'graded'], 50000)).toEqual({ feeCents: 10000, baseFeeCents: 17500, freeShippingApplied: false, boxFeeApplies: false });
+    expect(feeOf(['raw', 'raw', 'graded'], 399999).feeCents).toBe(10000);
+    expect(feeOf(['raw', 'raw', 'graded'], 500000).feeCents).toBe(0);
+    // y con el paquete ACEPTADO el mismo carrito ya es sellado (contraste: el candado mira la cuenta, no la presencia del pull).
+    expect(feeOf(['raw', 'raw', 'graded'], 50000, { bundles: 1 }).feeCents).toBe(17500);
   });
 
   it('caja chica 15000 ⇒ 17500 bajo T y 0 sobre T; caja igual a E_sellado (17500) no es «grande»; 18000 ya lo es (v1.109.1)', () => {
@@ -150,8 +199,8 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
   });
 
   it('E = dial con t = 0 y con r = 8: mover el IVA no mueve lo que paga el cliente (solo la base)', () => {
-    // `directShipDialsOf` ni siquiera recibe los diales de IVA: no hay camino por el que `t`/`r` lleguen a `E`.
-    expect(directShipDialsOf.length).toBe(1);
+    // `DirectShipDials` no lleva diales de IVA: no hay camino por el que `t`/`r` lleguen a `E`.
+    expect(Object.keys(DIALS).sort()).toEqual(['cardsFeeCents', 'freeFromCents', 'sealedFeeCents']);
     expect(directShipFeeOf('cards_only', 50000, DIALS, null).feeCents).toBe(10000);
     expect(computeDirectShipBreakdown(50000, 10000, 8, FEE).shippingFeeCents).toBe(10000);
     expect(directShipFeeTaxSplitOf(10000, 8)).toEqual({ baseCents: 9259, ivaCents: 741 });
@@ -188,9 +237,14 @@ describe('ENV-5 (mitad pura) — los tres diales en las cuatro estructuras de se
     ['direct_ship_cards_fee_cents', -1, false],
     ['direct_ship_cards_fee_cents', 100.5, false],
     ['direct_ship_cards_fee_cents', '10000', false],
+    // TL-ENV-4: tope MAX_CENTS (Int32) en los dos `F`, como el umbral.
+    ['direct_ship_cards_fee_cents', 2_147_483_647, true],
+    ['direct_ship_cards_fee_cents', 2_147_483_648, false],
     ['direct_ship_sealed_fee_cents', 0, true],
     ['direct_ship_sealed_fee_cents', -1, false],
     ['direct_ship_sealed_fee_cents', null, false],
+    ['direct_ship_sealed_fee_cents', 2_147_483_647, true],
+    ['direct_ship_sealed_fee_cents', 2_147_483_648, false],
     ['direct_ship_free_from_cents', 1, true],
     ['direct_ship_free_from_cents', 2_147_483_647, true],
     ['direct_ship_free_from_cents', 0, false],

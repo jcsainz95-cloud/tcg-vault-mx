@@ -1286,9 +1286,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // 💰 v1.86⟨accesorios⟩ (§AC.11): rangos del contrato.
   [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
   [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
-  // 💰 v1.109 (§4-G.12): `F` entero ≥ 0; el umbral entero 1..MAX_CENTS (0 regalaría todo envío con sellado).
-  [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
-  [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  // 💰 v1.109 (§4-G.12): `F` entero 0..MAX_CENTS (TL-ENV-4: sin tope, un dial > Int32 no cabe en `Order.shippingFeeCents`);
+  // el umbral entero 1..MAX_CENTS (0 regalaría todo envío con sellado).
+  [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
+  [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: validateIntRange(1, MAX_CENTS),
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
   [SettingKey.WISHLIST_ENABLED]: (v) =>

@@ -597,6 +597,9 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       expect(q.body.energyBundleOffers[0]).toMatchObject({ deckSlug: w.deck.slug, priceCents: 2000 });
       const items = (q.body.items as { unitPriceCents: number }[]).reduce((s, i) => s + i.unitPriceCents, 0);
       expect(q.body.breakdown.subtotalCents).toBe(items);
+      // v1.109.2 (§4-G.12): sin paquete aceptado el carrito es solo de cartas ⇒ `E_cartas`, no sellado.
+      expect(q.body.breakdown.shippingFeeCents).toBe(db.eCards);
+      expect(q.body.shippingRule).toMatchObject({ kind: 'cards_only', freeShippingApplied: false });
       expect(q.body.vaultExcludesAccessories).toBe(false);
       const s = await db.session({ inventoryItemIds: w.items, deckPulls: [{ pullToken: 'roto', withEnergyBundle: false }] });
       expect(s.status).toBe(201);
