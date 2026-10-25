@@ -10227,7 +10227,10 @@ el arquitecto/backend al elegir fuentes.)*
 > puedo crearlas. Bopis déjalo en el tintero»*; sobre el umbral, *«No: se mide después (Recomendado)»*; sobre cuándo,
 > *«Arrancar tras publicar»*. Esa fila fija las seis reglas marcadas **[D1]…[D6]** abajo. La fila «Códigos de
 > descuento: P-DSC-1/2 y mínimo de compra» (2026-10-25) fija **[D7]** (mínimo antes del descuento), **[D8]** (retiro
-> de bóveda: *«Solo los de envío gratis»*) y **[D9]** (paquete de energías: *«Queda fuera»*). Lo marcado *(SUPUESTO)* es
+> de bóveda: *«Solo los de envío gratis»*) y **[D9]** (paquete de energías: *«Queda fuera»*). La fila «Códigos de
+> descuento: pantallas y P-DSC-3» (2026-10-25, elegida ante las maquetas `docs/mockups/dsc-checkout.html` y
+> `dsc-admin.html`) fija **[D10]** (campo del código arriba), **[D11]** (P-DSC-3 = a: retiro con envío gratis a MX$0.00)
+> y **[D12]** (se permite «envío gratis» en los textos de los códigos de envío gratis). Lo marcado *(SUPUESTO)* es
 > del product-owner y espera confirmación. Base: exploración del PO en `PENDIENTES.md`, IDEA-CUPONES (2026-10-25),
 > que midió que hoy no existe nada de esto (`Order` sin columna de descuento). **NO MEDIDO hoy por el PO**: lo vuelve a
 > medir el arquitecto antes de diseñar.
@@ -10251,7 +10254,9 @@ el arquitecto/backend al elegir fuentes.)*
    la misma convención que el precio exhibido, §Q); (c) **envío gratis**. **[D1]**
 2. **Base del descuento:** el precio exhibido (IVA dentro) de las **líneas elegibles** (regla 12). Nunca se descuentan
    el envío (salvo el tipo c), la comisión de plataforma, nada del buylist ni el paquete de energías del deck **[D9]**.
-3. **Monto fijo:** nunca mayor que la suma de las líneas elegibles; la mercancía no baja de MX$0.00.
+3. **Monto fijo:** nunca mayor que la suma de las líneas elegibles, y **cada pieza o unidad elegible conserva al menos
+   MX$0.01** (`API_CONTRACT §DSC.0` I-4): un código que cubriría todo lo elegible descuenta un centavo menos por unidad.
+   Ejemplo: MX$100.00 fijo sobre una sola carta de MX$100.00 ⇒ descuento de MX$99.99 y la carta se cobra en MX$0.01.
 4. **Tope en pesos** (opcional, solo para porcentaje): el descuento no pasa de esa cifra (p. ej. «15 % hasta MX$500»).
 5. **Orden del cálculo — el descuento va primero:** mercancía → **descuento** → umbral de envío gratis → IVA → comisión.
    - El **umbral de envío gratis** (hoy MX$4,000, regla vigente en la fila de `HECHOS.md` «Envío gratis desde MX$4,000
@@ -10265,9 +10270,12 @@ el arquitecto/backend al elegir fuentes.)*
    MX$175). *(SUPUESTO: igual que el umbral, no cubre la tarifa de caja grande de §AC.)* En un pedido a bóveda no hay
    envío: el código no aplica y el mensaje lo dice (regla 21). También cubre el **retiro de bóveda** (regla 20).
 7. **Reparto por línea:** el descuento se reparte entre las líneas elegibles en proporción a su precio. Cada línea
-   guarda su **precio original** y su **precio cobrado**. Las partes suman **exactamente** el descuento, y ninguna
-   línea queda negativa (el redondeo de centavos lo fija el arquitecto). Esto hace que un reembolso por carta devuelva
-   lo cobrado y no el precio de lista (regla 17).
+   guarda su **precio original** y su **precio cobrado**. Las partes suman **exactamente** el descuento aplicado, y
+   ninguna unidad queda por debajo de MX$0.01 (el redondeo al centavo es el de `API_CONTRACT §DSC.3`). Como todas las
+   unidades de una misma línea llevan el mismo descuento, con **unidades repetidas** (p. ej. tres accesorios iguales) el
+   centavo que no se reparte parejo se queda sin descontar: el descuento aplicado puede quedar unos centavos por debajo
+   del nominal, y el cliente siempre ve el aplicado. Ejemplo: tres energías de MX$10.00 con un código de MX$10.00 fijo ⇒
+   descuento de MX$9.99. Esto hace que un reembolso por carta devuelva lo cobrado y no el precio de lista (regla 18).
 
 **Límites que el dueño elige por código**
 8. **Vigencia:** fecha y hora de inicio y de fin, en hora del centro de México (como P-FIN-1). *(SUPUESTO: sin fecha
@@ -10317,13 +10325,11 @@ el arquitecto/backend al elegir fuentes.)*
     bóveda** (§D, MX$175 + IVA = MX$203) acepta **solo códigos de envío gratis** (tipo c) **[D8]**; uno de porcentaje
     o de monto fijo da en el retiro el mensaje «no aplica» de la regla 21. Con un código de envío gratis:
     - el **envío del retiro queda en MX$0.00** y la tienda paga la guía (al P&L como hoy, §T.7);
-    - *(SUPUESTO: el retiro con envío gratis **cuesta MX$0.00 en total**, sin comisión y sin pasar por el cobro, porque
-      la comisión cubre lo que cobra el procesador sobre un pago y ahí no hay pago; ver **P-DSC-3**. Hoy la comisión
-      tiene una parte fija — `grossUpTotal` en `backend/src/common/money.ts:1019-1029` suma una cuota fija — así que
-      «seguir cobrando la comisión» dejaría un cobro de unos pocos pesos por un retiro gratis. NO MEDIDO por el PO:
-      cuánto sería y si el procesador acepta ese monto.)*
-    - el uso del código **se aparta y se consume** igual que en una compra (regla 17), y cuenta para los límites de
-      usos totales y por cliente;
+    - el retiro con envío gratis **cuesta MX$0.00 en total**, sin comisión y sin pasar por el cobro **[D11]**: el
+      cliente ve el total en MX$0.00 y el botón **«Confirmar retiro»**, y al confirmar el retiro entra directo a
+      preparación;
+    - el uso del código cuenta para los límites de usos totales y por cliente igual que en una compra; como no hay cobro
+      que esperar, **se consume al confirmar el retiro**;
     - *(SUPUESTO: en el retiro no hay compra que medir, así que un código con **mínimo de compra** o **filtro por tipo
       de producto** no aplica al retiro; uno con filtro de destino aplica si incluye «domicilio».)*
     - la **base del IVA** del retiro con envío en MX$0 (hoy neto MX$175, el cliente ve MX$203,
@@ -10340,10 +10346,14 @@ el arquitecto/backend al elegir fuentes.)*
     *(SUPUESTO: 10 en 15 min; el número lo fijan arquitecto y seguridad.)*
 
 #### DSC.3 Dónde se ve
-- **Checkout** (invitado y con cuenta, una pantalla `DESIGN_SYSTEM §CHK-MOVIL`): campo «¿Tienes un código?», línea
-  «Descuento (CÓDIGO) −MX$X» en el desglose antes de PAGAR, y «Quitar».
-- **Solicitud de retiro de bóveda** (§D): el mismo campo; con un código de envío gratis el desglose muestra el envío
-  en MX$0.00 y el nombre del código antes de confirmar **[D8]**.
+- **Checkout** (invitado y con cuenta, una pantalla `DESIGN_SYSTEM §CHK-MOVIL`): campo «¿Tienes un código?» **arriba**,
+  bajo «Envío a mi domicilio» y antes de los datos **[D10]**; línea «Descuento (CÓDIGO) −MX$X» en el desglose antes de
+  PAGAR, y «Quitar». Con un código de envío gratis la línea es «Envío gratis (CÓDIGO)» **[D12]**.
+- **Solicitud de retiro de bóveda** (§D): campo «¿Tienes un código de envío gratis?» **[D12]**; con un código de envío
+  gratis el desglose muestra el envío en MX$0.00, el nombre del código y el total en MX$0.00 antes de «Confirmar
+  retiro» **[D8] [D11]**.
+- **Textos con «envío gratis» [D12]:** además del aviso del umbral, se permiten en los textos de los códigos de envío
+  gratis (los dos de arriba).
 - **Correo de confirmación y detalle del pedido** del cliente: la misma línea.
 - **Panel:** en **Ventas**, el pedido muestra código y monto. La pantalla **Códigos** (solo `super_admin`) tiene la
   lista, crear, lote, pausar/reanudar y el reporte. La venta y el IVA de Finanzas y Analítica (§W, §AN) cuentan lo
@@ -10366,7 +10376,7 @@ además, qué códigos se usaron. Se descarga en CSV.
   reporte dice cuánto costó. (c) **Dinero:** un error en el orden del cálculo (regla 5) cobraría IVA o comisión de
   más o de menos en cada pedido; por eso existe el criterio de equivalencia 892.
 
-- Criterios **890–919**. Pregunta **P-DSC-3** en «Preguntas abiertas».
+- Criterios **890–919**. Sin preguntas abiertas de §DSC (P-DSC-1/2/3 resueltas, ver `docs/DECISIONES.md`).
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §DSC (códigos de descuento)** *(2026-10-25)*: detalle en **§DSC.5**.
@@ -15170,8 +15180,11 @@ Energy» (12 energías; sueltas = MX$60.00):*
 892. 💰 **IVA y comisión después del descuento — equivalencia** *(DSC.2-5)*: para el pedido de 891, el IVA desglosado,
    la comisión y el total son **idénticos al centavo** a los de un pedido sin código con MX$900.00 de mercancía y el
    mismo destino. QA lo repite con un monto fijo, con envío gratis y con un pedido a bóveda (4 de 4 iguales).
-893. 💰 **Monto fijo con IVA** *(DSC.2-1/3)*: un código de MX$150.00 sobre MX$1,000.00 ⇒ mercancía de MX$850.00. El
-   mismo código con solo MX$100.00 elegibles ⇒ descuento de MX$100.00, nunca negativo.
+893. 💰 **Monto fijo con IVA** *(DSC.2-1/3/7)*: un código de MX$150.00 sobre MX$1,000.00 ⇒ mercancía de MX$850.00. El
+   mismo código en un pedido a domicilio con una sola carta elegible de MX$100.00 ⇒ descuento de **MX$99.99** y la carta
+   se cobra en **MX$0.01**: ninguna unidad baja de un centavo ni queda negativa. Con tres energías sueltas iguales de
+   MX$10.00 y un código de MX$10.00 fijo ⇒ descuento de **MX$9.99** (cada unidad −MX$3.33), y el desglose, el correo y
+   Ventas muestran MX$9.99, no MX$10.00.
 894. 💰 **Tope en pesos** *(DSC.2-4)*: 20 % con tope de MX$300.00 sobre MX$2,000.00 ⇒ descuento de MX$300.00, no de
    MX$400.00.
 895. 💰 **Umbral medido después [D2]** *(DSC.2-5)*: MX$4,200.00 con 10 % ⇒ mercancía de MX$3,780.00 y **se cobra
@@ -15233,9 +15246,10 @@ Energy» (12 energías; sueltas = MX$60.00):*
    el reporte lo muestran; (e) se reembolsa una carta y el reporte refleja el reembolso sin devolver el uso.
 917. 💰 **Retiro de bóveda con envío gratis [D8]** *(DSC.2-20)*: un cliente con cuenta pide el retiro de dos cartas
    `settled` y escribe un código de envío gratis. Antes de confirmar ve **«Envío MX$0.00»** y el nombre del código,
-   donde sin código vería MX$203.00. *(SUPUESTO, P-DSC-3: el total del retiro es **MX$0.00**, sin comisión ni pantalla
-   de cobro.)* El retiro sigue el camino de siempre (en preparación → guía → enviado), la tienda paga la guía, y el
-   reporte del código cuenta 1 uso consumido y el envío regalado en la columna de retiros.
+   donde sin código vería MX$203.00, y el total del retiro en **MX$0.00**, sin comisión ni pantalla de cobro, con el
+   botón **«Confirmar retiro»** **[D11]**. Al confirmar, el retiro sigue el camino de siempre (en preparación → guía →
+   enviado), la tienda paga la guía, y el reporte del código cuenta 1 uso consumido y el envío regalado en la columna de
+   retiros.
 918. **Retiro con código de porcentaje o de monto [D8]** *(DSC.2-20)*: en la solicitud de retiro, un código vigente de
    10 % o de MX$150.00 no aplica, el mensaje dice que en retiros solo valen los de envío gratis, el retiro cuesta
    MX$203.00 más su comisión y el código no gasta ningún uso.
@@ -17247,12 +17261,7 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-- **P-DSC-3 · Retiro de bóveda con un código de envío gratis: ¿cuánto paga el cliente en total?** *(§DSC.2 regla 20,
-  criterio 917.)* Elegiste que el código de envío gratis cubra el retiro. El retiro hoy cobra MX$203 de envío **más la
-  comisión de plataforma**, y esa comisión tiene una parte fija aunque el envío sea cero. Opciones: **(a) MX$0.00 en
-  total**: el retiro se confirma sin pasar por el pago; **(b) se cobra solo la comisión** que quede (unos pocos pesos;
-  la cifra exacta la mide el arquitecto, y puede que el procesador no acepte un cobro tan chico). **Mientras no
-  contestes: (a)**, que es lo que decía la opción que elegiste («dejarían el retiro en MX$0»).
+- *(Ninguna abierta en esta sección a 2026-10-25.)*
 
 ## Preguntas abiertas — precio de buylist por rareza (v1.3)
 > Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
