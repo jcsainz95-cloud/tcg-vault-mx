@@ -104,6 +104,9 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
       // §13 Fase 2 — Meta Battle Decks. Ruta `vault_operator+` (el backend
       // `GET /admin/decks-meta/preview` admite operador): sin `superAdminOnly`, como Sellado.
       { href: '/admin/m12', key: 'm12' },
+      // §DSC-UX.5 (contrato §DSC.7, [D6] «solo yo puedo crearlas»): «Códigos de descuento», grupo «Tienda», SÚPER; oculta
+      // (⛔ ni bloqueada) para el operador, que por URL llega al acceso denegado de siempre.
+      { href: '/admin/codes', key: 'discounts', superAdminOnly: true, hiddenUnlessSuperAdmin: true },
     ],
   },
   {

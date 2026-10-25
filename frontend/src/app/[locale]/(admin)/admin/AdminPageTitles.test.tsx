@@ -81,6 +81,8 @@ import { CardShowAdminView } from './card-show/CardShowAdminView';
 // eslint-disable-next-line import/first
 import { MarketingView } from './marketing/MarketingView';
 // eslint-disable-next-line import/first
+import DiscountCodesPage from './codes/page';
+// eslint-disable-next-line import/first
 import { parseMktUrl } from './marketing/url-state';
 
 /**
@@ -151,6 +153,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/spend-alerts': SpendAlertsPage,
   '/admin/card-show': CardShowPage,
   '/admin/marketing': MarketingPage,
+  '/admin/codes': DiscountCodesPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -202,6 +205,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Tienda', '/admin/m2', 'Catálogo y precios', 'Catalog & pricing', true],
     ['Tienda', '/admin/m2/bounties', 'Bounties', 'Bounties', true],
     ['Tienda', '/admin/m12', 'Meta Battle Decks', 'Meta Battle Decks', false],
+    // §DSC-UX.5: «Códigos de descuento», SÚPER, al final de «Tienda» (solo el dueño crea códigos, [D6]).
+    ['Tienda', '/admin/codes', 'Códigos de descuento', 'Discount codes', true],
     ['Administración', '/admin/m7', 'Finanzas', 'Finance', true],
     ['Administración', '/admin/m9', 'Reportes', 'Reports', true],
     ['Administración', '/admin/m6', 'Usuarios', 'Users', true],
@@ -241,8 +246,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
     // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17. §CARDSHOW.15 añade «Card Show» ⇒ 18.
-    // §MKT-UX.1 añade «Marketing» ⇒ 19.
-    expect(hrefs).toHaveLength(19);
+    // §MKT-UX.1 añade «Marketing» ⇒ 19. §DSC-UX.5 añade «Códigos de descuento» ⇒ 20.
+    expect(hrefs).toHaveLength(20);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);
