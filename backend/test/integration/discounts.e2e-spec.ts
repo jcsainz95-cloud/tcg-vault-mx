@@ -385,6 +385,9 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const outcomes: string[] = [];
       let ok = 0;
       for (let i = 0; i < RACE_N; i += 1) {
+        // El perdedor recibe el genérico y CUENTA como intento fallido de la IP (§DSC.6): sin vaciar, con N > 10 la propia
+        // carrera se bloquea con 429 (medido: N=30 ⇒ 10/30 y 20 pares 429/429).
+        await h.prisma.discountCodeThrottle.deleteMany({});
         const code = await mkCode({ kind: 'percent', percentPct: 10, maxTotalUses: 1 });
         const [a, b] = [await piece('raw', 50000), await piece('raw', 50000)];
         const [r1, r2] = await Promise.all([
