@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSC · Códigos de descuento en el checkout (mockup estático, datos de ejemplo)</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--bd:#d9d3c5;--bds:#1a1a18;--ok:#4e7a49}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:#cfcabd;font-family:Archivo,Helvetica,Arial,sans-serif;color:var(--tx);padding:16px}
+h1,h2,h3,.serif{font-family:"Zen Old Mincho",Georgia,serif;font-weight:400}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace}
+.top{max-width:1240px;margin:0 0 20px;font:14px/1.6 Helvetica,Arial,sans-serif}
+.top h1{font-size:28px;margin:0 0 6px}
+.sec{margin:0 0 36px}
+.sec>h2{font:600 15px Helvetica,Arial,sans-serif;border-bottom:2px solid #1a1a18;padding-bottom:6px;margin:0 0 6px;max-width:1240px}
+.sec>p{font:13px/1.6 Helvetica,Arial,sans-serif;max-width:900px;margin:4px 0 12px}
+.gal{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.cap{width:390px;font:12px/1.4 Helvetica,Arial,sans-serif;color:#333;margin:0 0 6px}
+.frame{width:390px;height:844px;overflow-y:auto;overflow-x:hidden;background:var(--bg);position:relative;border:1px solid #888}
+.frame.ex{height:auto;overflow:visible}
+.pad{padding:0 20px}
+.eyebrow{font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);margin:0}
+.muted{color:var(--mu)}.sm{font-size:12px;line-height:1.5}.xs{font-size:11px;line-height:1.5}
+.hdr{height:56px;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;font-weight:700;letter-spacing:.12em}
+h1.t{font-size:26px;margin:20px 0 12px}
+.line{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--bd)}
+.thumb{width:64px;height:90px;background:var(--s2);border:1px solid var(--bd);flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--mu)}
+.line .n{font-family:"Zen Old Mincho",Georgia,serif;font-size:17px}
+.price{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}
+.dest{border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);padding:10px 0;margin:8px 0 4px}
+.dest .row{display:flex;justify-content:space-between;align-items:baseline;min-height:32px}
+.lnk{display:block;min-height:44px;padding:10px 0;border:0;background:none;font:inherit;color:var(--tx);text-align:left;text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+.fld{margin:0 0 16px}.fld label{display:block;font-size:13px;margin-bottom:6px}
+.inp{width:100%;height:46px;border:1px solid var(--bds);background:transparent;padding:0 12px;font-size:16px;font-family:"JetBrains Mono",Menlo,monospace;color:var(--tx);letter-spacing:.04em}
+.inp.bad{border-color:var(--ac);border-width:2px}
+.inp:disabled{border-color:var(--bd);color:var(--mu)}
+.chk{display:flex;gap:12px;min-height:44px;align-items:flex-start;font-size:13px;line-height:1.55;margin:6px 0 10px}
+.chk i{flex:none;width:18px;height:18px;border:1px solid var(--bds);margin-top:2px}
+.sug{border:1px solid var(--bd);padding:12px;display:flex;gap:12px;align-items:center;margin-bottom:8px}
+.note{border-left:2px solid var(--ac);padding-left:12px;font-size:13px;line-height:1.7;color:var(--mu);margin:16px 0}
+.note.q{border-left-color:var(--bd)}
+.bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--bds);padding:8px 20px 12px;z-index:3}
+.bar .t{display:block;width:100%;min-height:44px;text-align:left;border:0;background:none;font:11px/1.5 "JetBrains Mono",Menlo,monospace;color:var(--mu);padding:0}
+.bar .r{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tot{font-size:22px;font-variant-numeric:tabular-nums;font-weight:500}
+.pay{min-width:140px;height:48px;border:0;background:var(--ac);color:var(--bg);font:600 13px "JetBrains Mono",Menlo,monospace;letter-spacing:.1em;text-transform:uppercase}
+.tag{background:#fff3;border:1px dashed var(--ac);color:var(--ac);font:10px "JetBrains Mono",monospace;padding:0 4px;margin-left:4px;white-space:nowrap}
+/* ---- componente nuevo: CodeRow ---- */
+.cr{border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);min-height:48px;display:flex;align-items:center;justify-content:space-between;font-size:14px;margin:4px 0}
+.cr.open{border-bottom:0;margin-bottom:0}
+.cr .pl{font:16px "JetBrains Mono",monospace;color:var(--mu);width:44px;text-align:right}
+.cf{border-bottom:1px solid var(--bd);padding:2px 0 14px}
+.cf label{display:block;font-size:13px;margin-bottom:6px}
+.irow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.btn{height:46px;padding:0 18px;background:var(--tx);color:var(--bg);border:0;font:600 12px "JetBrains Mono",Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.btn.ld{background:var(--mu)}
+.btn.off{background:transparent;color:var(--mu);border:1px solid var(--bd)}
+.err{color:var(--ac);font-size:13px;line-height:1.5;margin:8px 0 0}
+.err b{font-weight:600}
+.okrow{border-left:2px solid var(--ok);padding:6px 0 6px 12px;display:flex;justify-content:space-between;gap:12px;align-items:center;margin:4px 0;border-top:0}
+.okrow .c{font:13px "JetBrains Mono",monospace;font-weight:600;letter-spacing:.04em}
+.okrow .s{font-size:13px;margin-top:2px}
+.okrow .q{min-height:44px;min-width:56px;display:flex;align-items:center;justify-content:flex-end;text-decoration:underline;text-underline-offset:4px;font-size:13px}
+.nt{border-left:2px solid var(--tx);padding:2px 0 2px 12px;font-size:13px;line-height:1.55;margin:8px 0}
+.nt.w{border-left-color:var(--ac)}
+/* ---- desglose ---- */
+.bk{border-top:1px solid var(--bd);padding:10px 0 2px;font-size:14px}
+.bk .rw{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-variant-numeric:tabular-nums}
+.bk .rw span:first-child{min-width:0}
+.bk .rw.d span:last-child{color:var(--tx);font-weight:600}
+.bk .rw.d{border-left:2px solid var(--ok);padding-left:10px;margin-left:-12px}
+.bk .rw.tt{border-top:1px solid var(--bds);margin-top:6px;padding-top:10px;font-size:18px;font-weight:500}
+.t9{font:12px/1.5 "JetBrains Mono",monospace;color:var(--mu);margin:6px 0}
+.t9 s{opacity:.7}
+.cmp{display:grid;grid-template-columns:repeat(3,390px);gap:24px}
+.rec{display:inline-block;background:#1a1a18;color:#f4f1ea;font:600 10px "JetBrains Mono",monospace;letter-spacing:.1em;padding:1px 6px;margin-left:6px}
+.sk{height:10px;background:var(--s2);margin:6px 0}
+</style></head><body>
+
+<div class="top">
+<h1>Códigos de descuento · checkout</h1>
+Maqueta estática, datos de ejemplo. Los importes de comisión son <b>ilustrativos</b>: los calcula el servidor. Etiquetas rojas punteadas = id del texto (ver <code>DESIGN_SYSTEM.md</code> §DSC-UX). Todo a 390 px sin desplazamiento lateral.
+<br><b>Decide el dueño:</b> (1) dónde va el renglón del código, A o B (sección 1; recomiendo A); (1b) retiro con envío gratis: total MX$0.00 (A) o comisión que queda (B), P-DSC-3, sección 4 (recomiendo A); (2) los textos de las secciones 2 a 5; (3) si «Envío gratis (CÓDIGO)» puede aparecer en la línea del desglose (sección 3).
+</div>
+
+<!-- =============== 1. A vs B =============== -->
+<div class="sec">
+<h2>1 · Decisión: ¿dónde va «¿Tienes un código?» — A (arriba) o B (abajo)?</h2>
+<p><b>A (recomendada):</b> justo bajo la fila de destino, en el mismo grupo que el envío y «Te faltan… para envío gratis», antes de los campos. Quien trae un código lo aplica de entrada y ve moverse el aviso de envío a su lado. Cuesta 48 px de largo antes del primer campo. <b>B:</b> después de la casilla de términos, justo encima de PAGAR; no estorba a quien no tiene código, pero quien lo trae descubre tarde que existe el campo y el aviso de envío queda lejos de donde cambia. No se ha medido cuál convierte mejor (NO MEDIDO): tras publicar A, se mide el abandono entre el primer campo y PAGAR.</p>
+<div class="gal">
+
+<div>
+<p class="cap"><b>A · Renglón arriba</b><span class="rec">RECOMENDADA</span> · cerrado. Sellado MX$4,200: ya llega a envío gratis.</p>
+<div class="frame">
+  <div class="hdr">TCG HUNT</div>
+  <div class="pad">
+    <h1 class="t">Tu carrito</h1>
+    <div class="line"><div class="thumb">sellado</div>
+      <div><div class="n">Caja de sobres</div><div class="mono xs muted">Set de ejemplo · sellado</div><div class="mono xs muted" style="margin-top:8px">Quitar</div></div>
+      <div class="price">MX$4,200.00</div></div>
+    <div class="dest">
+      <div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$0.00</span></div>
+      <button class="lnk">Guardar en mi bóveda <span class="eyebrow" style="display:inline;margin-left:6px">Requiere cuenta</span></button>
+    </div>
+    <div class="cr"><span>¿Tienes un código? <span class="tag">C1</span></span><span class="pl">+</span></div>
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Contacto</p>
+    <div class="fld"><label>Correo electrónico</label><input class="inp" style="font-family:inherit" value="ana@ejemplo.com"></div>
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Envío · a México</p>
+    <div class="fld"><label>Nombre de quien recibe</label><input class="inp" style="font-family:inherit" value="Ana Pérez"></div>
+    <div class="fld"><label>Código postal</label><input class="inp" style="font-family:inherit" value="03100"></div>
+    <p class="mono xs muted">… resto del formulario sin cambios …</p>
+    <div class="chk"><i></i><span>Acepto los términos y el aviso de privacidad.</span></div>
+    <div class="sug"><div class="thumb" style="width:44px;height:60px">acc.</div><div class="sm"><b>Protectores (50)</b><br><span class="mono xs muted">MX$ ejemplo</span></div></div>
+    <div style="height:130px"></div>
+  </div>
+  <div class="bar">
+    <button class="t">Incluye envío gratis y comisión de plataforma MX$151.00 · <u>Ver desglose</u></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$4,351.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div></div>
+
+<div>
+<p class="cap"><b>B · Renglón abajo</b> · cerrado. Mismo componente, otro lugar.</p>
+<div class="frame">
+  <div class="hdr">TCG HUNT</div>
+  <div class="pad">
+    <h1 class="t">Tu carrito</h1>
+    <div class="line"><div class="thumb">sellado</div>
+      <div><div class="n">Caja de sobres</div><div class="mono xs muted">Set de ejemplo · sellado</div><div class="mono xs muted" style="margin-top:8px">Quitar</div></div>
+      <div class="price">MX$4,200.00</div></div>
+    <div class="dest">
+      <div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$0.00</span></div>
+      <button class="lnk">Guardar en mi bóveda <span class="eyebrow" style="display:inline;margin-left:6px">Requiere cuenta</span></button>
+    </div>
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Contacto</p>
+    <div class="fld"><label>Correo electrónico</label><input class="inp" style="font-family:inherit" value="ana@ejemplo.com"></div>
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Envío · a México</p>
+    <div class="fld"><label>Nombre de quien recibe</label><input class="inp" style="font-family:inherit" value="Ana Pérez"></div>
+    <p class="mono xs muted">… resto del formulario sin cambios …</p>
+    <div class="chk"><i></i><span>Acepto los términos y el aviso de privacidad.</span></div>
+    <div class="cr"><span>¿Tienes un código? <span class="tag">C1</span></span><span class="pl">+</span></div>
+    <div class="sug" style="margin-top:14px"><div class="thumb" style="width:44px;height:60px">acc.</div><div class="sm"><b>Protectores (50)</b><br><span class="mono xs muted">MX$ ejemplo</span></div></div>
+    <div style="height:130px"></div>
+  </div>
+  <div class="bar">
+    <button class="t">Incluye envío gratis y comisión de plataforma MX$151.00 · <u>Ver desglose</u></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$4,351.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div></div>
+
+</div></div>
+
+<!-- =============== 2. Estados =============== -->
+<div class="sec">
+<h2>2 · Los estados del renglón (se ven igual en A y en B)</h2>
+<p>Cada marco es un recorte. Pasar de un estado a otro nunca borra lo que el cliente ya llenó. El error se anuncia (<code>role="alert"</code>) y el foco se queda en el campo. Dentro del campo el código se escribe en mayúsculas y sin espacios.</p>
+<div class="gal">
+
+<div><p class="cap"><b>S1 · Plegado</b> (por defecto). Área táctil 48 px.</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr"><span>¿Tienes un código? <span class="tag">C1</span></span><span class="pl">+</span></div>
+</div></div></div>
+
+<div><p class="cap"><b>S2 · Abierto</b>, vacío. «Aplicar» apagado hasta que haya texto.</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento <span class="tag">C2</span></label>
+    <div class="irow"><input class="inp" value=""><button class="btn off">Aplicar</button></div></div>
+</div></div></div>
+
+<div><p class="cap"><b>S3 · Aplicando</b>. Campo y botón bloqueados; no se reenvía con doble toque.</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento</label>
+    <div class="irow"><input class="inp" value="SEPT10" disabled><button class="btn ld">Aplicando… <span class="tag">C2</span></button></div></div>
+</div></div></div>
+
+<div><p class="cap"><b>S4 · Aplicado</b> (10 % sobre MX$4,200). El renglón se convierte en esta fila; el desglose se ve en la sección 3.</p>
+<div class="frame ex"><div class="pad">
+  <div class="okrow"><div><div class="c">SEPT10 aplicado <span class="tag">C3</span></div><div class="s">Ahorras MX$420.00</div></div><span class="q">Quitar</span></div>
+  <button class="lnk" style="min-height:44px;font-size:13px;padding:6px 0">Usar otro código <span class="tag">C15</span></button>
+</div></div></div>
+
+<div><p class="cap"><b>S5 · Error genérico</b>. Es el mismo texto para un código que no existe, venció, está pausado, agotado o ya usado por esa persona (para no revelar cuáles existen).</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento</label>
+    <div class="irow"><input class="inp bad" value="SEPT1O"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">Este código no es válido o ya no está disponible. <span class="tag">C5</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>S6 · Error con motivo</b>. Solo para un código vigente que no encaja con ESTE carrito (mínimo, tipo de producto, destino).</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento</label>
+    <div class="irow"><input class="inp bad" value="MINIMO2K"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">Te faltan MX$450.00 para usar este código. <span class="tag">C6</span></p></div>
+</div></div>
+<p class="cap" style="margin-top:8px">Otros motivos (mismo lugar y estilo):<br>«Este código aplica solo a sellado.» <span class="tag">C7</span><br>«Este código no aplica a compras para tu bóveda.» <span class="tag">C7</span><br>«Este código no aplica a envíos a domicilio.» <span class="tag">C7</span></p></div>
+
+<div><p class="cap"><b>S7 · Reemplazo</b>. Con SEPT10 aplicado, el cliente pulsa «Usar otro código» y aplica NUEVO20: se cambia y se avisa con las dos cifras. Un segundo código inválido NO quita el primero.</p>
+<div class="frame ex"><div class="pad">
+  <div class="okrow"><div><div class="c">NUEVO20 aplicado</div><div class="s">Ahorras MX$840.00</div></div><span class="q">Quitar</span></div>
+  <p class="nt" role="status">Cambiamos SEPT10 (−MX$420.00) por NUEVO20 (−MX$840.00). Solo se aplica un código por pedido. <span class="tag">C8</span></p>
+  <div class="cr open" style="margin-top:18px"><span>Si el nuevo falla:</span><span class="pl"></span></div>
+  <div class="cf"><div class="irow"><input class="inp bad" value="OTRO5"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">Este código no es válido o ya no está disponible. Se mantiene NUEVO20. <span class="tag">C5+</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>S8 · Demasiados intentos</b>. Campo y botón bloqueados; no se muestra una cuenta regresiva (no se sabe el tiempo exacto). Un código válido tampoco entra durante el bloqueo.</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento</label>
+    <div class="irow"><input class="inp" value="" disabled><button class="btn off">Aplicar</button></div>
+    <p class="err" role="alert">Demasiados intentos; espera unos minutos. <span class="tag">C9</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>S9 · No se pudo revisar</b> (red o servidor). El código escrito se conserva.</p>
+<div class="frame ex"><div class="pad">
+  <div class="cr open"><span>¿Tienes un código?</span><span class="pl">−</span></div>
+  <div class="cf"><label>Código de descuento</label>
+    <div class="irow"><input class="inp bad" value="SEPT10"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">No pudimos revisar el código. Inténtalo de nuevo. <span class="tag">C10</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>S10 · El código dejó de aplicar</b> (el cliente cambió el carrito, o el código se pausó/venció antes de pagar). Se quita solo, con aviso, y el total se actualiza ANTES de que pueda pagar. Si pasa al pulsar PAGAR, no se cobra: se muestra el total nuevo y el cliente vuelve a pulsar.</p>
+<div class="frame ex"><div class="pad">
+  <p class="nt w" role="alert">SEPT10 ya no aplica a tu carrito y lo quitamos. Revisa el total antes de pagar. <span class="tag">C12</span></p>
+  <div class="cr"><span>¿Tienes un código?</span><span class="pl">+</span></div>
+</div></div></div>
+
+</div></div>
+
+<!-- =============== 3. Barra y desglose =============== -->
+<div class="sec">
+<h2>3 · Cómo cambian el desglose, la barra fija y «Te faltan para envío gratis»</h2>
+<p>El descuento va primero y el umbral de envío gratis se mide sobre lo que queda (decisión del dueño, 2026-10-25). Por eso el mismo pedido de MX$4,200 pasa de «envío gratis» a «Te faltan MX$220.00» con un 10 %. El aviso del umbral se recalcula en cuanto se aplica o se quita el código. La barra no cambia de tamaño (máx. 2 líneas) y «TOTAL» siempre es el de la sesión de pago. Las comisiones son ilustrativas.</p>
+<div class="cmp">
+
+<div><p class="cap"><b>(i) Sin código</b>, sellado MX$4,200: llega al umbral.</p>
+<div class="frame ex"><div class="pad">
+  <div class="dest"><div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$0.00</span></div></div>
+  <div class="cr"><span>¿Tienes un código?</span><span class="pl">+</span></div>
+  <div class="bk">
+    <div class="rw"><span>Subtotal</span><span>MX$4,200.00</span></div>
+    <div class="rw"><span>Envío</span><span>MX$0.00</span></div>
+    <div class="rw"><span>Comisión de plataforma</span><span>MX$151.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$4,351.00</span></div>
+  </div>
+  <div style="height:12px"></div>
+  <div class="bar" style="margin:0 -20px;position:static">
+    <button class="t">Incluye envío gratis y comisión de plataforma MX$151.00 · <u>Ocultar desglose</u></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$4,351.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div></div></div>
+
+<div><p class="cap"><b>(ii) Con SEPT10 (10 %)</b>: baja de MX$4,000 y se cobra envío.</p>
+<div class="frame ex"><div class="pad">
+  <div class="dest"><div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$175.00</span></div></div>
+  <p class="t9">Te faltan MX$220.00 para envío gratis <span class="tag">T9</span></p>
+  <div class="okrow"><div><div class="c">SEPT10 aplicado</div><div class="s">Ahorras MX$420.00</div></div><span class="q">Quitar</span></div>
+  <div class="bk">
+    <div class="rw"><span>Subtotal</span><span>MX$4,200.00</span></div>
+    <div class="rw d"><span>Descuento (SEPT10) <span class="tag">C4</span></span><span>−MX$420.00</span></div>
+    <div class="rw"><span>Envío</span><span>MX$175.00</span></div>
+    <div class="rw"><span>Comisión de plataforma</span><span>MX$143.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$4,098.00</span></div>
+  </div>
+  <div style="height:12px"></div>
+  <div class="bar" style="margin:0 -20px;position:static">
+    <button class="t">Descuento −MX$420.00 · envío MX$175.00 · comisión de plataforma MX$143.00 · <u>Ocultar desglose</u> <span class="tag">C11</span></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$4,098.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div></div></div>
+
+<div><p class="cap"><b>(iii) Código de envío gratis</b> ENVIO25 en un sellado de MX$3,500.</p>
+<div class="frame ex"><div class="pad">
+  <div class="dest"><div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$175.00</span></div></div>
+  <div class="okrow"><div><div class="c">ENVIO25 aplicado</div><div class="s">Ahorras MX$175.00 de envío</div></div><span class="q">Quitar</span></div>
+  <div class="bk">
+    <div class="rw"><span>Subtotal</span><span>MX$3,500.00</span></div>
+    <div class="rw"><span>Envío</span><span>MX$175.00</span></div>
+    <div class="rw d"><span>Envío gratis (ENVIO25) <span class="tag">C4</span></span><span>−MX$175.00</span></div>
+    <div class="rw"><span>Comisión de plataforma</span><span>MX$126.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$3,626.00</span></div>
+  </div>
+  <p class="t9" style="margin-top:8px">Sin «Te faltan… para envío gratis»: el envío ya es MX$0. <s>T9</s></p>
+  <div class="bar" style="margin:0 -20px;position:static">
+    <button class="t">Incluye envío gratis y comisión de plataforma MX$126.00 · <u>Ocultar desglose</u></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$3,626.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div></div></div>
+
+</div></div>
+
+<!-- =============== 4. Bóveda =============== -->
+<div class="sec">
+<h2>4 · Compra a bóveda con cuenta y retiro de bóveda</h2>
+<p>Mismo renglón y mismos estados. En una compra a bóveda no hay envío: un código de envío gratis no sirve y lo dice. En el <b>retiro</b> (MX$203) solo aplican los códigos de envío gratis (decisión del dueño, 2026-10-25), así que el renglón se rotula distinto y un código de porcentaje o monto da un error con motivo. Si el código deja el retiro en MX$0.00, la pantalla pide una decisión de arquitectura: ver petición 3 de §DSC-UX.</p>
+<div class="gal">
+
+<div><p class="cap"><b>Compra a bóveda (con cuenta)</b> · código de porcentaje aplicado.</p>
+<div class="frame ex"><div class="pad">
+  <div class="line" style="border-top:0"><div class="thumb">carta</div>
+    <div><div class="n">Charizard</div><div class="mono xs muted">Set de ejemplo · NM</div></div><div class="price">MX$2,000.00</div></div>
+  <div class="dest"><div class="row"><span style="font-size:14px">Guardar en mi bóveda</span><span class="mono xs muted">sin envío</span></div></div>
+  <div class="okrow"><div><div class="c">BOVEDA10 aplicado</div><div class="s">Ahorras MX$200.00</div></div><span class="q">Quitar</span></div>
+  <div class="bk">
+    <div class="rw"><span>Subtotal</span><span>MX$2,000.00</span></div>
+    <div class="rw d"><span>Descuento (BOVEDA10)</span><span>−MX$200.00</span></div>
+    <div class="rw"><span>Comisión de plataforma</span><span>MX$66.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$1,866.00</span></div>
+  </div>
+  <p class="eyebrow" style="margin:20px 0 6px">Si el código fuera de envío gratis</p>
+  <div class="cf" style="border:0"><div class="irow"><input class="inp bad" value="ENVIO25"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">Este código cubre el envío y tu pedido a bóveda no lleva envío. <span class="tag">C13</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>Retiro · variante A (default): total MX$0.00</b><span class="rec">DEFAULT</span> · sin comisión y sin pasar por el cobro; el botón confirma.</p>
+<div class="frame ex"><div class="pad">
+  <h1 class="t" style="font-size:22px;margin-top:16px">Pagar envío</h1>
+  <p class="mono xs muted" style="margin:0 0 10px">Retiro de 3 cartas</p>
+  <div class="cr"><span>¿Tienes un código de envío gratis? <span class="tag">C1b</span></span><span class="pl">+</span></div>
+  <div class="okrow"><div><div class="c">ENVIO25 aplicado</div><div class="s">Ahorras MX$203.00 de envío</div></div><span class="q">Quitar</span></div>
+  <div class="bk">
+    <div class="rw"><span>Envío del retiro</span><span>MX$203.00</span></div>
+    <div class="rw d"><span>Envío gratis (ENVIO25)</span><span>−MX$203.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$0.00</span></div>
+  </div>
+  <div style="padding:14px 0"><button class="pay" style="width:100%">Confirmar retiro <span class="tag" style="color:#fff;border-color:#fff">C16</span></button></div>
+  <p class="eyebrow" style="margin:6px 0 6px">Si el código fuera de porcentaje o monto</p>
+  <div class="cf" style="border:0"><div class="irow"><input class="inp bad" value="SEPT10"><button class="btn">Aplicar</button></div>
+    <p class="err" role="alert">En el retiro de bóveda solo aplican los códigos de envío gratis. <span class="tag">C13</span></p></div>
+</div></div></div>
+
+<div><p class="cap"><b>Retiro · variante B: se cobra la comisión que queda</b> · unos pesos (cifra ILUSTRATIVA; la mide el arquitecto, y puede que el procesador no acepte un cobro tan chico). Sigue la pantalla de pago de siempre.</p>
+<div class="frame ex"><div class="pad">
+  <h1 class="t" style="font-size:22px;margin-top:16px">Pagar envío</h1>
+  <p class="mono xs muted" style="margin:0 0 10px">Retiro de 3 cartas</p>
+  <div class="okrow"><div><div class="c">ENVIO25 aplicado</div><div class="s">Ahorras MX$203.00 de envío</div></div><span class="q">Quitar</span></div>
+  <div class="bk">
+    <div class="rw"><span>Envío del retiro</span><span>MX$203.00</span></div>
+    <div class="rw d"><span>Envío gratis (ENVIO25)</span><span>−MX$203.00</span></div>
+    <div class="rw"><span>Comisión de plataforma</span><span>MX$4.00</span></div>
+    <div class="rw tt"><span>Total</span><span>MX$4.00</span></div>
+  </div>
+  <div style="padding:14px 0"><button class="pay" style="width:100%">Pagar</button></div>
+  <p class="nt" style="font-size:12px">Compara con A: aquí el cliente que trae un código de envío gratis aún ve un cobro, y entra al flujo de pago por MX$4.00. A evita ese cobro pero no cubre ninguna comisión del procesador.</p>
+</div></div></div>
+
+</div></div>
+
+<!-- =============== 5. Textos =============== -->
+<div class="sec">
+<h2>5 · Textos exactos (los mismos están en DESIGN_SYSTEM.md §DSC-UX)</h2>
+<p>Referencia rápida para el dueño; la tabla completa ES/EN vive en el documento. «Envío gratis» aparece solo (a) en el aviso del umbral (T9) y T3a con envío 0, ya aprobados, y (b) en lo que tiene que ver con un código de envío gratis: la línea del desglose, el rótulo del retiro, el botón «Confirmar retiro» no lo lleva. <b>Pendiente de tu aprobación:</b> «Envío gratis (CÓDIGO)» en el desglose y «¿Tienes un código de envío gratis?» en el retiro, porque tu fila de textos del 2026-10-25 solo lo permitía en el umbral.</p>
+</div>
+
+</body></html>

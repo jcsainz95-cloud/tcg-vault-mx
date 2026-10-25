@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSC · Panel «Códigos de descuento» (mockup estático, datos de ejemplo)</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--bd:#d9d3c5;--bds:#1a1a18;--ok:#4e7a49;--ink:#1a1a18;--onink:#f4f1ea;--onm:#a39d91}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:#cfcabd;font-family:Archivo,Helvetica,Arial,sans-serif;color:var(--tx);padding:16px;font-size:14px}
+h1,h2,h3,.serif{font-family:"Zen Old Mincho",Georgia,serif;font-weight:400}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace}
+.top{max-width:1100px;font:14px/1.6 Helvetica,Arial,sans-serif;margin-bottom:18px}.top h1{font-size:28px;margin:0 0 6px}
+.sec{margin:0 0 40px}.sec>h2{font:600 15px Helvetica,Arial,sans-serif;border-bottom:2px solid #1a1a18;padding-bottom:6px;margin:0 0 6px;max-width:1180px}
+.sec>p{font:13px/1.6 Helvetica,Arial,sans-serif;max-width:900px;margin:4px 0 12px}
+.cap{font:12px/1.4 Helvetica,Arial,sans-serif;color:#333;margin:10px 0 6px;max-width:1180px}
+.gal{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.desk{width:1180px;background:var(--bg);border:1px solid #888;display:flex;min-height:560px}
+.side{width:210px;background:var(--ink);color:var(--onink);padding:16px 0;flex:none;font-size:13px}
+.side .lg{padding:0 18px 14px;font-weight:700;letter-spacing:.12em}
+.side .g{padding:12px 18px 4px;font:10px "JetBrains Mono",monospace;letter-spacing:.1em;color:var(--onm);text-transform:uppercase}
+.side .i{padding:7px 18px;color:var(--onm)}.side .i.on{background:#fff1;color:var(--onink);border-left:3px solid var(--onink);padding-left:15px}
+.side .su{font:9px "JetBrains Mono",monospace;border:1px solid var(--onm);padding:0 4px;margin-left:6px}
+.main{flex:1;min-width:0;padding:20px 28px}
+.main h1{font-size:26px;margin:0 0 4px}.sub{color:var(--mu);font-size:13px;margin:0 0 16px}
+.eyebrow{font:11px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);margin:0}
+.muted{color:var(--mu)}.xs{font-size:11px}.sm{font-size:12px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.btn{height:40px;padding:0 16px;background:var(--tx);color:var(--bg);border:0;font:600 12px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;display:inline-flex;align-items:center;white-space:nowrap}
+.btn.s{background:transparent;color:var(--tx);border:1px solid var(--bds)}
+.btn.sm{height:32px;padding:0 10px;font-size:11px}
+.btn.r{background:var(--ac)}
+.chip{border:1px solid var(--bd);padding:4px 10px;font:11px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.06em}
+.chip.on{border-color:var(--bds);background:var(--s2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font:10px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);text-align:left;padding:8px 8px;border-bottom:1px solid var(--bds);font-weight:400}
+td{padding:11px 8px;border-bottom:1px solid var(--bd);vertical-align:middle}
+tr.h td{background:var(--s2)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.code{font:600 13px "JetBrains Mono",monospace;letter-spacing:.04em}
+.st{font:600 10px "JetBrains Mono",monospace;letter-spacing:.1em;text-transform:uppercase}
+.st.ok{color:var(--ok)}.st.w{color:var(--ac)}.st.m{color:var(--mu)}
+.use{display:inline-block;width:70px;height:6px;background:var(--bd);vertical-align:middle;margin-left:6px}.use i{display:block;height:6px;background:var(--tx)}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:32px}
+.fs{border-top:1px solid var(--bd);padding:14px 0 6px}.fs>h3{font:600 11px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px;color:var(--mu)}
+.f{margin:0 0 14px}.f label{display:block;font-size:13px;margin-bottom:5px}
+.in{height:42px;border:1px solid var(--bds);background:transparent;padding:0 10px;width:100%;font:15px "JetBrains Mono",monospace;display:flex;align-items:center}
+.in.lock{border-color:var(--bd);color:var(--mu);background:var(--s2)}
+.h{font-size:12px;color:var(--mu);margin-top:4px;line-height:1.5}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.seg{display:flex;border:1px solid var(--bds)}.seg span{flex:1;text-align:center;padding:10px 4px;font-size:13px;border-right:1px solid var(--bds)}.seg span:last-child{border:0}.seg .on{background:var(--tx);color:var(--bg)}
+.seg.lock{border-color:var(--bd)}.seg.lock span{border-color:var(--bd);color:var(--mu)}.seg.lock .on{background:var(--s2);color:var(--tx);font-weight:600}
+.cb{display:flex;gap:8px;align-items:center;min-height:30px;font-size:13px}.cb i{width:16px;height:16px;border:1px solid var(--bds);flex:none;display:inline-block}.cb i.x{background:var(--tx)}
+.nt{border-left:2px solid var(--tx);padding:4px 0 4px 12px;font-size:13px;line-height:1.55;margin:10px 0}.nt.w{border-left-color:var(--ac)}
+.prev{border:1px solid var(--bd);background:var(--s2);padding:14px;font-size:13px}
+.prev .rw{display:flex;justify-content:space-between;padding:3px 0;font-variant-numeric:tabular-nums}
+.prev .tt{border-top:1px solid var(--bds);margin-top:6px;padding-top:8px;font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:6px 0 18px}
+.kpi{border:1px solid var(--bd);padding:12px}.kpi .v{font:500 24px "Zen Old Mincho",Georgia,serif;font-variant-numeric:tabular-nums;margin-top:4px}.kpi .d{font-size:11px;color:var(--mu);margin-top:2px}
+.dlg{width:460px;background:var(--bg);border:1px solid var(--bds);padding:20px;margin:10px 0}
+.dlg h3{font-size:20px;margin:0 0 8px}
+.tag{border:1px dashed var(--ac);color:var(--ac);font:10px "JetBrains Mono",monospace;padding:0 4px;margin-left:4px;white-space:nowrap}
+.csv{background:#fff;border:1px solid var(--bd);padding:10px;font:11px/1.6 "JetBrains Mono",monospace;overflow:hidden;white-space:pre}
+/* móvil */
+.mob{width:390px;height:844px;overflow-y:auto;overflow-x:hidden;background:var(--bg);border:1px solid #888;position:relative}
+.mob .hd{height:52px;background:var(--ink);color:var(--onink);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:700;letter-spacing:.1em}
+.mob .pad{padding:14px 16px}
+.mob h1{font-size:22px}
+.card{border:1px solid var(--bd);padding:12px;margin-bottom:10px}
+.card .l{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12px;margin-top:8px}.card .kv span:nth-child(odd){color:var(--mu)}.card .kv span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums}
+.sticky{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--bds);padding:10px 16px 14px;display:flex;gap:10px}
+.sticky .btn{flex:1;justify-content:center;height:46px}
+</style></head><body>
+
+<div class="top"><h1>Códigos de descuento · panel</h1>
+Maqueta estática, datos de ejemplo. Solo <code>super_admin</code> ve esta pantalla (el personal no). Etiquetas rojas punteadas = id del texto en <code>DESIGN_SYSTEM.md</code> §DSC-UX. Entrada de menú nueva en el grupo «Tienda», con la marca SÚPER.
+<br><b>Decide el dueño:</b> (1) la lista agrupa cada lote en UNA fila plegable (como se ve) o muestra los 50 códigos sueltos; (2) los textos de pausa y de bloqueo tras el primer uso.</div>
+
+<!-- ============ D1 lista ============ -->
+<div class="sec"><h2>1 · Lista «Códigos de descuento» (escritorio)</h2>
+<p>Estado y usos de un vistazo. «Usos» = consumidos / apartados ahora / límite. Un lote es una sola fila (con sus códigos adentro) para que 50 códigos no tapen a los demás. Pausar y reanudar están en la fila; pausar no pide confirmación en un código suelto (es la acción de emergencia y se deshace con un clic), y sí en un lote (porque pausa muchos).</p>
+<div class="desk">
+ <div class="side"><div class="lg">TCG HUNT</div>
+  <div class="i">Resumen</div><div class="g">Día a día</div><div class="i">Ventas</div><div class="i">Disputas</div>
+  <div class="g">Existencias</div><div class="i">Inventario</div>
+  <div class="g">Tienda</div><div class="i">Catálogo y precios<span class="su">SÚPER</span></div><div class="i on">Códigos de descuento<span class="su">SÚPER</span> <span class="tag">D1</span></div>
+  <div class="g">Administración</div><div class="i">Finanzas<span class="su">SÚPER</span></div></div>
+ <div class="main">
+  <h1>Códigos de descuento</h1><p class="sub">Solo tú los creas. Un pedido lleva un solo código.</p>
+  <div class="bar"><button class="btn">Nuevo código</button><button class="btn s">Generar lote</button>
+    <span style="flex:1"></span><span class="chip on">Todos</span><span class="chip">Activos</span><span class="chip">Pausados</span><span class="chip">Vencidos</span><span class="chip">Agotados</span></div>
+  <table>
+   <tr><th>Código</th><th>Descuento</th><th>Vigencia</th><th>Estado</th><th>Usos (usados · apartados · límite)</th><th class="num">Descuento dado</th><th></th></tr>
+   <tr><td class="code">SEPT10</td><td>10 % · tope MX$500.00</td><td>1 sep – 30 sep</td><td><span class="st ok">Activo</span></td><td>38 · 1 · 100 <span class="use"><i style="width:38%"></i></span></td><td class="num">MX$12,480.00</td><td><button class="btn s sm">Pausar</button></td></tr>
+   <tr><td class="code">ENVIO25</td><td>Envío gratis</td><td>Sin fin</td><td><span class="st ok">Activo</span></td><td>9 · 0 · sin límite</td><td class="num">MX$1,575.00</td><td><button class="btn s sm">Pausar</button></td></tr>
+   <tr><td class="code">BOVEDA10</td><td>10 % · mínimo MX$1,000.00</td><td>1 oct – 31 oct</td><td><span class="st w">Pausado</span></td><td>4 · 0 · 50 <span class="use"><i style="width:8%"></i></span></td><td class="num">MX$1,120.00</td><td><button class="btn s sm">Reanudar</button></td></tr>
+   <tr><td class="code">NUEVO20</td><td>MX$200.00 fijos</td><td>1 nov – 15 nov</td><td><span class="st m">Programado</span></td><td>0 · 0 · 200</td><td class="num">MX$0.00</td><td><button class="btn s sm">Pausar</button></td></tr>
+   <tr class="h"><td class="code">EVENTO-OCT <span class="muted xs">▸ lote de 50</span></td><td>MX$100.00 fijos · 1 uso c/u</td><td>24 oct – 31 oct</td><td><span class="st ok">Activo</span></td><td>12 de 50 usados</td><td class="num">MX$1,200.00</td><td><button class="btn s sm">Pausar lote</button></td></tr>
+   <tr><td class="code">VERANO15</td><td>15 %</td><td>1 jul – 31 ago</td><td><span class="st m">Vencido</span></td><td>100 · 0 · 100 <span class="use"><i style="width:100%"></i></span></td><td class="num">MX$19,300.00</td><td><button class="btn s sm">Ver reporte</button></td></tr>
+  </table>
+  <p class="cap">Estados: Activo (verde) · Pausado (rojo, pide atención) · Programado / Vencido / Agotado (gris). El texto en versalitas es el portador, no el color. «Ver reporte» está en toda fila (menú de la fila en la maqueta real). <span class="tag">D2</span></p>
+  <p class="cap"><b>Pausar un lote</b> pide confirmación:</p>
+  <div class="dlg"><h3>¿Pausar el lote EVENTO-OCT?</h3>
+   <p style="margin:0 0 14px;line-height:1.55">Se pausan sus 38 códigos sin usar. Dejan de aplicar al instante a pagos nuevos; los pagos que ya empezaron se respetan. Puedes reanudarlo cuando quieras. <span class="tag">D6</span></p>
+   <div class="bar" style="margin:0"><button class="btn r">Pausar lote</button><button class="btn s">Cancelar</button></div></div>
+ </div></div></div>
+
+<!-- ============ D2 crear ============ -->
+<div class="sec"><h2>2 · Crear un código (escritorio)</h2>
+<p>Una sola página, de arriba abajo: qué es, cuánto descuenta, cuándo y cuántas veces, y a qué aplica. A la derecha, «Así lo verá el cliente» se actualiza mientras escribes y usa un carrito de ejemplo, para que veas el efecto antes de guardar. Los campos opcionales dicen «Sin límite» cuando están vacíos.</p>
+<div class="desk"><div class="side"><div class="lg">TCG HUNT</div><div class="g">Tienda</div><div class="i on">Códigos de descuento<span class="su">SÚPER</span></div></div>
+ <div class="main"><h1>Nuevo código</h1><p class="sub"><u>← Códigos de descuento</u></p>
+ <div class="grid2"><div>
+  <div class="fs"><h3>Código</h3>
+   <div class="f"><label>Texto del código</label><div class="in">SEPT10</div><div class="h">De 4 a 20 letras, números o guion. No distingue mayúsculas. Nunca se reutiliza, aunque lo pauses. <u>Generar uno al azar</u></div></div></div>
+  <div class="fs"><h3>Descuento</h3>
+   <div class="f"><label>Tipo</label><div class="seg"><span class="on">Porcentaje</span><span>Monto fijo</span><span>Envío gratis</span></div></div>
+   <div class="row2"><div class="f"><label>Valor</label><div class="in">10 %</div></div>
+    <div class="f"><label>Tope en pesos (opcional)</label><div class="in">MX$500.00</div><div class="h">El descuento no pasa de esta cifra.</div></div></div>
+   <div class="h" style="margin-top:-6px">Monto fijo: precio final con IVA, igual que los precios de la tienda. Envío gratis: sin valor. <span class="tag">D3</span></div></div>
+  <div class="fs"><h3>Condiciones</h3>
+   <div class="row2"><div class="f"><label>Mínimo de compra (opcional)</label><div class="in">MX$1,000.00</div><div class="h">Se mide sobre las cartas que aplican, ANTES del descuento, sin envío ni comisión.</div></div><div></div></div>
+   <div class="row2"><div class="f"><label>Empieza</label><div class="in">01/09/2026 00:00</div></div><div class="f"><label>Termina (opcional)</label><div class="in">30/09/2026 23:59</div></div></div>
+   <div class="h" style="margin-top:-6px">Hora del centro de México. Sin fecha de fin, vale hasta que lo pauses.</div>
+   <div class="row2" style="margin-top:12px"><div class="f"><label>Usos totales (opcional)</label><div class="in">100</div><div class="h">Cuántos pedidos pagados pueden llevarlo.</div></div><div class="f"><label>Usos por cliente</label><div class="in">1</div><div class="h">Se cuenta por cuenta y por correo.</div></div></div></div>
+  <div class="fs"><h3>Aplica a</h3>
+   <div class="f"><label>Tipo de producto</label>
+    <div class="cb"><i class="x"></i>Cartas sueltas</div><div class="cb"><i class="x"></i>Cartas gradeadas</div><div class="cb"><i class="x"></i>Sellado</div><div class="cb"><i class="x"></i>Accesorios y energías</div>
+    <div class="h">Si nada queda marcado, no se puede guardar. En un carrito mixto solo se descuentan las líneas que aplican.</div></div>
+   <div class="f"><label>Destino</label><div class="seg"><span class="on">Los dos</span><span>Domicilio</span><span>Bóveda</span></div>
+    <div class="h">El retiro de bóveda solo acepta códigos de envío gratis. <span class="tag">D4</span></div></div></div>
+  <div class="bar"><button class="btn">Guardar código</button><button class="btn s">Cancelar</button></div>
+ </div>
+ <div><p class="eyebrow">Así lo verá el cliente</p>
+  <div class="prev" style="margin-top:8px"><div class="muted xs" style="margin-bottom:6px">Carrito de ejemplo: sellado MX$2,000.00</div>
+   <div class="rw"><span>Subtotal</span><span>MX$2,000.00</span></div><div class="rw"><span>Descuento (SEPT10)</span><span>−MX$200.00</span></div><div class="rw"><span>Envío</span><span>MX$175.00</span></div><div class="rw"><span>Comisión de plataforma</span><span>—</span></div><div class="rw tt"><span>Total</span><span>lo calcula el servidor</span></div></div>
+  <div class="prev" style="margin-top:12px"><div class="muted xs" style="margin-bottom:6px">Con carrito de MX$6,000.00</div><div class="rw"><span>Descuento (SEPT10)</span><span>−MX$500.00</span></div><div class="h">Tope aplicado: 10 % serían MX$600.00.</div></div>
+  <div class="nt" style="margin-top:14px"><b>Después del primer uso</b> ya no podrás cambiar tipo, valor, tope, mínimo, filtros ni el texto. Podrás pausarlo, mover el fin de vigencia y subir los usos totales. Si te equivocas, crea otro código. <span class="tag">D5</span></div>
+ </div></div></div></div></div>
+
+<!-- ============ D3 editar bloqueado ============ -->
+<div class="sec"><h2>3 · Editar un código que ya se usó (qué se bloquea)</h2>
+<p>Los campos bloqueados se ven en gris con candado y dicen por qué; los que se pueden cambiar siguen normales. «Usos totales» no baja de los ya consumidos. Un código con usos no se borra: solo se pausa.</p>
+<div class="desk"><div class="side"><div class="lg">TCG HUNT</div><div class="g">Tienda</div><div class="i on">Códigos de descuento<span class="su">SÚPER</span></div></div>
+ <div class="main"><h1>SEPT10 <span class="st ok" style="font-size:12px;vertical-align:middle">Activo</span></h1><p class="sub"><u>← Códigos de descuento</u> · <u>Ver reporte</u></p>
+ <div class="grid2"><div>
+  <div class="nt w">Este código ya tiene 38 usos y 1 apartado ahora. Tipo, valor, tope, mínimo, filtros y texto ya no se pueden cambiar: si necesitas otra cosa, crea un código nuevo. <span class="tag">D7</span></div>
+  <div class="fs"><h3>Código y descuento · bloqueado 🔒</h3>
+   <div class="row2"><div class="f"><label>Texto</label><div class="in lock">SEPT10</div></div><div class="f"><label>Tipo</label><div class="seg lock"><span class="on">Porcentaje</span><span>Monto</span><span>Envío</span></div></div></div>
+   <div class="row2"><div class="f"><label>Valor</label><div class="in lock">10 %</div></div><div class="f"><label>Tope</label><div class="in lock">MX$500.00</div></div></div>
+   <div class="row2"><div class="f"><label>Mínimo de compra</label><div class="in lock">MX$1,000.00</div></div><div class="f"><label>Aplica a</label><div class="in lock" style="font-size:12px">Todo · los dos destinos</div></div></div></div>
+  <div class="fs"><h3>Se puede cambiar</h3>
+   <div class="row2"><div class="f"><label>Termina</label><div class="in">30/09/2026 23:59</div><div class="h">Puedes alargarlo o acortarlo.</div></div><div class="f"><label>Usos totales</label><div class="in">100</div><div class="h">Mínimo 38 (los ya consumidos).</div></div></div>
+   <div class="f"><label>Usos por cliente</label><div class="in lock">1 🔒</div><div class="h">Se bloquea con el primer uso.</div></div></div>
+  <div class="bar"><button class="btn">Guardar cambios</button><button class="btn s">Pausar código</button></div>
+ </div><div><p class="eyebrow">Auditoría</p><div class="prev" style="margin-top:8px;font-size:12px;line-height:1.7">12 sep 10:41 · Tú · Usos totales 50 → 100<br>01 sep 09:00 · Tú · Creado</div></div></div></div></div></div>
+
+<!-- ============ D4 lote ============ -->
+<div class="sec"><h2>4 · Generar un lote de un solo uso y descargar el CSV</h2>
+<p><b>Decisión de diseño tomada (sin A/B):</b> el lote es un botón y pantalla propios, no un interruptor dentro de «Nuevo código», porque cambian los campos: cada código vale 1 uso en total y 1 por cliente (se ven fijos), y se pide prefijo y cantidad. Hasta 500 por lote. Al generar, el CSV se descarga de inmediato y también queda en el reporte.</p>
+<div class="gal">
+<div class="desk" style="width:580px;min-height:0"><div class="main" style="padding:18px 22px"><h1 style="font-size:22px">Generar lote</h1>
+  <div class="row2"><div class="f"><label>Prefijo</label><div class="in">EVENTO-OCT</div><div class="h">Cada código: prefijo + guion + 8 caracteres al azar.</div></div><div class="f"><label>Cantidad (1 a 500)</label><div class="in">50</div></div></div>
+  <div class="fs"><h3>Descuento</h3><div class="seg" style="margin-bottom:10px"><span>Porcentaje</span><span class="on">Monto fijo</span><span>Envío gratis</span></div>
+   <div class="row2"><div class="f"><label>Valor</label><div class="in">MX$100.00</div></div><div class="f"><label>Mínimo de compra (opcional)</label><div class="in">MX$500.00</div></div></div>
+   <div class="row2"><div class="f"><label>Termina</label><div class="in">31/10/2026 23:59</div></div><div class="f"><label>Aplica a</label><div class="in" style="font-size:12px">Todo · los dos destinos</div></div></div>
+   <div class="row2"><div class="f"><label>Usos por código</label><div class="in lock">1 (fijo) 🔒</div></div><div class="f"><label>Usos por cliente</label><div class="in lock">1 (fijo) 🔒</div></div></div></div>
+  <div class="bar"><button class="btn">Generar 50 códigos</button><button class="btn s">Cancelar</button></div></div></div>
+
+<div class="desk" style="width:580px;min-height:0"><div class="main" style="padding:18px 22px"><h1 style="font-size:22px">Lote EVENTO-OCT listo <span class="tag">D8</span></h1>
+  <p class="sub">Se generaron 50 códigos. Repártelos tal cual: cada uno sirve una sola vez.</p>
+  <div class="bar"><button class="btn">Descargar CSV</button><button class="btn s">Ver reporte del lote</button></div>
+  <div class="csv">codigo,lote,descuento,termina,estado
+EVENTO-OCT-K7QX9M2P,EVENTO-OCT,MX$100.00,2026-10-31 23:59,sin usar
+EVENTO-OCT-H4WT6R3N,EVENTO-OCT,MX$100.00,2026-10-31 23:59,sin usar
+EVENTO-OCT-P8ZC2V5D,EVENTO-OCT,MX$100.00,2026-10-31 23:59,sin usar
+… 47 más</div>
+  <p class="h" style="margin-top:8px">Los códigos evitan letras que se confunden al imprimirlas (0/O, 1/I) y no se pueden adivinar contando. El CSV incluye el estado «sin usar / usado» cuando lo descargas después desde el reporte.</p></div></div>
+</div></div>
+
+<!-- ============ D5 reporte ============ -->
+<div class="sec"><h2>5 · Reporte por código o por lote</h2>
+<p>Responde «¿cuánto me costó y cuánto vendí?». Para un lote suma todos y agrega «qué códigos se usaron». Se descarga en CSV. Las cifras son lo cobrado (ya con descuento). Un reembolso no devuelve el uso: por eso «Reembolsados» se ve aparte y «Usados» no baja.</p>
+<div class="desk"><div class="side"><div class="lg">TCG HUNT</div><div class="g">Tienda</div><div class="i on">Códigos de descuento<span class="su">SÚPER</span></div></div>
+ <div class="main"><h1>Reporte · SEPT10 <span class="tag">D9</span></h1><p class="sub"><u>← Códigos de descuento</u> · 1 sep – 30 sep · <span class="st ok">Activo</span></p>
+  <div class="bar"><span class="chip on">Código</span><span class="chip">Lote</span><span style="flex:1"></span><button class="btn s">Descargar CSV</button></div>
+  <div class="kpis">
+   <div class="kpi"><div class="eyebrow">Usos</div><div class="v">38 · 1 · 100</div><div class="d">usados · apartados ahora · límite</div></div>
+   <div class="kpi"><div class="eyebrow">Descuento dado</div><div class="v">MX$12,480.00</div><div class="d">en 38 pedidos pagados</div></div>
+   <div class="kpi"><div class="eyebrow">Venta cobrada</div><div class="v">MX$96,310.00</div><div class="d">en esos pedidos, ya descontada</div></div>
+   <div class="kpi"><div class="eyebrow">Reembolsados</div><div class="v">2 · MX$1,850.00</div><div class="d">pedidos · dinero devuelto</div></div></div>
+  <div class="kpis" style="margin-top:-6px"><div class="kpi"><div class="eyebrow">Envío regalado</div><div class="v">MX$0.00</div><div class="d">solo códigos de envío gratis</div></div></div>
+  <table><tr><th>Fecha</th><th>Folio</th><th>Correo del cliente</th><th class="num">Descontado</th><th class="num">Cobrado</th><th>Estado</th></tr>
+   <tr><td>29 sep 18:12</td><td class="code">TH-10482</td><td>ana@ejemplo.com</td><td class="num">MX$420.00</td><td class="num">MX$4,098.00</td><td><span class="st ok">Pagado</span></td></tr>
+   <tr><td>28 sep 11:03</td><td class="code">TH-10455</td><td>luis@ejemplo.com</td><td class="num">MX$150.00</td><td class="num">MX$1,620.00</td><td><span class="st w">Reembolsado</span></td></tr>
+   <tr><td>28 sep 09:40</td><td class="code">TH-10451</td><td>marta@ejemplo.com</td><td class="num">MX$90.00</td><td class="num">MX$905.00</td><td><span class="st ok">Pagado</span></td></tr></table>
+  <p class="cap">Para un lote, debajo de la tabla: «Códigos usados: 12 de 50» con la lista (código, quién lo usó, folio) y los 38 sin usar. Cada folio abre el pedido en Ventas.</p>
+  <p class="cap"><b>En Ventas</b>, el pedido gana esta línea (el personal también la ve):</p>
+  <div class="prev" style="max-width:360px"><div class="rw"><span>Código</span><span class="code">SEPT10</span></div><div class="rw"><span>Descuento (SEPT10)</span><span>−MX$420.00</span></div></div>
+ </div></div></div>
+
+<!-- ============ móvil ============ -->
+<div class="sec"><h2>6 · Celular (390 px): lista, crear y reporte</h2>
+<p>La tabla se vuelve tarjetas (§7.7): código, estado, descuento y usos siempre visibles, y la acción de pausar a un toque (44 px). El formulario va en una columna con «Guardar» fijo abajo. Sin desplazamiento lateral.</p>
+<div class="gal">
+
+<div><p class="cap"><b>Lista</b></p><div class="mob"><div class="hd"><span>TCG HUNT</span><span class="mono xs">☰</span></div><div class="pad">
+ <h1>Códigos de descuento</h1>
+ <div class="bar"><button class="btn" style="flex:1;justify-content:center;height:44px">Nuevo código</button><button class="btn s" style="flex:1;justify-content:center;height:44px">Generar lote</button></div>
+ <div class="bar" style="gap:6px"><span class="chip on">Todos</span><span class="chip">Activos</span><span class="chip">Pausados</span></div>
+ <div class="card"><div class="l"><span class="code">SEPT10</span><span class="st ok">Activo</span></div><div class="kv"><span>Descuento</span><span>10 % · tope MX$500.00</span><span>Usos</span><span>38 · 1 · 100</span><span>Vigencia</span><span>1 – 30 sep</span><span>Descuento dado</span><span>MX$12,480.00</span></div>
+  <div class="bar" style="margin:10px 0 0"><button class="btn s" style="flex:1;justify-content:center;height:44px">Pausar</button><button class="btn s" style="flex:1;justify-content:center;height:44px">Reporte</button></div></div>
+ <div class="card"><div class="l"><span class="code">BOVEDA10</span><span class="st w">Pausado</span></div><div class="kv"><span>Descuento</span><span>10 % · mín. MX$1,000.00</span><span>Usos</span><span>4 · 0 · 50</span></div>
+  <div class="bar" style="margin:10px 0 0"><button class="btn" style="flex:1;justify-content:center;height:44px">Reanudar</button><button class="btn s" style="flex:1;justify-content:center;height:44px">Reporte</button></div></div>
+ <div class="card" style="background:var(--s2)"><div class="l"><span class="code">EVENTO-OCT</span><span class="st ok">Activo</span></div><div class="kv"><span>Lote</span><span>50 códigos · 12 usados</span><span>Descuento</span><span>MX$100.00 fijos</span></div>
+  <div class="bar" style="margin:10px 0 0"><button class="btn s" style="flex:1;justify-content:center;height:44px">Pausar lote</button><button class="btn s" style="flex:1;justify-content:center;height:44px">Reporte</button></div></div>
+</div></div></div>
+
+<div><p class="cap"><b>Crear</b> (columna única; fin del formulario)</p><div class="mob"><div class="hd"><span>TCG HUNT</span><span class="mono xs">☰</span></div><div class="pad">
+ <h1>Nuevo código</h1>
+ <div class="f"><label>Texto del código</label><div class="in">SEPT10</div><div class="h"><u>Generar uno al azar</u></div></div>
+ <div class="f"><label>Tipo</label><div class="seg"><span class="on">Porcentaje</span><span>Monto</span><span>Envío</span></div></div>
+ <div class="f"><label>Valor</label><div class="in">10 %</div></div>
+ <div class="f"><label>Tope en pesos (opcional)</label><div class="in">MX$500.00</div></div>
+ <div class="f"><label>Mínimo de compra (opcional)</label><div class="in">MX$1,000.00</div><div class="h">Antes del descuento.</div></div>
+ <div class="f"><label>Empieza</label><div class="in">01/09/2026 00:00</div></div>
+ <div class="f"><label>Termina (opcional)</label><div class="in">30/09/2026 23:59</div></div>
+ <div class="f"><label>Usos totales (opcional)</label><div class="in">100</div></div>
+ <div class="f"><label>Usos por cliente</label><div class="in">1</div></div>
+ <div class="f"><label>Tipo de producto</label><div class="cb"><i class="x"></i>Cartas sueltas</div><div class="cb"><i class="x"></i>Cartas gradeadas</div><div class="cb"><i class="x"></i>Sellado</div><div class="cb"><i class="x"></i>Accesorios y energías</div></div>
+ <div class="f"><label>Destino</label><div class="seg"><span class="on">Los dos</span><span>Domicilio</span><span>Bóveda</span></div></div>
+ <div class="nt">Después del primer uso ya no podrás cambiar tipo, valor, tope, mínimo, filtros ni el texto.</div>
+ <div style="height:20px"></div>
+</div><div class="sticky"><button class="btn">Guardar código</button><button class="btn s">Cancelar</button></div></div></div>
+
+<div><p class="cap"><b>Reporte</b></p><div class="mob"><div class="hd"><span>TCG HUNT</span><span class="mono xs">☰</span></div><div class="pad">
+ <h1>Reporte · SEPT10</h1><p class="sub"><span class="st ok">Activo</span> · 1 – 30 sep</p>
+ <div class="kpi" style="margin-bottom:10px"><div class="eyebrow">Descuento dado</div><div class="v">MX$12,480.00</div><div class="d">en 38 pedidos pagados</div></div>
+ <div class="kpi" style="margin-bottom:10px"><div class="eyebrow">Venta cobrada</div><div class="v">MX$96,310.00</div></div>
+ <div class="kpi" style="margin-bottom:10px"><div class="eyebrow">Usos</div><div class="v">38 · 1 · 100</div><div class="d">usados · apartados ahora · límite</div></div>
+ <div class="kpi" style="margin-bottom:14px"><div class="eyebrow">Reembolsados</div><div class="v">2 · MX$1,850.00</div></div>
+ <button class="btn s" style="width:100%;justify-content:center;height:44px;margin-bottom:14px">Descargar CSV</button>
+ <p class="eyebrow" style="margin-bottom:8px">Pedidos</p>
+ <div class="card"><div class="l"><span class="code">TH-10482</span><span class="st ok">Pagado</span></div><div class="kv"><span>Fecha</span><span>29 sep 18:12</span><span>Cliente</span><span>ana@ejemplo.com</span><span>Descontado</span><span>MX$420.00</span></div></div>
+ <div class="card"><div class="l"><span class="code">TH-10455</span><span class="st w">Reembolsado</span></div><div class="kv"><span>Fecha</span><span>28 sep 11:03</span><span>Cliente</span><span>luis@ejemplo.com</span><span>Descontado</span><span>MX$150.00</span></div></div>
+</div></div></div>
+
+</div></div>
+</body></html>
