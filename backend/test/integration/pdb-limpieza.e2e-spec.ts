@@ -331,6 +331,28 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
     expect(s).toMatchObject({ sellOverrideCents: 1500, bountyAcquiredQty: 0, bountyEnabled: false });
   });
 
+  it('§DSC.1 v1.110.1 (M-92): usos e intentos ⇒ BORRADOS (el uso antes que su pedido); código y lote ⇒ CONSERVADOS con `firstReservedAt` NULL; 2.ª corrida no cambia nada', async () => {
+    const e = await fresh();
+    const batch = await e.db.discountCodeBatch.create({ data: { prefix: 'LZ', quantity: 1, createdByUserId: e.fx.staff } });
+    const t0 = new Date('2026-10-01T00:00:00Z');
+    const code = await e.db.discountCode.create({
+      data: { code: 'LZ-USADO1', batchId: batch.id, kind: 'percent', percentPct: 10, startsAt: t0, maxTotalUses: 1, firstReservedAt: t0, createdByUserId: e.fx.staff },
+    });
+    await e.db.discountRedemption.create({ data: { codeId: code.id, orderId: e.fx.orders.O1, status: 'consumed', consumedAt: t0, customerEmail: 'lz@x.mx' } });
+    await e.db.discountCodeThrottle.create({ data: { key: 'ip:lz', failures: 3, windowStartedAt: t0 } });
+    const cfg = (c: Record<string, unknown>) => ({ ...c, firstReservedAt: undefined, updatedAt: undefined });
+    commit(e);
+    expect(await e.db.discountRedemption.count()).toBe(0);
+    expect(await e.db.discountCodeThrottle.count()).toBe(0);
+    expect(await e.db.discountCodeBatch.count()).toBe(1);
+    const after = await e.db.discountCode.findUniqueOrThrow({ where: { id: code.id } });
+    expect(after.firstReservedAt).toBeNull();
+    expect(cfg(after)).toEqual(cfg(code));
+    const once = await snapshot(admin, e.schema);
+    commit(e);
+    expectSame(once, await snapshot(admin, e.schema));
+  });
+
   it('§9.3 IDEMPOTENCIA: la segunda corrida no cambia NADA (ni el rastro)', async () => {
     const e = await fresh();
     commit(e);

@@ -67,3 +67,40 @@ export function discountedAccessoryLine<T extends { accessoryId: string; unitPri
     unitDiscountCents: u,
   };
 }
+
+/** La rebaja congelada de un renglón suelto: lo COBRADO por unidad y su `unitDiscountCents`. */
+export type FrozenAccessoryPrice = { unitPriceCents: number; unitDiscountCents: number };
+
+/**
+ * v1.110.1 (§DSC.6, DCO-B5) — el quote que devuelve el CONGELADO de la orden propia con su mismo código: el renglón de
+ * accesorio sale de `OrderAccessoryLine` (lo COBRADO y su `unitDiscountCents`), ⛔ no del precio de hoy. Solo se anota si la
+ * fila congelada lleva rebaja (> 0); sin rebaja, el renglón es el de hoy (I-1).
+ */
+export function frozenAccessoryLine<T extends { accessoryId: string; unitPriceCents: number; quantity: number; lineTotalCents?: number }>(
+  line: T,
+  frozen: ReadonlyMap<string, FrozenAccessoryPrice>,
+): T & { unitDiscountCents?: number } {
+  const f = frozen.get(line.accessoryId);
+  if (!f || f.unitDiscountCents <= 0) return line;
+  return {
+    ...line,
+    unitPriceCents: f.unitPriceCents,
+    ...(line.lineTotalCents !== undefined ? { lineTotalCents: f.unitPriceCents * line.quantity } : {}),
+    unitDiscountCents: f.unitDiscountCents,
+  };
+}
+
+/** Las filas sueltas congeladas de una orden, por accesorio (un accesorio en dos filas ⇒ fuera: ambiguo, se queda el de hoy). */
+export function frozenAccessoryMapOf(
+  rows: readonly { kind: string; accessoryId: string | null; unitPriceCents: number; unitDiscountCents: number }[],
+): Map<string, FrozenAccessoryPrice> {
+  const out = new Map<string, FrozenAccessoryPrice>();
+  const dup = new Set<string>();
+  for (const r of rows) {
+    if (r.kind !== 'accessory' || !r.accessoryId) continue;
+    if (out.has(r.accessoryId)) dup.add(r.accessoryId);
+    out.set(r.accessoryId, { unitPriceCents: r.unitPriceCents, unitDiscountCents: r.unitDiscountCents });
+  }
+  for (const id of dup) out.delete(id);
+  return out;
+}

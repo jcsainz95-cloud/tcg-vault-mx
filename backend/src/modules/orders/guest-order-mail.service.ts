@@ -9,6 +9,7 @@ import {
   guestOrderConfirmationTemplate,
   guestTrackingLinkTemplate,
 } from './mail/guest-order.templates';
+import { OrderMailDiscount } from './mail/order-notice.templates';
 
 /**
  * GuestOrderMailService — emite el enlace tokenizado y envía el correo del invitado.
@@ -58,6 +59,8 @@ export class GuestOrderMailService {
     items: GuestOrderMailItem[];
     /** 💰 v1.86⟨accesorios⟩ (§AC.12): renglones de accesorio y paquete (⛔ sin foto, §AC.19.1). */
     accessoryLines?: AccessoryMailLine[];
+    /** 💰 v1.110.1 (§DSC.6, 914): la línea del código (solo si la orden lo lleva). */
+    discount?: OrderMailDiscount | null;
   }): Promise<void> {
     await this.safeSend(order.id, async () => {
       if (!order.guestEmail) return null;
@@ -67,6 +70,7 @@ export class GuestOrderMailService {
           orderNumber: order.orderNumber ?? '',
           items: order.items,
           accessoryLines: order.accessoryLines,
+          ...(order.discount ? { discount: order.discount } : {}),
           totalCents: order.totalCents,
           trackingUrl: this.buildTrackingUrl(clear, order.locale),
         },

@@ -256,6 +256,12 @@ export const ErrorCode = {
   DISCOUNT_CODE_NOT_APPLICABLE: 'DISCOUNT_CODE_NOT_APPLICABLE',
   // 429 — bloqueo por intentos fallidos. `details: { retryAfterSeconds }` + cabecera `Retry-After`.
   DISCOUNT_CODE_RATE_LIMITED: 'DISCOUNT_CODE_RATE_LIMITED',
+  // 💰 v1.110.1 (§0, §DSC.7) — admin (`super_admin`): 409 el texto ya existe (también archivado) · 409 campo no editable tras
+  // el primer uso `{ lockedFields }` · 409 límite total por debajo de los usos `{ inUse }` · 409 archivar con usos.
+  DISCOUNT_CODE_TAKEN: 'DISCOUNT_CODE_TAKEN',
+  DISCOUNT_CODE_LOCKED: 'DISCOUNT_CODE_LOCKED',
+  DISCOUNT_CODE_LIMIT_BELOW_USES: 'DISCOUNT_CODE_LIMIT_BELOW_USES',
+  DISCOUNT_CODE_HAS_USES: 'DISCOUNT_CODE_HAS_USES',
 
   // Shipments
   ADDRESS_NOT_MX: 'ADDRESS_NOT_MX',

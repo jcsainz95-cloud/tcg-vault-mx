@@ -261,11 +261,11 @@ export class DiscountsService {
     return r ? { code: r.code.code, kind: r.code.kind, discountCents: order.discountCents, shippingWaivedCents: order.shippingWaivedCents } : null;
   }
 
-  // ================================================================ alta interna (pruebas y fase 2)
+  // ================================================================ alta interna (pruebas)
 
   /**
-   * Alta de un código SIN superficie HTTP (las 18 rutas de `super_admin` son la fase 2, §DSC.7). Normaliza el texto; el
-   * resto de la forma la exigen los CHECK de M-92.
+   * Alta INTERNA de un código (las pruebas de integración siembran con ella). La superficie HTTP del dueño, con su
+   * validación y su bitácora, es `AdminDiscountsService.create` (§DSC.7). Normaliza el texto; el resto lo exigen los CHECK.
    */
   async createCode(input: {
     code: string;
@@ -285,7 +285,7 @@ export class DiscountsService {
   }): Promise<DiscountCode> {
     const code = normalizeDiscountCode(input.code);
     if (!code) throw BusinessException.validation('VALIDATION_ERROR', 'code is required');
-    // PROJECTION-EXEMPT: alta INTERNA sin superficie HTTP (pruebas y fase 2); ningún cliente recibe esta fila.
+    // PROJECTION-EXEMPT: alta INTERNA sin superficie HTTP (pruebas); ningún cliente recibe esta fila.
     return this.prisma.discountCode.create({
       data: {
         code,

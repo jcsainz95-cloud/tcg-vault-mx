@@ -282,6 +282,40 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect(g.body.error.details.reason).toBe('ALREADY_FREE_SHIPPING');
       expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
     });
+
+    it('v1.110.1: dial de la clase en 0 ⇒ ALREADY_FREE_SHIPPING y 0 filas de uso, en el pedido y en el retiro', async () => {
+      const setDial = (key: string, value: number) =>
+        h.prisma.configSetting.upsert({ where: { key }, create: { key, valueJson: value, updatedBy: RUN }, update: { valueJson: value, updatedBy: RUN } });
+      const read = async (key: string) => (await h.prisma.configSetting.findUnique({ where: { key } }))?.valueJson as number;
+      const cardsBefore = await read('direct_ship_cards_fee_cents');
+      const withdrawalBefore = await read('shipping_fee_cents');
+      const code = await mkCode({ kind: 'free_shipping', maxUsesPerCustomer: null });
+      try {
+        await setDial('direct_ship_cards_fee_cents', 0);
+        const a = await piece('raw', 50000);
+        const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code });
+        expect(q.body.discount).toEqual({ outcome: 'not_applicable', code: code.code, reason: 'ALREADY_FREE_SHIPPING', details: {} });
+        const s = await acc.session({ inventoryItemIds: [a.id], discountCode: code.code });
+        expect(s.status).toBe(422);
+        expect(s.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'ALREADY_FREE_SHIPPING' } });
+
+        await setDial('shipping_fee_cents', 0);
+        const c = await customer();
+        const v = await prep.mkVaultOrder(c.user.id, { prices: [50000] });
+        const address = await prep.mkAddress(c.user.id);
+        const json = { inventoryItemIds: [v.pieces[0].id], addressId: address.id, discountCode: code.code };
+        const wq = await h.api('POST', '/shipments/quote', { token: c.token, json });
+        expect(wq.body.discount).toEqual({ outcome: 'not_applicable', code: code.code, reason: 'ALREADY_FREE_SHIPPING', details: {} });
+        const w = await h.api('POST', '/shipments', { token: c.token, json });
+        expect(w.status).toBe(422);
+        expect(w.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'ALREADY_FREE_SHIPPING' } });
+        expect(await h.prisma.shipmentRequest.count({ where: { userId: c.user.id } })).toBe(0);
+        expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+      } finally {
+        await setDial('direct_ship_cards_fee_cents', cardsBefore ?? 10000);
+        await setDial('shipping_fee_cents', withdrawalBefore ?? 17500);
+      }
+    });
   });
 
   // ================================================================ DCO-B5
@@ -375,6 +409,53 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const s3 = await vaultSession(c.token, { inventoryItemIds: [a.id] });
       expect(s3.status).toBe(201);
       expect((await redemptionOf(s1.body.orderId))?.status).toBe('released');
+    });
+
+    it('v1.110.1: quote de la orden propia congelada con accesorios ⇒ `accessoryLines[]` = lo cobrado de `OrderAccessoryLine` + `unitDiscountCents`', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const email = acc.email('frozenacc');
+      const a = await piece('raw', 50000);
+      const x = await acc.mkAccessory({ priceCents: 30000, stockQty: 5 });
+      const cart = { inventoryItemIds: [a.id], accessoryLines: [{ accessoryId: x.id, quantity: 1 }], discountCode: code.code };
+      const s = await acc.session(cart, { email });
+      expect(s.status).toBe(201);
+      const row = await h.prisma.orderAccessoryLine.findFirstOrThrow({ where: { orderId: s.body.orderId, accessoryId: x.id } });
+      expect(row.unitDiscountCents).toBeGreaterThan(0);
+      // Sube el precio de hoy: el congelado NO debe enseñarlo.
+      await h.prisma.accessory.update({ where: { id: x.id }, data: { priceCents: 31000 } });
+      const q = await acc.quote({ ...cart, email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.status).toBe(200);
+      expect(q.body.discount).toEqual(s.body.discount);
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      const line = q.body.accessoryLines.find((l: { accessoryId: string }) => l.accessoryId === x.id);
+      expect(line).toMatchObject({ unitPriceCents: row.unitPriceCents, unitDiscountCents: row.unitDiscountCents, lineTotalCents: row.unitPriceCents });
+      // Sin código ⇒ la respuesta de hoy (I-1): ni el campo.
+      const q0 = await acc.quote({ inventoryItemIds: [a.id], accessoryLines: [{ accessoryId: x.id, quantity: 1 }] });
+      expect(keysDeep(q0.body).has('unitDiscountCents')).toBe(false);
+    });
+
+    it('v1.110.1: PI cobrado con `charge.refunded` ANTES de `succeeded` y barrido en medio ⇒ nunca released; al llegar succeeded ⇒ consumed', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const a = await piece('raw', 50000);
+      const s = await acc.session({ inventoryItemIds: [a.id], discountCode: code.code });
+      expect(s.status).toBe(201);
+      const total = s.body.breakdown.totalCents as number;
+      const pi = s.body.stripe.paymentIntentId as string;
+      const r = await h.sendStripeWebhook({
+        type: 'charge.refunded',
+        data: { object: { id: `ch_${RUN}_${Date.now()}`, object: 'charge', payment_intent: pi, amount: total, amount_refunded: total } },
+      });
+      expect(r.status).toBe(200);
+      expect((await redemptionOf(s.body.orderId))?.status).toBe('reserved');
+      // El barrido: Stripe no cancela un PI cobrado.
+      h.stripe.cancelOutcome = 'throws-succeeded';
+      await h.app.get(OrdersService).sweepExpiredReservations(new Date(Date.now() + 6 * 3_600_000));
+      expect((await redemptionOf(s.body.orderId))?.status).toBe('reserved');
+      await settle(s);
+      const red = await redemptionOf(s.body.orderId);
+      expect(red).toMatchObject({ status: 'consumed', lateConsumed: false });
+      expect(red?.releasedAt).toBeNull();
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: s.body.orderId } })).status).toBe('refunded');
     });
   });
 
