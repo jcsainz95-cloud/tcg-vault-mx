@@ -112,7 +112,9 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        -- bloque condicional, igual que `CardShowClick`: sin M-82 (p. ej. `production` hoy) psql ni manda esas líneas.
        to_regclass(format('%I', 'BuylistQuoteDailyCount')) IS NOT NULL AS lz_mkt,
        -- v1.102⟨mkt-fase2⟩ (M-86): ¿tiene tu base la cola de medición (GA4/Meta)? Mismo patrón condicional.
-       to_regclass(format('%I', 'MeasurementOutbox')) IS NOT NULL AS lz_m86 \gset
+       to_regclass(format('%I', 'MeasurementOutbox')) IS NOT NULL AS lz_m86,
+       -- v1.110⟨descuentos⟩ (M-92): ¿tiene tu base los códigos de descuento? Mismo patrón condicional.
+       to_regclass(format('%I', 'DiscountRedemption')) IS NOT NULL AS lz_m92 \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -144,6 +146,10 @@ LOCK TABLE "BuylistQuoteDailyCount", "MarketingBannerConsentCounter" IN SHARE RO
 -- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto los escriben el webhook de pago y el drenador en vivo.
 \if :lz_m86
 LOCK TABLE "MeasurementOutbox", "MeasurementContext" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- v1.110⟨descuentos⟩ (M-92): los usos los escribe la sesión de checkout y el webhook; los intentos fallidos, el quote.
+\if :lz_m92
+LOCK TABLE "DiscountRedemption", "DiscountCodeThrottle" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
@@ -207,7 +213,11 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v1.102⟨mkt-fase2⟩ (M-86, G-8; BORRAR ratificado por el arquitecto en ARCHITECTURE §14.2.1, v2.4): cola de
   -- eventos de servidor (sin cuerpo) y los identificadores de navegador de pedidos/solicitudes que esta limpieza borra.
   -- Telemetría de vida corta (7 días) que mezcla prueba con real y solo tiene sentido junto a filas que se borran ⇒ borrar.
-  'MeasurementOutbox','MeasurementContext']) AS t
+  'MeasurementOutbox','MeasurementContext',
+  -- v1.110⟨descuentos⟩ (M-92, G-8; clasificación de backend a ratificar por el arquitecto en LIMPIEZA_DB §14.2): los USOS
+  -- de código cuelgan de pedidos y retiros que esta limpieza borra (FK RESTRICT ⇒ van antes) y los intentos fallidos son
+  -- telemetría sin PII en claro (HMAC) ⇒ borrar.
+  'DiscountRedemption','DiscountCodeThrottle']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -236,7 +246,11 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- de accesos al panel (rastro de seguridad PM-M3, retención 12 meses; P-MKT por defecto (a)) y las anotaciones de fecha
   -- del dueño. Los dos contadores sin PII van arriba, en `borrar`. Ninguna referencia a una tabla que se borra (FK solo a
   -- `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
-  'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation']) AS t;
+  'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation',
+  -- v1.110⟨descuentos⟩ (M-92, G-8; a ratificar por el arquitecto): los códigos y sus lotes son CONFIGURACIÓN del dueño
+  -- (como `ConfigSetting`) ⇒ conservar. ⚠️ `firstReservedAt` queda puesto en los que se usaron en prueba (su edición sigue
+  -- bloqueada por §DSC.7 aunque ya no tengan usos): si el dueño los quiere editables, se archivan y se crean otros.
+  'DiscountCode','DiscountCodeBatch']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -422,6 +436,11 @@ WITH x AS (DELETE FROM "Dispute" RETURNING 1) INSERT INTO lz_cambio SELECT '6 Di
 WITH x AS (DELETE FROM "VaultPlacementItem" RETURNING 1) INSERT INTO lz_cambio SELECT '7 VaultPlacementItem', count(*) FROM x;
 WITH x AS (DELETE FROM "VaultPlacement" RETURNING 1) INSERT INTO lz_cambio SELECT '7 VaultPlacement', count(*) FROM x;
 
+-- 7-bis · v1.110⟨descuentos⟩ (M-92): los usos de código apuntan a pedidos y retiros con RESTRICT ⇒ van antes que ambos.
+\if :lz_m92
+WITH x AS (DELETE FROM "DiscountRedemption" RETURNING 1) INSERT INTO lz_cambio SELECT '7 DiscountRedemption', count(*) FROM x;
+\endif
+
 -- 8 · Skydropx y envíos (TODOS: retiros, envíos directos y entradas del buylist). Cascada: líneas, cotizaciones,
 --     eventos de paquetería y correcciones de dirección.
 WITH x AS (DELETE FROM "ShipmentCostAdjustment" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentCostAdjustment', count(*) FROM x;
@@ -482,6 +501,10 @@ WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO 
 \if :lz_m86
 WITH x AS (DELETE FROM "MeasurementOutbox" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MeasurementOutbox', count(*) FROM x;
 WITH x AS (DELETE FROM "MeasurementContext" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MeasurementContext', count(*) FROM x;
+\endif
+-- v1.110⟨descuentos⟩ (M-92): los intentos fallidos de código (sin FK; G-5 los cuenta en `borrar`).
+\if :lz_m92
+WITH x AS (DELETE FROM "DiscountCodeThrottle" RETURNING 1) INSERT INTO lz_cambio SELECT '13 DiscountCodeThrottle', count(*) FROM x;
 \endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (

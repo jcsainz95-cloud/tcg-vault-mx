@@ -15,10 +15,10 @@
 -- reversa es desplegar el artefacto anterior, que ignora tablas y columnas (§DSC.1).
 -- REVERSA:BEGIN
 -- DROP TABLE IF EXISTS "DiscountRedemption", "DiscountCodeThrottle", "DiscountCode", "DiscountCodeBatch";
--- ALTER TABLE "Order" DROP CONSTRAINT IF EXISTS "order_discount_nonneg", DROP COLUMN IF EXISTS "discountCents", DROP COLUMN IF EXISTS "shippingWaivedCents";
--- ALTER TABLE "OrderItem" DROP CONSTRAINT IF EXISTS "order_item_discount_shape", DROP COLUMN IF EXISTS "unitDiscountCents";
--- ALTER TABLE "OrderAccessoryLine" DROP CONSTRAINT IF EXISTS "order_accessory_line_discount_shape", DROP COLUMN IF EXISTS "unitDiscountCents";
--- ALTER TABLE "ShipmentRequest" DROP CONSTRAINT IF EXISTS "shipment_waived_nonneg", DROP COLUMN IF EXISTS "shippingWaivedCents";
+-- ALTER TABLE IF EXISTS "Order" DROP CONSTRAINT IF EXISTS "order_discount_nonneg", DROP COLUMN IF EXISTS "discountCents", DROP COLUMN IF EXISTS "shippingWaivedCents";
+-- ALTER TABLE IF EXISTS "OrderItem" DROP CONSTRAINT IF EXISTS "order_item_discount_shape", DROP COLUMN IF EXISTS "unitDiscountCents";
+-- ALTER TABLE IF EXISTS "OrderAccessoryLine" DROP CONSTRAINT IF EXISTS "order_accessory_line_discount_shape", DROP COLUMN IF EXISTS "unitDiscountCents";
+-- ALTER TABLE IF EXISTS "ShipmentRequest" DROP CONSTRAINT IF EXISTS "shipment_waived_nonneg", DROP COLUMN IF EXISTS "shippingWaivedCents";
 -- DROP TYPE IF EXISTS "DiscountRedemptionStatus", "DiscountProductScope", "DiscountCodeStatus", "DiscountKind";
 -- DELETE FROM "_prisma_migrations" WHERE migration_name = '20261109120000_m92_discount_codes';
 -- REVERSA:END

@@ -329,6 +329,21 @@ COMMIT;
 }
 
 /**
+ * §14 T-AC3 — quita M-92 (códigos de descuento: 4 tablas, 5 columnas, 4 enums) de un esquema ya migrado: el B CONGELADO de
+ * `a7232d7a` la precede y su G-8 abortaría al ver sus cuatro tablas. Es la REVERSA de la cabecera de la migración, literal
+ * (un sitio: se lee de ahí). Va PRIMERO (orden inverso de despliegue; `ALTER TABLE IF EXISTS` porque M-73 puede ya no estar).
+ */
+export function revertM92(schema: string): void {
+  const file = readdirSync(join(BACKEND_DIR, 'prisma', 'migrations')).find((m) => m.endsWith('_m92_discount_codes'));
+  if (!file) throw new Error('revertM92: no encuentro la migración M-92');
+  const sql = readFileSync(join(BACKEND_DIR, 'prisma', 'migrations', file, 'migration.sql'), 'utf8');
+  const m = /^-- REVERSA:BEGIN[^\n]*\n([\s\S]*?)^-- REVERSA:END/m.exec(sql);
+  if (!m) throw new Error('revertM92: M-92 no trae el bloque REVERSA:BEGIN … REVERSA:END');
+  const block = m[1].split('\n').map((l) => l.replace(/^--(?: |$)/, '')).join('\n');
+  psqlOk(schema, `BEGIN;\n${block}\nCOMMIT;\n`, 'revertM92');
+}
+
+/**
  * §14 T-AC3 — quita M-82 y M-83 (Panel de Marketing: permisos, token del analista, contadores, registro de accesos y
  * anotaciones de fecha) de un esquema ya migrado, para la comparación con el B CONGELADO de `a7232d7a` (que PRECEDE a
  * M-82/M-83 y por tanto no clasifica esas seis tablas en su G-8: abortaría al verlas). Es la REVERSA documentada en la
