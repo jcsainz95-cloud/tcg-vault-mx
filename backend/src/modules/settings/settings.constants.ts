@@ -1287,7 +1287,7 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
   [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
   // 💰 v1.109 (§4-G.12): `F` entero 0..MAX_CENTS (TL-ENV-4: sin tope, un dial > Int32 no cabe en `Order.shippingFeeCents`);
-  // el umbral entero 1..MAX_CENTS (0 regalaría todo envío con sellado).
+  // el umbral entero 1..MAX_CENTS (0 regalaría el envío de todo pedido, de cualquier clase; v1.109.3).
   [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: validateIntRange(1, MAX_CENTS),
