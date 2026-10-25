@@ -4,7 +4,7 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
-> **Estado vigente (2026-10-24).** **Envío v2 (v1.109.1):** `orders/shipping-rule.ts`, `E` = dial exhibido, M-91 — §0.68.
+> **Estado vigente (2026-10-25).** **Envío v2 (v1.109.5):** `orders/shipping-rule.ts`, `E` = dial exhibido, M-91 — §0.68; con caja grande (`boxFeeApplies`) `freeShippingRemainingCents = null` (`shippingRuleDtoOf`, ENV-1).
 > **§Handles:** la integración termina sola: los clientes Redis propios (planificador,
 > intentos de login, contador del Card Show, health) se cierran con `src/common/redis-close.ts` (`quit` con tope de 1 s, si no
 > `disconnect`; único `.quit()` de `src/`). Candado: `test/integration/open-handles.teardown.ts` (globalTeardown, en banda):

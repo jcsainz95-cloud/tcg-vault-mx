@@ -123,7 +123,8 @@ export function shippingRuleDtoOf(kind: ShippingRuleKind | null, subtotalCents: 
   return {
     kind,
     freeFromCents: any ? dials.freeFromCents : null,
-    freeShippingRemainingCents: any ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
+    // v1.109.5: «te faltan MX$N» es una promesa; con caja grande cruzar T no quita el envío ⇒ `null` (bajo y sobre T).
+    freeShippingRemainingCents: any && !fee.boxFeeApplies ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
     freeShippingApplied: any && fee.freeShippingApplied,
     boxFeeApplies: fee.boxFeeApplies,
   };

@@ -849,8 +849,8 @@ export class GuestCheckoutService {
     ivaDials: IvaDials,
     kind: ShippingRuleKind | null,
   ): Promise<DirectShipBreakdownDTO> {
-    // 💰 v1.109.1 (§4-G.12): `E` = el dial EXHIBIDO de la clase del pedido (`direct_ship_*`, IVA dentro); el sellado sobre el
-    // umbral va en 0. El IVA del envío sale por resta dentro del desglose agregado (R2), ⛔ nunca apilado detrás de `E`.
+    // 💰 v1.109.1 (§4-G.12): `E` = el dial EXHIBIDO de la clase del pedido (`direct_ship_*`, IVA dentro); sobre el umbral
+    // (`S ≥ T`) va en 0 en CUALQUIER clase (v1.109.3). El IVA del envío sale por resta dentro del desglose agregado (R2), ⛔ nunca apilado detrás de `E`.
     const shippingFeeCents = directShipFeeOf(kind, subtotalCents, await this.directShipDials(), null).feeCents;
     const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();

@@ -2,11 +2,11 @@
  * envio-v2.e2e-spec.ts — 💰 REGLA DE ENVÍO v2 (API_CONTRACT §4-G.12, v1.109) contra Postgres REAL, app Nest completa por
  * HTTP. Propiedad: backend. Pruebas escritas ANTES del código (rojas sobre `5c7e652b`).
  *
- *  ENV-2 `shippingRule` en todo `200` del quote (también 100 % podado: `kind:null`); solo cartas ⇒ 11600.
+ *  ENV-2 `shippingRule` en todo `200` del quote (también 100 % podado: `kind:null`); solo cartas ⇒ 10000 (v1.109.1: dial exhibido).
  *  ENV-3 `session` = `quote` en cada caso de ENV-1; mover un dial tras la sesión no mueve lo cobrado.
  *  ENV-4 el retiro sigue en 20300 al mover los tres diales; el directo no se mueve al mover `shipping_fee_cents`.
  *  ENV-5 diales por `GET/PUT /admin/settings`: defaults, validadores, bitácora, operador ⇒ `403`.
- *  ENV-6 `GET /checkout/shipping-rule` sin sesión ⇒ `{11600, 20300, 400000}` + `Cache-Control: public, max-age=300`.
+ *  ENV-6 `GET /checkout/shipping-rule` sin sesión ⇒ `{10000, 17500, 400000}` + `Cache-Control: public, max-age=300`.
  *  ENV-7 dos sellados de 208906 con `E = 0` (cobrados por la regla real): reembolsos por pieza + remanente ⇒
  *        `Σ = totalCents`, sin `23514`; canario: IVA remanente al envío ⇒ `23514`.
  *  ENV-8 M-91 siembra los tres diales con su default y ⛔ NO copia `shipping_fee_cents` (neto vs exhibido); idempotente.
@@ -211,7 +211,8 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
         },
         fee: 35000,
         box: true,
-        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: T - 10000, freeShippingApplied: false, boxFeeApplies: true },
+        // v1.109.5: caja grande ⇒ sin «te faltan» (`null`), bajo y sobre T.
+        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true },
       },
       {
         name: 'caja 35000 sobre T ⇒ 35000 (conserva su tarifa; v1.109.2: no es «gratis»)',
@@ -221,7 +222,7 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
         },
         fee: 35000,
         box: true,
-        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: true },
+        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true },
       },
       {
         name: 'caja 15000 bajo T ⇒ 17500',
@@ -251,7 +252,7 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
         },
         fee: 18000,
         box: true,
-        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: T - 10000, freeShippingApplied: false, boxFeeApplies: true },
+        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true },
       },
     ];
 

@@ -151,7 +151,8 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
     for (const S of [400000, 500000]) {
       const over = feeOf(['sealed'], S, { acc: 1, choice: box(35000) });
       expect(over).toEqual({ feeCents: 35000, baseFeeCents: 17500, freeShippingApplied: false, boxFeeApplies: true });
-      expect(shippingRuleDtoOf('sealed', S, DIALS, over)).toEqual({ kind: 'sealed', freeFromCents: 400000, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: true });
+      // v1.109.5: con caja grande no hay promesa «te faltan» ⇒ `null` (antes 0).
+      expect(shippingRuleDtoOf('sealed', S, DIALS, over)).toEqual({ kind: 'sealed', freeFromCents: 400000, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true });
     }
     // Invariante del contrato v1.109.2: `freeShippingApplied` ⇔ `E = 0` en todo pedido no vacío.
     for (const c of [null, 15000, 17500, 17501, 35000]) {
@@ -163,6 +164,32 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
     for (const S of [100000, 399999, 400000, 900000]) {
       const f = feeOf(['raw'], S);
       expect(f.freeShippingApplied).toBe(f.feeCents === 0);
+    }
+  });
+
+  it('v1.109.5 (ENV-1): caja 35000 con S = 50000 y 474000 ⇒ boxFeeApplies:true y freeShippingRemainingCents:null (sin T9); caja chica sigue T − S', () => {
+    // QA sobre `fc84acde`: caja grande con S = 474000 cobraba 35000 mientras el carrito pintaba «Te faltan MX$N».
+    for (const S of [50000, 474000]) {
+      const f = feeOf(['sealed'], S, { acc: 1, choice: box(35000) });
+      expect(f).toMatchObject({ feeCents: 35000, boxFeeApplies: true, freeShippingApplied: false });
+      const dto = shippingRuleDtoOf('sealed', S, DIALS, f);
+      expect(dto).toEqual({ kind: 'sealed', freeFromCents: 400000, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: true });
+      // Canario v1.109.5: la fórmula de antes (`max(0, T − S)` también con caja grande) daría 350000 bajo T —una promesa
+      // que no se cumple— y 0 sobre T. Ninguna de las dos es `null` ⇒ el aserto de arriba queda rojo con ella.
+      const stale = Math.max(0, DIALS.freeFromCents - S);
+      expect(stale).not.toBeNull();
+      expect(dto.freeShippingRemainingCents).not.toBe(stale);
+    }
+    // Caja chica (no grande): sin cambio, remaining = T − S como sin caja.
+    for (const S of [50000, 399999, 474000]) {
+      const f = feeOf(['sealed'], S, { acc: 1, choice: box(15000) });
+      expect(f.boxFeeApplies).toBe(false);
+      expect(shippingRuleDtoOf('sealed', S, DIALS, f).freeShippingRemainingCents).toBe(Math.max(0, 400000 - S));
+    }
+    // Predicado ENV-F1 (T9 ⇔ kind ≠ null ∧ remaining > 0): con caja grande nunca se pinta.
+    for (const S of [1, 50000, 399999, 400000, 474000]) {
+      const dto = shippingRuleDtoOf('sealed', S, DIALS, feeOf(['sealed'], S, { acc: 1, choice: box(35000) }));
+      expect(dto.kind !== null && (dto.freeShippingRemainingCents ?? 0) > 0).toBe(false);
     }
   });
 
