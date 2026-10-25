@@ -16,12 +16,12 @@ import { createGuestCheckoutSession, getGuestCheckoutQuote, getPublicShippingRul
  * ENV-1 / ENV-F1 (frontend) · API_CONTRACT §4-G.12 — el MOCK replica la regla de envío v2.
  *
  * ⭐ Convención: los tres diales son CON IVA INCLUIDO (decisión del dueño 2026-10-24, `HECHOS.md` «envío v2 con
- * IVA incluido»; contrato v1.109.1): la `E` exhibida ES el valor del dial. Del contrato esta prueba lee la tabla de
- * defaults (punto 3) y el ejemplo de `shippingRule` del quote; los casos de ENV-1 van como tabla propia abajo.
+ * IVA incluido»; contrato v1.109.1): la `E` exhibida ES el valor del dial. Umbral para CUALQUIER clase (dueño
+ * 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido (opción A)»; contrato v1.109.3).
  *
- * ⭐ MOCK: pendiente de contrato — umbral para CUALQUIER clase (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde
- * MX$4,000 para CUALQUIER pedido (opción A)»; sustituye «cards_only nunca gratis»). El contrato v1.109.1 aún no lo
- * dice: el caso «ejemplo de `shippingRule`» es un TRIPWIRE que se pone rojo cuando el arquitecto lo publique.
+ * Del contrato esta prueba LEE: la tabla de defaults (punto 3), el ejemplo de `shippingRule` del quote (objeto entero),
+ * los casos numéricos de ENV-1 de cartas, sellado y caja (punto 10) y el predicado de T9 de ENV-F1. El resto de ENV-1
+ * (mixtos, energía, vacío) va como tabla propia abajo porque el contrato lo dice en prosa sin cifras.
  */
 
 const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
@@ -84,18 +84,82 @@ describe('ENV-1 (frontend) · el mock replica la regla de envío v2 de §4-G.12'
     expect(empty.rule.kind).toBeNull();
   });
 
-  it('el ejemplo de `shippingRule` del quote del contrato (solo cartas) coincide con el mock salvo el umbral (TRIPWIRE)', () => {
+  it('el ejemplo de `shippingRule` del quote del contrato (solo cartas) es el objeto entero del mock con su `S`', () => {
     const m = /"shippingRule":\s*(\{[^{}]*\})/.exec(CONTRACT);
     expect(m, 'ejemplo de shippingRule en el 200 de POST /checkout/guest/quote').toBeTruthy();
     const example = JSON.parse(m![1]);
     expect(example.kind).toBe('cards_only');
-    const rule = directShipFeeOf('cards_only', 25000, D).rule;
-    expect({ ...rule, freeFromCents: null, freeShippingRemainingCents: null }).toEqual(example);
-    // MOCK: pendiente de contrato. El contrato (v1.109.1) aún da `null` en solo cartas; el mock, el umbral (dueño
-    // 2026-10-25). Cuando el arquitecto publique el cambio esto se pone ROJO: entonces se borra el tripwire y la línea
-    // de arriba vuelve a comparar el objeto entero.
-    expect([example.freeFromCents, example.freeShippingRemainingCents]).toEqual([null, null]);
-    expect([rule.freeFromCents, rule.freeShippingRemainingCents]).toEqual([400000, 375000]);
+    // `S` del mismo ejemplo: el último `subtotalCents` antes de `shippingRule` (el de `breakdown`, no el de `vaultBreakdown`
+    // — ambos valen 25000 hoy; se toma el de `breakdown` por posición).
+    const before = CONTRACT.slice(0, m!.index);
+    const sMatch = /"breakdown":\s*\{\s*"subtotalCents":\s*(\d+)/g;
+    let s: number | null = null;
+    for (let x = sMatch.exec(before); x; x = sMatch.exec(before)) s = Number(x[1]);
+    expect(s, '`breakdown.subtotalCents` del ejemplo').not.toBeNull();
+    expect(directShipFeeOf('cards_only', s!, D).rule).toEqual(example);
+  });
+});
+
+/** Lee una cifra de la sección §4-G.12 con un patrón literal del punto 10; rojo si el contrato cambia la frase. */
+function read(re: RegExp, what: string): number[] {
+  const m = re.exec(SECTION);
+  expect(m, `${what} en §4-G.12 punto 10`).toBeTruthy();
+  return m!.slice(1).map(Number);
+}
+
+describe('ENV-1 / ENV-F1 (frontend) · los casos que el contrato da con cifras, leídos del contrato', () => {
+  it('ENV-1 cartas: «raw y graded ⇒ E con S = a y b, 0 con S = T» (umbral para cualquier clase)', () => {
+    const [fee, s1, s2, zero, sT] = read(
+      /raw y graded ⇒ (\d+) con `S` = (\d+) y (\d+), (\d+) con `S` = (\d+)/,
+      'caso ENV-1 de solo cartas',
+    );
+    for (const p of ['raw', 'graded'] as const) {
+      const kind = shippingRuleKindOf(cards(p));
+      expect(kind).toBe('cards_only');
+      for (const s of [s1, s2]) {
+        const out = directShipFeeOf(kind, s, D);
+        expect(out.feeCents).toBe(fee);
+        expect(out.rule).toMatchObject({ freeShippingApplied: false, freeShippingRemainingCents: D.freeFromCents - s });
+      }
+      const atT = directShipFeeOf(kind, sT, D);
+      expect(atT.feeCents).toBe(zero);
+      expect(atT.rule).toMatchObject({ freeShippingApplied: true, freeShippingRemainingCents: 0, freeFromCents: D.freeFromCents });
+    }
+  });
+
+  it('ENV-1 sellado: «S = a ⇒ E y falta f; S = T ⇒ 0»', () => {
+    const [s1, fee, falta, sT, zero] = read(
+      /sellado `S` = (\d+) ⇒ (\d+) y falta (\d+); `S` = (\d+) ⇒ (\d+)/,
+      'caso ENV-1 de sellado',
+    );
+    const under = directShipFeeOf('sealed', s1, D);
+    expect([under.feeCents, under.rule.freeShippingRemainingCents]).toEqual([fee, falta]);
+    expect(directShipFeeOf('sealed', sT, D).feeCents).toBe(zero);
+  });
+
+  it('ENV-1 cajas: grande conserva su tarifa bajo y sobre T; chica ⇒ tarifa del sellado bajo T y 0 sobre T', () => {
+    const [big, bigFee] = read(/caja (\d+) ⇒\s+(\d+) bajo y sobre T/, 'caso ENV-1 de caja grande');
+    const [small, smallUnder, smallOver] = read(/caja (\d+) ⇒ (\d+) bajo T y (\d+) sobre T/, 'caso ENV-1 de caja chica');
+    const kind = shippingRuleKindOf(acc);
+    for (const s of [50000, D.freeFromCents]) {
+      const out = directShipFeeOf(kind, s, D, { customerFeeCents: big });
+      expect(out.feeCents).toBe(bigFee);
+      expect(out.rule.boxFeeApplies).toBe(true);
+    }
+    expect(directShipFeeOf(kind, D.freeFromCents, D, { customerFeeCents: big }).rule.freeShippingApplied).toBe(false);
+    expect(directShipFeeOf(kind, 50000, D, { customerFeeCents: small }).feeCents).toBe(smallUnder);
+    expect(directShipFeeOf(kind, D.freeFromCents, D, { customerFeeCents: small }).feeCents).toBe(smallOver);
+  });
+
+  it('ENV-F1: T9 ⇔ `kind ≠ null ∧ freeShippingRemainingCents > 0` — el mock lo da en las dos clases bajo T y lo quita en T', () => {
+    expect(SECTION).toContain('T9 se pinta con `kind ≠ null ∧ freeShippingRemainingCents > 0`');
+    const t9 = (r: { kind: unknown; freeShippingRemainingCents: number | null }) =>
+      r.kind !== null && (r.freeShippingRemainingCents ?? 0) > 0;
+    for (const kind of ['cards_only', 'sealed'] as const) {
+      expect(t9(directShipFeeOf(kind, D.freeFromCents - 1, D).rule), `${kind} bajo T`).toBe(true);
+      expect(t9(directShipFeeOf(kind, D.freeFromCents, D).rule), `${kind} en T`).toBe(false);
+    }
+    expect(t9(directShipFeeOf(null, 0, D).rule)).toBe(false);
   });
 });
 

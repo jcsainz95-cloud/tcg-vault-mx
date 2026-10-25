@@ -47,13 +47,15 @@
   tolerancia a un servidor anterior), `PublicShippingRuleDTO` (`GET /checkout/shipping-rule`, `getPublicShippingRule`)
   y los tres diales `directShip*` en `SettingsDTO`. Los consume el checkout móvil A (§CHK-MOVIL, arriba).
 - **Convención (dueño 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido», relayada por el orquestador):** los tres
-  diales son CON IVA INCLUIDO; la `E` exhibida ES el valor del dial (10000 / 17500; umbral 400000). ⚠️ El texto de
-  v1.109 aún dice `F` neto y ENV-1/ENV-6 con 11600/20300: corrección pedida al arquitecto (v1.110). El retiro de bóveda
-  (`shippingFeeCents`) sigue neto.
+  diales son CON IVA INCLUIDO; la `E` exhibida ES el valor del dial (10000 / 17500; umbral 400000, para CUALQUIER clase
+  desde v1.109.3). El retiro de bóveda (`shippingFeeCents`) sigue neto.
 - **Mock** (`lib/mock/shipping-rule.ts`): pasos 1-3 de §4-G.12 con los diales de `fx.mockSettings` (los que M10
   escribe). Quote, sesión (ENV-3: misma función) y pedido demo de seguimiento la usan; `shippingBox` sigue `null` en el
-  mock. Paridad en `lib/mock/shipping-rule.parity.test.ts`: lee del contrato la tabla de defaults y el ejemplo de
-  `shippingRule` (lo que la decisión no movió); los casos de ENV-1 van con la convención del dueño.
+  mock. Sin marcas `MOCK: pendiente de contrato` desde v1.109.3. Paridad en `lib/mock/shipping-rule.parity.test.ts`:
+  lee del contrato la tabla de defaults, el ejemplo de `shippingRule` (objeto entero, con el `S` del propio ejemplo),
+  las cifras de ENV-1 de cartas/sellado/caja y el predicado de T9 de ENV-F1; mixtos, energía y vacío van como tabla
+  propia (el contrato los da sin cifras). `freeShippingApplied = S ≥ T ∧ ¬boxFeeApplies` (antes el mock daba `true`
+  con caja grande sobre T; lo cazó la lectura del caso de caja, 2026-10-25).
 - **M10** (`admin/m10/sections/DirectShipSection.tsx`, «Envío a domicilio»): los tres diales en pesos, `PUT` parcial en
   centavos, `422` por campo, sin pintar nada si el servidor no trae las claves. «IVA incluido» pegado a cada campo
   (sufijo) y en la ayuda; una nota recuerda que el retiro de bóveda va antes de IVA. La copia de admin evita «envío gratis»
