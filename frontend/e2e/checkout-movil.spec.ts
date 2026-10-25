@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t, type Locale } from './utils/i18n';
-import { mockOnly } from './utils/auth';
+import { IS_REAL, mockOnly } from './utils/auth';
 import { chooseNeighborhood } from './utils/address';
 
 /**
@@ -8,6 +8,11 @@ import { chooseNeighborhood } from './utils/address';
  * «Checkout móvil: opción A»). Viewports 360×740, 390×844, 414×896 y 320×568 de estrés. Corren contra el bundle
  * de MOCKS: los estados que miden (upsell, login, desglose, reintento) los dicta el simulador; la conducta de
  * layout no depende del backend.
+ *
+ * Contra el stack REAL (`seed:synthetic`) corren todos menos uno: el aviso de reintento necesita una sesión de pago
+ * CREADA (`201` con `reservedUntil`), y sin proveedor de pagos el stack responde `503 PAYMENT_PROVIDER_UNAVAILABLE`
+ * (ver la salvaguarda de ese caso). L6 cuenta en real las peticiones `POST /checkout/guest/session` que salen del
+ * navegador, que no dependen de que Stripe conteste; L5 llega a las fichas desde el catálogo, sin ids de fixture.
  *
  * Mutaciones con las que se midió que muerden (FRONTEND_NOTES §CHK-MOVIL): L1 rejilla sin `minmax(0,1fr)` /
  * `min-w-[426px]`; L2 sin `useStickyBottomBar` o sin el `padding-bottom` reservado; L3 sugerencias antes del
@@ -95,7 +100,13 @@ for (const vp of VIEWPORTS) {
     });
 
     test(`L1 · sin desplazamiento lateral con el aviso de reintento (${vp.width})`, async ({ page }) => {
-      mockOnly('el aviso de reintento (§4-R.3) lo dicta el simulador de reservas del modo mock');
+      // Solo mock, y no por dato: el aviso (`CheckoutRetryNotice`) se pinta con el `reservedUntil` del `201` de
+      // `POST /checkout/guest/session`, y sin proveedor de pagos el stack real responde `503 PAYMENT_PROVIDER_UNAVAILABLE`
+      // y libera la reserva (DEVOPS_NOTES §48.2): no hay modal que cerrar ni aviso que medir. Lo medido aquí es LAYOUT
+      // (L1), que no depende de quién emitió el `reservedUntil`. El dato real lo cubre la integración de backend contra
+      // Postgres: `backend/test/integration/checkout-reservation-owner.e2e-spec.ts:172` (201 con `reservedUntil`) y
+      // `:640` (invitado: 201 con `checkoutToken`, reintento R-7).
+      mockOnly('el aviso de reintento (§4-R.3) necesita el 201 de la sesión de pago; sin Stripe el stack real da 503');
       await addCardAndOpenCheckout(page);
       await fillGuestForm(page);
       await payButton(page).click();
@@ -174,7 +185,12 @@ for (const vp of VIEWPORTS) {
     });
 
     test(`L6 · doble toque en PAGAR crea UNA sesión (${vp.width})`, async ({ page }) => {
-      mockOnly('se cuentan las sesiones en el simulador de reservas del modo mock (sessionStorage)');
+      // En real se cuentan además las peticiones `POST /checkout/guest/session` que salen del navegador: la guarda de
+      // doble envío es del front y se mide igual aunque el proveedor de pagos responda 503 (sin Stripe en el stack).
+      const sessionPosts: string[] = [];
+      page.on('request', (r) => {
+        if (r.method() === 'POST' && /\/checkout\/guest\/session(\?|$)/.test(r.url())) sessionPosts.push(r.url());
+      });
       // Cada `pay()` que llega a crear la sesión lee UNA vez el token de reintento (`tcg.guestCheckoutRetry`, §4-R.3)
       // justo antes de `POST /checkout/guest/session`: se cuentan esas lecturas desde el toque. Medido: contar
       // reservas o respuestas no servía (el simulador rechaza la 2.ª en silencio porque la pieza ya es «tuya» y no se
@@ -200,14 +216,21 @@ for (const vp of VIEWPORTS) {
         b.click();
         (window as unknown as { __countAttempts: boolean }).__countAttempts = false;
       });
-      await expect(page.getByRole('dialog', { name: t('es', 'checkout.payTitle') })).toBeVisible();
       expect(await page.evaluate(() => (window as unknown as { __sessionAttempts: number }).__sessionAttempts)).toBe(1);
-      const sessions = await page.evaluate(() => {
-        const raw = window.sessionStorage.getItem('tcg.mock.reservations');
-        const s = raw ? JSON.parse(raw) : { reservations: [], superseded: [] };
-        return (s.reservations?.length ?? 0) + (s.superseded?.length ?? 0);
-      });
-      expect(sessions).toBe(1);
+      if (IS_REAL) {
+        // La respuesta (201 con Stripe, 503 sin él) cierra el intento; se da margen a una 2.ª petición rezagada.
+        await expect(payButton(page)).toBeEnabled();
+        await page.waitForTimeout(500);
+        expect(sessionPosts, 'peticiones POST /checkout/guest/session').toHaveLength(1);
+      } else {
+        await expect(page.getByRole('dialog', { name: t('es', 'checkout.payTitle') })).toBeVisible();
+        const sessions = await page.evaluate(() => {
+          const raw = window.sessionStorage.getItem('tcg.mock.reservations');
+          const s = raw ? JSON.parse(raw) : { reservations: [], superseded: [] };
+          return (s.reservations?.length ?? 0) + (s.superseded?.length ?? 0);
+        });
+        expect(sessions).toBe(1);
+      }
       await expect(page.getByTestId('unavailable-notice')).toHaveCount(0);
       await expect(page.getByTestId('payment-in-progress')).toHaveCount(0);
       await expect(page.getByText(/Tu intento anterior se canceló|Your previous attempt was canceled/)).toHaveCount(0);
@@ -230,10 +253,23 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
 
   for (const locale of ['es', 'en'] as const) {
     test(`T1a/T1b en la ficha y T3a en la barra (${locale})`, async ({ page }) => {
-      mockOnly('navega a fichas de fixture (c-charizard, inv-1008)');
-      await page.goto(`/${locale}/catalog/c-charizard`);
+      // Las fichas se toman del listado (mock: fixtures; real: `seed:synthetic`), no por id de fixture.
+      await page.goto(`/${locale}/catalog`);
+      const firstBuyable = page.getByRole('button', { name: t(locale, 'catalog.addToCart') }).first();
+      const cardHref = await firstBuyable
+        .locator('xpath=ancestor::div[.//a[contains(@href, "/catalog/")]][1]')
+        .locator('a[href*="/catalog/"]')
+        .first()
+        .getAttribute('href');
+      expect(cardHref, 'el catálogo debe tener una carta a la venta').toBeTruthy();
+      await page.goto(cardHref!);
       await expect(page.getByTestId('shipping-fee-hint').first()).toHaveText(shape(locale, 'checkout.feeHint.cardsOnly'));
-      await page.goto(`/${locale}/sellado/inv-1008`);
+      await page.goto(`/${locale}/sellado`);
+      // Mock: «Surging Sparks Booster Box» (inv-1008); real: «E2E Surging Sparks Booster Box» (`E2E_SEALED_LISTED`).
+      const sealedTile = page.locator('a[href*="/sellado/"]').filter({ hasText: /Surging Sparks Booster Box/ }).first();
+      await expect(sealedTile).toBeVisible();
+      await sealedTile.click();
+      await expect(page).toHaveURL(/\/sellado\/[^/?]+$/);
       await expect(page.getByTestId('shipping-fee-hint').first()).toHaveText(shape(locale, 'checkout.feeHint.sealed'));
 
       await addCardAndOpenCheckout(page, locale);
