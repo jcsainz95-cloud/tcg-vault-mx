@@ -36,8 +36,11 @@ export interface ShippingRuleCart {
   energyBundleCount: number;
 }
 
-/** Los tres diales tal como se leen de `ConfigSetting` (centavos, los TRES exhibidos: IVA dentro; v1.109.1). */
-export interface DirectShipDialsRaw {
+/**
+ * Los tres diales tal como se leen de `ConfigSetting` (centavos, los TRES exhibidos: IVA dentro; v1.109.1). Lo que paga el
+ * cliente es el dial tal cual (`E = G`). ⛔ Sin `IvaDials`: mover `t` o `r` no mueve lo que paga el cliente.
+ */
+export interface DirectShipDials {
   /** `direct_ship_cards_fee_cents` — `G` exhibido. */
   cardsFeeCents: number;
   /** `direct_ship_sealed_fee_cents` — `G` exhibido. */
@@ -45,9 +48,6 @@ export interface DirectShipDialsRaw {
   /** `direct_ship_free_from_cents` — exhibido, se compara con `S`. */
   freeFromCents: number;
 }
-
-/** Lo que paga el cliente (IVA dentro): desde v1.109.1 es el dial tal cual. */
-export type DirectShipDials = DirectShipDialsRaw;
 
 export interface DirectShipFee {
   /** `E`: lo que entra a `breakdown.shippingFeeCents`. */
@@ -87,11 +87,6 @@ export function shippingRuleKindOf(cart: ShippingRuleCart): ShippingRuleKind | n
   return cart.productTypes.every((t) => CARD_TYPES.has(t)) ? 'cards_only' : 'sealed';
 }
 
-/** `E = G`: el dial ES el envío exhibido (v1.109.1). ⛔ Sin `IvaDials`: mover `t` o `r` no mueve lo que paga el cliente. */
-export function directShipDialsOf(raw: DirectShipDialsRaw): DirectShipDials {
-  return { cardsFeeCents: raw.cardsFeeCents, sealedFeeCents: raw.sealedFeeCents, freeFromCents: raw.freeFromCents };
-}
-
 /** Base gravable e IVA de un envío exhibido `G` (R2: base por `taxBaseCentsOf`, IVA por RESTA). 10000 ⇒ 8621 + 1379 con r=16. */
 export function directShipFeeTaxSplitOf(feeCents: number, ivaRatePct: number): { baseCents: number; ivaCents: number } {
   const baseCents = taxBaseCentsOf(feeCents, ivaRatePct);
@@ -113,7 +108,8 @@ export function directShipFeeOf(
   return {
     feeCents: bigBox ? (choice as BoxChoice).box.customerFeeCents : ruleFee,
     baseFeeCents: base,
-    freeShippingApplied: free,
+    // v1.109.2 (§4-G.12): «envío gratis» ⇔ `E = 0`. La caja grande sobre el umbral conserva su tarifa ⇒ no es gratis.
+    freeShippingApplied: free && !bigBox,
     boxFeeApplies: bigBox,
   };
 }

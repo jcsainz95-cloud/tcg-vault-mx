@@ -203,14 +203,14 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
         rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: T - 10000, freeShippingApplied: false, boxFeeApplies: true },
       },
       {
-        name: 'caja 35000 sobre T ⇒ 35000 (conserva su tarifa)',
+        name: 'caja 35000 sobre T ⇒ 35000 (conserva su tarifa; v1.109.2: no es «gratis»)',
         build: async () => {
           await acc.setBoxes([{ code: 'grande', l: 30, w: 20, h: 10, fee: 35000 }]);
           return { cart: { inventoryItemIds: [(await piece('sealed', 400000)).id], accessoryLines: [{ accessoryId: await accessory(10000), quantity: 1 }] }, S: 410000 };
         },
         fee: 35000,
         box: true,
-        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: true },
+        rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: true },
       },
       {
         name: 'caja 15000 bajo T ⇒ 17500',
@@ -350,6 +350,9 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       [{ directShipFreeFromCents: 0 }, 'directShipFreeFromCents'],
       [{ directShipFreeFromCents: 2_147_483_648 }, 'directShipFreeFromCents'],
       [{ directShipCardsFeeCents: -1 }, 'directShipCardsFeeCents'],
+      // TL-ENV-4: `MAX_CENTS + 1` ⇒ 422 en los dos `F`.
+      [{ directShipCardsFeeCents: 2_147_483_648 }, 'directShipCardsFeeCents'],
+      [{ directShipSealedFeeCents: 2_147_483_648 }, 'directShipSealedFeeCents'],
       [{ directShipSealedFeeCents: 1.5 }, 'directShipSealedFeeCents'],
       [{ directShipSealedFeeCents: '17500' }, 'directShipSealedFeeCents'],
     ])('PUT %j ⇒ 422 VALIDATION_ERROR y nada se escribe', async (body, key) => {

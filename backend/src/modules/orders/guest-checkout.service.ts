@@ -44,7 +44,6 @@ import {
   GuestShippingRuleDTO,
   PublicShippingRuleDTO,
   ShippingRuleKind,
-  directShipDialsOf,
   directShipFeeOf,
   publicShippingRuleOf,
   shippingRuleDtoOf,
@@ -231,11 +230,11 @@ export class GuestCheckoutService {
    * dentro): `E = dial`, ⛔ sin `shippingFeeDisplayCentsOf` (IVA-6). ⛔ `shipping_fee_cents` no se lee aquí: es el retiro.
    */
   private async directShipDials(): Promise<DirectShipDials> {
-    return directShipDialsOf({
+    return {
       cardsFeeCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS),
       sealedFeeCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS),
       freeFromCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_FREE_FROM_CENTS),
-    });
+    };
   }
 
   /**
@@ -836,7 +835,8 @@ export class GuestCheckoutService {
     }
     const ship = directShipFeeOf(kind, subtotalCents, dials, choice);
     return {
-      breakdown: computeDirectShipBreakdown(subtotalCents, ship.feeCents, ivaPct, fee),
+      // TL-ENV-4: `S + E` no representable en Int32 ⇒ 422 AMOUNT_TOO_LARGE (la fuente única), ⛔ nunca un 500 crudo.
+      breakdown: this.orders.representableOrThrow(() => computeDirectShipBreakdown(subtotalCents, ship.feeCents, ivaPct, fee)),
       vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct, fee),
       choice,
       shippingRule: (s) => shippingRuleDtoOf(kind, s, dials, ship),
@@ -856,7 +856,7 @@ export class GuestCheckoutService {
     const fee = await this.settings.getStripeFee();
     // MS-2 (BE-27): el pedido de invitado también PERSISTE una Order; un agregado no representable en
     // Int32 → 422 AMOUNT_TOO_LARGE vía la fuente única `orders.representableOrThrow` (no se persiste
-    // overflow ni se clampa el total). El `quote` (read-only) NO usa esta ruta.
+    // overflow ni se clampa el total). El `quote` (read-only) pasa por la misma fuente en `quoteBreakdowns` (TL-ENV-4).
     return this.orders.representableOrThrow(() =>
       computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
     );

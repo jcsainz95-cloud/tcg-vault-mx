@@ -71,6 +71,18 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-25 · techlead de la release sobre `230b9bd3` (envío v2 §4-G.12 y Card Show en el panel)
+
+> Dueño del código anotado: **backend**. TL-ENV-* tocan dinero (envío directo). Medido el 2026-10-25 sobre `230b9bd3`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-ENV-1 | ABIERTA · La cadena clase → importe → desglose del envío directo vive en 3 sitios de `guest-checkout.service.ts`: `quoteBreakdowns`, `breakdownFor` y la rama de accesorios de `session` (`shippingRuleKindOf` → `directShipFeeOf` → `computeDirectShipBreakdown`) | backend | 2026-10-25 | una sola función `directShipBreakdownOf` (con `representableOrThrow` dentro) y `grep -c "computeDirectShipBreakdown(" backend/src/modules/orders/guest-checkout.service.ts` ⇒ 0 |
+| TL-ENV-2 | ABIERTA · `quote` sobre una orden propia congelada: el `breakdown` sale de la orden (`frozenDirectShipBreakdownOf`) pero `shippingRule` se calcula con los diales VIVOS; si el operador movió un dial, las dos piezas de la misma respuesta pueden contradecirse. Conducta no fijada por ninguna prueba | backend | 2026-10-25 | prueba de integración en `envio-v2.e2e-spec.ts` «TL-ENV-2»: orden congelada, se mueve `direct_ship_*`, se re-cotiza y se afirma la conducta elegida (con su canario) |
+| TL-ENV-3 | CERRADA · abstracción muerta `directShipDialsOf` y alias `DirectShipDials = DirectShipDialsRaw` en `shipping-rule.ts`: queda una sola interfaz `DirectShipDials` | backend | 2026-10-25 | `grep -rn "directShipDialsOf\|DirectShipDialsRaw" backend/src backend/test` ⇒ 0 |
+| TL-ENV-4 | CERRADA · `direct_ship_cards_fee_cents` / `direct_ship_sealed_fee_cents` sin tope: ahora `validateIntRange(0, MAX_CENTS)`, y el `quote` de invitado pasa por `representableOrThrow` (422 `AMOUNT_TOO_LARGE`, no 500) | backend | 2026-10-25 | `shipping-rule.spec.ts` ENV-5 «= 2147483648 ⇒ válido false» (×2), `envio-v2.e2e-spec.ts` ENV-5 «PUT … 2147483648 ⇒ 422» (×2) y `be27-aggregate-overflow.spec.ts` «TL-ENV-4» verdes; mutaciones (validador sin tope, quote sin envoltura) ⇒ rojo |
+| TL-MKT-CS-1 | ABIERTA · Las opciones de supresión de b5/b6 se deciden fuera del registro de tablas: `complement` por `dims.fixed = ['b5']` (`marketing-analytics.service.ts:611`) y `keepOrder: id === 'b5'` (`:1259`) | backend | 2026-10-25 | `complement`/`keepOrder` declarados en la cabecera de la tabla del registro (`CS_HEADS.b5`, `marketing-analytics.service.ts:90`) y `grep -n "id === 'b5'\|dims.fixed" backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 |
+
 ## Backend · 2026-10-16 · §MKT OLA 2 — Panel de Marketing Fase 0 (rama `feat/mkt-tienda`)
 
 > Deudas **no bloqueantes** del núcleo del Panel (Brief 2, API_CONTRACT §MKT.D/E, ARCHITECTURE §13.4/§13.5). Ninguna
