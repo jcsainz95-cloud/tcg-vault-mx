@@ -588,6 +588,24 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect((await redemptionOf(r.order.id))?.status).toBe('consumed');
     });
 
+    it('panel de Stripe (stripe_dashboard) + remanente order_full = totalCents cobrado; el uso sigue consumed', async () => {
+      const r = await paidWithCode([100000]);
+      const pi = r.s.body.stripe.paymentIntentId as string;
+      const w = await h.sendStripeWebhook({
+        type: 'refund.updated',
+        data: { object: { id: `re_dash_${randomUUID().slice(0, 8)}`, object: 'refund', amount: 10000, status: 'succeeded', payment_intent: pi, metadata: {}, created: Math.floor(Date.now() / 1000) } },
+      });
+      expect(w.status).toBe(200);
+      h.stripe.seedStripeRefund(pi, { amountCents: 10000 });
+      const dash = await h.prisma.paymentRefund.findFirstOrThrow({ where: { orderId: r.order.id, kind: 'stripe_dashboard' } });
+      expect(dash.amountCents).toBe(10000);
+      expect((await acc.fullRefund(r.order.id)).status).toBeLessThan(300);
+      const rows = await h.prisma.paymentRefund.findMany({ where: { orderId: r.order.id } });
+      expect(rows.find((x) => x.kind === 'order_full')?.amountCents).toBe(r.order.totalCents - 10000);
+      expect(rows.reduce((a, x) => a + x.amountCents, 0)).toBe(r.order.totalCents);
+      expect((await redemptionOf(r.order.id))?.status).toBe('consumed');
+    });
+
     it('item_delivered (carta ya entregada) = itemRefundComponents sobre lo cobrado', async () => {
       const r = await paidWithCode([100000, 50000]);
       await acc.shipAll(r.shipment.id, 'entregado');
