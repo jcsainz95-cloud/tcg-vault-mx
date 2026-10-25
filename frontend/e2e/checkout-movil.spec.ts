@@ -9,7 +9,8 @@ import { chooseNeighborhood } from './utils/address';
  * de MOCKS: los estados que miden (upsell, login, desglose, reintento) los dicta el simulador; la conducta de
  * layout no depende del backend.
  *
- * Contra el stack REAL (`seed:synthetic`) corren todos menos uno: el aviso de reintento necesita una sesión de pago
+ * Contra el stack REAL (`seed:synthetic`) corren todos menos uno, y esos llevan `@real` en el título (el config filtra
+ * con `grep: /@real/` cuando `E2E_REAL=1`; sin la etiqueta el fichero entero quedaba fuera, QA sobre `fc84acde`): el aviso de reintento necesita una sesión de pago
  * CREADA (`201` con `reservedUntil`), y sin proveedor de pagos el stack responde `503 PAYMENT_PROVIDER_UNAVAILABLE`
  * (ver la salvaguarda de ese caso). L6 cuenta en real las peticiones `POST /checkout/guest/session` que salen del
  * navegador, que no dependen de que Stripe conteste; L5 llega a las fichas desde el catálogo, sin ids de fixture.
@@ -19,6 +20,21 @@ import { chooseNeighborhood } from './utils/address';
  * formulario; L4 el plegable abierto por defecto; L5 T3 con un importe calculado en el front; L6 sin guarda de
  * doble envío.
  */
+
+/**
+ * ⭐ **En real, el fichero corre en UN worker y en orden** (`mode: 'default'`; QA sobre `fc84acde`, 3/3 rojas a 390/414).
+ * L6 crea una sesión de pago de verdad: con Stripe es `201` y la pieza queda apartada 60 min (`ORDER_RESERVATION_TTL_MIN`).
+ * Con workers en paralelo, un L1 que ya había añadido «la primera carta del catálogo» llegaba al quote con esa pieza
+ * apartada por el L6 de otro viewport («E2E Deck Spark ya no está disponible»). En orden, el caso siguiente lee el
+ * catálogo DESPUÉS del apartado: la pieza ya no está `listed` y su botón es el de otra carta.
+ * Por qué no «una carta distinta por caso»: el catálogo se reordena al apartar (la pieza sale del listado), así que
+ * «la n-ésima carta» no es estable entre workers, y las otras specs de invitado también toman la primera; elegir por
+ * nombre ataría el spec a un seed concreto. ⛔ No `serial`: saltaría todo lo que venga detrás del primer rojo
+ * (medido en `admin-fx.spec.ts`). En mock no hace falta: las reservas del simulador viven en el `sessionStorage` de
+ * cada página y no se cruzan. Presupuesto de sesiones de invitado (5/h/IP, `e2e-real-suite.sh` le da el suyo): 4, una
+ * por L6.
+ */
+if (IS_REAL) test.describe.configure({ mode: 'default' });
 
 const VIEWPORTS = [
   { width: 320, height: 568 },
@@ -75,7 +91,7 @@ for (const vp of VIEWPORTS) {
   test.describe(`CHK-MOVIL · ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test(`L1 · sin desplazamiento lateral: carrito, errores, upsell, login, desglose (${vp.width})`, async ({ page }) => {
+    test(`@real L1 · sin desplazamiento lateral: carrito, errores, upsell, login, desglose (${vp.width})`, async ({ page }) => {
       await addCardAndOpenCheckout(page);
       await expectNoHorizontalOverflow(page, 'carrito');
 
@@ -118,7 +134,7 @@ for (const vp of VIEWPORTS) {
       await expectNoHorizontalOverflow(page, 'aviso de reintento');
     });
 
-    test(`L2 · PAGAR visible en el primer pintado, barra ≤ 120 px, reserva su alto, y se oculta con un campo enfocado (${vp.width})`, async ({ page }) => {
+    test(`@real L2 · PAGAR visible en el primer pintado, barra ≤ 120 px, reserva su alto, y se oculta con un campo enfocado (${vp.width})`, async ({ page }) => {
       await addCardAndOpenCheckout(page);
       const m = await page.evaluate(() => {
         const el = document.querySelector<HTMLElement>('[data-testid="checkout-pay-bar"]')!;
@@ -158,7 +174,7 @@ for (const vp of VIEWPORTS) {
       await expect(bar(page)).toBeVisible();
     });
 
-    test(`L3 · el primer campo va antes que sugerencias y paquetes; sin «Continuar como invitado» (${vp.width})`, async ({ page }) => {
+    test(`@real L3 · el primer campo va antes que sugerencias y paquetes; sin «Continuar como invitado» (${vp.width})`, async ({ page }) => {
       await addCardAndOpenCheckout(page);
       await expect(page.getByRole('heading', { name: t('es', 'checkout.suggestions.title') })).toBeVisible();
       const order = await page.evaluate(() => {
@@ -172,7 +188,7 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByRole('button', { name: /Continuar como invitado|Continue as guest/ })).toHaveCount(0);
     });
 
-    test(`L4 · formulario vacío: 6 obligatorios visibles, 2 plegados, ≤ 2 casillas (${vp.width})`, async ({ page }) => {
+    test(`@real L4 · formulario vacío: 6 obligatorios visibles, 2 plegados, ≤ 2 casillas (${vp.width})`, async ({ page }) => {
       await addCardAndOpenCheckout(page);
       const form = page.getByTestId('guest-form');
       const fields = form.locator('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea');
@@ -184,7 +200,7 @@ for (const vp of VIEWPORTS) {
       await expect(fields.filter({ visible: true })).toHaveCount(8);
     });
 
-    test(`L6 · doble toque en PAGAR crea UNA sesión (${vp.width})`, async ({ page }) => {
+    test(`@real L6 · doble toque en PAGAR crea UNA sesión (${vp.width})`, async ({ page }) => {
       // En real se cuentan además las peticiones `POST /checkout/guest/session` que salen del navegador: la guarda de
       // doble envío es del front y se mide igual aunque el proveedor de pagos responda 503 (sin Stripe en el stack).
       const sessionPosts: string[] = [];
@@ -252,7 +268,7 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
     );
 
   for (const locale of ['es', 'en'] as const) {
-    test(`T1a/T1b en la ficha y T3a en la barra (${locale})`, async ({ page }) => {
+    test(`@real T1a/T1b en la ficha y T3a en la barra (${locale})`, async ({ page }) => {
       // Las fichas se toman del listado (mock: fixtures; real: `seed:synthetic`), no por id de fixture.
       await page.goto(`/${locale}/catalog`);
       const firstBuyable = page.getByRole('button', { name: t(locale, 'catalog.addToCart') }).first();
@@ -294,7 +310,7 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
 });
 
 test.describe('CHK-MOVIL · escritorio sigue con el aside (1280)', () => {
-  test('lg+: sin barra fija, con el resumen y un solo PAGAR', async ({ page }) => {
+  test('@real lg+: sin barra fija, con el resumen y un solo PAGAR', async ({ page }) => {
     await page.goto('/es/catalog');
     await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
     await page.goto('/es/checkout');
