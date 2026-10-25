@@ -145,8 +145,9 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
   it('paridad: deckPull SIN paquete + solo cartas ⇒ 10000 y `cards_only` (quote y sesión)', async () => {
     const pulls = [{ pullToken: 'cualquiera', withEnergyBundle: false }];
     const q = await getGuestCheckoutQuote(['inv-1001'], undefined, undefined, { deckPulls: pulls });
-    expect(q.breakdown.shippingFeeCents).toBe(10000);
+    // Sin el arreglo la clase sale `sealed` y, con S ≥ T, el envío sale 0 (no 17500): se asierta la clase primero.
     expect(q.shippingRule?.kind).toBe('cards_only');
+    expect(q.breakdown.shippingFeeCents).toBe(10000);
     const s = await createGuestCheckoutSession({
       inventoryItemIds: ['inv-1001'],
       email: 'tlr2@example.com',
