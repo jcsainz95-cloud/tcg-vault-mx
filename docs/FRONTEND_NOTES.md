@@ -26,7 +26,14 @@ aprobado en lo propio de un código de envío gratis).
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
   blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
-- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel). Paridad con cifras del contrato: `discounts.parity.test.ts`.
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel). Paridad con cifras del contrato: `discounts.parity.test.ts`
+  (los DCO-F* no traen cifras: lee el ejemplo de §DSC.3, DCO-B2, el 895 de §DSC.4 y DCO-B4; la base del 893, de PROJECT).
+- **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
+  C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
+  `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones (rojas/corridas, copia de `f462ca55`): reparto
+  sin residuo 3/3 · umbral antes del descuento 3/3 · mínimo después 3/3 · paquete elegible 3/3 · `shippingWaivedCents` 0
+  3/3 · `discount` sin código 3/3 · argumento de más sin código (915) 3/3 · línea con precio cobrado 3/3 · sin `gcTime`
+  propio 9/10 · «envío gratis» en C6 3/3 · C11 larga en la barra (DL3, Playwright) 3/3.
 - **Pendiente de contrato / ux-ui (en el informe):** forma de `DiscountCodeBatchDTO` (marcada MOCK en `types/contract.ts`);
   «Descuento dado» por código en la lista (no está en `DiscountCodeDTO`); vista previa «Así lo verá el cliente» y auditoría
   del código (sin endpoint); textos de `ALREADY_FREE_SHIPPING`, `LARGE_BOX`, `TOTAL_BELOW_MINIMUM`, `WITHDRAWAL_FILTERED`,

@@ -9,7 +9,7 @@ import { chooseNeighborhood } from './utils/address';
  * `discounts.parity.test.ts`). Candados DL1-DL4 y DL7 de §DSC-UX.8; DL5/DL6 son de vitest (`seo-content.test.ts`,
  * `i18n-parity.test.ts`).
  *
- * ⚠️ **Sin `@real` a propósito, y no es un `mockOnly`:** medido en este árbol (base `85f350df`) NO existe
+ * ⚠️ **Sin `@real` a propósito, y sin salvaguarda de salto:** medido en este árbol (base `85f350df`) NO existe
  * `backend/src/modules/discounts/` ni los campos `discountCode` en los DTO del backend, así que contra el stack real
  * no hay nada que medir todavía (el config de real filtra por `@real`, así que este fichero no corre allí). Los ids de pieza y los códigos (`SEPT10`, `ENVIO25`…) son del simulador: cuando el
  * backend aterrice, el `@real` necesita sembrar sus códigos por `POST /admin/discount-codes` (pendiente, en
