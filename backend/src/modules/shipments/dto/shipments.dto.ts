@@ -1,4 +1,5 @@
-import { ArrayNotEmpty, IsArray, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { DISCOUNT_CODE_MAX } from '../../orders/dto/orders.dto';
 import { ShipmentStatus } from '@prisma/client';
 
 // SEC-C2: cota superior de `shippingCostCents`. Un valor absurdo distorsiona el P&L (M7) en
@@ -9,11 +10,15 @@ export const SHIPPING_COST_MAX_CENTS = 100_000_00;
 export class ShipmentQuoteDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
   @IsString() addressId!: string;
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6/§DSC.8): opcional, string ≤ 40; solo un código de envío gratis aplica al retiro. */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class CreateShipmentDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
   @IsString() addressId!: string;
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.8): ver `ShipmentQuoteDto`. */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class UpdateStatusDto {

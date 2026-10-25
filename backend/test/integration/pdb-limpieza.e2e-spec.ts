@@ -47,6 +47,7 @@ import {
   revertM78,
   revertM82M83,
   revertM86,
+  revertM92,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -1096,6 +1097,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // v1.91⟨precios⟩: el B congelado de a7232d7a PRECEDE a §PRE (M-75/M-76) ⇒ no clasifica `PriceReviewCase`
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
+    revertM92(a.schema); // v1.110⟨descuentos⟩: M-92 tampoco la conoce el B congelado (G-8 abortaría con sus cuatro tablas).
     // v1.93⟨cardshow⟩: el B congelado de a7232d7a PRECEDE a M-78 (Card Show) ⇒ su G-8 no clasifica `CardShow*` y
     // abortaría al verlas. Ambos gemelos se revierten a esa era (M-78 fuera) para comparar como iguales.
     revertM78(a.schema);
@@ -1109,6 +1111,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertM92(twin); // v1.110⟨descuentos⟩: primero (orden inverso de despliegue).
     revertM75(twin);
     revertM74(twin);
     revertM73(twin);

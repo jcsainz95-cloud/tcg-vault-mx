@@ -14,6 +14,7 @@ import { PricingModule } from '../pricing/pricing.module';
 import { CatalogModule } from '../catalog/catalog.module';
 import { GeoModule } from '../shipping-provider/geo/geo.module';
 import { DecksMetaModule } from '../decks-meta/decks-meta.module';
+import { DiscountsModule } from '../discounts/discounts.module';
 
 @Module({
   // JwtModule.register({}) (sin secreto por defecto): lo usa RejectAuthenticatedGuard para
@@ -21,7 +22,8 @@ import { DecksMetaModule } from '../decks-meta/decks-meta.module';
   // explícitamente en cada verify (mismo patrón que JwtAuthGuard). No autentica a nadie.
   // ⭐ v1.81 (M-64): `GeoModule` — la colonia del invitado contra la lista del CP (§M4-SHIP.19.5).
   // 💰 v1.86⟨accesorios⟩ (§AC.19.4): `DecksMetaModule` exporta el validador de `deckPulls` que llama el checkout de invitado.
-  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule],
+  // 💰 v1.110⟨descuentos⟩ (§DSC): `DiscountsModule` — validez, límite de intentos y uso del código en quote y sesión.
+  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule, DiscountsModule],
   providers: [OrdersService, GuestCheckoutService, OrderClaimService, OrderRefundService, RejectAuthenticatedGuard],
   // v1.82 PNL-1: `GET /support/contact` (público, un resolutor del buzón — `mail/support-contact.ts`).
   controllers: [OrdersController, AdminOrdersController, GuestOrdersController, SupportContactController],

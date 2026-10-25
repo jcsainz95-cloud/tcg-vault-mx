@@ -7,6 +7,20 @@
 
 ---
 
+## Backend · 2026-10-25 · §DSC códigos de descuento, fase 1 (núcleo de dinero)
+
+> Dueño del código anotado: **backend**. 💰 Toca dinero (`orders`, `payments`, `shipments`, `discounts`). Medido el 2026-10-25 sobre la rama de construcción desde `85f350df`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| DSC-B-1 | ABIERTA · `free_shipping` con el dial de la clase en 0 aplica con `shippingWaivedCents = 0` y gasta un uso sin beneficio (el contrato no lo nombra; solicitud al arquitecto) | backend | 2026-10-25 | decisión en §DSC.4 + prueba pura en `test/discounts.pure.spec.ts` con `cardsFeeCents: 0` |
+| DSC-B-2 | ABIERTA · el quote excluye del conteo por cliente solo la orden de `ownReservation` (cuenta) o la reclamada (invitado); con DOS órdenes propias pendientes con el mismo código el quote puede decir `invalid` y la sesión `applied` (la sesión es la autoridad) | backend | 2026-10-25 | e2e con dos órdenes propias pendientes ⇒ quote y sesión coinciden |
+| DSC-B-3 | ABIERTA · `vaultBreakdown` del quote de invitado no lleva el código (informativo); y con la orden propia congelada con código, `accessoryLines[]` del quote no trae `unitDiscountCents` | backend | 2026-10-25 | decisión del arquitecto en §DSC.6 + prueba e2e de la forma |
+| DSC-B-4 | ABIERTA · tolerancia a dobles sin `discountRedemption` en `discounts/redemption.ts` (la exige DCO-B19: no editar pruebas existentes) | backend | 2026-10-25 | `rg "if \(!tx.discountRedemption\)" backend/src` ⇒ 0 tras migrar los dobles de `orders.td4-failed-cas`, `payments.service`, `order-reservation-sweep.job` |
+| DSC-B-5 | ABIERTA · dos lectores de `OrderItem.unitPriceCents` que quizá quieran el precio ANTES del descuento: instrumentación por tramo de mercado (`admin.service.ts:2027`, `grossMxnCents`) y valor asegurado de la guía (`label-quote.service.ts:394,484`) | backend | 2026-10-25 | decisión del arquitecto; si es «original», leer `unitPriceCents + unitDiscountCents` con prueba |
+
+---
+
 ## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
 
 > Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.

@@ -45,6 +45,9 @@ function MaxLengthWithField(field: string, max: number): PropertyDecorator {
   );
 }
 
+/** 💰 v1.110⟨descuentos⟩ (§DSC.6): tope del texto del código en el request (la forma canónica la pone el CHECK de M-92). */
+export const DISCOUNT_CODE_MAX = 40;
+
 export class QuoteDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
   /**
@@ -53,6 +56,8 @@ export class QuoteDto {
    */
   @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
   @DeckPullsField() deckPulls?: DeckPullInput[];
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6): opcional, string ≤ 40; vacío ⇒ como ausente (lo normaliza `discounts/`). */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class SessionDto {
@@ -66,6 +71,8 @@ export class SessionDto {
    * saneador puro (`measurement/measurement-input.ts`), que descarta lo que no cumple. ⛔ Nunca 400 por este campo.
    */
   @IsOptional() measurement?: unknown;
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6): ver `QuoteDto`. */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class RefundDto {

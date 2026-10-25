@@ -11,6 +11,7 @@ import {
   GuestTrackDto,
 } from './dto/guest-checkout.dto';
 import { MeasurementService } from '../measurement/measurement.service';
+import { retryAfterOf } from '../discounts/discounts.service';
 
 const HOUR_MS = 3_600_000;
 
@@ -38,8 +39,9 @@ export class GuestOrdersController {
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post('checkout/guest/quote')
   @HttpCode(200)
-  quote(@Body() dto: GuestQuoteDto) {
-    return this.guest.quote(dto);
+  quote(@Body() dto: GuestQuoteDto, @Ip() ip?: string) {
+    // 💰 v1.110 (§DSC.6): la IP solo la usa el límite de intentos del código; sin `discountCode`, la llamada de hoy.
+    return dto.discountCode === undefined ? this.guest.quote(dto) : this.guest.quote(dto, ip);
   }
 
   /**
@@ -70,7 +72,12 @@ export class GuestOrdersController {
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     // v1.102⟨mkt-fase2⟩ (§MKT.H.2): `prepare` es puro y nunca lanza; con el modo apagado devuelve «nada».
     const m = this.measurement?.prepare(dto.measurement);
-    const result = await this.guest.createSession(dto, ip, m?.columns);
+    // 💰 v1.110 (§DSC.6): `429 DISCOUNT_CODE_RATE_LIMITED` ⇒ cabecera `Retry-After`.
+    const result = await this.guest.createSession(dto, ip, m?.columns).catch((e: unknown) => {
+      const retryAfter = retryAfterOf(e);
+      if (retryAfter !== null) res.setHeader('Retry-After', String(retryAfter));
+      throw e;
+    });
     // Post-commit; `afterCreate` nunca lanza. En el REUSO se conserva lo que la orden ya tenía.
     if (!result.reused) await this.measurement?.afterCreate({ orderId: result.orderId }, m);
     res.status(result.reused ? 200 : 201);
