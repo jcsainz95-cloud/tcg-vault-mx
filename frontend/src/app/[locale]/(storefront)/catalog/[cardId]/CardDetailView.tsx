@@ -35,6 +35,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
+import { FinalSaleLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -352,6 +353,13 @@ function Detail({
                   condición y acabado. El DTO sigue trayendo `referenceValue`/`referenceDisplayCents`
                   porque alimentan admin y valuación — que viaje no autoriza a pintarlo en la tienda. */}
               <FactGrid facts={facts} />
+              {/* T1a + T8 (§CHK-MOVIL.4): bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
+              {primary.displayPriceCents != null && (
+                <>
+                  <ShippingFeeHint kind="cards" className="mt-3" />
+                  <FinalSaleLine className="mt-1" />
+                </>
+              )}
 
               {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
               {primary.productType === 'graded' && primaryUnit?.certNumber && (

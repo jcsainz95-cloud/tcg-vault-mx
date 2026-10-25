@@ -60,8 +60,8 @@ export function InlineAuthPanel({
   /**
    * N-13 · cuando el registro devuelve `409 EMAIL_TAKEN` ofrecemos iniciar sesión con el
    * MISMO correo, sin sacar al usuario de `/checkout` (§15.2). Marcamos el caso para pintar
-   * el CTA neutro y, en el gate de identidad (donde el padre NO controla la variante vía
-   * `onSwitchVariant`), conmutamos a login con un override local. En el upsell —que ya
+   * el CTA neutro y, donde el padre NO controla la variante vía `onSwitchVariant` (línea T4 del
+   * checkout de invitado y confirmación de pedido), conmutamos a login con un override local. En el upsell —que ya
    * controla la variante— delegamos en `onSwitchVariant` para no tener dos switches en pugna.
    */
   const [emailTaken, setEmailTaken] = useState(false);

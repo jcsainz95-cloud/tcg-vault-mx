@@ -23,6 +23,10 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 
 import { CheckoutView } from './CheckoutView';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 const USER: UserDTO = {
   id: 'u-1',

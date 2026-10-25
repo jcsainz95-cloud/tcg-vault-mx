@@ -37,6 +37,10 @@ import { CheckoutView } from './CheckoutView';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { GUEST_RETRY_TOKEN_KEY } from './guest-retry-token';
 import { clearUnavailableNotice } from './unavailable-notice';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────────
@@ -307,7 +311,7 @@ describe('checkout con cuenta · el QUOTE conoce la reserva propia (v1.68.1 §4-
 
 describe('checkout de invitado · el token es la llave del reintento (§4-R.3)', () => {
   async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>) {
-    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');

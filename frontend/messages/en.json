@@ -455,7 +455,6 @@
   "checkout": {
     "title": "Your cart",
     "subtitle": "Your pieces go into your vault when you pay. Request shipping whenever you want, all at once.",
-    "vaultKeepEyebrow": "Keep in my vault",
     "summary": "Summary",
     "removeItem": "Remove",
     "subtotal": "Subtotal",
@@ -490,28 +489,8 @@
     "processingTitle": "Payment in progress",
     "processingBody": "We received your payment and are confirming it. Your cards will appear in your vault as pending and become settled once the payment confirms.",
     "afterPaymentGuest": "Once you pay we prepare your order and ship it to your address. Your confirmation and tracking link arrive by email.",
-    "identity": {
-      "eyebrow": "IDENTITY",
-      "title": "How do you want to continue?",
-      "cartKept": "Your cart is kept in all three.",
-      "change": "Change",
-      "chosen": "Chosen path",
-      "guest": {
-        "cta": "Continue as guest",
-        "hint": "You only need your email and your address."
-      },
-      "login": {
-        "cta": "Log in",
-        "hint": "Your addresses and your vault are waiting."
-      },
-      "register": {
-        "cta": "Create account",
-        "hint": "Keep your cards in the vault and pay a single shipping fee."
-      }
-    },
     "guest": {
       "contactGroup": "CONTACT",
-      "shippingGroup": "SHIPPING",
       "recipientName": "Recipient name",
       "errorSummary": "Check {count, plural, one {# field} other {# fields}}.",
       "formIncomplete": "Check the highlighted fields above (for example your phone) to continue to payment.",
@@ -531,7 +510,9 @@
         "vault": "To pay, create your account or choose home delivery.",
         "address": "To pay, complete your shipping address in Mexico.",
         "terms": "To pay, accept the terms."
-      }
+      },
+      "optionalFold": "Unit and references (optional)",
+      "shippingGroupMx": "SHIPPING TO MEXICO"
     },
     "destination": {
       "eyebrow": "DESTINATION",
@@ -651,6 +632,23 @@
       "soldOutNoName": "An accessory sold out while you were paying. You weren't charged. We removed it: check your cart and pay again.",
       "bundle": "The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck.",
       "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."
+    },
+    "feeHint": {
+      "cardsOnly": "+ shipping {shipping}, free from {freeFrom} · platform fee at checkout",
+      "sealed": "Shipping {shipping}, free from {freeFrom} · platform fee at checkout"
+    },
+    "finalSaleShort": "All sales are final.",
+    "refundPromise": "If your card arrives damaged or wrong, we refund you.",
+    "freeShippingRemaining": "{remaining} more for free shipping",
+    "entryLine": "Already have an account? <login>Log in</login> · or <register>create one</register>",
+    "showMoreLines": "Show {n} more",
+    "bar": {
+      "includesShipping": "Includes shipping {shipping} and platform fee {fee}",
+      "includesShippingFree": "Includes free shipping and platform fee {fee}",
+      "includesFee": "Includes platform fee {fee}",
+      "showBreakdown": "Show breakdown",
+      "hideBreakdown": "Hide breakdown",
+      "total": "Total"
     }
   },
   "vault": {
@@ -4783,6 +4781,29 @@
           "offTitle": "Turning it off also stops updating",
           "off": "<b>It stops both at once.</b> While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. <b>For one specific figure, this is not the remedy.</b> A wrong figure is deleted from the <review>review list</review>; if what’s excessive is the promotion, raise the minimum upside in “Catalog & pricing” and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in “Catalog & pricing”."
         }
+      },
+      "directShip": {
+        "title": "Home delivery",
+        "subtitle": "What shipping charges on a home-delivery order. Moving a setting doesn't change orders already paid.",
+        "labels": {
+          "directShipCardsFeeCents": "Shipping for cards-only orders",
+          "directShipSealedFeeCents": "Shipping for orders with sealed product or accessories",
+          "directShipFreeFromCents": "No shipping charge from this subtotal (orders with sealed product)"
+        },
+        "convention": {
+          "gross": "VAT included"
+        },
+        "help": {
+          "directShipCardsFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with only single or graded cards; shipping is always charged on them.",
+          "directShipSealedFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with sealed product, accessories or energy, even if they also include cards. A large box charges its own rate.",
+          "directShipFreeFromCents": "<b>VAT included:</b> compared with the subtotal the customer sees, before shipping and the fee. Only applies to orders with sealed product or accessories."
+        },
+        "withdrawalNote": "Shipping for a vault withdrawal is a different setting (“Withdrawal shipping”, above), and that one is before VAT.",
+        "unavailable": "The server doesn't have these settings yet.",
+        "save": "Save home delivery ({count, plural, =0 {no changes} one {# change} other {# changes}})",
+        "saved": "Saved.",
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "invalid": "That value isn't valid for this setting."
       },
       "ingest": {
         "title": "Bulk ingest provider (daily price sweep)",

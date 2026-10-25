@@ -8,6 +8,8 @@
  *  - toda población del registro tiene oráculo en `test/support/disclosure-audit.ts`;
  *  - `MARKETING_TABLES` = el catálogo de §MKT.G.4 (leído del contrato), en su orden.
  * Canario: una tabla `zz` que `screenRaw` emite sin registrarla ⇒ el comprobador la denuncia (rojo).
+ * v1.109 (MKT-MEDIR-CS): b5/b6 entran al catálogo (lo lee del contrato) y se miden en los dos modos (no dependen de GA4); sus
+ * poblaciones `CS_LEAD`/`CS_SIGNUP` tienen oráculo que cuenta BUZONES distintos con `confirmedAt` en el periodo.
  * Determinista (sin reloj real ni azar): N=1.
  */
 import { readFileSync } from 'fs';
@@ -53,6 +55,9 @@ function googleAnswer(url: string, body: Body): unknown {
   }
 }
 
+/** Un preregistro confirmado el 10-feb-2027 (mediodía CDMX), sin UTM. */
+const cs = (i: number) => ({ confirmedAt: new Date('2027-02-10T18:00:00.000Z'), mailboxHmac: `box-${i}`, utmSource: null, utmMedium: null, utmCampaign: null, utmContent: null });
+
 function build(mode: 'on' | 'off') {
   const port: GoogleReadPort = { postJson: jest.fn(async (_k, _s, url, body) => googleAnswer(url, body as Body)) };
   const orders = [
@@ -89,6 +94,9 @@ function build(mode: 'on' | 'off') {
     sealedProduct: { findMany: jest.fn(async () => []) },
     wishlistItem: { groupBy: jest.fn(async () => [{ cardId: 'card-2', userId: 'u1', _count: { _all: 2 } }]) },
     buylistQuoteDailyCount: { groupBy: jest.fn(async () => [{ cardId: 'card-1', _sum: { count: 12 } }]) },
+    // v1.109: b5/b6 (los dobles no filtran; la prueba 1 mira columnas y registro, no cifras).
+    cardShowLead: { findMany: jest.fn(async () => Array.from({ length: 6 }, (_, i) => ({ ...cs(i), utmSource: 'instagram', utmMedium: 'bio' }))) },
+    cardShowPlayerSignup: { findMany: jest.fn(async () => [cs(0), cs(1)]) },
   };
   const env = fullEnv({ MEASUREMENT_MODE: mode, MKT_GOOGLE_SA_JSON: SA, MKT_GA4_PROPERTY_ID: '123456789', MKT_SEARCH_CONSOLE_SITE: 'sc-domain:tcghunt.mx' });
   const totals = { orders: 7, chargedCents: 65000, avgTicketCents: 9286, piecesPerOrder: 1 };
@@ -145,7 +153,10 @@ describe('MKT-TL2 (a) · registro de poblaciones (§MKT.H.14, prueba 1)', () => 
     expect(payloads.flatMap(violations)).toEqual([]);
     // El fixture mide de verdad lo que el modo enciende (si no, la prueba no prueba nada).
     const measured = new Set(payloads.flatMap((p) => p.tables.filter((t) => t.measured).map((t) => t.id)));
-    const mustMeasure = mode === 'on' ? ['a1', 'a3', 'a4', 'a5', 'b1', 'b2', 'b3', 'b4', 'c1', 'c5', 'c7', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e3', 'f3', 'g1'] : ['a1', 'a3', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
+    const mustMeasure =
+      mode === 'on'
+        ? ['a1', 'a3', 'a4', 'a5', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'c1', 'c5', 'c7', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e3', 'f3', 'g1']
+        : ['a1', 'a3', 'b5', 'b6', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
     expect(mustMeasure.filter((id) => !measured.has(id))).toEqual([]);
   });
 
@@ -178,6 +189,28 @@ describe('MKT-TL2 (a) · registro de poblaciones (§MKT.H.14, prueba 1)', () => 
     expect(POPULATION_ORACLES.PAID(w, r).map((s) => s.id)).toEqual(['p1', 'p2']);
     expect(POPULATION_ORACLES.PAID_ORIGIN(w, r).map((s) => s.id)).toEqual(['p1']);
     expect(POPULATION_ORACLES.WISH(w, r)).toHaveLength(2);
+  });
+
+  it('v1.109: CS_LEAD/CS_SIGNUP cuentan BUZONES con `confirmedAt` en el periodo (pending y fuera del periodo no; una baja posterior sí)', () => {
+    const d = (ymd: string) => new Date(`${ymd}T18:00:00.000Z`);
+    const row = (id: string, box: string, confirmedAt: Date | null, status: string) => ({ id, mailboxHmac: box, confirmedAt, status, utmSource: null, utmMedium: null, utmCampaign: null, utmContent: null });
+    const w: AuditWorld = {
+      orders: [],
+      requests: [],
+      wishes: [],
+      listedCardIds: new Set(),
+      ga4: {},
+      sc: [],
+      // box-1: lead `visitor` y `merchant` (dos filas, un buzón); box-2 se dio de baja DESPUÉS (cuenta); box-3 pending; box-4 fuera.
+      leads: [row('l1', 'box-1', d('2027-02-10'), 'new'), row('l2', 'box-1', d('2027-02-11'), 'new'), row('l3', 'box-2', d('2027-02-12'), 'discarded'), row('l4', 'box-3', null, 'pending'), row('l5', 'box-4', d('2027-02-15'), 'new')],
+      signups: [row('s1', 'box-1', d('2027-02-09'), 'cancelled'), row('s2', 'box-5', d('2027-02-07'), 'confirmed')],
+    };
+    const r = { from: WEEK.from, to: WEEK.to };
+    expect(POPULATION_ORACLES.CS_LEAD(w, r)).toEqual([
+      { id: 'box-1', units: 2 },
+      { id: 'box-2', units: 1 },
+    ]);
+    expect(POPULATION_ORACLES.CS_SIGNUP(w, r)).toEqual([{ id: 'box-1', units: 1 }]);
   });
 
   it('CANARIO: una tabla `zz` que `screenRaw` emite sin registrar ⇒ el comprobador la denuncia', async () => {

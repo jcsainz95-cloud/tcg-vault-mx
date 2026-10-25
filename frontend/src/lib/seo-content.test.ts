@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import es from '../../messages/es.json';
 import en from '../../messages/en.json';
 import { HELD_FAQS, PUBLIC_FAQS, FAQ_GROUP_ORDER } from '@/content/seo/faq.es';
@@ -202,20 +204,71 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
 
   /*
    * Trinquete sobre TODO `messages/` (ES y EN): ninguna cadena nueva puede traer una frase prohibida.
-   * Excepciones CONOCIDAS: hoy NINGUNA. Las cuatro de D4a (`home.sellBody` y `buylist.subtitle`, es+en, «nosotros
+   * Excepciones CONOCIDAS: las cuatro de CHK-MOVIL (abajo). Las cuatro de D4a (`home.sellBody` y `buylist.subtitle`, es+en, «nosotros
    * autenticamos» / «we authenticate») se corrigieron el 2026-10-19 con el texto que decidió el dueño («verificamos la
    * condición NM», HECHOS.md 2026-10-19) y salieron de la lista: el trinquete es absoluto.
    * D4a (techlead, 2026-10-18): toda excepción futura lleva dueño, fecha de medición y caducidad, y TIENE QUE SEGUIR
    * OFENDIENDO: si alguien corrige la cadena, la excepción sale de esta lista (si no, la prueba se pone roja). Al
    * vencer `expires` sin corregir, rojo con el reloj real.
    */
-  const KNOWN_OFFENDERS: readonly {
+  type Approval = { hechosRow: string; date: string; quote: string };
+  const CHK_APPROVAL: Approval = {
+    hechosRow: 'Textos del checkout y medición aprobados',
+    date: '2026-10-25',
+    quote: 'si a todo',
+  };
+  /*
+   * Dos clases de excepción: DEUDA (`expires`: caduca y pone rojo con el reloj real) o APROBADA POR EL DUEÑO
+   * (`approved`: cita la fila de `HECHOS.md` y su literal; sin caducidad mientras la regla que la aprueba exista —
+   * si la fila sale de HECHOS, la prueba de abajo se pone roja). Nunca las dos, nunca ninguna.
+   */
+  const KNOWN_OFFENDERS: readonly ({
     locale: 'es' | 'en';
     key: string;
     owner: string;
     measuredOn: string;
-    expires: string;
-  }[] = [];
+    note?: string;
+  } & ({ expires: string; approved?: never } | { approved: Approval; expires?: never }))[] = [
+    /*
+     * CHK-MOVIL (DESIGN_SYSTEM §CHK-MOVIL.4, `HECHOS.md` 2026-10-24 «Checkout móvil: opción A»): T3a con envío 0 y
+     * T9 dicen «envío gratis» porque el envío ES 0 (regla v2 de §4-G.12: sellado ≥ umbral). Acotada a ESTAS cuatro
+     * claves —nada más de `messages/` puede decirlo— y APROBADA POR EL DUEÑO el 2026-10-25 (`HECHOS.md`, fila
+     * «Textos del checkout y medición aprobados», literal «si a todo»: «se permite «envío gratis» SOLO en el aviso de
+     * umbral (T9 … y T3a con envío 0)»). Sin caducidad mientras esa fila exista; añadir una quinta clave sigue rojo.
+     */
+    {
+      locale: 'es',
+      key: 'checkout.bar.includesShippingFree',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-25',
+      approved: CHK_APPROVAL,
+      note: 'excepción aprobada por el dueño (HECHOS 2026-10-25) · T3a con envío 0',
+    },
+    {
+      locale: 'en',
+      key: 'checkout.bar.includesShippingFree',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-25',
+      approved: CHK_APPROVAL,
+      note: 'excepción aprobada por el dueño (HECHOS 2026-10-25) · T3a con envío 0',
+    },
+    {
+      locale: 'es',
+      key: 'checkout.freeShippingRemaining',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-25',
+      approved: CHK_APPROVAL,
+      note: 'excepción aprobada por el dueño (HECHOS 2026-10-25) · T9 «Te faltan {remaining} para envío gratis»',
+    },
+    {
+      locale: 'en',
+      key: 'checkout.freeShippingRemaining',
+      owner: 'frontend (decide el dueño)',
+      measuredOn: '2026-10-25',
+      approved: CHK_APPROVAL,
+      note: 'excepción aprobada por el dueño (HECHOS 2026-10-25) · T9 «{remaining} more for free shipping»',
+    },
+  ];
   const CATALOGS = { es, en } as const;
   const badKeys = (catalog: unknown) =>
     stringEntries(catalog)
@@ -237,14 +290,36 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     expect(stale).toEqual([]);
   });
 
-  it('cada excepción tiene dueño, fecha de medición y caducidad vigente (reloj real)', () => {
+  it('cada excepción tiene dueño, fecha de medición y, o caducidad vigente (reloj real), o aprobación del dueño en HECHOS', () => {
     const today = todayInMexico();
+    const hechos = readFileSync(resolve(__dirname, '../../../HECHOS.md'), 'utf8').split('\n');
     for (const o of KNOWN_OFFENDERS) {
-      expect(o.owner.trim(), `${o.locale}:${o.key}`).not.toBe('');
+      const id = `${o.locale}:${o.key}`;
+      expect(o.owner.trim(), id).not.toBe('');
       expect(o.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(o.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(today <= o.expires, `${o.locale}:${o.key} caducó el ${o.expires}: corregir la copia o renovar con decisión del dueño`).toBe(true);
+      expect(Boolean(o.expires) !== Boolean(o.approved), `${id}: o caduca o está aprobada, nunca ambas ni ninguna`).toBe(true);
+      if (o.expires) {
+        expect(o.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(today <= o.expires, `${id} caducó el ${o.expires}: corregir la copia o renovar con decisión del dueño`).toBe(true);
+      } else if (o.approved) {
+        const row = hechos.find((l) => l.includes(o.approved!.hechosRow));
+        expect(row, `${id}: la fila «${o.approved.hechosRow}» ya no está en HECHOS.md ⇒ la aprobación no existe`).toBeDefined();
+        expect(row).toContain(o.approved.date);
+        expect(row).toContain(`«${o.approved.quote}»`);
+        expect(row).toMatch(/envío gratis.{0,4} SOLO en el aviso de umbral/);
+      }
     }
+  });
+
+  it('CHK-MOVIL: la excepción de «envío gratis» es SOLO de T3a/T9 y está aprobada por el dueño (HECHOS 2026-10-25)', () => {
+    const chk = KNOWN_OFFENDERS.filter((o) => /envío gratis|free shipping/i.test(String(CATALOGS[o.locale] && stringEntries(CATALOGS[o.locale]).find(([k]) => k === o.key)?.[1])));
+    expect(chk.map((o) => `${o.locale}:${o.key}`).sort()).toEqual([
+      'en:checkout.bar.includesShippingFree',
+      'en:checkout.freeShippingRemaining',
+      'es:checkout.bar.includesShippingFree',
+      'es:checkout.freeShippingRemaining',
+    ]);
+    for (const o of chk) expect(o.approved, `${o.locale}:${o.key}`).toEqual(CHK_APPROVAL);
   });
 
   it('el namespace seo.* existe en ES y EN con las mismas claves', () => {

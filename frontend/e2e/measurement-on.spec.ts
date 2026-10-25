@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { measurementCookies, recordRequests, type RequestLog } from './utils/measurement';
+import { loginAs } from './utils/auth';
 
 /**
  * Fase 2 con el modo ENCENDIDO — corre SOLO con `playwright.measurement-on.config.ts`, que construye
@@ -8,7 +9,8 @@ import { measurementCookies, recordRequests, type RequestLog } from './utils/mea
  * E2E (solo se hornea en builds de mocks). ⛔ Nada sale de CI: toda petición a Google/Meta se
  * intercepta y se responde vacía AQUÍ; se cuenta, no se envía.
  *
- * Candados: C-F3 (cuatro caminos de red + capturas 390×664), C-F5 (navegación dura), C-F10 (sin muro),
+ * Candados: C-F3 (cuatro caminos de red + capturas 390×664), C-F5 (navegación dura, v1.109 también
+ * `/buylist` → paso de crear con CLABE/INE), C-F9 (`/card-show`: solo `page_view` a GA4, sin Meta), C-F10 (sin muro),
  * C-F11 (no tapa COMPRAR), C-F12 (altura), C-F19 (zoom). Los de unidad (C-F8/9/13/14/18) viven en
  * `src/components/consent/ConsentBanner.test.tsx`.
  */
@@ -118,7 +120,8 @@ test.describe('C-F3 · cuatro caminos de red', () => {
 });
 
 test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
-  const EXCLUDED = ['/es/account', '/es/vault', '/es/admin', '/es/buylist', '/es/reset-password', '/es/pedido?token=mock-demo-token'];
+  // v1.109: `/es/buylist` ya es medida (D-MKT2-8); excluido queda su PASO de crear (CLABE/INE).
+  const EXCLUDED = ['/es/account', '/es/vault', '/es/admin', '/es/buylist/solicitud', '/es/reset-password', '/es/pedido?token=mock-demo-token'];
 
   async function acceptOnCard(page: Page, context: BrowserContext) {
     const log = await setup(context);
@@ -166,11 +169,12 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     });
   }
 
-  test('clic en un enlace del encabezado (Vender) y del pie (Términos) ⇒ documento nuevo sin etiquetas', async ({ page, context }) => {
+  // v1.109: «Vender» lleva a `/buylist`, que ya se mide; el enlace excluido del encabezado es «Decks».
+  test('clic en un enlace del encabezado (Decks) y del pie (Términos) ⇒ documento nuevo sin etiquetas', async ({ page, context }) => {
     const { log, href } = await acceptOnCard(page, context);
     let before = log.measurement.length;
-    await page.locator('header').getByRole('link', { name: t('es', 'nav.buylist') }).first().click();
-    await page.waitForURL(/\/es\/buylist/);
+    await page.locator('header').getByRole('link', { name: t('es', 'nav.decksMeta') }).first().click();
+    await page.waitForURL(/\/es\/decks-meta/);
     await settle(page);
     await expectCleanDocument(page);
     expect(log.measurement.slice(before)).toEqual([]);
@@ -187,6 +191,121 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     await settle(page);
     await expectCleanDocument(page);
     expect(log.measurement.slice(before)).toEqual([]);
+  });
+});
+
+/**
+ * C-F5 ampliado (v1.109, D-MKT2-8): desde `/buylist` (medida) al PASO que pinta CLABE e INE. El documento final
+ * no tiene `gtag`/`fbq` ni `<script>` de medición, y nada sale después. La mitad de unidad (el cotizador no
+ * pinta `BuylistKycForm`; `location.assign`) es `buylist/solicitud/SellRequestStep.cf5.test.tsx`.
+ */
+test.describe('C-F5 · /buylist → paso de crear (CLABE/INE)', () => {
+  test('con etiquetas cargadas en el cotizador, «Enviar solicitud» llega a un documento sin medición', async ({ page, context }) => {
+    test.slow();
+    const log = await setup(context);
+    await loginAs(page, 'customer');
+    await page.goto('/es/buylist');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('function');
+    await expect.poll(() => kinds(log).has('google') && kinds(log).has('meta')).toBe(true);
+    // El cotizador se mide y manda su `page_view` (solo GA4).
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? []).some((a) => a[0] === 'event' && a[1] === 'page_view'),
+        ),
+      )
+      .toBe(true);
+    await settle(page);
+
+    await page.getByLabel(t('es', 'masterSet.searchSet')).fill('Base');
+    await page.getByRole('button', { name: /Base Set/ }).first().click();
+    await page.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ }).click();
+    const trigger = page.getByTestId('sell-cart-fab').or(page.getByTestId('sell-cart-bar-open')).filter({ visible: true });
+    await trigger.click();
+    // El veredicto de INE (debounce de 400 ms + consulta) inserta una línea en los requisitos del cajón y BAJA el CTA:
+    // un clic antes de eso cae donde estaba el botón (medido: 1/10 rojos con N=10 sobre `0066d9e6`, cajón abierto y
+    // «Enviar solicitud» con foco pero sin navegación). En el mock el total de Charizard siempre exige INE.
+    await expect(page.getByText(t('es', 'buylist.reqIneExpected')).first()).toBeVisible();
+    const before = log.measurement.length;
+    await page.evaluate(() => ((window as unknown as { __cf5?: number }).__cf5 = 1));
+    await page.getByRole('button', { name: /Enviar solicitud/ }).click();
+    await page.waitForURL(/\/es\/buylist\/solicitud$/);
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __cf5?: number }).__cf5 ?? 0).catch(() => -1), {
+        message: 'el documento del cotizador sigue vivo en el paso de crear (navegación sin recarga)',
+      })
+      .toBe(0);
+    const step = page.getByRole('region', { name: t('es', 'buylist.requestTitle') });
+    await expect(step.getByLabel(/CLABE/)).toBeVisible();
+    await settle(page);
+    const state = await page.evaluate(() => ({
+      gtag: typeof (window as unknown as { gtag?: unknown }).gtag,
+      fbq: typeof (window as unknown as { fbq?: unknown }).fbq,
+      scripts: [...document.scripts].filter((s) => /googletagmanager|connect\.facebook\.net/.test(s.src)).length,
+      marked: document.querySelectorAll('script[data-th-measurement]').length,
+    }));
+    expect(state).toEqual({ gtag: 'undefined', fbq: 'undefined', scripts: 0, marked: 0 });
+    expect(log.measurement.slice(before)).toEqual([]);
+  });
+});
+
+/**
+ * C-F9 (v1.109, D-MKT2-9): `/card-show` (fuera de `[locale]`) honra una elección ya guardada y manda SOLO
+ * `page_view` a GA4; `fbevents.js` no carga aunque se haya aceptado la publicidad (P-CS-MEDIR-1). Sin elección,
+ * nada. Las páginas con token (`confirm`…) quedan fuera.
+ */
+test.describe('C-F9 · /card-show: solo page_view a GA4, sin Meta', () => {
+  const vendorCalls = (page: Page) =>
+    page.evaluate(() =>
+      ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? [])
+        .map((a) => Array.from(a as ArrayLike<unknown>))
+        .filter((a) => a[0] === 'event')
+        .map((a) => a[1]),
+    );
+
+  test('aceptado todo en la tienda ⇒ en /card-show GA4 con page_view y nada más; 0 peticiones a Meta, sin fbq', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto('/es');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(() => kinds(log).has('meta')).toBe(true);
+    await settle(page);
+
+    const before = log.measurement.length;
+    await page.goto('/card-show');
+    await expect.poll(() => page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('function');
+    await expect.poll(() => vendorCalls(page)).toEqual(['page_view']);
+    // Interacción con un formulario de la landing: ningún evento nuevo.
+    await page.locator('#registro').scrollIntoViewIfNeeded();
+    await page.locator('#registro input').first().fill('Ash').catch(() => undefined);
+    await settle(page);
+    expect(await vendorCalls(page)).toEqual(['page_view']);
+    const after = log.measurement.slice(before);
+    expect(after.filter((m) => m.kind === 'meta')).toEqual([]);
+    expect(after.some((m) => /gtag\/js/.test(m.url))).toBe(true);
+    expect(await page.evaluate(() => typeof (window as unknown as { fbq?: unknown }).fbq)).toBe('undefined');
+  });
+
+  test('sin elección guardada ⇒ en /card-show no se carga nada (la landing no pregunta)', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto('/card-show');
+    await settle(page);
+    expect(log.measurement).toEqual([]);
+    expect(await page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('undefined');
+    expect(await measurementCookies(context)).toEqual([]);
+  });
+
+  test('las páginas con token del Card Show no cargan nada aunque haya elección', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto('/es');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(() => kinds(log).has('google')).toBe(true);
+    await settle(page);
+    const before = log.measurement.length;
+    await page.goto('/card-show/confirm?token=mock-x');
+    await settle(page);
+    expect(log.measurement.slice(before)).toEqual([]);
+    expect(await page.evaluate(() => typeof (window as unknown as { gtag?: unknown }).gtag)).toBe('undefined');
   });
 });
 

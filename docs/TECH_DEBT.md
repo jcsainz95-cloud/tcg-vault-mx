@@ -7,6 +7,21 @@
 
 ---
 
+## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
+
+> Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-ENV-F2 | ABIERTA · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). R1 nació de esa clase | frontend | 2026-10-25 | un helper único en `frontend/src/lib/` y `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0 |
+| TL-ENV-F3 | ABIERTA · `BuylistKycForm` lee la prop `ineExpected` solo al montar (estado inicial); si la prop cambia después, el formulario no se entera | frontend | 2026-10-25 | prueba de cambio de prop (`rerender` con `ineExpected` distinto ⇒ el formulario lo refleja), roja sobre el código actual |
+| TL-ENV-F1 | CERRADA · comentarios «v1.110 pendiente» en `lib/mock/shipping-rule.ts` y `shipping-rule.parity.test.ts` (el contrato ya es v1.109.1, P-ENV-1 cerrada) | frontend | 2026-10-25 | `grep -rn "v1.110" frontend/src` ⇒ 0 |
+| TL-ENV-F4 | CERRADA · comentario «gate de identidad» (ya no existe) en `checkout/InlineAuthPanel.tsx` | frontend | 2026-10-25 | `grep -rn "gate de identidad" frontend/src` ⇒ 0 |
+| TL-ENV-R1 | CERRADA · `DirectShipSection` vaciar un dial ⇒ `PUT` con 0 (envío MX$0 sin aviso) | frontend | 2026-10-25 | `m10/sections/DirectShipSection.test.tsx` «campo vacío/solo espacios/no numérico ⇒ no hay PUT…» (roja sobre `230b9bd3`) |
+| TL-ENV-R2 | CERRADA · el mock contaba todo `deckPulls` como accesorio; el backend solo los paquetes aceptados | frontend | 2026-10-25 | `lib/mock/shipping-rule.parity.test.ts` «paridad: deckPull SIN paquete + solo cartas ⇒ 10000» (roja sobre `230b9bd3`) |
+
+---
+
 ## Frontend · 2026-10-19 · §MKT.H Fase 2 (construida apagada) — base `b95fbbac`
 
 > Dueño del código anotado: **frontend**. Toca el checkout solo para leer (evento `purchase`). Medido el 2026-10-19. TL-MKT2b-* y QA-MKT2b-*: veredictos de techlead y QA sobre `47eb1dea`. FE-MKT2-1 (cerrada) sale: su comprobación sigue viva en `source-lock.test.ts`. TL D3/D4/D7/D8 (2026-10-19) se cerraron sin ficha: `utm.parity.test.ts`, `ConsentBanner.test.tsx` «D4», `next-config-measurement-gate.test.ts`, `useStickyBottomBar.test.tsx`.
@@ -70,6 +85,18 @@
 > Los 3 hallazgos de correctness de dinero marcados como gate de go-live (reserva de checkout atómica,
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
+
+## Backend · 2026-10-25 · techlead de la release sobre `230b9bd3` (envío v2 §4-G.12 y Card Show en el panel)
+
+> Dueño del código anotado: **backend**. TL-ENV-* tocan dinero (envío directo). Medido el 2026-10-25 sobre `230b9bd3`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-ENV-1 | ABIERTA · La cadena clase → importe → desglose del envío directo vive en 3 sitios de `guest-checkout.service.ts`: `quoteBreakdowns`, `breakdownFor` y la rama de accesorios de `session` (`shippingRuleKindOf` → `directShipFeeOf` → `computeDirectShipBreakdown`) | backend | 2026-10-25 | una sola función `directShipBreakdownOf` (con `representableOrThrow` dentro) y `grep -c "computeDirectShipBreakdown(" backend/src/modules/orders/guest-checkout.service.ts` ⇒ 0 |
+| TL-ENV-2 | ABIERTA · `quote` sobre una orden propia congelada: el `breakdown` sale de la orden (`frozenDirectShipBreakdownOf`) pero `shippingRule` se calcula con los diales VIVOS; si el operador movió un dial, las dos piezas de la misma respuesta pueden contradecirse. Conducta no fijada por ninguna prueba | backend | 2026-10-25 | prueba de integración en `envio-v2.e2e-spec.ts` «TL-ENV-2»: orden congelada, se mueve `direct_ship_*`, se re-cotiza y se afirma la conducta elegida (con su canario) |
+| TL-ENV-3 | CERRADA · abstracción muerta `directShipDialsOf` y alias `DirectShipDials = DirectShipDialsRaw` en `shipping-rule.ts`: queda una sola interfaz `DirectShipDials` | backend | 2026-10-25 | `grep -rn "directShipDialsOf\|DirectShipDialsRaw" backend/src backend/test` ⇒ 0 |
+| TL-ENV-4 | CERRADA · `direct_ship_cards_fee_cents` / `direct_ship_sealed_fee_cents` sin tope: ahora `validateIntRange(0, MAX_CENTS)`, y el `quote` de invitado pasa por `representableOrThrow` (422 `AMOUNT_TOO_LARGE`, no 500) | backend | 2026-10-25 | `shipping-rule.spec.ts` ENV-5 «= 2147483648 ⇒ válido false» (×2), `envio-v2.e2e-spec.ts` ENV-5 «PUT … 2147483648 ⇒ 422» (×2) y `be27-aggregate-overflow.spec.ts` «TL-ENV-4» verdes; mutaciones (validador sin tope, quote sin envoltura) ⇒ rojo |
+| TL-MKT-CS-1 | ABIERTA · Las opciones de supresión de b5/b6 se deciden fuera del registro de tablas: `complement` por `dims.fixed = ['b5']` (`marketing-analytics.service.ts:611`) y `keepOrder: id === 'b5'` (`:1259`) | backend | 2026-10-25 | `complement`/`keepOrder` declarados en la cabecera de la tabla del registro (`CS_HEADS.b5`, `marketing-analytics.service.ts:90`) y `grep -n "id === 'b5'\|dims.fixed" backend/src/modules/marketing/marketing-analytics.service.ts` ⇒ 0 |
 
 ## Backend · 2026-10-16 · §MKT OLA 2 — Panel de Marketing Fase 0 (rama `feat/mkt-tienda`)
 

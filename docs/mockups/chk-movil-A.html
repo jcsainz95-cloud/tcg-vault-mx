@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CHK-MOVIL · Opción A · Una pantalla (mockup estático, datos de ejemplo)</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--bd:#d9d3c5;--bds:#1a1a18;--ok:#4a7345}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:#cfcabd;font-family:Archivo,Helvetica,Arial,sans-serif;color:var(--tx);padding:16px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+h1,h2,.serif{font-family:"Zen Old Mincho",Georgia,serif;font-weight:400}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace}
+.cap{width:390px;font:12px/1.4 Helvetica,Arial,sans-serif;color:#333;margin:0 0 6px}
+.frame{width:390px;height:844px;overflow:auto;background:var(--bg);position:relative;border:1px solid #888}
+.pad{padding:0 20px}
+.eyebrow{font-family:"JetBrains Mono",Menlo,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);margin:0}
+.muted{color:var(--mu)}.sm{font-size:12px;line-height:1.5}.xs{font-size:11px;line-height:1.5}
+.hdr{height:60px;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;font-weight:700;letter-spacing:.12em}
+h1{font-size:26px;margin:20px 0 12px}
+.line{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--bd)}
+.thumb{width:64px;height:90px;background:var(--s2);border:1px solid var(--bd);flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--mu)}
+.line .n{font-family:"Zen Old Mincho",Georgia,serif;font-size:17px}
+.price{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:500}
+.btnlink{display:block;min-height:44px;padding:10px 0;border:0;background:none;font:inherit;color:var(--tx);text-align:left;text-decoration:underline;text-underline-offset:4px;width:100%}
+.dest{border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);padding:10px 0;margin:8px 0 4px}
+.dest .row{display:flex;justify-content:space-between;align-items:baseline;min-height:32px}
+.fld{margin:0 0 16px}.fld label{display:block;font-size:13px;margin-bottom:6px}
+.fld input{width:100%;height:46px;border:1px solid var(--bds);background:#fff0;padding:0 12px;font-size:16px;font-family:inherit;color:var(--tx)}
+.fld .h{font-size:12px;color:var(--mu);margin-top:4px}
+.two{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+.chk{display:flex;gap:12px;min-height:44px;align-items:flex-start;font-size:13px;line-height:1.55;margin:6px 0 10px}
+.chk i{flex:none;width:18px;height:18px;border:1px solid var(--bds);margin-top:2px}
+.fold{border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);min-height:44px;display:flex;align-items:center;font-size:13px;margin:4px 0 16px}
+.sug{border:1px solid var(--bd);padding:12px;display:flex;gap:12px;align-items:center;margin-bottom:8px}
+.note{border-left:2px solid var(--ac);padding-left:12px;font-size:13px;line-height:1.7;color:var(--mu);margin:16px 0}
+.note.q{border-left-color:var(--bd)}
+.bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--bds);padding:8px 20px 12px;z-index:3}
+.bar .t{display:block;width:100%;min-height:44px;text-align:left;border:0;background:none;font:11px/1.5 "JetBrains Mono",Menlo,monospace;color:var(--mu);padding:0}
+.bar .r{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tot{font-size:22px;font-variant-numeric:tabular-nums;font-weight:500}
+.pay{min-width:140px;height:48px;border:0;background:var(--ac);color:var(--bg);font:600 13px "JetBrains Mono",Menlo,monospace;letter-spacing:.1em;text-transform:uppercase}
+.tag{background:#fff3;border:1px dashed var(--ac);color:var(--ac);font:10px "JetBrains Mono",monospace;padding:0 4px;margin-left:4px}
+.big{font-size:30px;font-weight:500;font-variant-numeric:tabular-nums}
+.buy{height:52px;background:var(--tx);color:var(--bg);display:flex;align-items:center;justify-content:center;font:600 13px "JetBrains Mono",monospace;letter-spacing:.1em;margin:14px 0}
+</style></head><body>
+
+<div>
+<p class="cap"><b>Opción A · Una pantalla</b> · 390 px · datos de ejemplo (carta suelta MX$110). Se desplaza dentro del marco; la barra queda fija.</p>
+<div class="frame">
+  <div class="hdr">TCG HUNT</div>
+  <div class="pad">
+    <h1>Tu carrito</h1>
+    <div class="line"><div class="thumb">carta</div>
+      <div><div class="n">Pikachu</div><div class="mono xs muted">Set de ejemplo · #025 · NM</div><div class="mono xs muted" style="margin-top:8px">Quitar</div></div>
+      <div class="price">MX$110.00</div></div>
+
+    <p class="sm" style="margin:6px 0 0;border-top:1px solid var(--bd);padding-top:4px"><button class="btnlink" style="display:inline;width:auto;min-height:44px">¿Ya tienes cuenta? Inicia sesión</button> <span class="muted">· o <u>crea una cuenta</u></span> <span class="tag">T4</span></p>
+
+    <div class="dest">
+      <div class="row"><span style="font-size:14px">Envío a mi domicilio</span><span class="mono xs muted">+ MX$100.00</span></div>
+      <button class="btnlink" style="min-height:44px">Guardar en mi bóveda <span class="eyebrow" style="display:inline;margin-left:6px">Requiere cuenta</span></button>
+    </div>
+    <p class="mono xs muted" style="margin:0 0 6px">T9 (solo si hay sellado): «Te faltan MX$X para envío gratis» · aquí no aplica: solo cartas.</p>
+
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Contacto</p>
+    <div class="fld"><label>Correo electrónico</label><input value="ana@ejemplo.com"><div class="h">Es el único canal de tu pedido: ahí te llegan la confirmación y el enlace de seguimiento.</div></div>
+    <div class="chk"><i></i><span>Confirmo que <span class="mono">ana@ejemplo.com</span> es correcto. Es el único canal para dar seguimiento a mi pedido.</span></div>
+
+    <p class="eyebrow" style="margin:22px 0 14px;border-top:1px solid var(--bd);padding-top:16px">Envío · a México</p>
+    <div class="fld"><label>Nombre de quien recibe</label><input value="Ana Pérez"></div>
+    <div class="fld"><label>Código postal</label><input value="03100" inputmode="numeric"></div>
+    <div class="fld"><label>Colonia</label><input value="Del Valle Centro"><div class="h mono">Benito Juárez, CDMX</div></div>
+    <div class="fld"><label>Calle y número</label><input value="Av. Ejemplo 123"></div>
+    <div class="fld"><label>Teléfono (10 dígitos)</label><input value="5512345678"><div class="h">Solo lo usa la paquetería para entregar.</div></div>
+    <div class="fold">+ Interior y referencias (opcional) <span class="tag">T5</span></div>
+
+    <div class="chk"><i></i><span>Acepto los términos y el aviso de privacidad.</span></div>
+
+    <p class="eyebrow" style="margin:22px 0 10px">¿Te falta algo?</p>
+    <div class="sug"><div class="thumb" style="width:44px;height:60px">acc.</div><div class="sm"><b>Protectores (50)</b><br><span class="mono xs muted">MX$ ejemplo</span></div></div>
+    <p class="mono xs muted" style="margin:6px 0 0">↑ Sugerencias DESPUÉS del formulario (hoy van antes).</p>
+
+    <p class="note"><b style="color:var(--tx)">Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.</b> <u style="color:var(--ac)">Ver términos</u><br>
+      <span class="mono xs">Si tu carta llega dañada o equivocada, te reembolsamos.</span> <span class="tag">T8</span></p>
+    <p class="note q">Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcghunt.mx tras el pago.</p>
+    <p class="note q">Al pagar preparamos tu pedido y lo enviamos a tu domicilio. Te llega al correo la confirmación con tu enlace de seguimiento.</p>
+    <div style="height:150px"></div>
+  </div>
+  <div class="bar">
+    <button class="t">Incluye envío MX$100.00 y comisión de plataforma MX$15.00 · <u>Ver desglose</u> <span class="tag">T3a/T6</span></button>
+    <div class="r"><div><div class="eyebrow">Total</div><div class="tot">MX$225.00</div></div><button class="pay">Pagar</button></div>
+  </div>
+</div>
+</div>
+
+<div>
+<p class="cap"><b>Extracto de la ficha</b> (T1a, T2, T8). Importes de ejemplo.</p>
+<div class="frame" style="height:520px">
+  <div class="hdr">TCG HUNT</div>
+  <div class="pad">
+    <h1 style="font-size:24px">Pikachu</h1>
+    <p class="mono xs muted" style="margin:0">Set de ejemplo · #025 · NM</p>
+    <div class="thumb" style="width:100%;height:180px;margin:14px 0">imagen de catálogo</div>
+    <div class="eyebrow">Precio de venta</div><div class="big">MX$110.00</div>
+    <p class="mono xs muted" style="margin:6px 0 0">+ envío MX$100 · comisión de plataforma al pagar <span class="tag">T1a</span></p>
+    <p class="mono xs muted" style="margin:4px 0 0">Sellado diría: «Envío MX$175, gratis desde MX$4,000 · comisión…» <span class="tag">T1b</span></p>
+    <div class="buy">COMPRAR</div>
+    <p class="mono xs muted" style="margin:0 0 6px">La bóveda requiere cuenta. Sin cuenta, te la enviamos a casa. <span class="tag">T2</span></p>
+    <p class="mono xs muted" style="margin:0">Todas las ventas son finales. Si tu carta llega dañada o equivocada, te reembolsamos. <span class="tag">T8</span></p>
+  </div>
+</div>
+</div>
+</body></html>

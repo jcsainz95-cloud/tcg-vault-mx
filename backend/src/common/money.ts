@@ -595,7 +595,7 @@ export interface BreakdownDTO {
  * (`direct_ship`). Aditivo: un `DirectShipBreakdownDTO` ES un `BreakdownDTO` válido.
  */
 export interface DirectShipBreakdownDTO extends BreakdownDTO {
-  /** Tarifa de envío (dial `SHIPPING_FEE_CENTS`) cobrada en el MISMO PaymentIntent. */
+  /** Tarifa de envío `E` (regla v2 de API_CONTRACT §4-G.12, `orders/shipping-rule.ts`) cobrada en el MISMO PaymentIntent. */
   shippingFeeCents: number;
 }
 
@@ -1130,6 +1130,12 @@ export function stripeDashboardRefundComponents(grossAmountCents: number, ivaRat
  * de las filas no fallidas. Mercancía `0` · envío `E` · IVA de envío = el RESIDUAL `ivaCents − Σ
  * merchandiseIvaCents` (§4.44.j.1: el envío absorbe el centavo) · comisión `amount − E`.
  * Identidad exacta al cerrar: `Σ amountCents = totalCents` y `Σ IVA = ivaCents`, ±0 (PS-3).
+ *
+ * 💰 v1.109 (API_CONTRACT §4-G.12 punto 7) — **envío gratis (`E = 0`)**: no hay envío que absorba el centavo, así que la
+ * fila lleva sus tres IVA/envío en `0` (el residuo `ivaCents − Σ merchandiseIvaCents` puede ser NEGATIVO —dos sellados de
+ * 208906: Σ por pieza 57630, agregado 57629 ⇒ −1— y el CHECK `shippingIvaCents ≥ 0` de M-61 tumbaría el reembolso con
+ * `23514`). `Σ amountCents = totalCents` sigue exacta; el desvío `|Σ IVA − ivaCents|` queda acotado por el redondeo por
+ * renglón (≤ ⌈n/2⌉, PS-3). El remanente `0` (`total = Σ`) no escribe fila: lo decide quien llama (`amountCents > 0`).
  */
 export function orderRemainingRefundComponents(
   o: RefundOrderMoney,
@@ -1144,7 +1150,7 @@ export function orderRemainingRefundComponents(
     merchandiseCents: 0,
     merchandiseIvaCents: 0,
     shippingCents: shipping,
-    shippingIvaCents: o.ivaCents - refundedIva,
+    shippingIvaCents: shipping === 0 ? 0 : o.ivaCents - refundedIva,
     processingFeeCents: amount - shipping,
     compensationCents: 0,
   };

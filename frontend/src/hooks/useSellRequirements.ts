@@ -51,6 +51,13 @@ export interface SellRequirements {
    * umbral repitiendo la llamada: la decisión autoritativa es SIEMPRE server-side (SEC-A1).
    */
   ineExpected: boolean;
+  /**
+   * v1.109 (D-MKT2-8): `true` mientras el veredicto de INE para el total ACTUAL todavía no llegó (debounce +
+   * consulta en vuelo). El paso de crear (`/buylist/solicitud`) monta en frío y espera a que sea `false`
+   * antes de pintar `BuylistKycForm`, que lee `ineExpected` solo al montar. Con error ⇒ `false` (fail-open:
+   * el `422 INE_REQUIRED` del servidor manda). Opcional: quien construye el objeto a mano no lo necesita.
+   */
+  ineVerdictPending?: boolean;
   /** habilita el CTA "Enviar solicitud": sesión activa y correo no bloqueado. */
   canSubmit: boolean;
 }
@@ -110,6 +117,8 @@ export function useSellRequirements(totalEstimatedCents = 0): SellRequirements {
     // ⚠️ `?? false` = «el servidor no ha contestado todavía» (o no se le preguntó porque el
     // carrito está vacío): **no se avisa de un requisito que nadie ha afirmado**.
     ineExpected: (ineVerdictQuery.data?.ineRequiredForTotal ?? false) && !ineOnFile,
+    ineVerdictPending:
+      kycEnabled && totalEstimatedCents > 0 && (debouncedTotalCents !== totalEstimatedCents || ineVerdictQuery.isLoading),
     canSubmit: ready && isAuthenticated && !emailBlocked,
   };
 }

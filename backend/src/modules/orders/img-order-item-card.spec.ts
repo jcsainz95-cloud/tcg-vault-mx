@@ -28,7 +28,8 @@ import {
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
-const SHIPPING = 17500;
+/** 💰 v1.109.1 (§4-G.12): el carrito es solo de cartas ⇒ el dial `direct_ship_cards_fee_cents` (exhibido, IVA dentro). */
+const SHIPPING = 10000;
 
 const IMG = 'https://images.pokemontcg.io/base1/4.png';
 
@@ -61,7 +62,7 @@ function inventoryItem(over: Record<string, unknown> = {}) {
 
 function settingsMock() {
   return {
-    getNumber: jest.fn(async (key: string) => (key === 'shipping_fee_cents' ? SHIPPING : IVA)),
+    getNumber: jest.fn(async (key: string) => (key === 'direct_ship_cards_fee_cents' ? SHIPPING : key === 'direct_ship_free_from_cents' ? 400000 : key.startsWith('direct_ship_') ? 17500 : IVA)),
     getStripeFee: jest.fn(async () => FEE),
     // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
     ...ivaDialsStub(),
@@ -306,8 +307,8 @@ describe('IMG-3 — POST /checkout/guest/quote (mismo hueco gris, misma causa)',
     const res = await guest.quote({ inventoryItemIds: ['inv-1'] } as never);
     expect(res.items[0].unitPriceCents).toBe(29000);
     expect(res.breakdown.subtotalCents).toBe(29000);
-    // ⭐ `E = round(F × 1.16)`: la tarifa EXHIBIDA, con su IVA dentro (§4.44.f).
-    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING + Math.round((SHIPPING * 16) / 100));
+    // 💰 v1.109.1 (§4-G.12): el dial del envío directo YA es exhibido (IVA dentro) ⇒ `E = dial`, sin re-exhibir.
+    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING);
     expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
     expect(res.unavailableItems).toEqual([]);
   });

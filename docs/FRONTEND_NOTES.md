@@ -2,6 +2,74 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
+## §CHK-MOVIL · Checkout móvil, opción A (una pantalla) (2026-10-24, rama `fe-checkout-a`, base `aeea6fac`)
+
+**Estado vigente.** Norma: `DESIGN_SYSTEM §CHK-MOVIL` + maqueta `docs/mockups/chk-movil-A.html`; elección del dueño en
+`HECHOS.md` 2026-10-24 «Checkout móvil: opción A». Contrato: §4-G.12 (`shippingRule`, `GET /checkout/shipping-rule`).
+- **Causa medida de los 426 px** (`getBoundingClientRect` a 390, bundle de mocks de `aeea6fac`; allí midió **439 px**,
+  no 426: los datos de mocks no son los de producción): la rejilla raíz del checkout no declaraba columnas bajo `lg`, la
+  pista implícita `auto` crecía al mínimo del hijo más ancho, y ese hijo era la fila de `AccessorySuggestions` (foto +
+  nombre + precio + «Agregar» en una línea = 359 px + `p-5`). Ablación: sin la sección ⇒ 390; sin los «Agregar» ⇒ 390;
+  con `minmax(0,1fr)` ⇒ 390. Arreglo: pista `minmax(0,1fr)` (`lg:` `minmax(0,1fr)_420px`), hijos `min-w-0`, fila de
+  sugerencia con nombre/precio apilados. ⛔ Sin `overflow-x:hidden`.
+- **Entrada (2.1):** `CheckoutIdentityGate` retirado (y `checkout.identity.*`). Formulario directo; T4 (`checkout.entryLine`)
+  abre `InlineAuthPanel` inline (login/registro) sin tocar formulario ni carrito (criterio 46).
+- **Orden (2.2, A):** líneas (2 + «Ver {n} más», `CheckoutLines`) → accesorios ya añadidos → T4 → fila de destino (envío +
+  importe; botón «Guardar en mi bóveda · REQUIERE CUENTA» que abre `VaultUpsellPanel`) → T9 → Contacto (correo + su casilla
+  bajo el campo) → «ENVÍO A MÉXICO»: nombre, CP, colonia, calle, teléfono; `line2`/`references` plegados (T5, se abren solos
+  con error) → términos → paquetes y sugerencias (máx. 3) → desenlaces de pago (<lg) → notas legales (+T8). `FIELD_ORDER`
+  sigue el DOM. Sustituye a §43.18b (referencias antes del teléfono).
+- **Barra fija (2.4):** `CheckoutPayBar` en <lg (`useIsDesktop`, `matchMedia` ≥1024): T3a (invitado) / T3b (cuenta) +
+  T6, TOTAL + PAGAR; `useStickyBottomBar`; contenido con `padding-bottom: calc(var(--sticky-bottom-h) + 16px)`; se desmonta
+  con un campo de texto enfocado y solo reaparece sin puntero abajo (si no, el toque sobre la casilla de abajo caía en la
+  barra: 10/10 a 360×740 antes del arreglo). En lg+ el `aside` de siempre. **Una sola copia** de PAGAR y del desglose en
+  el DOM (se decide por JS con `minWidthQuery('lg')`; choca con §37.1a «el contenedor nunca por JS», cuyo motivo —destello
+  al hidratar— no se da aquí porque el checkout es solo de cliente: pedido a ux-ui que lo reconcilie). Doble envío: guarda
+  `payInFlight` (ref) además de `loading`, en las dos vistas.
+- **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
+  `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, `kind ≠ null`
+  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
+  `formatMoneyCents` (MX$100.00). T2 (ficha, sesión anónima) **no** entró en este encargo.
+- **«envío gratis»:** excepción nombrada en `seo-content.test.ts` `KNOWN_OFFENDERS` solo para `checkout.bar.includesShippingFree`
+  y `checkout.freeShippingRemaining` (ES/EN), dueño, medida 2026-10-24, caduca 2026-11-24, nota «pendiente de aprobación del
+  dueño» (prueba propia). Si el dueño dice que no, se cambia el texto de esas dos claves y se borran las filas.
+- **Fricción 5:** `CatalogView` muestra y envía `newest` sin `sort` en la URL (`DEFAULT_CATALOG_SORT`); con `sort`, la URL.
+- **Pruebas:** `e2e/checkout-movil.spec.ts` (L1-L6 a 320/360/390/414 + escritorio), `checkout/CheckoutPayBar.test.tsx`,
+  `_shared/ShippingFeeHint.test.tsx`, fricción 5 en `CatalogView.test.tsx`. Las pruebas de checkout previas fijan escritorio
+  con `checkout/test-viewport.ts` (jsdom responde móvil). Mutaciones medidas sobre copia de `fc42678c` (rojas/corridas):
+  L1 `min-w-[426px]` 4/4 · L2 sin `ref={barRef}` 4/4 · L3 sugerencias antes del formulario 4/4 · L4 plegable abierto 4/4 ·
+  L5 comisión calculada en el front 2/2 · L6 sin `payInFlight` ni `loading` 12/12; solo sin `loading` 0/12 (la ref basta).
+- **Contra el stack real (2026-10-25, `c3f6ed2b`):** 23 casos llevan `@real` (antes ninguno: el `grep: /@real/` del config
+  dejaba el fichero fuera, QA sobre `fc84acde`); la suite `@real` pasa de 106 a 129. Fuera queda L1 con aviso de reintento
+  (`mockOnly`: sin Stripe la sesión da 503; dato en `checkout-reservation-owner.e2e-spec.ts:172,640`). En real el fichero
+  va en `mode: 'default'` (un worker, en orden) porque L6 aparta la pieza que otro viewport ya añadió («ya no está
+  disponible»); L3 siembra su accesorio sugerido (el seed no trae). Stack propio, 2 workers: 10/10 corridas 23/23; sin el
+  modo, 1/10 roja con el mensaje de QA y 10/10 con L6 solapado a otro caso. `e2e-real-suite.sh` le da tanda propia (4 sesiones).
+  L5 acepta las dos plantillas de T3a (`includesShipping` / `includesShippingFree`, la elige el quote): en `84410390`
+  estaba roja 2/2 en mock porque la primera carta del catálogo ya cae en envío gratis.
+
+## §ENV-V2 · Regla de envío v2 en tipos, mock y M10 (2026-10-24, rama `fe-envio-medir`, base `5c7e652b`, contrato v1.109)
+
+**Estado vigente.** Norma: `API_CONTRACT §4-G.12` (un hecho, un sitio: aquí solo lo que hace el front).
+- **Tipos** (`types/contract.ts`): `GuestShippingRuleDTO` (`shippingRule` del quote de invitado, opcional solo por
+  tolerancia a un servidor anterior), `PublicShippingRuleDTO` (`GET /checkout/shipping-rule`, `getPublicShippingRule`)
+  y los tres diales `directShip*` en `SettingsDTO`. Los consume el checkout móvil A (§CHK-MOVIL, arriba).
+- **Convención (dueño 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido», relayada por el orquestador):** los tres
+  diales son CON IVA INCLUIDO; la `E` exhibida ES el valor del dial (10000 / 17500; umbral 400000, para CUALQUIER clase
+  desde v1.109.3). El retiro de bóveda (`shippingFeeCents`) sigue neto.
+- **Mock** (`lib/mock/shipping-rule.ts`): pasos 1-3 de §4-G.12 con los diales de `fx.mockSettings` (los que M10
+  escribe). Quote, sesión (ENV-3: misma función) y pedido demo de seguimiento la usan; `shippingBox` sigue `null` en el
+  mock. Sin marcas `MOCK: pendiente de contrato` desde v1.109.3. Paridad en `lib/mock/shipping-rule.parity.test.ts`:
+  lee del contrato la tabla de defaults, el ejemplo de `shippingRule` (objeto entero, con el `S` del propio ejemplo),
+  las cifras de ENV-1 de cartas/sellado/caja y el predicado de T9 de ENV-F1; mixtos, energía y vacío van como tabla
+  propia (el contrato los da sin cifras). `freeShippingApplied = S ≥ T ∧ ¬boxFeeApplies` (antes el mock daba `true`
+  con caja grande sobre T; lo cazó la lectura del caso de caja, 2026-10-25). v1.109.5: caja grande ⇒
+  `freeShippingRemainingCents: null` bajo y sobre T. TL-ENV-F5: pull con paquete aceptado + solo cartas ⇒ `sealed`.
+- **M10** (`admin/m10/sections/DirectShipSection.tsx`, «Envío a domicilio»): los tres diales en pesos, `PUT` parcial en
+  centavos, `422` por campo, sin pintar nada si el servidor no trae las claves. «IVA incluido» pegado a cada campo
+  (sufijo) y en la ayuda; una nota recuerda que el retiro de bóveda va antes de IVA. La copia de admin evita «envío gratis»
+  (trinquete de `seo-content.test.ts` sobre todo `messages/`). REL-S7 (`M10View.test.tsx`) los deja fuera del listado genérico.
+
 ## §MKT2 · Fase 2 de marketing (banner, Consent Mode básico, GA4, píxel) — construida y APAGADA (2026-10-19, base `b95fbbac`)
 
 **Estado vigente.** Norma: `API_CONTRACT §MKT.H` (v1.102), `ARCHITECTURE §14`, `DESIGN_SYSTEM §MKT2-UX`. Con
@@ -16,7 +84,18 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `next.config.mjs`; los `.map` del middleware copian el fuente entero, por eso la lista no vive en `csp.ts`).
   Candado de fuente `lib/measurement/source-lock.test.ts`; de artefacto, `e2e/measurement-off.spec.ts` (C-F1).
 - **Módulos:** `lib/measurement/*.ts`, `components/consent/*.tsx`, `hooks/useStickyBottomBar.ts` (`usePublishedHeight`: barras
-  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido).
+  `--sticky-bottom-h` y banner `--consent-banner-h`, TL D8). Lista blanca de rutas: `routes.ts` (lo nuevo nace excluido);
+  `measurementPolicyFor` es la única puerta (cargador, `track()`, `consentForRoute`). Navegación dura: `hard-navigation.ts`.
+- **v1.109 (MKT-MEDIR-CS b, 2026-10-24):** `/buylist` medida (D-MKT2-8): el paso de crear (resumen + `BuylistKycForm`)
+  salió del modal a `/buylist/solicitud` (excluida, `noindex`), al que «Enviar solicitud» llega SIEMPRE con
+  `location.assign` (`buylist/request-step.ts`); el carrito cruza por `localStorage`, el paso recotiza y espera KYC y el
+  veredicto de INE (`ineVerdictPending`, nuevo en `useSellRequirements`) antes de montar el formulario. `/card-show` en
+  `MEASURED_UNLOCALIZED_PATHS` (exacta; `confirm`/`cancel`/`unsubscribe` fuera): `CardShowMeasurement` (layout raíz de la
+  landing, segundo importador del cargador en `source-lock.test.ts`) **sin banner**: honra un `th_consent` ya guardado,
+  solo GA4 y solo `page_view` (política `page_view_only`, sin píxel). C-F5 ampliado: `SellRequestStep.cf5.test.tsx` +
+  `measurement-on.spec.ts` («/buylist → paso»); C-F9: `routes.test.ts` + `measurement-on.spec.ts` («/card-show»).
+  **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
+  quien llega a `/card-show` sin haber elegido en la tienda no se mide.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
   `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
   escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
@@ -49,7 +128,7 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3**, **MKT-F2-4** y **MKT-TL2** (backend).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend; leído el 2026-10-24).
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
@@ -92,6 +171,8 @@ Sin backend ni contrato: contenido estático en `frontend/src/content/seo/`.
 
 ## §MKT-PANEL · Pantalla `/admin/marketing` (2026-10-18, rama `claude/sesiones-pendientes-alcances-cznucn`)
 
+**v1.109 (2026-10-24):** el mock de la pantalla b sirve b5/b6 del Card Show (`cardShowTables`: `avisame`/`torneo`, sin MX$,
+«< 5» por componente; copia de `CS_HEADS`/`csTable` del servicio en `21a7f637`); `MarketingTable.b5b6.test.tsx`.
 **Estado vigente.** Pantalla del Panel de Marketing construida contra **`API_CONTRACT §MKT.E` + §MKT.G v1.103**
 (`c492b0e4`) y **`DESIGN_SYSTEM §MKT-UX`** (+ §MKT2-UX.14 solo para `download.exactNotice`, `31e510b9`). Código en
 `frontend/src/app/[locale]/(admin)/admin/marketing/`; cliente `src/lib/marketing-api.ts`; servidor falso
@@ -4806,43 +4887,6 @@ interceptor **solo corre en modo real**. Los tests mock existentes no se tocan; 
 **Pruebas:** `lib/api-client.test.ts` (rama real con `fetch` mockeado: refresh+reintento, refresh fallido, sin bucle,
 sin refresh token, `/auth/*` excluido, 422/200 no refrescan).
 
-## WS-D — 3 quick wins de UX (nav por sesión, márgenes, placeholder) (2026-08-17)
-
-Tres ajustes de bajo riesgo, solo `frontend/`. **No** se tocó `lib/api.ts`, `api-client.ts` ni `session.ts`
-(trabajo paralelo de otro agente), ni backend ni contrato. Sin claves i18n nuevas; paridad ES/EN preservada.
-
-### #9 — Nav por sesión (P-13) — `StorefrontHeader.tsx`
-El array `links` pintaba las 4 pestañas siempre. Ahora "Mi Bóveda" (`/vault`) y "Mis Órdenes" (`/orders`) se
-**gatean tras `authed`** (`ready && isAuthenticated`, ya calculado en `:51`); el público solo ve "Compra"
-(`/catalog`) y "Vender" (`/buylist`). El gate vive en la construcción del array (spread condicional), así que
-aplica **igual a nav desktop y menú móvil** (ambos hacen `links.map`). Como `authed` depende de `ready`, en
-SSR/hidratación se pinta el nav público (idéntico al render de servidor, sin mismatch) y las pestañas privadas
-aparecen al montar la sesión — mismo patrón ya usado para el botón login/logout.
-
-### #6 — Márgenes laterales grandes (columna vertical 56px + gutter 44px)
-- `globals.css` `.gutter` `@media (min-width:1024px)`: **44px → 32px** (DESIGN_SYSTEM §4.1 pide "32px+"; 32 es
-  el mínimo válido). Afecta a todas las secciones storefront que usan `.gutter` (ese es el objetivo).
-- Canal del label vertical **56px → 40px** en `BuylistView.tsx` (`grid lg:grid-cols-[40px_1fr]`) y
-  `page.tsx` (`[40px_1fr_1fr]` hero y `[40px_1fr_auto]` banda buylist). La etiqueta vertical (`.vertical-label`,
-  `writing-mode: vertical-rl`) se mantiene: en modo vertical su longitud crece en alto, no en ancho, así que
-  "Bóveda"/"Buylist" caben de sobra centradas en 40px.
-- Quitado `lg:px-10` redundante del `<aside>` del cotizador en `BuylistView.tsx` (ya lleva `.gutter`).
-- Alineación del **chrome** con el gutter nuevo (32px): `StorefrontHeader.tsx` y el footer de
-  `(storefront)/layout.tsx` bajaron `lg:px-11` → `lg:px-8`. **También** `VerifyEmailBanner.tsx` (banner que se
-  monta entre header y `main` y comparte el patrón idéntico `mx-auto max-w-7xl px-5 sm:px-6 lg:px-11`): bajado a
-  `lg:px-8` para no introducir una desalineación de 12px cuando el banner es visible. Los `lg:px-10` de asides
-  de otras vistas (checkout, order-detail, shipments) y el chrome admin (`AdminTopbar`/`AdminShell`) quedaron
-  **intactos** por estar fuera del alcance de este WS.
-- `max-w-7xl` **no se tocó** (fijado por DESIGN_SYSTEM §4.4). Anillo de foco `shadow-focus` intacto.
-
-### #7 — Placeholder "Buscar carta" que se truncaba
-`"Nombre o número (ej. Charizard, 4)"` se cortaba en el ancho del input. Acortado a **"Nombre o número" /
-"Name or number"** (describe los dos modos de búsqueda: nombre o número de carta). Cambiado en las 2 claves
-que compartían el texto largo: `buylist.searchPlaceholder` (`BuylistView`) y `admin.m1.searchPlaceholder`
-(picker de alta de inventario). `catalog.searchPlaceholder` ("Buscar carta…") ya era corto y no se tocó.
-
-**Pruebas:** `StorefrontHeader.test.tsx` («sin sesión el nav público… oculta bóveda y órdenes»; el nav vigente lo fija ese fichero).
-
 ## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
 
 Contrato/arquitectura v1.12. El humano pidió "mapear los sets nuevos que vayan saliendo"; el endpoint ya
@@ -5457,65 +5501,10 @@ Las dos etiquetas "Enviar solicitud" se distinguen: el **CTA del carrito** es "E
 ### Gates (todos verdes)
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` (153) ✓ · `npm run build` ✓ (incluye paridad i18n ES/EN).
 
-## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16
-
-Feature **solo frontend** (sin cambio de contrato). El cotizador dejó de ser un flujo de
-una-carta-a-la-vez y ahora es un **carrito**: se cotizan varias cartas y se envían en **una sola**
-`POST /buylist/requests` (que ya recibía `items: RequestItemDto[]`). No se inventó ningún endpoint
-batch: `POST /buylist/quote` sigue siendo **por carta** y sus resultados son **estimados** que se
-snapshotean en cada línea; el monto autoritativo lo re-deriva el backend server-side (SEC-A1).
-
-### Archivos tocados (todos dentro de `frontend/`)
-- `src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — reescrito: estado de carrito + panel de
-  carrito + total estimado + envío único.
-- `src/components/domain/BuylistKycForm.tsx` — props cambiadas de `{cardId, productType}` a
-  `{items: BuylistRequestItem[]}`; el form ahora envía **todos** los items del carrito (ya
-  expandidos). Nuevo tipo exportado `BuylistRequestItem = {cardId, productType, rawCondition?}`.
-- `messages/es.json` / `messages/en.json` — llaves nuevas del carrito (paridad ES/EN).
-- Tests: `BuylistView.test.tsx` (agrega casos de carrito), `BuylistKycForm.test.tsx` (props `items`),
-  `e2e/buylist.spec.ts` (flujo cotizar → agregar al carrito → enviar).
-
-### Flujo del carrito (pasos + UI)
-1. **Buscar** por set y/o texto sobre TODO el catálogo (`GET /buylist/cards`, `GET /buylist/sets`).
-2. **Elegir carta** de los resultados (`role=option`).
-3. **Elegir tipo** (`raw|graded|sealed`; raw fija `NM`, sin selector) y **Cotizar**
-   (`POST /buylist/quote`, por carta).
-4. **Agregar al carrito** (botón `accent`): añade una **línea** con el snapshot del estimado
-   (`BuylistQuoteResponse`) y `quantity=1`. Se puede agregar la misma carta varias veces (líneas
-   independientes) y/o subir la **cantidad** por línea.
-5. **Panel de carrito** (sección full-width bajo el cotizador): lista de líneas (nombre/set/rareza/
-   tipo + estimado c/u + control −/N/+ de cantidad + quitar), **Total estimado** (suma
-   `quotedPriceCents × cantidad`; las líneas `precio_pendiente` muestran "Precio pendiente" y aportan
-   0), **nota de estimado** (SEC-A1) y **nota de KYC**. Carrito vacío → `EmptyState`, sin botón de
-   enviar.
-6. **Enviar solicitud ({count})** (habilitado con ≥1 línea) abre **una sola vez** el `BuylistKycForm`
-   (CLABE + INE por presign `kyc_ine`) y llama `createSellRequest` con todos los items. Al crear:
-   limpia el carrito, invalida `['sell-requests']` y muestra el banner de éxito. El requisito de
-   INE/tope lo decide el **backend por el TOTAL** (no se reimplementa en el front).
-
-### Expansión cantidad → items
-Al enviar, `cart.flatMap(line => Array(line.quantity).fill({cardId, productType, rawCondition}))`
-produce el array `items`: una línea con `quantity=3` genera **3 entradas** idénticas (el modelo es
-1 item por carta física). El payload solo lleva `cardId/productType/rawCondition`; **no** se envían
-precios ni categorías (el `ValidationPipe` descarta lo demás; SEC-A1).
-
-### SEC-A1 / claridad
-- El total del carrito se rotula explícitamente como **ESTIMADO** (`buylist.estimateNote`): "el monto
-  final lo confirma la plataforma al recibir y verificar".
-- No se envía monto/categoría/rareza en el payload; el backend re-deriva la regla de `Card.rarity`.
-
-### Historial de "mis solicitudes"
-Intacto: sigue consumiendo `GET /buylist/requests` y renderizando `PipelineStepper` + items con sus
-`StatusBadge`. Solo se invalida su query tras crear una solicitud.
-
-### Gates (frontend/)
-`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (144/144, incluye paridad i18n y los
-casos nuevos de carrito: agregar, quitar, cantidad, total, envío con múltiples items) ·
-`npm run build` ✓.
-
-### Solicitudes al arquitecto
-Ninguna. El contrato ya soportaba múltiples ítems en `POST /buylist/requests`; no hizo falta ningún
-campo/endpoint nuevo.
+## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16 · compactada 2026-10-24
+Histórico (el flujo de búsqueda/tipo que describía se retiró en v1.21/v1.53; el paso de crear salió del modal en v1.109,
+§MKT2). Vigente de entonces: una línea por (carta, acabado, `productId`), `quantity` se expande a N `items` al enviar
+y el payload no lleva montos (SEC-A1). Texto completo: la versión de este fichero en `5c7e652b`.
 
 ## v1.5-auth-email — Verificación de correo + recuperación self-service (2026-08-16)
 
@@ -7252,8 +7241,7 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 |---|---|
 | `checkout/CheckoutView.tsx` (modificado) | Conmutador de las dos naturalezas del checkout **en la misma ruta**: con sesión = flujo de cuenta intacto; sin sesión = `GuestCheckoutView`. |
 | `checkout/GuestCheckoutView.tsx` | Contenedor del flujo de invitado: cotización, gate, formulario, destino, pago, confirmación. |
-| `checkout/CheckoutIdentityGate.tsx` | §15.2 — las tres vías (invitado / iniciar sesión / crear cuenta) inline, con "Cambiar". |
-| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, destino, términos, resumen de errores. |
+| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, términos, resumen de errores (destino y gate: §CHK-MOVIL). |
 | `checkout/VaultUpsellPanel.tsx` | §15.4 — upsell inline de bóveda (nunca error), con salida en positivo. |
 | `checkout/InlineAuthPanel.tsx` | Login/registro inline **sin navegar** (ver "Por qué no se reusó `AuthForm`"). |
 | `checkout/GuestOrderConfirmation.tsx` | §15.5 — confirmación + reclamo post-compra (`AccountClaimOffer` incluido). |

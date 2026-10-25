@@ -26,6 +26,12 @@ import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from '../_shared/grading/estimates';
 
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
+/**
+ * Fricción 5 (DESIGN_SYSTEM §CHK-MOVIL.5): el selector SIEMPRE muestra un orden real. Sin `sort` en la URL se
+ * pinta «Novedades» y se envía ese orden (es también el default del contrato, §2 `sort` default `newest`); con
+ * `sort` explícito en la URL, manda la URL.
+ */
+export const DEFAULT_CATALOG_SORT: CatalogSort = 'newest';
 /** pageSize del contrato (§2, default del backend); solo para el fallback del total de páginas. */
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -183,7 +189,7 @@ export function CatalogView() {
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
   const catalogQuery = useQuery({
     queryKey: ['catalog', filters],
-    queryFn: () => getCatalog(filters),
+    queryFn: () => getCatalog({ ...filters, sort: filters.sort ?? DEFAULT_CATALOG_SORT }),
     // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
     // anterior mientras llega la nueva (isLoading solo en el primer fetch).
     placeholderData: keepPreviousData,
@@ -222,10 +228,9 @@ export function CatalogView() {
   const sortControl = (
     <Select
       label={tShop('sortLabel')}
-      placeholder="—"
       options={SORTS.map((s) => ({ value: s, label: tShop(`sort.${s}`) }))}
-      value={filters.sort ?? ''}
-      onChange={(e) => updateFilters({ ...filters, sort: (e.target.value || undefined) as CatalogSort })}
+      value={filters.sort ?? DEFAULT_CATALOG_SORT}
+      onChange={(e) => updateFilters({ ...filters, sort: (e.target.value || DEFAULT_CATALOG_SORT) as CatalogSort })}
     />
   );
 

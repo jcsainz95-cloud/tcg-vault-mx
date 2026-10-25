@@ -455,7 +455,6 @@
   "checkout": {
     "title": "Tu carrito",
     "subtitle": "Tus piezas entran a tu bóveda al pagar. Pides el envío cuando tú quieras, todo junto.",
-    "vaultKeepEyebrow": "Guardar en mi bóveda",
     "summary": "Resumen",
     "removeItem": "Quitar",
     "subtotal": "Subtotal",
@@ -490,28 +489,8 @@
     "processingTitle": "Pago en proceso",
     "processingBody": "Recibimos tu pago y lo estamos confirmando. Tus cartas aparecerán en tu bóveda con titularidad pendiente y pasarán a liquidadas en cuanto el pago se confirme.",
     "afterPaymentGuest": "Al pagar preparamos tu pedido y lo enviamos a tu domicilio. Te llega al correo la confirmación con tu enlace de seguimiento.",
-    "identity": {
-      "eyebrow": "IDENTIDAD",
-      "title": "¿Cómo quieres continuar?",
-      "cartKept": "Tu carrito se conserva en cualquiera de las tres.",
-      "change": "Cambiar",
-      "chosen": "Vía elegida",
-      "guest": {
-        "cta": "Continuar como invitado",
-        "hint": "Solo necesitas tu correo y tu dirección."
-      },
-      "login": {
-        "cta": "Iniciar sesión",
-        "hint": "Tus direcciones y tu bóveda te esperan."
-      },
-      "register": {
-        "cta": "Crear cuenta",
-        "hint": "Guarda tus cartas en la bóveda y paga un solo envío."
-      }
-    },
     "guest": {
       "contactGroup": "CONTACTO",
-      "shippingGroup": "ENVÍO",
       "recipientName": "Nombre de quien recibe",
       "errorSummary": "Revisa {count, plural, one {# campo} other {# campos}}.",
       "formIncomplete": "Revisa los datos marcados arriba (por ejemplo el teléfono) para poder pagar.",
@@ -531,7 +510,9 @@
         "vault": "Para pagar, crea tu cuenta o elige envío a domicilio.",
         "address": "Para pagar, completa tu dirección de envío en México.",
         "terms": "Para pagar, acepta los términos."
-      }
+      },
+      "optionalFold": "Interior y referencias (opcional)",
+      "shippingGroupMx": "ENVÍO A MÉXICO"
     },
     "destination": {
       "eyebrow": "DESTINO",
@@ -651,6 +632,23 @@
       "soldOutNoName": "Un accesorio se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
       "bundle": "El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.",
       "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
+    },
+    "feeHint": {
+      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar",
+      "sealed": "Envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar"
+    },
+    "finalSaleShort": "Todas las ventas son finales.",
+    "refundPromise": "Si tu carta llega dañada o equivocada, te reembolsamos.",
+    "freeShippingRemaining": "Te faltan {remaining} para envío gratis",
+    "entryLine": "¿Ya tienes cuenta? <login>Inicia sesión</login> · o <register>crea una cuenta</register>",
+    "showMoreLines": "Ver {n} más",
+    "bar": {
+      "includesShipping": "Incluye envío {shipping} y comisión de plataforma {fee}",
+      "includesShippingFree": "Incluye envío gratis y comisión de plataforma {fee}",
+      "includesFee": "Incluye comisión de plataforma {fee}",
+      "showBreakdown": "Ver desglose",
+      "hideBreakdown": "Ocultar desglose",
+      "total": "Total"
     }
   },
   "vault": {
@@ -4783,6 +4781,29 @@
           "offTitle": "Apagar también deja de actualizar",
           "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en «Catálogo y precios» y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en «Catálogo y precios»."
         }
+      },
+      "directShip": {
+        "title": "Envío a domicilio",
+        "subtitle": "Lo que cobra el envío de un pedido a domicilio. Mover un dial no cambia los pedidos ya cobrados.",
+        "labels": {
+          "directShipCardsFeeCents": "Envío de pedidos solo de cartas",
+          "directShipSealedFeeCents": "Envío de pedidos con sellado o accesorios",
+          "directShipFreeFromCents": "Desde este subtotal no se cobra envío (pedidos con sellado)"
+        },
+        "convention": {
+          "gross": "IVA incluido"
+        },
+        "help": {
+          "directShipCardsFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con solo cartas sueltas o gradeadas; a ellos siempre se les cobra el envío.",
+          "directShipSealedFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con sellado, accesorios o energías, aunque también lleven cartas. Una caja grande cobra su propia tarifa.",
+          "directShipFreeFromCents": "<b>IVA incluido:</b> se compara con el subtotal que ve el cliente, antes del envío y de la comisión. Solo aplica a pedidos con sellado o accesorios."
+        },
+        "withdrawalNote": "El envío de un retiro desde la bóveda es otro dial («Envío de un retiro», arriba) y ese va antes de IVA.",
+        "unavailable": "El servidor todavía no tiene estos diales.",
+        "save": "Guardar envío a domicilio ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
+        "saved": "Guardado.",
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "invalid": "Ese valor no es válido para este dial."
       },
       "ingest": {
         "title": "Proveedor de ingesta masiva (barrido diario de precios)",

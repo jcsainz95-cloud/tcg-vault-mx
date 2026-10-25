@@ -25,6 +25,10 @@ vi.mock('@/i18n/navigation', () => ({
 
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { clearAccessoryNotices } from './accessory-notice';
+import { setCheckoutViewport } from './test-viewport';
+
+// Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
+setCheckoutViewport('desktop');
 
 type Seed = { ids?: string[]; accessories?: { id: string; qty: number }[]; deckPulls?: unknown[] };
 function seedCart({ ids = [], accessories = [], deckPulls = [] }: Seed) {
@@ -284,9 +288,9 @@ describe('AC-UX-8 (AC-F9) · el envío lo dice la cotización', () => {
 
 describe('AC-UX-9 (AC-F8) · bóveda con accesorios', () => {
   async function chooseVault(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     const form = screen.getByRole('region', { name: 'DESTINO' });
-    await user.click(within(form).getByRole('radio', { name: /Guardar en mi bóveda/ }));
+    await user.click(within(form).getByRole('button', { name: /Guardar en mi bóveda/ }));
   }
 
   it('vaultExcludesAccessories ⇒ aviso con {n} y {amount} de la cotización; los accesorios se quedan en el carrito', async () => {
@@ -311,14 +315,14 @@ describe('AC-UX-9 (AC-F8) · bóveda con accesorios', () => {
       guestQuote({ accessoryLines: [{ ...SLEEVES, quantity: 1 }], vaultExcludesAccessories: true }),
     );
     render();
-    await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
-    expect(screen.queryByRole('radio', { name: /Guardar en mi bóveda/ })).toBeNull();
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
+    expect(screen.queryByRole('button', { name: /Guardar en mi bóveda/ })).toBeNull();
   });
 });
 
 describe('AC-F9 · F-SP-5: el importe del botón y del modal sale de la SESIÓN', () => {
   async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>) {
-    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');
@@ -556,7 +560,7 @@ describe('AC-F21 (v1.86.3, §AC.19.4) · el carrito se corrige por `index` de un
   });
 
   async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>) {
-    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await screen.findByLabelText('Correo electrónico'); // CHK-MOVIL.2.1: el formulario está desde el primer pintado
     await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
     await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
     await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');

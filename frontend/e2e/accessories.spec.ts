@@ -240,7 +240,8 @@ for (const locale of LOCALES) {
             ['tcg.cart', piece.inventoryItemId] as const,
           );
           await page.goto(`/${locale}/checkout`);
-          await page.getByRole('button', { name: t(locale, 'checkout.identity.guest.cta') }).click();
+          // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+          await expect(page.getByLabel(t(locale, 'checkout.guest.email.label'))).toBeVisible();
           const suggestions = page.getByRole('region', { name: t(locale, 'checkout.suggestions.title') });
           await expect(suggestions).toBeVisible();
           const quoted = page.waitForResponse(
@@ -301,7 +302,8 @@ for (const locale of LOCALES) {
             ((await r.json().catch(() => null)) as GuestQuote | null)?.energyBundles?.some((b) => b.deckSlug === sc.slug) === true,
         );
         await page.goto(`/${locale}/checkout`);
-        await page.getByRole('button', { name: t(locale, 'checkout.identity.guest.cta') }).click();
+        // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
+        await expect(page.getByLabel(t(locale, 'checkout.guest.email.label'))).toBeVisible();
         const quote = (await (await quoted).json()) as GuestQuote;
         const bundle = quote.energyBundles.find((b) => b.deckSlug === sc.slug)!;
         const line = page.getByTestId(`cart-bundle-${sc.slug}`);

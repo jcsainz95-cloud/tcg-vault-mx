@@ -477,7 +477,8 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       const card = await db.mkItem();
       const q = await db.quote({ inventoryItemIds: [card.id] });
       expect(q.body.shippingBox).toBeNull();
-      expect(q.body.breakdown).toEqual(bd(q.body.items[0].unitPriceCents, db.eBase));
+      // 💰 v1.109 (§4-G.12): solo cartas ⇒ `E_cartas`, sin caja (la caja solo existe con accesorios).
+      expect(q.body.breakdown).toEqual(bd(q.body.items[0].unitPriceCents, db.eCards));
       expect(q.body.vaultExcludesAccessories).toBe(false);
       const fire = await db.setEnergy('fire', { stockQty: 20, dims: PLAYMAT_DIMS });
       const qe = await db.quote({ accessoryLines: [{ accessoryId: fire, quantity: 8 }] });
@@ -596,6 +597,9 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       expect(q.body.energyBundleOffers[0]).toMatchObject({ deckSlug: w.deck.slug, priceCents: 2000 });
       const items = (q.body.items as { unitPriceCents: number }[]).reduce((s, i) => s + i.unitPriceCents, 0);
       expect(q.body.breakdown.subtotalCents).toBe(items);
+      // v1.109.2 (§4-G.12): sin paquete aceptado el carrito es solo de cartas ⇒ `E_cartas`, no sellado.
+      expect(q.body.breakdown.shippingFeeCents).toBe(db.eCards);
+      expect(q.body.shippingRule).toMatchObject({ kind: 'cards_only', freeShippingApplied: false });
       expect(q.body.vaultExcludesAccessories).toBe(false);
       const s = await db.session({ inventoryItemIds: w.items, deckPulls: [{ pullToken: 'roto', withEnergyBundle: false }] });
       expect(s.status).toBe(201);

@@ -8,9 +8,9 @@ import { Textarea } from '@/components/ui/Textarea';
 import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from '@/components/domain/PostalCodeNeighborhoodFields';
 import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
 import { PrivacySiteNote, privacyPlainTags } from '@/components/legal/PrivacyNoticeLink';
-import { VaultUpsellPanel } from './VaultUpsellPanel';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
 
+/** Destino de la compra; la fila de estado vive en `GuestCheckoutView` (CHK-MOVIL.2.3). */
 export type Destination = 'ship' | 'vault';
 
 export interface GuestCheckoutFormProps {
@@ -28,16 +28,6 @@ export interface GuestCheckoutFormProps {
    * este número — nunca cuando cambia el número de errores (FRONTEND_NOTES §91).
    */
   submitAttemptId: number;
-  destination: Destination;
-  onDestinationChange: (destination: Destination) => void;
-  upsellOpen: boolean;
-  shippingFeeLabel?: string;
-  onDismissUpsell: () => void;
-  onAccountReady: () => void;
-  /** §AC-UX.7: carrito sin cartas ni sellado ⇒ la opción de bóveda no se pinta (no hay nada que guardar). */
-  vaultAvailable?: boolean;
-  /** §AC-UX.7 / AC-F8: el bloque «NO VAN A LA BÓVEDA» dentro del panel de bóveda. */
-  vaultNotice?: React.ReactNode;
   /**
    * Un `400 VALIDATION_ERROR {field, max}` de la sesión sobre la colonia, el municipio o el estado, pintado
    * BAJO su campo (§43.18m.7, `geo.tooLong`). Lo retira quien monta al tocar ese campo. v1.80.12.5
@@ -49,19 +39,21 @@ export interface GuestCheckoutFormProps {
 }
 
 export const FIELD_ORDER: GuestField[] = [
+  // CHK-MOVIL.2.2 (opción A): correo y su lectura de vuelta bajo el campo; luego quien recibe, CP (rellena colonia,
+  // municipio y estado), colonia, calle y número, teléfono; al final lo opcional plegado. Mismo orden que el DOM.
   'email',
   'emailConfirmed',
   'recipientName',
-  'line1',
-  'line2',
   'postalCode',
   'neighborhood',
   // §43.18m.7 / FC-23: municipio y estado (solo existen en «todo a mano») van tras la colonia, como en el DOM.
   'city',
   'state',
-  // §43.18b: referencias antes que teléfono (mismo orden que el DOM: el resumen de errores lo sigue).
-  'references',
+  'line1',
   'phone',
+  // Plegados tras «Interior y referencias (opcional)» (T5); se abren solos si traen error.
+  'line2',
+  'references',
   'terms',
 ];
 
@@ -81,17 +73,21 @@ export const FIELD_ID: Record<GuestField, string> = {
   terms: 'guest-terms',
 };
 
+
 /**
- * `GuestCheckoutForm` (DESIGN_SYSTEM §15.3, criterios 47 y 48b) — composición de `Input`,
- * checkbox y radios; NO es un componente base nuevo.
+ * `GuestCheckoutForm` (DESIGN_SYSTEM §15.3 y §CHK-MOVIL.2.2, criterios 47 y 48b) — composición de `Input` y
+ * casillas; NO es un componente base nuevo. El destino (fila de estado + bóveda) va ANTES, en la vista.
  *
  * Reglas que NO se pueden relajar:
  *  - El correo es el ÚNICO canal del pedido: se valida formato y se **lee de vuelta** en
- *    una casilla obligatoria (§15.3). Editarlo desmarca la casilla y se anuncia por
+ *    una casilla obligatoria (§15.3), justo bajo el campo. Editarlo desmarca la casilla y se anuncia por
  *    `aria-live` — el pago queda bloqueado con explicación textual, nunca un botón mudo.
  *  - Prohibido preguntarle al backend si ese correo tiene cuenta (criterio 56): el campo
  *    se comporta idéntico exista o no la cuenta. Sin "bienvenido de nuevo", sin avatar.
- *  - País fijo México (criterio 31/48b); el `422 ADDRESS_NOT_MX` sigue siendo del backend.
+ *  - País fijo México (criterio 31/48b), dicho en la cabecera del grupo («ENVÍO A MÉXICO»); el
+ *    `422 ADDRESS_NOT_MX` sigue siendo del backend.
+ *  - Ningún campo del contrato se quita (`GuestAddressInput`, §4-G.1/§4-G.2): `line2` y `references` solo se
+ *    PLIEGAN (T5), cerrados por defecto y abiertos solos si traen error.
  */
 export function GuestCheckoutForm({
   state,
@@ -102,14 +98,6 @@ export function GuestCheckoutForm({
   onBlurField,
   submitAttempted,
   submitAttemptId,
-  destination,
-  onDestinationChange,
-  upsellOpen,
-  shippingFeeLabel,
-  vaultAvailable = true,
-  vaultNotice,
-  onDismissUpsell,
-  onAccountReady,
   serverAddressError = null,
   onGeoModeChange,
 }: GuestCheckoutFormProps) {
@@ -117,11 +105,13 @@ export function GuestCheckoutForm({
   const ta = useTranslations('addresses');
   const tp = useTranslations('privacy.sites');
   const summaryRef = useRef<HTMLDivElement>(null);
-  const vaultRadioRef = useRef<HTMLInputElement>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [foldOpen, setFoldOpen] = useState(false);
 
   const visible = (field: GuestField) => !!errors[field] && (submitAttempted || !!touched[field]);
   const listed = FIELD_ORDER.filter((f) => !!errors[f]);
+  // T5: plegado por defecto; un error visible en lo plegado lo abre (el resumen enlaza a esos campos).
+  const optionalOpen = foldOpen || visible('line2') || visible('references');
 
   // El resumen recibe el foco al fallar el intento de pago (DESIGN_SYSTEM §15.3): sustituye al scroll a ciegas.
   // ⛔ Depende SOLO de `submitAttemptId` (cada clic en pagar). Con `listed.length` en las dependencias, la
@@ -186,7 +176,7 @@ export function GuestCheckoutForm({
   }
 
   return (
-    <div>
+    <div data-testid="guest-form">
       {submitAttempted && listed.length > 0 && (
         <div
           ref={summaryRef}
@@ -198,7 +188,7 @@ export function GuestCheckoutForm({
           <ul className="mt-2 flex flex-col gap-1">
             {listed.map((field) => (
               <li key={field}>
-                <a href={`#${FIELD_ID[field]}`} className="text-sm text-accent underline underline-offset-4">
+                <a href={`#${FIELD_ID[field]}`} className="text-sm text-accent underline underline-offset-4 [overflow-wrap:anywhere]">
                   {labelFor(field)}: {messageFor(field)}
                 </a>
               </li>
@@ -207,7 +197,7 @@ export function GuestCheckoutForm({
         </div>
       )}
 
-      {/* ---- Grupo 1 · CONTACTO ---------------------------------------------------- */}
+      {/* ---- Grupo 1 · CONTACTO: correo + su lectura de vuelta bajo el campo (CHK-MOVIL.3 A) ------------- */}
       <section aria-labelledby="guest-contact-group">
         <h2 id="guest-contact-group" className="eyebrow">
           {t('guest.contactGroup')}
@@ -238,13 +228,38 @@ export function GuestCheckoutForm({
               </button>
             </p>
           )}
+          <label
+            htmlFor={FIELD_ID.emailConfirmed}
+            className="mt-4 flex min-h-[44px] cursor-pointer items-start gap-3 text-sm leading-relaxed text-text"
+          >
+            <input
+              id={FIELD_ID.emailConfirmed}
+              type="checkbox"
+              checked={state.emailConfirmed}
+              disabled={!state.email.trim()}
+              onChange={(e) => {
+                setConfirmReset(false);
+                onChange({ emailConfirmed: e.target.checked });
+              }}
+              className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--color-accent)]"
+            />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {t.rich('guest.email.confirmCheckbox', {
+                email: state.email || '—',
+                mono: (chunks) => <span className="font-mono text-text">{chunks}</span>,
+              })}
+            </span>
+          </label>
+          <p aria-live="polite" className="mt-2 min-h-[1rem] font-mono text-xs text-muted">
+            {confirmReset ? t('guest.email.confirmReset') : ''}
+          </p>
         </div>
       </section>
 
-      {/* ---- Grupo 2 · ENVÍO ------------------------------------------------------- */}
-      <section aria-labelledby="guest-shipping-group" className="mt-10 border-t border-border pt-8">
+      {/* ---- Grupo 2 · ENVÍO A MÉXICO: 5 obligatorios en el orden de CHK-MOVIL.2.2 + lo opcional plegado ---- */}
+      <section aria-labelledby="guest-shipping-group" className="mt-8 border-t border-border pt-8">
         <h2 id="guest-shipping-group" className="eyebrow">
-          {t('guest.shippingGroup')}
+          {t('guest.shippingGroupMx')}
         </h2>
         <div className="mt-5 flex max-w-[620px] flex-col gap-6">
           <Input
@@ -256,26 +271,8 @@ export function GuestCheckoutForm({
             onBlur={() => onBlurField('recipientName')}
             error={visible('recipientName') ? messageFor('recipientName') : undefined}
           />
-          <Input
-            id={FIELD_ID.line1}
-            label={ta('line1')}
-            autoComplete="address-line1"
-            value={state.address.line1}
-            onChange={(e) => onAddressChange({ line1: e.target.value })}
-            onBlur={() => onBlurField('line1')}
-            error={visible('line1') ? messageFor('line1') : undefined}
-          />
-          <Input
-            id={FIELD_ID.line2}
-            label={ta('line2')}
-            autoComplete="address-line2"
-            value={state.address.line2 ?? ''}
-            onChange={(e) => onAddressChange({ line2: e.target.value })}
-            onBlur={() => onBlurField('line2')}
-            error={visible('line2') ? messageFor('line2') : undefined}
-          />
           {/* v1.80.12.5 (§M4-SHIP.19.25, §43.18m): CP → colonia de la lista o escrita → municipio y estado
-              del CP; sin lista, los tres se escriben. La tienda nunca deja de vender por el catálogo. */}
+              del CP (una línea de texto; campos solo en «todo a mano»). El CP va ANTES de la calle porque rellena. */}
           <PostalCodeNeighborhoodFields
             postalCodeId={FIELD_ID.postalCode}
             neighborhoodId={FIELD_ID.neighborhood}
@@ -299,17 +296,14 @@ export function GuestCheckoutForm({
             cityError={geoError('city')}
             stateError={geoError('state')}
           />
-          {/* §43.18b: las referencias acompañan al lugar, antes que el teléfono. */}
-          <Textarea
-            id={FIELD_ID.references}
-            label={ta('references')}
-            hint={ta('referencesHint', { max: String(REFERENCES_MAX) })}
-            rows={2}
-            counter={{ max: REFERENCES_MAX }}
-            value={state.address.references ?? ''}
-            onChange={(e) => onAddressChange({ references: e.target.value })}
-            onBlur={() => onBlurField('references')}
-            error={visible('references') ? messageFor('references') : undefined}
+          <Input
+            id={FIELD_ID.line1}
+            label={ta('line1')}
+            autoComplete="address-line1"
+            value={state.address.line1}
+            onChange={(e) => onAddressChange({ line1: e.target.value })}
+            onBlur={() => onBlurField('line1')}
+            error={visible('line1') ? messageFor('line1') : undefined}
           />
           <Input
             id={FIELD_ID.phone}
@@ -323,113 +317,56 @@ export function GuestCheckoutForm({
             error={visible('phone') ? messageFor('phone') : undefined}
             hint={ta('phoneHint')}
           />
-          {/* País fijo MX, mismo tratamiento que el formulario de direcciones (§15.3). */}
-          <div className="flex flex-col">
-            <span className="eyebrow">{ta('country')}</span>
-            <p className="mt-3 border-b border-border-strong pb-3 text-base text-text">{ta('countryMx')}</p>
-          </div>
-        </div>
-      </section>
 
-      {/* ---- Destino de la compra + upsell de bóveda -------------------------------- */}
-      <section aria-labelledby="guest-destination-group" className="mt-10 border-t border-border pt-8">
-        <h2 id="guest-destination-group" className="eyebrow">
-          {t('destination.eyebrow')}
-        </h2>
-        <div className="mt-5 max-w-[620px]" role="radiogroup" aria-labelledby="guest-destination-group">
-          <label className="flex min-h-[44px] cursor-pointer items-start gap-4 border-t border-border py-4">
-            <input
-              type="radio"
-              name="guest-destination"
-              value="ship"
-              checked={destination === 'ship'}
-              onChange={() => onDestinationChange('ship')}
-              className="mt-1 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-full border border-border-strong checked:border-[5px] checked:border-text"
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm text-text">{t('destination.ship')}</span>
-              {shippingFeeLabel && (
-                <span className="mt-1 block font-mono text-[11px] text-muted">
-                  {t('destination.shipFeeHint', { amount: shippingFeeLabel })}
-                </span>
-              )}
-            </span>
-          </label>
-          {/*
-           * Criterio 48: la bóveda queda SELECCIONABLE. Nada de `disabled`, `aria-disabled`,
-           * candado ni tooltip de error: la micro-etiqueta "REQUIERE CUENTA" es honestidad
-           * previa, y al elegirla se despliega el upsell (§15.4).
-           */}
-          {vaultAvailable && (
-          <label className="flex min-h-[44px] cursor-pointer items-start gap-4 border-y border-border py-4">
-            <input
-              ref={vaultRadioRef}
-              type="radio"
-              name="guest-destination"
-              value="vault"
-              checked={destination === 'vault'}
-              onChange={() => onDestinationChange('vault')}
-              /* Sin `aria-expanded`/`aria-controls`: el rol `radio` no los admite. El panel
-                 que se despliega debajo es un `role="region"` etiquetado por su propio h3,
-                 y el foco viaja a ese encabezado al abrirse (§15.4). */
-              className="mt-1 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-full border border-border-strong checked:border-[5px] checked:border-text"
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm text-text">{t('destination.vault')}</span>
-              <span className="mt-1 block font-mono text-[11px] uppercase tracking-label text-muted">
-                {t('destination.vaultRequiresAccount')}
+          {/* T5: interior y referencias, plegados (no se quitan: son del contrato). */}
+          <div className="border-y border-border">
+            <button
+              type="button"
+              aria-expanded={optionalOpen}
+              aria-controls="guest-optional-fields"
+              onClick={() => setFoldOpen(!optionalOpen)}
+              className="flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-text"
+            >
+              <span aria-hidden className="font-mono">
+                {optionalOpen ? '−' : '+'}
               </span>
-            </span>
-          </label>
-          )}
-
-          <div id="vault-upsell-panel">
-            {upsellOpen && (
-              <VaultUpsellPanel
-                shippingFeeLabel={shippingFeeLabel}
-                defaultEmail={state.email}
-                defaultName={state.address.recipientName}
-                onDismiss={onDismissUpsell}
-                onAccountReady={onAccountReady}
-                onEscape={() => vaultRadioRef.current?.focus()}
-                notice={vaultNotice}
-              />
-            )}
+              {t('guest.optionalFold')}
+            </button>
+            <div id="guest-optional-fields" hidden={!optionalOpen} className="flex flex-col gap-6 pb-6 pt-2">
+              {optionalOpen && (
+                <>
+                  <Input
+                    id={FIELD_ID.line2}
+                    label={ta('line2')}
+                    autoComplete="address-line2"
+                    value={state.address.line2 ?? ''}
+                    onChange={(e) => onAddressChange({ line2: e.target.value })}
+                    onBlur={() => onBlurField('line2')}
+                    error={visible('line2') ? messageFor('line2') : undefined}
+                  />
+                  <Textarea
+                    id={FIELD_ID.references}
+                    label={ta('references')}
+                    hint={ta('referencesHint', { max: String(REFERENCES_MAX) })}
+                    rows={2}
+                    counter={{ max: REFERENCES_MAX }}
+                    value={state.address.references ?? ''}
+                    onChange={(e) => onAddressChange({ references: e.target.value })}
+                    onBlur={() => onBlurField('references')}
+                    error={visible('references') ? messageFor('references') : undefined}
+                  />
+                </>
+              )}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ---- Lectura de vuelta del correo + términos --------------------------------- */}
-      <section className="mt-10 border-t border-border pt-8">
-        <label
-          htmlFor={FIELD_ID.emailConfirmed}
-          className="flex min-h-[44px] max-w-[620px] cursor-pointer items-start gap-3 text-sm leading-relaxed text-text"
-        >
-          <input
-            id={FIELD_ID.emailConfirmed}
-            type="checkbox"
-            checked={state.emailConfirmed}
-            disabled={!state.email.trim()}
-            onChange={(e) => {
-              setConfirmReset(false);
-              onChange({ emailConfirmed: e.target.checked });
-            }}
-            className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--color-accent)]"
-          />
-          <span>
-            {t.rich('guest.email.confirmCheckbox', {
-              email: state.email || '—',
-              mono: (chunks) => <span className="font-mono text-text">{chunks}</span>,
-            })}
-          </span>
-        </label>
-        <p aria-live="polite" className="mt-2 min-h-[1rem] font-mono text-xs text-muted">
-          {confirmReset ? t('guest.email.confirmReset') : ''}
-        </p>
-
+      {/* ---- Términos (con el aviso de privacidad) ------------------------------------------------------- */}
+      <section className="mt-8">
         <label
           htmlFor={FIELD_ID.terms}
-          className="mt-5 flex min-h-[44px] max-w-[620px] cursor-pointer items-start gap-3 text-sm leading-relaxed text-text"
+          className="flex min-h-[44px] max-w-[620px] cursor-pointer items-start gap-3 text-sm leading-relaxed text-text"
         >
           <input
             id={FIELD_ID.terms}

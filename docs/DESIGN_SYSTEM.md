@@ -2612,26 +2612,11 @@ No bloquean el diseño; se registran para coherencia:
    (`convertida_inventario`, `resuelta_recompra`). Se usarán labels cortos localizados en badges de tabla
    (no el enum). No requiere cambio de contrato; solo confirmar que el diccionario de copy es propiedad de
    frontend/ux-ui (lo es).
-8. **v1.1 — cobertura de shapes (sin cambios de contrato solicitados).** Las superficies nuevas ya tienen
-   los datos que necesitan: `ListingDTO` (`salePriceCents`, `sealedSubtype?`, `rawCondition="NM"`),
-   `GET /catalog/facets` (`rarities` abiertas, `sets` con `year`, `sealedSubtypes`, `price`),
-   `GET /vault/portfolio/history` (`points` con `costBasisMxnCents?`/`estimated?` y `change` con
-   `direction`), `POST /auth/google`. **No se requiere ampliar el contrato.** Anotaciones menores no
-   bloqueantes: (a) el **mapa rareza→grupo** de presentación de los filtros vive en el front (no en la API);
-   si en el futuro se quisiera un agrupamiento canónico compartido, sería un dial de M10, no del contrato.
-   (b) El **label y la descripción de NM** son i18n del front (confirmado por el contrato v1.1). (c) Para el
-   sparkline del StatCard se reutiliza `portfolio/history` con rango corto; no hace falta endpoint nuevo.
-9. **v1.2 — cobertura de shapes (sin cambios de contrato solicitados).** El diseño v1.2 se apoya en datos ya
-   presentes: `ListingDTO.certNumber?` y el detalle de disputa con `evidenceContact` (`GET /admin/disputes/:id`)
-   y `certNumber` para gradeadas. **No se requiere ampliar el contrato.** Dos solicitudes de confirmación al
-   **product-owner/arquitecto** (no bloquean el diseño):
-   - **(a) URL de verificación de certificado (PSA/CGC).** El §7.2c propone que el `certNumber` de la ficha
-     sea un **enlace** a la página de verificación de la graduadora. Falta que el humano confirme la URL/patrón
-     (p. ej. `psacard.com/cert/<n>`). **Mientras no se confirme, se muestra como texto copiable, no un enlace
-     inventado.** No es campo de contrato (el front arma la URL con el `certNumber` existente).
-   - **(b) Correo de soporte definitivo.** El flujo de disputa muestra **`soporte@tcgvault.mx`** como canal de
-     evidencia; PROJECT.md y el contrato lo marcan **placeholder por confirmar por el humano**. El front debe
-     tomar el valor de `evidenceContact` del contrato (no hardcodear) para que cambiarlo no toque UI.
+8. **v1.1 / v1.2 — cobertura de shapes:** sin cambios de contrato solicitados (el mapa rareza→grupo de los
+   filtros y el label de NM viven en el front). Dos confirmaciones abiertas, no bloquean: **(a)** URL de
+   verificación PSA/CGC: mientras no se confirme, el `certNumber` es texto copiable, nunca un enlace
+   inventado (§7.2c); **(b)** correo de soporte definitivo (hoy placeholder): el front lo toma de
+   `evidenceContact` del contrato, nunca hardcodeado.
 
 ---
 
@@ -2659,48 +2644,12 @@ No bloquean el diseño; se registran para coherencia:
   verificado sobre el papel (§10), `aria-live` para procesos asíncronos, `prefers-reduced-motion`.
 - **Tokens listos para implementar:** CSS variables (tema único claro) + mapeo Tailwind en §11; ya
   implementados en `frontend/` (este doc los codifica como fuente de verdad).
-- **v1.1 (superficies nuevas):**
-  - **Condición NM legible:** badge verde "Casi nueva (NM)" / "Near Mint (NM)" (texto sobre papel, sin caja)
-    con descripción del estándar en tooltip/`title` + `aria-label`; sin LP/MP/HP/DMG (§7.2b).
-  - **Compra:** rótulo "Compra" (ruta `/catalog/cards` intacta); `ListingCard` con precio de venta como
-    dato dominante; **nunca "precio pendiente" en Compra** (§7.1/§7.3).
-  - **Sellado:** tarjeta sin condición/rareza, badge "Sellado" + subtipo, precio siempre (§7.1b).
-  - **Filtros de Compra (§7.16):** rareza en Combobox multi-select agrupable/buscable (taxonomía abierta),
-    set con año "(2024)" orden año desc, tipo (raw NM/graded/sellado + subtipo), precio; anti-saturación.
-  - **Gráfica de portafolio (§7.17):** estilo acciones, verde↑/rojo↓ con signo+flecha (no solo color),
-    toggle 5d/15d/1m/3m/6m/1a/YTD/Máx, estados cargando/vacío("recopilando datos")/negativo, resumen
-    textual accesible; costo base y sparkline opcionales.
-  - **Google (§6.7):** botón `secondary` full-width con logo G oficial, divisor "o/or", estados
-    loading/error; consistente con marca (color externo solo en el logo).
-- **v1.2 / v1.2.1 (simplificación):**
-  - **Sin fotos de producto:** imagen SIEMPRE de catálogo de pokemontcg.io (remota); se eliminan
-    captura/subida de fotos de producto y el CDN/prefijo `inventory_photo` (§5, §7.1, §7.10).
-  - **Badge de calidad en retícula = `ListingSpec` (`Raw · NM · Acabado` en mono):** por defecto la calidad
-    es un **renglón mono en versalitas** bajo la imagen (no pastillas), con el estándar legible en
-    `aria-label`/`title` y la etiqueta "Casi nueva (NM)" en la ficha de detalle (§7.2b). Si algo se monta
-    sobre el arte, usa **scrim de tinta `#1A1A18/92%` + texto papel** (~15:1, independiente del arte),
-    **radio 0**. Nada translúcido sobre el arte.
-  - **Gradeada = grado + certificado:** `GradedCertChip` **`PSA 10 · #12345678`** (empresa+grado+`certNumber`),
-    verificable en la graduadora (§7.2c).
-  - **Disputa por correo:** eliminado `PhotoCompare`; el flujo muestra el correo de soporte
-    **`soporte@tcgvault.mx`** (placeholder) como canal de evidencia, sin uploader (§7.11).
-  - **Único uploader = INE:** `IneUploader` para el INE del buylist (KYC/AML), bucket privado cifrado con
-    retención; es la única subida de archivos del sistema (§7.10).
-- **v1.3 (rediseño 5a — piel editorial "papel/tinta/bermellón"):**
-  - **Paleta:** se retira índigo/ámbar/slate. Papel `#F4F1EA` (bg+surface), pozo `#EFEBE2`, tinta `#1A1A18`
-    (texto+primario), muted `#6E695E`, bermellón `#B44B3A` (acento+foco+warning+danger), verde `#4E7A49`
-    (success). `*-bg` de estados = `transparent` (§2).
-  - **Tema único claro:** eliminado el modo oscuro completo (sin `.dark`, sin `ThemeToggle`, sin
-    `darkMode:'class'`) — el papel es la marca (§0/§11/§14).
-  - **Tipografía:** Zen Old Mincho (serif títulos) / Archivo (sans UI) / JetBrains Mono (mono cifras/estados),
-    self-hosted por `next/font`; títulos peso 400 (§3).
-  - **Radios 0 + sombras 0** como estilo; **anillo de foco bermellón 2px = excepción de accesibilidad** que
-    sobrevive (§4.2/§4.3/§8.2).
-  - **Regla de estado ratificada:** color + **texto en versalitas** (portador); **icono retirado como
-    requisito** (§2.4/§7.4/§11.4). Cambio **aprobado por el humano**, accesibilidad preservada.
-  - **`ListingSpec` (`Raw · NM · Acabado` en mono)** = representación por defecto en retícula; estándar en
-    `aria-label`/`title`, etiqueta legible en la ficha. Decisión **ratificada** (§7.2b).
-```
+- **Superficies v1.1–v1.3 (compactado en vCHK-1; el detalle vigente vive en su sección):** condición NM y
+  `ListingSpec` mono (§7.2b), Compra y sellado (§7.1/§7.1b; nunca «precio pendiente» en Compra), filtros
+  (§7.16), gráfica de portafolio (§7.17), botón Google (§6.7), gradeada = empresa+grado+`certNumber` (§7.2c),
+  disputa por correo (§7.11), único uploader = INE (§7.10), imagen SIEMPRE de catálogo, sin fotos de producto
+  (§5, §7.1). Piel papel/tinta/bermellón, tema único claro sin modo oscuro, radios 0, sombras 0 salvo el
+  anillo de foco, estado = color + versalitas sin icono obligatorio (§2–§4, §2.4, §11).
 
 ---
 
@@ -2742,10 +2691,8 @@ No bloquean el diseño; se registran para coherencia:
 **Ubicación y forma: bloque inline en la parte superior de la columna izquierda del checkout**, sobre los
 renglones del carrito, **en la misma ruta `/checkout`** (no es modal, no es intersticial, no es otra ruta).
 
-*Por qué inline y no modal ni ruta aparte:* (a) el `AmountBreakdown` y los artículos siguen visibles a la
-derecha (el motivo de la compra nunca desaparece); (b) al no cambiar de ruta, el estado del carrito no se
-desmonta y el criterio 46 se cumple **por construcción**, no por una salvaguarda; (c) el botón "atrás" del
-navegador no expulsa al usuario del checkout.
+*Inline y no modal ni ruta aparte:* el estado del carrito no se desmonta (criterio 46 **por construcción**) y
+"atrás" no expulsa del checkout.
 
 Anatomía (todo separado por **reglas**, sin cajas de color, §2.1):
 - `eyebrow` mono: `IDENTIDAD` / `IDENTITY`.
@@ -2764,14 +2711,10 @@ Anatomía (todo separado por **reglas**, sin cajas de color, §2.1):
 | **Iniciar sesión** | `secondary` (borde, papel) | `lg`, ancho completo | "Tus direcciones y tu bóveda te esperan." |
 | **Crear cuenta** | `secondary` (borde, papel) | `lg`, ancho completo | "Guarda tus cartas en la bóveda y paga un solo envío." |
 
-**Justificación de la jerarquía (decisión de diseño):** "continuar como invitado" es la **acción primaria**
-porque es la vía de **menor compromiso** y el objetivo declarado de la feature es quitar el peaje antes de
-pagar; poner el registro primero reintroduce exactamente la fricción que se quiere eliminar. **La igualdad
-de dignidad se garantiza por geometría, no por color:** las tres opciones comparten **mismo alto, mismo
-ancho, misma escala tipográfica, mismo peso de label y misma área táctil**; la única diferencia es
-**relleno vs. borde**, que es el vocabulario normal de "primaria/secundaria" del sistema (§6.1). Ninguna de
-las tres es un enlace pequeño, texto gris ni está debajo del pliegue. El **gancho de la bóveda** se enuncia
-una vez, en la línea de apoyo de "crear cuenta", sin repetirse ni presionar.
+**Jerarquía:** "invitado" es la primaria (menor compromiso); la igualdad de dignidad es **geométrica**
+(mismo alto, ancho, escala y área táctil; solo cambia relleno vs. borde, §6.1). El gancho de la bóveda se
+enuncia una vez, en la línea de apoyo de "crear cuenta". **CHK-MOVIL.2 sustituye esta pantalla de tres
+botones por el formulario de invitado directo + enlace «Inicia sesión» (al implementarse).**
 
 **Comportamiento (reglas normativas para frontend):**
 - Elegir una vía **expande su panel debajo** (patrón *disclosure*: `aria-expanded` + `aria-controls`); el
@@ -2845,9 +2788,7 @@ bloque. Esto sustituye a hacer scroll a ciegas.
 total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
 correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 
-**Móvil:** el resumen del `aside` colapsa a una **barra inferior sticky** con total + botón de pago
-(`accent`, alto 48px, área táctil ≥44px), y un botón "Ver desglose" que despliega el `AmountBreakdown`
-completo. El total nunca aparece sin acceso a su desglose (§7.12).
+**Móvil:** barra fija con total + PAGAR y «Ver desglose» → **CHK-MOVIL.2.4**. Orden y mínimo de campos → CHK-MOVIL.2.2.
 
 ### 15.4 Selector de destino y **upsell de bóveda in-situ** (`VaultUpsellPanel`) — criterio 48
 
@@ -2869,15 +2810,9 @@ error, `Banner danger` o cualquier tratamiento que lea como "no puedes".
 **Formato del upsell: panel inline que se expande justo debajo de la opción elegida.** No es modal, no es
 un paso nuevo, no es una ruta.
 
-*Justificación (decisión de diseño explícita):*
-- **Modal (descartado):** tapa el carrito y el total —justo la evidencia de valor que motiva registrarse—,
-  atrapa el foco, obliga a una decisión de "cerrar" que se lee como rechazar el producto, y en móvil ocupa
-  la pantalla completa como si fuera una alerta. Un modal comunica *interrupción*; aquí no hubo error.
-- **Paso separado (descartado):** viola literalmente "crear cuenta **sin salir del checkout**" (criterio 48)
-  e introduce la transición donde más riesgo hay de perder carrito y datos capturados.
-- **Panel inline (elegido):** mantiene visibles artículos, total y la dirección ya escrita; la salida
-  ("Seguir con envío a domicilio") queda a un clic y en el mismo bloque; el registro ocurre a 200px de donde
-  el usuario ya estaba mirando; en móvil se comporta como un bloque más del flujo, sin capa encima.
+*Modal y paso separado, descartados:* el modal tapa carrito y total y se lee como interrupción; el paso
+separado viola "crear cuenta **sin salir del checkout**" (criterio 48). **Panel inline, elegido:** deja
+visibles artículos, total y dirección; la salida queda a un clic en el mismo bloque.
 
 **Anatomía del panel** (papel sobre pozo `surface-2` + regla superior de énfasis `border-strong`; **sin
 sombra, radio 0**):
@@ -3152,59 +3087,27 @@ de minimización de §15.6.
   dirección (ayuda enorme al invitado, que no tiene datos guardados).
 - **Áreas táctiles ≥ 44px** en las tres opciones del gate, los radios de destino y las salidas del upsell.
 - **`prefers-reduced-motion`**: la expansión de gate y upsell degrada a mostrar/ocultar sin animación.
-- **Contraste:** esta sección **no introduce ningún par nuevo**. Todo lo usado ya está verificado en §10 —
-  tinta sobre papel ~15.5:1 (números de pedido, guía, totales), muted `#6E695E` sobre papel ~4.8:1 y sobre
-  pozo ~4.6:1 (ayudas y micro-etiquetas), bermellón ~4.65:1 (errores, anillo de foco), verde ~4.4:1 con
-  **versalitas como portador** (pasos completados, "cuenta creada"), papel sobre tinta ~15.5:1 (botón
-  primario del upsell), papel sobre bermellón ~4.64:1 (botón de pago). El texto muted **no** porta
-  información esencial: las micro-etiquetas tipo `REQUIERE CUENTA` se acompañan siempre del texto del
-  upsell al activarse.
+- **Contraste:** cero pares nuevos; todos están en §10 (tinta/papel ~15.5:1, muted ~4.8:1, bermellón ~4.65:1,
+  papel sobre bermellón ~4.64:1). El texto muted **no** porta información esencial: `REQUIERE CUENTA` se
+  acompaña siempre del texto del upsell al activarse.
 
 ### 15.10 Componentes: qué se reutiliza y qué es nuevo
 
-**Se reutiliza tal cual (sin variantes nuevas):** `Button` (§6.1, variantes `primary`/`secondary`/`accent`/
-`link`/`ghost`), `Input`/`Textarea` (§6.2), `Select` (§6.3), `Checkbox`/`Radio` (§6.4), `LocaleToggle`
-(§6.5), `GoogleSignInButton` (§6.7), `Banner` (§7.5), `AmountBreakdown` (§7.12), `PipelineStepper` (§7.9),
-`StatusBadge` (§2.4), `CardImage`, `ListingSpec` (§7.2b), `EmptyState`, `QueryState`, `Skeleton`,
-`DisputeEvidenceContact` (§7.11), `AuthForm`, `StripePaymentModal`.
-
-**Componentes nuevos propuestos (4 — solo donde no hay equivalente):**
-
-| Componente | Por qué no hay equivalente | Ubicación |
-|---|---|---|
-| `CheckoutIdentityGate` | No existe ningún patrón de tres vías de identidad con estado persistente en la misma ruta. | `components/domain/` |
-| `VaultUpsellPanel` | No hay panel de oferta inline; `Banner` es informativo y `Modal` está descartado por §15.4. | `components/domain/` |
-| `PublicOrderTracking` (vista) + su chrome reducido | Toda vista actual asume header de storefront con sesión/carrito; esta exige un chrome propio y minimización de datos. | ruta pública + `components/layout/` |
-| `TrackingLinkNeutralState` | El patrón de error de §8.1 (banner + `errorCode` + reintentar) es justo lo que **no** se puede hacer aquí: exige copy neutro, un solo mensaje para todos los fallos y enfriamiento visible. | `components/domain/` |
-
-**Composiciones (no son componentes base nuevos):** `GuestCheckoutForm` (Input + campos de dirección ya
-existentes), `FulfillmentChoice` (Radio group), `AccountClaimOffer` (AuthForm compacto + copy), usado tanto
-en la confirmación como —en versión "solo enlace"— en la vista de seguimiento y en el estado neutro.
+**Se reutilizan tal cual** los componentes base de §6–§7, `AuthForm` y `StripePaymentModal`. **Nuevos (4):**
+`CheckoutIdentityGate` (`components/domain/`; **se retira al implementar CHK-MOVIL**), `VaultUpsellPanel`
+(panel inline; `Modal` descartado, §15.4), `PublicOrderTracking` + chrome reducido (ruta pública con
+minimización de datos, §15.6) y `TrackingLinkNeutralState` (el patrón de error de §8.1 no sirve: copy neutro,
+un solo mensaje, enfriamiento visible, §15.7). **Composiciones:** `GuestCheckoutForm`, `FulfillmentChoice`
+(radios hoy; **pasa a fila de estado + enlace**, CHK-MOVIL.2) y `AccountClaimOffer`.
 
 **Ningún token nuevo.** Cero colores, tipografías, radios, sombras o breakpoints añadidos.
 
 ### 15.11 i18n — claves nuevas (propiedad de frontend; el copy de seguridad es normativo)
 
-- `checkout.identity.*` — `title`, `guest.cta`/`guest.hint`, `login.cta`/`login.hint`,
-  `register.cta`/`register.hint`, `cartKept`, `change`.
-- `checkout.guest.*` — `contactGroup`, `email.label`/`email.help`/`email.invalid`/`email.required`,
-  `email.typoSuggestion`, `email.confirmCheckbox`, `shippingGroup`, `errorSummary`, `payBlocked.email`,
-  `payBlocked.vault`, `payBlocked.address`.
-- `checkout.destination.*` — `ship`, `vault`, `vault.requiresAccount`, `shipFeeHint`.
-- `checkout.vaultUpsell.*` — `eyebrow`, `title`, `benefit.oneShipment`, `benefit.portfolio`,
-  `benefit.custody`, `cta`, `dismiss`, `haveAccount`, `created`, `shippingRemoved`, `emailTakenNeutral`.
-- `checkout.confirmation.*` — `eyebrow`, `title`, `orderNumber`, `copyOrderNumber`, `emailSentTo`,
-  `wrongEmail`, `claim.*` (`eyebrow`, `title`, `body`, `cta`, `success`, `alreadyClaimedNeutral`),
-  `keepShopping`, `cfdiReminder`.
-- `track.*` — `orderLabel`, `statusLabel`, `itemsLabel`, `totalPaidLabel`, `trackingLabel`,
-  `trackingPending`, `shipToLabel`, `paidWithCard`, `updatedAt`, `refresh`, `copyOrderNumber`,
-  `troubleWithOrder`, `createAccountHint`.
-- `track.neutral.*` — `title`, `body`, `emailLabel`, `submit`, `result`, `cooldown`, `claimAlternative`,
-  `support`, `noLinkCta`, `manualIntro`, `orderNumberLabel`, `orderNumberHelp`, `incompleteForm`
-  (los cinco últimos, de la **vía B** de §15.7: correo + número de pedido juntos).
-  **Textos normativos: los de la tabla de §15.7, literales en ES y EN.**
-- `status.tracking.*` — `paid`, `preparing`, `label`, `shipped`, `delivered`, `refunded`, `cancelled`
-  (versalitas de §15.6).
+Las claves viven en `frontend/messages/{es,en}.json` (fuente): prefijos `checkout.identity|guest|destination|
+vaultUpsell|confirmation`, `track`, `track.neutral` (incluye la **vía B** de §15.7: correo + número de
+pedido) y `status.tracking` (versalitas de §15.6). **Textos normativos: los de la tabla de §15.7, literales en
+ES y EN.**
 
 **Reglas de i18n aplicables:** contenedores dimensionados para ES (§9.4) — "Continuar como invitado" y
 "Crear cuenta y guardar en bóveda" son las cadenas largas a probar; dinero e importes con `Intl` y
@@ -3213,34 +3116,13 @@ los nombres de cartas siguen en inglés con `lang="en"` (§9.2).
 
 ### 15.12 Notas para el arquitecto / product-owner (solicitudes derivadas del diseño)
 
-No bloquean el diseño; el contrato aún **no** cubre guest checkout (§J es nuevo). Se listan como petición:
-
-1. **Minimización en el servidor, no en la UI (la más importante).** El endpoint público de seguimiento debe
-   **devolver únicamente** lo que §15.6 pinta: número de pedido, estado + timestamps, paquetería y guía,
-   artículos (carta, set, número, acabado, precio unitario), desglose y total, `cardLast4`, y `city`/`state`.
-   **No debe devolver** dirección completa, CP, nombre, correo, teléfono, `userId`, `orderId` interno ni
-   folios de inventario. Ocultarlos en el front no basta: el payload es público.
-2. **Cotización de invitado con línea de envío.** `checkout/quote` (o su equivalente de invitado) debe
-   exponer el **envío** como línea del `BreakdownDTO` y el **destino** (`ship | vault`) para que el
-   `AmountBreakdown` se re-cotice al crear cuenta desde el upsell (§15.4). La cifra de MX$175 del copy del
-   upsell debe salir del dial, no del front.
-3. **Número de pedido legible** (`TCG-000123` o similar) para mostrar y copiar; **no** es una credencial:
-   debe ser inútil como vía de acceso (criterio 52).
-4. **Confirmación no adivinable.** La pantalla de confirmación no debe renderizarse desde una URL con un id
-   adivinable; o vive en estado de transacción, o usa el mismo token del seguimiento (§15.5).
-5. **Reenvío de enlace:** respuesta **idéntica** exista o no el pedido, **límite de frecuencia** y
-   **tiempos igualados** (el diseño ya iguala lo visible; la temporización es del backend) — criterio 53.
-6. **Cabeceras de la ruta pública:** `noindex, nofollow` y `Referrer-Policy: no-referrer` (y que el token no
-   quede en logs de acceso). Es una decisión de arquitectura/devops con consecuencia directa en el diseño.
-7. **URL de rastreo de la paquetería:** si el contrato entrega `carrier` + un patrón de URL confiable, la
-   guía se vuelve enlace; **si no, se queda como texto copiable** (misma política que el `certNumber`,
-   §7.2c). Falta confirmación.
-8. **Preguntas abiertas de PROJECT v1.5 que el copy ya evita.** (a) *TTL del enlace*: ningún texto menciona
-   días, así que cambiar 90 días por otro valor **no obliga a retocar copy**; (b) *correo que ya tiene
-   cuenta*: el diseño nunca lo revela y ofrece siempre las dos salidas (login / seguir como invitado), así
-   que sirve para cualquiera de las dos resoluciones que elija el humano.
-9. **`evidenceContact`**: la vista pública y la confirmación toman el correo de soporte del contrato (§7.11),
-   nunca hardcodeado; sigue pendiente de confirmación del humano el valor definitivo.
+Las nueve solicitudes de v1.5 las recoge hoy el contrato `API_CONTRACT.md` §4-G (quote con `breakdown` y
+`vaultBreakdown` §4-G.1, `checkoutToken` §4-G.2, seguimiento y reenvío neutro §4-G.3/§4-G.4) y
+`ARCHITECTURE.md` §4.21; NO MEDIDO por ux-ui ítem a ítem (el listado íntegro está en `git log -p --
+docs/DESIGN_SYSTEM.md`). Siguen siendo reglas de diseño: el payload público devuelve **solo** lo que pinta
+§15.6 (ocultar en el front no basta); el número de pedido no es credencial; la confirmación no se pinta desde
+una URL con id adivinable; la guía es texto copiable si el contrato no da URL de rastreo confiable; ningún
+texto menciona días del enlace; el soporte sale de `evidenceContact`, nunca hardcodeado (§7.11).
 
 ---
 
@@ -33861,3 +33743,74 @@ Los candados de contrato de §MKT.H.11 (C-F1…C-F7, C-D1) **no se repiten** aqu
 ### MKT2-UX.16 Changelog
 
 **vMKT2-1 (2026-10-18):** §MKT2-UX nueva: banner de cookies de primera capa (D3b del dueño, con «Aceptar» más grande que «Solo lo necesario» y la contradicción con el encargo explicada), segunda capa «custom», enlace persistente «Preferencias de cookies», contrato de layout `--sticky-bottom-h` para no tapar COMPRAR, claves `consent.*`, rótulo `MEASUREMENT_NOTICE_REQUIRED`, aviso `admin.marketing.download.exactNotice` y 12 candados (C-F8…C-F19). Cero tokens y cero pares de contraste nuevos. 7 peticiones y 4 dudas (MKT2-UX.13).
+
+---
+
+## CHK-MOVIL. Carrito y checkout en móvil (360-414 px): sin desplazamiento lateral, formulario corto y barra fija (vCHK-1, 2026-10-24 · `HECHOS.md` 2026-10-24 «Embudo móvil…» · brief de marketing `BRIEF_TIENDA_EMBUDO_MOVIL.md` `5237c11`, fricciones 1(a), 2, 3 y 6)
+
+> **Estado: PROPUESTO, no implementado.** Frontend no maqueta hasta que el dueño elija A o B (CHK-MOVIL.3); .1, .2, .4 y .5 son comunes y no dependen de la elección. Las cifras del brief (426 px, 36 px cortados, 3.74 pantallas) las recibió ux-ui del orquestador: **NO MEDIDO por ux-ui** (sin acceso al repo de marketing). Sí se leyó el código (`checkout/GuestCheckoutView.tsx`, `GuestCheckoutForm.tsx`, `CheckoutView.tsx`, `CheckoutIdentityGate.tsx`, `guest-validation.ts`) y `API_CONTRACT.md` §4-G. «Carrito» y «checkout» son **la misma ruta `/checkout`** (título «Tu carrito»). Cero tokens y cero pares de contraste nuevos. No se tocan precios, comisión ni regla de envío (pregunta abierta del dueño).
+
+### CHK-MOVIL.1 Cero desplazamiento lateral (fricción 2)
+Causa de los 426 px: **NO MEDIDA**. Hipótesis del código: la rejilla raíz (`GuestCheckoutView.tsx:481`, `CheckoutView.tsx:301`) declara columnas solo desde `lg:`; en <`lg` la pista implícita `auto` crece al contenido mínimo del hijo más ancho. Primero se mide el elemento culpable (`getBoundingClientRect` a 390) y luego se aplican estas reglas, inocuas aunque la hipótesis falle:
+1. Raíz `grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_420px]`; todo hijo directo `min-w-0`. Los 420 px son solo de `lg+`; en <`lg` ningún ancho fijo, solo `max-w-*`.
+2. Cadenas largas (correo, número de pedido, nombres) con `overflow-wrap:anywhere`; nombres de carta `truncate` dentro de un padre `min-w-0`. Prohibido arreglarlo con `overflow-x:hidden` en `html`/`body` (oculta el defecto y recorta importes).
+3. Con `.gutter` de 20 px el ancho útil es 320 px a 360: dos columnas solo si cada una cabe ahí. Aceptación: candado L1.
+
+### CHK-MOVIL.2 Lo común a A y B
+**2.1 Entrada.** Sin pantalla de tres vías: el invitado ve su formulario en el primer pintado. Encima, una línea (objetivo 44 px) «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» (T4); cada enlace abre `InlineAuthPanel` inline con el estado del formulario intacto (criterio 46: las tres vías siguen a un toque y el carrito se conserva). Con sesión no hay gate.
+**2.2 Campos: orden y mínimo.** Obligatorios, todos exigidos por `GuestAddressInput`/`acceptedTerms` (§4-G.1/§4-G.2) o por PROJECT §J; no se quita ninguno: **1 correo · 2 nombre de quien recibe · 3 CP · 4 colonia · 5 calle y número · 6 teléfono (10 dígitos)**, más la casilla de términos (con `PrivacySiteNote`) y la lectura de vuelta del correo (PROJECT §J). Hoy el orden es correo, nombre, calle, interior, CP, colonia, referencias, teléfono, país. El CP pasa antes de colonia y calle porque rellena colonia, municipio y estado; estos dos salen como **texto de una línea** («Benito Juárez, CDMX»), editables solo en el modo «todo a mano» (`manualAll`). `line2` y `references` quedan **plegados** tras «Interior y referencias (opcional)» (T5; cerrado por defecto, se abre solo si el servidor devuelve error sobre ellos). País fijo: un renglón mono «ENVÍO A MÉXICO» en la cabecera del grupo. `autocomplete` correcto (`email`, `name`, `postal-code`, `address-line1`, `tel`). `FIELD_ORDER` y el resumen de errores siguen el orden del DOM. Sin cambio: validación en `blur`, erratas, anti-enumeración (criterio 56), `role="alert"` con foco al intentar pagar.
+**2.3 Destino sin radios.** `FulfillmentChoice` (radios en el formulario **y otra vez** en el `aside`) pasa a **una fila de estado**: «Envío a mi domicilio» + mono `+ {importe}` y, debajo, un botón de 44 px «Guardar en mi bóveda» + mono `REQUIERE CUENTA` que abre el `VaultUpsellPanel` (§15.4) sin cambios. Sigue seleccionable: nada de `disabled`, candado ni `Banner danger`. Es el primer anuncio de la bóveda dentro del checkout.
+**2.4 Barra fija (<`lg`).** `fixed inset-x-0 bottom-0`, fondo papel, regla superior `border-strong`, sin sombra, `z-30`, `padding-bottom: max(12px, env(safe-area-inset-bottom))`; publica su alto con `useStickyBottomBar` (`--sticky-bottom-h`, MKT2-UX.5) y el contenido reserva `calc(var(--sticky-bottom-h) + 16px)`. Dos filas, alto ≤ 120 px: **(1)** botón de 44 px a ancho completo con la línea T3 (mono 11 px, ≤ 2 líneas) y «Ver desglose» (T6), `aria-expanded`; **(2)** «TOTAL» mono + importe `tabular` a la izquierda y PAGAR `accent` (48 px, ≥ 120 px) a la derecha. «Ver desglose» abre hacia arriba una región (no `dialog`, sin `aria-modal`) con `AmountBreakdown` completo, `max-h-[60vh]` con scroll interno; `Esc` cierra y devuelve el foco; sin animación con `prefers-reduced-motion`. En <`lg` el resumen en flujo se oculta (una sola copia del desglose en el DOM); en `lg+` el `aside` sigue como hoy, con `lg:sticky lg:top-[var(--app-header-h)]`. Reglas: el importe de PAGAR sigue siendo el de la **sesión** (F-SP-5): antes de la sesión dice «Pagar» y «TOTAL» muestra el de la cotización; en `creating` el botón está en `loading` y **no reenvía** (la sesión de invitado se limita a 5/h por IP, §4-G.2); si hay un bloqueo por condición, la línea (1) se sustituye por su explicación (`aria-describedby`, §15.9); los errores de pago, accesorios y reintento se pintan en flujo sobre las notas legales con `role="alert"`; con un campo enfocado la barra se oculta y `--sticky-bottom-h` vale 0 (teclado), y vuelve al desenfocar. Con sesión, la misma barra.
+**2.5 Accesorios y paquetes después.** `BundleOffers` y `AccessorySuggestions` (hoy antes del formulario) pasan **debajo del último campo obligatorio y de la casilla de términos**, sobre las notas legales (A) o a la revisión (B); máximo 3 tarjetas, una columna. Con sesión, debajo de las líneas. `AccessoryCartLines` (lo ya añadido) no se mueve. Las líneas del carrito muestran 2 y «Ver {n} más» pliega el resto; «Quitar» y cantidades con área ≥ 44 px.
+**2.6 Con cuenta.** Sin formulario: líneas → sugerencias → notas legales → barra. El bloque «Guardar en mi bóveda» (3 beneficios) se reduce al subtítulo existente («Tus piezas entran a tu bóveda al pagar…»). Las tres notas al margen (ventas finales, CFDI, tras el pago) y la del aviso de privacidad **no se quitan** (criterio 48b).
+
+### CHK-MOVIL.3 Opciones para el dueño y recomendación
+| | **A · Una pantalla** | **B · Dos pasos** |
+|---|---|---|
+| Estructura | Líneas (2) → línea «Inicia sesión» → fila de destino → **Contacto** (correo + casilla de lectura de vuelta bajo el campo) → **Envío** (nombre, CP, colonia, calle, teléfono, plegable) → casilla de términos → sugerencias → notas legales. Barra con PAGAR desde el primer pintado. | **Paso 1 «Contacto y envío»** (T7): mismos campos y fila de destino; la barra dice «Continuar» (valida, foco al primer error). **Paso 2 «Revisar y pagar»**: filas «Correo {correo} · Cambiar» y «Envío a {nombre}, {calle}, {colonia} {CP} · Cambiar», líneas, **sugerencias**, desglose abierto, casilla de términos, barra con PAGAR. «Atrás» del navegador vuelve al paso 1 (entrada de historial) sin salir del checkout; el estado vive por encima de los pasos. |
+| Toques a pagar (formulario lleno) | 1 (PAGAR) | 2 (Continuar, PAGAR) |
+| Casillas | 2 (correo, términos) | 2 en el paso 2; **1** si producto acepta que la fila «Correo · Cambiar» es la confirmación (petición 3b) |
+| Largo | 6 campos + 1 plegable ≈ 1.3 pantallas a 390×844 (**estimación de diseño, NO MEDIDA**) | ≈ 1 pantalla por paso (NO MEDIDA) |
+| Accesorios | bajo el formulario, antes de las notas | en la revisión: el comprador ya se comprometió y ve el desglose |
+| Coste | bajo: reordena el formulario actual, sin estado nuevo | medio: máquina de dos pasos, historial, foco y errores por paso |
+| Medición | `begin_checkout` sin cambio | además, un evento por paso (petición 6) |
+**Recomendación: A.** Ataca las tres causas de la fricción 3 (pantalla de tres vías, orden y largo, accesorios antes del formulario) con el menor riesgo y sin estado nuevo. **B** gana si el dueño prioriza vender accesorios y reducir errores de pago con una revisión final; se puede añadir después porque comparte todo CHK-MOVIL.2. Para decidir con datos: tras A, medir el abandono entre «primer campo tocado» y PAGAR.
+
+### CHK-MOVIL.4 Envío y comisión antes del carrito (fricción 1a): textos NUEVOS, los aprueba el dueño
+Norma §7.12a/§29 intacta: nombran el cobro, **no** lo justifican, ni proveedor ni afirmación jurídica. La ficha lleva el **envío** con importe, pero la comisión sin importe: no se calcula fuera del carrito (gross-up no invertible, §4-G.1). **Regla de envío vigente** (`HECHOS.md` 2026-10-24 «Regla de envío nueva…»): solo cartas sueltas MX$100; con sellado MX$175, gratis si el pedido completo ≥ MX$4,000; mixto = regla del sellado. **Campos provisionales (⚠ los nombra el arquitecto; no tocar el contrato desde aquí):** lectura pública `shipping.cardsOnlyFeeCents`, `shipping.sealedFeeCents`, `shipping.freeFromCents`; en el `quote` `breakdown.shippingFeeCents` (existe) y `freeShippingRemainingCents` (nuevo, `null` si no aplica).
+| Id | Dónde | ES | EN |
+|---|---|---|---|
+| T1a | Ficha de **carta suelta**/gradeada, bajo el `PriceTag` (mono 11 px muted, ≤ 2 líneas, **fuera** del `PriceTag`, §7.3); no va en la barra fija de COMPRAR. Importe: `shipping.cardsOnlyFeeCents` | «+ envío MX$100, gratis desde MX$4,000 · comisión de plataforma al pagar» | “+ shipping MX$100, free from MX$4,000 · platform fee at checkout” |
+| T1b | Ficha de **sellado**. Importes: `shipping.sealedFeeCents`, `shipping.freeFromCents` | «Envío MX$175, gratis desde MX$4,000 · comisión de plataforma al pagar» | “Shipping MX$175, free from MX$4,000 · platform fee at checkout” |
+| T9 | En flujo, bajo la fila de destino del carrito, si `kind ≠ null ∧ freeShippingRemainingCents > 0` (mono 12 px; **no** en la barra) | «Te faltan {falta} para envío gratis» | “{remaining} more for free shipping” |
+| T3a | Barra fija, invitado (línea 1 de 2.4); con envío 0: «Incluye envío gratis y comisión…» | «Incluye envío {envío} y comisión de plataforma {comisión}» | “Includes shipping {ship} and platform fee {fee}” |
+| T8 | Fricción 4, **junto a** «Todas las ventas son finales» en ficha, carrito y checkout (misma línea o renglón siguiente, mono 11 px muted, sin icono). Apoyada en la política vigente (`checkout.finalSaleNotice`: «…salvo carta dañada o equivocada»; PROJECT 1548: reembolso desde Ventas) | «Si tu carta llega dañada o equivocada, te reembolsamos.» | “If your card arrives damaged or wrong, we refund you.” |
+| T3b | Barra fija, con cuenta | «Incluye comisión de plataforma {comisión}» | “Includes platform fee {fee}” |
+Los importes salen de `breakdown.shippingFeeCents` y `processingFeeCents`, nunca del front. Otros textos nuevos: **T2** (CHK-MOVIL.5), **T4** «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» / “Already have an account? Log in · or create one”, **T5** «Interior y referencias (opcional)» / “Unit and references (optional)”, **T6** «Ver desglose» · «Ocultar desglose» / “Show breakdown” · “Hide breakdown”, **T7** (solo B) «Paso {n} de 2», «Contacto y envío», «Revisar y pagar», «Continuar» / “Step {n} of 2”, “Contact and shipping”, “Review and pay”, “Continue”. Se retiran al implementar: `checkout.identity.{eyebrow,title,cartKept,chosen,guest.hint}`.
+
+### CHK-MOVIL.5 La bóveda se anuncia antes (fricción 6)
+De lo más temprano a lo más tardío: **T2** en la ficha, solo con sesión anónima, bajo el bloque COMPRAR (mono 11 px muted, sin icono ni candado): ES «La bóveda requiere cuenta. Sin cuenta, te la enviamos a casa.» · EN “The vault requires an account. Without one, we ship it to you.”; la **fila de destino** de 2.3 (`REQUIERE CUENTA`, antes del primer campo); y el `VaultUpsellPanel` al pulsarla. Prohibido el *confirmshaming* (§15.1-2). T2 no promete precio ni plazo.
+
+**Fricción 5 · orden visible en el catálogo.** Quien llega de Instagram ve hoy el selector «Ordenar» en «—». Propuesta: el selector siempre muestra un valor real; por defecto **«Novedades»** (`catalog.sort.newest`, criterio que el catálogo ya tiene; no hay clave nueva), con las otras dos (`price_asc`, `price_desc`) tal cual. Sin `sort` en la URL se pinta «Novedades» y se envía ese orden; con `sort` explícito manda la URL. Si se prefiere otro criterio por defecto, es decisión del dueño.
+
+### CHK-MOVIL.6 Peticiones numeradas (ninguna bloquea el diseño)
+1. **Arquitecto.** Leído `API_CONTRACT.md` §4-G.1/§4-G.2: A y B **no cambian el contrato ni la sesión de invitado** (misma `quote`, misma `session`, mismos campos; la identidad inicial es estado de cliente). Confirmar. Si el dueño quiere cifra de envío en la ficha, hay que exponerla públicamente (hoy solo viaja en el `quote`).
+2. **Arquitecto (regla de envío ya decidida).** Nombrar y publicar: lectura pública de los importes (T1a/T1b) y `freeShippingRemainingCents` en ambos `quote` (T9), con `shippingFeeCents: 0` coherente con §4-G.0-2 (un solo `PaymentIntent`). Los nombres de CHK-MOVIL.4 son provisionales.
+3. **Product-owner.** (a) Criterio 46 / PROJECT §J («junto a iniciar sesión / crear cuenta»): confirmar que «formulario directo + enlaces» lo cumple. (b) Solo B: confirmar que «Correo · Cambiar» en la revisión satisface «confirmación de que es correcto antes de pagar»; si no, B conserva la casilla.
+4. **Dueño.** Aprobar T1a, T1b, T2-T9. La regla de envío ya está decidida (`HECHOS.md` 2026-10-24).
+5. **Frontend, vía orquestador.** Medir la causa de los 426 px antes de aplicar CHK-MOVIL.1.
+6. **Arquitecto/marketing, solo B.** ¿Evento de medición por paso (`add_shipping_info`)? `trackBeginCheckout` no cambia.
+7. **Sin proponer cambio:** teléfono y nombre son obligatorios por contrato (`GuestAddressInput`); quitarlos exigiría contrato y afecta la guía de envío.
+
+### CHK-MOVIL.7 Candados sugeridos (Playwright; los escribe frontend, los ejecuta QA)
+Viewports 360×740, 390×844, 414×896 (y 320×568 como estrés), ES y EN.
+| Id | Afirma | Mutación que lo pone rojo |
+|---|---|---|
+| L1 | `scrollWidth ≤ innerWidth` y ningún interactivo con `right > innerWidth` en: carrito, formulario con errores, upsell abierto, panel de login, desglose abierto, aviso de reintento | volver a la rejilla sin `minmax(0,1fr)`; un `min-w-[426px]` |
+| L2 | PAGAR dentro del viewport en el primer pintado; barra ≤ 120 px; con un campo enfocado la barra no se pinta | quitar `useStickyBottomBar` o el `padding-bottom` reservado |
+| L3 | Primer campo antes de `AccessorySuggestions`/`BundleOffers` en el DOM; no existe el botón «Continuar como invitado» | devolver las sugerencias antes del formulario |
+| L4 | Formulario vacío: 6 campos obligatorios visibles, 2 plegados, ≤ 2 casillas | añadir un campo o abrir el disclosure |
+| L5 | T1, T2 y T3 con paridad ES/EN; T3 contiene el importe de `processingFeeCents` | pintar T3 con un importe calculado en el front |
+| L6 | Doble toque en PAGAR crea **una** sesión | quitar el estado `loading` del botón |
+
+**vCHK-1 (2026-10-24):** sección nueva (propuesta A/B). Compactados en el mismo cambio: §14 (v1.1-v1.3), §13 (ítems 8-9), justificaciones de §15.2-§15.4, contraste de §15.9, §15.10, §15.11 y §15.12.

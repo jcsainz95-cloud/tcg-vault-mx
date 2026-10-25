@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { minWidthQuery } from '@/lib/breakpoints';
 import { BuylistView } from './BuylistView';
+import { SellRequestStepView } from './solicitud/SellRequestStepView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
 import type { KycInfoDTO, UserDTO, CardDTO, BuylistQuoteItemDTO } from '@/types/contract';
@@ -22,6 +24,37 @@ vi.mock('@/i18n/navigation', () => ({
     </a>
   ),
 }));
+
+/**
+ * v1.109 (ARCHITECTURE §14.4, D-MKT2-8): «Enviar solicitud» ya no abre un modal: hace NAVEGACIÓN DURA a
+ * `/buylist/solicitud` (`request-step.ts`). jsdom no navega, así que la prueba sustituye la navegación por el
+ * cambio de documento que el navegador haría: desmonta `BuylistView` y monta `SellRequestStepView`, que
+ * rehidrata el carrito desde `localStorage` (lo único que cruza documentos) y lo recotiza. Así los casos de
+ * punta a punta (cotizar → enviar → CLABE/INE → `POST /buylist/requests`) siguen midiendo lo mismo.
+ */
+const nav = vi.hoisted(() => ({ go: null as null | ((locale: string) => void), calls: [] as string[] }));
+vi.mock('./request-step', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./request-step')>();
+  return {
+    ...real,
+    goToSellRequestStep: (locale: string) => {
+      nav.calls.push(real.sellRequestStepHref(locale));
+      nav.go?.(locale);
+    },
+  };
+});
+
+/** El «navegador» de la prueba: un documento a la vez, el cotizador o el paso de crear. */
+function SellFlow() {
+  const [step, setStep] = useState(false);
+  nav.go = () => setStep(true);
+  return step ? <SellRequestStepView /> : <BuylistView />;
+}
+
+/** El paso de crear (antes `role="dialog"`), ahora una sección con nombre. */
+async function findRequestStep(name = 'Crear solicitud de venta') {
+  return screen.findByRole('region', { name });
+}
 
 const BASE_KYC: KycInfoDTO = {
   kycStatus: 'none',
@@ -49,6 +82,7 @@ function asVerifiedCustomer(overrides: Partial<UserDTO> = {}, kyc: Partial<KycIn
 beforeEach(() => {
   vi.restoreAllMocks();
   window.localStorage.clear();
+  nav.calls.length = 0;
 });
 
 /**
@@ -103,12 +137,12 @@ function openCart() {
 
 describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => {
   it('sin elegir set, el binder invita a buscar uno (grid vacío honesto)', () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     expect(screen.getByLabelText('Buscar set')).toBeInTheDocument();
   });
 
   it('cada carta lista SUS casillas de acabado (una por finish real), cada una con su estimado', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
 
     // Charizard existe en normal / reverse holo / holofoil: una casilla agregable por acabado.
@@ -130,7 +164,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
 
   it('clic en una casilla agrega la carta DIRECTO al carrito con su estimado', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
 
     // §18.4a: agregar desde la grilla NO abre el drawer; anuncia por role="status" y
@@ -156,7 +190,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
 
   it('P-14 (§18.5): la línea del carrito y el resumen del modal pintan el FinishMark (banda + etiqueta)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard', 'Reverse Holo');
     openCart();
 
@@ -165,16 +199,17 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     expect(within(drawer).getByTestId('finish-band')).toHaveAttribute('data-finish', 'reverse_holo');
     expect(within(drawer).getByText('Reverse')).toHaveAttribute('aria-label', 'Reverse Holo');
 
-    // Mismo lenguaje en el resumen del modal de solicitud.
+    // Mismo lenguaje en el resumen del paso de crear (v1.109: otra ruta, `/buylist/solicitud`).
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
-    const modal = await screen.findByRole('dialog', { name: 'Crear solicitud de venta' });
+    const modal = await findRequestStep();
+    await within(modal).findByText('Resumen de tu venta');
     expect(within(modal).getByTestId('finish-band')).toHaveAttribute('data-finish', 'reverse_holo');
     expect(within(modal).getByText('Reverse')).toBeInTheDocument();
   });
 
   it('una carta sin referencia (Zapdos) muestra "Precio pendiente" en su casilla y sigue siendo agregable', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     openCart();
 
@@ -188,7 +223,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
   });
 
   it('una carta con un solo acabado muestra SOLO esa casilla (sin hueco vacío para los que no tiene)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     // Pikachu ex (sv08, fixtures) tiene un único acabado disponible (holofoil).
     fireEvent.change(screen.getByLabelText('Buscar set'), { target: { value: 'Surging Sparks' } });
     fireEvent.click(await screen.findByRole('button', { name: /Surging Sparks/ }));
@@ -203,7 +238,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
   });
 
   it('P-16 (§18.4): el carrito vive en un DRAWER flotante tras el FAB (no columna lateral)', () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
 
     // Cerrado por defecto; ya no existe el toggle textual «Ocultar/Mostrar carrito».
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -236,7 +271,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
 describe('BuylistView · detalle expandible por línea', () => {
   it('§BMK: el mercado está a la vista sin expandir; al expandir hay rareza + acabado y NINGÚN «Valor de referencia»', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -265,7 +300,7 @@ describe('BuylistView · detalle expandible por línea', () => {
 
   it('una línea pendiente explica el "precio pendiente" en su detalle', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     openCart();
 
@@ -286,7 +321,7 @@ describe('BuylistView · detalle expandible por línea', () => {
 describe('BuylistView · carrito de venta', () => {
   it('parte con el carrito vacío y sin poder enviar', () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
     expect(
       screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
@@ -297,7 +332,7 @@ describe('BuylistView · carrito de venta', () => {
   it('la cantidad por línea suma al total y expande los items al enviar', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -326,7 +361,7 @@ describe('BuylistView · carrito de venta', () => {
 
   it('la cantidad también se captura con input NUMÉRICO (no solo −/+ de 1 en 1)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -343,7 +378,7 @@ describe('BuylistView · carrito de venta', () => {
   // cantidad se clampa a MAX_LINE_QUANTITY (999) y la vista sigue viva.
   it('una cantidad gigante en el stepper NO crashea: se clampa al tope (999)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -361,7 +396,7 @@ describe('BuylistView · carrito de venta', () => {
   it('agrega varias cartas distintas y las envía en una sola solicitud', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     await addCard('Pikachu');
     openCart();
@@ -383,7 +418,7 @@ describe('BuylistView · carrito de venta', () => {
 
   it('quitar una línea la elimina del carrito', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
@@ -398,7 +433,7 @@ describe('BuylistView · carrito de venta', () => {
     // Regresión del hallazgo: al desmontarse el botón enfocado, el foco caía a <body> y Tab
     // se escapaba detrás del scrim con el drawer abierto (el trap vivía solo en onKeyDown).
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -415,7 +450,7 @@ describe('BuylistView · carrito de venta', () => {
 
   it('TL-C2: «Vaciar la lista» con el foco en el botón también deja el foco DENTRO del diálogo', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -429,7 +464,7 @@ describe('BuylistView · carrito de venta', () => {
 
   it('vaciar el carrito lo deja vacío', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
     fireEvent.click(screen.getByRole('button', { name: /Vaciar la lista/ }));
@@ -440,7 +475,7 @@ describe('BuylistView · carrito de venta', () => {
 
   it('el modal final muestra el RESUMEN de la venta (cartas + total + vigencia) antes de confirmar', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -450,8 +485,8 @@ describe('BuylistView · carrito de venta', () => {
     expect(screen.queryByRole('dialog', { name: 'Carrito de venta (1)' })).not.toBeInTheDocument();
     // El total estimado aparece en el modal: línea (unitario × cantidad) + total.
     expect(screen.getAllByText('MX$24,250.00').length).toBeGreaterThan(1);
-    // Aviso de vigencia del estimado (en la página y en el modal).
-    expect(screen.getAllByText(/estimado con los precios de hoy/).length).toBeGreaterThan(1);
+    // Aviso de vigencia del estimado, en el resumen del paso de crear.
+    expect(screen.getAllByText(/estimado con los precios de hoy/).length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -469,7 +504,7 @@ describe('BuylistView · carrito de venta', () => {
  */
 describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () => {
   it('NO existe selector de tipo de producto (con una sola opción, el control sobra)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await screen.findByLabelText('Buscar set');
     expect(screen.queryByLabelText('Tipo de producto')).not.toBeInTheDocument();
     // Y ninguna de sus opciones queda suelta en la página (ni la de sueltas).
@@ -479,7 +514,7 @@ describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () 
   });
 
   it('NO existe la barra de filtros del grid plano: la búsqueda es la del binder', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     // La que SÍ existe: «Buscar set» del índice de Master Set (mode="quoter").
     expect(await screen.findByLabelText('Buscar set')).toBeInTheDocument();
     // Las que se fueron con el grid plano de graded/sealed.
@@ -491,7 +526,7 @@ describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () 
   it('todo item de la solicitud creada viaja con productType "raw" (nunca graded/sealed)', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     await addCard('Pikachu');
     openCart();
@@ -541,7 +576,7 @@ describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () 
             },
       ),
     }));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
 
     // La teja viva se cotiza y se puede agregar…
@@ -568,7 +603,7 @@ describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () 
 describe('BuylistView · acabado (finish, raw)', () => {
   it('dedup: agregar la MISMA (carta, tipo, acabado) incrementa la cantidad, no duplica la línea', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard'); // finish normal
     // Segundo clic en la misma casilla de acabado: suma cantidad.
     fireEvent.click(screen.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ }));
@@ -586,7 +621,7 @@ describe('BuylistView · acabado (finish, raw)', () => {
 
   it('dedup: la MISMA carta en DISTINTO acabado es una línea separada', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard'); // normal
     // El acabado Reverse Holo es otra casilla de LA MISMA carta → línea distinta del carrito.
     fireEvent.click(screen.getByRole('button', { name: /^Agregar Charizard \(Reverse Holo\) a la venta/ }));
@@ -599,7 +634,7 @@ describe('BuylistView · acabado (finish, raw)', () => {
   it('el finish elegido viaja en los items de la solicitud creada', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard', 'Holofoil');
     openCart();
 
@@ -624,7 +659,7 @@ describe('BuylistView · acabado (finish, raw)', () => {
 describe('BuylistView · Mis solicitudes (enlace a Ventas)', () => {
   it('sin sesión: invita a iniciar sesión con next=/buylist, NO consulta el endpoint y NO muestra error', async () => {
     const spy = vi.spyOn(api, 'getSellRequests').mockRejectedValue(new Error('401'));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
 
     expect(
       await screen.findByText('Inicia sesión para ver el estado de tus solicitudes de venta.'),
@@ -641,7 +676,7 @@ describe('BuylistView · Mis solicitudes (enlace a Ventas)', () => {
   it('con sesión: NO lista solicitudes aquí; enlaza «Ver el estado de mis solicitudes» → /orders?tab=ventas', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'getSellRequests').mockResolvedValue([]);
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
 
     const link = await screen.findByRole('link', { name: /Ver el estado de mis solicitudes/ });
     expect(link).toHaveAttribute('href', '/orders?tab=ventas');
@@ -701,7 +736,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const batch = batchWith(125000, gate);
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
 
     expect(await screen.findByText('Tu lista de venta se conservó: 1 carta(s).')).toBeInTheDocument();
     await waitFor(() => expect(batch).toHaveBeenCalled());
@@ -765,7 +800,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
             },
       ),
     }));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
 
     expect(await screen.findByText('Quitamos 1 carta(s) que ya no podemos cotizar.')).toBeInTheDocument();
     expect(batch).toHaveBeenCalledWith([
@@ -784,7 +819,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
       JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 1000 }),
     );
     const batch = vi.spyOn(api, 'batchQuote').mockRejectedValueOnce(new Error('network'));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await screen.findByText('Tu lista de venta se conservó: 1 carta(s).');
     openCart();
 
@@ -817,7 +852,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
       JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 31 * 24 * 3600 * 1000 }),
     );
     const batch = vi.spyOn(api, 'batchQuote');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     expect(
       await screen.findByText('Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas.'),
     ).toBeInTheDocument();
@@ -827,7 +862,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
   });
 
   it('los CTAs sin sesión del carrito llevan ?next=/buylist', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
     const links = screen.getAllByRole('link', { name: 'Iniciar sesión' }).map((a) => a.getAttribute('href'));
@@ -844,7 +879,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
  */
 describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   it('sin sesión: cotizar/agregar es libre, pero el envío se sustituye por CTA de iniciar sesión / crear cuenta', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -857,7 +892,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
 
   it('correo no verificado: aviso con CTA de reenvío y el botón de enviar queda deshabilitado con motivo', async () => {
     asVerifiedCustomer({ emailVerified: false });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -876,7 +911,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   it('correo no verificado: el CTA de reenviar llama a POST /auth/verify-email/resend', async () => {
     asVerifiedCustomer({ emailVerified: false });
     const spy = vi.spyOn(api, 'resendVerificationEmail').mockResolvedValue({ ok: true });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
 
     fireEvent.click(
@@ -888,7 +923,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
 
   it('sin CLABE registrada: el checklist la marca como requisito pendiente desde el inicio', async () => {
     asVerifiedCustomer({}, { clabeMasked: undefined });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
 
     expect(await screen.findByText('Requisitos para cobrar')).toBeInTheDocument();
@@ -900,7 +935,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   it('sin CLABE: el modal exige capturarla y NO llama al backend si va vacía', async () => {
     asVerifiedCustomer({}, { clabeMasked: undefined });
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -914,7 +949,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
 
   it('con CLABE registrada: el checklist la muestra cumplida (enmascarada)', async () => {
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true, kycStatus: 'pending' });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
 
     expect(await screen.findByText('CLABE registrada (****1234)')).toBeInTheDocument();
@@ -924,7 +959,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   it('con CLABE registrada: el modal ofrece "Usar mi CLABE" en un clic (sin reteclear)', async () => {
     // v1.15: el atajo se gatea por el booleano REAL clabeOnFile (GET /users/me/kyc).
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -940,7 +975,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     // ⭐ v1.69 (§M6-K.5): ya no hay tope que comparar en el navegador — el servidor contesta
     // `ineRequiredForTotal` y el front solo lo obedece (`useSellRequirements`).
     asVerifiedCustomer({}, { ineRequiredForTotal: true });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -962,7 +997,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
   it('con CLABE en archivo, enviar la solicitud OMITE `clabe` (el backend hace el fallback)', async () => {
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -977,7 +1012,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
 
   it('con INE en archivo, el modal NO re-pide el INE (oculta los uploaders)', async () => {
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true, ineOnFile: true });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -1008,7 +1043,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
   it('agregar un producto separado manda su productId a POST /buylist/requests', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addSeparateProduct(DECK_EXCLUSIVE_RE);
     openCart();
 
@@ -1033,7 +1068,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
   it('dos líneas con el mismo (cardId, finish) pero distinto productId son DISTINTAS (no se fusionan)', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     // Set_base Charizard holofoil (sin productId) + Deck Exclusive holofoil (productId 90001).
     await addCard('Charizard', 'Holofoil');
     await addSeparateProduct(DECK_EXCLUSIVE_RE);
@@ -1062,7 +1097,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
   it('una carta base (sin productId) sigue viajando SIN productId (retrocompatible)', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -1116,7 +1151,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
   it('P61-1 · en escritorio no hay panel fijo: ni `aside` de carrito ni la columna de 360 px; FAB y barra montados, un solo cajón', async () => {
     forceDesktop();
     asVerifiedCustomer();
-    const { container } = renderWithProviders(<BuylistView />, 'es');
+    const { container } = renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
 
     expect(container.querySelector('aside')).toBeNull();
@@ -1140,7 +1175,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('P61-1 · la barra: conteo + «Valor de tus cartas» + cifra; vacía, la frase y SIN cifra; «Ver lista» siempre activo con aria de diálogo', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     const bar = screen.getByRole('region', { name: 'Resumen de tu lista de venta' });
     // Vacía: la frase, ninguna cifra (⛔ MX$0.00 con la lista vacía).
     expect(within(bar).getByText('Vacía. Elige cartas del catálogo para agregarlas.')).toBeInTheDocument();
@@ -1172,7 +1207,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
   it('P61-2 · EXACTAMENTE una nota de la guía: cabecera con el cajón cerrado, bloque de dinero con el cajón abierto (también con `matchMedia` de escritorio)', async () => {
     forceDesktop();
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
 
     let notes = screen.getAllByTestId('buylist-shipping-note');
@@ -1193,7 +1228,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
   });
 
   it('P61-3 · sin sesión y cajón cerrado: banner de requisitos en la cabecera (solo `lg`) + recordatorio en la barra; al abrir, el de cabecera se desmonta', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
 
     const headerReq = await screen.findByTestId('buylist-header-requirements');
@@ -1218,7 +1253,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('P61-3 · con sesión, la barra NO lleva el recordatorio de cuenta', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     expect(within(screen.getByTestId('sell-cart-bar')).queryByTestId('sell-cart-bar-login')).not.toBeInTheDocument();
   });
@@ -1267,7 +1302,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
         })),
       };
     });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await screen.findByText('Tu lista de venta se conservó: 1 carta(s).');
     await waitFor(() => expect(batch).toHaveBeenCalled());
 
@@ -1288,7 +1323,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('P61-4 · con TODAS las líneas sin precio, barra y cajón pintan la versalita (nunca MX$0.00)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     const barMoney = screen.getByTestId('sell-cart-bar-money');
     expect(within(barMoney).getByTestId('buylist-pending-label')).toBeInTheDocument();
@@ -1299,7 +1334,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('el total del modal de solicitud es la MISMA función que cajón y barra (cifra idéntica; todo pendiente ⇒ versalita)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
     const drawerFigure = screen.getByTestId('sell-cart-total').textContent;
@@ -1312,7 +1347,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('… y con TODAS las líneas sin precio el modal ni se abre: el CTA está apagado por el mínimo (la versalita del modal es inalcanzable)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     openCart();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeDisabled();
@@ -1348,7 +1383,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('P61-5 · cerrar el cajón con Esc devuelve el foco al botón de la barra', async () => {
     forceDesktop();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     const open = within(screen.getByTestId('sell-cart-bar')).getByRole('button', { name: 'Ver lista' });
     open.focus();
     fireEvent.click(open);
@@ -1360,7 +1395,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
   });
 
   it('P61-5 · … y al FAB cuando lo abrió el FAB (`< lg`)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     const fab = screen.getByTestId('sell-cart-fab');
     fab.focus();
     fireEvent.click(fab);
@@ -1400,7 +1435,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
         },
       ],
     });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     const cta = await screen.findByRole('button', { name: 'Cotizar esta carta' });
     cta.focus();
     fireEvent.click(cta);
@@ -1412,7 +1447,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
 
   it('tras AGREGAR, la teja de esa (carta, acabado) se destaca como «En el carrito» (sombreado)', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
     // Antes de agregar, ninguna teja está marcada.
     expect(screen.queryByText('En el carrito')).not.toBeInTheDocument();
@@ -1430,7 +1465,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
  */
 describe('BuylistView · P-43 pop-up de detalle de la carta', () => {
   it('click en el arte abre el modal de detalle (rareza visible) y cierra con click fuera (backdrop)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
 
     // El detalle es su PROPIO disparador, distinto del botón «Agregar».
@@ -1450,7 +1485,7 @@ describe('BuylistView · P-43 pop-up de detalle de la carta', () => {
   });
 
   it('el modal de detalle también cierra con Esc (a11y)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Ver detalle de Charizard (Normal)' }));
@@ -1467,7 +1502,7 @@ describe('BuylistView · P-43 pop-up de detalle de la carta', () => {
  */
 describe('BuylistView · P-44 rareza en las tejas', () => {
   it('las tejas del cotizador raw muestran la rareza de la carta (Rare Holo)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await openBaseSet();
     await screen.findByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
     // La rareza se pinta en las tejas (una por acabado de Charizard).
@@ -1495,7 +1530,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
    * móvil (sin `matchMedia` de escritorio), así que esto es exactamente el caso de 390px.
    */
   it('SIN abrir el carrito, la regla del envío ya se lee en la CABECERA (§23.3g fila 1-bis)', () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     const notes = screen.getAllByTestId('buylist-shipping-note');
     expect(notes).toHaveLength(1); // el drawer está cerrado: esta es la de la cabecera
     // §23.14.7-7: la instancia se NOMBRA. «La primera que aparezca» es exactamente la
@@ -1512,7 +1547,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
    * la regla de D16 en letra chica. El bloque de confianza baja a DOS párrafos.
    */
   it('el bloque de confianza del pie queda en DOS párrafos: sin el eco retirado de `trustShipping`', () => {
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     expect(
       screen.queryByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
     ).not.toBeInTheDocument();
@@ -1530,7 +1565,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
 
   it('la nota de servicio se pinta con el carrito VACÍO (copy estático: no espera a ningún dato)', () => {
     // Sin sesión y sin cotizar nada: el trato se explica antes de que agregar cueste algo.
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
     expect(screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.')).toBeInTheDocument();
     // §23.3g-bis (v2.3.8) — EXACTAMENTE UNA, y con el drawer abierto le toca al bloque de
@@ -1544,7 +1579,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
 
   it('la nota sigue ahí aunque la política del cotizador FALLE (no se esqueletiza, no se condiciona)', async () => {
     vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('network'));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     openCart();
     const notes = screen.getAllByTestId('buylist-shipping-note');
     expect(notes).toHaveLength(1);
@@ -1553,7 +1588,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
 
   it('el bloque de dinero lleva UN SOLO monto: ni línea de envío, ni resta, ni neto, ni «≈»', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -1570,7 +1605,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     asVerifiedCustomer();
     // Mínimo alto a propósito: 1 Charizard (MX$24,250) queda por debajo de MX$50,000.
     vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -1598,7 +1633,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
    */
   it('§23.3h · con TODAS las líneas sin precio el total NO es MX$0.00 y la pantalla dice por qué', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     openCart();
 
@@ -1625,7 +1660,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
 
   it('§23.3h · la explicación se pinta UNA vez aunque haya MUCHAS cartas sin precio', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Zapdos', 'Holofoil');
     openCart();
     const qty = screen.getByLabelText('Cantidad de Zapdos') as HTMLInputElement;
@@ -1645,7 +1680,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
   it('§23.3f-bis · con líneas sin precio el consejo es «una carta que ya tenga precio»', async () => {
     asVerifiedCustomer();
     vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard'); // con precio: hay faltante que pintar
     await addCard('Zapdos', 'Holofoil'); // sin precio: cambia el consejo
     openCart();
@@ -1663,7 +1698,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     asVerifiedCustomer();
     // MX$30,000: una Charizard queda debajo; dos, arriba.
     vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 3_000_000 });
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
     expect(await screen.findByTestId('buylist-minimum-shortfall')).toBeInTheDocument();
@@ -1682,7 +1717,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
   it('FAIL-OPEN: si la política no llega, no se pinta faltante, no se inventa mínimo y el CTA sigue vivo', async () => {
     asVerifiedCustomer();
     vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('429'));
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     openCart();
 
@@ -1733,7 +1768,7 @@ describe('BuylistView · P-71 código del set en la línea del carrito de venta'
 
   it('con código: la línea empieza por «TWM 130»', async () => {
     bountyWith('TWM');
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
     const lines = await screen.findByTestId('sell-cart-lines');
     const code = within(lines).getByTestId('card-code');
@@ -1744,7 +1779,7 @@ describe('BuylistView · P-71 código del set en la línea del carrito de venta'
 
   it('sin código: la línea no pinta código ni «—»/«null»', async () => {
     bountyWith(null);
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
     const lines = await screen.findByTestId('sell-cart-lines');
     expect(within(lines).queryByTestId('card-code')).toBeNull();
@@ -1760,7 +1795,7 @@ describe('BuylistView · P-71 código del set en la línea del carrito de venta'
 describe('BuylistView · §BMK teja → carrito → resumen', () => {
   it('la teja y el renglón del carrito enseñan el MISMO mercado y la MISMA cifra a pagar', async () => {
     asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
+    renderWithProviders(<SellFlow />, 'es');
     await addCard('Charizard');
     const add = screen.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
     // Mock: mercado MX$48,500.00 y curva ⇒ MX$24,250.00.
@@ -1782,7 +1817,7 @@ describe('BuylistView · §BMK teja → carrito → resumen', () => {
     'BMK-F7/BMK-F6 (%s): el resumen antes de enviar no lleva mercado, porcentajes, proporciones ni «ahorro»',
     async (locale) => {
       asVerifiedCustomer({ locale });
-      renderWithProviders(<BuylistView />, locale);
+      renderWithProviders(<SellFlow />, locale);
       if (locale === 'es') {
         await addCard('Charizard');
       } else {
@@ -1796,11 +1831,9 @@ describe('BuylistView · §BMK teja → carrito → resumen', () => {
       fireEvent.click(
         screen.getByRole('button', { name: locale === 'es' ? 'Enviar solicitud (1)' : 'Submit request (1)' }),
       );
-      const modal = await screen.findByRole('dialog', {
-        name: locale === 'es' ? 'Crear solicitud de venta' : 'Create sell request',
-      });
-      const summary = within(modal)
-        .getByText(locale === 'es' ? 'Resumen de tu venta' : 'Your sale summary')
+      const modal = await findRequestStep(locale === 'es' ? 'Crear solicitud de venta' : 'Create sell request');
+      const summary = (await within(modal)
+        .findByText(locale === 'es' ? 'Resumen de tu venta' : 'Your sale summary'))
         .closest('div') as HTMLElement;
       const text = summary.textContent ?? '';
       expect(text).toContain('MX$24,250.00');

@@ -126,7 +126,57 @@ function seedOf(from: string): number {
   return h;
 }
 
-function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string, exact: boolean): MarketingAggTable[] {
+/*
+ * b5/b6 (v1.109, MKT-MEDIR-CS; §MKT.G.4/§MKT.H.14): títulos, columnas y notas COPIA LITERAL de `CS_HEADS`/`csTable` del
+ * servicio. Dos componentes, `avisame` y `torneo`, SIN MX$; cada uno se oculta por separado («< 5») en `small_cells`.
+ */
+const CS_SOURCE_NOTE =
+  'Registros confirmados (doble opt-in) por fecha de confirmación: «Avísame» (todos los tipos) y «Torneo» (todos los juegos). Una baja posterior no los resta. Un buzón con varios registros cuenta una vez para el umbral.';
+const CS_UTM_NOTE = '«No válido»: algún utm_* no pasa la validación (el texto no se muestra). «Sin UTM»: llegó sin parámetros.';
+const EXACT_CELLS_NOTE = 'Vista del dueño: cifras exactas. Fuera de esta pantalla (exports, analista) las celdas pequeñas se ocultan.';
+const CS_CELLS_NOTE = 'Avísame y torneo se ocultan por separado: menos de 5 buzones distintos ⇒ «< 5».';
+const CS_COUNT_COLUMNS: MarketingAggTable['columns'] = [
+  { key: 'avisame', labelEs: 'Avísame (registros confirmados)', kind: 'count' },
+  { key: 'torneo', labelEs: 'Torneo (preinscripciones confirmadas)', kind: 'count' },
+];
+
+/** b5 (una fila por día CDMX del periodo, en orden de fecha) y b6 (por UTM, mayor a menor), cifras de demo. */
+function cardShowTables(from: string, to: string, exact: boolean): MarketingAggTable[] {
+  const s = seedOf(from);
+  const cell = (n: number) => (exact || n === 0 || n >= 5 ? n : ('< 5' as const));
+  const days: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
+  const cellsNote = exact ? EXACT_CELLS_NOTE : CS_CELLS_NOTE;
+  const b6Rows: Array<[string, number, number]> = [
+    ['instagram / social / card-show-cdmx', 20 + (s % 9), 9 + (s % 4)],
+    ['Sin UTM', 11, 6],
+    ['whatsapp / referral / grupo-jakomi', 6, 3],
+    ['facebook / social / card-show-cdmx', 3, 1],
+    ['No válido', 1, 0],
+  ];
+  return [
+    {
+      id: 'b5',
+      title: 'Preregistros del Card Show por día',
+      source: 'BD',
+      columns: [{ key: 'dia', labelEs: 'Día de confirmación (CDMX)', kind: 'text' }, ...CS_COUNT_COLUMNS],
+      rows: days.map((dia, i) => ({ dia, avisame: cell((s + i * 7) % 9), torneo: cell((s + i * 3) % 6) })),
+      measured: true,
+      notes: [CS_SOURCE_NOTE, cellsNote],
+    },
+    {
+      id: 'b6',
+      title: 'Preregistros del Card Show por UTM',
+      source: 'BD',
+      columns: [{ key: 'utm', labelEs: 'Origen (utm_source / utm_medium / utm_campaign)', kind: 'text' }, ...CS_COUNT_COLUMNS],
+      rows: b6Rows.map(([utm, a, t]) => ({ utm, avisame: cell(a), torneo: cell(t) })),
+      measured: true,
+      notes: [CS_SOURCE_NOTE, CS_UTM_NOTE, cellsNote],
+    },
+  ];
+}
+
+function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string, exact: boolean, to: string = from): MarketingAggTable[] {
   const s = seedOf(from);
   const orders = 10 + (s % 25);
   const small = (n: number) => (exact || n >= 5 ? n : ('< 5' as const));
@@ -187,6 +237,7 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
         notMeasured('b2', 'Instagram por puerta (bio, story, promoción, mensaje directo)', 'BD', ORIGIN_OFF),
         notMeasured('b3', 'Por pieza (utm_content)', 'BD', ORIGIN_OFF),
         notMeasured('b4', 'Google orgánico, directo, referencias e IA', 'GA4', GA4_OFF),
+        ...cardShowTables(from, to, exact),
       ];
     case 'c': {
       const c7Title = 'Nº de pedidos por estado de envío';
@@ -356,7 +407,7 @@ export function mockMarketingPanel(screen: MarketingScreen, q: MockPeriodQuery):
     .filter((a) => a.date >= period.from && a.date <= period.to)
     .map(({ date, kind, label, destino }) => ({ date, kind, label, ...(destino ? { destino } : {}) }));
   // h1 = las anotaciones del periodo como tabla, igual que `screenH` del servidor.
-  const tables = tablesFor(screen, period.kind, period.from, exact)
+  const tables = tablesFor(screen, period.kind, period.from, exact, period.to)
     .map((t) =>
       t.id === 'h1'
         ? { ...t, rows: embedded.map((a) => ({ date: a.date, kind: a.kind, label: a.label, destino: a.destino ?? null })) }

@@ -182,6 +182,16 @@ export interface SafeComponentRow {
 type PartState = 'visible' | SuppressedCount;
 
 /**
+ * Opciones de una tabla por componente (v1.109, b5/b6). `complement: false` apaga R3a local: SOLO para b5 en un mes, donde cada
+ * fila es idéntica a la de su semana (R4 entre periodos) y su estado lo fija la semana vía `forced` (ocultarla solo en el mes no
+ * tapa nada). `keepOrder`: b5 sale en orden fijo de fecha (R0 sin valores), no por valor publicado.
+ */
+export interface ComponentOptions {
+  complement?: boolean;
+  keepOrder?: boolean;
+}
+
+/**
  * Estado de cada (fila, componente): R1 (`0 < sujetos < 5` ⇒ «< 5»; 0 ⇒ 0 visible), coherencia (`forced` ⇒ «oculta») y
  * R3a local: una columna con UNA sola oculta oculta también, en su sitio, la visible más chica ≠ 0 (desempate por clave).
  * `r3a[j]` dice qué pareja eligió R3a en la columna `j` (la tabla de una parte la presenta como «Otros»).
@@ -189,6 +199,7 @@ type PartState = 'visible' | SuppressedCount;
 function planByComponent(
   rows: ComponentRow[],
   forced: ReadonlySet<CellId>,
+  complement = true,
 ): { comps: string[]; state: PartState[][]; r3a: ({ lone: number; partner: number } | null)[] } {
   const comps = rows.length ? Object.keys(rows[0].parts) : [];
   const state: PartState[][] = rows.map((r) =>
@@ -199,6 +210,7 @@ function planByComponent(
     }),
   );
   const r3a = comps.map((c, j) => {
+    if (!complement) return null;
     const lone = state.map((st, i) => (st[j] !== 'visible' ? i : -1)).filter((i) => i >= 0);
     if (lone.length !== 1) return null;
     const partner = rows
@@ -221,12 +233,13 @@ export function applySmallCellsByComponent(
   rows: ComponentRow[],
   privacy: CellPrivacy,
   forced: ReadonlySet<CellId> = new Set(),
+  opts: ComponentOptions = {},
 ): SafeComponentRow[] {
   const copy = (p: ComponentPart): SafePart => ({ count: p.count, money: { ...p.money } });
   if (privacy === 'exact') {
     return rows.map((r) => ({ key: r.key, parts: Object.fromEntries(Object.entries(r.parts).map(([c, p]) => [c, copy(p)])) }));
   }
-  const { comps, state } = planByComponent(rows, forced);
+  const { comps, state } = planByComponent(rows, forced, opts.complement !== false);
   const safe: SafeComponentRow[] = rows.map((r, i) => ({
     key: r.key,
     parts: Object.fromEntries(
@@ -248,15 +261,15 @@ export function applySmallCellsByComponent(
     }
     return byKey(a.key, b.key);
   };
-  return safe.sort(cmp);
+  return opts.keepOrder ? safe : safe.sort(cmp);
 }
 
 /**
  * (clave, componente) que `applySmallCellsByComponent(rows, 'small_cells', forced)` deja ocultos: lo que el mes hereda de cada
  * semana y lo que la familia (R3b/R4) parte de cada tabla.
  */
-export function hiddenCellIds(rows: ComponentRow[], forced: ReadonlySet<CellId> = new Set()): Set<CellId> {
-  const { comps, state } = planByComponent(rows, forced);
+export function hiddenCellIds(rows: ComponentRow[], forced: ReadonlySet<CellId> = new Set(), opts: ComponentOptions = {}): Set<CellId> {
+  const { comps, state } = planByComponent(rows, forced, opts.complement !== false);
   const out = new Set<CellId>();
   rows.forEach((r, i) => comps.forEach((c, j) => state[i][j] !== 'visible' && out.add(cellId(r.key, c))));
   return out;

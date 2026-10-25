@@ -7,7 +7,8 @@
 # 2026-10-08 · frontend/e2e/wishlist.spec.ts (rama claude/wishlist, FRONTEND_NOTES §108.v1.87.3 y §108.v1.87.4; devops DEVOPS_NOTES §94) mockOnly 144/30 → 148/31: import + docblock + 2 llamadas, WSH-F3 «confirmar» y WSH-F9 «confirmar con el dial apagado» — el token del enlace lo firma el servidor (HMAC) y solo existe dentro del correo; el arnés no lee el buzón. realOnly 22/7 → 25/8: import + 2 llamadas, los dos casos del «avísame» de sellado — miden la fila que deriva el servidor (clave p:) y la demanda de M9; en mock subscribeSealedRestock responde siempre FEATURE_DISABLED; la pantalla en mock la cubren SealedRestockForm*.test.tsx y SealedDetailView.test.tsx. needsSeed 35/10 → 33/9 (baja): wishlist.spec.ts y catalog.spec.ts dejan de usarlo porque seed-e2e ya siembra una pieza sellada listed y mapeada (E2E_SEALED_LISTED, 1753f9ed).
 # 2026-10-08 · fusión claude/accesorios (cabd8a15) + claude/wishlist (d815b57d) en claude/release-s7 (devops, DEVOPS_NOTES §95): cifras recontadas por este script sobre el árbol fusionado, sin elegir a mano. Se conservan los motivos de ambos lados (§93.6 accesorios, §94.2 wishlist). skipIfSeedMissing ya refleja la bajada de frontend en accesorios (d11be7bf).
 # 2026-10-11 · §PRE criterio 889: nuevo frontend/e2e/price-review.spec.ts (cola «Precios por revisar») — mockOnly para el recorrido del dueño y realOnly para el 409 de doble resolución (no provocable en mocks, patrón de m4-preparation). Revisado por QA+techlead+seguridad.
-mockOnly 151 32
+# 2026-10-25 · CHK-MOVIL (checkout-movil.spec.ts, fichero nuevo): +2 mockOnly = import + L1 con aviso de reintento, que necesita el 201 de POST /checkout/guest/session (sin Stripe el stack real da 503 y no hay reservedUntil); dato cubierto en backend/test/integration/checkout-reservation-owner.e2e-spec.ts:172,640. L5 y L6 ya miden en real.
+mockOnly 153 33
 needsSeed 33 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7

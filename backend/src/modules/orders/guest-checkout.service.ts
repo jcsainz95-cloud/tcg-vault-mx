@@ -6,7 +6,6 @@ import { BusinessException } from '../../common/business.exception';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
-  shippingFeeDisplayCentsOf,
   BreakdownDTO,
   computeCartBreakdown,
   computeDirectShipBreakdown,
@@ -39,7 +38,17 @@ import { supportContact } from '../mail/support-contact';
 import { DecksMetaService } from '../decks-meta/decks-meta.service';
 import { sameLooseCart } from './accessory-cart';
 import { reserveAccessories } from './accessory-stock';
-import { BoxChoice, boxSnapshotOf, shippingFeeWithBox } from './box-fit';
+import { BoxChoice, boxSnapshotOf } from './box-fit';
+import {
+  DirectShipDials,
+  GuestShippingRuleDTO,
+  PublicShippingRuleDTO,
+  ShippingRuleKind,
+  directShipFeeOf,
+  publicShippingRuleOf,
+  shippingRuleDtoOf,
+  shippingRuleKindOf,
+} from './shipping-rule';
 import {
   EMPTY_QUOTE_ACCESSORY_PART,
   QuoteAccessoryPart,
@@ -166,7 +175,13 @@ export class GuestCheckoutService {
     const frozenOrder = await this.frozenForQuote(frozenByItems, claimedOrderId, lines.length, acc);
     const itemsEmpty = lines.length === 0;
     const empty = itemsEmpty && acc.accessoryLines.length === 0 && acc.energyBundles.length === 0;
-    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units));
+    // 💰 v1.109 (§4-G.12 paso 1): la clase sale de lo cobrable YA podado (piezas válidas + accesorios y paquetes que quedaron).
+    const kind = shippingRuleKindOf({
+      productTypes: items.map((i) => i.productType),
+      accessoryLineCount: acc.accessoryLines.length,
+      energyBundleCount: acc.energyBundles.length,
+    });
+    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units), empty ? null : kind);
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdown: DirectShipBreakdownDTO = frozenOrder
       ? frozenDirectShipBreakdownOf(frozenOrder)
@@ -197,6 +212,28 @@ export class GuestCheckoutService {
       unavailableBundles: acc.unavailableBundles,
       shippingBox: shippingBoxDtoOf(computed.choice),
       vaultExcludesAccessories: acc.accessoryLines.length > 0 || acc.energyBundles.length > 0,
+      // 💰 v1.109 (§4-G.12 punto 4): SIEMPRE presente; `freeShippingRemainingCents` contra el `subtotalCents` de ESTA respuesta.
+      shippingRule: computed.shippingRule(breakdown.subtotalCents),
+    };
+  }
+
+  /**
+   * 💰 v1.109 (§4-G.12 punto 5) — `GET /checkout/shipping-rule`: las `E` ya derivadas con los diales vivos. Informativo
+   * (la ficha, sin cotizar): lo cobrado lo decide `session`.
+   */
+  async publicShippingRule(): Promise<PublicShippingRuleDTO> {
+    return publicShippingRuleOf(await this.directShipDials());
+  }
+
+  /**
+   * 💰 v1.109.1 (§4-G.12 punto 3) — los TRES diales del envío directo, leídos una vez por petición. Son EXHIBIDOS (IVA
+   * dentro): `E = dial`, ⛔ sin `shippingFeeDisplayCentsOf` (IVA-6). ⛔ `shipping_fee_cents` no se lee aquí: es el retiro.
+   */
+  private async directShipDials(): Promise<DirectShipDials> {
+    return {
+      cardsFeeCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS),
+      sealedFeeCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS),
+      freeFromCents: await this.settings.getNumber(SettingKey.DIRECT_SHIP_FREE_FROM_CENTS),
     };
   }
 
@@ -277,10 +314,14 @@ export class GuestCheckoutService {
     const accLines = dto.accessoryLines ?? [];
     const pulls = dto.deckPulls ?? [];
     const withAccessories = accLines.length > 0 || pulls.length > 0;
-    const breakdownPre = withAccessories ? null : await this.breakdownFor(subtotalCents, ivaDials);
+    // 💰 v1.109 (§4-G.12): la clase de las piezas (estricto: la sesión no poda) y los tres diales, leídos AQUÍ, fuera de la tx.
+    const itemTypes = items.map((i) => i.productType);
+    const breakdownPre = withAccessories
+      ? null
+      : await this.breakdownFor(subtotalCents, ivaDials, shippingRuleKindOf({ productTypes: itemTypes, accessoryLineCount: 0, energyBundleCount: 0 }));
     const accDials = withAccessories
       ? {
-          baseFeeCents: shippingFeeDisplayCentsOf(await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS), ivaDials),
+          shipDials: await this.directShipDials(),
           fee: await this.settings.getStripeFee(),
         }
       : null;
@@ -328,20 +369,22 @@ export class GuestCheckoutService {
           supersededOrderIds.push(o.order.id);
         }
 
-        // 💰 §AC.7: la caja (solo con accesorios que no son energía) y `max(E_base, caja)`; el desglose con TODO el
-        // subtotal (I-AC-1). Sin accesorios ⇒ `breakdownPre`, el de hoy.
+        // 💰 §AC.7 + v1.109 (§4-G.12 pasos 1–3): la clase (piezas + renglones + paquetes), el umbral sobre `S` (TODO el
+        // subtotal, I-AC-1) y la caja grande. Sin accesorios ⇒ `breakdownPre` (solo piezas).
         let choice: BoxChoice | null = null;
         let breakdown: DirectShipBreakdownDTO;
+        let baseFeeCents = 0;
         if (part && accDials) {
           choice = await boxChoiceOf(tx, part.units);
-          const shippingFeeCents = shippingFeeWithBox(accDials.baseFeeCents, choice);
-          breakdown = this.orders.representableOrThrow(() =>
-            computeDirectShipBreakdown(subtotalCents + part.subtotalCents, shippingFeeCents, ivaDials.ivaRatePct, accDials.fee),
-          );
+          const S = subtotalCents + part.subtotalCents;
+          const kind = shippingRuleKindOf({ productTypes: itemTypes, accessoryLineCount: part.loose.length, energyBundleCount: part.bundles.length });
+          const fee = directShipFeeOf(kind, S, accDials.shipDials, choice);
+          baseFeeCents = fee.baseFeeCents;
+          breakdown = this.orders.representableOrThrow(() => computeDirectShipBreakdown(S, fee.feeCents, ivaDials.ivaRatePct, accDials.fee));
         } else {
           breakdown = breakdownPre as DirectShipBreakdownDTO;
         }
-        const boxSnapshot = part && accDials ? boxSnapshotOf(choice, accDials.baseFeeCents, part.units) : null;
+        const boxSnapshot = part && accDials ? boxSnapshotOf(choice, baseFeeCents, part.units) : null;
         // v1.68.1: por el `tx` (una sola conexión por checkout; ver `OrdersService.nextOrderNumber`).
         const orderNumber = await this.orders.nextOrderNumber(tx);
         const reservedUntil = reservedUntilFrom(now);
@@ -771,42 +814,49 @@ export class GuestCheckoutService {
     itemsEmpty: boolean,
     // ⚠️ Los MISMOS diales que derivaron cada `P` del carrito, ⛔ no una segunda lectura.
     ivaDials: IvaDials,
-    /** 💰 v1.86⟨accesorios⟩ (§AC.7): la caja elegida; `null` ⇒ la tarifa de hoy, bit a bit. */
+    /** 💰 v1.86⟨accesorios⟩ (§AC.7): la caja elegida; `null` ⇒ sin caja. */
     choice: BoxChoice | null,
-  ): Promise<{ breakdown: DirectShipBreakdownDTO; vaultBreakdown: BreakdownDTO; choice: BoxChoice | null }> {
+    /** 💰 v1.109 (§4-G.12 paso 1): la clase del carrito podado; `null` ⇔ nada cobrable. */
+    kind: ShippingRuleKind | null,
+  ): Promise<{
+    breakdown: DirectShipBreakdownDTO;
+    vaultBreakdown: BreakdownDTO;
+    choice: BoxChoice | null;
+    /** El DTO de §4-G.12 punto 4 contra el `subtotalCents` que viaja en la respuesta (el congelado si rige). */
+    shippingRule: (subtotalCents: number) => GuestShippingRuleDTO;
+  }> {
     const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
+    const dials = await this.directShipDials();
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
-      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null };
+      const none = directShipFeeOf(null, 0, dials, null);
+      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null, shippingRule: (s) => shippingRuleDtoOf(null, s, dials, none) };
     }
-    const baseFeeCents = shippingFeeDisplayCentsOf(
-      await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
-      ivaDials,
-    );
+    const ship = directShipFeeOf(kind, subtotalCents, dials, choice);
     return {
-      breakdown: computeDirectShipBreakdown(subtotalCents, shippingFeeWithBox(baseFeeCents, choice), ivaPct, fee),
+      // TL-ENV-4: `S + E` no representable en Int32 ⇒ 422 AMOUNT_TOO_LARGE (la fuente única), ⛔ nunca un 500 crudo.
+      breakdown: this.orders.representableOrThrow(() => computeDirectShipBreakdown(subtotalCents, ship.feeCents, ivaPct, fee)),
       vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct, fee),
       choice,
+      shippingRule: (s) => shippingRuleDtoOf(kind, s, dials, ship),
     };
   }
 
-  /** Desglose con envío DENTRO de la orden (§4-G.0-2). La tarifa reusa el dial `SHIPPING_FEE_CENTS`. */
+  /** Desglose con envío DENTRO de la orden (§4-G.0-2), sin accesorios. La tarifa es la regla v2 (§4-G.12, sin caja). */
   private async breakdownFor(
     subtotalCents: number,
     ivaDials: IvaDials,
+    kind: ShippingRuleKind | null,
   ): Promise<DirectShipBreakdownDTO> {
-    // ⭐ `E = round(F × (1 + t·r))` — el envío entra en la regla madre **como un `L` más**
-    // (§4.44.f): `F` (el dial `shipping_fee_cents`) sigue siendo NETO y no cambia de valor.
-    const shippingFeeCents = shippingFeeDisplayCentsOf(
-      await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
-      ivaDials,
-    );
+    // 💰 v1.109.1 (§4-G.12): `E` = el dial EXHIBIDO de la clase del pedido (`direct_ship_*`, IVA dentro); sobre el umbral
+    // (`S ≥ T`) va en 0 en CUALQUIER clase (v1.109.3). El IVA del envío sale por resta dentro del desglose agregado (R2), ⛔ nunca apilado detrás de `E`.
+    const shippingFeeCents = directShipFeeOf(kind, subtotalCents, await this.directShipDials(), null).feeCents;
     const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
     // MS-2 (BE-27): el pedido de invitado también PERSISTE una Order; un agregado no representable en
     // Int32 → 422 AMOUNT_TOO_LARGE vía la fuente única `orders.representableOrThrow` (no se persiste
-    // overflow ni se clampa el total). El `quote` (read-only) NO usa esta ruta.
+    // overflow ni se clampa el total). El `quote` (read-only) pasa por la misma fuente en `quoteBreakdowns` (TL-ENV-4).
     return this.orders.representableOrThrow(() =>
       computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
     );

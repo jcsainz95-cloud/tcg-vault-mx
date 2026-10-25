@@ -178,11 +178,24 @@ export class ShipPrepDb {
    * Orden `direct_ship` LIQUIDADA con las cifras del dueño y su envío de fulfillment en `picking`
    * (`userId=null`, montos 0, `IVA_INCLUSIVE`), piezas plataforma `picking`. Guest por defecto.
    */
-  async mkDirect(opts: { userId?: string | null; guestEmail?: string | null; prices?: readonly number[]; priceConvention?: 'IVA_INCLUSIVE' | 'IVA_EXCLUSIVE' } = {}) {
+  async mkDirect(
+    opts: {
+      userId?: string | null;
+      guestEmail?: string | null;
+      prices?: readonly number[];
+      priceConvention?: 'IVA_INCLUSIVE' | 'IVA_EXCLUSIVE';
+      /** 💰 v1.109 (§4-G.12, ENV-7): las cifras congeladas de la orden tal cual (p. ej. envío gratis `E = 0`). */
+      money?: { subtotalCents: number; shippingFeeCents: number; processingFeeCents: number; ivaCents: number; totalCents: number };
+    } = {},
+  ) {
     const k = this.next();
     const prices = opts.prices ?? OWNER_EXAMPLE.prices;
     const S = prices.reduce((a, b) => a + b, 0);
-    const money = S === OWNER_EXAMPLE.subtotalCents ? OWNER_EXAMPLE : { ...OWNER_EXAMPLE, subtotalCents: S, ivaCents: S + 15000 - taxBaseCentsOf(S + 15000, 16), totalCents: S + 15000 + 4617 };
+    const money = opts.money
+      ? { ...OWNER_EXAMPLE, ...opts.money }
+      : S === OWNER_EXAMPLE.subtotalCents
+        ? OWNER_EXAMPLE
+        : { ...OWNER_EXAMPLE, subtotalCents: S, ivaCents: S + 15000 - taxBaseCentsOf(S + 15000, 16), totalCents: S + 15000 + 4617 };
     const pi = `pi_sp_${this.run}_${k}`;
     const order = await this.h.prisma.order.create({
       data: {

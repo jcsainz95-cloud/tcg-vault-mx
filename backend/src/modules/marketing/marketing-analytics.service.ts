@@ -32,6 +32,8 @@ import {
   itemViews,
 } from './marketing-ga4';
 import { readFrozenCardFacts } from '../orders/order-item-card';
+import { parseFirstUtm } from '../../common/first-utm';
+import { toMexicoCityDateKey } from '../../common/business-days';
 
 /** b1-b3 (§MKT.H.9): clave de fila desde `first_utm_*`; `null` ⇒ el pedido/solicitud no entra en esa tabla. */
 type BKey = (source: string | null, medium: string | null, content: string | null) => string | null;
@@ -79,6 +81,30 @@ const B_SESSIONS_NOTE =
 const SC_UNCONNECTED = 'NO MEDIDO — Search Console sin conectar';
 /** b1-b3: nota literal de §MKT.H.14 («Fila de b1-b3»). */
 export const B_CELLS_NOTE = 'Pedidos y solicitudes se ocultan por separado: menos de 5 ⇒ «< 5» sin su MX$.';
+/** b5/b6 (v1.109): componentes y notas. */
+type CsPart = 'avisame' | 'torneo';
+const CS_SOURCE_NOTE =
+  'Registros confirmados (doble opt-in) por fecha de confirmación: «Avísame» (todos los tipos) y «Torneo» (todos los juegos). Una baja posterior no los resta. Un buzón con varios registros cuenta una vez para el umbral.';
+const CS_UTM_NOTE = '«No válido»: algún utm_* no pasa la validación (el texto no se muestra). «Sin UTM»: llegó sin parámetros.';
+/** Cabecera de b5/b6 (catálogo §MKT.G.4): id, título, fuente y la columna de la clave. */
+const CS_HEADS = {
+  b5: { id: 'b5', title: 'Preregistros del Card Show por día', source: 'BD', keyColumn: { key: 'dia', labelEs: 'Día de confirmación (CDMX)', kind: 'text' } },
+  b6: { id: 'b6', title: 'Preregistros del Card Show por UTM', source: 'BD', keyColumn: { key: 'utm', labelEs: 'Origen (utm_source / utm_medium / utm_campaign)', kind: 'text' } },
+} as const;
+export const CS_NO_UTM = 'Sin UTM';
+export const CS_BAD_UTM = 'No válido';
+/**
+ * Clave de b6 (§MKT.H.14 «Poblaciones»): solo valores que pasan `parseFirstUtm`; los cuatro `NULL` ⇒ «Sin UTM»; alguno que no
+ * pasa ⇒ «No válido» (⛔ nunca el texto crudo). Las claves válidas son `[a-z0-9._-]` y no chocan con las dos etiquetas.
+ */
+export function csUtmKey(r: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; utmContent: string | null }): string {
+  const raw = { utm_source: r.utmSource, utm_medium: r.utmMedium, utm_campaign: r.utmCampaign, utm_content: r.utmContent };
+  if (Object.values(raw).every((v) => v === null)) return CS_NO_UTM;
+  const ok = parseFirstUtm(raw);
+  const short = { utm_source: ok.source, utm_medium: ok.medium, utm_campaign: ok.campaign, utm_content: ok.content };
+  if ((Object.keys(raw) as (keyof typeof raw)[]).some((k) => raw[k] !== null && short[k] === undefined)) return CS_BAD_UTM;
+  return `${ok.source ?? '—'} / ${ok.medium ?? '—'} / ${ok.campaign ?? '—'}`;
+}
 /** Conteo real de un componente (solo en `exact`, donde todo es número). */
 const num = (r: SafeComponentRow, c: string): number => (typeof r.parts[c].count === 'number' ? (r.parts[c].count as number) : 0);
 const BANNER_LABEL: Record<(typeof BANNER_RESPONSES)[number], string> = {
@@ -172,9 +198,9 @@ export const c1UsersNote = (privacy: CellPrivacy): string =>
 // ──────────────────────────────── Familias (§MKT.H.14 R2, R3b, R4; MKT-TL2) ────────────────────────────────
 
 /** Tablas con dimensión de cada familia que el servicio calcula junto (los totales aceptados son constantes). */
-type PartsTable = 'b1' | 'b2' | 'b3';
+type PartsTable = 'b1' | 'b2' | 'b3' | 'b5' | 'b6';
 type OneTable = 'g1' | 'c7' | 'a4' | 'b4' | 'c5' | 'e3';
-type FamilyGroup = 'origin' | 'states' | 'sessions';
+type FamilyGroup = 'origin' | 'states' | 'sessions' | 'cardshow';
 /** Columna de conteo de cada tabla de una parte (= su componente, `FamilyCell.part`). */
 const ONE_COUNT: Record<OneTable, string> = { g1: 'pedidos', c7: 'pedidos', a4: 'sesiones', b4: 'sesiones', c5: 'sesiones', e3: 'sesiones' };
 
@@ -183,6 +209,11 @@ interface FamilyDims {
   parts: Partial<Record<PartsTable, ComponentRow[]>>;
   one: Partial<Record<OneTable, DimensionRow[]>>;
   unmeasured: string[];
+  /**
+   * Tablas cuyo estado fija otro periodo (v1.109: b5 en un MES; cada fila es idéntica a la de su semana, R4 entre periodos):
+   * sin R3a local y nunca candidatas de R3b (`FamilyCell.fixed`). Lo oculto les llega por R2 (`forced`).
+   */
+  fixed?: string[];
 }
 /** `forced`: lo que cada tabla recibe como oculto forzado (R2 + familia); `hidden`: lo que acaba oculto (clave o CellId). */
 interface FamilyResult {
@@ -196,7 +227,7 @@ const small = (n: number): boolean => n > 0 && n < SMALL_CELL_THRESHOLD;
 /** Estado LOCAL de cada tabla (R1, R2/forzadas, R3a): claves (una parte) o CellId (b1-b3). */
 function localHidden(d: FamilyDims, forced: Map<string, Set<string>>): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
-  for (const [t, rows] of Object.entries(d.parts)) out.set(t, hiddenCellIds(rows!, forced.get(t)));
+  for (const [t, rows] of Object.entries(d.parts)) out.set(t, hiddenCellIds(rows!, forced.get(t), { complement: !d.fixed?.includes(t) }));
   for (const [t, rows] of Object.entries(d.one)) out.set(t, hiddenKeys(rows!, forced.get(t)));
   return out;
 }
@@ -205,11 +236,12 @@ function localHidden(d: FamilyDims, forced: Map<string, Set<string>>): Map<strin
 function familyCells(d: FamilyDims, hidden: Map<string, Set<string>>): FamilyCell[] {
   const cells: FamilyCell[] = [];
   for (const [t, rows] of Object.entries(d.parts)) {
+    const fixed = d.fixed?.includes(t) === true;
     for (const r of rows!) {
       for (const [part, p] of Object.entries(r.parts)) {
         const h = hidden.get(t)!.has(cellId(r.key, part));
-        cells.push({ table: t, key: r.key, part, column: part, value: p.count, hidden: h, small: small(p.subjects) });
-        for (const [column, v] of Object.entries(p.money)) cells.push({ table: t, key: r.key, part, column, value: v, hidden: h, small: small(p.subjects) });
+        cells.push({ table: t, key: r.key, part, column: part, value: p.count, hidden: h, small: small(p.subjects), fixed });
+        for (const [column, v] of Object.entries(p.money)) cells.push({ table: t, key: r.key, part, column, value: v, hidden: h, small: small(p.subjects), fixed });
       }
     }
   }
@@ -575,6 +607,8 @@ export class MarketingAnalyticsService {
   private async family(g: FamilyGroup, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<FamilyResult> {
     const dims = await this.familyDims(g, period, period, now);
     if (privacy === 'exact') return { dims, forced: new Map(), hidden: new Map() };
+    // b5 en un mes: cada fila (un día) es la misma de su semana ⇒ su estado lo fija la semana (R2), no el mes (§MKT.H.14 R4).
+    if (g === 'cardshow' && period.kind === 'month') dims.fixed = ['b5'];
     const forced0 = new Map<string, Set<string>>();
     if (period.kind === 'month') {
       for (const w of weeksTouchingMonth(period)) {
@@ -610,6 +644,10 @@ export class MarketingAnalyticsService {
       const b = await this.bDims(p);
       d.parts = b;
       d.one.g1 = await this.g1Dims(p);
+      return d;
+    }
+    if (g === 'cardshow') {
+      d.parts = await this.csDims(p);
       return d;
     }
     if (g === 'states') {
@@ -1201,7 +1239,89 @@ export class MarketingAnalyticsService {
           this.bTable('b3', t3, 'pieza', 'Pieza (utm_content)', privacy, await fam('origin')),
         ]
       : [this.notMeasured('b1', t1, 'BD', ORIGIN_OFF), this.notMeasured('b2', t2, 'BD', ORIGIN_OFF), this.notMeasured('b3', t3, 'BD', ORIGIN_OFF)];
-    return [...b, await this.b4Channels(privacy, fam)];
+    const cs = await fam('cardshow');
+    return [
+      ...b,
+      await this.b4Channels(privacy, fam),
+      this.csTable('b5', privacy, cs),
+      this.csTable('b6', privacy, cs),
+    ];
+  }
+
+  /**
+   * b5/b6 (v1.109, MKT-MEDIR-CS; §MKT.H.14): dos componentes por fila, `avisame` (`CS_LEAD`) y `torneo` (`CS_SIGNUP`), sin MX$.
+   * Valor publicado = filas; umbral = buzones distintos (R1). b5: una fila por día del periodo en orden de fecha (R0 sin valores;
+   * en un mes, su estado lo fija la semana). b6: orden R0 como b1-b3, sin «Otros».
+   */
+  private csTable(id: 'b5' | 'b6', privacy: CellPrivacy, f: FamilyResult): AggTable {
+    const head = CS_HEADS[id];
+    const col = head.keyColumn.key;
+    const opts = { complement: !f.dims.fixed?.includes(id), keepOrder: id === 'b5' };
+    const safe = applySmallCellsByComponent(f.dims.parts[id] ?? [], privacy, f.forced.get(id), opts);
+    // `exact` (MKT.G.2): b5 sigue en orden de fecha; b6 en orden real (avisame desc, torneo desc, clave).
+    const rows =
+      privacy === 'exact' && id === 'b6'
+        ? [...safe].sort((a, b) => num(b, 'avisame') - num(a, 'avisame') || num(b, 'torneo') - num(a, 'torneo') || (a.key < b.key ? -1 : 1))
+        : safe;
+    return {
+      id: head.id,
+      title: head.title,
+      source: head.source,
+      columns: [
+        { ...head.keyColumn },
+        { key: 'avisame', labelEs: 'Avísame (registros confirmados)', kind: 'count' },
+        { key: 'torneo', labelEs: 'Torneo (preinscripciones confirmadas)', kind: 'count' },
+      ],
+      rows: rows.map((r) => ({ [col]: r.key, avisame: r.parts.avisame.count as Cell, torneo: r.parts.torneo.count as Cell })),
+      measured: true,
+      notes: [
+        CS_SOURCE_NOTE,
+        ...(id === 'b6' ? [CS_UTM_NOTE] : []),
+        cellsNote(privacy, `Avísame y torneo se ocultan por separado: menos de ${SMALL_CELL_THRESHOLD} buzones distintos ⇒ «< 5».`),
+      ],
+    };
+  }
+
+  /**
+   * b5 y b6 en un rango (una sola lectura): `CardShowLead` (todo `type`) y `CardShowPlayerSignup` (todo `game`) con `confirmedAt`
+   * en el rango y `status ≠ pending`. ⛔ Solo las columnas del conteo (sin correo, nombre, teléfono ni juego): b5/b6 no se parten
+   * por juego, tipo ni día de torneo (X3, §MKT.H.14).
+   */
+  private async csDims(p: DayRange): Promise<Record<'b5' | 'b6', ComponentRow[]>> {
+    const range = mxRange(p.from, p.to);
+    const select = { confirmedAt: true, mailboxHmac: true, utmSource: true, utmMedium: true, utmCampaign: true, utmContent: true } as const;
+    const [leads, signups] = await Promise.all([
+      this.prisma.cardShowLead.findMany({ where: { confirmedAt: range, status: { not: 'pending' } }, select }),
+      this.prisma.cardShowPlayerSignup.findMany({ where: { confirmedAt: range, status: { not: 'pending' } }, select }),
+    ]);
+    type Acc = { rows: number; boxes: Set<string> };
+    const fresh = (): Record<CsPart, Acc> => ({ avisame: { rows: 0, boxes: new Set() }, torneo: { rows: 0, boxes: new Set() } });
+    const days = new Map<string, Record<CsPart, Acc>>();
+    for (let d = p.from; d <= p.to; d = addDays(d, 1)) days.set(d, fresh());
+    const utms = new Map<string, Record<CsPart, Acc>>();
+    const bump = (m: Map<string, Record<CsPart, Acc>>, k: string, part: CsPart, box: string) => {
+      const e = m.get(k) ?? fresh();
+      e[part].rows += 1;
+      e[part].boxes.add(box);
+      m.set(k, e);
+    };
+    for (const [part, xs] of [['avisame', leads], ['torneo', signups]] as const) {
+      for (const x of xs) {
+        if (!x.confirmedAt) continue;
+        const day = toMexicoCityDateKey(x.confirmedAt);
+        if (days.has(day)) bump(days, day, part, x.mailboxHmac);
+        bump(utms, csUtmKey(x), part, x.mailboxHmac);
+      }
+    }
+    const rowsOf = (m: Map<string, Record<CsPart, Acc>>): ComponentRow[] =>
+      [...m.entries()].map(([key, e]) => ({
+        key,
+        parts: {
+          avisame: { count: e.avisame.rows, subjects: e.avisame.boxes.size, money: {} },
+          torneo: { count: e.torneo.rows, subjects: e.torneo.boxes.size, money: {} },
+        },
+      }));
+    return { b5: rowsOf(days), b6: rowsOf(utms).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) };
   }
 
   /**
@@ -1241,7 +1361,7 @@ export class MarketingAnalyticsService {
    * (`PAID_ORIGIN`, sujeto = pedido) y `solicitudes`→`mxnOfertado` (`REQ_ORIGIN`, sujeto = solicitud). Cada componente con su
    * propio umbral (R1): ⛔ nunca la suma de los dos (SEC-MKT-1). Una sola lectura para las tres tablas.
    */
-  private async bDims(p: DayRange): Promise<Record<PartsTable, ComponentRow[]>> {
+  private async bDims(p: DayRange): Promise<Record<'b1' | 'b2' | 'b3', ComponentRow[]>> {
     const range = mxRange(p.from, p.to);
     const [orders, requests] = await Promise.all([
       this.prisma.order.findMany({
