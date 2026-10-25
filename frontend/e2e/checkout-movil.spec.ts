@@ -274,7 +274,12 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
 
       await addCardAndOpenCheckout(page, locale);
       const summary = page.getByTestId('checkout-pay-bar-summary');
-      await expect(summary).toHaveText(shape(locale, 'checkout.bar.includesShipping'));
+      // T3a tiene dos plantillas y la elige el QUOTE (`shippingFeeCents === 0` ⇒ «envío gratis»): con el umbral para
+      // cualquier pedido (`HECHOS.md` 2026-10-25) la primera carta del catálogo puede caer en cualquiera de las dos.
+      const t3a = new RegExp(
+        `${shape(locale, 'checkout.bar.includesShipping').source}|${shape(locale, 'checkout.bar.includesShippingFree').source}`,
+      );
+      await expect(summary).toHaveText(t3a);
       await bar(page).getByRole('button', { name: new RegExp(t(locale, 'checkout.bar.showBreakdown')) }).click();
       const region = page.getByTestId('checkout-pay-bar-breakdown');
       await expect(region).toBeVisible();
