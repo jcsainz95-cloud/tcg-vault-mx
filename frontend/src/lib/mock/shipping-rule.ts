@@ -1,5 +1,5 @@
 /**
- * MOCK · réplica de la regla de envío v2 del envío directo (API_CONTRACT §4-G.12, v1.109; convención de los
+ * MOCK · réplica de la regla de envío v2 del envío directo (API_CONTRACT §4-G.12, v1.109.3; convención de los
  * diales según la decisión del dueño del 2026-10-24, `HECHOS.md` «envío v2 con IVA incluido»).
  *
  * ⚠️ **SIMULADOR, no la fuente.** En producción la tarifa la decide el servidor
@@ -14,10 +14,8 @@
  * Pasos de §4-G.12 punto 2:
  *  1. clase: `sealed` si hay ≥ 1 sellado o accesorio (energía y paquetes incluidos), `cards_only` si solo
  *     hay cartas (raw y graded, D-ENV-2), `null` si no queda nada (envío 0);
- *  2. `E_regla`: `S ≥ T ⇒ 0` para CUALQUIER clase; si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`.
- *     // MOCK: pendiente de contrato — decisión del dueño 2026-10-25 (`HECHOS.md` «Envío gratis desde MX$4,000 para
- *     // CUALQUIER pedido (opción A)», que sustituye «cards_only nunca gratis»). §4-G.12 (v1.109.1) aún dice «nunca
- *     // gratis» y `freeFromCents`/`freeShippingRemainingCents` = `null` para `cards_only`: solicitud al arquitecto.
+ *  2. `E_regla`: `S ≥ T ⇒ 0` para CUALQUIER clase; si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`
+ *     (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido (opción A)»; contrato v1.109.3).
  *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents`;
  *  4. el desglose (comisión sobre `S + E`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
  *
@@ -80,7 +78,7 @@ export function directShipFeeOf(
   }
   const eCards = dials.cardsFeeCents;
   const eSealed = dials.sealedFeeCents;
-  // MOCK: pendiente de contrato (ver cabecera): el umbral vale para cualquier clase; la caja grande conserva su tarifa.
+  // §4-G.12 v1.109.3: el umbral vale para cualquier clase; la caja grande conserva su tarifa.
   const free = subtotalCents >= dials.freeFromCents;
   const eRule = free ? 0 : kind === 'cards_only' ? eCards : eSealed;
   const bigBox = box !== null && box.customerFeeCents > eSealed;
@@ -90,7 +88,8 @@ export function directShipFeeOf(
       kind,
       freeFromCents: dials.freeFromCents,
       freeShippingRemainingCents: Math.max(0, dials.freeFromCents - subtotalCents),
-      freeShippingApplied: free,
+      // §4-G.12 punto 4 (v1.109.2): `S ≥ T ∧ ¬boxFeeApplies` (⇔ E = 0); caja grande sobre T ⇒ false.
+      freeShippingApplied: free && !bigBox,
       boxFeeApplies: bigBox,
     },
   };
