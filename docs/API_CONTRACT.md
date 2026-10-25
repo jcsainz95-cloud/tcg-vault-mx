@@ -22,7 +22,7 @@
 > - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
 > - v1.107⟨mkt-celdas⟩ · 2026-10-19 · §MKT.H.14: umbral por componente y por sujeto, orden sin valores ocultos, registro de poblaciones y ecuaciones, auditor de rango; g1 sobre `PAID_ORIGIN`; §MKT.G.5/.10, C-P1 y .13 ajustados; compactados §MKT intro/.E/.F/.G.1/.G.8/.H.7/.H.12 · seguridad (SEC-MKT-1, MKT-TL2; rechazo sobre `bfd91ab2`).
 > - v1.108⟨mkt-celdas-r⟩ · 2026-10-23 · §MKT.H.14: ratificadas cuatro lecturas de backend (R3b por anillos, X1 sin ceros, familias unidas solo por totales aceptados, espejo `BACKEND_ENCENDER_BLOCKERS` en ARCHITECTURE §14.1); sin cambio de código · backend (MKT-TL2).
-> - v1.109⟨envio-v2⟩ · 2026-10-24 · [§4-G.12](#4-G12) regla de envío v2 (solo cartas / con sellado, umbral de envío gratis, tres diales, `shippingRule` en el quote de invitado, `GET /checkout/shipping-rule`; **v1.109.1** misma fecha: P-ENV-1 cerrada, los diales de envío directo pasan a exhibidos con IVA dentro, la migración ya no copia `shipping_fee_cents`, ENV-1/5/6/8 e IVA-6(a) ajustados · dueño 2026-10-24; **v1.109.2** 2026-10-25: accesorio = `deckPull` con paquete aceptado, `freeShippingApplied` ⇔ `E = 0`, P-ENV-2 cerrada · techlead R2); §MKT.G.4/.H.14 tablas b5/b6 del Card Show (MKT-MEDIR-CS); §MKT.H.11 C-F5/C-F9 por `/buylist` y `/card-show` medidos; compactada la cabecera v1.94/v1.95 · dueño (`HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados»). La siguiente es **v1.110**.
+> - v1.109⟨envio-v2⟩ · 2026-10-24 · [§4-G.12](#4-G12) regla de envío v2 (solo cartas / con sellado, umbral de envío gratis, tres diales, `shippingRule` en el quote de invitado, `GET /checkout/shipping-rule`; **v1.109.1** misma fecha: P-ENV-1 cerrada, los diales de envío directo pasan a exhibidos con IVA dentro, la migración ya no copia `shipping_fee_cents`, ENV-1/5/6/8 e IVA-6(a) ajustados · dueño 2026-10-24; **v1.109.2** 2026-10-25: accesorio = `deckPull` con paquete aceptado, `freeShippingApplied` ⇔ `E = 0`, P-ENV-2 cerrada · techlead R2; **v1.109.3** 2026-10-25: S ≥ T ⇒ 0 también en `cards_only`, `freeFromCents`/`remaining` para ambas clases, ENV-1/F1 · dueño (`HECHOS.md` 2026-10-25 «Envío gratis… CUALQUIER pedido», hallazgo pentester); §MKT.G.4/.H.14 tablas b5/b6 del Card Show (MKT-MEDIR-CS); §MKT.H.11 C-F5/C-F9 por `/buylist` y `/card-show` medidos; compactada la cabecera v1.94/v1.95 · dueño (`HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados»). La siguiente es **v1.110**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: (A) COGS neto de IVA con `InventoryItem.acquisitionCostIvaCents`
@@ -11524,7 +11524,7 @@ gana `vaultBreakdown`, **siempre presente** — ver abajo):
   "vaultBreakdown": { "subtotalCents": 25000, "ivaCents": 4000,
                       "ivaRatePct": 16, "processingFeeCents": 1400, "totalCents": 30400, "currency": "MXN" },
   "unavailableItems": [{ "inventoryItemId": "…", "cardName": "Antique Skull Fossil" }],
-  "shippingRule": { "kind": "cards_only", "freeFromCents": null, "freeShippingRemainingCents": null,
+  "shippingRule": { "kind": "cards_only", "freeFromCents": 400000, "freeShippingRemainingCents": 375000,
                     "freeShippingApplied": false, "boxFeeApplies": false },   // v1.109, §4-G.12 (siempre presente)
   "notices": { "finalSale": true, "invoiceByEmail": true, "termsRequired": true } }
 ```
@@ -12180,9 +12180,9 @@ configurado), y **el módulo `mail` NO se modifica por dentro**: `orders` inyect
 loguea); la red de seguridad es el `trackingToken` ya devuelto en la respuesta del checkout, el reenvío
 self-service y el reenvío de soporte.
 
-### <a id="4-G12"></a>4-G.12 💰 Regla de envío v2 del envío directo (v1.109.2, 2026-10-25, NORMATIVA)
+### <a id="4-G12"></a>4-G.12 💰 Regla de envío v2 del envío directo (v1.109.3, 2026-10-25, NORMATIVA)
 
-Fuente: `HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados». **Alcance** (lectura en `9395569d`): único escritor de
+Fuente: `HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados» y 2026-10-25 «Envío gratis desde MX$4,000 para CUALQUIER pedido» (sustituye «cards_only nunca gratis»). **Alcance** (lectura en `9395569d`): único escritor de
 `direct_ship` = `guest-checkout.service.ts:356,679`; `POST /checkout/session` (cuenta) crea solo `vault` ⇒ **la regla aplica solo al
 invitado**; con cuenta, el envío es el retiro (§5), sin cambio. Si la cuenta llega a tener envío directo, usa esta misma función.
 
@@ -12198,7 +12198,7 @@ invitado**; con cuenta, el envío es el retiro (§5), sin cambio. Si la cuenta l
   desglose: `base = taxBaseCentsOf(G, r)` (R2, `money.ts:718`, `round(G×100/(100+r))`) e `IVA = G − base`. ⛔ No pasan por
   `shippingFeeDisplayCentsOf` y ⛔ `E` nunca se reconstruye desde la base (R3). Si `t` o `r` cambian, `E` sigue igual al dial y solo
   se recalcula la base: es la regla madre (se conserva lo que paga el cliente, E-2) y cumple IVA-6 (ningún IVA apilado detrás de `E`).
-- **Paso 1** clase. **Paso 2** `E_regla`: `cards_only ⇒ E_cartas` (nunca gratis) · `sealed ⇒ (S ≥ T ? 0 : E_sellado)`.
+- **Paso 1** clase. **Paso 2** `E_regla = S ≥ T ? 0 : (kind = 'cards_only' ? E_cartas : E_sellado)` (v1.109.3: gratis sea cual sea la clase).
   **Paso 3** caja (§AC.7, solo accesorios no energía con medidas): `cajaGrande ⇔ choice ≠ null ∧ box.customerFeeCents > E_sellado`;
   `E = cajaGrande ? box.customerFeeCents : E_regla` (sobre T la grande cobra, la chica gratis); `shippingBoxSnapshot.baseFeeCents = E_sellado`.
   **Paso 4** `computeDirectShipBreakdown(S, E, r, fee)`: la comisión es gross-up sobre `S + E` (§4-G.1) y baja con el envío gratis.
@@ -12223,9 +12223,9 @@ directo baja de MX$203 a MX$175 (decisión del dueño, P-ENV-1). Reversa: borrar
 ```ts
 GuestShippingRuleDTO = {
   kind: 'cards_only' | 'sealed' | null,
-  freeFromCents: number | null,               // T si kind='sealed'; si no, null
-  freeShippingRemainingCents: number | null,  // kind='sealed' ⇒ max(0, T − breakdown.subtotalCents) («te faltan MX$N»); si no, null
-  freeShippingApplied: boolean,               // kind='sealed' ∧ S ≥ T ∧ ¬boxFeeApplies (⇔ E = 0; v1.109.2: la caja grande sobre T ⇒ false)
+  freeFromCents: number | null,               // T si kind ≠ null; si no, null
+  freeShippingRemainingCents: number | null,  // kind ≠ null ⇒ max(0, T − breakdown.subtotalCents) («te faltan MX$N»); si no, null
+  freeShippingApplied: boolean,               // S ≥ T ∧ ¬boxFeeApplies, cualquier kind ≠ null (⇔ E = 0; caja grande sobre T ⇒ false)
   boxFeeApplies: boolean                      // la tarifa salió de una caja grande (paso 3)
 }
 ```
@@ -12260,8 +12260,8 @@ D-ENV-2 por «puras cartas» (la gradeada es carta) y D-ENV-3 por «mixto (carta
 no devuelve el envío regalado (costo del dueño, acotado a una guía por pedido).
 
 **10. Pruebas que deben fallar hoy** (deterministas, N=1 dicho como tal; sobre copia del árbol entero, O-9; backend en modelo fuerte):
-- **ENV-1** `test/shipping-rule.spec.ts` (pura; diales 10000/17500/400000, t=100, r=16): raw y graded ⇒ 10000 con `S` = 50000 y 500000;
-  sellado `S` = 399999 ⇒ 17500 y falta 1; `S` = 400000 ⇒ 0; carta + sellado con `S` ≥ T ⇒ 0; carta + energía ⇒ 17500; `deckPull` sin paquete + solo cartas ⇒ 10000; caja 35000 ⇒
+- **ENV-1** `test/shipping-rule.spec.ts` (pura; diales 10000/17500/400000, t=100, r=16): raw y graded ⇒ 10000 con `S` = 50000 y 399999, 0 con `S` = 400000 (`freeShippingApplied:true`);
+  pentester (`PENTEST_NOTES`, `230b9bd3`): cartas `S` ≥ T ⇒ 0 y + accesorio barato ⇒ 0 (ningún lado baja); sellado `S` = 399999 ⇒ 17500 y falta 1; `S` = 400000 ⇒ 0; carta + sellado con `S` ≥ T ⇒ 0; carta + energía ⇒ 17500; `deckPull` sin paquete + solo cartas ⇒ 10000; caja 35000 ⇒
   35000 bajo y sobre T (sobre T: `freeShippingApplied:false`, `boxFeeApplies:true`); caja 15000 ⇒ 17500 bajo T y 0 sobre T; vacío ⇒ `null` y 0; `E` = dial con t=0 y con r=8 (base 9259, IVA 741);
   desglose 10000 ⇒ 8621 + 1379 y 17500 ⇒ 15086 + 2414. Canarios: comparar con el total ⇒ rojo; `E` por `shippingFeeDisplayCentsOf` ⇒ 11600 ⇒ rojo.
 - **ENV-2** integración del quote: `shippingRule` en todo `200` (también 100 % podado: `kind:null`); carrito solo de cartas ⇒ 10000.
@@ -12271,7 +12271,7 @@ no devuelve el envío regalado (costo del dueño, acotado a una guía por pedido
   mueve `E`. **ENV-6** `GET /checkout/shipping-rule` sin sesión ⇒ `{10000, 17500, 400000}` y la cabecera de caché. **ENV-7** (Postgres real) el pedido de dos sellados de 208906 con `E = 0`: reembolsos
   por pieza + remanente ⇒ `Σ = totalCents`, sin `23514`; canario: IVA remanente al envío ⇒ `23514`. **ENV-8** la migración ⛔ no copia
   `shipping_fee_cents` (con 17500 vivo, el sellado directo sale 17500, no 20300) y es idempotente.
-- **ENV-F1** (frontend) el mock replica la regla y T9 se pinta solo con `kind='sealed' ∧ freeShippingRemainingCents > 0`, con el número
+- **ENV-F1** (frontend) el mock replica la regla y T9 se pinta con `kind ≠ null ∧ freeShippingRemainingCents > 0`, con el número
   del backend; ⛔ ningún literal 100/175 en i18n. ⚠️ `FORBIDDEN_PHRASES` (`frontend/src/lib/seo-content.ts:242-251`) prohíbe «envío
   gratis»/«free shipping» en toda copia pública: T9 y T3a de `DESIGN_SYSTEM §CHK-MOVIL.4` chocan; la excepción la deciden dueño y
   marketing (MKT-8), no el contrato.
