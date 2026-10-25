@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { t, type Locale } from './utils/i18n';
 import { IS_REAL, mockOnly } from './utils/auth';
 import { chooseNeighborhood } from './utils/address';
+import { createReadyAccessory, retireAccessory, runTag } from './utils/accessories-scenario';
 
 /**
  * CHK-MOVIL · candados L1-L6 de `DESIGN_SYSTEM §CHK-MOVIL.7` (opción A, una pantalla; `HECHOS.md` 2026-10-24
@@ -175,17 +176,27 @@ for (const vp of VIEWPORTS) {
     });
 
     test(`@real L3 · el primer campo va antes que sugerencias y paquetes; sin «Continuar como invitado» (${vp.width})`, async ({ page }) => {
-      await addCardAndOpenCheckout(page);
-      await expect(page.getByRole('heading', { name: t('es', 'checkout.suggestions.title') })).toBeVisible();
-      const order = await page.evaluate(() => {
-        const field = document.getElementById('guest-email')!;
-        const later = [...document.querySelectorAll('section[aria-labelledby="accessory-suggestions-title"], section[aria-label]')]
-          .filter((s) => s.matches('section[aria-labelledby="accessory-suggestions-title"]') || /paquete|bundle/i.test(s.getAttribute('aria-label') || ''));
-        return later.map((s) => !!(field.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING));
-      });
-      expect(order.length).toBeGreaterThan(0);
-      expect(order.every(Boolean)).toBe(true);
-      await expect(page.getByRole('button', { name: /Continuar como invitado|Continue as guest/ })).toHaveCount(0);
+      // En real el seed no trae accesorios: sin uno «Sugerido» con existencias «¿Te falta algo?» no se pinta y el orden no
+      // se mide (4/4 rojas en el stack propio sobre ba77850e). Se siembra uno por la API del contrato (§AC.11, el mismo
+      // camino que `accessories.spec.ts`) y se retira al final; si el caso se cae, lo recoge el `globalTeardown`.
+      const seeded = IS_REAL
+        ? await createReadyAccessory({ name: `${runTag(`chk-movil L3 ${vp.width}`)} Fundas`, category: 'sleeves', priceCents: 8900, stock: 10, suggested: true })
+        : null;
+      try {
+        await addCardAndOpenCheckout(page);
+        await expect(page.getByRole('heading', { name: t('es', 'checkout.suggestions.title') })).toBeVisible();
+        const order = await page.evaluate(() => {
+          const field = document.getElementById('guest-email')!;
+          const later = [...document.querySelectorAll('section[aria-labelledby="accessory-suggestions-title"], section[aria-label]')]
+            .filter((s) => s.matches('section[aria-labelledby="accessory-suggestions-title"]') || /paquete|bundle/i.test(s.getAttribute('aria-label') || ''));
+          return later.map((s) => !!(field.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING));
+        });
+        expect(order.length).toBeGreaterThan(0);
+        expect(order.every(Boolean)).toBe(true);
+        await expect(page.getByRole('button', { name: /Continuar como invitado|Continue as guest/ })).toHaveCount(0);
+      } finally {
+        if (seeded) await retireAccessory(seeded.id);
+      }
     });
 
     test(`@real L4 · formulario vacío: 6 obligatorios visibles, 2 plegados, ≤ 2 casillas (${vp.width})`, async ({ page }) => {
