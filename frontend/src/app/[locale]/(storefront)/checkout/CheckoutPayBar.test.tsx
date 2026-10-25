@@ -110,7 +110,7 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     expect(pay).toHaveAccessibleDescription('Para pagar, crea tu cuenta o elige envío a domicilio.');
   });
 
-  it('T3a con envío 0: «Incluye envío gratis y comisión…»; T9 solo con sellado y falta > 0', async () => {
+  it('T3a con envío 0: «Incluye envío gratis y comisión…»; T9 con cualquier clase y falta > 0', async () => {
     const spy = vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(
       guestQuote({
         items: [CARD_ITEM],
@@ -134,7 +134,18 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     expect(await screen.findByTestId('free-shipping-remaining')).toHaveTextContent('Te faltan MX$1,234.56 para envío gratis');
     second.unmount();
 
-    // Solo cartas: nunca hay umbral ⇒ sin T9 aunque llegara un número.
+    // Solo cartas (dueño 2026-10-25, opción A): el umbral también vale ⇒ T9 con el número del backend.
+    spy.mockResolvedValue(
+      guestQuote({
+        items: [CARD_ITEM],
+        shippingRule: { kind: 'cards_only', freeFromCents: 400_000, freeShippingRemainingCents: 98_765, freeShippingApplied: false, boxFeeApplies: false },
+      }),
+    );
+    const third = renderGuest();
+    expect(await screen.findByTestId('free-shipping-remaining')).toHaveTextContent('Te faltan MX$987.65 para envío gratis');
+    third.unmount();
+
+    // Servidor que aún manda `null` en solo cartas (contrato v1.109.1) ⇒ sin T9: el front no calcula la falta.
     spy.mockResolvedValue(
       guestQuote({
         items: [CARD_ITEM],

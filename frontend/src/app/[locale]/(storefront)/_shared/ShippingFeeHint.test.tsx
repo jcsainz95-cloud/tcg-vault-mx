@@ -15,10 +15,18 @@ beforeEach(() => {
 });
 
 describe('ShippingFeeHint (T1a/T1b) y FinalSaleLine (T8)', () => {
-  it('T1a: carta suelta o gradeada ⇒ envío de solo cartas del endpoint + comisión SIN importe', async () => {
+  it('T1a: carta suelta o gradeada ⇒ envío de solo cartas y umbral del endpoint + comisión SIN importe (ES y EN)', async () => {
+    // Dueño 2026-10-25 (HECHOS «Envío gratis desde MX$4,000 para CUALQUIER pedido»): T1a también dice el umbral.
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
-    renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');
-    expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent('+ envío MX$101.01 · comisión de plataforma al pagar');
+    const { unmount } = renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');
+    expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
+      '+ envío MX$101.01, gratis desde MX$4,123.00 · comisión de plataforma al pagar',
+    );
+    unmount();
+    renderWithProviders(<ShippingFeeHint kind="cards" />, 'en');
+    expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
+      '+ shipping MX$101.01, free from MX$4,123.00 · platform fee at checkout',
+    );
   });
 
   it('T1b: sellado ⇒ envío de sellado y umbral del endpoint (ES y EN)', async () => {

@@ -14,7 +14,10 @@
  * Pasos de §4-G.12 punto 2:
  *  1. clase: `sealed` si hay ≥ 1 sellado o accesorio (energía y paquetes incluidos), `cards_only` si solo
  *     hay cartas (raw y graded, D-ENV-2), `null` si no queda nada (envío 0);
- *  2. `E_regla`: `cards_only ⇒ E_cartas` (nunca gratis) · `sealed ⇒ (S ≥ T ? 0 : E_sellado)`;
+ *  2. `E_regla`: `S ≥ T ⇒ 0` para CUALQUIER clase; si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`.
+ *     // MOCK: pendiente de contrato — decisión del dueño 2026-10-25 (`HECHOS.md` «Envío gratis desde MX$4,000 para
+ *     // CUALQUIER pedido (opción A)», que sustituye «cards_only nunca gratis»). §4-G.12 (v1.109.1) aún dice «nunca
+ *     // gratis» y `freeFromCents`/`freeShippingRemainingCents` = `null` para `cards_only`: solicitud al arquitecto.
  *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents`;
  *  4. el desglose (comisión sobre `S + E`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
  *
@@ -77,15 +80,16 @@ export function directShipFeeOf(
   }
   const eCards = dials.cardsFeeCents;
   const eSealed = dials.sealedFeeCents;
-  const free = kind === 'sealed' && subtotalCents >= dials.freeFromCents;
-  const eRule = kind === 'cards_only' ? eCards : free ? 0 : eSealed;
+  // MOCK: pendiente de contrato (ver cabecera): el umbral vale para cualquier clase; la caja grande conserva su tarifa.
+  const free = subtotalCents >= dials.freeFromCents;
+  const eRule = free ? 0 : kind === 'cards_only' ? eCards : eSealed;
   const bigBox = box !== null && box.customerFeeCents > eSealed;
   return {
     feeCents: bigBox ? box!.customerFeeCents : eRule,
     rule: {
       kind,
-      freeFromCents: kind === 'sealed' ? dials.freeFromCents : null,
-      freeShippingRemainingCents: kind === 'sealed' ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
+      freeFromCents: dials.freeFromCents,
+      freeShippingRemainingCents: Math.max(0, dials.freeFromCents - subtotalCents),
       freeShippingApplied: free,
       boxFeeApplies: bigBox,
     },

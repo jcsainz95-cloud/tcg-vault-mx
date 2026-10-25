@@ -18,6 +18,10 @@ import { createGuestCheckoutSession, getGuestCheckoutQuote, getPublicShippingRul
  * ⭐ Convención: los tres diales son CON IVA INCLUIDO (decisión del dueño 2026-10-24, `HECHOS.md` «envío v2 con
  * IVA incluido»; contrato v1.109.1): la `E` exhibida ES el valor del dial. Del contrato esta prueba lee la tabla de
  * defaults (punto 3) y el ejemplo de `shippingRule` del quote; los casos de ENV-1 van como tabla propia abajo.
+ *
+ * ⭐ MOCK: pendiente de contrato — umbral para CUALQUIER clase (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde
+ * MX$4,000 para CUALQUIER pedido (opción A)»; sustituye «cards_only nunca gratis»). El contrato v1.109.1 aún no lo
+ * dice: el caso «ejemplo de `shippingRule`» es un TRIPWIRE que se pone rojo cuando el arquitecto lo publique.
  */
 
 const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
@@ -34,10 +38,13 @@ const acc: ShippingRuleCart = { productTypes: [], accessoryCount: 1 };
 
 /** Los casos de ENV-1 (§4-G.12 punto 10) con los diales con IVA incluido: [nombre, carrito, S, caja, E, falta]. */
 const ENV1: ReadonlyArray<[string, ShippingRuleCart, number, number | null, number, number | null]> = [
-  ['raw, S=50000', cards('raw'), 50000, null, 10000, null],
-  ['raw, S=500000 (solo cartas nunca es gratis)', cards('raw'), 500000, null, 10000, null],
-  ['graded = carta (D-ENV-2), S=50000', cards('graded'), 50000, null, 10000, null],
-  ['graded, S=500000', cards('graded'), 500000, null, 10000, null],
+  ['raw, S=50000', cards('raw'), 50000, null, 10000, 350000],
+  // 💰 dueño 2026-10-25 (opción A): el umbral vale también para solo cartas.
+  ['solo cartas S < T ⇒ 10000 (S=399999, falta 1)', cards('raw'), 399999, null, 10000, 1],
+  ['solo cartas S ≥ T ⇒ 0 (S=400000, umbral inclusivo)', cards('raw'), 400000, null, 0, 0],
+  ['raw, S=500000 ⇒ 0', cards('raw'), 500000, null, 0, 0],
+  ['graded = carta (D-ENV-2), S=50000', cards('graded'), 50000, null, 10000, 350000],
+  ['graded, S=500000 ⇒ 0', cards('graded'), 500000, null, 0, 0],
   ['sellado S=399999 ⇒ falta 1', cards('sealed'), 399999, null, 17500, 1],
   ['sellado S=400000 ⇒ 0 (umbral inclusivo)', cards('sealed'), 400000, null, 0, 0],
   ['carta + sellado con S ≥ T ⇒ 0', cards('raw', 'sealed'), 400000, null, 0, 0],
@@ -77,12 +84,18 @@ describe('ENV-1 (frontend) · el mock replica la regla de envío v2 de §4-G.12'
     expect(empty.rule.kind).toBeNull();
   });
 
-  it('el ejemplo de `shippingRule` del quote del contrato (solo cartas) es exactamente lo que da el mock', () => {
+  it('el ejemplo de `shippingRule` del quote del contrato (solo cartas) coincide con el mock salvo el umbral (TRIPWIRE)', () => {
     const m = /"shippingRule":\s*(\{[^{}]*\})/.exec(CONTRACT);
     expect(m, 'ejemplo de shippingRule en el 200 de POST /checkout/guest/quote').toBeTruthy();
     const example = JSON.parse(m![1]);
     expect(example.kind).toBe('cards_only');
-    expect(directShipFeeOf('cards_only', 25000, D).rule).toEqual(example);
+    const rule = directShipFeeOf('cards_only', 25000, D).rule;
+    expect({ ...rule, freeFromCents: null, freeShippingRemainingCents: null }).toEqual(example);
+    // MOCK: pendiente de contrato. El contrato (v1.109.1) aún da `null` en solo cartas; el mock, el umbral (dueño
+    // 2026-10-25). Cuando el arquitecto publique el cambio esto se pone ROJO: entonces se borra el tripwire y la línea
+    // de arriba vuelve a comparar el objeto entero.
+    expect([example.freeFromCents, example.freeShippingRemainingCents]).toEqual([null, null]);
+    expect([rule.freeFromCents, rule.freeShippingRemainingCents]).toEqual([400000, 375000]);
   });
 });
 
@@ -108,14 +121,15 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
 
   it('IVA incluido: mover la tasa del IVA NO mueve el envío exhibido (exacto al dial)', async () => {
     fx.setMockSettings({ ivaPct: 8 });
-    expect((await getGuestCheckoutQuote(['inv-1001'])).breakdown.shippingFeeCents).toBe(10000);
+    expect((await getGuestCheckoutQuote(['inv-1003'])).breakdown.shippingFeeCents).toBe(10000);
     expect((await getPublicShippingRule()).sealedFeeCents).toBe(17500);
   });
 
-  it('ENV-2: carrito solo de cartas (gradeada) ⇒ 10000 y `kind: cards_only`; 100 % podado ⇒ `kind: null`', async () => {
-    const q = await getGuestCheckoutQuote(['inv-1001']);
+  it('ENV-2: carrito solo de cartas bajo T ⇒ 10000, `kind: cards_only` y la falta; 100 % podado ⇒ `kind: null`', async () => {
+    const q = await getGuestCheckoutQuote(['inv-1003']);
     expect(q.breakdown.shippingFeeCents).toBe(10000);
     expect(q.shippingRule?.kind).toBe('cards_only');
+    expect(q.shippingRule?.freeShippingRemainingCents).toBe(400000 - q.breakdown.subtotalCents);
     const dead = await getGuestCheckoutQuote(['no-existe']);
     expect(dead.breakdown.shippingFeeCents).toBe(0);
     expect(dead.shippingRule).toEqual({
@@ -125,6 +139,13 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
       freeShippingApplied: false,
       boxFeeApplies: false,
     });
+  });
+
+  it('solo cartas (gradeada) con S ≥ T ⇒ envío 0 y `freeShippingApplied` (dueño 2026-10-25, opción A)', async () => {
+    const q = await getGuestCheckoutQuote(['inv-1001']);
+    expect(q.breakdown.subtotalCents).toBeGreaterThanOrEqual(400000);
+    expect(q.breakdown.shippingFeeCents).toBe(0);
+    expect(q.shippingRule).toMatchObject({ kind: 'cards_only', freeShippingApplied: true, freeShippingRemainingCents: 0 });
   });
 
   it('sellado bajo el umbral ⇒ 17500 con la falta exacta; dos sellados ≥ T ⇒ envío 0 y `freeShippingApplied`', async () => {
@@ -144,12 +165,12 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
   // sesión). El mock contaba todo `deckPulls` ⇒ un pull sin paquete con solo cartas cobraba 17500 en vez de 10000.
   it('paridad: deckPull SIN paquete + solo cartas ⇒ 10000 y `cards_only` (quote y sesión)', async () => {
     const pulls = [{ pullToken: 'cualquiera', withEnergyBundle: false }];
-    const q = await getGuestCheckoutQuote(['inv-1001'], undefined, undefined, { deckPulls: pulls });
-    // Sin el arreglo la clase sale `sealed` y, con S ≥ T, el envío sale 0 (no 17500): se asierta la clase primero.
+    const q = await getGuestCheckoutQuote(['inv-1003'], undefined, undefined, { deckPulls: pulls });
+    // Sin el arreglo la clase sale `sealed` (y el envío 17500 bajo T): se asierta la clase primero.
     expect(q.shippingRule?.kind).toBe('cards_only');
     expect(q.breakdown.shippingFeeCents).toBe(10000);
     const s = await createGuestCheckoutSession({
-      inventoryItemIds: ['inv-1001'],
+      inventoryItemIds: ['inv-1003'],
       email: 'tlr2@example.com',
       shippingAddress: {
         line1: 'Calle 1',
@@ -169,10 +190,10 @@ describe('ENV-2/3/6 (frontend, mock) · quote, sesión y GET público', () => {
 
   it('M10 mueve la tarifa del mock (criterio 196) y ENV-3: la sesión cobra lo mismo que el quote', async () => {
     fx.setMockSettings({ directShipCardsFeeCents: 5000 });
-    const q = await getGuestCheckoutQuote(['inv-1001']);
+    const q = await getGuestCheckoutQuote(['inv-1003']);
     expect(q.breakdown.shippingFeeCents).toBe(5000);
     const s = await createGuestCheckoutSession({
-      inventoryItemIds: ['inv-1001'],
+      inventoryItemIds: ['inv-1003'],
       email: 'env3@example.com',
       shippingAddress: {
         line1: 'Calle 1',

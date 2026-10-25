@@ -491,8 +491,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
           fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale),
         })
     : '';
-  // T9: solo con sellado (`kind='sealed'`) y si falta algo; el número es el del backend (ENV-F1).
-  const remaining = data?.shippingRule?.kind === 'sealed' ? data.shippingRule.freeShippingRemainingCents : null;
+  // T9: con CUALQUIER clase (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido») y
+  // solo si falta algo; el número es el del backend (ENV-F1). Un servidor que mande `null` (contrato v1.109.1 en solo
+  // cartas) no pinta T9: nunca se calcula aquí.
+  const remaining = data?.shippingRule?.kind != null ? data.shippingRule.freeShippingRemainingCents : null;
 
   const breakdownNode = data ? (
     <>
