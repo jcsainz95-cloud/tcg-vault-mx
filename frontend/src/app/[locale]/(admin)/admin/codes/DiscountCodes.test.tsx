@@ -34,7 +34,11 @@ beforeEach(() => {
   resetMockDiscounts();
   push.mockReset();
 });
-afterEach(() => window.localStorage.removeItem('tcg.role'));
+afterEach(() => {
+  window.localStorage.removeItem('tcg.role');
+  // Un espía que no llegó a su `mockRestore` (prueba roja) no contamina a la siguiente.
+  vi.restoreAllMocks();
+});
 
 describe('lista', () => {
   it('h1 = rótulo del menú; filtros por estado del servidor; un lote es UNA fila con «n de N usados», plegable', async () => {
@@ -151,6 +155,90 @@ describe('crear y editar', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith('dsc-sept10', { endsAt: null, maxTotalUses: 150 }));
     expect(await screen.findByText('Código guardado.')).toBeInTheDocument();
     patch.mockRestore();
+  });
+});
+
+describe('v1.110.1 — «Descuento dado», «Así lo verá el cliente» y «Cambios»', () => {
+  it('la columna «Descuento dado» pinta `usage.discountGivenCents` del servidor (⛔ sin sumar en el cliente)', async () => {
+    const api = await import('@/lib/api');
+    const real = api.listDiscountCodes;
+    const spy = vi.spyOn(api, 'listDiscountCodes').mockImplementation(async (p) => {
+      const res = await real(p);
+      // Un valor que NINGUNA suma de los usos del mock produce: si la pantalla calcula, no sale.
+      return { ...res, data: res.data.map((c) => (c.code === 'SEPT10' ? { ...c, usage: { ...c.usage, discountGivenCents: 1234567 } } : c)) };
+    });
+    renderWithProviders(<DiscountCodesView />, 'es');
+    const rows = await screen.findAllByTestId('code-list-row');
+    expect(screen.getAllByText('Descuento dado').length).toBeGreaterThanOrEqual(1);
+    const sept = rows.find((r) => r.textContent?.includes('SEPT10'))!;
+    expect(within(sept).getByTestId('code-given')).toHaveTextContent('MX$12,345.67');
+    spy.mockRestore();
+  });
+
+  it('la vista previa pide al servidor con el carrito de ejemplo y pinta SU cifra; sin config válida, pide completar', async () => {
+    const api = await import('@/lib/api');
+    const spy = vi.spyOn(api, 'previewDiscountCode').mockResolvedValue({ discountCents: 12345, nominalCents: 20000, capped: true });
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm />, 'es');
+    const preview = screen.getByTestId('discount-preview');
+    expect(within(preview).getByRole('heading', { name: 'Así lo verá el cliente' })).toBeInTheDocument();
+    expect(preview).toHaveTextContent('Completa el descuento para ver el ejemplo.');
+    expect(spy).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Valor (%)'), '20');
+    await user.type(screen.getByLabelText('Tope en pesos (opcional)'), '300');
+    await waitFor(() => expect(within(preview).getByTestId('discount-preview-amount')).toHaveTextContent('Descuento −MX$123.45'));
+    expect(preview).toHaveTextContent('Llegó al tope que fijaste.');
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'percent', percentPct: 20, maxDiscountCents: 30000, sampleLines: expect.arrayContaining([expect.objectContaining({ scope: 'raw' })]) }),
+    );
+    spy.mockRestore();
+  });
+
+  it('contra el simulador: 10 % sobre el carrito de ejemplo ⇒ la cifra de `discountOf` (MX$400.00), sin tope', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm />, 'es');
+    await user.type(screen.getByLabelText('Valor (%)'), '10');
+    const preview = screen.getByTestId('discount-preview');
+    await waitFor(() => expect(within(preview).getByTestId('discount-preview-amount')).toHaveTextContent('Descuento −MX$400.00'));
+    expect(preview).not.toHaveTextContent('Llegó al tope');
+  });
+
+  it('«Cambios» del código: fecha · quién · antes → después, y una fila nueva al guardar', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm id="dsc-sept10" />, 'es');
+    const audit = await screen.findByTestId('discount-audit');
+    await waitFor(() => expect(within(audit).getAllByTestId('discount-audit-entry')).toHaveLength(2));
+    expect(audit).toHaveTextContent('maxTotalUses · 50 → 100');
+    expect(audit).toHaveTextContent('maxDiscountCents · — → MX$500.00');
+    expect(audit).toHaveTextContent('JC');
+    await user.clear(screen.getByLabelText('Usos totales (opcional)'));
+    await user.type(screen.getByLabelText('Usos totales (opcional)'), '120');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await waitFor(() => expect(within(audit).getAllByTestId('discount-audit-entry')).toHaveLength(3));
+    expect(within(audit).getAllByTestId('discount-audit-entry')[0]).toHaveTextContent('Editado');
+    expect(within(audit).getAllByTestId('discount-audit-entry')[0]).toHaveTextContent('maxTotalUses · 100 → 120');
+  });
+
+  it('«Envío regalado»: valor = pedidos + retiros; subtítulo con las dos partes nombradas y sin la que vale cero', async () => {
+    reserveMockDiscount({ codeId: 'dsc-envio25', customer: 'a@x', kind: 'order', folio: 'TCG-1', discountCents: 0, shippingWaivedCents: 10000, totalCents: 90000, consumed: true });
+    const { unmount } = renderWithProviders(<DiscountReportView kind="code" id="dsc-envio25" />, 'es');
+    expect(await screen.findByText('Envío regalado')).toBeInTheDocument();
+    expect(screen.getByText('Pedidos: MX$100.00')).toBeInTheDocument();
+    expect(screen.queryByText(/Retiros:/)).toBeNull();
+    unmount();
+    reserveMockDiscount({ codeId: 'dsc-envio25', customer: 'a@x', kind: 'withdrawal', folio: 'RET-1', discountCents: 0, shippingWaivedCents: 20300, totalCents: 0, consumed: true });
+    renderWithProviders(<DiscountReportView kind="code" id="dsc-envio25" />, 'es');
+    expect(await screen.findByText('Pedidos: MX$100.00 · Retiros: MX$203.00')).toBeInTheDocument();
+    expect(screen.getByText('MX$303.00')).toBeInTheDocument();
+  });
+
+  it('el reporte de un lote trae sus «Cambios» (creación con prefijo y cantidad)', async () => {
+    const { batch } = mockCreateBatch({ prefix: 'FERIA', quantity: 3, kind: 'fixed_amount', amountCents: 10000 });
+    renderWithProviders(<DiscountReportView kind="batch" id={batch.id} />, 'es');
+    const audit = await screen.findByTestId('discount-audit');
+    await waitFor(() => expect(audit).toHaveTextContent('prefix · — → FERIA'));
+    expect(audit).toHaveTextContent('quantity · — → 3');
+    expect(audit).toHaveTextContent('Creado');
   });
 });
 

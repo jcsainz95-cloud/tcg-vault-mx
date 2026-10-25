@@ -12,6 +12,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { downloadTextFile } from '@/lib/download';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
+import { DiscountAuditList } from './DiscountAuditList';
 
 /**
  * Reporte por código o por lote (§DSC-UX.5 D9, contrato §DSC.7 `DiscountReportDTO`). «¿Cuánto me costó y cuánto
@@ -39,6 +40,13 @@ export function DiscountReportView({ kind, id }: { kind: 'code' | 'batch'; id: s
       setCsvError(getMessage(e));
     }
   }
+
+  const waivedSub = (orders: number, withdrawals: number) =>
+    orders > 0 && withdrawals > 0
+      ? t('report.waivedSub', { orders: money(orders), withdrawals: money(withdrawals) })
+      : orders > 0
+        ? t('report.waivedSubOrders', { orders: money(orders) })
+        : t('report.waivedSubWithdrawals', { withdrawals: money(withdrawals) });
 
   const r = report.data;
   return (
@@ -71,11 +79,13 @@ export function DiscountReportView({ kind, id }: { kind: 'code' | 'batch'; id: s
                 <StatCard label={t('report.sales')} value={money(r.salesCollectedCents)} sub={t('report.salesSub')} />
                 <StatCard label={t('report.refunded')} value={t('report.refundedValue', { n: r.refundedOrders, amount: money(r.refundedCents) })} />
                 {(r.shippingWaivedOrdersCents > 0 || r.shippingWaivedWithdrawalsCents > 0) && (
-                  // ⛔ Sin sumar en el cliente: pedidos y retiros son dos campos del servidor y se pintan los dos.
+                  // §DSC-UX.5 D9 (vDSC-1.1): valor = la suma de los dos campos del servidor; el subtítulo los nombra por
+                  // separado y omite la parte que vale cero. Es una suma de pantalla de dos totales del servidor, no
+                  // una regla de dinero (el contrato no trae el total: ver FRONTEND_NOTES §DSC).
                   <StatCard
                     label={t('report.waived')}
-                    value={money(r.shippingWaivedOrdersCents)}
-                    sub={t('report.waivedSub', { amount: money(r.shippingWaivedWithdrawalsCents), n: r.withdrawals })}
+                    value={money(r.shippingWaivedOrdersCents + r.shippingWaivedWithdrawalsCents)}
+                    sub={waivedSub(r.shippingWaivedOrdersCents, r.shippingWaivedWithdrawalsCents)}
                   />
                 )}
               </div>
@@ -114,6 +124,12 @@ export function DiscountReportView({ kind, id }: { kind: 'code' | 'batch'; id: s
                 </div>
               )}
 
+              {kind === 'batch' && (
+                // El lote no tiene pantalla de edición: sus «Cambios» viven en su reporte (§DSC.7 `GET …batches/:id/audit`).
+                <div className="mt-8 max-w-[640px]">
+                  <DiscountAuditList kind="batch" id={id} />
+                </div>
+              )}
               {kind === 'batch' && r.usedCodes && (
                 <div className="mt-8">
                   <p className="eyebrow text-text">{t('report.usedCodes', { used: r.usedCodes.length, n: r.limit ?? r.usedCodes.length })}</p>

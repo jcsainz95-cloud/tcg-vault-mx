@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { downloadTextFile } from '@/lib/download';
+import { formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type { DiscountCodeBatchDTO, DiscountCodeDTO, DiscountCodeState } from '@/types/contract';
@@ -173,12 +174,13 @@ export function DiscountCodesView() {
           ) : (
             <div className="border-t border-border">
               {/* Cabecera solo desde md; en < md cada fila es una tarjeta con código, estado, descuento y usos. */}
-              <div className="hidden grid-cols-[1.2fr_1.4fr_1.1fr_0.8fr_1fr_auto] gap-4 border-b border-border py-3 font-mono text-[10px] uppercase tracking-label text-muted md:grid">
+              <div className="hidden grid-cols-[1.2fr_1.3fr_1.1fr_0.8fr_1fr_0.9fr_auto] gap-4 border-b border-border py-3 font-mono text-[10px] uppercase tracking-label text-muted md:grid">
                 <span>{t('columns.code')}</span>
                 <span>{t('columns.discount')}</span>
                 <span>{t('columns.validity')}</span>
                 <span>{t('columns.state')}</span>
                 <span>{t('columns.usage')}</span>
+                <span className="text-right">{t('columns.given')}</span>
                 <span className="text-right">{t('columns.actions')}</span>
               </div>
               <ul>
@@ -186,13 +188,18 @@ export function DiscountCodesView() {
                   <li
                     key={c.id}
                     data-testid="code-list-row"
-                    className="grid min-w-0 grid-cols-1 gap-2 border-b border-border py-4 md:grid-cols-[1.2fr_1.4fr_1.1fr_0.8fr_1fr_auto] md:items-center md:gap-4"
+                    className="grid min-w-0 grid-cols-1 gap-2 border-b border-border py-4 md:grid-cols-[1.2fr_1.3fr_1.1fr_0.8fr_1fr_0.9fr_auto] md:items-center md:gap-4"
                   >
                     <span className="min-w-0 font-mono text-sm font-semibold text-text [overflow-wrap:anywhere]">{c.code}</span>
                     <span className="text-sm text-text">{describeDiscount(c, t, locale)}</span>
                     <span className="text-sm text-muted">{describeValidity(c, t, locale)}</span>
                     <StateTag state={c.state} />
                     <span className="tabular text-sm text-text">{describeUsage(c, t)}</span>
+                    {/* «Descuento dado» = `usage.discountGivenCents` del servidor (v1.110.1), ⛔ sin sumar aquí. */}
+                    <span data-testid="code-given" className="tabular text-sm text-text md:text-right">
+                      <span className="text-muted md:hidden">{t('columns.given')}: </span>
+                      {formatMoneyCents(c.usage.discountGivenCents, locale)}
+                    </span>
                     <span className="flex flex-wrap gap-2 md:justify-end">
                       {c.state !== 'expired' && (
                         <Button
@@ -289,7 +296,7 @@ function BatchRow({
   });
   return (
     <li data-testid="batch-list-row" className="border-b border-border py-4">
-      <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-[1.2fr_1.4fr_1.1fr_0.8fr_1fr_auto] md:items-center md:gap-4">
+      <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-[1.2fr_1.3fr_1.1fr_0.8fr_1fr_0.9fr_auto] md:items-center md:gap-4">
         <button
           type="button"
           aria-expanded={open}
@@ -307,6 +314,10 @@ function BatchRow({
         <span className="text-sm text-muted">{describeValidity(b, t, locale)}</span>
         <StateTag state={b.state} />
         <span className="tabular text-sm text-text">{t('batchUsed', { used: b.usedCodes, n: b.quantity })}</span>
+        {/* `DiscountCodeBatchDTO` no trae «Descuento dado» (está en su reporte): celda vacía, sin sumar los códigos aquí. */}
+        <span aria-hidden className="hidden text-right text-sm text-muted md:block">
+          —
+        </span>
         <span className="flex flex-wrap gap-2 md:justify-end">
           {b.state !== 'expired' && (
             <Button variant="secondary" size="sm" className="min-h-[44px]" loading={busy} onClick={b.status === 'paused' ? onResume : onPause}>

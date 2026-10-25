@@ -2,9 +2,27 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { allocateDiscount, discountOf, mockCreateCode, resetMockDiscounts, type DiscountLine, type DiscountRule } from './discounts';
+import {
+  allocateDiscount,
+  discountOf,
+  mockAudit,
+  mockCodeReport,
+  mockCreateBatch,
+  mockCreateCode,
+  mockGetBatch,
+  mockGetCode,
+  mockListCodes,
+  mockPatchCode,
+  mockPreview,
+  mockSetCodeStatus,
+  reserveMockDiscount,
+  resetMockDiscounts,
+  type DiscountLine,
+  type DiscountRule,
+} from './discounts';
+import * as fx from './fixtures';
 import { DIRECT_SHIP_DEFAULT_DIALS } from './shipping-rule';
-import { getCheckoutQuote, getGuestCheckoutQuote, mockDiscountedDirectShip } from '@/lib/api';
+import { getCheckoutQuote, getGuestCheckoutQuote, mockDiscountedDirectShip, mockWithdrawalDiscount } from '@/lib/api';
 
 /**
  * DCO-F5 (API_CONTRACT §DSC.10): «el mock de `lib/api.ts` replica `DiscountQuoteDTO` y la omisión sin código».
@@ -26,6 +44,9 @@ const DSC = (() => {
   const end = CONTRACT.indexOf('\n## ', start + 10);
   return CONTRACT.slice(start, end === -1 ? undefined : end).replace(/\s+/g, ' ');
 })();
+
+/** `PROJECT.md` con los saltos de línea aplanados (el criterio 893 cruza renglones). */
+const PROJECT_FLAT = PROJECT.replace(/\s+/g, ' ');
 
 function grab(re: RegExp, src = DSC): number[] {
   const m = re.exec(src);
@@ -106,10 +127,35 @@ describe('DCO-B2 — nominal, tope, mínimo inclusivo y paquete fuera (cifras de
 
   it('893: monto fijo ⇒ mercancía que dice el contrato (base del criterio 893 en PROJECT.md)', () => {
     const [amount, merch] = grab(/893 \((\d+) fijo ⇒ (\d+) de mercancía\)/);
-    const [codePesos, basePesos] = grab(/893\. 💰 \*\*Monto fijo con IVA\*\* \*\(DSC\.2-1\/3\)\*: un código de MX\$([\d,.]+) sobre MX\$([\d,.]+)/, PROJECT);
+    // La lista de reglas entre paréntesis cambia con el PO (`DSC.2-1/3` ⇒ `DSC.2-1/3/7`, e5c793e2): se lee cualquiera.
+    const [codePesos, basePesos, merchPesos] = grab(
+      /893\. 💰 \*\*Monto fijo con IVA\*\* \*\(DSC\.2-[\d/]+\)\*: un código de MX\$([\d,]+\.\d{2}) sobre MX\$([\d,]+\.\d{2}) ⇒ mercancía de MX\$([\d,]+\.\d{2})/,
+      PROJECT_FLAT,
+    );
     expect(pesos(codePesos)).toBe(amount);
+    expect(pesos(merchPesos)).toBe(merch);
     const r = discountOf([card('a', pesos(basePesos))], rule({ kind: 'fixed_amount', amountCents: amount }), 'direct_ship');
     expect(r.ok && pesos(basePesos) - r.discountCents).toBe(merch);
+  });
+
+  it('893 (PROJECT vigente): una carta de MX$100.00 ⇒ MX$99.99 y se cobra MX$0.01; tres energías de MX$10.00 con MX$10.00 fijo ⇒ MX$9.99', () => {
+    const [cardPesos, D1, charged] = grab(
+      /una sola carta elegible de MX\$([\d,]+\.\d{2}) ⇒ descuento de \*\*MX\$([\d,]+\.\d{2})\*\* y la carta se cobra en \*\*MX\$([\d,]+\.\d{2})\*\*/,
+      PROJECT_FLAT,
+    );
+    const [amount] = grab(/893 \((\d+) fijo ⇒/);
+    const one = discountOf([card('a', pesos(cardPesos))], rule({ kind: 'fixed_amount', amountCents: amount }), 'direct_ship');
+    expect(one.ok && one.discountCents).toBe(pesos(D1));
+    expect(one.ok && pesos(cardPesos) - one.discountCents).toBe(pesos(charged));
+    // «tres» va en letra en PROJECT: la regex lo exige literal y la cantidad es 3.
+    const [eachPesos, fixedPesos, D3, unitPesos] = grab(
+      /Con tres energías sueltas iguales de MX\$([\d,]+\.\d{2}) y un código de MX\$([\d,]+\.\d{2}) fijo ⇒ descuento de \*\*MX\$([\d,]+\.\d{2})\*\* \(cada unidad −MX\$([\d,]+\.\d{2})\)/,
+      PROJECT_FLAT,
+    );
+    const energies: DiscountLine = { id: 'acc-energy', kind: 'accessory', scope: 'accessory', priceCents: pesos(eachPesos), quantity: 3 };
+    const three = discountOf([energies], rule({ kind: 'fixed_amount', amountCents: pesos(fixedPesos) }), 'direct_ship');
+    expect(three.ok && three.discountCents).toBe(pesos(D3));
+    expect(three.ok && three.unitDiscounts.get('acc-energy')).toBe(pesos(unitPesos));
   });
 
   it('894: 20 % con tope ⇒ el tope', () => {
@@ -204,5 +250,151 @@ describe('§DSC.0 I-1 / DCO-F5 — sin código, el JSON del mock es el de hoy (l
     const Sp = withCode.discount.merchandiseBeforeDiscountCents - withCode.discount.discountCents;
     expect(withCode.breakdown.subtotalCents).toBe(Sp);
     expect(withCode.items.reduce((s, i) => s + i.unitPriceCents, 0)).toBe(Sp);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// v1.110.1 — envío gratis con el dial en 0, orden de los motivos, retiro aplicado, y las formas nuevas de §DSC.7.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** §DSC sin aplanar: los `//` del bloque `ts` terminan en el salto de línea. */
+const DSC_RAW = (() => {
+  const start = CONTRACT.indexOf('## <a id="DSC"></a>DSC.');
+  const end = CONTRACT.indexOf('\n## ', start + 10);
+  return CONTRACT.slice(start, end === -1 ? undefined : end);
+})();
+
+/** Claves de primer nivel (y las anidadas en `{ … }`, como `padre.hijo`) de un literal `Nombre = { … }` del contrato. */
+function contractKeys(name: string, src = DSC_RAW): string[] {
+  const at = src.indexOf(`${name} = {`);
+  expect(at, `el contrato ya no define ${name}`).toBeGreaterThan(-1);
+  let depth = 0;
+  let body = '';
+  for (let i = src.indexOf('{', at); i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    if (ch === '}') depth--;
+    body += ch;
+    if (depth === 0) break;
+  }
+  const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').replace(/'[^']*'/g, "''");
+  return objectKeys(clean.slice(1, -1), '');
+}
+function objectKeys(inner: string, prefix: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of inner) {
+    if ('{[(<'.includes(ch)) depth++;
+    if ('}])>'.includes(ch)) depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  parts.push(cur);
+  const keys: string[] = [];
+  for (const raw of parts) {
+    const m = /^([A-Za-z_]\w*)\??\s*(?::\s*([\s\S]*))?$/.exec(raw.trim());
+    if (!m) continue;
+    keys.push(prefix + m[1]);
+    const nested = m[2]?.trim();
+    if (nested?.startsWith('{')) keys.push(...objectKeys(nested.slice(1, nested.lastIndexOf('}')), `${prefix}${m[1]}.`));
+  }
+  return keys;
+}
+/** Claves de un DTO del mock con la misma convención (`padre.hijo` para objetos, no para arreglos). */
+function dtoKeys(o: Record<string, unknown>, prefix = ''): string[] {
+  return Object.entries(o).flatMap(([k, v]) =>
+    v && typeof v === 'object' && !Array.isArray(v) ? [prefix + k, ...dtoKeys(v as Record<string, unknown>, `${prefix}${k}.`)] : [prefix + k],
+  );
+}
+
+describe('§DSC.4 v1.110.1 — envío gratis: `E` sin código ya en 0 (umbral O dial) ⇒ ALREADY_FREE_SHIPPING; orden de motivos', () => {
+  it('el contrato dice el dial y el orden NO_SHIPPING → LARGE_BOX → ALREADY_FREE_SHIPPING', () => {
+    expect(DSC).toMatch(/`E` sin código ya es 0 \(`S ≥ T` \*\*o dial de la clase en 0\*\*, v1\.110\.1\) ⇒ `ALREADY_FREE_SHIPPING`/);
+    const from = DSC.indexOf('Envío gratis (tipo c) no aplica');
+    const order = ['bóveda ⇒ `NO_SHIPPING`', 'caja grande ⇒ `LARGE_BOX`', '⇒ `ALREADY_FREE_SHIPPING`'].map((x) => DSC.indexOf(x, from));
+    expect(order.every((i) => i > from)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('dial de cartas en 0 bajo el umbral ⇒ ALREADY_FREE_SHIPPING (nunca `applied` con `shippingWaivedCents = 0`); con caja grande gana LARGE_BOX', () => {
+    mockCreateCode({ code: 'PARIDADENVIO', kind: 'free_shipping' });
+    const saved = { cards: fx.mockSettings.directShipCardsFeeCents, sealed: fx.mockSettings.directShipSealedFeeCents };
+    try {
+      fx.mockSettings.directShipCardsFeeCents = 0;
+      const S = 100000;
+      expect(S).toBeLessThan(DIRECT_SHIP_DEFAULT_DIALS.freeFromCents);
+      const zero = mockDiscountedDirectShip([card('a', S)], S, 'cards_only', 'PARIDADENVIO', null);
+      expect(zero.dsc.dto).toMatchObject({ outcome: 'not_applicable', reason: 'ALREADY_FREE_SHIPPING' });
+      expect(zero.ship.feeCents).toBe(0);
+      fx.mockSettings.directShipSealedFeeCents = 0;
+      const big = mockDiscountedDirectShip([card('a', S)], S, 'sealed', 'PARIDADENVIO', null, { customerFeeCents: 50000 });
+      expect(big.dsc.dto).toMatchObject({ outcome: 'not_applicable', reason: 'LARGE_BOX' });
+    } finally {
+      fx.mockSettings.directShipCardsFeeCents = saved.cards;
+      fx.mockSettings.directShipSealedFeeCents = saved.sealed;
+    }
+  });
+});
+
+describe('§DSC.8 v1.110.1 — retiro con envío gratis: `discount` aplicado con mercancía 0', () => {
+  it('`merchandiseBeforeDiscountCents = 0`, `discountCents = 0`, `shippingWaivedCents = E`; con `E = 0` ⇒ ALREADY_FREE_SHIPPING', () => {
+    expect(DSC).toMatch(/`discount\.merchandiseBeforeDiscountCents = 0` y `discountCents = 0` .{0,80}\) y `shippingWaivedCents = E`/);
+    const r = mockWithdrawalDiscount('ENVIO25', 17500)!;
+    expect(r.dto).toMatchObject({ outcome: 'applied', merchandiseBeforeDiscountCents: 0, discountCents: 0 });
+    expect(r.dto.outcome === 'applied' && r.dto.shippingWaivedCents).toBeGreaterThan(0);
+    expect(mockWithdrawalDiscount('ENVIO25', 0)!.dto).toMatchObject({ outcome: 'not_applicable', reason: 'ALREADY_FREE_SHIPPING' });
+  });
+});
+
+describe('§DSC.7 v1.110.1 — formas del panel: el mock trae EXACTAMENTE las claves del contrato', () => {
+  it('DiscountCodeDTO (con `usage.discountGivenCents` = el `discountGivenCents` del reporte sin from/to)', () => {
+    const dto = mockGetCode('dsc-sept10');
+    expect(dtoKeys(dto as unknown as Record<string, unknown>).sort()).toEqual(contractKeys('DiscountCodeDTO').sort());
+    expect(dto.usage.discountGivenCents).toBeGreaterThan(0);
+    expect(dto.usage.discountGivenCents).toBe(mockCodeReport('dsc-sept10').discountGivenCents);
+  });
+
+  it('DiscountCodeBatchDTO (ratificado, con `createdBy`); `paused` ⇔ ningún sin usar active; `exhausted` ⇔ todos consumed', () => {
+    const { batch } = mockCreateBatch({ prefix: 'PAR', quantity: 2, kind: 'percent', percentPct: 10 });
+    expect(dtoKeys(batch as unknown as Record<string, unknown>).sort()).toEqual(contractKeys('DiscountCodeBatchDTO').sort());
+    expect(DSC).toMatch(/status \/\* paused ⇔ ningún código sin usar está active \*\//);
+    expect(DSC).toMatch(/exhausted ⇔ todos consumed/);
+    const codes = mockListCodes({ batchId: batch.id });
+    const use = (codeId: string, folio: string) =>
+      reserveMockDiscount({ codeId, customer: `${folio}@x`, kind: 'order', folio, discountCents: 100, shippingWaivedCents: 0, totalCents: 900, consumed: true });
+    // Uno consumido y el otro (sin usar) pausado ⇒ paused.
+    use(codes[0].id, 'F1');
+    mockSetCodeStatus(codes[1].id, 'paused');
+    expect(mockGetBatch(batch.id)).toMatchObject({ status: 'paused', state: 'paused', usedCodes: 1, locked: true });
+    // Todos consumidos ⇒ exhausted.
+    mockSetCodeStatus(codes[1].id, 'active');
+    use(codes[1].id, 'F2');
+    expect(mockGetBatch(batch.id)).toMatchObject({ state: 'exhausted', usedCodes: 2 });
+  });
+
+  it('preview: `200 { discountCents, nominalCents, capped }` por `discountOf` (el front no calcula)', () => {
+    expect(DSC).toMatch(/`200 \{ discountCents, nominalCents, capped: boolean \}` por `discountOf`\/`allocateDiscount`/);
+    const sampleLines = [{ scope: 'raw' as const, priceCents: 400000, quantity: 1 }];
+    const capped = mockPreview({ kind: 'percent', percentPct: 20, maxDiscountCents: 30000, sampleLines });
+    expect(Object.keys(capped).sort()).toEqual(['capped', 'discountCents', 'nominalCents']);
+    expect(capped).toEqual({ discountCents: 30000, nominalCents: 30000, capped: true });
+    expect(mockPreview({ kind: 'percent', percentPct: 10, sampleLines })).toEqual({ discountCents: 40000, nominalCents: 40000, capped: false });
+    expect(() => mockPreview({ kind: 'percent', percentPct: 10, sampleLines: [] })).toThrow();
+  });
+
+  it('audit: `{ at, actor: { id, name }, action, changes: [{ field, before, after }] }` con antes → después', () => {
+    expect(DSC).toMatch(/\{ data: \[\{ at, actor: \{ id, name \}, action, changes: \[\{ field, before, after \}\] \}\], page, pageSize, total \}/);
+    const c = mockCreateCode({ code: 'AUDITA1', kind: 'percent', percentPct: 10 });
+    mockPatchCode(c.id, { percentPct: 15 });
+    mockSetCodeStatus(c.id, 'paused');
+    mockSetCodeStatus(c.id, 'paused'); // idempotente: sin fila
+    const rows = mockAudit('DiscountCode', c.id);
+    expect(rows).toHaveLength(3);
+    for (const r of rows) expect(Object.keys(r).sort()).toEqual(['action', 'actor', 'at', 'changes']);
+    expect(rows.map((r) => r.changes)).toContainEqual([{ field: 'percentPct', before: 10, after: 15 }]);
+    expect(rows.map((r) => r.changes)).toContainEqual([{ field: 'status', before: 'active', after: 'paused' }]);
   });
 });

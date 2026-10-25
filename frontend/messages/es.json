@@ -686,7 +686,7 @@
       "withdrawalOnlyFreeShipping": "En el retiro de bóveda solo aplican los códigos de envío gratis.",
       "alreadyApplied": "Ya tienes este código aplicado.",
       "confirmWithdrawal": "Confirmar retiro",
-      "alreadyFree": "Tu pedido ya no paga envío; este código no cambia nada.",
+      "alreadyFree": "Tu pedido ya va sin costo de envío; este código no cambia nada.",
       "largeBox": "Este código no cubre el envío de una caja grande.",
       "totalBelowMinimum": "Con este código el total quedaría por debajo de {amount}, el mínimo para pagar.",
       "withdrawalFiltered": "Este código no aplica al retiro de bóveda.",
@@ -7286,7 +7286,7 @@
         "refunded": "Reembolsados",
         "refundedValue": "{n} · {amount}",
         "waived": "Envío regalado",
-        "waivedSub": "en pedidos · {amount} en {n, plural, one {# retiro} other {# retiros}}",
+        "waivedSub": "Pedidos: {orders} · Retiros: {withdrawals}",
         "refundNote": "Un reembolso no devuelve el uso.",
         "columns": {
           "date": "Fecha",
@@ -7302,7 +7302,33 @@
           "released": "Liberado"
         },
         "usedCodes": "Códigos usados: {used} de {n}",
-        "emptyRows": "Aún no hay pedidos con este código."
+        "emptyRows": "Aún no hay pedidos con este código.",
+        "waivedSubOrders": "Pedidos: {orders}",
+        "waivedSubWithdrawals": "Retiros: {withdrawals}"
+      },
+      "preview": {
+        "title": "Así lo verá el cliente",
+        "sample": "Carrito de ejemplo",
+        "line": "{scope} · {qty} × {price}",
+        "discount": "Descuento −{amount}",
+        "capped": "Llegó al tope que fijaste.",
+        "shipping": "Cubre el envío a domicilio; no descuenta mercancía.",
+        "none": "Con esta configuración, este carrito no lleva descuento.",
+        "incomplete": "Completa el descuento para ver el ejemplo.",
+        "note": "Lo calcula el servidor con las mismas reglas del cobro."
+      },
+      "audit": {
+        "title": "Cambios",
+        "empty": "Aún no hay cambios registrados.",
+        "meta": "{at} · {name}",
+        "none": "—",
+        "action": {
+          "create": "Creado",
+          "update": "Editado",
+          "pause": "Pausado",
+          "resume": "Reanudado",
+          "archive": "Archivado"
+        }
       }
     }
   },

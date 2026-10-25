@@ -145,6 +145,9 @@ import type {
   DiscountCodeStatus,
   DiscountCodeStateFilter,
   DiscountReportDTO,
+  DiscountPreviewRequest,
+  DiscountPreviewResponse,
+  DiscountAuditResponse,
   PortfolioRange,
   PortfolioHistoryResponse,
   SetValueRange,
@@ -1722,14 +1725,15 @@ export async function getShipmentQuote(
  * MOCK §DSC.8 — retiro con código: solo envío gratis sin filtros; el `shippingWaivedCents` es la tarifa que la pantalla
  * mostraría sin código (`subtotalCents` del desglose del retiro en este mock; 20300 con los diales del backend).
  */
-function mockWithdrawalDiscount(discountCode: string | undefined, shippingCents: number) {
+export function mockWithdrawalDiscount(discountCode: string | undefined, shippingCents: number) {
   if (!discountCode?.trim()) return null;
   const fee = computeBreakdown(shippingCents).subtotalCents;
   return mockDsc.evaluateMockDiscount(discountCode, {
     destination: 'withdrawal',
     customer: `user:${getStoredUser()?.id ?? 'mock-anon'}`,
     lines: [],
-    close: () => ({ ok: true, totalCents: 0, shippingWaivedCents: fee }),
+    // §DSC.4 (v1.110.1) «vale igual en el retiro»: con la tarifa del retiro en 0 ⇒ ALREADY_FREE_SHIPPING, sin gastar uso.
+    close: () => (fee === 0 ? { ok: false, reason: 'ALREADY_FREE_SHIPPING' } : { ok: true, totalCents: 0, shippingWaivedCents: fee }),
   });
 }
 
@@ -7497,11 +7501,13 @@ export function mockDiscountedDirectShip(
         const s = directShipFeeOf(kind, subtotalCents, dials, box);
         return { ok: true, totalCents: computeGuestBreakdown(subtotalCents, s.feeCents).totalCents, shippingWaivedCents: 0 };
       }
-      // Orden de §DSC.4: con `S ≥ T` el envío ya es 0; la caja grande se cobra completa (gana sobre las dos).
+      // Orden de §DSC.4 (v1.110.1): bóveda ⇒ NO_SHIPPING (lo decide `discountOf`) → caja grande ⇒ LARGE_BOX (se
+      // cobra completa) → `E` sin código ya es 0 (`S ≥ T` o dial de la clase en 0) ⇒ ALREADY_FREE_SHIPPING: nunca se
+      // gasta un uso con `shippingWaivedCents = 0`.
       if (box !== null && box.customerFeeCents > dials.sealedFeeCents) return { ok: false, reason: 'LARGE_BOX' };
-      if (kind !== null && S >= dials.freeFromCents) return { ok: false, reason: 'ALREADY_FREE_SHIPPING' };
-      const eClass = kind === 'cards_only' ? dials.cardsFeeCents : kind === 'sealed' ? dials.sealedFeeCents : 0;
-      return { ok: true, totalCents: computeGuestBreakdown(subtotalCents, 0).totalCents, shippingWaivedCents: eClass };
+      const eNoCode = directShipFeeOf(kind, S, dials, null).feeCents;
+      if (eNoCode === 0) return { ok: false, reason: 'ALREADY_FREE_SHIPPING' };
+      return { ok: true, totalCents: computeGuestBreakdown(subtotalCents, 0).totalCents, shippingWaivedCents: eNoCode };
     },
   });
   if (dsc.applied) {
@@ -8157,6 +8163,25 @@ export async function getDiscountReport(
     return apiRequest<DiscountReportDTO>(`${base}/${encodeURIComponent(target.id)}/report`, { query: { from: range.from, to: range.to } });
   }
   return mockDscCall(() => (target.kind === 'code' ? mockDsc.mockCodeReport(target.id) : mockDsc.mockBatchReport(target.id)));
+}
+
+/**
+ * `POST /admin/discount-codes/preview` (v1.110.1) — «Así lo verá el cliente»: el servidor corre `discountOf`/
+ * `allocateDiscount` sobre el carrito de ejemplo. Cero escrituras. ⛔ El front no hace ninguna cuenta con esto.
+ */
+export async function previewDiscountCode(body: DiscountPreviewRequest): Promise<DiscountPreviewResponse> {
+  if (!config.useMocks) return apiRequest<DiscountPreviewResponse>('/admin/discount-codes/preview', { method: 'POST', body });
+  return mockDscCall(() => mockDsc.mockPreview(body));
+}
+
+/** `GET /admin/discount-codes/:id/audit` · `GET /admin/discount-code-batches/:id/audit` (v1.110.1) — antes → después. */
+export async function getDiscountAudit(target: { kind: 'code' | 'batch'; id: string }, page = 1): Promise<DiscountAuditResponse> {
+  const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
+  if (!config.useMocks) return apiRequest<DiscountAuditResponse>(`${base}/${encodeURIComponent(target.id)}/audit`, { query: { page } });
+  return mockDscCall(() => {
+    const all = mockDsc.mockAudit(target.kind === 'code' ? 'DiscountCode' : 'DiscountCodeBatch', target.id);
+    return { data: all.slice((page - 1) * 50, page * 50), page, pageSize: 50, total: all.length };
+  });
 }
 
 /** `GET …/report.csv` — mismas filas que el JSON. */

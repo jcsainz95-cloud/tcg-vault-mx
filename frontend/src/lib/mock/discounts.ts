@@ -22,12 +22,15 @@
  */
 
 import type {
+  DiscountAuditEntry,
   DiscountCodeBatchDTO,
   DiscountCodeDTO,
   DiscountCodeState,
   DiscountCodeStatus,
   DiscountKind,
   DiscountNotApplicableReason,
+  DiscountPreviewRequest,
+  DiscountPreviewResponse,
   DiscountProductScope,
   DiscountQuoteDTO,
   DiscountRedemptionStatus,
@@ -191,6 +194,12 @@ interface MockBatch {
   createdAt: string;
 }
 
+/** §DSC.7 (v1.110.1): `AuditLog` con antes → después, por `entityType` `DiscountCode`/`DiscountCodeBatch`. */
+interface MockAudit extends DiscountAuditEntry {
+  entityType: 'DiscountCode' | 'DiscountCodeBatch';
+  entityId: string;
+}
+
 const DAY = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -252,6 +261,38 @@ function seedRedemptions(now: number): MockRedemption[] {
   ];
 }
 
+/**
+ * Bitácora sembrada de SEPT10 (para que «Cambios» no salga vacía en el modo mock).
+ * MOCK: pendiente de contrato — §DSC.7 no enumera los valores de `action`; el mock usa `create`, `update`, `pause`,
+ * `resume`, `archive` (solicitud al arquitecto en FRONTEND_NOTES §DSC).
+ */
+function seedAudit(now: number): MockAudit[] {
+  const actor = { id: 'usr-owner', name: 'JC' };
+  return [
+    {
+      entityType: 'DiscountCode',
+      entityId: 'dsc-sept10',
+      at: iso(now - 30 * DAY),
+      actor,
+      action: 'create',
+      changes: [
+        { field: 'kind', before: null, after: 'percent' },
+        { field: 'percentPct', before: null, after: 10 },
+        { field: 'maxDiscountCents', before: null, after: 50000 },
+        { field: 'maxTotalUses', before: null, after: 50 },
+      ],
+    },
+    {
+      entityType: 'DiscountCode',
+      entityId: 'dsc-sept10',
+      at: iso(now - 10 * DAY),
+      actor,
+      action: 'update',
+      changes: [{ field: 'maxTotalUses', before: 50, after: 100 }],
+    },
+  ];
+}
+
 /** Diales de §DSC.1 (semilla): 10 fallidos en 15 min ⇒ 15 min de bloqueo. */
 export const MOCK_DISCOUNT_THROTTLE = { maxFailures: 10, windowMin: 15, blockMin: 15 } as const;
 
@@ -259,6 +300,7 @@ interface State {
   codes: MockCode[];
   redemptions: MockRedemption[];
   batches: MockBatch[];
+  audit: MockAudit[];
   /** Intentos fallidos del navegador (una sola clave: el mock no distingue IP). */
   throttle: { failures: number; windowStartedAt: number; blockedUntil: number | null };
   seq: number;
@@ -269,6 +311,7 @@ function fresh(now = Date.now()): State {
     codes: seedCodes(now),
     redemptions: seedRedemptions(now),
     batches: [],
+    audit: seedAudit(now),
     throttle: { failures: 0, windowStartedAt: now, blockedUntil: null },
     seq: 1,
   };
@@ -456,6 +499,38 @@ export function sessionErrorOf(dto: Exclude<DiscountQuoteDTO, { outcome: 'applie
 
 const CREATED_BY = { id: 'usr-owner', name: 'JC' };
 
+/** §DSC.7: Σ `Order.discountCents` con uso `consumed` — la MISMA cuenta que `DiscountReportDTO.discountGivenCents`. */
+function discountGivenOf(codeIds: string[]): number {
+  return state.redemptions
+    .filter((r) => codeIds.includes(r.codeId) && r.status === 'consumed' && r.kind === 'order')
+    .reduce((s, r) => s + r.discountCents, 0);
+}
+
+function audit(entityType: MockAudit['entityType'], entityId: string, action: string, changes: MockAudit['changes']): void {
+  if (changes.length === 0) return;
+  state.audit.push({ entityType, entityId, at: iso(Date.now()), actor: { ...CREATED_BY }, action, changes });
+}
+
+/** Antes → después de los campos que cambian (los iguales no se anotan). */
+function diff(before: Record<string, unknown>, after: Record<string, unknown>, fields: readonly string[]): MockAudit['changes'] {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return fields.filter((f) => !same(before[f], after[f])).map((f) => ({ field: f, before: before[f] ?? null, after: after[f] ?? null }));
+}
+
+const CONFIG_FIELDS = [
+  'kind',
+  'percentPct',
+  'amountCents',
+  'maxDiscountCents',
+  'minSubtotalCents',
+  'productScopes',
+  'destinations',
+  'startsAt',
+  'endsAt',
+] as const;
+const CODE_FIELDS = [...CONFIG_FIELDS, 'maxTotalUses', 'maxUsesPerCustomer', 'status'] as const;
+const asRecord = (x: object) => x as unknown as Record<string, unknown>;
+
 function toDTO(c: MockCode, now = Date.now()): DiscountCodeDTO {
   const consumed = state.redemptions.filter((r) => r.codeId === c.id && r.status === 'consumed').length;
   const reservedNow = state.redemptions.filter((r) => r.codeId === c.id && r.status === 'reserved').length;
@@ -477,7 +552,7 @@ function toDTO(c: MockCode, now = Date.now()): DiscountCodeDTO {
     status: c.status,
     state: stateOf(c, now),
     locked: c.firstReservedAt != null,
-    usage: { consumed, reservedNow, limit: c.maxTotalUses },
+    usage: { consumed, reservedNow, limit: c.maxTotalUses, discountGivenCents: discountGivenOf([c.id]) },
     createdAt: c.createdAt,
     createdBy: CREATED_BY,
   };
@@ -558,6 +633,7 @@ export function mockCreateCode(body: import('@/types/contract').DiscountCodeCrea
     createdAt: iso(Date.now()),
   };
   state.codes.push(c);
+  audit('DiscountCode', c.id, 'create', diff({}, asRecord(c), ['code', ...CODE_FIELDS]));
   return toDTO(c);
 }
 
@@ -577,13 +653,17 @@ export function mockPatchCode(id: string, patch: import('@/types/contract').Disc
   }
   const next = { ...c, ...patch } as MockCode;
   validateConfig(next);
+  const before = { ...c };
   Object.assign(c, patch);
+  audit('DiscountCode', c.id, 'update', diff(asRecord(before), asRecord(c), CODE_FIELDS));
   return toDTO(c);
 }
 
 export function mockSetCodeStatus(id: string, status: DiscountCodeStatus): DiscountCodeDTO {
   const c = state.codes.find((x) => x.id === id && !x.archivedAt);
   if (!c) throw new MockDiscountError(404, 'NOT_FOUND');
+  // Idempotente (§DSC.7): sin cambio no hay fila de bitácora.
+  if (c.status !== status) audit('DiscountCode', c.id, status === 'paused' ? 'pause' : 'resume', [{ field: 'status', before: c.status, after: status }]);
   c.status = status;
   return toDTO(c);
 }
@@ -593,6 +673,7 @@ export function mockArchiveCode(id: string): void {
   if (!c) throw new MockDiscountError(404, 'NOT_FOUND');
   if (state.redemptions.some((r) => r.codeId === id)) throw new MockDiscountError(409, 'DISCOUNT_CODE_HAS_USES');
   c.archivedAt = iso(Date.now());
+  audit('DiscountCode', c.id, 'archive', [{ field: 'archivedAt', before: null, after: c.archivedAt }]);
 }
 
 /** §DSC.7 — alfabeto de los códigos de lote (sin 0/O/1/I/L/U). */
@@ -604,13 +685,20 @@ function randomSuffix(): string {
   return s;
 }
 
+/**
+ * §DSC.7 (v1.110.1): `status` paused ⇔ ningún código SIN USAR está `active`; `state` con las reglas de
+ * `DiscountCodeDTO` y `exhausted` ⇔ todos `consumed`; `locked` ⇔ alguno con `firstReservedAt`.
+ * ⚠️ Lectura del mock: con CERO códigos sin usar, «ninguno está active» es vacuamente cierto y el lote saldría
+ * `paused` (y `paused` gana a `exhausted`, que nunca se vería). El mock lo trata como `active`: pregunta al arquitecto.
+ */
 function batchDTO(b: MockBatch, now = Date.now()): DiscountCodeBatchDTO {
   const codes = state.codes.filter((c) => c.batchId === b.id);
   const first = codes[0];
-  const used = codes.filter((c) => state.redemptions.some((r) => r.codeId === c.id && r.status === 'consumed')).length;
+  const isConsumed = (c: MockCode) => state.redemptions.some((r) => r.codeId === c.id && r.status === 'consumed');
+  const used = codes.filter(isConsumed).length;
   const reservedNow = state.redemptions.filter((r) => r.status === 'reserved' && codes.some((c) => c.id === r.codeId)).length;
   const unused = codes.filter((c) => inUse(c.id) === 0);
-  const status: DiscountCodeStatus = unused.length > 0 && unused.every((c) => c.status === 'paused') ? 'paused' : 'active';
+  const status: DiscountCodeStatus = unused.length > 0 && !unused.some((c) => c.status === 'active') ? 'paused' : 'active';
   const st: DiscountCodeState =
     status === 'paused'
       ? 'paused'
@@ -618,7 +706,7 @@ function batchDTO(b: MockBatch, now = Date.now()): DiscountCodeBatchDTO {
         ? 'expired'
         : now < Date.parse(first.startsAt)
           ? 'scheduled'
-          : unused.length === 0
+          : codes.every(isConsumed)
             ? 'exhausted'
             : 'live';
   return {
@@ -626,6 +714,7 @@ function batchDTO(b: MockBatch, now = Date.now()): DiscountCodeBatchDTO {
     prefix: b.prefix,
     quantity: b.quantity,
     createdAt: b.createdAt,
+    createdBy: { ...CREATED_BY },
     kind: first.kind,
     percentPct: first.percentPct,
     amountCents: first.amountCents,
@@ -680,6 +769,11 @@ export function mockCreateBatch(body: import('@/types/contract').DiscountCodeBat
       createdAt: b.createdAt,
     });
   }
+  audit('DiscountCodeBatch', b.id, 'create', [
+    { field: 'prefix', before: null, after: prefix },
+    { field: 'quantity', before: null, after: body.quantity },
+    ...diff({}, asRecord(state.codes.find((c) => c.batchId === b.id)!), CONFIG_FIELDS),
+  ]);
   return { batch: batchDTO(b), codesCsvPath: `/admin/discount-code-batches/${b.id}/codes.csv` };
 }
 
@@ -697,7 +791,10 @@ export function mockGetBatch(id: string): DiscountCodeBatchDTO {
 export function mockSetBatchStatus(id: string, status: DiscountCodeStatus): DiscountCodeBatchDTO {
   const b = state.batches.find((x) => x.id === id);
   if (!b) throw new MockDiscountError(404, 'NOT_FOUND');
+  const before = batchDTO(b).status;
   for (const c of state.codes) if (c.batchId === id && inUse(c.id) === 0) c.status = status;
+  const after = batchDTO(b).status;
+  if (before !== after) audit('DiscountCodeBatch', b.id, status === 'paused' ? 'pause' : 'resume', [{ field: 'status', before, after }]);
   return batchDTO(b);
 }
 
@@ -725,7 +822,7 @@ function reportFor(codeIds: string[], limit: number | null, batch: boolean): Dis
     reservedNow: rs.filter((r) => r.status === 'reserved').length,
     limit,
     paidOrders: orders.length,
-    discountGivenCents: orders.reduce((s, r) => s + r.discountCents, 0),
+    discountGivenCents: discountGivenOf(codeIds),
     shippingWaivedOrdersCents: orders.reduce((s, r) => s + r.shippingWaivedCents, 0),
     shippingWaivedWithdrawalsCents: withdrawals.reduce((s, r) => s + r.shippingWaivedCents, 0),
     withdrawals: withdrawals.length,
@@ -769,4 +866,48 @@ export function mockReportCsv(r: DiscountReportDTO): string {
     [x.at, x.kind, x.folio, x.customerEmail ?? '', x.code, pesos(x.discountCents), pesos(x.shippingWaivedCents), pesos(x.totalCents), pesos(x.refundedCents), x.status].join(','),
   );
   return ['at,kind,folio,customerEmail,code,discount,shippingWaived,total,refunded,status', ...rows].join('\n') + '\n';
+}
+
+/** §DSC.7 (v1.110.1) — bitácora de un código o de un lote, la más reciente primero. */
+export function mockAudit(entityType: MockAudit['entityType'], id: string): DiscountAuditEntry[] {
+  const exists = entityType === 'DiscountCode' ? state.codes.some((c) => c.id === id) : state.batches.some((b) => b.id === id);
+  if (!exists) throw new MockDiscountError(404, 'NOT_FOUND');
+  return state.audit
+    .filter((a) => a.entityType === entityType && a.entityId === id)
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+    .map(({ at, actor, action, changes }) => ({ at, actor: { ...actor }, action, changes: changes.map((c) => ({ ...c })) }));
+}
+
+/**
+ * §DSC.7 (v1.110.1) — `POST /admin/discount-codes/preview`: `discountOf`/`allocateDiscount` sobre el carrito de
+ * ejemplo, cero escrituras. Destino del ejemplo: domicilio si la config lo admite; si no, bóveda.
+ * MOCK: pendiente de contrato — el contrato no dice qué devuelve si la config no aplica a ese carrito (mínimo, filtros,
+ * envío gratis a bóveda); el mock responde ceros (`discountCents = nominalCents = 0`, `capped = false`).
+ */
+export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewResponse {
+  validateConfig({ ...body, startsAt: body.startsAt ?? iso(Date.now()) });
+  if (!Array.isArray(body.sampleLines) || body.sampleLines.length < 1 || body.sampleLines.length > 5) {
+    throw new MockDiscountError(422, 'VALIDATION_ERROR', { field: 'sampleLines' });
+  }
+  const rule: DiscountRule = {
+    kind: body.kind,
+    percentPct: body.percentPct ?? null,
+    amountCents: body.amountCents ?? null,
+    maxDiscountCents: body.maxDiscountCents ?? null,
+    minSubtotalCents: body.minSubtotalCents ?? null,
+    productScopes: body.productScopes ?? [],
+    destinations: body.destinations ?? [],
+  };
+  const lines: DiscountLine[] = body.sampleLines.map((l, i) => ({
+    id: `sample-${i}`,
+    kind: l.scope === 'accessory' ? 'accessory' : 'item',
+    scope: l.scope,
+    priceCents: l.priceCents,
+    quantity: l.quantity,
+  }));
+  const dest: FulfillmentMode = rule.destinations.length === 0 || rule.destinations.includes('direct_ship') ? 'direct_ship' : 'vault';
+  const r = discountOf(lines, rule, dest);
+  if (!r.ok || rule.kind === 'free_shipping') return { discountCents: 0, nominalCents: 0, capped: false };
+  const raw = rule.kind === 'percent' ? Number((BigInt(r.eligibleCents) * BigInt(rule.percentPct ?? 0)) / 100n) : 0;
+  return { discountCents: r.discountCents, nominalCents: r.nominalCents, capped: rule.maxDiscountCents != null && raw > rule.maxDiscountCents };
 }
