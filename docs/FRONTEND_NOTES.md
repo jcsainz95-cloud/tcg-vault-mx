@@ -42,6 +42,11 @@ aprobado en lo propio de un código de envío gratis).
   sin residuo 3/3 · umbral antes del descuento 3/3 · mínimo después 3/3 · paquete elegible 3/3 · `shippingWaivedCents` 0
   3/3 · `discount` sin código 3/3 · argumento de más sin código (915) 3/3 · línea con precio cobrado 3/3 · sin `gcTime`
   propio 9/10 · «envío gratis» en C6 3/3 · C11 larga en la barra (DL3, Playwright) 3/3.
+  Fase 2 (copia de `33b0ee5c`, 3/3 rojas cada una, N=3): 893 sin el recorte `B − U` · PROJECT con MX$100.00 · dial 0 por
+  umbral · LARGE_BOX tras ALREADY_FREE · retiro con `E = 0` aplicado · sin `createdBy` · sin `discountGivenCents` · lote
+  vacuamente `paused` · `capped` fijo · bitácora no idempotente · columna sin el campo del servidor · `nominalCents` en la
+  vista previa · tope siempre · sin refrescar «Cambios» · subtítulo con la parte en 0 · lote sin «Cambios» · «envío gratis»
+  en C17; Playwright «Descuento dado» en 0 3/3 (`--repeat-each=3`, un build).
 - **Pendiente de contrato (en el informe):** valores de `action` de la auditoría (el mock usa `create/update/pause/resume/
   archive`; uno desconocido se pinta tal cual); qué devuelve `preview` si la config no aplica al carrito (el mock: ceros);
   `status` de un lote sin códigos sin usar (vacuamente `paused`, ocultaría `exhausted`; el mock lo da `active`); total de
