@@ -7,17 +7,17 @@
 
 ---
 
-## Backend · 2026-10-25 · §DSC códigos de descuento, fase 1 (núcleo de dinero)
+## Backend · 2026-10-25 · §DSC códigos de descuento, fases 1 y 2
 
 > Dueño del código anotado: **backend**. 💰 Toca dinero (`orders`, `payments`, `shipments`, `discounts`). Medido el 2026-10-25 sobre la rama de construcción desde `85f350df`.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| DSC-B-1 | ABIERTA · `free_shipping` con el dial de la clase en 0 aplica con `shippingWaivedCents = 0` y gasta un uso sin beneficio (el contrato no lo nombra; solicitud al arquitecto) | backend | 2026-10-25 | decisión en §DSC.4 + prueba pura en `test/discounts.pure.spec.ts` con `cardsFeeCents: 0` |
+| DSC-B-1 | CERRADA (fase 2, v1.110.1) · `free_shipping` con el dial de la clase (o del retiro) en 0 ⇒ `ALREADY_FREE_SHIPPING`, 0 usos (`discount-pricing.ts` `classFeeCents <= 0`, `withdrawalCodeOutcome`) | backend | 2026-10-25 | `test/discounts-admin.pure.spec.ts` «DCO-B4 (puro, v1.110.1)» + `discounts.e2e-spec.ts` «dial de la clase en 0 …» verdes; mutación (quitar `classFeeCents <= 0`) ⇒ rojo |
 | DSC-B-2 | ABIERTA · el quote excluye del conteo por cliente solo la orden de `ownReservation` (cuenta) o la reclamada (invitado); con DOS órdenes propias pendientes con el mismo código el quote puede decir `invalid` y la sesión `applied` (la sesión es la autoridad) | backend | 2026-10-25 | e2e con dos órdenes propias pendientes ⇒ quote y sesión coinciden |
-| DSC-B-3 | ABIERTA · `vaultBreakdown` del quote de invitado no lleva el código (informativo); y con la orden propia congelada con código, `accessoryLines[]` del quote no trae `unitDiscountCents` | backend | 2026-10-25 | decisión del arquitecto en §DSC.6 + prueba e2e de la forma |
+| DSC-B-3 | CERRADA (fase 2, v1.110.1) · `vaultBreakdown` sin código es la norma (§DSC.6); el quote de la orden propia congelada lee `OrderAccessoryLine.unitDiscountCents` (`discount-lines.ts` `frozenAccessoryLine`) | backend | 2026-10-25 | `discounts.e2e-spec.ts` «quote de la orden propia congelada con accesorios …» verde; mutación (sin `frozenAccessoryLine`) ⇒ rojo |
 | DSC-B-4 | ABIERTA · tolerancia a dobles sin `discountRedemption` en `discounts/redemption.ts` (la exige DCO-B19: no editar pruebas existentes) | backend | 2026-10-25 | `rg "if \(!tx.discountRedemption\)" backend/src` ⇒ 0 tras migrar los dobles de `orders.td4-failed-cas`, `payments.service`, `order-reservation-sweep.job` |
-| DSC-B-5 | ABIERTA · dos lectores de `OrderItem.unitPriceCents` que quizá quieran el precio ANTES del descuento: instrumentación por tramo de mercado (`admin.service.ts:2027`, `grossMxnCents`) y valor asegurado de la guía (`label-quote.service.ts:394,484`) | backend | 2026-10-25 | decisión del arquitecto; si es «original», leer `unitPriceCents + unitDiscountCents` con prueba |
+| DSC-B-5 | CERRADA (fase 2, v1.110.1, §DSC.0 I-3) · `pricing-brackets` suma `unitPriceCents + unitDiscountCents` (exhibido); la guía asegura lo COBRADO (`label-quote.service.ts`, sin cambio) | backend | 2026-10-25 | `test/discounts-admin.pure.spec.ts` «§DSC.0 I-3 … pricing-brackets» verde; mutación (solo `unitPriceCents`) ⇒ rojo |
 
 ---
 
