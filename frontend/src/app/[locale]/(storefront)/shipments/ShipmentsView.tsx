@@ -26,6 +26,8 @@ import {
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
+import { CodeRow } from '@/components/domain/CodeRow';
+import { DISCOUNT_QUOTE_GC_MS, useDiscountCode } from '@/components/domain/useDiscountCode';
 import { VAULT_WITHDRAWALS_HREF, WITHDRAWAL_REQUESTED_KEY } from '../vault/vaultTabs';
 
 /** Contrato §1 (v1.67): `recipientName` trim 1..120. */
@@ -61,6 +63,7 @@ const RECIPIENT_MAX = 120;
  */
 export function ShipmentsView() {
   const t = useTranslations('shipments');
+  const tc = useTranslations('checkout');
   const locale = useLocale() as AppLocale;
   const getMessage = useErrorMessage();
   const router = useRouter();
@@ -146,13 +149,31 @@ export function ShipmentsView() {
     },
   });
 
+  // 💰 §DSC.8: el código de envío gratis viaja en quote y en `POST /shipments`; aplicar uno cotiza con `fetchQuery` sobre
+  // la MISMA clave. Sin código, la petición es la de hoy (I-1).
+  const [codeForQuote, setCodeForQuote] = useState<string | null>(null);
+  const shipQuoteKey = (code: string | null) => ['shipment-quote', selected, addressId, code] as const;
   const quoteQuery = useQuery({
-    queryKey: ['shipment-quote', selected, addressId],
-    queryFn: () => getShipmentQuote(selected, addressId!),
+    queryKey: shipQuoteKey(codeForQuote),
+    // I-1 / 915: sin código, la MISMA llamada de hoy (ni un argumento de más).
+    queryFn: () => (codeForQuote ? getShipmentQuote(selected, addressId!, codeForQuote) : getShipmentQuote(selected, addressId!)),
     // No se pide una cotización que el servidor va a rechazar por falta de destinatario.
     enabled: selected.length > 0 && !!addressId && isMx && !recipientMissing,
     retry: false,
   });
+  const dsc = useDiscountCode({
+    screen: 'withdrawal',
+    evaluate: (code) =>
+      queryClient
+        .fetchQuery({ queryKey: shipQuoteKey(code), queryFn: () => getShipmentQuote(selected, addressId!, code), retry: false, gcTime: DISCOUNT_QUOTE_GC_MS })
+        .then((r) => r.discount),
+    current: quoteQuery.data?.discount,
+  });
+  useEffect(() => {
+    setCodeForQuote(dsc.code);
+  }, [dsc.code]);
+  /** §DSC.8 variante (a) (P-DSC-3 = a, `HECHOS.md` 2026-10-25): con el código, total MX$0.00 y «Confirmar retiro». */
+  const freeWithdrawal = !!dsc.applied && quoteQuery.data?.breakdown.totalCents === 0;
   // El servidor manda: si la cotización vuelve 422 RECIPIENT_NAME_REQUIRED, se abre la captura.
   useEffect(() => {
     const e = quoteQuery.error;
@@ -171,10 +192,14 @@ export function ShipmentsView() {
     setReqError(null);
     setEmailNotVerified(false);
     try {
-      const res = await createShipment(selected, addressId);
-      setShipment(res);
+      const res = dsc.code ? await createShipment(selected, addressId, dsc.code) : await createShipment(selected, addressId);
+      // §DSC.8 (a): sin PaymentIntent (`stripe: null`) la solicitud ya nació en `picking`: sin pantalla de cobro.
+      if (res.stripe === null) onConfirmed();
+      else setShipment(res);
     } catch (e) {
-      if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
+      if (dsc.handleSessionError(e)) {
+        // C12: no se creó nada ni se cobró; el código se quita y la cotización nueva pinta la tarifa de hoy.
+      } else if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setEmailNotVerified(true);
       } else if (e instanceof ApiClientError && e.code === 'RECIPIENT_NAME_REQUIRED') {
         // Hermano de PHONE_REQUIRED: captura inline del destinatario de ESA dirección y reintento.
@@ -400,7 +425,13 @@ export function ShipmentsView() {
                 onRetry={() => quoteQuery.refetch()}
               >
                 {quoteQuery.data && (
-                  <AmountBreakdown breakdown={quoteQuery.data.breakdown} variant="shipment" />
+                  <>
+                    {/* C1b (§DSC-UX.3): el retiro solo acepta códigos de envío gratis. */}
+                    <div className="mb-4">
+                      <CodeRow variant="withdrawal" {...dsc.rowProps} />
+                    </div>
+                    <AmountBreakdown breakdown={quoteQuery.data.breakdown} variant="shipment" discount={dsc.applied} />
+                  </>
                 )}
               </QueryState>
             </div>
@@ -426,7 +457,7 @@ export function ShipmentsView() {
             onClick={requestWithdrawal}
             className="mt-6 w-full"
           >
-            {t('requestWithdrawal')}
+            {freeWithdrawal ? tc('discount.confirmWithdrawal') : t('requestWithdrawal')}
           </Button>
         </aside>
       </div>
@@ -448,9 +479,9 @@ export function ShipmentsView() {
       />
 
       <StripePaymentModal
-        open={!!shipment}
+        open={!!shipment?.stripe}
         onClose={() => setShipment(null)}
-        clientSecret={shipment?.stripe.clientSecret ?? null}
+        clientSecret={shipment?.stripe?.clientSecret ?? null}
         returnUrl={typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : ''}
         title={t('payTitle')}
         amountLabel={shipment ? formatMoneyCents(shipment.breakdown.totalCents, locale) : undefined}

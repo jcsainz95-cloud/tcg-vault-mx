@@ -166,6 +166,8 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m2',
       '/admin/m2/bounties',
       '/admin/m12',
+      // §DSC-UX.5: «Códigos de descuento», súper-admin, al final de «Tienda».
+      '/admin/codes',
       '/admin/m7',
       '/admin/m9',
       '/admin/m6',
@@ -193,6 +195,21 @@ describe('§37.20 · RF-2 — al operador, «Reembolsos» no es un enlace que ll
     expect(screen.queryByTestId('nav-badge-refunds')).toBeNull();
     roleState.role = 'super_admin';
     summaryState.data = undefined;
+  });
+});
+
+describe('§DSC-UX.8 · DL7 — el operador NO ve «Códigos de descuento» (ni bloqueada)', () => {
+  it('como `vault_operator` no hay ninguna entrada a /admin/codes; como súper-admin sí, con SÚPER', () => {
+    roleState.role = 'vault_operator';
+    pathState.pathname = '/admin';
+    const { unmount } = renderWithProviders(<AdminSidebar />, 'es');
+    expect(screen.getAllByRole('link').map((a) => a.getAttribute('href'))).not.toContain('/admin/codes');
+    expect(screen.queryByText('Códigos de descuento')).toBeNull();
+    unmount();
+    roleState.role = 'super_admin';
+    renderWithProviders(<AdminSidebar />, 'es');
+    const entry = screen.getAllByRole('link').find((a) => a.getAttribute('href') === '/admin/codes');
+    expect(entry?.firstElementChild?.textContent).toBe('Códigos de descuento');
   });
 });
 

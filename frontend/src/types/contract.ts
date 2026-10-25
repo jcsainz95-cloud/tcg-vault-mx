@@ -1172,6 +1172,8 @@ export interface OrderItemPreview {
    * reutiliza (`200 reused`) o sustituye (`201`).
    */
   reservedByYou?: true;
+  /** 💰 §DSC.6 (v1.110): con un código `applied`, el descuento POR UNIDAD (solo si > 0; `unitPriceCents` ya es el cobrado). */
+  unitDiscountCents?: number;
 }
 
 /**
@@ -1227,6 +1229,8 @@ export interface CheckoutQuoteResponse {
    * mientras B-1e aterriza: contra un backend anterior no se pinta nada (misma norma que `reused`).
    */
   ownReservation?: OwnReservationDTO | null;
+  /** 💰 §DSC.6 (v1.110): presente SOLO si el request trajo `discountCode` (I-1). */
+  discount?: DiscountQuoteDTO;
 }
 
 export interface CheckoutSessionResponse {
@@ -1247,6 +1251,8 @@ export interface CheckoutSessionResponse {
   reservedUntil?: string;
   /** v1.68: órdenes propias `pending` que este intento SUSTITUYÓ (`[]` si ninguna). */
   supersededOrderIds?: string[];
+  /** 💰 §DSC.6 (v1.110): solo con un código aplicado (forma `applied`). */
+  discount?: DiscountAppliedDTO;
 }
 
 export interface OrderSummaryDTO {
@@ -1315,13 +1321,21 @@ export interface ShipmentQuoteResponse {
   breakdown: BreakdownDTO;
   eligibleItemIds: string[];
   ineligible: { inventoryItemId: string; reason: string }[];
+  /** 💰 §DSC.6/§DSC.8 (v1.110): presente SOLO si el request trajo `discountCode`. */
+  discount?: DiscountQuoteDTO;
 }
 
 export interface ShipmentCreateResponse {
   shipmentId: string;
   status: ShipmentStatus;
   breakdown: BreakdownDTO;
-  stripe: { paymentIntentId: string; clientSecret: string };
+  /**
+   * 💰 §DSC.8 (v1.110): `null` con un código de envío gratis (variante (a), total MX$0.00): la solicitud nace en
+   * `picking`, sin PaymentIntent y sin pantalla de cobro.
+   */
+  stripe: { paymentIntentId: string; clientSecret: string } | null;
+  /** 💰 §DSC.8: solo con un código aplicado. */
+  discount?: DiscountAppliedDTO;
 }
 
 /**
@@ -7235,6 +7249,8 @@ export interface GuestCheckoutQuoteResponse {
    * precedente que `accessoryLines`). ⛔ El front no recalcula nada con ella: pinta el número del servidor.
    */
   shippingRule?: GuestShippingRuleDTO;
+  /** 💰 §DSC.6 (v1.110): presente SOLO si el request trajo `discountCode` (I-1). Con `applied`, `breakdown` ya es el descontado. */
+  discount?: DiscountQuoteDTO;
 }
 
 /**
@@ -7290,6 +7306,8 @@ export interface GuestCheckoutSessionRequest {
   /** 💰 §AC.4 (aditivas). ⛔ Sin importes: precio, envío y paquete los pone el servidor (I-AC-3). */
   accessoryLines?: AccessoryLineInput[];
   deckPulls?: DeckPullInput[];
+  /** 💰 §DSC.6 (v1.110): opcional, ≤ 40; vacío ⇒ como ausente. */
+  discountCode?: string;
 }
 
 export interface GuestCheckoutSessionResponse {
@@ -7321,6 +7339,8 @@ export interface GuestCheckoutSessionResponse {
   accessoryLines?: QuoteAccessoryLineDTO[];
   energyBundles?: EnergyBundleDTO[];
   shippingBox?: QuoteShippingBoxDTO | null;
+  /** 💰 §DSC.6 (v1.110): solo con un código aplicado (forma `applied`). */
+  discount?: DiscountAppliedDTO;
 }
 
 /** Estado público derivado (§4-G.5). El texto legible vive en i18n del front. */
@@ -7887,6 +7907,8 @@ export interface QuoteAccessoryLineDTO {
   quantity: number;
   lineTotalCents: number;
   photo: AccessoryPhotoDTO;
+  /** 💰 §DSC.6 (v1.110): descuento por unidad con un código `applied` (solo si > 0); `unitPriceCents` es el cobrado. */
+  unitDiscountCents?: number;
 }
 
 /** §AC.4 (+ v1.86.1: `photo` por energía, nunca null). */
@@ -8383,4 +8405,199 @@ export interface MarketingApiTokenIssued {
   token: string;
   createdAt: string;
   expiresAt: string;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 💰 §DSC (v1.110) — CÓDIGOS DE DESCUENTO. Norma: API_CONTRACT §DSC.1 (enums), §DSC.6 (cliente), §DSC.7 (dueño).
+// Las cuatro líneas de enums son las canónicas de §0 «Enums». ⛔ El front no calcula dinero con nada de esto:
+// pinta lo que devuelve el servidor (DCO-F2).
+// ---------------------------------------------------------------------------------------------------------------
+
+/** §0 Enums / §DSC.1 — tipo del código [D1]. */
+export type DiscountKind = 'percent' | 'fixed_amount' | 'free_shipping';
+/** §0 Enums / §DSC.1 — lo que el dueño fija; vigencia y agotado se DERIVAN (`DiscountCodeState`). */
+export type DiscountCodeStatus = 'active' | 'paused';
+/** §0 Enums / §DSC.1 — filtro por tipo; `accessory` incluye energías sueltas; el paquete de energías nunca es elegible [D9]. */
+export type DiscountProductScope = 'raw' | 'graded' | 'sealed' | 'accessory';
+/** §0 Enums / §DSC.5 — ciclo del uso. */
+export type DiscountRedemptionStatus = 'reserved' | 'consumed' | 'released';
+/** §DSC.6 — literal de DTO. `NOT_COMBINABLE` no se emite hoy. */
+export type DiscountNotApplicableReason =
+  | 'MIN_SUBTOTAL'
+  | 'NO_ELIGIBLE_ITEMS'
+  | 'DESTINATION'
+  | 'NO_SHIPPING'
+  | 'ALREADY_FREE_SHIPPING'
+  | 'LARGE_BOX'
+  | 'TOTAL_BELOW_MINIMUM'
+  | 'WITHDRAWAL_ONLY_FREE_SHIPPING'
+  | 'WITHDRAWAL_FILTERED'
+  | 'NOT_COMBINABLE';
+
+/** §DSC.6 — forma `applied` (también la que añaden las sesiones y `POST /shipments` al `201`). */
+export interface DiscountAppliedDTO {
+  outcome: 'applied';
+  code: string;
+  kind: DiscountKind;
+  /** `S` = B + no elegibles: la mercancía ANTES del descuento (fila «Subtotal» del desglose). */
+  merchandiseBeforeDiscountCents: number;
+  /** `D` — lo que ve el cliente en «Descuento (CÓDIGO)». Nunca `D0`. */
+  discountCents: number;
+  /** Tipo c: la `E` que no se cobra; si no, 0. */
+  shippingWaivedCents: number;
+}
+
+/**
+ * §DSC.6 — resultado del código en los QUOTES (siempre `200`). Presente SOLO si el request trajo código (I-1:
+ * sin código el campo se OMITE). Con cualquier `outcome` distinto de `applied`, `breakdown` es el de hoy sin código.
+ */
+export type DiscountQuoteDTO =
+  | DiscountAppliedDTO
+  /** GENÉRICO: mismos bytes en los seis casos (§0, criterio 907). */
+  | { outcome: 'invalid' }
+  | {
+      outcome: 'not_applicable';
+      code: string;
+      reason: DiscountNotApplicableReason;
+      details: Record<string, number | string[]>;
+    }
+  | { outcome: 'rate_limited'; retryAfterSeconds: number };
+
+/** §DSC.7 — estado derivado (⛔ sin columna): paused > expired > scheduled > exhausted > live. */
+export type DiscountCodeState = 'scheduled' | 'live' | 'paused' | 'expired' | 'exhausted';
+/** §0-Q clase L del `?state=` de `GET /admin/discount-codes` (sin `paused`: eso es `?status=`). */
+export type DiscountCodeStateFilter = 'scheduled' | 'live' | 'expired' | 'exhausted';
+
+/** §DSC.7 — `DiscountCodeDTO`. */
+export interface DiscountCodeDTO {
+  id: string;
+  code: string;
+  batchId: string | null;
+  kind: DiscountKind;
+  percentPct: number | null;
+  amountCents: number | null;
+  maxDiscountCents: number | null;
+  minSubtotalCents: number | null;
+  productScopes: DiscountProductScope[];
+  destinations: FulfillmentMode[];
+  startsAt: string;
+  endsAt: string | null;
+  maxTotalUses: number | null;
+  maxUsesPerCustomer: number | null;
+  status: DiscountCodeStatus;
+  state: DiscountCodeState;
+  locked: boolean;
+  usage: { consumed: number; reservedNow: number; limit: number | null };
+  createdAt: string;
+  createdBy: { id: string; name: string };
+}
+
+/** §DSC.7 — `GET /admin/discount-codes`. */
+export interface DiscountCodeListResponse {
+  data: DiscountCodeDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** §DSC.7 — cuerpo de `POST /admin/discount-codes` (los opcionales ausentes = sin límite / todos). */
+export interface DiscountCodeCreateRequest {
+  code: string;
+  kind: DiscountKind;
+  percentPct?: number;
+  amountCents?: number;
+  maxDiscountCents?: number;
+  minSubtotalCents?: number;
+  productScopes?: DiscountProductScope[];
+  destinations?: FulfillmentMode[];
+  startsAt?: string;
+  endsAt?: string;
+  maxTotalUses?: number;
+  maxUsesPerCustomer?: number;
+}
+
+/** §DSC.7 — `PATCH /admin/discount-codes/:id`: cualquier campo salvo `code` (tras el primer uso, solo status/endsAt/maxTotalUses). */
+export type DiscountCodePatchRequest = Partial<Omit<DiscountCodeCreateRequest, 'code' | 'endsAt' | 'maxTotalUses'>> & {
+  status?: DiscountCodeStatus;
+  endsAt?: string | null;
+  maxTotalUses?: number | null;
+};
+
+/** §DSC.7 — `POST /admin/discount-code-batches`: config sin `code`/`maxTotalUses`/`maxUsesPerCustomer`. */
+export type DiscountCodeBatchCreateRequest = Omit<DiscountCodeCreateRequest, 'code' | 'maxTotalUses' | 'maxUsesPerCustomer'> & {
+  prefix: string;
+  quantity: number;
+};
+
+/**
+ * §DSC.7 — un lote. ⚠️ MOCK: pendiente de contrato — §DSC.7 dice «lista; detalle con config y conteos» y
+ * `201 { batch, codesCsvPath }` pero NO fija la forma de `batch`. Esta es la mínima que la lista plegada necesita
+ * (solicitud al arquitecto en FRONTEND_NOTES §DSC): campos de `DiscountCodeBatch` (M-92: id, prefix, quantity,
+ * createdAt), la config copiada a cada código y los conteos que §DSC.7 nombra.
+ */
+export interface DiscountCodeBatchDTO {
+  id: string;
+  prefix: string;
+  quantity: number;
+  createdAt: string;
+  kind: DiscountKind;
+  percentPct: number | null;
+  amountCents: number | null;
+  maxDiscountCents: number | null;
+  minSubtotalCents: number | null;
+  productScopes: DiscountProductScope[];
+  destinations: FulfillmentMode[];
+  startsAt: string;
+  endsAt: string | null;
+  /** `paused` ⇔ sus códigos sin usar están pausados. */
+  status: DiscountCodeStatus;
+  state: DiscountCodeState;
+  /** Códigos con uso `consumed` y usos apartados ahora. */
+  usedCodes: number;
+  reservedNow: number;
+  locked: boolean;
+}
+
+/** §DSC.7 — `GET /admin/discount-code-batches` (forma MOCK: ver `DiscountCodeBatchDTO`). */
+export interface DiscountCodeBatchListResponse {
+  data: DiscountCodeBatchDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** §DSC.7 — `201` de `POST /admin/discount-code-batches`. */
+export interface DiscountCodeBatchCreateResponse {
+  batch: DiscountCodeBatchDTO;
+  codesCsvPath: string;
+}
+
+/** §DSC.7 — `DiscountReportDTO` (código o lote). */
+export interface DiscountReportDTO {
+  consumed: number;
+  reservedNow: number;
+  limit: number | null;
+  paidOrders: number;
+  discountGivenCents: number;
+  shippingWaivedOrdersCents: number;
+  shippingWaivedWithdrawalsCents: number;
+  withdrawals: number;
+  salesCollectedCents: number;
+  refundedOrders: number;
+  refundedCents: number;
+  lateConsumed: number;
+  rows: Array<{
+    at: string;
+    kind: 'order' | 'withdrawal';
+    folio: string;
+    customerEmail: string | null;
+    code: string;
+    discountCents: number;
+    shippingWaivedCents: number;
+    totalCents: number;
+    refundedCents: number;
+    status: DiscountRedemptionStatus;
+  }>;
+  /** Solo en el reporte de un lote. */
+  usedCodes?: Array<{ code: string; at: string }>;
 }

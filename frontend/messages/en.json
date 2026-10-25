@@ -649,6 +649,48 @@
       "showBreakdown": "Show breakdown",
       "hideBreakdown": "Hide breakdown",
       "total": "Total"
+    },
+    "discount": {
+      "row": "Have a code?",
+      "rowWithdrawal": "Have a free-shipping code?",
+      "label": "Discount code",
+      "apply": "Apply",
+      "applying": "Applying…",
+      "applied": "{code} applied",
+      "saves": "You save {amount}",
+      "savesShipping": "You save {amount} on shipping",
+      "remove": "Remove",
+      "useAnother": "Use another code",
+      "lineDiscount": "Discount ({code})",
+      "lineFreeShipping": "Free shipping ({code})",
+      "withdrawalShipping": "Withdrawal shipping",
+      "invalid": "This code isn't valid or is no longer available.",
+      "kept": "{code} stays applied.",
+      "minSubtotal": "Add {amount} more to use this code.",
+      "onlyScopes": "This code only applies to {scopes}.",
+      "scope": {
+        "raw": "single cards",
+        "graded": "graded cards",
+        "sealed": "sealed product",
+        "accessory": "accessories and energies"
+      },
+      "notHome": "This code doesn't apply to home delivery.",
+      "notVault": "This code doesn't apply to vault purchases.",
+      "replaced": "We replaced {from} ({fromAmount}) with {to} ({toAmount}). Only one code applies per order.",
+      "rateLimited": "Too many attempts; wait a few minutes.",
+      "network": "We couldn't check the code. Try again.",
+      "barShort": "With discount −{amount}",
+      "barVault": "Discount −{amount} · platform fee {fee}",
+      "removedNotice": "{code} no longer applies to your cart and we removed it. Check the total before paying.",
+      "noShipping": "This code covers shipping and your vault order has no shipping.",
+      "withdrawalOnlyFreeShipping": "Only free-shipping codes apply to vault withdrawals.",
+      "alreadyApplied": "This code is already applied.",
+      "confirmWithdrawal": "Confirm withdrawal",
+      "alreadyFree": "Your order already ships at no cost; this code changes nothing.",
+      "largeBox": "This code doesn't cover shipping for a large box.",
+      "totalBelowMinimum": "With this code the total would fall below {amount}, the minimum to pay.",
+      "withdrawalFiltered": "This code doesn't apply to vault withdrawals.",
+      "notCombinable": "This code can't be combined with another discount."
     }
   },
   "vault": {
@@ -1396,7 +1438,8 @@
       "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}",
       "accessories": "Accessories",
       "cardShow": "Card Show",
-      "marketing": "Marketing"
+      "marketing": "Marketing",
+      "discounts": "Discount codes"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -7097,6 +7140,169 @@
         },
         "revoking": "Revoking…",
         "revoked": "Key revoked."
+      }
+    },
+    "discounts": {
+      "intro": "Only you create them. An order takes a single code.",
+      "newCode": "New code",
+      "generateBatch": "Generate batch",
+      "pause": "Pause",
+      "resume": "Resume",
+      "pauseBatch": "Pause batch",
+      "resumeBatch": "Resume batch",
+      "downloadCsv": "Download CSV",
+      "viewReport": "View report",
+      "edit": "Edit",
+      "back": "Discount codes",
+      "saveCode": "Save code",
+      "saveChanges": "Save changes",
+      "cancel": "Cancel",
+      "generateRandom": "Generate a random one",
+      "empty": "No codes yet. Create the first one.",
+      "emptyFiltered": "No codes with this filter.",
+      "pausedNotice": "{code} paused. It no longer applies to new payments.",
+      "resumedNotice": "{code} resumed.",
+      "filters": {
+        "label": "Filter by state",
+        "all": "All",
+        "live": "Active",
+        "paused": "Paused",
+        "expired": "Expired",
+        "exhausted": "Used up"
+      },
+      "states": {
+        "scheduled": "Scheduled",
+        "live": "Active",
+        "paused": "Paused",
+        "expired": "Expired",
+        "exhausted": "Used up"
+      },
+      "columns": {
+        "code": "Code",
+        "discount": "Discount",
+        "validity": "Validity",
+        "state": "State",
+        "usage": "Uses (used · held · limit)",
+        "given": "Discount given",
+        "actions": "Actions"
+      },
+      "kind": {
+        "percent": "Percentage",
+        "fixed_amount": "Fixed amount",
+        "free_shipping": "Free shipping"
+      },
+      "describe": {
+        "percent": "{pct} %",
+        "percentCap": "{pct} % · cap {amount}",
+        "fixed": "{amount} off",
+        "min": "{base} · minimum {amount}",
+        "batch": "{base} · 1 use each"
+      },
+      "usage": "{consumed} · {reserved} · {limit}",
+      "noLimit": "no limit",
+      "validity": "{from} – {to}",
+      "noEnd": "No end",
+      "batchRow": "batch of {n}",
+      "batchUsed": "{used} of {n} used",
+      "showBatchCodes": "Show codes in batch {prefix}",
+      "hideBatchCodes": "Hide codes in batch {prefix}",
+      "pauseBatchConfirm": {
+        "title": "Pause batch {prefix}?",
+        "body": "Its {n} unused codes are paused. They stop applying to new payments right away; payments already started are honored. You can resume it any time."
+      },
+      "form": {
+        "newTitle": "New code",
+        "sectionCode": "Code",
+        "codeLabel": "Code text",
+        "codeHint": "From 4 to 20 letters, numbers or hyphens. Not case-sensitive. Never reused, even if you pause it.",
+        "sectionDiscount": "Discount",
+        "kindLabel": "Type",
+        "valuePct": "Value (%)",
+        "valueAmount": "Amount in pesos",
+        "valueAmountHint": "Final price with VAT, like the store prices.",
+        "maxDiscount": "Cap in pesos (optional)",
+        "maxDiscountHint": "The discount never goes above this amount.",
+        "sectionConditions": "Conditions",
+        "minSubtotal": "Minimum purchase (optional)",
+        "minSubtotalHint": "Measured on eligible items, before the discount, excluding shipping and fee.",
+        "startsAt": "Starts",
+        "endsAt": "Ends (optional)",
+        "timeHint": "Mexico City time. With no end date it stays valid until you pause it.",
+        "maxTotalUses": "Total uses (optional)",
+        "maxTotalUsesHint": "How many paid orders can use it.",
+        "maxTotalUsesMin": "Minimum {n} (the ones already used).",
+        "maxPerCustomer": "Uses per customer",
+        "maxPerCustomerHint": "Counted per account and per email.",
+        "sectionAppliesTo": "Applies to",
+        "productScopes": "Product type",
+        "scope": {
+          "raw": "Single cards",
+          "graded": "Graded cards",
+          "sealed": "Sealed",
+          "accessory": "Accessories and energies"
+        },
+        "scopesHint": "If nothing is checked it can't be saved. In a mixed cart only the eligible lines are discounted.",
+        "destination": "Destination",
+        "dest": {
+          "both": "Both",
+          "direct_ship": "Home",
+          "vault": "Vault"
+        },
+        "withdrawalNote": "Vault withdrawals only accept free-shipping codes.",
+        "lockNote": "After the first use you won't be able to change type, value, cap, minimum, filters or text. You can pause it, move the end date and raise the total uses. If you make a mistake, create another code.",
+        "lockedBanner": "This code already has {n} uses and {m} held right now. Type, value, cap, minimum, filters and text can't be changed anymore: if you need something else, create a new code.",
+        "lockedReason": "Locked after the first use.",
+        "saved": "Code saved."
+      },
+      "errors": {
+        "taken": "That text already exists (paused ones included). Pick another.",
+        "locked": "That field can't be changed: the code has uses.",
+        "limitBelow": "Total uses can't go below {n}.",
+        "validation": "Check the highlighted field.",
+        "noScopes": "Check at least one product type.",
+        "required": "This is required."
+      },
+      "batch": {
+        "title": "Generate batch",
+        "prefix": "Prefix",
+        "prefixHint": "From 2 to 8 letters or numbers. Each code: prefix, hyphen and 10 random characters.",
+        "quantity": "Quantity (1 to 500)",
+        "perCode": "Uses per code",
+        "perCustomer": "Uses per customer",
+        "fixedOne": "1 (fixed)",
+        "generate": "Generate {n, plural, one {# code} other {# codes}}",
+        "ready": "Batch {prefix} ready",
+        "readyBody": "{n, plural, one {# code was} other {# codes were}} generated. Hand them out as they are: each one works only once.",
+        "viewBatchReport": "View batch report"
+      },
+      "report": {
+        "title": "Report · {code}",
+        "uses": "Uses",
+        "usesSub": "used · held now · limit",
+        "given": "Discount given",
+        "givenSub": "{n, plural, one {in # paid order} other {in # paid orders}}",
+        "sales": "Sales collected",
+        "salesSub": "in those orders, already discounted",
+        "refunded": "Refunded",
+        "refundedValue": "{n} · {amount}",
+        "waived": "Shipping given away",
+        "waivedSub": "on orders · {amount} on {n, plural, one {# withdrawal} other {# withdrawals}}",
+        "refundNote": "A refund doesn't give the use back.",
+        "columns": {
+          "date": "Date",
+          "folio": "Order",
+          "email": "Customer email",
+          "discounted": "Discounted",
+          "collected": "Collected",
+          "status": "Status"
+        },
+        "status": {
+          "reserved": "Held",
+          "consumed": "Paid",
+          "released": "Released"
+        },
+        "usedCodes": "Codes used: {used} of {n}",
+        "emptyRows": "No orders with this code yet."
       }
     }
   },
