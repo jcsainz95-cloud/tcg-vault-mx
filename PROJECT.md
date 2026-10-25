@@ -10225,7 +10225,9 @@ el arquitecto/backend al elegir fuentes.)*
 > publicar la entrega de envío v2» (2026-10-25). Literal: *«b para los códigos si aplica el treshold, si aplica para
 > vault purchases no se puede combinar con otros descuentos, no puede usar el código de nuevo si reembolsa. Solo yo
 > puedo crearlas. Bopis déjalo en el tintero»*; sobre el umbral, *«No: se mide después (Recomendado)»*; sobre cuándo,
-> *«Arrancar tras publicar»*. Esa fila fija las seis reglas marcadas **[D1]…[D6]** abajo. Lo marcado *(SUPUESTO)* es
+> *«Arrancar tras publicar»*. Esa fila fija las seis reglas marcadas **[D1]…[D6]** abajo. La fila «Códigos de
+> descuento: P-DSC-1/2 y mínimo de compra» (2026-10-25) fija **[D7]** (mínimo antes del descuento), **[D8]** (retiro
+> de bóveda: *«Solo los de envío gratis»*) y **[D9]** (paquete de energías: *«Queda fuera»*). Lo marcado *(SUPUESTO)* es
 > del product-owner y espera confirmación. Base: exploración del PO en `PENDIENTES.md`, IDEA-CUPONES (2026-10-25),
 > que midió que hoy no existe nada de esto (`Order` sin columna de descuento). **NO MEDIDO hoy por el PO**: lo vuelve a
 > medir el arquitecto antes de diseñar.
@@ -10235,6 +10237,8 @@ el arquitecto/backend al elegir fuentes.)*
   total final **antes de pagar**; si el código no sirve, me lo dice sin borrar lo que ya llené.
 - **Cliente con cuenta** (a domicilio o **a su bóveda**, §B/§C): igual que el invitado; el código también vale cuando
   compro para guardar en mi bóveda **[D3]**.
+- **Cliente con cuenta que retira de su bóveda** (§D): con un código de **envío gratis** no pago el envío de mi
+  retiro **[D8]**; un código de porcentaje o de monto no me sirve ahí.
 - **Cliente con un código de un solo uso** (p. ej. repartido en un evento): lo uso una vez y deja de servir para todos.
 - **Dueño (`super_admin`)**: creo un código o un lote de códigos de un solo uso; elijo tipo, valor, vigencia, límites
   y filtros; lo pauso si se filtra; y veo por código cuántas veces se usó, cuánto descuento di y cuánto vendí con él.
@@ -10246,7 +10250,7 @@ el arquitecto/backend al elegir fuentes.)*
 1. **Tres tipos:** (a) **porcentaje** sobre la mercancía elegible; (b) **monto fijo en pesos, con IVA** (precio final,
    la misma convención que el precio exhibido, §Q); (c) **envío gratis**. **[D1]**
 2. **Base del descuento:** el precio exhibido (IVA dentro) de las **líneas elegibles** (regla 12). Nunca se descuentan
-   el envío (salvo el tipo c), la comisión de plataforma ni nada del buylist.
+   el envío (salvo el tipo c), la comisión de plataforma, nada del buylist ni el paquete de energías del deck **[D9]**.
 3. **Monto fijo:** nunca mayor que la suma de las líneas elegibles; la mercancía no baja de MX$0.00.
 4. **Tope en pesos** (opcional, solo para porcentaje): el descuento no pasa de esa cifra (p. ej. «15 % hasta MX$500»).
 5. **Orden del cálculo — el descuento va primero:** mercancía → **descuento** → umbral de envío gratis → IVA → comisión.
@@ -10259,7 +10263,7 @@ el arquitecto/backend al elegir fuentes.)*
      que uno sin código cuya mercancía valga (subtotal − D).
 6. **Envío gratis (tipo c):** pone en MX$0 el envío a domicilio del pedido (cartas MX$100 / sellado o accesorio
    MX$175). *(SUPUESTO: igual que el umbral, no cubre la tarifa de caja grande de §AC.)* En un pedido a bóveda no hay
-   envío: el código no aplica y el mensaje lo dice (regla 21).
+   envío: el código no aplica y el mensaje lo dice (regla 21). También cubre el **retiro de bóveda** (regla 20).
 7. **Reparto por línea:** el descuento se reparte entre las líneas elegibles en proporción a su precio. Cada línea
    guarda su **precio original** y su **precio cobrado**. Las partes suman **exactamente** el descuento, y ninguna
    línea queda negativa (el redondeo de centavos lo fija el arquitecto). Esto hace que un reembolso por carta devuelva
@@ -10272,9 +10276,10 @@ el arquitecto/backend al elegir fuentes.)*
 10. **Usos por cliente** (opcional; *SUPUESTO: por defecto 1*). Con cuenta se cuenta por cuenta **y** por su correo;
     un invitado, por correo. Así una persona no lo repite pasando de invitado a cuenta. El correo se compara en
     minúsculas y sin espacios. *(SUPUESTO: no se quitan puntos ni «+alias»; ver «Riesgos» en DSC.5.)*
-11. **Mínimo de compra** (opcional) — *(SUPUESTO)*: se mide sobre las **líneas elegibles ANTES del descuento**, sin
+11. **Mínimo de compra** (opcional) **[D7]**: se mide sobre las **líneas elegibles ANTES del descuento**, sin
     envío ni comisión, porque es el número que el cliente ve en su carrito. No contradice [D2]: el umbral de envío es
-    **otro** beneficio y se mide después. Ejemplo: «MX$200 en compras desde MX$2,000» con un carrito de MX$2,000 ⇒
+    **otro** beneficio y se mide después. Ejemplo del dueño: pedido de MX$1,050 con 10 % y mínimo de MX$1,000 ⇒
+    aplica (paga MX$945 de mercancía). Otro: «MX$200 en compras desde MX$2,000» con un carrito de MX$2,000 ⇒
     aplica; el cliente paga MX$1,800 de mercancía y, por [D2], paga envío.
 12. **Filtros:** por **tipo de producto** (cartas sueltas, gradeadas, sellado, accesorios y energías; uno o varios) y por
     **destino** (domicilio, bóveda o ambos). En un carrito mixto solo se descuentan las líneas elegibles. Si ninguna
@@ -10282,8 +10287,9 @@ el arquitecto/backend al elegir fuentes.)*
 13. **Uno por pedido, sin combinar [D4]:** un pedido lleva como máximo **un** código y ningún otro descuento. Hoy la
     tienda no tiene otro descuento construido (el 5 %/3 % de deck no existe, §AC). Cuando exista, el código no se
     acepta en un pedido que ya lo lleve y el mensaje dice que no se combina. *(SUPUESTO: un segundo código reemplaza
-    al primero, con aviso.)* El paquete de energías del deck queda fuera del descuento mientras **P-DSC-2** siga
-    abierta.
+    al primero, con aviso.)* El **paquete de energías del deck** (MX$20, §AC.10) **queda fuera** del código
+    **[D9]**: el código descuenta el resto del carrito y el paquete se cobra a su precio. Ejemplo con 10 %: MX$500 en
+    cartas + paquete de MX$20 ⇒ −MX$50.00. Si el paquete es la única línea del filtro, el código no aplica.
 
 **Lotes y administración**
 14. **Lote de un solo uso [D1]:** el dueño elige cantidad y prefijo, y el sistema genera códigos únicos con sufijo
@@ -10307,8 +10313,21 @@ el arquitecto/backend al elegir fuentes.)*
     descontado más su parte de comisión, según la regla vigente de reembolso por carta (§V.2, criterio 403). Nunca
     devuelve el precio original ni más de lo que se cobró.
 19. **Precio que cambió antes de pagar** (§X, P-POR-3): el descuento se recalcula sobre el precio que se cobra.
-20. **Fuera del código:** el buylist (lo que pagamos a un vendedor) y el retiro de bóveda (MX$203) mientras **P-DSC-1**
-    siga abierta.
+20. **Buylist y retiro de bóveda:** el buylist (lo que pagamos a un vendedor) queda fuera del código. El **retiro de
+    bóveda** (§D, MX$175 + IVA = MX$203) acepta **solo códigos de envío gratis** (tipo c) **[D8]**; uno de porcentaje
+    o de monto fijo da en el retiro el mensaje «no aplica» de la regla 21. Con un código de envío gratis:
+    - el **envío del retiro queda en MX$0.00** y la tienda paga la guía (al P&L como hoy, §T.7);
+    - *(SUPUESTO: el retiro con envío gratis **cuesta MX$0.00 en total**, sin comisión y sin pasar por el cobro, porque
+      la comisión cubre lo que cobra el procesador sobre un pago y ahí no hay pago; ver **P-DSC-3**. Hoy la comisión
+      tiene una parte fija — `grossUpTotal` en `backend/src/common/money.ts:1019-1029` suma una cuota fija — así que
+      «seguir cobrando la comisión» dejaría un cobro de unos pocos pesos por un retiro gratis. NO MEDIDO por el PO:
+      cuánto sería y si el procesador acepta ese monto.)*
+    - el uso del código **se aparta y se consume** igual que en una compra (regla 17), y cuenta para los límites de
+      usos totales y por cliente;
+    - *(SUPUESTO: en el retiro no hay compra que medir, así que un código con **mínimo de compra** o **filtro por tipo
+      de producto** no aplica al retiro; uno con filtro de destino aplica si incluye «domicilio».)*
+    - la **base del IVA** del retiro con envío en MX$0 (hoy neto MX$175, el cliente ve MX$203,
+      `backend/src/modules/settings/settings.constants.ts:421`) y su registro contable los resuelve el **arquitecto**.
 
 **Mensajes y abuso**
 21. **Mensaje genérico:** un código que no existe, venció, está pausado, se agotó o que el cliente ya usó todas las
@@ -10323,6 +10342,8 @@ el arquitecto/backend al elegir fuentes.)*
 #### DSC.3 Dónde se ve
 - **Checkout** (invitado y con cuenta, una pantalla `DESIGN_SYSTEM §CHK-MOVIL`): campo «¿Tienes un código?», línea
   «Descuento (CÓDIGO) −MX$X» en el desglose antes de PAGAR, y «Quitar».
+- **Solicitud de retiro de bóveda** (§D): el mismo campo; con un código de envío gratis el desglose muestra el envío
+  en MX$0.00 y el nombre del código antes de confirmar **[D8]**.
 - **Correo de confirmación y detalle del pedido** del cliente: la misma línea.
 - **Panel:** en **Ventas**, el pedido muestra código y monto. La pantalla **Códigos** (solo `super_admin`) tiene la
   lista, crear, lote, pausar/reanudar y el reporte. La venta y el IVA de Finanzas y Analítica (§W, §AN) cuentan lo
@@ -10330,12 +10351,13 @@ el arquitecto/backend al elegir fuentes.)*
 
 #### DSC.4 Reporte por código
 Por código y por lote (sumado): estado, vigencia, usos **consumidos / apartados ahora / límite**, pedidos pagados,
-**descuento total otorgado** (MX$), envío regalado (tipo c), venta cobrada en esos pedidos (MX$), pedidos reembolsados
+**descuento total otorgado** (MX$), envío regalado (tipo c, en pedidos y en retiros por separado), venta cobrada en esos pedidos (MX$), pedidos reembolsados
 y MX$ reembolsados. Debajo, la lista de pedidos con fecha, folio, correo del cliente y monto descontado. En un lote,
 además, qué códigos se usaron. Se descarga en CSV.
 
 #### DSC.5 Fuera de alcance de §DSC y riesgos
-- **Fuera:** buylist; retiro de bóveda (P-DSC-1); **BOPIS / recoger en tienda** (dueño: «en el tintero»); descuentos
+- **Fuera:** buylist; códigos de porcentaje o monto en el retiro de bóveda **[D8]**; el paquete de energías del deck
+  **[D9]**; **BOPIS / recoger en tienda** (dueño: «en el tintero»); descuentos
   automáticos sin código, precio tachado, combos, saldo a favor, referidos; códigos asignados a un cliente concreto;
   apilar códigos; códigos creados por el personal; mandar códigos por correo promocional (P-LEG-8: hoy no hay usos
   secundarios de datos).
@@ -10344,7 +10366,7 @@ además, qué códigos se usaron. Se descarga en CSV.
   reporte dice cuánto costó. (c) **Dinero:** un error en el orden del cálculo (regla 5) cobraría IVA o comisión de
   más o de menos en cada pedido; por eso existe el criterio de equivalencia 892.
 
-- Criterios **890–916**. Preguntas **P-DSC-1** y **P-DSC-2** en «Preguntas abiertas».
+- Criterios **890–919**. Pregunta **P-DSC-3** en «Preguntas abiertas».
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §DSC (códigos de descuento)** *(2026-10-25)*: detalle en **§DSC.5**.
@@ -15139,7 +15161,7 @@ Energy» (12 energías; sueltas = MX$60.00):*
    para una variante, refresca y comprueba que **no** sale en la tienda sino que aparece en la cola de revisión; (d)
    lo resuelve desde la cola (acepta / conserva / precio a mano) y ve el resultado reflejado.
 
-#### Códigos de descuento (§DSC, 2026-10-25) — criterios 890–916
+#### Códigos de descuento (§DSC, 2026-10-25) — criterios 890–919
 890. **Solo el dueño crea** *(DSC.2-15, [D6])*: un `super_admin` crea un código de cada tipo con todos sus campos. Un
    `vault_operator` no ve la pantalla Códigos, y la llamada directa al servidor para crear, editar o pausar se rechaza
    sin crear nada. Cada alta y cambio aparece en la auditoría con quién, cuándo y antes → después.
@@ -15177,8 +15199,9 @@ Energy» (12 energías; sueltas = MX$60.00):*
    **exactamente** el total cobrado.
 903. 💰 **Reparto exacto** *(DSC.2-7)*: en pedidos de 1, 2, 3 y 7 líneas con precios que no dividen exacto, las partes
    por línea suman el descuento al centavo, ninguna línea queda negativa y las no elegibles quedan sin descuento.
-904. **Mínimo antes del descuento** *(DSC.2-11)*: con mínimo de MX$2,000.00, un carrito elegible de MX$2,000.00 aplica.
-   Uno de MX$1,999.99 no aplica, y el mensaje dice cuánto falta.
+904. **Mínimo antes del descuento [D7]** *(DSC.2-11)*: con mínimo de MX$2,000.00, un carrito elegible de MX$2,000.00
+   aplica. Uno de MX$1,999.99 no aplica, y el mensaje dice cuánto falta. El ejemplo del dueño: MX$1,050.00 con 10 % y
+   mínimo de MX$1,000.00 aplica y deja MX$945.00 de mercancía.
 905. **Filtros** *(DSC.2-12)*: un código «solo sellado» en un carrito mixto descuenta solo las líneas de sellado. Un
    código «solo bóveda» en un pedido a domicilio no aplica.
 906. **Uno por pedido [D4]** *(DSC.2-13)*: no hay forma de aplicar dos códigos al mismo pedido. Un segundo código
@@ -15203,10 +15226,22 @@ Energy» (12 energías; sueltas = MX$60.00):*
 914. **Dónde se ve** *(DSC.3)*: la línea «Descuento (CÓDIGO) −MX$X» aparece en el checkout de invitado y con cuenta
    antes de PAGAR, en el correo de confirmación, en el detalle del pedido del cliente y en Ventas.
 915. 💰 **Lo que no cambia** *(DSC.2-20)*: un pedido **sin** código cobra exactamente lo mismo que antes de §DSC (sus
-   pruebas en verde sin editarlas). El buylist y el retiro de bóveda no tienen campo de código.
+   pruebas en verde sin editarlas), y un retiro de bóveda **sin** código sigue cobrando MX$203 más su comisión, como
+   hoy. El buylist no tiene campo de código.
 916. **De punta a punta** *(O-4)*: contra el stack corriendo, (a) el dueño crea un código en el panel; (b) un
    invitado en el celular lo aplica y paga en modo prueba; (c) llega el correo con la línea de descuento; (d) Ventas y
    el reporte lo muestran; (e) se reembolsa una carta y el reporte refleja el reembolso sin devolver el uso.
+917. 💰 **Retiro de bóveda con envío gratis [D8]** *(DSC.2-20)*: un cliente con cuenta pide el retiro de dos cartas
+   `settled` y escribe un código de envío gratis. Antes de confirmar ve **«Envío MX$0.00»** y el nombre del código,
+   donde sin código vería MX$203.00. *(SUPUESTO, P-DSC-3: el total del retiro es **MX$0.00**, sin comisión ni pantalla
+   de cobro.)* El retiro sigue el camino de siempre (en preparación → guía → enviado), la tienda paga la guía, y el
+   reporte del código cuenta 1 uso consumido y el envío regalado en la columna de retiros.
+918. **Retiro con código de porcentaje o de monto [D8]** *(DSC.2-20)*: en la solicitud de retiro, un código vigente de
+   10 % o de MX$150.00 no aplica, el mensaje dice que en retiros solo valen los de envío gratis, el retiro cuesta
+   MX$203.00 más su comisión y el código no gasta ningún uso.
+919. 💰 **Paquete de energías fuera del código [D9]** *(DSC.2-13)*: carrito con MX$500.00 en cartas más el paquete de
+   energías del deck (MX$20.00) y un código de 10 % ⇒ «Descuento −MX$50.00»; el paquete sigue en MX$20.00. Un código
+   «solo accesorios y energías» con el paquete como única línea de accesorios no aplica.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -17212,16 +17247,12 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-- **P-DSC-1 · ¿Un código de descuento sirve también para pagar un retiro de bóveda (los MX$203)?** *(§DSC; no lo
-  dijiste.)* Un retiro no es una compra: el cliente paga por mandar a su casa lo que ya es suyo. Opciones: **(a) no**
-  —un código solo vale en compras—; **(b) solo los códigos de envío gratis**, que dejarían el retiro en MX$0 (la
-  tienda pagaría la guía); **(c) cualquier código**. **Mientras no contestes: (a)**, y el retiro no tiene campo de
-  código.
-- **P-DSC-2 · ¿El paquete de energías del deck (MX$20) queda fuera del descuento?** *(§DSC, regla 13; no lo dijiste.)*
-  El paquete ya es un precio especial aprobado por ti (§AC.10), y dijiste que el código «no se puede combinar con
-  otros descuentos». Opciones: **(a) queda fuera**: el código descuenta el resto del carrito, pero no el paquete;
-  **(b) entra** como cualquier accesorio. **Mientras no contestes: (a)**. Ejemplo con 10 %: carrito de MX$500 en
-  cartas + paquete de MX$20 ⇒ con (a), −MX$50.00; con (b), −MX$52.00.
+- **P-DSC-3 · Retiro de bóveda con un código de envío gratis: ¿cuánto paga el cliente en total?** *(§DSC.2 regla 20,
+  criterio 917.)* Elegiste que el código de envío gratis cubra el retiro. El retiro hoy cobra MX$203 de envío **más la
+  comisión de plataforma**, y esa comisión tiene una parte fija aunque el envío sea cero. Opciones: **(a) MX$0.00 en
+  total**: el retiro se confirma sin pasar por el pago; **(b) se cobra solo la comisión** que quede (unos pocos pesos;
+  la cifra exacta la mide el arquitecto, y puede que el procesador no acepte un cobro tan chico). **Mientras no
+  contestes: (a)**, que es lo que decía la opción que elegiste («dejarían el retiro en MX$0»).
 
 ## Preguntas abiertas — precio de buylist por rareza (v1.3)
 > Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o

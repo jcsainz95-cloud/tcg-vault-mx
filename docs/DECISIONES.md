@@ -10,6 +10,9 @@
 | 2026-10-25 | Códigos de descuento: ¿opción A o B? | «b para los códigos si aplica el treshold, si aplica para vault purchases no se puede combinar con otros descuentos, no puede usar el código de nuevo si reembolsa. Solo yo puedo crearlas. Bopis déjalo en el tintero» (`HECHOS.md`, fila «Códigos de descuento: opción B…») | §DSC (nueva), criterios 890–916, §AC.8, «Fuera de alcance», §Z |
 | 2026-10-25 | Pedido de MX$4,200 con 10 % paga MX$3,780: ¿el umbral de envío gratis se mide antes o después del descuento? | «No: se mide después (Recomendado)» | §DSC.2 regla 5, criterio 895 |
 | 2026-10-25 | Códigos de descuento: ¿cuándo se construyen? | «Arrancar tras publicar» (la entrega de envío v2) | §DSC (encabezado) |
+| 2026-10-25 | Códigos de descuento: el mínimo de compra ¿se mide antes o después del descuento? (pedido de MX$1,050 con 10 % y mínimo MX$1,000) | «Antes del descuento (Recomendado)» (`HECHOS.md`, fila «Códigos de descuento: P-DSC-1/2 y mínimo de compra») | §DSC.2 regla 11 [D7], criterio 904 |
+| 2026-10-25 | P-DSC-1 · ¿Un código sirve para pagar un retiro de bóveda (MX$203)? | «Solo los de envío gratis» (opción b; % y monto no) | §DSC.1, §DSC.2 reglas 6 y 20 [D8], §DSC.3, §DSC.4, §DSC.5, criterios 915, 917, 918; abre P-DSC-3 |
+| 2026-10-25 | P-DSC-2 · ¿El paquete de energías del deck (MX$20) queda fuera del descuento? | «Queda fuera (Recomendado)» (opción a) | §DSC.2 reglas 2 y 13 [D9], §DSC.5, criterio 919 |
 | 2026-10-04 | P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo? | Default aceptado: no pide motivo («solo ex y double rare, lo demás por defecto») | §S.11.7, criterio 253 |
 | 2026-10-04 | P-S11-4 · Compra a bóveda reembolsada con una carta ya retirada: ¿pide motivo? | Default aceptado: no; lo retirado no se toca | §S.11.7, criterio 253 |
 | 2026-10-04 | P-PRE-1 · ¿Se quita el precio a mano por pieza de sueltas y gradeadas? | Default aceptado: se conserva, sin hacerlo más visible | §N.5-bis (b), criterio 255 |
