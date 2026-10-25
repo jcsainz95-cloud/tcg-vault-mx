@@ -7266,12 +7266,10 @@ export async function getGuestCheckoutQuote(
   );
   const subtotal = cardsSubtotal + acc.extraSubtotalCents;
   const nothing = items.length === 0 && acc.accessoryLines.length === 0;
-  // 💰 v1.109 (§4-G.12): energía, paquetes y decks cuentan como accesorio (D-ENV-3) ⇒ regla del sellado.
-  const ship = mockGuestDirectShip(
-    items,
-    nothing ? 0 : acc.accessoryLines.length + acc.energyBundles.length + (extras?.deckPulls?.length ?? 0),
-    subtotal,
-  );
+  // 💰 v1.109 (§4-G.12): energía y paquetes cuentan como accesorio (D-ENV-3) ⇒ regla del sellado. TL-R2: un
+  // `deckPull` cuenta SOLO si su paquete quedó aceptado (`acc.energyBundles`), igual que el backend
+  // (`guest-checkout.service.ts`, `energyBundleCount: acc.energyBundles.length`); un pull sin paquete no es accesorio.
+  const ship = mockGuestDirectShip(items, nothing ? 0 : acc.accessoryLines.length + acc.energyBundles.length, subtotal);
   return delay({
     // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
     // checkout de invitado pintaba el mismo hueco gris por la misma causa.
@@ -7370,11 +7368,8 @@ export async function createGuestCheckoutSession(
   }
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) + accSession.extraSubtotalCents;
   // ENV-3: la sesión cobra con la MISMA función que el quote.
-  const ship = mockGuestDirectShip(
-    items,
-    accSession.accessoryLines.length + accSession.energyBundles.length + (input.deckPulls?.length ?? 0),
-    subtotal,
-  );
+  // TL-R2: como el quote y el backend (`part.bundles.length`): solo los paquetes aceptados, no todo `deckPulls`.
+  const ship = mockGuestDirectShip(items, accSession.accessoryLines.length + accSession.energyBundles.length, subtotal);
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
   // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
   const email = input.email.trim().toLowerCase();

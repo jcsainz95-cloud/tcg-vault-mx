@@ -70,6 +70,33 @@ describe('§4-G.12 · diales del envío a domicilio en M10', () => {
     expect(put.mock.calls[0][0]).toEqual({ directShipFreeFromCents: 350000 });
   });
 
+  // 💰 TL-R1 (techlead, release sobre 230b9bd3): `Number('')` daba 0 ⇒ vaciar un campo mandaba `PUT {…: 0}` y el
+  // backend lo aceptaba: envío en MX$0 sin aviso. Vacío o no numérico ⇒ campo inválido, Guardar bloqueado, sin PUT.
+  it.each([
+    ['vacío', ''],
+    ['solo espacios', '   '],
+    ['no numérico', 'abc'],
+  ])('campo %s ⇒ no hay PUT, el campo sale inválido y Guardar queda bloqueado', async (_name, value) => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(settings());
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(settings());
+    renderWithProviders(<DirectShipSection />, 'es');
+    const cardsFee = await screen.findByLabelText(D.labels.directShipCardsFeeCents);
+    fireEvent.change(cardsFee, { target: { value } });
+    expect(cardsFee).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(D.invalid)).toBeInTheDocument();
+    const save = screen.getByTestId('m10-direct-ship-save');
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(put).not.toHaveBeenCalled();
+    // Corregirlo lo desbloquea y viaja en centavos.
+    fireEvent.change(cardsFee, { target: { value: '90' } });
+    expect(cardsFee).not.toHaveAttribute('aria-invalid');
+    fireEvent.click(screen.getByTestId('m10-direct-ship-save'));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][0]).toEqual({ directShipCardsFeeCents: 9000 });
+  });
+
   it('volver a escribir el valor guardado no cuenta como cambio (botón apagado)', async () => {
     vi.spyOn(api, 'getSettings').mockResolvedValue(settings());
     renderWithProviders(<DirectShipSection />, 'es');

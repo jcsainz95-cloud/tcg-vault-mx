@@ -31,13 +31,13 @@ export function ShippingFeeHint({ kind, className }: ShippingFeeHintProps) {
     staleTime: 300_000,
   });
   if (!rule.data) return null;
+  // Umbral para CUALQUIER pedido (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido»):
+  // T1a y T1b llevan los dos el `freeFrom` del endpoint.
+  const freeFrom = formatMoneyCents(rule.data.freeFromCents, locale);
   const text =
     kind === 'cards'
-      ? t('cardsOnly', { shipping: formatMoneyCents(rule.data.cardsOnlyFeeCents, locale) })
-      : t('sealed', {
-          shipping: formatMoneyCents(rule.data.sealedFeeCents, locale),
-          freeFrom: formatMoneyCents(rule.data.freeFromCents, locale),
-        });
+      ? t('cardsOnly', { shipping: formatMoneyCents(rule.data.cardsOnlyFeeCents, locale), freeFrom })
+      : t('sealed', { shipping: formatMoneyCents(rule.data.sealedFeeCents, locale), freeFrom });
   return (
     <p data-testid="shipping-fee-hint" className={cn('font-mono text-[11px] leading-[1.5] text-muted', className)}>
       {text}

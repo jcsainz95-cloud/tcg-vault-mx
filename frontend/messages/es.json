@@ -634,7 +634,7 @@
       "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
     },
     "feeHint": {
-      "cardsOnly": "+ envío {shipping} · comisión de plataforma al pagar",
+      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar",
       "sealed": "Envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar"
     },
     "finalSaleShort": "Todas las ventas son finales.",

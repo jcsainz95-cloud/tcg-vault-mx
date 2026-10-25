@@ -7,6 +7,21 @@
 
 ---
 
+## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
+
+> Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-ENV-F2 | ABIERTA · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). R1 nació de esa clase | frontend | 2026-10-25 | un helper único en `frontend/src/lib/` y `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0 |
+| TL-ENV-F3 | ABIERTA · `BuylistKycForm` lee la prop `ineExpected` solo al montar (estado inicial); si la prop cambia después, el formulario no se entera | frontend | 2026-10-25 | prueba de cambio de prop (`rerender` con `ineExpected` distinto ⇒ el formulario lo refleja), roja sobre el código actual |
+| TL-ENV-F1 | CERRADA · comentarios «v1.110 pendiente» en `lib/mock/shipping-rule.ts` y `shipping-rule.parity.test.ts` (el contrato ya es v1.109.1, P-ENV-1 cerrada) | frontend | 2026-10-25 | `grep -rn "v1.110" frontend/src` ⇒ 0 |
+| TL-ENV-F4 | CERRADA · comentario «gate de identidad» (ya no existe) en `checkout/InlineAuthPanel.tsx` | frontend | 2026-10-25 | `grep -rn "gate de identidad" frontend/src` ⇒ 0 |
+| TL-ENV-R1 | CERRADA · `DirectShipSection` vaciar un dial ⇒ `PUT` con 0 (envío MX$0 sin aviso) | frontend | 2026-10-25 | `m10/sections/DirectShipSection.test.tsx` «campo vacío/solo espacios/no numérico ⇒ no hay PUT…» (roja sobre `230b9bd3`) |
+| TL-ENV-R2 | CERRADA · el mock contaba todo `deckPulls` como accesorio; el backend solo los paquetes aceptados | frontend | 2026-10-25 | `lib/mock/shipping-rule.parity.test.ts` «paridad: deckPull SIN paquete + solo cartas ⇒ 10000» (roja sobre `230b9bd3`) |
+
+---
+
 ## Frontend · 2026-10-19 · §MKT.H Fase 2 (construida apagada) — base `b95fbbac`
 
 > Dueño del código anotado: **frontend**. Toca el checkout solo para leer (evento `purchase`). Medido el 2026-10-19. TL-MKT2b-* y QA-MKT2b-*: veredictos de techlead y QA sobre `47eb1dea`. FE-MKT2-1 (cerrada) sale: su comprobación sigue viva en `source-lock.test.ts`. TL D3/D4/D7/D8 (2026-10-19) se cerraron sin ficha: `utm.parity.test.ts`, `ConsentBanner.test.tsx` «D4», `next-config-measurement-gate.test.ts`, `useStickyBottomBar.test.tsx`.

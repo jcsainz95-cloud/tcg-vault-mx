@@ -8,14 +8,16 @@
  * cifra que el sistema real no produciría (criterio 196). Paridad: `shipping-rule.parity.test.ts`.
  *
  * ⭐ **Los tres diales son CON IVA INCLUIDO** (lo que ve el cliente): `E_cartas = directShipCardsFeeCents` y
- * `E_sellado = directShipSealedFeeCents`, EXACTOS, sin derivar del dial del IVA. ⚠️ El texto de v1.109 los
- * describía como `F` neto (P-ENV-1); el dueño contestó «IVA incluido» y la corrección del contrato está pedida
- * al arquitecto (v1.110). `shipping_fee_cents` (retiro de bóveda) sigue neto y no pasa por aquí.
+ * `E_sellado = directShipSealedFeeCents`, EXACTOS, sin derivar del dial del IVA (contrato v1.109.1, P-ENV-1
+ * cerrada). `shipping_fee_cents` (retiro de bóveda) sigue neto y no pasa por aquí.
  *
  * Pasos de §4-G.12 punto 2:
  *  1. clase: `sealed` si hay ≥ 1 sellado o accesorio (energía y paquetes incluidos), `cards_only` si solo
  *     hay cartas (raw y graded, D-ENV-2), `null` si no queda nada (envío 0);
- *  2. `E_regla`: `cards_only ⇒ E_cartas` (nunca gratis) · `sealed ⇒ (S ≥ T ? 0 : E_sellado)`;
+ *  2. `E_regla`: `S ≥ T ⇒ 0` para CUALQUIER clase; si no, `cards_only ⇒ E_cartas` · `sealed ⇒ E_sellado`.
+ *     // MOCK: pendiente de contrato — decisión del dueño 2026-10-25 (`HECHOS.md` «Envío gratis desde MX$4,000 para
+ *     // CUALQUIER pedido (opción A)», que sustituye «cards_only nunca gratis»). §4-G.12 (v1.109.1) aún dice «nunca
+ *     // gratis» y `freeFromCents`/`freeShippingRemainingCents` = `null` para `cards_only`: solicitud al arquitecto.
  *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents`;
  *  4. el desglose (comisión sobre `S + E`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
  *
@@ -42,7 +44,7 @@ export const DIRECT_SHIP_DEFAULT_DIALS: DirectShipDials = {
 /** Lo que el paso 1 necesita del carrito: tipos de las piezas y si hay accesorios/paquetes/decks. */
 export interface ShippingRuleCart {
   productTypes: ReadonlyArray<'raw' | 'graded' | 'sealed'>;
-  /** Renglones de accesorio (energía incluida), paquetes de energía o `deckPulls` (D-ENV-3). */
+  /** Renglones de accesorio (energía incluida) + paquetes de energía ACEPTADOS (D-ENV-3). Un `deckPull` sin paquete no cuenta. */
   accessoryCount: number;
 }
 
@@ -78,15 +80,16 @@ export function directShipFeeOf(
   }
   const eCards = dials.cardsFeeCents;
   const eSealed = dials.sealedFeeCents;
-  const free = kind === 'sealed' && subtotalCents >= dials.freeFromCents;
-  const eRule = kind === 'cards_only' ? eCards : free ? 0 : eSealed;
+  // MOCK: pendiente de contrato (ver cabecera): el umbral vale para cualquier clase; la caja grande conserva su tarifa.
+  const free = subtotalCents >= dials.freeFromCents;
+  const eRule = free ? 0 : kind === 'cards_only' ? eCards : eSealed;
   const bigBox = box !== null && box.customerFeeCents > eSealed;
   return {
     feeCents: bigBox ? box!.customerFeeCents : eRule,
     rule: {
       kind,
-      freeFromCents: kind === 'sealed' ? dials.freeFromCents : null,
-      freeShippingRemainingCents: kind === 'sealed' ? Math.max(0, dials.freeFromCents - subtotalCents) : null,
+      freeFromCents: dials.freeFromCents,
+      freeShippingRemainingCents: Math.max(0, dials.freeFromCents - subtotalCents),
       freeShippingApplied: free,
       boxFeeApplies: bigBox,
     },
