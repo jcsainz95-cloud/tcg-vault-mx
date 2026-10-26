@@ -15,9 +15,10 @@ const emptyJar: CookieJar = { read: () => '', write: () => undefined, hostname: 
 function rt(over: Partial<TrackRuntime> = {}): TrackRuntime & { gtag: ReturnType<typeof vi.fn>; fbq: ReturnType<typeof vi.fn> } {
   const gtag = vi.fn();
   const fbq = vi.fn();
-  return { on: true, pathname: '/es/catalog/xy1-1', consent: { analytics: true, ads: true }, gtag, fbq, jar: emptyJar, ...over } as never;
+  return { on: true, pathname: '/es/catalog/xy1-1', href: HREF, referrer: '', consent: { analytics: true, ads: true }, gtag, fbq, jar: emptyJar, ...over } as never;
 }
 
+const HREF = 'https://tcghunt.mx/es/catalog/xy1-1';
 const ITEM = { item_id: 'card-1', item_name: 'Pikachu', item_category: 'card', price: 120.5 };
 
 /** C-F6 (API_CONTRACT §MKT.H.11) — lista cerrada de parámetros y lista blanca de rutas. */
@@ -28,7 +29,7 @@ describe('C-F6 · track() descarta lo que no está en la lista de §MKT.H.4', ()
     expect(r.gtag).toHaveBeenCalledTimes(1);
     const [, name, params] = r.gtag.mock.calls[0];
     expect(name).toBe('view_item');
-    expect(params).toEqual({ items: [ITEM], value: 120.5, currency: 'MXN' });
+    expect(params).toEqual({ items: [ITEM], value: 120.5, currency: 'MXN', page_location: HREF });
     expect(JSON.stringify(params)).not.toMatch(/email|user_id|a@b\.com/);
   });
 
@@ -82,7 +83,7 @@ describe('C-F6 · track() descarta lo que no está en la lista de §MKT.H.4', ()
     const r = rt();
     trackWith(r, 'purchase', { transaction_id: 'ord-1', items: [ITEM], value: 120.5, shipping_cents: 9900, orderNumber: 'TCG-000123' });
     const [, , params] = r.gtag.mock.calls[0];
-    expect(params).toEqual({ transaction_id: 'ord-1', items: [ITEM], value: 120.5, currency: 'MXN', shipping_cents: 9900 });
+    expect(params).toEqual({ transaction_id: 'ord-1', items: [ITEM], value: 120.5, currency: 'MXN', shipping_cents: 9900, page_location: HREF });
     expect(r.fbq).toHaveBeenCalledWith('track', 'Purchase', expect.any(Object), { eventID: 'p_ord-1' });
   });
 
@@ -133,7 +134,7 @@ describe('track() público', () => {
     const gtag = vi.fn();
     (window as unknown as { gtag: unknown }).gtag = gtag;
     flushPendingEvents();
-    expect(gtag).toHaveBeenCalledWith('event', 'view_item', { value: 1, currency: 'MXN' });
+    expect(gtag).toHaveBeenCalledWith('event', 'view_item', { value: 1, currency: 'MXN', page_location: `${window.location.origin}/es/catalog/xy1-1` });
   });
 
   it('con on y sin elección (null) lo que esperaba se tira', () => {

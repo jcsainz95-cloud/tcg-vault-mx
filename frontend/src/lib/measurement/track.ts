@@ -13,7 +13,7 @@
 
 import { isMeasuredPath, measurementPolicyFor } from './routes';
 import { readFirstUtm, documentCookieJar, type ConsentChoice, type CookieJar } from './consent';
-import { sanitizeMeasurementUrl, sanitizePath } from './utm';
+import { isPixelSafeDocument, sanitizeMeasurementUrl, sanitizePath } from './utm';
 
 export type BrowserEvent =
   | 'page_view'
@@ -70,6 +70,12 @@ export interface TrackRuntime {
   /** Modo horneado (`on` | `off`). */
   on: boolean;
   pathname: string;
+  /** `location.href` en el instante de la llamada (D-MKT2-11): `page_location` y la URL que ve el píxel. */
+  href: string;
+  /** `document.referrer` (lo que lee la librería del píxel; respaldo de `page_referrer`). */
+  referrer: string;
+  /** `page_referrer` del último `page_view` de la pestaña (MKT.H.4); si no hay, `referrer`. */
+  lastPageReferrer?: string;
   consent: ConsentChoice | null;
   gtag?: GtagFn;
   fbq?: FbqFn;
@@ -102,7 +108,7 @@ export function filterParams(event: BrowserEvent, params: TrackParams): Record<s
       const items = cleanItems(v);
       if (items) out.items = items;
     } else if (key === 'page_location' || key === 'page_referrer') {
-      const s = sanitizeMeasurementUrl(typeof v === 'string' ? v : '');
+      const s = sanitizeMeasurementUrl(typeof v === 'string' ? v : '', 'ga4');
       if (s) out[key] = s;
     } else if (key === 'page_path') {
       const s = sanitizePath(typeof v === 'string' ? v : '');
@@ -174,6 +180,16 @@ function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: Track
 
   if (rt.consent.analytics && rt.gtag) {
     const ga = { ...filtered };
+    // D-MKT2-11 (SEC-MED-1): TODO evento lleva su URL saneada; si no, gtag manda la del documento (con `?q=`).
+    // En `page_view` manda la del llamador (ya filtrada); si falta, la de ahora.
+    if (!ga.page_location) {
+      const loc = sanitizeMeasurementUrl(rt.href, 'ga4');
+      if (loc) ga.page_location = loc;
+    }
+    if (!ga.page_referrer && event !== 'page_view') {
+      const ref = sanitizeMeasurementUrl(rt.lastPageReferrer || rt.referrer, 'ga4');
+      if (ref) ga.page_referrer = ref;
+    }
     const utm = readFirstUtm(rt.jar);
     if (utm) {
       if (utm.source) ga.first_utm_source = utm.source;
@@ -186,7 +202,9 @@ function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: Track
 
   const pixelName = PIXEL_EVENT[event];
   // C-F9: en `/card-show` nada va a Meta aunque haya `fbq` en el documento (P-CS-MEDIR-1).
-  if (policy.pixel && rt.consent.ads && rt.fbq && pixelName) {
+  // D-MKT2-11: el píxel lee la URL del documento por su cuenta ⇒ se mira en CADA llamada (un `?q=` añadido
+  // después de cargar ⇒ ese evento va solo a GA4).
+  if (policy.pixel && rt.consent.ads && rt.fbq && pixelName && isPixelSafeDocument(rt.href, rt.referrer)) {
     const p = pixelParams(filtered);
     // Deduplicación con CAPI (§MKT.H.4/.5): el MISMO id que el servidor, `p_<Order.id>`.
     const eventID = event === 'purchase' && typeof filtered.transaction_id === 'string' ? `p_${filtered.transaction_id}` : undefined;
@@ -219,9 +237,30 @@ export function getRuntimeConsent(): ConsentChoice | null {
 const pending: Array<{ event: BrowserEvent; params: TrackParams; pathname: string }> = [];
 const PENDING_MAX = 20;
 
+/** `page_referrer` del último `page_view` mandado en esta pestaña (MKT.H.4, v1.112.2). */
+let lastPageReferrer: string | undefined;
+
 function runtimeFor(pathname: string): TrackRuntime {
   const w = window as unknown as { gtag?: GtagFn; fbq?: FbqFn };
-  return { on: true, pathname, consent: runtimeConsent ?? null, gtag: w.gtag, fbq: w.fbq, jar: documentCookieJar() };
+  return {
+    on: true,
+    pathname,
+    href: window.location.href,
+    referrer: document.referrer,
+    lastPageReferrer,
+    consent: runtimeConsent ?? null,
+    gtag: w.gtag,
+    fbq: w.fbq,
+    jar: documentCookieJar(),
+  };
+}
+
+function trackAndRemember(rt: TrackRuntime, event: BrowserEvent, params: TrackParams): void {
+  const sent = trackWith(rt, event, params);
+  if (event === 'page_view' && sent?.ga4) {
+    const ref = sent.ga4.page_referrer;
+    lastPageReferrer = typeof ref === 'string' ? ref : undefined;
+  }
 }
 
 /** API pública. Con el modo `off` horneado no hace nada (y no lee nada). Nunca lanza (barrera R1). */
@@ -242,7 +281,7 @@ function trackUnguarded(event: BrowserEvent, params: TrackParams): void {
     if (isMeasuredPath(rt.pathname) && pending.length < PENDING_MAX) pending.push({ event, params, pathname: rt.pathname });
     return;
   }
-  trackWith(rt, event, params);
+  trackAndRemember(rt, event, params);
 }
 
 /** Lo llama el proveedor tras `loadMeasurement`. Solo manda lo que sigue en la MISMA ruta. */
@@ -252,7 +291,7 @@ export function flushPendingEvents(): void {
   neverThrow(undefined, () => {
     const here = window.location.pathname;
     const batch = pending.splice(0, pending.length);
-    for (const p of batch) if (p.pathname === here) trackWith(runtimeFor(here), p.event, p.params);
+    for (const p of batch) if (p.pathname === here) trackAndRemember(runtimeFor(here), p.event, p.params);
   });
 }
 

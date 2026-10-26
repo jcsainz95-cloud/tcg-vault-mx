@@ -167,6 +167,18 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `measurement-on.spec.ts` («/buylist → paso»); C-F9: `routes.test.ts` + `measurement-on.spec.ts` («/card-show»).
   **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
   quien llega a `/card-show` sin haber elegido en la tienda no se mide.
+- **URL que sale (v1.112.2, D-MKT2-11, SEC-MED-1 cerrada 2026-10-26):** norma en ARCHITECTURE §14.4 y §MKT.H.4, no se
+  copia aquí. Implementación: `MEASUREMENT_QUERY_ALLOWLIST` (`utm.ts`, clave ⇒ validador, por destino) es lo único que
+  decide qué query sale; `sanitizeMeasurementUrl(raw, dest)`, `isPixelSafeUrl(href)` e `isPixelSafeDocument(href, referrer)`
+  (este último = URL apta y referente de nuestro origen apto; el de otro origen no cuenta). `loader.ts` pone
+  `page_location`/`page_referrer` saneados en `config` y `loadMeta` sale sin stub ni `<script>` si el documento no es apto
+  (el proveedor reintenta al cambiar de ruta). `track.ts`: `TrackRuntime` lleva `href`, `referrer` y `lastPageReferrer`
+  (el `page_referrer` del último `page_view` de la pestaña); cada `gtag('event')` lleva `page_location` (el del llamador en
+  `page_view`; si no, el de `href`) y `page_referrer`; el píxel se mira en cada llamada. Pruebas: `utm.test.ts` (C-F4),
+  `track.url.test.ts`, `measurement-on.spec.ts` «C-F3 · ?q= (SEC-MED-1)» (a)+(c)+(d), (b)+(c) y (b′)+(c).
+  **Medido (2026-10-26):** el catálogo NO escribe `q` en la URL (`CatalogView.tsx`: el término es estado; solo lee `?q=` al
+  aterrizar) y su «Agregar» de la rejilla no manda `add_to_cart`; por eso (b) del contrato no puede morder y se añadió (b′):
+  `?q=` añadido con `history.replaceState` a una ficha con el píxel cargado, que sí ejercita la comprobación de `track()`.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
   `content/legal/measurement-disclosure.ts` **declara desde el 2026-10-26** (forma v1.111: `version '2026-10-medicion-1'`,
   `approvedByOwnerOn '2026-10-26'`, `legalReviewOn null`, `legalReviewWaivedByOwnerOn '2026-10-23'`; exactamente una de las

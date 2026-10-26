@@ -185,13 +185,12 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
 
   // TL-MKT2b-f (2026-10-19): la lista ya no está vacía. Muerde si se vacía o si sale una entrada sin su cierre.
   // MKT-F2-4 salió el 2026-10-26 con su ficha cerrada (backend); la paridad SEC-MKT-2 de abajo exige que siga fuera.
-  // SEC-MED-1 (frontend) entró el 2026-10-26: la puerta muerde por ella aunque MKT-F2-3 se cierre antes.
-  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 (backend) y SEC-MED-1 (frontend) ⇒ con on y aviso válido, rojo por esos dos', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'SEC-MED-1:frontend']);
+  // SEC-MED-1 (frontend) entró y salió el 2026-10-26 con su ficha cerrada (C-F3 con ?q= y C-F4 verdes).
+  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 (backend) ⇒ con on y aviso válido, rojo por ese', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend']);
     const problems = measurementGateProblems('on', declaredNotice());
-    expect(problems).toHaveLength(2);
+    expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^bloqueo de encendido abierto: MKT-F2-3 \(backend\) — /);
-    expect(problems[1]).toMatch(/^bloqueo de encendido abierto: SEC-MED-1 \(frontend\) — /);
   });
 
   it('TL-MKT2b-f · con off la puerta sigue verde (aviso de hoy y aviso declarado), aunque haya bloqueos', () => {
@@ -218,8 +217,8 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
     }
   });
 
-  it('D4, R4 y D2 salieron (13cf3653) y MKT-TL2 (86ee9bdb): sus pruebas de cierre están en la cabecera de ENCENDER_BLOCKERS', () => {
-    for (const id of ['D4', 'R4', 'D2', 'MKT-TL2']) expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain(id);
+  it('D4, R4 y D2 salieron (13cf3653), MKT-TL2 (86ee9bdb) y SEC-MED-1: sus pruebas de cierre están en la cabecera de ENCENDER_BLOCKERS', () => {
+    for (const id of ['D4', 'R4', 'D2', 'MKT-TL2', 'SEC-MED-1']) expect(ENCENDER_BLOCKERS.map((b) => b.id)).not.toContain(id);
   });
 });
 
@@ -282,9 +281,9 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     expect(encenderParityProblems(ENCENDER_BLOCKERS, md, ENCENDER_REGISTRY)).toEqual([]);
   });
 
-  it('el parser lee el índice real: MKT-F2-3 y SEC-MED-1 abiertas, MKT-F2-4, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
+  it('el parser lee el índice real: MKT-F2-3 abierta, MKT-F2-4, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f y SEC-MED-1 cerradas («CERRADA ·»)', () => {
     expect(fichaState(md, 'MKT-F2-3')).toBe('open');
-    expect(fichaState(md, 'SEC-MED-1')).toBe('open');
+    expect(fichaState(md, 'SEC-MED-1')).toBe('closed');
     expect(fichaState(md, 'MKT-F2-4')).toBe('closed');
     expect(fichaState(md, 'MKT-TL2')).toBe('closed');
     expect(fichaState(md, 'MKT-TD1')).toBe('closed');
@@ -300,12 +299,10 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     ]);
   });
 
-  // Canario sobre el índice REAL: quitar SEC-MED-1 (ficha abierta, 2026-10-26) de la lista ⇒ rojo.
-  it('canario: sin la entrada SEC-MED-1 (ficha abierta) ⇒ rojo', () => {
-    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'SEC-MED-1');
-    expect(encenderParityProblems(without, md, ENCENDER_REGISTRY)).toEqual([
-      'SEC-MED-1: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
-    ]);
+  // Canario sobre el índice REAL: devolver SEC-MED-1 (ficha cerrada el 2026-10-26) a la lista ⇒ rojo.
+  it('canario: con la entrada SEC-MED-1 de vuelta (ficha cerrada) ⇒ rojo', () => {
+    const back = [...ENCENDER_BLOCKERS, { id: 'SEC-MED-1' }];
+    expect(encenderParityProblems(back, md, ENCENDER_REGISTRY)).toEqual(['SEC-MED-1: en ENCENDER_BLOCKERS con ficha closed en TECH_DEBT']);
   });
 
   // Canario sobre el índice REAL: devolver MKT-F2-4 (ficha cerrada el 2026-10-26) a la lista ⇒ rojo.

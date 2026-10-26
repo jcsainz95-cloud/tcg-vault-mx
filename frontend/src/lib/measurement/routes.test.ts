@@ -121,6 +121,8 @@ describe('C-F9 · /buylist y /card-show', () => {
     return {
       on: true,
       pathname,
+      href: `https://tcghunt.mx${pathname}`,
+      referrer: '',
       consent: { analytics: true, ads: true },
       gtag: (...a: unknown[]) => calls.ga.push(a),
       fbq: (...a: unknown[]) => calls.fb.push(a),
