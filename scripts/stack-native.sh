@@ -1678,6 +1678,13 @@ case "${1:-up}" in
     #
     # Con NODE_ENV=test: 15/15 suites · 183/183 tests · exit 0.
     # -------------------------------------------------------------------------
+    # HEAP (2026-10-26, DEVOPS_NOTES §102): el mismo presupuesto que `backend-e2e` en CI, de UN sitio
+    # (`scripts/integration-heap.sh`). Sin él, Node toma un default que depende de la RAM de la máquina
+    # (medido: 2096 MB en un contenedor de 15 GB con Node 22; 4095 MB en el runner con Node 24) y la suite
+    # muere con «JavaScript heap out of memory» antes de terminar. Otro valor: E2E_HEAP_MB=<MB>.
+    NODE_OPTIONS="$("$ROOT_DIR/scripts/integration-heap.sh" node-options)" || die "integration-heap.sh no dio NODE_OPTIONS (¿E2E_HEAP_MB inválido?)."
+    export NODE_OPTIONS
+    ok "Heap de la suite: NODE_OPTIONS=$NODE_OPTIONS (mismo presupuesto que CI)."
     # `npm run <script> -- args` solo si hay args: sin ellos, el `--` suelto confunde a npm.
     if [ "$#" -gt 0 ]; then
       ( cd "$BACKEND_DIR" && NODE_ENV=test npm run test:integration -- "$@" )
