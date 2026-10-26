@@ -1,6 +1,7 @@
 import type { DiscountCodeBatchDTO, DiscountCodeCreateRequest, DiscountCodeDTO, DiscountCodePatchRequest } from '@/types/contract';
 import { ALL_SCOPES, type ConfigDraft, type FieldErrors } from './DiscountConfigFields';
-import { centsToPesos, isoToMxInput, mxInputToIso, pesosToCents } from './dsc-format';
+import { centsToPesos, isoToMxInput, mxInputToIso } from './dsc-format';
+import { pesosToCents } from '@/lib/money-input';
 
 type T = (key: string, values?: Record<string, string | number>) => string;
 

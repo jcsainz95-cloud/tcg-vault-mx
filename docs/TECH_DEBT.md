@@ -21,13 +21,25 @@
 
 ---
 
+## Frontend · 2026-10-26 · §DSC códigos de descuento — rechazo del techlead sobre `c421de13` (R2, R3, TL-DSC-6)
+
+> Dueño del código anotado: **frontend**. 💰 Toca dinero (precio antes del descuento, PATCH del panel, mock). Medido el 2026-10-26 sobre el contrato v1.110.3 (`083d589c`).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-DSC-R2 | CERRADA · ~10 sitios reconstruían el precio antes del descuento (`unitPriceCents + unitDiscountCents`, `subtotalCents + discount.discountCents`); ahora pintan el campo del servidor (v1.110.3) | frontend | 2026-10-26 | candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (canario sobre `CheckoutLines.tsx`) |
+| TL-DSC-R3 | CERRADA · editar un código sin usar no podía quitar tope, mínimo ni límite por cliente (el PATCH omitía el campo vacío) y cambiar de tipo arrastraba `percentPct` | frontend | 2026-10-26 | `admin/codes/DiscountCodes.test.tsx` «R3 …» (dos pruebas, rojas con el PATCH de `c421de13`) |
+| TL-DSC-6 | CERRADA · el seguimiento mock con código calculaba su descuento con `floor(P/10)` en vez de `discountOf` | frontend | 2026-10-26 | `pedido/PublicOrderTracking.discount.test.tsx` PT-4 (compara con `discountOf` + `MOCK_SEPT10_RULE`) |
+
+---
+
 ## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
 
 > Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| TL-ENV-F2 | ABIERTA · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). R1 nació de esa clase | frontend | 2026-10-25 | un helper único en `frontend/src/lib/` y `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0 |
+| TL-ENV-F2 | CERRADA (2026-10-26, stream de descuentos) · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). Ahora uno: `frontend/src/lib/money-input.ts` (vacío ⇒ `null`, mal formado ⇒ `NaN`) | frontend | 2026-10-26 | `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0; candado `lib/money-input.test.ts` «TL-ENV-F2 · candado» (app/ + components/, también `const toCents =`) |
 | TL-ENV-F3 | ABIERTA · `BuylistKycForm` lee la prop `ineExpected` solo al montar (estado inicial); si la prop cambia después, el formulario no se entera | frontend | 2026-10-25 | prueba de cambio de prop (`rerender` con `ineExpected` distinto ⇒ el formulario lo refleja), roja sobre el código actual |
 | TL-ENV-F1 | CERRADA · comentarios «v1.110 pendiente» en `lib/mock/shipping-rule.ts` y `shipping-rule.parity.test.ts` (el contrato ya es v1.109.1, P-ENV-1 cerrada) | frontend | 2026-10-25 | `grep -rn "v1.110" frontend/src` ⇒ 0 |
 | TL-ENV-F4 | CERRADA · comentario «gate de identidad» (ya no existe) en `checkout/InlineAuthPanel.tsx` | frontend | 2026-10-25 | `grep -rn "gate de identidad" frontend/src` ⇒ 0 |

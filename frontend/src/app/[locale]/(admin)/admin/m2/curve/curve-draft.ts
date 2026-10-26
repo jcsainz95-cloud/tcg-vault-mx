@@ -1,3 +1,4 @@
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import type {
   BuyCurvePointDTO,
   CurveErrorDetails,
@@ -76,10 +77,8 @@ export function parseNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function pesosToCents(raw: string): number | null {
-  const n = parseNumber(raw);
-  return n == null ? null : Math.round(n * 100);
-}
+/** TL-ENV-F2: el conversor único (`@/lib/money-input`); aquí vacío y mal formado son `null` (los dos bloquean). */
+export { pesosToCents };
 
 export function centsToPesos(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -255,18 +254,24 @@ export const MAX_CURVE_CONSTANT_CENTS = 200_000;
  * Validación de una CONSTANTE del eje (piso de venta / bin de compra). Es `marketError` más el
  * techo: un punto de la tabla describe el valor de UNA carta; el piso y el bin fijan el de todas.
  */
+/**
+ * TL-ENV-F2: el conversor único no acepta signo (da `null` aquí), pero la curva distingue «negativo» de «vacío o mal
+ * formado» en el texto del error: esto lo mira en el texto, no convierte nada.
+ */
+function isNegativeInput(raw: string): boolean {
+  return /^-\s*[\d.,]/.test(raw.trim());
+}
+
 export function constantError(raw: string): FieldErrorCode | null {
   const cents = pesosToCents(raw);
-  if (cents == null) return 'required';
-  if (cents < 0) return 'negative';
+  if (cents == null) return isNegativeInput(raw) ? 'negative' : 'required';
   if (cents > MAX_CURVE_CONSTANT_CENTS) return 'constantTooHigh';
   return null;
 }
 
 export function marketError(raw: string): FieldErrorCode | null {
   const cents = pesosToCents(raw);
-  if (cents == null) return 'required';
-  if (cents < 0) return 'negative';
+  if (cents == null) return isNegativeInput(raw) ? 'negative' : 'required';
   return null;
 }
 
@@ -298,8 +303,7 @@ export function uptoError(rows: BandRow[], index: number): FieldErrorCode | null
   const row = rows[index];
   if (!row || row.uptoRaw === null) return null;
   const cents = pesosToCents(row.uptoRaw);
-  if (cents == null) return 'required';
-  if (cents < 0) return 'negative';
+  if (cents == null) return isNegativeInput(row.uptoRaw) ? 'negative' : 'required';
   const prev = index > 0 ? rows[index - 1] : null;
   const prevCents = prev && prev.uptoRaw !== null ? pesosToCents(prev.uptoRaw) : null;
   if (prevCents != null && cents <= prevCents) return 'uptoNotIncreasing';

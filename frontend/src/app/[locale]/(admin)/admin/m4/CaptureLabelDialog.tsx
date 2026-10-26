@@ -37,7 +37,7 @@ import {
   type ShipmentTrackingRequest,
   type WithdrawalLineOriginRefundedDetails,
 } from '@/types/contract';
-import { pesosToCents } from './pesosToCents';
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import { TAG } from './prep-shared';
 import {
   ADDRESS_FIELDS,

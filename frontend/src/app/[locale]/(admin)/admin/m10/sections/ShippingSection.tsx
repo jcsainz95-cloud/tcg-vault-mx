@@ -17,14 +17,13 @@ import { formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type { ConsignmentNotesSearchDTO, EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO } from '@/types/contract';
-import { centsToPesosInput, pesosInputToCents } from '../../accessories/money-input';
+import { centsToPesosInput, pesosToCents as pesosInputToCents, pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { pesosToCents } from '../../m4/pesosToCents';
 import { useIsOwner, useOwnerOnlyDenied } from '../../_owner/useIsOwner';
 
 /**

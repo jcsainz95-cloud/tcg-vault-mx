@@ -22,7 +22,8 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { cn } from '@/lib/cn';
-import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from '../../m2/sections/shared';
+import { sanitizeDecimalInput, isSaveableRuleValue } from '../../m2/sections/shared';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 
 /** Ancla del enlace «Precios por revisar» (si otra pantalla enlaza aquí). */
 export const PRICE_REVIEW_ANCHOR = 'precios-por-revisar';
@@ -124,7 +125,7 @@ export function PriceReviewSection() {
   const conflict = asApiError(resolveMutation.error)?.status === 409;
 
   // Precio a mano: entero de centavos > 0 (misma guarda money-safe que el override de M2).
-  const manualCents = pesosToCents(manualValue);
+  const manualCents = pesosToCentsOrNull(manualValue) ?? 0;
   const manualInvalid = !isSaveableRuleValue(manualValue) || manualCents <= 0;
 
   const openCount = queue.data?.counts.open ?? null;

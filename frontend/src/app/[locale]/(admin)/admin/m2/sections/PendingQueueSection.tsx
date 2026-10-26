@@ -19,7 +19,8 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
-import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from './shared';
+import { sanitizeDecimalInput, isSaveableRuleValue } from './shared';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 import { SealedUnmappedModal, isSealedUnmapped, type SealedUnmappedMode } from './SealedUnmappedModal';
 
 /**
@@ -35,6 +36,13 @@ import { SealedUnmappedModal, isSealedUnmapped, type SealedUnmappedMode } from '
 function pendingDisplayName(e: PendingPriceEntryDTO): string {
   if (e.productType === 'sealed' && e.sealedProductName) return e.sealedProductName;
   return e.cardName ?? e.card?.name ?? e.cardId;
+}
+
+/** Centavos del override, o error: ⛔ un valor que no convierte jamás viaja como 0 (S-L1, TL-ENV-F2). */
+function overrideCents(raw: string): number {
+  const c = pesosToCentsOrNull(raw);
+  if (c === null) throw new Error('invalid override price');
+  return c;
 }
 
 export function PendingQueueSection() {
@@ -76,7 +84,7 @@ export function PendingQueueSection() {
         // v1.8: la cola es POR ACABADO — sin `finish` el backend defaultea `normal` y el
         // pendiente real (p. ej. holofoil) quedaría abierto.
         finish: entry.finish,
-        priceMxnCents: pesosToCents(overridePriceValue),
+        priceMxnCents: overrideCents(overridePriceValue),
       };
       // v1.50.2 (INV-D): `entry.productType` es `ProductType`, y con `graded` el contrato EXIGE
       // `intent` (422 si falta). Un pendiente de la cola SIEMPRE es una pieza real esperando su
@@ -187,7 +195,8 @@ export function PendingQueueSection() {
   // S-L1 (money-safe): el override de precio (Fijar precio) publica el ítem a este valor. Un vacío
   // o mal formado ("1.2.3") castea a NaN→0 vía pesosToCents y publicaría a MX$0. Mismo guard que
   // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
-  const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
+  // TL-ENV-F2: y además el conversor único lo acepta (dígitos, ≤ 2 decimales); `12.345` ya no se redondea en silencio.
+  const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue) || pesosToCentsOrNull(overridePriceValue) === null;
 
   // v2.1: el conteo por motivo VIENE SERVIDO en el cuerpo de la respuesta y se pinta VERBATIM.
   // NO se recalcula ni se filtra en cliente: los `counts` del contrato IGNORAN `?reason=` y la
@@ -369,7 +378,7 @@ export function PendingQueueSection() {
           )}
           {overridePriceValue !== '' && (
             <p className="text-xs text-muted">
-              = {formatMoneyCents(pesosToCents(overridePriceValue), locale)}
+              = {formatMoneyCents(pesosToCentsOrNull(overridePriceValue) ?? 0, locale)}
             </p>
           )}
           {overrideMutation.isError && (
