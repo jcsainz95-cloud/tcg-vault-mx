@@ -108,6 +108,7 @@ export interface EncenderBlocker {
  * El formato (ARCHITECTURE §14.1 D-MKT2-0c) no tiene estado «cumplida»: una entrada sale en el mismo commit que
  * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 salió el 2026-10-26 (backend:
  * C-B11 verde contra Postgres y reversa de m86 ⇒ `migrate deploy` rc 0, sobre `a05a6e68`; ficha cerrada en TECH_DEBT).
+ * SEC-MED-1 entró el 2026-10-26 (seguridad, veredicto `2f5a59c0`): solo el candado; el arreglo, tras la decisión del arquitecto.
  * SEC-MKT-2: paridad con `docs/TECH_DEBT.md` en `measurement-gate.test.ts` — una entrada no sale mientras su ficha
  * siga abierta, y una entrada nueva se registra en `ENCENDER_REGISTRY` de esa prueba.
  */
@@ -119,6 +120,14 @@ export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
     owner: 'backend',
     closedBy:
       'evento de prueba de Meta aceptado (POST /admin/measurement/meta-test-event, §MKT.H.12) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, línea META-GRAPH-VERIFIED en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
+  },
+  {
+    id: 'SEC-MED-1',
+    // SECURITY_NOTES veredicto `2f5a59c0` §4 (seguridad, 2026-10-26). El arreglo espera la decisión del arquitecto sobre el píxel (§14.4).
+    what: 'URL completa (con ?q=) en page_location de los eventos de GA4 que no son page_view y en la URL que ve el píxel de Meta (ARCHITECTURE §14.4)',
+    owner: 'frontend',
+    closedBy:
+      'URL saneada (sin q ni parámetros no permitidos) en page_location de todos los eventos de GA4 y en la URL que ve el píxel de Meta, con prueba C-F3 con ?q= (TECH_DEBT SEC-MED-1)',
   },
 ];
 
