@@ -42,12 +42,17 @@ export interface PreparedMeasurement {
 
 const NOTHING: PreparedMeasurement = Object.freeze({ columns: Object.freeze({}), context: null }) as PreparedMeasurement;
 
-/** Lee las variables de `ConfigService` (o de `process.env` si no hay Nest), por nombre. */
-function envFrom(config?: Pick<ConfigService, 'get'>): EnvLike {
+/** Lee las variables de `ConfigService` (o de `process.env` si no hay Nest), por nombre. También la usa el evento de prueba. */
+export function measurementEnvFrom(config?: Pick<ConfigService, 'get'>): EnvLike {
   const keys = ['MEASUREMENT_MODE', 'GA4_MEASUREMENT_ID', 'GA4_MP_API_SECRET', 'META_PIXEL_ID', 'META_CAPI_TOKEN', 'APP_BASE_URL'];
   const out: EnvLike = {};
   for (const k of keys) out[k] = config ? config.get<string>(k) : process.env[k];
   return out;
+}
+
+/** Primer origen de `APP_BASE_URL` (base de `event_source_url`). */
+export function measurementOriginOf(env: EnvLike): string {
+  return (env.APP_BASE_URL ?? '').split(',')[0].trim() || 'https://tcghunt.mx';
 }
 
 @Injectable()
@@ -66,11 +71,11 @@ export class MeasurementService implements OnModuleInit {
     // SEC-MKT-3: `MeasurementModule` provee la lista real (`BACKEND_ENCENDER_BLOCKERS`); sin ella (pruebas a mano), sin puerta.
     @Optional() @Inject(MEASUREMENT_ENCENDER_BLOCKERS) blockers?: readonly MeasurementEncenderBlocker[],
   ) {
-    const env = envFrom(config);
+    const env = measurementEnvFrom(config);
     const gated = gateMeasurementConfig(readMeasurementConfig(env), blockers ?? []);
     this.config = gated.config;
     this.blockedLines = gated.lines;
-    this.origin = (env.APP_BASE_URL ?? '').split(',')[0].trim() || 'https://tcghunt.mx';
+    this.origin = measurementOriginOf(env);
   }
 
   /** C-B7: una línea por destino deshabilitado, sin valores. El arranque sigue (con bloqueos, en modo `off`). */

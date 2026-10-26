@@ -79,6 +79,7 @@ async function capture(opts: { order?: Record<string, unknown>; lead?: Record<st
       sent.push({ url, body: body as Record<string, unknown> });
       return 204;
     }),
+    postMetaDiagnostic: jest.fn(),
   };
   const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv()));
   const drain = new MeasurementDrainService(d.prisma as never, svc, http);

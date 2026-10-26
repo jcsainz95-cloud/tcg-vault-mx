@@ -860,6 +860,11 @@ export const ErrorCode = {
   LINK_ALREADY_USED: 'LINK_ALREADY_USED',
   // 400 — token de enlace inválido / alterado / de otro propósito / id de otra fila (§CARDSHOW.6). Sin `details`.
   LINK_INVALID: 'LINK_INVALID',
+
+  // ── v1.112⟨meta-prueba⟩ (API_CONTRACT §0, §MKT.H.12) ─────────────────────────────────────────────────────────────────
+  // 409 — `POST /admin/measurement/meta-test-event`: `META_PIXEL_ID` o `META_CAPI_TOKEN` falta o no tiene forma (§MKT.H.1).
+  // `details: { reason: 'missing_config' | 'invalid_config' }`; ⛔ sin valores ni el nombre de cuál. No sale nada a Meta.
+  MEASUREMENT_META_NOT_CONFIGURED: 'MEASUREMENT_META_NOT_CONFIGURED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
