@@ -15,7 +15,8 @@
  *  DCO-B10 (909) `endsAt` EXCLUSIVO con reloj fijo. DCO-B11 (910) pausar con un pago en curso.
  *  DCO-B16 (901, 902) `unitPriceCents` = cobrado; item_missing ×2 + remanente = total; order_full; item_delivered.
  *  DCO-B17 (917, 918) retiro con envío gratis: ceros, `picking`, 0 llamadas a Stripe, uso consumed; 10 % ⇒ 422 sin filas.
- *  DCO-B18 CHECKs de M-92 en Postgres (23514).
+ *  DCO-B18 CHECKs de M-92 en Postgres (23514); v1.112.1: listas `NOT NULL` (23502).
+ *  DCO-B22 (v1.112.1) `%`/monto con D = 0 ⇒ ZERO_DISCOUNT, sin uso, cuenta como intento; tardío ⇔ `DiscountRedemption`.
  *
  * Deterministas (N=1 dicho como tal) salvo DCO-B6. La tabla `DiscountCodeThrottle` se vacía antes de cada prueba: todas
  * las peticiones salen de la misma IP.
@@ -971,6 +972,90 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
     });
   });
 
+  // ================================================================ v1.112.1
+
+  describe('v1.112.1 — DCO-B22 (DSC-B-6): `%`/monto con D = 0 ⇒ ZERO_DISCOUNT, sin uso apartado y cuenta como intento', () => {
+    const failuresByKind = async () => Object.fromEntries((await h.prisma.discountCodeThrottle.findMany()).map((r) => [r.key.slice(0, r.key.indexOf(':')), r.failures]));
+    const ZERO = (code: string) => ({ outcome: 'not_applicable', code, reason: 'ZERO_DISCOUNT', details: {} });
+
+    it('1 % solo a accesorios, invitado: carta 50000 + accesorio 99 ⇒ quote ZERO_DISCOUNT {}; session 422; 0 usos; firstReservedAt nulo; +1 intento', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 1, productScopes: ['accessory'], maxUsesPerCustomer: null });
+      const a = await piece('raw', 50000);
+      const x = await acc.mkAccessory({ priceCents: 99, stockQty: 5 });
+      const cart = { inventoryItemIds: [a.id], accessoryLines: [{ accessoryId: x.id, quantity: 1 }] };
+      const email = acc.email('zero');
+      const q = await acc.quote({ ...cart, email, discountCode: code.code });
+      expect(q.status).toBe(200);
+      expect(q.body.discount).toEqual(ZERO(code.code));
+      // El quote es el de sin código (+ `discount`): ⛔ ninguna rebaja en líneas.
+      const q0 = await acc.quote({ ...cart, email });
+      expect(omit(q.body, 'discount')).toEqual(q0.body);
+      expect(await failuresByKind()).toEqual({ ip: 1, email: 1 });
+      const s = await acc.session({ ...cart, discountCode: code.code }, { email });
+      expect(s.status).toBe(422);
+      expect(s.body.error.code).toBe('DISCOUNT_CODE_NOT_APPLICABLE');
+      expect(s.body.error.details).toEqual({ reason: 'ZERO_DISCOUNT' });
+      expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+      expect((await h.prisma.discountCode.findUniqueOrThrow({ where: { id: code.id } })).firstReservedAt).toBeNull();
+      // Mismo código en la misma ventana ⇒ no vuelve a sumar (una vez por código y ventana, §DSC.6).
+      expect(await failuresByKind()).toEqual({ ip: 1, email: 1 });
+    });
+
+    it('fijo 2 sobre 3 energías de 1000 ⇒ ZERO_DISCOUNT en quote y 422 en session, 0 usos', async () => {
+      const code = await mkCode({ kind: 'fixed_amount', amountCents: 2, maxUsesPerCustomer: null });
+      const x = await acc.mkAccessory({ priceCents: 1000, stockQty: 5 });
+      const cart = { accessoryLines: [{ accessoryId: x.id, quantity: 3 }] };
+      const q = await acc.quote({ ...cart, discountCode: code.code });
+      expect(q.status).toBe(200);
+      expect(q.body.discount).toEqual(ZERO(code.code));
+      const s = await acc.session({ ...cart, discountCode: code.code });
+      expect(s.status).toBe(422);
+      expect(s.body.error.details).toEqual({ reason: 'ZERO_DISCOUNT' });
+      expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+      expect((await h.prisma.discountCode.findUniqueOrThrow({ where: { id: code.id } })).firstReservedAt).toBeNull();
+    });
+
+    it('cuenta (bóveda): 1 % solo a graded sobre graded de 50 + carta ⇒ ZERO_DISCOUNT; session 422 sin uso', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 1, productScopes: ['graded'], maxUsesPerCustomer: null });
+      const c = await customer();
+      const g = await piece('graded', 50);
+      const a = await piece('raw', 50000);
+      const json = { inventoryItemIds: [g.id, a.id], discountCode: code.code };
+      expect(g.P).toBeLessThan(100); // 1 % de P < 100 ⇒ floor a 0
+      expect((await vaultQuote(c.token, json)).body.discount).toEqual(ZERO(code.code));
+      const s = await vaultSession(c.token, json);
+      expect(s.status).toBe(422);
+      expect(s.body.error.details).toEqual({ reason: 'ZERO_DISCOUNT' });
+      expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+    });
+
+    it('preview por HTTP ⇒ { 0, 0, false } (antes: { 0, 2, false })', async () => {
+      const r = await h.api('POST', '/admin/discount-codes/preview', {
+        token: acc.adminToken,
+        json: { kind: 'fixed_amount', amountCents: 2, sampleLines: [{ scope: 'accessory', priceCents: 1000, quantity: 3 }] },
+      });
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ discountCents: 0, nominalCents: 0, capped: false });
+    });
+  });
+
+  describe('v1.112.1 — pago tardío: «con código» ⇔ `DiscountRedemption` (§M4-VAULT.2-bis.2)', () => {
+    it('orden `refunded` con uso apartado y columnas en 0 (forzadas) ⇒ el `succeeded` tardío consume el uso', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const a = await piece('raw', 50000);
+      const s = await acc.session({ inventoryItemIds: [a.id], discountCode: code.code });
+      expect(s.status).toBe(201);
+      const orderId = s.body.orderId as string;
+      // Estado que I-7 impide crear por la API: se fuerza para medir que el tardío NO mira importes.
+      await h.prisma.$executeRaw`UPDATE "Order" SET "status" = 'refunded', "discountCents" = 0 WHERE "id" = ${orderId}`;
+      await h.prisma.$executeRaw`UPDATE "OrderItem" SET "unitDiscountCents" = 0 WHERE "orderId" = ${orderId}`;
+      expect((await redemptionOf(orderId))?.status).toBe('reserved');
+      await settle(s);
+      expect((await redemptionOf(orderId))?.status).toBe('consumed');
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).status).toBe('refunded');
+    });
+  });
+
   // ================================================================ DCO-B18
 
   describe('DCO-B18 — CHECKs de M-92 (Postgres real)', () => {
@@ -991,6 +1076,41 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
         return `${code}:${name}`;
       }
     };
+
+    it('v1.112.1: `productScopes`, `destinations` y `countedCodeHashes` con NULL explícito ⇒ 23502 (NOT NULL en la propia M-92)', async () => {
+      const notNull = async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) => {
+        const r = await sqlState(fn);
+        return r.startsWith('23502') ? '23502' : r;
+      };
+      const id = () => randomUUID();
+      seq += 1;
+      const txt = `N${TAG}-${seq}`;
+      expect(
+        await notNull((tx) => tx.$executeRaw`INSERT INTO "DiscountCode" ("id","code","kind","percentPct","productScopes","startsAt","createdByUserId","updatedAt")
+          VALUES (${id()}, ${txt}, 'percent', 10, NULL, now(), ${adminId}, now())`),
+      ).toBe('23502');
+      expect(
+        await notNull((tx) => tx.$executeRaw`INSERT INTO "DiscountCode" ("id","code","kind","percentPct","destinations","startsAt","createdByUserId","updatedAt")
+          VALUES (${id()}, ${txt}, 'percent', 10, NULL, now(), ${adminId}, now())`),
+      ).toBe('23502');
+      expect(
+        await notNull((tx) => tx.$executeRaw`INSERT INTO "DiscountCodeThrottle" ("key","failures","windowStartedAt","updatedAt","countedCodeHashes")
+          VALUES (${`ip:${txt}`}, 0, now(), now(), NULL)`),
+      ).toBe('23502');
+      // Sin la columna ⇒ el DEFAULT '{}' (control: la fila es válida y el rojo de arriba es por el NULL).
+      expect(
+        await sqlState((tx) => tx.$executeRaw`INSERT INTO "DiscountCode" ("id","code","kind","percentPct","startsAt","createdByUserId","updatedAt")
+          VALUES (${id()}, ${txt}, 'percent', 10, now(), ${adminId}, now())`),
+      ).toBe('ok');
+      const cols = await h.prisma.$queryRaw<{ table_name: string; column_name: string; is_nullable: string; column_default: string | null }[]>`
+        SELECT table_name, column_name, is_nullable, column_default FROM information_schema.columns
+        WHERE table_schema = current_schema() AND column_name IN ('productScopes','destinations','countedCodeHashes') ORDER BY column_name`;
+      expect(cols.map((c) => [c.table_name, c.column_name, c.is_nullable])).toEqual([
+        ['DiscountCodeThrottle', 'countedCodeHashes', 'NO'],
+        ['DiscountCode', 'destinations', 'NO'],
+        ['DiscountCode', 'productScopes', 'NO'],
+      ]);
+    });
 
     it('paquete con descuento, unidad en 0 con descuento y redención con pedido y retiro a la vez ⇒ 23514', async () => {
       const a = await piece('raw', 50000);

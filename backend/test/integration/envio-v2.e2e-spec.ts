@@ -314,10 +314,40 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       expect(q.body.ownReservation).toMatchObject({ coversCart: true, expired: false });
       expect(q.body.breakdown).toEqual(s.body.breakdown);
       // La regla dice lo mismo que el desglose de la MISMA respuesta: E = 10000 ⇒ no es envío gratis.
-      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: 50000, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: false });
+      // v1.112.1 (§4-G.12 punto 4): pagando envío con S ≥ T vivo ⇒ `remaining: null` (⛔ «te faltan 0» pagando envío; antes 0).
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: 50000, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false });
       // Un carrito sin reserva propia: la regla de HOY (S = 60000 ≥ T = 50000 ⇒ gratis).
       const live = await acc.quote({ inventoryItemIds: [(await piece('raw', 60000)).id] });
       expect(live.body.shippingRule).toMatchObject({ freeShippingApplied: true });
+    });
+  });
+
+  describe('v1.112.1 — §4-G.12 punto 4: «te faltan» del congelado con `T` vivo (los dos casos del contrato)', () => {
+    it('caso 1: congelada S = 400000 con E = 0; T → 500000 ⇒ applied:true, remaining:0, freeFromCents:500000 (antes: 100000)', async () => {
+      const it1 = await piece('raw', 400000);
+      const email = acc.email('tf1');
+      const s = await acc.session({ inventoryItemIds: [it1.id] }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.shippingFeeCents).toBe(0);
+      await setDial(K_FREE, 500000);
+      const q = await acc.quote({ inventoryItemIds: [it1.id], email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.status).toBe(200);
+      expect(q.body.ownReservation).toMatchObject({ coversCart: true, expired: false });
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: 500000, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: false });
+    });
+
+    it('caso 2: congelada S = 350000 con E = 10000; T → 300000 ⇒ applied:false, remaining:null', async () => {
+      const it1 = await piece('raw', 350000);
+      const email = acc.email('tf2');
+      const s = await acc.session({ inventoryItemIds: [it1.id] }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.shippingFeeCents).toBe(E_CARDS);
+      await setDial(K_FREE, 300000);
+      const q = await acc.quote({ inventoryItemIds: [it1.id], email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.status).toBe(200);
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: 300000, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false });
     });
   });
 

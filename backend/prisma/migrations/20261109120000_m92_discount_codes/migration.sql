@@ -5,6 +5,8 @@
 -- `Order.shippingWaivedCents`, `OrderItem.unitDiscountCents`, `OrderAccessoryLine.unitDiscountCents`,
 -- `ShipmentRequest.shippingWaivedCents`). El `0` es la verdad de toda fila previa: ningún pedido anterior llevó código.
 -- Los CHECK de forma van a mano al final (Prisma no los modela; precedente M-61/M-73).
+-- v1.112.1 (§DSC.1, QA): `productScopes`, `destinations` y `countedCodeHashes` van `NOT NULL DEFAULT '{}'` (editada en sitio:
+-- M-92 no estaba publicada). `prisma migrate diff` no marca deriva por la nulabilidad de listas. Candado: DCO-B18 (23502).
 --
 -- Comprobación (quien despliega, después):
 --   SELECT count(*) FROM "Order" WHERE "discountCents" <> 0 OR "shippingWaivedCents" <> 0;   -- 0 al desplegar
@@ -70,8 +72,8 @@ CREATE TABLE "DiscountCode" (
     "amountCents" INTEGER,
     "maxDiscountCents" INTEGER,
     "minSubtotalCents" INTEGER,
-    "productScopes" "DiscountProductScope"[] DEFAULT ARRAY[]::"DiscountProductScope"[],
-    "destinations" "FulfillmentMode"[] DEFAULT ARRAY[]::"FulfillmentMode"[],
+    "productScopes" "DiscountProductScope"[] NOT NULL DEFAULT ARRAY[]::"DiscountProductScope"[],
+    "destinations" "FulfillmentMode"[] NOT NULL DEFAULT ARRAY[]::"FulfillmentMode"[],
     "startsAt" TIMESTAMP(3) NOT NULL,
     "endsAt" TIMESTAMP(3),
     "maxTotalUses" INTEGER,
@@ -110,7 +112,7 @@ CREATE TABLE "DiscountCodeThrottle" (
     "windowStartedAt" TIMESTAMP(3) NOT NULL,
     "blockedUntil" TIMESTAMP(3),
     "updatedAt" TIMESTAMP(3) NOT NULL,
-    "countedCodeHashes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "countedCodeHashes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "DiscountCodeThrottle_pkey" PRIMARY KEY ("key")
 );

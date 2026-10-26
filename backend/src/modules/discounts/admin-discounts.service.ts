@@ -266,6 +266,9 @@ export class AdminDiscountsService {
     const d = discountOf(cart, terms, { destination });
     if (!d.ok) return { discountCents: 0, nominalCents: 0, capped: false };
     const alloc = allocateDiscount(d.eligible, d.nominalCents);
+    // v1.112.1 (§DSC.7, DCO-B22): `D = 0` es `ZERO_DISCOUNT` ⇒ como toda muestra que no aplica, `{ 0, 0, false }` (sin `reason`).
+    // `free_shipping` cae aquí también (`D0 = 0`).
+    if (alloc.discountCents === 0) return { discountCents: 0, nominalCents: 0, capped: false };
     // v1.110.3 (§DSC.2, DCO-B21, TL-DSC-1): `capped` = «llegó al tope que fijaste», tal cual lo da `discountOf` (BigInt).
     // ⛔ Ningún recálculo aquí: el recorte por `B`, por I-4 o por el residuo no es `capped`.
     return { discountCents: alloc.discountCents, nominalCents: d.nominalCents, capped: d.capped };

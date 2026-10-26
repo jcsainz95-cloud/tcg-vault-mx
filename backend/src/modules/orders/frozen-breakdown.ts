@@ -1,7 +1,7 @@
 import type { Order } from '@prisma/client';
 import { BreakdownDTO, DirectShipBreakdownDTO, ivaIsIncluded } from '../../common/money';
 import type { ShippingBoxSnapshot } from './box-fit';
-import { DirectShipDials, GuestShippingRuleDTO, ShippingRuleKind, shippingRuleDtoOf } from './shipping-rule';
+import { DirectShipDials, GuestShippingRuleDTO, ShippingRuleKind } from './shipping-rule';
 
 /** Las columnas de la orden que forman su desglose congelado. */
 export type FrozenBreakdownRow = Pick<
@@ -38,20 +38,28 @@ export function frozenDirectShipBreakdownOf(order: FrozenBreakdownRow & Pick<Ord
 }
 
 /**
- * TL-ENV-2 — el `shippingRule` del quote que devuelve el CONGELADO de la orden propia: describe la `E` que su PI cobra (la del
- * `breakdown` de la MISMA respuesta), ⛔ no la de los diales de hoy. `freeShippingApplied ⇔ E = 0` (§4-G.12, v1.109.2) y
- * `boxFeeApplies` ⇔ la caja congelada cobró más que el `E_sellado` de entonces (`shippingBoxSnapshot.baseFeeCents`).
- * `freeFromCents` y «te faltan» siguen la fórmula de §4-G.12 punto 4 (`T` vivo contra el `subtotalCents` de la respuesta);
- * con envío gratis por código (`shippingWaivedCents > 0`) ⇒ `freeShippingRemainingCents: null`, como en el quote vivo (§DSC.4).
+ * TL-ENV-2 (v1.112.1, §4-G.12 punto 4) — el `shippingRule` del quote que devuelve el CONGELADO de la orden propia.
+ *  - `kind`: la clase del carrito, que es el de la orden (el congelado solo rige si la reserva cubre el carrito).
+ *  - `freeShippingApplied` ⇔ la `E` CONGELADA es 0; `boxFeeApplies` ⇔ la caja congelada cobró más que el `E_sellado` de
+ *    entonces (`shippingBoxSnapshot.baseFeeCents`). ⛔ Nada de esto sale de los diales de hoy.
+ *  - `freeFromCents` = `T` VIVO; `freeShippingRemainingCents = applied ? 0 : (¬box ∧ T > S ? T − S : null)`: cambiar el carrito
+ *    sustituye la orden y cotiza con `T` vivo, así que «te faltan» es cumplible; ⛔ «te faltan» con `E = 0`, ⛔ «te faltan 0»
+ *    pagando envío. Invariante: `freeShippingApplied ⇒ remaining ∈ {0, null}`.
+ *  - `freeShippingByCode` (el código de la orden es `free_shipping`, lo dice su `DiscountRedemption` — I-7, ⛔ no los importes)
+ *    ⇒ `remaining: null`, como en el quote vivo (§DSC.4).
  */
 export function frozenShippingRuleOf(
   kind: ShippingRuleKind | null,
-  order: Pick<Order, 'subtotalCents' | 'shippingFeeCents' | 'shippingWaivedCents' | 'shippingBoxSnapshot'>,
+  order: Pick<Order, 'subtotalCents' | 'shippingFeeCents' | 'shippingBoxSnapshot'>,
   dials: DirectShipDials,
+  freeShippingByCode: boolean,
 ): GuestShippingRuleDTO {
+  if (kind === null) return { kind: null, freeFromCents: null, freeShippingRemainingCents: null, freeShippingApplied: false, boxFeeApplies: false };
   const snap = order.shippingBoxSnapshot as Partial<ShippingBoxSnapshot> | null;
   const boxFeeApplies = !!snap && typeof snap.customerFeeCents === 'number' && typeof snap.baseFeeCents === 'number' && snap.customerFeeCents > snap.baseFeeCents;
-  const fee = { feeCents: order.shippingFeeCents, baseFeeCents: snap?.baseFeeCents ?? dials.sealedFeeCents, freeShippingApplied: order.shippingFeeCents === 0, boxFeeApplies };
-  const dto = shippingRuleDtoOf(kind, order.subtotalCents, dials, fee);
-  return (order.shippingWaivedCents ?? 0) > 0 ? { ...dto, freeShippingRemainingCents: null } : dto;
+  const applied = order.shippingFeeCents === 0;
+  const T = dials.freeFromCents;
+  const S = order.subtotalCents;
+  const remaining = freeShippingByCode ? null : applied ? 0 : !boxFeeApplies && T > S ? T - S : null;
+  return { kind, freeFromCents: T, freeShippingRemainingCents: remaining, freeShippingApplied: applied, boxFeeApplies };
 }
