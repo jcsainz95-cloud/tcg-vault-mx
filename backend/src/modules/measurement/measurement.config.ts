@@ -105,18 +105,14 @@ export interface MeasurementEncenderBlocker {
  * Los bloqueos ABIERTOS de dueño backend. Con `MEASUREMENT_MODE=on` y alguno aquí, el modo EFECTIVO es `off` y el arranque
  * registra `MEASUREMENT_ENCENDER_BLOCKED`: encender solo el backend ya no se salta lo que bloquea el frontend (SEC-MKT-3). Una
  * entrada sale en el commit que cierra su ficha de TECH_DEBT; la paridad con el frontend y con las fichas la vigila
- * `test/measurement.encender-gate.spec.ts`. MKT-TL2 salió con la prueba 3 (`test/marketing-cross-table.audit.spec.ts`).
+ * `test/measurement.encender-gate.spec.ts`. MKT-TL2 salió con la prueba 3 (`test/marketing-cross-table.audit.spec.ts`);
+ * MKT-F2-4 salió con C-B11 verde contra Postgres y el ciclo reversa ⇒ `migrate deploy` de m86 (TECH_DEBT MKT-F2-4, 2026-10-26).
  */
 export const BACKEND_ENCENDER_BLOCKERS: readonly MeasurementEncenderBlocker[] = [
   {
     id: 'MKT-F2-3',
     what: "META_GRAPH_API_VERSION ('v21.0') sin verificar vigente para la fecha de encendido",
     closedBy: 'evento de prueba de Meta aceptado (2xx) con la versión fijada, anotado en BACKEND_NOTES (TECH_DEBT MKT-F2-3)',
-  },
-  {
-    id: 'MKT-F2-4',
-    what: 'CHECK de m86 (23514) y ciclo migrar ⇒ reversa ⇒ redeploy de m86 contra Postgres sin cerrar en su ficha',
-    closedBy: 'test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y migrate deploy tras la reversa (TECH_DEBT MKT-F2-4)',
   },
 ];
 

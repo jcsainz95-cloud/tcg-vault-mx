@@ -89,9 +89,8 @@ export interface EncenderBlocker {
  * `backend/test/measurement.drain.spec.ts`), merge `13cf3653`; MKT-TL2 (`backend/test/marketing-cross-table.audit.spec.ts`,
  * `marketing-populations.registry.spec.ts` y `marketing-tl2.expiry.spec.ts` verdes; ficha cerrada en TECH_DEBT), `86ee9bdb`.
  * El formato (ARCHITECTURE §14.1 D-MKT2-0c) no tiene estado «cumplida»: una entrada sale en el mismo commit que
- * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 tiene la medición de QA
- * del 2026-10-19 sobre `47eb1dea` (psql: `23514` en los dos casos inválidos; reversa + `migrate deploy` rc 0
- * sin `resolve`; CI `backend-e2e` 144/144), pero su ficha (backend) sigue ABIERTA: sale cuando backend la cierre.
+ * trae su `closedBy` en verde, y lo anota su dueño en su ficha de TECH_DEBT. MKT-F2-4 salió el 2026-10-26 (backend:
+ * C-B11 verde contra Postgres y reversa de m86 ⇒ `migrate deploy` rc 0, sobre `a05a6e68`; ficha cerrada en TECH_DEBT).
  * SEC-MKT-2: paridad con `docs/TECH_DEBT.md` en `measurement-gate.test.ts` — una entrada no sale mientras su ficha
  * siga abierta, y una entrada nueva se registra en `ENCENDER_REGISTRY` de esa prueba.
  */
@@ -102,13 +101,6 @@ export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
     owner: 'backend',
     closedBy:
       'evento de prueba de Meta aceptado (2xx) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, anotado con fecha en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
-  },
-  {
-    id: 'MKT-F2-4',
-    what: 'CHECK de m86 (23514) y ciclo migrar ⇒ reversa ⇒ redeploy de m86 contra Postgres sin cerrar en su ficha',
-    owner: 'backend',
-    closedBy:
-      'backend/test/integration/measurement-context-check.e2e-spec.ts verde contra Postgres y prisma migrate deploy verde tras la reversa de m86, con el sha (TECH_DEBT MKT-F2-4)',
   },
 ];
 
