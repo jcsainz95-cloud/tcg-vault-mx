@@ -133,7 +133,7 @@ describe('§DSC.7 — panel del dueño (mock)', () => {
     expect(() => mockArchiveCode(c.id)).toThrow(expect.objectContaining({ code: 'DISCOUNT_CODE_HAS_USES' }));
   });
 
-  it('911: lote de 50 ⇒ 50 textos distintos `PREFIJO-` + 10 del alfabeto, CSV de 50; pausar el lote pausa los sin usar', () => {
+  it('911: lote de 50 ⇒ 50 textos distintos `PREFIJO-` + 10 del alfabeto, CSV de 50; pausar el lote pausa los N', () => {
     const { batch } = mockCreateBatch({ prefix: 'EVENTO', quantity: 50, kind: 'fixed_amount', amountCents: 10000 });
     const codes = mockListCodes({ batchId: batch.id });
     expect(new Set(codes.map((c) => c.code)).size).toBe(50);
@@ -146,7 +146,7 @@ describe('§DSC.7 — panel del dueño (mock)', () => {
     reserveMockDiscount({ codeId: codes[0].id, customer: 'user:u', kind: 'order', folio: 'TCG-4', discountCents: 1, shippingWaivedCents: 0, totalCents: 1 });
     expect(mockSetBatchStatus(batch.id, 'paused').status).toBe('paused');
     const after = mockListCodes({ batchId: batch.id });
-    expect(after.filter((c) => c.status === 'paused')).toHaveLength(49);
+    expect(after.filter((c) => c.status === 'paused')).toHaveLength(50);
     expect(evaluateMockDiscount(codes[1].code, ctx()).dto).toEqual({ outcome: 'invalid' });
   });
 

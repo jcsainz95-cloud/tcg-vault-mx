@@ -6,15 +6,21 @@ import { getDiscountAudit } from '@/lib/api';
 import { QueryState } from '@/components/ui/QueryState';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
+import { DISCOUNT_AUDIT_ACTIONS } from '@/types/contract';
 
-/** Acciones con rótulo; MOCK: pendiente de contrato — §DSC.7 no enumera `action`: lo que no esté aquí se pinta tal cual. */
-const KNOWN_ACTIONS = ['create', 'update', 'pause', 'resume', 'archive'] as const;
+/**
+ * Rótulo de una `action` de la bitácora (§DSC.7 v1.110.2, lista cerrada): `discount.code.created` ⇒
+ * `audit.action.code.created`. Un valor fuera de la lista ⇒ el texto genérico, ⛔ nunca la cadena cruda.
+ */
+export function discountAuditActionKey(action: string): string {
+  return (DISCOUNT_AUDIT_ACTIONS as readonly string[]).includes(action) ? `audit.action.${action.slice('discount.'.length)}` : 'audit.action.unknown';
+}
 
 export const discountAuditQueryKey = (kind: 'code' | 'batch', id: string) => ['admin-discount-audit', kind, id] as const;
 
 /**
  * «Cambios» de un código o de un lote (DESIGN_SYSTEM §DSC-UX.5 «Auditoría visible a un costado: fecha · quién · antes →
- * después»; contrato §DSC.7 v1.110.1 `GET …/:id/audit`). El diff va en mono, una línea por campo (§21.5c), nunca un JSON.
+ * después»; contrato §DSC.7 v1.110.2 `GET …/:id/audit`; `actor: null` ⇒ «Sistema»). El diff va en mono, una línea por campo (§21.5c), nunca un JSON.
  * Los valores se FORMATEAN (pesos para `…Cents`, fecha para `…At`), no se calculan.
  */
 export function DiscountAuditList({ kind, id }: { kind: 'code' | 'batch'; id: string }) {
@@ -29,7 +35,6 @@ export function DiscountAuditList({ kind, id }: { kind: 'code' | 'batch'; id: st
     if (typeof v === 'string' && field.endsWith('At')) return formatDateTimeMx(v, locale) || v;
     return String(v);
   };
-  const actionLabel = (a: string) => ((KNOWN_ACTIONS as readonly string[]).includes(a) ? t(`audit.action.${a}`) : a);
 
   return (
     <section aria-labelledby={`dsc-audit-${kind}`} data-testid="discount-audit" className="border border-border p-5">
@@ -46,8 +51,8 @@ export function DiscountAuditList({ kind, id }: { kind: 'code' | 'batch'; id: st
                 {audit.data.data.map((e, i) => (
                   <li key={`${e.at}-${i}`} data-testid="discount-audit-entry" className="min-w-0">
                     <p className="text-xs text-muted">
-                      {t('audit.meta', { at: formatDateTimeMx(e.at, locale), name: e.actor.name })} ·{' '}
-                      <span className="text-text">{actionLabel(e.action)}</span>
+                      {t('audit.meta', { at: formatDateTimeMx(e.at, locale), name: e.actor === null ? t('audit.system') : e.actor.name || t('audit.none') })} ·{' '}
+                      <span className="text-text">{t(discountAuditActionKey(e.action))}</span>
                     </p>
                     <ul className="mt-1 grid gap-0.5 font-mono text-[11px] text-text [overflow-wrap:anywhere]">
                       {e.changes.map((c) => (

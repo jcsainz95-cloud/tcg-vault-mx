@@ -7323,12 +7323,25 @@
         "meta": "{at} · {name}",
         "none": "—",
         "action": {
-          "create": "Created",
-          "update": "Edited",
-          "pause": "Paused",
-          "resume": "Resumed",
-          "archive": "Archived"
-        }
+          "code": {
+            "created": "Created",
+            "updated": "Edited",
+            "paused": "Paused",
+            "resumed": "Resumed",
+            "archived": "Archived",
+            "report_exported": "Report downloaded"
+          },
+          "batch": {
+            "created": "Created",
+            "updated": "Edited",
+            "paused": "Paused",
+            "resumed": "Resumed",
+            "codes_exported": "Codes downloaded",
+            "report_exported": "Report downloaded"
+          },
+          "unknown": "Other change"
+        },
+        "system": "System"
       }
     }
   },
