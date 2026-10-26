@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   allocateDiscount,
   discountOf,
+  mockArchiveCode,
   mockAudit,
+  mockAuditExport,
   mockCodeReport,
   mockCreateBatch,
   mockCreateCode,
@@ -14,6 +16,7 @@ import {
   mockListCodes,
   mockPatchCode,
   mockPreview,
+  mockSetBatchStatus,
   mockSetCodeStatus,
   reserveMockDiscount,
   resetMockDiscounts,
@@ -23,6 +26,12 @@ import {
 import * as fx from './fixtures';
 import { DIRECT_SHIP_DEFAULT_DIALS } from './shipping-rule';
 import { getCheckoutQuote, getGuestCheckoutQuote, mockDiscountedDirectShip, mockWithdrawalDiscount } from '@/lib/api';
+import { DISCOUNT_AUDIT_ACTIONS } from '@/types/contract';
+import es from '../../../messages/es.json';
+import en from '../../../messages/en.json';
+
+/** La bitácora del código recién creado (archivado incluido: `mockAudit` lo rechaza si ya no existe). */
+const mockAuditOf = (id: string) => mockAudit('DiscountCode', id);
 
 /**
  * DCO-F5 (API_CONTRACT §DSC.10): «el mock de `lib/api.ts` replica `DiscountQuoteDTO` y la omisión sin código».
@@ -360,7 +369,7 @@ describe('§DSC.7 v1.110.1 — formas del panel: el mock trae EXACTAMENTE las cl
   it('DiscountCodeBatchDTO (ratificado, con `createdBy`); `paused` ⇔ ningún sin usar active; `exhausted` ⇔ todos consumed', () => {
     const { batch } = mockCreateBatch({ prefix: 'PAR', quantity: 2, kind: 'percent', percentPct: 10 });
     expect(dtoKeys(batch as unknown as Record<string, unknown>).sort()).toEqual(contractKeys('DiscountCodeBatchDTO').sort());
-    expect(DSC).toMatch(/status \/\* paused ⇔ ningún código sin usar está active \*\//);
+    expect(DSC).toMatch(/status \/\* paused ⇔ ningún código sin usar \(sin reserved ni consumed\) está active;/);
     expect(DSC).toMatch(/exhausted ⇔ todos consumed/);
     const codes = mockListCodes({ batchId: batch.id });
     const use = (codeId: string, folio: string) =>
@@ -375,6 +384,22 @@ describe('§DSC.7 v1.110.1 — formas del panel: el mock trae EXACTAMENTE las cl
     expect(mockGetBatch(batch.id)).toMatchObject({ state: 'exhausted', usedCodes: 2 });
   });
 
+  it('v1.110.2: lote sin códigos sin usar ⇒ `paused` solo si TODOS están pausados (agotado y no pausado = active + exhausted)', () => {
+    expect(DSC).toMatch(/si no queda ninguno sin usar, paused ⇔ todos paused \(v1\.110\.2\)/);
+    expect(DSC).toMatch(/lote agotado y no pausado = active \+ exhausted/);
+    const { batch } = mockCreateBatch({ prefix: 'AGO', quantity: 2, kind: 'percent', percentPct: 10 });
+    const codes = mockListCodes({ batchId: batch.id });
+    for (const [i, c] of codes.entries()) {
+      reserveMockDiscount({ codeId: c.id, customer: `ago${i}@x`, kind: 'order', folio: `AG${i}`, discountCents: 100, shippingWaivedCents: 0, totalCents: 900, consumed: true });
+    }
+    expect(mockGetBatch(batch.id)).toMatchObject({ status: 'active', state: 'exhausted', usedCodes: 2 });
+    // Pausar el lote pausa los N (911, `updateMany` del backend) ⇒ todos pausados ⇒ paused.
+    expect(mockSetBatchStatus(batch.id, 'paused')).toMatchObject({ status: 'paused', state: 'paused' });
+    // Uno pausado y otro activo, ambos usados ⇒ no TODOS pausados ⇒ active.
+    mockSetCodeStatus(codes[0].id, 'active');
+    expect(mockGetBatch(batch.id)).toMatchObject({ status: 'active', state: 'exhausted' });
+  });
+
   it('preview: `200 { discountCents, nominalCents, capped }` por `discountOf` (el front no calcula)', () => {
     expect(DSC).toMatch(/`200 \{ discountCents, nominalCents, capped: boolean \}` por `discountOf`\/`allocateDiscount`/);
     const sampleLines = [{ scope: 'raw' as const, priceCents: 400000, quantity: 1 }];
@@ -385,8 +410,61 @@ describe('§DSC.7 v1.110.1 — formas del panel: el mock trae EXACTAMENTE las cl
     expect(() => mockPreview({ kind: 'percent', percentPct: 10, sampleLines: [] })).toThrow();
   });
 
-  it('audit: `{ at, actor: { id, name }, action, changes: [{ field, before, after }] }` con antes → después', () => {
-    expect(DSC).toMatch(/\{ data: \[\{ at, actor: \{ id, name \}, action, changes: \[\{ field, before, after \}\] \}\], page, pageSize, total \}/);
+  it('preview v1.110.2: muestra a la que no aplica ⇒ `{ 0, 0, false }`; `free_shipping` ⇒ siempre `{ 0, 0, false }`', () => {
+    expect(DSC).toMatch(/\(`DESTINATION`, `NO_ELIGIBLE_ITEMS`, `MIN_SUBTOTAL`\) ⇒ `\{ 0, 0, false \}`, sin `reason`; `free_shipping` ⇒ siempre `\{ 0, 0, false \}`/);
+    const zero = { discountCents: 0, nominalCents: 0, capped: false };
+    const sampleLines = [{ scope: 'raw' as const, priceCents: 400000, quantity: 1 }];
+    expect(mockPreview({ kind: 'percent', percentPct: 10, minSubtotalCents: 500000, sampleLines })).toEqual(zero); // MIN_SUBTOTAL
+    expect(mockPreview({ kind: 'percent', percentPct: 10, productScopes: ['sealed'], sampleLines })).toEqual(zero); // NO_ELIGIBLE_ITEMS
+    expect(mockPreview({ kind: 'free_shipping', sampleLines })).toEqual(zero);
+  });
+
+  it('audit v1.110.2: `action` es la lista CERRADA del contrato, cada una con su texto ES/EN; `actor` puede ser null', () => {
+    const m = /\*\*`action` \(v1\.110\.2, lista cerrada[^)]*\):\*\* código `discount\.code\.\{([^}]+)\}`; lote `discount\.batch\.\{([^}]+)\}`/.exec(DSC);
+    expect(m, 'el contrato ya no enumera `action` como en v1.110.2').not.toBeNull();
+    const fromContract = [
+      ...m![1].split(',').map((x) => `discount.code.${x.trim()}`),
+      ...m![2].split(',').map((x) => `discount.batch.${x.trim()}`),
+    ];
+    expect([...DISCOUNT_AUDIT_ACTIONS].sort()).toEqual(fromContract.sort());
+    for (const msgs of [es, en]) {
+      const labels = (msgs as unknown as { admin: { discounts: { audit: { action: Record<string, Record<string, string> | string> } } } }).admin.discounts.audit.action;
+      for (const a of DISCOUNT_AUDIT_ACTIONS) {
+        const [, entity, verb] = a.split('.');
+        expect(typeof (labels[entity] as Record<string, string>)?.[verb], `${a} sin texto`).toBe('string');
+      }
+      expect(typeof labels.unknown).toBe('string');
+    }
+    // El mock solo escribe acciones de la lista.
+    const c = mockCreateCode({ code: 'AUDITA2', kind: 'percent', percentPct: 10 });
+    mockPatchCode(c.id, { percentPct: 15 });
+    mockSetCodeStatus(c.id, 'paused');
+    mockSetCodeStatus(c.id, 'active');
+    mockArchiveCode(c.id);
+    const { batch } = mockCreateBatch({ prefix: 'AUD', quantity: 1, kind: 'percent', percentPct: 10 });
+    mockSetBatchStatus(batch.id, 'paused');
+    mockSetBatchStatus(batch.id, 'active');
+    mockAuditExport('DiscountCodeBatch', batch.id, 'discount.batch.codes_exported', 1);
+    const written = [...mockAudit('DiscountCode', 'dsc-sept10'), ...mockAuditOf(c.id), ...mockAudit('DiscountCodeBatch', batch.id)].map((r) => r.action);
+    for (const a of written) expect(DISCOUNT_AUDIT_ACTIONS as readonly string[]).toContain(a);
+    expect(new Set(written)).toEqual(
+      new Set([
+        'discount.code.created',
+        'discount.code.updated',
+        'discount.code.paused',
+        'discount.code.resumed',
+        'discount.code.archived',
+        'discount.batch.created',
+        'discount.batch.paused',
+        'discount.batch.resumed',
+        'discount.batch.codes_exported',
+      ]),
+    );
+    expect(DSC).toMatch(/actor: \{ id, name \} \\\| null/);
+  });
+
+  it('audit: `{ at, actor: { id, name } | null, action, changes: [{ field, before, after }] }` con antes → después', () => {
+    expect(DSC).toMatch(/\{ data: \[\{ at, actor: \{ id, name \} \\\| null, action, changes: \[\{ field, before, after \}\] \}\], page, pageSize, total \}/);
     const c = mockCreateCode({ code: 'AUDITA1', kind: 'percent', percentPct: 10 });
     mockPatchCode(c.id, { percentPct: 15 });
     mockSetCodeStatus(c.id, 'paused');

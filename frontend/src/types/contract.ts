@@ -8583,10 +8583,31 @@ export interface DiscountPreviewResponse {
   capped: boolean;
 }
 
-/** §DSC.7 (v1.110.1) — una fila de `GET /admin/discount-codes/:id/audit` y `GET /admin/discount-code-batches/:id/audit`. */
+/**
+ * §DSC.7 (v1.110.2) — `action` de la bitácora: lista CERRADA de solo lectura (fuera de `enum-values.ts`). El tipo de
+ * `DiscountAuditEntry.action` sigue siendo `string`: un valor que no esté aquí se pinta con el texto genérico.
+ */
+export const DISCOUNT_AUDIT_ACTIONS = [
+  'discount.code.created',
+  'discount.code.updated',
+  'discount.code.paused',
+  'discount.code.resumed',
+  'discount.code.archived',
+  'discount.code.report_exported',
+  'discount.batch.created',
+  'discount.batch.updated',
+  'discount.batch.paused',
+  'discount.batch.resumed',
+  'discount.batch.codes_exported',
+  'discount.batch.report_exported',
+] as const;
+export type DiscountAuditAction = (typeof DISCOUNT_AUDIT_ACTIONS)[number];
+
+/** §DSC.7 (v1.110.1; `actor` nullable y `action` enumerada en v1.110.2) — una fila de `GET …/:id/audit`. */
 export interface DiscountAuditEntry {
   at: string;
-  actor: { id: string; name: string };
+  /** `null` cuando la fila no tiene usuario (v1.110.2). */
+  actor: { id: string; name: string } | null;
   action: string;
   changes: Array<{ field: string; before: unknown; after: unknown }>;
 }

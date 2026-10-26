@@ -8150,7 +8150,11 @@ export async function setDiscountCodeBatchPaused(id: string, paused: boolean): P
 /** `GET /admin/discount-code-batches/:id/codes.csv` (auditado: reparte códigos). */
 export async function downloadDiscountCodeBatchCsv(id: string): Promise<BlobResponse> {
   if (!config.useMocks) return requestBlob(`/admin/discount-code-batches/${encodeURIComponent(id)}/codes.csv`);
-  return mockDscCall(() => ({ blob: new Blob([mockDsc.mockBatchCsv(id)], { type: 'text/csv;charset=utf-8' }), filename: null }));
+  return mockDscCall(() => {
+    const csv = mockDsc.mockBatchCsv(id);
+    mockDsc.mockAuditExport('DiscountCodeBatch', id, 'discount.batch.codes_exported', csv.trim().split('\n').length - 1);
+    return { blob: new Blob([csv], { type: 'text/csv;charset=utf-8' }), filename: null };
+  });
 }
 
 /** `GET /admin/discount-codes/:id/report` · `GET /admin/discount-code-batches/:id/report` — `?from=&to=` (día México). */
@@ -8195,6 +8199,8 @@ export async function downloadDiscountReportCsv(
   }
   return mockDscCall(() => {
     const r = target.kind === 'code' ? mockDsc.mockCodeReport(target.id) : mockDsc.mockBatchReport(target.id);
+    if (target.kind === 'code') mockDsc.mockAuditExport('DiscountCode', target.id, 'discount.code.report_exported', r.rows.length);
+    else mockDsc.mockAuditExport('DiscountCodeBatch', target.id, 'discount.batch.report_exported', r.rows.length);
     return { blob: new Blob([mockDsc.mockReportCsv(r)], { type: 'text/csv;charset=utf-8' }), filename: null };
   });
 }

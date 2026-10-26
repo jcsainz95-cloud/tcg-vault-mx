@@ -1,7 +1,21 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs } from './utils/auth';
+import { IS_REAL, loginAs } from './utils/auth';
 import { chooseNeighborhood } from './utils/address';
+import { apiAs, apiAsOk } from './utils/env';
+import { withCustomerSettledHolding } from './utils/vault-holding';
+import {
+  findDiscountCodeId,
+  ownDiscountPiece,
+  pollFor,
+  releaseDiscountPiece,
+  retireDiscountCode,
+  runDiscountCode,
+  seedDiscountCode,
+  settleByWebhook,
+  stripeDouble,
+  type SeededDiscountCode,
+} from './utils/discount-scenario';
 
 /**
  * §DSC (contrato v1.110) · DESIGN_SYSTEM §DSC-UX — códigos de descuento de punta a punta en el NAVEGADOR, contra el
@@ -9,11 +23,9 @@ import { chooseNeighborhood } from './utils/address';
  * `discounts.parity.test.ts`). Candados DL1-DL4 y DL7 de §DSC-UX.8; DL5/DL6 son de vitest (`seo-content.test.ts`,
  * `i18n-parity.test.ts`).
  *
- * ⚠️ **Sin `@real` a propósito, y sin salvaguarda de salto:** medido en este árbol (base `85f350df`) NO existe
- * `backend/src/modules/discounts/` ni los campos `discountCode` en los DTO del backend, así que contra el stack real
- * no hay nada que medir todavía (el config de real filtra por `@real`, así que este fichero no corre allí). Los ids de pieza y los códigos (`SEPT10`, `ENVIO25`…) son del simulador: cuando el
- * backend aterrice, el `@real` necesita sembrar sus códigos por `POST /admin/discount-codes` (pendiente, en
- * FRONTEND_NOTES §DSC). Este fichero no suma al censo de salvaguardas (`scripts/check-e2e-skip-census.sh`).
+ * Los casos de arriba usan ids de pieza y códigos del simulador (`SEPT10`, `ENVIO25`…) y no llevan `@real`; los de
+ * «DSC · @real contra el stack» (al final) y DL7 corren en los dos entornos, sembrando por la API en real. Este fichero
+ * no suma al censo de salvaguardas (`scripts/check-e2e-skip-census.sh`): ningún caso se salta.
  */
 
 /** Carrito de solo cartas de MX$4,210.80 (S ≥ T = MX$4,000): con 10 % baja a MX$3,789.72 y paga envío (895 / DL4). */
@@ -241,7 +253,7 @@ test.describe('DSC · panel del dueño', () => {
     await expect(audit.getByTestId('discount-audit-entry')).toHaveCount(2);
   });
 
-  test('DL7: el operador no ve la entrada del menú y por URL llega al acceso denegado', async ({ page }) => {
+  test('@real DL7: el operador no ve la entrada del menú y por URL llega al acceso denegado', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await loginAs(page, 'operator');
     await page.addInitScript(() => window.localStorage.setItem('tcg.role', 'vault_operator'));
@@ -251,5 +263,233 @@ test.describe('DSC · panel del dueño', () => {
     await page.goto('/es/admin/codes');
     await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.discounts') })).toHaveCount(0);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ * §DSC contra el STACK REAL (`@real`, frontend 2026-10-26, contrato v1.110.2, backend `1c6bb38a`/`e84c86fe`).
+ *
+ * Los cinco recorridos que el dueño hará en su tienda, agnósticos al entorno: en MOCK usan los códigos y las piezas del
+ * simulador; en REAL siembran lo suyo por la API del contrato y lo retiran en `finally` (`utils/discount-scenario.ts`):
+ *  1. el dueño crea un código desde `/admin/codes`;
+ *  2. el cliente lo aplica en el checkout de invitado y ve «Descuento (CÓDIGO)»;
+ *  3. lo paga: sesión `201` con `discount` aplicado ⇒ el doble de Stripe cobra ⇒ webhook FIRMADO ⇒ pedido `settled` y
+ *     el reporte del código cuenta el uso con el mismo descuento que cobró la sesión;
+ *  4. retiro de bóveda con un código de envío gratis ⇒ MX$0.00 y «Confirmar retiro», sin pantalla de cobro;
+ *  5. el operador no ve `/admin/codes` (DL7, arriba, con `@real`).
+ *
+ * En real el fichero corre en UN worker y en orden (`mode: 'default'`, como `checkout-movil`): 3 y 4 cobran contra el
+ * mismo backend y 4 aparta la pieza del cliente del seed durante el recorrido. ⛔ No `serial` (saltaría lo de detrás
+ * del primer rojo). Presupuesto de sesiones de invitado (5/h/IP): **1** por corrida (el caso 3); el texto del fichero
+ * dice «invitado», así que `e2e-real-suite.sh` le da tanda propia. Lo que deja en el stack, dicho: el caso 3 vende una
+ * pieza PROPIA (alta del arnés) y deja su código pausado con un uso; el caso 4 compra a bóveda otra pieza propia para el
+ * `customer` del seed y la deja en un retiro `picking` de MX$0.00 (un retiro pagado no se cancela a mano,
+ * `PAID_SHIPMENT_NOT_CANCELLABLE`), con su código pausado. Ninguna pieza del seed cambia.
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ */
+if (IS_REAL) test.describe.configure({ mode: 'default' });
+
+const mx = (cents: number) => `MX$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+interface AppliedDiscount {
+  outcome: 'applied';
+  code: string;
+  kind: string;
+  discountCents: number;
+  shippingWaivedCents: number;
+}
+
+async function fillGuestForm(page: Page) {
+  await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado.dsc@dominio.com');
+  await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
+  await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
+  await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');
+  await chooseNeighborhood(page, 'Guadalajara Centro');
+  await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
+  await page.getByLabel(t('es', 'addresses.phone')).fill('3312345678');
+  await page.locator('#guest-terms').check();
+}
+
+/** Último `discount` aplicado que devolvió `POST /checkout/guest/quote` (solo real: en mock no hay red). */
+function watchGuestQuote(page: Page): () => AppliedDiscount | null {
+  let last: AppliedDiscount | null = null;
+  page.on('response', async (r) => {
+    if (r.request().method() !== 'POST' || !/\/checkout\/guest\/quote(\?|$)/.test(r.url()) || r.status() !== 200) return;
+    try {
+      const body = (await r.json()) as { discount?: AppliedDiscount };
+      if (body.discount?.outcome === 'applied') last = body.discount;
+    } catch {
+      // cuerpo no JSON: no es la cotización
+    }
+  });
+  return () => last;
+}
+
+test.describe('DSC · @real contra el stack (siembra por la API y retira en finally)', () => {
+  test('@real el dueño crea un código desde /admin/codes y aparece en la lista', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const code = IS_REAL ? runDiscountCode('ui') : 'E2E-PANTALLA10';
+    try {
+      await loginAs(page, 'admin');
+      await page.goto('/es/admin/codes');
+      await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.discounts') })).toBeVisible();
+      await page.getByRole('link', { name: t('es', 'admin.discounts.newCode') }).click();
+      await page.getByLabel(t('es', 'admin.discounts.form.codeLabel')).fill(code.toLowerCase());
+      await page.getByLabel(t('es', 'admin.discounts.form.valuePct')).fill('10');
+      await page.getByRole('button', { name: t('es', 'admin.discounts.saveCode') }).click();
+      await expect(page).toHaveURL(/\/admin\/codes$/);
+      // El servidor normaliza a MAYÚSCULAS (§DSC.6) y la lista es la suya, la más nueva primero.
+      await expect(page.getByTestId('code-list-row').filter({ hasText: code })).toContainText('10 %');
+    } finally {
+      if (IS_REAL) {
+        const id = await findDiscountCodeId(code);
+        if (id) await retireDiscountCode(id);
+      }
+    }
+  });
+
+  test('@real el cliente aplica el código en el checkout de invitado y ve la línea «Descuento (CÓDIGO)»', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const piece = IS_REAL ? await ownDiscountPiece() : null;
+    const seeded = IS_REAL ? await seedDiscountCode({ code: runDiscountCode('ap'), kind: 'percent', percentPct: 10 }) : null;
+    const code = seeded?.code ?? 'SEPT10';
+    try {
+      const lastQuote = watchGuestQuote(page);
+      await openCheckoutWith(page, piece ? [piece.id] : CARDS_OVER_THRESHOLD);
+      await applyCode(page, code.toLowerCase());
+      await expect(page.getByTestId('code-row-applied')).toContainText(code);
+      const row = page.locator('aside').getByTestId('amount-breakdown-discount');
+      await expect(row).toContainText(`Descuento (${code})`);
+      if (IS_REAL) {
+        // La cifra es la del servidor (DCO-F2): la fila pinta el `discountCents` de la cotización, sin cuentas.
+        const applied = lastQuote();
+        expect(applied, 'POST /checkout/guest/quote con discount.outcome = applied').not.toBeNull();
+        expect(applied!.discountCents).toBeGreaterThan(0);
+        await expect(row).toContainText(mx(applied!.discountCents));
+      }
+    } finally {
+      if (seeded) await retireDiscountCode(seeded.id);
+      if (piece) await releaseDiscountPiece(piece.id);
+    }
+  });
+
+  test('@real el invitado paga con el código: webhook firmado del doble de Stripe ⇒ pedido pagado y el uso contado', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const double = IS_REAL ? stripeDouble() : null; // sin el doble: ROJO con el motivo, antes de gastar una sesión
+    const piece = IS_REAL ? await ownDiscountPiece() : null;
+    const seeded = IS_REAL ? await seedDiscountCode({ code: runDiscountCode('pg'), kind: 'percent', percentPct: 10 }) : null;
+    const code = seeded?.code ?? 'SEPT10';
+    try {
+      await openCheckoutWith(page, piece ? [piece.id] : CARDS_OVER_THRESHOLD);
+      await applyCode(page, code);
+      await expect(page.getByTestId('code-row-applied')).toContainText(code);
+      await fillGuestForm(page);
+      const totalBefore = await page.locator('aside').getByTestId('amount-breakdown').locator(':scope > div').last().textContent();
+      const sessionResponse = IS_REAL
+        ? page.waitForResponse((r) => r.request().method() === 'POST' && /\/checkout\/guest\/session(\?|$)/.test(r.url()))
+        : null;
+      await page.locator('aside').getByRole('button', { name: /^Pagar/ }).click();
+      const modal = page.getByRole('dialog', { name: t('es', 'checkout.payTitle') });
+      if (!IS_REAL) {
+        await expect(modal).toBeVisible();
+        expect(totalBefore).toContain((await modal.textContent())?.match(/MX\$[\d,]+\.\d{2}/)?.[0] ?? '∅');
+        return;
+      }
+      const res = await sessionResponse!;
+      expect(res.status(), 'POST /checkout/guest/session').toBe(201);
+      const session = (await res.json()) as {
+        orderId: string;
+        breakdown: { totalCents: number };
+        stripe: { paymentIntentId: string };
+        discount?: AppliedDiscount;
+      };
+      expect(session.discount).toMatchObject({ outcome: 'applied', code, kind: 'percent' });
+      expect(session.discount!.discountCents).toBeGreaterThan(0);
+      // Lo que se cobra es el total de la cotización con el código (el que el cliente vio antes de pagar).
+      expect(totalBefore).toContain(mx(session.breakdown.totalCents));
+      await expect(modal).toBeVisible();
+
+      expect(await settleByWebhook(double!, session.stripe.paymentIntentId), 'webhook firmado').toBe(200);
+      const status = await pollFor(async () => {
+        const o = await apiAs<{ status: string }>('admin', 'GET', `/admin/orders/${session.orderId}`);
+        return o.status === 200 && o.body.status === 'settled' ? o.body.status : undefined;
+      });
+      expect(status, `pedido ${session.orderId} tras el webhook`).toBe('settled');
+      // El dueño lo ve en el reporte del código: un uso consumido, un pedido pagado, el mismo descuento cobrado (913).
+      const report = await apiAsOk<{ consumed: number; paidOrders: number; discountGivenCents: number; salesCollectedCents: number }>(
+        'admin',
+        'GET',
+        `/admin/discount-codes/${seeded!.id}/report`,
+      );
+      expect(report).toMatchObject({
+        consumed: 1,
+        paidOrders: 1,
+        discountGivenCents: session.discount!.discountCents,
+        salesCollectedCents: session.breakdown.totalCents,
+      });
+    } finally {
+      if (seeded) await retireDiscountCode(seeded.id);
+      if (piece) await releaseDiscountPiece(piece.id);
+    }
+  });
+
+  test('@real retiro de bóveda con un código de envío gratis ⇒ MX$0.00 y «Confirmar retiro», sin pantalla de cobro', async ({ page }) => {
+    const run = async () => {
+      let folio: string | null = null;
+      let seeded: SeededDiscountCode | null = null;
+      let pieceId: string | null = null;
+      try {
+        if (IS_REAL) {
+          // Una pieza PROPIA en la bóveda del `customer` del seed: la compra a bóveda por la API (§4) y el doble cobra.
+          const double = stripeDouble();
+          const piece = await ownDiscountPiece();
+          pieceId = piece.id;
+          folio = piece.folio;
+          const vault = await apiAsOk<{ stripe: { paymentIntentId: string } }>('customer', 'POST', '/checkout/session', {
+            inventoryItemIds: [piece.id],
+          });
+          expect(await settleByWebhook(double, vault.stripe.paymentIntentId), 'webhook firmado de la compra a bóveda').toBe(200);
+          const ready = await pollFor(async () => {
+            const h = await apiAsOk<{ data: { inventoryItemId: string; withdrawable: boolean }[] }>('customer', 'GET', '/vault/holdings');
+            return h.data.find((x) => x.inventoryItemId === piece.id && x.withdrawable) ? true : undefined;
+          });
+          expect(ready, `la pieza ${piece.folio} retirable en la bóveda del cliente`).toBe(true);
+          seeded = await seedDiscountCode({ code: runDiscountCode('rt'), kind: 'free_shipping' });
+        }
+        const code = seeded?.code ?? 'ENVIO25';
+        await loginAs(page, 'customer');
+        await page.goto('/es/shipments');
+        const box = folio ? page.getByRole('checkbox', { name: new RegExp(`${folio}$`) }) : page.getByRole('checkbox').first();
+        await box.check();
+        const breakdown = page.getByTestId('amount-breakdown');
+        await expect(breakdown).toBeVisible();
+        await page.getByRole('button', { name: t('es', 'checkout.discount.rowWithdrawal') }).click();
+        await page.getByLabel(t('es', 'checkout.discount.label')).fill(code);
+        await page.getByRole('button', { name: t('es', 'checkout.discount.apply') }).click();
+        await expect(page.getByTestId('code-row-applied')).toContainText(code);
+        await expect(breakdown.getByTestId('amount-breakdown-discount')).toContainText(`Envío gratis (${code})`);
+        await expect(breakdown.locator(':scope > div').last()).toContainText('MX$0.00');
+        await page.getByRole('button', { name: t('es', 'checkout.discount.confirmWithdrawal') }).click();
+        await expect(page.getByRole('dialog', { name: t('es', 'shipments.payTitle') })).toHaveCount(0);
+        await expect(page).toHaveURL(/\/vault/);
+        if (seeded) {
+          // §DSC.8: el uso se consume directo (no hay cobro que esperar) y el reporte lo cuenta como retiro.
+          const report = await apiAsOk<{ consumed: number; withdrawals: number; shippingWaivedWithdrawalsCents: number }>(
+            'admin',
+            'GET',
+            `/admin/discount-codes/${seeded.id}/report`,
+          );
+          expect(report.consumed).toBe(1);
+          expect(report.withdrawals).toBe(1);
+          expect(report.shippingWaivedWithdrawalsCents).toBeGreaterThan(0);
+        }
+      } finally {
+        if (seeded) await retireDiscountCode(seeded.id);
+        if (pieceId) await releaseDiscountPiece(pieceId);
+      }
+    };
+    // Mientras dura, nadie más mira la bóveda del `customer` (shipments/vault toman «la primera casilla», QA-REL-3).
+    await withCustomerSettledHolding(run);
   });
 });

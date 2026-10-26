@@ -394,6 +394,22 @@ async function ensureDeckPieces(lines: DeckLine[]): Promise<{ rawName: string; c
  * La pieza del seed no se toca. Una alta que no nace `listed` es un rojo con causa, no un salto.
  */
 export async function ownCatalogPiece(): Promise<{ inventoryItemId: string; cardId: string }> {
+  const item = await createHarnessPiece(async (id) => remember(await deckPiecesKey(), id));
+  if (item.status !== 'listed') {
+    throw new Error(`La pieza del arnés del 724 (${item.folio}) nació «${item.status}», no «listed»: el alta no publicó.`);
+  }
+  return { inventoryItemId: item.id, cardId: item.cardId };
+}
+
+/**
+ * El alta de `ownCatalogPiece`, sin decidir QUIÉN la recoge: `onCreated` la anota en la lista del llamador ANTES de
+ * mirar su estado (si el caso se cae, el teardown de ese llamador la encuentra). La usa también §DSC
+ * (`utils/discount-scenario.ts`), cuyas piezas acaban vendidas o en un retiro y ⛔ no deben pasar por el
+ * `error_captura` del teardown de §AC.
+ */
+export async function createHarnessPiece(
+  onCreated: (inventoryItemId: string) => Promise<void>,
+): Promise<{ id: string; folio: string; status: string; cardId: string }> {
   const catalog = await apiAsOk<{ data: { card: { id: string }; productType: string; displayPriceCents: number | null }[] }>(
     'admin',
     'GET',
@@ -413,11 +429,8 @@ export async function ownCatalogPiece(): Promise<{ inventoryItemId: string; card
     acquisitionType: 'compra',
     acquisitionCostCents: 2000,
   });
-  await remember(await deckPiecesKey(), item.id);
-  if (item.status !== 'listed') {
-    throw new Error(`La pieza del arnés del 724 (${item.folio}) nació «${item.status}», no «listed»: el alta no publicó.`);
-  }
-  return { inventoryItemId: item.id, cardId };
+  await onCreated(item.id);
+  return { ...item, cardId };
 }
 
 /**

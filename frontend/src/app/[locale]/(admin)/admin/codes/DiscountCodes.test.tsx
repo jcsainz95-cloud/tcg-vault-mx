@@ -23,6 +23,8 @@ import { DiscountCodeForm } from './DiscountCodeForm';
 // eslint-disable-next-line import/first
 import { DiscountReportView } from './DiscountReportView';
 // eslint-disable-next-line import/first
+import { DiscountAuditList } from './DiscountAuditList';
+// eslint-disable-next-line import/first
 import DiscountCodesPage from './page';
 
 /**
@@ -217,6 +219,48 @@ describe('v1.110.1 — «Descuento dado», «Así lo verá el cliente» y «Camb
     await waitFor(() => expect(within(audit).getAllByTestId('discount-audit-entry')).toHaveLength(3));
     expect(within(audit).getAllByTestId('discount-audit-entry')[0]).toHaveTextContent('Editado');
     expect(within(audit).getAllByTestId('discount-audit-entry')[0]).toHaveTextContent('maxTotalUses · 100 → 120');
+  });
+
+  it('v1.110.2: `actor: null` ⇒ «Sistema»; una `action` fuera de la lista ⇒ el texto genérico, nunca la cadena cruda', async () => {
+    const api = await import('@/lib/api');
+    const spy = vi.spyOn(api, 'getDiscountAudit').mockResolvedValue({
+      data: [
+        { at: '2026-10-20T18:00:00.000Z', actor: null, action: 'discount.batch.codes_exported', changes: [{ field: 'codes', before: null, after: 50 }] },
+        { at: '2026-10-19T18:00:00.000Z', actor: { id: 'u1', name: 'JC' }, action: 'discount.code.teleported', changes: [{ field: 'status', before: 'active', after: 'paused' }] },
+        { at: '2026-10-18T18:00:00.000Z', actor: { id: 'u1', name: 'JC' }, action: 'discount.code.report_exported', changes: [{ field: 'rows', before: null, after: 3 }] },
+      ],
+      page: 1,
+      pageSize: 50,
+      total: 3,
+    });
+    renderWithProviders(<DiscountAuditList kind="batch" id="cualquiera" />, 'es');
+    const audit = await screen.findByTestId('discount-audit');
+    await waitFor(() => expect(within(audit).getAllByTestId('discount-audit-entry')).toHaveLength(3));
+    const [system, unknown, report] = within(audit).getAllByTestId('discount-audit-entry');
+    expect(system).toHaveTextContent('Sistema');
+    expect(system).toHaveTextContent('Códigos descargados');
+    expect(unknown).toHaveTextContent('Otro cambio');
+    expect(audit).not.toHaveTextContent('teleported');
+    expect(audit).not.toHaveTextContent('discount.');
+    expect(report).toHaveTextContent('Reporte descargado');
+    spy.mockRestore();
+  });
+
+  it('v1.110.2: vista previa en ceros con un tipo ≠ envío gratis ⇒ «no lleva descuento»; envío gratis ⇒ su texto sin importe', async () => {
+    const api = await import('@/lib/api');
+    const spy = vi.spyOn(api, 'previewDiscountCode').mockResolvedValue({ discountCents: 0, nominalCents: 0, capped: false });
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm />, 'es');
+    const preview = screen.getByTestId('discount-preview');
+    await user.type(screen.getByLabelText('Valor (%)'), '10');
+    await waitFor(() => expect(preview).toHaveTextContent('Con esta configuración, este carrito no lleva descuento.'));
+    expect(within(preview).queryByTestId('discount-preview-amount')).toBeNull();
+    await user.click(screen.getByRole('radio', { name: 'Envío gratis' }));
+    await waitFor(() => expect(preview).toHaveTextContent('Cubre el envío a domicilio; no descuenta mercancía.'));
+    expect(within(preview).queryByTestId('discount-preview-amount')).toBeNull();
+    expect(preview).not.toHaveTextContent('no lleva descuento');
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'free_shipping' })));
+    spy.mockRestore();
   });
 
   it('«Envío regalado»: valor = pedidos + retiros; subtítulo con las dos partes nombradas y sin la que vale cero', async () => {

@@ -22,6 +22,7 @@
  */
 
 import type {
+  DiscountAuditAction,
   DiscountAuditEntry,
   DiscountCodeBatchDTO,
   DiscountCodeDTO,
@@ -262,9 +263,8 @@ function seedRedemptions(now: number): MockRedemption[] {
 }
 
 /**
- * Bitácora sembrada de SEPT10 (para que «Cambios» no salga vacía en el modo mock).
- * MOCK: pendiente de contrato — §DSC.7 no enumera los valores de `action`; el mock usa `create`, `update`, `pause`,
- * `resume`, `archive` (solicitud al arquitecto en FRONTEND_NOTES §DSC).
+ * Bitácora sembrada de SEPT10 (para que «Cambios» no salga vacía en el modo mock). `action` con los valores de la lista
+ * cerrada de §DSC.7 v1.110.2 (`DISCOUNT_AUDIT_ACTIONS`).
  */
 function seedAudit(now: number): MockAudit[] {
   const actor = { id: 'usr-owner', name: 'JC' };
@@ -274,7 +274,7 @@ function seedAudit(now: number): MockAudit[] {
       entityId: 'dsc-sept10',
       at: iso(now - 30 * DAY),
       actor,
-      action: 'create',
+      action: 'discount.code.created',
       changes: [
         { field: 'kind', before: null, after: 'percent' },
         { field: 'percentPct', before: null, after: 10 },
@@ -287,7 +287,7 @@ function seedAudit(now: number): MockAudit[] {
       entityId: 'dsc-sept10',
       at: iso(now - 10 * DAY),
       actor,
-      action: 'update',
+      action: 'discount.code.updated',
       changes: [{ field: 'maxTotalUses', before: 50, after: 100 }],
     },
   ];
@@ -506,7 +506,7 @@ function discountGivenOf(codeIds: string[]): number {
     .reduce((s, r) => s + r.discountCents, 0);
 }
 
-function audit(entityType: MockAudit['entityType'], entityId: string, action: string, changes: MockAudit['changes']): void {
+function audit(entityType: MockAudit['entityType'], entityId: string, action: DiscountAuditAction, changes: MockAudit['changes']): void {
   if (changes.length === 0) return;
   state.audit.push({ entityType, entityId, at: iso(Date.now()), actor: { ...CREATED_BY }, action, changes });
 }
@@ -633,7 +633,7 @@ export function mockCreateCode(body: import('@/types/contract').DiscountCodeCrea
     createdAt: iso(Date.now()),
   };
   state.codes.push(c);
-  audit('DiscountCode', c.id, 'create', diff({}, asRecord(c), ['code', ...CODE_FIELDS]));
+  audit('DiscountCode', c.id, 'discount.code.created', diff({}, asRecord(c), ['code', ...CODE_FIELDS]));
   return toDTO(c);
 }
 
@@ -655,7 +655,7 @@ export function mockPatchCode(id: string, patch: import('@/types/contract').Disc
   validateConfig(next);
   const before = { ...c };
   Object.assign(c, patch);
-  audit('DiscountCode', c.id, 'update', diff(asRecord(before), asRecord(c), CODE_FIELDS));
+  audit('DiscountCode', c.id, 'discount.code.updated', diff(asRecord(before), asRecord(c), CODE_FIELDS));
   return toDTO(c);
 }
 
@@ -663,7 +663,7 @@ export function mockSetCodeStatus(id: string, status: DiscountCodeStatus): Disco
   const c = state.codes.find((x) => x.id === id && !x.archivedAt);
   if (!c) throw new MockDiscountError(404, 'NOT_FOUND');
   // Idempotente (§DSC.7): sin cambio no hay fila de bitácora.
-  if (c.status !== status) audit('DiscountCode', c.id, status === 'paused' ? 'pause' : 'resume', [{ field: 'status', before: c.status, after: status }]);
+  if (c.status !== status) audit('DiscountCode', c.id, status === 'paused' ? 'discount.code.paused' : 'discount.code.resumed', [{ field: 'status', before: c.status, after: status }]);
   c.status = status;
   return toDTO(c);
 }
@@ -673,7 +673,7 @@ export function mockArchiveCode(id: string): void {
   if (!c) throw new MockDiscountError(404, 'NOT_FOUND');
   if (state.redemptions.some((r) => r.codeId === id)) throw new MockDiscountError(409, 'DISCOUNT_CODE_HAS_USES');
   c.archivedAt = iso(Date.now());
-  audit('DiscountCode', c.id, 'archive', [{ field: 'archivedAt', before: null, after: c.archivedAt }]);
+  audit('DiscountCode', c.id, 'discount.code.archived', [{ field: 'archivedAt', before: null, after: c.archivedAt }]);
 }
 
 /** §DSC.7 — alfabeto de los códigos de lote (sin 0/O/1/I/L/U). */
@@ -686,10 +686,9 @@ function randomSuffix(): string {
 }
 
 /**
- * §DSC.7 (v1.110.1): `status` paused ⇔ ningún código SIN USAR está `active`; `state` con las reglas de
- * `DiscountCodeDTO` y `exhausted` ⇔ todos `consumed`; `locked` ⇔ alguno con `firstReservedAt`.
- * ⚠️ Lectura del mock: con CERO códigos sin usar, «ninguno está active» es vacuamente cierto y el lote saldría
- * `paused` (y `paused` gana a `exhausted`, que nunca se vería). El mock lo trata como `active`: pregunta al arquitecto.
+ * §DSC.7 (v1.110.2): `status` paused ⇔ ningún código SIN USAR (sin `reserved` ni `consumed`) está `active`; si no queda
+ * ninguno sin usar, paused ⇔ TODOS pausados (lote agotado y no pausado = `active` + `exhausted`). `state` con la
+ * precedencia de `DiscountCodeDTO` y `exhausted` ⇔ todos `consumed`; `locked` ⇔ alguno con `firstReservedAt`.
  */
 function batchDTO(b: MockBatch, now = Date.now()): DiscountCodeBatchDTO {
   const codes = state.codes.filter((c) => c.batchId === b.id);
@@ -698,7 +697,8 @@ function batchDTO(b: MockBatch, now = Date.now()): DiscountCodeBatchDTO {
   const used = codes.filter(isConsumed).length;
   const reservedNow = state.redemptions.filter((r) => r.status === 'reserved' && codes.some((c) => c.id === r.codeId)).length;
   const unused = codes.filter((c) => inUse(c.id) === 0);
-  const status: DiscountCodeStatus = unused.length > 0 && !unused.some((c) => c.status === 'active') ? 'paused' : 'active';
+  const pool = unused.length > 0 ? unused : codes;
+  const status: DiscountCodeStatus = pool.some((c) => c.status === 'active') ? 'active' : 'paused';
   const st: DiscountCodeState =
     status === 'paused'
       ? 'paused'
@@ -769,7 +769,7 @@ export function mockCreateBatch(body: import('@/types/contract').DiscountCodeBat
       createdAt: b.createdAt,
     });
   }
-  audit('DiscountCodeBatch', b.id, 'create', [
+  audit('DiscountCodeBatch', b.id, 'discount.batch.created', [
     { field: 'prefix', before: null, after: prefix },
     { field: 'quantity', before: null, after: body.quantity },
     ...diff({}, asRecord(state.codes.find((c) => c.batchId === b.id)!), CONFIG_FIELDS),
@@ -787,14 +787,16 @@ export function mockGetBatch(id: string): DiscountCodeBatchDTO {
   return batchDTO(b);
 }
 
-/** §DSC.7 (911): pausa/reanuda los códigos SIN USAR del lote en una sola operación. */
+/** §DSC.7 (911): pausa/reanuda los N códigos del lote en una sola operación (todos, como `updateMany` del backend). */
 export function mockSetBatchStatus(id: string, status: DiscountCodeStatus): DiscountCodeBatchDTO {
   const b = state.batches.find((x) => x.id === id);
   if (!b) throw new MockDiscountError(404, 'NOT_FOUND');
   const before = batchDTO(b).status;
-  for (const c of state.codes) if (c.batchId === id && inUse(c.id) === 0) c.status = status;
+  for (const c of state.codes) if (c.batchId === id) c.status = status;
   const after = batchDTO(b).status;
-  if (before !== after) audit('DiscountCodeBatch', b.id, status === 'paused' ? 'pause' : 'resume', [{ field: 'status', before, after }]);
+  if (before !== after) {
+    audit('DiscountCodeBatch', b.id, status === 'paused' ? 'discount.batch.paused' : 'discount.batch.resumed', [{ field: 'status', before, after }]);
+  }
   return batchDTO(b);
 }
 
@@ -809,6 +811,16 @@ export function mockBatchCsv(id: string): string {
       return `${c.code},${c.status},${used ? used.at : ''}`;
     });
   return ['code,status,usedAt', ...lines].join('\n') + '\n';
+}
+
+/** Descarga auditada (`discount.batch.codes_exported` / `discount.{code,batch}.report_exported`): una fila con lo que salió. */
+export function mockAuditExport(
+  entityType: MockAudit['entityType'],
+  id: string,
+  action: Extract<DiscountAuditAction, `${string}_exported`>,
+  rows: number,
+): void {
+  audit(entityType, id, action, [{ field: action === 'discount.batch.codes_exported' ? 'codes' : 'rows', before: null, after: rows }]);
 }
 
 function reportFor(codeIds: string[], limit: number | null, batch: boolean): DiscountReportDTO {
@@ -875,14 +887,14 @@ export function mockAudit(entityType: MockAudit['entityType'], id: string): Disc
   return state.audit
     .filter((a) => a.entityType === entityType && a.entityId === id)
     .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
-    .map(({ at, actor, action, changes }) => ({ at, actor: { ...actor }, action, changes: changes.map((c) => ({ ...c })) }));
+    .map(({ at, actor, action, changes }) => ({ at, actor: actor ? { ...actor } : null, action, changes: changes.map((c) => ({ ...c })) }));
 }
 
 /**
  * §DSC.7 (v1.110.1) — `POST /admin/discount-codes/preview`: `discountOf`/`allocateDiscount` sobre el carrito de
  * ejemplo, cero escrituras. Destino del ejemplo: domicilio si la config lo admite; si no, bóveda.
- * MOCK: pendiente de contrato — el contrato no dice qué devuelve si la config no aplica a ese carrito (mínimo, filtros,
- * envío gratis a bóveda); el mock responde ceros (`discountCents = nominalCents = 0`, `capped = false`).
+ * v1.110.2: muestra a la que no aplica (mínimo, filtros, destino) ⇒ `{ 0, 0, false }` sin motivo; `free_shipping` ⇒
+ * siempre `{ 0, 0, false }` (la muestra no lleva envío).
  */
 export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewResponse {
   validateConfig({ ...body, startsAt: body.startsAt ?? iso(Date.now()) });
