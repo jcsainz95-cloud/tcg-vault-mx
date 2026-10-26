@@ -215,7 +215,9 @@ test.describe('§21.8 · «Valor de mercado» que desaparece', () => {
     // inv-1020 se vende por override (sin mercado TCGCSV) ⇒ priceBasis="override".
     mockOnly('pieza `inv-1020` del fixture (sellado con override manual)');
     await page.goto('/es/sellado/inv-1020');
-    await expect(page.getByText(t('es', 'sealed.fromPrice'))).toBeVisible();
+    // `exact`: el rótulo «Desde» de la celda de precio, no la subcadena «…gratis desde MX$…» del aviso T1b
+    // (`shipping-fee-hint`, envío v2), que en modo estricto hacía ambiguo el localizador.
+    await expect(page.getByText(t('es', 'sealed.fromPrice'), { exact: true })).toBeVisible();
 
     // El objeto de la regla no es UNA CELDA: es no publicar el valor de mercado cuando el mercado
     // no fijó el precio. Se afirma sobre la PÁGINA ENTERA a propósito — el defecto que esto cierra
