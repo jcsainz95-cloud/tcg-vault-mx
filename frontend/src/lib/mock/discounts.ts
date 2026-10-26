@@ -491,8 +491,9 @@ export const MOCK_MIN_TOTAL_CENTS = 1000;
 
 /**
  * §DSC.6 — evalúa un código para un carrito. `invalid` suma un fallido y `not_applicable` también, una vez por código y
- * ventana (§DSC.6 «Límite de intentos», v1.110.3). Motivos en el orden de §DSC.4 (v1.110.3): `NO_SHIPPING` → `DESTINATION` →
- * `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` (paridad DCO-B20).
+ * ventana (§DSC.6 «Límite de intentos», v1.110.3). Motivos en el orden de §DSC.4 (v1.112.1): `NO_SHIPPING` → `DESTINATION` →
+ * `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` → `ZERO_DISCOUNT`
+ * (paridad DCO-B20/B22).
  */
 export function evaluateMockDiscount(raw: string, ctx: DiscountOrderContext): MockDiscountEvaluation {
   const now = ctx.now ?? Date.now();
@@ -531,6 +532,9 @@ export function evaluateMockDiscount(raw: string, ctx: DiscountOrderContext): Mo
   if (!r.ok) return notApplicable(r.reason, r.details);
   if (!closed.ok) return notApplicable(closed.reason, closed.details);
   if (closed.totalCents < MOCK_MIN_TOTAL_CENTS) return notApplicable('TOTAL_BELOW_MINIMUM', { minTotalCents: MOCK_MIN_TOTAL_CENTS });
+  // 8 (v1.112.1, §DSC.3 / I-7 «ningún uso sin beneficio»): `%`/monto cuyo reparto da `D = 0` (`floor` a 0, `B = U`, o el
+  // residuo no cabe) ⇒ no aplica, sin uso apartado y contando intento como todo `not_applicable` (DCO-B22).
+  if (!freeShipping && r.discountCents === 0) return notApplicable('ZERO_DISCOUNT');
   return {
     dto: {
       outcome: 'applied',
@@ -740,18 +744,30 @@ export const UNLOCKED_FIELDS = ['status', 'endsAt', 'maxTotalUses'] as const;
 export function mockPatchCode(id: string, patch: import('@/types/contract').DiscountCodePatchRequest): DiscountCodeDTO {
   const c = state.codes.find((x) => x.id === id && !x.archivedAt);
   if (!c) throw new MockDiscountError(404, 'NOT_FOUND');
-  if (c.firstReservedAt) {
-    const lockedFields = Object.keys(patch).filter((k) => !(UNLOCKED_FIELDS as readonly string[]).includes(k));
-    if (lockedFields.length > 0) throw new MockDiscountError(409, 'DISCOUNT_CODE_LOCKED', { lockedFields });
-    if (c.batchId && patch.maxTotalUses !== undefined) throw new MockDiscountError(409, 'DISCOUNT_CODE_LOCKED', { lockedFields: ['maxTotalUses'] });
+  // §DSC.7 (v1.112.1): ausente ⇒ no se toca; `null` limpia; `productScopes`/`destinations` `null` ≡ `[]`; `startsAt: null` ⇒ 422.
+  if ('startsAt' in patch && (patch as { startsAt?: unknown }).startsAt === null) {
+    throw new MockDiscountError(422, 'VALIDATION_ERROR', { field: 'startsAt' });
   }
-  if (patch.maxTotalUses != null && patch.maxTotalUses < inUse(c.id)) {
+  const changes: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    changes[k] = (k === 'productScopes' || k === 'destinations') && v === null ? [] : v;
+  }
+  // `lockedFields` = los campos cuyo valor CAMBIA (un `null` que limpia cuenta; uno sobre un campo ya nulo, no), como el backend.
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const changed = Object.keys(changes).filter((k) => !same((c as unknown as Record<string, unknown>)[k], changes[k]));
+  if (c.firstReservedAt) {
+    const lockedFields = changed.filter((k) => !(UNLOCKED_FIELDS as readonly string[]).includes(k));
+    if (lockedFields.length > 0) throw new MockDiscountError(409, 'DISCOUNT_CODE_LOCKED', { lockedFields });
+    if (c.batchId && changed.includes('maxTotalUses')) throw new MockDiscountError(409, 'DISCOUNT_CODE_LOCKED', { lockedFields: ['maxTotalUses'] });
+  }
+  if (changes.maxTotalUses != null && (changes.maxTotalUses as number) < inUse(c.id)) {
     throw new MockDiscountError(409, 'DISCOUNT_CODE_LIMIT_BELOW_USES', { inUse: inUse(c.id) });
   }
-  const next = { ...c, ...patch } as MockCode;
+  const next = { ...c, ...changes } as MockCode;
   validateConfig(next);
   const before = { ...c };
-  Object.assign(c, patch);
+  Object.assign(c, changes);
   audit('DiscountCode', c.id, 'discount.code.updated', diff(asRecord(before), asRecord(c), CODE_FIELDS));
   return toDTO(c);
 }
@@ -991,7 +1007,7 @@ export function mockAudit(entityType: MockAudit['entityType'], id: string): Disc
  * §DSC.7 (v1.110.1) — `POST /admin/discount-codes/preview`: `discountOf`/`allocateDiscount` sobre el carrito de
  * ejemplo, cero escrituras. Destino del ejemplo: domicilio si la config lo admite; si no, bóveda.
  * v1.110.2: muestra a la que no aplica (mínimo, filtros, destino) ⇒ `{ 0, 0, false }` sin motivo; `free_shipping` ⇒
- * siempre `{ 0, 0, false }` (la muestra no lleva envío).
+ * siempre `{ 0, 0, false }` (la muestra no lleva envío); v1.112.1: `ZERO_DISCOUNT` ⇒ `{ 0, 0, false }`.
  */
 export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewResponse {
   validateConfig({ ...body, startsAt: body.startsAt ?? iso(Date.now()) });
@@ -1016,7 +1032,8 @@ export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewRespon
   }));
   const dest: FulfillmentMode = rule.destinations.length === 0 || rule.destinations.includes('direct_ship') ? 'direct_ship' : 'vault';
   const r = discountOf(lines, rule, dest);
-  if (!r.ok || rule.kind === 'free_shipping') return { discountCents: 0, nominalCents: 0, capped: false };
+  // v1.112.1: `ZERO_DISCOUNT` (reparto con `D = 0`) también ⇒ `{ 0, 0, false }`, aunque `D0 > 0`.
+  if (!r.ok || rule.kind === 'free_shipping' || r.discountCents === 0) return { discountCents: 0, nominalCents: 0, capped: false };
   // v1.110.3 (DCO-B21): `nominalCents` y `capped` tal cual los da `discountOf`; aquí no se recalcula nada.
   return { discountCents: r.discountCents, nominalCents: r.nominalCents, capped: r.capped };
 }

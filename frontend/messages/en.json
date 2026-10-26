@@ -689,6 +689,7 @@
       "alreadyFree": "Your order already ships at no cost; this code changes nothing.",
       "largeBox": "This code doesn't cover shipping for a large box.",
       "totalBelowMinimum": "With this code the total would fall below {amount}, the minimum to pay.",
+      "zeroDiscount": "This code gives no discount on this cart.",
       "withdrawalFiltered": "This code doesn't apply to vault withdrawals.",
       "notCombinable": "This code can't be combined with another discount."
     }

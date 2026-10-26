@@ -372,7 +372,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
       'es:checkout.discount.withdrawalOnlyFreeShipping',
     ]);
     // Los errores genéricos y los de porcentaje/monto NO lo dicen (§DSC-UX.4: «en cualquier otro texto de descuento no se escribe»).
-    for (const k of ['invalid', 'minSubtotal', 'onlyScopes', 'barShort', 'barVault', 'removedNotice', 'replaced', 'saves', 'applied', 'alreadyFree']) {
+    for (const k of ['invalid', 'minSubtotal', 'onlyScopes', 'barShort', 'barVault', 'removedNotice', 'replaced', 'saves', 'applied', 'alreadyFree', 'zeroDiscount']) {
       expect(String((es.checkout.discount as Record<string, unknown>)[k]), `es:checkout.discount.${k}`).not.toMatch(/env[ií]o\s+gratis/i);
       expect(String((en.checkout.discount as Record<string, unknown>)[k]), `en:checkout.discount.${k}`).not.toMatch(/free\s+shipping/i);
     }
