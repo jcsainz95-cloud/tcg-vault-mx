@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Textarea } from '@/components/ui/Textarea';
-import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
+import { AmountBreakdown, appliedDiscountOfOrder } from '@/components/ui/AmountBreakdown';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
 import { cn } from '@/lib/cn';
@@ -226,6 +226,12 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   {o.customer?.email && <span className="text-muted"> · {o.customer.email}</span>}
                   {!o.customer && o.guestEmail && <span className="text-muted"> · {o.guestEmail}</span>}
                 </p>
+                {/* 💰 §DSC-UX.5 / §DSC.6 (914): fila «Código» del pedido en Ventas; la de «Descuento (CÓDIGO)» va en el desglose. */}
+                {o.discount && (
+                  <p className="text-sm text-text" data-testid="m3-discount-code">
+                    <span className={LABEL}>{td('discountCode')}</span> <span className="font-mono font-semibold">{o.discount.code}</span>
+                  </p>
+                )}
               </div>
               <div className="flex flex-col items-end gap-2">
                 <p className="tabular text-lg font-semibold text-text" data-testid="m3-total">{formatMoneyCents(o.breakdown.totalCents, locale)}</p>
@@ -325,7 +331,10 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                         <li key={it.inventoryItemId} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
                           <span lang="en">{name}</span>
                           <span className="flex flex-wrap items-baseline gap-3">
-                            <span className="tabular">{formatMoneyCents(it.unitPriceCents, locale)}</span>
+                            {/* 💰 §DSC I-3 (914): el exhibido (`+ unitDiscountCents`), como el checkout; lo COBRADO va debajo. */}
+                            <span className="tabular" data-testid={`m3-item-price-${it.inventoryItemId}`}>
+                              {formatMoneyCents(it.unitPriceCents + (it.unitDiscountCents ?? 0), locale)}
+                            </span>
                             {canRefund && dr?.kind === 'refundable' && (
                               <Button
                                 variant="secondary"
@@ -346,6 +355,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                               </Button>
                             )}
                           </span>
+                          {(it.unitDiscountCents ?? 0) > 0 && (
+                            <span className="basis-full tabular text-xs text-muted" data-testid={`m3-item-charged-${it.inventoryItemId}`}>
+                              {td('chargedWithDiscount', { amount: formatMoneyCents(it.unitPriceCents, locale) })}
+                            </span>
+                          )}
                           {notRefundableText && (
                             <span className="basis-full text-xs text-muted" data-testid={`m3-item-not-refundable-${it.inventoryItemId}`}>
                               {notRefundableText}
@@ -373,7 +387,9 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                         // v1.86.3 (§AC.19.6): `id` y `kind` obligatorios; el paquete se reconoce por `kind`.
                         const isBundle = l.kind === 'energy_bundle';
                         const key = l.id;
-                        const total = formatMoneyCents(l.lineTotalCents, locale);
+                        // 💰 §DSC I-3 (914): `lineTotalCents` es lo COBRADO; el renglón dice el exhibido y, con código, lo cobrado.
+                        const unitDiscount = l.unitDiscountCents ?? 0;
+                        const total = formatMoneyCents(l.lineTotalCents + l.quantity * unitDiscount, locale);
                         const dr = l.deliveredRefund;
                         const canRefund = isSuperAdmin && dr?.kind === 'refundable' && dr.amountByQtyCents.length > 0;
                         return (
@@ -382,6 +398,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                               <span>{isBundle ? tacc('bundleLine', { deck: l.deckName ?? l.name, total }) : tacc('line', { name: l.name, n: l.quantity, total })}</span>
                               {isBundle && l.components.length > 0 && (
                                 <span className="font-mono text-xs text-muted">{energyBreakdown(l.components, taccessories)}</span>
+                              )}
+                              {unitDiscount > 0 && (
+                                <span className="tabular text-xs text-muted" data-testid={`m3-accessory-charged-${key}`}>
+                                  {td('chargedWithDiscount', { amount: formatMoneyCents(l.lineTotalCents, locale) })}
+                                </span>
                               )}
                               {l.refundedQty > 0 && <span className="font-mono text-xs text-muted">{tacc('refunded', { k: l.refundedQty })}</span>}
                             </span>
@@ -551,7 +572,9 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   )}
                 </section>
               </div>
-              <aside className="h-fit">{<AmountBreakdown breakdown={o.breakdown} variant="purchase" />}</aside>
+              <aside className="h-fit">
+                <AmountBreakdown breakdown={o.breakdown} variant="purchase" discount={appliedDiscountOfOrder(o.breakdown, o.discount)} />
+              </aside>
             </div>
           </div>
         )}

@@ -1789,6 +1789,8 @@
           "direct_ship": "Direct shipping"
         },
         "items": "Cards",
+        "discountCode": "Code",
+        "chargedWithDiscount": "Charged {amount} with the code",
         "itemRefunded": "Refunded · {amount} · {status}",
         "needsManual": "Pending human confirmation",
         "needsManualBody": "Cards from this order have no confirmed physical whereabouts yet. Resolve it below."

@@ -1204,6 +1204,11 @@ export interface OrderItemDTO {
   refund?: CustomerItemRefundInfo | null;
   /** v1.80.2 (§M4-SHIP.16): el caso más reciente con `originOrderItemId` = esta línea. */
   replacement?: CustomerReplacementInfo | null;
+  /**
+   * 💰 §DSC.6 «Dónde se ve el pedido» (v1.110, criterio 914): la rebaja POR UNIDAD, solo si > 0 (I-1: sin código, la clave
+   * se omite). `unitPriceCents` es lo COBRADO (I-3); el exhibido es `unitPriceCents + unitDiscountCents`.
+   */
+  unitDiscountCents?: number;
 }
 
 /**
@@ -1314,6 +1319,8 @@ export interface OrderDetailDTO {
   cfdiStatus: CfdiStatus;
   invoiceRequested: boolean;
   stripePaymentIntentId?: string;
+  /** 💰 §DSC.6 (914): solo si la orden lleva código (`DiscountRedemption`); sin él, la clave se omite (I-1). */
+  discount?: OrderDiscountDTO;
 }
 
 // ---- Retiros / envíos (contrato §5) ----
@@ -2918,6 +2925,8 @@ export interface AdminOrderDetailDTO {
   vaultPieces?: VaultPieceDTO[]; // solo órdenes `vault`
   /** 💰 §AC.12 (aditivo): renglones de accesorio y paquetes. ⛔ Sin costo. */
   accessoryLines?: OrderAccessoryLineDTO[];
+  /** 💰 §DSC.6 (914): el código del pedido en Ventas (también para `vault_operator`, lectura). Omitido sin código (I-1). */
+  discount?: OrderDiscountDTO;
 }
 
 // ---- Cliente (§M4-SHIP.10 / .15.13 / .16) ----
@@ -7367,6 +7376,8 @@ export interface GuestTrackingItemDTO {
   gradeValue?: string;
   imageSmallUrl?: string;
   unitPriceCents: number;
+  /** 💰 §DSC.6 (914): rebaja por unidad, solo si > 0; `unitPriceCents` es lo COBRADO (I-3). */
+  unitDiscountCents?: number;
 }
 
 export interface GuestTrackingShippingDTO {
@@ -7415,6 +7426,8 @@ export interface GuestOrderTrackingDTO {
    * lista) y `kind`; ⛔ `deliveredRefund` solo en M3.
    */
   accessoryLines?: Omit<OrderAccessoryLineDTO, 'deliveredRefund'>[];
+  /** 💰 §DSC.6 (914): solo si la orden lleva código; sin él, la clave se omite (I-1). */
+  discount?: OrderDiscountDTO;
 }
 
 /** POST /orders/guest/resend-link — unión discriminada; `email` SOLO nunca se acepta (§4-G.4). */
@@ -8065,6 +8078,8 @@ export interface OrderAccessoryLineDTO {
    * lo calcula). Opcional por tolerancia a un servidor anterior: ausente ⇒ sin botón.
    */
   deliveredRefund?: AccessoryDeliveredRefundDTO;
+  /** 💰 §DSC.6 (914): rebaja por unidad, solo si > 0; `unitPriceCents` y `lineTotalCents` son lo COBRADO (I-3). */
+  unitDiscountCents?: number;
 }
 
 /** v1.86.2 (§AC.12): `amountByQtyCents[k−1]` = importe de reembolsar k unidades; largo = `refundableQty`. */
@@ -8444,6 +8459,20 @@ export interface DiscountAppliedDTO {
   /** `D` — lo que ve el cliente en «Descuento (CÓDIGO)». Nunca `D0`. */
   discountCents: number;
   /** Tipo c: la `E` que no se cobra; si no, 0. */
+  shippingWaivedCents: number;
+}
+
+/**
+ * §DSC.6 «Dónde se ve el pedido» (914) — el código de una orden YA hecha, en `GET /orders/:id`, `POST /orders/guest/track`
+ * y `GET /admin/orders/:id`. Solo si la orden tiene `DiscountRedemption`; sin él, la clave se OMITE (I-1). Sale de
+ * `Order.discountCents`/`shippingWaivedCents`: ⛔ no trae `outcome` ni `merchandiseBeforeDiscountCents` (forma de quote).
+ */
+export interface OrderDiscountDTO {
+  code: string;
+  kind: DiscountKind;
+  /** `D` de mercancía (= Σ unidades × `unitDiscountCents`); 0 en un código de envío gratis. */
+  discountCents: number;
+  /** Tipo envío gratis: la `E` que no se cobró; si no, 0. */
   shippingWaivedCents: number;
 }
 
