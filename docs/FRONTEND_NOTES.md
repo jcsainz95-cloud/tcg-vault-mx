@@ -2,7 +2,7 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
-## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.2 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
+## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.3 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 
 **Estado vigente.** Cliente y panel contra el mock y contra el backend de §DSC (merges `1c6bb38a`, `e84c86fe`): cinco
 recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Decisiones del dueño: `HECHOS.md`
@@ -12,15 +12,19 @@ gratis» aprobado en lo propio de un código de envío gratis).
   servidor a aplicado/error/aviso; C5 único para los genéricos; C8, C5+, C9 sin cuenta regresiva, C10, C12, C14).
   `AmountBreakdown` gana `discount?`: Subtotal = `merchandiseBeforeDiscountCents`, «Descuento (CÓDIGO) −» = `discountCents`,
   envío gratis: «Envío» con `shippingWaivedCents` y «Envío gratis (CÓDIGO) −» debajo; retiro: «Envío del retiro». Sin la
-  prop, idéntico (915). Las líneas del carrito muestran el exhibido `unitPriceCents + unitDiscountCents` (I-3).
+  prop, idéntico (915). Las líneas pintan `unitPriceBeforeDiscountCents ?? unitPriceCents` (`lineTotal…` igual), ⛔ sin
+  sumar: candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (fuera de `lib/api.ts` y `lib/mock/`).
 - **Pedido ya hecho (914):** `OrderDiscountDTO` (`discount` de `GET /orders/:id`, `POST /orders/guest/track` y
   `GET /admin/orders/:id`; `unitDiscountCents?` en sus líneas y accesorios). `appliedDiscountOfOrder` (en `AmountBreakdown`)
-  lo pasa al desglose del checkout; «Subtotal» antes = `subtotalCents + discountCents` (identidad I-3 del contrato, el detalle
-  no trae `merchandiseBeforeDiscountCents`); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
+  lo pasa al desglose del checkout; «Subtotal» antes = `discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`
+  (v1.110.3, lo da el servidor); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
   «Código» (§DSC-UX.5) y «Cobrado {X} con el código» bajo cada línea (base de los reembolsos). Mock: `ord-dsc-1` y token
   `mock…discount…`. Sin código, desglose idéntico al de hoy (pruebas OD-2/PT-3/MD-3 comparan el marcado). Mutaciones
   M1-M7 (sin `discount` en cada desglose, línea en cobrado, subtotal sin `+D`, sin el corte de rebaja 0, «Cobrado» sin
   código, mock con `discount` siempre): rojo 3/3 cada una, verde al restaurar (sobre `32861059`).
+- **Editar (R3 techlead):** `toEditPatch` (`admin/codes/discount-config.ts`): en edición de un código sin usar el PATCH lleva
+  `null` explícito al vaciar tope/mínimo/usos por cliente y en los campos que el tipo nuevo no usa (el backend conserva lo
+  omitido y rechaza la mezcla). Pesos ⇒ centavos: el conversor único `lib/money-input.ts` (TL-ENV-F2).
 - **Dónde:** invitado bajo destino + T9 y antes de los datos (solo envío a domicilio); con cuenta (bóveda) tras las líneas;
   retiro (`ShipmentsView`) con C1b, MX$0.00 ⇒ botón C16 y `stripe: null` ⇒ sin modal, directo a «Retiros».
 - **Cómo viaja:** el código confirmado entra en la clave de la query y en la sesión; aplicar cotiza con `fetchQuery` sobre
@@ -40,19 +44,20 @@ gratis» aprobado en lo propio de un código de envío gratis).
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
   blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
-- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). v1.110.1: envío gratis con `E` sin código en 0
-  (umbral **o dial**) ⇒ `ALREADY_FREE_SHIPPING`, orden `NO_SHIPPING` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING`, también en
-  el retiro; retiro aplicado con mercancía 0, descuento 0 y `shippingWaivedCents = E`. Paridad: `discounts.parity.test.ts`
-  lee las cifras del contrato y de `PROJECT.md` (893 vigente: MX$850.00, MX$99.99/MX$0.01 y MX$9.99) y compara las claves
-  de `DiscountCodeDTO`/`DiscountCodeBatchDTO` del mock con las del bloque `ts` de §DSC.7. v1.110.2: lote sin códigos sin
-  usar ⇒ `paused` solo si todos pausados; pausar el lote pausa los N (`updateMany` del backend); descargas auditadas.
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). Precedencia de §DSC.4 v1.110.3 (`NO_SHIPPING` →
+  `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM`; retiro
+  con su orden), `details` mínimos, `capped` solo por tope desde `discountOf`, `not_applicable` cuenta para el límite una vez
+  por código y ventana, proyección de línea (`mockProjectUnit`/`mockProjectAccessoryLine`); el seguimiento `mock…discount…`
+  usa `discountOf` + `MOCK_SEPT10_RULE` (TL-DSC-6). Paridad: `discounts.parity.test.ts` (893, 904, DTOs de §DSC.7) y
+  `discounts.v1103.parity.test.ts` (DCO-B20 a-f, DCO-B21, proyección), cifras leídas del contrato.
 - **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
   C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
   `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones de la fase 1 (copia `f462ca55`, 11) y de la 2
   (`33b0ee5c`, 17 vitest + 1 Playwright): 3/3 rojas cada una salvo «sin `gcTime` propio» 9/10; la lista, en `ef5b1094`.
-  v1.110.2 (copia de iteración con el contenido de `12fa4f85`, N=3 cada una, 3/3 rojas y verde al restaurar): action
-  fuera de la lista del contrato · lote agotado siempre `active` · vista previa sin ceros por `MIN_SUBTOTAL` · action
-  desconocida en crudo · importe con `discountCents = 0` · `actor` null sin «Sistema».
+  v1.110.3 (copia de iteración, N=1 cada una, deterministas): DESTINATION antes de NO_SHIPPING · mínimo antes de
+  LARGE_BOX/ALREADY_FREE · `capped` viejo · no contar `not_applicable` · sin dedupe · `details` con `minSubtotalCents` ·
+  seguimiento con `floor(P/10)` · 3 sumas de pantalla · PATCH de `c421de13` · `percentPct` arrastrado · conversor local ·
+  vacío = 0: 14/14 rojas, verde al restaurar.
 - **`@real`** (`utils/discount-scenario.ts`): el dueño crea un código por pantalla; el invitado lo aplica (la fila pinta el
   `discountCents` de la cotización) y lo paga (sesión `201` con `discount` ⇒ doble de Stripe ⇒ `payment_intent.succeeded`
   firmado ⇒ `settled` y el reporte cuenta 1 uso con el mismo descuento); retiro con envío gratis a MX$0.00 sin cobro; DL7.
