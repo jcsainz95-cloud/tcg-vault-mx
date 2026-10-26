@@ -222,7 +222,8 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect((await redemptionOf(s.body.orderId))?.status).toBe('reserved');
       // 914: el detalle del cliente muestra el código y la rebaja por línea.
       const d = await h.api('GET', `/orders/${s.body.orderId}`, { token: c.token });
-      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', discountCents: D, shippingWaivedCents: 0 });
+      // v1.110.3 (§DSC.6, `OrderDiscountDTO`): + `merchandiseBeforeDiscountCents` = `subtotalCents + discountCents` = S.
+      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: S, discountCents: D, shippingWaivedCents: 0 });
     });
 
     it.each([
@@ -756,21 +757,22 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
   describe('v1.110.3 — DCO-B16 ampliada: el servidor proyecta el precio antes del descuento', () => {
     const BEFORE_KEYS = ['unitPriceBeforeDiscountCents', 'lineTotalBeforeDiscountCents', 'merchandiseBeforeDiscountCents'];
 
-    it('invitado 100000 + 50000 + accesorio 2 × 15000 con 10 % ⇒ antes del descuento en quote, session, seguimiento y M3', async () => {
+    // Fixture: 50000 no es exhibible exacto con L entero (r = 16 %, t = 100 %), 60000 sí ⇒ 100000 + 60000 (D0·P/B exactos).
+    it('invitado 100000 + 60000 + accesorio 2 × 15000 con 10 % ⇒ antes del descuento en quote, session, seguimiento y M3', async () => {
       const code = await mkCode({ kind: 'percent', percentPct: 10 });
       const a = await piece('raw', 100000, true);
-      const b = await piece('raw', 50000, true);
+      const b = await piece('raw', 60000, true);
       const x = await acc.mkAccessory({ priceCents: 15000, stockQty: 5 });
       const cart = { inventoryItemIds: [a.id, b.id], accessoryLines: [{ accessoryId: x.id, quantity: 2 }] };
       const email = acc.email('before');
       const beforeOf = (items: { inventoryItemId: string; unitPriceBeforeDiscountCents?: number; unitPriceCents: number }[]) =>
         Object.fromEntries(items.map((i) => [i.inventoryItemId, [i.unitPriceCents, i.unitPriceBeforeDiscountCents]]));
-      const expectedItems = { [a.id]: [90000, 100000], [b.id]: [45000, 50000] };
+      const expectedItems = { [a.id]: [90000, 100000], [b.id]: [54000, 60000] };
       const accLine = { accessoryId: x.id, quantity: 2, unitPriceCents: 13500, lineTotalCents: 27000, unitDiscountCents: 1500, unitPriceBeforeDiscountCents: 15000, lineTotalBeforeDiscountCents: 30000 };
 
       const q = await acc.quote({ ...cart, email, discountCode: code.code });
       expect(q.status).toBe(200);
-      expect(q.body.discount).toMatchObject({ outcome: 'applied', merchandiseBeforeDiscountCents: 180000, discountCents: 18000 });
+      expect(q.body.discount).toMatchObject({ outcome: 'applied', merchandiseBeforeDiscountCents: 190000, discountCents: 19000 });
       expect(beforeOf(q.body.items)).toEqual(expectedItems);
       expect(q.body.accessoryLines[0]).toMatchObject(accLine);
 
@@ -782,9 +784,9 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
 
       const t = await acc.track(s.body.checkoutToken);
       expect(t.status).toBe(200);
-      expect(t.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 180000, discountCents: 18000, shippingWaivedCents: 0 });
+      expect(t.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 190000, discountCents: 19000, shippingWaivedCents: 0 });
       const tItems = Object.fromEntries((t.body.items as { unitPriceCents: number; unitPriceBeforeDiscountCents?: number }[]).map((i) => [i.unitPriceCents, i.unitPriceBeforeDiscountCents]));
-      expect(tItems).toEqual({ 90000: 100000, 45000: 50000 });
+      expect(tItems).toEqual({ 90000: 100000, 54000: 60000 });
       expect(t.body.accessoryLines[0]).toMatchObject({ unitPriceCents: 13500, lineTotalCents: 27000, unitDiscountCents: 1500, unitPriceBeforeDiscountCents: 15000, lineTotalBeforeDiscountCents: 30000 });
 
       const m3 = await acc.adminOrder(s.body.orderId);
@@ -802,26 +804,26 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       for (const body of [q0.body, s0.body, t0.body, m0.body]) for (const k of BEFORE_KEYS) expect(keysDeep(body).has(k)).toBe(false);
     });
 
-    it('cuenta (bóveda) 100000 + 50000 con 10 % ⇒ GET /orders/:id con antes del descuento y `discount.merchandiseBeforeDiscountCents` 150000', async () => {
+    it('cuenta (bóveda) 100000 + 60000 con 10 % ⇒ GET /orders/:id con antes del descuento y `discount.merchandiseBeforeDiscountCents` 160000', async () => {
       const code = await mkCode({ kind: 'percent', percentPct: 10 });
       const c = await customer();
       const a = await piece('raw', 100000, true);
-      const b = await piece('raw', 50000, true);
+      const b = await piece('raw', 60000, true);
       const q = await vaultQuote(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code });
-      expect(q.body.discount).toMatchObject({ merchandiseBeforeDiscountCents: 150000, discountCents: 15000 });
+      expect(q.body.discount).toMatchObject({ merchandiseBeforeDiscountCents: 160000, discountCents: 16000 });
       const s = await vaultSession(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code });
       expect(s.status).toBe(201);
       expect(s.body.discount).toEqual(q.body.discount);
       const d = await h.api('GET', `/orders/${s.body.orderId}`, { token: c.token });
       expect(d.status).toBe(200);
-      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 150000, discountCents: 15000, shippingWaivedCents: 0 });
+      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 160000, discountCents: 16000, shippingWaivedCents: 0 });
       const before = Object.fromEntries(
         (d.body.items as { inventoryItemId: string; unitPriceCents: number; unitPriceBeforeDiscountCents: number; unitDiscountCents: number }[]).map((i) => [
           i.inventoryItemId,
           [i.unitPriceCents, i.unitDiscountCents, i.unitPriceBeforeDiscountCents],
         ]),
       );
-      expect(before).toEqual({ [a.id]: [90000, 10000, 100000], [b.id]: [45000, 5000, 50000] });
+      expect(before).toEqual({ [a.id]: [90000, 10000, 100000], [b.id]: [54000, 6000, 60000] });
       const m3 = await acc.adminOrder(s.body.orderId);
       expect(m3.body.discount).toEqual(d.body.discount);
     });
@@ -906,12 +908,12 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
 
     it('el MISMO `not_applicable` cotizado 20 veces suma 1 (y su sesión no suma otra vez en la IP); al llegar al mínimo aplica', async () => {
       const code = await mkCode({ kind: 'percent', percentPct: 10, minSubtotalCents: 100000, maxUsesPerCustomer: null });
-      const small = await piece('raw', 50000, true);
+      const small = await piece('raw', 60000, true);
       for (let i = 0; i < 20; i += 1) expect((await acc.quote({ inventoryItemIds: [small.id], discountCode: code.code })).body.discount.reason).toBe('MIN_SUBTOTAL');
       expect(await failuresByKind()).toEqual({ ip: 1 });
       const s = await acc.session({ inventoryItemIds: [small.id], discountCode: code.code });
       expect(s.status).toBe(422);
-      expect(s.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'MIN_SUBTOTAL', missingCents: 50000 } });
+      expect(s.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'MIN_SUBTOTAL', missingCents: 40000 } });
       expect(Object.keys(s.body.error.details).sort()).toEqual(['missingCents', 'reason']);
       // la sesión trae correo ⇒ su clave `email:` suma 1; la `ip:` ya contó ese código en esta ventana.
       expect(await failuresByKind()).toEqual({ ip: 1, email: 1 });

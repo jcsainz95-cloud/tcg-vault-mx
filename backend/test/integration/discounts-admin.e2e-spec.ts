@@ -345,7 +345,14 @@ describe('💰 §DSC.7 — códigos de descuento, fase 2: rutas del dueño (Post
       for (const s of paidOrders) {
         const m3 = await acc.adminOrder(s.body.orderId, op);
         expect(m3.status).toBe(200);
-        expect(m3.body.discount).toEqual({ code, kind: 'percent', discountCents: s.body.discount.discountCents, shippingWaivedCents: 0 });
+        // v1.110.3 (§DSC.6, `OrderDiscountDTO`): + `merchandiseBeforeDiscountCents` (el de la sesión).
+        expect(m3.body.discount).toEqual({
+          code,
+          kind: 'percent',
+          merchandiseBeforeDiscountCents: s.body.discount.merchandiseBeforeDiscountCents,
+          discountCents: s.body.discount.discountCents,
+          shippingWaivedCents: 0,
+        });
         expect(m3.body.items[0].unitDiscountCents).toBe(s.body.discount.discountCents);
         ventas += m3.body.discount.discountCents;
       }
