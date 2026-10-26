@@ -40,8 +40,20 @@ export const GA4_MP_API_SECRET_RE = /^[A-Za-z0-9_-]{1,128}$/;
 export const META_PIXEL_ID_RE = /^\d{10,20}$/;
 export const META_CAPI_TOKEN_RE = /^\S{20,512}$/;
 
-/** Versión de la API de Graph de Meta: FIJA en código (§MKT.H.1). Cambiarla es un cambio revisado. */
-export const META_GRAPH_API_VERSION = 'v21.0';
+/**
+ * Versión de la API de Graph de Meta (CAPI y evento de prueba): FIJA en código. Su única fuente en `docs/` es el bloque
+ * `META-GRAPH-VERSION` de API_CONTRACT §MKT.H.1; la paridad (y la caducidad `reviewBy`) la cobra C-B15
+ * (`test/measurement.graph-version.spec.ts`). Cambiarla es un cambio de contrato (§MKT.H.12, «Cambiar la versión»).
+ */
+export const META_GRAPH_API_VERSION = 'v26.0';
+
+/** Base de Graph. La URL de eventos sale SOLO de aquí (drenador y evento de prueba). */
+export const META_GRAPH_URL = 'https://graph.facebook.com';
+
+/** `POST <graph>/<versión>/<pixel>/events` (§MKT.H.5/.12). ⛔ El token no va en la URL: va en el cuerpo. */
+export function metaEventsUrl(pixelId: string): string {
+  return `${META_GRAPH_URL}/${META_GRAPH_API_VERSION}/${encodeURIComponent(pixelId)}/events`;
+}
 
 export type EnvLike = Record<string, string | undefined>;
 
@@ -111,7 +123,7 @@ export interface MeasurementEncenderBlocker {
 export const BACKEND_ENCENDER_BLOCKERS: readonly MeasurementEncenderBlocker[] = [
   {
     id: 'MKT-F2-3',
-    what: "META_GRAPH_API_VERSION ('v21.0') sin verificar vigente para la fecha de encendido",
+    what: "META_GRAPH_API_VERSION ('v26.0') sin verificar vigente para la fecha de encendido",
     closedBy: 'evento de prueba de Meta aceptado (2xx) con la versión fijada, anotado en BACKEND_NOTES (TECH_DEBT MKT-F2-3)',
   },
 ];
