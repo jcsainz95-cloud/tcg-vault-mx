@@ -298,6 +298,29 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
     });
   });
 
+  // ================================================================ TL-ENV-2
+
+  describe('TL-ENV-2 — quote de la orden propia CONGELADA tras mover los diales: `shippingRule` describe la E congelada', () => {
+    it('se baja T por debajo de S ⇒ breakdown con E = 10000 (congelada) y freeShippingApplied:false (antes: true, con los diales vivos)', async () => {
+      const it1 = await piece('raw', 60000);
+      const email = acc.email('tlenv2');
+      const s = await acc.session({ inventoryItemIds: [it1.id] }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.shippingFeeCents).toBe(E_CARDS);
+      await setDial(K_FREE, 50000); // S = 60000 ≥ T nuevo
+      await setDial(K_CARDS, 9000);
+      const q = await acc.quote({ inventoryItemIds: [it1.id], email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.status).toBe(200);
+      expect(q.body.ownReservation).toMatchObject({ coversCart: true, expired: false });
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      // La regla dice lo mismo que el desglose de la MISMA respuesta: E = 10000 ⇒ no es envío gratis.
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: 50000, freeShippingRemainingCents: 0, freeShippingApplied: false, boxFeeApplies: false });
+      // Un carrito sin reserva propia: la regla de HOY (S = 60000 ≥ T = 50000 ⇒ gratis).
+      const live = await acc.quote({ inventoryItemIds: [(await piece('raw', 60000)).id] });
+      expect(live.body.shippingRule).toMatchObject({ freeShippingApplied: true });
+    });
+  });
+
   // ================================================================ ENV-4
 
   describe('ENV-4 — retiro desde bóveda y envío directo, dos diales distintos', () => {

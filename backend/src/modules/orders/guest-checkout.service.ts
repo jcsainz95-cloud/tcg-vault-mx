@@ -10,7 +10,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { OrdersService, OwnReservation } from './orders.service';
-import { frozenDirectShipBreakdownOf } from './frozen-breakdown';
+import { frozenDirectShipBreakdownOf, frozenShippingRuleOf } from './frozen-breakdown';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
@@ -262,9 +262,13 @@ export class GuestCheckoutService {
       shippingBox: shippingBoxDtoOf(computed.choice),
       vaultExcludesAccessories: acc.accessoryLines.length > 0 || acc.energyBundles.length > 0,
       // 💰 v1.109 (§4-G.12 punto 4): SIEMPRE presente; `freeShippingRemainingCents` contra el `subtotalCents` de ESTA respuesta.
+      // TL-ENV-2: con el congelado de la orden propia, la regla describe la `E` CONGELADA (la del `breakdown` de esta misma
+      // respuesta), no la de los diales vivos; con código, la del cálculo con código.
       shippingRule: applied && dq?.dials
         ? this.discountedShippingRule(empty ? null : kind, applied, dq.dials)
-        : computed.shippingRule(breakdown.subtotalCents),
+        : frozenOrder
+          ? computed.frozenShippingRule(frozenOrder)
+          : computed.shippingRule(breakdown.subtotalCents),
       ...(dq ? { discount: dq.discount } : {}),
     };
   }
@@ -983,6 +987,8 @@ export class GuestCheckoutService {
     choice: BoxChoice | null;
     /** El DTO de §4-G.12 punto 4 contra el `subtotalCents` que viaja en la respuesta (el congelado si rige). */
     shippingRule: (subtotalCents: number) => GuestShippingRuleDTO;
+    /** TL-ENV-2: el DTO del quote congelado — `freeShippingApplied`/`boxFeeApplies` de la `E` y la caja CONGELADAS de la orden. */
+    frozenShippingRule: (order: Order) => GuestShippingRuleDTO;
   }> {
     const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
@@ -990,7 +996,8 @@ export class GuestCheckoutService {
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
       const none = directShipFeeOf(null, 0, dials, null);
-      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null, shippingRule: (s) => shippingRuleDtoOf(null, s, dials, none) };
+      const rule = (s: number) => shippingRuleDtoOf(null, s, dials, none);
+      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null, shippingRule: rule, frozenShippingRule: (o) => rule(o.subtotalCents) };
     }
     // TL-ENV-1/TL-ENV-4: la cadena única (`S + E` no representable en Int32 ⇒ 422 AMOUNT_TOO_LARGE, ⛔ nunca un 500 crudo).
     const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice, ivaRatePct: ivaPct, fee });
@@ -999,6 +1006,7 @@ export class GuestCheckoutService {
       vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct, fee),
       choice,
       shippingRule: (s) => shippingRuleDtoOf(kind, s, dials, ship),
+      frozenShippingRule: (o) => frozenShippingRuleOf(kind, o, dials),
     };
   }
 

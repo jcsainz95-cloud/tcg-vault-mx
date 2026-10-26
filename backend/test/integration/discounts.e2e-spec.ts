@@ -849,6 +849,21 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
     });
   });
 
+  describe('TL-ENV-2 con código — el quote congelado de un pedido con envío gratis por código', () => {
+    it('re-cotizar con el mismo código y el token ⇒ E = 0 congelada, freeShippingApplied:true y sin «te faltan» (antes: la regla viva)', async () => {
+      const code = await mkCode({ kind: 'free_shipping' });
+      const a = await piece('raw', 60000, true);
+      const email = acc.email('frozenfree');
+      const s = await acc.session({ inventoryItemIds: [a.id], discountCode: code.code }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.shippingFeeCents).toBe(0);
+      const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code, email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      expect(q.body.discount).toEqual(s.body.discount);
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: T, freeShippingRemainingCents: null, freeShippingApplied: true, boxFeeApplies: false });
+    });
+  });
+
   describe('v1.110.3 — DCO-B20 (quote): precedencia de los motivos con envío gratis y mínimo 300000', () => {
     it('(a)…(f) por HTTP: bóveda ⇒ NO_SHIPPING; ya gratis; caja grande; mínimo; destino', async () => {
       const free = await mkCode({ kind: 'free_shipping', minSubtotalCents: 300000, maxUsesPerCustomer: null });
