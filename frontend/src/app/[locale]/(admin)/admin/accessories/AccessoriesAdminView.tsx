@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AccessoryPhoto } from '@/components/domain/accessories/AccessoryPhoto';
-import { centsToPesosInput, pesosInputToCents } from './money-input';
+import { centsToPesosInput, pesosToCents as pesosInputToCents } from '@/lib/money-input';
 
 type StatusFilter = '' | 'published' | 'unpublished';
 

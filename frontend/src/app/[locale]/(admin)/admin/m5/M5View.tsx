@@ -42,6 +42,8 @@ import { asApiError } from '@/lib/api-client';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { useBuylistSteps } from '@/lib/pipelines';
+// TL-ENV-F2: el conversor único; inválido/vacío ⇒ `null`.
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
 /**
  * Pestañas por ETAPA de la solicitud (G3): en vez de una pila plana con las 7 acciones
@@ -182,14 +184,6 @@ function sellerLabel(req: Pick<AdminBuylistDTO, 'userId' | 'seller'>): string {
   return req.seller ? `${req.seller.name} · ${req.seller.email}` : req.userId;
 }
 
-/** Convierte pesos (texto) a centavos enteros; inválido/vacío → null. */
-function pesosToCents(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed.replace(/,/g, ''));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
-}
 
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);

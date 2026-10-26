@@ -331,9 +331,9 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                         <li key={it.inventoryItemId} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
                           <span lang="en">{name}</span>
                           <span className="flex flex-wrap items-baseline gap-3">
-                            {/* 💰 §DSC I-3 (914): el exhibido (`+ unitDiscountCents`), como el checkout; lo COBRADO va debajo. */}
+                            {/* 💰 §DSC I-3 (914): el exhibido del servidor (v1.110.3, DCO-F6), como el checkout; lo COBRADO va debajo. */}
                             <span className="tabular" data-testid={`m3-item-price-${it.inventoryItemId}`}>
-                              {formatMoneyCents(it.unitPriceCents + (it.unitDiscountCents ?? 0), locale)}
+                              {formatMoneyCents(it.unitPriceBeforeDiscountCents ?? it.unitPriceCents, locale)}
                             </span>
                             {canRefund && dr?.kind === 'refundable' && (
                               <Button
@@ -387,9 +387,10 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                         // v1.86.3 (§AC.19.6): `id` y `kind` obligatorios; el paquete se reconoce por `kind`.
                         const isBundle = l.kind === 'energy_bundle';
                         const key = l.id;
-                        // 💰 §DSC I-3 (914): `lineTotalCents` es lo COBRADO; el renglón dice el exhibido y, con código, lo cobrado.
-                        const unitDiscount = l.unitDiscountCents ?? 0;
-                        const total = formatMoneyCents(l.lineTotalCents + l.quantity * unitDiscount, locale);
+                        // 💰 §DSC I-3 (914): `lineTotalCents` es lo COBRADO; el renglón dice el exhibido del servidor (v1.110.3,
+                        // DCO-F6) y, con código, lo cobrado.
+                        const discounted = (l.unitDiscountCents ?? 0) > 0;
+                        const total = formatMoneyCents(l.lineTotalBeforeDiscountCents ?? l.lineTotalCents, locale);
                         const dr = l.deliveredRefund;
                         const canRefund = isSuperAdmin && dr?.kind === 'refundable' && dr.amountByQtyCents.length > 0;
                         return (
@@ -399,7 +400,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                               {isBundle && l.components.length > 0 && (
                                 <span className="font-mono text-xs text-muted">{energyBreakdown(l.components, taccessories)}</span>
                               )}
-                              {unitDiscount > 0 && (
+                              {discounted && (
                                 <span className="tabular text-xs text-muted" data-testid={`m3-accessory-charged-${key}`}>
                                   {td('chargedWithDiscount', { amount: formatMoneyCents(l.lineTotalCents, locale) })}
                                 </span>

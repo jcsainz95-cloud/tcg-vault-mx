@@ -9,6 +9,7 @@ import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
 import { FINISH_ORDER } from '@/lib/finish';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 
 export interface ShopFiltersProps {
   facets?: CatalogFacetsDTO;
@@ -356,10 +357,6 @@ function PriceFilter({ facets, filters, onChange }: ShopFiltersProps) {
   const t = useTranslations('shop.price');
 
   const toPesos = (cents?: number) => (cents == null ? '' : String(Math.round(cents / 100)));
-  const toCents = (pesos: string): number | undefined => {
-    const n = Number(pesos.replace(/[^\d.]/g, ''));
-    return pesos.trim() === '' || Number.isNaN(n) ? undefined : Math.round(n * 100);
-  };
 
   return (
     <fieldset>
@@ -384,8 +381,8 @@ function PriceFilter({ facets, filters, onChange }: ShopFiltersProps) {
                 onChange={(e) =>
                   onChange(
                     kind === 'min'
-                      ? { ...filters, minPriceCents: toCents(e.target.value) }
-                      : { ...filters, maxPriceCents: toCents(e.target.value) },
+                      ? { ...filters, minPriceCents: pesosToCentsOrNull(e.target.value) ?? undefined }
+                      : { ...filters, maxPriceCents: pesosToCentsOrNull(e.target.value) ?? undefined },
                   )
                 }
                 className="tabular w-full min-w-0 bg-transparent text-sm text-text outline-none placeholder:text-muted"

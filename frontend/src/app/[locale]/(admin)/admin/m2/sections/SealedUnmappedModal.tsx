@@ -20,7 +20,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { SealedProductPicker } from '../../m1/SealedProductPicker';
-import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from './shared';
+import { sanitizeDecimalInput, isSaveableRuleValue } from './shared';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 
 /**
  * §M2-SK — las DOS salidas de una fila de sellado SIN MAPEAR en la cola de precio pendiente.
@@ -170,12 +171,14 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
   const [priceValue, setPriceValue] = useState('');
   const [priceDone, setPriceDone] = useState<{ count: number; cents: number } | null>(null);
   // S-L1 money-safe: vacío o mal formado ("1.2.3") castearía a NaN→0 ⇒ MX$0. Mismo guard que el override.
-  const priceInvalid = !isSaveableRuleValue(priceValue);
+  const priceInvalid = !isSaveableRuleValue(priceValue) || pesosToCentsOrNull(priceValue) === null;
   // T-1: solo plataforma en venta, y nunca sobre una lista cortada.
   const canPrice = priceable.length > 0 && !priceInvalid && !truncated;
   const price = useMutation({
     mutationFn: async () => {
-      const listPriceCents = pesosToCents(priceValue);
+      const listPriceCents = pesosToCentsOrNull(priceValue);
+      // ⛔ Nunca a MX$0 por un valor que no convierte (el botón ya está bloqueado; esto es la segunda llave).
+      if (listPriceCents === null) throw new Error('invalid price');
       await Promise.all(priceable.map((p) => updateInventoryItem(p.id, { listPriceCents })));
       return { count: priceable.length, cents: listPriceCents };
     },
@@ -343,7 +346,7 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
                 </Banner>
               )}
               {priceValue !== '' && !priceInvalid && (
-                <p className="text-xs text-muted">= {formatMoneyCents(pesosToCents(priceValue), locale)}</p>
+                <p className="text-xs text-muted">= {formatMoneyCents(pesosToCentsOrNull(priceValue) ?? 0, locale)}</p>
               )}
               {price.isError && (
                 <Banner variant="danger" role="alert" title={tc('errorTitle')}>
