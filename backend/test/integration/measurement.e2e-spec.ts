@@ -44,7 +44,10 @@ const FULL = {
 type World = { h: E2EHarness; http: jest.Mocked<MeasurementHttp>; token: string; userId: string; template: { cardId: string; locationId: string | null } };
 
 async function boot(env: Record<string, string | undefined>): Promise<World> {
-  const http = { postJson: jest.fn(async (_u: string, _b: unknown, _t: number): Promise<number | null> => 204) } as jest.Mocked<MeasurementHttp>;
+  const http = {
+    postJson: jest.fn(async (_u: string, _b: unknown, _t: number): Promise<number | null> => 204),
+    postMetaDiagnostic: jest.fn(),
+  } as jest.Mocked<MeasurementHttp>;
   const h = await E2EHarness.create((b) =>
     b
       .overrideProvider(MeasurementService)
