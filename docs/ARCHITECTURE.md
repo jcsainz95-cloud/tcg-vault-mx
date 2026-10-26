@@ -4,13 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
-> **Rev v1.112⟨meta-prueba⟩ (2026-10-26, arquitecto, sin Bash).** §14.10 D-MKT2-10: versión de Graph y evento de prueba de Meta (cierre de MKT-F2-3);
-> D-MKT-CELLS-1 compactada (cerrada por lectura) · backend (MKT-F2-3). Contrato: API_CONTRACT §MKT.H.1/.12.
-> **Rev v1.111⟨aviso-medicion⟩ (2026-10-26).** §14.1 D-MKT2-0b: `legalReviewOn | null` + `legalReviewWaivedByOwnerOn`, exactamente una con fecha
-> (sin abogado: `HECHOS.md` 2026-10-23); §14.10: cinco decisiones fijadas por el aviso aprobado (`HECHOS.md` 2026-10-26) · orquestador.
+> **Rev v1.112.2⟨sec-med-1⟩ (2026-10-26).** §14.4 D-MKT2-11: URL saneada en todo evento de GA4, píxel solo en documento limpio, medición mejorada apagada · seguridad (SEC-MED-1, `1256b21c`).
+> **Rev v1.112⟨meta-prueba⟩ (2026-10-26).** §14.10 D-MKT2-10: versión de Graph y evento de prueba de Meta (cierre de MKT-F2-3); D-MKT-CELLS-1 compactada · backend. Contrato: §MKT.H.1/.12.
+> **Rev v1.111⟨aviso-medicion⟩ (2026-10-26).** §14.1 D-MKT2-0b: `legalReviewOn | null` + `legalReviewWaivedByOwnerOn`, exactamente una (`HECHOS.md` 2026-10-23); §14.10 aviso aprobado · orquestador.
 > ---
-> **Rev v1.109⟨envio-v2⟩ (2026-10-24, arquitecto, árbol vivo, sin Bash).** **§14.4:** `/buylist` (D-MKT2-8) y `/card-show` (D-MKT2-9)
-> entran a la lista blanca; §14.10 pregunta 3 contestada. Regla de envío v2: solo en API_CONTRACT §4-G.12 (un hecho, un sitio).
+> **Rev v1.109⟨envio-v2⟩ (2026-10-24).** **§14.4:** `/buylist` (D-MKT2-8) y `/card-show` (D-MKT2-9) en la lista blanca; §14.10 pregunta 3. Envío v2: solo en API_CONTRACT §4-G.12.
 > ---
 > **Rev v1.107⟨mkt-celdas⟩ (2026-10-19).** **§13.7:** D-MKT-PANEL-5 (umbral por componente y sujeto, poblaciones, auditor). **§9:** `D-MKT-CELLS-1`.
 > ---
@@ -19,11 +17,9 @@
 > ---
 > **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, sobre `e0cce11b`).** **§4.37.1-b:** eje de query con `@Query('<nombre>')`; SELECTOR §0-Q. **§9:** `D-EQ-5`.
 > ---
-> **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`,
-> leído sobre `5524bd69`, sin Bash).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta Pixel y CAPI),
-> construida **apagada** tras dos variables y una puerta de build que exige el aviso nuevo; sin GTM; eventos de servidor por cola
-> post-commit que no toca el pago; migración **m86**. **§13.7:** D-MKT-PANEL-2 pasa a «el dueño ve cifras exactas en su pantalla»
-> (`HECHOS.md:172`) y nace D-MKT-PANEL-4 (supresión coherente mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
+> **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, sobre `5524bd69`).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta
+> Pixel y CAPI), construida **apagada** tras dos variables y una puerta de build; sin GTM; eventos de servidor por cola post-commit que no toca el pago; **m86**.
+> **§13.7:** D-MKT-PANEL-2 «el dueño ve cifras exactas» (`HECHOS.md:172`) y D-MKT-PANEL-4 (supresión mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
 > ---
 > **Rev v1.95⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda`).** §13 NUEVA: atribución UTM (m81, `firstUtm*` en
 > `Order`/`SellRequest`), ficha pública de sellado con SSR/og, SEO y panel de marketing Fase 0 (m82). Fuente:
@@ -37071,9 +37067,16 @@ visitantes, y antes de la elección no se escribe nada en el dispositivo.
   `<script>` de `googletagmanager.com`/`connect.facebook.net`.** El checkout de invitado es la excepción que el brief admite (§D2.1:
   «en checkout solo los eventos de §B2»): ahí se teclean correo y dirección con las etiquetas cargadas; mitigación: sin coincidencia
   avanzada, sin eventos automáticos, sin `page_view` automático. Seguridad lo revisa.
-- **URL que sale (§D2.2):** `page_location`, `page_referrer` y la URL que ve el píxel se reescriben con una sola función:
-  origen + ruta + solo los `utm_*` que pasan `parseFirstUtm`. Se borra todo lo demás (`token`, `session_id`,
-  `payment_intent_client_secret`, `email`, `code`, el fragmento `#…`).
+- **URL que sale (§D2.2; D-MKT2-11, v1.112.2, SEC-MED-1).** Fuente única de la query admitida: `MEASUREMENT_QUERY_ALLOWLIST` en `frontend/src/lib/measurement/utm.ts`,
+  que usan `sanitizeMeasurementUrl(raw, dest)` e `isPixelSafeUrl(href)`. **GA4:** los cuatro `utm_*` que pasan `parseFirstUtm`. **Píxel:** esos y `fbclid` (`^[A-Za-z0-9_-]{1,255}$`; Meta arma
+  `_fbc` con él y el aviso lo declara). Fuera siempre: `q`, `utm_term`, `utm_id`, `gclid`, `_gl`, todo lo demás (`token`, `session_id`, `email`, `code`…) y el `#…`; una clave nueva es cambio de contrato.
+  **GA4:** sin `page_location` gtag manda la URL del documento ⇒ `config` lleva `page_location`/`page_referrer` saneados y `track()` los pone en **cada** `gtag('event')` (MKT.H.4).
+  **Píxel:** `fbevents.js` lee `location.href` y `document.referrer` por su cuenta y no deja reescribirlos ⇒ solo actúa en un documento cuya URL pasa `isPixelSafeUrl` (claves de su lista, sin
+  repetir, sin `#`) y cuyo referente, si es de nuestro origen, también. Si no: `loadMeta` no inyecta ni hace `init` (el proveedor reintenta en la siguiente ruta medida) y `track()` no llama a `fbq`;
+  se evalúa en cada llamada (`?q=` añadido después ⇒ ese `AddToCart` va solo a GA4). Descartadas: `history.replaceState` (rompe la búsqueda: `q` es estado del catálogo, recarga y «atrás»);
+  `autoConfig` (ya va apagado y no toca la URL); excluir `/catalog` (pierde más). Coste aceptado: eventos de Meta desde una URL sucia (la compra la cubre CAPI). **Medición mejorada de GA4 entera
+  apagada** en consola (su búsqueda en el sitio lee `q`; formularios en el checkout de invitado; historial y clics salientes con URL completa): §MKT.H.10 paso 5. Lo que mandan las librerías reales:
+  **NO VERIFICADO** (el E2E las sustituye, `measurement-on.spec.ts:20`); lo cierra tester-e2e al encender, con red real: ningún `dl`/`dr`/`rl` con el término; si aparece, `off`. **Servidor: no aplica** (MP no lleva `page_location`; CAPI `event_source_url` = origen + ruta constante sin query, `measurement-bodies.ts:186`, `measurement-drain.service.ts:157,169`): sin entrada en `BACKEND_ENCENDER_BLOCKERS`.
 
 ### 14.5 Eventos del navegador (§B2) y sus desvíos
 
@@ -37157,11 +37160,8 @@ dirección o CP, CLABE, INE/CURP/RFC, IP (el servidor **no** pone `client_ip_add
 (`checkoutToken`, `OrderAccessToken`, sesión, `client_secret`), `user_id` de GA4, `external_id`, `em`, `ph`, `fn`, `ln`, `ct`, `st`,
 `zp`, `country`, `db`, `ge`. **Agente de usuario por CAPI: no se envía** (decidido por el dueño, §14.10).
 
-**Ajustes que no son código (los hace el dueño en las consolas, lista en API_CONTRACT §MKT.H.10):** GA4 sin Google Signals, sin
-personalización de anuncios, sin «datos proporcionados por el usuario», retención de eventos 14 meses; píxel con coincidencia
-avanzada automática y configuración automática de eventos apagadas, sin audiencias ni conversiones personalizadas. En código se
-fija lo que se puede fijar: `fbq('set','autoConfig',false,…)` antes de `init`, `fbq.disablePushState = true`, `send_page_view:
-false`, `allow_google_signals: false`, `allow_ad_personalization_signals: false`.
+**Ajustes que no son código:** los hace el dueño en las consolas; la lista, en orden, es API_CONTRACT §MKT.H.10 (única fuente). En código se fija lo que se puede:
+`fbq('set','autoConfig',false,…)` antes de `init`, `fbq.disablePushState = true`, `send_page_view: false`, `allow_google_signals: false`, `allow_ad_personalization_signals: false` y la URL de §14.4.
 
 ### 14.8 CSP con medición: orígenes solo si está encendido
 

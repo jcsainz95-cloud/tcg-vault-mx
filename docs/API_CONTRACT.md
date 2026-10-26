@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.112.1⟨arreglos-dsc⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.112.2⟨sec-med-1⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -23,7 +23,8 @@
 > - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1).
 > - v1.111⟨aviso-medicion⟩ · 2026-10-26 · §MKT.H: sin abogado; C-D1 exige exactamente una de `legalReviewOn`/`legalReviewWaivedByOwnerOn` (ARCHITECTURE §14.1); .5/.10/.12 al día con las decisiones del aviso aprobado (ARCHITECTURE §14.10) · orquestador (`HECHOS.md` 2026-10-23 y 2026-10-26).
 > - v1.112⟨meta-prueba⟩ · 2026-10-26 · §MKT.H.1 versión de Graph `v26.0` entre marcadores; §MKT.H.12 `POST /admin/measurement/meta-test-event` y cierre de MKT-F2-3; `409 MEASUREMENT_META_NOT_CONFIGURED` en §0; compactados §MKT.A/.B/.E/.H.13/.H.14 · backend (MKT-F2-3, medición del 2026-10-26).
-> - v1.112.1⟨arreglos-dsc⟩ · 2026-10-26 · §MKT.E restaura la línea canónica de `format` que la compactación de v1.112 partió (rojo de `enum-query-axes`); §DSC: `ZERO_DISCOUNT` + I-7 + DCO-B22 (DSC-B-6), «con código» en el tardío ⇔ `DiscountRedemption`, `PATCH` con `null` que limpia, `pageSize > 100` ⇒ 400, listas de M-92 `NOT NULL`; §4-G.12 punto 4 «te faltan» del congelado (TL-ENV-2) · backend/frontend/QA. La siguiente es **v1.113**.
+> - v1.112.1⟨arreglos-dsc⟩ · 2026-10-26 · §MKT.E restaura la línea canónica de `format` que la compactación de v1.112 partió (rojo de `enum-query-axes`); §DSC: `ZERO_DISCOUNT` + I-7 + DCO-B22 (DSC-B-6), «con código» en el tardío ⇔ `DiscountRedemption`, `PATCH` con `null` que limpia, `pageSize > 100` ⇒ 400, listas de M-92 `NOT NULL`; §4-G.12 punto 4 «te faltan» del congelado (TL-ENV-2) · backend/frontend/QA.
+> - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`). La siguiente es **v1.113**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -45113,19 +45114,16 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 | `MKT_GA4_PROPERTY_ID` | Railway | no | `^\d{6,12}$` | tablas GA4 `measured:false` |
 | `MKT_SEARCH_CONSOLE_SITE` | Railway | no | `sc-domain:tcghunt.mx` o URL `https://…/` | tabla e1 `measured:false` |
 
-- **Versión de Graph de Meta (CAPI y evento de prueba): fija en código** (`META_GRAPH_API_VERSION`, `measurement.config.ts`), no en
-  variable; este bloque es su única fuente en `docs/` (la prueba de paridad de backend lo lee; BACKEND_NOTES enlaza, no copia).
-  `reviewBy` = fin de `v25.0` (la última fecha publicada en la tabla de Marketing API; la de `v26.0` es «TBD», medido por backend el
-  2026-10-26): desde ese día la prueba de backend está roja hasta re-medir la tabla de Meta y mover la fila (cambio de contrato).
+- **Versión de Graph de Meta (CAPI y evento de prueba): fija en código** (`META_GRAPH_API_VERSION`, `measurement.config.ts`), no en variable; este bloque es su única fuente en `docs/` (la prueba de paridad de backend lo lee; BACKEND_NOTES enlaza, no copia).
+  `reviewBy` = fin de `v25.0` (última fecha publicada en la tabla de Marketing API; la de `v26.0` es «TBD», medido por backend el 2026-10-26): desde ese día la prueba de backend está roja hasta re-medir la tabla de Meta y mover la fila (cambio de contrato).
 <!-- META-GRAPH-VERSION:start -->
 | `version` | `reviewBy` |
 |---|---|
 | `v26.0` | `2027-02-23` |
 <!-- META-GRAPH-VERSION:end -->
-- **Orígenes de medición en la CSP con modo `on`** (`connect-src`): `https://www.googletagmanager.com`,
-  `https://*.google-analytics.com`, `https://*.analytics.google.com`, `https://connect.facebook.net`, `https://www.facebook.com`.
-  Con `off`, ninguno. Lista exacta que piden `gtag.js`/`fbevents.js`: **NO VERIFICADO** (se completa con los informes de la fase
-  report-only, origen exacto por origen exacto, como manda `csp.ts:24-29`).
+- **Orígenes de medición en la CSP con modo `on`** (`connect-src`): `https://www.googletagmanager.com`, `https://*.google-analytics.com`, `https://*.analytics.google.com`,
+  `https://connect.facebook.net`, `https://www.facebook.com`. Con `off`, ninguno. Lista exacta que piden `gtag.js`/`fbevents.js`: **NO VERIFICADO** (se completa con los informes
+  de la fase report-only, origen exacto por origen exacto, como manda `csp.ts:24-29`).
 - ⛔ `GA4_MP_API_SECRET` viaja en la query de Measurement Protocol: **ninguna URL saliente se escribe en logs**.
 
 #### MKT.H.2 Objeto `measurement` en las peticiones que crean pedido o solicitud
@@ -45152,8 +45150,7 @@ MeasurementInput = {
   días ⇒ se descarta.
 - **Qué se escribe:** en la **misma** escritura que crea `Order`/`SellRequest`: `firstUtm*` y las tres columnas de consentimiento
   (MKT.H.7). **Después del commit**, best-effort: una fila `MeasurementContext` con `gaClientId`/`fbp`/`fbc` si hay alguno.
-- **Reintentos:** si `POST /checkout/guest/session` o `/checkout/session` **reusa** una orden (§4-R), se conserva lo que ya tenía;
-  el `measurement` nuevo se ignora.
+- **Reintentos:** si `POST /checkout/guest/session` o `/checkout/session` **reusa** una orden (§4-R), se conserva lo que ya tenía; el `measurement` nuevo se ignora.
 
 #### MKT.H.3 `POST /api/v1/measurement/banner-response` — `public` (`@Public()`)
 
@@ -45189,7 +45186,7 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 | `click_contact` | clic a WhatsApp/DM | `contact_channel`, `page_path` |
 | `search` | búsqueda | `results_count` (⛔ nunca el término) |
 
-- Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`.
+- Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`. **URL (v1.112.2):** `track()` añade a **todo** `gtag('event')` `page_location` (URL actual) y `page_referrer` (el del último `page_view`, si no `document.referrer`), saneados con `sanitizeMeasurementUrl(…, 'ga4')`; el llamador solo los pasa en `page_view` (C-F6 los descarta en los demás). Píxel: nada si el documento no pasa `isPixelSafeUrl` (ARCHITECTURE §14.4).
 - `value` en pesos con IVA (2 decimales); `*_cents` enteros. En `purchase` (navegador, MP y CAPI) `value = Order.totalCents/100`,
   lo cobrado (envío incluido). ⛔ `item_id` nunca es `orderNumber` ni un `inventoryItemId` (`representativeItemId` cambia al vender).
 - **Identidad canónica de ítem (v1.106, R4) — la MISMA en navegador (todos los eventos) y servidor (MP y `content_ids` de
@@ -45337,15 +45334,18 @@ encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «si
   ruta→tipo solo existe en `frontend/…/measurement/routes.ts`; copiarlo sería otra fuente); c3 «NO MEDIDO — la consulta de abandono
   no está definida todavía»; c4 «NO MEDIDO — el evento del botón COMPRAR todavía no se envía» (TECH_DEBT FE-MKT2-2).
 
-#### MKT.H.10 Lo que hace el dueño (no lo puede hacer la tienda)
+#### MKT.H.10 Lo que hace el dueño antes de encender (no lo puede hacer la tienda; única fuente de esta lista)
 
-1. Crear el conjunto de datos/píxel en el Administrador de eventos y pasar el **ID** (no es secreto). 2. Generar el token de CAPI
-y cargarlo **él** en el almacén de secretos de Railway como `META_CAPI_TOKEN`. 3. En el píxel: coincidencia avanzada automática y
-configuración automática de eventos **apagadas**; sin audiencias ni conversiones personalizadas. 4. En GA4: crear el flujo web, el
-`api_secret` de Measurement Protocol (lo carga él como `GA4_MP_API_SECRET`), Google Signals apagado, personalización de anuncios
-apagada, datos proporcionados por el usuario apagados, retención 14 meses. 5. Dar a la cuenta de servicio de la tienda rol Lector
-en GA4 y usuario restringido en Search Console. 6. (Aviso: ya aprobado sin abogado, `HECHOS.md` 2026-10-23 y 2026-10-26.) 7. Mandar el
-evento de prueba desde su admin y verlo en «Eventos de prueba» de Meta (§MKT.H.12). Nombres de menú de Meta y Google: **NO VERIFICADOS**.
+En este orden. Los nombres de menú entre «» están **NO VERIFICADOS** (las consolas cambian): si uno no aparece, se busca por lo que hace. Ninguna clave se manda por chat. El orquestador anota en `HECHOS.md` la fecha de cada paso; no se enciende sin los nueve. (Aviso: aprobado sin abogado, `HECHOS.md` 2026-10-23 y 2026-10-26.)
+1. **Meta** › «Administrador de eventos» › «Conectar orígenes de datos» › «Web»: crear el píxel (conjunto de datos) y pasar su **ID** (es público, no es secreto).
+2. **Meta** › el píxel › «Configuración» › «API de conversiones» › «Generar token de acceso»: copiarlo **él** en Railway › «Variables» como `META_CAPI_TOKEN`.
+3. **Meta** › el píxel › «Configuración»: apagar **«Coincidencia avanzada automática»** y **«Configuración automática de eventos»** (puede llamarse «Seguimiento automático de eventos» o «Configuración de eventos sin código»). No crear audiencias ni conversiones personalizadas.
+4. **Google Analytics** › «Administrar» › «Flujos de datos» › «Web»: crear el flujo de `tcghunt.mx` y pasar su **ID de medición** (`G-…`). En ese mismo flujo, «Secretos de la API Measurement Protocol» › «Crear»: copiarlo **él** en Railway como `GA4_MP_API_SECRET`.
+5. En ese flujo, **«Medición mejorada»: apagar el interruptor entero** (no solo «Búsqueda en el sitio»: también páginas vistas por cambios de historial, desplazamientos, clics salientes, interacciones con formularios, vídeo y descargas). Por qué: ARCHITECTURE §14.4.
+6. «Administrar» › «Configuración de datos» › «Recopilación de datos»: **«Google Signals» apagado** y **«Datos proporcionados por el usuario» apagado**. En «Administrar» › «Personalización de anuncios» (puede estar dentro de «Configuración de datos»): **apagada para todas las regiones**.
+7. «Administrar» › «Configuración de datos» › «Retención de datos»: **14 meses** (si hay dos opciones, «eventos» y «usuario», las dos) › «Guardar».
+8. «Administrar» › «Gestión de acceso a la propiedad»: añadir la cuenta de servicio de la tienda con rol **Lector**. En **Search Console** › «Configuración» › «Usuarios y permisos»: la misma cuenta como usuario **restringido**.
+9. Desde su admin, mandar el evento de prueba y verlo en Meta › «Probar eventos» (§MKT.H.12).
 
 #### MKT.H.11 Candados (las pruebas las escribe el rol dueño; QA las ejecuta)
 
@@ -45353,8 +45353,8 @@ evento de prueba desde su admin y verlo en «Eventos de prueba» de Meta (§MKT.
 |---|---|---|---|
 | **C-F1** | frontend + devops | Build con `off`: el artefacto (`.next/static` y `.next/server`) no contiene `googletagmanager.com`, `google-analytics.com`, `connect.facebook.net`, `fbevents`, `gtag/js` | el mismo grep sobre un build con `on` da > 0 |
 | **C-F2** | frontend (Playwright) | `off`: recorriendo portada, catálogo, ficha de carta, ficha de sellado, carrito, checkout de invitado hasta el formulario de pago, privacidad y guías ⇒ **0 peticiones** a hosts de medición (ARCHITECTURE §14.8), 0 cookies `_ga*`, `_gid`, `_fbp`, `_fbc`, `th_first_utm`, `th_consent`, 0 llamadas a `/measurement/banner-response`, sin banner. Y ninguna petición a `*.google.com`, `*.facebook.com`, `*.facebook.net`, `*.doubleclick.net` fuera de `accounts.google.com` (login/checkout) y `www.google.com` (Card Show) | inyectar un `<img src="https://www.facebook.com/tr?…">` en la portada ⇒ rojo |
-| **C-F3** | frontend (Playwright, `on`, terceros interceptados: nada sale de CI) | sin responder ⇒ 0 peticiones de medición; «Solo lo necesario» ⇒ 0 y solo `th_consent`; solo analítica ⇒ hosts de Google sí, de Meta 0; «Aceptar» ⇒ ambos; capturas 390×664 de D3b | forzar `consent default granted` ⇒ rojo en «sin responder» |
-| **C-F4** | frontend (unitaria) | el saneador de URL deja solo origen + ruta + `utm_*` válidos: `?token=x&session_id=cs_live_1&payment_intent_client_secret=y&utm_source=ig#a` ⇒ `?utm_source=ig` | quitar el filtro ⇒ rojo |
+| **C-F3** | frontend (Playwright, `on`, terceros interceptados: nada sale de CI) | sin responder ⇒ 0 peticiones de medición; «Solo lo necesario» ⇒ 0 y solo `th_consent`; solo analítica ⇒ hosts de Google sí, de Meta 0; «Aceptar» ⇒ ambos; capturas 390×664 de D3b. **`?q=` (v1.112.2, SEC-MED-1)**, con «Aceptar»: (a) aterrizar en `/es/catalog?q=pikachu` ⇒ `fbevents.js` no se pide, `window.fbq` no existe y `gtag` sí carga; (b) buscar «pikachu» desde `/es/catalog` limpio y agregar al carrito ⇒ 0 llamadas nuevas en `fbq.queue`; (c) en ambos, toda entrada `event` de `window.dataLayer` lleva `page_location` sin `q`, y ni `dataLayer`, ni `fbq.queue`, ni la URL o el cuerpo de una petición a host de medición contienen `pikachu`; (d) abrir después una ficha ⇒ `fbevents.js` carga | forzar `consent default granted` ⇒ rojo en «sin responder»; quitar `page_location` de `track()` o el `isPixelSafeUrl` de `track()`/`loadMeta` ⇒ rojo en `?q=` |
+| **C-F4** | frontend (unitaria) | el saneador de URL deja solo origen + ruta + `utm_*` válidos: `?token=x&session_id=cs_live_1&payment_intent_client_secret=y&utm_source=ig#a` ⇒ `?utm_source=ig`. v1.112.2: `?q=pikachu&utm_term=x&gclid=y&fbclid=AbC&utm_source=ig` ⇒ `ga4` `?utm_source=ig`, `pixel` `?utm_source=ig&fbclid=AbC`; `isPixelSafeUrl` falso con `q`, con `#a`, con clave repetida o con `utm_source=a b`, verdadero con solo `utm_*` válidos y `fbclid`; referente de otro origen no cuenta | quitar el filtro ⇒ rojo; añadir `q` a `MEASUREMENT_QUERY_ALLOWLIST` ⇒ rojo |
 | **C-F5** | frontend (Playwright, `on`, aceptado) | navegando **sin recargar** desde una ficha a cuenta, bóveda, admin, restablecer contraseña, `/pedido?token=` y (v1.109) **desde `/buylist` al paso que pinta CLABE o INE** (`BuylistKycForm`) ⇒ en el documento final no existen `window.gtag`, `window.fbq` ni `<script>` de medición, y 0 peticiones de medición tras la navegación | quitar la navegación dura ⇒ rojo; pintar `BuylistKycForm` dentro de `/buylist` ⇒ rojo |
 | **C-F9** | frontend (unitaria + Playwright, v1.109) | `isMeasuredPath`: `/es/buylist` y `/card-show` ⇒ sí; `/es/buylist/requests/x`, `/card-show/confirm`, `/card-show/cancel`, `/card-show/unsubscribe` ⇒ no. En `/card-show` solo sale `page_view` a GA4 (sin eventos de formulario) y, mientras P-CS-MEDIR-1 no diga otra cosa, `fbevents.js` no carga | añadir `/card-show/:seg` o mandar `generate_lead` desde la landing ⇒ rojo |
 | **C-F6** | frontend (unitaria) | `track()` con un parámetro fuera de la lista de MKT.H.4 (p. ej. `email`) lo descarta; en ruta fuera de la lista blanca no envía nada | ampliar la lista ⇒ rojo |
