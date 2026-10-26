@@ -21,6 +21,7 @@ export function accessoryMailTextLines(lines: readonly AccessoryMailLine[] | und
       const comps = l.components.map((c) => `${ENERGY_LABEL[locale][c.energyType]} ×${c.quantity}`).join(', ');
       return `${head} — ${l.deckName} ×${l.quantity}${comps ? ` (${comps})` : ''} — ${money(l.lineTotalCents)}`;
     }
-    return `${l.name} ×${l.quantity} — ${money(l.lineTotalCents)}`;
+    // 💰 v1.110.3 (§DSC.6): con rebaja, el total ANTES del descuento; la resta es la línea «Descuento (CÓDIGO)» (⛔ dos veces no).
+    return `${l.name} ×${l.quantity} — ${money(l.lineTotalBeforeDiscountCents ?? l.lineTotalCents)}`;
   });
 }

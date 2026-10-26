@@ -649,6 +649,49 @@
       "showBreakdown": "Show breakdown",
       "hideBreakdown": "Hide breakdown",
       "total": "Total"
+    },
+    "discount": {
+      "row": "Have a code?",
+      "rowWithdrawal": "Have a free-shipping code?",
+      "label": "Discount code",
+      "apply": "Apply",
+      "applying": "Applying…",
+      "applied": "{code} applied",
+      "saves": "You save {amount}",
+      "savesShipping": "You save {amount} on shipping",
+      "remove": "Remove",
+      "useAnother": "Use another code",
+      "lineDiscount": "Discount ({code})",
+      "lineFreeShipping": "Free shipping ({code})",
+      "withdrawalShipping": "Withdrawal shipping",
+      "invalid": "This code isn't valid or is no longer available.",
+      "kept": "{code} stays applied.",
+      "minSubtotal": "Add {amount} more to use this code.",
+      "onlyScopes": "This code only applies to {scopes}.",
+      "scope": {
+        "raw": "single cards",
+        "graded": "graded cards",
+        "sealed": "sealed product",
+        "accessory": "accessories and energies"
+      },
+      "notHome": "This code doesn't apply to home delivery.",
+      "notVault": "This code doesn't apply to vault purchases.",
+      "replaced": "We replaced {from} ({fromAmount}) with {to} ({toAmount}). Only one code applies per order.",
+      "rateLimited": "Too many attempts; wait a few minutes.",
+      "network": "We couldn't check the code. Try again.",
+      "barShort": "With discount −{amount}",
+      "barVault": "Discount −{amount} · platform fee {fee}",
+      "removedNotice": "{code} no longer applies to your cart and we removed it. Check the total before paying.",
+      "noShipping": "This code covers shipping and your vault order has no shipping.",
+      "withdrawalOnlyFreeShipping": "Only free-shipping codes apply to vault withdrawals.",
+      "alreadyApplied": "This code is already applied.",
+      "confirmWithdrawal": "Confirm withdrawal",
+      "alreadyFree": "Your order already ships at no cost; this code changes nothing.",
+      "largeBox": "This code doesn't cover shipping for a large box.",
+      "totalBelowMinimum": "With this code the total would fall below {amount}, the minimum to pay.",
+      "zeroDiscount": "This code gives no discount on this cart.",
+      "withdrawalFiltered": "This code doesn't apply to vault withdrawals.",
+      "notCombinable": "This code can't be combined with another discount."
     }
   },
   "vault": {
@@ -1396,7 +1439,8 @@
       "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}",
       "accessories": "Accessories",
       "cardShow": "Card Show",
-      "marketing": "Marketing"
+      "marketing": "Marketing",
+      "discounts": "Discount codes"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -1746,6 +1790,8 @@
           "direct_ship": "Direct shipping"
         },
         "items": "Cards",
+        "discountCode": "Code",
+        "chargedWithDiscount": "Charged {amount} with the code",
         "itemRefunded": "Refunded · {amount} · {status}",
         "needsManual": "Pending human confirmation",
         "needsManualBody": "Cards from this order have no confirmed physical whereabouts yet. Resolve it below."
@@ -7096,7 +7142,255 @@
           "body": "It will stop working immediately. The analyst will not be able to read figures until you create another key and get it to them."
         },
         "revoking": "Revoking…",
-        "revoked": "Key revoked."
+        "revoked": "Key revoked.",
+        "metaTest": {
+          "title": "Send a test event to Meta",
+          "help": "Checks that Meta receives the store's events.",
+          "step1": "In Meta: Events Manager › your pixel › \"Test events\". Copy the code that starts with TEST.",
+          "step2": "Paste it here and press the button.",
+          "step3": "Go back to Meta and check that the event showed up.",
+          "field": {
+            "label": "Test code",
+            "hint": "Starts with TEST followed by numbers. Example: TEST12345",
+            "error": "The code must start with TEST followed by 3 to 10 digits, no spaces. Copy it again from Meta."
+          },
+          "submit": "Send test event to Meta",
+          "submitting": "Sending…",
+          "note": "One test event (PageView): it doesn't turn measurement on and carries no customer data. Maximum 5 per hour.",
+          "accepted": {
+            "title": "Meta received the event.",
+            "body": "Now open \"Test events\" in Meta and look for a PageView with this event ID: {eventId}. It can take a few seconds. If you see it, tell the team so the check can be closed."
+          },
+          "rejected": {
+            "title": "Meta rejected the event.",
+            "body": "Meta replied: \"{message}\". Check that you copied the whole code. If it still fails, send this message and the tracking ID to the technical team.",
+            "noMessage": "Meta gave no reason. Send the tracking ID to the technical team."
+          },
+          "unreachable": {
+            "title": "Could not reach Meta.",
+            "body": "There was no response; your code isn't the cause. Wait a minute and try again. If it repeats, tell the technical team. Every attempt counts toward the hourly limit."
+          },
+          "notConfigured": {
+            "title": "Meta isn't set up on the server.",
+            "body": "Meta's details are missing or wrong in Railway: META_PIXEL_ID and META_CAPI_TOKEN. Ask the technical team to add them, then try again. Nothing was sent."
+          },
+          "rateLimited": {
+            "title": "You already sent 5 test events in the last hour.",
+            "body": "This is a safety limit. You can send another in {minutes} min."
+          },
+          "network": "The request couldn't be sent. Try again.",
+          "details": {
+            "version": "Meta version",
+            "eventId": "Event ID",
+            "fbtrace": "Tracking ID",
+            "sentAt": "Sent",
+            "copy": "Copy",
+            "copied": "Copied",
+            "copyFail": "Couldn't copy. Select it and copy it by hand."
+          }
+        }
+      }
+    },
+    "discounts": {
+      "intro": "Only you create them. An order takes a single code.",
+      "newCode": "New code",
+      "generateBatch": "Generate batch",
+      "pause": "Pause",
+      "resume": "Resume",
+      "pauseBatch": "Pause batch",
+      "resumeBatch": "Resume batch",
+      "downloadCsv": "Download CSV",
+      "viewReport": "View report",
+      "edit": "Edit",
+      "back": "Discount codes",
+      "saveCode": "Save code",
+      "saveChanges": "Save changes",
+      "cancel": "Cancel",
+      "generateRandom": "Generate a random one",
+      "empty": "No codes yet. Create the first one.",
+      "emptyFiltered": "No codes with this filter.",
+      "pausedNotice": "{code} paused. It no longer applies to new payments.",
+      "resumedNotice": "{code} resumed.",
+      "filters": {
+        "label": "Filter by state",
+        "all": "All",
+        "live": "Active",
+        "paused": "Paused",
+        "expired": "Expired",
+        "exhausted": "Used up"
+      },
+      "states": {
+        "scheduled": "Scheduled",
+        "live": "Active",
+        "paused": "Paused",
+        "expired": "Expired",
+        "exhausted": "Used up"
+      },
+      "columns": {
+        "code": "Code",
+        "discount": "Discount",
+        "validity": "Validity",
+        "state": "State",
+        "usage": "Uses (used · held · limit)",
+        "given": "Discount given",
+        "actions": "Actions"
+      },
+      "kind": {
+        "percent": "Percentage",
+        "fixed_amount": "Fixed amount",
+        "free_shipping": "Free shipping"
+      },
+      "describe": {
+        "percent": "{pct} %",
+        "percentCap": "{pct} % · cap {amount}",
+        "fixed": "{amount} off",
+        "min": "{base} · minimum {amount}",
+        "batch": "{base} · 1 use each"
+      },
+      "usage": "{consumed} · {reserved} · {limit}",
+      "noLimit": "no limit",
+      "validity": "{from} – {to}",
+      "noEnd": "No end",
+      "batchRow": "batch of {n}",
+      "batchUsed": "{used} of {n} used",
+      "showBatchCodes": "Show codes in batch {prefix}",
+      "hideBatchCodes": "Hide codes in batch {prefix}",
+      "pauseBatchConfirm": {
+        "title": "Pause batch {prefix}?",
+        "body": "Its {n} unused codes are paused. They stop applying to new payments right away; payments already started are honored. You can resume it any time."
+      },
+      "form": {
+        "newTitle": "New code",
+        "sectionCode": "Code",
+        "codeLabel": "Code text",
+        "codeHint": "From 4 to 20 letters, numbers or hyphens. Not case-sensitive. Never reused, even if you pause it.",
+        "sectionDiscount": "Discount",
+        "kindLabel": "Type",
+        "valuePct": "Value (%)",
+        "valueAmount": "Amount in pesos",
+        "valueAmountHint": "Final price with VAT, like the store prices.",
+        "maxDiscount": "Cap in pesos (optional)",
+        "maxDiscountHint": "The discount never goes above this amount.",
+        "sectionConditions": "Conditions",
+        "minSubtotal": "Minimum purchase (optional)",
+        "minSubtotalHint": "Measured on eligible items, before the discount, excluding shipping and fee.",
+        "startsAt": "Starts",
+        "endsAt": "Ends (optional)",
+        "timeHint": "Mexico City time. With no end date it stays valid until you pause it.",
+        "maxTotalUses": "Total uses (optional)",
+        "maxTotalUsesHint": "How many paid orders can use it.",
+        "maxTotalUsesMin": "Minimum {n} (the ones already used).",
+        "maxPerCustomer": "Uses per customer",
+        "maxPerCustomerHint": "Counted per account and per email.",
+        "sectionAppliesTo": "Applies to",
+        "productScopes": "Product type",
+        "scope": {
+          "raw": "Single cards",
+          "graded": "Graded cards",
+          "sealed": "Sealed",
+          "accessory": "Accessories and energies"
+        },
+        "scopesHint": "If nothing is checked it can't be saved. In a mixed cart only the eligible lines are discounted.",
+        "destination": "Destination",
+        "dest": {
+          "both": "Both",
+          "direct_ship": "Home",
+          "vault": "Vault"
+        },
+        "withdrawalNote": "Vault withdrawals only accept free-shipping codes.",
+        "lockNote": "After the first use you won't be able to change type, value, cap, minimum, filters or text. You can pause it, move the end date and raise the total uses. If you make a mistake, create another code.",
+        "lockedBanner": "This code already has {n} uses and {m} held right now. Type, value, cap, minimum, filters and text can't be changed anymore: if you need something else, create a new code.",
+        "lockedReason": "Locked after the first use.",
+        "saved": "Code saved."
+      },
+      "errors": {
+        "taken": "That text already exists (paused ones included). Pick another.",
+        "locked": "That field can't be changed: the code has uses.",
+        "limitBelow": "Total uses can't go below {n}.",
+        "validation": "Check the highlighted field.",
+        "noScopes": "Check at least one product type.",
+        "required": "This is required."
+      },
+      "batch": {
+        "title": "Generate batch",
+        "prefix": "Prefix",
+        "prefixHint": "From 2 to 8 letters or numbers. Each code: prefix, hyphen and 10 random characters.",
+        "quantity": "Quantity (1 to 500)",
+        "perCode": "Uses per code",
+        "perCustomer": "Uses per customer",
+        "fixedOne": "1 (fixed)",
+        "generate": "Generate {n, plural, one {# code} other {# codes}}",
+        "ready": "Batch {prefix} ready",
+        "readyBody": "{n, plural, one {# code was} other {# codes were}} generated. Hand them out as they are: each one works only once.",
+        "viewBatchReport": "View batch report"
+      },
+      "report": {
+        "title": "Report · {code}",
+        "uses": "Uses",
+        "usesSub": "used · held now · limit",
+        "given": "Discount given",
+        "givenSub": "{n, plural, one {in # paid order} other {in # paid orders}}",
+        "sales": "Sales collected",
+        "salesSub": "in those orders, already discounted",
+        "refunded": "Refunded",
+        "refundedValue": "{n} · {amount}",
+        "waived": "Free shipping given",
+        "waivedSub": "Orders: {orders} · Withdrawals: {withdrawals}",
+        "refundNote": "A refund doesn't give the use back.",
+        "columns": {
+          "date": "Date",
+          "folio": "Order",
+          "email": "Customer email",
+          "discounted": "Discounted",
+          "collected": "Collected",
+          "status": "Status"
+        },
+        "status": {
+          "reserved": "Held",
+          "consumed": "Paid",
+          "released": "Released"
+        },
+        "usedCodes": "Codes used: {used} of {n}",
+        "emptyRows": "No orders with this code yet.",
+        "waivedSubOrders": "Orders: {orders}",
+        "waivedSubWithdrawals": "Withdrawals: {withdrawals}"
+      },
+      "preview": {
+        "title": "How the customer will see it",
+        "sample": "Sample cart",
+        "line": "{scope} · {qty} × {price}",
+        "discount": "Discount −{amount}",
+        "capped": "It hits the cap you set.",
+        "shipping": "Covers home shipping; it doesn't discount merchandise.",
+        "none": "With this setup, this cart gets no discount.",
+        "incomplete": "Fill in the discount to see the example.",
+        "note": "Calculated by the server with the same rules as checkout."
+      },
+      "audit": {
+        "title": "Changes",
+        "empty": "No changes recorded yet.",
+        "meta": "{at} · {name}",
+        "none": "—",
+        "action": {
+          "code": {
+            "created": "Created",
+            "updated": "Edited",
+            "paused": "Paused",
+            "resumed": "Resumed",
+            "archived": "Archived",
+            "report_exported": "Report downloaded"
+          },
+          "batch": {
+            "created": "Created",
+            "updated": "Edited",
+            "paused": "Paused",
+            "resumed": "Resumed",
+            "codes_exported": "Codes downloaded",
+            "report_exported": "Report downloaded"
+          },
+          "unknown": "Other change"
+        },
+        "system": "System"
       }
     }
   },
@@ -7938,7 +8232,7 @@
   },
   "consent": {
     "region": "Cookie notice",
-    "text": "We use cookies to learn which posts bring you here and to improve the store.",
+    "text": "We use cookies to understand you better and improve your experience.",
     "accept": "Accept",
     "necessary": "Necessary only",
     "customize": "Customize",
@@ -7949,16 +8243,16 @@
       "intro": "You decide what we measure. You can change this at any time from the page footer.",
       "necessary": {
         "title": "Necessary",
-        "body": "They keep your session, your cart and your language, and remember this choice.",
+        "body": "They keep your session and your cart, protect your account and remember this choice.",
         "always": "Always on"
       },
       "analytics": {
         "title": "Analytics",
-        "body": "Tells us which pages and posts lead to purchases (Google Analytics)."
+        "body": "Tells us which pages and posts lead to purchases (Google Analytics). If you leave it off, we only report that a purchase happened, with no data about you."
       },
       "ads": {
         "title": "Advertising",
-        "body": "Measures which posts and ads lead to purchases (Meta)."
+        "body": "Measures which posts and ads lead to visits and purchases (Meta)."
       },
       "stateOn": "On",
       "stateOff": "Off",

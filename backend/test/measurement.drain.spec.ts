@@ -38,7 +38,7 @@ function world(env: Env, statuses: (number | null)[] = [204, 204]) {
     ] as never,
   });
   const queue = [...statuses];
-  const http: MeasurementHttp = { postJson: jest.fn(async () => (queue.length ? queue.shift()! : 204)) };
+  const http: MeasurementHttp = { postJson: jest.fn(async () => (queue.length ? queue.shift()! : 204)), postMetaDiagnostic: jest.fn() };
   const svc = new MeasurementService(d.prisma as never, fakeConfig(env));
   return { d, http, drain: new MeasurementDrainService(d.prisma as never, svc, http) };
 }
@@ -93,7 +93,7 @@ describe('TL-MKT2-R2 · un destino apagado NO bloquea la cola de los demás', ()
       { kind: 'purchase', destination: 'ga4_mp', subjectId: 'o1', eventId: 'p_o1', nextAttemptAt: NOW },
     ];
     const d = measurementPrismaDouble({ orders: [order], contexts: [{ orderId: 'o1', gaClientId: GA_CLIENT, fbp: FBP, fbc: FBC }], outbox: outbox as never });
-    const http: MeasurementHttp = { postJson: jest.fn(async () => 204) };
+    const http: MeasurementHttp = { postJson: jest.fn(async () => 204), postMetaDiagnostic: jest.fn() };
     const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv({ META_CAPI_TOKEN: undefined })));
     const r = await new MeasurementDrainService(d.prisma as never, svc, http).run(NOW);
     expect(http.postJson).toHaveBeenCalledTimes(1);
@@ -116,7 +116,7 @@ describe('TL-MKT2-D2 · presupuesto de tiempo por corrida (el worker tcg-daily e
     const outbox = Array.from({ length: DRAIN_BATCH }, (_, i) => ({ kind: 'purchase', destination: 'ga4_mp', subjectId: 'o1', eventId: `p_${i}` }));
     const d = measurementPrismaDouble({ orders: [order], contexts: [{ orderId: 'o1', gaClientId: GA_CLIENT }], outbox: outbox as never });
     let t = 0;
-    const http: MeasurementHttp = { postJson: jest.fn(async () => ((t += DRAIN_TIMEOUT_MS), null)) };
+    const http: MeasurementHttp = { postJson: jest.fn(async () => ((t += DRAIN_TIMEOUT_MS), null)), postMetaDiagnostic: jest.fn() };
     const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv()));
     const drain = new MeasurementDrainService(d.prisma as never, svc, http);
     drain.clock = () => t;
@@ -214,7 +214,7 @@ describe('C-B8 · purga a los 7 días y filas enviadas borradas', () => {
       ] as never,
     });
     const svc = new MeasurementService(d.prisma as never, fakeConfig(fullEnv({ MEASUREMENT_MODE: 'off' })));
-    const r = await new MeasurementDrainService(d.prisma as never, svc, { postJson: jest.fn() }).run(NOW);
+    const r = await new MeasurementDrainService(d.prisma as never, svc, { postJson: jest.fn(), postMetaDiagnostic: jest.fn() }).run(NOW);
     expect([r.purgedOutbox, r.purgedContext]).toEqual([1, 2]);
     expect(d.outbox.map((x) => x.subjectId)).toEqual(['new']);
     expect(d.contexts.map((x) => x.orderId)).toEqual(['new']);

@@ -1287,3 +1287,159 @@ export const SKYDROPX_IVA_FRACTION = { numerator: 16, denominator: 116 } as cons
 export function skydropxComputedIvaCents(taxableCents: number): number {
   return Math.round((taxableCents * SKYDROPX_IVA_FRACTION.numerator) / SKYDROPX_IVA_FRACTION.denominator);
 }
+
+// ================================================================================================================
+// 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.2–§DSC.3) — CÓDIGOS DE DESCUENTO: elegibilidad, monto nominal y reparto.
+// PURO (sin BD ni reloj). El orden del cálculo completo (descuento → umbral → caja → IVA y comisión) lo arma
+// `modules/discounts/discount-pricing.ts` llamando a ESTAS dos y a los desgloses de siempre (I-2: misma llamada).
+// ================================================================================================================
+
+/** El tipo de una línea para el filtro `productScopes` (accesorio y energía suelta = `accessory`; el paquete, aparte). */
+export type DiscountLineType = 'raw' | 'graded' | 'sealed' | 'accessory' | 'energy_bundle';
+
+/**
+ * Una línea cobrable del carrito, con su precio EXHIBIDO por unidad `P` (IVA dentro) y su cantidad. `group` fija el orden
+ * canónico del reparto (§DSC.3: piezas por `id` asc, luego accesorios por `id` asc); el paquete nunca reparte.
+ */
+export interface DiscountCartLine {
+  id: string;
+  group: 'piece' | 'accessory' | 'bundle';
+  type: DiscountLineType;
+  unitPriceCents: number;
+  quantity: number;
+}
+
+/** Los términos del código que la aritmética mira (el resto —vigencia, usos— lo decide `discounts/`). */
+export interface DiscountTerms {
+  kind: 'percent' | 'fixed_amount' | 'free_shipping';
+  percentPct: number | null;
+  amountCents: number | null;
+  maxDiscountCents: number | null;
+  minSubtotalCents: number | null;
+  /** `[]` = todos los tipos. */
+  productScopes: readonly string[];
+  /** `[]` = ambos destinos; el retiro cuenta como `direct_ship`. */
+  destinations: readonly string[];
+}
+
+export type DiscountOfResult =
+  | {
+      ok: true;
+      eligible: DiscountCartLine[];
+      /** `B` = Σ P·q de las elegibles. */
+      eligibleSubtotalCents: number;
+      /** `D0` ya recortado a `B − U` (I-4: cada unidad elegible conserva ≥ 1 centavo). `free_shipping` ⇒ 0. */
+      nominalCents: number;
+      /**
+       * v1.110.3 (§DSC.2, DCO-B21) — «llegó al tope que fijaste»: `percent ∧ maxDiscountCents ≠ null ∧ floor(B·pct/100) >
+       * maxDiscountCents`, en BigInt. ⛔ El recorte por `B`, por I-4 o por el residuo de §DSC.3 NO es `capped`. Nadie lo
+       * recalcula fuera de aquí (la vista previa lo reenvía, TL-DSC-1).
+       */
+      capped: boolean;
+    }
+  | { ok: false; reason: 'DESTINATION' | 'NO_ELIGIBLE_ITEMS' | 'MIN_SUBTOTAL'; details: Record<string, number | string[]> };
+
+/**
+ * §DSC.2 — línea elegible ⇔ no es paquete de energías [D9] ∧ su tipo cabe en `productScopes` ∧ el destino cabe en
+ * `destinations`. Mínimo [D7] sobre `B` ANTES del descuento, inclusivo. Nominal: `percent` ⇒ `floor(B·pct/100)` con tope
+ * opcional; `fixed_amount` ⇒ `min(amount, B)`; `free_shipping` ⇒ 0. Luego `D0 = min(D0, B − U)` (I-4).
+ * Aritmética en BigInt: `B × pct` no cabe en un `number` exacto para carritos enormes.
+ */
+export function discountOf(
+  lines: readonly DiscountCartLine[],
+  terms: DiscountTerms,
+  ctx: { destination: 'vault' | 'direct_ship' },
+): DiscountOfResult {
+  if (terms.destinations.length > 0 && !terms.destinations.includes(ctx.destination)) {
+    // v1.110.3 (§DSC.6 `details` mínimos, pentest DSC-1): `DESTINATION` se pinta por pantalla ⇒ `{}`.
+    return { ok: false, reason: 'DESTINATION', details: {} };
+  }
+  const eligible = lines.filter(
+    (l) => l.type !== 'energy_bundle' && l.quantity > 0 && (terms.productScopes.length === 0 || terms.productScopes.includes(l.type)),
+  );
+  if (eligible.length === 0) {
+    return { ok: false, reason: 'NO_ELIGIBLE_ITEMS', details: { productScopes: [...terms.productScopes] } };
+  }
+  let B = 0n;
+  let U = 0n;
+  for (const l of eligible) {
+    B += BigInt(l.unitPriceCents) * BigInt(l.quantity);
+    U += BigInt(l.quantity);
+  }
+  if (terms.minSubtotalCents !== null && B < BigInt(terms.minSubtotalCents)) {
+    return {
+      ok: false,
+      reason: 'MIN_SUBTOTAL',
+      // v1.110.3 (§DSC.6): solo lo que el texto usa («te faltan $X»); ⛔ ni `minSubtotalCents`.
+      details: { missingCents: Number(BigInt(terms.minSubtotalCents) - B) },
+    };
+  }
+  let D0 = 0n;
+  let capped = false;
+  if (terms.kind === 'percent') {
+    D0 = (B * BigInt(terms.percentPct ?? 0)) / 100n; // la división de BigInt trunca = floor para no negativos
+    if (terms.maxDiscountCents !== null && D0 > BigInt(terms.maxDiscountCents)) {
+      D0 = BigInt(terms.maxDiscountCents);
+      capped = true;
+    }
+  } else if (terms.kind === 'fixed_amount') {
+    const amount = BigInt(terms.amountCents ?? 0);
+    D0 = amount < B ? amount : B;
+  }
+  if (D0 > B - U) D0 = B - U;
+  return { ok: true, eligible, eligibleSubtotalCents: Number(B), nominalCents: Number(D0), capped };
+}
+
+const DISCOUNT_GROUP_ORDER: Record<DiscountCartLine['group'], number> = { piece: 0, accessory: 1, bundle: 2 };
+
+/**
+ * §DSC.3 — reparto POR UNIDAD al centavo, residuo por MAYOR RESTO, cada unidad conserva ≥ 1 centavo.
+ * `uᵢ = floor(D0·Pᵢ/B)`, `restᵢ = (D0·Pᵢ) mod B`, `R = D0 − Σ qᵢ·uᵢ`; pasadas por (`restᵢ` desc, `i` asc) dando +1 a toda
+ * línea con `qᵢ ≤ R` y `uᵢ + 1 ≤ Pᵢ − 1`, mientras alguna tome. Devuelve `D = D0 − R` (exacto: `Σ qᵢ·uᵢ = D`) y `uᵢ` por id.
+ * ⛔ La pantalla y el cobro usan `D`, nunca `D0` (puede quedar `R > 0` con líneas de `q ≥ 2`).
+ */
+export function allocateDiscount(
+  eligible: readonly DiscountCartLine[],
+  nominalCents: number,
+): { discountCents: number; unitDiscountCents: Map<string, number> } {
+  const ordered = eligible
+    .map((l, idx) => ({ l, idx }))
+    .sort(
+      (a, b) =>
+        DISCOUNT_GROUP_ORDER[a.l.group] - DISCOUNT_GROUP_ORDER[b.l.group] ||
+        (a.l.id < b.l.id ? -1 : a.l.id > b.l.id ? 1 : a.idx - b.idx),
+    )
+    .map((x) => x.l);
+  const out = new Map<string, number>();
+  const D0 = BigInt(nominalCents);
+  if (ordered.length === 0 || D0 <= 0n) {
+    for (const l of ordered) out.set(l.id, 0);
+    return { discountCents: 0, unitDiscountCents: out };
+  }
+  let B = 0n;
+  let U = 0n;
+  for (const l of ordered) {
+    B += BigInt(l.unitPriceCents) * BigInt(l.quantity);
+    U += BigInt(l.quantity);
+  }
+  if (D0 > B - U) throw new Error('allocateDiscount: nominal above B − U (I-4)');
+  const rows = ordered.map((l, i) => {
+    const P = BigInt(l.unitPriceCents);
+    return { i, l, P, q: BigInt(l.quantity), u: (D0 * P) / B, rest: (D0 * P) % B };
+  });
+  let R = D0;
+  for (const r of rows) R -= r.q * r.u;
+  const byRest = [...rows].sort((a, b) => (a.rest === b.rest ? a.i - b.i : a.rest > b.rest ? -1 : 1));
+  for (let took = true; took && R > 0n; ) {
+    took = false;
+    for (const r of byRest) {
+      if (r.q <= R && r.u + 1n <= r.P - 1n) {
+        r.u += 1n;
+        R -= r.q;
+        took = true;
+      }
+    }
+  }
+  for (const r of rows) out.set(r.l.id, Number(r.u));
+  return { discountCents: Number(D0 - R), unitDiscountCents: out };
+}

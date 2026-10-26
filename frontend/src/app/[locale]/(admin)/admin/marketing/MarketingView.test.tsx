@@ -44,6 +44,7 @@ const api = vi.hoisted(() => ({
   listMarketingTokens: vi.fn(),
   issueMarketingToken: vi.fn(),
   revokeMarketingToken: vi.fn(),
+  sendMetaTestEvent: vi.fn(),
 }));
 vi.mock('@/lib/marketing-api', () => api);
 
@@ -326,6 +327,35 @@ describe('UX-MKT-17 · «Acceso del analista» solo para súper-admin', () => {
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Acceso del analista' }));
     await screen.findByText('Nadie tiene acceso ahora.');
     expect(api.listMarketingTokens).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('C-F10 (§MKT.H.12) · «Enviar evento de prueba a Meta» solo para súper-admin, en cualquier modo', () => {
+  it('sin súper-admin: el bloque no existe en ninguna pestaña (ni con `?pantalla=acceso`)', async () => {
+    role.isSuperAdmin = false;
+    const u = userEvent.setup();
+    view({ pantalla: 'acceso' });
+    await screen.findByTestId('mkt-screen-a');
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.length).toBeGreaterThan(0);
+    for (const tab of tabs) {
+      await u.click(tab);
+      expect(screen.queryByTestId('mkt-metatest')).toBeNull();
+      expect(screen.queryByText('Enviar evento de prueba a Meta')).toBeNull();
+    }
+    expect(api.sendMetaTestEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(['off', 'on', ''])('con súper-admin y NEXT_PUBLIC_MEASUREMENT_MODE=%j: el bloque está en «Acceso del analista»', async (mode) => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', mode);
+    try {
+      view({ pantalla: 'acceso' });
+      const b = await screen.findByTestId('mkt-metatest');
+      expect(within(b).getByRole('heading', { level: 3 })).toHaveTextContent('Enviar evento de prueba a Meta');
+      expect(within(b).getByTestId('mkt-metatest-submit')).toBeEnabled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

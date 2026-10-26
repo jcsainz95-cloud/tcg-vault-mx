@@ -2,6 +2,77 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
+## §DSC · Códigos de descuento (2026-10-26, contrato v1.112.1 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
+
+**Estado vigente.** Cliente y panel contra el mock y contra el backend de §DSC (merges `1c6bb38a`, `e84c86fe`): cinco
+recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Pendiente de ux-ui: el texto de
+`ZERO_DISCOUNT` (`checkout.discount.zeroDiscount`) es PROVISIONAL (encargo del orquestador, v1.112.1). Decisiones del dueño: `HECHOS.md`
+2026-10-25 «Códigos de descuento: pantallas y P-DSC-3» (renglón arriba, retiro a MX$0.00 con «Confirmar retiro», «envío
+gratis» aprobado en lo propio de un código de envío gratis).
+- **Piezas:** `components/domain/CodeRow.tsx` (S1-S10, sin `dialog`) + `useDiscountCode.ts` (traduce el `discount` del
+  servidor a aplicado/error/aviso; C5 único para los genéricos; C8, C5+, C9 sin cuenta regresiva, C10, C12, C14).
+  `AmountBreakdown` gana `discount?`: Subtotal = `merchandiseBeforeDiscountCents`, «Descuento (CÓDIGO) −» = `discountCents`,
+  envío gratis: «Envío» con `shippingWaivedCents` y «Envío gratis (CÓDIGO) −» debajo; retiro: «Envío del retiro». Sin la
+  prop, idéntico (915). Las líneas pintan `unitPriceBeforeDiscountCents ?? unitPriceCents` (`lineTotal…` igual), ⛔ sin
+  sumar: candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (fuera de `lib/api.ts` y `lib/mock/`).
+- **Pedido ya hecho (914):** `OrderDiscountDTO` (`discount` de `GET /orders/:id`, `POST /orders/guest/track` y
+  `GET /admin/orders/:id`; `unitDiscountCents?` en sus líneas y accesorios). `appliedDiscountOfOrder` (en `AmountBreakdown`)
+  lo pasa al desglose del checkout; «Subtotal» antes = `discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`
+  (v1.110.3, lo da el servidor); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
+  «Código» (§DSC-UX.5) y «Cobrado {X} con el código» bajo cada línea (base de los reembolsos). Mock: `ord-dsc-1` y token
+  `mock…discount…`. Sin código, desglose idéntico al de hoy (pruebas OD-2/PT-3/MD-3 comparan el marcado). Mutaciones
+  M1-M7 (sin `discount` en cada desglose, línea en cobrado, subtotal sin `+D`, sin el corte de rebaja 0, «Cobrado» sin
+  código, mock con `discount` siempre): rojo 3/3 cada una, verde al restaurar (sobre `32861059`).
+- **Editar (R3 techlead):** `toEditPatch` (`admin/codes/discount-config.ts`): en edición de un código sin usar el PATCH lleva
+  `null` explícito al vaciar tope/mínimo/usos por cliente y en los campos que el tipo nuevo no usa (el backend conserva lo
+  omitido y rechaza la mezcla). Pesos ⇒ centavos: el conversor único `lib/money-input.ts` (TL-ENV-F2).
+- **Dónde:** invitado bajo destino + T9 y antes de los datos (solo envío a domicilio); con cuenta (bóveda) tras las líneas;
+  retiro (`ShipmentsView`) con C1b, MX$0.00 ⇒ botón C16 y `stripe: null` ⇒ sin modal, directo a «Retiros».
+- **Cómo viaja:** el código confirmado entra en la clave de la query y en la sesión; aplicar cotiza con `fetchQuery` sobre
+  la MISMA clave (`gcTime` 60 s, `DISCOUNT_QUOTE_GC_MS`: con `gcTime 0` la fila «aplicado» parpadeaba, 3/6 rojas medidas).
+  Sin código, las llamadas son las de hoy, sin argumento de más (las pruebas existentes lo fijan con `toHaveBeenCalledWith`).
+  `422/429` del código en la sesión ⇒ C12, no se abre el cobro, re-cotiza sin código.
+- **Barra:** C11 en su forma CORTA «Con descuento −MX$X» (respaldo de §DSC-UX.2): la larga midió 123 px a 360 (DL3, tope 120).
+  Bóveda: C11v «Descuento −X · comisión de plataforma Y». Motivos C17-C21 con el texto de §DSC-UX.4.
+- **Panel** `/admin/codes` (ratificada, §DSC.7 v1.110.1): lista con chips, lote plegado, columna «Descuento dado» =
+  `usage.discountGivenCents` (lote: «—», su DTO no lo trae), pausar (lote con confirmación D6), nuevo/editar (bloqueo D7),
+  lote con CSV, reporte. «Así lo verá el cliente» (`DiscountPreview`) = `POST /admin/discount-codes/preview` con un carrito
+  de ejemplo fijo (`PREVIEW_SAMPLE_LINES`, 300 ms de espera); pinta la cifra del servidor, cero cuentas. «Cambios»
+  (`DiscountAuditList`) = `GET …/:id/audit` (código, en su edición; lote, en su reporte), una línea `campo · antes → después`;
+  `action` por `DISCOUNT_AUDIT_ACTIONS` (lista cerrada v1.110.2) ⇒ `audit.action.{code,batch}.*`, fuera de ella «Otro
+  cambio»; `actor: null` ⇒ «Sistema». Vista previa en ceros: `free_shipping` ⇒ su texto sin importe; otro tipo ⇒ «no lleva».
+  «Envío regalado»: valor = pedidos + retiros (suma de pantalla de dos campos del servidor), subtítulo sin la parte en 0.
+  Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
+- **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
+  blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). Precedencia de §DSC.4 v1.112.1 (`NO_SHIPPING` →
+  `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` →
+  `ZERO_DISCOUNT` (`%`/monto con `D = 0`, I-7; preview `{0,0,false}`); retiro con su orden), `details` mínimos, `capped` solo por tope desde `discountOf`, `not_applicable` cuenta para el límite una vez
+  por código y ventana, proyección de línea (`mockProjectUnit`/`mockProjectAccessoryLine`); el seguimiento `mock…discount…`
+  usa `discountOf` + `MOCK_SEPT10_RULE` (TL-DSC-6). Paridad: `discounts.parity.test.ts` (893, 904, DTOs de §DSC.7) y
+  `discounts.v1103.parity.test.ts` (DCO-B20 a-f, DCO-B21, proyección), `discounts.v1121.parity.test.ts` (DCO-B22, PATCH con
+  `null`: limpia, listas `null` ≡ `[]`, `startsAt: null` ⇒ 422, `lockedFields` = solo lo que CAMBIA), cifras del contrato.
+  Quote congelado (§4-G.12 p. 4 v1.112.1): el mock no simula el congelado de la orden propia (cotiza con `T` vivo); T9 solo
+  se pinta con `remaining > 0`, así que `0`/`null` del servidor no la pintan.
+- **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
+  C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
+  `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones de la fase 1 (copia `f462ca55`, 11) y de la 2
+  (`33b0ee5c`, 17 vitest + 1 Playwright): 3/3 rojas cada una salvo «sin `gcTime` propio» 9/10; la lista, en `ef5b1094`.
+  v1.110.3 (copia de iteración, N=1 cada una, deterministas): DESTINATION antes de NO_SHIPPING · mínimo antes de
+  LARGE_BOX/ALREADY_FREE · `capped` viejo · no contar `not_applicable` · sin dedupe · `details` con `minSubtotalCents` ·
+  seguimiento con `floor(P/10)` · 3 sumas de pantalla · PATCH de `c421de13` · `percentPct` arrastrado · conversor local ·
+  vacío = 0: 14/14 rojas, verde al restaurar.
+- **`@real`** (`utils/discount-scenario.ts`): el dueño crea un código por pantalla; el invitado lo aplica (la fila pinta el
+  `discountCents` de la cotización) y lo paga (sesión `201` con `discount` ⇒ doble de Stripe ⇒ `payment_intent.succeeded`
+  firmado ⇒ `settled` y el reporte cuenta 1 uso con el mismo descuento); retiro con envío gratis a MX$0.00 sin cobro; DL7.
+  Códigos sembrados por `POST /admin/discount-codes`, archivados (o pausados si tienen uso) en `finally` y en el teardown;
+  piezas PROPIAS (`createHarnessPiece`), ninguna del seed. El doble: `QA_FAKE_STRIPE_PORT` + `STRIPE_WEBHOOK_SECRET` (o
+  `E2E_*`); sin ellos el caso de pago es ROJO con el motivo. Huella por corrida: una pieza propia vendida y otra en un retiro
+  `picking` de MX$0.00 del `customer` (no se cancela a mano, `PAID_SHIPMENT_NOT_CANCELLABLE`), dos códigos pausados.
+  `mode: 'default'` en real; 1 sesión de invitado por corrida (el texto dice «invitado»: tanda propia en `e2e-real-suite.sh`).
+  Mutaciones del front contra el stack propio (`next build` mutado en :3762, N=3 cada una, 3/3 rojas): formulario sin
+  `percentPct` · cotización sin código · sesión sin código · `POST /shipments` sin código.
+
 ## §CHK-MOVIL · Checkout móvil, opción A (una pantalla) (2026-10-24, rama `fe-checkout-a`, base `aeea6fac`)
 
 **Estado vigente.** Norma: `DESIGN_SYSTEM §CHK-MOVIL` + maqueta `docs/mockups/chk-movil-A.html`; elección del dueño en
@@ -96,9 +167,25 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   `measurement-on.spec.ts` («/buylist → paso»); C-F9: `routes.test.ts` + `measurement-on.spec.ts` («/card-show»).
   **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
   quien llega a `/card-show` sin haber elegido en la tienda no se mide.
+- **URL que sale (v1.112.2, D-MKT2-11, SEC-MED-1 cerrada 2026-10-26):** norma en ARCHITECTURE §14.4 y §MKT.H.4, no se
+  copia aquí. Implementación: `MEASUREMENT_QUERY_ALLOWLIST` (`utm.ts`, clave ⇒ validador, por destino) es lo único que
+  decide qué query sale; `sanitizeMeasurementUrl(raw, dest)`, `isPixelSafeUrl(href)` e `isPixelSafeDocument(href, referrer)`
+  (este último = URL apta y referente de nuestro origen apto; el de otro origen no cuenta). `loader.ts` pone
+  `page_location`/`page_referrer` saneados en `config` y `loadMeta` sale sin stub ni `<script>` si el documento no es apto
+  (el proveedor reintenta al cambiar de ruta). `track.ts`: `TrackRuntime` lleva `href`, `referrer` y `lastPageReferrer`
+  (el `page_referrer` del último `page_view` de la pestaña); cada `gtag('event')` lleva `page_location` (el del llamador en
+  `page_view`; si no, el de `href`) y `page_referrer`; el píxel se mira en cada llamada. Pruebas: `utm.test.ts` (C-F4),
+  `track.url.test.ts`, `measurement-on.spec.ts` «C-F3 · ?q= (SEC-MED-1)» (a)+(c)+(d), (b)+(c) y (b′)+(c).
+  **Medido (2026-10-26):** el catálogo NO escribe `q` en la URL (`CatalogView.tsx`: el término es estado; solo lee `?q=` al
+  aterrizar) y su «Agregar» de la rejilla no manda `add_to_cart`; por eso (b) del contrato no puede morder y se añadió (b′):
+  `?q=` añadido con `history.replaceState` a una ficha con el píxel cargado, que sí ejercita la comprobación de `track()`.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
-  `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
-  escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
+  `content/legal/measurement-disclosure.ts` **declara desde el 2026-10-26** (forma v1.111: `version '2026-10-medicion-1'`,
+  `approvedByOwnerOn '2026-10-26'`, `legalReviewOn null`, `legalReviewWaivedByOwnerOn '2026-10-23'`; exactamente una de las
+  dos fechas, clave ausente = mal formada, mismos mensajes en la puerta y en `next.config.mjs`). El texto de los apartados
+  2/4/5/6/7/8 de `privacidad.es.ts` (0.6) es copia literal de `docs/specs/AVISO_MEDICION_APROBADO.md` (⛔ no se reescribe;
+  un cambio pasa por el dueño). No hay aviso EN: `/en/privacidad` sirve el español. Banner con el texto del dueño
+  (MKT2-UX.11): 212 px de alto a 360×640 en ES y en EN (bundle de mocks `on`, 2026-10-26, sobre `1e1f7999`). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
   espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
   `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
   imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
@@ -128,7 +215,9 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend; leído el 2026-10-24).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
+  el aviso ya declarado, `npx next build` con `on` CARGA (la mínima solo mira la declaración): lo único que sigue
+  parando un encendido es `prebuild` ⇒ `ENCENDER_BLOCKERS`.
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
@@ -194,6 +283,11 @@ final de `src/types/contract.ts`.
   `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6), y un segundo
   envío (Enter, botón, «Reintentar») no emite otra llave: guarda síncrona `inFlight` (ref, no el estado `pending`,
   que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
+- **Evento de prueba de Meta** (§MKT.H.12 v1.112, MKT-UX.10-b, 2026-10-26): `MetaTestEventBlock.tsx` bajo la llave, en
+  cualquier modo; mismo patrón que la llave (sin `useMutation`, guarda `inFlight`): código y resultado solo en `useState`.
+  Mock: el código elige la salida (`MOCK_META_TEST_CODES`: TEST400/401/503/409/429; el resto `accepted`) + límite 5/60 min.
+  Claves `details.copy/copied/copyFail` añadidas (la tabla de ux-ui no fija el aviso de «Copiar»). C-F10 = `MetaTestEventBlock.test.tsx`
+  + `MarketingView.test.tsx` (rol, modos); 19 mutaciones rojas (3/3 c/u, guarda 10/10) sobre `25ddf442`.
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
 - **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`). El enlace del menú se busca por `href` dentro de `aside nav`, no
@@ -203,7 +297,6 @@ final de `src/types/contract.ts`.
   `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
   ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
   no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
-
 
 ## §CARDSHOW-M90 · Magic (5.º juego) + contador vivo Pokémon + programa por día (2026-10-21, base `f650edb`)
 Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO en `content/card-show.ts` (`torneos.programa`, `torneos.juegos`, FAQ); `magic` → «Magic: The Gathering» en `CARD_SHOW_GAMES` (selectores landing + filtro admin).
@@ -767,12 +860,7 @@ este frontend «—»). Ahora: **`null` es la única marca de ausencia** y ⛔ *
 
 ### 2. Estado VIVO de M4 en el frontend — **lo que hay que leer hoy** *(sustituye a §63.2)*
 
-> ⚠️ **SUPERADA en tres filas — el estado vivo se lee en [§65.2](#65).** Y sí: es la **segunda** vez
-> en el mismo día que una tabla de «estado vivo» caduca aquí. §63.2 ya lo dijo y esta entrada lo
-> repitió igual — *una tabla así, en un registro fechado, caduca por construcción*. **Lo que cambió:**
-> `PreparationQueue.tsx` pasó de 493 a **538** líneas; `M4View.test.tsx` de 42 a **49** casos (**37**
-> en el `describe` de «Pedidos a preparar»); y el bloque de la persona ya **no pinta «—»**. El resto
-> de las filas sigue vigente.
+> ⚠️ **Superada en tres filas (Pantalla, Pruebas, bloque de la persona) — el estado vivo se lee en [§65.2](#65).** El resto de las filas sigue vigente.
 
 | Pieza | Dónde | Qué es hoy |
 |---|---|---|
@@ -828,30 +916,8 @@ redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a cola
 
 ### 5. ✅ ~~🔴 NO CONFORMIDAD ABIERTA~~ — **CERRADA** el mismo día por `DESIGN_SYSTEM §35.6a` (v4.5, `27339eb`) · aplicada en §65
 
-> ✅ **Ya no hay «—» en esa ranura: la ausencia se nombra.** ux-ui publicó el copy (`§35.6a`) y
-> **ratificó la costura con nombre propio** — fijar el guion habría convertido la suite en
-> **defensora del defecto**, y al llegar el copy el arreglo más barato habría sido **revertir el
-> copy**. Lo aplicado está en **[§65](#65)**. Lo que sigue se conserva **en pasado**, porque es el
-> relato de una costura que funcionó y eso es lo que hay que poder repetir.
-
-**§M4-PREP v1.78.1 obliga al consumidor** a pintar, con `fullName === null`, una **AUSENCIA CON
-NOMBRE** —el patrón de «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4— y ⛔ **prohíbe el «—»
-mudo**: `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase que diga que no se pudo saber**, y §16.3a
-advierte que el em dash **ya carga semántica de dinero** («precio pendiente») y **se lee como cero**.
-
-**Hoy la pantalla pinta «—». Eso NO cumple el contrato.** No se cerró aquí porque **la redacción es de
-ux-ui por decisión del propio contrato**, y §35 no la cubre (§35.3 solo trata el apellido no derivable).
-Lo que sí quedó hecho es **la costura**:
-
-- rama de ausencia **aislada** (`fullNameMissing`), con `data-testid="prep-fullname-missing-<shipmentId>"`;
-- marcada `PENDIENTE-UX` en `PreparationQueue.tsx` con la cláusula que la obliga;
-- ⇒ **ponerle el copy es una clave i18n y una línea.**
-
-⛔ **Y los candados NO fijan el «—»**, a propósito: un test que lo fijara **protegería en CI justo lo
-que el contrato prohíbe**. Asertan lo que es cierto con **cualquier** redacción — que no se imprime
-`null`/`undefined` y que **la ausencia es distinguible**. *(Atenuante, no excusa: la tarjeta ya no queda
-muda del todo, porque `fullName === null ⇒ lastName === null` y el plano de arriba dice «Apellido no
-identificado». Lo que falta es la frase en el hueco del nombre.)*
+> ✅ Cerrada: `fullName === null` ya no pinta «—»; la ausencia se nombra con el copy de `DESIGN_SYSTEM §35.6a`, aplicado en **[§65](#65)**.
+> *(Compactado 2026-10-25: el relato de la costura `PENDIENTE-UX` mientras faltaba el copy; la historia, en git.)*
 
 ### 6. Dos defectos que aparecieron al ESCRIBIR los candados, no al leer §35
 
@@ -943,35 +1009,7 @@ no toca guard ni ruteo).
 
 ### 2. Estado VIVO de M4 en el frontend (lo que hay que leer, no lo que hubo)
 
-> ⚠️⚠️ **SUPERADA — el estado vivo se lee en [§64.2](#64), no aquí.** Y la lección no es que esta
-> tabla se quedara vieja: es que **una tabla de «estado VIVO» dentro de un registro FECHADO caduca
-> por construcción**. Ésta duró **horas** — el mismo día, dos commits después (`102d57d`). Lo que
-> sigue era cierto en `5026692` y se conserva en pasado. *Si vuelves a escribir una tabla así aquí,
-> ponle delante el puntero a la siguiente desde el primer día.*
->
-> **Lo que de esta tabla ya NO es cierto:** las **cuentas de pruebas** (hoy `M4View.test.tsx` tiene
-> **42** casos, **30** en el `describe` de «Pedidos a preparar»; `PreparationQueue.tsx` pasó de 343 a
-> **493** líneas); y la fila de la **pantalla**, que ahora se monta **encima** de la cola de envíos y
-> **se re-pide al recuperar el foco**. El resto de las filas (tipos, cliente del API, clave de query,
-> fixtures, `formatAge`, claves i18n) **sigue vigente** — ⛔ no las tires por arrastre.
-
-| Pieza | Dónde | Qué es hoy |
-|---|---|---|
-| Tipos del contrato | `src/types/contract.ts` | `PreparationDestination`, `PreparationOrderDTO`, `PreparationItemDTO`, `LocationView` — **copiados 1:1 de §M4-PREP**. ⛔ `PickingListEntryDTO` **retirado** |
-| Cliente del API | `src/lib/api.ts` | `getAdminPreparationQueue({ destination?, date? })` → `GET /admin/shipments/picking-list`. ⛔ `getAdminPickingList` **retirado** |
-| Pantalla | `src/app/[locale]/(admin)/admin/m4/PreparationQueue.tsx` (**nuevo**) | tarjeta por pedido; `M4View.tsx` solo la monta |
-| Clave de query | `M4View.tsx` / `PreparationQueue.tsx` | `['admin-preparation-queue', bucket]`. ⛔ `['admin-picking-list']` **retirado** (las mutaciones de guía y de estado invalidan la nueva) |
-| Fixtures | `src/lib/mock/fixtures.ts` | `mockPreparationQueue` (+ `shp-7004` en `mockAdminShipments`). ⛔ `mockPickingList` **retirado** |
-| Antigüedad | `src/lib/format.ts` | `formatAge(iso, locale, now?)` — **trunca, no redondea**; escalona segundos→minutos→horas→días |
-| i18n | `messages/{es,en}.json` | **`admin.m4.prep.*`**. ⛔ `admin.m4.{pickingHint,pickingEmpty,picking.*}` **retiradas** |
-| Pruebas | `m4/M4View.test.tsx` (**28** casos en total, **16** en el `describe` de «Pedidos a preparar») · `lib/format.test.ts` (**+4**, `formatAge`) | agrupación, retiro sin folio, `lastName` null, miniatura null, ubicación en ambos `kind`, dirección con calle, dos cubetas, cubeta bóveda vacía, orden asc |
-
-**Claves i18n nuevas (paridad ES/EN verde):** `admin.m4.prep.{title,hint,filterLabel,filterAll,
-filterShip,filterVault,destination.{ship,vault},withdrawal,shipmentRef,requestedAt,lastNameUnknown,
-unassigned,folio,location,set,itemCount,orderCount,empty.{title,body},emptyShip.{title,body},
-emptyVault.{title,body}}`. Además, EN `status.shipment.picking` pasa de «Picking» a
-«In preparation» (ES ya decía «En preparación»): era la palabra retirada apareciendo en esta misma
-pantalla. ⛔ **No se tocó `status.inventory.picking`** — vive en M1, que es de otro stream.
+> *(Compactado 2026-10-25: la tabla de estado de `5026692` y su lista de claves i18n quedaron superadas por [§64.2](#64) y [§65.2](#65); la historia, en git.)*
 
 ### 3. Los sitios donde un dato ausente NO puede leerse como un error
 
@@ -990,20 +1028,7 @@ caducadas que este documento ya tuvo que barrer dos veces.
 | `card.imageSmallUrl` | el catálogo no tiene miniatura | el **pozo de papel** de `CardImage` (que ya no pulsa sin `src`) |
 | `currentLocation.kind='unassigned'` | la pieza no está ubicada | **«Sin ubicar»**. ⛔ **NUNCA** el crudo `UNASSIGNED` (CA #11) |
 
-⚠️ Y un caso **defensivo** que no es nullable sino opcional: `LocationView` declara `label?` **incluso con
-`kind:'assigned'`**. Sin etiqueta no hay ubicación que caminar ⇒ se trata **igual que `unassigned`**
-(copy legible y al final del orden), en vez de colarse arriba de la lista con una cadena vacía.
-
-> ⚠️⚠️ **SUPERADO por el contrato v1.78.2 — esto describe el tipo de v1.78.1, que YA NO EXISTE.** Lo
-> levantó el techlead (`NB-3`) y tiene razón: es **documentación con forma de código describiendo un
-> mundo que no existe**, y choca con el DoD (*«`docs/` al día reflejan lo implementado»*). Hoy
-> `LocationView` es una **unión discriminada** (`{kind:'assigned'; label: string} | {kind:'unassigned'}`):
-> el estado que este párrafo describe **no es representable**, y las dos ramas defensivas que
-> justificaba **se retiraron** —`preparation-order.ts` documenta el retiro—. ⇒ **preguntar
-> `kind === 'assigned'` basta y es total**, y ⛔ un `if (loc.label)` vuelve a admitir lo que el tipo
-> borró. Se conserva el párrafo en pasado porque **fue la lectura correcta mientras el tipo era
-> flojo**, y porque es el ejemplo de lo que cuesta un invariante que vive en un comentario: cuatro
-> ramas defensivas repartidas entre dos repos. Estado vivo: **[§65.2](#65)** y §M4-PREP.
+*(Compactado 2026-10-25: aquí había una rama defensiva para `LocationView.label?`, retirada por el contrato v1.78.2 —hoy unión discriminada—. Estado vivo: [§65.2](#65) y §M4-PREP.)*
 
 ### 4. Tres decisiones que el contrato no cerraba, dichas para que sean discutibles
 
@@ -1293,20 +1318,8 @@ limpio · `npx eslint` limpio · `npx playwright test` en modo mock ✓ **159 pa
 ### 2. Las cinco decisiones que conviene dejar por escrito
 
 1. ⭐⭐ **El acuse de §30.8 necesita un número que el DTO no trae, así que se PIDE al servidor.**
-   ⚠️ **SUPERADO por el contrato v1.63.4 — ver [§62.1](#62).** Lo que sigue describe la conducta de
-   v1.63.3 y se conserva porque explica **por qué** se pidió el campo; hoy el acuse se compone
-   **sin ninguna petición** y `FX-UI-4(a)` cuenta **0**.
-   `ack.would` / `ack.cta` nombran **el valor de respaldo**, y `FxStateDTO` no lo publica. Las tres
-   salidas posibles eran: hornear el `18` en el cliente (⛔ prohibido, §30.16.8), inventar una
-   variante de copy sin número (⛔ no se inventa copy) o **leerlo de `details.fallbackRate`**, que
-   es de donde §30.8 dice que sale. Se hace lo tercero: al mover el interruptor a AUTOMÁTICA con
-   `status: "missing"` sale **un `PUT` sin acuse**, el servidor contesta su `422` —que **por
-   contrato no cambia el modo** (candado `FX-12`)— y **ese** `422` se convierte en el diálogo, con
-   el número del servidor. Al confirmar sale el segundo `PUT`, ya con `acknowledgeNoAutomaticRate`.
-   ⚠️ **Consecuencia para QA:** `FX-UI-4(a)` dice *«0 peticiones hasta confirmar»*; con el contrato
-   de hoy son **0 peticiones que cambien algo** y **1 consulta de precondición**. El test lo mide
-   así, inspeccionando el cuerpo de las dos. Si se quiere el literal, hace falta que el contrato
-   publique el respaldo en el DTO — **petición al arquitecto**, §5.
+   *(Compactado 2026-10-25: describía la conducta de v1.63.3 —una consulta de precondición para leer
+   `details.fallbackRate`—, superada por v1.63.4; el estado vigente está en [§62.1](#62); la historia, en git.)*
 2. **El colchón se va de M2 y VUELVE a M10.** §30.1 lo saca de la tarjeta y §30.3d dice, en copy
    normativo, *«Se edita en Ajustes»*. M10 lo había retirado en su día **apuntando a M2** («editor
    canónico = M2 §3 FX»), así que borrarlo aquí dejaba un **dial de dinero sin ningún editor** —
@@ -5922,128 +5935,17 @@ servidor), nunca `'none'` — se verifica el payload de `updateUserKyc` con `vi.
 Gates en verde: lint, typecheck, test (82/82), build. Archivos: `frontend/.../m6/M6View.tsx`,
 `frontend/.../m6/M6View.test.tsx`.
 
-## Back-office M7/M9 + Cotizador Opción 1 (2026-08-16) — consumo de módulos ya-existentes + buscador real
+## Back-office M7/M9 + Cotizador Opción 1 (2026-08-16) · compactada 2026-10-26
+Histórico: primer cableado de M7 (finanzas) y M9 (reportes) a endpoints reales (contrato v1.3) y cotizador que
+buscaba en todo el catálogo; el cotizador se rehízo después (ver la entrada «Cotizador de buylist como CARRITO»).
+Los «supuestos sobre el contrato» de v1.3 que listaba no se re-midieron al compactar. Texto completo: la versión
+de este fichero en `01aab507`.
 
-Se reemplazaron los `ModuleTodo` de **M7 (Finanzas)** y **M9 (Reportes)** por vistas reales que consumen
-endpoints **ya implementados** en backend (CONTRATO v1.3 §M7/§M9: "ya existen; falta consumo de frontend"), y
-se reescribió el **cotizador de buylist** para buscar sobre TODO el catálogo (Opción 1, contrato §6 v1.3) en
-vez de usar `mockCards` (esa era la causa de "no sale nada al cotizar" contra el backend real). Solo `frontend/`
-(+ esta nota). **No** se tocó el contrato. Mismo patrón que M2/M6/M10 (TanStack Query + `QueryState`,
-`SuperAdminOnly` para la guarda de rol, `StatCard`/`DataTable`/`Banner`/`Input`/`Button`). Gates en verde:
-`lint` OK, `typecheck` OK, `test` **80** (20 archivos, +11 nuevos, i18n-parity verde), `build` OK
-(m7/m9 prerenderizados es/en).
-
-### Archivos creados/tocados
-- **Tipos** `src/types/contract.ts`: +`PnlDTO`, `InventoryValueDTO`, `CustodyValueDTO`, `IvaByOrderEntryDTO` +
-  `IvaReportDTO` (M7); `LaunchGoalsDTO` + `LaunchMetricsDTO` (M9).
-- **API** `src/lib/api.ts`: +`getPnl`, `getInventoryValue`, `getCustodyValue`, `getIvaReport`,
-  `exportFinanceCsv` (M7), `getLaunchMetrics` (M9), `listBuylistSets` + `searchBuylistCards` (cotizador). Cada
-  una con rama real (`apiRequest`) y rama mock. `exportFinanceCsv` hace `fetch` con Bearer y lee **texto**
-  (no JSON, por eso no usa `apiRequest`); comparte el `exportCsv` de M7/M9 vía `source: 'finance' | 'reports'`.
-- **Util** `src/lib/download.ts` (nuevo): `downloadTextFile(filename, text, mime)` — materializa el CSV como
-  descarga en el navegador (aislado para poder mockearlo en tests sin tocar el DOM).
-- **Fixtures** `src/lib/mock/fixtures.ts`: +`mockPnl` (con la fórmula coherente), `mockInventoryValue`,
-  `mockCustodyValue`, `mockIvaReport`, `mockLaunchMetrics` (con `goals` fijadas de ejemplo), `mockCsv(report)`.
-- **M7** (`/admin/m7`, super_admin): `m7/M7View.tsx` + `m7/page.tsx` (envuelto en `SuperAdminOnly`) +
-  `m7/M7View.test.tsx`. Selector de rango de fechas (aplica a P&L e IVA), **tarjeta de P&L con el desglose de la
-  fórmula** (ingresos + envío − COGS − comisiones Stripe = ganancia, ganancia en verde/rojo según signo), valor
-  de inventario (a referencia + a costo + pendientes), valor en custodia, IVA acumulado + desglose por orden
-  (`DataTable`), y **botones de export CSV** (pnl/iva/inventory).
-- **M9** (`/admin/m9`, super_admin): `m9/M9View.tsx` + `m9/page.tsx` + `m9/M9View.test.tsx`. Selector de rango,
-  **métricas de lanzamiento** (users/salesSettled/buylistPaid/withdrawalsNoDispute como `StatCard`) con progreso
-  vs metas N/X/Y/Z (si `goals` es null muestra solo conteos + banner), y export CSV.
-- **Cotizador** `(storefront)/buylist/BuylistView.tsx`: eliminado el `import { mockCards }`; ahora **filtra por
-  set** (`listBuylistSets`) y **busca por texto** (`searchBuylistCards` sobre TODA la tabla `Card`, no solo
-  bóveda) → lista de resultados seleccionables (`role="listbox"/"option"`) → al elegir carta se cotiza con el
-  `getBuylistQuote({ cardId })` existente. Botón "Cotizar" deshabilitado hasta elegir carta. En modo mock cae a
-  `fx.mockCards` (fixtures); en real usa los endpoints nuevos. Nuevo test `BuylistView.test.tsx` (4 casos) y
-  `e2e/buylist.spec.ts` actualizado al nuevo flujo (buscar → elegir → cotizar).
-
-### Endpoints consumidos
-- M7: `GET /admin/finance/pnl?from=&to=`, `GET /admin/finance/inventory-value`,
-  `GET /admin/finance/custody-value`, `GET /admin/finance/iva?from=&to=`,
-  `GET /admin/finance/export.csv?report=&from=&to=`.
-- M9: `GET /admin/reports/launch-metrics?from=&to=`, `GET /admin/reports/export.csv?report=&from=&to=`.
-- Cotizador: `GET /buylist/sets`, `GET /buylist/cards?setId=&q=&page=` (+ el ya existente `POST /buylist/quote`).
-
-### Supuestos sobre el contrato (para el arquitecto)
-1. **`GET /admin/finance/iva` › `byOrder`** — el contrato lo describe como `byOrder: [...]` sin fijar campos.
-   Asumí `IvaByOrderEntryDTO = { orderId, ivaCents, settledAt? }`. **Solicitud**: confirmar/ajustar el shape.
-2. **`GET /admin/reports/launch-metrics` › `goals`** — el contrato dice `goals: { N, X, Y, Z }` con "`goals` en
-   `null` hasta que el humano fije las metas". Se tipó `goals: LaunchGoalsDTO | null` (goals completo nulo O
-   cada valor nulo, ambos soportados en UI). Confirmar cuál es la forma real.
-3. **`export.csv` (M7/M9)** — se asume auth por Bearer y respuesta **`text/csv`** descargable; el front hace
-   `fetch` directo (no `apiRequest`, que espera JSON) y descarga el blob. `report` default `pnl`. Confirmar el
-   `Content-Type` y si requiere algún header extra.
-4. **`GET /buylist/cards`** — se reutiliza `CardDTO` y `Paginated` tal cual el contrato (`{ data, page,
-   pageSize, total }`, sin `sellable`/precio). El filtro `rarity` está cableado en `searchBuylistCards` pero la
-   UI del cotizador hoy solo expone set + texto (rareza es opcional en el contrato); ampliable sin cambio de API.
-
-Con **mocks** (`NEXT_PUBLIC_USE_MOCKS != false`) todo corre contra fixtures que respetan estos shapes; con
-`useMocks=false` se ejecutan las ramas `apiRequest`/`fetch` contra el backend real.
-
-## Back-office M2 / M6 / M10 (2026-08-16) — consumo de UI de módulos ya-existentes en backend
-
-Se reemplazaron los `ModuleTodo` de **M2 (Catálogo y precios)**, **M6 (Usuarios/KYC)** y **M10 (Config y
-bitácora)** por vistas reales que consumen los endpoints **ya implementados** en backend (ARCHITECTURE/
-CONTRACT v1.3: M2/M6/M10 "ya existen; falta consumo de frontend"). Solo `frontend/` (+ esta nota). **No** se
-tocó el contrato. Se siguió el patrón de M1/M3/M4/M5/M8 (TanStack Query + `QueryState` loading/error, mismos
-componentes UI, `StatusBadge`/`Badge`, `DataTable`, `Modal`, `Banner`). Gates en verde: `lint` OK, `typecheck`
-OK, `test` **71** (17 archivos, +11 nuevos, i18n-parity verde), `build` OK (m2/m6/m10 prerenderizados).
-
-### Archivos por módulo
-- **Comunes**: `src/types/contract.ts` (+DTOs: `FxDTO`, `PendingPriceEntryDTO`, `RarityMapEntryDTO`,
-  `RemoteSetDTO`, `PriceHistoryEntryDTO`, `PricingSyncResponse`, `CatalogSync*Response`, `AdminUserSummaryDTO`,
-  `AdminUserDetailDTO`, `AdminKycProfileDTO`, `AdminBillingProfileDTO`, `SettingsDTO`, `AuditLogDTO`,
-  `FxSource`). `src/lib/api.ts` (+funciones de los 3 módulos, cada una con rama real `apiRequest` y rama mock).
-  `src/lib/mock/fixtures.ts` (+fixtures marcados MOCK). `src/components/domain/SuperAdminOnly.tsx` (nuevo:
-  guarda de UI para M2/M6/M10; el backend ya rechaza por rol, esto es defensa de navegación directa por URL con
-  el patrón `useRole`). `messages/{es,en}.json` (+claves `admin.m2/m6/m10.*` y `admin.superAdminGate*`).
-- **M2** (`/admin/m2`): `m2/M2View.tsx` + `m2/page.tsx` (envuelto en `SuperAdminOnly`) + `m2/M2View.test.tsx`.
-  Secciones: (1) **sync de precios de bóveda** (`POST /admin/pricing/sync`), (2) **cola de precio pendiente**
-  (`GET /admin/pricing/pending`) con **override manual** en modal (`POST /admin/pricing/override`),
-  (3) **FX** (`GET/PUT /admin/fx` + `POST /admin/fx/refresh`) con display de tasa/colchón/fuente/vigencia y
-  edición de override + refresh Banxico, (4) **rareza→categoría** editable (`GET/PUT /admin/pricing/rarity-map`),
-  (5) **sync de catálogo** (`GET /admin/catalog/remote-sets` con imported/cardCount, `POST /admin/catalog/sync`
-  por set, `POST /admin/catalog/backfill`, y `POST /admin/catalog/sync-all` **condicional**: su fallo muestra
-  aviso "no disponible" sin romper — cumple la nota del contrato v1.3). `GET /admin/pricing/card/:id`
-  (historial) queda cableado en `api.ts` (`getPriceHistory`) pero **aún no montado** en UI (deuda menor).
-- **M6** (`/admin/m6`, super_admin): `m6/M6View.tsx` + `m6/page.tsx` + `m6/M6View.test.tsx`. Tabla de usuarios
-  con **búsqueda `q` + filtro `status` + paginación** (`GET /admin/users`) y **ficha 360°** en modal
-  (`GET /admin/users/:id`): identidad, KYC con **CLABE/RFC enmascarados** (nunca en claro), conteos 360°
-  (órdenes/buylist/disputas/bóveda), direcciones, **editar KYC** (`PATCH /admin/users/:id/kyc`) y
-  **bloquear/reactivar** con confirmación (`PATCH /admin/users/:id/status`).
-- **M10** (`/admin/m10`, super_admin): `m10/M10View.tsx` + `m10/page.tsx` + `m10/M10View.test.tsx`. **Editor de
-  diales** (`GET /admin/settings`) que guarda **body PARCIAL** con solo las keys tocadas
-  (`PUT /admin/settings`, NO per-key) — dials money en pesos↔centavos; y **bitácora** paginada con filtro por
-  acción (`GET /admin/audit-log`).
-
-### Endpoints consumidos
-- M2: `POST /admin/pricing/sync`, `GET /admin/pricing/pending`, `POST /admin/pricing/override`,
-  `GET /admin/pricing/card/:id` (cableado, sin UI aún), `GET/PUT /admin/fx`, `POST /admin/fx/refresh`,
-  `GET/PUT /admin/pricing/rarity-map`, `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`,
-  `POST /admin/catalog/backfill`, `POST /admin/catalog/sync-all` (condicional).
-- M6: `GET /admin/users`, `GET /admin/users/:id`, `PATCH /admin/users/:id/kyc`, `PATCH /admin/users/:id/status`.
-- M10: `GET/PUT /admin/settings`, `GET /admin/audit-log`.
-
-### Supuestos sobre el contrato (para el arquitecto)
-1. **`GET /admin/pricing/card/:id`** — el contrato dice "historial de precios por fecha/fuente" sin fijar el
-   shape. Asumí `PriceHistoryEntryDTO` = `{ capturedDate, source, gradeKey, productType, priceMxnCents,
-   isManualOverride }`. **Solicitud**: confirmar/ajustar el shape del historial. Aún no se monta en UI.
-2. **`GET /admin/pricing/rarity-map`** — asumí respuesta `{ entries: [{ rarity, category }] }` (espejo del PUT).
-   Confirmar el envelope exacto (`entries` vs `data`).
-3. **`GET /admin/audit-log`** — el contrato muestra respuesta `{ data: AuditLogDTO[] }`; se normaliza a
-   `Paginated` en el front (page/pageSize/total con fallback). Si el backend ya devuelve `total`, se usa; si no,
-   la paginación del front se apoya solo en `data.length`. **Solicitud**: confirmar si expone `total` para
-   paginación fiel.
-4. **`GET /admin/users/:id`** — la ficha 360° (kycProfile/billingProfile/addresses/orders/sellRequests/disputes/
-   ownedItems) se tipó según la nota del contrato §M6; nombres de sub-campos asumidos (p.ej. `clabeMasked`,
-   `rfcMasked`, `ineOnFile`). Ajustar si difieren.
-5. **`POST /admin/catalog/sync-all`** — usado condicionalmente; si el backend responde 404/405 el error se
-   muestra como "no disponible" y el operador usa sync por set / backfill (sin romper).
-
-Con **mocks** (`NEXT_PUBLIC_USE_MOCKS != false`) todo funciona contra fixtures que respetan estos shapes; al
-apuntar al backend real (`useMocks=false`) se ejecutan las ramas `apiRequest`.
+## Back-office M2 / M6 / M10 (2026-08-16) · compactada 2026-10-26
+Histórico: primer cableado de M2 (catálogo/precios), M6 (usuarios/KYC) y M10 (config/bitácora) a endpoints reales
+(contrato v1.3), con `SuperAdminOnly` como guarda de navegación. M2 se reorganizó después (§19 y siguientes). Los
+«supuestos sobre el contrato» de v1.3 que listaba no se re-midieron al compactar. Texto completo: la versión de este
+fichero en `01aab507`.
 
 ---
 

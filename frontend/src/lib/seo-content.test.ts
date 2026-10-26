@@ -211,12 +211,35 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
    * OFENDIENDO: si alguien corrige la cadena, la excepción sale de esta lista (si no, la prueba se pone roja). Al
    * vencer `expires` sin corregir, rojo con el reloj real.
    */
-  type Approval = { hechosRow: string; date: string; quote: string };
+  /** `mustSay`: lo que la fila de HECHOS tiene que seguir diciendo para que la aprobación valga (alcance de la excepción). */
+  type Approval = { hechosRow: string; date: string; quote: string; mustSay: RegExp };
   const CHK_APPROVAL: Approval = {
     hechosRow: 'Textos del checkout y medición aprobados',
     date: '2026-10-25',
     quote: 'si a todo',
+    mustSay: /envío gratis.{0,4} SOLO en el aviso de umbral/,
   };
+  /*
+   * §DSC (códigos de descuento): el dueño aprobó «envío gratis» TAMBIÉN en lo propio de un código de envío gratis
+   * (`HECHOS.md` 2026-10-25, fila «Códigos de descuento: pantallas y P-DSC-3», literal «Sí, apruebo»: «se permite
+   * «envío gratis» también en los textos de los códigos de envío gratis, además del aviso del umbral»). Lista blanca
+   * cerrada de DESIGN_SYSTEM §DSC-UX.4 (C1b, C4 de envío, C13b) más el nombre del TIPO en el panel (§DSC-UX.5: «es el
+   * nombre del tipo y es legítimo (back-office)») y la nota del retiro del panel. Candado DL5: `DSC-DL5` abajo.
+   */
+  const DSC_APPROVAL: Approval = {
+    hechosRow: 'Códigos de descuento: pantallas y P-DSC-3',
+    date: '2026-10-25',
+    quote: 'Sí, apruebo',
+    mustSay: /se permite «envío gratis» también en los textos de los códigos de envío gratis/,
+  };
+  const dsc = (locale: 'es' | 'en', key: string, note: string) => ({
+    locale,
+    key,
+    owner: 'frontend (decide el dueño)',
+    measuredOn: '2026-10-25',
+    approved: DSC_APPROVAL,
+    note: `excepción aprobada por el dueño (HECHOS 2026-10-25 «Códigos de descuento: pantallas y P-DSC-3») · ${note}`,
+  });
   /*
    * Dos clases de excepción: DEUDA (`expires`: caduca y pone rojo con el reloj real) o APROBADA POR EL DUEÑO
    * (`approved`: cita la fila de `HECHOS.md` y su literal; sin caducidad mientras la regla que la aprueba exista —
@@ -268,6 +291,14 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
       approved: CHK_APPROVAL,
       note: 'excepción aprobada por el dueño (HECHOS 2026-10-25) · T9 «{remaining} more for free shipping»',
     },
+    dsc('es', 'checkout.discount.rowWithdrawal', 'C1b «¿Tienes un código de envío gratis?»'),
+    dsc('es', 'checkout.discount.lineFreeShipping', 'C4 «Envío gratis ({code})»'),
+    dsc('es', 'checkout.discount.withdrawalOnlyFreeShipping', 'C13b'),
+    dsc('es', 'admin.discounts.kind.free_shipping', 'panel: nombre del tipo (§DSC-UX.5)'),
+    dsc('es', 'admin.discounts.form.withdrawalNote', 'panel: nota del retiro'),
+    dsc('en', 'checkout.discount.lineFreeShipping', 'C4 «Free shipping ({code})»'),
+    dsc('en', 'admin.discounts.kind.free_shipping', 'panel: type name (§DSC-UX.5)'),
+    dsc('en', 'admin.discounts.report.waived', 'panel: reporte «Free shipping given» (§DSC-UX.5 D9, vDSC-1.1)'),
   ];
   const CATALOGS = { es, en } as const;
   const badKeys = (catalog: unknown) =>
@@ -306,20 +337,45 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
         expect(row, `${id}: la fila «${o.approved.hechosRow}» ya no está en HECHOS.md ⇒ la aprobación no existe`).toBeDefined();
         expect(row).toContain(o.approved.date);
         expect(row).toContain(`«${o.approved.quote}»`);
-        expect(row).toMatch(/envío gratis.{0,4} SOLO en el aviso de umbral/);
+        expect(row).toMatch(o.approved.mustSay);
       }
     }
   });
 
-  it('CHK-MOVIL: la excepción de «envío gratis» es SOLO de T3a/T9 y está aprobada por el dueño (HECHOS 2026-10-25)', () => {
-    const chk = KNOWN_OFFENDERS.filter((o) => /envío gratis|free shipping/i.test(String(CATALOGS[o.locale] && stringEntries(CATALOGS[o.locale]).find(([k]) => k === o.key)?.[1])));
+  /** Toda excepción cuyo texto dice «envío gratis»/«free shipping». */
+  const freeShippingOffenders = () =>
+    KNOWN_OFFENDERS.filter((o) => /envío gratis|free shipping/i.test(String(CATALOGS[o.locale] && stringEntries(CATALOGS[o.locale]).find(([k]) => k === o.key)?.[1])));
+
+  it('CHK-MOVIL: la excepción de «envío gratis» del umbral es SOLO de T3a/T9 y está aprobada por el dueño (HECHOS 2026-10-25)', () => {
+    const chk = freeShippingOffenders().filter((o) => o.approved === CHK_APPROVAL);
     expect(chk.map((o) => `${o.locale}:${o.key}`).sort()).toEqual([
       'en:checkout.bar.includesShippingFree',
       'en:checkout.freeShippingRemaining',
       'es:checkout.bar.includesShippingFree',
       'es:checkout.freeShippingRemaining',
     ]);
-    for (const o of chk) expect(o.approved, `${o.locale}:${o.key}`).toEqual(CHK_APPROVAL);
+  });
+
+  it('DSC-DL5: «envío gratis» solo vive en la lista blanca de §DSC-UX.4/.5, y cada excepción es del umbral o de un código de envío gratis', () => {
+    const all = freeShippingOffenders();
+    // Ninguna tercera aprobación ni una deuda con caducidad que diga «envío gratis».
+    for (const o of all) expect([CHK_APPROVAL, DSC_APPROVAL], `${o.locale}:${o.key}`).toContain(o.approved);
+    const dscKeys = all.filter((o) => o.approved === DSC_APPROVAL).map((o) => `${o.locale}:${o.key}`).sort();
+    expect(dscKeys).toEqual([
+      'en:admin.discounts.kind.free_shipping',
+      'en:admin.discounts.report.waived',
+      'en:checkout.discount.lineFreeShipping',
+      'es:admin.discounts.form.withdrawalNote',
+      'es:admin.discounts.kind.free_shipping',
+      'es:checkout.discount.lineFreeShipping',
+      'es:checkout.discount.rowWithdrawal',
+      'es:checkout.discount.withdrawalOnlyFreeShipping',
+    ]);
+    // Los errores genéricos y los de porcentaje/monto NO lo dicen (§DSC-UX.4: «en cualquier otro texto de descuento no se escribe»).
+    for (const k of ['invalid', 'minSubtotal', 'onlyScopes', 'barShort', 'barVault', 'removedNotice', 'replaced', 'saves', 'applied', 'alreadyFree', 'zeroDiscount']) {
+      expect(String((es.checkout.discount as Record<string, unknown>)[k]), `es:checkout.discount.${k}`).not.toMatch(/env[ií]o\s+gratis/i);
+      expect(String((en.checkout.discount as Record<string, unknown>)[k]), `en:checkout.discount.${k}`).not.toMatch(/free\s+shipping/i);
+    }
   });
 
   it('el namespace seo.* existe en ES y EN con las mismas claves', () => {

@@ -10,11 +10,12 @@ import { clearReservation, failPendingOrder, releaseReservationData, reservation
 import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
+import { consumeOrderRedemption, orderDiscountOf } from '../discounts/redemption';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
+import { OrderMailDiscount, orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
 import { FullRefundService } from './refunds/full-refund.service';
 import { afterAutoCloseVia, cancelProviderLabelIfAny } from '../shipments/label-auto-close';
 import { ModuleRef } from '@nestjs/core';
@@ -156,12 +157,23 @@ export class PaymentsService {
               };
             }),
             totalCents: order.totalCents,
+            // 💰 v1.110.1 (§DSC.6, 914): best-effort — un fallo al leer el código deja el correo sin la línea, ⛔ sin correo no.
+            discount: await this.mailDiscountOf(order).catch(() => null),
           },
           order.locale ?? user.locale,
         ),
         to: user.email,
       };
     });
+  }
+
+  /**
+   * 💰 v1.110.1 (§DSC.6, 914) — `{ code, discountCents, shippingWaivedCents }` de la orden para los correos de confirmación,
+   * del MISMO lector que `GET /orders/:id` (`orderDiscountOf`, TL-DSC-4). Sin código ⇒ `null` ⇒ el correo de hoy (I-1).
+   */
+  private async mailDiscountOf(order: { id: string; subtotalCents: number; discountCents?: number; shippingWaivedCents?: number }): Promise<OrderMailDiscount | null> {
+    const d = await orderDiscountOf(this.prisma, order);
+    return d ? { code: d.code, discountCents: d.discountCents, shippingWaivedCents: d.shippingWaivedCents } : null;
   }
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
@@ -262,7 +274,10 @@ export class PaymentsService {
       // (misma constante `SETTLEABLE_ORDER_STATUSES`, ⛔ nunca dos listas). Solo `pending`/`failed` se
       // liquidan. `settled` = reentrega (silencio). `refunded`/`chargeback` = hechos POSTERIORES a un
       // cobro ⇒ este `succeeded` es viejo: `200`, ⛔ cero escrituras, ⛔ cero avisos, ⛔ cero `audit.log`;
-      // la única huella es este `warn`. Va ANTES de H1 (un tardío no es un descuadre). El marcador
+      // la única huella es este `warn`. ÚNICA EXCEPCIÓN (v1.110.2, §M4-VAULT.2-bis.2): con código de descuento
+      // (⇔ la orden tiene `DiscountRedemption`, v1.112.1; ⛔ no por importes, I-7) se consume el uso (`reserved|released ⇒
+      // consumed`) y, si venía de `released`, se escribe además la fila `discount.redemption.late_consumed`
+      // (ver bloque de abajo); ⛔ ni orden, ni piezas, ni avisos. Va ANTES de H1 (un tardío no es un descuadre). El marcador
       // `ProcessedStripeEvent` de este event.id queda: reintentarlo nunca aplicaría. Bajo carrera decide
       // el CAS; esto es el atajo secuencial (ahorra `getCardDetails` y el ruido de H1).
       if (!isSettleableOrderStatus(order.status)) {
@@ -271,6 +286,15 @@ export class PaymentsService {
             `SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden ${order.orderNumber ?? order.id} ` +
               `en ${order.status} (PI ${pi.id})`,
           );
+          // 💰 v1.110.1 (§DSC.5 «Un PI que cobró acaba consumed», DCO-B5): el `charge.refunded` que llegó ANTES dejó la orden
+          // `refunded` con su uso `reserved` (ni libera ni consume). Este `succeeded` prueba el cobro ⇒ el uso se consume. Son
+          // las ÚNICAS escrituras de esta rama: la fila del uso y, si venía de `released` (`used.late`), la fila de auditoría
+          // `discount.redemption.late_consumed` (post-commit, best-effort) (⛔ ni orden, ni piezas, ni avisos).
+          // v1.112.1 (§M4-VAULT.2-bis.2, I-7): «tiene código» lo dice SOLO su `DiscountRedemption` (`consumeOrderRedemption`
+          // la busca por `orderId`; sin fila ⇒ cero escrituras), ⛔ nunca `discountCents`/`shippingWaivedCents`. Sin `tx`: la
+          // única escritura es el `updateMany` con CAS sobre el estado leído (atómico por sí solo).
+          const used = await consumeOrderRedemption(this.prisma, order.id, new Date());
+          if (used.late) await this.auditLateDiscount(order.id);
         }
         return;
       }
@@ -321,6 +345,7 @@ export class PaymentsService {
       // v1.79 (M-59, §M4-VAULT.2-bis): UN instante para UN hecho — `Order.settledAt` y
       // `VaultPlacement.createdAt` son el mismo valor, escrito explícitamente en las dos filas.
       const now = new Date();
+      let lateDiscount = false;
       const settled = await this.prisma.$transaction(async (tx) => {
         // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el settle es un CAS: el estado va en el `WHERE` (`REL-B`) y
         // es la PRIMERA escritura de la tx. El early-return de arriba lee FUERA de la tx: dos entregas
@@ -336,6 +361,8 @@ export class PaymentsService {
           data: { status: 'settled', settledAt: now },
         });
         if (won.count === 0) return false; // perdedor: ⛔ nada más en esta tx
+        // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Consumir»): el uso del código se consume en ESTA tx, tras ganar el CAS.
+        lateDiscount = (await consumeOrderRedemption(tx, order.id, now)).late;
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
@@ -376,6 +403,7 @@ export class PaymentsService {
       // v1.79.4 — el perdedor de la carrera ⛔ no avisa: ni AV-2 ni auditoría de anomalías (su bucle no
       // corrió). Su marcador `ProcessedStripeEvent` queda: el 200 es correcto (el settle ya está hecho).
       if (!settled) return;
+      if (lateDiscount) await this.auditLateDiscount(order.id);
       if (anomalies.length > 0) {
         await this.audit
           .log({
@@ -494,6 +522,7 @@ export class PaymentsService {
     // de la transacción para que el log y la auditoría no dependan de su commit.
     const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
     const accessoryAnomalies: AccessorySettleAnomaly[] = [];
+    let lateDiscount = false;
 
     const settled = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
@@ -508,6 +537,8 @@ export class PaymentsService {
         },
       });
       if (won.count === 0) return false;
+      // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Consumir»): rama directo, misma regla que la de bóveda.
+      lateDiscount = (await consumeOrderRedemption(tx, order.id, now)).late;
       for (const oi of order.items) {
         const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
         if (!item) continue;
@@ -604,6 +635,7 @@ export class PaymentsService {
     });
     // v1.79.4 — el perdedor ⛔ no avisa: ni confirmación de invitado, ni AV-2, ni auditoría.
     if (!settled) return;
+    if (lateDiscount) await this.auditLateDiscount(order.id);
     // 💰 §AC.6 (4) + ⭐ v1.86.6 (§AC.21.3): ruidoso, FUERA de la tx, best-effort (`.catch` como B3) — nunca tumba el webhook.
     //  - `recovered` ⇒ `order.settle_accessory_anomaly` (renglón `reserved` que el contador no respaldaba; salió de libres).
     //  - sin respaldo ⇒ `order.settle_accessory_unbacked` (+ `was`); quien prepara lo ve marcado (`settledWithoutStock`).
@@ -666,9 +698,15 @@ export class PaymentsService {
     })();
     // POST-COMMIT, BEST-EFFORT (§4.21g): un fallo del correo se loguea; la red de seguridad es el
     // `checkoutToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
+    // 💰 v1.110.1 (§DSC.6, 914): la línea del código. Best-effort como los renglones: un fallo deja el correo sin ella.
+    const discount = await this.mailDiscountOf(order).catch((e: unknown) => {
+      this.logger.error(`guest confirmation: no se pudo leer el código de ${order.id}: ${(e as Error).message}`);
+      return null;
+    });
     await this.guestMail
       .sendConfirmation({
         accessoryLines,
+        discount,
         id: order.id,
         orderNumber: order.orderNumber,
         guestEmail: order.guestEmail,
@@ -697,6 +735,23 @@ export class PaymentsService {
     await this.enqueuePurchaseMeasurement(order.id);
     // rev v1.87⟨wishlist⟩ (816): rama ENVÍO DIRECTO.
     await this.consumeWishlist(order.id);
+  }
+
+  /**
+   * 💰 v1.110⟨descuentos⟩ (§DSC.5) — el pago llegó tras liberarse el uso del código y aun así liquidó: el cobro ya se hizo
+   * con descuento y manda (puede rebasar el límite por uno). POST-COMMIT y best-effort, como el resto de bitácoras del settle.
+   */
+  private async auditLateDiscount(orderId: string): Promise<void> {
+    await this.audit
+      .log({
+        actorUserId: null,
+        actorRole: null,
+        action: 'discount.redemption.late_consumed',
+        entityType: 'Order',
+        entityId: orderId,
+        after: { lateConsumed: true },
+      })
+      .catch((e: unknown) => this.logger.error(`No se pudo auditar el uso tardío de código: ${(e as Error).message}`));
   }
 
   /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */

@@ -1559,6 +1559,11 @@ model Order {
   shippingBoxSnapshot         Json?
   // «Revisar caja»: no cupo en ninguna. CHECK `order_shipping_box_review`: `true ⇒ shippingBoxSnapshot NOT NULL`.
   shippingBoxReview           Boolean              @default(false)
+  // 💰 v1.110⟨descuentos⟩ (M-92, API_CONTRACT §DSC.1): D de mercancía (= Σ unidades × unitDiscountCents) y la E que un
+  // código de envío gratis dejó de cobrar (informativa). 0 = sin código (la verdad de toda fila previa). ⛔ El código no
+  // vive aquí: lo dice su `DiscountRedemption` (un hecho, un sitio).
+  discountCents               Int                  @default(0)
+  shippingWaivedCents         Int                  @default(0)
 
   // ======================= v1.96⟨mkt-tienda⟩ (M-81, §MKT.C / ARCHITECTURE §13.1, B1 [PV-M2]) =======================
   // Atribución de PRIMER-TOQUE UTM. Las cinco son NULLABLE y sin default. ADITIVAS, seguras con la app
@@ -1595,6 +1600,7 @@ model Order {
   // 💰 v1.86⟨accesorios⟩ (M-73, API_CONTRACT §AC.1): renglones de accesorio y paquete de energías. ⛔ Solo `direct_ship`
   // (I-AC-4: CONSTRAINT TRIGGER `order_accessory_line_direct_ship` en la migración).
   accessoryLines   OrderAccessoryLine[]
+  discountRedemption DiscountRedemption?
 
   @@index([userId])
   @@index([status])
@@ -1625,6 +1631,8 @@ model OrderItem {
   priceBasis      PriceBasis?
   marketBracket   MarketBracket?
   finish          Finish?
+  // 💰 v1.110⟨descuentos⟩ (M-92, §DSC.0 I-3): la rebaja POR UNIDAD; `unitPriceCents` es lo COBRADO (ya descontado).
+  unitDiscountCents Int          @default(0)
 
   // v1.79.1 (M-59, §M4-VAULT.2): su fila de preparación de bóveda (solo órdenes `vault` liquidadas).
   vaultPlacementItem VaultPlacementItem?
@@ -1787,6 +1795,7 @@ model ShipmentRequest {
   declaredValueCents        Int? // = COBERTURA del escalón (§19.19.5), congelada con el reclamo
   insuredValueCents         Int? // ⭐ v1.80.11: el valor a asegurar (lo que va en la caja), congelado con el reclamo
   insuranceCostCents        Int                  @default(0) // 💰 costo del seguro, BRUTO. Renglón propio
+  shippingWaivedCents       Int                  @default(0) // 💰 v1.110 (M-92, §DSC.8): la E que un código de envío gratis no cobró
   shippingIvaSource         ShippingIvaSource?
   carrierStatus             CarrierStatus? // último estado CRUDO (null ⇔ manual o sin sondeo)
   carrierStatusAt           DateTime? // instante del ÚLTIMO CAMBIO de carrierStatus
@@ -1818,6 +1827,7 @@ model ShipmentRequest {
   replacementCases ReplacementCase[]
   // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.9): los renglones de accesorio que se palomean (nacen en el settle del directo).
   accessoryLines   ShipmentAccessoryLine[]
+  discountRedemption DiscountRedemption?
 
   @@index([userId])
   @@index([status])
@@ -2998,6 +3008,7 @@ model OrderAccessoryLine {
   quantity            Int
   unitPriceCents      Int // 💰 CONGELADO al crear la sesión (IVA dentro)
   unitCostCents       Int? // 💰 costo CONGELADO (accesorio); en paquete = null (el costo está en sus componentes)
+  unitDiscountCents   Int                          @default(0) // 💰 v1.110 (M-92): rebaja por unidad; CHECK paquete ⇒ 0 [D9]
   snapshot            Json // { name, category, energyType, photoVersion } — lo que se mostró; ⛔ sin precio ni costo
   // --- solo energy_bundle ---
   metaDeckId          String?
@@ -3474,4 +3485,106 @@ model CardShowClick {
 
   @@index([ts])
   @@index([destino])
+}
+
+// ===================================================================================================================
+// 💰 v1.110⟨descuentos⟩ (M-92, API_CONTRACT §DSC.1) — CÓDIGOS DE DESCUENTO. Norma completa en el contrato; aquí solo
+// la forma. Los CHECK de forma viven en el SQL de M-92 (`20261109120000_m92_discount_codes`).
+// ===================================================================================================================
+
+enum DiscountKind {
+  percent
+  fixed_amount
+  free_shipping
+}
+
+// Lo que el dueño fija; vigencia y agotado se DERIVAN (`state`, §DSC.7).
+enum DiscountCodeStatus {
+  active
+  paused
+}
+
+// Filtro por tipo; `accessory` incluye energías sueltas; ⛔ el paquete de energías nunca es elegible [D9].
+enum DiscountProductScope {
+  raw
+  graded
+  sealed
+  accessory
+}
+
+// reserved ⇒ consumed | released; released ⇒ consumed solo por pago tardío; ⛔ consumed ⇒ nada [D5].
+enum DiscountRedemptionStatus {
+  reserved
+  consumed
+  released
+}
+
+// Lote de un solo uso [D1]; su configuración se COPIA a cada código al generar.
+model DiscountCodeBatch {
+  id              String         @id @default(uuid())
+  prefix          String
+  quantity        Int
+  createdByUserId String
+  createdAt       DateTime       @default(now())
+  codes           DiscountCode[]
+}
+
+model DiscountCode {
+  id                 String                 @id @default(uuid())
+  code               String                 @unique // normalizado trim+MAYÚSCULAS; CHECK ^[A-Z0-9-]{4,20}$; único para siempre
+  batchId            String?
+  batch              DiscountCodeBatch?     @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  kind               DiscountKind
+  percentPct         Int? // 1..100 ⇔ percent
+  amountCents        Int? // 1..MAX_CENTS ⇔ fixed_amount (IVA dentro)
+  maxDiscountCents   Int? // ≥ 1, solo percent
+  minSubtotalCents   Int? // ≥ 1, ANTES del descuento sobre las elegibles [D7]
+  productScopes      DiscountProductScope[] @default([])
+  destinations       FulfillmentMode[]      @default([])
+  startsAt           DateTime
+  endsAt             DateTime? // EXCLUSIVO; null = hasta pausar
+  maxTotalUses       Int?
+  maxUsesPerCustomer Int?                   @default(1)
+  status             DiscountCodeStatus     @default(active)
+  firstReservedAt    DateTime?
+  archivedAt         DateTime?
+  createdByUserId    String
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  redemptions        DiscountRedemption[]
+
+  @@index([batchId])
+}
+
+// El USO; una fila por pedido o retiro que lo llevó.
+model DiscountRedemption {
+  id                String                   @id @default(uuid())
+  codeId            String
+  code              DiscountCode             @relation(fields: [codeId], references: [id], onDelete: Restrict)
+  orderId           String?                  @unique
+  order             Order?                   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  shipmentRequestId String?                  @unique
+  shipmentRequest   ShipmentRequest?         @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  status            DiscountRedemptionStatus @default(reserved)
+  customerUserId    String?
+  customerEmail     String? // normalizeEmail()
+  createdAt         DateTime                 @default(now())
+  consumedAt        DateTime?
+  releasedAt        DateTime?
+  lateConsumed      Boolean                  @default(false)
+
+  @@index([codeId, status])
+  @@index([customerUserId])
+  @@index([customerEmail])
+}
+
+// Intentos FALLIDOS (§DSC.6); ⛔ sin IP ni correo en claro.
+model DiscountCodeThrottle {
+  key             String    @id // 'ip:'|'user:'|'email:' + HMAC (user: el id tal cual)
+  failures        Int
+  windowStartedAt DateTime
+  blockedUntil    DateTime?
+  updatedAt       DateTime  @updatedAt
+  // v1.110.3 (§DSC.6, dueño 2026-10-26): HMAC de los códigos `not_applicable` ya contados en la ventana (uno por código y ventana).
+  countedCodeHashes String[] @default([])
 }

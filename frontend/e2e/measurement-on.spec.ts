@@ -119,6 +119,132 @@ test.describe('C-F3 · cuatro caminos de red', () => {
   });
 });
 
+/**
+ * C-F3 con `?q=` (API_CONTRACT §MKT.H.11 v1.112.2; ARCHITECTURE §14.4 D-MKT2-11; SEC-MED-1). El término de
+ * búsqueda no sale hacia Google ni Meta: (a) aterrizar en `/es/catalog?q=pikachu` ⇒ `fbevents.js` no se pide,
+ * `window.fbq` no existe y `gtag` sí carga; (b) buscar «pikachu» desde `/es/catalog` limpio y agregar ⇒ 0 llamadas
+ * nuevas en `fbq.queue`; (c) en todos, cada `event` de `dataLayer` lleva `page_location` sin `q`, y ni `dataLayer`,
+ * ni `fbq.queue`, ni la URL o el cuerpo de una petición a host de medición contienen `pikachu`; (d) abrir después
+ * una ficha ⇒ `fbevents.js` carga. Más (b′): `?q=` añadido a la URL de una ficha con el píxel ya cargado ⇒ ese
+ * `add_to_cart` va solo a GA4 (la comprobación se hace en cada llamada a `fbq`; ARCHITECTURE §14.4).
+ * Canarios: quitar `page_location` de `track()`, o `isPixelSafeUrl` de `track()`/`loadMeta` ⇒ rojo.
+ */
+test.describe('C-F3 · ?q= (SEC-MED-1): el término no sale a Google ni a Meta', () => {
+  const TERM = 'pikachu';
+
+  /** Petición a host de medición con su cuerpo (la URL ya la cuenta `recordRequests`). */
+  function recordBodies(context: BrowserContext): Array<{ url: string; body: string }> {
+    const out: Array<{ url: string; body: string }> = [];
+    context.on('request', (req) => {
+      if (THIRD_PARTY_RE.test(req.url())) out.push({ url: req.url(), body: req.postData() ?? '' });
+    });
+    return out;
+  }
+
+  async function vendorState(page: Page) {
+    return page.evaluate(() => {
+      const w = window as unknown as { dataLayer?: ArrayLike<unknown>[]; fbq?: { queue?: unknown[] }; gtag?: unknown };
+      const dl = (w.dataLayer ?? []).map((a) => Array.from(a as ArrayLike<unknown>));
+      return {
+        gtag: typeof w.gtag,
+        fbq: typeof w.fbq,
+        dataLayer: JSON.stringify(dl),
+        events: dl
+          .filter((a) => a[0] === 'event')
+          .map((a) => ({ name: String(a[1]), page_location: ((a[2] ?? {}) as { page_location?: unknown }).page_location ?? null })),
+        fbqQueue: w.fbq?.queue ? JSON.stringify(w.fbq.queue) : '',
+        fbqLen: w.fbq?.queue?.length ?? 0,
+      };
+    });
+  }
+
+  /** (c) */
+  async function expectNoTerm(page: Page, bodies: Array<{ url: string; body: string }>) {
+    const st = await vendorState(page);
+    expect(st.events.length, 'sin eventos en dataLayer no hay nada que medir').toBeGreaterThan(0);
+    for (const e of st.events) {
+      expect(typeof e.page_location, `${e.name} sin page_location`).toBe('string');
+      expect(e.page_location as string, `${e.name} con q en page_location`).not.toMatch(/[?&]q=/);
+    }
+    expect(st.dataLayer).not.toContain(TERM);
+    expect(st.fbqQueue).not.toContain(TERM);
+    for (const b of bodies) {
+      expect(b.url, 'URL de una petición a host de medición').not.toContain(TERM);
+      expect(b.body, `cuerpo de ${b.url}`).not.toContain(TERM);
+    }
+    return st;
+  }
+
+  const fbeventsRequested = (log: RequestLog) => log.measurement.some((m) => /fbevents\.js/.test(m.url));
+  const gtagRequested = (log: RequestLog) => log.measurement.some((m) => /gtag\/js/.test(m.url));
+
+  test('(a)+(c)+(d) aterrizar en /es/catalog?q=pikachu ⇒ gtag sí, fbq no; abrir una ficha ⇒ fbevents.js carga', async ({ page, context }) => {
+    const log = await setup(context);
+    const bodies = recordBodies(context);
+    const href = await firstCardHref(page);
+    await page.goto(`/es/catalog?q=${TERM}`);
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(() => gtagRequested(log)).toBe(true);
+    await expect.poll(async () => (await vendorState(page)).events.some((e) => e.name === 'page_view')).toBe(true);
+    await settle(page);
+    // (a)
+    const st = await expectNoTerm(page, bodies);
+    expect(st.gtag).toBe('function');
+    expect(st.fbq).toBe('undefined');
+    expect(fbeventsRequested(log)).toBe(false);
+    expect(await page.locator('script[data-th-measurement="meta"]').count()).toBe(0);
+    // (d) navegación de cliente a una ficha (URL limpia, referente vacío) ⇒ el proveedor reintenta y Meta carga.
+    await page.evaluate((u) => (window as unknown as { next: { router: { push: (x: string) => void } } }).next.router.push(u), href);
+    await page.waitForURL((u) => u.pathname === href);
+    await expect.poll(() => fbeventsRequested(log)).toBe(true);
+    await expect.poll(async () => (await vendorState(page)).fbq).toBe('function');
+    await settle(page);
+    await expectNoTerm(page, bodies);
+  });
+
+  test('(b)+(c) buscar «pikachu» desde /es/catalog limpio y agregar ⇒ 0 llamadas nuevas en fbq.queue', async ({ page, context }) => {
+    const log = await setup(context);
+    const bodies = recordBodies(context);
+    await page.goto('/es/catalog');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    // Con carga alta la descarga tardó > 15 s una vez (1/30, load ≈ 10 en 4 CPU): 30 s, no es conducta.
+    await expect.poll(() => fbeventsRequested(log) && gtagRequested(log), { timeout: 30_000 }).toBe(true);
+    await expect.poll(async () => (await vendorState(page)).fbq).toBe('function');
+    await settle(page);
+    const before = (await vendorState(page)).fbqLen;
+    await page.getByRole('searchbox', { name: t('es', 'catalog.searchPlaceholder') }).first().fill(TERM);
+    await expect(page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first()).toBeVisible();
+    await settle(page);
+    await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
+    await settle(page);
+    const st = await expectNoTerm(page, bodies);
+    expect(st.fbqLen - before).toBe(0);
+  });
+
+  test('(b′)+(c) ficha con el píxel cargado y ?q= añadido después ⇒ add_to_cart solo a GA4, page_location sin q', async ({ page, context }) => {
+    const log = await setup(context);
+    const bodies = recordBodies(context);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const href = await firstCardHref(page);
+    await page.goto(href);
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    // Con carga alta la descarga tardó > 15 s una vez (1/30, load ≈ 10 en 4 CPU): 30 s, no es conducta.
+    await expect.poll(() => fbeventsRequested(log) && gtagRequested(log), { timeout: 30_000 }).toBe(true);
+    await expect.poll(async () => (await vendorState(page)).fbq).toBe('function');
+    await settle(page);
+    const before = await vendorState(page);
+    await page.evaluate((term) => window.history.replaceState(window.history.state, '', `${window.location.pathname}?q=${term}`), TERM);
+    expect(new URL(page.url()).searchParams.get('q')).toBe(TERM);
+    await page.getByTestId('mobile-buy-bar').getByRole('button', { name: t('es', 'catalog.addToCart') }).click();
+    await expect
+      .poll(async () => (await vendorState(page)).events.filter((e) => e.name === 'add_to_cart').length)
+      .toBe(before.events.filter((e) => e.name === 'add_to_cart').length + 1);
+    await settle(page);
+    const st = await expectNoTerm(page, bodies);
+    expect(st.fbqLen - before.fbqLen).toBe(0);
+  });
+});
+
 test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
   // v1.109: `/es/buylist` ya es medida (D-MKT2-8); excluido queda su PASO de crear (CLABE/INE).
   const EXCLUDED = ['/es/account', '/es/vault', '/es/admin', '/es/buylist/solicitud', '/es/reset-password', '/es/pedido?token=mock-demo-token'];

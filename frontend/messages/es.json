@@ -649,6 +649,49 @@
       "showBreakdown": "Ver desglose",
       "hideBreakdown": "Ocultar desglose",
       "total": "Total"
+    },
+    "discount": {
+      "row": "¿Tienes un código?",
+      "rowWithdrawal": "¿Tienes un código de envío gratis?",
+      "label": "Código de descuento",
+      "apply": "Aplicar",
+      "applying": "Aplicando…",
+      "applied": "{code} aplicado",
+      "saves": "Ahorras {amount}",
+      "savesShipping": "Ahorras {amount} de envío",
+      "remove": "Quitar",
+      "useAnother": "Usar otro código",
+      "lineDiscount": "Descuento ({code})",
+      "lineFreeShipping": "Envío gratis ({code})",
+      "withdrawalShipping": "Envío del retiro",
+      "invalid": "Este código no es válido o ya no está disponible.",
+      "kept": "Se mantiene {code}.",
+      "minSubtotal": "Te faltan {amount} para usar este código.",
+      "onlyScopes": "Este código aplica solo a {scopes}.",
+      "scope": {
+        "raw": "cartas sueltas",
+        "graded": "cartas gradeadas",
+        "sealed": "sellado",
+        "accessory": "accesorios y energías"
+      },
+      "notHome": "Este código no aplica a envíos a domicilio.",
+      "notVault": "Este código no aplica a compras para tu bóveda.",
+      "replaced": "Cambiamos {from} ({fromAmount}) por {to} ({toAmount}). Solo se aplica un código por pedido.",
+      "rateLimited": "Demasiados intentos; espera unos minutos.",
+      "network": "No pudimos revisar el código. Inténtalo de nuevo.",
+      "barShort": "Con descuento −{amount}",
+      "barVault": "Descuento −{amount} · comisión de plataforma {fee}",
+      "removedNotice": "{code} ya no aplica a tu carrito y lo quitamos. Revisa el total antes de pagar.",
+      "noShipping": "Este código cubre el envío y tu pedido a bóveda no lleva envío.",
+      "withdrawalOnlyFreeShipping": "En el retiro de bóveda solo aplican los códigos de envío gratis.",
+      "alreadyApplied": "Ya tienes este código aplicado.",
+      "confirmWithdrawal": "Confirmar retiro",
+      "alreadyFree": "Tu pedido ya va sin costo de envío; este código no cambia nada.",
+      "largeBox": "Este código no cubre el envío de una caja grande.",
+      "totalBelowMinimum": "Con este código el total quedaría por debajo de {amount}, el mínimo para pagar.",
+      "zeroDiscount": "Con este carrito el código no da descuento.",
+      "withdrawalFiltered": "Este código no aplica al retiro de bóveda.",
+      "notCombinable": "Este código no se puede combinar con otro descuento."
     }
   },
   "vault": {
@@ -1396,7 +1439,8 @@
       "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}",
       "accessories": "Accesorios",
       "cardShow": "Card Show",
-      "marketing": "Marketing"
+      "marketing": "Marketing",
+      "discounts": "Códigos de descuento"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1746,6 +1790,8 @@
           "direct_ship": "Envío directo"
         },
         "items": "Cartas",
+        "discountCode": "Código",
+        "chargedWithDiscount": "Cobrado {amount} con el código",
         "itemRefunded": "Reembolsada · {amount} · {status}",
         "needsManual": "Pendiente de confirmación humana",
         "needsManualBody": "Hay cartas de este pedido cuyo paradero físico nadie ha confirmado. Resuélvelo abajo."
@@ -7096,7 +7142,255 @@
           "body": "Dejará de funcionar al momento. El analista no podrá leer cifras hasta que crees otra llave y se la hagas llegar."
         },
         "revoking": "Revocando…",
-        "revoked": "Llave revocada."
+        "revoked": "Llave revocada.",
+        "metaTest": {
+          "title": "Enviar evento de prueba a Meta",
+          "help": "Comprueba que Meta recibe los eventos de la tienda.",
+          "step1": "En Meta: Administrador de eventos › tu píxel › «Eventos de prueba». Copia el código que empieza con TEST.",
+          "step2": "Pégalo aquí y pulsa el botón.",
+          "step3": "Vuelve a Meta y comprueba que el evento apareció.",
+          "field": {
+            "label": "Código de prueba",
+            "hint": "Empieza con TEST y sigue con números. Ejemplo: TEST12345",
+            "error": "El código debe empezar con TEST y llevar de 3 a 10 números, sin espacios. Cópialo otra vez desde Meta."
+          },
+          "submit": "Enviar evento de prueba a Meta",
+          "submitting": "Enviando…",
+          "note": "Es un solo evento de prueba (PageView): no enciende la medición ni lleva datos de clientes. Máximo 5 por hora.",
+          "accepted": {
+            "title": "Meta recibió el evento.",
+            "body": "Ahora abre «Eventos de prueba» en Meta y busca un PageView con este ID de evento: {eventId}. Puede tardar unos segundos. Si lo ves, avisa al equipo para cerrar la verificación."
+          },
+          "rejected": {
+            "title": "Meta rechazó el evento.",
+            "body": "Meta respondió: «{message}». Revisa que copiaste el código completo. Si sigue igual, pásale este mensaje y el ID de seguimiento al equipo técnico.",
+            "noMessage": "Meta no explicó el motivo. Pásale el ID de seguimiento al equipo técnico."
+          },
+          "unreachable": {
+            "title": "No se pudo contactar con Meta.",
+            "body": "No hubo respuesta; tu código no tiene la culpa. Espera un minuto e inténtalo de nuevo. Si se repite, avisa al equipo técnico. Cada intento cuenta para el límite por hora."
+          },
+          "notConfigured": {
+            "title": "Meta no está configurado en el servidor.",
+            "body": "Falta cargar o corregir los datos de Meta en Railway: META_PIXEL_ID y META_CAPI_TOKEN. Pídele al equipo técnico que los agregue y vuelve a intentar. No se envió nada."
+          },
+          "rateLimited": {
+            "title": "Ya enviaste 5 eventos de prueba en la última hora.",
+            "body": "Es un límite de seguridad. Podrás enviar otro en {minutes} min."
+          },
+          "network": "No se pudo enviar la solicitud. Inténtalo de nuevo.",
+          "details": {
+            "version": "Versión de Meta",
+            "eventId": "ID del evento",
+            "fbtrace": "ID de seguimiento",
+            "sentAt": "Enviado",
+            "copy": "Copiar",
+            "copied": "Copiado",
+            "copyFail": "No se pudo copiar. Selecciónalo y cópialo a mano."
+          }
+        }
+      }
+    },
+    "discounts": {
+      "intro": "Solo tú los creas. Un pedido lleva un solo código.",
+      "newCode": "Nuevo código",
+      "generateBatch": "Generar lote",
+      "pause": "Pausar",
+      "resume": "Reanudar",
+      "pauseBatch": "Pausar lote",
+      "resumeBatch": "Reanudar lote",
+      "downloadCsv": "Descargar CSV",
+      "viewReport": "Ver reporte",
+      "edit": "Editar",
+      "back": "Códigos de descuento",
+      "saveCode": "Guardar código",
+      "saveChanges": "Guardar cambios",
+      "cancel": "Cancelar",
+      "generateRandom": "Generar uno al azar",
+      "empty": "Aún no hay códigos. Crea el primero.",
+      "emptyFiltered": "Ningún código con este filtro.",
+      "pausedNotice": "{code} pausado. Ya no aplica a pagos nuevos.",
+      "resumedNotice": "{code} reanudado.",
+      "filters": {
+        "label": "Filtrar por estado",
+        "all": "Todos",
+        "live": "Activos",
+        "paused": "Pausados",
+        "expired": "Vencidos",
+        "exhausted": "Agotados"
+      },
+      "states": {
+        "scheduled": "Programado",
+        "live": "Activo",
+        "paused": "Pausado",
+        "expired": "Vencido",
+        "exhausted": "Agotado"
+      },
+      "columns": {
+        "code": "Código",
+        "discount": "Descuento",
+        "validity": "Vigencia",
+        "state": "Estado",
+        "usage": "Usos (usados · apartados · límite)",
+        "given": "Descuento dado",
+        "actions": "Acciones"
+      },
+      "kind": {
+        "percent": "Porcentaje",
+        "fixed_amount": "Monto fijo",
+        "free_shipping": "Envío gratis"
+      },
+      "describe": {
+        "percent": "{pct} %",
+        "percentCap": "{pct} % · tope {amount}",
+        "fixed": "{amount} fijos",
+        "min": "{base} · mínimo {amount}",
+        "batch": "{base} · 1 uso c/u"
+      },
+      "usage": "{consumed} · {reserved} · {limit}",
+      "noLimit": "sin límite",
+      "validity": "{from} – {to}",
+      "noEnd": "Sin fin",
+      "batchRow": "lote de {n}",
+      "batchUsed": "{used} de {n} usados",
+      "showBatchCodes": "Ver códigos del lote {prefix}",
+      "hideBatchCodes": "Ocultar códigos del lote {prefix}",
+      "pauseBatchConfirm": {
+        "title": "¿Pausar el lote {prefix}?",
+        "body": "Se pausan sus {n} códigos sin usar. Dejan de aplicar al instante a pagos nuevos; los pagos que ya empezaron se respetan. Puedes reanudarlo cuando quieras."
+      },
+      "form": {
+        "newTitle": "Nuevo código",
+        "sectionCode": "Código",
+        "codeLabel": "Texto del código",
+        "codeHint": "De 4 a 20 letras, números o guion. No distingue mayúsculas. Nunca se reutiliza, aunque lo pauses.",
+        "sectionDiscount": "Descuento",
+        "kindLabel": "Tipo",
+        "valuePct": "Valor (%)",
+        "valueAmount": "Monto en pesos",
+        "valueAmountHint": "Precio final con IVA, igual que los precios de la tienda.",
+        "maxDiscount": "Tope en pesos (opcional)",
+        "maxDiscountHint": "El descuento no pasa de esta cifra.",
+        "sectionConditions": "Condiciones",
+        "minSubtotal": "Mínimo de compra (opcional)",
+        "minSubtotalHint": "Se mide sobre las cartas que aplican, antes del descuento, sin envío ni comisión.",
+        "startsAt": "Empieza",
+        "endsAt": "Termina (opcional)",
+        "timeHint": "Hora del centro de México. Sin fecha de fin, vale hasta que lo pauses.",
+        "maxTotalUses": "Usos totales (opcional)",
+        "maxTotalUsesHint": "Cuántos pedidos pagados pueden llevarlo.",
+        "maxTotalUsesMin": "Mínimo {n} (los ya consumidos).",
+        "maxPerCustomer": "Usos por cliente",
+        "maxPerCustomerHint": "Se cuenta por cuenta y por correo.",
+        "sectionAppliesTo": "Aplica a",
+        "productScopes": "Tipo de producto",
+        "scope": {
+          "raw": "Cartas sueltas",
+          "graded": "Cartas gradeadas",
+          "sealed": "Sellado",
+          "accessory": "Accesorios y energías"
+        },
+        "scopesHint": "Si nada queda marcado, no se puede guardar. En un carrito mixto solo se descuentan las líneas que aplican.",
+        "destination": "Destino",
+        "dest": {
+          "both": "Los dos",
+          "direct_ship": "Domicilio",
+          "vault": "Bóveda"
+        },
+        "withdrawalNote": "El retiro de bóveda solo acepta códigos de envío gratis.",
+        "lockNote": "Después del primer uso ya no podrás cambiar tipo, valor, tope, mínimo, filtros ni el texto. Podrás pausarlo, mover el fin de vigencia y subir los usos totales. Si te equivocas, crea otro código.",
+        "lockedBanner": "Este código ya tiene {n} usos y {m} apartados ahora. Tipo, valor, tope, mínimo, filtros y texto ya no se pueden cambiar: si necesitas otra cosa, crea un código nuevo.",
+        "lockedReason": "Se bloquea con el primer uso.",
+        "saved": "Código guardado."
+      },
+      "errors": {
+        "taken": "Ese texto ya existe (también entre los pausados). Elige otro.",
+        "locked": "Ese campo ya no se puede cambiar: el código tiene usos.",
+        "limitBelow": "Los usos totales no pueden bajar de {n}.",
+        "validation": "Revisa el campo marcado.",
+        "noScopes": "Marca al menos un tipo de producto.",
+        "required": "Falta este dato."
+      },
+      "batch": {
+        "title": "Generar lote",
+        "prefix": "Prefijo",
+        "prefixHint": "De 2 a 8 letras o números. Cada código: prefijo, guion y 10 caracteres al azar.",
+        "quantity": "Cantidad (1 a 500)",
+        "perCode": "Usos por código",
+        "perCustomer": "Usos por cliente",
+        "fixedOne": "1 (fijo)",
+        "generate": "Generar {n, plural, one {# código} other {# códigos}}",
+        "ready": "Lote {prefix} listo",
+        "readyBody": "Se generaron {n, plural, one {# código} other {# códigos}}. Repártelos tal cual: cada uno sirve una sola vez.",
+        "viewBatchReport": "Ver reporte del lote"
+      },
+      "report": {
+        "title": "Reporte · {code}",
+        "uses": "Usos",
+        "usesSub": "usados · apartados ahora · límite",
+        "given": "Descuento dado",
+        "givenSub": "{n, plural, one {en # pedido pagado} other {en # pedidos pagados}}",
+        "sales": "Venta cobrada",
+        "salesSub": "en esos pedidos, ya descontada",
+        "refunded": "Reembolsados",
+        "refundedValue": "{n} · {amount}",
+        "waived": "Envío regalado",
+        "waivedSub": "Pedidos: {orders} · Retiros: {withdrawals}",
+        "refundNote": "Un reembolso no devuelve el uso.",
+        "columns": {
+          "date": "Fecha",
+          "folio": "Folio",
+          "email": "Correo del cliente",
+          "discounted": "Descontado",
+          "collected": "Cobrado",
+          "status": "Estado"
+        },
+        "status": {
+          "reserved": "Apartado",
+          "consumed": "Pagado",
+          "released": "Liberado"
+        },
+        "usedCodes": "Códigos usados: {used} de {n}",
+        "emptyRows": "Aún no hay pedidos con este código.",
+        "waivedSubOrders": "Pedidos: {orders}",
+        "waivedSubWithdrawals": "Retiros: {withdrawals}"
+      },
+      "preview": {
+        "title": "Así lo verá el cliente",
+        "sample": "Carrito de ejemplo",
+        "line": "{scope} · {qty} × {price}",
+        "discount": "Descuento −{amount}",
+        "capped": "Llegó al tope que fijaste.",
+        "shipping": "Cubre el envío a domicilio; no descuenta mercancía.",
+        "none": "Con esta configuración, este carrito no lleva descuento.",
+        "incomplete": "Completa el descuento para ver el ejemplo.",
+        "note": "Lo calcula el servidor con las mismas reglas del cobro."
+      },
+      "audit": {
+        "title": "Cambios",
+        "empty": "Aún no hay cambios registrados.",
+        "meta": "{at} · {name}",
+        "none": "—",
+        "action": {
+          "code": {
+            "created": "Creado",
+            "updated": "Editado",
+            "paused": "Pausado",
+            "resumed": "Reanudado",
+            "archived": "Archivado",
+            "report_exported": "Reporte descargado"
+          },
+          "batch": {
+            "created": "Creado",
+            "updated": "Editado",
+            "paused": "Pausado",
+            "resumed": "Reanudado",
+            "codes_exported": "Códigos descargados",
+            "report_exported": "Reporte descargado"
+          },
+          "unknown": "Otro cambio"
+        },
+        "system": "Sistema"
       }
     }
   },
@@ -7938,7 +8232,7 @@
   },
   "consent": {
     "region": "Aviso de cookies",
-    "text": "Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.",
+    "text": "Usamos cookies para entenderte mejor y mejorar tu experiencia.",
     "accept": "Aceptar",
     "necessary": "Solo lo necesario",
     "customize": "Configurar",
@@ -7949,16 +8243,16 @@
       "intro": "Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.",
       "necessary": {
         "title": "Necesarias",
-        "body": "Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.",
+        "body": "Mantienen tu sesión y tu carrito, protegen tu cuenta y recuerdan esta elección.",
         "always": "Siempre activas"
       },
       "analytics": {
         "title": "Analítica",
-        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics)."
+        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). Si la dejas desactivada, solo avisamos que hubo una compra, sin datos tuyos."
       },
       "ads": {
         "title": "Publicidad",
-        "body": "Mide qué publicaciones y anuncios llevan a compras (Meta)."
+        "body": "Mide qué publicaciones y anuncios llevan a visitas y compras (Meta)."
       },
       "stateOn": "Activada",
       "stateOff": "Desactivada",

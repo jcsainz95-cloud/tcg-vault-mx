@@ -1,7 +1,7 @@
 'use client';
 
 import { useLocale, useTranslations } from 'next-intl';
-import type { BreakdownDTO } from '@/types/contract';
+import type { BreakdownDTO, DiscountAppliedDTO, OrderDiscountDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 
@@ -42,7 +42,42 @@ export interface AmountBreakdownProps {
   productsSubtotal?: boolean;
   /** §AC-UX.7 (aditivo): nota bajo la fila «Envío» (p. ej. «Calculado por el tamaño de la caja…»). */
   shippingNote?: React.ReactNode;
+  /**
+   * 💰 §DSC-UX.2 (aditivo): el `discount` `applied` del servidor. Sin la prop, el desglose es byte a byte el de hoy
+   * (criterio 915). ⛔ Ninguna cuenta aquí: cada importe es un campo del servidor (DCO-F2).
+   */
+  discount?: DiscountAppliedDTO | null;
 }
+
+/**
+ * 💰 §DSC.6 «Dónde se ve el pedido» (criterio 914) — el `discount` de una orden YA hecha (`GET /orders/:id`,
+ * `POST /orders/guest/track`, `GET /admin/orders/:id`) en la forma que pinta este desglose, para que el detalle se lea
+ * IGUAL que el checkout que lo cobró: «Subtotal» = mercancía antes del descuento, «Descuento (CÓDIGO)» debajo.
+ *
+ * v1.110.3: el detalle trae `merchandiseBeforeDiscountCents` (lo proyecta el servidor) y se pinta
+ * `discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`, ⛔ sin sumar (DCO-F6, techlead R2 sobre `c421de13`).
+ * Cada importe es un campo del servidor (DCO-F2).
+ * Sin código, o con un código que no rebajó nada (como el correo, `discountMailRows`), `null` ⇒ desglose de hoy (915).
+ */
+export function appliedDiscountOfOrder(
+  breakdown: Pick<BreakdownView, 'subtotalCents'>,
+  discount: OrderDiscountDTO | null | undefined,
+): DiscountAppliedDTO | null {
+  if (!discount) return null;
+  const waived = discount.kind === 'free_shipping' ? discount.shippingWaivedCents : discount.discountCents;
+  if (waived <= 0) return null;
+  return {
+    outcome: 'applied',
+    code: discount.code,
+    kind: discount.kind,
+    merchandiseBeforeDiscountCents: discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents,
+    discountCents: discount.discountCents,
+    shippingWaivedCents: discount.shippingWaivedCents,
+  };
+}
+
+/** Menos tipográfico (U+2212): el signo, no el color, dice que resta (§DSC-UX.2). */
+export const MINUS = '−';
 
 function Line({
   label,
@@ -50,11 +85,16 @@ function Line({
   hint,
   locale,
   informative = false,
+  negative = false,
+  testId,
 }: {
   label: string;
   amount: number;
   hint?: string;
   locale: AppLocale;
+  /** §DSC-UX.2: fila que RESTA (descuento / envío gratis): importe con `−`, 600 y regla izquierda verde de 2 px. */
+  negative?: boolean;
+  testId?: string;
   /**
    * ⭐⭐ §M10-IVA.4 — **el renglón INFORMA, no suma.** Bajo `IVA_INCLUSIVE` el IVA ya está dentro
    * de `subtotalCents` y de `shippingFeeCents`, así que **no es un sumando del total**. Se rotula
@@ -66,10 +106,13 @@ function Line({
   return (
     <div
       data-informative={informative ? 'true' : undefined}
+      data-testid={testId}
       className={
         informative
           ? 'flex items-center justify-between py-3 text-sm text-muted'
-          : 'flex items-center justify-between py-3 text-sm text-text'
+          : negative
+            ? 'flex min-w-0 items-center justify-between gap-3 border-l-2 border-success py-3 pl-3 text-sm text-text'
+            : 'flex items-center justify-between py-3 text-sm text-text'
       }
     >
       {hint ? (
@@ -83,9 +126,11 @@ function Line({
           {label}
         </span>
       ) : (
-        <span>{label}</span>
+        <span className={negative ? 'min-w-0 [overflow-wrap:anywhere]' : undefined}>{label}</span>
       )}
-      <span className="tabular">{formatMoneyCents(amount, locale)}</span>
+      <span className={negative ? 'tabular shrink-0 font-semibold' : 'tabular'}>
+        {negative ? `${MINUS}${formatMoneyCents(amount, locale)}` : formatMoneyCents(amount, locale)}
+      </span>
     </div>
   );
 }
@@ -105,8 +150,14 @@ function Line({
  * llamándose `processingFeeCents` a propósito (§29.5): es nombre de API, no de rótulo.
  * El candado del copy vive en `src/lib/i18n-parity.test.ts`.
  */
-export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubtotal, shippingNote }: AmountBreakdownProps) {
+export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubtotal, shippingNote, discount }: AmountBreakdownProps) {
   const t = useTranslations('checkout');
+  const td = useTranslations('checkout.discount');
+  // §DSC-UX.2: orden Subtotal → Descuento → Envío (→ Envío gratis) → comisión → Total. Con un código de mercancía la fila
+  // «Subtotal» es `S` (antes del descuento) y «Descuento» es `D`; con uno de envío gratis «Envío» sigue mostrando su
+  // tarifa (`shippingWaivedCents`, la `E` que no se cobra) y «Envío gratis» la resta. Todo campo del servidor.
+  const merchandiseDiscount = discount && discount.kind !== 'free_shipping' ? discount : null;
+  const shippingDiscount = discount && discount.kind === 'free_shipping' && discount.shippingWaivedCents > 0 ? discount : null;
   const locale = useLocale() as AppLocale;
 
   /*
@@ -125,8 +176,14 @@ export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubto
   return (
     <div data-testid="amount-breakdown" data-price-convention={breakdown.priceConvention}>
       <Line
-        label={variant === 'shipment' ? t('shipping') : t('subtotal')}
-        amount={breakdown.subtotalCents}
+        label={variant === 'shipment' ? (shippingDiscount ? td('withdrawalShipping') : t('shipping')) : t('subtotal')}
+        amount={
+          variant === 'shipment' && shippingDiscount
+            ? shippingDiscount.shippingWaivedCents
+            : merchandiseDiscount
+              ? merchandiseDiscount.merchandiseBeforeDiscountCents
+              : breakdown.subtotalCents
+        }
         hint={
           variant === 'shipment'
             ? undefined
@@ -138,6 +195,24 @@ export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubto
         }
         locale={locale}
       />
+      {merchandiseDiscount && (
+        <Line
+          testId="amount-breakdown-discount"
+          label={td('lineDiscount', { code: merchandiseDiscount.code })}
+          amount={merchandiseDiscount.discountCents}
+          locale={locale}
+          negative
+        />
+      )}
+      {variant === 'shipment' && shippingDiscount && (
+        <Line
+          testId="amount-breakdown-discount"
+          label={td('lineFreeShipping', { code: shippingDiscount.code })}
+          amount={shippingDiscount.shippingWaivedCents}
+          locale={locale}
+          negative
+        />
+      )}
       {/*
        * v1.21-guest-checkout (ADITIVO): un pedido `direct_ship` (invitado) cobra las cartas
        * y el envío en el MISMO PaymentIntent, así que el desglose trae `shippingFeeCents`
@@ -145,7 +220,20 @@ export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubto
        * el campo no viene y este renglón no se pinta: el desglose queda idéntico a v1.20.
        */}
       {breakdown.shippingFeeCents != null && (
-        <Line label={t('shipping')} amount={breakdown.shippingFeeCents} locale={locale} />
+        <Line
+          label={t('shipping')}
+          amount={shippingDiscount ? shippingDiscount.shippingWaivedCents : breakdown.shippingFeeCents}
+          locale={locale}
+        />
+      )}
+      {breakdown.shippingFeeCents != null && variant !== 'shipment' && shippingDiscount && (
+        <Line
+          testId="amount-breakdown-discount"
+          label={td('lineFreeShipping', { code: shippingDiscount.code })}
+          amount={shippingDiscount.shippingWaivedCents}
+          locale={locale}
+          negative
+        />
       )}
       {breakdown.shippingFeeCents != null && shippingNote && (
         <div data-testid="amount-breakdown-shipping-note" className="-mt-1 pb-2 text-xs leading-relaxed text-muted">

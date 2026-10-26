@@ -72,8 +72,16 @@ export function AccessoryCartLines({
                     </button>
                   </div>
                   <div className="shrink-0 text-right">
-                    <span className="tabular block text-[17px] font-medium text-text sm:text-[19px]">{money(l.lineTotalCents)}</span>
-                    {l.quantity > 1 && <span className="tabular mt-1 block text-xs text-muted">{t('unitPrice', { price: money(l.unitPriceCents) })}</span>}
+                    {/* §DSC I-3: con código, `unitPriceCents`/`lineTotalCents` son lo COBRADO; el renglón muestra el exhibido que
+                        proyecta el servidor (`…BeforeDiscountCents`, v1.110.3) para cuadrar con «Subtotal» y «Descuento» (DCO-F6). */}
+                    <span className="tabular block text-[17px] font-medium text-text sm:text-[19px]">
+                      {money(l.lineTotalBeforeDiscountCents ?? l.lineTotalCents)}
+                    </span>
+                    {l.quantity > 1 && (
+                      <span className="tabular mt-1 block text-xs text-muted">
+                        {t('unitPrice', { price: money(l.unitPriceBeforeDiscountCents ?? l.unitPriceCents) })}
+                      </span>
+                    )}
                   </div>
                 </li>
               );

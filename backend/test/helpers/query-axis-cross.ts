@@ -300,6 +300,19 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/marketing/weekly-excel::preset',
   'GET /admin/marketing/annotations::from',
   'GET /admin/marketing/annotations::to',
+
+  // 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.7, tope 107 → 116 ratificado en v1.110.2): `?batchId=` de la lista de códigos
+  // (id de lote, igualdad exacta: ⛔ no un conjunto de tokens) y `?from=`/`?to=` de los reportes de código y de lote, JSON y CSV
+  // (días MX `YYYY-MM-DD`, `parseMxDayFilter` de `spend-alerts/mx-day.ts`; fuera de forma ⇒ `400 {field}` sin `allowed`).
+  'GET /admin/discount-codes::batchId',
+  'GET /admin/discount-codes/:id/report::from',
+  'GET /admin/discount-codes/:id/report::to',
+  'GET /admin/discount-codes/:id/report.csv::from',
+  'GET /admin/discount-codes/:id/report.csv::to',
+  'GET /admin/discount-code-batches/:id/report::from',
+  'GET /admin/discount-code-batches/:id/report::to',
+  'GET /admin/discount-code-batches/:id/report.csv::from',
+  'GET /admin/discount-code-batches/:id/report.csv::to',
 ];
 
 /**

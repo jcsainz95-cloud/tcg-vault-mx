@@ -19,6 +19,7 @@ import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
 import * as mockAcc from './mock/accessories';
+import * as mockDsc from './mock/discounts';
 import {
   DIRECT_SHIP_DEFAULT_DIALS,
   directShipFeeOf,
@@ -132,6 +133,21 @@ import type {
   CurvePreviewResponse,
   RarityHealthResponse,
   BreakdownDTO,
+  DiscountQuoteDTO,
+  DiscountCodeDTO,
+  DiscountCodeListResponse,
+  DiscountCodeCreateRequest,
+  DiscountCodePatchRequest,
+  DiscountCodeBatchCreateRequest,
+  DiscountCodeBatchCreateResponse,
+  DiscountCodeBatchDTO,
+  DiscountCodeBatchListResponse,
+  DiscountCodeStatus,
+  DiscountCodeStateFilter,
+  DiscountReportDTO,
+  DiscountPreviewRequest,
+  DiscountPreviewResponse,
+  DiscountAuditResponse,
   PortfolioRange,
   PortfolioHistoryResponse,
   SetValueRange,
@@ -1180,9 +1196,13 @@ export const MOCK_QUOTE_CARD_KEYS = [
  */
 export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'unitPriceCents'] as const;
 
-export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<CheckoutQuoteResponse> {
+export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?: string): Promise<CheckoutQuoteResponse> {
   if (!config.useMocks) {
-    return apiRequest<CheckoutQuoteResponse>('/checkout/quote', { method: 'POST', body: { inventoryItemIds } });
+    // 💰 §DSC.6 / I-1: sin código el cuerpo es EXACTAMENTE el de hoy (la llave no viaja).
+    return apiRequest<CheckoutQuoteResponse>('/checkout/quote', {
+      method: 'POST',
+      body: { inventoryItemIds, ...discountCodeField(discountCode) },
+    });
   }
   // MOCK v1.21.3-quote-prune: resolución POR ÍTEM. Un id que no está en los fixtures se
   // trata como pieza borrada (`cardName: null`); los fixtures no modelan el caso
@@ -1209,6 +1229,9 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  // 💰 §DSC.4 (bóveda): `computeCartBreakdown(S')`; sin envío ⇒ un código de envío gratis da `NO_SHIPPING`.
+  const dsc = mockVaultDiscount(items, discountCode, `user:${caller.kind === 'customer' ? caller.userId : 'anon'}`);
+  const applied = dsc?.applied ?? null;
   return delay({
     // v1.51-b: `card` es un `OrderItemCardDTO` (§4) — snapshot congelado + `imageSmallUrl`
     // resuelta en lectura. Ya NO hace falta ningún `as unknown as`: el tipo del front y lo
@@ -1217,16 +1240,53 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
-      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
-      unitPriceCents: l.displayPriceCents ?? 0,
+      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva. §DSC I-3: con código, el COBRADO.
+      ...mockUnitPrice(l.inventoryItemId, l.displayPriceCents ?? 0, applied),
       ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
     // MOCK: el simulador no guarda el desglose congelado de la orden; con `coversCart` el backend real
     // devuelve los precios de la orden (§4-R.5), aquí salen los del catálogo (misma cifra en fixtures).
-    breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
+    breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal - (applied?.discountCents ?? 0)),
     unavailableItems,
     ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, caller),
+    // §DSC.6 / I-1: la llave solo existe si el request trajo código.
+    ...(dsc ? { discount: dsc.dto } : {}),
   });
+}
+
+/** 💰 §DSC.6 / I-1 — el campo del request: ausente (ni `null` ni `''`) cuando no hay código. */
+function discountCodeField(discountCode: string | undefined): { discountCode?: string } {
+  const c = discountCode?.trim();
+  return c ? { discountCode: c } : {};
+}
+
+/**
+ * §DSC I-3 + proyección de línea (v1.110.3): `unitPriceCents` es lo cobrado; `unitDiscountCents` y
+ * `unitPriceBeforeDiscountCents` solo si la rebaja > 0 (I-1: omitidos si no). Lo arma el simulador (`mockProjectUnit`).
+ */
+function mockUnitPrice(
+  id: string,
+  priceCents: number,
+  applied: { unitDiscounts: Map<string, number> } | null,
+): { unitPriceCents: number; unitDiscountCents?: number; unitPriceBeforeDiscountCents?: number } {
+  return mockDsc.mockProjectUnit(priceCents, applied?.unitDiscounts.get(id) ?? 0);
+}
+
+/** MOCK §DSC.4 — compra a bóveda con cuenta: líneas = piezas; `G = S'` sin envío. `null` sin código. */
+function mockVaultDiscount(items: ListingDTO[], discountCode: string | undefined, customer: string | null) {
+  if (!discountCode?.trim()) return null;
+  return mockDsc.evaluateMockDiscount(discountCode, {
+    destination: 'vault',
+    customer,
+    lines: items.map((l) => ({ id: l.inventoryItemId, kind: 'item' as const, scope: l.productType, priceCents: l.displayPriceCents ?? 0, quantity: 1 })),
+    close: ({ subtotalCents }) => ({ ok: true, totalCents: computeBreakdown(subtotalCents).totalCents, shippingWaivedCents: 0 }),
+  });
+}
+
+/** MOCK §DSC.6 — el `422`/`429` de la sesión: mismo resultado que el quote, sin escribir nada. */
+function mockDiscountSessionError(dto: Exclude<DiscountQuoteDTO, { outcome: 'applied' }>): ApiClientError {
+  const e = mockDsc.sessionErrorOf(dto);
+  return new ApiClientError(e.status, { code: e.code, message: e.code, ...(e.details ? { details: e.details } : {}) });
 }
 
 /**
@@ -1260,12 +1320,13 @@ export function measurementBodyField(): { measurement?: NonNullable<ReturnType<t
 export async function createCheckoutSession(
   inventoryItemIds: string[],
   billingProfileId?: string,
+  discountCode?: string,
 ): Promise<CheckoutSessionResponse> {
   if (!config.useMocks) {
     return apiRequest<CheckoutSessionResponse>('/checkout/session', {
       method: 'POST',
-      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
-      body: { inventoryItemIds, billingProfileId, ...measurementBodyField() },
+      // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja. §DSC.6: `discountCode` tampoco.
+      body: { inventoryItemIds, billingProfileId, ...measurementBodyField(), ...discountCodeField(discountCode) },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
@@ -1277,8 +1338,25 @@ export async function createCheckoutSession(
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  const caller = mockCallerCustomer();
+  // 💰 §DSC.4/§DSC.6: la sesión RECALCULA el código (precio que cambió, pausado…); si ya no aplica ⇒ 422 sin crear nada.
+  const customer = `user:${caller.kind === 'customer' ? caller.userId : 'anon'}`;
+  const dsc = mockVaultDiscount(items, discountCode, customer);
+  if (dsc && !dsc.applied) throw mockDiscountSessionError(dsc.dto);
   // v1.68 (§4-R.2): la tabla de decisión del reintento del MISMO cliente (`lib/mock/reservation`).
-  return delay(mockCheckoutSessionOutcome(inventoryItemIds, mockCallerCustomer(), subtotal, null));
+  const out = mockCheckoutSessionOutcome(inventoryItemIds, caller, subtotal - (dsc?.applied?.discountCents ?? 0), null);
+  if (dsc?.applied) {
+    mockDsc.reserveMockDiscount({
+      codeId: dsc.applied.codeId,
+      customer,
+      kind: 'order',
+      folio: out.orderNumber ?? out.orderId,
+      discountCents: dsc.applied.discountCents,
+      shippingWaivedCents: 0,
+      totalCents: out.breakdown.totalCents,
+    });
+  }
+  return delay(dsc?.applied ? { ...out, discount: dsc.dto } : out);
 }
 
 /** Identidad del llamador con cuenta para el simulador de §4-R (`userId` de la sesión mock). */
@@ -1420,12 +1498,33 @@ function mockProjectOrder<T extends OrderSummaryDTO | OrderDetailDTO>(order: T):
   return { ...order, reservedUntil: live.reservedUntil };
 }
 
+/** MOCK §DSC.6 (914): ver `MOCK_DISCOUNTED_ORDER_ID` en `lib/mock/discounts.ts`. */
+function mockDiscountedOrderDetail(): OrderDetailDTO {
+  const base = fx.mockOrderDetail;
+  return {
+    ...base,
+    id: mockDsc.MOCK_DISCOUNTED_ORDER_ID,
+    orderNumber: mockDsc.MOCK_DISCOUNTED_ORDER_NUMBER,
+    breakdown: mockDsc.MOCK_DISCOUNTED_ORDER_BREAKDOWN,
+    items: base.items.map((it) => ({
+      ...it,
+      ...mockDsc.mockProjectUnit(it.unitPriceCents, mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS),
+    })),
+    fulfillmentMode: 'vault',
+    publicStatus: 'pagado',
+    shipment: null,
+    discount: mockDsc.MOCK_ORDER_DISCOUNT,
+  };
+}
+
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
   // v1.51-c: `ord-9003` sirve el acta con `cardSnapshot` INCOMPLETO (§5.2.9). El simulador
   // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
   // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
   if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
+  // MOCK §DSC.6 (914): el pedido cobrado con código (`discount` + `unitDiscountCents`; `unitPriceCents` = cobrado).
+  if (orderId === mockDsc.MOCK_DISCOUNTED_ORDER_ID) return delay(mockDiscountedOrderDetail());
   // MOCK §M4-SHIP.16: el pedido DIRECTO con guía y una carta que no salió («te devolvimos MX$314.58»).
   if (orderId === MOCK_DIRECT_SHIP_ORDER.id) {
     const detail: OrderDetailDTO = {
@@ -1619,11 +1718,13 @@ export async function deleteAddress(id: string): Promise<void> {
 export async function getShipmentQuote(
   inventoryItemIds: string[],
   addressId: string,
+  discountCode?: string,
 ): Promise<ShipmentQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<ShipmentQuoteResponse>('/shipments/quote', {
       method: 'POST',
-      body: { inventoryItemIds, addressId },
+      // 💰 §DSC.6/§DSC.8: `discountCode` solo si hay (I-1).
+      body: { inventoryItemIds, addressId, ...discountCodeField(discountCode) },
     });
   }
   const SHIPPING = 17500; // MOCK: dial M10 default.
@@ -1634,7 +1735,34 @@ export async function getShipmentQuote(
   const ineligible = holdings
     .filter((h) => h!.ownershipStatus !== 'settled')
     .map((h) => ({ inventoryItemId: h!.inventoryItemId, reason: 'ITEM_NOT_SETTLED' }));
-  return delay({ breakdown: computeBreakdown(SHIPPING), eligibleItemIds: eligible, ineligible });
+  const dsc = mockWithdrawalDiscount(discountCode, SHIPPING);
+  return delay({
+    breakdown: dsc?.applied ? mockFreeWithdrawalBreakdown() : computeBreakdown(SHIPPING),
+    eligibleItemIds: eligible,
+    ineligible,
+    ...(dsc ? { discount: dsc.dto } : {}),
+  });
+}
+
+/**
+ * MOCK §DSC.8 — retiro con código: solo envío gratis sin filtros; el `shippingWaivedCents` es la tarifa que la pantalla
+ * mostraría sin código (`subtotalCents` del desglose del retiro en este mock; 20300 con los diales del backend).
+ */
+export function mockWithdrawalDiscount(discountCode: string | undefined, shippingCents: number) {
+  if (!discountCode?.trim()) return null;
+  const fee = computeBreakdown(shippingCents).subtotalCents;
+  return mockDsc.evaluateMockDiscount(discountCode, {
+    destination: 'withdrawal',
+    customer: `user:${getStoredUser()?.id ?? 'mock-anon'}`,
+    lines: [],
+    // §DSC.4 (v1.110.1) «vale igual en el retiro»: con la tarifa del retiro en 0 ⇒ ALREADY_FREE_SHIPPING, sin gastar uso.
+    close: () => (fee === 0 ? { ok: false, reason: 'ALREADY_FREE_SHIPPING' } : { ok: true, totalCents: 0, shippingWaivedCents: fee }),
+  });
+}
+
+/** §DSC.8 variante (a): el desglose del retiro gratis, en ceros (`G = 0` ⇒ IVA 0). */
+function mockFreeWithdrawalBreakdown(): BreakdownDTO {
+  return zeroBreakdown();
 }
 
 export async function getShipments(): Promise<ShipmentDTO[]> {
@@ -1670,11 +1798,12 @@ export async function getShipment(id: string): Promise<ShipmentDTO> {
 export async function createShipment(
   inventoryItemIds: string[],
   addressId: string,
+  discountCode?: string,
 ): Promise<ShipmentCreateResponse> {
   if (!config.useMocks) {
     return apiRequest<ShipmentCreateResponse>('/shipments', {
       method: 'POST',
-      body: { inventoryItemIds, addressId },
+      body: { inventoryItemIds, addressId, ...discountCodeField(discountCode) },
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
@@ -1690,7 +1819,30 @@ export async function createShipment(
     throw new ApiClientError(422, { code: 'ITEM_NOT_SETTLED', message: 'Only settled items can be shipped' });
   }
   const SHIPPING = 17500; // MOCK: dial M10 default (MX$175).
+  // 💰 §DSC.8: con código, la sesión re-valida; si no aplica ⇒ 422/429 sin crear nada.
+  const dsc = mockWithdrawalDiscount(discountCode, SHIPPING);
+  if (dsc && !dsc.applied) throw mockDiscountSessionError(dsc.dto);
   const shipmentId = `shp-${Math.floor(Math.random() * 9000 + 1000)}`;
+  if (dsc?.applied && dsc.dto.outcome === 'applied') {
+    // Variante (a): nace en `picking`, sin PaymentIntent, y el uso queda `consumed` directo.
+    mockDsc.reserveMockDiscount({
+      codeId: dsc.applied.codeId,
+      customer: `user:${getStoredUser()?.id ?? 'mock-anon'}`,
+      kind: 'withdrawal',
+      folio: shipmentId,
+      discountCents: 0,
+      shippingWaivedCents: dsc.dto.shippingWaivedCents,
+      totalCents: 0,
+      consumed: true,
+    });
+    fx.mockShipments.unshift({
+      id: shipmentId,
+      status: 'picking',
+      createdAt: new Date().toISOString(),
+      items: holdings.map((h) => ({ inventoryItemId: h!.inventoryItemId, folio: h!.folio, card: h!.card })),
+    });
+    return delay({ shipmentId, status: 'picking' as const, breakdown: mockFreeWithdrawalBreakdown(), stripe: null, discount: dsc.dto });
+  }
   // Refleja el nuevo envío en "mis envíos" para que reaparezca tras confirmar el pago.
   fx.mockShipments.unshift({
     id: shipmentId,
@@ -5818,6 +5970,29 @@ export async function refundOrder(orderId: string, body: RefundOrderRequest): Pr
 /** Detalle M3 (`GET /admin/orders/:id`), v1.80: identidad, reembolsos, envíos y `vaultPieces` (§M4-SHIP.10/.18.6). */
 export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDTO> {
   if (!config.useMocks) return apiRequest<AdminOrderDetailDTO>(`/admin/orders/${orderId}`);
+  // MOCK §DSC.6 (914): el pedido cobrado con código, en Ventas (fila «Código» y «Descuento (CÓDIGO)»).
+  if (orderId === mockDsc.MOCK_DISCOUNTED_ORDER_ID) {
+    const d = mockDiscountedOrderDetail();
+    return delay<AdminOrderDetailDTO>({
+      id: d.id,
+      userId: 'u-777',
+      orderNumber: d.orderNumber ?? null,
+      status: d.status,
+      breakdown: d.breakdown,
+      cfdiStatus: d.cfdiStatus,
+      fulfillmentMode: 'vault',
+      isGuestOrder: false,
+      customer: { userId: 'u-777', fullName: 'Ana Torres', email: 'ana@example.com' },
+      refundedCents: 0,
+      createdAt: d.createdAt,
+      settledAt: d.settledAt ?? null,
+      items: d.items.map(({ refund: _r, ...it }) => {
+        void _r;
+        return { ...it, refund: null, orderItemId: `oi-${d.id}-${it.inventoryItemId}`, deliveredRefund: { kind: 'not_refundable', reason: 'not_direct_ship' } };
+      }),
+      discount: d.discount,
+    });
+  }
   const order = fx.mockAdminOrders.find((o) => o.id === orderId);
   if (!order) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order not found' });
   const additions = m4ship.mockAdminOrderDetailAdditions(orderId);
@@ -7219,6 +7394,8 @@ export async function getGuestCheckoutQuote(
    * paquete (I-AC-3). El `pullToken` viaja SOLO aquí, en el cuerpo (§AC.8).
    */
   extras?: { accessoryLines?: AccessoryLineInput[]; deckPulls?: DeckPullInput[] },
+  /** 💰 §DSC.6 (aditivo): el código del renglón «¿Tienes un código?». Sin él, el cuerpo es el de hoy (I-1). */
+  discountCode?: string,
 ): Promise<GuestCheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<GuestCheckoutQuoteResponse>('/checkout/guest/quote', {
@@ -7229,6 +7406,7 @@ export async function getGuestCheckoutQuote(
         ...(retry ? { retryOfCheckoutToken: retry.retryOfCheckoutToken, email: retry.email } : {}),
         ...(extras?.accessoryLines?.length ? { accessoryLines: extras.accessoryLines } : {}),
         ...(extras?.deckPulls?.length ? { deckPulls: extras.deckPulls } : {}),
+        ...discountCodeField(discountCode),
       },
     });
   }
@@ -7269,7 +7447,10 @@ export async function getGuestCheckoutQuote(
   // 💰 v1.109 (§4-G.12): energía y paquetes cuentan como accesorio (D-ENV-3) ⇒ regla del sellado. TL-R2: un
   // `deckPull` cuenta SOLO si su paquete quedó aceptado (`acc.energyBundles`), igual que el backend
   // (`guest-checkout.service.ts`, `energyBundleCount: acc.energyBundles.length`); un pull sin paquete no es accesorio.
-  const ship = mockGuestDirectShip(items, nothing ? 0 : acc.accessoryLines.length + acc.energyBundles.length, subtotal);
+  // 💰 §DSC.4: con código, el descuento va ANTES de la regla de envío (umbral sobre `S'`, [D2]). Sin código, la de hoy.
+  const priced = mockGuestPricing(items, acc, nothing, discountCode, retry ? `email:${retry.email.trim().toLowerCase()}` : null);
+  const ship = priced.ship;
+  const applied = priced.dsc?.applied ?? null;
   return delay({
     // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
     // checkout de invitado pintaba el mismo hueco gris por la misma causa.
@@ -7277,13 +7458,13 @@ export async function getGuestCheckoutQuote(
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
-      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
-      unitPriceCents: l.displayPriceCents ?? 0,
+      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva. §DSC I-3: con código, el COBRADO.
+      ...mockUnitPrice(l.inventoryItemId, l.displayPriceCents ?? 0, applied),
       ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
     fulfillmentMode: 'direct_ship' as const,
     ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, guestCaller),
-    breakdown: nothing ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, ship.feeCents),
+    breakdown: nothing ? zeroBreakdown(true) : computeGuestBreakdown(subtotal - (applied?.discountCents ?? 0), ship.feeCents),
     // v1.21.4-dual-breakdown (§4-G.1, N-12): SEGUNDO desglose para el destino BÓVEDA — solo
     // cartas, SIN envío (IVA solo sobre subtotal, gross-up sobre la base menor). Es EXACTAMENTE
     // computeCartBreakdown, que aquí es `computeBreakdown(subtotal)` (la réplica local que ya
@@ -7294,7 +7475,7 @@ export async function getGuestCheckoutQuote(
     vaultBreakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(cardsSubtotal),
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems,
-    accessoryLines: acc.accessoryLines,
+    accessoryLines: mockDiscountedAccessoryLines(acc.accessoryLines, applied),
     energyBundles: acc.energyBundles,
     energyBundleOffers: acc.energyBundleOffers,
     unavailableAccessories: acc.unavailableAccessories,
@@ -7303,7 +7484,86 @@ export async function getGuestCheckoutQuote(
     shippingBox: null,
     vaultExcludesAccessories: acc.accessoryLines.length + acc.energyBundles.length > 0,
     shippingRule: ship.rule,
+    ...(priced.dsc ? { discount: priced.dsc.dto } : {}),
   });
+}
+
+/**
+ * §DSC I-3 + proyección de línea (v1.110.3) — renglón de accesorio con código: `unitPriceCents` cobrado,
+ * `lineTotalCents = q × cobrado`, y los «antes del descuento» que pinta la pantalla (`mockProjectAccessoryLine`).
+ */
+function mockDiscountedAccessoryLines<L extends { accessoryId: string; unitPriceCents: number; quantity: number; lineTotalCents: number }>(
+  lines: L[],
+  applied: { unitDiscounts: Map<string, number> } | null,
+): L[] {
+  return lines.map((l) => mockDsc.mockProjectAccessoryLine(l, applied?.unitDiscounts.get(l.accessoryId) ?? 0));
+}
+
+/**
+ * MOCK §DSC.4 — pedido de invitado (envío directo): pasos 1-2 descuento ⇒ `S'`; 3 clase; 4 umbral sobre `S'`; 5 caja
+ * (el mock no tiene cajas: `shippingBox: null`); 6 desglose sobre `S' + E`. Envío gratis (tipo c): no aplica con
+ * `S ≥ T` (`ALREADY_FREE_SHIPPING`) ni con caja grande (`LARGE_BOX`); aplicado ⇒ `E = 0`, `shippingWaivedCents = E_clase`,
+ * `freeShippingApplied: true`, `freeShippingRemainingCents: null`. Sin código ⇒ `mockGuestDirectShip` de hoy, intacto.
+ */
+function mockGuestPricing(
+  items: ListingDTO[],
+  acc: { accessoryLines: { accessoryId: string; unitPriceCents: number; quantity: number }[]; energyBundles: { deckSlug: string; priceCents: number }[] },
+  nothing: boolean,
+  discountCode: string | undefined,
+  customer: string | null,
+): { ship: DirectShipFee; dsc: ReturnType<typeof mockDsc.evaluateMockDiscount> | null } {
+  const accessoryCount = nothing ? 0 : acc.accessoryLines.length + acc.energyBundles.length;
+  const lines: mockDsc.DiscountLine[] = [
+    ...items.map((l) => ({ id: l.inventoryItemId, kind: 'item' as const, scope: l.productType, priceCents: l.displayPriceCents ?? 0, quantity: 1 })),
+    ...acc.accessoryLines.map((a) => ({ id: a.accessoryId, kind: 'accessory' as const, scope: 'accessory' as const, priceCents: a.unitPriceCents, quantity: a.quantity })),
+    ...acc.energyBundles.map((b) => ({ id: b.deckSlug, kind: 'energy_bundle' as const, scope: null, priceCents: b.priceCents, quantity: 1 })),
+  ];
+  const S = lines.reduce((s, l) => s + l.priceCents * l.quantity, 0);
+  if (!discountCode?.trim() || nothing) return { ship: mockGuestDirectShip(items, accessoryCount, S), dsc: null };
+  return mockDiscountedDirectShip(lines, S, shippingRuleKindOf({ productTypes: items.map((l) => l.productType), accessoryCount }), discountCode, customer);
+}
+
+/**
+ * MOCK §DSC.4 pasos 2-7 sobre unas líneas ya armadas (exportada para la paridad con las cifras del contrato, que dan
+ * `S` y clase sin carrito). `box` = la caja de §AC.7 (`null` en el mock de hoy).
+ */
+export function mockDiscountedDirectShip(
+  lines: mockDsc.DiscountLine[],
+  S: number,
+  kind: ReturnType<typeof shippingRuleKindOf>,
+  discountCode: string,
+  customer: string | null,
+  box: { customerFeeCents: number } | null = null,
+): { ship: DirectShipFee; dsc: ReturnType<typeof mockDsc.evaluateMockDiscount> } {
+  const dials = mockDirectShipDials();
+  let ship: DirectShipFee = directShipFeeOf(kind, S, dials, box);
+  const dsc = mockDsc.evaluateMockDiscount(discountCode, {
+    destination: 'direct_ship',
+    customer,
+    lines,
+    close: ({ subtotalCents, freeShipping }) => {
+      if (!freeShipping) {
+        const s = directShipFeeOf(kind, subtotalCents, dials, box);
+        return { ok: true, totalCents: computeGuestBreakdown(subtotalCents, s.feeCents).totalCents, shippingWaivedCents: 0 };
+      }
+      // Orden de §DSC.4 (v1.110.1): bóveda ⇒ NO_SHIPPING (lo decide `discountOf`) → caja grande ⇒ LARGE_BOX (se
+      // cobra completa) → `E` sin código ya es 0 (`S ≥ T` o dial de la clase en 0) ⇒ ALREADY_FREE_SHIPPING: nunca se
+      // gasta un uso con `shippingWaivedCents = 0`.
+      if (box !== null && box.customerFeeCents > dials.sealedFeeCents) return { ok: false, reason: 'LARGE_BOX' };
+      const eNoCode = directShipFeeOf(kind, S, dials, null).feeCents;
+      if (eNoCode === 0) return { ok: false, reason: 'ALREADY_FREE_SHIPPING' };
+      return { ok: true, totalCents: computeGuestBreakdown(subtotalCents, 0).totalCents, shippingWaivedCents: eNoCode };
+    },
+  });
+  if (dsc.applied) {
+    ship = dsc.applied.freeShipping
+      ? {
+          feeCents: 0,
+          rule: { kind, freeFromCents: kind ? dials.freeFromCents : null, freeShippingRemainingCents: null, freeShippingApplied: true, boxFeeApplies: false },
+        }
+      : directShipFeeOf(kind, S - dsc.applied.discountCents, dials, box);
+  }
+  return { ship, dsc };
 }
 
 /**
@@ -7369,7 +7629,13 @@ export async function createGuestCheckoutSession(
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) + accSession.extraSubtotalCents;
   // ENV-3: la sesión cobra con la MISMA función que el quote.
   // TL-R2: como el quote y el backend (`part.bundles.length`): solo los paquetes aceptados, no todo `deckPulls`.
-  const ship = mockGuestDirectShip(items, accSession.accessoryLines.length + accSession.energyBundles.length, subtotal);
+  // 💰 §DSC.4/§DSC.6: la MISMA composición que el quote, con el cliente conocido (correo normalizado); si el código ya no
+  // aplica ⇒ 422/429 ANTES de crear nada.
+  const sessionEmail = input.email.trim().toLowerCase();
+  const priced = mockGuestPricing(items, accSession, false, input.discountCode, `email:${sessionEmail}`);
+  if (priced.dsc && !priced.dsc.applied) throw mockDiscountSessionError(priced.dsc.dto);
+  const ship = priced.ship;
+  const discountedSubtotal = subtotal - (priced.dsc?.applied?.discountCents ?? 0);
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
   // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
   const email = input.email.trim().toLowerCase();
@@ -7379,9 +7645,21 @@ export async function createGuestCheckoutSession(
   const outcome = mockCheckoutSessionOutcome(
     input.inventoryItemIds,
     { kind: 'guest', email, retryOfCheckoutToken: input.retryOfCheckoutToken },
-    subtotal,
+    discountedSubtotal,
     { email, checkoutToken, shippingFeeCents: ship.feeCents },
   );
+  const dscApplied = priced.dsc?.applied && priced.dsc.dto.outcome === 'applied' ? { applied: priced.dsc.applied, dto: priced.dsc.dto } : null;
+  if (dscApplied) {
+    mockDsc.reserveMockDiscount({
+      codeId: dscApplied.applied.codeId,
+      customer: `email:${sessionEmail}`,
+      kind: 'order',
+      folio: outcome.orderNumber ?? outcome.orderId,
+      discountCents: dscApplied.applied.discountCents,
+      shippingWaivedCents: dscApplied.dto.shippingWaivedCents,
+      totalCents: outcome.breakdown.totalCents,
+    });
+  }
   return delay({
     orderId: outcome.orderId,
     orderNumber: outcome.orderNumber ?? 'TCG-000123',
@@ -7393,6 +7671,7 @@ export async function createGuestCheckoutSession(
     reused: outcome.reused,
     reservedUntil: outcome.reservedUntil,
     supersededOrderIds: outcome.supersededOrderIds,
+    ...(dscApplied ? { discount: dscApplied.dto } : {}),
   });
 }
 
@@ -7426,7 +7705,23 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     throw new ApiClientError(404, { code: 'INVALID_TOKEN', message: 'Invalid link' });
   }
   const listings = fx.mockListings.filter((l) => l.sellable).slice(0, 2);
-  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  // MOCK §DSC.6 (914): un token `mock…discount…` sirve el mismo pedido cobrado con `SEPT10`, calculado por `discountOf`
+  // del simulador (TL-DSC-6: ⛔ ninguna fórmula propia aquí): `unitPriceCents` = cobrado, `unitDiscountCents` = la rebaja,
+  // `unitPriceBeforeDiscountCents` el exhibido, `subtotalCents` = Σ cobrado (I-3). Sin esa marca, nada de eso (I-1).
+  const withCode = token.includes('discount');
+  const S = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  const dscLines: mockDsc.DiscountLine[] = listings.map((l) => ({
+    id: l.inventoryItemId,
+    kind: 'item',
+    scope: l.productType,
+    priceCents: l.displayPriceCents ?? 0,
+    quantity: 1,
+  }));
+  const dsc = withCode ? mockDsc.discountOf(dscLines, mockDsc.MOCK_SEPT10_RULE, 'direct_ship') : null;
+  const applied = dsc?.ok ? dsc : null;
+  const unitDiscount = (l: (typeof listings)[number]) => applied?.unitDiscounts.get(l.inventoryItemId) ?? 0;
+  const discountCents = applied?.discountCents ?? 0;
+  const subtotal = S - discountCents;
   const shipped = token.includes('shipped');
   return delay<GuestOrderTrackingDTO>({
     orderNumber: 'TCG-000123',
@@ -7447,8 +7742,11 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
       imageSmallUrl: l.card.imageSmallUrl,
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
-      unitPriceCents: l.displayPriceCents ?? 0,
+      ...mockDsc.mockProjectUnit(l.displayPriceCents ?? 0, unitDiscount(l)),
     })),
+    ...(applied
+      ? { discount: { code: 'SEPT10', kind: 'percent' as const, merchandiseBeforeDiscountCents: S, discountCents, shippingWaivedCents: 0 } }
+      : {}),
     // Pedido demo de solo cartas: la tarifa con la que se cobró (§4-G.12 punto 6: congelada; aquí, la regla vigente).
     breakdown: computeGuestBreakdown(subtotal, mockGuestDirectShip(listings, 0, subtotal).feeCents),
     shipping: {
@@ -7810,3 +8108,163 @@ export async function exportWishlistDemandCsv(params: WishlistDemandParams = {})
   }));
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------
+// 💰 §DSC.7 (v1.110) — panel «Códigos de descuento», solo `super_admin` (operador ⇒ `403 FORBIDDEN`).
+// El mock replica el `403` con el rol de demo (`tcg.role`), los `409` de bloqueo y la paginación (50, tope 100).
+// ---------------------------------------------------------------------------------------------------------------
+
+function mockDscCall<T>(fn: () => T): Promise<T> {
+  return delay(null).then(() => {
+    if (!mockRoleIsOwner()) throw new ApiClientError(403, { code: 'FORBIDDEN', message: 'Super admin only' });
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof mockDsc.MockDiscountError) {
+        throw new ApiClientError(e.status, { code: e.code, message: e.code, ...(e.details ? { details: e.details } : {}) });
+      }
+      throw e;
+    }
+  });
+}
+
+export interface DiscountCodeListParams {
+  status?: DiscountCodeStatus;
+  state?: DiscountCodeStateFilter;
+  batchId?: string;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** `GET /admin/discount-codes` — sin `batchId` excluye los códigos de lote (la lista los pinta plegados por lote). */
+export async function listDiscountCodes(params: DiscountCodeListParams = {}): Promise<DiscountCodeListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DiscountCodeListResponse>('/admin/discount-codes', {
+      query: { status: params.status, state: params.state, batchId: params.batchId, q: params.q, page: params.page, pageSize: params.pageSize },
+    });
+  }
+  return mockDscCall(() => {
+    const all = mockDsc.mockListCodes(params);
+    const page = params.page ?? 1;
+    const pageSize = Math.min(params.pageSize ?? 50, 100);
+    return { data: all.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: all.length };
+  });
+}
+
+export async function getDiscountCode(id: string): Promise<DiscountCodeDTO> {
+  if (!config.useMocks) return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}`);
+  return mockDscCall(() => mockDsc.mockGetCode(id));
+}
+
+/** `POST /admin/discount-codes` — `409 DISCOUNT_CODE_TAKEN` · `422 VALIDATION_ERROR`. */
+export async function createDiscountCode(body: DiscountCodeCreateRequest): Promise<DiscountCodeDTO> {
+  if (!config.useMocks) return apiRequest<DiscountCodeDTO>('/admin/discount-codes', { method: 'POST', body });
+  return mockDscCall(() => mockDsc.mockCreateCode(body));
+}
+
+/** `PATCH /admin/discount-codes/:id` — `409 DISCOUNT_CODE_LOCKED { lockedFields }` · `409 …LIMIT_BELOW_USES { inUse }`. */
+export async function patchDiscountCode(id: string, body: DiscountCodePatchRequest): Promise<DiscountCodeDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+  }
+  return mockDscCall(() => mockDsc.mockPatchCode(id, body));
+}
+
+/** `POST /admin/discount-codes/:id/pause|resume` — idempotente. */
+export async function setDiscountCodePaused(id: string, paused: boolean): Promise<DiscountCodeDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
+  }
+  return mockDscCall(() => mockDsc.mockSetCodeStatus(id, paused ? 'paused' : 'active'));
+}
+
+/** `GET /admin/discount-code-batches`. */
+export async function listDiscountCodeBatches(page = 1): Promise<DiscountCodeBatchListResponse> {
+  if (!config.useMocks) return apiRequest<DiscountCodeBatchListResponse>('/admin/discount-code-batches', { query: { page } });
+  return mockDscCall(() => {
+    const all = mockDsc.mockListBatches();
+    return { data: all.slice((page - 1) * 50, page * 50), page, pageSize: 50, total: all.length };
+  });
+}
+
+export async function getDiscountCodeBatch(id: string): Promise<DiscountCodeBatchDTO> {
+  if (!config.useMocks) return apiRequest<DiscountCodeBatchDTO>(`/admin/discount-code-batches/${encodeURIComponent(id)}`);
+  return mockDscCall(() => mockDsc.mockGetBatch(id));
+}
+
+/** `POST /admin/discount-code-batches` — `201 { batch, codesCsvPath }`. */
+export async function createDiscountCodeBatch(body: DiscountCodeBatchCreateRequest): Promise<DiscountCodeBatchCreateResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DiscountCodeBatchCreateResponse>('/admin/discount-code-batches', { method: 'POST', body });
+  }
+  return mockDscCall(() => mockDsc.mockCreateBatch(body));
+}
+
+/** `POST /admin/discount-code-batches/:id/pause|resume` — los N en una sola transacción (911). */
+export async function setDiscountCodeBatchPaused(id: string, paused: boolean): Promise<DiscountCodeBatchDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DiscountCodeBatchDTO>(`/admin/discount-code-batches/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, {
+      method: 'POST',
+    });
+  }
+  return mockDscCall(() => mockDsc.mockSetBatchStatus(id, paused ? 'paused' : 'active'));
+}
+
+/** `GET /admin/discount-code-batches/:id/codes.csv` (auditado: reparte códigos). */
+export async function downloadDiscountCodeBatchCsv(id: string): Promise<BlobResponse> {
+  if (!config.useMocks) return requestBlob(`/admin/discount-code-batches/${encodeURIComponent(id)}/codes.csv`);
+  return mockDscCall(() => {
+    const csv = mockDsc.mockBatchCsv(id);
+    mockDsc.mockAuditExport('DiscountCodeBatch', id, 'discount.batch.codes_exported', csv.trim().split('\n').length - 1);
+    return { blob: new Blob([csv], { type: 'text/csv;charset=utf-8' }), filename: null };
+  });
+}
+
+/** `GET /admin/discount-codes/:id/report` · `GET /admin/discount-code-batches/:id/report` — `?from=&to=` (día México). */
+export async function getDiscountReport(
+  target: { kind: 'code' | 'batch'; id: string },
+  range: { from?: string; to?: string } = {},
+): Promise<DiscountReportDTO> {
+  const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
+  if (!config.useMocks) {
+    return apiRequest<DiscountReportDTO>(`${base}/${encodeURIComponent(target.id)}/report`, { query: { from: range.from, to: range.to } });
+  }
+  return mockDscCall(() => (target.kind === 'code' ? mockDsc.mockCodeReport(target.id) : mockDsc.mockBatchReport(target.id)));
+}
+
+/**
+ * `POST /admin/discount-codes/preview` (v1.110.1) — «Así lo verá el cliente»: el servidor corre `discountOf`/
+ * `allocateDiscount` sobre el carrito de ejemplo. Cero escrituras. ⛔ El front no hace ninguna cuenta con esto.
+ */
+export async function previewDiscountCode(body: DiscountPreviewRequest): Promise<DiscountPreviewResponse> {
+  if (!config.useMocks) return apiRequest<DiscountPreviewResponse>('/admin/discount-codes/preview', { method: 'POST', body });
+  return mockDscCall(() => mockDsc.mockPreview(body));
+}
+
+/** `GET /admin/discount-codes/:id/audit` · `GET /admin/discount-code-batches/:id/audit` (v1.110.1) — antes → después. */
+export async function getDiscountAudit(target: { kind: 'code' | 'batch'; id: string }, page = 1): Promise<DiscountAuditResponse> {
+  const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
+  if (!config.useMocks) return apiRequest<DiscountAuditResponse>(`${base}/${encodeURIComponent(target.id)}/audit`, { query: { page } });
+  return mockDscCall(() => {
+    const all = mockDsc.mockAudit(target.kind === 'code' ? 'DiscountCode' : 'DiscountCodeBatch', target.id);
+    return { data: all.slice((page - 1) * 50, page * 50), page, pageSize: 50, total: all.length };
+  });
+}
+
+/** `GET …/report.csv` — mismas filas que el JSON. */
+export async function downloadDiscountReportCsv(
+  target: { kind: 'code' | 'batch'; id: string },
+  range: { from?: string; to?: string } = {},
+): Promise<BlobResponse> {
+  const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
+  if (!config.useMocks) {
+    return requestBlob(`${base}/${encodeURIComponent(target.id)}/report.csv`, { query: { from: range.from, to: range.to } });
+  }
+  return mockDscCall(() => {
+    const r = target.kind === 'code' ? mockDsc.mockCodeReport(target.id) : mockDsc.mockBatchReport(target.id);
+    if (target.kind === 'code') mockDsc.mockAuditExport('DiscountCode', target.id, 'discount.code.report_exported', r.rows.length);
+    else mockDsc.mockAuditExport('DiscountCodeBatch', target.id, 'discount.batch.report_exported', r.rows.length);
+    return { blob: new Blob([mockDsc.mockReportCsv(r)], { type: 'text/csv;charset=utf-8' }), filename: null };
+  });
+}

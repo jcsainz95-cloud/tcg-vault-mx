@@ -14,6 +14,7 @@
 import type { MeasurementIds } from './mode';
 import type { ConsentChoice } from './consent';
 import { neverThrow } from './track';
+import { isPixelSafeDocument, sanitizeMeasurementUrl } from './utm';
 
 const GTAG_SRC = 'https://www.googletagmanager.com/gtag/js';
 const FBEVENTS_SRC = 'https://connect.facebook.net/en_US/fbevents.js';
@@ -51,16 +52,27 @@ function loadGoogle(w: MeasurementWindow, id: string): void {
   });
   w.gtag('consent', 'update', { analytics_storage: 'granted' });
   w.gtag('js', new Date());
-  w.gtag('config', id, {
+  // D-MKT2-11 (SEC-MED-1): sin `page_location` gtag manda la URL del documento (con `?q=`…) ⇒ saneadas aquí,
+  // y `track()` las vuelve a poner en cada evento.
+  const config: Record<string, unknown> = {
     send_page_view: false,
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
-  });
+  };
+  const pageLocation = sanitizeMeasurementUrl(window.location.href, 'ga4');
+  const pageReferrer = sanitizeMeasurementUrl(document.referrer, 'ga4');
+  if (pageLocation) config.page_location = pageLocation;
+  if (pageReferrer) config.page_referrer = pageReferrer;
+  w.gtag('config', id, config);
   inject(`${GTAG_SRC}?id=${encodeURIComponent(id)}`, 'ga4');
 }
 
 function loadMeta(w: MeasurementWindow, pixelId: string): void {
   if (w.fbq) return;
+  // D-MKT2-11 (SEC-MED-1): `fbevents.js` lee `location.href` y `document.referrer` por su cuenta y no deja
+  // reescribirlos ⇒ en un documento cuya URL (o referente de nuestro origen) lleva algo fuera de la lista
+  // del píxel, ni stub, ni `init`, ni `<script>`. El proveedor reintenta en la siguiente ruta medida.
+  if (!isPixelSafeDocument(window.location.href, document.referrer)) return;
   // Equivalente del fragmento estándar de Meta, sin `<script>` en línea (CSP con nonce).
   type Fbq = NonNullable<MeasurementWindow['fbq']>;
   const fbq: Fbq = function fbqStub(...args: unknown[]) {

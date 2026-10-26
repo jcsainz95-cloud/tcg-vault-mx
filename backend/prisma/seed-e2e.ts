@@ -146,11 +146,23 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   });
   const guestOrderIds = guestOrders.map((o) => o.id);
   if (guestOrderIds.length > 0) {
+    // M-92: el USO de un código cuelga de la orden o del retiro con FK `Restrict` ⇒ se borra ANTES que sus padres
+    // (sin esto, una corrida de `frontend/e2e/discount-codes.spec.ts` dejaba la resiembra en `P2003`).
+    await prisma.discountRedemption.deleteMany({
+      where: { OR: [{ orderId: { in: guestOrderIds } }, { shipmentRequest: { orderId: { in: guestOrderIds } } }] },
+    });
     await prisma.shipmentRequest.deleteMany({ where: { orderId: { in: guestOrderIds } } });
     await prisma.order.deleteMany({ where: { id: { in: guestOrderIds } } });
   }
 
   await prisma.dispute.deleteMany({ where: { userId: { in: ids } } });
+  // M-92: usos de códigos sobre órdenes y retiros de los usuarios del fixture (FK `Restrict` a ambos padres), y su
+  // bloqueo por usuario del límite de intentos (`user:<id>`, sin FK): si no, el cliente E2E nace bloqueado. Las claves
+  // `ip:`/`email:` son HMAC con la clave PII del proceso que las escribió y el seed no puede derivarlas: caducan solas.
+  await prisma.discountRedemption.deleteMany({
+    where: { OR: [{ order: { userId: { in: ids } } }, { shipmentRequest: { userId: { in: ids } } }] },
+  });
+  await prisma.discountCodeThrottle.deleteMany({ where: { key: { in: ids.map((id) => `user:${id}`) } } });
   await prisma.shipmentRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a ShipmentItem
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
   // v1.79 (M-59): la colocación en bóveda cuelga de la orden con FK `Restrict` (y sus filas por carta

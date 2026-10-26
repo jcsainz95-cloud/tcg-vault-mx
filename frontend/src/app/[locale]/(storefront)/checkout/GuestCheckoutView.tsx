@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -30,6 +30,8 @@ import { useIsDesktop } from './use-is-desktop';
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { InlineAuthPanel } from './InlineAuthPanel';
+import { CodeRow } from '@/components/domain/CodeRow';
+import { DISCOUNT_QUOTE_GC_MS, useDiscountCode } from '@/components/domain/useDiscountCode';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
@@ -137,20 +139,36 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     () => cart.deckPulls.map((p) => ({ pullToken: p.token, withEnergyBundle: p.withEnergyBundle })),
     [cart.deckPulls],
   );
+  // 💰 §DSC.6: el código viaja en quote y sesión. La clave lleva el código: aplicar uno cotiza con
+  // `fetchQuery` sobre ESTA misma clave, así que al confirmarlo la query principal ya tiene la respuesta.
+  const queryClient = useQueryClient();
+  const quoteKey = (code: string | null) =>
+    ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null, code] as const;
+  const quoteFor = (code: string | null) => {
+    const extras = accessoryLines.length || quotePulls.length ? { accessoryLines, deckPulls: quotePulls } : undefined;
+    // I-1 / 915: sin código, la MISMA llamada de hoy (ni un argumento de más).
+    return code
+      ? getGuestCheckoutQuote(cart.ids, undefined, quoteRetry, extras, code)
+      : getGuestCheckoutQuote(cart.ids, undefined, quoteRetry, extras);
+  };
+  const [codeForQuote, setCodeForQuote] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null],
-    queryFn: () =>
-      getGuestCheckoutQuote(
-        cart.ids,
-        undefined,
-        quoteRetry,
-        accessoryLines.length || quotePulls.length ? { accessoryLines, deckPulls: quotePulls } : undefined,
-      ),
+    queryKey: quoteKey(codeForQuote),
+    queryFn: () => quoteFor(codeForQuote),
     enabled: !cart.isEmpty,
     // Al aparecer el token (tras la primera session) la clave cambia: se conserva el quote anterior
     // mientras llega el nuevo para no desmontar formulario y botón en plena re-cotización.
     placeholderData: keepPreviousData,
   });
+  const dsc = useDiscountCode({
+    screen: 'direct_ship',
+    evaluate: (code) => queryClient.fetchQuery({ queryKey: quoteKey(code), queryFn: () => quoteFor(code), gcTime: DISCOUNT_QUOTE_GC_MS }).then((r) => r.discount),
+    current: query.isPlaceholderData ? undefined : query.data?.discount,
+  });
+  // El código confirmado entra en la clave (y con él en la sesión). Quitarlo vuelve a la cotización de hoy (I-1).
+  useEffect(() => {
+    setCodeForQuote(dsc.code);
+  }, [dsc.code]);
 
   // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
   const beginCheckoutKey = useRef('');
@@ -227,14 +245,29 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   // §AC-UX.7: «El envío cambió a {amount}…» entre dos cotizaciones; se borra en la siguiente sin cambio.
   const prevShipping = useRef<number | undefined>(undefined);
+  /** §DSC-UX.2: un cambio de envío causado por aplicar/quitar un código NO lleva aviso extra (se ve en el desglose y T9). */
+  const prevShippingCode = useRef<string | null>(null);
   const [shippingChangedTo, setShippingChangedTo] = useState<number | null>(null);
   useEffect(() => {
     const fee = quoteData?.breakdown.shippingFeeCents;
     if (fee === undefined) return;
-    if (prevShipping.current !== undefined && prevShipping.current !== fee) setShippingChangedTo(fee);
+    const codeChanged = prevShippingCode.current !== codeForQuote;
+    prevShippingCode.current = codeForQuote;
+    if (codeChanged) setShippingChangedTo(null);
+    else if (prevShipping.current !== undefined && prevShipping.current !== fee) setShippingChangedTo(fee);
     else if (prevShipping.current === fee) setShippingChangedTo(null);
     prevShipping.current = fee;
+    // `codeForQuote` se lee junto con la respuesta; no debe re-disparar el efecto por sí solo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteData]);
+
+  // §DSC-UX.2: al aplicar o quitar un código, TOTAL y PAGAR vuelven a la cotización hasta que exista una sesión nueva.
+  const lastCode = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastCode.current === dsc.code) return;
+    lastCode.current = dsc.code;
+    setOutcome(null);
+  }, [dsc.code]);
 
   const own = query.data?.ownReservation ?? null;
   const notice: CheckoutRetryOutcome | null =
@@ -345,6 +378,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         // 💰 §AC.4: ⛔ sin importes. Con `withEnergyBundle:false` la sesión no valida nada: solo van los paquetes.
         ...(accessoryLines.length ? { accessoryLines } : {}),
         ...(sessionPulls.length ? { deckPulls: sessionPulls } : {}),
+        // 💰 §DSC.6: el código confirmado; sin él la llave no viaja (I-1).
+        ...(dsc.code ? { discountCode: dsc.code } : {}),
       });
       // El token recién emitido (también en el `200` de reuso) sustituye al anterior: es la
       // llave del reintento siguiente, con su propio vencimiento.
@@ -354,9 +389,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       setOutcome(res);
       setSession(res);
     } catch (e) {
-      // 422 VAULT_REQUIRES_ACCOUNT (details.upsell) NUNCA se pinta como error: es la
-      // señal del upsell de bóveda (contrato §4-G.2, criterio 48).
-      if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
+      // 💰 §DSC.6 / C12: `422 DISCOUNT_CODE_*` o `429` ⇒ la sesión no creó nada y NO se cobró. El código se quita con
+      // aviso, la clave cambia y la cotización nueva pinta el total sin código antes de volver a pulsar.
+      if (dsc.handleSessionError(e)) {
+        // nada más: el aviso vive en el renglón y la re-cotización es automática.
+      } else if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
+        // 422 VAULT_REQUIRES_ACCOUNT (details.upsell) NUNCA se pinta como error: es la
+        // señal del upsell de bóveda (contrato §4-G.2, criterio 48).
         setDestination('vault');
         setUpsellOpen(true);
       } else if (
@@ -482,8 +521,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       : t('payNoAmount');
   const payDisabled = !!payBlockedReason || paymentInProgress;
 
+  // §DSC-UX.2: el descuento solo se pinta con envío a domicilio (el desglose de bóveda es el de hoy).
+  const shownDiscount = destination === 'ship' ? dsc.applied : null;
   // T3a (CHK-MOVIL.4): importes del quote, ⛔ nunca del front. Con envío 0, la variante «envío gratis».
-  const barLine = activeBreakdown
+  // C11 (§DSC-UX.2): con un descuento de mercancía, la línea 1 lo dice; con un código de envío gratis se queda T3a.
+  // Forma CORTA «Con descuento −MX$X» (el respaldo que §DSC-UX.2 prevé): la larga midió 123 px de barra a 360 con un
+  // código de 20 caracteres e importes de 5 cifras (DL3, `e2e/discount-codes.spec.ts`, 2026-10-25); el tope es 120.
+  const barLine = activeBreakdown && shownDiscount && shownDiscount.kind !== 'free_shipping'
+    ? t('discount.barShort', { amount: formatMoneyCents(shownDiscount.discountCents, locale) })
+    : activeBreakdown
     ? activeBreakdown.shippingFeeCents === 0
       ? t('bar.includesShippingFree', { fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale) })
       : t('bar.includesShipping', {
@@ -504,6 +550,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         productsSubtotal={(data.accessoryLines?.length ?? 0) + (data.energyBundles?.length ?? 0) > 0}
         // §AC-UX.7: ⛔ ni `label` ni `code` ni `review` de la caja: solo que el envío sale de su tamaño.
         shippingNote={data.shippingBox ? tacc('boxHint') : undefined}
+        discount={shownDiscount}
       />
     </>
   ) : null;
@@ -658,10 +705,21 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   )}
                 </div>
               </section>
-              {destination === 'ship' && remaining != null && remaining > 0 && (
-                <p data-testid="free-shipping-remaining" className="mt-2 font-mono text-xs text-muted">
-                  {t('freeShippingRemaining', { remaining: formatMoneyCents(remaining, locale) })}
-                </p>
+              {/* T9 (§DSC-UX.2): el número es el del servidor, medido sobre la mercancía YA descontada; se anuncia. */}
+              <div aria-live="polite">
+                {destination === 'ship' && remaining != null && remaining > 0 && (
+                  <p data-testid="free-shipping-remaining" className="mt-2 font-mono text-xs text-muted">
+                    {t('freeShippingRemaining', { remaining: formatMoneyCents(remaining, locale) })}
+                  </p>
+                )}
+              </div>
+
+              {/* §DSC-UX.1 variante A (dueño 2026-10-25, `HECHOS.md` «Códigos de descuento: pantallas y P-DSC-3»):
+                  bajo «Envío a mi domicilio» y T9, ANTES de los datos. Solo con envío: la bóveda pide cuenta. */}
+              {destination === 'ship' && data.items.length + (data.accessoryLines?.length ?? 0) > 0 && (
+                <div className="mt-3">
+                  <CodeRow {...dsc.rowProps} />
+                </div>
               )}
 
               <div className="pt-8">

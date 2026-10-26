@@ -32,7 +32,7 @@ import type {
 import { ReplacementCaseCard } from '../../ReplacementCaseCard';
 import { CASES_KEY } from '../../ReplacementCasesPanel';
 import { LABEL, TAG, useZonedLabel } from '../../prep-shared';
-import { pesosToCents } from '../../pesosToCents';
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
 type Translator = ReturnType<typeof useTranslations>;
 const DASH = '—';

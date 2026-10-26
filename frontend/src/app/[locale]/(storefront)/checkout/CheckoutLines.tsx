@@ -53,7 +53,9 @@ export function CheckoutLines({ items, onRemove }: CheckoutLinesProps) {
               </button>
             </div>
             <span className="tabular shrink-0 text-right text-[17px] font-medium text-text sm:text-[19px]">
-              {formatMoneyCents(item.unitPriceCents, locale)}
+              {/* §DSC I-3: con código, `unitPriceCents` es lo COBRADO; el exhibido lo da el servidor (`unitPriceBeforeDiscountCents`,
+                  v1.110.3) y la línea lo pinta para cuadrar con «Subtotal» (S) y la fila «Descuento». ⛔ Sin sumar (DCO-F6). */}
+              {formatMoneyCents(item.unitPriceBeforeDiscountCents ?? item.unitPriceCents, locale)}
             </span>
           </li>
         ))}

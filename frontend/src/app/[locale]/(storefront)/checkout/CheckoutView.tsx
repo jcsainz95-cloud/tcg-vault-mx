@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createCheckoutSession, getCheckoutQuote } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -30,6 +30,8 @@ import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 import { CheckoutLines } from './CheckoutLines';
 import { CheckoutPayBar } from './CheckoutPayBar';
 import { useIsDesktop } from './use-is-desktop';
+import { CodeRow } from '@/components/domain/CodeRow';
+import { DISCOUNT_QUOTE_GC_MS, useDiscountCode } from '@/components/domain/useDiscountCode';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -68,6 +70,11 @@ import { useIsDesktop } from './use-is-desktop';
  * (es la pieza que la sesión reutiliza) y `ownReservation` se pinta ANTES de pagar: cuenta atrás con
  * su `reservedUntil`, o «tu reserva venció: al pagar se renovará» si `expired` (la sesión sustituye).
  */
+/** ¿La clave anterior era del mismo carrito? (solo cambió el código). */
+function sameCart(prevIds: unknown, ids: string[]): boolean {
+  return Array.isArray(prevIds) && prevIds.length === ids.length && prevIds.every((id, i) => id === ids[i]);
+}
+
 export function CheckoutView() {
   const t = useTranslations('checkout');
   const tn = useTranslations('nav');
@@ -98,13 +105,31 @@ export function CheckoutView() {
   /** L6: un doble toque en PAGAR crea UNA sesión (el estado `creating` llega tarde para el 2.º evento del tick). */
   const payInFlight = useRef(false);
 
+  // 💰 §DSC.6: el código confirmado va en la clave y en el cuerpo; aplicar uno cotiza con `fetchQuery` sobre la MISMA
+  // clave (al confirmarlo, la query principal ya tiene la respuesta). Sin código, la petición es la de hoy (I-1).
+  const queryClient = useQueryClient();
+  const [codeForQuote, setCodeForQuote] = useState<string | null>(null);
+  const quoteKey = (code: string | null) => ['checkout-quote', cart.ids, code] as const;
   const query = useQuery({
-    queryKey: ['checkout-quote', cart.ids],
-    queryFn: () => getCheckoutQuote(cart.ids),
+    queryKey: quoteKey(codeForQuote),
+    // I-1 / 915: sin código, la MISMA llamada de hoy (ni un argumento de más).
+    queryFn: () => (codeForQuote ? getCheckoutQuote(cart.ids, codeForQuote) : getCheckoutQuote(cart.ids)),
     // Solo con sesión: `/checkout/quote` es `customer` y un invitado cotiza por
     // `/checkout/guest/quote` (contrato §4-G.0-3). Así no se dispara un 401 inútil.
     enabled: cart.ids.length > 0 && ready && isAuthenticated,
+    // §DSC: al aplicar/quitar un código (MISMO carrito) se conserva el desglose anterior mientras llega el nuevo, para no
+    // desmontar el resumen. Si cambió el carrito, la conducta de hoy (sin placeholder: la poda lee datos frescos).
+    placeholderData: (prev, prevQuery) => (prevQuery && sameCart(prevQuery.queryKey[1], cart.ids) ? prev : undefined),
   });
+  const dsc = useDiscountCode({
+    screen: 'vault',
+    evaluate: (code) =>
+      queryClient.fetchQuery({ queryKey: quoteKey(code), queryFn: () => getCheckoutQuote(cart.ids, code), gcTime: DISCOUNT_QUOTE_GC_MS }).then((r) => r.discount),
+    current: query.isPlaceholderData ? undefined : query.data?.discount,
+  });
+  useEffect(() => {
+    setCodeForQuote(dsc.code);
+  }, [dsc.code]);
 
   // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
   const beginCheckoutKey = useRef('');
@@ -230,11 +255,14 @@ export function CheckoutView() {
     setEmailNotVerified(false);
     setPaymentInProgress(null);
     try {
-      const res = await createCheckoutSession(cart.ids);
+      // 💰 §DSC.6: el código confirmado (sin él, el cuerpo de hoy).
+      const res = dsc.code ? await createCheckoutSession(cart.ids, undefined, dsc.code) : await createCheckoutSession(cart.ids);
       setOutcome(res);
       setSession(res);
     } catch (e) {
-      if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
+      if (dsc.handleSessionError(e)) {
+        // C12 (§DSC-UX.4): no se cobró; el código se quita y la cotización nueva pinta el total sin él.
+      } else if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setEmailNotVerified(true);
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
         // §4-R.2: el PI del intento anterior ya no se puede cancelar ⇒ el servidor no crea
@@ -355,6 +383,11 @@ export function CheckoutView() {
               {/* CHK-MOVIL.2.6 (con cuenta, sin formulario): líneas → sugerencias → notas legales → barra. */}
               <CheckoutLines items={data.items} onRemove={(id) => cart.remove(id)} />
 
+              {/* §DSC-UX.1 (con cuenta, sin formulario): tras las líneas. Compra a bóveda: un código de envío gratis da C13a. */}
+              <div className="mt-4 max-w-[620px]">
+                <CodeRow {...dsc.rowProps} />
+              </div>
+
               {/* §AC-UX.4 (AC-F7): los accesorios del carrito local van APARTE, no suman y ⛔ nunca se mandan. */}
               <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
 
@@ -390,7 +423,7 @@ export function CheckoutView() {
                 {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
                 <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
                 <div className="mt-5">
-                  <AmountBreakdown breakdown={data.breakdown} variant="purchase" />
+                  <AmountBreakdown breakdown={data.breakdown} variant="purchase" discount={dsc.applied} />
                 </div>
 
                 {/* ⛔ Sin segunda copia de `afterPayment` aquí (B-3b, gate de release s5): DESIGN_SYSTEM §15.3
@@ -420,13 +453,21 @@ export function CheckoutView() {
       {/* CHK-MOVIL.2.4 «Con sesión, la misma barra»: T3b (sin envío: la compra va a la bóveda, §4-G.12 punto 1). */}
       {data && !isDesktop && (
         <CheckoutPayBar
-          summaryLine={t('bar.includesFee', { fee: formatMoneyCents(data.breakdown.processingFeeCents, locale) })}
+          summaryLine={
+            // C11 sin envío (compra a bóveda): «Descuento −MX$X · comisión de plataforma MX$Y»; sin código, T3b de hoy.
+            dsc.applied && dsc.applied.kind !== 'free_shipping'
+              ? t('discount.barVault', {
+                  amount: formatMoneyCents(dsc.applied.discountCents, locale),
+                  fee: formatMoneyCents(data.breakdown.processingFeeCents, locale),
+                })
+              : t('bar.includesFee', { fee: formatMoneyCents(data.breakdown.processingFeeCents, locale) })
+          }
           totalLabel={formatMoneyCents(data.breakdown.totalCents, locale)}
           payLabel={creating ? t('preparing') : t('payNoAmount')}
           loading={creating}
           disabled={!!paymentInProgress}
           onPay={pay}
-          breakdown={<AmountBreakdown breakdown={data.breakdown} variant="purchase" />}
+          breakdown={<AmountBreakdown breakdown={data.breakdown} variant="purchase" discount={dsc.applied} />}
         />
       )}
 

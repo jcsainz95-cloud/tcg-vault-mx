@@ -19,7 +19,8 @@ import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { pesosToCents, sanitizeDecimalInput } from './shared';
+import { sanitizeDecimalInput } from './shared';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 
 /**
  * Sección 5d — **captura MANUAL de estimados del gancho de grading** (PROJECT §O.6: «el override
@@ -124,12 +125,12 @@ export function GradedEstimateCaptureSection() {
     .filter((g) => !blockedGrades.has(g))
     .map((gradeValue) => ({ gradeValue, raw: drafts[gradeValue] ?? '' }))
     .filter((e) => e.raw.trim() !== '')
-    .map((e) => ({ gradeValue: e.gradeValue, cents: pesosToCents(e.raw) }))
+    .map((e) => ({ gradeValue: e.gradeValue, cents: pesosToCentsOrNull(e.raw) ?? 0 }))
     .filter((e) => e.cents > 0);
 
   const hasInvalidDraft = grades.some((g) => {
     const raw = (drafts[g] ?? '').trim();
-    return raw !== '' && !(pesosToCents(raw) > 0);
+    return raw !== '' && !((pesosToCentsOrNull(raw) ?? 0) > 0);
   });
 
   function selectCard(next: CardDTO) {
@@ -286,7 +287,7 @@ export function GradedEstimateCaptureSection() {
               {grades.map((gradeValue) => {
                 const blocked = blockedGrades.has(gradeValue);
                 const raw = (drafts[gradeValue] ?? '').trim();
-                const invalid = raw !== '' && !(pesosToCents(raw) > 0);
+                const invalid = raw !== '' && !((pesosToCentsOrNull(raw) ?? 0) > 0);
                 return (
                   <div key={gradeValue} className="flex flex-col gap-1">
                     <Input

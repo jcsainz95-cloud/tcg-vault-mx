@@ -2,16 +2,10 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.5**, quinta
-> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.4, v1.84.3, v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1)
-> — **fusionada encima de** errata **v1.83.3** (`claude/precio-sellado`) y errata **v1.82.3** (`claude/arreglos-panel`, que ya
-> lleva rev **v1.80.12.17** de `claude/skydropx-d`). ⛔ Sigue siendo la **única** línea «Versión de API»: en la fusión
-> listo-real+sellado del 2026-10-05 (agente de fusión, sin cambiar contenido) las cabeceras de listo-real van primero y las
-> de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
-> entera salvo lo que tocan las de encima.
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.112.2⟨sec-med-1⟩**; la lista
+> de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
-> **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y
-> ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
+> **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
 > - v1.96⟨mkt-tienda⟩ · 2026-10-16 · §MKT.A-.E: UTM en pedido/solicitud (m81), ficha pública/og, sitemap, panel Fase 0 (m82) · brief de marketing.
 > - v1.96.1⟨mkt-tienda⟩ · 2026-10-16 · enums de m82 en §0; D-MKT-AUTZ (token en otra ruta ⇒ 401); h1 = m83; c6 diferido · backend.
 > - v1.101⟨mkt-panel⟩ · 2026-10-18 · §MKT.G: `panel`, `periods`, `tokens` (cierra MKT-TL3/TL4) · orquestador, stream del panel.
@@ -22,33 +16,24 @@
 > - v1.106⟨mkt-fase2-r4⟩ · 2026-10-19 · §MKT.H.4 identidad canónica de ítem, `sealedProductId` en `SealedGroup*DTO`, §MKT.G.5 regla de `null`, CHECK de m86, `ENCENDER_BLOCKERS` (.11/.13) · techlead (R4, TL-MKT2-C1, D8). v1.106.1: m86 `ADD VALUE IF NOT EXISTS` y reversa (§MKT.H.7), §0 `BannerResponse` ratificada (escritura delegada) · QA (I1, I2). v1.106.2: reversa sin `resolve`, stock exacto en C-P1, primera elección desde el pie (§MKT.H.3) · construcción.
 > - v1.107⟨mkt-celdas⟩ · 2026-10-19 · §MKT.H.14: umbral por componente y por sujeto, orden sin valores ocultos, registro de poblaciones y ecuaciones, auditor de rango; g1 sobre `PAID_ORIGIN`; §MKT.G.5/.10, C-P1 y .13 ajustados; compactados §MKT intro/.E/.F/.G.1/.G.8/.H.7/.H.12 · seguridad (SEC-MKT-1, MKT-TL2; rechazo sobre `bfd91ab2`).
 > - v1.108⟨mkt-celdas-r⟩ · 2026-10-23 · §MKT.H.14: ratificadas cuatro lecturas de backend (R3b por anillos, X1 sin ceros, familias unidas solo por totales aceptados, espejo `BACKEND_ENCENDER_BLOCKERS` en ARCHITECTURE §14.1); sin cambio de código · backend (MKT-TL2).
-> - v1.109⟨envio-v2⟩ · 2026-10-24 · [§4-G.12](#4-G12) regla de envío v2 (solo cartas / con sellado, umbral de envío gratis, tres diales, `shippingRule` en el quote de invitado, `GET /checkout/shipping-rule`; **v1.109.1** misma fecha: P-ENV-1 cerrada, los diales de envío directo pasan a exhibidos con IVA dentro, la migración ya no copia `shipping_fee_cents`, ENV-1/5/6/8 e IVA-6(a) ajustados · dueño 2026-10-24; **v1.109.2** 2026-10-25: accesorio = `deckPull` con paquete aceptado, `freeShippingApplied` ⇔ `E = 0`, P-ENV-2 cerrada · techlead R2; **v1.109.3** 2026-10-25: S ≥ T ⇒ 0 también en `cards_only`, `freeFromCents`/`remaining` para ambas clases, ENV-1/F1 · dueño (`HECHOS.md` 2026-10-25 «Envío gratis… CUALQUIER pedido», hallazgo pentester); §MKT.G.4/.H.14 tablas b5/b6 del Card Show (MKT-MEDIR-CS); §MKT.H.11 C-F5/C-F9 por `/buylist` y `/card-show` medidos; compactada la cabecera v1.94/v1.95 · dueño (`HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados»); **v1.109.4** 2026-10-25: `422 AMOUNT_TOO_LARGE` declarado en §0 y §4-G.1 (ya emitido; TL-ENV-4, `e8e88650`) · orquestador; **v1.109.5** 2026-10-25: con caja grande `freeShippingRemainingCents = null` (sin T9 «te faltan»; predicado ENV-F1 igual), ENV-1 caja 35000, ejemplo del quote de invitado a `E = 10000` (TL-ENV-6) · QA (`fc84acde`, S=474000 cobraba 35000 con T9 pintado; `HECHOS.md` 2026-10-25 «Envío gratis… (opción A)»). La siguiente es **v1.110**.
+> - v1.109⟨envio-v2⟩ · 2026-10-24 · [§4-G.12](#4-G12) regla de envío v2 (solo cartas / con sellado, umbral de envío gratis, tres diales, `shippingRule` en el quote de invitado, `GET /checkout/shipping-rule`; **v1.109.1** misma fecha: P-ENV-1 cerrada, los diales de envío directo pasan a exhibidos con IVA dentro, la migración ya no copia `shipping_fee_cents`, ENV-1/5/6/8 e IVA-6(a) ajustados · dueño 2026-10-24; **v1.109.2** 2026-10-25: accesorio = `deckPull` con paquete aceptado, `freeShippingApplied` ⇔ `E = 0`, P-ENV-2 cerrada · techlead R2; **v1.109.3** 2026-10-25: S ≥ T ⇒ 0 también en `cards_only`, `freeFromCents`/`remaining` para ambas clases, ENV-1/F1 · dueño (`HECHOS.md` 2026-10-25 «Envío gratis… CUALQUIER pedido», hallazgo pentester); §MKT.G.4/.H.14 tablas b5/b6 del Card Show (MKT-MEDIR-CS); §MKT.H.11 C-F5/C-F9 por `/buylist` y `/card-show` medidos; compactada la cabecera v1.94/v1.95 · dueño (`HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados»); **v1.109.4** 2026-10-25: `422 AMOUNT_TOO_LARGE` declarado en §0 y §4-G.1 (ya emitido; TL-ENV-4, `e8e88650`) · orquestador; **v1.109.5** 2026-10-25: con caja grande `freeShippingRemainingCents = null` (sin T9 «te faltan»; predicado ENV-F1 igual), ENV-1 caja 35000, ejemplo del quote de invitado a `E = 10000` (TL-ENV-6) · QA (`fc84acde`, S=474000 cobraba 35000 con T9 pintado; `HECHOS.md` 2026-10-25 «Envío gratis… (opción A)»).
+> - v1.110⟨descuentos⟩ · 2026-10-25 · [§DSC](#DSC) códigos de descuento: esquema `M-92`, orden del cálculo sobre §4-G.12, reparto por unidad, ciclo del uso atado a §4-R, retiro con envío gratis a MX$0 (P-DSC-3 (a) por defecto), endpoints de cliente y de `super_admin`, errores en §0, pruebas `DCO-*`; compactadas las cabeceras v1.85–v1.90/SU-1/BSD-1 · dueño (`HECHOS.md` 2026-10-25 «Códigos de descuento: opción B…» y «…P-DSC-1/2 y mínimo de compra»).
+> - v1.110.1⟨descuentos⟩ · 2026-10-25 · §DSC: respuestas a backend fase 1 (`1c6bb38a`) y frontend (`84ffa289`): envío gratis con `E` = 0 no aplica, `vaultBreakdown` sin código, congelado con `unitDiscountCents`, retiro con mercancía 0, carrera cuenta como fallido, lectores del original, limpieza PDB, `DiscountCodeBatchDTO`, `discountGivenCents` por código, `preview` y `audit`, `/admin/codes`, `enum-values.ts`, P-DSC-3 cerrada; DCO-B19 admite mecánica de reversa · backend/frontend (`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
+> - v1.110.2⟨descuentos⟩ · 2026-10-26 · §DSC.7: `action` de la bitácora enumerada y `actor` nullable, `preview` en ceros cuando no aplica (y siempre en `free_shipping`), `status` de lote sin códigos sin usar (`active` + `exhausted`), «Envío regalado» = suma de dos campos, `batchId`/`from`/`to` fuera de §0-Q (tope 116); §M4-VAULT.2-bis.2 nombra la escritura del uso en el tardío — todo ratifica lo construido · frontend/backend sobre `e84c86fe`/`cc394d54`.
+> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1).
+> - v1.111⟨aviso-medicion⟩ · 2026-10-26 · §MKT.H: sin abogado; C-D1 exige exactamente una de `legalReviewOn`/`legalReviewWaivedByOwnerOn` (ARCHITECTURE §14.1); .5/.10/.12 al día con las decisiones del aviso aprobado (ARCHITECTURE §14.10) · orquestador (`HECHOS.md` 2026-10-23 y 2026-10-26).
+> - v1.112⟨meta-prueba⟩ · 2026-10-26 · §MKT.H.1 versión de Graph `v26.0` entre marcadores; §MKT.H.12 `POST /admin/measurement/meta-test-event` y cierre de MKT-F2-3; `409 MEASUREMENT_META_NOT_CONFIGURED` en §0; compactados §MKT.A/.B/.E/.H.13/.H.14 · backend (MKT-F2-3, medición del 2026-10-26).
+> - v1.112.1⟨arreglos-dsc⟩ · 2026-10-26 · §MKT.E restaura la línea canónica de `format` que la compactación de v1.112 partió (rojo de `enum-query-axes`); §DSC: `ZERO_DISCOUNT` + I-7 + DCO-B22 (DSC-B-6), «con código» en el tardío ⇔ `DiscountRedemption`, `PATCH` con `null` que limpia, `pageSize > 100` ⇒ 400, listas de M-92 `NOT NULL`; §4-G.12 punto 4 «te faltan» del congelado (TL-ENV-2) · backend/frontend/QA.
+> - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`). La siguiente es **v1.113**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
-> - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: (A) COGS neto de IVA con `InventoryItem.acquisitionCostIvaCents`
->   (`IVA-15`), (B1) reembolso hecho en el dashboard de Stripe (`PaymentRefundKind += stripe_dashboard`, `REF-DASH-1`),
->   (B2) ingreso acotado por `settledAt` (`REF-DASH-2`), (C) `statement` de resultados, (D) volumen/ticket desde
->   `/admin/reports/sales`. Norma: [§M10-IVA.8-bis](#M10-IVA8bis) y [§M4-SHIP.20](#M4-SHIP20) · dueño/CFO. Confirmaciones
->   del dueño que esa revisión dejó abiertas (costo CON IVA, retroajuste, origen del reembolso de ~227.59, P-DB-LIMPIEZA):
->   estado NO MEDIDO por el arquitecto en v1.109; si siguen abiertas, su sitio es `PENDIENTES.md` (orquestador).
-> - v1.94⟨sellado-display⟩ · 2026-10-13 · el sellado se pinta como sellado en pedido y preparación: `FrozenCardFacts +=
->   sealedProductId/sealedProductName`, resolutor único; v1.94.1 `ClientShipmentItemDTO += productType`; v1.94.2 candado
->   `backend/test/sealed-display-guard.spec.ts` (resolutor también en `GuestTrackingItemDTO`, correo AV-12 y las cuatro
->   copias de la cascada; el ancla junto a la identidad del sellado en el `.xlsx` de inventario y en la cola M2, por
->   diseño). Norma: §4 y `ARCHITECTURE §4.34a.2` · bug de producción.
+> - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
+>   (`stripe_dashboard`, `REF-DASH-1/2`), `statement`, volumen/ticket. Norma: [§M10-IVA.8-bis](#M10-IVA8bis), [§M4-SHIP.20](#M4-SHIP20) · dueño/CFO.
+> - v1.94⟨sellado-display⟩ · 2026-10-13 · sellado pintado como sellado (`FrozenCardFacts += sealedProductId/Name`, `ClientShipmentItemDTO
+>   += productType`, candado `sealed-display-guard.spec.ts`). Norma: §4 y `ARCHITECTURE §4.34a.2` · bug de producción.
 >
-> **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
-> (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
-> según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
-> las 7 decisiones **P-RP-1…7** «todas como recomiendas»); `PROJECT §PRE`, criterios **870–889**. 💰 **DINERO en los
-> dos ejes (venta y compra).** Porqué, modelo de resolución y árbol de decisión en `ARCHITECTURE §4.PRE`. Migraciones
-> **M-75** + **M-76** (errata v1.91: BLOQ-1 de QA — `source` entra a la unicidad de `PriceReference`, §PRE.J). Versión
-> reservada por el orquestador (O-24). Norma entera abajo, anclada en **[§PRE](#PRE)**.
-> **Errata v1.91 (2026-10-11, arquitecto, rama `claude/precios-redundancia`, base `HEAD 6034b170` según el orquestador;
-> ⛔ sha NO MEDIDO):** cierra BLOQ-1 (§PRE.J, M-76) y tres cuestiones enrutadas por QA/techlead (regla 9): **B** (§PRE.F:
-> `accept` promueve robusta NO-manual, no congela; sólo `manual` fija tier-0), **C** (§PRE.E: `?page=`/`?pageSize=`
-> documentados, default 50 / cap 100 / `total`=total filtrado) y **D** (`ARCHITECTURE §4.PRE (c)`: baseline = último sano
-> PUBLICADO, congelado mientras hay caso `open`; no se re-mediana de ayer).
+> **Rev v1.91⟨precios⟩ + errata · 2026-10-11 · precios robustos (árbitro de mediana, candado ×5, cola de revisión; M-75/M-76,
+> BLOQ-1 y cuestiones B/C/D) · norma en [§PRE](#PRE), porqué en `ARCHITECTURE §4.PRE` · dueño (`HECHOS.md` 2026-10-11, P-RP-1…7).** 💰
 >
 > | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
 > |---|---|---|---|---|
@@ -180,349 +165,24 @@
 >   escritores/lectores en `ARCHITECTURE §4.PRE (i)`. ⛔ El `source='manual'` (override tier-0) sigue siendo otra serie
 >   que no vota (§4.PRE (a)/(b)); la forma de `PriceReference` no cambia (coherente con §PRE.H).
 >
-> **Rev v1.90⟨miv⟩ — VALOR DE MERCADO CON IVA EN LA TIENDA, CON LA NOTA «INCLUYE IVA» (2026-10-10, arquitecto, árbol
-> `/home/user/tcg-iva`, rama `claude/mercado-iva`, base `HEAD 7e395f0a` según el orquestador; ⛔ sha NO MEDIDO por mí:
-> sin Bash).** Norma: `HECHOS.md:160`, fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota
-> «incluye IVA».» (*«quiero que mostremos el mercado mas iva en vez de solo el mercado»*; *«solo la tienda y sí la
-> nota»*); `PROJECT §MIV`, criterios 860–869, construido con los **valores por defecto** de P-MIV-1…6. Norma entera en
-> **[§MIV](#MIV)**; porqué en `ARCHITECTURE §4.MIV`. **Sin schema, sin migración, sin endpoint, sin código de error.
-> Ningún importe cambia.** Tres campos **aditivos** de presentación, calculados por el servidor. Versión reservada por
-> el orquestador (O-24).
+> **Revisiones v1.85–v1.90, SU-1 y BSD-1, compactadas en v1.110 (una línea cada una; la norma vive en su sección; historia en git):**
+> - v1.90⟨miv⟩ · 2026-10-10 · valor de mercado con IVA en la tienda con la nota «incluye IVA»; ningún importe cambia · [§MIV](#MIV), `ARCHITECTURE §4.MIV` · dueño (`HECHOS.md:160`).
+> - v1.89⟨bmk⟩ · 2026-10-08 · valor de mercado junto a «Te pagamos», por carta, en el cotizador de venta · [§BMK](#BMK), `ARCHITECTURE §4.BMK` · dueño.
+> - v1.88.1⟨release-s7⟩ · 2026-10-08 · la limpieza `P-DB-LIMPIEZA` conoce las 9 tablas de `M-73`/`M-74` · `docs/specs/LIMPIEZA_DB.md §14.13` · orquestador (CI `37733554396`).
+> - v1.88⟨release-s7⟩ · 2026-10-08 · `C-EQ-1` suma 72 ejes; `sort`/`dir` de `wishlist-demand` en [§0-Q](#enum-query-filter) punto 4; `M-73`/`M-74` = `20261026120000`/`20261027120000` · fusión.
+> - v1.87⟨wishlist⟩ + v1.87.1-.4 · 2026-10-07 · lista de deseos, «avísame» de sellados y lista de compra casi segura (`M-74`) · [§WSH](#WSH) (erratas en §WSH.10-.13), `ARCHITECTURE §4.WSH` · dueño.
+> - v1.86⟨accesorios⟩ + v1.86.1-.6 · 2026-10-07/08 · accesorios, energías y paquete de energías del deck (`M-73`) · [§AC](#AC) (erratas en §AC.18-.21), `ARCHITECTURE §4.AC` · dueño (`HECHOS.md:88-90`).
+> - SU-1 · 2026-10-07 · la ubicación deja de ser requisito para publicar · [§M1-SU](#M1-SU), `ARCHITECTURE §4.65` · dueño.
+> - v1.85⟨ventas⟩ + AN-1.1/AN-1.2 · 2026-10-06 · analítica de ventas del dueño (`M-AN-1`) · [§15](#AN), `ARCHITECTURE §4.64` · dueño.
+> - BSD-1 + BSD-1.1…1.5 · 2026-10-06 · buylist: guía Skydropx de entrada, «Declinar» en «Aceptada», cierre a los 7 días naturales (`M-72`; enums `ShipmentKind`, `SellRequestExpiryReason += not_continued`, `SpendAlertKind += buylist_guide_due`) · [§BSD](#BSD) (erratas en §BSD.15-.19), `ARCHITECTURE §4.BSD` · dueño.
 >
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | MIV-1 | La cuenta | **Una** función en `common/money.ts`: `marketDisplayCentsOf(M, r) = M + round(M·r/100)` = `displayPriceCentsOf(M, 100, r)`. Recibe la **tasa** (`iva_pct`), ⛔ nunca el dial de traslación (P-MIV-5 por defecto, sostenido por la firma) | No (nueva) | backend |
-> | MIV-2 | Ficha de carta | `GroupedListingDTO` gana `referenceDisplayCents?: number`. Presente ⇔ `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === "market"`) | Sí (aditivo) | backend + frontend |
-> | MIV-3 | Ficha de sellado | `SealedGroupDTO` gana `referenceDisplayCents?: number`, misma regla | Sí (aditivo) | backend + frontend |
-> | MIV-4 | Tendencia de sellado (P-MIV-6 «sí») | `GET /catalog/sealed/:id/value-history` gana `points[].displayValueMxnCents` y `change.displayAbsMxnCents`. `pct` y `direction` **no cambian** | Sí (aditivo) | backend + frontend |
-> | MIV-5 | Lo que no cambia | `referenceValue`/`PriceInfo` (neto), rejillas, `ListingDTO`, bóveda, PSA, lista de deseos, «Vender» (§BMK), admin | No | — |
-> | MIV-6 | Regla de pantalla | Bloque de mercado ⇔ `priceBasis === "market"` ∧ `referenceDisplayCents` entero `> 0`; ⛔ nunca se cae al neto; nota «incluye IVA» siempre con la cifra | Sí (UI) | frontend (+ textos: ux-ui) |
+> - v1.84 + v1.84.1-.5⟨listo-real⟩ · 2026-10-05 · listo para dinero real (LIVE-1…16: tope de sesión, CSP, CAS de `failed`,
+>   contracargo, rutas hermanas, salud y telemetría, aviso de privacidad provisional, guía del cambio a `sk_live_`) · [§14](#LIVE)
+>   (erratas en §14.14-.18), `ARCHITECTURE §4.63` · dueño (`HECHOS.md:16,44,87-90`).
 >
-> **Rev v1.89⟨bmk⟩ — VALOR DE MERCADO JUNTO A «TE PAGAMOS», POR CARTA, EN EL COTIZADOR DE VENTA (2026-10-08, arquitecto,
-> árbol `/home/user/tcg-bmercado`, rama `claude/buylist-mercado`, base `HEAD 0cbc4f5c` según el orquestador; ⛔ sha NO
-> MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR DE
-> MERCADO…» («hay que hacer A») y «Cotizador de venta (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la
-> recomendación» («todo como recomiendas»); `PROJECT §BMK`, criterios 850–859. Norma entera en **[§BMK](#BMK)**; porqué
-> en `ARCHITECTURE §4.BMK`. **Sin schema, sin migración, sin endpoint, sin campo, sin código de error. Ningún importe
-> cambia.** Versión reservada por el orquestador (O-24); v1.88/v1.88.1 son de `claude/release-s7` y no se tocan aquí.
+> *(Lo que sigue son las cabeceras de v1.84 hacia atrás, vigentes enteras salvo lo que tocan las de encima.)*
 >
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | BMK-1 | Semántica de `referencePrice.priceMxnCents` | Se **norma** lo que el código ya hace: es el mercado que **entró** a la decisión de compra de esa línea (el mismo que `createRequest` congela en `marketMxnCents`) | No (ratifica) | — |
-> | BMK-2 | Emisor de `referencePrice` | `priced` **solo si** `quote.status="cotizada"` **y** mercado `> 0`; si no, `{status:"pending"}`. Misma forma | **Sí, acotado**: una carta en precio pendiente por guardarraíl deja de recibir su mercado sospechoso | backend |
-> | BMK-3 | Regla de presentación | Se ve «Valor de mercado» ⇔ `referencePrice.status="priced"` ∧ `quote.status="cotizada"` ∧ `priceMxnCents` entero `> 0`. **No** depende de `priceBasis` | Sí (UI) | frontend |
-> | BMK-4 | Superficies | Teja del binder, ventana de detalle, teja de producto aparte y renglón del carrito. Total, «Mi cuenta», vitrina de bounties, admin y correos: **sin cambio** | Sí (UI) | frontend (+ textos: ux-ui) |
-> | BMK-5 | Una fuente | En el cotizador el mercado sale **solo** de la cotización (`referencePrice`), nunca de `CardProductDTO.prices[]` | Sí (UI, teja de producto aparte) | frontend |
-> | BMK-6 | Prohibiciones | Ningún porcentaje, proporción, diferencia ni «ahorro» calculado en el cliente | No | frontend |
-> **Errata v1.88.1⟨release-s7⟩ — la limpieza `P-DB-LIMPIEZA` conoce las 9 tablas de `M-73` y `M-74`** (2026-10-08,
-> arquitecto, worktree `/home/user/tcg-release`, rama `claude/release-s7`, HEAD dado por el orquestador `d92d9b82`; ⛔ sha
-> NO MEDIDO: sin Bash). **Norma en `docs/specs/LIMPIEZA_DB.md §14.13`**. Cierra el «Abierto» de v1.88 (abajo). ⛔ Sin
-> ruta, cuerpo, esquema ni migración: son guiones SQL de un solo uso (B y D) y sus pruebas.
-> - **Causa (medida por el orquestador en CI, run `37733554396`):** G-8 de B para con 9 tablas sin clasificar ⇒ 39 rojas en
->   `pdb-limpieza.e2e-spec.ts`. G-8 acierta: falla cerrado.
-> - **Accesorios:** se borran los renglones de pedido y de envío, los componentes del paquete de energías y el historial de
->   existencias. **`Accessory` se ajusta**: la fila (catálogo, precio, costo, foto, las 8 energías de la semilla) se queda,
->   y `stockQty`/`reservedQty` pasan a 0. `AccessoryPhoto` se conserva. Pregunta al dueño Q-LZ-A1, por defecto (a).
-> - **Lista de deseos:** LZ-W1, LZ-W2, LZ-W4 (a)(b) y LZ-W5 de §WSH.11 siguen vigentes. **LZ-W3 y LZ-W4 (c) quedan
->   sustituidas** por LZ-A8: G-10 solo para si `sealed_restock_alerts = 'on'` **y** hay suscripciones pendientes sin armar,
->   y solo con `M-74`. `wishlist_enabled` no para nada. Es la decisión del dueño del 2026-10-08 («no hay clientes reales
->   podemos no apagar la configuracion»). Con 0 suscripciones (censo A de producción, dato del orquestador) no para.
-> - **Con y sin:** todo lo nuevo de B va dentro de `\if` de psql, con banderas tomadas **antes** del `BEGIN`. Sobre una
->   base sin las tablas nuevas, el resultado es el del B de `a7232d7a` (el que el dueño corre hoy). La prueba T-AC3 lo
->   compara contra una copia congelada.
->
-> **Errata v1.88⟨release-s7⟩ (2026-10-08), compactada en v1.109:** al convivir accesorios y lista de deseos, `C-EQ-1` suma
-> **72** ejes y [§0-Q](#enum-query-filter) punto 4 lleva `sort`/`dir` de `wishlist-demand` (clase L, ORDEN; defaults `wanted`/
-> `desc`); `M-73`/`M-74` = `20261026120000`/`20261027120000`; la limpieza la cerró v1.88.1. Sin cambio de conducta.
->
-> **Erratas v1.87.1-v1.87.4⟨wishlist⟩ (2026-10-07), compactadas en v1.109; norma y cambios en su sitio:** v1.87.4 re-apunte
-> de «avísame» huérfanas al cambiar el mapeo ([§WSH.13](#WSH), WSH.7 (g), WSH-T44); v1.87.3 rechazo de QA B-1/M-1, cuerpo
-> `{ email, inventoryItemId }` y paso (8) de `M-74` ([§WSH.12](#WSH)); v1.87.2 hallazgos de backend, FK `CASCADE`
-> ([§WSH.11](#WSH)); v1.87.1 huecos de ux-ui Q-WSH-UX-1…9 ([§WSH.10](#WSH)).
->
-> **Rev v1.87⟨wishlist⟩ — LISTA DE DESEOS POR CUENTA, «LISTA DE COMPRA CASI SEGURA» Y «AVÍSAME» DE SELLADOS ENCENDIDO
-> (2026-10-07, arquitecto, árbol `/home/user/tcg-wishlist`, rama `claude/wishlist`, HEAD dado por el orquestador
-> `c36f0dea`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§WSH](#WSH)**. Porqué: `ARCHITECTURE §4.WSH`. Criterios
-> `PROJECT` 800–827. Decisiones del dueño: `HECHOS.md` filas 2026-10-07 «Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y
-> P-WSH-4 cerrada». ⛔ Numeración `v1.87` / `M-74` reservada por el orquestador (accesorios = v1.86/M-73; production =
-> v1.85/M-72); NO MEDIDA contra otras ramas vivas.
->
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | WSH-1 | Esquema | **`M-74`**: `WishlistItem`, `WishlistNotice`, `WishlistMail`, enum `WishlistNoticeStatus`, `User.wishlistAlertsPausedAt`, `SealedRestockSubscription.armedAt/matchedAt` | Aditivo | backend |
-> | WSH-2 | Cliente | `GET/POST /wishlist`, `PATCH/DELETE /wishlist/:id`, `PUT /wishlist/alerts`; `POST /wishlist/mail-actions` (público, por token) | Sí (nuevo) | backend + frontend |
-> | WSH-3 | Aviso | Job **`wishlist-notify`** (cada 5 min): detecta piezas `listed` vendibles, dedup por `(userId, inventoryItemId)`, agrupa por ventana, tope diario | Sí | backend |
-> | WSH-4 | Dueño | `GET /admin/reports/wishlist-demand` (+ `export.csv`), `super_admin`, sin datos personales; sellados solo con conteo (P-WSH-9) | Sí (nuevo) | backend + frontend |
-> | WSH-5 | Diales | 8 claves nuevas en `GET/PUT /admin/settings` (incluido `wishlist_enabled`, seed `off`) | Sí | backend + frontend |
-> | WSH-6 | Sellados | `sealed-restock-notify` **agendado**, con enlace, un correo por correo y producto, armado al agotarse, topes anti-abuso | **Sí** | backend |
-> | WSH-7 | Bajas | Se quita sola al pagar (las dos ramas de liquidación); el borrado suave borra lista **y** suscripciones de sellado | Sí | backend |
->
-> **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `dd26ae79` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.5, vigente entera salvo esto. Origen: veredicto de techlead sobre
-> `dd26ae79` (TD-AC-1, TD-AC-8, TD-AC-9). Norma: **§AC.21**; porqué: `ARCHITECTURE §4.AC (r)`. ⛔ Sin schema ni `M-73`.
-> - 💰 **TD-AC-1:** un renglón `reserved` cuyo contador no lo respalda ⛔ ya no tumba la liquidación. Cae a la recuperación
->   (existencias libres ⇒ `settle_recovery`) o a `settledWithoutStock`, con bitácora ruidosa, y las cartas se liquidan como
->   siempre. **Cambia conducta (backend):** hoy `throw` ⇒ pedido pagado en `pending`; con la errata ⇒ `settled`.
-> - **TD-AC-8:** §AC.6/§AC.7 nombran los ficheros reales (`orders/accessory-stock.ts`, `orders/box-fit.ts`) y la función
->   real (`accessoryReservedDrift`), y las líneas de los llamadores de §AC.6 (2) se re-miden. Solo documento.
-> - **TD-AC-9:** dos riesgos aceptados en `ARCHITECTURE §4.AC (r)` y §8: fotos sin CDN y `pullToken` atado a `PII_HMAC_KEY`.
-> - Pruebas AC-B64…B66 con mutación.
->
-> **Errata v1.86.5⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `d8ff897a` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.4, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.ceq1`
-> (regla 9). Toca [§0-Q](#enum-query-filter) punto 4, §AC.3 y §AC.11. ⛔ Sin schema.
-> - `?category=` de `GET /accessories` y `GET /admin/accessories`: filas **E** (`AccessoryCategory`) en el registro.
-> - `?active=` y `?soldOut=` de `GET /admin/accessories`: **clase L**, `true | false`, con fila; ⛔ no banderas tri-estado.
->   Por qué: el código ya devuelve `400` ante basura (`boolParam`), así que la norma D tri-estado («no filtra, no falla»)
->   habría cambiado conducta hacia el silencio; y el eje booleano de panel más reciente (`?muted=`) es L. La norma D
->   sigue rigiendo sus cinco ejes nombrados (`live`, `awaitingGuide`, `offerReissueAlert`, `guest`, `needsManual`), sin
->   reclasificarlos. ⚠️ Eso deja **dos** reglas vivas para booleanos de filtro; los ejes booleanos nuevos van **L**.
->   **Cambia conducta (backend):** `?active=%20` ⇒ no filtra (hoy `400`) y el `400` gana `allowed: ['true','false']`.
-> - `?exclude=` de `GET /accessories/suggestions`: ⛔ no es §0-Q (lista de ≤ 50 UUID; punto 7). Ratificado en
->   `NO_ENUM_POR_RUTA`.
->
-> **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `bc128c4` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.3 (§AC.19, que no tenía línea aquí), vigente entera salvo esto.
-> Origen: `BACKEND_NOTES §83.B`. Norma: **§AC.20**; porqué: `ARCHITECTURE §4.AC (q)`. ⛔ Sin schema ni cambio de conducta.
-> - 💰 Carrera del paquete: valen los dos códigos, cada uno ligado al paso que detecta la falta; sin traducción. El
->   frontend ya los trata igual.
-> - El dial `energy_bundle_price_cents` puede tener fila o no; una prueba de C se corrige para fijar su propio estado.
-> - 💰 La reposición de accesorios al reembolso total se queda en la tx1 de M3, también si Stripe rechaza.
-> - Pruebas AC-B61…B63 y AC-F23 (candados de conducta construida, con mutación).
->
-> **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `4e06c7e` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.1, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.3/§83.4`
-> (medido por backend con `psql`). Norma: **§AC.18**; porqué: `ARCHITECTURE §4.AC (o)`.
-> - §0: las 5 líneas canónicas de los enums de accesorios (cierra 11 rojas de paridad).
-> - 💰 `M-73` (aún sin fusionar, ⛔ sin `M-73b`) reescribe `PaymentRefund_item_missing_chk` y
->   `PaymentRefund_item_delivered_shape_chk` para la forma de accesorio y añade `payment_refund_accessory_shape`.
-> - 💰 §AC.10 (2): `note` pasa a obligatoria y entra `expectedRefundCents`; M3 gana `deliveredRefund` por renglón (§AC.12).
->   Cambia conducta de un verbo aún no construido.
-> - Ratifica las 5 decisiones de backend (§AC.18.6). Pruebas nuevas AC-B47…52 y AC-F19.
->
-> **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `ba795ee` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: **v1.86⟨accesorios⟩, vigente entera salvo lo que esta errata toca**.
-> Origen: `DESIGN_SYSTEM §AC-UX.18` (Q-AC-UX-2…5) y `PROJECT.md §AC` reconciliado (`f8f4d2d`). ⛔ **Sin schema, sin cambio a
-> §AC.1 ni a `M-73`**: todo lo nuevo es lectura derivada. Porqué: `ARCHITECTURE §4.AC (n)`.
-> - §AC.9: cada renglón de accesorio trae `refund` (con `amountByQtyCents`), `deckShipmentItemIds` y `deckAllMissing`;
->   `refundPreviewCents` suma los accesorios faltantes (Q-AC-UX-2, Q-AC-UX-3).
-> - §AC.4: `unavailableAccessories[].name` y `EnergyBundleDTO.energies[].photo` (Q-AC-UX-4, Q-AC-UX-5).
-> - §AC.11: las energías se activan sin medidas ni peso (ratifica el CHECK). §AC.7: `review` es solo aviso, nunca retiene.
-> - §AC.16 gana Q-AC-UX-1 (pregunta al dueño). Pruebas nuevas AC-B41…46 y AC-F16…18.
->
-> **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL META BATTLE DECK (2026-10-07, arquitecto,
-> worktree `/home/user/tcg-accesorios`, rama `claude/accesorios`, HEAD `1a5f8c04` según el orquestador; ⛔ sha NO MEDIDO: sin
-> Bash).** Norma entera: **[§AC](#AC)**. Porqué: `ARCHITECTURE §4.AC`. Migración **`M-73`**. Versión reservada:
-> `v1.86⟨accesorios⟩` (`v1.87`/`M-74` son de `claude/wishlist`). Fuentes: `HECHOS.md:88-90` (filas del 2026-10-07).
->
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | AC-1 | Modelo | `Accessory` (cantidad), `AccessoryPhoto`, `AccessoryStockMovement`, `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`; `M-73` aditiva | No en filas existentes | backend |
-> | AC-2 | Tienda | `GET /accessories`, `/accessories/:id`, `/accessories/suggestions`, foto pública | Aditivo | backend + frontend |
-> | AC-3 | 💰 Compra | Solo `POST /checkout/guest/{quote,session}` gana `accessoryLines` y `deckPulls`; el checkout con cuenta los rechaza `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` | Sí (pedidos con accesorios) | backend + frontend |
-> | AC-4 | 💰 Existencias | Apartado por contador con condición en el `UPDATE`; vender, soltar y devolver por CAS del renglón | Sí | backend |
-> | AC-5 | 💰 Envío | `ShippingPackage.customerFeeCents`; caja más chica donde caben los accesorios; tarifa `max(hoy, caja)`; sin cajas con tarifa ⇒ hoy | Solo con accesorios | backend + frontend |
-> | AC-6 | 💰 Paquete de energías | `pullToken` firmado en `GET /decks-meta/:slug`; renglón `energy_bundle` a precio de dial `energy_bundle_price_cents` | Aditivo | backend + frontend |
-> | AC-7 | 💰 Preparación y reembolsos | Renglones de accesorio en «Pedidos por preparar», faltante por unidad, entregado por unidad, reembolso total con devolución a existencias | Sí | backend + frontend |
-> | AC-8 | Panel y reportes | `/admin/accessories/*`, P&L con costo, analítica con `accessory` | Sí | backend + frontend |
->
-> **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
-> `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
-> Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
-> **[§M1-SU](#M1-SU)**; porqué en `ARCHITECTURE §4.65`. Sin schema, migración, endpoint, código de error ni campo nuevo.
->
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | SU-1 | Regla de publicación | Plataforma `in_stock` + guardas + precio que resuelve ⇒ se publica. `locationId` no cuenta (raw, graded, sellado) | **Sí**: lo convertido en M5 con precio sale a la venta al instante | backend |
-> | SU-2 | `missing: "location"` | Se **conserva** en tipos y contrato, **dormido**: el servidor no lo emite; `?missing=location` ⇒ `200` vacío; `missing_location` y `missingLocation` siempre 0 | No (sin cambio de tipos) | backend |
-> | SU-3 | Piezas retenidas hoy | Barrido único con el mismo cuerpo (`reevaluateForPublication`) sobre `platform ∧ in_stock ∧ locationId IS NULL` | **Sí** (publica el rezago) | backend (+ quién lo corre: orquestador) |
-> | SU-4 | Sellado en la cola | `sealedFinalPriceMode`: `in_stock` ⇒ siempre «Guardar y publicar» | Sí | frontend |
-> | SU-5 | Texto | `es.json:1596` dice «antes de IVA» para todo el sellado; el precio del producto es **con IVA** (M-71) | Texto | ux-ui → frontend |
-> | SU-8 | Alta (una, lote, «encontrada») | Tras el commit llama a `reevaluateForPublication(ids creados)`, best-effort con `try/catch`, nunca en replay. `201` del alta suelta: `status` = estado resultante. Sin campo nuevo | **Sí**: lo dado de alta con precio sale a la venta sin `bulk-publish` | backend (+ texto: ux-ui → frontend) |
->
-> **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2 (2026-10-06, arquitecto, árbol `/home/user/tcg-ventas`,
-> rama `claude/analitica-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash).** Norma
-> entera: **[§15](#AN)**. Porqué: `ARCHITECTURE §4.64`. ⛔ Numeración NO MEDIDA contra #78 y otras ramas vivas.
->
-> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | AN-1 | Endpoints | `GET /admin/reports/sales`, `…/sales/export.csv`, `…/sales/today`; `super_admin` (clase de M9) | Aditivo | backend + frontend |
-> | AN-2 | 💰 Pedido cobrado | Día México de `settledAt`, **cualquier estado actual**; reembolso en su propio día. Choca con `pnl()` (D-AN-1): 602 pasa a identidad con el término D-2/D-3 | No (M7 intacto) | backend |
-> | AN-3 | 💰 612/622 | `pnl-core`: el cuerpo de `pnl()` partido por cubos; paridad bit a bit de M7 | No (refactor con candado) | backend |
-> | AN-4 | 621 | Migración aditiva **`M-AN-1`** `Order.paymentMethodType` | Sí (dato nuevo al liquidar) | backend |
-> | AN-5 | 622 buylist | Condicionado a #78 en `production` | — | backend |
-> | AN-6 | 624 | El resumen de las 08:00 lleva la línea de ventas de ayer y se manda también con ventas sin avisos (P-AN-1) | Sí | backend |
-> | AN-7 | ⭐ **Errata AN-1.1** (2026-10-06, N-AN-1…4 de ux-ui) | `chargebacks` por cubo (fase C, `M-AN-1` + `chargebackOpenedAt`/`chargebackAmountCents`); `mix.byProductType` (fase B); `shipping.resultNetCents` (fase B); **CSV en pesos** con 2 decimales, JSON en centavos (fase A). [§15.11](#AN) | Sí (dos columnas nuevas al recibir el contracargo; CSV) | backend + frontend |
->
-> **Errata BSD-1.5 — LO QUE §BSD.18 NO AGUANTÓ (`BACKEND_NOTES §78.B5`) (2026-10-06, arquitecto; sha NO MEDIDO).**
-> Norma en [§BSD.19](#BSD). Sin schema, migración, enum, código de error, campo de DTO ni endpoint nuevo.
-> - B9 muta los **tres** muros y afirma que nunca hay `5xx`. B16 fija `409 GUIDE_NOT_ALLOWED` en el modo «Declinar entre
->   `precheck` y `claim`». Solo cambian pruebas de backend.
-> - `not_continued`: se ratifica `offer: null` y toda `*Cents` de cliente `null`. Los pasos sin fecha no se pintan.
-> - Se ratifican `closedAt` en el sello de AV-7 (defensa en profundidad) y B43 por diferencia.
->
-> **Errata BSD-1.4 — LO QUE ENCONTRARON B-2, B-3, B-4 Y C-9 DE UX-UI (`BACKEND_NOTES §78.5/§78.B3/§78.B4`,
-> `DESIGN_SYSTEM §BSD-UX.11d`) (2026-10-06, arquitecto, `/home/user/tcg-bsdx`; sha NO MEDIDO).** Norma en [§BSD.18](#BSD).
-> Sin schema, migración, enum, código de error ni endpoint nuevo.
->
-> | Cambia | Construye |
-> |---|---|
-> | Un solo predicado de sello de AV-7 con el número (`guideNoticeSealWhere`), BSD-B40 | B-3 + B-2 |
-> | `@Throttle` 10/min en `GET /buylist/requests/:id/label.pdf`, BSD-B44 | B-2 |
-> | El servidor redacta los montos del cliente en `not_continued` (como `no_offer`), BSD-B41 | B-3 + frontend |
-> | La revisión de domicilio del PATCH de admin se firma con el actor, BSD-B42 | B-3 |
-> | (b) del P&L por `coalesce(guideSentAt, shipmentConfirmedAt)`, BSD-B43 | B-4 |
-> | B16/B18/B31 se repiten contra `POST /admin/shipments/:id/label` antes de fusionar | backend; QA |
-> | Pruebas: B4 por pares + B45; B9 con mutación nueva; B11 partida (+B46); B16 con texto nuevo | B-2 / B-3 |
->
-> Se ratifica: la tarea de cancelación la abre el llamador (§BSD.4.8 corregido); el `status` del CAS es redundante y se
-> queda; las cascadas del P&L de B-4. C-9: el aviso de M7 sigue sin enlace; el verbo de corrección queda para después del
-> lanzamiento.
->
-> **Errata BSD-1.3 — LO QUE ENCONTRÓ BACKEND EN B-1 (`BACKEND_NOTES §78`) (2026-10-06, arquitecto, mismo árbol; sha NO
-> MEDIDO).** Norma completa en [§BSD.17](#BSD). Sin cambios de schema, migración ni códigos ⇒ B-1 no se rehace.
->
-> | # | Decisión | Construye |
-> |---|---|---|
-> | 1 | `rejectRequest` y `autoRejectIfAllRejectedTx` **no pueden cerrar una `aceptada`**: `422 REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}`, con la guarda en el `WHERE`. ⛔ No se cablea `closeInboundShipment` en ellos | B-3 |
-> | 2 | El enum de Prisma `ShipmentKind` y la columna `kind` se quedan. `AdminShipmentDTO.kind` (derivado) gana `'buylist_inbound'`; se retira el campo nuevo. El tipo TS derivado pasa a llamarse `AdminShipmentKind` | B-2 + frontend |
-> | 3 | Se ratifica el 7.º parámetro `shipDeadlineBusinessDays` de `writeSellRequestGuide` | — |
-> | 4 | Las guías de entrada atascadas se ven en M5 (`inboundShipment.labelAlert`, `?inboundLabelAlert=true`) y en el tablero (`workQueue.buylistInboundLabelAlert`), con el mismo `labelAlertOf` | B-2 + B-3 + frontend |
-> | 5 | `OPEN_FOR_LABEL_STATUS`/`openForLabelWhere()` en `label-subject.ts`. El job de proceso y los CAS toman su `status` de ahí. Candado BSD-B25 (c) | B-2 |
-> | 6 | El lector de guías de entrada de `pnl()` se clasifica `inbound_only`, una clase nueva del censo | B-4 |
->
-> **Errata BSD-1.2 — 💰 Q-BSD-1 RESPONDIDA: LA GUÍA DE ENTRADA RESTA EN LA GANANCIA, LA TARIFA RETENIDA SUMA Y SE VE EL MARGEN
-> (2026-10-06, arquitecto, mismo árbol; sha NO MEDIDO).** Origen: `HECHOS.md` fila 2026-10-06 «Q-BSD-1: el costo real de la
-> guía de ENTRADA del buylist RESTA…» («que reste en el reporte») y precisión del dueño del mismo día, relayada por el
-> orquestador: «pero en muchos casos tendrá margen». Norma: [§BSD.16](#BSD). ⛔ Sin schema, migración, enum, código de error
-> ni endpoint ⇒ **B-1 no cambia**. Bloque nuevo **B-4** (`admin.service.ts` `pnl()` + CSV), disjunto de B-2/B-3. Retira el
-> campo informativo `buylistInboundLabelCostCents` y cierra DV-BSD-1.
->
-> **Errata BSD-1.1 — CONTRADICCIONES QUE ENCONTRÓ UX-UI AL ESCRIBIR `DESIGN_SYSTEM §BSD-UX` (2026-10-06, arquitecto, mismo
-> árbol y rama; sha NO MEDIDO).** Norma: [§BSD.15](#BSD). ⛔ Sin schema, sin migración, sin enum, sin código de error ⇒
-> **B-1 no cambia** (salvo una aserción de I-BSD-2, §BSD.15 C-6). Cambian DTO y textos: B-2 (C-1, C-6) y B-3 (C-2, C-3,
-> C-7, C-8).
-> | # | Decisión |
-> |---|---|
-> | C-1 | `labelPdfAvailable: boolean` **plano** en el `SellRequestDTO` del cliente (lista y detalle); se retira `guide.labelPdfAvailable` |
-> | C-2 | AG-23: CTA a `/admin/m5` **sin `?`** (PS-153) y folio corto en el cuerpo |
-> | C-3 | `workQueue.buylistGuideDueSoon: number`, hermano de los demás; `workQueue.buylist` sigue siendo número |
-> | C-5 | `costCents` = **bruto pagado**: IVA **y** seguro incluidos; `costIvaCents` y `insuranceCostCents` son desglose, ⛔ no se suman |
-> | C-6 | `SellRequest.shipmentCarrier` de una guía de Skydropx = **nombre legible** (`carrierLabel`, si falta `carrierName`) |
-> | C-7 | AG-23 se puede silenciar en M10 con el mismo mecanismo por tipo que los demás avisos; arranca **encendido** |
-> | C-8 | El servidor manda `guideDueInDays`; sin él el front no pinta «en N días» |
->
-> **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A LOS 7 DÍAS NATURALES (2026-10-06,
-> arquitecto, árbol `/home/user/tcg-bsdx`, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO
-> MEDIDO por el arquitecto: sin Bash).** Se apoya en **v1.84.5**. ⛔ **La línea «Versión de API» de arriba NO se toca en esta
-> rama** (hay otras ramas abiertas que también la editan: `claude/idiomas-sellos`, `claude/correos-marca`); la fusión la
-> consolida. Numeración propia para no chocar: rev **BSD-1**, sección **[§BSD](#BSD)** del contrato, `ARCHITECTURE §4.BSD`,
-> migración **`M-72` provisional** (se renumera **ésta** si otra rama ya la tomó). Norma entera: **[§BSD](#BSD)**. Origen:
-> `PROJECT.md §BSD` (criterios 532–550) y `HECHOS.md` filas 2026-10-06 «Buylist: una solicitud ACEPTADA sin guía capturada en
-> 7 días se CANCELA sola», «Buylist con Skydropx de entrada (P-BUYLIST-SDX)…» y «Respuestas a P-BSD-1…5…» (las cinco con la
-> recomendación del product-owner).
->
-> | # | Pieza | Decisión | ¿Cambia conducta? | 💰 | Construye |
-> |---|---|---|---|---|---|
-> | **BSD-A** | Dónde vive la guía de entrada | **Una fila de `ShipmentRequest` con `kind = 'buylist_inbound'`** ligada 1:1 a la `SellRequest` (`sellRequestId @unique`). Así la compra, el candado de cuenta, el folio, la adopción, la verificación sin respuesta, la cancelación, TG-1/TG-2 y los libros **son los mismos**, sin un segundo camino de compra. Precio: un **censo** de lectores de `ShipmentRequest` (candado BSD-B23) | Sí (aditivo) | 💰 | backend |
-> | **BSD-B** | Dirección | Origen = **copia** de `pickupAddressSnapshot` en `ShipmentRequest.addressSnapshot` (corregible con el verbo de siempre, con su bitácora y versión). Destino = la dirección de la tienda (`skydropx_origin_snapshot`), **sin entrada** en ningún cuerpo | Sí | 💰 | backend + frontend |
-> | **BSD-C** | Al comprar | La guía se escribe en la `ShipmentRequest` **y**, en la misma transacción, en la `SellRequest` con el mismo cuerpo que la captura a mano: arranca el plazo del vendedor (3 días hábiles) y sale **AV-7 con la etiqueta en PDF adjunta**. ⛔ No sale AV-4 | Sí | 💰 | backend |
-> | **BSD-D** | Dinero | Al vendedor se le sigue descontando la **tarifa congelada**; el costo real queda en la fila de entrada y se ve en la ficha y en una línea **informativa** del P&L | No (neto) | 💰 | backend + frontend |
-> | **BSD-E** | «Declinar» en «Aceptada» | Verbo nuevo **`POST /admin/buylist/:id/decline-accepted`** (operador+, motivo 3–500 interno). `expirada` con **`expiredReason = 'not_continued'`** (valor NUEVO) + `declinedBy`. Cancela sola la guía de Skydropx | Sí | 💰 | backend + frontend |
-> | **BSD-F** | Cierre a 7 días naturales | Regla **8** del barrido: `aceptada` sin guía (ni compra en vuelo) con `coalesce(inboundGuideClockStartedAt, acceptedAt) + 7×24 h ≤ ahora` ⇒ `expirada`/`not_continued`, `declinedBy = null`. Dial en días naturales | Sí | — | backend |
-> | **BSD-G** | Aviso del día 5 | Regla **9**: aviso **AG-23** (`buylist_guide_due`) por la tubería de avisos al dueño (panel + correo, una vez por ancla); marca derivada `guideDueSoon` en M5 y en el tablero | Sí | — | backend + frontend |
-> | **BSD-H** | Las ya abiertas | `M-72` pone `inboundGuideClockStartedAt = now()` a las `aceptada` abiertas sin guía: cuentan **desde el despliegue** | Sí (relleno acotado) | — | backend |
-> | **BSD-I** | Etiqueta del vendedor | PDF adjunto en AV-7 **y** `GET /api/v1/buylist/requests/:id/label.pdf` (dueño de la solicitud) | Sí | — | backend + frontend |
->
-> - ⛔ **Cero códigos de error nuevos** (se reutilizan con `details.reason` nuevos, §BSD.10). Enums: **`ShipmentKind`** (nuevo),
->   `SellRequestExpiryReason` **+ `not_continued`**, `SpendAlertKind` **+ `buylist_guide_due`** (AG-23).
-> - **Pruebas que deben fallar:** `BSD-B1…B31` (backend) y `BSD-F1…F9` (frontend), §BSD.11. Carreras con **N ≥ 10** y
->   proporción: B4, B9, B16, B18, B31.
-> - **Preguntas al dueño:** ninguna bloquea (§BSD.14, todas con valor por defecto). **NO MEDIDO:** §BSD.13.
->
-> *(separador ⟨listo-real⟩ — rama `claude/buylist-skydropx`, 2026-10-06: lo que sigue es la cabecera tal como estaba en
-> `3c7726b8`, vigente entera salvo lo que toca BSD-1.)*
->
-> **Errata v1.84.5 — CHOQUE B: PIE DE PRIVACIDAD (E4-5) vs. ENLACES DE LOS CORREOS DE GASTO (SDX-I-8) (2026-10-05,
-> arquitecto, árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`; ⛔ sha NO
-> MEDIDO por el arquitecto: sin Bash).** Origen: el orquestador midió 2 rojas tras la fusión
-> (`sdx-d2g.units.spec.ts:252`, `integration/sdx-d2g-mail.e2e-spec.ts:231`): `mailShell` emite el pie de privacidad en
-> **todo** correo, incluidos AVG-1/2/3. Norma entera: [§14.18](#LIVE-E5). Porqué: `ARCHITECTURE §4.63.15`.
-> ⛔ **Sin schema, sin migración, sin enum, sin código de error, sin endpoint, sin forma nueva.**
->
-> | # | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|
-> | E5-1 | **Opción (1).** El enlace «Aviso de privacidad» (criterio 507, E4-5) va en el pie de los correos **a clientes**; los correos **solo-staff** (hoy: AVG-1/2/3, `spend-alert.mail.ts`) **no** lo llevan. **SDX-I-8 queda intacta** (sin excepción para `/privacidad`) | Sí (3 correos internos pierden una fila) | backend · antes del cambio a `sk_live_` |
-> | E5-2 | ⚠️ Interpretación de `PROJECT.md` **marcada**: §LEG.3 dice «pie de **todos** los correos»; el criterio 507 (lo que se mide) enumera seis familias, **todas a clientes**. Ambiguo en la letra ⇒ se elige la opción que **no debilita SDX-I-8**. Product-owner anota la acotación en 507/§LEG.3 | No | product-owner (nota) |
->
-> **Errata v1.84.4 — AVISO DE PRIVACIDAD EN «MODO PROVISIONAL» (2026-10-05, arquitecto, árbol `/home/user/tcg-real`,
-> rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: decisión del dueño `HECHOS.md` fila 2026-10-05 «**Salir en vivo SIN datos fiscales del aviso de privacidad; se
-> regulariza después**» (sesión 6; riesgo legal **aceptado por el dueño**). Norma entera: [§14.17](#LIVE-E4). Porqué:
-> `ARCHITECTURE §4.63.14`. ⛔ **Sin schema, sin migración, sin enum, sin código de error, sin endpoint, sin forma nueva.**
->
-> | # | Decisión | ¿Cambia conducta? | Construye · cuándo |
-> |---|---|---|---|
-> | E4-1 | **Se publica el aviso** (no 404) con todo lo que es cierto; razón social, RFC y domicilio se sustituyen por **una frase fija y honesta** (sin corchetes, sin «en trámite»). Contacto: `soporte@tcghunt.mx` | Sí (`/privacidad` sirve; los 7 sitios enlazan solos) | frontend · antes del cambio a `sk_live_` |
-> | E4-2 | Los **demás** marcadores del borrador (notas al abogado, `SUPUESTO`, fecha, plazos, Skydropx, autoridad, cookies) **no** son datos fiscales: se resuelven por la tabla de E4-2, sin inventar nada. ⛔ Ningún corchete pasa a «permitido» | Sí (texto) | frontend (transcribe) · product-owner (nota en `PROJECT §LEG`) |
-> | E4-3 | Gate: `pendingOwnerData ⊆ {razonSocial, rfc, domicilio}` declarado en el documento + frase fija ⇒ `published`. `check:legal` se parte en **`check:legal:provisional`** (casilla de hoy) y **`check:legal`** (final, intacto: rojo mientras haya `pendingOwnerData` o `legalEntity` entre corchetes). Pruebas **LEG-P1…P7** | Sí (candado) | frontend |
-> | E4-4 | §14.10 «Antes»: la casilla legal pasa a `check:legal:provisional` + QA 500–508 **con las excepciones aceptadas** escritas; casilla nueva **«Regularización legal»** que cierra cuando lleguen P-LEG-1…3 | No (procedimiento) | devops transcribe a `DEVOPS_NOTES §83.7` |
-> | E4-5 | ⚠️ **Hallazgo del arquitecto:** el enlace «Aviso de privacidad» en el **pie de los correos** (criterio 507, `PROJECT §LEG.3`) **no está construido** y E-9 no lo listaba. **No** lo cubre la excepción del dueño | Sí (correos) | backend · antes del cambio a `sk_live_` |
->
-> **Errata v1.84.3 — RESPUESTA A `FRONTEND_NOTES §94.6` (CSP-5 y LIVE-2) (2026-10-05, arquitecto, árbol
-> `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`; ⛔ sha NO MEDIDO por el
-> arquitecto: sin Bash).** Norma entera: [§14.16](#LIVE-E3). Porqué y alcance de la CSP: `ARCHITECTURE §4.63.13`.
-> ⛔ **Sin schema, sin migración, sin enum, sin código de error nuevo, sin forma nueva de petición ni de respuesta.**
->
-> | # | Origen | Decisión | ¿Cambia conducta? | Construye · cuándo |
-> |---|---|---|---|---|
-> | E3-1 | frontend §94.6 | E2-2 paso 3 corregido: el `<script>` en línea se inyecta **en el HTML servido** (interceptando la respuesta en el navegador de la prueba), no creado por código tras cargar. Bajo `'strict-dynamic'` un script creado por código **hereda la confianza** del script que lo crea: no hay violación que contar | No (prueba) | — (hecho por frontend; QA lo mide) |
-> | E3-2 | arquitecto (consecuencia de E3-1) | E2-5: la comprobación de **entrega** antes de `enforce` ya no se hace «por la consola» (no dispara nada, mismo motivo); se hace con la técnica de CSP-5 contra producción | No (procedimiento) | frontend o tester-e2e · antes de `enforce` |
-> | E3-3 | frontend §94.6 → seguridad | **Alcance de la CSP escrito**: qué bloquea y qué **no** (un DOM-XSS que **cree** `<script>` desde código de confianza no lo bloquea, ni en `enforce`). Candado nuevo **XSS-SINK-1** (lint bloqueante de sumideros de HTML/código) como pendiente | No (dato) / Sí (lint) | frontend (lint) · antes de `enforce`; pentester/seguridad (dato) · fase de seguridad |
-> | E3-4 | frontend §94.6 | LIVE-2: mecanismo de frontend (marca de un solo uso 10 s consumida por `AuthForm` + `router.replace`, sin tocar `components/layout/*`) **ratificado**; también el aviso de inactividad desaparece al primer intento (DESIGN_SYSTEM §81.2.7) | No (ya construido) | — |
->
-> **Errata v1.84.2 — HALLAZGOS DE LOS GATES (QA + TECHLEAD) SOBRE `241d4dca` (2026-10-05, arquitecto, árbol
-> `/home/user/tcg-real`, rama `claude/listo-real`; ⛔ sha dado por el orquestador, NO MEDIDO por el arquitecto: sin
-> Bash).** Norma entera: [§14.15](#LIVE-E2). Porqué: `ARCHITECTURE §4.63.12`. ⛔ **Sin schema, sin migración, sin enum,
-> sin código de error nuevo, sin forma nueva de petición ni de respuesta.**
->
-> | # | Origen | Decisión | ¿Cambia conducta? | Construye · cuándo |
-> |---|---|---|---|---|
-> | E2-1 | C-2 techlead | La guía del dueño (§14.10 «Antes») gana la casilla **«`npm run check:legal` verde (criterios 500–508)»** más una segunda línea «QA aprobó 500–508 en la tienda publicada» (`check:legal` solo mide 501 y 503–505); E-9 deja de darlo por hecho y cita la casilla | No (procedimiento) | devops la transcribe a su guía · antes de F2 |
-> | E2-2 | M-1 QA | E-5 corregido: la mutación `script-src-elem 'unsafe-inline'` **solo** pone CSP-5 roja en `enforce`; en `report-only` (lo que se publica) salió verde 0/3 (N=3, autor QA). **CSP-5 se reescribe** sobre el evento `securitypolicyviolation` del DOM, contado antes/después de inyectar | No (prueba) | frontend · antes de F1 |
-> | E2-3 | M-2 QA | **Se norma ahora:** el servidor limpia `message` de `/telemetry/client-error` antes del log (query/fragmento pegados a cualquier ruta, `nombre=valor` de secretos, JWT). La limpieza del cliente se queda como está (defensa extra, no requisito). Pruebas **TLM-6/TLM-7/TLM-8** | Sí (solo el texto del log) | backend · antes de F1 |
-> | E2-4 | B-2/C-1 | Texto «Tu sesión caducó por seguridad…» de LIVE-2: **sigue en este stream** (ux-ui ahora; frontend después, antes de F1) | Sí (pantalla) | ux-ui → frontend |
-> | E2-5 | techlead | `report-uri` sin `report-to`: **se queda así en `report-only`**; antes de `enforce` hay una **comprobación de entrega** obligatoria; `report-to` queda como decisión pendiente **D-CSP-RT** con disparador | No | — (frontend/devops solo si se dispara) |
->
-> **Errata v1.84.1 — RESPUESTA A LAS SOLICITUDES DE LOS TRES AGENTES DE CONSTRUCCIÓN DE §14 (2026-10-05, arquitecto,
-> árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`; ⛔ sha NO MEDIDO por el
-> arquitecto: sin Bash).** Origen: `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`. Norma entera:
-> [§14.14](#LIVE-E1). Porqué: `ARCHITECTURE §4.63.11`. ⛔ **Sin schema, sin migración, sin enum, sin código de error
-> nuevo** (§0 sin cambio). Fusiones: **F1** = `claude/listo-real` → `main`; **F2** = `main` → `production` (botón del
-> dueño); **F-SKY** / **F-PNL** = fusión a `main` de `claude/skydropx-d` / `claude/arreglos-panel`.
->
-> | # | Decisión | ¿Cambia conducta? | Construye · cuándo |
-> |---|---|---|---|
-> | E-1 | Refresh con `ignoreExpiration:true` y caducidad a mano **después** del tope: **ratificado**. ⭐ Borde corregido: el tope es `now − sat >= tope` (hoy `>` en `auth.service.ts:608` ⇒ en el segundo exacto `sat + tope` sale `401` **sin** `reason`). Pruebas SES-7/SES-8 | Sí (un segundo) | backend · antes de F1 |
-> | E-2 | `ttlSeconds()` propio con prueba de paridad contra `jsonwebtoken`: **ratificado** tal cual | No | — (hecho) |
-> | E-3 | `413` de `/telemetry/csp` **sin cuerpo**: **ratificado y normado**. ⛔ Sin código nuevo | No | — (hecho) |
-> | E-4 | `style-src` gana **`https://accounts.google.com/gsi/style`** (ruta exacta, no el origen) | Sí (cabecera) | frontend · antes de F1 |
-> | E-5 | Mutación de CSP-5 corregida: la que muerde en el navegador es **`script-src-elem 'unsafe-inline'`** (o `script-src-attr`) añadida; `'unsafe-inline'` en `script-src` la caza el unitario | No (texto) | — |
-> | E-6 | «Dos CSP se intersecan» corregido: con `next start` la del middleware **sustituye** a la estática; invariante: toda respuesta HTML lleva **`frame-ancestors 'none'` aplicada** en las dos fases. Vercel se mide en F2 (E-8) | No (texto + aserción) | frontend (aserción CSP-1) · antes de F1 |
-> | E-7 | `upgrade-insecure-requests` **solo** con `CSP_MODE='enforce'` **y** API en `https:`: **ratificado** | Sí (cabecera) | — (hecho; prueba unitaria) |
-> | E-8 | TTFB: ya no en vista previa (las `claude/*` no despliegan, `frontend/vercel.json:6`). Se mide **en producción** `https://tcghunt.mx/es`: **antes** = disparado por F1 (producción aún sin CSP); **después** = tras F2 (Report-Only). Sonda nueva de devops, resultado en un issue. Gate de `enforce` | No (medición) | devops · antes de F1 |
-> | E-9 | Enlaces al aviso: **un componente** que solo enlaza si la página se sirve; lote 1 (registro, checkout con cuenta, INE) antes de F1; lote 2 (`GuestCheckoutForm`) tras F-SKY; lote 3 (`pedido/layout.tsx`) tras F-PNL. `check:legal` exige los siete sitios | Sí (pantallas) | ux-ui (textos) → frontend · ver §14.14 |
-> | E-10 | Sonda de C6: **6 correos inexistentes distintos**; control solo con `--with-control` | No (texto) | — (hecho por devops) |
-> | E-11 | C6 con N=1: **pregunta al dueño** (`ARCHITECTURE §4.63.9` P-10); por defecto basta una ronda | — | dueño |
->
-> **Rev v1.84 — 🔒💰 LISTO PARA DINERO REAL: LAS CONDICIONES «ANTES DE `sk_live_`», EL CONTRACARGO, LOS DATOS DE PRUEBA,
-> MONITOREO, RESPALDOS, LO LEGAL MÍNIMO Y LA GUÍA DEL CAMBIO (2026-10-05, arquitecto, árbol `/home/user/tcg-real`, rama
-> `claude/listo-real` desde `production` = `3e09685a` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin
-> Bash).** Norma entera: **[§14 LIVE](#LIVE)**. Porqué: `ARCHITECTURE §4.63`. Origen: `HECHOS.md:16` (modo real «cuando
-> cierre todo»), `HECHOS.md:44` (disputas fuera; contracargos «como hoy»), `HECHOS.md:87-90` (ninguna venta real),
-> `SECURITY_NOTES.md:14048-14050` y `:14301` (condiciones antes de `sk_live_`), inventario go-live del 2026-10-05.
-> **Numeración elegida para no chocar:** Skydropx usa v1.80.11…v1.80.12.x y `ARCHITECTURE §4.60`; panel v1.82 y §4.61;
-> sellado v1.83 y §4.62. Aquí: **v1.84**, **§4.63**, **§14** del contrato. ⛔ **Sin schema, sin migración, sin enum.**
+> **Tabla de piezas de v1.84 (se conserva: §14 la cita):**
 >
 > | # | Pieza | Decisión | ¿Cambia conducta? | 💰 | Construye |
 > |---|---|---|---|---|---|
@@ -549,58 +209,13 @@
 >   prueba, fase A del cobro de punta a punta, texto legal validado, y la decisión del dueño sobre el **pentest de un
 >   tercero** (`SECURITY_NOTES.md:14050`). Preguntas al dueño: [§14.13](#LIVE).
 >
-> *(separador ⟨sellado⟩ — fusión listo-real+sellado 2026-10-05: lo que sigue es la cabecera de `claude/precio-sellado` tal cual;
-> su primera línea era la «Versión de API» de esa rama y queda como historia.)*
-> Cabecera de `claude/precio-sellado` — Fecha: 2026-10-05 (errata **v1.83.3**, **v1.83.2** y
-> **v1.83.1** sobre la rev **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**;
-> errata **v1.80.9.1** al stream «staff sin correo») — **fusionada encima de** errata **v1.82.3** sobre rev **v1.82**
-> (`claude/arreglos-panel`, que ya lleva rev **v1.80.12.17** de `claude/skydropx-d`). ⛔ Sigue siendo la **única** línea
-> «Versión de API»: en la fusión sellado+panel del 2026-10-05 (orquestador, sin cambiar contenido) las cabeceras de
-> sellado van primero y las del panel debajo del separador ⟨panel⟩, cada una vigente entera salvo lo que tocan las de encima.
+> *(separador ⟨sellado⟩: cabeceras de v1.83.x; debajo del separador ⟨panel⟩, las de v1.82.x y Skydropx.)*
 >
-> **Errata v1.83.3 — CONDICIONES DE LOS GATES (2026-10-05, arquitecto, rama `claude/precio-sellado` en
-> `/home/user/tcg-sellado`, HEAD dado por el orquestador `4f367aea`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: veredictos sobre `4f367aea` (QA aprobado con condiciones; techlead aprobado con condiciones), relayados por el
-> orquestador. Norma: **[§M11-SP.6](#M11-SP)** (reescrita), **[§M11-SP.13.2](#M11-SP-13)** y **[§M11-SP.13.5](#M11-SP-13)**.
-> Porqué: `ARCHITECTURE §4.62.10`. ⛔ Sin endpoint, campo, migración, enum ni código de error nuevo; ⛔ backend sin cambio.
+> - Errata v1.83.3 · 2026-10-05 · condiciones de los gates del precio de sellado (C-1 SP.6 diferido y reducido, C-2 helper que falla cerrado, QA menor 3) · [§M11-SP.6](#M11-SP), [§M11-SP.13.2/.5](#M11-SP-13), `ARCHITECTURE §4.62.10`; tabla compactada en v1.110.1 (git) · QA/techlead.
+> - Errata v1.83.2 · 2026-10-05 · seis respuestas a backend (Q-1…Q-6, A-3, A-5: carpeta de `M-71`, doble clic, diales, `.xlsx` columnas 17/18, `sealedProductId`) · [§M11-SP.13](#M11-SP-13), `ARCHITECTURE §4.62.9`; tabla compactada en v1.110.1 (git) · backend.
 >
-> | # | Condición | Decisión | Construye · cuándo |
-> |---|---|---|---|
-> | **C-1** (techlead, bloqueante) | SP.6 decía «bloquea este stream» y SP-F-13…16 / F-SP-5 se difirieron | 💰 **SP.6 se DIFIERE** con disparador: tras fusionar Skydropx (F-SKY) a `main`, en la primera rama que parta de esa base y toque `(storefront)/checkout`. Y **se reduce**: por `HECHOS.md:49` (no avisar), ⛔ **aviso y segundo clic retirados**; lo único que se construirá es que el modal pinte el total de la **sesión** (F-SP-5 reescrita). `D-SP-2` sigue **abierta** (medida 2026-10-05). Texto para la solicitud de fusión en SP.6 | frontend · ⛔ no en esta rama |
-> | **QA menor 3** | 13.2 (2) prometía «volver a guardar el mismo precio es el reintento»; la UI deshabilita «Guardar» si no cambió (`SealedProductPriceEditor.tsx:145-146`, `:275`) | El reintento del dueño tras `autoPublish: null` es **«Publicar» en «Listas para publicar»** (ya lo dice F-SP-8). La semántica del servidor del paso 2 **no cambia** | nadie (texto) |
-> | **C-2** (techlead) | Respaldo «clave ausente = servidor anterior» (`FRONTEND_NOTES §88`, Regla Q-5) falla **abierto** (`VariantDrawer.tsx:605`, `PendingPublishQueue.tsx:381`: `sealedProductId === null ? canSetPrice : true`; `SealedFinalPrice.tsx:90` `canEdit = true`) | Se **retira**. Un solo helper en `frontend/src/lib/sealed-price-role.ts` que pasa por `canSetSealedPrice` y **falla cerrado**; `canEdit` de `SealedFinalPrice` **obligatorio**, sin default. Pruebas **F-SP-9**, **F-SP-10** | frontend · ya, en esta rama |
->
-> - **Preguntas al dueño:** ninguna. **Aviso** para la solicitud de fusión: el texto llano de SP.6 (el total del modal de
->   pago). **product-owner:** reconciliar `PROJECT §X.2` y el criterio 298 con `HECHOS.md:49` (sin aviso).
->
-> **Errata v1.83.2 — RESPUESTAS A LAS SEIS PREGUNTAS DE BACKEND (`BACKEND_NOTES §57.8`) Y CIERRE DE LO QUE LE FALTA A
-> SP-F (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador
-> `eb36e388`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M11-SP.13](#M11-SP-13)**. Porqué:
-> `ARCHITECTURE §4.62.9`. ⛔ Sin migración nueva (`M-71` sin cambio), sin enum nuevo, sin código de error nuevo.
->
-> | # | Pregunta | Decisión | ¿Cambia conducta construida? | Construye · cuándo |
-> |---|---|---|---|---|
-> | **Q-1** | Carpeta de `M-71` | **`20261021120000_m71_sealed_product_owner_display_price`** (la de SP.12.12; existe, medido con `Glob`). El nombre `…_owner_price` de la rev v1.83 queda retirado | No | nadie |
-> | **Q-2** | 💰 Doble clic y `autoPublish` | El paso 2 no escribe **nada** en la tx; el disparo post-commit de SP.12.6 **sí corre**. `autoPublish: null ⇔ el intento lanzó` sin excepción. El segundo clic es además el **reintento** del dueño si el primero dio `null` | No (se norma lo construido) | backend: prueba **SP-16b** · ya, en esta rama |
-> | **Q-3** | Diales de la bitácora | Se leen en la **misma petición, justo antes** de abrir la tx. ⛔ Sin `getIvaDials(db)` en `settings` | No (se norma lo construido; cambia el texto de SP.12.4) | nadie |
-> | **Q-4** | 💰 Export `.xlsx` | ⛔ Ni `L` equivalente ni `P` en la columna de `L`. La columna 17 se rotula **«Precio venta antes de IVA MXN»** y queda **vacía** cuando manda el precio del producto; columna **18 nueva «Precio del producto con IVA MXN»** = lo que tecleó el dueño, exacto. El export deja de leer diales | **Sí** (forma del `.xlsx`) | backend · ya, en esta rama (prueba **SP-20**) |
-> | **Q-5** | `sealedProductId` en raw/graded del listado | Ausente en raw/graded, como construido. El front decide por **`productType`** primero, ⛔ nunca por la presencia de la clave | No | frontend (SP-F) |
-> | **Q-6** | «encontrada» sin `sealedProductId` | ⛔ No se declara. La fila «ligado ⇒ `422`» de SP.4 para ese escritor se sustituye por «n/a: entra sin producto»; la llamada a la regla **se queda** | No (texto + una prueba) | backend: fila de **SP-9** · ya, en esta rama |
-> | **A-5** | `sealedProductId` en `GET …/items/:id` | **Ya viaja** (`toAdminInventoryItemRow`, `inventory.service.ts:696`, vía `getItem` `:2819`/`:2823`; leído 2026-10-05). Se **declara**: `string \| null` en **toda** fila (raw/graded `null`). La prop provisional de `DESIGN_SYSTEM §70.3 (c)` deja de hacer falta | No | frontend (SP-F) |
-> | **A-3** | `?attention=true` en la hoja | **Aplazada** (no bloquea; la hoja ya marca esas filas) | — | — |
->
-> - **SP-F (frontend):** el contrato que consume la pantalla de `DESIGN_SYSTEM §70` está **completo**; las precisiones
->   que faltaban (cuentas a cero ≠ `null`, `market` nunca `pending`, el `expected` en panel/cola, `400` del cuerpo) en
->   [§M11-SP.13.7](#M11-SP-13).
-> - **Preguntas al dueño:** ninguna. **Aviso** para la solicitud de fusión: la hoja `.xlsx` del inventario cambia de
->   columnas (Q-4).
->
-> **Errata v1.83.1 — 💰 EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO **CON IVA** (2026-10-05, arquitecto, rama
-> `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador `8a64f27f`; ⛔ sha NO MEDIDO por el
-> arquitecto: sin Bash).** Origen: `HECHOS.md:51` («Precio del sellado — respuestas a P-SP-1/2/3 (2026-10-05)»: (1) el
-> mercado a mano del alta solo el dueño; (2) el personal sí ve costo y margen; (3) «yo lo voy a meter con iva») y las
-> solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`. Norma entera: **[§M11-SP.12](#M11-SP-12)**. Porqué:
-> `ARCHITECTURE §4.62.8`.
+> **Errata v1.83.1 · 2026-10-05 · 💰 el dueño escribe el precio del sellado CON IVA · norma en [§M11-SP.12](#M11-SP-12), porqué en
+> `ARCHITECTURE §4.62.8` · dueño (`HECHOS.md:51`, P-SP-1/2/3) y `DESIGN_SYSTEM §70.8`.**
 >
 > | # | Pieza | Decisión | ¿Rompe algo de v1.83? | Construye |
 > |---|---|---|---|---|
@@ -615,20 +230,9 @@
 >
 > - **Sin código de error nuevo, sin enum nuevo.** Campos renombrados (no construidos) y aditivos: lista en §M11-SP.12.4.
 > - **Pruebas:** SP-1, SP-2, SP-5, SP-7, SP-10, SP-12 cambian; nuevas **SP-15…SP-19** y **F-SP-7…F-SP-8** (§M11-SP.12.14).
-> - **Preguntas al dueño:** ninguna. P-SP-1/2/3 cerradas por `HECHOS.md:51`. N-1 y N-2 son **avisos** para el cuerpo de la
->   solicitud de fusión, no preguntas.
 >
-> **Rev v1.83 — 💰 EL PRECIO DEL SELLADO ES DEL PRODUCTO Y LO PONE EL DUEÑO; SE EDITA SIN RETIRAR, EN LA HOJA DE M11
-> (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, creada desde `production` + la fila
-> de `HECHOS.md` `66f0c194` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M11-SP](#M11-SP)**. Porqué: `ARCHITECTURE §4.62`. Origen: `HECHOS.md:50` («Precio del sellado (responde
-> P-SELLADO-PRECIO / PR #60 y P-SELLADO-REPRECIO)», 2026-10-05, puntos (1)–(4)) y `HECHOS.md:38` (b) («precio final a mano
-> solo para sellado», construido en #69). ⛔ El diseño de PR #60 (rama `claude/sealed-pricing-design`, `7897a0e3`) **no
-> lo leyó** el arquitecto (sin Bash); HECHOS:50 dice que queda respondida, y esta rev sigue a HECHOS.
-> **Numeración elegida para no chocar:** Skydropx usa v1.80.11…v1.81.x, §4.60 y `M-64`…`M-69`; el panel usa v1.82, §4.61
-> y `M-70` (`20261020120000_m70_panel_refunds`, medido con `Glob` en `/home/user/tcg-panel`). Aquí: **v1.83**, **§4.62**,
-> **`M-71`** con carpeta ~~`20261021120000_m71_sealed_product_owner_price`~~ (fecha posterior a las dos) — ⛔ **v1.83.2
-> (Q-1):** la carpeta es **`20261021120000_m71_sealed_product_owner_display_price`** (SP.12.12).
+> **Rev v1.83 · 2026-10-05 · 💰 el precio del sellado es del producto y lo pone el dueño; se edita sin retirar, en la hoja de M11
+> (`M-71`, carpeta en SP.12.12) · norma en [§M11-SP](#M11-SP), porqué en `ARCHITECTURE §4.62` · dueño (`HECHOS.md:50`, `:38` (b)).**
 >
 > | # | Pieza | Decisión | ¿Rompe algo construido? | Construye |
 > |---|---|---|---|---|
@@ -7766,6 +7370,8 @@
   | `GET /admin/reports/wishlist-demand` (§WSH.8) | `dir` **(ORDEN, v1.88)** | `asc \| desc` — canónico en **§WSH.8**; default `desc` (punto 6) | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `sort` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
   | `GET /admin/reports/wishlist-demand/export.csv` (§WSH.8) | `dir` **(ORDEN, v1.88)** | el mismo dominio y default que la ruta JSON — canónico en **§WSH.8** | **L** |
+  | `GET /admin/discount-codes` (§DSC.7, **v1.110**) | `status` | `DiscountCodeStatus` (`active \| paused`); fuera de dominio ⇒ `400 {field, allowed}` | **E** |
+  | `GET /admin/discount-codes` (§DSC.7, **v1.110**) | `state` | `scheduled \| live \| expired \| exhausted` — canónico en **§DSC.7** (partición computada, ⛔ sin columna); fuera ⇒ `400 {field, allowed}` | **L** |
   | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93 M-78**) | `status` | `CardShowLeadStatus` **menos `pending`** = `new \| contacted \| closed \| discarded` — cláusula en **§CARDSHOW.15** («⛔ PENDING no aparece»). Subconjunto de un enum con cláusula citable; `pending` o fuera de dominio ⇒ `400 {field, allowed}`. ⛔ Ausente ⇒ default «no-pending» (no es «no filtra»: `confirmedAt IS NOT NULL`), NO silencio | **R** |
   | `GET /admin/card-show/leads` (§CARDSHOW.15, **v1.93**) | `type` | `CardShowLeadType` (`merchant \| sponsor \| visitor`) | **E** |
   | `GET /admin/card-show/players` (§CARDSHOW.15, **v1.93**) | `status` | `CardShowSignupStatus` **menos `pending`** = `confirmed \| waitlist \| cancelled \| checked_in` — misma cláusula **§CARDSHOW.15**; `pending`/fuera ⇒ `400 {field, allowed}` | **R** |
@@ -8513,6 +8119,19 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   porque el set no está importado) deja backend y frontend alineados. Lo emite `POST /admin/catalog/refresh-variants`;
   en el batch se captura por-set y va a `summary.failures[].code`. **Mismo follow-up de enum central** que `UPSTREAM_ERROR`.
 - **`422 AMOUNT_TOO_LARGE` (v1.109.4, MONEY):** el total agregado del desglose excede `MAX_CENTS` (`grossUpTotal`, `common/money.ts`). ⛔ Nunca se recorta (recortar = subcobro): se rechaza, sin crear nada. Única traducción: `OrdersService.representableOrThrow`; cualquier otro `Error` sigue siendo `500`. Sin `details` normados. Rutas (por lectura de `representableOrThrow(`): `POST /checkout/session`, `POST /checkout/guest/quote` (§4-G.1, TL-ENV-4) y `POST /checkout/guest/session` (§4-G.2).
+- **`422 AMOUNT_TOO_LOW` (ya emitido, declarado en v1.110, MONEY):** el total a cobrar es menor que `StripeService.MIN_CHARGE_CENTS`
+  (1000, `stripe.service.ts:65,180`); se rechaza antes de llamar a Stripe. `details: { minCents }`. Con código de descuento no se
+  alcanza: §DSC.4 lo convierte antes en `not_applicable`/`TOTAL_BELOW_MINIMUM`.
+- **`409 MEASUREMENT_META_NOT_CONFIGURED` (v1.112):** `META_PIXEL_ID` o `META_CAPI_TOKEN` falta o no tiene forma (§MKT.H.1); `details: { reason: 'missing_config' | 'invalid_config' }`, ⛔ sin valores ni nombre de cuál. Solo `POST /admin/measurement/meta-test-event` (§MKT.H.12).
+- **Códigos de descuento (v1.110, MONEY, [§DSC](#DSC)):** `422 DISCOUNT_CODE_INVALID` — **genérico**: no existe, archivado,
+  pausado, fuera de vigencia, agotado o agotado para este cliente; ⛔ sin `details`, mismo cuerpo, mismo estado en los seis
+  casos (criterio 907) · `422 DISCOUNT_CODE_NOT_APPLICABLE` — vigente pero no aplica a este carrito o retiro; `details: { reason:
+  DiscountNotApplicableReason, … }` (§DSC.6) · `429 DISCOUNT_CODE_RATE_LIMITED` — bloqueo por intentos fallidos; `details: {
+  retryAfterSeconds }` + cabecera `Retry-After`; durante el bloqueo tampoco se acepta un código válido (criterio 908) · admin:
+  `409 DISCOUNT_CODE_TAKEN` (el texto ya existe, también archivado), `409 DISCOUNT_CODE_LOCKED { lockedFields }` (campo no editable
+  tras el primer uso), `409 DISCOUNT_CODE_LIMIT_BELOW_USES { inUse }`, `409 DISCOUNT_CODE_HAS_USES` (archivar un código con usos).
+  Las tres de cliente solo las emiten `POST /checkout/session`, `POST /checkout/guest/session` y `POST /shipments`; los quotes
+  devuelven el resultado dentro de un `200` (§DSC.6).
 - **`422 REQUEST_HAS_NON_REJECTED_ITEMS` (v1.24-buylist-request-reject):** en `POST /admin/buylist/:id/reject` (botón «Rechazar solicitud» de M5), la solicitud tiene **al menos un ítem no-rechazado** (`itemStatus != "rechazada"` — p. ej. `aprobada`, `convertida_inventario`, `verificacion`). El cierre explícito es una operación **segura y mínima**: cierra la solicitud **sólo** cuando ya no queda ítem vivo, por lo que rechaza el intento en vez de rechazar ítems en cascada (eso es cherry-pick por-ítem, `PATCH /admin/buylist/items/:itemId/decision`). `details: { nonRejectedItemStatuses: SellItemStatus[] }` (los status vivos encontrados, para que el front explique qué falta cerrar). Distinto de `404 NOT_FOUND` (solicitud inexistente). Ver §M5 y ARCHITECTURE §4.18(g).
 - **Acceso `public` vs `guest` (v1.21):** `public` sigue significando **sin token** (decorador `@Public()` del backend, respetado por `JwtAuthGuard`). Los endpoints de invitado son `public` **por construcción** y además **rechazan** una sesión válida (`409 ALREADY_AUTHENTICATED`): un usuario con cuenta compra por `/checkout/session`, un invitado por `/checkout/guest/session`. **No hay endpoint que sirva a los dos.** Simétricamente, ningún endpoint `customer` acepta un token de seguimiento como credencial: el `OrderAccessToken` **no** es una sesión, no otorga rol y solo lee **un** pedido.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
@@ -8794,6 +8413,10 @@ BannerResponse      = accept | necessary_only | no_response | custom // v1.96⟨
 MarketingAnnotationKind = promocion | despliegue | evento // v1.96⟨mkt-tienda⟩ (m83, §MKT.E / §13.4.6 h1). Clase E. Anotación de fecha del Panel; `promocion` lleva `destino`. Etiqueta SIN PII (filtro c6).
 MeasurementEventKind   = purchase | generate_lead // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Evento de servidor encolado.
 MeasurementDestination = ga4_mp | meta_capi      // v1.102⟨mkt-fase2⟩ (m86, §MKT.H.7). Clase E. Destino de la cola de medición.
+DiscountKind        = percent | fixed_amount | free_shipping // v1.110 (M-92, §DSC.1). Clase E. Tipo del código [D1].
+DiscountCodeStatus  = active | paused                       // v1.110 (M-92, §DSC.1). Clase E. Lo que el dueño fija; vigencia y agotado se DERIVAN (`state`, §DSC.7).
+DiscountProductScope = raw | graded | sealed | accessory    // v1.110 (M-92, §DSC.1). Clase E. Filtro por tipo; `accessory` incluye energías sueltas; ⛔ el paquete de energías nunca es elegible [D9].
+DiscountRedemptionStatus = reserved | consumed | released   // v1.110 (M-92, §DSC.5). Clase E. reserved ⇒ consumed | released; released ⇒ consumed solo por pago tardío; ⛔ consumed ⇒ nada [D5].
 ```
 
 ### DTOs base (compartidos)
@@ -12203,6 +11826,8 @@ invitado**; con cuenta, el envío es el retiro (§5), sin cambio. Si la cuenta l
   **Paso 3** caja (§AC.7, solo accesorios no energía con medidas): `cajaGrande ⇔ choice ≠ null ∧ box.customerFeeCents > E_sellado`;
   `E = cajaGrande ? box.customerFeeCents : E_regla` (sobre T la grande cobra, la chica gratis); `shippingBoxSnapshot.baseFeeCents = E_sellado`.
   **Paso 4** `computeDirectShipBreakdown(S, E, r, fee)`: la comisión es gross-up sobre `S + E` (§4-G.1) y baja con el envío gratis.
+- **Con código de descuento (v1.110):** `S` de los pasos 2–4 es la mercancía **ya descontada** `S'` y el tipo envío gratis
+  entra en el paso 2; orden completo en [§DSC.4](#DSC). Sin código, esta sección se aplica literal.
 - **Por qué el umbral no se mide sobre el total:** el total lleva la comisión, la comisión depende de `E` y `E` del umbral; medirlo
   después sería circular (un pedido saldría del umbral por la comisión que su propio envío genera). `S` es además lo que el cliente ve.
 
@@ -12236,7 +11861,7 @@ cobra con la misma función (no cambia de forma). `vaultBreakdown`, `/checkout/q
 **v1.109.5 — `freeShippingRemainingCents` es la promesa, y solo existe si se puede cumplir.** Con caja grande (`boxFeeApplies`) cruzar
 `T` no quita el envío (paso 3: «gratis salvo caja grande», `HECHOS.md` 2026-10-25 «Envío gratis desde MX$4,000 para CUALQUIER
 pedido (opción A)»), así que el campo va en `null` bajo y sobre `T` y T9 no se pinta. ⛔ El front no recalcula la condición: la
-decide solo este campo (una fuente); el predicado de T9 (ENV-F1) no cambia.
+decide solo este campo (una fuente); el predicado de T9 (ENV-F1) no cambia. **v1.112.1 (TL-ENV-2) — quote sobre el CONGELADO de la orden propia:** `kind`, `boxFeeApplies` y `freeShippingApplied` salen de la orden (`E` congelada); `freeFromCents` = `T` vivo; `freeShippingRemainingCents` = `freeShippingApplied ? 0 : (¬boxFeeApplies ∧ T > S ? T − S : null)` (cambiar el carrito sustituye la orden y cotiza con `T` vivo, así que «te faltan» es cumplible; ⛔ «te faltan» con `E = 0`; ⛔ «te faltan 0» pagando envío); código de envío gratis ⇒ `null` (§DSC.4). Invariante en vivo y congelado: `freeShippingApplied ⇒ remaining ∈ {0, null}`. Casos: congelada `S = 400000`, `E = 0`, `T` 400000 → 500000 ⇒ `applied: true`, `remaining: 0`, `freeFromCents: 500000` (hoy 100000); congelada `S = 350000`, `E = 10000`, `T` → 300000 ⇒ `applied: false`, `remaining: null`.
 
 **5. `GET /api/v1/checkout/shipping-rule` — `public`** (para la ficha, sin cotizar; no rechaza una sesión válida):
 `200 { cardsOnlyFeeCents, sealedFeeCents, freeFromCents, currency: 'MXN', ivaIncluded: true }` — las `E` ya derivadas con los diales
@@ -12306,6 +11931,8 @@ Res `200`: `{ breakdown: { subtotalCents: 17500, ivaCents, ivaRatePct, processin
 Cobra la tarifa (envío + IVA + fee gross-up) por **Stripe ANTES** de crear la solicitud; solo items **elegibles** (ver criterio abajo). La `ShipmentRequest` nace en `solicitado` con el `PaymentIntent` asociado y **solo avanza a `picking` una vez liquidado** (webhook `payment_intent.succeeded`). No hay wallet.
 Req: `{ inventoryItemIds: string[], addressId: string }` + `Idempotency-Key`
 Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDTO" }, stripe: { paymentIntentId, clientSecret } }`
+- **v1.110 — `discountCode?` en `quote` y en este `POST`:** solo un código de envío gratis aplica; con él el retiro cuesta MX$0.00,
+  nace en `picking` y responde `stripe: null`. Norma en [§DSC.8](#DSC). Sin el campo, esta sección se aplica literal.
 - **Criterio único de elegibilidad de retiro (v1.17.1 — `classifyItems`):** un item es elegible para `POST /shipments` **SOLO si** cumple **TODAS**:
   `ownerType='customer' AND ownerUserId=usuario AND ownershipStatus='settled' AND status='in_custody' AND sin envío activo`
   (sin `ShipmentItem` en un `ShipmentRequest` con `status NOT IN (cancelado, entregado)`).
@@ -21666,7 +21293,7 @@ if (won.count === 0) return false;          // perdedor: ⛔ nada más en esta t
   carrera; el early-return ahorra el `getCardDetails` de `direct_ship` y el ruido de H1 en el caso secuencial.
 - **El perdedor / el tardío, exacto:** `200`; cero escrituras (`order`, `inventoryItem`, `inventoryMovement`,
   `vaultPlacement*`, `shipmentRequest`, tarjeta); cero `AV-2`, cero confirmación de invitado, ⛔ **cero `audit.log`**
-  (ni de anomalías ni de H1); el marcador `ProcessedStripeEvent` de su event.id **queda** (no debe reintentarse). La
+  (ni de anomalías ni de H1); el marcador `ProcessedStripeEvent` de su event.id **queda** (no debe reintentarse). **Única excepción (v1.110.2):** el tardío sobre `refunded`/`chargeback` de una orden **con código** (⇔ tiene `DiscountRedemption`, v1.112.1; ⛔ no por importes, §DSC.0 I-7) consume su `DiscountRedemption` (`reserved|released ⇒ consumed`, [§DSC.5](#DSC) «Un PI que cobró acaba `consumed`») y, si venía de `released`, deja la fila `discount.redemption.late_consumed`; el perdedor del CAS no. La
   única huella es el `logger.warn` del early-return (⛔ no en el perdedor del CAS: ése no sabe si perdió contra otro
   settle o contra un contracargo, y el primero es ruido normal).
 - **Por qué `warn` y ⛔ no fila de auditoría:** es una entrega fuera de orden esperable, no una acción de nadie; una fila
@@ -45122,17 +44749,10 @@ endpoint `GET /api/v1/catalog/sealed/:inventoryItemId`). ⛔ **No** se crea `/{l
 v1 citaba y que hoy da 404 porque esa ruta no existe). **Marketing — patrón de vuelta:**
 `https://tcghunt.mx/es/sellado/<inventoryItemId>`. Razón en ARCHITECTURE §13.2.1.
 
-El backend **ya** devuelve, en las respuestas públicas de ficha, casi todo lo necesario:
-
-| Dato | Ficha de carta (`GET /catalog/cards/:cardId`) | Ficha de sellado (`GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`) | Estado |
-|---|---|---|---|
-| Nombre / set / número | `card.name` / `card.setName` / `card.number` | `productName` / `card.setName` / — | Ya viaja |
-| Precio final **con IVA** + tasa | `displayPriceCents` + `ivaRatePct` | `fromPriceCents` (IVA dentro) + `ivaRatePct` | Ya viaja |
-| `availableCount` (>0 ⇒ «Disponible») | `stockCount` del grupo | `availableCount` | Ya viaja |
-| Imagen | `imageUrl` | `imageUrl` | Viaja; ⛔ NO MEDIDO que sea absoluta ni ≥1200×630 |
-| Fecha de consulta del precio | **ausente** | **ausente** | **DELTA** |
-
-**Deltas (aditivos, retrocompatibles) — campos nuevos en el DTO de ficha de carta y en `SealedGroupDTO`:**
+De qué campo sale cada dato (carta `GET /catalog/cards/:cardId` · sellado `GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`):
+nombre/set/número `card.name`/`card.setName`/`card.number` · `productName`/`card.setName`; precio con IVA + tasa `displayPriceCents` ·
+`fromPriceCents`, ambos con `ivaRatePct`; «Disponible» `stockCount` del grupo · `availableCount`; imagen `imageUrl` (absoluta y ≥1200×630:
+NO MEDIDO). **Campos de la ficha (aditivos) en el DTO de carta y en `SealedGroupDTO`:**
 ```
 pricedAsOf   : string         // "YYYY-MM-DD", zona America/Mexico_City; fecha en que el servidor resolvió el precio
                               // de ESTA respuesta (SSR/ISR ⇒ fecha honesta en el HTML cacheado). ⛔ NO es now() del cliente.
@@ -45160,8 +44780,7 @@ SitemapResponse = {
 ```
   - `items` = una entrada por **ficha a la venta**: carta publicada (`status=listed`, `sellable`, precio fijado) y
     sellado publicado. `lastmod` = `updatedAt` de la pieza (o `max(updatedAt, último cambio de precio)` si es medible;
-    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod). Debe cuadrar en orden de magnitud con las **~884
-    publicaciones** del 16-oct (v2 §E1); el número exacto lo mide QA contra el stack.
+    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod).
   - Las rutas **estáticas** (home, catálogo, guías, preguntas, cómo-funciona) las añade el **frontend**; backend solo da
     las dinámicas. `robots.txt`, `canonical`, `www`→apex: frontend/devops (sin contrato).
   - `Cache-Control` corto (p. ej. `max-age=3600`); no es dato personal.
@@ -45208,26 +44827,15 @@ SitemapResponse = {
   - periodo — **una semana cerrada** (`?week=YYYY-Www` o `?weekStart=YYYY-MM-DD` lunes CDMX) **o un mes cerrado**
     (`?month=YYYY-MM`). ⛔ **Nunca** rango libre ni día. Semana/mes **abiertos** o rango libre ⇒ **400** (evita restar
     dos rangos solapados para despejar una celda oculta).
-  - **401** sin token, token inválido/revocado/caducado, **o token válido en CUALQUIER OTRA ruta del admin** (ver
-    DECISIÓN **D-MKT-AUTZ** abajo — era «403» en el brief; se amenda a **401**); **400** en rango no permitido (genérico,
-    sin detalle interno, Panel §7.2) o `pantalla` fuera de lista (con `field`+`allowed`, que es la lista blanca pública de
-    arriba, ⛔ no detalle interno — v1.104); **429** al pasar 60/h. El **403** del panel es
-    de **SESIÓN**: una cuenta admin **sin** `marketing:read` (§MKT.D / §13.4.1) ⇒ 403 en `/admin/marketing`, exports,
-    botón semanal y rutas de datos.
-  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas** desde la primera respuesta
-    (regla completa: §MKT.H.14). **Ninguna fila por pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
-
-> **DECISIÓN D-MKT-AUTZ (v1.96.1) — token `marketing-reader` en otra ruta del admin ⇒ 401, no el 403 del brief (Panel §6(1),
-> §7.2; relayado a marketing).** El token es opaco: `JwtAuthGuard` lo rechaza como no autenticado, y dar 403 exigiría que la auth
-> compartida, adyacente a dinero, reconozca tokens de marketing. La propiedad es la denegación. `MarketingApiTokenGuard` va **solo**
-> en `aggregates`; 403 = **sesión** sin `marketing:read`. Prueba: E2E con el token en ≥2 rutas del admin fuera de `aggregates` ⇒ 401.
+  - **401** sin token o con token inválido/revocado/caducado; **400** en rango no permitido (genérico, sin detalle interno) o
+    `pantalla` fuera de lista (con `field`+`allowed`); **429** al pasar 60/h. Respuesta `Cache-Control: no-store`. **Celdas pequeñas**
+    siempre (§MKT.H.14). **Ninguna fila por pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
+  - **D-MKT-AUTZ** (razones: ARCHITECTURE §13): el token en **cualquier otra** ruta del admin ⇒ **401**; `MarketingApiTokenGuard` va **solo**
+    en `aggregates`; **403** = **sesión** sin `marketing:read` (§MKT.D). Prueba: E2E con el token en ≥2 rutas del admin fuera de `aggregates` ⇒ 401.
 - **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token** (`MarketingDateAnnotation`; enum en §0):
-  - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` — sesión `marketing:read`. Lista de
-    `{id, date, kind, label, destino?, createdAt}` del rango (para pintar las gráficas a/b/c del admin).
-  - `POST /api/v1/admin/marketing/annotations` — sesión `marketing:read`. Body `{date, kind, label, destino?}`;
-    valida/limpia PII (`422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC; §13.4.6) ⇒ **201** con la fila.
-  - `PATCH /…/annotations/:id` y `DELETE /…/annotations/:id` — sesión `marketing:read`; `404` si no existe.
-  - **El token `marketing-reader` en TODAS estas rutas ⇒ 401** (D-MKT-AUTZ). Una **sesión** sin `marketing:read` ⇒ **403**.
+  - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` ⇒ `{id, date, kind, label, destino?, createdAt}[]` del rango.
+    `POST …/annotations` body `{date, kind, label, destino?}`; `422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC (§13.4.6) ⇒ **201**
+    con la fila. `PATCH`/`DELETE …/annotations/:id`; `404` si no existe. El token ⇒ 401 (D-MKT-AUTZ); sesión sin `marketing:read` ⇒ 403.
   - **Se EMBEBEN** en `GET …/aggregates` (`annotations: [{date, kind, label, destino?}]`) y en la hoja **«Info»** del export y del
     botón semanal, **como texto saneado** (PM-B1); ⛔ **sin** celdas pequeñas (no son conteo). Cada acceso ⇒ `MarketingAccessLog`.
 - **Botón «Descargar Excel de la semana» (P2=B)** en `/admin/marketing`, visible solo con `marketing:read`: .xlsx de la
@@ -45236,27 +44844,22 @@ SitemapResponse = {
   pantalla (a-h) + hoja «Info».
 - **Query de las rutas de sesión que descargan (v1.104; antes solo vivía en el código).** Periodo = la misma regla que
   `aggregates` (`week` | `weekStart` | `month`, uno, cerrado; `from`/`to`/`day`/`preset` ⇒ **400**):
-  - `GET /admin/marketing/export?pantalla=&format=&<periodo>` — `pantalla` como `aggregates`. Periodo **obligatorio**.
-  - `format` — DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `xlsx|csv`. Obligatorio, sin default; ausente,
-    vacío o fuera ⇒ **400** `VALIDATION_ERROR` con `details.{field:'format', allowed}`.
-  - `GET /admin/marketing/export/todo?<periodo>` — sin `pantalla` ni `format` (siempre `.xlsx`). Periodo **obligatorio**.
-  - `GET /admin/marketing/weekly-excel?<periodo>` — periodo **opcional**: sin él, la última semana cerrada (como `panel`).
-  - `GET /admin/marketing/annotations?from=&to=` — días `YYYY-MM-DD`, opcionales; fuera de forma ⇒ **400** `VALIDATION_ERROR`.
-  - Clase de cada llave en `C-EQ-1`: §0-Q punto 4, nota `CEQ-MKT-1`.
+  - `GET /admin/marketing/export?pantalla=&format=&<periodo>` (periodo **obligatorio**; `pantalla` como `aggregates`) ·
+    `format` — DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `xlsx|csv`, obligatorio, ausente/vacío/fuera ⇒ **400** `VALIDATION_ERROR` `details.{field:'format', allowed}` ·
+    `GET …/export/todo?<periodo>` (obligatorio, siempre `.xlsx`) · `GET …/weekly-excel?<periodo>` (opcional: sin él, la última semana cerrada) ·
+    `GET …/annotations?from=&to=` (días opcionales; fuera de forma ⇒ **400**). Clase de cada llave en `C-EQ-1`: §0-Q punto 4, nota `CEQ-MKT-1`.
 - **Reglas de export (§4, PM-B1):** CSV con prefijo `'` en celdas que empiecen por `=`,`+`,`-`,`@`, tab o `\r`,
   entrecomilladas; UTF-8 **con BOM**. XLSX: texto como **tipo texto** (nunca fórmula), montos MXN con IVA como número
   `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition: attachment`, generado al vuelo. Nombre
-  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒
-  `MarketingAccessLog`.
-- **Reutiliza** `sales-analytics` (super_admin, §15/§AN) para las cifras de dinero (a1/a2/a3, d1) componiéndolo desde un
-  **nuevo** `marketing-analytics` (módulo `backend/src/modules/marketing/`). ⛔ El panel **no** modifica `sales-analytics`
-  ni escribe en GA4/Meta/tienda: solo lee.
+  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒ `MarketingAccessLog`.
+- **Reutiliza** `sales-analytics` (§15/§AN) para el dinero (a1/a2/a3, d1) desde `marketing-analytics` (`backend/src/modules/marketing/`).
+  ⛔ El panel **no** modifica `sales-analytics` ni escribe en GA4/Meta/tienda: solo lee.
 
 ### MKT.F — Preguntas abiertas para JC (no se asume; regla de conflicto)
 
 Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
 publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
-puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. Preguntas de Fase 2: §MKT.H.12.
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. Preguntas de Fase 2: ARCHITECTURE §14.10.
 
 ### <a id="MKT-G"></a>MKT.G — La pantalla del panel por SESIÓN: datos JSON, periodos y acceso del analista (rev v1.101⟨mkt-panel⟩, 2026-10-18, arquitecto, **NORMATIVA**)
 
@@ -45452,39 +45055,24 @@ MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt:
 
 #### MKT.G.8 Fuera de Fase 0 (declarado, no olvidado)
 
-- **Rango libre y detalle por día en pantalla** (Panel §2): no se contratan. Con `exact` no costarían privacidad al dueño, pero piden
-  otra validación de periodo, otro selector y gráficas por día: delta propio cuando el dueño lo pida; para otra cuenta, prohibido (§13.5).
-- **Gráficas por día con anotaciones** (criterio (h)): sin detalle diario no hay gráfica; la anotación sale en la franja del periodo
-  de a, b y c y en «Info» (relayado a marketing, Panel §7 punto 6).
-- **Interruptor pagado/orgánico:** no se pinta en Fase 0. **Exportar por tabla:** el export es por pantalla y «Exportar todo»; no se contrata.
+No se contratan: rango libre y detalle por día (delta propio si el dueño lo pide; para otra cuenta, prohibido, §13.5); gráficas por día
+(la anotación sale en la franja del periodo de a, b, c y en «Info»); interruptor pagado/orgánico; export por tabla (es por pantalla y «Exportar todo»).
 
 #### MKT.G.9 Pruebas que lo vigilan (las escribe backend; QA las ejecuta)
 
-1. **Paridad A=B en el panel (régimen `small_cells`):** para cada pantalla y un periodo fijo, `panel` pedido por una sesión
-   `vault_operator` con fila `marketing_read` y `aggregates` dan cuerpos iguales en profundidad (incluido `privacy:'small_cells'`).
-2. **Metadatos de ruta:** `panel` y `periods` llevan `@RequirePermission(marketing_read)` y **no** `@Public()`; las tres de `tokens`
-   llevan `@Roles(super_admin)` y **no** `@Public()`; `MarketingApiTokenGuard` sigue montado **solo** en `aggregates`.
-3. **Cruce de principales (E2E):** el token `marketing-reader` en `panel`, `periods` y `tokens` ⇒ **401**; una sesión
-   `vault_operator` con fila `marketing_read` en `tokens` ⇒ **403**.
-4. **Revocar sin desplegar (cierra MKT-TL4):** emitir ⇒ `aggregates` 200 con ese token ⇒ revocar ⇒ `aggregates` **401** en el mismo
-   proceso.
-5. **El claro una sola vez:** el JSON de `GET …/tokens` y de `…/revoke` no tiene las claves `token` ni `tokenHash`; la fila de
-   `AuditLog` tampoco.
-6. **Catálogo:** los `tables[].id` de cada pantalla son los de MKT.G.4, en ese orden.
-7. **Registro:** cada `GET …/panel` deja una fila `MarketingAccessLog` con `actorUserId`, `filters.surface = 'panel'` y
-   `filters.privacy`.
-8. **(v1.103) El dueño ve el número real:** fixture con una fila de dimensión de N=3 y MX$ conocido (p. ej. d1 o a3). `panel` con
-   sesión `super_admin` ⇒ `privacy:'exact'`, la celda vale `3` (número) y el MX$ es el real; la misma petición con la sesión delegada
-   ⇒ `'< 5'` y MX$ `'oculta'` (v1.106). Con `exact`, el conjunto de `tables[].id` y de claves de fila es el de `small_cells` sin la fila «Otros».
-9. **(v1.103) Fuera de pantalla nunca es exacto:** con sesión `super_admin`, `export`, `export/todo` y `weekly-excel` de ese fixture
-   llevan `< 5` en el fichero; `aggregates` con token, también. **Canario:** derivar el régimen como `'exact'` siempre ⇒ esta prueba
-   roja. Y estático: `'exact'` solo lo produce el manejador de `panel`; `screen()` no tiene régimen por defecto.
-10. **(v1.103) Supresión coherente:** fixture en **febrero 2027** (empieza en lunes 1 y acaba en domingo 28: el mes es exactamente
-    sus cuatro semanas). Clave `k` con semanas `[3, 6, 6, 6]` (mes 21) ⇒ la semana 1 da `'< 5'` y el mes da `k` = `'oculta'` con MX$
-    `'oculta'`; ninguna combinación de los cinco ficheros (4 semanas + mes) despeja el 3. Sin la regla (canario: quitar el paso de
-    coherencia) el mes enseña 21 y la prueba sale roja.
-11. **(v1.103) Mes cerrado = su última semana cerrada:** con el reloj en el lunes 26-oct-2026, `month=2026-10` ⇒ 400 y no sale en
-    `periods.closedMonths`; con el reloj en el lunes 2-nov-2026 ⇒ 200.
+1. **A=B en `small_cells`:** por pantalla y periodo fijo, `panel` de una sesión `vault_operator` con `marketing_read` = `aggregates` en profundidad.
+2. **Metadatos:** `panel`/`periods` con `@RequirePermission(marketing_read)`, `tokens` (las tres) con `@Roles(super_admin)`, ninguna `@Public()`;
+   `MarketingApiTokenGuard` **solo** en `aggregates`. 3. **Cruce (E2E):** el token en `panel`, `periods` y `tokens` ⇒ 401; `vault_operator`
+   con `marketing_read` en `tokens` ⇒ 403. 4. **Revocar sin desplegar:** emitir ⇒ `aggregates` 200 ⇒ revocar ⇒ 401 en el mismo proceso.
+5. **El claro una vez:** ni `GET …/tokens`, ni `…/revoke`, ni `AuditLog` tienen `token`/`tokenHash`. 6. **Catálogo:** `tables[].id` = MKT.G.4,
+   en orden. 7. **Registro:** cada `GET …/panel` ⇒ `MarketingAccessLog` con `actorUserId`, `filters.surface='panel'` y `filters.privacy`.
+8. **El dueño ve el número real:** fila de dimensión con N=3 y MX$ conocido (d1 o a3): `panel` de `super_admin` ⇒ `privacy:'exact'`, `3` y
+   el MX$ real; la sesión delegada ⇒ `'< 5'` y `'oculta'`; con `exact`, mismos `tables[].id` y claves que `small_cells` sin «Otros». 9. **Fuera de
+   pantalla nunca es exacto:** `export`, `export/todo`, `weekly-excel` (sesión `super_admin`) y `aggregates` llevan `< 5` (canario: régimen siempre
+   `'exact'` ⇒ rojo); `'exact'` solo lo produce el manejador de `panel` y `screen()` no tiene régimen por defecto. 10. **Coherencia:** febrero 2027
+   (sus cuatro semanas exactas), clave `k` con `[3, 6, 6, 6]` ⇒ semana 1 `'< 5'`, mes `'oculta'` con su MX$; ningún combo de los cinco ficheros
+   despeja el 3 (canario: sin el paso ⇒ el mes enseña 21). 11. **Mes cerrado = su última semana cerrada:** reloj lunes 26-oct-2026 ⇒
+   `month=2026-10` 400 y fuera de `periods.closedMonths`; lunes 2-nov-2026 ⇒ 200.
 
 #### MKT.G.10 Supresión coherente entre mes y semanas (v1.103, DECISIÓN D-MKT-PANEL-4; nota de seguridad del brief Panel §5.2)
 
@@ -45507,7 +45095,7 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 ### <a id="MKT-H"></a>MKT.H — Fase 2: consentimiento, GA4, Meta Pixel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto, **NORMATIVA**; se construye APAGADO)
 
 > Diseño y razones: **ARCHITECTURE §14**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel f1/f2/f3/g1. **Se construye pero no se
-> enciende** hasta el aviso revisado por el abogado, que sale en el mismo despliegue o antes (`PENDIENTES.md:1059-1060`). Migración
+> enciende** hasta que el aviso declare la medición (puerta D-MKT2-0b, ARCHITECTURE §14.1), en el mismo despliegue o antes. Migración
 > **m86**. Toca `orders`/`payments`/`buylist` solo para leer y encolar **después del commit** (MKT.H.6). Tres veredictos.
 
 #### MKT.H.1 Variables de entorno (fuente única de nombres)
@@ -45526,11 +45114,16 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 | `MKT_GA4_PROPERTY_ID` | Railway | no | `^\d{6,12}$` | tablas GA4 `measured:false` |
 | `MKT_SEARCH_CONSOLE_SITE` | Railway | no | `sc-domain:tcghunt.mx` o URL `https://…/` | tabla e1 `measured:false` |
 
-- La versión de la API de Graph de Meta va **fija en código** (constante), no en variable: cambiarla es un cambio revisado.
-- **Orígenes de medición en la CSP con modo `on`** (`connect-src`): `https://www.googletagmanager.com`,
-  `https://*.google-analytics.com`, `https://*.analytics.google.com`, `https://connect.facebook.net`, `https://www.facebook.com`.
-  Con `off`, ninguno. Lista exacta que piden `gtag.js`/`fbevents.js`: **NO VERIFICADO** (se completa con los informes de la fase
-  report-only, origen exacto por origen exacto, como manda `csp.ts:24-29`).
+- **Versión de Graph de Meta (CAPI y evento de prueba): fija en código** (`META_GRAPH_API_VERSION`, `measurement.config.ts`), no en variable; este bloque es su única fuente en `docs/` (la prueba de paridad de backend lo lee; BACKEND_NOTES enlaza, no copia).
+  `reviewBy` = fin de `v25.0` (última fecha publicada en la tabla de Marketing API; la de `v26.0` es «TBD», medido por backend el 2026-10-26): desde ese día la prueba de backend está roja hasta re-medir la tabla de Meta y mover la fila (cambio de contrato).
+<!-- META-GRAPH-VERSION:start -->
+| `version` | `reviewBy` |
+|---|---|
+| `v26.0` | `2027-02-23` |
+<!-- META-GRAPH-VERSION:end -->
+- **Orígenes de medición en la CSP con modo `on`** (`connect-src`): `https://www.googletagmanager.com`, `https://*.google-analytics.com`, `https://*.analytics.google.com`,
+  `https://connect.facebook.net`, `https://www.facebook.com`. Con `off`, ninguno. Lista exacta que piden `gtag.js`/`fbevents.js`: **NO VERIFICADO** (se completa con los informes
+  de la fase report-only, origen exacto por origen exacto, como manda `csp.ts:24-29`).
 - ⛔ `GA4_MP_API_SECRET` viaja en la query de Measurement Protocol: **ninguna URL saliente se escribe en logs**.
 
 #### MKT.H.2 Objeto `measurement` en las peticiones que crean pedido o solicitud
@@ -45557,8 +45150,7 @@ MeasurementInput = {
   días ⇒ se descarta.
 - **Qué se escribe:** en la **misma** escritura que crea `Order`/`SellRequest`: `firstUtm*` y las tres columnas de consentimiento
   (MKT.H.7). **Después del commit**, best-effort: una fila `MeasurementContext` con `gaClientId`/`fbp`/`fbc` si hay alguno.
-- **Reintentos:** si `POST /checkout/guest/session` o `/checkout/session` **reusa** una orden (§4-R), se conserva lo que ya tenía;
-  el `measurement` nuevo se ignora.
+- **Reintentos:** si `POST /checkout/guest/session` o `/checkout/session` **reusa** una orden (§4-R), se conserva lo que ya tenía; el `measurement` nuevo se ignora.
 
 #### MKT.H.3 `POST /api/v1/measurement/banner-response` — `public` (`@Public()`)
 
@@ -45594,7 +45186,7 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 | `click_contact` | clic a WhatsApp/DM | `contact_channel`, `page_path` |
 | `search` | búsqueda | `results_count` (⛔ nunca el término) |
 
-- Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`.
+- Todos llevan `first_utm_source|medium|campaign|content` **solo** si hay `analytics` y la cookie `th_first_utm`. **URL (v1.112.2):** `track()` añade a **todo** `gtag('event')` `page_location` (URL actual) y `page_referrer` (el del último `page_view`, si no `document.referrer`), saneados con `sanitizeMeasurementUrl(…, 'ga4')`; el llamador solo los pasa en `page_view` (C-F6 los descarta en los demás). Píxel: nada si el documento no pasa `isPixelSafeUrl` (ARCHITECTURE §14.4).
 - `value` en pesos con IVA (2 decimales); `*_cents` enteros. En `purchase` (navegador, MP y CAPI) `value = Order.totalCents/100`,
   lo cobrado (envío incluido). ⛔ `item_id` nunca es `orderNumber` ni un `inventoryItemId` (`representativeItemId` cambia al vender).
 - **Identidad canónica de ítem (v1.106, R4) — la MISMA en navegador (todos los eventos) y servidor (MP y `content_ids` de
@@ -45648,8 +45240,8 @@ Item = { item_id: string /* MKT.H.4 */, item_name: string /* MKT.H.4 */, item_ca
 ```
 - Solo si `measurementConsentAds = true` **y** hay `fbp` o `fbc`. Si no, no se encola.
 - ⛔ `user_data` solo admite `fbp` y `fbc`. Prohibido siempre, también con hash: `em`, `ph`, `fn`, `ln`, `ct`, `st`, `zp`, `country`,
-  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (este último, hasta que el dueño decida: ARCHITECTURE §14.10
-  pregunta 2), `lead_id`, `fb_login_id`, `subscription_id`.
+  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (decidido por el dueño, ARCHITECTURE §14.10), `lead_id`,
+  `fb_login_id`, `subscription_id`.
 
 #### MKT.H.6 Cuándo se encola y cómo se drena
 
@@ -45742,15 +45334,18 @@ encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «si
   ruta→tipo solo existe en `frontend/…/measurement/routes.ts`; copiarlo sería otra fuente); c3 «NO MEDIDO — la consulta de abandono
   no está definida todavía»; c4 «NO MEDIDO — el evento del botón COMPRAR todavía no se envía» (TECH_DEBT FE-MKT2-2).
 
-#### MKT.H.10 Lo que hace el dueño (no lo puede hacer la tienda)
+#### MKT.H.10 Lo que hace el dueño antes de encender (no lo puede hacer la tienda; única fuente de esta lista)
 
-1. Crear el conjunto de datos/píxel en el Administrador de eventos y pasar el **ID** (no es secreto). 2. Generar el token de CAPI
-y cargarlo **él** en el almacén de secretos de Railway como `META_CAPI_TOKEN`. 3. En el píxel: coincidencia avanzada automática y
-configuración automática de eventos **apagadas**; sin audiencias ni conversiones personalizadas. 4. En GA4: crear el flujo web, el
-`api_secret` de Measurement Protocol (lo carga él como `GA4_MP_API_SECRET`), Google Signals apagado, personalización de anuncios
-apagada, datos proporcionados por el usuario apagados, retención 14 meses. 5. Dar a la cuenta de servicio de la tienda rol Lector
-en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por el abogado. Los nombres de menú de Meta y Google:
-**NO VERIFICADOS**.
+En este orden. Los nombres de menú entre «» están **NO VERIFICADOS** (las consolas cambian): si uno no aparece, se busca por lo que hace. Ninguna clave se manda por chat. El orquestador anota en `HECHOS.md` la fecha de cada paso; no se enciende sin los nueve. (Aviso: aprobado sin abogado, `HECHOS.md` 2026-10-23 y 2026-10-26.)
+1. **Meta** › «Administrador de eventos» › «Conectar orígenes de datos» › «Web»: crear el píxel (conjunto de datos) y pasar su **ID** (es público, no es secreto).
+2. **Meta** › el píxel › «Configuración» › «API de conversiones» › «Generar token de acceso»: copiarlo **él** en Railway › «Variables» como `META_CAPI_TOKEN`.
+3. **Meta** › el píxel › «Configuración»: apagar **«Coincidencia avanzada automática»** y **«Configuración automática de eventos»** (puede llamarse «Seguimiento automático de eventos» o «Configuración de eventos sin código»). No crear audiencias ni conversiones personalizadas.
+4. **Google Analytics** › «Administrar» › «Flujos de datos» › «Web»: crear el flujo de `tcghunt.mx` y pasar su **ID de medición** (`G-…`). En ese mismo flujo, «Secretos de la API Measurement Protocol» › «Crear»: copiarlo **él** en Railway como `GA4_MP_API_SECRET`.
+5. En ese flujo, **«Medición mejorada»: apagar el interruptor entero** (no solo «Búsqueda en el sitio»: también páginas vistas por cambios de historial, desplazamientos, clics salientes, interacciones con formularios, vídeo y descargas). Por qué: ARCHITECTURE §14.4.
+6. «Administrar» › «Configuración de datos» › «Recopilación de datos»: **«Google Signals» apagado** y **«Datos proporcionados por el usuario» apagado**. En «Administrar» › «Personalización de anuncios» (puede estar dentro de «Configuración de datos»): **apagada para todas las regiones**.
+7. «Administrar» › «Configuración de datos» › «Retención de datos»: **14 meses** (si hay dos opciones, «eventos» y «usuario», las dos) › «Guardar».
+8. «Administrar» › «Gestión de acceso a la propiedad»: añadir la cuenta de servicio de la tienda con rol **Lector**. En **Search Console** › «Configuración» › «Usuarios y permisos»: la misma cuenta como usuario **restringido**.
+9. Desde su admin, mandar el evento de prueba y verlo en Meta › «Probar eventos» (§MKT.H.12).
 
 #### MKT.H.11 Candados (las pruebas las escribe el rol dueño; QA las ejecuta)
 
@@ -45758,13 +45353,13 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 |---|---|---|---|
 | **C-F1** | frontend + devops | Build con `off`: el artefacto (`.next/static` y `.next/server`) no contiene `googletagmanager.com`, `google-analytics.com`, `connect.facebook.net`, `fbevents`, `gtag/js` | el mismo grep sobre un build con `on` da > 0 |
 | **C-F2** | frontend (Playwright) | `off`: recorriendo portada, catálogo, ficha de carta, ficha de sellado, carrito, checkout de invitado hasta el formulario de pago, privacidad y guías ⇒ **0 peticiones** a hosts de medición (ARCHITECTURE §14.8), 0 cookies `_ga*`, `_gid`, `_fbp`, `_fbc`, `th_first_utm`, `th_consent`, 0 llamadas a `/measurement/banner-response`, sin banner. Y ninguna petición a `*.google.com`, `*.facebook.com`, `*.facebook.net`, `*.doubleclick.net` fuera de `accounts.google.com` (login/checkout) y `www.google.com` (Card Show) | inyectar un `<img src="https://www.facebook.com/tr?…">` en la portada ⇒ rojo |
-| **C-F3** | frontend (Playwright, `on`, terceros interceptados: nada sale de CI) | sin responder ⇒ 0 peticiones de medición; «Solo lo necesario» ⇒ 0 y solo `th_consent`; solo analítica ⇒ hosts de Google sí, de Meta 0; «Aceptar» ⇒ ambos; capturas 390×664 de D3b | forzar `consent default granted` ⇒ rojo en «sin responder» |
-| **C-F4** | frontend (unitaria) | el saneador de URL deja solo origen + ruta + `utm_*` válidos: `?token=x&session_id=cs_live_1&payment_intent_client_secret=y&utm_source=ig#a` ⇒ `?utm_source=ig` | quitar el filtro ⇒ rojo |
+| **C-F3** | frontend (Playwright, `on`, terceros interceptados: nada sale de CI) | sin responder ⇒ 0 peticiones de medición; «Solo lo necesario» ⇒ 0 y solo `th_consent`; solo analítica ⇒ hosts de Google sí, de Meta 0; «Aceptar» ⇒ ambos; capturas 390×664 de D3b. **`?q=` (v1.112.2, SEC-MED-1)**, con «Aceptar»: (a) aterrizar en `/es/catalog?q=pikachu` ⇒ `fbevents.js` no se pide, `window.fbq` no existe y `gtag` sí carga; (b) buscar «pikachu» desde `/es/catalog` limpio y agregar al carrito ⇒ 0 llamadas nuevas en `fbq.queue`; (c) en ambos, toda entrada `event` de `window.dataLayer` lleva `page_location` sin `q`, y ni `dataLayer`, ni `fbq.queue`, ni la URL o el cuerpo de una petición a host de medición contienen `pikachu`; (d) abrir después una ficha ⇒ `fbevents.js` carga | forzar `consent default granted` ⇒ rojo en «sin responder»; quitar `page_location` de `track()` o el `isPixelSafeUrl` de `track()`/`loadMeta` ⇒ rojo en `?q=` |
+| **C-F4** | frontend (unitaria) | el saneador de URL deja solo origen + ruta + `utm_*` válidos: `?token=x&session_id=cs_live_1&payment_intent_client_secret=y&utm_source=ig#a` ⇒ `?utm_source=ig`. v1.112.2: `?q=pikachu&utm_term=x&gclid=y&fbclid=AbC&utm_source=ig` ⇒ `ga4` `?utm_source=ig`, `pixel` `?utm_source=ig&fbclid=AbC`; `isPixelSafeUrl` falso con `q`, con `#a`, con clave repetida o con `utm_source=a b`, verdadero con solo `utm_*` válidos y `fbclid`; referente de otro origen no cuenta | quitar el filtro ⇒ rojo; añadir `q` a `MEASUREMENT_QUERY_ALLOWLIST` ⇒ rojo |
 | **C-F5** | frontend (Playwright, `on`, aceptado) | navegando **sin recargar** desde una ficha a cuenta, bóveda, admin, restablecer contraseña, `/pedido?token=` y (v1.109) **desde `/buylist` al paso que pinta CLABE o INE** (`BuylistKycForm`) ⇒ en el documento final no existen `window.gtag`, `window.fbq` ni `<script>` de medición, y 0 peticiones de medición tras la navegación | quitar la navegación dura ⇒ rojo; pintar `BuylistKycForm` dentro de `/buylist` ⇒ rojo |
 | **C-F9** | frontend (unitaria + Playwright, v1.109) | `isMeasuredPath`: `/es/buylist` y `/card-show` ⇒ sí; `/es/buylist/requests/x`, `/card-show/confirm`, `/card-show/cancel`, `/card-show/unsubscribe` ⇒ no. En `/card-show` solo sale `page_view` a GA4 (sin eventos de formulario) y, mientras P-CS-MEDIR-1 no diga otra cosa, `fbevents.js` no carga | añadir `/card-show/:seg` o mandar `generate_lead` desde la landing ⇒ rojo |
 | **C-F6** | frontend (unitaria) | `track()` con un parámetro fuera de la lista de MKT.H.4 (p. ej. `email`) lo descarta; en ruta fuera de la lista blanca no envía nada | ampliar la lista ⇒ rojo |
 | **C-F7** | frontend | `buildCsp` con `off` no lleva ningún origen de medición; con `on` lleva exactamente los de MKT.H.1 | — (prueba de texto, como `csp.test.ts`) |
-| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null`, frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
+| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null` o sin **exactamente una** de `legalReviewOn`/`legalReviewWaivedByOwnerOn` con fecha, ARCHITECTURE §14.1; frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
@@ -45780,17 +45375,55 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-B8** | backend | purga: filas con `expiresAt` vencido ⇒ borradas; filas enviadas ⇒ borradas | — |
 | **C-B9** | backend | `banner-response`: `utmMedium` fuera de los cuatro ⇒ `null`; el UA no se guarda; 31.ª petición en una hora ⇒ 429 | — |
 
-#### MKT.H.12 Preguntas para el dueño
+#### <a id="MKT-H12"></a>MKT.H.12 Evento de prueba de Meta — `POST /api/v1/admin/measurement/meta-test-event` (v1.112, cierra MKT-F2-3)
 
-Las de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, `client_id` 7 días, re-preguntar, `refund`; la del Card Show la
-contestó el dueño el 2026-10-24 y deja P-CS-MEDIR-1 sobre Meta en la landing).
+Comprueba con el token y el conjunto de datos reales que Meta acepta la versión de MKT.H.1, **antes** de encender (razones: ARCHITECTURE
+§14.10). Sesión `@Roles(super_admin)` como MKT.G.6 (⛔ no `marketing:read` ni `@Public()`). **En cualquier modo:** lee `readMeasurementConfig(env).meta`
+**sin** `destinationEnabled` ni `gateMeasurementConfig` (envía con `off` y con el bloqueo abierto: es lo que lo cierra); ⛔ no encola, no
+toca la cola ni el contexto, no lee pedidos ni usuarios. **Request** `{ testEventCode: string }`: recortado, `^TEST[0-9]{3,10}$` (forma de Meta NO VERIFICADA: si no cabe, cambio de contrato); ausente, otra
+forma o claves de más ⇒ **422** `VALIDATION_ERROR` `details.{field:'testEventCode'}` (⛔ sin el valor); body que no es objeto ⇒ **400**.
+- **Lo único que sale** (constructor puro `buildMetaTestEventBody`), por `measurement-http.ts` con timeout 5 s:
+```ts
+POST https://graph.facebook.com/<version de MKT.H.1>/<META_PIXEL_ID>/events
+{ data: [{ event_name: 'PageView', event_time: number /* epoch s */, event_id: 'test-<uuid v4>', action_source: 'website',
+           event_source_url: string /* 1.er origen de APP_BASE_URL + '/' */, user_data: { fbp: 'fb.1.<epoch ms>.<10 dígitos al azar>' } }],
+  test_event_code: string, access_token: string /* META_CAPI_TOKEN */ }
+```
+  `user_data` = la lista cerrada de producción (MKT.H.5): un `fbp` sintético nuevo por envío, de nadie. ⛔ Sin `custom_data`, `external_id` (ni
+  aleatorio con hash), `client_user_agent`, `client_ip_address` ni ninguna clave «prohibida siempre». Si Meta exige más, sale `rejected` y va al dueño.
+  Método nuevo `MeasurementHttp.postMetaDiagnostic(url, body, timeoutMs)`, nunca lanza; del JSON de Meta toma **solo** `events_received`, `fbtrace_id`,
+  `messages` (≤ 5) y `error.{code, error_subcode, type, message}`; cada texto ≤ 300 caracteres, con el token y `access_token=…` ⇒ `[token]`.
+- **200** con `Cache-Control: no-store`, **también si Meta rechaza** (el diagnóstico es la respuesta):
+```ts
+MetaTestEventResult = { status: 'accepted' | 'rejected' | 'unreachable', // accepted ⇔ 2xx y eventsReceived === 1; unreachable = red/timeout
+  httpStatus: number | null, metaVersion: string, pixelId: string /* público */, testEventCode: string, eventName: 'PageView', eventId: string,
+  sentAt: string /* ISO */, eventsReceived: number | null, fbtraceId: string | null, metaMessages: string[],
+  metaError: { code: number | null, subcode: number | null, type: string | null, message: string | null } | null }
+```
+- **Errores:** 400 · 401 · **403** `FORBIDDEN` (otro rol, aunque tenga `marketing:read`) · 422 · **409** `MEASUREMENT_META_NOT_CONFIGURED` (§0, no sale
+  nada) · **429** `RATE_LIMITED` `details.{retryAfterSeconds}` + `Retry-After`: **5 envíos por 60 min móviles, global**, contados en `AuditLog`,
+  conteo y alta serializados con candado consultivo (dos a la vez no pasan las dos la 5.ª). 400/409/422/429 no cuentan ni se auditan.
+- **Bitácora:** `AuditLog` por envío, `measurement.meta_test_event` `{entityType:'MeasurementTestEvent', entityId: eventId, after: {status,
+  httpStatus, metaVersion, testEventCode, eventsReceived, fbtraceId, metaErrorCode}}`, `actorUserId`, `ip`. Log: `MEASUREMENT_META_TEST
+  status= http= version=`. ⛔ El token no está en respuesta, bitácora ni log; ⛔ ni URL ni cuerpo en el log.
+- **Pantalla:** `/admin/marketing`, pestaña solo `super_admin` «Acceso del analista», bloque propio visible en cualquier modo: campo «Código de
+  prueba» (misma regex en cliente) y botón «Enviar evento de prueba a Meta»; pinta el `status` con `metaVersion`, `eventId`, `fbtraceId` y hora, y si
+  `rejected`, `metaError.message`; 409 ⇒ falta configurar Meta en el servidor; 429 ⇒ minutos de espera. ⛔ Ni código ni resultado en URL o storage. Textos: ux-ui.
+- **Pruebas** (QA las ejecuta): **C-B12** claves de cada nivel = las de arriba, URL con la versión de MKT.H.1 (canario: `external_id` con hash ⇒ rojo).
+  **C-B13** un doble de Meta que devuelve el token en `error.message` ⇒ no está en respuesta, bitácora ni log (canario: sin redacción ⇒ rojo). **C-B14**
+  `off` + bloqueo abierto ⇒ envía; sin token ⇒ 409 y 0 llamadas; 6.º en la hora ⇒ 429; 4 previos + 2 en paralelo ⇒ exactamente un 429 (N=10, 10/10). **C-B15**
+  constante = `version` de MKT.H.1 y hoy < `reviewBy`; con línea `META-GRAPH-VERIFIED` en BACKEND_NOTES, su versión = la constante; sin ella, MKT-F2-3
+  abierta y bloqueando (canario: constante `v25.0` ⇒ rojo). **C-F10** (frontend) bloque ausente para otro rol; pinta los tres `status`, 409 y 429.
+- **Cierre de MKT-F2-3, en orden (falta uno ⇒ abierta):** (1) desplegada la versión de MKT.H.1 + este endpoint; (2) el dueño envía y sale `accepted` (fila de
+  `AuditLog` con `metaVersion` = la constante); (3) ve el `PageView` con ese `eventId` en «Eventos de prueba» y lo dice: fila de `HECHOS.md` con fecha
+  (orquestador). Luego backend, en **un** commit: línea `META-GRAPH-VERIFIED` en BACKEND_NOTES §MKT.H (`version · fecha · fbtraceId · id de AuditLog ·
+  fila de HECHOS`), ficha ✅ y fuera de `BACKEND_ENCENDER_BLOCKERS`; frontend la quita de `ENCENDER_BLOCKERS` en el siguiente (SEC-MKT-2). Avisos de
+  Meta (calidad de coincidencia sin agente de usuario) no bloquean: van al dueño (ARCHITECTURE §14.10). **Cambiar la versión** = mismo commit: constante y fila de
+  MKT.H.1 nuevas (arquitecto), sin línea `META-GRAPH-VERIFIED`, ficha reabierta con su bloqueo (efectivo `off`); se cierra otra vez así.
 
-#### MKT.H.13 Qué cambia cada rol con v1.107 (lo de v1.106 está en el árbol, leído el 2026-10-19; el verde de sus pruebas: NO MEDIDO)
+#### MKT.H.13 Pendiente de v1.107 (frontend; NO MEDIDO el 2026-10-26: `solicitudes: 7` no aparece en las pruebas del panel)
 
-| Rol | Cambio | Prueba que lo vigila |
-|---|---|---|
-| frontend | `ENCENDER_BLOCKERS` += `SEC-MKT-1` y `MKT-TL2` (owner backend; `closedBy` = prueba 2 y pruebas 1+3); salen en el commit de frontend que sigue al verde de backend | `measurement-gate.test.ts` (lista exacta, `:109`) |
-| frontend | fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$ (ya se pinta por celda, `MarketingTable.tsx:35`; falta el caso), también en el mock de b | `MarketingTable.test.tsx` |
+Fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$, también en el mock de b; lo vigila `MarketingTable.test.tsx`.
 
 #### <a id="MKT-H14"></a>MKT.H.14 Celdas pequeñas por componente y registro de poblaciones (v1.107, 2026-10-19, **NORMATIVA**; SEC-MKT-1, MKT-TL2)
 
@@ -45860,27 +45493,16 @@ mxnOfertado:700}`. Nota: «Pedidos y solicitudes se ocultan por separado: menos 
 ReadonlySet<CellId>)`; `marketing-populations.ts` (fuente en código del registro): `MARKETING_POPULATIONS`, `MARKETING_TABLES`,
 `MARKETING_EQUATIONS`, `ACCEPTED_TOTALS`, `exposedCells(cells, equations): CellId[]`, `enforceFamily(plan)`.
 
-**Pruebas (backend; QA las ejecuta; rojas sobre `bfd91ab2`):**
-1. `test/marketing-populations.registry.spec.ts` (MKT-TL2 a): 8 pantallas × semana/mes × modo off/on con dobles GA4/SC ⇒ todo
-   `tables[].id` en `MARKETING_TABLES`; toda columna no `text` medida en un componente o en «exactas»; toda población con oráculo en
-   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo.
-2. `test/marketing-small-cells.by-component.spec.ts` (SEC-MKT-1, R0, R1): la sonda literal de seguridad (2026-W41, `instagram/paid/
-   pieza-x`) ⇒ ninguna celda de b1-b3 ni g1 vale `12345.67` y `pedidos` es `'< 5'`; el caso 1 + 7; d1, un pedido de 5 piezas ⇒ `'< 5'`
-   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles.
-3. `test/marketing-cross-table.audit.spec.ts` (MKT-TL2 b, c): servicio real con Prisma de dobles sembrado, todas las pantallas del
-   periodo; auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E7 literal y exige `MARKETING_EQUATIONS`
-   igual). Rojo si: (D1) conteo visible con oráculo `0<N<5`; (D2) MX$ visible de un componente oculto; (A1) celda con `N<5` despejable
-   fuera de X1; (A2) MX$ con `N<5` despejable. Casos: «SEC-MKT-1», «b2 7 = b1 6 + 1, pareja fuera de la puerta», «g1 pareja en b2»,
-   «b3 dm ≡ b2 dm», «a3 pagadas 1..4», «c7↔a1», «febrero 2027 [3,6,6,6] en b1 con f3»; semillas fijas 1..200 (componentes 1-4 y
-   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida.
-
-**Pruebas v1.109 (MKT-MEDIR-CS; rojas hoy porque b5/b6 no existen):** prueba 1 ⇒ `MARKETING_TABLES` gana b5/b6 (lee MKT.G.4);
-prueba 2 gana: un día con 1 lead + 7 preinscripciones ⇒ `avisame:'< 5'`, `torneo:7`; un buzón con lead `visitor` y `merchant` cuenta 1
-sujeto y 2 filas; `pending` y `confirmedAt` fuera del periodo no cuentan; un `utmCampaign` con `@` ⇒ «No válido». Prueba 3 gana E8/E9,
-X3 y la ablación «b6 sin R3(a)» ⇒ rojo. Lee `CardShowLead`/`CardShowPlayerSignup` (zona Card Show) solo por `select` de conteo.
-**Terminado:** las tres rojas sobre `bfd91ab2` por su motivo y verdes en el sha nuevo, con toda `test/marketing-*` verde; ablaciones
-deterministas (N=3 cada una): b1-b3 de vuelta a un componente con `count: e.o + e.s` ⇒ 2 y 3 rojas; quitar E3 ⇒ 3 roja;
-`enforceFamily` que devuelva el plan sin tocar ⇒ «g1 pareja en b2» y «b2 7 = b1 6 + 1» rojas; después, fuera de `ENCENDER_BLOCKERS`.
+**Pruebas (backend; QA las ejecuta):** 1. `test/marketing-populations.registry.spec.ts`: 8 pantallas × semana/mes × off/on con dobles
+GA4/SC ⇒ todo `tables[].id` en `MARKETING_TABLES` (= MKT.G.4, con b5/b6), toda columna no `text` en un componente o en «exactas», toda
+población con oráculo en `test/support/disclosure-audit.ts` (canario: tabla `zz` ⇒ rojo). 2. `test/marketing-small-cells.by-component.spec.ts`
+(R0, R1): sonda de seguridad (2026-W41, `instagram/paid/pieza-x`) sin `12345.67` y con `'< 5'`; 1 + 7; d1 un pedido de 5 piezas y d3 2 usuarios ×
+3 acabados ⇒ `'< 5'`; una `'oculta'` no cae entre dos visibles; b5/b6: 1 lead + 7 ⇒ `avisame:'< 5'`, `torneo:7`, un buzón con dos tipos = 1 sujeto
+y 2 filas, `pending` fuera, `utmCampaign` con `@` ⇒ «No válido». 3. `test/marketing-cross-table.audit.spec.ts`: servicio real con Prisma de dobles;
+auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E9 literal = `MARKETING_EQUATIONS`); rojo si D1 conteo visible con
+`0<N<5`, D2 MX$ visible de un componente oculto, A1/A2 celda o MX$ con `N<5` despejable fuera de X1; casos con nombre de la v1.107 y X3, semillas
+1..200 deterministas; el auditor muerde con tres sistemas a mano. Ablaciones que deben morder (N=3 c/u): b1-b3 a un componente ⇒ 2 y 3 rojas;
+sin E3 ⇒ 3; `enforceFamily` identidad ⇒ «g1 pareja en b2» y «b2 7 = b1 6 + 1»; «b6 sin R3(a)» ⇒ 3. Card Show: solo `select` de conteo.
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 
@@ -46542,3 +46164,368 @@ Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, �
 [M-89 Jakomi tipo+conteo (A)] Confirmar un merchant/sponsor ⇒ el aviso interno CON nombre+teléfono reales va a buzones TCG HUNT (jsainz@/scarranza@) y ⛔ NO lista cardshow@jakomi.mx en To/CC/BCC. Todo correo cuyo destinatario (To/CC/BCC) incluya cardshow@jakomi.mx ⇒ 0 apariciones de name/phone/email/playerName en asunto y cuerpo (solo cifras y, como mucho, un enlace de descarga autenticado): vale para el aviso interno (⇒ Jakomi no es destinatario) y para el correo-resumen agregado (⇒ Jakomi SÍ puede serlo). Candado: el test de PII del correo se amplía a la rama cuyo destinatario es Jakomi (antes solo cubría C3). El enlace del resumen exige sesión super_admin (la PII no viaja en el correo).
 [M-89 consentimiento rifa separado (B)] raffleOptIn nace DESMARCADO: visitor con privacidad marcada y raffleOptIn ausente ⇒ 200 y raffleOptIn=false (⛔ no se infiere true de la privacidad). La casilla de privacidad obligatoria NO fuerza aceptar bases (privacidad marcada + raffle sin marcar ⇒ 200). raffleOptIn=true exige raffleTermsVersion (si no ⇒ 400); raffleTermsVersion con raffleOptIn=false/ausente ⇒ 400 (ya en §CARDSHOW.1b, confirmado). Frontend: el DOM del formulario visitor tiene DOS casillas distintas (privacidad obligatoria; rifa opcional con enlace a bases), la de rifa con checked=false por defecto; el copy de las bases dice «asistentes y registrados, presente para ganar, se elige en vivo».
 [M-90 Magic + contador] (1) Paridad: las tres bandas de CardShowGame listan cinco valores incl. magic ⇒ enum-values-parity.spec verde; quitar magic de una banda ⇒ rojo. (2) POST /players game=magic sin playerId ⇒ 200 y al confirmar fila confirmed directo (nunca waitlist, aunque el cupo Pokémon esté lleno); game=magic con playerId ⇒ 400 {field:playerId}; game=MAGIC ⇒ 400; gameInterest=magic en visitor ⇒ 200; ?game=magic en /admin/card-show/players ⇒ 200. (3) GET /card-show/tournament/count sembrando por día pokemon confirmed×2 + checked_in×1 + pending×1 + waitlist×1 + cancelled×1 + magic confirmed×1 ⇒ confirmed=3 en ese día y 0 en el otro; ambos días siempre presentes en orden sat,sun. (4) El cuerpo no contiene claves ni valores de playerName/playerId/email/id (0 PII); sin Set-Cookie; Cache-Control: public, max-age=30. (5) cap=2 (staging) con 2 ocupados ⇒ full=true y la siguiente confirmación Pokémon ⇒ waitlist; variable vacía ⇒ cap=null, full=false. (6) [D-CS-8] Con 1 confirmed + 1 checked_in y cap=2, confirmar otra Pokémon ⇒ waitlist (hoy sale confirmed: prueba roja antes del arreglo). (7) Caché: confirmar una fila ⇒ el contador la refleja en ≤30 s y no antes de que expire la caché (reloj simulado); 61 GET/60 s desde 1 IP ⇒ 429 en la 61.ª con Retry-After entero ≥1, 0 efecto en topes de POST. (8) Frontend: contador «N/64» por día en la sección del torneo; cap=null ⇒ solo «N preinscritos»; full ⇒ «Cupo lleno — lista de espera»; respuesta 503/429 ⇒ contador oculto y formularios operativos; «Magic: The Gathering» visible en el selector de juego.
+
+---
+
+## <a id="DSC"></a>DSC. 💰 CÓDIGOS DE DESCUENTO (rev v1.110⟨descuentos⟩, 2026-10-25, **NORMATIVA**)
+
+Fuentes, en este orden: `HECHOS.md` filas 2026-10-25 «Códigos de descuento: opción B…» (reglas **[D1]…[D6]**) y «…P-DSC-1/2 y
+mínimo de compra» (**[D7]** mínimo antes del descuento, **[D8]** el retiro acepta solo envío gratis, **[D9]** paquete de energías
+fuera); `PROJECT §DSC` (reglas DSC.2-1…22, criterios **890–919**). Lo que esta sección no dice, no cambia. **Construye:** backend en
+modelo fuerte (`orders`, `payments`, `shipments`, módulo `discounts/`) y frontend; zonas compartidas: `prisma/` (M-92), `common/money.ts`.
+
+### DSC.0 Invariantes (cada una tiene prueba en §DSC.10)
+- **I-1 Sin código, nada cambia (criterio 915).** Request sin `discountCode` ⇒ respuesta **byte a byte** la de hoy: ⛔ ni
+  `discount: null` ni `unitDiscountCents: 0` en el JSON (los campos se **omiten**); columnas nuevas en su default `0`.
+- **I-2 Equivalencia (892).** Un pedido con descuento `D` cobra exactamente lo que `computeCartBreakdown`/`computeDirectShipBreakdown`
+  devuelven para `S' = S − D` con la `E` resultante: es **la misma llamada**, no una fórmula nueva. `BreakdownDTO` no cambia de forma.
+- **I-3 `unitPriceCents` es lo COBRADO.** `OrderItem.unitPriceCents` y `OrderAccessoryLine.unitPriceCents` guardan el precio por
+  unidad **ya descontado**; el original lo proyecta el servidor (`unitPriceBeforeDiscountCents`, DSC.6). Así `Order.subtotalCents = Σ cobrado` y **todo**
+  reembolso existente (`itemMissingRefundComponents`, `itemRefundComponents`, `caseRefundContextOf`, `quantity × unitPriceCents` de
+  accesorios, `order_full`/`order_remaining`) devuelve lo cobrado **sin tocar su código** (902). ⛔ Ningún reembolso lee el original.
+  **Único lector del original (v1.110.1):** `pricing-brackets` (`admin.service.ts:2027-2037`) suma `grossMxnCents` con
+  `unitPriceCents + unitDiscountCents` (calibra la curva, que fija el exhibido; el descuento se mide en §DSC.7). El valor asegurado
+  de la guía (`label-quote.service.ts:394,484`) se queda en lo **cobrado**: es lo que se reembolsa si se pierde y lo que factura.
+- **I-4 Cada unidad conserva ≥ 1 centavo.** Ninguna línea queda en 0: los reembolsos (`amountCents > 0`, CHECK de M-61) y la
+  preparación siguen igual. Consecuencia declarada en DSC.3 (ajusta el texto del criterio 893, ver DSC.12).
+- **I-5 Un código por pedido o retiro [D4]** (`DiscountRedemption.orderId`/`shipmentRequestId` únicos) y el uso **nunca vuelve**
+  tras cobrarse [D5]: ninguna transición sale de `consumed`.
+- **I-6 Nunca se rebasa un límite** por concurrencia: el conteo y la reserva del uso ocurren bajo el candado de la fila del código. **I-7 (v1.112.1) Ningún uso sin beneficio:** `applied` ⇒ `discountCents > 0 ∨ shippingWaivedCents > 0` (DSC.3, DSC.4); ⛔ es invariante, no predicado: si una orden «tiene código» lo dice solo su `DiscountRedemption`.
+
+### DSC.1 Esquema — migración `M-92` (`prisma/migrations/20261109120000_m92_discount_codes/`, **aditiva**, sin backfill)
+```prisma
+enum DiscountKind             { percent fixed_amount free_shipping }
+enum DiscountCodeStatus       { active paused }
+enum DiscountProductScope     { raw graded sealed accessory }
+enum DiscountRedemptionStatus { reserved consumed released }
+
+model DiscountCodeBatch {                       // lote de un solo uso [D1]; su configuración se COPIA a cada código al generar
+  id String @id @default(uuid())  prefix String  quantity Int  createdByUserId String  createdAt DateTime @default(now())
+  codes DiscountCode[]
+}
+model DiscountCode {
+  id                 String   @id @default(uuid())
+  code               String   @unique          // normalizado trim+MAYÚSCULAS; CHECK ^[A-Z0-9-]{4,20}$; único para siempre
+  batchId            String?                    // FK Restrict → DiscountCodeBatch
+  kind               DiscountKind
+  percentPct         Int?                       // 1..100 ⇔ percent
+  amountCents        Int?                       // 1..MAX_CENTS ⇔ fixed_amount (IVA dentro, como el precio exhibido)
+  maxDiscountCents   Int?                       // ≥ 1, solo percent (tope en pesos, DSC.2-4)
+  minSubtotalCents   Int?                       // ≥ 1, medido ANTES del descuento sobre las líneas elegibles [D7]
+  productScopes      DiscountProductScope[] @default([])   // [] = todos los tipos · v1.112.1: SQL NOT NULL DEFAULT '{}' (ver abajo)
+  destinations       FulfillmentMode[]      @default([])   // [] = ambos; el retiro cuenta como direct_ship · ídem NOT NULL
+  startsAt           DateTime                   // instante UTC; vigente ⇔ startsAt ≤ now < endsAt
+  endsAt             DateTime?                  // EXCLUSIVO; null = hasta pausar (supuesto DSC.2-8); CHECK endsAt > startsAt
+  maxTotalUses       Int?                       // ≥ 1; lote ⇒ 1; null = sin límite
+  maxUsesPerCustomer Int?     @default(1)       // ≥ 1; null = sin límite
+  status             DiscountCodeStatus @default(active)
+  firstReservedAt    DateTime?                  // sello del primer uso apartado: desde aquí se bloquea la edición (DSC.7)
+  archivedAt         DateTime?                  // «borrado» de un código sin usos; se comporta como inexistente
+  createdByUserId    String   createdAt DateTime @default(now())   updatedAt DateTime @updatedAt
+  redemptions        DiscountRedemption[]
+  @@index([batchId])
+}
+model DiscountRedemption {                      // el USO; una fila por pedido o retiro que lo llevó
+  id String @id @default(uuid())
+  codeId            String                      // FK Restrict
+  orderId           String?  @unique            // FK Restrict  ┐ CHECK: exactamente uno
+  shipmentRequestId String?  @unique            // FK Restrict  ┘
+  status            DiscountRedemptionStatus @default(reserved)
+  customerUserId    String?                     // con cuenta
+  customerEmail     String?                     // normalizeEmail(); invitado o correo de la cuenta. CHECK: al menos uno de los dos
+  createdAt DateTime @default(now())  consumedAt DateTime?  releasedAt DateTime?
+  lateConsumed      Boolean  @default(false)    // consumido por un pago llegado tras liberarse (DSC.5)
+  @@index([codeId, status])  @@index([customerUserId])  @@index([customerEmail])
+}
+model DiscountCodeThrottle {                    // intentos FALLIDOS (DSC.6); ⛔ sin IP ni correo en claro
+  key String @id      // 'ip:'|'user:'|'email:' + HMAC-SHA256(PII_HMAC_KEY, valor) (user: el id tal cual)
+  failures Int  windowStartedAt DateTime  blockedUntil DateTime?  updatedAt DateTime @updatedAt
+  countedCodeHashes String[] @default([])  // v1.110.3: HMAC de los códigos `not_applicable` ya contados en la ventana (DSC.6)
+}
+// Columnas nuevas (todas NOT NULL DEFAULT 0, CHECK ≥ 0; el 0 es la verdad de toda fila previa):
+Order               { discountCents Int @default(0)        // D de mercancía (= Σ unidades × unitDiscountCents)
+                      shippingWaivedCents Int @default(0) } // E que un código de envío gratis dejó de cobrar (informativo, reporte)
+OrderItem           { unitDiscountCents Int @default(0) }   // CHECK unitDiscountCents = 0 ∨ unitPriceCents ≥ 1
+OrderAccessoryLine  { unitDiscountCents Int @default(0) }   // CHECK kind = 'energy_bundle' ⇒ unitDiscountCents = 0 [D9]
+ShipmentRequest     { shippingWaivedCents Int @default(0) }  // retiro con envío gratis: 20300 con los diales de hoy
+```
+⛔ `Order` no guarda el código: lo dice su `DiscountRedemption` (un hecho, un sitio). CHECKs de forma de `DiscountRedemption`:
+`consumed ⇔ consumedAt NOT NULL`; `released ⇒ releasedAt NOT NULL`. **Listas (v1.112.1, QA):** `productScopes`, `destinations` y `countedCodeHashes` van `NOT NULL DEFAULT '{}'` **en la propia M-92** (no publicada ⇒ se edita, sin migración nueva); `prisma migrate diff --from-migrations … --to-schema-datamodel …` debe salir vacío — si Prisma marca deriva, se usa `CHECK (col IS NOT NULL)` en su lugar y se dice; DCO-B18 gana `INSERT … NULL` ⇒ `23502` (o `23514`). **Reversa:** borrar las 4 tablas, las 5 columnas y los 4
+enums (solo antes de que exista un pedido con código; después, la reversa es desplegar el artefacto anterior, que ignora todo).
+**Limpieza PDB** (`prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`, como LZ-W1): `DiscountRedemption` y
+`DiscountCodeThrottle` ⇒ **borrar** (la primera antes de `Order`/`ShipmentRequest`: FK Restrict); `DiscountCode` y `DiscountCodeBatch`
+⇒ **conservar** (configuración del dueño), con `UPDATE "DiscountCode" SET "firstReservedAt" = NULL`: sin usos no hay bloqueo.
+**Diales** (`GET/PUT /admin/settings`, DATA, `super_admin`, auditados): `discount_code_max_failures` (10), `…_failure_window_min`
+(15), `…_block_min` (15); enteros ≥ 1 o `422 VALIDATION_ERROR`. Paridad de enums: las 4 líneas canónicas están en §0 «Enums».
+
+### DSC.2 Elegibilidad y monto nominal (puro, `common/money.ts`: `discountOf(lines, code, ctx)`)
+- **Línea elegible** ⇔ no es `energy_bundle` [D9] ∧ (`productScopes = []` ∨ su tipo ∈ `productScopes`; accesorio y energía suelta
+  = `accessory`) ∧ (`destinations = []` ∨ destino del pedido ∈ `destinations`). `B = Σ P·q` de las elegibles (`P` exhibido).
+- **Mínimo [D7]:** `minSubtotalCents ≠ null ∧ B < minSubtotalCents` ⇒ `not_applicable/MIN_SUBTOTAL { missingCents:
+  min − B }`. Inclusivo: `B = min` aplica (904).
+- **Nominal `D0`:** `percent` ⇒ `floor(B × pct / 100)` y, con tope, `min(·, maxDiscountCents)` (894) · `fixed_amount` ⇒
+  `min(amountCents, B)` (893) · `free_shipping` ⇒ `0` (actúa sobre `E`, DSC.4). Luego **`D0 = min(D0, B − U)`** con `U` = unidades
+  elegibles (I-4). Sin líneas elegibles ⇒ `not_applicable/NO_ELIGIBLE_ITEMS { productScopes }`. El orden de los motivos, en DSC.4.
+- **`capped` (v1.110.3)** ⇔ `percent ∧ maxDiscountCents ≠ null ∧ floor(B × pct / 100) > maxDiscountCents` (BigInt): solo el tope en pesos
+  (el texto dice «llegó al tope que fijaste»); el recorte por `B`, por I-4 o por el residuo de DSC.3 **no** es `capped`. Lo devuelve
+  `discountOf` junto a `nominalCents` (= `D0` tras tope e I-4); ⛔ nadie lo recalcula fuera de `money.ts`.
+
+### DSC.3 Reparto por unidad al centavo (puro, `allocateDiscount`; productos en **BigInt**: `D0 × P` puede pasar de 2⁵³)
+```
+entrada: elegibles i = 1..n en orden canónico (piezas por inventoryItemId asc, luego accesorios por accessoryId asc), Pᵢ, qᵢ; B; D0
+uᵢ   = floor(D0 · Pᵢ / B)                 // descuento POR UNIDAD (todas las unidades de una línea, igual)
+restᵢ = (D0 · Pᵢ) mod B                   // desempate
+R    = D0 − Σ qᵢ·uᵢ                        // 0 ≤ R < Σ qᵢ
+repetir mientras alguna línea tome en la pasada:
+  por líneas en orden (restᵢ desc, i asc): si qᵢ ≤ R ∧ uᵢ + 1 ≤ Pᵢ − 1 ⇒ uᵢ += 1; R −= qᵢ
+D = D0 − R ;  unitDiscountCentsᵢ = uᵢ ;  unitPriceCentsᵢ (cobrado) = Pᵢ − uᵢ ≥ 1
+```
+- `Σ qᵢ·uᵢ = D` **exacto**; las no elegibles quedan con `unitDiscountCents = 0`. `D < D0` solo si toda línea elegible tiene
+  `qᵢ ≥ 2` (accesorios repetidos) o por I-4; la línea que ve el cliente es siempre `D`, nunca `D0`. **v1.112.1 (DSC-B-6):** `kind ≠ free_shipping ∧ D = 0` (`floor` a 0, `B = U`, o el residuo no cabe) ⇒ `not_applicable/ZERO_DISCOUNT {}`, sin uso apartado (I-7, DCO-B22).
+- Ejemplos: 33333 + 33333 + 33334 con MX$100.00 fijo ⇒ 3333 + 3333 + 3334 = 10000 · 100000 + 50000 con 10 % ⇒ cobrados 90000 y
+  45000 (902) · 3 energías de 1000 con MX$10.00 fijo ⇒ u = 333, `D = 999` (R = 1 no cabe en q = 3).
+
+### DSC.4 💰 Orden del cálculo (engancha en `inclusiveBreakdown`, `money.ts:789-814`, y `grossUpTotal`, `:1019`)
+1. Líneas y `S = Σ P·q` como hoy (piezas, accesorios, paquete). 2. **Descuento** (DSC.2–3) ⇒ `D`, `S' = S − D`.
+3. **Clase** `shippingRuleKindOf` (§4-G.12 paso 1): no depende del descuento. 4. **Umbral sobre `S'` [D2]:** `E_regla = S' ≥ T ? 0 :
+   E_clase`; con `free_shipping` `E_regla = 0`. 5. **Caja grande** (§4-G.12 paso 3) gana sobre las dos: `E = cajaGrande ? caja :
+   E_regla`. 6. **IVA por resta** sobre `G = S' + E` y **comisión** gross-up sobre `G`: `computeDirectShipBreakdown(S', E, r, fee)`
+   (bóveda: `computeCartBreakdown(S', r, fee)`). 7. `totalCents < 1000` ⇒ `not_applicable/TOTAL_BELOW_MINIMUM { minTotalCents: 1000 }`.
+- **Precedencia de `not_applicable` (v1.110.3; gana el primero que se cumple; `rate_limited` e `invalid` van antes).** Regla: primero lo
+  que ninguna mercancía añadida arregla; `MIN_SUBTOTAL`, el único que dice «te faltan $X», sale solo si lo demás ya permitiría aplicar:
+  1 `NO_SHIPPING` · 2 `DESTINATION` · 3 `NO_ELIGIBLE_ITEMS` · 4 `LARGE_BOX` · 5 `ALREADY_FREE_SHIPPING` · 6 `MIN_SUBTOTAL` · 7 `TOTAL_BELOW_MINIMUM` · 8 `ZERO_DISCOUNT` (v1.112.1; solo `%`/monto, disjunto de 1, 4 y 5).
+  **Envío gratis (tipo c) no aplica** (1, 4, 5): bóveda ⇒ `NO_SHIPPING` (gana a `DESTINATION`, filtros y mínimo) · caja grande ⇒ `LARGE_BOX`
+  (supuesto del PO DSC.2-6, 896: se cobra completa; §4-G.12 paso 3) · `E` sin código ya es 0 (`S ≥ T` **o dial de la clase en 0**, v1.110.1)
+  ⇒ `ALREADY_FREE_SHIPPING`: ⛔ nunca se gasta un uso con `shippingWaivedCents = 0`. Retiro (DSC.8): `WITHDRAWAL_ONLY_FREE_SHIPPING` →
+  `WITHDRAWAL_FILTERED` → `DESTINATION` → `ALREADY_FREE_SHIPPING`. Manda la salida, no dónde se parta el código; casos y lo que ve el
+  cliente en DCO-B20. Aplicado: `Order.shippingWaivedCents = E_clase`, `shippingRule.freeShippingApplied = true` (⇔ `E = 0`), `freeShippingRemainingCents = null`.
+- `shippingRule.freeShippingRemainingCents` se mide contra `S'` (un 10 % puede sacar el pedido del umbral: 895, 420000 ⇒ 378000 ⇒
+  `E = 10000`; 450000 ⇒ 405000 ⇒ `E = 0`).
+- **Precio que cambió antes de pagar** (DSC.2-19): `session` re-precia como hoy y **recalcula** el descuento; si ya no aplica ⇒
+  `422 DISCOUNT_CODE_NOT_APPLICABLE` sin crear nada; el front re-cotiza.
+
+### DSC.5 💰 Ciclo del uso (atado a la reserva de §4-R)
+- **Apartar — en la `tx` de `session`** (bóveda: `OrdersService.createSession`; invitado: `GuestCheckoutService.createSession`),
+  **después** de la puerta por cliente de §4-R.2 y de sustituir las órdenes viejas: `SELECT … FROM "DiscountCode" WHERE code = $1
+  FOR UPDATE` ⇒ validar con el `now` de la `tx` (no archivado, `active`, vigente) ⇒ contar `status ∈ {reserved, consumed}` del
+  código (< `maxTotalUses`) y del cliente (`customerUserId = yo ∨ customerEmail = correo normalizado`; < `maxUsesPerCustomer`) ⇒
+  calcular (DSC.2–4) ⇒ crear la `Order` con sus columnas ⇒ `INSERT DiscountRedemption(reserved)` ⇒ `firstReservedAt =
+  COALESCE(firstReservedAt, now)`. Cualquier fallo ⇒ `422` y **rollback**: ni orden, ni reserva, ni PI. El orden de candados es
+  siempre puerta del cliente → fila del código (uno por `tx`) ⇒ sin ciclos.
+- **Contar sin mirar el reloj:** un `reserved` cuenta hasta que se libera, aunque su reserva de cartas ya venció; el barrido cancela
+  el PI **antes** de liberar (§4-R.4), así que un uso vencido aún puede cobrarse. Es la cuenta conservadora: nunca rebasa.
+- **Reuso (§4-R.2/§4-R.3 «REUSO»)** exige además **el mismo código normalizado o ninguno** en los dos lados; si difiere ⇒ SUSTITUCIÓN.
+  El reuso no re-valida el código (pausado o vencido después ⇒ ese pago se respeta, DSC.2-17 supuesto) ni crea fila. El quote
+  muestra el congelado de la orden propia solo con ese mismo código.
+- **Liberar** (`UPDATE … SET status='released', releasedAt=now WHERE orderId = $1 AND status = 'reserved'`) en la **misma `tx`** que
+  pone la orden en `failed`: barrido `order-reservation-sweep`, webhook `payment_failed|canceled` (`failAndRelease`), sustitución
+  (`supersedeOwnOrder`) y compensación si Stripe falla al crear el PI.
+- **Consumir** en la `tx` de `onPaymentSucceeded` (ramas bóveda y directo): `status='consumed', consumedAt=now WHERE orderId = $1 AND
+  status IN ('reserved','released')`; si venía de `released` (pago tardío que sí liquida) ⇒ `lateConsumed = true` y bitácora
+  `discount.redemption.late_consumed`: el cobro ya se hizo con descuento y manda, aunque rebase el límite por uno.
+- **Reembolsos y contracargo no tocan el uso [D5]** (901): no existe verbo que saque una fila de `consumed`.
+- **Un PI que cobró acaba `consumed` (v1.110.1).** Un reembolso o `charge.refunded` sobre una orden aún `pending` no libera ni consume:
+  el barrido cancela el PI antes de liberar (§4-R.4) y un PI cobrado no se cancela, así que queda `reserved` hasta `onPaymentSucceeded`.
+  Si backend mide un camino donde un PI cobrado termina `released` sin ese webhook, lo arregla consumiendo en ese camino (DCO-B5).
+
+### DSC.6 Endpoints de cliente — validar y aplicar en el quote y en la sesión
+**Request (aditivo, opcional, string ≤ 40):** `discountCode` en `POST /checkout/quote` y `POST /checkout/session` (cuenta, bóveda),
+`POST /checkout/guest/quote` y `POST /checkout/guest/session` (invitado), `POST /shipments/quote` y `POST /shipments` (retiro).
+Normalización: `trim` + mayúsculas. Vacío ⇒ como ausente. Un solo campo ⇒ un segundo código **reemplaza** al primero (906; el
+aviso lo pinta el front). Uno de cliente nunca ve `DiscountCode.id`.
+
+**Quotes — siempre `200`; el resultado viaja en `discount` (presente solo si el request trajo código):**
+```ts
+DiscountQuoteDTO =
+  | { outcome: 'applied', code: string, kind: DiscountKind, merchandiseBeforeDiscountCents: number,  // B + no elegibles = S
+      discountCents: number,            // D
+      shippingWaivedCents: number }     // tipo c: la E que no se cobra; si no, 0
+  | { outcome: 'invalid' }              // GENÉRICO: mismos bytes en los 6 casos (§0)
+  | { outcome: 'not_applicable', code: string, reason: DiscountNotApplicableReason, details: Record<string, number | string[]> }
+  | { outcome: 'rate_limited', retryAfterSeconds: number }
+DiscountNotApplicableReason = 'MIN_SUBTOTAL' | 'NO_ELIGIBLE_ITEMS' | 'DESTINATION' | 'NO_SHIPPING' | 'ALREADY_FREE_SHIPPING'
+  | 'LARGE_BOX' | 'TOTAL_BELOW_MINIMUM' | 'ZERO_DISCOUNT' | 'WITHDRAWAL_ONLY_FREE_SHIPPING' | 'WITHDRAWAL_FILTERED' | 'NOT_COMBINABLE'  // literal de DTO; ZERO_DISCOUNT v1.112.1
+```
+**`details` (v1.110.3, solo lo que el texto del motivo usa; pentest DSC-1):** `MIN_SUBTOTAL { missingCents }` · `NO_ELIGIBLE_ITEMS
+{ productScopes }` · `TOTAL_BELOW_MINIMUM { minTotalCents }` · el resto `{}` (⛔ ni `minSubtotalCents` ni `destinations`: `DESTINATION`
+se pinta por pantalla). Igual en el `422 DISCOUNT_CODE_NOT_APPLICABLE` de §0.
+Con `applied`, `breakdown` y `items[]` ya son los descontados: `items[].unitPriceCents` = cobrado. **Proyección de línea (v1.110.3):**
+con rebaja > 0 la línea gana `unitDiscountCents`, `unitPriceBeforeDiscountCents` (= cobrado + rebaja) y, en `accessoryLines[]`,
+`lineTotalBeforeDiscountCents` (= `quantity ×` el anterior); sin rebaja se omiten los tres (I-1). Un solo proyector de backend la arma
+(quotes, sesiones, detalles y correos), **también** sobre el congelado de la orden propia (lee `OrderAccessoryLine.unitDiscountCents`).
+El front pinta `unitPriceBeforeDiscountCents ?? unitPriceCents` (`lineTotal…` igual), ⛔ sin sumar (DCO-F6). Con otro `outcome`, el
+`breakdown` es el de hoy sin código y no se borra lo llenado (`PROJECT §DSC.1`). `NOT_COMBINABLE` no se emite hoy (§AC.2-6).
+`vaultBreakdown` del quote de invitado va **siempre sin código** (informativo; la bóveda exige cuenta y el código se evalúa en esa
+`session`). El por-cliente se evalúa en el quote solo si conoce al cliente (cuenta, o `email` en el quote del invitado), excluyendo
+del conteo la orden propia o reclamada que `session` reusaría o sustituiría; si no, o si difieren, manda `session`.
+
+**Sesiones y `POST /shipments`:** `applied` ⇒ la respuesta de hoy + `discount` (forma `applied`); si no ⇒ `422 DISCOUNT_CODE_INVALID`
+· `422 DISCOUNT_CODE_NOT_APPLICABLE { reason, … }` · `429 DISCOUNT_CODE_RATE_LIMITED`, todos **sin escribir nada**.
+
+**Límite de intentos (908; v1.110.3, `HECHOS.md` 2026-10-26 «…un código vigente que no aplica cuenta como intento», pentest DSC-1):**
+cuentan los `invalid` **y los `not_applicable`** (quote, sesión y retiro; el motivo se sigue diciendo). Un `not_applicable` cuenta **una
+vez por código y ventana** por clave (`countedCodeHashes`): re-cotizar el mismo código al llenar el carrito hasta el mínimo no bloquea
+al cliente, y un código distinto suma como un `invalid`. `applied` no cuenta. El perdedor de la carrera del último uso **cuenta**. Claves:
+IP siempre, `user:` con cuenta, `email:` si el request trae correo. `failures ≥ discount_code_max_failures` dentro de la ventana ⇒
+`blockedUntil = now + block_min`; durante el bloqueo **todo** código —válido incluido— da `rate_limited`/`429`. Se suma a los
+`@Throttle` vigentes (30/min quote, 5/h sesión de invitado), no los sustituye. **Tiempo:** el camino `invalid` hace las mismas
+consultas que el válido (busca por texto y cuenta usos aunque no exista); que no se distinga por tiempo lo mide pentester.
+
+**Vigencia (909):** el panel captura «vence el día D a las HH:MM» en hora del centro de México (`America/Mexico_City`) y envía
+`endsAt` = ese minuto **+ 60 s** con su desfase: vale a las 23:59:59 y no a las 00:00:00 del día siguiente.
+
+**Dónde se ve el pedido (914) — esta es la norma canónica:** `GET /orders/:id`, `POST /orders/guest/track` y el detalle de M3/Ventas
+(`GET /admin/orders/:id`) ganan `discount: OrderDiscountDTO = { code, kind, merchandiseBeforeDiscountCents /* v1.110.3: Order.subtotalCents
++ discountCents */, discountCents, shippingWaivedCents }` (solo si la orden tiene `DiscountRedemption`; el front pinta
+`discount?.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`) y la proyección de línea de arriba; los correos de confirmación
+(`guestOrderConfirmationTemplate`, `orderSettledTemplate`) pintan la línea «Descuento (CÓDIGO) −MX$X» y, con envío gratis, la de envío
+desde esos mismos campos. Visible para `vault_operator` en Ventas (lectura). Textos: i18n del front por `kind` y `reason`; ⛔ ningún
+literal de pesos en i18n (como ENV-F1). «envío gratis» en los textos de códigos de envío gratis: **aprobado por el dueño**
+(`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»); `FORBIDDEN_PHRASES` (`frontend/src/lib/seo-content.ts:242-251`) lo admite ahí.
+
+### DSC.7 Endpoints del dueño — solo `super_admin` (operador ⇒ `403 FORBIDDEN`, cero escrituras; cada escritura a `AuditLog` con antes → después)
+| Método y ruta | Cuerpo / query | Respuesta y errores |
+|---|---|---|
+| `GET /admin/discount-codes` | `?status=` (E), `?state=` (L), `?batchId=`, `?q=` (prefijo del texto), `?page=`/`?pageSize=` (default 50, máx 100; no entero, < 1 o > 100 ⇒ `400 VALIDATION_ERROR {field}`, ⛔ no satura — v1.112.1, como `/admin/orders`) | `{ data: DiscountCodeDTO[], page, pageSize, total }`; sin `batchId` excluye los de lote |
+| `POST /admin/discount-codes` | `{ code, kind, percentPct?, amountCents?, maxDiscountCents?, minSubtotalCents?, productScopes?, destinations?, startsAt?, endsAt?, maxTotalUses?, maxUsesPerCustomer? }` | `201 DiscountCodeDTO` · `409 DISCOUNT_CODE_TAKEN` · `422 VALIDATION_ERROR` (campos por `kind`; `free_shipping` con `destinations=[vault]` nunca aplicaría) |
+| `GET /admin/discount-codes/:id` | — | `200 DiscountCodeDTO` · `404` |
+| `PATCH /admin/discount-codes/:id` | cualquier campo salvo `code`. **v1.112.1:** ausente ⇒ no se toca; **`null` limpia** `percentPct`, `amountCents`, `maxDiscountCents`, `minSubtotalCents`, `endsAt` (hasta pausar), `maxTotalUses` y `maxUsesPerCustomer` (sin límite); `productScopes`/`destinations` `null` ≡ `[]`; `startsAt: null` ⇒ `422`; la config fusionada se valida como en el `POST` (cambiar `kind` exige `null` en los campos del anterior); `lockedFields` = los campos cuyo valor **cambia** (un `null` que limpia cuenta; uno sobre un campo ya nulo, no). `PATCH` de lote: igual | `200` · `409 DISCOUNT_CODE_LOCKED { lockedFields }` · `409 DISCOUNT_CODE_LIMIT_BELOW_USES { inUse }` |
+| `POST /admin/discount-codes/:id/pause` · `/resume` | — | `200` idempotente; efecto inmediato en sesiones nuevas (910) |
+| `DELETE /admin/discount-codes/:id` | — | `204` (pone `archivedAt`) · `409 DISCOUNT_CODE_HAS_USES` si tiene alguna `DiscountRedemption` |
+| `POST /admin/discount-code-batches` | `{ prefix: ^[A-Z0-9]{2,8}$, quantity: 1..500, …config sin code/maxTotalUses/maxUsesPerCustomer }` | `201 { batch, codesCsvPath }`; cada código = `PREFIJO-` + 10 de `23456789ABCDEFGHJKMNPQRSTVWXYZ` por `crypto.randomInt` (30¹⁰ ≈ 5.9·10¹⁴), uso total 1 y por cliente 1; colisión ⇒ se regenera |
+| `GET /admin/discount-code-batches` · `/:id` | `?page=` | lista; detalle con config y conteos |
+| `PATCH /admin/discount-code-batches/:id` | campos de config | aplica a todos sus códigos, mismas reglas de bloqueo (si uno tiene uso, solo `endsAt`) |
+| `POST /admin/discount-code-batches/:id/pause` · `/resume` | — | pausa/reanuda los N en una `tx` (911) |
+| `GET /admin/discount-code-batches/:id/codes.csv` | — | `code,status,usedAt` (auditado: reparte códigos) |
+| `GET /admin/discount-codes/:id/report` (+ `.csv`) · `GET /admin/discount-code-batches/:id/report` (+ `.csv`) | `?from=&to=` (día México) | `DiscountReportDTO` |
+| `POST /admin/discount-codes/preview` (v1.110.1) | config del `POST` sin `code` + `sampleLines: [{ scope: DiscountProductScope, priceCents, quantity }]` (1..5) | `200 { discountCents, nominalCents, capped: boolean }` por `discountOf`/`allocateDiscount` (DSC.2–3; `nominalCents` y `capped` tal cual los da `discountOf`, v1.110.3); cero escrituras; ⛔ ningún cálculo en el front. Alimenta «Así lo verá el cliente». **v1.110.2:** muestra a la que no aplica (`DESTINATION`, `NO_ELIGIBLE_ITEMS`, `MIN_SUBTOTAL`) ⇒ `{ 0, 0, false }`, sin `reason`; `free_shipping` ⇒ siempre `{ 0, 0, false }` (la muestra no lleva envío: el front pinta el texto de envío gratis sin importe). **v1.112.1:** `ZERO_DISCOUNT` también ⇒ `{ 0, 0, false }`. Front: `discountCents = 0` con `kind ≠ free_shipping` ⇒ «con este carrito no aplica» |
+| `GET /admin/discount-codes/:id/audit` · `GET /admin/discount-code-batches/:id/audit` (v1.110.1) | `?page=` | `{ data: [{ at, actor: { id, name } \| null, action, changes: [{ field, before, after }] }], page, pageSize, total }` desde `AuditLog` (`entityType` `DiscountCode`/`DiscountCodeBatch`); la config no es PII ⇒ antes → después sí sale (890). **`action` (v1.110.2, lista cerrada, solo lectura ⇒ fuera de `enum-values.ts`):** código `discount.code.{created, updated, paused, resumed, archived, report_exported}`; lote `discount.batch.{created, updated, paused, resumed, codes_exported, report_exported}`; el front muestra un texto genérico ante uno desconocido |
+
+- **Bloqueo tras el primer uso (912):** con `firstReservedAt ≠ null` solo se editan `status`, `endsAt` y `maxTotalUses` (≥ `inUse` =
+  `reserved + consumed`; los de lote, fijos en 1). El cambio se escribe bajo el mismo `FOR UPDATE` que la reserva: un `PATCH` y el
+  primer uso no pueden cruzarse.
+```ts
+DiscountCodeDTO = { id, code, batchId: string | null, kind, percentPct, amountCents, maxDiscountCents, minSubtotalCents,
+  productScopes, destinations, startsAt, endsAt, maxTotalUses, maxUsesPerCustomer, status,
+  state: 'scheduled' | 'live' | 'paused' | 'expired' | 'exhausted',  // derivado: paused > expired (now ≥ endsAt) > scheduled > exhausted > live
+  locked: boolean, usage: { consumed: number, reservedNow: number, limit: number | null,
+  discountGivenCents: number /* v1.110.1: = DiscountReportDTO.discountGivenCents sin from/to */ }, createdAt, createdBy: { id, name } }
+DiscountCodeBatchDTO = { id, prefix, quantity, createdAt, createdBy: { id, name }, kind, percentPct, amountCents, maxDiscountCents,
+  minSubtotalCents, productScopes, destinations, startsAt, endsAt,   // v1.110.1; ratifica el MOCK del front + createdBy
+  status /* paused ⇔ ningún código sin usar (sin reserved ni consumed) está active; si no queda ninguno sin usar, paused ⇔ todos paused (v1.110.2) */,
+  state /* precedencia de DiscountCodeDTO; exhausted ⇔ todos consumed ⇒ lote agotado y no pausado = active + exhausted */,
+  usedCodes, reservedNow, locked /* algún código con firstReservedAt */ }
+DiscountReportDTO = { consumed, reservedNow, limit, paidOrders, discountGivenCents /* Σ Order.discountCents con uso consumed */,
+  shippingWaivedOrdersCents, shippingWaivedWithdrawalsCents, withdrawals, salesCollectedCents /* Σ Order.totalCents */,
+  refundedOrders, refundedCents /* Σ PaymentRefund.amountCents succeeded */, lateConsumed,
+  rows: Array<{ at, kind: 'order' | 'withdrawal', folio, customerEmail, code, discountCents, shippingWaivedCents, totalCents,
+                refundedCents, status: DiscountRedemptionStatus }> }   // lote: además usedCodes[{ code, at }]
+```
+`discountGivenCents` es, por construcción, la suma de los descuentos que Ventas muestra para esos pedidos (913). CSV: misma defensa
+contra fórmulas y pesos con 2 decimales que §15.7. `customerEmail` es PII: solo `super_admin`, como el resto de esta tabla.
+**v1.110.2:** «Envío regalado» total = `shippingWaivedOrdersCents + shippingWaivedWithdrawalsCents`, suma de dos enteros del servidor
+en el front (sin campo nuevo: el total no es un hecho propio). `?batchId=` (id exacto) y `?from=`/`?to=` de los 4 reportes (día MX
+`YYYY-MM-DD`; fuera de forma ⇒ `400 {field}` sin `allowed`) **no son §0-Q**: 9 entradas en `NO_ENUM_POR_RUTA`, tope 107 → 116.
+Pantalla: `/admin/codes` (ratificada, v1.110.1). **Paridad de enums:** la banda 3 (schema ↔ §0) ya cubre los cuatro; `DiscountKind`,
+`DiscountProductScope` y `DiscountCodeStatus` entran a `common/enum-values.ts` (bandas 1–2) **con** los endpoints de esta tabla que los
+validan (cuerpo y `?status=`); `DiscountRedemptionStatus` solo sale en lectura ⇒ no entra.
+
+### DSC.8 💰 Retiro de bóveda con código de envío gratis [D8] (`POST /shipments`, criterios 917–918)
+- Aplica solo `free_shipping` sin `minSubtotalCents` ni `productScopes` y con `destinations` vacío o con `direct_ship`. Si no:
+  `%`/monto ⇒ `WITHDRAWAL_ONLY_FREE_SHIPPING`; filtros ⇒ `WITHDRAWAL_FILTERED` (supuesto del PO, DSC.2-20). ⛔ No se aparta uso.
+- **Variante (a), total MX$0.00 — decidida por el dueño** (`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»): en la misma `tx` serializable de hoy: candado del código, conteos
+  (DSC.5), `ShipmentRequest` con `shippingFeeCents = ivaCents = processingFeeCents = totalCents = 0`, `shippingWaivedCents = E`
+  (`shippingFeeDisplayCentsOf(shipping_fee_cents)` = 20300 hoy), `priceConvention` como hoy, **`status = 'picking'`, `pickingAt =
+  now`, `stripePaymentIntentId = null`** (lo que hoy hace el webhook, `payments.service.ts:415-418`), y `DiscountRedemption`
+  **`consumed` directo** (no hay cobro que esperar). Respuesta `201 { shipmentId, status: 'picking', breakdown (en ceros), stripe:
+  null, discount }` con `discount.merchandiseBeforeDiscountCents = 0` y `discountCents = 0` (el retiro no lleva mercancía; misma forma
+  `applied`, v1.110.1) y `shippingWaivedCents = E`. IVA: `G = 0` ⇒ IVA 0 (sin contraprestación no hay IVA trasladado; ⚠️ criterio fiscal NO MEDIDO con el contador).
+  La guía la paga la tienda y entra al P&L como hoy (`shippingCostCents`); el ingreso del retiro es 0 (`shipmentNetRevenueCents`).
+- **Censo que backend cierra (ninguno puede suponer «retiro ⇒ PI»):** `cancelPaymentIntentOrThrow` (`shipments.service.ts:1842`) no
+  llama a Stripe con PI nulo; el reembolso `shipment_fee` con `totalCents = 0` no escribe fila (CHECK `amountCents > 0`); el
+  reembolso total por `charge.refunded` no aplica (no hay cargo). La lista exacta la mide backend con `rg stripePaymentIntentId`.
+
+### DSC.9 💰 Reembolsos — nunca más de lo cobrado (criterios 901, 902)
+| Camino | Importe | Por qué cuadra con descuento |
+|---|---|---|
+| Carta: `item_missing`, `item_delivered`, `case_refund` | `P + floor(F·P/G)` con `P = OrderItem.unitPriceCents` (cobrado) y `G = S' + E` | I-3: es el cobrado; `Σ floor ≤ F` sigue (§4-G.12 punto 7) |
+| Accesorio (faltante o entregado, §AC.9/§AC.10) | `quantity × unitPriceCents` (cobrado por unidad) en `itemMissingRefundComponents` | I-3 + reparto por unidad: ninguna unidad lleva centavos sueltos |
+| `order_full`, `order_remaining`, `stripe_dashboard` | `totalCents − Σ` no fallidas / bruto de Stripe | «lo que queda» ≤ `totalCents`; con `E = 0` aplica §4-G.12 punto 7 |
+| Retiro gratis | 0 ⇒ sin fila | DSC.8 |
+- Ejemplo 902: líneas cobradas 90000 y 45000 ⇒ reembolsar la primera devuelve `90000 + floor(F·90000/G)`, **nunca** 100000; las dos
+  más el remanente suman `totalCents` exacto (PS-3). El uso queda `consumed` en todos los casos [D5].
+
+### DSC.10 Pruebas que deben fallar hoy (`DCO-*`; deterministas N=1 dicho como tal salvo donde se pide N; sobre copia del árbol ENTERO, O-9)
+- **DCO-B1** (pura, `allocateDiscount`) 1, 2, 3 y 7 líneas con precios primos ⇒ `Σ q·u = D`, toda unidad ≥ 1, no elegibles en 0;
+  33333/33333/33334 ⇒ 3333/3333/3334; energías 3×1000 con 1000 ⇒ `D = 999`; `P = 2·10⁹` con 100 % sin pérdida (BigInt). Canarios:
+  reparto por línea con `Math.round` ⇒ `Σ ≠ D` rojo; quitar el tope `Pᵢ − 1` ⇒ una unidad en 0 rojo.
+- **DCO-B2** (pura) 891 (10 % de 100000 ⇒ 10000), 893 (15000 fijo ⇒ 85000 de mercancía), 894 (20 % tope 30000 sobre 200000 ⇒
+  30000), 904 (mínimo 200000: B = 200000 aplica, 199999 ⇒ `MIN_SUBTOTAL` con `missingCents: 1`), 919 (50000 de cartas + paquete
+  2000 con 10 % ⇒ `D = 5000`, paquete 2000; código solo `accessory` con el paquete como único accesorio ⇒ `NO_ELIGIBLE_ITEMS`).
+- **DCO-B3** (integración, 892) quote **y** session con código ≡ al centavo el desglose de un pedido sin código de mercancía `S'`:
+  bóveda %, directo %, monto fijo, envío gratis (4/4). Canario: IVA o comisión sobre `S` ⇒ rojo.
+- **DCO-B4** (895, 896) umbral sobre `S'` con los números de DSC.4; envío gratis en cartas a domicilio ⇒ `E = 0`,
+  `shippingWaivedCents = 10000`; bóveda ⇒ `NO_SHIPPING`; caja 35000 ⇒ `LARGE_BOX`; `S ≥ T` ⇒ `ALREADY_FREE_SHIPPING`; dial de la
+  clase en 0 ⇒ `ALREADY_FREE_SHIPPING` y 0 filas de uso (pedido y retiro).
+- **DCO-B5** (899) ciclo: session ⇒ `reserved` (reporte 1/0); webhook ⇒ `consumed` (0/1); barrido tras TTL ⇒ `released` y el uso
+  vuelve; `payment_failed`, sustitución y compensación de PI ⇒ `released`; reuso con el mismo código ⇒ misma fila y mismo PI; con
+  otro código ⇒ sustitución. Pago tardío sobre `released` ⇒ `consumed` + `lateConsumed`. Quote de la orden propia congelada con
+  accesorios ⇒ `accessoryLines[].unitDiscountCents` presentes. PI cobrado con `charge.refunded` antes de `succeeded` y barrido en
+  medio ⇒ nunca `released`; al llegar `succeeded` ⇒ `consumed`.
+- **DCO-B6** (900, **probabilística: N ≥ 10, reportar proporción, se espera 10/10**) código con 1 uso restante, dos `session`
+  simultáneas de clientes distintos ⇒ exactamente un `201` con descuento y un `422 DISCOUNT_CODE_INVALID`, 1 fila `reserved`.
+  Canario: sin `FOR UPDATE` ⇒ reportar en cuántas de N salen 2 filas (debe ser > 0 para que el candado cuente como sensible).
+- **DCO-B7** (898) límite por cliente: invitado `Ana@Correo.mx` paga; invitado `ana@correo.mx` ⇒ genérico; cuenta con ese correo ⇒
+  genérico. **DCO-B8** (907) los 6 casos genéricos ⇒ mismo estado y mismo cuerpo byte a byte en quote y en session.
+- **DCO-B9** (908) 10 fallidos ⇒ el 11.º con código válido da `rate_limited` en quote y `429` + `Retry-After` en session; vence el
+  bloqueo ⇒ aplica. **v1.110.3:** 10 códigos vigentes distintos que no aplican ⇒ igual bloqueo; el mismo `not_applicable` cotizado 20
+  veces suma 1 y al llegar al mínimo aplica; `details` con solo las claves de DSC.6. Canario: no contar `not_applicable` ⇒ rojo.
+- **DCO-B10** (909) reloj fijo: `endsAt` exclusivo, 23:59:59 aplica, 00:00:00 no.
+- **DCO-B11** (910) pausar con un pago en curso ⇒ el webhook lo consume; session nueva ⇒ genérico; reanudar ⇒ aplica.
+- **DCO-B12** (911) lote de 50: 50 textos distintos con prefijo, CSV de 50, uno usado ⇒ genérico y 49 sirven; pausar el lote ⇒ 50.
+- **DCO-B13** (912) con un uso apartado: `PATCH` de `kind`/`percentPct`/`minSubtotalCents`/filtros ⇒ `409 DISCOUNT_CODE_LOCKED`;
+  `endsAt` y `maxTotalUses ≥ inUse` ⇒ `200`; por debajo ⇒ `409 …LIMIT_BELOW_USES`; `DELETE` ⇒ `409 …HAS_USES`.
+- **DCO-B14** (913) ronda sembrada (3 pagados, 1 apartado, 1 reembolsado) ⇒ conteos y `discountGivenCents` = Σ de Ventas, JSON y CSV,
+  por código y por lote. **DCO-B15** (890) operador ⇒ `403` en las 21 rutas de DSC.7, cero filas; cada escritura deja `AuditLog`.
+- **DCO-B16** (901, 902) 100000 + 50000 con 10 % ⇒ `unitPriceCents` 90000/45000; reembolso por carta = `itemRefundComponents` sobre
+  90000; dos cartas + remanente = `totalCents`; tras reembolso total y por carta, el mismo cliente ⇒ genérico. **v1.110.3:** misma
+  orden ⇒ `unitPriceBeforeDiscountCents` 100000/50000 y `discount.merchandiseBeforeDiscountCents` 150000 en quote, session y los tres
+  detalles; accesorio 2 × 15000 con 10 % ⇒ `lineTotalBeforeDiscountCents` 30000. Sin código, ausentes (DCO-B19).
+- **DCO-B17** (917, 918) retiro con envío gratis ⇒ desglose en ceros, `status: picking`, 0 llamadas a Stripe, uso `consumed`,
+  `shippingWaivedCents = 20300`; con 10 % ⇒ `WITHDRAWAL_ONLY_FREE_SHIPPING`, cobro de hoy y 0 filas de uso; cancelar ese retiro no
+  llama a Stripe; reembolso `shipment_fee` ⇒ sin fila.
+- **DCO-B18** (Postgres real) CHECKs: paquete con `unitDiscountCents > 0` ⇒ `23514`; `unitPriceCents = 0` con descuento ⇒ `23514`;
+  redención con `orderId` y `shipmentRequestId` a la vez ⇒ `23514`.
+- **DCO-B19** (915) la suite entera **sin cambiar ningún aserto existente**; solo se admite añadir mecánica de reversa o limpieza de
+  la migración nueva (`revertM92` en `test/integration/pdb-limpieza.e2e-spec.ts` y `helpers/limpieza-db.ts`, precedente M-86); respuestas de quote/session/orders sin `discountCode`
+  idénticas a las de `adae733f` (snapshot); `enum-values-parity` verde con las 4 líneas de §0.
+- **DCO-B20** (v1.110.3, pura **y** quote; el mock da lo mismo) precedencia de DSC.4, `free_shipping` con mínimo 300000, diales de hoy
+  (T 400000, cartas 10000, sellado 17500); entre comillas, el sentido del texto (literal: i18n): (a) bóveda, carta 100000 ⇒ `NO_SHIPPING`
+  «es de envío gratis y tu pedido va a la bóveda» (en `c421de13` da `MIN_SUBTOTAL` «te faltan $2,000»); (b) igual con `destinations =
+  [direct_ship]` ⇒ `NO_SHIPPING`; (c) mínimo 500000, invitado, cartas 450000 ⇒ `ALREADY_FREE_SHIPPING` «tu pedido ya tiene envío gratis»;
+  (d) invitado, sellado 100000 + accesorio 20000 en caja de 35000 ⇒ `LARGE_BOX` «no cubre la caja grande»; (e) cartas 250000 ⇒
+  `MIN_SUBTOTAL { missingCents: 50000 }` «te faltan $500»; con 300000 ⇒ `applied`, `shippingWaivedCents = 10000`; (f) 10 % con
+  `destinations = [direct_ship]` y mínimo 300000 en bóveda 100000 ⇒ `DESTINATION`. Canario: `MIN_SUBTOTAL` antes ⇒ (a), (c), (d) rojos.
+- **DCO-B21** (v1.110.3, `discountOf` **y** `preview`) `capped`: 20 % tope 30000 sobre 200000 ⇒ `{ 30000, 30000, true }`; tope 40000 ⇒
+  `false` (igual al tope); 10 % sin tope ⇒ `false`; fijo 50000 sobre una pieza de 40000 ⇒ `{ 39999, 39999, false }` (I-4); 100 % sin tope
+  ⇒ `false`. Canario: `capped = discountCents < sin topes` (lo de `c421de13`) ⇒ fijo y 100 % rojos. `mockPreview` da lo mismo.
+  **DCO-B22** (v1.112.1, DSC-B-6; pura, quote **y** session, N=1) 1 % con `productScopes = [accessory]`, invitado directo, carta 50000 + accesorio 99 ⇒ `not_applicable/ZERO_DISCOUNT {}` (hoy `applied 0 0`); fijo 2 sobre 3 energías de 1000 ⇒ ídem (`D0 = 2`, `D = 0`); session ⇒ `422 DISCOUNT_CODE_NOT_APPLICABLE`, 0 filas de uso, `firstReservedAt` nulo; cuenta como intento (DSC.6); preview ⇒ `{ 0, 0, false }`. Canario: quitar la regla de DSC.3 ⇒ rojo.
+- **DCO-F1…F5** (frontend, Playwright sobre el stack real, no mocks): F1 campo «¿Tienes un código?» y «Quitar» en checkout de
+  invitado, de cuenta y en la solicitud de retiro; F2 la línea «Descuento (CÓDIGO) −MX$X» pinta `discount.discountCents` del servidor
+  (⛔ ninguna cuenta en el cliente); F3 genérico idéntico en los 6 casos y un texto por `reason`; F4 un segundo código reemplaza
+  con aviso; F5 el mock de `lib/api.ts` replica `DiscountQuoteDTO` y la omisión sin código. **F6** (v1.110.3, candado de fuente como
+  `frontend-never-multiplies.test.ts`) fuera de los simuladores, ni `+` ni `*` con `unitDiscountCents`/`discount.discountCents` (canario: `CheckoutLines:58`).
+
+### DSC.11 Lo que QA mide (y con qué N)
+DCO-B6 con **N ≥ 10** y proporción con autor (O-3/O-15); el resto N=1 dicho como tal. Re-ejecuta una mutación de DCO-B1 y la de DCO-B3
+sobre copia del árbol entero. Criterio **916 de punta a punta** contra el stack sembrado (tester-e2e, navegador): el dueño crea el código,
+un invitado en el celular lo aplica y paga en modo prueba, llega el correo con la línea, Ventas y el reporte lo muestran, se reembolsa
+una carta y el reporte lo refleja sin devolver el uso; más el retiro de 917. Para pentester: enumeración (6 genéricos y `not_applicable`
+contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último uso, y ≥ T con descuento y reembolso de piezas (§4-G.12 punto 9).
+
+### DSC.12 Decisiones, supuestos y preguntas
+- **Del arquitecto:** las de DSC.2–5 y su consecuencia: ≥ 1 centavo por unidad (I-4) ⇒ **el criterio 893 segunda frase da MX$99.99,
+  no MX$100.00, cuando el monto fijo cubre todo lo elegible** (el PO ajusta el texto; 0 exigiría tocar el CHECK de M-61: no se recomienda).
+- **Supuestos del PO que el diseño adopta:** caja grande fuera del envío gratis (DSC.4); filtros y mínimo no aplican al retiro (DSC.8);
+  sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
+- **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).

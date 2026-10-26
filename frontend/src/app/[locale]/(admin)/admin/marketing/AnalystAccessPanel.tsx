@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { issueMarketingToken, listMarketingTokens, revokeMarketingToken } from '@/lib/marketing-api';
 import type { AppLocale } from '@/i18n/routing';
 import type { MarketingApiTokenView } from '@/types/contract';
+import { MetaTestEventBlock } from './MetaTestEventBlock';
 import { MktDialog } from './MktDialog';
 import { instantDate } from './mkt-format';
 import { useReportForbidden } from './forbidden';
@@ -110,6 +111,10 @@ export function AnalystAccessPanel() {
           )}
         </>
       )}
+
+      {/* MKT-UX.10-b: debajo del estado de la llave, tras regla; no depende de que la lista de llaves cargue. */}
+      <hr className="border-border" />
+      <MetaTestEventBlock />
 
       {creating && (
         <NewKeyDialog

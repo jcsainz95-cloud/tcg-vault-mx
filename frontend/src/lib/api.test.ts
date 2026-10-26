@@ -319,7 +319,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
     const res = await createShipment(['inv-1002'], 'addr-1');
     expect(res.shipmentId).toMatch(/^shp-/);
     expect(res.status).toBe('solicitado');
-    expect(res.stripe.clientSecret).toBeTruthy();
+    expect(res.stripe?.clientSecret).toBeTruthy();
     expect(res.breakdown.subtotalCents).toBe(17500); // tarifa fija MX$175
 
     // inv-1006 (Latias) es pending → 422 ITEM_NOT_SETTLED.
@@ -506,7 +506,7 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
       }),
     );
     const res = await createShipment(['inv-1002'], 'addr-1');
-    expect(res.stripe.clientSecret).toBe('pi_s_secret');
+    expect(res.stripe?.clientSecret).toBe('pi_s_secret');
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain('/shipments');
     expect(init.method).toBe('POST');

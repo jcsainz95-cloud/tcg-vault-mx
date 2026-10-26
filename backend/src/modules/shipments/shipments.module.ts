@@ -1,3 +1,4 @@
+import { DiscountsModule } from '../discounts/discounts.module';
 import { Module } from '@nestjs/common';
 import { ShipmentsService } from './shipments.service';
 import { ShipmentsController } from './shipments.controller';
@@ -35,7 +36,8 @@ import { AdminInboundShipmentController, SellerInboundLabelController } from './
   // ⭐💰 v1.81 D2b/D2c (§M4-SHIP.19.4): el proveedor de guías entra AQUÍ (D1 lo dejó sin importar a propósito).
   // 🔒 v1.80.12.16 (§M4-SHIP.19.35.1): `GuestOrderTokensModule` (el módulo MÍNIMO, sin dependencias) para la liga del invitado en
   // los avisos — `OrderAccessTokenService.issue` tal cual, sin rotar.
-  imports: [GeoModule, ShippingProviderModule, SpendAlertsModule, GuestOrderTokensModule],
+  // 💰 v1.110⟨descuentos⟩ (§DSC.8): `DiscountsModule` — el retiro con código de envío gratis.
+  imports: [GeoModule, ShippingProviderModule, SpendAlertsModule, GuestOrderTokensModule, DiscountsModule],
   providers: [
     ShipmentsService,
     ShipmentPrepService,

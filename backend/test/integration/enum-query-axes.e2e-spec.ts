@@ -74,6 +74,7 @@ import {
   CardShowDay,
   CardShowGame,
   CardShowLeadType,
+  DiscountCodeStatus,
   DisputeStatus,
   Finish,
   InventoryStatus,
@@ -139,6 +140,8 @@ import { ADMIN_VAULTS_SORT_VALUES } from '../../src/modules/vault/admin-vaults.s
 import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.service';
 // 💰 D2g (§19.32.1) — los ejes L de `GET /admin/spend-alerts`.
 import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } from '../../src/modules/spend-alerts/spend-alerts-panel.service';
+// 💰 v1.110⟨descuentos⟩ (§DSC.7) — el `?state=` L de `GET /admin/discount-codes`.
+import { DISCOUNT_CODE_STATE_FILTER_VALUES } from '../../src/modules/discounts/discount-admin-view';
 // 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
 import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
 // 💰 v1.86.5⟨accesorios⟩ (§AC.11): dominio L `true | false` de `?active=`/`?soldOut=` del panel de accesorios.
@@ -890,6 +893,10 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/marketing/export', param: 'format', clazz: 'SELECTOR', allowed: MARKETING_EXPORT_FORMATS, valid: 'csv', alterno: 'xlsx', obs: OBS_MKT_FORMAT, extra: () => `pantalla=a&${MKT_PERIOD()}`, auth: 'admin', echoValue: false },
   { route: 'GET /admin/card-show/players', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', auth: 'admin', echoValue: false },
   { route: 'GET /admin/card-show/players/export.csv', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
+  // 💰 v1.110⟨descuentos⟩ (§DSC.7; filas de §0-Q punto 4 escritas por el arquitecto ⇒ `transcrita`): la lista de códigos del
+  // dueño. `status` E (`DiscountCodeStatus`, `enum-values.ts`); `state` L (partición computada, ⛔ sin columna). Fixture (r).
+  { route: 'GET /admin/discount-codes', param: 'status', clazz: 'E', allowed: Object.values(DiscountCodeStatus), valid: 'paused', alterno: 'active', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/discount-codes', param: 'state', clazz: 'L', allowed: DISCOUNT_CODE_STATE_FILTER_VALUES, valid: 'expired', alterno: 'scheduled', auth: 'admin', echoValue: false },
 ];
 
 /**
@@ -1015,6 +1022,8 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   //     filas de OTRAS suites de card-show). ⛔ Sin FK: borrado directo.
   await h.prisma.cardShowLead.deleteMany({ where: { email: { startsWith: 'ceq1-cs-' } } });
   await h.prisma.cardShowPlayerSignup.deleteMany({ where: { email: { startsWith: 'ceq1-csp-' } } });
+  // (r) 💰 v1.110⟨descuentos⟩ — los códigos del fixture (sin usos: nada los referencia).
+  await h.prisma.discountCode.deleteMany({ where: { code: { startsWith: 'CEQ1-' } } });
 }
 
 /** Siembra y devuelve el contexto de rutas (`setId` propio + el `userId` del cliente del fixture). */
@@ -1415,6 +1424,23 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       // ⭐ v1.104 (`CEQ-MKT-1`): P3 LIGERO (`shardbugs`, ⛔ sin `playerId`) sat·confirmed ⇒ `?game=shardbugs` = {P3} ≠
       // base {P1,P2,P3} ≠ `?game=pokemon` {P1,P2}. No rompe `?day=`/`?status=`: sat={P1,P3}≠sun={P2}, confirmed≠waitlist.
       { day: 'sat', game: 'shardbugs', playerName: 'CEQ1 Jugador Tres', playerId: null, email: 'ceq1-csp-3@ceq1.local', mailboxHmac: 'ceq1-csp-hmac-3', isMinor: false, consentAt: csConsent, privacyVersion: 'ceq1', status: 'confirmed', confirmedAt: new Date('2026-10-04T00:00:00Z'), createdAt: new Date('2026-10-04T00:00:00Z') },
+    ],
+  });
+
+  // (r) 💰 v1.110⟨descuentos⟩ (§DSC.7) · `GET /admin/discount-codes?status=|state=` — cuatro códigos sueltos (⛔ sin lote: la
+  //     lista sin `?batchId=` los excluye) con fechas fijas lejos de hoy (el `state` se deriva del reloj; así es estable):
+  //     A vivo·active · B vencido·active · C programado·active · D vivo·PAUSADO. `?status=paused` = {D} ≠ base ≠ `active`
+  //     {A,B,C}; `?state=expired` = {B} ≠ `scheduled` = {C} ≠ base (D es `paused`, fuera de los dos).
+  const dsc = (code: string, startsAt: string, endsAt: string | null, status: 'active' | 'paused') => ({
+    code, kind: 'percent' as const, percentPct: 10, startsAt: new Date(startsAt), endsAt: endsAt ? new Date(endsAt) : null, status,
+    createdByUserId: cliente.id, createdAt: new Date(startsAt),
+  });
+  await h.prisma.discountCode.createMany({
+    data: [
+      dsc('CEQ1-DSC-A', '2026-01-01T00:00:00Z', null, 'active'),
+      dsc('CEQ1-DSC-B', '2020-01-01T00:00:00Z', '2020-02-01T00:00:00Z', 'active'),
+      dsc('CEQ1-DSC-C', '2098-01-01T00:00:00Z', null, 'active'),
+      dsc('CEQ1-DSC-D', '2026-01-02T00:00:00Z', null, 'paused'),
     ],
   });
 
@@ -1880,7 +1906,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `?purpose=` de form-token (L, `FORM_PURPOSES`, default `leads`). No sube ningún pendiente.
     // ⭐ v1.104⟨ceq1-mkt⟩ (nota `CEQ-MKT-1`, `D-EQ-5`) — 83 → **89** y 18 fijo: `?pantalla=` ×3 y `?format=` del Panel de
     // Marketing (SELECTOR, L) y `?game=` de `/admin/card-show/players` y de su CSV (E, `CardShowGame`), todos `transcrita`.
-    expect(REGISTRO.length).toBe(89);
+    // 💰 v1.110⟨descuentos⟩ (§DSC.7) — 89 → **91** y 18 fijo: `?status=` (E) y `?state=` (L) de `GET /admin/discount-codes`
+    // entran YA `transcrita` (el arquitecto escribió sus dos filas en §0-Q punto 4, v1.110). No sube ningún pendiente.
+    expect(REGISTRO.length).toBe(91);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1952,7 +1980,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `from`/`to`/`day`/`preset` (dominio aceptado vacío: cualquier valor ⇒ 400) — en `aggregates`, `panel`, `export`,
     // `export/todo` y `weekly-excel` (35), más `from`/`to` de `GET /admin/marketing/annotations` (días, 2). Salieron del
     // `@Query()` entero (ARCHITECTURE §4.37.1-b): ⛔ `QUERY_SIN_NOMBRE` NO sube.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(107);
+    // 💰 **107 → 116 (v1.110⟨descuentos⟩, §DSC.7; ⚠️ PENDIENTE de ratificar por el arquitecto, como G6/§58.6):** `?batchId=`
+    // de `GET /admin/discount-codes` (un id de lote: igualdad exacta, ⛔ no tokens) y los `?from=`/`?to=` (días MX `YYYY-MM-DD`,
+    // `parseMxDayFilter`; fuera de forma ⇒ `400 {field}` sin `allowed`) de los cuatro reportes de código y de lote (JSON y CSV).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(116);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

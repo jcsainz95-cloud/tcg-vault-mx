@@ -57,7 +57,7 @@ Cuando hay varios frentes de trabajo independientes, el proyecto se parte en **w
 | Work stream | Backend (`backend/src/modules/`) | Frontend (`frontend/src/app/[locale]/`) |
 |---|---|---|
 | Catálogo y precios | `catalog`, `pricing`, `buylist` | `(storefront)` catálogo / cotizador |
-| Órdenes y dinero | `orders`, `payments`, `shipments`, `disputes` | `(storefront)` checkout / pedidos |
+| Órdenes y dinero | `orders`, `payments`, `shipments`, `disputes`, `discounts` | `(storefront)` checkout / pedidos |
 | Inventario y vault | `inventory`, `vault`, `uploads` | `(admin)` inventario / captura |
 | Cuentas y acceso | `auth`, `users`, `settings`, `mail` | `(auth)`, perfil |
 | Admin y auditoría | `admin`, `audit`, `health` | `(admin)` dashboard / reportes |

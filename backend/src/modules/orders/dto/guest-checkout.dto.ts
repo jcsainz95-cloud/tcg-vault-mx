@@ -18,6 +18,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
+import { DISCOUNT_CODE_MAX } from './orders.dto';
 import { ADDRESS_LIMITS, PHONE_PATTERN, POSTAL_CODE_PATTERN } from '../../users/address-rules';
 import { AccessoryLineInput, AccessoryLinesField, CartNotEmpty, DeckPullInput, DeckPullsField } from './accessory-cart.dto';
 
@@ -111,6 +112,9 @@ export class GuestQuoteDto {
   @IsEmail()
   @MaxLength(254)
   email?: string;
+
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6): opcional, string ≤ 40; vacío ⇒ como ausente (lo normaliza `discounts/`). */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class GuestSessionDto {
@@ -159,6 +163,9 @@ export class GuestSessionDto {
    * en este body. Mismo tope que `GuestTrackDto.token`.
    */
   @IsOptional() @IsString() @MaxLength(200) retryOfCheckoutToken?: string;
+
+  /** 💰 v1.110⟨descuentos⟩ (§DSC.6): ver `GuestQuoteDto`. */
+  @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
 }
 
 export class GuestTrackDto {

@@ -25,7 +25,13 @@
 #   E5  … con `on`:  si el aviso es el VIEJO (frase «No usamos cookies de publicidad ni de analítica»
 #       o la divulgación de medición en `null`, sea literal en el aviso o en la constante
 #       `MEASUREMENT_DISCLOSURE` de content/legal/measurement-disclosure.ts) ⇒ tiene que ser rc ≠ 0 — si sale 0, LA PUERTA NO MUERDE ⇒ ROJO.
-#       Si el aviso ya es el nuevo ⇒ tiene que ser rc 0 (y si no, ROJO con los problemas que imprimió).
+#       Si el aviso ya es el nuevo ⇒ tiene que ser rc 0, SALVO que TODOS los problemas que imprime el
+#       rótulo (`MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>` + N líneas «  - …») sean
+#       «bloqueo de encendido abierto: …» (`ENCENDER_BLOCKERS` de content/legal/measurement-gate.ts,
+#       ARCHITECTURE §14.1 D-MKT2-0c): eso es la puerta mordiendo a propósito, no un fallo del aviso ⇒
+#       verde. Un solo problema del aviso, un rótulo ilegible o un conteo que no cuadra ⇒ ROJO.
+#       Con el aviso viejo, además del rc ≠ 0 se exige que al menos un problema impreso sea del aviso
+#       (si solo hubiera bloqueos, la puerta no estaría mirando el aviso).
 #
 # Si falta una pieza (lógica en publish-check.ts o `check:measurement`) ⇒ ROJO. La excepción
 # «PENDIENTE frontend» se retiró el 2026-10-19 al existir las dos (D6 del techlead, DEVOPS_NOTES §101.7).
@@ -93,13 +99,41 @@ fi
 [ -n "$DISC" ] || { echo "::error::C-D1: no sé leer el valor de measurementDisclosure (ni literal en privacidad.es.ts ni MEASUREMENT_DISCLOSURE en measurement-disclosure.ts). NO concluyente: actualiza este lector."; exit 2; }
 if [ "$DISC" = null ]; then VIEJO=1; MOTIVO="${MOTIVO:+$MOTIVO; }measurementDisclosure = null"; fi
 correr on; rc=$?
+# Lee el rótulo MKT2-UX.12: N de `problems=<N>` y las N líneas «  - …» que le siguen.
+# BLOQUEOS / DEL_AVISO = cuántas son «bloqueo de encendido abierto: …» y cuántas no. RÓTULO=0 si no
+# hay rótulo o el conteo no cuadra (entonces no se puede concluir que solo hay bloqueos).
+leer_rotulo() {
+  ROTULO=0; BLOQUEOS=0; DEL_AVISO=0; PROB_AVISO=""
+  local n linea i=0 en=0
+  n="$(grep -oE 'MEASUREMENT_NOTICE_REQUIRED mode=on problems=[0-9]+' <<<"$SALIDA" | head -1 | grep -oE '[0-9]+$')"
+  [ -n "$n" ] && [ "$n" -gt 0 ] || return 0
+  while IFS= read -r linea; do
+    if [ "$en" = 0 ]; then [[ "$linea" == *"MEASUREMENT_NOTICE_REQUIRED mode=on problems=$n"* ]] && en=1; continue; fi
+    [ "$i" -lt "$n" ] || break
+    [[ "$linea" == "  - "* ]] || continue
+    i=$((i+1))
+    if [[ "$linea" == "  - bloqueo de encendido abierto: "* ]]; then BLOQUEOS=$((BLOQUEOS+1))
+    else DEL_AVISO=$((DEL_AVISO+1)); PROB_AVISO="${PROB_AVISO:+$PROB_AVISO | }${linea#  - }"; fi
+  done <<<"$SALIDA"
+  [ "$i" -eq "$n" ] && ROTULO=1
+}
+leer_rotulo
 if [ "$VIEJO" = 1 ]; then
-  if [ "$rc" -ne 0 ]; then ok "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc $rc: el build se pone ROJO, como debe"
-  else bad "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc 0: LA PUERTA NO MUERDE — Vercel publicaría la medición con el aviso viejo. Dueño: frontend."; fi
+  if [ "$rc" -eq 0 ]; then bad "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc 0: LA PUERTA NO MUERDE — Vercel publicaría la medición con el aviso viejo. Dueño: frontend."
+  elif [ "$ROTULO" = 1 ] && [ "$DEL_AVISO" -eq 0 ]; then bad "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc $rc, pero solo por $BLOQUEOS bloqueo(s) de encendido: la puerta NO MIRA el aviso. Dueño: frontend."
+  else ok "E5 · modo «on» con el aviso VIEJO ($MOTIVO) ⇒ rc $rc: el build se pone ROJO, como debe"; fi
 else
   if [ "$rc" -eq 0 ]; then ok "E5 · modo «on» con el aviso NUEVO (sin la frase vieja y con measurementDisclosure) ⇒ rc 0"
-  else bad "E5 · modo «on» con el aviso que parece nuevo ⇒ rc $rc. Problemas: $(tail -8 <<<"$SALIDA" | tr '\n' ' ')"; fi
+  elif [ "$ROTULO" = 1 ] && [ "$DEL_AVISO" -eq 0 ]; then
+    SOLO_BLOQUEOS=1
+    ok "E5 · modo «on» con el aviso NUEVO ⇒ rc $rc solo por $BLOQUEOS bloqueo(s) de encendido abierto(s) (ENCENDER_BLOCKERS): el aviso no tiene problemas; la puerta muerde a propósito"
+    grep -E '^  - bloqueo de encendido abierto: ' <<<"$SALIDA" | sed 's/^  - /      · /'
+  elif [ "$ROTULO" = 1 ]; then bad "E5 · modo «on» con el aviso que parece nuevo ⇒ rc $rc con $DEL_AVISO problema(s) del aviso: $PROB_AVISO. Dueño: frontend."
+  else bad "E5 · modo «on» con el aviso que parece nuevo ⇒ rc $rc sin un rótulo MEASUREMENT_NOTICE_REQUIRED legible (o con el conteo descuadrado). Salida: $(tail -8 <<<"$SALIDA" | tr '\n' ' ')"; fi
 fi
 
 if [ "$ROJOS" -gt 0 ]; then printf '\n\033[1;31mROJO: %s incumplimiento(s) de C-D1.\033[0m\n' "$ROJOS"; exit 1; fi
-printf '\n\033[1;32mVERDE: C-D1 — la puerta existe, Vercel la corre, off no estorba y on %s.\033[0m\n' "$([ "$VIEJO" = 1 ] && echo 'muerde con el aviso viejo' || echo 'pasa con el aviso nuevo')"
+if [ "$VIEJO" = 1 ]; then FIN='muerde con el aviso viejo'
+elif [ "${SOLO_BLOQUEOS:-0}" = 1 ]; then FIN='con el aviso nuevo solo la frenan los bloqueos de encendido abiertos'
+else FIN='pasa con el aviso nuevo'; fi
+printf '\n\033[1;32mVERDE: C-D1 — la puerta existe, Vercel la corre, off no estorba y on %s.\033[0m\n' "$FIN"

@@ -7,7 +7,7 @@ import { getOrder } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
-import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
+import { AmountBreakdown, appliedDiscountOfOrder } from '@/components/ui/AmountBreakdown';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -147,9 +147,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                         <OrderItemStatusLine refund={it.refund} replacement={it.replacement} originRefunded={originRefunded} className="mt-1.5" />
                       </div>
                       {/* El dinero NO vive en el blob (`unitPriceCents` es columna propia de
-                          `OrderItem`): un snapshot incompleto no mueve un centavo. */}
-                      <span className="tabular shrink-0 text-[15px] text-text">
-                        {formatMoneyCents(it.unitPriceCents, locale)}
+                          `OrderItem`): un snapshot incompleto no mueve un centavo.
+                          💰 §DSC I-3 (914): con código, `unitPriceCents` es lo COBRADO; la línea muestra el exhibido que
+                          proyecta el servidor (`unitPriceBeforeDiscountCents`, v1.110.3), como el checkout. ⛔ Sin sumar (DCO-F6). */}
+                      <span className="tabular shrink-0 text-[15px] text-text" data-testid={`order-item-price-${it.inventoryItemId}`}>
+                        {formatMoneyCents(it.unitPriceBeforeDiscountCents ?? it.unitPriceCents, locale)}
                       </span>
                     </div>
                   );
@@ -175,7 +177,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                   className="mb-8 border-t-0 border-b pb-8 pt-0"
                 />
               )}
-              <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
+              <AmountBreakdown
+                breakdown={query.data.breakdown}
+                variant="purchase"
+                discount={appliedDiscountOfOrder(query.data.breakdown, query.data.discount)}
+              />
               {/* v1.68 §4-R.5: `pending` con reserva viva ⇒ «Reanudar pago» (vuelve a /checkout). */}
               <ResumePaymentAction order={query.data} className="mt-6" />
 
