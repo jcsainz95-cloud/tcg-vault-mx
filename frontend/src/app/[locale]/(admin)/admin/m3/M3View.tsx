@@ -18,17 +18,11 @@ import { Banner } from '@/components/ui/Banner';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { RefundOrderDialog, shippedRefundKey } from './RefundOrderDialog';
+// TL-ENV-F2: el conversor único; inválido/vacío ⇒ `null` (filtro sin aplicar).
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 
-/** Convierte pesos (texto) a centavos enteros; inválido/vacío → null (mismo helper que M5). */
-function pesosToCents(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed.replace(/,/g, ''));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
-}
 
 const M3_PAGE_SIZE = 25;
 

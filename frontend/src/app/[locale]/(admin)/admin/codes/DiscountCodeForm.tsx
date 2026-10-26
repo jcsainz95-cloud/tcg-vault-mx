@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import type { DiscountCodeCreateRequest, DiscountCodeDTO, DiscountCodePatchRequest } from '@/types/contract';
 import { DiscountConfigFields, EMPTY_CONFIG, type ConfigDraft, type FieldErrors } from './DiscountConfigFields';
-import { fromDTO, serverFieldError, toConfig } from './discount-config';
+import { fromDTO, serverFieldError, toConfig, toEditPatch } from './discount-config';
 import { CODE_RE, randomCode } from './dsc-format';
 import { StateTag } from './DiscountCodesView';
 import { DiscountPreview } from './DiscountPreview';
@@ -92,7 +92,8 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
       if (!existing && !CODE_RE.test(code)) fieldErrors.code = t('errors.validation');
       if (Object.keys(fieldErrors).length || !conf.body) throw { fieldErrors };
       if (existing) {
-        return patchDiscountCode(existing.id, { ...conf.body, endsAt: conf.body.endsAt ?? null, maxTotalUses: uses, ...(perCustomer !== null ? { maxUsesPerCustomer: perCustomer } : {}) });
+        // R3 (techlead): en edición, vacío = `null` explícito («sin límite»); omitirlo dejaría el valor viejo en el servidor.
+        return patchDiscountCode(existing.id, { ...toEditPatch(conf.body), maxTotalUses: uses, maxUsesPerCustomer: perCustomer });
       }
       const body: DiscountCodeCreateRequest = {
         code,

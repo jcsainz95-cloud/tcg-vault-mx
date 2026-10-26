@@ -13,14 +13,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { useErrorMessage } from '@/components/ui/QueryState';
+// TL-ENV-F2: el conversor único; vacío o inválido ⇒ `null` (el campo es opcional y no se manda).
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
-/** Pesos tecleados → centavos. `undefined` si el campo está vacío (es opcional). */
-function pesosToCents(raw: string): number | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === '') return undefined;
-  const pesos = Number.parseFloat(trimmed);
-  return Number.isFinite(pesos) && pesos >= 0 ? Math.round(pesos * 100) : undefined;
-}
 
 /**
  * **GUÍA Y CONFIRMACIÓN DE ENVÍO** (contrato §M5 · D19/D20/D21, criterios 122/123/137/138).
@@ -84,10 +79,12 @@ export function BuylistShipmentActions({
   });
 
   const confirm = useMutation({
-    mutationFn: () =>
-      confirmBuylistShipment(request.id, {
-        ...(providerCostCents == null && pesosToCents(actualCost) != null ? { guideActualCostCents: pesosToCents(actualCost) } : {}),
-      }),
+    mutationFn: () => {
+      const actualCostCents = pesosToCents(actualCost);
+      return confirmBuylistShipment(request.id, {
+        ...(providerCostCents == null && actualCostCents != null ? { guideActualCostCents: actualCostCents } : {}),
+      });
+    },
     onSuccess: () => {
       setConfirming(false);
       setDone('shipment');

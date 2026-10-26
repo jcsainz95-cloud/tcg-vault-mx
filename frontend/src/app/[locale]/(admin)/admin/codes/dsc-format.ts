@@ -71,14 +71,7 @@ export function describeUsage(c: Pick<DiscountCodeDTO, 'usage'>, t: T): string {
   });
 }
 
-/** Pesos (texto del campo) ⇒ centavos enteros. `''` ⇒ `null` (opcional vacío = sin límite). Inválido ⇒ `NaN`. */
-export function pesosToCents(raw: string): number | null {
-  const v = raw.trim().replace(/,/g, '');
-  if (v === '') return null;
-  if (!/^\d+(\.\d{1,2})?$/.test(v)) return Number.NaN;
-  const [int, dec = ''] = v.split('.');
-  return Number(int) * 100 + Number(dec.padEnd(2, '0'));
-}
+// TL-ENV-F2: pesos ⇒ centavos es el conversor único de `@/lib/money-input` (`''` ⇒ `null` = sin límite; inválido ⇒ `NaN`).
 
 export function centsToPesos(c: number | null | undefined): string {
   if (c == null) return '';

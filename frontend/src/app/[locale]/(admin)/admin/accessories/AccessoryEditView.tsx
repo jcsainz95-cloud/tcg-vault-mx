@@ -40,7 +40,7 @@ import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Textarea } from '@/components/ui/Textarea';
 import { AccessoryPhoto } from '@/components/domain/accessories/AccessoryPhoto';
-import { centsToPesosInput, pesosInputToCents } from './money-input';
+import { centsToPesosInput, pesosToCents as pesosInputToCents } from '@/lib/money-input';
 
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const PHOTO_REASONS: AccessoryPhotoInvalidReason[] = ['too_large', 'unsupported_type', 'too_many_pixels', 'not_image'];

@@ -1174,6 +1174,8 @@ export interface OrderItemPreview {
   reservedByYou?: true;
   /** 💰 §DSC.6 (v1.110): con un código `applied`, el descuento POR UNIDAD (solo si > 0; `unitPriceCents` ya es el cobrado). */
   unitDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): el precio por unidad ANTES del descuento (= cobrado + rebaja), lo proyecta el servidor; solo con rebaja > 0. ⛔ El front no lo suma (DCO-F6). */
+  unitPriceBeforeDiscountCents?: number;
 }
 
 /**
@@ -1206,9 +1208,11 @@ export interface OrderItemDTO {
   replacement?: CustomerReplacementInfo | null;
   /**
    * 💰 §DSC.6 «Dónde se ve el pedido» (v1.110, criterio 914): la rebaja POR UNIDAD, solo si > 0 (I-1: sin código, la clave
-   * se omite). `unitPriceCents` es lo COBRADO (I-3); el exhibido es `unitPriceCents + unitDiscountCents`.
+   * se omite). `unitPriceCents` es lo COBRADO (I-3); el exhibido lo da el servidor en `unitPriceBeforeDiscountCents` (v1.110.3).
    */
   unitDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): el precio por unidad ANTES del descuento (= cobrado + rebaja), lo proyecta el servidor; solo con rebaja > 0. ⛔ El front no lo suma (DCO-F6). */
+  unitPriceBeforeDiscountCents?: number;
 }
 
 /**
@@ -7378,6 +7382,8 @@ export interface GuestTrackingItemDTO {
   unitPriceCents: number;
   /** 💰 §DSC.6 (914): rebaja por unidad, solo si > 0; `unitPriceCents` es lo COBRADO (I-3). */
   unitDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): el precio por unidad ANTES del descuento (= cobrado + rebaja), lo proyecta el servidor; solo con rebaja > 0. ⛔ El front no lo suma (DCO-F6). */
+  unitPriceBeforeDiscountCents?: number;
 }
 
 export interface GuestTrackingShippingDTO {
@@ -7922,6 +7928,10 @@ export interface QuoteAccessoryLineDTO {
   photo: AccessoryPhotoDTO;
   /** 💰 §DSC.6 (v1.110): descuento por unidad con un código `applied` (solo si > 0); `unitPriceCents` es el cobrado. */
   unitDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): el precio por unidad ANTES del descuento (= cobrado + rebaja), lo proyecta el servidor; solo con rebaja > 0. ⛔ El front no lo suma (DCO-F6). */
+  unitPriceBeforeDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): `quantity ×` el precio antes del descuento, lo proyecta el servidor; solo con rebaja > 0 (DCO-F6). */
+  lineTotalBeforeDiscountCents?: number;
 }
 
 /** §AC.4 (+ v1.86.1: `photo` por energía, nunca null). */
@@ -8080,6 +8090,10 @@ export interface OrderAccessoryLineDTO {
   deliveredRefund?: AccessoryDeliveredRefundDTO;
   /** 💰 §DSC.6 (914): rebaja por unidad, solo si > 0; `unitPriceCents` y `lineTotalCents` son lo COBRADO (I-3). */
   unitDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): el precio por unidad ANTES del descuento (= cobrado + rebaja), lo proyecta el servidor; solo con rebaja > 0. ⛔ El front no lo suma (DCO-F6). */
+  unitPriceBeforeDiscountCents?: number;
+  /** 💰 §DSC.6 (v1.110.3): `quantity ×` el precio antes del descuento, lo proyecta el servidor; solo con rebaja > 0 (DCO-F6). */
+  lineTotalBeforeDiscountCents?: number;
 }
 
 /** v1.86.2 (§AC.12): `amountByQtyCents[k−1]` = importe de reembolsar k unidades; largo = `refundableQty`. */
@@ -8458,7 +8472,10 @@ export type DiscountCodeStatus = 'active' | 'paused';
 export type DiscountProductScope = 'raw' | 'graded' | 'sealed' | 'accessory';
 /** §0 Enums / §DSC.5 — ciclo del uso. */
 export type DiscountRedemptionStatus = 'reserved' | 'consumed' | 'released';
-/** §DSC.6 — literal de DTO. `NOT_COMBINABLE` no se emite hoy. */
+/**
+ * §DSC.6 — literal de DTO. `NOT_COMBINABLE` no se emite hoy. Precedencia (§DSC.4, v1.110.3; gana el primero): `NO_SHIPPING` →
+ * `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM`.
+ */
 export type DiscountNotApplicableReason =
   | 'MIN_SUBTOTAL'
   | 'NO_ELIGIBLE_ITEMS'
@@ -8487,11 +8504,15 @@ export interface DiscountAppliedDTO {
 /**
  * §DSC.6 «Dónde se ve el pedido» (914) — el código de una orden YA hecha, en `GET /orders/:id`, `POST /orders/guest/track`
  * y `GET /admin/orders/:id`. Solo si la orden tiene `DiscountRedemption`; sin él, la clave se OMITE (I-1). Sale de
- * `Order.discountCents`/`shippingWaivedCents`: ⛔ no trae `outcome` ni `merchandiseBeforeDiscountCents` (forma de quote).
+ * `Order.discountCents`/`shippingWaivedCents`: ⛔ no trae `outcome`. v1.110.3: trae `merchandiseBeforeDiscountCents`
+ * (= `Order.subtotalCents + discountCents`, lo proyecta el servidor); el front pinta `discount?.merchandiseBeforeDiscountCents ??
+ * breakdown.subtotalCents`, ⛔ sin sumar (DCO-F6).
  */
 export interface OrderDiscountDTO {
   code: string;
   kind: DiscountKind;
+  /** v1.110.3: la mercancía ANTES del descuento (fila «Subtotal» del desglose). */
+  merchandiseBeforeDiscountCents: number;
   /** `D` de mercancía (= Σ unidades × `unitDiscountCents`); 0 en un código de envío gratis. */
   discountCents: number;
   /** Tipo envío gratis: la `E` que no se cobró; si no, 0. */
@@ -8568,11 +8589,22 @@ export interface DiscountCodeCreateRequest {
   maxUsesPerCustomer?: number;
 }
 
-/** §DSC.7 — `PATCH /admin/discount-codes/:id`: cualquier campo salvo `code` (tras el primer uso, solo status/endsAt/maxTotalUses). */
-export type DiscountCodePatchRequest = Partial<Omit<DiscountCodeCreateRequest, 'code' | 'endsAt' | 'maxTotalUses'>> & {
+/**
+ * §DSC.7 — `PATCH /admin/discount-codes/:id`: cualquier campo salvo `code` (tras el primer uso, solo status/endsAt/maxTotalUses).
+ * Ausente ⇒ no se toca; `null` ⇒ «sin límite» / no aplica (columnas `Int?` de §DSC.1, `null = sin límite`). El panel en edición
+ * manda `null` explícito al vaciar un campo opcional (techlead R3 sobre `c421de13`): omitirlo conservaría el valor viejo.
+ */
+export type DiscountCodePatchRequest = Partial<
+  Omit<DiscountCodeCreateRequest, 'code' | 'endsAt' | 'maxTotalUses' | 'percentPct' | 'amountCents' | 'maxDiscountCents' | 'minSubtotalCents' | 'maxUsesPerCustomer'>
+> & {
   status?: DiscountCodeStatus;
   endsAt?: string | null;
   maxTotalUses?: number | null;
+  percentPct?: number | null;
+  amountCents?: number | null;
+  maxDiscountCents?: number | null;
+  minSubtotalCents?: number | null;
+  maxUsesPerCustomer?: number | null;
 };
 
 /** §DSC.7 — `POST /admin/discount-code-batches`: config sin `code`/`maxTotalUses`/`maxUsesPerCustomer`. */

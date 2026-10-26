@@ -28,7 +28,7 @@ import type {
   ShippedRefundReason,
 } from '@/types/contract';
 import { ShippedReasonFieldset } from '../m3/ShippedReasonFieldset';
-import { pesosToCents } from '../m4/pesosToCents';
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
 type Step = 'search' | 'card' | 'amount';
 type ShipItem = NonNullable<AdminShipmentDTO['items']>[number];
