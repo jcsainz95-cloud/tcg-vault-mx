@@ -20,7 +20,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MeasurementDestination, type MeasurementOutbox } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
-import { META_GRAPH_API_VERSION } from './measurement.config';
+import { metaEventsUrl } from './measurement.config';
 import { MeasurementService } from './measurement.service';
 import { measurementItemOf } from './measurement-item';
 import { MEASUREMENT_HTTP, fetchMeasurementHttp, type MeasurementHttp } from './measurement-http';
@@ -49,7 +49,6 @@ export const RETRY_LADDER_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_00
 const CLAIM_MS = 10 * 60_000;
 
 const GA4_MP_URL = 'https://www.google-analytics.com/mp/collect';
-const META_GRAPH_URL = 'https://graph.facebook.com';
 
 /** `event_source_url` = `APP_BASE_URL` + la página que crea el hecho (API_CONTRACT v1.105 §MKT.H.13; sin `sourcePath`). */
 const DEFAULT_PATH = { purchase: '/checkout', generate_lead: '/buylist' } as const;
@@ -178,7 +177,7 @@ export class MeasurementDrainService {
   }
 
   private metaUrl(pixelId: string): string {
-    return `${META_GRAPH_URL}/${META_GRAPH_API_VERSION}/${encodeURIComponent(pixelId)}/events`;
+    return metaEventsUrl(pixelId);
   }
 
   private async ids(where: { orderId: string } | { sellRequestId: string }): Promise<BrowserIds> {
