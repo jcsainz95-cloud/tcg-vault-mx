@@ -10,7 +10,7 @@ import { clearReservation, failPendingOrder, releaseReservationData, reservation
 import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
-import { consumeOrderRedemption } from '../discounts/redemption';
+import { consumeOrderRedemption, orderDiscountOf } from '../discounts/redemption';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
@@ -169,15 +169,11 @@ export class PaymentsService {
 
   /**
    * 💰 v1.110.1 (§DSC.6, 914) — `{ code, discountCents, shippingWaivedCents }` de la orden para los correos de confirmación,
-   * de las MISMAS columnas que `GET /orders/:id`. Solo consulta si la orden lleva rebaja o envío perdonado (una orden sin
-   * código tiene las dos en 0 ⇒ ⛔ ni la consulta ni la línea: el correo de hoy, I-1).
+   * del MISMO lector que `GET /orders/:id` (`orderDiscountOf`, TL-DSC-4). Sin código ⇒ `null` ⇒ el correo de hoy (I-1).
    */
-  private async mailDiscountOf(order: { id: string; discountCents?: number; shippingWaivedCents?: number }): Promise<OrderMailDiscount | null> {
-    const discountCents = order.discountCents ?? 0;
-    const shippingWaivedCents = order.shippingWaivedCents ?? 0;
-    if (discountCents <= 0 && shippingWaivedCents <= 0) return null;
-    const r = await this.prisma.discountRedemption.findUnique({ where: { orderId: order.id }, select: { code: { select: { code: true } } } });
-    return r ? { code: r.code.code, discountCents, shippingWaivedCents } : null;
+  private async mailDiscountOf(order: { id: string; subtotalCents: number; discountCents?: number; shippingWaivedCents?: number }): Promise<OrderMailDiscount | null> {
+    const d = await orderDiscountOf(this.prisma, order);
+    return d ? { code: d.code, discountCents: d.discountCents, shippingWaivedCents: d.shippingWaivedCents } : null;
   }
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {

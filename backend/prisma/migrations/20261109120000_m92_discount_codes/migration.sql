@@ -110,6 +110,7 @@ CREATE TABLE "DiscountCodeThrottle" (
     "windowStartedAt" TIMESTAMP(3) NOT NULL,
     "blockedUntil" TIMESTAMP(3),
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "countedCodeHashes" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "DiscountCodeThrottle_pkey" PRIMARY KEY ("key")
 );

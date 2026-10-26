@@ -46,12 +46,9 @@ import {
   DiscountCustomer,
   DiscountQuoteDTO,
   DiscountsService,
-  discountInvalidError,
-  discountNotApplicableError,
   normalizeDiscountCode,
-  termsOf,
 } from '../discounts/discounts.service';
-import { withdrawalCodeOutcome } from '../discounts/discount-pricing';
+import { withdrawalPriceOf } from '../discounts/discount-pricing';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   LocationView,
@@ -413,9 +410,9 @@ export class ShipmentsService {
     // 🔒 v1.80.12.16 (§19.35.1): la liga del invitado en los avisos (token nuevo SIN rotar). `@Optional()` por los tests
     // unitarios legacy; sin él el invitado va sin CTA (y se avisa en el log).
     @Optional() private readonly orderTokens?: OrderAccessTokenService,
-    // 💰 v1.110⟨descuentos⟩ (§DSC.8): el retiro con código de envío gratis. `@Optional()` por los unitarios legacy; un
-    // request CON código y sin él falla ruidoso (`requireDiscounts`).
-    @Optional() private readonly discounts?: DiscountsService,
+    // 💰 v1.110⟨descuentos⟩ (§DSC.8): el retiro con código de envío gratis. TL-DSC-5: ⛔ sin `@Optional()` — en la app el
+    // proveedor es obligatorio; el `?` de TS es para los unitarios legacy (un request CON código y sin él falla ruidoso).
+    private readonly discounts?: DiscountsService,
   ) {}
 
   private requireDiscounts(): DiscountsService {
@@ -556,21 +553,15 @@ export class ShipmentsService {
     };
   }
 
-  /** §DSC.8 — el bloque `discount` del quote del retiro (⛔ no aparta nada). Solo los `invalid` suman al límite. */
+  /** §DSC.8 — el bloque `discount` del quote del retiro (⛔ no aparta nada). La orquestación es `DiscountsService.quoteOutcome`. */
   private async withdrawalQuoteDiscount(userId: string, code: string, ip: string | null, feeCents: number): Promise<DiscountQuoteDTO> {
-    const discounts = this.requireDiscounts();
-    const now = new Date();
-    const keys = discounts.throttleKeys({ ip, userId });
-    const blocked = await discounts.retryAfterSeconds(keys, now);
-    if (blocked !== null) return { outcome: 'rate_limited', retryAfterSeconds: blocked };
-    const ev = await discounts.evaluate(this.prisma, code, await this.withdrawalCustomer(userId), now, { lock: false });
-    if (!ev.ok) {
-      await discounts.recordFailure(keys, now);
-      return { outcome: 'invalid' };
-    }
-    const out = withdrawalCodeOutcome(termsOf(ev.row), feeCents);
-    if (out.outcome === 'not_applicable') return { outcome: 'not_applicable', code: ev.row.code, reason: out.reason, details: out.details };
-    return { outcome: 'applied', code: ev.row.code, kind: ev.row.kind, merchandiseBeforeDiscountCents: 0, discountCents: 0, shippingWaivedCents: out.shippingWaivedCents };
+    const { discount } = await this.requireDiscounts().quoteOutcome({
+      code,
+      throttle: { ip, userId },
+      customer: await this.withdrawalCustomer(userId),
+      price: (terms) => withdrawalPriceOf(terms, feeCents),
+    });
+    return discount;
   }
 
   /**
@@ -586,8 +577,7 @@ export class ShipmentsService {
     opts: { discountCode?: unknown; ip?: string | null } = {},
   ) {
     const code = normalizeDiscountCode(opts.discountCode);
-    const throttleKeys = code !== null ? this.requireDiscounts().throttleKeys({ ip: opts.ip ?? null, userId }) : [];
-    if (code !== null) await this.requireDiscounts().assertNotBlocked(throttleKeys);
+    const throttleKeys = code !== null ? await this.requireDiscounts().openAttempt({ ip: opts.ip ?? null, userId }) : [];
     const address = await this.validateAddress(userId, addressId);
     // v1.67: rechazo ANTES de la tx serializable y ANTES del PaymentIntent (contrato §5).
     const recipientName = this.assertRecipientName(address);
@@ -630,7 +620,7 @@ export class ShipmentsService {
     // propósito (A2/BE-7: no bloquear una conexión de DB en una llamada de red; el rollback
     // compensatorio borra la ShipmentRequest si Stripe falla). Nota: el índice único parcial
     // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-42.
-    const created = await runSerializable(
+    const runTx = () => runSerializable(
       this.prisma,
       async (tx) => {
         // Un item no puede estar en dos envíos activos (re-verificado DENTRO de la tx).
@@ -685,22 +675,12 @@ export class ShipmentsService {
         return { paid };
       },
       { label: 'createShipmentRequest', logger: this.logger },
-    ).catch(async (e: unknown) => {
-      // §DSC.6: el `invalid` cuenta como intento fallido; se anota FUERA de la tx deshecha (el retiro no escribe nada).
-      if (code !== null && e instanceof BusinessException && e.code === 'DISCOUNT_CODE_INVALID') await this.requireDiscounts().recordFailure(throttleKeys);
-      throw e;
-    });
+    );
+    // §DSC.6: el genérico y el `not_applicable` cuentan como intento; se anotan FUERA de la tx deshecha (el retiro no escribe nada).
+    const created = code !== null ? await this.requireDiscounts().countingAttempts(code, throttleKeys, runTx) : await runTx();
     if (created.free) {
       const f = created.free;
-      const discount: DiscountQuoteDTO = {
-        outcome: 'applied',
-        code: f.codeText,
-        kind: f.kind,
-        merchandiseBeforeDiscountCents: 0,
-        discountCents: 0,
-        shippingWaivedCents: f.waived,
-      };
-      return { shipmentId: f.row.id, status: 'picking' as const, breakdown: this.zeroWithdrawalBreakdown(breakdown), stripe: null, discount };
+      return { shipmentId: f.row.id, status: 'picking' as const, breakdown: this.zeroWithdrawalBreakdown(breakdown), stripe: null, discount: f.discount };
     }
     const shipment = created.paid as NonNullable<typeof created.paid>;
 
@@ -757,12 +737,8 @@ export class ShipmentsService {
       customer: DiscountCustomer;
     },
   ) {
-    const discounts = this.requireDiscounts();
     const now = new Date();
-    const ev = await discounts.evaluate(tx, w.code, w.customer, now, { lock: true });
-    if (!ev.ok) throw discountInvalidError();
-    const out = withdrawalCodeOutcome(termsOf(ev.row), w.feeCents);
-    if (out.outcome === 'not_applicable') throw discountNotApplicableError(out.reason, out.details);
+    const applied = await this.requireDiscounts().applyInTx(tx, { code: w.code, customer: w.customer, now, price: (terms) => withdrawalPriceOf(terms, w.feeCents) });
     const row = await tx.shipmentRequest.create({
       data: {
         userId: w.userId,
@@ -773,14 +749,14 @@ export class ShipmentsService {
         ivaCents: 0,
         processingFeeCents: 0,
         totalCents: 0,
-        shippingWaivedCents: out.shippingWaivedCents,
+        shippingWaivedCents: applied.priced.shippingWaivedCents,
         priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
         items: { create: w.inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
       },
       select: { id: true },
     });
-    await discounts.reserve(tx, ev.row, { shipmentRequestId: row.id }, w.customer, now, 'consumed');
-    return { row, codeText: ev.row.code, kind: ev.row.kind, waived: out.shippingWaivedCents };
+    await applied.reserve({ shipmentRequestId: row.id }, 'consumed');
+    return { row, discount: applied.discount };
   }
 
   /** El snapshot de dirección del retiro (v1.67/v1.81): los diez campos, `recipientName` de `Address` tal cual. */

@@ -163,7 +163,8 @@ describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
     expect(discountOf([piece('a', 199999)], t, { destination: 'vault' })).toEqual({
       ok: false,
       reason: 'MIN_SUBTOTAL',
-      details: { minSubtotalCents: 200000, missingCents: 1 },
+      // v1.110.3 (§DSC.6 `details` mínimos, pentest DSC-1): solo `missingCents` (antes también `minSubtotalCents`).
+      details: { missingCents: 1 },
     });
   });
 
@@ -192,7 +193,8 @@ describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
 
   it('filtro por destino ⇒ DESTINATION', () => {
     const d = discountOf([piece('a', 50000)], terms({ kind: 'percent', percentPct: 10, destinations: ['direct_ship'] }), { destination: 'vault' });
-    expect(d).toEqual({ ok: false, reason: 'DESTINATION', details: { destinations: ['direct_ship'] } });
+    // v1.110.3 (§DSC.6): `DESTINATION` se pinta por pantalla ⇒ `details: {}` (antes `{ destinations }`).
+    expect(d).toEqual({ ok: false, reason: 'DESTINATION', details: {} });
   });
 
   it('TOTAL_BELOW_MINIMUM: el total con descuento bajo MX$10.00 no acepta el código (no se recorta)', () => {

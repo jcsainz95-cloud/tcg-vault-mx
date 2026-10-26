@@ -22,8 +22,9 @@
  * Pedidos ya cobrados: NADA aquí se relee para una orden existente (`Order.shippingFeeCents` congelado en `session`).
  */
 import { ProductType } from '@prisma/client';
-import { taxBaseCentsOf } from '../../common/money';
+import { DirectShipBreakdownDTO, StripeFeeConfig, computeDirectShipBreakdown, taxBaseCentsOf } from '../../common/money';
 import type { BoxChoice } from './box-fit';
+import { representableOrThrow } from './representable';
 
 export type ShippingRuleKind = 'cards_only' | 'sealed';
 
@@ -114,6 +115,30 @@ export function directShipFeeOf(
     freeShippingApplied: free && !bigBox,
     boxFeeApplies: bigBox,
   };
+}
+
+/**
+ * TL-ENV-1 — la cadena ENTERA del envío directo en UN cuerpo: importe (`directShipFeeOf`, pasos 2–3) → desglose
+ * (`computeDirectShipBreakdown`: IVA por resta y comisión sobre `S + E`) → `representableOrThrow` (`S + E` no representable
+ * ⇒ `422 AMOUNT_TOO_LARGE`, nunca un 500 ni un clamp; TL-ENV-4). Lo llaman el quote y la sesión del invitado (con y sin
+ * accesorios) y el cálculo con código (`priceDirectShipCartWithCode`, con `S'`). ⛔ Nadie más llama a
+ * `computeDirectShipBreakdown` en `guest-checkout.service.ts`.
+ * `waiveRuleFee` (§DSC.4, envío gratis por código): `E = 0` y `freeShippingApplied` — el llamador ya descartó la caja grande
+ * (`LARGE_BOX`), que gana sobre todo.
+ */
+export function directShipBreakdownOf(input: {
+  kind: ShippingRuleKind | null;
+  subtotalCents: number;
+  dials: DirectShipDials;
+  choice: BoxChoice | null;
+  ivaRatePct: number;
+  fee: StripeFeeConfig;
+  waiveRuleFee?: boolean;
+}): { ship: DirectShipFee; breakdown: DirectShipBreakdownDTO } {
+  const today = directShipFeeOf(input.kind, input.subtotalCents, input.dials, input.choice);
+  const ship = input.waiveRuleFee && !today.boxFeeApplies ? { ...today, feeCents: 0, freeShippingApplied: true } : today;
+  const breakdown = representableOrThrow(() => computeDirectShipBreakdown(input.subtotalCents, ship.feeCents, input.ivaRatePct, input.fee));
+  return { ship, breakdown };
 }
 
 /** Punto 4 — el DTO del quote. `subtotalCents` = el `breakdown.subtotalCents` que viaja en la MISMA respuesta. */

@@ -16,7 +16,7 @@ import type { DecksMetaService } from '../decks-meta/decks-meta.service';
 import type { DeckPullEvaluation, EnergyBundleDTO } from '../decks-meta/energy-bundle';
 import { BundleNeed, LooseWant, allocateQuoteStock, wantsOf } from './accessory-cart';
 import { BoxChoice, FitBox, FitUnit, boxSnapshotOf, chooseBox, fitUnitsOf, ShippingBoxSnapshot } from './box-fit';
-import { accessoryLineId } from '../discounts/discount-lines';
+import { accessoryLineId, projectLineDiscount } from '../discounts/discount-lines';
 
 type Db = Prisma.TransactionClient;
 
@@ -34,6 +34,9 @@ export interface QuoteAccessoryLineDTO {
   photo: AccessoryPhotoDTO;
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): rebaja por unidad, SOLO si > 0 (`unitPriceCents` ya es el cobrado). */
   unitDiscountCents?: number;
+  /** 💰 v1.110.3 (§DSC.6): precio y total ANTES del descuento, SOLO con rebaja > 0 (`projectLineDiscount`). */
+  unitPriceBeforeDiscountCents?: number;
+  lineTotalBeforeDiscountCents?: number;
 }
 
 export type UnavailableAccessoryDTO =
@@ -419,10 +422,8 @@ export async function sessionLinesDtoOf(tx: Db, orderId: string): Promise<QuoteA
       quantity: l.quantity,
       lineTotalCents: l.unitPriceCents * l.quantity,
       photo: photoDTO(a.id, a.photoVersion as string),
-      // 💰 v1.110 (§DSC.6): la rebaja por unidad SOLO si > 0 (sin código, ni el campo).
-      ...(l.unitDiscountCents > 0 ? { unitDiscountCents: l.unitDiscountCents } : {}),
     };
-  });
+  }).map((dto, i) => projectLineDiscount(dto, lines[i].unitDiscountCents)); // 💰 v1.110.3 (§DSC.6): EL proyector de línea
 }
 
 export { boxSnapshotOf };

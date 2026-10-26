@@ -3585,4 +3585,6 @@ model DiscountCodeThrottle {
   windowStartedAt DateTime
   blockedUntil    DateTime?
   updatedAt       DateTime  @updatedAt
+  // v1.110.3 (§DSC.6, dueño 2026-10-26): HMAC de los códigos `not_applicable` ya contados en la ventana (uno por código y ventana).
+  countedCodeHashes String[] @default([])
 }
