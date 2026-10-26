@@ -275,7 +275,7 @@ export class PaymentsService {
       // liquidan. `settled` = reentrega (silencio). `refunded`/`chargeback` = hechos POSTERIORES a un
       // cobro ⇒ este `succeeded` es viejo: `200`, ⛔ cero escrituras, ⛔ cero avisos, ⛔ cero `audit.log`;
       // la única huella es este `warn`. ÚNICA EXCEPCIÓN (v1.110.2, §M4-VAULT.2-bis.2): con código de descuento
-      // (`discountCents > 0 ∨ shippingWaivedCents > 0`) se consume el `DiscountRedemption` (`reserved|released ⇒
+      // (⇔ la orden tiene `DiscountRedemption`, v1.112.1; ⛔ no por importes, I-7) se consume el uso (`reserved|released ⇒
       // consumed`) y, si venía de `released`, se escribe además la fila `discount.redemption.late_consumed`
       // (ver bloque de abajo); ⛔ ni orden, ni piezas, ni avisos. Va ANTES de H1 (un tardío no es un descuadre). El marcador
       // `ProcessedStripeEvent` de este event.id queda: reintentarlo nunca aplicaría. Bajo carrera decide
@@ -289,12 +289,12 @@ export class PaymentsService {
           // 💰 v1.110.1 (§DSC.5 «Un PI que cobró acaba consumed», DCO-B5): el `charge.refunded` que llegó ANTES dejó la orden
           // `refunded` con su uso `reserved` (ni libera ni consume). Este `succeeded` prueba el cobro ⇒ el uso se consume. Son
           // las ÚNICAS escrituras de esta rama: la fila del uso y, si venía de `released` (`used.late`), la fila de auditoría
-          // `discount.redemption.late_consumed` (post-commit, best-effort) (⛔ ni orden, ni piezas, ni avisos). Sin código (las
-          // dos columnas en 0) ⇒ ni la consulta.
-          if ((order.discountCents ?? 0) > 0 || (order.shippingWaivedCents ?? 0) > 0) {
-            const used = await this.prisma.$transaction((tx) => consumeOrderRedemption(tx, order.id, new Date()));
-            if (used.late) await this.auditLateDiscount(order.id);
-          }
+          // `discount.redemption.late_consumed` (post-commit, best-effort) (⛔ ni orden, ni piezas, ni avisos).
+          // v1.112.1 (§M4-VAULT.2-bis.2, I-7): «tiene código» lo dice SOLO su `DiscountRedemption` (`consumeOrderRedemption`
+          // la busca por `orderId`; sin fila ⇒ cero escrituras), ⛔ nunca `discountCents`/`shippingWaivedCents`. Sin `tx`: la
+          // única escritura es el `updateMany` con CAS sobre el estado leído (atómico por sí solo).
+          const used = await consumeOrderRedemption(this.prisma, order.id, new Date());
+          if (used.late) await this.auditLateDiscount(order.id);
         }
         return;
       }

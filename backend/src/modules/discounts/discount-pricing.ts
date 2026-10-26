@@ -7,10 +7,12 @@
  *     por `directShipBreakdownOf` (la cadena única de `shipping-rule.ts`, TL-ENV-1) y la bóveda por `computeCartBreakdown`,
  *     las dos con `representableOrThrow` (TL-ENV-4: `422 AMOUNT_TOO_LARGE`, nunca un 500).
  *  7. `totalCents < MIN_CHARGE_CENTS` ⇒ `TOTAL_BELOW_MINIMUM` (no se recorta el descuento).
+ *  8. v1.112.1 (§DSC.3, I-7, DSC-B-6): `kind ≠ free_shipping ∧ D = 0` (`floor` a 0, `B = U` o el residuo no cabe) ⇒
+ *     `ZERO_DISCOUNT {}`: ⛔ ningún uso sin beneficio. El envío gratis tiene su propio «sin beneficio» (4 y 5).
  *
  * **Precedencia de `not_applicable` (v1.110.3, §DSC.4, DCO-B20; gana el primero que se cumple):**
  *  1 `NO_SHIPPING` · 2 `DESTINATION` · 3 `NO_ELIGIBLE_ITEMS` · 4 `LARGE_BOX` · 5 `ALREADY_FREE_SHIPPING` · 6 `MIN_SUBTOTAL` ·
- *  7 `TOTAL_BELOW_MINIMUM`. 1, 4 y 5 solo los da el envío gratis. `discountOf` ya devuelve 2 → 3 → 6 en ese orden; aquí se
+ *  7 `TOTAL_BELOW_MINIMUM` · 8 `ZERO_DISCOUNT` (v1.112.1). 1, 4 y 5 solo los da el envío gratis; 8 solo `%`/monto. `discountOf` ya devuelve 2 → 3 → 6 en ese orden; aquí se
  *  intercalan 1, 4 y 5 y, por eso, el `MIN_SUBTOTAL` del envío gratis se GUARDA hasta después de 4 y 5.
  *
  * ⛔ Aquí no hay fórmula de dinero nueva: los pasos 4–6 son `directShipFeeOf` y los desgloses de siempre con `S'`.
@@ -41,6 +43,7 @@ export type DiscountNotApplicableReason =
   | 'ALREADY_FREE_SHIPPING'
   | 'LARGE_BOX'
   | 'TOTAL_BELOW_MINIMUM'
+  | 'ZERO_DISCOUNT'
   | 'WITHDRAWAL_ONLY_FREE_SHIPPING'
   | 'WITHDRAWAL_FILTERED'
   | 'NOT_COMBINABLE';
@@ -82,6 +85,8 @@ function notApplicable(reason: DiscountNotApplicableReason, details: Record<stri
 }
 
 const totalBelowMinimum = () => notApplicable('TOTAL_BELOW_MINIMUM', { minTotalCents: DISCOUNT_MIN_TOTAL_CENTS });
+/** Precedencia 8 (v1.112.1, I-7, DCO-B22): `%`/monto con `D = 0` no aplica — sin `details`, sin uso apartado, cuenta como intento. */
+const zeroDiscount = () => notApplicable('ZERO_DISCOUNT');
 
 /** Pasos 1–7 para un pedido de BÓVEDA (cuenta, sin envío). */
 export function priceVaultCartWithCode(
@@ -98,6 +103,7 @@ export function priceVaultCartWithCode(
   const alloc = allocateDiscount(d.eligible, d.nominalCents);
   const breakdown = representableOrThrow(() => computeCartBreakdown(S - alloc.discountCents, ivaRatePct, fee));
   if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
+  if (alloc.discountCents === 0) return zeroDiscount();
   return {
     outcome: 'applied',
     merchandiseBeforeDiscountCents: S,
@@ -149,6 +155,7 @@ export function priceDirectShipCartWithCode(
   // [D2]: el umbral y la caja se miden sobre `S'` con la MISMA cadena de hoy.
   const { ship: shipFee, breakdown } = directShipBreakdownOf({ ...ship, subtotalCents: S - alloc.discountCents, ivaRatePct, fee });
   if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
+  if (alloc.discountCents === 0) return zeroDiscount();
   return {
     outcome: 'applied',
     merchandiseBeforeDiscountCents: S,
