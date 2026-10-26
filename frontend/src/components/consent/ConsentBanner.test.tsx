@@ -30,6 +30,18 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
+/*
+ * Desde el 2026-10-26 `MEASUREMENT_DISCLOSURE` del repo ya declara la medición. Estas pruebas fijan la declaración
+ * por caso: `null` (por defecto) deja que la versión de E2E (`e2e-1`) maneje el banner, como antes; el caso
+ * «aviso real» la pone con la forma v1.111 y comprueba que su versión es la que se guarda.
+ */
+const disclosureHolder = vi.hoisted(() => ({ current: null as null | Record<string, unknown> }));
+vi.mock('@/content/legal/measurement-disclosure', () => ({
+  get MEASUREMENT_DISCLOSURE() {
+    return disclosureHolder.current;
+  },
+}));
+
 let fetchSpy: ReturnType<typeof vi.spyOn>;
 
 function clearCookies() {
@@ -81,6 +93,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_GA4_MEASUREMENT_ID', 'G-TEST1234');
   vi.stubEnv('NEXT_PUBLIC_META_PIXEL_ID', '1234567890123');
   vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION', 'e2e-1');
+  disclosureHolder.current = null;
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
   window.sessionStorage.clear();
   // Next 15 publica `window.next.router` al cargar el módulo del router; aquí se simula (D4: sin él, no hay etiquetas).
@@ -126,6 +139,21 @@ describe('CK-1 / C-F14 · con off o sin etiqueta válida no existe nada', () => 
     setup();
     await act(async () => {});
     expect(screen.queryByTestId('consent-banner')).toBeNull();
+  });
+
+  it('on con el aviso real declarado (sin versión de E2E): banner activo y th_consent guarda su versión', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION', '');
+    disclosureHolder.current = {
+      version: '2026-10-medicion-1',
+      approvedByOwnerOn: '2026-10-26',
+      legalReviewOn: null,
+      legalReviewWaivedByOwnerOn: '2026-10-23',
+    };
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Solo lo necesario' }));
+    await waitFor(() => expect(screen.queryByTestId('consent-banner')).toBeNull());
+    expect(consentCookie()).toMatchObject({ v: 1, a: 0, m: 0, n: '2026-10-medicion-1' });
   });
 
   it('on en ruta fuera de la lista blanca: sin banner, pero el enlace del pie sí', async () => {
