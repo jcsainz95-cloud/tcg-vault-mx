@@ -56,7 +56,7 @@ describe('SEC-MKT-3 · el servicio que arma Nest con los providers de Measuremen
     expect(() => svc.onModuleInit()).not.toThrow();
     expect(svc.mode).toBe('off');
     expect([svc.enabled('ga4_mp'), svc.enabled('meta_capi')]).toEqual([false, false]);
-    expect(errors.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/^MEASUREMENT_ENCENDER_BLOCKED requested=on effective=off blockers=MKT-F2-3,MKT-F2-4$/)]);
+    expect(errors.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/^MEASUREMENT_ENCENDER_BLOCKED requested=on effective=off blockers=MKT-F2-3$/)]);
     expect(logs.mock.calls.map((c) => String(c[0]))).toContain('MEASUREMENT_MODE=off');
     errors.mockRestore();
     logs.mockRestore();

@@ -16,7 +16,8 @@
 > identidad de ítem única `measurement/measurement-item.ts` (drenador y d1/d2); drenador con lote solo de destinos
 > habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
 > (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
-> cabecera del SQL de m86 (no se copia aquí). Pendiente con Postgres: TECH_DEBT MKT-F2-4. Deuda: TECH_DEBT §MKT.
+> cabecera del SQL de m86 (no se copia aquí); CHECK y ciclo reversa ⇒ redeploy medidos contra Postgres (TECH_DEBT MKT-F2-4 ✅,
+> 2026-10-26). Bloqueo de encendido que queda: MKT-F2-3 (versión de Graph, ver «Versión de Graph» en §MKT.H). Deuda: TECH_DEBT §MKT.
 > **M-90 (2026-10-21):** `magic` en `CardShowGame` (migración `20261107120000_m90_card_show_magic`, LIGERA sin código nuevo).
 > `GET /card-show/tournament/count` = `card-show-tournament-count.service.ts`: caché **en memoria del proceso** 30 s (por réplica);
 > BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
@@ -33093,8 +33094,12 @@ lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchas
 - `value` de `purchase` = `Order.totalCents` (lo cobrado: cartas + envío + IVA + comisión); `shipping_cents` aparte.
 - `item_name` de carta = `nombre · set`; sellado = nombre del producto; accesorio = nombre del snapshot. `item_id` = `cardId`,
   `sealedProductId` o `accessoryId`.
-- Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`): **NO VERIFICADO** que siga vigente al
-  encender; se revisa con «Eventos de prueba» de Meta.
+- Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`). **Medido 2026-10-26 en fuentes públicas
+  de Meta:** el changelog de Graph API da `v21.0` hasta 2027-01-21, pero la tabla de **Marketing API** (la familia de la
+  documentación de Conversions API, cuyo ejemplo ya usa `v26.0`) solo lista disponibles `v24.0` (hasta 2026-11-10), `v25.0`
+  (hasta 2027-02-23) y `v26.0` (TBD); ahí `v21.0` caducó el 2025-09-09. Y una app solo puede llamar versiones ≥ la vigente
+  cuando se creó (el dataset es del 2026-10-24, HECHOS). Que Meta acepte `v21.0` (o la auto-suba) **NO MEDIDO**: no hay
+  mecanismo para mandar un evento de prueba desde producción (ni `test_event_code` en el código). MKT-F2-3 sigue abierta.
 - Panel (v1.105, §MKT.H.9 manda): consultas GA4 en `marketing-ga4.ts` (specs + cálculo puro); b4 excluye Instagram de
   «Referencias» (va en a4/b1-b3); b1-b3 cuentan pedidos + solicitudes por fila para la celda pequeña; d2 sin coherencia
   mes↔semanas (no es conteo de personas). `COVERAGE_NOTE` (off) y `COVERAGE_NOTE_ON` (on) se exportan del servicio.
