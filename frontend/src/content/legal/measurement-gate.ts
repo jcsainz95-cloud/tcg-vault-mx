@@ -97,10 +97,11 @@ export interface EncenderBlocker {
 export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
   {
     id: 'MKT-F2-3',
-    what: "META_GRAPH_API_VERSION ('v21.0') sin verificar vigente para la fecha de encendido",
+    // Versión = la fila de `META-GRAPH-VERSION` en API_CONTRACT §MKT.H.1 (v1.112); se cierra con el botón de §MKT.H.12.
+    what: "META_GRAPH_API_VERSION ('v26.0') sin verificar vigente para la fecha de encendido",
     owner: 'backend',
     closedBy:
-      'evento de prueba de Meta aceptado (2xx) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, anotado con fecha en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
+      'evento de prueba de Meta aceptado (POST /admin/measurement/meta-test-event, §MKT.H.12) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, línea META-GRAPH-VERIFIED en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
   },
 ];
 
