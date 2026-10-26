@@ -148,10 +148,10 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                       </div>
                       {/* El dinero NO vive en el blob (`unitPriceCents` es columna propia de
                           `OrderItem`): un snapshot incompleto no mueve un centavo.
-                          💰 §DSC I-3 (914): con código, `unitPriceCents` es lo COBRADO; la línea muestra el exhibido
-                          (`+ unitDiscountCents`), como el checkout, para cuadrar con «Subtotal» y «Descuento». */}
+                          💰 §DSC I-3 (914): con código, `unitPriceCents` es lo COBRADO; la línea muestra el exhibido que
+                          proyecta el servidor (`unitPriceBeforeDiscountCents`, v1.110.3), como el checkout. ⛔ Sin sumar (DCO-F6). */}
                       <span className="tabular shrink-0 text-[15px] text-text" data-testid={`order-item-price-${it.inventoryItemId}`}>
-                        {formatMoneyCents(it.unitPriceCents + (it.unitDiscountCents ?? 0), locale)}
+                        {formatMoneyCents(it.unitPriceBeforeDiscountCents ?? it.unitPriceCents, locale)}
                       </span>
                     </div>
                   );
