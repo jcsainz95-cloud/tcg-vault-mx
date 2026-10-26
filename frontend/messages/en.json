@@ -7141,7 +7141,53 @@
           "body": "It will stop working immediately. The analyst will not be able to read figures until you create another key and get it to them."
         },
         "revoking": "Revoking…",
-        "revoked": "Key revoked."
+        "revoked": "Key revoked.",
+        "metaTest": {
+          "title": "Send a test event to Meta",
+          "help": "Checks that Meta receives the store's events.",
+          "step1": "In Meta: Events Manager › your pixel › \"Test events\". Copy the code that starts with TEST.",
+          "step2": "Paste it here and press the button.",
+          "step3": "Go back to Meta and check that the event showed up.",
+          "field": {
+            "label": "Test code",
+            "hint": "Starts with TEST followed by numbers. Example: TEST12345",
+            "error": "The code must start with TEST followed by 3 to 10 digits, no spaces. Copy it again from Meta."
+          },
+          "submit": "Send test event to Meta",
+          "submitting": "Sending…",
+          "note": "One test event (PageView): it doesn't turn measurement on and carries no customer data. Maximum 5 per hour.",
+          "accepted": {
+            "title": "Meta received the event.",
+            "body": "Now open \"Test events\" in Meta and look for a PageView with this event ID: {eventId}. It can take a few seconds. If you see it, tell the team so the check can be closed."
+          },
+          "rejected": {
+            "title": "Meta rejected the event.",
+            "body": "Meta replied: \"{message}\". Check that you copied the whole code. If it still fails, send this message and the tracking ID to the technical team.",
+            "noMessage": "Meta gave no reason. Send the tracking ID to the technical team."
+          },
+          "unreachable": {
+            "title": "Could not reach Meta.",
+            "body": "There was no response; your code isn't the cause. Wait a minute and try again. If it repeats, tell the technical team. Every attempt counts toward the hourly limit."
+          },
+          "notConfigured": {
+            "title": "Meta isn't set up on the server.",
+            "body": "Meta's details are missing or wrong in Railway: META_PIXEL_ID and META_CAPI_TOKEN. Ask the technical team to add them, then try again. Nothing was sent."
+          },
+          "rateLimited": {
+            "title": "You already sent 5 test events in the last hour.",
+            "body": "This is a safety limit. You can send another in {minutes} min."
+          },
+          "network": "The request couldn't be sent. Try again.",
+          "details": {
+            "version": "Meta version",
+            "eventId": "Event ID",
+            "fbtrace": "Tracking ID",
+            "sentAt": "Sent",
+            "copy": "Copy",
+            "copied": "Copied",
+            "copyFail": "Couldn't copy. Select it and copy it by hand."
+          }
+        }
       }
     },
     "discounts": {

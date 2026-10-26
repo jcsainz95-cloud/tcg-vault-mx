@@ -199,7 +199,7 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
   el aviso ya declarado, `npx next build` con `on` CARGA (la mínima solo mira la declaración): lo único que sigue
   parando un encendido es `prebuild` ⇒ `ENCENDER_BLOCKERS`.
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
@@ -267,6 +267,11 @@ final de `src/types/contract.ts`.
   `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6), y un segundo
   envío (Enter, botón, «Reintentar») no emite otra llave: guarda síncrona `inFlight` (ref, no el estado `pending`,
   que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
+- **Evento de prueba de Meta** (§MKT.H.12 v1.112, MKT-UX.10-b, 2026-10-26): `MetaTestEventBlock.tsx` bajo la llave, en
+  cualquier modo; mismo patrón que la llave (sin `useMutation`, guarda `inFlight`): código y resultado solo en `useState`.
+  Mock: el código elige la salida (`MOCK_META_TEST_CODES`: TEST400/401/503/409/429; el resto `accepted`) + límite 5/60 min.
+  Claves `details.copy/copied/copyFail` añadidas (la tabla de ux-ui no fija el aviso de «Copiar»). C-F10 = `MetaTestEventBlock.test.tsx`
+  + `MarketingView.test.tsx` (rol, modos); 19 mutaciones rojas (3/3 c/u, guarda 10/10) sobre `25ddf442`.
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
 - **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`). El enlace del menú se busca por `href` dentro de `aside nav`, no
@@ -276,7 +281,6 @@ final de `src/types/contract.ts`.
   `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
   ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
   no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
-
 
 ## §CARDSHOW-M90 · Magic (5.º juego) + contador vivo Pokémon + programa por día (2026-10-21, base `f650edb`)
 Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO en `content/card-show.ts` (`torneos.programa`, `torneos.juegos`, FAQ); `magic` → «Magic: The Gathering» en `CARD_SHOW_GAMES` (selectores landing + filtro admin).
