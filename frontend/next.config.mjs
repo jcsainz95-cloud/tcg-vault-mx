@@ -75,7 +75,8 @@ export const measurementBuildEnv = (env = process.env) => {
     NEXT_PUBLIC_META_PIXEL_ID: mode === 'on' ? (env.NEXT_PUBLIC_META_PIXEL_ID ?? '') : '',
     TH_MEASUREMENT_CSP_CONNECT: measurementCspConnectFor(mode),
     // Solo builds de MOCKS (E2E con `on`, nunca se publican): versión de aviso de prueba para poder
-    // recorrer el banner mientras `measurementDisclosure` siga en null. Un build real hornea ''.
+    // recorrer el banner sin `measurementDisclosure`. Desde el 2026-10-26 el aviso real declara, y su versión
+    // gana (`notice-version.ts`): esta solo cuenta si la declaración vuelve a null. Un build real hornea ''.
     NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION:
       mode === 'on' && env.NEXT_PUBLIC_USE_MOCKS === 'true' ? (env.NEXT_PUBLIC_MEASUREMENT_E2E_NOTICE_VERSION ?? '') : '',
   };
