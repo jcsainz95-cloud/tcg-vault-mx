@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Lock } from 'lucide-react';
@@ -16,6 +16,8 @@ import { DiscountConfigFields, EMPTY_CONFIG, type ConfigDraft, type FieldErrors 
 import { fromDTO, serverFieldError, toConfig } from './discount-config';
 import { CODE_RE, randomCode } from './dsc-format';
 import { StateTag } from './DiscountCodesView';
+import { DiscountPreview } from './DiscountPreview';
+import { DiscountAuditList, discountAuditQueryKey } from './DiscountAuditList';
 
 interface Draft extends ConfigDraft {
   code: string;
@@ -62,6 +64,11 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
     setDraft((d) => ({ ...d, ...p }));
     setSaved(false);
   };
+  // «Así lo verá el cliente»: solo con una config que el panel ya da por válida (el servidor sigue siendo la autoridad).
+  const previewConfig = useMemo(() => toConfig(draft, t).body, [draft, t]);
+  const refreshAudit = () => {
+    if (existing) void queryClient.invalidateQueries({ queryKey: discountAuditQueryKey('code', existing.id) });
+  };
 
   const save = useMutation({
     mutationFn: async (): Promise<DiscountCodeDTO | null> => {
@@ -106,6 +113,7 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
         return;
       }
       if (dto) queryClient.setQueryData(['admin-discount-code', dto.id], dto);
+      refreshAudit();
       setSaved(true);
     },
     onError: (e: unknown) => {
@@ -132,6 +140,7 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
     onSuccess: (dto) => {
       queryClient.setQueryData(['admin-discount-code', dto.id], dto);
       void queryClient.invalidateQueries({ queryKey: ['admin-discount-codes'] });
+      refreshAudit();
     },
     onError: (e) => setFormError(getMessage(e)),
   });
@@ -146,8 +155,10 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
   const lockProps = locked ? { disabled: true, 'aria-disabled': true as const, 'aria-describedby': lockedId } : {};
 
   return (
+    // §DSC-UX.5: «Así lo verá el cliente» a la derecha desde `lg`, bajo el formulario en `< lg`; la auditoría, a un costado.
+    <div className="lg:grid lg:grid-cols-[minmax(0,760px)_minmax(0,340px)] lg:items-start lg:gap-10">
     <form
-      className="max-w-[760px] pb-24"
+      className="min-w-0 pb-24 lg:pb-0"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate();
@@ -253,5 +264,10 @@ function CodeFormBody({ existing }: { existing?: DiscountCodeDTO }) {
         </Link>
       </div>
     </form>
+    <aside className="mt-8 grid min-w-0 gap-6 lg:sticky lg:top-6 lg:mt-14">
+      <DiscountPreview config={previewConfig} />
+      {existing && <DiscountAuditList kind="code" id={existing.id} />}
+    </aside>
+    </div>
   );
 }

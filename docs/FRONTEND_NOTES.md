@@ -2,10 +2,11 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
-## §DSC · Códigos de descuento (2026-10-25, base `85f350df`, contrato v1.110 §DSC, DESIGN_SYSTEM §DSC-UX)
+## §DSC · Códigos de descuento (2026-10-25, fase 2 sobre `008c9217`, contrato v1.110.1 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 
-**Estado vigente.** Construido contra el MOCK; el backend de §DSC (`backend/src/modules/discounts/`) NO existe en la base
-(medido: `ls backend/src/modules`), así que nada lleva `@real` todavía. Decisiones del dueño: `HECHOS.md` 2026-10-25
+**Estado vigente.** Construido contra el MOCK. En `008c9217` el backend de §DSC es la fase 1 (`modules/discounts/`:
+cálculo, quote/sesión, ciclo del uso) y no tiene controlador del panel (medido: `grep @Controller` vacío), así que nada
+lleva `@real` todavía. Decisiones del dueño: `HECHOS.md` 2026-10-25
 «Códigos de descuento: pantallas y P-DSC-3» (renglón arriba, retiro a MX$0.00 con «Confirmar retiro», «envío gratis»
 aprobado en lo propio de un código de envío gratis).
 - **Piezas:** `components/domain/CodeRow.tsx` (S1-S10, sin `dialog`) + `useDiscountCode.ts` (traduce el `discount` del
@@ -20,24 +21,36 @@ aprobado en lo propio de un código de envío gratis).
   Sin código, las llamadas son las de hoy, sin argumento de más (las pruebas existentes lo fijan con `toHaveBeenCalledWith`).
   `422/429` del código en la sesión ⇒ C12, no se abre el cobro, re-cotiza sin código.
 - **Barra:** C11 en su forma CORTA «Con descuento −MX$X» (respaldo de §DSC-UX.2): la larga midió 123 px a 360 (DL3, tope 120).
-  Bóveda: «Descuento −X · comisión de plataforma Y» (texto propio, pendiente de ux-ui).
-- **Panel** `/admin/codes` (ruta propuesta por ux-ui; el contrato no fija ruta de pantalla): lista con chips, lote plegado,
-  pausar (lote con confirmación D6), nuevo/editar (bloqueo D7: solo fin y usos totales), lote con CSV y muestra, reporte.
+  Bóveda: C11v «Descuento −X · comisión de plataforma Y». Motivos C17-C21 con el texto de §DSC-UX.4.
+- **Panel** `/admin/codes` (ratificada, §DSC.7 v1.110.1): lista con chips, lote plegado, columna «Descuento dado» =
+  `usage.discountGivenCents` (lote: «—», su DTO no lo trae), pausar (lote con confirmación D6), nuevo/editar (bloqueo D7),
+  lote con CSV, reporte. «Así lo verá el cliente» (`DiscountPreview`) = `POST /admin/discount-codes/preview` con un carrito
+  de ejemplo fijo (`PREVIEW_SAMPLE_LINES`, 300 ms de espera); pinta la cifra del servidor, cero cuentas. «Cambios»
+  (`DiscountAuditList`) = `GET …/:id/audit` (código, en su edición; lote, en su reporte), una línea `campo · antes → después`.
+  «Envío regalado»: valor = pedidos + retiros (suma de pantalla de dos campos del servidor), subtítulo sin la parte en 0.
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
   blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
-- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel). Paridad con cifras del contrato: `discounts.parity.test.ts`
-  (los DCO-F* no traen cifras: lee el ejemplo de §DSC.3, DCO-B2, el 895 de §DSC.4 y DCO-B4; la base del 893, de PROJECT).
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). v1.110.1: envío gratis con `E` sin código en 0
+  (umbral **o dial**) ⇒ `ALREADY_FREE_SHIPPING`, orden `NO_SHIPPING` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING`, también en
+  el retiro; retiro aplicado con mercancía 0, descuento 0 y `shippingWaivedCents = E`. Paridad: `discounts.parity.test.ts`
+  lee las cifras del contrato y de `PROJECT.md` (893 vigente: MX$850.00, MX$99.99/MX$0.01 y MX$9.99) y compara las claves
+  de `DiscountCodeDTO`/`DiscountCodeBatchDTO` del mock con las del bloque `ts` de §DSC.7.
 - **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
   C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
   `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones (rojas/corridas, copia de `f462ca55`): reparto
   sin residuo 3/3 · umbral antes del descuento 3/3 · mínimo después 3/3 · paquete elegible 3/3 · `shippingWaivedCents` 0
   3/3 · `discount` sin código 3/3 · argumento de más sin código (915) 3/3 · línea con precio cobrado 3/3 · sin `gcTime`
   propio 9/10 · «envío gratis» en C6 3/3 · C11 larga en la barra (DL3, Playwright) 3/3.
-- **Pendiente de contrato / ux-ui (en el informe):** forma de `DiscountCodeBatchDTO` (marcada MOCK en `types/contract.ts`);
-  «Descuento dado» por código en la lista (no está en `DiscountCodeDTO`); vista previa «Así lo verá el cliente» y auditoría
-  del código (sin endpoint); textos de `ALREADY_FREE_SHIPPING`, `LARGE_BOX`, `TOTAL_BELOW_MINIMUM`, `WITHDRAWAL_FILTERED`,
-  `NOT_COMBINABLE` y C11 de bóveda (propuestos por frontend); ruta de la pantalla; el `@real` cuando exista el backend.
+  Fase 2 (copia de `33b0ee5c`, 3/3 rojas cada una, N=3): 893 sin el recorte `B − U` · PROJECT con MX$100.00 · dial 0 por
+  umbral · LARGE_BOX tras ALREADY_FREE · retiro con `E = 0` aplicado · sin `createdBy` · sin `discountGivenCents` · lote
+  vacuamente `paused` · `capped` fijo · bitácora no idempotente · columna sin el campo del servidor · `nominalCents` en la
+  vista previa · tope siempre · sin refrescar «Cambios» · subtítulo con la parte en 0 · lote sin «Cambios» · «envío gratis»
+  en C17; Playwright «Descuento dado» en 0 3/3 (`--repeat-each=3`, un build).
+- **Pendiente de contrato (en el informe):** valores de `action` de la auditoría (el mock usa `create/update/pause/resume/
+  archive`; uno desconocido se pinta tal cual); qué devuelve `preview` si la config no aplica al carrito (el mock: ceros);
+  `status` de un lote sin códigos sin usar (vacuamente `paused`, ocultaría `exhausted`; el mock lo da `active`); total de
+  «Envío regalado» en `DiscountReportDTO`. El `@real` cuando exista el backend en esta rama.
 
 ## §CHK-MOVIL · Checkout móvil, opción A (una pantalla) (2026-10-24, rama `fe-checkout-a`, base `aeea6fac`)
 

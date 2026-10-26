@@ -7285,8 +7285,8 @@
         "salesSub": "in those orders, already discounted",
         "refunded": "Refunded",
         "refundedValue": "{n} · {amount}",
-        "waived": "Shipping given away",
-        "waivedSub": "on orders · {amount} on {n, plural, one {# withdrawal} other {# withdrawals}}",
+        "waived": "Free shipping given",
+        "waivedSub": "Orders: {orders} · Withdrawals: {withdrawals}",
         "refundNote": "A refund doesn't give the use back.",
         "columns": {
           "date": "Date",
@@ -7302,7 +7302,33 @@
           "released": "Released"
         },
         "usedCodes": "Codes used: {used} of {n}",
-        "emptyRows": "No orders with this code yet."
+        "emptyRows": "No orders with this code yet.",
+        "waivedSubOrders": "Orders: {orders}",
+        "waivedSubWithdrawals": "Withdrawals: {withdrawals}"
+      },
+      "preview": {
+        "title": "How the customer will see it",
+        "sample": "Sample cart",
+        "line": "{scope} · {qty} × {price}",
+        "discount": "Discount −{amount}",
+        "capped": "It hits the cap you set.",
+        "shipping": "Covers home shipping; it doesn't discount merchandise.",
+        "none": "With this setup, this cart gets no discount.",
+        "incomplete": "Fill in the discount to see the example.",
+        "note": "Calculated by the server with the same rules as checkout."
+      },
+      "audit": {
+        "title": "Changes",
+        "empty": "No changes recorded yet.",
+        "meta": "{at} · {name}",
+        "none": "—",
+        "action": {
+          "create": "Created",
+          "update": "Edited",
+          "pause": "Paused",
+          "resume": "Resumed",
+          "archive": "Archived"
+        }
       }
     }
   },

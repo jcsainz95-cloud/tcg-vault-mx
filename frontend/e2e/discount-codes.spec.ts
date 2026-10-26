@@ -212,6 +212,35 @@ test.describe('DSC · panel del dueño', () => {
     await expect(batchRow).toContainText(t('es', 'admin.discounts.states.paused'));
   });
 
+  test('v1.110.1: «Descuento dado» en la lista, «Así lo verá el cliente» a la derecha (lg) o debajo (móvil) y «Cambios» al editar', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/codes');
+    const sept = page.getByTestId('code-list-row').filter({ hasText: 'SEPT10' });
+    await expect(sept.getByTestId('code-given')).toContainText('MX$570.00');
+
+    await page.getByRole('link', { name: t('es', 'admin.discounts.newCode') }).click();
+    const preview = page.getByTestId('discount-preview');
+    await expect(preview).toContainText(t('es', 'admin.discounts.preview.incomplete'));
+    await page.getByLabel(t('es', 'admin.discounts.form.valuePct')).fill('10');
+    await expect(preview.getByTestId('discount-preview-amount')).toHaveText('Descuento −MX$400.00');
+    const form = await page.locator('form').first().boundingBox();
+    const box = await preview.boundingBox();
+    expect(box!.x).toBeGreaterThan(form!.x + form!.width - 1);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const formM = await page.locator('form').first().boundingBox();
+    const boxM = await preview.boundingBox();
+    expect(boxM!.y).toBeGreaterThanOrEqual(formM!.y + formM!.height - 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/es/admin/codes/dsc-sept10');
+    const audit = page.getByTestId('discount-audit');
+    await expect(audit).toContainText('maxTotalUses · 50 → 100');
+    await expect(audit.getByTestId('discount-audit-entry')).toHaveCount(2);
+  });
+
   test('DL7: el operador no ve la entrada del menú y por URL llega al acceso denegado', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await loginAs(page, 'operator');

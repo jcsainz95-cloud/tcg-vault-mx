@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { createDiscountCodeBatch, downloadDiscountCodeBatchCsv } from '@/lib/api';
@@ -13,6 +13,7 @@ import { downloadTextFile } from '@/lib/download';
 import type { DiscountCodeBatchCreateResponse } from '@/types/contract';
 import { DiscountConfigFields, EMPTY_CONFIG, type ConfigDraft, type FieldErrors } from './DiscountConfigFields';
 import { serverFieldError, toConfig } from './discount-config';
+import { DiscountPreview } from './DiscountPreview';
 
 const PREFIX_RE = /^[A-Z0-9]{2,8}$/;
 
@@ -29,6 +30,7 @@ export function DiscountBatchForm() {
   const [result, setResult] = useState<DiscountCodeBatchCreateResponse | null>(null);
   const [sample, setSample] = useState<string[]>([]);
   const n = Number(quantity) || 0;
+  const previewConfig = useMemo(() => toConfig(draft, t).body, [draft, t]);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -115,8 +117,9 @@ export function DiscountBatchForm() {
   }
 
   return (
+    <div className="lg:grid lg:grid-cols-[minmax(0,760px)_minmax(0,340px)] lg:items-start lg:gap-10">
     <form
-      className="max-w-[760px] pb-24"
+      className="min-w-0 pb-24 lg:pb-0"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -166,5 +169,9 @@ export function DiscountBatchForm() {
         </Link>
       </div>
     </form>
+    <aside className="mt-8 min-w-0 lg:sticky lg:top-6 lg:mt-14">
+      <DiscountPreview config={previewConfig} />
+    </aside>
+    </div>
   );
 }

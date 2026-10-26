@@ -8487,7 +8487,8 @@ export interface DiscountCodeDTO {
   status: DiscountCodeStatus;
   state: DiscountCodeState;
   locked: boolean;
-  usage: { consumed: number; reservedNow: number; limit: number | null };
+  /** v1.110.1: `discountGivenCents` = `DiscountReportDTO.discountGivenCents` sin `from`/`to` (columna «Descuento dado»). */
+  usage: { consumed: number; reservedNow: number; limit: number | null; discountGivenCents: number };
   createdAt: string;
   createdBy: { id: string; name: string };
 }
@@ -8529,17 +8530,13 @@ export type DiscountCodeBatchCreateRequest = Omit<DiscountCodeCreateRequest, 'co
   quantity: number;
 };
 
-/**
- * §DSC.7 — un lote. ⚠️ MOCK: pendiente de contrato — §DSC.7 dice «lista; detalle con config y conteos» y
- * `201 { batch, codesCsvPath }` pero NO fija la forma de `batch`. Esta es la mínima que la lista plegada necesita
- * (solicitud al arquitecto en FRONTEND_NOTES §DSC): campos de `DiscountCodeBatch` (M-92: id, prefix, quantity,
- * createdAt), la config copiada a cada código y los conteos que §DSC.7 nombra.
- */
+/** §DSC.7 — un lote (`DiscountCodeBatchDTO`, ratificado en v1.110.1 con `createdBy`). */
 export interface DiscountCodeBatchDTO {
   id: string;
   prefix: string;
   quantity: number;
   createdAt: string;
+  createdBy: { id: string; name: string };
   kind: DiscountKind;
   percentPct: number | null;
   amountCents: number | null;
@@ -8549,16 +8546,18 @@ export interface DiscountCodeBatchDTO {
   destinations: FulfillmentMode[];
   startsAt: string;
   endsAt: string | null;
-  /** `paused` ⇔ sus códigos sin usar están pausados. */
+  /** `paused` ⇔ ningún código sin usar está `active`. */
   status: DiscountCodeStatus;
+  /** Reglas de `DiscountCodeDTO.state`; `exhausted` ⇔ todos sus códigos `consumed`. */
   state: DiscountCodeState;
   /** Códigos con uso `consumed` y usos apartados ahora. */
   usedCodes: number;
   reservedNow: number;
+  /** Algún código del lote con `firstReservedAt`. */
   locked: boolean;
 }
 
-/** §DSC.7 — `GET /admin/discount-code-batches` (forma MOCK: ver `DiscountCodeBatchDTO`). */
+/** §DSC.7 — `GET /admin/discount-code-batches`. */
 export interface DiscountCodeBatchListResponse {
   data: DiscountCodeBatchDTO[];
   page: number;
@@ -8570,6 +8569,33 @@ export interface DiscountCodeBatchListResponse {
 export interface DiscountCodeBatchCreateResponse {
   batch: DiscountCodeBatchDTO;
   codesCsvPath: string;
+}
+
+/** §DSC.7 (v1.110.1) — `POST /admin/discount-codes/preview`: config del `POST` sin `code` + carrito de ejemplo (1..5 líneas). */
+export type DiscountPreviewRequest = Omit<DiscountCodeCreateRequest, 'code'> & {
+  sampleLines: Array<{ scope: DiscountProductScope; priceCents: number; quantity: number }>;
+};
+
+/** §DSC.7 (v1.110.1) — `200` de la vista previa: lo calcula `discountOf`/`allocateDiscount`; ⛔ ningún cálculo en el front. */
+export interface DiscountPreviewResponse {
+  discountCents: number;
+  nominalCents: number;
+  capped: boolean;
+}
+
+/** §DSC.7 (v1.110.1) — una fila de `GET /admin/discount-codes/:id/audit` y `GET /admin/discount-code-batches/:id/audit`. */
+export interface DiscountAuditEntry {
+  at: string;
+  actor: { id: string; name: string };
+  action: string;
+  changes: Array<{ field: string; before: unknown; after: unknown }>;
+}
+
+export interface DiscountAuditResponse {
+  data: DiscountAuditEntry[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 /** §DSC.7 — `DiscountReportDTO` (código o lote). */

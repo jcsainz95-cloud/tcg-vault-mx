@@ -298,6 +298,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     dsc('es', 'admin.discounts.form.withdrawalNote', 'panel: nota del retiro'),
     dsc('en', 'checkout.discount.lineFreeShipping', 'C4 «Free shipping ({code})»'),
     dsc('en', 'admin.discounts.kind.free_shipping', 'panel: type name (§DSC-UX.5)'),
+    dsc('en', 'admin.discounts.report.waived', 'panel: reporte «Free shipping given» (§DSC-UX.5 D9, vDSC-1.1)'),
   ];
   const CATALOGS = { es, en } as const;
   const badKeys = (catalog: unknown) =>
@@ -362,6 +363,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     const dscKeys = all.filter((o) => o.approved === DSC_APPROVAL).map((o) => `${o.locale}:${o.key}`).sort();
     expect(dscKeys).toEqual([
       'en:admin.discounts.kind.free_shipping',
+      'en:admin.discounts.report.waived',
       'en:checkout.discount.lineFreeShipping',
       'es:admin.discounts.form.withdrawalNote',
       'es:admin.discounts.kind.free_shipping',
@@ -370,7 +372,7 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
       'es:checkout.discount.withdrawalOnlyFreeShipping',
     ]);
     // Los errores genéricos y los de porcentaje/monto NO lo dicen (§DSC-UX.4: «en cualquier otro texto de descuento no se escribe»).
-    for (const k of ['invalid', 'minSubtotal', 'onlyScopes', 'barShort', 'barVault', 'removedNotice', 'replaced', 'saves', 'applied']) {
+    for (const k of ['invalid', 'minSubtotal', 'onlyScopes', 'barShort', 'barVault', 'removedNotice', 'replaced', 'saves', 'applied', 'alreadyFree']) {
       expect(String((es.checkout.discount as Record<string, unknown>)[k]), `es:checkout.discount.${k}`).not.toMatch(/env[ií]o\s+gratis/i);
       expect(String((en.checkout.discount as Record<string, unknown>)[k]), `en:checkout.discount.${k}`).not.toMatch(/free\s+shipping/i);
     }
