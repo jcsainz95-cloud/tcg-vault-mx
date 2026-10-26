@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.110.3⟨descuentos⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.111⟨aviso-medicion⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5
 > hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
@@ -22,7 +22,8 @@
 > - v1.110⟨descuentos⟩ · 2026-10-25 · [§DSC](#DSC) códigos de descuento: esquema `M-92`, orden del cálculo sobre §4-G.12, reparto por unidad, ciclo del uso atado a §4-R, retiro con envío gratis a MX$0 (P-DSC-3 (a) por defecto), endpoints de cliente y de `super_admin`, errores en §0, pruebas `DCO-*`; compactadas las cabeceras v1.85–v1.90/SU-1/BSD-1 · dueño (`HECHOS.md` 2026-10-25 «Códigos de descuento: opción B…» y «…P-DSC-1/2 y mínimo de compra»).
 > - v1.110.1⟨descuentos⟩ · 2026-10-25 · §DSC: respuestas a backend fase 1 (`1c6bb38a`) y frontend (`84ffa289`): envío gratis con `E` = 0 no aplica, `vaultBreakdown` sin código, congelado con `unitDiscountCents`, retiro con mercancía 0, carrera cuenta como fallido, lectores del original, limpieza PDB, `DiscountCodeBatchDTO`, `discountGivenCents` por código, `preview` y `audit`, `/admin/codes`, `enum-values.ts`, P-DSC-3 cerrada; DCO-B19 admite mecánica de reversa · backend/frontend (`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 > - v1.110.2⟨descuentos⟩ · 2026-10-26 · §DSC.7: `action` de la bitácora enumerada y `actor` nullable, `preview` en ceros cuando no aplica (y siempre en `free_shipping`), `status` de lote sin códigos sin usar (`active` + `exhausted`), «Envío regalado» = suma de dos campos, `batchId`/`from`/`to` fuera de §0-Q (tope 116); §M4-VAULT.2-bis.2 nombra la escritura del uso en el tardío — todo ratifica lo construido · frontend/backend sobre `e84c86fe`/`cc394d54`.
-> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1). La siguiente es **v1.111**.
+> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1).
+> - v1.111⟨aviso-medicion⟩ · 2026-10-26 · §MKT.H: sin abogado; C-D1 exige exactamente una de `legalReviewOn`/`legalReviewWaivedByOwnerOn` (ARCHITECTURE §14.1); .5/.10/.12 al día con las decisiones del aviso aprobado (ARCHITECTURE §14.10) · orquestador (`HECHOS.md` 2026-10-23 y 2026-10-26). La siguiente es **v1.112**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -45131,7 +45132,7 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 ### <a id="MKT-H"></a>MKT.H — Fase 2: consentimiento, GA4, Meta Pixel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto, **NORMATIVA**; se construye APAGADO)
 
 > Diseño y razones: **ARCHITECTURE §14**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel f1/f2/f3/g1. **Se construye pero no se
-> enciende** hasta el aviso revisado por el abogado, que sale en el mismo despliegue o antes (`PENDIENTES.md:1059-1060`). Migración
+> enciende** hasta que el aviso declare la medición (puerta D-MKT2-0b, ARCHITECTURE §14.1), en el mismo despliegue o antes. Migración
 > **m86**. Toca `orders`/`payments`/`buylist` solo para leer y encolar **después del commit** (MKT.H.6). Tres veredictos.
 
 #### MKT.H.1 Variables de entorno (fuente única de nombres)
@@ -45272,8 +45273,8 @@ Item = { item_id: string /* MKT.H.4 */, item_name: string /* MKT.H.4 */, item_ca
 ```
 - Solo si `measurementConsentAds = true` **y** hay `fbp` o `fbc`. Si no, no se encola.
 - ⛔ `user_data` solo admite `fbp` y `fbc`. Prohibido siempre, también con hash: `em`, `ph`, `fn`, `ln`, `ct`, `st`, `zp`, `country`,
-  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (este último, hasta que el dueño decida: ARCHITECTURE §14.10
-  pregunta 2), `lead_id`, `fb_login_id`, `subscription_id`.
+  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (decidido por el dueño, ARCHITECTURE §14.10), `lead_id`,
+  `fb_login_id`, `subscription_id`.
 
 #### MKT.H.6 Cuándo se encola y cómo se drena
 
@@ -45373,8 +45374,8 @@ y cargarlo **él** en el almacén de secretos de Railway como `META_CAPI_TOKEN`.
 configuración automática de eventos **apagadas**; sin audiencias ni conversiones personalizadas. 4. En GA4: crear el flujo web, el
 `api_secret` de Measurement Protocol (lo carga él como `GA4_MP_API_SECRET`), Google Signals apagado, personalización de anuncios
 apagada, datos proporcionados por el usuario apagados, retención 14 meses. 5. Dar a la cuenta de servicio de la tienda rol Lector
-en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por el abogado. Los nombres de menú de Meta y Google:
-**NO VERIFICADOS**.
+en GA4 y usuario restringido en Search Console. 6. El aviso ya no: aprobado por el dueño sin abogado (`HECHOS.md` 2026-10-23 y 2026-10-26).
+Nombres de menú de Meta y Google: **NO VERIFICADOS**.
 
 #### MKT.H.11 Candados (las pruebas las escribe el rol dueño; QA las ejecuta)
 
@@ -45388,7 +45389,7 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-F9** | frontend (unitaria + Playwright, v1.109) | `isMeasuredPath`: `/es/buylist` y `/card-show` ⇒ sí; `/es/buylist/requests/x`, `/card-show/confirm`, `/card-show/cancel`, `/card-show/unsubscribe` ⇒ no. En `/card-show` solo sale `page_view` a GA4 (sin eventos de formulario) y, mientras P-CS-MEDIR-1 no diga otra cosa, `fbevents.js` no carga | añadir `/card-show/:seg` o mandar `generate_lead` desde la landing ⇒ rojo |
 | **C-F6** | frontend (unitaria) | `track()` con un parámetro fuera de la lista de MKT.H.4 (p. ej. `email`) lo descarta; en ruta fuera de la lista blanca no envía nada | ampliar la lista ⇒ rojo |
 | **C-F7** | frontend | `buildCsp` con `off` no lleva ningún origen de medición; con `on` lleva exactamente los de MKT.H.1 | — (prueba de texto, como `csp.test.ts`) |
-| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null`, frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
+| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null` o sin **exactamente una** de `legalReviewOn`/`legalReviewWaivedByOwnerOn` con fecha, ARCHITECTURE §14.1; frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
@@ -45406,8 +45407,7 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 
 #### MKT.H.12 Preguntas para el dueño
 
-Las de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, `client_id` 7 días, re-preguntar, `refund`; la del Card Show la
-contestó el dueño el 2026-10-24 y deja P-CS-MEDIR-1 sobre Meta en la landing).
+ARCHITECTURE §14.10: abiertas GTM y P-CS-MEDIR-1; el resto, decidido al aprobar el aviso (`HECHOS.md` 2026-10-26).
 
 #### MKT.H.13 Qué cambia cada rol con v1.107 (lo de v1.106 está en el árbol, leído el 2026-10-19; el verde de sus pruebas: NO MEDIDO)
 
