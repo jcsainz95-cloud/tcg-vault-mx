@@ -1,131 +1,202 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · estado vigente
 
-> **Estado vigente (2026-10-25).** Último veredicto: **APROBADO** sobre **`60250e90d0f12f375b24a6b9dbc4599854fddb87`**
-> (rama `claude/sesiones-pendientes-alcances-cznucn`; release «Envío v2 / buylist·solicitud / medición b5-b6»).
-> Críticas 0 · Altas 0 abiertas en el delta. Lo heredado sigue abierto y está en «Registro vigente» (abajo):
-> **P-RL-1** (Media, C6 sin cerrar), **CL-1** (CSP en `report-only` con la tienda ya cobrando en real), **BL-42** (INE sin purga).
-> Medición Fase 2: **apagada** y sin poder encenderse (MKT-F2-3, MKT-F2-4).
-> **Compactado el 2026-10-25** (DOC-SIZE: 17 004 → este fichero). Los 81 veredictos anteriores, íntegros, siguen en git:
-> `git show 60250e90:docs/SECURITY_NOTES.md`. Aquí quedan el veredicto vigente, lo que sigue abierto o aceptado y un índice.
+> **Estado vigente (2026-10-26).** Último veredicto: **APROBADO** sobre **`2f5a59c0f1bf063e47e104b084e02036ac381456`**
+> (release «Códigos de descuento v1.110.3–v1.112.1 · evento de prueba de Meta · aviso de privacidad con la medición»).
+> Críticas 0 · Altas 0 en el delta. **DSC-1 del pentester: CERRADA** (decisión del dueño, implementada y medida).
+> **Encender la medición: NO APROBADO todavía.** Lo frena hoy MKT-F2-3 (la puerta de build y el backend lo hacen cumplir) y,
+> además, este pase abre **SEC-MED-1** (Media, solo aplica al encender): la URL completa con `?q=` llega a Google y a Meta.
+> Lo heredado sigue en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, sin aceptación escrita del dueño), **BL-42**.
 
 ---
 
-# VEREDICTO BLUE TEAM — **Release «Envío v2 (regla A) / buylist·solicitud / medición b5-b6»** · SHA **`60250e90d0f12f375b24a6b9dbc4599854fddb87`** · 2026-10-25 · seguridad
+# VEREDICTO BLUE TEAM — **Release «Códigos de descuento / evento de prueba de Meta / aviso con la medición»** · SHA **`2f5a59c0f1bf063e47e104b084e02036ac381456`** · 2026-10-26 · seguridad
 
-> ## VEREDICTO: ✅ **APROBADO** sobre `60250e90`, sin condiciones
-> **0 críticas · 0 altas · 0 medias · 0 bajas abiertas en el alcance · 3 info nuevas (aceptadas).**
-> El pase del pentester sobre `230b9bd3` (0/0/0, 1 baja) queda consolidado. **Su única baja, el truco del accesorio, está CERRADA en
-> `60250e90`.** El dueño eligió la regla A (`HECHOS.md`, fila «Envío gratis desde MX$4,000 para CUALQUIER pedido (opción A)», 2026-10-25), y lo
-> comprobé en el código y con una mutación.
+> ## VEREDICTO: ✅ **APROBADO** sobre `2f5a59c0`, sin condiciones (con la medición APAGADA)
+> **0 críticas · 0 altas · 1 media nueva que solo aplica al encender (SEC-MED-1) · 1 baja aceptada (SEC-DSC-QA7) · 3 info.**
+> El pase del pentester sobre `c421de13` (0/0/0, 1 baja, 2 info) queda consolidado. **DSC-1 está CERRADA en `2f5a59c0`.**
+> El endpoint `POST /admin/measurement/meta-test-event` **pasa** la revisión que pide ARCHITECTURE §14.11.
+> La puerta de encendido muerde. Lo que promete el aviso **se cumple en el servidor**, pero **no del todo en el navegador** (SEC-MED-1).
 
 ## Procedencia (O-9 / O-14)
-- **Copia del árbol ENTERO** anclada al sha: `git archive 60250e90 | tar -x` en `scratchpad/seg-rel3/tree/`, con `node_modules` de `backend/`
-  por enlace (el árbol vivo estaba en `60250e90` y limpio, lo medí con `git rev-parse HEAD` y `git status`). Sin stack, sin BD, sin navegador
-  (QA corría Playwright), sin credenciales y sin tocar producción. Load ≈ 7-8 con 4 CPU. Las pruebas que corrí son deterministas, así que la
-  carga no cambia el resultado. **La copia está borrada**; los logs quedan en `scratchpad/seg-rel3/logs/`.
-- **Alcance:** el delta `230b9bd3..60250e90` (25 ficheros, 5 de `backend/src`) más el pase del pentester sobre `230b9bd3`. El árbol de
-  producción (`bc288024` es el merge de GitHub de `e77e74ee`, sin diff) es ancestro de `230b9bd3`, así que pentester + este pase cubren
-  todo lo que entra en la publicación desde lo ya auditado (`803c4298`).
-- **[MEDIDO] Suites:** `test/shipping-rule.spec.ts` + `src/modules/orders/be27-aggregate-overflow.spec.ts` ⇒ **2/2 suites, 54/54**.
-- **[MEDIDO] Mutaciones** (sobre la copia, restauradas con `.bak`; `diff -r` contra el árbol vivo sale vacío; N=1 cada una porque son
-  deterministas):
+- **Copia del árbol ENTERO** anclada al sha: `git archive 2f5a59c0 | tar -x` en `scratchpad/seg-rel4/tree/`. El árbol vivo estaba en
+  `2f5a59c0` y limpio (`git rev-parse HEAD`, `git status --short` = 0 líneas). `node_modules` de backend por enlaces, salvo `@prisma`,
+  `prisma` y `.prisma`, que copié para correr `prisma generate` **en la copia**. Sin BD (Postgres no responde en :5432 y no hay docker), sin
+  navegador (QA y tester-e2e tenían el suyo), sin credenciales, sin tocar producción. Load entre 10 y 15 con 4 CPU. Las pruebas que corrí son
+  deterministas, así que la carga no cambia el resultado. **La copia está borrada**; los logs quedan en `scratchpad/seg-rel4/logs/`.
+- ⚠️ **Operativo:** el cliente Prisma del árbol vivo está **viejo** (`grep -c countedCodeHashes backend/node_modules/.prisma/client/index.d.ts` = 0;
+  24 tras `generate`). Sin regenerar, 5 suites caen **por tipos, no por conducta**.
+- **Alcance:** el delta `c421de13..2f5a59c0` (123 ficheros) y el pase del pentester sobre `c421de13` (`docs/PENTEST_NOTES.md`, commit `237d9751`).
+  `origin/production` = `bf7d2281`: M-92 **no** está en su árbol (`git ls-tree origin/production backend/prisma/migrations/ | grep -c m92` ⇒ 0).
+- **[MEDIDO] Suites:** `npx jest test/discounts test/measurement` ⇒ **17/17 suites, 268/268 pruebas**.
+- **[MEDIDO] DSC-1** con una prueba mía solo en la copia (`DiscountsService` real, doble de Prisma): el mismo `not_applicable` 12× cuenta **1**; otro
+  código suma 1; `invalid` suma siempre; al 5.º, `blockedUntil` ⇒ **verde**.
+- **[MEDIDO] Mutaciones** sobre la copia, restauradas con `.bak`. `diff -rq backend/src` contra el árbol vivo sale vacío. N=1 cada una porque son
+  deterministas:
 
 | Mutación | Qué reintroduce | Resultado |
 |---|---|---|
-| M1 `free = kind === 'sealed' && S ≥ T` | la regla anterior: el truco del accesorio | **7/54 rojas** |
-| M2 `quoteBreakdowns` sin `representableOrThrow` | 500 en vez de 422 en el quote | **1/54 roja** (TL-ENV-4) |
-| M3 `direct_ship_cards_fee_cents` sin tope (`≥ 0`) | dial > Int32 | **1/54 roja** (ENV-5) |
-| M4 `freeShippingApplied = free` (sin `¬bigBox`) | «gratis» con caja grande cobrada | **1/54 roja** |
+| M1 sin la línea `counted.includes(codeHash) ⇒ return` | sin deduplicar: re-cotizar el mismo código bloquea | **rojo solo en mi prueba**; las 101 de `test/discounts*` siguen verdes |
+| M2 `quoteOutcome` sin `recordFailure` en `not_applicable` | **DSC-1 tal cual** (el quote no cuenta) | **0 rojas** en `test/discounts*` |
+| M7 `countingAttempts` sin la rama `DISCOUNT_CODE_NOT_APPLICABLE` | DSC-1 en la sesión | **0 rojas** en `test/discounts*` |
+| M3 `redactMetaText` sin quitar el token literal | token de CAPI en la respuesta y la bitácora | **2/16 rojas** (C-B13) |
+| M4 `user_data` con `client_ip_address` | dato personal hacia Meta | **3/16 rojas** (C-B12) |
+| M5 límite con `>` en vez de `>=` | 6 envíos por hora | **1/16 roja** (C-B14) |
+| M6 `TEST_EVENT_CODE_RE = /^.*$/s` | inyección en `test_event_code` | **2/16 rojas** |
 
-- **[MEDIDO]** `scripts/check-secret-defaults.sh` ⇒ rc 0. `grep` de formas de clave (`sk_live_`, `rk_live_`, `whsec_`, `AKIA`, PEM) en el diff ⇒ 0.
-  El delta no toca `package*.json` ni lockfiles, así que no corrí `npm audit`: la exposición de dependencias es la del pase `9cc26064` (PRE-P3, PRE-P4).
-- **Del orquestador / otros roles, NO medido por mí:** suites de integración `envio-v2.e2e-spec.ts` y `accessories-checkout.e2e-spec.ts` (necesitan BD)
-  y las pruebas de frontend (`DirectShipSection.test.tsx`, `shipping-rule.parity.test.ts`). Las leí, pero no las ejecuté.
+  **Lectura de M1/M2/M7:** el candado de DSC-1 vive **solo** en la integración (`test/integration/discounts.e2e-spec.ts:583,911-1000`, DCO-B9 ampliada),
+  que necesita Postgres. Lo leí, pero **NO lo corrí**. Las pruebas puras no lo cubren: lo registro como SEC-DSC-I1 (info), no como hueco.
+- **[MEDIDO]** En las líneas añadidas: formas de clave (`sk_live_`, `rk_live_`, `whsec_`, `AKIA…`, PEM, `EAA…`) = 0; `dangerouslySetInnerHTML`/`$…RawUnsafe` = 0; `check-secret-defaults.sh` rc 0.
+  Sin cambios en `package*.json`/lockfiles ⇒ sin `npm audit` (exposición = PRE-P3/PRE-P4).
+- **NO MEDIDO por mí:** las suites de frontend (`measurement-gate*.test.ts`, `next-config-measurement-gate.test.ts`, `MetaTestEventBlock.test.tsx`,
+  `frontend-never-sums-discount.test.ts`) y `scripts/check-measurement-publish-gate.sh`. El árbol vivo no tiene `frontend/node_modules`, así que
+  los leí y no los ejecuté. Tampoco medí el 403 en vivo del endpoint de Meta para otro rol, ni la configuración real de GA4 y del píxel en sus consolas.
 
-## 1. Consolidación del pentester (`docs/PENTEST_NOTES.md`, pase `230b9bd3`)
+## 1. Consolidación del pentester (`docs/PENTEST_NOTES.md`, pase `c421de13`)
 
-| Vector del red team | Su resultado | Mi lectura en `60250e90` | Estado |
+| Vector | Su resultado | Mi lectura en `2f5a59c0` | Estado |
 |---|---|---|---|
-| Total lo calcula el servidor; el PI cobra `breakdown.totalCents` | PASA | Confirmo: `guest-checkout.service.ts:461` usa `outcome.breakdown.totalCents`; el DTO solo trae identidades | ✅ |
-| Umbral sobre `S`, no sobre el total | PASA | Confirmo: `shipping-rule.ts:107` compara `subtotalCents` con `freeFromCents` | ✅ |
-| quote ↔ session no vincula dinero | PASA | Confirmo: `session` recalcula clase, `S`, caja y desglose dentro de la tx (`:377-384`) | ✅ |
-| Sellado sin precio / precio 0 | PASA | Fuera del delta; sigue igual | ✅ |
-| Reembolso con `E = 0` | PASA | Fuera del delta. Ver SEC-ENV-2 (info) | ✅ |
-| `GET /checkout/shipping-rule` | PASA | Confirmo: `guest-orders.controller.ts:50-56`, `@Public`, 60/min, `max-age=300`, tres cifras públicas | ✅ |
-| Diales solo `super_admin` | PASA (403 NO MEDIDO en vivo) | Confirmo por código: `settings.controller.ts:37-39` `@MoneyOut()` de clase y `MoneyOutGuard` APP_GUARD (`app.module.ts:105`); el guard audita `money_out.blocked` y lanza 403 si `role ≠ super_admin` | ✅ (en vivo: NO MEDIDO) |
-| **BAJA · accesorio barato ⇒ envío gratis** | a confirmar por el dueño | **CERRADA.** El dueño decidió la regla A. `directShipFeeOf` (`shipping-rule.ts:106-108`): `free = S ≥ T` sin mirar la clase, y `ruleFee = free ? 0 : (cards_only ? E_cartas : E_sellado)`. Con S ≥ T, añadir un accesorio ya no cambia lo cobrado: era 0 y sigue en 0. Bajo el umbral, añadirlo **sube** el envío de MX$100 a MX$175, nunca lo baja. Lo fija la mutación M1 (7 rojas) | ✅ **cerrada** |
-| `/buylist/solicitud` (CLABE/INE), medición, b5/b6 | PASA | El delta no toca esos ficheros (`git diff --stat`); su lectura sigue valiendo | ✅ |
+| **DSC-1** (Baja) · `not_applicable` confirma que el código existe y no cuenta | decisión del dueño | **CERRADA.** El dueño eligió «Decir motivo y contar» (`HECHOS.md`, fila «Códigos de descuento: un código vigente que no aplica cuenta como intento», 2026-10-26). Quote: `discounts.service.ts` `quoteOutcome` ⇒ `recordFailure(keys, now, ev.row.code)`. Sesión de invitado, de bóveda y retiro: `countingAttempts` ⇒ `recordFailure(keys, now, code)` **fuera** de la tx deshecha (`guest-checkout.service.ts:596`, `orders.service.ts:1712`, `shipments.service.ts:682`). Se deduplica por HMAC del código y ventana (`countedCodeHashes`, `domainHmac('dsc-throttle:code:')`; el texto del código no se guarda en claro). `details` mínimos: `DESTINATION` ⇒ `{}` (`money.ts` `discountOf`), `MIN_SUBTOTAL` solo `missingCents` (ya no `minSubtotalCents`), `ZERO_DISCOUNT` ⇒ `{}`. Lo midió mi prueba; el candado del repo está en la integración (ver M2/M7) | ✅ **cerrada** |
+| DSC-2 (Info) · el tope por cliente se esquiva con otro correo o con `+alias` | riesgo aceptado §DSC.5(a) | Sigue igual (`evaluate` compara `customerEmail` literal). Aceptado: registro B | ✅ aceptado |
+| DSC-12 (Info) · tiempo de respuesta del camino inválido | mitigado | `NIL_CODE_ID` sigue en `evaluate`. Con DSC-1 cerrada, los dos caminos además **escriben** lo mismo (`recordFailure`) | ✅ aceptado |
+| DSC-3…DSC-11 · el cliente no fija importes; BigInt; `FOR UPDATE`; reembolso no revive el uso; retiro MX$0; 21 rutas `super_admin`; Prisma parametrizado; CSV; un código por pedido | verificado-seguro | El delta los conserva: `applyInTx` mantiene `evaluate(…, {lock:true})` + `reserve` dentro de la tx; `$queryRaw`/`$executeRaw` siguen con plantilla (parametrizados); `orderId @unique` sin cambio | ✅ |
 
-## 2. Revisión del delta, con lente de dinero
+## 2. Revisión del delta con lente de dinero (códigos de descuento)
 
-**¿Se puede manipular la clase o el umbral desde el cliente? No.**
-- El umbral `T` es `direct_ship_free_from_cents`. Se lee de `ConfigSetting` (`guest-checkout.service.ts:232-237`) y solo se escribe por
-  `PUT /admin/settings` (`super_admin`, ver arriba). Ningún DTO del checkout lo trae.
-- La clase sale de `productType` de las piezas cargadas de la BD y de los renglones o paquetes **aceptados** por el servidor
-  (`part.loose`, `part.bundles`; en el quote, `acc.accessoryLines`, `acc.energyBundles`). Un `deckPull` sin paquete no cuenta (TL-ENV-R2).
-- Con la regla A, la clase ya **no decide si el envío es gratis**. Solo decide la tarifa bajo el umbral, y lo que el cliente puede hacer
-  (añadir un accesorio) la sube. Para que el cliente gane algo, tendría que hacer que un pedido con sellado pareciera `cards_only`, y eso
-  depende de `productType` en la BD, no de la petición.
-- `S` incluye accesorios (`subtotalCents + part.subtotalCents`, `:379`), como dice el contrato. Inflar `S` con mercancía para cruzar el
-  umbral es comprarla: legítimo, y la venta es final.
+- **`quoteOutcome` / `applyInTx`: una sola orquestación, sin camino que se salte la validez.** El quote **no aparta** nada
+  (`evaluate` con `lock:false`) y responde `rate_limited`, `invalid`, `not_applicable` o `applied`. La sesión pasa por `openAttempt`
+  (429 antes de tocar nada), luego `applyInTx` **después** de la puerta por cliente y de la sustitución, con `FOR UPDATE` de la fila del
+  código y el `now` de la tx. Cualquier fallo lanza 422 y **deshace** orden, uso y PI. El candado de fuente TL-DSC-4
+  (`discounts-v1103.pure.spec.ts:190-203`) prohíbe llamar a `evaluate`/`recordFailure`/`reserve` fuera de `discounts/`. Lo cobrado sigue
+  saliendo de `applied.priced.breakdown`, calculado en el servidor.
+- **`ZERO_DISCOUNT` (precedencia 8).** Un `%` o un monto que rinde `D = 0` ya no aparta un uso sin beneficio. Eso importaba en los lotes de un
+  solo uso: antes se podía «quemar» un código ajeno con un carrito que no lo aprovechaba. Va **después** de `TOTAL_BELOW_MINIMUM`, sin
+  `details`, y cuenta como intento (deduplicado). La vista previa del admin devuelve `{0,0,false}` (`admin-discounts.service.ts:269-271`).
+- **Pago tardío por `DiscountRedemption` (I-7).** «¿Lleva código?» ya no se deduce de `discountCents > 0 ∨ shippingWaivedCents > 0`, sino de la
+  fila (`consumeOrderRedemption` busca por `orderId`; sin fila, cero escrituras). Así no queda un uso apartado sin consumir por un importe 0.
+  Se quitó la `tx`: la única escritura es `updateMany … where {id, status: <leído>}`, un CAS atómico. Si pierde una carrera, `count = 0` ⇒
+  `consumed:false`, sin doble consumo. La rama sigue con **cero** escrituras sobre orden, piezas o avisos (`payments.service.ts:289-298`).
+  `mailDiscountOf` y los tres detalles leen del mismo lector (`orderDiscountOf`): un hecho, un sitio.
+- **`countedCodeHashes` (HMAC).** Es una columna `TEXT[] NOT NULL DEFAULT '{}'`. Se vacía al abrir ventana nueva (`fresh ⇒ []`). Su tamaño
+  está acotado por `discount_code_max_failures`, porque cada hash nuevo suma 1 y, al bloquear, el quote sale por `rate_limited` y la sesión
+  por 429 **antes** de `recordFailure`. Es HMAC de dominio propio con `PII_HMAC_KEY`, como IP y correo: la tabla no revela qué códigos se
+  probaron. El código que se compara es el normalizado, igual en quote (`ev.row.code`) y en sesión (`code`, la misma cadena por `findUnique`).
+- **M-92 editada en su sitio** (`NOT NULL` en `productScopes`, `destinations` y `countedCodeHashes`). No está en `origin/production` (medido arriba),
+  así que la producción la recibe ya corregida. Si algún staging o base local la aplicó antes, Prisma verá la suma de control cambiada:
+  SEC-DSC-I2 (info, devops).
+- **Residuo de DSC-1, dicho entero.** Con la decisión del dueño, el oráculo de existencia **sigue** (el cliente ve el motivo), pero ahora
+  **cuesta un intento por código distinto**, igual que un código inválido. Su techo es el límite por IP/correo/usuario. En invitado, el
+  atacante elige el correo, así que el techo real es el de la IP, y ese es justo el que **P-RL-1** puede dejar esquivar con
+  `X-Forwarded-For`. No es nuevo: es P-RL-1 aplicado a códigos.
 
-**¿El envío cobrado coincide con el quote? Sí, cuando el carrito y los diales no cambian entre las dos llamadas.**
-- Las tres rutas pasan por la misma función pura: `quoteBreakdowns` (`:836`), `breakdownFor` (`:854`) y la rama con accesorios de `session`
-  (`:381`). Las tres usan `directShipFeeOf(kind, S, dials, choice)` y después `computeDirectShipBreakdown`. No hay una segunda fórmula.
-- Si el carrito o un dial cambian entre el quote y la sesión, se cobra lo que ve `session`. Ese es el diseño, y en ese caso el
-  PaymentIntent se crea con ese mismo total.
-- El caso de orden propia congelada lo tiene abierto el techlead como TL-ENV-2: el `breakdown` sale de la orden y el `shippingRule`
-  (aviso del umbral) de los diales vivos. Lo cobrado es el congelado, que es también lo que muestra el `breakdown`. Solo el **aviso**
-  puede contradecirlo. No es dinero, es coherencia de pantalla: queda en backend con su ficha.
-- La pantalla ya no puede decir «envío gratis» si cobra la caja grande: `freeShippingApplied = free && !bigBox` (`shipping-rule.ts:114`),
-  y en el DTO solo cuando `kind ≠ null`. Lo fija M4.
+### QA menor (7) — la clave `email:` del límite · **SEC-DSC-QA7 · Baja · ACEPTADA**
+**Lo que pasa** (lo confirmo por código): el quote de invitado acepta un `email` cualquiera y lo usa **para el límite y para el
+por-cliente** (`guest-checkout.service.ts:324-329`).
+- **(a) Bloquear a otro.** Con 5 quotes con código inválido y el correo de la víctima, `email:<hmac>` queda bloqueado 15 min. Mientras dure,
+  la víctima recibe 429 **solo si usa un código**: comprar sin código no pasa por `openAttempt`. La IP del atacante se bloquea a la vez, así
+  que mantener el bloqueo exige rotar IP (P-RL-1).
+- **(b) Saber si un correo ya usó un código.** Con un código conocido que tenga `maxUsesPerCustomer`, el quote con el correo de la víctima da
+  `invalid` si ya lo usó y `applied` si no. Revela que esa persona compró con ese código, que es un dato de relación comercial. Cada sonda
+  cuesta un intento.
+- **Por qué la acepto:** no mueve dinero ni deja usar un código de más. El bloqueo es de 15 min, no impide comprar y le cuesta lo mismo al
+  atacante. La fuga (b) necesita conocer el correo y un código con tope por cliente. La alternativa (no evaluar el por-cliente en el quote)
+  deja la misma fuga en la sesión, y ahí además cuesta una reserva. **Disparador para volver a abrirla** (dueño: backend; decide el arquitecto):
+  (1) un código con tope por cliente publicado en redes, (2) una queja de «no me deja usar mi código», (3) más de 3 bloqueos `email:` en un día
+  en `DiscountCodeThrottle`, o (4) P-RL-1 confirmado como esquivable (sin el tope por IP, (b) no tiene techo). Entonces: quitar el
+  por-cliente del quote de invitado y llevar `email:` solo a la sesión.
 
-**¿Hay desbordamiento? No.**
-- Los diales de tarifa ahora usan `validateIntRange(0, MAX_CENTS)` (`settings.constants.ts:1291-1292`; `shipping-dials.ts:137-140`, que exige
-  entero, `≥ min` y `≤ max`). El umbral ya era `1..MAX_CENTS`. `MAX_CENTS = 2 147 483 647` (`money.ts:38`) = Int32, la columna `Order.shippingFeeCents`.
-- `S + E` puede seguir sin caber en Int32 aunque cada dial quepa. Las tres rutas lo traducen a **422 `AMOUNT_TOO_LARGE`** con la fuente única
-  `orders.representableOrThrow`: el quote (`:839`, nuevo), `breakdownFor` (`:860`) y la sesión con accesorios (`:383`). No se recorta (eso sería
-  cobrar de menos) y no queda un 500. Lo fijan M2 y M3.
-- El contrato lo declara (`API_CONTRACT` v1.109.4 §0 «Errores» y §4-G.1/§4-G.12 v1.109.3), así que código y contrato coinciden.
+## 3. `POST /admin/measurement/meta-test-event` (§MKT.H.12, D-MKT2-10) — revisión «antes de encender» de §14.11: **PASA**
 
-**M-91** (`prisma/migrations/20261108120000_m91_envio_v2_dials`) no cambia en el delta: viene de `230b9bd3` (`c904ace4`). Lo leí: solo datos,
-siembra 10000/17500/400000 (dentro de rango), `ON CONFLICT DO NOTHING` (no pisa un dial escrito antes) y no copia `shipping_fee_cents`. La
-reversa está documentada en la cabecera. No es dinero saliente y no toca PII. M-91 todavía **no** está en producción (`c904ace4` no es
-ancestro de `origin/production`): entra con esta publicación.
+| Lo que se pide | En el código | Estado |
+|---|---|---|
+| Solo `super_admin` | `@Roles(Role.super_admin)` **de clase** (`admin-measurement.controller.ts:21`). Sin `@Public`, sin `marketing:read`. Hay metadata, así que no aplica el modo «falla abierto» de S-M4P-A. La prueba de rol de la spec mira la metadata. **403 en vivo: NO MEDIDO** | ✅ (vivo NO MEDIDO) |
+| 5 por hora | Global, contado sobre `AuditLog` (`measurement.meta_test_event`, 60 min móviles) **dentro** de una tx con `pg_advisory_xact_lock(86_120_002,1)`: dos envíos simultáneos no pasan los dos el 5.º. 400/409/422/429 ni cuentan ni se auditan. Lo fija M5 | ✅ |
+| Token redactado | Va en el **cuerpo**, no en la URL (`metaEventsUrl`). La respuesta de Meta se lee hasta 64 KB y se reduce a una lista cerrada (`events_received`, `fbtrace_id`, `messages`≤5, `error.{code,subcode,type,message}`). Cada texto se **redacta antes de recortar** (literal ⇒ `[token]` y `access_token=…`). El log solo trae `status/http/version` y la bitácora no lleva el token. Lo fijan M3 y C-B13 | ✅ |
+| Sin datos personales | `user_data` = un `fbp` sintético nuevo (`fb.1.<ms>.<10 dígitos al azar>`). No lleva `custom_data`, `external_id`, IP ni UA. `event_source_url` = origen de `APP_BASE_URL` + `/`. No lee pedidos ni usuarios. Lo fijan M4 y C-B12 | ✅ |
+| SSRF / inyección en `testEventCode` | Lista cerrada de claves (`{testEventCode}` y nada más) y `^TEST[0-9]{3,10}$` tras `trim`, sin eco del valor en `details`. El host es fijo (`https://graph.facebook.com`), la versión fija (`v26.0`) y `pixelId` sale del entorno con `^\d{10,20}$` + `encodeURIComponent`. Nada del cliente toca la URL. Lo fija M6 | ✅ |
+| Nada se guarda en el cliente | `MetaTestEventBlock.tsx`: código y resultado viven solo en el estado del componente. Sin `useMutation`/`useQuery` (caché), sin URL, sin `localStorage`/`sessionStorage`, sin `data-*`. Hay guarda síncrona contra el doble clic y React escapa `metaMessages`, sin HTML. Lo leí, **no** corrí su prueba | ✅ (prueba de front NO MEDIDA) |
+| Salir a Meta sin el interruptor | Es a propósito, porque es lo que cierra MKT-F2-3. El riesgo queda acotado a 5/h, `super_admin`, ningún dato de cliente y un evento de prueba (`test_event_code`) que Meta no cuenta como conversión | ✅ aceptado |
 
-**Frontend (delta):** `DirectShipSection` ya no envía 0 cuando el campo está vacío (TL-ENV-R1): un campo inválido bloquea Guardar y no viaja.
-En cualquier caso, el servidor valida. El mock de envío (`lib/mock/shipping-rule.ts`) solo corre con `NEXT_PUBLIC_USE_MOCKS=true`, y el
-despliegue hornea `false` (`.github/workflows/deploy.yml:286`). `ShippingFeeHint`, `GuestCheckoutView` y `CheckoutPayBar` solo pintan:
-no hay `dangerouslySetInnerHTML` en el delta.
+## 4. Aviso de privacidad con la medición y puerta de encendido
 
-## 3. Hallazgos nuevos (todos Info, aceptados)
+**No se puede encender hoy, y lo medí por código:**
+- **Frontend:** `ENCENDER_BLOCKERS` = `[MKT-F2-3]` (`measurement-gate.ts`). Con `NEXT_PUBLIC_MEASUREMENT_MODE=on`, `measurementGateProblems`
+  añade «bloqueo de encendido abierto», `prebuild` corre `check:measurement` y el build cae (Vercel no publica un build fallido). Además,
+  `next.config.mjs` lanza si la declaración falta o está mal formada, aunque alguien se salte `prebuild`. `check-measurement-publish-gate.sh`
+  E5 distingue «solo bloqueos» de «problema del aviso». Ese script no lo corrí (sin `node_modules` de frontend).
+- **Backend:** `BACKEND_ENCENDER_BLOCKERS` = `[MKT-F2-3]`. `MEASUREMENT_MODE=on` arranca en modo efectivo `off` y deja
+  `MEASUREMENT_ENCENDER_BLOCKED`. MKT-F2-4 salió de las dos listas a la vez, con paridad (`measurement.encender-gate.spec.ts` verde, medido).
+  Su `closedBy` (C-B11 contra Postgres) **NO lo medí**: lo afirma backend sobre `a05a6e68`.
+- **El aviso:** `MEASUREMENT_DISCLOSURE` = `{version:'2026-10-medicion-1', approvedByOwnerOn:'2026-10-26', legalReviewOn:null,
+  legalReviewWaivedByOwnerOn:'2026-10-23'}`, una sola fecha de revisión y la correcta (`HECHOS.md` 2026-10-23 y 2026-10-26). La frase vieja
+  está a 0 en `privacidad.es.ts`, y los siete términos aparecen (`grep -c` ≥ 1 cada uno). Nueve frases-promesa del texto aprobado están
+  literales en el aviso (`grep -cF` = 1 cada una).
 
-| ID | Sev | Qué | Ubicación | Dueño | Disparador |
+**¿Se cumple lo que promete el aviso?**
+| Promesa del aviso | Código | Estado |
+|---|---|---|
+| «No se envía nunca nombre, correo, teléfono, dirección, CP, tarjeta, CLABE, INE, RFC, `TCG-…`… **tampoco cifrados**» (servidor) | `measurement-bodies.ts`: lista cerrada. GA4 sin `user_id`/`user_data`/`ip_override`; CAPI con `user_data` = solo `fbp`/`fbc`; `transaction_id` = `Order.id` (uuid), no `orderNumber`. C-B3 verde | ✅ |
+| «Desde nuestros servidores no les enviamos tu IP» | Ni `client_ip_address` ni `ip_override` (C-B3; M4 para el de prueba) | ✅ |
+| «Solo lo necesario ⇒ GA4 recibe la compra con un id al azar; a Meta nada» | `clientIdOf`: sin analítica, `randomClientId` por evento. `meta_capi` solo si `measurementConsentAds === true` y hay `fbp`/`fbc` (`measurement.service.ts:180`). Sin respuesta al banner ⇒ 0 filas (`:177`) | ✅ |
+| «Ids de Google y Meta se borran a los 7 días» (servidor) | `MEASUREMENT_TTL_MS = 7 d` y el drenador purga `MeasurementContext`/`Outbox` vencidos (`measurement-drain.service.ts:85-86`) | ✅ |
+| «No hay medición en cuenta, bóveda, CLABE/INE (`/buylist/solicitud`), detalle de solicitudes, login, seguimiento, aviso» | Lista blanca `routes.ts`, sin `/buylist/:seg`, sin `/pedido`, `/orders` ni `/privacidad`. Navegación **dura** hacia lo excluido (`hard-navigation.ts`, C-F5). `goToSellRequestStep` usa `location.assign` | ✅ |
+| «Card Show: solo GA4, sin Meta, sin formularios» | `UNLOCALIZED_POLICY['/card-show'] = {pixel:false, events:'page_view_only'}`, coincidencia exacta | ✅ |
+| «Sin funciones de publicidad de Google» | `allow_google_signals:false`, `allow_ad_personalization_signals:false`, `consent` de anuncios `denied`. En consola: **NO MEDIDO** | ✅ código / consola NO MEDIDA |
+| «Las páginas que visitas (**sin datos personales en la dirección**)» y «cuántos resultados da una búsqueda (**no lo que buscaste**)» | **No del todo: ver SEC-MED-1** | ❌ al encender |
+
+### SEC-MED-1 · **Media** · aplica solo al ENCENDER · dueño: frontend (+ arquitecto, + dueño en la consola de GA4)
+**Qué:** ARCHITECTURE §14.4 «URL que sale» pide que `page_location`, `page_referrer` **y la URL que ve el píxel** pasen por
+`sanitizeMeasurementUrl`. En el código solo pasa en el **parámetro** del `page_view` (`track.ts:104-106`, `MeasurementProvider.tsx:151`).
+- `gtag('config', id, …)` (`loader.ts:54-58`) no fija `page_location`. Para todo evento que no sea `page_view` (`search`, `view_item`,
+  `add_to_cart`, `begin_checkout`…), gtag pone por defecto la URL **completa** del documento.
+- `fbq('track', …)` siempre manda la URL del documento (`dl`), y no hay forma de sanearla después.
+- En las rutas medidas, el texto libre de la búsqueda va en la query: `/catalog?q=…` (`CatalogView.tsx:436`). Lo mismo pasa con cualquier
+  parámetro que traiga un enlace de fuera.
+- **Agravante, NO MEDIDO:** un flujo web nuevo de GA4 nace con la «medición mejorada» encendida, y su «búsqueda en el sitio» lee justo `q`
+  como `search_term`. API_CONTRACT §MKT.H.10 no le pide al dueño apagarla.
+
+**Evidencia:** lectura de código. El envío real **NO MEDIDO**, porque por encargo no usé navegador. Se mide con el C-F3 de Playwright (`on`,
+terceros interceptados): buscar «pikachu» en `/es/catalog` y comprobar que ninguna petición a `google-analytics.com`/`facebook.com` lleva
+`q=pikachu` en `dl`/`dl=`.
+
+**Por qué no bloquea este release:** la medición está apagada y **no se puede encender** (sección 4). El impacto es incumplir una promesa del
+aviso (el término buscado, que puede ser texto libre), no una fuga de PII de la tienda.
+
+**Mínimo para cerrarla:**
+1. Frontend: `page_location` saneado en `config` (y `gtag('set', {page_location})` en cada navegación medida). Para el píxel, o no cargarlo
+   en una ruta con query no-UTM, o quitar `q` de la URL visible antes de cargar. Lo decide el arquitecto, porque toca §14.4.
+2. Arquitecto: añadir a §MKT.H.10 «medición mejorada apagada (al menos búsqueda en el sitio, formularios y cambios de historial)».
+3. **Candado:** una entrada `SEC-MED-1` en `ENCENDER_BLOCKERS` (frontend, con su ficha en `TECH_DEBT`; la paridad SEC-MKT-2 la exige). Así la
+   puerta muerde sola aunque MKT-F2-3 se cierre antes. **Lo enruto ya**, para que la entrada exista **antes** de que el dueño mande el evento
+   de prueba que cierra MKT-F2-3.
+
+## 5. Hallazgos de este pase
+
+| ID | Sev | Qué | Ubicación | Dueño | Disparador / cierre |
 |---|---|---|---|---|---|
-| SEC-ENV-1 | Info | El comentario del umbral dice «0 regalaría todo envío **con sellado**». Con la regla A regala **todo** envío. El validador está bien (`1..MAX_CENTS`); solo el comentario quedó viejo | `settings.constants.ts:1290` | backend | El próximo toque del fichero |
-| SEC-ENV-2 | Info | Un pedido que entró con `S ≥ T` (envío 0) no cobra envío después de un reembolso parcial (pieza faltante o dañada), aunque lo que queda baje del umbral. Como mucho son MX$175 por pedido, y el reembolso lo inicia el operador, no el cliente. Es regla de negocio, no un hueco | `money.ts` `orderRemainingRefundComponents` (pentester, vector 1) | product-owner → arquitecto | Que existan devoluciones iniciadas por el cliente, o que la merma por reembolso parcial se vea en el P&L |
-| SEC-ENV-3 | Info | `getNumber` no vuelve a validar al leer (clase D-2 / `P-CFG-1`). Un dial `direct_ship_*` mayor que `MAX_CENTS` escrito antes del tope sobreviviría a M-91 (`DO NOTHING`). **Falla cerrado:** quote y sesión dan 422, no cobran. En producción esas claves aún no existen (M-91 no ha corrido), así que hoy no puede pasar | `guest-checkout.service.ts:232-237` | backend | Un nuevo escritor de `ConfigSetting`, o un 422 `AMOUNT_TOO_LARGE` en los registros |
+| **SEC-MED-1** | **Media** (al encender) | URL sin sanear en eventos que no son `page_view` y en el píxel; medición mejorada de GA4 | `loader.ts:54-58`, `track.ts`; §MKT.H.10 | frontend + arquitecto (+ dueño en consola) | Cierre: entrada en `ENCENDER_BLOCKERS` **ya**; arreglo + C-F3 con `?q=` antes de encender |
+| SEC-DSC-QA7 | Baja (aceptada) | La clave `email:` del quote permite bloquear 15 min los códigos de un correo ajeno y saber si ya usó un código | `guest-checkout.service.ts:324-329` | backend (arquitecto decide) | Sección 2 |
+| SEC-DSC-I1 | Info | El candado de DSC-1 vive solo en la integración (M1, M2 y M7 no los ve ninguna prueba pura) | `test/integration/discounts.e2e-spec.ts:583,911` | backend | Si la integración deja de correr en CI, o si `discounts.service.ts` pasa a `backend-lite` ⇒ una prueba pura como la mía |
+| SEC-DSC-I2 | Info | M-92 editada en su sitio: suma de control distinta en una BD que ya la aplicó (staging o local) | `20261109120000_m92_discount_codes/migration.sql` | devops | El primer `migrate deploy` en staging que avise de modificación ⇒ recrear esa BD; producción no la tiene |
+| SEC-MTE-1 | Info | `fetch` hacia Meta con `redirect:'follow'`: un 307/308 de Graph reenviaría el cuerpo con el token. Host fijo de Meta ⇒ teórico (clase PRE-P2) | `measurement-http.ts` | backend | El próximo toque del fichero |
 
-**Lo que no medí (NO MEDIDO):** el 403 en vivo de `PUT /admin/settings` para `vault_operator` (se cierra con sesión de operador ⇒
-`PUT {direct_ship_sealed_fee_cents:0}` ⇒ 403 + fila `money_out.blocked`); las suites de integración y de frontend del delta; el comportamiento
-contra Stripe real.
+## 6. VEREDICTO
+### ✅ **APROBADO** sobre `2f5a59c0f1bf063e47e104b084e02036ac381456`, sin condiciones, para publicar **con la medición apagada**
+- En el alcance (delta `c421de13..2f5a59c0` más el pase del pentester): **0 críticas y 0 altas**. La única Media (SEC-MED-1) solo existe al
+  encender, y encender está bloqueado por dos puertas (build y backend) que leí y, en backend, medí.
+- **DSC-1 cerrada**, según la decisión del dueño: medida con mi prueba. El candado del repo está en la integración (SEC-DSC-I1).
+- El endpoint de Meta pasa la revisión de §14.11, con 4 mutaciones que lo muerden (M3–M6).
+- **Encender la medición NO queda aprobado.** Mínimo: SEC-MED-1 cerrada (o al menos su entrada en `ENCENDER_BLOCKERS`), MKT-F2-3 cerrada
+  por el evento de prueba, y el repaso de consola de §14.11 (GA4 sin Signals y sin medición mejorada; píxel sin coincidencia avanzada ni
+  autoconfiguración). Ese repaso lo hace el dueño con su pantalla, y yo reviso la evidencia.
 
-## 4. VEREDICTO
-### ✅ **APROBADO** sobre `60250e90d0f12f375b24a6b9dbc4599854fddb87`, sin condiciones
-- En el alcance (delta `230b9bd3..60250e90` más el pase del pentester): **0 críticas, 0 altas, 0 medias, 0 bajas abiertas**, 3 info aceptadas.
-- La baja del pentester está **cerrada** por la regla A: lo comprobé en el código y con la mutación M1.
-- El dinero del envío no se puede manipular desde el cliente. Quote y cobro usan la misma función. El desbordamiento da 422, no 500.
-- **Mínimo para seguir aprobado:** nada en este alcance. Lo heredado (abajo) no lo introduce este delta. Mi veredicto no pone
-  condiciones nuevas, pero tampoco lo cierra: ver «Banderas».
-
-— SEGURIDAD (blue team / AppSec), 2026-10-25 · sha **`60250e90d0f12f375b24a6b9dbc4599854fddb87`** · **APROBADO**
+— SEGURIDAD (blue team / AppSec), 2026-10-26 · sha **`2f5a59c0f1bf063e47e104b084e02036ac381456`** · **APROBADO**
 
 ---
 
-# Registro vigente — lo abierto y lo aceptado que sigue en pie (consolidado el 2026-10-25)
+# Registro vigente — lo abierto y lo aceptado que sigue en pie (consolidado el 2026-10-26)
 
 > Cada fila dice **qué veredicto la midió por última vez**. Si no la re-medí hoy, lo dice. El detalle está en
-> `git show 60250e90:docs/SECURITY_NOTES.md` (busca el ID).
+> `git show 60250e90:docs/SECURITY_NOTES.md` (busca el ID); lo del veredicto `60250e90` en `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
 ## A. Abierto (no lo introduce este release; pesa porque la tienda ya cobra en real)
 `HECHOS.md:16`, 2026-10-16: «LA TIENDA YA ESTÁ EN VIVO EN MODO REAL DE STRIPE», afirmado por el dueño y NO medido por el orquestador.
@@ -133,7 +204,8 @@ contra Stripe real.
 | ID | Sev | Qué | Dueño | Última medición | Cierre |
 |---|---|---|---|---|---|
 | **P-RL-1** | **Media** (era Alta antes de C7) | El tope por IP se puede esquivar rotando `X-Forwarded-For` si el edge de Railway pasa el valor del cliente. El tope **por cuenta** (C7: 5 intentos, y luego 429) sí protege el login (pentester, `c62621e6`). Queda la evasión del tope por IP en endpoints públicos: scraping (BMK-1) y DoS de la ruta de cobro (SB-B3). Clasifico Media, como en `c62621e6` §6. El pase `8e1b34d7` copió «Alta» de antes de C7 | devops | 2026-10-10: ronda con XFF rotatorio, 6×401 sin 429; **falta la ronda de control** (`HECHOS.md:168`) | C6 completo (§85.4 de `DEVOPS_NOTES`), con proporción N/N, en ventana autorizada por el dueño |
-| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO hoy]** `frontend/src/security/csp.ts:37`). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito) | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
+| **SEC-MED-1** | **Media** (al encender) | URL completa (con `?q=`) en eventos de GA4 que no son `page_view` y en el píxel; medición mejorada de GA4 sin apagar en §MKT.H.10. Detalle en el veredicto `2f5a59c0` §4 | frontend + arquitecto (+ dueño, consola) | `2f5a59c0`, 2026-10-26 (código; envío real NO MEDIDO) | Entrada `SEC-MED-1` en `ENCENDER_BLOCKERS` **antes** de cerrar MKT-F2-3; arreglo + C-F3 con `?q=` en verde |
+| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO 2026-10-26]** `frontend/src/security/csp.ts:37`; `HECHOS.md` sigue sin fila de aceptación). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito) | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
 | **CL-3** | Media | Evidencias «antes de `sk_live_`»: C6, DAST `full` sellado sobre el sha de producción, C3 = 0, simulacro de restauración con las claves `PII_*` fuera de Railway | devops + dueño | `c62621e6` (2026-10-05); después **NO MEDIDO** | Los cuatro resultados en `DEVOPS_NOTES §85`, con fecha y sha |
 | LIVE5-STRIPE | Media | La lógica de reembolso SPEI (`chargeState`, `to-manual`) solo se probó contra un doble de Stripe | backend + pentester | `8e1b34d7` | Pasada en Stripe modo prueba (CS-1…CS-6) |
 | **BL-42** (caminos 1 y 3) | **Media** | INE sin ancla de purga ⇒ retención indefinida | backend + dueño | `c62621e6` | ⚠️ La primera solicitud ARCO, o la regla 7 encendida |
@@ -172,6 +244,9 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados.
 | SEC-C7-RT/RDEG/OPT/SCRIPT, SEC-HDR-3 | Baja/Info | `refresh()` sin `typ`; candado que reaparece al volver Redis; `@Optional()`; el script no levanta C7; cookie `NEXT_LOCALE` | El siguiente pase de `auth`; un `warn` de `LoginAttemptStore`; usar el script en producción | backend |
 | SEC-VLT-DL, VLT-2/3 | Baja | Interbloqueo recuperable del contracargo de bóveda; decisión del dueño; escritura de `User.role` | Un `40P01` en producción; cualquier escritura de `User.role` | backend |
 | D-FX-1/2/3, PRE-P1, PRE-P2 | Baja | Borrar `fx_rate_mode` re-arma lo legacy; override sin `@Max`; fetch de Banxico sin `redirect:'error'` | Acceso auditado a la BD; ampliar el rol; el próximo toque de `fx.service.ts` | backend + devops |
+| DSC-2, DSC-12 (pentest `c421de13`) | Info | Tope por cliente esquivable con otro correo o `+alias` (§DSC.5(a)); el tiempo del camino inválido está mitigado con `NIL_CODE_ID` | Un abuso medido de un código con tope por cliente | backend |
+| SEC-DSC-QA7 | Baja | La clave `email:` del quote de invitado: bloquear 15 min los códigos de un correo ajeno y saber si ya usó un código (veredicto `2f5a59c0` §2) | Código con tope por cliente publicado en redes; queja «no me deja usar mi código»; >3 bloqueos `email:` al día; P-RL-1 confirmado | backend (arquitecto decide) |
+| SEC-DSC-I1, SEC-DSC-I2, SEC-MTE-1 | Info | Candado de DSC-1 solo en la integración; M-92 editada en su sitio (staging o local); `fetch` a Meta sin `redirect:'error'` | La integración fuera de CI o `discounts` en `backend-lite`; un aviso de `migrate deploy` en staging; el próximo toque de `measurement-http.ts` | backend; devops; backend |
 | BMK-1 | Info | El cotizador anónimo deja leer el mercado en lote | C6 sale mal, o un mercado propio | backend |
 | REL7-P3 (R7-C2), SEG-R7-1 (R7-C3) | Baja | «Avísame» de sellados con correo ajeno; huecos menores del aviso de la lista de deseos | Una queja, >5 suscripciones a un correo al día, **o `sk_live_` (ya ocurrió ⇒ doble opt-in: re-enruto a backend)**; encender `wishlist_enabled` | backend; dueño |
 | SB-B2/SEC-SB-3, SB-B4/REL-D, SB-B5, P-SEED-1, P-NAME-1/D-10, P-REDIR-1, P-BILL-DoS/D-9, D-2…D-7, D-11/PII-D | Baja/Info | 500 por serialización; deps moderadas; flood de firmas inválidas; `assertSeedTarget`; nombres sin escapar; `safeNext`; rotación de `PII_ENCRYPTION_KEY`; diales sin re-validar (ver SEC-ENV-3); throttler en memoria | Ver ficha. **D-6** (el DAST no escanea producción) ya está en su disparador «antes de dinero real» | backend / devops |
@@ -184,98 +259,22 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados.
    Esa fila no existe. O se cierran (frontend/devops), o lo aceptas tú y queda escrito.
 2. Varios disparadores de deuda decían «antes de `sk_live_`» y **ya se cumplieron**: A-BSD-1, SEC-SHIP-B1 (SPEI duplicado), el doble
    opt-in de REL7-P3 y D-6. Hay que re-enrutarlos (backend/arquitecto/devops). No los introduce este release.
-3. **RL-INFO-2:** el plazo de «30 días con dinero real» vence hacia el **2026-11-15**, contado desde el 2026-10-16 que declaraste en
+3. **Medición:** el aviso nuevo está aprobado y publicado apagado. Para encender faltan MKT-F2-3 (tu evento de prueba) **y** SEC-MED-1.
+   Además, en la consola de GA4 hay que apagar la «medición mejorada» (al menos la búsqueda en el sitio). Te lo pedirá el orquestador con
+   pasos de pantalla, cuando el arquitecto lo deje escrito en §MKT.H.10.
+4. **RL-INFO-2:** el plazo de «30 días con dinero real» vence hacia el **2026-11-15**, contado desde el 2026-10-16 que declaraste en
    `HECHOS.md:16` (NO MEDIDO). Después tocan 2FA y re-autenticación para el súper-admin.
-4. Siguen vigentes: pentest de un tercero + bug bounty (lo aceptaste para empezar, `HECHOS.md:71`; recomiendo contratarlo dentro de los
+5. Siguen vigentes: pentest de un tercero + bug bounty (lo aceptaste para empezar, `HECHOS.md:71`; recomiendo contratarlo dentro de los
    primeros 30 días); revisión legal del aviso de privacidad provisional, de la custodia y de INE/CLABE (BL-42); y antes de encender la
    medición, revisión legal de GA4/Meta y decidir si un analista externo verá b1/b2 (SEC-MKT-4).
 
 ---
 
-# Índice de veredictos anteriores (texto íntegro: `git show 60250e90:docs/SECURITY_NOTES.md`)
+# Índice de veredictos anteriores
 
-| Fecha | SHA | Pase |
-|---|---|---|
-| 2026-10-23 | `803c4298` | Re-medición MKT-TL2 (R3b/R4, prueba 3) · MKT-TL9 · SEC-MKT-2/3 · QA-REL-1/2/3 |
-| 2026-10-21 | `af37ea5` | Card Show M-90 (Magic 5.º juego · GET /card-show/tournament/count · cupo confirmed+checked_in) |
-| 2026-10-19 | `e77b9612` | RELEASE Panel de Marketing · Medición Fase 2 (APAGADA) · SEO/GEO · UTM primer toque · m81–m86 |
-| 2026-10-18 | `5049a34` | Delta CSP mapa Card Show (§CARDSHOW) |
-| 2026-10-17 | `7cc18db` | Card Show RELEASE M-84..M-89 (§CARDSHOW) |
-| 2026-10-17 | `f0c038b` | Card Show landing / captación de PII (§CARDSHOW) |
-| 2026-10-16 | `e454262` | «P&L Finanzas» |
-| 2026-10-13 | `cb66e1f` | sellado-display (opción A, cierre de clase) |
-| 2026-10-07 | `37f7a450` | P-DB-LIMPIEZA v2.1 «también se borra el inventario» |
-| 2026-10-06 | `37f7a450` | ~~P-DB-LIMPIEZA v1~~ SUSTITUIDO por el veredicto v2.1 sobre 37f7a450 (arriba) |
-| 2026-10-07 | `15dffc9a` | STREAM «Publicar sin ubicación» (§M1-SU, SU.1…SU.9, SU.3-R; ARCHITECTURE §4.65) |
-| 2026-10-06 | `c78f8a24` | RELEASE «Analítica de ventas del dueño» (§AN) |
-| 2026-10-06 | `64877aad` | RELEASE «Buylist con guía Skydropx de entrada» (BSD) |
-| 2026-10-05 | `c62621e6` | RELEASE «listo-real» (antes del paso a COBRO REAL) |
-| 2026-10-04 | `0363f7e2` | REVISIÓN DE DISEÑO de la errata v1.80.12.9 (control del gasto §Z y cierres C-14…C-18) (API_CONTRACT §M4-SHIP.1 |
-| 2026-10-04 | `2612064e` | REVISIÓN DE DISEÑO de la errata v1.80.12.8 (el folio nuestro), antes de D2c (API_CONTRACT §M4-SHIP.19.28; ARCH |
-| 2026-10-04 | `eade24d3` | REVISIÓN DE DISEÑO de las erratas v1.80.12.6 y v1.80.12.7, antes de D2c (API_CONTRACT §M4-SHIP.19.26, §M4-SHIP |
-| 2026-10-04 | `ace57032` | REVISIÓN DE DISEÑO del delta Skydropx antes de D2c (fila «🔒 Revisión» de API_CONTRACT §M4-SHIP.19.19.15; v1.80 |
-| 2026-10-04 | `b688bb5d` | STF «Usuarios de back-office sin correo» (v1.80.9 + v1.80.9.1, M-63) y pase RETROACTIVO de la PR #69 (precios  |
-| 2026-09-29 | `a3cde51` | FRENTE B · PAQUETE DINERO (tope del bounty · SEC-SETTLE-LATE · SSL-R1 · SK-5 · guardarraíl BG · errata v1.80.2 |
-| 2026-09-22 | `5e6f2ee` | M4-PREP «Pedidos a preparar» (reproyección de SOLO LECTURA de GET /admin/shipments/picking-list) |
-| 2026-09-19 | `—` | NOTA DE RESIDUALES ACEPTADOS — DECKS-META FASE 2 · AUTO-FETCH (fix pass) · rama claude/be-decksmeta-f2 |
-| 2026-09-19 | `d77eb699` | DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin) |
-| 2026-09-19 | `74d77aa9` | BOUNTIES Q1+Q2 |
-| 2026-09-18 | `604f7622` | M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5) |
-| 2026-09-18 | `81b9e241` | P-53 CIERRE · ALTO-4 (F4/F5 delegan al lote) · FRESCURA EFECTIVA EN TODA RUTA DE DINERO |
-| 2026-09-18 | `b884e827` | GATE PII · DEGRADAR clabeSnapshotEnc EN adminGet (buylist) |
-| 2026-09-18 | `12927edd` | H-PERF-1 · PODA DEL HISTÓRICO DE PriceReference (ZONA MONEY) |
-| 2026-09-17 | `fafe7461` | M11 · SELLADO (money + admin) |
-| 2026-09-14 | `da6a237` | CIERRE DE RELEASE |
-| 2026-09-12 | `8f8c35c` | (RE-EMISIÓN) — frente PII / identidad |
-| 2026-09-12 | `8aeec21` | frente PII / identidad (P-78 · §M6-K «ver la INE sin perder el rastro») |
-| 2026-09-11 | `5d2c62b` | release Stream B «Lo que se rompe con el dinero» |
-| 2026-09-11 | `abecf73` | release «Stream A + andamiaje de CI» |
-| 2026-09-11 | `d6aca64` | RE-candidato d6aca64 (≡ tip remoto 26b2c58) |
-| 2026-09-11 | `0417da1` | RE-candidato 0417da1 |
-| 2026-09-10 | `88c48c7` | PASE BLUE TEAM — candidato 88c48c7 |
-| 2026-09-08 | `6055f82` | PASE BLUE TEAM — candidato 6055f82 |
-| 2026-09-07 | `9c186ff` | PASE BLUE TEAM — candidato 9c186ff |
-| 2026-09-07 | `c6b999a` | GATE DE SEGURIDAD |
-| 2026-09-06 | `—` | GATE DE SEGURIDAD · doble-pago SPEI (P1) + residual de dinero saliente (BL-35 eje 2) |
-| 2026-08-29 | `—` | GATE DE SEGURIDAD · «valor estimado si se gradea» + M-43 (refKind) |
-| 2026-08-28 | `—` | GATE DE RELEASE · FUSIÓN curva v2 × tcgcsv_singles (P-47) |
-| 2026-08-24 | `—` | RE-VERIFICACIÓN DE CIERRE · v2.1.9 |
-| 2026-08-24 | `—` | PASE v2.1.7 / v2.1.8 — GATE DE RELEASE |
-| 2026-08-24 | `—` | PASE P-48 / v2.0 — la CURVA de precios |
-| 2026-08-23 | `—` | PASES P-38 |
-| 2026-08-20 | `—` | PASE v1.6 — money-safety-hardening |
-| 2026-08-16 | `—` | ANEXO rev v1.4 |
-| 2026-08-16 | `—` | ANEXO rev v1.5 |
-| — | `—` | C. Revisión v1.4-finance — Costo real de paquetería en el P&L (M-16) |
-| 2026-08-16 | `—` | rev v1.6-pentest-consolidacion |
-| 2026-08-16 | `—` | ANEXO rev v1.9-set-chart |
-| — | `—` | D. Revisión v1.11-ola1-wiring — Wiring del panel de admin (dinero + PII) |
-| — | `a72f6e6` | E. Revisión Ola 2 — Gestión de inventario M1 (commit a72f6e6) · rama claude/git-repo-review-c67xyk |
-| — | `ebb4dee` | F. Revisión Fase 0 — Epic de precios / cierre del bypass del umbral INE (commit ebb4dee) · rama claude/git-rep |
-| — | `a6a79df` | G. Revisión Fase 1 — catálogo priceado + job 2×/día (commit a6a79df) · rama claude/git-repo-review-c67xyk |
-| — | `10d5205` | H. Revisión Fase 3a — rediseño del cotizador buylist (commit 10d5205) · frontend |
-| — | `fba6486` | I. Revisión Fase 2 — precio de venta por rareza (commits fba6486 + fee3c19) · backend + frontend |
-| 2026-08-19 | `—` | ANEXO rev v1.6 |
-| 2026-08-19 | `—` | ANEXO 2026-08-19 — Stream pulido-precios-display (FX al vuelo + N-15 displayFinishes) |
-| 2026-08-21 | `—` | PASE Stream C (cotizador v2, P-14+P-16) + buzones i18n — VEREDICTO BLUE TEAM |
-| 2026-08-23 | `—` | VEREDICTO DE SEGURIDAD — RELEASE lote inventario/sellado (920260e..29a5e97) |
-| 2026-09-08 | `—` | REVISIÓN DE SEGURIDAD FOCALIZADA — delta origin/production..HEAD (f04f2dc..fdec257) |
-| 2026-09-09 | `97f3bcf` | PASE BLUE TEAM FOCALIZADO — §M2-F v1.63.1 «el interruptor del tipo de cambio» |
-| 2026-09-18 | `1d43a19e` | Revisión de robustez PII — «degradar en vez de 500» |
-| 2026-09-28 | `db7d1c2` | Stream bóveda M4-VAULT «Para bóveda» — consolidación VLT-1..4 + hallazgo del techlead |
-| 2026-09-28 | `f2981e1` | Stream bóveda M4-VAULT — re-verificación de C1 |
-| 2026-09-29 | `8ea245f` | Paquete de seguridad — SEC-RESET-TV + DAST de release bloqueante + C7 |
-| 2026-09-29 | `2ef3f50` | Re-medición C7 v1.80.1 — cierre de C-MINT y C-HDR |
-| 2026-09-29 | `ff57390` | Revisión de DISEÑO — stream «Preparar envíos» §M4-SHIP v1.80.2 (API_CONTRACT) + ARCHITECTURE §4.57 |
-| 2026-09-29 | `0e1faf6` | Re-revisión de DISEÑO — §M4-SHIP v1.80.4 (API_CONTRACT §M4-SHIP.17 + .18) + ARCHITECTURE §4.57 (p) |
-| 2026-09-29 | `3498766` | Re-revisión de DISEÑO (blue team) — §M4-SHIP v1.80.5 · rama claude/envio-preparar |
-| 2026-09-29 | `62d0c46` | Revisión de DISEÑO (blue team) — §M4-SHIP v1.81 «Envíos con Skydropx» · rama claude/skydropx-envios |
-| 2026-09-29 | `59a0c1f` | Veredicto de seguridad sobre el CÓDIGO — stream §M4-SHIP «Preparar envíos» |
-| 2026-09-29 | `—` | Release s5 · 7b9c196e — veredicto de seguridad (blue team) |
-| 2026-10-02 | `—` | post-release s5 · b370cf9b — veredicto de seguridad (blue team) |
-| — | `—` | Release sesión 7 — accesorios + lista de deseos (bc8e3533) |
-| 2026-10-08 | `—` | §BMK |
-| 2026-10-10 | `—` | Release salida-real · LIVE-5 + TD-4 + CSP report-only · veredicto de seguridad (blue team) |
-| 2026-10-11 | `9cc26064` | Pase §PRE «Precios Robustos» — veredicto de seguridad (blue team) |
+Los más recientes, del más nuevo al más viejo: `60250e90` (2026-10-25, Envío v2 regla A / buylist·solicitud / b5-b6; texto en
+`git show 2f5a59c0:docs/SECURITY_NOTES.md`), `803c4298` (2026-10-23, MKT-TL2 R3b/R4), `af37ea5` (2026-10-21, Card Show M-90),
+`e77b9612` (2026-10-19, Panel de Marketing / Medición Fase 2 apagada), `e454262` (2026-10-16, P&L), `c62621e6` (2026-10-05, «listo-real»).
+Texto íntegro de los 81 anteriores: `git show 60250e90:docs/SECURITY_NOTES.md`; su tabla índice por fecha y sha: `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
-_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice.
+_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender).
