@@ -18,9 +18,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import type { DiscountTerms } from '../../common/money';
+import { orderDiscountOf } from './redemption';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import type { DiscountNotApplicableReason } from './discount-pricing';
+import type { AppliedPrice, DiscountNotApplicableReason, NotApplicable } from './discount-pricing';
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -71,6 +72,25 @@ export function termsOf(row: Pick<DiscountCode, 'kind' | 'percentPct' | 'amountC
     minSubtotalCents: row.minSubtotalCents,
     productScopes: row.productScopes ?? [],
     destinations: row.destinations ?? [],
+  };
+}
+
+/** Lo que `applyInTx` devuelve: el cálculo del llamador, el DTO `applied` y el verbo que aparta (o consume) el uso. */
+export interface AppliedInTx<P extends AppliedPrice> {
+  priced: P;
+  discount: DiscountQuoteDTO & { outcome: 'applied' };
+  reserve: (subject: { orderId: string } | { shipmentRequestId: string }, status?: 'reserved' | 'consumed') => Promise<void>;
+}
+
+/** El bloque `discount` forma `applied` (quotes, sesiones y retiro): el código, su tipo y los tres importes del cálculo. */
+export function appliedDiscountOf(row: Pick<DiscountCode, 'code' | 'kind'>, priced: AppliedPrice): DiscountQuoteDTO & { outcome: 'applied' } {
+  return {
+    outcome: 'applied',
+    code: row.code,
+    kind: row.kind,
+    merchandiseBeforeDiscountCents: priced.merchandiseBeforeDiscountCents,
+    discountCents: priced.discountCents,
+    shippingWaivedCents: priced.shippingWaivedCents,
   };
 }
 
@@ -131,14 +151,20 @@ export class DiscountsService {
   }
 
   /**
-   * Un intento FALLIDO (solo `invalid`: un `not_applicable` es de un código real y no castiga, §DSC.6). Por clave, bajo
-   * el candado de su fila: ventana vencida ⇒ empieza otra; `failures ≥ max` ⇒ `blockedUntil = now + block`.
+   * Un intento FALLIDO (§DSC.6 v1.110.3, `HECHOS.md` 2026-10-26 «…un código vigente que no aplica cuenta como intento»). Por
+   * clave, bajo el candado de su fila: ventana vencida ⇒ empieza otra (y se vacía `countedCodeHashes`); `failures ≥ max` ⇒
+   * `blockedUntil = now + block`.
+   *  - `invalid` (sin `notApplicableCode`): suma 1 siempre.
+   *  - `not_applicable` (con `notApplicableCode`): suma 1 **una vez por código y ventana** — el HMAC del código entra a
+   *    `countedCodeHashes`; si ya estaba, no suma (re-cotizar el mismo código al llenar el carrito no bloquea).
    * Fuera de la `tx` del checkout a propósito: el `422` de la sesión no escribe nada, pero el intento sí cuenta.
    */
-  async recordFailure(keys: string[], now = new Date()): Promise<void> {
+  async recordFailure(keys: string[], now = new Date(), notApplicableCode?: string): Promise<void> {
     const max = await this.settings.getNumber(SettingKey.DISCOUNT_CODE_MAX_FAILURES);
     const windowMs = (await this.settings.getNumber(SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN)) * 60_000;
     const blockMs = (await this.settings.getNumber(SettingKey.DISCOUNT_CODE_BLOCK_MIN)) * 60_000;
+    // ⛔ El texto del código no se guarda en claro (como IP y correo): HMAC de dominio propio.
+    const codeHash = notApplicableCode !== undefined ? this.pii.domainHmac('dsc-throttle:code:', notApplicableCode) : null;
     for (const key of keys) {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`INSERT INTO "DiscountCodeThrottle" ("key", "failures", "windowStartedAt", "updatedAt")
@@ -146,17 +172,99 @@ export class DiscountsService {
         await tx.$queryRaw`SELECT "key" FROM "DiscountCodeThrottle" WHERE "key" = ${key} FOR UPDATE`;
         const row = await tx.discountCodeThrottle.findUniqueOrThrow({ where: { key } });
         const fresh = row.failures === 0 || row.windowStartedAt.getTime() + windowMs <= now.getTime();
+        const counted = fresh ? [] : row.countedCodeHashes;
+        if (codeHash !== null && counted.includes(codeHash)) return; // ese `not_applicable` ya contó en esta ventana
         const failures = fresh ? 1 : row.failures + 1;
         await tx.discountCodeThrottle.update({
           where: { key },
           data: {
             failures,
             windowStartedAt: fresh ? now : row.windowStartedAt,
+            countedCodeHashes: codeHash !== null ? [...counted, codeHash] : counted,
             ...(failures >= max ? { blockedUntil: new Date(now.getTime() + blockMs) } : {}),
           },
         });
       });
     }
+  }
+
+  // ================================================================ las dos entradas del checkout (quote y sesión)
+
+  /**
+   * La puerta de una sesión o un retiro CON código: las claves del límite y `429` si alguna está bloqueada (durante el bloqueo
+   * TODO código —válido incluido— da `429`, antes de tocar nada). Devuelve las claves para `countingAttempts`.
+   */
+  async openAttempt(identity: ThrottleIdentity, now = new Date()): Promise<string[]> {
+    const keys = this.throttleKeys(identity);
+    await this.assertNotBlocked(keys, now);
+    return keys;
+  }
+
+  /**
+   * Corre la `tx` de la sesión o del retiro y, si sale con el genérico o con `not_applicable`, anota el intento (§DSC.6: los
+   * dos cuentan; el perdedor de la carrera del último uso sale con el genérico y también cuenta). Se anota FUERA de la `tx`
+   * deshecha. Sin código ⇒ `run` tal cual.
+   */
+  async countingAttempts<T>(code: string | null, keys: readonly string[], run: () => Promise<T>): Promise<T> {
+    if (code === null) return run();
+    return run().catch(async (e: unknown) => {
+      if (e instanceof BusinessException && e.code === 'DISCOUNT_CODE_INVALID') await this.recordFailure([...keys]);
+      if (e instanceof BusinessException && e.code === 'DISCOUNT_CODE_NOT_APPLICABLE') await this.recordFailure([...keys], new Date(), code);
+      throw e;
+    });
+  }
+
+  /**
+   * ENTRADA 1 — el bloque `discount` de un QUOTE (siempre `200`, ⛔ no aparta nada): bloqueo ⇒ `rate_limited`; genérico ⇒
+   * `invalid` (+1 intento); el cálculo de precio lo pone el llamador (`price`, con los términos del código) ⇒ `not_applicable`
+   * (+1 intento, una vez por código y ventana) o `applied`. `customer` vacío ⇒ el por-cliente no se evalúa (lo decide la sesión).
+   * Devuelve el DTO y, si aplica, el cálculo completo del llamador (desglose, rebajas por unidad…).
+   */
+  async quoteOutcome<P extends AppliedPrice>(q: {
+    code: string;
+    throttle: ThrottleIdentity;
+    customer: DiscountCustomer;
+    excludeOrderIds?: readonly string[];
+    price: (terms: DiscountTerms) => P | NotApplicable | Promise<P | NotApplicable>;
+    now?: Date;
+  }): Promise<{ discount: DiscountQuoteDTO; applied: P | null }> {
+    const now = q.now ?? new Date();
+    const keys = this.throttleKeys(q.throttle);
+    const blocked = await this.retryAfterSeconds(keys, now);
+    if (blocked !== null) return { discount: { outcome: 'rate_limited', retryAfterSeconds: blocked }, applied: null };
+    const ev = await this.evaluate(this.prisma, q.code, q.customer, now, { lock: false, excludeOrderIds: q.excludeOrderIds ?? [] });
+    if (!ev.ok) {
+      await this.recordFailure(keys, now);
+      return { discount: { outcome: 'invalid' }, applied: null };
+    }
+    const priced = await q.price(termsOf(ev.row));
+    if (priced.outcome === 'not_applicable') {
+      await this.recordFailure(keys, now, ev.row.code);
+      return { discount: { outcome: 'not_applicable', code: ev.row.code, reason: priced.reason, details: priced.details }, applied: null };
+    }
+    return { discount: appliedDiscountOf(ev.row, priced), applied: priced };
+  }
+
+  /**
+   * ENTRADA 2 — aplicar en la `tx` de la sesión o del retiro (§DSC.5 «Apartar»), DESPUÉS de la puerta del cliente y de
+   * sustituir: candado de la fila (`FOR UPDATE`, I-6), validez con el `now` de la `tx`, cálculo del llamador. Genérico ⇒
+   * `422 DISCOUNT_CODE_INVALID`; no aplica ⇒ `422 DISCOUNT_CODE_NOT_APPLICABLE` — los dos deshacen la `tx` (ni orden, ni uso,
+   * ni PI). Devuelve el cálculo, el DTO y `reserve` (aparta o consume el uso una vez creada la orden o el retiro).
+   */
+  async applyInTx<P extends AppliedPrice>(
+    tx: Prisma.TransactionClient,
+    a: { code: string; customer: DiscountCustomer; now: Date; price: (terms: DiscountTerms) => P | NotApplicable },
+  ): Promise<AppliedInTx<P>> {
+    const ev = await this.evaluate(tx, a.code, a.customer, a.now, { lock: true });
+    if (!ev.ok) throw discountInvalidError();
+    const priced = a.price(termsOf(ev.row));
+    if (priced.outcome === 'not_applicable') throw discountNotApplicableError(priced.reason, priced.details);
+    const row = ev.row;
+    return {
+      priced,
+      discount: appliedDiscountOf(row, priced),
+      reserve: (subject, status = 'reserved') => this.reserve(tx, row, subject, a.customer, a.now, status),
+    };
   }
 
   // ================================================================ validez (§DSC.5, §0)
@@ -226,39 +334,13 @@ export class DiscountsService {
     }
   }
 
-  /** El texto del código con el que se apartó el uso de una orden (`null` sin código). Decide REUSO vs SUSTITUCIÓN. */
-  async codeOfOrder(db: Db, orderId: string): Promise<string | null> {
-    const r = await db.discountRedemption.findUnique({ where: { orderId }, select: { code: { select: { code: true } } } });
-    return r?.code.code ?? null;
-  }
-
-  /** El bloque `discount` (forma `applied`) de una orden ya creada: lo congelado en sus columnas, ⛔ sin recalcular. */
+  /** El bloque `discount` (forma `applied`) de una orden ya creada (reuso de la sesión, congelado del quote): sus columnas. */
   async appliedOfOrder(
     db: Db,
     order: { id: string; subtotalCents: number; discountCents: number; shippingWaivedCents: number },
-  ): Promise<DiscountQuoteDTO | null> {
-    const r = await db.discountRedemption.findUnique({ where: { orderId: order.id }, select: { code: { select: { code: true, kind: true } } } });
-    if (!r) return null;
-    return {
-      outcome: 'applied',
-      code: r.code.code,
-      kind: r.code.kind,
-      merchandiseBeforeDiscountCents: order.subtotalCents + order.discountCents,
-      discountCents: order.discountCents,
-      shippingWaivedCents: order.shippingWaivedCents,
-    };
-  }
-
-  /**
-   * §DSC.6 «Dónde se ve el pedido» (914) — `discount: { code, kind, discountCents, shippingWaivedCents }` de una orden, solo si
-   * tiene `DiscountRedemption` (`null` si no: el campo se OMITE, I-1).
-   */
-  async orderDiscountOf(
-    db: Db,
-    order: { id: string; discountCents: number; shippingWaivedCents: number },
-  ): Promise<{ code: string; kind: DiscountKind; discountCents: number; shippingWaivedCents: number } | null> {
-    const r = await db.discountRedemption.findUnique({ where: { orderId: order.id }, select: { code: { select: { code: true, kind: true } } } });
-    return r ? { code: r.code.code, kind: r.code.kind, discountCents: order.discountCents, shippingWaivedCents: order.shippingWaivedCents } : null;
+  ): Promise<(DiscountQuoteDTO & { outcome: 'applied' }) | null> {
+    const d = await orderDiscountOf(db, order);
+    return d ? { outcome: 'applied', ...d } : null;
   }
 
   // ================================================================ alta interna (pruebas)

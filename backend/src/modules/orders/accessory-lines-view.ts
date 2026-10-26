@@ -15,6 +15,7 @@
 import type { EnergyType, OrderStatus, PriceConvention } from '@prisma/client';
 import { itemMissingRefundComponents } from '../../common/money';
 import { AccessoryPhotoDTO, photoDTO } from '../accessories/accessory-dto';
+import { projectLineDiscount } from '../discounts/discount-lines';
 
 export type AccessoryDeliveredRefundDTO =
   | { kind: 'refundable'; refundableQty: number; amountByQtyCents: number[] }
@@ -34,6 +35,9 @@ export interface OrderAccessoryLineDTO {
   deliveredRefund?: AccessoryDeliveredRefundDTO;
   /** 💰 v1.110 (§DSC.6, 914): la rebaja por unidad SOLO si > 0 (`unitPriceCents` ya es lo cobrado, I-3). */
   unitDiscountCents?: number;
+  /** 💰 v1.110.3 (§DSC.6): `unitPriceCents + unitDiscountCents` y su total de línea, SOLO con rebaja > 0 (`projectLineDiscount`). */
+  unitPriceBeforeDiscountCents?: number;
+  lineTotalBeforeDiscountCents?: number;
 }
 
 /** Lo que las lecturas leen de un `OrderAccessoryLine` (+ su accesorio vigente y sus componentes). */
@@ -99,8 +103,8 @@ export function toOrderAccessoryLineDTO(row: AccessoryLineReadRow, deliveredRefu
     components: componentsOf(row),
   };
   if (deliveredRefund !== undefined) dto.deliveredRefund = deliveredRefund;
-  if ((row.unitDiscountCents ?? 0) > 0) dto.unitDiscountCents = row.unitDiscountCents;
-  return dto;
+  // 💰 v1.110.3 (§DSC.6): EL proyector de línea (M3 y seguimiento del invitado), solo con rebaja > 0.
+  return projectLineDiscount(dto, row.unitDiscountCents);
 }
 
 /** `[k−1] = itemMissingRefundComponents(order, k × P).amountCents`, k = 1..n. */
@@ -134,18 +138,24 @@ export interface AccessoryMailLine {
   quantity: number;
   unitPriceCents: number;
   lineTotalCents: number;
+  /** 💰 v1.110.3 (§DSC.6): el correo pinta el total ANTES del descuento (la resta va en «Descuento (CÓDIGO)»). Solo con rebaja. */
+  lineTotalBeforeDiscountCents?: number;
   deckName: string | null;
   components: { energyType: EnergyType; quantity: number }[];
 }
 
 /** Los renglones del correo: nombre, cantidad, unitario, total y, en paquete, deck y componentes. ⛔ Sin foto. */
 export function accessoryMailLinesOf(rows: readonly AccessoryLineReadRow[]): AccessoryMailLine[] {
-  return rows.map((r) => ({
-    name: accessoryLineNameOf(r),
-    quantity: r.quantity,
-    unitPriceCents: r.unitPriceCents,
-    lineTotalCents: r.unitPriceCents * r.quantity,
-    deckName: r.kind === 'energy_bundle' ? r.deckName : null,
-    components: componentsOf(r),
-  }));
+  return rows.map((r) => {
+    const p = projectLineDiscount({ unitPriceCents: r.unitPriceCents, quantity: r.quantity, lineTotalCents: r.unitPriceCents * r.quantity }, r.unitDiscountCents);
+    return {
+      name: accessoryLineNameOf(r),
+      quantity: r.quantity,
+      unitPriceCents: r.unitPriceCents,
+      lineTotalCents: p.lineTotalCents,
+      ...(p.lineTotalBeforeDiscountCents !== undefined ? { lineTotalBeforeDiscountCents: p.lineTotalBeforeDiscountCents } : {}),
+      deckName: r.kind === 'energy_bundle' ? r.deckName : null,
+      components: componentsOf(r),
+    };
+  });
 }

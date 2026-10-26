@@ -188,7 +188,8 @@ describe('💰 §DSC.7 — códigos de descuento, fase 2: rutas del dueño (Post
       const e = await api('POST', '/admin/discount-codes/preview', {
         json: { kind: 'fixed_amount', amountCents: 1000, sampleLines: [{ scope: 'accessory', priceCents: 1000, quantity: 3 }] },
       });
-      expect(e.body).toEqual({ discountCents: 999, nominalCents: 1000, capped: true });
+      // v1.110.3 (§DSC.2, DCO-B21): el residuo que no cabe NO es `capped` (solo el tope en pesos lo es); antes `true`.
+      expect(e.body).toEqual({ discountCents: 999, nominalCents: 1000, capped: false });
       const n = await api('POST', '/admin/discount-codes/preview', { json: { kind: 'percent', percentPct: 10, sampleLines: [{ scope: 'raw', priceCents: 100000, quantity: 1 }] } });
       expect(n.body).toEqual({ discountCents: 10000, nominalCents: 10000, capped: false });
       expect((await api('POST', '/admin/discount-codes/preview', { json: { kind: 'percent', percentPct: 10, sampleLines: [] } })).status).toBe(422);
@@ -344,7 +345,14 @@ describe('💰 §DSC.7 — códigos de descuento, fase 2: rutas del dueño (Post
       for (const s of paidOrders) {
         const m3 = await acc.adminOrder(s.body.orderId, op);
         expect(m3.status).toBe(200);
-        expect(m3.body.discount).toEqual({ code, kind: 'percent', discountCents: s.body.discount.discountCents, shippingWaivedCents: 0 });
+        // v1.110.3 (§DSC.6, `OrderDiscountDTO`): + `merchandiseBeforeDiscountCents` (el de la sesión).
+        expect(m3.body.discount).toEqual({
+          code,
+          kind: 'percent',
+          merchandiseBeforeDiscountCents: s.body.discount.merchandiseBeforeDiscountCents,
+          discountCents: s.body.discount.discountCents,
+          shippingWaivedCents: 0,
+        });
         expect(m3.body.items[0].unitDiscountCents).toBe(s.body.discount.discountCents);
         ventas += m3.body.discount.discountCents;
       }

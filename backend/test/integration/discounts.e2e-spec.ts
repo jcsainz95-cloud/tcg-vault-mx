@@ -222,7 +222,8 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect((await redemptionOf(s.body.orderId))?.status).toBe('reserved');
       // 914: el detalle del cliente muestra el código y la rebaja por línea.
       const d = await h.api('GET', `/orders/${s.body.orderId}`, { token: c.token });
-      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', discountCents: D, shippingWaivedCents: 0 });
+      // v1.110.3 (§DSC.6, `OrderDiscountDTO`): + `merchandiseBeforeDiscountCents` = `subtotalCents + discountCents` = S.
+      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: S, discountCents: D, shippingWaivedCents: 0 });
     });
 
     it.each([
@@ -577,7 +578,8 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect((await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code })).body.discount.outcome).toBe('applied');
     });
 
-    it('un `not_applicable` no suma (12 seguidos y el válido sigue aplicando)', async () => {
+    // v1.110.3: el título cambió (un `not_applicable` SÍ cuenta, una vez por código y ventana); el aserto sigue igual de cierto.
+    it('el MISMO `not_applicable` 12 veces seguidas cuenta una sola vez y el válido sigue aplicando', async () => {
       const na = await mkCode({ kind: 'percent', percentPct: 10, minSubtotalCents: 10_000_000 });
       const ok = await mkCode({ kind: 'percent', percentPct: 10 });
       const a = await piece('raw', 50000);
@@ -692,6 +694,11 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       await acc.shipAll(r.shipment.id, 'entregado');
       const oi = r.order.items[0];
       const expected = itemRefundComponents(r.order, oi).amountCents;
+      // QA (c421de13): lo esperado también desde el precio EXHIBIDO de la pieza (P − floor(P·10 %)), no solo desde la fila:
+      // así guardar en `unitPriceCents` el precio sin descuento se pone rojo aquí.
+      const P = r.ps.find((p) => p.id === oi.inventoryItemId)!.P;
+      expect(oi.unitPriceCents).toBe(P - Math.floor((P * 10) / 100));
+      expect(expected).toBe(itemRefundComponents(r.order, { unitPriceCents: P - Math.floor((P * 10) / 100) }).amountCents);
       const res = await h.api('POST', `/admin/orders/${r.order.id}/items/${oi.id}/refund-delivered`, {
         token: acc.adminToken,
         json: { reason: 'arrived_damaged', note: 'llegó doblada, foto por correo', expectedRefundCents: expected },
@@ -747,6 +754,220 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect(s.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'WITHDRAWAL_ONLY_FREE_SHIPPING' } });
       expect(await h.prisma.shipmentRequest.count({ where: { userId: c.user.id } })).toBe(0);
       expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+    });
+  });
+
+  // ================================================================ v1.110.3
+
+  describe('v1.110.3 — DCO-B16 ampliada: el servidor proyecta el precio antes del descuento', () => {
+    const BEFORE_KEYS = ['unitPriceBeforeDiscountCents', 'lineTotalBeforeDiscountCents', 'merchandiseBeforeDiscountCents'];
+
+    // Fixture: 50000 no es exhibible exacto con L entero (r = 16 %, t = 100 %), 60000 sí ⇒ 100000 + 60000 (D0·P/B exactos).
+    it('invitado 100000 + 60000 + accesorio 2 × 15000 con 10 % ⇒ antes del descuento en quote, session, seguimiento y M3', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const a = await piece('raw', 100000, true);
+      const b = await piece('raw', 60000, true);
+      const x = await acc.mkAccessory({ priceCents: 15000, stockQty: 5 });
+      const cart = { inventoryItemIds: [a.id, b.id], accessoryLines: [{ accessoryId: x.id, quantity: 2 }] };
+      const email = acc.email('before');
+      const beforeOf = (items: { inventoryItemId: string; unitPriceBeforeDiscountCents?: number; unitPriceCents: number }[]) =>
+        Object.fromEntries(items.map((i) => [i.inventoryItemId, [i.unitPriceCents, i.unitPriceBeforeDiscountCents]]));
+      const expectedItems = { [a.id]: [90000, 100000], [b.id]: [54000, 60000] };
+      const accLine = { accessoryId: x.id, quantity: 2, unitPriceCents: 13500, lineTotalCents: 27000, unitDiscountCents: 1500, unitPriceBeforeDiscountCents: 15000, lineTotalBeforeDiscountCents: 30000 };
+
+      const q = await acc.quote({ ...cart, email, discountCode: code.code });
+      expect(q.status).toBe(200);
+      expect(q.body.discount).toMatchObject({ outcome: 'applied', merchandiseBeforeDiscountCents: 190000, discountCents: 19000 });
+      expect(beforeOf(q.body.items)).toEqual(expectedItems);
+      expect(q.body.accessoryLines[0]).toMatchObject(accLine);
+
+      const s = await acc.session({ ...cart, discountCode: code.code }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.discount).toEqual(q.body.discount);
+      expect(s.body.accessoryLines[0]).toMatchObject(accLine);
+      await settle(s);
+
+      const t = await acc.track(s.body.checkoutToken);
+      expect(t.status).toBe(200);
+      expect(t.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 190000, discountCents: 19000, shippingWaivedCents: 0 });
+      const tItems = Object.fromEntries((t.body.items as { unitPriceCents: number; unitPriceBeforeDiscountCents?: number }[]).map((i) => [i.unitPriceCents, i.unitPriceBeforeDiscountCents]));
+      expect(tItems).toEqual({ 90000: 100000, 54000: 60000 });
+      expect(t.body.accessoryLines[0]).toMatchObject({ unitPriceCents: 13500, lineTotalCents: 27000, unitDiscountCents: 1500, unitPriceBeforeDiscountCents: 15000, lineTotalBeforeDiscountCents: 30000 });
+
+      const m3 = await acc.adminOrder(s.body.orderId);
+      expect(m3.status).toBe(200);
+      expect(m3.body.discount).toEqual(t.body.discount);
+      expect(beforeOf(m3.body.items)).toEqual(expectedItems);
+      expect(m3.body.accessoryLines[0]).toMatchObject({ unitPriceCents: 13500, lineTotalCents: 27000, unitPriceBeforeDiscountCents: 15000, lineTotalBeforeDiscountCents: 30000 });
+
+      // Sin código (DCO-B19): ninguna de las tres llaves nuevas en quote, session, seguimiento ni M3.
+      const c0 = { inventoryItemIds: [(await piece('raw', 50000)).id] };
+      const q0 = await acc.quote(c0);
+      const s0 = await acc.session(c0);
+      const t0 = await acc.track(s0.body.checkoutToken);
+      const m0 = await acc.adminOrder(s0.body.orderId);
+      for (const body of [q0.body, s0.body, t0.body, m0.body]) for (const k of BEFORE_KEYS) expect(keysDeep(body).has(k)).toBe(false);
+    });
+
+    it('cuenta (bóveda) 100000 + 60000 con 10 % ⇒ GET /orders/:id con antes del descuento y `discount.merchandiseBeforeDiscountCents` 160000', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const c = await customer();
+      const a = await piece('raw', 100000, true);
+      const b = await piece('raw', 60000, true);
+      const q = await vaultQuote(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code });
+      expect(q.body.discount).toMatchObject({ merchandiseBeforeDiscountCents: 160000, discountCents: 16000 });
+      const s = await vaultSession(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code });
+      expect(s.status).toBe(201);
+      expect(s.body.discount).toEqual(q.body.discount);
+      const d = await h.api('GET', `/orders/${s.body.orderId}`, { token: c.token });
+      expect(d.status).toBe(200);
+      expect(d.body.discount).toEqual({ code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: 160000, discountCents: 16000, shippingWaivedCents: 0 });
+      const before = Object.fromEntries(
+        (d.body.items as { inventoryItemId: string; unitPriceCents: number; unitPriceBeforeDiscountCents: number; unitDiscountCents: number }[]).map((i) => [
+          i.inventoryItemId,
+          [i.unitPriceCents, i.unitDiscountCents, i.unitPriceBeforeDiscountCents],
+        ]),
+      );
+      expect(before).toEqual({ [a.id]: [90000, 10000, 100000], [b.id]: [54000, 6000, 60000] });
+      const m3 = await acc.adminOrder(s.body.orderId);
+      expect(m3.body.discount).toEqual(d.body.discount);
+    });
+
+    it('§DSC.5: re-cotizar SIN código (o con otro) la reserva propia que se apartó CON código ⇒ precios de hoy, no los descontados', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10 });
+      const c = await customer();
+      const a = await piece('raw', 100000, true);
+      const s = await vaultSession(c.token, { inventoryItemIds: [a.id], discountCode: code.code });
+      expect(s.status).toBe(201);
+      const q0 = await vaultQuote(c.token, { inventoryItemIds: [a.id] });
+      expect(q0.body.items[0].unitPriceCents).toBe(100000);
+      expect(q0.body.breakdown).toEqual(computeCartBreakdown(100000, 16, fee));
+      expect(keysDeep(q0.body).has('discount')).toBe(false);
+      const other = await mkCode({ kind: 'percent', percentPct: 20 });
+      const q2 = await vaultQuote(c.token, { inventoryItemIds: [a.id], discountCode: other.code });
+      expect(q2.body.discount).toMatchObject({ outcome: 'applied', discountCents: 20000, merchandiseBeforeDiscountCents: 100000 });
+      expect(q2.body.items[0]).toMatchObject({ unitPriceCents: 80000, unitPriceBeforeDiscountCents: 100000 });
+      // Con el MISMO código: el congelado (lo que su PI cobra).
+      const q1 = await vaultQuote(c.token, { inventoryItemIds: [a.id], discountCode: code.code });
+      expect(q1.body.breakdown).toEqual(s.body.breakdown);
+      expect(q1.body.items[0]).toMatchObject({ unitPriceCents: 90000, unitDiscountCents: 10000, unitPriceBeforeDiscountCents: 100000 });
+    });
+  });
+
+  describe('TL-ENV-2 con código — el quote congelado de un pedido con envío gratis por código', () => {
+    it('re-cotizar con el mismo código y el token ⇒ E = 0 congelada, freeShippingApplied:true y sin «te faltan» (antes: la regla viva)', async () => {
+      const code = await mkCode({ kind: 'free_shipping' });
+      const a = await piece('raw', 60000, true);
+      const email = acc.email('frozenfree');
+      const s = await acc.session({ inventoryItemIds: [a.id], discountCode: code.code }, { email });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.shippingFeeCents).toBe(0);
+      const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code, email, retryOfCheckoutToken: s.body.checkoutToken });
+      expect(q.body.breakdown).toEqual(s.body.breakdown);
+      expect(q.body.discount).toEqual(s.body.discount);
+      expect(q.body.shippingRule).toEqual({ kind: 'cards_only', freeFromCents: T, freeShippingRemainingCents: null, freeShippingApplied: true, boxFeeApplies: false });
+    });
+  });
+
+  describe('v1.110.3 — DCO-B20 (quote): precedencia de los motivos con envío gratis y mínimo 300000', () => {
+    it('(a)…(f) por HTTP: bóveda ⇒ NO_SHIPPING; ya gratis; caja grande; mínimo; destino', async () => {
+      const free = await mkCode({ kind: 'free_shipping', minSubtotalCents: 300000, maxUsesPerCustomer: null });
+      const freeDirect = await mkCode({ kind: 'free_shipping', minSubtotalCents: 300000, destinations: ['direct_ship'], maxUsesPerCustomer: null });
+      const free500 = await mkCode({ kind: 'free_shipping', minSubtotalCents: 500000, maxUsesPerCustomer: null });
+      const pctDirect = await mkCode({ kind: 'percent', percentPct: 10, minSubtotalCents: 300000, destinations: ['direct_ship'], maxUsesPerCustomer: null });
+      const c = await customer();
+      const reason = (r: ApiResponse) => r.body.discount?.reason ?? r.body.discount?.outcome;
+      const card100 = await piece('raw', 100000);
+      // (a), (b), (f) — bóveda
+      expect(reason(await vaultQuote(c.token, { inventoryItemIds: [card100.id], discountCode: free.code }))).toBe('NO_SHIPPING');
+      expect(reason(await vaultQuote(c.token, { inventoryItemIds: [card100.id], discountCode: freeDirect.code }))).toBe('NO_SHIPPING');
+      expect(reason(await vaultQuote(c.token, { inventoryItemIds: [card100.id], discountCode: pctDirect.code }))).toBe('DESTINATION');
+      // (c) invitado, cartas 450000, mínimo 500000 ⇒ ya tiene envío gratis
+      const card450 = await piece('raw', 450000);
+      expect(reason(await acc.quote({ inventoryItemIds: [card450.id], discountCode: free500.code }))).toBe('ALREADY_FREE_SHIPPING');
+      // (d) sellado 100000 + accesorio 20000 en caja de 35000
+      await acc.setBoxes([{ code: 'grande', l: 30, w: 20, h: 10, fee: 35000 }]);
+      try {
+        const sealed = await piece('sealed', 100000);
+        const x = await acc.mkAccessory({ priceCents: 20000, stockQty: 5 });
+        const q = await acc.quote({ inventoryItemIds: [sealed.id], accessoryLines: [{ accessoryId: x.id, quantity: 1 }], discountCode: free.code });
+        expect(q.body.shippingRule.boxFeeApplies).toBe(true);
+        expect(reason(q)).toBe('LARGE_BOX');
+      } finally {
+        await acc.clearBoxes();
+      }
+      // (e) cartas 250000 ⇒ te faltan 50000; 300000 ⇒ aplica y perdona 10000
+      const card250 = await piece('raw', 250000, true);
+      const e = await acc.quote({ inventoryItemIds: [card250.id], discountCode: free.code });
+      expect(e.body.discount).toEqual({ outcome: 'not_applicable', code: free.code, reason: 'MIN_SUBTOTAL', details: { missingCents: 50000 } });
+      const card300 = await piece('raw', 300000, true);
+      const ok = await acc.quote({ inventoryItemIds: [card300.id], discountCode: free.code });
+      expect(ok.body.discount).toMatchObject({ outcome: 'applied', shippingWaivedCents: E_CARDS, discountCents: 0 });
+      expect(ok.body.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16, fee));
+    });
+  });
+
+  describe('v1.110.3 — DCO-B9 ampliada: un `not_applicable` cuenta (una vez por código y ventana)', () => {
+    const failuresByKind = async () => Object.fromEntries((await h.prisma.discountCodeThrottle.findMany()).map((r) => [r.key.slice(0, r.key.indexOf(':')), r.failures]));
+
+    it('10 códigos vigentes distintos que no aplican ⇒ el 11.º (válido) da rate_limited; session ⇒ 429', async () => {
+      const ok = await mkCode({ kind: 'percent', percentPct: 10 });
+      const a = await piece('raw', 50000);
+      for (let i = 0; i < 10; i += 1) {
+        const na = await mkCode({ kind: 'percent', percentPct: 10, minSubtotalCents: 10_000_000 });
+        const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: na.code });
+        expect(q.body.discount).toMatchObject({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL' });
+        expect(Object.keys(q.body.discount.details)).toEqual(['missingCents']);
+      }
+      expect((await acc.quote({ inventoryItemIds: [a.id], discountCode: ok.code })).body.discount.outcome).toBe('rate_limited');
+      expect((await acc.session({ inventoryItemIds: [a.id], discountCode: ok.code })).status).toBe(429);
+      // ⛔ el texto del código no queda en claro en la tabla.
+      const rows = await h.prisma.discountCodeThrottle.findMany();
+      expect(rows.every((r) => r.countedCodeHashes.length === 10 && r.countedCodeHashes.every((x) => !x.includes(TAG)))).toBe(true);
+    });
+
+    it('el MISMO `not_applicable` cotizado 20 veces suma 1 (y su sesión no suma otra vez en la IP); al llegar al mínimo aplica', async () => {
+      const code = await mkCode({ kind: 'percent', percentPct: 10, minSubtotalCents: 100000, maxUsesPerCustomer: null });
+      const small = await piece('raw', 60000, true);
+      for (let i = 0; i < 20; i += 1) expect((await acc.quote({ inventoryItemIds: [small.id], discountCode: code.code })).body.discount.reason).toBe('MIN_SUBTOTAL');
+      expect(await failuresByKind()).toEqual({ ip: 1 });
+      const s = await acc.session({ inventoryItemIds: [small.id], discountCode: code.code });
+      expect(s.status).toBe(422);
+      expect(s.body.error).toMatchObject({ code: 'DISCOUNT_CODE_NOT_APPLICABLE', details: { reason: 'MIN_SUBTOTAL', missingCents: 40000 } });
+      expect(Object.keys(s.body.error.details).sort()).toEqual(['missingCents', 'reason']);
+      // la sesión trae correo ⇒ su clave `email:` suma 1; la `ip:` ya contó ese código en esta ventana.
+      expect(await failuresByKind()).toEqual({ ip: 1, email: 1 });
+      const big = await piece('raw', 100000);
+      expect((await acc.quote({ inventoryItemIds: [small.id, big.id], discountCode: code.code })).body.discount.outcome).toBe('applied');
+    });
+
+    it('cuenta en el retiro y en la sesión de cuenta; un código distinto suma como un invalid', async () => {
+      const c = await customer();
+      const pct = await mkCode({ kind: 'percent', percentPct: 10 });
+      const v = await prep.mkVaultOrder(c.user.id, { prices: [50000] });
+      const address = await prep.mkAddress(c.user.id);
+      const w = await h.api('POST', '/shipments', { token: c.token, json: { inventoryItemIds: [v.pieces[0].id], addressId: address.id, discountCode: pct.code } });
+      expect(w.status).toBe(422);
+      expect(await failuresByKind()).toEqual({ ip: 1, user: 1 });
+      const free = await mkCode({ kind: 'free_shipping' });
+      const a = await piece('raw', 50000);
+      const s = await vaultSession(c.token, { inventoryItemIds: [a.id], discountCode: free.code });
+      expect(s.status).toBe(422);
+      expect(s.body.error.details.reason).toBe('NO_SHIPPING');
+      expect(await failuresByKind()).toEqual({ ip: 2, user: 2 });
+      expect((await vaultQuote(c.token, { inventoryItemIds: [a.id], discountCode: `NOPE-${TAG}` })).body.discount).toEqual({ outcome: 'invalid' });
+      expect(await failuresByKind()).toEqual({ ip: 3, user: 3 });
+    });
+  });
+
+  describe('v1.110.3 — DCO-B21 (preview): `capped` solo por el tope en pesos', () => {
+    it('20 % tope 30000 sobre 200000 ⇒ true; tope 40000 ⇒ false; fijo 50000 sobre 40000 ⇒ { 39999, 39999, false }', async () => {
+      const post = (json: Body) => h.api('POST', '/admin/discount-codes/preview', { token: acc.adminToken, json });
+      const line = (priceCents: number) => [{ scope: 'raw', priceCents, quantity: 1 }];
+      expect((await post({ kind: 'percent', percentPct: 20, maxDiscountCents: 30000, sampleLines: line(200000) })).body).toEqual({ discountCents: 30000, nominalCents: 30000, capped: true });
+      expect((await post({ kind: 'percent', percentPct: 20, maxDiscountCents: 40000, sampleLines: line(200000) })).body).toEqual({ discountCents: 40000, nominalCents: 40000, capped: false });
+      expect((await post({ kind: 'fixed_amount', amountCents: 50000, sampleLines: line(40000) })).body).toEqual({ discountCents: 39999, nominalCents: 39999, capped: false });
+      expect((await post({ kind: 'percent', percentPct: 100, sampleLines: line(40000) })).body).toEqual({ discountCents: 39999, nominalCents: 39999, capped: false });
     });
   });
 

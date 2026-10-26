@@ -266,11 +266,9 @@ export class AdminDiscountsService {
     const d = discountOf(cart, terms, { destination });
     if (!d.ok) return { discountCents: 0, nominalCents: 0, capped: false };
     const alloc = allocateDiscount(d.eligible, d.nominalCents);
-    // «Recortado» ⇔ lo que el cliente ve es menos que el nominal SIN topes (tope en pesos, el monto mayor que lo elegible, o
-    // el centavo por unidad de I-4 y el residuo que no cabe).
-    const B = d.eligibleSubtotalCents;
-    const raw = config.kind === 'percent' ? Math.floor((B * (config.percentPct ?? 0)) / 100) : config.kind === 'fixed_amount' ? (config.amountCents ?? 0) : 0;
-    return { discountCents: alloc.discountCents, nominalCents: d.nominalCents, capped: alloc.discountCents < raw };
+    // v1.110.3 (§DSC.2, DCO-B21, TL-DSC-1): `capped` = «llegó al tope que fijaste», tal cual lo da `discountOf` (BigInt).
+    // ⛔ Ningún recálculo aquí: el recorte por `B`, por I-4 o por el residuo no es `capped`.
+    return { discountCents: alloc.discountCents, nominalCents: d.nominalCents, capped: d.capped };
   }
 
   // ================================================================ lotes

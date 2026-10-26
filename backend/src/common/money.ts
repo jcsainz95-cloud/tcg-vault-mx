@@ -1330,6 +1330,12 @@ export type DiscountOfResult =
       eligibleSubtotalCents: number;
       /** `D0` ya recortado a `B − U` (I-4: cada unidad elegible conserva ≥ 1 centavo). `free_shipping` ⇒ 0. */
       nominalCents: number;
+      /**
+       * v1.110.3 (§DSC.2, DCO-B21) — «llegó al tope que fijaste»: `percent ∧ maxDiscountCents ≠ null ∧ floor(B·pct/100) >
+       * maxDiscountCents`, en BigInt. ⛔ El recorte por `B`, por I-4 o por el residuo de §DSC.3 NO es `capped`. Nadie lo
+       * recalcula fuera de aquí (la vista previa lo reenvía, TL-DSC-1).
+       */
+      capped: boolean;
     }
   | { ok: false; reason: 'DESTINATION' | 'NO_ELIGIBLE_ITEMS' | 'MIN_SUBTOTAL'; details: Record<string, number | string[]> };
 
@@ -1345,7 +1351,8 @@ export function discountOf(
   ctx: { destination: 'vault' | 'direct_ship' },
 ): DiscountOfResult {
   if (terms.destinations.length > 0 && !terms.destinations.includes(ctx.destination)) {
-    return { ok: false, reason: 'DESTINATION', details: { destinations: [...terms.destinations] } };
+    // v1.110.3 (§DSC.6 `details` mínimos, pentest DSC-1): `DESTINATION` se pinta por pantalla ⇒ `{}`.
+    return { ok: false, reason: 'DESTINATION', details: {} };
   }
   const eligible = lines.filter(
     (l) => l.type !== 'energy_bundle' && l.quantity > 0 && (terms.productScopes.length === 0 || terms.productScopes.includes(l.type)),
@@ -1363,19 +1370,24 @@ export function discountOf(
     return {
       ok: false,
       reason: 'MIN_SUBTOTAL',
-      details: { minSubtotalCents: terms.minSubtotalCents, missingCents: Number(BigInt(terms.minSubtotalCents) - B) },
+      // v1.110.3 (§DSC.6): solo lo que el texto usa («te faltan $X»); ⛔ ni `minSubtotalCents`.
+      details: { missingCents: Number(BigInt(terms.minSubtotalCents) - B) },
     };
   }
   let D0 = 0n;
+  let capped = false;
   if (terms.kind === 'percent') {
     D0 = (B * BigInt(terms.percentPct ?? 0)) / 100n; // la división de BigInt trunca = floor para no negativos
-    if (terms.maxDiscountCents !== null && D0 > BigInt(terms.maxDiscountCents)) D0 = BigInt(terms.maxDiscountCents);
+    if (terms.maxDiscountCents !== null && D0 > BigInt(terms.maxDiscountCents)) {
+      D0 = BigInt(terms.maxDiscountCents);
+      capped = true;
+    }
   } else if (terms.kind === 'fixed_amount') {
     const amount = BigInt(terms.amountCents ?? 0);
     D0 = amount < B ? amount : B;
   }
   if (D0 > B - U) D0 = B - U;
-  return { ok: true, eligible, eligibleSubtotalCents: Number(B), nominalCents: Number(D0) };
+  return { ok: true, eligible, eligibleSubtotalCents: Number(B), nominalCents: Number(D0), capped };
 }
 
 const DISCOUNT_GROUP_ORDER: Record<DiscountCartLine['group'], number> = { piece: 0, accessory: 1, bundle: 2 };
