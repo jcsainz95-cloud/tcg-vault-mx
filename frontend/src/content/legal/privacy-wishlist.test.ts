@@ -40,7 +40,8 @@ describe('824 · párrafo «Lista de deseos» literal de PROJECT §WSH.5', () =>
 
   it('cambio de fondo ⇒ versión y fecha suben (no se publica texto nuevo con versión vieja)', () => {
     // ✏ 2026-10-13: sube con el bloque Card Show (§CARDSHOW) añadido a §2/§4/§5/§6.
-    expect(privacyNoticeEs.version).toBe('0.5-provisional-2026-10-13');
-    expect(privacyNoticeEs.updatedAt).toBe('13 de octubre de 2026');
+    // ✏ 2026-10-26: sube con la medición (§2/§4/§5/§6/§7/§8).
+    expect(privacyNoticeEs.version).toBe('0.6-provisional-2026-10-26');
+    expect(privacyNoticeEs.updatedAt).toBe('26 de octubre de 2026');
   });
 });

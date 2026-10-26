@@ -13,9 +13,14 @@
 #       (prueba que el lector de la constante está vivo: el regex viejo, muerto, lo daba por aviso nuevo).
 #   M6  MEASUREMENT_DISCLOSURE con una forma que no sé leer ⇒ rc 2 (no concluyente, no adivina).
 #   M7  frase quitada y MEASUREMENT_DISCLOSURE = { … }, puerta `true` ⇒ rc 0 (el lector ve «objeto»).
-# El lado VERDE con el aviso nuevo no se simula aquí (fabricar un aviso «válido» sería adivinar las
-# reglas de frontend): lo mide C0 el día que el aviso del abogado entre en el árbol, y las pruebas
-# unitarias de frontend sobre publish-check.ts.
+#   Bloqueos de encendido (ENCENDER_BLOCKERS, ARCHITECTURE §14.1 D-MKT2-0c), con la puerta REAL:
+#   M8  aviso nuevo + un bloqueo de canario añadido ⇒ rc 0 «solo la frenan los bloqueos» (aviso sano).
+#   M9  aviso nuevo + bloqueo + un problema del aviso (sin «14 meses») ⇒ rc 1 «problema(s) del aviso».
+#   M10 aviso viejo (MEASUREMENT_DISCLOSURE = null) ⇒ rc 0 «muerde con el aviso viejo».
+#   Con una puerta de canario que imprime el rótulo a mano (sale 0 con off, 1 con on):
+#   M11 aviso viejo + rótulo con SOLO bloqueos ⇒ rc 1 «NO MIRA el aviso».
+#   M12 aviso nuevo + rc 1 sin rótulo ⇒ rc 1 · M13 rótulo problems=2 con una sola línea ⇒ rc 1.
+# El aviso nuevo y válido lo trae el árbol desde 2f1d189d (aviso 0.6): C0 y M8 lo miden con la puerta real.
 # Uso: ./scripts/check-measurement-publish-gate-canary.sh   (requiere npm ci en frontend/)
 # =============================================================================
 set -uo pipefail
@@ -63,6 +68,23 @@ caso 1 "M5 · sin la frase pero MEASUREMENT_DISCLOSURE = null, puerta que no mue
 d="$(copia)"; disc "$d" 'construirDivulgacion();'; caso 2 "M6 · forma de MEASUREMENT_DISCLOSURE ilegible" "$d" "no sé leer"
 d="$(copia)"; sin_frase "$d"; disc "$d" "{ version: 'canario' } as MeasurementDisclosure | null;"; script_set "$d" check:measurement 'true'
 caso 0 "M7 · sin la frase y MEASUREMENT_DISCLOSURE = { … } ⇒ el lector lo ve como aviso nuevo" "$d" "pasa con el aviso nuevo"
+bloqueo_canario() { # añade un bloqueo de encendido a la COPIA de measurement-gate.ts
+  sed -i "/^export const ENCENDER_BLOCKERS: readonly EncenderBlocker\[\] = \[/a\\  { id: 'CANARIO-1', what: 'bloqueo de canario', owner: 'devops', closedBy: 'canario' }," "$1/$L/measurement-gate.ts"
+  grep -q "id: 'CANARIO-1'" "$1/$L/measurement-gate.ts" || { bad "no pude inyectar el bloqueo de canario en measurement-gate.ts (¿cambió la declaración?)"; return 1; }
+}
+puerta_canario() { # <dir> <rótulo con \n> — check:measurement que sale 0 con off y, con on, imprime el rótulo y sale 1
+  printf '%b' "$2" >"$1/canario-rotulo.txt"
+  script_set "$1" check:measurement '[ "$NEXT_PUBLIC_MEASUREMENT_MODE" = on ] || exit 0; cat canario-rotulo.txt; exit 1'
+}
+R1='MEASUREMENT_NOTICE_REQUIRED mode=on problems=1\n  - bloqueo de encendido abierto: CANARIO-1 (devops) — x\n'
+R2='MEASUREMENT_NOTICE_REQUIRED mode=on problems=2\n  - bloqueo de encendido abierto: CANARIO-1 (devops) — x\n'
+d="$(copia)"; bloqueo_canario "$d" && caso 0 "M8 · aviso nuevo + solo bloqueos de encendido (puerta real)" "$d" "solo la frenan los bloqueos"
+d="$(copia)"; if bloqueo_canario "$d"; then sed -i 's/14 meses/catorce meses/g' "$d/$L/privacidad.es.ts"
+  caso 1 "M9 · aviso nuevo + bloqueo + un problema del aviso (puerta real)" "$d" "problema(s) del aviso"; fi
+d="$(copia)"; disc "$d" 'null;'; caso 0 "M10 · aviso viejo (MEASUREMENT_DISCLOSURE = null, puerta real)" "$d" "muerde con el aviso viejo"
+d="$(copia)"; disc "$d" 'null;'; puerta_canario "$d" "$R1"; caso 1 "M11 · aviso viejo + rótulo con solo bloqueos" "$d" "NO MIRA el aviso"
+d="$(copia)"; puerta_canario "$d" 'algo falló\n';            caso 1 "M12 · aviso nuevo + rc 1 sin rótulo" "$d" "sin un rótulo"
+d="$(copia)"; puerta_canario "$d" "$R2";                      caso 1 "M13 · rótulo problems=2 con una sola línea" "$d" "sin un rótulo"
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then printf '\033[1;31mROJO: %s/%s casos del canario de C-D1 fallaron.\033[0m\n' "$FALLOS" "$((FALLOS+PASADAS))"; exit 1; fi
 printf '\033[1;32mVERDE: %s/%s casos: C-D1 muerde.\033[0m\n' "$PASADAS" "$PASADAS"
