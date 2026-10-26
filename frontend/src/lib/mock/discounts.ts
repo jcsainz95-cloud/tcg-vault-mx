@@ -37,6 +37,8 @@ import type {
   DiscountRedemptionStatus,
   DiscountReportDTO,
   FulfillmentMode,
+  BreakdownDTO,
+  OrderDiscountDTO,
 } from '@/types/contract';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -294,6 +296,28 @@ function seedAudit(now: number): MockAudit[] {
 }
 
 /** Diales de §DSC.1 (semilla): 10 fallidos en 15 min ⇒ 15 min de bloqueo. */
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// MOCK §DSC.6 «Dónde se ve el pedido» (914): un pedido YA cobrado con `SEPT10` (10 %), servido por `getOrder` y
+// `getAdminOrder` con el id de abajo, y por `trackGuestOrder` con un token `mock…discount…`. Sin código, ningún
+// detalle del mock trae `discount` ni `unitDiscountCents` (I-1). Importes ilustrativos, coherentes entre sí:
+// exhibido 140 800 − D 14 080 = cobrado 126 720 = `subtotalCents` (I-3); `IVA_INCLUSIVE` ⇒ total = subtotal + comisión.
+// ────────────────────────────────────────────────────────────────────────────────────────────
+export const MOCK_DISCOUNTED_ORDER_ID = 'ord-dsc-1';
+export const MOCK_DISCOUNTED_ORDER_NUMBER = 'TCG-100480';
+export const MOCK_ORDER_DISCOUNT: OrderDiscountDTO = { code: 'SEPT10', kind: 'percent', discountCents: 14_080, shippingWaivedCents: 0 };
+/** La rebaja por unidad de su única carta (exhibido 140 800). */
+export const MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS = 14_080;
+export const MOCK_DISCOUNTED_ORDER_BREAKDOWN: BreakdownDTO = {
+  subtotalCents: 126_720,
+  ivaCents: 17_479,
+  ivaRatePct: 16,
+  processingFeeCents: 4_800,
+  totalCents: 131_520,
+  currency: 'MXN',
+  priceConvention: 'IVA_INCLUSIVE',
+  ivaIncluded: true,
+};
+
 export const MOCK_DISCOUNT_THROTTLE = { maxFailures: 10, windowMin: 15, blockMin: 15 } as const;
 
 interface State {

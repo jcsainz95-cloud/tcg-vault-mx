@@ -1789,6 +1789,8 @@
           "direct_ship": "Envío directo"
         },
         "items": "Cartas",
+        "discountCode": "Código",
+        "chargedWithDiscount": "Cobrado {amount} con el código",
         "itemRefunded": "Reembolsada · {amount} · {status}",
         "needsManual": "Pendiente de confirmación humana",
         "needsManualBody": "Hay cartas de este pedido cuyo paradero físico nadie ha confirmado. Resuélvelo abajo."

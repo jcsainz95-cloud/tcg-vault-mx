@@ -13,6 +13,14 @@ gratis» aprobado en lo propio de un código de envío gratis).
   `AmountBreakdown` gana `discount?`: Subtotal = `merchandiseBeforeDiscountCents`, «Descuento (CÓDIGO) −» = `discountCents`,
   envío gratis: «Envío» con `shippingWaivedCents` y «Envío gratis (CÓDIGO) −» debajo; retiro: «Envío del retiro». Sin la
   prop, idéntico (915). Las líneas del carrito muestran el exhibido `unitPriceCents + unitDiscountCents` (I-3).
+- **Pedido ya hecho (914):** `OrderDiscountDTO` (`discount` de `GET /orders/:id`, `POST /orders/guest/track` y
+  `GET /admin/orders/:id`; `unitDiscountCents?` en sus líneas y accesorios). `appliedDiscountOfOrder` (en `AmountBreakdown`)
+  lo pasa al desglose del checkout; «Subtotal» antes = `subtotalCents + discountCents` (identidad I-3 del contrato, el detalle
+  no trae `merchandiseBeforeDiscountCents`); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
+  «Código» (§DSC-UX.5) y «Cobrado {X} con el código» bajo cada línea (base de los reembolsos). Mock: `ord-dsc-1` y token
+  `mock…discount…`. Sin código, desglose idéntico al de hoy (pruebas OD-2/PT-3/MD-3 comparan el marcado). Mutaciones
+  M1-M7 (sin `discount` en cada desglose, línea en cobrado, subtotal sin `+D`, sin el corte de rebaja 0, «Cobrado» sin
+  código, mock con `discount` siempre): rojo 3/3 cada una, verde al restaurar (sobre `32861059`).
 - **Dónde:** invitado bajo destino + T9 y antes de los datos (solo envío a domicilio); con cuenta (bóveda) tras las líneas;
   retiro (`ShipmentsView`) con C1b, MX$0.00 ⇒ botón C16 y `stripe: null` ⇒ sin modal, directo a «Retiros».
 - **Cómo viaja:** el código confirmado entra en la clave de la query y en la sesión; aplicar cotiza con `fetchQuery` sobre

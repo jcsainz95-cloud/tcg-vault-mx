@@ -1,7 +1,7 @@
 'use client';
 
 import { useLocale, useTranslations } from 'next-intl';
-import type { BreakdownDTO, DiscountAppliedDTO } from '@/types/contract';
+import type { BreakdownDTO, DiscountAppliedDTO, OrderDiscountDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 
@@ -47,6 +47,34 @@ export interface AmountBreakdownProps {
    * (criterio 915). ⛔ Ninguna cuenta aquí: cada importe es un campo del servidor (DCO-F2).
    */
   discount?: DiscountAppliedDTO | null;
+}
+
+/**
+ * 💰 §DSC.6 «Dónde se ve el pedido» (criterio 914) — el `discount` de una orden YA hecha (`GET /orders/:id`,
+ * `POST /orders/guest/track`, `GET /admin/orders/:id`) en la forma que pinta este desglose, para que el detalle se lea
+ * IGUAL que el checkout que lo cobró: «Subtotal» = mercancía antes del descuento, «Descuento (CÓDIGO)» debajo.
+ *
+ * El detalle no trae `merchandiseBeforeDiscountCents` (es campo del quote). Se toma de la identidad que el propio
+ * contrato declara (§DSC.0 I-3 y §DSC.1): `Order.subtotalCents` = Σ COBRADO y `Order.discountCents` = Σ unidades ×
+ * `unitDiscountCents`, ⇒ antes del descuento = `subtotalCents + discountCents`. Es una suma de dos campos del servidor,
+ * ⛔ no una fórmula de precio (el descuento, el envío y el total siguen siendo los del servidor, DCO-F2).
+ * Sin código, o con un código que no rebajó nada (como el correo, `discountMailRows`), `null` ⇒ desglose de hoy (915).
+ */
+export function appliedDiscountOfOrder(
+  breakdown: Pick<BreakdownView, 'subtotalCents'>,
+  discount: OrderDiscountDTO | null | undefined,
+): DiscountAppliedDTO | null {
+  if (!discount) return null;
+  const waived = discount.kind === 'free_shipping' ? discount.shippingWaivedCents : discount.discountCents;
+  if (waived <= 0) return null;
+  return {
+    outcome: 'applied',
+    code: discount.code,
+    kind: discount.kind,
+    merchandiseBeforeDiscountCents: breakdown.subtotalCents + discount.discountCents,
+    discountCents: discount.discountCents,
+    shippingWaivedCents: discount.shippingWaivedCents,
+  };
 }
 
 /** Menos tipográfico (U+2212): el signo, no el color, dice que resta (§DSC-UX.2). */

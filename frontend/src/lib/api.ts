@@ -1496,12 +1496,34 @@ function mockProjectOrder<T extends OrderSummaryDTO | OrderDetailDTO>(order: T):
   return { ...order, reservedUntil: live.reservedUntil };
 }
 
+/** MOCK §DSC.6 (914): ver `MOCK_DISCOUNTED_ORDER_ID` en `lib/mock/discounts.ts`. */
+function mockDiscountedOrderDetail(): OrderDetailDTO {
+  const base = fx.mockOrderDetail;
+  return {
+    ...base,
+    id: mockDsc.MOCK_DISCOUNTED_ORDER_ID,
+    orderNumber: mockDsc.MOCK_DISCOUNTED_ORDER_NUMBER,
+    breakdown: mockDsc.MOCK_DISCOUNTED_ORDER_BREAKDOWN,
+    items: base.items.map((it) => ({
+      ...it,
+      unitPriceCents: it.unitPriceCents - mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS,
+      unitDiscountCents: mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS,
+    })),
+    fulfillmentMode: 'vault',
+    publicStatus: 'pagado',
+    shipment: null,
+    discount: mockDsc.MOCK_ORDER_DISCOUNT,
+  };
+}
+
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
   // v1.51-c: `ord-9003` sirve el acta con `cardSnapshot` INCOMPLETO (§5.2.9). El simulador
   // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
   // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
   if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
+  // MOCK §DSC.6 (914): el pedido cobrado con código (`discount` + `unitDiscountCents`; `unitPriceCents` = cobrado).
+  if (orderId === mockDsc.MOCK_DISCOUNTED_ORDER_ID) return delay(mockDiscountedOrderDetail());
   // MOCK §M4-SHIP.16: el pedido DIRECTO con guía y una carta que no salió («te devolvimos MX$314.58»).
   if (orderId === MOCK_DIRECT_SHIP_ORDER.id) {
     const detail: OrderDetailDTO = {
@@ -5947,6 +5969,29 @@ export async function refundOrder(orderId: string, body: RefundOrderRequest): Pr
 /** Detalle M3 (`GET /admin/orders/:id`), v1.80: identidad, reembolsos, envíos y `vaultPieces` (§M4-SHIP.10/.18.6). */
 export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDTO> {
   if (!config.useMocks) return apiRequest<AdminOrderDetailDTO>(`/admin/orders/${orderId}`);
+  // MOCK §DSC.6 (914): el pedido cobrado con código, en Ventas (fila «Código» y «Descuento (CÓDIGO)»).
+  if (orderId === mockDsc.MOCK_DISCOUNTED_ORDER_ID) {
+    const d = mockDiscountedOrderDetail();
+    return delay<AdminOrderDetailDTO>({
+      id: d.id,
+      userId: 'u-777',
+      orderNumber: d.orderNumber ?? null,
+      status: d.status,
+      breakdown: d.breakdown,
+      cfdiStatus: d.cfdiStatus,
+      fulfillmentMode: 'vault',
+      isGuestOrder: false,
+      customer: { userId: 'u-777', fullName: 'Ana Torres', email: 'ana@example.com' },
+      refundedCents: 0,
+      createdAt: d.createdAt,
+      settledAt: d.settledAt ?? null,
+      items: d.items.map(({ refund: _r, ...it }) => {
+        void _r;
+        return { ...it, refund: null, orderItemId: `oi-${d.id}-${it.inventoryItemId}`, deliveredRefund: { kind: 'not_refundable', reason: 'not_direct_ship' } };
+      }),
+      discount: d.discount,
+    });
+  }
   const order = fx.mockAdminOrders.find((o) => o.id === orderId);
   if (!order) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order not found' });
   const additions = m4ship.mockAdminOrderDetailAdditions(orderId);
@@ -7660,7 +7705,13 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     throw new ApiClientError(404, { code: 'INVALID_TOKEN', message: 'Invalid link' });
   }
   const listings = fx.mockListings.filter((l) => l.sellable).slice(0, 2);
-  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  // MOCK §DSC.6 (914): un token `mock…discount…` sirve el mismo pedido cobrado con `SEPT10` (10 % por carta, redondeo
+  // hacia abajo): `unitPriceCents` = cobrado, `unitDiscountCents` = la rebaja, `subtotalCents` = Σ cobrado (I-3). Sin
+  // esa marca, ni `discount` ni `unitDiscountCents` (I-1).
+  const withCode = token.includes('discount');
+  const unitDiscount = (l: (typeof listings)[number]) => (withCode ? Math.floor((l.displayPriceCents ?? 0) / 10) : 0);
+  const discountCents = listings.reduce((s, l) => s + unitDiscount(l), 0);
+  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) - discountCents;
   const shipped = token.includes('shipped');
   return delay<GuestOrderTrackingDTO>({
     orderNumber: 'TCG-000123',
@@ -7681,8 +7732,10 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
       imageSmallUrl: l.card.imageSmallUrl,
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
-      unitPriceCents: l.displayPriceCents ?? 0,
+      unitPriceCents: (l.displayPriceCents ?? 0) - unitDiscount(l),
+      ...(unitDiscount(l) > 0 ? { unitDiscountCents: unitDiscount(l) } : {}),
     })),
+    ...(withCode ? { discount: { code: 'SEPT10', kind: 'percent' as const, discountCents, shippingWaivedCents: 0 } } : {}),
     // Pedido demo de solo cartas: la tarifa con la que se cobró (§4-G.12 punto 6: congelada; aquí, la regla vigente).
     breakdown: computeGuestBreakdown(subtotal, mockGuestDirectShip(listings, 0, subtotal).feeCents),
     shipping: {
