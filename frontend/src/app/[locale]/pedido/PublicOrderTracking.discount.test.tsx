@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import { renderWithIntl, renderWithProviders } from '@/test/render';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { trackGuestOrder } from '@/lib/api';
+import { discountOf, MOCK_SEPT10_RULE } from '@/lib/mock/discounts';
 import type { GuestOrderTrackingDTO } from '@/types/contract';
 
 vi.mock('@/i18n/navigation', () => ({
@@ -63,10 +64,12 @@ describe('PublicOrderTracking · §DSC.6 (914/915)', () => {
     // exhibido: carta 350 000 + micas 2 × 10 000 = 370 000; D = 35 000 + 2 × 1 000 = 37 000; cobrado 333 000.
     render({
       ...PLAIN,
-      items: [{ ...PLAIN.items[0], unitPriceCents: 315_000, unitDiscountCents: 35_000 }],
-      accessoryLines: [{ ...PLAIN.accessoryLines![0], unitPriceCents: 9_000, lineTotalCents: 18_000, unitDiscountCents: 1_000 }],
+      items: [{ ...PLAIN.items[0], unitPriceCents: 315_000, unitDiscountCents: 35_000, unitPriceBeforeDiscountCents: 350_000 }],
+      accessoryLines: [
+        { ...PLAIN.accessoryLines![0], unitPriceCents: 9_000, lineTotalCents: 18_000, unitDiscountCents: 1_000, unitPriceBeforeDiscountCents: 10_000, lineTotalBeforeDiscountCents: 20_000 },
+      ],
       breakdown: { ...PLAIN.breakdown, subtotalCents: 333_000, totalCents: 364_400 },
-      discount: { code: 'SEPT10', kind: 'percent', discountCents: 37_000, shippingWaivedCents: 0 },
+      discount: { code: 'SEPT10', kind: 'percent', merchandiseBeforeDiscountCents: 370_000, discountCents: 37_000, shippingWaivedCents: 0 },
     });
     expect(screen.getByText('MX$3,500.00')).toBeInTheDocument();
     expect(screen.getByTestId('tracking-accessories')).toHaveTextContent('MX$200.00');
@@ -80,7 +83,7 @@ describe('PublicOrderTracking · §DSC.6 (914/915)', () => {
     render({
       ...PLAIN,
       breakdown: { ...PLAIN.breakdown, shippingFeeCents: 0, totalCents: 383_900 },
-      discount: { code: 'ENVIO25', kind: 'free_shipping', discountCents: 0, shippingWaivedCents: 17_500 },
+      discount: { code: 'ENVIO25', kind: 'free_shipping', merchandiseBeforeDiscountCents: 370_000, discountCents: 0, shippingWaivedCents: 17_500 },
     });
     const r = rows();
     expect(r[0]).toMatch(/^Subtotal\s*MX\$3,700\.00$/);
@@ -103,6 +106,17 @@ describe('PublicOrderTracking · §DSC.6 (914/915)', () => {
     expect(d.discount).toMatchObject({ code: 'SEPT10', kind: 'percent', shippingWaivedCents: 0 });
     expect(d.items.reduce((s, it) => s + (it.unitDiscountCents ?? 0), 0)).toBe(d.discount!.discountCents);
     expect(d.items.reduce((s, it) => s + it.unitPriceCents, 0)).toBe(d.breakdown.subtotalCents);
+    // v1.110.3: la proyección de línea y el «antes» del pedido, coherentes con lo cobrado.
+    for (const it of d.items) expect(it.unitPriceBeforeDiscountCents).toBe(it.unitPriceCents + (it.unitDiscountCents ?? 0));
+    expect(d.discount!.merchandiseBeforeDiscountCents).toBe(d.items.reduce((s, it) => s + (it.unitPriceBeforeDiscountCents ?? 0), 0));
+    // TL-DSC-6: el descuento lo da `discountOf` del simulador con la regla de SEPT10, no una fórmula propia del seguimiento.
+    const r = discountOf(
+      d.items.map((it, i) => ({ id: `l${i}`, kind: 'item' as const, scope: it.productType, priceCents: it.unitPriceBeforeDiscountCents!, quantity: 1 })),
+      MOCK_SEPT10_RULE,
+      'direct_ship',
+    );
+    expect(r.ok && r.discountCents).toBe(d.discount!.discountCents);
+    expect(r.ok && d.items.map((_, i) => r.unitDiscounts.get(`l${i}`) ?? 0)).toEqual(d.items.map((it) => it.unitDiscountCents ?? 0));
     const plain = await trackGuestOrder('mock');
     expect(plain).not.toHaveProperty('discount');
     for (const it of plain.items) expect(it).not.toHaveProperty('unitDiscountCents');

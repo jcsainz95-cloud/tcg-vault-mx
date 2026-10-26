@@ -57,15 +57,47 @@ describe('§DSC.6 / criterio 907 — el genérico es UNO para los seis casos', (
     for (const c of cases) expect(JSON.stringify(c.dto)).toBe('{"outcome":"invalid"}');
   });
 
-  it('un código vigente que no encaja da su motivo (C6/C7) y NO suma al límite de intentos', () => {
-    for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures + 2; i++) {
-      expect(evaluateMockDiscount('MINIMO2000', ctx()).dto).toMatchObject({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL', details: { missingCents: 100000 } });
+  it('un código vigente que no encaja da su motivo (C6/C7) con `details` mínimos; el MISMO, re-cotizado, suma una sola vez', () => {
+    // v1.110.3 (DCO-B9): el mismo `not_applicable` cotizado 20 veces suma 1 (no bloquea a quien llena el carrito al mínimo).
+    for (let i = 0; i < 20; i++) {
+      expect(evaluateMockDiscount('MINIMO2000', ctx()).dto).toEqual({
+        outcome: 'not_applicable',
+        code: 'MINIMO2000',
+        reason: 'MIN_SUBTOTAL',
+        details: { missingCents: 100000 },
+      });
     }
     expect(evaluateMockDiscount('SEPT10', ctx()).dto.outcome).toBe('applied');
+    // …y al llegar al mínimo, aplica.
+    const full = ctx({ lines: [{ id: 'inv-a', kind: 'item', scope: 'raw', priceCents: 200000, quantity: 1 }] });
+    expect(evaluateMockDiscount('MINIMO2000', full).dto.outcome).toBe('applied');
   });
 });
 
 describe('§DSC.6 / criterio 908 — límite de intentos', () => {
+  it('DCO-B9 v1.110.3 (`HECHOS.md` 2026-10-26 «…cuenta como intento»): 10 códigos vigentes DISTINTOS que no aplican ⇒ bloqueo', () => {
+    const t0 = Date.parse('2026-10-26T18:00:00Z');
+    for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures; i++) {
+      mockCreateCode({ code: `MINIMO${i}X`, kind: 'percent', percentPct: 10, minSubtotalCents: 900000 });
+    }
+    for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures; i++) {
+      expect(evaluateMockDiscount(`MINIMO${i}X`, ctx({ now: t0 + i })).dto).toMatchObject({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL' });
+    }
+    expect(evaluateMockDiscount('SEPT10', ctx({ now: t0 + 1000 })).dto).toEqual({
+      outcome: 'rate_limited',
+      retryAfterSeconds: MOCK_DISCOUNT_THROTTLE.blockMin * 60,
+    });
+  });
+
+  it('`not_applicable` e `invalid` suman juntos (9 inválidos + 1 que no aplica ⇒ bloqueo); `applied` no suma', () => {
+    const t0 = Date.parse('2026-10-26T19:00:00Z');
+    for (let i = 0; i < 20; i++) expect(evaluateMockDiscount('SEPT10', ctx({ now: t0 })).dto.outcome).toBe('applied');
+    for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures - 1; i++) evaluateMockDiscount(`MAL${i}XX`, ctx({ now: t0 + i }));
+    expect(evaluateMockDiscount('SEPT10', ctx({ now: t0 + 100 })).dto.outcome).toBe('applied');
+    evaluateMockDiscount('MINIMO2000', ctx({ now: t0 + 200 }));
+    expect(evaluateMockDiscount('SEPT10', ctx({ now: t0 + 300 })).dto.outcome).toBe('rate_limited');
+  });
+
   it('10 fallidos ⇒ el 11.º, aun con código válido, da `rate_limited` con `retryAfterSeconds`; vencido el bloqueo, aplica', () => {
     const t0 = Date.parse('2026-10-25T18:00:00Z');
     for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures; i++) evaluateMockDiscount(`MAL${i}XX`, ctx({ now: t0 + i }));

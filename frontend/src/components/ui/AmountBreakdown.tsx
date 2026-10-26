@@ -54,10 +54,9 @@ export interface AmountBreakdownProps {
  * `POST /orders/guest/track`, `GET /admin/orders/:id`) en la forma que pinta este desglose, para que el detalle se lea
  * IGUAL que el checkout que lo cobró: «Subtotal» = mercancía antes del descuento, «Descuento (CÓDIGO)» debajo.
  *
- * El detalle no trae `merchandiseBeforeDiscountCents` (es campo del quote). Se toma de la identidad que el propio
- * contrato declara (§DSC.0 I-3 y §DSC.1): `Order.subtotalCents` = Σ COBRADO y `Order.discountCents` = Σ unidades ×
- * `unitDiscountCents`, ⇒ antes del descuento = `subtotalCents + discountCents`. Es una suma de dos campos del servidor,
- * ⛔ no una fórmula de precio (el descuento, el envío y el total siguen siendo los del servidor, DCO-F2).
+ * v1.110.3: el detalle trae `merchandiseBeforeDiscountCents` (lo proyecta el servidor) y se pinta
+ * `discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`, ⛔ sin sumar (DCO-F6, techlead R2 sobre `c421de13`).
+ * Cada importe es un campo del servidor (DCO-F2).
  * Sin código, o con un código que no rebajó nada (como el correo, `discountMailRows`), `null` ⇒ desglose de hoy (915).
  */
 export function appliedDiscountOfOrder(
@@ -71,7 +70,7 @@ export function appliedDiscountOfOrder(
     outcome: 'applied',
     code: discount.code,
     kind: discount.kind,
-    merchandiseBeforeDiscountCents: breakdown.subtotalCents + discount.discountCents,
+    merchandiseBeforeDiscountCents: discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents,
     discountCents: discount.discountCents,
     shippingWaivedCents: discount.shippingWaivedCents,
   };

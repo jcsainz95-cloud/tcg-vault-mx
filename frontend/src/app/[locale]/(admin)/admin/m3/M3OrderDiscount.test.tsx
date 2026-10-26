@@ -65,9 +65,12 @@ const PLAIN: AdminOrderDetailDTO = {
 const DISCOUNTED: AdminOrderDetailDTO = {
   ...PLAIN,
   breakdown: { ...PLAIN.breakdown, subtotalCents: 144_720, totalCents: 149_520 },
-  items: [{ ...PLAIN.items![0], unitPriceCents: 126_720, unitDiscountCents: 14_080 }],
-  accessoryLines: [{ ...PLAIN.accessoryLines![0], unitPriceCents: 9_000, lineTotalCents: 18_000, unitDiscountCents: 1_000 }],
-  discount: { code: 'SEPT10', kind: 'percent', discountCents: 16_080, shippingWaivedCents: 0 },
+  // v1.110.3: los «antes del descuento» los proyecta el servidor (la pantalla los pinta, DCO-F6).
+  items: [{ ...PLAIN.items![0], unitPriceCents: 126_720, unitDiscountCents: 14_080, unitPriceBeforeDiscountCents: 140_800 }],
+  accessoryLines: [
+    { ...PLAIN.accessoryLines![0], unitPriceCents: 9_000, lineTotalCents: 18_000, unitDiscountCents: 1_000, unitPriceBeforeDiscountCents: 10_000, lineTotalBeforeDiscountCents: 20_000 },
+  ],
+  discount: { code: 'SEPT10', kind: 'percent', merchandiseBeforeDiscountCents: 160_800, discountCents: 16_080, shippingWaivedCents: 0 },
 };
 
 const rows = () =>
@@ -130,7 +133,9 @@ describe('M3 · detalle del pedido con código (914)', () => {
 
   it('MD-5 · el MOCK de Ventas sirve el pedido con código (forma del contrato, sin `totalCents` en la raíz) y el resto sin la clave', async () => {
     const d = await api.getAdminOrder(MOCK_DISCOUNTED_ORDER_ID);
-    expect(d.discount).toEqual({ code: 'SEPT10', kind: 'percent', discountCents: 14_080, shippingWaivedCents: 0 });
+    expect(d.discount).toEqual({ code: 'SEPT10', kind: 'percent', merchandiseBeforeDiscountCents: 140_800, discountCents: 14_080, shippingWaivedCents: 0 });
+    // v1.110.3: la proyección de línea del servidor (el antes del descuento por unidad).
+    expect(d.items![0].unitPriceBeforeDiscountCents).toBe(140_800);
     expect(Object.prototype.hasOwnProperty.call(d, 'totalCents')).toBe(false);
     expect((d.items ?? []).reduce((s, it) => s + it.unitPriceCents, 0)).toBe(d.breakdown.subtotalCents);
     expect((d.items ?? []).reduce((s, it) => s + (it.unitDiscountCents ?? 0), 0)).toBe(d.discount!.discountCents);

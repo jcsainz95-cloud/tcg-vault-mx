@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
-import { mockCreateBatch, reserveMockDiscount, resetMockDiscounts } from '@/lib/mock/discounts';
+import { mockCreateBatch, mockCreateCode, mockGetCode, reserveMockDiscount, resetMockDiscounts } from '@/lib/mock/discounts';
 
 const push = vi.fn();
 vi.mock('@/i18n/navigation', () => ({
@@ -131,6 +131,41 @@ describe('crear y editar', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar código' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Marca al menos un tipo de producto.');
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('R3 (techlead): editar un código SIN usar y borrar tope, mínimo y usos por cliente ⇒ PATCH con `null` explícito, y quedan sin límite', async () => {
+    const created = mockCreateCode({ code: 'TOPE20', kind: 'percent', percentPct: 20, maxDiscountCents: 30000, minSubtotalCents: 100000, maxUsesPerCustomer: 2 });
+    const api = await import('@/lib/api');
+    const patch = vi.spyOn(api, 'patchDiscountCode');
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm id={created.id} />, 'es');
+    expect(await screen.findByLabelText('Tope en pesos (opcional)')).toHaveValue('300.00');
+    await user.clear(screen.getByLabelText('Tope en pesos (opcional)'));
+    await user.clear(screen.getByLabelText('Mínimo de compra (opcional)'));
+    await user.clear(screen.getByLabelText('Usos por cliente'));
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    const body = patch.mock.calls[0][1];
+    expect(body).toMatchObject({ kind: 'percent', percentPct: 20, maxDiscountCents: null, minSubtotalCents: null, maxUsesPerCustomer: null, amountCents: null });
+    // ⛔ «sin límite» no es «omitido»: la clave VIAJA con `null`.
+    for (const k of ['maxDiscountCents', 'minSubtotalCents', 'maxUsesPerCustomer'] as const) expect(Object.prototype.hasOwnProperty.call(body, k)).toBe(true);
+    expect(await screen.findByText('Código guardado.')).toBeInTheDocument();
+    expect(mockGetCode(created.id)).toMatchObject({ maxDiscountCents: null, minSubtotalCents: null, maxUsesPerCustomer: null });
+  });
+
+  it('R3: pasar de % a monto fijo en edición no arrastra el `percentPct` ni el tope viejos', async () => {
+    const created = mockCreateCode({ code: 'CAMBIO20', kind: 'percent', percentPct: 20, maxDiscountCents: 30000 });
+    const api = await import('@/lib/api');
+    const patch = vi.spyOn(api, 'patchDiscountCode');
+    const user = userEvent.setup();
+    renderWithProviders(<DiscountCodeForm id={created.id} />, 'es');
+    await user.click(await screen.findByLabelText('Monto fijo'));
+    await user.type(screen.getByLabelText('Monto en pesos'), '150');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1]).toMatchObject({ kind: 'fixed_amount', amountCents: 15000, percentPct: null, maxDiscountCents: null });
+    expect(await screen.findByText('Código guardado.')).toBeInTheDocument();
+    expect(mockGetCode(created.id)).toMatchObject({ kind: 'fixed_amount', amountCents: 15000, percentPct: null, maxDiscountCents: null });
   });
 
   it('912 / D7: con usos, tipo, valor, tope, mínimo y filtros van bloqueados con aviso; fin y usos totales se editan', async () => {

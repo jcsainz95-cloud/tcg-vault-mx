@@ -178,7 +178,9 @@ describe('DCO-B2 — nominal, tope, mínimo inclusivo y paquete fuera (cifras de
     const code = rule({ percentPct: 10, minSubtotalCents: min });
     expect(discountOf([card('a', atMin)], code, 'direct_ship').ok).toBe(true);
     const r = discountOf([card('a', below)], code, 'direct_ship');
-    expect(r).toMatchObject({ ok: false, reason: 'MIN_SUBTOTAL', details: { minSubtotalCents: min, missingCents: missing } });
+    // v1.110.3 (DCO-B9, pentest DSC-1): `details` SOLO con lo que el texto usa — ⛔ ni `minSubtotalCents`.
+    expect(DSC).toMatch(/`MIN_SUBTOTAL \{ missingCents \}` · `NO_ELIGIBLE_ITEMS \{ productScopes \}` · `TOTAL_BELOW_MINIMUM \{ minTotalCents \}` · el resto `\{\}`/);
+    expect(r).toEqual({ ok: false, reason: 'MIN_SUBTOTAL', details: { missingCents: missing } });
   });
 
   it('919: el paquete de energías queda fuera; solo `accessory` con el paquete como único accesorio ⇒ NO_ELIGIBLE_ITEMS', () => {
