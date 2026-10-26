@@ -32,6 +32,8 @@ export interface OrderAccessoryLineDTO {
   deckName: string | null;
   components: { energyType: EnergyType; quantity: number }[];
   deliveredRefund?: AccessoryDeliveredRefundDTO;
+  /** 💰 v1.110 (§DSC.6, 914): la rebaja por unidad SOLO si > 0 (`unitPriceCents` ya es lo cobrado, I-3). */
+  unitDiscountCents?: number;
 }
 
 /** Lo que las lecturas leen de un `OrderAccessoryLine` (+ su accesorio vigente y sus componentes). */
@@ -40,6 +42,8 @@ export interface AccessoryLineReadRow {
   kind: 'accessory' | 'energy_bundle';
   quantity: number;
   unitPriceCents: number;
+  /** 💰 v1.110 (M-92): la rebaja por unidad (0 sin código). Opcional: las lecturas de antes de M-92 no la traen. */
+  unitDiscountCents?: number;
   refundedQty: number;
   snapshot: unknown;
   deckName: string | null;
@@ -95,6 +99,7 @@ export function toOrderAccessoryLineDTO(row: AccessoryLineReadRow, deliveredRefu
     components: componentsOf(row),
   };
   if (deliveredRefund !== undefined) dto.deliveredRefund = deliveredRefund;
+  if ((row.unitDiscountCents ?? 0) > 0) dto.unitDiscountCents = row.unitDiscountCents;
   return dto;
 }
 

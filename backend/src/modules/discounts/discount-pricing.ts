@@ -113,12 +113,15 @@ export function priceDirectShipCartWithCode(
   let shipFee: DirectShipFee;
   let freeShippingByCode = false;
   if (terms.kind === 'free_shipping') {
-    // §DSC.4: no aplica, con su motivo — ya gratis por umbral (sobre `S`, que aquí es `S'`: D = 0) · caja grande.
+    // §DSC.4 (v1.110.1): no aplica, con su motivo y en este orden — caja grande ⇒ `LARGE_BOX` · `E` sin código ya es 0
+    // (umbral sobre `S`, que aquí es `S'`: D = 0; o el dial de la clase en 0) ⇒ `ALREADY_FREE_SHIPPING`. ⛔ Nunca se aparta
+    // un uso con `shippingWaivedCents = 0` (el bóveda, `NO_SHIPPING`, va en `priceVaultCartWithCode`).
     const today = directShipFeeOf(ship.kind, S, ship.dials, ship.choice);
     if (ship.kind === null) return notApplicable('NO_ELIGIBLE_ITEMS', { productScopes: [...terms.productScopes] });
     if (today.boxFeeApplies) return notApplicable('LARGE_BOX');
-    if (S >= ship.dials.freeFromCents) return notApplicable('ALREADY_FREE_SHIPPING');
-    shippingWaivedCents = ship.kind === 'cards_only' ? ship.dials.cardsFeeCents : ship.dials.sealedFeeCents;
+    const classFeeCents = ship.kind === 'cards_only' ? ship.dials.cardsFeeCents : ship.dials.sealedFeeCents;
+    if (S >= ship.dials.freeFromCents || classFeeCents <= 0) return notApplicable('ALREADY_FREE_SHIPPING');
+    shippingWaivedCents = classFeeCents;
     shipFee = { ...today, feeCents: 0, freeShippingApplied: true };
     freeShippingByCode = true;
   } else {
@@ -155,6 +158,8 @@ export function withdrawalCodeOutcome(
   if (terms.destinations.length > 0 && !terms.destinations.includes('direct_ship')) {
     return notApplicable('DESTINATION', { destinations: [...terms.destinations] });
   }
+  // v1.110.1 (§DSC.4/§DSC.8): el dial del retiro en 0 ⇒ ya es gratis ⇒ ⛔ no se gasta un uso sin beneficio.
+  if (withdrawalFeeCents <= 0) return notApplicable('ALREADY_FREE_SHIPPING');
   return { outcome: 'applied', shippingWaivedCents: withdrawalFeeCents };
 }
 

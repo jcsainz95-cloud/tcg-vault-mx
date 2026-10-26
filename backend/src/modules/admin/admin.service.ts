@@ -2024,7 +2024,7 @@ export class AdminService {
     if (axis !== 'buy') {
       const rows = await this.prisma.orderItem.findMany({
         where: { order: { status: 'settled', ...(r ? { settledAt: r } : {}) } },
-        select: { marketBracket: true, priceBasis: true, marketMxnCents: true, unitPriceCents: true },
+        select: { marketBracket: true, priceBasis: true, marketMxnCents: true, unitPriceCents: true, unitDiscountCents: true },
       });
       const acc = new Map<string, Row>();
       for (const it of rows) {
@@ -2034,7 +2034,9 @@ export class AdminService {
           ({ bracket: it.marketBracket, operations: 0, unitsSold: 0, grossMxnCents: 0, marketMxnCents: 0, byBasis: emptyByBasis() } as Row);
         row.operations += 1;
         row.unitsSold = (row.unitsSold ?? 0) + 1;
-        row.grossMxnCents = (row.grossMxnCents ?? 0) + it.unitPriceCents;
+        // 💰 v1.110.1 (§DSC.0 I-3, único lector del original): la curva fija el EXHIBIDO ⇒ se calibra con el precio antes
+        // del código (`unitPriceCents` es lo cobrado). El descuento se mide aparte, en el reporte de §DSC.7.
+        row.grossMxnCents = (row.grossMxnCents ?? 0) + it.unitPriceCents + (it.unitDiscountCents ?? 0);
         row.marketMxnCents += it.marketMxnCents ?? 0;
         if (it.priceBasis) row.byBasis[it.priceBasis] += 1;
         acc.set(key, row);

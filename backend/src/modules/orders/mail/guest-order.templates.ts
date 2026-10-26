@@ -13,7 +13,7 @@ import {
 import { ProductType } from '@prisma/client';
 import { MailMessage } from '../../mail/mail.port';
 import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
-import { orderMailLineOf } from './order-notice.templates';
+import { OrderMailDiscount, discountMailRows, discountMailTextLines, orderMailLineOf } from './order-notice.templates';
 
 /**
  * Plantillas LOCALES al módulo `orders` del correo del GUEST CHECKOUT (v1.21, ARCHITECTURE §4.21g).
@@ -69,6 +69,8 @@ export interface GuestOrderMailParams {
   trackingUrl: string;
   /** 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio y paquete. ⛔ Sin foto. */
   accessoryLines?: AccessoryMailLine[];
+  /** 💰 v1.110.1 (§DSC.6, 914): solo si la orden lleva código. */
+  discount?: OrderMailDiscount | null;
 }
 
 const COPY = {
@@ -147,6 +149,7 @@ export function guestOrderConfirmationTemplate(
     ...params.items.map(orderMailLineOf),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)),
   ];
+  const discountRows = discountMailRows(params.discount, l, (c) => formatMxn(c, l));
   const html = mailShell({
     locale: l,
     title: t.confirmTitle,
@@ -163,7 +166,7 @@ export function guestOrderConfirmationTemplate(
       spacerRow(8),
       ...lineas.map((x) => proseRow(x)),
       spacerRow(24),
-      totalsRows([], { label: t.totalLabel, amount: total }),
+      totalsRows(discountRows, { label: t.totalLabel, amount: total }),
       spacerRow(32),
       ctaRows(url, t.trackButton, 'ink'),
       spacerRow(24),
@@ -184,6 +187,7 @@ export function guestOrderConfirmationTemplate(
     itemsText(params.items),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)).map((x) => `- ${x}`),
     '',
+    ...discountMailTextLines(discountRows),
     `${t.total}: ${total}`,
     '',
     `${t.trackCta}: ${url}`,

@@ -77,6 +77,38 @@ function orderDetailUrl(orderId: string | null, l: Locale): string | undefined {
   return orderId ? appUrl(`orders/${encodeURIComponent(orderId)}`, l) : undefined;
 }
 
+/**
+ * 💰 v1.110.1 (§DSC.6 «Dónde se ve el pedido», 914) — el código del pedido, para la línea «Descuento (CÓDIGO) −MX$X» y, con
+ * envío gratis, la del envío. Sale de las MISMAS columnas que `GET /orders/:id` (`Order.discountCents`/`shippingWaivedCents`
+ * + el texto de su `DiscountRedemption`). Sin código ⇒ ausente ⇒ el correo de hoy, byte a byte (I-1).
+ */
+export interface OrderMailDiscount {
+  code: string;
+  discountCents: number;
+  shippingWaivedCents: number;
+}
+
+/** Las líneas de resta del código (HTML y texto comparten etiquetas). Vacío sin código o con montos en 0. */
+export function discountMailRows(
+  d: OrderMailDiscount | null | undefined,
+  locale: 'es' | 'en',
+  fmt: (cents: number) => string,
+): { label: string; amount: string; minus: true }[] {
+  if (!d) return [];
+  const en = locale === 'en';
+  const out: { label: string; amount: string; minus: true }[] = [];
+  if (d.discountCents > 0) out.push({ label: `${en ? 'Discount' : 'Descuento'} (${d.code})`, amount: fmt(d.discountCents), minus: true });
+  if (d.shippingWaivedCents > 0) {
+    out.push({ label: `${en ? 'Free shipping' : 'Envío gratis'} (${d.code})`, amount: fmt(d.shippingWaivedCents), minus: true });
+  }
+  return out;
+}
+
+/** La misma resta en el cuerpo de TEXTO (`−` como en el HTML de `totalsRows`). */
+export function discountMailTextLines(rows: readonly { label: string; amount: string }[]): string[] {
+  return rows.map((r) => `${r.label}: − ${r.amount}`);
+}
+
 export interface OrderNoticeItem {
   name: string;
   setName: string;
@@ -97,6 +129,8 @@ export interface OrderSettledParams {
   totalCents: number;
   /** 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio y paquete. ⛔ Sin foto. */
   accessoryLines?: AccessoryMailLine[];
+  /** 💰 v1.110.1 (§DSC.6, 914): solo si la orden lleva código. */
+  discount?: OrderMailDiscount | null;
 }
 
 /**
@@ -137,6 +171,7 @@ export function orderSettledTemplate(
     ...params.items.map(orderMailLineOf),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => money(c, l)),
   ];
+  const discountRows = discountMailRows(params.discount, l, (c) => money(c, l));
   const blocks = [
     eyebrowRow(en ? 'YOUR ORDER' : 'TU PEDIDO', params.orderNumber),
     headingRow(title, 22),
@@ -150,7 +185,7 @@ export function orderSettledTemplate(
     ...lineas.map((t) => proseRow(t)),
     spacerRow(24),
     // La resta con sustraendos vacíos: **solo el total pagado**, que es la columna persistida.
-    totalsRows([], { label: totalLabel, amount: total }),
+    totalsRows(discountRows, { label: totalLabel, amount: total }),
     spacerRow(24),
     smallPrintRow(finalSale),
     spacerRow(32),
@@ -175,6 +210,7 @@ export function orderSettledTemplate(
       `${itemsLabel}:`,
       ...lineas.map((t) => `- ${t}`),
       '',
+      ...discountMailTextLines(discountRows),
       `${totalLabel}: ${total}`,
       '',
       finalSale,

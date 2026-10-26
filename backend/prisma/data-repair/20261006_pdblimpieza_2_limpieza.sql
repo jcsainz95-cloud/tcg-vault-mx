@@ -247,9 +247,8 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- del dueño. Los dos contadores sin PII van arriba, en `borrar`. Ninguna referencia a una tabla que se borra (FK solo a
   -- `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
   'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation',
-  -- v1.110⟨descuentos⟩ (M-92, G-8; a ratificar por el arquitecto): los códigos y sus lotes son CONFIGURACIÓN del dueño
-  -- (como `ConfigSetting`) ⇒ conservar. ⚠️ `firstReservedAt` queda puesto en los que se usaron en prueba (su edición sigue
-  -- bloqueada por §DSC.7 aunque ya no tengan usos): si el dueño los quiere editables, se archivan y se crean otros.
+  -- v1.110.1⟨descuentos⟩ (M-92, G-8; ratificado en API_CONTRACT §DSC.1 «Limpieza PDB»): los códigos y sus lotes son
+  -- CONFIGURACIÓN del dueño (como `ConfigSetting`) ⇒ conservar, con `firstReservedAt` a NULL (paso 13): sin usos no hay bloqueo.
   'DiscountCode','DiscountCodeBatch']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
@@ -505,6 +504,10 @@ WITH x AS (DELETE FROM "MeasurementContext" RETURNING 1) INSERT INTO lz_cambio S
 -- v1.110⟨descuentos⟩ (M-92): los intentos fallidos de código (sin FK; G-5 los cuenta en `borrar`).
 \if :lz_m92
 WITH x AS (DELETE FROM "DiscountCodeThrottle" RETURNING 1) INSERT INTO lz_cambio SELECT '13 DiscountCodeThrottle', count(*) FROM x;
+-- v1.110.1 (§DSC.1): el código se CONSERVA, pero sus usos ya se borraron (7-bis) ⇒ sin sello de primer uso su edición
+-- vuelve a estar libre (§DSC.7). El WHERE hace que una 2.ª corrida no cambie nada.
+WITH x AS (UPDATE "DiscountCode" SET "firstReservedAt" = NULL WHERE "firstReservedAt" IS NOT NULL RETURNING 1)
+INSERT INTO lz_cambio SELECT '13 DiscountCode sin sello de uso', count(*) FROM x;
 \endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (

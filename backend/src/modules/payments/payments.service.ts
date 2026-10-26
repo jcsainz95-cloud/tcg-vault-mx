@@ -15,7 +15,7 @@ import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleabl
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
+import { OrderMailDiscount, orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
 import { FullRefundService } from './refunds/full-refund.service';
 import { afterAutoCloseVia, cancelProviderLabelIfAny } from '../shipments/label-auto-close';
 import { ModuleRef } from '@nestjs/core';
@@ -157,12 +157,27 @@ export class PaymentsService {
               };
             }),
             totalCents: order.totalCents,
+            // 💰 v1.110.1 (§DSC.6, 914): best-effort — un fallo al leer el código deja el correo sin la línea, ⛔ sin correo no.
+            discount: await this.mailDiscountOf(order).catch(() => null),
           },
           order.locale ?? user.locale,
         ),
         to: user.email,
       };
     });
+  }
+
+  /**
+   * 💰 v1.110.1 (§DSC.6, 914) — `{ code, discountCents, shippingWaivedCents }` de la orden para los correos de confirmación,
+   * de las MISMAS columnas que `GET /orders/:id`. Solo consulta si la orden lleva rebaja o envío perdonado (una orden sin
+   * código tiene las dos en 0 ⇒ ⛔ ni la consulta ni la línea: el correo de hoy, I-1).
+   */
+  private async mailDiscountOf(order: { id: string; discountCents?: number; shippingWaivedCents?: number }): Promise<OrderMailDiscount | null> {
+    const discountCents = order.discountCents ?? 0;
+    const shippingWaivedCents = order.shippingWaivedCents ?? 0;
+    if (discountCents <= 0 && shippingWaivedCents <= 0) return null;
+    const r = await this.prisma.discountRedemption.findUnique({ where: { orderId: order.id }, select: { code: { select: { code: true } } } });
+    return r ? { code: r.code.code, discountCents, shippingWaivedCents } : null;
   }
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
@@ -272,6 +287,14 @@ export class PaymentsService {
             `SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden ${order.orderNumber ?? order.id} ` +
               `en ${order.status} (PI ${pi.id})`,
           );
+          // 💰 v1.110.1 (§DSC.5 «Un PI que cobró acaba consumed», DCO-B5): el `charge.refunded` que llegó ANTES dejó la orden
+          // `refunded` con su uso `reserved` (ni libera ni consume). Este `succeeded` prueba el cobro ⇒ el uso se consume. Es
+          // la ÚNICA escritura de esta rama y toca solo la fila del uso (⛔ ni orden, ni piezas, ni avisos). Sin código (las
+          // dos columnas en 0) ⇒ ni la consulta.
+          if ((order.discountCents ?? 0) > 0 || (order.shippingWaivedCents ?? 0) > 0) {
+            const used = await this.prisma.$transaction((tx) => consumeOrderRedemption(tx, order.id, new Date()));
+            if (used.late) await this.auditLateDiscount(order.id);
+          }
         }
         return;
       }
@@ -675,9 +698,15 @@ export class PaymentsService {
     })();
     // POST-COMMIT, BEST-EFFORT (§4.21g): un fallo del correo se loguea; la red de seguridad es el
     // `checkoutToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
+    // 💰 v1.110.1 (§DSC.6, 914): la línea del código. Best-effort como los renglones: un fallo deja el correo sin ella.
+    const discount = await this.mailDiscountOf(order).catch((e: unknown) => {
+      this.logger.error(`guest confirmation: no se pudo leer el código de ${order.id}: ${(e as Error).message}`);
+      return null;
+    });
     await this.guestMail
       .sendConfirmation({
         accessoryLines,
+        discount,
         id: order.id,
         orderNumber: order.orderNumber,
         guestEmail: order.guestEmail,

@@ -79,6 +79,9 @@ import {
   bundleDiscountLines,
   discountedAccessoryLine,
   discountedPieceLine,
+  FrozenAccessoryPrice,
+  frozenAccessoryLine,
+  frozenAccessoryMapOf,
   pieceDiscountLines,
 } from '../discounts/discount-lines';
 import type { DiscountCartLine } from '../../common/money';
@@ -240,6 +243,7 @@ export class GuestCheckoutService {
     const breakdown: DirectShipBreakdownDTO = applied ? applied.breakdown : breakdownToday;
     const unit = applied?.unitDiscountCents ?? null;
     const frozenUnit = dq?.frozenUnit ?? null;
+    const frozenAcc = dq?.frozenAccessory ?? null;
     return {
       // §5.2.5 / contrato v1.51-b: `card` es un `OrderItemCardDTO` (8 hechos congelados +
       // `imageSmallUrl` resuelta en lectura). Se usa el MISMO cuerpo que `POST /checkout/quote`
@@ -262,7 +266,11 @@ export class GuestCheckoutService {
       // Banderas, no texto (§0 i18n): el front renderiza ventas finales / factura / términos.
       notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
       // 💰 v1.86⟨accesorios⟩ (§AC.4, aditivo): SIEMPRE presentes (`[]`/`null` sin accesorios).
-      accessoryLines: unit ? acc.accessoryLines.map((l, i) => discountedAccessoryLine(l, i, unit)) : acc.accessoryLines,
+      accessoryLines: unit
+        ? acc.accessoryLines.map((l, i) => discountedAccessoryLine(l, i, unit))
+        : frozenAcc
+          ? acc.accessoryLines.map((l) => frozenAccessoryLine(l, frozenAcc))
+          : acc.accessoryLines,
       energyBundles: acc.energyBundles,
       energyBundleOffers: acc.energyBundleOffers,
       unavailableAccessories: acc.unavailableAccessories,
@@ -328,6 +336,7 @@ export class GuestCheckoutService {
     discount: DiscountQuoteDTO;
     applied: AppliedCartDiscount<DirectShipBreakdownDTO> | null;
     frozenUnit: Map<string, number> | null;
+    frozenAccessory?: Map<string, FrozenAccessoryPrice>;
     dials: DirectShipDials | null;
   }> {
     const discounts = this.discounts;
@@ -335,7 +344,18 @@ export class GuestCheckoutService {
       // La orden propia con ESTE código: lo que su PI cobra (§4-R.5 + §DSC.5), sin recalcular.
       const discount = await discounts.appliedOfOrder(this.prisma, q.frozenOrder);
       const its = await this.prisma.orderItem.findMany({ where: { orderId: q.frozenOrder.id }, select: { inventoryItemId: true, unitDiscountCents: true } });
-      return { discount: discount ?? { outcome: 'invalid' }, applied: null, frozenUnit: new Map(its.map((i) => [i.inventoryItemId, i.unitDiscountCents])), dials: null };
+      // v1.110.1 (§DSC.6, DCO-B5): los renglones de accesorio del congelado salen de `OrderAccessoryLine` (cobrado + rebaja).
+      const accRows = await this.prisma.orderAccessoryLine.findMany({
+        where: { orderId: q.frozenOrder.id },
+        select: { kind: true, accessoryId: true, unitPriceCents: true, unitDiscountCents: true },
+      });
+      return {
+        discount: discount ?? { outcome: 'invalid' },
+        applied: null,
+        frozenUnit: new Map(its.map((i) => [i.inventoryItemId, i.unitDiscountCents])),
+        frozenAccessory: frozenAccessoryMapOf(accRows),
+        dials: null,
+      };
     }
     const now = new Date();
     const keys = discounts.throttleKeys({ ip: q.ip, email: q.email });

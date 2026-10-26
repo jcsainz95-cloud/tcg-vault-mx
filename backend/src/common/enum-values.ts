@@ -28,6 +28,9 @@ import {
   CardShowDay,
   CardShowSignupStatus,
   CardShowGame,
+  DiscountKind,
+  DiscountProductScope,
+  DiscountCodeStatus,
 } from '@prisma/client';
 
 /**
@@ -198,3 +201,11 @@ export const CARD_SHOW_SIGNUP_STATUS_VALUES = Object.values(CardShowSignupStatus
 // `shardbugs` (aditivo, LIGERA por la misma regla de servicio; sin lógica nueva). DERIVADO de Prisma, así que el
 // array recoge los valores por construcción (⭐M-90 §CARDSHOW.1a-quater: + `magic`, 5.º, LIGERA). Tres bandas en `test/enum-values-parity.spec.ts`.
 export const CARD_SHOW_GAME_VALUES = Object.values(CardShowGame);
+
+// 💰 v1.110.1⟨descuentos⟩ (M-92, API_CONTRACT §DSC.7 «Paridad de enums»): los TRES enums que validan las rutas `super_admin`
+// de códigos (cuerpo `kind`/`productScopes`, `status` del PATCH y `?status=` de la lista) — clase **E** (el dominio entero es la
+// regla). `DiscountRedemptionStatus` solo sale en lectura ⇒ no entra (banda 3 universal). Tres bandas en
+// `test/enum-values-parity.spec.ts`.
+export const DISCOUNT_KIND_VALUES = Object.values(DiscountKind);
+export const DISCOUNT_PRODUCT_SCOPE_VALUES = Object.values(DiscountProductScope);
+export const DISCOUNT_CODE_STATUS_VALUES = Object.values(DiscountCodeStatus);
