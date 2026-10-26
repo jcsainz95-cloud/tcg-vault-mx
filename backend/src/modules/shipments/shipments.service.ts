@@ -49,6 +49,7 @@ import {
   normalizeDiscountCode,
 } from '../discounts/discounts.service';
 import { withdrawalPriceOf } from '../discounts/discount-pricing';
+import { normalizeEmail } from '../orders/guest-privacy';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   LocationView,
@@ -423,7 +424,8 @@ export class ShipmentsService {
   /** El cliente del retiro para el límite por cliente (§DSC.5): id y correo normalizado de la cuenta. */
   private async withdrawalCustomer(userId: string): Promise<DiscountCustomer> {
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-    return { userId, email: u?.email ? u.email.trim().toLowerCase() : null };
+    // QA (c421de13): la MISMA normalización que la cuenta y el invitado (`normalizeEmail`), ⛔ no una copia a mano.
+    return { userId, email: u?.email ? normalizeEmail(u.email) : null };
   }
 
   /** §DSC.8: el desglose del retiro gratis — la MISMA forma de hoy, con los cuatro importes en 0 (sin contraprestación no hay IVA). */

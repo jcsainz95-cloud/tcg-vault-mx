@@ -694,6 +694,11 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       await acc.shipAll(r.shipment.id, 'entregado');
       const oi = r.order.items[0];
       const expected = itemRefundComponents(r.order, oi).amountCents;
+      // QA (c421de13): lo esperado también desde el precio EXHIBIDO de la pieza (P − floor(P·10 %)), no solo desde la fila:
+      // así guardar en `unitPriceCents` el precio sin descuento se pone rojo aquí.
+      const P = r.ps.find((p) => p.id === oi.inventoryItemId)!.P;
+      expect(oi.unitPriceCents).toBe(P - Math.floor((P * 10) / 100));
+      expect(expected).toBe(itemRefundComponents(r.order, { unitPriceCents: P - Math.floor((P * 10) / 100) }).amountCents);
       const res = await h.api('POST', `/admin/orders/${r.order.id}/items/${oi.id}/refund-delivered`, {
         token: acc.adminToken,
         json: { reason: 'arrived_damaged', note: 'llegó doblada, foto por correo', expectedRefundCents: expected },
