@@ -33,7 +33,7 @@ export function CookiePreferencesLink({ variant, className }: { variant: 'nav' |
 
 /**
  * Sitio 2 de MKT2-UX.8: el HUECO del aviso de privacidad, al final del apartado de cookies. El texto
- * del apartado es del abogado; esto solo pone el botón (y nada con el modo `off`).
+ * del apartado es el aprobado por el dueño; esto solo pone el botón (y nada con el modo `off`).
  */
 export function CookiePreferencesNoticeSlot() {
   const m = useMeasurement();

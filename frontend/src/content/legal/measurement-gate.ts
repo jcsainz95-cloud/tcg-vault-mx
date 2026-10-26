@@ -5,7 +5,8 @@ import { textsOf } from './legal-gate';
  * ARCHITECTURE §14.1 (D-MKT2-0b) · candado C-D1 — **encender la medición exige el aviso nuevo.**
  *
  * Con `NEXT_PUBLIC_MEASUREMENT_MODE=on`, el aviso que se va a publicar tiene que:
- *  1. tener `measurementDisclosure` (versión + fechas de aprobación del dueño y revisión legal);
+ *  1. tener `measurementDisclosure` (versión, fecha de aprobación del dueño y EXACTAMENTE una de
+ *     `legalReviewOn` / `legalReviewWaivedByOwnerOn`, v1.111);
  *  2. haber perdido la frase vieja «No usamos cookies de publicidad ni de analítica»
  *     (`privacidad.es.ts`, apartado 8);
  *  3. nombrar Google Analytics, Meta, `_fbp`, `_fbc`, `th_first_utm`, `th_consent` y la retención de
@@ -14,7 +15,7 @@ import { textsOf } from './legal-gate';
  *
  * El rótulo para el registro del build es el de DESIGN_SYSTEM MKT2-UX.12 (`formatMeasurementNoticeReport`,
  * candado C-F17). ⛔ El rótulo no imprime IDs ni secretos: solo modo, conteo y problemas de texto.
- * ⛔ Este fichero no escribe el aviso: lo trae el abogado.
+ * ⛔ Este fichero no escribe el aviso: el texto aprobado por el dueño vive en `privacidad.es.ts`.
  */
 
 export type NoticeMeasurementMode = 'off' | 'on';
@@ -36,6 +37,12 @@ export const REQUIRED_MEASUREMENT_TERMS: ReadonlyArray<{ label: string; re: RegE
 const VERSION_RE = /^[A-Za-z0-9._-]{1,32}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** v1.111 · exactamente una fecha de revisión. Mismos textos en `next.config.mjs` (paridad probada). */
+export const MEASUREMENT_REVIEW_BOTH =
+  'measurementDisclosure con las dos fechas (legalReviewOn y legalReviewWaivedByOwnerOn): debe llevar exactamente una';
+export const MEASUREMENT_REVIEW_NONE =
+  'measurementDisclosure sin fecha en legalReviewOn ni en legalReviewWaivedByOwnerOn: debe llevar exactamente una';
+
 /** Texto plano del aviso: sin `**` de negrita y con espacios normalizados. */
 function plainText(doc: LegalDocument): string {
   return textsOf(doc)
@@ -54,11 +61,21 @@ export function measurementNoticeProblems(doc: LegalDocument): string[] {
     const bad: string[] = [];
     if (!VERSION_RE.test(d.version ?? '')) bad.push('version');
     if (!DATE_RE.test(d.approvedByOwnerOn ?? '')) bad.push('approvedByOwnerOn');
-    if (!DATE_RE.test(d.legalReviewOn ?? '')) bad.push('legalReviewOn');
+    // v1.111: las dos claves siempre escritas (ausente ⇒ mal formada), cada una 'AAAA-MM-DD' o `null`.
+    const reviewKeys = ['legalReviewOn', 'legalReviewWaivedByOwnerOn'] as const;
+    for (const k of reviewKeys) {
+      const v = (d as unknown as Record<string, unknown>)[k];
+      if (!(k in d) || !(v === null || (typeof v === 'string' && DATE_RE.test(v)))) bad.push(k);
+    }
     if (bad.length > 0) problems.push(`measurementDisclosure mal formado: ${bad.join(', ')}`);
+    else {
+      const dated = reviewKeys.filter((k) => d[k] !== null).length;
+      if (dated === 2) problems.push(MEASUREMENT_REVIEW_BOTH);
+      if (dated === 0) problems.push(MEASUREMENT_REVIEW_NONE);
+    }
   }
   // MKT.H.13 (v1.105): el botón «Preferencias de cookies» va en un párrafo propio al final del apartado
-  // `cookies` (`CookiePreferencesNoticeSlot`), fuera del texto del abogado. Sin ese apartado no tiene sitio.
+  // `cookies` (`CookiePreferencesNoticeSlot`), fuera del texto aprobado. Sin ese apartado no tiene sitio.
   if (!doc.sections.some((s) => s.id === 'cookies')) {
     problems.push('el aviso no tiene apartado `cookies` (ahí va «Preferencias de cookies»)');
   }
