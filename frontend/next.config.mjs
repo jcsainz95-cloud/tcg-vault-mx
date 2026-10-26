@@ -108,17 +108,38 @@ export function measurementDisclosureProblem(
   if (!decl) return 'no se encontró `export const MEASUREMENT_DISCLOSURE` en measurement-disclosure.ts';
   const value = decl[1].trim();
   if (value === 'null' || value === 'undefined') return 'measurementDisclosure es null: el aviso no declara la medición';
+  const DATE = /^\d{4}-\d{2}-\d{2}$/;
   const field = (name, re) => {
     const m = value.match(new RegExp(`\\b${name}\\s*:\\s*['"]([^'"]*)['"]`));
     return m && re.test(m[1]) ? null : name;
   };
+  // v1.111: `legalReviewOn` y `legalReviewWaivedByOwnerOn` son 'AAAA-MM-DD' o `null`, las dos claves siempre
+  // escritas (una clave ausente cuenta como mal formada) y EXACTAMENTE una con fecha (misma regla que
+  // `measurementNoticeProblems` en measurement-gate.ts).
+  const dates = {};
+  const dateOrNull = (name) => {
+    const m = value.match(new RegExp(`\\b${name}\\s*:\\s*(null\\b|'([^']*)'|"([^"]*)")`));
+    if (!m) return name;
+    if (m[1] === 'null') return (dates[name] = false), null;
+    return DATE.test(m[2] ?? m[3] ?? '') ? ((dates[name] = true), null) : name;
+  };
   const bad = [
     field('version', /^[A-Za-z0-9._-]{1,32}$/),
-    field('approvedByOwnerOn', /^\d{4}-\d{2}-\d{2}$/),
-    field('legalReviewOn', /^\d{4}-\d{2}-\d{2}$/),
+    field('approvedByOwnerOn', DATE),
+    dateOrNull('legalReviewOn'),
+    dateOrNull('legalReviewWaivedByOwnerOn'),
   ].filter(Boolean);
-  return bad.length > 0 ? `measurementDisclosure mal formado: ${bad.join(', ')}` : null;
+  if (bad.length > 0) return `measurementDisclosure mal formado: ${bad.join(', ')}`;
+  if (dates.legalReviewOn && dates.legalReviewWaivedByOwnerOn) return MEASUREMENT_REVIEW_BOTH;
+  if (!dates.legalReviewOn && !dates.legalReviewWaivedByOwnerOn) return MEASUREMENT_REVIEW_NONE;
+  return null;
 }
+
+/** Mismos textos que `measurement-gate.ts` (paridad en `next-config-measurement-gate.test.ts`). */
+export const MEASUREMENT_REVIEW_BOTH =
+  'measurementDisclosure con las dos fechas (legalReviewOn y legalReviewWaivedByOwnerOn): debe llevar exactamente una';
+export const MEASUREMENT_REVIEW_NONE =
+  'measurementDisclosure sin fecha en legalReviewOn ni en legalReviewWaivedByOwnerOn: debe llevar exactamente una';
 
 const disclosureProblem = measurementDisclosureProblem();
 if (disclosureProblem) {
