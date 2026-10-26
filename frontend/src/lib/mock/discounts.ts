@@ -1,5 +1,5 @@
 /**
- * MOCK · réplica de los códigos de descuento (API_CONTRACT §DSC, v1.110).
+ * MOCK · réplica de los códigos de descuento (API_CONTRACT §DSC, v1.110.3).
  *
  * ⚠️ **SIMULADOR, no la fuente.** En producción todo esto lo decide el servidor (`backend/src/common/money.ts`
  * `discountOf`/`allocateDiscount` y el módulo `discounts`); el front pinta `discount`, `breakdown` e `items[]` tal
@@ -13,7 +13,8 @@
  *  - §DSC.3 reparto POR UNIDAD al centavo con mayor resto, en BigInt;
  *  - §DSC.4 orden del cálculo: el umbral de envío se mide sobre `S' = S − D` [D2]; el envío gratis (tipo c) no
  *    aplica a bóveda / sobre el umbral / con caja grande; total < MX$10.00 ⇒ `TOTAL_BELOW_MINIMUM`;
- *  - §DSC.6 genérico idéntico en los seis casos y límite de intentos (solo los `invalid` cuentan);
+ *  - §DSC.6 genérico idéntico en los seis casos y límite de intentos (`invalid` y `not_applicable`, este una vez por
+ *    código y ventana, v1.110.3); precedencia de motivos de §DSC.4 (v1.110.3);
  *  - §DSC.8 retiro: solo envío gratis sin filtros, total MX$0.00.
  *
  * Lo que NO replica (y dónde se mide de verdad): el candado de fila y la carrera del último uso (DCO-B6, backend),
@@ -79,6 +80,11 @@ export type DiscountOfResult =
       discountCents: number;
       /** `D0` nominal tras el recorte de I-4 (para la paridad; el cliente nunca lo ve). */
       nominalCents: number;
+      /**
+       * v1.110.3 (DCO-B21): SOLO el tope en pesos — `percent ∧ maxDiscountCents ≠ null ∧ floor(B × pct / 100) > tope`. El recorte
+       * por `B`, por I-4 o por el residuo de §DSC.3 no es `capped`.
+       */
+      capped: boolean;
       /** Descuento por unidad, por `id` de línea (solo elegibles con u > 0). */
       unitDiscounts: Map<string, number>;
     }
@@ -120,14 +126,18 @@ export function allocateDiscount(
   return { unit: u.map((x) => Number(x)), discountCents: Number(D0 - R) };
 }
 
-/** §DSC.2 — elegibilidad, mínimo [D7] y nominal; §DSC.3 — reparto. Puro. */
+/**
+ * §DSC.2 — elegibilidad, mínimo [D7] y nominal; §DSC.3 — reparto. Puro. Motivos en el orden de §DSC.4 (v1.110.3) que le tocan
+ * a la parte pura: `NO_SHIPPING` → `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `MIN_SUBTOTAL`. `LARGE_BOX` y `ALREADY_FREE_SHIPPING`
+ * (4 y 5) dependen del envío y los pone `evaluateMockDiscount` ANTES del mínimo; `details` mínimos (DCO-B9).
+ */
 export function discountOf(lines: DiscountLine[], rule: DiscountRule, destination: DiscountDestination): DiscountOfResult {
   const dest: FulfillmentMode = destination === 'withdrawal' ? 'direct_ship' : destination;
-  if (rule.destinations.length > 0 && !rule.destinations.includes(dest)) {
-    return { ok: false, reason: 'DESTINATION', details: { destinations: [...rule.destinations] } };
-  }
   if (rule.kind === 'free_shipping' && destination === 'vault') {
     return { ok: false, reason: 'NO_SHIPPING', details: {} };
+  }
+  if (rule.destinations.length > 0 && !rule.destinations.includes(dest)) {
+    return { ok: false, reason: 'DESTINATION', details: {} };
   }
   const eligible = canonical(lines).filter(
     (l) => l.kind !== 'energy_bundle' && l.scope !== null && (rule.productScopes.length === 0 || rule.productScopes.includes(l.scope)),
@@ -137,16 +147,14 @@ export function discountOf(lines: DiscountLine[], rule: DiscountRule, destinatio
   }
   const B = eligible.reduce((s, l) => s + l.priceCents * l.quantity, 0);
   if (rule.minSubtotalCents != null && B < rule.minSubtotalCents) {
-    return {
-      ok: false,
-      reason: 'MIN_SUBTOTAL',
-      details: { minSubtotalCents: rule.minSubtotalCents, missingCents: rule.minSubtotalCents - B },
-    };
+    return { ok: false, reason: 'MIN_SUBTOTAL', details: { missingCents: rule.minSubtotalCents - B } };
   }
   const U = eligible.reduce((s, l) => s + l.quantity, 0);
   let d0 = 0;
+  let capped = false;
   if (rule.kind === 'percent') {
     d0 = Number((BigInt(B) * BigInt(rule.percentPct ?? 0)) / 100n);
+    capped = rule.maxDiscountCents != null && d0 > rule.maxDiscountCents;
     if (rule.maxDiscountCents != null) d0 = Math.min(d0, rule.maxDiscountCents);
   } else if (rule.kind === 'fixed_amount') {
     d0 = Math.min(rule.amountCents ?? 0, B);
@@ -157,7 +165,32 @@ export function discountOf(lines: DiscountLine[], rule: DiscountRule, destinatio
   eligible.forEach((l, i) => {
     if (unit[i] > 0) unitDiscounts.set(l.id, unit[i]);
   });
-  return { ok: true, eligibleCents: B, discountCents, nominalCents: d0, unitDiscounts };
+  return { ok: true, eligibleCents: B, discountCents, nominalCents: d0, capped, unitDiscounts };
+}
+
+/**
+ * §DSC.6 «Proyección de línea» (v1.110.3) — lo que el proyector del servidor añade a una línea con rebaja `u > 0`:
+ * `unitPriceCents` = cobrado, `unitDiscountCents` = `u`, `unitPriceBeforeDiscountCents` = cobrado + `u`. Sin rebaja, los
+ * tres campos se omiten (I-1). Es simulador del servidor: las pantallas pintan el campo, ⛔ no lo suman (DCO-F6).
+ */
+export function mockProjectUnit(
+  priceBeforeCents: number,
+  u: number,
+): { unitPriceCents: number; unitDiscountCents?: number; unitPriceBeforeDiscountCents?: number } {
+  return u > 0
+    ? { unitPriceCents: priceBeforeCents - u, unitDiscountCents: u, unitPriceBeforeDiscountCents: priceBeforeCents }
+    : { unitPriceCents: priceBeforeCents };
+}
+
+/** Igual que `mockProjectUnit` para un renglón de accesorio: `lineTotalCents` = `q ×` cobrado y `lineTotalBeforeDiscountCents`. */
+export function mockProjectAccessoryLine<L extends { unitPriceCents: number; quantity: number; lineTotalCents: number }>(l: L, u: number): L {
+  if (u <= 0) return l;
+  return {
+    ...l,
+    ...mockProjectUnit(l.unitPriceCents, u),
+    lineTotalCents: l.quantity * (l.unitPriceCents - u),
+    lineTotalBeforeDiscountCents: l.quantity * l.unitPriceCents,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -226,7 +259,7 @@ function seedCodes(now: number): MockCode[] {
   };
   return [
     // Los de la maqueta (`docs/mockups/dsc-checkout.html`): 10 % con tope, envío gratis, monto fijo.
-    { ...base, id: 'dsc-sept10', code: 'SEPT10', kind: 'percent', percentPct: 10, maxDiscountCents: 50000, maxTotalUses: 100, firstReservedAt: iso(now - 20 * DAY) },
+    { ...base, ...MOCK_SEPT10_RULE, id: 'dsc-sept10', code: 'SEPT10', maxTotalUses: 100, firstReservedAt: iso(now - 20 * DAY) },
     { ...base, id: 'dsc-envio25', code: 'ENVIO25', kind: 'free_shipping' },
     { ...base, id: 'dsc-nuevo20', code: 'NUEVO20', kind: 'fixed_amount', amountCents: 20000, maxTotalUses: 200 },
     // DL1/DL3 (§DSC-UX.8): un código de 20 caracteres (el máximo) con importe de 5 cifras.
@@ -304,7 +337,26 @@ function seedAudit(now: number): MockAudit[] {
 // ────────────────────────────────────────────────────────────────────────────────────────────
 export const MOCK_DISCOUNTED_ORDER_ID = 'ord-dsc-1';
 export const MOCK_DISCOUNTED_ORDER_NUMBER = 'TCG-100480';
-export const MOCK_ORDER_DISCOUNT: OrderDiscountDTO = { code: 'SEPT10', kind: 'percent', discountCents: 14_080, shippingWaivedCents: 0 };
+export const MOCK_ORDER_DISCOUNT: OrderDiscountDTO = {
+  code: 'SEPT10',
+  kind: 'percent',
+  merchandiseBeforeDiscountCents: 140_800,
+  discountCents: 14_080,
+  shippingWaivedCents: 0,
+};
+/**
+ * La regla de `SEPT10` sembrada (10 %, tope 50 000), para que el seguimiento mock con código pase por `discountOf` en vez de
+ * calcular su propio descuento (techlead TL-DSC-6).
+ */
+export const MOCK_SEPT10_RULE: DiscountRule = {
+  kind: 'percent',
+  percentPct: 10,
+  amountCents: null,
+  maxDiscountCents: 50000,
+  minSubtotalCents: null,
+  productScopes: [],
+  destinations: [],
+};
 /** La rebaja por unidad de su única carta (exhibido 140 800). */
 export const MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS = 14_080;
 export const MOCK_DISCOUNTED_ORDER_BREAKDOWN: BreakdownDTO = {
@@ -325,8 +377,11 @@ interface State {
   redemptions: MockRedemption[];
   batches: MockBatch[];
   audit: MockAudit[];
-  /** Intentos fallidos del navegador (una sola clave: el mock no distingue IP). */
-  throttle: { failures: number; windowStartedAt: number; blockedUntil: number | null };
+  /**
+   * Intentos fallidos del navegador (una sola clave: el mock no distingue IP). `counted` = los códigos `not_applicable` ya
+   * contados en esta ventana (el `countedCodeHashes` de §DSC.1, aquí en claro: es memoria del navegador).
+   */
+  throttle: { failures: number; windowStartedAt: number; blockedUntil: number | null; counted: Set<string> };
   seq: number;
 }
 
@@ -336,7 +391,7 @@ function fresh(now = Date.now()): State {
     redemptions: seedRedemptions(now),
     batches: [],
     audit: seedAudit(now),
-    throttle: { failures: 0, windowStartedAt: now, blockedUntil: null },
+    throttle: { failures: 0, windowStartedAt: now, blockedUntil: null, counted: new Set() },
     seq: 1,
   };
 }
@@ -382,16 +437,26 @@ function blockedSeconds(now: number): number | null {
   const t = state.throttle;
   if (t.blockedUntil != null && now < t.blockedUntil) return Math.ceil((t.blockedUntil - now) / 1000);
   if (t.blockedUntil != null && now >= t.blockedUntil) {
-    state.throttle = { failures: 0, windowStartedAt: now, blockedUntil: null };
+    state.throttle = { failures: 0, windowStartedAt: now, blockedUntil: null, counted: new Set() };
   }
   return null;
 }
 
-function countFailure(now: number): void {
+/**
+ * §DSC.6 «Límite de intentos» (v1.110.3, `HECHOS.md` 2026-10-26 «…un código vigente que no aplica cuenta como intento»):
+ * cuentan los `invalid` y los `not_applicable`; un `not_applicable` cuenta UNA vez por código y ventana (`notApplicableCode`),
+ * así re-cotizar el mismo código mientras se llena el carrito no bloquea. `applied` no llama aquí.
+ */
+function countFailure(now: number, notApplicableCode?: string): void {
   const t = state.throttle;
   if (now - t.windowStartedAt > MOCK_DISCOUNT_THROTTLE.windowMin * 60_000) {
     t.failures = 0;
     t.windowStartedAt = now;
+    t.counted = new Set();
+  }
+  if (notApplicableCode !== undefined) {
+    if (t.counted.has(notApplicableCode)) return;
+    t.counted.add(notApplicableCode);
   }
   t.failures += 1;
   if (t.failures >= MOCK_DISCOUNT_THROTTLE.maxFailures) t.blockedUntil = now + MOCK_DISCOUNT_THROTTLE.blockMin * 60_000;
@@ -425,8 +490,9 @@ export type MockDiscountEvaluation =
 export const MOCK_MIN_TOTAL_CENTS = 1000;
 
 /**
- * §DSC.6 — evalúa un código para un carrito. Con `invalid`, suma un fallido (§DSC.6 «Límite de intentos»); un
- * `not_applicable` es de un código real y no castiga.
+ * §DSC.6 — evalúa un código para un carrito. `invalid` suma un fallido y `not_applicable` también, una vez por código y
+ * ventana (§DSC.6 «Límite de intentos», v1.110.3). Motivos en el orden de §DSC.4 (v1.110.3): `NO_SHIPPING` → `DESTINATION` →
+ * `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` (paridad DCO-B20).
  */
 export function evaluateMockDiscount(raw: string, ctx: DiscountOrderContext): MockDiscountEvaluation {
   const now = ctx.now ?? Date.now();
@@ -437,16 +503,16 @@ export function evaluateMockDiscount(raw: string, ctx: DiscountOrderContext): Mo
     countFailure(now);
     return { dto: { outcome: 'invalid' }, applied: null };
   }
-  const notApplicable = (reason: DiscountNotApplicableReason, details: Record<string, number | string[]> = {}) => ({
-    dto: { outcome: 'not_applicable' as const, code: c.code, reason, details },
-    applied: null,
-  });
+  const notApplicable = (reason: DiscountNotApplicableReason, details: Record<string, number | string[]> = {}) => {
+    countFailure(now, c.code);
+    return { dto: { outcome: 'not_applicable' as const, code: c.code, reason, details }, applied: null };
+  };
   // §DSC.8 — el retiro solo acepta envío gratis sin mínimo ni filtros, y destino vacío o con `direct_ship`.
   if (ctx.destination === 'withdrawal') {
     if (c.kind !== 'free_shipping') return notApplicable('WITHDRAWAL_ONLY_FREE_SHIPPING');
-    if (c.minSubtotalCents != null || c.productScopes.length > 0 || (c.destinations.length > 0 && !c.destinations.includes('direct_ship'))) {
-      return notApplicable('WITHDRAWAL_FILTERED');
-    }
+    // §DSC.4 (v1.110.3): `WITHDRAWAL_ONLY_FREE_SHIPPING` → `WITHDRAWAL_FILTERED` → `DESTINATION` → `ALREADY_FREE_SHIPPING`.
+    if (c.minSubtotalCents != null || c.productScopes.length > 0) return notApplicable('WITHDRAWAL_FILTERED');
+    if (c.destinations.length > 0 && !c.destinations.includes('direct_ship')) return notApplicable('DESTINATION');
     const closed = ctx.close({ subtotalCents: 0, freeShipping: true });
     if (!closed.ok) return notApplicable(closed.reason, closed.details);
     return {
@@ -455,10 +521,14 @@ export function evaluateMockDiscount(raw: string, ctx: DiscountOrderContext): Mo
     };
   }
   const r = discountOf(ctx.lines, c, ctx.destination);
-  if (!r.ok) return notApplicable(r.reason, r.details);
+  // 1-3 (`NO_SHIPPING`, `DESTINATION`, `NO_ELIGIBLE_ITEMS`) salen de la parte pura; el mínimo (6) espera.
+  if (!r.ok && r.reason !== 'MIN_SUBTOTAL') return notApplicable(r.reason, r.details);
   const S = ctx.lines.reduce((s, l) => s + l.priceCents * l.quantity, 0);
   const freeShipping = c.kind === 'free_shipping';
-  const closed = ctx.close({ subtotalCents: S - r.discountCents, freeShipping });
+  // 4-5 (`LARGE_BOX`, `ALREADY_FREE_SHIPPING`) ganan al mínimo: con envío gratis `D = 0`, así que `S' = S` aunque falte mínimo.
+  const closed = ctx.close({ subtotalCents: S - (r.ok ? r.discountCents : 0), freeShipping });
+  if (freeShipping && !closed.ok) return notApplicable(closed.reason, closed.details);
+  if (!r.ok) return notApplicable(r.reason, r.details);
   if (!closed.ok) return notApplicable(closed.reason, closed.details);
   if (closed.totalCents < MOCK_MIN_TOTAL_CENTS) return notApplicable('TOTAL_BELOW_MINIMUM', { minTotalCents: MOCK_MIN_TOTAL_CENTS });
   return {
@@ -944,6 +1014,6 @@ export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewRespon
   const dest: FulfillmentMode = rule.destinations.length === 0 || rule.destinations.includes('direct_ship') ? 'direct_ship' : 'vault';
   const r = discountOf(lines, rule, dest);
   if (!r.ok || rule.kind === 'free_shipping') return { discountCents: 0, nominalCents: 0, capped: false };
-  const raw = rule.kind === 'percent' ? Number((BigInt(r.eligibleCents) * BigInt(rule.percentPct ?? 0)) / 100n) : 0;
-  return { discountCents: r.discountCents, nominalCents: r.nominalCents, capped: rule.maxDiscountCents != null && raw > rule.maxDiscountCents };
+  // v1.110.3 (DCO-B21): `nominalCents` y `capped` tal cual los da `discountOf`; aquí no se recalcula nada.
+  return { discountCents: r.discountCents, nominalCents: r.nominalCents, capped: r.capped };
 }
