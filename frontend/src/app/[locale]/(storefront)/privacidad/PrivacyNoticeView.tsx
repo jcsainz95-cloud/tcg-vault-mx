@@ -145,7 +145,7 @@ export function PrivacyNoticeView({
           {s.blocks.map((b, i) => (
             <Block key={i} block={b} />
           ))}
-          {/* MKT2-UX.8 sitio 2: el hueco del botón «Preferencias de cookies» (el texto es del abogado). */}
+          {/* MKT2-UX.8 sitio 2: el hueco del botón «Preferencias de cookies» (el texto es el aprobado por el dueño). */}
           {s.id === 'cookies' && <CookiePreferencesNoticeSlot />}
           {englishAddenda
             .filter((a) => a.sectionId === s.id)

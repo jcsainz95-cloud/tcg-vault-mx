@@ -8231,7 +8231,7 @@
   },
   "consent": {
     "region": "Cookie notice",
-    "text": "We use cookies to learn which posts bring you here and to improve the store.",
+    "text": "We use cookies to understand you better and improve your experience.",
     "accept": "Accept",
     "necessary": "Necessary only",
     "customize": "Customize",
@@ -8242,16 +8242,16 @@
       "intro": "You decide what we measure. You can change this at any time from the page footer.",
       "necessary": {
         "title": "Necessary",
-        "body": "They keep your session, your cart and your language, and remember this choice.",
+        "body": "They keep your session and your cart, protect your account and remember this choice.",
         "always": "Always on"
       },
       "analytics": {
         "title": "Analytics",
-        "body": "Tells us which pages and posts lead to purchases (Google Analytics)."
+        "body": "Tells us which pages and posts lead to purchases (Google Analytics). If you leave it off, we only report that a purchase happened, with no data about you."
       },
       "ads": {
         "title": "Advertising",
-        "body": "Measures which posts and ads lead to purchases (Meta)."
+        "body": "Measures which posts and ads lead to visits and purchases (Meta)."
       },
       "stateOn": "On",
       "stateOff": "Off",

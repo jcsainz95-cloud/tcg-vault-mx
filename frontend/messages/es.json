@@ -8231,7 +8231,7 @@
   },
   "consent": {
     "region": "Aviso de cookies",
-    "text": "Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.",
+    "text": "Usamos cookies para entenderte mejor y mejorar tu experiencia.",
     "accept": "Aceptar",
     "necessary": "Solo lo necesario",
     "customize": "Configurar",
@@ -8242,16 +8242,16 @@
       "intro": "Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página.",
       "necessary": {
         "title": "Necesarias",
-        "body": "Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección.",
+        "body": "Mantienen tu sesión y tu carrito, protegen tu cuenta y recuerdan esta elección.",
         "always": "Siempre activas"
       },
       "analytics": {
         "title": "Analítica",
-        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics)."
+        "body": "Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). Si la dejas desactivada, solo avisamos que hubo una compra, sin datos tuyos."
       },
       "ads": {
         "title": "Publicidad",
-        "body": "Mide qué publicaciones y anuncios llevan a compras (Meta)."
+        "body": "Mide qué publicaciones y anuncios llevan a visitas y compras (Meta)."
       },
       "stateOn": "Activada",
       "stateOff": "Desactivada",

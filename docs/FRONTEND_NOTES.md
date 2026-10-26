@@ -159,8 +159,12 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
   quien llega a `/card-show` sin haber elegido en la tienda no se mide.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
-  `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
-  escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
+  `content/legal/measurement-disclosure.ts` **declara desde el 2026-10-26** (forma v1.111: `version '2026-10-medicion-1'`,
+  `approvedByOwnerOn '2026-10-26'`, `legalReviewOn null`, `legalReviewWaivedByOwnerOn '2026-10-23'`; exactamente una de las
+  dos fechas, clave ausente = mal formada, mismos mensajes en la puerta y en `next.config.mjs`). El texto de los apartados
+  2/4/5/6/7/8 de `privacidad.es.ts` (0.6) es copia literal de `docs/specs/AVISO_MEDICION_APROBADO.md` (⛔ no se reescribe;
+  un cambio pasa por el dueño). No hay aviso EN: `/en/privacidad` sirve el español. Banner con el texto del dueño
+  (MKT2-UX.11): 212 px de alto a 360×640 en ES y en EN (bundle de mocks `on`, 2026-10-26, sobre `1e1f7999`). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
   espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
   `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
   imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
@@ -190,7 +194,9 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; leído el 2026-10-26).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
+  el aviso ya declarado, `npx next build` con `on` CARGA (la mínima solo mira la declaración): lo único que sigue
+  parando un encendido es `prebuild` ⇒ `ENCENDER_BLOCKERS`.
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
