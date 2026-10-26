@@ -695,6 +695,9 @@ function validateConfig(b: Partial<DiscountRule> & { kind?: DiscountKind; endsAt
   if (b.kind === 'percent' && !(Number.isInteger(b.percentPct) && b.percentPct! >= 1 && b.percentPct! <= 100)) bad('percentPct');
   if (b.kind === 'fixed_amount' && !(Number.isInteger(b.amountCents) && b.amountCents! >= 1)) bad('amountCents');
   if (b.kind === 'free_shipping' && b.destinations?.length === 1 && b.destinations[0] === 'vault') bad('destinations');
+  // Como `validateConfig` del backend sobre la config FUSIONADA: un campo de otro tipo que sobrevive a un PATCH se rechaza.
+  if (b.percentPct != null && b.kind !== 'percent') bad('percentPct');
+  if (b.amountCents != null && b.kind !== 'fixed_amount') bad('amountCents');
   if (b.maxDiscountCents != null && (b.kind !== 'percent' || b.maxDiscountCents < 1)) bad('maxDiscountCents');
   if (b.minSubtotalCents != null && b.minSubtotalCents < 1) bad('minSubtotalCents');
   if (b.endsAt && b.startsAt && Date.parse(b.endsAt) <= Date.parse(b.startsAt)) bad('endsAt');

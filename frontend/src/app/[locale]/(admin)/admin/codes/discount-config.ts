@@ -1,4 +1,4 @@
-import type { DiscountCodeBatchDTO, DiscountCodeCreateRequest, DiscountCodeDTO } from '@/types/contract';
+import type { DiscountCodeBatchDTO, DiscountCodeCreateRequest, DiscountCodeDTO, DiscountCodePatchRequest } from '@/types/contract';
 import { ALL_SCOPES, type ConfigDraft, type FieldErrors } from './DiscountConfigFields';
 import { centsToPesos, isoToMxInput, mxInputToIso, pesosToCents } from './dsc-format';
 
@@ -45,6 +45,23 @@ export function toConfig(d: ConfigDraft, t: T): { body?: ConfigBody; errors: Fie
   else body.productScopes = d.scopes.length === ALL_SCOPES.length ? [] : ALL_SCOPES.filter((s) => d.scopes.includes(s));
   body.destinations = d.destination === 'both' ? [] : [d.destination];
   return Object.keys(errors).length > 0 ? { errors } : { body, errors };
+}
+
+/**
+ * Cuerpo de `PATCH` en EDICIÓN (código sin usar), techlead R3 sobre `c421de13`: el servidor conserva lo que se OMITE, así que
+ * vaciar un opcional («sin tope», «sin mínimo») u ocultarlo al cambiar de tipo se manda como `null` explícito. Sin esto, borrar
+ * el tope no lo quitaba, y pasar de % a monto fijo arrastraba el `percentPct` viejo (y el servidor rechazaba la mezcla).
+ * `startsAt` no admite `null` (§DSC.1): vacío se omite y queda el de hoy.
+ */
+export function toEditPatch(body: ConfigBody): Omit<DiscountCodePatchRequest, 'status' | 'maxTotalUses' | 'maxUsesPerCustomer'> {
+  return {
+    ...body,
+    percentPct: body.kind === 'percent' ? (body.percentPct ?? null) : null,
+    amountCents: body.kind === 'fixed_amount' ? (body.amountCents ?? null) : null,
+    maxDiscountCents: body.kind === 'percent' ? (body.maxDiscountCents ?? null) : null,
+    minSubtotalCents: body.minSubtotalCents ?? null,
+    endsAt: body.endsAt ?? null,
+  };
 }
 
 /** DTO del servidor ⇒ borrador (edición). `endsAt` vuelve al minuto que capturó el dueño (−60 s, §DSC.6). */
