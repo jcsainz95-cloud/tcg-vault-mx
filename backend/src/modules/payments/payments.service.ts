@@ -278,7 +278,10 @@ export class PaymentsService {
       // (misma constante `SETTLEABLE_ORDER_STATUSES`, ⛔ nunca dos listas). Solo `pending`/`failed` se
       // liquidan. `settled` = reentrega (silencio). `refunded`/`chargeback` = hechos POSTERIORES a un
       // cobro ⇒ este `succeeded` es viejo: `200`, ⛔ cero escrituras, ⛔ cero avisos, ⛔ cero `audit.log`;
-      // la única huella es este `warn`. Va ANTES de H1 (un tardío no es un descuadre). El marcador
+      // la única huella es este `warn`. ÚNICA EXCEPCIÓN (v1.110.2, §M4-VAULT.2-bis.2): con código de descuento
+      // (`discountCents > 0 ∨ shippingWaivedCents > 0`) se consume el `DiscountRedemption` (`reserved|released ⇒
+      // consumed`) y, si venía de `released`, se escribe además la fila `discount.redemption.late_consumed`
+      // (ver bloque de abajo); ⛔ ni orden, ni piezas, ni avisos. Va ANTES de H1 (un tardío no es un descuadre). El marcador
       // `ProcessedStripeEvent` de este event.id queda: reintentarlo nunca aplicaría. Bajo carrera decide
       // el CAS; esto es el atajo secuencial (ahorra `getCardDetails` y el ruido de H1).
       if (!isSettleableOrderStatus(order.status)) {
@@ -288,8 +291,9 @@ export class PaymentsService {
               `en ${order.status} (PI ${pi.id})`,
           );
           // 💰 v1.110.1 (§DSC.5 «Un PI que cobró acaba consumed», DCO-B5): el `charge.refunded` que llegó ANTES dejó la orden
-          // `refunded` con su uso `reserved` (ni libera ni consume). Este `succeeded` prueba el cobro ⇒ el uso se consume. Es
-          // la ÚNICA escritura de esta rama y toca solo la fila del uso (⛔ ni orden, ni piezas, ni avisos). Sin código (las
+          // `refunded` con su uso `reserved` (ni libera ni consume). Este `succeeded` prueba el cobro ⇒ el uso se consume. Son
+          // las ÚNICAS escrituras de esta rama: la fila del uso y, si venía de `released` (`used.late`), la fila de auditoría
+          // `discount.redemption.late_consumed` (post-commit, best-effort) (⛔ ni orden, ni piezas, ni avisos). Sin código (las
           // dos columnas en 0) ⇒ ni la consulta.
           if ((order.discountCents ?? 0) > 0 || (order.shippingWaivedCents ?? 0) > 0) {
             const used = await this.prisma.$transaction((tx) => consumeOrderRedemption(tx, order.id, new Date()));

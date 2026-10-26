@@ -301,7 +301,7 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/marketing/annotations::from',
   'GET /admin/marketing/annotations::to',
 
-  // 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.7; ⚠️ PENDIENTE de ratificar por el arquitecto): `?batchId=` de la lista de códigos
+  // 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.7, tope 107 → 116 ratificado en v1.110.2): `?batchId=` de la lista de códigos
   // (id de lote, igualdad exacta: ⛔ no un conjunto de tokens) y `?from=`/`?to=` de los reportes de código y de lote, JSON y CSV
   // (días MX `YYYY-MM-DD`, `parseMxDayFilter` de `spend-alerts/mx-day.ts`; fuera de forma ⇒ `400 {field}` sin `allowed`).
   'GET /admin/discount-codes::batchId',
