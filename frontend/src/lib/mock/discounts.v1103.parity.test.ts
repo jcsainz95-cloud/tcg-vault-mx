@@ -51,11 +51,12 @@ const card = (id: string, priceCents: number): DiscountLine => ({ id, kind: 'ite
 beforeEach(() => resetMockDiscounts());
 
 describe('DCO-B20 v1.110.3 — precedencia de `not_applicable` de §DSC.4 (el mock da lo mismo que pura y quote)', () => {
-  const ORDER = ['NO_SHIPPING', 'DESTINATION', 'NO_ELIGIBLE_ITEMS', 'LARGE_BOX', 'ALREADY_FREE_SHIPPING', 'MIN_SUBTOTAL', 'TOTAL_BELOW_MINIMUM'];
+  // v1.112.1: 8 `ZERO_DISCOUNT` (§DSC.3, I-7); sus casos viven en `discounts.v1121.parity.test.ts` (DCO-B22).
+  const ORDER = ['NO_SHIPPING', 'DESTINATION', 'NO_ELIGIBLE_ITEMS', 'LARGE_BOX', 'ALREADY_FREE_SHIPPING', 'MIN_SUBTOTAL', 'TOTAL_BELOW_MINIMUM', 'ZERO_DISCOUNT'];
 
-  it('el contrato fija el orden 1…7 y los diales de los casos', () => {
-    const m = /1 `(\w+)` · 2 `(\w+)` · 3 `(\w+)` · 4 `(\w+)` · 5 `(\w+)` · 6 `(\w+)` · 7 `(\w+)`/.exec(DSC);
-    expect(m, 'el contrato ya no enumera la precedencia 1…7').not.toBeNull();
+  it('el contrato fija el orden 1…8 y los diales de los casos', () => {
+    const m = /1 `(\w+)` · 2 `(\w+)` · 3 `(\w+)` · 4 `(\w+)` · 5 `(\w+)` · 6 `(\w+)` · 7 `(\w+)` · 8 `(\w+)`/.exec(DSC);
+    expect(m, 'el contrato ya no enumera la precedencia 1…8').not.toBeNull();
     expect(m!.slice(1)).toEqual(ORDER);
     const [T, cards, sealed] = grab(/diales de hoy \(T (\d+), cartas (\d+), sellado (\d+)\)/);
     expect(DIRECT_SHIP_DEFAULT_DIALS).toEqual({ freeFromCents: T, cardsFeeCents: cards, sealedFeeCents: sealed });

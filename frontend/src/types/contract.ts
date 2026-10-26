@@ -8474,7 +8474,8 @@ export type DiscountProductScope = 'raw' | 'graded' | 'sealed' | 'accessory';
 export type DiscountRedemptionStatus = 'reserved' | 'consumed' | 'released';
 /**
  * §DSC.6 — literal de DTO. `NOT_COMBINABLE` no se emite hoy. Precedencia (§DSC.4, v1.110.3; gana el primero): `NO_SHIPPING` →
- * `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM`.
+ * `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` →
+ * `ZERO_DISCOUNT` (v1.112.1, §DSC.3/I-7: `%`/monto cuyo reparto da `D = 0` ⇒ no aplica, sin uso apartado).
  */
 export type DiscountNotApplicableReason =
   | 'MIN_SUBTOTAL'
@@ -8484,6 +8485,7 @@ export type DiscountNotApplicableReason =
   | 'ALREADY_FREE_SHIPPING'
   | 'LARGE_BOX'
   | 'TOTAL_BELOW_MINIMUM'
+  | 'ZERO_DISCOUNT'
   | 'WITHDRAWAL_ONLY_FREE_SHIPPING'
   | 'WITHDRAWAL_FILTERED'
   | 'NOT_COMBINABLE';
@@ -8590,13 +8592,20 @@ export interface DiscountCodeCreateRequest {
 }
 
 /**
- * §DSC.7 — `PATCH /admin/discount-codes/:id`: cualquier campo salvo `code` (tras el primer uso, solo status/endsAt/maxTotalUses).
- * Ausente ⇒ no se toca; `null` ⇒ «sin límite» / no aplica (columnas `Int?` de §DSC.1, `null = sin límite`). El panel en edición
+ * §DSC.7 (v1.112.1) — `PATCH /admin/discount-codes/:id`: cualquier campo salvo `code` (tras el primer uso, solo
+ * status/endsAt/maxTotalUses). Ausente ⇒ no se toca; `null` LIMPIA `percentPct`, `amountCents`, `maxDiscountCents`,
+ * `minSubtotalCents`, `endsAt` (hasta pausar), `maxTotalUses` y `maxUsesPerCustomer` (sin límite); `productScopes` /
+ * `destinations` en `null` ≡ `[]`; `startsAt` NO admite `null` (⇒ `422`), por eso aquí es solo `string`. El panel en edición
  * manda `null` explícito al vaciar un campo opcional (techlead R3 sobre `c421de13`): omitirlo conservaría el valor viejo.
  */
 export type DiscountCodePatchRequest = Partial<
-  Omit<DiscountCodeCreateRequest, 'code' | 'endsAt' | 'maxTotalUses' | 'percentPct' | 'amountCents' | 'maxDiscountCents' | 'minSubtotalCents' | 'maxUsesPerCustomer'>
+  Omit<
+    DiscountCodeCreateRequest,
+    'code' | 'endsAt' | 'maxTotalUses' | 'percentPct' | 'amountCents' | 'maxDiscountCents' | 'minSubtotalCents' | 'maxUsesPerCustomer' | 'productScopes' | 'destinations'
+  >
 > & {
+  productScopes?: DiscountProductScope[] | null;
+  destinations?: FulfillmentMode[] | null;
   status?: DiscountCodeStatus;
   endsAt?: string | null;
   maxTotalUses?: number | null;

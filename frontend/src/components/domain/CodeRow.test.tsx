@@ -154,6 +154,8 @@ describe('CodeRow · S5/S6 — errores', () => {
     ['NO_SHIPPING', {}, 'vault', 'Este código cubre el envío y tu pedido a bóveda no lleva envío.'],
     ['WITHDRAWAL_ONLY_FREE_SHIPPING', {}, 'withdrawal', 'En el retiro de bóveda solo aplican los códigos de envío gratis.'],
     ['TOTAL_BELOW_MINIMUM', { minTotalCents: 1000 }, 'direct_ship', 'Con este código el total quedaría por debajo de MX$10.00, el mínimo para pagar.'],
+    // v1.112.1 (§DSC.3, I-7): texto provisional, pendiente de ux-ui.
+    ['ZERO_DISCOUNT', {}, 'direct_ship', 'Con este carrito el código no da descuento.'],
   ] as const)('S6 %s ⇒ su texto (C6/C7/C13)', async (reason, details, screenKind, text) => {
     renderWithProviders(
       <Harness screenKind={screenKind} server={() => notApplicable(reason, details as Record<string, number | string[]>)} />,

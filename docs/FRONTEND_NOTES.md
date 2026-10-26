@@ -2,10 +2,11 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
-## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.3 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
+## §DSC · Códigos de descuento (2026-10-26, contrato v1.112.1 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 
 **Estado vigente.** Cliente y panel contra el mock y contra el backend de §DSC (merges `1c6bb38a`, `e84c86fe`): cinco
-recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Decisiones del dueño: `HECHOS.md`
+recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Pendiente de ux-ui: el texto de
+`ZERO_DISCOUNT` (`checkout.discount.zeroDiscount`) es PROVISIONAL (encargo del orquestador, v1.112.1). Decisiones del dueño: `HECHOS.md`
 2026-10-25 «Códigos de descuento: pantallas y P-DSC-3» (renglón arriba, retiro a MX$0.00 con «Confirmar retiro», «envío
 gratis» aprobado en lo propio de un código de envío gratis).
 - **Piezas:** `components/domain/CodeRow.tsx` (S1-S10, sin `dialog`) + `useDiscountCode.ts` (traduce el `discount` del
@@ -44,12 +45,15 @@ gratis» aprobado en lo propio de un código de envío gratis).
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
   blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
-- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). Precedencia de §DSC.4 v1.110.3 (`NO_SHIPPING` →
-  `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM`; retiro
-  con su orden), `details` mínimos, `capped` solo por tope desde `discountOf`, `not_applicable` cuenta para el límite una vez
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). Precedencia de §DSC.4 v1.112.1 (`NO_SHIPPING` →
+  `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM` →
+  `ZERO_DISCOUNT` (`%`/monto con `D = 0`, I-7; preview `{0,0,false}`); retiro con su orden), `details` mínimos, `capped` solo por tope desde `discountOf`, `not_applicable` cuenta para el límite una vez
   por código y ventana, proyección de línea (`mockProjectUnit`/`mockProjectAccessoryLine`); el seguimiento `mock…discount…`
   usa `discountOf` + `MOCK_SEPT10_RULE` (TL-DSC-6). Paridad: `discounts.parity.test.ts` (893, 904, DTOs de §DSC.7) y
-  `discounts.v1103.parity.test.ts` (DCO-B20 a-f, DCO-B21, proyección), cifras leídas del contrato.
+  `discounts.v1103.parity.test.ts` (DCO-B20 a-f, DCO-B21, proyección), `discounts.v1121.parity.test.ts` (DCO-B22, PATCH con
+  `null`: limpia, listas `null` ≡ `[]`, `startsAt: null` ⇒ 422, `lockedFields` = solo lo que CAMBIA), cifras del contrato.
+  Quote congelado (§4-G.12 p. 4 v1.112.1): el mock no simula el congelado de la orden propia (cotiza con `T` vivo); T9 solo
+  se pinta con `remaining > 0`, así que `0`/`null` del servidor no la pintan.
 - **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
   C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
   `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones de la fase 1 (copia `f462ca55`, 11) y de la 2

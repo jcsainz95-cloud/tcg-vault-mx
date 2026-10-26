@@ -56,6 +56,9 @@ export function useDiscountMessage() {
           return t('largeBox');
         case 'TOTAL_BELOW_MINIMUM':
           return t('totalBelowMinimum', { amount: formatMoneyCents(cents('minTotalCents'), locale) });
+        case 'ZERO_DISCOUNT':
+          // v1.112.1 (§DSC.3, I-7). Texto PROVISIONAL a la espera de ux-ui (DESIGN_SYSTEM §DSC-UX.4).
+          return t('zeroDiscount');
         case 'WITHDRAWAL_ONLY_FREE_SHIPPING':
           return t('withdrawalOnlyFreeShipping');
         case 'WITHDRAWAL_FILTERED':

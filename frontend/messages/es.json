@@ -689,6 +689,7 @@
       "alreadyFree": "Tu pedido ya va sin costo de envío; este código no cambia nada.",
       "largeBox": "Este código no cubre el envío de una caja grande.",
       "totalBelowMinimum": "Con este código el total quedaría por debajo de {amount}, el mínimo para pagar.",
+      "zeroDiscount": "Con este carrito el código no da descuento.",
       "withdrawalFiltered": "Este código no aplica al retiro de bóveda.",
       "notCombinable": "Este código no se puede combinar con otro descuento."
     }
