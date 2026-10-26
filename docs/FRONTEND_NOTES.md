@@ -2,13 +2,12 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
-## §DSC · Códigos de descuento (2026-10-25, fase 2 sobre `008c9217`, contrato v1.110.1 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
+## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.2 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 
-**Estado vigente.** Construido contra el MOCK. En `008c9217` el backend de §DSC es la fase 1 (`modules/discounts/`:
-cálculo, quote/sesión, ciclo del uso) y no tiene controlador del panel (medido: `grep @Controller` vacío), así que nada
-lleva `@real` todavía. Decisiones del dueño: `HECHOS.md` 2026-10-25
-«Códigos de descuento: pantallas y P-DSC-3» (renglón arriba, retiro a MX$0.00 con «Confirmar retiro», «envío gratis»
-aprobado en lo propio de un código de envío gratis).
+**Estado vigente.** Cliente y panel contra el mock y contra el backend de §DSC (merges `1c6bb38a`, `e84c86fe`): cinco
+recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Decisiones del dueño: `HECHOS.md`
+2026-10-25 «Códigos de descuento: pantallas y P-DSC-3» (renglón arriba, retiro a MX$0.00 con «Confirmar retiro», «envío
+gratis» aprobado en lo propio de un código de envío gratis).
 - **Piezas:** `components/domain/CodeRow.tsx` (S1-S10, sin `dialog`) + `useDiscountCode.ts` (traduce el `discount` del
   servidor a aplicado/error/aviso; C5 único para los genéricos; C8, C5+, C9 sin cuenta regresiva, C10, C12, C14).
   `AmountBreakdown` gana `discount?`: Subtotal = `merchandiseBeforeDiscountCents`, «Descuento (CÓDIGO) −» = `discountCents`,
@@ -26,7 +25,9 @@ aprobado en lo propio de un código de envío gratis).
   `usage.discountGivenCents` (lote: «—», su DTO no lo trae), pausar (lote con confirmación D6), nuevo/editar (bloqueo D7),
   lote con CSV, reporte. «Así lo verá el cliente» (`DiscountPreview`) = `POST /admin/discount-codes/preview` con un carrito
   de ejemplo fijo (`PREVIEW_SAMPLE_LINES`, 300 ms de espera); pinta la cifra del servidor, cero cuentas. «Cambios»
-  (`DiscountAuditList`) = `GET …/:id/audit` (código, en su edición; lote, en su reporte), una línea `campo · antes → después`.
+  (`DiscountAuditList`) = `GET …/:id/audit` (código, en su edición; lote, en su reporte), una línea `campo · antes → después`;
+  `action` por `DISCOUNT_AUDIT_ACTIONS` (lista cerrada v1.110.2) ⇒ `audit.action.{code,batch}.*`, fuera de ella «Otro
+  cambio»; `actor: null` ⇒ «Sistema». Vista previa en ceros: `free_shipping` ⇒ su texto sin importe; otro tipo ⇒ «no lleva».
   «Envío regalado»: valor = pedidos + retiros (suma de pantalla de dos campos del servidor), subtítulo sin la parte en 0.
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
@@ -35,22 +36,25 @@ aprobado en lo propio de un código de envío gratis).
   (umbral **o dial**) ⇒ `ALREADY_FREE_SHIPPING`, orden `NO_SHIPPING` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING`, también en
   el retiro; retiro aplicado con mercancía 0, descuento 0 y `shippingWaivedCents = E`. Paridad: `discounts.parity.test.ts`
   lee las cifras del contrato y de `PROJECT.md` (893 vigente: MX$850.00, MX$99.99/MX$0.01 y MX$9.99) y compara las claves
-  de `DiscountCodeDTO`/`DiscountCodeBatchDTO` del mock con las del bloque `ts` de §DSC.7.
+  de `DiscountCodeDTO`/`DiscountCodeBatchDTO` del mock con las del bloque `ts` de §DSC.7. v1.110.2: lote sin códigos sin
+  usar ⇒ `paused` solo si todos pausados; pausar el lote pausa los N (`updateMany` del backend); descargas auditadas.
 - **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
   C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
-  `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones (rojas/corridas, copia de `f462ca55`): reparto
-  sin residuo 3/3 · umbral antes del descuento 3/3 · mínimo después 3/3 · paquete elegible 3/3 · `shippingWaivedCents` 0
-  3/3 · `discount` sin código 3/3 · argumento de más sin código (915) 3/3 · línea con precio cobrado 3/3 · sin `gcTime`
-  propio 9/10 · «envío gratis» en C6 3/3 · C11 larga en la barra (DL3, Playwright) 3/3.
-  Fase 2 (copia de `33b0ee5c`, 3/3 rojas cada una, N=3): 893 sin el recorte `B − U` · PROJECT con MX$100.00 · dial 0 por
-  umbral · LARGE_BOX tras ALREADY_FREE · retiro con `E = 0` aplicado · sin `createdBy` · sin `discountGivenCents` · lote
-  vacuamente `paused` · `capped` fijo · bitácora no idempotente · columna sin el campo del servidor · `nominalCents` en la
-  vista previa · tope siempre · sin refrescar «Cambios» · subtítulo con la parte en 0 · lote sin «Cambios» · «envío gratis»
-  en C17; Playwright «Descuento dado» en 0 3/3 (`--repeat-each=3`, un build).
-- **Pendiente de contrato (en el informe):** valores de `action` de la auditoría (el mock usa `create/update/pause/resume/
-  archive`; uno desconocido se pinta tal cual); qué devuelve `preview` si la config no aplica al carrito (el mock: ceros);
-  `status` de un lote sin códigos sin usar (vacuamente `paused`, ocultaría `exhausted`; el mock lo da `active`); total de
-  «Envío regalado» en `DiscountReportDTO`. El `@real` cuando exista el backend en esta rama.
+  `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones de la fase 1 (copia `f462ca55`, 11) y de la 2
+  (`33b0ee5c`, 17 vitest + 1 Playwright): 3/3 rojas cada una salvo «sin `gcTime` propio» 9/10; la lista, en `ef5b1094`.
+  v1.110.2 (copia de iteración con el contenido de `12fa4f85`, N=3 cada una, 3/3 rojas y verde al restaurar): action
+  fuera de la lista del contrato · lote agotado siempre `active` · vista previa sin ceros por `MIN_SUBTOTAL` · action
+  desconocida en crudo · importe con `discountCents = 0` · `actor` null sin «Sistema».
+- **`@real`** (`utils/discount-scenario.ts`): el dueño crea un código por pantalla; el invitado lo aplica (la fila pinta el
+  `discountCents` de la cotización) y lo paga (sesión `201` con `discount` ⇒ doble de Stripe ⇒ `payment_intent.succeeded`
+  firmado ⇒ `settled` y el reporte cuenta 1 uso con el mismo descuento); retiro con envío gratis a MX$0.00 sin cobro; DL7.
+  Códigos sembrados por `POST /admin/discount-codes`, archivados (o pausados si tienen uso) en `finally` y en el teardown;
+  piezas PROPIAS (`createHarnessPiece`), ninguna del seed. El doble: `QA_FAKE_STRIPE_PORT` + `STRIPE_WEBHOOK_SECRET` (o
+  `E2E_*`); sin ellos el caso de pago es ROJO con el motivo. Huella por corrida: una pieza propia vendida y otra en un retiro
+  `picking` de MX$0.00 del `customer` (no se cancela a mano, `PAID_SHIPMENT_NOT_CANCELLABLE`), dos códigos pausados.
+  `mode: 'default'` en real; 1 sesión de invitado por corrida (el texto dice «invitado»: tanda propia en `e2e-real-suite.sh`).
+  Mutaciones del front contra el stack propio (`next build` mutado en :3762, N=3 cada una, 3/3 rojas): formulario sin
+  `percentPct` · cotización sin código · sesión sin código · `POST /shipments` sin código.
 
 ## §CHK-MOVIL · Checkout móvil, opción A (una pantalla) (2026-10-24, rama `fe-checkout-a`, base `aeea6fac`)
 
