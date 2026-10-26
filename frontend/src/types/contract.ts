@@ -8422,6 +8422,28 @@ export interface MarketingApiTokenIssued {
   expiresAt: string;
 }
 
+/**
+ * §MKT.H.12 (v1.112) — `POST /admin/measurement/meta-test-event`, solo `super_admin`. 200 `no-store` también si Meta
+ * rechaza: el diagnóstico es la respuesta. `accepted` ⇔ 2xx y `eventsReceived === 1`; `unreachable` = red/timeout.
+ */
+export type MetaTestEventStatus = 'accepted' | 'rejected' | 'unreachable';
+export interface MetaTestEventResult {
+  status: MetaTestEventStatus;
+  httpStatus: number | null;
+  metaVersion: string;
+  /** Público (no es secreto). */
+  pixelId: string;
+  testEventCode: string;
+  eventName: 'PageView';
+  eventId: string;
+  /** ISO. */
+  sentAt: string;
+  eventsReceived: number | null;
+  fbtraceId: string | null;
+  metaMessages: string[];
+  metaError: { code: number | null; subcode: number | null; type: string | null; message: string | null } | null;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // 💰 §DSC (v1.110) — CÓDIGOS DE DESCUENTO. Norma: API_CONTRACT §DSC.1 (enums), §DSC.6 (cliente), §DSC.7 (dueño).
 // Las cuatro líneas de enums son las canónicas de §0 «Enums». ⛔ El front no calcula dinero con nada de esto:

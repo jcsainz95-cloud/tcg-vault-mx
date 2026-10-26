@@ -7141,7 +7141,53 @@
           "body": "Dejará de funcionar al momento. El analista no podrá leer cifras hasta que crees otra llave y se la hagas llegar."
         },
         "revoking": "Revocando…",
-        "revoked": "Llave revocada."
+        "revoked": "Llave revocada.",
+        "metaTest": {
+          "title": "Enviar evento de prueba a Meta",
+          "help": "Comprueba que Meta recibe los eventos de la tienda.",
+          "step1": "En Meta: Administrador de eventos › tu píxel › «Eventos de prueba». Copia el código que empieza con TEST.",
+          "step2": "Pégalo aquí y pulsa el botón.",
+          "step3": "Vuelve a Meta y comprueba que el evento apareció.",
+          "field": {
+            "label": "Código de prueba",
+            "hint": "Empieza con TEST y sigue con números. Ejemplo: TEST12345",
+            "error": "El código debe empezar con TEST y llevar de 3 a 10 números, sin espacios. Cópialo otra vez desde Meta."
+          },
+          "submit": "Enviar evento de prueba a Meta",
+          "submitting": "Enviando…",
+          "note": "Es un solo evento de prueba (PageView): no enciende la medición ni lleva datos de clientes. Máximo 5 por hora.",
+          "accepted": {
+            "title": "Meta recibió el evento.",
+            "body": "Ahora abre «Eventos de prueba» en Meta y busca un PageView con este ID de evento: {eventId}. Puede tardar unos segundos. Si lo ves, avisa al equipo para cerrar la verificación."
+          },
+          "rejected": {
+            "title": "Meta rechazó el evento.",
+            "body": "Meta respondió: «{message}». Revisa que copiaste el código completo. Si sigue igual, pásale este mensaje y el ID de seguimiento al equipo técnico.",
+            "noMessage": "Meta no explicó el motivo. Pásale el ID de seguimiento al equipo técnico."
+          },
+          "unreachable": {
+            "title": "No se pudo contactar con Meta.",
+            "body": "No hubo respuesta; tu código no tiene la culpa. Espera un minuto e inténtalo de nuevo. Si se repite, avisa al equipo técnico. Cada intento cuenta para el límite por hora."
+          },
+          "notConfigured": {
+            "title": "Meta no está configurado en el servidor.",
+            "body": "Falta cargar o corregir los datos de Meta en Railway: META_PIXEL_ID y META_CAPI_TOKEN. Pídele al equipo técnico que los agregue y vuelve a intentar. No se envió nada."
+          },
+          "rateLimited": {
+            "title": "Ya enviaste 5 eventos de prueba en la última hora.",
+            "body": "Es un límite de seguridad. Podrás enviar otro en {minutes} min."
+          },
+          "network": "No se pudo enviar la solicitud. Inténtalo de nuevo.",
+          "details": {
+            "version": "Versión de Meta",
+            "eventId": "ID del evento",
+            "fbtrace": "ID de seguimiento",
+            "sentAt": "Enviado",
+            "copy": "Copiar",
+            "copied": "Copiado",
+            "copyFail": "No se pudo copiar. Selecciónalo y cópialo a mano."
+          }
+        }
       }
     },
     "discounts": {
