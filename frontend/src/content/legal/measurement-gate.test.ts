@@ -107,12 +107,12 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
   });
 
   // TL-MKT2b-f (2026-10-19): la lista ya no está vacía. Muerde si se vacía o si sale una entrada sin su cierre.
-  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 y MKT-F2-4 (backend) ⇒ con on y aviso válido, rojo por esos dos', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend']);
+  // MKT-F2-4 salió el 2026-10-26 con su ficha cerrada (backend); la paridad SEC-MKT-2 de abajo exige que siga fuera.
+  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 (backend) ⇒ con on y aviso válido, rojo por ese', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend']);
     const problems = measurementGateProblems('on', declaredNotice());
-    expect(problems).toHaveLength(2);
+    expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^bloqueo de encendido abierto: MKT-F2-3 \(backend\) — /);
-    expect(problems[1]).toMatch(/^bloqueo de encendido abierto: MKT-F2-4 \(backend\) — /);
   });
 
   it('TL-MKT2b-f · con off la puerta sigue verde (aviso de hoy y aviso declarado), aunque haya bloqueos', () => {
@@ -203,8 +203,9 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     expect(encenderParityProblems(ENCENDER_BLOCKERS, md, ENCENDER_REGISTRY)).toEqual([]);
   });
 
-  it('el parser lee el índice real: MKT-F2-4 abierta, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
-    expect(fichaState(md, 'MKT-F2-4')).toBe('open');
+  it('el parser lee el índice real: MKT-F2-3 abierta, MKT-F2-4, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
+    expect(fichaState(md, 'MKT-F2-3')).toBe('open');
+    expect(fichaState(md, 'MKT-F2-4')).toBe('closed');
     expect(fichaState(md, 'MKT-TL2')).toBe('closed');
     expect(fichaState(md, 'MKT-TD1')).toBe('closed');
     expect(fichaState(md, 'TL-MKT2b-f')).toBe('closed');
@@ -212,11 +213,17 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
   });
 
   // Canario sobre el índice REAL: el defecto de SEC-MKT-2 (quitar una entrada de la lista con la ficha abierta) muerde.
-  it('canario: sin la entrada MKT-F2-4 (ficha abierta) ⇒ rojo', () => {
-    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-F2-4');
+  it('canario: sin la entrada MKT-F2-3 (ficha abierta) ⇒ rojo', () => {
+    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-F2-3');
     expect(encenderParityProblems(without, md, ENCENDER_REGISTRY)).toEqual([
-      'MKT-F2-4: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
+      'MKT-F2-3: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
     ]);
+  });
+
+  // Canario sobre el índice REAL: devolver MKT-F2-4 (ficha cerrada el 2026-10-26) a la lista ⇒ rojo.
+  it('canario: con la entrada MKT-F2-4 de vuelta (ficha cerrada) ⇒ rojo', () => {
+    const back = [...ENCENDER_BLOCKERS, { id: 'MKT-F2-4' }];
+    expect(encenderParityProblems(back, md, ENCENDER_REGISTRY)).toEqual(['MKT-F2-4: en ENCENDER_BLOCKERS con ficha closed en TECH_DEBT']);
   });
 
   // Canario sobre el índice REAL: devolver MKT-TL2 (ficha cerrada en 86ee9bdb) a la lista ⇒ rojo.
