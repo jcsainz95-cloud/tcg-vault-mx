@@ -33364,7 +33364,7 @@ Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-r
 - **CK-1 · Con `NEXT_PUBLIC_MEASUREMENT_MODE=off` no existe nada de esto:** ni banner, ni enlace «Preferencias de cookies», ni segunda capa, ni llamada a `banner-response` (`ARCHITECTURE.md:36990`, `API_CONTRACT.md:45697`). Lo mismo con `on` pero sin ninguna etiqueta con ID válido (`ARCHITECTURE.md:37019-37020`: «no se pide permiso para algo que no existe»).
 - **CK-2 · Sin muro.** Quien no responde usa la tienda entera (brief `:239`). Sin capa oscura, sin `aria-modal`, sin bloqueo de scroll, sin trampa de foco **en el banner** (la trampa de foco es solo de la segunda capa, que es un diálogo que el visitante abre a propósito).
 - **CK-3 · Ningún patrón oscuro.** (a) «Aceptar» y «Solo lo necesario» están **los dos** en la primera capa, a **un** toque, ambos `<button>` reales con texto, ambos ≥ 44 px de alto, misma tipografía; (b) ningún interruptor viene encendido; (c) ningún texto culpabiliza o lisonjea («No quiero ayudar», «Sí, quiero lo mejor»); (d) ningún color engañoso (ni el bermellón ni el gris apagado para el botón de rechazo); (e) rechazar no cuesta más pasos que aceptar; (f) cerrar con `Esc` o tocar fuera de la segunda capa **no es una respuesta**: no escribe `th_consent` ni cuenta en el contador.
-- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **las revisa el abogado con el aviso** (MKT2-UX.13, duda 3).
+- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **no contradicen el aviso aprobado** (`docs/specs/AVISO_MEDICION_APROBADO.md`, HECHOS 2026-10-26; sin revisión de abogado, HECHOS 2026-10-23): lo que la segunda capa afirma, el aviso ya lo dice con esas palabras.
 - **CK-5 · El banner no decide qué se mide.** Pinta la elección y la escribe donde manda ARCHITECTURE §14.3; ⛔ no decide rutas ni eventos (§14.4) ni calcula la tasa de aceptación (la cuenta el servidor, `API_CONTRACT.md:45744-45753`).
 - **P66-3:** ⛔ ningún código interno en pantalla («MKT», «Fase 2», «D3b», «Consent Mode», «`th_consent`», «GA4», «CAPI»).
 
@@ -33387,7 +33387,7 @@ No lo resuelvo en silencio. **Decisión de diseño: gana la decisión del dueño
 | Posición | primera | inmediatamente después, a la vista | `:236` «visible en la primera capa» |
 | Texto legible | papel sobre tinta 15.45:1 | tinta sobre papel 15.45:1 | `:236` «no gris ilegible» |
 
-Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO** (misma bandera LFPDPPP 2025 del brief `:208-211`; lo cierra la asesoría legal del dueño, no el diseño).
+Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO**; el dueño decidió sin abogado (HECHOS 2026-10-23).
 
 ---
 
@@ -33413,9 +33413,9 @@ Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos igual
 ```
 móvil (< md) · 390×664, apilado                    escritorio (≥ md), una fila
 ┌────────────────────────────────────────┐          ┌──────────────────────────────────────────────────────────────┐
-│ Usamos cookies para saber qué          │          │ Usamos cookies para saber qué publicaciones   [ Aceptar ] [ Solo lo necesario ] │
-│ publicaciones te traen y mejorar la    │          │ te traen y mejorar la tienda. Aviso de        Configurar                         │
-│ tienda. Aviso de privacidad ↗          │          │ privacidad ↗                                                                      │
+│ Usamos cookies para entenderte mejor   │          │ Usamos cookies para entenderte mejor y mejorar tu   [ Aceptar ] [ Solo lo necesario ] │
+│ y mejorar tu experiencia. Aviso de     │          │ experiencia. Aviso de privacidad ↗                  Configurar                         │
+│ privacidad ↗                           │          │                                                                                    │
 │ [          Aceptar  (tinta, 48)      ] │          └──────────────────────────────────────────────────────────────┘
 │ [ Solo lo necesario (borde tinta, 44) ]│
 │ Configurar                             │
@@ -33483,7 +33483,7 @@ D3b: «el banner va encima de ella o la empuja, nunca la cubre» (`:238`). **Dec
 
 ### MKT2-UX.6 Texto del banner (decisión de copy)
 
-El texto de brief `:234` («Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.» + «Aviso de privacidad») se adopta **tal cual** y se marca **provisional hasta que el dueño lo valide con su asesoría legal** (el propio brief lo dice, `:234` y `:293`). Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
+Texto **literal del dueño** (HECHOS 2026-10-26, «Aviso de privacidad con la medición: aprobado»): «Usamos cookies para entenderte mejor y mejorar tu experiencia» + «Aviso de privacidad». Aprobado sin revisión de abogado (HECHOS 2026-10-23); ya no es provisional. Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
 
 Si la tasa de aceptación sale < 50 % con N ≥ 100, marketing propone un A/B **de texto** (brief `:245`): por eso el texto vive en una clave y **ningún** otro atributo del banner depende de su longitud (el candado de altura C-F12 es el que avisa si un texto nuevo lo rompe).
 
@@ -33586,7 +33586,7 @@ Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN
 | Clave | ES | EN |
 |---|---|---|
 | `consent.region` | Aviso de cookies | Cookie notice |
-| `consent.text` | Usamos cookies para saber qué publicaciones te traen y mejorar la tienda. | We use cookies to learn which posts bring you here and to improve the store. |
+| `consent.text` | Usamos cookies para entenderte mejor y mejorar tu experiencia. | We use cookies to understand you better and improve your experience. |
 | `consent.accept` | Aceptar | Accept |
 | `consent.necessary` | Solo lo necesario | Necessary only |
 | `consent.customize` | Configurar | Customize |
@@ -33595,18 +33595,18 @@ Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN
 | `consent.layer.title` | Preferencias de cookies | Cookie preferences |
 | `consent.layer.intro` | Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página. | You decide what we measure. You can change this at any time from the page footer. |
 | `consent.layer.necessary.title` | Necesarias | Necessary |
-| `consent.layer.necessary.body` | Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección. | They keep your session, your cart and your language, and remember this choice. |
+| `consent.layer.necessary.body` | Mantienen tu sesión y tu carrito, protegen tu cuenta y recuerdan esta elección. | They keep your session and your cart, protect your account and remember this choice. |
 | `consent.layer.necessary.always` | Siempre activas | Always on |
 | `consent.layer.analytics.title` | Analítica | Analytics |
-| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). | Tells us which pages and posts lead to purchases (Google Analytics). |
+| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). Si la dejas desactivada, solo avisamos que hubo una compra, sin datos tuyos. | Tells us which pages and posts lead to purchases (Google Analytics). If you leave it off, we only report that a purchase happened, with no data about you. |
 | `consent.layer.ads.title` | Publicidad | Advertising |
-| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a compras (Meta). | Measures which posts and ads lead to purchases (Meta). |
+| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a visitas y compras (Meta). | Measures which posts and ads lead to visits and purchases (Meta). |
 | `consent.layer.stateOn` / `stateOff` | Activada / Desactivada | On / Off |
 | `consent.layer.more` | Más detalle en el <privacy>Aviso de privacidad</privacy>. | More detail in the <privacy>Privacy notice</privacy>. |
 | `consent.layer.save` | Guardar mi elección | Save my choice |
 | `consent.layer.cancel` | Cancelar | Cancel |
 
-Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor; **el abogado los valida con el aviso** (CK-4, duda 3).
+Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor, igual que en el aviso aprobado (CK-4). ⛔ «idioma» no se nombra como cookie necesaria: el aviso aprobado no lo dice y no está medido. Si cambia un texto del aviso, cambia aquí en el mismo pase.
 
 ---
 
@@ -33639,7 +33639,6 @@ MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
 ### MKT2-UX.13 Peticiones, dudas y desviaciones
 
 **Peticiones (numeradas para enrutar):**
-1. **(Cerrada, v1.106.2 §MKT.H.3)** Solo la primera elección con el banner visible cuenta en `banner-response`, también desde el pie; un cambio posterior no (inflaría `accept / total`, `API_CONTRACT.md:45889`).
 2. **arquitecto — dónde se monta el banner.** `ARCHITECTURE.md:37039-37041` dice «Visita ► banner» sin restringir rutas. Mi supuesto: solo en la lista blanca de medición (`:37076-37078`) y el enlace del pie en todo el storefront. Confirmar o corregir.
 3. **arquitecto — `custom` con los dos interruptores apagados:** cuenta como `custom` (literal, `:45753`) o como `necessary_only`. Afecta a f1/f2, no al diseño.
 4. **arquitecto — texto del aviso (apartado de cookies, §8 de `privacidad.es.ts`)** debe dejar el hueco del enlace «Preferencias de cookies» (MKT2-UX.8 sitio 2); es contenido del aviso, no de este documento.
@@ -33648,10 +33647,9 @@ MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
 7. **orquestador — tamaño:** `DESIGN_SYSTEM.md` llegaba a la línea 33 509 antes de esta sección (tope orientativo ~2 000); la compactación sigue pendiente (ya pedida en CS-UX.7 punto 3 y MKT-UX.17). Riesgo de merge: esta sección se añade al final, justo debajo de MKT-UX; si el otro *worktree* también añade al final habrá conflicto de texto, no de contenido: se conservan ambos bloques, MKT-UX primero.
 
 **Dudas para el dueño (con recomendación):**
-1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; si la asesoría legal dice que hace falta igualarlos, es un cambio de dos atributos.)
+1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; igualarlos sería un cambio de dos atributos.)
 2. **¿El aviso de cookies aparece solo donde se mide, o en toda la tienda?** (Solo donde se mide: no pedimos permiso en tu cuenta ni al vender.)
-3. **Los rótulos «Analítica» y «Publicidad» con «(Google Analytics)» y «(Meta)» en la segunda capa:** ¿los revisa tu asesor junto con el aviso? (Sí: son lo más cercano a texto legal que hay en la pantalla.)
-4. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
+3. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
 
 **Desviaciones conscientes y lo que no pude medir:** (a) «Configurar» de 36 px y no 44 (por el presupuesto de altura); (b) banner primero en el DOM aunque va abajo; (c) alturas de 204–224 px y de la barra de COMPRAR (~72 px): **NO MEDIDAS** en navegador (las cierra la captura 390×664 de C-F3 y el candado C-F12); (d) contrastes calculados a mano; (e) si hay barra de pago fija o FAB en el checkout y en el carrito de venta: **NO MEDIDO** (comando que lo cierra: `Grep "fixed .*bottom-0" frontend/src --glob "*.tsx"` y revisar cada resultado).
 
