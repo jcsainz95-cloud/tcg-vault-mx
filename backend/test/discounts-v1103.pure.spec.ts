@@ -24,6 +24,8 @@ import { GuestCheckoutService } from '../src/modules/orders/guest-checkout.servi
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { BusinessException } from '../src/common/business.exception';
 import type { BoxChoice } from '../src/modules/orders/box-fit';
+import { AccessoryLineReadRow, accessoryMailLinesOf } from '../src/modules/orders/accessory-lines-view';
+import { accessoryMailTextLines } from '../src/modules/orders/mail/accessory-mail-lines';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const DIALS = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
@@ -211,5 +213,30 @@ describe('TL-DSC-5 — `DiscountsService` es OBLIGATORIO en la inyección (sin `
     expect(idx).toBeGreaterThanOrEqual(0);
     const optional: number[] = Reflect.getMetadata('optional:paramtypes', cls) ?? [];
     expect(optional).not.toContain(idx);
+  });
+});
+
+describe('DCO-B16 (puro, correos) — el renglón de accesorio pinta el total ANTES del descuento (la resta va en «Descuento (CÓDIGO)»)', () => {
+  const row = (unitDiscountCents: number): AccessoryLineReadRow => ({
+    id: 'l1',
+    kind: 'accessory',
+    quantity: 2,
+    unitPriceCents: 13500,
+    unitDiscountCents,
+    refundedQty: 0,
+    snapshot: { name: 'Fundas' },
+    deckName: null,
+    accessoryId: 'x',
+    accessory: null,
+    components: [],
+  });
+  const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+  it('con rebaja 1500 ⇒ «Fundas ×2 — $300.00» (2 × 15000); sin rebaja ⇒ el total cobrado, sin llave nueva', () => {
+    const withCode = accessoryMailLinesOf([row(1500)]);
+    expect(withCode[0]).toMatchObject({ lineTotalCents: 27000, lineTotalBeforeDiscountCents: 30000 });
+    expect(accessoryMailTextLines(withCode, 'es', money)).toEqual(['Fundas ×2 — $300.00']);
+    const plain = accessoryMailLinesOf([row(0)]);
+    expect(Object.keys(plain[0])).not.toContain('lineTotalBeforeDiscountCents');
+    expect(accessoryMailTextLines(plain, 'es', money)).toEqual(['Fundas ×2 — $270.00']);
   });
 });
