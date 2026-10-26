@@ -105,7 +105,8 @@ jobs:
     timeout-minutes: 55
     # `fase` la fija el último paso (always) y la lee `e2e-ok`: distingue «la
     # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1),
-    # y desde §102 también «la suite se colgó» (`suite-colgada`).
+    # y desde §102 también «la suite se colgó» (`suite-colgada`) y «se quedó sin
+    # memoria» (`suite-sin-memoria`, dueño devops).
     outputs:
       fase: ${{ steps.fase.outputs.fase }}
       paso: ${{ steps.fase.outputs.paso }}
@@ -367,17 +368,49 @@ jobs:
       # 35 min (`timeout` de coreutils, ~2,2× el máximo medido) para que el cuelgue
       # se detecte AQUÍ y se nombre (`colgada=1`); `timeout-minutes: 40` del paso y
       # 55 del job son solo respaldo para que el veredicto de fase llegue a correr.
+      # 🧠 SIN MEMORIA ≠ ROJO (2026-10-26, DEVOPS_NOTES §102). Run 40283150245 (sha 9f1a2124): exit 134 a los
+      # ~17 min, «JavaScript heap out of memory» con el heap por defecto (4095 MB), 236 PASS y 0 FAIL, y el
+      # job lo llamó «LA SUITE CORRIÓ y falló · dueño backend». Ahora: (1) el heap lo fija
+      # `scripts/integration-heap.sh` (un número, el mismo que `stack-native.sh test:integration`); (2) jest
+      # va con `--logHeapUsage` y el paso imprime pico y crecimiento por spec (aviso al 80 % del límite, antes
+      # de morir); (3) un OOM —firma de V8, rc 134 (SIGABRT) o rc 137 ANTES del presupuesto (OOM killer del
+      # kernel)— escribe `sin_memoria=1` y el veredicto de fase da `suite-sin-memoria`, no `suite-roja`.
       - name: Test de integración (E2E backend)
         id: tests
         timeout-minutes: 40
         run: |
           LOG="$RUNNER_TEMP/backend-e2e.log"
           LIMITE="${E2E_SUITE_TIMEOUT:-35m}"
+          NODE_OPTIONS="$(../scripts/integration-heap.sh node-options)"; export NODE_OPTIONS
+          HEAP_MB="$(../scripts/integration-heap.sh limit-mb)"
+          echo "heap de la suite: NODE_OPTIONS=$NODE_OPTIONS · V8 aplica $(node -e 'console.log(Math.round(require("v8").getHeapStatistics().heap_size_limit/1048576))') MB · RAM del runner $(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo) MB"
+          case "$LIMITE" in
+            *h) limite_s=$(( ${LIMITE%h} * 3600 )) ;; *m) limite_s=$(( ${LIMITE%m} * 60 )) ;;
+            *s) limite_s=${LIMITE%s} ;; *) limite_s=$LIMITE ;;
+          esac
+          inicio=$(date +%s)
           set +e
           set -o pipefail
-          timeout --signal=TERM --kill-after=60s "$LIMITE" npm run test:integration 2>&1 | tee "$LOG"
+          timeout --signal=TERM --kill-after=60s "$LIMITE" npm run test:integration -- --logHeapUsage 2>&1 | tee "$LOG"
           rc=${PIPESTATUS[0]}
           set -e
+          dur=$(( $(date +%s) - inicio ))
+          ../scripts/integration-heap.sh report "$LOG" || true
+          sin_memoria=""
+          if ../scripts/integration-heap.sh oom "$LOG"; then
+            sin_memoria="V8 agotó el heap (límite ${HEAP_MB} MB, rc=$rc)"
+          elif [ "$rc" -eq 134 ]; then
+            sin_memoria="el proceso abortó con SIGABRT (rc 134, lo que hace V8 al agotar el heap) sin imprimir la firma; límite ${HEAP_MB} MB"
+          elif [ "$rc" -eq 137 ] && [ "$dur" -lt "$limite_s" ]; then
+            sin_memoria="SIGKILL a los ${dur} s, ANTES del presupuesto de ${LIMITE}: no fue el timeout sino, casi seguro, el OOM killer del kernel (RAM del runner)"
+          fi
+          if [ -n "$sin_memoria" ]; then
+            pasan=$(grep -cE '^PASS ' "$LOG" || true); fallan=$(grep -cE '^FAIL ' "$LOG" || true)
+            echo "sin_memoria=1" >> "$GITHUB_OUTPUT"
+            echo "sin_memoria_motivo=${sin_memoria} · ${pasan} PASS y ${fallan} FAIL antes de morir" >> "$GITHUB_OUTPUT"
+            echo "::error title=backend-e2e · LA SUITE SE QUEDÓ SIN MEMORIA::${sin_memoria}. ${pasan} specs PASS y ${fallan} FAIL antes de morir. No es un rojo de aserción. Dueño: devops (presupuesto de heap, scripts/integration-heap.sh); si el crecimiento por spec impreso arriba se dispara, la retención es de backend. DEVOPS_NOTES §102."
+            exit 1
+          fi
           if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
             echo "colgada=1" >> "$GITHUB_OUTPUT"
             if grep -qE '^Tests: |Jest did not exit' "$LOG"; then
@@ -438,10 +471,15 @@ jobs:
           O_TESTS: ${{ steps.tests.outcome }}
           O_COLGADA: ${{ steps.tests.outputs.colgada }}
           O_COLGADA_MOTIVO: ${{ steps.tests.outputs.colgada_motivo }}
+          O_SIN_MEMORIA: ${{ steps.tests.outputs.sin_memoria }}
+          O_SIN_MEMORIA_MOTIVO: ${{ steps.tests.outputs.sin_memoria_motivo }}
         run: |
           fase=""; paso=""
           if [ "$O_TESTS" = "success" ]; then
             fase="suite-verde"; paso="Test de integración (E2E backend)"
+          elif [ "$O_SIN_MEMORIA" = "1" ]; then
+            fase="suite-sin-memoria"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE SE QUEDÓ SIN MEMORIA::${O_SIN_MEMORIA_MOTIVO:-sin motivo}. Dueño: devops (presupuesto de heap, scripts/integration-heap.sh); backend solo si el crecimiento de heap por spec del log se dispara. No es un rojo de aserción. DEVOPS_NOTES §102."
           elif [ "$O_COLGADA" = "1" ]; then
             fase="suite-colgada"; paso="Test de integración (E2E backend)"
             echo "::error title=backend-e2e · LA SUITE SE COLGÓ::Superó su presupuesto de tiempo y se cortó: ${O_COLGADA_MOTIVO:-sin motivo}. Dueño: backend (cierre de recursos de la suite). No es un rojo de aserción ni de infraestructura. DEVOPS_NOTES §102."
@@ -720,6 +758,7 @@ jobs:
             failure)
               case "$FASE" in
                 suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/s3-local). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
+                suite-sin-memoria) echo "::error::backend-e2e: LA SUITE SE QUEDÓ SIN MEMORIA — el proceso de jest agotó el heap (o la RAM del runner) y murió a mitad; no es un rojo de aserción. Dueño: devops (presupuesto de heap, scripts/integration-heap.sh). Motivo, PASS/FAIL previos y heap por spec en el job. Bloquea el deploy (DEVOPS_NOTES §102)." ;;
                 suite-colgada) echo "::error::backend-e2e: LA SUITE SE COLGÓ — superó su presupuesto de tiempo y se cortó (no es un rojo de aserción). Dueño: backend (handles abiertos / un test que espera). Motivo en la anotación del job. Bloquea el deploy (DEVOPS_NOTES §102)." ;;
                 infra-muerta) echo "::error::backend-e2e NO MIDIÓ NADA: el job murió en «${PASO:-?}» antes de ejecutar la suite. Dueño: devops. Ninguna suite de dinero/acceso corrió. Bloquea el deploy (DEVOPS_NOTES §52)." ;;
                 *)            echo "::error::backend-e2e falló y NO dejó fase (¿el paso de veredicto no corrió?). Dueño: devops. Bloquea el deploy." ;;

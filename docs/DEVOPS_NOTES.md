@@ -24,11 +24,7 @@
 
 ---
 
-## 0. Estado actual (cierre)
-
-> **Retirada el 2026-10-19 (DOC-SIZE).** Describía el cierre de 2026-08 («deploy real NO ejecutado»), que dejó de
-> ser cierto hace semanas. El estado vigente es el bloque del principio de este documento. Texto anterior:
-> `git show b95fbbac:docs/DEVOPS_NOTES.md`.
+## 0. Estado actual (cierre) — retirada 2026-10-19 (DOC-SIZE); texto: `git show b95fbbac:docs/DEVOPS_NOTES.md`
 
 ## 1. Stack (resumen, ver ARCHITECTURE §1)
 
@@ -750,9 +746,7 @@ Validaciones estáticas corridas (reales):
 
 ---
 
-## 12. Estado de cierre y por qué NO se declara "desplegado"
-
-> **Retirada el 2026-10-19 (DOC-SIZE):** describía el cierre de 2026-08, sin deploy. Vigente: el bloque inicial.
+## 12. Estado de cierre y por qué NO se declara "desplegado" — retirada 2026-10-19 (DOC-SIZE); vigente: el bloque inicial
 
 ---
 
@@ -5058,10 +5052,7 @@ gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.*
 
 ---
 
-### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
-
-> **Retirada el 2026-10-23 (DOC-SIZE).** Era la checklist del pase de M-42 (2026-08-28), superada por
-> **§32.12.9**, que es la que se pega en el ticket. Texto anterior: `git show 01440e56:docs/DEVOPS_NOTES.md`.
+### 32.9 Checklist del pase (§4.38p) — retirada 2026-10-23 (DOC-SIZE): la vigente es **§32.12.9**; texto: `git show 01440e56:docs/DEVOPS_NOTES.md`
 
 ---
 
@@ -15178,17 +15169,26 @@ vía `MEASUREMENT_DISCLOSURE`; forma desconocida ⇒ rc 2 (canario 9/9; «ignora
 sin redeploy de código. Las filas ya encoladas las purga el job de backend (C-B8). Nada de esto toca dinero ni
 migraciones (m86 es aditiva; su rollback lo documenta backend).
 
-## §102 · `backend-e2e` colgado 6 h ⇒ presupuesto de tiempo y fase `suite-colgada` (2026-10-19)
+## §102 · `backend-e2e`: cuelgue ⇒ `suite-colgada` (2026-10-19) · sin memoria ⇒ `suite-sin-memoria` (2026-10-26)
 
-**Medido:** run 39152042442 (`production`): «Test de integración» 358,9 min hasta el corte de 6 h de GitHub; job
-`cancelled`, `e2e-ok` rojo sin motivo. En 10 runs verdes de `e2e.yml` (16-oct) el paso dura **11,8-15,9 min** y el
-job **13,2-17,6**. Ahora: el paso corre la suite bajo `timeout` de **35 min** (`E2E_SUITE_TIMEOUT`, ~2,2× el máximo)
-y, si se corta, escribe `colgada=1` y el motivo (con resumen de jest ⇒ «handles abiertos»; sin él ⇒ «un test o hook
-esperando»). Respaldo: `timeout-minutes` 40 en el paso y 55 en el job. El veredicto de fase da `suite-colgada`
-(también si el paso queda `cancelled`) y `e2e-ok` lo dice, distinto de `suite-roja` e `infra-muerta`. La causa
-(handles abiertos) la arregla backend. Canario `check-e2e-suite-hang-canary.sh` (ejecuta los `run:` reales con
-`run-workflow-step.sh`, que acepta `RUN_STEP_EXPRS` para simular `steps.*`/`needs.*`): 13 casos, N=3 ⇒ 39/39;
-mutaciones «sin rama colgada» ⇒ 1/13 rojo y «sin `timeout`» ⇒ 2/13 rojo.
+**Cuelgue.** Run 39152042442: «Test de integración» 358,9 min hasta el corte de 6 h, `e2e-ok` rojo sin motivo. Paso
+verde medido 11,8-15,9 min (10 runs, 16-oct) ⇒ `timeout` de **35 min** (`E2E_SUITE_TIMEOUT`); si corta, `colgada=1` +
+motivo (con resumen de jest ⇒ «handles abiertos», sin él ⇒ «un test o hook esperando»); respaldo `timeout-minutes` 40
+(paso) y 55 (job); fase `suite-colgada` (también si el paso queda `cancelled`); la causa la arregla backend. Canario
+`check-e2e-suite-hang-canary.sh` (corre los `run:` reales con `run-workflow-step.sh` + `RUN_STEP_EXPRS`).
+
+**Sin memoria (2026-10-26).** Run 40283150245 (sha `9f1a2124`): exit 134 a ~17 min, «JavaScript heap out of memory»
+con el heap por defecto (4095 MB), 0 FAIL, y el job dijo «CORRIÓ y falló · backend». Medido en local (copia de
+`9f1a2124`, Postgres/Redis/s3-local propios, `--runInBand --logHeapUsage`, 149 specs): heap tras cada spec **lineal,
+~16 MB/spec** (1203→3586 MB, pico 3758, con 6144; 1734→4140 con 8192) ⇒ la suite ya no cabe en 4 GB. RSS máx. de
+jest con 6144: 4836 MB; RAM libre mín. 10 GB de 15. **Elección:** heap **6144** en `scripts/integration-heap.sh`
+(un número; lo usan `e2e.yml` y `stack-native.sh test:integration`; `E2E_HEAP_MB` lo cambia) ⇒ ~2 GB de margen,
+~120-160 specs más al ritmo medido, y cabe en los 16 GB de `ubuntu-latest`. Descartado: workers +
+`workerIdleMemoryLimit` (el candado `open-handles.teardown.ts` cuenta los handles del proceso principal: con
+workers queda ciego) y partir en dos jobs (dos setups y dos `fase` que `e2e-ok` no sabe fundir; solo retrasa la
+fuga). El paso imprime pico y MB/spec y avisa al **80 %** del límite. Un OOM —firma de V8, rc 134, o rc 137 antes del
+presupuesto (OOM killer)— escribe `sin_memoria=1` ⇒ fase `suite-sin-memoria`, dueño **devops**; la retención de
+~16 MB/spec es de **backend**. Canario: 23 casos, N=3 ⇒ 69/69; 6 ablaciones ⇒ 6/6 muerden (1-4 rojos cada una).
 
 ## §103 · Cierre QA-REL-2, MKT-E2 y la parte de arnés de QA-REL-3 (2026-10-23, rama `devops-rel`, base `01440e56`)
 
