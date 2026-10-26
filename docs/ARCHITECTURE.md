@@ -4,19 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.112⟨meta-prueba⟩ (2026-10-26, arquitecto, sin Bash).** §14.10 D-MKT2-10: versión de Graph y evento de prueba de Meta (cierre de MKT-F2-3);
+> D-MKT-CELLS-1 compactada (cerrada por lectura) · backend (MKT-F2-3). Contrato: API_CONTRACT §MKT.H.1/.12.
+> **Rev v1.111⟨aviso-medicion⟩ (2026-10-26).** §14.1 D-MKT2-0b: `legalReviewOn | null` + `legalReviewWaivedByOwnerOn`, exactamente una con fecha
+> (sin abogado: `HECHOS.md` 2026-10-23); §14.10: cinco decisiones fijadas por el aviso aprobado (`HECHOS.md` 2026-10-26) · orquestador.
+> ---
 > **Rev v1.109⟨envio-v2⟩ (2026-10-24, arquitecto, árbol vivo, sin Bash).** **§14.4:** `/buylist` (D-MKT2-8) y `/card-show` (D-MKT2-9)
 > entran a la lista blanca; §14.10 pregunta 3 contestada. Regla de envío v2: solo en API_CONTRACT §4-G.12 (un hecho, un sitio).
 > ---
-> **Rev v1.107⟨mkt-celdas⟩ (2026-10-19, arquitecto, leído en el árbol vivo, sin Bash).** **§13.7:** D-MKT-PANEL-5 (umbral por componente
-> y sujeto, registro de poblaciones, auditor de rango). **§9:** `D-MKT-CELLS-1`; R4 y D-MKT-1 cerradas. Contrato: API_CONTRACT §MKT.H.14.
+> **Rev v1.107⟨mkt-celdas⟩ (2026-10-19).** **§13.7:** D-MKT-PANEL-5 (umbral por componente y sujeto, poblaciones, auditor). **§9:** `D-MKT-CELLS-1`.
 > ---
-> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, arquitecto, leído sobre `a1ba4d2e`, sin Bash).** **§14.1:** lista `ENCENDER_BLOCKERS` en
-> la puerta C-D1. **§14.5:** identidad canónica de ítem para GA4/Meta (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada por
-> lectura. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5 (regla de `null`).
+> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, sobre `a1ba4d2e`).** **§14.1:** `ENCENDER_BLOCKERS` en C-D1. **§14.5:** identidad de ítem
+> (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5.
 > ---
-> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, arquitecto, misma rama, leído sobre `e0cce11b`, sin Bash).** **§4.37.1-b NUEVA:** un eje
-> de query se declara con `@Query('<nombre>')` y el SELECTOR es §0-Q. **§9:** `D-EQ-5` (huérfanos de `C-EQ-1`, backend).
-> Contrato: API_CONTRACT §0-Q puntos 4 y 6-bis, §MKT.E.
+> **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, sobre `e0cce11b`).** **§4.37.1-b:** eje de query con `@Query('<nombre>')`; SELECTOR §0-Q. **§9:** `D-EQ-5`.
 > ---
 > **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, arquitecto, rama `claude/sesiones-pendientes-alcances-cznucn`,
 > leído sobre `5524bd69`, sin Bash).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta Pixel y CAPI),
@@ -31994,13 +31995,8 @@ Riesgos técnicos:
 > `backend-lite`: toca candados). **Prueba que la vigila:** el propio `C-EQ-1` —descubrimiento sin huérfanos, conformidad
 > HTTP de las seis filas nuevas, trinquete con los literales nuevos— y su canario `enum-query-census-canary.spec.ts`.
 >
-> **`D-MKT-CELLS-1` (🔴 ABIERTA para encender, no para fusionar apagado; dueño backend; medida 2026-10-19 por seguridad —sonda
-> sobre `bfd91ab2`— y leída por el arquitecto en el árbol vivo).** b1-b3 ponen el umbral a `pedidos + solicitudes` y publican cada
-> parte (`marketing-analytics.service.ts:1053,1069-1075`: 1 pedido + 4 solicitudes sale con el MX$ exacto del pedido que g1
-> oculta); d1 cuenta piezas (`:611`) y d3 altas (`:663`) en vez de sujetos; el orden de filas usa el N real de las ocultas
-> (`small-cells.ts:118-131`); g1 no exige `firstUtmSource` (`:1200`). **Contrato (manda): API_CONTRACT §MKT.H.14.** **La corrige
-> backend** (⛔ no `backend-lite`: candados). **Pruebas que la vigilan:** las tres de §MKT.H.14; hasta su verde, `SEC-MKT-1` y
-> `MKT-TL2` en `ENCENDER_BLOCKERS` (las pone frontend, §MKT.H.13).
+> **`D-MKT-CELLS-1` (cerrada por lectura el 2026-10-26):** el umbral por componente y sujeto de API_CONTRACT §MKT.H.14; `ENCENDER_BLOCKERS` ya no
+> lista `SEC-MKT-1` ni `MKT-TL2` (`measurement-gate.test.ts:112`) y MKT-TL2 está ✅ en TECH_DEBT; el verde de sus tres pruebas: NO MEDIDO por el arquitecto.
 >
 > **`D-MKT2-R4` y `D-MKT-1` (cerradas por lectura el 2026-10-19):** `ENCENDER_BLOCKERS` ya no lista `R4` (`measurement-gate.test.ts:109`) y
 > las tablas de MKT.G.4 se emiten; el verde de C-F8/C-B10 y de MKT.G.9 punto 6: NO MEDIDO por el arquitecto.
@@ -36923,14 +36919,14 @@ interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de di
 
 > **SOLO DISEÑO. Se construye apagado.** Contrato: **API_CONTRACT §MKT.H**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel
 > f1/f2/f3/g1 (`tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`). Decisión del dueño (`PENDIENTES.md:1059-1060`, 2026-10-16):
-> Fase 2 se construye pero **no se enciende** hasta que llegue el aviso de privacidad revisado por el abogado, y el aviso va en el
-> **mismo despliegue** que GA4 y el píxel. Medido por lectura sobre `5524bd69` (sin Bash: ningún comando ejecutado). Migración
+> Fase 2 se construye pero **no se enciende** hasta que el aviso de privacidad declare la medición (sin abogado, `HECHOS.md` 2026-10-23;
+> texto aprobado el 2026-10-26), en el **mismo despliegue** que GA4 y el píxel o antes. Medido por lectura sobre `5524bd69`. Migración
 > **m86**. Toca `orders`, `payments` y `buylist` (dinero) solo para encolar después del commit: tres veredictos.
 
 ### 14.0 Estado medido (O-1)
 
 - **Construido y apagado, en la rama** (leído sobre `a1ba4d2e`: `backend/src/modules/measurement/`, `frontend/src/lib/measurement/`,
-  `measurement-gate.ts`). Qué hace cada pieza: BACKEND_NOTES §MKT.H, FRONTEND_NOTES §MKT2, DEVOPS_NOTES §101. Pendiente: §MKT.H.13.
+  `measurement-gate.ts`). Qué hace cada pieza: BACKEND_NOTES §MKT.H, FRONTEND_NOTES §MKT2, DEVOPS_NOTES §101. Pendiente: MKT-F2-3 (§MKT.H.12) y §MKT.H.13.
 - **Hechos de la base que sostienen el diseño** (sobre `5524bd69`): CSP en report-only (`csp.ts:37`) y `script-src` con
   `'strict-dynamic'` (`csp.ts:9-11,104`) ⇒ la CSP no impide cargar `gtag.js`; Google ya carga en login/checkout
   (`accounts.google.com`) y en el Card Show (`www.google.com`) ⇒ C-F2 mide hosts de medición, no todo Google (§14.8); el pago
@@ -36959,27 +36955,29 @@ mirar peticiones: lo que no está en el bundle no puede ejecutarse por ninguna r
 contexto), no se crea ninguna fila de cola, el drenador no sale a la red, y `banner-response` responde 204 sin escribir. Se acepta
 en vez de rechazarlo para que el orden de despliegue entre Vercel y Railway no rompa el checkout.
 
-**Encender exige el aviso nuevo — puerta de build (D-MKT2-0b).** El aviso es un módulo de datos
-(`content/legal/privacidad.es.ts`) y ya tiene una puerta de publicación (`publish-check.ts:30`). **Se extiende esa puerta, no se
-escribe otra:** `LegalDocument` gana `measurementDisclosure: null | { version: string, approvedByOwnerOn: 'AAAA-MM-DD',
-legalReviewOn: 'AAAA-MM-DD' }`, y `legalPublishProblems` gana un tercer argumento `{ measurement: 'off' | 'on' }`. Con `on`
-añade estos problemas: `measurementDisclosure === null`; el aviso aún contiene «No usamos cookies de publicidad ni de analítica»;
-o el aviso no nombra «Google Analytics», «Meta», `_fbp`, `_fbc`, `th_first_utm`, `th_consent` y la retención de 14 meses. Devops
-corre esa comprobación **como paso del build de Vercel** con el valor real de `NEXT_PUBLIC_MEASUREMENT_MODE`, y un problema hace
-fallar el build. Así **no existe** un despliegue encendido con el aviso viejo: Vercel no publica un build fallido. La versión del
-aviso que se guarda en `th_consent` y en el pedido es `measurementDisclosure.version`. El aviso nuevo puede salir **antes** con el modo apagado (el
-brief lo permite: «antes o a la vez», §D5.4); el encendido es un cambio de variable más un redeploy, sin código.
+**Encender exige el aviso nuevo — puerta de build (D-MKT2-0b; forma v1.111).** El aviso es un módulo de datos
+(`content/legal/privacidad.es.ts`) con puerta de publicación (`publish-check.ts:30`). **Se extiende esa puerta, no se escribe otra:**
+`LegalDocument` gana `measurementDisclosure: null | { version: string, approvedByOwnerOn: 'AAAA-MM-DD', legalReviewOn: 'AAAA-MM-DD' |
+null, legalReviewWaivedByOwnerOn: 'AAAA-MM-DD' | null }`: las cuatro claves siempre escritas y **exactamente una** de las dos últimas
+con fecha (revisó un abogado, o el dueño renunció a la revisión). Hoy: `legalReviewOn: null`, `legalReviewWaivedByOwnerOn: '2026-10-23'`
+(`HECHOS.md` 2026-10-23 «…no hace falta abogado…»), `approvedByOwnerOn: '2026-10-26'` (fila «Aviso de privacidad con la medición:
+aprobado»), `version` la de «Metadatos» de `docs/specs/AVISO_MEDICION_APROBADO.md`; se escriben en el commit que transcribe el texto.
+⛔ La fecha del dueño nunca va en `legalReviewOn`: el código afirmaría una revisión que no existió. `legalPublishProblems` gana un
+tercer argumento `{ measurement: 'off' | 'on' }`; con `on` añade: `measurementDisclosure` nulo, mal formado, con las dos fechas o con
+ninguna; el aviso aún dice «No usamos cookies de publicidad ni de analítica»; o no nombra «Google Analytics», «Meta», `_fbp`, `_fbc`,
+`th_first_utm`, `th_consent` y 14 meses (la mínima de `next.config.mjs` aplica la misma regla de las dos claves). Devops corre la puerta
+**como paso del build de Vercel** con el modo real; un problema tumba el build: **no existe** un despliegue encendido con el aviso viejo.
+`th_consent` y el pedido guardan `measurementDisclosure.version`. El aviso puede salir **antes**, apagado (§D5.4); encender = variable + redeploy.
 
-*Por qué no basta una variable:* una variable sola no sabe qué dice el aviso. La puerta mira el texto que se va a publicar, en el
-mismo build que se publica. *Por qué no en el backend:* el backend no sirve el aviso; ponerle una copia de la versión sería una
-segunda fuente para un hecho.
+*Por qué no basta una variable:* no sabe qué dice el aviso; la puerta mira el texto que se publica, en el mismo build. *Por qué no en el
+backend:* no sirve el aviso; una copia de la versión sería una segunda fuente para un hecho.
 
 **Bloqueos de encendido en la misma puerta (D-MKT2-0c, v1.106, a petición del techlead).** Lo que se puede fusionar apagado pero
 no encender vive como dato en `measurement-gate.ts`, no en una nota:
 `ENCENDER_BLOCKERS: readonly { id: string; what: string; owner: 'backend'|'frontend'|'devops'; closedBy: string }[]`
 (`closedBy` = la prueba que lo cierra). `measurementGateProblems(mode, doc, blockers = ENCENDER_BLOCKERS)` con `on` añade un
 problema por entrada (`bloqueo de encendido abierto: <id> (<owner>) — <what>`), que el rótulo de MKT2-UX.12 ya lista; con `off` no
-cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: API_CONTRACT §MKT.H.13. Fuente: esta
+cuenta. Una entrada sale **en el mismo commit** que trae su `closedBy` verde (si es de otro rol, en el siguiente). Altas: las fija el contrato (hoy MKT-F2-3, §MKT.H.12). Fuente: esta
 lista; `BACKEND_ENCENDER_BLOCKERS` (SEC-MKT-3, `on` ⇒ `off` efectivo) es espejo aceptado de sus entradas de backend, por paridad (`measurement.encender-gate.spec.ts`).
 
 **Fail-closed por destino (backend).** Con `MEASUREMENT_MODE=on`, cada destino se habilita solo si sus variables están y pasan
@@ -36993,16 +36991,12 @@ válida, esa etiqueta no carga; si no carga ninguna, el banner tampoco se muestr
 
 El brief dice «vía GTM» (§B2, §C). **Se cargan `gtag.js` y `fbevents.js` directamente, desde código propio, sin contenedor GTM.**
 Razones:
-1. Las reglas de privacidad del brief (§D2: rutas excluidas, URL reescrita, sin `page_view` automático, coincidencia avanzada y
-   eventos automáticos apagados) pasan a ser **código con pruebas**. En GTM serían configuración de una consola que cambia sin
-   despliegue, sin revisión y sin candado: cualquiera con acceso al contenedor podría añadir una etiqueta en `/cuenta` mañana.
-   Es la regla del proyecto «toda dependencia externa va fijada», aplicada a la configuración.
-2. El brief pide que seguridad revise el contenedor y la configuración del píxel antes de publicar (PV.3 bandera 2). Sin GTM,
-   revisa un diff.
-3. Evita cargar el contenedor antes del banner (§D3), sin tener que declararlo en el aviso.
+1. Las reglas de privacidad del brief (§D2: rutas excluidas, URL reescrita, sin `page_view` ni eventos automáticos, sin coincidencia avanzada)
+   pasan a ser **código con pruebas**; en GTM serían configuración que cambia sin despliegue, revisión ni candado (una etiqueta en `/cuenta`
+   mañana). Es «toda dependencia externa va fijada», aplicada a la configuración. 2. Seguridad revisa un diff, no un contenedor (PV.3
+   bandera 2). 3. No hay contenedor que cargar antes del banner (§D3) ni que declarar en el aviso.
 
-Coste: marketing no podrá añadir etiquetas por su cuenta (es justo lo que se evita) y el `GTM_CONTAINER_ID` que marketing pedía
-(«de vuelta» 3) no existe. Se relaya a marketing como «lo que no se pudo hacer tal cual» y es la pregunta 1 de §14.10.
+Coste: marketing no añade etiquetas por su cuenta (es lo que se evita) y no hay `GTM_CONTAINER_ID` («de vuelta» 3); pregunta 1 de §14.10.
 
 ### 14.3 Flujo de consentimiento (D3 modo básico, D3b diseño)
 
@@ -37040,14 +37034,14 @@ visitantes, y antes de la elección no se escribe nada en el dispositivo.
 
 - **`th_consent`** es la cookie que **guarda la elección** (estrictamente necesaria para respetarla): primera parte, 180 días,
   `SameSite=Lax`, `Secure`, `Path=/`, legible por JS. Contenido: versión del formato, `a` (analítica), `m` (publicidad), versión del
-  aviso, fecha. Si la versión del aviso cambia, se vuelve a preguntar. Va declarada en el aviso.
+  aviso, fecha. Si la versión del aviso cambia, se vuelve a preguntar (dueño, §14.10). Va declarada en el aviso.
 - **Consent Mode v2 básico:** antes de cargar `gtag.js` se fija `consent default` con los cuatro `denied`; al aceptar analítica,
   `update` de `analytics_storage` a `granted`. `ad_storage`, `ad_user_data` y `ad_personalization` quedan `denied` para Google
   siempre: GA4 aquí solo mide. **Nada de Google ni de Meta se descarga antes de la elección**, ni un ping sin cookies.
 - **Publicidad = Meta.** `m=1` es lo único que carga `fbevents.js` y lo único que habilita CAPI. Aceptar solo analítica no
   enciende Meta (D3, PV-A1).
 - **Revocar:** «Preferencias de cookies» en el pie de todo el storefront y en el aviso ⇒ abre la segunda capa. En el aviso va
-  como **párrafo propio al final del apartado de cookies**, fuera del texto del abogado (D-MKT2-6: el texto legal queda como
+  como **párrafo propio al final del apartado de cookies**, fuera del texto del aviso (D-MKT2-6: el texto legal queda como
   dato puro y el botón no depende de su redacción; la puerta C-D1 exige que el apartado exista). Al quitar un consentimiento se
   borran las cookies propias de esa finalidad que la tienda puede borrar en su dominio (`th_first_utm`, `_ga*`, `_fbp`, `_fbc`), se
   manda `consent update` y se **recarga** la página, para que el código de terceros ya cargado salga del documento.
@@ -37147,7 +37141,7 @@ job measurement-drain (cada 1 min, BullMQ tcg-daily) ─► lee filas con nextAt
 | analítica sí | con `client_id` del navegador (`gaClientId`) y `first_utm_*` de la fila | según publicidad |
 | publicidad sí | según analítica | evento con `event_id`, `fbp`/`fbc`; si no hay ni `fbp` ni `fbc`, **nada** (no hay con qué casar) |
 
-- **Reembolsos, contracargos y cancelaciones** no generan eventos (el brief no los pide). Pregunta 6 de §14.10.
+- **Reembolsos, contracargos y cancelaciones** no generan eventos (el brief no los pide; decidido por el dueño, §14.10).
 
 ### 14.7 Qué sale hacia Google y Meta, y qué no sale nunca (§D2, PV-A1, PV-B2)
 
@@ -37161,7 +37155,7 @@ Google/Meta tras aceptar (deuda aceptada por seguridad, §D3 «Deuda aceptada»)
 dirección o CP, CLABE, INE/CURP/RFC, IP (el servidor **no** pone `client_ip_address` ni `ip_override`), `@usuario`, tarjeta o sus
 últimos 4, texto libre, `orderNumber` (`TCG-000123` no es un secreto pero sí un folio que el cliente comparte), tokens
 (`checkoutToken`, `OrderAccessToken`, sesión, `client_secret`), `user_id` de GA4, `external_id`, `em`, `ph`, `fn`, `ln`, `ct`, `st`,
-`zp`, `country`, `db`, `ge`. **Agente de usuario por CAPI: no se envía** hasta que el dueño decida (pregunta 2 de §14.10).
+`zp`, `country`, `db`, `ge`. **Agente de usuario por CAPI: no se envía** (decidido por el dueño, §14.10).
 
 **Ajustes que no son código (los hace el dueño en las consolas, lista en API_CONTRACT §MKT.H.10):** GA4 sin Google Signals, sin
 personalización de anuncios, sin «datos proporcionados por el usuario», retención de eventos 14 meses; píxel con coincidencia
@@ -37193,24 +37187,30 @@ Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H
   queda `measured:false` con motivo propio; ⛔ nunca «0». Celdas pequeñas y §MKT.G.10 también en las tablas de GA4.
 - **Search Console no depende del aviso** (no toca al visitante): e1 se enciende en cuanto el dueño dé acceso.
 
-### 14.10 Preguntas para el dueño (no se asume; regla de conflicto)
+### 14.10 Decisiones del dueño y preguntas abiertas
 
-1. **Sin GTM (§14.2).** ¿Aceptas que GA4 y el píxel se carguen desde el código de la tienda, sin contenedor GTM? Consecuencia: para
-   añadir o cambiar una etiqueta hace falta un cambio revisado de la tienda, no un clic en GTM. *Recomendación: sí.*
-2. **Agente de usuario a Meta por CAPI.** Meta lo usa para casar el evento; no está en la lista prohibida del brief, pero ayuda a
-   identificar el navegador. ¿Se envía (solo con publicidad aceptada) o no? *Por defecto: no.* Si sin él Meta rechaza o casa muy
-   poco (NO VERIFICADO), se mide en «Eventos de prueba» y se vuelve a preguntar.
-3. **P-CS-MEDIR-1 (Card Show).** El dueño la mandó medir (2026-10-24); queda si el píxel de Meta carga ahí. *Por defecto: no* (menores).
-4. **`client_id` de GA4 en el servidor para quien aceptó.** Guardarlo 7 días junto al pedido une la compra del servidor con la
-   visita; no guardarlo (siempre aleatorio) es más privado y la compra se cuenta igual, pero sin la visita que la trajo. *Por
-   defecto: se guarda, solo con analítica aceptada, y se borra a los 7 días.*
-5. **Volver a preguntar** al cambiar la versión del aviso: *por defecto sí*. Y la duración de la elección: 6 meses (brief v1 §4.2).
-6. **Reembolsos en GA4** (evento `refund`): el brief no lo pide; sin él, las compras de GA4 no restan los reembolsos. *Por
-   defecto: no se envía.*
+**Decidido al aprobar el aviso** (`HECHOS.md` 2026-10-26 «Aviso de privacidad con la medición: aprobado»; el texto,
+`docs/specs/AVISO_MEDICION_APROBADO.md`, ya lo promete al cliente: cambiar una exige antes un aviso nuevo con otra `version`):
+**agente de usuario a Meta por CAPI: no se envía** (apartado 5; si Meta casa poco sin él, NO VERIFICADO, se mide en «Eventos de
+prueba» y vuelve al dueño) · **`client_id` de GA4 en el servidor**: solo con analítica aceptada, borrado a los **7 días** (apartado 6)
+· **volver a preguntar** si cambia `measurementDisclosure.version` y **`th_consent` 180 días** (apartado 8) · **sin `refund` a GA4**
+(el apartado 8 solo nombra compras y solicitudes de venta; las compras de GA4 no restan reembolsos).
+**Abiertas:** 1. **Sin GTM (§14.2):** cambiar una etiqueta pide un cambio revisado, no un clic en GTM. *Recomendación: sí.* 3. **P-CS-MEDIR-1
+(Meta en `/card-show`):** *por defecto no* (menores); el aviso aprobado ya dice «no usamos Meta» ahí: encenderlo exige cambiar el aviso.
+
+**D-MKT2-10 (v1.112, MKT-F2-3) — versión de Graph y evento de prueba** (norma y valor: API_CONTRACT §MKT.H.1/.12). (a) **Se fija la versión
+más nueva de la tabla de Marketing API** (la de CAPI; medición de backend del 2026-10-26 en BACKEND_NOTES §MKT.H): las anteriores mueren en
+semanas o meses y la de hoy ya no figura. `reviewBy` = la última fecha de fin publicada: ese día se re-mide la tabla. (b) **El evento sale de
+producción** porque token y conjunto de datos solo viven ahí (secretos: ni chat ni repo), y lo dispara **el dueño**, que es quien mira «Eventos
+de prueba». (c) **`PageView`, no `Purchase`:** que Meta excluya los eventos con `test_event_code` de sus cifras: NO VERIFICADO; una compra
+sintética podría contar como conversión, una visita con `fbp` sintético no casa con nadie. Coste: la validación de `custom_data` de `Purchase`
+la ve el drenador (4xx contados) con la primera compra real. (d) **Mismo `user_data` que producción** (solo `fbp`): el aviso aprobado promete
+que nada sale «ni cifrado»; si Meta pide más, la respuesta de Meta es la medición y la decisión es del dueño. (e) Es la **única salida a Meta
+que no pasa por el interruptor**: acotada a `super_admin`, 5/h, bitácora y ningún dato de cliente.
 
 ### 14.11 Reparto
 
-- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0.
-  Los ajustes vigentes (v1.107) están en API_CONTRACT §MKT.H.13, con la prueba que vigila cada uno.
-- **seguridad** (antes de encender): revisa el diff de etiquetas, las rutas excluidas, el checkout de invitado con etiquetas
-  cargadas, la configuración real del píxel y de GA4 en sus consolas, y el riesgo residual de §MKT.G.10.
+- **backend** (modelo fuerte: toca `orders`, `payments`, `buylist`), **frontend**, **ux-ui** y **devops**: construido, ver §14.0. Lo que queda,
+  con su prueba: API_CONTRACT §MKT.H.12 (backend + frontend, D-MKT2-10) y §MKT.H.13 (frontend).
+- **seguridad** (antes de encender): diff de etiquetas, rutas excluidas, checkout de invitado con etiquetas, configuración real del píxel y de
+  GA4 en sus consolas, riesgo residual de §MKT.G.10 y el endpoint de prueba de D-MKT2-10.

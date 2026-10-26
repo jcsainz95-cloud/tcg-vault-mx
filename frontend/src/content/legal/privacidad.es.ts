@@ -82,9 +82,9 @@ export const PROVISIONAL_FISCAL_TEXT =
   'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.5-provisional-2026-10-13',
+  version: '0.6-provisional-2026-10-26',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
-  updatedAt: '13 de octubre de 2026',
+  updatedAt: '26 de octubre de 2026',
   measurementDisclosure: MEASUREMENT_DISCLOSURE,
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
@@ -117,7 +117,7 @@ export const privacyNoticeEs: LegalDocument = {
             '**Si nos vendes cartas:** tu **CLABE** interbancaria y tu **nombre legal** (para pagarte a tu nombre) y, cuando el monto lo requiere, **imagen de tu INE por ambos lados**.',
             '**Si pides que te avisemos cuando un producto vuelva:** tu correo.',
             '**Si te registras para el Card Show o te preinscribes a un torneo:** tu correo y tu tipo de interés (asistir, vender o patrocinar); y, para la preinscripción al torneo, el nombre del jugador, el Player ID y, si el jugador es menor de edad, el consentimiento de su padre, madre o tutor.',
-            '**De forma automática:** dirección IP en algunas acciones registradas por seguridad, e información que tu navegador guarda para mantener tu sesión y tu carrito (ver punto 8).',
+            '**De forma automática:** dirección IP en algunas acciones registradas por seguridad; información que tu navegador guarda para mantener tu sesión y tu carrito; y, **solo si lo aceptas**, datos de cómo usas la tienda para medir visitas y publicidad (ver punto 8).',
           ],
         },
         {
@@ -166,9 +166,17 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            'Fuera de esto, **no usamos tus datos para otras finalidades secundarias** (no compartimos datos con fines ' +
-            'comerciales). Si algún día ampliamos estos usos, actualizaremos este aviso y te daremos un medio para negarte ' +
-            '**antes** de usarlos así; negarte nunca afectará tus compras ni tus ventas.',
+            '**Medición de visitas y publicidad (solo si la aceptas).** Con tu permiso medimos cómo se usa la tienda y qué ' +
+            'publicaciones y anuncios nos traen visitas y compras, para saber qué funciona y mejorar la tienda. Son dos permisos ' +
+            'separados: **analítica** (Google Analytics) y **publicidad** (Meta, la empresa de Facebook e Instagram). Puedes ' +
+            'aceptar uno, los dos o ninguno; negarte no afecta tus compras ni tus ventas. El detalle está en el punto 8.',
+        },
+        {
+          type: 'p',
+          text:
+            'Fuera de esto, **no usamos tus datos para otras finalidades secundarias** y **no vendemos tus datos**. Si algún día ' +
+            'ampliamos estos usos, actualizaremos este aviso y te daremos un medio para negarte **antes** de usarlos así; negarte ' +
+            'nunca afectará tus compras ni tus ventas.',
         },
       ],
     },
@@ -192,7 +200,25 @@ export const privacyNoticeEs: LegalDocument = {
             ['**Cloudflare (R2)**', 'Imagen de tu INE', 'Guardarla en almacenamiento privado'],
             ['**Railway y Vercel**', 'Los datos de la tienda', 'Alojar el servidor, la base de datos y el sitio'],
             ['**Google**', 'Lo necesario para el acceso con Google', 'Iniciar sesión, si eliges esa opción'],
+            [
+              '**Google (Google Analytics)**',
+              'Si aceptas la analítica: páginas que visitas, productos que ves, agregas o compras, montos, de qué publicación ' +
+                'llegaste y un identificador de tu navegador. Si no la aceptas: solo el aviso de que hubo una compra o una ' +
+                'solicitud de venta, sin nada que te identifique',
+              'Saber qué páginas y publicaciones llevan a compras',
+            ],
+            [
+              '**Meta (Facebook e Instagram)**',
+              'Solo si aceptas la publicidad: productos que ves, agregas o compras, montos y el identificador de Meta de tu navegador',
+              'Saber qué publicaciones y anuncios llevan a visitas y compras',
+            ],
           ],
+        },
+        {
+          type: 'p',
+          text:
+            'Google y Meta pueden usar estos datos también según sus propios avisos de privacidad; por eso solo se los ' +
+            'compartimos si das tu permiso en el aviso de cookies (punto 8).',
         },
         {
           type: 'p',
@@ -219,6 +245,7 @@ export const privacyNoticeEs: LegalDocument = {
             '**Datos de tu cuenta:** mientras tengas cuenta. Si pides borrarla, la eliminamos; si ya hiciste operaciones, **anonimizamos** tus datos de contacto y borramos tus direcciones, datos de factura, CLABE e INE, y **conservamos** solo los registros de tus compras y ventas (incluida la dirección de entrega, datos fiscales y la CLABE cifrada de esas operaciones) **por el plazo que exigen las disposiciones fiscales aplicables**.',
             '**Pedidos sin cuenta y solicitudes que no se cerraron:** los conservamos mientras sean necesarios para atender aclaraciones y cumplir obligaciones legales; publicaremos aquí el plazo concreto.',
             '**Card Show y torneo:** el correo del registro de avisos lo conservamos hasta que te des de baja; los datos de preinscripción al torneo, el tiempo necesario para gestionar tu participación y cumplir obligaciones legales (publicaremos aquí el plazo concreto).',
+            '**Medición (solo si la aceptaste):** Google Analytics guarda los datos de visitas y compras **14 meses** y después los borra. En nuestros servidores, los identificadores de Google y de Meta de tu navegador se borran a los **7 días**. Con tu pedido o tu solicitud de venta guardamos tu elección y, si aceptaste la analítica, de qué publicación llegaste, por el mismo plazo que ese pedido o solicitud. Meta conserva lo que recibe según su propio aviso. Los plazos de las cookies están en el punto 8.',
           ],
         },
       ],
@@ -257,6 +284,14 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
+            '**Medición:** para retirar tu permiso de analítica o de publicidad no necesitas escribirnos: usa «Preferencias de ' +
+            'cookies» (punto 8). Como no enviamos a Google ni a Meta tu nombre ni tu correo, no podemos ubicar en sus sistemas ' +
+            'los datos de tu navegador; para borrarlos, borra las cookies de tu navegador y consulta los avisos de privacidad de ' +
+            'Google y de Meta.',
+        },
+        {
+          type: 'p',
+          text:
             'Si consideras que tu derecho no fue atendido, puedes acudir a la **autoridad competente en materia de protección ' +
             'de datos personales**.',
         },
@@ -264,17 +299,25 @@ export const privacyNoticeEs: LegalDocument = {
     },
     {
       id: 'cookies',
-      title: '8. Cookies y tecnologías similares.',
+      title: '8. Cookies, medición y tecnologías similares.',
+      // Texto literal aprobado por el dueño (docs/specs/AVISO_MEDICION_APROBADO.md, HECHOS 2026-10-26). El botón
+      // «Preferencias de cookies» NO va aquí: lo añade `CookiePreferencesNoticeSlot` al final del apartado (D-MKT2-6).
       blocks: [
+        { type: 'p', text: '**Lo necesario (siempre activo).** Para mantener tu sesión abierta, recordar tu carrito y proteger tu cuenta de intentos de acceso, guardamos información en el **almacenamiento local de tu navegador**. Cuando respondes al aviso de cookies, guardamos tu elección en la cookie **th_consent** durante **180 días**; después, o si cambiamos este aviso en lo que toca a la medición, te volvemos a preguntar. Contamos cuántas personas aceptan o rechazan, sin guardar quién.' },
+        { type: 'p', text: '**Medición, solo si la aceptas.** Al entrar a la tienda verás un aviso con tres opciones: «Aceptar», «Solo lo necesario» y «Configurar», donde puedes activar por separado la analítica y la publicidad. **Antes de que elijas no se carga nada de Google ni de Meta** y no guardamos nada para medir.' },
         {
-          type: 'p',
-          text:
-            'Para mantener tu sesión abierta, recordar tu carrito y proteger tu cuenta de intentos de acceso, guardamos ' +
-            'información en el **almacenamiento local de tu navegador**. **No usamos cookies de publicidad ni de analítica.** ' +
-            'Nuestro procesador de pagos (**Stripe**) y, si eliges entrar con Google, **Google**, pueden usar sus propias cookies ' +
-            'para prevenir fraudes y para el acceso; se rigen por sus avisos de privacidad. Puedes borrar esta información desde ' +
-            'la configuración de tu navegador; si lo haces, se cerrará tu sesión y se vaciará tu carrito.',
+          type: 'list',
+          items: [
+            '**Analítica: Google Analytics (Google).** Nos dice qué páginas y publicaciones llevan a compras. Usa las cookies **_ga** y **_ga_…** de Google. Además guardamos en la cookie **th_first_utm**, durante **90 días**, de qué publicación o campaña llegaste la primera vez. Google conserva estos datos **14 meses** y después los borra. Lo tenemos configurado sin las funciones de publicidad de Google.',
+            '**Publicidad: Meta (Facebook e Instagram).** Mide qué publicaciones y anuncios llevan a visitas y compras. Usa las cookies **_fbp** y **_fbc** de Meta.',
+          ],
         },
+        { type: 'p', text: '**Qué se mide:** las páginas que visitas (sin datos personales en la dirección), los productos que ves, agregas al carrito o compras, el monto, el envío y la forma de pago que eliges (por ejemplo, tarjeta), los clics para escribirnos por WhatsApp o mensaje, cuánto tarda en aparecer el botón de compra, cuántos resultados da una búsqueda (no lo que buscaste) y de qué publicación llegaste. Cuando completas una compra o una solicitud de venta, nuestro servidor también avisa a Google y a Meta, según lo que hayas aceptado, con el número interno del pedido o de la solicitud, los productos y el monto.' },
+        { type: 'p', text: '**Qué no se envía nunca:** tu nombre, correo, teléfono, dirección, código postal, datos de tarjeta, CLABE, INE, RFC, el número de pedido que tú ves (TCG-…) ni lo que escribes en los formularios. **Tampoco se envían cifrados** (lo que a veces se llama «hash»): simplemente no salen. Como pasa en cualquier sitio que usa estas herramientas, cuando tu navegador se conecta con Google o con Meta, ellos ven tu dirección IP y el tipo de navegador; desde nuestros servidores no les enviamos tu IP.' },
+        { type: 'p', text: '**Dónde se mide y dónde no:** solo medimos en la portada, el catálogo y las fichas de cartas y sellado, el carrito y el pago, las guías, las preguntas frecuentes, «Cómo funciona» y el cotizador de venta. **No hay ninguna herramienta de medición** en tu cuenta, tu bóveda, el paso donde capturas tu CLABE y tu INE para vendernos cartas, el detalle de tus solicitudes de venta, el inicio de sesión y las contraseñas, el seguimiento de tus pedidos ni en este aviso. En la página de pago las herramientas están configuradas para no recoger lo que escribes. En la página del **Card Show** solo usamos Google Analytics para contar visitas: no usamos Meta y no medimos lo que escribes en sus formularios.' },
+        { type: 'p', text: '**Si eliges «Solo lo necesario»:** no se carga nada de Google ni de Meta. Solo cuando completas una compra o una solicitud de venta, nuestro servidor le avisa a Google Analytics que ocurrió (productos y monto), con un identificador al azar que no es tuyo ni de tu navegador, para que nuestras cifras de ventas cuadren. A Meta no le avisamos nada.' },
+        { type: 'p', text: '**Cambiar de opinión:** puedes cambiar tu elección cuando quieras con el botón «Preferencias de cookies», que está al final de este apartado y en el pie de la tienda. Si quitas un permiso, borramos las cookies de esa medición que podemos borrar (th_first_utm, _ga, _fbp, _fbc) y la página se recarga sin esas herramientas. Lo que ya se envió antes de cambiar queda con Google o con Meta según sus propios avisos.' },
+        { type: 'p', text: '**Cookies de otros servicios:** nuestro procesador de pagos (**Stripe**) y, si eliges entrar con Google, **Google**, pueden usar sus propias cookies para prevenir fraudes y para el acceso; en la página del Card Show, el mapa de Google también puede usarlas. Se rigen por sus avisos de privacidad. Puedes borrar todo desde la configuración de tu navegador; si lo haces, se cerrará tu sesión, se vaciará tu carrito y te volveremos a preguntar por las cookies.' },
       ],
     },
     {

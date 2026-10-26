@@ -7866,61 +7866,7 @@ el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `message
 > del catálogo» de la home, §20.3). **Cero tokens nuevos, cero componentes de dominio nuevos, cero datos
 > nuevos, cero cambios de contrato ni de arquitectura.**
 
-> **Actualización v2.6.1 (2026-08-31) — precisión sobre evidencia medida, no cambio de rumbo.**
-> §23 se escribió leyendo código; el frontend la implementó **completa** (917 tests en verde, 8 pruebas en
-> navegador real, las siete reglas duras, el conmutador en su sitio, `prefers-reduced-motion` enforzado en la
-> lógica y escuchado en vivo) y midió **tres cosas que no se sostienen en el navegador**. Se corrigen aquí, y
-> son correcciones **de este documento**, no incumplimientos de la implementación:
-> 1. **§23.5** — la regla general de pausa pasa de «cualquier desplazamiento que el carrusel no haya
->    originado» a **«desplazamiento atribuible a un acto del usuario»**. Tal como estaba, implementada
->    literal, **mataba la función antes del primer tic** (el propio motor de `scroll-snap` emite `scroll`).
-> 2. **§23.3a** — R6 es **geométricamente imposible en el tope de la pista**. Queda como **límite aceptado**,
->    acotado a dos posiciones, con la razón por la que no se remedia.
-> 3. **§23.8** — la promesa «sin JS se ven las ocho tejas completas» **ya era falsa antes de §23** (el
->    contenido del estante lo resuelve react-query en el cliente). Se corrige a lo que es cierto hoy y la
->    condición para que fuera verdad queda como **petición abierta al arquitecto** (§23.15 nº2).
->
-> Ninguna de las tres invalida una decisión de diseño de §23: las siete reglas duras siguen en pie, el
-> conmutador sigue donde está, la cadencia no cambia y la excepción de movimiento de §23.1 no se amplía.
-
-> **Actualización v2.7 (2026-08-31) — decisión del dueño, tomada con la función ya publicada. Esta sección
-> la registra; no la re-discute.**
-> Dos cambios, y ninguno más:
-> 1. **Se retira el conmutador PAUSAR/REANUDAR/REPETIR.** No se mueve de sitio ni se sustituye por otra
->    cosa: **desaparece**. Ni en el encabezado ni en ningún otro lugar del carrusel hay un control de
->    reproducción. El hueco estructural del kicker vuelve a estar libre y la fila de §20.3 recupera su terna
->    (§23.4).
-> 2. **La cadencia baja de 7 s a 5 s**, reposo inicial incluido. **Todo lo demás del tic sigue igual**: una
->    teja por tic, ≈ 0,55 s de traslación con `ease-out`, aterrizaje en el `snap`, nada arranca hasta que la
->    consulta resolvió y la imagen líder cargó, y los primeros segundos la home está quieta (§23.3).
->
-> **Lo que NO cambia, y es lo que hay que leer con atención: los cinco frenos siguen todos.** Hover, foco de
-> teclado, **pausa permanente por intervención** (§23.5 y §23.5a, con su ventana de 1200 ms tal como quedó
-> corregida), suspensión por visibilidad y `prefers-reduced-motion` ⇒ **cero movimiento** con el
-> temporizador que no arranca. **Ninguno de los cinco dependía del botón** ni depende de él ahora. También
-> siguen intactas R1, R2, R4, R5, R6 y R7, §23.3a, §23.5a, §23.8a, la numeración de §23.10 y la excepción
-> **nominal y acotada** de §23.1, que **no se amplía**.
->
-> **Y lo que sí se pierde está escrito, no callado:** sin control visible, quien no usa ratón ni teclado y
-> solo mira la pantalla se queda **sin forma explícita** de detener la rotación. Es el costo real de la
-> decisión y vive en **§23.16**, con nombre y apellido.
->
-> **Nota de lectura para los recuadros de arriba.** Las notas de v2.6 y v2.6.1 se conservan como historia:
-> son ciertas en todo salvo donde dicen «el conmutador sigue donde está». Desde v2.7 **no hay conmutador**.
-
-> **Corrección v2.7.1 (2026-08-31) — precisión numérica señalada por QA y por techlead. No cambia ninguna
-> decisión de diseño.**
-> La duración de la pasada aparecía con **dos cifras** en el mismo apartado (≈ 39 s en §23.4.0 y §23.16;
-> ≈ 44 s en §23.3 y §23.14 ñ). Se resuelve así, y en **§23.3b** queda la aritmética completa:
-> 1. **Canónica: ≈ 39 s a 390 px**, medida **desde que la rotación se vuelve posible hasta que la pista
->    queda quieta**, **reposo inicial incluido**. Los **≈ 44 s se retiran: eran un error de suma** (contaban
->    el reposo inicial dos veces), no una segunda medida legítima.
-> 2. **La pasada dura menos cuanto más ancha es la ventana** — el número de tics no es una constante, es
->    los que hagan falta para llegar al tope de la pista. Dos cotas: **≈ 39 s a 390 px** (cálculo) y
->    **≈ 15 s en escritorio** (medido: 15,3 s frontend, ~14 s netos QA). Es la **misma función**, no un
->    incumplimiento.
-> 3. **Ningún argumento de §23 se cae** con la cota corta: los tres que usan la cifra siguen en pie y en
->    §23.3b (c) queda comprobado uno por uno, incluido el de WCAG 2.2.2 de §23.4.0 (a).
+> **Estado vigente (v2.7.1, 2026-08-31; historial v2.6.1/v2.7/v2.7.1 en git).** (1) **No hay conmutador PAUSAR/REANUDAR/REPETIR** (§23.4): el hueco del kicker está libre y la fila de §20.3 es su terna. (2) **Cadencia 5 s**, reposo inicial incluido; una teja por tic, ≈ 0,55 s `ease-out`, aterrizaje en el `snap`. (3) **Cinco frenos F1–F5 intactos** (hover, foco, pausa permanente por intervención **atribuible al usuario** §23.5/§23.5a, visibilidad, `prefers-reduced-motion`); ninguno dependió del botón. (4) R6 es imposible en el tope de la pista: **límite aceptado** (§23.3a). (5) Sin JS el estante queda en carga: hecho preexistente (§23.8a). (6) **Duración de la pasada: ≈ 39 s a 390 px, ≈ 15 s en escritorio**; los ≈ 44 s eran un error de suma (§23.3b). (7) El costo de no tener control está en §23.16.
 
 ### 23.0 Las siete reglas duras
 
@@ -8283,25 +8229,9 @@ resuelve citando esta sección:
 jurídica firme —porque cambie el alcance de venta o llegue un requisito de un tercero—, la da un abogado, no
 este documento.)*
 
-#### 23.4a ~~La decisión: dónde vive el control~~ — **retirada (v2.7)**
+#### 23.4a–e Subsecciones del conmutador — **retiradas (v2.7; el diseño de v2.6 está en git)**
 
-No hay control que colocar (el diseño del conmutador de la v2.6 está en git). **Vigente:** el hueco estructural del kicker en este encabezado está **libre y prohibido**: §22.6b-e se lee literal (ni kicker, ni subtítulo, ni mención al gradeo).
-
-#### 23.4b ~~Anatomía del conmutador~~ — **retirada (v2.7)**
-
-El elemento no existe. **Aprendizaje general que se conserva:** un control de texto pequeño que necesita 44×44px de área táctil la obtiene con un pseudo-elemento (`::after`, `inset`), no con `padding`, para que el anillo de foco siga ciñendo la etiqueta (§8.2).
-
-#### 23.4c ~~Estados del conmutador~~ — **retirada (v2.7)**
-
-No hay control, no hay estados. **Siguen vigentes en el sistema:** (1) nombre accesible que empieza por la palabra visible (WCAG 2.5.3), empezando por las flechas de §20.3; (2) nunca `disabled` ni `loading` en un control cuyo trabajo es detener algo (§8.2). El **único** canal por el que un lector de pantalla se entera de que la rotación se detuvo es la línea `role="status"` de **§23.9(c)**: obligatoria, no decorativa.
-
-#### 23.4d ~~Cuándo el control NO se renderiza~~ — **retirada (v2.7): nunca se renderiza**
-
-El control no existe en ningún caso. Los casos sin rotación siguen en §23.3, §23.7 y §23.8.
-
-#### 23.4e ~~Presupuesto de la fila~~ — **retirada (v2.7): la fila vuelve a su terna**
-
-La fila es **literalmente** la de §20.3 (**H2 ⟷ link «Ver todo el catálogo» + dos flechas**, `flex-wrap`, link oculto bajo `sm`), idéntica a la v2.5. Nada se recoloca para aprovechar los ~92px recuperados (§23.13 nº13) y el hueco no se rellena (§22.6b-e).
+**Vigente:** (a) el hueco del kicker está **libre y prohibido** (§22.6b-e: ni kicker, ni subtítulo, ni mención al gradeo); (b) un control de texto pequeño obtiene 44×44px con pseudo-elemento (`::after`, `inset`), no con `padding` (§8.2); (c) nombre accesible que empieza por la palabra visible (WCAG 2.5.3), nunca `disabled`/`loading` en un control que detiene algo, y el **único** canal de lector de pantalla para «la rotación se detuvo» es el `role="status"` de **§23.9(c)**; (d) el control no se renderiza nunca (casos sin rotación: §23.3, §23.7, §23.8); (e) la fila es la terna de §20.3 (H2 ⟷ link «Ver todo el catálogo» + dos flechas, `flex-wrap`, link oculto bajo `sm`) y no se rellena el hueco (§23.13 nº13).
 
 ### 23.5 Máquina de estados — suspensión temporal vs. pausa permanente
 
@@ -8794,56 +8724,12 @@ elemento que ofrezca pausar, reanudar o repetir — botón, icono, texto, ítem 
 
 ### 23.15 Notas a otros roles (ninguna bloquea)
 
-1. **Product-owner:** P-49 no está registrado en `PROJECT.md`. Este documento lo referencia como decisión del
-   dueño; convendría anotarlo con su criterio de aceptación para que QA tenga contra qué verificar.
-   **Redacción sugerida, actualizada a v2.7** (la de v2.6 decía «con control de pausa visible» y **ya no
-   sirve**): *«el carrusel de destacadas rota solo, una teja cada 5 s, una sola pasada; se detiene al pasar
-   el puntero, al recibir foco, ante cualquier gesto del usuario —y entonces ya no vuelve a rotar en esa
-   visita— y no se mueve en absoluto con `prefers-reduced-motion`. **No lleva control de pausa visible**:
-   retirado por decisión del dueño, ver DESIGN_SYSTEM §23.4.0.»* **No bloquea el diseño ni la
-   implementación.**
-2. **Arquitecto:** la rotación **sigue sin necesitar** ningún dato nuevo, campo nuevo, endpoint ni cambio de
-   `API_CONTRACT.md`: se alimenta de la misma consulta compartida que ya usa el carrusel (§22.6b-g). Eso no
-   cambia con la v2.6.1. **Lo que sí queda como petición abierta** (ya enrutada por separado, solo referenciada
-   aquí): que la consulta del estante de destacadas **se resuelva en servidor** (render/prefetch en servidor,
-   hidratación con datos ya presentes), para que el **contenido** de la home deje de depender del JS del
-   cliente (§23.8a). **No bloquea §23 ni a frontend**, y frontend **no** debe abordarlo por decisión propia:
-   es una condición de arquitectura, y hasta que exista este documento no promete contenido sin JS.
-3. **Frontend (actualizado v2.7):** el destino del tic sigue calculándose desde el `offsetLeft` de la teja
-   entrante, no con `scrollBy(clientWidth × 0,8)` (que es el paso de las **flechas**), o se incumple R6 — con
-   la salvedad del tope de pista de **§23.3a**, donde el destino se satura en `scrollWidth − clientWidth` y
-   el corte por la izquierda es esperado. **Lo que decae:** la petición de v2.6 de ampliar `Shelf.kicker` de
-   `string` a `ReactNode` (o añadir un slot `titleAdjacent`) **ya no la necesita §23** — no hay nada que
-   meter en ese hueco. Si esa ampliación ya se hizo y queda sin usar, **retirarla o conservarla es decisión
-   de frontend/techlead** (código muerto vs. capacidad genérica ya pagada); este documento no la exige ni la
-   prohíbe. Lo que sí pide §23.12: **borrar el namespace `home.featured.playback.*`** de
-   `messages/{es,en}.json`.
-4. **QA (actualizado v2.7):** los checks (g) y (h) —movimiento reducido en caliente y sin JS— siguen siendo
-   los dos que un E2E olvida por defecto y merecen caso propio. **Lo nuevo, y no es menor:** el observable de
-   estado era la etiqueta del conmutador y **ya no existe**; los checks (e), (i), (ñ) y el **test de
-   regresión permanente del falso positivo** (§23.5a) **hay que reescribirlos contra el `scrollLeft` de la
-   pista y el tiempo**, no borrarlos. Un test que se borra porque «el botón ya no está» deja sin cubrir la
-   regla que casi mata la función. Checks nuevos: **(p)** cadencia medida ≈ 5 s y **(q)** ausencia total de
-   control. **De v2.7.1, y afecta directamente a un test existente:** el check **(ñ)** ya **no** debe
-   asertar «7 tics ≈ 44 s». Los ≈ 44 s eran un error de suma (la pasada a 390 px es **≈ 39 s**) y **el
-   número de tics depende de la anchura** — en escritorio son 2–4 y la pasada dura **≈ 15 s**, coherente con
-   lo que midieron frontend (15,3 s) y QA (~14 s netos). El aserto correcto es **«llega al tope sin
-   intervención»**, con `n` derivado del viewport y tolerancia ± 1 tic (§23.3b). *(De v2.6.1, siguen
-   vigentes y NO son incumplimientos de frontend: la pausa por desplazamiento
-   es **atribuible al usuario** (§23.5a); el corte de la teja izquierda **en el tope** es límite aceptado
-   (§23.3a); sin JS el estante queda **en carga**, hecho **preexistente** (§23.8a).)*
-5. **Techlead (actualizado v2.7):** §23.1 crea **una excepción nominal y acotada** a la doctrina de
-   movimiento de §17.3, cerrada a una superficie (§23.13 nº16). Si aparece una segunda petición de
-   movimiento, **no se resuelve citando §23**: vuelve a ux-ui — y ahora con más razón, porque «movimiento
-   automático sin control explícito» pasaría de ser **una renuncia acotada** a ser **una política del
-   sistema**, que es otra decisión y más grande (§23.4.0 e nº3). Dos apuntes de código: (i) la retirada del
-   conmutador debe dejar **cero código muerto** —estado `TERMINADO`/`PAUSADO` sigue vivo (§23.5), pero el
-   componente del botón, sus estados de etiqueta y sus claves i18n se van enteros—; (ii) **los cinco frenos
-   F1–F5 son la superficie crítica de esta feature**: cualquier refactor que los toque merece revisión
-   explícita, porque hoy no hay ningún control que compense su fallo.
-6. **Seguridad / pentester (informativo, v2.7):** nada de esto toca dinero, datos ni contrato. Se anota solo
-   para que no se reporte como hallazgo: la ausencia de mecanismo de pausa es **deliberada y documentada**
-   (§23.4.0), no un defecto de implementación.
+1. **Product-owner:** P-49 no está en `PROJECT.md`. Criterio sugerido: *«el carrusel de destacadas rota solo, una teja cada 5 s, una sola pasada; se detiene con el puntero, el foco o cualquier gesto del usuario (y no vuelve a rotar en esa visita) y no se mueve con `prefers-reduced-motion`. No lleva control de pausa visible (decisión del dueño, §23.4.0).»* No bloquea.
+2. **Arquitecto:** la rotación no necesita datos, campos ni cambios de contrato (§22.6b-g). **Petición abierta, ya enrutada aparte:** resolver la consulta del estante en servidor para que el contenido de la home no dependa del JS del cliente (§23.8a). No bloquea; frontend no la aborda por su cuenta.
+3. **Frontend:** el destino del tic se calcula desde el `offsetLeft` de la teja entrante, no con `scrollBy(clientWidth × 0,8)` (paso de las flechas), salvo el tope de pista (§23.3a). Borrar el namespace `home.featured.playback.*` (§23.12). Ampliar `Shelf.kicker` ya no lo necesita §23 (conservarlo o no: frontend/techlead).
+4. **QA:** (g) y (h) —movimiento reducido en caliente y sin JS— merecen caso propio. El observable de estado ya no es una etiqueta: los checks (e), (i), (ñ) y el test permanente del falso positivo (§23.5a) se escriben contra el `scrollLeft` de la pista y el tiempo, nunca se borran. Checks (p) cadencia ≈ 5 s y (q) ausencia total de control. (ñ) asierta «llega al tope sin intervención», con `n` derivado del viewport y ± 1 tic (§23.3b), no «7 tics ≈ 44 s».
+5. **Techlead:** §23.1 es una excepción nominal a §17.3, cerrada a una superficie (§23.13 nº16); una segunda superficie vuelve a ux-ui (§23.4.0 e nº3). Cero código muerto del conmutador y revisión explícita de cualquier refactor de F1–F5.
+6. **Seguridad / pentester:** sin dinero, datos ni contrato; la ausencia de pausa es deliberada (§23.4.0), no un hallazgo.
 
 ### 23.16 Lo que se perdió — el costo real de retirar el control (v2.7)
 
@@ -33094,6 +32980,45 @@ Mostrar: ( Del periodo )( Todas )
 
 **Errores propios:** `403` → MKT-UX.11; `409`/llave ya revocada ⟨pendiente⟩ → «Esa llave ya estaba revocada. Se actualizó la pantalla.»; red/`5xx` → banner `danger` en el diálogo con «Reintentar». ⛔ Si falla la creación **después** de generar el valor (respuesta perdida), el diálogo dice «No se pudo mostrar la llave. Revoca la que quedó creada y crea otra.»; no hay forma de recuperarla.
 
+#### MKT-UX.10-b Bloque «Enviar evento de prueba a Meta» (vMKT-2, 2026-10-26 · `API_CONTRACT §MKT.H.12` v1.112 · `ARCHITECTURE §14.10 D-MKT2-10`)
+
+**Dónde:** en `AnalystAccessPanel`, **debajo** del estado de la llave, separado por regla horizontal; tarjeta propia (`surface`, borde `line`), `h3`. Solo súper-admin (ya lo garantiza la pestaña); visible en cualquier modo de medición. Orden interno: (1) título, (2) ayuda en 3 pasos, (3) campo + error, (4) botón, (5) región de resultado. Sin tokens ni pares de contraste nuevos: errores y avisos van **sobre papel/superficie**, nunca sobre pozo (MKT-UX.13).
+
+- **Campo** «Código de prueba»: `input` `font-mono`, `autocomplete="off"`, `spellcheck="false"`, `maxlength` 20, se recorta al validar. Regex `^TEST[0-9]{3,10}$` (misma que el servidor). Valida **al enviar** y al salir del campo; el error sustituye la ayuda (`aria-describedby` + `aria-invalid`), ⛔ no antes de que el dueño termine de pegar. `422` del servidor pinta el mismo error de formato.
+- **Botón** `primary`, **nunca deshabilitado** por formato (el clic muestra el error); con `loading` «Enviando…» (tope 5 s) y el campo en `readOnly`. Bajo el botón, nota fija `text-muted`.
+- **Resultado:** región bajo el botón, `aria-live="polite"`; al llegar, el foco va a su título (`tabindex="-1"`). Un envío nuevo la reemplaza. Se pinta con `Banner` + `dl` de detalles (versión de Meta, ID del evento en `font-mono` con «Copiar», ID de seguimiento, hora local). Título del banner: `success` (accepted), `danger` (rejected, unreachable), `warning` (409, 429). ⛔ Código y resultado solo en estado del componente: ni URL, ni storage, ni caché de consultas (`gcTime: 0`); se borran al salir de la pestaña. Ninguna otra pantalla ve el código ni el token.
+- **Móvil:** campo y botón a ancho completo, botón 44 px, `dl` en pares apilados, ID con `break-all`.
+- **Sin permiso/401:** como MKT-UX.11 (el bloque no existe sin súper-admin). Error de red/`5xx`/`400`: banner `danger` «No se pudo enviar la solicitud. Inténtalo de nuevo.» (no cuenta para el límite).
+
+| Clave `admin.marketing.access.metaTest.*` | ES | EN |
+|---|---|---|
+| `title` | Enviar evento de prueba a Meta | Send a test event to Meta |
+| `help` | Comprueba que Meta recibe los eventos de la tienda. | Checks that Meta receives the store's events. |
+| `step1` | En Meta: Administrador de eventos › tu píxel › «Eventos de prueba». Copia el código que empieza con TEST. | In Meta: Events Manager › your pixel › "Test events". Copy the code that starts with TEST. |
+| `step2` | Pégalo aquí y pulsa el botón. | Paste it here and press the button. |
+| `step3` | Vuelve a Meta y comprueba que el evento apareció. | Go back to Meta and check that the event showed up. |
+| `field.label` | Código de prueba | Test code |
+| `field.hint` | Empieza con TEST y sigue con números. Ejemplo: TEST12345 | Starts with TEST followed by numbers. Example: TEST12345 |
+| `field.error` | El código debe empezar con TEST y llevar de 3 a 10 números, sin espacios. Cópialo otra vez desde Meta. | The code must start with TEST followed by 3 to 10 digits, no spaces. Copy it again from Meta. |
+| `submit` | Enviar evento de prueba a Meta | Send test event to Meta |
+| `submitting` | Enviando… | Sending… |
+| `note` | Es un solo evento de prueba (PageView): no enciende la medición ni lleva datos de clientes. Máximo 5 por hora. | One test event (PageView): it doesn't turn measurement on and carries no customer data. Maximum 5 per hour. |
+| `accepted.title` | Meta recibió el evento. | Meta received the event. |
+| `accepted.body` | Ahora abre «Eventos de prueba» en Meta y busca un PageView con este ID de evento: {eventId}. Puede tardar unos segundos. Si lo ves, avisa al equipo para cerrar la verificación. | Now open "Test events" in Meta and look for a PageView with this event ID: {eventId}. It can take a few seconds. If you see it, tell the team so the check can be closed. |
+| `rejected.title` | Meta rechazó el evento. | Meta rejected the event. |
+| `rejected.body` | Meta respondió: «{message}». Revisa que copiaste el código completo. Si sigue igual, pásale este mensaje y el ID de seguimiento al equipo técnico. | Meta replied: "{message}". Check that you copied the whole code. If it still fails, send this message and the tracking ID to the technical team. |
+| `rejected.noMessage` | Meta no explicó el motivo. Pásale el ID de seguimiento al equipo técnico. | Meta gave no reason. Send the tracking ID to the technical team. |
+| `unreachable.title` | No se pudo contactar con Meta. | Could not reach Meta. |
+| `unreachable.body` | No hubo respuesta; tu código no tiene la culpa. Espera un minuto e inténtalo de nuevo. Si se repite, avisa al equipo técnico. Cada intento cuenta para el límite por hora. | There was no response; your code isn't the cause. Wait a minute and try again. If it repeats, tell the technical team. Every attempt counts toward the hourly limit. |
+| `notConfigured.title` | Meta no está configurado en el servidor. | Meta isn't set up on the server. |
+| `notConfigured.body` | Falta cargar o corregir los datos de Meta en Railway: META_PIXEL_ID y META_CAPI_TOKEN. Pídele al equipo técnico que los agregue y vuelve a intentar. No se envió nada. | Meta's details are missing or wrong in Railway: META_PIXEL_ID and META_CAPI_TOKEN. Ask the technical team to add them, then try again. Nothing was sent. |
+| `rateLimited.title` | Ya enviaste 5 eventos de prueba en la última hora. | You already sent 5 test events in the last hour. |
+| `rateLimited.body` | Es un límite de seguridad. Podrás enviar otro en {minutes} min. | This is a safety limit. You can send another in {minutes} min. |
+| `network` | No se pudo enviar la solicitud. Inténtalo de nuevo. | The request couldn't be sent. Try again. |
+| `details.version` / `.eventId` / `.fbtrace` / `.sentAt` | Versión de Meta / ID del evento / ID de seguimiento / Enviado | Meta version / Event ID / Tracking ID / Sent |
+
+`{minutes}` = `ceil(retryAfterSeconds / 60)`, mínimo 1. `{message}` es `metaError.message` tal cual (suele venir en inglés): se muestra con `lang="en"` en la versión ES, entre comillas, truncado a 300 caracteres, ⛔ nunca como HTML. Traducir códigos de error de Meta a lenguaje llano **NO MEDIDO** (no hay lista verificada de `code`/`subcode`); si el equipo la aporta, se añade una clave por código. Los nombres de menú de Meta (pasos 1 y 3) son **NO VERIFICADOS** (como pide el contrato): confirmar en la consola real antes de publicar.
+
 ---
 
 ### MKT-UX.11 Estados: sin permiso (403), carga, error y vacío
@@ -33349,6 +33274,7 @@ Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-r
 ### MKT-UX.18 Changelog
 
 **vMKT-1 (2026-10-18):** §MKT-UX nueva: página `/admin/marketing` (pestañas a–h + acceso del analista, selector de semana/mes cerrados, tablas con vocabulario «< 5 / Oculto / No medido / —», anotaciones, descarga de Excel, 403/carga/error/vacío, móvil, claves ES/EN, 18 candados). Cero tokens y cero pares de contraste nuevos. 13 peticiones de contrato (MKT-UX.17).
+**vMKT-2 (2026-10-26):** §MKT-UX.10-b: bloque «Enviar evento de prueba a Meta» (campo, botón, 5 resultados, claves ES/EN).
 
 ---
 
@@ -33364,7 +33290,7 @@ Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-r
 - **CK-1 · Con `NEXT_PUBLIC_MEASUREMENT_MODE=off` no existe nada de esto:** ni banner, ni enlace «Preferencias de cookies», ni segunda capa, ni llamada a `banner-response` (`ARCHITECTURE.md:36990`, `API_CONTRACT.md:45697`). Lo mismo con `on` pero sin ninguna etiqueta con ID válido (`ARCHITECTURE.md:37019-37020`: «no se pide permiso para algo que no existe»).
 - **CK-2 · Sin muro.** Quien no responde usa la tienda entera (brief `:239`). Sin capa oscura, sin `aria-modal`, sin bloqueo de scroll, sin trampa de foco **en el banner** (la trampa de foco es solo de la segunda capa, que es un diálogo que el visitante abre a propósito).
 - **CK-3 · Ningún patrón oscuro.** (a) «Aceptar» y «Solo lo necesario» están **los dos** en la primera capa, a **un** toque, ambos `<button>` reales con texto, ambos ≥ 44 px de alto, misma tipografía; (b) ningún interruptor viene encendido; (c) ningún texto culpabiliza o lisonjea («No quiero ayudar», «Sí, quiero lo mejor»); (d) ningún color engañoso (ni el bermellón ni el gris apagado para el botón de rechazo); (e) rechazar no cuesta más pasos que aceptar; (f) cerrar con `Esc` o tocar fuera de la segunda capa **no es una respuesta**: no escribe `th_consent` ni cuenta en el contador.
-- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **las revisa el abogado con el aviso** (MKT2-UX.13, duda 3).
+- **CK-4 · El texto legal es del aviso.** El banner dice qué se mide en una frase y **enlaza a `/privacidad`**; no repite plazos, destinatarios ni derechos (brief `:248-257`, D4). Las líneas de la segunda capa nombran a Google y Meta solo como etiqueta corta de cada interruptor y **no contradicen el aviso aprobado** (`docs/specs/AVISO_MEDICION_APROBADO.md`, HECHOS 2026-10-26; sin revisión de abogado, HECHOS 2026-10-23): lo que la segunda capa afirma, el aviso ya lo dice con esas palabras.
 - **CK-5 · El banner no decide qué se mide.** Pinta la elección y la escribe donde manda ARCHITECTURE §14.3; ⛔ no decide rutas ni eventos (§14.4) ni calcula la tasa de aceptación (la cuenta el servidor, `API_CONTRACT.md:45744-45753`).
 - **P66-3:** ⛔ ningún código interno en pantalla («MKT», «Fase 2», «D3b», «Consent Mode», «`th_consent`», «GA4», «CAPI»).
 
@@ -33387,7 +33313,7 @@ No lo resuelvo en silencio. **Decisión de diseño: gana la decisión del dueño
 | Posición | primera | inmediatamente después, a la vista | `:236` «visible en la primera capa» |
 | Texto legible | papel sobre tinta 15.45:1 | tinta sobre papel 15.45:1 | `:236` «no gris ilegible» |
 
-Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO** (misma bandera LFPDPPP 2025 del brief `:208-211`; lo cierra la asesoría legal del dueño, no el diseño).
+Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO**; el dueño decidió sin abogado (HECHOS 2026-10-23).
 
 ---
 
@@ -33413,9 +33339,9 @@ Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos igual
 ```
 móvil (< md) · 390×664, apilado                    escritorio (≥ md), una fila
 ┌────────────────────────────────────────┐          ┌──────────────────────────────────────────────────────────────┐
-│ Usamos cookies para saber qué          │          │ Usamos cookies para saber qué publicaciones   [ Aceptar ] [ Solo lo necesario ] │
-│ publicaciones te traen y mejorar la    │          │ te traen y mejorar la tienda. Aviso de        Configurar                         │
-│ tienda. Aviso de privacidad ↗          │          │ privacidad ↗                                                                      │
+│ Usamos cookies para entenderte mejor   │          │ Usamos cookies para entenderte mejor y mejorar tu   [ Aceptar ] [ Solo lo necesario ] │
+│ y mejorar tu experiencia. Aviso de     │          │ experiencia. Aviso de privacidad ↗                  Configurar                         │
+│ privacidad ↗                           │          │                                                                                    │
 │ [          Aceptar  (tinta, 48)      ] │          └──────────────────────────────────────────────────────────────┘
 │ [ Solo lo necesario (borde tinta, 44) ]│
 │ Configurar                             │
@@ -33483,7 +33409,7 @@ D3b: «el banner va encima de ella o la empuja, nunca la cubre» (`:238`). **Dec
 
 ### MKT2-UX.6 Texto del banner (decisión de copy)
 
-El texto de brief `:234` («Usamos cookies para saber qué publicaciones te traen y mejorar la tienda.» + «Aviso de privacidad») se adopta **tal cual** y se marca **provisional hasta que el dueño lo valide con su asesoría legal** (el propio brief lo dice, `:234` y `:293`). Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
+Texto **literal del dueño** (HECHOS 2026-10-26, «Aviso de privacidad con la medición: aprobado»): «Usamos cookies para entenderte mejor y mejorar tu experiencia» + «Aviso de privacidad». Aprobado sin revisión de abogado (HECHOS 2026-10-23); ya no es provisional. Tuteo (como §80.0.4). «Solo lo necesario» es el rótulo literal del dueño (`:236`), no «Solo necesarias».
 
 Si la tasa de aceptación sale < 50 % con N ≥ 100, marketing propone un A/B **de texto** (brief `:245`): por eso el texto vive en una clave y **ningún** otro atributo del banner depende de su longitud (el candado de altura C-F12 es el que avisa si un texto nuevo lo rompe).
 
@@ -33586,7 +33512,7 @@ Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN
 | Clave | ES | EN |
 |---|---|---|
 | `consent.region` | Aviso de cookies | Cookie notice |
-| `consent.text` | Usamos cookies para saber qué publicaciones te traen y mejorar la tienda. | We use cookies to learn which posts bring you here and to improve the store. |
+| `consent.text` | Usamos cookies para entenderte mejor y mejorar tu experiencia. | We use cookies to understand you better and improve your experience. |
 | `consent.accept` | Aceptar | Accept |
 | `consent.necessary` | Solo lo necesario | Necessary only |
 | `consent.customize` | Configurar | Customize |
@@ -33595,18 +33521,18 @@ Espacio de nombres nuevo `consent.*` en `messages/{es,en}.json`, **paridad ES/EN
 | `consent.layer.title` | Preferencias de cookies | Cookie preferences |
 | `consent.layer.intro` | Tú decides qué medimos. Puedes cambiarlo cuando quieras desde el pie de la página. | You decide what we measure. You can change this at any time from the page footer. |
 | `consent.layer.necessary.title` | Necesarias | Necessary |
-| `consent.layer.necessary.body` | Mantienen tu sesión, tu carrito y tu idioma, y recuerdan esta elección. | They keep your session, your cart and your language, and remember this choice. |
+| `consent.layer.necessary.body` | Mantienen tu sesión y tu carrito, protegen tu cuenta y recuerdan esta elección. | They keep your session and your cart, protect your account and remember this choice. |
 | `consent.layer.necessary.always` | Siempre activas | Always on |
 | `consent.layer.analytics.title` | Analítica | Analytics |
-| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). | Tells us which pages and posts lead to purchases (Google Analytics). |
+| `consent.layer.analytics.body` | Nos dice qué páginas y publicaciones llevan a compras (Google Analytics). Si la dejas desactivada, solo avisamos que hubo una compra, sin datos tuyos. | Tells us which pages and posts lead to purchases (Google Analytics). If you leave it off, we only report that a purchase happened, with no data about you. |
 | `consent.layer.ads.title` | Publicidad | Advertising |
-| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a compras (Meta). | Measures which posts and ads lead to purchases (Meta). |
+| `consent.layer.ads.body` | Mide qué publicaciones y anuncios llevan a visitas y compras (Meta). | Measures which posts and ads lead to visits and purchases (Meta). |
 | `consent.layer.stateOn` / `stateOff` | Activada / Desactivada | On / Off |
 | `consent.layer.more` | Más detalle en el <privacy>Aviso de privacidad</privacy>. | More detail in the <privacy>Privacy notice</privacy>. |
 | `consent.layer.save` | Guardar mi elección | Save my choice |
 | `consent.layer.cancel` | Cancelar | Cancel |
 
-Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor; **el abogado los valida con el aviso** (CK-4, duda 3).
+Reglas de copy: tuteo; ⛔ «LFPDPPP», «ARCO», «responsable», «Consent Mode», `th_consent`, «GA4», «CAPI», «píxel» en pantalla; ⛔ las cadenas no contienen `googletagmanager`, `google-analytics`, `connect.facebook`, `fbevents` ni `gtag/js` (no ensucian el grep de C-F1, `API_CONTRACT.md:45910`). Los nombres «Google Analytics» y «Meta» salen como destinatarios de cada interruptor, igual que en el aviso aprobado (CK-4). ⛔ «idioma» no se nombra como cookie necesaria: el aviso aprobado no lo dice y no está medido. Si cambia un texto del aviso, cambia aquí en el mismo pase.
 
 ---
 
@@ -33639,7 +33565,6 @@ MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
 ### MKT2-UX.13 Peticiones, dudas y desviaciones
 
 **Peticiones (numeradas para enrutar):**
-1. **(Cerrada, v1.106.2 §MKT.H.3)** Solo la primera elección con el banner visible cuenta en `banner-response`, también desde el pie; un cambio posterior no (inflaría `accept / total`, `API_CONTRACT.md:45889`).
 2. **arquitecto — dónde se monta el banner.** `ARCHITECTURE.md:37039-37041` dice «Visita ► banner» sin restringir rutas. Mi supuesto: solo en la lista blanca de medición (`:37076-37078`) y el enlace del pie en todo el storefront. Confirmar o corregir.
 3. **arquitecto — `custom` con los dos interruptores apagados:** cuenta como `custom` (literal, `:45753`) o como `necessary_only`. Afecta a f1/f2, no al diseño.
 4. **arquitecto — texto del aviso (apartado de cookies, §8 de `privacidad.es.ts`)** debe dejar el hueco del enlace «Preferencias de cookies» (MKT2-UX.8 sitio 2); es contenido del aviso, no de este documento.
@@ -33648,10 +33573,9 @@ MEASUREMENT_NOTICE_REQUIRED mode=on problems=<N>
 7. **orquestador — tamaño:** `DESIGN_SYSTEM.md` llegaba a la línea 33 509 antes de esta sección (tope orientativo ~2 000); la compactación sigue pendiente (ya pedida en CS-UX.7 punto 3 y MKT-UX.17). Riesgo de merge: esta sección se añade al final, justo debajo de MKT-UX; si el otro *worktree* también añade al final habrá conflicto de texto, no de contenido: se conservan ambos bloques, MKT-UX primero.
 
 **Dudas para el dueño (con recomendación):**
-1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; si la asesoría legal dice que hace falta igualarlos, es un cambio de dos atributos.)
+1. **«Aceptar» más grande que «Solo lo necesario» (tu decisión del 2026-10-16) o pesos iguales.** Lo diseñé como lo decidiste; el encargo del equipo pedía pesos iguales. Diferencia real: el relleno de tinta y 4 px de alto (MKT2-UX.1). (Recomendación: dejar lo que decidiste; igualarlos sería un cambio de dos atributos.)
 2. **¿El aviso de cookies aparece solo donde se mide, o en toda la tienda?** (Solo donde se mide: no pedimos permiso en tu cuenta ni al vender.)
-3. **Los rótulos «Analítica» y «Publicidad» con «(Google Analytics)» y «(Meta)» en la segunda capa:** ¿los revisa tu asesor junto con el aviso? (Sí: son lo más cercano a texto legal que hay en la pantalla.)
-4. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
+3. **Al quitar un permiso la página se recarga sin mensaje.** (Se acepta: la recarga es lo que saca el código de terceros de la página; un mensaje se perdería.)
 
 **Desviaciones conscientes y lo que no pude medir:** (a) «Configurar» de 36 px y no 44 (por el presupuesto de altura); (b) banner primero en el DOM aunque va abajo; (c) alturas de 204–224 px y de la barra de COMPRAR (~72 px): **NO MEDIDAS** en navegador (las cierra la captura 390×664 de C-F3 y el candado C-F12); (d) contrastes calculados a mano; (e) si hay barra de pago fija o FAB en el checkout y en el carrito de venta: **NO MEDIDO** (comando que lo cierra: `Grep "fixed .*bottom-0" frontend/src --glob "*.tsx"` y revisar cada resultado).
 

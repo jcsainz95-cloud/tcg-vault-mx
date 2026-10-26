@@ -21,6 +21,7 @@ import type {
   MarketingAnnotationInput,
   MarketingApiTokenIssued,
   MarketingApiTokenView,
+  MetaTestEventResult,
   MarketingPeriodsResponse,
   MarketingScreen,
   MarketingScreenPayload,
@@ -535,10 +536,92 @@ export function mockRevokeToken(id: string): MarketingApiTokenView {
   return next;
 }
 
+// ---------------------------------------------------------------- evento de prueba de Meta (§MKT.H.12)
+
+/** Versión de Graph de §MKT.H.1 (v1.112). El mock no la usa para nada más que devolverla. */
+export const MOCK_META_VERSION = 'v26.0';
+/** Píxel ficticio del modo demo (el ID es público en el contrato; este no es de nadie). */
+export const MOCK_META_PIXEL_ID = '000000000000000';
+const META_TEST_CODE_RE = /^TEST[0-9]{3,10}$/;
+const META_TEST_LIMIT = 5;
+const META_TEST_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Códigos del modo demo que fuerzan cada salida (el resto ⇒ `accepted`). Con formato válido: el servidor falso no
+ * puede contactar a Meta, así que el código elige el resultado. 422 = cualquier código fuera de `^TEST[0-9]{3,10}$`.
+ */
+export const MOCK_META_TEST_CODES = {
+  rejected: 'TEST400',
+  rejectedNoMessage: 'TEST401',
+  unreachable: 'TEST503',
+  notConfigured: 'TEST409',
+  rateLimited: 'TEST429',
+} as const;
+
+let metaTestSends: number[] = [];
+
+function mockUuid(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
+}
+
+/**
+ * `POST /admin/measurement/meta-test-event`: super_admin (403); recorta y valida (422 `details.field`, ⛔ sin el valor);
+ * 409 y 429 no cuentan; 5 envíos por 60 min móviles, global, como el servidor.
+ */
+export function mockMetaTestEvent(rawCode: unknown, now: number = Date.now()): MetaTestEventResult {
+  requireSuperAdmin();
+  const code = typeof rawCode === 'string' ? rawCode.trim() : '';
+  if (!META_TEST_CODE_RE.test(code)) {
+    throw new ApiFixtureError(422, 'VALIDATION_ERROR', 'Invalid testEventCode', { field: 'testEventCode' });
+  }
+  if (code === MOCK_META_TEST_CODES.notConfigured) {
+    throw new ApiFixtureError(409, 'MEASUREMENT_META_NOT_CONFIGURED', 'Meta is not configured', { reason: 'missing_config' });
+  }
+  metaTestSends = metaTestSends.filter((t) => now - t < META_TEST_WINDOW_MS);
+  if (code === MOCK_META_TEST_CODES.rateLimited || metaTestSends.length >= META_TEST_LIMIT) {
+    const oldest = metaTestSends[0];
+    const retryAfterSeconds = oldest === undefined ? 1500 : Math.max(1, Math.ceil((oldest + META_TEST_WINDOW_MS - now) / 1000));
+    throw new ApiFixtureError(429, 'RATE_LIMITED', 'Too many test events', { retryAfterSeconds });
+  }
+  metaTestSends = [...metaTestSends, now];
+  const base = {
+    metaVersion: MOCK_META_VERSION,
+    pixelId: MOCK_META_PIXEL_ID,
+    testEventCode: code,
+    eventName: 'PageView' as const,
+    eventId: `test-${mockUuid()}`,
+    sentAt: new Date(now).toISOString(),
+    metaMessages: [] as string[],
+  };
+  if (code === MOCK_META_TEST_CODES.unreachable) {
+    return { ...base, status: 'unreachable', httpStatus: null, eventsReceived: null, fbtraceId: null, metaError: null };
+  }
+  if (code === MOCK_META_TEST_CODES.rejected || code === MOCK_META_TEST_CODES.rejectedNoMessage) {
+    const withMessage = code === MOCK_META_TEST_CODES.rejected;
+    return {
+      ...base,
+      status: 'rejected',
+      httpStatus: 400,
+      eventsReceived: null,
+      fbtraceId: 'AbCdEfGhIjKlMnO',
+      metaError: {
+        code: 100,
+        subcode: withMessage ? 2804003 : null,
+        type: 'OAuthException',
+        message: withMessage ? 'Invalid parameter: the test_event_code is not valid for this pixel.' : null,
+      },
+    };
+  }
+  return { ...base, status: 'accepted', httpStatus: 200, eventsReceived: 1, fbtraceId: 'AzYxWvUtSrQpOnM', metaError: null };
+}
+
 /** Solo pruebas: vacía el estado del servidor falso. */
 export function resetMarketingMock() {
   annotations = [];
   tokens = [];
+  metaTestSends = [];
   annSeq = 0;
   tokSeq = 0;
 }

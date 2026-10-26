@@ -2,7 +2,7 @@
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 
-## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.2 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
+## §DSC · Códigos de descuento (2026-10-26, contrato v1.110.3 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 
 **Estado vigente.** Cliente y panel contra el mock y contra el backend de §DSC (merges `1c6bb38a`, `e84c86fe`): cinco
 recorridos `@real` en `e2e/discount-codes.spec.ts` (abajo). Sin pendientes de contrato. Decisiones del dueño: `HECHOS.md`
@@ -12,15 +12,19 @@ gratis» aprobado en lo propio de un código de envío gratis).
   servidor a aplicado/error/aviso; C5 único para los genéricos; C8, C5+, C9 sin cuenta regresiva, C10, C12, C14).
   `AmountBreakdown` gana `discount?`: Subtotal = `merchandiseBeforeDiscountCents`, «Descuento (CÓDIGO) −» = `discountCents`,
   envío gratis: «Envío» con `shippingWaivedCents` y «Envío gratis (CÓDIGO) −» debajo; retiro: «Envío del retiro». Sin la
-  prop, idéntico (915). Las líneas del carrito muestran el exhibido `unitPriceCents + unitDiscountCents` (I-3).
+  prop, idéntico (915). Las líneas pintan `unitPriceBeforeDiscountCents ?? unitPriceCents` (`lineTotal…` igual), ⛔ sin
+  sumar: candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (fuera de `lib/api.ts` y `lib/mock/`).
 - **Pedido ya hecho (914):** `OrderDiscountDTO` (`discount` de `GET /orders/:id`, `POST /orders/guest/track` y
   `GET /admin/orders/:id`; `unitDiscountCents?` en sus líneas y accesorios). `appliedDiscountOfOrder` (en `AmountBreakdown`)
-  lo pasa al desglose del checkout; «Subtotal» antes = `subtotalCents + discountCents` (identidad I-3 del contrato, el detalle
-  no trae `merchandiseBeforeDiscountCents`); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
+  lo pasa al desglose del checkout; «Subtotal» antes = `discount.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`
+  (v1.110.3, lo da el servidor); rebaja 0 ⇒ sin fila, como el correo. Líneas en exhibido; en Ventas, además, fila
   «Código» (§DSC-UX.5) y «Cobrado {X} con el código» bajo cada línea (base de los reembolsos). Mock: `ord-dsc-1` y token
   `mock…discount…`. Sin código, desglose idéntico al de hoy (pruebas OD-2/PT-3/MD-3 comparan el marcado). Mutaciones
   M1-M7 (sin `discount` en cada desglose, línea en cobrado, subtotal sin `+D`, sin el corte de rebaja 0, «Cobrado» sin
   código, mock con `discount` siempre): rojo 3/3 cada una, verde al restaurar (sobre `32861059`).
+- **Editar (R3 techlead):** `toEditPatch` (`admin/codes/discount-config.ts`): en edición de un código sin usar el PATCH lleva
+  `null` explícito al vaciar tope/mínimo/usos por cliente y en los campos que el tipo nuevo no usa (el backend conserva lo
+  omitido y rechaza la mezcla). Pesos ⇒ centavos: el conversor único `lib/money-input.ts` (TL-ENV-F2).
 - **Dónde:** invitado bajo destino + T9 y antes de los datos (solo envío a domicilio); con cuenta (bóveda) tras las líneas;
   retiro (`ShipmentsView`) con C1b, MX$0.00 ⇒ botón C16 y `stripe: null` ⇒ sin modal, directo a «Retiros».
 - **Cómo viaja:** el código confirmado entra en la clave de la query y en la sesión; aplicar cotiza con `fetchQuery` sobre
@@ -40,19 +44,20 @@ gratis» aprobado en lo propio de un código de envío gratis).
   Menú «Tienda», SÚPER, oculto al operador; página tras `SuperAdminOnly`.
 - **«envío gratis»:** `seo-content.test.ts` añade `DSC_APPROVAL` (fila de HECHOS citada, literal «Sí, apruebo») y DL5: lista
   blanca cerrada (C1b, C4 de envío, C13b + nombre del tipo y nota del retiro en el panel).
-- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). v1.110.1: envío gratis con `E` sin código en 0
-  (umbral **o dial**) ⇒ `ALREADY_FREE_SHIPPING`, orden `NO_SHIPPING` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING`, también en
-  el retiro; retiro aplicado con mercancía 0, descuento 0 y `shippingWaivedCents = E`. Paridad: `discounts.parity.test.ts`
-  lee las cifras del contrato y de `PROJECT.md` (893 vigente: MX$850.00, MX$99.99/MX$0.01 y MX$9.99) y compara las claves
-  de `DiscountCodeDTO`/`DiscountCodeBatchDTO` del mock con las del bloque `ts` de §DSC.7. v1.110.2: lote sin códigos sin
-  usar ⇒ `paused` solo si todos pausados; pausar el lote pausa los N (`updateMany` del backend); descargas auditadas.
+- **Mock:** `lib/mock/discounts.ts` (§DSC.2-§DSC.8 + panel, con bitácora). Precedencia de §DSC.4 v1.110.3 (`NO_SHIPPING` →
+  `DESTINATION` → `NO_ELIGIBLE_ITEMS` → `LARGE_BOX` → `ALREADY_FREE_SHIPPING` → `MIN_SUBTOTAL` → `TOTAL_BELOW_MINIMUM`; retiro
+  con su orden), `details` mínimos, `capped` solo por tope desde `discountOf`, `not_applicable` cuenta para el límite una vez
+  por código y ventana, proyección de línea (`mockProjectUnit`/`mockProjectAccessoryLine`); el seguimiento `mock…discount…`
+  usa `discountOf` + `MOCK_SEPT10_RULE` (TL-DSC-6). Paridad: `discounts.parity.test.ts` (893, 904, DTOs de §DSC.7) y
+  `discounts.v1103.parity.test.ts` (DCO-B20 a-f, DCO-B21, proyección), cifras leídas del contrato.
 - **Pruebas:** `CodeRow.test.tsx` (S1-S10), `AmountBreakdown.discount.test.tsx`, `CheckoutDiscount.test.tsx` (915, DCO-F2,
   C12, C13a), `api.discount.test.ts` (cuerpos reales con/sin código), `discounts.test.ts`, `DiscountCodes.test.tsx`,
   `e2e/discount-codes.spec.ts` (DL1-DL4, DL7, retiro, panel). Mutaciones de la fase 1 (copia `f462ca55`, 11) y de la 2
   (`33b0ee5c`, 17 vitest + 1 Playwright): 3/3 rojas cada una salvo «sin `gcTime` propio» 9/10; la lista, en `ef5b1094`.
-  v1.110.2 (copia de iteración con el contenido de `12fa4f85`, N=3 cada una, 3/3 rojas y verde al restaurar): action
-  fuera de la lista del contrato · lote agotado siempre `active` · vista previa sin ceros por `MIN_SUBTOTAL` · action
-  desconocida en crudo · importe con `discountCents = 0` · `actor` null sin «Sistema».
+  v1.110.3 (copia de iteración, N=1 cada una, deterministas): DESTINATION antes de NO_SHIPPING · mínimo antes de
+  LARGE_BOX/ALREADY_FREE · `capped` viejo · no contar `not_applicable` · sin dedupe · `details` con `minSubtotalCents` ·
+  seguimiento con `floor(P/10)` · 3 sumas de pantalla · PATCH de `c421de13` · `percentPct` arrastrado · conversor local ·
+  vacío = 0: 14/14 rojas, verde al restaurar.
 - **`@real`** (`utils/discount-scenario.ts`): el dueño crea un código por pantalla; el invitado lo aplica (la fila pinta el
   `discountCents` de la cotización) y lo paga (sesión `201` con `discount` ⇒ doble de Stripe ⇒ `payment_intent.succeeded`
   firmado ⇒ `settled` y el reporte cuenta 1 uso con el mismo descuento); retiro con envío gratis a MX$0.00 sin cobro; DL7.
@@ -159,8 +164,12 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
   **Pendiente de diseño (solicitud a ux-ui/arquitecto):** banner/aviso propios de la landing (`CS-MEDIR-AVISO`); sin él,
   quien llega a `/card-show` sin haber elegido en la tienda no se mide.
 - **Puerta del aviso (C-D1):** `content/legal/measurement-gate.ts` (+ tercer argumento de `legalPublishProblems`);
-  `content/legal/measurement-disclosure.ts` = `null` (lo rellena quien publique el aviso del abogado; ⛔ frontend no
-  escribe el texto). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
+  `content/legal/measurement-disclosure.ts` **declara desde el 2026-10-26** (forma v1.111: `version '2026-10-medicion-1'`,
+  `approvedByOwnerOn '2026-10-26'`, `legalReviewOn null`, `legalReviewWaivedByOwnerOn '2026-10-23'`; exactamente una de las
+  dos fechas, clave ausente = mal formada, mismos mensajes en la puerta y en `next.config.mjs`). El texto de los apartados
+  2/4/5/6/7/8 de `privacidad.es.ts` (0.6) es copia literal de `docs/specs/AVISO_MEDICION_APROBADO.md` (⛔ no se reescribe;
+  un cambio pasa por el dueño). No hay aviso EN: `/en/privacidad` sirve el español. Banner con el texto del dueño
+  (MKT2-UX.11): 212 px de alto a 360×640 en ES y en EN (bundle de mocks `on`, 2026-10-26, sobre `1e1f7999`). `npm run build` corre `prebuild` = `npm run check:measurement` (`scripts/measurement-notice-gate.mjs`; nombre que
   espera la puerta de devops, DEVOPS_NOTES §101.2): con `off`/sin definir/`ON` imprime
   `MEASUREMENT_NOTICE_OK mode=off` y sale; con `on` corre `measurement-notice.gate.test.ts` sobre el aviso real e
   imprime `MEASUREMENT_NOTICE_REQUIRED mode=on problems=N` + problemas (rojo) o `MEASUREMENT_NOTICE_OK mode=on
@@ -190,7 +199,9 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **MKT-F2-3** y **MKT-F2-4** (backend; leído el 2026-10-24).
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
+  el aviso ya declarado, `npx next build` con `on` CARGA (la mínima solo mira la declaración): lo único que sigue
+  parando un encendido es `prebuild` ⇒ `ENCENDER_BLOCKERS`.
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
   `trackPurchase`/`trackBeginCheckout` salen con `off` antes de leer nada y van enteras dentro de `neverThrow` (TL-MKT2b-a).
   Panel: `null` = «—» siempre, sin compatibilidad pre-v1.106 (FE-MKT2-4 cerrada); el mock sella sus filas como
@@ -256,6 +267,11 @@ final de `src/types/contract.ts`.
   `POST` está en curso, «Cancelar», `Esc`, clic fuera y la X no cierran el diálogo de crear (D6), y un segundo
   envío (Enter, botón, «Reintentar») no emite otra llave: guarda síncrona `inFlight` (ref, no el estado `pending`,
   que dos `submit` del mismo tick leen igual) y el campo pasa a `readOnly` (R4).
+- **Evento de prueba de Meta** (§MKT.H.12 v1.112, MKT-UX.10-b, 2026-10-26): `MetaTestEventBlock.tsx` bajo la llave, en
+  cualquier modo; mismo patrón que la llave (sin `useMutation`, guarda `inFlight`): código y resultado solo en `useState`.
+  Mock: el código elige la salida (`MOCK_META_TEST_CODES`: TEST400/401/503/409/429; el resto `accepted`) + límite 5/60 min.
+  Claves `details.copy/copied/copyFail` añadidas (la tabla de ux-ui no fija el aviso de «Copiar»). C-F10 = `MetaTestEventBlock.test.tsx`
+  + `MarketingView.test.tsx` (rol, modos); 19 mutaciones rojas (3/3 c/u, guarda 10/10) sobre `25ddf442`.
 - **Anotaciones:** franja solo en pantallas a, b y c (§MKT.G.5 manda sobre §MKT-UX.8 «en cada pantalla»). `422` sin
   `details.field` ⇒ el error va bajo «Etiqueta»; nunca se pinta el `message` del servidor.
 - **Candados:** UX-MKT-1…18 en `marketing/*.test.ts(x)` (76 pruebas en `marketing/`, medidas el 2026-10-18 con las 2 de R4) + `e2e/marketing-panel.spec.ts` (sin `@real`). El enlace del menú se busca por `href` dentro de `aside nav`, no
@@ -265,7 +281,6 @@ final de `src/types/contract.ts`.
   `admin.marketing.title`/`nav.menu`; `access.revoke` → `access.revokeCta` + `access.revokeDialog.*` (una clave no puede
   ser texto y objeto a la vez); títulos/columnas/motivos de tabla se pintan como llegan (español, `lang="es"` en EN) —
   no hay claves por tabla; sin «N chico» ni comparación por columna (el contrato no los trae).
-
 
 ## §CARDSHOW-M90 · Magic (5.º juego) + contador vivo Pokémon + programa por día (2026-10-21, base `f650edb`)
 Datos de torneos (horas, cupos, precios, premios; JC chat 2026-10-21) viven SOLO en `content/card-show.ts` (`torneos.programa`, `torneos.juegos`, FAQ); `magic` → «Magic: The Gathering» en `CARD_SHOW_GAMES` (selectores landing + filtro admin).

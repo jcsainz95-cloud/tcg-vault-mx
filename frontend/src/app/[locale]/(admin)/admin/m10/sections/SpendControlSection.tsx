@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { SPEND_ALERT_SWITCHABLE_CODES, type EditableSettingsPatch, type SettingsDTO, type SpendAlertCode } from '@/types/contract';
-import { pesosToCents } from '../../m4/pesosToCents';
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import { useIsOwner, useOwnerOnlyDenied } from '../../_owner/useIsOwner';
 import { ALWAYS_ON_CODES } from '../../spend-alerts/filters';
 

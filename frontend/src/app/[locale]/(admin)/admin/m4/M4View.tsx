@@ -13,9 +13,6 @@ import { ReplacementCasesPanel } from './ReplacementCasesPanel';
 import { M4_TABS, type M4Tab } from './tabs';
 import { DepartureBoard } from './DepartureBoard';
 
-// `pesosToCents` vive en su propio módulo (función pura, sin React).
-import { pesosToCents } from './pesosToCents';
-export { pesosToCents };
 
 /**
  * **«Pedidos por preparar»** (`DESIGN_SYSTEM §37` · contrato `§M4-SHIP` v1.80.6). Tres pestañas de página

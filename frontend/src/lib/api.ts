@@ -1260,14 +1260,16 @@ function discountCodeField(discountCode: string | undefined): { discountCode?: s
   return c ? { discountCode: c } : {};
 }
 
-/** §DSC I-3: `unitPriceCents` es lo cobrado; `unitDiscountCents` solo si > 0 (I-1: omitido si no). */
+/**
+ * §DSC I-3 + proyección de línea (v1.110.3): `unitPriceCents` es lo cobrado; `unitDiscountCents` y
+ * `unitPriceBeforeDiscountCents` solo si la rebaja > 0 (I-1: omitidos si no). Lo arma el simulador (`mockProjectUnit`).
+ */
 function mockUnitPrice(
   id: string,
   priceCents: number,
   applied: { unitDiscounts: Map<string, number> } | null,
-): { unitPriceCents: number; unitDiscountCents?: number } {
-  const u = applied?.unitDiscounts.get(id) ?? 0;
-  return u > 0 ? { unitPriceCents: priceCents - u, unitDiscountCents: u } : { unitPriceCents: priceCents };
+): { unitPriceCents: number; unitDiscountCents?: number; unitPriceBeforeDiscountCents?: number } {
+  return mockDsc.mockProjectUnit(priceCents, applied?.unitDiscounts.get(id) ?? 0);
 }
 
 /** MOCK §DSC.4 — compra a bóveda con cuenta: líneas = piezas; `G = S'` sin envío. `null` sin código. */
@@ -1506,8 +1508,7 @@ function mockDiscountedOrderDetail(): OrderDetailDTO {
     breakdown: mockDsc.MOCK_DISCOUNTED_ORDER_BREAKDOWN,
     items: base.items.map((it) => ({
       ...it,
-      unitPriceCents: it.unitPriceCents - mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS,
-      unitDiscountCents: mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS,
+      ...mockDsc.mockProjectUnit(it.unitPriceCents, mockDsc.MOCK_DISCOUNTED_UNIT_DISCOUNT_CENTS),
     })),
     fulfillmentMode: 'vault',
     publicStatus: 'pagado',
@@ -7487,16 +7488,15 @@ export async function getGuestCheckoutQuote(
   });
 }
 
-/** §DSC I-3 — renglón de accesorio con código: `unitPriceCents` cobrado, `lineTotalCents = q × cobrado`. */
+/**
+ * §DSC I-3 + proyección de línea (v1.110.3) — renglón de accesorio con código: `unitPriceCents` cobrado,
+ * `lineTotalCents = q × cobrado`, y los «antes del descuento» que pinta la pantalla (`mockProjectAccessoryLine`).
+ */
 function mockDiscountedAccessoryLines<L extends { accessoryId: string; unitPriceCents: number; quantity: number; lineTotalCents: number }>(
   lines: L[],
   applied: { unitDiscounts: Map<string, number> } | null,
 ): L[] {
-  return lines.map((l) => {
-    const u = applied?.unitDiscounts.get(l.accessoryId) ?? 0;
-    if (u <= 0) return l;
-    return { ...l, unitPriceCents: l.unitPriceCents - u, unitDiscountCents: u, lineTotalCents: l.quantity * (l.unitPriceCents - u) };
-  });
+  return lines.map((l) => mockDsc.mockProjectAccessoryLine(l, applied?.unitDiscounts.get(l.accessoryId) ?? 0));
 }
 
 /**
@@ -7705,13 +7705,23 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     throw new ApiClientError(404, { code: 'INVALID_TOKEN', message: 'Invalid link' });
   }
   const listings = fx.mockListings.filter((l) => l.sellable).slice(0, 2);
-  // MOCK §DSC.6 (914): un token `mock…discount…` sirve el mismo pedido cobrado con `SEPT10` (10 % por carta, redondeo
-  // hacia abajo): `unitPriceCents` = cobrado, `unitDiscountCents` = la rebaja, `subtotalCents` = Σ cobrado (I-3). Sin
-  // esa marca, ni `discount` ni `unitDiscountCents` (I-1).
+  // MOCK §DSC.6 (914): un token `mock…discount…` sirve el mismo pedido cobrado con `SEPT10`, calculado por `discountOf`
+  // del simulador (TL-DSC-6: ⛔ ninguna fórmula propia aquí): `unitPriceCents` = cobrado, `unitDiscountCents` = la rebaja,
+  // `unitPriceBeforeDiscountCents` el exhibido, `subtotalCents` = Σ cobrado (I-3). Sin esa marca, nada de eso (I-1).
   const withCode = token.includes('discount');
-  const unitDiscount = (l: (typeof listings)[number]) => (withCode ? Math.floor((l.displayPriceCents ?? 0) / 10) : 0);
-  const discountCents = listings.reduce((s, l) => s + unitDiscount(l), 0);
-  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) - discountCents;
+  const S = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  const dscLines: mockDsc.DiscountLine[] = listings.map((l) => ({
+    id: l.inventoryItemId,
+    kind: 'item',
+    scope: l.productType,
+    priceCents: l.displayPriceCents ?? 0,
+    quantity: 1,
+  }));
+  const dsc = withCode ? mockDsc.discountOf(dscLines, mockDsc.MOCK_SEPT10_RULE, 'direct_ship') : null;
+  const applied = dsc?.ok ? dsc : null;
+  const unitDiscount = (l: (typeof listings)[number]) => applied?.unitDiscounts.get(l.inventoryItemId) ?? 0;
+  const discountCents = applied?.discountCents ?? 0;
+  const subtotal = S - discountCents;
   const shipped = token.includes('shipped');
   return delay<GuestOrderTrackingDTO>({
     orderNumber: 'TCG-000123',
@@ -7732,10 +7742,11 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
       imageSmallUrl: l.card.imageSmallUrl,
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
-      unitPriceCents: (l.displayPriceCents ?? 0) - unitDiscount(l),
-      ...(unitDiscount(l) > 0 ? { unitDiscountCents: unitDiscount(l) } : {}),
+      ...mockDsc.mockProjectUnit(l.displayPriceCents ?? 0, unitDiscount(l)),
     })),
-    ...(withCode ? { discount: { code: 'SEPT10', kind: 'percent' as const, discountCents, shippingWaivedCents: 0 } } : {}),
+    ...(applied
+      ? { discount: { code: 'SEPT10', kind: 'percent' as const, merchandiseBeforeDiscountCents: S, discountCents, shippingWaivedCents: 0 } }
+      : {}),
     // Pedido demo de solo cartas: la tarifa con la que se cobró (§4-G.12 punto 6: congelada; aquí, la regla vigente).
     breakdown: computeGuestBreakdown(subtotal, mockGuestDirectShip(listings, 0, subtotal).feeCents),
     shipping: {

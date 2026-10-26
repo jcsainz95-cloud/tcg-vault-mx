@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { pesosToCents } from '../../m4/pesosToCents';
+import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 
 type DirectShipDialKey = 'directShipCardsFeeCents' | 'directShipSealedFeeCents' | 'directShipFreeFromCents';
 

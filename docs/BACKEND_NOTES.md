@@ -17,7 +17,8 @@
 > identidad de ítem única `measurement/measurement-item.ts` (drenador y d1/d2); drenador con lote solo de destinos
 > habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
 > (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
-> cabecera del SQL de m86 (no se copia aquí). Pendiente con Postgres: TECH_DEBT MKT-F2-4. Deuda: TECH_DEBT §MKT.
+> cabecera del SQL de m86 (no se copia aquí); CHECK y ciclo reversa ⇒ redeploy medidos contra Postgres (TECH_DEBT MKT-F2-4 ✅,
+> 2026-10-26). Bloqueo de encendido que queda: MKT-F2-3 (versión de Graph [§MKT.H.1](API_CONTRACT.md#MKT-H); evento de prueba `POST /admin/measurement/meta-test-event` construido, falta que el dueño lo envíe). Deuda: TECH_DEBT §MKT.
 > **M-90 (2026-10-21):** `magic` en `CardShowGame` (migración `20261107120000_m90_card_show_magic`, LIGERA sin código nuevo).
 > `GET /card-show/tournament/count` = `card-show-tournament-count.service.ts`: caché **en memoria del proceso** 30 s (por réplica);
 > BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
@@ -33094,8 +33095,20 @@ lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchas
 - `value` de `purchase` = `Order.totalCents` (lo cobrado: cartas + envío + IVA + comisión); `shipping_cents` aparte.
 - `item_name` de carta = `nombre · set`; sellado = nombre del producto; accesorio = nombre del snapshot. `item_id` = `cardId`,
   `sealedProductId` o `accessoryId`.
-- Versión de Graph fija `META_GRAPH_API_VERSION = 'v21.0'` (`measurement.config.ts`): **NO VERIFICADO** que siga vigente al
-  encender; se revisa con «Eventos de prueba» de Meta.
+- **Versión de Graph:** valor y caducidad en [API_CONTRACT §MKT.H.1](API_CONTRACT.md#MKT-H) (bloque `META-GRAPH-VERSION`; aquí no
+  se copia). Constante `META_GRAPH_API_VERSION` + `metaEventsUrl()` en `measurement.config.ts` (única URL de eventos: drenador y
+  evento de prueba). Paridad y caducidad: C-B15 `test/measurement.graph-version.spec.ts` (se pone roja sola el día de `reviewBy`).
+  Medición de las tablas de Meta que fundó la elección: 2026-10-26, razones en ARCHITECTURE §14.10 D-MKT2-10. MKT-F2-3 sigue
+  ABIERTA: falta que el dueño envíe el evento de prueba desde producción y lo vea en «Eventos de prueba» (cierre en §MKT.H.12).
+- **Evento de prueba de Meta** ([§MKT.H.12](API_CONTRACT.md#MKT-H12)): `admin-measurement.controller.ts` (`@Roles(super_admin)` de
+  clase) → `meta-test-event.service.ts`; piezas puras en `meta-test-event.ts`. Lee `readMeasurementConfig(env).meta` sin la
+  puerta (envía con `off` y con bloqueos). Límite: candado consultivo `(86_120_002, 1)` → conteo de `measurement.meta_test_event`
+  en `AuditLog` de 60 min → llamada a Meta (5 s) → fila, todo en UNA transacción (timeout 20 s): la llamada va dentro del candado.
+  `retryAfterSeconds` = cuando la 5.ª más reciente sale de la ventana. Redacción en `measurement-http.ts`
+  (`postMetaDiagnostic` → `sanitizeMetaDiagnostic`): primero redacta (token literal y `access_token=…` ⇒ `[token]`), después
+  recorta a 300 (al revés quedaría el prefijo de un token partido). `fbtraceId` se toma de la raíz o, si no, de `error.fbtrace_id`
+  (Meta lo pone ahí en los errores). Pruebas: `test/measurement.meta-test-event.spec.ts` (C-B12, C-B13, C-B14 unitaria, rol) y
+  `test/integration/measurement-meta-test.e2e-spec.ts` (C-B13/C-B14 contra Postgres, carrera N=10).
 - Panel (v1.105, §MKT.H.9 manda): consultas GA4 en `marketing-ga4.ts` (specs + cálculo puro); b4 excluye Instagram de
   «Referencias» (va en a4/b1-b3); b1-b3 cuentan pedidos + solicitudes por fila para la celda pequeña; d2 sin coherencia
   mes↔semanas (no es conteo de personas). `COVERAGE_NOTE` (off) y `COVERAGE_NOTE_ON` (on) se exportan del servicio.

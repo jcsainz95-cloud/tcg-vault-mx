@@ -44,8 +44,8 @@ const PLAIN: OrderDetailDTO = {
 const DISCOUNTED: OrderDetailDTO = {
   ...PLAIN,
   breakdown: { ...PLAIN.breakdown, subtotalCents: 126_720, ivaCents: 17_479, processingFeeCents: 4_800, totalCents: 131_520 },
-  items: [{ ...PLAIN.items[0], unitPriceCents: 126_720, unitDiscountCents: 14_080 }],
-  discount: { code: 'SEPT10', kind: 'percent', discountCents: 14_080, shippingWaivedCents: 0 },
+  items: [{ ...PLAIN.items[0], unitPriceCents: 126_720, unitDiscountCents: 14_080, unitPriceBeforeDiscountCents: 140_800 }],
+  discount: { code: 'SEPT10', kind: 'percent', merchandiseBeforeDiscountCents: 140_800, discountCents: 14_080, shippingWaivedCents: 0 },
 };
 
 const rows = () =>
@@ -85,7 +85,9 @@ describe('OrderDetailView · §DSC.6 (914/915)', () => {
 
   it('OD-4 · el MOCK sirve el pedido con código en la forma del contrato y los demás sin la clave (I-1)', async () => {
     const d = await api.getOrder(MOCK_DISCOUNTED_ORDER_ID);
-    expect(d.discount).toEqual({ code: 'SEPT10', kind: 'percent', discountCents: 14_080, shippingWaivedCents: 0 });
+    expect(d.discount).toEqual({ code: 'SEPT10', kind: 'percent', merchandiseBeforeDiscountCents: 140_800, discountCents: 14_080, shippingWaivedCents: 0 });
+    // v1.110.3: la proyección de línea del servidor (el antes del descuento por unidad).
+    expect(d.items![0].unitPriceBeforeDiscountCents).toBe(140_800);
     // I-3: `subtotalCents` = Σ cobrado y `discountCents` = Σ unidades × `unitDiscountCents`.
     expect(d.items.reduce((s, it) => s + it.unitPriceCents, 0)).toBe(d.breakdown.subtotalCents);
     expect(d.items.reduce((s, it) => s + (it.unitDiscountCents ?? 0), 0)).toBe(d.discount!.discountCents);

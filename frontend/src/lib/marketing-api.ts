@@ -18,6 +18,7 @@ import type {
   MarketingPeriodsResponse,
   MarketingScreen,
   MarketingScreenPayload,
+  MetaTestEventResult,
 } from '@/types/contract';
 
 /** Periodo cerrado tal como lo acepta el servidor: `weekStart=` (lunes) o `month=` (§MKT.G.3). */
@@ -113,4 +114,18 @@ export function revokeMarketingToken(id: string): Promise<MarketingApiTokenView>
     return apiRequest<MarketingApiTokenView>(`/admin/marketing/tokens/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
   }
   return mocked(() => mock.mockRevokeToken(id));
+}
+
+// ---------------------------------------------------------------- evento de prueba de Meta (§MKT.H.12, solo super_admin)
+
+/**
+ * `POST /admin/measurement/meta-test-event` (v1.112). 200 con el diagnóstico también si Meta rechaza; errores 409
+ * `MEASUREMENT_META_NOT_CONFIGURED`, 422 `VALIDATION_ERROR`, 429 `RATE_LIMITED` (`details.retryAfterSeconds`).
+ * ⛔ El código y el resultado se devuelven al llamador y NADA de aquí los guarda (ni URL: el código va en el cuerpo).
+ */
+export function sendMetaTestEvent(testEventCode: string): Promise<MetaTestEventResult> {
+  if (!config.useMocks) {
+    return apiRequest<MetaTestEventResult>('/admin/measurement/meta-test-event', { method: 'POST', body: { testEventCode } });
+  }
+  return mocked(() => mock.mockMetaTestEvent(testEventCode));
 }

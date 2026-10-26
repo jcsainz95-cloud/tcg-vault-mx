@@ -27,13 +27,25 @@
 
 ---
 
+## Frontend · 2026-10-26 · §DSC códigos de descuento — rechazo del techlead sobre `c421de13` (R2, R3, TL-DSC-6)
+
+> Dueño del código anotado: **frontend**. 💰 Toca dinero (precio antes del descuento, PATCH del panel, mock). Medido el 2026-10-26 sobre el contrato v1.110.3 (`083d589c`).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-DSC-R2 | CERRADA · ~10 sitios reconstruían el precio antes del descuento (`unitPriceCents + unitDiscountCents`, `subtotalCents + discount.discountCents`); ahora pintan el campo del servidor (v1.110.3) | frontend | 2026-10-26 | candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (canario sobre `CheckoutLines.tsx`) |
+| TL-DSC-R3 | CERRADA · editar un código sin usar no podía quitar tope, mínimo ni límite por cliente (el PATCH omitía el campo vacío) y cambiar de tipo arrastraba `percentPct` | frontend | 2026-10-26 | `admin/codes/DiscountCodes.test.tsx` «R3 …» (dos pruebas, rojas con el PATCH de `c421de13`) |
+| TL-DSC-6 | CERRADA · el seguimiento mock con código calculaba su descuento con `floor(P/10)` en vez de `discountOf` | frontend | 2026-10-26 | `pedido/PublicOrderTracking.discount.test.tsx` PT-4 (compara con `discountOf` + `MOCK_SEPT10_RULE`) |
+
+---
+
 ## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
 
 > Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| TL-ENV-F2 | ABIERTA · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). R1 nació de esa clase | frontend | 2026-10-25 | un helper único en `frontend/src/lib/` y `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0 |
+| TL-ENV-F2 | CERRADA (2026-10-26, stream de descuentos) · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). Ahora uno: `frontend/src/lib/money-input.ts` (vacío ⇒ `null`, mal formado ⇒ `NaN`) | frontend | 2026-10-26 | `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0; candado `lib/money-input.test.ts` «TL-ENV-F2 · candado» (app/ + components/, también `const toCents =`) |
 | TL-ENV-F3 | ABIERTA · `BuylistKycForm` lee la prop `ineExpected` solo al montar (estado inicial); si la prop cambia después, el formulario no se entera | frontend | 2026-10-25 | prueba de cambio de prop (`rerender` con `ineExpected` distinto ⇒ el formulario lo refleja), roja sobre el código actual |
 | TL-ENV-F1 | CERRADA · comentarios «v1.110 pendiente» en `lib/mock/shipping-rule.ts` y `shipping-rule.parity.test.ts` (el contrato ya es v1.109.1, P-ENV-1 cerrada) | frontend | 2026-10-25 | `grep -rn "v1.110" frontend/src` ⇒ 0 |
 | TL-ENV-F4 | CERRADA · comentario «gate de identidad» (ya no existe) en `checkout/InlineAuthPanel.tsx` | frontend | 2026-10-25 | `grep -rn "gate de identidad" frontend/src` ⇒ 0 |
@@ -146,10 +158,10 @@
 | MKT-RET1 ✅ | la retención de 12 meses de `MarketingAccessLog` (ARCHITECTURE §13.4.4) no tenía job: el plazo era mínimo, no máximo | backend | 2026-10-18 | `integration/measurement.e2e-spec.ts` «§13.4.4 · retención»: fila de 13 meses y de 11 ⇒ queda la de 11; job `marketing-access-log-retention` en `scheduler.service.ts` |
 | MKT-F2-1 ✅ | consultas GA4 por tabla sin definir | arquitecto (v1.105 §MKT.H.9) → backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` (4): forma de cada `runReport` con doble y cálculo de a4, a5, b4, c1, c5, d1, d2, e3; (5) diferidas c2/c3/c4/c8 con su motivo |
 | MKT-F2-2 ✅ | `MeasurementContext.sourcePath` sin productor | arquitecto (v1.105 §MKT.H.13) → backend | 2026-10-19 | `measurement.service.spec.ts` «sin `sourcePath`»: ni en el modelo generado, ni en el SQL de m86, ni en lo que escribe `saveContext` |
-| MKT-F2-3 | `META_GRAPH_API_VERSION = 'v21.0'` NO VERIFICADO vigente para la fecha de encendido | backend (+ dueño mide en «Eventos de prueba» de Meta) | 2026-10-18 | evento de prueba aceptado (2xx) con la versión fijada, anotado con fecha en BACKEND_NOTES §MKT.H; caduca al encender (PENDIENTES MKT-FASE2) |
+| MKT-F2-3 | `META_GRAPH_API_VERSION = 'v26.0'` NO VERIFICADO vigente para la fecha de encendido | backend (+ dueño mide en «Eventos de prueba» de Meta) | 2026-10-18 | evento de prueba aceptado (2xx) con la versión fijada, anotado con fecha en BACKEND_NOTES §MKT.H; caduca al encender (PENDIENTES MKT-FASE2) |
 | TL-MKT2 ✅ | rechazo del techlead sobre `a1ba4d2e`: R2 cola bloqueada por un destino apagado; D1 post-commit ×3; D2 drenador sin presupuesto; D5 c1 sin agregar por clave; D8 comentarios y `...measurementColumns`; R4 identidad de ítem; C1/C-P1 `null` en filas ocultas | backend | 2026-10-19 | `measurement.drain.spec.ts` «TL-MKT2-R2» y «TL-MKT2-D2»; `measurement.payment-isolation.spec.ts` «TL-MKT2-D1»; `marketing-fase2-v105.spec.ts` «TL-MKT2-D5» y «C-P1»; `measurement.input.spec.ts` «TL-MKT2-D8»; `measurement.item.spec.ts` (C-B10); mutaciones en el commit `f9d678be` |
 | TL-MKT2-D5b | `DimensionRow.money` lleva métricas que no son dinero (vistas, tiempo, CTR, posición): el nombre miente; y `fichaOf` (`marketing-ga4.ts`) copia idiomas y rutas del frontend | backend (+ arquitecto: fuente única de rutas) | 2026-10-19 | `grep -c "money" backend/src/modules/marketing/small-cells.ts` ⇒ 0 (bolsa renombrada a lo que es: «celdas que se ocultan con el conteo») **y** `fichaOf` lee las rutas de una fuente compartida con el frontend (prueba de paridad roja si una ruta cambia en un solo lado) |
-| MKT-F2-4 | C-B11 (CHECK de m86 ⇒ `23514`) y el ciclo «migrar ⇒ reversa ⇒ redeploy» de m86 sin correr contra Postgres por backend en este pase (sin credenciales de la BD local) | backend (lo corre QA u orquestador) | 2026-10-19 | `integration/measurement-context-check.e2e-spec.ts` verde contra Postgres y `prisma migrate deploy` verde tras la REVERSA de m86 (log con el sha) |
+| MKT-F2-4 ✅ | C-B11 (CHECK de m86 ⇒ `23514`) y el ciclo «migrar ⇒ reversa ⇒ redeploy» de m86 contra Postgres | backend | 2026-10-26 | sobre `a05a6e68` (copia `git archive` entera, Postgres 16 propio): `migrate deploy` rc 0 ⇒ `measurement-context-check.e2e-spec.ts` 2/2; REVERSA de la cabecera de m86 rc 0 (tablas y fila de `_prisma_migrations` fuera) ⇒ `migrate deploy` rc 0 «Applying migration `20261106120000_m86_mkt_measurement`», sin `resolve` ⇒ psql `23514` en los dos casos inválidos ⇒ suite 2/2; canario (m86 sin el CHECK, BD nueva) 2/2 rojas, restaurado 2/2 verdes. Salió de los dos `ENCENDER_BLOCKERS` en el mismo commit |
 | TD-HND-1 ✅ | la integración no terminaba sola en CI | devops | 2026-10-19 | `e2e.yml:105,372,378` (devops) |
 | TD-HND-2 ✅ | `liveResources` sin caso de socket/servidor | backend | 2026-10-19 | `card-show.counter-store-close.spec.ts` «TD-HND-2» (rojo 10/10 si `liveResources` no recorre `_getActiveHandles`) |
 | TD-HND-3 ✅ | cierre `quit` copiado ×4 | backend | 2026-10-19 | `grep -rc '\.quit()' backend/src` suma 1 (`common/redis-close.ts`); candado en `common.redis-close.spec.ts` |

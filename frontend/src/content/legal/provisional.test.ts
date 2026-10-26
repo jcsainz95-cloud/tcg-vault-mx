@@ -105,9 +105,10 @@ describe('LEG-P1 · el aviso real (provisional y coherente) se publica en produc
   // ✏ 2026-10-13: sube con el bloque Card Show (§CARDSHOW): finalidad secundaria de marketing del
   //    evento + baja/«No fui yo» (§4), captura del registro/preinscripción (§2), transferencia a
   //    Jakomi (§5) y conservación (§6). Sigue fijando versión y fecha EXACTAS.
-  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5; §WSH.5; §CARDSHOW)', () => {
-    expect(privacyNoticeEs.version).toBe('0.5-provisional-2026-10-13');
-    expect(privacyNoticeEs.updatedAt).toBe('13 de octubre de 2026');
+  // ✏ 2026-10-26: sube con la medición (docs/specs/AVISO_MEDICION_APROBADO.md, §2/§4/§5/§6/§7/§8).
+  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5; §WSH.5; §CARDSHOW; medición)', () => {
+    expect(privacyNoticeEs.version).toBe('0.6-provisional-2026-10-26');
+    expect(privacyNoticeEs.updatedAt).toBe('26 de octubre de 2026');
   });
 });
 
@@ -253,7 +254,8 @@ describe('LEG-P7 · contacto único y sin trámites inventados', () => {
 });
 
 describe('E4-2 `:141` · Skydropx entra como fila propia con el lote 2 (criterio 502)', () => {
-  it('«Con quién compartimos» lista Stripe, Paqueterías, Skydropx, Resend, Cloudflare, Railway/Vercel y Google', () => {
+  // ✏ 2026-10-26: + Google Analytics y Meta (medición, AVISO_MEDICION_APROBADO §5); la fila de acceso con Google se queda.
+  it('«Con quién compartimos» lista Stripe, Paqueterías, Skydropx, Resend, Cloudflare, Railway/Vercel, Google, Google Analytics y Meta', () => {
     const s = privacyNoticeEs.sections.find((x) => x.id === 'remisiones')!;
     const table = s.blocks.find((b) => b.type === 'table');
     expect(table?.type).toBe('table');
@@ -266,6 +268,8 @@ describe('E4-2 `:141` · Skydropx entra como fila propia con el lote 2 (criterio
       '**Cloudflare (R2)**',
       '**Railway y Vercel**',
       '**Google**',
+      '**Google (Google Analytics)**',
+      '**Meta (Facebook e Instagram)**',
     ]);
   });
 });

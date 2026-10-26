@@ -186,9 +186,9 @@ export function PublicOrderTracking({
                   compact
                 />
               </div>
-              {/* 💰 §DSC I-3 (914): con código, `unitPriceCents` es lo COBRADO; se pinta el exhibido, como el checkout. */}
+              {/* 💰 §DSC I-3 (914): con código, `unitPriceCents` es lo COBRADO; se pinta el exhibido del servidor (v1.110.3, DCO-F6). */}
               <span className="tabular text-[17px] font-medium text-text">
-                {formatMoneyCents(item.unitPriceCents + (item.unitDiscountCents ?? 0), locale)}
+                {formatMoneyCents(item.unitPriceBeforeDiscountCents ?? item.unitPriceCents, locale)}
               </span>
             </li>
           ))}
@@ -197,8 +197,8 @@ export function PublicOrderTracking({
         {(data.accessoryLines?.length ?? 0) > 0 && (
           <ul className="mt-2" data-testid="tracking-accessories" aria-label={t('accessories.label')}>
             {data.accessoryLines!.map((l) => {
-              // 💰 §DSC I-3 (914): `lineTotalCents` es lo COBRADO; el renglón dice el exhibido, como `AccessoryCartLines`.
-              const total = formatMoneyCents(l.lineTotalCents + l.quantity * (l.unitDiscountCents ?? 0), locale);
+              // 💰 §DSC I-3 (914): `lineTotalCents` es lo COBRADO; el renglón dice el exhibido del servidor (v1.110.3, DCO-F6).
+              const total = formatMoneyCents(l.lineTotalBeforeDiscountCents ?? l.lineTotalCents, locale);
               // v1.86.3 (§AC.19.6): `id` (llave de lista) y `kind` obligatorios; el paquete se reconoce por `kind`.
               return (
                 <li key={l.id} className="flex flex-col gap-1 border-b border-border py-4">

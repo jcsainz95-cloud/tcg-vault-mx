@@ -17,7 +17,8 @@ import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { pesosToCents, sanitizeDecimalInput } from './shared';
+import { sanitizeDecimalInput } from './shared';
+import { pesosToCentsOrNull } from '@/lib/money-input';
 
 /**
  * Sección 5c — **config del «gancho de grading»** (`GET/PUT /admin/pricing/graded-estimates`,
@@ -181,8 +182,9 @@ export function GradedEstimatesSection() {
     mutation.mutate({
       gradingCostTiers: rows.map((r, i) => ({
         minValueMxnCents: minCentsAt(rows, i),
-        maxValueMxnCents: r.max === null ? null : pesosToCents(r.max),
-        costMxnCents: pesosToCents(r.cost),
+        // `validate` ya bloqueó lo que no convierte (`blocking`); `?? 0` no se alcanza.
+        maxValueMxnCents: r.max === null ? null : (pesosToCentsOrNull(r.max) ?? 0),
+        costMxnCents: pesosToCentsOrNull(r.cost) ?? 0,
       })),
       minUpsidePct: Number(minUpside),
       freshnessDays: Math.round(Number(freshness)),
@@ -469,7 +471,7 @@ function toDraft(tiers: GradingCostTierDTO[]): TierDraft[] {
 function minCentsAt(rows: TierDraft[], index: number): number {
   if (index === 0) return 0;
   const prev = rows[index - 1]?.max;
-  return prev ? pesosToCents(prev) : 0;
+  return prev ? (pesosToCentsOrNull(prev) ?? 0) : 0;
 }
 
 /** Tope anti-typo del contrato: `GRADING_COST_MAX_CENTS` = MX$100,000. */
@@ -488,10 +490,10 @@ function validate(
   freshness: string,
 ): { rows: (RowIssue | undefined)[]; global?: GlobalIssue; blocking: boolean } {
   const rowIssues = rows.map((row, i) => {
-    const cost = row.cost.trim() === '' ? NaN : pesosToCents(row.cost);
+    const cost = pesosToCentsOrNull(row.cost) ?? NaN;
     if (!Number.isFinite(cost) || cost < 1 || cost > GRADING_COST_MAX_CENTS) return 'cost';
     if (row.max !== null) {
-      const max = row.max.trim() === '' ? NaN : pesosToCents(row.max);
+      const max = pesosToCentsOrNull(row.max) ?? NaN;
       if (!Number.isFinite(max) || max <= minCentsAt(rows, i)) return 'range';
     }
     return undefined;

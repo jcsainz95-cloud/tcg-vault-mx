@@ -14,11 +14,8 @@ import { cn } from '@/lib/cn';
 // ⛔ v2.0 (P-48): `FINISH_RULE_KEYS` retirado — el ACABADO sale del pricing (ya no tiene regla de
 // precio propia). Sigue siendo identidad de variante en inventario, overrides, bounties y ficha.
 
-/** Convierte pesos (texto) a centavos enteros. */
-export function pesosToCents(value: string): number {
-  const n = Number(value.replace(/,/g, ''));
-  return Number.isFinite(n) ? Math.round(n * 100) : 0;
-}
+// TL-ENV-F2: el conversor pesos → centavos vive en `@/lib/money-input` (uno para todo el front). El de aquí devolvía `0`
+// con un valor mal formado; ahora vacío = `null` y mal formado = `NaN`/`null`, y cada pantalla bloquea antes de enviar.
 
 /**
  * S-P1-1 (money-safe): sanea entrada monetaria a dígitos + UN SOLO punto decimal. Un

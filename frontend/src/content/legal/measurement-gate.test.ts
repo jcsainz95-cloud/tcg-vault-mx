@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { privacyNoticeEs, type LegalDocument } from './privacidad.es';
 import {
   OLD_NO_MEASUREMENT_SENTENCE,
+  MEASUREMENT_REVIEW_BOTH,
+  MEASUREMENT_REVIEW_NONE,
   formatMeasurementNoticeReport,
   ENCENDER_BLOCKERS,
   measurementGateProblems,
@@ -17,11 +19,16 @@ const clone = (d: LegalDocument): LegalDocument => JSON.parse(JSON.stringify(d))
 
 /**
  * Aviso SINTÉTICO que sí declara la medición. ⛔ No es texto legal: es la fixture mínima que nombra
- * lo que la puerta exige. El texto real lo trae el abogado.
+ * lo que la puerta exige. El texto real es el aprobado por el dueño (`privacidad.es.ts`).
  */
 function declaredNotice(): LegalDocument {
   const doc = clone(privacyNoticeEs);
-  doc.measurementDisclosure = { version: 'mkt2-test-1', approvedByOwnerOn: '2026-11-01', legalReviewOn: '2026-10-30' };
+  doc.measurementDisclosure = {
+    version: 'mkt2-test-1',
+    approvedByOwnerOn: '2026-11-01',
+    legalReviewOn: null,
+    legalReviewWaivedByOwnerOn: '2026-10-30',
+  };
   const cookies = doc.sections.find((s) => s.id === 'cookies')!;
   cookies.blocks = [
     {
@@ -32,29 +39,49 @@ function declaredNotice(): LegalDocument {
   return doc;
 }
 
+/** Aviso SINTÉTICO como era antes del 2026-10-26: sin declaración y con la frase vieja en `cookies`. */
+function oldNotice(): LegalDocument {
+  const doc = clone(privacyNoticeEs);
+  doc.measurementDisclosure = null;
+  doc.sections.find((s) => s.id === 'cookies')!.blocks = [
+    { type: 'p', text: 'Guardamos información en el almacenamiento local. **No usamos cookies de publicidad ni de analítica.**' },
+  ];
+  return doc;
+}
+
 /** C-D1 (API_CONTRACT §MKT.H.11, ARCHITECTURE §14.1) — encender exige el aviso nuevo. */
 describe('C-D1 · puerta del aviso de medición', () => {
-  it('HOY el aviso no declara la medición (measurementDisclosure null y frase vieja)', () => {
-    expect(MEASUREMENT_DISCLOSURE).toBeNull();
-    expect(privacyNoticeEs.measurementDisclosure).toBeNull();
-    const problems = measurementNoticeProblems(privacyNoticeEs);
-    expect(problems).toContain('measurementDisclosure es null: el aviso no declara la medición');
-    expect(problems).toContain(`el aviso aún dice «${OLD_NO_MEASUREMENT_SENTENCE}»`);
-    expect(problems.find((p) => p.startsWith('el aviso no nombra:'))).toBe(
-      'el aviso no nombra: Google Analytics, Meta, _fbp, _fbc, th_first_utm, th_consent, retención de 14 meses',
+  it('HOY el aviso real declara la medición (aprobado 2026-10-26, revisión renunciada 2026-10-23) y no tiene problemas', () => {
+    expect(MEASUREMENT_DISCLOSURE).toEqual({
+      version: '2026-10-medicion-1',
+      approvedByOwnerOn: '2026-10-26',
+      legalReviewOn: null,
+      legalReviewWaivedByOwnerOn: '2026-10-23',
+    });
+    expect(privacyNoticeEs.measurementDisclosure).toBe(MEASUREMENT_DISCLOSURE);
+    expect(measurementNoticeProblems(privacyNoticeEs)).toEqual([]);
+  });
+
+  it('HOY con on: el aviso real solo deja los bloqueos de ENCENDER_BLOCKERS', () => {
+    expect(measurementGateProblems('on', privacyNoticeEs)).toEqual(
+      ENCENDER_BLOCKERS.map((b) => `bloqueo de encendido abierto: ${b.id} (${b.owner}) — ${b.what}`),
     );
   });
 
-  it('con on y el aviso actual ⇒ problemas (build rojo); con off ⇒ ninguno', () => {
-    expect(measurementGateProblems('on', privacyNoticeEs, []).length).toBe(3);
-    expect(measurementGateProblems('off', privacyNoticeEs, [])).toEqual([]);
+  it('el aviso viejo ⇒ null y frase vieja; con on ⇒ problemas (build rojo); con off ⇒ ninguno', () => {
+    const problems = measurementNoticeProblems(oldNotice());
+    expect(problems).toContain('measurementDisclosure es null: el aviso no declara la medición');
+    expect(problems).toContain(`el aviso aún dice «${OLD_NO_MEASUREMENT_SENTENCE}»`);
+    expect(problems.find((p) => p.startsWith('el aviso no nombra:'))).toBe('el aviso no nombra: _fbp, _fbc, th_first_utm, th_consent');
+    expect(measurementGateProblems('on', oldNotice(), []).length).toBe(3);
+    expect(measurementGateProblems('off', oldNotice(), [])).toEqual([]);
   });
 
   it('con un aviso que sí declara ⇒ ninguno (build verde)', () => {
     expect(measurementGateProblems('on', declaredNotice(), [])).toEqual([]);
   });
 
-  it('la frase vieja detecta también con negrita (`**…**`) como está en privacidad.es.ts', () => {
+  it('la frase vieja detecta también con negrita (`**…**`) como estaba en privacidad.es.ts', () => {
     const doc = declaredNotice();
     doc.sections[0].blocks.push({ type: 'p', text: '**No usamos cookies de publicidad ni de analítica.**' });
     expect(measurementNoticeProblems(doc)).toEqual([`el aviso aún dice «${OLD_NO_MEASUREMENT_SENTENCE}»`]);
@@ -62,7 +89,9 @@ describe('C-D1 · puerta del aviso de medición', () => {
 
   it('nombra lo que falta, uno por uno', () => {
     const doc = declaredNotice();
-    doc.sections.find((s) => s.id === 'cookies')!.blocks = [{ type: 'p', text: 'Google Analytics, _fbp, th_consent.' }];
+    // Solo el apartado `cookies`: los demás (2, 4, 5, 6, 7) también nombran Google Analytics, Meta y 14 meses.
+    doc.sections = doc.sections.filter((s) => s.id === 'cookies');
+    doc.sections[0].blocks = [{ type: 'p', text: 'Google Analytics, _fbp, th_consent.' }];
     expect(measurementNoticeProblems(doc)).toEqual(['el aviso no nombra: Meta, _fbc, th_first_utm, retención de 14 meses']);
   });
 
@@ -76,13 +105,60 @@ describe('C-D1 · puerta del aviso de medición', () => {
 
   it('measurementDisclosure con forma inválida ⇒ problema', () => {
     const doc = declaredNotice();
-    doc.measurementDisclosure = { version: 'con espacio', approvedByOwnerOn: 'ayer', legalReviewOn: '2026-10-30' };
+    doc.measurementDisclosure = {
+      version: 'con espacio',
+      approvedByOwnerOn: 'ayer',
+      legalReviewOn: null,
+      legalReviewWaivedByOwnerOn: '2026-10-30',
+    };
     expect(measurementNoticeProblems(doc)).toEqual(['measurementDisclosure mal formado: version, approvedByOwnerOn']);
+  });
+
+  // v1.111 (D-MKT2-0b): exactamente una de legalReviewOn / legalReviewWaivedByOwnerOn con fecha.
+  describe('v1.111 · exactamente una fecha de revisión', () => {
+    const withReview = (legalReviewOn: unknown, legalReviewWaivedByOwnerOn: unknown) => {
+      const doc = declaredNotice();
+      doc.measurementDisclosure = { version: 'v1', approvedByOwnerOn: '2026-10-26', legalReviewOn, legalReviewWaivedByOwnerOn } as never;
+      return measurementNoticeProblems(doc);
+    };
+
+    it('solo renuncia del dueño ⇒ verde', () => {
+      expect(withReview(null, '2026-10-23')).toEqual([]);
+    });
+
+    it('solo revisión legal ⇒ verde', () => {
+      expect(withReview('2026-10-30', null)).toEqual([]);
+    });
+
+    it('las dos fechas ⇒ rojo, con su mensaje', () => {
+      expect(withReview('2026-10-30', '2026-10-23')).toEqual([MEASUREMENT_REVIEW_BOTH]);
+    });
+
+    it('ninguna fecha ⇒ rojo, con un mensaje distinto', () => {
+      expect(withReview(null, null)).toEqual([MEASUREMENT_REVIEW_NONE]);
+      expect(MEASUREMENT_REVIEW_NONE).not.toBe(MEASUREMENT_REVIEW_BOTH);
+    });
+
+    it('una clave ausente cuenta como mal formada (aunque la otra tenga fecha)', () => {
+      const doc = declaredNotice();
+      const d = doc.measurementDisclosure as unknown as Record<string, unknown>;
+      delete d.legalReviewOn;
+      expect(measurementNoticeProblems(doc)).toEqual(['measurementDisclosure mal formado: legalReviewOn']);
+      const doc2 = declaredNotice();
+      delete (doc2.measurementDisclosure as unknown as Record<string, unknown>).legalReviewWaivedByOwnerOn;
+      (doc2.measurementDisclosure as unknown as Record<string, unknown>).legalReviewOn = '2026-10-30';
+      expect(measurementNoticeProblems(doc2)).toEqual(['measurementDisclosure mal formado: legalReviewWaivedByOwnerOn']);
+    });
+
+    it('fecha con otra forma o undefined ⇒ mal formada', () => {
+      expect(withReview('ayer', null)).toEqual(['measurementDisclosure mal formado: legalReviewOn']);
+      expect(withReview(null, undefined)).toEqual(['measurementDisclosure mal formado: legalReviewWaivedByOwnerOn']);
+    });
   });
 
   it('legalPublishProblems: el tercer argumento suma los problemas solo con on', () => {
     const input = {
-      doc: privacyNoticeEs,
+      doc: oldNotice(),
       messages: { es: { common: { footer: { legalEntity: 'X' } } }, en: { common: { footer: { legalEntity: 'X' } } } },
       siteSources: {},
     };
@@ -93,6 +169,7 @@ describe('C-D1 · puerta del aviso de medición', () => {
     expect(on).toContain('measurementDisclosure es null: el aviso no declara la medición');
   });
 });
+
 
 /** C-D1 (v1.106, ARCHITECTURE §14.1 D-MKT2-0c) — los bloqueos de encendido viven en la puerta, no en una nota. */
 describe('C-D1 · ENCENDER_BLOCKERS', () => {
@@ -107,12 +184,12 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
   });
 
   // TL-MKT2b-f (2026-10-19): la lista ya no está vacía. Muerde si se vacía o si sale una entrada sin su cierre.
-  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 y MKT-F2-4 (backend) ⇒ con on y aviso válido, rojo por esos dos', () => {
-    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend', 'MKT-F2-4:backend']);
+  // MKT-F2-4 salió el 2026-10-26 con su ficha cerrada (backend); la paridad SEC-MKT-2 de abajo exige que siga fuera.
+  it('por defecto usa ENCENDER_BLOCKERS: MKT-F2-3 (backend) ⇒ con on y aviso válido, rojo por ese', () => {
+    expect(ENCENDER_BLOCKERS.map((b) => `${b.id}:${b.owner}`)).toEqual(['MKT-F2-3:backend']);
     const problems = measurementGateProblems('on', declaredNotice());
-    expect(problems).toHaveLength(2);
+    expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^bloqueo de encendido abierto: MKT-F2-3 \(backend\) — /);
-    expect(problems[1]).toMatch(/^bloqueo de encendido abierto: MKT-F2-4 \(backend\) — /);
   });
 
   it('TL-MKT2b-f · con off la puerta sigue verde (aviso de hoy y aviso declarado), aunque haya bloqueos', () => {
@@ -203,8 +280,9 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     expect(encenderParityProblems(ENCENDER_BLOCKERS, md, ENCENDER_REGISTRY)).toEqual([]);
   });
 
-  it('el parser lee el índice real: MKT-F2-4 abierta, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
-    expect(fichaState(md, 'MKT-F2-4')).toBe('open');
+  it('el parser lee el índice real: MKT-F2-3 abierta, MKT-F2-4, MKT-TL2 y MKT-TD1 cerradas (✅), TL-MKT2b-f cerrada («CERRADA ·»)', () => {
+    expect(fichaState(md, 'MKT-F2-3')).toBe('open');
+    expect(fichaState(md, 'MKT-F2-4')).toBe('closed');
     expect(fichaState(md, 'MKT-TL2')).toBe('closed');
     expect(fichaState(md, 'MKT-TD1')).toBe('closed');
     expect(fichaState(md, 'TL-MKT2b-f')).toBe('closed');
@@ -212,11 +290,17 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
   });
 
   // Canario sobre el índice REAL: el defecto de SEC-MKT-2 (quitar una entrada de la lista con la ficha abierta) muerde.
-  it('canario: sin la entrada MKT-F2-4 (ficha abierta) ⇒ rojo', () => {
-    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-F2-4');
+  it('canario: sin la entrada MKT-F2-3 (ficha abierta) ⇒ rojo', () => {
+    const without = ENCENDER_BLOCKERS.filter((b) => b.id !== 'MKT-F2-3');
     expect(encenderParityProblems(without, md, ENCENDER_REGISTRY)).toEqual([
-      'MKT-F2-4: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
+      'MKT-F2-3: ficha ABIERTA en TECH_DEBT pero fuera de ENCENDER_BLOCKERS',
     ]);
+  });
+
+  // Canario sobre el índice REAL: devolver MKT-F2-4 (ficha cerrada el 2026-10-26) a la lista ⇒ rojo.
+  it('canario: con la entrada MKT-F2-4 de vuelta (ficha cerrada) ⇒ rojo', () => {
+    const back = [...ENCENDER_BLOCKERS, { id: 'MKT-F2-4' }];
+    expect(encenderParityProblems(back, md, ENCENDER_REGISTRY)).toEqual(['MKT-F2-4: en ENCENDER_BLOCKERS con ficha closed en TECH_DEBT']);
   });
 
   // Canario sobre el índice REAL: devolver MKT-TL2 (ficha cerrada en 86ee9bdb) a la lista ⇒ rojo.
@@ -244,7 +328,7 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
 /** C-F17 (DESIGN_SYSTEM MKT2-UX.15) — rótulo del build. */
 describe('C-F17 · rótulo MEASUREMENT_NOTICE_*', () => {
   it('con N problemas: primera línea greppable, cada problema, «NO se publica» y las dos salidas', () => {
-    const problems = measurementNoticeProblems(privacyNoticeEs);
+    const problems = measurementNoticeProblems(oldNotice());
     const lines = formatMeasurementNoticeReport('on', problems, null);
     expect(lines[0]).toBe(`MEASUREMENT_NOTICE_REQUIRED mode=on problems=${problems.length}`);
     const text = lines.join('\n');
@@ -261,7 +345,7 @@ describe('C-F17 · rótulo MEASUREMENT_NOTICE_*', () => {
   });
 
   it('ninguna línea contiene un ID ni un secreto', () => {
-    const lines = formatMeasurementNoticeReport('on', measurementNoticeProblems(privacyNoticeEs), null).join('\n');
+    const lines = formatMeasurementNoticeReport('on', measurementNoticeProblems(oldNotice()), null).join('\n');
     expect(lines).not.toMatch(/G-[A-Z0-9]{4,}|\b\d{10,20}\b|GA4_|META_|api_secret|access_token/);
   });
 });

@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.110.3⟨descuentos⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.112⟨meta-prueba⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5
 > hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
@@ -22,7 +22,9 @@
 > - v1.110⟨descuentos⟩ · 2026-10-25 · [§DSC](#DSC) códigos de descuento: esquema `M-92`, orden del cálculo sobre §4-G.12, reparto por unidad, ciclo del uso atado a §4-R, retiro con envío gratis a MX$0 (P-DSC-3 (a) por defecto), endpoints de cliente y de `super_admin`, errores en §0, pruebas `DCO-*`; compactadas las cabeceras v1.85–v1.90/SU-1/BSD-1 · dueño (`HECHOS.md` 2026-10-25 «Códigos de descuento: opción B…» y «…P-DSC-1/2 y mínimo de compra»).
 > - v1.110.1⟨descuentos⟩ · 2026-10-25 · §DSC: respuestas a backend fase 1 (`1c6bb38a`) y frontend (`84ffa289`): envío gratis con `E` = 0 no aplica, `vaultBreakdown` sin código, congelado con `unitDiscountCents`, retiro con mercancía 0, carrera cuenta como fallido, lectores del original, limpieza PDB, `DiscountCodeBatchDTO`, `discountGivenCents` por código, `preview` y `audit`, `/admin/codes`, `enum-values.ts`, P-DSC-3 cerrada; DCO-B19 admite mecánica de reversa · backend/frontend (`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 > - v1.110.2⟨descuentos⟩ · 2026-10-26 · §DSC.7: `action` de la bitácora enumerada y `actor` nullable, `preview` en ceros cuando no aplica (y siempre en `free_shipping`), `status` de lote sin códigos sin usar (`active` + `exhausted`), «Envío regalado» = suma de dos campos, `batchId`/`from`/`to` fuera de §0-Q (tope 116); §M4-VAULT.2-bis.2 nombra la escritura del uso en el tardío — todo ratifica lo construido · frontend/backend sobre `e84c86fe`/`cc394d54`.
-> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1). La siguiente es **v1.111**.
+> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1).
+> - v1.111⟨aviso-medicion⟩ · 2026-10-26 · §MKT.H: sin abogado; C-D1 exige exactamente una de `legalReviewOn`/`legalReviewWaivedByOwnerOn` (ARCHITECTURE §14.1); .5/.10/.12 al día con las decisiones del aviso aprobado (ARCHITECTURE §14.10) · orquestador (`HECHOS.md` 2026-10-23 y 2026-10-26).
+> - v1.112⟨meta-prueba⟩ · 2026-10-26 · §MKT.H.1 versión de Graph `v26.0` entre marcadores; §MKT.H.12 `POST /admin/measurement/meta-test-event` y cierre de MKT-F2-3; `409 MEASUREMENT_META_NOT_CONFIGURED` en §0; compactados §MKT.A/.B/.E/.H.13/.H.14 · backend (MKT-F2-3, medición del 2026-10-26). La siguiente es **v1.113**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -8120,6 +8122,7 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - **`422 AMOUNT_TOO_LOW` (ya emitido, declarado en v1.110, MONEY):** el total a cobrar es menor que `StripeService.MIN_CHARGE_CENTS`
   (1000, `stripe.service.ts:65,180`); se rechaza antes de llamar a Stripe. `details: { minCents }`. Con código de descuento no se
   alcanza: §DSC.4 lo convierte antes en `not_applicable`/`TOTAL_BELOW_MINIMUM`.
+- **`409 MEASUREMENT_META_NOT_CONFIGURED` (v1.112):** `META_PIXEL_ID` o `META_CAPI_TOKEN` falta o no tiene forma (§MKT.H.1); `details: { reason: 'missing_config' | 'invalid_config' }`, ⛔ sin valores ni nombre de cuál. Solo `POST /admin/measurement/meta-test-event` (§MKT.H.12).
 - **Códigos de descuento (v1.110, MONEY, [§DSC](#DSC)):** `422 DISCOUNT_CODE_INVALID` — **genérico**: no existe, archivado,
   pausado, fuera de vigencia, agotado o agotado para este cliente; ⛔ sin `details`, mismo cuerpo, mismo estado en los seis
   casos (criterio 907) · `422 DISCOUNT_CODE_NOT_APPLICABLE` — vigente pero no aplica a este carrito o retiro; `details: { reason:
@@ -44746,17 +44749,10 @@ endpoint `GET /api/v1/catalog/sealed/:inventoryItemId`). ⛔ **No** se crea `/{l
 v1 citaba y que hoy da 404 porque esa ruta no existe). **Marketing — patrón de vuelta:**
 `https://tcghunt.mx/es/sellado/<inventoryItemId>`. Razón en ARCHITECTURE §13.2.1.
 
-El backend **ya** devuelve, en las respuestas públicas de ficha, casi todo lo necesario:
-
-| Dato | Ficha de carta (`GET /catalog/cards/:cardId`) | Ficha de sellado (`GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`) | Estado |
-|---|---|---|---|
-| Nombre / set / número | `card.name` / `card.setName` / `card.number` | `productName` / `card.setName` / — | Ya viaja |
-| Precio final **con IVA** + tasa | `displayPriceCents` + `ivaRatePct` | `fromPriceCents` (IVA dentro) + `ivaRatePct` | Ya viaja |
-| `availableCount` (>0 ⇒ «Disponible») | `stockCount` del grupo | `availableCount` | Ya viaja |
-| Imagen | `imageUrl` | `imageUrl` | Viaja; ⛔ NO MEDIDO que sea absoluta ni ≥1200×630 |
-| Fecha de consulta del precio | **ausente** | **ausente** | **DELTA** |
-
-**Deltas (aditivos, retrocompatibles) — campos nuevos en el DTO de ficha de carta y en `SealedGroupDTO`:**
+De qué campo sale cada dato (carta `GET /catalog/cards/:cardId` · sellado `GET /catalog/sealed/:inventoryItemId` → `SealedGroupDTO`):
+nombre/set/número `card.name`/`card.setName`/`card.number` · `productName`/`card.setName`; precio con IVA + tasa `displayPriceCents` ·
+`fromPriceCents`, ambos con `ivaRatePct`; «Disponible» `stockCount` del grupo · `availableCount`; imagen `imageUrl` (absoluta y ≥1200×630:
+NO MEDIDO). **Campos de la ficha (aditivos) en el DTO de carta y en `SealedGroupDTO`:**
 ```
 pricedAsOf   : string         // "YYYY-MM-DD", zona America/Mexico_City; fecha en que el servidor resolvió el precio
                               // de ESTA respuesta (SSR/ISR ⇒ fecha honesta en el HTML cacheado). ⛔ NO es now() del cliente.
@@ -44784,8 +44780,7 @@ SitemapResponse = {
 ```
   - `items` = una entrada por **ficha a la venta**: carta publicada (`status=listed`, `sellable`, precio fijado) y
     sellado publicado. `lastmod` = `updatedAt` de la pieza (o `max(updatedAt, último cambio de precio)` si es medible;
-    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod). Debe cuadrar en orden de magnitud con las **~884
-    publicaciones** del 16-oct (v2 §E1); el número exacto lo mide QA contra el stack.
+    si no, `updatedAt` y se declara — ⛔ no se inventa un lastmod).
   - Las rutas **estáticas** (home, catálogo, guías, preguntas, cómo-funciona) las añade el **frontend**; backend solo da
     las dinámicas. `robots.txt`, `canonical`, `www`→apex: frontend/devops (sin contrato).
   - `Cache-Control` corto (p. ej. `max-age=3600`); no es dato personal.
@@ -44832,26 +44827,15 @@ SitemapResponse = {
   - periodo — **una semana cerrada** (`?week=YYYY-Www` o `?weekStart=YYYY-MM-DD` lunes CDMX) **o un mes cerrado**
     (`?month=YYYY-MM`). ⛔ **Nunca** rango libre ni día. Semana/mes **abiertos** o rango libre ⇒ **400** (evita restar
     dos rangos solapados para despejar una celda oculta).
-  - **401** sin token, token inválido/revocado/caducado, **o token válido en CUALQUIER OTRA ruta del admin** (ver
-    DECISIÓN **D-MKT-AUTZ** abajo — era «403» en el brief; se amenda a **401**); **400** en rango no permitido (genérico,
-    sin detalle interno, Panel §7.2) o `pantalla` fuera de lista (con `field`+`allowed`, que es la lista blanca pública de
-    arriba, ⛔ no detalle interno — v1.104); **429** al pasar 60/h. El **403** del panel es
-    de **SESIÓN**: una cuenta admin **sin** `marketing:read` (§MKT.D / §13.4.1) ⇒ 403 en `/admin/marketing`, exports,
-    botón semanal y rutas de datos.
-  - Respuesta con `Cache-Control: no-store` (⛔ nunca en caché de CDN). **Celdas pequeñas** desde la primera respuesta
-    (regla completa: §MKT.H.14). **Ninguna fila por pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
-
-> **DECISIÓN D-MKT-AUTZ (v1.96.1) — token `marketing-reader` en otra ruta del admin ⇒ 401, no el 403 del brief (Panel §6(1),
-> §7.2; relayado a marketing).** El token es opaco: `JwtAuthGuard` lo rechaza como no autenticado, y dar 403 exigiría que la auth
-> compartida, adyacente a dinero, reconozca tokens de marketing. La propiedad es la denegación. `MarketingApiTokenGuard` va **solo**
-> en `aggregates`; 403 = **sesión** sin `marketing:read`. Prueba: E2E con el token en ≥2 rutas del admin fuera de `aggregates` ⇒ 401.
+  - **401** sin token o con token inválido/revocado/caducado; **400** en rango no permitido (genérico, sin detalle interno) o
+    `pantalla` fuera de lista (con `field`+`allowed`); **429** al pasar 60/h. Respuesta `Cache-Control: no-store`. **Celdas pequeñas**
+    siempre (§MKT.H.14). **Ninguna fila por pedido/solicitud** (ni con id opaco). Cada llamada ⇒ `MarketingAccessLog`.
+  - **D-MKT-AUTZ** (razones: ARCHITECTURE §13): el token en **cualquier otra** ruta del admin ⇒ **401**; `MarketingApiTokenGuard` va **solo**
+    en `aggregates`; **403** = **sesión** sin `marketing:read` (§MKT.D). Prueba: E2E con el token en ≥2 rutas del admin fuera de `aggregates` ⇒ 401.
 - **(h1) Anotaciones de fecha — CRUD de SESIÓN (`marketing:read`), ⛔ nunca el token** (`MarketingDateAnnotation`; enum en §0):
-  - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` — sesión `marketing:read`. Lista de
-    `{id, date, kind, label, destino?, createdAt}` del rango (para pintar las gráficas a/b/c del admin).
-  - `POST /api/v1/admin/marketing/annotations` — sesión `marketing:read`. Body `{date, kind, label, destino?}`;
-    valida/limpia PII (`422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC; §13.4.6) ⇒ **201** con la fila.
-  - `PATCH /…/annotations/:id` y `DELETE /…/annotations/:id` — sesión `marketing:read`; `404` si no existe.
-  - **El token `marketing-reader` en TODAS estas rutas ⇒ 401** (D-MKT-AUTZ). Una **sesión** sin `marketing:read` ⇒ **403**.
+  - `GET /api/v1/admin/marketing/annotations?from=YYYY-MM-DD&to=YYYY-MM-DD` ⇒ `{id, date, kind, label, destino?, createdAt}[]` del rango.
+    `POST …/annotations` body `{date, kind, label, destino?}`; `422 VALIDATION_ERROR` si trae `@`, dígitos largos o CURP/RFC (§13.4.6) ⇒ **201**
+    con la fila. `PATCH`/`DELETE …/annotations/:id`; `404` si no existe. El token ⇒ 401 (D-MKT-AUTZ); sesión sin `marketing:read` ⇒ 403.
   - **Se EMBEBEN** en `GET …/aggregates` (`annotations: [{date, kind, label, destino?}]`) y en la hoja **«Info»** del export y del
     botón semanal, **como texto saneado** (PM-B1); ⛔ **sin** celdas pequeñas (no son conteo). Cada acceso ⇒ `MarketingAccessLog`.
 - **Botón «Descargar Excel de la semana» (P2=B)** en `/admin/marketing`, visible solo con `marketing:read`: .xlsx de la
@@ -44860,27 +44844,22 @@ SitemapResponse = {
   pantalla (a-h) + hoja «Info».
 - **Query de las rutas de sesión que descargan (v1.104; antes solo vivía en el código).** Periodo = la misma regla que
   `aggregates` (`week` | `weekStart` | `month`, uno, cerrado; `from`/`to`/`day`/`preset` ⇒ **400**):
-  - `GET /admin/marketing/export?pantalla=&format=&<periodo>` — `pantalla` como `aggregates`. Periodo **obligatorio**.
-  - `format` — DOMINIO CANÓNICO (clase L, SELECTOR de §0-Q punto 6-bis): `xlsx|csv`. Obligatorio, sin default; ausente,
-    vacío o fuera ⇒ **400** `VALIDATION_ERROR` con `details.{field:'format', allowed}`.
-  - `GET /admin/marketing/export/todo?<periodo>` — sin `pantalla` ni `format` (siempre `.xlsx`). Periodo **obligatorio**.
-  - `GET /admin/marketing/weekly-excel?<periodo>` — periodo **opcional**: sin él, la última semana cerrada (como `panel`).
-  - `GET /admin/marketing/annotations?from=&to=` — días `YYYY-MM-DD`, opcionales; fuera de forma ⇒ **400** `VALIDATION_ERROR`.
-  - Clase de cada llave en `C-EQ-1`: §0-Q punto 4, nota `CEQ-MKT-1`.
+  - `GET /admin/marketing/export?pantalla=&format=&<periodo>` (periodo **obligatorio**; `pantalla` como `aggregates`; `format` DOMINIO CANÓNICO
+    clase L, SELECTOR §0-Q 6-bis, `xlsx|csv`, obligatorio, ausente/vacío/fuera ⇒ **400** `VALIDATION_ERROR` `details.{field:'format', allowed}`) ·
+    `GET …/export/todo?<periodo>` (obligatorio, siempre `.xlsx`) · `GET …/weekly-excel?<periodo>` (opcional: sin él, la última semana cerrada) ·
+    `GET …/annotations?from=&to=` (días opcionales; fuera de forma ⇒ **400**). Clase de cada llave en `C-EQ-1`: §0-Q punto 4, nota `CEQ-MKT-1`.
 - **Reglas de export (§4, PM-B1):** CSV con prefijo `'` en celdas que empiecen por `=`,`+`,`-`,`@`, tab o `\r`,
   entrecomilladas; UTF-8 **con BOM**. XLSX: texto como **tipo texto** (nunca fórmula), montos MXN con IVA como número
   `$#,##0.00`. `Cache-Control: no-store` + `Content-Disposition: attachment`, generado al vuelo. Nombre
-  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒
-  `MarketingAccessLog`.
-- **Reutiliza** `sales-analytics` (super_admin, §15/§AN) para las cifras de dinero (a1/a2/a3, d1) componiéndolo desde un
-  **nuevo** `marketing-analytics` (módulo `backend/src/modules/marketing/`). ⛔ El panel **no** modifica `sales-analytics`
-  ni escribe en GA4/Meta/tienda: solo lee.
+  `tcghunt_<pantalla>_<desde>_<hasta>_corte-<AAAAMMDD-HHMM>.xlsx` (botón semanal: `<pantalla>=semana`). Cada export ⇒ `MarketingAccessLog`.
+- **Reutiliza** `sales-analytics` (§15/§AN) para el dinero (a1/a2/a3, d1) desde `marketing-analytics` (`backend/src/modules/marketing/`).
+  ⛔ El panel **no** modifica `sales-analytics` ni escribe en GA4/Meta/tienda: solo lee.
 
 ### MKT.F — Preguntas abiertas para JC (no se asume; regla de conflicto)
 
 Ver ARCHITECTURE §13.6: (1) ¿el CDN ofrece imagen ≥1200×630 para `og:image`, o se acepta `null`? (2) ¿hay stickers ya
 publicados a `/catalog/sealed/<id>` que exijan un 301? (3) ventana de `priceValidUntil` del JSON-LD; (4) confirmar que c7
-puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. Preguntas de Fase 2: §MKT.H.12.
+puede derivar el estado de `shippingAddressSnapshot` sin denormalizar columna. Preguntas de Fase 2: ARCHITECTURE §14.10.
 
 ### <a id="MKT-G"></a>MKT.G — La pantalla del panel por SESIÓN: datos JSON, periodos y acceso del analista (rev v1.101⟨mkt-panel⟩, 2026-10-18, arquitecto, **NORMATIVA**)
 
@@ -45076,39 +45055,24 @@ MarketingApiTokenIssued = { id: string, label: string, token: string, createdAt:
 
 #### MKT.G.8 Fuera de Fase 0 (declarado, no olvidado)
 
-- **Rango libre y detalle por día en pantalla** (Panel §2): no se contratan. Con `exact` no costarían privacidad al dueño, pero piden
-  otra validación de periodo, otro selector y gráficas por día: delta propio cuando el dueño lo pida; para otra cuenta, prohibido (§13.5).
-- **Gráficas por día con anotaciones** (criterio (h)): sin detalle diario no hay gráfica; la anotación sale en la franja del periodo
-  de a, b y c y en «Info» (relayado a marketing, Panel §7 punto 6).
-- **Interruptor pagado/orgánico:** no se pinta en Fase 0. **Exportar por tabla:** el export es por pantalla y «Exportar todo»; no se contrata.
+No se contratan: rango libre y detalle por día (delta propio si el dueño lo pide; para otra cuenta, prohibido, §13.5); gráficas por día
+(la anotación sale en la franja del periodo de a, b, c y en «Info»); interruptor pagado/orgánico; export por tabla (es por pantalla y «Exportar todo»).
 
 #### MKT.G.9 Pruebas que lo vigilan (las escribe backend; QA las ejecuta)
 
-1. **Paridad A=B en el panel (régimen `small_cells`):** para cada pantalla y un periodo fijo, `panel` pedido por una sesión
-   `vault_operator` con fila `marketing_read` y `aggregates` dan cuerpos iguales en profundidad (incluido `privacy:'small_cells'`).
-2. **Metadatos de ruta:** `panel` y `periods` llevan `@RequirePermission(marketing_read)` y **no** `@Public()`; las tres de `tokens`
-   llevan `@Roles(super_admin)` y **no** `@Public()`; `MarketingApiTokenGuard` sigue montado **solo** en `aggregates`.
-3. **Cruce de principales (E2E):** el token `marketing-reader` en `panel`, `periods` y `tokens` ⇒ **401**; una sesión
-   `vault_operator` con fila `marketing_read` en `tokens` ⇒ **403**.
-4. **Revocar sin desplegar (cierra MKT-TL4):** emitir ⇒ `aggregates` 200 con ese token ⇒ revocar ⇒ `aggregates` **401** en el mismo
-   proceso.
-5. **El claro una sola vez:** el JSON de `GET …/tokens` y de `…/revoke` no tiene las claves `token` ni `tokenHash`; la fila de
-   `AuditLog` tampoco.
-6. **Catálogo:** los `tables[].id` de cada pantalla son los de MKT.G.4, en ese orden.
-7. **Registro:** cada `GET …/panel` deja una fila `MarketingAccessLog` con `actorUserId`, `filters.surface = 'panel'` y
-   `filters.privacy`.
-8. **(v1.103) El dueño ve el número real:** fixture con una fila de dimensión de N=3 y MX$ conocido (p. ej. d1 o a3). `panel` con
-   sesión `super_admin` ⇒ `privacy:'exact'`, la celda vale `3` (número) y el MX$ es el real; la misma petición con la sesión delegada
-   ⇒ `'< 5'` y MX$ `'oculta'` (v1.106). Con `exact`, el conjunto de `tables[].id` y de claves de fila es el de `small_cells` sin la fila «Otros».
-9. **(v1.103) Fuera de pantalla nunca es exacto:** con sesión `super_admin`, `export`, `export/todo` y `weekly-excel` de ese fixture
-   llevan `< 5` en el fichero; `aggregates` con token, también. **Canario:** derivar el régimen como `'exact'` siempre ⇒ esta prueba
-   roja. Y estático: `'exact'` solo lo produce el manejador de `panel`; `screen()` no tiene régimen por defecto.
-10. **(v1.103) Supresión coherente:** fixture en **febrero 2027** (empieza en lunes 1 y acaba en domingo 28: el mes es exactamente
-    sus cuatro semanas). Clave `k` con semanas `[3, 6, 6, 6]` (mes 21) ⇒ la semana 1 da `'< 5'` y el mes da `k` = `'oculta'` con MX$
-    `'oculta'`; ninguna combinación de los cinco ficheros (4 semanas + mes) despeja el 3. Sin la regla (canario: quitar el paso de
-    coherencia) el mes enseña 21 y la prueba sale roja.
-11. **(v1.103) Mes cerrado = su última semana cerrada:** con el reloj en el lunes 26-oct-2026, `month=2026-10` ⇒ 400 y no sale en
-    `periods.closedMonths`; con el reloj en el lunes 2-nov-2026 ⇒ 200.
+1. **A=B en `small_cells`:** por pantalla y periodo fijo, `panel` de una sesión `vault_operator` con `marketing_read` = `aggregates` en profundidad.
+2. **Metadatos:** `panel`/`periods` con `@RequirePermission(marketing_read)`, `tokens` (las tres) con `@Roles(super_admin)`, ninguna `@Public()`;
+   `MarketingApiTokenGuard` **solo** en `aggregates`. 3. **Cruce (E2E):** el token en `panel`, `periods` y `tokens` ⇒ 401; `vault_operator`
+   con `marketing_read` en `tokens` ⇒ 403. 4. **Revocar sin desplegar:** emitir ⇒ `aggregates` 200 ⇒ revocar ⇒ 401 en el mismo proceso.
+5. **El claro una vez:** ni `GET …/tokens`, ni `…/revoke`, ni `AuditLog` tienen `token`/`tokenHash`. 6. **Catálogo:** `tables[].id` = MKT.G.4,
+   en orden. 7. **Registro:** cada `GET …/panel` ⇒ `MarketingAccessLog` con `actorUserId`, `filters.surface='panel'` y `filters.privacy`.
+8. **El dueño ve el número real:** fila de dimensión con N=3 y MX$ conocido (d1 o a3): `panel` de `super_admin` ⇒ `privacy:'exact'`, `3` y
+   el MX$ real; la sesión delegada ⇒ `'< 5'` y `'oculta'`; con `exact`, mismos `tables[].id` y claves que `small_cells` sin «Otros». 9. **Fuera de
+   pantalla nunca es exacto:** `export`, `export/todo`, `weekly-excel` (sesión `super_admin`) y `aggregates` llevan `< 5` (canario: régimen siempre
+   `'exact'` ⇒ rojo); `'exact'` solo lo produce el manejador de `panel` y `screen()` no tiene régimen por defecto. 10. **Coherencia:** febrero 2027
+   (sus cuatro semanas exactas), clave `k` con `[3, 6, 6, 6]` ⇒ semana 1 `'< 5'`, mes `'oculta'` con su MX$; ningún combo de los cinco ficheros
+   despeja el 3 (canario: sin el paso ⇒ el mes enseña 21). 11. **Mes cerrado = su última semana cerrada:** reloj lunes 26-oct-2026 ⇒
+   `month=2026-10` 400 y fuera de `periods.closedMonths`; lunes 2-nov-2026 ⇒ 200.
 
 #### MKT.G.10 Supresión coherente entre mes y semanas (v1.103, DECISIÓN D-MKT-PANEL-4; nota de seguridad del brief Panel §5.2)
 
@@ -45131,7 +45095,7 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 ### <a id="MKT-H"></a>MKT.H — Fase 2: consentimiento, GA4, Meta Pixel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto, **NORMATIVA**; se construye APAGADO)
 
 > Diseño y razones: **ARCHITECTURE §14**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel f1/f2/f3/g1. **Se construye pero no se
-> enciende** hasta el aviso revisado por el abogado, que sale en el mismo despliegue o antes (`PENDIENTES.md:1059-1060`). Migración
+> enciende** hasta que el aviso declare la medición (puerta D-MKT2-0b, ARCHITECTURE §14.1), en el mismo despliegue o antes. Migración
 > **m86**. Toca `orders`/`payments`/`buylist` solo para leer y encolar **después del commit** (MKT.H.6). Tres veredictos.
 
 #### MKT.H.1 Variables de entorno (fuente única de nombres)
@@ -45150,7 +45114,15 @@ descargas en fechas distintas pueden diferir en una fila, y lo que se despeja es
 | `MKT_GA4_PROPERTY_ID` | Railway | no | `^\d{6,12}$` | tablas GA4 `measured:false` |
 | `MKT_SEARCH_CONSOLE_SITE` | Railway | no | `sc-domain:tcghunt.mx` o URL `https://…/` | tabla e1 `measured:false` |
 
-- La versión de la API de Graph de Meta va **fija en código** (constante), no en variable: cambiarla es un cambio revisado.
+- **Versión de Graph de Meta (CAPI y evento de prueba): fija en código** (`META_GRAPH_API_VERSION`, `measurement.config.ts`), no en
+  variable; este bloque es su única fuente en `docs/` (la prueba de paridad de backend lo lee; BACKEND_NOTES enlaza, no copia).
+  `reviewBy` = fin de `v25.0` (la última fecha publicada en la tabla de Marketing API; la de `v26.0` es «TBD», medido por backend el
+  2026-10-26): desde ese día la prueba de backend está roja hasta re-medir la tabla de Meta y mover la fila (cambio de contrato).
+<!-- META-GRAPH-VERSION:start -->
+| `version` | `reviewBy` |
+|---|---|
+| `v26.0` | `2027-02-23` |
+<!-- META-GRAPH-VERSION:end -->
 - **Orígenes de medición en la CSP con modo `on`** (`connect-src`): `https://www.googletagmanager.com`,
   `https://*.google-analytics.com`, `https://*.analytics.google.com`, `https://connect.facebook.net`, `https://www.facebook.com`.
   Con `off`, ninguno. Lista exacta que piden `gtag.js`/`fbevents.js`: **NO VERIFICADO** (se completa con los informes de la fase
@@ -45272,8 +45244,8 @@ Item = { item_id: string /* MKT.H.4 */, item_name: string /* MKT.H.4 */, item_ca
 ```
 - Solo si `measurementConsentAds = true` **y** hay `fbp` o `fbc`. Si no, no se encola.
 - ⛔ `user_data` solo admite `fbp` y `fbc`. Prohibido siempre, también con hash: `em`, `ph`, `fn`, `ln`, `ct`, `st`, `zp`, `country`,
-  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (este último, hasta que el dueño decida: ARCHITECTURE §14.10
-  pregunta 2), `lead_id`, `fb_login_id`, `subscription_id`.
+  `db`, `ge`, `external_id`, `client_ip_address`, `client_user_agent` (decidido por el dueño, ARCHITECTURE §14.10), `lead_id`,
+  `fb_login_id`, `subscription_id`.
 
 #### MKT.H.6 Cuándo se encola y cómo se drena
 
@@ -45373,8 +45345,8 @@ y cargarlo **él** en el almacén de secretos de Railway como `META_CAPI_TOKEN`.
 configuración automática de eventos **apagadas**; sin audiencias ni conversiones personalizadas. 4. En GA4: crear el flujo web, el
 `api_secret` de Measurement Protocol (lo carga él como `GA4_MP_API_SECRET`), Google Signals apagado, personalización de anuncios
 apagada, datos proporcionados por el usuario apagados, retención 14 meses. 5. Dar a la cuenta de servicio de la tienda rol Lector
-en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por el abogado. Los nombres de menú de Meta y Google:
-**NO VERIFICADOS**.
+en GA4 y usuario restringido en Search Console. 6. (Aviso: ya aprobado sin abogado, `HECHOS.md` 2026-10-23 y 2026-10-26.) 7. Mandar el
+evento de prueba desde su admin y verlo en «Eventos de prueba» de Meta (§MKT.H.12). Nombres de menú de Meta y Google: **NO VERIFICADOS**.
 
 #### MKT.H.11 Candados (las pruebas las escribe el rol dueño; QA las ejecuta)
 
@@ -45388,7 +45360,7 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-F9** | frontend (unitaria + Playwright, v1.109) | `isMeasuredPath`: `/es/buylist` y `/card-show` ⇒ sí; `/es/buylist/requests/x`, `/card-show/confirm`, `/card-show/cancel`, `/card-show/unsubscribe` ⇒ no. En `/card-show` solo sale `page_view` a GA4 (sin eventos de formulario) y, mientras P-CS-MEDIR-1 no diga otra cosa, `fbevents.js` no carga | añadir `/card-show/:seg` o mandar `generate_lead` desde la landing ⇒ rojo |
 | **C-F6** | frontend (unitaria) | `track()` con un parámetro fuera de la lista de MKT.H.4 (p. ej. `email`) lo descarta; en ruta fuera de la lista blanca no envía nada | ampliar la lista ⇒ rojo |
 | **C-F7** | frontend | `buildCsp` con `off` no lleva ningún origen de medición; con `on` lleva exactamente los de MKT.H.1 | — (prueba de texto, como `csp.test.ts`) |
-| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null`, frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
+| **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null` o sin **exactamente una** de `legalReviewOn`/`legalReviewWaivedByOwnerOn` con fecha, ARCHITECTURE §14.1; frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
@@ -45404,17 +45376,55 @@ en GA4 y usuario restringido en Search Console. 6. Mandar el aviso revisado por 
 | **C-B8** | backend | purga: filas con `expiresAt` vencido ⇒ borradas; filas enviadas ⇒ borradas | — |
 | **C-B9** | backend | `banner-response`: `utmMedium` fuera de los cuatro ⇒ `null`; el UA no se guarda; 31.ª petición en una hora ⇒ 429 | — |
 
-#### MKT.H.12 Preguntas para el dueño
+#### <a id="MKT-H12"></a>MKT.H.12 Evento de prueba de Meta — `POST /api/v1/admin/measurement/meta-test-event` (v1.112, cierra MKT-F2-3)
 
-Las de ARCHITECTURE §14.10 (GTM, agente de usuario a CAPI, `client_id` 7 días, re-preguntar, `refund`; la del Card Show la
-contestó el dueño el 2026-10-24 y deja P-CS-MEDIR-1 sobre Meta en la landing).
+Comprueba con el token y el conjunto de datos reales que Meta acepta la versión de MKT.H.1, **antes** de encender (razones: ARCHITECTURE
+§14.10). Sesión `@Roles(super_admin)` como MKT.G.6 (⛔ no `marketing:read` ni `@Public()`). **En cualquier modo:** lee `readMeasurementConfig(env).meta`
+**sin** `destinationEnabled` ni `gateMeasurementConfig` (envía con `off` y con el bloqueo abierto: es lo que lo cierra); ⛔ no encola, no
+toca la cola ni el contexto, no lee pedidos ni usuarios. **Request** `{ testEventCode: string }`: recortado, `^TEST[0-9]{3,10}$` (forma de Meta NO VERIFICADA: si no cabe, cambio de contrato); ausente, otra
+forma o claves de más ⇒ **422** `VALIDATION_ERROR` `details.{field:'testEventCode'}` (⛔ sin el valor); body que no es objeto ⇒ **400**.
+- **Lo único que sale** (constructor puro `buildMetaTestEventBody`), por `measurement-http.ts` con timeout 5 s:
+```ts
+POST https://graph.facebook.com/<version de MKT.H.1>/<META_PIXEL_ID>/events
+{ data: [{ event_name: 'PageView', event_time: number /* epoch s */, event_id: 'test-<uuid v4>', action_source: 'website',
+           event_source_url: string /* 1.er origen de APP_BASE_URL + '/' */, user_data: { fbp: 'fb.1.<epoch ms>.<10 dígitos al azar>' } }],
+  test_event_code: string, access_token: string /* META_CAPI_TOKEN */ }
+```
+  `user_data` = la lista cerrada de producción (MKT.H.5): un `fbp` sintético nuevo por envío, de nadie. ⛔ Sin `custom_data`, `external_id` (ni
+  aleatorio con hash), `client_user_agent`, `client_ip_address` ni ninguna clave «prohibida siempre». Si Meta exige más, sale `rejected` y va al dueño.
+  Método nuevo `MeasurementHttp.postMetaDiagnostic(url, body, timeoutMs)`, nunca lanza; del JSON de Meta toma **solo** `events_received`, `fbtrace_id`,
+  `messages` (≤ 5) y `error.{code, error_subcode, type, message}`; cada texto ≤ 300 caracteres, con el token y `access_token=…` ⇒ `[token]`.
+- **200** con `Cache-Control: no-store`, **también si Meta rechaza** (el diagnóstico es la respuesta):
+```ts
+MetaTestEventResult = { status: 'accepted' | 'rejected' | 'unreachable', // accepted ⇔ 2xx y eventsReceived === 1; unreachable = red/timeout
+  httpStatus: number | null, metaVersion: string, pixelId: string /* público */, testEventCode: string, eventName: 'PageView', eventId: string,
+  sentAt: string /* ISO */, eventsReceived: number | null, fbtraceId: string | null, metaMessages: string[],
+  metaError: { code: number | null, subcode: number | null, type: string | null, message: string | null } | null }
+```
+- **Errores:** 400 · 401 · **403** `FORBIDDEN` (otro rol, aunque tenga `marketing:read`) · 422 · **409** `MEASUREMENT_META_NOT_CONFIGURED` (§0, no sale
+  nada) · **429** `RATE_LIMITED` `details.{retryAfterSeconds}` + `Retry-After`: **5 envíos por 60 min móviles, global**, contados en `AuditLog`,
+  conteo y alta serializados con candado consultivo (dos a la vez no pasan las dos la 5.ª). 400/409/422/429 no cuentan ni se auditan.
+- **Bitácora:** `AuditLog` por envío, `measurement.meta_test_event` `{entityType:'MeasurementTestEvent', entityId: eventId, after: {status,
+  httpStatus, metaVersion, testEventCode, eventsReceived, fbtraceId, metaErrorCode}}`, `actorUserId`, `ip`. Log: `MEASUREMENT_META_TEST
+  status= http= version=`. ⛔ El token no está en respuesta, bitácora ni log; ⛔ ni URL ni cuerpo en el log.
+- **Pantalla:** `/admin/marketing`, pestaña solo `super_admin` «Acceso del analista», bloque propio visible en cualquier modo: campo «Código de
+  prueba» (misma regex en cliente) y botón «Enviar evento de prueba a Meta»; pinta el `status` con `metaVersion`, `eventId`, `fbtraceId` y hora, y si
+  `rejected`, `metaError.message`; 409 ⇒ falta configurar Meta en el servidor; 429 ⇒ minutos de espera. ⛔ Ni código ni resultado en URL o storage. Textos: ux-ui.
+- **Pruebas** (QA las ejecuta): **C-B12** claves de cada nivel = las de arriba, URL con la versión de MKT.H.1 (canario: `external_id` con hash ⇒ rojo).
+  **C-B13** un doble de Meta que devuelve el token en `error.message` ⇒ no está en respuesta, bitácora ni log (canario: sin redacción ⇒ rojo). **C-B14**
+  `off` + bloqueo abierto ⇒ envía; sin token ⇒ 409 y 0 llamadas; 6.º en la hora ⇒ 429; 4 previos + 2 en paralelo ⇒ exactamente un 429 (N=10, 10/10). **C-B15**
+  constante = `version` de MKT.H.1 y hoy < `reviewBy`; con línea `META-GRAPH-VERIFIED` en BACKEND_NOTES, su versión = la constante; sin ella, MKT-F2-3
+  abierta y bloqueando (canario: constante `v25.0` ⇒ rojo). **C-F10** (frontend) bloque ausente para otro rol; pinta los tres `status`, 409 y 429.
+- **Cierre de MKT-F2-3, en orden (falta uno ⇒ abierta):** (1) desplegada la versión de MKT.H.1 + este endpoint; (2) el dueño envía y sale `accepted` (fila de
+  `AuditLog` con `metaVersion` = la constante); (3) ve el `PageView` con ese `eventId` en «Eventos de prueba» y lo dice: fila de `HECHOS.md` con fecha
+  (orquestador). Luego backend, en **un** commit: línea `META-GRAPH-VERIFIED` en BACKEND_NOTES §MKT.H (`version · fecha · fbtraceId · id de AuditLog ·
+  fila de HECHOS`), ficha ✅ y fuera de `BACKEND_ENCENDER_BLOCKERS`; frontend la quita de `ENCENDER_BLOCKERS` en el siguiente (SEC-MKT-2). Avisos de
+  Meta (calidad de coincidencia sin agente de usuario) no bloquean: van al dueño (ARCHITECTURE §14.10). **Cambiar la versión** = mismo commit: constante y fila de
+  MKT.H.1 nuevas (arquitecto), sin línea `META-GRAPH-VERIFIED`, ficha reabierta con su bloqueo (efectivo `off`); se cierra otra vez así.
 
-#### MKT.H.13 Qué cambia cada rol con v1.107 (lo de v1.106 está en el árbol, leído el 2026-10-19; el verde de sus pruebas: NO MEDIDO)
+#### MKT.H.13 Pendiente de v1.107 (frontend; NO MEDIDO el 2026-10-26: `solicitudes: 7` no aparece en las pruebas del panel)
 
-| Rol | Cambio | Prueba que lo vigila |
-|---|---|---|
-| frontend | `ENCENDER_BLOCKERS` += `SEC-MKT-1` y `MKT-TL2` (owner backend; `closedBy` = prueba 2 y pruebas 1+3); salen en el commit de frontend que sigue al verde de backend | `measurement-gate.test.ts` (lista exacta, `:109`) |
-| frontend | fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$ (ya se pinta por celda, `MarketingTable.tsx:35`; falta el caso), también en el mock de b | `MarketingTable.test.tsx` |
+Fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su MX$, también en el mock de b; lo vigila `MarketingTable.test.tsx`.
 
 #### <a id="MKT-H14"></a>MKT.H.14 Celdas pequeñas por componente y registro de poblaciones (v1.107, 2026-10-19, **NORMATIVA**; SEC-MKT-1, MKT-TL2)
 
@@ -45484,27 +45494,16 @@ mxnOfertado:700}`. Nota: «Pedidos y solicitudes se ocultan por separado: menos 
 ReadonlySet<CellId>)`; `marketing-populations.ts` (fuente en código del registro): `MARKETING_POPULATIONS`, `MARKETING_TABLES`,
 `MARKETING_EQUATIONS`, `ACCEPTED_TOTALS`, `exposedCells(cells, equations): CellId[]`, `enforceFamily(plan)`.
 
-**Pruebas (backend; QA las ejecuta; rojas sobre `bfd91ab2`):**
-1. `test/marketing-populations.registry.spec.ts` (MKT-TL2 a): 8 pantallas × semana/mes × modo off/on con dobles GA4/SC ⇒ todo
-   `tables[].id` en `MARKETING_TABLES`; toda columna no `text` medida en un componente o en «exactas»; toda población con oráculo en
-   `test/support/disclosure-audit.ts`; `MARKETING_TABLES` = MKT.G.4. Canario: tabla `zz` en `screenRaw` ⇒ rojo.
-2. `test/marketing-small-cells.by-component.spec.ts` (SEC-MKT-1, R0, R1): la sonda literal de seguridad (2026-W41, `instagram/paid/
-   pieza-x`) ⇒ ninguna celda de b1-b3 ni g1 vale `12345.67` y `pedidos` es `'< 5'`; el caso 1 + 7; d1, un pedido de 5 piezas ⇒ `'< 5'`
-   y `mxn:'oculta'`; d3, 2 usuarios × 3 acabados ⇒ `'< 5'`; en un mes, una fila `'oculta'` no cae entre dos visibles.
-3. `test/marketing-cross-table.audit.spec.ts` (MKT-TL2 b, c): servicio real con Prisma de dobles sembrado, todas las pantallas del
-   periodo; auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E7 literal y exige `MARKETING_EQUATIONS`
-   igual). Rojo si: (D1) conteo visible con oráculo `0<N<5`; (D2) MX$ visible de un componente oculto; (A1) celda con `N<5` despejable
-   fuera de X1; (A2) MX$ con `N<5` despejable. Casos: «SEC-MKT-1», «b2 7 = b1 6 + 1, pareja fuera de la puerta», «g1 pareja en b2»,
-   «b3 dm ≡ b2 dm», «a3 pagadas 1..4», «c7↔a1», «febrero 2027 [3,6,6,6] en b1 con f3»; semillas fijas 1..200 (componentes 1-4 y
-   5-9, 1-6 orígenes, las cuatro puertas; determinista). El auditor muerde: tres sistemas a mano con exposición conocida.
-
-**Pruebas v1.109 (MKT-MEDIR-CS; rojas hoy porque b5/b6 no existen):** prueba 1 ⇒ `MARKETING_TABLES` gana b5/b6 (lee MKT.G.4);
-prueba 2 gana: un día con 1 lead + 7 preinscripciones ⇒ `avisame:'< 5'`, `torneo:7`; un buzón con lead `visitor` y `merchant` cuenta 1
-sujeto y 2 filas; `pending` y `confirmedAt` fuera del periodo no cuentan; un `utmCampaign` con `@` ⇒ «No válido». Prueba 3 gana E8/E9,
-X3 y la ablación «b6 sin R3(a)» ⇒ rojo. Lee `CardShowLead`/`CardShowPlayerSignup` (zona Card Show) solo por `select` de conteo.
-**Terminado:** las tres rojas sobre `bfd91ab2` por su motivo y verdes en el sha nuevo, con toda `test/marketing-*` verde; ablaciones
-deterministas (N=3 cada una): b1-b3 de vuelta a un componente con `count: e.o + e.s` ⇒ 2 y 3 rojas; quitar E3 ⇒ 3 roja;
-`enforceFamily` que devuelva el plan sin tocar ⇒ «g1 pareja en b2» y «b2 7 = b1 6 + 1» rojas; después, fuera de `ENCENDER_BLOCKERS`.
+**Pruebas (backend; QA las ejecuta):** 1. `test/marketing-populations.registry.spec.ts`: 8 pantallas × semana/mes × off/on con dobles
+GA4/SC ⇒ todo `tables[].id` en `MARKETING_TABLES` (= MKT.G.4, con b5/b6), toda columna no `text` en un componente o en «exactas», toda
+población con oráculo en `test/support/disclosure-audit.ts` (canario: tabla `zz` ⇒ rojo). 2. `test/marketing-small-cells.by-component.spec.ts`
+(R0, R1): sonda de seguridad (2026-W41, `instagram/paid/pieza-x`) sin `12345.67` y con `'< 5'`; 1 + 7; d1 un pedido de 5 piezas y d3 2 usuarios ×
+3 acabados ⇒ `'< 5'`; una `'oculta'` no cae entre dos visibles; b5/b6: 1 lead + 7 ⇒ `avisame:'< 5'`, `torneo:7`, un buzón con dos tipos = 1 sujeto
+y 2 filas, `pending` fuera, `utmCampaign` con `@` ⇒ «No válido». 3. `test/marketing-cross-table.audit.spec.ts`: servicio real con Prisma de dobles;
+auditor propio (⛔ no importa `small-cells.ts` ni `exposedCells`; declara E1-E9 literal = `MARKETING_EQUATIONS`); rojo si D1 conteo visible con
+`0<N<5`, D2 MX$ visible de un componente oculto, A1/A2 celda o MX$ con `N<5` despejable fuera de X1; casos con nombre de la v1.107 y X3, semillas
+1..200 deterministas; el auditor muerde con tres sistemas a mano. Ablaciones que deben morder (N=3 c/u): b1-b3 a un componente ⇒ 2 y 3 rojas;
+sin E3 ⇒ 3; `enforceFamily` identidad ⇒ «g1 pareja en b2» y «b2 7 = b1 6 + 1»; «b6 sin R3(a)» ⇒ 3. Card Show: solo `select` de conteo.
 
 ## <a id="CARDSHOW"></a>CARDSHOW. LANDING DEL CARD SHOW — captura pública, doble opt-in, presupuesto de envíos y anti-abuso SIN captcha (rev v1.96⟨cardshow-leads⟩, 2026-10-17, **NORMATIVA**, PII · SIN DINERO)
 
