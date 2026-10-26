@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.110.2⟨descuentos⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.110.3⟨descuentos⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5
 > hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
@@ -21,7 +21,8 @@
 > - v1.109⟨envio-v2⟩ · 2026-10-24 · [§4-G.12](#4-G12) regla de envío v2 (solo cartas / con sellado, umbral de envío gratis, tres diales, `shippingRule` en el quote de invitado, `GET /checkout/shipping-rule`; **v1.109.1** misma fecha: P-ENV-1 cerrada, los diales de envío directo pasan a exhibidos con IVA dentro, la migración ya no copia `shipping_fee_cents`, ENV-1/5/6/8 e IVA-6(a) ajustados · dueño 2026-10-24; **v1.109.2** 2026-10-25: accesorio = `deckPull` con paquete aceptado, `freeShippingApplied` ⇔ `E = 0`, P-ENV-2 cerrada · techlead R2; **v1.109.3** 2026-10-25: S ≥ T ⇒ 0 también en `cards_only`, `freeFromCents`/`remaining` para ambas clases, ENV-1/F1 · dueño (`HECHOS.md` 2026-10-25 «Envío gratis… CUALQUIER pedido», hallazgo pentester); §MKT.G.4/.H.14 tablas b5/b6 del Card Show (MKT-MEDIR-CS); §MKT.H.11 C-F5/C-F9 por `/buylist` y `/card-show` medidos; compactada la cabecera v1.94/v1.95 · dueño (`HECHOS.md` 2026-10-24 «Regla de envío nueva + embudo + medición autorizados»); **v1.109.4** 2026-10-25: `422 AMOUNT_TOO_LARGE` declarado en §0 y §4-G.1 (ya emitido; TL-ENV-4, `e8e88650`) · orquestador; **v1.109.5** 2026-10-25: con caja grande `freeShippingRemainingCents = null` (sin T9 «te faltan»; predicado ENV-F1 igual), ENV-1 caja 35000, ejemplo del quote de invitado a `E = 10000` (TL-ENV-6) · QA (`fc84acde`, S=474000 cobraba 35000 con T9 pintado; `HECHOS.md` 2026-10-25 «Envío gratis… (opción A)»).
 > - v1.110⟨descuentos⟩ · 2026-10-25 · [§DSC](#DSC) códigos de descuento: esquema `M-92`, orden del cálculo sobre §4-G.12, reparto por unidad, ciclo del uso atado a §4-R, retiro con envío gratis a MX$0 (P-DSC-3 (a) por defecto), endpoints de cliente y de `super_admin`, errores en §0, pruebas `DCO-*`; compactadas las cabeceras v1.85–v1.90/SU-1/BSD-1 · dueño (`HECHOS.md` 2026-10-25 «Códigos de descuento: opción B…» y «…P-DSC-1/2 y mínimo de compra»).
 > - v1.110.1⟨descuentos⟩ · 2026-10-25 · §DSC: respuestas a backend fase 1 (`1c6bb38a`) y frontend (`84ffa289`): envío gratis con `E` = 0 no aplica, `vaultBreakdown` sin código, congelado con `unitDiscountCents`, retiro con mercancía 0, carrera cuenta como fallido, lectores del original, limpieza PDB, `DiscountCodeBatchDTO`, `discountGivenCents` por código, `preview` y `audit`, `/admin/codes`, `enum-values.ts`, P-DSC-3 cerrada; DCO-B19 admite mecánica de reversa · backend/frontend (`HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
-> - v1.110.2⟨descuentos⟩ · 2026-10-26 · §DSC.7: `action` de la bitácora enumerada y `actor` nullable, `preview` en ceros cuando no aplica (y siempre en `free_shipping`), `status` de lote sin códigos sin usar (`active` + `exhausted`), «Envío regalado» = suma de dos campos, `batchId`/`from`/`to` fuera de §0-Q (tope 116); §M4-VAULT.2-bis.2 nombra la escritura del uso en el tardío — todo ratifica lo construido · frontend/backend sobre `e84c86fe`/`cc394d54`. La siguiente es **v1.111**.
+> - v1.110.2⟨descuentos⟩ · 2026-10-26 · §DSC.7: `action` de la bitácora enumerada y `actor` nullable, `preview` en ceros cuando no aplica (y siempre en `free_shipping`), `status` de lote sin códigos sin usar (`active` + `exhausted`), «Envío regalado» = suma de dos campos, `batchId`/`from`/`to` fuera de §0-Q (tope 116); §M4-VAULT.2-bis.2 nombra la escritura del uso en el tardío — todo ratifica lo construido · frontend/backend sobre `e84c86fe`/`cc394d54`.
+> - v1.110.3⟨descuentos⟩ · 2026-10-26 · §DSC: el servidor proyecta el precio antes del descuento por línea (`unitPriceBeforeDiscountCents`, `lineTotalBeforeDiscountCents`) y `merchandiseBeforeDiscountCents` en el `discount` de los tres detalles (front sin sumas, DCO-F6); `capped` = solo el tope en pesos, lo da `discountOf` (DCO-B21); precedencia completa de los motivos con `MIN_SUBTOTAL` al final (DCO-B20); `not_applicable` cuenta para el límite (una vez por código y ventana) y `details` mínimos (DCO-B9); compactadas cabeceras v1.91/v1.83/v1.83.1 y DSC.12 · techlead (rechazo R2/TL-DSC-1/TL-DSC-2 sobre `c421de13`) y dueño (`HECHOS.md` 2026-10-26 «…cuenta como intento», pentest DSC-1). La siguiente es **v1.111**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -29,18 +30,8 @@
 > - v1.94⟨sellado-display⟩ · 2026-10-13 · sellado pintado como sellado (`FrozenCardFacts += sealedProductId/Name`, `ClientShipmentItemDTO
 >   += productType`, candado `sealed-display-guard.spec.ts`). Norma: §4 y `ARCHITECTURE §4.34a.2` · bug de producción.
 >
-> **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: REDUNDANCIA MULTI-FUENTE, ÁRBITRO DE MEDIANA Y CANDADO ANTI-INFLADO ×5
-> (2026-10-11, arquitecto, árbol `/home/user/tcg-precios`, rama `claude/precios-redundancia`, base `HEAD 1ba098a4`
-> según el orquestador; ⛔ sha NO MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-11 (§PRE autorizado y
-> las 7 decisiones **P-RP-1…7** «todas como recomiendas»); `PROJECT §PRE`, criterios **870–889**. 💰 **DINERO en los
-> dos ejes (venta y compra).** Porqué, modelo de resolución y árbol de decisión en `ARCHITECTURE §4.PRE`. Migraciones
-> **M-75** + **M-76** (errata v1.91: BLOQ-1 de QA — `source` entra a la unicidad de `PriceReference`, §PRE.J). Versión
-> reservada por el orquestador (O-24). Norma entera abajo, anclada en **[§PRE](#PRE)**.
-> **Errata v1.91 (2026-10-11, arquitecto, rama `claude/precios-redundancia`, base `HEAD 6034b170` según el orquestador;
-> ⛔ sha NO MEDIDO):** cierra BLOQ-1 (§PRE.J, M-76) y tres cuestiones enrutadas por QA/techlead (regla 9): **B** (§PRE.F:
-> `accept` promueve robusta NO-manual, no congela; sólo `manual` fija tier-0), **C** (§PRE.E: `?page=`/`?pageSize=`
-> documentados, default 50 / cap 100 / `total`=total filtrado) y **D** (`ARCHITECTURE §4.PRE (c)`: baseline = último sano
-> PUBLICADO, congelado mientras hay caso `open`; no se re-mediana de ayer).
+> **Rev v1.91⟨precios⟩ + errata · 2026-10-11 · precios robustos (árbitro de mediana, candado ×5, cola de revisión; M-75/M-76,
+> BLOQ-1 y cuestiones B/C/D) · norma en [§PRE](#PRE), porqué en `ARCHITECTURE §4.PRE` · dueño (`HECHOS.md` 2026-10-11, P-RP-1…7).** 💰
 >
 > | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
 > |---|---|---|---|---|
@@ -221,12 +212,8 @@
 > - Errata v1.83.3 · 2026-10-05 · condiciones de los gates del precio de sellado (C-1 SP.6 diferido y reducido, C-2 helper que falla cerrado, QA menor 3) · [§M11-SP.6](#M11-SP), [§M11-SP.13.2/.5](#M11-SP-13), `ARCHITECTURE §4.62.10`; tabla compactada en v1.110.1 (git) · QA/techlead.
 > - Errata v1.83.2 · 2026-10-05 · seis respuestas a backend (Q-1…Q-6, A-3, A-5: carpeta de `M-71`, doble clic, diales, `.xlsx` columnas 17/18, `sealedProductId`) · [§M11-SP.13](#M11-SP-13), `ARCHITECTURE §4.62.9`; tabla compactada en v1.110.1 (git) · backend.
 >
-> **Errata v1.83.1 — 💰 EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO **CON IVA** (2026-10-05, arquitecto, rama
-> `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador `8a64f27f`; ⛔ sha NO MEDIDO por el
-> arquitecto: sin Bash).** Origen: `HECHOS.md:51` («Precio del sellado — respuestas a P-SP-1/2/3 (2026-10-05)»: (1) el
-> mercado a mano del alta solo el dueño; (2) el personal sí ve costo y margen; (3) «yo lo voy a meter con iva») y las
-> solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`. Norma entera: **[§M11-SP.12](#M11-SP-12)**. Porqué:
-> `ARCHITECTURE §4.62.8`.
+> **Errata v1.83.1 · 2026-10-05 · 💰 el dueño escribe el precio del sellado CON IVA · norma en [§M11-SP.12](#M11-SP-12), porqué en
+> `ARCHITECTURE §4.62.8` · dueño (`HECHOS.md:51`, P-SP-1/2/3) y `DESIGN_SYSTEM §70.8`.**
 >
 > | # | Pieza | Decisión | ¿Rompe algo de v1.83? | Construye |
 > |---|---|---|---|---|
@@ -241,20 +228,9 @@
 >
 > - **Sin código de error nuevo, sin enum nuevo.** Campos renombrados (no construidos) y aditivos: lista en §M11-SP.12.4.
 > - **Pruebas:** SP-1, SP-2, SP-5, SP-7, SP-10, SP-12 cambian; nuevas **SP-15…SP-19** y **F-SP-7…F-SP-8** (§M11-SP.12.14).
-> - **Preguntas al dueño:** ninguna. P-SP-1/2/3 cerradas por `HECHOS.md:51`. N-1 y N-2 son **avisos** para el cuerpo de la
->   solicitud de fusión, no preguntas.
 >
-> **Rev v1.83 — 💰 EL PRECIO DEL SELLADO ES DEL PRODUCTO Y LO PONE EL DUEÑO; SE EDITA SIN RETIRAR, EN LA HOJA DE M11
-> (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, creada desde `production` + la fila
-> de `HECHOS.md` `66f0c194` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M11-SP](#M11-SP)**. Porqué: `ARCHITECTURE §4.62`. Origen: `HECHOS.md:50` («Precio del sellado (responde
-> P-SELLADO-PRECIO / PR #60 y P-SELLADO-REPRECIO)», 2026-10-05, puntos (1)–(4)) y `HECHOS.md:38` (b) («precio final a mano
-> solo para sellado», construido en #69). ⛔ El diseño de PR #60 (rama `claude/sealed-pricing-design`, `7897a0e3`) **no
-> lo leyó** el arquitecto (sin Bash); HECHOS:50 dice que queda respondida, y esta rev sigue a HECHOS.
-> **Numeración elegida para no chocar:** Skydropx usa v1.80.11…v1.81.x, §4.60 y `M-64`…`M-69`; el panel usa v1.82, §4.61
-> y `M-70` (`20261020120000_m70_panel_refunds`, medido con `Glob` en `/home/user/tcg-panel`). Aquí: **v1.83**, **§4.62**,
-> **`M-71`** con carpeta ~~`20261021120000_m71_sealed_product_owner_price`~~ (fecha posterior a las dos) — ⛔ **v1.83.2
-> (Q-1):** la carpeta es **`20261021120000_m71_sealed_product_owner_display_price`** (SP.12.12).
+> **Rev v1.83 · 2026-10-05 · 💰 el precio del sellado es del producto y lo pone el dueño; se edita sin retirar, en la hoja de M11
+> (`M-71`, carpeta en SP.12.12) · norma en [§M11-SP](#M11-SP), porqué en `ARCHITECTURE §4.62` · dueño (`HECHOS.md:50`, `:38` (b)).**
 >
 > | # | Pieza | Decisión | ¿Rompe algo construido? | Construye |
 > |---|---|---|---|---|
@@ -46197,10 +46173,8 @@ Respuesta idéntica: status, cuerpo JSON byte a byte y tiempo (mediana de 20, �
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-25 «Códigos de descuento: opción B…» (reglas **[D1]…[D6]**) y «…P-DSC-1/2 y
 mínimo de compra» (**[D7]** mínimo antes del descuento, **[D8]** el retiro acepta solo envío gratis, **[D9]** paquete de energías
-fuera); `PROJECT §DSC` (reglas DSC.2-1…22, criterios **890–919**, `dd44a979`). Base de código leída en `adae733f` (sin Bash: sha
-dado por el orquestador, ⛔ NO MEDIDO por mí). Lo que esta sección no dice, no cambia. **Construye:** backend en modelo fuerte
-(toca `orders`, `payments`, `shipments`; módulo nuevo `backend/src/modules/discounts/`) y frontend; zonas compartidas: `prisma/`
-(M-92), `common/money.ts` (función pura nueva) y este contrato.
+fuera); `PROJECT §DSC` (reglas DSC.2-1…22, criterios **890–919**). Lo que esta sección no dice, no cambia. **Construye:** backend en
+modelo fuerte (`orders`, `payments`, `shipments`, módulo `discounts/`) y frontend; zonas compartidas: `prisma/` (M-92), `common/money.ts`.
 
 ### DSC.0 Invariantes (cada una tiene prueba en §DSC.10)
 - **I-1 Sin código, nada cambia (criterio 915).** Request sin `discountCode` ⇒ respuesta **byte a byte** la de hoy: ⛔ ni
@@ -46208,7 +46182,7 @@ dado por el orquestador, ⛔ NO MEDIDO por mí). Lo que esta sección no dice, n
 - **I-2 Equivalencia (892).** Un pedido con descuento `D` cobra exactamente lo que `computeCartBreakdown`/`computeDirectShipBreakdown`
   devuelven para `S' = S − D` con la `E` resultante: es **la misma llamada**, no una fórmula nueva. `BreakdownDTO` no cambia de forma.
 - **I-3 `unitPriceCents` es lo COBRADO.** `OrderItem.unitPriceCents` y `OrderAccessoryLine.unitPriceCents` guardan el precio por
-  unidad **ya descontado**; el original es `unitPriceCents + unitDiscountCents`. Así `Order.subtotalCents = Σ cobrado` y **todo**
+  unidad **ya descontado**; el original lo proyecta el servidor (`unitPriceBeforeDiscountCents`, DSC.6). Así `Order.subtotalCents = Σ cobrado` y **todo**
   reembolso existente (`itemMissingRefundComponents`, `itemRefundComponents`, `caseRefundContextOf`, `quantity × unitPriceCents` de
   accesorios, `order_full`/`order_remaining`) devuelve lo cobrado **sin tocar su código** (902). ⛔ Ningún reembolso lee el original.
   **Único lector del original (v1.110.1):** `pricing-brackets` (`admin.service.ts:2027-2037`) suma `grossMxnCents` con
@@ -46268,6 +46242,7 @@ model DiscountRedemption {                      // el USO; una fila por pedido o
 model DiscountCodeThrottle {                    // intentos FALLIDOS (DSC.6); ⛔ sin IP ni correo en claro
   key String @id      // 'ip:'|'user:'|'email:' + HMAC-SHA256(PII_HMAC_KEY, valor) (user: el id tal cual)
   failures Int  windowStartedAt DateTime  blockedUntil DateTime?  updatedAt DateTime @updatedAt
+  countedCodeHashes String[] @default([])  // v1.110.3: HMAC de los códigos `not_applicable` ya contados en la ventana (DSC.6)
 }
 // Columnas nuevas (todas NOT NULL DEFAULT 0, CHECK ≥ 0; el 0 es la verdad de toda fila previa):
 Order               { discountCents Int @default(0)        // D de mercancía (= Σ unidades × unitDiscountCents)
@@ -46288,11 +46263,14 @@ enums (solo antes de que exista un pedido con código; después, la reversa es d
 ### DSC.2 Elegibilidad y monto nominal (puro, `common/money.ts`: `discountOf(lines, code, ctx)`)
 - **Línea elegible** ⇔ no es `energy_bundle` [D9] ∧ (`productScopes = []` ∨ su tipo ∈ `productScopes`; accesorio y energía suelta
   = `accessory`) ∧ (`destinations = []` ∨ destino del pedido ∈ `destinations`). `B = Σ P·q` de las elegibles (`P` exhibido).
-- **Mínimo [D7]:** `minSubtotalCents ≠ null ∧ B < minSubtotalCents` ⇒ `not_applicable/MIN_SUBTOTAL { minSubtotalCents,
-  missingCents: min − B }`. Inclusivo: `B = min` aplica (904).
+- **Mínimo [D7]:** `minSubtotalCents ≠ null ∧ B < minSubtotalCents` ⇒ `not_applicable/MIN_SUBTOTAL { missingCents:
+  min − B }`. Inclusivo: `B = min` aplica (904).
 - **Nominal `D0`:** `percent` ⇒ `floor(B × pct / 100)` y, con tope, `min(·, maxDiscountCents)` (894) · `fixed_amount` ⇒
   `min(amountCents, B)` (893) · `free_shipping` ⇒ `0` (actúa sobre `E`, DSC.4). Luego **`D0 = min(D0, B − U)`** con `U` = unidades
-  elegibles (I-4). Sin líneas elegibles ⇒ `not_applicable/NO_ELIGIBLE_ITEMS { productScopes }`.
+  elegibles (I-4). Sin líneas elegibles ⇒ `not_applicable/NO_ELIGIBLE_ITEMS { productScopes }`. El orden de los motivos, en DSC.4.
+- **`capped` (v1.110.3)** ⇔ `percent ∧ maxDiscountCents ≠ null ∧ floor(B × pct / 100) > maxDiscountCents` (BigInt): solo el tope en pesos
+  (el texto dice «llegó al tope que fijaste»); el recorte por `B`, por I-4 o por el residuo de DSC.3 **no** es `capped`. Lo devuelve
+  `discountOf` junto a `nominalCents` (= `D0` tras tope e I-4); ⛔ nadie lo recalcula fuera de `money.ts`.
 
 ### DSC.3 Reparto por unidad al centavo (puro, `allocateDiscount`; productos en **BigInt**: `D0 × P` puede pasar de 2⁵³)
 ```
@@ -46315,11 +46293,14 @@ D = D0 − R ;  unitDiscountCentsᵢ = uᵢ ;  unitPriceCentsᵢ (cobrado) = P�
    E_clase`; con `free_shipping` `E_regla = 0`. 5. **Caja grande** (§4-G.12 paso 3) gana sobre las dos: `E = cajaGrande ? caja :
    E_regla`. 6. **IVA por resta** sobre `G = S' + E` y **comisión** gross-up sobre `G`: `computeDirectShipBreakdown(S', E, r, fee)`
    (bóveda: `computeCartBreakdown(S', r, fee)`). 7. `totalCents < 1000` ⇒ `not_applicable/TOTAL_BELOW_MINIMUM { minTotalCents: 1000 }`.
-- **Envío gratis (tipo c) no aplica, con su motivo, en este orden:** pedido a bóveda ⇒ `NO_SHIPPING` · caja grande ⇒ `LARGE_BOX`
-  (supuesto del PO DSC.2-6, criterio 896: se cobra completa, igual que sobre el umbral; §4-G.12 paso 3) · `E` sin código ya es 0
-  (`S ≥ T` **o dial de la clase en 0**, v1.110.1) ⇒ `ALREADY_FREE_SHIPPING`: ⛔ nunca se gasta un uso con `shippingWaivedCents = 0`
-  (vale igual en el retiro, DSC.8). Aplicado: `Order.shippingWaivedCents = E_clase`, `shippingRule.freeShippingApplied = true` (sigue ⇔ `E = 0`) y
-  `freeShippingRemainingCents = null`.
+- **Precedencia de `not_applicable` (v1.110.3; gana el primero que se cumple; `rate_limited` e `invalid` van antes).** Regla: primero lo
+  que ninguna mercancía añadida arregla; `MIN_SUBTOTAL`, el único que dice «te faltan $X», sale solo si lo demás ya permitiría aplicar:
+  1 `NO_SHIPPING` · 2 `DESTINATION` · 3 `NO_ELIGIBLE_ITEMS` · 4 `LARGE_BOX` · 5 `ALREADY_FREE_SHIPPING` · 6 `MIN_SUBTOTAL` · 7 `TOTAL_BELOW_MINIMUM`.
+  **Envío gratis (tipo c) no aplica** (1, 4, 5): bóveda ⇒ `NO_SHIPPING` (gana a `DESTINATION`, filtros y mínimo) · caja grande ⇒ `LARGE_BOX`
+  (supuesto del PO DSC.2-6, 896: se cobra completa; §4-G.12 paso 3) · `E` sin código ya es 0 (`S ≥ T` **o dial de la clase en 0**, v1.110.1)
+  ⇒ `ALREADY_FREE_SHIPPING`: ⛔ nunca se gasta un uso con `shippingWaivedCents = 0`. Retiro (DSC.8): `WITHDRAWAL_ONLY_FREE_SHIPPING` →
+  `WITHDRAWAL_FILTERED` → `DESTINATION` → `ALREADY_FREE_SHIPPING`. Manda la salida, no dónde se parta el código; casos y lo que ve el
+  cliente en DCO-B20. Aplicado: `Order.shippingWaivedCents = E_clase`, `shippingRule.freeShippingApplied = true` (⇔ `E = 0`), `freeShippingRemainingCents = null`.
 - `shippingRule.freeShippingRemainingCents` se mide contra `S'` (un 10 % puede sacar el pedido del umbral: 895, 420000 ⇒ 378000 ⇒
   `E = 10000`; 450000 ⇒ 405000 ⇒ `E = 0`).
 - **Precio que cambió antes de pagar** (DSC.2-19): `session` re-precia como hoy y **recalcula** el descuento; si ya no aplica ⇒
@@ -46367,10 +46348,15 @@ DiscountQuoteDTO =
 DiscountNotApplicableReason = 'MIN_SUBTOTAL' | 'NO_ELIGIBLE_ITEMS' | 'DESTINATION' | 'NO_SHIPPING' | 'ALREADY_FREE_SHIPPING'
   | 'LARGE_BOX' | 'TOTAL_BELOW_MINIMUM' | 'WITHDRAWAL_ONLY_FREE_SHIPPING' | 'WITHDRAWAL_FILTERED' | 'NOT_COMBINABLE'  // literal de DTO
 ```
-Con `applied`, `breakdown` y `items[]` ya son los descontados: `items[].unitPriceCents` = cobrado y `items[].unitDiscountCents`
-(solo si > 0); `accessoryLines[]` igual, **también** cuando el quote devuelve el congelado de la orden propia (lee
-`OrderAccessoryLine.unitDiscountCents`). Con cualquier otro `outcome`, `breakdown` es el de hoy sin código: el carrito sigue
-cotizando y no se borra nada de lo llenado (`PROJECT §DSC.1`). `NOT_COMBINABLE` no se emite hoy (no hay otro descuento, §AC.2-6).
+**`details` (v1.110.3, solo lo que el texto del motivo usa; pentest DSC-1):** `MIN_SUBTOTAL { missingCents }` · `NO_ELIGIBLE_ITEMS
+{ productScopes }` · `TOTAL_BELOW_MINIMUM { minTotalCents }` · el resto `{}` (⛔ ni `minSubtotalCents` ni `destinations`: `DESTINATION`
+se pinta por pantalla). Igual en el `422 DISCOUNT_CODE_NOT_APPLICABLE` de §0.
+Con `applied`, `breakdown` y `items[]` ya son los descontados: `items[].unitPriceCents` = cobrado. **Proyección de línea (v1.110.3):**
+con rebaja > 0 la línea gana `unitDiscountCents`, `unitPriceBeforeDiscountCents` (= cobrado + rebaja) y, en `accessoryLines[]`,
+`lineTotalBeforeDiscountCents` (= `quantity ×` el anterior); sin rebaja se omiten los tres (I-1). Un solo proyector de backend la arma
+(quotes, sesiones, detalles y correos), **también** sobre el congelado de la orden propia (lee `OrderAccessoryLine.unitDiscountCents`).
+El front pinta `unitPriceBeforeDiscountCents ?? unitPriceCents` (`lineTotal…` igual), ⛔ sin sumar (DCO-F6). Con otro `outcome`, el
+`breakdown` es el de hoy sin código y no se borra lo llenado (`PROJECT §DSC.1`). `NOT_COMBINABLE` no se emite hoy (§AC.2-6).
 `vaultBreakdown` del quote de invitado va **siempre sin código** (informativo; la bóveda exige cuenta y el código se evalúa en esa
 `session`). El por-cliente se evalúa en el quote solo si conoce al cliente (cuenta, o `email` en el quote del invitado), excluyendo
 del conteo la orden propia o reclamada que `session` reusaría o sustituiría; si no, o si difieren, manda `session`.
@@ -46378,8 +46364,10 @@ del conteo la orden propia o reclamada que `session` reusaría o sustituiría; s
 **Sesiones y `POST /shipments`:** `applied` ⇒ la respuesta de hoy + `discount` (forma `applied`); si no ⇒ `422 DISCOUNT_CODE_INVALID`
 · `422 DISCOUNT_CODE_NOT_APPLICABLE { reason, … }` · `429 DISCOUNT_CODE_RATE_LIMITED`, todos **sin escribir nada**.
 
-**Límite de intentos (908):** cuentan solo los `invalid` (un `not_applicable` es de un código real y no castiga al cliente); el
-perdedor de la carrera del último uso **cuenta**: es un agotado, y tratarlo distinto sería un segundo camino observable. Claves:
+**Límite de intentos (908; v1.110.3, `HECHOS.md` 2026-10-26 «…un código vigente que no aplica cuenta como intento», pentest DSC-1):**
+cuentan los `invalid` **y los `not_applicable`** (quote, sesión y retiro; el motivo se sigue diciendo). Un `not_applicable` cuenta **una
+vez por código y ventana** por clave (`countedCodeHashes`): re-cotizar el mismo código al llenar el carrito hasta el mínimo no bloquea
+al cliente, y un código distinto suma como un `invalid`. `applied` no cuenta. El perdedor de la carrera del último uso **cuenta**. Claves:
 IP siempre, `user:` con cuenta, `email:` si el request trae correo. `failures ≥ discount_code_max_failures` dentro de la ventana ⇒
 `blockedUntil = now + block_min`; durante el bloqueo **todo** código —válido incluido— da `rate_limited`/`429`. Se suma a los
 `@Throttle` vigentes (30/min quote, 5/h sesión de invitado), no los sustituye. **Tiempo:** el camino `invalid` hace las mismas
@@ -46389,8 +46377,9 @@ consultas que el válido (busca por texto y cuenta usos aunque no exista); que n
 `endsAt` = ese minuto **+ 60 s** con su desfase: vale a las 23:59:59 y no a las 00:00:00 del día siguiente.
 
 **Dónde se ve el pedido (914) — esta es la norma canónica:** `GET /orders/:id`, `POST /orders/guest/track` y el detalle de M3/Ventas
-(`GET /admin/orders/:id`) ganan `discount: { code, kind, discountCents, shippingWaivedCents }` (solo si la orden tiene
-`DiscountRedemption`) e `items[].unitDiscountCents`/`accessoryLines[].unitDiscountCents` (solo si > 0); los correos de confirmación
+(`GET /admin/orders/:id`) ganan `discount: OrderDiscountDTO = { code, kind, merchandiseBeforeDiscountCents /* v1.110.3: Order.subtotalCents
++ discountCents */, discountCents, shippingWaivedCents }` (solo si la orden tiene `DiscountRedemption`; el front pinta
+`discount?.merchandiseBeforeDiscountCents ?? breakdown.subtotalCents`) y la proyección de línea de arriba; los correos de confirmación
 (`guestOrderConfirmationTemplate`, `orderSettledTemplate`) pintan la línea «Descuento (CÓDIGO) −MX$X» y, con envío gratis, la de envío
 desde esos mismos campos. Visible para `vault_operator` en Ventas (lectura). Textos: i18n del front por `kind` y `reason`; ⛔ ningún
 literal de pesos en i18n (como ENV-F1). «envío gratis» en los textos de códigos de envío gratis: **aprobado por el dueño**
@@ -46411,7 +46400,7 @@ literal de pesos en i18n (como ENV-F1). «envío gratis» en los textos de códi
 | `POST /admin/discount-code-batches/:id/pause` · `/resume` | — | pausa/reanuda los N en una `tx` (911) |
 | `GET /admin/discount-code-batches/:id/codes.csv` | — | `code,status,usedAt` (auditado: reparte códigos) |
 | `GET /admin/discount-codes/:id/report` (+ `.csv`) · `GET /admin/discount-code-batches/:id/report` (+ `.csv`) | `?from=&to=` (día México) | `DiscountReportDTO` |
-| `POST /admin/discount-codes/preview` (v1.110.1) | config del `POST` sin `code` + `sampleLines: [{ scope: DiscountProductScope, priceCents, quantity }]` (1..5) | `200 { discountCents, nominalCents, capped: boolean }` por `discountOf`/`allocateDiscount` (DSC.2–3); cero escrituras; ⛔ ningún cálculo en el front. Alimenta «Así lo verá el cliente». **v1.110.2:** muestra a la que no aplica (`DESTINATION`, `NO_ELIGIBLE_ITEMS`, `MIN_SUBTOTAL`) ⇒ `{ 0, 0, false }`, sin `reason`; `free_shipping` ⇒ siempre `{ 0, 0, false }` (la muestra no lleva envío: el front pinta el texto de envío gratis sin importe). Front: `discountCents = 0` con `kind ≠ free_shipping` ⇒ «con este carrito no aplica» |
+| `POST /admin/discount-codes/preview` (v1.110.1) | config del `POST` sin `code` + `sampleLines: [{ scope: DiscountProductScope, priceCents, quantity }]` (1..5) | `200 { discountCents, nominalCents, capped: boolean }` por `discountOf`/`allocateDiscount` (DSC.2–3; `nominalCents` y `capped` tal cual los da `discountOf`, v1.110.3); cero escrituras; ⛔ ningún cálculo en el front. Alimenta «Así lo verá el cliente». **v1.110.2:** muestra a la que no aplica (`DESTINATION`, `NO_ELIGIBLE_ITEMS`, `MIN_SUBTOTAL`) ⇒ `{ 0, 0, false }`, sin `reason`; `free_shipping` ⇒ siempre `{ 0, 0, false }` (la muestra no lleva envío: el front pinta el texto de envío gratis sin importe). Front: `discountCents = 0` con `kind ≠ free_shipping` ⇒ «con este carrito no aplica» |
 | `GET /admin/discount-codes/:id/audit` · `GET /admin/discount-code-batches/:id/audit` (v1.110.1) | `?page=` | `{ data: [{ at, actor: { id, name } \| null, action, changes: [{ field, before, after }] }], page, pageSize, total }` desde `AuditLog` (`entityType` `DiscountCode`/`DiscountCodeBatch`); la config no es PII ⇒ antes → después sí sale (890). **`action` (v1.110.2, lista cerrada, solo lectura ⇒ fuera de `enum-values.ts`):** código `discount.code.{created, updated, paused, resumed, archived, report_exported}`; lote `discount.batch.{created, updated, paused, resumed, codes_exported, report_exported}`; el front muestra un texto genérico ante uno desconocido |
 
 - **Bloqueo tras el primer uso (912):** con `firstReservedAt ≠ null` solo se editan `status`, `endsAt` y `maxTotalUses` (≥ `inUse` =
@@ -46491,7 +46480,9 @@ validan (cuerpo y `?status=`); `DiscountRedemptionStatus` solo sale en lectura �
 - **DCO-B7** (898) límite por cliente: invitado `Ana@Correo.mx` paga; invitado `ana@correo.mx` ⇒ genérico; cuenta con ese correo ⇒
   genérico. **DCO-B8** (907) los 6 casos genéricos ⇒ mismo estado y mismo cuerpo byte a byte en quote y en session.
 - **DCO-B9** (908) 10 fallidos ⇒ el 11.º con código válido da `rate_limited` en quote y `429` + `Retry-After` en session; vence el
-  bloqueo ⇒ aplica. Un `not_applicable` no suma. **DCO-B10** (909) reloj fijo: `endsAt` exclusivo, 23:59:59 aplica, 00:00:00 no.
+  bloqueo ⇒ aplica. **v1.110.3:** 10 códigos vigentes distintos que no aplican ⇒ igual bloqueo; el mismo `not_applicable` cotizado 20
+  veces suma 1 y al llegar al mínimo aplica; `details` con solo las claves de DSC.6. Canario: no contar `not_applicable` ⇒ rojo.
+- **DCO-B10** (909) reloj fijo: `endsAt` exclusivo, 23:59:59 aplica, 00:00:00 no.
 - **DCO-B11** (910) pausar con un pago en curso ⇒ el webhook lo consume; session nueva ⇒ genérico; reanudar ⇒ aplica.
 - **DCO-B12** (911) lote de 50: 50 textos distintos con prefijo, CSV de 50, uno usado ⇒ genérico y 49 sirven; pausar el lote ⇒ 50.
 - **DCO-B13** (912) con un uso apartado: `PATCH` de `kind`/`percentPct`/`minSubtotalCents`/filtros ⇒ `409 DISCOUNT_CODE_LOCKED`;
@@ -46499,7 +46490,9 @@ validan (cuerpo y `?status=`); `DiscountRedemptionStatus` solo sale en lectura �
 - **DCO-B14** (913) ronda sembrada (3 pagados, 1 apartado, 1 reembolsado) ⇒ conteos y `discountGivenCents` = Σ de Ventas, JSON y CSV,
   por código y por lote. **DCO-B15** (890) operador ⇒ `403` en las 21 rutas de DSC.7, cero filas; cada escritura deja `AuditLog`.
 - **DCO-B16** (901, 902) 100000 + 50000 con 10 % ⇒ `unitPriceCents` 90000/45000; reembolso por carta = `itemRefundComponents` sobre
-  90000; dos cartas + remanente = `totalCents`; tras reembolso total y por carta, el mismo cliente ⇒ genérico.
+  90000; dos cartas + remanente = `totalCents`; tras reembolso total y por carta, el mismo cliente ⇒ genérico. **v1.110.3:** misma
+  orden ⇒ `unitPriceBeforeDiscountCents` 100000/50000 y `discount.merchandiseBeforeDiscountCents` 150000 en quote, session y los tres
+  detalles; accesorio 2 × 15000 con 10 % ⇒ `lineTotalBeforeDiscountCents` 30000. Sin código, ausentes (DCO-B19).
 - **DCO-B17** (917, 918) retiro con envío gratis ⇒ desglose en ceros, `status: picking`, 0 llamadas a Stripe, uso `consumed`,
   `shippingWaivedCents = 20300`; con 10 % ⇒ `WITHDRAWAL_ONLY_FREE_SHIPPING`, cobro de hoy y 0 filas de uso; cancelar ese retiro no
   llama a Stripe; reembolso `shipment_fee` ⇒ sin fila.
@@ -46508,25 +46501,32 @@ validan (cuerpo y `?status=`); `DiscountRedemptionStatus` solo sale en lectura �
 - **DCO-B19** (915) la suite entera **sin cambiar ningún aserto existente**; solo se admite añadir mecánica de reversa o limpieza de
   la migración nueva (`revertM92` en `test/integration/pdb-limpieza.e2e-spec.ts` y `helpers/limpieza-db.ts`, precedente M-86); respuestas de quote/session/orders sin `discountCode`
   idénticas a las de `adae733f` (snapshot); `enum-values-parity` verde con las 4 líneas de §0.
+- **DCO-B20** (v1.110.3, pura **y** quote; el mock da lo mismo) precedencia de DSC.4, `free_shipping` con mínimo 300000, diales de hoy
+  (T 400000, cartas 10000, sellado 17500); entre comillas, el sentido del texto (literal: i18n): (a) bóveda, carta 100000 ⇒ `NO_SHIPPING`
+  «es de envío gratis y tu pedido va a la bóveda» (en `c421de13` da `MIN_SUBTOTAL` «te faltan $2,000»); (b) igual con `destinations =
+  [direct_ship]` ⇒ `NO_SHIPPING`; (c) mínimo 500000, invitado, cartas 450000 ⇒ `ALREADY_FREE_SHIPPING` «tu pedido ya tiene envío gratis»;
+  (d) invitado, sellado 100000 + accesorio 20000 en caja de 35000 ⇒ `LARGE_BOX` «no cubre la caja grande»; (e) cartas 250000 ⇒
+  `MIN_SUBTOTAL { missingCents: 50000 }` «te faltan $500»; con 300000 ⇒ `applied`, `shippingWaivedCents = 10000`; (f) 10 % con
+  `destinations = [direct_ship]` y mínimo 300000 en bóveda 100000 ⇒ `DESTINATION`. Canario: `MIN_SUBTOTAL` antes ⇒ (a), (c), (d) rojos.
+- **DCO-B21** (v1.110.3, `discountOf` **y** `preview`) `capped`: 20 % tope 30000 sobre 200000 ⇒ `{ 30000, 30000, true }`; tope 40000 ⇒
+  `false` (igual al tope); 10 % sin tope ⇒ `false`; fijo 50000 sobre una pieza de 40000 ⇒ `{ 39999, 39999, false }` (I-4); 100 % sin tope
+  ⇒ `false`. Canario: `capped = discountCents < sin topes` (lo de `c421de13`) ⇒ fijo y 100 % rojos. `mockPreview` da lo mismo.
 - **DCO-F1…F5** (frontend, Playwright sobre el stack real, no mocks): F1 campo «¿Tienes un código?» y «Quitar» en checkout de
   invitado, de cuenta y en la solicitud de retiro; F2 la línea «Descuento (CÓDIGO) −MX$X» pinta `discount.discountCents` del servidor
   (⛔ ninguna cuenta en el cliente); F3 genérico idéntico en los 6 casos y un texto por `reason`; F4 un segundo código reemplaza
-  con aviso; F5 el mock de `lib/api.ts` replica `DiscountQuoteDTO` y la omisión sin código.
+  con aviso; F5 el mock de `lib/api.ts` replica `DiscountQuoteDTO` y la omisión sin código. **F6** (v1.110.3, candado de fuente como
+  `frontend-never-multiplies.test.ts`) fuera de los simuladores, ni `+` ni `*` con `unitDiscountCents`/`discount.discountCents` (canario: `CheckoutLines:58`).
 
 ### DSC.11 Lo que QA mide (y con qué N)
-DCO-B6 con **N ≥ 10** y proporción con autor (O-3/O-15); el resto N=1 dicho como tal. Re-ejecuta una mutación de DCO-B1 y la de
-DCO-B3 sobre copia del árbol entero. Criterio **916 de punta a punta** contra el stack con datos sembrados (lo recorre tester-e2e
-desde el navegador): el dueño crea el código, un invitado en el celular lo aplica y paga en modo prueba, llega el correo con la
-línea, Ventas y el reporte lo muestran, se reembolsa una carta y el reporte refleja el reembolso sin devolver el uso. Añade el retiro
-de 917. Para pentester: enumeración (6 genéricos por estado, cuerpo y tiempo), bypass del límite de intentos rotando IP/correo, carrera
-del último uso, y comprar ≥ T con descuento y reembolsar piezas (no devuelve el envío regalado: costo acotado del dueño, §4-G.12 punto 9).
+DCO-B6 con **N ≥ 10** y proporción con autor (O-3/O-15); el resto N=1 dicho como tal. Re-ejecuta una mutación de DCO-B1 y la de DCO-B3
+sobre copia del árbol entero. Criterio **916 de punta a punta** contra el stack sembrado (tester-e2e, navegador): el dueño crea el código,
+un invitado en el celular lo aplica y paga en modo prueba, llega el correo con la línea, Ventas y el reporte lo muestran, se reembolsa
+una carta y el reporte lo refleja sin devolver el uso; más el retiro de 917. Para pentester: enumeración (6 genéricos y `not_applicable`
+contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último uso, y ≥ T con descuento y reembolso de piezas (§4-G.12 punto 9).
 
 ### DSC.12 Decisiones, supuestos y preguntas
-- **Del arquitecto:** reparto por **unidad** con residuo por mayor resto (DSC.3); `floor` en el porcentaje (nunca más del % nominal);
-  ≥ 1 centavo por unidad (I-4) ⇒ **el criterio 893 segunda frase da MX$99.99, no MX$100.00, cuando el monto fijo cubre todo lo
-  elegible** (el PO ajusta el texto; si el dueño prefiere 0, el precio es tocar el CHECK de M-61 y la preparación: no se recomienda);
-  un pedido cuyo total quedaría bajo MX$10.00 no acepta el código (`TOTAL_BELOW_MINIMUM`) en vez de recortar el descuento; el uso
-  cuenta mientras está `reserved` aunque la reserva venza; pago tardío consume aunque rebase.
+- **Del arquitecto:** las de DSC.2–5 y su consecuencia: ≥ 1 centavo por unidad (I-4) ⇒ **el criterio 893 segunda frase da MX$99.99,
+  no MX$100.00, cuando el monto fijo cubre todo lo elegible** (el PO ajusta el texto; 0 exigiría tocar el CHECK de M-61: no se recomienda).
 - **Supuestos del PO que el diseño adopta:** caja grande fuera del envío gratis (DSC.4); filtros y mínimo no aplican al retiro (DSC.8);
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
