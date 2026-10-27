@@ -95,12 +95,42 @@ function fichaState(techDebt: string, id: string): 'open' | 'closed' | 'missing'
   return /✅|CERRADA/.test(row.split('|')[1]) ? 'closed' : 'open';
 }
 
+/** La declaración del frontend: su apertura (`export const ENCENDER_BLOCKERS…= [`) y su cierre (`];` al inicio de línea). */
+const DECL_OPEN = /export const ENCENDER_BLOCKERS\s*:[^=\n]*=\s*\[/;
+const DECL_CLOSE = /^\];/m;
+const ENTRY = /\{\s*id:\s*'([^']+)',[\s\S]*?owner:\s*'([a-z]+)'/g;
+
+type FrontendBlockers = { ok: true; entries: { id: string; owner: string }[] } | { ok: false; error: string };
+
+/**
+ * Lee `ENCENDER_BLOCKERS` del frontend distinguiendo «lista vacía leída bien» (ok, sin entradas) de «no se encontró la
+ * declaración / formato irreconocible» (error ⇒ rojo: es el candado contra renombrar la constante o cambiar su forma sin
+ * actualizar este lector). Irreconocible = sin cierre `];`, algún `id:` del cuerpo que el patrón de entrada no capturó, o
+ * texto que no es entrada, coma ni comentario.
+ */
+function readFrontendBlockers(frontendGate: string): FrontendBlockers {
+  const open = DECL_OPEN.exec(frontendGate);
+  if (!open) return { ok: false, error: 'no se encontró la declaración `export const ENCENDER_BLOCKERS …= [` en el gate del frontend' };
+  const rest = frontendGate.slice(open.index + open[0].length);
+  const close = DECL_CLOSE.exec(rest);
+  if (!close) return { ok: false, error: 'ENCENDER_BLOCKERS sin cierre `];` al inicio de línea: formato irreconocible' };
+  const body = rest
+    .slice(0, close.index)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const entries = [...body.matchAll(ENTRY)].map((m) => ({ id: m[1], owner: m[2] }));
+  const idKeys = (body.match(/\bid\s*:/g) ?? []).length;
+  if (idKeys !== entries.length) return { ok: false, error: `ENCENDER_BLOCKERS con ${idKeys} claves id: y ${entries.length} entradas reconocidas: formato irreconocible` };
+  if (entries.length === 0 && !/^[\s,]*$/.test(body)) return { ok: false, error: 'ENCENDER_BLOCKERS con contenido que no es una entrada reconocible: formato irreconocible' };
+  return { ok: true, entries };
+}
+
 /** Problemas de paridad (vacío = verde). Pura: el canario le pasa textos y listas modificados. */
 function parityProblems(frontendGate: string, techDebt: string, backendIds: readonly string[]): string[] {
   const out: string[] = [];
-  const entries = [...frontendGate.matchAll(/\{\s*id:\s*'([^']+)',[\s\S]*?owner:\s*'([a-z]+)'/g)].map((m) => ({ id: m[1], owner: m[2] }));
-  if (entries.length === 0) out.push('no se leyó ninguna entrada de ENCENDER_BLOCKERS');
-  for (const e of entries.filter((x) => x.owner === 'backend')) {
+  const read = readFrontendBlockers(frontendGate);
+  if (!read.ok) return [read.error];
+  for (const e of read.entries.filter((x) => x.owner === 'backend')) {
     if (!backendIds.includes(e.id) && fichaState(techDebt, e.id) !== 'closed') out.push(`${e.id}: bloqueo backend del frontend sin entrada en BACKEND_ENCENDER_BLOCKERS y con la ficha sin cerrar`);
   }
   for (const id of backendIds) if (fichaState(techDebt, id) !== 'open') out.push(`${id}: está en BACKEND_ENCENDER_BLOCKERS pero su ficha no está abierta (${fichaState(techDebt, id)})`);
@@ -115,8 +145,27 @@ describe('SEC-MKT-3 · paridad de bloqueos backend ↔ frontend ↔ TECH_DEBT', 
   it('hoy: verde', () => {
     expect(parityProblems(gate, debt, ids)).toEqual([]);
   });
-  /** El gate del frontend con la entrada backend `id` (la añade si el frontend ya la quitó). */
-  const withEntry = (id: string) => (gate.includes(`id: '${id}'`) ? gate : `${gate}\n{ id: '${id}', what: '', owner: 'backend' }`);
+  /** El gate del frontend con la entrada backend `id` DENTRO de la lista (la inyecta tras la apertura si el frontend ya la quitó). */
+  const withEntry = (id: string) =>
+    gate.includes(`id: '${id}'`) ? gate : gate.replace(DECL_OPEN, (open) => `${open}\n  { id: '${id}', what: '', owner: 'backend', closedBy: '' },`);
+
+  it('el lector toma la lista real (hoy vacía) como leída bien, y withEntry inyecta DENTRO de la lista', () => {
+    expect(readFrontendBlockers(gate)).toEqual({ ok: true, entries: [] });
+    expect(withEntry('MKT-X-9')).not.toBe(gate);
+    expect(readFrontendBlockers(withEntry('MKT-X-9'))).toEqual({ ok: true, entries: [{ id: 'MKT-X-9', owner: 'backend' }] });
+  });
+  it('CANARIO: renombrar la constante, perder el cierre o cambiar la forma de una entrada ⇒ rojo (no se lee como «vacía»)', () => {
+    const renamed = gate.replace(/\bENCENDER_BLOCKERS\b(?=\s*:)/, 'ENCENDER_BLOCKERS_V2');
+    expect(renamed).not.toBe(gate);
+    expect(parityProblems(renamed, debt, ids)).toEqual([expect.stringMatching(/no se encontró la declaración/)]);
+    const unclosed = gate.replace(/(export const ENCENDER_BLOCKERS[^\n]*\n)\];/, '$1]   ;');
+    expect(unclosed).not.toBe(gate);
+    expect(parityProblems(unclosed, debt, ids)).toEqual([expect.stringMatching(/sin cierre/)]);
+    const quoted = gate.replace(DECL_OPEN, (o) => `${o}\n  { "id": "MKT-X-9", "what": "", "owner": "backend" },`);
+    expect(parityProblems(quoted, debt, ids)).toEqual([expect.stringMatching(/formato irreconocible/)]);
+    const ownerFirst = gate.replace(DECL_OPEN, (o) => `${o}\n  { owner: 'backend', id: 'MKT-X-9', what: '' },`);
+    expect(parityProblems(ownerFirst, debt, ids)).toEqual([expect.stringMatching(/formato irreconocible/)]);
+  });
 
   it('CANARIO: reabrir MKT-F2-3 sin volver a meterla en la lista del backend ⇒ rojo; reabrir MKT-TL2 ⇒ rojo si el frontend aún la tiene', () => {
     const reopenedF23 = debt.replace(/^\|\s*MKT-F2-3 ✅\s*\|/m, '| MKT-F2-3 |');
