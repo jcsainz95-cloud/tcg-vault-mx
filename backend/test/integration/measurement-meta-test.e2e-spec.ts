@@ -6,7 +6,7 @@
  *  Acceso  sin sesión ⇒ 401; `vault_operator` CON `marketing_read` ⇒ 403 (sin llamar ni auditar); `super_admin` ⇒ 200 `no-store`.
  *  Forma   body array ⇒ 400; clave de más / forma / ausente ⇒ 422 `details.field` sin el valor; ninguno cuenta ni audita.
  *  C-B13   el doble devuelve el token en `error.message` y `messages` ⇒ ni en la respuesta, ni en `AuditLog`, ni en el log.
- *  C-B14   `MEASUREMENT_MODE=off` y `on` con el bloqueo de encendido abierto ⇒ envía; sin token ⇒ 409 y 0 llamadas;
+ *  C-B14   `MEASUREMENT_MODE=off` y `on` ⇒ envía (el servicio no pasa por la puerta de encendido); sin token ⇒ 409 y 0 llamadas;
  *          6.º en la hora ⇒ 429 + `Retry-After`; 4 previos + 2 en paralelo ⇒ exactamente un 429 (N=10, se exige 10/10).
  */
 import { Logger } from '@nestjs/common';
@@ -211,7 +211,7 @@ describe('§MKT.H.12 · acceso, forma, C-B13 y 409/429 (modo off, bloqueo abiert
 });
 
 describe('§MKT.H.12 · C-B14 con `on` + bloqueo abierto, y sin token', () => {
-  it('`MEASUREMENT_MODE=on` con MKT-F2-3 abierto (modo efectivo off) ⇒ envía y responde accepted', async () => {
+  it('`MEASUREMENT_MODE=on` ⇒ envía y responde accepted (el servicio lee la config sin la puerta de encendido)', async () => {
     const double = metaDouble({ status: 200 });
     const h = await boot({ MEASUREMENT_MODE: 'on', ...ENV_META }, double);
     try {
