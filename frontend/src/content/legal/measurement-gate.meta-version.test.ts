@@ -2,7 +2,8 @@
  * MKT-F2-3 · el `what` de `ENCENDER_BLOCKERS` nombra la versión de Graph que fija el contrato (§MKT.H.1, bloque
  * `META-GRAPH-VERSION`, única fuente en `docs/`). Antes decía `v21.0` cuando el contrato ya fijaba `v26.0` (v1.112):
  * el rótulo del build habría nombrado una versión que nadie va a verificar con el botón de §MKT.H.12.
- * Mientras la entrada exista; cuando salga (MKT-F2-3 cerrada), esta prueba no tiene qué mirar y pasa.
+ * MKT-F2-3 salió el 2026-10-27 (evento de prueba de Meta recibido en producción con `v26.0`, HECHOS.md): la segunda
+ * prueba queda dormida y solo vuelve a mirar si alguien reintroduce la entrada.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';

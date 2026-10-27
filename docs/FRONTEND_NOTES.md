@@ -215,7 +215,7 @@ cookies, ni objeto `measurement`, ni `banner-response`, y el cargador **no está
 - **Falla en cerrado (TL D4/D7):** sin el parche de `window.next.router` no se cargan etiquetas (`routerGuarded`);
   `next.config.mjs` `measurementDisclosureProblem` tumba CUALQUIER `next build` con `on` + declaración nula/incompleta
   (exento: mocks FUERA de Vercel; con `VERCEL_ENV` `production`/`preview` no hay exención, TL-MKT2b-e). `ENCENDER_BLOCKERS`
-  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy solo **MKT-F2-3** (backend, `v26.0`; MKT-F2-4 salió en `cae3d15e`, leído el 2026-10-26). Con
+  (`measurement-gate.ts`): con `on`, un problema por bloqueo abierto; hoy **vacía** (MKT-F2-3 salió el 2026-10-27: evento de prueba de Meta recibido en producción, HECHOS.md). Con
   el aviso ya declarado, `npx next build` con `on` CARGA (la mínima solo mira la declaración): lo único que sigue
   parando un encendido es `prebuild` ⇒ `ENCENDER_BLOCKERS`.
   Paridad con `docs/TECH_DEBT.md` (SEC-MKT-2, `measurement-gate.test.ts`): una entrada no sale con su ficha abierta.
