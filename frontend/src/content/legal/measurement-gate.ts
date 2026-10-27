@@ -101,7 +101,7 @@ export interface EncenderBlocker {
 }
 
 /**
- * Abiertos (TL-MKT2b-f, 2026-10-19). Salieron antes: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
+ * Abiertos: ninguno (2026-10-27). La lista nació con TL-MKT2b-f (2026-10-19). Salieron: R4 (C-F8 `lib/measurement/item.test.ts`, C-B10
  * `backend/test/measurement.item.spec.ts` y la paridad `lib/measurement/item.cross.test.ts`) y D2 (`DRAIN_BUDGET_MS`,
  * `backend/test/measurement.drain.spec.ts`), merge `13cf3653`; MKT-TL2 (`backend/test/marketing-cross-table.audit.spec.ts`,
  * `marketing-populations.registry.spec.ts` y `marketing-tl2.expiry.spec.ts` verdes; ficha cerrada en TECH_DEBT), `86ee9bdb`.
@@ -111,18 +111,16 @@ export interface EncenderBlocker {
  * SEC-MED-1 entró el 2026-10-26 (seguridad, veredicto `2f5a59c0`) y salió el mismo día (frontend, D-MKT2-11 v1.112.2):
  * C-F4 (`lib/measurement/utm.test.ts`, `track.url.test.ts`) y C-F3 con `?q=` (`e2e/measurement-on.spec.ts` «SEC-MED-1») verdes;
  * ficha cerrada en TECH_DEBT.
+ * MKT-F2-3 salió el 2026-10-27: el dueño verificó en producción el evento de prueba de Meta (§MKT.H.12) con
+ * `META_GRAPH_API_VERSION` 'v26.0' (HECHOS.md, «Evento de prueba de Meta: recibido en producción (MKT-F2-3)»); backend
+ * cierra la ficha en TECH_DEBT y anota META-GRAPH-VERIFIED en BACKEND_NOTES §MKT.H. Desde entonces la lista está VACÍA:
+ * con `on` y el aviso válido la puerta pasa; cualquier bloqueo nuevo entra aquí y en `ENCENDER_REGISTRY` de la prueba.
  * SEC-MKT-2: paridad con `docs/TECH_DEBT.md` en `measurement-gate.test.ts` — una entrada no sale mientras su ficha
  * siga abierta, y una entrada nueva se registra en `ENCENDER_REGISTRY` de esa prueba.
  */
+// ⛔ Mantener `[` y `]` en líneas separadas: el canario de devops (`check-measurement-publish-gate-canary.sh`,
+// M8/M9) inyecta un bloqueo con `sed …/a` tras la línea de apertura; `= [];` en una línea lo dejaría sin compilar.
 export const ENCENDER_BLOCKERS: readonly EncenderBlocker[] = [
-  {
-    id: 'MKT-F2-3',
-    // Versión = la fila de `META-GRAPH-VERSION` en API_CONTRACT §MKT.H.1 (v1.112); se cierra con el botón de §MKT.H.12.
-    what: "META_GRAPH_API_VERSION ('v26.0') sin verificar vigente para la fecha de encendido",
-    owner: 'backend',
-    closedBy:
-      'evento de prueba de Meta aceptado (POST /admin/measurement/meta-test-event, §MKT.H.12) con la versión fijada en backend/src/modules/measurement/measurement.config.ts, línea META-GRAPH-VERIFIED en BACKEND_NOTES §MKT.H (TECH_DEBT MKT-F2-3)',
-  },
 ];
 
 /** Problemas según el modo: con `off`, ninguno. Con `on`, los del aviso + uno por bloqueo abierto. */
