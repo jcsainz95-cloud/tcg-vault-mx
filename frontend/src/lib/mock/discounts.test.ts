@@ -75,10 +75,19 @@ describe('§DSC.6 / criterio 907 — el genérico es UNO para los seis casos', (
 });
 
 describe('§DSC.6 / criterio 908 — límite de intentos', () => {
+  /**
+   * Estas pruebas evalúan en instantes FIJOS (`ctx.now = t0`), así que la semilla y los códigos creados no pueden
+   * depender del reloj real: con `resetMockDiscounts()` (semilla a `Date.now()`) y `startsAt` por defecto (= hoy), en
+   * cuanto el calendario pasa de `t0` los códigos «aún no empiezan» y dan `invalid` en vez de `not_applicable`
+   * (medido el 2026-10-27, 10/10 rojo). Semilla anclada antes del `t0` más temprano del bloque (2026-10-25T18:00Z).
+   */
+  const SEED_NOW = Date.parse('2026-10-25T12:00:00Z');
+  beforeEach(() => resetMockDiscounts(SEED_NOW));
+
   it('DCO-B9 v1.110.3 (`HECHOS.md` 2026-10-26 «…cuenta como intento»): 10 códigos vigentes DISTINTOS que no aplican ⇒ bloqueo', () => {
     const t0 = Date.parse('2026-10-26T18:00:00Z');
     for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures; i++) {
-      mockCreateCode({ code: `MINIMO${i}X`, kind: 'percent', percentPct: 10, minSubtotalCents: 900000 });
+      mockCreateCode({ code: `MINIMO${i}X`, kind: 'percent', percentPct: 10, minSubtotalCents: 900000, startsAt: new Date(SEED_NOW).toISOString() });
     }
     for (let i = 0; i < MOCK_DISCOUNT_THROTTLE.maxFailures; i++) {
       expect(evaluateMockDiscount(`MINIMO${i}X`, ctx({ now: t0 + i })).dto).toMatchObject({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL' });
