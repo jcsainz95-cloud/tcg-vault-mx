@@ -19,7 +19,7 @@
 > habilitados y presupuesto `DRAIN_BUDGET_MS` = 30 s por corrida; panel: `null` = «—», fila oculta ⇒ `'oculta'`
 > (`sealHiddenRows` en `screen()`). m86: CHECK de un sujeto y `ADD VALUE IF NOT EXISTS 'custom'`; la reversa vive en la
 > cabecera del SQL de m86 (no se copia aquí); CHECK y ciclo reversa ⇒ redeploy medidos contra Postgres (TECH_DEBT MKT-F2-4 ✅,
-> 2026-10-26). Bloqueo de encendido que queda: MKT-F2-3 (versión de Graph [§MKT.H.1](API_CONTRACT.md#MKT-H); evento de prueba `POST /admin/measurement/meta-test-event` construido, falta que el dueño lo envíe). Deuda: TECH_DEBT §MKT.
+> 2026-10-26). Sin bloqueos de encendido backend: MKT-F2-3 ✅ (2026-10-27, línea `META-GRAPH-VERIFIED` en §MKT.H; `BACKEND_ENCENDER_BLOCKERS` vacía). Deuda: TECH_DEBT §MKT.
 > **M-90 (2026-10-21):** `magic` en `CardShowGame` (migración `20261107120000_m90_card_show_magic`, LIGERA sin código nuevo).
 > `GET /card-show/tournament/count` = `card-show-tournament-count.service.ts`: caché **en memoria del proceso** 30 s (por réplica);
 > BD caída ⇒ último valor si tiene < 60 s, si no `503 {ok:false}`; Redis caído ⇒ el throttle 60/min falla ABIERTO (como §CARDSHOW.4),
@@ -33099,8 +33099,8 @@ lista cerrada), `measurement.service.ts` (prepare / saveContext / enqueuePurchas
 - **Versión de Graph:** valor y caducidad en [API_CONTRACT §MKT.H.1](API_CONTRACT.md#MKT-H) (bloque `META-GRAPH-VERSION`; aquí no
   se copia). Constante `META_GRAPH_API_VERSION` + `metaEventsUrl()` en `measurement.config.ts` (única URL de eventos: drenador y
   evento de prueba). Paridad y caducidad: C-B15 `test/measurement.graph-version.spec.ts` (se pone roja sola el día de `reviewBy`).
-  Medición de las tablas de Meta que fundó la elección: 2026-10-26, razones en ARCHITECTURE §14.10 D-MKT2-10. MKT-F2-3 sigue
-  ABIERTA: falta que el dueño envíe el evento de prueba desde producción y lo vea en «Eventos de prueba» (cierre en §MKT.H.12).
+  Medición de las tablas de Meta que fundó la elección: 2026-10-26, razones en ARCHITECTURE §14.10 D-MKT2-10. MKT-F2-3 ✅ (§MKT.H.12):
+- `META-GRAPH-VERIFIED` `v26.0` · 2026-10-27 · fbtraceId `AJlhyire-0gNHUcy66qjcMD` · evento `PageView` `test-dd5c5c52-8db1-4931-9a89-a426d4a0b825` · id de AuditLog: no medido desde el repo; consultable en `AuditLog` por action `measurement.meta_test_event` (entityId = ese evento) · HECHOS.md «Evento de prueba de Meta: recibido en producción (MKT-F2-3)», 2026-10-27
 - **Evento de prueba de Meta** ([§MKT.H.12](API_CONTRACT.md#MKT-H12)): `admin-measurement.controller.ts` (`@Roles(super_admin)` de
   clase) → `meta-test-event.service.ts`; piezas puras en `meta-test-event.ts`. Lee `readMeasurementConfig(env).meta` sin la
   puerta (envía con `off` y con bloqueos). Límite: candado consultivo `(86_120_002, 1)` → conteo de `measurement.meta_test_event`

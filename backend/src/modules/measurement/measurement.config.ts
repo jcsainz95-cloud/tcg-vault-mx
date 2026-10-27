@@ -118,15 +118,12 @@ export interface MeasurementEncenderBlocker {
  * registra `MEASUREMENT_ENCENDER_BLOCKED`: encender solo el backend ya no se salta lo que bloquea el frontend (SEC-MKT-3). Una
  * entrada sale en el commit que cierra su ficha de TECH_DEBT; la paridad con el frontend y con las fichas la vigila
  * `test/measurement.encender-gate.spec.ts`. MKT-TL2 salió con la prueba 3 (`test/marketing-cross-table.audit.spec.ts`);
- * MKT-F2-4 salió con C-B11 verde contra Postgres y el ciclo reversa ⇒ `migrate deploy` de m86 (TECH_DEBT MKT-F2-4, 2026-10-26).
+ * MKT-F2-4 salió con C-B11 verde contra Postgres y el ciclo reversa ⇒ `migrate deploy` de m86 (TECH_DEBT MKT-F2-4, 2026-10-26);
+ * MKT-F2-3 salió con el evento de prueba de Meta recibido en producción y la línea `META-GRAPH-VERIFIED` en BACKEND_NOTES §MKT.H
+ * (TECH_DEBT MKT-F2-3, 2026-10-27). Hoy no queda ninguno. Cambiar `META_GRAPH_API_VERSION` reabre MKT-F2-3 y la vuelve a meter
+ * aquí en el mismo commit (§MKT.H.12; lo cobra C-B15 `test/measurement.graph-version.spec.ts`).
  */
-export const BACKEND_ENCENDER_BLOCKERS: readonly MeasurementEncenderBlocker[] = [
-  {
-    id: 'MKT-F2-3',
-    what: "META_GRAPH_API_VERSION ('v26.0') sin verificar vigente para la fecha de encendido",
-    closedBy: 'evento de prueba de Meta aceptado (2xx) con la versión fijada, anotado en BACKEND_NOTES (TECH_DEBT MKT-F2-3)',
-  },
-];
+export const BACKEND_ENCENDER_BLOCKERS: readonly MeasurementEncenderBlocker[] = [];
 
 /** Token de inyección de la lista (lo provee `MeasurementModule`; las pruebas que construyen el servicio a mano no lo pasan). */
 export const MEASUREMENT_ENCENDER_BLOCKERS = Symbol('MEASUREMENT_ENCENDER_BLOCKERS');

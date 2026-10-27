@@ -17,7 +17,7 @@ import { Logger } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ROLES_KEY } from '../src/common/decorators/roles.decorator';
 import { AdminMeasurementController } from '../src/modules/measurement/admin-measurement.controller';
-import { BACKEND_ENCENDER_BLOCKERS, META_GRAPH_API_VERSION, metaEventsUrl } from '../src/modules/measurement/measurement.config';
+import { META_GRAPH_API_VERSION, metaEventsUrl } from '../src/modules/measurement/measurement.config';
 import {
   makeFetchMeasurementHttp,
   META_TEXT_MAX,
@@ -244,8 +244,7 @@ const okHttp = (): jest.Mocked<MeasurementHttp> => ({
 });
 
 describe('C-B14 · modo, configuración y límite (unitaria)', () => {
-  it('`off` y `on` con el bloqueo de encendido abierto ⇒ envía y responde accepted', async () => {
-    expect(BACKEND_ENCENDER_BLOCKERS.map((b) => b.id)).toContain('MKT-F2-3');
+  it('`off`, `on` y sin modo ⇒ envía y responde accepted (el servicio no pasa por la puerta de encendido)', async () => {
     for (const mode of ['off', 'on', undefined]) {
       const http = okHttp();
       const w = world(fullEnv({ MEASUREMENT_MODE: mode }), http);
