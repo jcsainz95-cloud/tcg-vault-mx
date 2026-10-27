@@ -5,10 +5,11 @@
  *  1. `META_GRAPH_API_VERSION` = la `version` del bloque del contrato (única fuente en `docs/`).
  *  2. Hoy < `reviewBy`: ese día esta prueba se pone roja sola hasta re-medir la tabla de Marketing API de Meta y mover la
  *     fila (cambio de contrato). Es la caducidad con candado.
- *  3. Con la línea `META-GRAPH-VERIFIED` en BACKEND_NOTES, su versión = la constante; sin ella, MKT-F2-3 sigue abierta en
- *     TECH_DEBT y bloqueando (`BACKEND_ENCENDER_BLOCKERS`).
- * CANARIO: constante `v25.0` ⇒ rojo; `reviewBy` vencido ⇒ rojo; línea verificada con otra versión ⇒ rojo; sin línea y sin el
- * bloqueo ⇒ rojo. Lee `docs/` del árbol ENTERO (copiar solo `backend/` la pone roja por falta de ficheros, no por defecto).
+ *  3. Con la línea `META-GRAPH-VERIFIED` en BACKEND_NOTES (`versión · fecha · fbtraceId · id de AuditLog · fila de HECHOS`), su
+ *     versión = la constante, lleva fecha y los cinco campos, la ficha MKT-F2-3 está ✅ y MKT-F2-3 NO está en
+ *     `BACKEND_ENCENDER_BLOCKERS`; sin ella, MKT-F2-3 sigue abierta en TECH_DEBT y bloqueando. Cerrada el 2026-10-27.
+ * CANARIO: constante `v25.0` ⇒ rojo; `reviewBy` vencido ⇒ rojo; línea verificada con otra versión ⇒ rojo; línea + ficha
+ * reabierta ⇒ rojo; línea + bloqueo de vuelta ⇒ rojo; línea sin fecha/campos ⇒ rojo; sin línea y sin el bloqueo ⇒ rojo. Lee `docs/` del árbol ENTERO (copiar solo `backend/` la pone roja por falta de ficheros, no por defecto).
  * Determinista salvo el reloj (a propósito): N=1.
  */
 import { readFileSync } from 'fs';
@@ -32,9 +33,12 @@ function contractGraphVersion(contract: string): { version: string; reviewBy: st
   return { version: rows[0][0], reviewBy: rows[0][1] };
 }
 
-/** Versiones de las líneas `META-GRAPH-VERIFIED <versión> · …` de BACKEND_NOTES (formato de §MKT.H.12). */
-function verifiedLines(notes: string): string[] {
-  return [...notes.matchAll(/^\s*[-*]?\s*`?META-GRAPH-VERIFIED`?\s*[:·]?\s*`?(v\d+\.\d+)`?/gm)].map((m) => m[1]);
+/** Líneas `META-GRAPH-VERIFIED <versión> · <fecha> · <fbtraceId> · <id de AuditLog> · <fila de HECHOS>` (§MKT.H.12). */
+function verifiedLines(notes: string): { version: string; fields: string[] }[] {
+  return [...notes.matchAll(/^\s*[-*]?\s*`?META-GRAPH-VERIFIED`?\s*[:·]?\s*`?(v\d+\.\d+)`?(.*)$/gm)].map((m) => ({
+    version: m[1],
+    fields: m[2].split('·').map((f) => f.trim()).filter(Boolean),
+  }));
 }
 
 function fichaState(techDebt: string, id: string): 'open' | 'closed' | 'missing' {
@@ -61,7 +65,13 @@ function graphVersionProblems(i: Inputs): string[] {
   if (!(i.today < row.reviewBy)) out.push(`reviewBy ${row.reviewBy} vencido (hoy ${i.today}): re-medir la tabla de Marketing API`);
   const verified = verifiedLines(i.notes);
   if (verified.length > 0) {
-    for (const v of verified) if (v !== i.constant) out.push(`META-GRAPH-VERIFIED ${v} ≠ constante ${i.constant}`);
+    for (const v of verified) {
+      if (v.version !== i.constant) out.push(`META-GRAPH-VERIFIED ${v.version} ≠ constante ${i.constant}`);
+      if (v.fields.length < 4 || !/^\d{4}-\d{2}-\d{2}$/.test(v.fields[0]) || !v.fields.some((f) => /HECHOS/.test(f)))
+        out.push(`META-GRAPH-VERIFIED ${v.version} sin fecha, fbtraceId, id de AuditLog o fila de HECHOS`);
+    }
+    if (i.blockerIds.includes('MKT-F2-3')) out.push('META-GRAPH-VERIFIED y MKT-F2-3 sigue en BACKEND_ENCENDER_BLOCKERS');
+    if (fichaState(i.techDebt, 'MKT-F2-3') !== 'closed') out.push('META-GRAPH-VERIFIED y la ficha MKT-F2-3 no está cerrada');
   } else {
     if (!i.blockerIds.includes('MKT-F2-3')) out.push('sin META-GRAPH-VERIFIED y MKT-F2-3 fuera de BACKEND_ENCENDER_BLOCKERS');
     if (fichaState(i.techDebt, 'MKT-F2-3') !== 'open') out.push('sin META-GRAPH-VERIFIED y la ficha MKT-F2-3 no está abierta');
@@ -84,30 +94,51 @@ describe('C-B15 · versión de Graph de Meta = bloque del contrato, con caducida
     expect(graphVersionProblems(real)).toEqual([]);
   });
 
-  it('la cadena «v21.0» ya no vive en el bloqueo de encendido ni en el código de medición', () => {
+  it('la cadena «v21.0» ya no vive en el bloqueo de encendido; si MKT-F2-3 vuelve a la lista, nombra la versión fijada', () => {
     expect(BACKEND_ENCENDER_BLOCKERS.map((b) => b.what).join('\n')).not.toContain('v21.0');
-    expect(BACKEND_ENCENDER_BLOCKERS.find((b) => b.id === 'MKT-F2-3')?.what).toContain(`'${META_GRAPH_API_VERSION}'`);
+    const entry = BACKEND_ENCENDER_BLOCKERS.find((b) => b.id === 'MKT-F2-3');
+    if (entry) expect(entry.what).toContain(`'${META_GRAPH_API_VERSION}'`);
+  });
+  it('MKT-F2-3 cerrada (2026-10-27): hay línea META-GRAPH-VERIFIED con la constante, ficha ✅ y fuera de la lista', () => {
+    expect(verifiedLines(real.notes).map((v) => v.version)).toEqual([META_GRAPH_API_VERSION]);
+    expect(fichaState(real.techDebt, 'MKT-F2-3')).toBe('closed');
+    expect(real.blockerIds).not.toContain('MKT-F2-3');
   });
 
-  it('CANARIO: constante v25.0 ⇒ rojo', () => {
-    expect(graphVersionProblems({ ...real, constant: 'v25.0' })).toEqual([expect.stringMatching(/^META_GRAPH_API_VERSION=v25\.0 ≠ contrato /)]);
+  it('CANARIO: constante v25.0 ⇒ rojo (y la línea verificada deja de valer: cambiar la versión la quita y reabre la ficha)', () => {
+    expect(graphVersionProblems({ ...real, constant: 'v25.0' })).toEqual([
+      expect.stringMatching(/^META_GRAPH_API_VERSION=v25\.0 ≠ contrato /),
+      `META-GRAPH-VERIFIED ${META_GRAPH_API_VERSION} ≠ constante v25.0`,
+    ]);
   });
   it('CANARIO: el día de reviewBy ⇒ rojo', () => {
     const { reviewBy } = contractGraphVersion(real.contract)!;
     expect(graphVersionProblems({ ...real, today: reviewBy })).toEqual([expect.stringMatching(/^reviewBy .* vencido/)]);
   });
-  it('CANARIO: línea verificada con otra versión ⇒ rojo; con la misma ⇒ verde aunque MKT-F2-3 salga', () => {
+  // Variantes del árbol real para los canarios: sin la línea verificada, con la ficha reabierta.
+  const unverified = real.notes.replace(/^.*META-GRAPH-VERIFIED.*$\n?/gm, '');
+  const reopened = real.techDebt.replace(/^\|\s*MKT-F2-3 ✅\s*\|/m, '| MKT-F2-3 |');
+
+  it('CANARIO: línea verificada con otra versión ⇒ rojo; con la misma ⇒ verde', () => {
     const other = `${real.notes}\n- META-GRAPH-VERIFIED v24.0 · 2026-11-01 · Afbtrace · audit-id · HECHOS 2026-11-01\n`;
     expect(graphVersionProblems({ ...real, notes: other })).toEqual([expect.stringMatching(/^META-GRAPH-VERIFIED v24\.0 ≠ /)]);
-    const same = `${real.notes}\n- META-GRAPH-VERIFIED ${META_GRAPH_API_VERSION} · 2026-11-01 · Afbtrace · audit-id · HECHOS 2026-11-01\n`;
-    const closed = real.techDebt.replace(/^\|\s*MKT-F2-3\s*\|/m, '| MKT-F2-3 ✅ |');
-    expect(graphVersionProblems({ ...real, notes: same, techDebt: closed, blockerIds: [] })).toEqual([]);
+    const same = `${unverified}\n- META-GRAPH-VERIFIED ${META_GRAPH_API_VERSION} · 2026-11-01 · Afbtrace · audit-id · HECHOS 2026-11-01\n`;
+    expect(graphVersionProblems({ ...real, notes: same })).toEqual([]);
+  });
+  it('CANARIO: línea verificada + ficha reabierta ⇒ rojo; + MKT-F2-3 de vuelta en la lista ⇒ rojo', () => {
+    expect(reopened).not.toBe(real.techDebt);
+    expect(graphVersionProblems({ ...real, techDebt: reopened })).toEqual([expect.stringMatching(/ficha MKT-F2-3 no está cerrada/)]);
+    expect(graphVersionProblems({ ...real, blockerIds: ['MKT-F2-3'] })).toEqual([expect.stringMatching(/MKT-F2-3 sigue en BACKEND_ENCENDER_BLOCKERS/)]);
+  });
+  it('CANARIO: línea verificada sin fecha ni campos ⇒ rojo', () => {
+    const bare = `${unverified}\n- META-GRAPH-VERIFIED ${META_GRAPH_API_VERSION}\n`;
+    expect(graphVersionProblems({ ...real, notes: bare })).toEqual([expect.stringMatching(/sin fecha, fbtraceId/)]);
   });
   it('CANARIO: sin línea verificada y sin el bloqueo / con la ficha cerrada ⇒ rojo', () => {
-    expect(graphVersionProblems({ ...real, blockerIds: [] })).toEqual([expect.stringMatching(/MKT-F2-3 fuera de BACKEND_ENCENDER_BLOCKERS/)]);
-    const closed = real.techDebt.replace(/^\|\s*MKT-F2-3\s*\|/m, '| MKT-F2-3 ✅ |');
-    expect(closed).not.toBe(real.techDebt);
-    expect(graphVersionProblems({ ...real, techDebt: closed })).toEqual([expect.stringMatching(/ficha MKT-F2-3 no está abierta/)]);
+    expect(unverified).not.toBe(real.notes);
+    expect(graphVersionProblems({ ...real, notes: unverified, techDebt: reopened, blockerIds: [] })).toEqual([expect.stringMatching(/MKT-F2-3 fuera de BACKEND_ENCENDER_BLOCKERS/)]);
+    expect(graphVersionProblems({ ...real, notes: unverified, blockerIds: ['MKT-F2-3'] })).toEqual([expect.stringMatching(/ficha MKT-F2-3 no está abierta/)]);
+    expect(graphVersionProblems({ ...real, notes: unverified, techDebt: reopened, blockerIds: ['MKT-F2-3'] })).toEqual([]);
   });
   it('CANARIO: bloque ausente o con dos filas ⇒ rojo', () => {
     expect(graphVersionProblems({ ...real, contract: real.contract.replace('<!-- META-GRAPH-VERSION:start -->', '') })).toEqual([expect.stringMatching(/^no se leyó/)]);
