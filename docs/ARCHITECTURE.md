@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.113.1⟨portada⟩ (2026-10-29).** §4.DYN (e): se cobra el `ListingPrice` vigente, sin gracia, sin precio anterior ni aviso (M-94 sin columnas `prev*`) · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.
 > **Rev v1.113⟨portada⟩ (2026-10-29).** [§4.DYN](#4-DYN) NUEVA: Destacadas materializadas al día (M-93), turnos PSA por set con tope de créditos (retira `graded_estimate_ingest_max_cards_per_run`), precio del día y precio visto (M-94, 💰), portada servida con datos en el HTML y CSP de fase 1 · orquestador (`HECHOS.md` 2026-10-29 y 2026-10-04). Contrato: API_CONTRACT §DYN.
 > **Rev v1.112.2⟨sec-med-1⟩ (2026-10-26).** §14.4 D-MKT2-11: URL saneada en todo evento de GA4, píxel solo en documento limpio, medición mejorada apagada · seguridad (SEC-MED-1, `1256b21c`).
 > **Rev v1.112⟨meta-prueba⟩ (2026-10-26).** §14.10 D-MKT2-10: versión de Graph y evento de prueba de Meta (cierre de MKT-F2-3); D-MKT-CELLS-1 compactada · backend. Contrato: §MKT.H.1/.12.
@@ -27830,7 +27831,7 @@ pago) ya existía con el ingest diario; se le dice al dueño con números en la 
 
 **(b) No se construye lo que nace para retirarse y contradice al dueño.** El aviso y el segundo clic de SP.6 eran
 provisionales (12.10) y contradecían `HECHOS.md:49` («no vale la pena actualizar»). Al diferirlo, se poda: queda solo
-que la pantalla diga el total que Stripe cobra, que §X también conservaba. Cobrar el precio visto sigue siendo §X.
+que la pantalla diga el total que Stripe cobra, que §X también conservaba. Exhibido = cobrado: §4.DYN (e).
 Descartado: construir el aviso igualmente «porque estaba diseñado» (código que el dueño dijo no querer, y claves de texto
 que habría que borrar).
 
@@ -30857,10 +30858,10 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + errata v1.113.1, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
-portada más rápida», 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
+portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
 «Portada: se cobra el precio que el cliente VIO…» y «REGLA GENERAL… automáticos»; `PROJECT §DYN` (criterios 920–939), §Y.1/.2
 (300, 301), §X (294–299). Informe de velocidad medido por frontend en producción el 2026-10-29 (N=5; scratchpad de la sesión,
 `frontend-velocidad-portada/INFORME.md`, relayado por el orquestador): **LCP 2.8 s rápido / 7.2 s Slow 4G; FCP 0.60 / 0.89 s**.
@@ -30947,17 +30948,17 @@ producción (devops, usuario de solo lectura; `API_CONTRACT §DYN.4.7`) **y** la
 **(e) DYN-P Precio del día (💰).** El precio exhibido (`L`, `P` y la instrumentación de §N.8) se calcula **por el mismo cuerpo**
 que hoy usa el checkout (`orders.service.ts:370-470` `resolveSaleDecision` + `:353-360` `derivedSaleDecision`; para la rejilla, el
 equivalente de `fetchSellable`) y se **guarda por pieza** en `ListingPrice` (M-94). Catálogo, ficha, Destacadas, vitrina **y
-checkout** leen esa fila: exhibido y cobrado salen del mismo dato, que es la garantía de «se cobra lo que vio» sin guardar
-precios en el carrito del navegador.
+checkout** leen esa fila: exhibido y cobrado salen del mismo dato, que es la garantía de «se paga lo que se ve» sin guardar
+precios en el carrito del navegador ni precios anteriores en el servidor.
 - **Cuándo se recalcula:** una vez al día (H−60 min, después de la corrida de mercado de las 18:00 del día anterior) y enseguida
   tras «Actualizar precios» manual, «Publicar todo», publicar una pieza, cambio de un dial que mueve precio, y precio a mano
   (§X.1). ⛔ Las corridas **automáticas** de `price-ingest` (06:00/18:00) **no** recalculan lo exhibido: el dueño pidió «una vez al
   día»; actualizan `PriceReference`, que entra al siguiente cálculo diario.
-- **Vigencia del precio visto:** la fila guarda el precio **vigente** y el **anterior** con su `prevValidUntil` (= momento del
-  reemplazo + gracia, dial, 24 h). El carrito manda el precio que el cliente vio; el servidor cobra
-  `min(vigente, anterior)` **solo si** lo visto coincide con el anterior todavía válido, y el vigente en cualquier otro caso. Así
-  nunca se cobra más de lo vigente, nunca un número que el servidor no publicó (lo visto se compara, no se cree), y una bajada
-  siempre beneficia al cliente. Fuera de la gracia se cobra el vigente y la línea lo dice (aviso de §X.2).
+- **Sin gracia (errata v1.113.1):** la fila guarda **solo** el precio vigente y el cálculo la sobrescribe. El dueño eligió la
+  regla simple (`HECHOS` 2026-10-29): quien paga entre dos cálculos paga lo que la tienda exhibe, aunque el mercado ya se haya
+  movido; el cambio llega a todos a la vez en el siguiente cálculo. Coste aceptado: quien vio un precio justo antes de un cálculo
+  y paga después paga el nuevo, sin aviso. Un dial de IVA ya dispara cálculo inmediato, así que no necesita excepción: la
+  ventana es lo que tarde la corrida, y en ella se cobra lo exhibido.
 - **Sin fila** (pieza recién publicada cuyo cálculo falló) ⇒ se precia en vivo por el cuerpo de siempre y se encola el cálculo:
   la tienda nunca deja de vender por el precalculado, y nunca vende sin precio (`PRICE_PENDING` intacto).
 - Qué dial «mueve precio» lo dice **una lista** de backend con candado de completitud (`API_CONTRACT §DYN.5.4`).
@@ -30990,8 +30991,8 @@ precios en el carrito del navegador.
    en visitas repetidas; quitar `Content-Type` de los GET sin cuerpo (frontend) los elimina en la primera.
 
 **(g) Desviaciones que este diseño deja escritas** (dueño y prueba de paridad de cada una en `API_CONTRACT §DYN.8`): el nonce que
-no llega (frontend; prueba DYN-F7); `PROJECT §X.1` «el cobro siempre recalcula» contradice `HECHOS` 2026-10-04 «se cobra el precio
-que VIO» (manda HECHOS; product-owner corrige el texto); `PROJECT §DYN.2` «§R» por «§Z» (product-owner).
+no llega (frontend; prueba DYN-F7); `PROJECT §X.1` «el cobro siempre recalcula» y la gracia/aviso de §X.2 contradicen `HECHOS`
+2026-10-29 «se cobra lo que se ve» (manda HECHOS; product-owner corrige el texto); `PROJECT §DYN.2` «§R» por «§Z» (product-owner).
 
 **(h) Reparto y modelo** (detalle por tarea en `API_CONTRACT §DYN.9`): backend en **modelo fuerte** en todo (DYN-J gasta créditos
 del dueño; DYN-P es dinero: triple veredicto; DYN-1 toca `inventory`). Zonas compartidas: `prisma/` (M-93, M-94),
@@ -31841,7 +31842,7 @@ Riesgos técnicos:
 ## 9. Desviaciones detectadas
 
 > **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
-> contra `HECHOS` 2026-10-04 «precio que VIO», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
+> y §X.2 contra `HECHOS` 2026-10-29 «se cobra lo que se ve», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
 >
 > **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
 > `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
