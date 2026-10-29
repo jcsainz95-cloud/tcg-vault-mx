@@ -11,6 +11,7 @@ import {
   isSetDue,
   orderDueSets,
   psaCycleShortReason,
+  overdueRefYmd,
 } from '../src/modules/pricing/graded-turns';
 
 describe('DYN.4.2 — reloj por set en días naturales CDMX', () => {
@@ -79,5 +80,15 @@ describe('DYN.4.5 — proyección de AG-24', () => {
     expect(psaCycleShortReason({ cycleDays: 7, weeklyCreditsNeeded: 1, maxOverdueDays: 9 })).toBe('overdue');
     expect(psaCycleShortReason({ cycleDays: 7, weeklyCreditsNeeded: 1, maxOverdueDays: 8 })).toBeNull();
     expect(psaCycleShortReason({ cycleDays: null, weeklyCreditsNeeded: 0, maxOverdueDays: 0 })).toBeNull();
+  });
+});
+
+describe('DYN-B21 (pura) — `overdueRefYmd`: desde cuándo cuenta la edad de un set (errata v1.113.2)', () => {
+  it('con `ok` ⇒ su fecha; sin `ok` ⇒ max(llegada, inicio de turnos); sin bitácora ⇒ null (no vence)', () => {
+    expect(overdueRefYmd('2026-11-01', '2026-01-01', '2026-10-01')).toBe('2026-11-01');
+    expect(overdueRefYmd(null, '2026-09-01', '2026-11-01')).toBe('2026-11-01'); // llegó antes de que hubiera turnos
+    expect(overdueRefYmd(null, '2026-11-05', '2026-11-01')).toBe('2026-11-05'); // llegó después
+    expect(overdueRefYmd(null, null, '2026-11-01')).toBe('2026-11-01');
+    expect(overdueRefYmd(null, '2026-09-01', null)).toBeNull();
   });
 });

@@ -76,6 +76,19 @@ export function cycleProjection(weeklyCreditsNeeded: number, cap: number): { cyc
 }
 
 /**
+ * §DYN.4.5 (errata v1.113.2) — la fecha desde la que cuenta la `edad` de un set para `overdue`: su última `ok`; si nunca tuvo
+ * una, `max(MIN firstListedAt de sus cartas raw publicadas, inicio)`, con `inicio = MIN(businessDate)` de TODA
+ * `GradedEstimateSetScan`. Sin filas en la bitácora (`inicio = null`) un set nunca consultado no está vencido (`null`): así el
+ * día del despliegue —todo sin consultar, `firstListedAt` rellenado con `createdAt`— `overdue` no abre en falso.
+ */
+export function overdueRefYmd(lastOkDate: string | null, minFirstListedYmd: string | null, turnsStartYmd: string | null): string | null {
+  if (lastOkDate != null) return lastOkDate;
+  if (turnsStartYmd == null) return null;
+  if (minFirstListedYmd == null) return turnsStartYmd;
+  return minFirstListedYmd > turnsStartYmd ? minFirstListedYmd : turnsStartYmd;
+}
+
+/**
  * §DYN.4.5 — ¿abre (o sigue abierto) AG-24, y por qué? `projected` si el ciclo pasa de 7 días (cap 0 con necesidad > 0 cuenta:
  * no se cubre nunca); `overdue` si algún set en alcance lleva más de 8 días sin consulta `ok`. `null` ⇒ se cierra solo.
  */

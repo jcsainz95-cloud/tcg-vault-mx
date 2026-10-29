@@ -364,3 +364,48 @@ describe('DYN-B14 (934, 300) — un solo dial, sin captura manual', () => {
     for (const [, total] of chargedByDay(w)) expect(total).toBeLessThanOrEqual(3000);
   });
 });
+
+describe('DYN-B21 (§DYN.4.5, errata v1.113.2) — «vencido > 8 días» cuenta desde que hay turnos, no desde la llegada', () => {
+  const START = '2026-12-01T12:00:00.000Z'; // 06:00 CDMX
+  const openAg24 = (w: World) => [...w.alerts.entries()].filter(([, a]) => a.kind === 'psa_cycle_short' && !a.resolvedAt);
+  const sixtyDaysAgo = new Date(new Date(START).getTime() - 60 * dayMs);
+
+  it('día del despliegue: 20 sets nunca consultados con `firstListedAt` de hace 60 días y tope que alcanza ⇒ SIN AG-24', async () => {
+    const w = newWorld();
+    for (let i = 0; i < 20; i++) addSet(w, `d${String(i).padStart(2, '0')}`, 1, 1, sixtyDaysAgo);
+    w.config.set(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP, 3000);
+    w.failing.add('d00'); // ni uno que falla abre el día 0: su edad cuenta desde el inicio de los turnos (hoy)
+    await runAt(w, START);
+    expect(openAg24(w)).toHaveLength(0);
+  });
+
+  it('día 9 con un set aún sin `ok` ⇒ `overdue` (el día 8 todavía no)', async () => {
+    const w = newWorld();
+    for (let i = 0; i < 20; i++) addSet(w, `d${String(i).padStart(2, '0')}`, 1, 1, sixtyDaysAgo);
+    w.config.set(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP, 3000);
+    w.failing.add('d00'); // pide y falla cada corrida: nunca tiene `ok`
+    await runAt(w, START);
+    await runAt(w, isoPlusDays(START, 8));
+    expect(openAg24(w)).toHaveLength(0); // edad 8: todavía no (> 8)
+    await runAt(w, isoPlusDays(START, 9));
+    const open = openAg24(w);
+    expect(open).toHaveLength(1);
+    expect((open[0][1].facts as { reason: string }).reason).toBe('overdue');
+  });
+
+  it('set con su última `ok` de hace 9 días (y la de hoy falla) ⇒ `overdue`', async () => {
+    const w = newWorld();
+    addSet(w, 'v', 1, 1, sixtyDaysAgo);
+    const nineAgo = new Date(new Date(START).getTime() - 9 * dayMs);
+    w.turns.setScans.push({
+      id: 'prev-v', setId: 'v', businessDate: new Date(`${nineAgo.toISOString().slice(0, 10)}T00:00:00.000Z`), startedAt: nineAgo,
+      outcome: 'ok', creditsEstimated: 2, creditsMeasured: 2, creditsCharged: 2, cardsInScope: 1, cardsReturned: 1,
+    });
+    w.config.set(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP, 3000);
+    w.failing.add('v');
+    await runAt(w, START);
+    const open = openAg24(w);
+    expect(open).toHaveLength(1);
+    expect((open[0][1].facts as { reason: string }).reason).toBe('overdue');
+  });
+});
