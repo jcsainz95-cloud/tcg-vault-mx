@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.113.2⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.113.3⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -27,7 +27,8 @@
 > - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`).
 > - v1.113⟨portada⟩ · 2026-10-29 · [§DYN](#DYN) NUEVA: `GET /catalog/featured` (Destacadas materializadas al día, M-93), turnos PSA por set con tope de créditos y `GET /admin/pricing/graded-estimates/budget` (se retira `ingestMaxCardsPerRun`), aviso AG-24 `psa_cycle_short`, precio del día `ListingPrice` y precio visto en quote/sesión (M-94, 💰), siete diales M10, `dataHealth` += 2, cabeceras de caché y SSR de la portada; enums en §0 · orquestador (`HECHOS.md` 2026-10-29 «Portada dinámica…» y 2026-10-04 «…UNA VEZ AL DÍA…», «…precio que el cliente VIO…»).
 > - v1.113.1⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN: se cobra el `ListingPrice` vigente, sin gracia ni aviso — fuera `seenUnitPriceCents`, `priceChanged`, el dial `priceSeenGraceHours` y las columnas `prev*` de M-94; fila `pending` ⇒ `PRICE_PENDING`; diales de IVA disparan `dial_change` también desde `PUT /admin/settings/iva-transfer`; DYN-B16 rehecho, DYN-F4 retirado · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve, sin gracia ni aviso…»).
-> - v1.113.2⟨portada⟩ · 2026-10-29 · errata de §DYN tras la fase 1 de backend: `ingestMaxCardsPerRun` en el `PUT` de M2 ⇒ `422 VALIDATION_ERROR` explícito (el pipe global no es estricto); I-5 se cumple con proyector; «vencido > 8 días» de AG-24 sin falsa alarma al desplegar; ratificadas cuatro reglas de backend (cargo de `failed`, sonda, sin llave, salud ilegible ⇒ `stale`); D-DYN-4 (M2 no guarda sin DYN-F5) · backend (`BACKEND_NOTES` §DYN fase 1, sobre `4b2e6fe4`). La siguiente es **v1.114**.
+> - v1.113.2⟨portada⟩ · 2026-10-29 · errata de §DYN tras la fase 1 de backend: `ingestMaxCardsPerRun` en el `PUT` de M2 ⇒ `422 VALIDATION_ERROR` explícito (el pipe global no es estricto); I-5 se cumple con proyector; «vencido > 8 días» de AG-24 sin falsa alarma al desplegar; ratificadas cuatro reglas de backend (cargo de `failed`, sonda, sin llave, salud ilegible ⇒ `stale`); D-DYN-4 (M2 no guarda sin DYN-F5) · backend (`BACKEND_NOTES` §DYN fase 1, sobre `4b2e6fe4`).
+> - v1.113.3⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN tras la fase 2 de backend: el «valor de mercado» de la tienda se congela en la fila (M-94 += `referenceMxnCents`, `referenceCapturedDate`); `manual_price` también desde `POST /admin/pricing/override` y la cola de revisión (`manual` y `accept`); alcance = `isSellable` + apartadas con fila; ruta de `PRICE_AFFECTING_SETTING_KEYS`; las cinco claves sin testigo se quedan y DYN-B17 pide testigo por clave; single-flight ratificado; DYN.5.7 sin cálculo de dinero sobre `(P, Order.ivaTransferPct)` · backend (`BACKEND_NOTES` §DYN fase 2, `97f9dd3d`). La siguiente es **v1.114**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -46169,7 +46170,7 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 
-## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.2, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.3, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
 
 Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre la de 2026-10-04 «…VIO…»), **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
@@ -46248,7 +46249,7 @@ enum ListingPriceStatus     { priced pending }
 enum ListingPriceRunTrigger { daily manual_ingest publish_all publish dial_change manual_price bootstrap missing_row }
 enum ListingPriceRunStatus  { running ok failed }
 
-model ListingPrice {                        // UNA fila por pieza de plataforma vendible (mismo predicado que isSellable)
+model ListingPrice {                        // UNA fila por pieza en el alcance de DYN.5.2 (isSellable + apartadas que ya la tenían)
   inventoryItemId String @id                // FK Cascade → InventoryItem
   variantKey  String                        // `${cardId}|${productType}|${gradeKey}|${finish}` (fase 2 agrupa en SQL)
   runId       String                        // FK → ListingPriceRun del valor vigente
@@ -46257,6 +46258,7 @@ model ListingPrice {                        // UNA fila por pieza de plataforma 
   listPriceCents Int?                       // L vigente
   fixedDisplayCents Int?  priceBasis PriceBasis?  marketMxnCents Int?   // instrumentación §N.8 (bracket se DERIVA, no se guarda)
   ivaRatePct Int  ivaTransferPct Int        // los diales con que se derivó P (instrumentación; no gobiernan el cobro, DYN.5.7)
+  referenceMxnCents Int?  referenceCapturedDate DateTime? @db.Date   // v1.113.3: el «valor de mercado» exhibido (DYN.5.5)
   computedAt  DateTime
   @@index([variantKey])
 }
@@ -46268,7 +46270,9 @@ model ListingPriceRun {
   @@index([trigger, businessDate, status])
 }
 ```
-**Datos (sin DDL):** M-93 siembra los 6 diales de DYN.3; M-94 no siembra ninguno.
+**Datos (sin DDL):** M-93 siembra los 6 diales de DYN.3; M-94 no siembra ninguno. Las dos columnas `reference*` de v1.113.3 se
+añaden **editando M-94 en sitio** (no publicada, según el orquestador el 2026-10-29); una BD local o de CI que ya aplicó la vieja
+se recrea. ⛔ Si M-94 ya llegó a una BD compartida, va en migración nueva aditiva y se avisa al arquitecto.
 `graded_estimate_ingest_max_cards_per_run` **se retira** (fila huérfana e inerte, precedente M-48; ⛔ sin `DELETE`).
 **Reversa:** M-93 ⇒ borrar tablas, columna y enums nuevos (el valor de `SpendAlertKind` no se puede quitar: queda inerte); M-94 ⇒
 borrar sus dos tablas y tres enums — **solo** desplegando antes el artefacto anterior, que no las lee (los pedidos ya cobrados
@@ -46390,24 +46394,50 @@ dice qué régimen es el real. Sin las dos, «~1 700/día» de `HECHOS` sigue si
 ### DYN.5 💰 Precio del día — `ListingPrice` (§X.1 + «se paga lo que se ve… se mueve hasta la próxima corrida»)
 **DYN.5.1 Un cuerpo:** el cálculo de una fila es `resolveSaleDecision` + `derivedSaleDecision` (`orders.service.ts:353-470`),
 **extraído** a un servicio de `pricing` que usan el escritor y el checkout. ⛔ Una segunda copia del cálculo es un defecto.
-**DYN.5.2 Alcance:** piezas de plataforma con `status ∈ {listed, in_stock}` (el `isSellable` de `orders.service.ts:488-490`).
+**DYN.5.2 Alcance:** piezas de plataforma con `status ∈ {listed, in_stock}` (el `isSellable` de `orders.service.ts:488-490`)
+**más** las `reserved` que ya tienen fila (v1.113.3: el pedido que la apartó ya congeló su precio en `OrderItem`; la fila se
+mantiene al día para que, si se libera, vuelva con el precio vigente sin pasar por `missing_row`). Una `reserved` sin fila no la
+gana. La corrida **borra** la fila de toda pieza que encuentre fuera de alcance (vendida, retirada, en custodia…).
 Accesorios fuera (precio fijo del dueño, §AC). Resultado `PRICE_PENDING` ⇒ fila `pending` (no se exhibe ni se cobra).
-**DYN.5.3 Cuándo corre (`ListingPriceRun`, single-flight; lotes de 500 por transacción):** `daily` en el tic de DYN.2.3 cuando
+**DYN.5.3 Cuándo corre (`ListingPriceRun`; lotes de 500 por transacción):** `daily` en el tic de DYN.2.3 cuando
 ahora ≥ `effectiveFrom(D) − 60 min` y no hay `daily` ok de `D`; `manual_ingest` al terminar `POST /admin/jobs/price-ingest`;
 `publish_all` al terminar «Publicar todo»; `publish` tras el commit de cada publicación (los ids publicados); `dial_change` tras
 un `PUT` que toque una clave de `PRICE_AFFECTING_SETTING_KEYS` — incluido `PUT /admin/settings/iva-transfer` (§M10-IVA), que
-escribe `iva_transfer_pct` fuera de `PUT /admin/settings`; `manual_price` tras precio por pieza, override de variante o precio
-del producto sellado (las piezas afectadas); `bootstrap` una vez al desplegar M-94; `missing_row` cuando un lector no encuentra
-fila. ⛔ Las corridas **automáticas** de `price-ingest` no disparan cálculo (el dueño pidió una vez al día).
-**DYN.5.4 `PRICE_AFFECTING_SETTING_KEYS`** (`common/settings.constants.ts`): la lista de claves que mueven el precio de venta.
-Candado de completitud DYN-B17: toda clave de `SettingKey` cuyo cambio altere la salida del cuerpo de DYN.5.1 sobre el fixture debe
-estar en la lista.
+escribe `iva_transfer_pct` fuera de `PUT /admin/settings`; `manual_price` tras precio por pieza, override de variante de venta,
+precio del producto sellado, `POST /admin/pricing/override` y `POST /admin/pricing/review-queue/:id/resolve` con `manual` **o
+`accept`** (las dos escriben `PriceReference` por decisión del dueño; `keep` no mueve nada) — solo las piezas de la variante
+tocada; `bootstrap` una vez al desplegar M-94; `missing_row` cuando un lector no encuentra fila. ⛔ Lo **automático** no dispara
+cálculo y entra en el siguiente `daily`: las corridas de `price-ingest`, el barrido del árbitro y la tasa diaria de Banxico
+(`POST /admin/fx/refresh` incluido) (el dueño pidió una vez al día).
+**Single-flight (ratificado v1.113.3):** cadena en proceso (una corrida a la vez por instancia) + candado consultivo por lote
+(entre instancias) + una fila solo la pisa una corrida que **empezó después** que la que la escribió (gana el dato más nuevo,
+sea cual sea el orden en que terminen) + `FOR KEY SHARE SKIP LOCKED` sobre `InventoryItem` antes de escribir (sin él, `40P01`
+contra un `DELETE` de piezas, medido por backend). Una pieza saltada conserva su fila (exhibido = cobrado sigue cierto) y la
+corrida la cuenta en su log; la recoge el siguiente cálculo.
+**DYN.5.4 `PRICE_AFFECTING_SETTING_KEYS`** (`modules/settings/settings.constants.ts`): la lista de claves que mueven el precio de
+venta. Candado DYN-B17, en los dos sentidos: (a) completitud — toda clave de `SettingKey` cuyo cambio altere la salida del cuerpo
+de DYN.5.1 sobre el fixture está en la lista; (b) testigo — toda clave de la lista tiene en el fixture un caso donde su cambio
+**sí** mueve `P` (o la referencia exhibida, DYN.5.5). Las tres del árbitro (`price_arbiter_freshness_days`,
+`price_arbiter_sources`, `price_consensus_tolerance_pct`), `fx_manual_override_rate` y `fx_rate_mode` **se quedan**: el
+árbitro vota la mediana al valuar (`pricing.service.ts:770-795`) y el modo/tasa manual eligen la tasa con que se convierte
+(`fx.service.ts:186-195`), ambos dentro del cuerpo; que no muevan el fixture de hoy es hueco del fixture (sin ≥ 2 fuentes que
+discrepen; FX en modo `legacy`), no de la lista. Una clave de más cuesta una corrida; una de menos, un precio viejo hasta mañana.
 **DYN.5.5 Escritura de una fila:** el cálculo **sobrescribe** la fila (valores, diales, `runId`, `computedAt`); ⛔ no se guarda
 el precio anterior (la historia de un cobro vive en su `OrderItem`). Entre dos cálculos la fila no se mueve: ni las corridas
 automáticas de `price-ingest` ni un cambio de `PriceReference` la tocan.
+**Valor de mercado congelado (v1.113.3):** la fila guarda también el «valor de mercado» que la tienda exhibe junto a `P`
+(`referenceMxnCents`, `referenceCapturedDate`): la referencia de la pieza **leída en el mismo lote que derivó `P`**, ya con el
+gate del sellado (`gateSealedMarketCents`, fuente y dial) aplicado; `null` ⇔ sin mercado exhibible. No es `marketMxnCents`
+(instrumentación §N.8, otra semántica). Al leer: `referenceValue = referenceMxnCents ≠ null ? { status: 'priced',
+referenceMxnCents, capturedDate } : { status: 'pending' }`, y encima las proyecciones de siempre (sin `source` en lo anónimo; el
+`iff priceBasis === 'market'` de D2; `referenceDisplayCents` de §MIV.2). Así la comparación «mercado con IVA · nuestro precio»
+que pidió el dueño (`HECHOS` 2026-10-10 «…CON IVA, con una nota "incluye IVA"») sale de la misma foto, y se mueve con ella en
+el siguiente cálculo (`HECHOS` 2026-10-29 «…se mueve hasta la proxima corrida»). Fuera de DYN.5.6 (bóveda, portafolio,
+cotizador de venta, admin) el mercado sigue leyéndose en vivo, sin cambio.
 **DYN.5.6 Lectores:** `GET /catalog/cards`, `/catalog/facets`, `/catalog/cards/:cardId`, `/catalog/listings/:id`, `/catalog/sealed*`,
-`/catalog/featured` y la vitrina leen la fila (`fetchSellable` deja de cargar curva, políticas, referencias y overrides). Sin fila ⇒
-cálculo en vivo por DYN.5.1 para esa pieza + `missing_row` encolado. Las formas de respuesta **no cambian**.
+`/catalog/featured` y la vitrina leen la fila — precio **y** valor de mercado (`fetchSellable` y `toListingDTO` dejan de cargar
+curva, políticas, referencias y overrides para las piezas con fila). Sin fila ⇒ cálculo en vivo por DYN.5.1 para esa pieza, con
+su referencia en vivo, + `missing_row` encolado. Las formas de respuesta **no cambian**.
 **DYN.5.7 Checkout — se cobra la fila (quote y sesión de §4 y §4-G, con cuenta e invitado).** ⛔ Los cuerpos de request y
 response **no cambian** (ningún campo de precio del cliente, ningún aviso de cambio). Por línea:
 ```
@@ -46420,8 +46450,8 @@ sin fila       ⇒ cálculo en vivo por DYN.5.1 (= lo que exhibe el lector, DYN.
 §M10-IVA sin cambio (vigentes al cotizar), y su desglose de IVA parte del `P` cobrado. Un cambio de dial dispara `dial_change`
 al instante (DYN.5.3); mientras esa corrida no llega a una pieza, se cobra la fila que se exhibe. Coste declarado: en esa ventana
 (lo que dure la corrida) el `ivaTransferPct` congelado puede no ser el que derivó el `P`; el cobro y el IVA desglosado son
-correctos, solo la atribución de margen del P&L lo hereda. Si backend encuentra un cálculo de dinero (no de reporte) que derive algo
-de `(P, Order.ivaTransferPct)`, lo cita en `BACKEND_NOTES` y para: es petición de contrato (**NO MEDIDO**; sin Bash).
+correctos, solo la atribución de margen del P&L lo hereda. Ningún cálculo de dinero deriva nada de `(P, Order.ivaTransferPct)`
+(medido por backend en la fase 2: solo lo escriben `orders.service.ts` y `guest-checkout.service.ts`; no releído por el arquitecto).
 En el checkout, la línea pinta el precio de la cotización; ⛔ sin aviso «antes/ahora» y sin mandar el precio guardado en el
 carrito del navegador (`frontend/src/lib/cart.ts:41-48`, leído en v1.113, no releído).
 **DYN.5.8 Salud:** `dataHealth.listingPrices: { status: 'ok' | 'stale' | 'never', lastDailyBusinessDate: string | null }`
@@ -46462,12 +46492,13 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B13 | 933, 301 | tope bajo ⇒ Σ `creditsCharged` del día ≤ tope; **una** fila AG-24 abierta tras 3 corridas, `mailStatus not_applicable`, fuera del resumen; subir el tope ⇒ `resolvedAt` | crear fila por corrida |
 | DYN-B14 | 934, 300 | 1 200 sueltas, tope 3 000, sin tocar nada: en 7 días todas consultadas; ningún corte por número de cartas | reintroducir `.slice(0, 250)` |
 | DYN-B15 | 935, I-5 | suites del gate de la vitrina pasan **sin editarlas** (`git diff` vacío en sus ficheros de prueba y en `common/graded-estimate.ts`) | — |
-| DYN-B16 | I-3 💰 | fixture con fila `priced` cuyo `unitPriceCents` **≠** el que daría el cálculo en vivo (se mueve `PriceReference` y un dial de IVA tras escribirla, sin correr el cálculo): rejilla, ficha, Destacadas, quote y sesión (cuenta e invitado) dan el de la fila, el PaymentIntent suma ese y `OrderItem` congela la instrumentación de la fila; tras correr el cálculo, todos dan el nuevo; `pending` ⇒ `PRICE_PENDING`; sin fila ⇒ vivo + `missing_row` | checkout recalculando en vivo con fila presente; cobrar `min`/`max` de fila y vivo |
-| DYN-B17 | DYN.5.4 | completitud de `PRICE_AFFECTING_SETTING_KEYS` | quitar una clave de la lista |
+| DYN-B16 | I-3 💰 | fixture con fila `priced` cuyo `unitPriceCents` **≠** el que daría el cálculo en vivo (se mueve `PriceReference` y un dial de IVA tras escribirla, sin correr el cálculo): rejilla, ficha, Destacadas, quote y sesión (cuenta e invitado) dan el de la fila, el PaymentIntent suma ese y `OrderItem` congela la instrumentación de la fila; la ficha (carta y sellado) muestra el `referenceValue`/`capturedDate` de la fila, no el de la `PriceReference` movida; tras correr el cálculo, todos dan el nuevo; `pending` ⇒ `PRICE_PENDING`; sin fila ⇒ vivo + `missing_row` | checkout recalculando en vivo con fila presente; cobrar `min`/`max` de fila y vivo; leer la referencia en vivo con fila presente |
+| DYN-B17 | DYN.5.4 | (a) completitud y (b) un testigo por clave de `PRICE_AFFECTING_SETTING_KEYS` (fixture con ≥ 2 fuentes frescas que discrepan y FX en `manual`) | quitar una clave de la lista; añadir una clave inerte |
 | DYN-B18 | §X.1 | corrida automática de `price-ingest` ⇒ exhibido igual; manual ⇒ recalculado | disparar recálculo en la automática |
 | DYN-B19 | DYN.5.6 | sin fila ⇒ precio en vivo correcto + `missing_row` encolado; `pending` nunca se exhibe ni cobra | — |
 | DYN-B20 | DYN.3, I-5 | `ingestMaxCardsPerRun` ausente del `GET`, de la respuesta del `PUT`, del `config` del preview y del `AuditLog`; en el `PUT` ⇒ `422` `details.field`; `{freshnessDays, foo}` ⇒ `200` (`foo` descartado) | quitar el rechazo explícito (el pipe lo descartaría ⇒ `200`) |
 | DYN-B21 | DYN.4.5 | reloj inyectado: primera corrida con 20 sets nunca consultados y `firstListedAt` de hace 60 días, tope que alcanza ⇒ sin AG-24; día 9 con un set aún sin `ok` ⇒ `overdue`; set con `ok` de hace 9 días ⇒ `overdue` | `ref = firstListedAt` sin `inicio` |
+| DYN-B22 | DYN.5.2-.3 | `override` y `resolve` (`manual`, `accept`) recalculan solo su variante y `keep` no; apartada con fila se recalcula y al liberarse exhibe el vigente; vendida ⇒ fila borrada; dos corridas solapadas ⇒ gana la que empezó después | no disparar en `accept`; borrar la fila de la apartada |
 | DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales |
 | DYN-F5 | 926, 301 | M10 edita los 6 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta ni viaja en el `PUT`, y M2 guarda con un `GET` sin él (D-DYN-4) (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | volver a exigir el campo para guardar |
 | DYN-F7 | DYN.6.4 | nonce en todo `<script>` en línea y 0 reportes CSP por vista | quitar el nonce del render |

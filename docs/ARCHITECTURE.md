@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.113.3⟨portada⟩ (2026-10-29).** §4.DYN (e): el valor de mercado exhibido se congela en la fila con `P` (M-94 += 2 columnas); precio a mano y cola de revisión disparan cálculo; alcance con apartadas; single-flight ratificado · backend (fase 2, `97f9dd3d`). Contrato: API_CONTRACT §DYN.5.
 > **Errata v1.113.2⟨portada⟩ (2026-10-29).** §4.DYN (d) 6: «vencido > 8 días» cuenta desde la última consulta o, si nunca, desde que hay turnos o llegó el set (sin falsa alarma al desplegar) · backend (fase 1, `4b2e6fe4`). Contrato: API_CONTRACT §DYN.3/.4.3/.4.5, D-DYN-4.
 > **Errata v1.113.1⟨portada⟩ (2026-10-29).** §4.DYN (e): se cobra el `ListingPrice` vigente, sin gracia, sin precio anterior ni aviso (M-94 sin columnas `prev*`) · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.
 > **Rev v1.113⟨portada⟩ (2026-10-29).** [§4.DYN](#4-DYN) NUEVA: Destacadas materializadas al día (M-93), turnos PSA por set con tope de créditos (retira `graded_estimate_ingest_max_cards_per_run`), precio del día y precio visto (M-94, 💰), portada servida con datos en el HTML y CSP de fase 1 · orquestador (`HECHOS.md` 2026-10-29 y 2026-10-04). Contrato: API_CONTRACT §DYN.
@@ -30859,7 +30860,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.2, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.3, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -30966,7 +30967,16 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
   ventana es lo que tarde la corrida, y en ella se cobra lo exhibido.
 - **Sin fila** (pieza recién publicada cuyo cálculo falló) ⇒ se precia en vivo por el cuerpo de siempre y se encola el cálculo:
   la tienda nunca deja de vender por el precalculado, y nunca vende sin precio (`PRICE_PENDING` intacto).
-- Qué dial «mueve precio» lo dice **una lista** de backend con candado de completitud (`API_CONTRACT §DYN.5.4`).
+- **El mercado exhibido viaja con `P` (errata v1.113.3).** El «valor de mercado con IVA» existe para compararlo con nuestro
+  precio (`HECHOS` 2026-10-10). Si `P` sale de la foto de las 06:00 y el mercado se lee en vivo, tras la corrida de las 18:00
+  la ficha compara dos fotos: el mercado sube y parecemos baratos, o baja y parecemos caros (la queja que originó §MIV). Por
+  eso la fila guarda también la referencia y su fecha, y los lectores de la tienda ya no leen referencias para las piezas
+  con fila. Coste: dos columnas en M-94, aún no publicada. Bóveda, portafolio y cotizador de venta siguen en vivo: no
+  muestran nuestro precio al lado.
+- **Disparadores manuales:** toda escritura de precio o referencia por decisión del dueño (precio por pieza, override,
+  cola de revisión `manual`/`accept`) recalcula su variante al instante; lo automático (ingest, árbitro, Banxico) espera al
+  `daily`. Alcance y single-flight: `API_CONTRACT §DYN.5.2-.3`.
+- Qué dial «mueve precio» lo dice **una lista** de backend con candado en los dos sentidos (`API_CONTRACT §DYN.5.4`).
 - Fase 1 conserva el agrupado en memoria sobre filas ya precalculadas (una consulta con `JOIN`, sin curva ni referencias). Si
   el criterio 294 (p95 < 500 ms con el doble de inventario) no se cumple medido, la fase 2 agrupa en SQL por `variantKey`, que la
   fila ya guarda. No se construye la fase 2 sin esa medición.
