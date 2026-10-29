@@ -7907,6 +7907,8 @@ carrito de **venta** de buylist). Hasta hoy no hacía falta, porque exhibido y c
 > dueño **20.000/día** (DEVOPS_NOTES §32.12.1). Estimación (NO medida en producción el nº de cartas publicadas):
 > ~6.000 cartas × 2 créditos / 7 días ≈ **1.700 créditos/día (~9 %)**.
 > **Criterios: 300–305.** Cambia §O.2/§O.7 **solo para la vitrina** (Y.4).
+> **2026-10-29:** Y.1 y Y.2 (turnos y créditos) se construyen ya, precisados en **§DYN.2**; **Y.3 no entra** en ese
+> alcance (la regla de la vitrina sigue como hoy) y el criterio 302 no se cobra hasta que se construya.
 
 #### Y.1 Alcance del precio PSA: todas las cartas, por turnos
 
@@ -7962,6 +7964,114 @@ El orden es interno, como hoy.
   Consecuencia visible: una carta barata puede salir en la vitrina con su cifra y, en la rejilla, **sin** badge
   (p. ej. MX$25 con PSA 10 de MX$1,800 y PSA 9 de MX$500: pasa la regla nueva, no la de §O.2).
 - Si **ninguna** carta pasa, la vitrina **no se pinta** (como hoy).
+
+### DYN. Portada dinámica y rápida — Destacadas que cambian cada día, Joyas por turnos y portada en < 1 s (transversal — NUEVO 2026-10-29 · borrador de product-owner · sin preguntas abiertas: lo que el dueño no dijo va como SUPUESTO con su valor por defecto)
+
+> **Fuente:** `HECHOS.md`, fila **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
+> portada más rápida». Palabras del dueño, literales: *«A y ponlo en marcha me gustaria que la pagina cargara mas
+> rapdido la verdad tambien»*. La opción A que eligió: Destacadas cambian **1 vez al día**, **8 cartas al azar entre las
+> ~60 de más valor + 2 lugares fijos para recién llegadas**, y **todos ven las mismas ese día** (60 y 2 fueron
+> propuesta del orquestador, ajustables). También rigen las filas 2026-10-04 «"Joyas para gradear" debe incluir cartas
+> baratas…», «Portada: se cobra el precio que el cliente VIO…» (home < 1 s, lo demás carga después), «Portada y
+> catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…» y «REGLA GENERAL: … LO MÁS AUTOMÁTICOS POSIBLE».
+> **Criterios: 920–939.** Toca lo que ve el cliente en la portada; no toca cobro ni precio.
+
+#### DYN.1 Destacadas: 10 piezas que cambian cada día, iguales para todos
+
+**Hoy** (medido por el orquestador el 2026-10-29): el carrusel pide las **8 más caras**
+(`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarousel.tsx:120-125`, `sort: 'price_desc'`), así que muestra
+siempre las mismas mientras el inventario no cambie.
+
+**Cómo queda:**
+- **El pool**: las **60 piezas de más valor**. **Valor = el precio de venta exhibido del día** (el de §X, con IVA dentro
+  según §Q), por cada grupo que hoy pinta el carrusel. Entran **sueltas y gradeadas**; quedan fuera **sellado y
+  accesorios** *(SUPUESTO: tienen su propio estante en la portada —`SealedShelf.tsx`— y el dueño habló de «cartas»)*,
+  las piezas sin precio («pendiente») y las no disponibles.
+- **Cada día, 10 lugares**: **8 al azar del pool** + **2 recién llegadas**. Nadie elige a mano cuáles; no se repite una
+  pieza en el mismo día.
+- **Recién llegada** *(SUPUESTO)*: suelta o gradeada **publicada por primera vez en los últimos 7 días** (volver a
+  publicar una pieza retirada no cuenta). Las 2 se sortean entre las **10 de mayor precio** de esa ventana, para que no
+  salgan cartas de MX$5 ni las mismas toda la semana. Ocupan los **lugares 1 y 2** con la etiqueta **«Recién
+  llegada»** (texto final de ux-ui). Si hay menos de 2, sus lugares los toma el pool.
+- **Cambio diario a las 06:00, hora del centro de México** *(SUPUESTO; siempre después del recálculo diario del
+  precio de §X.1)*. La selección y su orden se deciden **una vez** y son los mismos **todo el día para todos**: con o
+  sin cuenta, en español o inglés, en celular o computadora, y por más que se recargue la página.
+- **Durante el día:**
+  - Una destacada que se **vende o se aparta** sale del carrusel **en vivo** (la disponibilidad sigue en vivo, §X.1).
+    Su lugar **no se rellena** hasta el día siguiente *(SUPUESTO: rellenarlo haría que dos clientes vieran carruseles
+    distintos)*. Si su grupo tiene más unidades, sigue.
+  - Lo que se publica, los cambios de precio y los cambios de diales entran **en el siguiente cambio diario**. Una
+    destacada cuyo precio baja no sale ese día; la teja muestra el precio vigente de §X.
+  - Si se venden todas, el carrusel se comporta como hoy cuando no hay piezas.
+- **Inventario chico:** con menos de 60 piezas elegibles, el pool son todas; con menos de 10, salen todas, sin
+  repetir; con 0, como hoy.
+- **Si el cambio diario falla**, se queda la selección del día anterior (sin lo vendido) y aparece un aviso en salud
+  de datos *(SUPUESTO)*. **Nunca** vuelve en silencio a «las 8 más caras».
+- **Diales** (solo **súper-admin**, en Configuración, auditados como los demás de M10; surten efecto **en el siguiente
+  cambio diario**): tamaño del pool (**60**), lugares al azar (**8**), lugares de recién llegadas (**2**; 0 los apaga),
+  ventana de recién llegada (**7 días**) y hora del cambio (**06:00**). Los rangos permitidos los fija el arquitecto.
+- **No cambia:** la rotación cada 5 s y su pausa por intervención (`ROTATION_REST_MS`, clavada por prueba y por pedido
+  del dueño: **no se toca**; la pasada recorre 10 tejas en vez de 8), la burbuja «En PSA 10 vale ≈…» (§O.2) y la nota
+  al pie, que se sigue calculando **sobre la misma lista que pinta el carrusel** (`FeaturedCarousel.tsx:110-118`).
+- **Fuera de este alcance:** fijar a mano una pieza en Destacadas, y Destacadas distintas por cliente.
+
+#### DYN.2 «Joyas para gradear» por turnos: cada carta publicada recibe su precio PSA cada semana
+
+**Hoy** (medido por el orquestador el 2026-10-29): el precio PSA se pide para las cartas sueltas publicadas en orden
+fijo de identificador, cortado por el dial `graded_estimate_ingest_max_cards_per_run` (250 de fábrica, máximo 1 000)
+(`backend/src/modules/pricing/price-ingest.service.ts:1469-1477`): siempre las mismas; el resto nunca recibe precio PSA.
+
+**La regla es la de §Y.1 y §Y.2** (todas las sueltas publicadas, una vez por semana, tope de créditos al día de
+**3.000** —valor por defecto de P-JOY-5, que queda según `HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio
+que el cliente VIO…» (el dueño no respondió y se le dijo «si no me dices nada, se queda así»)—). Esta sección la
+precisa:
+- **Orden del turno:** primero las **nunca consultadas** (de la publicada hace más tiempo a la más nueva); después, la
+  que lleva **más días sin consultarse**.
+- **Una vez por semana, no más:** una carta consultada hace menos de 7 días **no se vuelve a pedir** aunque sobren
+  créditos.
+- Una carta que deja de estar publicada **sale del turno**; si vuelve, conserva la fecha de su última consulta.
+- Si la consulta **falla sin respuesta** del proveedor, la carta conserva su lugar y se reintenta en la siguiente
+  corrida; si el proveedor **respondió sin dato**, cuenta como consultada y vuelve en 7 días. Si una consulta fallida
+  gasta créditos: **NO MEDIDO** (lo mide backend en los registros del proveedor).
+- **Todo automático** (REGLA GENERAL): corre en las corridas automáticas que ya existen, sin botón ni captura manual.
+  El dueño mueve **un solo dial** (créditos al día); el corte por corrida no puede dejar cartas fuera de la semana si
+  los créditos alcanzan (cómo se reparten entre corridas lo decide el arquitecto).
+- **Aviso automático al dueño cuando no alcanza:** si con el tope no se cubren todas en 7 días (por cálculo o porque
+  ya pasó), aparece **un** aviso en el panel (centro de avisos, §R) con las cifras. Ejemplo: *«Con 3,000 créditos al
+  día no alcanza para revisar tus 11,200 cartas cada semana: tardarán 8 días. Para cubrir la semana, sube el tope a
+  3,200.»* No se repite en cada corrida y **se retira solo** cuando vuelve a alcanzar. Sin correo *(SUPUESTO: los
+  correos al dueño se limitaron a los que él pidió, `HECHOS.md` fila «Control del gasto — límites aceptados…»)*.
+- **La regla de la vitrina NO cambia en este alcance:** sigue la de §O.2/§O.7
+  (`backend/src/common/graded-estimate.ts:941-949`). La regla nueva de §Y.3 queda para otro alcance. Consecuencia que
+  el dueño debe saber: con los turnos **todas** las cartas tienen precio PSA, pero una barata solo entra a la vitrina
+  si pasa la regla de hoy (p. ej. una de MX$25 necesita un PSA 9 de al menos MX$943, §Y.3).
+
+#### DYN.3 Portada rápida: lo primero visible en menos de 1 segundo
+
+**Meta del dueño** (`HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio que el cliente VIO…»): *«Necesito que la
+tienda despliegue home en menos de 1 seg, que cargue lo demás después en lo que navega el cliente»*; reiterada el
+2026-10-29. **Medido** por el orquestador el 2026-10-29 desde el contenedor (N=3): el HTML de `/es` responde en
+0.48–0.84 s y pesa 478 KB. Lo que tarda **en el navegador**: **NO MEDIDO** aún (lo mide hoy un agente frontend); esta
+sección fija la meta y el método, no las causas.
+
+**Cómo se lee la meta** *(SUPUESTO)*:
+- **«Despliega»** = está pintado lo primero visible: encabezado, cabecera de la portada y el **marco** de cada sección
+  con su espacio reservado ⇒ **primer pintado (FCP) ≤ 1.0 s**.
+- **«Lo demás después»** = el contenido principal (LCP) llega después sin mover la página: **LCP ≤ 2.5 s en celular y
+  ≤ 1.5 s en computadora**, **saltos de diseño (CLS) ≤ 0.1**.
+- **Destacadas y Joyas no frenan el primer pintado:** si sus datos tardan o fallan, el resto se ve igual y sus marcos
+  se rellenan al llegar.
+- **Perfiles:** celular = el perfil **móvil estándar de Lighthouse** (celular de gama media con 4G lenta simulada);
+  computadora = el perfil **escritorio estándar**. Las metas valen para los dos.
+- Si la medición muestra que **1.0 s en celular** no se alcanza sin un cambio mayor, **vuelve al dueño** con el número
+  medido y lo que costaría. La meta no se baja en silencio.
+
+**Cómo se comprueba:** `https://tcghunt.mx/es` (o un entorno con el mismo inventario), caché vacía, **N = 5** corridas
+por perfil. Se reporta la **mediana y la peor**, con sha, fecha y carga de la máquina (O-3, O-16). Hay una **línea base
+antes** de tocar nada y otra **después**. Además sigue vigente §X.3 (servidor p95 < 500 ms, criterio 294). La meta
+queda **vigilada sola**: una comprobación automática en CI se pone roja si la portada la rebasa (herramienta y sitio:
+devops y arquitecto).
+
 ### T. Envíos con Skydropx — cotizar, comprar la guía e imprimir la etiqueta desde la plataforma (transversal — ⭐ **NUEVO v1.81 · 2026-09-29 · BORRADOR de product-owner para aprobación del dueño; las seis decisiones de `HECHOS.md` NO se re-preguntan**)
 
 > **Fuente y autoridad, en este orden:** **(1)** `HECHOS.md`, seis filas «Envíos con Skydropx» del **2026-09-29**
@@ -15256,6 +15366,70 @@ Energy» (12 energías; sueltas = MX$60.00):*
 919. 💰 **Paquete de energías fuera del código [D9]** *(DSC.2-13)*: carrito con MX$500.00 en cartas más el paquete de
    energías del deck (MX$20.00) y un código de 10 % ⇒ «Descuento −MX$50.00»; el paquete sigue en MX$20.00. Un código
    «solo accesorios y energías» con el paquete como única línea de accesorios no aplica.
+*(Criterios 920–939 **nuevos el 2026-10-29**, de `HECHOS.md` fila «Portada dinámica: Destacadas opción A + Joyas por
+turnos EN MARCHA + portada más rápida» — §DYN. Numerados desde 920: el más alto existente era el 919, medido por
+product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
+920. **El pool sale del valor** *(§DYN.1)*: con 100 piezas sembradas (sueltas, gradeadas, sellado, accesorios y
+   algunas sin precio) y el reloj avanzado 10 días, las 8 de azar de cada día salen **siempre** de las 60 sueltas o
+   gradeadas de mayor precio exhibido; nunca sale sellado, accesorio ni pieza sin precio.
+921. **De verdad cambia** *(§DYN.1)*: en esos 10 días, ningún par de días seguidos tiene las mismas 8 y aparecen
+   **al menos 30** piezas distintas en los lugares de azar (con 60 en el pool se esperan ~46). Como depende del
+   azar, se repite con 10 inventarios sembrados distintos y se reporta la proporción (O-3): se espera 10/10.
+922. **Igual para todos todo el día** *(§DYN.1)*: 20 visitas entre las 06:00 y las 05:59 del día siguiente (invitado,
+   con cuenta, español, inglés, celular, computadora, recargando) ven **las mismas 10 en el mismo orden**. A las 06:01
+   del día siguiente la selección es otra.
+923. **Recién llegadas** *(§DYN.1)*: con piezas publicadas por primera vez hace 1, 3 y 8 días, la de hace 8 nunca sale
+   como recién llegada; las elegidas ocupan los lugares 1 y 2 con la etiqueta «Recién llegada»; ninguna pieza sale dos
+   veces. Una pieza retirada y vuelta a publicar no cuenta como recién llegada. Sin recién llegadas, los 10 lugares
+   salen del pool.
+924. **Venta durante el día** *(§DYN.1)*: al comprar una destacada de una sola unidad, desaparece del carrusel de
+   **todos** sin esperar al día siguiente, las otras 9 quedan en el mismo orden y su lugar no se rellena; al día
+   siguiente hay 10 otra vez. De un grupo con 2 unidades, vender 1 no la quita.
+925. **Inventario chico** *(§DYN.1)*: con 5 piezas elegibles, el carrusel muestra las 5 sin repetir; con 0, se ve
+   como hoy cuando no hay piezas.
+926. **Diales** *(§DYN.1)*: el súper-admin cambia pool 60→20, azar 8→6, recién llegadas 2→0, ventana 7→3 días y hora
+   06:00→07:00; cada cambio queda en la auditoría y la portada **no cambia hasta el siguiente cambio diario**, en el que
+   ya se cumple lo nuevo. Un operador o administrador no súper-admin no puede cambiarlos.
+927. **Si el cambio diario falla** *(§DYN.1)*: con el cambio diario forzado a fallar, la portada sigue con la
+   selección del día anterior menos lo vendido, aparece el aviso en salud de datos, y **nunca** se muestran «las 8 más
+   caras» como sustituto.
+928. **Lo que no cambia** *(§DYN.1)*: las pruebas de la rotación de 5 s y de la pausa por intervención pasan **sin
+   editarlas**; la pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la nota al pie salen igual que hoy
+   para las mismas cartas, calculadas sobre la lista que pinta el carrusel.
+929. **Orden del turno PSA** *(§DYN.2)*: con 30 sueltas publicadas (5 nunca consultadas y 25 con fechas de última
+   consulta distintas) y créditos para 10 cartas, la corrida pide las 5 nunca consultadas y luego las 5 de consulta más
+   vieja; no pide ninguna consultada hace menos de 7 días.
+930. **Una vez por semana, no más** *(§DYN.2)*: con créditos de sobra y 14 días simulados, cada suelta publicada se
+   consulta **exactamente 2 veces**, separadas al menos 7 días (registros del proveedor). Junto con el criterio 300:
+   en 7 días, cartas consultadas = cartas publicadas.
+931. **Altas, bajas y lo que no entra** *(§DYN.2)*: una carta retirada deja de consultarse; vuelta a publicar a los 3
+   días de su última consulta, no se pide hasta cumplir 7; sellado y gradeadas no se consultan nunca.
+932. **Fallos del proveedor** *(§DYN.2)*: una consulta sin respuesta deja la carta en su lugar y se pide en la
+   siguiente corrida; una respuesta sin dato cuenta como consultada y la carta vuelve a los 7 días. El reporte dice
+   si las fallidas gastaron créditos (hoy NO MEDIDO).
+933. **Aviso cuando no alcanza** *(§DYN.2)*: con el tope bajado por debajo de lo necesario, aparece **un** aviso en
+   el panel con el número de cartas, los días que tardará la vuelta y el tope que alcanzaría; no se duplica en las
+   corridas siguientes; desaparece solo al subir el tope; no sale ningún correo. Los créditos del día no pasan del
+   tope (criterio 301).
+934. **Un solo dial, sin captura manual** *(§DYN.2)*: con 1,200 sueltas publicadas, tope de 3,000 créditos al día y el
+   corte por corrida en su valor de fábrica, en 7 días se consultan las 1,200 sin que nadie toque el panel ni pulse
+   un botón.
+935. **La vitrina no cambia de regla** *(§DYN.2)*: para las mismas cartas con los mismos precios PSA, la vitrina, el
+   badge de la rejilla y la burbuja dan el mismo veredicto que antes de §DYN (sus pruebas pasan sin editarlas). La
+   lista fija por identificador ya no existe.
+936. **Meta de velocidad** *(§DYN.3)*: sobre `tcghunt.mx/es` (o entorno con el mismo inventario), caché vacía, N = 5
+   por perfil, la **mediana** cumple: celular (perfil móvil estándar de Lighthouse) FCP ≤ 1.0 s, LCP ≤ 2.5 s,
+   CLS ≤ 0.1; computadora (perfil escritorio estándar) FCP ≤ 1.0 s, LCP ≤ 1.5 s, CLS ≤ 0.1. El reporte trae mediana,
+   peor corrida, sha, fecha, carga de la máquina y la línea base de antes. Si celular no llega a 1.0 s, el criterio
+   queda rojo y vuelve al dueño con el número (§DYN.3), no se cambia la cifra.
+937. **Destacadas y Joyas no frenan** *(§DYN.3)*: con sus datos retrasados 5 s, y por separado fallando, el FCP sigue
+   cumpliendo el 936, el resto de la portada se ve, y al llegar los datos no se mueve nada (CLS ≤ 0.1).
+938. **Vigilada sola** *(§DYN.3)*: hay una comprobación automática en CI que se pone roja si la portada rebasa la meta
+   del 936; con un retraso artificial en la portada (canario) se pone roja, y sin él, verde.
+939. **De punta a punta** *(O-4)*: en el navegador, contra el stack corriendo con datos sembrados: (a) el súper-admin
+   cambia los lugares al azar de 8 a 6 en Configuración; (b) al cambio diario (reloj avanzado) la portada muestra 6 +
+   2 recién llegadas, iguales en dos navegadores distintos; (c) un invitado compra una destacada y desaparece de la
+   portada en el otro navegador; (d) con el tope de créditos bajado, el dueño ve el aviso de §DYN.2 en el panel.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -19176,9 +19350,6 @@ ese frente:**
 - **P-POR-3 · Si el precio cambió entre que el cliente lo vio y el pago, ¿lo avisamos?** Medido: hoy **no hay**
   aviso (el carrito guarda solo piezas y el checkout cotiza en vivo). Default: **se cobra el precio actual** y la
   línea dice «antes MX$A, ahora MX$B». Alternativa: sin aviso (el total ya se ve antes de pagar). §X.2, criterio 298.
-- **P-POR-4 · ¿Qué tan rápida?** Default: respuesta del servidor **p95 < 500 ms** para portada y catálogo, aunque el
-  inventario se duplique; y el precio nuevo visible **≤ 5 minutos** después de tus acciones. §X.3, criterios 294
-  y 296.
 
 ## Preguntas — «Joyas para gradear» con baratas (§Y, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
 
@@ -19197,9 +19368,6 @@ ese frente:**
   (p. ej. 300×). §Y.3, criterio 302.
 - **P-JOY-4 · ¿En qué orden?** Default: por **PSA 10 ÷ precio**, de mayor a menor, hasta **8** cartas (salen primero
   las baratas con más potencial). Alternativa: mezclar caras y baratas. §Y.3.
-- **P-JOY-5 · ¿Cuántos créditos PSA al día como máximo?** Estimado (no medido en producción): ~**1.700/día** para
-  cubrir ~6.000 cartas cada semana; hoy se gastan ~1.000/día; tu cuota es 20.000/día. Default: **tope de 3.000/día**
-  (15 %), editable; si no alcanza, el turno se alarga en vez de pasarse. §Y.2, criterio 301.
 - **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
   solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
   la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.
