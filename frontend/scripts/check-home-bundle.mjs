@@ -2,8 +2,9 @@
 /**
  * PERF portada (§DYN.3) · paso `postbuild` de `npm run build`. Candado de lo que NO debe viajar en el JS:
  *  - en la PORTADA (`/[locale]`: layout raíz + layout de tienda + página): `recharts` (solo lo usa el vistazo del
- *    portafolio con sesión, `HomeView` con `next/dynamic`) y la rama mock de login de `lib/api.ts` (`MOCKS_BUILD`
- *    no se plegó);
+ *    portafolio con sesión, `HomeView` con `next/dynamic`) y la rama mock de login de `lib/api.ts` (la constante
+ *    `MOCKS_BUILD` vive en `lib/api.ts` y `lib/marketing-api.ts`; `next.config.mjs` solo hornea el literal
+ *    `NEXT_PUBLIC_USE_MOCKS` del que sale; si aparece, la guarda no se plegó);
  *  - en TODO `.next/static` (TL-DYN3-2): el centinela de `src/lib/mock/sentinel.ts`, que cada módulo de `lib/mock`
  *    importa con efecto lateral. Si aparece, algún fixture de MOCK llegó a un build sin mocks (el alias de
  *    `next.config.mjs` no lo vació).
@@ -24,7 +25,7 @@ export const HOME_ENTRIES = ['/[locale]/layout', '/[locale]/(storefront)/layout'
 /** Cadenas vetadas en el JS de la portada (sobreviven al minificador: son datos, no nombres). */
 export const FORBIDDEN_IN_HOME = [
   { needle: 'recharts', why: 'recharts (PortfolioGlance debe ir con next/dynamic)' },
-  { needle: 'mock.refresh.token', why: 'rama mock de login en lib/api.ts (MOCKS_BUILD no se plegó)' },
+  { needle: 'mock.refresh.token', why: 'rama mock de login en lib/api.ts (la guarda MOCKS_BUILD de api.ts no se plegó)' },
 ];
 
 /** Lee el valor del centinela de `src/lib/mock/sentinel.ts` (un `.mjs` no importa `.ts`). */

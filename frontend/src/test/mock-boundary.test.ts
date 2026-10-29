@@ -132,6 +132,17 @@ ${body}
     ).toEqual([]);
   });
 
+  it('canario «mutación C» de QA: `.catch(translateFixtureError)` en la rama real ⇒ rojo (instanceof undefined en producción)', () => {
+    const helper = 'function translateFixtureError(e: unknown) { return e instanceof fx.ApiFixtureError ? new Error("x") : e; }';
+    const body = [
+      '  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest("/catalog/cards/1").catch((e) => { throw translateFixtureError(e); });',
+      '  try { return fx.mockSettings; } catch (e) { throw translateFixtureError(e); }',
+    ].join('\n');
+    expect(unguardedOf(SNIPPET(body, helper))).toEqual([helper]);
+    // la misma función sin la llamada de la rama real ⇒ verde
+    expect(unguardedOf(SNIPPET(body.replace('.catch((e) => { throw translateFixtureError(e); })', ''), helper))).toEqual([]);
+  });
+
   it('canario: ayudante llamado desde la rama real, o exportado y usado fuera ⇒ rojo', () => {
     const helper = 'function mockFee() { return fx.mockSettings; }';
     expect(unguardedOf(SNIPPET('  if (!(MOCKS_BUILD && config.useMocks)) return mockFee();\n  return null;', helper))).toEqual([
