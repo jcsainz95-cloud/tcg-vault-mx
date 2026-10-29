@@ -93,8 +93,8 @@ const TITLES: Record<string, [string, string]> = {
   'AG-22': ['Cambios de otro súper-admin', 'Changes by another super admin'],
   // 💰 rev BSD-1 (§BSD.8.3, DESIGN_SYSTEM §BSD-UX.3).
   'AG-23': ['Solicitud de venta sin guía', 'Sell request without a label'],
-  // v1.113⟨portada⟩ (§DYN.4.5). Texto provisional desde el ejemplo de PROJECT §DYN.2; el definitivo es de ux-ui.
-  'AG-24': ['El tope de créditos PSA no alcanza la semana', 'The PSA credit cap does not cover the week'],
+  // v1.113⟨portada⟩ (§DYN.4.5). Texto final de ux-ui: DESIGN_SYSTEM `## DYN-UX.` (SA`.kind.AG-24.title`).
+  'AG-24': ['Los créditos PSA no alcanzan para la semana', 'The PSA credits do not cover the week'],
 };
 
 /**
@@ -375,9 +375,16 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
           ? `The daily PSA credit cap is 0: none of your ${cards} cards is being checked. To cover the week, raise the cap to ${need}.`
           : `El tope diario de créditos PSA está en 0: ninguna de tus ${cards} cartas se está revisando. Para cubrir la semana, sube el tope a ${need}.`;
       }
+      // Texto final de ux-ui: DESIGN_SYSTEM `## DYN-UX.` (SA`.kind.AG-24.projected` / `.overdue`, según `facts.reason`).
+      if (str(f.reason) === 'overdue') {
+        const over = n(f.setsOverCap);
+        return en
+          ? `Some set has gone more than 8 days without a check. With ${cap} credits a day, a full round of your ${cards} cards takes ${days} days; to cover the week, raise the cap to ${need}. Sets that do not fit in one day’s cap: ${over}.`
+          : `Alguna colección lleva más de 8 días sin revisarse. Con ${cap} créditos al día, la vuelta a tus ${cards} cartas tarda ${days} días; para cubrir la semana, sube el tope a ${need}. Colecciones que no caben en el tope de un día: ${over}.`;
+      }
       return en
-        ? `With ${cap} credits a day there is not enough to check your ${cards} cards every week: it will take ${days} days. To cover the week, raise the cap to ${need}.`
-        : `Con ${cap} créditos al día no alcanza para revisar tus ${cards} cartas cada semana: tardarán ${days} días. Para cubrir la semana, sube el tope a ${need}.`;
+        ? `With ${cap} credits a day there is not enough to check your ${cards} cards every week: checking them all would take ${days} days. To cover the week, raise the cap to ${need}.`
+        : `Con ${cap} créditos al día no alcanza para revisar tus ${cards} cartas cada semana: revisarlas todas tardaría ${days} días. Para cubrir la semana, sube el tope a ${need}.`;
     }
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
