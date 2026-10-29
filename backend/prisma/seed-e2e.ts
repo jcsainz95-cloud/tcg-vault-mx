@@ -22,8 +22,9 @@
  */
 import { Finish, Prisma, PriceRefKind, PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { createHash } from 'crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
+import { SETTING_DEFAULTS, SettingKey } from '../src/modules/settings/settings.constants';
 import { deriveNumberParts } from '../src/common/card-order';
 import {
   E2E_ACCOUNT_FIXTURES,
@@ -49,6 +50,9 @@ import {
   E2E_USERS,
 } from './e2e-fixtures';
 import { assertSeedTarget } from './seed-target-guard';
+import { FeaturedService } from '../src/modules/catalog/featured.service';
+import { featuredKeyOf } from '../src/modules/catalog/featured-selection';
+import { tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
 
 /** Todos los correos que este seed gobierna (usuarios por rol + actores de cuenta de §4.47.10.4). */
 const E2E_FIXTURE_EMAILS: string[] = [
@@ -1206,6 +1210,65 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     operatorId: userIds[E2E_USERS.operator.email],
     cardId: charizardId,
     custodyLocationId: custodyLoc.id,
+  });
+
+  // 14. §DYN.2 — Destacadas VIGENTES al sembrar (ver `seedFeaturedSelection`).
+  await seedFeaturedSelection(prisma);
+}
+
+/** Marca de la selección que escribe el seed (en `dials`, que es libre): la distingue de una calculada por la app. */
+const SEED_FEATURED_SOURCE = 'seed-e2e';
+
+/**
+ * Paso 14 (§DYN.2) — **una selección de Destacadas vigente para el día de portada que se sirve**, para que `GET
+ * /catalog/featured` traiga datos en un stack recién sembrado. Sin esto la portada sale vacía hasta el primer tic de
+ * `featured-rotation` (hasta 15 min; medido por frontend) y las pruebas `@real` tenían que forzarla con `POST
+ * /admin/jobs/featured-rotation {force:true}`. §DYN.2 no norma un arranque del job: lo hace el seed.
+ *
+ * Es un FIXTURE, no un sorteo: las piezas `E2E-LST-*` de plataforma, raw/graded, en orden de folio, una por llave, todas `pool`
+ * (≤ 20, el CHECK de M-93). El sorteo real (`selectFeatured`, por `P`) necesita el cuerpo de venta y vive en la app; la lectura
+ * (§DYN.2.2) ya omite lo que no tenga grupo vivo (vendido, sin precio). Con ella, el tic ve el día como existente y no lo
+ * reescribe (portada estable durante la suite); `force` la sustituye, y al día siguiente el tic calcula la suya.
+ *
+ * Idempotente: re-sembrar borra y reescribe SOLO la del seed (misma composición). Una selección CALCULADA por la app para ese
+ * día (tic o `force`) no se toca: ya es vigente.
+ */
+async function seedFeaturedSelection(prisma: PrismaClient): Promise<void> {
+  const hourRow = await prisma.configSetting.findUnique({ where: { key: SettingKey.FEATURED_ROTATION_HOUR } });
+  const hour = typeof hourRow?.valueJson === 'number' ? hourRow.valueJson : (SETTING_DEFAULTS[SettingKey.FEATURED_ROTATION_HOUR] as number);
+  const day = FeaturedService.servedDayAt(new Date(), hour);
+  const businessDate = new Date(`${day}T00:00:00.000Z`);
+  const existing = await prisma.featuredSelection.findUnique({ where: { businessDate } });
+  if (existing) {
+    const source = (existing.dials as { source?: unknown } | null)?.source;
+    if (source !== SEED_FEATURED_SOURCE) return;
+    await prisma.featuredSelection.delete({ where: { businessDate } });
+  }
+  const items = await prisma.inventoryItem.findMany({
+    where: { folio: { startsWith: 'E2E-LST-' }, ownerType: 'platform', status: 'listed', productType: { in: ['raw', 'graded'] } },
+    orderBy: { folio: 'asc' },
+    select: { cardId: true, productType: true, rawCondition: true, gradingCompany: true, gradeValue: true, finish: true },
+  });
+  const keys = new Map<string, { cardId: string; productType: 'raw' | 'graded'; gradeKey: string; finish: Finish }>();
+  for (const it of items) {
+    const gradeKey = tryBuildGradeKey(it);
+    if (gradeKey == null) continue;
+    const k = { cardId: it.cardId, productType: it.productType as 'raw' | 'graded', gradeKey, finish: it.finish };
+    if (!keys.has(featuredKeyOf(k))) keys.set(featuredKeyOf(k), k);
+  }
+  const picks = [...keys.values()].slice(0, 20);
+  await prisma.featuredSelection.create({
+    data: {
+      businessDate,
+      effectiveFrom: FeaturedService.effectiveFromOf(day, hour),
+      // 32 bytes hex deterministas: la columna guarda la semilla del sorteo; aquí no hay sorteo.
+      seed: createHash('sha256').update(`${SEED_FEATURED_SOURCE}:${day}`).digest('hex'),
+      dials: { source: SEED_FEATURED_SOURCE, rotationHour: hour },
+      poolCount: picks.length,
+      newArrivalCandidates: 0,
+      forcedByUserId: null,
+      items: { create: picks.map((k, i) => ({ position: i + 1, slotKind: 'pool' as const, ...k })) },
+    },
   });
 }
 
