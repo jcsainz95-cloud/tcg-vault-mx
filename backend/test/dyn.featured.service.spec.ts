@@ -90,6 +90,10 @@ function wire(w: World) {
         lockCalls.push(args);
         return [{ locked: true }];
       }),
+      $executeRaw: jest.fn(async (...args: unknown[]) => {
+        lockCalls.push(args);
+        return 1;
+      }),
     }),
   );
   const catalog = {

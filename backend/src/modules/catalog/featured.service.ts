@@ -160,7 +160,8 @@ export class FeaturedService {
     const d = await this.dials();
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(${FEATURED_ROTATION_LOCK_KEY})`;
+        // `$executeRaw` y no `$queryRaw`: la función devuelve `void`, que Prisma no sabe deserializar (500 medido en e2e).
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${FEATURED_ROTATION_LOCK_KEY})`;
         const before = await this.serving(now, tx);
         const day = before ? ymdOf(before.businessDate) : FeaturedService.servedDayAt(now, d.rotationHour);
         const effectiveFrom = before?.effectiveFrom ?? FeaturedService.effectiveFromOf(day, d.rotationHour);
