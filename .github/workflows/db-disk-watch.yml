@@ -54,7 +54,7 @@ jobs:
   # 1) Autoprueba: el canario del veredicto. SIEMPRE. Sin base, sin secret.
   # ---------------------------------------------------------------------------
   autoprueba:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Canario de db-disk-watch (¿el veredicto muerde?)
@@ -65,7 +65,7 @@ jobs:
   #    fingido). El rojo abre/actualiza un issue con dueño (patrón deps-audit).
   # ---------------------------------------------------------------------------
   vigilancia:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: autoprueba
     # En PR/push solo interesa el canario (job de arriba); la medición viva es del
     # cron y del disparo manual.

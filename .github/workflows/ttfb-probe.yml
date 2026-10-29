@@ -53,7 +53,7 @@ concurrency:
 
 jobs:
   autoprueba:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -61,7 +61,7 @@ jobs:
         run: ./scripts/check-ttfb-probe-canary.sh
 
   medicion:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: autoprueba
     if: github.event_name != 'pull_request'
     timeout-minutes: 10

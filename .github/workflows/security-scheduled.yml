@@ -62,7 +62,7 @@ jobs:
   # docs/DEVOPS_NOTES.md §"npm audit por calendario".
   # ---------------------------------------------------------------------------
   deps-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write        # solo para abrir/actualizar el issue de dependencias

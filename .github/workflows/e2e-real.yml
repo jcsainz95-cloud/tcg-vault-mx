@@ -74,7 +74,7 @@
 #       * a mano (workflow_dispatch),
 #       * como paso previo a promover a prod desde deploy.yml (workflow_call).
 #
-# NAVEGADOR (fix 2026-08-17): el job corre en `ubuntu-latest`, un runner ESTÁNDAR
+# NAVEGADOR (fix 2026-08-17): el job corre en `ubuntu-24.04`, un runner ESTÁNDAR
 #   de GitHub. No existe ningún /opt/pw-browsers ahí (esa ruta solo la tiene el
 #   runner-harness local), así que la política anterior de "Chromium preinstalado,
 #   sin playwright install" hacía fallar el job siempre. Ahora se instala el
@@ -132,7 +132,7 @@ permissions:
 
 jobs:
   e2e-real:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:
       money_gate: ${{ steps.stripe.outputs.money_gate }}
@@ -457,7 +457,7 @@ jobs:
       # PLAYWRIGHT_CHROMIUM_PATH es OBLIGATORIO aquí: frontend/playwright.config.ts
       # (rol frontend) fija `executablePath = PLAYWRIGHT_CHROMIUM_PATH ??
       # '/opt/pw-browsers/chromium'`, ruta del runner-harness que no existe en
-      # ubuntu-latest. Se resuelve con la API oficial de Playwright.
+      # ubuntu-24.04. Se resuelve con la API oficial de Playwright.
       - name: Instalar Chromium de Playwright
         working-directory: frontend
         # ROBUSTEZ (2026-08-18): ver la nota extendida en security-sast.yml. `--with-deps`

@@ -37,7 +37,7 @@ jobs:
   # Detecta qué apps existen ya (tienen package.json) para activar sus jobs.
   # ---------------------------------------------------------------------------
   detect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       backend: ${{ steps.check.outputs.backend }}
       frontend: ${{ steps.check.outputs.frontend }}
@@ -64,7 +64,7 @@ jobs:
   backend:
     needs: detect
     if: needs.detect.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -226,7 +226,7 @@ jobs:
   frontend:
     needs: detect
     if: needs.detect.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -279,7 +279,7 @@ jobs:
   # pone ROJO si el comparador no puede concluir (rc=2) — eso ya no es «rama
   # nueva», es un fallo que hay que mirar.
   format-mix-base:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ref: ${{ steps.base.outputs.ref }}
     steps:
@@ -331,7 +331,7 @@ jobs:
   format-mix:
     needs: [format-mix-base]
     if: needs.format-mix-base.outputs.ref != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -365,7 +365,7 @@ jobs:
   # se ejecuta siempre.
   # ---------------------------------------------------------------------------
   e2e-provider-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El entorno E2E no puede escribir contra el proveedor de PAGA
@@ -388,7 +388,7 @@ jobs:
   # un VERDE que no significa nada. Ver docs/DEVOPS_NOTES.md §38.
   # ---------------------------------------------------------------------------
   provenance-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El gate no puede medir un binario distinto del HEAD auditado
@@ -412,7 +412,7 @@ jobs:
   # Es la SEGUNDA release consecutiva con la misma deuda aceptada.
   # ---------------------------------------------------------------------------
   e2e-harness-gaps:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
@@ -448,7 +448,7 @@ jobs:
   # Estático y barato: lee dos ficheros, sin red y sin stack.
   # ---------------------------------------------------------------------------
   price-provider-interim-expiry:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: La medida interina del dial de precio no puede sobrevivir a su causa
@@ -466,7 +466,7 @@ jobs:
   # El job queda como ANTI-REGRESIÓN: si `report_only: true` vuelve, rojo.
   # ---------------------------------------------------------------------------
   dast-report-only-expiry:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El report_only del DAST de release tiene fecha
@@ -496,7 +496,7 @@ jobs:
   # en el PR, no seis meses después.
   # ---------------------------------------------------------------------------
   dast-gate-live:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El gate de seguridad dinámica tiene blanco y sabe ponerse rojo
@@ -526,7 +526,7 @@ jobs:
   # reproducir la fuga, sale ≠0 declarándose NO CONCLUYENTE en vez de verde.
   # ---------------------------------------------------------------------------
   daemon-stdout-leak:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Ningún script deja un daemon con el stdout del invocador
@@ -555,7 +555,7 @@ jobs:
   # `scripts/check-secret-masking-canary.sh` (4 mutaciones, proporción N/N).
   # ---------------------------------------------------------------------------
   secret-masking:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Todo secreto GENERADO sale tapado del log (S-MASK-1)
@@ -583,7 +583,7 @@ jobs:
   # de buenas. Se corre a mano y en el pase de release.
   # ---------------------------------------------------------------------------
   compose-images:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Toda imagen externa de los compose está clavada
@@ -611,7 +611,7 @@ jobs:
   # neutralizados y le dicta el rc de sus dos hijos. Sin red, sin Postgres, ~1 s.
   # ---------------------------------------------------------------------------
   parity-gate-canary:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Un fallo de paridad I-PP5 tumba `up --gate`
@@ -644,7 +644,7 @@ jobs:
   # M4-SHIP: los eventos del webhook se suscriben A MANO en el dashboard de Stripe; este job falla si el
   # backend maneja un evento que no esta en security/stripe-webhook-events.txt / DEVOPS_NOTES §11.G.
   stripe-webhook-events:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Todo evento que maneja el backend esta en la lista de suscripcion del endpoint
@@ -654,7 +654,7 @@ jobs:
         run: ./scripts/check-stripe-webhook-events-canary.sh
 
   stripe-webhook-failclosed:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: La verificación de la firma no puede degradar a una clave conocida
@@ -685,7 +685,7 @@ jobs:
   # planta cada forma de fuga en una copia y exige ROJO. DEVOPS_NOTES §78.
   # ---------------------------------------------------------------------------
   skydropx-spend-lock:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Ninguna pila de pruebas recibe las llaves de Skydropx
@@ -704,7 +704,7 @@ jobs:
   # DEVOPS_NOTES §81.
   # ---------------------------------------------------------------------------
   boot-no-geo:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Ningún arranque carga ni verifica el catálogo de CP (G-BOOT)
@@ -721,7 +721,7 @@ jobs:
   # canario altera archivo/huellas/atributos (17 casos) y exige ROJO. DEVOPS_NOTES §92.
   # ---------------------------------------------------------------------------
   sepomex-pin:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El catálogo de CP es el fijado (sha256 en código + .sha256 + manifiesto + binary)
@@ -746,7 +746,7 @@ jobs:
   # reproduce S-CI-1 literalmente (quita el override) y exige rojo. §52.
   # ---------------------------------------------------------------------------
   workflow-cwd:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Cada script invocado desde un paso existe bajo el cwd de ese paso
@@ -754,6 +754,24 @@ jobs:
       - name: Y el candado sabe morder (reproduce S-CI-1 y exige rojo)
         if: ${{ !cancelled() }}
         run: ./scripts/check-workflow-cwd-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 🔒 RUNNER FIJADO — ningún job corre en una imagen MÓVIL (`*-latest`).
+  # 2026-10-29, PR #107 (run 40849459030): GitHub movió `ubuntu-latest` de 24.04
+  # a 26.04 y Playwright 1.56 dejó de instalar Chromium («does not support
+  # chromium on ubuntu26.04-x64»). Production verde (run 40599627832) corría en
+  # `ubuntu-24.04` 20261012.334.1: ésa es la que se fija. El canario planta un
+  # workflow con `ubuntu-latest` y exige rojo. DEVOPS_NOTES, estado vigente.
+  # ---------------------------------------------------------------------------
+  runner-pin:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Todo runs-on está fijado (ninguna imagen *-latest)
+        run: ./scripts/check-runner-pin.sh
+      - name: Y el candado sabe morder (workflow con ubuntu-latest ⇒ rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-runner-pin-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 SB-D2 — EL POOL QUE HACE VISIBLE EL 500 DE CHECKOUT ESTÁ ESCRITO, NO
@@ -770,7 +788,7 @@ jobs:
   # copia y exige rojo en cada caso. DEVOPS_NOTES §57.
   # ---------------------------------------------------------------------------
   db-pool-limit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El pool de Prisma que mide la carrera R-3 está fijado a mano
@@ -791,7 +809,7 @@ jobs:
   # sobre una copia ⇒ rojo.
   # ---------------------------------------------------------------------------
   e2e-skip-census:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El censo de salvaguardas E2E no crece sin nota
@@ -818,7 +836,7 @@ jobs:
   # nocturnas están ROJAS). El candado trae su propio canario. Ver DEVOPS_NOTES §60.
   # ---------------------------------------------------------------------------
   secret-absence-wording:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: El veredicto de ausencia no afirma lo que no midió (+ canario)
@@ -833,7 +851,7 @@ jobs:
   # que muerde (12 mutaciones + 2 controles). DEVOPS_NOTES §78.
   # ---------------------------------------------------------------------------
   vercel-deploy-branches:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: main y production siguen desplegando; claude/* no crea despliegues
@@ -852,7 +870,7 @@ jobs:
   # Ver DEVOPS_NOTES §67.
   # ---------------------------------------------------------------------------
   stack-kill-scope:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Apagar mi stack no mata el de otra sesión (procesos y puertos reales)
@@ -864,7 +882,7 @@ jobs:
   # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §85.
   # ---------------------------------------------------------------------------
   live-candados:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -929,7 +947,7 @@ jobs:
   # El rojo nombra el documento y cuánto creció. DEVOPS_NOTES §101.5.
   # ---------------------------------------------------------------------------
   doc-size:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -958,7 +976,7 @@ jobs:
   # 2026-10-19 (D6). DEVOPS_NOTES §101.
   # ---------------------------------------------------------------------------
   measurement-gates:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -996,9 +1014,9 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Verificar resultados (todo exige success salvo OPCIONALES declarados)

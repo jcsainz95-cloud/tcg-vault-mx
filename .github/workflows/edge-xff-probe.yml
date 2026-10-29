@@ -81,7 +81,7 @@ concurrency:
 
 jobs:
   canario:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -89,7 +89,7 @@ jobs:
         run: ./scripts/check-edge-xff-probe-canary.sh 1
 
   sonda:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: canario
     if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 5

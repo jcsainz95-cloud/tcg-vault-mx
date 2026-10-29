@@ -75,9 +75,9 @@ quitar_lineas() { # fichero patrón(ERE)
 }
 
 # --- (A) workflows ----------------------------------------------------------------
-m_wf_secret()  { insertar_tras "$1/.github/workflows/ci.yml" 'runs-on: ubuntu-latest' "    env: { X: \${{ secrets.${SEC} }} }"; }
-m_wf_vars()    { insertar_tras "$1/.github/workflows/e2e.yml" 'runs-on: ubuntu-latest' "    env: { X: \${{ vars.skydropx_token }} }"; }
-m_wf_spend()   { insertar_tras "$1/.github/workflows/e2e-real.yml" 'runs-on: ubuntu-latest' "    env: { ${GASTO}: '${SI}' }"; }
+m_wf_secret()  { insertar_tras "$1/.github/workflows/ci.yml" 'runs-on: ubuntu-' "    env: { X: \${{ secrets.${SEC} }} }"; }
+m_wf_vars()    { insertar_tras "$1/.github/workflows/e2e.yml" 'runs-on: ubuntu-' "    env: { X: \${{ vars.skydropx_token }} }"; }
+m_wf_spend()   { insertar_tras "$1/.github/workflows/e2e-real.yml" 'runs-on: ubuntu-' "    env: { ${GASTO}: '${SI}' }"; }
 m_wf_ghenv()   { printf '      - run: echo "%s=%s" >> "$GITHUB_ENV"\n' "$GASTO" "$SI" >> "$1/.github/workflows/deploy.yml"; }
 # --- (B) compose --------------------------------------------------------------------
 m_cmp_spend()  { insertar_tras "$1/docker-compose.staging.yml" 'SHIPPING_PROVIDER_ADAPTER: fake' "      ${GASTO}: \"${SI}\""; }
@@ -104,7 +104,7 @@ m_probe_test() { rm -f "$1/scripts/skydropx/prod-probe.test.ts"; }
 # --- (G) la llave del doble (§19.31.5/.11; el contrato lo llama «candado (E)») -------
 FK='SHIPPING_FAKE_''PURCHASE'
 AD='SHIPPING_PROVIDER_ADAPTER'
-m_g_wf()       { insertar_tras "$1/.github/workflows/e2e-real.yml" 'runs-on: ubuntu-latest' "    env: { ${FK}: '${SI}' }"; }
+m_g_wf()       { insertar_tras "$1/.github/workflows/e2e-real.yml" 'runs-on: ubuntu-' "    env: { ${FK}: '${SI}' }"; }
 m_g_stg_real() { sed -E "s/${AD}: fake/${AD}: skydropx/" "$1/docker-compose.staging.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.staging.yml"; }
 m_g_dev_true() { sed -E "s/${FK}: \\\$\{${FK}:-\}/${FK}: \"${SI}\"/" "$1/docker-compose.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.yml"; }
 m_g_dev_dflt() { sed -E "s/${FK}: \\\$\{${FK}:-\}/${FK}: \\\$\{${FK}:-${SI}\}/" "$1/docker-compose.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.yml"; }
