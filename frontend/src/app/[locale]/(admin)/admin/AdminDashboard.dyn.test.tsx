@@ -39,10 +39,10 @@ describe('DYN · salud de datos del tablero: Destacadas y precio del día', () =
     });
     renderWithProviders(<AdminDashboard />, 'es');
     const fr = await screen.findByTestId('dyn-health-featured');
-    expect(fr).toHaveTextContent('Destacadas: atrasadas — se sirve 2026-10-28, tocaba 2026-10-29.');
+    expect(fr).toHaveTextContent('Destacadas: sin cambiar a tiempo. La tienda muestra 2026-10-28; ya tocaba 2026-10-29.');
     expect(fr.className).toContain('text-accent');
     const lp = screen.getByTestId('dyn-health-prices');
-    expect(lp).toHaveTextContent('Precio del día: atrasado — último cálculo diario 2026-10-28.');
+    expect(lp).toHaveTextContent('Precios del día: sin actualizar desde 2026-10-28.');
     expect(lp.className).toContain('text-accent');
   });
 
@@ -55,7 +55,7 @@ describe('DYN · salud de datos del tablero: Destacadas y precio del día', () =
     const fr = await screen.findByTestId('dyn-health-featured');
     expect(fr).toHaveTextContent('Destacadas: al día (2026-10-29).');
     expect(fr.className).not.toContain('text-accent');
-    expect(screen.getByTestId('dyn-health-prices')).toHaveTextContent('Precio del día: aún no hay cálculo diario.');
+    expect(screen.getByTestId('dyn-health-prices')).toHaveTextContent('Precios del día: todavía no se calculan.');
   });
 
   it('servidor anterior (sin los campos) ⇒ ningún nodo', async () => {

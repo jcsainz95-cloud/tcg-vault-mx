@@ -78,7 +78,7 @@ describe('DYN-F5 · «Destacadas y PSA» en M10', () => {
     fireEvent.change(await screen.findByLabelText(LABEL.featuredRandomSlots), { target: { value: '20' } });
     fireEvent.click(screen.getByTestId('m10-featured-psa-save'));
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toMatch(/tienen que sumar entre 1 y 20/);
+    expect(alert.textContent).toMatch(/deben sumar entre 1 y 20/);
     expect(screen.getByLabelText(LABEL.featuredRandomSlots)).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText(LABEL.featuredNewArrivalSlots)).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText(LABEL.featuredPoolSize)).not.toHaveAttribute('aria-invalid');

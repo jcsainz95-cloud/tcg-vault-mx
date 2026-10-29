@@ -153,11 +153,11 @@ describe('M10View · Config y bitácora', () => {
     expect(warning.textContent).toMatch(/Y gasta\./);
     expect(warning.textContent).toMatch(/proveedor/i);
     // La cifra es el tope VIVO del servidor (1 200 en este GET), no el seed 3 000 ni un literal.
-    expect(warning.textContent).toMatch(/no carga más de\s*1[.,\s]?200 créditos al día/);
+    expect(warning.textContent).toMatch(/no pasa de\s*1[.,\s]?200 créditos al día/);
     expect(warning.textContent).not.toMatch(/3[.,\s]?000 créditos al día/);
     // Y dice cómo se cuentan y su única holgura.
     expect(warning.textContent).toMatch(/contados como los reporta el proveedor/);
-    expect(warning.textContent).toMatch(/error de estimación de un set/);
+    expect(warning.textContent).toMatch(/error de estimar una colección/);
     // El modelo retirado no reaparece: ni cartas por corrida ni la multiplicación que lo producía.
     expect(warning.textContent).not.toMatch(/cartas tuyas|corridas al día|\d\s*×\s*\d/);
     // (k.l) — ninguna oración con «créditos al día» sin su calificador en la MISMA oración.
@@ -184,7 +184,7 @@ describe('M10View · Config y bitácora', () => {
     settingsSpy.mockRestore();
     expect(warning.textContent).toMatch(/Publica\./);
     expect(warning.textContent).toMatch(/Y gasta\./);
-    expect(warning.textContent).toMatch(/consume créditos en cada corrida/i);
+    expect(warning.textContent).toMatch(/gasta créditos en cada corrida/i);
     expect(warning.textContent).not.toMatch(/créditos al día\b(?! de)/);
     expect(warning.textContent).not.toMatch(/\d\s*×\s*\d/);
     expect(warning.textContent).toMatch(/hasta el tope de créditos al día de «Destacadas y PSA»/);
