@@ -36,7 +36,7 @@ jobs:
   # Semgrep — SAST. ACTIVO.
   # ---------------------------------------------------------------------------
   semgrep:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       # CLAVADA (2026-09-11). Antes `:latest`. Una etiqueta MÓVIL en la imagen de
       # un gate de seguridad significa dos cosas malas: el motor puede cambiar
@@ -118,7 +118,7 @@ jobs:
   # gitleaks — secretos. ACTIVO.
   # ---------------------------------------------------------------------------
   gitleaks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Permisos ACOTADOS a este job (sobreescriben los del workflow, no lo amplían):
     # gitleaks-action necesita leer el repo y los metadatos del PR que escanea.
     # NO se le da `security-events: write` (no sube SARIF a code scanning: lo deja
@@ -182,7 +182,7 @@ jobs:
   # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).
   # ---------------------------------------------------------------------------
   npm-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -237,7 +237,7 @@ jobs:
   # tampoco se limite. El gate NO se relaja: sigue fallando en HIGH/CRITICAL reales.
   # ---------------------------------------------------------------------------
   trivy-fs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -377,7 +377,7 @@ jobs:
   # Construye backend/frontend y escanea. Se salta si falta la app.
   # ---------------------------------------------------------------------------
   trivy-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Ver nota de rate-limit en trivy-fs: instalamos Trivy por apt y
       # skip-setup-trivy en cada paso; el token es para el pull de la DB.
@@ -512,7 +512,7 @@ jobs:
   sast-ok:
     needs: [semgrep, gitleaks, npm-audit, trivy-fs, trivy-image]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Resumen
         run: |

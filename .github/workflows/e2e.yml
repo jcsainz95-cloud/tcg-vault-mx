@@ -9,7 +9,7 @@
 #               playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true.
 #               NO levanta el stack docker (rápido). El Chromium se instala en el
 #               job con `npx playwright install --with-deps chromium` (runner
-#               estándar `ubuntu-latest`).
+#               estándar `ubuntu-24.04`, fijado: ver check-runner-pin.sh).
 #
 # SEPARACIÓN mock vs real (arreglo Paso 5):
 #   - ESTE workflow = MOCK, rápido, feedback de PR. "Verde" aquí NO garantiza
@@ -63,7 +63,7 @@ jobs:
   # Detecta apps y presencia de los scripts E2E.
   # ---------------------------------------------------------------------------
   detect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       backend_e2e: ${{ steps.check.outputs.backend_e2e }}
       frontend_e2e: ${{ steps.check.outputs.frontend_e2e }}
@@ -99,7 +99,7 @@ jobs:
   backend-e2e:
     needs: detect
     if: needs.detect.outputs.backend_e2e != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Respaldo del presupuesto del paso de tests (35 min propios + 40 del paso):
     # el job medido dura 13,2-17,6 min en 10 runs verdes. DEVOPS_NOTES §102.
     timeout-minutes: 55
@@ -516,7 +516,7 @@ jobs:
   # El webServer del playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true
   # (fixtures); NO se levanta el stack docker.
   #
-  # NAVEGADOR (fix 2026-08-17): este job corre en `ubuntu-latest` (runner estándar
+  # NAVEGADOR (fix 2026-08-17): este job corre en `ubuntu-24.04` (runner estándar
   # de GitHub), donde NO existe ningún Chromium preinstalado. La configuración
   # anterior apuntaba a /opt/pw-browsers (ruta que solo existe en el runner-harness
   # local) y el "Guard navegador" reventaba el job en cada PR. Ahora se usa el
@@ -530,7 +530,7 @@ jobs:
   frontend-e2e:
     needs: detect
     if: needs.detect.outputs.frontend_e2e != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       # NO se fija E2E_BASE_URL a propósito: así el playwright.config levanta su
@@ -653,7 +653,7 @@ jobs:
   # excepción PENDIENTE se retiró el 2026-10-19, D6). DEVOPS_NOTES §101.4.
   # ---------------------------------------------------------------------------
   measurement-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -741,7 +741,7 @@ jobs:
   e2e-ok:
     needs: [detect, backend-e2e, frontend-e2e, measurement-e2e]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Resumen
         env:

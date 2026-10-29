@@ -3,7 +3,7 @@
 > Propiedad: **devops**. Cómo levantar el entorno local, correr CI y desplegar/rollback.
 > Coherente con `docs/ARCHITECTURE.md` (§1 stack, §8 variables) y `PROJECT.md`.
 
-## Estado vigente (2026-10-19)
+## Estado vigente (2026-10-29)
 
 - **Quién publica:** fusionar en `production` despliega solo (Vercel frontend, Root Directory = `frontend`;
   Railway backend). El orquestador no publica; el botón es del dueño (`CLAUDE.md` «Cómo se publica»,
@@ -18,9 +18,9 @@
   a #95.
 - **Fase 2 de marketing (medición):** construida en infraestructura y **APAGADA** — variables, puerta del aviso
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
-- **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5). Este documento sigue muy por encima del
-  tope de 1 500 líneas: **se compacta antes de añadir**.
-- **Histórico:** el encabezado anterior vive en `git show b95fbbac:docs/DEVOPS_NOTES.md`.
+- **Runners fijados (2026-10-29):** todo `runs-on` es `ubuntu-24.04` (la imagen de production verde, run 40599627832); `ubuntu-latest` pasó a 26.04 y
+  Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
+- **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
 
