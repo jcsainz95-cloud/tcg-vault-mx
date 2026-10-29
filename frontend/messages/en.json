@@ -268,7 +268,8 @@
       "status": {
         "paused": "Automatic rotation paused.",
         "ended": "End of featured pieces."
-      }
+      },
+      "newArrival": "Just arrived"
     },
     "sealed": {
       "title": "Sealed product",
@@ -1519,6 +1520,18 @@
         "link": "See sales",
         "error": "Today's sales couldn't be loaded.",
         "retry": "Retry"
+      },
+      "dynHealth": {
+        "featured": {
+          "ok": "Featured: up to date ({serving}).",
+          "stale": "Featured: behind — serving {serving}, expected {expected}.",
+          "never": "Featured: no selection computed yet."
+        },
+        "prices": {
+          "ok": "Daily price: up to date ({last}).",
+          "stale": "Daily price: behind — last daily run {last}.",
+          "never": "Daily price: no daily run yet."
+        }
       }
     },
     "m1": {
@@ -3782,14 +3795,6 @@
           "label": "Data freshness",
           "hint": "Days after which an estimate is considered stale and stops being shown. Whole number between 1 and 365."
         },
-        "ingestCap": {
-          "label": "Per-run card cap",
-          "hint": "How many of your cards the sweep looks at on each run (1–1,000). It limits <b>scope</b>, not what the provider bills you.",
-          "warnTitleUp": "You are raising the spending ceiling",
-          "warnTitleDown": "You are lowering the spending ceiling",
-          "warn": "With <b><n>{maxCards, number}</n> cards</b> per run and <b><n>{runs}</n> runs a day</b>, the ceiling is <b><n>{credits, number}</n> credits a day</b> if the provider charges per request; if it charges per returned card, each request asks for the <b>whole set</b> and the bill can be <b>several times</b> that figure. Nobody has measured it yet: the first run measures it. Saving costs nothing — the charge happens on the next run, and only if the hook is <b>on</b> in “Settings”.",
-          "rangeError": "A whole number between 1 and 1,000."
-        },
         "grades": "Grades shown on the card page: {grades}. Grades painted by the tile badge: {highlight}. The gate is always evaluated on PSA 9, even if the badge shows PSA 10.",
         "globalErrors": {
           "minUpside": "The minimum upside must be a number between 0 and 1000.",
@@ -3798,7 +3803,8 @@
         "recalcHint": "Saving recomputes on the fly which cards are promoted (raising the upside or making a tier more expensive can empty the showcase). It touches no sale price, portfolio valuation or buylist quote. It is recorded in the “Settings” audit log.",
         "saved": "Grading hook configuration saved.",
         "confidenceDials": "Confidence gate (API-only for now): a manual estimate expires after {manualFreshness} days · PSA 10 cap = {maxRawMultiple}× the raw price · ingest minimum sample {minSampleCount} sales · published statistic «{sourceStat}».",
-        "manualFreshnessNever": "∞ (never expires)"
+        "manualFreshnessNever": "∞ (never expires)",
+        "dailyCapMoved": "PSA credit spending is limited by the daily credit cap, in “Settings › Featured & PSA”, next to its budget."
       },
       "gradedEstimateCapture": {
         "title": "Capture an estimate manually",
@@ -4818,11 +4824,11 @@
           "off": "Off"
         },
         "gradingHook": {
-          "note": "A single switch governs the hook: on, the storefront publishes the estimated figures <b>and</b> the daily sweep fetches them from a paid provider; off, it publishes none <b>and</b> updates none. Grading cost tiers, minimum upside, freshness and the per-run card cap are edited in “Catalog & pricing”, along with the review list — the tool for a single figure. That cap limits <b>how many of your cards</b> the sweep looks at, not how many the provider bills you for.",
+          "note": "A single switch governs the hook: on, the storefront publishes the estimated figures <b>and</b> the daily sweep fetches them from a paid provider; off, it publishes none <b>and</b> updates none. Grading cost tiers, minimum upside and freshness are edited in “Catalog & pricing”, along with the review list — the tool for a single figure. What the sweep may spend per day is limited by <b>the daily credit cap</b> in “Featured & PSA”, on this screen.",
           "onTitle": "On: publishes figures and spends credits",
-          "on": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. <b>How much it spends has not been measured yet.</b> What we do know is the scope: the sweep looks at up to <b><n>{maxCards, number}</n> of your cards</b> per run, <b><n>{runs}</n> runs a day</b> (that cap is edited in “Catalog & pricing”). What we do not know is <b>how the provider bills</b>: if it charges per request, the ceiling is <b><n>{credits, number}</n> credits a day</b> (<n>{maxCards, number}</n> × <n>{perCard}</n> × <n>{runs}</n>); if it charges per returned card, each request asks for the <b>whole set</b>, the sweep pays for <b>every</b> card in each set it touches, and the bill can be <b>several times</b> that figure. <b>The first run measures it</b>; until then, <n>{credits, number}</n> is a ceiling under an assumption, not a budget. Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
-          "onMeasured": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. <b>How much it spends has been measured.</b> The sweep looks at up to <b><n>{maxCards, number}</n> of your cards</b> per run, <b><n>{runs}</n> runs a day</b>, and the run measured on {measuredOn} spent at a rate of <b><n>{credits, number}</n> credits a day</b>. That is a measurement, not an assumption: if the cap, the inventory or the provider changes, it gets measured again. Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
-          "onNoFigures": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. <b>How much it spends has not been measured yet.</b> It consumes credits on every run. The cap you set in “Catalog & pricing” limits <b>how many of your cards</b> the sweep looks at, <b>not how many the provider bills you for</b>: each request asks for the whole set. What it really costs is measured by the first run. Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
+          "on": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. What it spends is limited by a daily cap: the sweep charges no more than <b><n>{credits, number}</n> credits a day</b>, counted as the provider reports them (or estimated at <n>{perCard}</n> per card in the set when it does not); it can only go over by the estimation error of one set. That cap is edited in “Featured & PSA”, on this screen, next to today’s spend. Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
+          "onMeasured": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. <b>How much it spends has been measured.</b> The run measured on {measuredOn} spent at a rate of <b><n>{credits, number}</n> credits a day</b>, with a cap of <n>{cap, number}</n>. That is a measurement, not an assumption: if the cap, the inventory or the provider changes, it gets measured again. Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
+          "onNoFigures": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices. It consumes credits on every run, up to the daily credit cap in “Featured & PSA” (it could not be read right now). Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
           "audit": "Super-admin only · recorded in the audit log.",
           "offTitle": "Turning it off also stops updating",
           "off": "<b>It stops both at once.</b> While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. <b>For one specific figure, this is not the remedy.</b> A wrong figure is deleted from the <review>review list</review>; if what’s excessive is the promotion, raise the minimum upside in “Catalog & pricing” and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in “Catalog & pricing”."
@@ -5354,6 +5360,58 @@
         "saved": "Saved.",
         "checkFields": "Check the marked fields. Nothing was saved.",
         "invalid": "That value isn't valid for this setting."
+      },
+      "featuredPsa": {
+        "title": "Featured & PSA",
+        "subtitle": "How each day’s Featured pieces are picked and how many PSA credits the “Gems to grade” sweep may spend per day.",
+        "notAvailable": "The server does not have these settings yet.",
+        "nextSelection": "Featured changes apply from the next daily change: today’s selection is not touched.",
+        "labels": {
+          "featuredPoolSize": "Highest-value pieces to draw from",
+          "featuredRandomSlots": "Random slots",
+          "featuredNewArrivalSlots": "New-arrival slots",
+          "featuredNewArrivalWindowDays": "Days a piece counts as a new arrival",
+          "featuredRotationHour": "Daily change hour (Central Mexico time)",
+          "gradedEstimateDailyCreditCap": "Daily PSA credit cap"
+        },
+        "help": {
+          "featuredPoolSize": "Between 1 and 500. Default 60.",
+          "featuredRandomSlots": "Between 0 and 20. Default 8.",
+          "featuredNewArrivalSlots": "Between 0 and 4; 0 turns them off. Default 2.",
+          "featuredNewArrivalWindowDays": "Between 1 and 30. Default 7.",
+          "featuredRotationHour": "Between 0 and 23. Default 6 (06:00).",
+          "gradedEstimateDailyCreditCap": "Between 0 and 20,000; 0 = nothing is requested. Default 3,000."
+        },
+        "rule": {
+          "featured_slots_total": "Random slots plus new-arrival slots must add up to between 1 and 20.",
+          "featured_pool_lt_random": "The pieces to draw from cannot be fewer than the random slots."
+        },
+        "checkFields": "Check the marked fields: a value is out of range.",
+        "save": "{count, plural, =0 {Save} one {Save 1 change} other {Save # changes}}",
+        "saved": "Settings saved.",
+        "budget": {
+          "title": "PSA credits",
+          "hook": "Grading hook",
+          "hookOn": "on",
+          "hookOff": "off",
+          "dailyCreditCap": "Daily cap",
+          "creditsToday": "Spent today",
+          "includesEstimate": "includes estimates",
+          "creditsLast7Days": "Spent in 7 days",
+          "providerDailyQuota": "Provider daily quota",
+          "providerDailyRemaining": "Provider remaining today",
+          "notSet": "not set",
+          "notReported": "the provider does not say",
+          "publishedCards": "Published raw cards",
+          "cardsScannedLast7Days": "Checked in 7 days",
+          "cardsUnmapped": "No set at the provider",
+          "weeklyCreditsNeeded": "Credits to check them all in a week",
+          "cycleDays": "A full round takes",
+          "cycleNever": "never (cap at 0)",
+          "days": "{count, plural, one {# day} other {# days}}",
+          "capToCoverWeek": "Cap that would cover the week",
+          "short": "With this cap a full round takes {cycleDays} days. To check them all every week, the cap would need to be {capToCoverWeek}."
+        }
       }
     },
     "m7": {
@@ -6626,7 +6684,13 @@
         "providerReference": "Skydropx reference",
         "sellRequestId": "Sell request",
         "closesAt": "Closes",
-        "offerGrossCents": "Value of the cards in the offer"
+        "offerGrossCents": "Value of the cards in the offer",
+        "publishedCards": "Published cards",
+        "cycleDays": "Days per round",
+        "dailyCreditCap": "Daily credit cap",
+        "capToCoverWeek": "Cap that would cover the week",
+        "setsOverCap": "Sets that do not fit in a day",
+        "reason": "Reason"
       },
       "noData": "no data",
       "ref": {
@@ -6758,11 +6822,20 @@
         "AG-23": {
           "title": "Sell request without a label",
           "text": "Sell request {folio} is still accepted and has no label: it closes on its own on {closesAt} if it still has no label by then. Value of its cards in the offer: {gross}."
+        },
+        "AG-24": {
+          "title": "The PSA check does not cover the week",
+          "projected": "With {cap} credits a day there is not enough to check your {cards} cards every week: it will take {days} days. To cover the week, raise the cap to {capToCover}.",
+          "overdue": "Some set has gone more than 8 days without a check. With {cap} credits a day, a full round of your {cards} cards takes {days} days; to cover the week, raise the cap to {capToCover}. Sets that do not fit in one day’s cap: {setsOverCap}."
         }
       },
       "prev": "Previous",
       "next": "Next",
-      "pageInfo": "Page {page} of {totalPages} · {total, plural, one {# alert} other {# alerts}}"
+      "pageInfo": "Page {page} of {totalPages} · {total, plural, one {# alert} other {# alerts}}",
+      "factReason": {
+        "projected": "the cap does not cover the week",
+        "overdue": "a set has gone more than 8 days without a check"
+      }
     },
     "mobile": {
       "desktopOnly": "This section is designed for a computer. On your phone, use <link>“Orders to prepare”</link>."

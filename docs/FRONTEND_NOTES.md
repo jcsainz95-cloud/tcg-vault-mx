@@ -3,7 +3,53 @@
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 >
 > ⚠ Este fichero rebasa el tope (~19 900 líneas contra ~1 500, CLAUDE.md «Documentos», ficha FE-DOC-1). Se compacta por
-> bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas); cada pase que añade quita más de lo que añade.
+> bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46); cada pase que añade quita más de lo que añade.
+
+## §DYN · Portada dinámica: Destacadas del día, portada servida, nonce y M10 (2026-10-29, rama `claude/portada-dyn-fe`)
+
+**Estado vigente.** Contrato v1.113.2 §DYN (filas DYN-F1, F2, F5, F7). Backend de §DYN fusionado en la base (`b4213dff`).
+- **Destacadas (DYN-F1):** `useFeaturedCatalog` lee `GET /catalog/featured` (`getFeatured`, clave `['featured']`); ⛔ ni
+  `getCatalog` ni `price_desc` para Destacadas, ni de respaldo (`data: []` ⇒ «Sin resultados»). Etiqueta «Recién llegada»
+  en las tejas `featuredSlot: 'new_arrival'`. La rotación no cambia (constantes y aserciones intactas). Candado:
+  `_home/FeaturedCarousel.dyn.test.tsx` (fuente sin `price_desc` en `_home/**` salvo `GradedShelf.tsx`, que es el estante
+  «Gradeadas» y §DYN no toca; pasada de 10 tejas = 8 movimientos hasta el tope).
+- **Portada servida (DYN-F2):** `page.tsx` es de servidor: `lib/home-ssr.ts` pide Destacadas y la vitrina con
+  `next: { revalidate: 30, tags }` y tope de 400 ms (`withBudget`, sin abortar: la respuesta tardía llena la caché), las
+  hidrata con `HydrationBoundary` en las MISMAS claves de `lib/home-queries.ts` con `updatedAt: 0` (el cliente revalida al
+  montar). La foto líder se precarga desde `FeaturedCarousel` (`ReactDOM.preload`; sale como cabecera HTTP `Link`,
+  no en el HTML: Next pasa `onHeaders` al SSR de React). Sin datos a tiempo: Destacadas pinta su marco
+  (`data-testid="featured-frame"`, foto + líneas de texto); la vitrina sigue la excepción de `DESIGN_SYSTEM §22.6` (sin
+  esqueleto: aparece resuelta o no aparece). Candado: `page.dyn.test.tsx` (`renderToString` de la página).
+- **Nonce (DYN-F7 / D-DYN-1):** causa medida en local: Next lee el nonce de la cabecera de petición
+  `content-security-policy` antes que de `-report-only` (`next/dist/server/app-render/app-render.js:108`); con
+  `content-security-policy: frame-ancestors 'none'` en la petición, 16/16 scripts en línea salen sin nonce (firma de
+  producción: `data-csp="nonce"` y 28/28 sin nonce). El middleware fija siempre esa cabecera de petición con la política
+  del nonce. La fase sigue `report-only` (CL-1). Por qué Vercel la trae en la petición: **NO MEDIDO**. Candados:
+  `src/middleware.dyn.test.ts` y `e2e/csp.spec.ts` «DYN-F7».
+- **M2 y M10 (DYN-F5 / D-DYN-4):** M2 ya no pinta, exige ni manda `ingestMaxCardsPerRun` (el mock responde el 422 del
+  backend). M10 «Destacadas y PSA» (`sections/FeaturedPsaDialsSection.tsx`, `id="destacadas-psa"`) edita los 6 diales y
+  pinta el presupuesto (`GET /admin/pricing/graded-estimates/budget`); 422 por `details.rule` o `details.errors`. El aviso
+  de encendido del gancho cifra el tope diario (`lib/grading-hook-cost.ts` `gradingDailyCreditCap`); el calificador de
+  `@/test/grading` admite «lo acota un tope diario».
+- **AG-24 y salud de datos:** `psa_cycle_short` ⇒ AG-24 (filtro, frase por `reason`, lista blanca de `facts`; no se apaga).
+  Tablero: `dataHealth.featuredRotation` / `listingPrices` (`stale` en bermellón; ausentes ⇒ nada).
+- **Checkout:** sin cambio. `PRICE_PENDING` ya tenía frase (`error.PRICE_PENDING`); candado `CheckoutPricePending.test.tsx`.
+- **Textos PROVISIONALES (ux-ui pendiente):** `home.featured.newArrival`, `admin.m10.featuredPsa.*`,
+  `admin.m10.dials.gradingHook.{note,on,onMeasured,onNoFigures}`, `admin.m2.gradedEstimates.dailyCapMoved`,
+  `admin.spendAlerts.kind.AG-24.*`, `fact.{publishedCards,cycleDays,dailyCreditCap,capToCoverWeek,setsOverCap,reason}`,
+  `factReason.*`, `admin.dashboard.dynHealth.*`.
+- **Desviación del contrato (DYN-F1):** «`git diff` vacío en `FeaturedCarouselRotation.test.tsx`» no se puede cumplir
+  con el hook en `getFeatured`: el fichero espía `api.getCatalog` en su ayudante (`mockCatalog`); sin tocarlo, 39/51 rojas
+  (medido). Se cambió SOLO el ayudante (la función espiada); las 51 aserciones y los tres candados de constantes quedan
+  igual. `e2e/featured-rotation.spec.ts`: diff vacío (su comentario «sin JS no hay tejas» ya no es cierto).
+- **Pendiente fuera de frontend:** un stack recién sembrado no tiene selección hasta el primer tic (≤ 15 min) o
+  `POST /admin/jobs/featured-rotation {force:true}`; los `@real` que miran Destacadas (`grading-estimate.spec.ts`)
+  lo necesitan en la siembra (backend/devops). CLS con el API retrasado 5 s en navegador: **NO MEDIDO** (DYN-D2, devops).
+- **Medido** (stack local `stack-native` BD `tcg_fe_dyn`, Redis db 11, `next build`; iPhone 13, N=5; antes `b4213dff`,
+  después `f7eeecdc`; mediana [mín–máx] ms): `<img>` de Destacadas en el DOM 624 [478–767] → 240 [160–254] (rápido) y
+  2603 [2561–2633] → 1232 [1231–1235] (Slow 4G: llega con el primer pintado, FCP 1264). LCP de imagen **NO MEDIDO**: las
+  fotos del seed no cargan sin salida a internet (el LCP medido es el H1). Joyas: vacía en el seed, **NO MEDIDO**. CSP:
+  `e2e/csp.spec.ts -g DYN-F7` 8/8 sobre `f7eeecdc`, 4/8 rojas sobre `b4213dff` (16/16 sin nonce con la cabecera).
 
 ## §DYN.3 · Velocidad de la portada sin contrato (2026-10-29, ramas `claude/portada-velocidad-fe` y `-fe2`)
 
@@ -16908,53 +16954,7 @@ en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3V
 - A-2 (¿sale `auth.password_lock` en la Actividad de esa persona?) sigue NO MEDIDO: el rótulo está, la fila depende
   del backend.
 
-## §87 · **Gate de QA y techlead sobre `da6d910e`** (B-1, I-1 = STF-17-E2E, errata v1.80.9.1 parte frontend, M-3, M-4, M-5, C-2) (2026-10-04, rama `claude/staff-sin-correo`, base `68e5d93a`)
-
-**Qué se hizo:**
-
-| Hallazgo | Cambio | Candado (mutación ⇒ rojo) |
-|---|---|---|
-| **B-1** (QA) | `e2e/utils/temp-actors.ts`: el operador desechable nace **sin correo**, con `username` `e2e-tmp-op-…` (súper-admin `e2e-tmp-sa-…`); la barredera busca los dos prefijos (correo `e2e-disposable-temp-`, usuario `e2e-tmp-`) | Canario: el `temp-actors.ts` de `HEAD` ⇒ `account.spec.ts:194` rojo con `422 staff_without_email` (1/1) |
-| **I-1** STF-17-E2E | `e2e/staff-without-email.spec.ts`: ciclo del criterio 263, pasos (1)–(7), `vault_operator` y `super_admin` | Quitar el enlace «Mi cuenta» de `AdminTopbar.tsx` ⇒ 2/2 rojos en real y 2/2 en mock (`getByRole('banner').getByRole('link', {name:'Mi cuenta'})`) |
-| Errata v1.80.9.1 **A-1** | `lockState` en `AdminUserDetailDTO` (`contract.ts`); la ficha pinta el mismo `lockUnavailable` que el listado y ninguna marca | Ficha que ignora `lockState` ⇒ roja (Vitest) |
-| **STF-36** (front) | Vitest: ficha `super_admin` + `email:null` ⇒ «Restablecer contraseña» está y llama al reset | Ocultar el botón para `role === 'super_admin'` ⇒ roja |
-| **M-3** | `ProfileSection.tsx`: sin correo no se pintan «Así te llamamos en los correos…» ni «Sin celular. Lo necesitas para vender.» (se ocultan; §42.8 no da copy de equipo) | `withoutEmail` fijo a `false` ⇒ roja |
-| **M-4** | Actividad: `actorRole` vacío ⇒ «—»; rótulos `auth_password_changed` («Cambió su contraseña» / «Changed their password») y `auth_logout` («Cerró sesión» / «Signed out») | Sin el «—» ⇒ roja; sin la clave `auth_logout` en `es` ⇒ roja |
-| **M-5** | `hooks/usePickingSummary.ts`: no consulta mientras la sesión local diga `mustChangePassword` (ni antes de leerla) | Vitest `AdminShell.mustChange` y el colector de `403` del E2E ⇒ rojos (el E2E reproduce el `GET …/picking-list/summary` → 403 de QA, 2/2) |
-| **TD-5** (frontend) | El `409 USERNAME_TAKEN` del mock lleva `details.field:'username'`, como el real | Quitar `details` ⇒ roja (`api.staff-mock.test.ts`) |
-| **C-2** | `TECH_DEBT.md` «Frontend · gate del techlead sobre `da6d910e`»: STF-FE-TD5 (parte cerrada), TD6, TD7, TD8 | — |
-
-**Decisiones que no están escritas en otro sitio:**
-
-1. **STF-17-E2E corre en los dos entornos, sin salto por entorno** (el censo no crece: 135/19 medidos con
-   `scripts/check-e2e-skip-census.sh`). En mock entran `ana`/`jefa` (`MOCK_STAFF_USERNAMES`, `lib/api.ts`: lo tecleado
-   sin `@` que esté en ese mapa entra como staff sin correo con la temporal pendiente). Los pasos (1)–(5) y la mutación
-   del menú se miden igual en los dos; lo que el mock no puede servir (no guarda contraseñas ni sesiones) va en
-   `if (IS_REAL)`: `GET /users/me` vivo en (3) y (5), la otra sesión que muere en (5), y los logins de (6)–(7).
-   «Ningún correo en todo el ciclo» no se ve desde el navegador: lo fija STF-17 de backend.
-2. **Cupo de `POST /auth/change-password`** (`e2e/utils/state.ts` `reserveChangePasswordSlot`): la ruta tiene su propio
-   `@Throttle(5/60 s)` por IP. STF-17-E2E manda 4 por cuenta y `account.spec.ts` 3; sin cupo compartido dos workers se
-   comen el `429`. Mismo mecanismo que el del login (B-2); `account.spec.ts` ya lo usa.
-3. **`TempPasswordActor.email` conserva el nombre** aunque para el staff lleve el usuario: es la llave `email` del
-   cuerpo del login (§M6-U.2), así que `loginWith`/`sessionForCredentials` no cambian.
-4. **M-4 `actorRole` nulo:** el contrato dice `UserAuditEntryDTO.actorRole: Role` (no anulable) y el backend lo emite
-   vacío en `auth.password_lock` (captura de QA `k-activity.png`). El front lo tolera («—») sin cambiar el tipo
-   (el contrato manda): **solicitud al arquitecto** — o se escribe `actorRole: Role | null` para eventos del sistema,
-   o backend lo rellena.
-5. **M-3 sin copy nuevo:** se ocultan los dos textos; la ayuda del celular («El teléfono de cada dirección es para
-   la paquetería») se queda — no estaba en el hallazgo y el staff no tiene direcciones; si ux-ui quiere otra, lo dice.
-6. **Rótulos de M-4** redactados por frontend (tono de §42.5.5); pendientes de que ux-ui los ratifique.
-
-**Mediciones (2026-10-04, árbol vivo salvo los E2E):**
-- `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **210/210 ficheros, 2543/2543 pruebas** · paridad
-  i18n 4169 = 4169 claves, 0 vacías (y `i18n-parity`/`i18n-staff-without-email` verdes) · censo E2E sin crecimiento.
-- `@real` contra stack propio levantado desde `git archive 48dfb4ca` (árbol entero; BD `tcg_stf2_fe`, Redis db 13,
-  `:3270`/`:3271`, `next build` + `next start`): `staff-without-email` + `account` + `admin` + `auth` ⇒ **17/17**
-  (`auth.spec.ts` no tiene casos `@real`; corrido entero contra el stack real: 4 verdes, 1 saltado por su
-  `harnessLimit` de Google). La misma corrida sobre `58126076` + este diff dio 17/17 antes de la fusión de la errata.
-- STF-17-E2E en mock: 2/2. Mutaciones deterministas, N=1 cada una, todas rojas y restauradas: enlace «Mi cuenta»
-  (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
-  TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
+## §87 · Gate de QA y techlead sobre `da6d910e` (2026-10-04) — compactado 2026-10-29: el detalle es histórico (historial del repo, rama `claude/staff-sin-correo`); los arreglos viven en el código y sus pruebas (`e2e/staff-without-email.spec.ts`, `api.staff-mock.test.ts`, `AdminShell.mustChange`).
 
 ## §97 · **Skydropx en «Capturar guía»** — la ventana de cuatro pasos, las tarjetas, «Salida de hoy», «Configuración › Envíos» y el cliente (2026-10-04, rama `claude/skydropx-d`; contrato v1.80.11/v1.80.12 (`§M4-SHIP.19.19`, `§19.20`; la errata v1.80.12.1 dice «frontend: nada»), diseño v4.15/v4.16 `§43`; código en `f9996337`, `bd9ab31e`, `eed6b6a0`, `9a8e3969`)
 

@@ -110,6 +110,11 @@ interface RequestOptions {
    */
   query?: Record<string, string | number | readonly string[] | undefined>;
   headers?: Record<string, string>;
+  /**
+   * v1.113⟨portada⟩ (§DYN.6.2): opciones de la caché de datos de Next para las lecturas que hace el SERVIDOR (la
+   * portada). Se pasan tal cual a `fetch` (`next.revalidate`, `next.tags`); en el navegador `fetch` las ignora.
+   */
+  next?: { revalidate?: number; tags?: string[] };
 }
 
 /** Vuelca `opts.query` en la URL: escalares con `set`, arrays con `append` (repetible). */
@@ -364,6 +369,7 @@ async function fetchWithSession(
     // §AC.11 (foto de accesorio): un `FormData` viaja tal cual y SIN `Content-Type` propio — el navegador
     // pone el `multipart/form-data; boundary=…`. Solo lo usa `apiRequestMultipart` (json=false).
     body: jsonBody ?? (opts.body instanceof FormData ? opts.body : undefined),
+    ...(opts.next ? { next: opts.next } : {}),
   });
 
   // WS-B — interceptor: el access token dura 15m; al vencer, cualquier request da 401.

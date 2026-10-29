@@ -112,12 +112,11 @@ function grp(c: CardDTO): GroupedListingSummaryDTO {
 const NAMES = ['Charizard', 'Blastoise', 'Venusaur', 'Alakazam', 'Machamp', 'Gengar', 'Mewtwo', 'Mew'];
 const EIGHT = NAMES.map((n, i) => grp(card(`c-${i}`, n)));
 
+// v1.113⟨portada⟩ (§DYN.2, DYN-F1): el carrusel lee `GET /catalog/featured`; SOLO cambia la fuente que se espía.
 function mockCatalog(data: GroupedListingSummaryDTO[]) {
-  vi.spyOn(api, 'getCatalog').mockResolvedValue({
-    data,
-    page: 1,
-    pageSize: data.length,
-    total: data.length,
+  vi.spyOn(api, 'getFeatured').mockResolvedValue({
+    businessDate: '2026-10-29',
+    data: data.map((g) => ({ ...g, featuredSlot: 'pool' as const })),
   });
 }
 

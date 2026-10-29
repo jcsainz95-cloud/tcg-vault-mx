@@ -145,6 +145,32 @@ function daysSince(iso: string, now: Date = new Date()): number {
  * (`divide-*`), no la celda, para que no se dupliquen los filetes. Fuera los
  * iconos: cada métrica ya se identifica por su etiqueta.
  */
+/**
+ * v1.113⟨portada⟩ (API_CONTRACT §DYN.2.5/§DYN.5.8, criterio 927): salud del cambio diario de Destacadas y del precio del
+ * día. Aditivo: un servidor anterior no los manda ⇒ las líneas no existen. `stale` va en bermellón (exige intervención,
+ * como `pendingPriceCount`); las fechas son las del servidor (`YYYY-MM-DD`, día CDMX), tal cual.
+ */
+function DynDataHealth({ health }: { health: DashboardDTO['dataHealth'] }) {
+  const t = useTranslations('admin.dashboard.dynHealth');
+  const fr = health.featuredRotation;
+  const lp = health.listingPrices;
+  if (!fr && !lp) return null;
+  return (
+    <span className="mt-1 flex flex-col" data-testid="dyn-data-health">
+      {fr && (
+        <span className={fr.status === 'stale' ? 'text-accent' : undefined} data-testid="dyn-health-featured">
+          {t(`featured.${fr.status}`, { serving: fr.servingBusinessDate ?? '—', expected: fr.expectedBusinessDate })}
+        </span>
+      )}
+      {lp && (
+        <span className={lp.status === 'stale' ? 'text-accent' : undefined} data-testid="dyn-health-prices">
+          {t(`prices.${lp.status}`, { last: lp.lastDailyBusinessDate ?? '—' })}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function AdminDashboard() {
   const t = useTranslations('admin.dashboard');
   const tm = useTranslations('admin');
@@ -400,6 +426,7 @@ export function AdminDashboard() {
                   <br />
                   {t('lastSync')} {formatDate(query.data.dataHealth.lastPriceSyncAt, locale)} ·{' '}
                   {t('lastFx')} {formatDate(query.data.dataHealth.lastFxAt, locale)}
+                  <DynDataHealth health={query.data.dataHealth} />
                 </>
               }
             />

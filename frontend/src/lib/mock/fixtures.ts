@@ -147,6 +147,9 @@ import type {
   SealedGroupDetailResponse,
   GradedEstimateDTO,
   GradedEstimateConfigDTO,
+  GradedEstimateBudgetDTO,
+  FeaturedResponse,
+  FeaturedListingDTO,
   GroupedListingDTO,
   GroupedListingSummaryDTO,
   GroupedListingDetailResponse,
@@ -558,6 +561,13 @@ export let mockSettings: SettingsDTO = {
   // recorrerla sin backend. El apagado se simula con `localStorage['tcg.mock.wishlistOff']='1'` (`mock/wishlist.ts`).
   wishlistEnabled: 'on',
   wishlistMaxPerAccount: 20,
+  // v1.113⟨portada⟩ (§DYN.3, MOCK con los seeds de M-93): Destacadas 60/8/2/7/06:00 y tope PSA 3 000 créditos/día.
+  featuredPoolSize: 60,
+  featuredRandomSlots: 8,
+  featuredNewArrivalSlots: 2,
+  featuredNewArrivalWindowDays: 7,
+  featuredRotationHour: 6,
+  gradedEstimateDailyCreditCap: 3000,
   wishlistMaxIvaMode: 'with_iva',
   wishlistDailyMailCap: 3,
   wishlistMailWindowMin: 30,
@@ -859,7 +869,7 @@ export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
   maxRawMultiple: 100,
   minSampleCount: 5,
   sourceStat: 'median',
-  ingestMaxCardsPerRun: 250,
+  // ⛔ v1.113 (§DYN.3, I-5): sin `ingestMaxCardsPerRun` — el servidor ya no lo devuelve.
   gradingCostTiers: [
     { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
     { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
@@ -2244,7 +2254,14 @@ export const mockDashboard: DashboardDTO = {
   inventoryValueCents: 18500000,
   custodyValueCents: 9200000,
   buylistPeriod: { count: 12, amountCents: 340000 },
-  dataHealth: { pendingPriceCount: 7, lastPriceSyncAt: '2026-08-13T06:00:00Z', lastFxAt: '2026-08-13T06:05:00Z' },
+  dataHealth: {
+    pendingPriceCount: 7,
+    lastPriceSyncAt: '2026-08-13T06:00:00Z',
+    lastFxAt: '2026-08-13T06:05:00Z',
+    // v1.113⟨portada⟩ (§DYN.2.5/§DYN.5.8, MOCK): las dos al día.
+    featuredRotation: { status: 'ok', servingBusinessDate: '2026-08-13', expectedBusinessDate: '2026-08-13' },
+    listingPrices: { status: 'ok', lastDailyBusinessDate: '2026-08-13' },
+  },
   launchProgress: { users: 58, salesSettled: 42, buylistPaid: 9, withdrawalsNoDispute: 15 },
 };
 
@@ -7730,6 +7747,42 @@ export function mockSetSealedSalePrice(
   });
   mockSheetRows[idx] = next;
   return { data: next, autoPublish: { published, missingLocation: 0, notPublished: 0 } };
+}
+
+// ---- v1.113⟨portada⟩ (§DYN.2 / §DYN.4.6): Destacadas del día y presupuesto PSA (MOCK) ----
+/**
+ * MOCK de `GET /catalog/featured` (§DYN.2.1). El servidor sortea la selección del día (DYN.2.3); el mock NO la sortea ni
+ * ordena por precio (I-1: ningún camino del cliente ordena Destacadas por precio): toma los primeros grupos raw/graded
+ * del fixture en su orden (K asc) y marca las dos primeras como `new_arrival`, para que la demo pinte la etiqueta.
+ * `localStorage['tcg.mock.featuredEmpty']='1'` simula «sin selección» (`businessDate: null, data: []`).
+ */
+export function mockFeatured(): FeaturedResponse {
+  const empty = typeof window !== 'undefined' && window.localStorage?.getItem('tcg.mock.featuredEmpty') === '1';
+  if (empty) return { businessDate: null, data: [] };
+  const groups = groupMockSummaries(mockListings).filter((g) => g.productType === 'raw' || g.productType === 'graded');
+  const data: FeaturedListingDTO[] = groups.slice(0, 10).map((g, i) => ({ ...g, featuredSlot: i < 2 ? 'new_arrival' : 'pool' }));
+  return { businessDate: '2026-08-13', data };
+}
+
+/** MOCK de `GET /admin/pricing/graded-estimates/budget` (§DYN.4.6), coherente con el dial del mock. */
+export function mockGradedEstimateBudget(): GradedEstimateBudgetDTO {
+  const cap = mockSettings.gradedEstimateDailyCreditCap ?? 3000;
+  const weekly = 11_200 * 2;
+  return {
+    hookEnabled: mockSettings.gradingHookEnabled === 'on',
+    dailyCreditCap: cap,
+    creditsToday: Math.min(cap, 1_240),
+    creditsLast7Days: 9_870,
+    creditsTodayAllMeasured: false,
+    providerDailyQuota: 20_000,
+    providerDailyRemaining: null,
+    publishedCards: 11_200,
+    cardsScannedLast7Days: 10_400,
+    cardsUnmapped: 35,
+    weeklyCreditsNeeded: weekly,
+    cycleDays: cap === 0 ? null : Math.ceil(weekly / cap),
+    capToCoverWeek: Math.ceil(weekly / 7 / 100) * 100,
+  };
 }
 
 // TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de

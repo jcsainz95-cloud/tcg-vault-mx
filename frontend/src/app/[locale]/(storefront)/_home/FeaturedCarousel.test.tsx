@@ -50,12 +50,11 @@ function grp(over: Partial<GroupedListingSummaryDTO> & { card: CardDTO }): Group
   };
 }
 
+// v1.113⟨portada⟩ (§DYN.2, DYN-F1): la fuente del carrusel es `GET /catalog/featured`.
 function mockCatalog(data: GroupedListingSummaryDTO[]) {
-  vi.spyOn(api, 'getCatalog').mockResolvedValue({
-    data,
-    page: 1,
-    pageSize: data.length,
-    total: data.length,
+  vi.spyOn(api, 'getFeatured').mockResolvedValue({
+    businessDate: '2026-10-29',
+    data: data.map((g) => ({ ...g, featuredSlot: 'pool' as const })),
   });
 }
 
