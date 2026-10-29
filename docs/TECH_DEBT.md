@@ -27,6 +27,24 @@
 
 ---
 
+## Frontend · 2026-10-29 · §DYN.3 velocidad de la portada — rechazo del techlead sobre `d1b96eca` (R1, TL-DYN3-1…5)
+
+> Dueño del código anotado: **frontend** (TL-DYN3-4: **backend**). Sin dinero. Medido el 2026-10-29 en la rama `claude/portada-velocidad-fe2` (FRONTEND_NOTES §DYN.3).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| R1 | CERRADA · la frontera de los mocks no tenía candado: con mocks apagados `lib/mock/*` llega vacío y un uso fuera de la guarda valía `undefined` en producción sin que nada lo viera | frontend | 2026-10-29 | `src/test/mock-boundary.test.ts` verde (importadores de `lib/mock` + auditoría AST de `api.ts`/`marketing-api.ts`); `fx.mockSettings` en una rama real ⇒ rojo |
+| TL-DYN3-2 | CERRADA · `check-home-bundle.mjs` solo fallaba si faltaban las tres entradas y buscaba `'@example.'` solo en la portada | frontend | 2026-10-29 | `src/lib/home-bundle.test.ts` verde; sin `config.resolve.alias` en `next.config.mjs` ⇒ `npm run build` sale con `HOME_BUNDLE_FAIL` (centinela de `lib/mock/sentinel.ts`) |
+| TL-DYN3-5 | CERRADA · `api-client` decidía «hay cuerpo» por veracidad; el alias no cubría `.tsx` ni subcarpetas; el JSDoc `@type NextConfig` anotaba otro bloque | frontend | 2026-10-29 | `api-client.test.ts` «TL-DYN3-5»; `home-bundle.test.ts` «TL-DYN3-5 · el alias cubre .tsx y subcarpetas»; `grep -A1 "@type {import('next').NextConfig}" frontend/next.config.mjs` ⇒ `const nextConfig` |
+| TL-DYN3-1 | CERRADA · textos `admin.*` en componentes compartidos que monta la tienda (`CellDrawer`, `VariantPriceConsole`, `MasterSetBinder`) | frontend | 2026-10-29 | `master-set/MasterSet.storefront-messages.test.tsx`: `user_vault_self` y `quoter` con `storefrontMessages(es)` ⇒ 0 `MISSING_MESSAGE` (control `platform` ⇒ sí faltan) |
+| TL-DYN3-3 | CERRADA · `AdminMessagesProvider` solo reenvía `locale`/`timeZone` | frontend | 2026-10-29 | `AdminMessagesProvider.test.tsx` «TL-DYN3-3» (`formats`, `onError`, `getMessageFallback`, `now` de la raíz resuelven bajo el provider: los hereda use-intl) |
+| TL-DYN3-4 | ABIERTA · hallazgo de backend del veredicto del techlead sobre `d1b96eca`; su texto no venía en el encargo de frontend (lo completa el orquestador con el del veredicto) | backend | 2026-10-29 | la que fije el veredicto del techlead (pendiente de copiar aquí) |
+| FE-1 | CERRADA · fixtures de mock y `computeBreakdown` en el bundle de producción (ficha de abajo) | frontend | 2026-10-29 | el mismo candado que TL-DYN3-2 (centinela de `lib/mock` en ningún chunk de `.next/static`) + R1 (`computeBreakdown` sin uso fuera de `api.ts`) |
+| D7 | CERRADA · la lógica de negocio del mock (`computeBreakdown`, cotizador) viajaba en el bundle real (ficha de abajo); el disparador «retirarla del bundle real» se cumple | frontend | 2026-10-29 | como FE-1 |
+| FE-15 | CERRADA · `exportFinanceCsv` hacía `fetch` directo, sin refresh de sesión (ficha de abajo) | frontend | 2026-10-29 | `src/lib/api.export-csv.test.ts` (401 → refresh → reintento con el token nuevo); `grep -c "await fetch(" frontend/src/lib/api.ts` ⇒ 1 (solo `uploadToPresignedUrl`, URL firmada sin sesión a propósito) |
+
+---
+
 ## Frontend · 2026-10-26 · §DSC códigos de descuento — rechazo del techlead sobre `c421de13` (R2, R3, TL-DSC-6)
 
 > Dueño del código anotado: **frontend**. 💰 Toca dinero (precio antes del descuento, PATCH del panel, mock). Medido el 2026-10-26 sobre el contrato v1.110.3 (`083d589c`).
@@ -82,7 +100,7 @@
 | FE-MKT-R1 | CERRADA · FAQ caducaban sin aviso; guía `que-es-nm` se publicaba sin P7 | frontend | 2026-10-18 | `seo-content.test.ts` «⏳ R1» (reloj real, rojo desde 7 días antes del `validThrough` más cercano) + «guía con FAQ vencida» + `content-pages.test.tsx` «R1: … 404» verdes; rojo esperado el **2026-10-29** (P19) |
 | FE-MKT-D4a | CERRADA (2026-10-19, texto del dueño: «verificamos la condición NM», HECHOS 2026-10-19) · Copy «nosotros autenticamos / we authenticate» en `home.sellBody` y `buylist.subtitle` (es+en) | frontend | 2026-10-19 | `KNOWN_OFFENDERS` vacío en `seo-content.test.ts`; el trinquete sobre `messages/` es absoluto (una clave con «autenticamos» lo pone rojo) |
 | FE-MKT-T1 | CERRADA · Canarios y pruebas de vigencia de `seo-content.test.ts` usaban las FAQ vivas (cada renovación mensual obligaba a reescribirlos). Fecha límite 2026-10-18 | frontend | 2026-10-18 | `grep -n "faqsExpiringSoon(" frontend/src/lib/seo-content.test.ts` ⇒ solo la ⏳ R1 sin argumentos (reloj real, datos vivos) y el canario con `FIX.faqs`; vigencia/guía/sitemap/llms sobre `lib/seo-content.fixture.ts`; `content-pages.test.tsx` deriva «ya vencida» de `validThrough` (sin fechas a mano). Canario: renovar todas las `validThrough` un mes ⇒ 41/41 verdes en seo-content + llms-txt + content-pages + sitemap-robots (antes, 2 rojas en content-pages) |
-| FE-DOC-1 | ABIERTA · `docs/FRONTEND_NOTES.md` tiene 22 450 líneas (tope ~1 500) | frontend | 2026-10-18 | `wc -l docs/FRONTEND_NOTES.md` ≤ 1 500 (compactar por release; lo histórico a git) |
+| FE-DOC-1 | ABIERTA · `docs/FRONTEND_NOTES.md` tiene 19 902 líneas (tope ~1 500; 22 450 el 2026-10-18, compactado −2 446 el 2026-10-29) | frontend | 2026-10-29 | `wc -l docs/FRONTEND_NOTES.md` ≤ 1 500 (compactar por release; lo histórico a git) |
 
 - Compactado 2026-10-19: las fichas CERRADAS D5, D6, D7, R4 y C7 y sus notas salen (historial del repo; su comprobación sigue viva en las pruebas citadas allí).
 
@@ -2255,7 +2273,7 @@ aparece, con la bandera SÍ).
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
 > fase de integración con el backend real y post-MVP. Detalle operativo en `docs/FRONTEND_NOTES.md`.
 
-### FE-1 · Mocks activos por default + `computeBreakdown` duplica la fórmula de dinero
+### FE-1 · Mocks activos por default + `computeBreakdown` duplica la fórmula de dinero — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
 - **Dónde:** `frontend/src/lib/config.ts` (`useMocks` default `true`), `frontend/src/lib/api.ts`
   (`computeBreakdown`, réplica local de ARCHITECTURE §5.1) y `frontend/src/lib/mock/fixtures.ts`.
 - **Estado actual:** con `NEXT_PUBLIC_USE_MOCKS` distinto de `"false"` el cliente sirve fixtures locales.
@@ -2336,7 +2354,7 @@ aparece, con la bandera SÍ).
 > descartar el prompt de GIS: se maneja `PromptMomentNotification` + timeout de respaldo, con test).
 > **D7** se registra aquí como deuda aceptada no bloqueante (sin cambiar el comportamiento del mock).
 
-### D7 · La lógica de negocio del mock re-implementa reglas del backend y puede derivar
+### D7 · La lógica de negocio del mock re-implementa reglas del backend y puede derivar — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
 - **Dónde:** `frontend/src/lib/api.ts` → `computeBreakdown` (desglose de dinero de checkout/envíos) y
   `getBuylistQuote` (cotizador de buylist), ambos solo en la rama `config.useMocks`.
 - **Estado actual:** duplicación de **reglas de negocio** del backend, con dos derivas concretas:
@@ -2693,7 +2711,7 @@ aparece, con la bandera SÍ).
 > Los ítems de abajo son la deuda **no bloqueante** que el **techlead** señaló y quedó diferida. Dueño
 > **frontend**. Continúan la numeración `FE-*` (tras FE-14).
 
-### FE-15 · Auto-refresh NO universal: `exportFinanceCsv` usa fetch directo (fuera del interceptor)
+### FE-15 · Auto-refresh NO universal: `exportFinanceCsv` usa fetch directo (fuera del interceptor) — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
 - **Dónde:** `frontend/src/lib/api.ts` → `exportFinanceCsv` (~:1936-1960).
 - **Estado actual:** el interceptor `401 → refresh → reintento` vive en `apiRequest`/`requestWithRefresh`
   (`api-client.ts`). `exportFinanceCsv` hace `fetch` directo con `Authorization: Bearer` manual (necesita leer
