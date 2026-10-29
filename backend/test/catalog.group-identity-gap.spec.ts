@@ -116,6 +116,8 @@ function pricingWithRealKey(): PricingService {
     getGradedEstimatesBatch: jest.fn(async () => new Map()),
     getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     // ⚠️ EL PUNTO DEL ARCHIVO: el cuerpo real, que sí puede devolver `null`.
     tryGradeKeyFor: jest.fn(PricingService.prototype.tryGradeKeyFor),

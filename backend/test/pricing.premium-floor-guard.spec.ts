@@ -275,6 +275,8 @@ function listingHarness(rarity: string | null, referenceMxnCents: number | null)
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () =>
@@ -376,6 +378,8 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+      // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+      saleRetentionFor: jest.fn(async () => new Map()),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>

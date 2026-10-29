@@ -6,7 +6,7 @@
 import { PriceReviewService, ReviewVariantKey } from '../src/modules/pricing/price-review.service';
 import { RobustResult, LockDecision } from '../src/common/robust-market';
 
-function makeService(prismaOverrides: any = {}) {
+function makeService(prismaOverrides: any = {}, listingPrices?: any) {
   const prisma: any = {
     priceReviewCase: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -29,7 +29,7 @@ function makeService(prismaOverrides: any = {}) {
     // v1.91 errata (B): accept promueve una PriceReference robusta NO-manual (no congela).
     promoteRobustReference: jest.fn().mockResolvedValue({ ref: { id: 'ref-accept' } }),
   };
-  const svc = new PriceReviewService(prisma, audit, pricing);
+  const svc = new PriceReviewService(prisma, audit, pricing, listingPrices);
   return { svc, prisma, audit, pricing };
 }
 
@@ -212,16 +212,94 @@ describe('resolve — guardas (§PRE.F)', () => {
   });
 });
 
-describe('openCaseVariantKeys — qué variantes están bloqueadas', () => {
-  it('devuelve las claves de variante con caso open', async () => {
-    const { svc } = makeService({
+describe('💰 v1.114 (§DYN.5.9) — el caso VIGENTE es `open` o `kept`', () => {
+  const VIGENTE = { in: ['open', 'kept'] };
+
+  it('recordArbiterDecision deduplica contra `open` Y `kept` (no solo `open`)', async () => {
+    const { svc, prisma } = makeService();
+    await svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    expect(prisma.priceReviewCase.findFirst.mock.calls[0][0].where.status).toEqual(VIGENTE);
+  });
+
+  it('un `kept` con el MISMO candidato ⇒ nada (no nace otro `open`)', async () => {
+    const { svc, prisma } = makeService({
+      priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'case-kept', status: 'kept', proposedMxnCents: 10221 }) },
+    });
+    expect(await svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW)).toBe('case-kept');
+    expect(prisma.priceReviewCase.create).not.toHaveBeenCalled();
+    expect(prisma.priceReviewCase.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('un `kept` con OTRO candidato que dispara ⇒ el vigente a `superseded` (guarda sobre open|kept) y nace un `open`', async () => {
+    const { svc, prisma } = makeService({
+      priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'case-kept', status: 'kept', proposedMxnCents: 999 }) },
+    });
+    await svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    expect(prisma.priceReviewCase.updateMany).toHaveBeenCalledWith({
+      where: { id: 'case-kept', status: VIGENTE },
+      data: expect.objectContaining({ status: 'superseded' }),
+    });
+    expect(prisma.priceReviewCase.create.mock.calls[0][0].data).toMatchObject({ status: 'open', baselineMxnCents: 184 });
+  });
+
+  it('un `kept` cuyo candidato ya no dispara ⇒ `superseded` (fin de la retención)', async () => {
+    const { svc, prisma } = makeService({
+      priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'case-kept', status: 'kept', proposedMxnCents: 10221 }) },
+    });
+    expect(await svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_PUBLISH)).toBeNull();
+    expect(prisma.priceReviewCase.updateMany).toHaveBeenCalledWith({
+      where: { id: 'case-kept', status: VIGENTE },
+      data: expect.objectContaining({ status: 'superseded' }),
+    });
+  });
+
+  it('abrir o renovar encola `review_open` de la variante (solo piezas con fila); mismo candidato o asentado ⇒ no', async () => {
+    const lp = { enqueueVariant: jest.fn().mockResolvedValue(undefined) };
+    const opened = makeService({}, lp);
+    await opened.svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    expect(lp.enqueueVariant).toHaveBeenCalledWith(
+      'review_open',
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil' },
+      { onlyWithRow: true },
+    );
+    lp.enqueueVariant.mockClear();
+    const renewed = makeService({ priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'o', proposedMxnCents: 999 }) } }, lp);
+    await renewed.svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    expect(lp.enqueueVariant).toHaveBeenCalledTimes(1);
+    lp.enqueueVariant.mockClear();
+    const same = makeService({ priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'o', proposedMxnCents: 10221 }) } }, lp);
+    await same.svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    const settled = makeService({ priceReviewCase: { findFirst: jest.fn().mockResolvedValue({ id: 'o', proposedMxnCents: 10221 }) } }, lp);
+    await settled.svc.recordArbiterDecision(KEY, 'sell', ROBUST_SINGLE, DECISION_PUBLISH);
+    expect(lp.enqueueVariant).not.toHaveBeenCalled();
+  });
+
+  it('un caso de producto separado (cardProductId) no encola: el cuerpo de venta no lo lee', async () => {
+    const lp = { enqueueVariant: jest.fn() };
+    const { svc } = makeService({}, lp);
+    await svc.recordArbiterDecision({ ...KEY, cardProductId: 'cp1' }, 'sell', ROBUST_SINGLE, DECISION_REVIEW);
+    expect(lp.enqueueVariant).not.toHaveBeenCalled();
+  });
+
+  it('gate de compra: `vigenteCaseVariantKeySet` lee `open` y `kept`', async () => {
+    const findMany = jest.fn().mockResolvedValue([{ cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil' }]);
+    const { svc } = makeService({ priceReviewCase: { findMany } });
+    const set = await svc.vigenteCaseVariantKeySet([KEY]);
+    expect(set.has('c1|raw|raw:NM|holofoil')).toBe(true);
+    expect(findMany.mock.calls[0][0].where.status).toEqual(VIGENTE);
+  });
+
+  it('`resolve` sigue exigiendo `open`: un `kept` no se puede aceptar (409)', async () => {
+    const { svc, prisma } = makeService({
       priceReviewCase: {
-        findMany: jest.fn().mockResolvedValue([
-          { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: null, sealedProductId: null },
-        ]),
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'id1', status: 'kept', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 10221, baselineMxnCents: 184 })
+          .mockResolvedValueOnce({ status: 'kept', resolvedAt: new Date('2026-10-29') }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     });
-    const set = await svc.openCaseVariantKeys([KEY]);
-    expect(set.has('c1|raw|raw:NM|holofoil|∅|∅')).toBe(true);
+    await expect(svc.resolve('id1', 'accept', undefined, 'u1')).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(prisma.priceReviewCase.updateMany.mock.calls[0][0].where).toEqual({ id: 'id1', status: 'open' });
   });
 });

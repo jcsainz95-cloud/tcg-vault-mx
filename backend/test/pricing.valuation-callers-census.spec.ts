@@ -199,10 +199,11 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
         variantKey: true,
       });
     }
-    const producer = methodBody(
-      stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8')),
-      'async getReferencesBatch(',
-    );
+    // v1.114 (§DYN.5.9): el cuerpo del productor vive en `getReferencesBatchWithTier` (misma lectura + qué tier ganó);
+    // `getReferencesBatch` delega en él y devuelve su `refs`.
+    const pricingSrc = stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'));
+    expect(/getReferencesBatchWithTier\(items\)\)\.refs/.test(methodBody(pricingSrc, 'async getReferencesBatch('))).toBe(true);
+    const producer = methodBody(pricingSrc, 'async getReferencesBatchWithTier(');
     expect(/\bvariantKey\(/.test(producer)).toBe(true);
     expect(countManualKeys(producer)).toBe(0);
   });

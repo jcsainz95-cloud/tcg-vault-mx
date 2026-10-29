@@ -1,5 +1,5 @@
 /**
- * dyn-listing-price-dials.e2e-spec.ts — 💰 DYN-B17 (API_CONTRACT §DYN.5.4, errata v1.113.3): **candado de
+ * dyn-listing-price-dials.e2e-spec.ts — 💰 DYN-B17 (API_CONTRACT §DYN.5.4, erratas v1.113.3 y v1.113.4): **candado de
  * `PRICE_AFFECTING_SETTING_KEYS` en los DOS sentidos**, contra Postgres REAL y el cuerpo único del precio de venta tal cual
  * corre en la app.
  *
@@ -10,8 +10,10 @@
  * se compara con la línea base.
  *   (a) completitud: si la salida cambia, la clave mueve el precio ⇒ TIENE que estar en la lista.
  *   (b) testigo: toda clave de la lista tiene que moverla aquí; una que no la mueve es una clave inerte (cuesta una corrida
- *       por nada) o un hueco del fixture — salvo las de `SIN_TESTIGO`, lista CERRADA con el porqué medido.
- * Una clave sin valor alternativo válido no se puede medir: va en `SIN_PERTURBACION`, también CERRADA.
+ *       por nada) o un hueco del fixture. ⛔ SIN excepciones (v1.113.4): una clave sin testigo sale de la lista o se le hace
+ *       testigo.
+ * Una clave sin valor alternativo válido no se puede medir: va en `SIN_PERTURBACION`, CERRADA y VACÍA (meter una exige
+ * errata del contrato).
  *
  * Mutaciones que la ponen roja: quitar de la lista una clave que mueve (a); añadir una clave inerte (b). Determinista (N=1).
  */
@@ -31,22 +33,11 @@ import { SEALED_SALE_PRICE_INCLUDE } from '../../src/common/money';
 import { DEFAULT_GRADING_COST_TIERS } from '../../src/common/graded-estimate';
 import { SPEND_ALERT_CODES } from '../../src/modules/settings/shipping-dials';
 
-/** Claves cuyo validador no acepta ningún candidato genérico NI específico (se miden en otra parte o no aplican). */
-const SIN_PERTURBACION: Partial<Record<SettingKeyType, string>> = {};
-
 /**
- * (b) Claves de la lista SIN testigo posible, con el porqué MEDIDO. Lista CERRADA: una clave nueva que no mueva nada pone
- * esto rojo.
- *
- * `price_consensus_tolerance_pct`: al valuar, el árbitro (`pricing.service.ts` `robustMarketForRows`) devuelve solo la
- * mediana, su fuente y su fecha; la tolerancia decide el booleano `consensus` (`common/robust-market.ts`, `resolveRobustMarket`)
- * que solo lee el candado del barrido (`decideLock`), automático y fuera del cuerpo de §DYN.5.1. No hay fixture que la haga
- * mover `P` ni la referencia. El contrato (§DYN.5.4, v1.113.3) dice que «se queda» y a la vez pide testigo por clave:
- * contradicción elevada al arquitecto (BACKEND_NOTES §DYN). Se deja en la lista (una clave de más cuesta una corrida).
+ * Claves cuyo validador no acepta ningún candidato genérico NI específico. Lista CERRADA y VACÍA (§DYN.5.4): meter una exige
+ * errata del contrato.
  */
-const SIN_TESTIGO: Partial<Record<SettingKeyType, string>> = {
-  [SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT]: 'solo decide `consensus`, que el cuerpo de §DYN.5.1 no lee',
-};
+const SIN_PERTURBACION: Partial<Record<SettingKeyType, string>> = {};
 
 const STRINGS = [
   'on', 'off', 'tcgcsv', 'tcgcsv_singles', 'pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual', 'auto', 'legacy',
@@ -285,10 +276,11 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
     console.log(`[DYN-B17] claves que mueven el precio sobre el fixture: ${mueven.sort().join(', ')}`);
     const faltan = mueven.filter((k) => !(PRICE_AFFECTING_SETTING_KEYS as readonly string[]).includes(k));
     expect(faltan).toEqual([]);
-    // (b) testigo: toda clave de la lista mueve el precio o la referencia sobre el fixture, salvo la lista cerrada.
+    // (b) testigo: toda clave de la lista mueve el precio o la referencia sobre el fixture. ⛔ Sin excepciones (v1.113.4).
     const sinTestigo = PRICE_AFFECTING_SETTING_KEYS.filter((k) => !mueven.includes(k));
-    expect(sinTestigo.sort()).toEqual(Object.keys(SIN_TESTIGO).sort());
+    expect(sinTestigo).toEqual([]);
     expect(sinCandidato.sort()).toEqual(Object.keys(SIN_PERTURBACION).sort());
+    expect(Object.keys(SIN_PERTURBACION)).toEqual([]);
     // Control: el método VE las claves que mueven (si no, el candado sería verde por ceguera).
     expect(mueven).toEqual(expect.arrayContaining([SettingKey.IVA_PCT, SettingKey.IVA_TRANSFER_PCT, SettingKey.PRICING_CURVE]));
     // …y las claves que el fixture de v1.113.3 vino a cubrir (árbitro con dos fuentes que discrepan; FX en `manual`).

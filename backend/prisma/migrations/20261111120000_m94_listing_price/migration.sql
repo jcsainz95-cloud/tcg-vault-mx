@@ -1,9 +1,11 @@
 -- ===============================================================================================================================
--- M-94 · v1.113⟨portada⟩ + erratas v1.113.1 y v1.113.3 (API_CONTRACT §DYN.1/§DYN.5, ARCHITECTURE §4.DYN (e)) — precio del día. ADITIVA. 💰
+-- M-94 · v1.113⟨portada⟩ + erratas v1.113.1 y v1.113.3 + v1.114 (API_CONTRACT §DYN.1/§DYN.5, ARCHITECTURE §4.DYN (e)) — precio del día. ADITIVA. 💰
 -- Propiedad: backend.
 --
 -- Qué hace:
---   (1) 3 enums nuevos (`ListingPriceStatus`, `ListingPriceRunTrigger`, `ListingPriceRunStatus`).
+--   (1) 3 enums nuevos (`ListingPriceStatus`, `ListingPriceRunTrigger`, `ListingPriceRunStatus`). v1.114: `review_open` en
+--       `ListingPriceRunTrigger` (§DYN.5.9), añadido EDITANDO esta migración en sitio (aún no publicada; una BD que ya aplicó la
+--       versión anterior se recrea).
 --   (2) Tablas `ListingPriceRun` (bitácora de cálculos) y `ListingPrice` (UNA fila por pieza vendible: el precio que se
 --       exhibe y se cobra; sin columnas de precio anterior, errata v1.113.1; con el «valor de mercado» exhibido congelado,
 --       `referenceMxnCents`/`referenceCapturedDate`, errata v1.113.3, añadidas EDITANDO esta migración en sitio: aún no
@@ -28,7 +30,7 @@ DO $$ BEGIN
   CREATE TYPE "ListingPriceStatus" AS ENUM ('priced', 'pending');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
-  CREATE TYPE "ListingPriceRunTrigger" AS ENUM ('daily', 'manual_ingest', 'publish_all', 'publish', 'dial_change', 'manual_price', 'bootstrap', 'missing_row');
+  CREATE TYPE "ListingPriceRunTrigger" AS ENUM ('daily', 'manual_ingest', 'publish_all', 'publish', 'dial_change', 'manual_price', 'bootstrap', 'missing_row', 'review_open');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   CREATE TYPE "ListingPriceRunStatus" AS ENUM ('running', 'ok', 'failed');

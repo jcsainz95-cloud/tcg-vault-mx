@@ -1061,7 +1061,7 @@ export class BuylistService implements OnModuleInit {
 
   /**
    * v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875) — claves (`variantKey`) de variantes RAW set_base con
-   * caso de revisión ABIERTO. El cotizador de compra NO oferta por ellas (§BMK.3). Sin `priceReview`
+   * caso de revisión VIGENTE (`open` o `kept`, v1.114 §DYN.5.9). El cotizador de compra NO oferta por ellas (§BMK.3). Sin `priceReview`
    * (tests que construyen a mano) ⇒ conjunto vacío (no suprime nada). Best-effort: un fallo de lectura
    * NO tumba la cotización (el valor ya es la mediana robusta, sin el residuo inflado).
    */
@@ -1070,7 +1070,7 @@ export class BuylistService implements OnModuleInit {
   ): Promise<Set<string>> {
     if (!this.priceReview || keys.length === 0) return new Set<string>();
     try {
-      return await this.priceReview.openCaseVariantKeySet(keys);
+      return await this.priceReview.vigenteCaseVariantKeySet(keys);
     } catch (e) {
       this.logger.warn(`buylist: gate de revisión de precios falló (${(e as Error).message}); se cotiza con la mediana robusta.`);
       return new Set<string>();

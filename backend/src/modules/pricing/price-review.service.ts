@@ -8,10 +8,11 @@
  * - `getQueue()`: `GET /admin/pricing/review-queue` (super_admin, read-only, paginado, filtros).
  * - `resolve()`: `POST …/:id/resolve` con guarda de estado (409), `manual` exige precio (422),
  *   delega en el override tier 0 existente. Audita actor+fecha (criterio 877).
- * - `openCaseVariantKeys()`: qué variantes tienen caso `open` — lo leen el resolvedor de lectura y el
- *   gate del cotizador de compra para NUNCA ofertar/publicar sobre un valor inflado (§PRE.5).
+ * - `vigenteCaseVariantKeySet()`: qué variantes RAW tienen caso VIGENTE (`open`/`kept`) — lo lee el gate del cotizador de
+ *   compra para NUNCA ofertar sobre un valor que el candado detuvo (§PRE.5, §DYN.5.9). La venta NO pasa por aquí: el cuerpo de
+ *   venta lee el caso en su entrada (`SaleDecisionService.loadReferences` → `PricingService.saleRetentionFor`, v1.114).
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Finish, PriceAxis, PriceReviewStatus, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -19,6 +20,8 @@ import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
 import { QuoteSnapshot, RobustResult, LockDecision } from '../../common/robust-market';
 import { PricingService } from './pricing.service';
+import { ListingPriceService } from './listing-price.service';
+import { vigenteStatusWhere } from './review-vigente';
 
 /** Clave lógica de una variante (la misma que dedup la cola, §PRE.D). */
 export interface ReviewVariantKey {
@@ -46,24 +49,15 @@ export function representativeSourceOf(quotesSnapshot: unknown, proposedMxnCents
   return exact?.source ?? admitted[0]?.source ?? 'tcgcsv_singles';
 }
 
-/** La foto de la variante para `variantKey` del `Map` de casos abiertos (sin `axis`: bloquea ambos). */
-export function reviewVariantKeyString(k: ReviewVariantKey): string {
-  return [
-    k.cardId,
-    k.productType,
-    k.gradeKey,
-    k.finish,
-    k.cardProductId ?? '∅',
-    k.sealedProductId ?? '∅',
-  ].join('|');
-}
-
 @Injectable()
 export class PriceReviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly pricing: PricingService,
+    // v1.114 (§DYN.5.9): abrir o renovar un caso encola `review_open` (solo las piezas con fila de la variante). `@Optional`
+    // por los mocks posicionales; en DI real siempre se inyecta (mismo módulo).
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
 
   private whereKey(k: ReviewVariantKey) {
@@ -79,10 +73,15 @@ export class PriceReviewService {
 
   /**
    * Llamado por el barrido/publicación tras resolver el árbitro + candado de UNA variante en un eje.
-   * - `decision.openCase` ⇒ abre caso `open` (o lo deja si ya hay uno con el MISMO candidato; si el
-   *   candidato cambió, supersede el viejo y abre otro).
+   * El caso que deduplica es el VIGENTE (`open` o `kept`, v1.114 §DYN.5.9: «conservar» sigue reteniendo):
+   * - `decision.openCase` ⇒ abre caso `open` (o lo deja si ya hay uno vigente con el MISMO candidato; si el
+   *   candidato cambió, el vigente pasa a `superseded` y nace un `open` — con la misma base, porque la base
+   *   congelada de `arbiterDetailForKeys` es la del vigente).
    * - `!decision.openCase` (publicó o salto normal) ⇒ el mercado se asentó para este eje ⇒ cierra
-   *   `superseded` cualquier caso `open` del MISMO eje+clave (automático, HECHOS «regla general»).
+   *   `superseded` el vigente del MISMO eje+clave (automático, HECHOS «regla general»; la retención acaba en
+   *   el siguiente `daily` o `manual_ingest`: lo automático no dispara cálculo, §DYN.5.3).
+   * - Abrir o renovar ⇒ encola `review_open` (§DYN.5.3/.9): cierra la ventana entre que el barrido escribió el
+   *   pico y que el caso existe. Solo retiene, así que no adelanta ningún movimiento de mercado.
    *
    * Devuelve el id del caso abierto (o null). Idempotente por el `findFirst` de dedupe (doctrina de la
    * casa, SIN índice único).
@@ -94,14 +93,15 @@ export class PriceReviewService {
     decision: LockDecision,
   ): Promise<string | null> {
     const existing = await this.prisma.priceReviewCase.findFirst({
-      where: { ...this.whereKey(key), axis, status: PriceReviewStatus.open },
+      where: { ...this.whereKey(key), axis, status: vigenteStatusWhere() },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (!decision.openCase) {
-      // Mercado asentado para este eje ⇒ cierra el caso abierto, si lo hay.
+      // Mercado asentado para este eje ⇒ cierra el caso vigente, si lo hay.
       if (existing) {
         await this.prisma.priceReviewCase.updateMany({
-          where: { id: existing.id, status: PriceReviewStatus.open },
+          where: { id: existing.id, status: vigenteStatusWhere() },
           data: { status: PriceReviewStatus.superseded, resolvedAt: new Date() },
         });
       }
@@ -116,7 +116,7 @@ export class PriceReviewService {
       // `superseded` y nace otro `open` (ARCHITECTURE §4.PRE (d), transición «llega un candidato nuevo»).
       if (existing.proposedMxnCents === proposed) return existing.id;
       await this.prisma.priceReviewCase.updateMany({
-        where: { id: existing.id, status: PriceReviewStatus.open },
+        where: { id: existing.id, status: vigenteStatusWhere() },
         data: { status: PriceReviewStatus.superseded, resolvedAt: new Date() },
       });
     }
@@ -136,48 +136,32 @@ export class PriceReviewService {
       },
       select: { id: true },
     });
+    // §DYN.5.9: la venta de la variante pasa a retener YA (no al siguiente `daily`). Solo las variantes que lee el cuerpo
+    // (sin producto separado ni sellado) y solo las piezas que ya tienen fila: una sin fila se precia en vivo, ya retenida.
+    if (key.cardProductId == null && key.sealedProductId == null) {
+      void this.listingPrices?.enqueueVariant(
+        'review_open',
+        { cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish },
+        { onlyWithRow: true },
+      );
+    }
     return created.id;
   }
 
   /**
-   * Variantes con caso `open` (CUALQUIER eje). El valor es la `axis` que disparó (informativo). Lo leen
-   * el resolvedor de lectura (suprime el inflado en la tienda) y el gate del cotizador de compra.
-   */
-  async openCaseVariantKeys(keys: ReviewVariantKey[]): Promise<Set<string>> {
-    const out = new Set<string>();
-    if (keys.length === 0) return out;
-    const rows = await this.prisma.priceReviewCase.findMany({
-      where: {
-        status: PriceReviewStatus.open,
-        OR: keys.map((k) => this.whereKey(k)),
-      },
-      select: {
-        cardId: true,
-        productType: true,
-        gradeKey: true,
-        finish: true,
-        cardProductId: true,
-        sealedProductId: true,
-      },
-    });
-    for (const r of rows) out.add(reviewVariantKeyString(r));
-    return out;
-  }
-
-  /**
    * v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875) — GATE DE COMPRA: ¿qué variantes RAW (set_base,
-   * `cardProductId=null`) tienen caso `open`? Devuelve claves en formato `variantKey`
-   * (`cardId|productType|gradeKey|finish`) para que el cotizador de compra las ponga en «precio
+   * `cardProductId=null`) tienen caso VIGENTE (`open` o `kept`, v1.114 §DYN.5.9)? Devuelve claves en formato
+   * `variantKey` (`cardId|productType|gradeKey|finish`) para que el cotizador de compra las ponga en «precio
    * pendiente» (misma forma que §BMK.3) y NUNCA pague sobre un valor que el candado detuvo. 💰 DINERO.
    */
-  async openCaseVariantKeySet(
+  async vigenteCaseVariantKeySet(
     keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
   ): Promise<Set<string>> {
     const out = new Set<string>();
     if (keys.length === 0) return out;
     const rows = await this.prisma.priceReviewCase.findMany({
       where: {
-        status: PriceReviewStatus.open,
+        status: vigenteStatusWhere(),
         OR: keys.map((k) => ({
           cardId: k.cardId,
           productType: k.productType,

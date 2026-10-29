@@ -64,6 +64,8 @@ function pricingDouble() {
     loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10_000 })),
