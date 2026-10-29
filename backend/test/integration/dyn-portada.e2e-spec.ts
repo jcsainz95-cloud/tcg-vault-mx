@@ -296,6 +296,28 @@ describe('E2E — §DYN portada dinámica (M-93, Destacadas, turnos PSA)', () =>
       const after = await h.api<Record<string, unknown>>('GET', '/admin/pricing/graded-estimates', { token: admin });
       expect(after.body.minUpsidePct).toBe(g.body.minUpsidePct);
     });
+
+    it('v1.113.2 (I-5): ausente de la respuesta del PUT, del `config` del preview y del AuditLog; `{freshnessDays, foo}` ⇒ 200 sin `foo`', async () => {
+      const g = await h.api<Record<string, unknown>>('GET', '/admin/pricing/graded-estimates', { token: admin });
+      const since = new Date();
+      const p = await h.api<Record<string, unknown>>('PUT', '/admin/pricing/graded-estimates', {
+        token: admin, json: { freshnessDays: g.body.freshnessDays, foo: 1 },
+      });
+      expect(p.status).toBe(200);
+      expect(p.body).not.toHaveProperty('ingestMaxCardsPerRun');
+      expect(p.body).not.toHaveProperty('foo');
+      const log = await h.prisma.auditLog.findFirst({
+        where: { action: 'pricing.graded_estimates.update', createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(log).not.toBeNull();
+      expect(JSON.stringify([log!.before, log!.after])).not.toMatch(/ingestMaxCardsPerRun|"foo"/);
+      const cid = await card(950);
+      const pv = await h.api<{ config: Record<string, unknown> }>('GET', `/admin/pricing/graded-estimates/preview?cardId=${cid}`, { token: admin });
+      expect(pv.status).toBe(200);
+      expect(pv.body.config).toBeDefined();
+      expect(pv.body.config).not.toHaveProperty('ingestMaxCardsPerRun');
+    });
   });
 
   describe('H. presupuesto PSA', () => {
