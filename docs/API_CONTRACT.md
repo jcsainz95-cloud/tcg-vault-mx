@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-26 (rev **v1.112.2⟨sec-med-1⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.113⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -24,7 +24,8 @@
 > - v1.111⟨aviso-medicion⟩ · 2026-10-26 · §MKT.H: sin abogado; C-D1 exige exactamente una de `legalReviewOn`/`legalReviewWaivedByOwnerOn` (ARCHITECTURE §14.1); .5/.10/.12 al día con las decisiones del aviso aprobado (ARCHITECTURE §14.10) · orquestador (`HECHOS.md` 2026-10-23 y 2026-10-26).
 > - v1.112⟨meta-prueba⟩ · 2026-10-26 · §MKT.H.1 versión de Graph `v26.0` entre marcadores; §MKT.H.12 `POST /admin/measurement/meta-test-event` y cierre de MKT-F2-3; `409 MEASUREMENT_META_NOT_CONFIGURED` en §0; compactados §MKT.A/.B/.E/.H.13/.H.14 · backend (MKT-F2-3, medición del 2026-10-26).
 > - v1.112.1⟨arreglos-dsc⟩ · 2026-10-26 · §MKT.E restaura la línea canónica de `format` que la compactación de v1.112 partió (rojo de `enum-query-axes`); §DSC: `ZERO_DISCOUNT` + I-7 + DCO-B22 (DSC-B-6), «con código» en el tardío ⇔ `DiscountRedemption`, `PATCH` con `null` que limpia, `pageSize > 100` ⇒ 400, listas de M-92 `NOT NULL`; §4-G.12 punto 4 «te faltan» del congelado (TL-ENV-2) · backend/frontend/QA.
-> - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`). La siguiente es **v1.113**.
+> - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`).
+> - v1.113⟨portada⟩ · 2026-10-29 · [§DYN](#DYN) NUEVA: `GET /catalog/featured` (Destacadas materializadas al día, M-93), turnos PSA por set con tope de créditos y `GET /admin/pricing/graded-estimates/budget` (se retira `ingestMaxCardsPerRun`), aviso AG-24 `psa_cycle_short`, precio del día `ListingPrice` y precio visto en quote/sesión (M-94, 💰), siete diales M10, `dataHealth` += 2, cabeceras de caché y SSR de la portada; enums en §0 · orquestador (`HECHOS.md` 2026-10-29 «Portada dinámica…» y 2026-10-04 «…UNA VEZ AL DÍA…», «…precio que el cliente VIO…»). La siguiente es **v1.114**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -214,41 +215,8 @@
 > - Errata v1.83.3 · 2026-10-05 · condiciones de los gates del precio de sellado (C-1 SP.6 diferido y reducido, C-2 helper que falla cerrado, QA menor 3) · [§M11-SP.6](#M11-SP), [§M11-SP.13.2/.5](#M11-SP-13), `ARCHITECTURE §4.62.10`; tabla compactada en v1.110.1 (git) · QA/techlead.
 > - Errata v1.83.2 · 2026-10-05 · seis respuestas a backend (Q-1…Q-6, A-3, A-5: carpeta de `M-71`, doble clic, diales, `.xlsx` columnas 17/18, `sealedProductId`) · [§M11-SP.13](#M11-SP-13), `ARCHITECTURE §4.62.9`; tabla compactada en v1.110.1 (git) · backend.
 >
-> **Errata v1.83.1 · 2026-10-05 · 💰 el dueño escribe el precio del sellado CON IVA · norma en [§M11-SP.12](#M11-SP-12), porqué en
-> `ARCHITECTURE §4.62.8` · dueño (`HECHOS.md:51`, P-SP-1/2/3) y `DESIGN_SYSTEM §70.8`.**
->
-> | # | Pieza | Decisión | ¿Rompe algo de v1.83? | Construye |
-> |---|---|---|---|---|
-> | **E-1** | 💰 Qué se guarda | **`P`** (lo que paga el cliente, IVA dentro): columna **`SealedProduct.ownerDisplayPriceCents Int?`**, exactamente lo tecleado, sin redondeo. ⛔ `ownerSalePriceCents` (`L`) se retira. Motivo medido: `P = L + round(L·t·r/10000)` **salta valores** (con 100/16: MX$7.00 y MX$12.00 no tienen `L`) ⇒ guardar `L` cambiaría por un centavo el precio que el dueño escribió | Sí, solo en papel (nada construido: `Grep ownerSalePriceCents` en `backend/` y `frontend/` = 0) | backend 💰 |
-> | **E-2** | 💰 Si se mueve un dial | Se conserva **lo que paga el cliente**; se mueven los derivados (`L` equivalente, neto, IVA). El automático y el legado por pieza siguen moviéndose con el dial como hoy | — | backend + ux-ui (aviso en M10) |
-> | **E-3** | 💰 Un camino a `P` | `saleDisplayCentsOf(decisión, diales)` en `common/money.ts`: precio del dueño ⇒ su `P`; si no ⇒ `displayPriceCentsOf(L)`. Los **tres** sitios de venta que hoy derivan `P` pasan por ella | — | backend 💰 |
-> | **E-4** | Margen | Sobre el **neto fiscal** `N = taxBaseCentsOf(P, r)`, no sobre `L` (con el dial de traslación < 100 `L` no es lo que queda tras el IVA). Con los defaults, `N ≡ L` exacto | Sí (fórmula de SP.5) | backend + frontend |
-> | **E-5** | 💰 A-2 | El `PUT` **sí dispara la auto-publicación** (trigger (c)), **después** de confirmar el precio, best-effort, con el pipeline completo; la respuesta trae `autoPublish` | Sí (SP.2 «⛔ No publica» queda sustituido) | backend 💰 + frontend |
-> | **E-6** | A-1 | `sealedProductId` y `sealedProductPieces` en las filas de sellado de `InventoryItemDTO` (listado) y `PendingPublishRowDTO` | No (aditivo) | backend + frontend |
-> | **E-7** | `M-71` | **Sin relleno**: el relleno en SQL exigiría una segunda fórmula de `P`. Ningún precio se mueve; la hoja marca el legado | Sí (SP.7) | backend |
-> | **E-8** | Sellado sin producto | Sigue con `listPriceCents` (`L`, antes de IVA), rotulado así, con `P` del servidor al lado. Desviación `D-SP-4` | — | frontend + ux-ui |
->
-> - **Sin código de error nuevo, sin enum nuevo.** Campos renombrados (no construidos) y aditivos: lista en §M11-SP.12.4.
-> - **Pruebas:** SP-1, SP-2, SP-5, SP-7, SP-10, SP-12 cambian; nuevas **SP-15…SP-19** y **F-SP-7…F-SP-8** (§M11-SP.12.14).
->
-> **Rev v1.83 · 2026-10-05 · 💰 el precio del sellado es del producto y lo pone el dueño; se edita sin retirar, en la hoja de M11
-> (`M-71`, carpeta en SP.12.12) · norma en [§M11-SP](#M11-SP), porqué en `ARCHITECTURE §4.62` · dueño (`HECHOS.md:50`, `:38` (b)).**
->
-> | # | Pieza | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **SP-1** | 💰 Precio **por producto** | «Producto» = **`SealedProduct`** (set + presentación; `schema.prisma:756-784`). Columna nueva **`SealedProduct.ownerSalePriceCents Int?`** (`L`, misma escala que `listPriceCents`), **`M-71`**. Precedencia del sellado: **precio del producto > `listPriceCents` de la pieza (legado) > mercado × spread > pendiente**. Las piezas **no se reescriben**: leen el del producto en vivo | **Sí**: una pieza ligada con `listPriceCents` propio pasa a cobrar el del producto **en cuanto el dueño lo fija** (antes no; M-71 solo rellena donde no cambia ningún precio) | backend 💰 |
-> | **SP-2** | 💰 Editar sin retirar | Verbo nuevo **`PUT /admin/inventory/sealed-products/:id/sale-price`** `{ priceCents, expectedPriceCents }`, CAS sobre el precio leído (`409 CONFLICT`), bitácora `sealed_product.sale_price_set` en la misma tx, cierra la cola de precio pendiente del producto. ⛔ No toca `InventoryItem` ⇒ ⛔ no compite con la reserva del checkout | No (aditivo) | backend 💰 + frontend |
-> | **SP-3** | Solo el dueño | Predicado **único** `canSetSealedSalePrice` en backend y en frontend. **Hoy = `super_admin`**; al fusionar Skydropx (`User.isOwner`, v1.80.12.10) pasa a `isOwnerAccount` leído de BD. Desviación temporal `D-SP-1` | **Sí**: `vault_operator` deja de poder poner precio al sellado (`§M1-SFP` punto 6 lo permitía) | backend + frontend |
-> | **SP-4** | Personal da de alta sin precio | `listPriceCents` en sellado **ligado** ⇒ **`422 SEALED_PRICE_IS_PER_PRODUCT`** (código nuevo) en los cinco escritores (alta, lote, «encontrada», línea de `bulk-publish`, `PATCH`); en sellado **sin producto** solo el dueño (`403`). `manualMarketMxnCents` del sellado: solo el dueño (default de **P-SP-1**). Raw/graded: **sin cambio** (P-PRE-1) | **Sí** (un `201/200` pasa a `422/403` en esos casos) | backend + frontend |
-> | **SP-5** | La hoja de M11 | **`GET /admin/inventory/sealed-price-sheet`** (`vault_operator+`): una fila por producto con piezas, costo (prom/mín/máx/sin costo), precio del dueño, automático de respaldo, efectivo, lo que ve el cliente (`P`), mercado y margen informativo sobre `L` | No (aditivo) | backend + frontend + ux-ui |
-> | **SP-6** | 💰 «Nadie paga una cifra que no vio» | Medido: el modal de pago pinta el total de la **cotización** y Stripe cobra el de la **sesión** (`CheckoutView.tsx:406-408`, `GuestCheckoutView.tsx:494-496` vs `orders.service.ts:1515-1518`). El modal pasa a pintar el de la **sesión** y, si difiere, avisa y pide otro clic (`D-SP-2`). Cobrar el precio **visto** (`HECHOS.md:49`) queda para el diseño de §X (fuera de esta rev) | **Sí** (front: un segundo clic cuando el precio cambió) | frontend 💰 |
->
-> - **Migración:** **`M-71`** (aditiva + CHECK + relleno que ⛔ no mueve ningún precio efectivo). Texto en [§M11-SP.7](#M11-SP).
-> - **Código de error nuevo:** `422 SEALED_PRICE_IS_PER_PRODUCT { sealedProductId, itemId? }`. Reutilizados: `403 FORBIDDEN`,
->   `404 NOT_FOUND`, `409 CONFLICT`, `VALIDATION_ERROR`. **Unión nueva (clase L):** `SealedPriceOrigin`.
-> - **Pruebas que deben fallar hoy:** SP-1…SP-14 (backend) y F-SP-1…F-SP-6 (frontend), [§M11-SP.8](#M11-SP). Carreras (SP-5, SP-6):
->   **N ≥ 10 forzada + N ≥ 10 suelta, con proporción** (O-3).
-> - **Preguntas al dueño:** [§M11-SP.11](#M11-SP) (tres, cada una con default; ninguna bloquea construir).
+> - Errata v1.83.1 · 2026-10-05 · 💰 el dueño escribe el precio del sellado CON IVA (`ownerDisplayPriceCents`, un camino a `P`) · [§M11-SP.12](#M11-SP-12), `ARCHITECTURE §4.62.8`; tabla compactada en v1.113 (git) · dueño (`HECHOS.md:51`).
+> - Rev v1.83 · 2026-10-05 · 💰 el precio del sellado es del producto y lo pone el dueño (`M-71`, `422 SEALED_PRICE_IS_PER_PRODUCT`, hoja de M11) · [§M11-SP](#M11-SP), `ARCHITECTURE §4.62`; tabla compactada en v1.113 (git) · dueño (`HECHOS.md:50`).
 >
 > *(separador ⟨panel⟩ — fusión sellado+panel 2026-10-05: lo que sigue es la cabecera de `claude/arreglos-panel` tal cual;
 > su primera línea era la «Versión de API» de esa rama y queda como historia.)*
@@ -258,370 +226,33 @@
 > del documento (v1.80.11 la consolida; la fusión panel+skydropx del 2026-10-05 la conserva: las cabeceras del panel van
 > primero y las de Skydropx debajo de su separador, cada una vigente entera salvo lo que tocan las de encima).
 >
-> **Errata v1.82.3 — LA SOLICITUD QUE QUEDABA ATORADA POR SUS CARTAS «NO COMPRADA» (2026-10-05, arquitecto, árbol
-> `/home/user/tcg-panel`, HEAD dado por el orquestador `8fcdfa7c`; ⛔ sha NO MEDIDO: sin Bash).** Origen: QA, IMPORTANTE-1
-> sobre `8fcdfa7c` (medido en vivo por QA, no por el arquitecto): rechazar todas las cartas `buy` deja la solicitud en
-> `verificacion` porque la carta `skip` cuenta como «no rechazada», y el panel no ofrece salida. Norma entera:
-> **[§PNL.12](#PNL-12)**. Resumen: **las líneas `skip` no cuentan para cerrar la solicitud** (la misma regla que ya usa
-> §M5-V.0 para pagar). Cambia **una** regla en **cuatro** sitios del servidor (auto-cierre, `POST /admin/buylist/:id/reject`,
-> `rejectedReason`, campo derivado nuevo **`isRejectable`** en `AdminBuylistDTO`) y **un** predicado de M5. ⛔ Sin schema, sin
-> migración, sin enum, sin endpoint, sin código de error, sin correo nuevo. La línea `skip` **no se toca** (`D-BL-SKIP-1`
-> sigue abierta).
+> - Errata v1.82.3 · 2026-10-05 · las líneas `skip` no cuentan para cerrar la solicitud (`isRejectable`) · [§PNL.12](#PNL-12) · QA.
+> - Errata v1.82.2 · 2026-10-05 · respuestas a ux-ui A-1…A-3 (deudas `D-PNL-A1`/`D-PNL-A3`) y F-26 desbloqueado · [§PNL.11](#PNL-11) · ux-ui.
+> - Errata v1.82.1 · 2026-10-05 · 💰 la decisión por carta no toca una carta que ya es inventario (`409 … ITEM_FINAL`), la conversión gana CAS, M8 se retira · [§PNL.10](#PNL-10), `ARCHITECTURE §4.61.7` · backend.
 >
-> **Errata v1.82.2 — RESPUESTAS A UX-UI (A-1, A-2, A-3 de `DESIGN_SYSTEM §60.12`) Y DESBLOQUEO DE F-26 (2026-10-05,
-> arquitecto, árbol `/home/user/tcg-panel`, HEAD dado por el orquestador `ba6a2ac3`; ⛔ sha NO MEDIDO: sin Bash).**
-> ⛔ **Sin conducta nueva:** sin schema, sin migración, sin enum, sin endpoint, sin campo, sin código de error. Norma
-> entera: **[§PNL.11](#PNL-11)**. Resumen: **A-1** (devolución SPEI visible en «Retiros») ⇒ **no** en este stream, deuda
-> `D-PNL-A1`; **A-2** (`GET /admin/shipments?q=` ¿dice si es directo?) ⇒ **ya lo dice**: `kind` y `orderId` por fila (§M4
-> v1.21.2), sin cambio; **A-3** (`imageLargeUrl` en preparación) ⇒ **no**, deuda `D-PNL-A3`. **F-26** (retiro de M8)
-> queda **desbloqueado**: la errata que esperaba `DESIGN_SYSTEM §60.8` es §PNL.10.7 (v1.82.1); va en **un commit propio**
-> (revertible, §PNL.10.7 paso 3 (b)).
->
-> **Errata v1.82.1 — RESPUESTAS A BACKEND (§58, §59), 💰 LA DECISIÓN POR CARTA YA NO TOCA UNA CARTA QUE ES INVENTARIO,
-> 💰 LA CONVERSIÓN A INVENTARIO GANA SU CAS, Y M8 SE RETIRA (2026-10-05, arquitecto, árbol `/home/user/tcg-panel`, rama
-> `claude/arreglos-panel`, HEAD dado por el orquestador `03939a70` o posterior; ⛔ sha NO MEDIDO por el arquitecto: sin
-> Bash).** Origen: `BACKEND_NOTES §58` (58.2, 58.3, 58.6) y `§59` (59.3, 59.5), `HECHOS.md:50` (3) (cero disputas abiertas
-> o en revisión, leído por el dueño en su panel), `DESIGN_SYSTEM §60.8`. Norma entera: **[§PNL.10](#PNL-10)**. Porqué:
-> `ARCHITECTURE §4.61.7`. ⛔ Sin schema, sin migración, sin enum, sin endpoint nuevo, sin código de error nuevo (un valor
-> nuevo de `details.reason` en un `409 CONFLICT` existente).
->
-> | # | Pregunta / hallazgo | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | **E-1** (Q-1 §59.5) | Forma del `200` de `reject-items` | **Ratificada la de backend:** `{ items: AdminSellItemDTO[] /* orden de itemIds */; requestClosed: boolean }` | No (ya construido) | frontend la usa |
-> | **E-2** 💰 (Q-2 §59.5, **defecto en producción**) | `PATCH …/decision {reject}` sobre carta `convertida_inventario` ⇒ `200` (medido por backend por HTTP, 1/1, determinista) | La decisión por carta (**los tres verbos**) gana un peldaño: carta en `convertida_inventario`/`pagada` ⇒ **`409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`**, cero escrituras; y el `where` del rechazo excluye esos estados. **Un** predicado para `PATCH` y `reject-items` | **Sí**: `200` ⇒ `409` en ese caso | backend 💰 (`buylist`) + frontend (mensaje) |
-> | **E-3** 💰 (hallazgo del arquitecto al revisar E-2, **NO MEDIDO por HTTP**) | `convert-to-inventory` escribe `convertida_inventario` con `update({where:{id}})` **sin CAS** (`buylist.service.ts:7503-7506`): un rechazo que confirme entre su lectura y su escritura deja una carta **rechazada, fuera del pago y dentro del inventario vendible** | La escritura de la conversión gana **CAS** (`itemStatus = 'aprobada' ∧ inventoryItemId IS NULL`); si no casa ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }` y la tx entera (pieza + movimiento) se deshace | **Sí** solo en la carrera | backend 💰 (`buylist`) |
-> | **E-4** | `reject-items` con una carta ya `rechazada` | **Confirmado:** `409 CONFLICT { itemIds }` (no mueve `rejectedAt`, no reinicia plazos). `PATCH …{reject}` sobre `rechazada` **sigue** siendo no-op `200` (v1.18): ninguno de los dos mueve `rejectedAt` | No (ya construido) | — |
-> | **E-5** | Los dos defectos que backend cerró en `5cbbe29b` (BRJ-8) | **Ratificados como norma:** CAS por estado leído en `approve`/`adjust` ⇒ `409 CONFLICT {itemId, itemStatus, reason:'CONCURRENT_UPDATE'}`; el recálculo suelto de `approvedTotalCents` toma `SellRequest FOR UPDATE` antes de agregar | No (ya construido) | — |
-> | **E-6** (§58.2) | `items[].orderItemId` en `GET /admin/orders/:id` | **Ratificado y declarado** en `AdminOrderItemDTO`: `orderItemId: string` | No (ya construido) | frontend lo usa |
-> | **E-7** (§58.3) | PNL-3 con origen `IVA_EXCLUSIVE`; guardas de la previsualización | **Ratificado:** `Q = null`, `R = M`, componentes «todo compensación», `orderId` = el origen; la previsualización aplica las mismas guardas `409`/`404` que el verbo. Falta una prueba (WDR-11) | No (ya construido) | backend (una prueba) |
-> | **E-8** (§58.6) | `NO_ENUM_POR_RUTA` de `C-EQ-1`, tope 44 ⇒ 46 | **Ratificado:** `shipmentItemId` (identificador) y `amountCents` (importe) de la previsualización no son dominios de tokens | No | — |
-> | **E-9** (`HECHOS.md:50` (3)) | Pantalla M8 | **Se retira de la interfaz** (§60.8) con la consulta SQL **antes y después** del despliegue. ⛔ La API de disputas **no cambia** en esta errata (la resolución queda como salida de emergencia) | Solo frontend | frontend + ux-ui (dos ajustes a §60.8) |
-> | **E-10** | Dos rojos intermitentes fuera de este stream | Nombrados como pendientes con dueño ([§PNL.10.8](#PNL-10)); ⛔ sin diseño | — | orquestador los anota |
->
-> - **Pruebas que deben fallar hoy:** BRJ-10 (medida por backend), BRJ-11, BRJ-12, BRJ-13 (carrera, N ≥ 10; NO MEDIDO si
->   hoy muerde), FE-BRJ-4, FE-M8-1…4. Ya verdes que se añaden como candado: BRJ-14, WDR-11 y el unitario de composición.
-> - **Medición en la ventana de despliegue (solo lectura):** cartas de buylist ya dañadas por E-2/E-3 ([§PNL.10.2](#PNL-10)
->   paso 5) y disputas abiertas, **antes y después** ([§PNL.10.7](#PNL-10) paso 3).
->
-> **Rev v1.82 — 💰 ARREGLOS DEL PANEL: DISPUTAS FUERA (§V), REEMBOLSO DE UNA CARTA TRAS LA ENTREGA, RETIRO ENTREGADO POR
-> SPEI, RECHAZO DE VARIAS CARTAS DE UNA SOLICITUD DE VENTA CON UN SOLO CORREO, LO QUE SIGUE VIVO DE v1.80.10 Y R69-1
-> (2026-10-05, arquitecto, rama `claude/arreglos-panel` creada desde `production` = `3e09685a` según el orquestador;
-> ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§PNL](#PNL)**. Porqué: `ARCHITECTURE §4.61`.
-> Origen: `HECHOS.md:44` (disputas fuera; (a) reembolsar solo la carta; (b) retiro entregado con «Escríbenos» y SPEI),
-> `HECHOS.md:45` (solicitud aceptada no se cancela; rechazar las cartas en mala condición con motivo y cuáles),
-> `HECHOS.md:37`/`:39` (corte «enviado» y motivo cerrado), `HECHOS.md:31`/`:32` (monto capturado y topes de dedo),
-> **REGLA GENERAL** «lo más automático posible» (`/home/user/tcg-skyd/HECHOS.md:59`, ⛔ aún no está en el `HECHOS.md` de
-> esta rama), `PROJECT §V` (criterios 271–274), `SECURITY_NOTES.md:77` (`R69-1`).
-> **Numeración elegida para no chocar al fusionar con `claude/skydropx-d`:** esa rama usa v1.80.11…v1.80.12.12 y v1.81.x,
-> `ARCHITECTURE §4.60` y migraciones `M-64`…`M-68` (carpetas `20261006…`–`20261009…`, medido con `Glob` en
-> `/home/user/tcg-skyd/backend/prisma/migrations/`). Aquí: rev **v1.82**, **§4.61**, migración **`M-70`** con carpeta
-> `20261020120000_m70_panel_refunds` (fecha posterior a todas las de Skydropx; `M-69` queda **libre** como colchón para
-> Skydropx). Si al fusionar Skydropx ya tomó `M-70`, se renumera **esta** (no la suya) y se cambia la fecha de carpeta.
->
-> | # | Pieza | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **PNL-1** | §V: disputas fuera | `POST /disputes` ⇒ **`410 DISPUTES_DISCONTINUED`** para todo cliente, antes de leer nada; lecturas del cliente y M8 quedan **en transición** (cerrar las abiertas, P-DSP-1 default). Nuevo **`GET /support/contact`** público (un resolutor del buzón). «Escríbenos» en pedido directo entregado, retiro entregado y seguimiento del invitado. **Sustituye F-2 (vía B) de v1.80.10** | **Sí**: `POST /disputes` `201/403/422` ⇒ `410` | backend (`disputes`, `orders`) + frontend (pedidos, retiros, seguimiento, M8) + ux-ui (textos) |
-> | **PNL-2** | 💰 Reembolso de UNA carta tras la entrega (envío directo) | Verbo nuevo `POST /admin/orders/:id/items/:orderItemId/refund-delivered`, `@MoneyOut()`, motivo cerrado `ShippedRefundReason`, importe = fórmula `item_missing` (carta + su parte de la comisión), confirmación `expectedRefundCents`. Fila del libro **`kind = item_delivered`** (enum + columna `deliveredReason`, **`M-70`**). La carta ⛔ no vuelve | No (aditivo) | backend 💰 + frontend (M3) + ux-ui |
-> | **PNL-3** | 💰 Retiro de bóveda entregado ⇒ SPEI | Verbo nuevo `POST /admin/manual-refunds/withdrawal-delivered`, `@MoneyOut()`, **monto capturado** con las referencias y topes de §M4-SHIP.15.5; nace una `ManualRefund` `source = withdrawal_delivered` en la cubeta SPEI existente; ⛔ cero Stripe. `ManualRefund.replacementCaseId` pasa a opcional (CHECK por `source`) (**`M-70`**) | **Sí, pequeño**: `ManualRefundDTO.case` pasa a anulable | backend 💰 + frontend (cubeta SPEI, ficha del retiro) + ux-ui |
-> | **PNL-4** | Solicitud de venta: rechazar varias cartas con un motivo | Verbo nuevo `POST /admin/buylist/:id/reject-items` (operador+, ⛔ no es dinero saliente): atómico, **un** correo que dice **cuáles** y **el motivo**; si quedan todas rechazadas, la solicitud se cierra sola (regla de hoy). ⛔ `aceptada` **no** gana «cancelar». M5: «Declinar» dentro de la mesa de decisión; en `en_transito` un clic encadena `receive → verify` | No (aditivo) | backend (`buylist`) + frontend (M5) + ux-ui |
-> | **PNL-5** | Lo vivo de v1.80.10 | **Vigentes sin cambio:** F-4 (M5 «No comprada»), F-7 (celular del cliente en M6), F-8 (forma del `422` de M10), F-9 (los diez diales), F-11 (filtro de estado de Ventas), F-1 (ya hecho, se verifica). **Retirada:** F-2 (y `D-DSP-1`, `D-DSP-2`, `D-DSP-4`) | — | según v1.80.10 |
-> | **PNL-6** | `R69-1` | `RefundDto.reason` ⇒ `@MaxLength(500)` ⇒ `400 VALIDATION_ERROR {field:'reason'}` | Sí, mínimo (un cuerpo > 500 pasa de `201` a `400`) | backend |
->
-> - **Migración:** **`M-70`** (una sola, aditiva): `PaymentRefundKind + item_delivered`, `ManualRefundSource +
->   withdrawal_delivered`, `PaymentRefund.deliveredReason`, `ManualRefund.{shipmentItemId, deliveredReason, deliveredNote}`,
->   `ManualRefund.replacementCaseId DROP NOT NULL`, CHECKs e índice único parcial. Texto exacto en [§PNL.7](#PNL).
-> - **Códigos de error nuevos:** `410 DISPUTES_DISCONTINUED`, `409 ITEM_REFUND_NOT_AVAILABLE {reason}`. Reutilizados:
->   `409 REFUND_PREVIEW_STALE`, `422 CASE_REFUND_CONFIRMATION_REQUIRED`, `422 CASE_REFUND_ABOVE_LIMIT`, `422 ITEM_NOT_OFFERED`,
->   `409 INVALID_TRANSITION`.
-> - **Pruebas que deben fallar hoy:** DSC-1…8, IDR-1…15, WDR-1…10, BRJ-1…9, RFD-1…2 y las de frontend de cada pieza
->   ([§PNL.8](#PNL)). Carreras (IDR-5, WDR-6, BRJ-8): **N ≥ 10 por ronda, proporción** (O-3).
-> - **Preguntas al dueño:** [§PNL.9](#PNL) (dos; ninguna bloquea).
+> - Rev v1.82 · 2026-10-05 · 💰 arreglos del panel: disputas fuera (`410 DISPUTES_DISCONTINUED`), reembolso de una carta tras la entrega, retiro entregado por SPEI, rechazo de varias cartas con un correo, R69-1 (`M-70`) · [§PNL](#PNL), `ARCHITECTURE §4.61`; tabla PNL-1…6 compactada en v1.113 (git) · dueño (`HECHOS.md:44-45`).
 >
 > *(separador ⟨skydropx-d⟩: cabeceras de `claude/skydropx-d` hasta rev v1.80.12.17, traídas por la fusión
 > panel+skydropx del 2026-10-05; su línea «Versión de API» pasó a esta cabecera única)*
 >
-> **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883` (M-1, M-2, M-4) (2026-10-05, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `31af0883`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.36](#M4-SHIP-19-36)**. Porqué: `ARCHITECTURE §4.60 (ac)`.
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **M-1** 💰 | `shippingAdjustmentsCents`/`shippingInsuranceCents` sin tipo ni pantalla | **Se construye YA, en esta rama.** `PROJECT` criterio 238 lo exige («M7 los muestra **aparte** (*ajustes de paquetería*)»): diferirlo deja un criterio incumplido. **No depende de P-SDX-PNL-1** (con (A) la cifra crece en el mismo renglón; con (B) sería un campo nuevo y otra errata; con (C) nada). Se suman al tipo, de paso, las tres cifras de v1.80.7 que faltan (`refundsCents`, `refundedFeesCents`, `compensationsCents`): hoy el desglose de M7 **no suma** a la ganancia que pinta | No (aditivo en frontend) | ux-ui (U-3) · frontend (F-3) |
-> | **M-4** | Línea de tiempo: «Salió» arriba de «En sucursal» | La pantalla **sí** va del más reciente al más viejo (`DESIGN_SYSTEM §43.11`); §19.35.2 fija el orden **de la API** (`at asc`). Dos correcciones: (1) frontend **invierte el arreglo**, ⛔ no lo re-ordena por `at` (el `sort` estable deja los empates al revés); (2) backend: `shipped.at` = **mín(`shippedAt`, primer evento visible de la guía vigente distinto de `created`)** — si el transportista ya movió el paquete, salió a más tardar entonces | Sí: `ShipmentTrackingExtras.tsx:41` y `customer-timeline.ts:77` | backend (B-6) · frontend (F-5) |
-> | **M-2** | Sin `@real` de tarjeta, `?alert=true`, avisos de gasto y línea de tiempo del invitado | **No bloquea la fusión a `main`; SÍ bloquea la release** (suite E2E completa antes de staging→prod). Encargo F-6 con disparador | No | frontend (F-6) · backend si el stack no puede producir eventos (NO MEDIDO) |
->
-> **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno. **Endpoints:** ninguno cambia de forma.
->
-> **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f, Y EL REPARTO PARA CERRAR SKYDROPX (2026-10-05, arquitecto, rama `claude/skydropx-d`,
-> HEAD dado por el orquestador `12ea3261`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.35](#M4-SHIP-19-35)**. Porqué:
-> `ARCHITECTURE §4.60 (ab)`. Origen: `BACKEND_NOTES.md §67.2, §67.4, §68.2, §68.6`.
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** 🔒 | P-D2E-1: el claro del «último token» no existe | Token **nuevo de 90 días por correo, SIN rotar**, solo si `order.userId = null` (⛔ nunca a un pedido reclamado), emitido tras ganar el sello; ⛔ no consulta el cupo del reenvío; auditado `reissue` `system:mail` | Sí: hoy el invitado va sin CTA (`shipments.service.ts:251`) | backend (B-1) |
-> | **2** | PS-89 «de 6» | **7**: `shipped` va también con Skydropx (T.8 lista «salió») | No (lo construido ya da 7) | — |
-> | **3** | §67.2 (1) guía vigente / (2) `entregado` a mano | (1) **ratificada**; (2) **no**: `delivered` con `at = deliveredAt` si no hubo evento | Sí, (2): `customer-timeline.ts:85` | backend (B-2) |
-> | **4** | Liga de rastreo en `AV-4/5` | Patrón **ratificado** (letra chica, un CTA); ux-ui lo registra en §43 | No | ux-ui (U-2) |
-> | **5** | `withLabelAlert` | `workQueue.shipping.withLabelAlert` = `labelAlertOf ≠ null`; PS-173 | Falta | backend (B-3) · ux-ui (U-1) · frontend (F-1/F-2) |
-> | **6** | Techo `NO_ENUM_POR_RUTA` 52 | **Ratificado** | No | — |
-> | **7** | Catálogos/saldo con `off` | **Funcionan**; sin credenciales `409 {missing:['env']}` | No | backend (B-5, solo prueba) |
-> | **8** | `labelProcessing` | **Confirmado** = predicado de `labelPending ≠ null` | No | — |
->
-> **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno cambia. **Pendiente re-medido:** `role?` de
-> §19.34.1 sigue sin estar (`spend-alerts.service.ts:74`) ⇒ B-4.
->
-> **Rev v1.80.12.15 — LAS DOS PREGUNTAS DE C1 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
-> `3f40b70c`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.34](#M4-SHIP-19-34)**. Porqué: `ARCHITECTURE §4.60
-> (aa)`. Origen: `BACKEND_NOTES.md §66.5`.
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | G2 «⛔ sin más formas» frente a AG-22 `target: {userId, name, role}` | El objeto persona de `SpendFactValue` gana **`role?: Role`** (opcional: AG-21 no lo lleva; AG-22 siempre, y solo con rol de personal). ⛔ No se quita `role` de `facts.target` | Sí, una línea de tipo (`spend-alerts.service.ts:74`) y quitar el subtipo de `staff-control.service.ts:79-84` | backend (una línea, a quien el orquestador asigne `spend-alerts/`) · frontend: **nada** para G2 (ya conforme, medido) |
-> | **2** | `POST /admin/jobs/spend-digest` con `{day: null}` / `{day: ''}` | **CONFIRMADO `400 VALIDATION_ERROR {field:'day'}`**: solo la **ausencia** del campo es «sin día» | No (lo construido es la norma) | — |
->
-> **Pruebas:** ninguna nueva; la de tipos de G2 (`test/sdx-c1.facts-type.spec.ts`) se ajusta al tipo nuevo. **Migración:** ninguna.
-> **Códigos de error nuevos:** ninguno. **Enums:** ninguno cambia.
->
-> **Rev v1.80.12.14 — ERRATA TRAS D2d (RASTREO) Y D2g (AVISOS AL DUEÑO), Y LAS COSTURAS C1/C2 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por
-> el orquestador `8be66ef1`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.33](#M4-SHIP-19-33)**. Porqué:
-> `ARCHITECTURE §4.60 (z)`. Origen: `BACKEND_NOTES.md §64.6` (D2d, 6 preguntas; decisiones propias en §64.2) y `§65.6` (D2g,
-> 6 preguntas; decisiones propias en §65.3), más el encargo del orquestador de fijar las costuras C1 y C2.
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | PS-75 contra §19.10 | **Manda `PROJECT.md` criterio 241** («un envío cerrado deja de consultarse»): el sondeo **no** se amplía. PS-75 se **reescribe**: el `AV-17` tras un `entregado` a mano solo sale en la **carrera** (el lote lo tomó vivo); después, cero llamadas y cero `AV-17` | No (lo construido ya respeta §19.10) | backend (D2e) |
-> | **2** | Estado del transportista desconocido | Se aplica **como `exception`** con `detail = «Estado no reconocido: <valor>»` y llave propia; así entra solo a `carrierAlert`, `?alert=true` y `withCarrierAlert` por el cuerpo de siempre. ⛔ Sin valor nuevo en ningún enum | Sí, pequeño: `carrier-status.service.ts:437-459` y quien arma los eventos | backend (D2e) |
-> | **3** | 💰 Huérfanas y duplicados fuera del P&L | ⛔ **No se decide aquí: pregunta al dueño P-SDX-PNL-1.** Mientras tanto, nada cambia (el tope por persona y AG-9 ya los cuentan; el reporte de ganancias no) | — | dueño → arquitecto |
-> | **4** | `carrierStatusAt` de la compra con nuestro reloj | Se queda (CHECK `shipment_carrier_status_paired`). El CAS del paso 4 gana un término: **desde `created` cualquier estado avanza** aunque venga fechado antes | Sí, una línea: `carrier-status.service.ts:174-181` | backend (D2e) |
-> | **5** | AG-8 (b) y AG-10 | Son de **D2g** (ya construidos, según el orquestador en `e367ca20`; ⛔ no medido por el arquitecto); §19.29.0/.6/.11 corregidas | No | — |
-> | **6** | `withCarrierAlert` | RATIFICADO: cuenta con `carrierAlertActive`; con (2), el desconocido entra solo. Prueba **PS-171** | No (D2f sin construir) | backend (D2f) |
-> | **G1** | Dial del dueño inválido mandado por un no dueño | **`422` primero** — RATIFICADO | No | — |
-> | **G2** | `facts` con objetos (AG-21, AG-22) | El tipo del DTO **se amplía** a `{userId, name}` (lo construido se queda; ⛔ no se aplana) | Aditivo (tipos) | backend (C1) + frontend (tipo) |
-> | **G3** | Enlaces de `AVG-2/3` sin filtros | **Sin `?`** — RATIFICADO (manda PS-153); ux-ui ajusta su sugerencia | No | ux-ui |
-> | **G4** | AG-21 en A→B→A→B | La llave gana **el instante del cambio**: cada cambio, un aviso y un correo | Sí, una línea: `spend-watch.service.ts` | backend (C1) |
-> | **G5** | `order_ship` | **Errata de S-GAS-2**: `shipment.kind: ShipmentKind \| null` (el tipo existente) — RATIFICADO lo construido | No | frontend (tipo) |
-> | **G6** | Ficheros de prueba fuera de la columna literal | **RATIFICADOS** (los forzó el contrato); techo de `NO_ENUM_POR_RUTA` 45 → 50 ratificado | No | — |
-> | **C1/C2** | Costuras | Fijadas al detalle (§19.33.9) | — | backend (un agente, serie) |
->
-> **Pruebas:** PS-75 reescrita, PS-72, PS-78 y PS-160 ampliadas, **PS-171**, **PS-172** (C1). **Migración:** ninguna. **Códigos de
-> error nuevos:** ninguno. **Enums:** ninguno cambia de dominio (solo el comentario de `CarrierStatus` en §0). **Pregunta al
-> dueño:** P-SDX-PNL-1.
->
-> **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
-> por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.32](#M4-SHIP-19-32)**.
-> Porqué: `ARCHITECTURE §4.60 (y)`. Origen: `BACKEND_NOTES.md §63.6` (6 preguntas) y `DEVOPS_NOTES.md §82.3`.
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | §0-Q sin filas de `?labelSource=`/`?alert=` | Filas añadidas (E / L), y de paso las **cuatro** de `GET /admin/spend-alerts` (`kind` E, `severity` E, `unseen` L, `muted` L) que tenían el mismo hueco | No | backend: mover los ejes en `C-EQ-1` |
-> | **2** | `requestedAt` al REUTILIZAR sin `force` | **Sí se escribe** (`requestedAt`, `requestedByUserId`), con CAS `expiresAt > now`; `expiresAt` no cambia | Sí, pequeño: `label-quote.service.ts:204-216` | backend 💰 |
-> | **3** | `?folio=` | ⛔ **No es §0-Q** (formato, no tokens): `NO_ENUM_POR_RUTA`, tope 44 → 45, **RATIFICADO**; S-GAS-2 corregida | No | — |
-> | **4** | `label.pdf` sobre envío `cancelado` | `404 LABEL_NOT_AVAILABLE` **sin** `details` — RATIFICADO | No | — |
-> | **5** | «Envío vivo» de `carrierAlert` | `status ∉ {entregado, cancelado}` — RATIFICADO y declarado | No | — |
-> | **6** | Cabecera de `M-66` («11 CHECK») | Son **12**; la cabecera de una migración aplicada ⛔ no se edita; errata aquí | No | — |
-> | **7** | §19.31.5 (5) «así M-68 lo marca» | Falso en base nueva (la migración corre antes de la semilla): la pila marca al dueño con `set-owner.ts` | No | — |
-> | **8** | Intermitente `L-6` (`rfc`) | Pendiente `T-FLAKY-RFC-1`, dueño backend; ⛔ no es de la fase D | No | backend (cuando el orquestador lo enrute) |
-> | **9** | D2d ∥ D2g | **Sí, en paralelo**, con ficheros disjuntos y **dos** costuras serializadas al final (`jobs/` y `C-EQ-1`); `prisma/` **nadie** | — | orquestador |
->
-> **Pruebas:** PS-168 gana (e). **Migración:** ninguna. **Códigos de error nuevos:** ninguno.
->
-> **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c/M-67/M-68 Y PLAN PARA CERRAR LA FASE D (2026-10-05, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.31](#M4-SHIP-19-31)**. Porqué: `ARCHITECTURE §4.60 (x)`. Origen: `BACKEND_NOTES.md §62.5` (15 preguntas) y
-> `DESIGN_SYSTEM.md:25872-25874` (S-GAS-7…9).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | Paridad de enums (`M-68`) | Seis líneas canónicas nuevas en §0; coinciden con `schema.prisma:1752-1818` valor a valor | No (las 7 rojas deberían pasar a verde; NO MEDIDO) | — |
-> | **2** | Cotización reutilizada pasadas 24 h | Generación nueva si no queda fila vigente; `requestedAt` se actualiza al re-cotizar | Sí, pequeño: `label-quote.service.ts:441-469` | backend 💰 |
-> | **3** | PS-73 vs §19.28.8 | Relectura `FOR SHARE` RATIFICADA (+ rama `labelSource`); PS-73 reescrita | Sí, una rama | backend 💰 |
-> | **4** | PS-122 (a) | Manda la fórmula (60 / 160) | No | — |
-> | **5** | Compra en la E2E con el doble | Tercera llave por adaptador; env nueva `SHIPPING_FAKE_PURCHASE` solo con `fake`; PDF del doble; PS-99 intacta | Sí: `spend-gate.ts`, fábrica, pila E2E | backend + devops + frontend |
-> | **6** | `cancel` que lanza | Revertir RATIFICADO + `label_cancel_unknown`; `getShipment` antes de revertir por `ok:false` | Sí, pequeño | backend 💰 |
-> | **7** | `409` sin `reason` | `shipment_changed_during_purchase`, `claim_released` | Sí, dos líneas | backend + frontend |
-> | **8** | «Liberar», AG-9 (a), deshacer, `packageCode`, correo vacío, `excluded` | RATIFICADOS (el deshacer, generalizado) | No | — |
-> | **9** | S-GAS-7/8/9, `isOwner` en la ficha | `mutedCount`, `muted`, `keys` camelCase, `isOwner` en las dos fichas | Aditivo | backend + frontend |
-> | **10** | Plan de cierre de D | 1 D2c-cierre (`label.pdf`, filtros, esta errata) → 2a D2d ∥ 2b D2g → 3a D2e ∥ 3b D2f → gates | — | orquestador |
->
-> **Pruebas:** PS-73 y PS-122 (a) reescritas; **PS-166…PS-170**. **Migración:** ninguna. **Códigos de error nuevos:** ninguno.
->
-> **Rev v1.80.12.11 — PARIDAD DE ENUMS TRAS D2a: CUATRO LÍNEAS CANÓNICAS EN §0 (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`, sobre `cd50d7a0`).** `M-SDX-D` (= `M-66`, commit `62f89781` según el orquestador) creó en
-> `schema.prisma` los enums `ShipmentLabelSource` (`:429-432`), `CarrierStatus` (`:436-449`), `ShippingIvaSource`
-> (`:452-456`) y `ShipmentCostAdjustmentKind` (`:459-464`); el contrato los declaraba solo en el bloque prisma de §19.2
-> (líneas `enum … {}` de §M4-SHIP.19.2 y §19.2 «ajustes de costo») y no en §0, y la banda 3 universal de
-> `enum-values-parity.spec.ts` quedó roja (5 rojas, medidas por el orquestador). Comparados valor a valor contra
-> §19.2, §19.19.10 y `CARRIER_STATUSES` (`shipping-provider.port.ts:11-24`): **coinciden los cuatro**. Se añaden sus
-> líneas canónicas en §0 junto a `ShipmentActiveStage`. **Sin cambio de dominio, de schema ni de código**; ⛔ ningún
-> enum entra a `SIN_LINEA_CANONICA`.
->
-> **Rev v1.80.12.10 — 🔒💰 ERRATA DE LA REVISIÓN DE DISEÑO DE §Z: EL DUEÑO ES UNA MARCA EXPLÍCITA, LA VIGILANCIA NO LA APAGA
-> EL VIGILADO, Y C-19…C-24 (2026-10-04, arquitecto, rama `claude/skydropx-d`, veredicto de seguridad sobre `0363f7e2`,
-> commit `2553c508` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.30](#M4-SHIP-19-30)**. Porqué: `ARCHITECTURE §4.60 (w)`. Origen: `SECURITY_NOTES.md:1-155` (§Z APROBADO
-> CON CONDICIONES: SDX-Z-1/2/3 medios, SDX-Z-4/5/6 bajos, SDX-I-7/8/9).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | SDX-Z-1 / C-20 | «El dueño» deja de deducirse del correo: columna **`User.isOwner`**, como mucho **una** fila (índice único parcial), fijada por la migración solo si hay **exactamente un** candidato, o por el script `prisma/set-owner.ts`; **ningún** endpoint la escribe; `spend-watch` avisa 🔴 (**AG-21**) si cambia | No (M-68 sin construir) | backend 💰 (D2g) |
-> | **2** | SDX-Z-2 / C-21 | Diales de §Z y el interruptor de compra: **solo el dueño** (`403 OWNER_ONLY_SETTING`); la cuenta del dueño no se restablece, bloquea ni borra desde otra cuenta (`403 OWNER_ACCOUNT_PROTECTED`); un súper-admin que no es el dueño y toca cuentas de personal ⇒ **AG-22**; `seen` no marca avisos sobre uno mismo; un aviso apagado se guarda «silenciado» | **Sí, pequeño:** `admin.controller.ts` (status/reset/delete), `SettingsController.PUT`, `GET /users/me` (+`isOwner`), `GET /admin/users` (+`isOwner`) | backend + frontend |
-> | **3** | SDX-Z-3 / C-22 | TG-1 cuenta una guía cancelada con reembolso **desconocido** por lo cobrado (falla cerrado) | No | backend 💰 (D2c) |
-> | **4** | SDX-Z-4 / C-23 | La neutralización del folio recorre **todas** las llaves de texto del destino, con NFKC y guiones tipográficos, en la **cotización** y en la **compra** | No | backend (D2c) |
-> | **5** | SDX-Z-5 / C-19 | Rastreo normalizado alfanumérico; la huérfana sin movimiento de paquetería; el fusible cuenta una **intención** escrita antes de `cancel` | No | backend 💰 (D2d) |
-> | **6** | SDX-Z-6 / C-24 | Como mucho **2** correos inmediatos por persona y hora | No | backend (D2g) |
-> | **7** | SDX-I-8 | Los enlaces de los correos son páginas; nunca un GET que actúe ni un token. *(v1.84.5, [§14.18](#LIVE-E5): **intacta** — AVG-1/2/3 son solo-staff y **no** llevan el pie de privacidad; todo enlace sigue siendo `admin/…`)* | No | backend + frontend |
->
-> **Códigos de error nuevos:** `403 OWNER_ONLY_SETTING {keys}`, `403 OWNER_ACCOUNT_PROTECTED`. **Migración:** `M-68` gana
-> `User.isOwner`, `SpendOwnerWatch`, `SpendAlert.muted`, `ShipmentPaidLabel.autoCancelIntentAt`. **Avisos nuevos:** AG-21,
-> AG-22. **Pruebas:** PS-130, PS-135, PS-138, PS-139, PS-145, PS-152, PS-153, PS-155 ampliadas; **PS-160…PS-165**.
-> **Preguntas al dueño:** §19.30.10 (medición C-20 (a), credenciales del panel de Skydropx, segundo factor).
->
-> **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS (§Z, D2) Y LOS CIERRES C-14…C-18 DE LA REVISIÓN DE v1.80.12.8
-> (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO por
-> el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.29](#M4-SHIP-19-29)**. Porqué: `ARCHITECTURE §4.60 (v)`. Origen:
-> `PROJECT.md §Z` (criterios 319–333, 338), `HECHOS.md:62` (límites aceptados y dos correos nuevos), `SECURITY_NOTES.md:1-190`
-> (veredicto sobre `2612064e`: D2c APROBADO CON CONDICIONES C-15…C-18; §19.28.6 RECHAZADA, SDX-D-21 alto ⇒ C-14).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | C-14 / SDX-D-21 | La huérfana solo se cancela sola con `getShipment` legible y rastreo propio, guía vigente **Skydropx** con otro id (o envío cancelado), rastreo ajeno a todo envío nuestro y **fusible** de 3 en 24 h; si no, 0 `cancel` y aviso. **Sustituye §19.28.6** | No (D2d sin construir) | backend 💰 (D2d) |
-> | **2** | C-15…C-18 | Patrón `ENV-` neutralizado en los campos del cliente; `folioTokenOf` anclado al texto entero; I-SENT y `n` desde una fila de dominio (no del JSON de la bitácora); 7b.2 con CAS `count = 1`; token `ENV-000045-01` (folio `\d{6,}`, intento de 2 dígitos); el default del folio deja de truncar | **Sí**, en `M-67` (default) y en el formato del token de v1.80.12.8 (sin construir) | backend 💰 (D2c) |
-> | **3** | TG-1 / TG-2 | Tope MX$2,500 por persona en 24 h y una recompra por envío, comprobados **dentro** de la tx del candado de compra; exento solo **el dueño** (`isOwnerAccount`: súper-admin con correo); negativa `403 LABEL_PURCHASE_LIMIT` sin cifras | No | backend 💰 (D2c) |
-> | **4** | Libros nuevos | `ShipmentLabelAttempt` (reclamos) y `ShipmentPaidLabel` (guías pagadas) | — | backend 💰 (`M-68`) |
-> | **5** | Avisos | `SpendAlert` + correo inmediato al dueño (5/h + lote) + resumen 08:00 MX; AG-1…AG-13 (AG-11 con correo entra con D2d); AG-14…AG-20 reservados | Sí, pequeño: `SettingsController` pasa a `@MoneyOut()` de clase; seed del saldo bajo 50000 → 100000 | backend + frontend + ux-ui |
-> | **6** | Pruebas | PS-129/130/134/135 ampliadas; **PS-137…PS-159** | — | backend + frontend |
->
-> **Códigos de error nuevos:** `403 LABEL_PURCHASE_LIMIT {limit}`. **Migración:** `M-68` (`M-GAS-1`). **Endpoints:**
-> `GET /admin/spend-alerts`, `…/summary`, `…/:id`, `POST …/seen`. **Jobs:** `spend-watch`, `spend-digest`. **DTO:**
-> `SpendAlertDTO`, `SpendAlertSummaryDTO`, `labelOptions.limit`, `workQueue.spendControl`.
->
-> **Rev v1.80.12.8 — 🔒💰 EL FOLIO NUESTRO VIAJA EN LA COMPRA Y LA ADOPCIÓN CUADRA POR FOLIO EXACTO; LA COMPRA TIENE VIDA
-> MÁXIMA; LAS RESPUESTAS ESCRIBEN POR EL `since` EXACTO (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `13957d99`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.28](#M4-SHIP-19-28)**.
-> Porqué: `ARCHITECTURE §4.60 (u)`. Origen: `SECURITY_NOTES.md:1-207` (v1.80.12.7 **RECHAZADO**: SDX-D-14 alto, SDX-D-15/16/17
-> medios, SDX-D-18 bajo; C-8…C-13) y la propuesta del dueño del folio (relayada por el orquestador, aún sin fila en HECHOS).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | Folio | `ShipmentRequest.folio` `ENV-000045` (secuencia, default de BD, `M-67` aparte de `M-66`); cada compra manda `address_to.reference = "Pedido ENV-000045-<intento>"` | **Sí**: `PurchaseInput.to` gana `reference` (`shipping-provider.port.ts:101`, `skydropx.adapter.ts:105-112`); PS-85 se reescribe | backend (D1 + D2c) |
-> | **2** | SDX-D-14 | Adopción **solo** por folio exacto + paquetería (+ CP si se lee), ventana `[−2, +5 min]` con `createdAt` legible; ⛔ cuadre por total/CP fuera | No (D2c sin construir) | backend 💰 |
-> | **3** | SDX-D-16 | Vida máxima de compra **3 min** (plazo de envío 120 s + 30 s por intento con el cuerpo dentro); escrituras de la respuesta con `since` exacto; respuesta vencida ⇒ `label_orphan`, nunca un `409` mudo | **Sí**: `skydropx-client.ts:304-437` (temporizador y plazo) | backend 💰 |
-> | **4** | SDX-D-15 | El job cancela solo lo atribuido por folio; conciliación de huérfanas construida (cancela duplicados pagados) | No | backend 💰 (D2d) |
-> | **5** | SDX-D-17 | Negativa sigue apagada; contaminación por reembolsos/débitos tardíos (30 días hasta medir), cable trampa, regla N ≥ 60 | No | backend 💰 + devops |
-> | **6** | SDX-D-18 | `pg_try_advisory_xact_lock`, censo de claves, bloqueo 3 min (no 15), `retryAfterSeconds` desde la vida máxima | No | backend |
-> | **7** | Automático (`HECHOS.md:59`) | `not_sent`: un reclamo sin `label_purchase_sent` se libera solo a los 3 min (invariante I-SENT) | No | backend 💰 |
-> | **8** | Pruebas | **PS-129…PS-136**, PS-120 y PS-117 ampliadas | — | backend + frontend |
->
-> **Códigos de error nuevos:** ninguno. **Migración:** `M-67` (`folio`). **DTO:** `folio`, `LabelPendingDTO.providerReference`,
-> `label_orphan`, `duplicate`, `not_sent`, `otherFolio`.
->
-> **Rev v1.80.12.7 — 💰 LA COMPRA EN VUELO SE VERIFICA SOLA; «LIBERAR» QUEDA DE RESPALDO (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `41e22eca`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma
-> entera: **[§M4-SHIP.19.27](#M4-SHIP-19-27)**. Porqué: `ARCHITECTURE §4.60 (t)`. Origen: `HECHOS.md:59` (regla general del
-> dueño: «lo más automático posible»; lo manual, respaldo).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | Atribuir el saldo y los envíos nuevos | **Una compra en vuelo a la vez por cuenta**: candado consultivo en el reclamo; otro envío con compra sin id de < 15 min ⇒ `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId, retryAfterSeconds}` | No (D2c sin construir) | backend 💰 (D2c) |
-> | **2** | Foto del saldo | Paso **7b**: segunda lectura de `balance` **después** del reclamo, bitácora `shipment.label_purchase_sent`; si falla o no alcanza, el reclamo se deshace y no se compra | No | backend 💰 (D2c) |
-> | **3** | Seguro que cobró | El job busca cada minuto en `GET /api/v1/shipments` un envío **desconocido** que **cuadre** (paquetería + total o CP) y sea el **único**; lo **adopta** (`label_adopted {via:'recent_list'}`). Funciona desde el primer día | No (puerto: método nuevo `recentShipments`) | backend 💰 (D1 puerto + D2c/D2d) |
-> | **4** | Seguro que no cobró | **Dos lecturas limpias** separadas ≥ 2 min, desde el min 5: 0 envíos desconocidos **y** saldo igual al centavo, sin contaminación ⇒ el job **libera solo** (`via:'auto_verified'`). ⛔ **Apagado** (`INFLIGHT_NEGATIVE_VERIFIED = false`) hasta medir con las primeras compras reales (calibración pasiva, `M-PRD-8`) | No | backend 💰 |
-> | **5** | Reintentar la compra | **Un clic del operador**, nunca el job (C-2 / SDX-D-2, CA #16) | No | frontend + ux-ui |
-> | **6** | Incierto | A los 15 min: `label_unknown` con `reason`; deja de bloquear otras compras; «Liberar» de respaldo, P-SDX-REL **reformulada** (§19.27.6) | No | backend + frontend + ux-ui |
-> | **7** | Pruebas | **PS-122…PS-128**, PS-117 ampliada | — | backend + frontend |
->
-> **Códigos de error nuevos:** ninguno (`CONFLICT` con `reason:'purchase_in_flight'`). **Endpoints, columnas, migraciones:**
-> ninguno (⛔ `M-SDX-D`/`M-66` no cambia). **Puerto:** `recentShipments`. **DTO:** `LabelPendingDTO.verifyingUntil`,
-> `LabelAlertDTO.reason`, `AdminShipmentDTO.lastLabelRelease` (detalle), `verdict` en `label/release`.
->
-> **Rev v1.80.12.6 — 🔒💰 ERRATA DE LA REVISIÓN DE DISEÑO DE SEGURIDAD ANTES DE D2c (SDX-D-1/2/3/6/10, C-1…C-6) Y QUIÉN
-> COMPRA, CANCELA Y LIBERA (`HECHOS.md:58`) (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `31ba38cc`; la fila de HECHOS, en `f963c44d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.26](#M4-SHIP-19-26)**. Porqué: `ARCHITECTURE §4.60 (s)`. Origen: `SECURITY_NOTES.md:1-137` (veredicto de
-> diseño **APROBADO CON CONDICIONES** sobre `ace57032`) y `HECHOS.md:58` (respuesta del dueño a SDX-D-5 y SDX-I-1).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | SDX-D-1: respuesta de compra con `error_detail` **y** `data.id` | **Un id presente nunca se descarta.** «Rechazo con id» ⇒ rama «guía en proceso» (se persiste el id, el reclamo **no** se deshace) + bitácora `label_failed` con el id ⇒ `200 {outcome:'processing', providerError}`. El adaptador devuelve `providerShipmentId: null` (⛔ nunca `''`); el `400/422` de la compra también entrega el id si el cuerpo lo trae | **Sí**, pequeño: `skydropx.adapter.ts:281-285`, `shipping-provider.port.ts:114`, `skydropx-client.ts:387-391`, `shipping-provider.errors.ts:46` | backend 💰 (D2c) |
-> | **2** | SDX-D-2: replay de la compra (§19.18.4 (3a)) | **TACHADO sin condición.** `purchase` tiene **un** llamador: el verbo `label`. `recoverInFlightLabel`, el job y `label/release` solo **leen** | No (nada construido: `recoverInFlightLabel` ⇒ 0 en `backend/src` fuera de un comentario) | backend (D2c) |
-> | **3** | SDX-D-3: `P2002` en `providerShipmentId @unique` | Rama **`provider_id_taken`**: cero `500`, el otro envío intacto, el reclamo **se conserva** (como «en vuelo»), bitácora `shipment.label_conflict` ⇒ `409 CONFLICT {reason:'provider_id_taken'}`. Además, **guarda previa**: una `rateId` ya comprada o en vuelo en **otro** envío ⇒ `409 CONFLICT {reason:'rate_already_purchased'}` **antes** del reclamo, cero red | No | backend 💰 (D2c) |
-> | **4** | SDX-D-10: `SkydropxMutationForbiddenError` tras el reclamo | Reclamo **deshecho** ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['allow_spend']}` (ya lo decían §19.20.5 y §19.21.4; ahora también §19.7 paso 9) | No | backend (prueba) |
-> | **5** | SDX-D-6: referencia nuestra en la compra | **La API no la admite** en lo medido ni en la referencia (`SKYDROPX_API_REFERENCIA.md:142-186`): ⛔ no se mete el id en campos de dirección. La ventana «Liberar» muestra con qué cuadrar en el panel; `LabelPendingDTO` gana `priceCents`. Deuda con disparador | Aditivo (DTO) | backend (D2c) + frontend + ux-ui |
-> | **6** | SDX-D-5 / SDX-I-1 (`HECHOS.md:58`) | **El personal también compra y cancela.** El dial admite `operators` por decisión del dueño (sigue arrancando `disabled`, lo gira solo el súper-admin); `label/cancel` sigue operador+. **«Liberar» sigue `super_admin`: `HECHOS.md:58` no lo menciona ⇒ pregunta P-SDX-REL al dueño** | No | — (norma) |
-> | **7** | C-1…C-6 de seguridad | Entran como **PS-116…PS-121** con su mutación (§19.26.7) | — | backend (D2c) |
->
-> **Códigos de error nuevos:** ninguno (`CONFLICT` con dos `reason` nuevos). **Endpoints, columnas, migraciones:**
-> ninguno (⛔ `M-SDX-D`/`M-66` no cambia). **DTO:** `LabelPendingDTO.priceCents`, `providerError?` en la respuesta
-> `processing` de `label`.
->
-> **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE: EL CATÁLOGO DE CP AYUDA, NO BLOQUEA (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `76de8268`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma
-> entera: **[§M4-SHIP.19.25](#M4-SHIP-19-25)**. Porqué: `ARCHITECTURE §4.60 (r)`. Origen: `HECHOS.md:57` (decisión del
-> dueño, 2026-10-04), que sustituye una decisión **del equipo** (§19.5, §19.23.6, §19.24).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | Colonia obligatoria **de la lista** del CP | Colonia obligatoria **como texto**: de la lista o escrita («Mi colonia no está»). `city`/`state` obligatorios en el cuerpo; con el CP en el catálogo los pone el catálogo, si no, lo escrito. Colonia escrita que sí está en la lista ⇒ se guarda la canónica. Libreta, invitado y `PUT …/address`: **una** función `resolveAddressGeo` que nunca rechaza por geografía | **Sí**: `postal-code.ts:117-137`, `users.service.ts:260-340`, `guest-checkout.*`, `shipment-address.service.ts:64-119` y las tres pantallas | backend 💰 + frontend |
-> | **2** | `boot` en el `CMD` hace que la imagen no arranque en Railway sin G-1 | **`boot` sale del arranque** (y del importador); `C-GEO-2` retirado; el catálogo se carga con `import` explícito cuando exista el archivo; candado **G-BOOT** | **Sí**: `Dockerfile.backend:117-127,146`, `scripts/geo/` | devops |
-> | **3** | ¿El operador sabe si la colonia se comprobó? | `AdminShipmentDTO.address.neighborhoodCheck`, **calculado al leer** contra el catálogo (no se guarda); aviso en el paso 1 de «Capturar guía», sin bloquear | Aditivo | backend + frontend + ux-ui |
-> | **4** | G-1 y P-ADR-2 | G-1 **sin urgencia** (ya no bloquea); P-ADR-2 **retirada** (la respondió el dueño) | No | — |
->
-> **Códigos de error:** `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` **retirado**; `POSTAL_CODE_UNKNOWN` queda **solo** como `404`
-> de `GET /geo/postal-codes/:cp`. **Endpoints, columnas, migraciones nuevos:** ninguno.
->
-> **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP: `C-GEO-1` (1) COMO INCLUSIÓN + HUELLA, DOS MODOS POR BLANCO, Y DÓNDE
-> VIVE EL ARCHIVO DE SEPOMEX (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
-> `01c9dcfd`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.24](#M4-SHIP-19-24)**.
-> Porqué: `ARCHITECTURE §4.60 (q)`. Origen: `DEVOPS_NOTES §79.2`, `§79.3`, `§79.5`, `§79.8` (`DEVOPS_NOTES.md:13267-13365`).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | `C-GEO-1` (1) «conteo = filas del archivo» hace fallar el arranque con las filas del arnés | (1) pasa a **inclusión** (toda fila derivada del archivo está, idéntica) más una **huella** del conjunto (`setDigest`) fijada en un **manifiesto** commiteado. En **producción** (blanco que el seed rechaza) la tabla debe ser **igual** al conjunto: una fila ajena **es alarma** (sale ≠ 0, no se borra). En **blancos del arnés** (los que el seed acepta) las ajenas se **toleran y se cuentan** | Sí: `scripts/geo/import-sepomex.ts:134-141,189-215` | devops |
-> | **2** | El archivo de SEPOMEX no se puede commitear sin decidir la licencia (repo público) | El repo lleva el **manifiesto** (hashes y cifras, no datos). El archivo vive donde el **dueño** decida (pregunta G-1): por defecto, **objeto privado del bucket propio**, direccionado por su `sha256`, que el arranque baja **solo** si la tabla no coincide con el manifiesto. ⛔ Sigue prohibido descargar de SEPOMEX o de cualquier origen no fijado | No (el cableado no existía) | devops, tras G-1 |
-> | **3** | Entornos del arnés (CI, `e2e-real`, DAST) sin archivo | En blanco del arnés, sin archivo ⇒ el arranque **no carga y sale 0** con aviso; los 5 CP los pone el seed. ⛔ El modo arnés nunca baja nada de la red | Sí: el `CMD` ya se puede cablear (§79.4) | devops |
-> | **4** | El extracto sintético | Se queda; regla: escrito a mano, ≤ 20 filas de datos, marca «SINTÉTICO» en la línea 1, ⛔ nunca derivado del archivo real; candado | No | devops |
-> | **5** | Railway ante un arranque fallido | Sigue **NO MEDIDO** y es **precondición** de la ventana; si no conserva la versión anterior, se para y se pide errata | No | orquestador / dueño |
->
-> **Códigos de error, endpoints, columnas, migraciones:** ninguno.
->
-> **Rev v1.80.12.3 — ERRATA MENOR: LO QUE LA FASE C NO PUEDE MEDIR, LA MUTACIÓN DE PS-104, LA GUARDA DE GUÍA EN D2,
-> PS-99 (d) Y EL CATÁLOGO DE CP EN LA VENTANA (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `cd761248`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.23](#M4-SHIP-19-23)**. Porqué: `ARCHITECTURE §4.60 (p)`. Origen: `BACKEND_NOTES §58.2 (1)(3)`, `§58.3`
-> (D-SDX-4, D-SDX-5), `§58.4`, `§58.5` (`BACKEND_NOTES.md:27246-27298`, `:27312-27314`).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | D-SDX-4: PS-105, PS-106, dos filas de PS-104 y la carrera «corrección contra compra» (criterio 315 (e)) no se pueden medir en fase C | Se **mueven** a su hito: PS-104 (dos guardas) ⇒ **D2a**; PS-105 se parte: **PS-105a** ⇒ D2b, **PS-105b** ⇒ D2c; PS-106 ⇒ D2c; la carrera ⇒ **PS-113** nueva, D2c. El criterio 315 no se da por cumplido hasta el gate de D2c | No | backend (D2a–D2c) |
-> | **2** | D-SDX-5: la mutación de PS-104 no puede morder (el candado del paso 3 es un primer muro) | Se declara **por pares**: M1 «comparación del paso 3 + versión del `WHERE`» y M2 «candado + versión del `WHERE`» ⇒ rojas; M3 «solo el candado» y M4 «solo la versión del `WHERE`» ⇒ verdes 10/10 (cada muro solo basta) | No (solo la declaración) | backend + QA |
-> | **3** | La guarda «ya tiene guía» de fase C usa `trackingNumber` | En **D2a**: `labelSourceOf` de §19.2, `WHERE` con `labelSource`, `trackingNumber` **y** `labelProcessingSince` nulos (⭐ corrige §19.20.1 paso 5, que omitía `trackingNumber`), `409 LABEL_IN_PROGRESS` en el paso 3 y en `error-codes.ts` | Sí, en D2a: `shipment-address.service.ts:55-61,129,181-191` | backend |
-> | **4** | `line2` | **0..200** (la de `GuestAddressInput`, como ya mandaba §19.20.1); el `0..120` de §19.20.1 era un error de transcripción | No | — |
-> | **5** | PS-99 (d) con aserción transitoria | Devops ya entregó: (d) pasa a «presente **una vez** y vacío» para las tres llaves y verifica que la sonda y su prueba existen y que CI las corre | Sí: `skydropx.no-real-purchase.spec.ts:255-262` | backend |
-> | **6** | `PostalCode` nace vacía ⇒ toda dirección nueva `422 POSTAL_CODE_UNKNOWN` | **`C-GEO-1`** (qué es «catálogo cargado») y **`C-GEO-2`** (se carga en el mismo arranque, después de `M-64` y **antes** de recibir tráfico; si falla, la versión nueva no se publica) | No | devops |
->
-> **Códigos de error nuevos:** ninguno (`LABEL_IN_PROGRESS` ya estaba en el catálogo del contrato, `API_CONTRACT.md:496`;
-> lo que falta es su línea en `backend/src/common/error-codes.ts`). **Endpoints, columnas, migraciones:** ninguno.
->
-> **Rev v1.80.12.2 — ERRATA: SKX-SEC-1 (EL DOMICILIO SALE DE LA BITÁCORA), `address.missing`, DOS RESPUESTAS SIN
-> FORMA, `ShipmentCostAdjustmentDTO` Y PS-101 CON EL DISEÑO v4.17 (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD
-> dado por el orquestador `fae954ce`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
-> **[§M4-SHIP.19.22](#M4-SHIP-19-22)**. Porqué: `ARCHITECTURE §4.60 (o)`. Origen: `SECURITY_NOTES.md:58-62` (rama
-> `claude/staff-sin-correo`, árbol `/home/user/tcg-staff`, condición `SKX-SEC-1` del gate de la release de Skydropx),
-> `FRONTEND_NOTES §87` «Solicitudes al arquitecto» 1–3 (`FRONTEND_NOTES.md:19152-19159`), `DESIGN_SYSTEM §43.5a` (v4.17,
-> commit `f6cb8fdb` según el orquestador).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **1** | 🔒 `SKX-SEC-1`: `shipment.address_corrected` guarda en `AuditLog` los **valores** del domicilio, y la bitácora no se purga | **Opción (a).** La bitácora guarda solo `changedKeys`, versiones y el actor; los valores viejos y nuevos van a la tabla nueva **`ShipmentAddressRevision`**, que la anonimización de cuenta **borra**. Prueba de release **PS-112** | **Sí** — fase C construida: `shipment-address.service.ts:141-159`, `sdx-c-address.e2e-spec.ts:233-236,346`, `admin.service.ts:1587-1629` | backend 💰 (migración **`M-SDX-C2`**) |
-> | **2** | `AdminShipmentDTO.address.missing` | **Se añade, siempre presente** (`[]` si está completa); `complete ⇔ missing.length = 0`; es **la misma lista** que `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` (un cuerpo, `shipmentAddressMissing`) | **Sí** (pequeño): `shipments.service.ts:722` | backend + frontend |
-> | **3** | Respuestas sin forma | `GET …/catalogs/consignment-notes` ⇒ **`200 { consignmentNotes: {code, description}[], hasMore }`** (⛔ no el arreglo pelado que asumió frontend); `PUT /admin/shipping/packages` ⇒ **`200 { packages }`** (se ratifica) | Frontend: sí, una línea (`api.ts:2105`) | backend + frontend |
-> | **4** | `ShipmentCostAdjustmentDTO` sin definir | Definido (§19.22.4) | No (frontend solo cuenta filas) | backend (D2) + frontend (tipo) |
-> | **5** | PS-101 decía «"Capturar a mano" presente en los cuatro pasos» | Se alinea con `DESIGN_SYSTEM §43.5a` v4.17: solo con `label = null ∧ labelPending = null` | No (frontend ya lo hace, medido por el orquestador en `CaptureLabelDialog.tsx:1036`) | — |
->
-> **Códigos de error nuevos:** ninguno. **Endpoints nuevos:** ninguno. **Migración nueva:** `M-SDX-C2` (tabla
-> `ShipmentAddressRevision`; número propuesto **M-65** si `M-SDX-D` no lo ha tomado — lo confirma el orquestador contra
-> `migrations/` al encargar).
->
+> **Revisiones v1.80.12.1 → v1.80.12.17 de `claude/skydropx-d`, compactadas en v1.113 (una línea cada una; la norma vive en
+> §M4-SHIP.19.21–.19.36 y el porqué en `ARCHITECTURE §4.60` (n)–(ac); tablas en git):**
+> - v1.80.12.17 · 2026-10-05 · 💰 gate de QA sobre `31af0883`: M7 pinta ajustes y seguro de paquetería; orden de la línea de tiempo · [§M4-SHIP.19.36](#M4-SHIP-19-36).
+> - v1.80.12.16 · 2026-10-05 · 🔒 token nuevo de 90 días para el invitado en los correos de envío; `withLabelAlert`; reparto final · [§M4-SHIP.19.35](#M4-SHIP-19-35).
+> - v1.80.12.15 · 2026-10-05 · `role?` en el objeto persona de `SpendFactValue`; `{day:null}` del digest ⇒ `400` · [§M4-SHIP.19.34](#M4-SHIP-19-34).
+> - v1.80.12.14 · 2026-10-05 · tras D2d/D2g: estado desconocido del transportista como `exception`, costuras C1/C2, P-SDX-PNL-1 al dueño · [§M4-SHIP.19.33](#M4-SHIP-19-33).
+> - v1.80.12.13 · 2026-10-05 · tras D2c-cierre: filas de §0-Q de envíos y avisos, `requestedAt` al reutilizar, D2d ∥ D2g · [§M4-SHIP.19.32](#M4-SHIP-19-32).
+> - v1.80.12.12 · 2026-10-05 · 💰 tras D2b/D2c/M-67/M-68: cotización reutilizada, tercera llave por adaptador (`SHIPPING_FAKE_PURCHASE`), plan de cierre de D · [§M4-SHIP.19.31](#M4-SHIP-19-31).
+> - v1.80.12.11 · 2026-10-04 · cuatro líneas canónicas de enums de `M-66` en §0 (paridad), sin cambio de dominio.
+> - v1.80.12.10 · 2026-10-04 · 🔒💰 el dueño es una marca explícita (`User.isOwner`), `403 OWNER_ONLY_SETTING`/`OWNER_ACCOUNT_PROTECTED`, AG-21/AG-22, C-19…C-24 · [§M4-SHIP.19.30](#M4-SHIP-19-30).
+> - v1.80.12.9 · 2026-10-04 · 🔒💰 control del gasto en guías (§Z): TG-1/TG-2, `SpendAlert`, `spend-watch`/`spend-digest`, `403 LABEL_PURCHASE_LIMIT`, `M-68` · [§M4-SHIP.19.29](#M4-SHIP-19-29).
+> - v1.80.12.8 · 2026-10-04 · 🔒💰 folio `ENV-…` en la compra, adopción por folio exacto, vida máxima de compra 3 min, `M-67` · [§M4-SHIP.19.28](#M4-SHIP-19-28).
+> - v1.80.12.7 · 2026-10-04 · 💰 la compra en vuelo se verifica sola (una a la vez, `purchase_in_flight`, adopción por lista reciente); «Liberar», respaldo · [§M4-SHIP.19.27](#M4-SHIP-19-27).
+> - v1.80.12.6 · 2026-10-04 · 🔒💰 revisión de seguridad antes de D2c (un id de compra nunca se descarta, sin replay, `provider_id_taken`/`rate_already_purchased`); el personal también compra y cancela · [§M4-SHIP.19.26](#M4-SHIP-19-26) · dueño (`HECHOS.md:58`).
+> - v1.80.12.5 · 2026-10-04 · la colonia como Mercado Libre: el catálogo de CP ayuda, no bloquea (`resolveAddressGeo`, `neighborhoodCheck`; `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` retirado) · [§M4-SHIP.19.25](#M4-SHIP-19-25) · dueño (`HECHOS.md:57`).
+> - v1.80.12.4 · 2026-10-04 · catálogo de CP: `C-GEO-1` (1) como inclusión + huella, dos modos por blanco, archivo de SEPOMEX fuera del repo (G-1) · [§M4-SHIP.19.24](#M4-SHIP-19-24).
+> - v1.80.12.3 · 2026-10-04 · lo que la fase C no puede medir pasa a D2a–D2c; mutación de PS-104 por pares; guarda «ya tiene guía» con `labelSource`; `line2` 0..200 · [§M4-SHIP.19.23](#M4-SHIP-19-23).
+> - v1.80.12.2 · 2026-10-04 · 🔒 `SKX-SEC-1`: el domicilio sale de la bitácora a `ShipmentAddressRevision` (M-65), `address.missing`, dos formas de respuesta · [§M4-SHIP.19.22](#M4-SHIP-19-22).
 > **Rev v1.80.12.1 — ERRATA MENOR: LAS DISCREPANCIAS DE D1 (`BACKEND_NOTES §57.3`/`§57.4`) (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.21](#M4-SHIP-19-21)**.
 > ⛔ Ningún endpoint, código de error, columna ni DTO nuevo. Resumen: **D-SDX-1** el filtro de tarifas mira `status`
@@ -8218,7 +7849,7 @@ ShipmentCostAdjustmentKind = overweight | extended_zone | return | other  // v1.
 LabelAttemptOutcome = pending | labeled | not_charged | released_unverified  // v1.80.12.9 (M-68, §M4-SHIP.19.29.2): resultado de un reclamo de compra (`ShipmentLabelAttempt.outcome`). Clase E (espeja `schema.prisma:1752-1757`). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida tras D2c (§19.29.2 decía «los cinco» y son seis), sin cambio de dominio.
 PaidLabelOrigin     = response | adopted | orphan | duplicate  // v1.80.12.9 (M-68, §19.29.2): de dónde salió una guía que Skydropx nos cobró (`ShipmentPaidLabel.origin`). Clase E (espeja `schema.prisma:1760-1765`). Interno ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 LabelCancelKind     = reissue | auto_close | orphan_auto | orphan_manual  // v1.80.12.9 (M-68, §19.29.2): cómo se canceló una guía pagada (`ShipmentPaidLabel.cancelKind`; `facts.cancelKind` de AG-8). Clase E (espeja `schema.prisma:1768-1773`). Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
-SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner | buylist_guide_due  // rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23, «esta solicitud aceptada se cierra sola en N días si no tiene guía» (23 valores). v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
+SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner | buylist_guide_due | psa_cycle_short  // v1.113⟨portada⟩ (M-93, §DYN.4.5): + `psa_cycle_short` = AG-24, «con el tope de créditos PSA la vuelta tarda más de 7 días» (24 valores; solo panel, sin correo). rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23, «esta solicitud aceptada se cierra sola en N días si no tiene guía» (23 valores). v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
 SpendAlertSeverity  = immediate | digest  // v1.80.12.9 (M-68, §19.29.2): 🔴 inmediato / 🟡 resumen (Z.2). Clase E (espeja `schema.prisma:1802-1805`). Filtro `?severity=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SpendAlertMailStatus = not_applicable | pending | sending | sent | batched | batch_sent | failed | failed_unknown | no_recipient  // v1.80.12.9 (M-68, §19.29.5): estado del correo de un aviso (outbox). Clase E (espeja `schema.prisma:1808-1818`). Solo DTO (`SpendAlertDTO.mail.status`) ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 WishlistNoticeStatus = pending | sent | suppressed | skipped  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): estado de un aviso «ya la tenemos» por (cuenta, pieza). `pending` = detectado, sin enviar; `sent` = salió en un `WishlistMail`; `suppressed` = la pieza ya estaba a la venta cuando se agregó el deseo (criterio 812); `skipped` = no se envía (motivo en `skipReason`). Clase E (espeja `schema.prisma` tras M-74). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ Hasta que M-74 se construya, la banda 3 no tiene enum contra el que comparar (precedente `PaymentRefundKind` / M-70).
@@ -8417,6 +8048,12 @@ DiscountKind        = percent | fixed_amount | free_shipping // v1.110 (M-92, §
 DiscountCodeStatus  = active | paused                       // v1.110 (M-92, §DSC.1). Clase E. Lo que el dueño fija; vigencia y agotado se DERIVAN (`state`, §DSC.7).
 DiscountProductScope = raw | graded | sealed | accessory    // v1.110 (M-92, §DSC.1). Clase E. Filtro por tipo; `accessory` incluye energías sueltas; ⛔ el paquete de energías nunca es elegible [D9].
 DiscountRedemptionStatus = reserved | consumed | released   // v1.110 (M-92, §DSC.5). Clase E. reserved ⇒ consumed | released; released ⇒ consumed solo por pago tardío; ⛔ consumed ⇒ nada [D5].
+FeaturedSlotKind    = new_arrival | pool                    // v1.113⟨portada⟩ (M-93, §DYN.1). Clase E. Viaja en `FeaturedListingDTO.featuredSlot`; `new_arrival` ⇒ etiqueta «Recién llegada».
+GradedCardScanOutcome = written | no_data                   // v1.113⟨portada⟩ (M-93, §DYN.4). Clase E. Resultado de la última consulta PSA de una carta (con dato / respondió sin dato). Admin-only, no viaja.
+GradedSetScanOutcome = ok | failed | unmapped | daily_limited | over_daily_cap // v1.113⟨portada⟩ (M-93, §DYN.4). Clase E. Bitácora por set; solo `ok` mueve relojes. Admin-only, no viaja.
+ListingPriceStatus  = priced | pending                      // v1.113⟨portada⟩ (M-94, §DYN.5). Clase E. `pending` ⇔ el cuerpo de venta dio PRICE_PENDING (no se publica ni se cobra).
+ListingPriceRunTrigger = daily | manual_ingest | publish_all | publish | dial_change | manual_price | bootstrap | missing_row // v1.113⟨portada⟩ (M-94, §DYN.5.3). Clase E. Por qué corrió un cálculo del precio del día.
+ListingPriceRunStatus = running | ok | failed               // v1.113⟨portada⟩ (M-94, §DYN.5.3). Clase E.
 ```
 
 ### DTOs base (compartidos)
@@ -46529,3 +46166,328 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
 - **Supuestos del PO que el diseño adopta:** caja grande fuera del envío gratis (DSC.4); filtros y mínimo no aplican al retiro (DSC.8);
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
+
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
+
+Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
+portada más rápida», **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
+se calcula UNA VEZ AL DÍA…», «Portada: se cobra el precio que el cliente VIO…» y «REGLA GENERAL… LO MÁS AUTOMÁTICOS POSIBLE»;
+`PROJECT §DYN` (criterios **920–939**), §Y.1/§Y.2 (**300, 301**), §X (**294–299**). Porqué y diagramas: `ARCHITECTURE §4.DYN`.
+Lo que esta sección no dice, no cambia. Diseño hecho sin Bash: lo que afirma del código lleva fichero:línea o **NO MEDIDO**.
+
+### DYN.0 Invariantes (cada una tiene prueba en §DYN.7)
+- **I-1 Nunca «las más caras» de respaldo (927).** Sin selección vigente, `GET /catalog/featured` responde `data: []`; ningún
+  camino del servidor ni del cliente ordena Destacadas por precio.
+- **I-2 Una selección por día, igual para todos (922).** La respuesta depende solo de la selección vigente y de la disponibilidad;
+  ⛔ ni sesión, ni idioma, ni dispositivo, ni `Accept-Language` la cambian. Cambia solo en el `effectiveFrom` de la siguiente.
+- **I-3 Exhibido = cobrado (💰).** Catálogo, ficha, Destacadas, vitrina y checkout leen el **mismo** `ListingPrice` (DYN.5);
+  el cobro nunca supera el precio vigente y nunca acepta un número que el servidor no publicó.
+- **I-4 El tope diario de créditos PSA no se rebasa** por diseño (exceso posible: el error de estimación de **un** set, DYN.4.3).
+- **I-5 La vitrina no cambia de regla (935):** `backend/src/common/graded-estimate.ts` (gate de §O.2/§O.7) sin cambios.
+- **I-6 La rotación no cambia (928):** `ROTATION_REST_MS`, `LEAD_IMAGE_CAP_MS`, `USER_INPUT_WINDOW_MS` y sus pruebas, intactos.
+
+### DYN.1 Esquema — `M-93` (portada y turnos, aditiva) y `M-94` (precio del día, aditiva, 💰)
+Carpetas: `prisma/migrations/20261110120000_m93_portada_dinamica/` y `…/20261111120000_m94_listing_price/` (posteriores a M-92,
+`20261109120000`; números libres medidos por búsqueda en `docs/` y `backend/prisma/migrations/` el 2026-10-29; **ramas `claude/*`
+no fusionadas NO MEDIDAS**: sin Bash; el orquestador lo comprueba antes de reservar).
+```prisma
+// ── M-93 ───────────────────────────────────────────────────────────────────────────────────────────────
+enum FeaturedSlotKind      { new_arrival pool }
+enum GradedCardScanOutcome { written no_data }
+enum GradedSetScanOutcome  { ok failed unmapped daily_limited over_daily_cap }
+// ALTER TYPE "SpendAlertKind" ADD VALUE 'psa_cycle_short'   (AG-24; precedente M-72)
+
+InventoryItem { firstListedAt DateTime? }   // lo escribe SOLO claimListed y SOLO si es NULL. Backfill: = createdAt en toda fila previa
+                                            // (ARCHITECTURE §4.DYN (c): excepción declarada, error solo por omisión). Sin índice.
+model FeaturedSelection {
+  businessDate  DateTime @id @db.Date       // día de portada (CDMX)
+  effectiveFrom DateTime                    // instante UTC en que empieza a servirse = businessDate a la hora del dial, CDMX
+  computedAt    DateTime @default(now())
+  seed          String                      // 32 bytes hex del sorteo (reproducible en auditoría)
+  dials         Json                        // los 5 diales de DYN.3 CONGELADOS al calcular
+  poolCount     Int                         // tamaño real del pool (≤ dial)
+  newArrivalCandidates Int
+  forcedByUserId String?                    // ≠ null ⇔ recalculada a mano (DYN.2.4)
+  items         FeaturedSelectionItem[]
+  @@index([effectiveFrom])
+}
+model FeaturedSelectionItem {
+  businessDate DateTime @db.Date            // FK Cascade → FeaturedSelection
+  position     Int                          // 1..N; CHECK position BETWEEN 1 AND 20
+  slotKind     FeaturedSlotKind
+  cardId String  productType ProductType  gradeKey String  finish Finish   // la llave K del grupo (§4.9a)
+  @@id([businessDate, position])
+  @@unique([businessDate, cardId, productType, gradeKey, finish])         // «no se repite una pieza el mismo día»
+}
+model GradedEstimateCardScan {              // estado por carta (raw) — «cuándo se consultó»
+  cardId        String @id                  // FK Cascade → Card
+  lastScannedAt DateTime
+  lastOutcome   GradedCardScanOutcome
+  lastSetScanId String                      // FK → GradedEstimateSetScan
+}
+model GradedEstimateSetScan {               // bitácora append-only, una fila por set intentado
+  id String @id @default(uuid())
+  setId String                              // FK → CardSet
+  businessDate DateTime @db.Date            // día CDMX al que se carga el gasto
+  startedAt DateTime @default(now())
+  outcome GradedSetScanOutcome
+  creditsEstimated Int                      // ≥ 0
+  creditsMeasured  Int?                     // apiCallsConsumed atribuible; null = el proveedor no lo dijo
+  creditsCharged   Int                      // lo que cuenta contra el tope = measured ?? estimated (0 si no hubo petición)
+  cardsInScope Int  cardsReturned Int
+  @@index([businessDate])  @@index([setId, startedAt])
+}
+// ── M-94 (💰) ──────────────────────────────────────────────────────────────────────────────────────────
+enum ListingPriceStatus     { priced pending }
+enum ListingPriceRunTrigger { daily manual_ingest publish_all publish dial_change manual_price bootstrap missing_row }
+enum ListingPriceRunStatus  { running ok failed }
+
+model ListingPrice {                        // UNA fila por pieza de plataforma vendible (mismo predicado que isSellable)
+  inventoryItemId String @id                // FK Cascade → InventoryItem
+  variantKey  String                        // `${cardId}|${productType}|${gradeKey}|${finish}` (fase 2 agrupa en SQL)
+  runId       String                        // FK → ListingPriceRun del valor vigente
+  status      ListingPriceStatus
+  unitPriceCents Int?                       // P vigente (IVA dentro) — lo que se exhibe y se cobra; NOT NULL ⇔ priced; CHECK ≥ 1
+  listPriceCents Int?                       // L vigente
+  fixedDisplayCents Int?  priceBasis PriceBasis?  marketMxnCents Int?   // instrumentación §N.8 (bracket se DERIVA, no se guarda)
+  ivaRatePct Int  ivaTransferPct Int        // los diales con que se derivó P (DYN.5.5)
+  computedAt  DateTime
+  prevUnitPriceCents Int?  prevListPriceCents Int?  prevFixedDisplayCents Int?  prevPriceBasis PriceBasis?
+  prevMarketMxnCents Int?  prevIvaRatePct Int?  prevIvaTransferPct Int?
+  prevValidUntil DateTime?                  // = instante del reemplazo + priceSeenGraceHours
+  @@index([variantKey])
+}
+model ListingPriceRun {
+  id String @id @default(uuid())
+  businessDate DateTime @db.Date  trigger ListingPriceRunTrigger  status ListingPriceRunStatus
+  scopeItemCount Int  pricedCount Int @default(0)  pendingCount Int @default(0)
+  startedAt DateTime @default(now())  finishedAt DateTime?  error String?
+  @@index([trigger, businessDate, status])
+}
+```
+**Datos (sin DDL):** M-93 siembra los 6 diales de DYN.3 que no son de dinero; M-94 siembra `price_seen_grace_hours`.
+`graded_estimate_ingest_max_cards_per_run` **se retira** (fila huérfana e inerte, precedente M-48; ⛔ sin `DELETE`).
+**Reversa:** M-93 ⇒ borrar tablas, columna y enums nuevos (el valor de `SpendAlertKind` no se puede quitar: queda inerte); M-94 ⇒
+borrar sus dos tablas y tres enums — **solo** desplegando antes el artefacto anterior, que no las lee (los pedidos ya cobrados
+congelaron su precio en `OrderItem` y no dependen de `ListingPrice`).
+
+### DYN.2 Destacadas del día — `GET /api/v1/catalog/featured` (público, `@Public`)
+**DYN.2.1 Request:** sin parámetros (cualquier query se ignora; no entra al registro de §0-Q porque no hay ejes).
+**Response 200:**
+```ts
+FeaturedResponse  = { businessDate: string | null,       // 'YYYY-MM-DD' (CDMX) de la selección servida; null ⇔ no hay ninguna
+                      data: FeaturedListingDTO[] }       // en el orden de la selección, sin huecos, ≤ 20
+FeaturedListingDTO = GroupedListingSummaryDTO & { featuredSlot: FeaturedSlotKind }   // el DTO de la rejilla, sin cambios + 1 campo
+```
+Errores: solo los genéricos de §0 (`500`). Cabecera: `Cache-Control: public, max-age=30, stale-while-revalidate=30` (DYN.6.1).
+**DYN.2.2 Lectura (por petición, coste constante):** `sel` = la `FeaturedSelection` con mayor `effectiveFrom ≤ ahora`. Para sus
+ítems: `fetchSellable` acotado a sus `cardId` → contexto del gancho → `buildGroups` (los de `catalog.service.ts:1444-1451`). Cada
+ítem cuya llave `K` tenga grupo vivo se emite, en orden de `position`, con el `summary` de siempre (precio del día DYN.5,
+`stockCount`, `gradingHighlight`). Ítem sin grupo vivo (vendido, apartado, retirado, sin precio) ⇒ **se omite, no se rellena**
+(924). Un grupo con más unidades sigue mientras quede una. Precio: el vigente del día, aunque haya bajado (la pieza no sale).
+**DYN.2.3 Cálculo (job `featured-rotation`, tic cada 15 min, `repeatEvery` con sufijo `-cron`; single-flight por candado
+consultivo; también se puede disparar a mano, DYN.2.4):**
+```
+H = featuredRotationHour (dial, hora CDMX)          D = fecha CDMX de (ahora + 30 min − H horas)
+si no existe FeaturedSelection(D):
+   effectiveFrom = D a las H:00 CDMX (en UTC)
+   si existe ListingPriceRun(daily, D, ok) o ahora ≥ effectiveFrom − 15 min:   // espera al precio del día, sin bloquear el cambio
+       cands = grupos vendibles raw|graded (sin sellado ni accesorios) con P, K, firstListedAt(grupo) = MIN de sus piezas vivas
+       escribir en UNA transacción: selectFeatured(cands, effectiveFrom, diales, rng(seed))
+selectFeatured (pura, en `catalog/featured-selection.ts`):
+   pool     = top poolSize de cands por (P desc, K asc)
+   recientes= cands con firstListedAt > effectiveFrom − windowDays·24 h; top 10 por (P desc, K asc)   // 10 = constante, §DYN.1
+   na       = sorteo sin reemplazo de min(newArrivalSlots, |recientes|) entre recientes        → posiciones 1..|na|
+   resto    = sorteo sin reemplazo de min(randomSlots + newArrivalSlots − |na|, |pool \ na|) de pool \ na → siguientes posiciones
+```
+Con < 10 elegibles salen todas sin repetir (925); con 0 se escribe la selección vacía (estado correcto, no fallo). Si el cálculo
+lanza, no se escribe nada, se loguea y el siguiente tic reintenta; mientras tanto se sirve la anterior (927).
+**DYN.2.4 Disparo manual:** `POST /api/v1/admin/jobs/featured-rotation` (`super_admin`, auditado, familia de §M10-ops) con
+`{ force?: boolean }`. Sin `force` ⇒ el tic de arriba. `force: true` ⇒ **rehace la selección del día que se está sirviendo** (semilla
+nueva, diales vigentes, `forcedByUserId`), `AuditLog` `featured.selection.forced` con antes/después. Es la herramienta de ops y de
+la prueba de navegador (939 b); ⛔ no tiene botón para el dueño y no elige piezas.
+**DYN.2.5 Salud de datos:** `GET /admin/dashboard` → `dataHealth.featuredRotation: { status: 'ok' | 'stale' | 'never',
+servingBusinessDate: string | null, expectedBusinessDate: string }` (aditivo, sin dinero ⇒ visible a `vault_operator`). `stale` ⇔
+`servingBusinessDate ≠ expectedBusinessDate` y ahora > `effectiveFrom(expected) + 15 min`. El texto del aviso: ux-ui.
+
+### DYN.3 Diales (`GET/PUT /api/v1/admin/settings`, M10, `super_admin`, auditados con antes → después, sin redeploy)
+| DTO (`clave`) | Seed | Rango (entero) | Efecto |
+|---|---|---|---|
+| `featuredPoolSize` (`featured_pool_size`) | **60** | `[1, 500]` | tamaño del pool de valor |
+| `featuredRandomSlots` (`featured_random_slots`) | **8** | `[0, 20]` | lugares al azar |
+| `featuredNewArrivalSlots` (`featured_new_arrival_slots`) | **2** | `[0, 4]` | lugares de recién llegadas; 0 los apaga |
+| `featuredNewArrivalWindowDays` (`featured_new_arrival_window_days`) | **7** | `[1, 30]` | ventana de «recién llegada» |
+| `featuredRotationHour` (`featured_rotation_hour`) | **6** | `[0, 23]` | hora CDMX del cambio diario (06:00) |
+| `gradedEstimateDailyCreditCap` (`graded_estimate_daily_credit_cap`) | **3000** | `[0, 20000]` | tope de créditos PSA por día CDMX; 0 = no se pide nada |
+| `priceSeenGraceHours` (`price_seen_grace_hours`) 💰 | **24** | `[0, 72]` | vigencia del precio visto tras un recálculo (DYN.5.5) |
+Reglas de combinación (sobre el valor RESULTANTE del `PUT` parcial): `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y
+`featuredPoolSize ≥ featuredRandomSlots`; si no ⇒ `422 VALIDATION_ERROR` con `details.rule`
+(`featured_slots_total` | `featured_pool_lt_random`). Los cinco `featured*` **no** tocan la selección ya escrita: rigen la siguiente
+que se calcule (926). El operador recibe `403` como en todo M10.
+**Se retira** `ingestMaxCardsPerRun` de `GET/PUT /api/v1/admin/pricing/graded-estimates` (§M2): sale de la respuesta y, enviado en
+el `PUT`, se rechaza como cualquier campo desconocido de ese cuerpo (código exacto: el que hoy da su pipe estricto; **NO MEDIDO**,
+backend lo cita en su nota). I8 pierde esa cláusula.
+
+### DYN.4 Joyas: turnos PSA por set con tope de créditos (cambia `ingestGradedEstimates`, `price-ingest.service.ts:1469-1832`)
+**DYN.4.1 Alcance:** sets con ≥ 1 carta `raw` publicada de plataforma (`price-ingest.service.ts:1471-1473`, sin el `orderBy` ni el
+`slice`). Sellado y gradeadas nunca (931). Lo que no cambia: el dial `grading_hook_enabled`, la sonda, INV-D, los gates de
+escritura, `stopReason`, las escaladas y el veredicto (salvo que «alcance recortado por tope» pasa a «por presupuesto»).
+**DYN.4.2 Orden y reloj (por corrida):**
+```
+vencido(set) ⇔ sin GradedEstimateSetScan ok  ∨  fechaCDMX(última ok) ≤ hoyCDMX − 7
+orden: primero sin ninguna ok, por MIN(firstListedAt de sus cartas raw publicadas) asc; luego por fechaCDMX(última ok) asc; desempate setId
+set sin pptSetId tras el mapper ⇒ fila `unmapped` (0 créditos), no mueve relojes, se sigue con el siguiente
+```
+**DYN.4.3 Presupuesto:** `restante = cap − Σ creditsCharged(businessDate = hoy CDMX)`. Por set, en orden:
+`est = creditsMeasured de su última fila ok ?? 2 × (cartas del set en Card)`. Si `est > cap` ⇒ fila `over_daily_cap` (0
+créditos) y se salta; si `est > restante` ⇒ **la corrida para**; si no ⇒ se pide. Tras la respuesta se carga
+`creditsMeasured ?? est`. `429` diario ⇒ fila `daily_limited` con lo medido, y la corrida para. Petición sin respuesta ⇒ `failed`
+con lo medido (932 reporta si gastó).
+**DYN.4.4 Al responder `ok`:** cada carta del set **en alcance** recibe `GradedEstimateCardScan` = ahora, `written` si se escribió
+≥ 1 grado y `no_data` si no. Una carta retirada no está en alcance y conserva su fecha; al volver, espera el reloj de su set (931).
+**DYN.4.5 Aviso AG-24 (`SpendAlertKind.psa_cycle_short`), al final de cada corrida con el dial encendido:**
+`W = Σ est(s)` sobre los sets en alcance mapeados; `ciclo = ⌈W / cap⌉` (cap 0 ⇒ `null`); `topeQueAlcanza = ⌈W / 7 / 100⌉ × 100`.
+Abre si `ciclo > 7` (`reason: 'projected'`) **o** algún set lleva vencido > 8 días (`reason: 'overdue'`). Una sola fila abierta
+(`dedupKey` con el mismo mecanismo de apertura y cierre que AG-7, §M4-SHIP.19.29.6); mientras siga abierta se **actualiza en
+sitio** (`facts`, `lastOccurredAt`), ⛔ nunca una fila por corrida; se cierra sola (`resolvedAt`) cuando ninguna condición se
+cumple. `severity: digest`, `mailStatus: not_applicable` y ⛔ fuera del resumen diario (933: sin correo). `facts` (lista blanca):
+`{ reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek, setsOverCap }`. Texto: ux-ui (ejemplo de `PROJECT §DYN.2`).
+AG-19 (80 % del tope, §Z) sigue **reservado**: no entra en este alcance.
+**DYN.4.6 `GET /api/v1/admin/pricing/graded-estimates/budget`** (`super_admin`; criterio 301):
+```ts
+{ hookEnabled: boolean, dailyCreditCap: number,
+  creditsToday: number, creditsLast7Days: number, creditsTodayAllMeasured: boolean,   // false ⇔ alguna fila de hoy cargó estimado
+  providerDailyQuota: number | null,      // env POKEMONPRICETRACKER_DAILY_QUOTA (devops; 20000 según DEVOPS_NOTES §32.12.1); null = sin fijar
+  providerDailyRemaining: number | null,  // última lectura del proveedor; null = no la expuso
+  publishedCards: number, cardsScannedLast7Days: number, cardsUnmapped: number,
+  weeklyCreditsNeeded: number, cycleDays: number | null, capToCoverWeek: number }
+```
+**DYN.4.7 Medición que cierra el coste (NO MEDIDO hoy; devops con usuario de solo lectura en producción, antes de encender):**
+```sql
+WITH pub AS (SELECT DISTINCT "cardId" FROM "InventoryItem"
+             WHERE "ownerType"='platform' AND status='listed' AND "productType"='raw'),
+     s   AS (SELECT DISTINCT c."setId", (cs."pptSetId" IS NOT NULL) AS mapped
+             FROM pub JOIN "Card" c ON c.id = pub."cardId" JOIN "CardSet" cs ON cs.id = c."setId")
+SELECT (SELECT count(*) FROM pub)                                       AS cartas_publicadas,
+       (SELECT count(*) FROM s)                                         AS sets_en_alcance,
+       (SELECT count(*) FROM s WHERE NOT mapped)                        AS sets_sin_mapear,
+       2 * (SELECT count(*) FROM "Card" WHERE "setId" IN (SELECT "setId" FROM s)) AS w_semanal_cobro_por_carta_devuelta;
+```
+`w/7` contra 3 000 dice si el tope alcanza **bajo cobro por carta devuelta**; la línea `COSTE MEDIDO` de la primera corrida (A-1)
+dice qué régimen es el real. Sin las dos, «~1 700/día» de `HECHOS` sigue siendo estimación.
+
+### DYN.5 💰 Precio del día — `ListingPrice` (§X.1 + «se cobra el precio que el cliente VIO»)
+**DYN.5.1 Un cuerpo:** el cálculo de una fila es `resolveSaleDecision` + `derivedSaleDecision` (`orders.service.ts:353-470`),
+**extraído** a un servicio de `pricing` que usan el escritor y el checkout. ⛔ Una segunda copia del cálculo es un defecto.
+**DYN.5.2 Alcance:** piezas de plataforma con `status ∈ {listed, in_stock}` (el `isSellable` de `orders.service.ts:488-490`).
+Accesorios fuera (precio fijo del dueño, §AC). Resultado `PRICE_PENDING` ⇒ fila `pending` (no se exhibe ni se cobra).
+**DYN.5.3 Cuándo corre (`ListingPriceRun`, single-flight; lotes de 500 por transacción):** `daily` en el tic de DYN.2.3 cuando
+ahora ≥ `effectiveFrom(D) − 60 min` y no hay `daily` ok de `D`; `manual_ingest` al terminar `POST /admin/jobs/price-ingest`;
+`publish_all` al terminar «Publicar todo»; `publish` tras el commit de cada publicación (los ids publicados); `dial_change` tras
+un `PUT` que toque una clave de `PRICE_AFFECTING_SETTING_KEYS`; `manual_price` tras precio por pieza, override de variante o precio
+del producto sellado (las piezas afectadas); `bootstrap` una vez al desplegar M-94; `missing_row` cuando un lector no encuentra
+fila. ⛔ Las corridas **automáticas** de `price-ingest` no disparan cálculo (el dueño pidió una vez al día).
+**DYN.5.4 `PRICE_AFFECTING_SETTING_KEYS`** (`common/settings.constants.ts`): la lista de claves que mueven el precio de venta.
+Candado de completitud DYN-B17: toda clave de `SettingKey` cuyo cambio altere la salida del cuerpo de DYN.5.1 sobre el fixture debe
+estar en la lista.
+**DYN.5.5 Escritura de una fila:** si el `P` nuevo ≠ el vigente, el vigente pasa a `prev*` con `prevValidUntil = ahora +
+priceSeenGraceHours`; si es igual, solo se actualizan `runId`/`computedAt` (y `prev*` se conserva hasta caducar).
+**DYN.5.6 Lectores:** `GET /catalog/cards`, `/catalog/facets`, `/catalog/cards/:cardId`, `/catalog/listings/:id`, `/catalog/sealed*`,
+`/catalog/featured` y la vitrina leen la fila (`fetchSellable` deja de cargar curva, políticas, referencias y overrides). Sin fila ⇒
+cálculo en vivo por DYN.5.1 para esa pieza + `missing_row` encolado. Las formas de respuesta **no cambian**.
+**DYN.5.7 Checkout — precio visto (cuerpos de quote y sesión de §4 y §4-G, con cuenta e invitado):** campo nuevo, opcional y aditivo
+`seenUnitPriceCents?: { [inventoryItemId: string]: number }` (enteros ≥ 1; una llave que no esté en `inventoryItemIds` ⇒
+`400 VALIDATION_ERROR`, `details.field = 'seenUnitPriceCents'`). Por línea, con los diales de IVA leídos **una vez** para el pedido:
+```
+fila ausente | pending | (ivaRatePct, ivaTransferPct) de la fila ≠ los del pedido  ⇒ cálculo en vivo (DYN.5.1)  [PRICE_PENDING igual que hoy]
+visto == vigente.P                                                                  ⇒ vigente
+visto == prev.P ∧ ahora < prevValidUntil ∧ diales de prev == los del pedido         ⇒ el MENOR de (prev, vigente)
+cualquier otro caso (incluido visto ausente)                                          ⇒ vigente
+```
+`OrderItem` congela `unitPriceCents`, `marketMxnCents`, `priceBasis`, `marketBracket` (= `marketBracketOf(marketMxnCents)`) y
+`finish` **de la decisión elegida** (§N.8: un solo cálculo). La línea del quote gana `priceChanged?: { seenCents, chargedCents }`
+**solo** si hubo `visto` y `cobrado ≠ visto`; si no, el campo se **omite** (respuesta byte a byte la de hoy sin `seenUnitPriceCents`).
+El carrito del navegador guarda el `displayPriceCents` de la teja o ficha desde la que se añadió (`frontend/src/lib/cart.ts:41-48`).
+**DYN.5.8 Salud:** `dataHealth.listingPrices: { status: 'ok' | 'stale' | 'never', lastDailyBusinessDate: string | null }`
+(`stale` ⇔ no hay `daily` ok del día de portada vigente pasada su `effectiveFrom`).
+
+### DYN.6 Portada servida (DYN.3 de `PROJECT`, criterios 936–938)
+**DYN.6.1 Cabeceras:** `GET /catalog/featured`, `/catalog/cards`, `/catalog/facets` y `/catalog/sealed` responden
+`Cache-Control: public, max-age=30, stale-while-revalidate=30` (públicas e idénticas para todo visitante: `@Public`, sin lectura de
+sesión, `catalog.controller.ts:37-102`). Lectura de «disponibilidad en vivo» en listas: **≤ 60 s**; exacta al pagar (`409`).
+**DYN.6.2 Render de servidor:** la portada pide en servidor `GET /catalog/featured` y la vitrina
+(`/catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`) con caché de datos de Next (`revalidate: 30`, etiquetas
+`featured` y `showcase`) y **tope de 400 ms**; con datos, pinta las tejas en el HTML (la `<img>` líder presente) e hidrata
+react-query con ellos (`initialData` + revalidación al montar); sin datos a tiempo, pinta el **marco** con su alto reservado y el
+cliente rellena. ⛔ Ninguna petición nueva de forma: los mismos dos endpoints en servidor y cliente.
+**DYN.6.3 CSP fase 1:** se conserva el nonce por petición (§14.3) y el render dinámico del HTML; **solo se cachean datos**. La fase 2
+(CSP estática por clase de ruta + HTML cacheable) está descrita en `ARCHITECTURE §4.DYN (f) 5` y **no se construye** sin la
+medición posterior a la fase 1 y el veredicto de seguridad.
+**DYN.6.4 El nonce llega:** en `/es` y `/en`, **todo** `<script>` sin `src` lleva `nonce` igual al de la cabecera CSP, y una carga
+de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por frontend N=5). Prueba DYN-F7.
+**DYN.6.5 CORS:** backend fija `maxAge: 600` en `cors.ts` (sin efecto en ninguna respuesta de este contrato).
+
+### DYN.7 Pruebas que deben fallar hoy (deterministas N=1 salvo donde se dice N; sobre copia del árbol ENTERO, O-9)
+| ID | Criterio | Qué asierta | Mutación que la pone roja |
+|---|---|---|---|
+| DYN-B1 | 920 | 100 piezas sembradas (raw, graded, sellado, accesorio, sin precio), 10 días con reloj inyectado: las de `pool` salen siempre del top-60 por `P` de raw/graded | ordenar el pool por `L` de otro tipo o incluir sellado |
+| DYN-B2 | 921 | **N = 10** inventarios: ningún par de días seguidos con las mismas 8; ≥ 30 distintas en `pool`. Se reporta la proporción con autor (O-3/O-15) | semilla fija por fecha que ignore el día |
+| DYN-B3 | 922, I-2 | 20 peticiones (con y sin sesión, `Accept-Language` es/en, UA móvil/escritorio) entre `effectiveFrom` y +23:59 ⇒ cuerpos iguales; a `effectiveFrom` del día siguiente, otra | leer el idioma o la sesión en el endpoint |
+| DYN-B4 | 923 | publicadas hace 1, 3 y 8 días: la de 8 nunca `new_arrival`; posiciones 1-2; republicar no mueve `firstListedAt`; sin recientes, todo `pool` | escribir `firstListedAt` en cada `claimListed` |
+| DYN-B5 | 924 | vender una destacada de 1 unidad ⇒ sale, las demás en su orden, sin relleno; de 2 unidades, vender 1 no la quita | recalcular la selección en la lectura |
+| DYN-B6 | 925 | 5 elegibles ⇒ 5 sin repetir; 0 ⇒ `data: []` | — |
+| DYN-B7 | 926 | los 5 diales `featured*` auditados; la selección vigente no cambia; la siguiente cumple; operador `403`; combinaciones inválidas `422` | aplicar el dial en la lectura |
+| DYN-B8 | 927, I-1 | cálculo forzado a fallar ⇒ se sirve la anterior menos lo vendido, `dataHealth.featuredRotation.status = 'stale'`, y la respuesta **≠** las N más caras (fixture construido para que difieran) | fallback a `sort=price_desc` |
+| DYN-F1 | 920, 928 | `_home/**` no contiene `price_desc` ni llama `getCatalog` para Destacadas; el hook llama `getFeatured`; `git diff` de `FeaturedCarouselRotation.test.tsx` y `e2e/featured-rotation.spec.ts` vacío; la pasada recorre 10 tejas; etiqueta en `new_arrival` | volver a `getCatalog({sort:'price_desc'})` |
+| DYN-B9 | 929 | 30 sueltas en 30 sets (5 nunca consultadas, 25 con fechas distintas), créditos para 10 sets ⇒ 5 nunca + 5 más viejas; ninguna < 7 días | `orderBy cardId asc` |
+| DYN-B10 | 930 | créditos de sobra, 14 días, 2 corridas/día, sets de 1 y de 5 cartas propias: cada carta **exactamente 2** consultas separadas ≥ 7 días naturales CDMX | reloj por carta en vez de por set |
+| DYN-B11 | 931 | retirada ⇒ no se consulta; republicada a los 3 días ⇒ espera a 7; sellado y gradeadas nunca | — |
+| DYN-B12 | 932 | sin respuesta ⇒ `failed`, relojes intactos, reintento siguiente corrida; sin dato ⇒ `no_data` y vuelve a 7 días | marcar consultada en `failed` |
+| DYN-B13 | 933, 301 | tope bajo ⇒ Σ `creditsCharged` del día ≤ tope; **una** fila AG-24 abierta tras 3 corridas, `mailStatus not_applicable`, fuera del resumen; subir el tope ⇒ `resolvedAt` | crear fila por corrida |
+| DYN-B14 | 934, 300 | 1 200 sueltas, tope 3 000, sin tocar nada: en 7 días todas consultadas; ningún corte por número de cartas | reintroducir `.slice(0, 250)` |
+| DYN-B15 | 935, I-5 | suites del gate de la vitrina pasan **sin editarlas** (`git diff` vacío en sus ficheros de prueba y en `common/graded-estimate.ts`) | — |
+| DYN-B16 | I-3 💰 | mismo instante: `P` de rejilla, ficha, Destacadas y quote iguales; cambiar `PriceReference` sin recálculo no mueve ninguno; tabla de DYN.5.7 caso por caso (visto falso ⇒ vigente; anterior caducado ⇒ vigente; bajada ⇒ vigente menor; diales distintos ⇒ en vivo); `OrderItem` con la instrumentación de la decisión elegida | checkout leyendo en vivo; aceptar `visto` sin compararlo |
+| DYN-B17 | DYN.5.4 | completitud de `PRICE_AFFECTING_SETTING_KEYS` | quitar una clave de la lista |
+| DYN-B18 | §X.1 | corrida automática de `price-ingest` ⇒ exhibido igual; manual ⇒ recalculado | disparar recálculo en la automática |
+| DYN-B19 | DYN.5.6 | sin fila ⇒ precio en vivo correcto + `missing_row` encolado; `pending` nunca se exhibe ni cobra | — |
+| DYN-B20 | DYN.3 | `ingestMaxCardsPerRun` ausente del `GET`; en el `PUT` rechazado | — |
+| DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales |
+| DYN-F4 | DYN.5.7 | el carrito manda `seenUnitPriceCents`; con `priceChanged` la línea lo muestra | — |
+| DYN-F5 | 926, 301 | M10 edita los 7 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | — |
+| DYN-F7 | DYN.6.4 | nonce en todo `<script>` en línea y 0 reportes CSP por vista | quitar el nonce del render |
+| DYN-D1 | 938 | Lighthouse CI sobre el stack sembrado, `numberOfRuns: 5`, mediana: móvil FCP ≤ 1.0 s, LCP ≤ 2.5 s; escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1. Canario: retraso artificial de la portada (variable solo fuera de producción) ⇒ rojo | — |
+| DYN-D2 | 937 | proxy de prueba entre la tienda y el API en el stack de CI que retrasa 5 s o responde `503` a `/catalog/featured` y a la vitrina | — |
+QA: DYN-B2 con N=10 y DYN-D1 con N=5 por perfil, proporción y autor; repite las mutaciones de DYN-B8, DYN-B14 y DYN-B16. **939 de
+punta a punta** (tester-e2e, navegador, stack sembrado): (a) súper-admin cambia azar 8→6 en Configuración; (b) `POST
+/admin/jobs/featured-rotation {force:true}` (lo dispara el rol técnico, no el dueño) ⇒ 6 + 2 recién llegadas, iguales en dos
+navegadores; (c) un invitado compra una destacada y desaparece en el otro navegador tras ≤ 60 s y recargar; (d) tope bajado ⇒ AG-24 en
+el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, mediana y peor, sha, fecha y carga), como pide `PROJECT §DYN.3`.
+
+### DYN.8 Desviaciones, ambigüedades, supuestos y preguntas
+- **D-DYN-1 (nonce):** la CSP con nonce de §14.3 no llega a los 28 `<script>` en línea (medido por frontend en producción, N=5;
+  causa NO MEDIDA). **La corrige frontend**; la verifica **seguridad**; la vigila **DYN-F7**. Bloquea cualquier paso a `enforce`.
+- **D-DYN-2 (§X.1 contra HECHOS):** `PROJECT.md:7875-7876` dice «el cobro siempre recalcula… se cobra el precio actual»; `HECHOS`
+  2026-10-04 «Portada: se cobra el precio que el cliente VIO» manda. Este contrato sigue a HECHOS (DYN.5.7). **Lo corrige
+  product-owner**; lo vigila DYN-B16.
+- **D-DYN-3 (§DYN.2 «§R»):** `PROJECT.md:8040` envía el aviso al «centro de avisos, §R», que es el del cliente (`PROJECT.md:6173`);
+  aquí va a §Z (AG-24). **Lo corrige product-owner**; lo vigila DYN-B13.
+- **Lecturas del arquitecto que product-owner debe reflejar en el texto de criterios:** 929/930 se cumplen **por set** (un set
+  es la unidad que se pide; con una carta propia por set coinciden con el texto); «recién llegada» se decide por grupo con su pieza
+  viva más antigua; «en vivo» en listas = ≤ 60 s (924, 939 c); fuera de la gracia de 24 h se cobra el vigente y se avisa (§X.2).
+- **Supuestos adoptados (defaults, el dueño puede moverlos con su dial):** gracia del precio visto **24 h**; top 10 de la ventana
+  para recién llegadas (constante, `PROJECT §DYN.1`). Ejemplo para el dueño si lo pregunta: *viste una carta a MX$500 ayer a las
+  20:00; el recálculo de hoy la sube a MX$550; si pagas antes de las ~05:00 de mañana pagas MX$500; si hoy bajó a MX$450, pagas
+  MX$450.*
+- **Preguntas al dueño:** ninguna inevitable. El coste PSA (DYN.4.7) lo resuelve una medición, y si no alcanza el sistema avisa solo.
+
+### DYN.9 Reparto (modelo fuerte en todo backend: DYN.4 gasta créditos, DYN.5 es dinero ⇒ triple veredicto)
+- **backend:** M-93 + `firstListedAt` en `claimListed` + DYN.2 (selección pura, job, endpoint, disparo manual, salud) + DYN.3;
+  DYN.4 (turnos, presupuesto, AG-24, retiro del dial, veredicto); M-94 + DYN.5 (extraer el cuerpo único, escritor, disparadores,
+  lectores, checkout); DYN.6.1 y DYN.6.5. Pruebas DYN-B*. Orden: M-93 → DYN.2/DYN.4 → M-94 → DYN.5.
+- **frontend:** hook de Destacadas a `getFeatured` + etiqueta + 10 tejas (DYN-F1); portada con datos de servidor (DYN.6.2, DYN-F2);
+  M10 y panel de presupuesto, retiro del campo (DYN-F5); `seenUnitPriceCents` y `priceChanged` (DYN-F4); nonce (DYN-F7).
+  ⛔ `frontend-lite` no: todas llevan prueba nueva.
+- **devops:** DYN-D1 y DYN-D2; `POKEMONPRICETRACKER_DAILY_QUOTA`; `scripts/check-graded-estimate-dials.sh` y `scripts/post-deploy.sh`
+  sin `ingestMaxCardsPerRun`; la consulta de DYN.4.7 en producción con usuario de solo lectura.
+- **ux-ui:** «Recién llegada», texto de AG-24 y de `featuredRotation`/`listingPrices` en salud de datos, panel de presupuesto, aviso
+  `priceChanged`. **product-owner:** D-DYN-2, D-DYN-3 y las lecturas de DYN.8.

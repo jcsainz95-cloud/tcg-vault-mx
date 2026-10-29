@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.113⟨portada⟩ (2026-10-29).** [§4.DYN](#4-DYN) NUEVA: Destacadas materializadas al día (M-93), turnos PSA por set con tope de créditos (retira `graded_estimate_ingest_max_cards_per_run`), precio del día y precio visto (M-94, 💰), portada servida con datos en el HTML y CSP de fase 1 · orquestador (`HECHOS.md` 2026-10-29 y 2026-10-04). Contrato: API_CONTRACT §DYN.
 > **Rev v1.112.2⟨sec-med-1⟩ (2026-10-26).** §14.4 D-MKT2-11: URL saneada en todo evento de GA4, píxel solo en documento limpio, medición mejorada apagada · seguridad (SEC-MED-1, `1256b21c`).
 > **Rev v1.112⟨meta-prueba⟩ (2026-10-26).** §14.10 D-MKT2-10: versión de Graph y evento de prueba de Meta (cierre de MKT-F2-3); D-MKT-CELLS-1 compactada · backend. Contrato: §MKT.H.1/.12.
 > **Rev v1.111⟨aviso-medicion⟩ (2026-10-26).** §14.1 D-MKT2-0b: `legalReviewOn | null` + `legalReviewWaivedByOwnerOn`, exactamente una (`HECHOS.md` 2026-10-23); §14.10 aviso aprobado · orquestador.
@@ -58,283 +59,18 @@
 > Sin schema, migración, endpoint ni campo. Un cambio de conducta acotado en backend (`referencePrice` sale `pending` en
 > líneas sin cotizar) y el resto es frontend. Sustituye en un punto §4.36.7(b) («el cotizador de buylist sigue sin mostrar
 > valor de mercado») y corrige la fila del cotizador de la tabla de §4.36.7(b.2).
-> **Errata v1.88.1⟨release-s7⟩ — la limpieza conoce `M-73` y `M-74`** (2026-10-08, arquitecto, worktree
-> `/home/user/tcg-release`; ⛔ sha NO MEDIDO: sin Bash). Norma en `docs/specs/LIMPIEZA_DB.md §14.13`; índice en la cabecera
-> v1.88.1 de `API_CONTRACT`. Cierra el «Abierto» de v1.88 (abajo). ⛔ Sin esquema, migración ni ruta.
-> - **Decisión de modelo:** `Accessory` mezcla en una fila catálogo (se queda) y existencias (inventario: se borran).
->   La limpieza la **ajusta** (`stockQty = reservedQty = 0`), igual que borra `InventoryItem` y conserva `SealedProduct`.
->   Las 8 energías de la semilla de `M-73` salen intactas.
-> - **G-10 condicionada** a que haya clientes esperando (suscripciones pendientes sin armar), por la decisión del dueño
->   del 2026-10-08. Sustituye a LZ-W3, que paraba solo por el estado del dial.
-> - **Con y sin:** las tablas nuevas se tratan con `\if` de psql y banderas tomadas antes del `BEGIN`. Así no se rompe la
->   foto única `REPEATABLE READ` de C-4, y el B de `a7232d7a` (el que el dueño corre hoy) sigue siendo el resultado sobre
->   una base sin ellas.
+> **Revisiones v1.80.12.1 → v1.88.1 compactadas el 2026-10-29 (v1.113⟨portada⟩; una línea cada una, detalle en su sección,
+> historia en git):**
+> - v1.88 / v1.88.1⟨release-s7⟩ · 2026-10-08 · convivencia accesorios × deseos y limpieza que conoce M-73/M-74 · `docs/specs/LIMPIEZA_DB.md §14.13`, §0-Q del contrato.
+> - v1.87 … v1.87.4⟨wishlist⟩ · 2026-10-07 · lista de deseos y «avísame» de sellados, M-74 · **§4.WSH** (j)–(m), `API_CONTRACT §WSH`, D-WSH-1…7 en §9.
+> - v1.86 … v1.86.6⟨accesorios⟩ · 2026-10-07/08 · 💰 accesorios, energías y paquete del deck, M-73 · **§4.AC** (n)–(r), `API_CONTRACT §AC`, D-AC-1…3 en §9.
+> - SU-1 · 2026-10-07 · la ubicación deja de ser requisito para publicar; el alta dispara la publicación · **§4.65**, `API_CONTRACT §M1-SU`.
+> - v1.85⟨ventas⟩ · 2026-10-06 · 💰 analítica de ventas del dueño · **§4.64**, `API_CONTRACT §15`, D-AN-1…3 en §9.
+> - BSD-1 … BSD-1.5 · 2026-10-06 · 💰 buylist con guía Skydropx de entrada, «Declinar» en «Aceptada», cierre a 7 días, M-72 · **§4.BSD** (k)–(o), `API_CONTRACT §BSD` (.15–.19), DV-BSD-1 en §9.
+> - v1.80.12.1 … v1.80.12.17 · 2026-10-04/05 · 🔒💰 Skydropx fase C/D: compra en vuelo, colonia que ayuda, catálogo de CP, control del gasto (§Z, M-68, `User.isOwner`), cierres D2a–D2g · **§4.60** (n)–(ac), `API_CONTRACT §M4-SHIP.19.21`–`.19.36`.
 >
-> **Errata v1.88⟨release-s7⟩ — convivencia de accesorios y lista de deseos** (2026-10-08, arquitecto, worktree
-> `/home/user/tcg-release`, rama `claude/release-s7`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT`, cabecera v1.88 y
-> §0-Q punto 4. ⛔ Sin schema, migración ni cambio de conducta.
-> - **Contradicción:** las dos ramas fijan el `REGISTRO` de `C-EQ-1` en 68 (de 64, cada una por su lado); la unión es
->   **72**. Se escriben en §0-Q las 4 filas de `sort`/`dir` de la lista de compra (L, ORDEN), y los pendientes vuelven a 18.
-> - **§11:** `M-73` (`20261026120000`) va antes que `M-74` (`20261027120000`), medido con Glob el 2026-10-08: nadie
->   re-fecha. En §11 la entrada de `M-74` va arriba, porque §11 pone la más reciente primero.
-> - **Sin contradicción:** el checkout con cuenta rechaza accesorios (§4.AC) y la baja de deseos al pagar solo actúa con
->   `userId` (§4.WSH). El pedido de invitado nace con `userId = null` (`guest-checkout.service.ts:345`): un pedido con
->   accesorios nunca toca deseos. Con v1.86.6 el settle con accesorio sin respaldo acaba `settled`; la baja de deseos corre
->   tras el commit y no cambia.
-> - **Abierto:** la limpieza `P-DB-LIMPIEZA` (`API_CONTRACT §WSH.11`) no conoce las 6 tablas de `M-73`. Qué borra: NO MEDIDO.
->
-> **Errata v1.87.4⟨wishlist⟩ — el mapeo de piezas cambia después de apuntarse** (2026-10-07, arquitecto, rama
-> `claude/wishlist`, HEAD dado por el orquestador `7248b780`; ⛔ sha NO MEDIDO: sin Bash). Responde a
-> `BACKEND_NOTES §84.v1.87.3`: sí hay un escritor de `tcgplayerProductId` sobre piezas ya dadas de alta (la curación de
-> §M2). Norma en `API_CONTRACT §WSH.13` y WSH.7 (g); porqué en **§4.WSH (m)**. El job de sellados **re-apunta** al
-> empezar cada corrida las suscripciones pendientes huérfanas a su destino único, reinicia el armado y quita duplicados;
-> `pricing` no toca la tabla de `catalog`. Sin esquema, sin `M-74` nueva, sin ruta. Prueba WSH-T44. Tres
-> interpretaciones de backend ratificadas.
->
-> **Errata v1.87.3⟨wishlist⟩ — el rechazo de QA a §WSH** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
-> orquestador `503cf07`; ⛔ sha NO MEDIDO: sin Bash). Responde a B-1 (bloqueante: el «avísame» de sellados nunca avisaba a
-> quien se apunta desde la pantalla) y M-1 (la promo borraba el deseo). Norma en `API_CONTRACT §WSH.12` y en su sitio;
-> porqué en **§4.WSH (l)**. El cliente manda `{ email, inventoryItemId }` y el **servidor deriva** la identidad del sellado
-> de esa pieza (una sola regla de clave); ⚠️ **`M-74` gana un relleno acotado** de `tcgplayerProductId` en suscripciones
-> pendientes heredadas, solo si es inequívoco; la baja al pagar usa el **mismo** filtro de producto de set que el aviso.
-> Pruebas WSH-T42 (con el cuerpo exacto de la pantalla y candado de paridad) y WSH-T43.
->
-> **Errata v1.87.2⟨wishlist⟩ — lo que backend encontró al construir** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD
-> dado por el orquestador `410075e`; ⛔ sha NO MEDIDO: sin Bash). Responde a `BACKEND_NOTES §84.3`. Norma en
-> `API_CONTRACT §WSH.11` y en su sitio; porqué en **§4.WSH (k)**. Pipe estricto **por parámetro**; `OptionalSessionGuard`
-> ratificado; 💰 **`M-74` cambia una FK** (`WishlistNotice.inventoryItemId` → `ON DELETE CASCADE`) para no chocar con la
-> limpieza que borra el inventario; cinco cambios descritos para la rama de limpieza (LZ-W1…W5, no escritos aquí). Pruebas
-> WSH-T38…T41.
->
-> **Errata v1.87.1⟨wishlist⟩ — huecos de ux-ui** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
-> orquestador `00ddca8`; ⛔ sha NO MEDIDO: sin Bash). Responde a `DESIGN_SYSTEM §WSH-UX.14` (Q-WSH-UX-1…9). Norma en
-> `API_CONTRACT §WSH.10` (índice) y en su sitio (WSH.3/.4/.6/.8/.9); porqué en **§4.WSH (j)**. Una ruta nueva de lectura
-> (`GET /wishlist/preview`), dos campos aditivos (`ivaRatePct`, `availableNow.fits`), unidad de `pct` fijada, foto del
-> correo con reglas de privacidad, enlaces del correo independientes del dial. `M-74` sin cambio. Pruebas WSH-T31…T37 y
-> WSH-F6…F9. Queda una pregunta al dueño (staff con lista).
->
-> **Rev v1.87⟨wishlist⟩ — lista de deseos, «lista de compra casi segura» y «avísame» de sellados encendido** (2026-10-07,
-> arquitecto, rama `claude/wishlist` en `/home/user/tcg-wishlist`, HEAD dado por el orquestador `c36f0dea`; ⛔ sha NO
-> MEDIDO: sin Bash). Norma en `API_CONTRACT §WSH`; porqué en **§4.WSH**; migración **`M-74`** en §11; desviaciones
-> **D-WSH-1…7** en §9. Módulo nuevo `wishlist`; el aviso sale de un barrido por estado con deduplicación por
-> `(cuenta, pieza)`, no de un evento por escritor.
->
-> **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, rama `claude/accesorios`, HEAD `dd26ae79` según el orquestador;
-> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.21` (y §AC.6/§AC.7 retocados); el porqué en **§4.AC (r)**.
-> ⛔ Sin schema ni cambio a `M-73`. Cierra lo que el techlead dejó al arquitecto sobre `dd26ae79`:
-> - 💰 **TD-AC-1:** liquidar ya no se cae entero por un renglón de accesorio sin respaldo; cae a la recuperación o a
->   `settledWithoutStock`, con bitácora, como la carta en B3. Cambia conducta (backend).
-> - **TD-AC-8:** el contrato nombra los ficheros y la función como están en el código (`orders/`, `accessoryReservedDrift`).
-> - **TD-AC-9:** fotos sin CDN (riesgo aceptado) y `pullToken` atado a `PII_HMAC_KEY` (consta en §8 para el runbook).
-> - Propuesta, sin construir: **TD-AC-10**, corrección automática del contador `reservedQty`.
->
-> **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bc128c4` según el orquestador;
-> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.20`; el porqué en **§4.AC (q)**. ⛔ Sin schema, sin cambio a
-> `M-73` y sin cambio de conducta. Cierra los tres puntos abiertos de `BACKEND_NOTES §83.B`:
-> - En la carrera del paquete valen `409` y `422 insufficient_stock`, sin traducción. El frontend ya los trata igual.
-> - El dial del paquete puede tener fila o no. La prueba de C fija su propio estado y deja el entorno como lo encontró.
-> - La reposición al reembolso total se queda en la tx1 de M3, también si Stripe rechaza.
->
-> Pruebas AC-B61…B63 y AC-F23.
->
-> **Errata v1.86.3⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bb5147b` según el orquestador;
-> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.19`; el porqué en **§4.AC (p)**. ⛔ Sin schema ni cambio a
-> `M-73`. Ratifica lo construido por A (`BACKEND_NOTES §83.A.1`) y C (`§83.C.3`). Un ajuste a A: la bitácora del borrado
-> guarda los movimientos. Fija para el frontend (`FRONTEND_NOTES §107`) la foto como ruta sin host, más el origen de la
-> API en `img-src`, las respuestas del panel y de la preparación, y `id`/`kind` en los renglones. Entrega a B el cableado
-> de `evaluateDeckPulls`: paquetes primero en `quote` e `index` en `unavailableBundles`. Pruebas AC-B53…B60 y AC-F20…F22.
->
-> **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `4e06c7e` según el orquestador;
-> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.18`; el porqué en **§4.AC (o)**. Responde a `BACKEND_NOTES
-> §83.3/§83.4`. Cinco líneas de enums en §0 del contrato. 💰 `M-73` (sin fusionar) reescribe dos CHECK de `PaymentRefund`
-> de M-61/M-70 y añade `payment_refund_accessory_shape`, para que quepan las filas de accesorio. El entregado de accesorio
-> pide nota y `expectedRefundCents`, como el de la carta. Ratifica las 5 decisiones de backend.
->
-> **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `ba795ee` según el orquestador;
-> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC` (marcas «v1.86.1»); el porqué en **§4.AC (n)**. ⛔ Sin schema
-> ni cambio a `M-73`. Cierra Q-AC-UX-2…5 de `DESIGN_SYSTEM §AC-UX.18` y dos dudas del product-owner (energías sin medidas;
-> `review` como aviso). Q-AC-UX-1 queda al dueño (§AC.16).
->
-> **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK** (2026-10-07, arquitecto, worktree
-> `/home/user/tcg-accesorios`, rama `claude/accesorios`; HEAD `1a5f8c04` según el encargo; ⛔ sha NO MEDIDO por mí: sin Bash).
-> Norma en `API_CONTRACT §AC` ([#AC](API_CONTRACT.md#AC)); el porqué en **§4.AC**; desviaciones `D-AC-1…3` en §9; migración
-> **`M-73`** en §11 (número reservado por el orquestador; `M-74`/v1.87 son de `claude/wishlist`).
-> - Tabla propia `Accessory` con existencias por cantidad (dos contadores con CHECK). No es `SealedProduct` ni `InventoryItem`.
-> - Renglones de pedido propios (`OrderAccessoryLine`). `OrderItem` no cambia.
-> - Solo en la compra de invitado con envío a domicilio (`HECHOS.md` 2026-10-07, «"Termina wishlist y accesorios"», P-ACC-10).
-> - La caja sale de `ShippingPackage` con una columna nueva, `customerFeeCents`. Sin cajas con tarifa, el envío es el de hoy.
-> - Las fotos se guardan en Postgres y se sirven públicas desde la API. No se tocan el bucket ni las llaves de la INE.
-> - El paquete de energías se ata a su deck con un `pullToken` firmado con `domainHmac`, que ya existe. No hay secreto nuevo.
->
-> **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
-> `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
-> porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
-> para el rezago y una línea de frontend. **SU.8** (§4.65 (h)): el alta (suelta, lote, «encontrada») dispara la
-> publicación con el mismo cuerpo.
->
-> **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2** (2026-10-06, arquitecto, rama `claude/analitica-ventas`
-> en `/home/user/tcg-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT`
-> gana **§15** ([#AN](API_CONTRACT.md#AN)); porqué en **§4.64**; desviaciones `D-AN-1…3` en §9. Tres endpoints nuevos en M9
-> (`super_admin`), sin tabla nueva; una columna aditiva (`M-AN-1`, solo para 621); 622 del buylist condicionada a #78.
->
-> **Errata BSD-1.5** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.B5`. La norma está en
-> `API_CONTRACT §BSD.19` y el porqué en §4.BSD (o). Solo cambian dos pruebas de backend (B9 y B16); lo demás se ratifica.
->
-> **Errata BSD-1.4** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.5/§78.B3/§78.B4` y a
-> `DESIGN_SYSTEM` C-9. La norma está en `API_CONTRACT §BSD.18` y el porqué en §4.BSD (n).
-> - El sello de AV-7 pasa a ser un solo predicado, con el número.
-> - La descarga del vendedor tiene límite propio.
-> - En `not_continued`, el servidor no manda montos.
-> - La revisión de domicilio del admin se firma con quien la hizo.
-> - El periodo de (b) del P&L ya no pierde costos.
-> - Las carreras se repiten contra la ruta real.
-> - El resto se ratifica. Sin migración.
->
-> **Errata BSD-1.3** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `BACKEND_NOTES §78`. Norma en `API_CONTRACT §BSD.17`;
-> porqué en §4.BSD (m).
-> - Rechazar ya no puede cerrar una solicitud `aceptada`.
-> - `AdminShipmentDTO.kind` gana `buylist_inbound`.
-> - Se ratifica el 7.º parámetro de `writeSellRequestGuide`.
-> - Las guías de entrada atascadas se ven en M5 y en el tablero.
-> - Los estados del motor pasan a la política de `label-subject.ts`.
-> - Hay una clase de censo nueva, `inbound_only`.
-> - Sin migración; B-1 no se rehace.
->
-> **Errata BSD-1.2** (2026-10-06, arquitecto; sha NO MEDIDO): Q-BSD-1 respondida.
-> - En `pnl()`, la guía de entrada **resta** (neto) y la tarifa **retenida** al vendedor **suma**, como reducción del costo de
->   compra.
-> - Se reporta el margen de la guía por solicitud pagada.
-> - Norma en `API_CONTRACT §BSD.16`; porqué en §4.BSD (l). DV-BSD-1 queda cerrada.
-> - Bloque nuevo B-4. Sin migración; B-1 sin cambio.
->
-> **Errata BSD-1.1** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `DESIGN_SYSTEM §BSD-UX` — norma en `API_CONTRACT
-> §BSD.15`, porqué en §4.BSD (k). Sin migración; B-1 sin cambio salvo la aserción de I-BSD-2 (nombre legible de paquetería).
->
-> **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A 7 DÍAS NATURALES** (2026-10-06,
-> arquitecto, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO MEDIDO: sin Bash). Norma en
-> `API_CONTRACT §BSD` (cabecera «Rev BSD-1»); porqué en **§4.BSD**; migración **`M-72` provisional** en §11; desviación
-> **DV-BSD-1** en §9. La guía de entrada es una `ShipmentRequest` con `kind='buylist_inbound'` (un solo motor de compra);
-> `SellRequestExpiryReason` gana `not_continued`; regla 8 (cierre), 9 (aviso AG-23) y 10 (reconciliación) del barrido.
-> Numeración propia (BSD) para no chocar con `claude/idiomas-sellos` ni `claude/correos-marca` (NO MEDIDAS).
->
-> **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883`** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
-> por el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.17**; norma en `API_CONTRACT §M4-SHIP.19.36`;
-> porqué en **§4.60 (ac)**. M7 pinta «ajustes de paquetería» y seguro (criterio 238) y las tres restas de v1.80.7; la línea de
-> tiempo se invierte en pantalla sin re-ordenar y `shipped.at` se acota por el primer movimiento; los `@real` de Skydropx son de
-> release. Sin migración.
->
-> **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
-> `12ea3261`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.16**; norma en `API_CONTRACT §M4-SHIP.19.35`; porqué en
-> **§4.60 (ab)**. La liga del invitado en los avisos: token nuevo sin rotar, nunca a un pedido reclamado; `timeline` de 7 y
-> `delivered` por `deliveredAt`; `workQueue.shipping.withLabelAlert`; tres ratificaciones de D2f; reparto final. Sin migración.
->
-> **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD
-> dado por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.13**; norma en
-> `API_CONTRACT §M4-SHIP.19.32`; porqué en **§4.60 (y)**. Seis filas nuevas en §0-Q; `requestedAt` también al reutilizar;
-> `?folio=` fuera de §0-Q; cuatro ratificaciones; D2d y D2g en paralelo por ficheros disjuntos con dos costuras en serie y
-> `prisma/` sin dueño. Sin migración.
->
-> **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c Y PLAN DE CIERRE DE LA FASE D** (2026-10-05, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
-> **v1.80.12.12**; norma en `API_CONTRACT §M4-SHIP.19.31`; porqué en **§4.60 (x)**. La tercera llave de la compra depende del
-> adaptador elegido al arrancar (el doble tiene su propia llave, `SHIPPING_FAKE_PURCHASE`, y la compra se prueba de punta a punta
-> en la E2E sin tocar PS-99); la cotización reutilizada abre generación cuando no queda una vigente; la cancelación sin respuesta
-> se revierte con bitácora; seis enums en §0; plan D2c-cierre → D2d ∥ D2g → D2e ∥ D2f. Sin migración.
->
-> **Rev v1.80.12.10 — 🔒💰 ERRATA DE LA REVISIÓN DE §Z** (2026-10-04, arquitecto, rama `claude/skydropx-d`, veredicto de
-> seguridad sobre `0363f7e2`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.10**; norma en
-> `API_CONTRACT §M4-SHIP.19.30`; porqué en **§4.60 (w)**. «El dueño» pasa a ser una marca explícita (`User.isOwner`, como
-> mucho una fila, sin endpoint que la escriba, vigilada por `spend-watch`); los diales de §Z y la cuenta del dueño solo los
-> mueve el dueño; TG-1 falla cerrado con reembolso desconocido; neutralización del folio por llaves con NFKC; residuo de
-> C-14; 2 correos por persona y hora; S-GAS-1…5 de ux-ui. `M-68` ampliada.
->
-> **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS Y CIERRES C-14…C-18** (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
-> **v1.80.12.9**; norma en `API_CONTRACT §M4-SHIP.19.29`; porqué en **§4.60 (v)**. Origen: `PROJECT.md §Z`, `HECHOS.md:62`,
-> `SECURITY_NOTES.md:1-190`. Dos libros de dinero nuevos (reclamos y guías pagadas), topes dentro del candado de compra,
-> «el dueño» = súper-admin con correo, avisos persistidos con correo al dueño y resumen diario; la cancelación automática
-> de huérfanas con cuatro condiciones y fusible. Migración `M-68`.
->
-> *(La rev v1.80.12.8 de este documento no tiene línea aquí; su porqué está en §4.60 (u).)*
->
-> **Rev v1.80.12.7 — 💰 LA COMPRA EN VUELO SE VERIFICA SOLA** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
-> por el orquestador `41e22eca`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.7**; norma en
-> `API_CONTRACT §M4-SHIP.19.27`; porqué en **§4.60 (t)**. Origen: `HECHOS.md:59`. Una compra en vuelo a la vez; foto del
-> saldo tras el reclamo; el job adopta la guía si aparece en los envíos recientes y libera solo si dos lecturas tardías
-> dicen «ni envío ni cargo» (apagado hasta calibrar con compras reales); el reintento es un clic; «Liberar», respaldo. Sin
-> endpoint, columna ni migración.
->
-> **Rev v1.80.12.6 — 🔒💰 REVISIÓN DE DISEÑO DE SEGURIDAD ANTES DE D2c Y QUIÉN COMPRA** (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`, HEAD dado por el orquestador `31ba38cc`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
-> **v1.80.12.6**; norma en `API_CONTRACT §M4-SHIP.19.26`; porqué en **§4.60 (s)**. Origen: `SECURITY_NOTES.md:1-137`
-> (APROBADO CON CONDICIONES sobre `ace57032`) y `HECHOS.md:58`. Un id de compra nunca se descarta; sin replay de la
-> compra; `P2002` del id y `rateId` repetida con rama propia; el personal también compra y cancela; «Liberar» sigue del
-> súper-admin hasta P-SDX-REL. Sin endpoint, columna ni migración.
->
-> **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `76de8268`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.5**; norma en
-> `API_CONTRACT §M4-SHIP.19.25`; porqué en **§4.60 (r)**. Origen: `HECHOS.md:57` (decisión del dueño). La lista de
-> colonias del CP **ayuda, no bloquea**: colonia obligatoria como texto (lista o escrita), `city`/`state` del catálogo
-> solo si conoce el CP; `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` retirado; `boot` sale del arranque y `C-GEO-2` se retira;
-> el operador ve en «Capturar guía» si la colonia se comprobó (`neighborhoodCheck`, calculado al leer). Sin endpoint,
-> columna ni migración.
->
-> **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `01c9dcfd`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.4**; norma en
-> `API_CONTRACT §M4-SHIP.19.24`; porqué en **§4.60 (q)**. Sin endpoint, columna ni migración. `C-GEO-1` (1) pasa de
-> «conteo igual» a inclusión + huella (`setDigest`) de un manifiesto commiteado; modo estricto (producción: una fila
-> ajena es alarma) o arnés (tolerada) según el blanco que ya usa el seed; el archivo de SEPOMEX vive fuera del repo
-> público salvo que el dueño decida otra cosa (pregunta **G-1**); Railway ante un arranque fallido, precondición medida.
->
-> **Rev v1.80.12.3 — ERRATA MENOR TRAS LA FASE C** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `cd761248`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.3**; norma en
-> `API_CONTRACT §M4-SHIP.19.23`; porqué en **§4.60 (p)**. Sin endpoint, columna ni migración nuevos. Mueve a D2a–D2c lo
-> que la fase C no puede medir (PS-104 parcial, PS-105a/b, PS-106, PS-113 nueva), declara por pares la mutación de PS-104,
-> fija la guarda «ya tiene guía» de D2a, `line2` = 200, PS-99 (d) definitiva y la carga del catálogo de CP en el
-> despliegue (`C-GEO-1`/`C-GEO-2`, §11 `v1.81-skydropx`).
->
-> **Rev v1.80.12.2 — `SKX-SEC-1` Y LO QUE PIDIÓ FRONTEND** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
-> por el orquestador `fae954ce`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.2**; norma en
-> `API_CONTRACT §M4-SHIP.19.22`; porqué en **§4.60 (o)**. Toca código construido de la fase C (bitácora de la corrección
-> de dirección y la anonimización) y añade **una tabla** (`ShipmentAddressRevision`, migración `M-SDX-C2`, propuesta
-> M-65). Además: `address.missing`, dos formas de respuesta, `ShipmentCostAdjustmentDTO` y PS-101 con el diseño v4.17.
->
-> **Rev v1.80.12.1 — ERRATA MENOR DE D1** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO MEDIDO: sin Bash).
-> `API_CONTRACT` sube a **v1.80.12.1**; norma en `API_CONTRACT §M4-SHIP.19.21`; porqué en **§4.60 (n)**. Toca código
-> construido en dos puntos pequeños (backend, D1c y D1a): renombrar las URLs crudas del puerto y el `403` no-borde de la
-> compra ⇒ «en vuelo».
->
-> **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO
-> MEDIDO por el arquitecto: sin Bash. Origen: `HECHOS.md:50` (el dueño eligió «Poder corregir todo»), `HECHOS.md:52`
-> (disputas fuera de la tienda), `DESIGN_SYSTEM §43.17` A-1…A-5 y N-3, `PROJECT.md:12123-12125`. `API_CONTRACT` sube a
-> **v1.80.12**; norma entera en `API_CONTRACT §M4-SHIP.19.20`. Porqué: **§4.60 (m)**.)
->
-> | # | Qué | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | La dirección del envío se **corrige entera** en la ventana (`PUT …/address`, operador+), sobre la foto del envío y nunca sobre la libreta ni la orden; versión + CAS; bitácora antes/después; la cotización vale solo para la versión con que se hizo | §4.60 (m), §11 `M-SDX-C`/`M-SDX-D` | **Sí** (backend fase C/D2, frontend, ux-ui) |
-> | **2** | Compra pendiente y alertas de guía **derivadas** en los dos DTO; `providerCancelConfirmedAt` para que una cancelación fallida se vea; la re-emisión limpia el sello de cancelación | §4.60 (m), §11 `M-SDX-D` | **Sí** (backend D2a/D2c, frontend) |
-> | **3** | Compra en vuelo ⇒ `200 in_flight` (no un `5xx`); la pantalla decide por el estado releído | §4.60 (m) | **Sí** (backend D2c, frontend) |
-> | **4** | Empaques legibles por el operador; `isPromo` derivado en el servidor; `AV-18/19` en esta fase; catálogo = 19 | `API_CONTRACT §19.20` | **Sí** |
-> | **5** | §4.59 (vía B de disputas) **sustituida** por `HECHOS.md:52`; el reemplazo es §V, encargo propio | §4.59 | **No** (nada construido) |
->
-> ---
-> **Rev v1.80.11 — CONSOLIDACIÓN DE `claude/skydropx-envios` + LA FASE D DE SKYDROPX CON LA API DE PRODUCCIÓN MEDIDA**
-> (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `785ea5fc`; ⛔ sha NO MEDIDO por el
-> arquitecto: sin Bash. Base: todo lo de abajo, vigente entero salvo lo que esta rev toca. Origen: la fusión por unión de
-> `claude/skydropx-envios` (base `8fd637fb`) sobre `claude/staff-sin-correo`; `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md`
-> (2026-10-04); `HECHOS.md:48` (Carta Porte `49101600`, credenciales de producción, seguro por escalones, compra real solo
-> con autorización del dueño guía por guía), `:41` (88–91), `:50` (disputas fuera de la tienda) y la ventana «Capturar
-> guía» (relayada por el orquestador; ⚠️ no está en `HECHOS.md`). `API_CONTRACT` sube a **v1.80.11**; norma entera en
-> `API_CONTRACT §M4-SHIP.19.19`. Porqué: **§4.60 (l)**.)
->
-> | # | Qué | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | **Una historia de revisiones.** La rev v1.81 de Skydropx, que la unión dejó **encima** de v1.80.8-release, baja a su sitio como frente de rama (separador, verbatim, debajo de la tabla de v1.80.8-release). v1.81/v1.81.1 ⟨skydropx⟩ son de 2026-09-29 y ⛔ no se renumeran; la errata nueva es v1.80.11 y lo siguiente será v1.80.12 | esta cabecera | **No** |
-> | **2** | ⚠️ **Dos `§4.58`** tras la unión: staff (v1.80.9) y Skydropx (v1.81). **Staff la conserva** (la cita el código: `password-attempts.service.ts:32`, `login-attempt.store.ts:75`, `admin.service.ts:958`…; Grep 2026-10-04) y **Skydropx pasa a §4.60** (cero citas en `backend/src`: `Grep "[Ss]kydropx"` ⇒ 0). En textos anteriores a v1.80.11 (`SECURITY_NOTES` sobre `62d0c46`, changelogs v1.81/v1.81.1), «§4.58» junto a Skydropx = §4.60 | §4.60 | **No** |
-> | **3** | ⚠️ **Dos `M-62`** tras la unión. `M-62` = reembolso tras envío (S.11), **construida** (`migrations/20261004120000_m62_shipped_refund_reason/`); `M-63` = staff (`…/20261005120000_m63_staff_username/`), ambas medidas con Glob el 2026-10-04. Skydropx pasa a **`M-SDX-C`** (fase C) y **`M-SDX-D`** (fase D), **número sin asignar** (≥ M-64; lo asigna el orquestador al encargar) | §11 | **No** (nada de Skydropx construido) |
-> | **4** | Fase D corregida con la API medida: User-Agent obligatorio, matriz de reintentos (la compra no se reintenta), forma real de la tarifa, reutilización de cotizaciones (⇒ `ShipmentQuote` sin `@unique` en `providerQuotationId`), seguro por escalones (dial), Carta Porte y empaques sembrados, **puerta de compra de dos llaves + candado de ejecución** (PS-99), `Authorization` solo al host de la API, ventana «Capturar guía», `AV-17` sin plazo de disputa | §4.60 (l), §11 `M-SDX-D` | **Sí** (backend, frontend, devops, ux-ui) · 🔒 seguridad revisa el delta |
-> | **5** | Sin sandbox (`HECHOS.md:17`, `:48`): PS-SBX se sustituye por mediciones de producción sin gastar (`M-PRD`) y la primera guía real comprada por el dueño (`PG`) | §4.60 (l) | **Sí** (devops) |
-> | **6** | ⚠️ **Dos `D-SHIP-7`** en §9 tras la unión: la de v1.80.7 (SEC-SHIP-A1 construido dos veces; la citan `API_CONTRACT` y `BACKEND_NOTES`) **conserva** el nombre; la de v1.81 (enlace del invitado en los correos de envío) pasa a **`D-SHIP-SDX-1`** | §9, §4.60 (i) | **No** |
+> - v1.80.12 · 2026-10-04 · ventana «Capturar guía»: dirección corregible entera, compra en vuelo `200 in_flight`, §4.59 sustituida por §V · **§4.60 (m)**, `API_CONTRACT §M4-SHIP.19.20`.
+> - v1.80.11 · 2026-10-04 · unión de `claude/skydropx-envios` + fase D con la API de producción medida · **§4.60 (l)**, `API_CONTRACT §M4-SHIP.19.19`. ⚠️ Homónimos que dejó la unión (sigue valiendo): «§4.58» junto a Skydropx = **§4.60** (§4.58 es staff, la cita el código); el `M-62` de Skydropx = `M-SDX-C`/`M-SDX-D`; el `D-SHIP-7` de v1.81 = **`D-SHIP-SDX-1`**.
 >
 > ---
 > **Rev v1.80.8-release — CONSOLIDACIÓN DE LA RAMA DE RELEASE `claude/release-s5`** (2026-09-29, arquitecto. Base:
@@ -371,32 +107,11 @@
 > | **v1.84.4** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`, ⛔ sha NO MEDIDO por el arquitecto; origen `HECHOS.md` 2026-10-05 sesión 6 «Salir en vivo SIN datos fiscales…»). **Aviso de privacidad en modo provisional:** se publica (no 404) con una frase fija en lugar de razón social/RFC/domicilio y contacto `soporte@tcghunt.mx`; ningún corchete pasa a permitido; `check:legal` se parte en `check:legal:provisional` (casilla de hoy) y `check:legal` final (casilla de regularización). Criterios 500 (parte), 501 (cláusula de bloqueo), 506 y 507 (razón social) quedan como **excepción aceptada por el dueño**; sitios 3/7 y el enlace del aviso en correos (hallazgo: no construido) **siguen bloqueando**. Norma: `API_CONTRACT §14.17`; porqué: §4.63.14. |
 > | **v1.84.3** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`, ⛔ sha NO MEDIDO por el arquitecto; origen `FRONTEND_NOTES §94.6`). **E3-1:** CSP-5 inyecta el script **en el HTML servido** (bajo `'strict-dynamic'` un script creado por código hereda la confianza: sin evento, se ejecuta incluso en `enforce`). **E3-2:** la comprobación de entrega de E2-5 usa esa técnica, no la consola. **E3-3:** perímetro de la CSP escrito (no cubre DOM-XSS que cree scripts) como dato para la fase de seguridad; candado pendiente **XSS-SINK-1** (lint `error` de sumideros, frontend, antes de `enforce`); el de semgrep es `WARNING` y no bloquea. **E3-4:** LIVE-2 por marca de un solo uso en el login ratificado, y aviso de inactividad que se oculta al primer intento. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.16` | §4.63.3, §4.63.13 | **Sí** (frontend: lint XSS-SINK-1; resto ya construido o procedimiento) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
-> | **v1.81 / v1.81.1 ⟨skydropx⟩** | Frente `claude/skydropx-envios` (2026-09-29, base `8fd637fb`), fusionado en v1.80.11: diseño de envíos con Skydropx y cierres de la revisión de seguridad. Su cabecera va abajo, verbatim | §4.60, §11 `M-SDX-C/D` | ver su tabla |
+> | **v1.81 / v1.81.1 ⟨skydropx⟩** | Frente `claude/skydropx-envios` (2026-09-29, base `8fd637fb`), fusionado en v1.80.11: diseño de envíos con Skydropx y cierres de la revisión de seguridad. Su cabecera, compactada en v1.113 a una línea (arriba) | §4.60, §11 `M-SDX-C/D` | ver su tabla |
 > | **v1.80.11** | Consolidación + fase D con la API medida (arriba) | §4.60 (l) | **Sí** |
 >
 > ---
-> *(Frente `claude/skydropx-envios` (base `8fd637fb`): rev **v1.81** ⟨skydropx⟩, **verbatim**. Hasta v1.80.11 estaba
-> encima de v1.80.8-release. Léase «§4.58» como **§4.60**, «`M-62`» como **`M-SDX-C`/`M-SDX-D`** y el «`D-SHIP-7`» de su
-> fila 7 como **`D-SHIP-SDX-1`**; la fase D la corrige v1.80.11.)*
->
-> **Rev v1.81 — 💰🔒 ENVÍOS CON SKYDROPX: puerto/adaptador, hitos sin estado nuevo, rastreo por consulta periódica, la
-> dirección como fase previa, y el costo real al P&L** (2026-09-29, arquitecto. Base: **v1.80.6, vigente entera salvo lo
-> que esta rev toca**. Origen: `PROJECT §T` (v1.81), criterios 234–248, decisión 120, preguntas 88–91; `HECHOS.md` seis
-> filas «Envíos con Skydropx»; `docs/specs/SKYDROPX_*`. `API_CONTRACT` sube a **v1.81**; norma entera en
-> `API_CONTRACT §M4-SHIP.19`. Porqué y alternativas: **§4.58** (nueva). Schema: **`M-62`** (§11, dos partes). 💰 Dinero +
-> PII a un tercero ⇒ tres veredictos + revisión de seguridad del diseño **antes** de construir. ⛔ Sin Bash: nada medido
-> en ejecución; la referencia de la API es del dueño y lo que dependa solo de ella lleva NO MEDIDO con su prueba de
-> sandbox PS-SBX-1…12.)
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | «Guía en proceso» y «en sucursal» son **hitos con sello** (`labelProcessingSince`, `carrierStatus`) dentro de `picking`/`enviado`; ⛔ ningún `ShipmentStatus` nuevo; un cuerpo `applyCarrierStatus` con el mapeo §8.3 y CAS en todo | §4.58 (b) | **Sí** (backend) |
-> | **2** | Puerto `ShippingProviderPort` en módulo `shipping-provider/` (no en `common/`), adaptador Skydropx + `Noop` + `Fake`; la guía manual **no** pasa por el puerto | §4.58 (c) | **Sí** (backend) |
-> | **3** | Rastreo por **consulta periódica** (BullMQ, 3 jobs); ⛔ sin webhook hasta doc de firma; el webhook futuro es un segundo llamador del mismo cuerpo | §4.58 (d) | **Sí** (backend, devops) |
-> | **4** | Dirección: colonia obligatoria **de lista por CP** con catálogo local (SEPOMEX) y proveedor intercambiable; **fase C, sola, antes de D**; compatible sin backfill (`complete`) | §4.58 (e) | **Sí** (backend `users`+`orders`, frontend, devops) |
-> | **5** | Dinero: costo desde la respuesta, IVA 16/116 sin gestión como constante nombrada (no el dial), seguro aparte, ajustes con fecha propia, absorber 88/90 | §4.58 (f) | **Sí** (backend) |
-> | **6** | Seguridad: `labelUrl` interna con proxy, PII saliente por lista blanca, secretos solo env, reclamo CAS antes de la red, kill switch `shipping_provider='off'` | §4.58 (g) | **Sí** (backend, devops) · 🔒 seguridad |
-> | **7** | Desviación nueva `D-SHIP-7` (el invitado sin botón en los correos de envío) en §9; `D-AV-2`/`D-AV-1` no cambian | §9 | **Sí** (backend, dentro de la fase D) |
+> - v1.81 / v1.81.1⟨skydropx⟩ · 2026-09-29 · 💰🔒 envíos con Skydropx: puerto/adaptador, hitos sin estado nuevo, rastreo por consulta periódica, dirección como fase C · **§4.60** (el texto viejo dice «§4.58»), `API_CONTRACT §M4-SHIP.19`.
 >
 > ---
 > *(Frente `claude/paquete-seguridad` — C7. Sus «Rev v1.80» y «Rev v1.80.1» son **⟨C7⟩**.)*
@@ -31141,6 +30856,149 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 
 ---
 
+<a id="4-DYN"></a>
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+
+Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
+portada más rápida», 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
+«Portada: se cobra el precio que el cliente VIO…» y «REGLA GENERAL… automáticos»; `PROJECT §DYN` (criterios 920–939), §Y.1/.2
+(300, 301), §X (294–299). Informe de velocidad medido por frontend en producción el 2026-10-29 (N=5; scratchpad de la sesión,
+`frontend-velocidad-portada/INFORME.md`, relayado por el orquestador): **LCP 2.8 s rápido / 7.2 s Slow 4G; FCP 0.60 / 0.89 s**.
+Norma (formas, códigos, diales, pruebas): **`API_CONTRACT §DYN`**. Aquí va el porqué y el diagrama; ningún valor se repite.
+⛔ Diseño hecho **sin Bash**: nada de lo que digo del código está ejecutado; cada afirmación lleva fichero:línea o **NO MEDIDO**.
+
+**(a) Estado de partida (leído el 2026-10-29 sobre `cfc0332b`).**
+- Destacadas = las 8 más caras: `FeaturedCarousel.tsx:120-125` (`sort:'price_desc'`), ordenado por `L` en `catalog.service.ts:1473`.
+- Cada `GET /catalog/cards` y `/catalog/facets` carga y precia **todo** el inventario publicado (`catalog.service.ts:1444` →
+  `fetchSellable`, `:1503`). **El precio del día de `HECHOS` 2026-10-04 no existe**: no hay tabla de precio exhibido en
+  `schema.prisma` (modelos listados en `:586-3582`).
+- Alcance PSA = cartas raw publicadas `cardId asc` cortadas por `graded_estimate_ingest_max_cards_per_run`
+  (`price-ingest.service.ts:1471-1477`), una petición **por SET** con `fetchAllInSet=true` (`:1568-1620`). **No hay registro de
+  cuándo se consultó cada carta**: una consulta sin dato no escribe fila (`:1697-1785`, los descartes solo van a `AuditLog`), así
+  que la fecha de `PriceReference` **no sirve** como «última consulta».
+- Ninguna fecha de «publicada por primera vez»: `InventoryItem` solo tiene `createdAt`/`updatedAt` (`schema.prisma:1161-1162`) y
+  la publicación (`claimListed`, `inventory.service.ts:2408-2425`) no escribe `InventoryMovement`.
+- Crons (UTC): `price-ingest-1` `0 0 * * *` = **18:00 CDMX** y `price-ingest-2` `0 12 * * *` = **06:00 CDMX**
+  (`scheduler.service.ts:235-238`). BullMQ admite `tz` (`:283`, `repeatTz`).
+- La portada es 100 % cliente (informe §4.1) y el nonce de la CSP **no llega** a los 28 `<script>` en línea (informe §2.5; causa
+  NO MEDIDA; `middleware.ts:37-38` sí lo fija en la petición).
+
+**(b) Tres piezas, una sola fuente de tiempo.** Todo lo diario cuelga de la **hora de cambio** (dial, 06:00 CDMX) y de un tic
+cada 15 min, no de crons fijos: así mover la hora no exige re-registrar crons, un fallo se reintenta solo y un arranque tras caída
+se pone al día solo (REGLA GENERAL).
+```
+                 H−60 min                    H−30 min                   H (06:00 CDMX)
+tic 15 min ──► [precio del día D]  ───────► [selección Destacadas D] ──► empieza a servirse D
+               ListingPriceRun(D)            FeaturedSelection(D)          GET /catalog/featured
+               (DYN-P, M-94)                 lee ListingPrice              = la última con effectiveFrom ≤ ahora
+price-ingest 18:00/06:00 CDMX ──► PriceReference + turnos PSA (DYN-J) ──► (no mueve lo exhibido hasta el siguiente D)
+```
+
+**(c) DYN-1 Destacadas: selección MATERIALIZADA, no semilla de fecha.** Una semilla determinista recalculada en cada petición
+no cumple tres criterios: al venderse una pieza el pool cambia y el sorteo se rebarajaría (924 pide «las otras 9 en el mismo orden,
+sin rellenar»); un dial cambiado surtiría efecto al instante (926 pide «al siguiente cambio»); y si el cálculo falla no hay «la del
+día anterior» que servir (927). Por eso la selección se **escribe una vez** (`FeaturedSelection` + `FeaturedSelectionItem`, M-93)
+con sus diales congelados y su semilla, y la lectura **solo filtra disponibilidad en vivo**. La unicidad
+`(businessDate, cardId, productType, gradeKey, finish)` hace que «no se repite una pieza el mismo día» sea un CHECK, no cuidado.
+- *Pieza* = **grupo** de la rejilla `K = (cardId, productType, gradeKey, finish)` (`catalog.service.ts:1146-1190`): es lo que
+  pinta una teja. *Valor* = `P` del precio del día (DYN-P; antes de M-94, el `P` vivo). *Recién llegada*: el grupo cuya pieza
+  **más antigua aún publicada** se publicó por primera vez dentro de la ventana — un grupo con una pieza vieja no «llega».
+- `firstListedAt` (M-93) lo escribe **solo** `claimListed`, y solo si es `NULL`: volver a publicar no lo mueve (923). Backfill =
+  `createdAt` para toda fila previa. ⚠️ Excepción declarada a la doctrina «sin backfill de instantes»: es presentación pura, y el
+  error posible va **solo en la dirección de omitir** (una pieza creada hace 8 días y publicada hoy no sale como recién llegada
+  durante su primera semana); nunca etiqueta como nueva una pieza ya publicada antes. Se extingue a los 7 días del despliegue.
+- La lectura (`GET /catalog/featured`) hace `fetchSellable` **acotado a los ≤ 10 `cardId` de la selección** + el contexto del
+  gancho + `buildGroups`: coste **constante** respecto del inventario (ayuda directa a DYN-3). La burbuja y la nota al pie salen del
+  mismo `GroupedListingSummaryDTO` (928).
+- ⛔ No existe camino de respaldo a «las más caras»: sin selección vigente el endpoint responde `data: []` y salud de datos lo dice.
+
+**(d) DYN-J Joyas: turnos POR SET, no por carta — la amplificación manda.** La petición pide el set entero; si el proveedor cobra
+por carta devuelta (premisa documentada «2 créditos por carta», §4.38h.3; **A-1 sigue NO MEDIDO**, §4.38r.3.1.1), el coste de una
+carta es el de **su set entero**. Ordenar por carta dispersaría los sets y pagaría cada set varias veces por semana. Por eso:
+1. La unidad del turno es el **set con ≥ 1 carta raw publicada y con `pptSetId`**. Su reloj es su última consulta correcta; está
+   **vencido** si nunca se consultó o si su última consulta fue hace ≥ 7 **días naturales CDMX** (granularidad de fecha: dos corridas
+   diarias no deben correr el reloj medio día por semana).
+2. Orden: primero los sets nunca consultados (por la `firstListedAt` más antigua de sus cartas), luego por consulta más vieja.
+   Es §Y.1 llevado al set. Una carta nueva en un set ya consultado **espera el reloj del set** (≤ 7 días ⇒ cumple «dentro de sus
+   primeros 7»), y por eso ninguna carta hermana se re-pide antes de 7 días (930).
+3. Al responder el set, **todas** sus cartas en alcance quedan consultadas (con dato ⇒ `written`; sin dato ⇒ `no_data`, 932). Sin
+   respuesta ⇒ nada se mueve y se reintenta en la siguiente corrida.
+4. **Presupuesto:** antes de pedir un set se estima su coste = último coste medido de ese set, o `2 × cartas del set en catálogo`
+   si nunca se midió. Si no cabe en lo que queda del tope del día, la corrida **para** (no se salta al siguiente: un set grande no
+   puede morir de hambre); solo se salta un set cuyo coste supera el tope **entero** de un día, y eso va al aviso. Lo cargado al tope
+   es el coste medido (`apiCallsConsumed` atribuible) o, si el proveedor no lo dijo, el estimado. «Nunca se pasa del tope» es
+   exacto mientras el estimado sea cota superior; con facturación desconocida el exceso posible es **un set**, y el aviso lo ve.
+5. El tope es **por día CDMX y no por corrida**: la corrida de las 06:00 puede gastar el día entero si hace falta; la de las 18:00
+   usa el resto. Con esto el corte por corrida deja de existir y `graded_estimate_ingest_max_cards_per_run` **se retira** (un solo
+   dial, §DYN.2): un tope en cartas no es un presupuesto en créditos (§4.38r.3.4), el de créditos sí.
+6. **Necesidad semanal** `W = Σ coste(s)` sobre los sets en alcance; ciclo real `= ⌈W / tope⌉` días; tope que alcanzaría
+   `= ⌈W / 7⌉` redondeado a 100. Si el ciclo pasa de 7, o algún set lleva > 8 días vencido, se abre **un** aviso AG-24 (§Z, tabla
+   `SpendAlert`, solo panel, sin correo ni resumen) que se actualiza en sitio y **se cierra solo** al volver a alcanzar.
+   ⚠️ `PROJECT §DYN.2` dice «centro de avisos, §R»: §R es el del **cliente** (`PROJECT.md:6173`); el aviso al dueño vive en §Z.
+   Lo corrige product-owner en el texto; el diseño no cambia.
+7. ⛔ Lo que queda **fuera** y por qué: pedir **por carta** sería más barato en sets donde tenemos pocas cartas si el cobro es por
+   carta devuelta, pero es el cambio de modelo que §4.38h.4 reserva al arquitecto con medición delante. Se reabre con A-1 medido.
+
+**Cuánto cuesta (NO MEDIDO; la estimación de `HECHOS` ~1 700/día supone cobro por carta EN ALCANCE).** Con cobro por carta
+devuelta, `W = 2 × Σ (cartas en catálogo de cada set con ≥ 1 suelta publicada)`. Lo cierra una consulta de solo lectura en
+producción (devops, usuario de solo lectura; `API_CONTRACT §DYN.4.7`) **y** la línea `COSTE MEDIDO` de la primera corrida. Si
+`W/7` supera 3 000, el sistema lo dice solo con AG-24 y el dueño sube el tope desde M10; no hace falta preguntarle antes.
+
+**(e) DYN-P Precio del día (💰).** El precio exhibido (`L`, `P` y la instrumentación de §N.8) se calcula **por el mismo cuerpo**
+que hoy usa el checkout (`orders.service.ts:370-470` `resolveSaleDecision` + `:353-360` `derivedSaleDecision`; para la rejilla, el
+equivalente de `fetchSellable`) y se **guarda por pieza** en `ListingPrice` (M-94). Catálogo, ficha, Destacadas, vitrina **y
+checkout** leen esa fila: exhibido y cobrado salen del mismo dato, que es la garantía de «se cobra lo que vio» sin guardar
+precios en el carrito del navegador.
+- **Cuándo se recalcula:** una vez al día (H−60 min, después de la corrida de mercado de las 18:00 del día anterior) y enseguida
+  tras «Actualizar precios» manual, «Publicar todo», publicar una pieza, cambio de un dial que mueve precio, y precio a mano
+  (§X.1). ⛔ Las corridas **automáticas** de `price-ingest` (06:00/18:00) **no** recalculan lo exhibido: el dueño pidió «una vez al
+  día»; actualizan `PriceReference`, que entra al siguiente cálculo diario.
+- **Vigencia del precio visto:** la fila guarda el precio **vigente** y el **anterior** con su `prevValidUntil` (= momento del
+  reemplazo + gracia, dial, 24 h). El carrito manda el precio que el cliente vio; el servidor cobra
+  `min(vigente, anterior)` **solo si** lo visto coincide con el anterior todavía válido, y el vigente en cualquier otro caso. Así
+  nunca se cobra más de lo vigente, nunca un número que el servidor no publicó (lo visto se compara, no se cree), y una bajada
+  siempre beneficia al cliente. Fuera de la gracia se cobra el vigente y la línea lo dice (aviso de §X.2).
+- **Sin fila** (pieza recién publicada cuyo cálculo falló) ⇒ se precia en vivo por el cuerpo de siempre y se encola el cálculo:
+  la tienda nunca deja de vender por el precalculado, y nunca vende sin precio (`PRICE_PENDING` intacto).
+- Qué dial «mueve precio» lo dice **una lista** de backend con candado de completitud (`API_CONTRACT §DYN.5.4`).
+- Fase 1 conserva el agrupado en memoria sobre filas ya precalculadas (una consulta con `JOIN`, sin curva ni referencias). Si
+  el criterio 294 (p95 < 500 ms con el doble de inventario) no se cumple medido, la fase 2 agrupa en SQL por `variantKey`, que la
+  fila ya guarda. No se construye la fase 2 sin esa medición.
+
+**(f) DYN-3 Cómo se sirve la portada.**
+1. `page.tsx` de la portada pasa a **componente de servidor** que pide `GET /catalog/featured` y la vitrina
+   (`/catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`) con la caché de datos de Next (revalidación 30 s,
+   etiquetas `featured`/`showcase`), pinta las tejas en el HTML con la `<img>` líder presente, e hidrata react-query con ese dato
+   (patrón tolerante que ya existe: `lib/catalog-ssr.ts`). Mismo endpoint en servidor y cliente: **una sola forma**.
+2. La petición de servidor tiene **tope de 400 ms**: si el API tarda o falla, el HTML sale con el **marco** de la sección (alto
+   reservado) y el cliente la rellena al hidratar — eso es el 937 (Destacadas y Joyas no frenan el primer pintado).
+3. Disponibilidad: el HTML puede llevar hasta ~60 s de retraso (revalidación + `max-age` del API); tras hidratar, el cliente
+   revalida y una pieza vendida sale. Lo exacto lo garantiza el checkout (`409 ITEM_UNAVAILABLE`), como hoy. Lectura del
+   arquitecto de «en vivo» (§X.1, 924): **≤ 60 s en listas públicas, exacto al pagar**.
+4. **CSP — modelo de fase 1: se queda el nonce por petición; se cachean los DATOS, no el HTML.** El primer pintado ya cumple
+   (FCP 0.60/0.89 s medido); lo que falta es el LCP, y lo resuelve tener las tejas en el HTML, no servir el HTML desde el edge. Así
+   no se debilita la CSP. **Condición:** el nonce **tiene que llegar** a los `<script>` (hoy no: 53 violaciones y 27 POST por vista);
+   lo corrige frontend y lo verifica seguridad, con la prueba de `API_CONTRACT §DYN.6.4`. ⛔ Pasar a `enforce` antes de esa prueba
+   en verde rompe la portada (con `'strict-dynamic'` sin nonce no corre ningún script — INFERIDO por el agente, NO MEDIDO).
+5. **Fase 2, solo si la medición tras la fase 1 dice que el TTFB del HTML es lo que impide el 936:** CSP por **clase de ruta** —
+   páginas públicas sin sesión (portada, catálogo, fichas) con política **estática** (`script-src 'self' 'unsafe-inline'` + hosts de
+   medición de §14.8, sin `strict-dynamic`) y HTML cacheable (ISR); checkout, cuenta y panel con nonce y render dinámico. Los
+   hashes no sirven: el `self.__next_f.push` en línea cambia con cada render. Coste declarado: en las públicas, un XSS reflejado
+   no lo para la CSP; lo paran el escapado de React y la regla de no usar `dangerouslySetInnerHTML` con datos (candado de lint).
+   Requiere veredicto de **seguridad** antes de construirse; no lo decide el dueño.
+6. **CORS `maxAge`:** backend lo fija en `cors.ts` (600 s). No es contrato (no cambia ninguna respuesta), solo ahorra preflights
+   en visitas repetidas; quitar `Content-Type` de los GET sin cuerpo (frontend) los elimina en la primera.
+
+**(g) Desviaciones que este diseño deja escritas** (dueño y prueba de paridad de cada una en `API_CONTRACT §DYN.8`): el nonce que
+no llega (frontend; prueba DYN-F7); `PROJECT §X.1` «el cobro siempre recalcula» contradice `HECHOS` 2026-10-04 «se cobra el precio
+que VIO» (manda HECHOS; product-owner corrige el texto); `PROJECT §DYN.2` «§R» por «§Z» (product-owner).
+
+**(h) Reparto y modelo** (detalle por tarea en `API_CONTRACT §DYN.9`): backend en **modelo fuerte** en todo (DYN-J gasta créditos
+del dueño; DYN-P es dinero: triple veredicto; DYN-1 toca `inventory`). Zonas compartidas: `prisma/` (M-93, M-94),
+`common/settings.constants.ts`, `docs/API_CONTRACT.md` ⇒ un solo stream «portada» las toca, en este orden: M-93 → M-94.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist; ⭐ v1.80.2: y los **reembolsos manuales** de casos «Por reponer» que no caben en el cobro de Stripe, tabla `ManualRefund`, §4.57 (m)). Ninguna vista de usuario muestra saldo. El sistema **nunca** transfiere solo: todo SPEI lo ejecuta el súper-admin fuera y lo registra.
@@ -31982,6 +31840,9 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
+> contra `HECHOS` 2026-10-04 «precio que VIO», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
+>
 > **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
 > `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
 > huérfanas: seis `::<sin nombre>` de marketing (`marketing.controller.ts:61,87,129,161,184`;
