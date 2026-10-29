@@ -7,6 +7,16 @@
 
 ---
 
+## Backend · 2026-10-29 · §DYN fase 2 (M-94, precio del día) y ajustes de la fase 1
+
+> Dueño del código anotado: **backend**. Medido el 2026-10-29 en la rama `claude/portada-dyn-be2`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| DYN-B-1 | ABIERTA · campo muerto `ingestMaxCardsPerRun` en el tipo de `common/graded-estimate.ts` (con su constante de código): sin lector desde v1.113; el proyector `catalog/graded-estimate-config-dto.ts` lo quita de toda salida de M2 (I-5 prohíbe tocar el gate sin sus suites delante) | backend | 2026-10-29 | `grep -c ingestMaxCardsPerRun backend/src/common/graded-estimate.ts` ⇒ 0, con las suites del gate de la vitrina (DYN-B15) verdes sin editarlas |
+
+---
+
 ## Backend · 2026-10-25/26 · §DSC códigos de descuento, fases 1 y 2 + rechazo del techlead sobre `c421de13` (v1.110.3)
 
 > Dueño del código anotado: **backend**. 💰 Toca dinero (`orders`, `payments`, `shipments`, `discounts`). DSC-B-* medidas el 2026-10-25 desde `85f350df`; TL-DSC-* y DSC-B-6 el 2026-10-26 sobre la rama desde `083d589c`.
@@ -38,7 +48,7 @@
 | TL-DYN3-5 | CERRADA · `api-client` decidía «hay cuerpo» por veracidad; el alias no cubría `.tsx` ni subcarpetas; el JSDoc `@type NextConfig` anotaba otro bloque | frontend | 2026-10-29 | `api-client.test.ts` «TL-DYN3-5»; `home-bundle.test.ts` «TL-DYN3-5 · el alias cubre .tsx y subcarpetas»; `grep -A1 "@type {import('next').NextConfig}" frontend/next.config.mjs` ⇒ `const nextConfig` |
 | TL-DYN3-1 | CERRADA · textos `admin.*` en componentes compartidos que monta la tienda (`CellDrawer`, `VariantPriceConsole`, `MasterSetBinder`) | frontend | 2026-10-29 | `master-set/MasterSet.storefront-messages.test.tsx`: `user_vault_self` y `quoter` con `storefrontMessages(es)` ⇒ 0 `MISSING_MESSAGE` (control `platform` ⇒ sí faltan) |
 | TL-DYN3-3 | CERRADA · `AdminMessagesProvider` solo reenvía `locale`/`timeZone` | frontend | 2026-10-29 | `AdminMessagesProvider.test.tsx` «TL-DYN3-3» (`formats`, `onError`, `getMessageFallback`, `now` de la raíz resuelven bajo el provider: los hereda use-intl) |
-| TL-DYN3-4 | ABIERTA · hallazgo de backend del veredicto del techlead sobre `d1b96eca`; su texto no venía en el encargo de frontend (lo completa el orquestador con el del veredicto) | backend | 2026-10-29 | la que fije el veredicto del techlead (pendiente de copiar aquí) |
+| TL-DYN3-4 | CERRADA · hallazgo de backend del veredicto del techlead sobre `d1b96eca` (un `POST` sin cuerpo ni `Content-Type` dependía de que body-parser 1.x deje `req.body = {}`) | backend | 2026-10-29 | `backend/test/integration/body-less-post.e2e-spec.ts` verde: sin cuerpo ni cabecera ⇒ mismo status (202) que con `Content-Type: application/json` en `POST /admin/jobs/price-ingest` (`@Body()` leído sin `?.`; el canario del mismo fichero muestra que con cuerpo `undefined` sería `TypeError` ⇒ 500) |
 | FE-1 | CERRADA · fixtures de mock y `computeBreakdown` en el bundle de producción (ficha de abajo) | frontend | 2026-10-29 | el mismo candado que TL-DYN3-2 (centinela de `lib/mock` en ningún chunk de `.next/static`) + R1 (`computeBreakdown` sin uso fuera de `api.ts`) |
 | D7 | CERRADA · la lógica de negocio del mock (`computeBreakdown`, cotizador) viajaba en el bundle real (ficha de abajo); el disparador «retirarla del bundle real» se cumple | frontend | 2026-10-29 | como FE-1 |
 | FE-15 | CERRADA · `exportFinanceCsv` hacía `fetch` directo, sin refresh de sesión (ficha de abajo) | frontend | 2026-10-29 | `src/lib/api.export-csv.test.ts` (401 → refresh → reintento con el token nuevo); `grep -c "await fetch(" frontend/src/lib/api.ts` ⇒ 1 (solo `uploadToPresignedUrl`, URL firmada sin sesión a propósito) |
