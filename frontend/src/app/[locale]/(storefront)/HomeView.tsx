@@ -25,6 +25,10 @@ import {
 } from './_home/GradingGemsShelf';
 import { GradingFootnoteBoundary } from './_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from './_shared/grading/estimates';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+
+/** Ancho desde el que se ven los chips «Sets en cacería» del hero (`sm:flex`). */
+export const HOME_CHIPS_MEDIA = '(min-width: 640px)';
 
 /**
  * Home del storefront — makeover 1a «Conservadora» (papel y tinta, rojo con avaricia).
@@ -52,11 +56,17 @@ export function HomeView() {
   // Fallback de cifra para el glance (misma fuente que la home anterior).
   const holdings = useQuery({ queryKey: ['holdings'], queryFn: getHoldings, enabled: authed });
   // Chips del hero: sets REALES con inventario publicado (facetas de Compra).
+  // PERF portada (§DYN.3): los chips son `hidden sm:flex`; en móvil no se ven, así que tampoco se
+  // piden (`/catalog/facets` es de las lecturas caras del API). `HOME_CHIPS_MEDIA` = el `sm` de
+  // Tailwind (640px, sin `screens` propios en tailwind.config). En escritorio la consulta sale
+  // tras montar (el hook devuelve `false` en SSR), igual que antes salía tras hidratar.
+  const chipsVisible = useMediaQuery(HOME_CHIPS_MEDIA);
   const facets = useQuery({
     queryKey: ['catalog-facets'],
     queryFn: getCatalogFacets,
     staleTime: 5 * 60_000,
     retry: false,
+    enabled: chipsVisible,
   });
   const heroSets = (facets.data?.sets ?? []).slice(0, 4);
 
