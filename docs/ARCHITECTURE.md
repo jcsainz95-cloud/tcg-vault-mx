@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.114⟨portada⟩ (2026-10-29).** §4.DYN (e) y §4.PRE (d): el candado retiene la venta (caso `open`/`kept` ⇒ último sano), `keep` sigue reteniendo, trigger `review_open` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…», 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.9.
 > **Errata v1.113.4⟨portada⟩ (2026-10-29).** §4.DYN (e): la tolerancia de consenso no «mueve precio» (solo la lee el candado del barrido); D-DYN-5: el candado de §4.PRE no retiene la venta · backend (DYN-B17). Contrato: API_CONTRACT §DYN.5.4, §DYN.8.
 > **Errata v1.113.3⟨portada⟩ (2026-10-29).** §4.DYN (e): el valor de mercado exhibido se congela en la fila con `P` (M-94 += 2 columnas); precio a mano y cola de revisión disparan cálculo; alcance con apartadas; single-flight ratificado · backend (fase 2, `97f9dd3d`). Contrato: API_CONTRACT §DYN.5.
 > **Errata v1.113.2⟨portada⟩ (2026-10-29).** §4.DYN (d) 6: «vencido > 8 días» cuenta desde la última consulta o, si nunca, desde que hay turnos o llegó el set (sin falsa alarma al desplegar) · backend (fase 1, `4b2e6fe4`). Contrato: API_CONTRACT §DYN.3/.4.3/.4.5, D-DYN-4.
@@ -30201,7 +30202,7 @@ sealedProductId, axis)` con `status='open'`. Índice `@@index([status])`.
                  candado dispara
         (nada)  ─────────────────▶  open
   open  ── dueño «aceptar»  ──▶ accepted   (publica proposedMxnCents como nueva BASE sana, PriceReference NO-manual; el barrido SIGUE arbitrando)
-  open  ── dueño «conservar»──▶ kept       (deja el último sano; no cambia precio vivo)
+  open  ── dueño «conservar»──▶ kept       (deja el último sano; v1.114: kept SIGUE vigente —retiene y congela base— hasta superseded)
   open  ── dueño «precio a mano»▶ manual   (delega en POST /admin/pricing/override → override manual tier 0; CONGELA la variante)
   open  ── barrido: el candidato nuevo YA NO dispara (mercado se asentó) ─▶ superseded  (AUTOMÁTICO, HECHOS «regla general»)
   open  ── llega un candidato nuevo que dispara distinto ─▶ el viejo open pasa a superseded, nace otro open
@@ -30227,7 +30228,9 @@ mover. **Dictamen (inequívoco):**
 - **`manual` es el ÚNICO que fija tier-0:** delega en `POST /admin/pricing/override` (`isManualOverride:true,
   source:'manual'`, §4.27f-2/3), que **congela** la variante hasta que el dueño quite el override — el árbitro no la
   toca (tier 0 gana absoluto, `§PRE (a)`). Es la vía para «clavar» un precio contra el mercado.
-- **`keep`** no cambia el precio vivo (conserva el último sano); no promueve ni congela.
+- **`keep`** no cambia el precio vivo (conserva el último sano); no promueve ni congela con tier-0. **v1.114:** si `kept` cerrara la
+  retención, el barrido siguiente mediría contra la robusta de ayer (que ya trae el pico), daría `jumpFactor ≈ 1` y publicaría lo
+  que el dueño acaba de rechazar. Por eso `kept` cuenta como caso vigente, igual que `open` (`API_CONTRACT §DYN.5.9`).
 
 Así `accept` ≠ `manual` sin ambigüedad: **`accept` adopta el valor dejando que el mercado lo siga moviendo; `manual` lo
 clava.** (Contrato: `API_CONTRACT §PRE.F`.)
@@ -30861,7 +30864,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -30980,6 +30983,12 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
 - Qué dial «mueve precio» lo dice **una lista** de backend con candado en los dos sentidos (`API_CONTRACT §DYN.5.4`). Criterio:
   entra el dial que lee el cálculo de la fila, no el que mueve el precio a través del barrido (v1.113.4: la tolerancia de
   consenso solo decide el candado del barrido, y lo que el barrido cambia ya llega en el siguiente `daily`).
+- **El candado retiene la venta (v1.114).** Una fila guarda un precio para todo el día; si la fila tomara la mediana con el pico
+  que el candado detuvo, el pico se cobraría hasta el día siguiente, que es justo lo que §4.PRE (c) prohíbe. Se descartó meter
+  `decideLock` en el cuerpo (necesitaría la base de ayer y la tolerancia en cada cálculo, y duplicaría el árbol): el cuerpo lee el
+  **resultado** del candado, el caso vigente. Valor retenido = `baselineMxnCents` del caso; sin base ⇒ `PRICE_PENDING` (P-RP-4: sin
+  con qué comparar, a revisión). `review_open` existe por una ventana: el barrido escribe el pico antes de abrir el caso, y un
+  cálculo intermedio pudo leerlo. Solo retiene, así que no adelanta ningún movimiento de mercado (el dueño pidió una vez al día).
 - Fase 1 conserva el agrupado en memoria sobre filas ya precalculadas (una consulta con `JOIN`, sin curva ni referencias). Si
   el criterio 294 (p95 < 500 ms con el doble de inventario) no se cumple medido, la fase 2 agrupa en SQL por `variantKey`, que la
   fila ya guarda. No se construye la fase 2 sin esa medición.
@@ -31861,8 +31870,8 @@ Riesgos técnicos:
 
 > **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
 > y §X.2 contra `HECHOS` 2026-10-29 «se cobra lo que se ve», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
-> **`D-DYN-5` (🔴 ABIERTA, 💰, leída 2026-10-29 sobre `9ae27b49`):** con caso `open` el precio de venta no conserva el último sano
-> que pide §4.PRE (c). Detalle, dueño y prueba: **solo** en `API_CONTRACT §DYN.8`.
+> **`D-DYN-5` (🔴 ABIERTA, 💰, leída 2026-10-29 sobre `9ae27b49`; diseñada en v1.114, falta construir):** con caso `open` el precio de
+> venta no conserva el último sano que pide §4.PRE (c). Detalle, dueño y prueba: **solo** en `API_CONTRACT §DYN.8`.
 >
 > **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
 > `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
