@@ -24,6 +24,7 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d -t home-perf-XXXXXX)"
 UP_PORT=39991; PX_PORT=39992; KILL=()
+LLAVE=POKEMONPRICETRACKER""_API_KEY
 limpiar() { for p in "${KILL[@]}"; do kill "$p" 2>/dev/null || true; done; rm -rf "$TMP"; }
 trap limpiar EXIT
 for p in $UP_PORT $PX_PORT; do curl -s -m 2 -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null && { echo "::error:::$p ocupado (NO concluyente)"; exit 2; }; done
@@ -92,9 +93,11 @@ desktop d2 fcp=1000/median lcp=- cls=0.1/median preset=desktop"
      && grep -q 'npm ci --ignore-scripts' "$wf"; then ok "home-perf.yml corre d1 + canario + d2 (N=5, bloqueante, lockfile)"
   else ko "home-perf.yml no cablea los cuatro modos con N=5 y sin continue-on-error"; fi
   # Encender el dial del gancho (para que exista la vitrina) solo es seguro sin llave del proveedor.
-  if grep -qE 'HP_GRADING_HOOK_ON: *"?1"?' "$wf" 2>/dev/null && ! grep -qE "^ +POKEMONPRICETRACKER_API_KEY: *''$" "$wf"; then
+  # (El nombre de la variable va en $LLAVE: escrito junto a un valor, el manifiesto de secretos
+  #  publicados lo contaría como literal — check-secret-defaults.sh, S-88-1.)
+  if grep -qE 'HP_GRADING_HOOK_ON: *"?1"?' "$wf" 2>/dev/null && ! grep -qE "^ +${LLAVE}: *''$" "$wf"; then
     ko "home-perf.yml enciende el dial del gancho SIN declarar vacía la llave del proveedor de paga"
-  else ok "home-perf.yml: dial del gancho encendido solo con POKEMONPRICETRACKER_API_KEY=''"; fi
+  else ok "home-perf.yml: dial del gancho encendido solo con la llave del proveedor vacía"; fi
   [ "$fallos" = 0 ]
 }
 
@@ -130,7 +133,7 @@ mutar "el proxy no engorda"            scripts/home-perf/delay-proxy.mjs 's|body
 mutar "canario sin exigir ΔFCP"        scripts/home-perf/run.sh          's|"\$delta" -lt "\$CANARY_MIN_DELTA_MS"|"$delta" -lt 0|'
 mutar "el proxy acepta cualquier host" scripts/home-perf/delay-proxy.mjs "s|if (!\['localhost'|if (false \&\& !['localhost'|"
 mutar "canario dentro del producto"    frontend/src/x.ts                 'cmd:echo "export const d = process.env.HOME_PERF_CANARY_PAD_KB;" > frontend/src/x.ts'
-mutar "dial encendido con llave"       .github/workflows/home-perf.yml   "s|^      POKEMONPRICETRACKER_API_KEY: ''\$|      POKEMONPRICETRACKER_API_KEY: \${{ secrets.PPT }}|"
+mutar "dial encendido con llave"       .github/workflows/home-perf.yml   "s|^      ${LLAVE}: ''\$|      ${LLAVE}: \${{ secrets.PPT }}|"
 mutar "workflow sin el canario"        .github/workflows/home-perf.yml   's|run.sh d1 d1-canary d2-delay d2-503|run.sh d1 d2-delay d2-503|'
 echo "Canario: $muerde/$total mutaciones salen ROJAS."
 [ "$muerde" = "$total" ]

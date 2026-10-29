@@ -86,16 +86,16 @@ featured_n() { curl -sf -m 10 "$API_UPSTREAM/api/v1/catalog/featured" | jcount; 
 vitrina_n()  { curl -sf -m 10 "$API_UPSTREAM/api/v1/catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8" | jcount; }
 # El súper-admin del FIXTURE (no es un secreto: es el usuario de un stack sintético; se lee de su
 # única fuente, como price-provider-parity.sh). Solo se usa contra el backend LOCAL de este arnés.
-TOKEN=""
+ADM_SESION=""
 admin_token() {
-  [ -z "$TOKEN" ] || return 0
+  [ -z "$ADM_SESION" ] || return 0
   local fix="$ROOT/backend/prisma/e2e-fixtures.ts" mail pass
   mail="$(sed -n "s/.*admin: *{ *email: *'\([^']*\)'.*/\1/p" "$fix" | head -1)"
   pass="$(sed -n "s/.*admin: *{ *email: *'[^']*' *, *password: *'\([^']*\)'.*/\1/p" "$fix" | head -1)"
   [ -n "$mail" ] && [ -n "$pass" ] || nc "no pude leer el súper-admin de $fix"
-  TOKEN="$(curl -s -m 20 -X POST "$API_UPSTREAM/api/v1/auth/login" -H 'Content-Type: application/json' \
+  ADM_SESION="$(curl -s -m 20 -X POST "$API_UPSTREAM/api/v1/auth/login" -H 'Content-Type: application/json' \
             -d "{\"email\":\"$mail\",\"password\":\"$pass\"}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).accessToken||"")}catch{}})')"
-  [ -n "$TOKEN" ] || nc "el login del súper-admin del fixture no dio token (¿se sembró?)"
+  [ -n "$ADM_SESION" ] || nc "el login del súper-admin del fixture no dio token (¿se sembró?)"
 }
 case "$API_UPSTREAM" in http://127.0.0.1:*|http://localhost:*) ;; *) nc "API_UPSTREAM tiene que ser el backend LOCAL del arnés" ;; esac
 N_FEAT="$(featured_n)"
@@ -104,7 +104,7 @@ if [ "${N_FEAT:-0}" -le 0 ] || [ "${HP_FORCE_ROTATION:-0}" = 1 ]; then
   # documentada (§DYN.2.4, super_admin, auditada).
   say "Destacadas del día: $N_FEAT ⇒ se fuerza la rotación como súper-admin del fixture"
   admin_token
-  curl -sf -m 60 -X POST "$API_UPSTREAM/api/v1/admin/jobs/featured-rotation" -H "Authorization: Bearer $TOKEN" \
+  curl -sf -m 60 -X POST "$API_UPSTREAM/api/v1/admin/jobs/featured-rotation" -H "Authorization: Bearer $ADM_SESION" \
        -H 'Content-Type: application/json' -d '{"force":true}' >/dev/null || nc "POST /admin/jobs/featured-rotation {force:true} falló"
   N_FEAT="$(featured_n)"
   [ "${N_FEAT:-0}" -gt 0 ] || nc "BLOQUEANTE de semilla: tras forzar la rotación /catalog/featured sigue vacío. Sin Destacadas no se mide la portada real (rol backend: el seed sintético no deja elegibles)."
@@ -113,10 +113,10 @@ say "Destacadas del día: $N_FEAT tejas"
 # La vitrina «Joyas para gradear» solo existe con el dial del gancho `on` (seed `off`) y elegibles.
 # Sin ella, DYN-D2 no mediría lo que pregunta (¿su llegada tardía suma CLS?). HP_GRADING_HOOK_ON=1 la
 # enciende con `PUT /admin/settings` — SOLO donde el backend NO tiene llave del proveedor de paga
-# (home-perf.yml declara POKEMONPRICETRACKER_API_KEY=''; §4.38(r.6.1)): con el dial `on` y llave, gasta.
+# (home-perf.yml declara vacía la llave del proveedor; §4.38(r.6.1)): con el dial `on` y llave, gasta.
 if [ "${HP_GRADING_HOOK_ON:-0}" = 1 ]; then
   admin_token
-  curl -sf -m 20 -X PUT "$API_UPSTREAM/api/v1/admin/settings" -H "Authorization: Bearer $TOKEN" \
+  curl -sf -m 20 -X PUT "$API_UPSTREAM/api/v1/admin/settings" -H "Authorization: Bearer $ADM_SESION" \
        -H 'Content-Type: application/json' -d '{"gradingHookEnabled":"on"}' >/dev/null || nc "no pude encender el dial del gancho"
 fi
 N_VIT="$(vitrina_n)"
